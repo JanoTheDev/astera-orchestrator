@@ -520,6 +520,8 @@ export const ja: Catalog = {
   'update.toast.download': 'ダウンロード',
   'update.toast.ready': 'アップデート v{version} の準備ができました',
   'update.toast.installNow': '今すぐインストール',
+  'update.toast.manual': 'アップデート v{version} は手動でインストールする必要があります',
+  'update.toast.manualInstall': '手動でインストール',
   'update.confirm.title': '今すぐインストールして再起動',
   'update.confirm.body': '進行中のセッション {count} 件が終了します。続行しますか？',
   // UpdateGate.tsx — the screen that covers the app when the version is below the minimum

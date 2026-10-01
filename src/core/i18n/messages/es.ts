@@ -528,6 +528,8 @@ export const es: Catalog = {
   'update.toast.download': 'Descargar',
   'update.toast.ready': 'La actualización v{version} está lista',
   'update.toast.installNow': 'Instalar ahora',
+  'update.toast.manual': 'La actualización v{version} hay que instalarla a mano',
+  'update.toast.manualInstall': 'Instalar a mano',
   'update.confirm.title': 'Instalar y reiniciar ahora',
   'update.confirm.body': 'Se finalizarán {count} sesiones en curso. ¿Continuar?',
   // UpdateGate.tsx — the screen that covers the app when the version is below the minimum the release policy sets

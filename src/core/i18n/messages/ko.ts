@@ -777,6 +777,8 @@ export const ko = {
   'update.toast.download': '다운로드',
   'update.toast.ready': '업데이트 v{version} 준비됨',
   'update.toast.installNow': '지금 설치',
+  'update.toast.manual': '업데이트 v{version}은 직접 설치해야 합니다',
+  'update.toast.manualInstall': '직접 설치',
   // Slice 2 of the Astera Host. Installing quits the app, so this is the same three-way split the
   // close confirmation faces, counted the same way (host.sessionsOutlivingApp) and shared with it —
   // see `updateConfirmBody`. `body` is unchanged and still exact when the app owns every session.

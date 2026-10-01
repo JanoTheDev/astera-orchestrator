@@ -713,6 +713,8 @@ export const en: Record<keyof typeof ko, string> = {
   'update.toast.download': 'Download',
   'update.toast.ready': 'Update v{version} is ready',
   'update.toast.installNow': 'Install now',
+  'update.toast.manual': 'Update v{version} has to be installed by hand',
+  'update.toast.manualInstall': 'Install by hand',
   'update.confirm.title': 'Install and restart now',
   'update.confirm.body': '{count} running session(s) will be terminated. Continue?',
   'update.confirm.bodyKept':

@@ -91,7 +91,7 @@ import {
   shouldNotifyDownloaded,
   showChecking
 } from '../../core/update/checkFeedback'
-import { installOutcomeNotice } from '../../core/update/manualInstallNotice'
+import { installOutcomeNotice, readyToast } from '../../core/update/manualInstallNotice'
 import { applyEol, classifyExternalChange, detectEol, toLf, type Eol } from '../../core/files/edit'
 import { isSubPath, rebasePath } from '../../core/files/ops'
 import { foldPathCase, parentDir } from '../../core/files/paths'
@@ -643,6 +643,8 @@ export default function App(): React.JSX.Element {
   const [checkClickedAt, setCheckClickedAt] = useState<number | null>(null)
   // The version a toast already announced. Re-checking reuses the cache and delivers downloaded again, so each version is announced once.
   const notifiedUpdateRef = useRef<string | null>(null)
+  // The install toast on screen, so 'manual' can replace the 'downloaded' one rather than stack on it.
+  const readyToastRef = useRef<number | null>(null)
   // The update campaign. A value is present only when this app is in the target range. It is a ref
   // because the onStatus subscription — registered once at mount — has to see the latest campaign (a
   // plain state would leave the closure stale).
@@ -1240,12 +1242,14 @@ export default function App(): React.JSX.Element {
         })
         return
       }
-      if (s.state !== 'downloaded') return
+      const ready = readyToast(s)
+      if (!ready) return
       // In block mode the gate already shows the same install button — a toast would only hide behind the gate.
       if (campaign?.mode === 'block') return
-      toast.info(tRef.current('update.toast.ready', { version: s.version ?? '' }), {
+      if (readyToastRef.current !== null) dismiss(readyToastRef.current)
+      readyToastRef.current = toast.info(tRef.current(ready.message.key, ready.message.params), {
         action: {
-          label: tRef.current('update.toast.installNow'),
+          label: tRef.current(ready.action),
           onClick: () => void installUpdate()
         }
       })
