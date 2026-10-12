@@ -32,14 +32,37 @@ const blocks = (doc: string): string[] => [...doc.matchAll(/^```ts\n([\s\S]*?)^`
 /** GitHub's heading anchor, for the headings these docs use. */
 const slug = (h: string): string => h.trim().toLowerCase().replace(/[^\w\s-]/g, '').replace(/\s/g, '-')
 const anchors = (doc: string): Set<string> => new Set([...doc.matchAll(/^#{1,6} (.+)$/gm)].map((m) => slug(m[1])))
+/** The text outside its fenced blocks: what a reader takes as a statement, not as code that compiles. */
+const prose = (doc: string): string => doc.replace(/^```[\s\S]*?^```$/gm, '')
+/** A whole-number constant of the Host's source, `export const NAME = 60 * 60 * 1000` and the like. Read as text: the
+ *  package's tests do not import the app, whose imports its compiler options do not resolve. */
+const hostConstant = (file: string, name: string): number => {
+  const m = new RegExp(`^export const ${name} = ([\\d_ *]+)$`, 'm').exec(read(file))
+  if (!m) throw new Error(`${file} has no ${name}`)
+  return m[1].split('*').reduce((n, f) => n * Number(f.trim().replace(/_/g, '')), 1)
+}
+const RECEIPT_TTL_MS = hostConstant('src/host/orch.ts', 'RECEIPT_TTL_MS')
+const RECEIPTS_PER_CALLER = hostConstant('src/host/orch.ts', 'RECEIPTS_PER_CALLER')
+const SEGMENT_EVENTS = hostConstant('src/host/eventLog.ts', 'EVENT_SEGMENT_EVENTS')
+const SEGMENT_MIB = hostConstant('src/host/eventLog.ts', 'EVENT_SEGMENT_BYTES') / 1024 / 1024
+const RETAIN_EVENTS = hostConstant('src/host/eventLog.ts', 'EVENT_RETAIN_EVENTS')
+const methods = Object.entries(createNamespaces(() => Promise.reject(new Error('no Host')), () => [])).flatMap(([name, api]) =>
+  Object.keys(api as object).map((m) => `${name}.${m}`)
+)
 
 describe('docs/sdk.md', () => {
   it('names every typed method', () => {
-    const ns = createNamespaces(() => Promise.reject(new Error('no Host')), () => [])
-    const methods = Object.entries(ns).flatMap(([name, api]) => Object.keys(api as object).map((m) => `${name}.${m}`))
     expect(methods.length).toBeGreaterThan(20)
     for (const m of methods) expect(guide, m).toContain(m)
     for (const m of ['call(', 'close()', 'hasFeature(', 'host.features']) expect(guide, m).toContain(m)
+  })
+
+  // Final review of SDK 1e, minor 1: a method the package lacks, named in a sentence, passed
+  it('names no method the package does not have', () => {
+    const named = [...prose(guide).matchAll(/(?<![\w/.-])(projects|jobs|runs|tasks|questions|completion|events)\.([A-Za-z_]+)\b/g)].map((m) => `${m[1]}.${m[2]}`)
+    const known = new Set<string>([...methods, ...EVENT_TYPES, 'runs.cancel'])
+    expect(named.length).toBeGreaterThan(20)
+    expect(named.filter((n) => !known.has(n))).toEqual([])
   })
 
   it('names every event type in its Events section, and the README does too', () => {
@@ -55,11 +78,67 @@ describe('docs/sdk.md', () => {
     for (const c of ERROR_CODES.filter((c) => !(REMOTE_ERROR_CODES as readonly string[]).includes(c))) expect(errors, c).toContain(`\`${c}\``)
   })
 
-  it('gives the deadlines and waits the code uses', () => {
-    expect(guide).toContain(`${DEFAULT_CONNECT_TIMEOUT_MS / 1000} s`)
-    expect(guide).toContain(`${DEFAULT_CALL_TIMEOUT_MS / 1000} s`)
-    expect(guide).toContain(`${DEFAULT_WAIT_TIMEOUT_MS / 3_600_000} hour`)
-    expect(guide).toContain(`${EVENTS_RETRY_MS[0]} ms, ${EVENTS_RETRY_MS[1] / 1000} s, then every ${EVENTS_RETRY_MS[2] / 1000} s`)
+  // Final review of SDK 1e, Important 4: '5 s' was also in 'then every 5 s', so a stale connect default passed
+  it('gives the deadlines and waits the code uses, each where it states it', () => {
+    const connect = `${DEFAULT_CONNECT_TIMEOUT_MS / 1000} s`
+    const call = `${DEFAULT_CALL_TIMEOUT_MS / 1000} s`
+    const wait = `${DEFAULT_WAIT_TIMEOUT_MS / 3_600_000} hour`
+    const retry = [`${EVENTS_RETRY_MS[0]} ms`, `${EVENTS_RETRY_MS[1] / 1000} s`, `${EVENTS_RETRY_MS[2] / 1000} s`]
+    expect(guide).toContain(`| \`connectTimeoutMs\` | ${connect} |`)
+    expect(guide).toContain(`| \`callTimeoutMs\` | ${call} |`)
+    expect(guide).toContain(`The handshake waits ${connect} and an ordinary command ${call}`)
+    expect(guide).toContain(`The Host waits ${wait} unless`)
+    expect(guide).toContain(`(${wait} when not given)`)
+    expect(guide).toContain(`after ${retry[0]}, ${retry[1]}, then every ${retry[2]}`)
+    // And no other duration: one that is not a default the code has is a stale one
+    const durations = [...prose(guide).matchAll(/\b\d+ (?:ms|s|hours?)\b/g)].map((m) => m[0])
+    expect(durations.length).toBeGreaterThanOrEqual(8)
+    expect(durations.filter((d) => ![connect, call, wait, `${RECEIPT_TTL_MS / 3_600_000} hour`, ...retry].includes(d))).toEqual([])
+  })
+
+  it('gives the event log the bounds the Host keeps, in the guide and the README', () => {
+    const bounds = `two files of up to ${SEGMENT_EVENTS} events or ${SEGMENT_MIB} MiB each, so between ${SEGMENT_EVENTS} and ${RETAIN_EVENTS} events`
+    expect(guide).toContain(bounds)
+    expect(readme.replace(/\s+/g, ' ')).toContain(bounds)
+  })
+
+  // Final review of SDK 1e, Important 1: receipts live in the Host's memory, so a restart forgets every id
+  it('says what a request id protects, for how long, and what it does not', () => {
+    const retries = section(guide, '## Retries and request ids')
+    expect(retries).toContain(`for ${RECEIPT_TTL_MS / 3_600_000} hour`)
+    expect(retries).toContain(`the last ${RECEIPTS_PER_CALLER}`)
+    expect(retries).toContain("in the Host's memory")
+    expect(retries).toMatch(/restart/)
+    expect(retries).toContain("call('requests-show'")
+    expect(retries).toContain('`CONFLICT`')
+    expect(retries).toContain('`INVALID_ARGUMENTS`')
+    expect(retries).not.toMatch(/however often your program runs/)
+    expect(readme.replace(/\s+/g, ' ')).toContain("receipts live in the Host's memory")
+  })
+
+  // Important 2: the protocol is in the Host's address, so another protocol's client finds nobody there
+  it('says a client of another protocol finds no Host, and what to do about it', () => {
+    expect(section(guide, '## Host versions and features')).toMatch(/protocol version is part of the Host's address/)
+    const notRunning = section(guide, '## Troubleshooting')
+      .split('\n\n')
+      .find((p) => p.trim().startsWith('**`HOST_NOT_RUNNING`'))
+    expect(notRunning).toContain('same version as the app')
+  })
+
+  // Important 3: Discord's own webhook refuses a body without `content`; its Slack-compatible one takes `text`
+  it('says how to point the webhook example at Discord', () => {
+    expect(section(guide, '## Examples')).toContain('/slack')
+    expect(read('examples/sdk/notify-webhook.ts')).toContain('/slack')
+  })
+
+  // Minors 3, 4 and 5
+  it('says which Node runs the examples as they are, that the SDK builds without install scripts, and what a lookup costs a deadline', () => {
+    for (const doc of [section(guide, '## Examples'), read('examples/sdk/README.md')]) {
+      expect(doc).toContain('23.6')
+      expect(doc).toContain('npm ci --ignore-scripts')
+    }
+    expect(section(guide, '## Get it')).toContain('npm ci --ignore-scripts')
+    expect(section(guide, '## Deadlines and cancellation')).toContain('gives each of its two calls that long')
   })
 
   it('says what the spec asks it to', () => {
@@ -75,6 +154,8 @@ describe('docs/sdk.md', () => {
   it('every TypeScript block of the guide and the README compiles against the package', () => {
     const all = [...blocks(guide), ...blocks(readme)]
     expect(blocks(guide).length).toBeGreaterThanOrEqual(8)
+    // Minor 2: a README fence renamed to ```typescript would drop out of the check without a word
+    expect(blocks(readme).length).toBeGreaterThanOrEqual(3)
     expect(typecheckBlocks(all)).toBe('')
   }, 60_000)
 

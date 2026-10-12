@@ -9,15 +9,17 @@ The guide, with examples: [docs/sdk.md](https://github.com/parsingk/Astera/blob/
 ```ts
 import { createAsteraClient, isAsteraError } from '@astera-app/client'
 
-const astera = await createAsteraClient()
 try {
-  const { body } = await astera.call('jobs-list', {})
+  const astera = await createAsteraClient()
+  try {
+    const { body } = await astera.call('jobs-list', {})
+  } finally {
+    astera.close()
+  }
 } catch (e) {
   if (isAsteraError(e) && e.code === 'HOST_NOT_RUNNING') {
     // open the Astera app, or run `astera host start`
   }
-} finally {
-  astera.close()
 }
 ```
 
@@ -33,7 +35,10 @@ does not start a Host: with none running, `createAsteraClient` rejects `HOST_NOT
   Test it with `isAsteraError(e)` (or `instanceof AsteraError`): both hold across the package's ESM and CommonJS copies.
 - An aborted `signal` rejects with the signal's own reason, an `AbortError` DOMException by default, **not** an
   `AsteraError`; its numeric `code` (20) is not one of ours, so check `isAsteraError` before reading `code`.
-- A `requestId` makes a retry safe: the Host runs a command once per id. A Host that keeps no receipts refuses it.
+- A `requestId` makes a retry safe while the same Host is up: the Host runs a command once per id. But receipts live in
+  the Host's memory, for an hour, and a Host restart forgets them, so after `HOST_NOT_RUNNING` ask `requests-show`
+  before sending it again (the guide's [Retries and request ids](https://github.com/parsingk/Astera/blob/main/docs/sdk.md#retries-and-request-ids)).
+  A Host that keeps no receipts refuses it.
 - **Deadlines.** The handshake waits 5 s (`connectTimeoutMs`). An ordinary command waits 330 s, the CLI's
   (`callTimeoutMs`). A command that waits on the Host (`runs-wait`, `jobs-wait`, `ask`, `check`, or any call whose
   `args.timeoutMs` names the Host's deadline) waits past that deadline. `timeoutMs` on one call overrides all of it,

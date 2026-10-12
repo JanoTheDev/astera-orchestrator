@@ -57,7 +57,8 @@ export interface HostInfo {
 }
 
 export interface CallOptions {
-  /** Makes a retry safe: the Host runs a command once per id and answers a repeat from its receipt. Refused with
+  /** Makes a retry safe while the same Host is up: the Host runs a command once per id and answers a repeat from its
+   *  receipt, which it keeps in memory for an hour (a restart forgets it). Refused with
    *  VERSION_MISMATCH by a Host that keeps no receipts. */
   readonly requestId?: string
   /** Ends the wait for the answer, the connect included, rejecting with the signal's reason (an `AbortError`
@@ -251,7 +252,11 @@ export async function createAsteraClient(options: AsteraClientOptions = {}): Pro
                     new AsteraError(
                       'HOST_NOT_RUNNING',
                       `the Host at ${address} closed the connection before answering ${cmd}` +
-                        (o.requestId !== undefined ? `; retrying with the same requestId (${o.requestId}) is safe` : ''),
+                        // Receipts live in the Host's memory: the same id is safe only with the Host that took it
+                        (o.requestId !== undefined
+                          ? `; it may have run it. Sending it again with the same requestId (${o.requestId}) is safe while the same Host is up; ` +
+                            'a Host that restarted has forgotten the id, so ask requests-show first'
+                          : ''),
                       { address, cmd, ...(o.requestId !== undefined ? { requestId: o.requestId } : {}) }
                     )
                 )

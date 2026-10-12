@@ -26,9 +26,12 @@ Build the package from a clone of this repository:
 ```bash
 git clone https://github.com/parsingk/Astera.git
 cd Astera
-npm ci
+npm ci --ignore-scripts
 npm run build:packages
 ```
+
+`--ignore-scripts` skips what only the desktop app needs (Electron's download and the native rebuilds), so a machine
+without build tools can build the SDK too. Leave it out in a clone you also run the app from.
 
 Then install it into your project by its folder:
 
@@ -216,9 +219,10 @@ for (const q of items) {
 }
 ```
 
-A question someone already answered (in the app, say) keeps that answer, and `questions.answer` gives it back:
-compare `resolution` with what you sent. [answer-questions.ts](../examples/sdk/answer-questions.ts) answers questions
-from a terminal as they open.
+A question someone already answered (in the app, say) keeps that answer, and `questions.answer` gives it back, so
+compare `resolution` with what you sent. When a person takes a while to type, read the question again
+(`questions.get`) right before sending: answered meanwhile in the same words, it would otherwise look like yours.
+[answer-questions.ts](../examples/sdk/answer-questions.ts) answers questions from a terminal as they open.
 
 ### Tasks
 
@@ -360,7 +364,7 @@ CommonJS copies.
 | `HOST_NOT_RUNNING` | no Host answered | open the app or run `astera host start`; see the note below |
 | `NOT_FOUND` | no such id | do not retry |
 | `PERMISSION_DENIED` | refused for this caller, or something at the address could not prove it is the Host | check `ASTERA_HOST` |
-| `CONFLICT` | refused because of the current state, such as a Job that is already running | read the object again |
+| `CONFLICT` | refused because of the current state, such as a Job that is already running, or a `requestId` whose first call is still running | read the object again; for a request id, wait and send it again |
 | `TIMEOUT` | a deadline passed with no answer | see the note below |
 | `VERSION_MISMATCH` | the Host and this client do not speak the same version, or the Host lacks a feature the call needs | update the app |
 | `WAITING_FOR_INPUT` | not thrown: the waits answer `waiting`, `paused` and `limited` as data | |
@@ -370,7 +374,8 @@ CommonJS copies.
 ([run-a-job.ts](../examples/sdk/run-a-job.ts) does).
 
 **`HOST_NOT_RUNNING` and `TIMEOUT` mean that no answer came back**, not that the command failed: the Host commits
-before it answers, so a write may have happened. Send it again with the same `requestId` ([below](#retries-and-request-ids)).
+before it answers, so a write may have happened. Find out before sending it again
+([Retries and request ids](#retries-and-request-ids)).
 
 An aborted `signal` rejects with the signal's reason (an `AbortError` by default), not an `AsteraError`; its numeric
 `code` is not one of these, so check `isAsteraError` before reading `code`.
@@ -392,30 +397,53 @@ typed methods, which talk to this machine's Host, do not produce them.
 
 ## Retries and request ids
 
-Every write method takes a `requestId`. The Host runs a command once per id: sent again with the same id, it answers
-from its receipt instead of running the command twice, and the answer says so (`replayed`). Use a fresh id for each
-thing you mean to do (`randomUUID()`) and the same id for its retries. An id made from what you act on, such as
-`answer-<questionId>`, makes the action itself happen once, however often your program runs. Reads never send one. A
-Host that keeps no receipts refuses a `requestId` with `VERSION_MISMATCH` rather than ignoring it.
+Every write method takes a `requestId`. Sent again with the same id after the first call finished, the command is not
+run twice: the Host answers from its receipt, the answer the first call got. Sent while the first call is still
+running, it is refused with `CONFLICT` (wait, then send it again); with other arguments or for another command, with
+`INVALID_ARGUMENTS`. Reads never send one. A Host that keeps no receipts refuses a `requestId` with
+`VERSION_MISMATCH` rather than ignoring it. (`call()` says `replayed: true` for an answer from a receipt; the typed
+methods hand it over as it is.)
+
+**A receipt does not last.** Receipts live in the Host's memory: each for 1 hour, at most the last 200 of every caller
+outside an Astera session together (a shell, a CI job, every SDK client), and a restart of the Host forgets them all.
+So:
+
+- Use a fresh id for each thing you mean to do (`randomUUID()`), and the same id to send it again soon after.
+- An id made from what you act on, such as `create-<issue>`, does not make the action happen once across days: after
+  the hour, or a Host restart, the Host runs it again. Look at the state for that (does the Job exist?). Answering a
+  question is safe to repeat for another reason: the Host keeps a question's first answer.
+- After `HOST_NOT_RUNNING` or `TIMEOUT`, ask the Host what became of the id before sending it again.
+  `call('requests-show', { id })` answers `completed` (it ran; `response` is what it answered), `pending` (still
+  running: wait and ask again) or `absent`. `absent` from a Host whose `hostStartedAt` is later than your first try
+  means the Host restarted and may have run it before it went: look at the state before sending it again.
 
 ```ts
 import { randomUUID } from 'node:crypto'
 import { isAsteraError, type Job } from '@astera-app/client'
 
-/** Makes the Job once, however many times the call has to go out. */
+/** Makes the Job once, or throws when it cannot tell whether the Host made it. */
 async function createOnce(objective: string): Promise<Job> {
   const requestId = randomUUID()
-  for (let attempt = 1; ; attempt++) {
+  const sentAt = Date.now()
+  for (let attempt = 1; attempt <= 5; attempt++) {
     try {
       return await astera.jobs.create({ projectId, objective }, { requestId })
     } catch (e) {
-      const noAnswer = isAsteraError(e) && (e.code === 'HOST_NOT_RUNNING' || e.code === 'TIMEOUT')
-      if (!noAnswer || attempt === 5) throw e
-      await new Promise((r) => setTimeout(r, 1000 * attempt))
+      // No answer came back, or the first try is still running: anything else is an answer
+      if (!isAsteraError(e) || !['HOST_NOT_RUNNING', 'TIMEOUT', 'CONFLICT'].includes(e.code)) throw e
     }
+    await new Promise((r) => setTimeout(r, 1000 * attempt))
+    const { body } = await astera.call('requests-show', { id: requestId })
+    const shown = body as { state: 'completed' | 'pending' | 'absent'; hostStartedAt: string }
+    // A Host that started after the first try never saw it, and the one that did may have made the Job
+    if (shown.state === 'absent' && Date.parse(shown.hostStartedAt) > sentAt)
+      throw new Error(`the Host restarted after ${requestId} was sent: look for the Job before making it again`)
   }
+  throw new Error(`no answer for ${requestId} after 5 tries`)
 }
 ```
+
+The [`astera` guide](cli.md#command-reference) says the same for the CLI, under `requests show`.
 
 ## Deadlines and cancellation
 
@@ -423,7 +451,8 @@ The handshake waits 5 s and an ordinary command 330 s (the CLI's deadlines). A c
 (`runs.wait`, `jobs.wait`, a follow window, an events window) waits past the Host's own deadline instead. On
 `runs.wait`, `jobs.wait` and `runs.follow`, `timeoutMs` is that Host deadline (1 hour when not given), and the client
 waits a little past it. On every other method, `timeoutMs` is how long that call waits for its answer, the connect
-included.
+included. A method that looks something up first (`jobs.create` or `jobs.list` with a `projectId`, `tasks.create`
+without `accountIds`) gives each of its two calls that long.
 
 Every method takes a `signal`. Aborting it ends the wait for the answer, not the work:
 **cancelling a call is not cancelling a Run.** The Host may still finish the command, and a Run goes on until you
@@ -447,10 +476,11 @@ Lists answer `{ items, nextCursor }`. The Host answers whole lists today, so `ne
 
 ## Host versions and features
 
-The client and the Host check each other's protocol version when they connect; a mismatch is `VERSION_MISMATCH`.
-`host.features` lists what the Host can do beyond that (`orch`, `requests` for request ids, `events` for the event
-log, and more). A method that needs a feature the Host lacks refuses with `VERSION_MISMATCH` before it sends anything.
-Updating the app updates the Host.
+The protocol version is part of the Host's address, so a client built for another protocol than the app's looks for its
+Host where none listens, and gets `HOST_NOT_RUNNING` even with the app open; pointed at the Host's own address
+(`ASTERA_HOST` or `address`), it gets `VERSION_MISMATCH`. `host.features` lists what a Host of the same protocol can do
+beyond it (`orch`, `requests` for request ids, `events` for the event log, and more). A method that needs a feature
+the Host lacks refuses with `VERSION_MISMATCH` before it sends anything. Updating the app updates the Host.
 
 ```ts
 if (!astera.hasFeature('events')) console.log(`Astera ${astera.host.version} keeps no event log: update the app`)
@@ -466,11 +496,12 @@ if (!astera.hasFeature('events')) console.log(`Astera ${astera.host.version} kee
 - [answer-questions.ts](../examples/sdk/answer-questions.ts) answers the questions agents ask a person, from a
   terminal, using the cursor recipe above.
 - [notify-webhook.ts](../examples/sdk/notify-webhook.ts) posts Run endings, exhausted repairs and new questions to a
-  webhook, and resumes where it stopped.
+  webhook, and resumes where it stopped. A Slack incoming webhook takes its posts as they are; for Discord, give it
+  the webhook URL with `/slack` added, Discord's Slack-compatible form.
 
-After [building the package](#get-it), run `npm install` in `examples/sdk`, then `node run-a-job.ts ...`. Node 22.18 or
-later runs TypeScript as it is; Node 22.6 to 22.17 needs `--experimental-strip-types`; on anything else use
-`npx tsx`.
+After [building the package](#get-it) (`npm ci --ignore-scripts`, then `npm run build:packages`), run `npm install` in
+`examples/sdk`, then `node run-a-job.ts ...`. Node runs TypeScript as it is from 22.18 on the 22 line and from 23.6;
+Node 22.6 to 22.17 needs `--experimental-strip-types`; on anything else use `npx tsx`.
 
 ## Not yet
 
@@ -485,14 +516,15 @@ later runs TypeScript as it is; Node 22.6 to 22.17 needs `--experimental-strip-t
 ## Troubleshooting
 
 **`HOST_NOT_RUNNING` at connect.** Open the Astera app, or run `astera host start`. For the development app, set
-`ASTERA_PROFILE=dev`. `astera host status` prints the profile and address the CLI resolves, which the client resolves
-the same way.
+`ASTERA_PROFILE=dev`. `astera host status` prints the profile the CLI resolves, which the client resolves the same way.
+If the app is open, the client was built for another protocol version than the app's Host
+([Host versions](#host-versions-and-features)): update the app, or build the client from the same version as the app.
 
 **`PERMISSION_DENIED` at connect.** Something answers at the address but could not prove it is the Host of the profile.
 Check `ASTERA_HOST`, or drop it.
 
-**`VERSION_MISMATCH`.** The app is older than the client: update the app. A client built from a newer checkout than the
-installed app hits this too.
+**`VERSION_MISMATCH`.** The app's Host lacks a feature the call needs (or, reached by its address, speaks another
+protocol): the app is older than the client. Update the app.
 
 **A subscription that prints nothing** is waiting for events. `events.list()` shows what the Host holds, and a
 `types` filter may be skipping what you expect.

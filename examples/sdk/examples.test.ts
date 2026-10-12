@@ -3,7 +3,7 @@
 // through ASTERA_PROFILE_DIR and ASTERA_HOST. The Host is the package's fake one, answering what each example sends.
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest'
 import { spawn } from 'node:child_process'
-import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
 import os from 'node:os'
@@ -37,16 +37,21 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await profile?.cleanup()
-  rmSync(work, { recursive: true, force: true })
+  // Windows: a folder an example ran in can stay busy for a moment after it exits
+  rmSync(work, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 })
 
 type Answer = FakeReply | 'hang' | ((args: Record<string, unknown>) => FakeReply)
 const hosts: FakeHost[] = []
-const children: Array<{ kill(): void }> = []
+const children: Array<{ kill(): void; exited: Promise<unknown> }> = []
 const servers: http.Server[] = []
 
 afterEach(async () => {
-  for (const c of children.splice(0)) c.kill()
+  // Killed and gone before the next test, so none still holds the work folder (final review of SDK 1e, minor 9)
+  for (const c of children.splice(0)) {
+    c.kill()
+    await c.exited
+  }
   for (const h of hosts.splice(0)) await h.close()
   for (const s of servers.splice(0)) await new Promise((r) => s.close(r))
 })
@@ -81,7 +86,7 @@ function run(file: string, args: string[], address: string, env: Record<string, 
   const kill = (): void => {
     if (child.exitCode === null && child.signalCode === null) child.kill()
   }
-  children.push({ kill })
+  children.push({ kill, exited })
   return {
     out: () => out,
     err: () => err,
@@ -205,6 +210,20 @@ describe('follow-a-run.ts', () => {
     expect(r.out()).toMatch(/\[Add tests\] claude started[\s\S]*claude finished[\s\S]*ended: completed/)
   })
 
+  // Final review of SDK 1e, minor 6: past the Host's hour the follow said "ended: timeout" though the Run went on
+  it('follows again when the Host deadline passes, printing nothing twice', async () => {
+    const timeout = { state: 'timeout', runId: 'run_1', jobId: 'job_1', progress: { done: 0, total: 1 } }
+    const host = await scriptedHost({
+      'runs-follow': [page([step(1, 'claude started')], timeout), page([step(1, 'claude started'), step(2, 'claude finished')], ending('completed'))]
+    })
+    const r = run('follow-a-run.ts', ['run_1'], host.address)
+    expect(await r.exited).toBe(0)
+    expect(r.out().match(/claude started/g)).toHaveLength(1)
+    expect(r.out()).toMatch(/still going after an hour[\s\S]*claude finished[\s\S]*ended: completed/)
+    expect(r.out()).not.toMatch(/ended: timeout/)
+    expect(host.calls().filter((c) => c.cmd === 'runs-follow')).toHaveLength(2)
+  })
+
   it('exits 4 when there is no such Run', async () => {
     const host = await scriptedHost({ 'runs-follow': [{ status: 404, body: { error: 'unknown run: run_9' } }] })
     const r = run('follow-a-run.ts', ['run_9'], host.address)
@@ -215,31 +234,55 @@ describe('follow-a-run.ts', () => {
 
 describe('answer-questions.ts', () => {
   it('takes the cursor, then the open questions, then each new one: once each, a number picks an option, an empty line skips', async () => {
-    const answered = (resolution?: string) => (args: Record<string, unknown>): FakeReply =>
-      ok({ ...question(String(args.id), 'x'), status: 'resolved', resolution: resolution ?? String(args.answer) })
+    /** The Host's answer: the question resolved with what was sent, or, when someone answered first, with theirs (the
+     *  Host keeps a question's first answer). */
+    const answered = (theirs?: string) => (args: Record<string, unknown>): FakeReply =>
+      ok({ ...question(String(args.id), 'x'), status: 'resolved', resolution: theirs ?? String(args.answer) })
+    const read = (q: ReturnType<typeof question>, resolution?: string): FakeReply =>
+      ok({ ...q, ...(resolution !== undefined ? { status: 'resolved', resolution } : {}) })
+    const q1 = question('q_1', 'Which database?', ['Postgres', 'SQLite'])
+    const q2 = question('q_2', 'Ship it?')
+    const q4 = question('q_4', 'Rename the module?')
+    const q5 = question('q_5', 'Run the migration?')
+    const q3 = question('q_3', 'Delete the branch?')
     const host = await scriptedHost({
       'events-poll': [
         ok({ events: [], cursor: `ev_${A}_5`, gap: false }),
-        ok({ events: [event(`ev_${A}_6`, 6, 'question.created', question('q_1', 'Which database?', ['Postgres', 'SQLite'])), event(`ev_${A}_7`, 7, 'question.created', question('q_2', 'Ship it?'))], cursor: `ev_${A}_7`, gap: false }),
-        ok({ events: [], cursor: `ev_${A}_9`, gap: true }),
+        ok({
+          events: [
+            event(`ev_${A}_6`, 6, 'question.created', q1),
+            event(`ev_${A}_7`, 7, 'question.created', q2),
+            event(`ev_${A}_8`, 8, 'question.created', q4),
+            event(`ev_${A}_9`, 9, 'question.created', q5)
+          ],
+          cursor: `ev_${A}_9`,
+          gap: false
+        }),
+        ok({ events: [], cursor: `ev_${A}_12`, gap: true }),
         'hang'
       ],
-      'questions-list': [ok([question('q_1', 'Which database?', ['Postgres', 'SQLite'])]), ok([question('q_3', 'Delete the branch?')])],
-      // q_2 was answered in the app first: the Host keeps that answer
-      'questions-answer': [answered(), answered('no')]
+      'questions-list': [ok([q1]), ok([q3])],
+      // Each is read before it is shown and again before its answer goes out: q_2 was answered in the app, in the
+      // same words, while it was being typed; q_4 before its turn came
+      'questions-get': [read(q1), read(q1), read(q2), read(q2, 'yes'), read(q4, 'no'), read(q5), read(q5), read(q3)],
+      // q_5 was answered in the app between that last read and the answer: the Host hands back the first answer
+      'questions-answer': [answered(), answered('stop')]
     })
     const r = run('answer-questions.ts', [], host.address)
     await r.shows(/Which database\?\n {2}1\. Postgres\n {2}2\. SQLite\nanswer> $/)
     r.type('2')
-    await r.shows(/Ship it\?\nanswer> $/)
+    await r.shows(/answer> answered\n[\s\S]*Ship it\?\nanswer> $/)
     r.type('yes')
-    await r.shows(/already answered: no[\s\S]*Delete the branch\?\nanswer> $/)
+    await r.shows(/already answered: yes\nq_4 was answered elsewhere\n[\s\S]*Run the migration\?\nanswer> $/)
+    r.type('go')
+    await r.shows(/already answered: stop\n[\s\S]*Delete the branch\?\nanswer> $/)
     r.type('')
     await r.shows(/skipped/)
+    expect(r.out()).not.toMatch(/Rename the module\?/)
     const calls = host.calls()
     expect(calls.filter((c) => c.cmd === 'questions-answer').map((c) => [c.args, c.request])).toEqual([
       [{ id: 'q_1', answer: 'SQLite' }, 'answer-q_1'],
-      [{ id: 'q_2', answer: 'yes' }, 'answer-q_2']
+      [{ id: 'q_5', answer: 'go' }, 'answer-q_5']
     ])
     const polls = calls.filter((c) => c.cmd === 'events-poll')
     expect(polls[0].args).toEqual({ tail: true })
@@ -304,6 +347,24 @@ describe('notify-webhook.ts', () => {
     const r = run('notify-webhook.ts', [cursorFile], host.address, { WEBHOOK_URL: hook.url })
     await vi.waitFor(() => expect(readFileSync(cursorFile, 'utf8')).toBe(`ev_${A}_40`), { timeout: 15_000, interval: 50 })
     r.kill()
+    expect(hook.texts).toEqual([])
+  }, 30_000)
+
+  // Final review of SDK 1e, minor 8: a save the disk refused once (Windows: a scanner holding the file) was never tried
+  // again. A read-only cursor file refuses the move on Windows the same way.
+  it('tries a refused cursor save again', async () => {
+    const hook = await receiver([])
+    const cursorFile = path.join(work, 'cursor four')
+    writeFileSync(cursorFile, `ev_${A}_3`)
+    chmodSync(cursorFile, 0o444)
+    const host = await scriptedHost({ 'events-poll': [ok({ events: [], cursor: `ev_${A}_40`, gap: false }), 'hang'] })
+    const r = run('notify-webhook.ts', [cursorFile], host.address, { WEBHOOK_URL: hook.url })
+    try {
+      if (process.platform === 'win32') await vi.waitFor(() => expect(r.err()).toMatch(/could not save the cursor/), { timeout: 15_000, interval: 50 })
+    } finally {
+      chmodSync(cursorFile, 0o644)
+    }
+    await vi.waitFor(() => expect(readFileSync(cursorFile, 'utf8')).toBe(`ev_${A}_40`), { timeout: 15_000, interval: 50 })
     expect(hook.texts).toEqual([])
   }, 30_000)
 

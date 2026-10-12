@@ -1,4 +1,5 @@
-// Post what needs a person's attention to a webhook (a Slack or Discord incoming webhook, or a service of your own).
+// Post what needs a person's attention to a webhook: a Slack incoming webhook, a Discord one with `/slack` added to its
+// URL (Discord's Slack-compatible form, which takes `text`), or a service of your own.
 //
 //   WEBHOOK_URL=https://... node notify-webhook.ts [cursor-file]
 //
@@ -52,6 +53,20 @@ async function post(body: unknown): Promise<void> {
   }
 }
 
+/** Moves the written file over the cursor file. On Windows the move is refused for a moment while something else
+ *  (a virus scanner, the search indexer) has the file open, so it is tried a few times. */
+async function moveOver(from: string, to: string): Promise<void> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await rename(from, to)
+    } catch (e) {
+      const code = (e as { code?: unknown }).code
+      if (attempt === 5 || (code !== 'EPERM' && code !== 'EBUSY' && code !== 'EACCES')) throw e
+      await sleep(100)
+    }
+  }
+}
+
 let saving: Promise<void> = Promise.resolve()
 /** Written beside and moved over, so a crash mid-write never leaves half an id; one save at a time. */
 function save(id: string): Promise<void> {
@@ -59,7 +74,7 @@ function save(id: string): Promise<void> {
     .catch(() => undefined)
     .then(async () => {
       await writeFile(`${cursorFile}.tmp`, id)
-      await rename(`${cursorFile}.tmp`, cursorFile)
+      await moveOver(`${cursorFile}.tmp`, cursorFile)
     })
   return saving
 }
@@ -81,17 +96,22 @@ try {
     // While nothing is being posted, the subscription's cursor is past everything it handed over and everything it
     // skipped: saved, a restart after a quiet spell starts there, not from a last post the Host may no longer hold
     let posting = false
-    let saved = after
+    /** The cursor last handed to `save`; forgotten when that save fails, so the next tick tries again. */
+    let wanted: string | undefined = after
     const idle = setInterval(() => {
-      if (posting || sub.cursor === undefined || sub.cursor === saved) return
-      saved = sub.cursor
-      save(saved).catch((err: unknown) => console.error(`could not save the cursor: ${String(err)}`))
+      const at = sub.cursor
+      if (posting || at === undefined || at === wanted) return
+      wanted = at
+      save(at).catch((err: unknown) => {
+        if (wanted === at) wanted = undefined
+        console.error(`could not save the cursor: ${String(err)}`)
+      })
     }, 1000)
     try {
       for await (const e of sub) {
         posting = true
         await post({ text: textOf(e), event: e })
-        if (e.type !== 'gap') await save((saved = e.id))
+        if (e.type !== 'gap') await save((wanted = e.id))
         console.log(`posted ${e.type === 'gap' ? 'a gap' : `${e.type} ${e.id}`}`)
         posting = false
       }
