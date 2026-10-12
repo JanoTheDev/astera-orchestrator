@@ -77,6 +77,23 @@ describe('createHostPtyFactory', () => {
     expect(t.sent.at(-1)).toEqual({ t: 'pty-write', id: spawned(t), data: 'after' })
   })
 
+  // Final review I4: what a person typed in the tab goes to the Host marked, also from the queue before the spawn is
+  // answered, so it alone takes the pty's size back from a controller.
+  it('marks a write a person typed, live and queued', () => {
+    const t = transport()
+    const { factory } = createHostPtyFactory(t)
+    const p = factory('claude', [], opts)
+    p.write('early', { typed: true })
+    t.deliver({ t: 'pty-spawned', id: spawned(t), pid: 1 })
+    p.write('late', { typed: true })
+    p.write('auto')
+    expect(t.sent.slice(-3)).toEqual([
+      { t: 'pty-write', id: spawned(t), data: 'early', typed: true },
+      { t: 'pty-write', id: spawned(t), data: 'late', typed: true },
+      { t: 'pty-write', id: spawned(t), data: 'auto' }
+    ])
+  })
+
   // pid is read in exactly one place in this repository, RunManager's tree-kill, long after the
   // spawn — which is what lets the factory stay synchronous (slice 2 design §3).
   it('fills the pid in when the Host answers', () => {

@@ -27,7 +27,9 @@ class FakePty implements PtyLike {
   remembered: Record<string, unknown>[] = []
   onData(cb: (d: string) => void) { this.dataCb = cb }
   onExit(cb: (e: { exitCode: number }) => void) { this.exitCb = cb }
-  write(d: string) { this.written.push(d) }
+  /** Which writes came marked as typed by a person in the tab (`PtyLike.write`'s second argument). */
+  typed: boolean[] = []
+  write(d: string, by?: { typed: true }) { this.written.push(d); this.typed.push(by?.typed === true) }
   resize(cols: number, rows: number) { this.resized.push({ cols, rows }) }
   kill() { this.killed = true; this.exitCb({ exitCode: 0 }) }
   pause() { this.paused = true; this.pauseCalls++ }
@@ -1109,6 +1111,9 @@ describe('SessionManager', () => {
       manager.write('sess-from-host', 'hello')
       expect(back.written).toEqual(['hello'])
       expect(dropped.written).toEqual([])
+      // What a person typed in the tab is marked so all the way to the pty (final review I4).
+      manager.write('sess-from-host', 'typed', { typed: true })
+      expect(back.typed).toEqual([false, true])
       back.dataCb('from the reattach')
       expect(data).toEqual(['from the reattach'])
     })

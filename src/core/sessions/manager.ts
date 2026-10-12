@@ -536,10 +536,11 @@ export class SessionManager {
   // node-pty 1.1.0's Windows path is a socket write, so a failure most likely surfaces as an async
   // 'error' emit rather than a synchronous throw, and with no error listener on that socket a
   // caller's try/catch cannot catch it — which is why the guard lives in write itself.
-  write(id: string, data: string): void {
+  /** `by.typed`: a person typed this in the tab (the renderer's input), which the Host reads for the pty's size. */
+  write(id: string, data: string, by?: { typed: true }): void {
     const live = this.sessions.get(id)
     if (!live || live.info.status === 'exited') return
-    live.pty.write(data)
+    live.pty.write(data, by)
   }
 
   // exited guard, for the same reason as write

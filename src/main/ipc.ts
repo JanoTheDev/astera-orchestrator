@@ -3936,7 +3936,8 @@ export function registerIpc(
   if (orchWiring) void startOrch().catch((err) => orchLog(`startup failed: ${String(err)}`))
   ipcMain.on('sessions.write', (_e, id, data) => {
     if (typeof data === 'string' && !isOnlyTerminalReports(data)) personInputAt.set(id, Date.now())
-    core.sessions.write(id, data)
+    // The tab's own input, marked: only it takes the pty's size back from a controller (the app's other writes do not).
+    core.sessions.write(id, data, typeof data === 'string' && !isOnlyTerminalReports(data) ? { typed: true } : undefined)
   })
   ipcMain.on('sessions.resize', (_e, id, cols, rows) => core.sessions.resize(id, cols, rows))
   ipcMain.on('sessions.ack', (_e, id, bytes) => core.sessions.ack(id, bytes))
@@ -6657,7 +6658,7 @@ export function registerIpc(
     client.onMessage((m) => appWorkUnits.onHostPush(m))
     // A session pty's size, to its tab: the tab shows the pty whole while a controller that typed last owns the size.
     client.onMessage((m) => {
-      if (m.t === 'pty-size' && m.session !== undefined) send('session:pty-size', { sessionId: m.session, cols: m.cols, rows: m.rows })
+      if (m.t === 'pty-size' && m.session !== undefined) send('session:pty-size', { sessionId: m.session, cols: m.cols, rows: m.rows, owned: m.owned })
     })
 
     /** One sweep: ask the Host what it is holding, hand each entry to the manager its note names,
