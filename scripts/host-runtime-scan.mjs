@@ -8,12 +8,12 @@ import { basename, dirname, join } from 'node:path'
 // bring them back. Hard-coded there, not exported, so listed here; the `.d.ts`, `.npmignore` and other names in
 // app-builder-lib's default `files` patterns do not apply to extraResources and ship (checked against v1.4.9's
 // installer, which carries 497 `.d.ts` files and no `.gitkeep`).
-const DROPPED_NAMES = new Set(['.ds_store', '.gitkeep'])
+const DROPPED_NAMES = new Set(['.DS_Store', '.gitkeep'])
 
 /** Whether electron-builder leaves `rel` (a path under an extraResources directory) out of the package. */
 export function packagerDrops(rel) {
   const parts = rel.split(/[\\/]/)
-  return DROPPED_NAMES.has(parts[parts.length - 1].toLowerCase())
+  return DROPPED_NAMES.has(parts[parts.length - 1])
 }
 
 /** Removes from `dir` every file the packager would leave out, so the manifest walked after it lists only what the

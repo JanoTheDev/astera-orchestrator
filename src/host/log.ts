@@ -65,17 +65,23 @@ export function logUnhandledRejections(
 export function logUncaughtExceptions(
   target: { on(event: 'uncaughtException', l: (err: unknown) => void): unknown },
   log: HostLog,
-  exit: (code: number) => void = (code) => process.exit(code)
+  o: { code: number; exit?: (code: number) => void }
 ): void {
+  const exit = o.exit ?? ((code: number) => process.exit(code))
   target.on('uncaughtException', (err: unknown) => {
     try {
       const name = err instanceof Error ? err.name : typeof err
-      const frame = err instanceof Error ? (err.stack ?? '').split('\n').find((l) => l.trimStart().startsWith('at '))?.trim() : undefined
-      log.write(`fatal: uncaught exception (${name})${frame ? ` ${frame}` : ''}; exiting`)
+      // The Host's own frames, up to three, innermost first: one inside Node (`node:internal`, `<anonymous>`) says
+      // nothing about where in the Host it went wrong. A listener here stops Node printing the stack, so these frames
+      // are the whole record (final review M6). A frame carries no message.
+      const all = err instanceof Error ? (err.stack ?? '').split('\n').map((l) => l.trim()).filter((l) => l.startsWith('at ')) : []
+      const own = all.filter((l) => !l.includes('node:internal') && !l.includes('<anonymous>'))
+      const frames = (own.length > 0 ? own : all).slice(0, 3)
+      log.write(`fatal: uncaught exception (${name})${frames.length > 0 ? ` ${frames.join(' < ')}` : ''}; exiting`)
       log.close()
     } catch {
       /* nowhere left to say it */
     }
-    exit(70)
+    exit(o.code)
   })
 }

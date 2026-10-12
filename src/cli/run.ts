@@ -4,7 +4,7 @@
 // main() does not call itself inside this file, so importing this module (as the tests do) does not
 // terminate the process.
 import { randomBytes, randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import fsSync, { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
 import os, { homedir } from 'node:os'
@@ -15,6 +15,7 @@ import { humanFor, jsonSafe, quietFor, terminalSafe } from '../core/orchestratio
 import { answerFromFile, fileAnswerable, readStateFile } from '../core/orchestration/stateFile'
 import { connectHost, type ConnectFailure, type HostConnection } from '../core/host/connect'
 import { HOST_FEATURE_ORCH, HOST_FEATURE_PING, HOST_FEATURE_REQUESTS, HOST_PROTOCOL } from '../core/host/protocol'
+import { hostStderr } from '../core/host/spawn'
 import { cliHostTarget, hostSpawnPlanFor, impostorError, logToStderr, otherProtocolHost, runHostCommand, siblingHostError } from './host'
 import { higgsfieldCommand } from './higgsfield'
 import { installFailureOf, resolveSkillsDir, skillsCommand } from './skills'
@@ -667,8 +668,15 @@ const serveDeps = (a: { env: NodeJS.ProcessEnv; platform: NodeJS.Platform; home:
       const planned = hostSpawnPlanFor({ profileDir, platform: a.platform, env: a.env })
       // No CLI paths and the like: a configuration no restart changes (exit 78).
       if ('error' in planned) return { unusable: planned.error.message }
-      // In the foreground: a child of this process, so a service manager that stops `serve` stops the Host with it.
-      const child = spawn(planned.plan.command, planned.plan.args, { ...planned.plan.options, detached: false, stdio: 'ignore' })
+      // In the foreground: a child of this process, so a service manager that stops `serve` stops the Host with it. Its
+      // stderr to host-stderr.log: a Host nobody watches is the one that most needs to leave its reason (final review I1).
+      const stderr = hostStderr(path.join(profileDir, 'host', 'host-stderr.log'), fsSync)
+      let child: ReturnType<typeof spawn>
+      try {
+        child = spawn(planned.plan.command, planned.plan.args, { ...planned.plan.options, detached: false, stdio: stderr.stdio })
+      } finally {
+        stderr.close()
+      }
       const wait = new Promise<number | null>((resolve) => {
         child.once('exit', (code) => resolve(code))
         child.once('error', () => resolve(1))

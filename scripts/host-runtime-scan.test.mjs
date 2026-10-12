@@ -115,6 +115,8 @@ describe('packagerDrops and pruneUnshipped', () => {
   it('drops the names electron-builder skips in every copied directory, and keeps the rest', () => {
     for (const rel of ['node_modules\\undici\\lib\\llhttp\\.gitkeep', 'node_modules\\x\\.DS_Store'])
       expect(packagerDrops(rel), rel).toBe(true)
+    // builder-util compares the names exactly (final review M7).
+    expect(packagerDrops('node_modules\\x\\.GITKEEP')).toBe(false)
     // app-builder-lib's default `files` exclusions do not reach extraResources: v1.4.9's installer ships these.
     for (const rel of ['astera-host.exe', 'node_modules\\undici\\index.js', 'node_modules\\x\\index.d.ts', 'node_modules\\x\\.npmignore', 'LICENSE.node.txt'])
       expect(packagerDrops(rel), rel).toBe(false)

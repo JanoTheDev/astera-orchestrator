@@ -33,7 +33,7 @@ import {
 import { HostClient, READY_TIMEOUT_MS } from './host/client'
 import { hostSpawnPlan, hostStderr, resolveHostEntry } from '../core/host/spawn'
 import { hostRuntimeBase } from '../core/host/runtime'
-import { createRuntimeInstaller, installHostRuntime, spawnWhenInstalled, type InstalledRuntime } from './host/runtimeInstall'
+import { createRuntimeInstaller, installHostRuntime, spawnableRuntime, spawnWhenInstalled, type InstalledRuntime } from './host/runtimeInstall'
 import { executableProbe, parseExecutablePath, hostKillPlan, killHostCommand } from './host/hostProcess'
 import { hostPidFilePath, parseHostPidFile } from '../core/host/pidFile'
 import { readHostKey } from '../core/host/hostKey'
@@ -6192,9 +6192,12 @@ export function registerIpc(
         // spawns nothing, rather than being handed a path that is not there.
         const cliEntry = cliEntryPath()
         const skills = appSkillsPath()
+        // A runtime reported incomplete (a Host still held it, so nothing was repaired) would start a Host that dies at
+        // its first missing file; the app executable starts it instead (final review I2).
+        const from = spawnableRuntime(runtime)
         const plan = hostSpawnPlan({
-          execPath: runtime?.paths.exePath ?? process.execPath,
-          entryPath: runtime?.paths.entryPath ?? entry,
+          execPath: from?.exePath ?? process.execPath,
+          entryPath: from?.entryPath ?? entry,
           profileDir,
           logPath: path.join(profileDir, 'host', 'host.log'),
           version: app.getVersion(),
@@ -6202,8 +6205,12 @@ export function registerIpc(
         })
         // Its stderr to a file beside host.log, so a Host that dies of something it could not log leaves the reason.
         const stderr = hostStderr(path.join(profileDir, 'host', 'host-stderr.log'), fsSync)
-        const child = spawn(plan.command, plan.args, { ...plan.options, stdio: stderr.stdio })
-        stderr.close()
+        let child: ReturnType<typeof spawn>
+        try {
+          child = spawn(plan.command, plan.args, { ...plan.options, stdio: stderr.stdio })
+        } finally {
+          stderr.close()
+        }
         // A spawn that fails arrives as an async 'error' event, not a throw, and an unhandled one is
         // an uncaught exception in the main process. The client's own retry loop reports the outcome
         // to the person; this only has to keep the failure from being fatal.

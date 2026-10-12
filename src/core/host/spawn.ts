@@ -146,13 +146,15 @@ export const HOST_STDERR_MAX = 1 << 20
 /** The few `node:fs` calls `hostStderr` makes, passed in so this file stays free of a filesystem of its own. */
 export interface StderrFs {
   statSync(p: string, o: { throwIfNoEntry: false }): { size: number } | undefined
+  renameSync(from: string, to: string): void
   mkdirSync(p: string, o: { recursive: true }): unknown
   openSync(p: string, flags: 'a' | 'w'): number
   closeSync(fd: number): void
 }
 
 /**
- * Where a Host's stderr goes: appended to `file` (`host/host-stderr.log`), started over past HOST_STDERR_MAX.
+ * Where a Host's stderr goes: appended to `file` (`host/host-stderr.log`); past HOST_STDERR_MAX the file is moved to
+ * `<file>.1` first, so the record of the Host that just died is kept rather than cut (final review M3).
  *
  * 2026-10-12: a Host died with every session and nothing anywhere said why. It is spawned detached with its output
  * ignored, and host.log is only what the Host itself writes, so what node.exe prints on a fatal error was lost. The
@@ -163,7 +165,8 @@ export function hostStderr(file: string, fs: StderrFs): { stdio: ['ignore', 'ign
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true })
     const size = fs.statSync(file, { throwIfNoEntry: false })?.size ?? 0
-    const fd = fs.openSync(file, size > HOST_STDERR_MAX ? 'w' : 'a')
+    if (size > HOST_STDERR_MAX) fs.renameSync(file, `${file}.1`)
+    const fd = fs.openSync(file, 'a')
     return {
       stdio: ['ignore', 'ignore', fd],
       close: () => {

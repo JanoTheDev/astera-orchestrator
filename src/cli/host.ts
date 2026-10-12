@@ -584,8 +584,12 @@ async function runHostCommandNow(a: {
   const { plan, logPath } = planned
   // Its stderr to a file beside host.log, so a Host that dies of something it could not log leaves the reason.
   const stderr = hostStderr(path.join(profileDir, 'host', 'host-stderr.log'), fsSync)
-  const child = spawn(plan.command, plan.args, { ...plan.options, stdio: stderr.stdio })
-  stderr.close()
+  let child: ReturnType<typeof spawn>
+  try {
+    child = spawn(plan.command, plan.args, { ...plan.options, stdio: stderr.stdio })
+  } finally {
+    stderr.close()
+  }
   // A spawn that fails arrives as an async 'error' event, not a throw — see the same handling in
   // `src/main/ipc.ts`'s `startHostClient`. The polling loop below reports the outcome either way; this
   // only keeps a failed spawn from being an unhandled process-level error.

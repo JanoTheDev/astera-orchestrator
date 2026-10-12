@@ -252,13 +252,15 @@ describe('hostStderr', () => {
     expect(readFileSync(file, 'utf8')).toBe('first\nsecond\n')
   })
 
-  it('starts the file over once it passes the cap', () => {
+  // Final review M3: past the cap the file is moved to `.1` rather than cut, so the Host that just died keeps its record.
+  it('moves the file to .1 once it passes the cap, keeping what the last Host printed', () => {
     const file = path.join(dir, 'host-stderr.log')
-    writeFileSync(file, 'x'.repeat(HOST_STDERR_MAX + 1))
+    writeFileSync(file, 'x'.repeat(HOST_STDERR_MAX) + 'last words\n')
     const s = hostStderr(file, fsSync)
     fsSync.writeSync(s.stdio[2] as number, 'fresh\n')
     s.close()
     expect(readFileSync(file, 'utf8')).toBe('fresh\n')
+    expect(readFileSync(`${file}.1`, 'utf8').endsWith('last words\n')).toBe(true)
   })
 
   it('ignores stderr when the file cannot be opened', () => {
@@ -267,8 +269,13 @@ describe('hostStderr', () => {
     s.close()
   })
 
-  it('is what both Host starters spawn with', () => {
-    for (const f of ['src/cli/host.ts', 'src/main/ipc.ts'])
-      expect(readFileSync(path.join(process.cwd(), f), 'utf8'), f).toMatch(/hostStderr\(/)
+  // Final review I1: `astera runtime serve` starts Hosts nobody watches, the ones that most need a record. Final review
+  // M4: the descriptor is closed even when spawn throws.
+  it('is what every Host starter spawns with, closing its copy whatever the spawn does', () => {
+    for (const f of ['src/cli/host.ts', 'src/main/ipc.ts', 'src/cli/run.ts']) {
+      const text = readFileSync(path.join(process.cwd(), f), 'utf8')
+      expect(text, f).toMatch(/hostStderr\(/)
+      expect(text, f).toMatch(/try \{[\s\S]{0,200}spawn\([\s\S]{0,200}\} finally \{\s*stderr\.close\(\)/)
+    }
   })
 })

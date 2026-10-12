@@ -5,12 +5,13 @@ import {
   INSTALL_TIMEOUT_MS,
   installHostRuntime,
   shippedHostExe,
+  spawnableRuntime,
   spawnWhenInstalled,
   type AsyncFs
 } from './runtimeInstall'
 import { hostRuntimePaths } from '../../core/host/runtime'
 import type { HostRuntimeInstallState } from '../../core/types'
-import { promises as fsp } from 'node:fs'
+import { promises as fsp, readFileSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import os from 'node:os'
 import path from 'node:path'
@@ -209,6 +210,22 @@ describe.runIf(process.platform === 'win32')('asyncRuntimeFs running', () => {
     } finally {
       await fsp.rm(dir, { recursive: true, force: true })
     }
+  })
+})
+
+// Final review I2: a runtime reported incomplete (a Host still held it, so nothing was repaired) is not one to start a
+// new Host from: it would die at the first file missing. The app executable starts it instead, as before a runtime.
+describe('spawnableRuntime', () => {
+  const p = hostRuntimePaths({ base: 'C:\\b', nodeVersion: '24.15.0', appVersion: '1.0.0' })
+  it('gives the runtime only when it is whole', () => {
+    expect(spawnableRuntime({ paths: p, incomplete: false })).toBe(p)
+    expect(spawnableRuntime({ paths: p, incomplete: true })).toBeNull()
+    expect(spawnableRuntime(null)).toBeNull()
+  })
+
+  it('is what the app spawns from', () => {
+    const ipc = readFileSync(path.join(process.cwd(), 'src', 'main', 'ipc.ts'), 'utf8')
+    expect(ipc).toMatch(/const from = spawnableRuntime\(runtime\)[\s\S]{0,800}execPath: from\?\.exePath \?\? process\.execPath,\s*entryPath: from\?\.entryPath \?\? entry,/)
   })
 })
 

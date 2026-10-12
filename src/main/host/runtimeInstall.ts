@@ -105,6 +105,13 @@ export interface InstalledRuntime {
   incomplete: boolean
 }
 
+/** The runtime to start a Host from: only a whole one. One reported incomplete (a Host still held it, so nothing was
+ *  repaired) would start a Host that dies at its first missing file; null then means the app executable, as before a
+ *  runtime existed (final review I2). */
+export function spawnableRuntime(r: InstalledRuntime | null): HostRuntimePaths | null {
+  return r && !r.incomplete ? r.paths : null
+}
+
 /**
  * Reads the shipped manifest, puts the runtime in place, and sweeps what an update left behind — the
  * body `prepareHostRuntimeFor` in ipc.ts used to run synchronously, now with the filesystem injected.

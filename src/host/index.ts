@@ -119,7 +119,7 @@ async function main(): Promise<void> {
   // session in it). Each path keeps its own catch; this only keeps a miss from being fatal.
   logUnhandledRejections(process, log)
   // 2026-10-12: an exception nobody caught ended a Host with every session and no line; it is logged before the exit.
-  logUncaughtExceptions(process, log)
+  logUncaughtExceptions(process, log, { code: HOST_EXIT.uncaught })
   // S6-22: the OS certificate store joins Node's default CAs before any HTTPS (the usage lookup), so a
   // TLS-inspecting proxy's root verifies. Never throws; on failure the defaults stay (systemCa.ts).
   trustSystemCa(tls, (m) => log.write(m))
