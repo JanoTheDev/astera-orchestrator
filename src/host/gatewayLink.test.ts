@@ -19,7 +19,7 @@ const HELLO = {
 
 type Seen = { cmd: string; args: Record<string, unknown>; sessionId: string; from?: OrchCaller; request?: string; retry?: true }
 
-const setup = async (o: { hardCap?: number; output?: Writable; orch?: (c: Seen) => Promise<{ status: number; body: unknown }>; ptys?: PtyRegistry; streamPerKey?: number; controllers?: ReturnType<typeof createControllerRegistry>; replyMax?: number } = {}) => {
+const setup = async (o: { hardCap?: number; output?: Writable; orch?: (c: Seen) => Promise<{ status: number; body: unknown }>; ptys?: PtyRegistry; streamPerKey?: number; controllers?: ReturnType<typeof createControllerRegistry>; replyMax?: number; releaseGraceMs?: number } = {}) => {
   const input = new PassThrough()
   const output = o.output ?? new PassThrough()
   const frames: Array<Record<string, unknown>> = []
@@ -47,7 +47,8 @@ const setup = async (o: { hardCap?: number; output?: Writable; orch?: (c: Seen) 
     ...(o.hardCap ? { hardCap: o.hardCap } : {}),
     ...(o.ptys ? { ptys: o.ptys } : {}),
     ...(o.streamPerKey ? { streamPerKey: o.streamPerKey } : {}),
-    ...(o.replyMax ? { replyMax: o.replyMax } : {})
+    ...(o.replyMax ? { replyMax: o.replyMax } : {}),
+    ...(o.releaseGraceMs !== undefined ? { releaseGraceMs: o.releaseGraceMs } : {})
   })
   const send = (m: unknown): void => void input.write(`${JSON.stringify(m)}\n`)
   const settle = (): Promise<void> => new Promise((r) => setTimeout(r, 20))
@@ -521,6 +522,27 @@ describe('attachGatewayLink pty subscriptions (Phase 8)', () => {
     await s.settle()
     expect(of(s.frames, 'output-gap')).toMatchObject([{ sub: 's1' }])
     expect(of(s.frames, 'pty-out')).toEqual([])
+  })
+
+  // Final review M5 (terminal size follows the side that typed last): a controller that closed its tab, or whose
+  // connection went, gives the pty's size back after a grace; one that comes back within it keeps the size.
+  it('a controller that stops watching a pty gives its size back after a grace, unless it comes back', async () => {
+    const p = ptyRig()
+    const s = await setup({ ptys: p.registry, releaseGraceMs: 40 })
+    const c = await s.pairClient('full-control')
+    s.send({ t: 'auth', conn: 'c1', tokenHash: sha256Base64url(c.token) })
+    await s.settle()
+    const side = `controller:${c.clientId}`
+    p.registry.resizeFor('p1', side, 90, 20, { free: true })
+    s.send({ t: 'subscribe', conn: 'c1', sub: 's1', pty: 'p1' })
+    await eventually(() => expect(of(s.frames, 'checkpoint')).toHaveLength(1))
+    s.send({ t: 'unsubscribe', conn: 'c1', sub: 's1' })
+    await s.settle()
+    s.send({ t: 'subscribe', conn: 'c1', sub: 's2', pty: 'p1' })
+    await new Promise((r) => setTimeout(r, 80))
+    expect(p.registry.ownerOf('p1')).toBe(side)
+    s.send({ t: 'conn-closed', conn: 'c1' })
+    await eventually(() => expect(p.registry.ownerOf('p1')).toBeNull())
   })
 
   // Phase 8 review M9: a revoked connection streams nothing more, without waiting for the Gateway to report it closed.

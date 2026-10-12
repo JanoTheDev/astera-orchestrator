@@ -4,7 +4,9 @@ export interface PtyLike {
   pid: number
   onData(cb: (data: string) => void): void
   onExit(cb: (e: { exitCode: number }) => void): void
-  write(data: string): void
+  /** `by.typed`: a person typed this in the tab, not the app's own write. Only a pty behind the Host reads it (it gives
+   *  this machine the size back from a controller); node-pty's ignores it. */
+  write(data: string, by?: { typed: true }): void
   resize(cols: number, rows: number): void
   kill(): void
   pause(): void

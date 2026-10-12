@@ -115,7 +115,9 @@ never read from an argument or an environment variable.
 - **Sessions.** In the new session dialog, choose where it runs. On a Runtime you open one of its running sessions or
   start a terminal or chat session in one of its projects, on one of its accounts. A remote tab streams the Runtime's
   terminal or conversation; closing the tab leaves the session running there. A roll to another account moves the tab
-  with it, and a session that starts waiting for you notifies you here.
+  with it, and a session that starts waiting for you notifies you here. A terminal session open on both machines has
+  one size: the window of the side that typed last. The other side shows the whole screen at a smaller font and says
+  so, until someone types there.
 - **Offline.** When the Runtime cannot be reached, its screens show the last state they read, marked as not current,
   and never as failed. Work on the Runtime goes on.
 

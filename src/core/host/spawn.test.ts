@@ -1,11 +1,11 @@
-import { describe, it, expect } from 'vitest'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import fsSync, { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import type { Account } from '../types'
 import { makeDescriptors } from '../providers/descriptor'
 import { cliEnvFor } from '../sessions/cliEnv'
-import { HOST_ONLY_ENV, hostCliPaths, hostSpawnPlan, hostWorkerBaseEnv, resolveHostEntry } from './spawn'
+import { HOST_ONLY_ENV, HOST_STDERR_MAX, hostCliPaths, hostSpawnPlan, hostStderr, hostWorkerBaseEnv, resolveHostEntry } from './spawn'
 
 describe('resolveHostEntry', () => {
   it('takes the first candidate that exists', () => {
@@ -224,5 +224,58 @@ describe('Host worker env parity with an app worker', () => {
     expect('CLAUDE_CODE_SESSION_ID' in plan.options.env).toBe(false)
     expect('CLAUDE_CODE_CHILD_SESSION' in plan.options.env).toBe(false)
     expect(plan.options.env.CLAUDE_CODE_OAUTH_TOKEN).toBe('tok')
+  })
+})
+
+// 2026-10-12: a Host died with every session and nothing anywhere said why: it is spawned with its output ignored, so
+// what node.exe prints on a fatal error was lost. Its stderr goes to a file beside host.log, kept under a cap across
+// the Host's restarts, and a spawn that cannot open it starts the Host anyway.
+describe('hostStderr', () => {
+  let dir: string
+  beforeEach(() => {
+    dir = mkdtempSync(path.join(os.tmpdir(), 'astera-host-stderr-'))
+  })
+  afterEach(() => rmSync(dir, { recursive: true, force: true }))
+
+  it("hands the spawn a descriptor on the file, appending, and closes this process's copy", () => {
+    const file = path.join(dir, 'host', 'host-stderr.log')
+    writeFileSync(path.join(dir, 'seed'), '')
+    const s1 = hostStderr(file, fsSync)
+    expect(s1.stdio[0]).toBe('ignore')
+    expect(s1.stdio[1]).toBe('ignore')
+    expect(typeof s1.stdio[2]).toBe('number')
+    fsSync.writeSync(s1.stdio[2] as number, 'first\n')
+    s1.close()
+    const s2 = hostStderr(file, fsSync)
+    fsSync.writeSync(s2.stdio[2] as number, 'second\n')
+    s2.close()
+    expect(readFileSync(file, 'utf8')).toBe('first\nsecond\n')
+  })
+
+  // Final review M3: past the cap the file is moved to `.1` rather than cut, so the Host that just died keeps its record.
+  it('moves the file to .1 once it passes the cap, keeping what the last Host printed', () => {
+    const file = path.join(dir, 'host-stderr.log')
+    writeFileSync(file, 'x'.repeat(HOST_STDERR_MAX) + 'last words\n')
+    const s = hostStderr(file, fsSync)
+    fsSync.writeSync(s.stdio[2] as number, 'fresh\n')
+    s.close()
+    expect(readFileSync(file, 'utf8')).toBe('fresh\n')
+    expect(readFileSync(`${file}.1`, 'utf8').endsWith('last words\n')).toBe(true)
+  })
+
+  it('ignores stderr when the file cannot be opened', () => {
+    const s = hostStderr(path.join(dir, 'missing\u0000name'), fsSync)
+    expect(s.stdio).toEqual(['ignore', 'ignore', 'ignore'])
+    s.close()
+  })
+
+  // Final review I1: `astera runtime serve` starts Hosts nobody watches, the ones that most need a record. Final review
+  // M4: the descriptor is closed even when spawn throws.
+  it('is what every Host starter spawns with, closing its copy whatever the spawn does', () => {
+    for (const f of ['src/cli/host.ts', 'src/main/ipc.ts', 'src/cli/run.ts']) {
+      const text = readFileSync(path.join(process.cwd(), f), 'utf8')
+      expect(text, f).toMatch(/hostStderr\(/)
+      expect(text, f).toMatch(/try \{[\s\S]{0,200}spawn\([\s\S]{0,200}\} finally \{\s*stderr\.close\(\)/)
+    }
   })
 })

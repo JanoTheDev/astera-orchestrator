@@ -1,7 +1,7 @@
 import { ipcMain, dialog, app, shell, session, webContents, type BrowserWindow, type WebContents } from 'electron'
 import { killProcessTree } from '../core/run/kill'
 import { cachedByStamp } from '../core/stampCache'
-import { promises as fs, existsSync, readFileSync } from 'node:fs'
+import fsSync, { promises as fs, existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import net from 'node:net'
@@ -31,9 +31,9 @@ import {
   type ConversationSessions
 } from './conversation'
 import { HostClient, READY_TIMEOUT_MS } from './host/client'
-import { hostSpawnPlan, resolveHostEntry } from '../core/host/spawn'
+import { hostSpawnPlan, hostStderr, resolveHostEntry } from '../core/host/spawn'
 import { hostRuntimeBase } from '../core/host/runtime'
-import { createRuntimeInstaller, installHostRuntime, spawnWhenInstalled, type InstalledRuntime } from './host/runtimeInstall'
+import { createRuntimeInstaller, installHostRuntime, spawnableRuntime, spawnWhenInstalled, type InstalledRuntime } from './host/runtimeInstall'
 import { executableProbe, parseExecutablePath, hostKillPlan, killHostCommand } from './host/hostProcess'
 import { hostPidFilePath, parseHostPidFile } from '../core/host/pidFile'
 import { readHostKey } from '../core/host/hostKey'
@@ -3936,7 +3936,8 @@ export function registerIpc(
   if (orchWiring) void startOrch().catch((err) => orchLog(`startup failed: ${String(err)}`))
   ipcMain.on('sessions.write', (_e, id, data) => {
     if (typeof data === 'string' && !isOnlyTerminalReports(data)) personInputAt.set(id, Date.now())
-    core.sessions.write(id, data)
+    // The tab's own input, marked: only it takes the pty's size back from a controller (the app's other writes do not).
+    core.sessions.write(id, data, typeof data === 'string' && !isOnlyTerminalReports(data) ? { typed: true } : undefined)
   })
   ipcMain.on('sessions.resize', (_e, id, cols, rows) => core.sessions.resize(id, cols, rows))
   ipcMain.on('sessions.ack', (_e, id, bytes) => core.sessions.ack(id, bytes))
@@ -6191,15 +6192,25 @@ export function registerIpc(
         // spawns nothing, rather than being handed a path that is not there.
         const cliEntry = cliEntryPath()
         const skills = appSkillsPath()
+        // A runtime reported incomplete (a Host still held it, so nothing was repaired) would start a Host that dies at
+        // its first missing file; the app executable starts it instead (final review I2).
+        const from = spawnableRuntime(runtime)
         const plan = hostSpawnPlan({
-          execPath: runtime?.paths.exePath ?? process.execPath,
-          entryPath: runtime?.paths.entryPath ?? entry,
+          execPath: from?.exePath ?? process.execPath,
+          entryPath: from?.entryPath ?? entry,
           profileDir,
           logPath: path.join(profileDir, 'host', 'host.log'),
           version: app.getVersion(),
           cli: cliEntry && existsSync(skills) ? { exec: process.execPath, entry: cliEntry, skills } : undefined
         })
-        const child = spawn(plan.command, plan.args, plan.options)
+        // Its stderr to a file beside host.log, so a Host that dies of something it could not log leaves the reason.
+        const stderr = hostStderr(path.join(profileDir, 'host', 'host-stderr.log'), fsSync)
+        let child: ReturnType<typeof spawn>
+        try {
+          child = spawn(plan.command, plan.args, { ...plan.options, stdio: stderr.stdio })
+        } finally {
+          stderr.close()
+        }
         // A spawn that fails arrives as an async 'error' event, not a throw, and an unhandled one is
         // an uncaught exception in the main process. The client's own retry loop reports the outcome
         // to the person; this only has to keep the failure from being fatal.
@@ -6655,6 +6666,10 @@ export function registerIpc(
     })
     // E2 §6: the Host wrote workUnits.json, or ignored a /goal. onHostPush never throws.
     client.onMessage((m) => appWorkUnits.onHostPush(m))
+    // A session pty's size, to its tab: the tab shows the pty whole while a controller that typed last owns the size.
+    client.onMessage((m) => {
+      if (m.t === 'pty-size' && m.session !== undefined) send('session:pty-size', { sessionId: m.session, cols: m.cols, rows: m.rows, owned: m.owned })
+    })
 
     /** One sweep: ask the Host what it is holding, hand each entry to the manager its note names,
      *  and report what that answer is worth to the restart cleanup. Run at startup, and again on a

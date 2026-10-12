@@ -5,7 +5,7 @@ import { ko } from './messages/ko'
 
 describe('remote sessions copy (ko)', () => {
   it('a read-only pairing cannot start sessions on that computer, not this one', () => {
-    expect(ko['remote.sessions.readOnly']).toContain('그 컴퓨터에서')
+    expect(ko['remote.sessions.readOnly']).toContain('Runtime 컴퓨터에서')
     expect(ko['remote.sessions.readOnly']).not.toContain('이 컴퓨터에서')
   })
 })

@@ -17,7 +17,7 @@ import { createHash } from 'node:crypto'
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { bundlePackages, dependencyClosure } from './host-runtime-scan.mjs'
+import { bundlePackages, dependencyClosure, pruneUnshipped } from './host-runtime-scan.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const OUT = join(ROOT, 'resources', 'host-runtime')
@@ -189,6 +189,10 @@ async function main() {
   // missing an entry is a runtime the app will call whole while the Host cannot spawn from it — which
   // is the exact failure this exists to catch (2026-09-22). The two halves are listed apart because
   // they go missing for different reasons: see `RuntimeFiles` in src/main/host/runtime.ts.
+  // **What the installer ships, not what was copied** (v1.4.9): electron-builder leaves some names out of extraResources
+  // (`.gitkeep` among them), and a manifest that lists one is a runtime the app always finds incomplete.
+  const pruned = pruneUnshipped(tree)
+  if (pruned.length > 0) console.log(`host-runtime: removed ${pruned.length} file(s) the packager does not ship: ${pruned.join(', ')}`)
   writeFileSync(
     join(OUT, 'runtime.json'),
     JSON.stringify(

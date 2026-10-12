@@ -130,7 +130,7 @@ export interface HostServerDeps {
 
 /** Broadcasts a CLI never reads (it reads the answers to its own calls only, cli/run.ts): every session's output, its
  *  exits and chat lines, and the whole state. Sent to one, they cost a parse of each in every waiting `astera` call. */
-const NOT_FOR_CLI: ReadonlySet<string> = new Set(['pty-data', 'pty-exit', 'pty-opened', 'proc-line', 'proc-opened', 'proc-exit', 'orch-state'])
+const NOT_FOR_CLI: ReadonlySet<string> = new Set(['pty-data', 'pty-exit', 'pty-size', 'pty-opened', 'proc-line', 'proc-opened', 'proc-exit', 'orch-state'])
 const MAX_QUEUED_BYTES = 64 * 1024 * 1024
 const MAX_APP_QUEUED_BYTES = 512 * 1024 * 1024
 

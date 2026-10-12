@@ -767,6 +767,9 @@ export interface CoreEvents {
    *  `pending`. `sessionId` is the tab's key, `<runtimeId>:<sessionId>`. */
   'session:reset': { sessionId: string; state: string; pending: string; cols: number; rows: number; exitCode?: number }
   'session:remote-size': { sessionId: string; cols: number; rows: number }
+  /** The size the Host gave a local session's pty (any side's resize, or the size it has when the app's resize was kept
+   *  for later): the tab shows the pty whole when it does not own the size. */
+  'session:pty-size': { sessionId: string; cols: number; rows: number; /** Whether this machine owns the size. */ owned: boolean }
   'session:remote-exit': { sessionId: string; code: number }
   'session:remote-gone': { sessionId: string; code: string; message: string }
   /** A remote tab's connection dropped (`down`, reconnecting) or is back (`up`) (Phase 9b review I1). */
