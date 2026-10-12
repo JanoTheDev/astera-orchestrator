@@ -131,6 +131,12 @@ interface Entry {
   killSent: boolean
   /** Whether a repeat kill has already ended this pty's process tree (`kill`): once per pty. */
   treeKillSent: boolean
+  /** Which side the size follows (tmux's `window-size latest`): `local` for this machine's apps,
+   *  `controller:<clientId>` for a paired controller, null until a controller ever resized or typed (the app's
+   *  resizes are then applied as they always were). The side that typed last owns it (`write`). */
+  sizeOwner: string | null
+  /** The size each side last asked for (`resizeFor`), applied when that side takes the size. */
+  wanted: Map<string, { cols: number; rows: number }>
 }
 
 export interface PtyRegistryDeps {
@@ -174,8 +180,9 @@ export class PtyRegistry {
    *  session the moment its pty opens and to rename it from its note. */
   private readonly metaCbs = new Set<(id: string, meta: PtyMeta, why: 'open' | 'note') => void>()
   private readonly eventCbs = new Set<(id: string, e: PtyEvent) => void>()
+  private readonly sizeCbs = new Set<(id: string, size: { cols: number; rows: number }) => void>()
   /** Listeners that have thrown, by kind, so each is logged once and not on every chunk. */
-  private readonly failedCbs = { data: new Set<unknown>(), exit: new Set<unknown>(), meta: new Set<unknown>(), event: new Set<unknown>() }
+  private readonly failedCbs = { data: new Set<unknown>(), exit: new Set<unknown>(), meta: new Set<unknown>(), event: new Set<unknown>(), size: new Set<unknown>() }
   private readonly deps: PtyRegistryDeps
   /** The ring's bound in UTF-16 units (SCROLLBACK_CHARS unless a test injects one); one at the least. */
   private readonly scrollback: number
@@ -187,6 +194,12 @@ export class PtyRegistry {
     this.deps = deps
     this.scrollback = Math.max(1, deps.scrollback ?? SCROLLBACK_CHARS)
     this.bootId = deps.bootId ?? randomBytes(16).toString('hex')
+  }
+
+  /** Every size a pty was given (`resize`), so the apps can show it at that size when they do not own it. */
+  onSize(cb: (id: string, size: { cols: number; rows: number }) => void): () => void {
+    this.sizeCbs.add(cb)
+    return () => this.sizeCbs.delete(cb)
   }
 
   /** Every pty event with its seq, after the ring and the live terminal have it (§3.7). */
@@ -294,7 +307,9 @@ export class PtyRegistry {
       lastPersonWriteAt: null,
       exitCode: null,
       killSent: false,
-      treeKillSent: false
+      treeKillSent: false,
+      sizeOwner: null,
+      wanted: new Map()
     }
     this.entries.set(a.id, entry)
     const openedAt = this.now()
@@ -480,7 +495,7 @@ export class PtyRegistry {
    *  broadcast among them) and then escape into node-pty's own event handler, where nothing catches it
    *  and the Host exits with every pty it holds. Logged once per listener and kind, because a
    *  listener that throws on one chunk usually throws on every chunk. */
-  private tell(cb: unknown, kind: 'data' | 'exit' | 'meta' | 'event', id: string, call: () => void): void {
+  private tell(cb: unknown, kind: 'data' | 'exit' | 'meta' | 'event' | 'size', id: string, call: () => void): void {
     try {
       call()
     } catch (err) {
@@ -497,12 +512,21 @@ export class PtyRegistry {
     return e && e.alive ? e : null
   }
 
-  /** `by.person`: a person typed this (an app's `pty-write`, a Slack reply), not the Host itself. */
-  write(id: string, data: string, by?: { person: true }): void {
+  /** `by.person`: a person typed this (an app's `pty-write`, a Slack reply), not the Host itself. `by.side`: which
+   *  side typed it; typing that is not only terminal reports gives that side the size, applied before the keystroke
+   *  so what it typed is drawn for its window (`sizeOwner`). */
+  write(id: string, data: string, by?: { person: true; side?: string }): void {
     const e = this.live(id)
     if (!e) return
+    const reports = isOnlyTerminalReports(data)
+    if (by?.side !== undefined && !reports && e.sizeOwner !== by.side) {
+      const wasLocal = e.sizeOwner === null && by.side === 'local'
+      e.sizeOwner = by.side
+      const w = e.wanted.get(by.side)
+      if (!wasLocal && w && (w.cols !== e.cols || w.rows !== e.rows)) this.resize(id, w.cols, w.rows)
+    }
     e.pty.write(data)
-    if (isOnlyTerminalReports(data)) return
+    if (reports) return
     const at = (this.deps.now ?? Date.now)()
     e.lastWriteAt = at
     if (by?.person) e.lastPersonWriteAt = at
@@ -526,6 +550,30 @@ export class PtyRegistry {
     e.rows = rows
     // A ring event at its place in the output (§3.7): a replay applies it there, so rows painted before keep their width.
     this.record(e, { kind: 'resize', cols, rows })
+    for (const cb of [...this.sizeCbs]) this.tell(cb, 'size', id, () => cb(id, { cols, rows }))
+  }
+
+  /**
+   * One side's resize, applied only when that side owns the size (`sizeOwner`). The size is kept either way, for when
+   * the side types and takes it. With no owner yet the local apps' resizes apply as they always did. A controller
+   * takes the size when no local app holds the pty (`o.free`, the caller's check) and the owner is not another
+   * controller. Returns whether the pty was resized.
+   */
+  resizeFor(id: string, side: string, cols: number, rows: number, o: { free?: boolean } = {}): boolean {
+    const e = this.live(id)
+    if (!e) return false
+    e.wanted.set(side, { cols, rows })
+    const owns = e.sizeOwner === side || (e.sizeOwner === null && side === 'local')
+    const takes = !owns && side !== 'local' && o.free === true && (e.sizeOwner === null || e.sizeOwner === 'local')
+    if (!owns && !takes) return false
+    if (takes) e.sizeOwner = side
+    if (cols !== e.cols || rows !== e.rows) this.resize(id, cols, rows)
+    return true
+  }
+
+  /** Which side the pty's size follows, or null when no controller has ever taken it (tests, the Host's answers). */
+  ownerOf(id: string): string | null {
+    return this.entries.get(id)?.sizeOwner ?? null
   }
 
   /** The size recorded by `open` and `resize`, or null for an id that was never here. */
