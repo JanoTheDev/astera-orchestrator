@@ -18,6 +18,12 @@ class FakeFs implements RuntimeFs {
   paths = new Set<string>()
   /** Operations to make throw, as `${op}:${path}`. */
   throwOn = new Set<string>()
+  /** Files a program is running from (`running`). */
+  runningFrom = new Set<string>()
+  async running(p: string): Promise<boolean> {
+    await Promise.resolve()
+    return this.runningFrom.has(p)
+  }
   log: string[] = []
 
   private under(p: string, dir: string): boolean {
@@ -270,6 +276,19 @@ describe('prepareHostRuntime — a runtime that is missing files', () => {
     fs.throwOn.add(`rm:${paths.nodeDir}`)
     expect(await prepare(fs)).toMatchObject({ ready: true, incomplete: true })
     expect(fs.log.some((l) => l.includes('could not be repaired'))).toBe(true)
+  })
+
+  // **And nothing of it is deleted while a Host runs from it** (v1.4.9). A recursive delete on Windows removes every file
+  // it can before the running `astera-host.exe` stops it, so the Host was left without the modules it had not loaded
+  // yet, and died at the next one it needed with every session in it. A running image cannot be opened for writing,
+  // which is asked before anything is removed.
+  it('deletes none of a runtime a Host is running from, and reports it incomplete', async () => {
+    const fs = installed()
+    fs.paths.delete(`${paths.nodeDir}\\node_modules\\node-pty\\lib\\index.js`)
+    fs.runningFrom.add(paths.exePath)
+    expect(await prepare(fs)).toMatchObject({ ready: true, incomplete: true })
+    expect(fs.log.some((l) => l.includes('could not be repaired while a Host is running from it'))).toBe(true)
+    for (const f of FILES.node.filter((f) => f !== 'node_modules\\node-pty\\lib\\index.js')) expect(fs.has(`${paths.nodeDir}\\${f}`), f).toBe(true)
   })
 
   // A check that cannot be made is not a failure — the same rule host/nodePtyCheck.ts follows. An

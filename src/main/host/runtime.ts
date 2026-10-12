@@ -57,6 +57,9 @@ export interface RuntimeFs {
   rename(from: string, to: string): Promise<void>
   /** Recursive delete that does not mind a path which is not there. */
   rm(p: string): Promise<void>
+  /** Whether a program is running from this file: Windows refuses to open a running image for writing. False for a
+   *  file that is not there, and from a filesystem that cannot tell (the question is then not asked). */
+  running?(p: string): Promise<boolean>
 }
 
 export interface PrepareResult {
@@ -170,7 +173,13 @@ export async function prepareHostRuntime(a: {
     if (missing) {
       a.log(`the host runtime is missing ${missing} — replacing it`)
       installing()
-      try {
+      // **Nothing is removed while a Host runs from it** (v1.4.9). A recursive delete on Windows removes every file it
+      // can before the running `astera-host.exe` stops it, so the Host was left without the modules it had not loaded
+      // yet, and died at the next one it needed with every session in it.
+      if (await fs.running?.(paths.exePath)) {
+        incomplete = true
+        a.log('the host runtime could not be repaired while a Host is running from it: astera-host.exe is in use')
+      } else try {
         // The whole directory, not the one file: what took that file took whatever else was not
         // locked at the time, and the list is only as complete as this build's own manifest.
         await fs.rm(paths.nodeDir)

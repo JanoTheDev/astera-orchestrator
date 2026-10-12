@@ -10,6 +10,10 @@ import {
 } from './runtimeInstall'
 import { hostRuntimePaths } from '../../core/host/runtime'
 import type { HostRuntimeInstallState } from '../../core/types'
+import { promises as fsp } from 'node:fs'
+import { spawn } from 'node:child_process'
+import os from 'node:os'
+import path from 'node:path'
 
 const B = '\\'
 const BASE = ['C:', 'Users', 'x', 'AppData', 'Local', 'astera', 'host-runtime'].join(B)
@@ -182,6 +186,29 @@ describe('asyncRuntimeFs', () => {
     expect(await fs.readdir('C:\\nope')).toEqual([])
     await fs.rm('C:\\nope')
     expect(m.syncCalls).toEqual([])
+  })
+})
+
+// The question prepareHostRuntime asks before it removes a damaged runtime, against the real filesystem: Windows will
+// not open a running image for writing (EBUSY), and opens it once the program has ended.
+describe.runIf(process.platform === 'win32')('asyncRuntimeFs running', () => {
+  it('says a program runs from a file while it does, and not after it ended or for a file not there', async () => {
+    const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'astera-running-'))
+    try {
+      const exe = path.join(dir, 'probe.exe')
+      await fsp.copyFile(path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'PING.EXE'), exe)
+      const fs = asyncRuntimeFs(fsp)
+      expect(await fs.running!(exe)).toBe(false)
+      const child = spawn(exe, ['-n', '30', '127.0.0.1'], { windowsHide: true, stdio: 'ignore' })
+      await new Promise((r) => child.once('spawn', r))
+      expect(await fs.running!(exe)).toBe(true)
+      child.kill()
+      await new Promise((r) => child.once('exit', r))
+      await vi.waitFor(async () => expect(await fs.running!(exe)).toBe(false), { timeout: 5_000 })
+      expect(await fs.running!(path.join(dir, 'nope.exe'))).toBe(false)
+    } finally {
+      await fsp.rm(dir, { recursive: true, force: true })
+    }
   })
 })
 

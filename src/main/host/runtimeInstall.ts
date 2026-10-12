@@ -29,6 +29,8 @@ export interface AsyncFs {
   rename(from: string, to: string): Promise<void>
   rm(p: string, o: { recursive: true; force: true }): Promise<void>
   readFile(p: string, enc: 'utf8'): Promise<string>
+  /** Absent from a test's in-memory filesystem, and then `running` answers false. */
+  open?(p: string, flags: 'r+'): Promise<{ close(): Promise<void> }>
 }
 
 /** `RuntimeFs` over `fs.promises`. The same answers the sync version gave: `readdir` of a directory
@@ -52,7 +54,19 @@ export function asyncRuntimeFs(fsp: AsyncFs): RuntimeFs {
     },
     copy: (from, to) => fsp.cp(from, to, { recursive: true }),
     rename: (from, to) => fsp.rename(from, to),
-    rm: (p) => fsp.rm(p, { recursive: true, force: true })
+    rm: (p) => fsp.rm(p, { recursive: true, force: true }),
+    // A running image cannot be opened for writing (EBUSY). EPERM and EACCES are read the same way: a file this app
+    // may not write is not one to delete from under whatever holds it. Not there is not running.
+    running: async (p) => {
+      if (!fsp.open) return false
+      try {
+        await (await fsp.open(p, 'r+')).close()
+        return false
+      } catch (err) {
+        const code = (err as { code?: unknown }).code
+        return code === 'EBUSY' || code === 'EPERM' || code === 'EACCES'
+      }
+    }
   }
 }
 
