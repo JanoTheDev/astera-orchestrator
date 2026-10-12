@@ -9,24 +9,24 @@
  *  which is exactly the wrong behaviour the version guard exists to make impossible.
  *
  *  **Still 3 with the proc-* family.** Those messages are additive and the app sends them only to a
- *  Host that announced the feature in its `hello` (`features: ['proc']`, HOST_FEATURE_PROC below;
- *  `hostSpeaksProcs` in main/host/outdated.ts is the check). A capability, not an age: an outdated
+ *  Host that announced the feature in its `hello` (`features: ['proc']`, HOST_FEATURE_PROC in the app's
+ *  src/core/host/protocol.ts; `hostSpeaksProcs` in main/host/outdated.ts is the check). A capability, not an age: an outdated
  *  Host is exactly the one the automatic replacement must still reach, and it cannot answer a
  *  proc-list. A bump would put the new app on a new pipe name and leave the old Host's terminals
  *  invisible to it, which is the one thing the guard must never cause (chat-sessions design §6.5).
  *
- *  **4 added the Host's proof** (`hello.nonce` answered by `hello.proof`, core/host/hostKey.ts): on
- *  Windows another account can create the pipe first, and a client has no other way to tell. Unlike
- *  the features above this cannot be additive: a client that must refuse a Host without a proof would
+ *  **4 added the Host's proof** (`hello.nonce` answered by `hello.proof`, hostKey.ts): on Windows
+ *  another account can create the pipe first, and a client has no other way to tell. Unlike a feature
+ *  announced in `hello.features` this cannot be additive: a client that must refuse a Host without a proof would
  *  refuse a 3 Host it has no way to tell from a squatter, so the number moves, the address moves with
  *  it, and `retireOlderHosts` sends the 3 Host away. Its terminals end with it, once, on the update that
  *  brings this in (decided 2026-09-30: supporting Windows machines several people use is worth it). */
 export const HOST_PROTOCOL = 4
 
 /** Request receipts — `orch-call.request`, the `requests-show` command, and the replay that makes a
- *  retry safe (request receipts design §8). Announced the same way and for the same reason as the
- *  features above: the protocol number stays 3, because bumping it retires a Host that is running
- *  perfectly well and kills its terminals with it.
+ *  retry safe (request receipts design §8). Announced in the Host's hello `features`, like every
+ *  capability added after protocol 3: the protocol number stays, because bumping it retires a Host that
+ *  is running perfectly well and kills its terminals with it.
  *
  *  **Why a feature flag is not optional for this one.** A Host from before it destructures
  *  `{cmd, args, session}` and runs the command *unprotected* while the caller believes otherwise —
@@ -37,9 +37,16 @@ export const HOST_PROTOCOL = 4
  *  refuse over one we did not. */
 export const HOST_FEATURE_REQUESTS = 'requests'
 
-/** `app` is a version string on both sides — `main/host/client.ts` sends the app's version and
- *  `core/host/connect.ts` sends the CLI's, and the two can be the identical string — so it cannot
- *  say *what* is connecting. `role` does.
+/** The `orch-call`/`orch-result` pair (host control plane design §5): one RPC channel for every
+ *  orchestration command instead of a message type per command. Announced in the Host's hello
+ *  `features`, so the protocol number stays: a Host from before it answers an `orch-call` the way it
+ *  answers any message it does not know, logged and ignored, and a client that sends one anyway waits
+ *  for an answer that never comes. The CLI, the MCP link and @astera-app/client check for it first. */
+export const HOST_FEATURE_ORCH = 'orch'
+
+/** `app` is a version string: the app (`main/host/client.ts`) sends its version, the CLI (through
+ *  connect.ts) its own, and @astera-app/client `sdk-<version>`. The first two can be the identical
+ *  string, so it cannot say *what* is connecting. `role` does.
  *
  *  **Absent means `'cli'`, and that default is the careful one.** The Host sends `orch-act` only to
  *  a client that called itself the app; an older app that sends no role is therefore refused with
@@ -59,7 +66,7 @@ export const HOST_FEATURE_REQUESTS = 'requests'
  *  could not write). Absent from an older app and from the CLI, and then `app.pid` alone answers, as
  *  before. Additive, so HOST_PROTOCOL stays 3.
  *
- *  **`nonce`** (protocol 4): the Host answers it with `proof` (core/host/hostKey.ts), and the client
+ *  **`nonce`** (protocol 4): the Host answers it with `proof` (hostKey.ts), and the client
  *  sends nothing more until that proof checks out.
  *
  *  **`client`** is the MCP client an `mcp` socket serves, as its MCP `initialize` named itself (MCP

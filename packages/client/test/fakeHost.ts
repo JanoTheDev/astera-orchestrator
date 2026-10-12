@@ -72,18 +72,24 @@ export interface FakeHost {
   calls(): Array<{ call: string; cmd: string; args: Record<string, unknown>; session?: string; request?: string }>
   /** Ends every client connection, as a Host that went away would. */
   dropClients(): void
+  /** How many client sockets are open on the Host's side right now. */
+  openSockets(): number
+  /** Answers each later hello this many ms late (a slow handshake). */
+  setHelloDelay(ms: number): void
   close(): Promise<void>
 }
 
 export async function startHost(o: {
   key: string
   features?: string[]
+  helloDelayMs?: number
   onCall?: (m: { call: string; cmd: string; args: Record<string, unknown> }, reply: (r: FakeReply) => void, sock: net.Socket) => void
 }): Promise<FakeHost> {
   const address = await freshAddress()
   const sockets = new Set<net.Socket>()
   const calls: ReturnType<FakeHost['calls']> = []
   let hellos = 0
+  let helloDelayMs = o.helloDelayMs ?? 0
   const server = net.createServer((sock) => {
     sockets.add(sock)
     sock.on('close', () => sockets.delete(sock))
@@ -94,7 +100,12 @@ export async function startHost(o: {
         const m = v as Record<string, unknown>
         if (m.t === 'hello') {
           hellos++
-          sock.write(helloLine(o.key, String(m.nonce ?? ''), { features: o.features ?? ['requests'] }))
+          const line = helloLine(o.key, String(m.nonce ?? ''), { features: o.features ?? ['orch', 'requests'] })
+          const send = (): void => {
+            if (!sock.destroyed) sock.write(line)
+          }
+          if (helloDelayMs > 0) setTimeout(send, helloDelayMs)
+          else send()
           return
         }
         if (m.t !== 'orch-call') return
@@ -118,6 +129,10 @@ export async function startHost(o: {
     calls: () => calls,
     dropClients: () => {
       for (const s of sockets) s.destroy()
+    },
+    openSockets: () => sockets.size,
+    setHelloDelay: (ms) => {
+      helloDelayMs = ms
     },
     close: () =>
       new Promise<void>((r) => {

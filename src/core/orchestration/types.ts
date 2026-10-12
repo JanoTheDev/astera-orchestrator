@@ -520,10 +520,9 @@ export const FAILURE_LIMIT = 3
  * 시간은 재지 않는다(2초 requestTimeout 으로 5초 응답을 돌려 확인했고, 이미 10분을 기다리는
  * ask 가 그 증거다). 그래서 한 시간을 붙잡아도 끊기지 않는다.
  */
-export const DEFAULT_WAIT_TIMEOUT_MS = 60 * 60_000
-export const DEFAULT_ASK_TIMEOUT_MS = 600_000
-/** Default long-poll deadline for check --wait. server.ts and the CLI share it for the same reason. */
-export const DEFAULT_CHECK_TIMEOUT_MS = 300_000
+// The three deadlines are the SDK package's (packages/client/src/deadlines.ts): the Host waits by them, and the CLI
+// and @astera-app/client wait past them. The renderer-safe door, since this file is in the renderer's program too.
+export { DEFAULT_ASK_TIMEOUT_MS, DEFAULT_CHECK_TIMEOUT_MS, DEFAULT_WAIT_TIMEOUT_MS } from '../publicProtocol'
 
 const ALLOWED: Record<TaskStatus, TaskStatus[]> = {
   pending: ['ready', 'dispatched', 'blocked'],

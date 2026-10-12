@@ -50,17 +50,17 @@ describe('hostTarget', () => {
   const base = { platform: 'win32' as const, home: 'C:/Users/me', tmpDir: 'C:/Temp' }
   const ROAMING = { APPDATA: 'C:/Users/me/AppData/Roaming' }
 
+  // Literal answers, not ones computed by the code under test (final review of SDK 1b, minor 10)
   it('reads the installed app profile, the dev one with ASTERA_PROFILE=dev, and ASTERA_PROFILE_DIR above both', () => {
-    expect(hostTarget({ ...base, env: ROAMING }).profileDir).toBe(userDataDir({ platform: 'win32', env: ROAMING, home: base.home }))
-    expect(hostTarget({ ...base, env: { ...ROAMING, ASTERA_PROFILE: 'dev' } }).profileDir).toBe(
-      userDataDir({ platform: 'win32', env: ROAMING, home: base.home, dev: true })
-    )
-    expect(hostTarget({ ...base, env: { ...ROAMING, ASTERA_PROFILE: 'dev', ASTERA_PROFILE_DIR: 'D:/p/' } }).profileDir).toBe(profilePath('D:/p/', 'win32'))
+    expect(hostTarget({ ...base, env: ROAMING }).profileDir).toBe('C:\\Users\\me\\AppData\\Roaming\\astera')
+    expect(hostTarget({ ...base, env: { ...ROAMING, ASTERA_PROFILE: 'dev' } }).profileDir).toBe('C:\\Users\\me\\AppData\\Roaming\\astera-dev')
+    expect(hostTarget({ ...base, env: { ...ROAMING, ASTERA_PROFILE: 'dev', ASTERA_PROFILE_DIR: 'D:/p/' } }).profileDir).toBe('D:\\p')
   })
 
   it('derives the address from the profile unless ASTERA_HOST names one', () => {
     const t = hostTarget({ ...base, env: { ASTERA_PROFILE_DIR: 'D:/p' } })
-    expect(t.address).toBe(hostAddress({ profileDir: t.profileDir, platform: 'win32', tmpDir: base.tmpDir, protocol: HOST_PROTOCOL }).address)
+    expect(t.address).toMatch(/^\\\\\.\\pipe\\astera-host-[0-9a-f]{12}-v4$/)
+    expect(t.address).toBe(hostAddress({ profileDir: 'D:\\p', platform: 'win32', tmpDir: base.tmpDir, protocol: HOST_PROTOCOL }).address)
     expect(hostTarget({ ...base, env: { ASTERA_PROFILE_DIR: 'D:/p', ASTERA_HOST: 'pipe-x' } }).address).toBe('pipe-x')
   })
 
@@ -74,5 +74,14 @@ describe('profilePath', () => {
     expect(profilePath('D:/p/', 'win32')).toBe(profilePath('D:\\p', 'win32'))
     expect(profilePath('/home/me/p/', 'linux')).toBe('/home/me/p')
     expect(profilePath('/', 'linux')).toBe('/')
+  })
+
+  it('keeps a root a root, a bare drive bare, and a posix backslash a file name character', () => {
+    expect(profilePath('C:\\', 'win32')).toBe('C:\\')
+    expect(profilePath('C:/', 'win32')).toBe('C:\\')
+    expect(profilePath('C:', 'win32')).toBe('C:')
+    expect(profilePath('//', 'linux')).toBe('/')
+    expect(profilePath('/home/me/dir\\', 'linux')).toBe('/home/me/dir\\')
+    expect(profilePath('/home/me/dir\\', 'darwin')).toBe('/home/me/dir\\')
   })
 })

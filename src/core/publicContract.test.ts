@@ -37,10 +37,14 @@ describe('one door into the package', () => {
   it('the renderer-safe door opens a module that imports nothing', async () => {
     const { readFileSync } = await import('node:fs')
     const door = readFileSync(new URL('./publicProtocol.ts', import.meta.url), 'utf8')
-    expect(door).toMatch(/export \* from '\.\.\/\.\.\/packages\/client\/src\/protocol\.js'/)
-    expect(door.match(/^(?:import|export) .* from /gm)).toHaveLength(1)
-    const target = readFileSync(new URL('../../packages/client/src/protocol.ts', import.meta.url), 'utf8')
-    expect(target).not.toMatch(/^\s*(import|export)\b[^\n]*\bfrom\s*['"]/m)
+    const opened = [...door.matchAll(/^(?:import|export) .* from '\.\.\/\.\.\/packages\/client\/src\/([\w-]+)\.js'$/gm)].map((m) => m[1])
+    expect(opened.sort()).toEqual(['deadlines', 'protocol'])
+    expect(door.match(/^(?:import|export) .* from /gm)).toHaveLength(opened.length)
+    for (const name of opened) {
+      const target = readFileSync(new URL(`../../packages/client/src/${name}.ts`, import.meta.url), 'utf8')
+      expect(target, name).not.toMatch(/^\s*(import|export)\b[^\n]*\bfrom\s*['"]/m)
+      expect(target, name).not.toMatch(/\bimport\s*\(/)
+    }
   })
 })
 

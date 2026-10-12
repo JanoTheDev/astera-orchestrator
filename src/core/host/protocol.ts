@@ -10,6 +10,7 @@ import type { HostDriverReport, RollStateEvent, SessionInfo, WorktreeInfo } from
 import type { SlackForwardedEvent } from '../slack/forwarded'
 import type { McpHttpUrl } from '../mcp/httpUrls'
 import {
+  HOST_FEATURE_ORCH,
   HOST_FEATURE_REQUESTS,
   HOST_PROTOCOL,
   type ClientHelloMessage,
@@ -19,12 +20,11 @@ import {
   type ProtocolMismatchMessage
 } from '../publicProtocol'
 
-// The connect and command messages, the protocol number and the receipts feature are the SDK package's
+// The connect and command messages, the protocol number and the orch and receipts features are the SDK package's
 // (packages/client/src/protocol.ts), reached through publicProtocol.ts, the door the renderer may use too; the
 // unions below name them.
-export { HOST_FEATURE_REQUESTS, HOST_PROTOCOL }
+export { HOST_FEATURE_ORCH, HOST_FEATURE_REQUESTS, HOST_PROTOCOL }
 export type { ClientHelloMessage, HostHelloMessage, OrchCallMessage, OrchResultMessage, ProtocolMismatchMessage }
-
 
 /** The proc-* family (line processes). Announced in `hello.features` by a Host that has it; a Host
  *  from before it sends no `features` at all. */
@@ -40,14 +40,6 @@ export const HOST_FEATURE_PING = 'ping'
 /** `pty-data` with the event's `seq` (remote runtime design §3.7, N1), for a client whose hello lists it in `features`.
  *  A client that does not see `pty-data` frames as today, so an older app is unchanged. */
 export const HOST_FEATURE_PTY_SEQ = 'pty-seq'
-
-/** The `orch-call`/`orch-result` pair (host control plane design §5) — one RPC channel for every
- *  orchestration command instead of a message type per command. Announced the same way and for the
- *  same reason as the features above: the protocol number stays 3 (see HOST_PROTOCOL's comment
- *  above), and a Host from before this feature answers an `orch-call` the way it answers any message
- *  it does not know — logged and ignored — rather than being retired for it. */
-export const HOST_FEATURE_ORCH = 'orch'
-
 
 /** The Host tells an MCP caller apart (MCP design M1): it records its rows as surface `mcp` and admits
  *  its commands only through the `mcpAccess` allowlist (core/host/mcpGate.ts). A Host without it reads

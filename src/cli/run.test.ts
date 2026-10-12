@@ -1179,6 +1179,8 @@ describe('callHost — 명령 하나를 Host 에 묻는다', () => {
           closers.add(cb)
           return () => closers.delete(cb)
         },
+        ref: () => {},
+        unref: () => {},
         close: () => {}
       }
     }

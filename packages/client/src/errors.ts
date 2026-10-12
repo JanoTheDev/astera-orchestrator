@@ -101,7 +101,13 @@ export function codeForStatus(status: number): AsteraErrorCode {
   return 'FAILED'
 }
 
-/** What the SDK throws: the same codes the CLI and MCP answer with. `details` is there only when given. */
+/** The mark every AsteraError carries. `Symbol.for` makes it the same in every copy of the package, so an error made
+ *  by the CommonJS copy is an AsteraError to the ESM copy's class and back (an application on ESM with a dependency
+ *  on CommonJS holds both). */
+const BRAND = Symbol.for('@astera-app/client/AsteraError')
+
+/** What the SDK throws: the same codes the CLI and MCP answer with. `details` is there only when given. Test with
+ *  `isAsteraError(e)` or `e instanceof AsteraError`; both read the brand, not the class. */
 export class AsteraError extends Error {
   readonly code: AsteraErrorCode
   // `declare`: an ES2022 class field would define `details` as undefined on every error, given or not
@@ -111,5 +117,15 @@ export class AsteraError extends Error {
     this.name = 'AsteraError'
     this.code = code
     if (details !== undefined) this.details = details
+    Object.defineProperty(this, BRAND, { value: true })
   }
+
+  static [Symbol.hasInstance](value: unknown): boolean {
+    return isAsteraError(value)
+  }
+}
+
+/** Whether `value` is an AsteraError from any copy of this package. */
+export function isAsteraError(value: unknown): value is AsteraError {
+  return typeof value === 'object' && value !== null && (value as Record<symbol, unknown>)[BRAND] === true
 }

@@ -105,9 +105,10 @@ describe('createAsteraClient', () => {
   })
 
   it('refuses a requestId the Host cannot honour, and sends nothing', async () => {
-    const h = await host({ features: [] })
+    const h = await host({ features: ['orch'] })
     const c = await client(h)
-    expect((await rejection(c.call('jobs-create', {}, { requestId: 'r-1' }))).code).toBe('VERSION_MISMATCH')
+    const e = await rejection(c.call('jobs-create', {}, { requestId: 'r-1' }))
+    expect([e.code, e.message]).toEqual(['VERSION_MISMATCH', 'the Host 1.4.11 keeps no request receipts, so a requestId cannot make jobs-create safe to retry'])
     expect(h.calls()).toEqual([])
   })
 
@@ -122,10 +123,12 @@ describe('createAsteraClient', () => {
     await expect(p).rejects.toMatchObject({ name: 'AbortError' })
     answerLater[0]()
     await tick()
-    // the connection still works for the next call
-    const h2 = await host()
-    const c2 = await client(h2)
-    expect((await c2.call('jobs-list')).body).toBeDefined()
+    // the same client goes on, on the same connection, and the late answer did not land on the next call
+    const next = c.call('x-next')
+    await tick()
+    answerLater[1]()
+    expect((await next).body).toEqual({})
+    expect(h.hellos()).toBe(1)
   })
 
   it('an AbortSignal already aborted sends nothing', async () => {
@@ -204,5 +207,102 @@ describe('createAsteraClient', () => {
   it('CLIENT_VERSION is the package version', () => {
     const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }
     expect(CLIENT_VERSION).toBe(pkg.version)
+  })
+})
+
+// Final review of SDK 1b
+describe('createAsteraClient: the review fixes', () => {
+  // Important 1: close() during a reconnect left the new connection open (the process and the Host stayed up)
+  it('close() during a reconnect fails the waiting call as closed and leaves no connection behind', async () => {
+    const h = await host()
+    const c = await client(h)
+    h.dropClients()
+    await tick()
+    h.setHelloDelay(300)
+    const started = Date.now()
+    const p = c.call('x-cmd')
+    await tick(50)
+    c.close()
+    const e = await rejection(p)
+    expect([e.code, e.message]).toEqual(['FAILED', 'the client was closed before the Host answered'])
+    expect(Date.now() - started).toBeLessThan(250)
+    await tick(450)
+    expect(h.openSockets()).toBe(0)
+  })
+
+  // Important 2: the AbortSignal and the deadline did not cover the connect
+  it('an AbortSignal and a deadline cover the reconnect too', async () => {
+    const h = await host()
+    const c = await client(h)
+    h.dropClients()
+    await tick()
+    h.setHelloDelay(1500)
+    let started = Date.now()
+    expect((await rejection(c.call('x-cmd', {}, { timeoutMs: 100 }))).code).toBe('TIMEOUT')
+    expect(Date.now() - started).toBeLessThan(600)
+    const ac = new AbortController()
+    started = Date.now()
+    const p = c.call('x-cmd', {}, { signal: ac.signal })
+    setTimeout(() => ac.abort(), 50)
+    await expect(p).rejects.toMatchObject({ name: 'AbortError' })
+    expect(Date.now() - started).toBeLessThan(600)
+  })
+
+  // Important 3: a fixed default cut the Host's own long polls short
+  it('waits for a waiting command as long as the Host does, past the ordinary deadline', async () => {
+    const h = await host({ onCall: (m, reply) => setTimeout(() => reply({ status: 200, body: { cmd: m.cmd } }), 250) })
+    const c = await client(h, { callTimeoutMs: 100 })
+    expect((await c.call('runs-wait', { id: 'run_1', timeoutMs: 300 })).body).toEqual({ cmd: 'runs-wait' })
+    expect((await rejection(c.call('x-cmd'))).code).toBe('TIMEOUT')
+  })
+
+  // Minor 1: Infinity, 3e9, 0 and NaN made setTimeout fire at once
+  it('refuses a deadline setTimeout cannot hold', async () => {
+    for (const bad of [Infinity, 3e9, 0, -1, Number.NaN, 1.5]) {
+      expect((await rejection(createAsteraClient({ callTimeoutMs: bad }))).code, String(bad)).toBe('INVALID_ARGUMENTS')
+      expect((await rejection(createAsteraClient({ connectTimeoutMs: bad }))).code, String(bad)).toBe('INVALID_ARGUMENTS')
+    }
+    const h = await host()
+    const c = await client(h)
+    for (const bad of [Infinity, 3e9, 0, Number.NaN]) expect((await rejection(c.call('x-cmd', {}, { timeoutMs: bad }))).code, String(bad)).toBe('INVALID_ARGUMENTS')
+    expect(h.calls()).toEqual([])
+  })
+
+  // Minor 3: the CLI and the MCP link refuse a Host without orch; the client waited for an answer that never came
+  it('refuses a Host that does not run commands, and sends nothing', async () => {
+    const h = await host({ features: ['requests'] })
+    const c = await client(h)
+    expect((await rejection(c.call('jobs-list'))).code).toBe('VERSION_MISMATCH')
+    expect(h.calls()).toEqual([])
+  })
+
+  // Minor 5: the Host info steers hasFeature and the receipts check, so nobody may change it
+  it('hands out a frozen Host info', async () => {
+    const h = await host()
+    const c = await client(h)
+    expect(Object.isFrozen(c.host)).toBe(true)
+    expect(Object.isFrozen(c.host.features)).toBe(true)
+  })
+
+  // Minor 6: with the default silent log, why a connect failed was lost
+  it('puts the reason a connect failed in the error details', async () => {
+    const impostor = await listen((sock) => sock.write(JSON.stringify({ t: 'hello', protocol: HOST_PROTOCOL, host: 'x', pid: 1, startedAt: 'T', proof: '0'.repeat(64) }) + '\n'))
+    opened.push(impostor)
+    const e = await rejection(createAsteraClient({ profileDir: profile.dir, address: impostor.address }))
+    expect((e.details as { reason?: string }).reason).toMatch(/could not prove it is this profile's Host/)
+  })
+
+  // Minor 7: a drop said nothing about which call, nor that a requestId makes a retry safe
+  it('names the call a drop cut off, and says a retry with the same requestId is safe', async () => {
+    const h = await host({ onCall: () => {} })
+    const c = await client(h)
+    const plain = c.call('jobs-list')
+    const keyed = c.call('jobs-create', {}, { requestId: 'r-9' })
+    await tick()
+    h.dropClients()
+    expect((await rejection(plain)).message).toBe(`the Host at ${h.address} closed the connection before answering jobs-list`)
+    expect((await rejection(keyed)).message).toBe(
+      `the Host at ${h.address} closed the connection before answering jobs-create; retrying with the same requestId (r-9) is safe`
+    )
   })
 })

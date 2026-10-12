@@ -23,6 +23,10 @@ export interface HostConnection {
    *  which is what `astera host stop` (`src/cli/host.ts`) reads as "it left": a `retire` that is
    *  honoured gets no reply, only a socket that goes away. */
   onClose(cb: () => void): () => void
+  /** Keeps Node running while this connection is open (a call is waiting), or lets it exit while the connection
+   *  is idle: the socket's own ref and unref. A new connection is ref'd. */
+  ref(): void
+  unref(): void
   close(): void
 }
 
@@ -107,6 +111,12 @@ export async function connectHost(a: {
               onClose: (cb) => {
                 closeListeners.add(cb)
                 return () => closeListeners.delete(cb)
+              },
+              ref: () => {
+                socket.ref()
+              },
+              unref: () => {
+                socket.unref()
               },
               close: () => socket.destroy()
             })

@@ -1,7 +1,8 @@
 // Whether the directory a posix Host socket sits in is private to this user — asked by the Host
-// before it binds there (host/server.ts) and by every client before it connects there (main/host
-// /client.ts, core/host/connect.ts). Design section 5 says access control is the operating system,
-// and that only holds while the directory's own mode says so.
+// before it binds there (the app's src/host/server.ts) and by every client before it connects there
+// (the app's src/main/host/client.ts, and connect.ts here for the CLI, MCP and @astera-app/client).
+// Design section 5 says access control is the operating system, and that only holds while the
+// directory's own mode says so.
 //
 // **Both sides, not just the Host's.** On linux the parent is /tmp at 1777 and the address key is a
 // hash of a guessable profile path, so another local user can make the directory first and put a
