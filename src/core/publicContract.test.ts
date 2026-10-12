@@ -75,6 +75,6 @@ describe('the app uses the package transport', () => {
   it('the published entry is the error contract (and the client), not the app internals', async () => {
     const published: Record<string, unknown> = await import('../../packages/client/src/index.js')
     expect('AsteraError' in published).toBe(true)
-    for (const k of ['publicFor', 'encodeLine', 'hostAddress', 'JOB_FIELDS', 'hostTarget']) expect(k in published, k).toBe(false)
+    for (const k of ['publicFor', 'encodeLine', 'hostAddress', 'JOB_FIELDS', 'hostTarget', 'createNamespaces']) expect(k in published, k).toBe(false)
   })
 })
