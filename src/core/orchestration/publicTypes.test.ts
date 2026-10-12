@@ -7,7 +7,7 @@ const src = readFileSync(new URL('./publicTypes.ts', import.meta.url), 'utf8')
 
 describe('publicTypes', () => {
   it('checks every typed internal object against its DTO', () => {
-    for (const name of ['Project', 'Job', 'Run', 'Task', 'CheckResult', 'ReviewIssue', 'TaskAttempt', 'Question', 'RunCompletion', 'TaskCompletion', 'CompletionDetail', 'CompletionCheckDetail', 'RunEvent', 'ConvergencePolicy', 'GitRange', 'ScheduleRule'])
+    for (const name of ['RunOutcome', 'JobOutcome', 'Progress', 'TaskDetail', 'Project', 'Job', 'Run', 'Task', 'CheckResult', 'ReviewIssue', 'TaskAttempt', 'Question', 'RunCompletion', 'TaskCompletion', 'CompletionDetail', 'CompletionCheckDetail', 'RunEvent', 'ConvergencePolicy', 'GitRange', 'ScheduleRule'])
       expect(src, name).toMatch(new RegExp(`type _${name[0].toLowerCase()}${name.slice(1)} = Check<`))
   })
 
