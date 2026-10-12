@@ -27,3 +27,7 @@ export function callDeadlineMs(a: { cmd: string; args: Record<string, unknown> }
   if (a.cmd === 'check') return DEFAULT_CHECK_TIMEOUT_MS + TIMEOUT_HEADROOM_MS
   return ordinaryMs
 }
+
+/** How long one `runs-follow` call holds on the Host when nothing happens. The Host takes up to a minute; a client
+ *  that asks for a shorter window sees its own deadline and an abort sooner. */
+export const FOLLOW_WINDOW_MS = 20_000

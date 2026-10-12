@@ -13,12 +13,17 @@ import type { JobEvent } from '../types'
 import type { HostSession, OrchAccount, OrchRunConfig } from './command'
 import type { ChatPending, ChatPrompt, ChatTurn } from '../sessions/chatRead'
 import type { SkillInstalled, SkillListed, SkillNotEnabled, SkillsAccount } from './skills'
+import type { RunCompletion, TaskCompletion } from './runCompletion'
+import type { CompletionCheckDetail, CompletionDetail } from './completion'
 import type {
   ACCOUNT_FIELDS,
   CHAT_PENDING_FIELDS,
   CHAT_PROMPT_FIELDS,
   CHAT_TURN_FIELDS,
   CHECK_FIELDS,
+  COMPLETION_CHECK_FIELDS,
+  COMPLETION_DETAIL_FIELDS,
+  COMPLETION_FIELDS,
   FOLLOW_EVENT_FIELDS,
   JOB_FIELDS,
   PROJECT_FIELDS,
@@ -34,6 +39,7 @@ import type {
   SKILL_NOT_ENABLED_FIELDS,
   SKILLS_ACCOUNT_FIELDS,
   TASK_CHECKS_FIELDS,
+  TASK_COMPLETION_FIELDS,
   TASK_FIELDS,
   VALIDATION_FIELDS
 } from '../publicContract'
@@ -103,3 +109,8 @@ type _review = NothingLeft<Unlisted<TaskReview, typeof REVIEW_FIELDS, []>>
 type _check = NothingLeft<Unlisted<CheckResult, typeof CHECK_FIELDS, []>>
 type _reviewIssue = NothingLeft<Unlisted<ReviewIssue, typeof REVIEW_ISSUE_FIELDS, []>>
 type _followEvent = NothingLeft<Unlisted<JobEvent, typeof FOLLOW_EVENT_FIELDS, typeof FOLLOW_EVENT_HIDDEN>>
+// The completion read model (runs-completion), allowlisted since SDK 1c: every field it carries is public.
+type _runCompletion = NothingLeft<Unlisted<RunCompletion, typeof COMPLETION_FIELDS, []>>
+type _taskCompletion = NothingLeft<Unlisted<TaskCompletion, typeof TASK_COMPLETION_FIELDS, []>>
+type _completionDetail = NothingLeft<Unlisted<CompletionDetail, typeof COMPLETION_DETAIL_FIELDS, []>>
+type _completionCheck = NothingLeft<Unlisted<CompletionCheckDetail, typeof COMPLETION_CHECK_FIELDS, []>>

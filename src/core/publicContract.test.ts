@@ -26,7 +26,8 @@ describe('one door into the package', () => {
         e.isDirectory() ? walk(path.join(dir, e.name)) : /\.(ts|tsx|mts|cts)$/.test(e.name) && !/\.test\.(ts|tsx|mts|cts)$/.test(e.name) ? [path.join(dir, e.name)] : []
       )
     const doors = walk(srcRoot)
-      .filter((f) => /['"][^'"\n]*packages\/client[^'"\n]*['"]/.test(readFileSync(f, 'utf8')))
+      // Import and export specifiers only: a comment that names the package (between two apostrophes) is not a door
+      .filter((f) => /(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s+)['"][^'"\n]*packages\/client[^'"\n]*['"]/.test(readFileSync(f, 'utf8')))
       .map((f) => path.relative(srcRoot, f).split(path.sep).join('/'))
     // publicProtocol.ts is the second door, the one the renderer may reach (SDK 1b)
     expect(doors.sort()).toEqual(['core/publicContract.ts', 'core/publicProtocol.ts'])
@@ -71,9 +72,18 @@ describe('the app uses the package transport', () => {
     expect(protocol.HOST_FEATURE_REQUESTS).toBe(internal.HOST_FEATURE_REQUESTS)
   })
 
+  // SDK 1c: following a Run is the package's rule too
+  it('the follow key and window', async () => {
+    const internal = await import('../../packages/client/src/internal.js')
+    const cliFollow = await import('./orchestration/cliFollow')
+    const command = await import('./orchestration/command')
+    expect(cliFollow.eventKey).toBe(internal.eventKey)
+    expect(command.FOLLOW_WINDOW_MS).toBe(internal.FOLLOW_WINDOW_MS)
+  })
+
   it('the published entry is the error contract (and the client), not the app internals', async () => {
     const published: Record<string, unknown> = await import('../../packages/client/src/index.js')
     expect('AsteraError' in published).toBe(true)
-    for (const k of ['publicFor', 'encodeLine', 'hostAddress', 'JOB_FIELDS', 'hostTarget']) expect(k in published, k).toBe(false)
+    for (const k of ['publicFor', 'encodeLine', 'hostAddress', 'JOB_FIELDS', 'hostTarget', 'createNamespaces']) expect(k in published, k).toBe(false)
   })
 })

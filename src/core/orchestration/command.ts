@@ -8,6 +8,15 @@
 // — the app's loopback HTTP server was removed once nothing reached it any more (§7). Nothing here
 // knows whether a dependency is answered locally or across a socket, which is what lets the same
 // command layer run in both places.
+import {
+  FOLLOW_WINDOW_MS,
+  type AnsweredQuestion,
+  type JobOutcome,
+  type RunOutcome as RunOutcomePublic,
+  type StopResult,
+  type WaitEnding,
+  type WaitTimeout
+} from '../publicContract'
 import { lastByState } from './stateMemo'
 import { randomBytes } from 'node:crypto'
 import {
@@ -840,9 +849,9 @@ const jobView = (s: OrchState, job: Job, run: JobRun | undefined): Record<string
   // `pendingStart: true` (the e2e check of 2026-10-01). `pending` is JOB_STATES' word for it, and
   // stateWord reads it as PENDING. The app's sidebar keeps its own row (view.ts) with its
   // not-started chip, and a scheduled Job still reads SCHEDULED, since stateWord asks that first.
-  ...(run === undefined ? { outcome: 'pending' } : {}),
+  ...(run === undefined ? { outcome: 'pending' satisfies JobOutcome } : {}),
   // Its latest Run is paused: the same word runView gives that Run.
-  ...(run?.paused === true ? { outcome: 'paused' } : {})
+  ...(run?.paused === true ? { outcome: 'paused' satisfies JobOutcome } : {})
 })
 
 /**
@@ -855,7 +864,7 @@ const jobView = (s: OrchState, job: Job, run: JobRun | undefined): Record<string
  * 질문을 먼저 본다. 열린 질문이 있는 회차는 Task 가 전부 terminal 이어도 아직 사람을 기다리는
  * 중이고, 그쪽이 스크립트가 먼저 알아야 하는 사실이다.
  */
-const waitEndingFor = (s: OrchState, runId: string, now: string): Record<string, unknown> | null => {
+const waitEndingFor = (s: OrchState, runId: string, now: string): WaitEnding | null => {
   const run = s.runs.find((r) => r.id === runId)
   if (!run) return null
   const job = s.jobs.find((j) => j.id === run.jobId)
@@ -939,7 +948,7 @@ const limitedUntil = (s: OrchState, runId: string, now: string): string | null =
 const runView = (s: OrchState, run: JobRun): Record<string, unknown> => ({
   ...run,
   ...derivedFor(s, run.id, [run.id]),
-  ...(run.paused === true ? { outcome: 'paused' } : {})
+  ...(run.paused === true ? { outcome: 'paused' satisfies RunOutcomePublic } : {})
 })
 
 /**
@@ -1121,10 +1130,11 @@ export function ghRefusal(f: GhFailed): Reply {
 
 const POLL_MS = 50
 
-/** How long one `runs-follow` call holds before it answers with nothing new (CLI spec §22). The client
- *  asks again at once, so this bounds only how long a poll outlives a client that went away, and how
- *  often an idle follow costs a round trip. `FOLLOW_WINDOW_MAX_MS` caps what a caller may ask for. */
-export const FOLLOW_WINDOW_MS = 20_000
+// How long one `runs-follow` call holds before it answers with nothing new (CLI spec §22): the SDK package's
+// FOLLOW_WINDOW_MS (packages/client/src/deadlines.ts), which the CLI and @astera-app/client ask for too. The client asks
+// again at once, so this bounds only how long a poll outlives a client that went away, and how often an idle follow
+// costs a round trip. `FOLLOW_WINDOW_MAX_MS` caps what a caller may ask for.
+export { FOLLOW_WINDOW_MS }
 /** How long `runs resume` waits for the coordinator `runs stop` stopped to be gone: the exit release
  *  waits EXIT_DEFER_MS (3 s) after the process exits, so a stop that landed has emptied the slot well
  *  within this. */
@@ -1970,7 +1980,7 @@ export async function handleCommand(
       } else if (!s.runs.some((r) => r.id === id)) {
         return notFound(`unknown run: ${id}`)
       }
-      const probe = (): Record<string, unknown> | null => {
+      const probe = (): WaitEnding | null => {
         const cur = deps.getState()
         const now = deps.now?.() ?? new Date().toISOString()
         if (!byJob) return waitEndingFor(cur, id, now)
@@ -1996,7 +2006,7 @@ export async function handleCommand(
         jobId: byJob ? id : run?.jobId,
         runId: run?.id ?? null,
         progress: run ? progressOf(cur, run.id) : { done: 0, total: 0 }
-      })
+      } satisfies WaitTimeout)
     }
     /**
      * 이 회차를 멈춘다 (공개 CLI 설계 §5·§15).
@@ -2061,7 +2071,7 @@ export async function handleCommand(
       // kept, marked pending, until the exit release confirms it, and the driving loop resends it.
       const coordinator = deps.getState().runs.find((r) => r.id === id)?.coordinatorSessionId
       if (coordinator !== undefined) await retireCoordinator(id, coordinator, 'the run was stopped', true)
-      return okBody({ runId: id, stopped: open.length, paused: true, coordinatorStopped: coordinator !== undefined })
+      return okBody({ runId: id, stopped: open.length, paused: true, coordinatorStopped: coordinator !== undefined } satisfies StopResult)
     }
     /** 세워 둔 회차를 다시 돌게 한다. **`runs stop` 이 만든 상태를 푸는 유일한 길이다** —
      *  기존 `run-resume` 은 예약(계획)의 것만 걷고 예약이 아닌 Job 을 거절한다. 되돌릴 수 있다는
@@ -2164,7 +2174,7 @@ export async function handleCommand(
           return []
         }
       }
-      type Seen = { gone: true } | { cur: OrchState; extra: JobEvent[]; count: number; ending: Record<string, unknown> | null }
+      type Seen = { gone: true } | { cur: OrchState; extra: JobEvent[]; count: number; ending: WaitEnding | null }
       // The Run's own events counted once per state object (audit OR-6): the probe runs every 50 ms and the state
       // changes only at a commit. The journal's rows and the ending (it reads the clock) are asked each time.
       const ownEvents = lastByState((cur: OrchState) => eventCountFor(cur, id))
@@ -4015,8 +4025,8 @@ export async function handleCommand(
       // 사람의 "한 번 더" 가 조용히 무효가 된 사실까지 감추면 안 된다.
       const retried = exhaustedOpen && resolution === 'retry-once' ? await deps.repairOnce?.({ taskId: gate!.taskId }) : undefined
       if (retried && !retried.ok)
-        return okBody({ ...r.value, retryOnceFailed: retried.error })
-      return okBody(r.value)
+        return okBody({ ...r.value, retryOnceFailed: retried.error } satisfies AnsweredQuestion)
+      return okBody(r.value satisfies AnsweredQuestion)
     }
     /** 질문에 답한다 — `gate-resolve` 의 공개 이름(공개 CLI 설계 §5 Phase B).
      *  답을 받는 플래그 이름도 사람의 말로 바뀐다(`--answer`). 서버 안에서는 한 자리로 간다 —

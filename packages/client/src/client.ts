@@ -13,6 +13,7 @@ import { hostTarget, profilePath } from './discovery.js'
 import { AsteraError, codeForStatus, remoteCodeOf } from './errors.js'
 import { HOST_FEATURE_ORCH, HOST_FEATURE_REQUESTS, HOST_PROTOCOL, type OrchResultMessage } from './protocol.js'
 import { publicFor } from './shape.js'
+import { createNamespaces, type Namespaces } from './namespaces.js'
 
 /** This package's version, sent in the hello as `sdk-<version>`. Kept equal to package.json by a test. */
 export const CLIENT_VERSION = '0.1.0'
@@ -77,7 +78,8 @@ export interface CallResult {
   readonly observed: boolean
 }
 
-export interface AsteraClient {
+/** The client: typed namespaces (`projects`, `jobs`, ...) over `call`, which runs any Host command. */
+export interface AsteraClient extends Namespaces {
   readonly host: HostInfo
   readonly profileDir: string
   readonly address: string
@@ -264,6 +266,7 @@ export async function createAsteraClient(options: AsteraClientOptions = {}): Pro
 
   await open()
   return {
+    ...createNamespaces(call),
     get host(): HostInfo {
       return host as HostInfo
     },
