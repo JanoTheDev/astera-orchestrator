@@ -21,6 +21,7 @@ import type { EditorView } from '@codemirror/view'
 import { EditorStateCache } from './lib/editorStateCache'
 import { createSessionSizeReporters, mirrorsFromList, newlyOpened, openSessionIds, placeAppTabs, removeAppTab, type Mirrors } from './lib/workspaceMirror'
 import { flushPendingEdits } from './lib/editCoalescer'
+import { writeThrough } from './lib/writeThrough'
 import { mirrorFrames, takeWorkspaceEvent } from './lib/mirrorFrames'
 import { FileExplorer, type ExplorerTreeState } from './components/FileExplorer'
 import { JobsView } from './components/JobsView'
@@ -460,8 +461,16 @@ export default function App(): React.JSX.Element {
   const [ghostAccounts, setGhostAccounts] = useState<Account[]>([])
   const [sessions, setSessions] = useState<SessionInfo[]>([])
   // The pane layout tree. It replaces the old single split-slot state — up to 4 panes.
-  const [layout, setLayout] = useState<PaneNode | null>(null)
-  const [activePaneId, setActivePaneId] = useState<string | null>(null)
+  const [layout, setLayoutState] = useState<PaneNode | null>(null)
+  const [activePaneId, setActivePaneIdState] = useState<string | null>(null)
+  // The tree and the active pane are read from these refs to compute the next ones, and every write goes through
+  // writeThrough (lib/writeThrough.ts), which moves the ref before React hears of it: a burst of writes before a
+  // render (the Host's sessions taken back after an update) builds on each other instead of overwriting. Nothing
+  // moves them at render, where a render that ran ahead of a queued write would have put back the older tree.
+  const layoutRef = useRef(layout)
+  const activePaneIdRef = useRef(activePaneId)
+  const setLayout = useMemo(() => writeThrough(layoutRef, setLayoutState), [])
+  const setActivePaneId = useMemo(() => writeThrough(activePaneIdRef, setActivePaneIdState), [])
   // The session whose tab is being dragged (for PaneGrid's drop preview)
   const [dragTabId, setDragTabId] = useState<string | null>(null)
   // Position of the tab context menu
@@ -898,10 +907,6 @@ export default function App(): React.JSX.Element {
     localStorage.setItem(MD_MODE_KEY, mode)
     setMdModes((prev) => ({ ...prev, [tabId]: mode }))
   }
-  const layoutRef = useRef(layout)
-  layoutRef.current = layout
-  const activePaneIdRef = useRef(activePaneId)
-  activePaneIdRef.current = activePaneId
   const modalOpenRef = useRef(false)
   modalOpenRef.current = showNew || showSettings
   const fileTabsRef = useRef(fileTabs)
@@ -1139,10 +1144,9 @@ export default function App(): React.JSX.Element {
       const act = activateTab(root, sessionTab(wanted))
       if (!act) return
       // This tree is built from scratch, so the mirror tabs a workspace.list that answered first has
-      // already placed go back in (fix round 1: they were wiped). The ref moves now, so a list that
-      // answers after this, before the render, builds on this tree.
+      // already placed go back in (fix round 1: they were wiped). setLayout moves the ref at once, so a
+      // list that answers after this, before the render, builds on this tree.
       const withMirrors = placeAppTabs(act.root, openSessionIds(mirrorsRef.current), act.paneId)
-      layoutRef.current = withMirrors
       setLayout(withMirrors)
       setActivePaneId(act.paneId)
     })
@@ -1916,18 +1920,17 @@ export default function App(): React.JSX.Element {
   }
 
   /** 탭 하나를 트리에서 뺀다. 다음에 무엇이 활성이 되는지는 removeTab 이 정한다(세션 탭을 닫을 때와
-   *  같은 규칙). 여기서 ref 를 직접 맞춰 두는 것은 연쇄로 닫힐 때(폴더 삭제) 다음 반복이 렌더 전의
-   *  낡은 값을 읽지 않게 하기 위해서다 — closeFileTab 의 fileTabsRef 미러링과 같은 이유다.
+   *  같은 규칙). 연쇄로 닫힐 때(폴더 삭제) 다음 반복이 렌더 전의 낡은 값을 읽지 않는 것은
+   *  setLayout·setActivePaneId 가 ref 를 바로 옮기기 때문이다(lib/writeThrough.ts) — closeFileTab 의
+   *  fileTabsRef 미러링과 같은 이유다.
    *  기능 탭이 세 번째 종류로 들어오면서 파일 탭과 이 꼬리를 그대로 나눠 쓰게 되어 함수가 되었다 —
    *  기능 탭에는 버퍼도 죽일 프로세스도 없어 닫기가 이것 하나다. */
   const dropTabFromTree = (id: string): void => {
     const cur = layoutRef.current
     if (!cur || !groupOfTab(cur, id)) return
     const nextLayout = removeTab(cur, id)
-    layoutRef.current = nextLayout
     const p = activePaneIdRef.current
     const nextPane = nextLayout ? (p && leafOf(nextLayout, p) ? p : firstLeaf(nextLayout).id) : null
-    activePaneIdRef.current = nextPane
     setActivePaneId(nextPane)
     setLayout(nextLayout)
   }
@@ -2204,10 +2207,8 @@ export default function App(): React.JSX.Element {
     let nextLayout = layoutRef.current
     for (const tab of fileTabsRef.current)
       if (nextLayout && groupOfTab(nextLayout, tab.id)) nextLayout = removeTab(nextLayout, tab.id)
-    layoutRef.current = nextLayout
     const p = activePaneIdRef.current
     const nextPane = nextLayout ? (p && leafOf(nextLayout, p) ? p : firstLeaf(nextLayout).id) : null
-    activePaneIdRef.current = nextPane
     setActivePaneId(nextPane)
     setLayout(nextLayout)
     fileTabsRef.current = []
@@ -3082,12 +3083,11 @@ export default function App(): React.JSX.Element {
   const mirrorsRef = useRef<Mirrors>({})
   /** The Host showed workspaces for these sessions: their mirror tabs, placed once and in the
    *  background, the openAgentTab rule (the agent's work must not take the tab the person is on). The
-   *  ref moves with the tree (dropTabFromTree's rule), so two workspaces that open before a render both
-   *  keep their tab (fix round 1: the second placement overwrote the first). */
+   *  ref moves with the tree (setLayout is write-through), so two workspaces that open before a render
+   *  both keep their tab (fix round 1: the second placement overwrote the first). */
   const openAppTabs = (sessionIds: string[]): void => {
     const root = placeAppTabs(layoutRef.current, sessionIds, activePaneIdRef.current)
     if (root === layoutRef.current) return
-    layoutRef.current = root
     setLayout(root)
   }
   const openAppTabsRef = useRef(openAppTabs)
