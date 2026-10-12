@@ -148,7 +148,7 @@ describe('remote sessions through the Host (Phase 9a)', () => {
   it('a controller refused the size while a local app holds the pty takes it by typing', async () => {
     const h = await rig({ held: true })
     expect(await h.ask('sessions-resize', { id: 'ses-1', cols: 100, rows: 30 })).toMatchObject({ body: { applied: false, reason: 'held' } })
-    await h.ask('sessions-input', { id: 'ses-1', data: '[I' })
+    await h.ask('sessions-input', { id: 'ses-1', data: '\x1b[I' })
     expect(h.pty.sizes).toEqual([])
     await h.ask('sessions-input', { id: 'ses-1', data: 'x' })
     expect(h.pty.sizes).toEqual([[100, 30]])
