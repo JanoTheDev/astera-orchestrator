@@ -10,6 +10,7 @@ import type { HostDriverReport, RollStateEvent, SessionInfo, WorktreeInfo } from
 import type { SlackForwardedEvent } from '../slack/forwarded'
 import type { McpHttpUrl } from '../mcp/httpUrls'
 import {
+  HOST_FEATURE_EVENTS,
   HOST_FEATURE_ORCH,
   HOST_FEATURE_REQUESTS,
   HOST_PROTOCOL,
@@ -20,10 +21,10 @@ import {
   type ProtocolMismatchMessage
 } from '../publicProtocol'
 
-// The connect and command messages, the protocol number and the orch and receipts features are the SDK package's
-// (packages/client/src/protocol.ts), reached through publicProtocol.ts, the door the renderer may use too; the
-// unions below name them.
-export { HOST_FEATURE_ORCH, HOST_FEATURE_REQUESTS, HOST_PROTOCOL }
+// The connect and command messages, the protocol number and the orch, receipts and events features are the SDK
+// package's (packages/client/src/protocol.ts), reached through publicProtocol.ts, the door the renderer may use too;
+// the unions below name them.
+export { HOST_FEATURE_EVENTS, HOST_FEATURE_ORCH, HOST_FEATURE_REQUESTS, HOST_PROTOCOL }
 export type { ClientHelloMessage, HostHelloMessage, OrchCallMessage, OrchResultMessage, ProtocolMismatchMessage }
 
 /** The proc-* family (line processes). Announced in `hello.features` by a Host that has it; a Host

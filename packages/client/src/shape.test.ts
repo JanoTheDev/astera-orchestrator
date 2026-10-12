@@ -410,3 +410,132 @@ describe('publicFor runs-completion', () => {
     expect(publicFor('runs-completion', extra)).toEqual(full)
   })
 })
+
+// SDK 1d: the public events (SDK spec §6). The envelope is an allowlist like any answer, and the payload is the public
+// DTO of its type, shaped by the same rules as the read that returns that object.
+describe('the event types', () => {
+  it('are the fifteen the Host produces, once each, frozen', () => {
+    expect(pkg.EVENT_TYPES).toEqual([
+      'job.created',
+      'job.updated',
+      'run.started',
+      'run.completed',
+      'run.failed',
+      'task.started',
+      'task.completed',
+      'task.failed',
+      'question.created',
+      'question.answered',
+      'completion.started',
+      'completion.failed',
+      'completion.repair_started',
+      'completion.converged',
+      'completion.exhausted'
+    ])
+    expect(Object.isFrozen(pkg.EVENT_TYPES)).toBe(true)
+  })
+})
+
+describe('shapeEvent', () => {
+  const envelope = { id: 'ev_0123456789ab_1', sequence: 1, occurredAt: 'T', projectId: 'proj_1', jobId: 'job_1', runId: 'run_1', taskId: 'tsk_1' }
+
+  it('keeps the envelope fields only and creates none', () => {
+    expect(pkg.shapeEvent({ ...envelope, type: 'question.created', boot: 'x', payload: {} })).toEqual({ ...envelope, type: 'question.created', payload: {} })
+    expect(pkg.shapeEvent({ id: 'ev_0123456789ab_2', type: 'job.created', sequence: 2, occurredAt: 'T', payload: {} })).toEqual({
+      id: 'ev_0123456789ab_2',
+      type: 'job.created',
+      sequence: 2,
+      occurredAt: 'T',
+      payload: {}
+    })
+  })
+
+  it('shapes a Job payload as jobs get does, without the folded Run', () => {
+    const job = { id: 'job_1', objective: 'o', cwd: 'D:/p', createdAt: 'T', paused: true, outcome: 'paused', progress: { done: 0, total: 1 }, questionsOpen: 0 }
+    expect(pkg.shapeEvent({ ...envelope, type: 'job.updated', payload: { ...job, run: { id: 'run_1' }, secret: 1 } })).toEqual({ ...envelope, type: 'job.updated', payload: job })
+  })
+
+  it('shapes a Run payload as runs list does, without waitingForApproval', () => {
+    const run = { id: 'run_1', jobId: 'job_1', ordinal: 1, createdAt: 'T', outcome: 'completed', progress: { done: 1, total: 1 }, questionsOpen: 0 }
+    expect(pkg.shapeEvent({ ...envelope, type: 'run.completed', payload: { ...run, waitingForApproval: 2, coordinatorStop: {} } })).toEqual({
+      ...envelope,
+      type: 'run.completed',
+      payload: run
+    })
+  })
+
+  it('shapes a Task payload, its checks and review issues included', () => {
+    const task = {
+      id: 'tsk_1',
+      runId: 'run_1',
+      title: 't',
+      spec: 's',
+      spec_truncated: false,
+      deps: [],
+      status: 'failed',
+      checks: [{ configId: 'c', name: 'tests', status: 'failed', exitCode: 1 }],
+      reviewIssues: [{ id: 'r', severity: 'high', blocking: true, title: 't', description: 'd' }],
+      consecutiveFailures: 1,
+      createdAt: 'T',
+      updatedAt: 'T'
+    }
+    const extra = {
+      ...task,
+      checks: [{ ...task.checks[0], log: 'x' }],
+      reviewIssues: [{ ...task.reviewIssues[0], reviewer: 'x' }],
+      repairs: 2
+    }
+    expect(pkg.shapeEvent({ ...envelope, type: 'task.failed', payload: extra })).toEqual({ ...envelope, type: 'task.failed', payload: task })
+  })
+
+  it('shapes a Question payload', () => {
+    const question = { id: 'gat_1', runId: 'run_1', taskId: 'tsk_1', question: 'q', status: 'resolved', resolution: 'retry', createdAt: 'T', resolvedAt: 'U' }
+    expect(pkg.shapeEvent({ ...envelope, type: 'question.answered', payload: { ...question, answeredBy: 'x' } })).toEqual({
+      ...envelope,
+      type: 'question.answered',
+      payload: question
+    })
+  })
+
+  it('shapes a TaskCompletion payload at every level', () => {
+    const row = {
+      taskId: 'tsk_1',
+      title: 't',
+      state: 'fixing',
+      attempt: 1,
+      maxAttempts: 3,
+      detail: { taskId: 'tsk_1', checks: [{ configId: 'c', name: 'tests', status: 'failed', exitCode: 1 }], blockingIssues: [], otherIssueCount: 0, suspiciousFiles: [], policyChanged: false },
+      failureSummary: 'tests failed',
+      lastFailure: 'tests failed'
+    }
+    const extra = JSON.parse(JSON.stringify(row))
+    extra.secret = 1
+    extra.detail.secret = 1
+    extra.detail.checks[0].secret = 1
+    expect(pkg.shapeEvent({ ...envelope, type: 'completion.repair_started', payload: extra })).toEqual({
+      ...envelope,
+      type: 'completion.repair_started',
+      payload: row
+    })
+  })
+
+  it('gives an unknown type an empty payload', () => {
+    expect(pkg.shapeEvent({ ...envelope, type: 'run.cancelled', payload: { id: 'run_1' } })).toEqual({ ...envelope, type: 'run.cancelled', payload: {} })
+  })
+
+  it('leaves what is not an object alone', () => {
+    expect(pkg.shapeEvent(null)).toBe(null)
+    expect(pkg.shapeEvent('x')).toBe('x')
+  })
+})
+
+describe('publicFor events-poll', () => {
+  it('keeps events, cursor and gap, and shapes each event', () => {
+    const event = { id: 'ev_0123456789ab_1', type: 'question.created', sequence: 1, occurredAt: 'T', payload: { id: 'gat_1', secret: 1 }, boot: 'x' }
+    expect(publicFor('events-poll', { events: [event], cursor: 'ev_0123456789ab_1', gap: false, extra: 1 })).toEqual({
+      events: [{ id: 'ev_0123456789ab_1', type: 'question.created', sequence: 1, occurredAt: 'T', payload: { id: 'gat_1' } }],
+      cursor: 'ev_0123456789ab_1',
+      gap: false
+    })
+  })
+})

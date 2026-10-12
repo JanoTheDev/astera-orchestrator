@@ -3,7 +3,7 @@
 // in the package's exports map, so a consumer of the published package cannot depend on it.
 export * from './index.js'
 export * from './fields.js'
-export { publicEvent, publicFor } from './shape.js'
+export { publicEvent, publicFor, shapeEvent } from './shape.js'
 export * from './framing.js'
 export * from './hostKey.js'
 export * from './socketDir.js'

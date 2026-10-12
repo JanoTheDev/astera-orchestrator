@@ -44,6 +44,10 @@ export const HOST_FEATURE_REQUESTS = 'requests'
  *  for an answer that never comes. The CLI, the MCP link and @astera-app/client check for it first. */
 export const HOST_FEATURE_ORCH = 'orch'
 
+/** `events-poll` (SDK 1d): the Host keeps a public event log beside its state and answers reads of it. A Host from
+ *  before it answers the command 501; @astera-app/client checks for this first and says what to update. */
+export const HOST_FEATURE_EVENTS = 'events'
+
 /** `app` is a version string: the app (`main/host/client.ts`) sends its version, the CLI (through
  *  connect.ts) its own, and @astera-app/client `sdk-<version>`. The first two can be the identical
  *  string, so it cannot say *what* is connecting. `role` does.

@@ -5,6 +5,8 @@ import { describe, it, expect } from 'vitest'
 import * as types from './types.js'
 import type {
   AnsweredQuestion,
+  AsteraEvent,
+  EventList,
   Job,
   JobWithRun,
   ListResult,
@@ -99,6 +101,20 @@ const endings = [
 const stopped = { runId: 'run_1', stopped: 2, paused: true, coordinatorStopped: true } satisfies StopResult
 const listed = { items: [project] } satisfies ListResult<Project>
 const withRun = { ...job, run } satisfies JobWithRun
+// SDK 1d: an event's payload is the DTO of its type
+const runEvent = { id: 'ev_0123456789ab_7', type: 'run.completed', sequence: 7, occurredAt: 'T', jobId: 'job_1', runId: 'run_1', payload: run } satisfies AsteraEvent<'run.completed'>
+const repairEvent = {
+  id: 'ev_0123456789ab_8',
+  type: 'completion.repair_started',
+  sequence: 8,
+  occurredAt: 'T',
+  runId: 'run_1',
+  taskId: 'tsk_1',
+  payload: completion.tasks[0]
+} satisfies AsteraEvent<'completion.repair_started'>
+const page = { items: [runEvent, repairEvent], nextCursor: 'ev_0123456789ab_8', gap: false } satisfies EventList
+// @ts-expect-error a job.created event carries a Job, not a Run
+const wrongPayload: AsteraEvent<'job.created'> = { id: 'ev_0123456789ab_9', type: 'job.created', sequence: 9, occurredAt: 'T', payload: run }
 
 describe('the public DTOs', () => {
   it('are types only', () => {
@@ -106,6 +122,6 @@ describe('the public DTOs', () => {
   })
 
   it('take the reference samples', () => {
-    expect([project, job, run, task, detail, question, answered, completion, event, endings, stopped, listed, withRun].length).toBe(13)
+    expect([project, job, run, task, detail, question, answered, completion, event, endings, stopped, listed, withRun, runEvent, repairEvent, page, wrongPayload].length).toBe(17)
   })
 })
