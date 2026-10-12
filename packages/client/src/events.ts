@@ -1,5 +1,5 @@
 // astera.events (SDK spec §6): the Host's public event log, read a page at a time (`list`) or followed (`subscribe`),
-// both over the Host command `events-poll`.
+// with `cursor` saying where the next event will be, all over the Host command `events-poll`.
 //
 // **At least once, never twice in a row.** The Host gives each event an id that never repeats; a subscription drops
 // an id it already yielded (the last 1000), and a consumer that keeps a cursor across runs drops one it has seen.
@@ -38,6 +38,9 @@ export interface SubscribeOptions<K extends EventType = EventType> {
 export interface EventsApi {
   /** One page of events, with the cursor to read on from. Does not wait. */
   list(filter?: ListEventsFilter, options?: ReadOptions): Promise<EventList>
+  /** Where the next event will be: a cursor for `subscribe({ after })` or `list({ after })`. Taken before reading the
+   *  objects, a subscription from it misses nothing that changed after the read. */
+  cursor(options?: ReadOptions): Promise<string>
   /** The events as they happen, and a `{ type: 'gap' }` where some were lost. Ends only on `return()`, `break`, the
    *  signal, or an error waiting cannot mend. */
   subscribe<K extends EventType = EventType>(options?: SubscribeOptions<K>): AsyncIterableIterator<AsteraEvent<K> | EventGap>
@@ -126,6 +129,11 @@ export function createEventsApi(
       throw invalid(`types is a non-empty list of: ${EVENT_TYPES.join(', ')}`)
     return { types: types.join(',') }
   }
+  /** A read's call options: only the ones given, never a request id. */
+  const readCall = (options: ReadOptions | undefined): CallOptions => ({
+    ...(options?.signal !== undefined ? { signal: options.signal } : {}),
+    ...(options?.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {})
+  })
   /** One `events-poll` answer, checked: a page is events, a cursor and a gap mark. */
   const pageOf = (body: unknown): { events: AsteraEvent[]; cursor: string; gap: boolean } => {
     const p = body as { events?: unknown; cursor?: unknown; gap?: unknown } | null
@@ -178,12 +186,12 @@ export function createEventsApi(
         args.limit = filter.limit
       }
       needEvents()
-      const callOptions: CallOptions = {
-        ...(options?.signal !== undefined ? { signal: options.signal } : {}),
-        ...(options?.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {})
-      }
-      const page = pageOf((await call('events-poll', { ...args, waitMs: 0 }, callOptions)).body)
+      const page = pageOf((await call('events-poll', { ...args, waitMs: 0 }, readCall(options))).body)
       return { items: page.events, nextCursor: page.cursor, gap: page.gap }
+    },
+    cursor: async (options) => {
+      needEvents()
+      return pageOf((await call('events-poll', { tail: true }, readCall(options))).body).cursor
     },
     subscribe: <K extends EventType = EventType>(opts: SubscribeOptions<K> = {}) => stoppable((signal) => follow<K>(opts, signal), opts.signal)
   }

@@ -88,6 +88,33 @@ describe('astera.events.list', () => {
   })
 })
 
+// SDK 1e: the cursor a reader takes before reading the state, so a subscription from it misses nothing
+describe('astera.events.cursor', () => {
+  it('asks the Host where the next event will be, reading none', async () => {
+    const s = scripted([page([], `ev_${A}_7`)])
+    expect(await createEventsApi(s.call, withEvents).cursor()).toBe(`ev_${A}_7`)
+    expect(s.sent).toEqual([{ cmd: 'events-poll', args: { tail: true }, o: {} }])
+  })
+
+  it('passes its signal and deadline, and no request id', async () => {
+    const s = scripted([page([], `ev_${A}_7`)])
+    const signal = new AbortController().signal
+    await createEventsApi(s.call, withEvents).cursor({ signal, timeoutMs: 900 })
+    expect(s.sent[0].o).toEqual({ signal, timeoutMs: 900 })
+  })
+
+  it('says to update a Host that keeps no event log, before any call', async () => {
+    const s = scripted([])
+    expect((await rejection(createEventsApi(s.call, () => ['orch']).cursor())).code).toBe('VERSION_MISMATCH')
+    expect(s.sent).toEqual([])
+  })
+
+  it('refuses an answer that is not a page', async () => {
+    const s = scripted([{ cursor: 7 }])
+    expect((await rejection(createEventsApi(s.call, withEvents).cursor())).code).toBe('FAILED')
+  })
+})
+
 describe('astera.events.subscribe', () => {
   it('starts at the tail, then waits a window at a time from its cursor', async () => {
     const s = scripted([page([], `ev_${A}_4`), page([event(5)], `ev_${A}_5`), page([event(6), event(7)], `ev_${A}_7`)])

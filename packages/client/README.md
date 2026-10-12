@@ -111,6 +111,9 @@ for await (const e of astera.events.subscribe({ types: ['run.completed', 'run.fa
   `list({ after, types, limit })` answers one page `{ items, nextCursor, gap }` from the oldest event the Host holds,
   without waiting: pass `nextCursor` back to read on, or to `subscribe`. Unlike the other lists, `nextCursor` is always
   set (it is where the next event will be); you have caught up when `items` comes back empty.
+- `cursor()` answers where the next event will be. Take it before reading the objects, then
+  `subscribe({ after: cursor })`: nothing that changes after the read is missed. An object the read and an event
+  both name comes twice; drop the second by the object's id.
 - A `{ type: 'gap' }` (or `gap: true`) means events between your cursor and the next one are gone: older than the
   Host keeps, or a cursor from a log this Host does not hold. The Host keeps its most recent events across restarts:
   two files of up to 1000 events or 4 MiB each, so between 1000 and 2000 events, fewer when payloads are large (a
