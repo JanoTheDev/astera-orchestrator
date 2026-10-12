@@ -53,6 +53,8 @@ describe('parseArgs', () => {
   it('값이 - 인 플래그는 stdin 대상으로 표시한다', () => {
     const r = parseArgs(['task-create', '--spec', '-']) as { wantsStdin: string[] }
     expect(r.wantsStdin).toEqual(['spec'])
+    // Security audit SEC-6: a pairing string off the command line, where other users of the machine can read it.
+    expect(parseArgs(['runtimes', 'add', '--pair', '-'])).toMatchObject({ cmd: 'runtimes-add', wantsStdin: ['pair'] })
   })
   it('--deps는 JSON 배열로 파싱한다', () => {
     const r = parseArgs(['task-create', '--deps', '["tsk_1","tsk_2"]']) as {
@@ -196,7 +198,7 @@ describe('공개 표면 — 두 낱말 명령', () => {
   })
 
   it('동사가 없으면 무엇을 칠 수 있는지 말한다', () => {
-    expect(parseArgs(['projects'])).toEqual({ error: 'projects needs one of: list, get, find' })
+    expect(parseArgs(['projects'])).toEqual({ error: 'projects needs one of: list, get, find, add' })
     expect(parseArgs(['jobs'])).toEqual({ error: 'jobs needs one of: list, get, wait, run, create' })
   })
 
@@ -362,5 +364,21 @@ describe('parseArgs — the global --project, before the command', () => {
     expect(parseArgs(['--project', 'jobs'])).toEqual({ error: 'a command is required (try: help)' })
     expect(parseArgs(['--project', '--verbose', 'jobs', 'list'])).toEqual({ error: '--project needs a path' })
     expect(parseArgs(['--project'])).toEqual({ error: '--project needs a path' })
+  })
+})
+
+// Remote runtime design §2.8: `--runtime <id|name>` joins the leading flags, before the command only.
+describe('parseArgs — the global --runtime, before the command', () => {
+  it('is read before the command and kept out of args', () => {
+    const r = parseArgs(['--runtime', 'rt_a', 'jobs', 'list'])
+    expect(r).toMatchObject({ cmd: 'jobs-list', runtime: 'rt_a' })
+    expect((r as { args: Record<string, unknown> }).args.runtime).toBeUndefined()
+  })
+  it('sits with the other leading flags in any order', () => {
+    expect(parseArgs(['--verbose', '--runtime', 'office pc', '--project', '/p', 'jobs', 'list'])).toMatchObject({ cmd: 'jobs-list', runtime: 'office pc', project: '/p', verbose: true })
+  })
+  it('needs a value', () => {
+    expect(parseArgs(['--runtime'])).toEqual({ error: '--runtime needs a runtime id or name' })
+    expect(parseArgs(['--runtime', '--json', 'jobs', 'list'])).toEqual({ error: '--runtime needs a runtime id or name' })
   })
 })

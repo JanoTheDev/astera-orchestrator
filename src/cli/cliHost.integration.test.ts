@@ -1634,7 +1634,7 @@ describe('MCP against the Host', { timeout: 60_000 }, () => {
       const { h, projectId } = await projectRig()
       const mcp = await mcpClient(h)
       const accounts = await mcp.call('list_accounts', {})
-      expect(accounts.structuredContent).toEqual({ accounts: [{ id: h.accountId, label: 'a', provider: 'claude', default: true }] })
+      expect(accounts.structuredContent).toEqual({ accounts: [{ id: h.accountId, label: 'a', provider: 'claude', default: true, signedIn: true }] })
       const created = await mcp.call('create_job', { projectId, objective: 'default coordinator' })
       expect(created.isError, created.content[0]?.text).toBeFalsy()
       expect(h.state().jobs.find((j) => j.objective === 'default coordinator')?.coordinatorAccountId).toBe(h.accountId)
@@ -1758,7 +1758,7 @@ describe('MCP against the Host', { timeout: 60_000 }, () => {
   it('astera mcp status is 0 with a Host that speaks mcp and 3 without one', async () => {
     const h = await hostRig({ repo: false })
     const up = okData(await astera(['mcp', 'status'], h.env), 'mcp status')
-    expect(up).toMatchObject({ transport: 'stdio', host: { running: true, version: '9.9.9', protocol: HOST_PROTOCOL, mcp: true }, access: 'control', tools: 34 })
+    expect(up).toMatchObject({ transport: 'stdio', host: { running: true, version: '9.9.9', protocol: HOST_PROTOCOL, mcp: true }, access: 'control', tools: 36 })
     await h.stop()
     const down = await astera(['mcp', 'status'], h.env)
     expect(down.code).toBe(3)

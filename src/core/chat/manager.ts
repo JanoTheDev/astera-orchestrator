@@ -18,7 +18,12 @@ import { providerOf } from '../providers/meta'
 import { descriptorOf, type ProviderDescriptor } from '../providers/descriptor'
 import type { ProcFactory, ProcLike } from '../sessions/proc'
 import { cliEnvFor } from '../sessions/cliEnv'
-import { prependToPath } from '../sessions/manager'
+import { EXITED_SESSIONS_KEPT, prependToPath } from '../sessions/manager'
+
+export { EXITED_SESSIONS_KEPT }
+
+/** Last states of exited chats dropped from the list, kept so their tabs can still show how they ended (final review m3). */
+export const DROPPED_STATES_KEPT = 1024
 import { buildCodexAppServerCommand, buildClaudeChatCommand } from '../sessions/commands'
 import type { PtyMeta } from '../host/protocol'
 import type { ChatAdapter, ChatAnswer, ChatEvent, ChatRequest, ChatState, PermissionMode, PermissionModeChoice, UnattendedPermission } from './types'
@@ -559,7 +564,7 @@ export class ChatSessionManager {
    *  process itself: nothing removes the map entry on exit). */
   state(id: string): ChatState | null {
     const live = this.sessions.get(id)
-    if (!live) return null
+    if (!live) return this.droppedStates.get(id) ?? null
     return {
       ...live.adapter.state(),
       outlivesApp: live.proc.outlivesApp === true,
@@ -678,6 +683,31 @@ export class ChatSessionManager {
     if (!live) return
     live.off()
     this.sessions.delete(id)
+    this.exitedOrder.delete(id)
+  }
+
+  /** Exited chats, oldest exit first: past EXITED_SESSIONS_KEPT the oldest goes, adapter and all (second pass M2-5). */
+  private exitedOrder = new Set<string>()
+  /** The last state of a chat dropped that way, so its tab still shows how it ended (final review m3); the oldest of
+   *  DROPPED_STATES_KEPT goes first. */
+  private droppedStates = new Map<string, ChatState>()
+  private keepExited(id: string): void {
+    this.exitedOrder.delete(id)
+    this.exitedOrder.add(id)
+    for (const old of [...this.exitedOrder]) {
+      if (this.exitedOrder.size <= EXITED_SESSIONS_KEPT) return
+      this.exitedOrder.delete(old)
+      if (this.sessions.get(old)?.info.status !== 'exited') continue
+      const last = this.state(old)
+      this.forget(old)
+      if (last) {
+        this.droppedStates.set(old, last)
+        for (const k of this.droppedStates.keys()) {
+          if (this.droppedStates.size <= DROPPED_STATES_KEPT) break
+          this.droppedStates.delete(k)
+        }
+      }
+    }
   }
 
   /** Every open server request of the session, the one on screen first. Empty for an unknown id. An
@@ -752,6 +782,7 @@ export class ChatSessionManager {
     } else if (e.type === 'exit') {
       live.info.status = 'exited'
       live.info.exitCode = e.code
+      this.keepExited(id)
       // design F5: whether this exit may offer the "skip the toolchain and retry" button — **never**
       // decided from the death shape alone. Every condition has to hold:
       //  - `live.retry !== null` — nothing to rebuild a respawn from (an adopted session).

@@ -1,4 +1,6 @@
 import { ipcMain, dialog, app, shell, session, webContents, type BrowserWindow, type WebContents } from 'electron'
+import { killProcessTree } from '../core/run/kill'
+import { cachedByStamp } from '../core/stampCache'
 import { promises as fs, existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
@@ -63,7 +65,7 @@ import { hostRollConfigPath, readRollConfigKey } from '../core/rolling/config'
 import { DataBatcher } from '../core/sessions/batcher'
 import { BusyScanner } from '../core/terminal/busy'
 import { isOnlyTerminalReports } from '../core/terminal/reports'
-import type { Account, CoreEvents, HistoryPageRequest, HistoryProjectsPageRequest, HostHoldings, HostStatus, OrchHostGate, OrchSnapshot, Provider, RateLimitWindow, ResumeStrategy, RollStateEvent, RunConfig, RunStatus, ScheduleConfig, SessionInfo } from '../core/types'
+import type { Account, CoreEvents, HistoryPageRequest, HistoryProjectsPageRequest, HostHoldings, HostStatus, OrchHostGate, OrchSnapshot, RunDetail, CompletionDetail, Provider, RateLimitWindow, ResumeStrategy, RollStateEvent, RunConfig, RunStatus, ScheduleConfig, SessionInfo } from '../core/types'
 import { providerOf } from '../core/providers/meta'
 import { orchAccountsFor } from '../core/accounts/accountsFile'
 import { descriptorOf } from '../core/providers/descriptor'
@@ -71,7 +73,7 @@ import { readGeneratorSettings } from '../core/understanding/generatorSettings'
 import type { ModelListResult } from '../core/models/types'
 import { attachmentNameOf } from '../core/files/attachmentName'
 import { installCommandFor } from '../core/install/cliInstall'
-import { locateCli } from './cliLocate'
+import { addToProfile, findAfterInstall, locateCli, runInstallCommand } from './cliLocate'
 import { mcpClientsStatus, registerMcpClientNow } from './mcpClients'
 import { mcpServerFor, shimPathFor } from '../core/install/mcpRegistration'
 import { prependToPath } from '../core/sessions/manager'
@@ -93,6 +95,7 @@ import { answerOrchAct } from './orchestration/answerAct'
 import { appDiscardRunWorktree, appTimerTick, stopRunFromPanel } from './orchestration/yieldDispatch'
 import { HOST_UNRESPONSIVE_MS } from '../core/host/unresponsive'
 import { readUnderstandingFile } from '../core/understanding/read'
+import { readChanges, readFileDiff } from '../core/git/changes'
 import { readWorkUnitsFile } from '../core/workUnit/store'
 import { HandoffStore } from './handoff/store'
 import { createAppJournal } from './continuity/appJournal'
@@ -100,9 +103,13 @@ import { AppUnderstandingStore, createAppUnderstanding } from './understanding/a
 import { AppWorkUnitStore, createAppWorkUnits } from './workUnit/appWorkUnits'
 import { promptWriteEventOf } from '../core/continuity/promptWrite'
 import { readGitSummary } from '../core/orchestration/exec/gitSummary'
-import { RecoveryReconciler } from './recovery/reconciler'
-import { executeRecovery } from './recovery/execute'
-import { readGitFacts } from './recovery/git'
+import { RecoveryReconciler } from '../core/recovery/reconciler'
+import { executeRecovery } from '../core/recovery/execute'
+import { readGitFacts } from '../core/recovery/git'
+import { createRecoveryOwner } from './host/recoveryOwner'
+import { createRemoteRuntimes } from './remote/runtimes'
+import { createRemoteStreams, type RemoteStreams } from './remote/remoteStreams'
+import { createOrchRouter } from './remote/orchRouter'
 import type { Handoff } from '../core/handoff/types'
 import { WorkUnitCollector, type CollectorSession } from '../core/workUnit/collector'
 import { readGitRef, isAncestorOf, readChangedFiles } from '../core/workUnit/gitProbe'
@@ -140,7 +147,8 @@ import type { ChatAnswer, ChatContextUsage, RateLimitInfo } from '../core/chat/t
 import { chatSessionUsage } from '../core/usage/chatSession'
 import { isPermissionMode, isUnattendedPermission } from '../core/chat/types'
 import { performRepair, repairOnce, repairTargetFor, type RepairDeps } from '../core/orchestration/exec/repair'
-import { sameSnapshot, snapshotFor, jobsForProject, outcomeOf } from '../core/orchestration/view'
+import { snapshotFor, jobsForProject, outcomeOf } from '../core/orchestration/view'
+import { createOrchPush } from './orchPush'
 import { ensureProject } from '../core/orchestration/projects'
 import { resolveRunId } from '../core/orchestration/state'
 import { runRecordInputOf } from '../core/orchestration/runRecord'
@@ -203,8 +211,11 @@ import { createFileIndex } from './fileIndex'
 import { filterFilePaths } from '../core/files/fileMatch'
 import { sortEntries, isPathWithin, isSamePath, renamePlan, resolveProjectRootFrom } from '../core/files/tree'
 import { OUTSIDE_ROOT, writeWithinRoot } from '../core/files/atomicWrite'
-import { resolveWindowsExecutable, windowsSpawn } from '../core/sessions/windowsExecutable'
+import { warmWindowsExecutable, windowsSpawn } from '../core/sessions/windowsExecutable'
 import { ensureOnWindowsPath } from '../core/sessions/windowsPath'
+import { ensureInstallDirOnPath } from '../core/sessions/installDirPath'
+import { claudeCliRunner, claudeResumeTarget } from '../core/sessions/claudeBackground'
+import { cliEnvFor } from '../core/sessions/cliEnv'
 import { writeFilesToClipboard } from './clipboardFiles'
 import { validateName, uniqueName, canMove, canCopy } from '../core/files/ops'
 import { copyTree, removeTree, removeWithSnapshot } from '../core/files/fsTree'
@@ -687,6 +698,18 @@ export function liveChatOnThread(threadId: string, sessions: SessionInfo[]): Ses
   return sessions.find((s) => s.status === 'running' && s.threadId === threadId) ?? null
 }
 
+/**
+ * Whether a claude chat session's stored transcript survives a `ready`. A `ready` naming a new thread
+ * is a `/clear`, whose file does not exist yet, so the old one goes. One naming the thread the file
+ * already belongs to is a resumed session coming up: its file was found at spawn so the conversation
+ * view could read it from its first look, and dropping it would put that view back to "no record yet"
+ * until the lookup lands again. Claude names a transcript `<session id>.jsonl`, which is what ties the
+ * two. Pure for the same reason as `liveChatOnThread`.
+ */
+export function keepsChatTranscriptOnReady(stored: string | undefined, threadId: string): boolean {
+  return stored !== undefined && path.basename(stored) === `${threadId}.jsonl`
+}
+
 export { coordinatorBriefName, staleSpecFiles } from '../core/orchestration/exec/specFiles'
 
 /**
@@ -950,12 +973,21 @@ export function registerIpc(
   // where only those arrive. isMainFrame excludes a sub-frame's own navigation; isSameDocument excludes
   // an in-page navigation (a hash change), which does not tear anything down and is not this app's own
   // reload.
+  // Phase 9b: remote session tab streams, made below with the Runtime clients; declared here for the reload observer.
+  let remoteStreams: RemoteStreams | null = null
+  /** What the old document held that nobody will let go of (second pass M2-4: a reload never unsubscribed its GitHub and
+   *  usage panels, and both polls ran on for the app's life). */
+  const onNewDocument: Array<() => void> = []
   win.webContents.on('did-start-navigation', (...args: unknown[]) => {
     const first = typeof args[0] === 'object' && args[0] !== null ? (args[0] as Record<string, unknown>) : null
     const isMainFrame = typeof first?.isMainFrame === 'boolean' ? first.isMainFrame : args[3]
     const isSameDocument = typeof first?.isSameDocument === 'boolean' ? first.isSameDocument : args[2]
     if (isMainFrame !== true || isSameDocument === true) return
     conversationSessions.closeAll()
+    // The new document has no remote session tabs (Phase 9b review I2): their streams would keep the Runtime sending
+    // output nobody shows, and a tab opened again would get its tail with no checkpoint before it.
+    remoteStreams?.close()
+    for (const forget of onNewDocument) forget()
   })
 
   // Session working/idle detection: decided from the window-title OSC in the output, and session:busy
@@ -1329,6 +1361,9 @@ export function registerIpc(
    *  outside it (openContinuity, and the settings toggle). Same convention as releaseCoordinator. */
   let recovery: RecoveryReconciler | null = null
   let buildRecovery: (() => void) | null = null
+  /** Remote runtime design §2.6: a Host that announces `recovery` recovers, and this app's reconciler then acts on
+   *  nothing (its three doors below ask this). Read per ask; the last answer stands while the Host is away. */
+  const recoveryOwner = createRecoveryOwner(() => hostClient?.status() ?? { connected: false, features: [] })
   /** Turns journaling on. Nothing is opened here: appJournal opens its reader, or its own writer, at
    *  the first use that needs one, and a writer that cannot open is logged there and never stops
    *  orchestration. Not yet assigned on the very first call (bootOrch turns it on before it builds the
@@ -1396,20 +1431,17 @@ export function registerIpc(
    *  Holds the **repository** path, not the path the renderer sent: orch.list runs it through
    *  repoPathOf first (see there). Storing the mapped value rather than the raw one is what keeps the
    *  push and the reply agreeing — pushOrchState folds on this variable, so a subscription armed for
-   *  a worktree's repo must not later be pushed for the worktree itself. */
-  let orchProject: string | null = null
-  /** The snapshot the renderer is currently holding for orchProject — whatever was last handed over,
-   *  by orch.list's return value or by a push. Kept so an unchanged fold can be dropped instead of
-   *  re-sent (see sameSnapshot); null means it holds nothing for this project yet. */
-  let orchSent: OrchSnapshot | null = null
+   *  a worktree's repo must not later be pushed for the worktree itself.
+   *
+   *  That project, and the snapshot the renderer holds for it (kept so an unchanged fold is dropped
+   *  instead of re-sent), live in `orchPushes` below (main/orchPush.ts): orch.list calls its `watch`,
+   *  orch.unwatch its `unwatch`, and every commit its `push`, which folds once per tick (audit M1). */
   /** Bumped by every call that settles the subscription (orch.list, orch.unwatch). orch.list captures
    *  it before its await and re-checks after: **state set before an await is not state you may trust
    *  after it.** Without the re-check, unwatch racing an in-flight list re-arms a subscription the
    *  renderer has turned off (and nothing turns it off again), and two overlapping list calls can
    *  settle in the wrong order, leaving main pushing project A to a renderer showing B. */
   let orchRequest = 0
-  /** The last state pushOrchState folded, so a presence answer that lands later can fold it again. */
-  let orchLastPushed: OrchState | null = null
   /** 워크트리 폴더가 아직 있는가 — 비동기로 묻고, 시간 제한이 있고, 캐시된다(core/worktrees/presence.ts).
    *  **푸시 경로는 캐시만 읽는다.** 동기 existsSync 였을 때는 네트워크 공유·OneDrive·`\\wsl$` 위의
    *  워크트리 하나가 모든 setState 마다 메인 스레드를 20~60초씩 세웠다. 답이 아직 없으면 unknown 이고
@@ -1418,7 +1450,7 @@ export function registerIpc(
   const worktreePresence = new PresenceCache({
     onChange: createPresenceRepush<OrchState>({
       // orch.list 가 접은 상태는 pushOrchState 를 지나지 않으므로 지금 상태를 먼저 읽는다
-      current: () => (orch ? orch.deps.getState() : orchLastPushed),
+      current: () => (orch ? orch.deps.getState() : orchPushes.lastPushed()),
       push: (state) => pushOrchState(state),
       log: orchLog
     }),
@@ -1445,23 +1477,15 @@ export function registerIpc(
       (p) => worktreePresence.peek(p) !== 'missing'
     )
   }
-  const pushOrchState = (state: OrchState): void => {
-    orchLastPushed = state
-    if (orchProject === null) return // the renderer has not asked for a project, or it unwatched
-    // The push is a notification and runs inside the awaited setState (below), so a throw here would
-    // reject a write that has **already been persisted** — every CLI command would start answering
-    // 500 for a state change that in fact succeeded. The fold reads fields the store does not
-    // validate on load (a Dispatch with no startedAt reaches localeCompare), so this is reachable.
-    // Logged rather than swallowed: a fold that throws is a real defect and has to be findable.
-    try {
-      const next = orchSnapshotOf(state, orchProject)
-      if (orchSent !== null && sameSnapshot(orchSent, next)) return
-      orchSent = next
-      send('orch:state', next)
-    } catch (err) {
-      orchLog(`orch:state push failed project=${orchProject}: ${String(err)}`)
-    }
-  }
+  // The push is a notification hung off the awaited setState (below). It folds later in the tick, so a fold that
+  // throws (it reads fields the store does not validate on load) can no longer reject a write already persisted;
+  // orchPush logs it rather than swallowing it, because a fold that throws is a real defect and has to be findable.
+  const orchPushes = createOrchPush({
+    fold: orchSnapshotOf,
+    send: (snapshot) => send('orch:state', snapshot),
+    log: orchLog
+  })
+  const pushOrchState = (state: OrchState): void => orchPushes.push(state)
   /** Why the Jobs view has nothing to draw, when the reason is the Host (see `OrchHostGate`). Null
    *  whenever the snapshot's own emptiness is the honest answer: before `bootOrch` runs at all (every
    *  toggle off — nobody is waiting on anything), and again once it has succeeded. */
@@ -1655,10 +1679,10 @@ export function registerIpc(
    *  and, worse, disarm the retry: the `status` branch looks again only while the map has nothing for
    *  this session. The comparison is sound because the manager assigns `info.threadId` before it calls
    *  its subscribers, so by the time any lookup resolves it already names the newest thread. */
-  const findClaudeChatTranscript = (sessionId: string, accountId: string, threadId: string): void => {
-    if (findingChatTranscript.has(sessionId)) return
+  const findClaudeChatTranscript = (sessionId: string, accountId: string, threadId: string): Promise<void> => {
+    if (findingChatTranscript.has(sessionId)) return Promise.resolve()
     findingChatTranscript.add(sessionId)
-    core.history
+    return core.history
       .transcriptPathById(accountId, threadId)
       .then((p) => {
         if (p && core.chat.info(sessionId)?.threadId === threadId) {
@@ -1764,19 +1788,25 @@ export function registerIpc(
         // written with that conversation's first turn. Dropping the old entry is what re-arms the
         // retry, since the `status` branch below looks again only while the map has nothing for this
         // session, and the pane's follow re-seats itself onto the new file through `sourceFor`.
-        chatTranscripts.delete(sessionId)
+        // A resumed session's file, found at spawn, is this same thread's and stays
+        // (keepsChatTranscriptOnReady).
+        const kept = chatTranscripts.get(sessionId)
+        if (!keepsChatTranscriptOnReady(kept, event.threadId)) chatTranscripts.delete(sessionId)
         // The chain is told the thread id now and the transcript path when the lookup below lands —
         // `applyMeta` applies whichever half it is given and ignores the other, so the two calls
-        // complete the pair between them. The path is null here rather than read from the map because
-        // the line above just dropped it: at `ready` the file this conversation will be written to
-        // does not exist yet. On a `/clear` this same call re-points the chain at the new thread.
-        rolling?.onChatMeta(sessionId, { claudeSessionId: event.threadId, transcriptPath: null })
+        // complete the pair between them. The path is null here unless the file was kept just above:
+        // otherwise at `ready` the file this conversation will be written to does not exist yet. On a
+        // `/clear` this same call re-points the chain at the new thread.
+        rolling?.onChatMeta(sessionId, {
+          claudeSessionId: event.threadId,
+          transcriptPath: chatTranscripts.get(sessionId) ?? null
+        })
         // A `/clear` gives the conversation a new id; the schedule is keyed by the old one, so it is
         // re-keyed here for every ready (a codex thread id never changes, so the scheduler's own
         // same-key guard makes this a no-op there — but claude is the only provider that reaches this
         // branch anyway).
         scheduler?.relearn(sessionId, event.threadId)
-        findClaudeChatTranscript(sessionId, info.accountId, event.threadId)
+        void findClaudeChatTranscript(sessionId, info.accountId, event.threadId)
       }
     } else if (event.type === 'status') {
       attention.set(sessionId, event.status)
@@ -1789,7 +1819,7 @@ export function registerIpc(
       codexRolling?.onChatStatus(sessionId, event.status)
       if (!chatTranscripts.has(sessionId) && core.chat.state(sessionId)?.provider === 'claude') {
         const info = core.chat.info(sessionId)
-        if (info?.threadId) findClaudeChatTranscript(sessionId, info.accountId, info.threadId)
+        if (info?.threadId) void findClaudeChatTranscript(sessionId, info.accountId, info.threadId)
       }
     } else if (event.type === 'rateLimit') {
       // What the limit phrase on a screen is to a pty chain. Only the claude coordinator is told, and
@@ -1811,16 +1841,30 @@ export function registerIpc(
     }
   })
   // run output and status to the renderer
-  core.run.onData = (e) => send('run:data', e)
+  // Batched as session output is (second pass M2-6: one message per pty chunk), and flushed before the status or exit
+  // that must follow the last of it.
+  /** Each run's output length after its last chunk, sent with the batch it ends (second pass R2-7). */
+  const runEnds = new Map<string, number>()
+  const runBatcher = new DataBatcher(16, (runId, data) => send('run:data', { runId, data, end: runEnds.get(runId) }))
+  const terminalBatcher = new DataBatcher(16, (id, data) => send('terminal:data', { id, data }))
+  core.run.onData = (e) => {
+    runEnds.set(e.runId, e.end)
+    runBatcher.push(e.runId, e.data)
+  }
   core.run.onStatus = (e) => {
+    runBatcher.flush()
+    if (e.status === 'exited') runEnds.delete(e.runId)
     send('run:status', e)
     // A validation run's exit comes through this one channel too — RunManager has one onStatus.
     // Every other run's exit flows in as well; TaskValidator ignores a runId that is not a queue head.
     if (e.status === 'exited') orchValidator?.onRunExit({ runId: e.runId, exitCode: e.exitCode ?? 1 })
   }
   // project terminal output and exit to the renderer
-  core.terminal.onData = (e) => send('terminal:data', e)
-  core.terminal.onExit = (e) => send('terminal:exit', e)
+  core.terminal.onData = (e) => terminalBatcher.push(e.id, e.data)
+  core.terminal.onExit = (e) => {
+    terminalBatcher.flush()
+    send('terminal:exit', e)
+  }
   // 트랜스크립트가 바뀌었다는 신호는 이 하나뿐이다 — HistoryIndex 가 계정의 기록 디렉터리를 감시하고
   // 이미 Work Unit 이 쓰려던 것과 같은 값(150ms 디바운스 · 1000ms 상한)으로 접어서 부른다. 감시자를
   // 하나 더 세우지 않고 여기에 얹는다.
@@ -1865,7 +1909,45 @@ export function registerIpc(
   ipcMain.handle('accounts.syncSettings', (_e, id) => core.accountSyncSettings(id))
 
   // sessions (resolving accountId to an Account is a plain lookup)
+
+  /** A Claude resume, pointed at where the conversation actually is: the copy it continued in after
+   *  being sent to the background, and never one a background session still holds — that throws
+   *  `CLAUDE_IN_BACKGROUND`, which the renderer turns into a take-over offer that comes back here with
+   *  `takeOverBackground` (core/sessions/claudeBackground.ts). A chat resume names the conversation
+   *  with `resumeThreadId`, which for claude is the same session id. */
+  async function claudeResumeOpts(opts: any): Promise<any> {
+    const asked: string | undefined = opts.resumeSessionId ?? (opts.kind === 'chat' ? opts.resumeThreadId : undefined)
+    if (!asked) return opts
+    let account: Account
+    try {
+      account = core.accounts.get(opts.accountId)
+    } catch {
+      return opts // the spawn below reports the missing account
+    }
+    if (providerOf(account) !== 'claude') return opts
+    const descriptor = descriptorOf(core.descriptors, account)
+    const target = await claudeResumeTarget({
+      sessionId: asked,
+      transcriptPath:
+        typeof opts.resumeTranscriptPath === 'string' && opts.resumeTranscriptPath ? opts.resumeTranscriptPath : undefined,
+      takeOver: opts.takeOverBackground === true,
+      run: claudeCliRunner(
+        descriptor.cliFile,
+        cliEnvFor({ base: process.env, account, descriptor, homeDir: os.homedir() })
+      )
+    })
+    if (target.sessionId === asked) return opts
+    orchLog(`history resume — ${asked} continued in ${target.sessionId} (sent to the background), resuming that`)
+    return {
+      ...opts,
+      ...(opts.resumeSessionId ? { resumeSessionId: target.sessionId } : { resumeThreadId: target.sessionId }),
+      resumeTranscriptPath: target.transcriptPath
+    }
+  }
+
   async function spawnSession(opts: any): Promise<SessionInfo> {
+    // First, so the guards below look for a live tab on the conversation that will actually be resumed.
+    opts = await claudeResumeOpts(opts)
     // Reopening the conversation of an active rolling chain from history returns the existing tab info
     // instead of spawning — this prevents a fork off the old transcript that the next relay overwrite
     // would erase.
@@ -1934,6 +2016,7 @@ export function registerIpc(
     // win32: a CLI installed since this app started is not on its PATH yet; the Path Windows keeps is
     // read again first (at most every 30 s, and only when the CLI is missing: core/sessions/windowsPath.ts).
     if (account) await ensureOnWindowsPath([providerOf(account)])
+    if (account) await ensureInstallDirOnPath([providerOf(account)]) // macOS and Linux: Claude Code installed since this process started (installDirPath.ts)
     // Resolves and passes the provider of every account in the roll chain — the manager rejects a mix.
     // The rollAccountIds combination the modal settled on is checked here as well.
     //
@@ -2086,6 +2169,12 @@ export function registerIpc(
         unattendedPermission: isUnattendedPermission(opts.unattendedPermission) ? opts.unattendedPermission : 'hold',
         bypassSignal
       })
+      // A claude chat resume's transcript already exists, so it is found now rather than at `ready`:
+      // the conversation view asks for it the moment the tab appears, and an empty answer there reads
+      // "no record yet" until its next retry, two seconds on (measured 2026-10-07). A miss changes
+      // nothing — `ready` and `status` look again as they always did.
+      if (providerOf(account) === 'claude' && opts.resumeThreadId)
+        await findClaudeChatTranscript(chatInfo.id, account.id, opts.resumeThreadId)
       // The schedule is the one feature this slice attaches to a chat session (chat-sessions slice 4
       // design §5.2 / §6). Same call, same provider argument as the pty branch below.
       if (chatInfo.schedule) {
@@ -3067,6 +3156,9 @@ export function registerIpc(
 
     const deps: OrchServerDeps = {
       getState: () => store.get(),
+      // A local Run's changed files and diffs (remote runtime design Phase 10), from this machine's git, as the Host
+      // reads them for a remote one.
+      changes: { read: (repo, base, head) => readChanges(repo, base, head), diff: (repo, base, head, f) => readFileDiff(repo, base, head, f) },
       // Passed in a form that is definitely awaited — the caller's await contract stays. save() itself
       // now serialises writes too, but what that prevents is inversion when two flows overlap; within a
       // single flow, waiting for the previous write before re-reading is still the caller's
@@ -3404,6 +3496,7 @@ export function registerIpc(
       onDispatchLost: (a) =>
         void (
           recovery &&
+          recoveryOwner.appRecovers() &&
           recovery.reconcileOne(a.dispatchId).catch((e) => orchLog(`recovery: reconcileOne failed: ${String(e)}`))
         )
     }
@@ -3462,6 +3555,7 @@ export function registerIpc(
         execute: async (a) => {
           if (recovery !== mine)
             return { ok: false, error: 'recovery was turned off while this attempt was being decided' }
+          if (!recoveryOwner.appRecovers()) return { ok: false, error: 'the Host recovers now, so this app starts nothing' }
           return executeRecovery(a, {
             getState: deps.getState,
             setState: deps.setState,
@@ -3676,8 +3770,9 @@ export function registerIpc(
     // null. A worker recovered in that window would come up with no astera CLI and no
     // ASTERA_SESSION: stranded with a spec file telling it to run commands it does not have — the
     // exact failure this feature exists to prevent.
-    if (recovery)
+    if (recovery && recoveryOwner.appRecovers())
       void recovery.reconcileAll().catch((e) => orchLog(`recovery: boot sweep failed: ${String(e)}`))
+    else if (recovery) orchLog('recovery — the Host recovers lost workers, so this app runs no boot sweep')
     // 완료 수렴 Run 이 재시작으로 멈춘 validating·reviewing Task. 시작은 deps 가 다 갖춰지고 orch 가
     // 선 뒤인 여기다 — startValidation 은 큐에, startReview 는 세션 spawn 에 닿는다.
     //
@@ -4062,6 +4157,7 @@ export function registerIpc(
     send
   })
   void githubPrs.start()
+  onNewDocument.push(() => githubPrs.stop())
   ipcMain.handle('github.status', () => githubPrs.status())
   ipcMain.handle('github.recheck', () => githubPrs.recheck())
   ipcMain.handle('github.prs', () => githubPrs.prs())
@@ -4080,6 +4176,7 @@ export function registerIpc(
     store: core.accountUsage,
     send
   })
+  onNewDocument.push(() => accountUsage.stop())
   ipcMain.handle('usage.accounts', () => accountUsage.usage())
   ipcMain.on('usage.subscribe', () => accountUsage.subscribe())
   ipcMain.on('usage.unsubscribe', () => accountUsage.unsubscribe())
@@ -4095,6 +4192,11 @@ export function registerIpc(
   ipcMain.on('notify.activeSession', (_e, p: { sessionId?: unknown } | null) => {
     const id = typeof p?.sessionId === 'string' ? p.sessionId : null
     desktop?.setActiveSession(id)
+  })
+  // Phase 9b: a remote session began waiting, as the renderer read its Runtime's facts.
+  ipcMain.on('notify.remoteWaiting', (_e, p: { key?: unknown; title?: unknown } | null) => {
+    if (typeof p?.key !== 'string' || p.key === '') return
+    desktop?.remoteInputNeeded(p.key, typeof p.title === 'string' ? p.title : null)
   })
   ipcMain.handle('settings.getDesktopNotify', () => core.appSettings.getDesktopNotify())
   ipcMain.handle('settings.setDesktopNotify', async (_e, next: unknown) => {
@@ -4315,7 +4417,7 @@ export function registerIpc(
   // renderer only asks for with a project open cannot carry it (ruling F41). `orch.hostGate` answers
   // it instead, and is answered whether or not anything here has ever run.
   ipcMain.handle('orch.hostGate', () => orchHostGate)
-  ipcMain.handle('orch.list', async (_e, projectPath: string) => {
+  const orchLocalList = async (projectPath: string): Promise<OrchSnapshot> => {
     const request = ++orchRequest
     // The guard runs on the path as sent — it decides what the renderer is allowed to name, and the
     // mapping below must not be able to widen that. The mapped value never reaches the filesystem;
@@ -4346,15 +4448,14 @@ export function registerIpc(
     // still gets the project it asked for; what it does not get is the subscription, because
     // something more recent already decided what that should be.
     if (request !== orchRequest) return snapshot
-    orchProject = project
     // Recorded as what the renderer now holds — the return value is exactly that, so the dedupe stays
     // correct across a project switch instead of comparing against the previous project's fold.
-    orchSent = snapshot
+    orchPushes.watch(project, snapshot)
     return snapshot
-  })
+  }
   // 스냅샷에 태우지 않고 따로 읽는 이유는 크기다 — Message.body 에는 검증 출력 꼬리가 실리므로
   // 프로젝트의 모든 Run 의 모든 이벤트를 매 쓰기마다 미는 것은 불가능하다. 모달이 열릴 때만 온다.
-  ipcMain.handle('orch.runDetail', async (_e, projectPath: string, runId: string, opts?: { journalPages?: unknown }) => {
+  const orchLocalRunDetail = async (projectPath: string, runId: string, opts?: { journalPages?: unknown }): Promise<RunDetail> => {
     // orch.list 와 같은 가드, 같은 이유 — 경로가 어느 Run 을 볼 수 있는지를 정한다
     await assertAllowedPath(projectPath)
     if (!orch) return { events: [], layers: [], deps: {}, cyclic: [] }
@@ -4384,14 +4485,14 @@ export function registerIpc(
       a.at.localeCompare(b.at)
     )
     return { events, layers, deps, cyclic, journal: { busy: journal.busy, older: journal.older, capped: journal.capped } }
-  })
+  }
   /** 한 Task 가 왜 완료 정책을 못 넘었는가 — 화면이 블록을 펼칠 때 한 번 부른다(설계 §2.2).
    *
    *  `orch.runDetail` 과 같은 소유 가드를, 같은 이유로, 같은 함수(runsForProject)로 쓴다. 그리고
    *  **Task 가 그 Run 의 것인지 한 번 더 본다** — Run 소유만 보고 taskId 를 믿으면 이 문이 남의
    *  Run 의 Task 를 읽는 우회로가 된다. 두 판정 중 하나라도 어긋나면 null 이다: 이유를 구분해 돌려
    *  주면 그 차이가 "그 Task 는 있다" 를 알려 주는 신호가 된다. */
-  ipcMain.handle('orch.completion', async (_e, projectPath: string, runId: string, taskId: string) => {
+  const orchLocalCompletion = async (projectPath: string, runId: string, taskId: string): Promise<CompletionDetail | null> => {
     await assertAllowedPath(projectPath)
     if (!orch) return null
     const project = repoPathOf(core.worktrees.list(), projectPath)
@@ -4403,7 +4504,7 @@ export function registerIpc(
     const completionRunId = resolveRunId(state, runId)
     if (completionRunId === undefined) return null
     return completionForTaskOf(state.tasks, completionRunId, taskId)
-  })
+  }
   // orch.command 의 args 에서 Run id·Task id·Dispatch id 를 읽는 키 — 명령마다 다르고, 짐작이 아니라
   // server.ts 의 switch 를 다시 열어 확인한 값만 적었다: task-create 는 args.runId, run-start·
   // run-merge 는 args.run, run-delete 는 args.id, task-update 는
@@ -4424,7 +4525,10 @@ export function registerIpc(
     'run-merge': 'run',
     'run-pause': 'run',
     'run-resume': 'run',
-    'run-delete': 'id'
+    'run-delete': 'id',
+    // Phase 10: the renderer names the Run as `runId`; a file of another project's Run is not read through this door.
+    'runs-changed-files': 'runId',
+    'runs-diff': 'runId'
   }
   const TASK_ID_ARG: Record<string, string[]> = {
     'task-update': ['id'],
@@ -4461,7 +4565,10 @@ export function registerIpc(
     const runBelongs = (id: string): boolean => owned.has(id)
 
     const runKey = RUN_ID_ARG[cmd]
-    const runId = runKey ? strArg(runKey) : null
+    const named = runKey ? strArg(runKey) : null
+    // A Job id is read as its latest Run, as the commands read it (Phase 10 review I3): otherwise another project's Job
+    // id would be "no such run" here and pass.
+    const runId = named ? (resolveRunId(state, named) ?? named) : null
     if (runId) {
       if (!state.runs.some((r) => r.id === runId)) return null
       return runBelongs(runId) ? null : `run ${runId} does not belong to ${project}`
@@ -4499,9 +4606,7 @@ export function registerIpc(
   // Dispatch id 가 **그 projectPath 의 것인지**는 별개의 질문이고, 여기까지는 그것을 아무도 묻지
   // 않았다. orch.runDetail(위)은 정확히 같은 질문을 runId 에 대해 이미 묻고 있고("소유 판정을
   // 복제하지 않는다"는 그 주석), 그 판정을 orchOwnerMismatch 가 그대로 재사용한다.
-  ipcMain.handle(
-    'orch.command',
-    async (_e, projectPath: string, cmd: string, args: Record<string, unknown>) => {
+  const orchLocalCommand = async (projectPath: string, cmd: string, args: Record<string, unknown>): Promise<{ status: number; body: unknown }> => {
       await assertAllowedPath(projectPath)
       // The server is not up — a boot that failed, or one still in flight. Not 'orchestration is
       // off': there is no such state any more, and a person told that would go looking for a switch.
@@ -4519,7 +4624,7 @@ export function registerIpc(
       // 구독이 없을 때만 정규화로 물러난다(렌더러가 아직 목록을 부르지 않았거나 껐다) — 그때는
       // 비교할 "보여 준 것" 이 없다. assertAllowedPath 는 위에서 **받은 경로 그대로**에 걸린다:
       // 렌더러가 어떤 경로를 부를 수 있는가는 다른 물음이고, 이 매핑이 그것을 넓혀서는 안 된다.
-      const project = orchProject ?? repoPathOf(core.worktrees.list(), projectPath)
+      const project = orchPushes.project() ?? repoPathOf(core.worktrees.list(), projectPath)
       const mismatch = orchOwnerMismatch(orch.deps.getState(), project, cmd, args ?? {})
       if (mismatch) {
         // 조용히 버려지지 않는다 — orch.runDetail 이 소유권 불일치를 거부할 때 남기는 것과 같은
@@ -4546,7 +4651,80 @@ export function registerIpc(
         }
         throw err
       }
+  }
+  // **Which Host each orchestration call goes to** (remote runtime design §2.7, D1.1): no runtimeId, or 'local', runs
+  // the four bodies above exactly as before; a paired Runtime's id goes to its client in main/remote, so none of the
+  // guards, fallbacks or writes above can run for it (D1.6, D1.7), and its replies never reach 'orch:state'.
+  // Phase 9b: a remote session tab's output, subscribed through its Runtime's client and sent on the session bus under
+  // the tab's key (remoteStreams.ts). A re-paired or removed Runtime's streams subscribe again or are reported gone.
+  const remoteRuntimes = createRemoteRuntimes({
+    profileDir: app.getPath('userData'),
+    version: app.getVersion(),
+    lang: () => core.lang,
+    onClientChange: (runtimeId) => void remoteStreams?.rebind(runtimeId)
+  })
+  remoteStreams = createRemoteStreams({ clientOf: (runtimeId) => remoteRuntimes.client(runtimeId), send })
+  app.once('will-quit', () => {
+    remoteStreams?.close()
+    remoteRuntimes.close()
+  })
+  ipcMain.handle('remoteSessions.attach', (_e, runtimeId: unknown, sessionId: unknown, ptyId: unknown) =>
+    typeof runtimeId === 'string' && typeof sessionId === 'string' && typeof ptyId === 'string' && ptyId !== ''
+      ? remoteStreams!.attach(runtimeId, sessionId, ptyId)
+      : false
+  )
+  ipcMain.handle('remoteSessions.detach', (_e, key: unknown) => {
+    if (typeof key === 'string') remoteStreams!.detach(key)
+  })
+  const orchRouter = createOrchRouter({
+    local: {
+      list: (projectPath) => orchLocalList(projectPath),
+      runDetail: (projectPath, runId, opts) => orchLocalRunDetail(projectPath, runId, opts),
+      completion: (projectPath, runId, taskId) => orchLocalCompletion(projectPath, runId, taskId),
+      command: (projectPath, cmd, args) => orchLocalCommand(projectPath, cmd, args)
+    },
+    remote: remoteRuntimes,
+    log: orchLog
+  })
+  ipcMain.handle('orch.list', (_e, projectPath: string, runtimeId?: string) => orchRouter.list(projectPath, runtimeId))
+  // Settings › Remote Runtimes and the Jobs view's selectors (remote runtime design Phase 6). A runtime id that is not a
+  // string names nothing; every answer is the client's or the registry's own, never a local fallback.
+  ipcMain.handle('remote.list', () => remoteRuntimes.list())
+  ipcMain.handle('remote.add', (_e, pairing: unknown, name?: unknown) =>
+    typeof pairing === 'string'
+      ? remoteRuntimes.add(pairing, typeof name === 'string' && name !== '' ? name : undefined)
+      : { ok: false, code: 'INVALID_ARGUMENTS', message: 'a pairing string is needed' }
+  )
+  ipcMain.handle('remote.remove', (_e, runtimeId: unknown) =>
+    typeof runtimeId === 'string' ? remoteRuntimes.remove(runtimeId) : { ok: false, code: 'RUNTIME_NOT_FOUND', message: 'a runtime id is a string' }
+  )
+  ipcMain.handle('remote.ping', async (_e, runtimeId: unknown) => {
+    if (typeof runtimeId !== 'string') return { ok: false, code: 'RUNTIME_NOT_FOUND', message: 'a runtime id is a string' }
+    const c = await remoteRuntimes.client(runtimeId)
+    return 'code' in c ? { ok: false, code: c.code, message: c.message } : c.ping()
+  })
+  ipcMain.handle('remote.projects', async (_e, runtimeId: unknown) => {
+    if (typeof runtimeId !== 'string') return null
+    const c = await remoteRuntimes.client(runtimeId)
+    return 'code' in c ? null : c.projects()
+  })
+  // This computer as a Runtime: the local Host's own answer (runtime-status), or null when it cannot say.
+  ipcMain.handle('remote.thisMachine', async () => {
+    try {
+      const r = await orchCall({ cmd: 'runtime-status', args: {}, sessionId: '' })
+      return r.status === 200 ? r.body : null
+    } catch {
+      return null
     }
+  })
+  ipcMain.handle('orch.runDetail', (_e, projectPath: string, runId: string, opts?: { journalPages?: unknown }, runtimeId?: string) =>
+    orchRouter.runDetail(projectPath, runId, opts, runtimeId)
+  )
+  ipcMain.handle('orch.completion', (_e, projectPath: string, runId: string, taskId: string, runtimeId?: string) =>
+    orchRouter.completion(projectPath, runId, taskId, runtimeId)
+  )
+  ipcMain.handle('orch.command', (_e, projectPath: string, cmd: string, args: Record<string, unknown>, runtimeId?: string) =>
+    orchRouter.command(projectPath, cmd, args, runtimeId)
   )
   // The way out, the same as files.unwatch and git.unwatch: the Jobs view unmounts on a rail toggle,
   // and without this main goes on folding a snapshot and sending it to nobody on every orchestration
@@ -4554,8 +4732,7 @@ export function registerIpc(
   // otherwise that list lands afterwards and re-arms what was just turned off.
   ipcMain.handle('orch.unwatch', () => {
     orchRequest++
-    orchProject = null
-    orchSent = null
+    orchPushes.unwatch()
   })
 
   // How It Works: understanding.json persistence. Unlike OrchestrationStore above (built inside
@@ -4636,7 +4813,8 @@ export function registerIpc(
     localPipeline: understandingPipeline,
     hostAnnounces: () => hostWritesUnderstanding,
     orchCall: (cmd, args) => orchCall({ cmd, args, sessionId: '' }),
-    readFile: () => readUnderstandingFile(understandingFile),
+    // Kept while the file is unchanged (audit U-3): a reader read and parsed the whole store on every get.
+    readFile: cachedByStamp(understandingFile, () => readUnderstandingFile(understandingFile)),
     notify: (root) => send('understanding:changed', root),
     log: orchLog
   })
@@ -4770,7 +4948,8 @@ export function registerIpc(
     collector: workUnitCollector,
     tracking: () => core.appSettings.getWorkUnitTrackingEnabled(),
     orchCall: (cmd, args) => orchCall({ cmd, args, sessionId: '' }),
-    readFile: () => readWorkUnitsFile(workUnitsFile),
+    // Kept while the file is unchanged (audit U-3): a reader read and parsed the whole store on every list.
+    readFile: cachedByStamp(workUnitsFile, () => readWorkUnitsFile(workUnitsFile)),
     notify: (root) => send('sessionTasks:changed', root),
     goalIgnored: (info) => send('sessionTasks:goalIgnored', info),
     log: orchLog
@@ -4956,7 +5135,12 @@ export function registerIpc(
   ipcMain.handle('run.dismiss', async (_e, runId: string) => core.run.dismiss(runId))
   // A run's buffered output, for a panel that mounts after the run started. Same "existing run, no
   // guard" reasoning as run.dismiss.
-  ipcMain.handle('run.output', async (_e, runId: string) => core.run.recentOutput(runId))
+  // What the batcher holds goes first (final review m2): those chunks are in the buffer handed out here already.
+  ipcMain.handle('run.output', async (_e, runId: string) => {
+    runBatcher.flush()
+    return core.run.recentOutput(runId)
+  })
+  ipcMain.handle('run.replay', async (_e, runId: string) => core.run.replay(runId))
   // A console link's path, resolved against the run's own working directory and checked before the
   // renderer is told it exists (main/run/resolveLink.ts). A relative target that is not at the cwd is
   // also tried under the usual source roots. No path guard on the arguments themselves: the guard is
@@ -5050,6 +5234,8 @@ export function registerIpc(
     return core.terminal.open(projectPath, cols, rows)
   })
   ipcMain.handle('terminal.list', async (_e, projectPath: string) => {
+    // What the batcher holds goes first (final review m2): those chunks are in the buffers handed out here already.
+    terminalBatcher.flush()
     await assertTerminalPath(projectPath)
     return core.terminal.list(projectPath)
   })
@@ -5880,6 +6066,12 @@ export function registerIpc(
         onInstall: installing,
         log: (m) => hostWiring?.log(m)
       })
+      // Claude Code's capture scripts run under this runtime's node.exe (core.ts, which named the path
+      // before this answer). Said again now that it is known: no runtime means no node.exe to run them,
+      // and a bare 'node' still works wherever Node.js is installed.
+      core
+        .useCaptureNode(r.runtime?.paths.exePath ?? 'node')
+        .catch((err) => hostWiring?.log(`the hooks' node could not be written: ${String(err)}`))
       return { value: r.runtime, failure: r.failure }
     },
     onState: (s) => send('host:runtime-install', s),
@@ -7193,6 +7385,10 @@ export function registerIpc(
   ipcMain.handle('conversation.close', (_e, sessionId: string) => {
     conversationSessions.close(sessionId)
   })
+  // A chat tab that is not showing stops its reads until it shows again (performance audit R4)
+  ipcMain.handle('conversation.pause', (_e, sessionId: string, paused: boolean) => {
+    conversationSessions.pause(sessionId, paused === true)
+  })
   // Independent of open/more/close — a fresh session sitting on a trust prompt is `waiting` while
   // `open` still answers null, so this reads main/attention.ts directly rather than folding onto
   // conversationSessions.
@@ -7496,14 +7692,16 @@ export function registerIpc(
   ipcMain.handle('system.checkCli', async (_e, cwd?: string) => {
     // A CLI installed since this app started is looked for on the Path Windows keeps too (windowsPath.ts)
     await ensureOnWindowsPath(['claude', 'codex'])
-    const check =(cli: string): Promise<{ ok: boolean; version?: string; error?: string }> =>
-      new Promise((resolve) => {
+    await ensureInstallDirOnPath(['claude', 'codex']) // macOS and Linux: Claude Code installed since this process started (installDirPath.ts)
+    const check = async (cli: string): Promise<{ ok: boolean; version?: string; error?: string }> => {
+      // Off the thread (second pass M2-2): an offline drive on PATH held the app at every folder pick.
+      const found = process.platform === 'win32' ? await warmWindowsExecutable(cli) : null
+      return new Promise((resolve) => {
         const spawn =
           process.platform === 'win32'
-            ? (() => {
-                const found = resolveWindowsExecutable(cli)
-                return found === null ? null : { ...windowsSpawn(cli, ['--version'], () => found), shell: false }
-              })()
+            ? found === null
+              ? null
+              : { ...windowsSpawn(cli, ['--version'], () => found), shell: false }
             : { file: cli, args: ['--version'], shell: true }
         if (spawn === null) return resolve({ ok: false })
         execFile(
@@ -7520,6 +7718,7 @@ export function registerIpc(
           }
         )
       })
+    }
     const [claude, codex] = await Promise.all([check('claude'), check('codex')])
     return { claude, codex }
   })
@@ -7557,16 +7756,29 @@ export function registerIpc(
    *
    * So the machine is asked (locateCli, i.e. locateCommandFor), and what it answers is put in front of
    * this process's own PATH. That is enough for everything downstream: `system.checkCli` runs through
-   * PATH, and a spawned session copies this process's environment (core/sessions/manager.ts).
+   * PATH, and a spawned session copies this process's environment (core/sessions/manager.ts). An
+   * installer that leaves PATH alone (Claude Code on Windows) has its documented folder put on the
+   * user's Path first (cliLocate.ts's findAfterInstall).
    */
   const adoptInstalledCli = async (cli: 'claude' | 'codex'): Promise<string | null> => {
-    const found = await locateCli(cli)
+    const found = await findAfterInstall(cli, {
+      platform: process.platform,
+      home: os.homedir(),
+      shell: process.env.SHELL,
+      zdotdir: process.env.ZDOTDIR,
+      exists: existsSync,
+      locate: locateCli,
+      run: runInstallCommand,
+      addToProfile
+    })
     if (found === null) return null
     prependToPath(process.env as Record<string, string | undefined>, path.dirname(found))
     return found
   }
 
   let installingCli = false
+  /** How long a CLI install may run (audit U-6). */
+  const INSTALL_CLI_TIMEOUT_MS = 15 * 60_000
   ipcMain.handle('system.installCli', async (_e, cli: unknown) => {
     if (cli !== 'claude' && cli !== 'codex') throw new Error(`INVALID_CLI: ${String(cli)}`)
     const plan = installCommandFor(cli, process.platform)
@@ -7577,11 +7789,25 @@ export function registerIpc(
 ` })
     return await new Promise((resolve) => {
       const child = spawn(plan.command, plan.args, { windowsHide: true })
+      // A time limit, and gone with the app (audit U-6): a hung installer kept `installingCli` true until a restart,
+      // and ran on after the app quit.
+      const limit = setTimeout(() => {
+        send('cli:install', { cli, kind: 'out', text: `the installer did not finish within ${INSTALL_CLI_TIMEOUT_MS / 60_000} minutes and was stopped\n` })
+        killProcessTree(child)
+      }, INSTALL_CLI_TIMEOUT_MS)
+      limit.unref?.()
+      const onQuit = (): void => killProcessTree(child)
+      app.once('will-quit', onQuit)
+      const settle = (): void => {
+        clearTimeout(limit)
+        app.removeListener('will-quit', onQuit)
+      }
       const stream = (buf: Buffer): void =>
         send('cli:install', { cli, kind: 'out', text: buf.toString() })
       child.stdout.on('data', stream)
       child.stderr.on('data', stream) // an installer says most of what matters here
       child.on('error', (err) => {
+        settle()
         installingCli = false
         send('cli:install', { cli, kind: 'out', text: `${err.message}
 ` })
@@ -7589,6 +7815,7 @@ export function registerIpc(
         resolve({ ok: false, code: null, error: err.message })
       })
       child.on('close', (code) => {
+        settle()
         installingCli = false
         send('cli:install', { cli, kind: 'done', code })
         if (code !== 0) return resolve({ ok: false, code })

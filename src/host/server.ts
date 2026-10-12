@@ -9,6 +9,7 @@ import {
   HOST_PROTOCOL,
   HOST_FEATURE_PROC,
   HOST_FEATURE_PING,
+  HOST_FEATURE_PTY_SEQ,
   HOST_FEATURE_ORCH,
   HOST_FEATURE_REQUESTS,
   HOST_FEATURE_MCP,
@@ -97,7 +98,8 @@ export interface HostServerDeps {
    *  separate `holdsWork` that counted only terminals, and a Host `astera host start` had started
    *  left after `idleMs` with a run in flight while `host stop` would have refused to stop it
    *  (conformance audit #100). A Host holding nothing still leaves. */
-  liveCounts?(): { sessions: number; runs: number }
+  /** `remote`: Remote is on, so the Host waits for controllers rather than leave idle (remote runtime N3). */
+  liveCounts?(): { sessions: number; runs: number; remote?: boolean }
   /** Answers `orch-call` (design §5). Optional here only so a caller that never sends `orch-call`
    *  does not have to supply one; `host/index.ts` always does, because it always advertises
    *  HOST_FEATURE_ORCH below. */
@@ -113,7 +115,24 @@ export interface HostServerDeps {
   /** The profile's Host key (core/host/hostKey.ts), made before this binds. A hello that carries a
    *  `nonce` is answered with its proof; without a key (tests that do not ask) no proof is sent. */
   hostKey?: string
+  /** The longest line a client may send, in characters; INBOUND_LINE_CAP when left out. A test passes a
+   *  small one rather than writing 64 MiB. */
+  maxLine?: number
+  /** The Host process's boot id, in every hello; made once in index.ts (remote runtime design §3.2, N11). */
+  bootId?: string
+  /** What one client may leave unread before it is let go (performance audit H1): a client that stopped reading
+   *  would otherwise hold every byte of output written to it in this process. 64 MiB when left out. */
+  maxQueuedBytes?: number
+  /** The same for the app, the one reader the Host must not lose (final review M3): a main thread that stalls falls
+   *  behind every worker's output at once, and a cut socket costs a reconnect and a handover. 512 MiB when left out. */
+  maxAppQueuedBytes?: number
 }
+
+/** Broadcasts a CLI never reads (it reads the answers to its own calls only, cli/run.ts): every session's output, its
+ *  exits and chat lines, and the whole state. Sent to one, they cost a parse of each in every waiting `astera` call. */
+const NOT_FOR_CLI: ReadonlySet<string> = new Set(['pty-data', 'pty-exit', 'pty-opened', 'proc-line', 'proc-opened', 'proc-exit', 'orch-state'])
+const MAX_QUEUED_BYTES = 64 * 1024 * 1024
+const MAX_APP_QUEUED_BYTES = 512 * 1024 * 1024
 
 /** What the `orch-state` throttle measures gaps with and waits on. `after` returns its cancel. */
 export interface StateClock {
@@ -156,7 +175,7 @@ export interface HostServer {
   /** Sends to every connected client. Slice 2's pty output takes this rather than a reply, because
    *  the app that attaches after a restart is not the app that spawned. With `to`, only to the greeted
    *  sockets whose hello yields pass it (final review M4: a push only a newer app can read). */
-  broadcast(m: HostMessage, to?: (yields: ReadonlySet<string>) => boolean): void
+  broadcast(m: HostMessage, to?: (yields: ReadonlySet<string>, features: ReadonlySet<string>) => boolean): void
   /** Whether an app is connected right now (design §5): one that announced `role: 'app'`, or an app
    *  1.3.25 or older, whose hello carries no role (LEGACY_APP_NOTICE). Both do their own work, so the
    *  Host does not drive, roll or open Slack beside either (S6-6, SL-11). The command layer asks this
@@ -218,6 +237,11 @@ export const LEGACY_APP_NOTICE = 'Astera 1.3.25 or older is attached; update it'
 
 /** How long a peer that has connected but said nothing gets before the Host hangs up on it. */
 const HANDSHAKE_MS = 10_000
+
+/** The longest line a local client may send (remote runtime design §3.1, DC-5). Large enough for a
+ *  whole-state `state-put` of a big profile (measured above 9 MB, X1-10), small enough that a sender
+ *  that never ends its line cannot grow the Host's memory without bound. Over it the socket is closed. */
+export const INBOUND_LINE_CAP = 64 * 1024 * 1024
 
 /** Whether something is answering at this address right now. Used to tell a stale socket file from a
  *  live one — unlinking a path someone is listening on would take a working Host's address away.
@@ -294,6 +318,8 @@ export async function startHostServer(deps: HostServerDeps): Promise<HostServer>
   /** What each greeted socket's hello yielded to this Host (`hello.yields`, ruling R4). Written and
    *  deleted beside `roles`, for the same reason it is kept beside the set rather than inside it. */
   const yields = new Map<net.Socket, ReadonlySet<string>>()
+  /** What each greeted socket's hello listed in `features` (`pty-seq`, remote runtime design §3.7). */
+  const features = new Map<net.Socket, ReadonlySet<string>>()
   /** The MCP client each `mcp` socket's hello named, cleaned on arrival (MCP spec §29). Written and
    *  deleted beside `roles`; a socket of any other role never has one. */
   const mcpClients = new Map<net.Socket, McpClient>()
@@ -310,7 +336,7 @@ export async function startHostServer(deps: HostServerDeps): Promise<HostServer>
    * Every commit pushes the whole state, and it grows with every Run the file keeps; a burst of
    * commits — a worker's report, the dispatch it frees, the next Task's start — sent it whole each
    * time, and the app parsed and folded each one on its main thread. A client that says it reads
-   * `orch-state` as "the latest" (HOST_YIELD_ORCH_STATE_LATEST, and every CLI, which reads none of
+   * `orch-state` as "the latest" (HOST_YIELD_ORCH_STATE_LATEST; a CLI is sent none of
    * them) is sent the first push at once and after that at most one per ORCH_STATE_PUSH_MS, always
    * the newest. What is skipped is only ever a state a newer one replaces: each push carries the
    * whole state and its version, so the mirror that takes the newest takes everything.
@@ -326,8 +352,9 @@ export async function startHostServer(deps: HostServerDeps): Promise<HostServer>
    */
   const clock = deps.stateClock ?? monotonicClock
   const stateLanes = new Map<net.Socket, { held: (() => string) | null; lastAt: number; cancel: (() => void) | null }>()
+  // A CLI is not here: it is sent no `orch-state` at all (NOT_FOR_CLI, audit H1)
   const readsLatest = (s: net.Socket): boolean =>
-    roles.get(s) === 'cli' || (roles.get(s) === 'app' && (yields.get(s)?.has(HOST_YIELD_ORCH_STATE_LATEST) ?? false))
+    roles.get(s) === 'app' && (yields.get(s)?.has(HOST_YIELD_ORCH_STATE_LATEST) ?? false)
   const laneOf = (s: net.Socket): { held: (() => string) | null; lastAt: number; cancel: (() => void) | null } => {
     let lane = stateLanes.get(s)
     if (!lane) {
@@ -346,7 +373,10 @@ export async function startHostServer(deps: HostServerDeps): Promise<HostServer>
     if (!held) return
     lane.held = null
     lane.lastAt = clock.now()
-    if (!s.destroyed) s.write(held())
+    if (!s.destroyed) {
+      s.write(held())
+      overBudget(s)
+    }
   }
   /** Forgets what is held for `s` without sending it — the sender of a `state-put` holds newer. */
   const dropState = (s: net.Socket): void => {
@@ -361,6 +391,7 @@ export async function startHostServer(deps: HostServerDeps): Promise<HostServer>
     if (s.destroyed) return
     if (!readsLatest(s)) {
       s.write(line())
+      overBudget(s)
       return
     }
     const lane = laneOf(s)
@@ -370,6 +401,7 @@ export async function startHostServer(deps: HostServerDeps): Promise<HostServer>
       lane.held = null
       lane.lastAt = now
       s.write(line())
+      overBudget(s)
       return
     }
     lane.held = line
@@ -389,11 +421,22 @@ export async function startHostServer(deps: HostServerDeps): Promise<HostServer>
     })
   }
   /** Every message to a socket goes through here, so nothing overtakes a held `orch-state`. */
+  const queueCap = deps.maxQueuedBytes ?? MAX_QUEUED_BYTES
+  const appQueueCap = deps.maxAppQueuedBytes ?? MAX_APP_QUEUED_BYTES
   const writeTo = (s: net.Socket, m: HostMessage, line: () => string): void => {
     if (s.destroyed) return
     if (m.t === 'orch-state') return pushState(s, line)
     if (m.t !== 'pty-data' && m.t !== 'proc-line') flushState(s)
     s.write(line())
+    overBudget(s)
+  }
+  /** A client that reads nothing is let go before its unread output is this process's problem (audit H1), state pushes
+   *  included (second pass H2-5). */
+  function overBudget(s: net.Socket): void {
+    if (s.writableLength > (roles.get(s) === 'app' ? appQueueCap : queueCap)) {
+      deps.log.write(`a client left ${s.writableLength} bytes unread; closing it`)
+      s.destroy()
+    }
   }
   /** `encodeLine` once, on first use, for a message that may go to several sockets or to none. */
   const lazyLine = (m: HostMessage): (() => string) => {
@@ -447,7 +490,7 @@ export async function startHostServer(deps: HostServerDeps): Promise<HostServer>
     if (idleTimer) clearTimeout(idleTimer)
     idleTimer = setTimeout(() => {
       const held = deps.liveCounts?.() ?? { sessions: 0, runs: 0 }
-      if (live === 0 && held.sessions === 0 && held.runs === 0) {
+      if (live === 0 && held.sessions === 0 && held.runs === 0 && held.remote !== true) {
         deps.log.write(`idle for ${deps.idleMs}ms with no client — leaving`)
         deps.onIdle()
         return
@@ -496,6 +539,16 @@ export async function startHostServer(deps: HostServerDeps): Promise<HostServer>
             send({ t: 'protocol-mismatch', protocol: HOST_PROTOCOL })
             return
           }
+          // **A socket keeps the role its first hello named** (remote runtime Phase 0, N12). A second hello
+          // naming another one is refused, unanswered: an MCP socket that turned itself into the app would
+          // be sent `orch-act`, count as attached and reach the pty messages its role keeps it from. One
+          // naming the same role is answered as it always was.
+          const named = m.role === 'app' ? 'app' : m.role === 'mcp' ? 'mcp' : m.role === undefined ? 'legacy-app' : 'cli'
+          const had = greetedSockets.has(socket) ? roles.get(socket) : undefined
+          if (had !== undefined && had !== named) {
+            deps.log.write(`a second hello asked to change this socket's role from ${had} to ${named} — refused`)
+            return
+          }
           deps.log.write(`client ${String(m.app)} connected`)
           // Only here, past the protocol check: a client on another protocol has been told so and is
           // owed nothing else. The address's version suffix exists to keep this protocol's messages
@@ -509,11 +562,12 @@ export async function startHostServer(deps: HostServerDeps): Promise<HostServer>
           // forever (protocol.ts's `hello` has the whole reason). A role that is neither is a CLI.
           const wasApp = isApp(socket)
           const wasLegacy = roles.get(socket) === 'legacy-app'
-          roles.set(socket, m.role === 'app' ? 'app' : m.role === 'mcp' ? 'mcp' : m.role === undefined ? 'legacy-app' : 'cli')
+          roles.set(socket, named)
           if (roles.get(socket) === 'legacy-app' && !wasLegacy) deps.log.write(LEGACY_APP_NOTICE)
           // Junk entries are dropped rather than refused: a hello is not the place to turn a client
           // away over a field that only ever narrows what it keeps.
           yields.set(socket, new Set(Array.isArray(m.yields) ? m.yields.filter((x): x is string => typeof x === 'string') : []))
+          features.set(socket, new Set(Array.isArray(m.features) ? m.features.filter((x): x is string => typeof x === 'string') : []))
           // The client names itself, so it is cleaned here whatever the sender did (never trust the wire).
           const client = roles.get(socket) === 'mcp' ? mcpClientOf(m.client) : undefined
           if (client) mcpClients.set(socket, client)
@@ -544,6 +598,7 @@ export async function startHostServer(deps: HostServerDeps): Promise<HostServer>
             features: [
               HOST_FEATURE_PROC,
               HOST_FEATURE_PING,
+              HOST_FEATURE_PTY_SEQ,
               ...(deps.orch ? [HOST_FEATURE_ORCH, HOST_FEATURE_REQUESTS, HOST_FEATURE_MCP] : []),
               ...(deps.features ?? [])
             ],
@@ -553,7 +608,8 @@ export async function startHostServer(deps: HostServerDeps): Promise<HostServer>
             // A nonce longer than any client sends is not worth hashing.
             ...(deps.hostKey && typeof m.nonce === 'string' && m.nonce.length > 0 && m.nonce.length <= 256
               ? { proof: hostProof(deps.hostKey, m.nonce) }
-              : {})
+              : {}),
+            ...(deps.bootId ? { bootId: deps.bootId } : {})
           })
           if (roles.get(socket) === 'app') {
             try {
@@ -649,12 +705,25 @@ export async function startHostServer(deps: HostServerDeps): Promise<HostServer>
           waiting.settle({ ok: m.ok, value: m.value, error: m.error, fromApp: true })
           return
         }
-        if (deps.onMessage?.(m, send, { role: outwardRole(socket), socket: socketNo, greeted: greetedSockets.has(socket) }) === true) return
+        // **Nothing past this point for a socket that has not said hello** (remote runtime Phase 0, N12).
+        // `orch-call` and `orch-acted` above already refused it; the pty and proc messages `onMessage`
+        // serves did not, so a peer that never greeted could write into a terminal or spawn one. `retire`
+        // stays above on purpose: protocol-mismatch replacement sends it with no hello (X1-04).
+        if (!greetedSockets.has(socket)) {
+          deps.log.write(`a socket that has not said hello sent ${String(m?.t)} — dropped`)
+          return
+        }
+        if (deps.onMessage?.(m, send, { role: outwardRole(socket), socket: socketNo, greeted: true }) === true) return
         deps.log.write(`unknown message: ${JSON.stringify(v).slice(0, 200)}`)
       },
       onBadLine: (raw) => deps.log.write(`line that is not JSON, ignored: ${raw.slice(0, 200)}`),
       onHandlerError: (v, err) =>
-        deps.log.write(`message failed: ${JSON.stringify(v).slice(0, 200)} — ${String(err)}`)
+        deps.log.write(`message failed: ${JSON.stringify(v).slice(0, 200)} — ${String(err)}`),
+      maxLine: deps.maxLine ?? INBOUND_LINE_CAP,
+      onOverflow: () => {
+        deps.log.write(`a line ran past the inbound cap of ${deps.maxLine ?? INBOUND_LINE_CAP} characters — closing that connection`)
+        socket.destroy()
+      }
     })
     socket.on('data', read)
     const gone = (): void => {
@@ -670,6 +739,7 @@ export async function startHostServer(deps: HostServerDeps): Promise<HostServer>
       const role = outwardRole(socket)
       roles.delete(socket)
       yields.delete(socket)
+      features.delete(socket)
       mcpClients.delete(socket)
       mcpRemotes.delete(socket)
       dropState(socket)
@@ -798,9 +868,11 @@ export async function startHostServer(deps: HostServerDeps): Promise<HostServer>
       }),
     broadcast: (m, to) => {
       const line = lazyLine(m)
+      const notForCli = NOT_FOR_CLI.has(m.t)
       for (const s of greetedSockets) {
         if (s.destroyed || isMcp(s)) continue
-        if (to && !to(yields.get(s) ?? new Set<string>())) continue
+        if (notForCli && roles.get(s) === 'cli') continue
+        if (to && !to(yields.get(s) ?? new Set<string>(), features.get(s) ?? new Set<string>())) continue
         writeTo(s, m, line)
       }
     },

@@ -488,6 +488,32 @@ command, and `ASTERA_SKILLS` is the folder `astera help` reads its guide from. O
 `astera help`, `astera browser help` and `astera app help` read the guides that ship with the
 installed Astera instead.
 
+### Remote Runtime
+
+Another machine can run Jobs on this one through Remote Runtime ([remote-runtime.md](remote-runtime.md) covers both
+sides). On the machine that does the work:
+
+```text
+astera runtime start --listen 100.64.0.5     listen on that address (default 127.0.0.1, port 47831)
+astera runtime pair --full-control --name laptop   a one-time pairing string, valid 10 minutes
+astera runtime clients                       who is paired
+astera runtime revoke --id <clientId>        unpair one and close its connections now
+astera runtime stop                          stop listening; the Host and its Jobs keep running
+astera runtime serve                         for an OS service: keep a Host running while Remote is on
+```
+
+`start` writes `remote-runtime.json` in the profile, makes this machine's identity the first time (a key and a
+certificate kept owner-only under `remote/`), starts a Host if none runs, and waits until the Gateway listens.
+Every later Host start, by the app, `astera host start` or an MCP client, starts the Gateway again while Remote is on,
+and the Host does not leave idle while it is on.
+
+The pairing string carries a secret code and this machine's fingerprint. Give it to the other machine directly, not
+through a chat or a ticket. The other machine checks the fingerprint before it sends anything, so a different machine
+answering at that address is refused. Five wrong codes burn the code.
+
+Listen on a private network, a VPN or Tailscale. Do not forward the port to the internet. A pairing is read-only
+unless `--full-control` is given; a read-only controller can read Jobs, Runs and Tasks but not change them.
+
 ## Command reference
 
 Every command is a noun and a verb. A noun with no verb is rejected with the list of its verbs, so
@@ -510,9 +536,19 @@ astera status                            is the orchestrator there, and what is 
 astera host    status | stop
 astera host    start  [--replace]
 
+astera runtime status | stop | clients | serve
+astera runtime start   [--listen <addr>] [--port <n>]
+astera runtime pair    [--full-control | --read-only] [--name <n>]
+astera runtime revoke  --id <clientId>
+
+astera runtimes list
+astera runtimes add    [--pair <string>] [--address <host>] [--port <n>] [--code <code>] [--fingerprint <fp>] [--name <n>] [--replace]
+astera runtimes remove --id <runtimeId|name>
+
 astera projects list
 astera projects get   --id <projectId>
 astera projects find  --path <path>
+astera projects add   --path <path>
 
 astera jobs    list   [--status <pending|paused|scheduled|waiting|running|completed|failed>] [--project <path>]
 astera jobs    get    --id <jobId | runId>
@@ -649,6 +685,11 @@ other command ignores the global one, so a script can put it in front of every l
 in either place and in `projects find --path`, is taken from the directory you ran the command from,
 never from the Host's. After the command, `--project` is refused with 2 by a command that does not
 take one, as any flag a command does not take is.
+
+**The global `--runtime <id|name>` goes before the command too**, as in `astera --runtime office jobs list`,
+and sends the command to a paired Runtime instead of this machine's Host ([remote-runtime.md](remote-runtime.md)).
+Only the commands a Runtime offers take it; any other refuses with `RUNTIME_CAPABILITY_MISSING` before it
+reads anything on this machine. After the command, `--runtime` is refused with 2.
 
 **`projects find --path <path>` names the project a folder belongs to**: the registered project whose
 folder is that path or holds it. When registered projects nest, as a package registered inside a
@@ -823,7 +864,16 @@ and `warning` says why: the Host then fails every MCP call until the file is rep
 **`sessions` reaches the agent sessions the Host holds**: each tab in which Astera runs Claude Code
 or Codex, and each chat session. A session's id is the one `ASTERA_SESSION` holds inside it, and
 `sessions list` prints it beside `kind` (`terminal` or `chat`), `title`, `accountId`, `cwd`,
-`alive` and `state`. Ended sessions stay listed with `alive: false` until the Host stops. Plain shell tabs and run
+`alive` and `state`, and, when the Host knows them:
+
+- `provider`, `claude` or `codex`, the session's account's agent. It is left out when the account is gone.
+- `rolledFrom`, the id of the session this one replaced when its account was rolled over. Follow it to
+  find the conversation that came before.
+- `sources`, where the Host reads each fact of the session: `status`, `prompt`, `usage` and
+  `conversation`. Each is `hooks`, `statusline`, `rollout`, `transcript` or `chat`, or `none` when that
+  agent and kind give the Host no way to read it. A fact with no source is reported unknown, never idle.
+
+Ended sessions stay listed with `alive: false` until the Host stops. Plain shell tabs and run
 configurations are not agent sessions, and are not listed.
 
 **`state` says whether a session is `working`, `waiting` or `unknown`.** The Host reads it from the
@@ -888,11 +938,12 @@ Where the hooks cannot see, `state` can lag or be wrong:
   `working` standing until you type, and a `Stop` hook that makes Claude carry on leaves `waiting`
   standing while it works.
 
-**`sessions read` shows what the session's tab shows.** The Host replays the session's recent output
-into a terminal emulator at the tab's current size and returns what that terminal displays:
+**`sessions read` shows what the session's tab shows.** The Host keeps a terminal emulator for every
+session that has seen all of its output at every size, and returns what that terminal displays:
 `data.screen` is the visible rows, top first, with the empty rows below the last painted one left
-off, and `data.scrollback` is up to `--lines` rows (default 200, at most 10000) from just above the screen, oldest
-first. Each row is the text of its cells with trailing spaces trimmed; colours and other styling are
+off, and `data.scrollback` is up to `--lines` rows (default 200) from just above the screen, oldest
+first. The terminal keeps 1,000 rows above the screen, so a larger `--lines` returns at most 1,000. A session that
+ended reads as its last screen for 10 minutes after it ended. Each row is the text of its cells with trailing spaces trimmed; colours and other styling are
 not included. `data.cols` and `data.rows` are the size it was rendered at. `data.screenWrapped` and
 `data.scrollbackWrapped` hold one mark per row of `screen` and `scrollback`: `true` when that row
 continues the one above it, because the terminal wrapped a line wider than the tab; join them to get
@@ -1025,7 +1076,8 @@ command from. It answers the new session as `sessions list` shows it, and its `i
 `sessions read` and `sessions send` take.
 
 ```json
-{"ok":true,"data":{"id":"…","kind":"terminal","title":"fix the build","accountId":"acc_1","cwd":"D:\\repo","alive":true,"state":"unknown"}}
+{"ok":true,"data":{"id":"…","kind":"terminal","title":"fix the build","accountId":"acc_1","cwd":"D:\\repo","alive":true,"state":"unknown",
+  "provider":"claude","sources":{"status":"hooks","prompt":"hooks","usage":"statusline","conversation":"transcript"}}}
 ```
 
 - **A terminal session (the default, `--kind terminal`)** is started the way the Host starts a worker:
@@ -1414,6 +1466,13 @@ astera: verbose: call jobs-list took 11ms: status 200
 | 8 | A `wait` stopped before the work ended: a question is open, the run is paused, or every worker is waiting for a usage limit to reset; or `sessions send --wait` stopped at a permission prompt or a question |
 | 9 | The command exists here but not in the running build |
 | 10 | A `wait` ended with the Job or run in failure |
+
+A command sent to a paired Runtime (`--runtime`) can also end with one of the remote codes in `error.code`, each
+with the exit of its nearest code above: `RUNTIME_NOT_FOUND` 4, `RUNTIME_OFFLINE` 3, `RUNTIME_AUTH_FAILED` 5,
+`RUNTIME_IDENTITY_CHANGED` 5, `RUNTIME_PROTOCOL_MISMATCH` 9, `RUNTIME_PROJECT_NOT_FOUND` 4,
+`RUNTIME_ACCOUNT_NOT_FOUND` 4, `RUNTIME_CAPABILITY_MISSING` 9, `RUNTIME_BUSY` 6, `RUNTIME_PERMISSION_DENIED` 5,
+`RUNTIME_OUTCOME_UNKNOWN` 6, `REMOTE_TIMEOUT` 7, `REMOTE_OPERATION_CONFLICT` 6 and `REMOTE_REPLY_TOO_LARGE` 1
+([remote-runtime.md](remote-runtime.md#error-codes) says what each means).
 
 **3 and 4 are different questions.** 3 means nothing answered; 4 means something answered and does
 not know that id. Do not retry a 4.

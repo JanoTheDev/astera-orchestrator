@@ -1,0 +1,174 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { promises as fs } from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { answerRemote, trailingRuntimeError, type RemoteDeps } from './remote'
+import { nextStepsFor } from '../core/orchestration/cliOutput'
+import { controllerRegistry } from './runtimes'
+import { RemoteError } from '../core/remote/client'
+import type { RemoteLink, RemoteTarget } from '../core/remote/link'
+
+const FP = 'F'.repeat(43)
+let dir: string
+beforeEach(async () => {
+  dir = await fs.mkdtemp(path.join(os.tmpdir(), 'astera-remote-cli-'))
+  const reg = await controllerRegistry(dir)
+  await reg.add({ runtimeId: 'rt_a', name: 'Office', address: '10.0.0.2', port: 47831, fingerprint: FP, permission: 'full-control', createdAt: 'x', lastSeenAt: null }, 'tok-a')
+})
+afterEach(async () => fs.rm(dir, { recursive: true, force: true }))
+
+/** A link that records what it was asked and answers through `answer`. */
+function deps(answer: (cmd: string, args: Record<string, unknown>, o?: { request?: string }) => Awaited<ReturnType<RemoteLink['call']>> = () => ({ status: 200, body: [] })) {
+  const calls: Array<{ cmd: string; args: Record<string, unknown>; o?: { request?: string; timeoutMs?: number } }> = []
+  const targets: RemoteTarget[] = []
+  let registryReads = 0
+  const d: RemoteDeps = {
+    registry: async () => {
+      registryReads++
+      return controllerRegistry(dir)
+    },
+    link: (t) => {
+      targets.push(t)
+      return {
+        hello: () => null,
+        call: async (cmd, args, o) => {
+          calls.push({ cmd, args, ...(o ? { o } : {}) })
+          return answer(cmd, args, o)
+        },
+        subscribe: () => () => {}, close: () => {}
+      }
+    }
+  }
+  return { d, calls, targets, registryReads: () => registryReads }
+}
+
+const ask = (cmd: string, args: Record<string, unknown>, d: RemoteDeps, runtime = 'rt_a') =>
+  answerRemote({ cmd, args, runtime, request: 'req-1', profileDir: dir, mode: 'json', write: () => {}, version: '1.4.8', deps: d })
+
+describe('answerRemote (remote runtime design §2.8, X1-14)', () => {
+  it('refuses a command with no remote form before it reads anything here', async () => {
+    const h = deps()
+    for (const cmd of ['host-start', 'skills-list', 'mcp-status', 'projects-add', 'runtime-pair', 'version', 'browser-js']) {
+      const r = await ask(cmd, {}, h.d)
+      expect(r, cmd).toMatchObject({ error: { code: 'RUNTIME_CAPABILITY_MISSING' } })
+    }
+    expect(h.registryReads()).toBe(0)
+    expect(h.calls).toEqual([])
+  })
+
+  it('a remote jobs create needs --cwd, and sends it as typed', async () => {
+    const h = deps(() => ({ status: 200, body: { id: 'job_1' } }))
+    expect(await ask('jobs-create', { objective: 'o' }, h.d)).toMatchObject({ error: { code: 'INVALID_ARGUMENTS', message: expect.stringMatching(/--cwd/) } })
+    expect(h.calls).toEqual([])
+    await ask('jobs-create', { objective: 'o', cwd: 'relative/dir' }, h.d)
+    expect(h.calls[0].args).toEqual({ objective: 'o', cwd: 'relative/dir' })
+  })
+
+  it('reaches the named Runtime with its stored token, by id or by name', async () => {
+    const h = deps()
+    await ask('jobs-list', {}, h.d, 'office')
+    expect(h.targets[0]).toEqual({ runtimeId: 'rt_a', address: '10.0.0.2', port: 47831, fingerprint: FP, token: 'tok-a' })
+  })
+
+  // Phase 3 minor (design §4.5): a call that reached the Runtime records when, at most once a minute.
+  it('records lastSeenAt on a call that reached the Runtime, and not on one that did not', async () => {
+    await ask('jobs-list', {}, deps(() => new RemoteError('RUNTIME_OFFLINE', 'down')).d)
+    expect((await (await controllerRegistry(dir)).list())[0].lastSeenAt).toBeNull()
+    await ask('jobs-list', {}, deps().d)
+    const seen = (await (await controllerRegistry(dir)).list())[0].lastSeenAt
+    expect(seen).not.toBeNull()
+    await ask('jobs-list', {}, deps().d)
+    expect((await (await controllerRegistry(dir)).list())[0].lastSeenAt).toBe(seen)
+  })
+  it('an unknown Runtime is RUNTIME_NOT_FOUND', async () => {
+    expect(await ask('jobs-list', {}, deps().d, 'nope')).toMatchObject({ error: { code: 'RUNTIME_NOT_FOUND' } })
+  })
+
+  it('a change carries the request id, a read carries none', async () => {
+    const h = deps(() => ({ status: 200, body: {} }))
+    await ask('jobs-run', { id: 'job_1' }, h.d)
+    await ask('jobs-list', {}, h.d)
+    expect(h.calls.map((c) => c.o?.request)).toEqual(['req-1', undefined])
+  })
+
+  it('outcome unknown carries the request id and the line that lists the newest Jobs', async () => {
+    const h = deps(() => new RemoteError('RUNTIME_OUTCOME_UNKNOWN', 'the answer was lost'))
+    const r = await ask('jobs-run', { id: 'job_1' }, h.d)
+    expect(r).toMatchObject({ error: { code: 'RUNTIME_OUTCOME_UNKNOWN', details: { runtime: 'rt_a', requestId: 'req-1' } } })
+  })
+
+  it('an unreachable Runtime is RUNTIME_OFFLINE, and nothing is written in this profile', async () => {
+    const before = (await fs.readdir(dir)).sort()
+    const h = deps(() => new RemoteError('RUNTIME_OFFLINE', 'connect ECONNREFUSED'))
+    expect(await ask('send', { type: 'worker_done', taskId: 't', dispatchId: 'd', outcome: 'succeeded' }, h.d)).toMatchObject({
+      error: { code: 'RUNTIME_CAPABILITY_MISSING' }
+    })
+    expect(await ask('jobs-list', {}, h.d)).toMatchObject({ error: { code: 'RUNTIME_OFFLINE' } })
+    expect((await fs.readdir(dir)).sort()).toEqual(before)
+  })
+
+  // Final review I2: a Runtime's refusal names that Runtime, so its next steps point there, not at this machine.
+  it("a Runtime's refusal keeps its code and names the Runtime", async () => {
+    const h = deps(() => ({ status: 403, body: { error: 'needs full control', code: 'RUNTIME_PERMISSION_DENIED' } }))
+    expect(await ask('runs-stop', { id: 'run_1' }, h.d)).toEqual({ error: { code: 'RUNTIME_PERMISSION_DENIED', message: 'needs full control', details: { runtime: 'rt_a' } } })
+  })
+  it('a retry that finds the first attempt still running points at requests show on that Runtime', async () => {
+    const h = deps(() => ({ status: 409, body: { error: 'request req-1 is already running', requestId: 'req-1' } }))
+    const r = (await ask('jobs-run', { id: 'job_1' }, h.d)) as { error: { code: string; details: Record<string, unknown> } }
+    expect(r.error).toMatchObject({ code: 'CONFLICT', details: { requestId: 'req-1', runtime: 'rt_a' } })
+    expect(nextStepsFor({ code: 'CONFLICT', cmd: 'jobs-run', details: r.error.details })).toEqual(['astera --runtime rt_a requests show --id req-1'])
+  })
+  it("the Runtime's own outcome unknown reads like the link's: request id, runtime, and the list to check", async () => {
+    const h = deps(() => ({ status: 409, body: { error: 'no receipt for req-1; list what it changed', code: 'RUNTIME_OUTCOME_UNKNOWN', retry: 'outcome-unknown' } }))
+    const r = (await ask('jobs-run', { id: 'job_1' }, h.d)) as { error: { code: string; message: string; details: Record<string, unknown> } }
+    expect(r.error.code).toBe('RUNTIME_OUTCOME_UNKNOWN')
+    expect(r.error.details).toEqual({ runtime: 'rt_a', requestId: 'req-1' })
+    expect(r.error.message).toMatch(/newest Jobs on this runtime/)
+  })
+  // Final review I5: run-create is jobs create under its old name, with the same Host-side default folder.
+  it('a remote run-create needs --cwd too', async () => {
+    const h = deps()
+    expect(await ask('run-create', { objective: 'o' }, h.d)).toMatchObject({ error: { code: 'INVALID_ARGUMENTS' } })
+    expect(h.calls).toEqual([])
+  })
+
+  it('runs follow is the same loop of calls, over the link', async () => {
+    let n = 0
+    const h = deps(() => {
+      n++
+      return n === 1
+        ? { status: 200, body: { events: [{ at: '2026-10-08T00:00:00.000Z', text: 'started' }], ending: null } }
+        : { status: 200, body: { events: [{ at: '2026-10-08T00:00:00.000Z', text: 'started' }], ending: { state: 'completed' } } }
+    })
+    const lines: string[] = []
+    const r = await answerRemote({ cmd: 'runs-follow', args: { id: 'run_1' }, runtime: 'rt_a', request: 'req-1', profileDir: dir, mode: 'json', write: (l) => lines.push(l), version: '1.4.8', deps: h.d })
+    expect(r).toMatchObject({ status: 200, body: { state: 'completed' } })
+    expect(h.calls.every((c) => c.cmd === 'runs-follow' && c.o?.request === undefined)).toBe(true)
+  })
+})
+
+// Final review I4: a command not in the public table takes any flag, so --runtime after it would be dropped into args
+// and the command would run on this machine.
+describe('trailingRuntimeError', () => {
+  it('refuses --runtime after the command, for every command', () => {
+    expect(trailingRuntimeError({ runtime: 'office' })).toMatch(/before the command/)
+    expect(trailingRuntimeError({ run: 'r1' })).toBeNull()
+  })
+})
+
+// Phase 4 review M6: run.ts imports remote.ts, so remote.ts must not import run.ts back.
+describe('the module graph', () => {
+  it('remote.ts does not import run.ts', async () => {
+    const { readFileSync } = await import('node:fs')
+    const src = readFileSync(new URL('./remote.ts', import.meta.url), 'utf8')
+    expect(src).not.toMatch(/from '\.\/run'/)
+  })
+  // Phase 4 review M4: a local-only command is refused before stdin is read, so a terminal does not block for EOF first.
+  it('run.ts refuses a local-only --runtime command before it reads stdin', async () => {
+    const { readFileSync } = await import('node:fs')
+    const src = readFileSync(new URL('./run.ts', import.meta.url), 'utf8')
+    const refusal = src.indexOf("remoteTarget(parsed.cmd) === 'no'")
+    expect(refusal).toBeGreaterThan(0)
+    expect(refusal).toBeLessThan(src.indexOf('await readStdin()'))
+  })
+})

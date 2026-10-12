@@ -22,7 +22,9 @@ import { DEFAULT_CONCURRENCY, type Dispatch } from '../../../core/orchestration/
 import { runningCount } from '../../../core/orchestration/running'
 import { runIdToMerge } from '../../../core/orchestration/snapshot'
 import { useI18n } from '../i18n/I18nProvider'
+import { replyNote, type OrchDoor } from '../lib/orchDoor'
 import { confirmModal } from '../lib/confirm'
+import { ChangedFilesBlock } from './ChangedFilesBlock'
 import { CompletionBlock } from './CompletionBlock'
 import { toast } from '../lib/toast'
 import { errText } from '../hooks/useFileOps'
@@ -38,6 +40,7 @@ import {
 import { NewTaskModal } from './NewTaskModal'
 import { JournalBusy, JournalOlder } from './RunDetailJournal'
 import { ArrowUpRight, Play, Square, WrenchOff, X } from 'lucide-react'
+import { backdropProps } from '../lib/backdrop'
 
 /** 종류 배지의 문구. message 는 messageType 이 정한다.
  *  heartbeat 과 decision_gate 는 timeline.ts 의 SKIP 이 걸러 지금은 도달하지 않지만, 맵을
@@ -225,7 +228,9 @@ export function RunDetail({
   canOpenSession,
   onOpenSession,
   onShowOlderJournal,
-  onClose
+  onClose,
+  runtimeId,
+  door
 }: {
   /** 스냅샷에 있는 그 Run. 노드의 제목·상태·세션은 전부 여기서 온다(detail 은 id 만 준다).
    *  스냅샷과 detail 은 서로 다른 호출이라 어긋날 수 있으므로, 한쪽에만 있는 Task 는 그리지 않는다. */
@@ -242,8 +247,16 @@ export function RunDetail({
   /** "이전 저널 기록 더 보기" — 저널 줄을 한 쪽 더 읽게 한다(stage 3 T1). 쪽 수는 App.tsx 가 든다 */
   onShowOlderJournal: () => void
   onClose: () => void
+  /** A paired Runtime's Run (remote runtime design Phase 6): its completion is read from that Runtime. Absent for this
+   *  computer's own. Its actions go through `door`, which says when they are off. */
+  runtimeId?: string
+  /** Where this Run's commands, accounts and run configurations go: this computer or its Runtime (Phase 7). */
+  door: OrchDoor
 }): React.JSX.Element {
   const { t } = useI18n()
+  /** Why the controls are off: a read-only pairing (Phase 7). They are drawn disabled with it as their title, and it
+   *  is said under the head, so the reason is on screen rather than a button that does nothing. */
+  const lockedReason = door.readOnlyReason ?? undefined
   /** 고른 노드 = 아래 이벤트의 필터. 같은 노드를 다시 누르면 풀린다 */
   const [selected, setSelected] = useState<string | null>(null)
   const [open, setOpen] = useState<Set<string>>(new Set())
@@ -287,7 +300,7 @@ export function RunDetail({
     let cancelled = false
     // 거부 팔을 둔다 — 실패해도 폼은 쓸 수 있어야 하므로 빈 목록으로 접는다. 그러면 계정 칸이
     // 그려지지 않고(고를 것이 둘 미만) 지정 없이 Task 를 만드는 길이 남는다.
-    void window.api.accounts.list().then(
+    void door.accounts().then(
       (list) => {
         if (!cancelled) setAccounts(list)
       },
@@ -298,7 +311,7 @@ export function RunDetail({
     return () => {
       cancelled = true
     }
-  }, [authoring])
+  }, [authoring, door])
   useEffect(() => {
     if (!authoring) {
       setRunConfigs(null) // 다음에 지을 때 다시 받도록 비운다 — 그 사이 설정이 바뀌었을 수 있다
@@ -308,13 +321,13 @@ export function RunDetail({
     // 거부 팔을 반드시 둔다 — main 이 프로젝트를 읽다 던질 수 있고, 그러면 DevTools 에
     // Uncaught (in promise) 가 뜬다. 실패해도 폼은 그대로 쓸 수 있어야 하므로(검증 없이 Task 를
     // 만드는 것도 유효한 선택이다) 빈 목록으로 접는다 — "검증 없음" 하나만 남는다.
-    void window.api.run.list(projectPath).then(
-      (r) => {
+    void door.runConfigs(runId).then(
+      (configs) => {
         // A compound has no command and no exit code of its own — validation's contract is one
         // command, one exit code (see prepareRun's compoundNotRunnable refusal), so it is excluded
         // here rather than offered and then failed every time it runs.
         if (!cancelled)
-          setRunConfigs(r.configs.filter((c) => c.type !== 'compound').map((c) => ({ id: c.id, name: c.name })))
+          setRunConfigs(configs.filter((c) => c.type !== 'compound').map((c) => ({ id: c.id, name: c.name })))
       },
       () => {
         if (!cancelled) setRunConfigs([])
@@ -323,7 +336,7 @@ export function RunDetail({
     return () => {
       cancelled = true
     }
-  }, [authoring, projectPath])
+  }, [authoring, door, runId])
   /** 물어보기(Gate)의 질문을 쓰는 중인 Task id. null 이면 안 쓰는 중이다 — authoring 과 같은 자리에
    *  서는 세 번째 모습이다(그래프는 그대로, .detail-events 만 바뀐다). authoring 처럼 selected(필터)는
    *  건드리지 않는다. */
@@ -465,14 +478,8 @@ export function RunDetail({
     provider: Provider,
     assigned?: readonly string[]
   ): Promise<string | null> => {
-    const list = await window.api.accounts.list()
-    const loggedIn = new Set(
-      (
-        await Promise.all(
-          list.map(async (a) => ((await window.api.accounts.loginStatus(a.id)) ? a.id : null))
-        )
-      ).filter((id): id is string => id !== null)
-    )
+    const list = await door.accounts()
+    const loggedIn = await door.signedInIds(list)
     const picked = accountToDispatchOn({
       ...(assigned !== undefined ? { assigned } : {}),
       provider,
@@ -493,8 +500,8 @@ export function RunDetail({
   const startRunNow = async (): Promise<void> => {
     setBusy(RUN_START)
     try {
-      const reply = await window.api.orch.command(projectPath, 'run-start', { run: runId })
-      if (reply.status >= 400) toast.error(t('jobs.run.startFailed'))
+      const reply = await door.command('run-start', { run: runId })
+      if (reply.status >= 400) toast.error(replyNote(reply, t as never, t('jobs.run.startFailed')))
     } catch {
       toast.error(t('jobs.run.startFailed'))
     } finally {
@@ -530,13 +537,13 @@ export function RunDetail({
     setBusy(RUN_MERGE)
     try {
       // A Job row's id is the Job's; run-merge needs the Run whose worktrees the button counted.
-      const reply = await window.api.orch.command(projectPath, 'run-merge', { run: runIdToMerge(run, runId) })
+      const reply = await door.command('run-merge', { run: runIdToMerge(run, runId) })
       if (reply.status >= 400) {
         const reason =
           typeof reply.body === 'object' && reply.body !== null && 'error' in reply.body
             ? String((reply.body as { error: unknown }).error)
             : String(reply.status)
-        toast.error(t('jobs.run.mergeFailed', { reason }))
+        toast.error(replyNote(reply, t as never, t('jobs.run.mergeFailed', { reason })))
         return
       }
       const merged =
@@ -604,12 +611,12 @@ export function RunDetail({
         toast.error(t('session.resume.noLoggedInAccounts'))
         return
       }
-      const reply = await window.api.orch.command(projectPath, 'worker-start', {
+      const reply = await door.command('worker-start', {
         taskId,
         agent: provider,
         account: accountId
       })
-      if (reply.status >= 400) toast.error(t('jobs.node.failed'))
+      if (reply.status >= 400) toast.error(replyNote(reply, t as never, t('jobs.node.failed')))
     } catch {
       toast.error(t('jobs.node.failed'))
     } finally {
@@ -625,7 +632,7 @@ export function RunDetail({
   const stopTask = async (taskId: string): Promise<void> => {
     setBusy(taskId)
     try {
-      const shown = await window.api.orch.command(projectPath, 'dispatch-show', { task: taskId })
+      const shown = await door.command('dispatch-show', { task: taskId })
       if (shown.status >= 400) {
         toast.error(t('jobs.node.failed'))
         return
@@ -637,12 +644,12 @@ export function RunDetail({
         toast.error(t('jobs.node.failed'))
         return
       }
-      const reply = await window.api.orch.command(projectPath, 'worker-stop', { dispatch: open.id })
+      const reply = await door.command('worker-stop', { dispatch: open.id })
       // The refusal's own words, not only "could not": a stop refused because the worker is still
       // starting, or because the Host could not confirm the kill, says what to do next.
       if (reply.status >= 400) {
         const why = (reply.body as { error?: unknown } | null)?.error
-        toast.error(typeof why === 'string' ? t('jobs.node.stopFailed', { detail: why }) : t('jobs.node.failed'))
+        toast.error(replyNote(reply, t as never, typeof why === 'string' ? t('jobs.node.stopFailed', { detail: why }) : t('jobs.node.failed')))
       }
     } catch (err) {
       toast.error(t('jobs.node.stopFailed', { detail: errText(err) }))
@@ -668,11 +675,11 @@ export function RunDetail({
       return
     setBusy(taskId)
     try {
-      const reply = await window.api.orch.command(projectPath, 'task-update', {
+      const reply = await door.command('task-update', {
         id: taskId,
         convergence: 'off'
       })
-      if (reply.status >= 400) toast.error(t('jobs.node.failed'))
+      if (reply.status >= 400) toast.error(replyNote(reply, t as never, t('jobs.node.failed')))
     } catch {
       toast.error(t('jobs.node.failed'))
     } finally {
@@ -687,11 +694,11 @@ export function RunDetail({
   const restartTask = async (taskId: string): Promise<void> => {
     setBusy(taskId)
     try {
-      const reply = await window.api.orch.command(projectPath, 'task-update', {
+      const reply = await door.command('task-update', {
         id: taskId,
         status: 'ready'
       })
-      if (reply.status >= 400) toast.error(t('jobs.node.failed'))
+      if (reply.status >= 400) toast.error(replyNote(reply, t as never, t('jobs.node.failed')))
     } catch {
       toast.error(t('jobs.node.failed'))
     } finally {
@@ -709,12 +716,12 @@ export function RunDetail({
     setBusy(taskId)
     setGateError(null)
     try {
-      const reply = await window.api.orch.command(projectPath, 'gate-create', {
+      const reply = await door.command('gate-create', {
         task: taskId,
         question: trimmed
       })
       if (reply.status >= 400) {
-        setGateError(t('jobs.node.failed'))
+        setGateError(replyNote(reply, t as never, t('jobs.node.failed')))
         return
       }
       setAsking(null)
@@ -750,12 +757,12 @@ export function RunDetail({
     setBusy(taskId)
     setGateError(null)
     try {
-      const reply = await window.api.orch.command(projectPath, 'gate-resolve', {
+      const reply = await door.command('gate-resolve', {
         id: gateId,
         resolution: trimmed
       })
       if (reply.status >= 400) {
-        setGateError(t('jobs.node.failed'))
+        setGateError(replyNote(reply, t as never, t('jobs.node.failed')))
         return
       }
       // 설계 §5(V4): 소진 Gate 에 "한 번 더 수정" 으로 답했는데 그 수정을 열지 못하는 경우가 있다 —
@@ -788,7 +795,7 @@ export function RunDetail({
   }
 
   return (
-    <div className="modal-backdrop" onClick={() => !formOpen && onClose()}>
+    <div className="modal-backdrop" {...backdropProps(() => !formOpen && onClose())}>
       <div className="modal run-detail" onClick={(e) => e.stopPropagation()}>
         {/* 머리말이 없다 — Run 의 목표가 제목이고, 그 옆의 아이콘과 숫자가 상태를 말한다 */}
         <div className="detail-head">
@@ -831,6 +838,7 @@ export function RunDetail({
                 통째로 NewTaskModal 로 바뀌어 아직 안 보낸 질문을 잃고, Task 를 짓는 중에 누르면
                 폼이 다시 그려져 채워 둔 것을 잃는다. 이 버튼이 여는 것은 새 창이 아니라 아래 칸
                 (.detail-events)의 두 번째 모습이다: 그래프는 그대로 보이고 아래만 바뀐다. */}
+            {lockedReason !== undefined && <p className="jobs-disabled-reason">{lockedReason}</p>}
             {!authoringOpen && (
               <div className="detail-graph-head">
                 {/* 명령이 도는 동안 이 줄은 남지만(authoringOpen 의 주석), 그 동안 Task 를 짓기
@@ -838,7 +846,8 @@ export function RunDetail({
                     실행·병합이 busy 를 잠그는 것과 같은 이유다. */}
                 <button
                   className="jobs-new"
-                  disabled={busy !== null}
+                  disabled={lockedReason !== undefined || busy !== null}
+                  title={lockedReason}
                   onClick={() => setAuthoring(true)}
                 >
                   + {t('jobs.task.new')}
@@ -850,8 +859,8 @@ export function RunDetail({
                 {run?.pendingStart && (
                   <button
                     className="jobs-new primary"
-                    disabled={busy === RUN_START || tasks.length === 0}
-                    title={t('jobs.run.startHint')}
+                    disabled={lockedReason !== undefined || busy === RUN_START || tasks.length === 0}
+                    title={lockedReason ?? t('jobs.run.startHint')}
                     onClick={() => void startRunNow()}
                   >
                     {/* 도는 동안은 회전과 문구로 바뀐다. **이 버튼에만 둔다** — 여기서 기다리는
@@ -878,8 +887,8 @@ export function RunDetail({
                   (run.worktrees ?? []).length > 0 && (
                     <button
                       className="jobs-new"
-                      disabled={busy === RUN_MERGE}
-                      title={t('jobs.run.mergeHint', { count: (run.worktrees ?? []).length })}
+                      disabled={lockedReason !== undefined || busy === RUN_MERGE}
+                      title={lockedReason ?? t('jobs.run.mergeHint', { count: (run.worktrees ?? []).length })}
                       onClick={() => void mergeRunNow()}
                     >
                       {t('jobs.run.merge')}
@@ -898,6 +907,7 @@ export function RunDetail({
               onOpenSession={onOpenSession}
               canManualStart={canManualStart}
               formOpen={formOpen}
+              lockedReason={lockedReason}
               onStart={(taskId) => void startTask(taskId)}
               onStop={(taskId) => void stopTask(taskId)}
               onGate={(taskId) => {
@@ -920,7 +930,7 @@ export function RunDetail({
               // 정하므로(Task.accountIds), 걸러 보낼 기준이 이 시점에 없다. 두 번째 칸부터 첫
               // 계정의 provider 로 좁히는 일은 폼 안에서 한다.
               <NewTaskModal
-                projectPath={projectPath}
+                door={door}
                 runId={runId}
                 tasks={tasks}
                 accounts={accounts}
@@ -1071,8 +1081,11 @@ export function RunDetail({
                     목록 위다: 이벤트는 "무슨 일이 있었나" 이고 이것은 "지금 무엇이 막고 있나" 라,
                     찾는 사람이 스크롤하지 않고 만나야 하는 쪽이 이것이다. */}
                 {selectedTask && (
-                  <CompletionBlock projectPath={projectPath} runId={runId} taskId={selectedTask.id} />
+                  <CompletionBlock projectPath={projectPath} runId={runId} taskId={selectedTask.id} runtimeId={runtimeId} />
                 )}
+                {/* What the Task, or with none chosen the whole Run, changed (Phase 10): from git where the Run lives,
+                    beside what its workers reported. */}
+                <ChangedFilesBlock door={door} runId={runId} {...(selectedTask ? { taskId: selectedTask.id } : {})} />
                 <JournalBusy journal={detail?.journal} />
                 <div className="detail-list">
                   {/* 목록은 오래된 것이 위다 — 더 오래된 저널 줄을 부르는 자리도 맨 위다 */}
@@ -1217,7 +1230,8 @@ function Graph({
   onGate,
   onAnswer,
   onRestart,
-  onStopConvergence
+  onStopConvergence,
+  lockedReason
 }: {
   tasks: JobTask[]
   layers: string[][]
@@ -1250,6 +1264,8 @@ function Graph({
   /** 자동 수정 중지 (설계 §4.1). 누르면 확인 창을 먼저 띄운다 — 이 컴포넌트는 그것을 모르고,
    *  onGate·onAnswer 와 같은 관례로 결과만 위로 올린다 */
   onStopConvergence: (taskId: string) => void
+  /** Why the node actions are off (a read-only pairing, Phase 7): drawn disabled with this as their title. */
+  lockedReason?: string
 }): React.JSX.Element {
   const { t } = useI18n()
   const byId = new Map(tasks.map((tk) => [tk.id, tk]))
@@ -1372,7 +1388,8 @@ function Graph({
             {showStart && (
               <button
                 className="detail-node-btn"
-                title={t('jobs.node.start')}
+                disabled={lockedReason !== undefined}
+                title={lockedReason ?? t('jobs.node.start')}
                 aria-label={t('jobs.node.start')}
                 onClick={(ev) => {
                   ev.stopPropagation()
@@ -1385,7 +1402,8 @@ function Graph({
             {showGate && (
               <button
                 className="detail-node-btn"
-                title={t('jobs.node.gate')}
+                disabled={lockedReason !== undefined}
+                title={lockedReason ?? t('jobs.node.gate')}
                 aria-label={t('jobs.node.gate')}
                 onClick={(ev) => {
                   ev.stopPropagation()
@@ -1400,7 +1418,8 @@ function Graph({
             {showAnswer && (
               <button
                 className="detail-node-btn"
-                title={t('jobs.node.answer')}
+                disabled={lockedReason !== undefined}
+                title={lockedReason ?? t('jobs.node.answer')}
                 aria-label={t('jobs.node.answer')}
                 onClick={(ev) => {
                   ev.stopPropagation()
@@ -1413,7 +1432,8 @@ function Graph({
             {showStop && (
               <button
                 className="detail-node-btn"
-                title={t('jobs.node.stop')}
+                disabled={lockedReason !== undefined}
+                title={lockedReason ?? t('jobs.node.stop')}
                 aria-label={t('jobs.node.stop')}
                 onClick={(ev) => {
                   ev.stopPropagation()
@@ -1426,7 +1446,8 @@ function Graph({
             {showRestart && (
               <button
                 className="detail-node-btn"
-                title={t('jobs.node.restart')}
+                disabled={lockedReason !== undefined}
+                title={lockedReason ?? t('jobs.node.restart')}
                 aria-label={t('jobs.node.restart')}
                 onClick={(ev) => {
                   ev.stopPropagation()
@@ -1442,7 +1463,8 @@ function Graph({
             {canStopConvergence(task) && (
               <button
                 className="detail-node-btn"
-                title={t('jobs.convergence.stop')}
+                disabled={lockedReason !== undefined}
+                title={lockedReason ?? t('jobs.convergence.stop')}
                 aria-label={t('jobs.convergence.stop')}
                 onClick={(ev) => {
                   ev.stopPropagation()

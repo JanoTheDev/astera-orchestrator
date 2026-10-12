@@ -8,6 +8,7 @@
 // — the app's loopback HTTP server was removed once nothing reached it any more (§7). Nothing here
 // knows whether a dependency is answered locally or across a socket, which is what lets the same
 // command layer run in both places.
+import { lastByState } from './stateMemo'
 import { randomBytes } from 'node:crypto'
 import {
   ackDelivery,
@@ -38,6 +39,9 @@ import {
   resumeSchedule,
   resumeRun,
   setRunWorktree,
+  recordRunGit,
+  resolveRunId,
+  recordDispatchGit,
   placedByApp,
   coordinatorStarting,
   type OrchState,
@@ -45,6 +49,8 @@ import {
   type Res
 } from './state'
 import { CLI_PROTOCOL } from './cliOutput'
+import { collectChanges, rangesFor } from './changedFiles'
+import type { ChangedFile } from '../git/changes'
 import type { SwitchedCommand } from './cliAgentContext'
 import { findProject, findProjectByPath, findProjectContaining, jobInProject } from './projects'
 import { stateWord } from './cliHuman'
@@ -122,6 +128,9 @@ export interface OrchAccount {
   /** Its provider's default account (defaultAccountIdOf). Only when the list was asked for
    *  `withDefault`: deciding it probes every account's login, so the other callers do not pay for it. */
   default?: true
+  /** Whether the account can run right now, by the same probe that decides `default` (remote runtime N5). Only when
+   *  the list was asked `withDefault`, for the same reason. */
+  signedIn?: boolean
 }
 
 /** One run configuration as this layer sees it: what `--validate` takes and what `run-configs`
@@ -152,6 +161,25 @@ export interface HostSession {
    *  `unknown` when there is no signal to read — a Codex or chat session, an ended one, no event yet,
    *  or input typed after the last event. */
   state: SessionState
+  /** The pty behind a terminal session (remote runtime Phase 9a): what a controller subscribes to. */
+  ptyId?: string
+  /** The line process behind a chat session. */
+  procId?: string
+  /** The session's account's provider; absent when the account is gone. */
+  provider?: 'claude' | 'codex'
+  /** The session this one replaced in an account roll (the note's `restore.rolledFrom`). */
+  rolledFrom?: string
+  /** Where the Host reads each fact of this session from (X1-06); `none` means the Host cannot say, and the fact is
+   *  shown as unknown, never as idle. */
+  sources?: SessionSources
+}
+
+/** The Host's source for each fact of a session, by provider and kind (remote runtime design Phase 9, X1-06). */
+export interface SessionSources {
+  status: 'hooks' | 'rollout' | 'chat' | 'none'
+  prompt: 'hooks' | 'chat' | 'none'
+  usage: 'statusline' | 'rollout' | 'chat' | 'none'
+  conversation: 'transcript' | 'rollout' | 'chat' | 'none'
 }
 
 /** What `sessions read` shows: a terminal session's scrollback replayed into a terminal at the size
@@ -230,7 +258,7 @@ export interface OrchServerDeps {
     terminalCwd?: string
     terminalProvider?: Provider
     terminalAccountId?: string
-    /** Set only by recovery (main/recovery/execute.ts) — this wrapper forwards it straight through
+    /** Set only by recovery (core/recovery/execute.ts) — this wrapper forwards it straight through
      *  to OrchCoordinator.startWorker, where the reason it exists is documented. Nothing else in this
      *  file reads it. */
     resume?: { nativeSessionId?: string; briefing?: string }
@@ -586,6 +614,13 @@ export interface OrchServerDeps {
    *  over a base, and the worktree's uncommitted change count (throws when git cannot read it).
    *  **Only the Host injects it**: gh runs on the Host's PATH and login. Absent, the `github-*`
    *  commands answer 409. */
+  /** A Run's changed files and one file's diff from this machine's git (remote runtime design Phase 10):
+   *  `core/git/changes.ts` over a repo and a range. The Host and the app both inject it. Absent, `runs-changed-files`
+   *  and `runs-diff` answer 409. */
+  changes?: {
+    read(repo: string, base: string, head: string | null): Promise<ChangedFile[] | null>
+    diff(repo: string, base: string, head: string | null, f: ChangedFile): Promise<{ diff: string; truncated: boolean } | null>
+  }
   github?: {
     run: GhRunner
     worktreeOf?(path: string): WorktreeInfo | null
@@ -1174,7 +1209,7 @@ export async function handleCommand(
   deps: OrchServerDeps,
   /** `role` is the Host connection's (OrchCaller.role); absent where no Host connection exists. Only
    *  `'mcp'` changes an answer: an MCP client calls with an empty session id, as a shell does. */
-  caller: { sessionId: string; role?: 'app' | 'cli' | 'mcp' },
+  caller: { sessionId: string; role?: 'app' | 'cli' | 'mcp' | 'controller' },
   cmd: string,
   args: Record<string, unknown>
 ): Promise<Reply> {
@@ -2130,11 +2165,14 @@ export async function handleCommand(
         }
       }
       type Seen = { gone: true } | { cur: OrchState; extra: JobEvent[]; count: number; ending: Record<string, unknown> | null }
+      // The Run's own events counted once per state object (audit OR-6): the probe runs every 50 ms and the state
+      // changes only at a commit. The journal's rows and the ending (it reads the clock) are asked each time.
+      const ownEvents = lastByState((cur: OrchState) => eventCountFor(cur, id))
       const look = (): Seen => {
         const cur = deps.getState()
         if (!cur.runs.some((r) => r.id === id)) return { gone: true }
         const extra = journalRows(cur)
-        return { cur, extra, count: eventCountFor(cur, id) + extra.length, ending: waitEndingFor(cur, id, deps.now?.() ?? new Date().toISOString()) }
+        return { cur, extra, count: ownEvents(cur) + extra.length, ending: waitEndingFor(cur, id, deps.now?.() ?? new Date().toISOString()) }
       }
       const waited = await pollUntil(() => {
         const l = look()
@@ -2163,6 +2201,45 @@ export async function handleCommand(
     }
     // **Where each Task stands in completion, read and never run** (MCP design §3). Not public: the
     // MCP get_completion tool reads it; the CLI's `runs checks` stays the public view of the same run.
+    // **A Run's changed files from git, beside what its workers said** (remote runtime design Phase 10, D10.1): the
+    // first of `rangesFor`'s ranges git answers. `unavailable` says why there is no git list: no range was recorded
+    // (the work predates Phase 10), or git could not read any of them (the folder and the commits are gone).
+    case 'runs-changed-files': {
+      const asked = str(args.runId) ?? str(args.id)
+      if (!asked) return bad('--id is required: the run whose changed files to read')
+      // A Job id reads its latest Run, as runs-completion does: the Run detail names a Run by its Job.
+      const runId = resolveRunId(s, asked) ?? asked
+      const taskId = str(args.taskId) ?? str(args.task) ?? undefined
+      const found = rangesFor(s, runId, taskId)
+      if (!found) return notFound(taskId ? `unknown task ${taskId} in run ${runId}` : `unknown run: ${runId}`)
+      if (!deps.changes) return conflict('changed files are read where the run lives, and this caller cannot read git there')
+      const head = { runId, ...(taskId ? { taskId } : {}), reported: found.reported }
+      if (found.parts.length === 0) return okBody({ ...head, git: null, unavailable: 'not-recorded' })
+      const got = await collectChanges(found.parts, deps.changes.read)
+      if (!got.read) return okBody({ ...head, git: null, unavailable: 'git-failed' })
+      return okBody({ ...head, git: { files: got.files.map((f) => f.file), live: got.live, total: got.total } })
+    }
+    // **One file's diff, by the id `runs-changed-files` gave it, never a path** (§4.8): the same list is read again and
+    // the id looked up in it, so a caller can only ever see a file that range changed, read in the range it came from.
+    case 'runs-diff': {
+      const asked = str(args.runId) ?? str(args.id)
+      if (!asked) return bad('--id is required: the run the file changed in')
+      const runId = resolveRunId(s, asked) ?? asked
+      const fileId = str(args.fileId) ?? str(args.file)
+      if (!fileId) return bad('--file is required: a file id from runs-changed-files')
+      const taskId = str(args.taskId) ?? str(args.task) ?? undefined
+      const found = rangesFor(s, runId, taskId)
+      if (!found) return notFound(taskId ? `unknown task ${taskId} in run ${runId}` : `unknown run: ${runId}`)
+      if (!deps.changes) return conflict('diffs are read where the run lives, and this caller cannot read git there')
+      if (found.parts.length === 0) return notFound(`run ${runId} has no recorded git range`)
+      const got = await collectChanges(found.parts, deps.changes.read)
+      if (!got.read) return conflict(`git could not read the changes of run ${runId}`)
+      const hit = got.files.find((f) => f.file.id === fileId)
+      if (!hit) return notFound(`no changed file ${fileId} in run ${runId}; read runs-changed-files again`)
+      const { taskId: _part, ...asGit } = hit.file
+      const d = await deps.changes.diff(hit.range.repo, hit.range.base, hit.range.head, { ...asGit, id: hit.file.id.split('~')[0] })
+      return d ? okBody({ file: hit.file, ...d }) : conflict(`git could not produce the diff of ${hit.file.path}`)
+    }
     case 'runs-completion': {
       const id = str(args.id)
       if (!id) return bad('--id is required')
@@ -2467,8 +2544,34 @@ export async function handleCommand(
       if (starting) return starting
       // 세션을 닫는 것은 부수 효과이고 상태를 쓰지 않는다 — 상태에서 닫히는 것은 아래
       // pauseSchedule 이 한꺼번에 한다(run-delete 가 releaseWorker 를 쓰는 순서와 같다).
-      for (const d of open.filter(releases)) await deps.releaseWorker({ dispatchId: d.id })
-      return commit(pauseSchedule(s, id, now))
+      const done = new Set<string>()
+      for (const d of open.filter(releases)) {
+        await deps.releaseWorker({ dispatchId: d.id })
+        done.add(d.id)
+      }
+      // On the state as it is now (audit OR-3): each release waits up to 5 s, and what landed meanwhile (a worker's
+      // report, a message, a rolling record) is kept, as runs-stop and run-delete keep it. A worker placed meanwhile
+      // is released too, and one retained meanwhile refuses the pause (final review M5); a few rounds at most.
+      let latest = deps.getState()
+      for (let round = 0; round < 3; round++) {
+        if (!latest.jobs.some((j) => j.id === id)) return notFound(`unknown job: ${id}`)
+        const fam = new Set(latest.runs.filter((r) => r.jobId === id).map((r) => r.id))
+        const nowOpen = latest.dispatches.filter((d) => {
+          if (d.outcome || d.endedAt) return false
+          const runId = latest.tasks.find((t) => t.id === d.taskId)?.runId
+          return runId !== undefined && fam.has(runId)
+        })
+        if (nowOpen.some((d) => d.retained))
+          return conflict(`refusing to pause while a dispatch is held by worker-retain — release it first`)
+        const late = nowOpen.filter((d) => !done.has(d.id) && releases(d))
+        if (late.length === 0) break
+        for (const d of late) {
+          await deps.releaseWorker({ dispatchId: d.id })
+          done.add(d.id)
+        }
+        latest = deps.getState()
+      }
+      return commit(pauseSchedule(latest, id, now))
     }
     case 'run-resume': {
       const id = str(args.run)
@@ -2477,6 +2580,25 @@ export async function handleCommand(
       // paused("세워 뒀다")를 걷는다 — 사람에게 다른 버튼이고 다른 상황이다(Run.paused 의 주석).
       // 하나로 겸하게 했더니 세운 뒤에 '실행' 버튼과 '▶' 가 같은 일을 하는 둘로 나란히 떴다.
       return commit(resumeSchedule(s, id))
+    }
+    // The git range a Run or one attempt worked over (remote runtime design Phase 10), which `runs-changed-files` and
+    // `runs-diff` read. **The Host's alone**: anyone else could point a Run's changed files at any commits.
+    case 'runs-git-record': {
+      if (caller.sessionId !== HOST_CALLER) return denied('runs-git-record is the Host’s own record')
+      const runId = str(args.runId)
+      const dispatchId = str(args.dispatchId)
+      if ((runId === null) === (dispatchId === null)) return bad('runs-git-record takes exactly one of runId and dispatchId')
+      const base = str(args.base) ?? undefined
+      const head = str(args.head) ?? undefined
+      if (base === undefined && head === undefined) return bad('runs-git-record needs a base or a head')
+      // Handed to git as a revision later: a commit id and nothing else (Phase 10 review).
+      if ([base, head].some((v) => v !== undefined && !/^[0-9a-f]{7,64}$/i.test(v)))
+        return bad('runs-git-record takes commit ids: 7 to 64 hex characters')
+      const patch = { ...(base !== undefined ? { base } : {}), ...(head !== undefined ? { head } : {}) }
+      const r: Res<unknown> = runId !== null ? recordRunGit(s, runId, patch) : recordDispatchGit(s, dispatchId!, patch)
+      // Nothing changed: no write, so a recorder that reads the same head twice costs no state version.
+      if (r.ok && r.state === s) return okBody(r.value)
+      return commit(r)
     }
     case 'run-worktree-set': {
       const id = str(args.run)
@@ -3231,7 +3353,7 @@ export async function handleCommand(
         // rule. Calling closeDispatch alone would leave the Task at dispatched, and the --ready list
         // does not show those, so nothing would pick it up on its own. A Gate can reach it now:
         // recovery added the dispatched -> blocked edge to ALLOWED (core/orchestration/types.ts) and
-        // main/recovery/execute.ts opens exactly that Gate when startWorker fails on it. But that is
+        // core/recovery/execute.ts opens exactly that Gate when startWorker fails on it. But that is
         // for a lost worker with nobody waiting on an answer; here a caller is, so putting the Task
         // back where it was needs no question of anyone.
         // So this removes the dispatch from the array entirely and restores the Task directly to its
@@ -3692,10 +3814,18 @@ export async function handleCommand(
       type Taken =
         | { kind: 'batch'; state: OrchState; body: { deliveryId: string; count: number; messages: unknown[] } }
         | { kind: 'error'; error: string }
+      // A state that had nothing to deliver has nothing on the next 50 ms probe either (audit OR-6): `now` only
+      // stamps a delivery that is made, so the answer "none" is the state's alone.
+      let emptyIn: OrchState | null = null
       const take = (): Taken | null => {
-        const r = nextDelivery(deps.getState(), { runId, types }, now)
+        const cur = deps.getState()
+        if (cur === emptyIn) return null
+        const r = nextDelivery(cur, { runId, types }, now)
         if (!r.ok) return { kind: 'error', error: r.error }
-        if (r.value === null) return null
+        if (r.value === null) {
+          emptyIn = cur
+          return null
+        }
         return {
           kind: 'batch',
           state: r.state,
@@ -4209,9 +4339,12 @@ export async function handleCommand(
       // follows a symlink before the `..` (`<root>/link/..` lands outside), and a relative spelling
       // resolves against the Host's own folder.
       let cwd = asked
-      if (caller.role === 'mcp') {
+      // A remote controller is held to the same rule (remote runtime design §4.8): it spawns only on the Runtime's
+      // own registered paths.
+      if (caller.role === 'mcp' || caller.role === 'controller') {
         const project = findProjectByPath(s, asked)
-        if (!project) return denied('MCP clients start sessions only in a registered project')
+        if (!project)
+          return denied(`${caller.role === 'mcp' ? 'MCP clients' : 'Remote controllers'} start sessions only in a registered project`)
         cwd = project.path
       }
       const kind = enumFilter('kind', args.kind, ['terminal', 'chat'] as const)

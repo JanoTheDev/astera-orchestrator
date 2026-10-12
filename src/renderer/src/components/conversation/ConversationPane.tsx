@@ -66,6 +66,9 @@ export interface ConversationPaneProps {
    *  neighbouring conversation left the caret in the pane you came from — the marker said one session
    *  and the typing went to another. */
   active?: boolean;
+  /** The tab is the one its pane shows. A hidden chat tab stays mounted (it keeps its thread and scroll) but main stops
+   *  reading its conversation until it shows again (performance audit R4). Defaults to shown. */
+  visible?: boolean;
   /** The rolling and schedule banners (chat-sessions slice 4 §5.6): PaneGrid passes the per-session
    *  events it already holds for TerminalView. Absent for a terminal session's conversation view — its
    *  TerminalView shows them. */
@@ -113,12 +116,27 @@ export function toThreadMessages(
   turns: readonly ConvTurn[],
   failure: FailureWording = (message) => message
 ): ThreadMessageLike[] {
-  return turns.map((turn) => ({
-    id: turn.id,
-    role: turn.role,
-    content: turn.parts.map((part) => toThreadPart(part, failure)),
-  }));
+  return turns.map((turn) => {
+    // The same turn object gives the same message object (performance audit R1): assistant-ui converts and draws again
+    // only the messages that changed. A turn with a failure is worded by the caller each time, so it is not kept.
+    const worded = turn.parts.some((part) => part.kind === "failure");
+    const hit = worded ? undefined : threadMessageOf.get(turn);
+    if (hit) return hit;
+    const message: ThreadMessageLike = {
+      id: turn.id,
+      role: turn.role,
+      content: turn.parts.map((part) => toThreadPart(part, failure)),
+    };
+    if (!worded) threadMessageOf.set(turn, message);
+    return message;
+  });
 }
+
+/** Each turn's message, while the turn object lives (toThreadMessages). */
+const threadMessageOf = new WeakMap<ConvTurn, ThreadMessageLike>();
+/** One function for every render (performance audit R1): a new one each render made assistant-ui convert every message
+ *  again. The messages are already ThreadMessageLike. */
+export const asThreadMessage = (m: ThreadMessageLike): ThreadMessageLike => m;
 
 /**
  * `conversation:append` carries new **or updated** turns (see the event's own doc comment on
@@ -416,6 +434,7 @@ type Status = "loading" | "unavailable" | "ready";
 export function ConversationPane({
   sessionId,
   active = false,
+  visible = true,
   exited = false,
   rollState = null,
   schedState = null,
@@ -630,7 +649,8 @@ export function ConversationPane({
   // file read every couple of seconds while a person is looking at an empty panel, and the
   // alternative is that dead end again.
   useEffect(() => {
-    if (status !== "unavailable") return;
+    // Not while the tab is hidden: it asks again once it shows
+    if (status !== "unavailable" || !visible) return;
     const generation = generationRef.current;
     const timer = setInterval(() => {
       void window.api.conversation
@@ -652,7 +672,13 @@ export function ConversationPane({
         .catch(() => {});
     }, UNAVAILABLE_RETRY_MS);
     return () => clearInterval(timer);
-  }, [sessionId, status]);
+  }, [sessionId, status, visible]);
+
+  // Main reads this conversation only while its tab shows (performance audit R4). Its follow keeps its place, so what
+  // was written while hidden arrives in one append as it shows again.
+  useEffect(() => {
+    void window.api.conversation.pause(sessionId, !visible).catch(() => {});
+  }, [sessionId, visible]);
 
   const loadMore = useCallback(() => {
     if (!more || loadingMore) return;
@@ -1452,7 +1478,7 @@ export function ConversationPane({
     messages,
     // Required even though `messages` are already ThreadMessageLike: without it the runtime reads
     // `metadata` off a raw message and throws on the first render. Measured, not folklore.
-    convertMessage: (m: ThreadMessageLike) => m,
+    convertMessage: asThreadMessage,
     // Shut while a request is up — it is answered on the card above, not by typing — and shut until
     // the session's state has arrived at all (composerLockedFor, paneTransport.ts).
     isDisabled: exited || composerLockedFor({ kind: "chat" }, chat, false),

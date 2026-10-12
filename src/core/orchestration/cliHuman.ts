@@ -141,6 +141,18 @@ const asList = (data: Record<string, unknown>, key: string): Record<string, unkn
  * 그 명령의 사람용 출력. **모르는 명령은 null 이다** — 부르는 쪽이 JSON 으로 되돌린다. 공개
  * 표면이 아닌 명령(코디네이터의 것들)에 억지로 표를 씌우면 가이드가 시키는 것을 못 읽게 된다.
  */
+/** Text for a terminal (security audit SEC-9): C0 controls but line feed and tab, DEL and C1 controls dropped, so a
+ *  Runtime's Job title or turn cannot carry an escape sequence to the person's screen or clipboard. */
+export function terminalSafe(text: string): string {
+  return text.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, '')
+}
+
+/** JSON text with DEL and the C1 controls escaped too (final review M-6): JSON.stringify leaves them as they are, and a
+ *  terminal reads U+009B as the start of an escape sequence. The text parses to the same value. */
+export function jsonSafe(json: string): string {
+  return json.replace(/[\u007f-\u009f]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`)
+}
+
 export function humanFor(cmd: string, data: Record<string, unknown>): string | null {
   switch (cmd) {
     case 'projects-list':

@@ -1,0 +1,293 @@
+// The controller library's pty subscription (remote runtime design §3.7, Phase 8): replay then live with nothing
+// repeated, a gap recovered by subscribing again from the last seq, a reconnect resubscribing with the old boot, and an
+// unsubscribe that stops everything.
+import { describe, it, expect } from 'vitest'
+import { openRemoteLink, GAP_WAITS_MS, type RemoteTarget } from './link'
+import type { RuntimeLink } from './client'
+import type { HelloFrame, RemoteCheckpoint, RemotePtyEvent, SubscriptionFrame } from './frames'
+
+const target: RemoteTarget = { runtimeId: 'rt_a', address: '10.0.0.2', port: 47831, fingerprint: 'F'.repeat(43), token: 'tok' }
+const hello: HelloFrame = {
+  t: 'hello', runtimeId: 'rt_a', displayName: 'Office', asteraVersion: '1.4.8', hostProtocol: 4, gatewayProtocol: 1, bootId: 'boot1',
+  platform: 'win32', pathStyle: 'windows', permission: 'read-only', capabilities: ['pty.seq', 'pty.checkpoint']
+}
+const cp = (watermark: number): RemoteCheckpoint => ({ watermark, cols: 80, rows: 24, state: `state@${watermark}`, pending: '' })
+const data = (seq: number): RemotePtyEvent => ({ seq, kind: 'data', data: `d${seq}` })
+
+/** A Runtime whose connections record subscriptions and let the test push frames to them, or drop. */
+function fakeRuntime(o: { capabilities?: string[] } = {}) {
+  const asked: Array<{ conn: number; t: 'subscribe' | 'unsubscribe'; sub: string; pty?: string; fromSeq?: number; bootId?: string }> = []
+  const conns: Array<{ push(f: SubscriptionFrame): void; drop(): void }> = []
+  const connect = async (): Promise<RuntimeLink> => {
+    const n = conns.length + 1
+    let closeIt!: (v: { code?: string }) => void
+    const closed = new Promise<{ code?: string }>((r) => (closeIt = r))
+    const handlers = new Map<string, (f: SubscriptionFrame) => void>()
+    conns.push({
+      push: (f) => handlers.get(f.sub)?.(f),
+      drop: () => closeIt({})
+    })
+    return {
+      auth: async () => (o.capabilities ? { ...hello, capabilities: o.capabilities } : hello),
+      redeem: async () => ({ clientId: 'c', token: 't' }),
+      call: async () => ({ status: 200, body: {} }),
+      subscribe: (sub, pty, o, onFrame) => {
+        handlers.set(sub, onFrame)
+        asked.push({ conn: n, t: 'subscribe', sub, pty, ...(o.fromSeq !== undefined ? { fromSeq: o.fromSeq } : {}), ...(o.bootId !== undefined ? { bootId: o.bootId } : {}) })
+      },
+      unsubscribe: (sub) => {
+        handlers.delete(sub)
+        asked.push({ conn: n, t: 'unsubscribe', sub })
+      },
+      close: () => closeIt({}),
+      closed
+    }
+  }
+  return { connect, asked, conns }
+}
+
+const settle = (): Promise<void> => new Promise((r) => setTimeout(r, 5))
+
+const watch = (rt: ReturnType<typeof fakeRuntime>, slept: number[] = []) => {
+  const link = openRemoteLink({ target, client: {}, connect: rt.connect, sleep: async (ms) => void slept.push(ms), random: () => 0.5 })
+  const seen: string[] = []
+  const stop = link.subscribe('p1', {
+    onReset: (c) => seen.push(`reset@${c.watermark}`),
+    onEvents: (es) => seen.push(...es.map((e) => `seq${e.seq}`)),
+    onGone: (code) => seen.push(`gone:${code}`)
+  })
+  return { link, seen, stop }
+}
+
+describe('RemoteLink.subscribe', () => {
+  it('a checkpoint resets, then events after it in order, none repeated', async () => {
+    const rt = fakeRuntime()
+    const w = watch(rt)
+    await settle()
+    const sub = rt.asked[0].sub
+    expect(rt.asked[0]).toEqual({ conn: 1, t: 'subscribe', sub, pty: 'p1' })
+    rt.conns[0].push({ t: 'subscribed', sub, pty: 'p1', bootId: 'boot1' })
+    rt.conns[0].push({ t: 'checkpoint', sub, checkpoint: cp(4), gap: { firstSeq: 1, lastSeq: 4 } })
+    rt.conns[0].push({ t: 'pty-out', sub, events: [data(4)] })
+    rt.conns[0].push({ t: 'pty-out', sub, events: [data(5), data(6)] })
+    rt.conns[0].push({ t: 'pty-out', sub, events: [data(6)] })
+    expect(w.seen).toEqual(['reset@4', 'seq5', 'seq6'])
+    w.link.close()
+  })
+
+  it('a gap subscribes again from the last seq it has, under the same boot', async () => {
+    const rt = fakeRuntime()
+    const w = watch(rt)
+    await settle()
+    const sub = rt.asked[0].sub
+    rt.conns[0].push({ t: 'subscribed', sub, pty: 'p1', bootId: 'boot1' })
+    rt.conns[0].push({ t: 'checkpoint', sub, checkpoint: cp(2), gap: { firstSeq: 1, lastSeq: 2 } })
+    rt.conns[0].push({ t: 'pty-out', sub, events: [data(3)] })
+    rt.conns[0].push({ t: 'output-gap', sub, firstSeq: 4, lastSeq: 9, code: 'OUTPUT_GAP' })
+    await settle()
+    expect(rt.asked[1]).toMatchObject({ t: 'subscribe', sub, pty: 'p1', fromSeq: 4, bootId: 'boot1' })
+    w.link.close()
+  })
+
+  it('a reconnect subscribes every stream again from where it was, and a new checkpoint resets', async () => {
+    const rt = fakeRuntime()
+    const w = watch(rt)
+    await settle()
+    const sub = rt.asked[0].sub
+    rt.conns[0].push({ t: 'subscribed', sub, pty: 'p1', bootId: 'boot1' })
+    rt.conns[0].push({ t: 'checkpoint', sub, checkpoint: cp(2), gap: { firstSeq: 1, lastSeq: 2 } })
+    rt.conns[0].push({ t: 'pty-out', sub, events: [data(3)] })
+    rt.conns[0].drop()
+    await settle()
+    await settle()
+    expect(rt.asked.filter((a) => a.t === 'subscribe').at(-1)).toMatchObject({ conn: 2, sub, fromSeq: 4, bootId: 'boot1' })
+    // The Runtime restarted meanwhile: it answers with a checkpoint, which resets the view.
+    rt.conns[1].push({ t: 'subscribed', sub, pty: 'p1', bootId: 'boot2' })
+    rt.conns[1].push({ t: 'checkpoint', sub, checkpoint: cp(1), gap: { firstSeq: 1, lastSeq: 1 } })
+    rt.conns[1].push({ t: 'pty-out', sub, events: [data(2)] })
+    expect(w.seen).toEqual(['reset@2', 'seq3', 'reset@1', 'seq2'])
+    w.link.close()
+  })
+
+  it('unsubscribe tells the Runtime and stops the callbacks', async () => {
+    const rt = fakeRuntime()
+    const w = watch(rt)
+    await settle()
+    const sub = rt.asked[0].sub
+    w.stop()
+    expect(rt.asked.at(-1)).toEqual({ conn: 1, t: 'unsubscribe', sub })
+    rt.conns[0].push({ t: 'pty-out', sub, events: [data(1)] })
+    expect(w.seen).toEqual([])
+    w.link.close()
+  })
+
+  it('a refused subscription is gone, with its code, and not tried again', async () => {
+    const rt = fakeRuntime()
+    const w = watch(rt)
+    await settle()
+    const sub = rt.asked[0].sub
+    rt.conns[0].push({ t: 'sub-error', sub, code: 'RUNTIME_NOT_FOUND', message: 'no such pty' })
+    await settle()
+    expect(w.seen).toEqual(['gone:RUNTIME_NOT_FOUND'])
+    rt.conns[0].drop()
+    await settle()
+    expect(rt.asked.filter((a) => a.t === 'subscribe')).toHaveLength(1)
+    w.link.close()
+  })
+
+  // Phase 8 review I4: a Runtime from before Phase 8 has no subscriptions; asking anyway would close the connection
+  // and loop. The capability is checked first, and repeated drops wait longer each time.
+  it('a Runtime without pty.seq and pty.checkpoint is gone at once, with nothing sent', async () => {
+    const rt = fakeRuntime({ capabilities: ['remote.jobs'] })
+    const w = watch(rt)
+    await settle()
+    expect(w.seen).toEqual(['gone:RUNTIME_CAPABILITY_MISSING'])
+    expect(rt.asked).toEqual([])
+    w.link.close()
+  })
+
+  it('a connection that keeps dropping before the subscription is answered waits longer each time', async () => {
+    const rt = fakeRuntime()
+    const slept: number[] = []
+    const w = watch(rt, slept)
+    for (let i = 0; i < 4; i++) {
+      await settle()
+      rt.conns.at(-1)?.drop()
+    }
+    await settle()
+    expect(slept.length).toBeGreaterThanOrEqual(3)
+    expect(slept[2]).toBeGreaterThan(slept[0])
+    w.link.close()
+  })
+
+  // Phase 8 review I5: an event that does not follow the last one means a hole; it is not applied, and the stream is
+  // asked for again from where the view is.
+  it('an event past a hole is not applied, and the stream resubscribes from the last seq', async () => {
+    const rt = fakeRuntime()
+    const w = watch(rt)
+    await settle()
+    const sub = rt.asked[0].sub
+    rt.conns[0].push({ t: 'subscribed', sub, pty: 'p1', bootId: 'boot1' })
+    rt.conns[0].push({ t: 'checkpoint', sub, checkpoint: cp(2), gap: { firstSeq: 1, lastSeq: 2 } })
+    rt.conns[0].push({ t: 'pty-out', sub, events: [data(5)] })
+    await settle()
+    expect(w.seen).toEqual(['reset@2'])
+    expect(rt.asked.at(-1)).toMatchObject({ t: 'subscribe', sub, fromSeq: 3 })
+    w.link.close()
+  })
+
+  // Second pass RR-1: a stream whose Runtime could not be reached at the first subscribe never said so, and the tab
+  // stayed blank with no banner for as long as the Runtime was away.
+  it('a stream that cannot reach its Runtime at the start says it is down once, and up when it is answered', async () => {
+    const rt = fakeRuntime()
+    let offline = true
+    const connect = (): Promise<RuntimeLink> =>
+      offline ? Promise.reject(Object.assign(new Error('refused'), { code: 'ECONNREFUSED' })) : rt.connect()
+    const link = openRemoteLink({ target, client: {}, connect, sleep: () => new Promise((r) => setTimeout(r, 1)), random: () => 0.5 })
+    const states: string[] = []
+    link.subscribe('p1', { onReset: () => {}, onEvents: () => {}, onLinkState: (st) => states.push(st) })
+    await settle()
+    await settle()
+    expect(states).toEqual(['down'])
+    offline = false
+    await settle()
+    await settle()
+    const sub = rt.asked[0].sub
+    rt.conns[0].push({ t: 'subscribed', sub, pty: 'p1', bootId: 'boot1' })
+    expect(states).toEqual(['down', 'up'])
+    link.close()
+  })
+
+  // Second pass RR-3: while the resubscribe loop slept its backoff (up to 30 s), a new tab's subscribe did nothing.
+  it('a new stream wakes a resubscribe that is waiting out its backoff', async () => {
+    const rt = fakeRuntime()
+    let offline = true
+    const connect = (): Promise<RuntimeLink> =>
+      offline ? Promise.reject(Object.assign(new Error('refused'), { code: 'ECONNREFUSED' })) : rt.connect()
+    const link = openRemoteLink({ target, client: {}, connect, sleep: () => new Promise(() => {}), random: () => 0.5 })
+    link.subscribe('p1', { onReset: () => {}, onEvents: () => {} })
+    await settle()
+    offline = false
+    link.subscribe('p2', { onReset: () => {}, onEvents: () => {} })
+    await settle()
+    await settle()
+    expect(rt.asked.filter((a) => a.t === 'subscribe').map((a) => a.pty).sort()).toEqual(['p1', 'p2'])
+    link.close()
+  })
+
+  // Second pass RR-2: a gap subscribed again at once every time; on a link too slow for the output, each new
+  // subscription overflowed again and the Host serialised a checkpoint per cycle. A gap soon after another waits longer.
+  it('a gap soon after another waits before subscribing again, longer each time', async () => {
+    const rt = fakeRuntime()
+    const slept: number[] = []
+    const w = watch(rt, slept)
+    await settle()
+    const sub = rt.asked[0].sub
+    rt.conns[0].push({ t: 'subscribed', sub, pty: 'p1', bootId: 'boot1' })
+    rt.conns[0].push({ t: 'checkpoint', sub, checkpoint: cp(2), gap: { firstSeq: 1, lastSeq: 2 } })
+    for (let i = 0; i < 3; i++) {
+      rt.conns[0].push({ t: 'output-gap', sub, firstSeq: 3, lastSeq: 9, code: 'OUTPUT_GAP' })
+      await settle()
+    }
+    expect(slept).toEqual([GAP_WAITS_MS[0], GAP_WAITS_MS[1]])
+    expect(rt.asked.filter((a) => a.t === 'subscribe')).toHaveLength(4)
+    w.link.close()
+  })
+
+  // Final review I1: a stream waiting out a gap when its connection dropped stayed `waiting`, so every frame of its new
+  // subscription was dropped and the tab said "reconnecting" over a stale screen for good.
+  it('a stream waiting out a gap when its connection drops takes its new subscription', async () => {
+    const rt = fakeRuntime()
+    let release: () => void = () => {}
+    const gapSleep = new Promise<void>((r) => (release = r))
+    let sleeps = 0
+    const link = openRemoteLink({
+      target,
+      client: {},
+      connect: rt.connect,
+      // The first sleep is the gap wait, held open; the reconnect's own waits pass at once.
+      sleep: () => (sleeps++ === 0 ? gapSleep : Promise.resolve()),
+      random: () => 0.5
+    })
+    const seen: string[] = []
+    link.subscribe('p1', { onReset: (c) => seen.push(`reset@${c.watermark}`), onEvents: (es) => seen.push(...es.map((e) => `seq${e.seq}`)) })
+    await settle()
+    const sub = rt.asked[0].sub
+    rt.conns[0].push({ t: 'subscribed', sub, pty: 'p1', bootId: 'boot1' })
+    rt.conns[0].push({ t: 'checkpoint', sub, checkpoint: cp(2), gap: { firstSeq: 1, lastSeq: 2 } })
+    rt.conns[0].push({ t: 'output-gap', sub, firstSeq: 3, lastSeq: 9, code: 'OUTPUT_GAP' })
+    await settle()
+    rt.conns[0].push({ t: 'output-gap', sub, firstSeq: 3, lastSeq: 9, code: 'OUTPUT_GAP' }) // the second: it waits
+    await settle()
+    rt.conns.at(-1)!.drop()
+    await settle()
+    await settle()
+    const last = rt.conns.at(-1)!
+    last.push({ t: 'subscribed', sub, pty: 'p1', bootId: 'boot1' })
+    last.push({ t: 'checkpoint', sub, checkpoint: cp(7), gap: { firstSeq: 1, lastSeq: 7 } })
+    expect(seen).toContain('reset@7')
+    release()
+    await settle()
+    link.close()
+  })
+
+  // Phase 9b review I1: a tab says it is reconnecting while its connection is down, and stops saying so once the stream
+  // is answered again. The first subscription is not a reconnect.
+  it('tells the stream when its connection drops and when it is subscribed again', async () => {
+    const rt = fakeRuntime()
+    const link = openRemoteLink({ target, client: {}, connect: rt.connect, sleep: async () => {}, random: () => 0.5 })
+    const states: string[] = []
+    link.subscribe('p1', { onReset: () => {}, onEvents: () => {}, onLinkState: (st) => states.push(st) })
+    await settle()
+    const sub = rt.asked[0].sub
+    rt.conns[0].push({ t: 'subscribed', sub, pty: 'p1', bootId: 'boot1' })
+    expect(states).toEqual([])
+    rt.conns[0].drop()
+    await settle()
+    await settle()
+    expect(states).toEqual(['down'])
+    rt.conns[1].push({ t: 'subscribed', sub, pty: 'p1', bootId: 'boot1' })
+    expect(states).toEqual(['down', 'up'])
+    link.close()
+  })
+})

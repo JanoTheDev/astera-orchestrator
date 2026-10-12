@@ -42,6 +42,10 @@ const server = async (
     pidLives?: HostServerDeps['pidLives']
     stateClock?: HostServerDeps['stateClock']
     hostKey?: HostServerDeps['hostKey']
+    maxLine?: HostServerDeps['maxLine']
+    bootId?: HostServerDeps['bootId']
+    maxQueuedBytes?: HostServerDeps['maxQueuedBytes']
+    maxAppQueuedBytes?: HostServerDeps['maxAppQueuedBytes']
   } = {}
 ): Promise<{
   s: HostServer
@@ -76,6 +80,10 @@ const server = async (
     pidLives: over.pidLives ?? ((): boolean => true),
     stateClock: over.stateClock,
     hostKey: over.hostKey,
+    maxLine: over.maxLine,
+    ...(over.maxQueuedBytes !== undefined ? { maxQueuedBytes: over.maxQueuedBytes } : {}),
+    ...(over.maxAppQueuedBytes !== undefined ? { maxAppQueuedBytes: over.maxAppQueuedBytes } : {}),
+    bootId: over.bootId,
     log: { write: (m) => logs.push(m), close: () => {} }
   })
   open.push(s)
@@ -201,7 +209,7 @@ describe('startHostServer', () => {
   it('answers a hello on the same protocol with its own version and pid', async () => {
     const h = await server()
     const [reply] = await talk(h.address, [{ t: 'hello', protocol: HOST_PROTOCOL, app: '1.0.0' }])
-    expect(reply).toMatchObject({ t: 'hello', protocol: HOST_PROTOCOL, host: '9.9.9', pid: process.pid, features: ['proc', 'ping', 'orch', 'requests', 'mcp'] })
+    expect(reply).toMatchObject({ t: 'hello', protocol: HOST_PROTOCOL, host: '9.9.9', pid: process.pid, features: ['proc', 'ping', 'pty-seq', 'orch', 'requests', 'mcp'] })
     expect((reply as { startedAt: string }).startedAt).toMatch(/^\d{4}-/)
   })
 
@@ -422,6 +430,85 @@ describe('startHostServer', () => {
     expect(got[1]).toEqual({ t: 'pty-data', id: 'p1', data: 'output' })
   })
 
+  // Performance audit H1: a CLI reads only the answers to its own calls, so the terminal output, chat lines and whole
+  // state pushes of every session are not sent to it (a worker's `astera ask` waiting ten minutes parsed all of them).
+  it('sends a CLI none of the broadcasts it never reads, and an app all of them', async () => {
+    const h = await server()
+    const connect = async (role?: 'cli') => {
+      const got: Array<{ t: string }> = []
+      const sock = net.connect(h.address)
+      const read = createLineReader({ onMessage: (v) => got.push(v as { t: string }), onBadLine: () => {}, onHandlerError: () => {} })
+      sock.setEncoding('utf8')
+      sock.on('data', read)
+      await new Promise<void>((resolve) => sock.on('connect', () => resolve()))
+      sock.write(encodeLine({ t: 'hello', protocol: HOST_PROTOCOL, app: '1.0.0', ...(role ? { role } : {}) }))
+      return { got, sock }
+    }
+    const cli = await connect('cli')
+    const legacy = await connect()
+    await new Promise((r) => setTimeout(r, 100))
+    for (const m of [
+      { t: 'pty-data', id: 'p1', data: 'output' },
+      { t: 'pty-exit', id: 'p1', exitCode: 0 },
+      { t: 'proc-line', id: 'c1', line: '{}' }
+    ] as HostMessage[])
+      h.s.broadcast(m)
+    await new Promise((r) => setTimeout(r, 100))
+    cli.sock.destroy()
+    legacy.sock.destroy()
+    expect(cli.got.map((m) => m.t)).toEqual(['hello'])
+    expect(legacy.got.map((m) => m.t)).toEqual(['hello', 'pty-data', 'pty-exit', 'proc-line'])
+  })
+
+  // Performance audit H1: a client that stopped reading (paused, in a debugger) must not grow the Host's memory by
+  // every byte of output; past its budget it is let go.
+  it('closes a client whose unread output passes its budget', async () => {
+    const h = await server({ maxQueuedBytes: 64 * 1024 })
+    const sock = net.connect(h.address)
+    await new Promise<void>((resolve) => sock.on('connect', () => resolve()))
+    sock.write(encodeLine({ t: 'hello', protocol: HOST_PROTOCOL, app: '1.0.0' }))
+    await new Promise((r) => setTimeout(r, 100))
+    sock.pause()
+    const closed = new Promise<void>((resolve) => sock.on('close', () => resolve()))
+    for (let i = 0; i < 200; i++) h.s.broadcast({ t: 'pty-data', id: 'p1', data: 'x'.repeat(16 * 1024) })
+    await Promise.race([closed, new Promise((r) => setTimeout(r, 3000))])
+    expect(h.s.clients()).toBe(0)
+    sock.destroy()
+  })
+
+  // Second pass H2-5: state pushes were written past the budget check, so an app that stalled while no pty output flowed
+  // could pile them up without limit.
+  it('closes an app whose unread state pushes pass its budget', async () => {
+    const h = await server({ maxQueuedBytes: 64 * 1024, maxAppQueuedBytes: 64 * 1024 })
+    const sock = net.connect(h.address)
+    await new Promise<void>((resolve) => sock.on('connect', () => resolve()))
+    sock.write(encodeLine({ t: 'hello', protocol: HOST_PROTOCOL, app: '1.0.0', role: 'app' }))
+    await new Promise((r) => setTimeout(r, 100))
+    sock.pause()
+    const closed = new Promise<void>((resolve) => sock.on('close', () => resolve()))
+    for (let i = 0; i < 200; i++)
+      h.s.broadcast({ t: 'orch-state', state: { ...emptyState(), pad: 'x'.repeat(16 * 1024) } as unknown as ReturnType<typeof emptyState>, version: i })
+    await Promise.race([closed, new Promise((r) => setTimeout(r, 3000))])
+    expect(h.s.clients()).toBe(0)
+    sock.destroy()
+  })
+
+  // Final review M3: the app is the one reader the Host must not lose. A main thread that stalls for a while falls
+  // behind every worker's output at once, and cutting its socket sends it through a reconnect and a handover for a
+  // stall it would have read through. Its budget is the larger one.
+  it('gives the app a larger unread budget than other clients', async () => {
+    const h = await server({ maxQueuedBytes: 64 * 1024, maxAppQueuedBytes: 64 * 1024 * 1024 })
+    const sock = net.connect(h.address)
+    await new Promise<void>((resolve) => sock.on('connect', () => resolve()))
+    sock.write(encodeLine({ t: 'hello', protocol: HOST_PROTOCOL, app: '1.0.0', role: 'app' }))
+    await new Promise((r) => setTimeout(r, 100))
+    sock.pause()
+    for (let i = 0; i < 200; i++) h.s.broadcast({ t: 'pty-data', id: 'p1', data: 'x'.repeat(16 * 1024) })
+    await new Promise((r) => setTimeout(r, 300))
+    expect(h.s.clients()).toBe(1)
+    sock.destroy()
+  })
+
   // A client on another protocol is told so and nothing else. The same rule the address's version
   // suffix exists for (core/host/protocol.ts): an app that cannot speak this protocol must not be
   // handed this protocol's messages.
@@ -472,12 +559,83 @@ describe('startHostServer', () => {
         return true
       }
     })
-    const [reply] = await talk(h.address, [{ t: 'pty-list' } as never])
+    // After a hello: a socket that has not said one reaches no handler at all (Phase 0, `hardening` below).
+    const [, reply] = await talk(h.address, [{ t: 'hello', protocol: HOST_PROTOCOL, app: '1.0.0', role: 'cli' }, { t: 'pty-list' } as never], 2)
     expect(reply).toEqual({ t: 'pty-listed', entries: [] })
     expect(seen).toContain('pty-list')
   })
 
   // MCP design §2: a socket that said role 'mcp' may send hello, ping and orch-call, and nothing else.
+  // Remote runtime Phase 0 (design §5.1, N12 as amended): the Host's own holes, closed before any of it
+  // is reachable from a network.
+  // Remote runtime design §3.2, N11: a reconnecting controller compares it to know whether every cursor it holds
+  // belongs to a Host that is gone.
+  it('carries its boot id in the hello, and none when it was given none', async () => {
+    const h = await server({ bootId: 'b'.repeat(32) })
+    const [hello] = await talk(h.address, [{ t: 'hello', protocol: HOST_PROTOCOL, app: '1.0.0', role: 'cli' }])
+    expect(hello).toMatchObject({ t: 'hello', bootId: 'b'.repeat(32) })
+    const plain = await server({ profile: 'other' })
+    const [noId] = await talk(plain.address, [{ t: 'hello', protocol: HOST_PROTOCOL, app: '1.0.0', role: 'cli' }])
+    expect(noId).not.toHaveProperty('bootId')
+  })
+
+  describe('hardening', () => {
+    it('hands nothing from a socket that has not said hello to onMessage, while a greeted one still reaches it', async () => {
+      const seen: string[] = []
+      const h = await start({ onMessage: (m) => { seen.push(m.t); return true } })
+      const silent = await h.connectSilent()
+      silent.write(encodeLine({ t: 'pty-list' }) + encodeLine({ t: 'proc-list' }) + encodeLine({ t: 'pty-write', id: 'p', data: 'x' }))
+      await new Promise((r) => setTimeout(r, 150))
+      expect(seen).toEqual([])
+      const cli = await h.connect('cli')
+      cli.send({ t: 'pty-list' } as never)
+      await new Promise((r) => setTimeout(r, 150))
+      expect(seen).toEqual(['pty-list'])
+      silent.destroy()
+    })
+
+    // An MCP socket that says hello again as the app would be sent orch-act and count as attached.
+    it('keeps a socket at the role its first hello named', async () => {
+      const seen: string[] = []
+      const h = await start({ onMessage: (m) => { seen.push(m.t); return true } })
+      const mcp = await h.connect('mcp')
+      mcp.send({ t: 'hello', protocol: HOST_PROTOCOL, app: '1.0.0', role: 'app' })
+      expect(await mcp.next(300)).toBeUndefined()
+      expect(h.s.hasApp()).toBe(false)
+      mcp.send({ t: 'pty-list' } as never)
+      await new Promise((r) => setTimeout(r, 150))
+      expect(seen).toEqual([])
+    })
+    it('answers a second hello that names the same role, as before', async () => {
+      const h = await start()
+      const cli = await h.connect('cli')
+      cli.send({ t: 'hello', protocol: HOST_PROTOCOL, app: '1.0.0', role: 'cli' })
+      expect(await cli.next()).toMatchObject({ t: 'hello', protocol: HOST_PROTOCOL })
+    })
+
+    // X1-10 measured a whole-state `state-put` of 9,005,354 bytes on a real profile; the default cap must
+    // let one through, which is why it is 64 MiB and not the 8 MiB first proposed.
+    it('reads a 9 MB line under the default cap, as a large profile sends', async () => {
+      const sizes: number[] = []
+      const h = await start({ onMessage: (m) => { sizes.push(JSON.stringify(m).length); return true } })
+      const cli = await h.connect('cli')
+      cli.send({ t: 'blocks', records: {}, cleared: [], pad: 'x'.repeat(9_100_000) } as never)
+      await vi.waitFor(() => expect(sizes).toHaveLength(1), { timeout: 5000 })
+      expect(sizes[0]).toBeGreaterThan(9_000_000)
+      expect(cli.socket.destroyed).toBe(false)
+    })
+
+    it('closes a connection whose line runs past the inbound cap', async () => {
+      const h = await server({ maxLine: 64 })
+      const sock = net.connect(h.address)
+      await new Promise((r) => sock.once('connect', r))
+      const closed = new Promise((r) => sock.once('close', r))
+      sock.write('x'.repeat(65))
+      await closed
+      expect(h.logs.some((l) => l.includes('past the inbound cap'))).toBe(true)
+    })
+  })
+
   describe('an MCP socket reaches only hello, ping and orch-call', () => {
     it("its retire does not stop the Host", async () => {
       const h = await start({ liveCounts: () => ({ sessions: 0, runs: 0 }) })
@@ -504,13 +662,14 @@ describe('startHostServer', () => {
       mcp.send({ t: 'ping', seq: 7 })
       expect(await mcp.next()).toEqual({ t: 'pong', seq: 7 })
     })
-    // An MCP link lives for hours; it reads nothing pushed, so it is sent no terminal output and no state.
-    it('is sent no broadcast, while a cli socket is', async () => {
+    // An MCP link lives for hours; it reads nothing pushed, so it is sent no terminal output and no state. Nor is a
+    // CLI (performance audit H1); an app is.
+    it('is sent no broadcast, while an app socket is', async () => {
       const h = await start()
       const mcp = await h.connect('mcp')
-      const cli = await h.connect('cli')
+      const app = await h.connect('app')
       h.s.broadcast({ t: 'pty-data', id: 'p1', data: 'a terminal line' })
-      expect(await cli.next()).toEqual({ t: 'pty-data', id: 'p1', data: 'a terminal line' })
+      expect(await app.next()).toEqual({ t: 'pty-data', id: 'p1', data: 'a terminal line' })
       expect(await mcp.next(150)).toBeUndefined()
     })
     it("is sent no other caller's state push, and still gets its own orch-result", async () => {
@@ -566,6 +725,23 @@ describe('startHostServer', () => {
     await new Promise((r) => setTimeout(r, 300))
     expect(idle).toBe(false)
     runs = 0
+    await new Promise((r) => setTimeout(r, 300))
+    expect(idle).toBe(true)
+  })
+
+  // Remote runtime N3: a Runtime with Remote on is waiting for controllers, and an idle exit would take its Gateway with it.
+  it('does not leave on the idle timer while Remote is on, with no session and no run', async () => {
+    let idle = false
+    let remote = true
+    const h = await server({
+      idleMs: 50,
+      onIdle: () => { idle = true },
+      liveCounts: () => ({ sessions: 0, runs: 0, remote })
+    })
+    await talk(h.address, [{ t: 'hello', protocol: HOST_PROTOCOL, app: '1.0.0' }])
+    await new Promise((r) => setTimeout(r, 300))
+    expect(idle).toBe(false)
+    remote = false
     await new Promise((r) => setTimeout(r, 300))
     expect(idle).toBe(true)
   })
@@ -685,7 +861,7 @@ describe('startHostServer', () => {
   it('announces the extra features it was given, after the built-in ones', async () => {
     const h = await server({ features: ['spawn'] })
     const [reply] = await talk(h.address, [{ t: 'hello', protocol: HOST_PROTOCOL, app: '1.0.0' }])
-    expect((reply as { features: string[] }).features).toEqual(['proc', 'ping', 'orch', 'requests', 'mcp', 'spawn'])
+    expect((reply as { features: string[] }).features).toEqual(['proc', 'ping', 'pty-seq', 'orch', 'requests', 'mcp', 'spawn'])
   })
   // MCP HTTP §3 (Ruling 2): the hello of a Host built as index.ts builds it tells the app it answers mcp-http-*.
   // One Host per test (one address); features.test.ts covers the spawner half.
@@ -1040,7 +1216,9 @@ describe('startHostServer', () => {
       expect(h.s.lastAppPid()).toBe(4242)
     })
 
-    it('tells onMessage whether the sender has said hello (review of Task 1)', async () => {
+    // Review of Task 1 told onMessage whether the sender had said hello. Since Phase 0 a socket that has
+    // not reaches onMessage not at all, so what it is told is always yes.
+    it('hands onMessage only what a greeted socket sent, and says so', async () => {
       const seen: boolean[] = []
       const h = await server({
         onMessage: (m, _send, from) => {
@@ -1052,13 +1230,36 @@ describe('startHostServer', () => {
       await new Promise((r) => sock.once('connect', r))
       const ch = messageChannel(sock)
       ch.send({ t: 'pty-list' })
-      await vi.waitFor(() => expect(seen).toHaveLength(1))
+      await new Promise((r) => setTimeout(r, 150))
+      expect(seen).toEqual([])
       ch.send({ t: 'hello', protocol: HOST_PROTOCOL, app: '1.0.0', role: 'app' } as ClientMessage)
       await ch.next()
       ch.send({ t: 'pty-list' })
-      await vi.waitFor(() => expect(seen).toHaveLength(2))
-      expect(seen).toEqual([false, true])
+      await vi.waitFor(() => expect(seen).toHaveLength(1))
+      expect(seen).toEqual([true])
       sock.end()
+    })
+
+    // Remote runtime design §3.7 (Phase 8): a broadcast filter sees each socket's hello features, so `pty-data` with a
+    // seq goes only to a client that asked for `pty-seq`.
+    it('a broadcast filter sees each socket hello features', async () => {
+      const h = await server()
+      const connect = async (features?: string[]) => {
+        const sock = net.connect(h.address)
+        await new Promise((r) => sock.once('connect', r))
+        const ch = messageChannel(sock)
+        ch.send({ t: 'hello', protocol: HOST_PROTOCOL, app: '1.0.0', role: 'app', ...(features ? { features } : {}) } as ClientMessage)
+        await ch.next()
+        return { sock, ch }
+      }
+      const plain = await connect()
+      const seq = await connect(['pty-seq', 7 as unknown as string])
+      h.s.broadcast({ t: 'pty-data', id: 'p', data: 'x', seq: 1 }, (_y, f) => f.has('pty-seq'))
+      h.s.broadcast({ t: 'pty-data', id: 'p', data: 'x' }, (_y, f) => !f.has('pty-seq'))
+      expect(await seq.ch.next()).toEqual({ t: 'pty-data', id: 'p', data: 'x', seq: 1 })
+      expect(await plain.ch.next()).toEqual({ t: 'pty-data', id: 'p', data: 'x' })
+      plain.sock.end()
+      seq.sock.end()
     })
 
     it('forgets a socket by its number when it closes, greeted or not (S6 R1, review of Task 1)', async () => {
@@ -1382,23 +1583,25 @@ describe('orch-state pushes to a client that reads the latest', () => {
     }
   })
 
-  it('sends the first at once and then only the newest of a burst, to an app and to a CLI', async () => {
+  // A CLI is sent no state at all (performance audit H1: it reads none); an app that reads the latest gets the first of
+  // a burst at once and then only the newest.
+  it('sends the first at once and then only the newest of a burst to an app, and none to a CLI', async () => {
     const c = fakeClock()
     const h = await server({ stateClock: c.clock })
     const app = await connectAs(h.address, latest)
     const cli = await connectAs(h.address, { role: 'cli' })
     for (let v = 1; v <= 5; v++) h.s.broadcast(st(v))
-    for (const x of [app, cli]) expect(versionOf(await x.ch.next())).toBe(1)
-    for (const x of [app, cli]) expect(await x.ch.next(QUIET_MS)).toBeUndefined()
-    // One trailing timer per socket, each no longer than the gap.
-    expect(c.live()).toBe(2)
+    expect(versionOf(await app.ch.next())).toBe(1)
+    expect(await app.ch.next(QUIET_MS)).toBeUndefined()
+    expect(await cli.ch.next(QUIET_MS)).toBeUndefined()
+    // One trailing timer, for the app, no longer than the gap.
+    expect(c.live()).toBe(1)
     for (const t of c.timers) expect(t.ms).toBeLessThanOrEqual(ORCH_STATE_PUSH_MS)
     c.at.now += ORCH_STATE_PUSH_MS
     c.fire()
-    for (const x of [app, cli]) {
-      expect(versionOf(await x.ch.next())).toBe(5)
-      expect(await x.ch.next(QUIET_MS)).toBeUndefined()
-    }
+    expect(versionOf(await app.ch.next())).toBe(5)
+    expect(await app.ch.next(QUIET_MS)).toBeUndefined()
+    expect(await cli.ch.next(QUIET_MS)).toBeUndefined()
     app.sock.end()
     cli.sock.end()
   })

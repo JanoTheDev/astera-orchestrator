@@ -4,6 +4,7 @@
 // Newline-delimited JSON, one object per line. Terminal data is not here yet — slice 2 adds it, and
 // JSON string escaping is what will carry it, the same way the app already ships PTY output to the
 // renderer.
+import type { GatewayState } from '../remote/gatewayState'
 import type { OrchState } from '../orchestration/state'
 import type { HostDriverReport, RollStateEvent, SessionInfo, WorktreeInfo } from '../types'
 import type { SlackForwardedEvent } from '../slack/forwarded'
@@ -40,6 +41,10 @@ export const HOST_FEATURE_PROC = 'proc'
  *  and says nothing, and an app that pinged one anyway would read that silence as a Host that has
  *  stopped answering — and end a Host that is running perfectly well. */
 export const HOST_FEATURE_PING = 'ping'
+
+/** `pty-data` with the event's `seq` (remote runtime design §3.7, N1), for a client whose hello lists it in `features`.
+ *  A client that does not see `pty-data` frames as today, so an older app is unchanged. */
+export const HOST_FEATURE_PTY_SEQ = 'pty-seq'
 
 /** The `orch-call`/`orch-result` pair (host control plane design §5) — one RPC channel for every
  *  orchestration command instead of a message type per command. Announced the same way and for the
@@ -172,6 +177,14 @@ export const HOST_FEATURE_WORKSPACE_SIZE = 'workspace-size'
  *  the CLI paths answers its state as failed. An app sends neither call to a Host without it. Additive, so
  *  HOST_PROTOCOL stays 4. */
 export const HOST_FEATURE_MCP_HTTP = 'mcp-http'
+/** Remote Runtime (remote runtime design §2.3, §2.9): this Host answers `runtime-reload` and `runtime-status`, supervises
+ *  the Remote Gateway while `remote-runtime.json` enables it, and pushes `gateway-state`. Announced by every Host that
+ *  has it, like `mcp-http`: one without the CLI paths reports the Gateway failed. */
+export const HOST_FEATURE_REMOTE = 'remote-runtime'
+/** Host-owned recovery (remote runtime design §2.6, DC-3): this Host decides and carries out the recovery of lost
+ *  workers itself, while it drives, writes the Job Journal and no attached app keeps HOST_YIELD_RECOVERY. An app in
+ *  front of a Host that announces it runs no reconciler of its own. Announced with `spawn`: recovery starts workers. */
+export const HOST_FEATURE_RECOVERY = 'recovery'
 
 /** The MCP HTTP entrance as the Host runs it (MCP HTTP design §3): answered by the app-only orch-call
  *  `mcp-http-status` (and `mcp-http-reload`, after it re-read the setting) and pushed as `mcp-http-state` on
@@ -256,6 +269,10 @@ export const HOST_YIELD_WORKSPACE = 'workspace'
  *  an `orch-act` or a `pty-opened` never arrives ahead of the state it follows. An older app sends
  *  none and is pushed every commit, as before: it may still diff consecutive pushes for its journal. */
 export const HOST_YIELD_ORCH_STATE_LATEST = 'orch-state-latest'
+/** `hello.yields` value: this app leaves the recovery of lost workers to a Host that announces HOST_FEATURE_RECOVERY
+ *  (remote runtime design §2.6, DC-3). An older app sends none and keeps recovering, and the Host then recovers
+ *  nothing while it is attached. */
+export const HOST_YIELD_RECOVERY = 'recovery'
 /** The shortest gap between two `orch-state` pushes to one client that reads the latest (above): about
  *  ten a second. The first push after a quiet spell goes out at once. */
 export const ORCH_STATE_PUSH_MS = 100
@@ -376,6 +393,9 @@ export type ClientMessage =
       app: string
       role?: 'app' | 'cli' | 'mcp'
       yields?: string[]
+      /** What this client reads beyond the base protocol (`pty-seq`, remote runtime design §3.7). Unknown names are
+       *  ignored, so a newer client can ask for more than an older Host offers. */
+      features?: string[]
       pid?: number
       nonce?: string
       client?: { name: string; version?: string }
@@ -465,6 +485,9 @@ export type HostMessage =
       /** HMAC of the client's `nonce` under the profile's Host key (core/host/hostKey.ts). Sent only
        *  in answer to a nonce. */
       proof?: string
+      /** A random 128-bit value this Host process made once at start (remote runtime design §3.2, N11): a client that
+       *  sees it change knows every counter it holds came from a Host that is gone. Absent from an older Host. */
+      bootId?: string
     }
   | { t: 'protocol-mismatch'; protocol: number }
   /** Answered instead of leaving, to a `{ t: 'retire', reason: 'user' }` while something is holding
@@ -525,7 +548,7 @@ export type HostMessage =
     }
   | { t: 'pty-spawned'; id: string; pid: number }
   | { t: 'pty-failed'; id: string; error: string }
-  | { t: 'pty-data'; id: string; data: string }
+  | { t: 'pty-data'; id: string; data: string; /** Only to a client with the `pty-seq` feature. */ seq?: number }
   | { t: 'pty-exit'; id: string; exitCode: number }
   | { t: 'pty-listed'; entries: PtyEntry[] }
   /** A pty the Host opened **itself** — a worker or coordinator it spawned for a CLI call — broadcast
@@ -560,6 +583,9 @@ export type HostMessage =
   /** The MCP HTTP entrance's state changed (MCP HTTP design §3; host/mcpHttp.ts): the same value the app-only
    *  `mcp-http-status` answers. An older app ignores it. */
   | { t: 'mcp-http-state'; state: McpHttpState }
+  /** The Remote Gateway's state changed (remote runtime design §2.3): the value `runtime-status` answers. An older app
+   *  ignores it. */
+  | { t: 'gateway-state'; state: GatewayState }
   /** A goal a session declared opened nothing, because a unit was already open there (the collector's
    *  onGoalIgnored): the app shows the notice its renderer shows today. An older app ignores it. */
   | { t: 'work-units-goal-ignored'; projectPath: string; objective: string; blockingUnitId: string }

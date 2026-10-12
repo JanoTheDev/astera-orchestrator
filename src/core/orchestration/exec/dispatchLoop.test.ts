@@ -11,7 +11,9 @@ import {
   COORDINATOR_STOP_RETRY_MS,
   FINISHED_RUN_BUSY_CAP_MS,
   FINISHED_RUN_GRACE_MS,
-  createDispatchLoop, type DispatchLoop, type DispatchLoopContext } from './dispatchLoop'
+  createDispatchLoop, type DispatchLoop, type DispatchLoopContext,
+  idleWorkersOf
+} from './dispatchLoop'
 import { coordinatorReleaseOf } from './releaseDefer'
 import { handleCommand, type OrchServerDeps } from '../command'
 import { APP_CALLER } from '../../host/driver'
@@ -76,6 +78,10 @@ interface RigOpts {
   runWithoutWorktree?: boolean
   /** 끝난 예약 회차 하나 — 워크트리를 걷을 대상이다(reapableChildRuns). */
   reapableChild?: boolean
+  /** The reap fails, as a locked worktree on Windows does. */
+  reapFails?: boolean
+  /** Every session is gone (a month of finished Runs whose workers ended long ago). */
+  deadSessions?: boolean
 }
 
 const TEMPLATE_ID = 'job_sched'
@@ -225,10 +231,10 @@ function rig(o: RigOpts = {}) {
     integrate: async () => ({ kind: 'clean' }) as never,
     reap: async (p) => {
       reaped.push(p)
-      return true
+      return !o.reapFails
     },
     isRegisteredWorktree: (p) => p === '/wt-child',
-    sessionAlive: () => true,
+    sessionAlive: () => !o.deadSessions,
     sessionBusy: () => false,
     typeInto: (_id, text) => {
       typed.push(text)
@@ -511,6 +517,53 @@ describe('createDispatchLoop', () => {
     await h.loop.run()
     await h.settle()
     expect(h.reaped).toEqual(['/wt-child'])
+  })
+
+  // Audit OR-4: a worktree Windows keeps locked failed its reap on every pass (a kill, a 5 s poll, a failed git
+  // remove), for as long as the app ran. It is tried again after a growing wait, and given up on in the end.
+  it('a worktree that could not be removed is tried again after a growing wait, then given up', async () => {
+    const h = rig({ reapableChild: true, reapFails: true })
+    const pass = async (): Promise<void> => {
+      await h.loop.run()
+      await h.settle()
+    }
+    await pass()
+    await pass()
+    expect(h.reaped).toEqual(['/wt-child'])
+    h.clock += COORDINATOR_STOP_RETRY_MS
+    await pass()
+    expect(h.reaped).toHaveLength(2)
+    for (let i = 0; i < 40; i++) {
+      h.clock += COORDINATOR_STOP_RETRY_MAX_MS
+      await pass()
+    }
+    const tried = h.reaped.length
+    h.clock += COORDINATOR_STOP_RETRY_MAX_MS
+    await pass()
+    expect(h.reaped).toHaveLength(tried)
+    expect(h.logs.filter((l) => l.includes('gave up removing'))).toHaveLength(1)
+    // Final review I2: giving up was for good, though a held worker released or a folder closed later lets it go. It is
+    // tried again quietly every hour.
+    h.clock += 60 * 60_000
+    await pass()
+    expect(h.reaped).toHaveLength(tried + 1)
+    expect(h.logs.filter((l) => l.includes('gave up removing'))).toHaveLength(1)
+  })
+
+  // Final review I1: each candidate was checked again on the current state before the cheap "is its session alive",
+  // and that check swept the whole history again: a month of finished Runs cost Dispatches squared per commit.
+  it('a month of finished Runs whose workers are gone is passed over quickly', async () => {
+    const h = rig({ deadSessions: true })
+    const s = h.state()
+    const runs = Array.from({ length: 300 }, (_, i) => ({ id: `run_old${i}`, jobId: s.runs[0].jobId, ordinal: i + 2, createdAt: NOW }))
+    const tasks = runs.flatMap((r) => Array.from({ length: 5 }, (_, j) => ({ ...s.tasks[0], id: `${r.id}_t${j}`, runId: r.id, status: 'completed' as const })))
+    const dispatches = tasks.map((t, i) => ({ id: `dsp_old${i}`, taskId: t.id, sessionId: `sess_old${i}`, provider: 'claude' as const, accountId: 'accA', cwd: '/w', specPath: '/s', startedAt: NOW, endedAt: NOW, outcome: 'succeeded' as const, workerState: 'stopped' as const, retained: false }))
+    h.setState({ ...s, runs: [...s.runs, ...runs], tasks: [...s.tasks, ...tasks], dispatches: [...s.dispatches, ...dispatches] } as OrchState)
+    h.clock = NOW_MS + 60 * 60_000
+    const t0 = performance.now()
+    await h.loop.run()
+    await h.settle()
+    expect(performance.now() - t0).toBeLessThan(1500)
   })
 
   // Review m5: a process that stopped driving mid-pass does not go on to the reap — the new driver's
@@ -913,6 +966,38 @@ describe('a finished manual Run’s coordinator stops after the grace', () => {
 // A worker reports and then waits, by the guide's rule, and only `worker-release` ends its session;
 // that is the coordinator's to send, and once the Run has finished nothing sent it. Now the driving loop
 // sends it for an idle worker (its Dispatch closed, not retained) of a finished Run, under the same grace.
+// Audit OR-1: the release pass walked every Dispatch for every finished Run, and for each pair filtered the Tasks and the
+// Dispatches again — on every commit and every tick, over 30 days of Runs. It is one pass with its indexes built once.
+describe('idleWorkersOf', () => {
+  const task = (id: string, runId: string, status: Task['status']): Task => ({ id, runId, title: id, spec: '', deps: [], status, consecutiveFailures: 0, createdAt: NOW, updatedAt: NOW }) as Task
+  const disp = (id: string, taskId: string, sessionId: string, over: Partial<Dispatch> = {}): Dispatch =>
+    ({ id, taskId, sessionId, provider: 'claude', accountId: 'a', cwd: '/w', specPath: '/s', startedAt: NOW, endedAt: NOW, outcome: 'succeeded', workerState: 'stopped', retained: false, ...over }) as Dispatch
+  const base = (runs: string[]): OrchState => ({ ...emptyState(), runs: runs.map((id) => ({ id, jobId: 'job_1', ordinal: 1, createdAt: NOW })) }) as OrchState
+  it('names the closed, unretained, latest Dispatch of each session of a finished Run, and nothing else', () => {
+    const s: OrchState = {
+      ...base(['run_done', 'run_live']),
+      tasks: [task('t1', 'run_done', 'completed'), task('t2', 'run_done', 'completed'), task('t3', 'run_live', 'dispatched')],
+      dispatches: [
+        disp('d_old', 't1', 'sess_reused'),
+        disp('d_new', 't2', 'sess_reused'),
+        disp('d_kept', 't1', 'sess_kept', { retained: true }),
+        disp('d_open', 't2', 'sess_open', { outcome: undefined, endedAt: undefined }),
+        disp('d_live', 't3', 'sess_live')
+      ]
+    }
+    expect(idleWorkersOf(s).map((x) => `${x.runId}:${x.dispatch.id}`)).toEqual(['run_done:d_new'])
+  })
+  it('is one pass: a month of history is read in well under a second', () => {
+    const runs = Array.from({ length: 200 }, (_, i) => `run_${i}`)
+    const tasks = runs.flatMap((r) => Array.from({ length: 5 }, (_, j) => task(`${r}_t${j}`, r, 'completed')))
+    const dispatches = tasks.flatMap((t, i) => [disp(`d${i}a`, t.id, `sess_${i}`), disp(`d${i}b`, t.id, `sess_${i}`)])
+    const s: OrchState = { ...base(runs), tasks, dispatches }
+    const t0 = performance.now()
+    expect(idleWorkersOf(s)).toHaveLength(tasks.length)
+    expect(performance.now() - t0).toBeLessThan(500)
+  })
+})
+
 describe('a finished Run’s idle workers are released after the grace', () => {
   const MIN = 60_000
   const dispatch = (over: Partial<Dispatch> & { id: string; taskId: string; sessionId: string }): Dispatch => ({

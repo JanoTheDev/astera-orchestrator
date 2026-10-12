@@ -19,7 +19,9 @@ beforeEach(async () => {
   // 테스트 환경은 node라 window가 없다. init()이 의존하는 최소한만 세운다.
   vi.stubGlobal('window', {
     api: {
-      on: (_channel: string, cb: (e: DataEvent) => void) => {
+      on: (channel: string, cb: (e: DataEvent) => void) => {
+        // Only the output channel: init also listens for a remote tab's reset (sessionBus.reset.test.ts).
+        if (channel !== 'session:data') return () => {}
         emit = cb
         listening = true
         return () => {}
@@ -149,5 +151,32 @@ describe('sessionBus', () => {
 describe('init 의 준비 신고', () => {
   it('리스너를 건 뒤에 메인에 신고한다', () => {
     expect(listenerWasSetAtReady).toBe(true)
+  })
+})
+
+// Performance audit (renderer, small): a session's last output arrives after its tab closed (the kill settles later),
+// and it re-made the closed session's buffer, up to 384 KB held for the app's life. Output for a session just discarded
+// is dropped for a while; a view attaching again takes it back at once.
+describe('discard', () => {
+  afterEach(() => vi.useRealTimers())
+
+  it('drops output that arrives just after a discard', () => {
+    vi.useFakeTimers()
+    mod.discard('s1')
+    emit({ sessionId: 's1', data: 'late' })
+    const got: string[] = []
+    mod.attach('s1', (d) => got.push(d))
+    emit({ sessionId: 's1', data: 'again' })
+    expect(got).toEqual(['again'])
+  })
+
+  it('holds output for that id again once the discard has settled', () => {
+    vi.useFakeTimers()
+    mod.discard('s1')
+    vi.advanceTimersByTime(mod.DISCARD_SETTLE_MS + 1)
+    emit({ sessionId: 's1', data: 'new' })
+    const got: string[] = []
+    mod.attach('s1', (d) => got.push(d))
+    expect(got).toEqual(['new'])
   })
 })

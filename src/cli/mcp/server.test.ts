@@ -79,7 +79,7 @@ const INITIALIZE = {
 }
 
 describe('the MCP server', () => {
-  it('lists exactly the thirty-four tools', async () => {
+  it('lists exactly the thirty-four tools (a server with no Runtimes behind it)', async () => {
     const client = await connected(answering({}).link)
     const { tools } = await client.listTools()
     expect(tools.map((t) => t.name).sort()).toEqual([...TOOLS].sort())
@@ -511,7 +511,8 @@ describe('the MCP server', () => {
   it('every list tool takes a limit of 1 to 200', async () => {
     const client = await connected(answering({}).link)
     const { tools } = await client.listTools()
-    for (const t of tools.filter((t) => t.name.startsWith('list_')))
+    // list_runtimes answers this machine's few pairings whole, with no paging (remote runtime design §2.8).
+    for (const t of tools.filter((t) => t.name.startsWith('list_') && t.name !== 'list_runtimes'))
       expect(t.inputSchema.properties?.limit, t.name).toMatchObject({ minimum: 1, maximum: 200 })
     expect((await client.callTool({ name: 'list_jobs', arguments: { limit: 201 } })).isError).toBe(true)
     expect((await client.callTool({ name: 'list_jobs', arguments: { limit: 0 } })).isError).toBe(true)
@@ -535,7 +536,7 @@ describe('the MCP server', () => {
     const { link, calls } = answering({ 'jobs-list': { status: 200, body: jobs } })
     const client = await connected(link)
     const { tools } = await client.listTools()
-    for (const t of tools.filter((t) => t.name.startsWith('list_'))) {
+    for (const t of tools.filter((t) => t.name.startsWith('list_') && t.name !== 'list_runtimes')) {
       expect(t.inputSchema.properties?.cursor, t.name).toMatchObject({ type: 'string' })
       // What an agent reads to know when to stop paging, and what truncated and total mean.
       const limitText = String((t.inputSchema.properties?.limit as { description?: string }).description)
@@ -757,6 +758,35 @@ describe('the MCP server', () => {
     const answer = s.lines.map((l) => JSON.parse(l)).find((m) => m.id === 2)
     expect(answer?.result?.structuredContent).toMatchObject({ id: 'run_1' })
     expect(closed).toBe(true)
+  })
+})
+
+// Phase 4 review M8: a call to a paired Runtime still in flight when stdin ends is answered too.
+describe('serveMcp drains remote calls as well', () => {
+  it('answers a remote call still in flight when stdin ends', async () => {
+    const stdin = new PassThrough()
+    const stdout = new PassThrough()
+    const lines: string[] = []
+    stdout.on('data', (c: Buffer) => lines.push(...c.toString('utf8').split('\n').filter(Boolean)))
+    const remote: HostLink = { call: () => new Promise((r) => setTimeout(() => r({ status: 200, body: { id: 'run_9' } }), 40)), close: () => {} }
+    const done = serveMcp({
+      env: { ASTERA_PROFILE_DIR: '/nonexistent-astera-mcp-test' },
+      platform: process.platform,
+      home: '/nonexistent',
+      version: '1.4.1',
+      stdin,
+      stdout,
+      link: answering({}).link,
+      runtimes: { list: async () => [], refusal: async () => null, linkFor: async () => remote, close: () => {} }
+    })
+    const send = (m: unknown): void => void stdin.write(JSON.stringify(m) + '\n')
+    send(INITIALIZE)
+    send({ jsonrpc: '2.0', method: 'notifications/initialized' })
+    send({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'get_run', arguments: { runId: 'run_9', runtimeId: 'rt_a' } } })
+    stdin.end()
+    await done
+    const answer = lines.map((l) => JSON.parse(l)).find((m) => m.id === 2)
+    expect(answer?.result?.structuredContent).toMatchObject({ id: 'run_9' })
   })
 })
 

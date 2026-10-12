@@ -24,7 +24,7 @@ import { providerOf } from '../../providers/meta'
 import type { Account } from '../../types'
 import { nameForRun, nameForTask } from '../../worktrees/naming'
 import { firesDue } from '../fire'
-import { NO_COORDINATOR_ANSWER, unattendedQuestions, unreadUpwardMail } from '../inbox'
+import { NO_COORDINATOR_ANSWER, nudgeKey, planNudges, type NudgeMemo, unattendedQuestions, unreadUpwardMail } from '../inbox'
 import {
   buildIntegrationSpec,
   integrationTaskFor,
@@ -56,6 +56,34 @@ export const ORCH_FIRE_TICK_MS = 15_000
  *  즉 이 문턱을 넘는 것은 "루프를 놓았다" 의 신호에 가깝다. 틱이 15초이므로 실제 깨우기는
  *  90~105초 사이에 일어난다. */
 export const COORDINATOR_NUDGE_MS = 90_000
+/** How often a worktree the reap gave up on is tried again, quietly (final review I2). */
+export const REAP_QUIET_RETRY_MS = 60 * 60_000
+
+/** The idle workers of finished Runs (audit OR-1): each Dispatch closed, not retained, the latest of its session, and of
+ *  a Task the finished Run owns. One sweep with its indexes built once; it walked every Dispatch per finished Run and
+ *  filtered the Tasks and the Dispatches again per pair, on every commit. `only` asks about one pair. */
+export function idleWorkersOf(
+  s: OrchState,
+  only?: { runId: string; dispatchId: string }
+): Array<{ runId: string; dispatch: OrchState['dispatches'][number] }> {
+  const latestOfSession = new Map<string, string>()
+  for (const d of s.dispatches) latestOfSession.set(d.sessionId, d.id)
+  const ownerOfTask = new Map<string, string>()
+  for (const run of s.runs) {
+    if (only && run.id !== only.runId) continue
+    if (outcomeOf(s, run.id) === 'running') continue
+    for (const t of tasksOwnedBy(s, run.id)) if (!ownerOfTask.has(t.id)) ownerOfTask.set(t.id, run.id)
+  }
+  const out: Array<{ runId: string; dispatch: OrchState['dispatches'][number] }> = []
+  for (const d of s.dispatches) {
+    if (only && d.id !== only.dispatchId) continue
+    if (d.retained || (!d.outcome && !d.endedAt)) continue
+    if (latestOfSession.get(d.sessionId) !== d.id) continue
+    const runId = ownerOfTask.get(d.taskId)
+    if (runId !== undefined) out.push({ runId, dispatch: d })
+  }
+  return out
+}
 /** The first wait before a coordinator stop is sent again (limits pass L1). Longer than the exit
  *  release's window (EXIT_DEFER_MS) by far, so a stop that landed has emptied the slot before it; each
  *  further try waits twice as long, up to `COORDINATOR_STOP_RETRY_MAX_MS`. */
@@ -342,53 +370,48 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
    * `worker-stop` would rewrite a closed Dispatch's ending. Driving process only, asked before each one;
    * a failure is logged and never thrown (R14).
    */
+  /** Worktrees a reap failed to remove, by path: when to try again (audit OR-4). */
+  const reapRetry = new Map<string, Retry>()
   const releaseIdleWorkers = async (): Promise<void> => {
-    /** Whether `dispatchId` is, in `s`, an idle worker of the finished Run `runId`. */
-    const idleIn = (s: OrchState, runId: string, dispatchId: string): boolean => {
-      if (outcomeOf(s, runId) === 'running') return false
-      const d = s.dispatches.find((x) => x.id === dispatchId)
-      if (!d || d.retained || (!d.outcome && !d.endedAt)) return false
-      if (!tasksOwnedBy(s, runId).some((t) => t.id === d.taskId)) return false
-      const owners = s.dispatches.filter((x) => x.sessionId === d.sessionId)
-      return owners[owners.length - 1]?.id === d.id
-    }
+    /** Whether `dispatchId` is, in `s`, an idle worker of the finished Run `runId`. Asked of one pair only, on the
+     *  state after an await; the pass itself reads idleWorkersOf's one sweep (audit OR-1). */
+    const idleIn = (s: OrchState, runId: string, dispatchId: string): boolean =>
+      idleWorkersOf(s, { runId, dispatchId }).length > 0
     const s = c.getState()
     for (const id of [...releaseRetry.keys()]) if (!c.sessionAlive(id)) releaseRetry.delete(id)
-    for (const run of s.runs) {
-      if (outcomeOf(s, run.id) === 'running') continue
-      for (const d of s.dispatches) {
-        if (!idleIn(s, run.id, d.id)) continue
-        // **Asked again on the state as it is now** (fix round 1): each release below awaits, and a Run
-        // reopened, a Dispatch reused or a worker retained meanwhile must not lose its session to the
-        // snapshot this pass started from.
-        const current = c.getState()
-        const now = current.runs.find((r) => r.id === run.id)
-        if (!now || !idleIn(current, run.id, d.id)) continue
-        if (!c.sessionAlive(d.sessionId)) continue
-        const nowMs = c.nowMs()
-        if (!graceOver(current, now, d.sessionId, nowMs)) continue
-        const retry = releaseRetry.get(d.sessionId)
-        if (retry && (retry.gaveUp || nowMs < retry.nextAt)) continue
-        if (!c.mayStart()) return
-        if (retry && retry.capped >= COORDINATOR_STOP_RETRY_CAP_TRIES) {
-          retry.gaveUp = true
-          log(`run=${run.id}: gave up releasing its worker ${d.sessionId} (dispatch ${d.id}) after ${retry.tries} attempts`)
-          continue
-        }
-        const { entry, wait } = nextTry(retry, nowMs)
-        releaseRetry.set(d.sessionId, entry)
-        const what = `run=${run.id} finished: its idle worker ${d.sessionId} (dispatch ${d.id})`
-        const again = `; asked again in ${Math.round(wait / 1000)}s unless the session is gone by then`
-        try {
-          const r = await c.handle('worker-release', { dispatch: d.id })
-          log(
-            r.status >= 400
-              ? `${what} was not released: ${JSON.stringify(r.body)}${again}`
-              : `${what} was released${again}`
-          )
-        } catch (e) {
-          log(`${what} could not be released: ${String(e)}${again}`)
-        }
+    for (const { runId, dispatch: d } of idleWorkersOf(s)) {
+      // **Asked again on the state as it is now** (fix round 1): each release below awaits, and a Run
+      // reopened, a Dispatch reused or a worker retained meanwhile must not lose its session to the
+      // snapshot this pass started from.
+      // The cheap question first (final review I1): a month of history is mostly sessions long gone, and the check
+      // on the current state sweeps that history again.
+      if (!c.sessionAlive(d.sessionId)) continue
+      const current = c.getState()
+      const now = current.runs.find((r) => r.id === runId)
+      if (!now || !idleIn(current, runId, d.id)) continue
+      const nowMs = c.nowMs()
+      if (!graceOver(current, now, d.sessionId, nowMs)) continue
+      const retry = releaseRetry.get(d.sessionId)
+      if (retry && (retry.gaveUp || nowMs < retry.nextAt)) continue
+      if (!c.mayStart()) return
+      if (retry && retry.capped >= COORDINATOR_STOP_RETRY_CAP_TRIES) {
+        retry.gaveUp = true
+        log(`run=${runId}: gave up releasing its worker ${d.sessionId} (dispatch ${d.id}) after ${retry.tries} attempts`)
+        continue
+      }
+      const { entry, wait } = nextTry(retry, nowMs)
+      releaseRetry.set(d.sessionId, entry)
+      const what = `run=${runId} finished: its idle worker ${d.sessionId} (dispatch ${d.id})`
+      const again = `; asked again in ${Math.round(wait / 1000)}s unless the session is gone by then`
+      try {
+        const r = await c.handle('worker-release', { dispatch: d.id })
+        log(
+          r.status >= 400
+            ? `${what} was not released: ${JSON.stringify(r.body)}${again}`
+            : `${what} was released${again}`
+        )
+      } catch (e) {
+        log(`${what} could not be released: ${String(e)}${again}`)
       }
     }
   }
@@ -871,8 +894,27 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       await tidyCoordinators()
       if (!c.mayStart()) return
       // 앱이 등록한 워크트리인가 — 앱에서는 core.worktrees, Host 에서는 자기 레지스트리다(c.isRegisteredWorktree).
-      for (const r of reapableChildRuns(c.getState(), (p) => c.isRegisteredWorktree(p)))
-        for (const w of r.worktrees) await c.reap(w)
+      // A worktree that will not go (a file Windows keeps locked) is tried again after a growing wait, and given up
+      // on after the waits reach their cap a few times (audit OR-4): it was a kill, a 5 s poll and a failed git
+      // remove on every pass.
+      const reapable = reapableChildRuns(c.getState(), (p) => c.isRegisteredWorktree(p))
+      const stillThere = new Set(reapable.flatMap((r) => r.worktrees))
+      for (const p of [...reapRetry.keys()]) if (!stillThere.has(p)) reapRetry.delete(p)
+      for (const r of reapable)
+        for (const w of r.worktrees) {
+          const nowMs = c.nowMs()
+          const retry = reapRetry.get(w)
+          if (retry && nowMs < retry.nextAt) continue
+          if (retry && !retry.gaveUp && retry.capped >= COORDINATOR_STOP_RETRY_CAP_TRIES) {
+            // Said once, then tried again quietly every hour (final review I2): a worker someone held, or a folder
+            // a window kept open, lets it go later, and a driver (often the Host) lives for days.
+            retry.gaveUp = true
+            log(`run=${r.runId}: gave up removing its worktree ${w} after ${retry.tries} attempts; trying again hourly`)
+          }
+          if (await c.reap(w)) reapRetry.delete(w)
+          else if (retry?.gaveUp) reapRetry.set(w, { ...retry, nextAt: nowMs + REAP_QUIET_RETRY_MS })
+          else reapRetry.set(w, nextTry(retry, nowMs).entry)
+        }
     } finally {
       // finally 여야 한다 — 위의 `if (!c.mayStart()) return` 도, handleCommand 안에서 올라오는 예외(디스크가
       // 찬 store.save 가 그것이다)도 이 자리를 지나간다. 한 번이라도 놓치면 scheduling 이 true 로
@@ -1003,19 +1045,45 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
    *  선택지를 승인해 버린다 — 롤링이 같은 위험을 훅 알림으로 막는다(claudeCoordinator.ts 의 onHookEvent).
    *  훅이 아니라 바쁨으로 막는 것은 더 거친 근사다: 대화상자가 떴는데 바쁨이 풀리는 런타임이
    *  있으면 이 가드는 새어 나간다. 그 경우를 실측한 적은 없다. */
+  /** What each coordinator was last nudged about (audit OR-2), and whether a nudge pass is running: two ticks that
+   *  overlapped typed the same line twice. */
+  let nudgeMemo = new Map<string, NudgeMemo>()
+  let nudging = false
   const nudgeSleepingCoordinators = async (): Promise<void> => {
+    if (nudging) return
+    nudging = true
+    try {
+      await nudgePass()
+    } finally {
+      nudging = false
+    }
+  }
+  const nudgePass = async (): Promise<void> => {
     if (!c.mayStart()) return
     // 타이머 쪽의 정리(L1, L2) — 앱은 커밋 때만 pass 를 돌리므로, 커밋 없이 때가 온 재시도와 낡은
     // 표시는 이 틱이 맡는다. tidyCoordinators 는 던지지 않는다.
     await tidyCoordinators()
     if (!c.mayStart()) return
-    for (const m of unreadUpwardMail(c.getState(), {
-      nowMs: c.nowMs(),
-      staleMs: COORDINATOR_NUDGE_MS
-    })) {
-      if (c.sessionBusy(m.sessionId) === true) continue
+    const before = nudgeMemo
+    const planned = planNudges(unreadUpwardMail(c.getState(), { nowMs: c.nowMs(), staleMs: COORDINATOR_NUDGE_MS }), before, c.nowMs())
+    nudgeMemo = planned.memo
+    // A nudge not typed is not remembered as one: the next tick may type it.
+    const notTyped = (m: { runId: string; sessionId: string }): void => {
+      const key = nudgeKey(m)
+      const was = before.get(key)
+      if (was) nudgeMemo.set(key, was)
+      else nudgeMemo.delete(key)
+    }
+    for (const m of planned.due) {
+      if (c.sessionBusy(m.sessionId) === true) {
+        notTyped(m)
+        continue
+      }
       // 세션이 없으면(사용자가 닫았다) 깨울 것이 없다 — 그 자리는 되띄우기가 맡는다.
-      if (!c.sessionAlive(m.sessionId)) continue
+      if (!c.sessionAlive(m.sessionId)) {
+        notTyped(m)
+        continue
+      }
       // **영어다.** 코디네이터는 영어로 인계받았다(handover.ts) — 롤링이 워커의 재개 문구를
       // 앱의 UI 언어로 타이핑하다 같은 어긋남을 겪었고, 그 주석이 이유를 적어 두었다.
       c.typeInto(

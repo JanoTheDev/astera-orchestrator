@@ -1,0 +1,208 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { promises as fs } from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { resolveRuntime, runRuntimesCommand, controllerRegistry, type RuntimesDeps } from './runtimes'
+import { RemoteError, type RuntimeLink } from '../core/remote/client'
+import { formatPairing } from '../core/remote/pairing'
+import type { RuntimeProfile } from '../core/runtimes/registry'
+
+const FP = 'A'.repeat(43)
+const NOW = '2026-10-08T00:00:00.000Z'
+let dir: string
+beforeEach(async () => {
+  dir = await fs.mkdtemp(path.join(os.tmpdir(), 'astera-runtimes-'))
+})
+afterEach(async () => fs.rm(dir, { recursive: true, force: true }))
+
+const profile = (over: Partial<RuntimeProfile> = {}): RuntimeProfile => ({
+  runtimeId: 'rt_a', name: 'Office', address: '10.0.0.2', port: 47831, fingerprint: FP, permission: 'full-control', createdAt: NOW, lastSeenAt: null, ...over
+})
+
+/** A Runtime that pairs with code `GOODCODE01` and pins FP. */
+function deps(over: Partial<RuntimesDeps> = {}) {
+  const seen: Array<{ host: string; port: number; pin: string }> = []
+  const redeemed: Array<{ code: string; name: string }> = []
+  const d: RuntimesDeps = {
+    registry: () => controllerRegistry(dir),
+    connect: async (o) => {
+      seen.push(o)
+      if (o.pin !== FP) throw Object.assign(new Error('the Runtime presented a different identity'), { code: 'RUNTIME_IDENTITY_CHANGED' })
+      const link: RuntimeLink = {
+        redeem: async (code, name) => {
+          redeemed.push({ code, name })
+          if (code !== 'GOODCODE01') throw new RemoteError('RUNTIME_AUTH_FAILED', 'that pairing code is not valid')
+          return { clientId: 'cl_1', token: 'tok-secret-value' }
+        },
+        auth: async (token) => {
+          if (token !== 'tok-secret-value') throw new RemoteError('RUNTIME_AUTH_FAILED', 'unknown token')
+          return { t: 'hello', runtimeId: 'rt_office', displayName: 'Office PC', asteraVersion: '1.4.8', hostProtocol: 4, gatewayProtocol: 1, bootId: 'b', platform: 'win32', pathStyle: 'windows', permission: 'full-control', capabilities: [] }
+        },
+        call: async () => ({ status: 200, body: {} }),
+        close: () => {},
+        closed: new Promise(() => {})
+      }
+      return link
+    },
+    hostname: () => 'laptop',
+    now: () => NOW,
+    version: '1.4.8',
+    ...over
+  }
+  return { d, seen, redeemed }
+}
+
+describe('resolveRuntime', () => {
+  const list = [profile(), profile({ runtimeId: 'rt_b', name: 'Build' }), profile({ runtimeId: 'rt_c', name: 'build' })]
+  it('takes the id first, then a name ignoring case', () => {
+    expect(resolveRuntime(list, 'rt_b')).toMatchObject({ runtimeId: 'rt_b' })
+    expect(resolveRuntime(list, 'office')).toMatchObject({ runtimeId: 'rt_a' })
+  })
+  // Phase 4 review M7: a key that is one Runtime's id and another's name is refused, not taken as the id silently.
+  it('refuses a key that is one id and another name', () => {
+    const odd = [profile(), profile({ runtimeId: 'rt_b', name: 'rt_a' })]
+    const r = resolveRuntime(odd, 'rt_a')
+    expect(r).toMatchObject({ code: 'RUNTIME_NOT_FOUND' })
+    expect((r as { message: string }).message).toMatch(/rt_a.*rt_b|rt_b.*rt_a/)
+  })
+  it('refuses a name two Runtimes share, naming both ids, and an unknown one', () => {
+    const two = resolveRuntime(list, 'BUILD')
+    expect(two).toMatchObject({ code: 'RUNTIME_NOT_FOUND' })
+    expect((two as { message: string }).message).toMatch(/rt_b.*rt_c/)
+    expect(resolveRuntime(list, 'nope')).toMatchObject({ code: 'RUNTIME_NOT_FOUND' })
+  })
+})
+
+describe('astera runtimes (remote runtime design §4.4, §4.5)', () => {
+  it('add with a pairing string pins, redeems, reads the hello, and stores the profile and token; prints no token', async () => {
+    const h = deps()
+    const pair = formatPairing({ address: '10.0.0.2', port: 47831, code: 'GOODCODE01', fingerprint: FP })
+    const r = await runRuntimesCommand('runtimes-add', { pair }, h.d)
+    expect(r).toMatchObject({ ok: true, body: { runtimeId: 'rt_office', name: 'Office PC', address: '10.0.0.2', port: 47831, permission: 'full-control' } })
+    expect(JSON.stringify(r)).not.toContain('tok-secret-value')
+    expect(h.redeemed).toEqual([{ code: 'GOODCODE01', name: 'laptop' }])
+    const reg = await controllerRegistry(dir)
+    expect(await reg.list()).toEqual([expect.objectContaining({ runtimeId: 'rt_office', fingerprint: FP })])
+    expect(await reg.token('rt_office')).toBe('tok-secret-value')
+  })
+  // Security audit SEC-4: the id comes from the Runtime; under another key it does not replace the Runtime paired here.
+  it('add refuses a Runtime that says the id of another one paired here, stores nothing, and --replace takes it', async () => {
+    const reg = await controllerRegistry(dir)
+    await reg.add(profile({ runtimeId: 'rt_office', fingerprint: 'B'.repeat(43), address: '10.0.0.9' }), 'old-token')
+    const h = deps()
+    const pair = formatPairing({ address: '10.0.0.2', port: 47831, code: 'GOODCODE01', fingerprint: FP })
+    const r = await runRuntimesCommand('runtimes-add', { pair }, h.d)
+    expect(r).toMatchObject({ ok: false, error: { code: 'CONFLICT' } })
+    expect(JSON.stringify(r)).toContain('--replace')
+    expect(await reg.token('rt_office')).toBe('old-token')
+    const again = await runRuntimesCommand('runtimes-add', { pair, replace: true }, h.d)
+    expect(again).toMatchObject({ ok: true, body: { runtimeId: 'rt_office', address: '10.0.0.2' } })
+  })
+  // Final review M-4: the app has no --replace, and a Runtime makes a new id with every new key, so the same id under
+  // another key is another machine claiming to be the paired one: the app says that, with no CLI flag in it.
+  it('in the app, a Runtime claiming a paired id is refused without pointing at a command-line flag', async () => {
+    const reg = await controllerRegistry(dir)
+    await reg.add(profile({ runtimeId: 'rt_office', fingerprint: 'B'.repeat(43) }), 'old-token')
+    const h = deps({ surface: 'app' })
+    const pair = formatPairing({ address: '10.0.0.2', port: 47831, code: 'GOODCODE01', fingerprint: FP })
+    const r = await runRuntimesCommand('runtimes-add', { pair }, h.d)
+    expect(r).toMatchObject({ ok: false, error: { code: 'CONFLICT' } })
+    expect(JSON.stringify(r)).not.toContain('--replace')
+    expect(JSON.stringify(r)).toContain('another machine')
+  })
+  // Security audit SEC-6: a pairing string on the command line is in the process list for anyone on the machine to
+  // read and redeem first. `--pair -` reads it from stdin; a value read that way ends in a newline.
+  it('pairs with values read from stdin, their newline and all', async () => {
+    const h = deps()
+    const pair = `${formatPairing({ address: '10.0.0.2', port: 47831, code: 'GOODCODE01', fingerprint: FP })}\n`
+    expect(await runRuntimesCommand('runtimes-add', { pair }, h.d)).toMatchObject({ ok: true })
+    const parts = deps()
+    const r = await runRuntimesCommand('runtimes-add', { address: '10.0.0.2', code: 'GOODCODE01\r\n', fingerprint: `${FP}\n` }, parts.d)
+    expect(r).toMatchObject({ ok: true })
+    expect(parts.redeemed[0].code).toBe('GOODCODE01')
+  })
+  it('add takes --address over the hint, and --name', async () => {
+    const h = deps()
+    const pair = formatPairing({ address: '10.0.0.2', port: 47831, code: 'GOODCODE01', fingerprint: FP })
+    const r = await runRuntimesCommand('runtimes-add', { pair, address: 'office.tail.net', name: 'Desk' }, h.d)
+    expect(h.seen[0]).toMatchObject({ host: 'office.tail.net', port: 47831 })
+    expect(r).toMatchObject({ ok: true, body: { name: 'Desk', address: 'office.tail.net' } })
+  })
+  it('the decomposed form needs the fingerprint', async () => {
+    const r = await runRuntimesCommand('runtimes-add', { address: '10.0.0.2', code: 'GOODCODE01' }, deps().d)
+    expect(r).toMatchObject({ ok: false, error: { code: 'INVALID_ARGUMENTS', message: 'pairing needs the fingerprint the Runtime printed' } })
+  })
+  it('a different key refuses before the code is sent, and stores nothing', async () => {
+    const h = deps()
+    const pair = formatPairing({ address: '10.0.0.2', port: 47831, code: 'GOODCODE01', fingerprint: 'B'.repeat(43) })
+    expect(await runRuntimesCommand('runtimes-add', { pair }, h.d)).toMatchObject({ ok: false, error: { code: 'RUNTIME_IDENTITY_CHANGED' } })
+    expect(h.redeemed).toEqual([])
+    expect(await (await controllerRegistry(dir)).list()).toEqual([])
+  })
+  it('a wrong code says so and stores nothing', async () => {
+    const pair = formatPairing({ address: '10.0.0.2', port: 47831, code: 'WRONGCODE1', fingerprint: FP })
+    expect(await runRuntimesCommand('runtimes-add', { pair }, deps().d)).toMatchObject({ ok: false, error: { code: 'RUNTIME_AUTH_FAILED' } })
+    expect(await (await controllerRegistry(dir)).list()).toEqual([])
+  })
+  // Phase 4 review M5: a Runtime of another remote protocol is not stored, and a pairing left behind is named.
+  it('a Runtime of another remote protocol is refused and not stored, and the message says the pairing stays there', async () => {
+    const h = deps()
+    const base = h.d.connect
+    h.d.connect = async (o) => {
+      const l = await base(o)
+      return { ...l, auth: async (t, c) => ({ ...(await l.auth(t, c)), gatewayProtocol: 2 }) }
+    }
+    const pair = formatPairing({ address: '10.0.0.2', port: 47831, code: 'GOODCODE01', fingerprint: FP })
+    const r = await runRuntimesCommand('runtimes-add', { pair }, h.d)
+    expect(r).toMatchObject({ ok: false, error: { code: 'RUNTIME_PROTOCOL_MISMATCH', message: expect.stringMatching(/runtime revoke/) } })
+    expect(await (await controllerRegistry(dir)).list()).toEqual([])
+  })
+  it('a first sign-in that fails after the code was redeemed says the pairing stays on the Runtime', async () => {
+    const h = deps()
+    const base = h.d.connect
+    let n = 0
+    h.d.connect = async (o) => (++n === 1 ? base(o) : Promise.reject(Object.assign(new Error('ECONNRESET'), { code: 'ECONNRESET' })))
+    const pair = formatPairing({ address: '10.0.0.2', port: 47831, code: 'GOODCODE01', fingerprint: FP })
+    const r = await runRuntimesCommand('runtimes-add', { pair }, h.d)
+    expect(r).toMatchObject({ ok: false, error: { message: expect.stringMatching(/runtime revoke/) } })
+  })
+  // Second pass RR-5: a mistyped or firewalled address held the Pair button for the OS's connect wait, and a Runtime that
+  // took the code and never answered held it for good.
+  it('a Runtime that does not answer the pairing in time is RUNTIME_OFFLINE, and the connection is closed', async () => {
+    let closed = 0
+    const h = deps({
+      connect: async () => ({
+        redeem: () => new Promise(() => {}),
+        auth: () => new Promise(() => {}),
+        call: async () => ({ status: 200, body: {} }),
+        close: () => void closed++,
+        closed: new Promise(() => {})
+      }),
+      timeoutMs: 30
+    })
+    const pair = formatPairing({ address: '10.0.0.2', port: 47831, code: 'GOODCODE01', fingerprint: FP })
+    expect(await runRuntimesCommand('runtimes-add', { pair }, h.d)).toMatchObject({ ok: false, error: { code: 'RUNTIME_OFFLINE' } })
+    expect(closed).toBe(1)
+  })
+  it('a connect that never completes is RUNTIME_OFFLINE in time', async () => {
+    const h = deps({ connect: () => new Promise(() => {}), timeoutMs: 30 })
+    const pair = formatPairing({ address: '10.0.0.2', port: 47831, code: 'GOODCODE01', fingerprint: FP })
+    expect(await runRuntimesCommand('runtimes-add', { pair }, h.d)).toMatchObject({ ok: false, error: { code: 'RUNTIME_OFFLINE' } })
+  })
+  it('an unreachable Runtime is RUNTIME_OFFLINE', async () => {
+    const h = deps({ connect: async () => { throw Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' }) } })
+    const pair = formatPairing({ address: '10.0.0.2', port: 47831, code: 'GOODCODE01', fingerprint: FP })
+    expect(await runRuntimesCommand('runtimes-add', { pair }, h.d)).toMatchObject({ ok: false, error: { code: 'RUNTIME_OFFLINE' } })
+  })
+  it('list shows the profiles and no token; remove deletes one and says it did not revoke', async () => {
+    const reg = await controllerRegistry(dir)
+    await reg.add(profile(), 'tok-a')
+    const listed = await runRuntimesCommand('runtimes-list', {}, deps().d)
+    expect(listed).toMatchObject({ ok: true, body: [expect.objectContaining({ runtimeId: 'rt_a' })] })
+    expect(JSON.stringify(listed)).not.toContain('tok-a')
+    const removed = await runRuntimesCommand('runtimes-remove', { id: 'Office' }, deps().d)
+    expect(removed).toMatchObject({ ok: true, body: { removed: 'rt_a', revoked: false } })
+    expect(await reg.list()).toEqual([])
+    expect(await runRuntimesCommand('runtimes-remove', { id: 'rt_a' }, deps().d)).toMatchObject({ ok: false, error: { code: 'RUNTIME_NOT_FOUND' } })
+  })
+})

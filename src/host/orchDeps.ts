@@ -154,7 +154,18 @@ const HOST_TRACKS = ['trackingEnabled'] as const
  * Swallowing is what these call sites already expect of an absent dependency, but it is logged here,
  * never silent — and it does not decide the status either, for SWALLOWED's reason.
  */
-const FIRE_AND_FORGET = ['onDispatchLost'] as const
+// Empty since Phase 3R moved `onDispatchLost` to HOST_RECOVERS below; kept as the route the groups around it name.
+const FIRE_AND_FORGET = [] as const
+
+/**
+ * **The Host's own recovery while it owns recovery, and FIRE_AND_FORGET's route to the app otherwise** (remote
+ * runtime design §2.6, Phase 3R). A lost worker is the Host reconciler's to recover once this Host drives, writes the
+ * journal and no attached app keeps `recovery` (`host/recovery.ts`); then it is **not** forwarded, since an app that
+ * yields recovery recovers nothing in front of this Host and an app that keeps it is the case where this Host does
+ * not own it. Asked per call, as `drive.owns()` is. Still `(a): void` and a bare statement at its call site, for
+ * FIRE_AND_FORGET's reason: a throw from the Host's own recovery is logged, never thrown into the command.
+ */
+const HOST_RECOVERS = ['onDispatchLost'] as const
 
 /**
  * **The Host's own chain first, synchronously and never throwing, then FIRE_AND_FORGET's route to an
@@ -423,7 +434,7 @@ const MARKS_AFTER_ACTING = new Set<HostLocalName>(['removeWorktrees', 'makeRunWo
 const QUIET_ABSENT: ReadonlySet<string> = new Set(['chatPending', 'chatTurn'])
 
 const DEGRADING = Object.keys(DEGRADES) as (keyof typeof DEGRADES)[]
-const REMOTE = [...HOST_LOCAL, ...PROPAGATES, ...SWALLOWED, ...HOST_RESOLVES, ...HOST_TRACKS, ...FIRE_AND_FORGET, ...HOST_ROLLS, ...HOST_DRIVES, ...DEGRADING, ...LOCAL_WHEN_ABSENT, ...HOST_WHEN_ABSENT, ...HOST_CHATS]
+const REMOTE = [...HOST_LOCAL, ...PROPAGATES, ...SWALLOWED, ...HOST_RESOLVES, ...HOST_TRACKS, ...FIRE_AND_FORGET, ...HOST_RECOVERS, ...HOST_ROLLS, ...HOST_DRIVES, ...DEGRADING, ...LOCAL_WHEN_ABSENT, ...HOST_WHEN_ABSENT, ...HOST_CHATS]
 
 /** Not forwarded through the generic funnel at all (fix round 1, I1): `discardRunWorktree` is built by
  *  hand inside `hostOrchDeps` (its own `const discardRunWorktree`, further down, right before it is
@@ -438,7 +449,8 @@ const NOT_FORWARDED = [
   'createSession',
   'journalTimeline',
   'github',
-  'readUnderstanding'
+  'readUnderstanding',
+  'changes'
 ] as const
 
 /** Every name the groups above classify between them. Nothing is unsupplied any more: the four
@@ -452,6 +464,7 @@ type Classified =
   | (typeof HOST_RESOLVES)[number]
   | (typeof HOST_TRACKS)[number]
   | (typeof FIRE_AND_FORGET)[number]
+  | (typeof HOST_RECOVERS)[number]
   | (typeof HOST_ROLLS)[number]
   | HostDrivesName
   | keyof typeof NESTED
@@ -507,8 +520,8 @@ const EFFECTFUL: Record<Classified, boolean> = {
   trackingEnabled: false,
   // HOST_RESOLVES — a question about what is already there, on either route.
   resolveProjectRoot: false,
-  // FIRE_AND_FORGET — every one of them starts or ends something, which is why nobody holds the
-  // result. That the caller does not wait for them does not make them free to do twice.
+  // HOST_RECOVERS — it starts a recovery on either route. That the caller does not wait for it does not
+  // make it free to do twice.
   onDispatchLost: true,
   // HOST_ROLLS — the chain it drops, on either side, does not come back.
   unregisterRolling: true,
@@ -572,7 +585,10 @@ const EFFECTFUL: Record<Classified, boolean> = {
   github: false,
   // NOT_FORWARDED as well (MCP P2-C): a read of this Host's profile's understanding.json, never the
   // app's. It never writes the file and leaves nothing outside the call.
-  readUnderstanding: false
+  readUnderstanding: false,
+  // NOT_FORWARDED as well (remote runtime design Phase 10): git reads on this Host's machine, never the app's. It
+  // runs `git diff` and leaves nothing outside the call.
+  changes: false
 }
 
 /** The names an action really travels under, narrowed to the effectful ones — the NESTED groups
@@ -662,6 +678,9 @@ export function hostOrchDeps(a: {
   /** The Host's own rolling (HOST_ROLLS, `host/rolling.ts`). Null or absent: `unregisterRolling` only
    *  forwards, as before S6. */
   rolling?: Pick<HostRolling, 'unregister'> | null
+  /** The Host's own recovery (HOST_RECOVERS, `host/recovery.ts`). Null or absent: `onDispatchLost` only forwards,
+   *  as before Phase 3R. */
+  recovery?: { owns(): boolean; lost(dispatchId: string): void } | null
   /** The Host's own chat sessions (HOST_CHATS, and P10's Host-writer routes of `chatPending` and
    *  `chatSend`). Null or absent: the Host writes to no chat session, so both HOST_CHATS names only
    *  forward, and `chatPending`/`chatSend` keep their D4 routes. */
@@ -685,6 +704,8 @@ export function hostOrchDeps(a: {
   /** How It Works records (MCP P2-C): this Host's profile's understanding.json, read per call. Absent:
    *  the `understanding-*` commands answer 409, as a caller that is not the Host. */
   readUnderstanding?: OrchServerDeps['readUnderstanding']
+  /** A Run's changed files and diffs from this Host's git (Phase 10). Absent: the two commands answer 409. */
+  changes?: OrchServerDeps['changes']
   /** The Host's own session work units (HOST_TRACKS, E2 §5), asked whether it is their writer at every
    *  call. Null or absent (no spawner): `trackingEnabled` and `sessionTasks.*` only forward, as before. */
   workUnits?: (Pick<HostWorkUnits, 'isWriter' | 'trackingEnabled'> & {
@@ -1183,6 +1204,22 @@ export function hostOrchDeps(a: {
       if ((HOST_RESOLVES as readonly string[]).includes(name))
         return [name, hostResolves(name as (typeof HOST_RESOLVES)[number])]
       if ((FIRE_AND_FORGET as readonly string[]).includes(name)) return [name, forgetful(name)]
+      if ((HOST_RECOVERS as readonly string[]).includes(name)) {
+        const forget = forgetful(name)
+        return [
+          name,
+          (lost: { dispatchId: string }): void => {
+            let mine = false
+            try {
+              mine = a.recovery?.owns() === true
+              if (mine) a.recovery?.lost(lost.dispatchId)
+            } catch (err) {
+              a.log(`onDispatchLost: the Host's recovery failed: ${String(err)}`)
+            }
+            if (!mine) forget(lost)
+          }
+        ]
+      }
       if ((HOST_ROLLS as readonly string[]).includes(name)) {
         const forget = forgetful(name)
         return [
@@ -1244,6 +1281,7 @@ export function hostOrchDeps(a: {
     ...(a.journalTimeline ? { journalTimeline: a.journalTimeline } : {}),
     ...(github ? { github } : {}),
     ...(a.readUnderstanding ? { readUnderstanding: a.readUnderstanding } : {}),
+    ...(a.changes ? { changes: a.changes } : {}),
     ...(a.checkWaits
       ? {
           enterCheckWait: (runId: string, sessionId: string) => a.checkWaits!.enter(runId, sessionId),

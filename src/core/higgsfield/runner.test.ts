@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { binaryMissingIn, realRunner } from './runner'
+import { binaryMissingIn, realRunner, stopOnMissingBinary } from './runner'
 
 describe('binaryMissingIn', () => {
   it('reads the path from the npm launcher\'s "binary not found" line', () => {
@@ -55,5 +55,32 @@ describe('realRunner signal', () => {
     const r = await realRunner(process.execPath, process.platform, waitForever, { stdin: 'ignore', signal: ctl.signal, onStdout: (c) => { out += c } })([], process.env, false)
     expect(r.code).not.toBe(0)
     expect(out).toBe('')
+  })
+})
+
+// Audit U-7: the side calls (a status before an agent's command, the other accounts' credits, the settings tab's status)
+// had no time limit, so a CLI stuck on the network held the agent's command and the settings call for good.
+describe('realRunner time limit', () => {
+  it('ends a run that passes its time limit, saying so', async () => {
+    const t0 = Date.now()
+    const forever = ['-e', 'setInterval(() => {}, 1000)']
+    const r = await realRunner(process.execPath, process.platform, forever, { stdin: 'ignore' })([], process.env, false, { timeoutMs: 300 })
+    expect(r.code).not.toBe(0)
+    expect(r.stderr).toMatch(/did not finish within/)
+    expect(Date.now() - t0).toBeLessThan(8000)
+  })
+})
+
+// Final review I-3: hf-proxy wraps its runner in stopOnMissingBinary, which dropped the time limit, so an agent's
+// side calls still hung for good. The wrapper passes it on.
+describe('stopOnMissingBinary', () => {
+  it('passes the time limit on to the runner it wraps', async () => {
+    const seen: Array<{ timeoutMs?: number } | undefined> = []
+    const run = stopOnMissingBinary(async (_a, _e, _t, o) => {
+      seen.push(o)
+      return { code: 0, stdout: '', stderr: '' }
+    })
+    await run(['x'], {}, false, { timeoutMs: 123 })
+    expect(seen).toEqual([{ timeoutMs: 123 }])
   })
 })

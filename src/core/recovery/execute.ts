@@ -1,0 +1,302 @@
+// Carries out one RecoveryDecision (core/recovery/decide.ts decides; this only executes). Nothing
+// here decides a strategy — it just runs the one it is handed, the same split the orchestration
+// guide draws between "what to do" and "doing it".
+import { randomBytes } from 'node:crypto'
+import { openDispatch, beginValidation, createGate, jobOf, type OrchState } from '../orchestration/state'
+import { buildCheckpoint, type GitSummary } from '../orchestration/checkpoint'
+import { formatResumeSection } from '../orchestration/resumeSection'
+import { policyOf, repairCountOf } from '../orchestration/convergence'
+import { FAILURE_LIMIT } from '../orchestration/types'
+import { isSamePath } from '../files/tree'
+import { t, type Lang } from '../i18n'
+import type { LostAttempt, RecoveryDecision } from './types'
+import type { Provider } from '../providers/meta'
+import type { KnowledgeFiles } from '../knowledge/detect'
+import { buildSpecFile } from '../orchestration/exec/coordinator'
+
+export type ExecuteResult = { ok: true; newDispatchId?: string } | { ok: false; error: string }
+
+export interface ExecuteDeps {
+  getState(): OrchState
+  setState(next: OrchState): Promise<void>
+  /** Same shape as OrchCoordinator.startWorker (core/orchestration/exec/coordinator.ts) — a subset of its
+   *  fields, the ones a recovered attempt needs. Never touches OrchState; throws on failure. */
+  startWorker(a: {
+    dispatchId: string
+    taskId: string
+    title: string
+    spec: string
+    /** The whole spec file, assembled here when the attempt is a repair — see startAttempt below.
+     *  Absent otherwise, so the coordinator builds the plain implementer template as it always has. */
+    specFileContent?: string
+    provider: Provider
+    accountId: string
+    runCwd: string
+    worktree: string
+    /** Present for resume-native and smart-resume only; absent for a plain redispatch. */
+    resume?: { nativeSessionId?: string; briefing?: string }
+  }): Promise<{ sessionId: string; cwd: string; specPath: string }>
+  /** Not injected = recheck cannot start a check; the Task still moves to `validating` and waits. */
+  startValidation?(a: { taskId: string; cwd: string }): void
+  /** Not injected = the smart-resume briefing is built with `git: null` (buildCheckpoint accepts that). */
+  readGitSummary?(cwd: string): Promise<GitSummary | null>
+  /** Same shape as `RepairDeps.knowledge` (main/orchestration/repair.ts) — a repair's rebuilt spec
+   *  file (below) carries a project-knowledge section exactly as the original repair and a plain
+   *  redispatch do. Not injected = the rebuilt spec has no knowledge section, exactly as
+   *  `buildSpecFile` behaves when `knowledge` is omitted — the same degrade-safe shape
+   *  `readGitSummary` above already uses. */
+  knowledge?(cwd: string): Promise<KnowledgeFiles | undefined>
+  /** The app's language, read per Gate rather than captured, so a language change reaches the next
+   *  question. Required, not optional: a Gate nobody can read is worse than no Gate. */
+  lang(): Lang
+  log(m: string): void
+  /** Why the caller no longer wants this attempt carried out, or null. Asked before the new Dispatch is committed,
+   *  right before the start, and when a start fails: the Host's recovery stops owning recovery when it begins to
+   *  leave or an app takes recovery back (remote runtime design §2.6). An abandoned attempt starts nothing, rolls
+   *  back the Dispatch it opened, and opens no Gate, so the Task stays lost for whoever recovers next. The app
+   *  passes none. */
+  abandoned?(): string | null
+}
+
+interface ExecuteInput {
+  attempt: LostAttempt
+  decision: RecoveryDecision
+  state: OrchState
+  now: string
+}
+
+export async function executeRecovery(a: ExecuteInput, deps: ExecuteDeps): Promise<ExecuteResult> {
+  const { decision } = a
+  const gone = deps.abandoned?.() ?? null
+  if (gone !== null) return { ok: false, error: gone }
+  switch (decision.strategy) {
+    case 'resume-native':
+    case 'redispatch':
+    case 'smart-resume':
+      return startAttempt(a, deps)
+    case 'recheck':
+      return recheck(a, deps)
+    case 'review':
+      // The row of the table wrote its sentence twice; this is the side the person reads.
+      return review(a, deps, t(deps.lang(), decision.reasonMessage.key, decision.reasonMessage.params))
+  }
+}
+
+/** The shared body of the three strategies that start an agent. */
+async function startAttempt(a: ExecuteInput, deps: ExecuteDeps): Promise<ExecuteResult> {
+  const { attempt, decision, now } = a
+  const strategy = decision.strategy
+
+  // The briefing is built before anything is committed, from the LOST dispatch id — buildCheckpoint
+  // finds a Dispatch by id without requiring it to be open, which is what lets it describe an
+  // attempt that may never get a new Dispatch (openDispatch or startWorker can still fail below).
+  let briefing: string | undefined
+  if (strategy === 'smart-resume') {
+    const git = (await deps.readGitSummary?.(attempt.cwd)) ?? null
+    const cp = buildCheckpoint(deps.getState(), { dispatchId: attempt.dispatchId, git, now })
+    briefing = cp ? formatResumeSection(cp) : undefined
+  }
+
+  const state = deps.getState()
+  const task = state.tasks.find((t) => t.id === attempt.taskId)
+  if (!task) return { ok: false, error: `unknown task: ${attempt.taskId}` }
+  const run = state.runs.find((r) => r.id === task.runId)
+  if (!run) return { ok: false, error: `unknown run: ${task.runId}` }
+
+  // Committed before the coordinator is called — the same pending-then-patch order worker-start
+  // uses, so a crash between this commit and the spawn leaves a record rather than an invisible
+  // process. openDispatch returns a Res, not a throw: when it refuses (the circuit breaker has
+  // tripped, the Task is blocked, a Dispatch is somehow open) this falls straight through to the
+  // review path with its error as the reason.
+  const opened = openDispatch(
+    state,
+    {
+      taskId: attempt.taskId,
+      provider: attempt.provider,
+      accountId: attempt.accountId,
+      sessionId: `pending:${randomBytes(4).toString('hex')}`,
+      cwd: jobOf(state, run)?.cwd ?? '',
+      specPath: '',
+      retryOf: attempt.dispatchId,
+      // 유실된 attempt 가 repair 였다면 새 attempt 도 repair 다 — 그 Task 는 아직 수렴 중이고, 세션을
+      // 잃은 워커에게도 무엇이 실패했는지 다시 말해야 한다(아래 specFileContent).
+      ...(attempt.repair ? { repair: attempt.repair } : {})
+    },
+    now
+  )
+  if (!opened.ok) {
+    deps.log(`recovery: openDispatch refused for task ${attempt.taskId}: ${opened.error}`)
+    return review(a, deps, opened.error, opened.error)
+  }
+  await deps.setState(opened.state)
+  const dispatchId = opened.value.id
+
+  const resume: { nativeSessionId?: string; briefing?: string } | undefined =
+    strategy === 'resume-native'
+      ? { nativeSessionId: attempt.nativeSessionId }
+      : strategy === 'smart-resume'
+        ? { briefing }
+        : undefined
+
+  // repair 는 spec 파일을 통째로 새로 쓴다 — 대화를 잃은 워커라도 무엇이 실패했는지 다시 읽어야
+  // 하기 때문이다(main/orchestration/repair.ts 의 repairSpec 과 같은 조립, 설계 §10). repairCountOf·
+  // policyOf 는 방금 커밋한 새 Dispatch(위 openDispatch)를 포함한 최신 state 로 센다 — repairSpec 이
+  // 하는 것과 같다.
+  let specFileContent: string | undefined
+  if (attempt.repair) {
+    const repairs = repairCountOf(deps.getState(), task.id)
+    const maxFixAttempts = policyOf(deps.getState(), task)?.maxFixAttempts ?? FAILURE_LIMIT
+    // repair.ts 의 performRepair 와 같은 안전망 — 지식 스캔 하나가 실패한다고 repair 자체를 막을 이유는
+    // 아니다. 주입되지 않았으면(knowledge 미주입) buildSpecFile 이 지식 없는 저장소와 똑같이 다룬다.
+    const knowledge = deps.knowledge ? await deps.knowledge(attempt.cwd).catch(() => undefined) : undefined
+    specFileContent = buildSpecFile({
+      title: task.title,
+      spec: task.spec,
+      taskId: task.id,
+      dispatchId,
+      committing: !isSamePath(attempt.cwd, jobOf(state, run)?.cwd ?? ''),
+      knowledge,
+      repair: {
+        reason: attempt.repair,
+        repair: repairs,
+        maxFixAttempts,
+        checks: task.checks,
+        issues: task.reviewIssues,
+        // **repairs > maxFixAttempts 로 판정하지 않는다(전체 브랜치 리뷰, Finding 3).** 그 되짚기는
+        // repair.ts 의 repairSpec 에서만 안전하다 — 거기서는 이 라운드가 연 Dispatch 가 정확히
+        // 하나다. 여기서는 잃은 Dispatch 를 recovery 가 재시작하면서 새 Dispatch 를 하나 더
+        // 커밋했으므로, 잃은 것과 새로 연 것 둘 다 repairCountOf 에 잡혀 예산을 안 넘긴 재시작도
+        // "넘었다" 고 잘못 판정한다. 대신 잃은 Dispatch 자신이 열릴 때 이미 적어 둔 사실
+        // (Dispatch.grantedExtra, reconciler.ts 가 LostAttempt 로 그대로 옮긴다) 을 읽는다 — 사람이
+        // 실제로 retry-once 를 눌렀을 때만 참이고, recovery 가 다시 세는 것과 무관하게 크래시를
+        // 넘어 살아남는다.
+        ...(attempt.grantedExtra ? { extra: true } : {})
+      }
+    })
+  }
+
+  /** The Dispatch opened above, removed again: no worker may be left without one, and none was started. */
+  const rollBack = async (): Promise<void> => {
+    const latest = deps.getState()
+    await deps.setState({
+      ...latest,
+      dispatches: latest.dispatches.filter((d) => d.id !== dispatchId)
+    })
+  }
+  const goneBeforeStart = deps.abandoned?.() ?? null
+  if (goneBeforeStart !== null) {
+    await rollBack()
+    deps.log(`recovery: the start of task ${attempt.taskId} was abandoned: ${goneBeforeStart}`)
+    return { ok: false, error: goneBeforeStart }
+  }
+
+  let started: { sessionId: string; cwd: string; specPath: string }
+  try {
+    started = await deps.startWorker({
+      dispatchId,
+      taskId: attempt.taskId,
+      title: task.title,
+      spec: task.spec,
+      ...(specFileContent ? { specFileContent } : {}),
+      provider: attempt.provider,
+      accountId: attempt.accountId,
+      runCwd: jobOf(state, run)?.cwd ?? '',
+      worktree: attempt.cwd,
+      ...(resume ? { resume } : {})
+    })
+  } catch (e) {
+    // A worker that could not be (re)started must not leave an orphaned open Dispatch behind, and
+    // createGate below refuses outright while one is open — so the new Dispatch is removed and that
+    // removal is committed before the Gate is opened. A lost worker that could not be restarted is a
+    // question for a person, not a silently stuck Task.
+    const message = e instanceof Error ? e.message : String(e)
+    await rollBack()
+    deps.log(`recovery: startWorker failed for task ${attempt.taskId}: ${message}`)
+    // A start that failed because the caller let go of it meanwhile (a leaving Host's spawner refuses) is not a
+    // question for a person: the next owner recovers the Task.
+    const goneNow = deps.abandoned?.() ?? null
+    if (goneNow !== null) return { ok: false, error: goneNow }
+    return review(a, deps, message, message)
+  }
+
+  // Read the latest state again before patching — a concurrent change (another worker's
+  // worker_done, say) may have landed while startWorker awaited, and the patch must not clobber it;
+  // only the three placeholder fields are carried over, the same discipline worker-start uses.
+  const latest = deps.getState()
+  await deps.setState({
+    ...latest,
+    dispatches: latest.dispatches.map((d) =>
+      d.id === dispatchId
+        ? { ...d, sessionId: started.sessionId, cwd: started.cwd, specPath: started.specPath }
+        : d
+    )
+  })
+  return { ok: true, newDispatchId: dispatchId }
+}
+
+/** Moves the Task to `validating` and starts the check. Starts no agent — the whole point of a recheck
+ *  is that the previous attempt may have already finished the work, so nothing new needs to run. */
+async function recheck(a: ExecuteInput, deps: ExecuteDeps): Promise<ExecuteResult> {
+  const { attempt, now } = a
+  const state = deps.getState()
+  const task = state.tasks.find((t) => t.id === attempt.taskId)
+  // candidates() only yields `dispatched` Tasks, so the other side of this guard is not reached today.
+  // It stays for a state changed during the reconciler's await on git: without it an already-validating
+  // Task would get a redundant commit, and any other status a logged refusal from beginValidation.
+  if (task && task.status === 'dispatched') {
+    const res = beginValidation(state, { taskId: attempt.taskId }, now)
+    if (res.ok) await deps.setState(res.state)
+    else deps.log(`recovery: could not begin validation for task ${attempt.taskId}: ${res.error}`)
+  }
+  deps.startValidation?.({ taskId: attempt.taskId, cwd: attempt.cwd })
+  return { ok: true }
+}
+
+/** The Gate is the one thing here a person reads, so it is written in their language while the
+ *  journal keeps the English sentence (RecoveryDecision carries both). `reason` arrives already
+ *  resolved because its two sources differ: a row of the decision table has a key, an operational
+ *  failure is a raw error string with nothing to translate. */
+const reviewQuestion = (lang: Lang, cls: RecoveryDecision['class'], reason: string): string =>
+  t(lang, 'jobs.recovery.gate.question', { reason }) +
+  (cls === 'unsafe' ? ` ${t(lang, 'jobs.recovery.gate.unsafeNote')}` : '') +
+  ` ${t(lang, 'jobs.recovery.gate.reviewFirst')}`
+
+/** One option, not two. Resolving a Gate always unblocks the Task to `pending -> ready`, and for a
+ *  Run the app drives that is exactly what starts a fresh worker — so a second button saying "leave
+ *  it" would restart the work it promises to leave alone. Leaving it alone is not answering: the
+ *  Gate stays open and the Task stays blocked until the person decides. */
+const reviewOptions = (lang: Lang): string[] => [t(lang, 'jobs.recovery.gate.restart')]
+
+/** Opens the Gate that asks a person to decide. `reason` is the text that goes in the question — for
+ *  the `review` strategy itself that is `decision.reason`; for the fallback out of `startAttempt` it
+ *  is the operational failure (openDispatch's error, or startWorker's thrown message) instead, which
+ *  is why it is a separate parameter rather than always reading `decision.reason`.
+ *
+ *  `failure`, when given, forces the return to `{ ok: false, error: failure }` even though the Gate
+ *  itself was opened successfully — the review strategy chosen on purpose is not a failure (a Gate
+ *  is its whole intended outcome), but falling into review because a strategy could not be carried
+ *  out is, and the reconciler needs to see that. */
+async function review(
+  a: ExecuteInput,
+  deps: ExecuteDeps,
+  reason: string,
+  failure?: string
+): Promise<ExecuteResult> {
+  const { attempt, decision, now } = a
+  const lang = deps.lang()
+  const res = createGate(
+    deps.getState(),
+    {
+      taskId: attempt.taskId,
+      question: reviewQuestion(lang, decision.class, reason),
+      options: reviewOptions(lang)
+    },
+    now
+  )
+  if (!res.ok) {
+    deps.log(`recovery: could not open a gate for task ${attempt.taskId}: ${res.error}`)
+    return { ok: false, error: failure ?? res.error }
+  }
+  await deps.setState(res.state)
+  return failure !== undefined ? { ok: false, error: failure } : { ok: true }
+}

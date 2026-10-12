@@ -67,6 +67,39 @@ const startOpts = (over: Partial<Parameters<RunManager['start']>[0]> = {}) => ({
   ...over
 })
 
+// Second pass R2-7: a console that asks for its replay while output is still coming needs to know where the replay ends
+// and where each live chunk ends, to write nothing twice.
+describe('RunManager output positions', () => {
+  it('each chunk carries the output length after it, and the replay the length it reaches', () => {
+    const { mgr, spawned } = setup()
+    const ends: number[] = []
+    mgr.onData = (e) => ends.push(e.end as number)
+    const st = mgr.start(startOpts())
+    spawned[0].pty.dataCb('abc')
+    spawned[0].pty.dataCb('de')
+    expect(ends).toEqual([3, 5])
+    expect(mgr.replay(st.runId)).toEqual({ text: 'abcde', end: 5 })
+    for (let i = 0; i < 50; i++) spawned[0].pty.dataCb('x'.repeat(10_000))
+    const r = mgr.replay(st.runId)
+    expect(r.end).toBe(500_005)
+    expect(r.text).toHaveLength(200_000)
+  })
+})
+
+// Second pass M2-6: the buffer was cut on every chunk, a 200 KB copy each; it is cut once it is twice that, and what
+// a reader gets is the same last 200,000 characters.
+describe('RunManager recent output', () => {
+  it('is the last 200,000 characters however much was written', () => {
+    const { mgr, spawned } = setup()
+    const st = mgr.start(startOpts())
+    for (let i = 0; i < 50; i++) spawned[0].pty.dataCb(String(i % 10).repeat(10_000))
+    spawned[0].pty.dataCb('end')
+    const out = mgr.recentOutput(st.runId)
+    expect(out).toHaveLength(200_000)
+    expect(out.endsWith('9'.repeat(10_000) + 'end')).toBe(true)
+  })
+})
+
 describe('RunManager', () => {
   it('start spawns a PTY and reports running, with data flowing out under the runId', () => {
     const { mgr, spawned } = setup()
@@ -78,7 +111,7 @@ describe('RunManager', () => {
     expect(st.startedAt).toBeGreaterThan(0)
     expect(spawned).toHaveLength(1)
     spawned[0].pty.dataCb('hello')
-    expect(datas).toEqual([{ runId: st.runId, data: 'hello' }])
+    expect(datas).toEqual([{ runId: st.runId, data: 'hello', end: 5 }])
     expect(mgr.recentOutput(st.runId)).toContain('hello')
   })
 
@@ -201,7 +234,7 @@ describe('RunManager', () => {
       const status = mgr.adopt({ kind: 'run', id: 'run-from-host', pty, restore: restore() })!
       expect(statuses.map((s) => s.status)).toEqual(['running']) // the list and the badge refresh
       pty.dataCb('listening on http://localhost:5173/\n')
-      expect(datas).toEqual([{ runId: status.runId, data: 'listening on http://localhost:5173/\n' }])
+      expect(datas).toEqual([{ runId: status.runId, data: 'listening on http://localhost:5173/\n', end: 36 }])
       expect(mgr.recentOutput(status.runId)).toContain('listening on')
       expect(mgr.get(status.runId)?.detectedUrl).toBe('http://localhost:5173/')
       const waiting = mgr.whenExited(status.runId)

@@ -6,28 +6,40 @@
 import { randomBytes, randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
+import { spawn } from 'node:child_process'
 import os, { homedir } from 'node:os'
 import { leadingGlobals, parseArgs } from '../core/orchestration/cliArgs'
-import { publicEvent, publicFor } from '../core/orchestration/cliPublic'
-import { eventKey, followLine } from '../core/orchestration/cliFollow'
-import { FOLLOW_WINDOW_MS } from '../core/orchestration/command'
-import type { JobEvent } from '../core/types'
+import { publicFor } from '../core/orchestration/cliPublic'
 import { spelledCommand, unknownFlagError, usageFor } from '../core/orchestration/cliUsage'
-import { humanFor, quietFor } from '../core/orchestration/cliHuman'
+import { humanFor, jsonSafe, quietFor, terminalSafe } from '../core/orchestration/cliHuman'
 import { answerFromFile, fileAnswerable, readStateFile } from '../core/orchestration/stateFile'
 import { connectHost, type ConnectFailure, type HostConnection } from '../core/host/connect'
 import { HOST_FEATURE_ORCH, HOST_FEATURE_PING, HOST_FEATURE_REQUESTS, HOST_PROTOCOL } from '../core/host/protocol'
-import { cliHostTarget, impostorError, logToStderr, otherProtocolHost, runHostCommand, siblingHostError } from './host'
+import { cliHostTarget, hostSpawnPlanFor, impostorError, logToStderr, otherProtocolHost, runHostCommand, siblingHostError } from './host'
 import { higgsfieldCommand } from './higgsfield'
 import { installFailureOf, resolveSkillsDir, skillsCommand } from './skills'
 import { serveMcp } from './mcp/server'
 import { runMcpHttp } from './mcp/http'
+import { runRuntimeGateway } from './runtime/gateway'
+import { runRuntimeCommand, type RuntimeCommandDeps } from './runtime/commands'
+import { controllerRegistry, runRuntimesCommand } from './runtimes'
+import { answerRemote, trailingRuntimeError } from './remote'
+import { clientTimeoutMs, followRun, type HostAnswer } from './follow'
+export { clientTimeoutMs, followRun, type FollowEnd, type HostAnswer } from './follow'
+import { remoteTarget } from '../core/remote/targets'
+import { connectRuntime } from '../core/remote/client'
+import { runServe, type ServeDeps } from './runtime/serve'
+import { readValidHold } from '../core/remote/updateHold'
+import { readRemoteSettings, writeRemoteSettings } from '../core/remote/settings'
+import { loadIdentity, loadOrCreateIdentity } from '../core/remote/identity'
+import { openSecretStore } from '../core/secrets/secretStore'
 import { mcpStatus } from './mcp/status'
 import { hfProxy } from './hfProxy'
 import {
   CLI_PROTOCOL,
   askTimeoutBody,
   codeForStatus,
+  remoteCodeOf,
   dataFor,
   waitEnd,
   errEnvelope,
@@ -45,11 +57,9 @@ import {
 import {
   KEEPALIVE_MS,
   KEEPALIVE_PING_MS,
-  MERGE_CLIENT_TIMEOUT_MS,
   SLOW_ANSWER_NOTICE_MS,
   SLOW_ANSWER_PING_LEAD_MS,
   keepaliveLine,
-  mergeCommand,
   slowAnswerLine,
   slowAnswerNotice,
   waitingCommand
@@ -61,12 +71,8 @@ import { helloLine, verboseLog, type VerboseLog } from '../core/orchestration/cl
  *  값이 하나이고, 그래서 둘이 갈라질 수가 없다. */
 const CLI_VERSION = typeof __ASTERA_VERSION__ === 'string' ? __ASTERA_VERSION__ : '0.0.0'
 import {
-  DEFAULT_ASK_TIMEOUT_MS,
-  DEFAULT_CHECK_TIMEOUT_MS,
   DEFAULT_WAIT_TIMEOUT_MS
 } from '../core/orchestration/types'
-import { SCRIPT_TIMEOUT_MS } from '../core/agentBrowser/script'
-import { LAUNCH_WAIT_MAX_MS } from '../core/workspace/script'
 import {
   queueableReportProblem,
   pendingReportFileName,
@@ -86,7 +92,8 @@ export function errorOutput(msg: string, code: CliErrorCode = 'FAILED', cmd?: st
   return errEnvelope({ code, message: msg }, cmd)
 }
 
-export type OutputMode = 'json' | 'human' | 'quiet'
+export type { OutputMode } from './follow'
+import type { OutputMode } from './follow'
 
 /**
  * 어떤 모양으로 낼 것인가 (공개 CLI 설계 §6).
@@ -176,13 +183,14 @@ export function connectFailureEnd(a: {
 /** 모드에 맞춘 성공 출력. **사람용이 없는 명령은 JSON 으로 되돌린다** — 코디네이터의
  *  명령들에 억지로 표를 씨우면 가이드가 시키는 것을 못 읽게 된다. */
 export function renderOk(cmd: string, body: unknown, mode: OutputMode, mark: ReplayMark = null): string {
-  if (mode === 'json') return okEnvelope(cmd, body, mark)
+  if (mode === 'json') return jsonSafe(okEnvelope(cmd, body, mark))
   const data = dataFor(cmd, body)
-  if (mode === 'quiet') return quietFor(data)
+  // What a person's terminal shows carries no control characters (security audit SEC-9); JSON escapes them already.
+  if (mode === 'quiet') return terminalSafe(quietFor(data))
   // **사람용 두 모드는 표시를 싣지 않는다.** 재생의 요점은 첫 답을 받은 것과 구별되지 않는 것이고,
   // 그것이 재생이었다는 사실은 봉투를 읽는 쪽 — 즉 스크립트 — 의 것이다. `--quiet` 는 id 목록이라
   // 얹을 자리조차 없다. 사람용이 없어 봉투로 되돌아가는 명령은 봉투이므로 그때는 실린다.
-  return humanFor(cmd, data) ?? okEnvelope(cmd, body, mark)
+  return terminalSafe(humanFor(cmd, data) ?? okEnvelope(cmd, body, mark))
 }
 
 /**
@@ -193,10 +201,10 @@ export function renderOk(cmd: string, body: unknown, mode: OutputMode, mark: Rep
  * 질문은 언제나 "그래서 뭘 치지" 다. JSON 쪽은 봉투가 이미 싣고 있으므로 **한 번만** 나간다.
  */
 export function renderErr(e: CliError, mode: OutputMode, cmd?: string, mark: ReplayMark = null): string {
-  if (mode === 'json') return errEnvelope(e, cmd, mark)
+  if (mode === 'json') return jsonSafe(errEnvelope(e, cmd, mark))
   const steps = nextStepsFor({ code: e.code, cmd, details: e.details })
-  return [`error: ${e.message}`, ...(steps.length === 0 ? [] : ['try:', ...steps.map((s) => `  ${s}`)])].join(
-    '\n'
+  return terminalSafe(
+    [`error: ${e.message}`, ...(steps.length === 0 ? [] : ['try:', ...steps.map((s) => `  ${s}`)])].join('\n')
   )
 }
 
@@ -243,42 +251,6 @@ export function applyStdin(a: {
   return next
 }
 
-/** Headroom stacked on top of the Host's long-poll deadline so the client never gives up before the
- *  Host does. It absorbs the polling interval (POLL_MS) and event-loop delay the Host takes to send
- *  its response once the deadline is reached — with headroom narrower than the Host's deadline,
- *  `callHost`'s own `setTimeout` fires while the Host is still preparing its response, the command
- *  ends as `stuck`, and the contract that a timeout is information rather than an error breaks (this
- *  was the defect where ask's default was shorter than the server's default). */
-const TIMEOUT_HEADROOM_MS = 30_000
-
-/** ask and check --wait are long-polled by the server, so the per-command default deadline has to
- *  come from the same constants the server uses (core/orchestration/types.ts) — split into two
- *  copies, the values drift apart. Other commands do not long-poll, so their default is effectively
- *  unused and they reuse check's value (there is no reason to add another constant). If
- *  --timeout-ms was given, that value is used as is. */
-export function clientTimeoutMs(a: { cmd: string; args: Record<string, unknown> }): number {
-  const defaultForCmd =
-    a.cmd === 'ask'
-      ? DEFAULT_ASK_TIMEOUT_MS
-      : a.cmd === 'browser-js'
-        ? SCRIPT_TIMEOUT_MS
-        : // app js 의 60 초 마감은 앱이 뜨기를 기다리는 시간(launch 대기)을 세지 않고, 그 대기는
-          // LAUNCH_WAIT_MAX_MS 까지 간다. 그 둘을 합친 것보다 먼저 끊으면 앱은 떴는데 CLI 만 끝난다.
-          a.cmd === 'app-js'
-          ? SCRIPT_TIMEOUT_MS + LAUNCH_WAIT_MAX_MS
-          : // **기다리는 명령은 서버와 같은 마감을 써야 한다.** 짧은 값을 쓰면 서버가 답을
-          // 준비하는 사이에 클라이언트가 연결을 끊고, "타임아웃은 정보다" 는 계약이 깨진다
-          // (ask 의 기본값이 서버보다 짧아서 실제로 그러였다).
-          a.cmd === 'jobs-wait' || a.cmd === 'runs-wait' || (a.cmd === 'sessions-send' && a.args.wait === true)
-          ? DEFAULT_WAIT_TIMEOUT_MS
-          : // 병합은 git 쓰기 하나가 10분까지 간다 — check 의 5분으로 끊으면 Host 가 병합을 끝내고
-            // Run 까지 지우는 사이에 CLI 만 "답이 없다"로 끝난다(MERGE_CLIENT_TIMEOUT_MS).
-            mergeCommand(a)
-            ? MERGE_CLIENT_TIMEOUT_MS
-            : DEFAULT_CHECK_TIMEOUT_MS
-  const base = typeof a.args.timeoutMs === 'number' ? a.args.timeoutMs : defaultForCmd
-  return base + TIMEOUT_HEADROOM_MS
-}
 
 /** The arguments as they go on the wire.
  *
@@ -608,15 +580,6 @@ export function lostAnswerDetails(a: {
  *  **닿지 못한 것과 답을 못 받은 것을 가른다.** 연결이 답 전에 끊기면 그 Host 는 사라진 것이므로
  *  `unreachable` 과 같은 사실이고(보고는 파일에 적힌다), 시한을 넘긴 것은 연결은 됐는데 저쪽이
  *  멈춘 것이라 그냥 실패다 — HTTP 시절의 갈래(`ctl.signal.aborted`)를 그대로 옮긴 것이다. */
-/** One answer from the Host. `replayed` is there when this answer came out of a receipt rather than
- *  out of a run of the command (request receipts design §8) — the same word the Host puts on
- *  `orch-result`, carried to the envelope this program prints. */
-export interface HostAnswer {
-  status: number
-  body: unknown
-  replayed?: true
-  observed?: true
-}
 
 /** Which of the two words this answer wears at the top of the envelope, if either (`ReplayMark`).
  *  They are never both set, and an ordinary answer wears neither. */
@@ -676,6 +639,102 @@ export function callHost(a: {
   })
 }
 
+/** A private IPv4 of this machine (RFC 1918 or the 100.64/10 range Tailscale uses), for a pairing string while the
+ *  Gateway listens on every interface. */
+const privateAddress = (): string | null => {
+  for (const list of Object.values(os.networkInterfaces()))
+    for (const n of list ?? [])
+      if (n.family === 'IPv4' && !n.internal && /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)/.test(n.address))
+        return n.address
+  return null
+}
+
+/** What `astera runtime serve` runs on (cli/runtime/serve.ts): this profile's settings, its update hold, its Host. */
+const serveDeps = (a: { env: NodeJS.ProcessEnv; platform: NodeJS.Platform; home: string }): ServeDeps => {
+  const { address, profileDir } = cliHostTarget({ env: a.env, platform: a.platform, home: a.home })
+  // A signal wakes whatever wait is under way, so `serve` leaves at once rather than after its 30 s backoff.
+  let wake = (): void => {}
+  return {
+    settings: () => readRemoteSettings(profileDir),
+    hold: () => readValidHold(profileDir, Date.now()) !== null,
+    hostAnswers: async () => {
+      const conn = await connectHost({ address, profileDir, app: CLI_VERSION, log: () => {} })
+      if ('error' in conn) return false
+      conn.close()
+      return true
+    },
+    startHostChild: () => {
+      const planned = hostSpawnPlanFor({ profileDir, platform: a.platform, env: a.env })
+      // No CLI paths and the like: a configuration no restart changes (exit 78).
+      if ('error' in planned) return { unusable: planned.error.message }
+      // In the foreground: a child of this process, so a service manager that stops `serve` stops the Host with it.
+      const child = spawn(planned.plan.command, planned.plan.args, { ...planned.plan.options, detached: false, stdio: 'ignore' })
+      const wait = new Promise<number | null>((resolve) => {
+        child.once('exit', (code) => resolve(code))
+        child.once('error', () => resolve(1))
+      })
+      return { wait, kill: (signal) => void child.kill(signal) }
+    },
+    sleep: (ms) =>
+      new Promise<void>((resolve) => {
+        const t = setTimeout(resolve, ms)
+        wake = () => {
+          clearTimeout(t)
+          resolve()
+        }
+      }),
+    onSignal: (fn) => {
+      const stop = (): void => {
+        fn()
+        wake()
+      }
+      process.once('SIGTERM', stop)
+      process.once('SIGINT', stop)
+    },
+    now: Date.now,
+    log: (m) => logToStderr(`astera runtime serve: ${m}`)
+  }
+}
+
+/** What `astera runtime ...` reads and asks on this machine (cli/runtime/commands.ts). */
+const runtimeDeps = (a: { env: NodeJS.ProcessEnv; platform: NodeJS.Platform; home: string; noKeepalive: boolean }): RuntimeCommandDeps => {
+  const { address, profileDir } = cliHostTarget({ env: a.env, platform: a.platform, home: a.home })
+  const store = () => openSecretStore({ dir: path.join(profileDir, 'remote'), profileDir })
+  return {
+    readSettings: () => readRemoteSettings(profileDir),
+    writeSettings: (p) => writeRemoteSettings(profileDir, p),
+    ensureIdentity: (san) => loadOrCreateIdentity(store(), { displayName: os.hostname(), ...(san === '0.0.0.0' || san === '::' ? {} : { san }) }),
+    loadIdentity: () => loadIdentity(store()),
+    hostCall: async (cmd, args, o) => {
+      let conn = await connectHost({ address, profileDir, app: CLI_VERSION, log: logToStderr })
+      const startHost = (): ReturnType<typeof runHostCommand> =>
+        runHostCommand({ cmd: 'host-start', env: a.env, platform: a.platform, home: a.home, noKeepalive: a.noKeepalive })
+      if ('error' in conn && conn.error === 'unreachable' && o.start) {
+        const started = await startHost()
+        if (!started.ok) return { error: started.error }
+        conn = await connectHost({ address, profileDir, app: CLI_VERSION, log: logToStderr })
+      }
+      if ('error' in conn) {
+        if (conn.error === 'impostor') return { error: impostorError(address, profileDir) }
+        return { down: true }
+      }
+      try {
+        // The session it runs in, so the Host sees an agent behind it too (security audit SEC-10).
+        const r = await callHost({ conn, cmd, args, sessionId: a.env.ASTERA_SESSION ?? '', timeoutMs: 30_000 })
+        if ('unreachable' in r) return { down: true }
+        if ('stuck' in r) return { error: { code: 'TIMEOUT', message: r.stuck } }
+        return { status: r.status, body: r.body }
+      } finally {
+        conn.close()
+      }
+    },
+    sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+    privateAddress,
+    hostname: () => os.hostname(),
+    agentSession: (a.env.ASTERA_SESSION ?? '') !== ''
+  }
+}
+
 /** `callHost`, timed for `--verbose`: how long the round trip took and how it ended. With `--verbose`
  *  off this is `callHost` itself. */
 export function timedCall(
@@ -685,78 +744,6 @@ export function timedCall(
   return verbose.timed(`call ${a.cmd}`, () => callHost(a), (r) =>
     'unreachable' in r ? `no answer: ${r.unreachable}` : 'stuck' in r ? `no answer: ${r.stuck}` : `status ${r.status}`
   )
-}
-
-/** How `followRun` ended. `ended` carries the body `runs wait` would have answered with (the Host's
- *  `waitEndingFor`, or a `timeout` built here), so the caller turns it into the same exit code. */
-export type FollowEnd =
-  | { ended: Record<string, unknown> }
-  | { refused: HostAnswer }
-  | { unreachable: string }
-  | { stuck: string }
-
-/**
- * `astera runs follow` (CLI spec §22): the timeline of a run, printed as it happens, until the run ends.
- *
- * **Why a loop of long polls and not a push.** The Host does push state, but only to the app: its
- * `orch-state` message goes to the attached app's connection, and a CLI client has no subscription to
- * ask for. Adding one would be a new message, a new feature flag and a new failure mode (a subscriber
- * that stops reading) on the Host. A `runs-follow` call is an ordinary `orch-call` instead, answered by
- * the same command layer as `runs wait` with the same `pollUntil`: it comes back as soon as there are
- * more events than this loop has printed, or the run reaches an ending, or its window passes. Every
- * Host that answers orchestration commands can answer it, a lost connection is the ordinary 3, and
- * there is nothing on the Host to clean up when this process goes away.
- *
- * **Each event is printed once**, keyed by `eventKey`, in the order the Host's timeline gives. When
- * there are new events the Host sends the whole timeline, so an event whose time is earlier than one
- * already printed is still printed when it appears. `seen` is how many this loop has printed.
- *
- * **Ctrl+C ends this process only.** Nothing here writes, and the Host's poll ends at its window.
- */
-export async function followRun(a: {
-  id: unknown
-  mode: OutputMode
-  /** The whole follow's deadline, `--timeout-ms`. */
-  timeoutMs: number
-  write: (line: string) => void
-  /** One `runs-follow` call, with the client-side deadline for it. */
-  call: (
-    args: Record<string, unknown>,
-    timeoutMs: number
-  ) => Promise<HostAnswer | { unreachable: string } | { stuck: string }>
-  /** How long one call may hold on the Host. Shorter in tests. */
-  windowMs?: number
-  now?: () => number
-}): Promise<FollowEnd> {
-  const now = a.now ?? Date.now
-  const windowMs = a.windowMs ?? FOLLOW_WINDOW_MS
-  const deadline = now() + a.timeoutMs
-  const printed = new Set<string>()
-  for (;;) {
-    const waitMs = Math.max(0, Math.min(windowMs, deadline - now()))
-    const r = await a.call({ id: a.id, seen: printed.size, waitMs }, waitMs + TIMEOUT_HEADROOM_MS)
-    if ('unreachable' in r || 'stuck' in r) return r
-    if (r.status < 200 || r.status >= 300) return { refused: r }
-    const page = (r.body ?? {}) as {
-      runId?: unknown
-      jobId?: unknown
-      progress?: unknown
-      events?: JobEvent[]
-      ending?: Record<string, unknown> | null
-    }
-    for (const e of page.events ?? []) {
-      const key = eventKey(e)
-      if (printed.has(key)) continue
-      printed.add(key)
-      // One envelope per line in JSON (NDJSON), one sentence per line for a person, and nothing for
-      // `--quiet`, whose answer is the exit code.
-      if (a.mode === 'json') a.write(okEnvelope('runs-follow', { event: publicEvent(e) }))
-      else if (a.mode === 'human') a.write(followLine(e))
-    }
-    if (page.ending) return { ended: page.ending }
-    if (now() >= deadline)
-      return { ended: { state: 'timeout', runId: page.runId, jobId: page.jobId, progress: page.progress } }
-  }
 }
 
 /**
@@ -1024,6 +1011,24 @@ export async function main(): Promise<void> {
     await new Promise((r) => process.stdout.write('', () => r(undefined)))
     process.exit(code)
   }
+  // **`runtime gateway` answers before usage and the parser too** (remote runtime design §2.3): the Host spawns it and
+  // its stdout is the link to the Host, so nothing but link frames may reach it. Not in the public command table.
+  if (argv[0] === 'runtime' && argv[1] === 'gateway') {
+    const profileDir = process.env.ASTERA_PROFILE_DIR
+    if (!profileDir) process.exit(2)
+    const code = await runRuntimeGateway({
+      argv: argv.slice(2),
+      profileDir,
+      stdin: process.stdin,
+      stdout: process.stdout,
+      onStop: (stop) => {
+        process.once('SIGTERM', stop)
+        process.once('SIGINT', stop)
+      }
+    })
+    await new Promise((r) => process.stdout.write('', () => r(undefined)))
+    process.exit(code)
+  }
   // **`hf-proxy` answers before usage and the parser** (higgsfield accounts design §2): the higgsfield
   // shims beside the session shuttle run it with the agent's arguments verbatim, and those belong to the
   // higgsfield CLI, not to ours (`--help`, `--json` and positional words included).
@@ -1089,6 +1094,15 @@ export async function main(): Promise<void> {
   const lead = leadingGlobals(argv)
   const flagError = unknownFlagError(parsed.cmd, 'error' in lead ? argv : argv.slice(lead.start))
   if (flagError !== null) fail({ code: 'INVALID_ARGUMENTS', message: flagError })
+  // A session command takes any flag, so `--runtime` after one would land in its arguments and run it here (cli/remote.ts).
+  const trailingRuntime = trailingRuntimeError(parsed.args)
+  if (trailingRuntime !== null) fail({ code: 'INVALID_ARGUMENTS', message: trailingRuntime })
+  // **`--runtime` refuses a local-only command here, before stdin and before any branch below can read this machine**
+  // (remote runtime design §2.8, X1-14; Phase 4 review M4): the state file, the report queue, `host`, `skills`,
+  // `higgsfield` and `mcp` all live below, and none of them has a remote form. What a Runtime does offer is answered at
+  // the top of the answer step further down.
+  if (parsed.runtime !== undefined && remoteTarget(parsed.cmd) === 'no')
+    fail({ code: 'RUNTIME_CAPABILITY_MISSING', message: `${spelledCommand(parsed.cmd)} works on this machine only; it has no --runtime form` })
 
   // **스키마도 Host 없이 답한다** — `--help` 와 같은 자리다(cliAgentContext.ts). 물어본 것이 "이
   // 바이너리가 무엇을 할 줄 아는가" 이고, 그 답은 이 프로그램 안에 이미 있다.
@@ -1278,6 +1292,47 @@ export async function main(): Promise<void> {
     process.exit(0)
   }
 
+  // **runtime 명령도 CLI 가 답한다** (remote runtime design §2.9): remote-runtime.json 과 신원은 이 프로세스가 읽고
+  // 쓰고, Host 에는 그것만 아는 것을 묻는다. host 명령과 같은 이유로 요청 id 를 받지 않는다.
+  if (parsed.cmd.startsWith('runtime-')) {
+    if (presented)
+      fail({
+        code: 'INVALID_ARGUMENTS',
+        message: `${spelledCommand(parsed.cmd)} does not go through the Host's command layer, so it cannot carry a request id`
+      })
+    // `serve` ends with 0 after SIGTERM or SIGINT, 75 when an update began, 78 for a configuration it cannot use (design
+    // §2.9); its Host's crashes are its own business and never end it.
+    // FAIL_SEAM:exempt — 75 and 78 are what an OS supervisor reads (restart, or give up), not a failed command: there is
+    // no envelope for a foreground service, and serve has already said why on stderr.
+    if (parsed.cmd === 'runtime-serve') {
+      process.exit(await runServe(serveDeps({ env: process.env, platform: process.platform, home: homedir() })))
+    }
+    const done = await runRuntimeCommand(parsed.cmd, parsed.args, runtimeDeps({ env: process.env, platform: process.platform, home: homedir(), noKeepalive: parsed.noKeepalive }))
+    if (!done.ok) fail(done.error)
+    out(renderOk(parsed.cmd, done.body, mode))
+    process.exit(0)
+  }
+
+  // **runtimes 명령은 이 프로세스가 답한다** (remote runtime design §4.4): 짝지은 Runtime 목록과 토큰은 이 프로필의
+  // runtimes 폴더에 있고, Host 에 물을 것이 없다. runtime 명령과 같은 이유로 요청 id 를 받지 않는다.
+  if (parsed.cmd.startsWith('runtimes-')) {
+    if (presented)
+      fail({
+        code: 'INVALID_ARGUMENTS',
+        message: `${spelledCommand(parsed.cmd)} does not go through the Host's command layer, so it cannot carry a request id`
+      })
+    const done = await runRuntimesCommand(parsed.cmd, args, {
+      registry: () => controllerRegistry(profileDir),
+      connect: (o) => connectRuntime(o),
+      hostname: () => os.hostname(),
+      now: () => new Date().toISOString(),
+      version: CLI_VERSION
+    })
+    if (!done.ok) fail(done.error)
+    out(renderOk(parsed.cmd, done.body, mode))
+    process.exit(0)
+  }
+
   // **skills 도 Host 없이 답한다** — 프로필의 accounts.json·app-settings.json 을 읽고 계정의 설정
   // 폴더에 스킬 파일을 심는다(cli/skills.ts). Host 에게 물을 것이 없으므로 host 명령보다도 앞선
   // 자리가 맞지만, `--request-id` 를 거절하려면 그것을 걷어 낸 뒤여야 한다. 거절하는 이유는 바로
@@ -1371,6 +1426,22 @@ export async function main(): Promise<void> {
   // is exactly that — so the assignment must not be something a later edit can move past them.
   // Defining `reply` *from* `answer` is what makes that impossible rather than merely unlikely.
   answer = await (async (): Promise<HostAnswer> => {
+    // A paired Runtime instead of this machine's Host (cli/remote.ts): no local connection, no file fallback.
+    if (parsed.runtime !== undefined) {
+      verbose.say(`sending ${spelledCommand(parsed.cmd)} to the paired Runtime ${parsed.runtime}`)
+      const remote = await answerRemote({
+        cmd: parsed.cmd,
+        args,
+        runtime: parsed.runtime,
+        request,
+        profileDir,
+        mode,
+        write: out,
+        version: CLI_VERSION
+      })
+      if ('error' in remote) fail(remote.error)
+      return remote
+    }
     const connectStarted = Date.now()
     const conn = await connectHost({ address, profileDir, app: CLI_VERSION, log: logToStderr })
     verbose.say(
@@ -1526,7 +1597,8 @@ export async function main(): Promise<void> {
   // Host 는 501 로 답한다. CLI 가 확실히 아는 것은 그대로 나가고, 무엇이 잘못됐는지는 다음 명령이
   // 제 코드로 분명하게 말한다.
   if (parsed.cmd === 'version') versionWithoutHost()
-  const code = codeForStatus(reply.status)
+  // A Runtime's refusal names its own code (remote runtime design §3.10); read from the field, never the sentence.
+  const code = remoteCodeOf(reply.body) ?? codeForStatus(reply.status)
   fail({
     code,
     message: messageFrom(reply.body, `the Host answered ${reply.status}`),

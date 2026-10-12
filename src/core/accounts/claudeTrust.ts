@@ -24,6 +24,8 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { foldPathCase } from '../files/paths'
+import { readStoreFile } from '../storeFile'
+import { oneAtATime, writeThroughTmp } from './fileQueue'
 
 /** The name claude keeps its own state under, inside a config directory or the home root. */
 export const CLAUDE_CONFIG_FILE = '.claude.json'
@@ -120,17 +122,21 @@ export async function markClaudeProjectTrusted(
   file: string,
   workspacePath: string
 ): Promise<void> {
-  let existing = ''
-  try {
-    existing = await fs.readFile(file, 'utf8')
-  } catch {
-    // absent is the empty file — upsertClaudeTrust writes the whole object
-  }
-  const next = upsertClaudeTrust(existing, workspacePath)
-  if (next === existing) return
-  await fs.mkdir(path.dirname(file), { recursive: true })
-  await fs.copyFile(file, file + '.bak').catch(() => {}) // ignored when the target is absent
-  const tmp = file + '.tmp'
-  await fs.writeFile(tmp, next, 'utf8')
-  await fs.rename(tmp, file)
+  // One at a time per file (audit U-2): a coordinator and its worker starting together each read before the other
+  // wrote, and one trust was lost.
+  return oneAtATime(file, async () => {
+    // Absent is the empty file; any other read error is not (audit U-2): taken for absent, the whole state file was
+    // replaced by this one trust entry.
+    const read = await readStoreFile(file)
+    if (read.kind === 'unreadable') throw read.error
+    // A file that is there but blank is one caught mid-write, not an empty state (final review M-1): written over, the
+    // whole state would be one trust entry, and the good .bak replaced by the blank copy first.
+    if (read.kind === 'text' && read.text.trim() === '') throw new Error(`${file} is blank; not written over`)
+    const existing = read.kind === 'text' ? read.text : ''
+    const next = upsertClaudeTrust(existing, workspacePath)
+    if (next === existing) return
+    await fs.mkdir(path.dirname(file), { recursive: true })
+    await fs.copyFile(file, file + '.bak').catch(() => {}) // ignored when the target is absent
+    await writeThroughTmp(file, next)
+  })
 }

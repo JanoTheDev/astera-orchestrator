@@ -8,7 +8,7 @@ import type { ChatAdapter, ChatAnswer, ChatEvent, ChatState } from './types'
 import { claudeLaunchArgs } from './claudeProtocol'
 import { PTY_LOST_SIGHT_EXIT_CODE } from '../sessions/pty'
 import type { AdapterMode } from './codexAdapter'
-import { ChatSessionManager, type ChatManagerDeps } from './manager'
+import { ChatSessionManager, EXITED_SESSIONS_KEPT, type ChatManagerDeps } from './manager'
 
 class FakeProc implements ProcLike {
   pid = 111
@@ -422,6 +422,42 @@ describe('ChatSessionManager.spawn — initialPrompt', () => {
     await flushPromises()
     expect(handles[0].sent).toEqual([])
     expect(spawned[0].opts.meta!.restore).not.toHaveProperty('initialPrompt')
+  })
+})
+
+// Second pass M2-5: the app kept every exited chat for its whole life, each with its adapter, and every orchestration
+// fold copies the list.
+describe('exited chats kept', () => {
+  it('keeps the newest EXITED_SESSIONS_KEPT exited chats', () => {
+    const { manager, handles } = setup()
+    const ids: string[] = []
+    for (let i = 0; i < EXITED_SESSIONS_KEPT + 2; i++) {
+      ids.push(manager.spawn({ account: codexAccount, cwd: 'D:/p' }).id)
+      handles[i].emit({ type: 'exit', code: 0, errorDetail: null })
+    }
+    const live = manager.spawn({ account: codexAccount, cwd: 'D:/p' }).id
+    const listed = manager.list().map((s) => s.id)
+    expect(listed).toHaveLength(EXITED_SESSIONS_KEPT + 1)
+    expect(listed).not.toContain(ids[1])
+    expect(listed).toContain(ids[2])
+    expect(listed).toContain(live)
+  })
+
+  // Final review m3: a chat tab whose session was dropped from the list asked for its state on its next mount and got
+  // nothing: no exit banner, no error, no status. Its last state is kept, small, for a longer while.
+  it('a dropped exited chat still answers its last state', () => {
+    const { manager, handles, spawned } = setup()
+    const first = manager.spawn({ account: codexAccount, cwd: 'D:/p' }).id
+    spawned[0].proc.feed('{"jsonrpc":"2.0"}')
+    handles[0].emit({ type: 'exit', code: 7, errorDetail: null })
+    const before = manager.state(first)
+    expect(before).not.toBeNull()
+    for (let i = 1; i <= EXITED_SESSIONS_KEPT; i++) {
+      manager.spawn({ account: codexAccount, cwd: 'D:/p' })
+      handles[i].emit({ type: 'exit', code: 0, errorDetail: null })
+    }
+    expect(manager.list().map((s) => s.id)).not.toContain(first)
+    expect(manager.state(first)).toEqual(before)
   })
 })
 

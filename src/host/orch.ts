@@ -1,8 +1,12 @@
 // The Host's orchestration: the real command layer over the real store (host control plane design
 // §5, §6). This is what replaces the wire slice's `version`-only stub — `server.ts` calls
 // `OrchCall.call` and did not change when it did.
+import { REMOTE_SESSION_CHANGES, REMOTE_SESSION_READS, type RemoteSessions } from './remoteSessions'
 import { createHash } from 'node:crypto'
 import path from 'node:path'
+import { stat } from 'node:fs/promises'
+import { jobsViewOf, runsTimelineOf, type RuntimeFacts } from './remoteReads'
+import { createPresence } from './presence'
 import { handleCommand, handleExit, type OrchServerDeps } from '../core/orchestration/command'
 import { OrchestrationStore, isValidState, type OrchLoadResult } from '../core/orchestration/store'
 import { applyPendingReports, readPendingReports, type QueuedReport } from '../core/orchestration/pendingDrain'
@@ -14,6 +18,10 @@ import { sweepStaleSpecFiles } from '../core/orchestration/exec/specFiles'
 import { coordinatorReleaseOf } from '../core/orchestration/exec/releaseDefer'
 import type { OrchCall, OrchCaller } from '../core/host/orchProtocol'
 import { mcpRefusal } from '../core/host/mcpGate'
+import { controllerRefusal } from '../core/host/controllerGate'
+import { sanitizeForController } from '../core/remote/sanitize'
+import type { GatewayState } from '../core/remote/gatewayState'
+import type { ControllerRegistry } from './controllers'
 import { readMcpAccess } from '../core/settings/mcpAccess'
 import { readMcpSessions } from '../core/settings/mcpSessions'
 import { readMcpGithubWrite } from '../core/settings/mcpGithubWrite'
@@ -37,7 +45,7 @@ import { WORKTREE_CALLS, type HostWorktrees } from './worktrees'
 import type { HostJournal } from './hostJournal'
 import { NOT_WRITER, type HostUnderstanding } from './hostUnderstanding'
 import type { HostWorkUnits } from './hostWorkUnits'
-import { findProject } from '../core/orchestration/projects'
+import { ensureProject, findProject } from '../core/orchestration/projects'
 import type { SessionWorkUnit } from '../core/workUnit/types'
 import { justFinished, runRecordInputOf } from '../core/orchestration/runRecord'
 import type { WorkspaceManager } from './workspace/manager'
@@ -234,6 +242,14 @@ const isUnitShaped = (u: unknown): u is SessionWorkUnit => {
 }
 
 /** The app's calls into the Host's session work units (E2 §5), answered above the receipt line. */
+/** A CLI run inside an agent session Astera started (security audit SEC-10): `ASTERA_SESSION` is set. Opening this
+ *  machine to the network and handing out a pairing are for a person at their own shell or in the app, so an agent
+ *  talked into it is refused. A speed bump, not a wall: an agent that clears the variable reads as a shell, as with every
+ *  role check in this CLI. */
+const agentShell = (from: OrchCaller | undefined, sessionId: string): boolean => from?.role === 'cli' && sessionId !== ''
+const AGENT_REFUSAL = (cmd: string): string =>
+  `${cmd} is for a person at their own shell or in the Astera app, not an agent session (ASTERA_SESSION is set)`
+
 const WORK_UNITS_CALLS: ReadonlySet<string> = new Set([
   'work-units-fork',
   'work-units-reload',
@@ -377,6 +393,9 @@ export interface HostOrch extends OrchCall {
   internalDeps(): OrchServerDeps
   /** Whether the state is in memory: the load finished, or the app pushed a whole one. */
   loaded(): boolean
+  /** Hears every commit after the snapshot it returns, as a controller sees it: sanitized (remote runtime
+   *  design §3.6). Null before the state is in memory: there is no version yet to hand back, and subscribing must not trigger a load. */
+  subscribe(deliver: (s: OrchState, version: number) => void): { state: OrchState; version: number; unsubscribe(): void } | null
   /** Runs the drain once, if it has not run in this Host's life (C6): for a Host that was `'app'` at
    *  its load and becomes `'host'` later. Re-reads the queue. Answers whether it ran. */
   drainOnce(): Promise<boolean>
@@ -419,6 +438,9 @@ export function createHostOrch(a: {
   log(message: string): void
   /** The agent sessions this Host holds, for `astera sessions` (orchDeps' HOST_SESSIONS). */
   sessions: HostSessions
+  /** A Runtime's sessions as a controller reads and drives them (remote runtime Phase 9a, remoteSessions.ts). Absent:
+   *  those commands answer 501. */
+  remoteSessions?: RemoteSessions
   /** The Host's own spawner (orchDeps' HOST_LOCAL). Null or absent when the Host was started without
    *  the CLI paths, and then every one of those calls takes its pre-S2 route. */
   local?: HostLocal | null
@@ -430,7 +452,18 @@ export function createHostOrch(a: {
    *  `worktree-*` names, answered on this side of the request-receipt line because none of them goes
    *  through `handleCommand` (R1: the app is their only caller). Absent exactly when there is no
    *  spawner (R5): with no spawner nothing built here ever reaches `worktrees`, so the four answer 501. */
-  worktrees?: Pick<HostWorktrees, 'call'>
+  worktrees?: Pick<HostWorktrees, 'call'> & Partial<Pick<HostWorktrees, 'isRegistered' | 'list'>>
+  /** The next fire time of a scheduled Job's armed template (the driving's loop), for `jobs-view`. Absent: none. */
+  nextFireOf?(runId: string): number | null
+  /** Paired remote controllers (src/host/controllers.ts, remote runtime design §3.3). Absent: this Host pairs nobody,
+   *  and `pair-create`, `clients-list` and `clients-revoke` answer 501. */
+  controllers?: ControllerRegistry
+  /** Closes a revoked client's live connections: the Gateway link's `closeConns` (design §3.3's last revocation step).
+   *  Absent before a Gateway runs, when there is nothing open to close. */
+  closeControllerConns?(conns: Array<{ linkGen: number; conn: string }>): void
+  /** The Remote Gateway's supervisor (remote runtime design §2.3): `runtime-reload` and `runtime-status`. Absent on a
+   *  Host built without one; both then answer 501. */
+  gateway?: { reload(o?: { now?: boolean }): Promise<void>; status(): GatewayState }
   /** The Host's own checks and whether it drives now (orchDeps' HOST_DRIVES), passed through to
    *  `hostOrchDeps`. Absent: validation, review and repair take their pre-S5 routes. */
   drive?: { owns(): boolean; checks: HostChecks } | null
@@ -442,6 +475,9 @@ export function createHostOrch(a: {
    *  `forceRoll` answer `roll-state`/`roll-force`, and `has` is `roll-force`'s 404 check for a session
    *  this Host holds no chain for. Absent: `unregisterRolling` only forwards to the app, as before. */
   rolling?: Pick<HostRolling, 'unregister' | 'stateOf' | 'forceRoll' | 'has'> | null
+  /** The Host's own recovery (remote runtime design §2.6), passed through to `hostOrchDeps` (HOST_RECOVERS). Absent:
+   *  `onDispatchLost` only forwards to the app, as before. */
+  recovery?: { owns(): boolean; lost(dispatchId: string): void } | null
   /** The Host's own chat sessions (chat takeover Task 8), passed through to `hostOrchDeps`: its
    *  HOST_CHATS and the Host-writer routes of `chatPending` and `chatSend` (P10). Absent: the Host
    *  answers no chat prompt of its own and forwards both names to the app. */
@@ -490,9 +526,11 @@ export function createHostOrch(a: {
   /** How It Works records (MCP P2-C), passed through to `hostOrchDeps`. Absent: the `understanding-*`
    *  commands answer 409. */
   readUnderstanding?: OrchServerDeps['readUnderstanding']
+  /** A Run's changed files and diffs from this Host's git (remote runtime design Phase 10). */
+  changes?: OrchServerDeps['changes']
   /** The Host's Job Journal (hostJournal.ts). Absent: nothing is journaled here, `journal-append` and
    *  `journal-reload` answer 501, and `runs follow` shows no journal rows. */
-  journal?: Pick<HostJournal, 'committed' | 'loaded' | 'append' | 'reload' | 'timeline'> | null
+  journal?: (Pick<HostJournal, 'committed' | 'loaded' | 'append' | 'reload' | 'timeline'> & Partial<Pick<HostJournal, 'busy'>>) | null
   /** How It Works in the Host (hostUnderstanding.ts, E1 §3, §4): handed every Run a commit finishes, and
    *  the app's `understanding-unit` and the app's and MCP's `understanding-regenerate`. Absent: this Host
    *  records no Run, and both calls answer 501. */
@@ -690,7 +728,11 @@ export function createHostOrch(a: {
         // would let a retry re-run a command whose effect the next command can already see.
         // A rollback of this call's own earlier commit takes that one back instead (A36).
         marks.commits += how?.rollsBack ? -1 : 1
-        await store.save(next)
+        // Published as memory moves, not after the disk: `subscribe` snapshots memory and `version`, which move
+        // together right here, so a push taken any later could reach a subscriber older than its snapshot.
+        const saving = store.save(next)
+        publish(next, committed)
+        await saving
         a.onState(next, committed)
         // J1: journaled after the commit landed (the spec's accepted crash window), with who made it (J4,
         // P5) and its version under this Host's life as the key (J6, P1).
@@ -717,12 +759,14 @@ export function createHostOrch(a: {
       drive: a.drive ?? null,
       resolveProjectRoot: a.resolveProjectRoot,
       rolling: a.rolling ?? null,
+      recovery: a.recovery ?? null,
       chats: a.chats ?? null,
       chatAppAnswers: a.chatAppAnswers,
       ...(a.dispatchTask ? { dispatchTask: a.dispatchTask } : {}),
       ...(a.createSession ? { createSession: a.createSession } : {}),
       ...(a.github ? { github: a.github } : {}),
       ...(a.readUnderstanding ? { readUnderstanding: a.readUnderstanding } : {}),
+      ...(a.changes ? { changes: a.changes } : {}),
       workUnits: a.workUnits?.() ?? null,
       ...(a.journal ? { journalTimeline: (runId: string, st: OrchState) => a.journal!.timeline(runId, st) } : {}),
       onEffect: () => {
@@ -895,8 +939,11 @@ export function createHostOrch(a: {
     const prev = store.get()
     // Taken here, not after the write lands — the whole of `reserveVersion`'s note.
     const committed = reserveVersion()
-    await store.save(state)
+    // Published as memory moves, for the reason in `depsFor`'s setState.
+    const saving = store.save(state)
     loaded = true
+    publish(state, committed)
+    await saving
     // To the others and not back to the sender: the state came from there, and an app that received
     // its own push would write its own state back over itself.
     from.toOthers({ t: 'orch-state', state, version: committed })
@@ -957,6 +1004,26 @@ export function createHostOrch(a: {
   const reserveVersion = (): number => ++version
 
   /**
+   * Who hears every commit, with its version (remote runtime design §3.6). Both commit paths call
+   * `publish` in the same synchronous step that moves memory and takes the version, which is what lets
+   * `subscribe` snapshot both without a push older than the snapshot ever following it. Subscribers are
+   * controllers, so they hear the sanitized state, made once per commit. A subscriber's throw is logged
+   * and the others still hear it.
+   */
+  const subscribers = new Set<(s: OrchState, version: number) => void>()
+  const publish = (s: OrchState, v: number): void => {
+    if (subscribers.size === 0) return
+    const view = sanitizeForController(s)
+    for (const deliver of subscribers) {
+      try {
+        deliver(view, v)
+      } catch (e) {
+        a.log(`a state subscriber threw: ${e instanceof Error ? e.message : String(e)}`)
+      }
+    }
+  }
+
+  /**
    * The app filling its mirror (design §5, §6). Not part of `handleCommand` for the same reasons
    * `state-put` is not: nobody types it, and it answers with the whole state rather than a view of it.
    *
@@ -978,11 +1045,20 @@ export function createHostOrch(a: {
    * for Tasks that have moved on. `null` is the honest answer there: nothing was lost, because the
    * Host never went away.
    */
+  /** Which folders still exist, for jobs-view (review I5): asked off this thread and remembered. */
+  const folders = createPresence()
+
   const stateGet = async (
     args: Record<string, unknown>,
     from: OrchCaller | undefined
   ): Promise<{ status: number; body: unknown }> => {
     await ready()
+    // A caller already holding this version is told so, without the state (performance audit M2): a remote Run detail
+    // asks on every open. Never for a boot ask, whose findings are the point of it.
+    if (typeof args.since === 'number' && args.since === version && args.boot !== true)
+      return { status: 200, body: { unchanged: true, version } }
+    // A controller gets the sanitized state and never the boot findings (remote runtime design §3.6).
+    if (from?.role === 'controller') return { status: 200, body: { state: sanitizeForController(store.get()), boot: null, version } }
     // Not a 403: asking for the state is allowed, and this caller is getting it. What it is not
     // getting is the boot findings, and the honest way to say so is the same `boot: null` an app
     // that arrived second is told — there is nothing here for you.
@@ -1044,17 +1120,18 @@ export function createHostOrch(a: {
    * response is the one failure a mechanism like this must never have.
    */
   const holdRequest = (
-    sessionId: string,
+    caller: string,
     requestId: string,
     cmd: string,
-    args: Record<string, unknown>
+    args: Record<string, unknown>,
+    retry: boolean
   ):
     | { answer: Reply; replayed?: true }
     | { observe: { key: string; recorded: Reply; args: Record<string, unknown>; fp: string } }
     | { key: string; fp: string } => {
     const bad = badRequestId(requestId)
     if (bad) return { answer: { status: 400, body: { error: bad } } }
-    const key = `${sessionId}\u0000${requestId}`
+    const key = `${caller}\u0000${requestId}`
     const fp = fingerprintOf(cmd, args)
     const held = receipts.get(key)
     // **A collision is a refusal, never a wrong answer.** The caller is told which command the id
@@ -1104,9 +1181,29 @@ export function createHostOrch(a: {
           }
         }
       }
+    // **A retry never claims a free id** (remote runtime design §3.9, X1-03): the first attempt may have run, and the
+    // record that would say so is gone. Decided in the same synchronous step that would otherwise claim it, so there is
+    // no lookup-then-resubmit race.
+    if (retry)
+      return {
+        answer: {
+          status: 409,
+          body: {
+            error: `request ${requestId} may or may not have run: this Runtime no longer holds its receipt — list what it changed before sending it again`,
+            code: 'RUNTIME_OUTCOME_UNKNOWN',
+            retry: 'outcome-unknown',
+            requestId
+          }
+        }
+      }
     receipts.set(key, { state: 'pending', cmd, at: a.now(), fp })
     return { key, fp }
   }
+
+  /** Whose receipts these are (remote runtime design §3.9, N11): a controller by the client the Host bound it to,
+   *  everyone else by the session they sent, as before. A NUL cannot occur in either. */
+  const receiptCaller = (sessionId: string, from: OrchCaller | undefined): string =>
+    from?.role === 'controller' && from.principal ? `controller:${from.principal.clientId}` : sessionId
 
   /**
    * Writes one completed receipt down and then sweeps — **lazily, on the write that made the store
@@ -1298,7 +1395,7 @@ export function createHostOrch(a: {
    * receipts live in memory, so a Host that started after the request was sent never saw it and the
    * one that did is gone (§4).
    */
-  const requestsShow = (args: Record<string, unknown>, sessionId: string): Reply => {
+  const requestsShow = (args: Record<string, unknown>, caller: string): Reply => {
     const id = args.id
     // A missing id is the caller's mistake and is worth saying so, rather than answering `absent`
     // about nothing: every answer below is about *some* id, and there is none here to be about.
@@ -1306,7 +1403,7 @@ export function createHostOrch(a: {
     const bad = badRequestId(id)
     if (bad) return { status: 400, body: { error: bad } }
     const hostStartedAt = a.hostStartedAt()
-    const held = receipts.get(`${sessionId}\u0000${id}`)
+    const held = receipts.get(`${caller}\u0000${id}`)
     if (!held)
       return { status: 200, body: { id, state: 'absent', hostStartedAt, interpretation: interpretationOf.absent(id) } }
     const head = { id, state: held.state, cmd: held.cmd, at: held.at, hostStartedAt }
@@ -1330,6 +1427,13 @@ export function createHostOrch(a: {
     ready,
     runningRuns: () => runningRunCount(store.get()),
     state: () => store.get(),
+    // Atomic: the snapshot and the registration happen in one synchronous step, so no commit falls
+    // between the version handed back and the first one delivered.
+    subscribe: (deliver) => {
+      if (!loaded) return null
+      subscribers.add(deliver)
+      return { state: sanitizeForController(store.get()), version, unsubscribe: () => void subscribers.delete(deliver) }
+    },
     sessionExited: async (e) => {
       await ready()
       // S6 R7: a session some live pty says it was rolled from is not dead work — an app that died
@@ -1406,7 +1510,11 @@ export function createHostOrch(a: {
       await drain(queued).catch((err) => a.log(`pending reports — the drain failed: ${String(err)}`))
       return true
     },
-    call: async ({ cmd, args, sessionId, from, request }) => {
+    call: async ({ cmd, args, sessionId, from, request, retry }) => {
+      // **The Host's own git record is never taken from a socket** (Phase 10 review): `runs-git-record` trusts the Host's
+      // caller id, and anything on this machine can write that id in a frame. Other commands keep taking it and journal
+      // it as the CLI it came from.
+      if (sessionId === HOST_CALLER && cmd === 'runs-git-record') return { status: 403, body: { error: `${HOST_CALLER} is the Host's own caller id; a connection cannot use it` } }
       // **Everything is inside the try, including `state-put` and `ready()`.** `server.ts` answers
       // `orch-call` from this promise and has no catch of its own, so anything that escapes here is
       // not a 500 — it is no `orch-result` at all, a caller waiting forever, and an unhandled
@@ -1427,6 +1535,12 @@ export function createHostOrch(a: {
        *  observed replay resumes the question the receipt names rather than asking a new one. */
       let runArgs = args
       try {
+        // **A controller has no session** (remote runtime design §2.5, D2.1): whatever it named is dropped, so
+        // COORDINATOR_ONLY, chats-answer and actorOf never read it as one, and its receipts are keyed by its principal.
+        if (from?.role === 'controller') sessionId = ''
+        // A retry names the request it retries (§3.9). Without one there is no receipt to look for, and running it
+        // as a fresh call is exactly what `retry` exists to prevent.
+        if (retry === true && request === undefined) return { status: 400, body: { error: 'retry needs the request id it retries' } }
         // **MCP callers pass the allowlist first** (MCP design §2), before receipts and before the
         // app-only commands, so a refused call leaves no receipt and reaches nothing. Read per call, as
         // `app js` reads its toggle: the app may change it while the Host runs. A settings file that
@@ -1441,6 +1555,13 @@ export function createHostOrch(a: {
           )
           if (refused) return refused
         }
+        // **Controllers pass their gate first too** (remote runtime design §3.4, N15), with the permission the Host
+        // bound them to (`from.principal`, X1-08), before receipts and before any command, so a refused call leaves
+        // no receipt and reaches nothing.
+        if (from?.role === 'controller') {
+          const refused = controllerRefusal(cmd, from.principal)
+          if (refused) return refused
+        }
         // **A key presented on these two is refused, not dropped.** They answer above the receipt
         // line below, so a `request` sent with one would be accepted and silently ignored — which is
         // precisely the fault §3 is built on: Orca's `check --peek` takes `--retry-request` and drops
@@ -1451,6 +1572,9 @@ export function createHostOrch(a: {
         if (
           (cmd === 'state-put' ||
             cmd === 'state-get' ||
+            cmd === 'jobs-view' ||
+            cmd === 'runs-timeline' ||
+            REMOTE_SESSION_READS.has(cmd) ||
             cmd === 'validation-stop' ||
             cmd === 'roll-state' ||
             cmd === 'roll-force' ||
@@ -1467,6 +1591,11 @@ export function createHostOrch(a: {
             cmd === 'workspace-stop' ||
             cmd === 'workspace-close' ||
             cmd === 'workspace-size' ||
+            cmd === 'runtime-reload' ||
+            cmd === 'runtime-status' ||
+            cmd === 'pair-create' ||
+            cmd === 'clients-list' ||
+            cmd === 'clients-revoke' ||
             WORKTREE_CALLS.has(cmd)) &&
           request !== undefined
         )
@@ -1476,6 +1605,34 @@ export function createHostOrch(a: {
         // `jobs-list` and its neighbours, so a refusal here would be a new one nobody needs. The half
         // of it that is not a read — the boot findings — is the app's alone, inside.
         if (cmd === 'state-get') return await stateGet(args, from)
+        // **A remote Jobs view's two reads** (remote runtime design Phase 6, X1-05): folded and paged here, with this
+        // Runtime's own path rules and facts, so a controller never folds with its own. Read only; anyone may ask.
+        // **A remote session's reads** (Phase 9a): read only, beside the Jobs view's.
+        if (REMOTE_SESSION_READS.has(cmd)) {
+          const read = a.remoteSessions?.read(cmd, args)
+          return read ? await read : { status: 501, body: { error: `${cmd} is not answered by this Host` } }
+        }
+        if (cmd === 'jobs-view' || cmd === 'runs-timeline') {
+          await ready()
+          const worktrees = a.worktrees?.list?.() ?? []
+          // Asked asynchronously with a deadline, never stat'ed on this thread (review I5): a folder not answered yet
+          // counts as present, and the next ask has its answer.
+          // The registry's folders and every folder a Run worked in: a Job row counts only the worktrees still there.
+          if (cmd === 'jobs-view') await folders.check([...worktrees.map((w) => w.path), ...store.get().dispatches.map((d) => d.cwd)])
+          const facts: RuntimeFacts = {
+            aliveSessionIds: a.aliveSessionIds(),
+            worktrees,
+            nextFireOf: (id) => a.nextFireOf?.(id) ?? null,
+            exists: (p) => folders.peek(p) !== 'missing',
+            journalTimeline: (id, st, lang) => a.journal?.timeline(id, st, lang) ?? [],
+            journalBusy: () => a.journal?.busy?.() ?? false,
+            nowMs: Date.parse(a.now())
+          }
+          if (cmd === 'runs-timeline') return runsTimelineOf(store.get(), args, facts)
+          const view = jobsViewOf(store.get(), args.project, facts)
+          // The state version the view was folded from: the controller's view says the Runtime's own (review minor).
+          return view.status === 200 ? { status: 200, body: { ...(view.body as object), version } } : view
+        }
         // **Answered here, beside the two above, and for the same reason (Host S3, §3.1).** None of
         // the four `worktree-*` names goes through `handleCommand` — the app is their only caller
         // (`HostWorktrees.call` itself checks `from?.role === 'app'`) — so a Host too old to own
@@ -1592,6 +1749,43 @@ export function createHostOrch(a: {
         if (WORK_UNITS_CALLS.has(cmd)) return await workUnitsCall(cmd, args, from)
         // **Beside journal-append, for its reason (agent workspace design).** The mirror tab's reads and
         // its two buttons. Never a command layer command, never a receipt.
+        // **The Host's controllers, for local callers only** (remote runtime design §3.3, N18): the app and the CLI on
+        // this machine. A controller is refused by its gate before this; MCP by its allowlist; anything else here.
+        // **Remote Runtime on this machine, for local callers only** (design §2.9, §3.3): the CLI's `runtime start` and
+        // `stop` write remote-runtime.json and then ask for a reload; `status` reads. The link never routes these.
+        if (cmd === 'runtime-reload' || cmd === 'runtime-status') {
+          if (from?.role !== 'app' && from?.role !== 'cli') return { status: 403, body: { error: `${cmd} is for this machine's app and CLI only` } }
+          if (!a.gateway) return { status: 501, body: { error: 'this Host does not run the Remote Gateway' } }
+          if (cmd === 'runtime-reload') await a.gateway.reload({ now: true })
+          return {
+            status: 200,
+            body: { gateway: a.gateway.status(), clients: a.controllers?.list() ?? [], ...(a.controllers ? { health: a.controllers.health() } : {}) }
+          }
+        }
+        if (cmd === 'pair-create' || cmd === 'clients-list' || cmd === 'clients-revoke') {
+          if (from?.role !== 'app' && from?.role !== 'cli') return { status: 403, body: { error: `${cmd} is for this machine's app and CLI only` } }
+          if (cmd === 'pair-create' && agentShell(from, sessionId)) return { status: 403, body: { error: AGENT_REFUSAL(cmd) } }
+          if (!a.controllers) return { status: 501, body: { error: 'this Host pairs no remote controllers' } }
+          if (cmd === 'pair-create') {
+            // An unknown level is refused, not widened: the gate denies one, so pairing must not grant one.
+            if (args.permission !== undefined && args.permission !== 'read-only' && args.permission !== 'full-control')
+              return { status: 400, body: { error: 'permission must be read-only or full-control' } }
+            // Read-only unless full control is named, as the CLI asks (final review M1).
+            const permission = args.permission === 'full-control' ? 'full-control' : 'read-only'
+            const name = typeof args.name === 'string' ? args.name : undefined
+            // The code goes to the caller and nowhere else: never into a log line (design §4.4).
+            return { status: 200, body: { ...a.controllers.createPairing({ permission, ...(name ? { name } : {}) }), permission } }
+          }
+          if (cmd === 'clients-list') return { status: 200, body: { clients: a.controllers.list(), health: a.controllers.health() } }
+          const id = args.id
+          if (typeof id !== 'string' || id === '') return { status: 400, body: { error: 'clients-revoke needs --id' } }
+          const out = await a.controllers.revoke(id)
+          // Design §3.3's order: the record and its bindings are gone (inside `revoke`), then its connections close.
+          a.closeControllerConns?.(out.conns)
+          if (out.saveError !== undefined)
+            return { status: 500, body: { error: `revoked until this Host stops, but clients.json could not be written: ${out.saveError}`, clientId: id } }
+          return out.revoked ? { status: 200, body: { revoked: true, clientId: id } } : { status: 404, body: { error: `unknown client: ${id}` } }
+        }
         if (cmd === 'workspace-list' || cmd === 'workspace-stop' || cmd === 'workspace-close' || cmd === 'workspace-size') {
           if (from?.role !== 'app') return { status: 403, body: { error: `${cmd} is the app’s to send` } }
           if (!a.workspaces) return { status: 501, body: { error: 'this Host has no agent app workspace' } }
@@ -1615,7 +1809,7 @@ export function createHostOrch(a: {
         // **A caller that sent no id skips all of it** and gets the same answer, the same exit code
         // and the same order as before this existed (§9).
         if (request !== undefined) {
-          const held = holdRequest(sessionId, request, cmd, args)
+          const held = holdRequest(receiptCaller(sessionId, from), request, cmd, args, retry === true)
           // **A refusal is not a replay.** A malformed id and a call that is already in flight both
           // answer from this branch without a receipt behind them, so only the one that really came
           // out of a receipt carries the word.
@@ -1639,7 +1833,14 @@ export function createHostOrch(a: {
           const answered = await understandingRegenerate(args, from, marks)
           return claimed === null ? answered : settleRequest(claimed, cmd, marks, answered)
         }
-        // **Answered by the Host, like the two above — but on *this* side of the receipt line.**
+        // **A remote session's changes** (Phase 9a): below the receipt line, so a retried input, stop or answer replays
+        // its answer instead of acting twice. Each marks an effect only when it acted.
+        if (REMOTE_SESSION_CHANGES.has(cmd)) {
+          const changed = a.remoteSessions?.change(cmd, args, () => void (marks.effects += 1))
+          const answered = changed ? await changed : { status: 501, body: { error: `${cmd} is not answered by this Host` } }
+          return claimed === null ? answered : settleRequest(claimed, cmd, marks, answered)
+        }
+        // **Answered by the Host, like the ones above — but on *this* side of the receipt line.**
         //
         // Beside them in every other respect: nobody's `case` in `handleCommand` runs, and a Host too
         // old to know it answers 501, which `codeForStatus` turns into exit 9 for free (§8).
@@ -1655,14 +1856,49 @@ export function createHostOrch(a: {
         // **And the state is not loaded for it.** Receipts are not in the state file (§4), so a `ready()`
         // here would read a file to answer a question the file has nothing to say about.
         if (cmd === 'requests-show') {
-          const shown = requestsShow(args, sessionId)
+          const shown = requestsShow(args, receiptCaller(sessionId, from))
           return claimed === null ? shown : settleRequest(claimed, cmd, marks, shown)
+        }
+        // **One folder, registered by the person on the Runtime machine** (remote runtime N5): `astera runtime projects
+        // add <path>`. Answered and committed by the Host itself, like the other local management commands, because what
+        // decides it is the Runtime machine's own: the folder is there, it is absolute, and it is not one of this
+        // Host's worktrees. Idempotent like the app's own registration (ensureProject). Below the receipt line: it commits.
+        if (cmd === 'projects-add') {
+          if (from?.role !== 'app' && from?.role !== 'cli') {
+            const refused = { status: 403, body: { error: 'projects-add is for this machine’s app and CLI only' } }
+            return claimed === null ? refused : settleRequest(claimed, cmd, marks, refused)
+          }
+          if (agentShell(from, sessionId)) {
+            const refused = { status: 403, body: { error: AGENT_REFUSAL(cmd) } }
+            return claimed === null ? refused : settleRequest(claimed, cmd, marks, refused)
+          }
+          const p = args.path
+          const isDir = typeof p === 'string' && path.isAbsolute(p) && (await stat(p).then((st) => st.isDirectory(), () => false))
+          const refusal =
+            typeof p !== 'string' || !path.isAbsolute(p)
+              ? 'projects-add needs an absolute --path'
+              : !isDir
+                ? `not a folder on this machine: ${p}`
+                : a.worktrees?.isRegistered?.(p)
+                  ? `${p} is one of Astera's worktrees; add the repository it belongs to`
+                  : null
+          if (refusal !== null) {
+            const refused = { status: 400, body: { error: refusal } }
+            return claimed === null ? refused : settleRequest(claimed, cmd, marks, refused)
+          }
+          await ready()
+          const before = store.get()
+          const { state, project } = ensureProject(before, { path: p as string, now: a.now() })
+          if (state !== before)
+            await depsFor(marks, actorOf({ sessionId, role: from?.role, state: before })).setState(state)
+          const added = { status: 200, body: project }
+          return claimed === null ? added : settleRequest(claimed, cmd, marks, added)
         }
         // Design §8: a call that arrives before the state is loaded waits, rather than failing.
         await ready()
         // P5: judged on the state the call found, so a worker's report that closes its own Dispatch is
         // still the agent's.
-        const actor = actorOf({ sessionId, role: from?.role, client: from?.client, remote: from?.remote, state: store.get() })
+        const actor = actorOf({ sessionId, role: from?.role, client: from?.client, remote: from?.remote, principal: from?.principal, state: store.get() })
         const r = await handleCommand(depsFor(marks, actor), { sessionId, role: from?.role }, cmd, runArgs)
         const answered = answerOf(r, marks)
         // **Who drives, on `status`, from the Host and not from `handleCommand`** (R6): the two fields

@@ -66,4 +66,61 @@ describe('framing', () => {
     expect(c.bad).toEqual([])
     expect(c.seen).toEqual([{ n: 4 }])
   })
+
+  // A sender that never ends its line would otherwise grow the buffer without bound (remote runtime
+  // design §3.1): past the cap the reader gives up on the connection, once, and reads nothing more.
+  describe('with a line cap', () => {
+    const capped = (maxLine: number) => {
+      const seen: unknown[] = []
+      let overflows = 0
+      const feed = createLineReader({ onMessage: (v) => seen.push(v), onBadLine: () => {}, onHandlerError: () => {}, maxLine, onOverflow: () => overflows++ })
+      return { seen, feed, overflows: () => overflows }
+    }
+    it('gives up on an unfinished line longer than the cap, once', () => {
+      const c = capped(10)
+      c.feed('x'.repeat(6))
+      expect(c.overflows()).toBe(0)
+      c.feed('x'.repeat(6))
+      c.feed(encodeLine({ n: 1 }))
+      expect(c.overflows()).toBe(1)
+      expect(c.seen).toEqual([])
+    })
+    it('refuses a finished line longer than the cap that arrived in one chunk', () => {
+      const c = capped(10)
+      c.feed(encodeLine({ s: '0123456789' }))
+      expect(c.overflows()).toBe(1)
+      expect(c.seen).toEqual([])
+    })
+    it('reads a line exactly at the cap', () => {
+      const line = encodeLine({ s: '012' }) // {"s":"012"} is 11 characters before the newline
+      const c = capped(11)
+      c.feed(line)
+      expect(c.overflows()).toBe(0)
+      expect(c.seen).toEqual([{ s: '012' }])
+    })
+  })
+})
+
+// Second pass C2-5: each chunk was appended to the held text and the whole of it searched again for a newline, so one
+// long line (a large state or a relayed read) cost time quadratic in its length: 858 ms for 20 MB measured.
+describe('createLineReader on a long line', () => {
+  it('reads a 40 MB line in 64 KB chunks in linear time', () => {
+    const got: unknown[] = []
+    const feed = createLineReader({ onMessage: (v) => got.push(v), onBadLine: () => {}, onHandlerError: () => {} })
+    const body = JSON.stringify({ pad: 'x'.repeat(40 * 1024 * 1024) }) + '\n'
+    const t0 = performance.now()
+    for (let i = 0; i < body.length; i += 64 * 1024) feed(body.slice(i, i + 64 * 1024))
+    expect(performance.now() - t0).toBeLessThan(1500)
+    expect(got).toHaveLength(1)
+  })
+
+  it('still finds every line, in order, when chunks split them anywhere', () => {
+    const got: unknown[] = []
+    const feed = createLineReader({ onMessage: (v) => got.push(v), onBadLine: () => {}, onHandlerError: () => {} })
+    const text = [1, 2, 3, 4].map((n) => JSON.stringify({ n })).join('\n') + '\n'
+    for (const c of text) feed(c)
+    feed('{"n":5}\n{"n"')
+    feed(':6}\n')
+    expect(got).toEqual([1, 2, 3, 4, 5, 6].map((n) => ({ n })))
+  })
 })

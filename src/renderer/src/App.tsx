@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Account, CliInstallStatus, CliStatus, HistoryEntry, HostDriverReport, HostHoldings, HostStatus, HostRuntimeInstallState, RollStateEvent, SchedStateEvent, ScheduleConfig, SessionInfo, SessionKind, SessionUsage, UpdateStatus, UpdateCampaignInfo, InstallOutcome } from '../../core/types'
 import type { UnattendedPermission } from '../../core/chat/types'
 import type { Lang, MessageKey } from '../../core/i18n'
@@ -19,7 +19,9 @@ import { invalidateImageCache } from './components/MarkdownPreview'
 import type { EditorState, StateEffect } from '@codemirror/state'
 import type { EditorView } from '@codemirror/view'
 import { EditorStateCache } from './lib/editorStateCache'
-import { applyWorkspaceEvent, createSessionSizeReporters, mirrorsFromList, newlyOpened, openSessionIds, placeAppTabs, removeAppTab, type Mirrors } from './lib/workspaceMirror'
+import { createSessionSizeReporters, mirrorsFromList, newlyOpened, openSessionIds, placeAppTabs, removeAppTab, type Mirrors } from './lib/workspaceMirror'
+import { flushPendingEdits } from './lib/editCoalescer'
+import { mirrorFrames, takeWorkspaceEvent } from './lib/mirrorFrames'
 import { FileExplorer, type ExplorerTreeState } from './components/FileExplorer'
 import { JobsView } from './components/JobsView'
 import { jobsStall, jobsStallRecheckInMs } from '../../core/orchestration/jobsView'
@@ -28,6 +30,7 @@ import { RecordDetailHost } from './components/RecordDetail'
 import { RunDetail } from './components/RunDetail'
 import { NewRunModal } from './components/NewRunModal'
 import { NewSessionDialog } from './components/NewSessionDialog'
+import { RemoteSessionsDialog } from './components/RemoteSessionsDialog'
 import { WorktreePanel } from './components/WorktreePanel'
 import { RunToolbar } from './components/RunToolbar'
 import { RunConfigManager } from './components/RunConfigManager'
@@ -40,6 +43,16 @@ import { ThemeSettings } from './components/ThemeSettings'
 import { GeneratorSettings } from './components/GeneratorSettings'
 import { CliSettings } from './components/CliSettings'
 import { McpSettings } from './components/McpSettings'
+import { RemoteRuntimesSettings } from './components/RemoteRuntimesSettings'
+import { RuntimeSelector } from './components/RuntimeSelector'
+import { createReplyGate } from './lib/replyGate'
+import { LOCAL, controlReason, detailRunGone, isRemoteRuntime, offlineNote, remoteDetailKey, remoteNewJobFolder, remotePollReady } from './lib/remoteJobs'
+import { startSerialPoll } from './lib/serialPoll'
+import { pollWhileVisible } from './lib/visiblePoll'
+import { dropKeys } from './lib/dropKeys'
+import { forgetDrafts } from './components/conversation/drafts'
+import { localDoor, remoteDoor, type OrchDoor } from './lib/orchDoor'
+import { deleteRun, pauseRun, restartCoordinator as restartRunCoordinator, resumeRun, type ActionUi } from './lib/jobActions'
 import { ResumeStrategySettings } from './components/ResumeStrategySettings'
 import { GithubSettings } from './components/GithubSettings'
 import { CreativeHubSettings } from './components/CreativeHubSettings'
@@ -63,8 +76,7 @@ import type {
 // core/types.ts imports this for UnderstandingApi but does not re-export it (unlike the block above),
 // so it comes from its own module — the same import UnderstandingView.tsx uses.
 import type { ProjectUnderstanding, RecordStatus } from '../../core/understanding/types'
-import { slackMode } from '../../core/slack/ready'
-import { findRun } from '../../core/orchestration/snapshot'
+import { findRun, runDetailKey } from '../../core/orchestration/snapshot'
 import { pickRunSelection, pickRunToShow } from '../../core/run/selection'
 import { toolbarState, upsertRun } from '../../core/run/instances'
 import { findActionForEvent, formatChord, resolveBindings, type Bindings } from '../../core/keys/binding'
@@ -118,7 +130,9 @@ import {
   type PaneDir,
   type PaneNode
 } from '../../core/panes/tree'
-import { browserTab, fileTab, parseTab, recordTab, sessionTab } from '../../core/panes/tabId'
+import { browserTab, fileTab, isRemoteSessionKey, parseTab, recordTab, sessionTab } from '../../core/panes/tabId'
+import { canStartSession, followAction, remoteCall, sameOrNext, type RemoteFacts, type RemoteSessionRef } from './lib/remoteSessions'
+import { useRemoteSessionWatch } from './hooks/useRemoteSessionWatch'
 import { placeMediaTab, placeTab } from '../../core/panes/place'
 import { mediaKindOf } from '../../core/files/media'
 import { sessionKindOf } from '../../core/sessions/kind'
@@ -131,6 +145,10 @@ import type { FileChange } from '../../core/files/changeBatch'
 import { HostRuntimeNotice } from './components/HostRuntimeNotice'
 import { House, PanelLeft, Settings, X } from 'lucide-react'
 import { deleteKey, isMac as isMacPlatform, modKey } from './lib/platformKeys'
+import { backdropProps } from './lib/backdrop'
+import { createTouched } from './lib/touched'
+import { SlackSettings } from './components/SlackSettings'
+import { needsUnderstanding } from './lib/understandingRead'
 
 sessionBus.init()
 
@@ -383,6 +401,10 @@ function formatResetHud(resetsAt: string | null | undefined): string | null {
 const HOST_STATUS_POLL_MS = 30_000
 /** 저널이 바빠 상세가 마지막으로 읽은 줄을 받았을 때, 다시 묻기까지 기다리는 시간(stage 3 T1) */
 const DETAIL_BUSY_RETRY_MS = 2_000
+/** How often a paired Runtime's Jobs are asked again while its view is open: it pushes nothing to this app yet. */
+const REMOTE_JOBS_POLL_MS = 5_000
+/** Where a Runtime that has not yet answered starts: its Jobs in folders that are no project (review I3). */
+const UNREGISTERED_PROJECT = { id: 'unregistered', name: null, path: null }
 
 /** "7m", "2h" — a coarse uptime is all this row needs; it is a sign of life, not a metric, which is
  *  also why the unit is not translated. */
@@ -443,6 +465,13 @@ export default function App(): React.JSX.Element {
   const [dragTabId, setDragTabId] = useState<string | null>(null)
   // Position of the tab context menu
   const [tabMenu, setTabMenu] = useState<{ tabId: string; x: number; y: number } | null>(null)
+  // Phase 9b: sessions on paired Runtimes, each in the tab `session:<runtimeId>:<sessionId>` (D1.4). Never in
+  // `sessions`: nothing local runs, reads or restarts for them (D1.6), and the explorer never takes their folder
+  // (activeTabRoot finds no local session for the key).
+  const [remoteSessions, setRemoteSessions] = useState<RemoteSessionRef[]>([])
+  /** The Runtime the remote sessions dialog is on, or null while it is closed. */
+  const [remoteDialog, setRemoteDialog] = useState<string | null>(null)
+  const [remoteStatus, setRemoteStatus] = useState<Record<string, RemoteFacts['status']>>({})
   /** 이름을 고치고 있는 세션 탭. 더블클릭과 우클릭 메뉴가 같은 자리를 연다 */
   const [renamingTabId, setRenamingTabId] = useState<string | null>(null)
   /** 이름 고치기가 끝났다. title 이 null 이면 취소다.
@@ -477,7 +506,8 @@ export default function App(): React.JSX.Element {
   // 렌더 중 갱신은 이 파일의 다른 ref들과 같은 관례이고, 세션이 사라졌는지는 아래 `active`의
   // sessions 조회가 판정하므로 여기서 따로 청소하지 않는다.
   const lastSessionIdRef = useRef<string | null>(null)
-  if (activeSessionId) lastSessionIdRef.current = activeSessionId
+  // A remote tab is not a local session: the status bar and usage of the last local one stay as they were (Phase 9b).
+  if (activeSessionId && !isRemoteSessionKey(activeSessionId)) lastSessionIdRef.current = activeSessionId
   const [showNew, setShowNew] = useState(false)
   const [newSessionCwd, setNewSessionCwd] = useState<string | null>(null) // prefill for WorktreePanel's 'start session'
   // Two different questions, deliberately kept apart (the same split session/startBlocked.ts explains
@@ -509,7 +539,7 @@ export default function App(): React.JSX.Element {
       void window.api.host
         .status()
         .then((s) => {
-          if (current) setHostStatus(s)
+          if (current) setHostStatus((held) => sameOrNext(held, s))
         })
         .catch(() => {})
     }
@@ -649,22 +679,12 @@ export default function App(): React.JSX.Element {
     | 'slack'
     | 'notifications'
     | 'github'
+    | 'remote'
     | 'worktree'
     | 'history'
   >('general') // the settings sidebar, with general and accounts added
-  const [slackUrl, setSlackUrl] = useState('') // the Slack Webhook URL in the settings modal
-  const [slackSaved, setSlackSaved] = useState(false)
-  // Bot configuration. appToken is for Socket Mode receiving only, so for now it is merely stored
-  const [slackBotToken, setSlackBotToken] = useState('')
-  const [slackChannelId, setSlackChannelId] = useState('')
-  const [slackAppToken, setSlackAppToken] = useState('')
-  // The one Slack Member ID allowed to reply into sessions. Left empty, every reply is blocked
-  const [slackMemberId, setSlackMemberId] = useState('')
-  // Saving is blocked until getConfig has returned — the save button sends all five fields
-  // explicitly, so pressing it while they are still empty strings would overwrite an already-stored
-  // token, channel, and webhook with null in one go. (When there was a single field, patch()
-  // preserving undefined protected the rest; that is no longer the case.)
-  const [slackLoaded, setSlackLoaded] = useState(false)
+  /** Settings fields changed since the modal opened (audit UI-7). */
+  const settingsTouched = useRef(createTouched())
   const [wtRoot, setWtRoot] = useState('') // the worktree root in the settings modal
   // 에이전트 권한 모드. **기본이 yolo 라 초기값도 true 다** — false 로 두면 모달이 열리는 순간
   // 꺼진 체크박스가 잠깐 보였다가 켜지고, 그 깜빡임은 사용자가 끈 것으로 읽힌다.
@@ -726,6 +746,34 @@ export default function App(): React.JSX.Element {
   const [rollStates, setRollStates] = useState<Record<string, RollStateEvent>>({})
   const [schedStates, setSchedStates] = useState<Record<string, SchedStateEvent>>({}) // the schedule banner
   const [busy, setBusy] = useState<Record<string, boolean>>({}) // whether each session is working — the tab spinner
+  // A session that went takes its marks with it (performance audit, renderer): the working mark, the roll and schedule
+  // banners and the composer draft were kept for every session the app ever showed. Only ids that were in the list and
+  // left it: a mark can arrive for a new session before the list names it.
+  const shownSessionIds = useRef<ReadonlySet<string>>(new Set())
+  useEffect(() => {
+    const now = new Set(sessions.map((s) => s.id))
+    const gone = new Set([...shownSessionIds.current].filter((id) => !now.has(id)))
+    shownSessionIds.current = now
+    if (gone.size === 0) return
+    setBusy((p) => dropKeys(p, gone))
+    setRollStates((p) => dropKeys(p, gone))
+    setSchedStates((p) => dropKeys(p, gone))
+    forgetDrafts(gone)
+    // Their workspace mirrors and pictures too (second pass R2-2: kept for every session that ever opened one).
+    const mirrorsLeft = dropKeys(mirrorsRef.current, gone)
+    if (mirrorsLeft !== mirrorsRef.current) {
+      mirrorsRef.current = mirrorsLeft
+      setMirrors(mirrorsLeft)
+    }
+    mirrorFrames.drop(gone)
+  }, [sessions])
+  const shownRemoteKeys = useRef<ReadonlySet<string>>(new Set())
+  useEffect(() => {
+    const now = new Set(remoteSessions.map((r) => r.key))
+    const gone = new Set([...shownRemoteKeys.current].filter((k) => !now.has(k)))
+    shownRemoteKeys.current = now
+    if (gone.size > 0) setRemoteStatus((p) => dropKeys(p, gone))
+  }, [remoteSessions])
   // Every session whose roll-state / schedule push listener has decided banner state at least once. A
   // seed reply is dropped for a session already in the set: an invoke reply and a push have no order
   // between them, so a push — including an 'off'/'none' that removed the banner — is always the fresher
@@ -1245,28 +1293,20 @@ export default function App(): React.JSX.Element {
 
   useEffect(() => {
     if (!showSettings) return
-    setSlackSaved(false)
-    setSlackLoaded(false)
-    void window.api.slack.getConfig().then((c) => {
-      setSlackUrl(c.webhookUrl ?? '')
-      setSlackBotToken(c.botToken ?? '')
-      setSlackChannelId(c.channelId ?? '')
-      setSlackAppToken(c.appToken ?? '')
-      setSlackMemberId(c.memberId ?? '')
-      setSlackLoaded(true)
-    })
+    // What the person changes from here on keeps their value when a read below lands after it (audit UI-7).
+    settingsTouched.current.clear()
     void window.api.worktrees.getRoot().then(setWtRoot)
     // Work unit tracking. Nothing outside this modal reads it, so there is no mount-time fetch to keep
     // honest — this is the only read.
-    void window.api.settings.getWorkUnitTrackingEnabled().then(setWorkUnitTrackingEnabled)
+    void window.api.settings.getWorkUnitTrackingEnabled().then((v) => settingsTouched.current.unless('workUnits', () => setWorkUnitTrackingEnabled(v)))
     // 권한 모드도 같은 갈래다 — 이 모달 밖에서 읽는 곳이 없으므로 마운트 시점 읽기는 두지 않는다.
     void window.api.settings
       .getAgentPermissionMode()
-      .then((m) => setAgentYolo(m === 'yolo'))
-    void window.api.settings.getAgentBrowserEnabled().then(setAgentBrowserEnabled)
-    void window.api.settings.getAgentAppEnabled().then(setAgentAppEnabled)
+      .then((m) => settingsTouched.current.unless('agentYolo', () => setAgentYolo(m === 'yolo')))
+    void window.api.settings.getAgentBrowserEnabled().then((v) => settingsTouched.current.unless('agentBrowser', () => setAgentBrowserEnabled(v)))
+    void window.api.settings.getAgentAppEnabled().then((v) => settingsTouched.current.unless('agentApp', () => setAgentAppEnabled(v)))
     // Re-syncs the new-session default too — the mount-time read above is what it keeps honest.
-    void window.api.settings.getDefaultSessionKind().then(setDefaultSessionKind)
+    void window.api.settings.getDefaultSessionKind().then((v) => settingsTouched.current.unless('defaultKind', () => setDefaultSessionKind(v)))
     // Re-read on open beside the effect below, which is what keeps it current the rest of the time:
     // the Info row wants the freshest answer at the moment it is drawn, and this costs nothing.
     void window.api.host.status().then(setHostStatus)
@@ -1612,6 +1652,7 @@ export default function App(): React.JSX.Element {
     resumeSessionId?: string
     resumeTranscriptPath?: string
     resumeThreadId?: string // chat only: resume this protocol thread instead of starting one
+    takeOverBackground?: boolean // stop the Claude background session holding the conversation first
     roll?: boolean
     rollPrompt?: string
     slackNotify?: boolean
@@ -1659,6 +1700,7 @@ export default function App(): React.JSX.Element {
         resumeSessionId: opts.resumeSessionId,
         resumeTranscriptPath: opts.resumeTranscriptPath, // the transcript copy source when resuming under a different account
         resumeThreadId: opts.resumeThreadId, // chat only: resume this protocol thread instead of starting one
+        takeOverBackground: opts.takeOverBackground,
         rollAccountIds: rolling ? opts.accountIds : undefined,
         rollPrompt: rolling ? opts.rollPrompt : undefined,
         slackNotify: opts.slackNotify, // Slack progress notifications
@@ -1719,6 +1761,20 @@ export default function App(): React.JSX.Element {
         return
       }
       const msg = spawnErrorMessage(raw)
+      // A Claude background session holds the conversation: say so, and offer to take it over —
+      // the same spawn again, stopping that session first.
+      if (msg.key.startsWith('session.spawn.inBackground')) {
+        const id = toast.error(t(msg.key, msg.params), {
+          action: {
+            label: t('session.spawn.inBackground.takeOver'),
+            onClick: () => {
+              dismiss(id)
+              void spawn({ ...opts, takeOverBackground: true })
+            }
+          }
+        })
+        return
+      }
       const message = t(msg.key, msg.params)
       // On a failure after the worktree was created, the user is also told that it remains, unrolled-back
       toast.error(
@@ -1819,9 +1875,13 @@ export default function App(): React.JSX.Element {
 
   const setBufferContent = (id: string, content: string): void => {
     setFileBuffers((prev) => (prev[id] ? { ...prev, [id]: { ...prev[id], content } } : prev))
+    // The ref too, at once: a save or a close that flushed the editor reads it in the same turn (second pass R2-1).
+    const cur = fileBuffersRef.current[id]
+    if (cur) fileBuffersRef.current = { ...fileBuffersRef.current, [id]: { ...cur, content } }
   }
 
   const saveFile = (id: string): void => {
+    flushPendingEdits()
     const buf = fileBuffersRef.current[id]
     const tab = fileTabsRef.current.find((t) => t.id === id)
     if (!buf || !tab || buf.readOnly || buf.content === buf.savedContent) return
@@ -1862,6 +1922,7 @@ export default function App(): React.JSX.Element {
 
   const closeFileTab = async (id: string): Promise<void> => {
     // Decided outside the updater — avoids StrictMode double-invocation side effects (the existing convention)
+    flushPendingEdits()
     const buf = fileBuffersRef.current[id]
     if (buf && !buf.readOnly && buf.content !== buf.savedContent) {
       const title = fileTabsRef.current.find((t) => t.id === id)?.title
@@ -1897,6 +1958,12 @@ export default function App(): React.JSX.Element {
 
   /** 탭 줄에서 탭을 골랐다. 종류에 상관없이 트리에서 그 탭을 활성으로 만들고 그 페인에 포커스를 준다 —
    *  다른 페인의 탭을 눌렀을 때 그 페인으로 옮겨 가는 것도 이 한 줄이 한다 */
+  /** Opens a session on a paired Runtime in a tab, or brings its open tab forward. */
+  const openRemoteSession = (ref: RemoteSessionRef): void => {
+    setRemoteSessions((prev) => (prev.some((r) => r.key === ref.key) ? prev.map((r) => (r.key === ref.key ? ref : r)) : [...prev, ref]))
+    place(layoutRef.current, ref.key)
+  }
+
   const selectWorkbenchTab = (tabId: string): void => {
     const cur = layoutRef.current
     if (!cur) return
@@ -1953,7 +2020,17 @@ export default function App(): React.JSX.Element {
       // A picture, not a process: dropping the tab is the whole close. The workspace itself is closed
       // only by the pane's Close button (workspace-close). The mirror entry stays, so the next frame of
       // a workspace that is still open does not put the tab back: only a workspace that opens again
-      // does (newlyOpened reads a transition, not a presence).
+      // does (newlyOpened reads a transition, not a presence). Its picture goes (second pass R2-2): a frame still
+      // coming brings the next one.
+      mirrorFrames.drop([ref.id])
+      dropTabFromTree(tabId)
+      return
+    }
+    if (isRemoteSessionKey(ref.id)) {
+      // Closing the tab is not ending the session: it keeps running on the Runtime (v1 Remote Session 7, 8). Its
+      // view unmounts with its slot, which detaches the stream.
+      setRemoteSessions((prev) => prev.filter((r) => r.key !== ref.id))
+      setRemoteStatus(({ [ref.id]: _s, ...rest }) => rest)
       dropTabFromTree(tabId)
       return
     }
@@ -2042,6 +2119,8 @@ export default function App(): React.JSX.Element {
       if (c.kind !== 'change' && c.kind !== 'add') return
       void window.api.files.read(c.path).then(
         (d) => {
+          // What is typed but not yet sent counts as edited: a reload must not take it (second pass R2-1).
+          flushPendingEdits()
           const b = fileBuffersRef.current[id]
           if (!b) return
           const verdict = classifyExternalChange(toLf(d.content), b.savedContent, b.content !== b.savedContent && !b.readOnly)
@@ -2069,6 +2148,7 @@ export default function App(): React.JSX.Element {
   // Fully closing the explorer — the header ✕. Returns to session mode, clearing file tabs and the pin
   const closeExplorer = async (): Promise<void> => {
     // The header ✕ means a full close. With dirty tabs, confirm once and then clear the file tabs and buffers too
+    flushPendingEdits()
     const hasDirty = fileTabsRef.current.some((t) => {
       const b = fileBuffersRef.current[t.id]
       return b && !b.readOnly && b.content !== b.savedContent
@@ -2243,9 +2323,12 @@ export default function App(): React.JSX.Element {
 
   /** A group's + button — moves the active group there first so the new session becomes that group's tab.
    *  spawn's placement reads activePaneIdRef, so this one line is enough. */
+  // ... or a paired Runtime to start one on: a controller with no CLI of its own still starts remote sessions. Read at
+  // the call: the paired list is state declared further down.
+  const canStart = (): boolean => canStartSession({ cliInstalled: anyCliInstalled, pairedRuntimes: pairedRuntimes.length })
   const newInGroup = (paneId: string): void => {
     setActivePaneId(paneId)
-    if (anyCliInstalled) setShowNew(true)
+    if (canStart()) setShowNew(true)
   }
 
   /** A drop on the tab bar — reorder within the same group, or move to that position in another group */
@@ -2424,6 +2507,24 @@ export default function App(): React.JSX.Element {
   // The Jobs sidebar snapshot for the open project — orch.list's initial payload, then every
   // 'orch:state' push after it (see the subscription effect below). null until orch.list first resolves.
   const [orchSnapshot, setOrchSnapshot] = useState<OrchSnapshot | null>(null)
+  const orchSnapshotRef = useRef(orchSnapshot)
+  orchSnapshotRef.current = orchSnapshot
+  // **A paired Runtime in the Jobs view** (remote runtime design Phase 6, D1.4, D1.5). Every value here is its own:
+  // the remote project never becomes `currentProject`, and the remote snapshot never mixes with `orchSnapshot`, so
+  // with "This computer" selected every local path, call and push is what it was.
+  const [jobsRuntime, setJobsRuntime] = useState<string>(LOCAL)
+  const [pairedRuntimes, setPairedRuntimes] = useState<Array<{ runtimeId: string; name: string; lastSeenAt: string | null; offline: boolean | null; permission: string }>>([])
+  /** Bumped when Settings pairs or removes a Runtime: the paired list is read again (review minor). */
+  const [pairedChanged, setPairedChanged] = useState(0)
+  /** Which Runtime `remoteProject` is a project of: the poll never asks one Runtime for another's (review minor). */
+  const [remoteProjectFor, setRemoteProjectFor] = useState<string | null>(null)
+  const [remoteProjects, setRemoteProjects] = useState<Array<{ id: string; name: string | null; path: string | null }> | null>(null)
+  const [remoteProject, setRemoteProject] = useState<string | null>(null)
+  const [remoteSnapshot, setRemoteSnapshot] = useState<OrchSnapshot | null>(null)
+  /** Drops a remote reply whose Runtime is no longer selected, or that a newer one overtook (X1-11). */
+  const replyGate = useRef(createReplyGate()).current
+  const jobsRuntimeRef = useRef(jobsRuntime)
+  jobsRuntimeRef.current = jobsRuntime
   /** Why the Jobs sidebar has nothing to draw, when the Host is the reason — null in the ordinary
    *  case. **Kept apart from the snapshot above, and that separation is the fix for ruling F41.** The
    *  snapshot is per project and this state deliberately substitutes an empty one whenever there is
@@ -2446,7 +2547,8 @@ export default function App(): React.JSX.Element {
    *  발사되고, 그러면 main 이 `run X does not belong to Y` 를 orchLog 에 쓴다 — 진짜 크로스 프로젝트
    *  접근 시도가 남기는 줄과 한 글자도 다르지 않아 그 로그를 감사에 쓸 수 없게 된다. 짝을 한 값으로
    *  들면 재조회가 발사 지점에서 스스로 거를 수 있다(효과 선언 순서를 바꾸는 것으로는 고쳐지지 않는다). */
-  const [openRun, setOpenRun] = useState<{ projectPath: string; runId: string } | null>(null)
+  /** `runtimeId` for a paired Runtime's Run (Phase 6): `projectPath` is then that Runtime's project key, never a path here. */
+  const [openRun, setOpenRun] = useState<{ projectPath: string; runId: string; runtimeId?: string } | null>(null)
   /** 그 Run 의 이벤트와 의존 그래프. null 은 아직 도착하지 않았다는 뜻이고 빈 배열과 다르다 — 모달은
    *  전자에 아무것도 그리지 않고 후자에만 빈 상태를 그린다. 읽는 효과는 currentProject 선언 아래에 있다. */
   const [detail, setDetail] = useState<RunDetailData | null>(null)
@@ -2474,30 +2576,20 @@ export default function App(): React.JSX.Element {
    *
    *  409 를 문구로 가른다 — 붙잡아 둔 세션에는 "다시 해 보세요" 가 틀린 안내다(놓아 주는 것이
    *  답이다). 삭제 흐름이 같은 자리에서 같은 방식으로 가른다. */
+  /** What the Job actions (lib/jobActions.ts) ask and show through. `hide` is this computer's history list, so only
+   *  a local door gets it (remoteActionUi leaves it out). */
+  const actionUi: ActionUi = {
+    t: (key, params) => (t as (k: string, p?: Record<string, string | number>) => string)(key, params),
+    confirm: (o) => confirmModal(o),
+    confirmChoices: (o) => confirmModalWithChoices(o),
+    error: (m) => void toast.error(m),
+    hide: (paths) => {
+      for (const p of paths) hiddenProjects.hide(p)
+    }
+  }
+  const remoteActionUi: ActionUi = { t: actionUi.t, confirm: actionUi.confirm, confirmChoices: actionUi.confirmChoices, error: actionUi.error }
   const pauseScheduleRun = (runId: string): void => {
-    void (async () => {
-      if (!currentProject) return
-      if (
-        !(await confirmModal({
-          title: t('jobs.run.pauseConfirmTitle'),
-          body: t('jobs.run.pauseConfirmBody'),
-          confirmLabel: t('jobs.run.pause')
-        }))
-      )
-        return
-      try {
-        const reply = await window.api.orch.command(currentProject, 'run-pause', { run: runId })
-        if (reply.status === 409)
-          toast.error(
-            JSON.stringify(reply.body).includes('worker-retain')
-              ? t('jobs.run.pauseRetained')
-              : t('jobs.run.pauseFailed')
-          )
-        else if (reply.status >= 400) toast.error(t('jobs.run.pauseFailed'))
-      } catch {
-        toast.error(t('jobs.run.pauseFailed'))
-      }
-    })()
+    if (currentProject) void pauseRun(localDoor(window.api, currentProject), runId, actionUi)
   }
 
   /** 세워 둔 예약을 다시 돌린다 — 칸을 걷는 것뿐이라 묻지 않는다(잃는 것이 없다). 무장은 이 순간부터
@@ -2506,15 +2598,7 @@ export default function App(): React.JSX.Element {
    *  run-start 가 아니라 run-resume 다. 그쪽은 "아직 시작하지 않았다" 를 걷고 이쪽은 "세워 뒀다" 를
    *  걷는다 — 상세 창의 '실행' 과 이 '▶' 는 다른 버튼이다(Run.paused 의 주석). */
   const resumeScheduleRun = (runId: string): void => {
-    void (async () => {
-      if (!currentProject) return
-      try {
-        const reply = await window.api.orch.command(currentProject, 'run-resume', { run: runId })
-        if (reply.status >= 400) toast.error(t('jobs.run.pauseFailed'))
-      } catch {
-        toast.error(t('jobs.run.pauseFailed'))
-      }
-    })()
+    if (currentProject) void resumeRun(localDoor(window.api, currentProject), runId, actionUi)
   }
 
   /** 관리자가 사라진 Run 에 코디네이터를 다시 붙인다. **`run-start` 를 다시 부른다** — 그 명령의
@@ -2529,15 +2613,7 @@ export default function App(): React.JSX.Element {
    *  사람의 결정이고, 곧바로 다시 여는 것은 그 결정을 무시하는 일이다. 그래서 되돌리는 자리가
    *  사람의 손에 있다. */
   const restartCoordinator = (runId: string): void => {
-    void (async () => {
-      if (!currentProject) return
-      try {
-        const reply = await window.api.orch.command(currentProject, 'run-start', { run: runId })
-        if (reply.status >= 400) toast.error(t('jobs.run.coordinatorRestartFailed'))
-      } catch {
-        toast.error(t('jobs.run.coordinatorRestartFailed'))
-      }
-    })()
+    if (currentProject) void restartRunCoordinator(localDoor(window.api, currentProject), runId, actionUi)
   }
 
   /** 활성 탭이 말하는 루트 — 파일 탭이면 그 파일의 프로젝트, 기능 탭이면 그 기능의 프로젝트,
@@ -2623,6 +2699,86 @@ export default function App(): React.JSX.Element {
    *  처음부터 비어 있어 정확히 그 경로에 닿았다 — 그 판단은 틀렸다. */
   const [newRunOpen, setNewRunOpen] = useState(false)
 
+  // A remote Run's detail: read from the latest remote snapshot, asked again only when its key changes.
+  const remoteSnapshotRef = useRef(remoteSnapshot)
+  remoteSnapshotRef.current = remoteSnapshot
+  const remoteRowKey = openRun?.runtimeId ? remoteDetailKey(remoteSnapshot, openRun.runId) : ''
+  const localRowKey =
+    openRun && !openRun.runtimeId ? runDetailKey(orchSnapshot, openRun.runId, sessions.map((s) => s.id)) : ''
+  /** A paired Runtime's permission as this app was told at pairing; an unknown one is read only (controllerGate). */
+  const permissionOf = (runtimeId: string): string => pairedRuntimes.find((r) => r.runtimeId === runtimeId)?.permission ?? 'read-only'
+  const readOnlyReason = t('jobs.runtime.readOnlyReason')
+  const runtimeName = (runtimeId: string): string => pairedRuntimes.find((r) => r.runtimeId === runtimeId)?.name ?? runtimeId
+  const remoteReadOnly = (runtimeId: string): boolean => permissionOf(runtimeId) !== 'full-control'
+  /** A remote tab's own name, as its tab and its notification show it. */
+  const remoteTitleOf = (r: RemoteSessionRef): string => `${r.title ?? r.sessionId} · ${runtimeName(r.runtimeId)}`
+  // The paired Runtimes, for a remote tab's name and permission: read when the first remote tab opens.
+  const anyRemoteTab = remoteSessions.length > 0
+  // ... when the new session dialog opens, for its choice of where the session runs; and once at start, so a
+  // controller with no CLI of its own can open that dialog at all (canStart). A local file read, nothing remote.
+  useEffect(() => {
+    void window.api.remote.list().then(setPairedRuntimes, () => {})
+  }, [anyRemoteTab, showNew, pairedChanged])
+  useRemoteSessionWatch({
+    refs: remoteSessions,
+    onUpdate: (next) => setRemoteSessions((prev) => prev.map((r) => (r.key === next.key ? next : r))),
+    // A roll replaced the session while this tab watched it, or while the link was down (X1-11): the tab moves to
+    // the new session in its place, and its view starts again from the new pty's checkpoint.
+    onFollow: (fromKey, to) => {
+      // The new session already has a tab of its own (opened meanwhile): the old tab goes rather than becoming a second
+      // tab of it (review M4).
+      if (followAction(remoteSessions.map((r) => r.key), fromKey, to.key) === 'drop') {
+        setRemoteSessions((prev) => prev.filter((r) => r.key !== fromKey))
+        dropTabFromTree(sessionTab(fromKey))
+        return
+      }
+      setRemoteSessions((prev) => prev.map((r) => (r.key === fromKey ? to : r)))
+      setLayout((cur) => (cur ? replaceTabId(cur, sessionTab(fromKey), sessionTab(to.key)) : cur))
+    },
+    onStatus: (key, status) => setRemoteStatus((prev) => (prev[key] === status ? prev : { ...prev, [key]: status })),
+    onWaiting: (ref) => window.api.notify.remoteWaiting({ key: ref.key, title: remoteTitleOf(ref) })
+  })
+  const stopRemoteSession = async (ref: RemoteSessionRef): Promise<void> => {
+    const ok = await confirmModal({ title: t('remote.session.stopTitle'), body: t('remote.session.stopBody'), confirmLabel: t('remote.session.stop') })
+    if (!ok) return
+    const r = await remoteCall(ref.runtimeId, 'sessions-stop', { id: ref.sessionId })
+    if (r.status !== 200) toast.error(t('remote.session.failed', { message: String((r.body as { error?: unknown } | null)?.error ?? r.status) }))
+  }
+  /** Bumped when a change on a paired Runtime went through: the remote list is read again now (it is not pushed). */
+  const [remoteRefresh, setRemoteRefresh] = useState(0)
+  const onRemoteChanged = useRef(() => setRemoteRefresh((n) => n + 1)).current
+  /** Where the open detail's commands, accounts and run configurations go (lib/orchDoor.ts, Phase 7). */
+  const detailPermission = openRun?.runtimeId ? permissionOf(openRun.runtimeId) : ''
+  const detailDoor = useMemo<OrchDoor | null>(() => {
+    if (!openRun) return null
+    if (!openRun.runtimeId) return localDoor(window.api, openRun.projectPath)
+    return remoteDoor(window.api, { runtimeId: openRun.runtimeId, projectKey: openRun.projectPath, permission: detailPermission, readOnlyReason, onChanged: onRemoteChanged })
+  }, [openRun?.runtimeId, openRun?.projectPath, detailPermission, readOnlyReason])
+  /** The remote Jobs view's door: the selected Runtime and its project (Phase 7). */
+  const remoteViewPermission = isRemoteRuntime(jobsRuntime) ? permissionOf(jobsRuntime) : ''
+  const remoteViewDoor = useMemo<OrchDoor | null>(
+    () =>
+      isRemoteRuntime(jobsRuntime) && remoteProject !== null
+        ? remoteDoor(window.api, { runtimeId: jobsRuntime, projectKey: remoteProject, permission: remoteViewPermission, readOnlyReason, onChanged: onRemoteChanged })
+        : null,
+    [jobsRuntime, remoteProject, remoteViewPermission, readOnlyReason]
+  )
+  /** A new Job on a paired Runtime: its form is open, and the Runtime's accounts once they came. */
+  const [remoteNewRunOpen, setRemoteNewRunOpen] = useState(false)
+  const [remoteAccounts, setRemoteAccounts] = useState<Account[] | null>(null)
+  useEffect(() => {
+    if (!remoteNewRunOpen || !remoteViewDoor) return
+    let alive = true
+    setRemoteAccounts(null)
+    void remoteViewDoor.accounts().then((list) => {
+      if (alive) setRemoteAccounts(list)
+    })
+    return () => {
+      alive = false
+    }
+  }, [remoteNewRunOpen, remoteViewDoor])
+  // Another Runtime or project is not the one the form was opened for.
+  useEffect(() => setRemoteNewRunOpen(false), [jobsRuntime, remoteProject])
   // 기록 모달이 열려 있는 동안 이벤트를 다시 읽는다. **이 자리에 있어야 한다** — 의존성 배열은
   // 렌더 중에 평가되므로, currentProject 선언보다 위에 두면 TDZ ReferenceError 로 죽는다(타입체크는
   // 잡지 못한다).
@@ -2634,19 +2790,22 @@ export default function App(): React.JSX.Element {
     // 짝이 맞지 않으면 부르지 않는다 — 프로젝트 A→B 커밋에서 이 효과는 아직 A 의 runId 를 들고
     // 돌지만, 그 조합은 main 이 거부할 조합이다. 여기서 거르면 orchLog 에 접근 위반과 똑같이 생긴
     // 줄이 남지 않는다. 모달을 닫는 것은 아래의 리셋 효과다(이 가드는 로그만 지킨다).
-    if (!openRun || openRun.projectPath !== currentProject) return
+    if (!openRun) return
+    // A paired Runtime's Run is read from that Runtime and its own snapshot; a local one keeps its project guard.
+    const detailSnapshot = openRun.runtimeId ? remoteSnapshotRef.current : orchSnapshotRef.current
+    if (!openRun.runtimeId && openRun.projectPath !== currentProject) return
     // 스냅샷에 없는 Run 도 부르지 않는다 — worktree 제거나 astera reset 으로 Run 이 사라지면
     // 프로젝트는 그대로인데 main 은 접근 위반과 똑같이 생긴 `run X does not belong to Y` 를 로그에
     // 남긴다. orchSnapshot 이 아직 null 이면(안 왔다) 없다고 단정하지 않는다 — 그때는 부르는 쪽이
     // 맞다. Run 이 사라진 뒤에 창을 닫는 것은 아래의 새 효과다.
     // **findRun 이어야 한다**(snapshot.ts): 예약 회차는 최상위 runs 에서 빠져 children 에 있으므로
     // `runs.some` 은 회차를 늘 "없다"고 답하고, 그러면 상세 창이 영원히 비어 있다.
-    if (orchSnapshot !== null && !findRun(orchSnapshot, openRun.runId)) return
+    if (detailSnapshot !== null && !findRun(detailSnapshot, openRun.runId)) return
     let cancelled = false
     // 거부 팔을 반드시 둔다 — 위의 가드가 걸러도 main 은 저장소를 읽다 던질 수 있고, 그러면
     // DevTools 에 Uncaught (in promise) 가 뜬다. 빈 모양으로 접으면 모달은 빈 상태를 그린다.
     const journalPages = journalPagesFor?.runId === openRun.runId ? journalPagesFor.pages : 1
-    void window.api.orch.runDetail(openRun.projectPath, openRun.runId, { journalPages }).then(
+    void window.api.orch.runDetail(openRun.projectPath, openRun.runId, { journalPages }, openRun.runtimeId).then(
       (d) => {
         if (!cancelled) setDetail(d)
       },
@@ -2657,7 +2816,9 @@ export default function App(): React.JSX.Element {
     return () => {
       cancelled = true
     }
-  }, [openRun, currentProject, orchSnapshot, journalPagesFor, detailRetry])
+    // A remote Run's detail is asked again on its own row and the Runtime's reach (remoteDetailKey), not on each poll; a
+    // local one on its own row (runDetailKey), not on every push of the project's snapshot (performance audit R5).
+  }, [openRun, currentProject, localRowKey, remoteRowKey, journalPagesFor, detailRetry])
   // 저널이 바빴다(stage 3 T1) — main 은 기다리지 않고 마지막으로 읽은 줄을 줬다. 잠시 뒤에 다시 묻는다.
   // 답이 여전히 바쁘면 다음 답이 또 한 번을 잡는다. 창을 닫거나 답이 바뀌면 타이머를 걷는다.
   useEffect(() => {
@@ -2676,11 +2837,21 @@ export default function App(): React.JSX.Element {
   // 두는 이유는 openRun·orchSnapshot 선언보다 아래여야 하기 때문이다 — 위로 옮기면 TDZ
   // ReferenceError 로 죽는다(타입체크는 못 잡는다). 여기서도 orchSnapshot === null 은 "없다"가
   // 아니다 — 아직 첫 조회가 오지 않았을 뿐이면 닫지 않는다.
+  // Whether the open detail's Run has been in its list since it opened (detailRunGone).
+  const openRunSeen = useRef(false)
   useEffect(() => {
-    if (!openRun || openRun.projectPath !== currentProject || orchSnapshot === null) return
+    openRunSeen.current = false
+  }, [openRun?.runId, openRun?.runtimeId])
+  useEffect(() => {
+    if (!openRun) return
+    const snap = openRun.runtimeId ? remoteSnapshot : orchSnapshot
+    if ((!openRun.runtimeId && openRun.projectPath !== currentProject) || snap === null) return
     // 위와 같은 이유로 findRun 이다 — `runs.some` 이면 회차의 상세 창이 열린 다음 프레임에 닫힌다.
-    if (!findRun(orchSnapshot, openRun.runId)) setOpenRun(null)
-  }, [openRun, currentProject, orchSnapshot])
+    const found = findRun(snap, openRun.runId) !== undefined
+    if (found) openRunSeen.current = true
+    // A paired Runtime's Run just made there is not in the list until the next read: not closed for that.
+    if (detailRunGone({ remote: !!openRun.runtimeId, found, seen: openRunSeen.current })) setOpenRun(null)
+  }, [openRun, currentProject, orchSnapshot, remoteSnapshot])
 
   // Whether RunConfigManager is actually on screen — gates both its render below and the shortcut
   // suppression right after it. The dialog is pinned to the project (and context) it was opened
@@ -2692,7 +2863,7 @@ export default function App(): React.JSX.Element {
   // the same chain: while it is open the shortcuts must not reach the workbench behind it.
   // newRunOpen joins for the same reason — it has a text input (objective), and without this a global
   // shortcut key would reach the workbench behind the modal while that field has focus.
-  modalOpenRef.current = modalOpenRef.current || runManagerVisible || openRun !== null || newRunOpen
+  modalOpenRef.current = modalOpenRef.current || runManagerVisible || openRun !== null || newRunOpen || remoteNewRunOpen
 
   // Mirrors currentProject into a ref — avoids a stale closure in the run:status subscription effect
   const currentProjectRef = useRef(currentProject)
@@ -2735,11 +2906,11 @@ export default function App(): React.JSX.Element {
         focused={focused}
         onRetire={retireEditorState}
         onViewChange={(view) => setMdViews((prev) => ({ ...prev, [paneId]: view }))}
-        // 에디터가 알려 준 경로로 대상을 찾는다. 그리고 있는 파일과 다르면 그 편집은 뷰가 아직
-        // 갈아타지 않은 옛 문서의 것이므로 버린다
+        // Taken by its path, whatever the pane shows by now (second pass R2-1, final review m1): the editor sends its text
+        // a moment after the keys, and reads the text and its path together, so the pair is always one file's.
         onChange={(fromPath, next) => {
           const target = fileTabsRef.current.find((t) => t.path === fromPath)
-          if (!target || target.id !== f.id) return
+          if (!target) return
           dropReveal(target.id)
           setBufferContent(target.id, next)
         }}
@@ -2886,6 +3057,8 @@ export default function App(): React.JSX.Element {
   const openAppTabsRef = useRef(openAppTabs)
   openAppTabsRef.current = openAppTabs
   const takeMirrors = (next: Mirrors, prev: Mirrors): void => {
+    // A frame for an open workspace changes nothing here: it went to mirrorFrames (second pass R2-3).
+    if (next === prev) return
     mirrorsRef.current = next
     setMirrors(next)
     const opened = newlyOpened(prev, next)
@@ -3226,8 +3399,11 @@ export default function App(): React.JSX.Element {
   // 튀어나온다. 그리고 실패했을 때 이전 프로젝트의 이해가 남는 것이 더 나쁘다 — 그 목록에서 줄을
   // 누르면 새 프로젝트 이름 아래에서 이전 프로젝트의 기능이 열린다. 두 갈래 모두 루트를 함께 실어
   // 그 값이 어느 프로젝트의 것인지를 캐시가 스스로 말하게 한다.
+  // Read while it is shown (audit UI-12); a change pushed meanwhile is read when it is next shown.
+  const wantUnderstanding = needsUnderstanding({ hiwOpen, activeKind: activeTab?.kind, recordTabs: recordTabs.length })
   useEffect(() => {
     if (!currentProject) return setUnderstanding(null)
+    if (!wantUnderstanding) return
     const root = currentProject
     let alive = true
     void window.api.understanding.get(root).then(
@@ -3241,7 +3417,7 @@ export default function App(): React.JSX.Element {
     return () => {
       alive = false
     }
-  }, [currentProject, understandingSeq])
+  }, [currentProject, understandingSeq, wantUnderstanding])
 
   // The open-task section's own load — same shape as the understanding effect just above, including
   // the root travelling with the data and the two failure/success branches resolving to the same
@@ -3350,8 +3526,9 @@ export default function App(): React.JSX.Element {
       if (cancelled) return
       setOrchSnapshot(snapshot)
     })
+    // An unchanged snapshot keeps the one held (audit UI-1): each push drew the whole app though nothing in it changed.
     const off = window.api.on('orch:state', (snapshot) => {
-      if (!cancelled) setOrchSnapshot(snapshot)
+      if (!cancelled) setOrchSnapshot((prev) => sameOrNext(prev, snapshot))
     })
     return () => {
       cancelled = true
@@ -3359,6 +3536,81 @@ export default function App(): React.JSX.Element {
       void window.api.orch.unwatch()
     }
   }, [jobsOpen, sidebarOpen, currentProject])
+
+  // **The paired Runtimes, read each time the Jobs view opens** (Phase 6): Settings may have paired or removed one.
+  useEffect(() => {
+    if (!jobsOpen || !sidebarOpen) return
+    void window.api.remote.list().then(setPairedRuntimes, () => setPairedRuntimes([]))
+  }, [jobsOpen, sidebarOpen, pairedChanged])
+  // A Runtime removed in Settings falls back to this computer.
+  useEffect(() => {
+    if (isRemoteRuntime(jobsRuntime) && !pairedRuntimes.some((r) => r.runtimeId === jobsRuntime)) setJobsRuntime(LOCAL)
+  }, [pairedRuntimes, jobsRuntime])
+  // The selected Runtime's projects; its first one is shown until the person picks another. A remote detail open
+  // from the Runtime before closes: it was that Runtime's.
+  useEffect(() => {
+    setRemoteProjects(null)
+    setRemoteProject(null)
+    setRemoteProjectFor(null)
+    setRemoteSnapshot(null)
+    setOpenRun((o) => (o?.runtimeId ? null : o))
+    if (!isRemoteRuntime(jobsRuntime)) return
+    let alive = true
+    let stop: () => void = () => {}
+    // An unreachable Runtime has no answer, not an empty list (review I3): until it answers, the view asks for its
+    // unregistered Jobs, which main answers with the last list it had, marked offline, and asks again later.
+    stop = startSerialPoll(async () => {
+      const list = await window.api.remote.projects(jobsRuntime).catch(() => null)
+      if (!alive) return
+      if (list === null) {
+        setRemoteProjects((p) => p ?? [UNREGISTERED_PROJECT])
+        setRemoteProject((p) => p ?? UNREGISTERED_PROJECT.id)
+        setRemoteProjectFor(jobsRuntime)
+        return
+      }
+      stop()
+      setRemoteProjects(list)
+      setRemoteProject((p) => (p !== null && list.some((x) => x.id === p) ? p : (list[0]?.id ?? null)))
+      setRemoteProjectFor(jobsRuntime)
+    }, REMOTE_JOBS_POLL_MS, {
+      // Not asked while nobody sees it (performance audit, small): a hidden window, or the Jobs view closed
+      paused: () => document.hidden || !jobsOpenRef.current || !sidebarOpenRef.current
+    })
+    return () => {
+      alive = false
+      stop()
+    }
+  }, [jobsRuntime])
+  // Another project's Jobs are not this one's: nothing of the last one is drawn while the new one is asked.
+  useEffect(() => {
+    setRemoteSnapshot(null)
+  }, [remoteProject])
+  // **The remote list**: asked now and every few seconds, since a Runtime pushes nothing to this app yet, and drawn
+  // only through the reply gate. An unreachable Runtime answers with its last list marked offline (main keeps it).
+  useEffect(() => {
+    if (!remotePollReady({ open: jobsOpen && sidebarOpen, runtimeId: jobsRuntime, project: remoteProject, projectFor: remoteProjectFor })) return
+    const project = remoteProject as string
+    let alive = true
+    // One request at a time (review C1): a Runtime slower than the interval still has its offline answer drawn.
+    // Nothing is asked while the window is hidden; the first turn after it shows asks again.
+    const stop = startSerialPoll(
+      async () => {
+        const token = replyGate.begin('jobs', jobsRuntime)
+        const snapshot = await window.api.orch.list(project, jobsRuntime)
+        // An unchanged answer keeps the object App holds (second pass R2-4), so nothing below draws again for it.
+        if (alive && replyGate.accept('jobs', jobsRuntime, token, jobsRuntimeRef.current)) setRemoteSnapshot((prev) => sameOrNext(prev, snapshot))
+        // The paired list too: a Runtime's reach and last answer for the choice, and one removed elsewhere.
+        const paired = await window.api.remote.list().catch(() => null)
+        if (alive && paired) setPairedRuntimes((prev) => sameOrNext(prev, paired))
+      },
+      REMOTE_JOBS_POLL_MS,
+      { paused: () => document.hidden }
+    )
+    return () => {
+      alive = false
+      stop()
+    }
+  }, [jobsOpen, sidebarOpen, jobsRuntime, remoteProject, remoteProjectFor, replyGate, remoteRefresh])
 
   // 배경 재생성이 끝나면 main 이 밀어 준다 — 그 결과가 화면에 닿는 유일한 길이다. 재생성은
   // 작업 단위가 닫힐 때 저절로 돌고 수십 초가 걸리므로, 이것이 없으면 새 설명은 사용자가 프로젝트를
@@ -3494,9 +3746,17 @@ export default function App(): React.JSX.Element {
   useEffect(() => window.api.on('preview:agentTab', ({ sessionId, cwd, url }) => openAgentTabRef.current(sessionId, cwd, url)), [])
   // The agent app workspaces (agent workspace design): the live ones once at mount, then every change.
   useEffect(() => {
-    void window.api.workspace.list().then((list) => takeMirrors({ ...mirrorsRef.current, ...mirrorsFromList(list) }, mirrorsRef.current))
+    void window.api.workspace.list().then((list) => {
+      const listed = mirrorsFromList(list)
+      // The frames go to their store, not into the state (second pass R2-3).
+      for (const [id, m] of Object.entries(listed)) {
+        if (m.frame) mirrorFrames.set(id, m.frame)
+        listed[id] = { ...m, frame: null }
+      }
+      takeMirrors({ ...mirrorsRef.current, ...listed }, mirrorsRef.current)
+    })
   }, [])
-  useEffect(() => window.api.on('workspace:event', (e) => takeMirrors(applyWorkspaceEvent(mirrorsRef.current, e), mirrorsRef.current)), [])
+  useEffect(() => window.api.on('workspace:event', (e) => takeMirrors(takeWorkspaceEvent(mirrorsRef.current, e, mirrorFrames), mirrorsRef.current)), [])
   useEffect(() => window.api.on('preview:agentTabClose', ({ sessionId }) => closeAgentTabRef.current(sessionId)), [])
   useEffect(() => window.api.on('preview:agentBusy', ({ sessionId, busy }) => {
     setAgentBusy((prev) => (busy ? { ...prev, [sessionId]: true } : (({ [sessionId]: _b, ...rest }) => rest)(prev)))
@@ -3810,6 +4070,8 @@ export default function App(): React.JSX.Element {
   // (Separate from the activeSessionId state — only an id whose session existence was confirmed by
   // active is used.)
   const usageSessionId = active?.id
+  const activeRemote = activeSessionId ? remoteSessions.find((r) => r.key === activeSessionId) ?? null : null
+  const activeRemoteKey = activeRemote?.key ?? null
   useEffect(() => {
     if (!usageSessionId) {
       setUsage(null)
@@ -3820,17 +4082,18 @@ export default function App(): React.JSX.Element {
       void window.api.usage
         .session(usageSessionId)
         .then((u) => {
-          if (!cancelled) setUsage(u)
+          // The same figures keep the held state (performance audit R2): a new object every 3 s re-rendered the app.
+          if (!cancelled) setUsage((held) => sameOrNext(held, u))
         })
         .catch(() => {})
     }
-    load()
-    const timer = setInterval(load, 3_000)
+    // Nothing asked while the window is hidden; asked again as it shows (pollWhileVisible).
+    const stop = pollWhileVisible(load, 3_000)
     const onFocus = (): void => load()
     window.addEventListener('focus', onFocus)
     return () => {
       cancelled = true
-      clearInterval(timer)
+      stop()
       window.removeEventListener('focus', onFocus)
     }
   }, [usageSessionId])
@@ -3839,8 +4102,8 @@ export default function App(): React.JSX.Element {
   // place that can answer — panes and tabs are its structure (design doc §7). null covers a file tab
   // being focused, no pane having a session, and the panes being empty.
   useEffect(() => {
-    window.api.notify.activeSession({ sessionId: usageSessionId ?? null })
-  }, [usageSessionId])
+    window.api.notify.activeSession({ sessionId: activeRemoteKey ?? usageSessionId ?? null })
+  }, [usageSessionId, activeRemoteKey])
 
   // Only when neither CLI is present is there nothing to launch. With one of the two installed the app
   // opens as usual, and the new-session dialog blocks the accounts whose CLI is missing.
@@ -4088,6 +4351,63 @@ export default function App(): React.JSX.Element {
                 onRunFile={runFile}
               />
             ) : sidebarPane === 'jobs' ? (
+              <>
+              {/* Only when a Runtime is paired: with none, the Jobs view is exactly what it was (Phase 6). */}
+              {pairedRuntimes.length > 0 && (
+                <RuntimeSelector
+                  readOnlyReason={controlReason(remoteViewPermission, t as never)}
+                  paired={pairedRuntimes}
+                  runtimeId={jobsRuntime}
+                  onRuntime={setJobsRuntime}
+                  projects={remoteProjects}
+                  project={remoteProject}
+                  onProject={setRemoteProject}
+                  offline={offlineNote(
+                    remoteSnapshot?.runtime,
+                    pairedRuntimes.find((r) => r.runtimeId === jobsRuntime)?.name ?? jobsRuntime,
+                    // The last answer this app had (review I4); the pairing time only before any answer.
+                    remoteSnapshot?.runtime?.lastSeenAt ??
+                      pairedRuntimes.find((r) => r.runtimeId === jobsRuntime)?.lastSeenAt ??
+                      null,
+                    t as never,
+                    (iso) => new Date(iso).toLocaleString()
+                  )}
+                />
+              )}
+              {isRemoteRuntime(jobsRuntime) ? (
+                // A paired Runtime's Jobs, acted on there through its door (Phase 7): every action is an orch-call
+                // to that Runtime, disabled with the reason for a read-only pairing. No session to jump to (remote
+                // session tabs are Phase 9).
+                <JobsView
+                  snapshot={remoteSnapshot}
+                  hostGate={null}
+                  stall={null}
+                  hasProject={remoteProject !== null}
+                  remote
+                  disabledReason={controlReason(remoteViewPermission, t as never) ?? undefined}
+                  canOpenSession={() => false}
+                  onOpenSession={() => {}}
+                  onOpenRun={(runId) => {
+                    setDetail(null)
+                    if (remoteProject) setOpenRun({ projectPath: remoteProject, runId, runtimeId: jobsRuntime })
+                  }}
+                  onNewRun={() => {
+                    if (remoteViewDoor) setRemoteNewRunOpen(true)
+                  }}
+                  onPauseRun={(runId) => {
+                    if (remoteViewDoor) void pauseRun(remoteViewDoor, runId, remoteActionUi)
+                  }}
+                  onResumeRun={(runId) => {
+                    if (remoteViewDoor) void resumeRun(remoteViewDoor, runId, remoteActionUi)
+                  }}
+                  onDeleteRun={(runId) => {
+                    if (remoteViewDoor) void deleteRun(remoteViewDoor, remoteSnapshot, runId, remoteActionUi)
+                  }}
+                  onRestartCoordinator={(runId) => {
+                    if (remoteViewDoor) void restartRunCoordinator(remoteViewDoor, runId, remoteActionUi)
+                  }}
+                />
+              ) : (
               <JobsView
                 snapshot={orchSnapshot}
                 hostGate={orchHostGate}
@@ -4128,110 +4448,11 @@ export default function App(): React.JSX.Element {
                 onResumeRun={resumeScheduleRun}
                 onRestartCoordinator={restartCoordinator}
                 onDeleteRun={(runId) => {
-                  void (async () => {
-                    if (!currentProject) return
-                    // findRun: 회차는 최상위 runs 에 없다(snapshot.ts). `runs.find` 였을 때
-                    // 회차의 휴지통은 눌려도 이 자리에서 조용히 되돌아갔다.
-                    const run = orchSnapshot ? findRun(orchSnapshot, runId) : undefined
-                    if (!run) return
-                    // **회차를 함께 센다.** `run-delete` 는 템플릿을 지울 때 그 회차도 같은
-                    // 집합으로 지우므로(server.ts), 템플릿 자신의 total·eventCount 만 적으면
-                    // 확인 창의 숫자가 실제로 사라지는 것보다 적다 — 되돌릴 수 없는 동작에서
-                    // 축소해 말하는 것이 가장 나쁜 방향이다. 예약이 아닌 Run 에는 children 이
-                    // 아예 없어 합이 그대로다(JobRow 의 주석).
-                    const kids = run.children ?? []
-                    const tasks = kids.reduce((n, k) => n + k.total, run.total)
-                    const events = kids.reduce((n, k) => n + k.eventCount, run.eventCount)
-                    // 정지될 워커 수. **runningCount 를 쓰지 않는다** — 그것은 validating·reviewing
-                    // 까지 세는데 그 둘에는 죽일 세션이 없다(running.ts). 여기서 세야 하는 것은
-                    // "열린 Dispatch 가 있는 Task", 즉 실제로 닫히는 세션의 수다.
-                    const workers = [run, ...kids].reduce(
-                      (n, r) => n + r.tasks.filter((tk) => tk.startedAt !== undefined).length,
-                      0
-                    )
-                    // **워크트리를 쓴 Run 에만 선택지를 준다.** 하나도 없으면 합칠 것도 지울 폴더도
-                    // 없어서 뜻 없는 체크박스가 된다.
-                    //
-                    // **예약 템플릿은 회차들의 것을 센다.** 템플릿 자신은 한 번도 돌지 않아 폴더가
-                    // 없지만, 지우면 회차까지 함께 사라지고(server.ts 의 doomed) 폴더를 쓴 것은
-                    // 그 회차들이다. 템플릿을 빈 목록으로 두었더니 체크박스가 아예 안 떠서, 회차마다
-                    // 하나씩 쌓인 폴더를 지울 문이 없었다 — 그렇게 보고됐다.
-                    const wt = run.schedule
-                      ? kids.flatMap((k) => k.worktrees ?? [])
-                      : (run.worktrees ?? [])
-                    const answer = await confirmModalWithChoices({
-                      title: t('jobs.run.delete'),
-                      // 예약 템플릿을 지우는 것만 워커를 정지시킨다(server.ts 의 run-delete) —
-                      // 되돌릴 수 없는 동작이므로 무엇이 함께 사라지는지 여기서 말한다
-                      body:
-                        t('jobs.run.deleteBody', {
-                          objective: run.objective,
-                          tasks,
-                          events
-                        }) +
-                        (run.schedule && workers > 0
-                          ? '\n\n' + t('jobs.run.deleteStopsWorkers', { workers })
-                          : ''),
-                      confirmLabel: t('jobs.run.delete'),
-                      ...(wt.length > 0
-                        ? {
-                            choices: [
-                              {
-                                id: 'merge',
-                                label: t('jobs.run.deleteMerge'),
-                                hint: t('jobs.run.deleteMergeHint', { count: wt.length })
-                              },
-                              { id: 'hide', label: t('jobs.run.deleteHide') },
-                              {
-                                id: 'worktrees',
-                                label: t('jobs.run.deleteWorktrees', { count: wt.length }),
-                                // 병합 없이 지우면 합치지 않은 커밋이 그때 사라진다. 조건부로 띄우는
-                                // 대신 늘 적는다 — 그 조합을 고르는 순간에 읽혀야 하는 문장이다
-                                hint: t('jobs.run.deleteWorktreesHint')
-                              }
-                            ]
-                          }
-                        : {})
-                    })
-                    if (!answer.ok) return
-                    try {
-                      const reply = await window.api.orch.command(currentProject, 'run-delete', {
-                        id: runId,
-                        ...(answer.checked.includes('merge') ? { merge: true } : {}),
-                        ...(answer.checked.includes('worktrees') ? { removeWorktrees: true } : {})
-                      })
-                      // 감추기는 렌더러가 가진 목록이라 여기서 한다 — 명령이 아니라 표시의 문제다.
-                      // 폴더를 지우면 어차피 자동으로 감춰지지만(hiddenHistory), 폴더는 남기고 목록만
-                      // 치우고 싶을 때가 이 선택이 있는 이유다.
-                      //
-                      // **명령이 성공한 뒤에 한다.** 앞에서 하면 거절된 삭제가 히스토리를 감춘 채로
-                      // 끝난다 — 도는 워커 때문에 409 를 받는 것은 흔한 경로이고(먼저 멈춰야 한다),
-                      // 그때 사용자는 아무것도 지우지 않았는데 세션 목록이 비어 있는 것을 본다.
-                      if (reply.status < 400 && answer.checked.includes('hide'))
-                        for (const p of wt) hiddenProjects.hide(p)
-                      // 409 의 두 갈래를 가른다. **문구로 가르는 이유**: 양쪽 문장이 모두 우리
-                      // server.ts 의 것이고, "멈춰 주세요" 는 붙잡아 둔 세션에 틀린 안내다 —
-                      // 그쪽은 멈추는 것이 아니라 붙잡음을 놓는 것이 답이다.
-                      if (reply.status === 409)
-                        toast.error(
-                          JSON.stringify(reply.body).includes('worker-retain')
-                            ? t('jobs.run.deleteRetained')
-                            : t('jobs.run.deleteBusy')
-                        )
-                      else if (reply.status >= 400) toast.error(t('jobs.run.deleteFailed'))
-                      else {
-                        // 병합 뒤에도 커밋되지 않은 변경이 남았거나 상태를 확인하지 못한 폴더는 명령이
-                        // 지우지 않고 남겼다. 사라지지 않고 남는 알림으로 그 사실을 알린다
-                        const kept = (reply.body as { worktreesKept?: unknown } | null)?.worktreesKept
-                        if (Array.isArray(kept) && kept.length > 0)
-                          toast.error(t('jobs.run.deleteKeptWorktrees', { count: kept.length }))
-                      }
-                    } catch {
-                      toast.error(t('jobs.run.deleteFailed'))
-                    }
-                  })()
+                  if (currentProject) void deleteRun(localDoor(window.api, currentProject), orchSnapshot, runId, actionUi)
                 }}
               />
+              )}
+              </>
             ) : sidebarPane === 'understanding' ? (
               <UnderstandingView
                 // Passed only when it belongs to the current project. Between switching projects and
@@ -4328,6 +4549,10 @@ export default function App(): React.JSX.Element {
                 에디터는 이 안의 페인 슬롯에 있다 */}
             <div className="session-view">
               <PaneGrid
+                remoteSessions={remoteSessions}
+                remoteStatus={remoteStatus}
+                remoteReadOnly={remoteReadOnly}
+                runtimeName={runtimeName}
                 renamingTabId={renamingTabId}
                 onRenameStart={setRenamingTabId}
                 onRenameEnd={endTabRename}
@@ -4351,7 +4576,7 @@ export default function App(): React.JSX.Element {
                 schedStates={schedStates}
                 busy={busy}
                 draggingTabId={dragTabId}
-                newDisabled={!anyCliInstalled}
+                newDisabled={!canStart()}
                 onFocusPane={setActivePaneId}
                 onSetRatio={(splitId, ratio) =>
                   setLayout((cur) => (cur ? setRatio(cur, splitId, ratio) : cur))
@@ -4375,9 +4600,9 @@ export default function App(): React.JSX.Element {
               {!layout && (
                 <button
                   className="placeholder primary"
-                  disabled={!anyCliInstalled}
+                  disabled={!canStart()}
                   onClick={() => {
-                    if (anyCliInstalled) setShowNew(true)
+                    if (canStart()) setShowNew(true)
                   }}
                 >
                   {t('session.placeholder.start')}
@@ -4466,7 +4691,14 @@ export default function App(): React.JSX.Element {
         </main>
       </div>
       <div className="statusbar">
-        {active ? (
+        {activeRemote ? (
+          <>
+            <span className="status-item">{activeRemote.title ?? activeRemote.sessionId}</span>
+            <span className="status-item">{runtimeName(activeRemote.runtimeId)}</span>
+            <span className="status-item status-path">{activeRemote.cwd}</span>
+            <span className="status-item">{t(`remote.session.status.${remoteStatus[activeRemote.key] ?? 'unknown'}` as never)}</span>
+          </>
+        ) : active ? (
           <>
             <span className="status-account">
               <span
@@ -4565,6 +4797,13 @@ export default function App(): React.JSX.Element {
           // The promise is passed straight through — the dialog awaits it to show a start-pending state
           // (discarding it with void would make the wait look instantly over)
           onSpawn={spawn}
+          runtimes={pairedRuntimes}
+          onRemote={(runtimeId) => {
+            pendingSplitRef.current = null
+            setShowNew(false)
+            setNewSessionCwd(null)
+            setRemoteDialog(runtimeId)
+          }}
           onCancel={() => {
             // Cancels the split Ctrl+\ reserved — closing the dialog leaves no empty pane
             pendingSplitRef.current = null
@@ -4573,8 +4812,25 @@ export default function App(): React.JSX.Element {
           }}
         />
       )}
+      {remoteDialog !== null && (
+        <RemoteSessionsDialog
+          runtimes={pairedRuntimes}
+          runtimeId={remoteDialog}
+          readOnly={remoteReadOnly(remoteDialog)}
+          onRuntime={setRemoteDialog}
+          onLocal={() => {
+            setRemoteDialog(null)
+            setShowNew(true)
+          }}
+          onOpen={(ref) => {
+            setRemoteDialog(null)
+            openRemoteSession(ref)
+          }}
+          onCancel={() => setRemoteDialog(null)}
+        />
+      )}
       {showSettings && (
-        <div className="modal-backdrop" onClick={() => setShowSettings(false)}>
+        <div className="modal-backdrop" {...backdropProps(() => setShowSettings(false))}>
           <div className="modal settings" onClick={(e) => e.stopPropagation()}>
             <div className="settings-header">
               <h2>{t('settings.title')}</h2>
@@ -4602,6 +4858,8 @@ export default function App(): React.JSX.Element {
                     // The astera command has a tab of its own (2026-09-30): it is for a person's own
                     // terminal, not a setting of the agents the app runs. A name like GitHub's, untranslated.
                     ['cli', 'CLI'],
+                    // Remote Runtimes (remote runtime design Phase 6): pairing with another computer, and this one as a Runtime.
+                    ['remote', t('settings.tab.remote')],
                     ['hiw', t('hiw.title')],
                     ['shortcuts', t('settings.tab.shortcuts')],
                     ['slack', 'Slack'],
@@ -4664,6 +4922,7 @@ export default function App(): React.JSX.Element {
                         onChange={(v) => {
                           const next = v as SessionKind
                           const prev = defaultSessionKind
+                          settingsTouched.current.touch('defaultKind')
                           setDefaultSessionKind(next) // an optimistic update — reverted below on failure
                           void window.api.settings.setDefaultSessionKind(next).catch((err) => {
                             setDefaultSessionKind(prev)
@@ -4701,6 +4960,7 @@ export default function App(): React.JSX.Element {
                           checked={agentYolo}
                           onChange={(e) => {
                             const next = e.target.checked
+                            settingsTouched.current.touch('agentYolo')
                             setAgentYolo(next)
                             void window.api.settings
                               .setAgentPermissionMode(next ? 'yolo' : 'manual')
@@ -4732,6 +4992,7 @@ export default function App(): React.JSX.Element {
                           checked={agentBrowserEnabled}
                           onChange={(e) => {
                             const next = e.target.checked
+                            settingsTouched.current.touch('agentBrowser')
                             setAgentBrowserEnabled(next)
                             void window.api.settings.setAgentBrowserEnabled(next).catch((err) => {
                               setAgentBrowserEnabled(!next)
@@ -4757,6 +5018,7 @@ export default function App(): React.JSX.Element {
                           checked={agentAppEnabled}
                           onChange={(e) => {
                             const next = e.target.checked
+                            settingsTouched.current.touch('agentApp')
                             setAgentAppEnabled(next)
                             void window.api.settings.setAgentAppEnabled(next).catch((err) => {
                               setAgentAppEnabled(!next)
@@ -4790,6 +5052,7 @@ export default function App(): React.JSX.Element {
                           checked={workUnitTrackingEnabled}
                           onChange={(e) => {
                             const next = e.target.checked
+                            settingsTouched.current.touch('workUnits')
                             setWorkUnitTrackingEnabled(next) // an optimistic update — reverted below on failure
                             void window.api.settings.setWorkUnitTrackingEnabled(next).catch((err) => {
                               setWorkUnitTrackingEnabled(!next)
@@ -5024,145 +5287,13 @@ export default function App(): React.JSX.Element {
                       ))}
                     </div>
                   ))}
-                {settingsTab === 'slack' && (
-                  <div className="settings-slack">
-                    <label className="settings-field-label">Slack Webhook URL</label>
-                    <input
-                      type="text"
-                      className="slack-url-input"
-                      value={slackUrl}
-                      placeholder="https://hooks.slack.com/services/…"
-                      onChange={(e) => {
-                        setSlackUrl(e.target.value)
-                        setSlackSaved(false)
-                      }}
-                    />
-                    {/* Bot configuration. Tokens are password inputs — it reduces exposure over a shared
-                        screen or a shoulder. Once filled, a password shows only ●●●, so every field needs
-                        a label to say what it is */}
-                    <label className="settings-field-label">{t('settings.slack.botSection')}</label>
-                    <label className="settings-field-label">Bot Token</label>
-                    <input
-                      type="password"
-                      className="slack-url-input"
-                      value={slackBotToken}
-                      placeholder="xoxb-…"
-                      onChange={(e) => {
-                        setSlackBotToken(e.target.value)
-                        setSlackSaved(false)
-                      }}
-                    />
-                    <label className="settings-field-label">Channel ID</label>
-                    <input
-                      type="text"
-                      className="slack-url-input"
-                      value={slackChannelId}
-                      placeholder="C0123456789"
-                      onChange={(e) => {
-                        setSlackChannelId(e.target.value)
-                        setSlackSaved(false)
-                      }}
-                    />
-                    <span className="settings-hint">{t('settings.slack.channelIdHint')}</span>
-                    <label className="settings-field-label">App Token</label>
-                    <input
-                      type="password"
-                      className="slack-url-input"
-                      value={slackAppToken}
-                      placeholder="xapp-…"
-                      onChange={(e) => {
-                        setSlackAppToken(e.target.value)
-                        setSlackSaved(false)
-                      }}
-                    />
-                    <span className="settings-hint">{t('settings.slack.appTokenHint')}</span>
-                    {/* The one member allowed to reply into sessions. The channel alone is not a
-                        permission boundary — anyone invited there could push input into a session — so
-                        replies are matched against this ID. Left empty, every reply is blocked rather
-                        than allowed (core/slack/inbound.ts), which is why the warning below is loud. */}
-                    <label className="settings-field-label">Member ID</label>
-                    <input
-                      type="text"
-                      className="slack-url-input"
-                      value={slackMemberId}
-                      placeholder="U0123456789"
-                      onChange={(e) => {
-                        setSlackMemberId(e.target.value)
-                        setSlackSaved(false)
-                      }}
-                    />
-                    <span className="settings-hint">{t('settings.slack.memberIdHint')}</span>
-                    {/* Gated on bot mode, not on the full intake condition (which also needs the app
-                        token): slackMode() is the verdict core already owns, so no third place gets to
-                        judge "is the bot on" and drift from it. In bot mode without an app token there
-                        is no intake at all, and the warning still reads true there. */}
-                    {slackMode({
-                      webhookUrl: slackUrl.trim() || null,
-                      botToken: slackBotToken.trim() || null,
-                      channelId: slackChannelId.trim() || null
-                    }) === 'bot' &&
-                      slackMemberId.trim() === '' && (
-                        <span className="update-note update-err">
-                          {t('settings.slack.memberIdRequired')}
-                        </span>
-                      )}
-                    <div className="slack-cell">
-                      <button
-                        disabled={!slackLoaded}
-                        onClick={() =>
-                          void window.api.slack
-                            .setConfig({
-                              webhookUrl: slackUrl.trim() || null,
-                              botToken: slackBotToken.trim() || null,
-                              channelId: slackChannelId.trim() || null,
-                              appToken: slackAppToken.trim() || null,
-                              memberId: slackMemberId.trim() || null
-                            })
-                            .then(() => setSlackSaved(true))
-                            // A rejection means the store refused to overwrite values it could not read —
-                            // the settings on disk survived. Saying so beats a silently dead button, since
-                            // "Saved" never appears either way.
-                            .catch((err) =>
-                              toast.error(
-                                t('settings.slack.saveFailed', {
-                                  detail: err instanceof Error ? err.message : String(err)
-                                })
-                              )
-                            )
-                        }
-                      >
-                        {t('settings.slack.save')}
-                      </button>
-                      {slackSaved && <span className="update-note">{t('settings.slack.saved')}</span>}
-                    </div>
-                    {/* Shows immediately which transport the current input adds up to — filling in a bot
-                        token but leaving out the channel ID falls back to the Webhook silently, so that
-                        has to be visible. The verdict uses slackMode() from core: it has to be the same
-                        function that applyConfig (in main) and the notification checkbox gating use, so
-                        one side cannot drift from the other */}
-                    <span className="settings-hint">
-                      {t(
-                        (
-                          {
-                            bot: 'settings.slack.modeBot',
-                            webhook: 'settings.slack.modeWebhook',
-                            off: 'settings.slack.modeOff'
-                          } as const
-                        )[
-                          slackMode({
-                            webhookUrl: slackUrl.trim() || null,
-                            botToken: slackBotToken.trim() || null,
-                            channelId: slackChannelId.trim() || null
-                          })
-                        ]
-                      )}
-                    </span>
-                    <span className="settings-hint">{t('settings.slack.hint')}</span>
-                    <span className="settings-hint">{t('settings.slack.setupGuide')}</span>
-                  </div>
-                )}
+                {/* Kept while Settings is open (final review M-6): switching tabs unmounted it and dropped what was typed. */}
+                <div hidden={settingsTab !== 'slack'}>
+                  <SlackSettings />
+                </div>
                 {settingsTab === 'notifications' && <NotificationSettings />}
                 {settingsTab === 'github' && <GithubSettings />}
+                {settingsTab === 'remote' && <RemoteRuntimesSettings onChanged={() => setPairedChanged((n) => n + 1)} />}
                 {settingsTab === 'worktree' && (
                   <div className="settings-worktree">
                     <label className="settings-field-label">{t('settings.worktree.createLocation')}</label>
@@ -5174,8 +5305,13 @@ export default function App(): React.JSX.Element {
                         onClick={() =>
                           void window.api.system.pickFolder().then(async (dir) => {
                             if (!dir) return
-                            await window.api.worktrees.setRoot(dir)
-                            setWtRoot(dir)
+                            // Said when it fails, not left unhandled (audit UI-14).
+                            try {
+                              await window.api.worktrees.setRoot(dir)
+                              setWtRoot(dir)
+                            } catch (err) {
+                              toast.error(err instanceof Error ? err.message : String(err))
+                            }
                           })
                         }
                       >
@@ -5217,7 +5353,9 @@ export default function App(): React.JSX.Element {
               setLayout(res.root)
               setActivePaneId(res.paneId)
             }
-            const isSession = parseTab(tid)?.kind === 'session'
+            const tabRef = parseTab(tid)
+            const remote = tabRef?.kind === 'session' ? remoteSessions.find((r) => r.key === tabRef.id) : undefined
+            const isSession = tabRef?.kind === 'session' && !remote
             // An agent's tab while its script runs: the one way to end it from the UI. Main aborts the
             // run and tells the CLI; nothing here waits for it.
             const agentTab = parseTab(tid)?.kind === 'browser' ? browserTabsRef.current.find((b) => b.id === tid && b.agentSessionId !== undefined) : undefined
@@ -5231,6 +5369,17 @@ export default function App(): React.JSX.Element {
                     {
                       label: t('session.tab.rename'),
                       onSelect: () => setRenamingTabId(tid)
+                    },
+                    'separator'
+                  ] as MenuItem[])
+                : []),
+              ...(remote
+                ? ([
+                    {
+                      label: t('remote.session.stop'),
+                      danger: true,
+                      disabled: !remote.alive || remoteReadOnly(remote.runtimeId),
+                      onSelect: () => void stopRemoteSession(remote)
                     },
                     'separator'
                   ] as MenuItem[])
@@ -5288,12 +5437,17 @@ export default function App(): React.JSX.Element {
           }}
         />
       )}
-      {openRun && (
+      {openRun && detailDoor && (
         <RunDetail
+          door={detailDoor}
           // 그래프의 노드는 제목·상태·세션을 스냅샷에서 읽는다(detail 의 layers 는 id 뿐이다).
           // 그 Run 이 스냅샷에서 사라졌으면(다른 프로젝트로 갔거나 지워졌다) undefined 다.
           // findRun 인 이유는 위 두 효과와 같다 — 예약 회차는 children 안에 있다(snapshot.ts).
-          run={orchSnapshot ? findRun(orchSnapshot, openRun.runId) : undefined}
+          run={(() => {
+            const snap = openRun.runtimeId ? remoteSnapshot : orchSnapshot
+            return snap ? findRun(snap, openRun.runId) : undefined
+          })()}
+          runtimeId={openRun.runtimeId}
           detail={detail}
           // Task 짓기(task-create)와 검증 구성 조회(run.list)가 쓴다 — run 이 undefined 인 동안에도
           // openRun 이 이 짝을 그대로 들고 있으므로 run?.id 를 대신 넘길 이유가 없다.
@@ -5324,9 +5478,25 @@ export default function App(): React.JSX.Element {
           막아 두었다(JobsView 의 hasProject, 바로 위 onNewRun) — currentProject 없이는 newRunOpen
           자체가 true 가 되지 않으므로 이 조건은 실제로는 걸리지 않지만, 렌더 자리를 currentProject
           와 별개로 옮기지 않기 위해 남겨 둔다. */}
+      {remoteNewRunOpen && remoteViewDoor && (
+        // A new Job on the paired Runtime, in its project's own folder there (never a path on this computer); none
+        // under "Unregistered folders" (remoteNewJobFolder).
+        <NewRunModal
+          door={remoteViewDoor}
+          cwd={remoteNewJobFolder(remoteProjects, remoteProject)}
+          projectFolderBusy={remoteSnapshot?.projectFolderBusy ?? false}
+          accounts={remoteAccounts}
+          onClose={() => setRemoteNewRunOpen(false)}
+          onCreated={(runId) => {
+            setRemoteNewRunOpen(false)
+            if (remoteProject) setOpenRun({ projectPath: remoteProject, runId, runtimeId: jobsRuntime })
+          }}
+        />
+      )}
       {newRunOpen && currentProject && (
         <NewRunModal
-          projectPath={currentProject}
+          door={localDoor(window.api, currentProject)}
+          cwd={currentProject}
           // 스냅숏이 이미 프로젝트별로 접혀 오므로 폴더 사실이 앉을 자리가 그것이다(view.ts).
           // 아직 안 왔으면 거짓 — 없는 것을 경고하는 것보다 낫다
           projectFolderBusy={orchSnapshot?.projectFolderBusy ?? false}

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -349,5 +349,83 @@ describe('AccountRegistry', () => {
       await registryFor(file).load()
       expect(await fs.readFile(file, 'utf8')).toBe(original)
     })
+  })
+})
+
+// Audit U-1 and U-12: an accounts.json it could not read (a rename under way, on win32) was taken for damage, and the next
+// add wrote a list of one over it; a save refused by a rename left the account in memory though the file never got it.
+describe('AccountRegistry when its file is busy', () => {
+  afterEach(() => vi.restoreAllMocks())
+  it('a file it could not read is not written over: the next change reads it again first', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'astera-acc-busy-'))
+    const file = path.join(dir, 'accounts.json')
+    const a = new AccountRegistry(file, path.join(dir, 'root'))
+    await a.load()
+    await a.create({ label: 'kept' })
+    const real = fs.readFile.bind(fs)
+    const spy = vi.spyOn(fs, 'readFile').mockImplementation(((p: unknown, ...rest: unknown[]) =>
+      String(p) === file ? Promise.reject(Object.assign(new Error('busy'), { code: 'EBUSY' })) : (real as (...a: unknown[]) => Promise<unknown>)(p, ...rest)) as typeof fs.readFile)
+    const b = new AccountRegistry(file, path.join(dir, 'root'))
+    expect((await b.load()).recovered).toBe(false)
+    spy.mockRestore()
+    await b.create({ label: 'new' })
+    const c = new AccountRegistry(file, path.join(dir, 'root'))
+    await c.load()
+    expect(c.list().map((x) => x.label).sort()).toEqual(['kept', 'new'])
+    await fs.rm(dir, { recursive: true, force: true })
+  })
+  it('an account whose save failed is not kept in memory', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'astera-acc-save-'))
+    const r = new AccountRegistry(path.join(dir, 'accounts.json'), path.join(dir, 'root'))
+    await r.load()
+    vi.spyOn(fs, 'rename').mockRejectedValue(Object.assign(new Error('denied'), { code: 'EACCES' }))
+    await expect(r.create({ label: 'lost' })).rejects.toThrow()
+    expect(r.list()).toEqual([])
+    vi.restoreAllMocks()
+    await fs.rm(dir, { recursive: true, force: true })
+  })
+})
+
+describe('AccountRegistry, final review', () => {
+  afterEach(() => vi.restoreAllMocks())
+  // I-5: the start-up label repair asked the registry to read an unreadable accounts.json again and threw, and the app
+  // never opened its window. The repair waits for a registry that could read its file.
+  it('the label repair does nothing, and does not throw, while the file could not be read', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'astera-acc-i5-'))
+    const file = path.join(dir, 'accounts.json')
+    await fs.writeFile(file, JSON.stringify({ version: 1, accounts: [] }), 'utf8')
+    const real = fs.readFile.bind(fs)
+    vi.spyOn(fs, 'readFile').mockImplementation(((p: unknown, ...rest: unknown[]) =>
+      String(p) === file ? Promise.reject(Object.assign(new Error('busy'), { code: 'EBUSY' })) : (real as (...a: unknown[]) => Promise<unknown>)(p, ...rest)) as typeof fs.readFile)
+    const r = new AccountRegistry(file, path.join(dir, 'root'))
+    await r.load()
+    await expect(r.syncPlaceholderLabels(async () => 'me@x')).resolves.toBeUndefined()
+    vi.restoreAllMocks()
+    await fs.rm(dir, { recursive: true, force: true })
+  })
+  // M-5: two changes in flight each took a snapshot to roll back to; the first one's failure rolled the second away.
+  it('a failed change leaves the change made beside it', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'astera-acc-m5-'))
+    const r = new AccountRegistry(path.join(dir, 'accounts.json'), path.join(dir, 'root'))
+    await r.load()
+    const realRename = fs.rename.bind(fs)
+    let first = true
+    vi.spyOn(fs, 'rename').mockImplementation((async (a: unknown, b: unknown) => {
+      if (first) {
+        first = false
+        await new Promise((res) => setTimeout(res, 30))
+        throw Object.assign(new Error('i/o'), { code: 'EIO' })
+      }
+      return realRename(a as string, b as string)
+    }) as typeof fs.rename)
+    // Which create reaches the queue first is not fixed (each makes its folder before it gets there; CI on Windows
+    // swapped them), so the one whose save failed is found from the results rather than assumed.
+    const labels = ['one', 'two']
+    const results = await Promise.allSettled(labels.map((label) => r.create({ label })))
+    vi.restoreAllMocks()
+    expect(results.map((x) => x.status).sort()).toEqual(['fulfilled', 'rejected'])
+    const kept = labels[results.findIndex((x) => x.status === 'fulfilled')]
+    expect(r.list().map((a) => a.label)).toEqual([kept])
+    await fs.rm(dir, { recursive: true, force: true })
   })
 })

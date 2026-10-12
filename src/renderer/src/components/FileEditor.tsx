@@ -22,6 +22,7 @@ import { go } from '@codemirror/lang-go'
 import { languageForExt, sameDocument, type LangKey } from '../../../core/files/edit'
 import type { EditorStateCache } from '../lib/editorStateCache'
 import { FileFindBar } from './FileFindBar'
+import { createEchoLedger, createEditCoalescer } from '../lib/editCoalescer'
 
 function langExt(key: LangKey | null): Extension {
   switch (key) {
@@ -54,7 +55,8 @@ function langExt(key: LangKey | null): Extension {
  *  사이로 옮기는 것이 이 설계의 핵심(되돌리기 보존)이므로, 상태 쪽을 인스턴스에서 떼어 내는 것이
  *  맞는 방향이다. */
 interface EditorOwner {
-  change: (text: string) => void
+  /** The document changed (a person's edit); its text goes to App on a short coalesce (second pass R2-1). */
+  changed: () => void
   save: () => void
   /** The user clicked inside the view — a pending "reveal this line" request must not move a cursor
    *  they have since placed */
@@ -124,7 +126,7 @@ const sharedBase: Extension[] = [
   ]),
   EditorView.updateListener.of((u) => {
     // Propagate user edits only: setState (a programmatic replacement) has an empty transactions array, so it is excluded
-    if (u.docChanged && u.transactions.length > 0) owners.get(u.view)?.change(u.state.doc.toString())
+    if (u.docChanged && u.transactions.length > 0) owners.get(u.view)?.changed()
   }),
   // Keeps the find bar's count honest. Costs nothing while the bar is closed — the owner drops it.
   EditorView.updateListener.of((u) => {
@@ -233,6 +235,10 @@ export function FileEditor({
   // References to the latest callbacks — the base extensions are built only once, so this avoids staleness
   const onChangeRef = useRef(onChange)
   onChangeRef.current = onChange
+  /** Sends this view's pending edits now (second pass R2-1): before a file switch and at the unmount. */
+  const flushEditsRef = useRef<() => void>(() => {})
+  /** The texts sent to App not yet seen coming back as `content` (final review C1). */
+  const echoesRef = useRef(createEchoLedger())
   const onSaveRef = useRef(onSave)
   onSaveRef.current = onSave
   const onRetireRef = useRef(onRetire)
@@ -273,9 +279,22 @@ export function FileEditor({
     viewRef.current = view
     curPathRef.current = path
     // 이 뷰의 편집이 향할 곳. 경로는 호출 시점에 읽으므로 파일을 갈아타도 따라온다
+    // The text and its path are read when it goes, together: the pairing the path argument exists for holds, so App takes
+    // it by its path whatever the pane shows by then.
+    const edits = createEditCoalescer({
+      read: () => view.state.doc.toString(),
+      send: (text) => {
+        echoesRef.current.sent(text)
+        onChangeRef.current(curPathRef.current, text)
+      }
+    })
+    flushEditsRef.current = () => edits.flush()
     owners.set(view, {
-      change: (text) => onChangeRef.current(curPathRef.current, text),
-      save: () => onSaveRef.current(curPathRef.current),
+      changed: () => edits.changed(),
+      save: () => {
+        edits.flush()
+        onSaveRef.current(curPathRef.current)
+      },
       interact: () => onInteractRef.current?.(),
       // Ctrl+F never hides the replace row that Ctrl+H opened — the bar decides, from wantReplace
       find: (withReplace) => setFind((cur) => ({ replace: withReplace, nonce: (cur?.nonce ?? 0) + 1 })),
@@ -304,6 +323,8 @@ export function FileEditor({
     return () => {
       view.scrollDOM.removeEventListener('scroll', onScroll)
       if (scrollFrame != null) cancelAnimationFrame(scrollFrame)
+      edits.flush()
+      edits.dispose()
       owners.delete(view)
       // As in the path switch below — a state must never be cached with the search panel still open
       closeSearchPanel(view)
@@ -330,6 +351,9 @@ export function FileEditor({
     if (!view) return
     const prev = curPathRef.current
     if (prev !== path) {
+      // What was typed in the file being left goes to it first (second pass R2-1); what comes back is for that file.
+      flushEditsRef.current()
+      echoesRef.current = createEchoLedger()
       // 나가는 상태의 찾기 패널을 닫고 나서 캐시에 넣는다. 열린 채로 캐시되면 나중에 그 파일로
       // 돌아왔을 때 바는 없는데 강조만 남는다 — 강조는 패널이 열려 있는 동안만 그려지기 때문이다
       closeSearchPanel(view)
@@ -346,7 +370,9 @@ export function FileEditor({
     }
     // 같은 비교가 여기에도 걸린다. 문자열을 그대로 비교하면 CRLF 파일은 매 렌더 새 상태로 갈아치워져
     // 되돌리기 이력이 계속 날아간다
-    if (!sameDocument(view.state.doc.toString(), content)) {
+    // Our own text coming back (final review C1): App's render can trail the keys typed since, and taking it for an
+    // outside change replaced the document, losing those keys, the cursor and undo.
+    if (!sameDocument(view.state.doc.toString(), content) && !echoesRef.current.isEcho(content)) {
       // 문서가 바뀌었으니 들고 있던 스크롤 스냅샷은 다른 문서의 위치다. 버리지 않으면 다음 마운트에서
       // 엉뚱한 곳으로 스크롤한다
       lastScrollRef.current = null

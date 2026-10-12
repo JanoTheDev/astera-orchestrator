@@ -26,7 +26,9 @@ export interface JsonlTailOptions {
 
 export class JsonlTail {
   private offset = 0
-  private carry = '' // an incomplete line cut off at a chunk boundary
+  /** An incomplete line cut off at a chunk boundary, as bytes (second pass C2-6): decoded on its own, a read that ended
+   *  inside a multi-byte character turned both halves into U+FFFD. */
+  private carry: Buffer = Buffer.alloc(0)
   // Start offset for startAtEnd — captured by stat'ing **immediately in the constructor**, not
   // measured at the first read(): there is usually a delay between construction and the first read
   // (e.g. the 15s tick period) and a genuinely new entry can be written to the file in between — the
@@ -68,14 +70,28 @@ export class JsonlTail {
    *  only its remainder (which would parse as garbage and be dropped). */
   get position(): number | null {
     if (this.startOffset) return this.resolvedStart ?? null
-    return this.offset - Buffer.byteLength(this.carry, 'utf8')
+    return this.offset - this.carry.length
   }
 
   /** The lines newly **completed** since the last call (blank lines excluded).
    *  If the file got shorter (recreated), read from the start again and report `restarted: true`.
    *  A missing file or a permission error gives `null` — the caller has to be able to tell that apart
    *  from "no new lines". */
-  async read(): Promise<{ lines: string[]; restarted: boolean } | null> {
+  read(): Promise<{ lines: string[]; restarted: boolean } | null> {
+    // One read at a time (audit RL-3): the tick and the data path both read, and two reads from the same offset
+    // handed out the same lines twice. A read asked during another starts where that one ends.
+    const next = this.reading.then(() => this.readOnce())
+    this.reading = next.then(
+      () => undefined,
+      () => undefined
+    )
+    return next
+  }
+
+  /** The reads, one after another. */
+  private reading: Promise<void> = Promise.resolve()
+
+  private async readOnce(): Promise<{ lines: string[]; restarted: boolean } | null> {
     if (this.startOffset) {
       this.offset = await this.startOffset
       this.startOffset = null
@@ -88,7 +104,7 @@ export class JsonlTail {
       // the file got shorter = recreated (a new session at the same path) — reset the offset and read from the start again
       if (size < this.offset) {
         this.offset = 0
-        this.carry = ''
+        this.carry = Buffer.alloc(0)
         restarted = true
       }
       if (size <= this.offset) return { lines: [], restarted }
@@ -96,9 +112,12 @@ export class JsonlTail {
       const buffer = Buffer.alloc(length)
       await handle.read(buffer, 0, length, this.offset)
       this.offset = size
-      const text = this.carry + buffer.toString('utf8')
-      const parts = text.split('\n')
-      this.carry = parts.pop() ?? '' // the last fragment may be incomplete, so hand it to the next read
+      const bytes = this.carry.length > 0 ? Buffer.concat([this.carry, buffer]) : buffer
+      // Cut at the last newline byte: what follows may be an incomplete line, even an incomplete character.
+      const end = bytes.lastIndexOf(0x0a)
+      this.carry = Buffer.from(bytes.subarray(end + 1))
+      if (end < 0) return { lines: [], restarted }
+      const parts = bytes.subarray(0, end).toString('utf8').split('\n')
       return { lines: parts.filter((l) => l.trim() !== ''), restarted }
     } catch {
       return null // missing file, permission error, etc. — never crash

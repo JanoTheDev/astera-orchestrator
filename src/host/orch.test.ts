@@ -50,6 +50,7 @@ import { EXIT_DEFER_MS } from '../core/orchestration/exec/exitOwner'
 import type { HostJournal } from './hostJournal'
 import { createHostUnderstanding, NOT_WRITER, type HostUnderstanding } from './hostUnderstanding'
 import { runRecordInputOf } from '../core/orchestration/runRecord'
+import { createControllerRegistry } from './controllers'
 
 const NOW = '2026-09-22T00:00:00.000Z'
 /** 이 Host 가 선 시각. `now` 보다 **앞**이어야 하는 값이다 — `requests show` 가 이것을 실어 주는
@@ -104,6 +105,97 @@ describe('createHostOrch', () => {
     const r = await orch.call({ cmd: 'jobs-list', args: {}, sessionId: '' })
     expect(r.status).toBe(200)
     expect((r.body as { id: string }[]).map((j) => j.id)).toEqual([jobId])
+  })
+
+  describe('a controller caller (remote runtime Phase 1)', () => {
+    const controller = (permission: 'read-only' | 'full-control' = 'full-control') => ({
+      role: 'controller' as const,
+      principal: { clientId: 'cli_ab12', name: 'laptop', permission },
+      toOthers: () => {}
+    })
+    it('commits under its own name, with the session it named ignored', async () => {
+      const { jobId } = await seed()
+      const actors: unknown[] = []
+      const noop = (() => {}) as never
+      const orch = orchOver({
+        journal: { committed: ((e: { actor: unknown }) => { actors.push(e.actor) }) as never, loaded: noop, append: noop, reload: (async () => {}) as never, timeline: noop }
+      })
+      await orch.ready()
+      const runId = orch.state().runs.find((r) => r.jobId === jobId)!.id
+      const r = await orch.call({ cmd: 'runs-stop', args: { id: runId }, sessionId: 'ses-forged', from: controller() })
+      expect(r.status).toBe(200)
+      expect(actors).toContainEqual({ surface: 'controller', controller: { clientId: 'cli_ab12', name: 'laptop' } })
+    })
+    it('a read-only controller is refused a control command before any receipt is taken', async () => {
+      await seed()
+      const orch = orchOver()
+      const create = (from: ReturnType<typeof controller>) =>
+        orch.call({ cmd: 'jobs-create', args: { objective: 'x', cwd: 'D:/p' }, sessionId: '', from, request: 'r-1' })
+      expect(await create(controller('read-only'))).toMatchObject({ status: 403, body: { code: 'RUNTIME_PERMISSION_DENIED' } })
+      const again = await create(controller('full-control'))
+      expect(again.status).toBe(200)
+      expect(again.replayed).not.toBe(true)
+    })
+    it('is refused a local-only command even at full control', async () => {
+      const r = await orchOver().call({ cmd: 'state-put', args: { state: emptyState() }, sessionId: '', from: controller() })
+      expect(r).toMatchObject({ status: 403, body: { code: 'RUNTIME_PERMISSION_DENIED' } })
+    })
+    it('keys receipts by client, so two controllers sending the same request id do not collide', async () => {
+      await seed()
+      const orch = orchOver()
+      const a = { ...controller(), principal: { clientId: 'cli_a', name: 'cli', permission: 'full-control' as const } }
+      const b = { ...controller(), principal: { clientId: 'cli_b', name: 'mcp', permission: 'full-control' as const } }
+      const first = await orch.call({ cmd: 'jobs-create', args: { objective: 'one', cwd: 'D:/p' }, sessionId: '', from: a, request: 'r-1' })
+      const second = await orch.call({ cmd: 'jobs-create', args: { objective: 'two', cwd: 'D:/p' }, sessionId: '', from: b, request: 'r-1' })
+      expect(first.status).toBe(200)
+      expect(second.status).toBe(200)
+      expect(second.replayed).not.toBe(true)
+      const shownByB = await orch.call({ cmd: 'requests-show', args: { id: 'r-1' }, sessionId: '', from: b })
+      expect((shownByB.body as { cmd: string }).cmd).toBe('jobs-create')
+      const shownByCli = await orch.call({ cmd: 'requests-show', args: { id: 'r-1' }, sessionId: '' })
+      expect((shownByCli.body as { state: string }).state).toBe('absent')
+    })
+    it('answers a retry whose receipt is gone with RUNTIME_OUTCOME_UNKNOWN, and runs nothing', async () => {
+      await seed()
+      const orch = orchOver()
+      await orch.ready()
+      const before = orch.state().jobs.length
+      const r = await orch.call({ cmd: 'jobs-create', args: { objective: 'x', cwd: 'D:/p' }, sessionId: '', from: controller(), request: 'r-lost', retry: true })
+      expect(r).toMatchObject({ status: 409, body: { code: 'RUNTIME_OUTCOME_UNKNOWN', retry: 'outcome-unknown', requestId: 'r-lost' } })
+      expect(orch.state().jobs.length).toBe(before)
+    })
+    it('replays a retry whose receipt is still held', async () => {
+      await seed()
+      const orch = orchOver()
+      const call = (retry?: true) => orch.call({ cmd: 'jobs-create', args: { objective: 'x', cwd: 'D:/p' }, sessionId: '', from: controller(), request: 'r-2', ...(retry ? { retry } : {}) })
+      const first = await call()
+      const again = await call(true)
+      expect(again.replayed).toBe(true)
+      expect(JSON.stringify(again.body)).toBe(JSON.stringify(first.body))
+    })
+    // Each jobs-create commits, so each leaves a receipt; 201 of them push the first one out (RECEIPTS_PER_CALLER).
+    it('answers outcome-unknown after per-caller eviction (201 calls) rather than running again', async () => {
+      await seed()
+      const orch = orchOver()
+      for (let i = 1; i <= RECEIPTS_PER_CALLER + 1; i++)
+        await orch.call({ cmd: 'jobs-create', args: { objective: `fill ${i}`, cwd: 'D:/p' }, sessionId: '', from: controller(), request: `fill-${i}` })
+      const jobs = orch.state().jobs.length
+      const r = await orch.call({ cmd: 'jobs-create', args: { objective: 'fill 1', cwd: 'D:/p' }, sessionId: '', from: controller(), request: 'fill-1', retry: true })
+      expect(r).toMatchObject({ status: 409, body: { code: 'RUNTIME_OUTCOME_UNKNOWN' } })
+      expect(orch.state().jobs.length).toBe(jobs)
+    }, 60_000)
+    // Receipts live in memory and die with the Host (request receipts design §4): every retry after a restart lands here.
+    it('answers outcome-unknown to a retry that reaches a restarted Host', async () => {
+      await seed()
+      const first = orchOver()
+      await first.call({ cmd: 'jobs-create', args: { objective: 'x', cwd: 'D:/p' }, sessionId: '', from: controller(), request: 'r-boot' })
+      const restarted = orchOver()
+      await restarted.ready()
+      const jobs = restarted.state().jobs.length
+      const r = await restarted.call({ cmd: 'jobs-create', args: { objective: 'x', cwd: 'D:/p' }, sessionId: '', from: controller(), request: 'r-boot', retry: true })
+      expect(r).toMatchObject({ status: 409, body: { code: 'RUNTIME_OUTCOME_UNKNOWN' } })
+      expect(restarted.state().jobs.length).toBe(jobs)
+    })
   })
 
   describe('MCP access gate', () => {
@@ -611,6 +703,18 @@ describe('createHostOrch', () => {
       return { taskId: task.value.id, dispatchId: dsp.value.id }
     }
 
+    // Performance audit M2: a remote Run detail asked for the whole state on every open. A caller that names the version
+    // it holds is told it is still current, without the state.
+    it('answers unchanged, without the state, to a caller already holding this version', async () => {
+      await seed()
+      const orch = orchOver()
+      const first = (await orch.call({ cmd: 'state-get', args: {}, sessionId: '' })).body as { version: number }
+      const same = await orch.call({ cmd: 'state-get', args: { since: first.version }, sessionId: '' })
+      expect(same).toEqual({ status: 200, body: { unchanged: true, version: first.version } })
+      const older = await orch.call({ cmd: 'state-get', args: { since: first.version - 1 }, sessionId: '' })
+      expect((older.body as { state?: OrchState }).state).toBeDefined()
+    })
+
     it('상태를 통째로 답한다', async () => {
       const { jobId } = await seed()
       const r = await orchOver().call({ cmd: 'state-get', args: {}, sessionId: '' })
@@ -712,6 +816,167 @@ describe('createHostOrch', () => {
 // **이 묶음이 세는 것은 답이 아니라 효과다.** 바이트가 같은 답을 돌려주면서 의존을 두 번 부른 재시도가
 // 이 설계가 막으려는 실패 그 자체이므로, 답만 보는 시험은 없는 것보다 나쁘다 — 앱으로 나간 행동의
 // 횟수와 상태에 남은 것을 함께 센다.
+describe('state for a controller (remote runtime design §3.6)', () => {
+  const controller = { role: 'controller' as const, principal: { clientId: 'cli_x', name: 'x', permission: 'read-only' as const }, toOthers: () => {} }
+  it('state-get answers the sanitized state with its version', async () => {
+    await seed()
+    const orch = orchOver()
+    await orch.ready()
+    const s = orch.state()
+    const withTail = { ...s, tasks: s.tasks.map((t) => ({ ...t, checks: [{ configId: 'c', name: 'test', status: 'failed' as const, outputTail: 'secret output' }] })) }
+    await orch.call({ cmd: 'state-put', args: { state: withTail }, sessionId: '', from: { role: 'app', toOthers: () => {} } })
+    const r = await orch.call({ cmd: 'state-get', args: {}, sessionId: '', from: controller })
+    expect(r.status).toBe(200)
+    expect(JSON.stringify(r.body)).not.toContain('secret output')
+    expect(r.body).toMatchObject({ version: expect.any(Number), boot: null })
+  })
+  it('a subscriber sees every commit after the snapshot it was handed, from the Host and from the app', async () => {
+    const { jobId } = await seed()
+    const orch = orchOver()
+    await orch.ready()
+    const seen: number[] = []
+    const sub = orch.subscribe((_s, v) => seen.push(v))
+    expect(sub).not.toBeNull()
+    const runId = orch.state().runs.find((x) => x.jobId === jobId)!.id
+    await orch.call({ cmd: 'runs-stop', args: { id: runId }, sessionId: '' })
+    await orch.call({ cmd: 'state-put', args: { state: orch.state(), version: sub!.version + 1 }, sessionId: '', from: { role: 'app', toOthers: () => {} } })
+    expect(seen).toEqual([sub!.version + 1, sub!.version + 2])
+    sub!.unsubscribe()
+    await orch.call({ cmd: 'runs-resume', args: { id: runId }, sessionId: '' })
+    expect(seen).toHaveLength(2)
+  })
+  it('never pushes a subscriber a version at or below its snapshot, however the subscription meets commits in flight', async () => {
+    const { jobId } = await seed()
+    const orch = orchOver()
+    await orch.ready()
+    const runId = orch.state().runs.find((x) => x.jobId === jobId)!.id
+    const subs: Array<{ at: number; seen: number[] }> = []
+    const work = (async () => {
+      await orch.call({ cmd: 'runs-stop', args: { id: runId }, sessionId: '' })
+      await orch.call({ cmd: 'runs-resume', args: { id: runId }, sessionId: '' })
+    })()
+    let done = false
+    void work.then(() => (done = true))
+    // One subscription per microtask turn, so some land while a commit's disk write is still pending.
+    while (!done) {
+      const seen: number[] = []
+      const sub = orch.subscribe((_s, v) => seen.push(v))!
+      subs.push({ at: sub.version, seen })
+      await new Promise((r) => setImmediate(r))
+    }
+    await work
+    const last = orch.subscribe(() => {})!.version
+    for (const { at, seen } of subs) {
+      expect(seen.every((v, i) => v > at && (i === 0 || v > seen[i - 1]))).toBe(true)
+      expect(seen.length === 0 ? at : seen[seen.length - 1]).toBe(last)
+    }
+  })
+  it('pushes the sanitized state', async () => {
+    await seed()
+    const orch = orchOver()
+    await orch.ready()
+    const pushed: string[] = []
+    orch.subscribe((s) => pushed.push(JSON.stringify(s)))
+    const s = orch.state()
+    const withTail = { ...s, tasks: s.tasks.map((t) => ({ ...t, checks: [{ configId: 'c', name: 'test', status: 'failed' as const, outputTail: 'secret output' }] })) }
+    await orch.call({ cmd: 'state-put', args: { state: withTail }, sessionId: '', from: { role: 'app', toOthers: () => {} } })
+    expect(pushed).toHaveLength(1)
+    expect(pushed[0]).not.toContain('secret output')
+  })
+  it('refuses a retry that names no request', async () => {
+    const orch = orchOver()
+    const r = await orch.call({ cmd: 'runs-list', args: {}, sessionId: '', from: controller, retry: true })
+    expect(r.status).toBe(400)
+  })
+})
+
+describe('projects-add (remote runtime N5)', () => {
+  const cli = { role: 'cli' as const, toOthers: () => {} }
+  it('registers an existing folder once, and answers the same project the second time', async () => {
+    const folder = path.join(dir, 'repo')
+    await fs.mkdir(folder)
+    const orch = orchOver()
+    const first = await orch.call({ cmd: 'projects-add', args: { path: folder }, sessionId: '', from: cli })
+    const second = await orch.call({ cmd: 'projects-add', args: { path: folder }, sessionId: '', from: cli })
+    expect(first.status).toBe(200)
+    expect((second.body as { id: string }).id).toBe((first.body as { id: string }).id)
+    expect(orch.state().projects).toHaveLength(1)
+  })
+  it('refuses a folder that does not exist, a relative path, and a registered worktree', async () => {
+    const wt = path.join(dir, 'wt')
+    await fs.mkdir(wt)
+    const orch = orchOver({ worktrees: { call: async () => ({ status: 501, body: {} }), isRegistered: (p: string) => p === wt } as never })
+    expect((await orch.call({ cmd: 'projects-add', args: { path: path.join(dir, 'nope') }, sessionId: '', from: cli })).status).toBe(400)
+    expect((await orch.call({ cmd: 'projects-add', args: { path: 'relative/dir' }, sessionId: '', from: cli })).status).toBe(400)
+    expect((await orch.call({ cmd: 'projects-add', args: { path: wt }, sessionId: '', from: cli })).status).toBe(400)
+  })
+  it('is refused to a controller', async () => {
+    const r = await orchOver().call({ cmd: 'projects-add', args: { path: dir }, sessionId: '', from: { role: 'controller', principal: { clientId: 'cli_x', name: 'x', permission: 'full-control' }, toOthers: () => {} } })
+    expect(r.status).toBe(403)
+  })
+})
+
+describe('pairing and clients (local only)', () => {
+  const cli = { role: 'cli' as const, toOthers: () => {} }
+  it('pair-create answers a code to the CLI, and clients-list and clients-revoke see the redeemed client', async () => {
+    const controllers = createControllerRegistry()
+    const orch = orchOver({ controllers })
+    const pair = await orch.call({ cmd: 'pair-create', args: { permission: 'read-only' }, sessionId: '', from: cli })
+    expect(pair.status).toBe(200)
+    const { code } = pair.body as { code: string }
+    const got = await controllers.redeem(code, 'laptop')
+    if (!got.ok) throw new Error('redeem')
+    const listed = await orch.call({ cmd: 'clients-list', args: {}, sessionId: '', from: cli })
+    expect(listed.body).toMatchObject({ clients: [{ clientId: got.clientId, name: 'laptop', permission: 'read-only' }] })
+    const revoked = await orch.call({ cmd: 'clients-revoke', args: { id: got.clientId }, sessionId: '', from: cli })
+    expect(revoked.body).toMatchObject({ revoked: true })
+  })
+  // Security audit SEC-10: an agent session's CLI is role `cli` too, so an agent talked into it could open this machine
+  // to the network and hand out a full-control code. These are for a person at their own shell or in the app.
+  // runtime-reload is not among them: `runtime stop` reloads too, and stopping is never refused. `runtime start` is
+  // refused by the CLI before it writes anything (src/cli/runtime/commands.ts).
+  it('refuses pair-create and projects-add to a CLI inside an agent session', async () => {
+    const orch = orchOver({ controllers: createControllerRegistry(), gateway: { reload: async () => {}, status: () => ({ state: 'off' }) as never } })
+    for (const cmd of ['pair-create', 'projects-add']) {
+      const r = await orch.call({ cmd, args: {}, sessionId: 'sess-agent', from: cli })
+      expect(r.status).toBe(403)
+      expect(JSON.stringify(r.body)).toContain('own shell')
+    }
+    expect((await orch.call({ cmd: 'pair-create', args: {}, sessionId: '', from: cli })).status).toBe(200)
+  })
+  // Final review M1: a caller that names no permission gets the read-only pairing the CLI now defaults to.
+  it('pair-create with no permission makes a read-only pairing', async () => {
+    const controllers = createControllerRegistry()
+    const orch = orchOver({ controllers })
+    const pair = await orch.call({ cmd: 'pair-create', args: {}, sessionId: '', from: cli })
+    expect(pair.body).toMatchObject({ permission: 'read-only' })
+    const got = await controllers.redeem((pair.body as { code: string }).code, 'laptop')
+    if (!got.ok) throw new Error('redeem')
+    expect(controllers.list()).toMatchObject([{ permission: 'read-only' }])
+  })
+  it('pair-create refuses a permission it does not know rather than granting full control', async () => {
+    const orch = orchOver({ controllers: createControllerRegistry() })
+    const r = await orch.call({ cmd: 'pair-create', args: { permission: 'readonly' }, sessionId: '', from: cli })
+    expect(r.status).toBe(400)
+  })
+  it('refuses all three to an MCP caller and to a controller', async () => {
+    const orch = orchOver({ controllers: createControllerRegistry() })
+    for (const cmd of ['pair-create', 'clients-list', 'clients-revoke']) {
+      const mcp = await orch.call({ cmd, args: {}, sessionId: '', from: { role: 'mcp', toOthers: () => {} } })
+      expect(mcp.status).toBe(403)
+      const ctl = await orch.call({ cmd, args: {}, sessionId: '', from: { role: 'controller', principal: { clientId: 'cli_x', name: 'x', permission: 'full-control' }, toOthers: () => {} } })
+      expect(ctl.status).toBe(403)
+    }
+  })
+  it('never writes a pairing code into the log', async () => {
+    const orch = orchOver({ controllers: createControllerRegistry() })
+    const pair = await orch.call({ cmd: 'pair-create', args: {}, sessionId: '', from: cli })
+    const { code } = pair.body as { code: string }
+    expect(code).toMatch(/^[A-Z2-7]{10}$/)
+    expect(logs.join('\n')).not.toContain(code)
+  })
+})
+
 describe('요청 영수증', () => {
   /** 앱으로 나가는 행동을 이름별로 세는 대역. 어느 의존이 몇 번 불렸는지가 이 묶음의 판정 기준이다. */
   const counting = (
@@ -1158,7 +1423,7 @@ describe('요청 영수증', () => {
     const orch = orchOver({ act, hasApp: () => false })
     const list = await orch.call({ cmd: 'accounts-list', args: {}, sessionId: '' })
     expect(list.status).toBe(200)
-    expect(list.body).toEqual([{ id: 'acc1', label: '일', provider: 'claude' }])
+    expect(list.body).toEqual([{ id: 'acc1', label: '일', provider: 'claude', signedIn: false }])
     const job = await orch.call({
       cmd: 'jobs-create',
       args: { objective: 'o', cwd: 'D:/p', coordinatorAccount: 'acc1' },
@@ -4265,5 +4530,66 @@ describe('session work units in the Host (E2 §5)', () => {
       })
       expect(d.w.gitOpEnd).toHaveBeenCalledWith('op-9')
     })
+  })
+})
+
+describe('clients-revoke when clients.json cannot be written (remote runtime Phase 2 review)', () => {
+  it('answers 500 naming the failure, with the client already refused', async () => {
+    let fail = false
+    const controllers = createControllerRegistry({ records: { load: async () => [], save: async () => { if (fail) throw new Error('disk full') } } })
+    const orch = orchOver({ controllers })
+    const got = await controllers.redeem(controllers.createPairing({ permission: 'read-only' }).code, 'x')
+    if (!got.ok) throw new Error('redeem')
+    fail = true
+    const r = await orch.call({ cmd: 'clients-revoke', args: { id: got.clientId }, sessionId: '', from: { role: 'cli', toOthers: () => {} } })
+    expect(r.status).toBe(500)
+    expect(JSON.stringify(r.body)).toContain('disk full')
+    expect(controllers.list()).toEqual([])
+    // Security audit SEC-3: and status keeps saying so until a save lands.
+    const s = await orch.call({ cmd: 'clients-list', args: {}, sessionId: '', from: { role: 'cli', toOthers: () => {} } })
+    expect(s.body).toMatchObject({ health: { unsavedRevocations: [got.clientId] } })
+  })
+})
+
+describe('clients-revoke closes the client’s live connections (remote runtime design §3.3)', () => {
+  it('hands the revoked bindings to closeControllerConns', async () => {
+    const closed: Array<{ linkGen: number; conn: string }> = []
+    const controllers = createControllerRegistry()
+    const orch = orchOver({ controllers, closeControllerConns: (conns) => closed.push(...conns) })
+    const got = await controllers.redeem(controllers.createPairing({ permission: 'read-only' }).code, 'x')
+    if (!got.ok) throw new Error('redeem')
+    controllers.bind(3, 'c7', got.clientId)
+    const r = await orch.call({ cmd: 'clients-revoke', args: { id: got.clientId }, sessionId: '', from: { role: 'cli', toOthers: () => {} } })
+    expect(r.status).toBe(200)
+    expect(closed).toEqual([{ linkGen: 3, conn: 'c7' }])
+  })
+})
+
+describe('runtime-reload and runtime-status (remote runtime design §2.9)', () => {
+  const gateway = (state: object = { state: 'ready', listen: '127.0.0.1', port: 47831, fingerprint: 'fp' }) => {
+    let reloads = 0
+    return { reloads: () => reloads, dep: { reload: async () => void reloads++, status: () => state as never } }
+  }
+  it('answers the app and the CLI with the Gateway state and the paired clients', async () => {
+    const g = gateway()
+    const controllers = createControllerRegistry()
+    await controllers.redeem(controllers.createPairing({ permission: 'read-only', name: 'laptop' }).code, 'x')
+    const orch = orchOver({ gateway: g.dep, controllers })
+    const r = await orch.call({ cmd: 'runtime-reload', args: {}, sessionId: '', from: { role: 'cli', toOthers: () => {} } })
+    expect(r.status).toBe(200)
+    expect(g.reloads()).toBe(1)
+    expect(r.body).toMatchObject({ gateway: { state: 'ready', fingerprint: 'fp' }, clients: [{ name: 'laptop', permission: 'read-only' }] })
+    const s = await orch.call({ cmd: 'runtime-status', args: {}, sessionId: '', from: { role: 'app', toOthers: () => {} } })
+    expect(s.status).toBe(200)
+    expect(g.reloads()).toBe(1)
+    // Security audit SEC-2: codes burned by wrong guesses are said where the person looks.
+    expect(s.body).toMatchObject({ health: { burnedCodes: 0 } })
+  })
+  it('refuses MCP and controllers, takes no request id, and is 501 on a Host without a Gateway', async () => {
+    const orch = orchOver({ gateway: gateway().dep })
+    for (const from of [{ role: 'mcp' as const, toOthers: () => {} }, { role: 'controller' as const, principal: { clientId: 'cli_x', name: 'x', permission: 'full-control' as const }, toOthers: () => {} }])
+      expect((await orch.call({ cmd: 'runtime-reload', args: {}, sessionId: '', from })).status).toBe(403)
+    expect((await orch.call({ cmd: 'runtime-status', args: {}, sessionId: '', from: { role: 'cli', toOthers: () => {} }, request: 'r-1' })).status).toBe(400)
+    expect((await orchOver().call({ cmd: 'runtime-status', args: {}, sessionId: '', from: { role: 'cli', toOthers: () => {} } })).status).toBe(501)
   })
 })

@@ -4,7 +4,7 @@
 //
 // Everything it needs arrives in the environment, because it has no `app.getPath('userData')` to ask.
 import childProcess from 'node:child_process'
-import { existsSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, promises as fsp, readFileSync, rmSync } from 'node:fs'
 import { defaultCwdProbe, setProbeLog } from '../core/sessions/pathProbe'
 import { createRequire } from 'node:module'
 import os from 'node:os'
@@ -19,11 +19,16 @@ import { hideForkedConsoleWindows } from './childWindows'
 import { trustSystemCa } from './systemCa'
 import { openHostLog, logUnhandledRejections } from './log'
 import { flushAll, flushAllLogsSync } from '../core/log/logWriter'
-import { startHostServer, ADDRESS_TAKEN } from './server'
+import { startHostServer } from './server'
+import { HOST_EXIT, listenExitCode } from './exitCodes'
+import { controllerRecordsFile, createControllerRegistry } from './controllers'
+import { openSecretStore } from '../core/secrets/secretStore'
+import { randomBytes } from 'node:crypto'
 import { ensureHostKey } from '../core/host/hostKey'
 import { completeWindowsPath } from '../core/sessions/windowsPath'
 import { PtyRegistry } from './registry'
 import { createConhostReaper, reapWindowsConsoleHosts } from './conhostReaper'
+import { createRemoteSessions, type RemoteSessions } from './remoteSessions'
 import { attachPtyHost } from './ptyHost'
 import { attachProcHost } from './procHost'
 import { ProcRegistry } from './procRegistry'
@@ -66,8 +71,14 @@ import { freePort, killTree, processStartTimes } from './workspace/native'
 import { defaultGhRunner } from '../core/github/gh'
 import { readUnderstandingFile } from '../core/understanding/read'
 import { createPullRequest, readCommits } from '../core/github/prCreate'
-import { isCleanWorktree } from '../core/worktrees/git'
+import { git as realGit, isCleanWorktree } from '../core/worktrees/git'
+import { createRunGitRecorder, type RunGitRecorder } from './runGitRecorder'
+import { readChanges, readFileDiff } from '../core/git/changes'
 import { createMcpHttpSupervisor } from './mcpHttp'
+import { createGatewaySupervisor } from './gatewaySupervisor'
+import { attachGatewayLink } from './gatewayLink'
+import { readRemoteSettings } from '../core/remote/settings'
+import { loadIdentity, type RuntimeIdentity } from '../core/remote/identity'
 import { readMcpHttp } from '../core/settings/mcpHttp'
 
 /** With no client for this long, there is nothing for the Host to be. Slice 2 adds "and no session is
@@ -99,7 +110,7 @@ async function main(): Promise<void> {
   const profileDir = process.env.ASTERA_HOST_PROFILE_DIR
   if (!profileDir) {
     process.stderr.write('astera-host: ASTERA_HOST_PROFILE_DIR is required\n')
-    process.exit(2)
+    process.exit(HOST_EXIT.noProfile)
   }
   const log = openHostLog({ path: process.env.ASTERA_HOST_LOG ?? path.join(profileDir, 'host', 'host.log') })
   // Path probes that time out (an offline drive on PATH, or a session folder on one) are told here.
@@ -132,7 +143,11 @@ async function main(): Promise<void> {
   // The Host is where node-pty lives now. `withExitedPtyGuard`'s job — swallowing a write or resize
   // to a pty that has already gone — is the registry's `live` check here instead: it knows which
   // sessions have exited, and the app across the socket does not.
+  // Made once for this process (remote runtime design §3.2, N11): a client comparing it learns the Host restarted. The
+  // local hello, the Gateway's hello and the pty registry's replays (§3.7) carry the same value.
+  const bootId = randomBytes(16).toString('hex')
   const registry = new PtyRegistry({
+    bootId,
     spawn: (file, args, opts) => {
       // **Checked here, before every spawn, and not once at startup.** The file can go missing while
       // this Host is running — that is exactly what happened on 2026-09-22 — and the Host would not
@@ -183,6 +198,9 @@ async function main(): Promise<void> {
    *  `exits` getter reads it, and a `const` below that getter would throw in its temporal dead zone if a
    *  chain ever decided before the assignment. Null until then, and null for good without a spawner. */
   let exits: HostExits | null = null
+  /** A Runtime's sessions as controllers read and drive them (remote runtime Phase 9a); built with the orch below and
+   *  let go with the Host (its chat subscription, review M5). */
+  let remoteSessions: RemoteSessions | null = null
   /** Every way out goes through here, and it ends the process whatever happened on the way. An earlier
    *  version put `process.exit(0)` after `killAll()` inside a `.then()` that nothing caught, and on
    *  win32 that was not theoretical: node-pty's ConPTY kill runs a helper process to enumerate the
@@ -211,10 +229,13 @@ async function main(): Promise<void> {
     // The MCP HTTP entrance stops with the Host (MCP HTTP §3): its stdin ends, which is its way out, and
     // a Host that exits before the kill's grace still ends that pipe. Never rejects.
     void mcpHttp.stop()
+    // The Remote Gateway stops with the Host the same way: its stdin ends (remote runtime design §2.3). Never rejects.
+    void gateway.stop()
     // **The Slack stops with them** (Slack in the Host, Task 5): its socket is closed and its timers
     // stopped before the server stops accepting, so a Host on its way out holds no socket an app taking
     // Slack back would be a second one beside. Never rejects.
     void slackWiring?.dispose()
+    remoteSessions?.dispose()
     // Before the close, so a Host that is on its way out is not offered up as one to end. A failure
     // here costs nothing: the app checks the executable behind the pid before acting on it, and a
     // record this Host left behind names a pid that is about to stop existing.
@@ -284,8 +305,12 @@ async function main(): Promise<void> {
   //
   // `server` and `orch` are assigned below; its closures only run inside an operation, long after both
   // exist.
+  // Phase 10: the git range each Run and attempt worked over, recorded as the state moves and around every merge.
+  // Made below, once `orch` exists to record through; the worktrees' merge hooks read it when a merge runs.
+  let runGit: RunGitRecorder | null = null
   const worktrees = createHostWorktrees({
     profileDir,
+    integrateHooks: () => runGit,
     homeDir: os.homedir(),
     ptys: registry,
     procs,
@@ -347,6 +372,9 @@ async function main(): Promise<void> {
     getState: () => orch.state(),
     log: (m) => log.write(m),
     worktrees,
+    // The Host runtime's node.exe runs the capture scripts (spawner.ts); Electron run as node cannot,
+    // since it needs ELECTRON_RUN_AS_NODE, which no agent may inherit (HOST_ONLY_ENV).
+    captureNode: process.versions.electron ? undefined : process.execPath,
     // R4: an app old enough to have no S3 worktree module of its own still keeps doing this work
     // itself, and says so in its `hello.yields` (HOST_YIELD_WORKTREES).
     appKeepsWorktrees: () => server.appKeeps(HOST_YIELD_WORKTREES),
@@ -383,7 +411,9 @@ async function main(): Promise<void> {
         server: () => server,
         log: (m) => log.write(m),
         now: () => new Date().toISOString(),
-        nowMs: () => Date.now()
+        nowMs: () => Date.now(),
+        // Host-owned recovery (remote runtime design §2.6) reads and writes the journal this Host writes.
+        journal: hostJournal
       })
     : null
 
@@ -531,9 +561,68 @@ async function main(): Promise<void> {
     log: (m) => log.write(m)
   })
 
+  // The paired remote controllers (remote runtime design §3.3): one registry for this Host's life, which Phase 3's
+  // Gateway link will authenticate and bind against. Their records live in `remote/clients.json` in the secret store.
+  // A file that is unsafe or broken leaves the registry empty and says why in the log; nothing falls back to an
+  // unchecked read, and every later write fails the same way (design §4.6).
+  const controllers = createControllerRegistry({
+    records: controllerRecordsFile(openSecretStore({ dir: path.join(profileDir, 'remote'), profileDir }))
+  })
+  controllers.load().catch((e: unknown) => log.write(`remote clients: ${e instanceof Error ? e.message : String(e)}`))
+
+  // The Remote Gateway (remote runtime design §2.3, §2.4): started, watched and stopped by remote-runtime.json, read
+  // once the server listens, at each app greeting and on `runtime-reload`. Each generation's pipes become a link
+  // (gatewayLink.ts) to the same registry and orchestration local clients use. Reading the settings also refreshes
+  // two things the rest of the Host reads synchronously: whether Remote holds the Host up (N3), and the identity the
+  // link's hello names.
+  const remoteStore = openSecretStore({ dir: path.join(profileDir, 'remote'), profileDir })
+  let remoteEnabled = false
+  let remoteIdentity: RuntimeIdentity | null = null
+  const gateway = createGatewaySupervisor({
+    settings: async () => {
+      const s = await readRemoteSettings(profileDir)
+      remoteEnabled = s.enabled
+      if (s.enabled) remoteIdentity = await loadIdentity(remoteStore).catch(() => null)
+      return s
+    },
+    cli: ((): HostCliPaths | null => {
+      const p = hostCliPaths(process.env, existsSync)
+      return 'missing' in p ? null : p
+    })(),
+    profileDir,
+    env: process.env,
+    push: (state) => server.broadcast({ t: 'gateway-state', state }),
+    attach: (child, linkGen, events) =>
+      attachGatewayLink({
+        linkGen,
+        input: child.stdout,
+        output: child.stdin,
+        controllers,
+        orch,
+        hello: () => ({
+          runtimeId: remoteIdentity?.runtimeId ?? '',
+          displayName: remoteIdentity?.displayName ?? os.hostname(),
+          asteraVersion: hostVersion,
+          hostProtocol: HOST_PROTOCOL,
+          gatewayProtocol: 1,
+          bootId,
+          platform: process.platform,
+          pathStyle: process.platform === 'win32' ? 'windows' : 'posix',
+          capabilities: ['remote.jobs', 'remote.retry', 'remote.changed-files', 'remote.diff', 'pty.seq', 'pty.checkpoint']
+        }),
+        log: (m) => log.write(m),
+        onReady: events.ready,
+        onFailed: events.failed,
+        onHardCap: events.hardCap,
+        // Pty subscriptions (remote runtime design §3.7, Phase 8): read only, from this Host's registry.
+        ptys: registry
+      }),
+    log: (m) => log.write(m)
+  })
   const orch = createHostOrch({
     profileDir,
     version: hostVersion,
+    controllers,
     now: () => new Date().toISOString(),
     // The handshake's own string, not a second one taken here: `requests show` answers with it so a
     // caller can tell "this Host never saw my request" from "it never arrived" (request receipts
@@ -552,7 +641,10 @@ async function main(): Promise<void> {
     hasApp: () => server.hasApp(),
     // Every commit goes to the clients, so the app can swap its mirror (design §5). Greeted sockets
     // only, which `broadcast` already guarantees.
-    onState: (state, version) => server.broadcast({ t: 'orch-state', state, version }),
+    onState: (state, version) => {
+      server.broadcast({ t: 'orch-state', state, version })
+      runGit?.onState(state)
+    },
     // The command layer's own `deps.log?.()` calls end up here too (hostOrchDeps) — a limit probe
     // that could not run, an action that could not be forwarded. Otherwise the Host degrades in
     // silence, and a person looking for why nothing happened has nothing to read.
@@ -561,6 +653,23 @@ async function main(): Promise<void> {
     // plus the hook event files the sessions' own hooks append under this profile (read only), and
     // the profile's accounts.json for where a Claude chat session's transcript lives (read only).
     sessions: hostSessions,
+    // A Runtime's sessions as a controller reads and drives them (remote runtime Phase 9a): facts from the hooks, the
+    // statusline, the rollouts and the chats; input and stop through the registries; a resize that yields to an app
+    // holding the pty.
+    remoteSessions: (remoteSessions = createRemoteSessions({
+      ptys: registry,
+      procs,
+      sessions: hostSessions,
+      // Who holds a pty, from the exits tracker; a Host that keeps none cannot tell, and then a controller's resize is
+      // not applied (review M1): the person at this machine may be looking at it.
+      holdersOf: (ptyId) => (exits ? exits.holdersOf(ptyId) : null),
+      // A chat the app writes is answered through it (review I2).
+      hasApp: () => server.hasApp(),
+      askApp: (act, args) => server.act(act, args),
+      statusLinePayload: (sid) => (spawner ? spawner.statusLinePayload(sid) : Promise.resolve(null)),
+      accounts: () => readAccountEntries(path.join(profileDir, 'accounts.json')),
+      chats: rollingWiring?.chats ?? null
+    })),
     // `sessions create` (CLI spec §14): the spawner's path for a terminal session, the chat manager's for
     // a chat one (sessionCreate.ts). Without a spawner both refuse with 6.
     createSession: createHostSessionStarter({
@@ -572,6 +681,7 @@ async function main(): Promise<void> {
       probeCwd: defaultCwdProbe,
       announceProc: (procId) => announceChatProc(server, procId, (m) => log.write(m)),
       list: () => hostSessions.listSessions(),
+      ptyOf: (id) => registry.sessionPty(id),
       log: (m) => log.write(m)
     }),
     // The `github-*` commands (MCP P2-B): the user's gh on this Host's PATH, and a Run's branch from this
@@ -588,6 +698,8 @@ async function main(): Promise<void> {
     // How It Works records (MCP P2-C): the app's understanding.json in this profile, read on every
     // call and never written, so a record the app wrote is there while the app is closed.
     readUnderstanding: () => readUnderstandingFile(path.join(profileDir, 'understanding.json')),
+    // A Run's changed files and diffs (remote runtime design Phase 10), from this machine's git.
+    changes: { read: (repo, base, head) => readChanges(repo, base, head), diff: (repo, base, head, f) => readFileDiff(repo, base, head, f) },
     local: spawner,
     // Host journal (J1, J3, J4): the commits, the load's cleanup, journal-append and journal-reload.
     journal: hostJournal,
@@ -615,10 +727,38 @@ async function main(): Promise<void> {
     // The rolling's hooks (rolling, rolledInto, rekeyRolled): absent with no spawner, and then
     // `unregisterRolling` only forwards to the app and a rolled-from exit closes as before.
     ...(rollingWiring?.orchHooks ?? {}),
+    // After the driver's own after-load pass: what the profile already held, so work under way when this Host started
+    // is recorded before anything changes (Phase 11). The load stays lazy; this only hears that it happened.
+    onLoaded: () => {
+      try {
+        wiring?.orchHooks?.onLoaded?.()
+      } catch (err) {
+        log.write(`the Host's after-load pass failed to start: ${String(err)}`)
+      }
+      runGit?.onState(orch.state())
+    },
     // `slack-reload` (P17): absent without the Host's Slack, and the call then answers 501.
     slack: slackWiring ?? undefined,
     // `mcp-http-reload` and `mcp-http-status` (MCP HTTP §3).
-    mcpHttp
+    mcpHttp,
+    // `runtime-reload` and `runtime-status`, and revocation closing live connections (remote runtime design §2.9, §3.3).
+    gateway,
+    closeControllerConns: (conns) => gateway.link()?.closeConns(conns)
+  })
+  runGit = createRunGitRecorder({
+    record: (args) => orch.handle('runs-git-record', args),
+    headOf: async (cwd) => {
+      const r = await realGit(['rev-parse', 'HEAD'], { cwd })
+      return r.ok ? r.stdout : null
+    },
+    mergeBase: async (cwd, ref) => {
+      const r = await realGit(['merge-base', 'HEAD', ref], { cwd })
+      return r.ok ? r.stdout : null
+    },
+    baseRefOf: (p) => worktrees.infoOf(p)?.baseRef ?? null,
+    // Asynchronous, so a folder on a dead share does not stop the Host's one thread; a folder that is gone is settled.
+    isDir: (p) => fsp.stat(p).then((st) => st.isDirectory(), () => false),
+    log: (m) => log.write(m)
   })
 
   // Exits of the sessions no app holds (Host S2 design §2.6, R2): closing their Dispatches and
@@ -673,12 +813,13 @@ async function main(): Promise<void> {
     hostKey = await ensureHostKey(profileDir)
   } catch (err) {
     log.write(`could not make the Host key: ${String(err)} — not serving`)
-    process.exit(2)
+    process.exit(HOST_EXIT.keyFailure)
   }
   try {
     server = await startHostServer({
       address: addr.address,
       hostKey,
+      bootId,
       dirToPrepare: addr.dirToPrepare,
       version: hostVersion,
       idleMs: IDLE_MS,
@@ -705,13 +846,15 @@ async function main(): Promise<void> {
           if (slackWiring && from.greeted && from.role === 'app') slackWiring.forwarded(m.event)
           return true
         }
-        return (handlePty?.(m, send) ?? false) || (handleProc?.(m, send) ?? false)
+        return (handlePty?.(m, send, { socket: from.socket }) ?? false) || (handleProc?.(m, send) ?? false)
       },
       // Released by the socket number whatever role the socket gave last: a second `hello` can change
       // it, and marks made as an app must still go when that socket closes. A socket that never held a
       // pty, which is every CLI call, runs no sweep (exits.ts).
       onClientGone: (from) => {
         exits?.appGone(from.socket)
+        // Phase 8 (N2): what this socket paused is resumed, so a dead app does not leave a pty frozen.
+        handlePty?.socketGone(from.socket)
         procHolders.appGone(from.socket)
         // E2: a Job merge the app registered with work-units-git-op and never ended is ended now.
         hostWorkUnits?.clientGone(from.socket)
@@ -724,7 +867,9 @@ async function main(): Promise<void> {
       // `astera host start` started stays while a run is in flight, and still leaves holding nothing.
       liveCounts: () => ({
         sessions: registry.liveCount() + procs.liveCount(),
-        runs: orch.runningRuns()
+        runs: orch.runningRuns(),
+        // Remote on: the Host waits for controllers instead of leaving idle (remote runtime N3).
+        remote: remoteEnabled
       }),
       orch,
       // Announced only when there is a spawner, so an app can tell a Host that starts sessions itself,
@@ -756,15 +901,18 @@ async function main(): Promise<void> {
         void hostWorkUnits?.reload()
         // MCP HTTP §3: and the entrance reads its setting again, for an mcp-http-reload that never arrived.
         void mcpHttp.reload()
+        // Remote runtime §2.3: and the Gateway, for a runtime-reload that never arrived.
+        void gateway.reload()
       },
       log
     })
   } catch (err) {
     // Losing the bind race is the normal outcome of two apps starting at once, and it is not a
-    // failure: the other Host serves them both.
-    const taken = err instanceof Error && err.message === ADDRESS_TAKEN
-    log.write(taken ? 'another Host already serves this profile — leaving' : `could not listen: ${String(err)}`)
-    process.exit(0)
+    // failure: the other Host serves them both. Any other listen failure is one, and says so in its
+    // exit code (exitCodes.ts), which a supervisor reads.
+    const code = listenExitCode(err)
+    log.write(code === HOST_EXIT.lostBindRace ? 'another Host already serves this profile — leaving' : `could not listen: ${String(err)}`)
+    process.exit(code)
   }
 
   // Written only once the address is ours: a Host that lost the bind race has nothing to say about
@@ -785,8 +933,10 @@ async function main(): Promise<void> {
   void hostWorkUnits?.writerMayHaveChanged()
   // And the MCP HTTP entrance, once this Host is the one that serves the profile (MCP HTTP §3).
   void mcpHttp.reload()
+  // And the Remote Gateway (remote runtime design §2.3: every Host start reads remote-runtime.json).
+  void gateway.reload()
 
-  handlePty = attachPtyHost({ registry, broadcast: (m) => server.broadcast(m) })
+  handlePty = attachPtyHost({ registry, broadcast: (m, to) => server.broadcast(m, to) })
   handleProc = attachProcHost({ registry: procs, broadcast: (m) => server.broadcast(m) })
   // The leftovers of a Host that died with workspaces open (spec, Lifecycle): killed when their start
   // time still matches, then the file is cleared. A launch waits for this. Never rejects.

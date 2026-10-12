@@ -146,6 +146,31 @@ const SESSION = {
     detail: 'It does not remove the worktrees afterwards.',
     flags: [RUN_ARG('<runId>', 'the run whose worktrees to merge')]
   },
+  'runs-changed-files': {
+    summary: 'the files a run, or one of its tasks, changed, from git',
+    detail:
+      '`git.files` lists each file the run changed since it began, from git on the machine it runs on: `id` (what `runs-diff` takes), `path`, `oldPath` for a rename, `status` (added, modified, deleted or renamed), and `additions` and `deletions`, or `binary`. While the run is still at work it includes uncommitted edits to tracked files. `reported` is what its workers said they changed. `git` is null with `unavailable` when there is no git list: not-recorded for a run from before this was kept, git-failed when git could not read it.',
+    flags: [{ name: 'id', value: '<runId>', required: true, about: 'the run' }, { name: 'task', value: '<taskId>', about: 'only what this task changed' }]
+  },
+  'runs-diff': {
+    summary: 'the diff of one changed file, as git diff prints it',
+    detail: 'The file is named by its id from `runs-changed-files`, never by a path. A diff over 1 MiB is cut at a line and `truncated` says so.',
+    flags: [
+      { name: 'id', value: '<runId>', required: true, about: 'the run' },
+      { name: 'file', value: '<fileId>', required: true, about: 'the id from runs-changed-files' },
+      { name: 'task', value: '<taskId>', about: 'the task the list was read for' }
+    ]
+  },
+  'runs-git-record': {
+    summary: 'record the git range a run or one attempt worked over',
+    detail: 'The Host records it itself; anyone else is refused. One of --runId and --dispatchId, with --base or --head.',
+    flags: [
+      { name: 'runId', value: '<runId>', about: 'the run to record it on' },
+      { name: 'dispatchId', value: '<dispatchId>', about: 'the attempt to record it on' },
+      { name: 'base', value: '<sha>', about: 'where the work started; kept once set' },
+      { name: 'head', value: '<sha>', about: 'where the work stands now' }
+    ]
+  },
   'run-worktree-set': {
     summary: "record this run's worktree",
     flags: [
@@ -517,7 +542,21 @@ const NOT_SWITCHED = [
   'higgsfield-list',
   'higgsfield-use',
   'mcp-serve',
-  'mcp-status'
+  'mcp-status',
+  // Remote runtime: `projects add` is Host-answered beside `pair-create` (src/host/orch.ts), and the runtime commands
+  // answer in the CLI process (src/cli/runtime/commands.ts).
+  'projects-add',
+  'runtime-start',
+  'runtime-stop',
+  'runtime-status',
+  'runtime-serve',
+  'runtime-pair',
+  'runtime-clients',
+  'runtime-revoke',
+  // The controller's side (src/cli/runtimes.ts), answered in the CLI process from <profile>/runtimes.
+  'runtimes-add',
+  'runtimes-list',
+  'runtimes-remove'
 ] as const satisfies readonly AgentCommand[]
 
 /**
@@ -582,7 +621,21 @@ const MEANING: Record<CliErrorCode, string> = {
   TIMEOUT: 'a deadline elapsed, or the Host is running and not answering',
   WAITING_FOR_INPUT: 'a wait stopped because a person is needed: a question is open, or the run is paused',
   VERSION_MISMATCH: 'the command exists in this CLI but not in the running build',
-  RUN_FAILED: 'a wait ended with the Job or run in failure'
+  RUN_FAILED: 'a wait ended with the Job or run in failure',
+  RUNTIME_NOT_FOUND: 'no paired Runtime has that id or name (--runtime)',
+  RUNTIME_OFFLINE: 'the paired Runtime could not be reached',
+  RUNTIME_AUTH_FAILED: 'the Runtime no longer knows this controller: it was revoked, or never paired',
+  RUNTIME_IDENTITY_CHANGED: "the Runtime's key is not the one this controller pinned at pairing",
+  RUNTIME_PROTOCOL_MISMATCH: 'the Runtime speaks another remote protocol; update the older side',
+  RUNTIME_PROJECT_NOT_FOUND: 'the project is not registered on that Runtime',
+  RUNTIME_ACCOUNT_NOT_FOUND: 'the account does not exist on that Runtime',
+  RUNTIME_CAPABILITY_MISSING: 'the command has no --runtime form, or that Runtime cannot do it',
+  RUNTIME_BUSY: 'the Runtime refused for now: too many connections or calls in flight',
+  RUNTIME_PERMISSION_DENIED: "refused by the Runtime's pairing: a read-only controller asked for a change; a pairing made with `astera runtime pair --full-control` on the Runtime may change things",
+  RUNTIME_OUTCOME_UNKNOWN: 'a change was sent and its answer lost, and the Runtime cannot say whether it ran; list before trying again',
+  REMOTE_TIMEOUT: 'the Runtime did not answer in time; the command may still finish',
+  REMOTE_OPERATION_CONFLICT: 'refused by the Runtime because of current state',
+  REMOTE_REPLY_TOO_LARGE: "the Runtime's answer was over 64 MiB and was refused"
 }
 
 /** The flags every command accepts. They are read by the parser and by the output layer rather than
@@ -619,6 +672,13 @@ const GLOBAL: readonly AgentContextFlag[] = [
     required: false,
     about:
       'before the command only (`astera --project <path> jobs list`): the default project for jobs list, runs list and sessions list, found the way `projects find` finds it. A relative path is taken from the current directory. A --project after the command belongs to that command and wins; other commands ignore the default.'
+  },
+  {
+    name: 'runtime',
+    takesValue: true,
+    required: false,
+    about:
+      'before the command only (`astera --runtime <id|name> jobs list`): send this command to a paired Runtime instead of this machine. Only the commands a Runtime offers take it; the rest refuse with RUNTIME_CAPABILITY_MISSING before reading anything here. `astera runtimes list` names the paired Runtimes.'
   },
   {
     name: 'request-id',

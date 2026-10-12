@@ -11,7 +11,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { promises as fs, existsSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { APP_LEFT_GRACE_MS, createHostDriving, type HostDriving } from './driving'
+import { createLostGateGuard, type LostGateGuard } from './lostGateGuard'
+import { APP_LEFT_GRACE_MS, TICKS_SKIPPED_BEFORE_SAYING, createHostDriving, type HostDriving } from './driving'
 import { createHostOrch, type HostOrch } from './orch'
 import type { HostLocal } from './spawner'
 import { emptyState, type OrchState } from '../core/orchestration/state'
@@ -98,6 +99,9 @@ interface RigOpts {
   /** Leftovers Task 1: no appPid seam, so the real liveAppPid over the profile's app.pid and the server's
    *  last hello pid answers. */
   realAppPid?: boolean
+  /** Phase 3R: a Host recovery (remote runtime design §2.6); none means the journal is off. */
+  recovery?: { owns(): boolean; sweep(why: string): Promise<void>; catchUp(): Promise<void> }
+  guard?: LostGateGuard
 }
 
 /** Under the test's own folder (review m7): never a literal path, should the fake ever resolve one. */
@@ -183,7 +187,7 @@ async function rig(o: RigOpts = {}) {
     await fs.writeFile(path.join(specsDir, 'dsp_live.md'), 'the spec a live worker reads', 'utf8')
   }
 
-  const server = { app: false, keeps: false, lastPid: null as number | null, pidAsks: 0 }
+  const server = { app: false, keeps: false, keepsOnly: [] as string[], lastPid: null as number | null, pidAsks: 0 }
   const coordinator = { busy: false as boolean | null }
   const typed: Array<[string, string]> = []
   const typeInto = vi.fn((id: string, text: string) => {
@@ -271,7 +275,7 @@ async function rig(o: RigOpts = {}) {
   const driving = createHostDriving({
     profileDir: dir,
     orch: { handle, internalDeps: () => orch.internalDeps(), loaded: () => orch.loaded(), drainOnce, state: () => orch.state() },
-    server: { hasApp: () => server.app, appsKeep: () => server.keeps, lastAppPid: () => {
+    server: { hasApp: () => server.app, appsKeep: (duty: string) => server.app && (server.keeps || server.keepsOnly.includes(duty)), lastAppPid: () => {
       server.pidAsks++
       return server.lastPid
     } },
@@ -298,6 +302,8 @@ async function rig(o: RigOpts = {}) {
     nowMs: () => clock.now,
     ...(o.realAppPid ? {} : { appPid: () => appPid.value }),
     onReport: (r) => reports.push(r),
+    ...(o.recovery ? { recovery: o.recovery } : {}),
+    ...(o.guard ? { guard: o.guard } : {}),
     ...(o.refuseGates
       ? { interruptStalled: (st: OrchState) => ({ state: st, interrupted: null, resume: null, stuck: true }) }
       : {}),
@@ -442,6 +448,48 @@ describe('createHostDriving', () => {
     await h.tickNow()
     await vi.waitFor(() => expect(h.workerStarts()).toBe(1))
   })
+  // Audit OR-5: every commit's kick read the settings twice and ran a whole pass of its own, so a burst of commits ran
+  // that many passes side by side; and a tick that took longer than the interval overlapped the next one.
+  it('kicks that come while a pass runs are joined into one more pass', async () => {
+    const h = await rig({ readyTasks: 0 })
+    await h.load()
+    h.gateReads.hold = true
+    for (let i = 0; i < 5; i++) h.driving.kick('test')
+    await new Promise((r) => setTimeout(r, 20))
+    expect(h.heldReads()).toBe(1)
+    // Final review M2: the joined kicks run one more pass, held here like the first, and no third.
+    h.releaseRead(0)
+    await vi.waitFor(() => expect(h.heldReads()).toBe(2))
+    h.gateReads.hold = false
+    h.releaseRead(1)
+    await h.settle()
+    expect(h.heldReads()).toBe(2)
+  })
+  // Final review M7: a tick that never ends held every later tick off without a word.
+  it('says so when ticks keep finding the last one still running', async () => {
+    const h = await rig({ readyTasks: 0 })
+    await h.load()
+    h.gateReads.hold = true
+    void h.tickNow()
+    for (let i = 0; i < TICKS_SKIPPED_BEFORE_SAYING; i++) void h.tickNow()
+    await new Promise((r) => setTimeout(r, 20))
+    expect(h.logs.filter((l) => l.includes('still running'))).toHaveLength(1)
+    h.gateReads.hold = false
+    h.releaseRead(0)
+    await h.settle()
+  })
+  it('a tick that comes while one runs does nothing', async () => {
+    const h = await rig({ readyTasks: 0 })
+    await h.load()
+    h.gateReads.hold = true
+    void h.tickNow()
+    void h.tickNow()
+    await new Promise((r) => setTimeout(r, 20))
+    expect(h.heldReads()).toBe(1)
+    h.gateReads.hold = false
+    h.releaseRead(0)
+    await h.settle()
+  })
   it('ticks every ORCH_FIRE_TICK_MS through its timer, and stops it at dispose', async () => {
     const h = await rig({ readyTasks: 0 })
     expect(h.everyMs()).toBe(ORCH_FIRE_TICK_MS)
@@ -570,17 +618,60 @@ describe('createHostDriving', () => {
     expect(h.lang).toHaveBeenCalled()
     expect(h.openGateQuestion()).toContain('Astera 가 열려 있지 않은 동안')
   })
-  // Review Focus 3, D6/R16.
-  it('gates a Task whose worker was lost, when no app is attached and its Run has no coordinator', async () => {
+  // Review Focus 3, D6/R16. Since Phase 3R this is the journal-off case: no Host recovery owns it.
+  it('gates a Task whose worker was lost, when no app is attached and its Run has no coordinator, with the journal off', async () => {
     const h = await rig({ lostDispatch: true })
     await h.load()
     await vi.waitFor(() => expect(h.taskStatus()).toBe('blocked'))
     expect(h.openGateQuestion()).toMatch(/lost/i)
     expect(h.openGateQuestion()).toContain('dsp_lost')
   })
-  it('leaves that Task to the app’s reconciler while an app is attached (D8)', async () => {
+  // Phase 3R (remote runtime design §2.6): the Host's own reconciler decides, at the load's handover.
+  it('with a Host recovery that owns recovery, the handover sweeps and no lost-worker Gate opens', async () => {
+    const sweeps: string[] = []
+    const h = await rig({ lostDispatch: true, recovery: { owns: () => true, sweep: async (w) => { sweeps.push(w) }, catchUp: async () => {} } })
+    await h.load()
+    await vi.waitFor(() => expect(sweeps.length).toBeGreaterThan(0))
+    h.driving.kick('test')
+    await h.settle()
+    expect(h.taskStatus()).toBe('dispatched')
+  })
+  it('with a Host recovery that does not own recovery (the journal not written), the Gate opens as before', async () => {
+    const h = await rig({ lostDispatch: true, recovery: { owns: () => false, sweep: async () => {}, catchUp: async () => {} } })
+    await h.load()
+    await vi.waitFor(() => expect(h.taskStatus()).toBe('blocked'))
+  })
+  // Final review C1: recovery first, so the scheduler does not fill a lost worker's slot while it is decided.
+  it('the pass waits for the Host recovery to catch up before it fills a slot', async () => {
+    let release!: () => void
+    const held = new Promise<void>((r) => (release = r))
+    const h = await rig({ readyTasks: 1, recovery: { owns: () => true, sweep: async () => {}, catchUp: () => held } })
+    await h.orch.call({ cmd: 'jobs-list', args: {}, sessionId: '' })
+    await h.settle()
+    expect(h.workerStarts()).toBe(0)
+    release()
+    await vi.waitFor(() => expect(h.workerStarts()).toBe(1))
+  })
+  it('leaves that Task to the app’s reconciler while an attached app keeps recovery (D8)', async () => {
     const h = await rig({ lostDispatch: true })
-    h.server.app = true // a new app: attached, yields dispatch
+    h.server.app = true // an older app: attached, yields dispatch, keeps recovery
+    h.server.keepsOnly = ['recovery']
+    await h.load()
+    h.driving.kick('test')
+    await h.settle()
+    expect(h.taskStatus()).toBe('dispatched')
+  })
+  // Phase 3R minor: a new app yields recovery and runs no reconciler, so with the journal off nobody else looks.
+  it('gates that Task while an attached app yields recovery and the Host cannot recover (journal off)', async () => {
+    const h = await rig({ lostDispatch: true })
+    h.server.app = true
+    await h.load()
+    await vi.waitFor(() => expect(h.taskStatus()).toBe('blocked'))
+  })
+  it('does not gate a Task the Host recovery is already gating', async () => {
+    const guard = createLostGateGuard()
+    expect(guard.claim('tsk_lost')).toBe(true)
+    const h = await rig({ lostDispatch: true, guard })
     await h.load()
     h.driving.kick('test')
     await h.settle()

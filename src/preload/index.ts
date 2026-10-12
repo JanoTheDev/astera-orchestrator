@@ -20,6 +20,11 @@ const fire =
 
 const EVENT_CHANNELS = [
   'session:data',
+  'session:reset',
+  'session:remote-size',
+  'session:remote-exit',
+  'session:remote-gone',
+  'session:remote-link',
   'session:exit',
   'session:created',
   'session:rolled',
@@ -146,7 +151,8 @@ const api = {
     unsubscribe: fire('usage.unsubscribe')
   },
   notify: {
-    activeSession: fire('notify.activeSession')
+    activeSession: fire('notify.activeSession'),
+    remoteWaiting: fire('notify.remoteWaiting')
   },
   localHistory: {
     list: invoke('localHistory.list'),
@@ -253,6 +259,7 @@ const api = {
     stop: invoke('run.stop'),
     dismiss: invoke('run.dismiss'),
     output: invoke('run.output'),
+    replay: invoke('run.replay'),
     resolveLink: invoke('run.resolveLink'),
     write: fire('run.write'),
     resize: fire('run.resize'),
@@ -346,6 +353,18 @@ const api = {
     command: invoke('orch.command'),
     unwatch: invoke('orch.unwatch')
   },
+  remote: {
+    list: invoke('remote.list'),
+    add: invoke('remote.add'),
+    remove: invoke('remote.remove'),
+    ping: invoke('remote.ping'),
+    projects: invoke('remote.projects'),
+    thisMachine: invoke('remote.thisMachine')
+  },
+  remoteSessions: {
+    attach: invoke('remoteSessions.attach'),
+    detach: invoke('remoteSessions.detach')
+  },
   understanding: {
     get: invoke('understanding.get'),
     regenerate: invoke('understanding.regenerate')
@@ -393,6 +412,7 @@ const api = {
     open: invoke('conversation.open'),
     more: invoke('conversation.more'),
     close: invoke('conversation.close'),
+    pause: invoke('conversation.pause'),
     attention: invoke('conversation.attention'),
     pendingPrompt: invoke('conversation.pendingPrompt'),
     model: invoke('conversation.model'),

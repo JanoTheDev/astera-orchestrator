@@ -39,6 +39,7 @@ import { findRollout as findRolloutOnDisk } from '../core/rolling/codexLocate'
 import { descriptorOf, makeDescriptors } from '../core/providers/descriptor'
 import { providerOf } from '../core/providers/meta'
 import { ensureOnWindowsPath } from '../core/sessions/windowsPath'
+import { ensureInstallDirOnPath } from '../core/sessions/installDirPath'
 import { SessionManager, defaultSpawnChecks } from '../core/sessions/manager'
 import { defaultSessionTitle } from '../core/sessions/title'
 import type { PtyFactory, PtyLike } from '../core/sessions/pty'
@@ -49,6 +50,10 @@ import type { Account, SessionInfo } from '../core/types'
 import type { PtyRegistry } from './registry'
 import type { HostRollSpawner, RollSpawnOpts } from './rolling'
 import type { HostWorktrees } from './worktrees'
+import { setBounded } from '../core/bounded'
+import { dispatchLookup } from '../core/orchestration/dispatchIndex'
+/** Which session each attempt was started on, for the newest this many (audit H5); an older attempt's tail is long gone. */
+const STARTED_ON_KEPT = 2048
 
 export type HostLocalName =
   | 'startWorker'
@@ -96,6 +101,9 @@ export interface HostSpawnerDeps {
   appKeepsWorktrees(): boolean
   /** Test injection; defaults to existsSync. */
   exists?(p: string): boolean
+  /** What runs Claude Code's capture scripts on win32: the Host's own executable when that is a plain
+   *  Node (the Host runtime's node.exe), absent when the Host runs as the app's Electron. */
+  captureNode?: string
   /** Test injection; defaults to the scan the app's CodexRolloutWatcher runs. */
   findRollout?: typeof findRolloutOnDisk
   /** How often a codex session's rollout is looked for: the watcher's POLL_MS. */
@@ -237,10 +245,15 @@ export function createHostSpawner(d: HostSpawnerDeps): HostSpawner | null {
   const { profileDir, platform, homeDir, registry, log } = d
   const readAccounts = d.readAccounts ?? readAccountEntries
   const descriptors = makeDescriptors(platform)
-  // The rule core.ts uses for the app's StatusLineManager, so the two write the same settings files.
+  // The rule core.ts uses for the app's StatusLineManager, so the two write the same settings files. On
+  // win32 the app names the Host runtime's node.exe, which is what this Host runs from, so its own
+  // executable is the same file — and one that is certain to be there while its sessions run, since a
+  // running image cannot be deleted. A Host started from the app's Electron has none to offer.
   const statusLine = new StatusLineManager(
     profileDir,
-    platform === 'win32' ? 'node' : resolveNodePath(d.env as { PATH?: string }, existsSync, platform)
+    platform === 'win32'
+      ? (d.captureNode ?? 'node')
+      : resolveNodePath(d.env as { PATH?: string }, existsSync, platform)
   )
   const ensured = once(() => statusLine.ensureFiles())
   // The app writes this same file at its start (bootOrch). Both go through the same junction decision
@@ -266,6 +279,7 @@ export function createHostSpawner(d: HostSpawnerDeps): HostSpawner | null {
   const settingsPath = path.join(profileDir, 'app-settings.json')
   const accountsPath = path.join(profileDir, 'accounts.json')
   const tails = new WorkerTails()
+  const dispatchById = dispatchLookup(() => d.getState())
   /** dispatchId → the session this Host started it on. The Host's tail follows that session only: an
    *  app-side roll rekeys the Dispatch and re-points the app's own tail (its onRolled), not this one. */
   const startedOn = new Map<string, string>()
@@ -347,8 +361,7 @@ export function createHostSpawner(d: HostSpawnerDeps): HostSpawner | null {
   /** Whether this registry ever held a pty for the session, alive or ended. One it never held was
    *  spawned by the app in its own node-pty (the unresponsive-Host fallback), so it is the app's to type
    *  into or to kill (review M2). */
-  const held = (sessionId: string): boolean =>
-    registry.list().some((e) => e.meta?.kind === 'session' && e.meta.id === sessionId)
+  const held = (sessionId: string): boolean => registry.heldSession(sessionId)
   const alive = (ptyId: string): boolean => registry.list().some((e) => e.id === ptyId && e.alive)
   /** The watcher's claimed(): every rollout a live session's note already holds, other than this pty's.
    *  The notes are the one list both processes write to: the Host here, the app's watcher through
@@ -459,6 +472,7 @@ export function createHostSpawner(d: HostSpawnerDeps): HostSpawner | null {
     // Host inherited; read again first, at most every 30 s and only when it is missing (windowsPath.ts).
     // Before prepare, which keys what it finds by the PATH it sees.
     await ensureOnWindowsPath([providerOf(account)])
+    await ensureInstallDirOnPath([providerOf(account)]) // macOS and Linux: Claude Code installed since this process started (installDirPath.ts)
     await sessions.prepare({ account, cwd: o.cwd })
     const rollProviders = o.rollAccountIds.map((rid) => providerOf(accounts.find((x) => x.id === rid) ?? account))
     const opensBefore = opens
@@ -506,6 +520,7 @@ export function createHostSpawner(d: HostSpawnerDeps): HostSpawner | null {
     // CWD_MISSING, or CWD_UNREACHABLE for a folder that did not answer in time; also finds the Git Bash
     // the synchronous rollSpawn below will use, so that spawn looks at nothing on disk.
     await ensureOnWindowsPath([providerOf(account)]) // before prepare, which keys what it finds by PATH
+    await ensureInstallDirOnPath([providerOf(account)]) // macOS and Linux: Claude Code installed since this process started (installDirPath.ts)
     await sessions.prepare({ account, cwd })
     preparedBypass = await bypassFromSettings() // RepairNeeded on a damaged settings file (A10)
     await preTrustWorkspace({ account, cwd, homeDir, descriptors, log })
@@ -626,7 +641,7 @@ export function createHostSpawner(d: HostSpawnerDeps): HostSpawner | null {
       },
       a
     )
-    startedOn.set(a.dispatchId, started.sessionId)
+    setBounded(startedOn, a.dispatchId, started.sessionId, STARTED_ON_KEPT)
     return started
   }
 
@@ -845,14 +860,15 @@ export function createHostSpawner(d: HostSpawnerDeps): HostSpawner | null {
       busyCbs.push(cb)
     },
     retarget: ({ dispatchId, sessionId, previousSessionId }) => {
-      startedOn.set(dispatchId, sessionId)
+      setBounded(startedOn, dispatchId, sessionId, STARTED_ON_KEPT)
       tails.start(
         { dispatchId, sessionId, previousSessionId },
         (id) => {
-          const x = d.getState().dispatches.find((y) => y.id === id)
+          const x = dispatchById(id)
           return x === undefined || x.endedAt !== undefined || x.outcome !== undefined
         },
-        (id) => d.getState().dispatches.find((y) => y.id === id)?.endedAt !== undefined
+        // Asked for every output chunk: through the index, not a scan of every attempt (audit H6).
+        (id) => dispatchById(id)?.endedAt !== undefined
       )
     }
   }

@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import type { Account } from '../types'
 import { PTY_LOST_SIGHT_EXIT_CODE, type PtyFactory, type PtyLike, type PtySpawnOptions } from './pty'
-import { SessionManager, prependToPath, type SpawnChecks } from './manager'
+import { SessionManager, EXITED_SESSIONS_KEPT, prependToPath, type SpawnChecks } from './manager'
 import { createGitBashResolver } from './gitBash'
 import { PROBE_CACHE_TTL_MS, PROBE_CONCURRENCY, PROBE_TIMEOUT_MS, PathKeyedCache, createProbePool, createProber } from './pathProbe'
 import { buildClaudeCommand, buildCodexCommand } from './commands'
@@ -67,6 +67,25 @@ function setup(highWater = 100, lowWater = 20, homeDir?: string) {
       : new SessionManager(factory, descriptors, highWater, lowWater, homeDir)
   return { manager, spawned }
 }
+
+// Second pass M2-5: the app kept every exited terminal session for its whole life, and every orchestration fold, busy
+// change and Slack write copies the list.
+describe('exited sessions kept', () => {
+  it('keeps the newest EXITED_SESSIONS_KEPT exited sessions', () => {
+    const { manager, spawned } = setup()
+    const ids: string[] = []
+    for (let i = 0; i < EXITED_SESSIONS_KEPT + 2; i++) {
+      ids.push(manager.spawn({ account, cwd: process.cwd() }).id)
+      spawned[i].pty.emitExit(0)
+    }
+    const live = manager.spawn({ account, cwd: process.cwd() }).id
+    const listed = manager.list().map((s) => s.id)
+    expect(listed).toHaveLength(EXITED_SESSIONS_KEPT + 1)
+    expect(listed).not.toContain(ids[1])
+    expect(listed).toContain(ids[2])
+    expect(listed).toContain(live)
+  })
+})
 
 describe('SessionManager', () => {
   // 탭 라벨은 SessionInfo.title 하나를 읽고, Slack 접두사와 데스크톱 알림 제목도 같은 값을 읽는다.
@@ -1196,6 +1215,25 @@ describe('SessionManager.prepare — the spawn path never waits on a sync probe'
     await expect(manager.prepare({ account, cwd: 'C:\\work\\proj' })).resolves.toBeUndefined()
     await vi.advanceTimersByTimeAsync(PROBE_TIMEOUT_MS)
     await Promise.all(hung)
+  })
+
+  // Second pass M2-1, M2-2: the provider's own lookups (its CLI on PATH, codex's --no-daemon) run in prepare, off the
+  // thread, so the spawn after it finds their answers.
+  it("prepare runs the provider's own prepare", async () => {
+    let prepared = 0
+    const d = makeDescriptors('win32')
+    const descriptors = { ...d, claude: { ...d.claude, prepare: async () => void prepared++ }, codex: { ...d.codex, prepare: async () => void prepared++ } }
+    const full: SpawnChecks = {
+      cwd: async () => 'present',
+      gitBash: createGitBashResolver(async () => 'absent'),
+      platform: 'linux',
+      now: Date.now,
+      syncExists: () => true,
+      log: () => {}
+    }
+    const manager = new SessionManager(() => new FakePty(), descriptors, 100, 20, 'C:\\Users\\tester', undefined, [], { PATH: 'C:\\a' }, full)
+    await manager.prepare({ account, cwd: 'C:\\work\\proj' })
+    expect(prepared).toBe(1)
   })
 
   it('a folder that is not there is still CWD_MISSING, in the wording the caller asks for', async () => {

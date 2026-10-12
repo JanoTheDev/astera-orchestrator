@@ -730,10 +730,47 @@ export interface OrchSnapshot {
    *  **혼자** 일하고 있으면 그 Run 의 sharesProjectFolder 는 거짓인데 상한 1 짜리를 하나 더 만드는
    *  순간 둘이 얽힌다. 그 경우를 놓치지 않으려고 폴더 사실을 따로 싣는다. */
   projectFolderBusy: boolean
+  /** Which paired Runtime this snapshot is from, on a remote one only (remote runtime design §2.7): its view marks a
+   *  stale or offline state. Absent for the local Host, whose snapshot is unchanged. */
+  runtime?: RuntimeView
+}
+
+/** A paired Runtime as Settings › Remote Runtimes lists it (remote runtime design Phase 6): never its token. */
+export interface RemoteRuntimeInfo {
+  runtimeId: string
+  name: string
+  address: string
+  port: number
+  permission: 'read-only' | 'full-control'
+  lastSeenAt: string | null
+  /** null until this app has asked it anything since it started. */
+  offline: boolean | null
+}
+
+/** What a remote reply says about its Runtime beside the data (remote runtime design §2.7, §3.6). */
+export interface RuntimeView {
+  runtimeId: string
+  /** The Runtime could not be reached for this reply. */
+  offline: boolean
+  /** The data is the last state read, not the Runtime's current one. */
+  stale: boolean
+  version: number
+  /** The Runtime answered and refused the read (its Host down, say): never an empty, healthy Runtime. */
+  error?: { status: number; code?: string }
+  /** When this app last had an answer from it (ISO), for the offline line; absent before the first. */
+  lastSeenAt?: string
 }
 
 export interface CoreEvents {
   'session:data': { sessionId: string; data: string }
+  /** A remote session tab's checkpoint (Phase 9b, main/remote/remoteStreams.ts): the view resets, writes `state`, then
+   *  `pending`. `sessionId` is the tab's key, `<runtimeId>:<sessionId>`. */
+  'session:reset': { sessionId: string; state: string; pending: string; cols: number; rows: number; exitCode?: number }
+  'session:remote-size': { sessionId: string; cols: number; rows: number }
+  'session:remote-exit': { sessionId: string; code: number }
+  'session:remote-gone': { sessionId: string; code: string; message: string }
+  /** A remote tab's connection dropped (`down`, reconnecting) or is back (`up`) (Phase 9b review I1). */
+  'session:remote-link': { sessionId: string; state: 'down' | 'up' }
   'session:exit': { sessionId: string; exitCode: number }
   // main created a session without the renderer asking — an orchestration worker. The whole
   // SessionInfo is carried so the renderer can build the tab (the same value sessions.spawn returns).
@@ -776,7 +813,7 @@ export interface CoreEvents {
   'cli:install':
     | { cli: 'claude' | 'codex'; kind: 'start' | 'out'; text: string }
     | { cli: 'claude' | 'codex'; kind: 'done'; code: number | null }
-  'run:data': { runId: string; data: string } // run output, per run
+  'run:data': { runId: string; data: string; end?: number } // run output, per run; `end`: the run's output length after it
   'run:status': RunStatus // run state change (running/stopping/exited)
   /** The run the console should move to. A chain's first run is what run.start returns and what the
    *  panel opens on; this arrives later, when the configuration the user actually pressed ▶ on starts.
@@ -1057,6 +1094,9 @@ export interface CoreApi {
       schedule?: ScheduleConfig // recurring command schedule
       kind?: SessionKind // default 'terminal'
       resumeThreadId?: string // chat only: resume this protocol thread instead of starting one
+      /** Stop the Claude background session holding the conversation, then resume it here — the
+       *  answer to a `CLAUDE_IN_BACKGROUND` refusal (core/sessions/claudeBackground.ts). */
+      takeOverBackground?: boolean
       /** chat takeover P8: the new chat session's unattended-permission policy (hold, the default, or
        *  deny after 60 s). Ignored for a terminal session, which has no such policy. */
       unattendedPermission?: UnattendedPermission
@@ -1221,6 +1261,8 @@ export interface CoreApi {
     // (design doc §7). null covers a file tab being focused, no pane having a session, and the panes
     // being empty — main cannot work any of that out on its own.
     activeSession(req: { sessionId: string | null }): void
+    /** A remote session tab began waiting (Phase 9b): `key` is `<runtimeId>:<sessionId>`, `title` the tab's. */
+    remoteWaiting(req: { key: string; title: string | null }): void
   }
   localHistory: {
     // Browsing and restoring the snapshot taken just before a deletion. projectPath uses the same
@@ -1485,6 +1527,9 @@ export interface CoreApi {
     dismiss(runId: string): Promise<void>
     // The run's buffered output (last 200 KB) — what RunPanel replays when it mounts after the start
     output(runId: string): Promise<string>
+    // The same output with the run's whole output length at its end, which RunPanel joins with the live chunks' `end`
+    // so nothing that raced the replay is written twice (second pass R2-7)
+    replay(runId: string): Promise<{ text: string; end: number }>
     // Whether `target`, as printed in this run's output, names a file this app may open — resolved
     // against the run's working directory, guarded, stat-ed (main/run/resolveLink.ts). null is the
     // ordinary answer; the console's link provider underlines only what comes back non-null.
@@ -1754,7 +1799,9 @@ export interface AppControlApi {
  * comparison suppresses.
  */
 export interface OrchApi {
-  list(projectPath: string): Promise<OrchSnapshot>
+  /** `runtimeId` (remote runtime design §2.7, D1.1): a paired Runtime instead of this machine's Host, `'local'` or
+   *  absent for this one. The same on `runDetail`, `completion` and `command`. */
+  list(projectPath: string, runtimeId?: string): Promise<OrchSnapshot>
   /** Why the Jobs sidebar has nothing to draw, when the Host is the reason — null in the ordinary
    *  case. **Its own call rather than a field on `list`** (ruling F41): `list` names a project and is
    *  only ever made with one open, while this is one fact about the app's Host — and the window with
@@ -1764,14 +1811,14 @@ export interface OrchApi {
   /** 한 Run 의 이벤트와 의존 그래프. 스냅샷과 달리 **요청할 때만** 온다 — Message.body 에는
    *  검증 출력 꼬리가 실리므로 매 쓰기마다 밀 수 있는 크기가 아니다. `journalPages` 는 저널 줄을
    *  가장 최근 몇 쪽까지 읽을지다(없으면 1, "이전 기록 더 보기" 가 하나씩 늘린다). */
-  runDetail(projectPath: string, runId: string, opts?: { journalPages?: number }): Promise<RunDetail>
+  runDetail(projectPath: string, runId: string, opts?: { journalPages?: number }, runtimeId?: string): Promise<RunDetail>
   /** 한 Task 가 왜 완료 정책을 못 넘었는가 — 실패한 검사의 출력 꼬리, 막는 리뷰 이슈, 의심
    *  파일. 이것도 **펼칠 때만** 온다: 스냅숏이 이 셋을 싣지 않는 이유(변경마다 푸시된다)가
    *  한 번 가져가는 이 호출에는 걸리지 않는다(UI 2조각 설계 W1).
    *
    *  `null` 은 둘 중 하나다 — 보여 줄 것이 없거나, 이 프로젝트가 볼 수 없는 Run·Task 다.
    *  구분해 주지 않는 것이 의도다(ipc.ts 의 orch.completion). */
-  completion(projectPath: string, runId: string, taskId: string): Promise<CompletionDetail | null>
+  completion(projectPath: string, runId: string, taskId: string, runtimeId?: string): Promise<CompletionDetail | null>
   /** UI 가 오케스트레이션 상태를 바꾸는 유일한 통로 — server.ts 의 명령 표면을 그대로 부른다.
    *  cmd 는 CLI 와 같은 이름이고(`task-create`, `worker-start`, …) args 도 같은 키를 쓴다.
    *
@@ -1781,9 +1828,32 @@ export interface OrchApi {
   command(
     projectPath: string,
     cmd: string,
-    args: Record<string, unknown>
+    args: Record<string, unknown>,
+    runtimeId?: string
   ): Promise<{ status: number; body: unknown }>
   unwatch(): Promise<void>
+}
+
+/** Settings › Remote Runtimes and the Jobs view's runtime and project selectors (remote runtime design Phase 6). */
+export interface RemoteApi {
+  list(): Promise<RemoteRuntimeInfo[]>
+  /** Pairs from the string `astera runtime pair` printed on the Runtime. The token is kept in main, never returned. */
+  add(pairing: string, name?: string): Promise<{ ok: true; runtime: Record<string, unknown> } | { ok: false; code: string; message: string }>
+  /** Forgets a Runtime on this computer; it does not revoke the pairing there. */
+  remove(runtimeId: string): Promise<{ ok: true } | { ok: false; code: string; message: string }>
+  ping(runtimeId: string): Promise<{ ok: true; hello: { runtimeId: string; displayName: string; asteraVersion: string; platform: string; bootId: string } | null } | { ok: false; code: string; message: string }>
+  /** The Runtime's projects, then `{ id: 'unregistered' }` for Jobs in folders that are no project. null when the
+   *  Runtime cannot be asked now (never an empty list for an unreachable one). */
+  projects(runtimeId: string): Promise<Array<{ id: string; name: string | null; path: string | null }> | null>
+  /** This computer as a Runtime: whether Remote is on, the Gateway, the paired controllers. null when the Host cannot say. */
+  thisMachine(): Promise<{ gateway: { state: string; [k: string]: unknown }; clients: Array<{ clientId: string; name: string; permission: string; lastSeenAt: string | null }> } | null>
+}
+
+/** A remote session tab's pty stream (Phase 9b): its output arrives on the session bus under the tab's key. */
+export interface RemoteSessionsApi {
+  /** false when the Runtime cannot be reached for it (a `session:remote-gone` says why). */
+  attach(runtimeId: string, sessionId: string, ptyId: string): Promise<boolean>
+  detach(key: string): Promise<void>
 }
 
 export interface UnderstandingApi {
@@ -1884,6 +1954,9 @@ export type RendererApi = CoreApi & {
   app: AppControlApi
   keys: KeysApi
   orch: OrchApi
+  /** Remote Runtimes (remote runtime design Phase 6): Settings › Remote Runtimes and the Jobs view's selectors. */
+  remote: RemoteApi
+  remoteSessions: RemoteSessionsApi
   understanding: UnderstandingApi
   sessionTasks: SessionTaskApi
   /** Astera Host (slice 1). The Host owns nothing yet — this reports whether the channel to it is
@@ -1958,6 +2031,9 @@ export type RendererApi = CoreApi & {
      *  repeats a turn already returned. */
     more(sessionId: string, before: number): Promise<{ turns: ConvTurn[]; from: number; more: boolean } | null>
     close(sessionId: string): Promise<void>
+    /** Stops reading this conversation while its tab is not showing, or reads it again (performance audit R4). What
+     *  was written meanwhile arrives in one append on the resume. */
+    pause(sessionId: string, paused: boolean): Promise<void>
     /** One session's attention verdict (main/attention.ts), read once rather than waited for — the
      *  'conversation:attention' event only fires on a change, so a session already `waiting` (or
      *  `working`) when its pane mounts needs this to know that before the first change arrives, if

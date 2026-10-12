@@ -121,6 +121,59 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
     detail:
       'For an MCP client to launch, not for a person to type: stdout carries the MCP protocol. It connects to the Host of this profile, starting one when none answers, and serves thirty-four tools that create, plan, run, observe, answer, stop and resume Jobs, read and use sessions when Settings allows it, read pull requests, CI and issues on GitHub and, when Settings allows it, act on them, and read the How It Works records of a project and regenerate one. What it may do is set by MCP access in Settings (CLI tab). See docs/mcp.md.'
   },
+  'runtime-start': {
+    summary: 'turn Remote Runtime on: other machines may pair with this one',
+    detail:
+      'Writes remote-runtime.json, makes this machine’s identity the first time, starts a Host if none runs, and waits until the Gateway listens. It listens on 127.0.0.1 until --listen names an address; use a private network, a VPN or Tailscale, never a port forwarded to the internet. 0 when listening, 1 when the Gateway failed (the code says why), 7 when it was not listening within 10 seconds. Refused with 5 inside an agent session (ASTERA_SESSION is set): opening this machine to the network is for a person.',
+    flags: [
+      { name: 'listen', value: '<addr>', about: 'the address to listen on (default 127.0.0.1)' },
+      { name: 'port', value: '<n>', about: 'the TCP port (default 47831)' }
+    ]
+  },
+  'runtime-stop': {
+    summary: 'turn Remote Runtime off; the Host and its Jobs keep running',
+    detail: 'Writes remote-runtime.json and stops the Gateway. Paired controllers stay paired; they cannot connect until it is on again.'
+  },
+  'runtime-status': { summary: 'whether Remote Runtime is on, the Gateway state, the fingerprint and the paired clients' },
+  'runtime-serve': {
+    summary: 'keep a Host running while Remote Runtime is on (for an OS service, in the foreground)',
+    detail:
+      'For a logon task, a LaunchAgent or a systemd unit, not for a person. It never turns Remote on or off: it runs a Host while `runtime start` left it on, starts none while it is off, watches a Host the app already started, restarts one that crashes, and starts none during an app update. SIGTERM or SIGINT stops its Host and it exits 0. `astera host stop` is followed by a new Host while Remote is on: run `astera runtime stop` first.'
+  },
+  'runtime-pair': {
+    summary: 'a one-time pairing string for another machine (valid 10 minutes)',
+    detail:
+      'Prints astera-pair:v1:<address>:<port>:<code>:<fingerprint> and its parts. It carries a secret code: give it to the other machine directly and do not paste it anywhere else. Five wrong codes burn it. The pairing is read-only unless --full-control is given. Refused with 5 inside an agent session (ASTERA_SESSION is set).',
+    flags: [
+      { name: 'full-control', about: 'the controller may also change things: run Jobs, start sessions, type into them' },
+      { name: 'read-only', about: 'the controller may read but not change anything (the default)' },
+      { name: 'name', value: '<n>', about: 'what to call the controller in `runtime clients`' }
+    ]
+  },
+  'runtime-clients': { summary: 'the controllers paired with this machine' },
+  'runtime-revoke': {
+    summary: 'unpair a controller and close its connections now',
+    flags: [ID('<clientId>', 'the controller to unpair (from `runtime clients`)')]
+  },
+  'runtimes-add': {
+    summary: 'pair this machine with a Runtime, from the string `astera runtime pair` printed there',
+    detail:
+      'Checks the Runtime\'s key against the fingerprint before the code is sent, keeps the token in this profile and never prints it. The parts may be given one by one instead of --pair; the fingerprint is then required.',
+    flags: [
+      { name: 'pair', value: '<string>', about: 'the astera-pair:v1: string; - reads it from stdin, off the command line other users can see' },
+      { name: 'address', value: '<host>', about: 'the address to reach the Runtime at, over the one in the string' },
+      { name: 'port', value: '<n>', about: 'its port, without --pair (default 47831)' },
+      { name: 'code', value: '<code>', about: 'the one-time code, without --pair' },
+      { name: 'fingerprint', value: '<fp>', about: 'the key fingerprint, without --pair' },
+      { name: 'name', value: '<n>', about: 'what to call the Runtime here (default its own name)' },
+      { name: 'replace', about: 'take the place of a Runtime paired here under the same id with another key' }
+    ]
+  },
+  'runtimes-list': { summary: 'the Runtimes this machine is paired with' },
+  'runtimes-remove': {
+    summary: 'forget a paired Runtime on this machine (it does not revoke the pairing there)',
+    flags: [ID('<runtimeId|name>', 'the Runtime to forget (from `runtimes list`)')]
+  },
   'mcp-status': {
     summary: 'would mcp serve work here: the Host, MCP access and the tool count',
     detail:
@@ -128,6 +181,12 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
   },
 
   'projects-list': { summary: 'every project registered in the app' },
+  'projects-add': {
+    summary: 'register a folder of this machine as a project',
+    detail:
+      'For the person at this machine, or a script on it: a remote controller cannot, nor an agent session (ASTERA_SESSION is set; refused with 5). The path must be an absolute path to an existing folder that is not a worktree. Adding a folder already registered answers that project.',
+    flags: [{ name: 'path', value: '<path>', required: true, about: 'the folder to register' }]
+  },
   'projects-get': {
     summary: 'one registered project',
     flags: [ID('<projectId>', 'the project to read')]
@@ -689,6 +748,7 @@ export const GLOBAL_FLAGS: readonly string[] = [
   'no-keepalive',
   'verbose',
   'project',
+  'runtime',
   'request-id',
   'help'
 ]
@@ -697,7 +757,7 @@ export const GLOBAL_FLAGS: readonly string[] = [
  *  flag, accepted where `USAGE` declares it and refused elsewhere: accepting it on every command would
  *  let `runs get --project p` run and ignore it, the fault this check exists for. run.ts hands this
  *  check the line from the command on, so a leading `--project` never reaches it. */
-const LEADING_ONLY: ReadonlySet<string> = new Set(['project'])
+const LEADING_ONLY: ReadonlySet<string> = new Set(['project', 'runtime'])
 
 /** Flags a public command really reads that its `USAGE` entry leaves out on purpose. `--skills-dir`
  *  is the one, and the comment on `help` above says why it is not listed. */

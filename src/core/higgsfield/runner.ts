@@ -9,10 +9,15 @@ import { cmdRefusal } from '../install/mcpClients'
 import { hfEnvFor, patchHfAccount, type HfAccount } from './accounts'
 import { npmShimTarget } from './shims'
 import { windowsSpawn } from '../sessions/windowsExecutable'
+import { killProcessTree } from '../run/kill'
 
 export interface HfRun { code: number; stdout: string; stderr: string }
 /** Runs the real CLI once. `tee`: forward stdout/stderr live to this process while collecting them. */
-export type HfRunner = (args: string[], env: NodeJS.ProcessEnv, tee: boolean) => Promise<HfRun>
+/** `o.timeoutMs`: end the run once it has taken this long (audit U-7); the side calls give one. */
+export type HfRunner = (args: string[], env: NodeJS.ProcessEnv, tee: boolean, o?: { timeoutMs?: number }) => Promise<HfRun>
+
+/** How long a side call (a status, another account's credits, a generation's state) may take (audit U-7). */
+export const SIDE_CALL_TIMEOUT_MS = 30_000
 
 export interface RealRunnerOptions {
   /** false shows the console window of a Windows child (an interactive login). Default true. */
@@ -60,7 +65,7 @@ export function passThrough(file: string, platform: NodeJS.Platform, args: strin
 }
 
 export function realRunner(file: string, platform: NodeJS.Platform, lead: string[] = [], opts: RealRunnerOptions = {}): HfRunner {
-  return (args, env, tee) =>
+  return (args, env, tee, ro = {}) =>
     new Promise((resolve) => {
       const cmd = commandFor(file, platform, [...lead, ...args], env)
       if ('refusal' in cmd) {
@@ -80,15 +85,27 @@ export function realRunner(file: string, platform: NodeJS.Platform, lead: string
       let grace: NodeJS.Timeout | undefined
       const onAbort = (): void => {
         stderr += '\nhiggsfield: cancelled'
-        child.kill()
+        // The whole tree (final review M-8), as the time limit's kill.
+        killProcessTree(child)
         // After a kill, the exit is the answer: a process the child started may still hold the pipes open.
         child.once('exit', (code) => finish(code))
         grace = setTimeout(() => finish(1, '\nhiggsfield: the process did not exit after the kill'), opts.killGraceMs ?? 5000)
       }
+      // A time limit ends it the way a cancel does (audit U-7), with the whole tree on Windows.
+      const limit =
+        ro.timeoutMs !== undefined
+          ? setTimeout(() => {
+              stderr += `\nhiggsfield: did not finish within ${Math.round((ro.timeoutMs as number) / 1000)} s`
+              killProcessTree(child)
+              child.once('exit', (code) => finish(code ?? 1))
+              grace = setTimeout(() => finish(1, '\nhiggsfield: the process did not exit after the kill'), opts.killGraceMs ?? 5000)
+            }, ro.timeoutMs)
+          : undefined
       const finish = (code: number | null, extra = ''): void => {
         if (settled) return
         settled = true
         clearTimeout(grace)
+        clearTimeout(limit)
         opts.signal?.removeEventListener('abort', onAbort)
         resolve({ code: code ?? 1, stdout, stderr: stderr + extra })
       }
@@ -117,9 +134,10 @@ export class HfBinaryMissing extends Error {
  *  more is started). The guards rethrow it, so no login file is restored and no account marked. */
 export function stopOnMissingBinary(run: HfRunner): HfRunner {
   let missing: string | null = null
-  return async (args, env, tee) => {
+  return async (args, env, tee, o) => {
     if (missing !== null) throw new HfBinaryMissing(missing)
-    const r = await run(args, env, tee)
+    // The time limit passes through (final review I-3): dropped here, hf-proxy's side calls had none.
+    const r = await run(args, env, tee, o)
     missing = binaryMissingIn(r)
     if (missing !== null) throw new HfBinaryMissing(missing)
     return r
@@ -184,7 +202,7 @@ export async function guardCredentials(a: {
 /** One side call under `account`, guarded. */
 export async function sideCall(run: HfRunner, args: string[], profileDir: string, base: NodeJS.ProcessEnv, account: HfAccount): Promise<HfRun> {
   const env = { ...base, ...hfEnvFor(profileDir, account.id) }
-  const r = await run(args, env, false)
+  const r = await run(args, env, false, { timeoutMs: SIDE_CALL_TIMEOUT_MS })
   await guardCredentials({ run, env, profileDir, account, creds: env.HIGGSFIELD_CREDENTIALS_PATH as string })
   return r
 }

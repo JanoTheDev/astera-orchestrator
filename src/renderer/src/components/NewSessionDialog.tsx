@@ -32,6 +32,7 @@ import { Select, type SelectOption } from './Select'
 import { ScheduleFields } from './ScheduleFields'
 import { StartingOverlay } from './WorktreeCreateStatus'
 import { X } from 'lucide-react'
+import { backdropProps } from '../lib/backdrop'
 
 const SOFT_LIMIT = 12
 const MAX_ROLL_ACCOUNTS = 3
@@ -46,7 +47,9 @@ export function NewSessionDialog({
   initialCwd = null, // prefill from WorktreePanel's 'start session'
   onSpawn,
   onCancel,
-  defaultSessionKind
+  defaultSessionKind,
+  runtimes = [],
+  onRemote
 }: {
   accounts: Account[]
   runningCount: number
@@ -75,6 +78,10 @@ export function NewSessionDialog({
     schedule?: ScheduleConfig
   }) => void | Promise<void>
   onCancel: () => void
+  /** Paired Runtimes (remote runtime design Phase 9b): when there are any, the dialog opens with a choice of where
+   *  the session runs, this computer first. Picking a Runtime hands over to its own dialog (`onRemote`). */
+  runtimes?: Array<{ runtimeId: string; name: string }>
+  onRemote?: (runtimeId: string) => void
 }): React.JSX.Element {
   const { t } = useI18n()
   const [cwd, setCwd] = useState<string | null>(initialCwd)
@@ -453,7 +460,7 @@ export function NewSessionDialog({
     // While starting, an outside click does not close this — the worktree creation and spawn already
     // under way are not cancelled, so if only the modal disappears the user mistakes it for a cancel.
     // Cancelling a worktree creation is the overlay's own Cancel button.
-    <div className="modal-backdrop" onClick={() => !starting && onCancel()}>
+    <div className="modal-backdrop" {...backdropProps(() => !starting && onCancel())}>
       <div className="modal new-session" onClick={(e) => e.stopPropagation()}>
         {starting && (
           <StartingOverlay
@@ -465,6 +472,19 @@ export function NewSessionDialog({
           />
         )}
         <h2>{t('session.new.title')}</h2>
+        {runtimes.length > 0 && onRemote && (
+          <div className="field">
+            <label>{t('remote.sessions.runtime')}</label>
+            <Select
+              items={[
+                { value: 'local', label: t('remote.sessions.thisComputer') },
+                ...runtimes.map((r) => ({ value: r.runtimeId, label: r.name }))
+              ]}
+              value="local"
+              onChange={(v) => v !== 'local' && onRemote(v)}
+            />
+          </div>
+        )}
         {runningCount >= SOFT_LIMIT && (
           <p className="warn">{t('session.new.runningWarning', { count: runningCount })}</p>
         )}

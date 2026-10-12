@@ -35,17 +35,20 @@
 // Host's checks: in between, the Host's own worker_done may sit between its commit and its check's
 // start.
 //
-// **The lost-worker Gate** (D6, R16, N5) is asked on every pass, only while no app is attached: an app
-// has its own reconciler, which reads the journal the Host cannot (D8).
+// **The lost-worker Gate** (D6, R16, N5) is asked on every pass, only while no app is attached and no Host
+// recovery owns recovery: an app has its own reconciler, and since Phase 3R so does this Host
+// (`host/recovery.ts`, remote runtime design §2.6), which sweeps at the handover below. The Gate is left for the
+// journal off, where neither reconciler can act.
 //
 // Imports only core modules and node builtins: this bundles into the Host.
 import path from 'node:path'
 import { t } from '../core/i18n'
-import { HOST_YIELD_DISPATCH } from '../core/host/protocol'
+import { HOST_YIELD_DISPATCH, HOST_YIELD_RECOVERY } from '../core/host/protocol'
 import { driverOf, readDispatchGate, type DispatchGate, type Driver } from '../core/host/driver'
 import { createDispatchLoop, ORCH_FIRE_TICK_MS } from '../core/orchestration/exec/dispatchLoop'
 import { sweepStaleSpecFiles } from '../core/orchestration/exec/specFiles'
 import { lostWithNobody } from '../core/orchestration/lostGate'
+import { createLostGateGuard, type LostGateGuard } from './lostGateGuard'
 import { policyOf } from '../core/orchestration/convergence'
 import { interruptStalledTask, type OrchState } from '../core/orchestration/state'
 import { liveAppPid } from '../core/host/pidFile'
@@ -76,6 +79,8 @@ export interface HostDriving {
   /** `tasks dispatch` (CLI spec §18): one ready Task placed now by this Host's loop (`dispatchOne`),
    *  after any handover in progress. 409 when this Host does not drive, naming who does. */
   dispatchOne(taskId: string): Promise<{ status: number; body: unknown }>
+  /** When a scheduled Job's template fires next (epoch ms), or null: the loop's own arming, for `jobs-view`. */
+  nextFireOf(runId: string): number | null
   dispose(): void
 }
 
@@ -87,6 +92,9 @@ export const STALL_CONFIRM_MS = 5000
 /** Lives in appGone.ts with the one app-left rule (leftovers Task 1, S6-5); re-exported for the callers
  *  that read it here. */
 export { APP_LEFT_GRACE_MS }
+
+/** Ticks that may find the last one still running before the Host says so (final review M7). */
+export const TICKS_SKIPPED_BEFORE_SAYING = 4
 
 export function createHostDriving(d: {
   profileDir: string
@@ -114,6 +122,11 @@ export function createHostDriving(d: {
   appPid?(): number | null
   /** Test seam; defaults to interruptStalledTask. */
   interruptStalled?: typeof interruptStalledTask
+  /** The Host's own recovery (remote runtime design §2.6): swept at every handover and app-left, and while it owns
+   *  recovery the lost-worker Gate opens nothing. Absent: the Gate as before. */
+  recovery?: { owns(): boolean; sweep(why: string): Promise<void>; catchUp(): Promise<void> }
+  /** Shared with the Host recovery's own lost-worker Gate, so the two never both ask for one (lostGateGuard.ts). */
+  guard?: LostGateGuard
   /** Test seam (B6); defaults to readDispatchGate. */
   readGate?(settingsPath: string): Promise<DispatchGate>
   /** Told every change of `report()` (limits pass L3), in the same turn as the change. A throw is
@@ -175,7 +188,13 @@ export function createHostDriving(d: {
   const armStalled = (why: string): void => {
     if (d.server.hasApp()) return
     const at = d.nowMs()
-    for (const t of unchecked(d.orch.state()))
+    // A refusal is kept only while its Task exists (audit OR-9).
+    const s = d.orch.state()
+    if (refused.size > 0) {
+      const ids = new Set(s.tasks.map((t) => t.id))
+      for (const id of [...refused.keys()]) if (!ids.has(id)) refused.delete(id)
+    }
+    for (const t of unchecked(s))
       if (!suspects.has(t.id) && refused.get(t.id) !== seenAs(t)) {
         suspects.set(t.id, { status: t.status, updatedAt: t.updatedAt, armedAt: at })
         log(`task=${t.id} is ${t.status} with nothing checking it (${why}) — its restart Gate opens at a later tick if it stays so`)
@@ -255,6 +274,8 @@ export function createHostDriving(d: {
     }
     startStrandedRepairs(label, goneAt !== undefined)
     armStalled(why)
+    // Phase 3R: the load's handover is the Host's boot sweep, and an app leaving hands its recovery here.
+    if (d.recovery) void d.recovery.sweep(why).catch((err) => log(`the recovery sweep failed: ${String(err)}`))
   }
 
   const takeOver = async (why: string, drain: boolean): Promise<void> => {
@@ -374,21 +395,33 @@ export function createHostDriving(d: {
     nowMs: () => d.nowMs()
   })
 
+  const guard = d.guard ?? createLostGateGuard()
+  /** An attached app keeps recovery: its own reconciler decides (D8). */
+  const keepsRecovery = (): boolean => d.server.hasApp() && d.server.appsKeep(HOST_YIELD_RECOVERY)
   /** Whether a lost-worker pass is running: the Gate it opens commits, and that commit's pass must not
    *  gate the same Task a second time while the first is still asking. */
   let gating = false
   /** D6/R16: a Gate on every lost worker nobody else will look after — only while no app is attached
    *  (an app's reconciler decides then, journal in hand, D8). Asked again before each Gate. */
   const gateLost = async (): Promise<void> => {
-    if (gating || d.server.hasApp()) return
+    // An attached app that keeps recovery looks after it (D8); one that yields it runs no reconciler, so with this Host
+    // unable to recover (the journal off or not written) the Gate is the only answer left (Phase 3R minor).
+    if (gating || keepsRecovery()) return
+    // The reconciler decides instead (Phase 3R); it opens this Gate itself for an attempt the journal never saw.
+    if (d.recovery?.owns()) return
     gating = true
     try {
       for (const seed of lostWithNobody(d.orch.state())) {
-        if (!mayStart() || d.server.hasApp()) return
-        const question = t(d.checks.langNow(), 'jobs.gate.workerLostNoApp', { dispatch: seed.dispatch.id })
-        const r = await d.orch.handle('gate-create', { task: seed.taskId, question })
-        if (r.status >= 400) log(`lost worker task=${seed.taskId}: the Gate was refused (${r.status} ${JSON.stringify(r.body)})`)
-        else log(`lost worker task=${seed.taskId} dispatch=${seed.dispatch.id}: no Astera is open to recover it — gated`)
+        if (!mayStart() || keepsRecovery()) return
+        if (!guard.claim(seed.taskId)) continue
+        try {
+          const question = t(d.checks.langNow(), 'jobs.gate.workerLostNoApp', { dispatch: seed.dispatch.id })
+          const r = await d.orch.handle('gate-create', { task: seed.taskId, question })
+          if (r.status >= 400) log(`lost worker task=${seed.taskId}: the Gate was refused (${r.status} ${JSON.stringify(r.body)})`)
+          else log(`lost worker task=${seed.taskId} dispatch=${seed.dispatch.id}: no Astera is open to recover it — gated`)
+        } finally {
+          guard.release(seed.taskId)
+        }
       }
     } finally {
       gating = false
@@ -398,15 +431,42 @@ export function createHostDriving(d: {
   const pass = async (): Promise<void> => {
     await handover
     if (!mayStart()) return
+    // Recovery first (Phase 3R final review C1): a lost worker holds no slot, so a loop that ran while its recovery
+    // read git would fill that slot from the ready queue and leave the lost Task with no room, no worker and no Gate.
+    if (d.recovery) {
+      await d.recovery.catchUp()
+      if (!mayStart()) return
+    }
     await gateLost()
     await loop.run()
   }
 
+  /** A kick's pass while it runs, and whether another kick came meanwhile (audit OR-5): a burst of commits ran that
+   *  many passes side by side, each reading the settings twice. They are joined into one more pass. */
+  let kicking = false
+  let kickAgain = false
   const kick = (why: string): void => {
+    if (kicking) {
+      kickAgain = true
+      return
+    }
+    kicking = true
     void (async () => {
-      await compute()
-      await pass()
-    })().catch((err) => log(`the driver's pass (${why}) failed: ${String(err)}`))
+      try {
+        do {
+          kickAgain = false
+          await compute()
+          await pass()
+        } while (kickAgain)
+      } catch (err) {
+        log(`the driver's pass (${why}) failed: ${String(err)}`)
+      } finally {
+        // In the same step as the last pass ends (final review M1): a kick in between is not dropped, and a kick
+        // joined into a pass that threw still gets its own.
+        kicking = false
+      }
+      if (kickAgain) kick(why)
+    })()
   }
 
   /** The live session ids this Host's registry holds — the spec sweep's live set. */
@@ -416,7 +476,18 @@ export function createHostDriving(d: {
     return ids
   }
 
+  /** Whether a tick runs (audit OR-5): one that takes longer than the interval is not overlapped by the next. */
+  let ticking = false
+  /** Ticks in a row that found one still running: said once it is TICKS_SKIPPED_BEFORE_SAYING (final review M7). */
+  let skipped = 0
   const tick = async (): Promise<void> => {
+    if (ticking) {
+      if (++skipped === TICKS_SKIPPED_BEFORE_SAYING)
+        log(`a tick is still running after ${skipped} more came due: schedules, nudges and checks wait for it`)
+      return
+    }
+    skipped = 0
+    ticking = true
     try {
       // **Forget a gone app's pid promptly** (final review I1): the server's `lastAppPid` probes the pid
       // and forgets it once dead. Asked here while no app is attached, so the forgetting happens within a
@@ -456,6 +527,8 @@ export function createHostDriving(d: {
       }
     } catch (err) {
       log(`tick failed: ${String(err)}`)
+    } finally {
+      ticking = false
     }
   }
 
@@ -559,6 +632,7 @@ export function createHostDriving(d: {
       await handover
       return loop.dispatchOne(taskId)
     },
+    nextFireOf: (runId) => loop.nextFireOf(runId),
     dispose: () => {
       stop()
       grace.dispose()

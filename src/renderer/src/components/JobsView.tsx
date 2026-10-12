@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { memo, useCallback, useEffect, useState } from 'react'
+import { clockFor } from '../lib/runClock'
 import type { JobRow, JobTask, OrchHostGate, OrchSnapshot, Provider, TaskStatus } from '../../../core/types'
 import type { MessageKey, MessageParams } from '../../../core/i18n'
 import { formatElapsed, formatRemaining } from '../../../core/orchestration/elapsed'
@@ -130,7 +131,7 @@ function ConvergenceChipView({
 /** Run 하나의 카드 — 머리말·띠·도는 줄·Gate 줄·아래 한 줄. **JobsView 에서 뽑아낸 것이고 그리는
  *  것이 달라지지 않았다.** 뽑은 이유는 예약 템플릿의 회차를 같은 모양으로 그려야 해서다: 한 벌을
  *  두 자리에서 쓰지 않으면 두 벌이 갈라진다. */
-function RunCard({
+function RunCardImpl({
   run,
   open,
   onToggle,
@@ -140,21 +141,26 @@ function RunCard({
   onOpenSession,
   onOpenRun,
   onDeleteRun,
-  onRestartCoordinator
+  onRestartCoordinator,
+  disabledReason
 }: {
   run: JobRow
   open: boolean
-  onToggle: () => void
+  /** With the card's own id, so the parent can hand the same function to every card (audit UI-11). */
+  onToggle: (runId: string) => void
   /** 예약 회차라면 그 번호. 평범한 Run 에는 없다 */
   ordinal?: number
   nowMs: number
   canOpenSession: (sessionId: string) => boolean
   onOpenSession: (sessionId: string) => void
   onOpenRun: (runId: string) => void
-  onDeleteRun: (runId: string) => void
+  /** Absent: the button is not drawn. */
+  onDeleteRun?: (runId: string) => void
   /** 관리자가 사라진 Run 에 코디네이터를 다시 붙인다 — run-start 를 다시 부른다(그 명령의 뜻이
    *  "이 Run 에 관리자가 있게 하라" 이고, 이미 있으면 아무것도 하지 않는다). */
-  onRestartCoordinator: (runId: string) => void
+  onRestartCoordinator?: (runId: string) => void
+  /** Why the controls are off (a read-only pairing, Phase 7): drawn disabled with this as their title. */
+  disabledReason?: string
 }): React.JSX.Element {
   const { t } = useI18n()
   const kind = runKind(run)
@@ -175,7 +181,7 @@ function RunCard({
       key={run.id}
       className={`jobs-run${open ? '' : ' collapsed'}${run.sharesProjectFolder ? ' shared-folder' : ''}`}
     >
-      <div className="jobs-run-head" onClick={() => onToggle()}>
+      <div className="jobs-run-head" onClick={() => onToggle(run.id)}>
         <span className="jobs-caret">{open ? <ChevronDown size={10} /> : <ChevronRight size={10} />}</span>
         {/* 예약 회차의 번호. 한 템플릿의 회차들은 목표가 같아서(spawnScheduledRun 이 복사한다)
             제목만으로는 서로 구별되지 않는다 — 이 칩이 그것을 구별하는 유일한 표시다.
@@ -222,10 +228,11 @@ function RunCard({
             이고(도는 것이 없어 보인다), 상세 창을 열어야 되돌릴 수 있다면 정확히 그 순간에 마찰이
             생긴다 — 일시 중지 버튼이 이 줄에 있는 것과 같은 판단이다.
             stopPropagation: 이 줄 자체가 접기·펴기다 */}
-        {run.coordinatorMissing && (
+        {run.coordinatorMissing && onRestartCoordinator && (
           <button
             className="jobs-more"
-            title={t('jobs.run.coordinatorRestartHint')}
+            disabled={disabledReason !== undefined}
+            title={disabledReason ?? t('jobs.run.coordinatorRestartHint')}
             aria-label={t('jobs.run.coordinatorRestart')}
             onClick={(e) => {
               e.stopPropagation()
@@ -350,14 +357,17 @@ function RunCard({
               누르면 App 이 확인 창을 먼저 띄운다(onDeleteRun). 도는 워커가 있으면 명령이
               409 로 거절하고 그것을 토스트로 말한다 — 버튼을 감추지 않는 것은 왜 못 지우는지가
               화면에 남아야 하기 때문이다. */}
-          <button
-            className="jobs-delete"
-            title={t('jobs.run.delete')}
-            aria-label={t('jobs.run.delete')}
-            onClick={() => onDeleteRun(run.id)}
-          >
-            <TrashIcon />
-          </button>
+          {onDeleteRun && (
+            <button
+              className="jobs-delete"
+              disabled={disabledReason !== undefined}
+              title={disabledReason ?? t('jobs.run.delete')}
+              aria-label={t('jobs.run.delete')}
+              onClick={() => onDeleteRun(run.id)}
+            >
+              <TrashIcon />
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -380,6 +390,9 @@ const fmtNext = (ms: number): string =>
  *  무엇보다 outcome 을 빌릴 수 없다: outcomeOf 는 배치되지 않는 Task 를 terminal 로 보지 않아
  *  템플릿에 늘 'running' 을 준다 — 그것을 그리면 안 도는 것에 도는 점이 붙는다. 회차는 평범한
  *  Run 이므로 그 안에서 RunCard 를 그대로 쓴다. */
+/** Drawn again only when what it shows changed (audit UI-11): the sidebar's once-a-second tick drew every card. */
+const RunCard = memo(RunCardImpl)
+
 function ScheduleCard({
   run,
   open,
@@ -393,7 +406,8 @@ function ScheduleCard({
   onPauseRun,
   onResumeRun,
   onDeleteRun,
-  onRestartCoordinator
+  onRestartCoordinator,
+  disabledReason
 }: {
   run: JobRow
   open: boolean
@@ -404,10 +418,12 @@ function ScheduleCard({
   canOpenSession: (sessionId: string) => boolean
   onOpenSession: (sessionId: string) => void
   onOpenRun: (runId: string) => void
-  onPauseRun: (runId: string) => void
-  onResumeRun: (runId: string) => void
-  onDeleteRun: (runId: string) => void
-  onRestartCoordinator: (runId: string) => void
+  onPauseRun?: (runId: string) => void
+  onResumeRun?: (runId: string) => void
+  onDeleteRun?: (runId: string) => void
+  onRestartCoordinator?: (runId: string) => void
+  /** Why the controls are off (a read-only pairing, Phase 7): drawn disabled with this as their title. */
+  disabledReason?: string
 }): React.JSX.Element {
   const { t } = useI18n()
   const children = run.children ?? []
@@ -440,10 +456,11 @@ function ScheduleCard({
             회차가 없고, `run-pause` 가 "예약이 아니다" 로 거절한다(server.ts). 누를 수 있는데
             아무 일도 일어나지 않는 버튼을 두지 않는다. 그 Job 의 워커를 멈추는 것은 회차 안에서
             Dispatch 하나씩 하는 일이다. */}
-        {run.schedule && (
+        {run.schedule && onPauseRun && onResumeRun && (
           <button
             className="jobs-more"
-            title={run.paused ? t('jobs.run.resumeHint') : t('jobs.run.pauseHint')}
+            disabled={disabledReason !== undefined}
+            title={disabledReason ?? (run.paused ? t('jobs.run.resumeHint') : t('jobs.run.pauseHint'))}
             aria-label={run.paused ? t('jobs.run.resume') : t('jobs.run.pause')}
             onClick={(e) => {
               e.stopPropagation()
@@ -506,14 +523,15 @@ function ScheduleCard({
                 key={kid.id}
                 run={kid}
                 open={!collapsed.has(kid.id)}
-                onToggle={() => onToggleChild(kid.id)}
+                onToggle={onToggleChild}
                 ordinal={kid.fireOrdinal}
-                nowMs={nowMs}
+                nowMs={clockFor(kid, nowMs)}
                 canOpenSession={canOpenSession}
                 onOpenSession={onOpenSession}
                 onOpenRun={onOpenRun}
                 onDeleteRun={onDeleteRun}
                 onRestartCoordinator={onRestartCoordinator}
+                disabledReason={disabledReason}
               />
             ))}
             {/* **누르면 늘어나는 수를 그대로 적는다.** "+12개 더" 라고 쓰고 5개만 늘리면 그 줄이
@@ -551,14 +569,17 @@ function ScheduleCard({
               자리와 모양은 RunCard 의 그것과 같고 이유도 같다: 되돌릴 수 없는 동작을 상세 창으로
               가는 `›` 옆에 두면 둘 다 작은 표적이라 오클릭이 값비싸고, 펼쳤을 때만 보이므로 그
               예약을 열어 본 사람만 지우게 된다. */}
-          <button
-            className="jobs-delete"
-            title={t('jobs.run.delete')}
-            aria-label={t('jobs.run.delete')}
-            onClick={() => onDeleteRun(run.id)}
-          >
-            <TrashIcon />
-          </button>
+          {onDeleteRun && (
+            <button
+              className="jobs-delete"
+              disabled={disabledReason !== undefined}
+              title={disabledReason ?? t('jobs.run.delete')}
+              aria-label={t('jobs.run.delete')}
+              onClick={() => onDeleteRun(run.id)}
+            >
+              <TrashIcon />
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -588,7 +609,9 @@ export function JobsView({
   onPauseRun,
   onResumeRun,
   onDeleteRun,
-  onRestartCoordinator
+  onRestartCoordinator,
+  remote = false,
+  disabledReason
 }: {
   snapshot: OrchSnapshot | null
   /** Why there is nothing to draw, when the Host is the reason — null in the ordinary case.
@@ -634,19 +657,26 @@ export function JobsView({
    *  세어 보여 준다) 명령은 App 이 보낸다, onOpenRun 과 같은 갈래다. */
   onDeleteRun: (runId: string) => void
   onRestartCoordinator: (runId: string) => void
+  /** A paired Runtime's Jobs (remote runtime design Phase 6): its empty view says the Runtime has none here. */
+  remote?: boolean
+  /** Why the controls are off (a read-only pairing, Phase 7): every control is drawn disabled with this as its title.
+   *  The sentence itself is said once, by the runtime selector above the list. Absent: the controls act. */
+  disabledReason?: string
 }): React.JSX.Element {
   const { t } = useI18n()
+  const acts = { onPauseRun, onResumeRun, onDeleteRun, onRestartCoordinator }
   // Runs the user collapsed. Absence means expanded — a Run that just appeared, or one from before this
   // component ever rendered, opens by default rather than needing to be found and expanded by hand.
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
-  const toggle = (runId: string): void => {
+  // One function for every card (audit UI-11), so a memoized card is not drawn again for a new closure.
+  const toggle = useCallback((runId: string): void => {
     setCollapsed((prev) => {
       const next = new Set(prev)
       if (next.has(runId)) next.delete(runId)
       else next.add(runId)
       return next
     })
-  }
+  }, [])
 
   // 도는 것이 없으면 타이머도 없다 — 아무것도 안 변하는 화면을 1초마다 다시 그릴 이유가 없다.
   // 조건을 스냅샷에서 뽑는 덕분에 마지막 워커가 끝나면 다음 푸시에서 저절로 꺼진다.
@@ -723,15 +753,18 @@ export function JobsView({
     return (
       <div className="jobs-empty">
         {stallLine}
-        <p>{hasProject ? t('jobs.empty') : t('jobs.noProject')}</p>
-        <p className="jobs-empty-hint">
-          {hasProject ? t('jobs.empty.hint') : t('jobs.noProject.hint')}
-        </p>
+        {/* A paired Runtime's empty view says the Runtime has no Jobs here, not "create one here". */}
+        <p>{remote ? t('jobs.runtime.empty') : hasProject ? t('jobs.empty') : t('jobs.noProject')}</p>
+        {!remote && (
+          <p className="jobs-empty-hint">
+            {hasProject ? t('jobs.empty.hint') : t('jobs.noProject.hint')}
+          </p>
+        )}
         {/* 아무것도 없을 때가 만들고 싶을 때다 — 목록이 생긴 뒤의 자리(아래)와 같은 버튼.
             hasProject 로 가드하는 이유는 위 hasProject 의 주석대로다: 그때 이 버튼을 누르면
             만들 자리도 없는 newRunOpen 이 true 로 남아 전역 단축키를 죽인다. */}
         {hasProject && (
-          <button className="jobs-new" onClick={onNewRun}>
+          <button className="jobs-new" disabled={disabledReason !== undefined} title={disabledReason} onClick={onNewRun}>
             + {t('jobs.new.open')}
           </button>
         )}
@@ -743,7 +776,7 @@ export function JobsView({
     <section className="jobs-view">
       {stallLine}
       {/* 목록 위, 첫 자식 — 아이콘을 새로 만들지 않는다: '+' 글자로 충분하다 */}
-      <button className="jobs-new" onClick={onNewRun}>
+      <button className="jobs-new" disabled={disabledReason !== undefined} title={disabledReason} onClick={onNewRun}>
         + {t('jobs.new.open')}
       </button>
       {/* **회차가 여럿이면 예약이 아니어도 펼치는 카드다.** 접히는 카드를 예약에만 쓰던 것은 회차가
@@ -762,23 +795,25 @@ export function JobsView({
             canOpenSession={canOpenSession}
             onOpenSession={onOpenSession}
             onOpenRun={onOpenRun}
-            onPauseRun={onPauseRun}
-            onResumeRun={onResumeRun}
-            onDeleteRun={onDeleteRun}
-            onRestartCoordinator={onRestartCoordinator}
+            onPauseRun={acts.onPauseRun}
+            onResumeRun={acts.onResumeRun}
+            onDeleteRun={acts.onDeleteRun}
+            onRestartCoordinator={acts.onRestartCoordinator}
+            disabledReason={disabledReason}
           />
         ) : (
           <RunCard
             key={run.id}
             run={run}
             open={!collapsed.has(run.id)}
-            onToggle={() => toggle(run.id)}
-            nowMs={nowMs}
+            onToggle={toggle}
+            nowMs={clockFor(run, nowMs)}
             canOpenSession={canOpenSession}
             onOpenSession={onOpenSession}
             onOpenRun={onOpenRun}
-            onDeleteRun={onDeleteRun}
-            onRestartCoordinator={onRestartCoordinator}
+            onDeleteRun={acts.onDeleteRun}
+            onRestartCoordinator={acts.onRestartCoordinator}
+            disabledReason={disabledReason}
           />
         )
       )}

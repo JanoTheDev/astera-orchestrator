@@ -57,7 +57,7 @@ const clock = { now: 0 }
  * and the app's session id travels in the note — so the id a person has (`ASTERA_SESSION`, a
  * Dispatch's `sessionId`) is `meta.id`, and every lookup here has to go through it.
  */
-const harness = (size: { cols: number; rows: number } = { cols: 80, rows: 24 }, hookEventsDir = NO_HOOK_DIR) => {
+const harness = (size: { cols: number; rows: number } = { cols: 80, rows: 24 }, hookEventsDir = NO_HOOK_DIR, accounts: Account[] = []) => {
   const made = new Map<string, ReturnType<typeof fakePty>>()
   const procsMade: ReturnType<typeof fakeProc>[] = []
   let next = ''
@@ -102,8 +102,23 @@ const harness = (size: { cols: number; rows: number } = { cols: 80, rows: 24 }, 
       meta: { kind: 'chat', id: 'chat-1', restore: { accountId: 'acc2', cwd: 'D:/repo', title: '대화' } }
     })
   openChat('proc-a')
-  return { ptys, procs, agent, shell, openChat, procsMade, sessions: registrySessions({ ptys, procs, hookEventsDir, accounts: async () => [] }) }
+  return { ptys, procs, agent, shell, openChat, procsMade, sessions: registrySessions({ ptys, procs, hookEventsDir, accounts: async () => accounts }) }
 }
+
+// Performance audit H4: a remote keystroke, resize, stop or facts read names one session; finding it must not build
+// every session's row (each reads its hook file).
+describe('registrySessions — one by id', () => {
+  it('answers the same row the list has, and none for an id it does not hold', async () => {
+    const { sessions, agent, procsMade, openChat } = harness()
+    for (const id of ['ses-1', 'chat-1']) expect(await sessions.sessionById!(id)).toEqual((await sessions.listSessions()).find((s) => s.id === id))
+    expect(await sessions.sessionById!('nobody')).toBeNull()
+    agent.exit(0)
+    procsMade[0].exit(1)
+    openChat('proc-b')
+    expect(await sessions.sessionById!('ses-1')).toMatchObject({ alive: false })
+    expect(await sessions.sessionById!('chat-1')).toMatchObject({ alive: true, procId: 'proc-b' })
+  })
+})
 
 describe('registrySessions — list', () => {
   // **Agent sessions only.** A plain shell tab and a run configuration are ptys too, but neither is a
@@ -111,9 +126,36 @@ describe('registrySessions — list', () => {
   it('lists agent sessions and chat sessions by the app’s id, and nothing else', async () => {
     const { sessions } = harness()
     expect(await sessions.listSessions()).toEqual([
-      { id: 'ses-1', kind: 'terminal', title: 'repo', accountId: 'acc1', cwd: 'D:/repo', alive: true, state: 'unknown' },
-      { id: 'chat-1', kind: 'chat', title: '대화', accountId: 'acc2', cwd: 'D:/repo', alive: true, state: 'unknown' }
+      { id: 'ses-1', kind: 'terminal', title: 'repo', accountId: 'acc1', cwd: 'D:/repo', alive: true, state: 'unknown', ptyId: 'pty-a', sources: { status: 'none', prompt: 'none', usage: 'none', conversation: 'none' } },
+      { id: 'chat-1', kind: 'chat', title: '대화', accountId: 'acc2', cwd: 'D:/repo', alive: true, state: 'unknown', procId: 'proc-a', sources: { status: 'none', prompt: 'none', usage: 'none', conversation: 'none' } }
     ])
+  })
+
+  // Phase 9a (remote runtime N13, X1-06): what a controller needs to show a row: the pty or process behind it, the
+  // provider, what it was rolled from, and which facts the Host has a source for.
+  it('a row carries its pty or process, its provider, and the sources by provider and kind', async () => {
+    const acc = (id: string, provider: 'claude' | 'codex'): Account => ({ id, label: id, configDir: `D:/${id}`, color: '#000', createdAt: 'x', provider })
+    const { sessions } = harness(undefined, NO_HOOK_DIR, [acc('acc1', 'claude'), acc('acc2', 'codex')])
+    const rows = await sessions.listSessions()
+    expect(rows.find((r) => r.id === 'ses-1')).toMatchObject({
+      ptyId: 'pty-a',
+      provider: 'claude',
+      sources: { status: 'hooks', prompt: 'hooks', usage: 'statusline', conversation: 'transcript' }
+    })
+    expect(rows.find((r) => r.id === 'chat-1')).toMatchObject({
+      procId: 'proc-a',
+      provider: 'codex',
+      sources: { status: 'chat', prompt: 'chat', usage: 'none', conversation: 'chat' }
+    })
+  })
+
+  it('a Codex terminal is watched through its rollout; a rolled session says what it was rolled from', async () => {
+    const ptys = new PtyRegistry({ spawn: fakePty, log: () => {} })
+    const procs = new ProcRegistry({ spawn: fakeProc, log: () => {} })
+    ptys.open({ id: 'pty-x', file: 'codex', args: [], opts, meta: { kind: 'session', id: 'ses-2', restore: { accountId: 'cx', cwd: 'D:/repo', rolledFrom: 'ses-1' } } })
+    const accounts: Account[] = [{ id: 'cx', label: 'cx', configDir: 'D:/cx', color: '#000', createdAt: 'x', provider: 'codex' }]
+    const rows = await registrySessions({ ptys, procs, hookEventsDir: NO_HOOK_DIR, accounts: async () => accounts }).listSessions()
+    expect(rows[0]).toMatchObject({ provider: 'codex', rolledFrom: 'ses-1', sources: { status: 'rollout', prompt: 'none', usage: 'rollout', conversation: 'rollout' } })
   })
 
   // The entry stays after the exit so `list` can say it ended (registry.ts) — and so does this one.
@@ -131,7 +173,7 @@ describe('registrySessions — list', () => {
     openChat('proc-b')
     const chats = (await sessions.listSessions()).filter((s) => s.id === 'chat-1')
     expect(chats).toEqual([
-      { id: 'chat-1', kind: 'chat', title: '대화', accountId: 'acc2', cwd: 'D:/repo', alive: true, state: 'unknown' }
+      { id: 'chat-1', kind: 'chat', title: '대화', accountId: 'acc2', cwd: 'D:/repo', alive: true, state: 'unknown', procId: 'proc-b', sources: { status: 'none', prompt: 'none', usage: 'none', conversation: 'none' } }
     ])
   })
 
@@ -143,7 +185,7 @@ describe('registrySessions — list', () => {
     // And a pty opened with no note at all (an older build, a hand-written client) is nobody.
     ptys.open({ id: 'q', file: 'sh', args: [], opts })
     expect(await registrySessions({ ptys, procs, hookEventsDir: NO_HOOK_DIR, accounts: async () => [] }).listSessions()).toEqual([
-      { id: 's', kind: 'terminal', title: null, accountId: null, cwd: null, alive: true, state: 'unknown' }
+      { id: 's', kind: 'terminal', title: null, accountId: null, cwd: null, alive: true, state: 'unknown', ptyId: 'p', sources: { status: 'none', prompt: 'none', usage: 'none', conversation: 'none' } }
     ])
   })
 })
@@ -313,16 +355,33 @@ describe('registrySessions — state', () => {
  * size the tab has, and what comes back is what the tab shows.
  */
 describe('registrySessions — read renders the screen', () => {
-  // An ended session's scrollback is gone with its pty (registry.ts), and output after the exit is
-  // not kept either, so `sessions read` answers the blank screen it answers for nothing at all,
-  // rather than a stale screen or only the few bytes that landed after the end.
-  it('an ended terminal session reads as a blank screen, whatever it printed before or after', async () => {
+  // Remote runtime design §3.7 (Phase 8): an exited pty's live terminal stays readable for 10 minutes, so an ended
+  // session reads as its last screen, output after the exit included (it was a blank screen before).
+  it('an ended terminal session reads as its last screen within the exited retention', async () => {
     const { sessions, agent } = harness()
     const crlf = String.fromCharCode(13, 10)
     agent.emit('before' + crlf)
     agent.exit(0)
     agent.emit('after' + crlf)
-    expect(await sessions.readSession('ses-1', 200)).toEqual(await sessions.readSession('nobody', 200))
+    expect((await sessions.readSession('ses-1', 200)).screen).toEqual(['before', 'after'])
+  })
+
+  // Phase 8: the live terminal saw everything, so a header a TUI painted once is still there after more than the old
+  // 256,000-character tail of repaints below it.
+  it('a header painted before more output than the old tail held is still on the screen', async () => {
+    const { sessions, agent } = harness({ cols: 80, rows: 6 })
+    const crlf = String.fromCharCode(13, 10)
+    const esc = String.fromCharCode(27)
+    agent.emit('HEADER' + crlf)
+    // Each repaint fits one row, so nothing scrolls; together they are more than the old 256,000-character tail.
+    for (let i = 0; i < 4000; i++) agent.emit(`${esc}[3;1H${'x'.repeat(70)}`)
+    expect((await sessions.readSession('ses-1', 10)).screen[0]).toBe('HEADER')
+  })
+
+  it('a read asks for at most 1,000 rows above the screen (DC-7)', async () => {
+    const { sessions, agent } = harness({ cols: 20, rows: 3 })
+    agent.emit(Array.from({ length: 1500 }, (_, i) => `r${i}`).join(String.fromCharCode(13, 10)))
+    expect((await sessions.readSession('ses-1', 5000)).scrollback).toHaveLength(1000)
   })
 
   it('a ConPTY-style stream with cursor moves and no newlines renders as its lines', async () => {
@@ -374,17 +433,22 @@ describe('registrySessions — read renders the screen', () => {
     agent.emit('abcdefghijklmno')
     expect((await sessions.readSession('ses-1', 200)).screen).toEqual(['abcdefghij', 'klmno'])
     ptys.resize('pty-a', 20, 5)
+    // The live terminal reads at the new size, and rows painted before the resize keep their width (remote runtime
+    // design §3.7): they are not rebuilt from the text at the new width, as the old tail replay did.
     const wide = await sessions.readSession('ses-1', 200)
-    expect(wide).toMatchObject({ cols: 20, rows: 5, screen: ['abcdefghijklmno'] })
+    expect(wide).toMatchObject({ cols: 20, rows: 5, screen: ['abcdefghij', 'klmno'] })
+    agent.emit(String.fromCharCode(13, 10) + 'pqrstuvwxyzABCDEFGHIJ')
+    expect((await sessions.readSession('ses-1', 200)).screen.slice(-2)).toEqual(['pqrstuvwxyzABCDEFGHI', 'J'])
   })
 
-  // The scrollback goes with the session (registry.ts), so an ended one has nothing to render.
-  it('an ended session, a pty id and a shell tab’s id all render nothing', async () => {
+  // A pty id and a shell tab's id are not session ids. An ended session reads as its last screen while its exited
+  // retention lasts (Phase 8).
+  it('a pty id and a shell tab’s id render nothing; an ended session its last screen', async () => {
     const { sessions, agent } = harness()
     agent.emit('x')
     for (const id of ['pty-a', 'trm-1']) expect((await sessions.readSession(id, 200)).screen).toEqual([])
     agent.exit(0)
-    expect((await sessions.readSession('ses-1', 200)).screen).toEqual([])
+    expect((await sessions.readSession('ses-1', 200)).screen).toEqual(['x'])
   })
 })
 
@@ -641,9 +705,11 @@ describe('registrySessions — chat', () => {
 describe('the @xterm/headless load', () => {
   it('is not a top-level import of the Host', async () => {
     const { readFileSync } = await import('node:fs')
-    const src = readFileSync(new URL('./sessions.ts', import.meta.url), 'utf8')
-    expect(src).not.toMatch(/^import\s+(?!type\b)[^\n]*from\s+'@xterm\/headless'/m)
+    // The live terminal (liveTerminal.ts) loads the packages now, lazily, as sessions.ts's render did.
+    const src = readFileSync(new URL('./liveTerminal.ts', import.meta.url), 'utf8')
+    expect(src).not.toMatch(/^import\s+(?!type\b)[^\n]*from\s+'@xterm\/(headless|addon-serialize)'/m)
     expect(src).toContain("import('@xterm/headless')")
+    expect(src).toContain("import('@xterm/addon-serialize')")
   })
 })
 

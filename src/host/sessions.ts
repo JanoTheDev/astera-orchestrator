@@ -28,7 +28,7 @@
 // `turn/start`). Whether the Host writes it at all, or the app does, is orchDeps' decision (`chatSend`).
 import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
-import type { HostSession, SessionScreen } from '../core/orchestration/command'
+import type { HostSession, SessionScreen, SessionSources } from '../core/orchestration/command'
 import { hookEventPrompt, hookEventsFileIn, latestEventLine, sessionStateOf, type SessionState } from '../core/hooks/sessionState'
 import { hookEventAt } from '../core/hooks/eventTime'
 import type { PtyEntry } from '../core/host/protocol'
@@ -45,6 +45,8 @@ import type { ProcRegistry } from './procRegistry'
  *  the Host always has them. */
 export interface HostSessions {
   listSessions(): Promise<HostSession[]>
+  /** One session by its id, or null; the same row `listSessions` has for it, computed for it alone. */
+  sessionById?(id: string): Promise<HostSession | null>
   readSession(id: string, lines: number): Promise<SessionScreen>
   sendSession(id: string, text: string, enter: boolean): Promise<void>
   /** A chat session's last `turns` turns, oldest first; `[]` when there is no file to read yet. */
@@ -77,16 +79,33 @@ export interface SessionTurn {
 /** A note key as the app wrote it, or `null` — the note is the app's, and nothing checks its keys. */
 const text = (v: unknown): string | null => (typeof v === 'string' ? v : null)
 
-const rowOf = (e: PtyEntry, kind: HostSession['kind'], state: SessionState): HostSession => {
+/** X1-06's matrix: where the Host reads each fact, by provider and kind. An unknown provider has no source. */
+export function sourcesOf(kind: HostSession['kind'], provider: 'claude' | 'codex' | undefined): SessionSources {
+  if (provider === undefined) return { status: 'none', prompt: 'none', usage: 'none', conversation: 'none' }
+  if (kind === 'chat') return { status: 'chat', prompt: 'chat', usage: provider === 'claude' ? 'chat' : 'none', conversation: 'chat' }
+  return provider === 'claude'
+    ? { status: 'hooks', prompt: 'hooks', usage: 'statusline', conversation: 'transcript' }
+    : { status: 'rollout', prompt: 'none', usage: 'rollout', conversation: 'rollout' }
+}
+
+const rowOf = (e: PtyEntry, kind: HostSession['kind'], state: SessionState, providers: ReadonlyMap<string, 'claude' | 'codex'>): HostSession => {
   const restore = e.meta?.restore ?? {}
+  const accountId = text(restore.accountId)
+  const provider = accountId === null ? undefined : providers.get(accountId)
+  const rolledFrom = text(restore.rolledFrom)
   return {
     id: e.meta!.id,
     kind,
     title: text(restore.title),
-    accountId: text(restore.accountId),
+    accountId,
     cwd: text(restore.cwd),
     alive: e.alive,
-    state
+    state,
+    // Phase 9a (N13, X1-06): what a controller needs to show and drive the row.
+    ...(kind === 'terminal' ? { ptyId: e.id } : { procId: e.id }),
+    ...(provider ? { provider } : {}),
+    ...(rolledFrom !== null ? { rolledFrom } : {}),
+    sources: sourcesOf(kind, provider)
   }
 }
 
@@ -133,66 +152,14 @@ async function latestEvent(file: string): Promise<{ line: string; at: number } |
   }
 }
 
-/**
- * **The scrollback replayed into a terminal, and what that terminal shows.**
- *
- * The bytes are not lines. ConPTY paints with cursor positioning (`ESC[4;1H` where a shell printed a
- * blank line) and sends only the cells that changed; Ink redraws its region with cursor-up and
- * erase-line. Stripping the escapes leaves the words of every repaint run together. Replaying them
- * into an emulator at the size they were painted for gives back what the tab shows — the same replay
- * the app's own xterm does with this buffer on reattach (host/ptyHost.ts's `pty-attach`).
- *
- * Built per read and thrown away: nothing is kept in the Host between reads. `scrollback` is sized to
- * what was asked for, so the emulator holds no more than it will hand back.
- *
- * Two limits, both of the buffer rather than of this: it is a 256,000-character tail, so it can begin
- * in the middle of a sequence and the oldest scrollback rows may be noise; and output from before a
- * resize is replayed at the current size, so those rows wrap as they would now. The screen itself is
- * right, because a TUI repaints after a resize.
- */
-async function render(data: string, size: { cols: number; rows: number }, lines: number): Promise<SessionScreen> {
-  const empty: SessionScreen = { ...size, screen: [], scrollback: [], screenWrapped: [], scrollbackWrapped: [] }
-  if (data === '') return empty
-  // The package is CommonJS. Under Node's dynamic import its exports arrive on `default` only (named
-  // `Terminal` is undefined — measured on node 24 and Electron's node), while the test runner hands
-  // back named exports. Take whichever is there.
-  const mod: typeof import('@xterm/headless') & { default?: typeof import('@xterm/headless') } =
-    await import('@xterm/headless')
-  const { Terminal } = mod.default ?? mod
-  const term = new Terminal({ cols: size.cols, rows: size.rows, scrollback: lines, allowProposedApi: true })
-  try {
-    await new Promise<void>((resolve) => term.write(data, resolve))
-    const buf = term.buffer.active
-    const row = (y: number): string => buf.getLine(y)?.translateToString(true) ?? ''
-    // A row the terminal wrapped onto from the one above (a line wider than the tab): a reader joins
-    // them to get the line back, as the MCP layer does before it redacts.
-    const wrapped = (y: number): boolean => buf.getLine(y)?.isWrapped ?? false
-    const screen: string[] = []
-    const screenWrapped: boolean[] = []
-    for (let y = buf.baseY; y < buf.baseY + size.rows; y++) {
-      screen.push(row(y))
-      screenWrapped.push(wrapped(y))
-    }
-    // The rows below the last thing painted are not content — a shell prompt sits at the top of an
-    // otherwise empty screen.
-    while (screen.length > 0 && screen[screen.length - 1] === '') {
-      screen.pop()
-      screenWrapped.pop()
-    }
-    const scrollback: string[] = []
-    const scrollbackWrapped: boolean[] = []
-    for (let y = Math.max(0, buf.baseY - lines); y < buf.baseY; y++) {
-      scrollback.push(row(y))
-      scrollbackWrapped.push(wrapped(y))
-    }
-    return { ...size, screen, scrollback, screenWrapped, scrollbackWrapped }
-  } finally {
-    term.dispose()
-  }
+/** What `sessions read` answers for a pty that has nothing to show: no screen and nothing above it, at its size. The
+ *  screen itself comes from the pty's live terminal (registry.ts `readScreen`, liveTerminal.ts). */
+function emptyScreen(size: { cols: number; rows: number }): SessionScreen {
+  return { ...size, screen: [], scrollback: [], screenWrapped: [], scrollbackWrapped: [] }
 }
 
 export function registrySessions(a: {
-  ptys: Pick<PtyRegistry, 'list' | 'buffer' | 'write' | 'size' | 'lastWrite'>
+  ptys: Pick<PtyRegistry, 'list' | 'buffer' | 'write' | 'size' | 'lastWrite' | 'readScreen'>
   procs: Pick<ProcRegistry, 'list' | 'write'>
   /** The profile's hook-events folder (core/hooks/sessionState.ts `hookEventsDirIn`). */
   hookEventsDir: string
@@ -204,8 +171,12 @@ export function registrySessions(a: {
 }): HostSessions & Required<Pick<HostSessions, 'sessionTurn'>> {
   const mintId = a.mintId ?? (() => `astera-host-${randomUUID()}`)
   /** The pty behind an agent session's id — only an agent session's, so a shell tab's id is nobody. */
-  const ptyOf = (id: string): string | null =>
-    a.ptys.list().find((e) => e.meta?.kind === 'session' && e.meta.id === id)?.id ?? null
+  /** The session's pty: the live one, else the one opened last. A roll keeps the session id and opens a new pty,
+   *  and an ended pty is now readable for a while (Phase 8), so the first match could be the old one. */
+  const ptyOf = (id: string): string | null => {
+    const all = a.ptys.list().filter((e) => e.meta?.kind === 'session' && e.meta.id === id)
+    return ([...all].reverse().find((e) => e.alive) ?? all[all.length - 1])?.id ?? null
+  }
 
   /** A chat session's line process by the app's id: the live one when an ended process and its
    *  replacement share the id (`respawnWithBypass`), as `listSessions` picks. */
@@ -248,12 +219,25 @@ export function registrySessions(a: {
   }
 
   return {
+    // One session's row, building nothing for the others (performance audit H4: a remote keystroke names one).
+    sessionById: async (id) => {
+      const terminals = a.ptys.list().filter((e) => e.meta?.kind === 'session' && e.meta.id === id)
+      const chats = a.procs.list().filter((e) => e.meta?.kind === 'chat' && e.meta.id === id)
+      if (terminals.length === 0 && chats.length === 0) return null
+      const [states, accounts] = await Promise.all([Promise.all(terminals.map(stateOf)), a.accounts().catch(() => [] as Account[])])
+      const providers = new Map(accounts.map((x) => [x.id, x.provider ?? 'claude'] as const))
+      const rows = [...terminals.map((e, i) => rowOf(e, 'terminal', states[i], providers)), ...chats.map((e) => rowOf(e, 'chat', 'unknown', providers))]
+      // The live one, as the list keeps it.
+      return rows.find((r) => r.alive) ?? rows[0]
+    },
     listSessions: async () => {
       const terminals = a.ptys.list().filter((e) => e.meta?.kind === 'session')
-      const states = await Promise.all(terminals.map(stateOf))
+      const [states, accounts] = await Promise.all([Promise.all(terminals.map(stateOf)), a.accounts().catch(() => [] as Account[])])
+      // An account with no provider field is a Claude account (core/types.ts Account.provider).
+      const providers = new Map(accounts.map((x) => [x.id, x.provider ?? 'claude'] as const))
       const rows = [
-        ...terminals.map((e, i) => rowOf(e, 'terminal', states[i])),
-        ...a.procs.list().filter((e) => e.meta?.kind === 'chat').map((e) => rowOf(e, 'chat', 'unknown'))
+        ...terminals.map((e, i) => rowOf(e, 'terminal', states[i], providers)),
+        ...a.procs.list().filter((e) => e.meta?.kind === 'chat').map((e) => rowOf(e, 'chat', 'unknown', providers))
       ]
       // **One id, one row, and the live one.** `ChatManager.respawnWithBypass` spawns again under the
       // same note, so an ended process and its replacement can share an id.
@@ -267,7 +251,12 @@ export function registrySessions(a: {
     readSession: (id, lines) => {
       const pty = ptyOf(id)
       const size = (pty === null ? null : a.ptys.size(pty)) ?? { cols: 80, rows: 24 }
-      return render(pty === null ? '' : a.ptys.buffer(pty), size, lines)
+      // The pty's live terminal (remote runtime design §3.7): it has seen every byte at every size, so a header
+      // painted long ago and rows painted before a resize read as they were. A pty never here or whose exited
+      // retention ended reads as an empty screen.
+      return pty === null
+        ? Promise.resolve(emptyScreen(size))
+        : a.ptys.readScreen(pty, lines).then((s) => s ?? emptyScreen(size))
     },
     sendSession: (id, value, enter) => serial(id, () => deliver(id, value, enter)),
     sessionTurn: async (id, since) => {

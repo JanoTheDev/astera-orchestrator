@@ -66,6 +66,8 @@ const RUN_FIELDS = [
   'createdAt',
   'coordinatorSessionId',
   'worktree',
+  // The git range its changed files are read over (Phase 10).
+  'git',
   'paused',
   // Public like the Job's own: a script can read who places this Run (U1, JobRun.autoDispatch).
   'autoDispatch'
@@ -143,8 +145,9 @@ type _question = NothingLeft<Unlisted<Gate, typeof QUESTION, []>>
 
 /** 계정은 앱이 이미 이 셋으로만 내보낸다(ipc.ts 의 listAccounts). 그래도 적는 이유는 이 파일의
  *  머리말 그대로다 — 앱 쪽이 칸을 하나 더하는 순간 그것이 공개 API 가 되지 않게 한다.
- *  `default` is the fourth: it is there only on its provider's default account (OrchAccount.default). */
-const ACCOUNT = ['id', 'label', 'provider', 'default'] as const
+ *  `default` is the fourth: it is there only on its provider's default account (OrchAccount.default).
+ *  `signedIn` is the fifth (remote runtime N5): whether the account can run now, on every listed account. */
+const ACCOUNT = ['id', 'label', 'provider', 'default', 'signedIn'] as const
 type _account = NothingLeft<Unlisted<OrchAccount, typeof ACCOUNT, []>>
 
 /** 구성의 명령·env·cwd 는 앱에 남는다 — env 값은 비밀일 수 있다. 앱도 Host 도 이미 셋으로 추려
@@ -155,8 +158,10 @@ type _runConfig = NothingLeft<Unlisted<OrchRunConfig, typeof RUN_CONFIG, []>>
 /** 세션의 칸은 앱이 pty 에 남긴 note 에서 온다 — 앱이 자기에게 남긴 말이라 무엇이든 들 수 있고
  *  (재개 id, 롤링 계정, 우회 권한), 그것이 공개 API 가 되면 안 된다. Host 가 이미 여섯 칸으로
  *  추리지만(host/sessions.ts) 그래도 적는다 — ACCOUNT 와 같은 이유다. */
-const SESSION = ['id', 'kind', 'title', 'accountId', 'cwd', 'alive', 'state'] as const
-type _session = NothingLeft<Unlisted<HostSession, typeof SESSION, []>>
+const SESSION = ['id', 'kind', 'title', 'accountId', 'cwd', 'alive', 'state', 'provider', 'rolledFrom', 'sources'] as const
+/** The pty and process ids are the Host's own (remote runtime Phase 9a): a controller reads them from the raw reply
+ *  to subscribe, and a printed list leaves them out. */
+type _session = NothingLeft<Unlisted<HostSession, typeof SESSION, ['ptyId', 'procId']>>
 /** `sessions read` 는 두 모양이다(command.ts). 터미널은 SessionScreen 에 id·kind·alive 를 더한 것,
  *  대화는 id·kind·alive 에 턴과 열린 카드다. `sessions send` 는 명령 층이 짓는다. */
 const SESSION_READ = ['id', 'kind', 'alive', 'cols', 'rows', 'screen', 'scrollback', 'screenWrapped', 'scrollbackWrapped', 'turns', 'pending'] as const

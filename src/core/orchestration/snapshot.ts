@@ -31,3 +31,12 @@ export function findRun(snapshot: OrchSnapshot, runId: string): JobRow | undefin
 export function runIdToMerge(row: JobRow | undefined, openedId: string): string {
   return row?.foldedRunId ?? openedId
 }
+
+/** What an open Run detail is read again on (performance audit R5): its own row in the project's snapshot, not the
+ *  whole snapshot, which a push of any other Run replaces. A snapshot not there yet, and a Run not in it, are keys of
+ *  their own. `sessions`: the ids of the sessions this app holds, since the detail's events link to them and one
+ *  closing can leave the row as it was (final review M6). */
+export function runDetailKey(snapshot: OrchSnapshot | null, runId: string, sessions: readonly string[] = []): string {
+  if (snapshot === null) return 'none'
+  return JSON.stringify([findRun(snapshot, runId) ?? null, [...sessions].sort()])
+}

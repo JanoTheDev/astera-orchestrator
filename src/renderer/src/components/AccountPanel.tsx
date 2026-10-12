@@ -8,6 +8,7 @@ import { useAccountUsage } from '../hooks/useAccountUsage'
 import { ProviderBadge } from './ProviderBadge'
 import { FolderGlyph } from './FolderGlyph'
 import { AccountRow } from './AccountRow'
+import { backdropProps } from '../lib/backdrop'
 
 interface DetectItem {
   configDir: string
@@ -154,6 +155,9 @@ export function AccountPanel({ accounts }: { accounts: Account[] }): React.JSX.E
         if (!r.ok) toast.error(t('account.add.syncFailed', { detail: tm(r.message ?? null) ?? '' }))
       }
       setAddOpen(false)
+    } catch (err) {
+      // Said, and the dialog stays for another try (audit UI-10).
+      toast.error(err instanceof Error ? err.message : String(err))
     } finally {
       setAdding(false)
     }
@@ -172,10 +176,20 @@ export function AccountPanel({ accounts }: { accounts: Account[] }): React.JSX.E
 
   const submitImport = async (): Promise<void> => {
     const label = importLabel.trim()
-    if (!label || !importDir) return
-    await window.api.accounts.import({ label, configDir: importDir, provider: importProvider })
-    setImportDir(null)
+    if (!label || !importDir || importFormBusy) return
+    setImportFormBusy(true)
+    try {
+      await window.api.accounts.import({ label, configDir: importDir, provider: importProvider })
+      setImportDir(null)
+    } catch (err) {
+      // A folder gone or unreadable is said, not left unhandled (audit UI-10).
+      toast.error(err instanceof Error ? err.message : String(err))
+    } finally {
+      setImportFormBusy(false)
+    }
   }
+  /** The import form's submit in flight (audit UI-10). */
+  const [importFormBusy, setImportFormBusy] = useState(false)
 
   return (
     <section className="account-panel">
@@ -233,7 +247,7 @@ export function AccountPanel({ accounts }: { accounts: Account[] }): React.JSX.E
         {accounts.length === 0 && <li className="empty">{t('account.panel.empty')}</li>}
       </ul>
       {addOpen && (
-        <div className="modal-backdrop" onClick={() => setAddOpen(false)}>
+        <div className="modal-backdrop" {...backdropProps(() => setAddOpen(false))}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h2>{t('account.add.title')}</h2>
             <form
@@ -282,7 +296,7 @@ export function AccountPanel({ accounts }: { accounts: Account[] }): React.JSX.E
         </div>
       )}
       {importDir && (
-        <div className="modal-backdrop" onClick={() => setImportDir(null)}>
+        <div className="modal-backdrop" {...backdropProps(() => setImportDir(null))}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h2>{t('account.import.title')}</h2>
             <form
@@ -318,7 +332,7 @@ export function AccountPanel({ accounts }: { accounts: Account[] }): React.JSX.E
         </div>
       )}
       {detectItems && (
-        <div className="modal-backdrop" onClick={() => setDetectItems(null)}>
+        <div className="modal-backdrop" {...backdropProps(() => setDetectItems(null))}>
           <div className="modal detect" onClick={(e) => e.stopPropagation()}>
             <h2>{t('account.detect.title')}</h2>
             {detectItems.length === 0 ? (

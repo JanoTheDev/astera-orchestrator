@@ -1,7 +1,7 @@
 // The Host's answer to the pty-* messages (slice 2 design §5). Everything it knows about sessions is
 // in the registry; everything it knows about the wire is the two functions it is handed. Nothing here
 // touches `net`, so it is tested with a fake pty and no socket at all.
-import type { ClientMessage, HostMessage } from '../core/host/protocol'
+import { HOST_FEATURE_PTY_SEQ, type ClientMessage, type HostMessage } from '../core/host/protocol'
 import type { PtyRegistry } from './registry'
 import { ENDED_WITHOUT_A_CODE } from './exits'
 
@@ -12,14 +12,31 @@ import { ENDED_WITHOUT_A_CODE } from './exits'
  * `send` reaches the client that asked; `broadcast` reaches every connected client. Output and exit
  * broadcast because the app that attaches after a restart is not the app that spawned.
  */
+export type PtyHandler = ((m: ClientMessage, send: (h: HostMessage) => void, from?: { socket: number }) => boolean) & {
+  /** A socket closed: every pty it paused and did not resume is resumed, unless another socket still holds it paused
+   *  (remote runtime design §3.7, N2). A dead app no longer leaves its terminals frozen. */
+  socketGone(socket: number): void
+  /** How many ptys some socket holds paused (tests). */
+  pausedHeld(): number
+}
+
 export function attachPtyHost(a: {
   registry: PtyRegistry
-  broadcast(m: HostMessage): void
-}): (m: ClientMessage, send: (h: HostMessage) => void) => boolean {
-  a.registry.onData((id, data) => a.broadcast({ t: 'pty-data', id, data }))
+  /** `to` filters by the client's hello: its yields and its features. */
+  broadcast(m: HostMessage, to?: (yields: ReadonlySet<string>, features: ReadonlySet<string>) => boolean): void
+}): PtyHandler {
+  // Each chunk as today to a client without `pty-seq`; each ring event with its seq to one with it (a chunk over the
+  // ring's piece size is several events there).
+  a.registry.onData((id, data) => a.broadcast({ t: 'pty-data', id, data }, (_y, f) => !f.has(HOST_FEATURE_PTY_SEQ)))
+  a.registry.onEvent((id, e) => {
+    if (e.kind === 'data') a.broadcast({ t: 'pty-data', id, data: e.data, seq: e.seq }, (_y, f) => f.has(HOST_FEATURE_PTY_SEQ))
+  })
   a.registry.onExit((id, exitCode) => a.broadcast({ t: 'pty-exit', id, exitCode }))
+  /** Which sockets hold each pty paused. An exited pty's go with it (review M7). */
+  const pausedBy = new Map<string, Set<number>>()
+  a.registry.onExit((id) => void pausedBy.delete(id))
 
-  return (m, send) => {
+  const handler = (m: ClientMessage, send: (h: HostMessage) => void, from?: { socket: number }): boolean => {
     switch (m.t) {
       case 'pty-spawn': {
         const res = a.registry.open({ id: m.id, file: m.file, args: m.args, opts: m.opts, meta: m.meta })
@@ -37,10 +54,22 @@ export function attachPtyHost(a: {
       case 'pty-kill':
         a.registry.kill(m.id)
         return true
-      case 'pty-pause':
+      case 'pty-pause': {
+        // Only a live pty's (second pass H2-4): a pause that raced the exit would be held until the socket closed.
+        if (from && a.registry.list().some((e) => e.id === m.id && e.alive)) {
+          const by = pausedBy.get(m.id) ?? new Set<number>()
+          by.add(from.socket)
+          pausedBy.set(m.id, by)
+        }
         a.registry.pause(m.id)
         return true
+      }
       case 'pty-resume':
+        if (from) {
+          const by = pausedBy.get(m.id)
+          by?.delete(from.socket)
+          if (by?.size === 0) pausedBy.delete(m.id)
+        }
         a.registry.resume(m.id)
         return true
       case 'pty-note':
@@ -69,4 +98,15 @@ export function attachPtyHost(a: {
         return false
     }
   }
+  return Object.assign(handler, {
+    pausedHeld: () => pausedBy.size,
+    socketGone: (socket: number): void => {
+      for (const [id, by] of [...pausedBy]) {
+        if (!by.delete(socket)) continue
+        if (by.size > 0) continue
+        pausedBy.delete(id)
+        a.registry.resume(id)
+      }
+    }
+  })
 }

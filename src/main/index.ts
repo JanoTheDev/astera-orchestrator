@@ -13,6 +13,7 @@ import {
   // staging block below for why its verdict has to be read separately from electron-updater's.
   autoUpdater as squirrel
 } from 'electron'
+import { clearUpdateHold, UPDATE_HOLD_MS, writeUpdateHold } from '../core/remote/updateHold'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { existsSync, readFileSync, promises as fsp } from 'node:fs'
@@ -22,6 +23,7 @@ import trayAsset from '../../resources/tray.png?asset'
 import { createCore, type Core } from './core'
 import { clearAppRunning, markAppRunning } from '../core/host/pidFile'
 import { flushAllLogsSync, lineLog } from '../core/log/logWriter'
+import { createHeldNotifications } from './heldNotifications'
 import { applyLoginPath } from './loginPath'
 import { startUp, startingPageUrl, loadInto, storedTheme } from './startup'
 import type { Theme } from '../core/theme/themes'
@@ -172,12 +174,8 @@ const resumeTextDep = (
 let tray: Tray | null = null
 let quitting = false
 let mainWindow: BrowserWindow | null = null // focus target for the single-instance second-instance event
-// Notifications currently on screen. Electron does not retain a `new Notification()` for you —
-// an unreferenced one can be garbage-collected before it is clicked, and a collected notification
-// never fires 'click'. That failure mode hits hardest exactly the toast this feature exists for:
-// the one that sits unclicked for minutes or hours until someone walks back to the desk, not the
-// one clicked within the same tick it was shown.
-const liveNotifications = new Set<Notification>()
+// Notifications currently on screen, held so a collected one does not lose its click (heldNotifications.ts).
+const liveNotifications = createHeldNotifications()
 let updateCampaign: UpdateCampaignInfo | null = null // update campaign verdict. null means no campaign
 
 /**
@@ -434,6 +432,12 @@ app.whenReady().then(async () => {
   // Tells a Host this app is not attached to that an app is alive and may be running sessions the
   // Host cannot see, so it refuses to remove a worktree folder under them (core/host/pidFile.ts).
   markAppRunning(app.getPath('userData'), process.pid)
+  // The update that wrote a hold is over once an app boots (remote runtime design §2.9).
+  try {
+    clearUpdateHold(app.getPath('userData'))
+  } catch {
+    /* nothing to clear */
+  }
   // Serves only media files the renderer resolved through files.resolveLink or run.resolveLink — a
   // defence-in-depth allowlist, not a boundary against the renderer (main/media/allowlist.ts says
   // what it does and does not bind). On the default session, which is the main
@@ -529,6 +533,8 @@ app.whenReady().then(async () => {
   const pendingPrompt = createPendingPromptState()
   // The second outlet on the same pipe (design doc §6). Electron's Notification was unused in this
   // app until now — only Tray was.
+  // One line per desktop notification, shown or refused: "I got no notification" is answered from here.
+  const notifyLog = lineLog(path.join(app.getPath('userData'), 'notifications.log'))
   const desktop = new DesktopNotifier({
     settings: core!.appSettings,
     isFocused: () => !win.isDestroyed() && win.isFocused(),
@@ -540,16 +546,16 @@ app.whenReady().then(async () => {
       // — it is dropped silently (§9). A notification saying that notifications do not work cannot be
       // delivered by the thing that is broken, and a toast for it would fire in the window the person
       // is not looking at, which is the entire situation this feature exists for.
-      if (!Notification.isSupported()) return
+      if (!Notification.isSupported()) {
+        notifyLog(`not shown ${req.event} ${req.sessionId}: notifications are not supported here`)
+        return
+      }
       try {
         const n = new Notification({ title: req.title, body: req.body })
-        // Held in liveNotifications from before show() until a terminal event removes it — see that
-        // set's own comment for why. Windows does not guarantee 'close' fires, so a notification the
-        // person neither clicks nor dismisses may outlive this and stay in the set for the app's
-        // life — a handful of small objects, and the deliberate price of not losing the click.
-        liveNotifications.add(n)
+        // Held from before show() until it is clicked, closed or failed, the newest few only
+        // (heldNotifications.ts).
+        liveNotifications.hold(n)
         n.on('click', () => {
-          liveNotifications.delete(n)
           // An exception here must not escape into an Electron event handler, the same isolation the
           // taps elsewhere in this file give each other.
           try {
@@ -562,10 +568,11 @@ app.whenReady().then(async () => {
             /* raising the window must not crash the notification's click handler */
           }
         })
-        n.on('close', () => liveNotifications.delete(n))
         n.show()
-      } catch {
+        notifyLog(`shown ${req.event} ${req.sessionId}`)
+      } catch (err) {
         /* the OS refused it — see above */
+        notifyLog(`not shown ${req.event} ${req.sessionId}: ${String(err)}`)
       }
     }
   })
@@ -1449,6 +1456,14 @@ app.whenReady().then(async () => {
           // Awaited, and a failure is not one: the point is to be gone, and a Host that never
           // answered is already that. quitAndInstall follows either way — the installer's own
           // customCheckAppRunning (build/installer.nsh) is the net under this.
+          // **And `astera runtime serve` starts no Host while the installer runs** (remote runtime design §2.9): the
+          // hold names this process and lasts ten minutes, so an installer that dies does not keep the Runtime down.
+          // The next app removes it at boot. Best effort, like the retire below.
+          try {
+            writeUpdateHold(app.getPath('userData'), { pid: process.pid, until: Date.now() + UPDATE_HOLD_MS })
+          } catch {
+            /* a hold that could not be written only means serve may race the installer, as before */
+          }
           if (!(hostSurvivesUpdateRef?.() ?? process.platform !== 'win32')) {
             try {
               await hostClientRetireRef?.()

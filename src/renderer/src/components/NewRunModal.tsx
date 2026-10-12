@@ -3,8 +3,10 @@ import type { Account, ScheduleRule } from '../../../core/types'
 import { DEFAULT_BLOCKING_SEVERITY } from '../../../core/orchestration/convergence'
 import { FAILURE_LIMIT, MAX_REVIEW_ROUNDS } from '../../../core/orchestration/types'
 import { useI18n } from '../i18n/I18nProvider'
+import { formFailure, type OrchDoor } from '../lib/orchDoor'
 import { AccountSelect } from './AccountSelect'
 import { ScheduleRuleFields } from './ScheduleRuleFields'
+import { backdropProps } from '../lib/backdrop'
 
 /** 사이드바의 '+ 새 작업'이 여는 폼. 여기서 만든 Run 은 앱이 스스로 돌린다 — 워커를 붙이고
  *  검증·병합까지 미는 스케줄러는 이미 있고(Task 1~6), 이 컴포넌트는 그 스케줄러가 볼 첫 Run 하나를
@@ -13,7 +15,8 @@ import { ScheduleRuleFields } from './ScheduleRuleFields'
  *  RunConfigForm 과 같은 관례로 로컬 draft 를 들지만, 이 폼은 '저장'이 아니라 '한 번 제출하고
  *  끝'이라 flush/onBlur 배선은 없다 — 제출 버튼 하나가 전부다. */
 export function NewRunModal({
-  projectPath,
+  door,
+  cwd,
   projectFolderBusy,
   accounts,
   onClose,
@@ -23,7 +26,11 @@ export function NewRunModal({
    *  고르면 이 Run 의 워커도 그 폴더로 가므로 둘이 한 작업 트리를 나눠 쓰게 된다 — 그때 경고한다.
    *  **막지 않는다**: 파일을 안 건드리는 워커끼리는 충돌할 것이 없고 앱은 그것을 알 수 없다. */
   projectFolderBusy: boolean
-  projectPath: string
+  /** Where the Job is made: this computer or a paired Runtime (lib/orchDoor.ts, Phase 7). */
+  door: OrchDoor
+  /** The folder the Job works in: this computer's project, or the Runtime project's own path. null: no folder to make
+   *  one in (a Runtime's unregistered folders), so the form says so and makes nothing. */
+  cwd: string | null
   /** 고를 수 있는 계정 전부. null 은 아직 안 온 것 — NewTaskModal 의 같은 prop 과 같은 뜻이다 */
   accounts: Account[] | null
   onClose: () => void
@@ -44,19 +51,21 @@ export function NewRunModal({
   const [convergence, setConvergence] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /** The create may have gone through on a Runtime whose answer was lost: not sent again from this form. */
+  const [locked, setLocked] = useState(false)
 
   const create = async (): Promise<void> => {
     const trimmed = objective.trim()
     // busy 로 다시 걸러 이중 클릭이 Run 을 두 개 만들지 못하게 한다 — 버튼의 disabled 는 같은
     // 프레임에 반영되지 않을 수 있어 여기서도 확인한다.
     // 계정도 함께 본다 — 아래 버튼의 disabled 와 같은 조건이고, 같은 이유로 두 번 본다(위 주석)
-    if (!trimmed || !coordinatorAccountId || busy) return
+    if (!trimmed || !coordinatorAccountId || busy || cwd === null || locked) return
     setBusy(true)
     setError(null)
     try {
-      const reply = await window.api.orch.command(projectPath, 'run-create', {
+      const reply = await door.command('run-create', {
         objective: trimmed,
-        cwd: projectPath,
+        cwd,
         // **provider 를 보내지 않는다** — Run 은 더 이상 그것을 정하지 않고, Task 의 계정이
         // 정한다(orchestration/types.ts 의 Task.accountIds). run-create 는 이 플래그를 이제
         // 거절한다(server.ts).
@@ -83,7 +92,9 @@ export function NewRunModal({
       })
       if (reply.status >= 400) {
         // 실패해도 모달은 닫지 않는다 — 닫으면 사용자는 눌러도 아무 일도 없었다고 여긴다
-        setError(t('jobs.new.failed'))
+        const f = formFailure(reply, t as never, 'jobs.new.failed')
+        setError(f.message)
+        if (f.lock) setLocked(true)
         return
       }
       onCreated((reply.body as { id: string }).id)
@@ -98,7 +109,7 @@ export function NewRunModal({
   }
 
   return (
-    <div className="modal-backdrop" onClick={() => !busy && onClose()}>
+    <div className="modal-backdrop" {...backdropProps(() => !busy && onClose())}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <h2>{t('jobs.new.title')}</h2>
         {/* 전제조건이라 폼보다 앞에 둔다. 워커는 언제나 워크트리에서 일하고 워크트리는 git 의
@@ -107,6 +118,8 @@ export function NewRunModal({
             저장소인지 확인하려면 main 에 물어야 하고, 그 왕복을 모달을 여는 길에 넣는 것은 이
             한 줄이 사는 값보다 크다(docs/jobs.md 에 같은 사실이 적혀 있다). */}
         <p className="modal-hint">{t('jobs.new.gitRequired')}</p>
+        {/* A paired Runtime's "Unregistered folders" has no folder to make a Job in (Phase 7). */}
+        {cwd === null && <p className="warn-text">{t('jobs.runtime.noFolder')}</p>}
         <div className="field">
           <label>{t('jobs.new.objective')}</label>
           <input
@@ -155,7 +168,8 @@ export function NewRunModal({
             />
             <p className="modal-hint">{t('jobs.new.coordinatorHint')}</p>
             {accounts.length === 0 && (
-              <p className="warn-text">{t('jobs.task.accountEmpty')}</p>
+              // A Runtime's accounts are added on that machine: "add one under Settings" here would not help.
+              <p className="warn-text">{door.runtimeId ? t('jobs.runtime.noAccounts') : t('jobs.task.accountEmpty')}</p>
             )}
           </div>
         )}
@@ -210,7 +224,7 @@ export function NewRunModal({
             className="primary"
             // 코디네이터 계정 없이는 만들 수 없다 — 이 폼은 관리자 있는 Run 만 만든다
             disabled={
-              busy || !objective.trim() || !coordinatorAccountId || (scheduled && schedule === null)
+              busy || locked || cwd === null || !objective.trim() || !coordinatorAccountId || (scheduled && schedule === null)
             }
             onClick={() => void create()}
           >

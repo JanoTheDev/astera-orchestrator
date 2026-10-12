@@ -7,6 +7,7 @@ import {
   countLeaves,
   dropZoneOf,
   leaves,
+  setRatio,
   splitBoundaries,
   type DropZone,
   type PaneLeaf,
@@ -24,6 +25,9 @@ import { browserSlotDraw } from './browserSlot'
 import { useI18n } from '../i18n/I18nProvider'
 import { TerminalView } from './TerminalView'
 import { ConversationPane } from './conversation/ConversationPane'
+import { RemoteTerminalView } from './RemoteTerminalView'
+import { RemoteConversationPane } from './conversation/RemoteConversationPane'
+import type { RemoteFacts, RemoteSessionRef } from '../lib/remoteSessions'
 import { RECORD_GLYPH, RECORD_GLYPH_COLOR } from './UnderstandingIcons'
 import {
   WorkbenchTabs,
@@ -44,6 +48,9 @@ import {
  *  session slots. There is **one editor per pane, not one per open file** — twenty open files would
  *  otherwise mean twenty CodeMirror instances, while a pane switching between its own file tabs reuses
  *  the one editor and lets App's EditorStateCache carry undo and scroll across. */
+/** A remote session tab's underline: no local account colours it, since its account is the Runtime's. */
+const REMOTE_TAB_COLOR = '#8a8f98'
+
 export function PaneGrid({
   layout,
   activePaneId,
@@ -81,8 +88,19 @@ export function PaneGrid({
   renderRecord,
   renderBrowser,
   appTabInfo,
-  renderApp
+  renderApp,
+  remoteSessions = [],
+  remoteStatus = {},
+  remoteReadOnly = () => false,
+  runtimeName = (id) => id
 }: {
+  /** Sessions on paired Runtimes (Phase 9b), each in the tab `sessionTab(ref.key)`. */
+  remoteSessions?: RemoteSessionRef[]
+  /** A remote session's status by key, from its Runtime's facts; absent is unknown. */
+  remoteStatus?: Record<string, RemoteFacts['status']>
+  /** Whether this app's pairing with that Runtime is read-only. */
+  remoteReadOnly?: (runtimeId: string) => boolean
+  runtimeName?: (runtimeId: string) => string
   layout: PaneNode | null
   activePaneId: string | null
   sessions: SessionInfo[]
@@ -174,9 +192,13 @@ export function PaneGrid({
   // A tab starts on the terminal. There is no setting for that any more: the one that used to seed it
   // shared its two words with the session kind, and people reached for it meaning "open new sessions
   // as 대화" — so it became the default *kind* instead, and this choice is the tab bar's toggle alone.
-  const paneLeaves = layout ? leaves(layout) : []
-  const rects: Map<string, Rect> = layout ? computeRects(layout) : new Map()
-  const bounds = layout ? splitBoundaries(layout) : []
+  // A divider being dragged moves here, frame by frame, and reaches App once at the release (audit UI-1): each frame went
+  // to App's setLayout, and the whole app was drawn again sixty times a second for as long as the drag lasted.
+  const [dragRatio, setDragRatio] = useState<{ splitId: string; ratio: number } | null>(null)
+  const shown = layout && dragRatio ? setRatio(layout, dragRatio.splitId, dragRatio.ratio) : layout
+  const paneLeaves = shown ? leaves(shown) : []
+  const rects: Map<string, Rect> = shown ? computeRects(shown) : new Map()
+  const bounds = shown ? splitBoundaries(shown) : []
   const full = layout ? countLeaves(layout) >= MAX_PANES : false
   // Session → the group holding that session (absent means it is off screen). The tree holds tab ids,
   // so each one is read back through parseTab and only the session tabs are kept
@@ -193,6 +215,7 @@ export function PaneGrid({
     }
   // Session id → session info, file tab id → file tab. Used when a group's tab ids are turned into tabs
   const sessionOf = new Map(sessions.map((s) => [s.id, s]))
+  const remoteOf = new Map(remoteSessions.map((r) => [r.key, r]))
   const fileTabOf = new Map(fileTabs.map((f) => [f.id, f]))
   // Record tab id → that tab's record. Same shape as fileTabOf
   const recordTabOf = new Map(recordTabs.map((r) => [r.id, r]))
@@ -289,6 +312,7 @@ export function PaneGrid({
               <div className="session-slot-view" style={{ display: 'flex' }}>
                 <ConversationPane
                   sessionId={s.id}
+                  visible={visible}
                   exited={s.status === 'exited'}
                   active={visible && pane != null && pane.id === activePaneId}
                   rollState={rollStates[s.id] ?? null}
@@ -310,6 +334,41 @@ export function PaneGrid({
                 />
               </div>
             )}
+          </div>
+        )
+      })}
+      {/* Remote session slots (Phase 9b), by the session-slot rule above: a terminal stays mounted for the tab's
+          whole life (its xterm holds what the stream drew), a chat mounts only while it shows (it reads its
+          conversation from the Runtime on a timer, which nobody needs while it is hidden). */}
+      {remoteSessions.map((r) => {
+        const pane = paneOfSession.get(r.key)
+        const visible = pane != null && pane.activeTabId === sessionTab(r.key)
+        const rect = pane ? rects.get(pane.id) : undefined
+        const readOnly = remoteReadOnly(r.runtimeId)
+        return (
+          <div
+            key={r.key}
+            className="terminal-slot"
+            style={
+              visible && rect
+                ? {
+                    display: 'flex',
+                    left: `${rect.x}%`,
+                    width: `${rect.w}%`,
+                    top: `calc(${rect.y}% + var(--pane-tabbar-h))`,
+                    height: `calc(${rect.h}% - var(--pane-tabbar-h))`
+                  }
+                : { display: 'none' }
+            }
+            onMouseDown={() => pane && onFocusPane(pane.id)}
+          >
+            <div className="session-slot-view" style={{ display: 'flex' }}>
+              {r.kind === 'chat' ? (
+                visible && <RemoteConversationPane session={r} readOnly={readOnly} />
+              ) : (
+                <RemoteTerminalView session={r} readOnly={readOnly} active={visible && pane != null && pane.id === activePaneId} />
+              )}
+            </div>
           </div>
         )
       })}
@@ -524,6 +583,19 @@ export function PaneGrid({
             const ref = parseTab(tabId)
             if (ref?.kind === 'session') {
               const s = sessionOf.get(ref.id)
+              const r = s ? undefined : remoteOf.get(ref.id)
+              if (r)
+                return {
+                  tabId,
+                  kind: 'session',
+                  sessionId: r.key,
+                  title: `${r.title ?? r.sessionId} · ${runtimeName(r.runtimeId)}`,
+                  color: REMOTE_TAB_COLOR,
+                  busy: remoteStatus[r.key] === 'working',
+                  exited: !r.alive,
+                  rollTooltip: null,
+                  remote: true
+                }
               if (!s) return null
               return {
                 tabId,
@@ -610,7 +682,7 @@ export function PaneGrid({
         const activeSessionRef = parseTab(l.activeTabId)
         const activeSession =
           activeSessionRef?.kind === 'session'
-            ? { kind: sessionKindOf(sessionOf.get(activeSessionRef.id) ?? {}) }
+            ? { kind: remoteOf.get(activeSessionRef.id)?.kind ?? sessionKindOf(sessionOf.get(activeSessionRef.id) ?? {}) }
             : null
         return (
           <div
@@ -654,6 +726,8 @@ export function PaneGrid({
               e.preventDefault()
               const host = hostRef.current
               if (!host) return
+              // Only this pointer moves and ends the drag (audit UI-4), as the sidebar's resizer does.
+              const startId = e.pointerId
               const hostRect = host.getBoundingClientRect()
               // Converts the sub-area this split divides (area, in %) into px so the ratio is taken within
               // that area. A nested split divides only the area its parent gave it, not the whole screen
@@ -669,16 +743,25 @@ export function PaneGrid({
                     }
               let rafId = 0
               let latest = 0
+              let moved = false
+              const ratioNow = (): number => clampRatio((latest - areaPx.start) / areaPx.size, areaPx.size)
               const apply = (): void => {
                 rafId = 0
-                onSetRatio(b.splitId, clampRatio((latest - areaPx.start) / areaPx.size, areaPx.size))
+                moved = true
+                setDragRatio({ splitId: b.splitId, ratio: ratioNow() })
               }
               const onMove = (ev: PointerEvent): void => {
+                if (ev.pointerId !== startId) return
                 latest = b.dir === 'row' ? ev.clientX : ev.clientY
                 if (!rafId) rafId = requestAnimationFrame(apply)
               }
-              const onUp = (): void => {
+              const onUp = (ev: PointerEvent): void => {
+                if (ev.pointerId !== startId) return
+                // The last move is applied, not dropped (audit UI-4): the drag ends where it was let go, and App hears it once.
                 if (rafId) cancelAnimationFrame(rafId)
+                if (moved || rafId) onSetRatio(b.splitId, ratioNow())
+                rafId = 0
+                setDragRatio(null)
                 window.removeEventListener('pointermove', onMove)
                 window.removeEventListener('pointerup', onUp)
                 window.removeEventListener('pointercancel', onUp)
