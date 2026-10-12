@@ -189,19 +189,23 @@ export function RemoteRuntimesSettings({ onChanged }: { /** A Runtime was paired
               />
             </div>
             <span className="settings-hint">{t('settings.remote.start.hint')}</span>
-            <button className="primary" disabled={switching || listen === ''} onClick={() => void turnOn()}>
-              {t('settings.remote.start.button')}
-            </button>
+            <div className="remote-actions is-end">
+              <button className="primary" disabled={switching || listen === ''} onClick={() => void turnOn()}>
+                {t('settings.remote.start.button')}
+              </button>
+            </div>
           </>
         )}
         {mine && remoteOn && (
           <>
-            <button className="ghost" disabled={switching} onClick={() => void turnOff()}>
-              {t('settings.remote.stop.button')}
-            </button>
+            <div className="remote-actions is-end">
+              <button className="ghost danger" disabled={switching} onClick={() => void turnOff()}>
+                {t('settings.remote.stop.button')}
+              </button>
+            </div>
 
             <div className="settings-field-label">{t('settings.remote.newPair.title')}</div>
-            <div className="settings-row">
+            <div className="remote-actions">
               <Select
                 className="settings-gen-select"
                 ariaLabel={t('settings.remote.newPair.title')}
@@ -213,7 +217,7 @@ export function RemoteRuntimesSettings({ onChanged }: { /** A Runtime was paired
                 ]}
               />
               <input
-                className="settings-gen-input"
+                className="settings-gen-input remote-actions-grow"
                 aria-label={t('settings.remote.newPair.name')}
                 placeholder={t('settings.remote.newPair.name')}
                 value={pairName}
@@ -227,8 +231,8 @@ export function RemoteRuntimesSettings({ onChanged }: { /** A Runtime was paired
             {fullControl && <p className="settings-hint is-warning">{t('settings.remote.newPair.fullControlWarning')}</p>}
             {made && (
               <>
-                <div className="settings-row">
-                  <input className="settings-gen-input" readOnly value={made.pairing} aria-label={t('settings.remote.newPair.title')} spellCheck={false} onFocus={(e) => e.target.select()} />
+                <div className="remote-actions">
+                  <input className="settings-gen-input remote-actions-grow" readOnly value={made.pairing} aria-label={t('settings.remote.newPair.title')} spellCheck={false} onFocus={(e) => e.target.select()} />
                   <button className="settings-gen-refresh" onClick={copyPairing}>
                     {t('settings.remote.newPair.copy')}
                   </button>

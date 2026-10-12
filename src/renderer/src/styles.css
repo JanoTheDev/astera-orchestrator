@@ -1209,6 +1209,11 @@ button.primary:disabled { background: var(--elevated); border-color: var(--line-
 .settings-hint { font-size: 12px; color: var(--text-faint); }
 /* The full-control warning on a pairing string about to be made (Settings › Remote Runtimes › This computer). */
 .settings-hint.is-warning { color: var(--warn); }
+/* A row of controls in Settings › Remote Runtimes › This computer: side by side with a gap, a text field taking what is
+   left, and `is-end` pushing a lone button to the right. */
+.remote-actions { display: flex; align-items: center; gap: 8px; }
+.remote-actions.is-end { justify-content: flex-end; }
+.remote-actions-grow { flex: 1; min-width: 0; }
 
 /* account rolling slots — multi-account selection in the new session modal */
 .account-slot {
