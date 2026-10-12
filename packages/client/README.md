@@ -41,5 +41,35 @@ does not start a Host: with none running, `createAsteraClient` rejects `HOST_NOT
 **Closing.** An idle client does not keep Node running. `close()` still ends the connection at once, which frees the
 Host's side; calls still waiting fail with `FAILED` ("the client was closed before the Host answered").
 
-Typed methods (`jobs`, `runs`, `tasks`, `questions`, ...) and events come next. **Not published yet.** It lives in the
+**Typed methods.** The same commands with typed inputs and answers (`Project`, `Job`, `Run`, `Task`, `Question`,
+`RunCompletion`, ...), checked against the app's own types when the app builds:
+
+```ts
+const job = await astera.jobs.create({ objective: 'Refactor auth', projectId, coordinator: { provider: 'claude' } }, { requestId })
+const run = await astera.jobs.run(job.id)
+for await (const item of astera.runs.follow(run.id)) {
+  if ('event' in item) console.log(item.event.summary)
+  else console.log('ended:', item.ending.state) // completed, failed, waiting, paused, limited or timeout
+}
+```
+
+| Namespace | Methods |
+|---|---|
+| `projects` | `list`, `get` |
+| `jobs` | `list({ status, projectId })`, `get`, `create`, `run`, `wait` |
+| `runs` | `list({ jobId })`, `get`, `wait`, `follow`, `stop`, `resume` |
+| `tasks` | `list({ runId, status, ready, brief })`, `get`, `create` |
+| `questions` | `list({ runId, taskId, status })`, `get`, `answer` |
+| `completion` | `get` (read only: whether work is done stays Astera's call) |
+
+- Lists come back as `{ items }`. The Host answers whole lists today; `nextCursor` will appear when it pages.
+- A wait or a follow ends with data, not an error: `completed`, `failed`, `waiting` (a question for a person),
+  `paused`, `limited` (every worker waits for a usage limit) or `timeout`.
+- Words follow the Host: a question's status is `open` or `resolved`, and a Run is stopped (paused, `resume`
+  takes it back); there is no cancel.
+- `jobs.create` takes a `projectId` (its folder is looked up) or a `cwd`. With no `coordinator`, the Job runs only
+  the Tasks added to it, as with the CLI. `tasks.create` without `accountIds` uses the Job's coordinator account.
+- Write methods take a `requestId`; read methods never send one.
+
+Events come next. **Not published yet.** It lives in the
 Astera repository and will be versioned separately from the app.
