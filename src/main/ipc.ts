@@ -4,6 +4,10 @@ import { cachedByStamp } from '../core/stampCache'
 import fsSync, { promises as fs, existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
+import { createThisMachineControl } from './remote/thisMachineControl'
+import { readRemoteSettings, writeRemoteSettings } from '../core/remote/settings'
+import { loadIdentity, loadOrCreateIdentity } from '../core/remote/identity'
+import { openSecretStore } from '../core/secrets/secretStore'
 import net from 'node:net'
 import { execFile, spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
@@ -259,6 +263,7 @@ import { allowingJobCwds, orchRunConfigOf } from '../core/run/runConfigsFile'
 import { executeLaunch } from './run/launch'
 import { agentDirOf, resolveConsolePath, resolveExistingFile } from './run/resolveLink'
 import { mediaAllowlist } from './media/allowlist'
+import { admitProjectMedia } from './media/admit'
 import { mediaKindOf } from '../core/files/media'
 import { saveConfigsBatch } from './run/saveConfigs'
 import { planFileRun } from './run/runFile'
@@ -4709,6 +4714,29 @@ export function registerIpc(
     const c = await remoteRuntimes.client(runtimeId)
     return 'code' in c ? null : c.projects()
   })
+  // This computer as a Runtime, switched from Settings (thisMachineControl.ts): the CLI's own runtime commands, on this
+  // profile's settings and identity and its Host. A person's clicks: never an agent session.
+  const thisMachine = createThisMachineControl({
+    readSettings: () => readRemoteSettings(app.getPath('userData')),
+    writeSettings: (p) => writeRemoteSettings(app.getPath('userData'), p),
+    ensureIdentity: (san) =>
+      loadOrCreateIdentity(openSecretStore({ dir: path.join(app.getPath('userData'), 'remote'), profileDir: app.getPath('userData') }), {
+        displayName: os.hostname(),
+        ...(san === '0.0.0.0' || san === '::' ? {} : { san })
+      }),
+    loadIdentity: () => loadIdentity(openSecretStore({ dir: path.join(app.getPath('userData'), 'remote'), profileDir: app.getPath('userData') })),
+    call: async (cmd, args) => {
+      const r = await orchCall({ cmd, args, sessionId: '' })
+      return { status: r.status, body: r.body }
+    },
+    interfaces: () => os.networkInterfaces(),
+    hostname: () => os.hostname()
+  })
+  ipcMain.handle('remote.addresses', () => thisMachine.addresses())
+  ipcMain.handle('remote.start', (_e, listen: unknown) => thisMachine.start(listen))
+  ipcMain.handle('remote.stop', () => thisMachine.stop())
+  ipcMain.handle('remote.pair', (_e, o: unknown) => thisMachine.pair(o))
+  ipcMain.handle('remote.revoke', (_e, id: unknown) => thisMachine.revoke(id))
   // This computer as a Runtime: the local Host's own answer (runtime-status), or null when it cannot say.
   ipcMain.handle('remote.thisMachine', async () => {
     try {
@@ -5183,6 +5211,12 @@ export function registerIpc(
     if (mediaKindOf(p)) mediaAllowlist.add(p)
     return { path: p }
   })
+  // An image or a video the explorer or a Markdown preview opens (App's openProjectFile): admitted to the media
+  // allowlist through the project guard, so a project on a share or in \\wsl$ opens its images too and nothing outside
+  // a project is admitted (main/media/admit.ts). null leaves the file to an ordinary file tab.
+  ipcMain.handle('files.admitMedia', (_e, p: unknown) =>
+    admitProjectMedia(p as string, { assertAllowedPath, stat: (f) => fs.stat(f), allowlist: mediaAllowlist })
+  )
   // The media viewer's own calls. Each is checked against the media allowlist rather than
   // assertAllowedPath: the file was admitted when its link resolved, and it is usually outside every
   // project (an agent's output folder), where the project guard would refuse the very file on screen.

@@ -4,7 +4,8 @@ import { mediaKindOf } from '../../core/files/media'
 
 /** The files the media protocol (./protocol.ts) may serve: the ones the renderer was told exist, by
  *  files.resolveLink (a session terminal's link, or a SendUserFile row resolving its paths before
- *  opening them) or run.resolveLink.
+ *  opening them), run.resolveLink, or files.admitMedia (an image or a video the explorer or a Markdown
+ *  preview opens, inside a project: ./admit.ts).
  *
  *  **Defence in depth, not a boundary.** files.resolveLink admits any absolute media path the
  *  renderer names, so code that can call window.api can put anything on this list. What it does bind

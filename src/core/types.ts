@@ -1465,6 +1465,8 @@ export interface CoreApi {
      *  `sessionId`, when the link is in a session, makes a relative target try the agent's current
      *  directory (from that session's statusLine payload) before `cwd`. */
     resolveLink(cwd: string, target: string, sessionId?: string): Promise<{ path: string } | null>
+    /** An image or a video in a project, admitted for the media viewer (main/media/admit.ts); null for anything else. */
+    admitMedia(path: string): Promise<{ path: string } | null>
   }
   /** The media viewer tab (components/MediaViewer.tsx). Every call accepts only a media file that
    *  files.resolveLink answered in this run of the app (main/media/allowlist.ts). */
@@ -1849,8 +1851,25 @@ export interface RemoteApi {
    *  Runtime cannot be asked now (never an empty list for an unreachable one). */
   projects(runtimeId: string): Promise<Array<{ id: string; name: string | null; path: string | null }> | null>
   /** This computer as a Runtime: whether Remote is on, the Gateway, the paired controllers. null when the Host cannot say. */
-  thisMachine(): Promise<{ gateway: { state: string; [k: string]: unknown }; clients: Array<{ clientId: string; name: string; permission: string; lastSeenAt: string | null }> } | null>
+  thisMachine(): Promise<{
+    gateway: { state: string; [k: string]: unknown }
+    clients: Array<{ clientId: string; name: string; permission: string; lastSeenAt: string | null }>
+    /** The ids of the pairing codes that can still be redeemed (absent from an older Host). */
+    pairings?: string[]
+  } | null>
+  /** The addresses this computer can serve on: its private IPv4s, then 127.0.0.1 (`local`); never every interface. */
+  addresses(): Promise<Array<{ address: string; iface: string | null; local: boolean }>>
+  /** Remote Runtime on, on one of `addresses()`. */
+  start(listen: string): Promise<RemoteControlAnswer>
+  stop(): Promise<RemoteControlAnswer>
+  /** A pairing string for a controller: read-only unless `fullControl`. The body carries `pairing` and `expiresAt`. */
+  pair(o: { fullControl?: boolean; name?: string }): Promise<RemoteControlAnswer>
+  /** Unpairs a controller paired with this computer (`thisMachine().clients[].clientId`). */
+  revoke(clientId: string): Promise<RemoteControlAnswer>
 }
+
+/** An answer from This computer's controls (main/remote/thisMachineControl.ts). */
+export type RemoteControlAnswer = { ok: true; body: Record<string, unknown> } | { ok: false; code: string; message: string }
 
 /** A remote session tab's pty stream (Phase 9b): its output arrives on the session bus under the tab's key. */
 export interface RemoteSessionsApi {

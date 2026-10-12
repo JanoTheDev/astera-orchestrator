@@ -51,7 +51,12 @@ no relay and opens no port for you.
 
 ## Set up the Runtime
 
-On the machine that will do the work, with the Astera app installed and its command line turned on (Settings › CLI):
+On the machine that will do the work, in the Astera app: Settings › Remote Runtimes › This computer. Choose the address
+to accept connections on (this machine's LAN or Tailscale addresses, or this computer only; every interface is not
+offered) and turn it on. Once it is on, the same place makes a pairing string (read-only or full control, with a name;
+it shows the time left and a copy button), lists the paired controllers with an Unpair button each, and turns it off.
+
+Or from a shell, with Astera's command line turned on (Settings › CLI):
 
 ```text
 astera runtime start --listen 100.64.0.5     listen on that address (default 127.0.0.1, port 47831)
@@ -326,11 +331,13 @@ list the newest Jobs or runs on that Runtime before trying again.
 
 ## Revoke and remove
 
-- On the Runtime: `astera runtime clients` lists the paired controllers; `astera runtime revoke --id <clientId>`
-  unpairs one. Its next command is refused with `RUNTIME_AUTH_FAILED`, and its open connections close.
+- On the Runtime: Unpair beside a controller in Settings › Remote Runtimes › This computer (on or off), or list
+  them with `astera runtime clients` and unpair one with `astera runtime revoke --id <clientId>`. Its next command
+  is refused with `RUNTIME_AUTH_FAILED`, and its open connections close.
 - On the controller: `astera runtimes remove --id <runtimeId|name>`, or Remove in Settings › Remote Runtimes, forgets
   the Runtime here. It does **not** revoke the pairing on the Runtime.
-- `astera runtime stop` stops listening. The Host and its Jobs keep running.
+- Turning off (in Settings › Remote Runtimes › This computer, or with `astera runtime stop`) stops listening and
+  spends any pairing string not used yet. Pairings stay, the Host and its Jobs keep running.
 
 ## Troubleshooting
 

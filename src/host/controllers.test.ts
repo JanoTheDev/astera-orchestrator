@@ -272,3 +272,41 @@ describe('client records: final review fixes', () => {
     expect(saves - after).toBe(2)
   })
 })
+
+// Settings shows a pairing string until it is spent: each code has an id (random, never the code's hash, which would
+// let 50 bits be guessed offline), the live ones are listed, and turning Remote off drops them (a string on screen
+// must not outlive what can redeem it; review of the Settings controls, minor 1).
+describe('pending pairings', () => {
+  const clock = () => {
+    let t = 1_000_000
+    return { now: () => t, advance: (ms: number) => void (t += ms) }
+  }
+
+  it('lists the ids of the codes that can still be redeemed', async () => {
+    const c = clock()
+    const r = createControllerRegistry({ now: c.now })
+    const a = r.createPairing({ permission: 'read-only' })
+    const b = r.createPairing({ permission: 'full-control' })
+    expect(a.id).toMatch(/^[0-9a-f]{16}$/)
+    expect(a.id).not.toBe(b.id)
+    expect(r.pendingPairings().sort()).toEqual([a.id, b.id].sort())
+    await r.redeem(a.code, 'laptop')
+    expect(r.pendingPairings()).toEqual([b.id])
+    c.advance(10 * 60 * 1000 + 1)
+    expect(r.pendingPairings()).toEqual([])
+  })
+
+  it('drops every code when asked, so none redeems afterwards', async () => {
+    const r = createControllerRegistry()
+    const { code } = r.createPairing({ permission: 'read-only' })
+    r.dropPairings()
+    expect(r.pendingPairings()).toEqual([])
+    expect(await r.redeem(code, 'laptop')).toMatchObject({ ok: false, reason: 'unknown' })
+  })
+
+  it('never names a code by its hash', () => {
+    const r = createControllerRegistry()
+    const { code, id } = r.createPairing({ permission: 'read-only' })
+    expect(sha256Base64url(code).startsWith(id)).toBe(false)
+  })
+})
