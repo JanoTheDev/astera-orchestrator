@@ -138,6 +138,53 @@ describe('목록', () => {
     const l = b[0] as Extract<MdBlock, { k: 'list' }>
     expect(l.items.map((i) => i.task)).toEqual([false, true, null])
   })
+  // 2026-10-12: 미리보기에서 체크박스 줄이 체크박스만 남고 문장이 사라졌다. GFM TaskList 는 항목의 글을 Paragraph 가
+  // 아니라 Task 노드에 담는데, 항목을 읽는 쪽이 Task 를 몰라 통째로 버렸다. 체크박스 뒤의 글은 문단이 된다.
+  it('체크박스 뒤의 글을 문단으로 담는다 (코드, 굵게, 이어지는 줄까지)', () => {
+    const b = parseMarkdown('- [ ] `astera runtime status` 로 **확인**한다\n      이어지는 줄\n- [x] 끝\n')
+    const l = b[0] as Extract<MdBlock, { k: 'list' }>
+    const text = (blocks: MdBlock[]): string =>
+      blocks
+        .filter((c): c is Extract<MdBlock, { k: 'para' }> => c.k === 'para')
+        .map((c) => JSON.stringify(c.inline))
+        .join('')
+    expect(text(l.items[0].children)).toContain('astera runtime status')
+    expect(text(l.items[0].children)).toContain('확인')
+    expect(text(l.items[0].children)).toContain('이어지는 줄')
+    expect(text(l.items[0].children)).not.toContain('[ ]')
+    expect(text(l.items[1].children)).toContain('끝')
+  })
+
+  /** One list's items as [task, the kinds of their blocks, their paragraphs' text]. */
+  const items = (src: string, at = 0) => {
+    const l = parseMarkdown(src)[at] as Extract<MdBlock, { k: 'list' }>
+    const flat = (inl: MdInline[]): string => inl.map((n) => ('text' in n ? n.text : 'children' in n ? flat(n.children as MdInline[]) : '')).join('')
+    return l.items.map((i) => [i.task, i.children.map((c) => c.k), i.children.filter((c) => c.k === 'para').map((c) => flat((c as Extract<MdBlock, { k: 'para' }>).inline))])
+  }
+
+  // Review of the task fix, minor 4: the shapes a task item comes in, pinned.
+  it('reads a task item as one paragraph on its line, in a numbered list, inside a quote, before a nested list and a second paragraph', () => {
+    expect(items('- [ ] a\n  b\n')).toEqual([[false, ['para'], ['a\n  b']]])
+    expect(items('1. [X] a\n2. [ ] b\n')).toEqual([[true, ['para'], ['a']], [false, ['para'], ['b']]])
+    const quoted = parseMarkdown('> - [ ] a\n>   b\n')[0] as Extract<MdBlock, { k: 'quote' }>
+    expect((quoted.children[0] as Extract<MdBlock, { k: 'list' }>).items[0].task).toBe(false)
+    expect(JSON.stringify(quoted.children[0])).not.toContain('>')
+    expect(items('- [ ] a\n  - b\n')).toEqual([[false, ['para', 'list'], ['a']]])
+    expect(items('- [ ] a\n\n  b\n')).toEqual([[false, ['para', 'para'], ['a', 'b']]])
+    const lines = parseMarkdown('x\n\n- [ ] a\n- [ ] b\n')[1] as Extract<MdBlock, { k: 'list' }>
+    expect(lines.items.map((i) => i.children[0].line)).toEqual([2, 3])
+  })
+
+  // Minor 2: GitHub makes a checkbox only on the line of the list marker; a later paragraph that starts with `[ ]` keeps
+  // its brackets as text, and the item gets no checkbox from it.
+  it('makes a checkbox only on the line of the list marker', () => {
+    expect(items('- foo\n\n  [ ] bar\n')).toEqual([[null, ['para', 'para'], ['foo', '[ ] bar']]])
+  })
+
+  // Minor 3: spaces before a line break right after the box are the box's, not a break: the text sits beside it.
+  it('does not open a task line with a break when the box is followed by spaces and a new line', () => {
+    expect(items('- [ ]   \n  foo\n')).toEqual([[false, ['para'], ['foo']]])
+  })
 })
 
 describe('인용', () => {

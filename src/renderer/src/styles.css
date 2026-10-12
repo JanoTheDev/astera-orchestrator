@@ -2925,8 +2925,13 @@ input[type="checkbox"]:not(.md-task input):focus-visible {
 .md-preview blockquote, .md-preview pre { margin: 16px 0; }
 .md-preview ul, .md-preview ol { padding-left: 2em; }
 .md-preview li > p { margin: 0; }
-.md-preview li.md-task { list-style: none; margin-left: -1.2em; }
-.md-preview li.md-task > input { margin-right: .5em; }
+/* The checkbox hangs in the list's left padding and the item stays where the text starts, as GitHub draws it: a line
+   long enough to wrap goes on under its own text, not under the box. */
+.md-preview li.md-task { list-style: none; }
+.md-preview li.md-task > input { margin: 0 .5em 0 -1.5em; }
+/* A task item's text sits beside its checkbox: the first paragraph runs inline after the box; anything after it (a
+   nested list, a second paragraph) stays a block below. */
+.md-preview li.md-task > input + p { display: inline; }
 .md-preview blockquote { padding: 10px 10px 10px 16px; border-left: 2px solid var(--md-line);
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
 .md-preview blockquote > :first-child { margin-top: 0; }

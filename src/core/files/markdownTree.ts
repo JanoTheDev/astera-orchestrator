@@ -802,12 +802,19 @@ function tableCells(row: SyntaxNode, ctx: Ctx): MdInline[][] {
   return row.getChildren('TableCell').map((c) => inlineOf(c, ctx))
 }
 
-/** 목록 항목의 체크박스. TaskMarker 는 GFM TaskList 확장이 Task 노드 안에 넣는다 */
+/** 목록 항목의 체크박스. TaskMarker 는 GFM TaskList 확장이 Task 노드 안에 넣는다. 항목의 첫 Task 가 아니라 목록
+ *  표시와 같은 줄의 Task 만 체크박스다(리뷰 minor 2): lezer 는 항목 안 어느 문단이든 `[ ] ` 로 시작하면 Task 로 만든다 */
 function itemTask(item: SyntaxNode, ctx: Ctx): boolean | null {
-  const task = item.getChild('Task') ?? item
-  const marker = task.getChild('TaskMarker')
+  const task = item.getChildren('Task').find((t) => taskOnMarkLine(t, ctx)) ?? (item.getChild('Task') ? null : item)
+  const marker = task?.getChild('TaskMarker')
   if (!marker) return null
   return /x/i.test(ctx.text.slice(marker.from, marker.to))
+}
+
+/** Whether a Task node starts on the line of its list item's marker, which is the only place GitHub makes a checkbox. */
+function taskOnMarkLine(task: SyntaxNode, ctx: Ctx): boolean {
+  const mark = task.parent?.getChild('ListMark')
+  return !!mark && lineAt(ctx.starts, mark.from) === lineAt(ctx.starts, task.from)
 }
 
 /** 번호 목록의 시작 번호. ListMark 는 `3.` 또는 `3)` 꼴이다 */
@@ -935,6 +942,30 @@ function blocksOf(parent: SyntaxNode, ctx: Ctx): MdBlock[] {
         // 문단 전체가 drop 태그 하나였으면 inlineOf 가 빈 배열을 준다(예: `<script/>` 홀로 한
         // 문단). 그대로 담으면 task 7 이 빈 <p> 를 그린다 — 아무것도 없던 것처럼 건너뛴다
         const inline = inlineOf(c, ctx)
+        if (inline.length > 0) put({ k: 'para', line, inline })
+        break
+      }
+      case 'Task': {
+        // GFM TaskList 는 체크박스 항목의 글을 Paragraph 가 아니라 Task 노드에 담는다(체크박스 표시 TaskMarker 와
+        // 함께). 이 case 가 없어서 체크박스 줄이 체크박스만 남고 글은 사라졌다(2026-10-12). 체크박스는 목록 표시와
+        // 같은 줄에만 생긴다(GitHub 과 같이, taskOnMarkLine): 그 줄이면 표시와 그 뒤의 공백을 빼고, 그 공백이 줄바꿈까지
+        // 이어지면 그것도 빼고(리뷰 minor 3) 나머지를 문단으로 담는다. 다른 줄의 `[ ]` 는 글자로 남는다(리뷰 minor 2)
+        const marker = c.getChild('TaskMarker')
+        if (marker && !taskOnMarkLine(c, ctx)) {
+          const rest = inlineOf(c, ctx, { from: marker.to, to: c.to })
+          const box = ctx.text.slice(marker.from, marker.to)
+          const head = rest[0]
+          put({ k: 'para', line, inline: head && head.k === 'text' ? [{ k: 'text', text: box + head.text }, ...rest.slice(1)] : [{ k: 'text', text: box }, ...rest] })
+          break
+        }
+        const skip = (at: number): number => {
+          while (at < c.to && (ctx.text[at] === ' ' || ctx.text[at] === '\t')) at += 1
+          return at
+        }
+        let from = skip(marker ? marker.to : c.from)
+        // inlineOf takes a child that straddles `from` whole; one that does (the spaces of a hard break) is stepped past.
+        for (let ch = c.firstChild; ch; ch = ch.nextSibling) if (ch.from < from && from < ch.to) from = skip(ch.to)
+        const inline = inlineOf(c, ctx, { from, to: c.to })
         if (inline.length > 0) put({ k: 'para', line, inline })
         break
       }

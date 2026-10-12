@@ -168,3 +168,30 @@ describe('MarkdownPreview — 코드 블록 복사 버튼', () => {
     expect(html).not.toContain('md-copy')
   })
 })
+
+// 2026-10-12: a task list line showed its checkbox and lost its text (docs/remote-runtime-checks.md is mostly such
+// lines). The text is drawn after the box, in the item.
+describe('MarkdownPreview — task list items', () => {
+  it('draws the text of a task line after its checkbox', () => {
+    const html = renderPreview('- [ ] `astera runtime status` 로 **확인**한다\n- [x] 끝\n')
+    expect(html).toMatch(/<li[^>]*class="md-task"[^>]*><input type="checkbox"[^>]*\/><p[^>]*><code>astera runtime status<\/code> 로 <strong>확인<\/strong>한다<\/p><\/li>/)
+    expect(html).toMatch(/<input type="checkbox"[^>]*checked=""[^>]*\/><p[^>]*>끝<\/p>/)
+  })
+})
+
+// Review of the task fix, minor 1: a task line long enough to wrap goes on under its own text, not under the box. The
+// box hangs in the list's left padding (GitHub's way) instead of the item being pulled left.
+describe('task list CSS', () => {
+  it('hangs the checkbox in the padding and leaves the item where the text starts', async () => {
+    const { readFileSync } = await import('node:fs')
+    const css = readFileSync(`${process.cwd()}/src/renderer/src/styles.css`, 'utf8')
+    /** The declarations of the rule written exactly as `selector {`. */
+    const rule = (selector: string): string => {
+      const at = css.indexOf(`${selector} {`)
+      return at < 0 ? '' : css.slice(at + selector.length + 2, css.indexOf('}', at))
+    }
+    expect(rule('.md-preview li.md-task')).toContain('list-style: none')
+    expect(rule('.md-preview li.md-task')).not.toContain('margin-left: -')
+    expect(rule('.md-preview li.md-task > input')).toContain('margin: 0 .5em 0 -1.5em')
+  })
+})
