@@ -43,6 +43,8 @@ import type { HostSlackWiring } from './slackWiring'
 import type { McpHttpSupervisor } from './mcpHttp'
 import { WORKTREE_CALLS, type HostWorktrees } from './worktrees'
 import type { HostJournal } from './hostJournal'
+import type { HostEventLog } from './eventLog'
+import { pollEvents } from './eventsPoll'
 import { NOT_WRITER, type HostUnderstanding } from './hostUnderstanding'
 import type { HostWorkUnits } from './hostWorkUnits'
 import { ensureProject, findProject } from '../core/orchestration/projects'
@@ -531,6 +533,10 @@ export function createHostOrch(a: {
   /** The Host's Job Journal (hostJournal.ts). Absent: nothing is journaled here, `journal-append` and
    *  `journal-reload` answer 501, and `runs follow` shows no journal rows. */
   journal?: (Pick<HostJournal, 'committed' | 'loaded' | 'append' | 'reload' | 'timeline'> & Partial<Pick<HostJournal, 'busy'>>) | null
+  /** The public event log (SDK 1d, eventLog.ts): handed the two states of every commit, the load's cleanup and an
+   *  accepted `state-put` with a base included, and read by `events-poll`. Absent: no events are kept, and
+   *  `events-poll` answers 501. */
+  events?: Pick<HostEventLog, 'committed' | 'read' | 'tail' | 'next'> | null
   /** How It Works in the Host (hostUnderstanding.ts, E1 §3, §4): handed every Run a commit finishes, and
    *  the app's `understanding-unit` and the app's and MCP's `understanding-regenerate`. Absent: this Host
    *  records no Run, and both calls answer 501. */
@@ -563,6 +569,16 @@ export function createHostOrch(a: {
       fn()
     } catch (err) {
       a.log(`continuity: ${what} failed on the Host: ${String(err)}`)
+    }
+  }
+
+  /** The public event log, isolated like the journal: a log that throws must not turn a landed commit into a failed
+   *  command (eventLog.ts never throws; this is for one that does anyway). */
+  const recordEvents = (prev: OrchState, next: OrchState): void => {
+    try {
+      a.events?.committed(prev, next)
+    } catch (err) {
+      a.log(`events: recording a commit failed on the Host: ${String(err)}`)
     }
   }
 
@@ -638,6 +654,8 @@ export function createHostOrch(a: {
       // The restart cleanup is a transition like any other (the app did this at its boot): every worker it
       // closed as outcome_unknown lands as ATTEMPT_LOST, by the Host (P5).
       journalSafely('recording the load', () => a.journal?.loaded({ before: loadResult!.before, state: store.get() }))
+      // And to the public event log (SDK 1d), from the state the file held. A profile with no file has no before.
+      if (loadResult.before) recordEvents(loadResult.before, store.get())
       // **The stale spec sweep, once, here** (§2.7), after the cleanup because only the cleanup knows
       // which Dispatches are still open. This load is the one place every writer of that folder is
       // past its restart: the Host's own spawns wait on `ready()`, and an app in front of a Host
@@ -732,6 +750,9 @@ export function createHostOrch(a: {
         // together right here, so a push taken any later could reach a subscriber older than its snapshot.
         const saving = store.save(next)
         publish(next, committed)
+        // The public event log moves with memory and the subscribers (SDK 1d): an event never names a state a read
+        // cannot see yet. A disk write that then fails leaves memory moved all the same, and the events with it.
+        recordEvents(prev, next)
         await saving
         a.onState(next, committed)
         // J1: journaled after the commit landed (the spec's accepted crash window), with who made it (J4,
@@ -943,6 +964,8 @@ export function createHostOrch(a: {
     const saving = store.save(state)
     loaded = true
     publish(state, committed)
+    // P15 again: a put that stood in for the load has no base, and every Job and Run it carries would read as new.
+    if (hadState) recordEvents(prev, state)
     await saving
     // To the others and not back to the sender: the state came from there, and an app that received
     // its own push would write its own state back over itself.
@@ -1574,6 +1597,7 @@ export function createHostOrch(a: {
             cmd === 'state-get' ||
             cmd === 'jobs-view' ||
             cmd === 'runs-timeline' ||
+            cmd === 'events-poll' ||
             REMOTE_SESSION_READS.has(cmd) ||
             cmd === 'validation-stop' ||
             cmd === 'roll-state' ||
@@ -1633,6 +1657,10 @@ export function createHostOrch(a: {
           // The state version the view was folded from: the controller's view says the Runtime's own (review minor).
           return view.status === 200 ? { status: 200, body: { ...(view.body as object), version } } : view
         }
+        // **The public event log's read (SDK 1d)**: answered here, not by the command layer, since it is not a CLI
+        // command. Read only, and it needs no load: the log is fed by commits, not read from the state. MCP and a
+        // controller were refused above (neither allowlist names it).
+        if (cmd === 'events-poll') return await pollEvents(a.events, args)
         // **Answered here, beside the two above, and for the same reason (Host S3, §3.1).** None of
         // the four `worktree-*` names goes through `handleCommand` — the app is their only caller
         // (`HostWorktrees.call` itself checks `from?.role === 'app'`) — so a Host too old to own

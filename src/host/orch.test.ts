@@ -3770,6 +3770,121 @@ describe('OBSERVED — sessions send --wait', () => {
   })
 })
 
+describe('the public event log at the commit points (SDK 1d)', () => {
+  const fake = () => {
+    const committed: Array<{ prev: OrchState; next: OrchState }> = []
+    const events = {
+      committed: (prev: OrchState, next: OrchState) => void committed.push({ prev, next }),
+      read: () => ({ events: [], cursor: 'ev_0123456789ab_0', gap: false }),
+      tail: () => 'ev_0123456789ab_0',
+      next: async () => {}
+    }
+    return { committed, events }
+  }
+  const app: OrchCaller = { role: 'app', toOthers: () => {} }
+
+  it('hears a command’s commit with the state before and after it, after memory moved', async () => {
+    await seed()
+    const f = fake()
+    let seen: boolean | null = null
+    const orch = orchOver({
+      events: {
+        ...f.events,
+        committed: (prev, next) => {
+          seen = orch.state() === next
+          f.events.committed(prev, next)
+        }
+      }
+    })
+    await orch.ready()
+    // The load's own cleanup was the first (its own test, below)
+    f.committed.length = 0
+    const runId = orch.state().runs[0].id
+    expect((await orch.call({ cmd: 'runs-stop', args: { id: runId }, sessionId: '' })).status).toBe(200)
+    expect(f.committed).toHaveLength(1)
+    expect(f.committed[0].prev.runs[0].paused).toBeFalsy()
+    expect(f.committed[0].next.runs[0].paused).toBe(true)
+    expect(seen).toBe(true)
+  })
+
+  it('hears an app’s state-put with a base, and not one that stood in for the load', async () => {
+    const state = (await (async () => {
+      await seed()
+      return JSON.parse(await fs.readFile(path.join(dir, 'orchestration.json'), 'utf8'))
+    })()) as OrchState
+    const first = fake()
+    expect((await orchOver({ events: first.events }).call({ cmd: 'state-put', args: { state }, sessionId: '', from: app })).status).toBe(200)
+    expect(first.committed).toEqual([])
+
+    const f = fake()
+    const orch = orchOver({ events: f.events })
+    const got = (await orch.call({ cmd: 'state-get', args: {}, sessionId: '' })).body as { state: OrchState; version: number }
+    f.committed.length = 0
+    const paused: OrchState = { ...got.state, runs: got.state.runs.map((r) => ({ ...r, paused: true })) }
+    expect((await orch.call({ cmd: 'state-put', args: { state: paused, version: got.version }, sessionId: '', from: app })).status).toBe(200)
+    expect(f.committed).toHaveLength(1)
+    expect(f.committed[0].prev.runs[0].paused).toBeFalsy()
+    expect(f.committed[0].next.runs[0].paused).toBe(true)
+  })
+
+  it('hears the load’s restart cleanup once, from the state the file held', async () => {
+    const job = createJob(emptyState(), { objective: 'o', cwd: 'D:/p' }, NOW)
+    if (!job.ok) throw new Error(job.error)
+    const run = startJobRun(job.state, job.value.id, NOW)
+    if (!run.ok) throw new Error(run.error)
+    const task = createTask(run.state, { runId: run.value.id, title: 't', spec: 's', deps: [] }, NOW)
+    if (!task.ok) throw new Error(task.error)
+    const dsp = openDispatch(task.state, { taskId: task.value.id, provider: 'codex', accountId: 'accA', sessionId: 'ses_w', cwd: 'D:/p', specPath: 'D:/p/s.md' }, NOW)
+    if (!dsp.ok) throw new Error(dsp.error)
+    await fs.writeFile(path.join(dir, 'orchestration.json'), JSON.stringify(dsp.state), 'utf8')
+    const f = fake()
+    const orch = orchOver({ aliveSessionIds: () => new Set<string>(), events: f.events })
+    await orch.ready()
+    await orch.ready()
+    expect(f.committed).toHaveLength(1)
+    expect(f.committed[0].prev.dispatches[0].workerState).not.toBe('outcome_unknown')
+    expect(f.committed[0].next.dispatches[0].workerState).toBe('outcome_unknown')
+  })
+
+  it('a log that throws leaves the command answered and the state committed', async () => {
+    await seed()
+    const f = fake()
+    const orch = orchOver({
+      events: {
+        ...f.events,
+        committed: () => {
+          throw new Error('event log broke')
+        }
+      }
+    })
+    await orch.ready()
+    const runId = orch.state().runs[0].id
+    expect((await orch.call({ cmd: 'runs-stop', args: { id: runId }, sessionId: '' })).status).toBe(200)
+    expect(orch.state().runs[0].paused).toBe(true)
+    expect(logs.some((l) => l.includes('event log broke'))).toBe(true)
+  })
+
+  it('answers events-poll to a CLI caller, refuses it to MCP and a controller, and refuses a request id', async () => {
+    await fs.writeFile(path.join(dir, 'app-settings.json'), JSON.stringify({ mcpAccess: 'control' }))
+    const f = fake()
+    const orch = orchOver({ events: f.events })
+    const cli: OrchCaller = { role: 'cli', toOthers: () => {} }
+    expect(await orch.call({ cmd: 'events-poll', args: { tail: true }, sessionId: '', from: cli })).toEqual({
+      status: 200,
+      body: { events: [], cursor: 'ev_0123456789ab_0', gap: false }
+    })
+    const mcp: OrchCaller = { role: 'mcp', client: { name: 'x' }, toOthers: () => {} }
+    expect((await orch.call({ cmd: 'events-poll', args: { tail: true }, sessionId: '', from: mcp })).status).toBe(403)
+    const controller: OrchCaller = { role: 'controller', principal: { clientId: 'cli_x', name: 'x', permission: 'full-control' }, toOthers: () => {} }
+    expect((await orch.call({ cmd: 'events-poll', args: { tail: true }, sessionId: '', from: controller })).status).toBe(403)
+    expect((await orch.call({ cmd: 'events-poll', args: { tail: true }, sessionId: '', from: cli, request: 'req_1' })).status).toBe(400)
+  })
+
+  it('answers events-poll 501 on a Host with no event log', async () => {
+    expect((await orchOver().call({ cmd: 'events-poll', args: {}, sessionId: '' })).status).toBe(501)
+  })
+})
+
 describe('the Host journal at the commit points (Host journal Task 5)', () => {
   type Committed = Parameters<HostJournal['committed']>[0]
   const fake = () => {

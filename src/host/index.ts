@@ -36,6 +36,7 @@ import { createProcHolders, procHeldBy } from './procHolders'
 import { nodeProcSpawn } from './nodeProc'
 import { HOST_PROTOCOL, HOST_YIELD_JOURNAL, HOST_YIELD_UNDERSTANDING, HOST_YIELD_WORK_UNITS, HOST_YIELD_WORKSPACE, HOST_YIELD_WORKTREES } from '../core/host/protocol'
 import { createHostJournal } from './hostJournal'
+import { createHostEventLog } from './eventLog'
 import { createHostUnderstanding } from './hostUnderstanding'
 import { createHostWorkUnits, readWorkUnitTracking, wireSessionExits, workUnitSessionsOf, type HostWorkUnits } from './hostWorkUnits'
 import { readHostMerges, hostMergesPathIn } from '../core/git/hostMerges'
@@ -273,6 +274,10 @@ async function main(): Promise<void> {
           // The journal's handle, once no command can reach a commit any more: the spawns have settled and
           // the server has closed. Never throws.
           hostJournal.close()
+          // And the public event log's lines a failed write still holds (SDK 1d final review I1), capped like the
+          // log's own flush below so a stuck disk cannot hold the way out. Never rejects.
+          await disposeWithin(eventLog.flushed(), LEAVE_LOG_FLUSH_CAP_MS, () => {})
+          eventLog.close()
           registry.killAll()
           procs.killAll()
           // Every buffered log line on disk before the exits below are armed (stage 3, task 3). First the
@@ -337,6 +342,11 @@ async function main(): Promise<void> {
     log: (m) => log.write(m)
   })
   await hostJournal.start()
+
+  // The public event log (SDK 1d): every commit's events, kept beside the state in <profile>/orch and read back here,
+  // so a cursor outlives the Host that gave it. Only read before the bind; commits, which write it, come after.
+  const eventLog = createHostEventLog({ dir: path.join(profileDir, 'orch'), bootId, now: () => new Date().toISOString(), log: (m) => log.write(m) })
+  await eventLog.load()
 
   // How It Works (E1 §2, §3): this Host writes understanding.json while every attached app yields it, or
   // none is attached, read per write. Loaded at start whether or not it writes now, so a record a dead
@@ -705,6 +715,8 @@ async function main(): Promise<void> {
     local: spawner,
     // Host journal (J1, J3, J4): the commits, the load's cleanup, journal-append and journal-reload.
     journal: hostJournal,
+    // The public event log (SDK 1d): every commit's events, and `events-poll`.
+    events: eventLog,
     // How It Works (E1 §3): every Run a commit finishes, recorded here while this Host is the writer.
     understanding: hostUnderstanding,
     // Session work units (E2 §5): built below, after this orch, since their in-Run test reads its state;

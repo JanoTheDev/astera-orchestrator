@@ -7,6 +7,7 @@
 //
 // The app checks at compile time that every field of its internal objects is either here or on its own list of
 // fields it deliberately keeps back (src/core/orchestration/cliPublic.ts), so a list cannot fall behind unnoticed.
+import type { EventType } from './types.js'
 
 export const PROJECT_FIELDS = Object.freeze(['id', 'path', 'name', 'addedAt'] as const)
 
@@ -139,3 +140,27 @@ export const COMPLETION_FIELDS = Object.freeze(['runId', 'jobId', 'state', 'task
 export const TASK_COMPLETION_FIELDS = Object.freeze(['taskId', 'title', 'state', 'attempt', 'maxAttempts', 'detail', 'failureSummary', 'lastFailure'] as const)
 export const COMPLETION_DETAIL_FIELDS = Object.freeze(['taskId', 'checks', 'blockingIssues', 'otherIssueCount', 'suspiciousFiles', 'policyChanged'] as const)
 export const COMPLETION_CHECK_FIELDS = Object.freeze(['configId', 'name', 'status', 'exitCode', 'outputTail', 'unstable'] as const)
+
+/** One public event's envelope (SDK spec §6); its payload is shaped by its type (shape.ts shapeEvent). */
+export const EVENT_FIELDS = Object.freeze(['id', 'type', 'sequence', 'occurredAt', 'projectId', 'jobId', 'runId', 'taskId', 'payload'] as const)
+
+/** Built from a record of every EventType, so a type added to the union and not here fails the typecheck. */
+const EVENT_TYPE_SET = {
+  'job.created': true,
+  'job.updated': true,
+  'run.started': true,
+  'run.completed': true,
+  'run.failed': true,
+  'task.started': true,
+  'task.completed': true,
+  'task.failed': true,
+  'question.created': true,
+  'question.answered': true,
+  'completion.started': true,
+  'completion.failed': true,
+  'completion.repair_started': true,
+  'completion.converged': true,
+  'completion.exhausted': true
+} as const satisfies Record<EventType, true>
+/** The event types the Host produces, in the order of the spec's list. */
+export const EVENT_TYPES: readonly EventType[] = Object.freeze(Object.keys(EVENT_TYPE_SET) as EventType[])

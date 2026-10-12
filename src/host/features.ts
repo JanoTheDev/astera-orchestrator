@@ -4,6 +4,7 @@ import {
   HOST_FEATURE_COORDINATOR_IDLE,
   HOST_FEATURE_DISPATCH,
   HOST_FEATURE_DRIVER,
+  HOST_FEATURE_EVENTS,
   HOST_FEATURE_JOURNAL,
   HOST_FEATURE_MCP_HTTP,
   HOST_FEATURE_RECOVERY,
@@ -34,7 +35,7 @@ export function hostFeatures(a: { spawns: boolean; slack?: boolean; workspace?: 
   // `coordinator-idle` (final round 3) does not ride that fact: every Host serves the CLI's
   // `check --wait`, spawner or not, and it is exactly the Host an app drives in front of that is asked.
   // `journal` (Host journal P6) rides no spawner either: every Host commits. `understanding` (E1 §2) the
-  // same: a finished Run is seen at a commit.
+  // same: a finished Run is seen at a commit. `events` (SDK 1d) the same: the public event log is fed by every commit.
   // `workspace` rides no spawner: the Host answers `app js` from any session, and index.ts asks for it
   // on every platform the workspace runs on (workspaceSupported: win32, linux, darwin). `mcp-http` (MCP HTTP §3)
   // rides nothing: every Host supervises the entrance, and one without the CLI paths reports it failed.
@@ -42,6 +43,7 @@ export function hostFeatures(a: { spawns: boolean; slack?: boolean; workspace?: 
     ...spawning,
     HOST_FEATURE_COORDINATOR_IDLE,
     HOST_FEATURE_JOURNAL,
+    HOST_FEATURE_EVENTS,
     HOST_FEATURE_UNDERSTANDING,
     HOST_FEATURE_MCP_HTTP,
     HOST_FEATURE_REMOTE,

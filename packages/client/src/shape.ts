@@ -10,6 +10,8 @@ import {
   COMPLETION_DETAIL_FIELDS,
   COMPLETION_FIELDS,
   DERIVED_FIELDS,
+  EVENT_FIELDS,
+  EVENT_TYPES,
   FOLLOW_EVENT_FIELDS,
   JOB_FIELDS,
   PROJECT_FIELDS,
@@ -29,6 +31,7 @@ import {
   TASK_FIELDS,
   VALIDATION_FIELDS
 } from './fields.js'
+import type { EventType } from './types.js'
 
 const JOB = [...JOB_FIELDS, ...DERIVED_FIELDS]
 /** Derived like DERIVED_FIELDS, by `runs get` alone and only when above zero: how many of the Run's Tasks have a
@@ -146,24 +149,26 @@ function shapeRunChecks(body: unknown): unknown {
   return out
 }
 
-/** `runs-completion`: the run, each Task's row, its detail, and the checks and blocking issues in the detail. */
-function shapeCompletion(body: unknown): unknown {
-  if (body === null || typeof body !== 'object') return body
+/** One Task's completion row: the row, its detail, and the checks and blocking issues in the detail. */
+function shapeTaskCompletion(t: unknown): unknown {
+  if (t === null || typeof t !== 'object') return t
   const obj = (v: unknown, fields: readonly string[]): unknown => (v !== null && typeof v === 'object' ? pick(fields, v) : v)
   const list = (v: unknown, fields: readonly string[]): unknown => (Array.isArray(v) ? v.map((x) => obj(x, fields)) : v)
+  const row = pick(TASK_COMPLETION_FIELDS, t)
+  if (row.detail !== null && typeof row.detail === 'object') {
+    const detail = pick(COMPLETION_DETAIL_FIELDS, row.detail)
+    if ('checks' in detail) detail.checks = list(detail.checks, COMPLETION_CHECK_FIELDS)
+    if ('blockingIssues' in detail) detail.blockingIssues = list(detail.blockingIssues, REVIEW_ISSUE_FIELDS)
+    row.detail = detail
+  }
+  return row
+}
+
+/** `runs-completion`: the run and each Task's row. */
+function shapeCompletion(body: unknown): unknown {
+  if (body === null || typeof body !== 'object') return body
   const out = pick(COMPLETION_FIELDS, body)
-  if (Array.isArray(out.tasks))
-    out.tasks = out.tasks.map((t: unknown) => {
-      if (t === null || typeof t !== 'object') return t
-      const row = pick(TASK_COMPLETION_FIELDS, t)
-      if (row.detail !== null && typeof row.detail === 'object') {
-        const detail = pick(COMPLETION_DETAIL_FIELDS, row.detail)
-        if ('checks' in detail) detail.checks = list(detail.checks, COMPLETION_CHECK_FIELDS)
-        if ('blockingIssues' in detail) detail.blockingIssues = list(detail.blockingIssues, REVIEW_ISSUE_FIELDS)
-        row.detail = detail
-      }
-      return row
-    })
+  if (Array.isArray(out.tasks)) out.tasks = out.tasks.map(shapeTaskCompletion)
   return out
 }
 
@@ -173,11 +178,52 @@ export function publicEvent(e: unknown): unknown {
   return e !== null && typeof e === 'object' ? pick(FOLLOW_EVENT_FIELDS, e) : e
 }
 
+/** A Run as an event carries it: `runs list`'s fields, without `runs get`'s count of prompts, which only a read asks
+ *  the sessions for. */
+const EVENT_RUN = [...RUN_FIELDS, ...DERIVED_FIELDS]
+
+/** One payload by its event's type, shaped like the read that returns that object. A type this package does not
+ *  know has no fields to keep. */
+function shapePayload(type: unknown, payload: unknown): unknown {
+  if (payload === null || typeof payload !== 'object') return payload
+  const kind = typeof type === 'string' && EVENT_TYPES.includes(type as EventType) ? type.slice(0, type.indexOf('.')) : null
+  const list = (v: unknown, fields: readonly string[]): unknown =>
+    Array.isArray(v) ? v.map((x) => (x !== null && typeof x === 'object' ? pick(fields, x) : x)) : v
+  if (kind === 'job') return pick(JOB, payload)
+  if (kind === 'run') return pick(EVENT_RUN, payload)
+  if (kind === 'question') return pick(QUESTION_FIELDS, payload)
+  if (kind === 'task') {
+    const task = pick(TASK, payload)
+    if ('checks' in task) task.checks = list(task.checks, CHECK_FIELDS)
+    if ('reviewIssues' in task) task.reviewIssues = list(task.reviewIssues, REVIEW_ISSUE_FIELDS)
+    return task
+  }
+  if (kind === 'completion') return shapeTaskCompletion(payload)
+  return {}
+}
+
+/** One public event (SDK spec §6): the envelope's fields, and the payload as its type's DTO. */
+export function shapeEvent(e: unknown): unknown {
+  if (e === null || typeof e !== 'object') return e
+  const out = pick(EVENT_FIELDS, e)
+  if ('payload' in out) out.payload = shapePayload(out.type, out.payload)
+  return out
+}
+
+/** `events-poll`: the page of events, the cursor to read on from, and whether events before it were lost. */
+function shapeEventPage(body: unknown): unknown {
+  if (body === null || typeof body !== 'object') return body
+  const out = pick(['events', 'cursor', 'gap'], body)
+  if (Array.isArray(out.events)) out.events = out.events.map(shapeEvent)
+  return out
+}
+
 /** What the Host answered, in the public shape. A command not in the table passes through untouched. */
 export function publicFor(cmd: string, body: unknown): unknown {
   if (cmd === 'skills-list' || cmd === 'skills-install') return shapeSkills(cmd, body)
   if (cmd === 'runs-checks') return shapeRunChecks(body)
   if (cmd === 'runs-completion') return shapeCompletion(body)
+  if (cmd === 'events-poll') return shapeEventPage(body)
   // Own keys only: a command named like an Object.prototype key ('constructor') is not in the table
   const fields = Object.hasOwn(SHAPE, cmd) ? SHAPE[cmd] : undefined
   if (fields === undefined) return body

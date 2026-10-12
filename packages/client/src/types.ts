@@ -293,3 +293,78 @@ export interface ListResult<T> {
   readonly items: readonly T[]
   readonly nextCursor?: string
 }
+
+/** What the Host's public event log records (SDK spec §6). `run.cancelled`, `github.*` and `runtime.*` are not
+ *  produced yet: there is no cancel (a stop pauses), and neither GitHub nor a Runtime's presence moves the state. */
+export type EventType =
+  | 'job.created'
+  | 'job.updated'
+  | 'run.started'
+  | 'run.completed'
+  | 'run.failed'
+  | 'task.started'
+  | 'task.completed'
+  | 'task.failed'
+  | 'question.created'
+  | 'question.answered'
+  | 'completion.started'
+  | 'completion.failed'
+  | 'completion.repair_started'
+  | 'completion.converged'
+  | 'completion.exhausted'
+
+/** Each event's payload: the public DTO of the object it is about, as it stood right after the change. A Task is cut
+ *  like `tasks.list({ brief: true })` and its checks carry no output; `get` reads the whole object. */
+export interface EventPayloads {
+  readonly 'job.created': Job
+  readonly 'job.updated': Job
+  readonly 'run.started': Run
+  readonly 'run.completed': Run
+  readonly 'run.failed': Run
+  readonly 'task.started': Task
+  readonly 'task.completed': Task
+  readonly 'task.failed': Task
+  readonly 'question.created': Question
+  readonly 'question.answered': Question
+  readonly 'completion.started': TaskCompletion
+  readonly 'completion.failed': TaskCompletion
+  readonly 'completion.repair_started': TaskCompletion
+  readonly 'completion.converged': TaskCompletion
+  readonly 'completion.exhausted': TaskCompletion
+}
+
+/** One event. A notification, not the source of truth: read the object again when it matters. Delivered at least
+ *  once; `id` never repeats, so a consumer drops one it has seen. `sequence` orders the events of one log. */
+export type AsteraEvent<K extends EventType = EventType> = {
+  readonly [P in K]: {
+    readonly id: string
+    readonly type: P
+    readonly sequence: number
+    readonly occurredAt: string
+    readonly projectId?: string
+    readonly jobId?: string
+    readonly runId?: string
+    readonly taskId?: string
+    readonly payload: EventPayloads[P]
+  }
+}[K]
+
+/** `events.subscribe` yields this when events between its cursor and the next one are gone (older than the Host
+ *  keeps, or a cursor from a log this Host does not hold): read the state again. It names no object, so an event's
+ *  ids read `undefined` on it and `event.runId` needs no narrowing first. */
+export interface EventGap {
+  readonly type: 'gap'
+  readonly id?: undefined
+  readonly projectId?: undefined
+  readonly jobId?: undefined
+  readonly runId?: undefined
+  readonly taskId?: undefined
+}
+
+/** `events.list`: a page of events, the cursor to read on from, and whether events before the page were lost. Unlike
+ *  `ListResult`, `nextCursor` is always set: an empty `items` means caught up. */
+export interface EventList {
+  readonly items: readonly AsteraEvent[]
+  readonly nextCursor: string
+  readonly gap: boolean
+}
