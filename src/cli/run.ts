@@ -85,7 +85,7 @@ import {
 } from '../core/orchestration/pendingReports'
 
 /** 오류 하나를 봉투에 담아 그 종료 코드와 함께 돌려준다 — 부르는 쪽이 둘을 따로 고르지 않도록.
- *  코드와 종료 코드의 표는 core/orchestration/cliOutput.ts 한 곳에만 있다(설계 §8).
+ *  코드와 종료 코드의 표는 SDK 패키지 한 곳에만 있다(packages/client/src/errors.ts, 설계 §8).
  *
  *  `cmd` 는 `nextSteps` 를 고르는 데만 쓰인다 — 무엇이 실패했는지에 따라 다음에 칠 것이 달라진다
  *  (`jobs get` 의 404 는 `astera jobs list`). 명령이 정해지기 전에 나는 실패(파서·모드)는 주지

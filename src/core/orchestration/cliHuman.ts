@@ -111,7 +111,7 @@ export function columns(rows: readonly (readonly string[])[]): string {
 const str = (v: unknown): string => (v === undefined || v === null ? '' : String(v))
 
 /** 한 개체를 이름과 값의 줄로. **목록을 따로 두지 않는다** — 무엇을 내보낼지는 가림막이 이미
- *  정했고(cliPublic.ts), 여기서 또 고르면 두 곳이 갈라진다. */
+ *  정했고(packages/client/src/shape.ts 의 publicFor), 여기서 또 고르면 두 곳이 갈라진다. */
 function fields(o: Record<string, unknown>): string {
   return columns(
     Object.entries(o).map(([k, v]) => [

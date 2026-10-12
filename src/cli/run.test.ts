@@ -353,7 +353,7 @@ describe('argsForCall — run-create의 --cwd 기본값 (task-13a)', () => {
 
 // **영수증이 가림막을 도는 길이 되면 안 된다.** `publicFor` 는 친 명령으로 가리는데(run.ts),
 // `requests show` 가 싣고 오는 것은 **다른 명령의 답**이고 `requests-show` 는 그 표에 없다 — 그대로
-// 두면 공개 표면이 가리는 칸이 영수증을 통해 그대로 나간다. cliPublic 이 한 경계이려면 여기서
+// 두면 공개 표면이 가리는 칸이 영수증을 통해 그대로 나간다. publicFor 가 한 경계이려면 여기서
 // 실려 온 명령으로 가려야 한다.
 describe('shownReceipt — 영수증 속 답은 그 답을 낸 명령으로 가린다', () => {
   const receipt = (cmd: string, body: unknown): Record<string, unknown> => ({
@@ -386,7 +386,7 @@ describe('shownReceipt — 영수증 속 답은 그 답을 낸 명령으로 가�
     expect((shown.response as { status: number }).status).toBe(200)
   })
 
-  // 세션 전용 명령은 애초에 가려진 적이 없다(cliPublic 의 SHAPE). 표에 없는 것을 여기서 거절로
+  // 세션 전용 명령은 애초에 가려진 적이 없다(packages/client/src/shape.ts 의 SHAPE). 표에 없는 것을 여기서 거절로
   // 바꾸면 재생이 원래 명령보다 적게 보여 주게 된다.
   it('표에 없는 명령의 답은 통째로 지나간다', () => {
     const body = { dispatchId: 'dsp_1', sessionId: 'ses_1', cwd: 'D:/x', specPath: 'D:/x/spec.md' }
