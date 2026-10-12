@@ -22,7 +22,7 @@
     "check:codex-baseline": "node scripts/check-codex-baseline.mjs",
     "build": "electron-vite build",
     "build:packages": "node scripts/build-packages.mjs",
-    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p packages/client/tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p packages/client/tsconfig.json && tsc --noEmit -p examples/sdk/tsconfig.json",
     "test": "vitest run",
     "dist": "electron-vite build && npm run host-runtime && electron-builder --publish never",
     "dist:win": "electron-vite build && npm run host-runtime && electron-builder --win --publish never",

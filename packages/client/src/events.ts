@@ -1,5 +1,5 @@
 // astera.events (SDK spec §6): the Host's public event log, read a page at a time (`list`) or followed (`subscribe`),
-// both over the Host command `events-poll`.
+// with `cursor` saying where the next event will be, all over the Host command `events-poll`.
 //
 // **At least once, never twice in a row.** The Host gives each event an id that never repeats; a subscription drops
 // an id it already yielded (the last 1000), and a consumer that keeps a cursor across runs drops one it has seen.
@@ -35,12 +35,25 @@ export interface SubscribeOptions<K extends EventType = EventType> {
   readonly signal?: AbortSignal
 }
 
+/** A subscription: the events, and where a new one would read on from. */
+export interface EventSubscription<K extends EventType = EventType> extends AsyncIterableIterator<AsteraEvent<K> | EventGap> {
+  /** Where a new subscription would read on from, missing nothing this one has not handed you yet: the `after` of its
+   *  latest call to the Host, which moves past the events its `types` filter skipped. While you handle an event it is
+   *  the cursor that event's page was read from, so a subscription started from it hands you that page again; while
+   *  this one waits, it is past everything handed to you. `after` before the first call; `undefined` until the first
+   *  answer when there was none. */
+  readonly cursor: string | undefined
+}
+
 export interface EventsApi {
   /** One page of events, with the cursor to read on from. Does not wait. */
   list(filter?: ListEventsFilter, options?: ReadOptions): Promise<EventList>
+  /** Where the next event will be: a cursor for `subscribe({ after })` or `list({ after })`. Taken before reading the
+   *  objects, a subscription from it misses nothing that changed after the read. */
+  cursor(options?: ReadOptions): Promise<string>
   /** The events as they happen, and a `{ type: 'gap' }` where some were lost. Ends only on `return()`, `break`, the
    *  signal, or an error waiting cannot mend. */
-  subscribe<K extends EventType = EventType>(options?: SubscribeOptions<K>): AsyncIterableIterator<AsteraEvent<K> | EventGap>
+  subscribe<K extends EventType = EventType>(options?: SubscribeOptions<K>): EventSubscription<K>
 }
 
 type Call = (cmd: string, args?: Record<string, unknown>, options?: CallOptions) => Promise<CallResult>
@@ -126,6 +139,11 @@ export function createEventsApi(
       throw invalid(`types is a non-empty list of: ${EVENT_TYPES.join(', ')}`)
     return { types: types.join(',') }
   }
+  /** A read's call options: only the ones given, never a request id. */
+  const readCall = (options: ReadOptions | undefined): CallOptions => ({
+    ...(options?.signal !== undefined ? { signal: options.signal } : {}),
+    ...(options?.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {})
+  })
   /** One `events-poll` answer, checked: a page is events, a cursor and a gap mark. */
   const pageOf = (body: unknown): { events: AsteraEvent[]; cursor: string; gap: boolean } => {
     const p = body as { events?: unknown; cursor?: unknown; gap?: unknown } | null
@@ -134,9 +152,10 @@ export function createEventsApi(
     return p as { events: AsteraEvent[]; cursor: string; gap: boolean }
   }
 
-  async function* follow<K extends EventType>(opts: SubscribeOptions<K>, signal: AbortSignal): AsyncGenerator<AsteraEvent<K> | EventGap> {
+  /** `at.cursor` is the subscription's cursor: the `after` of the call in flight or last made, which its getter shows. */
+  async function* follow<K extends EventType>(opts: SubscribeOptions<K>, signal: AbortSignal, at: { cursor: string | undefined }): AsyncGenerator<AsteraEvent<K> | EventGap> {
     const filter = { ...typesArg(opts.types) }
-    let cursor = opts.after === undefined ? undefined : (cursorArg(opts.after).after as string)
+    at.cursor = opts.after === undefined ? undefined : (cursorArg(opts.after).after as string)
     needEvents()
     const seen = new Set<string>()
     const order: string[] = []
@@ -146,10 +165,10 @@ export function createEventsApi(
       try {
         needEvents()
         page =
-          cursor === undefined
+          at.cursor === undefined
             ? pageOf((await call('events-poll', { tail: true }, { signal })).body)
             : pageOf(
-                (await call('events-poll', { after: cursor, ...filter, waitMs: FOLLOW_WINDOW_MS }, { signal, timeoutMs: FOLLOW_WINDOW_MS + TIMEOUT_HEADROOM_MS })).body
+                (await call('events-poll', { after: at.cursor, ...filter, waitMs: FOLLOW_WINDOW_MS }, { signal, timeoutMs: FOLLOW_WINDOW_MS + TIMEOUT_HEADROOM_MS })).body
               )
         failures = 0
       } catch (e) {
@@ -166,7 +185,8 @@ export function createEventsApi(
         if (order.length > REMEMBERED) seen.delete(order.shift()!)
         yield e as AsteraEvent<K>
       }
-      cursor = page.cursor
+      // Every event of the page was handed over (the caller asked for the next): the next call reads on past them
+      at.cursor = page.cursor
     }
   }
 
@@ -178,13 +198,17 @@ export function createEventsApi(
         args.limit = filter.limit
       }
       needEvents()
-      const callOptions: CallOptions = {
-        ...(options?.signal !== undefined ? { signal: options.signal } : {}),
-        ...(options?.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {})
-      }
-      const page = pageOf((await call('events-poll', { ...args, waitMs: 0 }, callOptions)).body)
+      const page = pageOf((await call('events-poll', { ...args, waitMs: 0 }, readCall(options))).body)
       return { items: page.events, nextCursor: page.cursor, gap: page.gap }
     },
-    subscribe: <K extends EventType = EventType>(opts: SubscribeOptions<K> = {}) => stoppable((signal) => follow<K>(opts, signal), opts.signal)
+    cursor: async (options) => {
+      needEvents()
+      return pageOf((await call('events-poll', { tail: true }, readCall(options))).body).cursor
+    },
+    subscribe: <K extends EventType = EventType>(opts: SubscribeOptions<K> = {}): EventSubscription<K> => {
+      const at = { cursor: typeof opts.after === 'string' && opts.after !== '' ? opts.after : undefined }
+      const sub = stoppable((signal) => follow<K>(opts, signal, at), opts.signal)
+      return Object.defineProperty(sub, 'cursor', { get: () => at.cursor, enumerable: true }) as EventSubscription<K>
+    }
   }
 }

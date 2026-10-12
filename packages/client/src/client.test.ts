@@ -292,8 +292,9 @@ describe('createAsteraClient: the review fixes', () => {
     expect((e.details as { reason?: string }).reason).toMatch(/could not prove it is this profile's Host/)
   })
 
-  // Minor 7: a drop said nothing about which call, nor that a requestId makes a retry safe
-  it('names the call a drop cut off, and says a retry with the same requestId is safe', async () => {
+  // Minor 7: a drop said nothing about which call, nor that a requestId makes a retry safe. SDK 1e final review: only
+  // while the same Host is up - receipts live in its memory, so a Host that restarted has forgotten the id
+  it('names the call a drop cut off, and says when a retry with the same requestId is safe', async () => {
     const h = await host({ onCall: () => {} })
     const c = await client(h)
     const plain = c.call('jobs-list')
@@ -302,7 +303,9 @@ describe('createAsteraClient: the review fixes', () => {
     h.dropClients()
     expect((await rejection(plain)).message).toBe(`the Host at ${h.address} closed the connection before answering jobs-list`)
     expect((await rejection(keyed)).message).toBe(
-      `the Host at ${h.address} closed the connection before answering jobs-create; retrying with the same requestId (r-9) is safe`
+      `the Host at ${h.address} closed the connection before answering jobs-create; it may have run it. Sending it again ` +
+        `with the same requestId (r-9) is safe while the same Host is up; a Host that restarted has forgotten the id, so ` +
+        `ask requests-show first`
     )
   })
 })

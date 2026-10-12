@@ -419,6 +419,12 @@ describe('astera.events', () => {
     expect(sent(host)).toEqual([['events-poll', { waitMs: 0 }, undefined]])
   })
 
+  it('cursor() answers the tail the Host gives', async () => {
+    const { host, astera } = await eventsHost((_m, reply) => reply(ok({ events: [], cursor: `ev_${A}_9`, gap: false })))
+    expect(await astera.events.cursor()).toBe(`ev_${A}_9`)
+    expect(sent(host)).toEqual([['events-poll', { tail: true }, undefined]])
+  })
+
   it('says to update a Host without the events feature, and sends nothing', async () => {
     const { host, astera } = await eventsHost((_m, reply) => reply(ok({})), ['orch', 'requests'])
     expect((await rejection(astera.events.list())).code).toBe('VERSION_MISMATCH')

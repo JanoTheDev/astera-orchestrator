@@ -38,7 +38,7 @@ export interface ReadOptions {
 }
 
 export interface WriteOptions extends ReadOptions {
-  /** Makes a retry safe: the Host runs the command once per id (`CallOptions.requestId`). */
+  /** Makes a retry safe while the same Host is up: the Host runs the command once per id (`CallOptions.requestId`). */
   readonly requestId?: string
 }
 
