@@ -143,6 +143,20 @@ describe('remote sessions through the Host (Phase 9a)', () => {
     expect(held.pty.sizes).toEqual([])
   })
 
+  // The size follows the side that typed last (registry `sizeOwner`): a controller refused while the Runtime's app holds
+  // the pty takes it by typing, with the size it asked for; its terminal answering a query takes nothing.
+  it('a controller refused the size while a local app holds the pty takes it by typing', async () => {
+    const h = await rig({ held: true })
+    expect(await h.ask('sessions-resize', { id: 'ses-1', cols: 100, rows: 30 })).toMatchObject({ body: { applied: false, reason: 'held' } })
+    await h.ask('sessions-input', { id: 'ses-1', data: '[I' })
+    expect(h.pty.sizes).toEqual([])
+    await h.ask('sessions-input', { id: 'ses-1', data: 'x' })
+    expect(h.pty.sizes).toEqual([[100, 30]])
+    expect(h.ptys.ownerOf('pty-1')).toBe('controller:c1')
+    expect(await h.ask('sessions-resize', { id: 'ses-1', cols: 110, rows: 32 })).toMatchObject({ body: { applied: true } })
+    expect(h.pty.sizes).toEqual([[100, 30], [110, 32]])
+  })
+
   it('sessions-stop ends the session; input to an ended one is 409', async () => {
     const h = await rig()
     expect(await h.ask('sessions-stop', { id: 'ses-1' })).toMatchObject({ status: 200, body: { stopped: true } })

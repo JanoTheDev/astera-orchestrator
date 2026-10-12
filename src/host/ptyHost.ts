@@ -32,6 +32,12 @@ export function attachPtyHost(a: {
     if (e.kind === 'data') a.broadcast({ t: 'pty-data', id, data: e.data, seq: e.seq }, (_y, f) => f.has(HOST_FEATURE_PTY_SEQ))
   })
   a.registry.onExit((id, exitCode) => a.broadcast({ t: 'pty-exit', id, exitCode }))
+  /** A pty's size as the apps hear it, with its session, so the tab can show it whole when it does not own it. */
+  const sizeMessage = (id: string, size: { cols: number; rows: number }): HostMessage => {
+    const session = a.registry.metaOf(id)?.id
+    return { t: 'pty-size', id, ...(session !== undefined ? { session } : {}), cols: size.cols, rows: size.rows }
+  }
+  a.registry.onSize((id, size) => a.broadcast(sizeMessage(id, size)))
   /** Which sockets hold each pty paused. An exited pty's go with it (review M7). */
   const pausedBy = new Map<string, Set<number>>()
   a.registry.onExit((id) => void pausedBy.delete(id))
@@ -46,11 +52,17 @@ export function attachPtyHost(a: {
       case 'pty-write':
         // A person typing in a tab, as far as the Host can tell: the app's own few deliveries come this
         // way too, which only makes a finished Run's grace wait longer (registry.ts, lastPersonWriteAt).
-        a.registry.write(m.id, m.data, { person: true })
+        // The app's side for the size: typing here takes it back from a controller (registry `sizeOwner`).
+        a.registry.write(m.id, m.data, { person: true, side: 'local' })
         return true
-      case 'pty-resize':
-        a.registry.resize(m.id, m.cols, m.rows)
+      case 'pty-resize': {
+        // Kept, not applied, while a controller owns the size: the app is told the size the pty has instead.
+        if (!a.registry.resizeFor(m.id, 'local', m.cols, m.rows)) {
+          const size = a.registry.size(m.id)
+          if (size) send(sizeMessage(m.id, size))
+        }
         return true
+      }
       case 'pty-kill':
         a.registry.kill(m.id)
         return true

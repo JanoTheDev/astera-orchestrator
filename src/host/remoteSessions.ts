@@ -40,7 +40,7 @@ const notFound = (id: unknown): Reply => ({ status: 404, body: { error: `no sess
 const ended = (id: string): Reply => ({ status: 409, body: { error: `session ${id} has ended` } })
 
 export interface RemoteSessionDeps {
-  ptys: Pick<PtyRegistry, 'write' | 'resize' | 'kill' | 'metaOf' | 'lastWrite'>
+  ptys: Pick<PtyRegistry, 'write' | 'resizeFor' | 'kill' | 'metaOf' | 'lastWrite'>
   procs: Pick<ProcRegistry, 'list'>
   sessions: Pick<HostSessions, 'listSessions' | 'sessionTurn' | 'sessionById'>
   /** The local sockets that hold this pty (exits.ts `holdersOf`): a resize yields to them (N17). null when this Host
@@ -60,7 +60,8 @@ export interface RemoteSessions {
   /** A read, or null when `cmd` is not one of REMOTE_SESSION_READS. */
   read(cmd: string, args: Record<string, unknown>): Promise<Reply> | null
   /** A change, marking an effect through `marked` when it acted; null when `cmd` is not one of REMOTE_SESSION_CHANGES. */
-  change(cmd: string, args: Record<string, unknown>, marked: () => void): Promise<Reply> | null
+  /** `side` is the caller's side for the pty's size (`controller:<clientId>`, registry `sizeOwner`). */
+  change(cmd: string, args: Record<string, unknown>, marked: () => void, side?: string): Promise<Reply> | null
   dispose(): void
 }
 
@@ -187,7 +188,7 @@ export function createRemoteSessions(d: RemoteSessionDeps): RemoteSessions {
     return { status: 200, body: { answered: true } }
   }
 
-  const changes = async (cmd: string, args: Record<string, unknown>, marked: () => void): Promise<Reply> => {
+  const changes = async (cmd: string, args: Record<string, unknown>, marked: () => void, side: string): Promise<Reply> => {
     // The id is checked before the sessions are read (review M2).
     if (typeof args.id !== 'string' || args.id === '') return bad(`${cmd} needs --id`)
     if (cmd === 'sessions-answer' && (typeof args.request !== 'string' || args.request === '')) return bad('sessions-answer needs --request')
@@ -217,24 +218,26 @@ export function createRemoteSessions(d: RemoteSessionDeps): RemoteSessions {
     if (cmd === 'sessions-input') {
       if (typeof args.data !== 'string' || args.data === '') return bad('sessions-input needs --data')
       if (args.data.length > SESSION_INPUT_MAX) return bad(`sessions-input takes at most ${SESSION_INPUT_MAX} characters at a time`)
-      d.ptys.write(s.ptyId, args.data, { person: true })
+      // Typing takes the size for this controller (registry `sizeOwner`); its terminal's own reports do not.
+      d.ptys.write(s.ptyId, args.data, { person: true, side })
       marked()
       return { status: 200, body: { written: args.data.length } }
     }
     // sessions-resize
     const size = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= 10_000
     if (!size(args.cols) || !size(args.rows)) return bad('sessions-resize needs whole --cols and --rows from 1')
+    // Applied while this controller owns the size, or when no local app holds the pty; otherwise kept for when it
+    // types (registry `sizeOwner`, tmux's `window-size latest`).
     const holders = d.holdersOf(s.ptyId)
-    if (holders === null) return { status: 200, body: { applied: false, reason: 'unknown' } }
-    if (holders.length > 0) return { status: 200, body: { applied: false, reason: 'held' } }
-    d.ptys.resize(s.ptyId, args.cols, args.rows)
+    const applied = d.ptys.resizeFor(s.ptyId, side, args.cols, args.rows, { free: holders !== null && holders.length === 0 })
+    if (!applied) return { status: 200, body: { applied: false, reason: holders === null ? 'unknown' : 'held' } }
     marked()
     return { status: 200, body: { applied: true } }
   }
 
   return {
     read: (cmd, args) => (REMOTE_SESSION_READS.has(cmd) ? reads(cmd, args) : null),
-    change: (cmd, args, marked) => (REMOTE_SESSION_CHANGES.has(cmd) ? changes(cmd, args, marked) : null),
+    change: (cmd, args, marked, side = 'controller:') => (REMOTE_SESSION_CHANGES.has(cmd) ? changes(cmd, args, marked, side) : null),
     dispose: () => facts.dispose()
   }
 }

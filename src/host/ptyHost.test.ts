@@ -257,3 +257,33 @@ describe('attachPtyHost pty-seq and pauses (Phase 8)', () => {
     expect(h.resumes()).toBe(before)
   })
 })
+
+// The size of a pty another computer may own (registry `sizeOwner`): the apps hear every size it is given, and an app
+// whose resize was kept but not applied hears the size the pty has, so it can show it whole.
+describe('attachPtyHost size', () => {
+  it('broadcasts every size the pty is given, with the session it belongs to', () => {
+    const h = harness()
+    h.send(spawnMsg)
+    h.send({ t: 'pty-resize', id: 'p1', cols: 100, rows: 30 })
+    expect(h.broadcast).toContainEqual({ t: 'pty-size', id: 'p1', session: 'trm_1', cols: 100, rows: 30 })
+  })
+
+  it('answers a resize it kept for later with the size the pty has', () => {
+    const h = harness()
+    h.send(spawnMsg)
+    h.registry.resizeFor('p1', 'controller:mac', 90, 20, { free: true })
+    h.replies.length = 0
+    h.send({ t: 'pty-resize', id: 'p1', cols: 200, rows: 50 })
+    expect(h.replies).toEqual([{ t: 'pty-size', id: 'p1', session: 'trm_1', cols: 90, rows: 20 }])
+  })
+
+  it('an app typing takes the size back', () => {
+    const h = harness()
+    h.send(spawnMsg)
+    h.send({ t: 'pty-resize', id: 'p1', cols: 200, rows: 50 })
+    h.registry.resizeFor('p1', 'controller:mac', 90, 20, { free: true })
+    h.send({ t: 'pty-write', id: 'p1', data: 'x' })
+    expect(h.registry.ownerOf('p1')).toBe('local')
+    expect(h.registry.size('p1')).toEqual({ cols: 200, rows: 50 })
+  })
+})

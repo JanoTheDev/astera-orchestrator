@@ -1836,7 +1836,7 @@ export function createHostOrch(a: {
         // **A remote session's changes** (Phase 9a): below the receipt line, so a retried input, stop or answer replays
         // its answer instead of acting twice. Each marks an effect only when it acted.
         if (REMOTE_SESSION_CHANGES.has(cmd)) {
-          const changed = a.remoteSessions?.change(cmd, args, () => void (marks.effects += 1))
+          const changed = a.remoteSessions?.change(cmd, args, () => void (marks.effects += 1), from?.role === 'controller' && from.principal ? `controller:${from.principal.clientId}` : undefined)
           const answered = changed ? await changed : { status: 501, body: { error: `${cmd} is not answered by this Host` } }
           return claimed === null ? answered : settleRequest(claimed, cmd, marks, answered)
         }
