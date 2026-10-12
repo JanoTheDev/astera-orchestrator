@@ -3,7 +3,7 @@
 // through ASTERA_PROFILE_DIR and ASTERA_HOST. The Host is the package's fake one, answering what each example sends.
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest'
 import { spawn } from 'node:child_process'
-import { chmodSync, cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
 import os from 'node:os'
@@ -24,7 +24,9 @@ let dir = ''
 let profile: Awaited<ReturnType<typeof makeProfile>>
 
 beforeAll(async () => {
-  work = mkdtempSync(path.join(os.tmpdir(), 'astera examples '))
+  // By its real path: on macOS the temp folder is under /var, a link to /private/var, and an example's
+  // process.cwd() names the real one (develop CI, macOS, after SDK 1e)
+  work = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'astera examples ')))
   const dist = buildPackage('client', path.join(work, 'build'))
   dir = path.join(work, 'my scripts')
   const installed = path.join(dir, 'node_modules', '@astera-app', 'client')
