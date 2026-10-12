@@ -4,12 +4,12 @@ import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
 import { confirmModal } from '../lib/confirm'
 import { Select } from './Select'
-import { addressLabel, failureLine, pairedStateLine, pairingLeftLine, pairingStillShown, pingLine, thisMachineLine } from './remoteRuntimesText'
+import { addressLabel, controlFailureLine, failureLine, pairedStateLine, pairingLeftLine, pairingState, pingLine, thisMachineLine } from './remoteRuntimesText'
 
 type ThisMachine = Awaited<ReturnType<RemoteApi['thisMachine']>>
 type Choice = Awaited<ReturnType<RemoteApi['addresses']>>[number]
-/** A pairing string this screen made: shown while it is live and Remote is on (pairingStillShown). */
-type Made = { pairing: string; expiresAt: string; permission: string }
+/** A pairing string this screen made: shown while its code is live, then what became of it (pairingState). */
+type Made = { pairing: string; expiresAt: string; permission: string; pairingId?: string }
 
 /** Settings › Remote Runtimes (remote runtime design Phase 6): this computer as a Runtime (turned on on one of its
  *  addresses and off, a pairing string made for a controller, a paired controller revoked: the CLI's own runtime
@@ -48,15 +48,21 @@ export function RemoteRuntimesSettings({ onChanged }: { /** A Runtime was paired
   }, [])
   useEffect(reload, [reload])
 
-  // A pairing string's clock, only while one is on screen; it goes when it expires or Remote goes off.
+  // A pairing string's clock, and every few seconds the Host's word on its code (used, dropped by a stop from the CLI,
+  // or gone with a Host restart), only while a live one is on screen. With Remote off it goes.
+  const madeState = made ? pairingState(made, mine ?? null, now) : null
   useEffect(() => {
-    if (!made) return
-    const timer = setInterval(() => setNow(Date.now()), 1000)
+    if (madeState !== 'live') return
+    let tick = 0
+    const timer = setInterval(() => {
+      setNow(Date.now())
+      if (++tick % 3 === 0) void window.api.remote.thisMachine().then(setMine, () => setMine(null))
+    }, 1000)
     return () => clearInterval(timer)
-  }, [made])
+  }, [madeState])
   useEffect(() => {
-    if (made && !pairingStillShown(made, mine ?? null, now)) setMade(null)
-  }, [made, mine, now])
+    if (madeState === 'gone') setMade(null)
+  }, [madeState])
 
   /** One control at a time from this screen; main runs them one at a time as well. */
   const control = async (work: () => Promise<void>): Promise<void> => {
@@ -74,7 +80,7 @@ export function RemoteRuntimesSettings({ onChanged }: { /** A Runtime was paired
   const turnOn = (): Promise<void> =>
     control(async () => {
       const r = await window.api.remote.start(listen)
-      if (!r.ok) return void toast.error(failureLine(r, t as never))
+      if (!r.ok) return void toast.error(controlFailureLine(r, 'start', t as never))
       toast.success(t('settings.remote.start.done', { listen: String(r.body.listen ?? listen), port: String(r.body.port ?? '') }))
     })
   const turnOff = async (): Promise<void> => {
@@ -82,7 +88,7 @@ export function RemoteRuntimesSettings({ onChanged }: { /** A Runtime was paired
     if (!ok) return
     await control(async () => {
       const r = await window.api.remote.stop()
-      if (!r.ok) return void toast.error(failureLine(r, t as never))
+      if (!r.ok) return void toast.error(controlFailureLine(r, 'stop', t as never))
       setMade(null)
       toast.success(t('settings.remote.stop.done'))
     })
@@ -90,10 +96,17 @@ export function RemoteRuntimesSettings({ onChanged }: { /** A Runtime was paired
   const makePairing = (): Promise<void> =>
     control(async () => {
       const r = await window.api.remote.pair({ fullControl, ...(pairName.trim() ? { name: pairName.trim() } : {}) })
-      if (!r.ok) return void toast.error(failureLine(r, t as never))
+      if (!r.ok) return void toast.error(controlFailureLine(r, 'pair', t as never))
       setNow(Date.now())
-      setMade({ pairing: String(r.body.pairing), expiresAt: String(r.body.expiresAt), permission: String(r.body.permission) })
+      setMade({
+        pairing: String(r.body.pairing),
+        expiresAt: String(r.body.expiresAt),
+        permission: String(r.body.permission),
+        ...(typeof r.body.pairingId === 'string' ? { pairingId: r.body.pairingId } : {})
+      })
       setPairName('')
+      // The next string starts from read-only again: full control is chosen for one controller at a time (minor 8).
+      setFullControl(false)
     })
   const copyPairing = (): void => {
     if (!made) return
@@ -105,11 +118,13 @@ export function RemoteRuntimesSettings({ onChanged }: { /** A Runtime was paired
     if (!ok) return
     await control(async () => {
       const r = await window.api.remote.revoke(c.clientId)
-      if (!r.ok) return void toast.error(failureLine(r, t as never))
+      if (!r.ok) return void toast.error(controlFailureLine(r, 'revoke', t as never))
       toast.success(t('settings.remote.revoke.done', { name: c.name }))
     })
   }
   const remoteOn = !!mine && (mine.gateway as { state: string }).state !== 'disabled'
+  /** A pairing string is made only on a Gateway that listens: one that failed would hand out an address nothing serves. */
+  const gatewayState = mine ? String((mine.gateway as { state: string }).state) : ''
 
   const ping = async (id: string): Promise<void> => {
     if (pinging.has(id)) return
@@ -224,12 +239,15 @@ export function RemoteRuntimesSettings({ onChanged }: { /** A Runtime was paired
                 maxLength={64}
                 onChange={(e) => setPairName(e.target.value)}
               />
-              <button className="primary" disabled={switching} onClick={() => void makePairing()}>
+              <button className="primary" disabled={switching || gatewayState !== 'ready'} onClick={() => void makePairing()}>
                 {t('settings.remote.newPair.button')}
               </button>
             </div>
+            {gatewayState !== 'ready' && <p className="settings-hint">{t('settings.remote.newPair.notReady', { state: gatewayState })}</p>}
             {fullControl && <p className="settings-hint is-warning">{t('settings.remote.newPair.fullControlWarning')}</p>}
-            {made && (
+            {made && madeState === 'expired' && <p className="settings-hint">{t('settings.remote.newPair.expired')}</p>}
+            {made && madeState === 'spent' && <p className="settings-hint">{t('settings.remote.newPair.spent')}</p>}
+            {made && madeState === 'live' && (
               <>
                 <div className="remote-actions">
                   <input className="settings-gen-input remote-actions-grow" readOnly value={made.pairing} aria-label={t('settings.remote.newPair.title')} spellCheck={false} onFocus={(e) => e.target.select()} />
@@ -243,8 +261,12 @@ export function RemoteRuntimesSettings({ onChanged }: { /** A Runtime was paired
                 <p className="settings-hint">{t('settings.remote.newPair.secret')}</p>
               </>
             )}
-
-            {/* The controllers paired with this computer, only while it is a Runtime: with Remote off they cannot connect. */}
+          </>
+        )}
+        {/* The controllers paired with this computer, on or off: a pairing outlives turning Remote off, and one lost with
+            a laptop is unpaired here without turning Remote on again for it (final review I2). */}
+        {mine && (
+          <>
             <span className="settings-hint">{t('settings.remote.thisMachine.clients')}</span>
             {mine.clients.length === 0 ? (
               <p className="settings-hint">{t('settings.remote.thisMachine.noClients')}</p>

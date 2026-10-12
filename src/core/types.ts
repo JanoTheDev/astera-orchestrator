@@ -1849,7 +1849,12 @@ export interface RemoteApi {
    *  Runtime cannot be asked now (never an empty list for an unreachable one). */
   projects(runtimeId: string): Promise<Array<{ id: string; name: string | null; path: string | null }> | null>
   /** This computer as a Runtime: whether Remote is on, the Gateway, the paired controllers. null when the Host cannot say. */
-  thisMachine(): Promise<{ gateway: { state: string; [k: string]: unknown }; clients: Array<{ clientId: string; name: string; permission: string; lastSeenAt: string | null }> } | null>
+  thisMachine(): Promise<{
+    gateway: { state: string; [k: string]: unknown }
+    clients: Array<{ clientId: string; name: string; permission: string; lastSeenAt: string | null }>
+    /** The ids of the pairing codes that can still be redeemed (absent from an older Host). */
+    pairings?: string[]
+  } | null>
   /** The addresses this computer can serve on: its private IPv4s, then 127.0.0.1 (`local`); never every interface. */
   addresses(): Promise<Array<{ address: string; iface: string | null; local: boolean }>>
   /** Remote Runtime on, on one of `addresses()`. */

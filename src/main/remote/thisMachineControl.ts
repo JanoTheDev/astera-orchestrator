@@ -46,7 +46,13 @@ export function createThisMachineControl(d: ThisMachineDeps) {
   const run = (cmd: string, args: Record<string, unknown>): Promise<ThisMachineAnswer> => {
     const next = queue.then(async (): Promise<ThisMachineAnswer> => {
       try {
+        // A start no Host took leaves the settings as they were (final review I1): `runtime-start` writes Remote on
+        // before it asks the Host, and the app starts no Host of its own here, so the next Host start would have opened
+        // this machine on that address while the screen said the start failed. Inside the queue, as one step.
+        const before = cmd === 'runtime-start' ? await d.readSettings().catch(() => null) : null
         const r = await runRuntimeCommand(cmd, args, deps)
+        if (!r.ok && r.error.code === 'HOST_NOT_RUNNING' && before)
+          await d.writeSettings({ enabled: before.enabled, listen: before.listen }).catch(() => undefined)
         return r.ok ? { ok: true, body: r.body } : refused(r.error.code, r.error.message)
       } catch (err) {
         return refused('FAILED', err instanceof Error ? err.message : String(err))

@@ -331,12 +331,13 @@ list the newest Jobs or runs on that Runtime before trying again.
 
 ## Revoke and remove
 
-- On the Runtime: Unpair beside a controller in Settings › Remote Runtimes › This computer, or `astera runtime
-  clients` to list the paired controllers and `astera runtime revoke --id <clientId>` to unpair one. Its next command is refused with `RUNTIME_AUTH_FAILED`, and its open connections close.
+- On the Runtime: Unpair beside a controller in Settings › Remote Runtimes › This computer (on or off), or list
+  them with `astera runtime clients` and unpair one with `astera runtime revoke --id <clientId>`. Its next command
+  is refused with `RUNTIME_AUTH_FAILED`, and its open connections close.
 - On the controller: `astera runtimes remove --id <runtimeId|name>`, or Remove in Settings › Remote Runtimes, forgets
   the Runtime here. It does **not** revoke the pairing on the Runtime.
-- Turn off in Settings › Remote Runtimes › This computer, or `astera runtime stop`, stops listening. The Host and its
-  Jobs keep running.
+- Turning off (in Settings › Remote Runtimes › This computer, or with `astera runtime stop`) stops listening and
+  spends any pairing string not used yet. Pairings stay, the Host and its Jobs keep running.
 
 ## Troubleshooting
 

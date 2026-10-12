@@ -4585,6 +4585,21 @@ describe('runtime-reload and runtime-status (remote runtime design §2.9)', () =
     // Security audit SEC-2: codes burned by wrong guesses are said where the person looks.
     expect(s.body).toMatchObject({ health: { burnedCodes: 0 } })
   })
+  // Settings shows a pairing string only while it can be redeemed, and turning Remote off spends every code (review of
+  // the Settings controls, minor 1): the status names the live codes by id, and a reload that leaves Remote off drops them.
+  it('names the codes that can still pair, and drops them all when Remote goes off', async () => {
+    const controllers = createControllerRegistry()
+    const { id } = controllers.createPairing({ permission: 'read-only' })
+    const on = orchOver({ gateway: gateway().dep, controllers })
+    expect((await on.call({ cmd: 'runtime-status', args: {}, sessionId: '', from: { role: 'app', toOthers: () => {} } })).body).toMatchObject({ pairings: [id] })
+    await on.call({ cmd: 'runtime-reload', args: {}, sessionId: '', from: { role: 'app', toOthers: () => {} } })
+    expect(controllers.pendingPairings()).toEqual([id])
+    const off = orchOver({ gateway: gateway({ state: 'disabled' }).dep, controllers })
+    const r = await off.call({ cmd: 'runtime-reload', args: {}, sessionId: '', from: { role: 'app', toOthers: () => {} } })
+    expect(r.body).toMatchObject({ pairings: [] })
+    expect(controllers.pendingPairings()).toEqual([])
+  })
+
   it('refuses MCP and controllers, takes no request id, and is 501 on a Host without a Gateway', async () => {
     const orch = orchOver({ gateway: gateway().dep })
     for (const from of [{ role: 'mcp' as const, toOthers: () => {} }, { role: 'controller' as const, principal: { clientId: 'cli_x', name: 'x', permission: 'full-control' as const }, toOthers: () => {} }])

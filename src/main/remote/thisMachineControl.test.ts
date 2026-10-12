@@ -89,6 +89,16 @@ describe('createThisMachineControl', () => {
     expect(await h.control.revoke('cli_1')).toMatchObject({ ok: false, code: 'HOST_NOT_RUNNING' })
   })
 
+  // Final review I1: a start that reached no Host said it failed but left Remote on in the settings, so the next Host
+  // start (the app reconnecting) opened this machine on that address while the person believed it off. The settings
+  // go back to what they were.
+  it('leaves Remote as it was when no Host took the start', async () => {
+    const h = rig({ hostDown: true })
+    const before = { ...h.settings() }
+    expect(await h.control.start('192.168.0.235')).toMatchObject({ ok: false, code: 'HOST_NOT_RUNNING' })
+    expect(h.settings()).toEqual(before)
+  })
+
   // Review focus 5: two clicks do not run two starts side by side.
   it('runs one command at a time', async () => {
     const h = rig()

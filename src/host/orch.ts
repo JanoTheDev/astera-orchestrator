@@ -1756,10 +1756,18 @@ export function createHostOrch(a: {
         if (cmd === 'runtime-reload' || cmd === 'runtime-status') {
           if (from?.role !== 'app' && from?.role !== 'cli') return { status: 403, body: { error: `${cmd} is for this machine's app and CLI only` } }
           if (!a.gateway) return { status: 501, body: { error: 'this Host does not run the Remote Gateway' } }
-          if (cmd === 'runtime-reload') await a.gateway.reload({ now: true })
+          if (cmd === 'runtime-reload') {
+            await a.gateway.reload({ now: true })
+            // Remote off spends every pairing code: a string made before must not pair once it is on again.
+            if (a.gateway.status().state === 'disabled') a.controllers?.dropPairings()
+          }
           return {
             status: 200,
-            body: { gateway: a.gateway.status(), clients: a.controllers?.list() ?? [], ...(a.controllers ? { health: a.controllers.health() } : {}) }
+            body: {
+              gateway: a.gateway.status(),
+              clients: a.controllers?.list() ?? [],
+              ...(a.controllers ? { health: a.controllers.health(), pairings: a.controllers.pendingPairings() } : {})
+            }
           }
         }
         if (cmd === 'pair-create' || cmd === 'clients-list' || cmd === 'clients-revoke') {

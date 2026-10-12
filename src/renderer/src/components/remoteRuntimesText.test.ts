@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { addressLabel, failureLine, pairedStateLine, pairingLeftLine, pairingStillShown, pingLine, thisMachineLine } from './remoteRuntimesText'
+import { addressLabel, controlFailureLine, failureLine, pairedStateLine, pairingLeftLine, pairingState, pingLine, thisMachineLine } from './remoteRuntimesText'
 
 /** A t that shows the key and its params, so each assertion names the sentence it expects. */
 const t = (key: string, params?: Record<string, unknown>): string => `${key}${params ? ` ${JSON.stringify(params)}` : ''}`
@@ -50,12 +50,31 @@ describe("this computer's controls text", () => {
     expect(pairingLeftLine('not a time', at, t)).toBe('settings.remote.newPair.expired')
   })
 
-  it('keeps a pairing string on screen only while it is live and Remote is on', () => {
+  // Review of the Settings controls (minor 1, 2): a string is shown while the Host still holds its code; once it expired,
+  // was used or was dropped the screen says which instead of showing a string that cannot pair; with Remote off (or the
+  // Host unable to say) it goes.
+  it('tells a live pairing string from an expired, a spent and a gone one', () => {
     const at = Date.parse('2026-10-12T05:10:00.000Z')
-    const on = { gateway: { state: 'ready' }, clients: [] }
-    expect(pairingStillShown({ expiresAt: '2026-10-12T05:10:00.000Z' }, on, at - 1_000)).toBe(true)
-    expect(pairingStillShown({ expiresAt: '2026-10-12T05:10:00.000Z' }, on, at + 60_000)).toBe(false)
-    expect(pairingStillShown({ expiresAt: '2026-10-12T05:10:00.000Z' }, { gateway: { state: 'disabled' }, clients: [] }, at - 1_000)).toBe(false)
-    expect(pairingStillShown({ expiresAt: '2026-10-12T05:10:00.000Z' }, null, at - 1_000)).toBe(false)
+    const made = { expiresAt: '2026-10-12T05:10:00.000Z', pairingId: 'p1' }
+    const on = (pairings?: string[]) => ({ gateway: { state: 'ready' }, clients: [], ...(pairings ? { pairings } : {}) })
+    expect(pairingState(made, on(['p1']), at - 1_000)).toBe('live')
+    expect(pairingState(made, on(), at - 1_000)).toBe('live')
+    expect(pairingState(made, on(['p1']), at + 1)).toBe('expired')
+    expect(pairingState(made, on([]), at - 1_000)).toBe('spent')
+    expect(pairingState(made, { gateway: { state: 'disabled' }, clients: [] }, at - 1_000)).toBe('gone')
+    expect(pairingState(made, null, at - 1_000)).toBe('gone')
+  })
+})
+
+// Review of the Settings controls (minor 3): the CLI's English sentences ("run `astera runtime start` first") are not
+// what a person in the app should read; the known refusals are said in the app's language, the rest as before.
+describe('a refusal of a control, in the app language', () => {
+  it('says the known refusals in the app language, and any other with its code and message', () => {
+    expect(controlFailureLine({ ok: false, code: 'INVALID_ARGUMENTS', message: 'listen on one of the addresses this computer offers' }, 'start', t)).toBe('settings.remote.control.badAddress')
+    expect(controlFailureLine({ ok: false, code: 'CONFLICT', message: 'Remote Runtime is off' }, 'pair', t)).toBe('settings.remote.control.off')
+    expect(controlFailureLine({ ok: false, code: 'HOST_NOT_RUNNING', message: 'x' }, 'stop', t)).toBe('settings.remote.control.noHost')
+    expect(controlFailureLine({ ok: false, code: 'TIMEOUT', message: 'x' }, 'start', t)).toBe('settings.remote.control.timeout')
+    expect(controlFailureLine({ ok: false, code: 'FAILED', message: 'the Gateway failed: EADDRINUSE: taken' }, 'start', t)).toBe('settings.remote.control.gatewayFailed {"code":"EADDRINUSE"}')
+    expect(controlFailureLine({ ok: false, code: 'NOT_FOUND', message: 'unknown client: cli_1' }, 'revoke', t)).toBe('settings.remote.failed {"code":"NOT_FOUND","message":"unknown client: cli_1"}')
   })
 })
