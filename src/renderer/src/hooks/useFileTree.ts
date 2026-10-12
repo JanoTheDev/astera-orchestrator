@@ -6,6 +6,7 @@ import {
   createDelayedPending,
   createDirLoadQueue,
   planBatchReload,
+  planRefresh,
   type DelayedPending,
   type DirLoadQueue
 } from '../../../core/files/dirReload'
@@ -36,8 +37,10 @@ export interface FileTree {
   expandDir: (dirPath: string) => void
   /** Adopts a preserved tree snapshot as-is (a remount with the same root — the explorer toggle) */
   adoptTree: (s: { expanded: Set<string>; dirs: Record<string, DirState> }) => void
-  /** Clears the tree and, if load is given, reloads that folder (no root / root changed / refresh) */
+  /** Clears the tree and, if load is given, reloads that folder (no root / root changed) */
   resetTree: (opts?: { load?: string }) => void
+  /** Re-reads the root and the open folders, keeping them open (the refresh button) */
+  refreshTree: () => void
   findEntry: (p: string | null) => Entry | null
   entriesOf: (paths: Iterable<string>) => Entry[]
   /** Flat order of the rows visible on screen (flattenVisible) — an empty array when there is no root */
@@ -204,6 +207,24 @@ export function useFileTree(
     if (opts?.load) loadDir(opts.load)
   }
 
+  /** The refresh button: the open folders stay open (planRefresh). Their old listings stay on screen until
+   *  the new ones land, so nothing blinks to 'loading…'; a folder gone on disk leaves through readDir's
+   *  ENOENT handling. Reads the refs, so a second press before a render plans from the same state and the
+   *  queue's single flight keeps it to one more read per folder. */
+  const refreshTree = (): void => {
+    const r = rootRef.current
+    if (!r) return
+    const plan = planRefresh({ root: r, cached: Object.keys(dirsRef.current), expanded: expandedRef.current })
+    if (plan.evict.length > 0) {
+      setDirs((prev) => {
+        const next = { ...prev }
+        for (const d of plan.evict) delete next[d]
+        return next
+      })
+    }
+    for (const d of plan.reload) loadDir(d)
+  }
+
   /** Collects the Entries for paths out of the cache (the number of cached folders is small, so a linear scan is enough). */
   const entriesOf = (paths: Iterable<string>): Entry[] => {
     const want = new Set(paths)
@@ -243,6 +264,7 @@ export function useFileTree(
     expandDir,
     adoptTree,
     resetTree,
+    refreshTree,
     findEntry,
     entriesOf,
     flatVisible

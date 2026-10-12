@@ -2175,6 +2175,8 @@ input[type="checkbox"]:not(.md-task input):focus-visible {
 /* Loading states (ExplorerLoading.tsx): the small shared spinner after a folder's name while its children
    are read, and the "Reading folder…" line when the root's first read is slow */
 .fx-row-loading { flex-shrink: 0; margin-left: 4px; }
+/* The refresh icon turns while the root is read again (a refresh keeps the tree on screen, so nothing else moves) */
+.fx-refreshing { transform-origin: 50% 50%; animation: cm-spin .8s linear infinite; }
 .fx-reading { display: flex; align-items: center; gap: 6px; padding-left: 12px; }
 /* git status could not be checked — the kept badges are the last answer, so they are dimmed */
 .fx-git-stale { flex: none; overflow: hidden; text-overflow: ellipsis; }
