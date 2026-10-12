@@ -135,6 +135,7 @@ import { canStartSession, followAction, remoteCall, sameOrNext, type RemoteFacts
 import { useRemoteSessionWatch } from './hooks/useRemoteSessionWatch'
 import { placeMediaTab, placeTab } from '../../core/panes/place'
 import { mediaKindOf } from '../../core/files/media'
+import { openPath } from './lib/openPath'
 import { sessionKindOf } from '../../core/sessions/kind'
 import { displayHostOf, linkDestination, normalizeUrl, previewTargetOf } from '../../core/preview/url'
 import { isWaitingOnDialog, POST_PASTE_SUBMIT_DELAY_MS } from '../../core/preview/pick/send'
@@ -1858,6 +1859,17 @@ export default function App(): React.JSX.Element {
     openFile(path, at?.line === undefined ? undefined : { line: at.line, col: at.col })
   }
 
+  /** A file the explorer or a Markdown preview opens: an image or a video in the media viewer, as a link would open it,
+   *  any other file in a file tab (lib/openPath.ts). The resolve is what admits it to the viewer's allowlist. */
+  const openFromExplorer = (path: string): void => {
+    const cut = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'))
+    void openPath(path, {
+      resolve: (p) => window.api.files.resolveLink(cut > 0 ? path.slice(0, cut) : path, p).then((r) => r?.path ?? null),
+      openMedia,
+      openFile: (p) => openFile(p)
+    })
+  }
+
   /** 에디터가 사라질 때 그 상태를 캐시에 넘겨받는다. 세션 모드로 나가면 .run-host가 통째로
    *  언마운트되므로, 이 경로가 없으면 되돌리기 이력이 거기서 끊긴다(세션 탭은 숨기기만 해서 안 끊긴다).
    *
@@ -2950,7 +2962,7 @@ export default function App(): React.JSX.Element {
             onModeChange={(mode) => setMdMode(f.id, mode)}
             text={buf.content}
             docPath={f.path}
-            onOpenFile={(abs) => openFile(abs)}
+            onOpenFile={openFromExplorer}
             onSave={() => saveFile(f.id)}
             editor={editor}
             editorView={mdViews[paneId] ?? null}
@@ -4341,7 +4353,7 @@ export default function App(): React.JSX.Element {
             {sidebarPane === 'explorer' ? (
               <FileExplorer
                 root={currentProject}
-                onOpenFile={openFile}
+                onOpenFile={openFromExplorer}
                 onClose={() => void closeExplorer()}
                 stateRef={explorerTreesRef}
                 clipboardRef={explorerClipboardRef}
