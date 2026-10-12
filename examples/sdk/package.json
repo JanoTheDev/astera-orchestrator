@@ -1,0 +1,9 @@
+{
+  "name": "astera-sdk-examples",
+  "private": true,
+  "type": "module",
+  "description": "Scripts that use @astera-app/client. See docs/sdk.md.",
+  "dependencies": {
+    "@astera-app/client": "file:../../packages/client"
+  }
+}

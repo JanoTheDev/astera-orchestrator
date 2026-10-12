@@ -22,6 +22,7 @@ export default defineConfig({
       'src/renderer/**/*.test.ts',
       'src/cli/**/*.test.ts',
       'packages/*/src/**/*.test.ts',
+      'examples/**/*.test.ts',
       'scripts/**/*.test.mjs',
       'vitest.globalSetup.test.ts'
     ],
