@@ -91,8 +91,26 @@ export function stoppable<T>(loop: (signal: AbortSignal) => AsyncGenerator<T>, c
   }
 }
 
-export function createEventsApi(call: Call, features: () => readonly string[], o: { sleep?: (ms: number, signal: AbortSignal) => Promise<void> } = {}): EventsApi {
+export function createEventsApi(
+  call: Call,
+  features: () => readonly string[],
+  o: {
+    sleep?: (ms: number, signal: AbortSignal) => Promise<void>
+    /** The client's close(): a subscription waiting to try again ends at once with FAILED. */
+    closed?: AbortSignal
+  } = {}
+): EventsApi {
   const sleep = o.sleep ?? abortableSleep
+  /** Waits before a try again, ended by the subscription's signal or the client's close(). */
+  const waitToRetry = async (ms: number, signal: AbortSignal): Promise<void> => {
+    if (o.closed === undefined) return sleep(ms, signal)
+    try {
+      await sleep(ms, AbortSignal.any([signal, o.closed]))
+    } catch (e) {
+      if (o.closed.aborted && !signal.aborted) throw new AsteraError('FAILED', 'the client is closed')
+      throw e
+    }
+  }
   const needEvents = (): void => {
     if (!features().includes(HOST_FEATURE_EVENTS))
       throw new AsteraError('VERSION_MISMATCH', `this Host keeps no public event log (no '${HOST_FEATURE_EVENTS}' feature); update the Astera app`)
@@ -136,7 +154,7 @@ export function createEventsApi(call: Call, features: () => readonly string[], o
         failures = 0
       } catch (e) {
         if (!isAsteraError(e) || (e.code !== 'HOST_NOT_RUNNING' && e.code !== 'TIMEOUT')) throw e
-        await sleep(EVENTS_RETRY_MS[Math.min(failures, EVENTS_RETRY_MS.length - 1)], signal)
+        await waitToRetry(EVENTS_RETRY_MS[Math.min(failures, EVENTS_RETRY_MS.length - 1)], signal)
         failures += 1
         continue
       }

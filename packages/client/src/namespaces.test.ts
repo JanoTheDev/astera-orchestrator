@@ -441,3 +441,31 @@ describe('astera.events', () => {
     expect(host.hellos()).toBe(2)
   })
 })
+
+describe('astera.events and close()', () => {
+  // Final review Minor 9: the client's close() reaches a subscription waiting to try a gone Host again
+  it('close() ends a subscription that waits for a Host that went away', async () => {
+    const A = '0123456789ab'
+    const host = await startHost({
+      key: profile.key,
+      features: ['orch', 'requests', 'events'],
+      onCall: (_m, _reply, sock) => {
+        sock.destroy()
+        void host.close()
+      }
+    })
+    opened.push(host)
+    const astera = await createAsteraClient({ profileDir: profile.dir, address: host.address })
+    const it = astera.events.subscribe({ after: `ev_${A}_1` })
+    const pending = it.next().then(
+      () => null,
+      (e: unknown) => e
+    )
+    // Past the 250 ms and 1 s waits, into the 5 s one
+    await new Promise((r) => setTimeout(r, 1500))
+    const closedAt = Date.now()
+    astera.close()
+    expect(await pending).toMatchObject({ code: 'FAILED' })
+    expect(Date.now() - closedAt).toBeLessThan(1000)
+  })
+})

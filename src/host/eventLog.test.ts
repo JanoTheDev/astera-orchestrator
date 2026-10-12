@@ -1,9 +1,10 @@
 // SDK 1d: the Host's public event log on disk. Every commit's events are kept in the ring and appended to
 // <profile>/orch/events.jsonl; a new Host reads them back, so a cursor outlives the Host that gave it.
-import { afterEach, beforeEach, describe, it, expect } from 'vitest'
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { createHostEventLog, type HostEventLog } from './eventLog'
 import { emptyState, type OrchState } from '../core/orchestration/state'
 import type { EventDraft } from '../core/orchestration/publicEvents'
@@ -16,6 +17,8 @@ const B = BOOT_B.slice(0, 12)
 let root: string
 let dir: string
 let logged: string[]
+/** Every log a test opened, closed after it so no retry outlives the test's folder. */
+const opened: HostEventLog[] = []
 
 beforeEach(() => {
   root = mkdtempSync(path.join(os.tmpdir(), 'astera-events-'))
@@ -23,6 +26,7 @@ beforeEach(() => {
   logged = []
 })
 afterEach(() => {
+  for (const log of opened.splice(0)) log.close()
   rmSync(root, { recursive: true, force: true })
 })
 
@@ -35,8 +39,13 @@ const draft = (type: EventDraft['type'], runId = 'run_1'): EventDraft => ({ type
 const s0 = emptyState()
 const s1: OrchState = { ...emptyState() }
 
-const open = (bootId: string, derive: (p: OrchState, n: OrchState) => EventDraft[], over: Partial<Parameters<typeof createHostEventLog>[0]> = {}): HostEventLog =>
-  createHostEventLog({ dir, bootId, now: () => 'T', log: (m) => logged.push(m), derive, ...over })
+const open = (bootId: string, derive: (p: OrchState, n: OrchState) => EventDraft[], over: Partial<Parameters<typeof createHostEventLog>[0]> = {}): HostEventLog => {
+  // A retry far off unless a test asks for one: the tests below drive the writes themselves
+  const log = createHostEventLog({ dir, bootId, now: () => 'T', log: (m) => logged.push(m), derive, retryMs: [60_000], ...over })
+  opened.push(log)
+  return log
+}
+const sequences = (file: string): number[] => lines(file).map((e) => (e as { sequence: number }).sequence)
 const ids = (log: HostEventLog, after?: string): string[] => {
   const r = log.read({ after, limit: 100 })
   if ('error' in r) throw new Error(r.error)
@@ -136,7 +145,98 @@ describe('the Host event log', () => {
     d.next.push([draft('task.completed')])
     log.committed(s0, s1)
     await log.flushed()
-    expect(lines('events.jsonl').map((e) => (e as { sequence: number }).sequence)).toEqual([1, 2, 3])
+    expect(sequences('events.jsonl')).toEqual([1, 2, 3])
+    // A failed write may have left part of a line: the next one starts on a line of its own
+    expect(readFileSync(path.join(dir, 'events.jsonl'), 'utf8').startsWith('\n')).toBe(true)
+  })
+
+  // Final review Important 1: a write that failed went again only with the next commit that made events
+  it('writes held lines by itself once the disk takes them, with no commit to carry them', async () => {
+    writeFileSync(dir, 'in the way')
+    const d = scripted()
+    const log = open(BOOT_A, d.derive, { retryMs: [20, 40] })
+    await log.load()
+    d.next.push([draft('run.started')])
+    log.committed(s0, s1)
+    await log.flushed()
+    rmSync(dir)
+    await vi.waitFor(() => expect(existsSync(path.join(dir, 'events.jsonl'))).toBe(true), { timeout: 3000 })
+    await log.flushed()
+    expect(sequences('events.jsonl')).toEqual([1])
+  })
+
+  it('flushed() writes what a failed write held: the Host awaits it on its way out', async () => {
+    writeFileSync(dir, 'in the way')
+    const d = scripted()
+    const log = open(BOOT_A, d.derive)
+    await log.load()
+    d.next.push([draft('run.started')])
+    log.committed(s0, s1)
+    await log.flushed()
+    rmSync(dir)
+    await log.flushed()
+    expect(sequences('events.jsonl')).toEqual([1])
+    const index = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'index.ts'), 'utf8')
+    expect(index).toMatch(/disposeWithin\(eventLog\.flushed\(\), LEAVE_LOG_FLUSH_CAP_MS/)
+    expect(index).toMatch(/eventLog\.close\(\)/)
+  })
+
+  // Final review Important 2: a crash can leave the last line torn, and the next append ran on into it
+  it('a torn last line does not swallow the next Host’s first event', async () => {
+    mkdirSync(dir, { recursive: true })
+    const good = { id: `ev_${A}_1`, type: 'run.started', sequence: 1, occurredAt: 'T', runId: 'run_1', payload: {} }
+    writeFileSync(path.join(dir, 'events.jsonl'), `${JSON.stringify(good)}\n{"id":"ev_${A}_2","ty`)
+    const d = scripted()
+    const b = open(BOOT_B, d.derive)
+    await b.load()
+    d.next.push([draft('task.completed')])
+    b.committed(s0, s1)
+    await b.flushed()
+    const c = open(BOOT_A, () => [])
+    await c.load()
+    expect(ids(c)).toEqual([`ev_${A}_1`, `ev_${B}_2`])
+  })
+
+  // Final review Minor 2: a removed file made every later rotation fail
+  it('carries on when its file was removed under it', async () => {
+    const d = scripted()
+    const log = open(BOOT_A, d.derive, { segmentEvents: 1 })
+    await log.load()
+    d.next.push([draft('run.started')])
+    log.committed(s0, s1)
+    await log.flushed()
+    rmSync(path.join(dir, 'events.jsonl'))
+    d.next.push([draft('task.started')])
+    log.committed(s0, s1)
+    await log.flushed()
+    expect(sequences('events.jsonl')).toEqual([2])
+    d.next.push([draft('task.completed')])
+    log.committed(s0, s1)
+    await log.flushed()
+    expect(sequences('events.1.jsonl')).toEqual([2])
+    expect(sequences('events.jsonl')).toEqual([3])
+  })
+
+  it('appends without moving the segment when it cannot be moved, and says so once', async () => {
+    mkdirSync(path.join(dir, 'events.1.jsonl', 'in the way'), { recursive: true })
+    const d = scripted()
+    const log = open(BOOT_A, d.derive, { segmentEvents: 1 })
+    await log.load()
+    for (const t of ['run.started', 'task.started', 'task.completed'] as const) {
+      d.next.push([draft(t)])
+      log.committed(s0, s1)
+      await log.flushed()
+    }
+    expect(sequences('events.jsonl')).toEqual([1, 2, 3])
+    expect(logged.filter((m) => m.startsWith('events: could not move'))).toHaveLength(1)
+  })
+
+  // Final review Minor 3: a file it could not read was taken for an empty one, in silence
+  it('says when it cannot read a segment', async () => {
+    mkdirSync(path.join(dir, 'events.jsonl'), { recursive: true })
+    const log = open(BOOT_A, () => [])
+    await log.load()
+    expect(logged).toEqual([expect.stringMatching(/^events: could not read .*events\.jsonl/)])
   })
 
   it('holds at most as many unwritten lines as it keeps events, and says what it dropped', async () => {
@@ -149,12 +249,15 @@ describe('the Host event log', () => {
       log.committed(s0, s1)
       await log.flushed()
     }
-    expect(logged.filter((m) => m.startsWith('events: dropped'))).toEqual([expect.stringContaining('1 unwritten event')])
+    // Final review Minor 1: one line for the streak, not one per failed write
+    expect(logged.filter((m) => m.includes('dropped'))).toEqual([])
+    expect(logged.filter((m) => m.startsWith('events: could not write'))).toHaveLength(1)
     rmSync(dir)
     d.next.push([draft('task.completed')])
     log.committed(s0, s1)
     await log.flushed()
-    expect(lines('events.jsonl').map((e) => (e as { sequence: number }).sequence)).toEqual([2, 3, 4])
+    expect(sequences('events.jsonl')).toEqual([2, 3, 4])
+    expect(logged.filter((m) => m.includes('dropped'))).toEqual([expect.stringContaining('1 unwritten event')])
   })
 
   it('a derive that throws is logged and the commit goes on', async () => {

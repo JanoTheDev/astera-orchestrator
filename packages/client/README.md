@@ -94,12 +94,12 @@ for await (const e of astera.events.subscribe({ types: ['run.completed', 'run.fa
 | `job.created`, `job.updated` | a Job is made; one of its own fields changes (not its derived outcome or progress) | `Job` |
 | `run.started` | a Run is made | `Run` |
 | `run.completed`, `run.failed` | its Tasks' outcome leaves `running` | `Run` |
-| `task.started` | a Task is dispatched (a retry or a repair included) | `Task` |
+| `task.started` | a worker starts on a Task (a retry or a repair included), once it has its session | `Task` |
 | `task.completed`, `task.failed` | a Task completes; fails (a failure it will retry included) | `Task` |
 | `question.created`, `question.answered` | a question for a person opens; is answered | `Question` |
 | `completion.started` | a Task's first check starts | `TaskCompletion` |
 | `completion.failed` | a check or review round fails | `TaskCompletion` |
-| `completion.repair_started` | a repair of a failed check or review starts | `TaskCompletion` |
+| `completion.repair_started` | a repair of a failed check or review starts, once its worker has its session | `TaskCompletion` |
 | `completion.converged`, `completion.exhausted` | a Task is done; its repairs ran out | `TaskCompletion` |
 
 - An event is `{ id, type, sequence, occurredAt, projectId?, jobId?, runId?, taskId?, payload }`, the payload the
@@ -109,9 +109,12 @@ for await (const e of astera.events.subscribe({ types: ['run.completed', 'run.fa
   seen. `sequence` orders the events of one log.
 - `subscribe()` starts with what happens next; `subscribe({ after })` reads on from an event id or a cursor.
   `list({ after, types, limit })` answers one page `{ items, nextCursor, gap }` from the oldest event the Host holds,
-  without waiting: pass `nextCursor` back to read on, or to `subscribe`.
+  without waiting: pass `nextCursor` back to read on, or to `subscribe`. Unlike the other lists, `nextCursor` is always
+  set (it is where the next event will be); you have caught up when `items` comes back empty.
 - A `{ type: 'gap' }` (or `gap: true`) means events between your cursor and the next one are gone: older than the
-  Host keeps (at least the last 1000 events, across Host restarts), or a cursor from a log this Host does not hold.
+  Host keeps, or a cursor from a log this Host does not hold. The Host keeps its most recent events across restarts:
+  two files of up to 1000 events or 4 MiB each, so between 1000 and 2000 events, fewer when payloads are large (a
+  Task's `result` or a Job's `objective` is not cut).
 - A subscription outlives a Host restart: a call that fails because the Host went away or did not answer is sent
   again from the same cursor after 250 ms, 1 s, then every 5 s. It ends only on `break`/`return()`, its `signal`, or
   an error waiting cannot mend (a Host too old for events answers `VERSION_MISMATCH`).

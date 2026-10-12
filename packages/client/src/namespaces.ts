@@ -183,8 +183,9 @@ const callOptions = (o: WriteOptions | undefined): CallOptions => ({
 /** A read's options: never a request id, which only a write may carry. */
 const readOptions = (o: ReadOptions | undefined): CallOptions => callOptions(o === undefined ? undefined : { signal: o.signal, timeoutMs: o.timeoutMs })
 
-/** `features` is the connected Host's, read per use: a reconnect may reach another Host. */
-export function createNamespaces(call: Call, features: () => readonly string[]): Namespaces {
+/** `features` is the connected Host's, read per use: a reconnect may reach another Host. `closed` is the client's
+ *  close(), which ends a subscription waiting to try again. */
+export function createNamespaces(call: Call, features: () => readonly string[], closed?: AbortSignal): Namespaces {
   const body = async <T>(cmd: string, args: Record<string, unknown>, o: CallOptions): Promise<T> => (await call(cmd, args, o)).body as T
   const list = async <T>(cmd: string, args: Record<string, unknown>, o: CallOptions): Promise<ListResult<T>> => {
     const items = await body<unknown>(cmd, args, o)
@@ -366,5 +367,5 @@ export function createNamespaces(call: Call, features: () => readonly string[]):
     get: async (runId, o) => body<RunCompletion>('runs-completion', { id: need('runId', runId) }, readOptions(o))
   }
 
-  return { projects, jobs, runs, tasks, questions, completion, events: createEventsApi(call, features) }
+  return { projects, jobs, runs, tasks, questions, completion, events: createEventsApi(call, features, closed !== undefined ? { closed } : {}) }
 }

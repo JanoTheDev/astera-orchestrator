@@ -84,7 +84,7 @@ describe('derivePublicEvents', () => {
 
   it('task.started, task.completed and task.failed on those moves, with every id', () => {
     const before = state({ tasks: [task('t1', 'ready'), task('t2', 'reviewing'), task('t3', 'dispatched'), task('t4', 'ready')] })
-    const started = derivePublicEvents(before, withTask(before, task('t1', 'dispatched')))
+    const started = derivePublicEvents(before, withTask(before, task('t1', 'dispatched'), { dispatches: [dispatch('d1', 't1')] }))
     expect(types(started)).toEqual(['task.started'])
     expect(started[0]).toMatchObject({ taskId: 't1', runId: 'run_1', jobId: 'job_1', projectId: 'proj_1' })
     expect(types(derivePublicEvents(before, withTask(before, task('t2', 'completed'))))).toEqual(['task.completed', 'completion.converged'])
@@ -138,7 +138,8 @@ describe('derivePublicEvents', () => {
   it('a completion move made by a Dispatch alone, the Task object unchanged', () => {
     const before = state({ tasks: [task('t1', 'dispatched')], dispatches: [] })
     const after = { ...before, dispatches: [dispatch('d2', 't1', { repair: 'review-failure' })] }
-    expect(types(derivePublicEvents(before, after))).toEqual(['completion.repair_started'])
+    // A repair's worker starting is a start of the Task too
+    expect(types(derivePublicEvents(before, after))).toEqual(['task.started', 'completion.repair_started'])
   })
 
   it('a completion move made by a Gate alone, the Task object unchanged', () => {
@@ -171,6 +172,55 @@ describe('derivePublicEvents', () => {
     const before = state({ tasks: [task('t1', 'completed'), task('t2', 'dispatched', { consecutiveFailures: FAILURE_LIMIT - 1 })] })
     const es = derivePublicEvents(before, withTask(before, task('t2', 'failed', { consecutiveFailures: FAILURE_LIMIT })))
     expect(types(es)).toEqual(['task.failed', 'run.failed'])
+  })
+
+  // Final review Minor 5: a start commits a `pending:` placeholder Dispatch first and its real session after; a start
+  // that fails rolls both back. Nothing has started until a worker has a session.
+  it('task.started waits for the worker’s real session, and a start rolled back says nothing', () => {
+    const before = state({ tasks: [task('t1', 'ready')] })
+    const placed = state({ tasks: [task('t1', 'dispatched')], dispatches: [dispatch('d1', 't1', { sessionId: 'pending:abc' })] })
+    expect(derivePublicEvents(before, placed)).toEqual([])
+    const started = state({ tasks: placed.tasks, dispatches: [dispatch('d1', 't1', { sessionId: 'ses_real' })] })
+    const es = derivePublicEvents(placed, started)
+    expect(types(es)).toEqual(['task.started'])
+    expect(es[0]).toMatchObject({ taskId: 't1' })
+    expect(derivePublicEvents(placed, before)).toEqual([])
+  })
+
+  it('a repair in a new session starts at its real session too', () => {
+    const before = state({ tasks: [task('t1', 'validating')], dispatches: [dispatch('d1', 't1', { endedAt: NOW })] })
+    const placed = state({ tasks: [task('t1', 'dispatched')], dispatches: [dispatch('d1', 't1', { endedAt: NOW }), dispatch('d2', 't1', { repair: 'check-failure', sessionId: 'pending:x' })] })
+    expect(types(derivePublicEvents(before, placed))).toEqual(['completion.failed'])
+    const started = state({ tasks: placed.tasks, dispatches: [dispatch('d1', 't1', { endedAt: NOW }), dispatch('d2', 't1', { repair: 'check-failure', sessionId: 'ses_2' })] })
+    expect(types(derivePublicEvents(placed, started))).toEqual(['task.started', 'completion.repair_started'])
+  })
+
+  it('a worker that rolls to another account in a new Dispatch is not a new start', () => {
+    const before = state({ tasks: [task('t1', 'dispatched')], dispatches: [dispatch('d1', 't1')] })
+    const rolled = state({ tasks: before.tasks, dispatches: [dispatch('d1', 't1', { endedAt: NOW, outcome: 'failed' }), dispatch('d2', 't1', { accountId: 'acc2' })] })
+    expect(derivePublicEvents(before, rolled)).toEqual([])
+  })
+
+  // Final review Minor 4: an app's state-put brings every object new, so nothing can be skipped by identity; each
+  // Task's Gates and Dispatches, and each Run's Tasks, must still be gathered once, not searched for each.
+  it('reads each Dispatch a bounded number of times for a state that is all new', () => {
+    const runs = Array.from({ length: 50 }, (_, i): JobRun => ({ ...run, id: `run_${i}`, ordinal: i + 1 }))
+    const tasks = Array.from({ length: 1000 }, (_, i) => task(`t${i}`, 'dispatched', { runId: `run_${i % 50}` }))
+    const dispatches = tasks.flatMap((t, i) => [dispatch(`d${i}a`, t.id, { endedAt: NOW, outcome: 'failed' }), dispatch(`d${i}b`, t.id)])
+    const prev = state({ runs, tasks, dispatches })
+    let reads = 0
+    const counted = <T extends object>(xs: T[]): T[] =>
+      new Proxy(xs, {
+        get(target, key, receiver) {
+          if (typeof key === 'string' && /^\d+$/.test(key)) reads += 1
+          return Reflect.get(target, key, receiver)
+        }
+      })
+    const copy = JSON.parse(JSON.stringify(prev)) as OrchState
+    const next: OrchState = { ...copy, dispatches: counted(copy.dispatches) }
+    const counting: OrchState = { ...prev, dispatches: counted([...prev.dispatches]) }
+    expect(derivePublicEvents(counting, next)).toEqual([])
+    expect(reads).toBeLessThan(10 * dispatches.length)
   })
 
   it('no Run ending for a Run removed by the commit', () => {

@@ -70,13 +70,15 @@ export function createEventRing(a: {
         lastOwn = i
       }
     if (first >= 0) {
-      // That boot's events are in order with no hole: the ones before its first held one fell off the front, and
-      // everything older with them.
+      // That boot's events are in order: the ones before its first held one fell off the front, and everything older
+      // with them.
       if (seq < entries[first].event.sequence - 1) return { start: first, gap: true }
       // At or past its last: a Host that died before writing what it had delivered leaves a cursor past it, and
       // the caller had those.
       if (seq >= entries[lastOwn].event.sequence) return { start: lastOwn + 1, gap: false }
-      for (let i = first; i <= lastOwn; i++) if (entries[i].boot === boot && entries[i].event.sequence > seq) return { start: i, gap: false }
+      // A hole inside that boot (lines a shut disk dropped, a torn line) is a gap like one at the front
+      for (let i = first; i <= lastOwn; i++)
+        if (entries[i].boot === boot && entries[i].event.sequence > seq) return { start: i, gap: entries[i].event.sequence > seq + 1 }
     }
     // Nothing of this Host's boot yet: what comes after now
     if (boot === a.boot) return { start: entries.length, gap: false }
@@ -110,9 +112,12 @@ export function createEventRing(a: {
       return written
     },
     restore(held) {
+      const seen = new Set<string>()
       for (const { event, line } of held) {
         const boot = bootOf(event.id)
-        if (boot === null) continue
+        // A write retried after a partial one can leave a line twice: the first is the one kept
+        if (boot === null || seen.has(event.id)) continue
+        seen.add(event.id)
         entries.push({ event, line, boot })
         chars += line.length
         last = Math.max(last, event.sequence)

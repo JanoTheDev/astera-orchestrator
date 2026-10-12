@@ -172,6 +172,29 @@ describe('astera.events.subscribe', () => {
     expect(s.sent).toEqual([])
   })
 
+  // Final review Minor 9: close() left a subscription asleep before its next try, holding Node for up to 5 s
+  it('ends at once with FAILED when the client closes while it waits to try again', async () => {
+    const closing = new AbortController()
+    const s = scripted([new AsteraError('HOST_NOT_RUNNING', 'gone')])
+    const hang = (_ms: number, signal: AbortSignal): Promise<void> =>
+      new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }))
+    const it = createEventsApi(s.call, withEvents, { sleep: hang, closed: closing.signal }).subscribe({ after: `ev_${A}_1` })
+    const pending = it.next().catch((e: unknown) => e)
+    await new Promise((r) => setTimeout(r, 20))
+    closing.abort()
+    expect(await pending).toMatchObject({ code: 'FAILED', message: 'the client is closed' })
+    expect(s.sent).toHaveLength(1)
+  })
+
+  // Final review Minor 8: the spec's own example (§6) reads `event.runId` with no narrowing
+  it('takes the spec’s example as written', () => {
+    const it = createEventsApi(scripted([]).call, withEvents).subscribe({ types: ['completion.converged'] })
+    const example = async (): Promise<void> => {
+      for await (const event of it) console.log(event.runId)
+    }
+    expect(typeof example).toBe('function')
+  })
+
   it('types its events by the types it asked for (the README example compiles)', () => {
     const it = createEventsApi(scripted([]).call, withEvents).subscribe({ types: ['run.completed', 'run.failed', 'completion.exhausted'] })
     const check = async (): Promise<void> => {

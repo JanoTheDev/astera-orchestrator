@@ -4,7 +4,13 @@
 // **Only what changed is looked at.** The state is replaced on every commit and never mutated (stateMemo.ts), so an
 // object that is the same object in both states did not change, and an array that is the same array holds no change.
 // A commit that moves one Task costs a pass over the arrays that moved, and the completion state and Run outcome
-// only of the Tasks and Runs it touched; never the O(Runs × Tasks) of asking every Run.
+// only of the Tasks and Runs it touched; never the O(Runs × Tasks) of asking every Run. **And a state that is all new**
+// (an app's `state-put` arrives from a socket, every object fresh) stays linear: each Task's Gates and Dispatches, and
+// each Run's Tasks, are gathered once per derive, never searched for each (final review Minor 4).
+//
+// **A Task starts when its worker has a session.** A start commits a `pending:` placeholder Dispatch first and the
+// real session after, and a start that fails rolls both back; so `task.started` and `completion.repair_started` wait
+// for the real session, and a start that never happened says nothing (final review Minor 5).
 //
 // **Payloads are the public DTOs** of the objects, built by the views the reads use (publicViews.ts,
 // runCompletion.ts) and shaped by the package's own rules (shapeEvent), so an event says what a read of the same
@@ -12,10 +18,10 @@
 // the whole object.
 import { JOB_FIELDS, shapeEvent, type EventType } from '../publicContract'
 import { briefTask, jobView, latestRunOf, runView } from './publicViews'
+import { outcomeOfTasks } from './running'
 import { taskCompletionOf, taskCompletionState, type CompletionState } from './runCompletion'
 import type { OrchState } from './state'
-import type { Job, JobRun, Task } from './types'
-import { outcomeOf } from './view'
+import { isPlaceholderSessionId, type Dispatch, type Gate, type Job, type JobRun, type Task } from './types'
 
 /** One event before the log gives it an id, a sequence and a time. */
 export interface EventDraft {
@@ -54,12 +60,45 @@ const taskPayload = (t: Task): Record<string, unknown> => ({
   ...(t.checks !== undefined ? { checks: t.checks.map(({ outputTail: _output, ...check }) => check) } : {})
 })
 
-/** The Task event of a status move, or null for a move that is none of the three. */
-function taskType(now: Task['status']): EventType | null {
-  if (now === 'dispatched') return 'task.started'
-  if (now === 'completed') return 'task.completed'
-  if (now === 'failed') return 'task.failed'
-  return null
+/** Each Task's Gates and Dispatches in one state, gathered once. */
+interface ByTask {
+  gates: Map<string, Gate[]>
+  dispatches: Map<string, Dispatch[]>
+}
+const groupBy = <T>(xs: readonly T[], key: (x: T) => string | undefined): Map<string, T[]> => {
+  const out = new Map<string, T[]>()
+  for (const x of xs) {
+    const k = key(x)
+    if (k === undefined) continue
+    const list = out.get(k)
+    if (list) list.push(x)
+    else out.set(k, [x])
+  }
+  return out
+}
+const byTaskOf = (s: OrchState): ByTask => ({ gates: groupBy(s.gates, (g) => g.taskId), dispatches: groupBy(s.dispatches, (d) => d.taskId) })
+
+/** The state as one Task's completion reads it: `taskCompletionState` and `repairCountOf` look at that Task's Gates
+ *  and Dispatches only, so the same answer comes from a state that holds only those. */
+const narrowed = (s: OrchState, by: ByTask, taskId: string): OrchState => ({ ...s, gates: by.gates.get(taskId) ?? [], dispatches: by.dispatches.get(taskId) ?? [] })
+
+/** The open worker of a Task, as `taskCompletionState` finds it: not ended, not a review. */
+const openWorkerOf = (ds: readonly Dispatch[]): Dispatch | undefined => ds.find((d) => d.endedAt === undefined && !d.review)
+
+/** Whether a worker is at work on the Task: it is dispatched and its open worker has a real session. */
+const working = (t: Task, ds: readonly Dispatch[]): boolean => {
+  const open = t.status === 'dispatched' ? openWorkerOf(ds) : undefined
+  return open !== undefined && !isPlaceholderSessionId(open.sessionId)
+}
+
+/** The completion state the events follow: `taskCompletionState`, except that a worker still waiting for its session
+ *  has not started (`working`, `fixing` and `fixing-review` read as `not-started` until it has one). */
+const eventState = (s: OrchState, by: ByTask, t: Task): CompletionState => {
+  const own = narrowed(s, by, t.id)
+  const state = taskCompletionState(own, t)
+  if (state !== 'working' && state !== 'fixing' && state !== 'fixing-review') return state
+  const open = openWorkerOf(own.dispatches)
+  return open !== undefined && isPlaceholderSessionId(open.sessionId) ? 'not-started' : state
 }
 
 export function derivePublicEvents(prev: OrchState, next: OrchState): EventDraft[] {
@@ -104,28 +143,20 @@ export function derivePublicEvents(prev: OrchState, next: OrchState): EventDraft
   if (tasksMoved || gatesMoved || dispatchesMoved) {
     const tasksBefore = byId(prev.tasks)
     const tasksNow = tasksMoved ? byId(next.tasks) : tasksBefore
-    /** Tasks whose object changed or is new, in the order of the state. */
-    const changed: Task[] = []
+    // A Task's start and completion state read its Gates and Dispatches too, so a Task named by a Gate or Dispatch
+    // that changed is asked even when its own object did not change. The order: changed Tasks as the state has them,
+    // then the ones a Gate or Dispatch named.
+    const affected = new Set<string>()
     if (tasksMoved) {
       for (const t of next.tasks) {
         const was = tasksBefore.get(t.id)
         if (was === t) continue
-        changed.push(t)
+        affected.add(t.id)
         if (t.runId !== undefined) runsTouched.add(t.runId)
         if (was?.runId !== undefined) runsTouched.add(was.runId)
       }
       for (const t of prev.tasks) if (!tasksNow.has(t.id) && t.runId !== undefined) runsTouched.add(t.runId)
     }
-
-    for (const t of changed) {
-      if (t.runId === undefined) continue
-      const type = taskType(t.status)
-      if (type !== null && tasksBefore.get(t.id)?.status !== t.status) push(type, idsOf(t.runId, t.id), taskPayload(t))
-    }
-
-    // A Task's completion state reads its Gates and Dispatches too (taskCompletionState), so a Task named by a Gate
-    // or Dispatch that changed is asked even when its own object did not change.
-    const affected = new Set(changed.map((t) => t.id))
     const touchedBy = <T extends { id: string; taskId: string }>(before: readonly T[], now: readonly T[]): void => {
       const was = byId(before)
       for (const x of now) if (was.get(x.id) !== x) affected.add(x.taskId)
@@ -134,17 +165,35 @@ export function derivePublicEvents(prev: OrchState, next: OrchState): EventDraft
     }
     if (gatesMoved) touchedBy(prev.gates, next.gates)
     if (dispatchesMoved) touchedBy(prev.dispatches, next.dispatches)
-    for (const id of affected) {
-      const t = tasksNow.get(id)
-      if (t === undefined || t.runId === undefined) continue
-      const was = tasksBefore.get(id)
-      const from = was === undefined ? 'not-started' : taskCompletionState(prev, was)
-      const to = taskCompletionState(next, t)
-      if (from === to) continue
-      const types = completionTypes(from, to)
-      if (types.length === 0) continue
-      const payload = taskCompletionOf(next, t)
-      for (const type of types) push(type, idsOf(t.runId, t.id), payload)
+
+    if (affected.size > 0) {
+      const byBefore = byTaskOf(prev)
+      const byNow = gatesMoved || dispatchesMoved ? byTaskOf(next) : byBefore
+      /** The affected Tasks of a Run, both states in hand. */
+      const pairs: Array<{ t: Task & { runId: string }; was: Task | undefined }> = []
+      for (const id of affected) {
+        const t = tasksNow.get(id)
+        if (t !== undefined && t.runId !== undefined) pairs.push({ t: t as Task & { runId: string }, was: tasksBefore.get(id) })
+      }
+
+      for (const { t, was } of pairs) {
+        const startedNow = working(t, byNow.dispatches.get(t.id) ?? [])
+        const startedBefore = was !== undefined && working(was, byBefore.dispatches.get(t.id) ?? [])
+        if (startedNow && !startedBefore) push('task.started', idsOf(t.runId, t.id), taskPayload(t))
+        if (was?.status === t.status) continue
+        if (t.status === 'completed') push('task.completed', idsOf(t.runId, t.id), taskPayload(t))
+        else if (t.status === 'failed') push('task.failed', idsOf(t.runId, t.id), taskPayload(t))
+      }
+
+      for (const { t, was } of pairs) {
+        const from = was === undefined ? 'not-started' : eventState(prev, byBefore, was)
+        const to = eventState(next, byNow, t)
+        if (from === to) continue
+        const types = completionTypes(from, to)
+        if (types.length === 0) continue
+        const payload = taskCompletionOf(narrowed(next, byNow, t.id), t)
+        for (const type of types) push(type, idsOf(t.runId, t.id), payload)
+      }
     }
   }
 
@@ -163,10 +212,13 @@ export function derivePublicEvents(prev: OrchState, next: OrchState): EventDraft
   if (runsTouched.size > 0) {
     const before = runsBefore ?? new Set(prev.runs.map((r) => r.id))
     const now = byId(next.runs)
+    // Each Run's Tasks gathered once: outcomeOf would search every Task for each Run.
+    const tasksBefore = groupBy(prev.tasks, (t) => t.runId)
+    const tasksNow = groupBy(next.tasks, (t) => t.runId)
     for (const runId of runsTouched) {
       const run = now.get(runId)
-      if (run === undefined || !before.has(runId) || outcomeOf(prev, runId) !== 'running') continue
-      const outcome = outcomeOf(next, runId)
+      if (run === undefined || !before.has(runId) || outcomeOfTasks(tasksBefore.get(runId) ?? []) !== 'running') continue
+      const outcome = outcomeOfTasks(tasksNow.get(runId) ?? [])
       if (outcome === 'completed') runEvent('run.completed', run)
       else if (outcome === 'failed') runEvent('run.failed', run)
     }

@@ -109,6 +109,29 @@ describe('the event ring', () => {
     expect(read(b, { after: `ev_${A}_3`, limit: 10 })).toEqual({ events: [expect.objectContaining({ id: `ev_${B}_3` })], cursor: `ev_${B}_3`, gap: false })
   })
 
+  // Final review Important 3: lines a shut disk dropped, or a torn last line, leave a hole in one boot's numbers after
+  // a restart. A cursor before the hole reads on with a gap mark; one right before what is held does not.
+  it('says gap for a hole inside one boot', () => {
+    const r = ring(B)
+    r.restore([1, 2, 5, 6].map((n) => {
+      const event = { id: `ev_${A}_${n}`, type: 'task.started', sequence: n, occurredAt: 'T', payload: {} } as never
+      return { event, line: JSON.stringify(event) }
+    }))
+    const page = read(r, { after: `ev_${A}_2`, limit: 10 })
+    expect(ids(page)).toEqual([`ev_${A}_5`, `ev_${A}_6`])
+    expect(page.gap).toBe(true)
+    expect(read(r, { after: `ev_${A}_1`, limit: 10 }).gap).toBe(false)
+    expect(read(r, { after: `ev_${A}_4`, limit: 10 }).gap).toBe(false)
+  })
+
+  // A write retried after a partial one can leave a line twice
+  it('holds an event once when the files have it twice', () => {
+    const event = { id: `ev_${A}_1`, type: 'task.started', sequence: 1, occurredAt: 'T', payload: {} } as never
+    const r = ring(B)
+    r.restore([{ event, line: JSON.stringify(event) }, { event, line: JSON.stringify(event) }])
+    expect(ids(read(r, { limit: 10 }))).toEqual([`ev_${A}_1`])
+  })
+
   it('refuses a cursor that is not an event id', () => {
     const r = ring()
     for (const bad of ['x', 'ev_zz_1', `ev_${A}_-1`, `ev_${A}_01`, `ev_${A}_1.5`, `ev_${A.toUpperCase()}_1`])

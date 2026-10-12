@@ -274,6 +274,10 @@ async function main(): Promise<void> {
           // The journal's handle, once no command can reach a commit any more: the spawns have settled and
           // the server has closed. Never throws.
           hostJournal.close()
+          // And the public event log's lines a failed write still holds (SDK 1d final review I1), capped like the
+          // log's own flush below so a stuck disk cannot hold the way out. Never rejects.
+          await disposeWithin(eventLog.flushed(), LEAVE_LOG_FLUSH_CAP_MS, () => {})
+          eventLog.close()
           registry.killAll()
           procs.killAll()
           // Every buffered log line on disk before the exits below are armed (stage 3, task 3). First the

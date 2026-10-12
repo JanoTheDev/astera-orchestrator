@@ -350,12 +350,19 @@ export type AsteraEvent<K extends EventType = EventType> = {
 }[K]
 
 /** `events.subscribe` yields this when events between its cursor and the next one are gone (older than the Host
- *  keeps, or a cursor from a log this Host does not hold): read the state again. */
+ *  keeps, or a cursor from a log this Host does not hold): read the state again. It names no object, so an event's
+ *  ids read `undefined` on it and `event.runId` needs no narrowing first. */
 export interface EventGap {
   readonly type: 'gap'
+  readonly id?: undefined
+  readonly projectId?: undefined
+  readonly jobId?: undefined
+  readonly runId?: undefined
+  readonly taskId?: undefined
 }
 
-/** `events.list`: a page of events, the cursor to read on from, and whether events before the page were lost. */
+/** `events.list`: a page of events, the cursor to read on from, and whether events before the page were lost. Unlike
+ *  `ListResult`, `nextCursor` is always set: an empty `items` means caught up. */
 export interface EventList {
   readonly items: readonly AsteraEvent[]
   readonly nextCursor: string
