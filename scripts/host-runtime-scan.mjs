@@ -1,7 +1,39 @@
 // The package scan of scripts/host-runtime.mjs, apart so a test can run it over a fixture bundle.
-import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { isBuiltin } from 'node:module'
 import { basename, dirname, join } from 'node:path'
+
+// The names electron-builder leaves out of every directory it copies, extraResources included: builder-util's walk
+// (out/fs.js) skips `.DS_Store` and `.gitkeep` before any pattern is consulted, so no `files` or `filter` entry can
+// bring them back. Hard-coded there, not exported, so listed here; the `.d.ts`, `.npmignore` and other names in
+// app-builder-lib's default `files` patterns do not apply to extraResources and ship (checked against v1.4.9's
+// installer, which carries 497 `.d.ts` files and no `.gitkeep`).
+const DROPPED_NAMES = new Set(['.ds_store', '.gitkeep'])
+
+/** Whether electron-builder leaves `rel` (a path under an extraResources directory) out of the package. */
+export function packagerDrops(rel) {
+  const parts = rel.split(/[\\/]/)
+  return DROPPED_NAMES.has(parts[parts.length - 1].toLowerCase())
+}
+
+/** Removes from `dir` every file the packager would leave out, so the manifest walked after it lists only what the
+ *  installer ships (v1.4.9 listed a `.gitkeep` it did not, and every app start then emptied a running Host's runtime).
+ *  Returns what it removed, relative and `\\`-separated, sorted. */
+export function pruneUnshipped(dir) {
+  const removed = []
+  const walk = (abs, rel) => {
+    for (const e of readdirSync(abs, { withFileTypes: true })) {
+      const r = rel ? `${rel}\\${e.name}` : e.name
+      const a = join(abs, e.name)
+      if (packagerDrops(r)) {
+        rmSync(a, { recursive: true, force: true })
+        removed.push(r)
+      } else if (e.isDirectory()) walk(a, r)
+    }
+  }
+  walk(dir, '')
+  return removed.sort()
+}
 
 /**
  * **Every package the Host bundle loads, read out of the bundle itself.**
