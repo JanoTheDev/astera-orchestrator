@@ -1465,6 +1465,8 @@ export interface CoreApi {
      *  `sessionId`, when the link is in a session, makes a relative target try the agent's current
      *  directory (from that session's statusLine payload) before `cwd`. */
     resolveLink(cwd: string, target: string, sessionId?: string): Promise<{ path: string } | null>
+    /** An image or a video in a project, admitted for the media viewer (main/media/admit.ts); null for anything else. */
+    admitMedia(path: string): Promise<{ path: string } | null>
   }
   /** The media viewer tab (components/MediaViewer.tsx). Every call accepts only a media file that
    *  files.resolveLink answered in this run of the app (main/media/allowlist.ts). */

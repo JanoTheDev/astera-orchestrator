@@ -28,6 +28,7 @@ import {
 } from './tree'
 import { mediaTab, parseTab } from './tabId'
 import { foldPathCase, runtimePlatform } from '../files/paths'
+import { isSubPath } from '../files/ops'
 
 export type PlaceResult = {
   root: PaneNode
@@ -175,4 +176,16 @@ export function placeMediaTab(
     }
   }
   return { ...placeTab(root, mediaTab(path), opts), reopened: null }
+}
+
+/** The paths of the media tabs at or under `path`, in every pane: what an explorer rename, move or delete of `path`
+ *  touches (final review of the explorer opening media, I1). The comparison folds case where the filesystem does. */
+export function mediaTabsUnder(root: PaneNode | null, path: string, platform: string = runtimePlatform()): string[] {
+  if (!root) return []
+  return leaves(root)
+    .flatMap((l) => l.tabIds)
+    .map(parseTab)
+    .filter((t): t is { kind: 'media'; id: string } => t !== null && t.kind === 'media')
+    .map((t) => t.id)
+    .filter((id) => isSubPath(path, id, platform))
 }
