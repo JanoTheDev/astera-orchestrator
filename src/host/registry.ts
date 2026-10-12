@@ -6,6 +6,11 @@
 import type { PtyEntry, PtyMeta, PtyOpenOptions } from '../core/host/protocol'
 // Imports nothing itself, so it adds nothing to the Host bundle but the one pattern.
 import { isOnlyTerminalReports } from '../core/terminal/reports'
+
+/** One or more plain cursor position reports (CSI row;col R): not typing as far as the size is concerned, though
+ *  core/terminal/reports.ts leaves them out of its list because Shift+F3 sends the same bytes. A Shift+F3 that does not
+ *  take the size costs nothing. */
+const CURSOR_REPORTS = new RegExp(String.raw`^(?:\x1b\[\d+;\d+R)+$`)
 import { randomBytes } from 'node:crypto'
 // The ring and the live terminal (remote runtime design §3.7): the terminal loads @xterm/headless lazily.
 import { createPtyRing, type PtyEvent, type PtyRing } from './ptyRing'
@@ -519,11 +524,13 @@ export class PtyRegistry {
     const e = this.live(id)
     if (!e) return
     const reports = isOnlyTerminalReports(data)
-    if (by?.side !== undefined && !reports && e.sizeOwner !== by.side) {
+    // A side with no window (no size asked for) has no size to own; a plain cursor position report is a terminal's
+    // answer to CSI 6n, which both sides' terminals send (final review I5, I7).
+    const w = by?.side !== undefined ? e.wanted.get(by.side) : undefined
+    if (by?.side !== undefined && w && !reports && !CURSOR_REPORTS.test(data) && e.sizeOwner !== by.side) {
       const wasLocal = e.sizeOwner === null && by.side === 'local'
       e.sizeOwner = by.side
-      const w = e.wanted.get(by.side)
-      if (!wasLocal && w && (w.cols !== e.cols || w.rows !== e.rows)) this.resize(id, w.cols, w.rows)
+      if (!wasLocal && (w.cols !== e.cols || w.rows !== e.rows)) this.resize(id, w.cols, w.rows)
     }
     e.pty.write(data)
     if (reports) return
@@ -574,6 +581,24 @@ export class PtyRegistry {
   /** Which side the pty's size follows, or null when no controller has ever taken it (tests, the Host's answers). */
   ownerOf(id: string): string | null {
     return this.entries.get(id)?.sizeOwner ?? null
+  }
+
+  /** Whether this machine's apps own the pty's size: what the apps are told beside each size (`pty-size`). */
+  localOwns(id: string): boolean {
+    const owner = this.entries.get(id)?.sizeOwner ?? null
+    return owner === null || owner === 'local'
+  }
+
+  /** A side left (a controller closed its tab): its size is forgotten, and if it owned the size the local apps get it
+   *  back with the size they asked for, as tmux's `latest` works it out again when a client goes (final review M5). */
+  release(id: string, side: string): void {
+    const e = this.live(id)
+    if (!e) return
+    e.wanted.delete(side)
+    if (e.sizeOwner !== side) return
+    e.sizeOwner = null
+    const w = e.wanted.get('local')
+    if (w && (w.cols !== e.cols || w.rows !== e.rows)) this.resize(id, w.cols, w.rows)
   }
 
   /** The size recorded by `open` and `resize`, or null for an id that was never here. */
