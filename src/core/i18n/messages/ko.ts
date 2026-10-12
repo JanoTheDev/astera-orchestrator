@@ -1098,6 +1098,7 @@ export const ko = {
   'session.toast.stalled': "'{title}' 세션이 멈춰 있습니다 — 자동 재개 실패, 확인이 필요합니다",
   'session.terminal.loadingContent': '내용 불러오는 중…',
   'session.terminal.exited': '종료됨 (코드 {code})',
+  'session.terminal.sizedRemote': '원격 컴퓨터의 창 크기로 표시 중입니다. 입력하면 이 창 크기로 바뀝니다.',
   'session.terminal.restart': '다시 시작',
   // The schedule banner SessionStateBanners.tsx draws, on the terminal and on the conversation pane alike
   // — schedRuleSummary is a module-level pure function, so it takes t as an argument (the same convention
@@ -1958,7 +1959,7 @@ export const ko = {
   'remote.session.reconnecting': 'Runtime 에 다시 연결하는 중입니다. 세션은 그쪽에서 계속 돌고 있습니다.',
   'remote.session.gone': '이 세션의 출력을 받을 수 없습니다: {message}',
   'remote.session.ended': '세션이 끝났습니다 (종료 코드 {code})',
-  'remote.session.sizeHeld': '그 컴퓨터에서 이 세션을 보고 있어 터미널 크기는 그쪽에 맞춰집니다.',
+  'remote.session.sizedHost': '호스트 컴퓨터의 창 크기로 표시 중입니다. 입력하면 이 창 크기로 바뀝니다.',
   'remote.session.noPty': 'Runtime 이 이 세션의 터미널을 아직 알려 주지 않았습니다',
   'remote.session.failed': 'Runtime 이 거절했습니다: {message}',
   'remote.session.stop': '원격에서 종료',

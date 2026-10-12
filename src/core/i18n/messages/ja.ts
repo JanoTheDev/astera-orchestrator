@@ -887,6 +887,7 @@ export const ja: Catalog = {
     'セッション「{title}」が停止しています — 自動再開に失敗しました。確認が必要です',
   'session.terminal.loadingContent': '内容を読み込み中…',
   'session.terminal.exited': '終了しました (コード {code})',
+  'session.terminal.sizedRemote': 'リモートコンピューターのウィンドウサイズで表示しています。入力するとこのウィンドウのサイズに切り替わります。',
   'session.terminal.restart': '再起動',
   // TerminalView.tsx schedule banner
   'session.terminal.schedFallback': 'スケジュール',
@@ -1513,7 +1514,7 @@ export const ja: Catalog = {
   'remote.session.reconnecting': 'Runtime に再接続しています。セッションはそちらで動き続けています。',
   'remote.session.gone': 'このセッションの出力を受け取れません: {message}',
   'remote.session.ended': 'セッションが終了しました (終了コード {code})',
-  'remote.session.sizeHeld': 'そのコンピューターでこのセッションが表示されているため、端末のサイズはそちらに合わせられます。',
+  'remote.session.sizedHost': 'ホストコンピューターのウィンドウサイズで表示しています。入力するとこのウィンドウのサイズに切り替わります。',
   'remote.session.noPty': 'Runtime がこのセッションの端末をまだ知らせていません',
   'remote.session.failed': 'Runtime が拒否しました: {message}',
   'remote.session.stop': 'Runtime で終了',

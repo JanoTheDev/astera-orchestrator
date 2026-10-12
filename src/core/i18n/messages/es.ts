@@ -898,6 +898,7 @@ export const es: Catalog = {
     'La sesión «{title}» está detenida — falló la reanudación automática, hay que revisarla',
   'session.terminal.loadingContent': 'Cargando el contenido…',
   'session.terminal.exited': 'Finalizado (código {code})',
+  'session.terminal.sizedRemote': 'Se muestra con el tamaño de ventana del equipo remoto. Escribe aquí para usar el tamaño de esta ventana.',
   'session.terminal.restart': 'Reiniciar',
   // TerminalView.tsx schedule banner
   'session.terminal.schedFallback': 'Programación',
@@ -1539,7 +1540,7 @@ export const es: Catalog = {
   'remote.session.reconnecting': 'Reconectando con el Runtime. La sesión sigue en marcha allí.',
   'remote.session.gone': 'No se puede recibir la salida de esta sesión: {message}',
   'remote.session.ended': 'La sesión terminó (código {code})',
-  'remote.session.sizeHeld': 'Alguien está viendo esta sesión en ese equipo, así que el tamaño del terminal sigue al suyo.',
+  'remote.session.sizedHost': 'Se muestra con el tamaño de ventana del equipo host. Escribe aquí para usar el tamaño de esta ventana.',
   'remote.session.noPty': 'el Runtime aún no ha indicado el terminal de esta sesión',
   'remote.session.failed': 'El Runtime lo rechazó: {message}',
   'remote.session.stop': 'Terminar en el Runtime',

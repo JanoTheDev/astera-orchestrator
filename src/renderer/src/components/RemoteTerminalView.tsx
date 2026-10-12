@@ -7,7 +7,7 @@ import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 import { nextResize, type Dims } from '../../../core/terminal/resize'
 import { xtermThemeOf } from '../../../core/theme/apply'
-import { fitTerminalToHost } from '../lib/fitTerminal'
+import { PaneSize, showOwn, showPty, wantedOf } from '../lib/terminalScale'
 import { pinCursorBlinkOff } from '../lib/cursorBlink'
 import * as sessionBus from '../lib/sessionBus'
 import { useI18n } from '../i18n/I18nProvider'
@@ -38,7 +38,8 @@ export function RemoteTerminalView({
   const readOnlyRef = useRef(readOnly)
   readOnlyRef.current = readOnly
   const [banner, setBanner] = useState<Banner>(null)
-  const [held, setHeld] = useState(false)
+  /** The pty is shown at the Runtime's size: someone at that computer typed last (terminalScale.ts). */
+  const [sizedHost, setSizedHost] = useState(false)
   /** The last input did not reach the Runtime (review I1): said until one does. */
   const [inputLost, setInputLost] = useState(false)
   const aliveRef = useRef(session.alive)
@@ -57,50 +58,56 @@ export function RemoteTerminalView({
     termRef.current = term
     let disposed = false
 
-    /** The pty's size on the Runtime, from its checkpoints and resize events. The view shows the pty at this size: a
-     *  checkpoint is drawn for it, and a local viewer there decides it while they hold the pty (N17). */
-    let ptySize: Dims | null = null
+    /** The pty's size on the Runtime (checkpoints and resize events) and whether this tab owns it: the size follows the
+     *  side that typed last (the Runtime's registry `sizeOwner`). A tab that does not own it shows the pty whole at a
+     *  smaller font instead of cutting rows off, and says so. */
+    const pane = new PaneSize()
     let lastSent: Dims | null = null
-    let sizeHeld = false
     const input = new InputCoalescer((data) => remoteCall(runtimeId, 'sessions-input', { id: sessionId, data }), {
       onDelivery: (ok) => !disposed && setInputLost(!ok)
     })
     /** The session ended: a stream given up after that is not a reason to reconnect (review M1). */
     let ended = false
 
+    /** Draws this tab's own grid or the pty's size, whichever it owns. A read-only pairing never resizes the pty, so it
+     *  always shows it at its size. */
+    const show = (): void => {
+      const wanted = wantedOf(term, host)
+      if (!wanted) return
+      const shows = readOnlyRef.current ? (pane.pty ?? 'own') : pane.shows()
+      if (shows === 'own') showOwn(term, host)
+      else showPty(term, host, shows)
+      setSizedHost(!readOnlyRef.current && pane.note(wanted))
+    }
     const fit = (): void => {
-      if (host.clientWidth === 0 || host.clientHeight === 0) return
-      // A read-only pairing cannot resize the pty, so it shows it at its size, as a held one does.
-      if ((sizeHeld || readOnlyRef.current) && ptySize) {
-        term.resize(ptySize.cols, ptySize.rows)
-        return
+      const wanted = wantedOf(term, host)
+      if (!wanted) return
+      const d = readOnlyRef.current ? null : nextResize(lastSent, wanted.cols, wanted.rows)
+      if (d) {
+        lastSent = d
+        pane.sent(d)
+        void remoteCall(runtimeId, 'sessions-resize', { id: sessionId, cols: d.cols, rows: d.rows }).then((r) => {
+          if (disposed || r.status !== 200) return
+          // Not applied: the Runtime keeps the size for when this tab types; someone there typed last.
+          pane.answered((r.body as { applied?: unknown } | null)?.applied === true)
+          show()
+        })
       }
-      fitTerminalToHost(term, host)
-      const d = nextResize(lastSent, term.cols, term.rows)
-      if (!d || readOnlyRef.current) return
-      lastSent = d
-      void remoteCall(runtimeId, 'sessions-resize', { id: sessionId, cols: d.cols, rows: d.rows }).then((r) => {
-        if (disposed) return
-        const applied = (r.body as { applied?: unknown } | null)?.applied
-        // Not applied: someone at that machine holds the pty, so the view keeps its size (N17).
-        sizeHeld = r.status === 200 && applied === false
-        setHeld(sizeHeld)
-        if (sizeHeld && ptySize) term.resize(ptySize.cols, ptySize.rows)
-        if (sizeHeld) lastSent = null
-      })
+      show()
     }
     fitRef.current = fit
 
     // Registered before the output, so a checkpoint held for this tab is drawn ahead of what followed it.
     const offReset = sessionBus.onReset(key, (c) => {
-      ptySize = { cols: c.cols, rows: c.rows }
+      // The pty's size, without a word on who owns it: the resize that follows says that.
+      pane.pty = { cols: c.cols, rows: c.rows }
       term.reset()
       term.resize(c.cols, c.rows)
       term.write(c.state)
       term.write(c.pending)
       ended = c.exitCode !== undefined
       setBanner(c.exitCode !== undefined ? { kind: 'ended', code: c.exitCode } : null)
-      // Drawn at the pty's size; now fitted to this pane, unless that machine holds the size.
+      // Drawn at the pty's size; now fitted to this pane, unless the Runtime's side owns the size.
       fit()
     })
     const detachOutput = sessionBus.attach(key, (data) => {
@@ -109,8 +116,8 @@ export function RemoteTerminalView({
     })
     const offSize = window.api.on('session:remote-size', (e) => {
       if (e.sessionId !== key) return
-      ptySize = { cols: e.cols, rows: e.rows }
-      if (sizeHeld) term.resize(e.cols, e.rows)
+      pane.heard({ cols: e.cols, rows: e.rows })
+      show()
     })
     const offExit = window.api.on('session:remote-exit', (e) => {
       if (e.sessionId !== key) return
@@ -229,12 +236,12 @@ export function RemoteTerminalView({
   return (
     <div className="terminal-wrap">
       <div className="terminal-host" ref={hostRef} />
-      {(readOnly || held || banner || inputLost) && (
+      {(readOnly || sizedHost || banner || inputLost) && (
         <div className="remote-session-banners">
           {banner?.kind === 'reconnecting' && <div className="remote-session-banner">{t('remote.session.reconnecting')}</div>}
           {banner?.kind === 'gone' && <div className="remote-session-banner is-error">{t('remote.session.gone', { message: banner.message })}</div>}
           {readOnly && <div className="remote-session-banner">{t('remote.session.readOnly')}</div>}
-          {held && <div className="remote-session-banner">{t('remote.session.sizeHeld')}</div>}
+          {sizedHost && <div className="remote-session-banner">{t('remote.session.sizedHost')}</div>}
           {inputLost && !readOnly && <div className="remote-session-banner is-error">{t('remote.session.inputLost')}</div>}
         </div>
       )}

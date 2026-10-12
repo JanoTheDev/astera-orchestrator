@@ -4,7 +4,7 @@ import '@xterm/xterm/css/xterm.css'
 import type { RollStateEvent, SchedStateEvent, SessionInfo } from '../../../core/types'
 import { nextResize, type Dims } from '../../../core/terminal/resize'
 import { xtermThemeOf } from '../../../core/theme/apply'
-import { fitTerminalToHost } from '../lib/fitTerminal'
+import { PaneSize, showOwn, showPty, wantedOf } from '../lib/terminalScale'
 import { pinCursorBlinkOff } from '../lib/cursorBlink'
 import * as sessionBus from '../lib/sessionBus'
 import { useI18n } from '../i18n/I18nProvider'
@@ -41,10 +41,12 @@ export function TerminalView({
   onOpenUrlRef.current = onOpenUrl
   const onOpenFileRef = useRef(onOpenFile)
   onOpenFileRef.current = onOpenFile
-  // Set by the construction effect so the font effect can reuse its lastSent-guarded sendResize
+  // Set by the construction effect so the font effect can reuse its lastSent-guarded fit
   // instead of calling window.api.sessions.resize directly (which would bypass the guard and leave
   // its lastSent stale for the next ResizeObserver-driven call)
-  const sendResizeRef = useRef<(() => void) | null>(null)
+  const fitRef = useRef<(() => void) | null>(null)
+  /** The pty is shown at a controller's size: a controller on another computer typed last (terminalScale.ts). */
+  const [sizedRemote, setSizedRemote] = useState(false)
   // A resumed session has a delay while claude reads and replays the whole conversation, so show a loading indicator until the first output
   const [loading, setLoading] = useState(Boolean(session.resumeSessionId))
 
@@ -80,20 +82,36 @@ export function TerminalView({
         window.api.files.resolveLink(cwd, target, sessionId).then((r) => r?.path ?? null, () => null),
       onOpenFile: (path, at) => onOpenFileRef.current(path, at)
     })
-    // Fit to the cell grid directly instead of using FitAddon — FitAddon always subtracts 15px for a scrollbar, which left the right side empty
-    fitTerminalToHost(term, host)
     termRef.current = term
     // The dimensions last sent to the PTY — stops a resize of the same size from being re-sent on a tab
     // switch (display:none→flex), which would push claude's interactive TUI around
     let lastSent: Dims | null = null
-    const sendResize = (): void => {
-      const d = nextResize(lastSent, term.cols, term.rows)
-      if (!d) return
-      window.api.sessions.resize(session.id, d.cols, d.rows)
-      lastSent = d
+    // The size follows the side that typed last (the Host's registry `sizeOwner`): while a controller on another
+    // computer owns it, this tab shows the pty whole at a smaller font instead of cutting rows off, and says so.
+    const pane = new PaneSize()
+    /** Asks the pty for the grid this pane holds at the base font (the cell grid directly, not FitAddon, which always
+     *  subtracts 15px for a scrollbar), and draws its own grid or the pty's size, whichever it owns. */
+    const fitNow = (): void => {
+      const wanted = wantedOf(term, host)
+      if (!wanted) return
+      const d = nextResize(lastSent, wanted.cols, wanted.rows)
+      if (d) {
+        pane.sent(d)
+        window.api.sessions.resize(session.id, d.cols, d.rows)
+        lastSent = d
+      }
+      const shows = pane.shows()
+      if (shows === 'own') showOwn(term, host)
+      else showPty(term, host, shows)
+      setSizedRemote(pane.note(wanted))
     }
-    sendResizeRef.current = sendResize
-    sendResize()
+    fitRef.current = fitNow
+    fitNow()
+    const offSize = window.api.on('session:pty-size', (e) => {
+      if (e.sessionId !== session.id) return
+      pane.heard({ cols: e.cols, rows: e.rows })
+      fitNow()
+    })
     term.focus() // so typing works immediately once the session opens
 
     // On macOS, terminal copy/paste is Cmd. Ctrl+C must always flow through as an interrupt — swallowing
@@ -214,8 +232,7 @@ export function TerminalView({
       clearTimeout(resizeTimer)
       resizeTimer = setTimeout(() => {
         if (host.clientWidth === 0 || host.clientHeight === 0) return
-        fitTerminalToHost(term, host)
-        sendResize() // only sends when the dimensions actually changed (keeps a tab switch from shifting the TUI)
+        fitNow() // only sends when the dimensions actually changed (keeps a tab switch from shifting the TUI)
       }, 60)
     })
     observer.observe(host)
@@ -229,8 +246,9 @@ export function TerminalView({
       observer.disconnect()
       clearTimeout(resizeTimer)
       clearTimeout(loadingSafety)
+      offSize()
       termRef.current = null
-      sendResizeRef.current = null
+      fitRef.current = null
       unregisterPaste()
       unregisterScreen()
       term.dispose()
@@ -252,8 +270,7 @@ export function TerminalView({
     // refit while hidden — the same guard the ResizeObserver below already applies — and let showing
     // the tab (which changes the host size and fires the observer) refit it with real metrics then.
     if (host.clientWidth === 0 || host.clientHeight === 0) return
-    fitTerminalToHost(term, host)
-    sendResizeRef.current?.()
+    fitRef.current?.()
   }, [family, session.id])
 
   // Recolour only when the theme changes. Recreating would wipe the scrollback — this file's convention.
@@ -271,6 +288,11 @@ export function TerminalView({
     <div className="terminal-wrap">
       <div className="terminal-host" ref={hostRef} />
       <SessionStateBanners sessionId={session.id} rollState={rollState} schedState={schedState} />
+      {sizedRemote && session.status !== 'exited' && (
+        <div className="remote-session-banners">
+          <div className="remote-session-banner">{t('session.terminal.sizedRemote')}</div>
+        </div>
+      )}
       {loading && session.status !== 'exited' && (
         <div className="loading-overlay">
           <span className="loading-spinner" aria-hidden="true" />
