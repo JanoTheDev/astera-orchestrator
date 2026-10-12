@@ -12,6 +12,8 @@ function fakeConn(features = ['orch', 'mcp']) {
     call: (m) => void sent.push(m),
     onMessage: (cb) => (listeners.add(cb), () => listeners.delete(cb)),
     onClose: (cb) => (closers.add(cb), () => closers.delete(cb)),
+    ref: () => {},
+    unref: () => {},
     close: () => closers.forEach((c) => c())
   }
   return {

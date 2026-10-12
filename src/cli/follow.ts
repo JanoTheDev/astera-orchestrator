@@ -5,48 +5,38 @@ import { eventKey, followLine } from '../core/orchestration/cliFollow'
 import { okEnvelope } from '../core/orchestration/cliOutput'
 import { MERGE_CLIENT_TIMEOUT_MS, mergeCommand } from '../core/orchestration/cliKeepalive'
 import { publicEvent } from '../core/orchestration/cliPublic'
-import { DEFAULT_ASK_TIMEOUT_MS, DEFAULT_CHECK_TIMEOUT_MS, DEFAULT_WAIT_TIMEOUT_MS } from '../core/orchestration/types'
+import { DEFAULT_CHECK_TIMEOUT_MS } from '../core/orchestration/types'
+import { TIMEOUT_HEADROOM_MS, callDeadlineMs } from '../core/publicContract'
 import { SCRIPT_TIMEOUT_MS } from '../core/agentBrowser/script'
 import { LAUNCH_WAIT_MAX_MS } from '../core/workspace/script'
 import type { JobEvent } from '../core/types'
 
 export type OutputMode = 'json' | 'human' | 'quiet'
 
-/** Headroom stacked on top of the Host's long-poll deadline so the client never gives up before the
- *  Host does. It absorbs the polling interval (POLL_MS) and event-loop delay the Host takes to send
- *  its response once the deadline is reached — with headroom narrower than the Host's deadline,
- *  `callHost`'s own `setTimeout` fires while the Host is still preparing its response, the command
- *  ends as `stuck`, and the contract that a timeout is information rather than an error breaks (this
- *  was the defect where ask's default was shorter than the server's default). */
-export const TIMEOUT_HEADROOM_MS = 30_000
+// The headroom and the waiting commands' deadlines are the SDK package's (packages/client/src/deadlines.ts), so the
+// CLI and @astera-app/client never give up before the Host does, by one rule.
+export { TIMEOUT_HEADROOM_MS }
 
-/** ask and check --wait are long-polled by the server, so the per-command default deadline has to
- *  come from the same constants the server uses (core/orchestration/types.ts) — split into two
- *  copies, the values drift apart. Other commands do not long-poll, so their default is effectively
- *  unused and they reuse check's value (there is no reason to add another constant). If
- *  --timeout-ms was given, that value is used as is. */
+/** How long the CLI waits for one call's answer: the SDK package's rule (`callDeadlineMs`: a command that waits on
+ *  the Host waits past its deadline, the one --timeout-ms names or the Host's default), plus three long commands of
+ *  the CLI's own. An ordinary command reuses check's deadline (it does not long-poll, so the value hardly matters,
+ *  and there is no reason for another constant). */
 export function clientTimeoutMs(a: { cmd: string; args: Record<string, unknown> }): number {
-  const defaultForCmd =
-    a.cmd === 'ask'
-      ? DEFAULT_ASK_TIMEOUT_MS
+  const own =
+    typeof a.args.timeoutMs === 'number'
+      ? null
       : a.cmd === 'browser-js'
         ? SCRIPT_TIMEOUT_MS
         : // app js 의 60 초 마감은 앱이 뜨기를 기다리는 시간(launch 대기)을 세지 않고, 그 대기는
           // LAUNCH_WAIT_MAX_MS 까지 간다. 그 둘을 합친 것보다 먼저 끊으면 앱은 떴는데 CLI 만 끝난다.
           a.cmd === 'app-js'
           ? SCRIPT_TIMEOUT_MS + LAUNCH_WAIT_MAX_MS
-          : // **기다리는 명령은 서버와 같은 마감을 써야 한다.** 짧은 값을 쓰면 서버가 답을
-          // 준비하는 사이에 클라이언트가 연결을 끊고, "타임아웃은 정보다" 는 계약이 깨진다
-          // (ask 의 기본값이 서버보다 짧아서 실제로 그러였다).
-          a.cmd === 'jobs-wait' || a.cmd === 'runs-wait' || (a.cmd === 'sessions-send' && a.args.wait === true)
-          ? DEFAULT_WAIT_TIMEOUT_MS
           : // 병합은 git 쓰기 하나가 10분까지 간다 — check 의 5분으로 끊으면 Host 가 병합을 끝내고
             // Run 까지 지우는 사이에 CLI 만 "답이 없다"로 끝난다(MERGE_CLIENT_TIMEOUT_MS).
             mergeCommand(a)
             ? MERGE_CLIENT_TIMEOUT_MS
-            : DEFAULT_CHECK_TIMEOUT_MS
-  const base = typeof a.args.timeoutMs === 'number' ? a.args.timeoutMs : defaultForCmd
-  return base + TIMEOUT_HEADROOM_MS
+            : null
+  return own !== null ? own + TIMEOUT_HEADROOM_MS : callDeadlineMs(a, DEFAULT_CHECK_TIMEOUT_MS + TIMEOUT_HEADROOM_MS)
 }
 
 /** One answer from the Host. `replayed` is there when this answer came out of a receipt rather than

@@ -2,8 +2,8 @@
 // blocklist; no field is invented; folded objects are shaped by the same rules. Moved from the app's
 // cliPublic.test.ts with the code (SDK 1a); the app keeps the check that every internal field is listed or hidden.
 import { describe, it, expect } from 'vitest'
-import * as pkg from './index.js'
-import { publicEvent, publicFor } from './index.js'
+import * as pkg from './internal.js'
+import { publicEvent, publicFor } from './internal.js'
 
 describe('publicFor', () => {
   it('허용된 칸만 남긴다', () => {

@@ -1,13 +1,14 @@
 // The SDK packages build with the repo's own TypeScript into ESM and CommonJS with declarations, and both load in
 // plain Node with the same exports. Built into a temp folder whose name has a space (SDK spec §48).
 import { describe, it, expect } from 'vitest'
-import { execFileSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync } from 'node:fs'
+import { execFile, execFileSync } from 'node:child_process'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createRequire } from 'node:module'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { buildPackage, checkOut, isMain, PACKAGES } from './build-packages.mjs'
+import { makeProfile, startHost } from '../packages/client/test/fakeHost.ts'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(here, '..')
@@ -27,6 +28,10 @@ describe('build-packages', () => {
       expect(Object.keys(esm).sort()).toEqual(Object.keys(cjs).filter((k) => k !== '__esModule').sort())
       expect(esm.ERROR_CODES).toContain('NOT_FOUND')
       expect(new cjs.AsteraError('NOT_FOUND', 'x')).toBeInstanceOf(Error)
+      // Final review of SDK 1b, Important 4: two copies of the package, one AsteraError
+      expect(new cjs.AsteraError('NOT_FOUND', 'x') instanceof esm.AsteraError).toBe(true)
+      expect(esm.isAsteraError(new cjs.AsteraError('NOT_FOUND', 'x'))).toBe(true)
+      expect(new esm.AsteraError('NOT_FOUND', 'x') instanceof cjs.AsteraError).toBe(true)
 
       // Final review of SDK 1a, Important 1: tsc turns every import, static or dynamic, into a require in the
       // CommonJS half, so this is the fence nothing in the source can slip past
@@ -43,10 +48,41 @@ describe('build-packages', () => {
       cpSync(path.join(root, 'packages', 'client', 'package.json'), path.join(installed, 'package.json'))
       cpSync(dist, path.join(installed, 'dist'), { recursive: true })
       const run = (args) => execFileSync(process.execPath, args, { cwd: consumer, encoding: 'utf8' }).trim()
-      expect(run(['--input-type=module', '-e', "import('@astera-app/client').then((m) => console.log(m.ERROR_CODES.length, typeof m.publicFor))"])).toBe(`${esm.ERROR_CODES.length} function`)
-      expect(run(['-e', "const m = require('@astera-app/client'); console.log(m.ERROR_CODES.length, typeof m.publicFor)"])).toBe(`${esm.ERROR_CODES.length} function`)
+      expect(run(['--input-type=module', '-e', "import('@astera-app/client').then((m) => console.log(m.ERROR_CODES.length, typeof m.AsteraError, typeof m.createAsteraClient))"])).toBe(`${esm.ERROR_CODES.length} function function`)
+      expect(run(['-e', "const m = require('@astera-app/client'); console.log(m.ERROR_CODES.length, typeof m.AsteraError, typeof m.createAsteraClient)"])).toBe(`${esm.ERROR_CODES.length} function function`)
       expect(run(['-e', "console.log(require('@astera-app/client/package.json').name)"])).toBe('@astera-app/client')
     } finally {
+      rmSync(out, { recursive: true, force: true })
+    }
+  }, 120_000)
+
+  // Final review of SDK 1b, minor 2: a client left open after its calls kept Node (and the Host) up
+  it('an idle client does not keep the process alive', async () => {
+    const out = mkdtempSync(path.join(os.tmpdir(), 'astera life '))
+    const profile = await makeProfile()
+    const host = await startHost({ key: profile.key })
+    try {
+      const dist = buildPackage('client', out)
+      const script = path.join(out, 'idle.mjs')
+      writeFileSync(
+        script,
+        [
+          `import { createAsteraClient } from ${JSON.stringify(pathToFileURL(path.join(dist, 'esm', 'index.js')).href)}`,
+          'const c = await createAsteraClient({ profileDir: process.argv[2], address: process.argv[3] })',
+          "await c.call('x-cmd')",
+          "console.log('called')",
+          '// no close(): the process must end on its own'
+        ].join('\n')
+      )
+      const started = Date.now()
+      const said = await new Promise((resolve, reject) =>
+        execFile(process.execPath, [script, profile.dir, host.address], { timeout: 10_000 }, (err, stdout) => (err ? reject(err) : resolve(stdout.trim())))
+      )
+      expect(said).toBe('called')
+      expect(Date.now() - started).toBeLessThan(8000)
+    } finally {
+      await host.close()
+      await profile.cleanup()
       rmSync(out, { recursive: true, force: true })
     }
   }, 120_000)

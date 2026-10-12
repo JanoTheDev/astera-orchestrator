@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { AsteraError, ERROR_CODES, EXIT_CODES, REMOTE_ERROR_CODES, codeForStatus, exitCodeFor, remoteCodeOf } from './index.js'
+import { AsteraError, ERROR_CODES, EXIT_CODES, REMOTE_ERROR_CODES, codeForStatus, exitCodeFor, isAsteraError, remoteCodeOf } from './index.js'
 
 // The codes are the CLI's and MCP's (public CLI design §7-§8, remote runtime design §3.10); the SDK throws the same.
 describe('the error contract', () => {
@@ -30,5 +30,22 @@ describe('the error contract', () => {
     expect(e).toBeInstanceOf(Error)
     expect([e.name, e.code, e.message, e.details]).toEqual(['AsteraError', 'NOT_FOUND', 'no such job', { id: 'job_1' }])
     expect('details' in new AsteraError('FAILED', 'x')).toBe(false)
+  })
+})
+
+// Final review of SDK 1b, Important 4: an application that loads the ESM copy and a dependency that loads the
+// CommonJS copy hold two AsteraError classes; instanceof has to hold across them.
+describe('AsteraError across two copies of the package', () => {
+  it('is an AsteraError by its brand, not by which copy made it', () => {
+    const foreign = Object.assign(new Error('x'), { name: 'AsteraError', code: 'NOT_FOUND', [Symbol.for('@astera-app/client/AsteraError')]: true })
+    expect(foreign instanceof AsteraError).toBe(true)
+    expect(isAsteraError(foreign)).toBe(true)
+    expect(isAsteraError(new AsteraError('FAILED', 'x'))).toBe(true)
+    expect(new AsteraError('FAILED', 'x') instanceof AsteraError).toBe(true)
+  })
+
+  it('is nothing else', () => {
+    expect(new Error('x') instanceof AsteraError).toBe(false)
+    for (const v of [new Error('x'), null, undefined, 'AsteraError', { code: 'NOT_FOUND' }]) expect(isAsteraError(v)).toBe(false)
   })
 })

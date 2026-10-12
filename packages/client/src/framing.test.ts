@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { encodeLine, createLineReader } from './framing'
+import { encodeLine, createLineReader } from './framing.js'
 
 const collect = (): { seen: unknown[]; bad: string[]; feed: (c: string) => void } => {
   const seen: unknown[] = []
