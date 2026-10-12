@@ -31,3 +31,25 @@ export function pairedStateLine(r: { offline: boolean | null }, t: T): string | 
 export function failureLine(r: { ok: false; code: string; message: string }, t: T): string {
   return (t as (k: string, p?: Record<string, string | number>) => string)('settings.remote.failed', { code: r.code, message: r.message })
 }
+
+/** An address to listen on, named with where it is: its interface, or this computer only for 127.0.0.1. */
+export function addressLabel(c: { address: string; iface: string | null; local: boolean }, t: T): string {
+  const tt = t as (k: string, p?: Record<string, string | number>) => string
+  return c.local ? tt('settings.remote.start.local', { address: c.address }) : tt('settings.remote.start.iface', { address: c.address, iface: c.iface ?? '' })
+}
+
+/** How long a pairing string has left, as m:ss, or that it is spent (also for a time that cannot be read). */
+export function pairingLeftLine(expiresAt: string, now: number, t: T): string {
+  const tt = t as (k: string, p?: Record<string, string | number>) => string
+  const left = Date.parse(expiresAt) - now
+  if (!Number.isFinite(left) || left <= 0) return tt('settings.remote.newPair.expired')
+  const s = Math.ceil(left / 1000)
+  return tt('settings.remote.newPair.expires', { time: `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` })
+}
+
+/** Whether a pairing string stays on screen: while it is live and Remote is on (nothing can redeem it otherwise). */
+export function pairingStillShown(p: { expiresAt: string }, mine: ThisMachine, now: number): boolean {
+  if (mine === null || (mine.gateway as { state: string }).state === 'disabled') return false
+  const at = Date.parse(p.expiresAt)
+  return Number.isFinite(at) && at > now
+}

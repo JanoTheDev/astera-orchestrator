@@ -1207,6 +1207,8 @@ button.primary:disabled { background: var(--elevated); border-color: var(--line-
 .settings-history-bulk button.danger:disabled { opacity: 0.45; cursor: default; color: var(--text-dim); border-color: var(--line-soft); }
 .settings-field-label { font-size: 13.5px; color: var(--text-dim); }
 .settings-hint { font-size: 12px; color: var(--text-faint); }
+/* The full-control warning on a pairing string about to be made (Settings › Remote Runtimes › This computer). */
+.settings-hint.is-warning { color: var(--warn); }
 
 /* account rolling slots — multi-account selection in the new session modal */
 .account-slot {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { failureLine, pairedStateLine, pingLine, thisMachineLine } from './remoteRuntimesText'
+import { addressLabel, failureLine, pairedStateLine, pairingLeftLine, pairingStillShown, pingLine, thisMachineLine } from './remoteRuntimesText'
 
 /** A t that shows the key and its params, so each assertion names the sentence it expects. */
 const t = (key: string, params?: Record<string, unknown>): string => `${key}${params ? ` ${JSON.stringify(params)}` : ''}`
@@ -31,5 +31,31 @@ describe('a paired Runtime state line', () => {
     expect(pairedStateLine({ offline: true }, t)).toBe('settings.remote.paired.notAnswering')
     expect(pairedStateLine({ offline: false }, t)).toBeNull()
     expect(pairedStateLine({ offline: null }, t)).toBeNull()
+  })
+})
+
+// Settings › This computer's own controls (turning Remote on, a pairing string): an address is named with where it is,
+// and a pairing string says how long it has left, and goes when it has none or Remote went off (review focus 2).
+describe("this computer's controls text", () => {
+  it('names an address by its interface, and 127.0.0.1 as this computer only', () => {
+    expect(addressLabel({ address: '192.168.0.235', iface: 'Wi-Fi', local: false }, t)).toBe('settings.remote.start.iface {"address":"192.168.0.235","iface":"Wi-Fi"}')
+    expect(addressLabel({ address: '127.0.0.1', iface: null, local: true }, t)).toBe('settings.remote.start.local {"address":"127.0.0.1"}')
+  })
+
+  it("says the time a pairing string has left, as minutes and seconds, and that it is spent once it is not", () => {
+    const at = Date.parse('2026-10-12T05:10:00.000Z')
+    expect(pairingLeftLine('2026-10-12T05:10:00.000Z', at - 581_000, t)).toBe('settings.remote.newPair.expires {"time":"9:41"}')
+    expect(pairingLeftLine('2026-10-12T05:10:00.000Z', at - 5_000, t)).toBe('settings.remote.newPair.expires {"time":"0:05"}')
+    expect(pairingLeftLine('2026-10-12T05:10:00.000Z', at, t)).toBe('settings.remote.newPair.expired')
+    expect(pairingLeftLine('not a time', at, t)).toBe('settings.remote.newPair.expired')
+  })
+
+  it('keeps a pairing string on screen only while it is live and Remote is on', () => {
+    const at = Date.parse('2026-10-12T05:10:00.000Z')
+    const on = { gateway: { state: 'ready' }, clients: [] }
+    expect(pairingStillShown({ expiresAt: '2026-10-12T05:10:00.000Z' }, on, at - 1_000)).toBe(true)
+    expect(pairingStillShown({ expiresAt: '2026-10-12T05:10:00.000Z' }, on, at + 60_000)).toBe(false)
+    expect(pairingStillShown({ expiresAt: '2026-10-12T05:10:00.000Z' }, { gateway: { state: 'disabled' }, clients: [] }, at - 1_000)).toBe(false)
+    expect(pairingStillShown({ expiresAt: '2026-10-12T05:10:00.000Z' }, null, at - 1_000)).toBe(false)
   })
 })
