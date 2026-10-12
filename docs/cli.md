@@ -1712,4 +1712,5 @@ does the Host. Those reports are applied the next time the Host starts.
 ## See also
 
 - [Job lifecycle](jobs.md) for what a Job does once it starts.
+- [The SDK](sdk.md) for applications that drive the Host from TypeScript.
 - `astera help` for the full orchestration reference, including the commands agents use.

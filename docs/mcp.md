@@ -4,7 +4,8 @@
 the pull requests, CI and issues of a project's GitHub repository. It is another way to
 reach the same **Astera Host** that the desktop app and the [`astera` command](cli.md) use, so a Job
 made over MCP shows up in the app and in `astera jobs list`. The Host owns the work, so Jobs keep
-running when the MCP client disconnects.
+running when the MCP client disconnects. An application rather than an agent uses the
+[TypeScript SDK](sdk.md), which reaches the same Host.
 
 ## What you need
 

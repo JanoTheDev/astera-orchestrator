@@ -4,6 +4,8 @@ The TypeScript client for the [Astera](https://github.com/parsingk/Astera) Host.
 the way the `astera` CLI does: the same discovery, the same deadlines, the same error codes and the same public
 fields.
 
+The guide, with examples: [docs/sdk.md](https://github.com/parsingk/Astera/blob/main/docs/sdk.md).
+
 ```ts
 import { createAsteraClient, isAsteraError } from '@astera-app/client'
 
@@ -125,3 +127,5 @@ for await (const e of astera.events.subscribe({ types: ['run.completed', 'run.fa
   now.
 
 **Not published yet.** It lives in the Astera repository and will be versioned separately from the app.
+[docs/sdk.md](https://github.com/parsingk/Astera/blob/main/docs/sdk.md#get-it) says how to build and install it until
+then.
