@@ -16,6 +16,7 @@ import { answerFromFile, fileAnswerable, readStateFile } from '../core/orchestra
 import { connectHost, type ConnectFailure, type HostConnection } from '../core/host/connect'
 import { HOST_FEATURE_ORCH, HOST_FEATURE_PING, HOST_FEATURE_REQUESTS, HOST_PROTOCOL } from '../core/host/protocol'
 import { hostStderr } from '../core/host/spawn'
+import { privateIPv4s } from '../core/remote/addresses'
 import { cliHostTarget, hostSpawnPlanFor, impostorError, logToStderr, otherProtocolHost, runHostCommand, siblingHostError } from './host'
 import { higgsfieldCommand } from './higgsfield'
 import { installFailureOf, resolveSkillsDir, skillsCommand } from './skills'
@@ -642,13 +643,7 @@ export function callHost(a: {
 
 /** A private IPv4 of this machine (RFC 1918 or the 100.64/10 range Tailscale uses), for a pairing string while the
  *  Gateway listens on every interface. */
-const privateAddress = (): string | null => {
-  for (const list of Object.values(os.networkInterfaces()))
-    for (const n of list ?? [])
-      if (n.family === 'IPv4' && !n.internal && /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)/.test(n.address))
-        return n.address
-  return null
-}
+const privateAddress = (): string | null => privateIPv4s(os.networkInterfaces())[0]?.address ?? null
 
 /** What `astera runtime serve` runs on (cli/runtime/serve.ts): this profile's settings, its update hold, its Host. */
 const serveDeps = (a: { env: NodeJS.ProcessEnv; platform: NodeJS.Platform; home: string }): ServeDeps => {
