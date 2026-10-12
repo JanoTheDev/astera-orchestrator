@@ -938,6 +938,17 @@ function blocksOf(parent: SyntaxNode, ctx: Ctx): MdBlock[] {
         if (inline.length > 0) put({ k: 'para', line, inline })
         break
       }
+      case 'Task': {
+        // GFM TaskList 는 체크박스 항목의 글을 Paragraph 가 아니라 Task 노드에 담는다(체크박스 표시 TaskMarker 와
+        // 함께). 이 case 가 없어서 체크박스 줄이 체크박스만 남고 글은 사라졌다(2026-10-12). 표시와 그 뒤의
+        // 공백을 빼고 나머지를 문단으로 담는다. 체크 여부는 itemTask 가 따로 읽는다
+        const marker = c.getChild('TaskMarker')
+        let from = marker ? marker.to : c.from
+        while (from < c.to && (ctx.text[from] === ' ' || ctx.text[from] === '\t')) from += 1
+        const inline = inlineOf(c, ctx, { from, to: c.to })
+        if (inline.length > 0) put({ k: 'para', line, inline })
+        break
+      }
       case 'FencedCode':
         put({ k: 'code', line, lang: fenceLang(c, ctx), text: codeText(c, ctx) })
         break

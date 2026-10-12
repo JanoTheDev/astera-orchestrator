@@ -168,3 +168,13 @@ describe('MarkdownPreview — 코드 블록 복사 버튼', () => {
     expect(html).not.toContain('md-copy')
   })
 })
+
+// 2026-10-12: a task list line showed its checkbox and lost its text (docs/remote-runtime-checks.md is mostly such
+// lines). The text is drawn after the box, in the item.
+describe('MarkdownPreview — task list items', () => {
+  it('draws the text of a task line after its checkbox', () => {
+    const html = renderPreview('- [ ] `astera runtime status` 로 **확인**한다\n- [x] 끝\n')
+    expect(html).toMatch(/<li[^>]*class="md-task"[^>]*><input type="checkbox"[^>]*\/><p[^>]*><code>astera runtime status<\/code> 로 <strong>확인<\/strong>한다<\/p><\/li>/)
+    expect(html).toMatch(/<input type="checkbox"[^>]*checked=""[^>]*\/><p[^>]*>끝<\/p>/)
+  })
+})

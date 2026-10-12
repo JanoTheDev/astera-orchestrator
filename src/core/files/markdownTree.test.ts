@@ -138,6 +138,22 @@ describe('목록', () => {
     const l = b[0] as Extract<MdBlock, { k: 'list' }>
     expect(l.items.map((i) => i.task)).toEqual([false, true, null])
   })
+  // 2026-10-12: 미리보기에서 체크박스 줄이 체크박스만 남고 문장이 사라졌다. GFM TaskList 는 항목의 글을 Paragraph 가
+  // 아니라 Task 노드에 담는데, 항목을 읽는 쪽이 Task 를 몰라 통째로 버렸다. 체크박스 뒤의 글은 문단이 된다.
+  it('체크박스 뒤의 글을 문단으로 담는다 (코드, 굵게, 이어지는 줄까지)', () => {
+    const b = parseMarkdown('- [ ] `astera runtime status` 로 **확인**한다\n      이어지는 줄\n- [x] 끝\n')
+    const l = b[0] as Extract<MdBlock, { k: 'list' }>
+    const text = (blocks: MdBlock[]): string =>
+      blocks
+        .filter((c): c is Extract<MdBlock, { k: 'para' }> => c.k === 'para')
+        .map((c) => JSON.stringify(c.inline))
+        .join('')
+    expect(text(l.items[0].children)).toContain('astera runtime status')
+    expect(text(l.items[0].children)).toContain('확인')
+    expect(text(l.items[0].children)).toContain('이어지는 줄')
+    expect(text(l.items[0].children)).not.toContain('[ ]')
+    expect(text(l.items[1].children)).toContain('끝')
+  })
 })
 
 describe('인용', () => {
