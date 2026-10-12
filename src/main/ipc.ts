@@ -263,6 +263,7 @@ import { allowingJobCwds, orchRunConfigOf } from '../core/run/runConfigsFile'
 import { executeLaunch } from './run/launch'
 import { agentDirOf, resolveConsolePath, resolveExistingFile } from './run/resolveLink'
 import { mediaAllowlist } from './media/allowlist'
+import { admitProjectMedia } from './media/admit'
 import { mediaKindOf } from '../core/files/media'
 import { saveConfigsBatch } from './run/saveConfigs'
 import { planFileRun } from './run/runFile'
@@ -5210,6 +5211,12 @@ export function registerIpc(
     if (mediaKindOf(p)) mediaAllowlist.add(p)
     return { path: p }
   })
+  // An image or a video the explorer or a Markdown preview opens (App's openProjectFile): admitted to the media
+  // allowlist through the project guard, so a project on a share or in \\wsl$ opens its images too and nothing outside
+  // a project is admitted (main/media/admit.ts). null leaves the file to an ordinary file tab.
+  ipcMain.handle('files.admitMedia', (_e, p: unknown) =>
+    admitProjectMedia(p as string, { assertAllowedPath, stat: (f) => fs.stat(f), allowlist: mediaAllowlist })
+  )
   // The media viewer's own calls. Each is checked against the media allowlist rather than
   // assertAllowedPath: the file was admitted when its link resolved, and it is usually outside every
   // project (an agent's output folder), where the project guard would refuse the very file on screen.

@@ -130,11 +130,12 @@ import {
   type PaneDir,
   type PaneNode
 } from '../../core/panes/tree'
-import { browserTab, fileTab, isRemoteSessionKey, parseTab, recordTab, sessionTab } from '../../core/panes/tabId'
+import { browserTab, fileTab, isRemoteSessionKey, mediaTab, parseTab, recordTab, sessionTab } from '../../core/panes/tabId'
 import { canStartSession, followAction, remoteCall, sameOrNext, type RemoteFacts, type RemoteSessionRef } from './lib/remoteSessions'
 import { useRemoteSessionWatch } from './hooks/useRemoteSessionWatch'
-import { placeMediaTab, placeTab } from '../../core/panes/place'
+import { mediaTabsUnder, placeMediaTab, placeTab } from '../../core/panes/place'
 import { mediaKindOf } from '../../core/files/media'
+import { openPath } from './lib/openPath'
 import { sessionKindOf } from '../../core/sessions/kind'
 import { displayHostOf, linkDestination, normalizeUrl, previewTargetOf } from '../../core/preview/url'
 import { isWaitingOnDialog, POST_PASTE_SUBMIT_DELAY_MS } from '../../core/preview/pick/send'
@@ -1858,6 +1859,17 @@ export default function App(): React.JSX.Element {
     openFile(path, at?.line === undefined ? undefined : { line: at.line, col: at.col })
   }
 
+  /** A file the explorer or a Markdown preview opens: an image or a video in the media viewer, as a link would open it,
+   *  any other file in a file tab (lib/openPath.ts). Media is admitted through the project guard first
+   *  (files.admitMedia), which is what lets the viewer load it. */
+  const openProjectFile = (path: string): void => {
+    void openPath(path, {
+      resolve: (p) => window.api.files.admitMedia(p).then((r) => r?.path ?? null),
+      openMedia,
+      openFile: (p) => openFile(p)
+    })
+  }
+
   /** 에디터가 사라질 때 그 상태를 캐시에 넘겨받는다. 세션 모드로 나가면 .run-host가 통째로
    *  언마운트되므로, 이 경로가 없으면 되돌리기 이력이 거기서 끊긴다(세션 탭은 숨기기만 해서 안 끊긴다).
    *
@@ -2043,6 +2055,20 @@ export default function App(): React.JSX.Element {
   // renderer adjusts them itself right after the operation succeeds. A tab id is literally
   // `file:${path}`, so the buffer map's key moves with it.
   const handlePathRenamed = (from: string, to: string): void => {
+    // A media tab under the path follows too, as a file tab does (final review of the explorer opening media, I1). The
+    // new path is admitted first, or the viewer could not load it; the tab keeps its place and its reload nonce.
+    for (const old of mediaTabsUnder(layoutRef.current, from)) {
+      const moved = rebasePath(old, from, to)
+      void window.api.files.admitMedia(moved).then((r) => {
+        const next = r?.path ?? moved
+        setLayout((cur) => (cur && groupOfTab(cur, mediaTab(old)) ? replaceTabId(cur, mediaTab(old), mediaTab(next)) : cur))
+        setMediaNonces((prev) => {
+          if (!(mediaTab(old) in prev)) return prev
+          const { [mediaTab(old)]: nonce, ...rest } = prev
+          return { ...rest, [mediaTab(next)]: nonce }
+        })
+      })
+    }
     const affected = fileTabsRef.current.filter((t) => isSubPath(from, t.path))
     if (affected.length === 0) return
     const remap = new Map(affected.map((t) => [t.id, `file:${rebasePath(t.path, from, to)}`]))
@@ -2085,6 +2111,16 @@ export default function App(): React.JSX.Element {
   }
 
   const handlePathDeleted = (deleted: string[]): void => {
+    // A media tab of a deleted file goes, as a file tab does (final review of the explorer opening media, I1); it has
+    // nothing unsaved to ask about.
+    for (const gone of deleted.flatMap((d) => mediaTabsUnder(layoutRef.current, d))) {
+      dropTabFromTree(mediaTab(gone))
+      setMediaNonces((prev) => {
+        if (!(mediaTab(gone) in prev)) return prev
+        const { [mediaTab(gone)]: _dropped, ...rest } = prev
+        return rest
+      })
+    }
     // Closes that tab and anything below it. Dirty tabs are confirmed individually by closeFileTab — if
     // the user chooses to keep one, that tab stays along with a 'this file was deleted' banner (from the
     // watcher's unlink). Why they are awaited sequentially: confirmModal returns false immediately when
@@ -2950,7 +2986,7 @@ export default function App(): React.JSX.Element {
             onModeChange={(mode) => setMdMode(f.id, mode)}
             text={buf.content}
             docPath={f.path}
-            onOpenFile={(abs) => openFile(abs)}
+            onOpenFile={openProjectFile}
             onSave={() => saveFile(f.id)}
             editor={editor}
             editorView={mdViews[paneId] ?? null}
@@ -4341,7 +4377,7 @@ export default function App(): React.JSX.Element {
             {sidebarPane === 'explorer' ? (
               <FileExplorer
                 root={currentProject}
-                onOpenFile={openFile}
+                onOpenFile={openProjectFile}
                 onClose={() => void closeExplorer()}
                 stateRef={explorerTreesRef}
                 clipboardRef={explorerClipboardRef}

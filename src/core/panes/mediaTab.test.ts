@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { mediaTab, parseTab } from './tabId'
-import { placeMediaTab } from './place'
-import { addTab, createGroup, leafOf, leaves, splitAndMove } from './tree'
+import { mediaTabsUnder, placeMediaTab } from './place'
+import { addTab, createGroup, leafOf, leaves, splitAndMove, type PaneNode } from './tree'
 
 const allTabs = (root: Parameters<typeof leaves>[0]): string[] => leaves(root).flatMap((l) => l.tabIds)
 
@@ -77,5 +77,22 @@ describe('placeMediaTab — reports the tab it reopened', () => {
     const once = placeMediaTab(g, 'D:\\Clips\\G1.mp4', { activePaneId: g.id }, 'win32')
     const twice = placeMediaTab(once.root, 'd:\\clips\\g1.mp4', { activePaneId: g.id }, 'win32')
     expect(twice.reopened).toBe('media:D:\\Clips\\G1.mp4')
+  })
+})
+
+// Final review of the explorer opening media (I1): a media tab the explorer opened follows a rename, a move or an undo
+// there, and goes with a delete, as a file tab does. The tabs under a path are found in every pane.
+describe('mediaTabsUnder', () => {
+  it('names the media tabs at or under a path in every pane, and nothing else', () => {
+    let root: PaneNode = createGroup('media:D:\\work\\shots\\a.png')
+    root = addTab(root, root.id, 'file:D:\\work\\shots\\b.ts')
+    root = addTab(root, root.id, 'media:D:\\work\\other.mp4')
+    root = splitAndMove(root, 'media:D:\\work\\other.mp4', root.id, 'row', false)!.root
+    root = addTab(root, leaves(root)[0].id, 'media:D:\\work\\shots\\sub\\c.gif')
+    expect(mediaTabsUnder(root, 'D:\\work\\shots', 'win32').sort()).toEqual(['D:\\work\\shots\\a.png', 'D:\\work\\shots\\sub\\c.gif'])
+    expect(mediaTabsUnder(root, 'D:\\work\\other.mp4', 'win32')).toEqual(['D:\\work\\other.mp4'])
+    expect(mediaTabsUnder(root, 'D:\\WORK\\SHOTS\\A.PNG', 'win32')).toEqual(['D:\\work\\shots\\a.png'])
+    expect(mediaTabsUnder(root, 'D:\\work\\shot', 'win32')).toEqual([])
+    expect(mediaTabsUnder(null, 'D:\\work', 'win32')).toEqual([])
   })
 })

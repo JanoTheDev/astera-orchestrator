@@ -18,7 +18,10 @@ const MEDIA: Record<string, { kind: MediaKind; mime: string }> = {
   jpg: { kind: 'image', mime: 'image/jpeg' },
   jpeg: { kind: 'image', mime: 'image/jpeg' },
   webp: { kind: 'image', mime: 'image/webp' },
-  gif: { kind: 'image', mime: 'image/gif' }
+  gif: { kind: 'image', mime: 'image/gif' },
+  avif: { kind: 'image', mime: 'image/avif' },
+  bmp: { kind: 'image', mime: 'image/bmp' },
+  ico: { kind: 'image', mime: 'image/x-icon' }
 }
 
 /** The extension of the last path segment, lowercase. '' for a name with no dot or a dot file
