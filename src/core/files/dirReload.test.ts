@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { createDirLoadQueue, planBatchReload, createDelayedPending, ROW_SPINNER_DELAY_MS } from './dirReload'
+import { createDirLoadQueue, planBatchReload, planRefresh, createDelayedPending, ROW_SPINNER_DELAY_MS } from './dirReload'
 
 /** 손으로 끝내는 load — 몇 개가 동시에 도는지, 어떤 순서로 불렸는지를 밖에서 본다 */
 function manualLoad(): {
@@ -174,5 +174,43 @@ describe('createDelayedPending — 행 스피너의 보이기 지연', () => {
     d.update(new Set(['/r/b']))
     vi.advanceTimersByTime(ROW_SPINNER_DELAY_MS)
     expect(shown).toEqual([['/r/b']])
+  })
+})
+
+describe('planRefresh — 새로고침은 펼친 폴더를 그대로 두고 다시 읽는다', () => {
+  const R = 'D:/proj'
+  const p = (...parts: string[]): string => [R, ...parts].join('/')
+
+  it('루트와 펼친 폴더를 다시 읽고, 접힌 폴더의 캐시는 버린다', () => {
+    const plan = planRefresh({ root: R, cached: [R, p('a'), p('a', 'b'), p('c')], expanded: [p('a'), p('a', 'b')] })
+    expect(plan.reload).toEqual([R, p('a'), p('a', 'b')])
+    expect(plan.evict).toEqual([p('c')])
+  })
+
+  it('접힌 부모 아래의 펼친 폴더도 다시 읽는다 — 부모를 다시 열면 지금 디스크가 보인다', () => {
+    const plan = planRefresh({ root: R, cached: [R, p('a'), p('a', 'b')], expanded: [p('a', 'b')] })
+    expect(plan.reload).toEqual([R, p('a', 'b')])
+    expect(plan.evict).toEqual([p('a')])
+  })
+
+  it('캐시에 없어도 펼쳐져 있으면 읽고, 루트는 늘 읽는다', () => {
+    expect(planRefresh({ root: R, cached: [], expanded: [p('x')] }).reload).toEqual([R, p('x')])
+  })
+
+  it('루트 밖의 펼친 키는 읽지 않고, 루트 밖 캐시는 버린다', () => {
+    const plan = planRefresh({ root: R, cached: [R, 'D:/other', 'D:/other/y'], expanded: ['D:/other', p('a')] })
+    expect(plan.reload).toEqual([R, p('a')])
+    expect(plan.evict).toEqual(['D:/other', 'D:/other/y'])
+  })
+
+  it('같은 폴더는 한 번만, 루트가 펼친 목록에 있어도 한 번만', () => {
+    const plan = planRefresh({ root: R, cached: [R], expanded: [R, p('a'), p('a')] })
+    expect(plan.reload).toEqual([R, p('a')])
+    expect(plan.evict).toEqual([])
+  })
+
+  it('부모가 자식보다 먼저 온다', () => {
+    const plan = planRefresh({ root: R, cached: [], expanded: [p('a', 'b', 'c'), p('a'), p('a', 'b')] })
+    expect(plan.reload).toEqual([R, p('a'), p('a', 'b'), p('a', 'b', 'c')])
   })
 })

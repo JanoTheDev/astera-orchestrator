@@ -1,3 +1,5 @@
+import { isSubPath } from './ops'
+
 /** Per-folder single flight for the explorer's directory reads.
  *
  *  A watcher batch, a toggle and a refresh can all ask for the same folder while a read of it is
@@ -125,5 +127,22 @@ export function planBatchReload(
     if (dir === o.root || o.isExpanded(dir)) reload.push(dir)
     else evict.push(dir)
   }
+  return { reload, evict }
+}
+
+/** What a refresh re-reads (the explorer's refresh button). The folders the person opened stay open:
+ *  the root and every expanded folder under it are read again, an expanded one inside a collapsed parent
+ *  included, so opening the parent later shows the disk as it is now. A cached folder that is not read
+ *  again (collapsed, or outside the root after a root switch) is dropped, so opening it later reads it
+ *  fresh, the rule a watcher batch follows (planBatchReload). A parent comes before its children. */
+export function planRefresh(o: {
+  root: string
+  cached: Iterable<string>
+  expanded: Iterable<string>
+}): { reload: string[]; evict: string[] } {
+  const under = [...new Set(o.expanded)].filter((d) => d !== o.root && isSubPath(o.root, d)).sort()
+  const reload = [o.root, ...under]
+  const keep = new Set(reload)
+  const evict = [...new Set(o.cached)].filter((d) => !keep.has(d))
   return { reload, evict }
 }
