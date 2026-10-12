@@ -30,7 +30,8 @@ const JOB = [...JOB_FIELDS, ...DERIVED_FIELDS]
 /** Derived like DERIVED_FIELDS, by `runs get` alone and only when above zero: how many of the Run's Tasks have a
  *  worker showing a permission prompt. */
 const RUN = [...RUN_FIELDS, ...DERIVED_FIELDS, 'waitingForApproval']
-/** `tasks list --brief` adds the mark of where it cut a spec. A Task does not have it, so it is allowed here. */
+/** `tasks list --brief` adds the mark of where it cut a spec. A Task has no such field, so it is allowed here by
+ *  name: left off this list, `--brief` would silently lose the mark. */
 const TASK = [...TASK_FIELDS, 'spec_truncated']
 /** `sessions read` has two shapes: a terminal (screen, size, scrollback) and a chat (turns and the open card). */
 const SESSION_READ = ['id', 'kind', 'alive', 'cols', 'rows', 'screen', 'scrollback', 'screenWrapped', 'scrollbackWrapped', 'turns', 'pending'] as const
@@ -151,7 +152,8 @@ export function publicEvent(e: unknown): unknown {
 export function publicFor(cmd: string, body: unknown): unknown {
   if (cmd === 'skills-list' || cmd === 'skills-install') return shapeSkills(cmd, body)
   if (cmd === 'runs-checks') return shapeRunChecks(body)
-  const fields = SHAPE[cmd]
+  // Own keys only: a command named like an Object.prototype key ('constructor') is not in the table
+  const fields = Object.hasOwn(SHAPE, cmd) ? SHAPE[cmd] : undefined
   if (fields === undefined) return body
   if (Array.isArray(body)) return body.map((x) => shapeOne(cmd, fields, x))
   return shapeOne(cmd, fields, body)

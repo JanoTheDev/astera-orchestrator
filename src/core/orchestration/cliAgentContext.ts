@@ -610,7 +610,7 @@ export interface AgentContext {
 }
 
 /** What `error.code` means, one line each. The numbers are not written here — they come from
- *  `exitCodeFor`, which is the one table (cliOutput.ts). */
+ *  `exitCodeFor`, which is the one table (packages/client/src/errors.ts, through cliOutput.ts). */
 const MEANING: Record<CliErrorCode, string> = {
   FAILED: 'a failure none of the other codes describes',
   INVALID_ARGUMENTS: 'the parser refused, or the command rejected the arguments',

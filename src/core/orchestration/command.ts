@@ -2191,8 +2191,8 @@ export async function handleCommand(
       })
     }
     // **Each Task's completion checks, read and never run** (CLI spec §20: no new validation engine).
-    // runChecks.ts reads `Task.checks`, the review Dispatches and `Task.reviewIssues`; cliPublic.ts
-    // keeps the public fields of every layer of the answer.
+    // runChecks.ts reads `Task.checks`, the review Dispatches and `Task.reviewIssues`; publicFor
+    // (packages/client/src/shape.ts) keeps the public fields of every layer of the answer.
     case 'runs-checks': {
       const id = str(args.id)
       if (!id) return bad('--id is required')
@@ -4077,7 +4077,7 @@ export async function handleCommand(
     // CLI 는 자기 버전을 빌드에서 받아 알고 있다(§4) — 여기서 답하는 것은 앱 쪽 값이다.
     case 'version':
       return okBody({ version: deps.appVersion?.() ?? null, protocol: CLI_PROTOCOL })
-    // 공개 이름(phase C). 같은 목록이고, 공개 표면의 칸은 cliPublic 이 세 칸으로 가린다.
+    // 공개 이름(phase C). 같은 목록이고, 공개 표면의 칸은 publicFor(packages/client/src/shape.ts)가 가린다.
     case 'accounts':
     case 'accounts-list': {
       const agent = str(args.agent)

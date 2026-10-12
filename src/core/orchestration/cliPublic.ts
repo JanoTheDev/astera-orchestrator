@@ -76,6 +76,8 @@ const TASK_HIDDEN = [
 /** A followed event's message body (pages long) and the app's link from an event to a tab. */
 const FOLLOW_EVENT_HIDDEN = ['body', 'sessionId'] as const
 
+// A Job's and a Run's derived fields (the package's DERIVED_FIELDS: outcome, progress, questionsOpen) are not fields
+// of the objects, so they are on neither side of these checks.
 type _project = NothingLeft<Unlisted<Project, typeof PROJECT_FIELDS, []>>
 type _job = NothingLeft<Unlisted<Job, typeof JOB_FIELDS, []>>
 type _run = NothingLeft<Unlisted<JobRun, typeof RUN_FIELDS, typeof RUN_HIDDEN>>

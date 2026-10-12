@@ -1,5 +1,5 @@
-// `astera` 가 내보내는 것의 계약 — 봉투, 오류 코드, 종료 코드
-// (docs/2026-09-22-public-cli-design.md §7·§8).
+// `astera` 가 내보내는 것의 계약 — 봉투, 그리고 SDK 패키지(packages/client/src/errors.ts)의 오류 코드와
+// 종료 코드를 CLI 이름으로 다시 내보낸다 (docs/2026-09-22-public-cli-design.md §7·§8).
 //
 // **여기가 순수한 이유.** 이것은 스크립트가 기대는 API 이고(명세 §43), API 는 프로세스를 띄우지
 // 않고도 확인할 수 있어야 한다. run.ts 는 이 함수들을 부르고 `process.exit` 만 한다.

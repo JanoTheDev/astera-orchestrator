@@ -6,7 +6,7 @@
 // same way.
 
 /** The remote runtime's codes (design §3.10), as a Runtime's controller gate and the controller link name them. */
-export const REMOTE_ERROR_CODES = [
+export const REMOTE_ERROR_CODES = Object.freeze([
   'RUNTIME_NOT_FOUND',
   'RUNTIME_OFFLINE',
   'RUNTIME_AUTH_FAILED',
@@ -21,10 +21,10 @@ export const REMOTE_ERROR_CODES = [
   'REMOTE_TIMEOUT',
   'REMOTE_OPERATION_CONFLICT',
   'REMOTE_REPLY_TOO_LARGE'
-] as const
+] as const)
 export type RemoteErrorCode = (typeof REMOTE_ERROR_CODES)[number]
 
-export const ERROR_CODES = [
+export const ERROR_CODES = Object.freeze([
   'FAILED',
   'INVALID_ARGUMENTS',
   'HOST_NOT_RUNNING',
@@ -38,11 +38,11 @@ export const ERROR_CODES = [
   // A controller's answers from a paired Runtime. Each exits as its nearest local code, so a script that branches
   // on the exit keeps working and one that reads the code can tell them apart.
   ...REMOTE_ERROR_CODES
-] as const
+] as const)
 export type AsteraErrorCode = (typeof ERROR_CODES)[number]
 
 /** One exit code per code: the public CLI design's §8 table is this object, so it cannot be written twice. */
-export const EXIT_CODES: Readonly<Record<AsteraErrorCode, number>> = {
+export const EXIT_CODES: Readonly<Record<AsteraErrorCode, number>> = Object.freeze({
   FAILED: 1,
   INVALID_ARGUMENTS: 2,
   HOST_NOT_RUNNING: 3,
@@ -67,7 +67,7 @@ export const EXIT_CODES: Readonly<Record<AsteraErrorCode, number>> = {
   REMOTE_TIMEOUT: 7,
   REMOTE_OPERATION_CONFLICT: 6,
   REMOTE_REPLY_TOO_LARGE: 1
-}
+})
 
 const REMOTE: ReadonlySet<string> = new Set(REMOTE_ERROR_CODES)
 
@@ -88,8 +88,9 @@ export const exitCodeFor = (code: AsteraErrorCode): number => EXIT_CODES[code]
  * the code and a guess makes that branch silently wrong.
  *
  * **501 is an unknown command, not an unknown id.** The Host does not know the command, which means the caller is a
- * newer build than the Host, and what a script needs to see is "the versions differ", not "a typo". The code is never
- * picked by reading the message: that would tie the contract to a sentence.
+ * newer build than the Host, and what a script needs to see is "the versions differ", not "a typo". An older,
+ * already shipped Host answers an unknown command with 404 instead: that one lands on NOT_FOUND, and its message says
+ * what happened. The code is never picked by reading the message: that would tie the contract to a sentence.
  */
 export function codeForStatus(status: number): AsteraErrorCode {
   if (status === 400) return 'INVALID_ARGUMENTS'

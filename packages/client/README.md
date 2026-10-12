@@ -1,6 +1,7 @@
 # @astera-app/client
 
-The TypeScript client for the [Astera](https://github.com/parsingk/Astera) Host: the public contract the `astera` CLI
-and its MCP server already speak (error codes, the public fields of projects, jobs, runs, tasks and questions), and
-the client built on it. **Not published yet.** It lives in the Astera repository and is versioned separately from the
-app.
+The public contract of the [Astera](https://github.com/parsingk/Astera) Host as a TypeScript package: the error codes
+and the public fields of projects, jobs, runs, tasks and questions that the `astera` CLI and its MCP server already
+speak. The client that connects to a Host comes in a later release.
+
+**Not published yet.** It lives in the Astera repository and will be versioned separately from the app.

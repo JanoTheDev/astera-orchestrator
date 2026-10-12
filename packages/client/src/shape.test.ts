@@ -2,6 +2,7 @@
 // blocklist; no field is invented; folded objects are shaped by the same rules. Moved from the app's
 // cliPublic.test.ts with the code (SDK 1a); the app keeps the check that every internal field is listed or hidden.
 import { describe, it, expect } from 'vitest'
+import * as pkg from './index.js'
 import { publicEvent, publicFor } from './index.js'
 
 describe('publicFor', () => {
@@ -345,5 +346,22 @@ describe('publicFor', () => {
   it('객체가 아닌 것은 그대로 둔다', () => {
     expect(publicFor('jobs-list', [])).toEqual([])
     expect(publicFor('questions-get', null)).toBe(null)
+  })
+})
+
+// Final review of SDK 1a, declined-to-judge items taken: a shared allowlist must not be widened by other code in the
+// same process, and a command name that is also an Object.prototype key must not crash publicFor.
+describe('the contract cannot be changed at run time', () => {
+  it('freezes every public list and the exit table', () => {
+    const lists = Object.entries(pkg).filter(([k]) => k.endsWith('_FIELDS') || k.endsWith('_CODES'))
+    expect(lists.length).toBeGreaterThan(20)
+    for (const [k, v] of lists) expect(Object.isFrozen(v), k).toBe(true)
+  })
+
+  it('passes a prototype key through untouched', () => {
+    const body = { id: 'x', secret: 's' }
+    expect(publicFor('constructor', body)).toBe(body)
+    expect(publicFor('toString', body)).toBe(body)
+    expect(publicFor('__proto__', body)).toBe(body)
   })
 })
