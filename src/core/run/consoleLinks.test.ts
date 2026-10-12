@@ -369,9 +369,9 @@ describe('cutCandidates', () => {
   })
 
   it("keeps the first row's word apart, for a link it may name by itself", () => {
-    const rows = [row('  see src/app.ts:125'), row('  4. next')]
+    const rows = [row('  see lib/app.py:125'), row('  4. next')]
     const c = cutCandidates((r) => rows[r], 0, 20)
-    expect(c.map((x) => x.text)).toEqual(['src/app.ts:1254.'])
-    expect(c[0].head.text).toBe('src/app.ts:125')
+    expect(c.map((x) => x.text)).toEqual(['lib/app.py:1254.'])
+    expect(c[0].head.text).toBe('lib/app.py:125')
   })
 })
