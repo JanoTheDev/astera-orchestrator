@@ -360,7 +360,12 @@ const api = {
     remove: invoke('remote.remove'),
     ping: invoke('remote.ping'),
     projects: invoke('remote.projects'),
-    thisMachine: invoke('remote.thisMachine')
+    thisMachine: invoke('remote.thisMachine'),
+    addresses: invoke('remote.addresses'),
+    start: invoke('remote.start'),
+    stop: invoke('remote.stop'),
+    pair: invoke('remote.pair'),
+    revoke: invoke('remote.revoke')
   },
   remoteSessions: {
     attach: invoke('remoteSessions.attach'),

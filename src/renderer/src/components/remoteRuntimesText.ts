@@ -31,3 +31,43 @@ export function pairedStateLine(r: { offline: boolean | null }, t: T): string | 
 export function failureLine(r: { ok: false; code: string; message: string }, t: T): string {
   return (t as (k: string, p?: Record<string, string | number>) => string)('settings.remote.failed', { code: r.code, message: r.message })
 }
+
+/** An address to listen on, named with where it is: its interface, or this computer only for 127.0.0.1. */
+export function addressLabel(c: { address: string; iface: string | null; local: boolean }, t: T): string {
+  const tt = t as (k: string, p?: Record<string, string | number>) => string
+  return c.local ? tt('settings.remote.start.local', { address: c.address }) : tt('settings.remote.start.iface', { address: c.address, iface: c.iface ?? '' })
+}
+
+/** How long a pairing string has left, as m:ss, or that it is spent (also for a time that cannot be read). */
+export function pairingLeftLine(expiresAt: string, now: number, t: T): string {
+  const tt = t as (k: string, p?: Record<string, string | number>) => string
+  const left = Date.parse(expiresAt) - now
+  if (!Number.isFinite(left) || left <= 0) return tt('settings.remote.newPair.expired')
+  const s = Math.ceil(left / 1000)
+  return tt('settings.remote.newPair.expires', { time: `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` })
+}
+
+/** Where a pairing string this screen made stands: `live` while the Host still holds its code (a Host too old to name
+ *  its codes is taken at its word until the expiry), `expired` past it, `spent` once used, dropped or burned, and `gone`
+ *  with Remote off or the Host unable to say: nothing could redeem it then. */
+export function pairingState(made: { expiresAt: string; pairingId?: string }, mine: ThisMachine, now: number): 'live' | 'expired' | 'spent' | 'gone' {
+  if (mine === null || (mine.gateway as { state: string }).state === 'disabled') return 'gone'
+  const at = Date.parse(made.expiresAt)
+  if (!Number.isFinite(at) || at <= now) return 'expired'
+  const pending = (mine as { pairings?: unknown }).pairings
+  if (made.pairingId !== undefined && Array.isArray(pending) && !pending.includes(made.pairingId)) return 'spent'
+  return 'live'
+}
+
+/** A refusal of one of This computer's controls, in the app's language where it is a known one (the CLI's sentences
+ *  name CLI commands and are English); any other with its code and message, as `failureLine`. */
+export function controlFailureLine(r: { ok: false; code: string; message: string }, op: 'start' | 'stop' | 'pair' | 'revoke', t: T): string {
+  const tt = t as (k: string, p?: Record<string, string | number>) => string
+  if (r.code === 'INVALID_ARGUMENTS' && op === 'start') return tt('settings.remote.control.badAddress')
+  if (r.code === 'CONFLICT' && op === 'pair') return tt('settings.remote.control.off')
+  if (r.code === 'HOST_NOT_RUNNING') return tt('settings.remote.control.noHost')
+  if (r.code === 'TIMEOUT' && op === 'start') return tt('settings.remote.control.timeout')
+  const gateway = /the Gateway failed: ([A-Z_]+)/.exec(r.message)
+  if (r.code === 'FAILED' && op === 'start' && gateway) return tt('settings.remote.control.gatewayFailed', { code: gateway[1] })
+  return failureLine(r, t)
+}

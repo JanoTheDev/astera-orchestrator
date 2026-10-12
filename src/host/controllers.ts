@@ -47,8 +47,14 @@ export interface ControllerRegistry {
   load(): Promise<void>
   /** The load that is running, settling either way; null when none is (second pass RR-7). */
   loading(): Promise<void> | null
-  /** A one-time code for `astera runtime pair`. Only its hash is kept; the code itself goes to the caller alone. */
-  createPairing(a: { permission: ControllerPermission; name?: string }): { code: string; expiresAt: string }
+  /** A one-time code for `astera runtime pair`. Only its hash is kept; the code itself goes to the caller alone. `id`
+   *  names it in `pendingPairings` (random, never derived from the code: its hash would let 50 bits be guessed offline). */
+  createPairing(a: { permission: ControllerPermission; name?: string }): { code: string; expiresAt: string; id: string }
+  /** The ids of the codes that can still be redeemed: not used, not expired, not burned. Settings shows a pairing string
+   *  only while its id is here. */
+  pendingPairings(): string[]
+  /** Forgets every code (Remote turned off): a string made before cannot pair once Remote is on again. */
+  dropPairings(): void
   /** The code a controller sent over the pinned link. A right one makes a client record and its token, once. */
   redeem(code: string, name: string): Promise<{ ok: true; clientId: string; token: string } | { ok: false; reason: 'unknown' | 'expired' | 'burned' }>
   /** The record whose token hashes to this, compared in constant time; null for none. */
@@ -110,7 +116,7 @@ export function createControllerRegistry(
     return next
   }
   /** Pending pairing codes by hash: what a redeem needs, and the attempts wrong guesses have spent. */
-  const codes = new Map<string, { expiresAt: number; attempts: number; permission: ControllerPermission; name?: string }>()
+  const codes = new Map<string, { id: string; expiresAt: number; attempts: number; permission: ControllerPermission; name?: string }>()
   /** Codes wrong guesses used up, since this Host started. */
   let burnedCodes = 0
   // A name reaches error text and the client list, so it is one printable line.
@@ -161,9 +167,12 @@ export function createControllerRegistry(
     createPairing: ({ permission, name }) => {
       const code = newCode()
       const expiresAt = now() + CODE_TTL_MS
-      codes.set(sha256Base64url(code), { expiresAt, attempts: 0, permission, ...(name ? { name } : {}) })
-      return { code, expiresAt: new Date(expiresAt).toISOString() }
+      const id = random(8).toString('hex')
+      codes.set(sha256Base64url(code), { id, expiresAt, attempts: 0, permission, ...(name ? { name } : {}) })
+      return { code, expiresAt: new Date(expiresAt).toISOString(), id }
     },
+    pendingPairings: () => [...codes.values()].filter((c) => now() <= c.expiresAt && c.attempts < CODE_ATTEMPTS).map((c) => c.id),
+    dropPairings: () => codes.clear(),
     redeem: async (code, name) => {
       if (loading) await loading.catch(() => {})
       const hash = sha256Base64url(code.trim().toUpperCase())

@@ -143,7 +143,9 @@ export async function runRuntimeCommand(cmd: string, args: Record<string, unknow
           code,
           fingerprint: id.spkiSha256,
           expiresAt: done.body.expiresAt,
-          permission
+          permission,
+          // The code's id (Host `pendingPairings`), for Settings to tell when it has been spent. Never the code's hash.
+          ...(typeof done.body.id === 'string' ? { pairingId: done.body.id } : {})
         }
       }
     }

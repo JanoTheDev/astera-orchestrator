@@ -29,7 +29,7 @@ const machine = (o: { hostUp?: boolean; gateway?: Array<Record<string, unknown>>
       if (!hostUp && co.start) hostUp = true
       if (!hostUp) return { down: true }
       if (cmd === 'runtime-reload' || cmd === 'runtime-status') return { status: 200, body: { gateway: gateway.length > 1 ? gateway.shift() : gateway[0], clients: [] } }
-      if (cmd === 'pair-create') return { status: 200, body: { code: 'ABCDE23456', expiresAt: 'T', permission: args.permission } }
+      if (cmd === 'pair-create') return { status: 200, body: { code: 'ABCDE23456', expiresAt: 'T', permission: args.permission, id: 'p1' } }
       if (cmd === 'clients-list') return { status: 200, body: { clients: [{ clientId: 'cli_1' }] } }
       if (cmd === 'clients-revoke') return args.id === 'cli_1' ? { status: 200, body: { revoked: true } } : { status: 404, body: { error: 'unknown client' } }
       return { status: 404, body: { error: 'no' } }
@@ -96,6 +96,8 @@ describe('astera runtime (remote runtime design §2.9)', () => {
       ok: true,
       body: { pairing: `astera-pair:v1:192.168.0.7:47831:ABCDE23456:${FP}`, address: '192.168.0.7', port: 47831, code: 'ABCDE23456', fingerprint: FP, permission: 'read-only' }
     })
+    // The code's id, so Settings can tell when it has been spent (Host `pendingPairings`).
+    expect(r).toMatchObject({ ok: true, body: { pairingId: 'p1' } })
   })
   // A pairing is read-only unless full control is asked for: a code that leaks then gives no one this user's power.
   it('pair is read-only by default, full control only with --full-control, and both flags are refused', async () => {
