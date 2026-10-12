@@ -1572,12 +1572,13 @@ export function registerIpc(
   }
   /** What an ended session costs the app, whichever manager it came from. `core.sessions.onExit` and
    *  `core.chat.onExit` are both this function: a chat session's exit has to reach the renderer as the
-   *  same `session:exit` a pty's does (that is what closes the tab), and every other consumer here —
-   *  the agent-browser run, the Slack notice, the Work Unit collector, the coordinators — reasons about
-   *  a session id, not about how that session's process was spawned. The handful of things that are
-   *  genuinely per-kind are NOT here: the pty's own cleanup (busy scanners, the rolling coordinators)
-   *  is harmless for a chat id and is left where it was, and the chat's own (attention, the rollout
-   *  watcher) lives in the chat subscriber below, next to the events that set them up. */
+   *  same `session:exit` a pty's does (that is what marks its tab ended and closes its agent tab), and
+   *  every other consumer here — the agent-browser run, the Slack notice, the Work Unit collector, the
+   *  coordinators — reasons about a session id, not about how that session's process was spawned. The
+   *  handful of things that are genuinely per-kind are NOT here: the pty's own cleanup (busy scanners,
+   *  the rolling coordinators) is harmless for a chat id and is left where it was, and the chat's own
+   *  (attention, the rollout watcher) lives in the chat subscriber below, next to the events that set
+   *  them up. */
   // The exit of a session a Host roll is replacing waits until the new session is adopted, the rekey
   // forwarded and the mirror moved (S6 §3.4, withHostRollHold), so the renderer replaces the old tab
   // rather than closing it, and the app's orchestration tap finds the Dispatch already rekeyed.

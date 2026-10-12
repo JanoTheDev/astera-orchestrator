@@ -26,4 +26,24 @@ describe('App.tsx writes the tab tree and the active pane through writeThrough',
     expect(count(/layoutRef\.current\s*=[^=]/g)).toBe(0)
     expect(count(/activePaneIdRef\.current\s*=[^=]/g)).toBe(0)
   })
+
+  // Final review minor 1: the session rows had the same render-only mirror. Closing a tab during a burst wrote a list
+  // made from the old rows over the ones the burst had just added (a tab with no row is not drawn), and an exit and a
+  // re-adoption in one batch left a live session 'exited'.
+  it('writes the session rows through writeThrough as well', () => {
+    expect(src).toMatch(/const setSessions = useMemo\(\(\) => writeThrough\(sessionsRef, setSessionsState\), \[\]\)/)
+    expect(count(/setSessionsState\b/g)).toBe(2)
+    expect(count(/sessionsRef\.current\s*=[^=]/g)).toBe(0)
+  })
+
+  // Final review minor 2: the tab menu's Split computed from the rendered tree, so a tab placed in the background since
+  // that render (a session taken back, an agent's tab) was dropped by the split.
+  it("splits from the tree as written, not the menu's rendered copy", () => {
+    const start = src.indexOf('const split = (dir: PaneDir): void => {')
+    expect(start).toBeGreaterThan(-1)
+    expect(src.indexOf('const split = (dir: PaneDir): void => {', start + 1)).toBe(-1)
+    const body = src.slice(start, src.indexOf('setActivePaneId(res.paneId)', start))
+    expect(body).toMatch(/layoutRef\.current/)
+    expect(body).not.toMatch(/splitAndMove\(cur\b/)
+  })
 })

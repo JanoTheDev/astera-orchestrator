@@ -55,6 +55,19 @@ describe('writeThrough', () => {
     expect(h.tabs()).toEqual([sessionTab('b'), sessionTab('c')])
   })
 
+  // closeSession's shape (final review minor 1): rows added by updaters, then a list made from the ref and written as a
+  // value. The value has to carry the rows the updaters added, or the new session's tab is not drawn.
+  it('keeps what updaters added when a value is then made from the ref', () => {
+    const ref = { current: ['a'] }
+    const commits: string[][] = []
+    const set = writeThrough(ref, (v) => commits.push(v))
+    set((prev) => [...prev, 'b'])
+    set((prev) => [...prev, 'c'])
+    set(ref.current.filter((id) => id !== 'a'))
+    expect(ref.current).toEqual(['b', 'c'])
+    expect(commits.at(-1)).toEqual(['b', 'c'])
+  })
+
   it('hands React the same value it keeps, null included', () => {
     const h = rig(placeBackground(null, 'a'))
     h.set(placeBackground(h.ref.current, 'b'))

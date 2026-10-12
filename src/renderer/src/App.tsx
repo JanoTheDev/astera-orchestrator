@@ -459,7 +459,12 @@ export default function App(): React.JSX.Element {
   // AccountSettings would present them as manageable, and every one of those actions fails on a source
   // that cannot authenticate. Only HistoryBrowser and ResumeDialog receive them.
   const [ghostAccounts, setGhostAccounts] = useState<Account[]>([])
-  const [sessions, setSessions] = useState<SessionInfo[]>([])
+  const [sessions, setSessionsState] = useState<SessionInfo[]>([])
+  // The session rows are read from this ref the same way the tree is (closeSession, the session:created guard), so
+  // they are written through it too: a close during a burst of taken-back sessions once wrote a list made from the old
+  // rows over the new ones, and a tab with no row is not drawn (final review of the taken-back tabs fix, minor 1).
+  const sessionsRef = useRef(sessions)
+  const setSessions = useMemo(() => writeThrough(sessionsRef, setSessionsState), [])
   // The pane layout tree. It replaces the old single split-slot state — up to 4 panes.
   const [layout, setLayoutState] = useState<PaneNode | null>(null)
   const [activePaneId, setActivePaneIdState] = useState<string | null>(null)
@@ -894,8 +899,7 @@ export default function App(): React.JSX.Element {
   const sidebarRef = useRef<HTMLElement>(null)
 
   // A reference to the latest value for keyboard tab switching — the global listener registers once and reads without going stale
-  const sessionsRef = useRef(sessions)
-  sessionsRef.current = sessions
+  // (sessionsRef is declared with its state above: it moves with every write, not here at render)
   const activeFileIdRef = useRef(activeFileId)
   activeFileIdRef.current = activeFileId
   const MD_MODE_KEY = 'cm.md.viewMode'
@@ -1179,10 +1183,10 @@ export default function App(): React.JSX.Element {
       // triggering the setSessions and setLayout re-render that comes along with that no-op.
       //
       // **A session we know about and marked exited is a different case, and it has to fall through.**
-      // When the channel to the Host drops, every pty handle in main ends and session:exit closes the
-      // tab here — but the Host is still running the process, so the reconnect takes the session back
-      // under the same id and re-emits this event. Returning early there would leave a live agent with
-      // no tab and an 'exited' row until the next reload.
+      // When the channel to the Host drops, every pty handle in main ends and session:exit marks the
+      // row exited here (the tab stays, drawn as ended) — but the Host is still running the process,
+      // so the reconnect takes the session back under the same id and re-emits this event. Returning
+      // early there would leave a live agent drawn as ended, with an 'exited' row, until the next reload.
       const known = sessionsRef.current.find((s) => s.id === info.id)
       if (known && known.status !== 'exited') return
       setSessions((prev) =>
@@ -5383,8 +5387,13 @@ export default function App(): React.JSX.Element {
             // With only one tab in the group, splitting changes nothing (splitAndMove returns null) — shown as disabled
             const cantSplit = !group || atMax || group.tabIds.length < 2
             const split = (dir: PaneDir): void => {
-              if (!cur || !group) return
-              const res = splitAndMove(cur, tid, group.id, dir, false)
+              // The tree as written, not the copy this menu was rendered from: a tab placed in the background
+              // since that render (a session taken back, an agent's tab) would be dropped by a split made from it
+              // (final review of the taken-back tabs fix, minor 2).
+              const now = layoutRef.current
+              const from = now ? groupOfTab(now, tid) : null
+              if (!now || !from) return
+              const res = splitAndMove(now, tid, from.id, dir, false)
               if (!res) return
               setLayout(res.root)
               setActivePaneId(res.paneId)
