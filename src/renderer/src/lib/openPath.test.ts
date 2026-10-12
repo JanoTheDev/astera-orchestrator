@@ -45,10 +45,21 @@ describe('openPath', () => {
 })
 
 describe('openPath wiring', () => {
-  it('is how the explorer and a Markdown preview open a file', async () => {
-    const { readFileSync } = await import('node:fs')
-    const app = readFileSync(`${process.cwd()}/src/renderer/src/App.tsx`, 'utf8')
-    expect(app).toMatch(/<FileExplorer\s+root=\{currentProject\}\s+onOpenFile=\{openFromExplorer\}/)
-    expect(app).toContain('onOpenFile={openFromExplorer}\n            onSave=')
+  const read = async (f: string): Promise<string> => (await import('node:fs')).readFileSync(`${process.cwd()}/${f}`, 'utf8')
+
+  it('is how the explorer and a Markdown preview open a file, admitting media through the project guard', async () => {
+    const app = await read('src/renderer/src/App.tsx')
+    expect(app).toMatch(/<FileExplorer\s+root=\{currentProject\}\s+onOpenFile=\{openProjectFile\}/)
+    expect(app).toContain('onOpenFile={openProjectFile}\n            onSave=')
+    expect(app).toMatch(/const openProjectFile = [\s\S]{0,400}window\.api\.files\.admitMedia\(/)
+    expect(await read('src/main/ipc.ts')).toMatch(/ipcMain\.handle\('files\.admitMedia', [\s\S]{0,200}admitProjectMedia\(/)
+    expect(await read('src/preload/index.ts')).toContain("admitMedia: invoke('files.admitMedia')")
+  })
+
+  // Final review I1: a media tab follows a rename, a move or an undo in the explorer, and goes with a delete.
+  it('moves media tabs on a rename and closes them on a delete', async () => {
+    const app = await read('src/renderer/src/App.tsx')
+    expect(app).toMatch(/const handlePathRenamed = [\s\S]{0,600}mediaTabsUnder\(/)
+    expect(app).toMatch(/const handlePathDeleted = [\s\S]{0,900}mediaTabsUnder\(/)
   })
 })

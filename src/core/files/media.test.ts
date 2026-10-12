@@ -8,6 +8,9 @@ describe('mediaKindOf', () => {
 
   it('names the image extensions the viewer shows', () => {
     for (const p of ['a.png', 'b.jpg', 'c.jpeg', 'd.webp', 'e.gif']) expect(mediaKindOf(p), p).toBe('image')
+    // The explorer opens these in the viewer too (final review of the explorer opening media, minor 6): the preview
+    // already shows avif inline, and a favicon or a bitmap is an image a person double-clicks.
+    for (const p of ['f.avif', 'g.bmp', 'h.ico']) expect(mediaKindOf(p), p).toBe('image')
   })
 
   it('is case-insensitive, and reads the extension off a full Windows or POSIX path', () => {

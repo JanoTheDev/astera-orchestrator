@@ -240,7 +240,8 @@ const api = {
     pathForFile: (file: File) => webUtils.getPathForFile(file),
     reveal: invoke('files.reveal'),
     countEntries: invoke('files.countEntries'),
-    resolveLink: invoke('files.resolveLink')
+    resolveLink: invoke('files.resolveLink'),
+    admitMedia: invoke('files.admitMedia')
   },
   media: {
     stat: invoke('media.stat'),
