@@ -4,7 +4,7 @@ import '@xterm/xterm/css/xterm.css'
 import type { RollStateEvent, SchedStateEvent, SessionInfo } from '../../../core/types'
 import { nextResize, type Dims } from '../../../core/terminal/resize'
 import { xtermThemeOf } from '../../../core/theme/apply'
-import { PaneSize, showOwn, showPty, wantedOf } from '../lib/terminalScale'
+import { NOTE_RESERVE_PX, PaneSize, showOwn, showPty, wantedOf } from '../lib/terminalScale'
 import { pinCursorBlinkOff } from '../lib/cursorBlink'
 import * as sessionBus from '../lib/sessionBus'
 import { useI18n } from '../i18n/I18nProvider'
@@ -100,16 +100,18 @@ export function TerminalView({
         window.api.sessions.resize(session.id, d.cols, d.rows)
         lastSent = d
       }
+      const note = pane.note(wanted)
       const shows = pane.shows()
       if (shows === 'own') showOwn(term, host)
-      else showPty(term, host, shows)
-      setSizedRemote(pane.note(wanted))
+      else showPty(term, host, shows, note ? NOTE_RESERVE_PX : 0)
+      setSizedRemote(note)
     }
     fitRef.current = fitNow
     fitNow()
     const offSize = window.api.on('session:pty-size', (e) => {
       if (e.sessionId !== session.id) return
-      pane.heard({ cols: e.cols, rows: e.rows })
+      // The Host's word on who owns the size, beside the size (final review I7).
+      pane.heard({ cols: e.cols, rows: e.rows }, e.owned)
       fitNow()
     })
     term.focus() // so typing works immediately once the session opens
@@ -265,7 +267,7 @@ export function TerminalView({
     const host = hostRef.current
     if (!term || !host) return
     term.options.fontFamily = family
-    // A hidden inactive pane has clientWidth/clientHeight 0; fitTerminalToHost would clamp through
+    // A hidden inactive pane has clientWidth/clientHeight 0; a grid measured then would clamp through
     // Math.max(2, 0) and resize the grid down to 2x1, pushing that size to the PTY too. Skip the
     // refit while hidden — the same guard the ResizeObserver below already applies — and let showing
     // the tab (which changes the host size and fires the observer) refit it with real metrics then.

@@ -1515,6 +1515,8 @@ export const ja: Catalog = {
   'remote.session.gone': 'このセッションの出力を受け取れません: {message}',
   'remote.session.ended': 'セッションが終了しました (終了コード {code})',
   'remote.session.sizedHost': 'ホストコンピューターのウィンドウサイズで表示しています。入力するとこのウィンドウのサイズに切り替わります。',
+  'remote.session.sizedOther': '別のリモートコンピューターのウィンドウサイズで表示しています。入力するとこのウィンドウのサイズに切り替わります。',
+  'remote.session.sizedHostFixed': 'ホストコンピューターのウィンドウサイズで表示しています。',
   'remote.session.noPty': 'Runtime がこのセッションの端末をまだ知らせていません',
   'remote.session.failed': 'Runtime が拒否しました: {message}',
   'remote.session.stop': 'Runtime で終了',

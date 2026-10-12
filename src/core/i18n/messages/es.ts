@@ -1541,6 +1541,8 @@ export const es: Catalog = {
   'remote.session.gone': 'No se puede recibir la salida de esta sesión: {message}',
   'remote.session.ended': 'La sesión terminó (código {code})',
   'remote.session.sizedHost': 'Se muestra con el tamaño de ventana del equipo host. Escribe aquí para usar el tamaño de esta ventana.',
+  'remote.session.sizedOther': 'Se muestra con el tamaño de ventana de otro equipo remoto. Escribe aquí para usar el tamaño de esta ventana.',
+  'remote.session.sizedHostFixed': 'Se muestra con el tamaño de ventana del equipo host.',
   'remote.session.noPty': 'el Runtime aún no ha indicado el terminal de esta sesión',
   'remote.session.failed': 'El Runtime lo rechazó: {message}',
   'remote.session.stop': 'Terminar en el Runtime',

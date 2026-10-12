@@ -1713,6 +1713,8 @@ export const en: Record<keyof typeof ko, string> = {
   'remote.session.gone': 'This session\'s output cannot be received: {message}',
   'remote.session.ended': 'The session ended (exit code {code})',
   'remote.session.sizedHost': "Shown at the host computer's window size. Type here to switch to this window's size.",
+  'remote.session.sizedOther': "Shown at another remote computer's window size. Type here to switch to this window's size.",
+  'remote.session.sizedHostFixed': "Shown at the host computer's window size.",
   'remote.session.noPty': 'the Runtime has not named this session\'s terminal yet',
   'remote.session.failed': 'The Runtime refused it: {message}',
   'remote.session.stop': 'End on the Runtime',

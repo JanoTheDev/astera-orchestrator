@@ -7,7 +7,7 @@ import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 import { nextResize, type Dims } from '../../../core/terminal/resize'
 import { xtermThemeOf } from '../../../core/theme/apply'
-import { PaneSize, showOwn, showPty, wantedOf } from '../lib/terminalScale'
+import { NOTE_RESERVE_PX, PaneSize, showOwn, showPty, wantedOf } from '../lib/terminalScale'
 import { pinCursorBlinkOff } from '../lib/cursorBlink'
 import * as sessionBus from '../lib/sessionBus'
 import { useI18n } from '../i18n/I18nProvider'
@@ -38,8 +38,9 @@ export function RemoteTerminalView({
   const readOnlyRef = useRef(readOnly)
   readOnlyRef.current = readOnly
   const [banner, setBanner] = useState<Banner>(null)
-  /** The pty is shown at the Runtime's size: someone at that computer typed last (terminalScale.ts). */
-  const [sizedHost, setSizedHost] = useState(false)
+  /** The note shown while the pty is at another computer's size (terminalScale.ts), or null: the Runtime's own app typed
+   *  last, another controller did, or the Runtime is older and keeps the size where it is whoever types. */
+  const [sizeNote, setSizeNote] = useState<'remote.session.sizedHost' | 'remote.session.sizedOther' | 'remote.session.sizedHostFixed' | null>(null)
   /** The last input did not reach the Runtime (review I1): said until one does. */
   const [inputLost, setInputLost] = useState(false)
   const aliveRef = useRef(session.alive)
@@ -74,10 +75,11 @@ export function RemoteTerminalView({
     const show = (): void => {
       const wanted = wantedOf(term, host)
       if (!wanted) return
+      const note = !readOnlyRef.current && pane.note(wanted)
       const shows = readOnlyRef.current ? (pane.pty ?? 'own') : pane.shows()
       if (shows === 'own') showOwn(term, host)
-      else showPty(term, host, shows)
-      setSizedHost(!readOnlyRef.current && pane.note(wanted))
+      else showPty(term, host, shows, note ? NOTE_RESERVE_PX : 0)
+      setSizeNote(!note ? null : pane.reason === 'other' ? 'remote.session.sizedOther' : pane.latest ? 'remote.session.sizedHost' : 'remote.session.sizedHostFixed')
     }
     const fit = (): void => {
       const wanted = wantedOf(term, host)
@@ -88,8 +90,9 @@ export function RemoteTerminalView({
         pane.sent(d)
         void remoteCall(runtimeId, 'sessions-resize', { id: sessionId, cols: d.cols, rows: d.rows }).then((r) => {
           if (disposed || r.status !== 200) return
-          // Not applied: the Runtime keeps the size for when this tab types; someone there typed last.
-          pane.answered((r.body as { applied?: unknown } | null)?.applied === true)
+          // Not applied: the Runtime keeps the size for when this tab types; someone else typed last.
+          const b = (r.body ?? {}) as { applied?: unknown; reason?: unknown; latest?: unknown }
+          pane.answered(d, { applied: b.applied === true, ...(typeof b.reason === 'string' ? { reason: b.reason } : {}), latest: b.latest === true })
           show()
         })
       }
@@ -99,8 +102,10 @@ export function RemoteTerminalView({
 
     // Registered before the output, so a checkpoint held for this tab is drawn ahead of what followed it.
     const offReset = sessionBus.onReset(key, (c) => {
-      // The pty's size, without a word on who owns it: the resize that follows says that.
-      pane.pty = { cols: c.cols, rows: c.rows }
+      // The pty's size, read against the size this tab asked for last; the resize asked again below says for sure (a
+      // reconnect after someone else typed meanwhile, final review I6).
+      pane.reset({ cols: c.cols, rows: c.rows })
+      lastSent = null
       term.reset()
       term.resize(c.cols, c.rows)
       term.write(c.state)
@@ -116,8 +121,13 @@ export function RemoteTerminalView({
     })
     const offSize = window.api.on('session:remote-size', (e) => {
       if (e.sessionId !== key) return
+      const owned = pane.owned
       pane.heard({ cols: e.cols, rows: e.rows })
-      show()
+      // Someone else took the size: asking again with this tab's size says who (the note names them).
+      if (owned && !pane.owned && !readOnlyRef.current) {
+        lastSent = null
+        fit()
+      } else show()
     })
     const offExit = window.api.on('session:remote-exit', (e) => {
       if (e.sessionId !== key) return
@@ -236,12 +246,12 @@ export function RemoteTerminalView({
   return (
     <div className="terminal-wrap">
       <div className="terminal-host" ref={hostRef} />
-      {(readOnly || sizedHost || banner || inputLost) && (
+      {(readOnly || sizeNote || banner || inputLost) && (
         <div className="remote-session-banners">
           {banner?.kind === 'reconnecting' && <div className="remote-session-banner">{t('remote.session.reconnecting')}</div>}
           {banner?.kind === 'gone' && <div className="remote-session-banner is-error">{t('remote.session.gone', { message: banner.message })}</div>}
           {readOnly && <div className="remote-session-banner">{t('remote.session.readOnly')}</div>}
-          {sizedHost && <div className="remote-session-banner">{t('remote.session.sizedHost')}</div>}
+          {sizeNote && <div className="remote-session-banner">{t(sizeNote)}</div>}
           {inputLost && !readOnly && <div className="remote-session-banner is-error">{t('remote.session.inputLost')}</div>}
         </div>
       )}

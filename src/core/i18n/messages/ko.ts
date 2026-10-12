@@ -1960,6 +1960,8 @@ export const ko = {
   'remote.session.gone': '이 세션의 출력을 받을 수 없습니다: {message}',
   'remote.session.ended': '세션이 끝났습니다 (종료 코드 {code})',
   'remote.session.sizedHost': '호스트 컴퓨터의 창 크기로 표시 중입니다. 입력하면 이 창 크기로 바뀝니다.',
+  'remote.session.sizedOther': '다른 원격 컴퓨터의 창 크기로 표시 중입니다. 입력하면 이 창 크기로 바뀝니다.',
+  'remote.session.sizedHostFixed': '호스트 컴퓨터의 창 크기로 표시 중입니다.',
   'remote.session.noPty': 'Runtime 이 이 세션의 터미널을 아직 알려 주지 않았습니다',
   'remote.session.failed': 'Runtime 이 거절했습니다: {message}',
   'remote.session.stop': '원격에서 종료',
