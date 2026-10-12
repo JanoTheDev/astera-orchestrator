@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { ensureHostKey, hostKeyPath, hostProof, newHostNonce, proofMatches, readHostKey } from './hostKey'
+import { ensureHostKey, hostKeyPath, hostProof, newHostNonce, proofMatches, readHostKey } from './hostKey.js'
 
 async function profile(): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), 'astera-hostkey-'))

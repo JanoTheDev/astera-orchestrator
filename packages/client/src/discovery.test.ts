@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { userDataDir } from './cliDiscovery'
+import { hostTarget, profilePath, userDataDir } from './discovery.js'
+import { hostAddress } from './address.js'
+import { HOST_PROTOCOL } from './protocol.js'
 
 const HOME = '/home/me'
 
@@ -40,5 +42,37 @@ describe('userDataDir', () => {
   it('win32 은 구분자를 섞지 않는다', () => {
     const dir = userDataDir({ platform: 'win32', env: { APPDATA: 'C:\\a\\b' }, home: HOME })
     expect(dir).not.toContain('/')
+  })
+})
+
+// Which Host this machine's tools talk to: the CLI's rule (src/cli/host.ts cliHostTarget), now the SDK's too.
+describe('hostTarget', () => {
+  const base = { platform: 'win32' as const, home: 'C:/Users/me', tmpDir: 'C:/Temp' }
+  const ROAMING = { APPDATA: 'C:/Users/me/AppData/Roaming' }
+
+  it('reads the installed app profile, the dev one with ASTERA_PROFILE=dev, and ASTERA_PROFILE_DIR above both', () => {
+    expect(hostTarget({ ...base, env: ROAMING }).profileDir).toBe(userDataDir({ platform: 'win32', env: ROAMING, home: base.home }))
+    expect(hostTarget({ ...base, env: { ...ROAMING, ASTERA_PROFILE: 'dev' } }).profileDir).toBe(
+      userDataDir({ platform: 'win32', env: ROAMING, home: base.home, dev: true })
+    )
+    expect(hostTarget({ ...base, env: { ...ROAMING, ASTERA_PROFILE: 'dev', ASTERA_PROFILE_DIR: 'D:/p/' } }).profileDir).toBe(profilePath('D:/p/', 'win32'))
+  })
+
+  it('derives the address from the profile unless ASTERA_HOST names one', () => {
+    const t = hostTarget({ ...base, env: { ASTERA_PROFILE_DIR: 'D:/p' } })
+    expect(t.address).toBe(hostAddress({ profileDir: t.profileDir, platform: 'win32', tmpDir: base.tmpDir, protocol: HOST_PROTOCOL }).address)
+    expect(hostTarget({ ...base, env: { ASTERA_PROFILE_DIR: 'D:/p', ASTERA_HOST: 'pipe-x' } }).address).toBe('pipe-x')
+  })
+
+  it('an empty variable counts as unset', () => {
+    expect(hostTarget({ ...base, env: { ...ROAMING, ASTERA_PROFILE_DIR: '', ASTERA_HOST: '' } })).toEqual(hostTarget({ ...base, env: ROAMING }))
+  })
+})
+
+describe('profilePath', () => {
+  it('writes the platform own separators and drops a trailing one, so the address hashes one spelling', () => {
+    expect(profilePath('D:/p/', 'win32')).toBe(profilePath('D:\\p', 'win32'))
+    expect(profilePath('/home/me/p/', 'linux')).toBe('/home/me/p')
+    expect(profilePath('/', 'linux')).toBe('/')
   })
 })

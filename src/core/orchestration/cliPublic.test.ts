@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { publicEvent, publicFor } from './cliPublic'
-import * as pkg from '../../../packages/client/src/index.js'
+import * as pkg from '../../../packages/client/src/internal.js'
 
 // The behaviour of publicFor is tested with its code in the SDK package (packages/client/src/shape.test.ts). The CLI
 // and MCP call this module's publicFor, so it has to be that one.
