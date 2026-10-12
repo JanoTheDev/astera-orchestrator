@@ -69,6 +69,7 @@ describe('docs/sdk.md', () => {
     expect(guide).toMatch(/not on npm yet/)
     expect(guide).toMatch(/requestId/)
     expect(guide).toMatch(/\{ items, nextCursor \}/)
+    expect(guide).toContain("the subscription's own `cursor`")
   })
 
   it('every TypeScript block of the guide and the README compiles against the package', () => {

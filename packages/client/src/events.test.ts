@@ -1,6 +1,6 @@
 // astera.events (SDK spec §6, SDK 1d) against a scripted `call`: what each method sends, how a subscription moves its
 // cursor, marks a gap, drops a repeat, and rides out a Host restart.
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { createEventsApi } from './events.js'
 import type { CallOptions, CallResult } from './client.js'
 import { AsteraError } from './errors.js'
@@ -133,6 +133,27 @@ describe('astera.events.subscribe', () => {
     expect(await take(it, 1)).toEqual([event(3)])
     await it.return?.()
     expect(s.sent[0].args).toEqual({ after: `ev_${A}_2`, waitMs: FOLLOW_WINDOW_MS })
+  })
+
+  // SDK 1e smoke finding: a consumer that saves only the ids it handled keeps a cursor the Host may no longer hold
+  it('shows its cursor: the page a handed-over event came from until the next call, then past what it skipped', async () => {
+    const s = scripted([page([], `ev_${A}_5`), page([event(6), event(7)], `ev_${A}_9`), page([], `ev_${A}_12`), 'hang'])
+    const sub = createEventsApi(s.call, withEvents).subscribe({ types: ['task.started'] })
+    expect(sub.cursor).toBeUndefined()
+    expect((await sub.next()).value).toEqual(event(6))
+    expect(sub.cursor).toBe(`ev_${A}_5`)
+    expect((await sub.next()).value).toEqual(event(7))
+    expect(sub.cursor).toBe(`ev_${A}_5`)
+    const waiting = sub.next()
+    await vi.waitFor(() => expect(s.sent).toHaveLength(4))
+    expect(sub.cursor).toBe(`ev_${A}_12`)
+    await sub.return?.()
+    await waiting.catch(() => undefined)
+  })
+
+  it('shows the cursor it was given before its first call', () => {
+    const sub = createEventsApi(scripted([]).call, withEvents).subscribe({ after: `ev_${A}_2` })
+    expect(sub.cursor).toBe(`ev_${A}_2`)
   })
 
   it('marks a gap before the page that follows it', async () => {

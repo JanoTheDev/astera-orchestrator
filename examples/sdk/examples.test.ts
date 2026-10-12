@@ -294,6 +294,19 @@ describe('notify-webhook.ts', () => {
     expect(r.err()).toMatch(/the next start posts it again/)
   }, 30_000)
 
+  // SDK 1e smoke finding: saving only what it posted, a restart after a quiet spell read from a cursor the Host had
+  // dropped, and posted "events were lost" though it had read everything
+  it('saves the cursor past what its filter skipped while it waits, without posting', async () => {
+    const hook = await receiver([])
+    const cursorFile = path.join(work, 'cursor three')
+    writeFileSync(cursorFile, `ev_${A}_3`)
+    const host = await scriptedHost({ 'events-poll': [ok({ events: [], cursor: `ev_${A}_40`, gap: false }), 'hang'] })
+    const r = run('notify-webhook.ts', [cursorFile], host.address, { WEBHOOK_URL: hook.url })
+    await vi.waitFor(() => expect(readFileSync(cursorFile, 'utf8')).toBe(`ev_${A}_40`), { timeout: 15_000, interval: 50 })
+    r.kill()
+    expect(hook.texts).toEqual([])
+  }, 30_000)
+
   it('exits 2 with its usage without WEBHOOK_URL', async () => {
     const r = run('notify-webhook.ts', [], await freshAddress())
     expect(await r.exited).toBe(2)

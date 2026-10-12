@@ -339,8 +339,11 @@ A subscription outlives a Host restart: a call that fails because the Host went 
 from the same cursor after 250 ms, 1 s, then every 5 s, and the new Host reads on from it. It ends only on `break` or
 `return()`, its `signal`, or an error waiting cannot mend (a Host too old for events answers `VERSION_MISMATCH`).
 
-To outlive a restart of your own program, save the id of the last event you handled and pass it back as `after`.
-[notify-webhook.ts](../examples/sdk/notify-webhook.ts) does that, posting to a webhook.
+To outlive a restart of your own program, save a cursor and pass it back as `after`: the id of the last event you
+handled, and, while you are not handling one, the subscription's own `cursor`. That one also moves past the events your
+`types` filter skips, so a program that watches a few types does not come back to a cursor the Host has dropped and
+read a gap. Saved while you handle an event, it is where that event's page was read from, so that page comes again.
+[notify-webhook.ts](../examples/sdk/notify-webhook.ts) does both, posting to a webhook.
 
 Not produced yet: `run.cancelled` (there is no cancel; a stop pauses), `github.*` and `runtime.*`.
 

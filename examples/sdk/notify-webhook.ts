@@ -3,8 +3,9 @@
 //   WEBHOOK_URL=https://... node notify-webhook.ts [cursor-file]
 //
 // Posts `{ text, event }` as JSON when a Run ends, when a Task's repairs run out, and when a question for a person
-// opens. It keeps the id of the last event it posted in the cursor file (default: .astera-webhook-cursor in the folder
-// it runs in) and reads on from it when started again, so a restart of it or of the Astera app loses nothing the Host
+// opens. It keeps a cursor in the cursor file (default: .astera-webhook-cursor in the folder it runs in): the id of the
+// last event it posted, and while it waits, the subscription's own cursor, which also moves past the events it does
+// not watch. Started again, it reads on from there, so a restart of it or of the Astera app loses nothing the Host
 // still holds; what the Host no longer holds is posted as one "events were lost" line.
 //
 // Delivery is at least once. A post that fails is tried again three times; if it still fails, the script stops
@@ -51,10 +52,16 @@ async function post(body: unknown): Promise<void> {
   }
 }
 
-/** Written beside and moved over, so a crash mid-write never leaves half an id. */
-async function save(id: string): Promise<void> {
-  await writeFile(`${cursorFile}.tmp`, id)
-  await rename(`${cursorFile}.tmp`, cursorFile)
+let saving: Promise<void> = Promise.resolve()
+/** Written beside and moved over, so a crash mid-write never leaves half an id; one save at a time. */
+function save(id: string): Promise<void> {
+  saving = saving
+    .catch(() => undefined)
+    .then(async () => {
+      await writeFile(`${cursorFile}.tmp`, id)
+      await rename(`${cursorFile}.tmp`, cursorFile)
+    })
+  return saving
 }
 
 const stop = new AbortController()
@@ -70,10 +77,26 @@ try {
       await save(after)
     }
     console.log(`posting to ${url} from ${after}`)
-    for await (const e of astera.events.subscribe({ after, types: [...TYPES], signal: stop.signal })) {
-      await post({ text: textOf(e), event: e })
-      if (e.type !== 'gap') await save(e.id)
-      console.log(`posted ${e.type === 'gap' ? 'a gap' : `${e.type} ${e.id}`}`)
+    const sub = astera.events.subscribe({ after, types: [...TYPES], signal: stop.signal })
+    // While nothing is being posted, the subscription's cursor is past everything it handed over and everything it
+    // skipped: saved, a restart after a quiet spell starts there, not from a last post the Host may no longer hold
+    let posting = false
+    let saved = after
+    const idle = setInterval(() => {
+      if (posting || sub.cursor === undefined || sub.cursor === saved) return
+      saved = sub.cursor
+      save(saved).catch((err: unknown) => console.error(`could not save the cursor: ${String(err)}`))
+    }, 1000)
+    try {
+      for await (const e of sub) {
+        posting = true
+        await post({ text: textOf(e), event: e })
+        if (e.type !== 'gap') await save((saved = e.id))
+        console.log(`posted ${e.type === 'gap' ? 'a gap' : `${e.type} ${e.id}`}`)
+        posting = false
+      }
+    } finally {
+      clearInterval(idle)
     }
   } finally {
     astera.close()

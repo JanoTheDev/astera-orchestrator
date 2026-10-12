@@ -120,6 +120,9 @@ for await (const e of astera.events.subscribe({ types: ['run.completed', 'run.fa
   Host keeps, or a cursor from a log this Host does not hold. The Host keeps its most recent events across restarts:
   two files of up to 1000 events or 4 MiB each, so between 1000 and 2000 events, fewer when payloads are large (a
   Task's `result` or a Job's `objective` is not cut).
+- A subscription's `cursor` is where a new one would read on from: past what its `types` filter skipped, and, while you
+  handle an event, the cursor that event's page was read from. Save it while you are not handling one to resume
+  later without reading far back.
 - A subscription outlives a Host restart: a call that fails because the Host went away or did not answer is sent
   again from the same cursor after 250 ms, 1 s, then every 5 s. It ends only on `break`/`return()`, its `signal`, or
   an error waiting cannot mend (a Host too old for events answers `VERSION_MISMATCH`).
