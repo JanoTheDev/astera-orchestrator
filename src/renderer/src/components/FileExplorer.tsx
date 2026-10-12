@@ -141,6 +141,9 @@ export function FileExplorer({
   // says it is still reading, instead of sitting blank; below that nothing shows, so a fast folder does
   // not flash a message for one frame.
   const rootPending = !!root && !dirs[root]
+  // A refresh keeps the tree on screen, so this is the one sign it is working: the icon turns while the root is
+  // read again. tree.loading lags a read by ROW_SPINNER_DELAY_MS, so a quick refresh does not flicker it.
+  const refreshing = root !== null && tree.loading.has(root)
   const [rootSlow, setRootSlow] = useState(false)
   useEffect(() => {
     setRootSlow(false)
@@ -304,11 +307,11 @@ export function FileExplorer({
     // The folders the person opened stay open and are read again (planRefresh); resetting the tree here
     // closed every one of them (2026-10-12).
     tree.refreshTree()
-    // Selection, editing and clipboard are still cleared. A refresh is the person asking for the disk as it
-    // is, and what they name may be gone from it: a selection naming a deleted file is silently filtered
-    // out by selectionPaths() and F2/Delete then do nothing; a clipboard whose anchor entry is gone makes
-    // pasteDir() fall back to root, so Ctrl+V pastes in the wrong place (the root). An open input row
-    // could be left behind with its parent gone, so it is closed as well.
+    // The selection and an open input row are still cleared. A refresh is the person asking for the disk as
+    // it is, and what they had selected may be gone from it: a selection naming a deleted file is silently
+    // filtered out by selectionPaths() and F2/Delete then do nothing, and an input row could be left behind
+    // with its parent gone. The clipboard stays, as it does on a root switch: a cut or copy survives a
+    // refresh, and a source that is gone is reported when it is pasted.
     sel.dispatch({ type: 'refreshed' })
     resetEditingState()
     // The undo journal is deliberately NOT cleared here — this is the intentional exception to the
@@ -879,7 +882,7 @@ export function FileExplorer({
             title={t('explorer.refresh')}
             onClick={refresh}
           >
-            <RefreshCw size={14} />
+            <RefreshCw size={14} className={refreshing ? 'fx-refreshing' : undefined} />
           </button>
           <button
             className="icon-btn"

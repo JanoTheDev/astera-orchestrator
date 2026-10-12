@@ -29,7 +29,8 @@ export type ExplorerAction =
   | { type: 'rootChanged' }
   /** remounted with the same root (explorer toggle) — changes nothing */
   | { type: 'rootRestored' }
-  /** refresh (⟳) — the tree cache is emptied, so selection and clipboard become meaningless too */
+  /** refresh (⟳) — the disk is read again and what the selection names may be gone, so the selection and
+   *  anchor go; the clipboard stays, as it does on a root switch (paste reports a source that is gone) */
   | { type: 'refreshed' }
   /** a tree row was clicked. flat is the on-screen order (for computing Shift ranges) */
   | { type: 'rowClicked'; path: string; mods: ClickMods; flat: string[] }
@@ -52,10 +53,9 @@ export function reduce(state: ExplorerState, action: ExplorerAction): ExplorerSt
       return state // we are back in the same project, so keep everything (down to the same references)
     case 'rootCleared':
     case 'rootChanged':
+    case 'refreshed':
       // Clear only the selection and anchor; keep the clipboard
       return { selection: new Set(), anchor: null, clipboard: state.clipboard }
-    case 'refreshed':
-      return initialExplorerState()
     case 'rowClicked': {
       const { path, mods, flat } = action
       if (mods.ctrl) {

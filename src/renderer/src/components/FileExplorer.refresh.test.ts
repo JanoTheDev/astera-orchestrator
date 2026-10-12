@@ -9,10 +9,14 @@ import path from 'node:path'
 const here = path.dirname(fileURLToPath(import.meta.url))
 const explorer = readFileSync(path.join(here, 'FileExplorer.tsx'), 'utf8')
 const hook = readFileSync(path.join(here, '..', 'hooks', 'useFileTree.ts'), 'utf8')
+const styles = readFileSync(path.join(here, '..', 'styles.css'), 'utf8')
 const body = (src: string, start: string, end: string): string => {
   const i = src.indexOf(start)
   expect(i).toBeGreaterThan(-1)
-  return src.slice(i, src.indexOf(end, i))
+  // A missing end marker would slice to the end of the file and let the checks below pass on the wrong text
+  const j = src.indexOf(end, i)
+  expect(j).toBeGreaterThan(i)
+  return src.slice(i, j)
 }
 
 describe("the explorer's refresh keeps the folders the person opened", () => {
@@ -20,6 +24,16 @@ describe("the explorer's refresh keeps the folders the person opened", () => {
     const refresh = body(explorer, 'const refresh = (): void => {', 'const menuItemsFor')
     expect(refresh).toMatch(/tree\.refreshTree\(\)/)
     expect(refresh).not.toMatch(/resetTree/)
+  })
+
+  // Final review minor 3: with the tree kept, a refresh no longer empties it, so nothing showed it was working; the
+  // icon turns while the root is being read (the loading set already waits ROW_SPINNER_DELAY_MS, so a quick one
+  // does not flicker).
+  it('turns the refresh icon while the root is being read', () => {
+    const button = body(explorer, 'onClick={refresh}', '</button>')
+    expect(button).toMatch(/<RefreshCw[^>]*className=\{refreshing \? 'fx-refreshing' : undefined\}/)
+    expect(explorer).toMatch(/const refreshing = root !== null && tree\.loading\.has\(root\)/)
+    expect(styles).toMatch(/\.fx-refreshing\s*\{[^}]*animation:\s*cm-spin/)
   })
 
   it('refreshTree plans with planRefresh and never touches the expanded set', () => {
