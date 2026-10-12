@@ -224,3 +224,58 @@ export function bufferRangeAt(
   const at = (i: number): CharCell => cells[Math.min(Math.max(i, 0), cells.length - 1)]
   return { start: at(start), end: at(Math.max(start, end - 1)) }
 }
+
+/** How near the right edge a row's content must reach for its last word to be read as cut there. A TUI wraps at the
+ *  width of its own box, a few columns inside the terminal's (a border, a margin). */
+const CUT_EDGE = 8
+/** The most rows one cut word is followed across: a path in a narrow split pane takes three or four. */
+const CUT_ROWS_MAX = 4
+
+type CutRow = { cells: readonly { width: number; chars: string }[]; isWrapped: boolean }
+
+/**
+ * The rows around `y` joined across the cuts a TUI makes in a long word, or null when `y` is in no such run.
+ *
+ * Claude Code wraps a long line itself and indents what follows (Ink's own wrap, not the terminal's), so a path longer
+ * than the room left is cut at its box's right edge and goes on, after spaces, on the next row. The terminal never
+ * marks that row as wrapped, and joining it as one (joinWrappedLine) would put the spaces inside the path. A row whose
+ * content reaches within CUT_EDGE of the right edge and ends in a non-blank is read as cut, and the next row's
+ * leading blanks are dropped from the join. A wrong join only offers the resolver a target that names no file, so no
+ * link comes of it. `cells` places each character of `text` (1-based, as bufferRangeAt wants).
+ */
+export function joinCutLines(getRow: (y: number) => CutRow | undefined, y: number, cols: number): { text: string; cells: CharCell[] } | null {
+  const lastFilled = (r: CutRow): number => {
+    let x = -1
+    for (let i = 0; i < r.cells.length; i += 1) if (r.cells[i].chars !== '' && r.cells[i].chars !== ' ') x = i
+    return x
+  }
+  const firstFilled = (r: CutRow): number => r.cells.findIndex((c) => c.chars !== '' && c.chars !== ' ')
+  const cutAfter = (row: number): boolean => {
+    const a = getRow(row)
+    const b = getRow(row + 1)
+    if (!a || !b || firstFilled(b) < 0) return false
+    const end = lastFilled(a)
+    return end >= 0 && end + 1 >= cols - CUT_EDGE
+  }
+  let start = y
+  while (start > 0 && y - start < CUT_ROWS_MAX - 1 && cutAfter(start - 1)) start -= 1
+  let end = y
+  while (end - start < CUT_ROWS_MAX - 1 && cutAfter(end)) end += 1
+  if (start === end) return null
+  let text = ''
+  const cells: CharCell[] = []
+  for (let row = start; row <= end; row += 1) {
+    const r = getRow(row)
+    if (!r) break
+    const from = row > start ? firstFilled(r) : 0
+    const to = row < end ? lastFilled(r) : r.cells.length - 1
+    for (let x = from; x <= to; x += 1) {
+      const c = r.cells[x]
+      if (c.width === 0) continue
+      const chars = c.chars === '' ? ' ' : c.chars
+      text += chars
+      for (let k = 0; k < chars.length; k += 1) cells.push({ x: x + 1, y: row + 1 })
+    }
+  }
+  return { text, cells }
+}

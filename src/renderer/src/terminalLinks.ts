@@ -1,5 +1,5 @@
 import type { ILink, Terminal } from '@xterm/xterm'
-import { bufferRangeAt, cellsOfJoinedLine, findConsoleLinks, joinWrappedLine } from '../../core/run/consoleLinks'
+import { bufferRangeAt, cellsOfJoinedLine, findConsoleLinks, joinCutLines, joinWrappedLine, type CharCell } from '../../core/run/consoleLinks'
 
 /** How long a target that did not resolve is believed. Long enough to absorb the stream of hover
  *  questions about one row (xterm re-asks on every mouse move across it); short enough that a path
@@ -61,15 +61,11 @@ export function attachConsoleLinks(
       }
       const { text, startY } = joinWrappedLine(getLine, y - 1) // y is 1-based, getLine 0-based
       const found = findConsoleLinks(text).filter((l) => l.kind === 'url' || opts.resolvePath)
-      if (found.length === 0) {
-        callback(undefined)
-        return
-      }
       // One entry per code unit of `text`, from the real cells — see cellsOfJoinedLine for why a cell
       // is not a character in either direction. getNullCell gives the loop one object to reuse, which
       // is what IBufferLine.getCell's second parameter is for: this runs on every hover over the row.
       const cellBuf = buf.getNullCell()
-      const cells = cellsOfJoinedLine((row) => {
+      const rowCells = (row: number): { cells: { width: number; chars: string }[]; isWrapped: boolean } | undefined => {
         const line = buf.getLine(row)
         if (!line) return undefined
         const out: { width: number; chars: string }[] = []
@@ -79,24 +75,55 @@ export function attachConsoleLinks(
           out.push({ width: c.getWidth(), chars: c.getChars() })
         }
         return { cells: out, isWrapped: line.isWrapped }
-      }, startY)
-      void Promise.all(
-        found.map(async (l): Promise<ILink | null> => {
-          const range = bufferRangeAt(cells, l.start, l.end)
-          if (l.kind === 'url') {
-            return { range, text: l.url, activate: (event) => opts.onUrl(l.url, event) }
-          }
+      }
+      // A path a TUI cut at the right edge and went on with after its indentation (joinCutLines): looked for again
+      // across the cut, and only the ones that cross it, since the rest are found above. The resolver decides.
+      const cut = resolvePath ? joinCutLines(rowCells, y - 1, term.cols) : null
+      const across = cut
+        ? findConsoleLinks(cut.text)
+            .filter((l) => l.kind === 'path')
+            .map((l) => ({ l, range: bufferRangeAt(cut.cells, l.start, l.end) }))
+            .filter(({ range }) => range.start.y !== range.end.y)
+        : []
+      if (found.length === 0 && across.length === 0) {
+        callback(undefined)
+        return
+      }
+      const cells = cellsOfJoinedLine(rowCells, startY)
+      const acrossLinks = Promise.all(
+        across.map(async ({ l, range }): Promise<ILink | null> => {
+          if (l.kind !== 'path') return null
           const path = await resolve(l.target)
-          if (!path) return null
-          return {
-            range,
-            text: l.target,
-            activate: () => opts.onOpenFile?.(path, { line: l.line, col: l.col })
-          }
+          return path ? { range, text: l.target, activate: () => opts.onOpenFile?.(path, { line: l.line, col: l.col }) } : null
         })
       )
-        .then((links) => {
-          const real = links.filter((l): l is ILink => l !== null)
+      void Promise.all([
+        acrossLinks,
+        Promise.all(
+          found.map(async (l): Promise<ILink | null> => {
+            const range = bufferRangeAt(cells, l.start, l.end)
+            if (l.kind === 'url') {
+              return { range, text: l.url, activate: (event) => opts.onUrl(l.url, event) }
+            }
+            const path = await resolve(l.target)
+            if (!path) return null
+            return {
+              range,
+              text: l.target,
+              activate: () => opts.onOpenFile?.(path, { line: l.line, col: l.col })
+            }
+          })
+        )
+      ])
+        .then(([cutLinks, links]) => {
+          const whole = cutLinks.filter((l): l is ILink => l !== null)
+          // A piece of a path that is linked whole is not a link of its own (it names a file only by chance).
+          const inside = (c: CharCell, l: ILink): boolean => {
+            const before = (a: CharCell, b: CharCell): boolean => a.y < b.y || (a.y === b.y && a.x <= b.x)
+            return before(l.range.start, c) && before(c, l.range.end)
+          }
+          const rest = links.filter((l): l is ILink => l !== null && !whole.some((w) => inside(l.range.start, w) || inside(l.range.end, w)))
+          const real = [...whole, ...rest]
           callback(real.length > 0 ? real : undefined)
         })
         .catch(() => callback(undefined))

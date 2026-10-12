@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { cachedResolver } from './terminalLinks'
+import { attachConsoleLinks, cachedResolver } from './terminalLinks'
 
 describe('cachedResolver', () => {
   it('a hit is cached: the same target is resolved once', async () => {
@@ -48,5 +48,45 @@ describe('cachedResolver', () => {
     expect(await a).toBe('/out/a.png')
     expect(await b).toBe('/out/a.png')
     expect(resolve).toHaveBeenCalledTimes(1)
+  })
+})
+
+// A path Claude Code cut at the right edge and went on with after its indentation (core/run/consoleLinks.ts
+// joinCutLines) is one link, across the rows it takes, when the whole of it names a file.
+describe('attachConsoleLinks across a cut path', () => {
+  const fakeTerm = (lines: string[], cols: number) => {
+    let provider: { provideLinks: (y: number, cb: (links: unknown) => void) => void } | null = null
+    const line = (text: string) => ({
+      isWrapped: false,
+      length: cols,
+      translateToString: () => text.padEnd(cols),
+      getCell: (x: number) => {
+        const ch = text.padEnd(cols)[x]
+        return ch === undefined ? undefined : { getWidth: () => 1, getChars: () => (ch === ' ' ? '' : ch) }
+      }
+    })
+    const term = {
+      cols,
+      buffer: { active: { getLine: (y: number) => (lines[y] === undefined ? undefined : line(lines[y])), getNullCell: () => ({}) } },
+      registerLinkProvider: (p: typeof provider) => ((provider = p), { dispose: () => {} })
+    }
+    const links = (y: number) => new Promise<Array<{ text: string; range: unknown }> | undefined>((r) => provider!.provideLinks(y, r as never))
+    return { term, links }
+  }
+
+  it('links the whole path from any row it is on, and not the pieces', async () => {
+    const PATH = 'C:\\Users\\anipen\\AppData\\Roaming\\astera-dev\\preview\\shots\\app-226bd0e8.png'
+    const cols = 30
+    const f = fakeTerm(['  "' + PATH.slice(0, 27), '    ' + PATH.slice(27, 53), '    ' + PATH.slice(53) + '",'], cols)
+    const resolved: string[] = []
+    attachConsoleLinks(f.term as never, {
+      onUrl: () => {},
+      resolvePath: async (target) => (resolved.push(target), target === PATH ? PATH : null)
+    })
+    for (const y of [1, 2, 3]) {
+      const got = await f.links(y)
+      expect(got?.map((l) => [l.text, l.range]), String(y)).toEqual([[PATH, { start: { x: 4, y: 1 }, end: { x: 24, y: 3 } }]])
+    }
+    expect(resolved).toContain(PATH)
   })
 })
