@@ -1080,7 +1080,7 @@ export { FOLLOW_WINDOW_MS }
  *  waits EXIT_DEFER_MS (3 s) after the process exits, so a stop that landed has emptied the slot well
  *  within this. */
 export const RESUME_STOP_WAIT_MS = 10_000
-const FOLLOW_WINDOW_MAX_MS = 60_000
+export const FOLLOW_WINDOW_MAX_MS = 60_000
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
