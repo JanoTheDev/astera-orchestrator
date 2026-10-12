@@ -224,3 +224,109 @@ export function bufferRangeAt(
   const at = (i: number): CharCell => cells[Math.min(Math.max(i, 0), cells.length - 1)]
   return { start: at(start), end: at(Math.max(start, end - 1)) }
 }
+
+/** How near the right edge a row's content must reach for its last word to be read as cut there. A TUI wraps at the
+ *  width of its own box, a few columns inside the terminal's (a border, a margin). */
+const CUT_EDGE = 8
+/** How many rows above and below the one under the pointer a cut word is followed across, each way on its own (final
+ *  review I4): a path in a narrow split pane takes four or five rows. */
+const CUT_ROWS_EACH_WAY = 5
+
+type CutRow = { cells: readonly { width: number; chars: string }[]; isWrapped: boolean }
+
+/** One way a word cut across rows reads joined: the text, where each of its characters sits (1-based, as
+ *  bufferRangeAt wants), and the part on its first row, which a link of its own may already name whole. */
+export interface CutCandidate {
+  text: string
+  cells: CharCell[]
+  head: { text: string; cells: CharCell[] }
+}
+
+/**
+ * The ways a word cut by a TUI across rows can read, for the row under the pointer.
+ *
+ * Claude Code wraps a long line itself and indents what follows (Ink's wrap, not the terminal's), so a path longer than
+ * the room left is cut at its box's right edge and goes on, after spaces, on the next row; the terminal never marks
+ * that row wrapped. A row whose content reaches within CUT_EDGE of the right edge and is followed by a row with
+ * content is read as cut there. A candidate is the last word of one row, every row between taken whole (each a single
+ * word, nothing else on it), and the first word of a later row, joined with no space; it covers the row under the
+ * pointer. Words, not rows (final review I3): the prose before a path and the next list item after it stay out. Which
+ * candidate names a file is the resolver's to say; the caller takes the longest that does, and prefers a link the
+ * first row names by itself (final review I2).
+ */
+export function cutCandidates(getRow: (y: number) => CutRow | undefined, y: number, cols: number): CutCandidate[] {
+  type Row = { cells: readonly { width: number; chars: string }[]; first: number; last: number; single: boolean }
+  const memo = new Map<number, Row | null>()
+  const blank = (c: { chars: string }): boolean => c.chars === '' || c.chars === ' '
+  const rowAt = (r: number): Row | null => {
+    if (memo.has(r)) return memo.get(r)!
+    const raw = r >= 0 ? getRow(r) : undefined
+    let row: Row | null = null
+    if (raw) {
+      const first = raw.cells.findIndex((c) => !blank(c))
+      let last = -1
+      for (let i = 0; i < raw.cells.length; i += 1) if (!blank(raw.cells[i])) last = i
+      let single = first >= 0
+      for (let i = first; single && i <= last; i += 1) if (blank(raw.cells[i]) && raw.cells[i].width !== 0) single = false
+      row = { cells: raw.cells, first, last, single }
+    }
+    memo.set(r, row)
+    return row
+  }
+  const cutAfter = (r: number): boolean => {
+    const a = rowAt(r)
+    const b = rowAt(r + 1)
+    return !!a && !!b && a.last >= 0 && b.first >= 0 && a.last + 1 >= cols - CUT_EDGE
+  }
+  /** Characters of row `r` from cell `from` to `to` (inclusive), with where each sits. */
+  const piece = (r: number, from: number, to: number): { text: string; cells: CharCell[] } => {
+    const row = rowAt(r)!
+    let text = ''
+    const cells: CharCell[] = []
+    for (let x = from; x <= to; x += 1) {
+      const c = row.cells[x]
+      if (c.width === 0) continue
+      const chars = c.chars === '' ? ' ' : c.chars
+      text += chars
+      for (let k = 0; k < chars.length; k += 1) cells.push({ x: x + 1, y: r + 1 })
+    }
+    return { text, cells }
+  }
+  /** The last word of a row: from after its last blank to its last filled cell. */
+  const lastWord = (r: number): { text: string; cells: CharCell[] } => {
+    const row = rowAt(r)!
+    let from = row.last
+    while (from > 0 && !blank(row.cells[from - 1])) from -= 1
+    return piece(r, from, row.last)
+  }
+  /** The first word of a row: from its first filled cell to before its next blank. */
+  const firstWord = (r: number): { text: string; cells: CharCell[] } => {
+    const row = rowAt(r)!
+    let to = row.first
+    while (to + 1 < row.cells.length && !blank(row.cells[to + 1])) to += 1
+    return piece(r, row.first, to)
+  }
+  const out: CutCandidate[] = []
+  // a: the row the word starts on (its last word); b: the row it ends on (its first word). Every row strictly between
+  // is one word, and every row from a to b is cut into the next.
+  for (let a = y; a >= Math.max(0, y - CUT_ROWS_EACH_WAY); a -= 1) {
+    if (a < y && (!cutAfter(a) || (a + 1 < y && !rowAt(a + 1)!.single))) break
+    for (let b = Math.max(y, a + 1); b <= y + CUT_ROWS_EACH_WAY; b += 1) {
+      if (!cutAfter(b - 1)) break
+      if (b - 1 > a && b - 1 >= y && !rowAt(b - 1)!.single) break
+      const head = lastWord(a)
+      let text = head.text
+      const cells = [...head.cells]
+      for (let r = a + 1; r < b; r += 1) {
+        const whole = piece(r, rowAt(r)!.first, rowAt(r)!.last)
+        text += whole.text
+        cells.push(...whole.cells)
+      }
+      const tail = firstWord(b)
+      text += tail.text
+      cells.push(...tail.cells)
+      out.push({ text, cells, head })
+    }
+  }
+  return out
+}
