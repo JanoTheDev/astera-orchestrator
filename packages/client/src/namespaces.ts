@@ -2,6 +2,7 @@
 // sends (docs/superpowers/specs/2026-10-12-sdk-1c-command-reference.md §A), does the pre-reads MCP does (a project
 // id to its folder), and answers in the DTO shapes of types.ts. Lists come back as `{ items }`; a wait's ending is
 // data, not an error.
+import path from 'node:path'
 import type { CallOptions, CallResult } from './client.js'
 import { DEFAULT_WAIT_TIMEOUT_MS, FOLLOW_WINDOW_MS, TIMEOUT_HEADROOM_MS } from './deadlines.js'
 import { AsteraError } from './errors.js'
@@ -49,17 +50,24 @@ export interface WaitOptions {
 /** A Job's state as `jobs.list` filters it (the CLI's `jobs list --status`). */
 export type JobState = 'pending' | 'paused' | 'scheduled' | 'waiting' | 'running' | 'completed' | 'failed'
 
-export interface CreateJobInput {
+/** Who coordinates a Job's Runs: one account, or a provider's default account. */
+export type Coordinator =
+  | { readonly accountId: string; readonly provider?: never }
+  | { readonly provider: Provider; readonly accountId?: never }
+
+interface CreateJobFields {
   readonly objective: string
-  /** Where the work happens: a project id (its folder is looked up) or a folder. Exactly one. */
-  readonly projectId?: string
-  readonly cwd?: string
   /** Who coordinates the Job's Runs. None means a Job that runs only the Tasks added to it (the CLI's default). */
-  readonly coordinator?: { readonly accountId: string } | { readonly provider: Provider }
+  readonly coordinator?: Coordinator
   readonly concurrency?: number
   /** Repair and recheck failing Tasks: `true` for the Host's defaults, or a policy. */
   readonly convergence?: true | ConvergencePolicy
 }
+
+/** Where the work happens: a project id (its folder is looked up) or an absolute folder, exactly one. A relative
+ *  folder is refused: the Host would resolve it against its own folder, not the caller's. */
+export type CreateJobInput = CreateJobFields &
+  ({ readonly projectId: string; readonly cwd?: never } | { readonly cwd: string; readonly projectId?: never })
 
 export interface ProjectsApi {
   list(options?: ReadOptions): Promise<ListResult<Project>>
@@ -75,10 +83,7 @@ export interface JobsApi {
   wait(jobId: string, options?: WaitOptions): Promise<WaitResult>
 }
 
-export interface CreateTaskInput {
-  /** Whose Task: a Job's definition (`jobId`) or a Run's (`runId`). Exactly one. */
-  readonly jobId?: string
-  readonly runId?: string
+interface CreateTaskFields {
   readonly spec: string
   readonly title?: string
   readonly deps?: readonly string[]
@@ -90,6 +95,10 @@ export interface CreateTaskInput {
   /** Ask for a review of the work. */
   readonly review?: boolean
 }
+
+/** Whose Task: a Job's definition (`jobId`) or a Run's (`runId`), exactly one. */
+export type CreateTaskInput = CreateTaskFields &
+  ({ readonly jobId: string; readonly runId?: never } | { readonly runId: string; readonly jobId?: never })
 
 /** One step of `runs.follow`: an event of the Run's timeline, then its ending last. */
 export type FollowItem = { readonly event: RunEvent } | { readonly ending: WaitEnding | WaitTimeout }
@@ -145,6 +154,10 @@ const PROVIDERS: readonly string[] = ['claude', 'codex']
 const MAX_WAIT_MS = 2 ** 31 - 1 - TIMEOUT_HEADROOM_MS
 
 const invalid = (message: string): AsteraError => new AsteraError('INVALID_ARGUMENTS', message)
+/** The Host answered in a shape this method does not promise: say so rather than hand it on as the promised one. */
+const unexpected = (cmd: string, what: string): AsteraError => new AsteraError('FAILED', `the Host answered ${cmd} with ${what}`)
+/** A plain object: not null, not an array. */
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
 
 /** A list of ids the Host takes comma-joined: non-empty, and no id empty or holding a comma. */
 const idList = (name: string, value: readonly unknown[]): string => {
@@ -170,12 +183,17 @@ const readOptions = (o: ReadOptions | undefined): CallOptions => callOptions(o =
 
 export function createNamespaces(call: Call): Namespaces {
   const body = async <T>(cmd: string, args: Record<string, unknown>, o: CallOptions): Promise<T> => (await call(cmd, args, o)).body as T
-  const list = async <T>(cmd: string, args: Record<string, unknown>, o: CallOptions): Promise<ListResult<T>> => ({
-    items: await body<T[]>(cmd, args, o)
-  })
+  const list = async <T>(cmd: string, args: Record<string, unknown>, o: CallOptions): Promise<ListResult<T>> => {
+    const items = await body<unknown>(cmd, args, o)
+    if (!Array.isArray(items)) throw unexpected(cmd, 'something that is not a list')
+    return { items: items as T[] }
+  }
   /** A project id's folder, which is what the Host's `jobs-create` and `jobs-list --project` take. */
-  const folderOf = async (projectId: string, o: CallOptions): Promise<string> =>
-    (await body<Project>('projects-get', { id: projectId }, readOptions(o))).path
+  const folderOf = async (projectId: string, o: CallOptions): Promise<string> => {
+    const folder = (await body<Partial<Record<string, unknown>>>('projects-get', { id: projectId }, readOptions(o))).path
+    if (typeof folder !== 'string' || folder === '') throw unexpected('projects-get', `a project without a folder (${projectId})`)
+    return folder
+  }
   const waitArgs = (id: string, o: WaitOptions | undefined): Record<string, unknown> => {
     const ms = o?.timeoutMs
     if (ms !== undefined && (!Number.isInteger(ms) || ms <= 0 || ms > MAX_WAIT_MS))
@@ -199,7 +217,13 @@ export function createNamespaces(call: Call): Namespaces {
     create: async (input, o) => {
       const objective = need('objective', input.objective)
       if ((input.projectId === undefined) === (input.cwd === undefined)) throw invalid('give exactly one of projectId or cwd')
-      const coordinator = input.coordinator as { accountId?: unknown; provider?: unknown } | undefined
+      if (input.cwd !== undefined && !path.isAbsolute(need('cwd', input.cwd)))
+        throw invalid(`cwd must be an absolute folder: the Host would resolve '${input.cwd}' against its own folder`)
+      const given = input.coordinator as unknown
+      if (given !== undefined && !isRecord(given)) throw invalid('coordinator is { accountId } or { provider }')
+      const coordinator = given as { accountId?: unknown; provider?: unknown } | undefined
+      const policy = input.convergence as unknown
+      if (policy !== undefined && policy !== true && !isRecord(policy)) throw invalid('convergence is true or a policy object')
       if (coordinator !== undefined) {
         const hasAccount = coordinator.accountId !== undefined
         const hasProvider = coordinator.provider !== undefined
@@ -207,8 +231,7 @@ export function createNamespaces(call: Call): Namespaces {
         if (hasAccount) need('coordinator.accountId', coordinator.accountId)
         if (hasProvider && !PROVIDERS.includes(String(coordinator.provider))) throw invalid(`coordinator.provider is one of ${PROVIDERS.join(', ')}`)
       }
-      const cwd = input.cwd !== undefined ? need('cwd', input.cwd) : await folderOf(need('projectId', input.projectId), callOptions(o))
-      const policy = input.convergence
+      const cwd = input.cwd !== undefined ? input.cwd : await folderOf(need('projectId', input.projectId), callOptions(o))
       const args: Record<string, unknown> = {
         objective,
         cwd,
@@ -216,13 +239,17 @@ export function createNamespaces(call: Call): Namespaces {
         ...(coordinator?.provider !== undefined ? { coordinatorProvider: coordinator.provider } : {}),
         ...(input.concurrency !== undefined ? { concurrency: input.concurrency } : {}),
         ...(policy !== undefined ? { convergence: true } : {}),
-        ...(policy !== undefined && policy !== true
-          ? Object.fromEntries(CONVERGENCE_KNOBS.filter((k) => policy[k] !== undefined).map((k) => [k, policy[k]]))
-          : {})
+        ...(isRecord(policy) ? Object.fromEntries(CONVERGENCE_KNOBS.filter((k) => policy[k] !== undefined).map((k) => [k, policy[k]])) : {})
       }
       return body<Job>('jobs-create', args, callOptions(o))
     },
-    run: async (jobId, o) => body<Run>('jobs-run', { id: need('jobId', jobId) }, callOptions(o)),
+    run: async (jobId, o) => {
+      const run = await body<unknown>('jobs-run', { id: need('jobId', jobId) }, callOptions(o))
+      // The Host hands back its inner run-start answer when it finds no Run after starting one (a race with a delete)
+      if (!isRecord(run) || typeof run.id !== 'string' || typeof run.jobId !== 'string' || typeof run.ordinal !== 'number')
+        throw unexpected('jobs-run', 'something that is not a Run; read the Job with jobs.get')
+      return run as unknown as Run
+    },
     wait: async (jobId, o) => body<WaitResult>('jobs-wait', waitArgs(need('jobId', jobId), o), waitOptions(o))
   }
 
@@ -266,7 +293,26 @@ export function createNamespaces(call: Call): Namespaces {
     list: async (filter = {}, o) => list<Run>('runs-list', filter.jobId !== undefined ? { job: need('jobId', filter.jobId) } : {}, readOptions(o)),
     get: async (runId, o) => body<Run>('runs-get', { id: need('runId', runId) }, readOptions(o)),
     wait: async (runId, o) => body<WaitResult>('runs-wait', waitArgs(need('runId', runId), o), waitOptions(o)),
-    follow: (runId, o) => follow(runId, o),
+    follow: (runId, o = {}) => {
+      // An async generator holds a return() until its pending next() settles, so a return() while a window waits would
+      // let the loop run on to the next event or the deadline. The loop gets a signal of its own that return() aborts.
+      const stop = new AbortController()
+      const signal = o.signal !== undefined ? AbortSignal.any([o.signal, stop.signal]) : stop.signal
+      const loop = follow(runId, { ...o, signal })
+      const iterator: AsyncIterableIterator<FollowItem> = {
+        next: () => loop.next(),
+        return: async () => {
+          stop.abort(new DOMException('the follow was ended', 'AbortError'))
+          await loop.return(undefined).catch(() => undefined)
+          return { done: true, value: undefined }
+        },
+        throw: (e?: unknown) => loop.throw(e),
+        [Symbol.asyncIterator]() {
+          return this
+        }
+      }
+      return iterator
+    },
     stop: async (runId, o) => body<StopResult>('runs-stop', { id: need('runId', runId) }, callOptions(o)),
     resume: async (runId, o) => body<Run>('runs-resume', { id: need('runId', runId) }, callOptions(o))
   }
@@ -289,6 +335,10 @@ export function createNamespaces(call: Call): Namespaces {
       const owner = input.jobId !== undefined ? { job: need('jobId', input.jobId) } : { run: need('runId', input.runId) }
       const spec = need('spec', input.spec)
       const validate = input.validate !== undefined ? idList('validate', input.validate) : undefined
+      if (input.title !== undefined) need('title', input.title)
+      if (input.parentId !== undefined) need('parentId', input.parentId)
+      if (input.deps !== undefined && (!Array.isArray(input.deps) || input.deps.some((d) => typeof d !== 'string' || d.length === 0)))
+        throw invalid('deps is a list of Task ids, none empty')
       let account = input.accountIds !== undefined ? idList('accountIds', input.accountIds) : undefined
       if (account === undefined) {
         // MCP's default (create_task): the Job's coordinator account. The Host takes a Run id for jobs-get too.
@@ -300,9 +350,9 @@ export function createNamespaces(call: Call): Namespaces {
       const args: Record<string, unknown> = {
         ...owner,
         spec,
-        ...(input.title !== undefined ? { title: need('title', input.title) } : {}),
+        ...(input.title !== undefined ? { title: input.title } : {}),
         ...(input.deps !== undefined && input.deps.length > 0 ? { deps: [...input.deps] } : {}),
-        ...(input.parentId !== undefined ? { parent: need('parentId', input.parentId) } : {}),
+        ...(input.parentId !== undefined ? { parent: input.parentId } : {}),
         account,
         ...(validate !== undefined ? { validate } : {}),
         ...(input.review === true ? { review: true } : {})

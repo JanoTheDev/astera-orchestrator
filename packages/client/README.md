@@ -42,7 +42,8 @@ does not start a Host: with none running, `createAsteraClient` rejects `HOST_NOT
 Host's side; calls still waiting fail with `FAILED` ("the client was closed before the Host answered").
 
 **Typed methods.** The same commands with typed inputs and answers (`Project`, `Job`, `Run`, `Task`, `Question`,
-`RunCompletion`, ...), checked against the app's own types when the app builds:
+`RunCompletion`, ...). When the app builds, each answer type is checked against the app's own types, or against the
+code that builds the answer where the app has no type for it:
 
 ```ts
 const job = await astera.jobs.create({ objective: 'Refactor auth', projectId, coordinator: { provider: 'claude' } }, { requestId })
@@ -67,9 +68,15 @@ for await (const item of astera.runs.follow(run.id)) {
   `paused`, `limited` (every worker waits for a usage limit) or `timeout`.
 - Words follow the Host: a question's status is `open` or `resolved`, and a Run is stopped (paused, `resume`
   takes it back); there is no cancel.
-- `jobs.create` takes a `projectId` (its folder is looked up) or a `cwd`. With no `coordinator`, the Job runs only
-  the Tasks added to it, as with the CLI. `tasks.create` without `accountIds` uses the Job's coordinator account.
-- Write methods take a `requestId`; read methods never send one.
+- `jobs.create` takes a `projectId` (its folder is looked up) or an absolute `cwd`; a relative one is refused, since
+  the Host would resolve it against its own folder. With no `coordinator`, the Job runs only the Tasks added to it, as
+  with the CLI. `tasks.create` without `accountIds` uses the Job's coordinator account, and is refused when the Job
+  has none.
+- `runs.follow` throws when the Run is deleted (`NOT_FOUND`) or the Host goes away (`HOST_NOT_RUNNING`); it does not
+  pick up where it left off. Leaving the loop (`break`, `return()`) or aborting its signal ends the call it is waiting
+  on.
+- Write methods take a `requestId`; read methods and the lookups a write does first (a project's folder, a Job's
+  coordinator) never send one. A `timeoutMs` applies to each Host call, a lookup included.
 
 Events come next. **Not published yet.** It lives in the
 Astera repository and will be versioned separately from the app.

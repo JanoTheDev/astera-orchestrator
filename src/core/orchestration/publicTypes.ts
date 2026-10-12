@@ -1,10 +1,13 @@
 // The SDK's public DTOs (packages/client/src/types.ts) checked against the app's own types. For every typed object
 // the SDK returns, its public fields must fit the DTO (`Fits`), and the DTO must name exactly the public field list
 // (`SameKeys`), nested types included. A field added, renamed or retyped on either side breaks `npm run typecheck`
-// here. Type-only: nothing in this file runs. The Job and Run views' derived fields, wait endings and a stop's answer
-// are plain records in the app (command.ts) and are pinned by the package's tests instead.
+// here. Type-only: nothing in this file runs. The answers command.ts builds as records (a wait's ending and timeout, a
+// stop, an answered question) carry `satisfies <DTO>` where they are built; the views' derived fields and the Task
+// detail's extra fields are checked below.
 import type { CheckResult, ConvergencePolicy, Gate, GitRange, Job, JobRun, Project, ReviewIssue, Task } from './types'
-import type { TaskAttempt } from './taskDetail'
+import type { TaskAttempt, TaskDetail } from './taskDetail'
+import type { outcomeOf } from './running'
+import type { progressOf } from './view'
 import type { RunCompletion, TaskCompletion } from './runCompletion'
 import type { CompletionCheckDetail, CompletionDetail } from './completion'
 import type { JobEvent } from '../types'
@@ -36,6 +39,10 @@ import type {
   TASK_COMPLETION_FIELDS,
   TASK_FIELDS,
   TaskAttempt as TaskAttemptDto,
+  TaskDetail as TaskDetailDto,
+  JobOutcome as JobOutcomeDto,
+  RunOutcome as RunOutcomeDto,
+  Progress as ProgressDto,
   TaskCompletion as TaskCompletionDto,
   Task as TaskDto
 } from '../publicContract'
@@ -84,3 +91,10 @@ type _convergencePolicyKeys = Check<SameKeys<ConvergencePolicyDto, keyof Converg
 type _gitRange = Check<Fits<GitRange, GitRangeDto>>
 type _gitRangeKeys = Check<SameKeys<GitRangeDto, keyof GitRange>>
 type _scheduleRule = Check<Fits<ScheduleRule, ScheduleRuleDto>>
+// The views' derived fields (command.ts derivedFor, jobView, runView): a Run's outcome, or `paused`; a Job's adds
+// `pending` before its first Run.
+type _runOutcome = Check<Fits<ReturnType<typeof outcomeOf> | 'paused', RunOutcomeDto>>
+type _jobOutcome = Check<Fits<ReturnType<typeof outcomeOf> | 'paused' | 'pending', JobOutcomeDto>>
+type _progress = Check<Fits<ReturnType<typeof progressOf>, ProgressDto>>
+// The Task detail's own fields (taskDetail.ts), on top of the Task's
+type _taskDetail = Check<Fits<Pick<TaskDetail, 'attempts' | 'openQuestionId'>, Pick<TaskDetailDto, 'attempts' | 'openQuestionId'>>>

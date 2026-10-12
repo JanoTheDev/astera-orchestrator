@@ -269,10 +269,11 @@ export type WaitEnding =
   | (WaitBase & { readonly state: 'limited'; readonly resetsAt: string })
   | (WaitBase & { readonly state: 'completed' | 'failed' })
 
-/** The Host's deadline passed first. `runId` is null when a Job had no Run yet. */
+/** The Host's deadline passed first. `runId` is null when a Job had no Run yet; `jobId` is absent when a Run id named no
+ *  Run. */
 export interface WaitTimeout {
   readonly state: 'timeout'
-  readonly jobId: string | undefined
+  readonly jobId?: string
   readonly runId: string | null
   readonly progress: Progress
 }

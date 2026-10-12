@@ -3,6 +3,7 @@
 // DTO shapes (types.ts).
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest'
 import { createAsteraClient, type AsteraClient } from './client.js'
+import type { CreateJobInput, CreateTaskInput } from './namespaces.js'
 import { AsteraError } from './errors.js'
 import { makeProfile, startHost, type FakeHost, type FakeReply } from '../test/fakeHost.js'
 
@@ -18,6 +19,8 @@ afterEach(async () => {
   for (const o of opened.splice(0)) await o.close()
 })
 
+/** An absolute folder on the platform the test runs on (a relative cwd is refused). */
+const ABS = process.platform === 'win32' ? 'D:\\x' : '/x'
 const PROJECT = { id: 'proj_1', path: 'D:\\work\\app', name: 'app', addedAt: 'T', internal: 1 }
 const JOB = { id: 'job_1', objective: 'o', cwd: 'D:\\work\\app', createdAt: 'T', outcome: 'pending', progress: { done: 0, total: 0 }, questionsOpen: 0, internal: 1 }
 const RUN = { id: 'run_1', jobId: 'job_1', ordinal: 1, createdAt: 'T', outcome: 'running', progress: { done: 0, total: 1 }, questionsOpen: 0, coordinatorStop: 'x' }
@@ -92,13 +95,13 @@ describe('astera.jobs', () => {
   it('creates a Job in a project, mapping the coordinator and the convergence policy', async () => {
     const { host, astera } = await setup(answers)
     expect(await astera.jobs.create({ objective: 'Refactor', projectId: 'proj_1', coordinator: { accountId: 'acc_1' }, concurrency: 2, convergence: { maxFixAttempts: 2, blockingSeverity: 'medium' } }, { requestId: 'r-1' })).toEqual(job)
-    await astera.jobs.create({ objective: 'Other', cwd: 'D:\\x', coordinator: { provider: 'codex' }, convergence: true })
-    await astera.jobs.create({ objective: 'Bare', cwd: 'D:\\x' })
+    await astera.jobs.create({ objective: 'Other', cwd: ABS, coordinator: { provider: 'codex' }, convergence: true })
+    await astera.jobs.create({ objective: 'Bare', cwd: ABS })
     expect(sent(host)).toEqual([
       ['projects-get', { id: 'proj_1' }, undefined],
       ['jobs-create', { objective: 'Refactor', cwd: 'D:\\work\\app', coordinatorAccount: 'acc_1', concurrency: 2, convergence: true, maxFixAttempts: 2, blockingSeverity: 'medium' }, 'r-1'],
-      ['jobs-create', { objective: 'Other', cwd: 'D:\\x', coordinatorProvider: 'codex', convergence: true }, undefined],
-      ['jobs-create', { objective: 'Bare', cwd: 'D:\\x' }, undefined]
+      ['jobs-create', { objective: 'Other', cwd: ABS, coordinatorProvider: 'codex', convergence: true }, undefined],
+      ['jobs-create', { objective: 'Bare', cwd: ABS }, undefined]
     ])
   })
 
@@ -112,11 +115,11 @@ describe('astera.jobs', () => {
   it('refuses an ambiguous or empty input before sending anything', async () => {
     const { host, astera } = await setup(answers)
     for (const input of [
-      { objective: 'o', projectId: 'proj_1', cwd: 'D:\\x' },
+      { objective: 'o', projectId: 'proj_1', cwd: ABS },
       { objective: 'o' },
-      { objective: '', cwd: 'D:\\x' },
-      { objective: 'o', cwd: 'D:\\x', coordinator: { accountId: 'a', provider: 'claude' } },
-      { objective: 'o', cwd: 'D:\\x', coordinator: { provider: 'gpt' } }
+      { objective: '', cwd: ABS },
+      { objective: 'o', cwd: ABS, coordinator: { accountId: 'a', provider: 'claude' } },
+      { objective: 'o', cwd: ABS, coordinator: { provider: 'gpt' } }
     ])
       expect((await rejection(astera.jobs.create(input as never))).code, JSON.stringify(input)).toBe('INVALID_ARGUMENTS')
     expect((await rejection(astera.jobs.get(''))).code).toBe('INVALID_ARGUMENTS')
@@ -292,5 +295,106 @@ describe('astera.questions and astera.completion', () => {
       ['questions-answer', { id: 'gat_1', answer: 'yes' }, 'r-5'],
       ['runs-completion', { id: 'run_1' }, undefined]
     ])
+  })
+})
+
+// Final review of SDK 1c
+describe('the namespaces: the review fixes', () => {
+  // Important 1: the Host resolved a relative cwd against its own folder, so the Job started somewhere else
+  it('refuses a relative cwd', async () => {
+    const { host, astera } = await setup({ 'jobs-create': () => ok(JOB) })
+    for (const cwd of ['.', 'repo', 'repo/sub'])
+      expect((await rejection(astera.jobs.create({ objective: 'o', cwd }))).code, cwd).toBe('INVALID_ARGUMENTS')
+    expect(sent(host)).toEqual([])
+  })
+
+  // Minor 1: convergence false turned convergence on; null threw a TypeError
+  it('refuses a convergence or a coordinator that is not a value it takes', async () => {
+    const { host, astera } = await setup({ 'jobs-create': () => ok(JOB) })
+    for (const extra of [{ convergence: false }, { convergence: null }, { convergence: [] }, { coordinator: null }, { coordinator: 'claude' }])
+      expect((await rejection(astera.jobs.create({ objective: 'o', cwd: ABS, ...extra } as never))).code, JSON.stringify(extra)).toBe('INVALID_ARGUMENTS')
+    expect(sent(host)).toEqual([])
+  })
+
+  // Minor 2: an empty title was refused only after the pre-read went out
+  it('checks a Task input before the pre-read', async () => {
+    const { host, astera } = await setup({ 'jobs-get': () => ok({ ...JOB, coordinatorAccountId: 'acc' }), 'tasks-add': () => ok({}) })
+    for (const extra of [{ title: '' }, { parentId: '' }, { deps: [''] }, { validate: [] }])
+      expect((await rejection(astera.tasks.create({ jobId: 'job_1', spec: 'x', ...extra } as never))).code, JSON.stringify(extra)).toBe('INVALID_ARGUMENTS')
+    expect(sent(host)).toEqual([])
+  })
+
+  // Minor 4: a body of an unexpected shape went through as if it were the promised one
+  it('refuses an answer that is not the shape it promises', async () => {
+    const { host, astera } = await setup({
+      'projects-get': () => ok({ id: 'proj_1', path: 42 }),
+      'jobs-list': () => ok({ not: 'a list' }),
+      'jobs-run': () => ok({ id: 'job_1', objective: 'o' })
+    })
+    expect((await rejection(astera.jobs.create({ objective: 'o', projectId: 'proj_1' }))).code).toBe('FAILED')
+    expect((await rejection(astera.jobs.list())).code).toBe('FAILED')
+    expect((await rejection(astera.jobs.run('job_1'))).code).toBe('FAILED')
+    expect(sent(host).map(([cmd]) => cmd)).toEqual(['projects-get', 'jobs-list', 'jobs-run'])
+  })
+
+  // Minor 6: the other half of review focus 2
+  it('lists nothing when the project is unknown', async () => {
+    const { host, astera } = await setup({ 'projects-get': () => ({ status: 404, body: { error: 'unknown project: proj_nope' } }), 'jobs-list': () => ok([]) })
+    expect((await rejection(astera.jobs.list({ projectId: 'proj_nope' }))).code).toBe('NOT_FOUND')
+    expect(sent(host).map(([cmd]) => cmd)).toEqual(['projects-get'])
+  })
+
+  const page = (events: unknown[], ending: unknown = null): FakeReply => ok({ runId: 'run_1', jobId: 'job_1', count: events.length, progress: { done: 0, total: 1 }, events, ending })
+  const event = (n: number): Record<string, unknown> => ({ at: `T${n}`, kind: 'message', sourceId: `m${n}`, summary: `s${n}` })
+
+  // Minor 6: a Run deleted while followed
+  it('a follow throws NOT_FOUND when the Run goes away', async () => {
+    let n = 0
+    const { astera } = await setup({ 'runs-follow': () => (++n === 1 ? page([event(1)]) : { status: 404, body: { error: 'unknown run: run_1 (it was deleted)' } }) })
+    const seen: unknown[] = []
+    const e = await rejection(
+      (async () => {
+        for await (const item of astera.runs.follow('run_1')) seen.push(item)
+      })()
+    )
+    expect(e.code).toBe('NOT_FOUND')
+    expect(seen).toEqual([{ event: event(1) }])
+  })
+
+  // Minor 6: leaving a for-await sends nothing more
+  it('a follow left with break sends no more calls', async () => {
+    let n = 0
+    const { host, astera } = await setup({ 'runs-follow': () => page([event(++n)]) })
+    for await (const _item of astera.runs.follow('run_1')) break
+    const calls = host.calls().length
+    await new Promise((r) => setTimeout(r, 100))
+    expect(host.calls()).toHaveLength(calls)
+    expect(calls).toBe(1)
+  })
+
+  // Minor 3: return() while a window was waiting did not stop the loop until the next event
+  it('return() while a window waits ends the follow and its call', async () => {
+    const host = await startHost({ key: profile.key, onCall: () => {} })
+    opened.push(host)
+    const astera = await createAsteraClient({ profileDir: profile.dir, address: host.address })
+    opened.push(astera)
+    const it = astera.runs.follow('run_1')[Symbol.asyncIterator]()
+    const pending = it.next().catch((e: unknown) => e)
+    await new Promise((r) => setTimeout(r, 50))
+    expect(await it.return!(undefined)).toEqual({ done: true, value: undefined })
+    expect(await pending).toMatchObject({ name: 'AbortError' })
+    await new Promise((r) => setTimeout(r, 100))
+    expect(host.calls()).toHaveLength(1)
+  })
+
+  // Minor 5: both keys of an either-or input do not compile
+  it('takes either-or inputs as exclusive types', () => {
+    // @ts-expect-error a coordinator is an account or a provider, not both
+    const both: CreateJobInput = { objective: 'o', cwd: ABS, coordinator: { accountId: 'a', provider: 'claude' } }
+    // @ts-expect-error a Job is made in a project or a folder, not both
+    const place: CreateJobInput = { objective: 'o', cwd: ABS, projectId: 'proj_1' }
+    // @ts-expect-error a Task belongs to a Job or a Run, not both
+    const owner: CreateTaskInput = { jobId: 'job_1', runId: 'run_1', spec: 's' }
+    expect([both, place, owner]).toHaveLength(3)
   })
 })
