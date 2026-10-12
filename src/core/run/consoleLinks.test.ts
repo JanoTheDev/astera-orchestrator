@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { findConsoleLinks, joinWrappedLine, bufferRangeAt, cellsOfJoinedLine, joinCutLines } from './consoleLinks'
+import { findConsoleLinks, joinWrappedLine, bufferRangeAt, cellsOfJoinedLine, cutCandidates } from './consoleLinks'
 
 const only = (line: string) => {
   const links = findConsoleLinks(line)
@@ -308,39 +308,70 @@ describe('findConsoleLinks — bare media names', () => {
 // Claude Code wraps a long line itself and indents what follows, so a path longer than the room left is cut at the
 // right edge and goes on, after spaces, on the next row: the terminal never marks that row as wrapped, and joining it
 // as one would put the spaces inside the path. Only one path in six opened from such a list, and none in a split
-// pane, where the rows are half as wide. The rows are joined across such cuts (the indentation dropped) for a second
-// look; the link stays the resolver's to make, so a join that names no file makes no link.
-describe('joinCutLines', () => {
+// pane, where the rows are half as wide. The ways a cut word can read joined are offered word by word (the last word
+// of one row, whole one-word rows, the first word of a later row); the resolver says which names a file.
+describe('cutCandidates', () => {
   const row = (text: string, isWrapped = false) => ({ cells: [...text].map((c) => ({ width: 1, chars: c === ' ' ? '' : c })), isWrapped })
   const PATH = 'C:\\Users\\anipen\\AppData\\Roaming\\astera-dev\\preview\\shots\\app-226bd0e8.png'
-  const at = (cells: { x: number; y: number }[], text: string, needle: string) => {
-    const i = text.indexOf(needle)
-    return { start: cells[i], end: cells[i + needle.length - 1] }
+  const targets = (rows: ReturnType<typeof row>[], y: number, cols: number): string[] =>
+    cutCandidates((r) => rows[r], y, cols).flatMap((c) => findConsoleLinks(c.text).filter((l) => l.kind === 'path').map((l) => (l.kind === 'path' ? l.target : '')))
+  /** The joined texts themselves: a candidate that is exactly the path, not one a link pass can dig it out of. */
+  const texts = (rows: ReturnType<typeof row>[], y: number, cols: number): string[] => cutCandidates((r) => rows[r], y, cols).map((c) => c.text)
+  const at = (y: number, cols: number, rows: ReturnType<typeof row>[]) => {
+    const c = cutCandidates((r) => rows[r], y, cols).find((x) => x.text.includes(PATH))!
+    const i = c.text.indexOf(PATH)
+    return { start: c.cells[i], end: c.cells[i + PATH.length - 1] }
   }
 
-  it('joins a path a TUI cut at the right edge and went on with after its indentation', () => {
-    // 30 columns, as a split pane narrows them: the 73-character path takes three rows.
+  // 30 columns, as a split pane narrows them: the 73-character path takes three rows.
+  it('joins a quoted path cut across three rows, from any of them, with where it sits', () => {
     const cols = 30
-    const lines = ['  "' + PATH.slice(0, 27), '    ' + PATH.slice(27, 53), '    ' + PATH.slice(53) + '",']
-    const rows = lines.map((l) => row(l.padEnd(cols)))
-    expect([lines[0].length, lines[1].length]).toEqual([cols, cols])
+    const rows = ['  "' + PATH.slice(0, 27), '    ' + PATH.slice(27, 53), '    ' + PATH.slice(53) + '",'].map((l) => row(l.padEnd(cols)))
     for (const y of [0, 1, 2]) {
-      const j = joinCutLines((r) => rows[r], y, cols)
-      expect(j?.text, String(y)).toContain(PATH)
-      expect(at(j!.cells, j!.text, PATH)).toEqual({ start: { x: 4, y: 1 }, end: { x: 24, y: 3 } })
+      expect(targets(rows, y, cols), String(y)).toContain(PATH)
+      expect(at(y, cols, rows)).toEqual({ start: { x: 4, y: 1 }, end: { x: 24, y: 3 } })
     }
   })
 
-  it('does not join a row whose content stops short of the right edge', () => {
-    const rows = [row('  C:\\a\\b.png'.padEnd(40)), row('    next line'.padEnd(40))]
-    expect(joinCutLines((r) => rows[r], 0, 40)).toBeNull()
+  // Final review I3: the next list item, a bullet or prose around the path do not join it.
+  it('offers the path alone when the next row starts another item, or prose ends near the edge above it', () => {
+    const cols = 30
+    const next = [row(('  ' + PATH.slice(0, 28)).padEnd(cols)), row(('    ' + PATH.slice(28, 54)).padEnd(cols)), row(('    ' + PATH.slice(54)).padEnd(cols)), row('  D:\\next\\item.png'.padEnd(cols))]
+    expect(texts(next, 1, cols)).toContain(PATH)
+    const prose = [row('  the screenshot is saved at'.padEnd(cols)), row(('  ' + PATH.slice(0, 28)).padEnd(cols)), row(('    ' + PATH.slice(28, 54)).padEnd(cols)), row(('    ' + PATH.slice(54)).padEnd(cols))]
+    expect(texts(prose, 2, cols)).toContain(PATH)
   })
 
-  it('joins nothing past a blank row, and stops at four rows', () => {
-    const cols = 10
-    const rows = [row('aaaaaaaaaa'), row('  bbbbbbbb'), row(' '.repeat(10)), row('cccccccccc')]
-    expect(joinCutLines((r) => rows[r], 0, cols)?.text).toBe('aaaaaaaaaabbbbbbbb')
-    const many = Array.from({ length: 8 }, () => row('x'.repeat(10)))
-    expect(joinCutLines((r) => many[r], 0, cols)?.text.length).toBeLessThanOrEqual(40)
+  // Final review I4: rows above do not use up the rows below.
+  it('follows the path below the pointer whatever is above it', () => {
+    const cols = 30
+    const rows = [
+      row('  aaaaaaaaaaaaaaaaaaaaaaaaaa'.padEnd(cols)),
+      row('  bbbbbbbbbbbbbbbbbbbbbbbbbbbb'.padEnd(cols)),
+      row('  cccccccccccccccccccccccccc'.padEnd(cols)),
+      row(('  ' + PATH.slice(0, 28)).padEnd(cols)),
+      row(('    ' + PATH.slice(28, 54)).padEnd(cols)),
+      row(('    ' + PATH.slice(54)).padEnd(cols))
+    ]
+    for (const y of [3, 4, 5]) expect(texts(rows, y, cols), String(y)).toContain(PATH)
+  })
+
+  it('follows a path across five rows', () => {
+    const cols = 20
+    const pieces = [PATH.slice(0, 18), PATH.slice(18, 34), PATH.slice(34, 50), PATH.slice(50, 66), PATH.slice(66)]
+    const rows = pieces.map((p, i) => row(((i === 0 ? '  ' : '    ') + p).padEnd(cols)))
+    expect(texts(rows, 2, cols)).toContain(PATH)
+  })
+
+  it('offers nothing for a row whose content stops short of the right edge, or before a blank row', () => {
+    expect(cutCandidates((r) => [row('  C:\\a\\b.png'.padEnd(40)), row('    next line'.padEnd(40))][r], 0, 40)).toEqual([])
+    expect(cutCandidates((r) => [row('aaaaaaaaaa'), row(' '.repeat(10))][r], 0, 10)).toEqual([])
+  })
+
+  it("keeps the first row's word apart, for a link it may name by itself", () => {
+    const rows = [row('  see src/app.ts:125'), row('  4. next')]
+    const c = cutCandidates((r) => rows[r], 0, 20)
+    expect(c.map((x) => x.text)).toEqual(['src/app.ts:1254.'])
+    expect(c[0].head.text).toBe('src/app.ts:125')
   })
 })

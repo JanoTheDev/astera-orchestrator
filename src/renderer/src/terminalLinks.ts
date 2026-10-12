@@ -1,5 +1,5 @@
 import type { ILink, Terminal } from '@xterm/xterm'
-import { bufferRangeAt, cellsOfJoinedLine, findConsoleLinks, joinCutLines, joinWrappedLine, type CharCell } from '../../core/run/consoleLinks'
+import { bufferRangeAt, cellsOfJoinedLine, cutCandidates, findConsoleLinks, joinWrappedLine, type CharCell } from '../../core/run/consoleLinks'
 
 /** How long a target that did not resolve is believed. Long enough to absorb the stream of hover
  *  questions about one row (xterm re-asks on every mouse move across it); short enough that a path
@@ -65,7 +65,15 @@ export function attachConsoleLinks(
       // is not a character in either direction. getNullCell gives the loop one object to reuse, which
       // is what IBufferLine.getCell's second parameter is for: this runs on every hover over the row.
       const cellBuf = buf.getNullCell()
+      // Each row read once per hover, however many of the passes below ask for it (final review minor 7).
+      const rowMemo = new Map<number, { cells: { width: number; chars: string }[]; isWrapped: boolean } | undefined>()
       const rowCells = (row: number): { cells: { width: number; chars: string }[]; isWrapped: boolean } | undefined => {
+        if (rowMemo.has(row)) return rowMemo.get(row)
+        const read = readRow(row)
+        rowMemo.set(row, read)
+        return read
+      }
+      const readRow = (row: number): { cells: { width: number; chars: string }[]; isWrapped: boolean } | undefined => {
         const line = buf.getLine(row)
         if (!line) return undefined
         const out: { width: number; chars: string }[] = []
@@ -76,25 +84,27 @@ export function attachConsoleLinks(
         }
         return { cells: out, isWrapped: line.isWrapped }
       }
-      // A path a TUI cut at the right edge and went on with after its indentation (joinCutLines): looked for again
-      // across the cut, and only the ones that cross it, since the rest are found above. The resolver decides.
-      const cut = resolvePath ? joinCutLines(rowCells, y - 1, term.cols) : null
-      const across = cut
-        ? findConsoleLinks(cut.text)
-            .filter((l) => l.kind === 'path')
-            .map((l) => ({ l, range: bufferRangeAt(cut.cells, l.start, l.end) }))
-            .filter(({ range }) => range.start.y !== range.end.y)
-        : []
+      // A path a TUI cut at the right edge and went on with after its indentation (cutCandidates): the ways it can read
+      // joined, word by word. Only a link that crosses a cut and covers the row under the pointer (final review I1: xterm
+      // drops a row's links that another row's link overlaps), only one the resolver finds, the longest of those, and
+      // none where the first row's word names a file by itself (final review I2: `a.ts:125` then `4.` is not `a.ts:1254`).
+      const across = (resolvePath ? cutCandidates(rowCells, y - 1, term.cols) : []).flatMap((c) =>
+        findConsoleLinks(c.text)
+          .filter((l) => l.kind === 'path' && l.start < c.head.text.length && l.end > c.head.text.length)
+          .map((l) => ({ l, range: bufferRangeAt(c.cells, l.start, l.end), head: findConsoleLinks(c.head.text).find((h) => h.kind === 'path' && h.start === l.start) }))
+          .filter(({ range }) => range.start.y <= y && y <= range.end.y)
+      )
       if (found.length === 0 && across.length === 0) {
         callback(undefined)
         return
       }
       const cells = cellsOfJoinedLine(rowCells, startY)
       const acrossLinks = Promise.all(
-        across.map(async ({ l, range }): Promise<ILink | null> => {
+        across.map(async ({ l, range, head }): Promise<{ link: ILink; length: number } | null> => {
           if (l.kind !== 'path') return null
+          if (head && head.kind === 'path' && (await resolve(head.target))) return null
           const path = await resolve(l.target)
-          return path ? { range, text: l.target, activate: () => opts.onOpenFile?.(path, { line: l.line, col: l.col }) } : null
+          return path ? { link: { range, text: l.target, activate: () => opts.onOpenFile?.(path, { line: l.line, col: l.col }) }, length: l.target.length } : null
         })
       )
       void Promise.all([
@@ -116,13 +126,14 @@ export function attachConsoleLinks(
         )
       ])
         .then(([cutLinks, links]) => {
-          const whole = cutLinks.filter((l): l is ILink => l !== null)
+          const before = (a: CharCell, b: CharCell): boolean => a.y < b.y || (a.y === b.y && a.x <= b.x)
+          const overlaps = (p: ILink, q: ILink): boolean => before(p.range.start, q.range.end) && before(q.range.start, p.range.end)
+          // The longest whole path first; a shorter reading of the same cells (a prefix, a path plus the next word) goes.
+          const whole: ILink[] = []
+          for (const c of cutLinks.filter((x): x is { link: ILink; length: number } => x !== null).sort((p, q) => q.length - p.length))
+            if (!whole.some((w) => overlaps(w, c.link))) whole.push(c.link)
           // A piece of a path that is linked whole is not a link of its own (it names a file only by chance).
-          const inside = (c: CharCell, l: ILink): boolean => {
-            const before = (a: CharCell, b: CharCell): boolean => a.y < b.y || (a.y === b.y && a.x <= b.x)
-            return before(l.range.start, c) && before(c, l.range.end)
-          }
-          const rest = links.filter((l): l is ILink => l !== null && !whole.some((w) => inside(l.range.start, w) || inside(l.range.end, w)))
+          const rest = links.filter((l): l is ILink => l !== null && !whole.some((w) => overlaps(w, l)))
           const real = [...whole, ...rest]
           callback(real.length > 0 ? real : undefined)
         })

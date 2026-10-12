@@ -54,17 +54,21 @@ describe('cachedResolver', () => {
 // A path Claude Code cut at the right edge and went on with after its indentation (core/run/consoleLinks.ts
 // joinCutLines) is one link, across the rows it takes, when the whole of it names a file.
 describe('attachConsoleLinks across a cut path', () => {
-  const fakeTerm = (lines: string[], cols: number) => {
+  /** Rows as text, or as text marked soft-wrapped (a continuation the terminal itself made). */
+  const fakeTerm = (lines: Array<string | { text: string; wrapped: true }>, cols: number) => {
     let provider: { provideLinks: (y: number, cb: (links: unknown) => void) => void } | null = null
-    const line = (text: string) => ({
-      isWrapped: false,
+    const line = (row: string | { text: string; wrapped: true }) => {
+      const text = typeof row === 'string' ? row : row.text
+      return {
+      isWrapped: typeof row !== 'string',
       length: cols,
       translateToString: () => text.padEnd(cols),
       getCell: (x: number) => {
         const ch = text.padEnd(cols)[x]
         return ch === undefined ? undefined : { getWidth: () => 1, getChars: () => (ch === ' ' ? '' : ch) }
       }
-    })
+      }
+    }
     const term = {
       cols,
       buffer: { active: { getLine: (y: number) => (lines[y] === undefined ? undefined : line(lines[y])), getNullCell: () => ({}) } },
@@ -88,5 +92,38 @@ describe('attachConsoleLinks across a cut path', () => {
       expect(got?.map((l) => [l.text, l.range]), String(y)).toEqual([[PATH, { start: { x: 4, y: 1 }, end: { x: 24, y: 3 } }]])
     }
     expect(resolved).toContain(PATH)
+  })
+
+  const attach = (f: ReturnType<typeof fakeTerm>, files: string[]) =>
+    attachConsoleLinks(f.term as never, { onUrl: () => {}, resolvePath: async (target) => (files.includes(target) ? target : null) })
+  const PATH = 'C:\\Users\\anipen\\AppData\\Roaming\\astera-dev\\preview\\shots\\app-226bd0e8.png'
+
+  // Final review I1: xterm drops a row's links that another row's link overlaps, so a cut path on the rows below must
+  // not be handed back for this row: its own link stays.
+  it("keeps the row's own link when a cut path starts on the next row", async () => {
+    const A = 'C:\\Users\\anipen\\x\\a.png'
+    const f = fakeTerm(['  "' + A + '",', '  "' + PATH.slice(0, 26), '    ' + PATH.slice(26, 52), '    ' + PATH.slice(52) + '",'], 30)
+    attach(f, [A, PATH])
+    expect((await f.links(1))?.map((l) => l.text)).toEqual([A])
+    expect((await f.links(3))?.map((l) => l.text)).toEqual([PATH])
+  })
+
+  // Final review I2: a link the first row names by itself is not lengthened by the next row's first word.
+  it('does not lengthen a link the first row names by itself', async () => {
+    const f = fakeTerm(['  see src/app.ts:125', '  4. next'], 20)
+    attach(f, ['src/app.ts'])
+    const got = await f.links(1)
+    expect(got?.map((l) => l.text)).toEqual(['src/app.ts'])
+    expect(got?.[0].range).toEqual({ start: { x: 7, y: 1 }, end: { x: 20, y: 1 } })
+    expect(await f.links(2)).toBeUndefined()
+  })
+
+  it('still links a path the terminal wrapped itself, once, and a path on one row', async () => {
+    const wrapped = fakeTerm(['  ' + PATH.slice(0, 28), { text: PATH.slice(28, 58), wrapped: true }, { text: PATH.slice(58), wrapped: true }], 30)
+    attach(wrapped, [PATH])
+    for (const y of [1, 2, 3]) expect((await wrapped.links(y))?.map((l) => l.text), String(y)).toEqual([PATH])
+    const one = fakeTerm(['  open D:\\x\\a.png now'], 40)
+    attach(one, ['D:\\x\\a.png'])
+    expect((await one.links(1))?.map((l) => l.text)).toEqual(['D:\\x\\a.png'])
   })
 })
