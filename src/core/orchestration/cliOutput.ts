@@ -9,111 +9,25 @@
 // CLI 가 내보내는 것에 대한 것이므로 그 경계에서 씌우는 것이 맞다.
 import { verbsOf } from './cliArgs'
 import { USAGE, spelledCommand } from './cliUsage'
+import {
+  ERROR_CODES,
+  REMOTE_ERROR_CODES,
+  codeForStatus,
+  exitCodeFor,
+  remoteCodeOf,
+  type AsteraErrorCode,
+  type RemoteErrorCode
+} from '../publicContract'
 
 /**
- * 스크립트가 분기하는 값. 문구는 사람의 것이고 이 코드는 기계의 것이다.
- *
- * **닫힌 집합이고, 목록이 곧 타입이다.** 아래 표들(`EXIT`, `STEPS`)이 이 목록의 `Record` 이므로,
- * 코드를 하나 더하면 두 표 모두가 그 이름을 대며 컴파일을 깨뜨린다 — 종료 코드를 정하지 않은
- * 코드도, 무엇을 하면 되는지 정하지 않은 코드도 나갈 수 없다. 배열로 둔 이유는 하나 더 있다:
- * `astera agent-context` 가 이 열 개를 그대로 실어 내보낸다(cliAgentContext.ts).
+ * The codes, their exit codes and the status mapping are the SDK package's (packages/client/src/errors.ts): one
+ * contract for the CLI, MCP and @astera-app/client. They keep their CLI names here, so nothing that imports them
+ * changes. `astera agent-context` still prints the list as it is (cliAgentContext.ts).
  */
-/** The remote runtime's codes (design §3.10), as the Runtime's controller gate and the controller link name them. */
-export const REMOTE_ERROR_CODES = [
-  'RUNTIME_NOT_FOUND',
-  'RUNTIME_OFFLINE',
-  'RUNTIME_AUTH_FAILED',
-  'RUNTIME_IDENTITY_CHANGED',
-  'RUNTIME_PROTOCOL_MISMATCH',
-  'RUNTIME_PROJECT_NOT_FOUND',
-  'RUNTIME_ACCOUNT_NOT_FOUND',
-  'RUNTIME_CAPABILITY_MISSING',
-  'RUNTIME_BUSY',
-  'RUNTIME_PERMISSION_DENIED',
-  'RUNTIME_OUTCOME_UNKNOWN',
-  'REMOTE_TIMEOUT',
-  'REMOTE_OPERATION_CONFLICT',
-  'REMOTE_REPLY_TOO_LARGE'
-] as const
-export type RemoteErrorCode = (typeof REMOTE_ERROR_CODES)[number]
-
-export const CLI_ERROR_CODES = [
-  'FAILED',
-  'INVALID_ARGUMENTS',
-  'HOST_NOT_RUNNING',
-  'NOT_FOUND',
-  'PERMISSION_DENIED',
-  'CONFLICT',
-  'TIMEOUT',
-  'WAITING_FOR_INPUT',
-  'VERSION_MISMATCH',
-  'RUN_FAILED',
-  // Remote runtime design §3.10: a controller's answers from a paired Runtime. Each exits as its nearest local code,
-  // so a script that branches on the exit keeps working and one that reads error.code can tell them apart.
-  ...REMOTE_ERROR_CODES
-] as const
-
-export type CliErrorCode = (typeof CLI_ERROR_CODES)[number]
-
-/** 코드 하나에 종료 코드 하나. 설계 §8 의 표가 이 객체다 — 표를 두 곳에 적으면 갈라진다. */
-const EXIT: Record<CliErrorCode, number> = {
-  FAILED: 1,
-  INVALID_ARGUMENTS: 2,
-  HOST_NOT_RUNNING: 3,
-  NOT_FOUND: 4,
-  PERMISSION_DENIED: 5,
-  CONFLICT: 6,
-  TIMEOUT: 7,
-  WAITING_FOR_INPUT: 8,
-  VERSION_MISMATCH: 9,
-  RUN_FAILED: 10,
-  RUNTIME_NOT_FOUND: 4,
-  RUNTIME_OFFLINE: 3,
-  RUNTIME_AUTH_FAILED: 5,
-  RUNTIME_IDENTITY_CHANGED: 5,
-  RUNTIME_PROTOCOL_MISMATCH: 9,
-  RUNTIME_PROJECT_NOT_FOUND: 4,
-  RUNTIME_ACCOUNT_NOT_FOUND: 4,
-  RUNTIME_CAPABILITY_MISSING: 9,
-  RUNTIME_BUSY: 6,
-  RUNTIME_PERMISSION_DENIED: 5,
-  RUNTIME_OUTCOME_UNKNOWN: 6,
-  REMOTE_TIMEOUT: 7,
-  REMOTE_OPERATION_CONFLICT: 6,
-  REMOTE_REPLY_TOO_LARGE: 1
-}
-
-const REMOTE: ReadonlySet<string> = new Set(REMOTE_ERROR_CODES)
-
-/** The remote code a Runtime's refusal names in its body (`{ code }`), or null. Read from the field, never the
- *  sentence (§3.10). */
-export const remoteCodeOf = (body: unknown): RemoteErrorCode | null => {
-  const code = typeof body === 'object' && body !== null ? (body as { code?: unknown }).code : undefined
-  return typeof code === 'string' && REMOTE.has(code) ? (code as RemoteErrorCode) : null
-}
-
-export const exitCodeFor = (code: CliErrorCode): number => EXIT[code]
-
-/**
- * 앱이 돌려준 HTTP 상태를 오류 코드로.
- *
- * 서버는 이미 400·403·404·409·501 로 가려 답한다(server.ts 의 bad·denied·notFound·conflict 와
- * 기본 분기). 그래서 이 표는 그 다섯을 옮기는 일이고, 나머지는 전부 일반 실패다 — **모르는 상태를
- * 그럴듯한 코드로 넘겨짚지 않는다.** 스크립트가 그 코드로 분기할 텐데, 짐작이 그 분기를 조용히 틀리게 만든다.
- *
- * **501 은 없는 id 가 아니라 없는 명령이다.** 앱이 그 명령을 모른다는 것은 이 CLI 가 앱보다 새
- * 빌드라는 뜻이고(셀틀이 가리키는 바이너리가 갈렸다), 스크립트가 보아야 하는 것은 "오타" 가 아니라 "버전이
- * 갈렸다" 다. 이미 나간 앱은 같은 경우에 404 를 준다 — 그쪽은 NOT_FOUND 로 떨어지고, 문구가
- * 무슨 일인지 말한다. 문구를 읽어 코드를 고르지는 않는다 — 계약을 문자열에 얹어 매는 일이다.
- */
-export function codeForStatus(status: number): CliErrorCode {
-  if (status === 400) return 'INVALID_ARGUMENTS'
-  if (status === 403) return 'PERMISSION_DENIED'
-  if (status === 404) return 'NOT_FOUND'
-  if (status === 409) return 'CONFLICT'
-  if (status === 501) return 'VERSION_MISMATCH'
-  return 'FAILED'
-}
+export { REMOTE_ERROR_CODES, codeForStatus, exitCodeFor, remoteCodeOf, type RemoteErrorCode }
+/** The CLI's name for the package's code list. */
+export const CLI_ERROR_CODES = ERROR_CODES
+export type CliErrorCode = AsteraErrorCode
 
 export interface CliError {
   code: CliErrorCode
