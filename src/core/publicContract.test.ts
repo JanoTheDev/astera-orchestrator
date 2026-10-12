@@ -72,6 +72,15 @@ describe('the app uses the package transport', () => {
     expect(protocol.HOST_FEATURE_REQUESTS).toBe(internal.HOST_FEATURE_REQUESTS)
   })
 
+  // SDK 1c: following a Run is the package's rule too
+  it('the follow key and window', async () => {
+    const internal = await import('../../packages/client/src/internal.js')
+    const cliFollow = await import('./orchestration/cliFollow')
+    const command = await import('./orchestration/command')
+    expect(cliFollow.eventKey).toBe(internal.eventKey)
+    expect(command.FOLLOW_WINDOW_MS).toBe(internal.FOLLOW_WINDOW_MS)
+  })
+
   it('the published entry is the error contract (and the client), not the app internals', async () => {
     const published: Record<string, unknown> = await import('../../packages/client/src/index.js')
     expect('AsteraError' in published).toBe(true)

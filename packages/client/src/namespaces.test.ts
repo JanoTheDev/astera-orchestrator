@@ -141,3 +141,156 @@ describe('astera.jobs', () => {
     expect(sent(host)).toEqual([])
   })
 })
+
+describe('astera.runs', () => {
+  const RUN2 = { ...RUN, waitingForApproval: 2 }
+  const answers = {
+    'runs-list': () => ok([RUN]),
+    'runs-get': () => ok(RUN2),
+    'runs-wait': () => ok(ENDING),
+    'runs-stop': () => ok({ runId: 'run_1', stopped: 2, paused: true, coordinatorStopped: true }),
+    'runs-resume': () => ok(RUN)
+  }
+  const { coordinatorStop: _c, ...run } = RUN
+
+  it('lists, gets, waits, stops and resumes with the CLI arguments', async () => {
+    const { host, astera } = await setup(answers)
+    expect(await astera.runs.list()).toEqual({ items: [run] })
+    await astera.runs.list({ jobId: 'job_1' })
+    expect(await astera.runs.get('run_1')).toEqual({ ...run, waitingForApproval: 2 })
+    expect(await astera.runs.wait('run_1', { timeoutMs: 500 })).toEqual(ENDING)
+    expect(await astera.runs.stop('run_1', { requestId: 'r-3' })).toEqual({ runId: 'run_1', stopped: 2, paused: true, coordinatorStopped: true })
+    expect(await astera.runs.resume('run_1')).toEqual(run)
+    expect(sent(host)).toEqual([
+      ['runs-list', {}, undefined],
+      ['runs-list', { job: 'job_1' }, undefined],
+      ['runs-get', { id: 'run_1' }, undefined],
+      ['runs-wait', { id: 'run_1', timeoutMs: 500 }, undefined],
+      ['runs-stop', { id: 'run_1' }, 'r-3'],
+      ['runs-resume', { id: 'run_1' }, undefined]
+    ])
+  })
+
+  const ev = (n: number): Record<string, unknown> => ({ at: `T${n}`, kind: 'message', sourceId: `m${n}`, summary: `s${n}`, body: 'long', sessionId: 'sess' })
+  const shown = (n: number): Record<string, unknown> => ({ at: `T${n}`, kind: 'message', sourceId: `m${n}`, summary: `s${n}` })
+  const collect = async (it: AsyncIterable<unknown>): Promise<unknown[]> => {
+    const out: unknown[] = []
+    for await (const x of it) out.push(x)
+    return out
+  }
+
+  it('follows a Run: each event once though the Host answers the whole timeline, then the ending', async () => {
+    const pages = [
+      { events: [ev(1), ev(2)], ending: null },
+      { events: [ev(1), ev(2), ev(3)], ending: null },
+      { events: [ev(1), ev(2), ev(3)], ending: ENDING }
+    ]
+    let n = 0
+    const { host, astera } = await setup({ 'runs-follow': () => ok({ runId: 'run_1', jobId: 'job_1', count: 3, progress: ENDING.progress, ...pages[Math.min(n++, 2)] }) })
+    expect(await collect(astera.runs.follow('run_1'))).toEqual([{ event: shown(1) }, { event: shown(2) }, { event: shown(3) }, { ending: ENDING }])
+    const follows = host.calls().map((c) => c.args)
+    expect(follows.map((a) => a.seen)).toEqual([0, 2, 3])
+    expect(follows.every((a) => a.id === 'run_1' && typeof a.waitMs === 'number' && a.waitMs <= 20_000 && a.waitMs > 0)).toBe(true)
+    expect(host.calls().every((c) => c.request === undefined)).toBe(true)
+  })
+
+  it('ends a follow at its own deadline with a timeout ending', async () => {
+    const { astera } = await setup({
+      'runs-follow': () => ok({ runId: 'run_1', jobId: 'job_1', count: 0, progress: { done: 0, total: 1 }, events: [], ending: null })
+    })
+    const started = Date.now()
+    const items = await collect(astera.runs.follow('run_1', { timeoutMs: 300 }))
+    expect(items).toEqual([{ ending: { state: 'timeout', runId: 'run_1', jobId: 'job_1', progress: { done: 0, total: 1 } } }])
+    expect(Date.now() - started).toBeGreaterThanOrEqual(250)
+  })
+
+  it('an AbortSignal ends a follow with its reason', async () => {
+    const host = await startHost({ key: profile.key, onCall: () => {} })
+    opened.push(host)
+    const astera = await createAsteraClient({ profileDir: profile.dir, address: host.address })
+    opened.push(astera)
+    const ac = new AbortController()
+    setTimeout(() => ac.abort(), 50)
+    await expect(collect(astera.runs.follow('run_1', { signal: ac.signal }))).rejects.toMatchObject({ name: 'AbortError' })
+    expect(host.calls()).toHaveLength(1)
+  })
+})
+
+describe('astera.tasks', () => {
+  const TASK = { id: 'tsk_1', runId: 'run_1', title: 't', spec: 's', deps: [], status: 'ready', consecutiveFailures: 0, createdAt: 'T', updatedAt: 'T', lastFailure: 'hidden' }
+  const { lastFailure: _l, ...task } = TASK
+  const answers = {
+    'tasks-list': () => ok([TASK]),
+    'tasks-get': () => ok({ ...task, attempts: [] }),
+    'tasks-add': () => ok(TASK),
+    'jobs-get': (a: Record<string, unknown>) => ok({ ...JOB, ...(a.id === 'job_coord' ? { coordinatorAccountId: 'acc_c' } : {}) })
+  }
+
+  it('lists by run, status, readiness and brevity, and gets one with its attempts', async () => {
+    const { host, astera } = await setup(answers)
+    expect(await astera.tasks.list({ runId: 'run_1', status: 'ready', ready: true, brief: true })).toEqual({ items: [task] })
+    await astera.tasks.list()
+    expect(await astera.tasks.get('tsk_1')).toEqual({ ...task, attempts: [] })
+    expect(sent(host)).toEqual([
+      ['tasks-list', { run: 'run_1', status: 'ready', ready: true, brief: true }, undefined],
+      ['tasks-list', {}, undefined],
+      ['tasks-get', { id: 'tsk_1' }, undefined]
+    ])
+  })
+
+  it('creates a Task with the CLI arguments, and defaults the account to the coordinator of the Job', async () => {
+    const { host, astera } = await setup(answers)
+    expect(
+      await astera.tasks.create(
+        { runId: 'run_1', spec: 'do it', title: 'T', deps: ['tsk_0'], parentId: 'tsk_p', accountIds: ['a', 'b'], validate: ['c1', 'c2'], review: true },
+        { requestId: 'r-4' }
+      )
+    ).toEqual(task)
+    await astera.tasks.create({ jobId: 'job_coord', spec: 'x' })
+    expect(sent(host)).toEqual([
+      ['tasks-add', { run: 'run_1', spec: 'do it', title: 'T', deps: ['tsk_0'], parent: 'tsk_p', account: 'a,b', validate: 'c1,c2', review: true }, 'r-4'],
+      ['jobs-get', { id: 'job_coord' }, undefined],
+      ['tasks-add', { job: 'job_coord', spec: 'x', account: 'acc_c' }, undefined]
+    ])
+  })
+
+  it('refuses a Task with no account to default to, or with both or neither of jobId and runId', async () => {
+    const { host, astera } = await setup(answers)
+    const e = await rejection(astera.tasks.create({ jobId: 'job_1', spec: 'x' }))
+    expect([e.code, e.message]).toEqual(['INVALID_ARGUMENTS', 'accountIds is required: this Job has no coordinator account to default to'])
+    for (const input of [
+      { jobId: 'job_1', runId: 'run_1', spec: 'x', accountIds: ['a'] },
+      { spec: 'x', accountIds: ['a'] },
+      { runId: 'run_1', spec: '', accountIds: ['a'] },
+      { runId: 'run_1', spec: 'x', accountIds: [] }
+    ])
+      expect((await rejection(astera.tasks.create(input as never))).code, JSON.stringify(input)).toBe('INVALID_ARGUMENTS')
+    expect(sent(host).map(([cmd]) => cmd)).toEqual(['jobs-get'])
+  })
+})
+
+describe('astera.questions and astera.completion', () => {
+  const GATE = { id: 'gat_1', runId: 'run_1', taskId: 'tsk_1', question: 'q', status: 'open', createdAt: 'T' }
+  const COMPLETION = { runId: 'run_1', jobId: 'job_1', state: 'checking', tasks: [], extra: 1 }
+
+  it('lists, gets and answers questions in the Host vocabulary, and reads the completion of a Run', async () => {
+    const { host, astera } = await setup({
+      'questions-list': () => ok([GATE]),
+      'questions-get': () => ok(GATE),
+      'questions-answer': () => ok({ ...GATE, status: 'resolved', resolution: 'yes' }),
+      'runs-completion': () => ok(COMPLETION)
+    })
+    expect(await astera.questions.list({ runId: 'run_1', taskId: 'tsk_1', status: 'open' })).toEqual({ items: [GATE] })
+    expect(await astera.questions.get('gat_1')).toEqual(GATE)
+    expect(await astera.questions.answer('gat_1', { answer: 'yes' }, { requestId: 'r-5' })).toEqual({ ...GATE, status: 'resolved', resolution: 'yes' })
+    const { extra: _e, ...completion } = COMPLETION
+    expect(await astera.completion.get('run_1')).toEqual(completion)
+    expect((await rejection(astera.questions.answer('gat_1', { answer: '' }))).code).toBe('INVALID_ARGUMENTS')
+    expect(sent(host)).toEqual([
+      ['questions-list', { run: 'run_1', task: 'tsk_1', status: 'open' }, undefined],
+      ['questions-get', { id: 'gat_1' }, undefined],
+      ['questions-answer', { id: 'gat_1', answer: 'yes' }, 'r-5'],
+      ['runs-completion', { id: 'run_1' }, undefined]
+    ])
+  })
+})

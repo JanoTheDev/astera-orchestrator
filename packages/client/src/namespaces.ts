@@ -3,9 +3,31 @@
 // id to its folder), and answers in the DTO shapes of types.ts. Lists come back as `{ items }`; a wait's ending is
 // data, not an error.
 import type { CallOptions, CallResult } from './client.js'
-import { TIMEOUT_HEADROOM_MS } from './deadlines.js'
+import { DEFAULT_WAIT_TIMEOUT_MS, FOLLOW_WINDOW_MS, TIMEOUT_HEADROOM_MS } from './deadlines.js'
 import { AsteraError } from './errors.js'
-import type { ConvergencePolicy, Job, JobWithRun, ListResult, Project, Provider, Run, WaitResult } from './types.js'
+import { eventKey } from './follow.js'
+import { publicEvent } from './shape.js'
+import type {
+  AnsweredQuestion,
+  ConvergencePolicy,
+  Job,
+  JobWithRun,
+  ListResult,
+  Progress,
+  Project,
+  Provider,
+  Question,
+  Run,
+  RunCompletion,
+  RunEvent,
+  StopResult,
+  Task,
+  TaskDetail,
+  TaskStatus,
+  WaitEnding,
+  WaitResult,
+  WaitTimeout
+} from './types.js'
 
 export interface ReadOptions {
   readonly signal?: AbortSignal
@@ -53,9 +75,66 @@ export interface JobsApi {
   wait(jobId: string, options?: WaitOptions): Promise<WaitResult>
 }
 
+export interface CreateTaskInput {
+  /** Whose Task: a Job's definition (`jobId`) or a Run's (`runId`). Exactly one. */
+  readonly jobId?: string
+  readonly runId?: string
+  readonly spec: string
+  readonly title?: string
+  readonly deps?: readonly string[]
+  readonly parentId?: string
+  /** The accounts to run it on, in failover order. Default: the Job's coordinator account. */
+  readonly accountIds?: readonly string[]
+  /** Run configurations to check the work with, in order. */
+  readonly validate?: readonly string[]
+  /** Ask for a review of the work. */
+  readonly review?: boolean
+}
+
+/** One step of `runs.follow`: an event of the Run's timeline, then its ending last. */
+export type FollowItem = { readonly event: RunEvent } | { readonly ending: WaitEnding | WaitTimeout }
+
+export interface RunsApi {
+  list(filter?: { readonly jobId?: string }, options?: ReadOptions): Promise<ListResult<Run>>
+  get(runId: string, options?: ReadOptions): Promise<Run>
+  /** Until the Run ends, needs a person, or the Host's deadline passes. */
+  wait(runId: string, options?: WaitOptions): Promise<WaitResult>
+  /** The Run's events as they happen, each once, and its ending last; a timeout ending at `timeoutMs` (default an
+   *  hour). An AbortSignal ends it with its reason. */
+  follow(runId: string, options?: WaitOptions): AsyncIterable<FollowItem>
+  /** Releases the Run's workers and pauses it (there is no cancel: `resume` takes it back). */
+  stop(runId: string, options?: WriteOptions): Promise<StopResult>
+  resume(runId: string, options?: WriteOptions): Promise<Run>
+}
+
+export interface TasksApi {
+  list(
+    filter?: { readonly runId?: string; readonly status?: TaskStatus; readonly ready?: boolean; readonly brief?: boolean },
+    options?: ReadOptions
+  ): Promise<ListResult<Task>>
+  get(taskId: string, options?: ReadOptions): Promise<TaskDetail>
+  create(input: CreateTaskInput, options?: WriteOptions): Promise<Task>
+}
+
+export interface QuestionsApi {
+  /** `status` in the Host's words: `open` or `resolved`. */
+  list(filter?: { readonly runId?: string; readonly taskId?: string; readonly status?: 'open' | 'resolved' }, options?: ReadOptions): Promise<ListResult<Question>>
+  get(questionId: string, options?: ReadOptions): Promise<Question>
+  answer(questionId: string, input: { readonly answer: string }, options?: WriteOptions): Promise<AnsweredQuestion>
+}
+
+export interface CompletionApi {
+  /** Where each Task of a Run stands on its way to done. Read only: whether work is done stays Astera's call. */
+  get(runId: string, options?: ReadOptions): Promise<RunCompletion>
+}
+
 export interface Namespaces {
   readonly projects: ProjectsApi
   readonly jobs: JobsApi
+  readonly runs: RunsApi
+  readonly tasks: TasksApi
+  readonly questions: QuestionsApi
+  readonly completion: CompletionApi
 }
 
 type Call = (cmd: string, args?: Record<string, unknown>, options?: CallOptions) => Promise<CallResult>
@@ -66,6 +145,13 @@ const PROVIDERS: readonly string[] = ['claude', 'codex']
 const MAX_WAIT_MS = 2 ** 31 - 1 - TIMEOUT_HEADROOM_MS
 
 const invalid = (message: string): AsteraError => new AsteraError('INVALID_ARGUMENTS', message)
+
+/** A list of ids the Host takes comma-joined: non-empty, and no id empty or holding a comma. */
+const idList = (name: string, value: readonly unknown[]): string => {
+  if (!Array.isArray(value) || value.length === 0 || value.some((v) => typeof v !== 'string' || v.length === 0 || v.includes(',')))
+    throw invalid(`${name} is a non-empty list of ids, none empty or holding a comma`)
+  return value.join(',')
+}
 
 /** A required id or text: a non-empty string. */
 const need = (name: string, value: unknown): string => {
@@ -140,5 +226,110 @@ export function createNamespaces(call: Call): Namespaces {
     wait: async (jobId, o) => body<WaitResult>('jobs-wait', waitArgs(need('jobId', jobId), o), waitOptions(o))
   }
 
-  return { projects, jobs }
+  /** One `runs-follow` answer. */
+  interface FollowPage {
+    runId?: string
+    jobId?: string
+    progress?: Progress
+    events?: RunEvent[]
+    ending?: WaitEnding | null
+  }
+
+  /** The CLI's follow (src/cli/follow.ts followRun): windows of `runs-follow` on one connection, each event once by
+   *  `eventKey` though the Host answers the whole timeline when anything is new, the ending last. */
+  async function* follow(runId: string, o: WaitOptions = {}): AsyncGenerator<FollowItem> {
+    const id = need('runId', runId)
+    const total = waitArgs(id, o).timeoutMs as number | undefined
+    const deadline = Date.now() + (total ?? DEFAULT_WAIT_TIMEOUT_MS)
+    const shown = new Set<string>()
+    for (;;) {
+      const waitMs = Math.max(0, Math.min(FOLLOW_WINDOW_MS, deadline - Date.now()))
+      const page = await body<FollowPage>('runs-follow', { id, seen: shown.size, waitMs }, { ...waitOptions(o), timeoutMs: waitMs + TIMEOUT_HEADROOM_MS })
+      for (const e of page.events ?? []) {
+        const key = eventKey(e)
+        if (shown.has(key)) continue
+        shown.add(key)
+        yield { event: publicEvent(e) as RunEvent }
+      }
+      if (page.ending) {
+        yield { ending: page.ending }
+        return
+      }
+      if (Date.now() >= deadline) {
+        yield { ending: { state: 'timeout', runId: page.runId ?? id, jobId: page.jobId, progress: page.progress ?? { done: 0, total: 0 } } }
+        return
+      }
+    }
+  }
+
+  const runs: RunsApi = {
+    list: async (filter = {}, o) => list<Run>('runs-list', filter.jobId !== undefined ? { job: need('jobId', filter.jobId) } : {}, readOptions(o)),
+    get: async (runId, o) => body<Run>('runs-get', { id: need('runId', runId) }, readOptions(o)),
+    wait: async (runId, o) => body<WaitResult>('runs-wait', waitArgs(need('runId', runId), o), waitOptions(o)),
+    follow: (runId, o) => follow(runId, o),
+    stop: async (runId, o) => body<StopResult>('runs-stop', { id: need('runId', runId) }, callOptions(o)),
+    resume: async (runId, o) => body<Run>('runs-resume', { id: need('runId', runId) }, callOptions(o))
+  }
+
+  const tasks: TasksApi = {
+    list: async (filter = {}, o) =>
+      list<Task>(
+        'tasks-list',
+        {
+          ...(filter.runId !== undefined ? { run: need('runId', filter.runId) } : {}),
+          ...(filter.status !== undefined ? { status: filter.status } : {}),
+          ...(filter.ready === true ? { ready: true } : {}),
+          ...(filter.brief === true ? { brief: true } : {})
+        },
+        readOptions(o)
+      ),
+    get: async (taskId, o) => body<TaskDetail>('tasks-get', { id: need('taskId', taskId) }, readOptions(o)),
+    create: async (input, o) => {
+      if ((input.jobId === undefined) === (input.runId === undefined)) throw invalid('give exactly one of jobId or runId')
+      const owner = input.jobId !== undefined ? { job: need('jobId', input.jobId) } : { run: need('runId', input.runId) }
+      const spec = need('spec', input.spec)
+      const validate = input.validate !== undefined ? idList('validate', input.validate) : undefined
+      let account = input.accountIds !== undefined ? idList('accountIds', input.accountIds) : undefined
+      if (account === undefined) {
+        // MCP's default (create_task): the Job's coordinator account. The Host takes a Run id for jobs-get too.
+        const job = await body<JobWithRun>('jobs-get', { id: input.jobId ?? input.runId }, readOptions(o))
+        if (typeof job.coordinatorAccountId !== 'string' || job.coordinatorAccountId === '')
+          throw invalid('accountIds is required: this Job has no coordinator account to default to')
+        account = job.coordinatorAccountId
+      }
+      const args: Record<string, unknown> = {
+        ...owner,
+        spec,
+        ...(input.title !== undefined ? { title: need('title', input.title) } : {}),
+        ...(input.deps !== undefined && input.deps.length > 0 ? { deps: [...input.deps] } : {}),
+        ...(input.parentId !== undefined ? { parent: need('parentId', input.parentId) } : {}),
+        account,
+        ...(validate !== undefined ? { validate } : {}),
+        ...(input.review === true ? { review: true } : {})
+      }
+      return body<Task>('tasks-add', args, callOptions(o))
+    }
+  }
+
+  const questions: QuestionsApi = {
+    list: async (filter = {}, o) =>
+      list<Question>(
+        'questions-list',
+        {
+          ...(filter.runId !== undefined ? { run: need('runId', filter.runId) } : {}),
+          ...(filter.taskId !== undefined ? { task: need('taskId', filter.taskId) } : {}),
+          ...(filter.status !== undefined ? { status: filter.status } : {})
+        },
+        readOptions(o)
+      ),
+    get: async (questionId, o) => body<Question>('questions-get', { id: need('questionId', questionId) }, readOptions(o)),
+    answer: async (questionId, input, o) =>
+      body<AnsweredQuestion>('questions-answer', { id: need('questionId', questionId), answer: need('answer', input.answer) }, callOptions(o))
+  }
+
+  const completion: CompletionApi = {
+    get: async (runId, o) => body<RunCompletion>('runs-completion', { id: need('runId', runId) }, readOptions(o))
+  }
+
+  return { projects, jobs, runs, tasks, questions, completion }
 }

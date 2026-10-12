@@ -8,6 +8,7 @@
 // — the app's loopback HTTP server was removed once nothing reached it any more (§7). Nothing here
 // knows whether a dependency is answered locally or across a socket, which is what lets the same
 // command layer run in both places.
+import { FOLLOW_WINDOW_MS } from '../publicContract'
 import { lastByState } from './stateMemo'
 import { randomBytes } from 'node:crypto'
 import {
@@ -1124,7 +1125,9 @@ const POLL_MS = 50
 /** How long one `runs-follow` call holds before it answers with nothing new (CLI spec §22). The client
  *  asks again at once, so this bounds only how long a poll outlives a client that went away, and how
  *  often an idle follow costs a round trip. `FOLLOW_WINDOW_MAX_MS` caps what a caller may ask for. */
-export const FOLLOW_WINDOW_MS = 20_000
+// The follow window is the SDK package's (packages/client/src/deadlines.ts): the Host holds this long by default, and
+// the CLI and @astera-app/client ask for it.
+export { FOLLOW_WINDOW_MS }
 /** How long `runs resume` waits for the coordinator `runs stop` stopped to be gone: the exit release
  *  waits EXIT_DEFER_MS (3 s) after the process exits, so a stop that landed has emptied the slot well
  *  within this. */
