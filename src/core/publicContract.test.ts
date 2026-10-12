@@ -26,7 +26,8 @@ describe('one door into the package', () => {
         e.isDirectory() ? walk(path.join(dir, e.name)) : /\.(ts|tsx|mts|cts)$/.test(e.name) && !/\.test\.(ts|tsx|mts|cts)$/.test(e.name) ? [path.join(dir, e.name)] : []
       )
     const doors = walk(srcRoot)
-      .filter((f) => /['"][^'"\n]*packages\/client[^'"\n]*['"]/.test(readFileSync(f, 'utf8')))
+      // Import and export specifiers only: a comment that names the package (between two apostrophes) is not a door
+      .filter((f) => /(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s+)['"][^'"\n]*packages\/client[^'"\n]*['"]/.test(readFileSync(f, 'utf8')))
       .map((f) => path.relative(srcRoot, f).split(path.sep).join('/'))
     // publicProtocol.ts is the second door, the one the renderer may reach (SDK 1b)
     expect(doors.sort()).toEqual(['core/publicContract.ts', 'core/publicProtocol.ts'])

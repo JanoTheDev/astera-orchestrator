@@ -6,6 +6,9 @@ import {
   CHAT_PROMPT_FIELDS,
   CHAT_TURN_FIELDS,
   CHECK_FIELDS,
+  COMPLETION_CHECK_FIELDS,
+  COMPLETION_DETAIL_FIELDS,
+  COMPLETION_FIELDS,
   DERIVED_FIELDS,
   FOLLOW_EVENT_FIELDS,
   JOB_FIELDS,
@@ -22,6 +25,7 @@ import {
   SKILL_NOT_ENABLED_FIELDS,
   SKILLS_ACCOUNT_FIELDS,
   TASK_CHECKS_FIELDS,
+  TASK_COMPLETION_FIELDS,
   TASK_FIELDS,
   VALIDATION_FIELDS
 } from './fields.js'
@@ -142,6 +146,27 @@ function shapeRunChecks(body: unknown): unknown {
   return out
 }
 
+/** `runs-completion`: the run, each Task's row, its detail, and the checks and blocking issues in the detail. */
+function shapeCompletion(body: unknown): unknown {
+  if (body === null || typeof body !== 'object') return body
+  const obj = (v: unknown, fields: readonly string[]): unknown => (v !== null && typeof v === 'object' ? pick(fields, v) : v)
+  const list = (v: unknown, fields: readonly string[]): unknown => (Array.isArray(v) ? v.map((x) => obj(x, fields)) : v)
+  const out = pick(COMPLETION_FIELDS, body)
+  if (Array.isArray(out.tasks))
+    out.tasks = out.tasks.map((t: unknown) => {
+      if (t === null || typeof t !== 'object') return t
+      const row = pick(TASK_COMPLETION_FIELDS, t)
+      if (row.detail !== null && typeof row.detail === 'object') {
+        const detail = pick(COMPLETION_DETAIL_FIELDS, row.detail)
+        if ('checks' in detail) detail.checks = list(detail.checks, COMPLETION_CHECK_FIELDS)
+        if ('blockingIssues' in detail) detail.blockingIssues = list(detail.blockingIssues, REVIEW_ISSUE_FIELDS)
+        row.detail = detail
+      }
+      return row
+    })
+  return out
+}
+
 /** The public fields of one followed event. Not in `SHAPE`: `runs follow` answers a stream of these and then one
  *  ending, and the ending is `runs wait`'s body, which no table shapes either. */
 export function publicEvent(e: unknown): unknown {
@@ -152,6 +177,7 @@ export function publicEvent(e: unknown): unknown {
 export function publicFor(cmd: string, body: unknown): unknown {
   if (cmd === 'skills-list' || cmd === 'skills-install') return shapeSkills(cmd, body)
   if (cmd === 'runs-checks') return shapeRunChecks(body)
+  if (cmd === 'runs-completion') return shapeCompletion(body)
   // Own keys only: a command named like an Object.prototype key ('constructor') is not in the table
   const fields = Object.hasOwn(SHAPE, cmd) ? SHAPE[cmd] : undefined
   if (fields === undefined) return body

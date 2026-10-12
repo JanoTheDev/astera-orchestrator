@@ -132,3 +132,10 @@ export const FOLLOW_EVENT_FIELDS = Object.freeze([
   'review',
   'repair'
 ] as const)
+
+/** `runs-completion`: where each Task of a Run stands on its way to done (the completion read model). It publishes a
+ *  Task's last failure, suspicious files and policy change on purpose: those explain the state. */
+export const COMPLETION_FIELDS = Object.freeze(['runId', 'jobId', 'state', 'tasks'] as const)
+export const TASK_COMPLETION_FIELDS = Object.freeze(['taskId', 'title', 'state', 'attempt', 'maxAttempts', 'detail', 'failureSummary', 'lastFailure'] as const)
+export const COMPLETION_DETAIL_FIELDS = Object.freeze(['taskId', 'checks', 'blockingIssues', 'otherIssueCount', 'suspiciousFiles', 'policyChanged'] as const)
+export const COMPLETION_CHECK_FIELDS = Object.freeze(['configId', 'name', 'status', 'exitCode', 'outputTail', 'unstable'] as const)

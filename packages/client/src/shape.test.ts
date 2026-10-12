@@ -365,3 +365,48 @@ describe('the contract cannot be changed at run time', () => {
     expect(publicFor('__proto__', body)).toBe(body)
   })
 })
+
+// SDK 1c: `runs-completion` was published whole. Its allowlist keeps every field it carries today (the completion
+// read model publishes lastFailure, suspiciousFiles and policyChanged on purpose: it explains where a Task stands)
+// and drops anything added later until someone lists it.
+describe('publicFor runs-completion', () => {
+  const full = {
+    runId: 'run_1',
+    jobId: 'job_1',
+    state: 'exhausted',
+    tasks: [
+      {
+        taskId: 'tsk_1',
+        title: 't',
+        state: 'exhausted',
+        attempt: 3,
+        maxAttempts: 3,
+        detail: {
+          taskId: 'tsk_1',
+          checks: [{ configId: 'c', name: 'tests', status: 'failed', exitCode: 1, outputTail: 'x', unstable: true }],
+          blockingIssues: [{ id: 'r', severity: 'high', blocking: true, title: 't', description: 'd', file: 'a.ts', line: 3, suggestedFix: 'f' }],
+          otherIssueCount: 2,
+          suspiciousFiles: ['x.ts'],
+          policyChanged: true
+        },
+        failureSummary: 'tests failed',
+        lastFailure: 'boom'
+      },
+      { taskId: 'tsk_2', title: 'u', state: 'converged', attempt: 0, maxAttempts: null, detail: null, failureSummary: null, lastFailure: null }
+    ]
+  }
+
+  it('keeps every field the read model carries today', () => {
+    expect(publicFor('runs-completion', full)).toEqual(full)
+  })
+
+  it('drops a field added at any level', () => {
+    const extra = JSON.parse(JSON.stringify(full))
+    extra.secret = 1
+    extra.tasks[0].secret = 1
+    extra.tasks[0].detail.secret = 1
+    extra.tasks[0].detail.checks[0].secret = 1
+    extra.tasks[0].detail.blockingIssues[0].secret = 1
+    expect(publicFor('runs-completion', extra)).toEqual(full)
+  })
+})
