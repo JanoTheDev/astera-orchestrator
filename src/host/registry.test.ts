@@ -940,3 +940,110 @@ describe('PtyRegistry exited budget counts terminals, and clears on its own', ()
     }
   })
 })
+
+// A pty watched from two computers has one size: the one the side that typed last wants (tmux's `window-size latest`).
+// `local` is this machine's apps, `controller:<id>` a paired controller; terminal reports never count as typing.
+describe('PtyRegistry size owner', () => {
+  const open = () => {
+    const pty = fakePty()
+    const h = registry({ pty })
+    h.r.open({ id: 'p1', file: 'claude', args: [], opts, meta: meta() })
+    const sizes: Array<[number, number]> = []
+    h.r.onSize((_id, s) => void sizes.push([s.cols, s.rows]))
+    return { r: h.r, pty, sizes }
+  }
+
+  it('applies every resize of a pty nobody else has resized or typed into, as before', () => {
+    const h = open()
+    expect(h.r.resizeFor('p1', 'local', 100, 30)).toBe(true)
+    expect(h.r.resizeFor('p1', 'local', 120, 40)).toBe(true)
+    expect(h.pty.sizes).toEqual([[100, 30], [120, 40]])
+    expect(h.sizes).toEqual([[100, 30], [120, 40]])
+  })
+
+  it('lets a controller take the size when no local app holds the pty, and refuses it while one does', () => {
+    const held = open()
+    expect(held.r.resizeFor('p1', 'controller:mac', 90, 20)).toBe(false)
+    expect(held.pty.sizes).toEqual([])
+    expect(held.r.resizeFor('p1', 'controller:mac', 90, 20, { free: true })).toBe(true)
+    expect(held.r.ownerOf('p1')).toBe('controller:mac')
+    // The local app's own resize is then kept for later, not applied.
+    expect(held.r.resizeFor('p1', 'local', 200, 50)).toBe(false)
+    expect(held.pty.sizes).toEqual([[90, 20]])
+  })
+
+  it('gives the size to the side that types, with the size it wants, before the keystroke', () => {
+    const h = open()
+    h.r.resizeFor('p1', 'local', 200, 50)
+    h.r.resizeFor('p1', 'controller:mac', 90, 20)
+    const order: string[] = []
+    h.pty.resize = (c, r) => void order.push(`resize ${c}x${r}`)
+    h.pty.write = (d) => void order.push(`write ${d}`)
+    h.r.write('p1', 'hi', { person: true, side: 'controller:mac' })
+    expect(order).toEqual(['resize 90x20', 'write hi'])
+    expect(h.r.ownerOf('p1')).toBe('controller:mac')
+    h.r.write('p1', 'yo', { person: true, side: 'local' })
+    expect(order).toEqual(['resize 90x20', 'write hi', 'resize 200x50', 'write yo'])
+    expect(h.r.ownerOf('p1')).toBe('local')
+    expect(h.sizes).toEqual([[200, 50], [90, 20], [200, 50]])
+  })
+
+  it('does not move the size for a terminal report, a write with no side, or the owner typing again', () => {
+    const h = open()
+    h.r.resizeFor('p1', 'local', 200, 50)
+    h.r.resizeFor('p1', 'controller:mac', 90, 20)
+    h.r.write('p1', '\x1b[I', { person: true, side: 'controller:mac' })
+    h.r.write('p1', 'nudge')
+    h.r.write('p1', 'x', { person: true, side: 'local' })
+    expect(h.r.ownerOf('p1')).toBe('local')
+    expect(h.pty.sizes).toEqual([[200, 50]])
+  })
+
+  // Final review I7: a side with no window (a CLI's input) has no size to own; taking the size without one left the app
+  // that did own it judging its own size the pty's.
+  it('a side that has not said what size it wants does not take the size', () => {
+    const h = open()
+    h.r.write('p1', 'x', { person: true, side: 'controller:mac' })
+    expect(h.r.ownerOf('p1')).toBeNull()
+    expect(h.pty.sizes).toEqual([])
+  })
+
+  // Final review I5: a plain cursor position report (CSI row;col R) is what a terminal answers a CSI 6n with, which
+  // Codex asks for; both sides' terminals answer, and the later answer must not take the size.
+  it('a plain cursor position report does not take the size', () => {
+    const h = open()
+    h.r.resizeFor('p1', 'local', 200, 50)
+    h.r.resizeFor('p1', 'controller:mac', 90, 20)
+    h.r.write('p1', '\x1b[12;40R', { person: true, side: 'controller:mac' })
+    expect(h.r.ownerOf('p1')).toBeNull()
+  })
+
+  // Final review M5: tmux's `latest` works the size out again when a client leaves. A controller that closed its tab
+  // gives the size back, and the local app's size is applied.
+  it('a side that leaves gives the size back to the local apps', () => {
+    const h = open()
+    h.r.resizeFor('p1', 'local', 200, 50)
+    h.r.resizeFor('p1', 'controller:mac', 90, 20, { free: true })
+    h.r.release('p1', 'controller:mac')
+    expect(h.r.ownerOf('p1')).toBeNull()
+    expect(h.pty.sizes).toEqual([[200, 50], [90, 20], [200, 50]])
+    // Its size is forgotten: typing from it again takes nothing until it says what size it wants.
+    h.r.write('p1', 'x', { person: true, side: 'controller:mac' })
+    expect(h.r.ownerOf('p1')).toBeNull()
+  })
+
+  it('a side that leaves without owning the size changes nothing', () => {
+    const h = open()
+    h.r.resizeFor('p1', 'local', 200, 50)
+    h.r.resizeFor('p1', 'controller:mac', 90, 20)
+    h.r.release('p1', 'controller:mac')
+    expect(h.pty.sizes).toEqual([[200, 50]])
+  })
+
+  it('says whether the local apps own the size', () => {
+    const h = open()
+    expect(h.r.localOwns('p1')).toBe(true)
+    h.r.resizeFor('p1', 'controller:mac', 90, 20, { free: true })
+    expect(h.r.localOwns('p1')).toBe(false)
+  })
+})

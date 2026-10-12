@@ -54,3 +54,34 @@ export function logUnhandledRejections(
     target.off('unhandledRejection', listener)
   }
 }
+
+/**
+ * The Host's last word (2026-10-12): an exception nobody caught ends node.exe with its stack on a stderr nobody reads,
+ * and a Host died that way with every session in it and left no line. It is logged by the error's name and the frame
+ * it was thrown at (never the message, which can carry a token), and then the Host exits with 70: a process past an
+ * uncaught exception is not safe to keep, and `astera runtime serve` starts a new one. Exits even when the log
+ * throws. Synchronously, so the line is down before the exit.
+ */
+export function logUncaughtExceptions(
+  target: { on(event: 'uncaughtException', l: (err: unknown) => void): unknown },
+  log: HostLog,
+  o: { code: number; exit?: (code: number) => void }
+): void {
+  const exit = o.exit ?? ((code: number) => process.exit(code))
+  target.on('uncaughtException', (err: unknown) => {
+    try {
+      const name = err instanceof Error ? err.name : typeof err
+      // The Host's own frames, up to three, innermost first: one inside Node (`node:internal`, `<anonymous>`) says
+      // nothing about where in the Host it went wrong. A listener here stops Node printing the stack, so these frames
+      // are the whole record (final review M6). A frame carries no message.
+      const all = err instanceof Error ? (err.stack ?? '').split('\n').map((l) => l.trim()).filter((l) => l.startsWith('at ')) : []
+      const own = all.filter((l) => !l.includes('node:internal') && !l.includes('<anonymous>'))
+      const frames = (own.length > 0 ? own : all).slice(0, 3)
+      log.write(`fatal: uncaught exception (${name})${frames.length > 0 ? ` ${frames.join(' < ')}` : ''}; exiting`)
+      log.close()
+    } catch {
+      /* nowhere left to say it */
+    }
+    exit(o.code)
+  })
+}

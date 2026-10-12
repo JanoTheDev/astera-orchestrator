@@ -10,7 +10,7 @@ import path from 'node:path'
  * 없어 renderer 트리에서 node:fs를 임포트하면 typecheck가 깨진다(icons.test.ts도 core에 있다).
  *
  * xterm 6.0부터 세로 스크롤바는 네이티브(::-webkit-scrollbar)가 아니라 VS Code 유래 DOM 오버레이
- * (.xterm-scrollable-element > .scrollbar > .slider)로 그려진다. 세션 터미널은 fitTerminalToHost가
+ * (.xterm-scrollable-element > .scrollbar > .slider)로 그려진다. 세션 터미널은 wantedOf(terminalScale.ts)가
  * 폭을 셀 격자로 꽉 채우므로 이 막대가 보이면 마지막 열을 가린다.
  */
 const here = path.dirname(fileURLToPath(import.meta.url))

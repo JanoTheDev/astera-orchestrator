@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { promises as fs, existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { openHostLog, logUnhandledRejections } from './log'
+import { openHostLog, logUncaughtExceptions, logUnhandledRejections } from './log'
 
 let dir: string
 beforeEach(async () => {
@@ -100,5 +100,58 @@ describe('logUnhandledRejections', () => {
     })
     expect(() => listeners[0]('not an error')).not.toThrow()
     off()
+  })
+})
+
+// 2026-10-12: a Host died with every session and left no line, because an exception nobody caught ends node.exe with
+// its stack on a stderr nobody reads. The Host says what ended it (the error's name and the frame it was thrown at,
+// never the message, which can carry a token) and then exits, since a process past an uncaught exception is not safe
+// to keep.
+describe('logUncaughtExceptions', () => {
+  const thrown = Object.assign(new Error('invalid_auth xoxb-secret'), {
+    name: 'TypeError',
+    stack: 'TypeError: invalid_auth xoxb-secret\n    at launch (D:\\app\\host.js:120:7)\n    at run (D:\\app\\host.js:80:3)'
+  })
+
+  it('logs the name and the frames it was thrown at, not the message, and exits with the code it is given', () => {
+    const lines: string[] = []
+    const codes: number[] = []
+    let listener: (e: unknown) => void = () => {}
+    logUncaughtExceptions({ on: (_e: string, l: (e: unknown) => void) => void (listener = l) }, { write: (m) => lines.push(m), close: () => {} }, { code: 70, exit: (c) => codes.push(c) })
+    listener(thrown)
+    expect(lines).toEqual(['fatal: uncaught exception (TypeError) at launch (D:\\app\\host.js:120:7) < at run (D:\\app\\host.js:80:3); exiting'])
+    expect(lines.join('')).not.toContain('xoxb')
+    expect(codes).toEqual([70])
+  })
+
+  // Final review M6: a frame inside Node or an anonymous one says nothing about where in the Host it went wrong.
+  it("skips Node's own frames and keeps at most three of the Host's", () => {
+    const lines: string[] = []
+    let listener: (e: unknown) => void = () => {}
+    logUncaughtExceptions({ on: (_e: string, l: (e: unknown) => void) => void (listener = l) }, { write: (m) => lines.push(m), close: () => {} }, { code: 70, exit: () => {} })
+    listener(Object.assign(new Error('x'), {
+      name: 'SyntaxError',
+      stack: 'SyntaxError: x\n    at JSON.parse (<anonymous>)\n    at node:internal/foo:1:1\n    at a (D:\\h.js:1:1)\n    at b (D:\\h.js:2:1)\n    at c (D:\\h.js:3:1)\n    at d (D:\\h.js:4:1)'
+    }))
+    expect(lines).toEqual(['fatal: uncaught exception (SyntaxError) at a (D:\\h.js:1:1) < at b (D:\\h.js:2:1) < at c (D:\\h.js:3:1); exiting'])
+  })
+
+  it('still exits when the log throws, and says something for a thrown value with no stack', () => {
+    const codes: number[] = []
+    let listener: (e: unknown) => void = () => {}
+    logUncaughtExceptions({ on: (_e: string, l: (e: unknown) => void) => void (listener = l) }, { write: () => { throw new Error('disk full') }, close: () => {} }, { code: 70, exit: (c) => codes.push(c) })
+    listener(thrown)
+    const lines: string[] = []
+    logUncaughtExceptions({ on: (_e: string, l: (e: unknown) => void) => void (listener = l) }, { write: (m) => lines.push(m), close: () => {} }, { code: 70, exit: (c) => codes.push(c) })
+    listener('a string')
+    expect(codes).toEqual([70, 70])
+    expect(lines).toEqual(['fatal: uncaught exception (string); exiting'])
+  })
+})
+
+describe('the Host installs its last word', () => {
+  it('beside the rejection belt, at start', () => {
+    const index = readFileSync(path.join(process.cwd(), 'src', 'host', 'index.ts'), 'utf8')
+    expect(index).toMatch(/logUnhandledRejections\(process, log\)[\s\S]{0,200}logUncaughtExceptions\(process, log, \{ code: HOST_EXIT\.uncaught/)
   })
 })

@@ -13,7 +13,9 @@ export const HOST_EXIT = {
   /** Listening failed for any other reason. */
   listenFailed: 3,
   /** No profile folder was given. */
-  noProfile: 4
+  noProfile: 4,
+  /** An exception nobody caught: logged by name and frames, then the Host leaves (log.ts logUncaughtExceptions). */
+  uncaught: 70
 } as const
 
 export function listenExitCode(err: unknown): number {

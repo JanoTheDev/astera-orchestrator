@@ -91,7 +91,7 @@ export async function runServe(d: ServeDeps): Promise<number> {
     if (stopping) break
     if (d.now() - startedAt >= STABLE_MS) failures = 0
     // 0: another Host won the bind race, so there is one to watch. Anything else is a crash or a start failure (exit
-    // 3 for a listen failure, 4 for a missing profile; src/host/exitCodes.ts), and it backs off.
+    // 3 for a listen failure, 4 for a missing profile, 70 for an uncaught exception; src/host/exitCodes.ts), and it backs off.
     // It waits all the same: a Host this CLI cannot handshake with (another protocol, a hung one) makes every child
     // leave with 0 at once, and that must not become a spawn loop.
     if (code === 0) {

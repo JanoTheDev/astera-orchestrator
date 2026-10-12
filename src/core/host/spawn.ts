@@ -2,6 +2,7 @@
 // child_process.spawn — which is what makes the shape of the call testable, the same arrangement
 // src/core/orchestration/exec/shuttle.ts uses for the CLI shuttle.
 import type { SpawnOptions } from 'node:child_process'
+import path from 'node:path'
 import { INHERITED_AGENT_ENV_KEYS } from '../sessions/cliEnv'
 
 /** Variables that belong to one agent session and must not reach the Host: it is not a worker, and
@@ -136,5 +137,47 @@ export function hostSpawnPlan(a: {
           : {})
       }
     }
+  }
+}
+
+/** How large the Host's stderr file may grow before a spawn starts it over. */
+export const HOST_STDERR_MAX = 1 << 20
+
+/** The few `node:fs` calls `hostStderr` makes, passed in so this file stays free of a filesystem of its own. */
+export interface StderrFs {
+  statSync(p: string, o: { throwIfNoEntry: false }): { size: number } | undefined
+  renameSync(from: string, to: string): void
+  mkdirSync(p: string, o: { recursive: true }): unknown
+  openSync(p: string, flags: 'a' | 'w'): number
+  closeSync(fd: number): void
+}
+
+/**
+ * Where a Host's stderr goes: appended to `file` (`host/host-stderr.log`); past HOST_STDERR_MAX the file is moved to
+ * `<file>.1` first, so the record of the Host that just died is kept rather than cut (final review M3).
+ *
+ * 2026-10-12: a Host died with every session and nothing anywhere said why. It is spawned detached with its output
+ * ignored, and host.log is only what the Host itself writes, so what node.exe prints on a fatal error was lost. The
+ * descriptor is the child's own once the spawn returns; `close` drops this process's copy. A file that cannot be
+ * opened costs the record, never the Host: stderr is then ignored, as it always was.
+ */
+export function hostStderr(file: string, fs: StderrFs): { stdio: ['ignore', 'ignore', number | 'ignore']; close(): void } {
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    const size = fs.statSync(file, { throwIfNoEntry: false })?.size ?? 0
+    if (size > HOST_STDERR_MAX) fs.renameSync(file, `${file}.1`)
+    const fd = fs.openSync(file, 'a')
+    return {
+      stdio: ['ignore', 'ignore', fd],
+      close: () => {
+        try {
+          fs.closeSync(fd)
+        } catch {
+          /* already closed */
+        }
+      }
+    }
+  } catch {
+    return { stdio: ['ignore', 'ignore', 'ignore'], close: () => {} }
   }
 }

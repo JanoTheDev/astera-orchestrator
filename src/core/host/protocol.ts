@@ -437,7 +437,9 @@ export type ClientMessage =
    *  one the caller had rather than converting between them (see PtyFactory in core/sessions/pty.ts,
    *  and shellSpawn in core/run/shell.ts for the win32 case that produces a string). */
   | { t: 'pty-spawn'; id: string; file: string; args: string[] | string; opts: PtyOpenOptions; meta?: PtyMeta }
-  | { t: 'pty-write'; id: string; data: string }
+  /** `typed`: a person typed this in the tab (not the app's own write: a schedule, a Slack reply, a roll's prompt), which
+   *  gives this machine the pty's size when a controller had it (registry `sizeOwner`). An older app sends none. */
+  | { t: 'pty-write'; id: string; data: string; typed?: true }
   | { t: 'pty-resize'; id: string; cols: number; rows: number }
   | { t: 'pty-kill'; id: string }
   | { t: 'pty-pause'; id: string }
@@ -550,6 +552,10 @@ export type HostMessage =
   | { t: 'pty-failed'; id: string; error: string }
   | { t: 'pty-data'; id: string; data: string; /** Only to a client with the `pty-seq` feature. */ seq?: number }
   | { t: 'pty-exit'; id: string; exitCode: number }
+  /** The size the pty now has (a resize from any side), or, in reply to a `pty-resize` the Host kept but did not apply,
+   *  the size it has: another computer typed last and owns it (registry `sizeOwner`). `session` is its meta's id. An
+   *  older app ignores it. */
+  | { t: 'pty-size'; id: string; session?: string; cols: number; rows: number; /** Whether this machine's apps own the size. */ owned: boolean }
   | { t: 'pty-listed'; entries: PtyEntry[] }
   /** A pty the Host opened **itself** — a worker or coordinator it spawned for a CLI call — broadcast
    *  to every greeted client so an attached app can adopt it the way it adopts sessions after a

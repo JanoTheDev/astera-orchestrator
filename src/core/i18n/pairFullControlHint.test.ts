@@ -27,3 +27,14 @@ describe('the read-only refusal names the way to full control', () => {
     expect(row?.meaning).toContain('astera runtime pair --full-control')
   })
 })
+
+// The person's word for it (2026-10-12): the Korean screens say 페어링, the word the read-only reason already used,
+// not 짝짓기 beside it.
+describe('the Korean remote screens say 페어링', () => {
+  it('in every remote string', () => {
+    const remote = Object.entries(ko).filter(([k]) => k.startsWith('settings.remote.') || k.startsWith('remote.') || k.startsWith('jobs.runtime.'))
+    expect(remote.length).toBeGreaterThan(20)
+    expect(remote.filter(([, v]) => v.includes('짝')).map(([k]) => k)).toEqual([])
+    expect(ko['settings.remote.pair.button']).toBe('페어링')
+  })
+})

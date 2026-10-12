@@ -1,9 +1,9 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
-import { bundlePackages, dependencyClosure } from './host-runtime-scan.mjs'
+import { bundlePackages, dependencyClosure, packagerDrops, pruneUnshipped } from './host-runtime-scan.mjs'
 
 let dir
 afterEach(() => {
@@ -105,5 +105,30 @@ describe('dependencyClosure (Slack in the Host Task 2, spec §3.7)', () => {
     for (const want of ['node_modules/@slack/socket-mode', 'node_modules/@slack/web-api', 'node_modules/undici'])
       expect(got).toContain(want)
     expect(got.some((p) => p.includes('@types/') || p.endsWith('undici-types'))).toBe(false)
+  })
+})
+
+// v1.4.9 shipped a runtime.json that listed node_modules\undici\lib\llhttp\.gitkeep, which electron-builder's default
+// filters drop from extraResources. Every app start then found the runtime "missing" a file and removed it from under
+// the running Host. The manifest is walked after the files the packager drops are gone, by the packager's own lists.
+describe('packagerDrops and pruneUnshipped', () => {
+  it('drops the names electron-builder skips in every copied directory, and keeps the rest', () => {
+    for (const rel of ['node_modules\\undici\\lib\\llhttp\\.gitkeep', 'node_modules\\x\\.DS_Store'])
+      expect(packagerDrops(rel), rel).toBe(true)
+    // builder-util compares the names exactly (final review M7).
+    expect(packagerDrops('node_modules\\x\\.GITKEEP')).toBe(false)
+    // app-builder-lib's default `files` exclusions do not reach extraResources: v1.4.9's installer ships these.
+    for (const rel of ['astera-host.exe', 'node_modules\\undici\\index.js', 'node_modules\\x\\index.d.ts', 'node_modules\\x\\.npmignore', 'LICENSE.node.txt'])
+      expect(packagerDrops(rel), rel).toBe(false)
+  })
+
+  it('removes those files from a runtime tree before it is listed', () => {
+    dir = mkdtempSync(join(tmpdir(), 'astera-runtime-prune-'))
+    mkdirSync(join(dir, 'node_modules', 'undici', 'lib', 'llhttp'), { recursive: true })
+    writeFileSync(join(dir, 'node_modules', 'undici', 'lib', 'llhttp', '.gitkeep'), '')
+    writeFileSync(join(dir, 'node_modules', 'undici', 'index.js'), 'x')
+    expect(pruneUnshipped(dir)).toEqual(['node_modules\\undici\\lib\\llhttp\\.gitkeep'])
+    expect(existsSync(join(dir, 'node_modules', 'undici', 'lib', 'llhttp', '.gitkeep'))).toBe(false)
+    expect(existsSync(join(dir, 'node_modules', 'undici', 'index.js'))).toBe(true)
   })
 })
