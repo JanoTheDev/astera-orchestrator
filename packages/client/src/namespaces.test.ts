@@ -398,3 +398,46 @@ describe('the namespaces: the review fixes', () => {
     expect([both, place, owner]).toHaveLength(3)
   })
 })
+
+// SDK 1d: astera.events over a real connection: shaped pages, a Host too old for them, and a subscription that reads on
+// after the Host dropped it.
+describe('astera.events', () => {
+  const A = '0123456789ab'
+  const ev = (n: number): Record<string, unknown> => ({ id: `ev_${A}_${n}`, type: 'task.started', sequence: n, occurredAt: 'T', runId: 'run_1', payload: { id: 'tsk_1', title: 't', secret: 1 }, boot: A })
+  const shaped = (n: number): Record<string, unknown> => ({ id: `ev_${A}_${n}`, type: 'task.started', sequence: n, occurredAt: 'T', runId: 'run_1', payload: { id: 'tsk_1', title: 't' } })
+  const eventsHost = async (onCall: Parameters<typeof startHost>[0]['onCall'], features = ['orch', 'requests', 'events']): Promise<{ host: FakeHost; astera: AsteraClient }> => {
+    const host = await startHost({ key: profile.key, features, onCall })
+    opened.push(host)
+    const astera = await createAsteraClient({ profileDir: profile.dir, address: host.address })
+    opened.push(astera)
+    return { host, astera }
+  }
+
+  it('lists a page in the public shape', async () => {
+    const { host, astera } = await eventsHost((_m, reply) => reply(ok({ events: [ev(1)], cursor: `ev_${A}_1`, gap: false, extra: 1 })))
+    expect(await astera.events.list()).toEqual({ items: [shaped(1)], nextCursor: `ev_${A}_1`, gap: false })
+    expect(sent(host)).toEqual([['events-poll', { waitMs: 0 }, undefined]])
+  })
+
+  it('says to update a Host without the events feature, and sends nothing', async () => {
+    const { host, astera } = await eventsHost((_m, reply) => reply(ok({})), ['orch', 'requests'])
+    expect((await rejection(astera.events.list())).code).toBe('VERSION_MISMATCH')
+    expect(host.calls()).toEqual([])
+  })
+
+  it('a subscription reads on from its cursor after the Host dropped the connection', async () => {
+    let n = 0
+    const { host, astera } = await eventsHost((m, reply, sock) => {
+      n += 1
+      if (n === 1) return reply(ok({ events: [ev(1)], cursor: `ev_${A}_1`, gap: false }))
+      if (n === 2) return sock.destroy()
+      return reply(ok({ events: [ev(2)], cursor: `ev_${A}_2`, gap: false }))
+    })
+    const it = astera.events.subscribe({ after: `ev_${A}_0` })
+    expect((await it.next()).value).toEqual(shaped(1))
+    expect((await it.next()).value).toEqual(shaped(2))
+    await it.return?.()
+    expect(host.calls().map((c) => c.args.after)).toEqual([`ev_${A}_0`, `ev_${A}_1`, `ev_${A}_1`])
+    expect(host.hellos()).toBe(2)
+  })
+})

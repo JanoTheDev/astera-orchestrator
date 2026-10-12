@@ -78,5 +78,44 @@ for await (const item of astera.runs.follow(run.id)) {
 - Write methods take a `requestId`; read methods and the lookups a write does first (a project's folder, a Job's
   coordinator) never send one. A `timeoutMs` applies to each Host call, a lookup included.
 
-Events come next. **Not published yet.** It lives in the
-Astera repository and will be versioned separately from the app.
+**Events.** The Host keeps a log of what happens to Jobs, Runs, Tasks, questions and completion, and `events` reads
+it:
+
+```ts
+for await (const e of astera.events.subscribe({ types: ['run.completed', 'run.failed', 'completion.exhausted'] })) {
+  if (e.type === 'gap') continue // some events were lost: read the objects again
+  if (e.type === 'completion.exhausted') console.log('needs a person:', e.payload.title)
+  else console.log(e.runId, e.payload.outcome)
+}
+```
+
+| Type | When | Payload |
+|---|---|---|
+| `job.created`, `job.updated` | a Job is made; one of its own fields changes (not its derived outcome or progress) | `Job` |
+| `run.started` | a Run is made | `Run` |
+| `run.completed`, `run.failed` | its Tasks' outcome leaves `running` | `Run` |
+| `task.started` | a Task is dispatched (a retry or a repair included) | `Task` |
+| `task.completed`, `task.failed` | a Task completes; fails (a failure it will retry included) | `Task` |
+| `question.created`, `question.answered` | a question for a person opens; is answered | `Question` |
+| `completion.started` | a Task's first check starts | `TaskCompletion` |
+| `completion.failed` | a check or review round fails | `TaskCompletion` |
+| `completion.repair_started` | a repair of a failed check or review starts | `TaskCompletion` |
+| `completion.converged`, `completion.exhausted` | a Task is done; its repairs ran out | `TaskCompletion` |
+
+- An event is `{ id, type, sequence, occurredAt, projectId?, jobId?, runId?, taskId?, payload }`, the payload the
+  object as it stood right after the change. A Task is cut like `tasks.list({ brief: true })` and its checks carry no
+  output; `get` reads the whole object.
+- Events are notifications, not the state. Delivery is at least once; an `id` never repeats, so drop one you have
+  seen. `sequence` orders the events of one log.
+- `subscribe()` starts with what happens next; `subscribe({ after })` reads on from an event id or a cursor.
+  `list({ after, types, limit })` answers one page `{ items, nextCursor, gap }` from the oldest event the Host holds,
+  without waiting: pass `nextCursor` back to read on, or to `subscribe`.
+- A `{ type: 'gap' }` (or `gap: true`) means events between your cursor and the next one are gone: older than the
+  Host keeps (at least the last 1000 events, across Host restarts), or a cursor from a log this Host does not hold.
+- A subscription outlives a Host restart: a call that fails because the Host went away or did not answer is sent
+  again from the same cursor after 250 ms, 1 s, then every 5 s. It ends only on `break`/`return()`, its `signal`, or
+  an error waiting cannot mend (a Host too old for events answers `VERSION_MISMATCH`).
+- Not produced yet: `run.cancelled` (there is no cancel; a stop pauses), `github.*`, `runtime.*`. Local Host only for
+  now.
+
+**Not published yet.** It lives in the Astera repository and will be versioned separately from the app.

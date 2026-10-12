@@ -266,7 +266,7 @@ export async function createAsteraClient(options: AsteraClientOptions = {}): Pro
 
   await open()
   return {
-    ...createNamespaces(call),
+    ...createNamespaces(call, () => (host as HostInfo).features),
     get host(): HostInfo {
       return host as HostInfo
     },

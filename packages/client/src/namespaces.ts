@@ -6,6 +6,7 @@ import path from 'node:path'
 import type { CallOptions, CallResult } from './client.js'
 import { DEFAULT_WAIT_TIMEOUT_MS, FOLLOW_WINDOW_MS, TIMEOUT_HEADROOM_MS } from './deadlines.js'
 import { AsteraError } from './errors.js'
+import { createEventsApi, stoppable, type EventsApi } from './events.js'
 import { eventKey } from './follow.js'
 import { publicEvent } from './shape.js'
 import type {
@@ -144,6 +145,7 @@ export interface Namespaces {
   readonly tasks: TasksApi
   readonly questions: QuestionsApi
   readonly completion: CompletionApi
+  readonly events: EventsApi
 }
 
 type Call = (cmd: string, args?: Record<string, unknown>, options?: CallOptions) => Promise<CallResult>
@@ -181,7 +183,8 @@ const callOptions = (o: WriteOptions | undefined): CallOptions => ({
 /** A read's options: never a request id, which only a write may carry. */
 const readOptions = (o: ReadOptions | undefined): CallOptions => callOptions(o === undefined ? undefined : { signal: o.signal, timeoutMs: o.timeoutMs })
 
-export function createNamespaces(call: Call): Namespaces {
+/** `features` is the connected Host's, read per use: a reconnect may reach another Host. */
+export function createNamespaces(call: Call, features: () => readonly string[]): Namespaces {
   const body = async <T>(cmd: string, args: Record<string, unknown>, o: CallOptions): Promise<T> => (await call(cmd, args, o)).body as T
   const list = async <T>(cmd: string, args: Record<string, unknown>, o: CallOptions): Promise<ListResult<T>> => {
     const items = await body<unknown>(cmd, args, o)
@@ -293,26 +296,8 @@ export function createNamespaces(call: Call): Namespaces {
     list: async (filter = {}, o) => list<Run>('runs-list', filter.jobId !== undefined ? { job: need('jobId', filter.jobId) } : {}, readOptions(o)),
     get: async (runId, o) => body<Run>('runs-get', { id: need('runId', runId) }, readOptions(o)),
     wait: async (runId, o) => body<WaitResult>('runs-wait', waitArgs(need('runId', runId), o), waitOptions(o)),
-    follow: (runId, o = {}) => {
-      // An async generator holds a return() until its pending next() settles, so a return() while a window waits would
-      // let the loop run on to the next event or the deadline. The loop gets a signal of its own that return() aborts.
-      const stop = new AbortController()
-      const signal = o.signal !== undefined ? AbortSignal.any([o.signal, stop.signal]) : stop.signal
-      const loop = follow(runId, { ...o, signal })
-      const iterator: AsyncIterableIterator<FollowItem> = {
-        next: () => loop.next(),
-        return: async () => {
-          stop.abort(new DOMException('the follow was ended', 'AbortError'))
-          await loop.return(undefined).catch(() => undefined)
-          return { done: true, value: undefined }
-        },
-        throw: (e?: unknown) => loop.throw(e),
-        [Symbol.asyncIterator]() {
-          return this
-        }
-      }
-      return iterator
-    },
+    // return() while a window waits ends that window's call too (events.ts stoppable)
+    follow: (runId, o = {}) => stoppable((signal) => follow(runId, { ...o, signal }), o.signal),
     stop: async (runId, o) => body<StopResult>('runs-stop', { id: need('runId', runId) }, callOptions(o)),
     resume: async (runId, o) => body<Run>('runs-resume', { id: need('runId', runId) }, callOptions(o))
   }
@@ -381,5 +366,5 @@ export function createNamespaces(call: Call): Namespaces {
     get: async (runId, o) => body<RunCompletion>('runs-completion', { id: need('runId', runId) }, readOptions(o))
   }
 
-  return { projects, jobs, runs, tasks, questions, completion }
+  return { projects, jobs, runs, tasks, questions, completion, events: createEventsApi(call, features) }
 }

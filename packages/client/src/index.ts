@@ -18,3 +18,4 @@ export type {
   WaitOptions,
   WriteOptions
 } from './namespaces.js'
+export type { EventsApi, ListEventsFilter, SubscribeOptions } from './events.js'
