@@ -43,8 +43,8 @@ describe('build-packages', () => {
       cpSync(path.join(root, 'packages', 'client', 'package.json'), path.join(installed, 'package.json'))
       cpSync(dist, path.join(installed, 'dist'), { recursive: true })
       const run = (args) => execFileSync(process.execPath, args, { cwd: consumer, encoding: 'utf8' }).trim()
-      expect(run(['--input-type=module', '-e', "import('@astera-app/client').then((m) => console.log(m.ERROR_CODES.length, typeof m.AsteraError))"])).toBe(`${esm.ERROR_CODES.length} function`)
-      expect(run(['-e', "const m = require('@astera-app/client'); console.log(m.ERROR_CODES.length, typeof m.AsteraError)"])).toBe(`${esm.ERROR_CODES.length} function`)
+      expect(run(['--input-type=module', '-e', "import('@astera-app/client').then((m) => console.log(m.ERROR_CODES.length, typeof m.AsteraError, typeof m.createAsteraClient))"])).toBe(`${esm.ERROR_CODES.length} function function`)
+      expect(run(['-e', "const m = require('@astera-app/client'); console.log(m.ERROR_CODES.length, typeof m.AsteraError, typeof m.createAsteraClient)"])).toBe(`${esm.ERROR_CODES.length} function function`)
       expect(run(['-e', "console.log(require('@astera-app/client/package.json').name)"])).toBe('@astera-app/client')
     } finally {
       rmSync(out, { recursive: true, force: true })
