@@ -99,7 +99,8 @@ export function createPluginManager(d: {
       } catch (e) {
         if (e instanceof Refused) return refused(e.status, e.message)
         if (e instanceof RegistryUnreadable) return refused(500, e.message)
-        throw e
+        // A file the system would not move or write: the change was undone where it could be, and the caller is told.
+        return refused(500, e instanceof Error ? e.message : String(e))
       }
     })
     queue = run.catch(() => {})

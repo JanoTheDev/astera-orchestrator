@@ -20,6 +20,11 @@ describe('controllerRefusal (remote runtime design §3.4)', () => {
     for (const cmd of ['state-put', 'reset', 'worktree-add', 'pair-create', 'clients-list', 'clients-revoke', 'projects-add', 'github-pr-create', 'understanding-list', 'app-js', 'slack-reload', 'journal-append', 'a-command-added-later'])
       expect(controllerRefusal(cmd, p('full-control'))).toMatchObject({ status: 403, body: { code: 'RUNTIME_PERMISSION_DENIED' } })
   })
+  // Plugin runtime design P5: a remote controller never manages this machine's plugins.
+  it('refuses every plugins command at full control', () => {
+    for (const cmd of ['plugins-inspect', 'plugins-install', 'plugins-list', 'plugins-get', 'plugins-enable', 'plugins-disable', 'plugins-remove'])
+      expect(controllerRefusal(cmd, p('full-control'))).toMatchObject({ status: 403, body: { code: 'RUNTIME_PERMISSION_DENIED' } })
+  })
   it('denies an unknown level, and a call with no principal at all', () => {
     expect(controllerRefusal('jobs-list', p('control'))).toMatchObject({ status: 403 })
     expect(controllerRefusal('jobs-list', undefined)).toMatchObject({ status: 401, body: { code: 'RUNTIME_AUTH_FAILED' } })

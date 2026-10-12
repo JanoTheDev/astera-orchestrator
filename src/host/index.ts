@@ -4,6 +4,7 @@
 //
 // Everything it needs arrives in the environment, because it has no `app.getPath('userData')` to ask.
 import childProcess from 'node:child_process'
+import { createPluginManager } from './plugins/manager'
 import { existsSync, promises as fsp, readFileSync, rmSync } from 'node:fs'
 import { defaultCwdProbe, setProbeLog } from '../core/sessions/pathProbe'
 import { createRequire } from 'node:module'
@@ -631,10 +632,13 @@ async function main(): Promise<void> {
       }),
     log: (m) => log.write(m)
   })
+  // The plugins this profile has installed (plugin runtime design P4, P5): answered to the app and the CLI by the orch.
+  const plugins = createPluginManager({ profileDir, hostVersion })
   const orch = createHostOrch({
     profileDir,
     version: hostVersion,
     controllers,
+    plugins,
     now: () => new Date().toISOString(),
     // The handshake's own string, not a second one taken here: `requests show` answers with it so a
     // caller can tell "this Host never saw my request" from "it never arrived" (request receipts

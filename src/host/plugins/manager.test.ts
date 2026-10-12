@@ -277,6 +277,16 @@ describe('get, enable, disable, remove', () => {
   })
 })
 
+describe('a file system that refuses', () => {
+  it('answers 500 with what the system said, instead of throwing at the Host', async () => {
+    // A file where the plugins folder belongs: the install cannot make it.
+    await fs.writeFile(pluginsRoot(profile), 'not a folder')
+    const r = await manager.install({ path: await plugin(FOLDER), grant: [] })
+    expect(r.status).toBe(500)
+    expect(body(r).error).toEqual(expect.any(String))
+  })
+})
+
 describe('a plugins.json broken by hand', () => {
   it('answers 500 naming the file, and refuses every change without writing', async () => {
     const root = pluginsRoot(profile)

@@ -2,6 +2,11 @@ import { describe, it, expect } from 'vitest'
 import { mcpRefusal, MCP_READ_COMMANDS, MCP_CONTROL_COMMANDS, MCP_SESSION_READ_COMMANDS, MCP_SESSION_WRITE_COMMANDS, MCP_GITHUB_WRITE_COMMANDS } from './mcpGate'
 
 describe('mcpRefusal', () => {
+  // Plugin runtime design P5: managing plugins is for this machine's app and CLI; no MCP setting opens it.
+  it('refuses every plugins command at every access level', () => {
+    for (const cmd of ['plugins-inspect', 'plugins-install', 'plugins-list', 'plugins-get', 'plugins-enable', 'plugins-disable', 'plugins-remove'])
+      for (const access of ['read', 'control'] as const) expect(mcpRefusal(cmd, access, true, true)?.status).toBe(403)
+  })
   it('off refuses every command and names the setting', () => {
     const r = mcpRefusal('jobs-list', 'off', false, false)
     expect(r?.status).toBe(403)

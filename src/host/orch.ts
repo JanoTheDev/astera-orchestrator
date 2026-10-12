@@ -2,6 +2,8 @@
 // §5, §6). This is what replaces the wire slice's `version`-only stub — `server.ts` calls
 // `OrchCall.call` and did not change when it did.
 import { REMOTE_SESSION_CHANGES, REMOTE_SESSION_READS, type RemoteSessions } from './remoteSessions'
+import { PLUGIN_COMMANDS, pluginsCommand } from './plugins/commands'
+import type { PluginManager } from './plugins/manager'
 import { createHash } from 'node:crypto'
 import path from 'node:path'
 import { stat } from 'node:fs/promises'
@@ -545,6 +547,9 @@ export function createHostOrch(a: {
    *  P2), and the app only `workspace-list`, `workspace-stop`, `workspace-close` and `workspace-size` above
    *  it. Absent: all five answer 501. */
   workspaces?: Pick<WorkspaceManager, 'run' | 'stop' | 'close' | 'list' | 'resize'>
+  /** The plugins this profile has installed (plugin runtime design P4, P5): every `plugins-*` command, for this
+   *  machine's app and CLI, below the receipt line. Absent: all of them answer 501. */
+  plugins?: PluginManager
   /** Session work units in the Host (E2 §5), asked per call: `index.ts` builds them after this orch (their
    *  in-Run test reads its state). Passed through to `hostOrchDeps` (HOST_TRACKS), and the app only
    *  `work-units-fork`, `-reload`, `-complete`, `-cancel` and `-git-op`. Absent, or null (no spawner, so no
@@ -1929,6 +1934,20 @@ export function createHostOrch(a: {
             await depsFor(marks, actorOf({ sessionId, role: from?.role, state: before })).setState(state)
           const added = { status: 200, body: project }
           return claimed === null ? added : settleRequest(claimed, cmd, marks, added)
+        }
+        // **Plugins, for this machine's app and CLI** (plugin runtime design P5): the Host's plugin manager answers them,
+        // beside `projects-add` and for its reason: below the receipt line, so a lost answer to an install is retried with
+        // its request id and replayed instead of installed twice. An agent's shell may read but not change them.
+        if (PLUGIN_COMMANDS.has(cmd)) {
+          const answered = await pluginsCommand({
+            manager: a.plugins,
+            cmd,
+            args,
+            role: from?.role,
+            ...(agentShell(from, sessionId) ? { agentRefusal: AGENT_REFUSAL(cmd) } : {}),
+            marks
+          })
+          return claimed === null ? answered : settleRequest(claimed, cmd, marks, answered)
         }
         // Design §8: a call that arrives before the state is loaded waits, rather than failing.
         await ready()

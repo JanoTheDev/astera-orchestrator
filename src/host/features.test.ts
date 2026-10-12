@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { hostFeatures } from './features'
-import { HOST_FEATURE_BLOCKS, HOST_FEATURE_CHAT_TAKEOVER, HOST_FEATURE_COORDINATOR_IDLE, HOST_FEATURE_DISPATCH, HOST_FEATURE_DRIVER, HOST_FEATURE_EVENTS, HOST_FEATURE_JOURNAL, HOST_FEATURE_MCP_HTTP, HOST_FEATURE_RECOVERY, HOST_FEATURE_REMOTE, HOST_FEATURE_ROLLING, HOST_FEATURE_ROLL_JOURNAL, HOST_FEATURE_SLACK_OWNER, HOST_FEATURE_SPAWN, HOST_FEATURE_UNDERSTANDING, HOST_FEATURE_WORKSPACE, HOST_FEATURE_WORKSPACE_SIZE, HOST_FEATURE_WORK_UNITS, HOST_FEATURE_WORKTREES } from '../core/host/protocol'
+import { HOST_FEATURE_BLOCKS, HOST_FEATURE_CHAT_TAKEOVER, HOST_FEATURE_COORDINATOR_IDLE, HOST_FEATURE_DISPATCH, HOST_FEATURE_DRIVER, HOST_FEATURE_EVENTS, HOST_FEATURE_JOURNAL, HOST_FEATURE_MCP_HTTP, HOST_FEATURE_PLUGINS, HOST_FEATURE_RECOVERY, HOST_FEATURE_REMOTE, HOST_FEATURE_ROLLING, HOST_FEATURE_ROLL_JOURNAL, HOST_FEATURE_SLACK_OWNER, HOST_FEATURE_SPAWN, HOST_FEATURE_UNDERSTANDING, HOST_FEATURE_WORKSPACE, HOST_FEATURE_WORKSPACE_SIZE, HOST_FEATURE_WORK_UNITS, HOST_FEATURE_WORKTREES } from '../core/host/protocol'
 
 describe('hostFeatures (R17)', () => {
   it('announces spawn, worktrees, dispatch, rolling, blocks and roll-journal together, or none of them', () => {
@@ -20,10 +20,11 @@ describe('hostFeatures (R17)', () => {
       HOST_FEATURE_EVENTS,
       HOST_FEATURE_UNDERSTANDING,
       HOST_FEATURE_MCP_HTTP,
-      HOST_FEATURE_REMOTE
+      HOST_FEATURE_REMOTE,
+      HOST_FEATURE_PLUGINS
     ])
     // coordinator-idle rides no spawner (final round 3): every Host serves the CLI's check --wait.
-    expect(hostFeatures({ spawns: false })).toEqual([HOST_FEATURE_COORDINATOR_IDLE, HOST_FEATURE_JOURNAL, HOST_FEATURE_EVENTS, HOST_FEATURE_UNDERSTANDING, HOST_FEATURE_MCP_HTTP, HOST_FEATURE_REMOTE])
+    expect(hostFeatures({ spawns: false })).toEqual([HOST_FEATURE_COORDINATOR_IDLE, HOST_FEATURE_JOURNAL, HOST_FEATURE_EVENTS, HOST_FEATURE_UNDERSTANDING, HOST_FEATURE_MCP_HTTP, HOST_FEATURE_REMOTE, HOST_FEATURE_PLUGINS])
   })
   // Remote runtime design §2.6: recovery starts workers, so only a Host that starts them recovers.
   it('announces recovery only with a spawner', () => {
@@ -50,6 +51,13 @@ describe('hostFeatures (R17)', () => {
   it('announces journal with or without a spawner', () => {
     expect(hostFeatures({ spawns: true })).toContain(HOST_FEATURE_JOURNAL)
     expect(hostFeatures({ spawns: false })).toContain(HOST_FEATURE_JOURNAL)
+  })
+
+  // Plugin runtime design P5: every Host has a plugin manager and answers the plugins commands.
+  it('announces plugins with or without a spawner', () => {
+    expect(HOST_FEATURE_PLUGINS).toBe('plugins')
+    expect(hostFeatures({ spawns: true })).toContain(HOST_FEATURE_PLUGINS)
+    expect(hostFeatures({ spawns: false })).toContain(HOST_FEATURE_PLUGINS)
   })
 
   // SDK 1d: every Host commits, so every Host keeps the public event log and answers events-poll.

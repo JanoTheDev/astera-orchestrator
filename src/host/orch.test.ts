@@ -51,6 +51,7 @@ import type { HostJournal } from './hostJournal'
 import { createHostUnderstanding, NOT_WRITER, type HostUnderstanding } from './hostUnderstanding'
 import { runRecordInputOf } from '../core/orchestration/runRecord'
 import { createControllerRegistry } from './controllers'
+import { createPluginManager } from './plugins/manager'
 
 const NOW = '2026-09-22T00:00:00.000Z'
 /** 이 Host 가 선 시각. `now` 보다 **앞**이어야 하는 값이다 — `requests show` 가 이것을 실어 주는
@@ -913,6 +914,64 @@ describe('projects-add (remote runtime N5)', () => {
   it('is refused to a controller', async () => {
     const r = await orchOver().call({ cmd: 'projects-add', args: { path: dir }, sessionId: '', from: { role: 'controller', principal: { clientId: 'cli_x', name: 'x', permission: 'full-control' }, toOthers: () => {} } })
     expect(r.status).toBe(403)
+  })
+})
+
+describe('plugins (plugin runtime design P5)', () => {
+  const cli = { role: 'cli' as const, toOthers: () => {} }
+  const pluginFolder = async (): Promise<string> => {
+    const at = path.join(dir, 'my plugin')
+    await fs.mkdir(at, { recursive: true })
+    await fs.writeFile(
+      path.join(at, 'package.json'),
+      JSON.stringify({ name: 'astera-hello', version: '1.0.0', astera: { apiVersion: '1', entry: 'index.js', permissions: ['jobs.read'] } })
+    )
+    await fs.writeFile(path.join(at, 'index.js'), '')
+    return at
+  }
+  const withPlugins = () => orchOver({ plugins: createPluginManager({ profileDir: dir, hostVersion: '9.9.9' }) })
+
+  it('answers the CLI from the plugin manager', async () => {
+    expect(await withPlugins().call({ cmd: 'plugins-list', args: {}, sessionId: '', from: cli })).toEqual({ status: 200, body: { plugins: [] } })
+  })
+
+  it('is refused to MCP and to a controller by their gates', async () => {
+    const orch = withPlugins()
+    const mcp = await orch.call({ cmd: 'plugins-list', args: {}, sessionId: '', from: { role: 'mcp', toOthers: () => {} } })
+    expect(mcp.status).toBe(403)
+    const controller = await orch.call({
+      cmd: 'plugins-list',
+      args: {},
+      sessionId: '',
+      from: { role: 'controller', principal: { clientId: 'cli_x', name: 'x', permission: 'full-control' }, toOthers: () => {} }
+    })
+    expect(controller.status).toBe(403)
+  })
+
+  it('refuses an install to an agent session’s shell', async () => {
+    const r = await withPlugins().call({ cmd: 'plugins-install', args: { path: await pluginFolder(), grant: [] }, sessionId: 'sess_1', from: cli })
+    expect(r.status).toBe(403)
+    expect((r.body as { error: string }).error).toMatch(/not an agent session/)
+  })
+
+  it('answers 501 on a Host with no plugin manager', async () => {
+    expect((await orchOver().call({ cmd: 'plugins-list', args: {}, sessionId: '', from: cli })).status).toBe(501)
+  })
+
+  it('replays an install sent again with its request id, and installs once', async () => {
+    const orch = withPlugins()
+    const args = { path: await pluginFolder(), grant: ['jobs.read'] }
+    const first = await orch.call({ cmd: 'plugins-install', args, sessionId: '', from: cli, request: 'req-install-1' })
+    expect(first.status).toBe(200)
+    // The folder changes between the two: a second run would install 2.0.0, a replay answers what the first did.
+    await fs.writeFile(
+      path.join(args.path, 'package.json'),
+      JSON.stringify({ name: 'astera-hello', version: '2.0.0', astera: { apiVersion: '1', entry: 'index.js', permissions: ['jobs.read'] } })
+    )
+    const second = await orch.call({ cmd: 'plugins-install', args, sessionId: '', from: cli, request: 'req-install-1' })
+    expect(second).toEqual({ ...first, replayed: true })
+    const listed = await orch.call({ cmd: 'plugins-list', args: {}, sessionId: '', from: cli })
+    expect(listed.body).toMatchObject({ plugins: [{ id: 'astera-hello', version: '1.0.0' }] })
   })
 })
 
