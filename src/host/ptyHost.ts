@@ -35,7 +35,7 @@ export function attachPtyHost(a: {
   /** A pty's size as the apps hear it, with its session, so the tab can show it whole when it does not own it. */
   const sizeMessage = (id: string, size: { cols: number; rows: number }): HostMessage => {
     const session = a.registry.metaOf(id)?.id
-    return { t: 'pty-size', id, ...(session !== undefined ? { session } : {}), cols: size.cols, rows: size.rows }
+    return { t: 'pty-size', id, ...(session !== undefined ? { session } : {}), cols: size.cols, rows: size.rows, owned: a.registry.localOwns(id) }
   }
   a.registry.onSize((id, size) => a.broadcast(sizeMessage(id, size)))
   /** Which sockets hold each pty paused. An exited pty's go with it (review M7). */
@@ -52,13 +52,15 @@ export function attachPtyHost(a: {
       case 'pty-write':
         // A person typing in a tab, as far as the Host can tell: the app's own few deliveries come this
         // way too, which only makes a finished Run's grace wait longer (registry.ts, lastPersonWriteAt).
-        // The app's side for the size: typing here takes it back from a controller (registry `sizeOwner`).
-        a.registry.write(m.id, m.data, { person: true, side: 'local' })
+        // The app's side for the size: a person typing in the tab takes it back from a controller (registry `sizeOwner`);
+        // the app's own writes do not (final review I4).
+        a.registry.write(m.id, m.data, m.typed === true ? { person: true, side: 'local' } : { person: true })
         return true
       case 'pty-resize': {
         // Kept, not applied, while a controller owns the size: the app is told the size the pty has instead.
         if (!a.registry.resizeFor(m.id, 'local', m.cols, m.rows)) {
-          const size = a.registry.size(m.id)
+          // Only for a live pty: an ended one keeps its size for `sessions read`, not for a tab (final review M3).
+          const size = a.registry.exitCodeOf(m.id) === null ? a.registry.size(m.id) : null
           if (size) send(sizeMessage(m.id, size))
         }
         return true

@@ -90,11 +90,11 @@ const rig = async (o: { held?: boolean | null; transcript?: string; hostWrites?:
     sessions: { ...sessions, sendChat: async () => {}, serial: (_id, run) => run() },
     remoteSessions: remote
   })
-  const as = (permission: 'read-only' | 'full-control'): OrchCaller =>
-    ({ role: 'controller', principal: { clientId: 'c1', name: 'laptop', permission }, toOthers: () => {} }) as OrchCaller
-  const ask = (cmd: string, args: Record<string, unknown>, permission: 'read-only' | 'full-control' = 'full-control', request?: string) =>
-    orch.call({ cmd, args, sessionId: '', from: as(permission), ...(request ? { request } : {}) })
-  return { pty, ptys, ask, answered, killed, acts }
+  const as = (permission: 'read-only' | 'full-control', clientId = 'c1'): OrchCaller =>
+    ({ role: 'controller', principal: { clientId, name: 'laptop', permission }, toOthers: () => {} }) as OrchCaller
+  const ask = (cmd: string, args: Record<string, unknown>, permission: 'read-only' | 'full-control' = 'full-control', request?: string, clientId?: string) =>
+    orch.call({ cmd, args, sessionId: '', from: as(permission, clientId), ...(request ? { request } : {}) })
+  return { pty, ptys, ask, answered, killed, acts, remote }
 }
 
 describe('remote sessions through the Host (Phase 9a)', () => {
@@ -155,6 +155,28 @@ describe('remote sessions through the Host (Phase 9a)', () => {
     expect(h.ptys.ownerOf('pty-1')).toBe('controller:c1')
     expect(await h.ask('sessions-resize', { id: 'ses-1', cols: 110, rows: 32 })).toMatchObject({ body: { applied: true } })
     expect(h.pty.sizes).toEqual([[100, 30], [110, 32]])
+  })
+
+  // Final review M6, M7: the answer says who has the size (this Runtime's own app, or another controller), and that the
+  // Runtime gives the size to whoever types (an older Runtime does not, and its answer carries no `latest`).
+  it('a refused resize says whether the Runtime or another controller has the size, and that typing takes it', async () => {
+    const h = await rig({ held: true })
+    expect(await h.ask('sessions-resize', { id: 'ses-1', cols: 100, rows: 30 })).toMatchObject({ body: { applied: false, reason: 'held', latest: true } })
+    await h.ask('sessions-resize', { id: 'ses-1', cols: 120, rows: 40 }, 'full-control', undefined, 'c2')
+    await h.ask('sessions-input', { id: 'ses-1', data: 'x' }, 'full-control', undefined, 'c2')
+    expect(await h.ask('sessions-resize', { id: 'ses-1', cols: 100, rows: 30 })).toMatchObject({ body: { applied: false, reason: 'other', latest: true } })
+    expect(await h.ask('sessions-resize', { id: 'ses-1', cols: 121, rows: 40 }, 'full-control', undefined, 'c2')).toMatchObject({ body: { applied: true, latest: true } })
+  })
+
+  // Final review M4: a caller that is not a controller has no side of its own: its input takes no size, and its resize
+  // acts for this machine.
+  it('a caller with no controller side takes no size by typing', async () => {
+    const h = await rig()
+    await h.remote.change('sessions-resize', { id: 'ses-1', cols: 90, rows: 20 }, () => {})
+    expect(h.ptys.ownerOf('pty-1')).toBeNull()
+    await h.remote.change('sessions-input', { id: 'ses-1', data: 'x' }, () => {})
+    expect(h.ptys.ownerOf('pty-1')).toBeNull()
+    expect(h.pty.sizes).toEqual([[90, 20]])
   })
 
   it('sessions-stop ends the session; input to an ended one is 409', async () => {

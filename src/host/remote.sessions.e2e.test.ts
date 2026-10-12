@@ -227,11 +227,11 @@ describe('Remote Runtime Phase 9a acceptance (remote sessions over the link)', {
     const conv = body<{ turns: Array<{ id: string }>; more: boolean }>(await link.call('sessions-conversation', { id: 'claude-1' }))
     expect(conv.turns.length).toBe(2)
 
-    expect(body(await link.call('sessions-resize', { id: 'claude-1', cols: 120, rows: 40 }))).toEqual({ applied: true })
+    expect(body(await link.call('sessions-resize', { id: 'claude-1', cols: 120, rows: 40 }))).toEqual({ applied: true, latest: true })
     // The first resize, with nobody holding the pty here, gave this controller the size; it keeps it when an app here
     // attaches, until someone types here (registry `sizeOwner`, tmux's `window-size latest`).
     rt.setHeld(true)
-    expect(body(await link.call('sessions-resize', { id: 'claude-1', cols: 90, rows: 30 }))).toEqual({ applied: true })
+    expect(body(await link.call('sessions-resize', { id: 'claude-1', cols: 90, rows: 30 }))).toEqual({ applied: true, latest: true })
 
     expect(body(await link.call('sessions-stop', { id: 'claude-1' }))).toEqual({ stopped: true })
     expect(pty.killed).toBe(true)

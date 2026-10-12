@@ -265,7 +265,7 @@ describe('attachPtyHost size', () => {
     const h = harness()
     h.send(spawnMsg)
     h.send({ t: 'pty-resize', id: 'p1', cols: 100, rows: 30 })
-    expect(h.broadcast).toContainEqual({ t: 'pty-size', id: 'p1', session: 'trm_1', cols: 100, rows: 30 })
+    expect(h.broadcast).toContainEqual({ t: 'pty-size', id: 'p1', session: 'trm_1', cols: 100, rows: 30, owned: true })
   })
 
   it('answers a resize it kept for later with the size the pty has', () => {
@@ -274,7 +274,7 @@ describe('attachPtyHost size', () => {
     h.registry.resizeFor('p1', 'controller:mac', 90, 20, { free: true })
     h.replies.length = 0
     h.send({ t: 'pty-resize', id: 'p1', cols: 200, rows: 50 })
-    expect(h.replies).toEqual([{ t: 'pty-size', id: 'p1', session: 'trm_1', cols: 90, rows: 20 }])
+    expect(h.replies).toEqual([{ t: 'pty-size', id: 'p1', session: 'trm_1', cols: 90, rows: 20, owned: false }])
   })
 
   it('an app typing takes the size back', () => {
@@ -282,8 +282,30 @@ describe('attachPtyHost size', () => {
     h.send(spawnMsg)
     h.send({ t: 'pty-resize', id: 'p1', cols: 200, rows: 50 })
     h.registry.resizeFor('p1', 'controller:mac', 90, 20, { free: true })
-    h.send({ t: 'pty-write', id: 'p1', data: 'x' })
+    h.send({ t: 'pty-write', id: 'p1', data: 'x', typed: true })
     expect(h.registry.ownerOf('p1')).toBe('local')
     expect(h.registry.size('p1')).toEqual({ cols: 200, rows: 50 })
+  })
+
+  // Final review I4: the app writes into a session on its own too (a schedule's prompt, a Slack reply, a roll's
+  // "continue", a Job's delivery); only what a person typed in the tab takes the size.
+  it("the app's own writes do not take the size", () => {
+    const h = harness()
+    h.send(spawnMsg)
+    h.send({ t: 'pty-resize', id: 'p1', cols: 200, rows: 50 })
+    h.registry.resizeFor('p1', 'controller:mac', 90, 20, { free: true })
+    h.send({ t: 'pty-write', id: 'p1', data: 'continue' })
+    expect(h.registry.ownerOf('p1')).toBe('controller:mac')
+  })
+
+  // Final review M3: an ended pty keeps its size for `sessions read`, but a tab resized after the end is not told it.
+  it('answers nothing for a pty that has ended', () => {
+    const h = harness()
+    h.send(spawnMsg)
+    h.registry.resizeFor('p1', 'controller:mac', 90, 20, { free: true })
+    h.pty.exit(0)
+    h.replies.length = 0
+    h.send({ t: 'pty-resize', id: 'p1', cols: 200, rows: 50 })
+    expect(h.replies).toEqual([])
   })
 })
