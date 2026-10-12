@@ -87,7 +87,7 @@ export function attachConsoleLinks(
       // A path a TUI cut at the right edge and went on with after its indentation (cutCandidates): the ways it can read
       // joined, word by word. Only a link that crosses a cut and covers the row under the pointer (final review I1: xterm
       // drops a row's links that another row's link overlaps), only one the resolver finds, the longest of those, and
-      // none where the first row's word names a file by itself (final review I2: `a.ts:125` then `4.` is not `a.ts:1254`).
+      // none where the first row's word names a file by itself (final review I2: a file and its line, then the next row's list number, is not a longer line number).
       const across = (resolvePath ? cutCandidates(rowCells, y - 1, term.cols) : []).flatMap((c) =>
         findConsoleLinks(c.text)
           .filter((l) => l.kind === 'path' && l.start < c.head.text.length && l.end > c.head.text.length)

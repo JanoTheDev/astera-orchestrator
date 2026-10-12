@@ -110,10 +110,10 @@ describe('attachConsoleLinks across a cut path', () => {
 
   // Final review I2: a link the first row names by itself is not lengthened by the next row's first word.
   it('does not lengthen a link the first row names by itself', async () => {
-    const f = fakeTerm(['  see src/app.ts:125', '  4. next'], 20)
-    attach(f, ['src/app.ts'])
+    const f = fakeTerm(['  see lib/app.py:125', '  4. next'], 20)
+    attach(f, ['lib/app.py'])
     const got = await f.links(1)
-    expect(got?.map((l) => l.text)).toEqual(['src/app.ts'])
+    expect(got?.map((l) => l.text)).toEqual(['lib/app.py'])
     expect(got?.[0].range).toEqual({ start: { x: 7, y: 1 }, end: { x: 20, y: 1 } })
     expect(await f.links(2)).toBeUndefined()
   })
