@@ -54,3 +54,28 @@ export function logUnhandledRejections(
     target.off('unhandledRejection', listener)
   }
 }
+
+/**
+ * The Host's last word (2026-10-12): an exception nobody caught ends node.exe with its stack on a stderr nobody reads,
+ * and a Host died that way with every session in it and left no line. It is logged by the error's name and the frame
+ * it was thrown at (never the message, which can carry a token), and then the Host exits with 70: a process past an
+ * uncaught exception is not safe to keep, and `astera runtime serve` starts a new one. Exits even when the log
+ * throws. Synchronously, so the line is down before the exit.
+ */
+export function logUncaughtExceptions(
+  target: { on(event: 'uncaughtException', l: (err: unknown) => void): unknown },
+  log: HostLog,
+  exit: (code: number) => void = (code) => process.exit(code)
+): void {
+  target.on('uncaughtException', (err: unknown) => {
+    try {
+      const name = err instanceof Error ? err.name : typeof err
+      const frame = err instanceof Error ? (err.stack ?? '').split('\n').find((l) => l.trimStart().startsWith('at '))?.trim() : undefined
+      log.write(`fatal: uncaught exception (${name})${frame ? ` ${frame}` : ''}; exiting`)
+      log.close()
+    } catch {
+      /* nowhere left to say it */
+    }
+    exit(70)
+  })
+}

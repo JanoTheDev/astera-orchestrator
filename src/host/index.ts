@@ -17,7 +17,7 @@ import { hostPidFilePath, writeHostPidFile } from '../core/host/pidFile'
 import { SPAWN_DEADLINE_MS } from '../core/host/unresponsive'
 import { hideForkedConsoleWindows } from './childWindows'
 import { trustSystemCa } from './systemCa'
-import { openHostLog, logUnhandledRejections } from './log'
+import { openHostLog, logUncaughtExceptions, logUnhandledRejections } from './log'
 import { flushAll, flushAllLogsSync } from '../core/log/logWriter'
 import { startHostServer } from './server'
 import { HOST_EXIT, listenExitCode } from './exitCodes'
@@ -118,6 +118,8 @@ async function main(): Promise<void> {
   // Final review C1, the belt: a rejection nobody handled is logged and never ends the Host (and every
   // session in it). Each path keeps its own catch; this only keeps a miss from being fatal.
   logUnhandledRejections(process, log)
+  // 2026-10-12: an exception nobody caught ended a Host with every session and no line; it is logged before the exit.
+  logUncaughtExceptions(process, log)
   // S6-22: the OS certificate store joins Node's default CAs before any HTTPS (the usage lookup), so a
   // TLS-inspecting proxy's root verifies. Never throws; on failure the defaults stay (systemCa.ts).
   trustSystemCa(tls, (m) => log.write(m))

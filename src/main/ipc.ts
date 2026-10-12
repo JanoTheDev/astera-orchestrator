@@ -1,7 +1,7 @@
 import { ipcMain, dialog, app, shell, session, webContents, type BrowserWindow, type WebContents } from 'electron'
 import { killProcessTree } from '../core/run/kill'
 import { cachedByStamp } from '../core/stampCache'
-import { promises as fs, existsSync, readFileSync } from 'node:fs'
+import fsSync, { promises as fs, existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import net from 'node:net'
@@ -31,7 +31,7 @@ import {
   type ConversationSessions
 } from './conversation'
 import { HostClient, READY_TIMEOUT_MS } from './host/client'
-import { hostSpawnPlan, resolveHostEntry } from '../core/host/spawn'
+import { hostSpawnPlan, hostStderr, resolveHostEntry } from '../core/host/spawn'
 import { hostRuntimeBase } from '../core/host/runtime'
 import { createRuntimeInstaller, installHostRuntime, spawnWhenInstalled, type InstalledRuntime } from './host/runtimeInstall'
 import { executableProbe, parseExecutablePath, hostKillPlan, killHostCommand } from './host/hostProcess'
@@ -6200,7 +6200,10 @@ export function registerIpc(
           version: app.getVersion(),
           cli: cliEntry && existsSync(skills) ? { exec: process.execPath, entry: cliEntry, skills } : undefined
         })
-        const child = spawn(plan.command, plan.args, plan.options)
+        // Its stderr to a file beside host.log, so a Host that dies of something it could not log leaves the reason.
+        const stderr = hostStderr(path.join(profileDir, 'host', 'host-stderr.log'), fsSync)
+        const child = spawn(plan.command, plan.args, { ...plan.options, stdio: stderr.stdio })
+        stderr.close()
         // A spawn that fails arrives as an async 'error' event, not a throw, and an unhandled one is
         // an uncaught exception in the main process. The client's own retry loop reports the outcome
         // to the person; this only has to keep the failure from being fatal.

@@ -3,13 +3,13 @@
 // **This file must not import from `./run` — `run.ts` imports this file, and the reverse would be a
 // cycle.** So `runHostCommand` below returns a value instead of printing one; `run.ts` renders it
 // with `renderOk` and calls `process.exit` itself.
-import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import fsSync, { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import os from 'node:os'
 import path from 'node:path'
 import { HOST_PROTOCOL } from '../core/host/protocol'
 import { connectHost, type HostConnection } from '../core/host/connect'
-import { hostSpawnPlan, resolveHostEntry, type HostCliPaths } from '../core/host/spawn'
+import { hostSpawnPlan, hostStderr, resolveHostEntry, type HostCliPaths } from '../core/host/spawn'
 import { hostRuntimeBase, hostRuntimePaths } from '../core/host/runtime'
 import { HOST_STOP_WAIT_MS } from '../core/host/unresponsive'
 import { hostAddress, siblingHostAddresses } from '../host/address'
@@ -582,7 +582,10 @@ async function runHostCommandNow(a: {
   const planned = hostSpawnPlanFor({ profileDir, platform: a.platform, env: a.env })
   if ('error' in planned) return { ok: false, error: planned.error }
   const { plan, logPath } = planned
-  const child = spawn(plan.command, plan.args, plan.options)
+  // Its stderr to a file beside host.log, so a Host that dies of something it could not log leaves the reason.
+  const stderr = hostStderr(path.join(profileDir, 'host', 'host-stderr.log'), fsSync)
+  const child = spawn(plan.command, plan.args, { ...plan.options, stdio: stderr.stdio })
+  stderr.close()
   // A spawn that fails arrives as an async 'error' event, not a throw — see the same handling in
   // `src/main/ipc.ts`'s `startHostClient`. The polling loop below reports the outcome either way; this
   // only keeps a failed spawn from being an unhandled process-level error.
