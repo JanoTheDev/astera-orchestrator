@@ -6655,6 +6655,10 @@ export function registerIpc(
     })
     // E2 §6: the Host wrote workUnits.json, or ignored a /goal. onHostPush never throws.
     client.onMessage((m) => appWorkUnits.onHostPush(m))
+    // A session pty's size, to its tab: the tab shows the pty whole while a controller that typed last owns the size.
+    client.onMessage((m) => {
+      if (m.t === 'pty-size' && m.session !== undefined) send('session:pty-size', { sessionId: m.session, cols: m.cols, rows: m.rows })
+    })
 
     /** One sweep: ask the Host what it is holding, hand each entry to the manager its note names,
      *  and report what that answer is worth to the restart cleanup. Run at startup, and again on a
