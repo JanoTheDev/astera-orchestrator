@@ -11,6 +11,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js'
 import type { McpClient } from '../../core/continuity/actor'
 import { createTokenReader, tokenMatches } from '../../core/mcp/httpToken'
+import { isVirtualAdapter } from '../../core/net/adapters'
 import type { HostLink } from './hostLink'
 import { createMcpServer, openMcpHostLink } from './server'
 
@@ -52,16 +53,6 @@ export function hostsWithoutPort(allowed: Iterable<string>, port: number): strin
   return [...allowed].map((h) => (h.endsWith(suffix) ? h.slice(0, -suffix.length).replace(/^\[(.*)\]$/, '$1') : h))
 }
 
-/** Adapter names of virtual networks on this machine, case-insensitive. Other devices cannot reach their
- *  addresses. Windows names are matched anywhere: Hyper-V's `vEthernet (Default Switch)` and WSL's
- *  `vEthernet (WSL (Hyper-V firewall))`, `VirtualBox Host-Only Network`, `VMware Network Adapter VMnet1`,
- *  `Loopback Pseudo-Interface 1`. A bare `vEthernet` is not virtual: a Hyper-V External switch puts the
- *  physical LAN address on `vEthernet (<switch name>)`. Linux and macOS names are matched at the start:
- *  docker's `docker0`, `br-<hex>`, `veth<hex>` (but not `vEthernet`), libvirt's
- *  `virbr0`, VirtualBox's `vboxnet0`, VMware's `vmnet8`.
- *  Substring terms can still catch a physical adapter someone renamed to contain one (`wsl`, `docker`); that
- *  is accepted, and a typed `--hosts` address is offered regardless. */
-const VIRTUAL_ADAPTER = /default switch|wsl|hyper-v|docker|virtualbox|vmware|loopback|^(?:br-|veth(?!ernet)|virbr|vboxnet|vmnet)/i
 
 /** The hosts the ready line offers (the settings screen's URLs): hostsWithoutPort of allowedHosts, without the
  *  addresses only virtual adapters have. Those stay in allowedHosts, as a VM on this machine may use them; an
@@ -72,7 +63,7 @@ export function offeredHosts(
   hosts: string[],
   interfaces: Record<string, Array<{ address: string }> | undefined> = os.networkInterfaces()
 ): string[] {
-  const physical = Object.fromEntries(Object.entries(interfaces).filter(([name]) => !VIRTUAL_ADAPTER.test(name)))
+  const physical = Object.fromEntries(Object.entries(interfaces).filter(([name]) => !isVirtualAdapter(name)))
   return hostsWithoutPort(allowedHosts(port, bind, hosts, physical), port)
 }
 

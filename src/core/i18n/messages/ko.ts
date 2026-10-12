@@ -81,7 +81,7 @@ export const ko = {
   'settings.cli.copy': '복사',
   'settings.cli.cmdRawPath': 'Astera 가 ASCII 가 아닌 이름의 폴더에 설치되어 있어 cmd 나 PowerShell 의 astera 가 돌지 않을 수 있습니다: {detail}. Git Bash 에서는 돕니다. ASCII 이름의 폴더에 다시 설치하면 고쳐집니다.',
   'settings.tab.remote': '원격 Runtime',
-  'settings.remote.hint': '다른 컴퓨터에서 도는 Astera(Runtime)의 Job 을 이 앱에서 봅니다. 연결은 그 컴퓨터의 키를 확인한 뒤에만 이루어지고, 토큰은 이 컴퓨터에만 저장됩니다.',
+  'settings.remote.hint': '다른 컴퓨터에서 도는 Astera(Runtime)의 Job 을 이 앱에서 봅니다. 연결은 Runtime 컴퓨터의 키를 확인한 뒤에만 이루어지고, 토큰은 이 컴퓨터에만 저장됩니다.',
   'settings.remote.thisMachine.title': '이 컴퓨터',
   'settings.remote.thisMachine.off': '원격 Runtime 이 꺼져 있습니다. 아래에서 주소를 고르고 켜면 다른 컴퓨터가 이 컴퓨터와 페어링할 수 있습니다.',
   'settings.remote.thisMachine.on': '원격 Runtime 이 켜져 있습니다: {listen}:{port}, 게이트웨이 {state}',

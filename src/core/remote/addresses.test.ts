@@ -26,6 +26,20 @@ describe('privateIPv4s', () => {
     ])
   })
 
+  // Seen on this PC's own Settings: Hyper-V's and WSL's virtual switches have private addresses no other computer can
+  // reach. They are left out the way MCP over HTTP leaves them out (core/net/adapters.ts); an External switch carries
+  // the physical LAN address and stays.
+  it("leaves out virtual adapters other computers cannot reach, and keeps a Hyper-V External switch", () => {
+    expect(
+      privateIPv4s({
+        'vEthernet (Default Switch)': [nic('172.20.160.1')],
+        'vEthernet (WSL (Hyper-V firewall))': [nic('172.30.128.1')],
+        'VMware Network Adapter VMnet8': [nic('192.168.56.1')],
+        'vEthernet (LAN)': [nic('192.168.0.10')]
+      })
+    ).toEqual([{ address: '192.168.0.10', iface: 'vEthernet (LAN)' }])
+  })
+
   it('keeps the ranges the pairing string uses: 172.16/12 and 100.64/10, not their neighbours', () => {
     expect(privateIPv4s({ a: [nic('172.15.0.1'), nic('172.32.0.1'), nic('100.63.0.1'), nic('100.128.0.1')] })).toEqual([])
   })
