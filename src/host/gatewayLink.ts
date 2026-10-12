@@ -39,6 +39,8 @@ export const refusedAnswer = (asked: boolean): { error: string; code: string } =
 
 /** Subscriptions one connection may hold (§3.1). */
 export const SUBS_PER_CONN = 64
+/** How long a controller that stopped watching a pty keeps its size: past a reconnect's backoff (1, 2, 5, 10 s). */
+export const RELEASE_GRACE_MS = 15_000
 /** Output one pty stream may have waiting on the link (§3.1, N2). */
 export const LINK_STREAM_MAX = 4 << 20
 /** Output every stream together may have waiting on the link (§3.1). */
@@ -67,7 +69,9 @@ export function attachGatewayLink(o: {
   onHardCap(): void
   hardCap?: number
   /** The pty registry, for subscriptions (§3.7). Absent: a subscription is refused as a missing capability. */
-  ptys?: Pick<PtyRegistry, 'replayFrom' | 'onEvent' | 'bootId' | 'metaOf'>
+  ptys?: Pick<PtyRegistry, 'replayFrom' | 'onEvent' | 'bootId' | 'metaOf'> & Partial<Pick<PtyRegistry, 'release'>>
+  /** How long a controller that stopped watching a pty keeps its size, so a reconnect does not drop it (tests). */
+  releaseGraceMs?: number
   /** The stream budgets, for tests; LINK_STREAM_MAX and LINK_OUTPUT_MAX otherwise. */
   streamPerKey?: number
   streamTotal?: number
@@ -83,8 +87,25 @@ export function attachGatewayLink(o: {
   }
   /** One subscription: which connection and pty, whether its replay is done, events that came during the replay, and
    *  the last seq handed to the stream (nothing at or below it is sent again). */
-  type Sub = { key: string; conn: string; sub: string; pty: string; live: boolean; held: PtyEvent[]; heldBytes: number; last: number }
+  type Sub = { key: string; conn: string; sub: string; pty: string; live: boolean; held: PtyEvent[]; heldBytes: number; last: number; clientId?: string }
   const subs = new Map<string, Sub>()
+  /** A controller that stops watching a pty gives its size back (registry `release`, tmux's `latest` working the size
+   *  out again when a client goes), after a grace in which a reconnect or a resubscribe keeps it. Keyed client + pty. */
+  const releases = new Map<string, ReturnType<typeof setTimeout>>()
+  const releaseKey = (clientId: string, pty: string): string => `${clientId}\u0000${pty}`
+  const releaseLater = (clientId: string, pty: string): void => {
+    if ([...subs.values()].some((x) => x.clientId === clientId && x.pty === pty)) return
+    const k = releaseKey(clientId, pty)
+    clearTimeout(releases.get(k))
+    releases.set(
+      k,
+      setTimeout(() => {
+        releases.delete(k)
+        if (detached || [...subs.values()].some((x) => x.clientId === clientId && x.pty === pty)) return
+        o.ptys?.release?.(pty, `controller:${clientId}`)
+      }, o.releaseGraceMs ?? RELEASE_GRACE_MS)
+    )
+  }
   const keyOf = (conn: string, sub: string): string => `${conn}\u0000${sub}`
   const out = createLaneWriter(o.output, {
     hardCap: o.hardCap ?? LINK_HARD_CAP,
@@ -124,8 +145,10 @@ export function attachGatewayLink(o: {
     }
   })
   const dropSub = (key: string): void => {
+    const s = subs.get(key)
     subs.delete(key)
     out.dropStream(key)
+    if (s?.clientId !== undefined) releaseLater(s.clientId, s.pty)
   }
   let ref = 0
   /** One frame, or a large one in pieces (§3.1): a link line over the Gateway's cap would stop its reader for good.
@@ -241,8 +264,13 @@ export function attachGatewayLink(o: {
           return refuse('RUNTIME_BUSY', `at most ${SUBS_PER_CONN} subscriptions per connection`)
         // Registered before the replay is computed, so an event in between is held, not lost (§3.7: nothing lost or
         // repeated), and sent after the replay in seq order.
-        const s: Sub = { key, conn: f.conn, sub: f.sub, pty: f.pty, live: false, held: [], heldBytes: 0, last: 0 }
+        const clientId = o.controllers.principalFor(o.linkGen, f.conn)?.clientId
+        const s: Sub = { key, conn: f.conn, sub: f.sub, pty: f.pty, live: false, held: [], heldBytes: 0, last: 0, ...(clientId !== undefined ? { clientId } : {}) }
         subs.set(key, s)
+        if (clientId !== undefined) {
+          clearTimeout(releases.get(releaseKey(clientId, f.pty)))
+          releases.delete(releaseKey(clientId, f.pty))
+        }
         const r = await o.ptys.replayFrom(f.pty, { ...(f.fromSeq !== undefined ? { fromSeq: f.fromSeq } : {}), ...(f.bootId !== undefined ? { bootId: f.bootId } : {}) })
         if (subs.get(key) !== s) return
         if (r === 'behind') {
@@ -310,6 +338,9 @@ export function attachGatewayLink(o: {
     detach: () => {
       detached = true
       stopEvents?.()
+      // A Gateway restart is not a controller leaving: its controllers come back on the next link, so nothing is released.
+      for (const t of releases.values()) clearTimeout(t)
+      releases.clear()
       subs.clear()
       out.destroy()
       o.controllers.dropLink(o.linkGen)
