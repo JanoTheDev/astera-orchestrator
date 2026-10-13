@@ -19,7 +19,10 @@ const fake = (): PluginManager & { calls: string[] } => {
       return { status: 200, body: { changed: enabled } }
     }),
     remove: vi.fn(ok('remove')),
-    records: async () => []
+    records: async () => [],
+    startAll: async () => {},
+    logs: vi.fn(ok('logs', { lines: [] })),
+    doctor: vi.fn(ok('doctor', { ok: true, checks: [] }))
   }
 }
 
@@ -30,7 +33,7 @@ const run = (o: Partial<Parameters<typeof pluginsCommand>[0]> & { cmd: string })
 }
 
 describe('pluginsCommand', () => {
-  it('names the seven commands', () => {
+  it('names the nine commands', () => {
     expect([...PLUGIN_COMMANDS]).toEqual([
       'plugins-inspect',
       'plugins-install',
@@ -38,7 +41,9 @@ describe('pluginsCommand', () => {
       'plugins-get',
       'plugins-enable',
       'plugins-disable',
-      'plugins-remove'
+      'plugins-remove',
+      'plugins-logs',
+      'plugins-doctor'
     ])
   })
 
@@ -52,7 +57,7 @@ describe('pluginsCommand', () => {
   it('refuses the changes to an agent’s shell and lets it read', async () => {
     for (const cmd of ['plugins-install', 'plugins-enable', 'plugins-disable', 'plugins-remove'])
       expect(await run({ cmd, agentRefusal: 'not for agents' }).answer).toEqual({ status: 403, body: { error: 'not for agents' } })
-    for (const cmd of ['plugins-inspect', 'plugins-list', 'plugins-get'])
+    for (const cmd of ['plugins-inspect', 'plugins-list', 'plugins-get', 'plugins-logs', 'plugins-doctor'])
       expect((await run({ cmd, agentRefusal: 'not for agents' }).answer).status).toBe(200)
   })
 
@@ -71,6 +76,8 @@ describe('pluginsCommand', () => {
     await call('plugins-enable', { id: 'x' })
     await call('plugins-disable', { id: 'y' })
     await call('plugins-remove', { id: 'z' })
+    await call('plugins-logs', { id: 'x', lines: 20 })
+    await call('plugins-doctor', { id: 'y' })
     expect(manager.inspect).toHaveBeenCalledWith('/p')
     expect(manager.install).toHaveBeenNthCalledWith(1, { path: '/p', grant: ['jobs.read'], expect: { name: 'x', version: '1.0.0' } })
     expect(manager.install).toHaveBeenNthCalledWith(2, { path: '/q', grant: [] })
@@ -78,6 +85,8 @@ describe('pluginsCommand', () => {
     expect(manager.setEnabled).toHaveBeenNthCalledWith(1, 'x', true)
     expect(manager.setEnabled).toHaveBeenNthCalledWith(2, 'y', false)
     expect(manager.remove).toHaveBeenCalledWith('z')
+    expect(manager.logs).toHaveBeenCalledWith('x', 20)
+    expect(manager.doctor).toHaveBeenCalledWith('y')
   })
 
   it('marks one effect for a change that acted, and none for a read, a refusal or a change that changed nothing', async () => {
@@ -101,7 +110,30 @@ describe('index.ts gives the Host a plugin manager', () => {
     const path = await import('node:path')
     const { fileURLToPath } = await import('node:url')
     const src = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'index.ts'), 'utf8')
-    expect(src).toMatch(/const plugins = createPluginManager\(\{ profileDir, hostVersion \}\)/)
+    expect(src).toMatch(/const plugins = createPluginManager\(\{ profileDir, hostVersion, runtime: pluginRuntime, log: \(m\) => log\.write\(m\) \}\)/)
     expect(src).toMatch(/createHostOrch\(\{[\s\S]*?\n    plugins,\n/)
+  })
+  // Plugin runtime design P2, P11: the Host's own executable on the launcher beside its bundle, enabled plugins started
+  // once the Host listens, and stopped when it leaves.
+  it('runs the enabled plugins from the Host start to its end', async () => {
+    const { readFileSync } = await import('node:fs')
+    const path = await import('node:path')
+    const { fileURLToPath } = await import('node:url')
+    const src = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'index.ts'), 'utf8')
+    expect(src).toMatch(/const pluginRuntime = createPluginRuntime\(\{[\s\S]*?exec: process\.execPath,[\s\S]*?launcher: path\.join\(__dirname, 'plugin-host\.js'\)/)
+    const listen = src.indexOf('server = await startHostServer(')
+    expect(listen).toBeGreaterThan(0)
+    expect(src.indexOf('void plugins.startAll()')).toBeGreaterThan(listen)
+    // 2b final review I3: the leaving Host waits for its plugins, capped, while the orch still answers their last calls.
+    const leave = src.slice(src.indexOf('const leave = '), src.indexOf('const hostVersion'))
+    expect(leave).not.toContain('void pluginRuntime.stopAll()')
+    // Started beside the workspaces and the spawns, so the three caps overlap and the way out stays within the wait
+    // `host stop` gives it (HOST_STOP_WAIT_MS); awaited before the server closes.
+    const started = leave.indexOf('const pluginsStopped = disposeWithin(pluginRuntime.stopAll(), PLUGIN_STOP_CAP_MS')
+    expect(started).toBeGreaterThan(0)
+    expect(started).toBeLessThan(leave.indexOf('workspaces.dispose()'))
+    const awaited = leave.indexOf('await pluginsStopped')
+    expect(awaited).toBeGreaterThan(leave.indexOf('spawner.closeAndSettle'))
+    expect(awaited).toBeLessThan(leave.indexOf('await server\n        .close()'))
   })
 })

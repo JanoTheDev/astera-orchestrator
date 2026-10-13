@@ -132,3 +132,14 @@ describe('packagerDrops and pruneUnshipped', () => {
     expect(existsSync(join(dir, 'node_modules', 'undici', 'index.js'))).toBe(true)
   })
 })
+
+// Plugin runtime design P2: the Windows Host runs plugins with its own node.exe on out/main/plugin-host.js, beside
+// host.js. The runtime folder holds no app.asar, so the launcher has to be copied in with the Host.
+describe('the Windows Host runtime', () => {
+  it('ships the plugin launcher beside host.js', async () => {
+    const { readFileSync } = await import('node:fs')
+    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'host-runtime.mjs'), 'utf8')
+    expect(src).toMatch(/cpSync\(join\(built, 'plugin-host\.js'\), join\(buildOut, 'plugin-host\.js'\)\)/)
+    expect(src).toMatch(/plugin-host\.js is missing/)
+  })
+})

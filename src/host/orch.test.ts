@@ -108,6 +108,51 @@ describe('createHostOrch', () => {
     expect((r.body as { id: string }[]).map((j) => j.id)).toEqual([jobId])
   })
 
+  describe('a plugin caller (plugin runtime design P12)', () => {
+    const pluginCaller = (granted: string[], id = 'astera-hello') => ({
+      role: 'plugin' as const,
+      plugin: { id, granted: new Set(granted) },
+      toOthers: () => {}
+    })
+    it('is answered within what it was granted, and refused the rest before any receipt is taken', async () => {
+      await seed()
+      const orch = orchOver()
+      expect((await orch.call({ cmd: 'projects-list', args: {}, sessionId: '', from: pluginCaller(['projects.read']) })).status).toBe(200)
+      const refused = await orch.call({ cmd: 'jobs-create', args: { objective: 'x', cwd: 'D:/p' }, sessionId: '', from: pluginCaller(['jobs.read']), request: 'r-p' })
+      expect(refused).toEqual({ status: 403, body: { error: 'jobs-create needs the jobs.create permission, which plugin astera-hello was not granted' } })
+      const shown = await orch.call({ cmd: 'requests-show', args: { id: 'r-p' }, sessionId: '', from: pluginCaller([]) })
+      expect((shown.body as { state: string }).state).toBe('absent')
+      expect((await orch.call({ cmd: 'plugins-list', args: {}, sessionId: '', from: pluginCaller(['jobs.read']) })).status).toBe(403)
+      expect((await orch.call({ cmd: 'state-put', args: { state: emptyState() }, sessionId: '', from: pluginCaller(['jobs.create']) })).status).toBe(403)
+    })
+    it('commits under its own name, with no session whatever it named', async () => {
+      const { jobId } = await seed()
+      const actors: unknown[] = []
+      const noop = (() => {}) as never
+      const orch = orchOver({
+        journal: { committed: ((e: { actor: unknown }) => { actors.push(e.actor) }) as never, loaded: noop, append: noop, reload: (async () => {}) as never, timeline: noop }
+      })
+      await orch.ready()
+      expect((await orch.call({ cmd: 'jobs-run', args: { id: jobId }, sessionId: 'ses-forged', from: pluginCaller(['jobs.run']) })).status).toBe(200)
+      expect(actors).toContainEqual({ surface: 'plugin', plugin: { id: 'astera-hello' } })
+    })
+    it('keys receipts by plugin, so two plugins sending the same request id do not collide', async () => {
+      await seed()
+      const orch = orchOver()
+      const a = pluginCaller(['jobs.create'], 'plugin-a')
+      const b = pluginCaller(['jobs.create'], 'plugin-b')
+      const first = await orch.call({ cmd: 'jobs-create', args: { objective: 'one', cwd: 'D:/p' }, sessionId: '', from: a, request: 'r-1' })
+      const again = await orch.call({ cmd: 'jobs-create', args: { objective: 'one', cwd: 'D:/p' }, sessionId: '', from: a, request: 'r-1' })
+      const second = await orch.call({ cmd: 'jobs-create', args: { objective: 'two', cwd: 'D:/p' }, sessionId: '', from: b, request: 'r-1' })
+      expect(first.status).toBe(200)
+      expect(again.replayed).toBe(true)
+      expect(second.status).toBe(200)
+      expect(second.replayed).not.toBe(true)
+      const shownByCli = await orch.call({ cmd: 'requests-show', args: { id: 'r-1' }, sessionId: '' })
+      expect((shownByCli.body as { state: string }).state).toBe('absent')
+    })
+  })
+
   describe('a controller caller (remote runtime Phase 1)', () => {
     const controller = (permission: 'read-only' | 'full-control' = 'full-control') => ({
       role: 'controller' as const,

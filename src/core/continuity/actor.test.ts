@@ -159,3 +159,20 @@ describe('a controller (remote runtime design §2.5)', () => {
     expect(controllerOf({ clientId: 'cli_ab12', name: 'lap\ntop<script>' })).toEqual({ clientId: 'cli_ab12', name: 'laptopscript' })
   })
 })
+
+describe('a plugin (plugin runtime design P12, spec §32)', () => {
+  it('is attributed to its plugin, never to a session', () => {
+    expect(actorOf({ sessionId: '', role: 'plugin', plugin: { id: '@acme/astera-jira' }, state: emptyState() })).toEqual({
+      surface: 'plugin',
+      plugin: { id: '@acme/astera-jira' }
+    })
+  })
+  it('reads back from journal JSON, and a plugin field on another surface is refused', () => {
+    const json = JSON.stringify({ surface: 'plugin', plugin: { id: 'astera-hello' } })
+    expect(actorFromJson(json)).toEqual({ surface: 'plugin', plugin: { id: 'astera-hello' } })
+    expect(isJournalActor({ surface: 'plugin' })).toBe(true)
+    expect(isJournalActor({ surface: 'cli', plugin: { id: 'astera-hello' } })).toBe(false)
+    expect(isJournalActor({ surface: 'plugin', plugin: { id: 'Not An Id' } })).toBe(false)
+    expect(actorFromJson(JSON.stringify({ surface: 'plugin', plugin: { id: 7 } }))).toEqual({ surface: 'plugin' })
+  })
+})

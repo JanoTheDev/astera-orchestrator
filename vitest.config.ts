@@ -21,6 +21,7 @@ export default defineConfig({
       'src/main/**/*.test.ts',
       'src/renderer/**/*.test.ts',
       'src/cli/**/*.test.ts',
+      'src/pluginHost/**/*.test.ts',
       'packages/*/src/**/*.test.ts',
       'examples/**/*.test.ts',
       'scripts/**/*.test.mjs',

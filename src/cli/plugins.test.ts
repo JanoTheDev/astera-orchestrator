@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import path from 'node:path'
-import { approvalMessage, installPlugin } from './plugins'
+import { approvalMessage, doctorEnd, installPlugin } from './plugins'
 import { PLUGIN_TRUST_WARNING } from '../core/plugins/manifest'
 
 const INSPECTION = {
@@ -129,5 +129,41 @@ describe('the docs say what an unapproved install exits with', () => {
     expect(section).toContain('Without --yes or --grant, `install` installs nothing and exits 2')
     expect(section).toContain('inside an agent session (`ASTERA_SESSION` is set) the changes are refused with exit 5')
     expect(USAGE['plugins-install'].detail).toContain('Exits 2 until you approve')
+  })
+})
+
+describe('doctorEnd', () => {
+  it('ends a doctor that found a problem with FAILED, naming each failing check', () => {
+    const body = {
+      id: 'astera-hello',
+      ok: false,
+      checks: [
+        { name: 'manifest', ok: true, detail: 'fine' },
+        { name: 'native-addons', ok: false, detail: '1 native addon (a.node)' },
+        { name: 'runtime', ok: false, detail: 'failed: activate threw: x' }
+      ]
+    }
+    expect(doctorEnd(body)).toEqual({
+      code: 'FAILED',
+      message: 'astera-hello has problems: native-addons: 1 native addon (a.node); runtime: failed: activate threw: x',
+      details: body
+    })
+    expect(doctorEnd({ id: 'astera-hello', ok: true, checks: [] })).toBeNull()
+  })
+})
+
+// 2b final review M3: the guide said 1, 2 and 5 seconds, and the third wait never came. The waits it states are the
+// runtime's own, and the runtime has no wait the crash count never reaches.
+describe('the docs say how a crashing plugin is restarted', () => {
+  it('with the waits and the count the runtime uses', async () => {
+    const { readFileSync } = await import('node:fs')
+    const { fileURLToPath } = await import('node:url')
+    const { PLUGIN_TIMINGS } = await import('../host/plugins/runtime')
+    expect(PLUGIN_TIMINGS.backoffMs).toHaveLength(PLUGIN_TIMINGS.failAfter - 1)
+    const docs = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../docs/cli.md'), 'utf8')
+    const section = docs.slice(docs.indexOf('### Plugins'), docs.indexOf('## Command reference')).replace(/\s+/g, ' ')
+    const waits = PLUGIN_TIMINGS.backoffMs.map((ms) => String(ms / 1000))
+    expect(section).toContain(`A plugin that crashes is started again after ${waits.slice(0, -1).join(', ')}, then ${waits.at(-1)} seconds`)
+    expect(section).toContain(`the ${['first', 'second', 'third', 'fourth'][PLUGIN_TIMINGS.failAfter - 1]} crash without ${PLUGIN_TIMINGS.stableMs / 1000} seconds of steady running`)
   })
 })

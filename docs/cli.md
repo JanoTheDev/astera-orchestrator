@@ -526,6 +526,8 @@ astera plugins install --path ./my-plugin --grant jobs.read   approves only jobs
 astera plugins list                                  what is installed, its status and what it was granted
 astera plugins disable --id <pluginId>               keep it installed but do not run it
 astera plugins remove --id <pluginId>                uninstall it and delete its copy
+astera plugins logs --id <pluginId>                  the last lines of its log
+astera plugins doctor --id <pluginId>                what could keep it from running; exit 1 if anything does
 ```
 
 **Plugins run trusted code on this machine.** A plugin can do anything you can, and its permissions limit only what
@@ -545,6 +547,14 @@ says why.
 
 Only the app and a person at their own shell manage plugins: inside an agent session (`ASTERA_SESSION` is set) the
 changes are refused with exit 5, and MCP clients and remote controllers cannot reach them.
+
+An enabled plugin runs while the Host runs, as a process of its own on the Node inside Astera; no Node install is
+needed. A native addon loads there only if it was built for that Node, as N-API addons are; `plugins doctor` warns
+about any it finds. Its `ctx.astera` reaches Astera
+only within the permissions you granted. What it prints, and when it starts, stops or crashes, goes to its log
+(`<profile>/plugins/logs`, read with `plugins logs`). A plugin that crashes is started again after 1, then 2
+seconds; the third crash without 30 seconds of steady running marks it `failed`, and it stays stopped until
+`plugins enable` starts it again or the Host restarts. Plugins do not keep the Host running.
 
 ## Command reference
 
@@ -583,6 +593,8 @@ astera plugins install --path <folder> [--yes] [--grant <list>]
 astera plugins enable  --id <pluginId>
 astera plugins disable --id <pluginId>
 astera plugins remove  --id <pluginId>
+astera plugins logs    --id <pluginId> [--lines <n>]
+astera plugins doctor  --id <pluginId>
 
 astera projects list
 astera projects get   --id <projectId>

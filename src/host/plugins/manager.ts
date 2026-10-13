@@ -8,6 +8,7 @@ import { incompatibility, parseManifest, pluginFolderName, type PluginManifest, 
 import { PluginCopyRefused, copyPluginFolder, layoutProblem } from './copyFolder'
 import { RegistryUnreadable, pluginsRoot, readRegistry, writeRegistry, type PluginRecord } from './registry'
 import { moveRetrying, type Rename } from './moves'
+import { pluginLogFile, type PluginLaunch, type PluginRuntime } from './runtime'
 
 export type PluginStatus = 'disabled' | 'incompatible' | 'stopped' | 'starting' | 'running' | 'failed'
 
@@ -26,6 +27,12 @@ export interface PluginManager {
   remove(id: unknown): Promise<PluginsAnswer>
   /** The registry as it is, for the plugin runtime (2b). Throws `RegistryUnreadable`. */
   records(): Promise<PluginRecord[]>
+  /** Starts every enabled plugin this Astera runs: the Host calls it once it listens. */
+  startAll(): Promise<void>
+  /** The last lines of a plugin's log (design P13). */
+  logs(id: unknown, lines: unknown): Promise<PluginsAnswer>
+  /** What could keep a plugin from running, one check at a time (spec §12 `doctor`). */
+  doctor(id: unknown): Promise<PluginsAnswer>
 }
 
 /** A refusal: a status and the sentence the caller reads. */
@@ -77,6 +84,9 @@ async function folderOf(cmd: string, p: unknown): Promise<string> {
 
 const hex = (): string => randomBytes(6).toString('hex')
 
+const LOG_LINES_DEFAULT = 100
+const LOG_LINES_MAX = 1000
+
 /** The error a failed change answers with when the earlier copy could not be moved back either: the person is told
  *  where it is, since nothing else will find it. */
 const stranded = (first: unknown, retired: string): Error =>
@@ -96,6 +106,10 @@ export function createPluginManager(d: {
   renameWaitsMs?: readonly number[]
   /** For tests: the folder copy (`copyPluginFolder`). */
   copy?: (src: string, dest: string) => Promise<void>
+  /** What runs the enabled plugins (2b). Absent: nothing runs, and an enabled, compatible plugin is `stopped`. */
+  runtime?: Pick<PluginRuntime, 'start' | 'restart' | 'stop' | 'status' | 'forget'>
+  /** The Host's log: what no caller is there to hear, such as plugins that could not be started at the Host's start. */
+  log?: (m: string) => void
 }): PluginManager {
   const root = pluginsRoot(d.profileDir)
   // The copies live one level down, so no plugin name can be plugins.json or one of the folders the Host keeps for
@@ -158,13 +172,36 @@ export function createPluginManager(d: {
     return run
   }
 
-  /** A record as a person sees it, read with its installed copy's manifest. */
+  /** What the runtime needs to start the plugin a record names, with its installed copy's manifest. */
+  const launchOf = (r: PluginRecord, m: PluginManifest): PluginLaunch => {
+    const dir = path.join(installed, r.folder)
+    return { id: r.id, version: m.version, folder: r.folder, dir, entry: path.resolve(dir, m.entry), granted: r.granted }
+  }
+
+  /** The record's plugin, when it is enabled and this Astera runs it; null otherwise. */
+  async function runnable(r: PluginRecord): Promise<PluginLaunch | null> {
+    if (!r.enabled) return null
+    const read = await readManifest(path.join(installed, r.folder))
+    if (!read.ok || incompatibility(read.manifest, host) !== null) return null
+    return launchOf(r, read.manifest)
+  }
+
+  /** Starts the record's plugin when it is enabled and runs here. */
+  const startIfRunnable = async (r: PluginRecord): Promise<void> => {
+    if (!d.runtime) return
+    const launch = await runnable(r)
+    if (launch) d.runtime.start(launch)
+  }
+
+  /** A record as a person sees it, read with its installed copy's manifest and, while it runs, the runtime's word. */
   async function view(r: PluginRecord): Promise<Record<string, unknown>> {
     const dir = path.join(installed, r.folder)
     const read = await readManifest(dir)
     const m = read.ok ? read.manifest : null
-    const reason = m ? incompatibility(m, host) : `the installed copy cannot be read: ${read.ok ? '' : read.error}`
-    const status: PluginStatus = !r.enabled ? 'disabled' : reason !== null ? 'incompatible' : 'stopped'
+    const incompatible = m ? incompatibility(m, host) : `the installed copy cannot be read: ${read.ok ? '' : read.error}`
+    const run = r.enabled && incompatible === null ? d.runtime?.status(r.id) : undefined
+    const status: PluginStatus = !r.enabled ? 'disabled' : incompatible !== null ? 'incompatible' : (run?.status ?? 'stopped')
+    const reason = incompatible ?? run?.reason ?? null
     return {
       id: r.id,
       name: m?.name ?? r.id,
@@ -174,6 +211,7 @@ export function createPluginManager(d: {
       enabled: r.enabled,
       status,
       ...(reason !== null ? { reason } : {}),
+      ...(run?.pid !== undefined ? { pid: run.pid } : {}),
       capabilities: m?.capabilities ?? [],
       permissions: r.granted,
       requested: m?.permissions ?? [],
@@ -272,13 +310,26 @@ export function createPluginManager(d: {
       const folder = pluginFolderName(m.id)
       const final = path.join(installed, folder)
       const previous = records.find((r) => r.id === m.id)
-      // An earlier copy steps aside first and comes back if the registry cannot be written.
+      // A running copy stops before its folder moves: Windows will not move a folder a process runs from. If the change
+      // then fails, the earlier copy is put back and started again.
+      if (previous) await d.runtime?.stop(previous.id)
+      const startPrevious = async (): Promise<void> => {
+        if (previous) await startIfRunnable(previous)
+      }
+      // An earlier copy steps aside first and comes back if the change cannot be finished.
       const retired = (await isFolder(final)) ? retiredFor(folder) : null
-      if (retired) await move(final, retired)
+      if (retired) {
+        try {
+          await move(final, retired)
+        } catch (e) {
+          await startPrevious()
+          throw e
+        }
+      }
       try {
         await move(staging, final)
       } catch (e) {
-        await putBack(e, retired, final)
+        await putBack(e, retired, final).finally(startPrevious)
       }
       const record: PluginRecord = {
         id: m.id,
@@ -293,9 +344,10 @@ export function createPluginManager(d: {
         await writeRegistry(root, [...records.filter((r) => r.id !== m.id), record].sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0)))
       } catch (e) {
         await discard(final)
-        await putBack(e, retired, final)
+        await putBack(e, retired, final).finally(startPrevious)
       }
       if (retired) await discard(retired)
+      await startIfRunnable(record)
       return { status: 200, body: { ...(await view(record)), ...(previous ? { replaced: previous.version } : {}) } }
     } finally {
       await discard(staging)
@@ -306,10 +358,83 @@ export function createPluginManager(d: {
     const want = idOf(enabled ? 'plugins-enable' : 'plugins-disable', id)
     const records = await readRegistry(root)
     const r = find(records, want)
-    if (r.enabled === enabled) return { status: 200, body: { ...(await view(r)), changed: false } }
+    if (r.enabled === enabled) {
+      // Enabling a plugin that failed starts it again (design P11): a change, though the flag stays as it was.
+      const launch = enabled && d.runtime?.status(r.id)?.status === 'failed' ? await runnable(r) : null
+      if (launch && d.runtime) {
+        d.runtime.restart(launch)
+        return { status: 200, body: { ...(await view(r)), changed: true } }
+      }
+      return { status: 200, body: { ...(await view(r)), changed: false } }
+    }
     const next = { ...r, enabled }
     await writeRegistry(root, records.map((x) => (x.id === want ? next : x)))
+    if (enabled) await startIfRunnable(next)
+    else await d.runtime?.stop(r.id)
     return { status: 200, body: { ...(await view(next)), changed: true } }
+  }
+
+  async function logs(id: unknown, lines: unknown): Promise<PluginsAnswer> {
+    const want = idOf('plugins-logs', id)
+    const n = lines === undefined ? LOG_LINES_DEFAULT : typeof lines === 'string' && /^\d+$/.test(lines) ? Number(lines) : lines
+    if (typeof n !== 'number' || !Number.isInteger(n) || n < 1 || n > LOG_LINES_MAX)
+      throw new Refused(400, `plugins-logs --lines must be a whole number from 1 to ${LOG_LINES_MAX}`)
+    const r = find(await readRegistry(root), want)
+    const file = pluginLogFile(d.profileDir, r.folder)
+    const read = (f: string): Promise<string[]> =>
+      fs.readFile(f, 'utf8').then(
+        (t) => t.split(/\r?\n/).filter((l) => l !== ''),
+        () => []
+      )
+    const all = [...(await read(`${file}.1`)), ...(await read(file))]
+    return { status: 200, body: { id: r.id, file, lines: all.slice(-n) } }
+  }
+
+  async function doctor(id: unknown): Promise<PluginsAnswer> {
+    const r = find(await readRegistry(root), idOf('plugins-doctor', id))
+    const dir = path.join(installed, r.folder)
+    /** `warn`: worth knowing, and no fault: it leaves `ok` as it is. */
+    const checks: { name: string; ok: boolean; warn?: true; detail: string }[] = []
+    const answer = (): PluginsAnswer => ({ status: 200, body: { id: r.id, ok: checks.every((c) => c.ok), checks } })
+    const read = await readManifest(dir)
+    if (!read.ok) {
+      checks.push({ name: 'manifest', ok: false, detail: read.error })
+      return answer()
+    }
+    const m = read.manifest
+    checks.push({ name: 'manifest', ok: true, detail: `${m.name} ${m.version}, Plugin API ${m.apiVersion}` })
+    const incompatible = incompatibility(m, host)
+    checks.push({ name: 'compatible', ok: incompatible === null, detail: incompatible ?? 'this Astera runs it' })
+    const entry = await fs.stat(path.resolve(dir, m.entry)).then((st) => st.isFile(), () => false)
+    checks.push({ name: 'entry', ok: entry, detail: entry ? m.entry : `${m.entry} is not a file in the installed copy` })
+    // Design P2: plugins run on the Node inside Astera. An addon loads there only if it was built for it, as N-API addons
+    // are, so the doctor warns rather than fails (2b final review M4).
+    const addons = (await fs.readdir(dir, { recursive: true }).catch(() => [] as string[]))
+      .filter((f) => f.endsWith('.node'))
+      .map((f) => f.split(path.sep).join('/'))
+      .sort()
+    checks.push({
+      name: 'native-addons',
+      ok: true,
+      ...(addons.length > 0 ? { warn: true as const } : {}),
+      detail:
+        addons.length === 0
+          ? 'none'
+          : `${addons.length} native addon${addons.length === 1 ? '' : 's'} (${addons[0]}${addons.length > 1 ? `, and ${addons.length - 1} more` : ''}): ` +
+            (addons.length === 1 ? 'it loads' : 'each loads') +
+            ' only if it was built for the Node inside Astera, as N-API addons are'
+    })
+    const run = r.enabled && incompatible === null ? d.runtime?.status(r.id) : undefined
+    checks.push(
+      !r.enabled
+        ? { name: 'runtime', ok: true, detail: 'disabled' }
+        : incompatible !== null
+          ? { name: 'runtime', ok: true, detail: 'not started' }
+          : run?.status === 'failed'
+            ? { name: 'runtime', ok: false, detail: `failed: ${run.reason ?? 'it kept crashing'}` }
+            : { name: 'runtime', ok: true, detail: `${run?.status ?? 'stopped'}${run?.pid !== undefined ? ` (pid ${run.pid})` : ''}` }
+    )
+    return answer()
   }
 
   async function remove(id: unknown): Promise<PluginsAnswer> {
@@ -317,15 +442,29 @@ export function createPluginManager(d: {
     const records = await readRegistry(root)
     const r = find(records, want)
     const final = path.join(installed, r.folder)
-    // Out of the way before the record goes, so a folder Windows will not let go of fails the removal whole.
+    // Stopped first, then out of the way before the record goes, so a folder Windows will not let go of fails the
+    // removal whole; a removal that fails starts the plugin again.
+    await d.runtime?.stop(r.id)
     const retired = (await isFolder(final)) ? retiredFor(r.folder) : null
-    if (retired) await move(final, retired)
+    if (retired) {
+      try {
+        await move(final, retired)
+      } catch (e) {
+        await startIfRunnable(r)
+        throw e
+      }
+    }
     try {
       await writeRegistry(root, records.filter((x) => x.id !== want))
     } catch (e) {
-      await putBack(e, retired, final)
+      await putBack(e, retired, final).finally(() => startIfRunnable(r))
     }
     if (retired) await discard(retired)
+    // Its log goes with it, the rotated generation too: nothing can read it once the plugin is gone. Let go of first, so
+    // a line still buffered cannot write it again.
+    await d.runtime?.forget(r.folder)
+    const log = pluginLogFile(d.profileDir, r.folder)
+    await Promise.all([fs.rm(log, { force: true }), fs.rm(`${log}.1`, { force: true })]).catch(() => {})
     return { status: 200, body: { id: r.id, version: r.version, removed: true } }
   }
 
@@ -341,6 +480,16 @@ export function createPluginManager(d: {
       }),
     setEnabled: (id, enabled) => serial(() => setEnabled(id, enabled)),
     remove: (id) => serial(() => remove(id)),
+    logs: (id, lines) => serial(() => logs(id, lines)),
+    doctor: (id) => serial(() => doctor(id)),
+    startAll: () =>
+      serial(async () => {
+        for (const r of await readRegistry(root)) await startIfRunnable(r)
+        return { status: 200, body: {} }
+      }).then((a) => {
+        // Nobody asked, so nobody would hear the refusal: the Host's log says why nothing runs (2b final review M5).
+        if (a.status !== 200) d.log?.(`plugins: no plugin was started: ${(a.body as { error?: string }).error ?? a.status}`)
+      }),
     records: () => readRegistry(root)
   }
 }

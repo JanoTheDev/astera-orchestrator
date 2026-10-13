@@ -115,6 +115,27 @@ describe('humanFor', () => {
     )
   })
 
+  it('plugins logs prints the lines, and says when there are none', () => {
+    expect(humanFor('plugins-logs', { id: 'x', file: 'f', lines: ['one', 'two'] })).toBe('one' + String.fromCharCode(10) + 'two')
+    expect(humanFor('plugins-logs', { id: 'x', file: 'f', lines: [] })).toBe('no log yet')
+  })
+
+  it('plugins doctor prints one line per check, a failure in capitals', () => {
+    expect(
+      humanFor('plugins-doctor', {
+        id: 'x',
+        ok: false,
+        checks: [
+          { name: 'manifest', ok: true, detail: 'x 1.0.0, Plugin API 1' },
+          { name: 'native-addons', ok: true, warn: true, detail: '1 native addon (a.node)' },
+          { name: 'entry', ok: false, detail: 'index.js is not a file' }
+        ]
+      })
+    ).toBe(
+      ['ok    manifest       x 1.0.0, Plugin API 1', 'warn  native-addons  1 native addon (a.node)', 'FAIL  entry          index.js is not a file'].join(String.fromCharCode(10))
+    )
+  })
+
   it('one plugin reads as its fields, like one project', () => {
     const one = { id: 'astera-hello', version: '0.1.0', status: 'disabled', enabled: false }
     for (const cmd of ['plugins-get', 'plugins-install', 'plugins-enable', 'plugins-disable', 'plugins-remove'])

@@ -14,9 +14,35 @@ const here = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(here, '..')
 
 describe('build-packages', () => {
-  it('lists the client package', () => {
-    expect(PACKAGES).toContain('client')
+  it('lists the client package, then the plugin SDK that names its types', () => {
+    expect(PACKAGES).toEqual(['client', 'plugin-sdk'])
   })
+
+  // Plugin runtime design P10: the plugin SDK ships definePlugin and the context types, and names the client's types
+  // by package, so a plugin that installs both gets the real AsteraClient.
+  it('builds @astera-app/plugin-sdk as ESM and CommonJS, with declarations that import the client by name', async () => {
+    const out = mkdtempSync(path.join(os.tmpdir(), 'astera pkg '))
+    try {
+      const dist = buildPackage('plugin-sdk', out)
+      for (const f of ['esm/index.js', 'esm/index.d.ts', 'cjs/index.js', 'cjs/index.d.ts']) expect(existsSync(path.join(dist, f)), f).toBe(true)
+      const esm = await import(pathToFileURL(path.join(dist, 'esm', 'index.js')).href)
+      const cjs = createRequire(import.meta.url)(path.join(dist, 'cjs', 'index.js'))
+      expect(Object.keys(esm).sort()).toEqual(['PLUGIN_API_VERSION', 'definePlugin'])
+      expect(Object.keys(cjs).filter((k) => k !== '__esModule').sort()).toEqual(['PLUGIN_API_VERSION', 'definePlugin'])
+      const def = { activate() {} }
+      expect(esm.definePlugin(def)).toBe(def)
+      expect(cjs.definePlugin(def)).toBe(def)
+      for (const half of ['esm', 'cjs']) {
+        const dts = readFileSync(path.join(dist, half, 'index.d.ts'), 'utf8')
+        expect(dts, half).toMatch(/import type \{ AsteraClient \} from ['"]@astera-app\/client['"]/)
+        // Nothing of the client is copied in, and the run-time half requires nothing.
+        expect(readdirSync(path.join(dist, half)).filter((f) => f.endsWith('.js'))).toEqual(['index.js'])
+      }
+      expect(readFileSync(path.join(dist, 'cjs', 'index.js'), 'utf8')).not.toMatch(/\brequire\(/)
+    } finally {
+      rmSync(out, { recursive: true, force: true })
+    }
+  }, 120_000)
 
   it('builds @astera-app/client as ESM and CommonJS with the same exports and declarations', async () => {
     const out = mkdtempSync(path.join(os.tmpdir(), 'astera pkg '))

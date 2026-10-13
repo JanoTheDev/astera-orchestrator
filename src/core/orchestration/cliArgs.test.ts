@@ -60,7 +60,8 @@ describe('parseArgs', () => {
   it('reads plugins install with its path and its approval', () => {
     expect(parseArgs(['plugins', 'install', '--path', 'my-plugin', '--yes'])).toMatchObject({ cmd: 'plugins-install', args: { path: 'my-plugin', yes: true } })
     expect(parseArgs(['plugins', 'install', '--path', 'p', '--grant', 'jobs.read,jobs.create'])).toMatchObject({ args: { grant: 'jobs.read,jobs.create' } })
-    for (const verb of ['list', 'get', 'enable', 'disable', 'remove']) expect(parseArgs(['plugins', verb])).toMatchObject({ cmd: `plugins-${verb}` })
+    for (const verb of ['list', 'get', 'enable', 'disable', 'remove', 'logs', 'doctor']) expect(parseArgs(['plugins', verb])).toMatchObject({ cmd: `plugins-${verb}` })
+    expect(parseArgs(['plugins', 'logs', '--id', 'x', '--lines', '20'])).toMatchObject({ cmd: 'plugins-logs', args: { id: 'x', lines: '20' } })
   })
   it('--deps는 JSON 배열로 파싱한다', () => {
     const r = parseArgs(['task-create', '--deps', '["tsk_1","tsk_2"]']) as {

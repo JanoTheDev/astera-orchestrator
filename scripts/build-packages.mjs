@@ -11,7 +11,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 // typescript's exports map opens package.json but not bin/tsc, so the bin is found next to the manifest
 const tsc = path.join(path.dirname(createRequire(import.meta.url).resolve('typescript/package.json')), 'bin', 'tsc')
 
-export const PACKAGES = ['client']
+export const PACKAGES = ['client', 'plugin-sdk']
 
 /** Throws when the output folder is the package or holds it: the build empties its output first, and `--out packages`
  *  would have emptied the package's own sources (final review of SDK 1a). */

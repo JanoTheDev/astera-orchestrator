@@ -159,7 +159,7 @@ export const NOUNS = {
   runtimes: ['add', 'list', 'remove'],
   // **Answered by the Host's plugin manager** (plugin runtime design P5): this machine's app and CLI install, list and
   // switch plugins. `install` asks the Host to inspect the folder first and needs --yes or --grant (cli/plugins.ts).
-  plugins: ['install', 'list', 'get', 'enable', 'disable', 'remove']
+  plugins: ['install', 'list', 'get', 'enable', 'disable', 'remove', 'logs', 'doctor']
 } as const
 
 /** 명사이면서 동사 없이도 명령인 이름. `accounts` 는 공개 명사가 되기 전부터 세션 명령이었고

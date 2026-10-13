@@ -12,7 +12,9 @@ export const PLUGIN_COMMANDS: ReadonlySet<string> = new Set([
   'plugins-get',
   'plugins-enable',
   'plugins-disable',
-  'plugins-remove'
+  'plugins-remove',
+  'plugins-logs',
+  'plugins-doctor'
 ])
 
 /** The ones that change what is installed or whether it runs. */
@@ -39,6 +41,10 @@ export async function pluginsCommand(a: {
       return manager.list()
     case 'plugins-get':
       return manager.get(args.id)
+    case 'plugins-logs':
+      return manager.logs(args.id, args.lines)
+    case 'plugins-doctor':
+      return manager.doctor(args.id)
     case 'plugins-install':
       answer = await manager.install({ path: args.path, grant: args.grant, ...(args.expect !== undefined ? { expect: args.expect } : {}) })
       break
