@@ -185,7 +185,11 @@ describe('docs/plugins.md', () => {
 
   // SDK packages on npm: the plugin SDK is installed by name, and npm brings the client its types import
   it('installs the plugin SDK by name, in the guide and on its npm page', () => {
-    expect(section(guide, '### TypeScript, and bundling')).toContain('npm install --save-dev @astera-app/plugin-sdk')
+    const ts = section(guide, '### TypeScript, and bundling')
+    expect(ts).toContain('npm install --save-dev @astera-app/plugin-sdk')
+    // Final review m2: the example uses process, whose types are Node's, which a new tsconfig leaves out
+    expect(ts).toMatch(/npm install --save-dev @astera-app\/plugin-sdk typescript @types\/node\n/)
+    expect(ts).toContain('"types": ["node"]')
     expect(guide).not.toMatch(/not on npm yet/)
     expect(section(guide, '## Not yet')).not.toContain('@astera-app/plugin-sdk')
     // Its example imports definePlugin when the plugin runs, so there it is a dependency, which an npm install keeps

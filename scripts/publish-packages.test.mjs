@@ -75,9 +75,11 @@ describe('the plugin SDK and the client', () => {
     const client = manifest('client')
     expect(sdk.peerDependenciesMeta?.['@astera-app/client']?.optional).not.toBe(true)
     const range = sdk.peerDependencies['@astera-app/client']
-    const floor = /^>=(\d+\.\d+\.\d+)$/.exec(range)?.[1]
+    // Below the next major (final review m3): a client that renames AsteraClient is not taken without a new plugin SDK
+    const [, floor, ceiling] = /^>=(\d+\.\d+\.\d+) <(\d+)$/.exec(range) ?? []
     expect(floor, range).toBeDefined()
     expect(notAbove(floor, client.version)).toBe(true)
+    expect(Number(ceiling)).toBeGreaterThan(parts(client.version)[0])
   })
 })
 

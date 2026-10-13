@@ -43,7 +43,7 @@
     "prepublishOnly": "node ../../scripts/build-packages.mjs"
   },
   "peerDependencies": {
-    "@astera-app/client": ">=0.1.0"
+    "@astera-app/client": ">=0.1.0 <1"
   },
   "publishConfig": {
     "access": "public"

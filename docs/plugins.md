@@ -296,11 +296,12 @@ Install the plugin SDK for its types, as a dev dependency. npm installs `@astera
 `ctx.astera` has:
 
 ```sh
-npm install --save-dev @astera-app/plugin-sdk typescript
+npm install --save-dev @astera-app/plugin-sdk typescript @types/node
 ```
 
-Import the types only and export a plain object, so the plugin needs nothing of the SDK when it runs: an install from
-npm leaves dev dependencies out.
+A plugin uses Node's globals (`process` below), whose types are `@types/node`'s: put `"types": ["node"]` in the
+`compilerOptions` of its `tsconfig.json`, which a new one leaves empty. Import the types only and export a plain
+object, so the plugin needs nothing of the SDK when it runs: an install from npm leaves dev dependencies out.
 
 ```ts
 import type { PluginContext, PluginDefinition } from '@astera-app/plugin-sdk'

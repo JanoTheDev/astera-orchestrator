@@ -2,7 +2,8 @@
 // publishes it does so with npm's trusted publishing, after building and testing it, and never on an app tag.
 import { describe, it, expect } from 'vitest'
 import { spawnSync } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { PACKAGES } from './build-packages.mjs'
@@ -47,6 +48,27 @@ describe('publishTarget', () => {
     expect(refused.stderr).toContain('v1.4.13 names no package')
     expect(run().status).toBe(1)
   })
+
+  // Final review C1: the workflow runs it before `npm ci`, on a checkout with nothing installed, where a module that
+  // looked for typescript when it was imported crashed every run
+  it('runs on a checkout with nothing installed', () => {
+    const work = mkdtempSync(path.join(os.tmpdir(), 'astera publish target '))
+    try {
+      mkdirSync(path.join(work, 'scripts'))
+      for (const f of readdirSync(here).filter((f) => f.endsWith('.mjs') && !f.includes('.test.')))
+        copyFileSync(path.join(here, f), path.join(work, 'scripts', f))
+      for (const p of PACKAGES) {
+        mkdirSync(path.join(work, 'packages', p), { recursive: true })
+        copyFileSync(path.join(root, 'packages', p, 'package.json'), path.join(work, 'packages', p, 'package.json'))
+      }
+      const r = spawnSync(process.execPath, [path.join(work, 'scripts', 'publish-target.mjs'), '--tag', `client-v${version('client')}`], { cwd: work, encoding: 'utf8' })
+      expect(r.stderr).toBe('')
+      expect(r.status).toBe(0)
+      expect(r.stdout).toBe(`dir=client\nname=@astera-app/client\nversion=${version('client')}\n`)
+    } finally {
+      rmSync(work, { recursive: true, force: true, maxRetries: 5 })
+    }
+  })
 })
 
 describe('.github/workflows/publish-packages.yml', () => {
@@ -78,6 +100,8 @@ describe('.github/workflows/publish-packages.yml', () => {
     expect(npm).not.toBeNull()
     const [major, minor, patch] = npm.slice(1).map(Number)
     expect(major * 1e6 + minor * 1e3 + patch).toBeGreaterThanOrEqual(11 * 1e6 + 5 * 1e3 + 1)
+    // Its comment says it is the npm Astera fetches for its own plugin installs (final review m4)
+    expect(`${major}.${minor}.${patch}`).toBe(/^ {2}version: '([^']+)'/m.exec(read('src/host/plugins/ownNpm.ts'))?.[1])
   })
 
   it('checks the tag before anything else, then builds and tests the package, and only then publishes it', () => {
@@ -119,6 +143,23 @@ describe('docs/releasing.md', () => {
     expect(existsSync(path.join(root, '.github', 'workflows', 'publish-packages.yml'))).toBe(true)
     expect(s).toContain('`npm publish --dry-run`')
     expect(s).toContain('CHANGELOG.md')
+    // Final review m4: the changelog test takes the heading as the bare version
+    expect(s).toContain('`## X.Y.Z`')
+    // Final review m1: GitHub offers Run workflow only for a workflow on the default branch
+    expect(s).toContain('default branch')
+  })
+
+  // Final review I1: client.test.ts holds CLIENT_VERSION to the package's version, and runs before the publish
+  it('says to bump the client’s CLIENT_VERSION with its package.json', () => {
+    expect(read('packages/client/src/client.ts')).toMatch(/^export const CLIENT_VERSION = '/m)
+    expect(s).toContain('`CLIENT_VERSION` in `packages/client/src/client.ts`')
+  })
+
+  // Declined by the final review, ruled a finding: `--tags` pushes every local tag, a package tag waiting to be pushed
+  // too, which would publish it with the app; and more than three tags in one push start no workflow at all
+  it('pushes the app’s tag by name, never every tag', () => {
+    expect(doc).not.toMatch(/git push[^\n`]*--tags/)
+    expect(doc).toContain('git push origin v1.0.1')
   })
 
   it('says how the first version of each was published by hand, and what npm’s trusted publisher is set to', () => {
@@ -129,5 +170,10 @@ describe('docs/releasing.md', () => {
     expect(s).toContain(`| Repository | \`${repo}\` |`)
     expect(s).toContain('| Workflow filename | `publish-packages.yml` |')
     expect(s).toContain('| Environment | none |')
+    // Final review m4: an owner still publishes by hand with two-factor authentication
+    expect(s).toContain('no token can publish')
+    expect(s).not.toContain('nothing else can publish')
+    // npm 11 confirms a publish in the browser unless the account asks for codes
+    expect(s).toContain('in the browser or with a code')
   })
 })

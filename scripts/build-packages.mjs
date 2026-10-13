@@ -8,8 +8,10 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-// typescript's exports map opens package.json but not bin/tsc, so the bin is found next to the manifest
-const tsc = path.join(path.dirname(createRequire(import.meta.url).resolve('typescript/package.json')), 'bin', 'tsc')
+// typescript's exports map opens package.json but not bin/tsc, so the bin is found next to the manifest. Looked up
+// when a build needs it, not when this module is imported: publish-target.mjs imports PACKAGES from here and runs on
+// a checkout with nothing installed yet (publish-packages.yml)
+const tsc = () => path.join(path.dirname(createRequire(import.meta.url).resolve('typescript/package.json')), 'bin', 'tsc')
 
 export const PACKAGES = ['client', 'plugin-sdk']
 
@@ -27,7 +29,7 @@ export function buildPackage(name, outRoot = null) {
   checkOut(dist, dir)
   rmSync(dist, { recursive: true, force: true })
   for (const [config, sub] of [['tsconfig.esm.json', 'esm'], ['tsconfig.cjs.json', 'cjs']])
-    execFileSync(process.execPath, [tsc, '-p', path.join(dir, config), '--outDir', path.join(dist, sub)], { stdio: 'inherit' })
+    execFileSync(process.execPath, [tsc(), '-p', path.join(dir, config), '--outDir', path.join(dist, sub)], { stdio: 'inherit' })
   // Each half says what its .js files are, so they load the same inside the package and copied anywhere else
   writeFileSync(path.join(dist, 'esm', 'package.json'), '{\n  "type": "module"\n}\n')
   writeFileSync(path.join(dist, 'cjs', 'package.json'), '{\n  "type": "commonjs"\n}\n')

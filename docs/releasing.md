@@ -39,11 +39,16 @@ Releases, and installed apps then update themselves through `electron-updater`.
    git commit -am "chore: v1.0.1"
    ```
 
-4. **Tag and push.** The tag must be `v` plus the `package.json` version, **exactly**.
+4. **Tag and push.** The tag must be `v` plus the `package.json` version, **exactly**. Push main first, and the
+   tag once main's CI is green on all three platforms:
    ```bash
+   git push origin main
    git tag v1.0.1
-   git push origin main --tags
+   git push origin v1.0.1
    ```
+   Push the tag by its name. `--tags` would push every local tag, a package tag waiting to go too (which publishes
+   that package, see [Publishing the SDK packages](#publishing-the-sdk-packages)), and GitHub starts no workflow
+   for a push of more than three tags.
    > If the tag and `package.json` disagree the workflow fails immediately, before building — this is
    > what keeps the update feed from advertising the wrong version.
 
@@ -179,7 +184,9 @@ at a version of its own, by pushing a tag: `client-vX.Y.Z` or `plugin-sdk-vX.Y.Z
 trusted publishing lets that workflow, in this repository, publish the package.
 
 1. Bump `version` in `packages/<name>/package.json`, and put the new version's entry at the top of
-   `packages/<name>/CHANGELOG.md`.
+   `packages/<name>/CHANGELOG.md`, under a heading that is the version alone (`## X.Y.Z`). For the client, bump
+   `CLIENT_VERSION` in `packages/client/src/client.ts` too: it is the version the client tells the Host, and the
+   client's tests, which run before the publish, hold it to the package's.
 2. Commit, and push the tag:
    ```bash
    git tag client-v0.1.1
@@ -188,14 +195,15 @@ trusted publishing lets that workflow, in this repository, publish the package.
 3. Check the `Publish packages` run under **Actions**, and the version on npmjs.com.
 
 Run the workflow by hand (**Actions**, **Publish packages**, **Run workflow**) to try every step for one package: it
-ends with `npm publish --dry-run` and publishes nothing.
+ends with `npm publish --dry-run` and publishes nothing. GitHub offers that for a workflow on the default branch,
+main, only.
 
 ### The first publish, and trusted publishing
 
 npm lets a workflow publish a package only once the package exists, so the first version of each was published by
 hand, by an owner of the `astera-app` organization on npm, from a clone with its dependencies installed
 (`npm ci --ignore-scripts`). Each `npm publish` builds the packages first (`prepublishOnly`), and asks for the
-account's two-factor code:
+account's two-factor authentication, in the browser or with a code:
 
 ```bash
 npm login
@@ -215,7 +223,8 @@ Then, on npmjs.com, in each package's **Settings**, under **Trusted Publisher**,
 | Environment | none |
 
 The workflow's publish of a package without it is refused. The same page can then require two-factor
-authentication and disallow tokens: trusted publishing still works, and nothing else can publish.
+authentication and disallow tokens: trusted publishing still works, an owner can still publish by hand with
+two-factor authentication, and no token can publish.
 
 ## Windows code signing (SignPath)
 
@@ -334,7 +343,7 @@ Expect `accepted` and `source=Notarized Developer ID` in the output.
 
 The first time you push a tag after this workflow change, check the following in order.
 
-1. Bump `version` in `package.json`, commit, then `git tag vX.Y.Z && git push origin main --tags`
+1. Bump `version` in `package.json`, commit, push main, then `git tag vX.Y.Z && git push origin vX.Y.Z`
 2. In Actions, confirm all five jobs (`validate`, `windows`, `macos`, `linux` — which expands into
    `build` and `verify` — and `publish`) go green. It's normal for `macos` to take 5-20 minutes
    waiting on notarization.
