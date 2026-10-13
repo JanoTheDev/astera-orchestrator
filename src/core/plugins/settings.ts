@@ -17,12 +17,15 @@ export interface SettingField {
 }
 
 const KEY = /^[A-Za-z][A-Za-z0-9_]{0,63}$/
-const MAX_FIELDS = 50
+/** How many settings a manifest may declare. */
+export const SETTINGS_MAX = 50
 const MAX_ENUM = 50
 const TITLE_MAX = 64
 const DESCRIPTION_MAX = 500
-const TYPES = ['string', 'number', 'integer', 'boolean'] as const
-const FIELD_KEYWORDS = new Set(['type', 'title', 'description', 'default', 'enum', 'secret'])
+/** The types a setting can be, and the keywords a setting may use: docs/plugins.md lists both (pluginsDoc.test.ts). */
+export const SETTING_TYPES = ['string', 'number', 'integer', 'boolean'] as const
+export const SETTING_KEYWORDS = ['type', 'title', 'description', 'default', 'enum', 'secret'] as const
+const FIELD_KEYWORDS: ReadonlySet<string> = new Set(SETTING_KEYWORDS)
 const TOP_KEYWORDS = new Set(['type', 'properties', 'required'])
 const PREFIX = 'astera.settingsSchema'
 
@@ -57,7 +60,7 @@ export function parseSettingsSchema(raw: unknown): { ok: true; fields: SettingFi
     return { ok: false, problems }
   }
   const keys = Object.keys(raw.properties)
-  if (keys.length > MAX_FIELDS) problems.push(`${PREFIX} has ${keys.length} settings; at most ${MAX_FIELDS}`)
+  if (keys.length > SETTINGS_MAX) problems.push(`${PREFIX} has ${keys.length} settings; at most ${SETTINGS_MAX}`)
   let required: string[] = []
   if (raw.required !== undefined) {
     if (!Array.isArray(raw.required) || !raw.required.every((r) => typeof r === 'string')) problems.push(`${PREFIX}.required is not a list`)
@@ -88,7 +91,7 @@ export function parseSettingsSchema(raw: unknown): { ok: true; fields: SettingFi
     }
     const before = problems.length
     for (const k of Object.keys(f)) if (!FIELD_KEYWORDS.has(k)) problems.push(`${at}.${k} is not a settings keyword`)
-    if (!(TYPES as readonly unknown[]).includes(f.type)) {
+    if (!(SETTING_TYPES as readonly unknown[]).includes(f.type)) {
       problems.push(`${at}.type must be 'string', 'number', 'integer' or 'boolean'`)
       continue
     }

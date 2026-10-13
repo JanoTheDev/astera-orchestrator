@@ -1,0 +1,37 @@
+{
+  "name": "astera-webhook-notifier",
+  "version": "0.1.0",
+  "displayName": "Webhook notifier",
+  "description": "Posts failed Runs, Tasks whose repairs ran out, questions for a person and completed Runs to a webhook.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "astera": {
+    "apiVersion": "1",
+    "entry": "index.mjs",
+    "permissions": ["events.subscribe"],
+    "settingsSchema": {
+      "type": "object",
+      "properties": {
+        "webhookUrl": {
+          "type": "string",
+          "title": "Webhook URL",
+          "description": "Where to post: a Slack incoming webhook, a Discord webhook with /slack added, or a URL of your own that takes JSON.",
+          "secret": true
+        },
+        "signingSecret": {
+          "type": "string",
+          "title": "Signing secret",
+          "description": "Optional. When set, each post carries X-Astera-Signature: sha256= and the HMAC-SHA256 of its body under this secret.",
+          "secret": true
+        },
+        "onlyProblems": {
+          "type": "boolean",
+          "title": "Only problems",
+          "description": "Post failed Runs, Tasks whose repairs ran out and questions, but not completed Runs.",
+          "default": false
+        }
+      },
+      "required": ["webhookUrl"]
+    }
+  }
+}

@@ -4,7 +4,7 @@
 import { promises as fs } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import path from 'node:path'
-import { incompatibility, isSemver, parseManifest, pluginFolderName, type PluginManifest, type PluginPermission } from '../../core/plugins/manifest'
+import { incompatibility, isSemver, parseManifest, pluginFolderName, type PluginCapability, type PluginManifest, type PluginPermission } from '../../core/plugins/manifest'
 import { PluginCopyRefused, copyPluginFolder, layoutProblem } from './copyFolder'
 import { parseNpmSpec } from '../../core/plugins/npmSpec'
 import { NpmFailed, NpmMissing, createNpm, installDependencies, packAndExtract, type NpmRun, type NpmRunner } from './npm'
@@ -86,7 +86,8 @@ async function readManifest(folder: string): Promise<{ ok: true; manifest: Plugi
   }
   let pkg: unknown
   try {
-    pkg = JSON.parse(text)
+    // A byte order mark first, as Windows PowerShell 5.1 and older Notepad write one, is skipped as npm skips it
+    pkg = JSON.parse(text.replace(/^\uFEFF/, ''))
   } catch {
     return { ok: false, error: `${file} is not JSON` }
   }
@@ -122,10 +123,14 @@ const stranded = (first: unknown, retired: string): Error =>
 /** Removes a folder the Host no longer needs; a failure leaves it behind rather than failing the change it followed. */
 const discard = (p: string): Promise<void> => fs.rm(p, { recursive: true, force: true, maxRetries: 3 }).catch(() => {})
 
+/** The plugin capabilities this Host serves (design P8): none yet, so a plugin that names one installs and does not run.
+ *  docs/plugins.md names each of the others as not yet (pluginsDoc.test.ts). */
+export const PLUGIN_SERVED_CAPABILITIES: readonly PluginCapability[] = []
+
 export function createPluginManager(d: {
   profileDir: string
   hostVersion: string
-  /** The plugin capabilities this Host serves (design P8); none in 2a. */
+  /** The plugin capabilities this Host serves (design P8): PLUGIN_SERVED_CAPABILITIES unless a test says otherwise. */
   capabilities?: readonly string[]
   now?: () => number
   /** For tests: one folder move, and the waits between tries of a refused one. */
@@ -145,7 +150,7 @@ export function createPluginManager(d: {
   // every plugin beside it (design P4). Staging and retired folders sit beside the copies and start with a dot, which
   // no npm name does.
   const installed = path.join(root, 'installed')
-  const host = { version: d.hostVersion, capabilities: d.capabilities ?? [] }
+  const host = { version: d.hostVersion, capabilities: d.capabilities ?? PLUGIN_SERVED_CAPABILITIES }
   // The person's npm, or where there is none Astera's own, run on the Host's own Node (plugins 2e-2).
   const npm = d.npm ?? createNpm({ profileDir: d.profileDir, env: process.env, node: process.execPath })
   const now = d.now ?? Date.now

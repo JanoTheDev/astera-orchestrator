@@ -68,9 +68,11 @@ export interface SecretSpace {
   names(): Promise<string[]>
 }
 
+/** The longest secret name, and the longest value, in characters: docs/plugins.md and the SDK's types say both. */
+export const SECRET_NAME_MAX = 73
+export const SECRET_VALUE_MAX = 64 * 1024
 /** A name a plugin can give: what the store accepts after the prefix, and nothing that could leave the folder. */
-const NAME = /^[A-Za-z0-9_-][A-Za-z0-9_.-]{0,72}$/
-const VALUE_MAX = 64 * 1024
+const NAME = new RegExp(`^[A-Za-z0-9_-][A-Za-z0-9_.-]{0,${SECRET_NAME_MAX - 1}}$`)
 
 export function pluginSecrets(profileDir: string, folder: string): { secret: SecretSpace; setting: SecretSpace; values(): Promise<string[]> } {
   const dir = secretsDir(profileDir, folder)
@@ -82,7 +84,7 @@ export function pluginSecrets(profileDir: string, folder: string): { secret: Sec
     // file there and two elsewhere, so a name is kept folded and a trailing dot refused (2c final review M10).
     const checked = (name: unknown): string => {
       if (typeof name !== 'string' || !NAME.test(name) || name.endsWith('.'))
-        throw new PluginSecretRefused(`${String(name)} is not a secret name (letters, digits, _, - and ., at most 73, not starting or ending with .)`)
+        throw new PluginSecretRefused(`${String(name)} is not a secret name (letters, digits, _, - and ., at most ${SECRET_NAME_MAX}, not starting or ending with .)`)
       return `${prefix}${name.toLowerCase()}`
     }
     return {
@@ -90,7 +92,7 @@ export function pluginSecrets(profileDir: string, folder: string): { secret: Sec
       set: async (name, value) => {
         const key = checked(name)
         if (typeof value !== 'string') throw new PluginSecretRefused('a plugin secret is text')
-        if (value.length > VALUE_MAX) throw new PluginSecretRefused(`a plugin secret holds at most ${VALUE_MAX} characters`)
+        if (value.length > SECRET_VALUE_MAX) throw new PluginSecretRefused(`a plugin secret holds at most ${SECRET_VALUE_MAX} characters`)
         await store.withLock((tx) => tx.write(key, value))
       },
       delete: async (name) => {

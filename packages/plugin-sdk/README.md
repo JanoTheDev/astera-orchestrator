@@ -2,6 +2,8 @@
 
 Write [Astera](https://github.com/parsingk/Astera) plugins. Not published yet.
 
+The guide, with a quick start and a sample plugin: [docs/plugins.md](https://github.com/parsingk/Astera/blob/main/docs/plugins.md).
+
 ```ts
 import { definePlugin } from '@astera-app/plugin-sdk'
 

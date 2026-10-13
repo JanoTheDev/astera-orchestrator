@@ -16,8 +16,8 @@ export interface PluginLog {
 }
 
 /** Secrets the plugin keeps (spec §23): in Astera's store for this plugin alone, never shown to anyone, and redacted
- *  from the plugin's log. Names are letters, digits, `_`, `-` and `.`, at most 73, not starting with `.`; values are
- *  text of at most 64 KiB. */
+ *  from the plugin's log. Names are letters, digits, `_`, `-` and `.`, at most 73, not starting or ending with `.`, and
+ *  `Token` is the same name as `token`; values are text of at most 65,536 characters. */
 export interface PluginSecrets {
   get(name: string): Promise<string | undefined>
   set(name: string, value: string): Promise<void>
