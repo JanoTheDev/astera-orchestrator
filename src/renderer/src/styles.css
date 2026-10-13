@@ -1214,6 +1214,27 @@ button.primary:disabled { background: var(--elevated); border-color: var(--line-
 .remote-actions { display: flex; align-items: center; gap: 8px; }
 .remote-actions.is-end { justify-content: flex-end; }
 .remote-actions-grow { flex: 1; min-width: 0; }
+/* Settings › Plugins (plugin runtime design slice 2d): a card a plugin with its status in a pill, and its settings form
+   or its log below. Only the tokens the other settings use. */
+.plugin-card { padding: 12px; border: 1px solid var(--line); border-radius: var(--radius); }
+.plugin-card .remote-actions { flex-wrap: wrap; }
+.plugin-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.plugin-name { font-size: 14px; font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
+.plugin-status { flex-shrink: 0; font-size: 11px; padding: 1px 6px; border-radius: var(--radius-sm); background: var(--elevated); color: var(--text-dim); }
+.plugin-status.is-running { color: var(--ok); background: var(--ok-bg); }
+.plugin-status.is-starting { color: var(--info); background: var(--info-bg); }
+.plugin-status.is-failed, .plugin-status.is-incompatible { color: var(--danger); background: var(--danger-bg); }
+.plugin-facts { display: flex; flex-wrap: wrap; gap: 4px 8px; font-size: 12.5px; }
+.plugin-facts > span:last-child { color: var(--text); overflow-wrap: anywhere; }
+.plugin-card .settings-hint { overflow-wrap: anywhere; }
+/* A fieldset, so a save holds every field at once; its own frame is taken off. */
+.plugin-form { display: flex; flex-direction: column; gap: 12px; min-width: 0; margin: 6px 0 0; padding: 10px 0 0; border: 0; border-top: 1px solid var(--line-soft); }
+.plugin-field { display: flex; flex-direction: column; gap: 4px; }
+.plugin-field-label { font-size: 13px; color: var(--text); }
+.plugin-required { margin-left: 6px; font-size: 11px; color: var(--text-faint); }
+.plugin-logs { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; padding-top: 10px; border-top: 1px solid var(--line-soft); }
+.plugin-log { max-height: 260px; overflow: auto; margin: 0; padding: 8px; background: var(--bg); border: 1px solid var(--line-soft);
+  border-radius: var(--radius); font-family: var(--mono); font-size: 11.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* account rolling slots — multi-account selection in the new session modal */
 .account-slot {

@@ -61,7 +61,8 @@ import { findHostHeld, hostHeldLive, nativeOfForwardedRekey } from './host/hostN
 import { applyAdoptRolling } from './host/adoptRolling'
 import { chatAdoptPlan, hostCarryOnIsOurs, hostStartingDefers } from './chatAdopt'
 import { reattachSessions, type ReattachResult } from './host/reattach'
-import { createWorktreeRoute, NO_HOST_CONNECTION } from './host/worktreeRoute'
+import { createWorktreeRoute, NO_HOST_CONNECTION, hostDeadlineMessage } from './host/worktreeRoute'
+import { createPluginsRoute } from './host/pluginsRoute'
 import { createHostGitOps } from '../core/workUnit/hostGitOps'
 import { appPathInUse } from './host/localPathInUse'
 import { HOST_PROTOCOL, HOST_ACT_PATH_IN_USE, HOST_ACT_SLACK_ANSWER, type ClientMessage, type HostMessage, type PtyEntry } from '../core/host/protocol'
@@ -1223,13 +1224,16 @@ export function registerIpc(
    * and `state-put`, and both are one file write at the far end. The constant is the one the Host
    * judges a silent app by in the other direction, so the two cannot drift.
    */
-  const orchCall = (m: { cmd: string; args: Record<string, unknown>; sessionId: string }): Promise<OrchReply> =>
+  const orchCall = (m: { cmd: string; args: Record<string, unknown>; sessionId: string; timeoutMs?: number }): Promise<OrchReply> =>
     new Promise((resolve, reject) => {
       const call = `app_${++orchCallSeq}`
+      // Settings › Plugins' changes wait longer (pluginsRoute's PLUGIN_CHANGE_DEADLINE_MS): a large folder's copy runs
+      // past the usual deadline.
+      const ms = m.timeoutMs ?? HOST_UNRESPONSIVE_MS
       const timer = setTimeout(() => {
         pendingOrchCalls.delete(call)
-        reject(new Error(`the Host did not answer ${m.cmd} within ${HOST_UNRESPONSIVE_MS}ms`))
-      }, HOST_UNRESPONSIVE_MS)
+        reject(new Error(hostDeadlineMessage(m.cmd, ms)))
+      }, ms)
       timer.unref?.()
       pendingOrchCalls.set(call, { resolve, reject, timer })
       // A send that does not go out is the connection having dropped. Answered now rather than after
@@ -4694,6 +4698,19 @@ export function registerIpc(
     log: orchLog
   })
   ipcMain.handle('orch.list', (_e, projectPath: string, runtimeId?: string) => orchRouter.list(projectPath, runtimeId))
+  // Settings › Plugins (plugin runtime design slice 2d): the Host's plugins commands as the app, one a method. The Host
+  // checks every argument; a value of the wrong type is its refusal to give.
+  const plugins = createPluginsRoute({ call: (m) => orchCall(m) })
+  ipcMain.handle('plugins.list', () => plugins.list())
+  ipcMain.handle('plugins.inspect', (_e, path: unknown) => plugins.inspect(path as string))
+  ipcMain.handle('plugins.install', (_e, a: unknown) => plugins.install(a as Parameters<typeof plugins.install>[0]))
+  ipcMain.handle('plugins.setEnabled', (_e, id: unknown, enabled: unknown) => plugins.setEnabled(id as string, enabled === true))
+  ipcMain.handle('plugins.remove', (_e, id: unknown) => plugins.remove(id as string))
+  ipcMain.handle('plugins.logs', (_e, id: unknown, lines: unknown) => plugins.logs(id as string, lines as number))
+  ipcMain.handle('plugins.settings', (_e, id: unknown) => plugins.settings(id as string))
+  ipcMain.handle('plugins.configure', (_e, id: unknown, set: unknown, unset: unknown) =>
+    plugins.configure(id as string, set as Record<string, string | boolean>, unset as string[])
+  )
   // Settings › Remote Runtimes and the Jobs view's selectors (remote runtime design Phase 6). A runtime id that is not a
   // string names nothing; every answer is the client's or the registry's own, never a local fallback.
   ipcMain.handle('remote.list', () => remoteRuntimes.list())

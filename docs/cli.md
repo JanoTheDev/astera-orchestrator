@@ -569,6 +569,10 @@ list` gives, each line of one that runs over several lines too; a value shorter 
 it would take ordinary words out of every line. Give a secret with `--stdin <key>` so it stays off the command line.
 Removing a plugin deletes its settings and secrets, and says so if it could not.
 
+The app's Settings → Plugins does the same: it lists each plugin with its status and permissions, installs a folder
+after showing what the plugin asks for (uncheck a permission to withhold it), and configures, enables, disables,
+removes and shows the log of each.
+
 ## Command reference
 
 Every command is a noun and a verb. A noun with no verb is rejected with the list of its verbs, so

@@ -355,6 +355,16 @@ const api = {
     command: invoke('orch.command'),
     unwatch: invoke('orch.unwatch')
   },
+  plugins: {
+    list: invoke('plugins.list'),
+    inspect: invoke('plugins.inspect'),
+    install: invoke('plugins.install'),
+    setEnabled: invoke('plugins.setEnabled'),
+    remove: invoke('plugins.remove'),
+    logs: invoke('plugins.logs'),
+    settings: invoke('plugins.settings'),
+    configure: invoke('plugins.configure')
+  },
   remote: {
     list: invoke('remote.list'),
     add: invoke('remote.add'),
