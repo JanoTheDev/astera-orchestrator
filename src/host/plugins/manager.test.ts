@@ -324,7 +324,7 @@ describe('get, enable, disable, remove', () => {
     expect(await manager.remove('@acme/astera-jira')).toEqual({ status: 200, body: { id: '@acme/astera-jira', version: '1.0.0', removed: true } })
     expect(await fs.readdir(path.dirname(log))).toEqual([])
     expect(await listed()).toEqual([])
-    expect(await fs.readdir(pluginsRoot(profile))).toEqual(['installed', 'plugins.json'])
+    expect(await fs.readdir(pluginsRoot(profile))).toEqual(['installed', 'logs', 'plugins.json'])
     expect(await fs.readdir(installed())).toEqual([])
   })
 
