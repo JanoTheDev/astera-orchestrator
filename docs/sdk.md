@@ -6,7 +6,8 @@
 questions. It reaches the same Host as the desktop app, the [`astera` command](cli.md) and the
 [MCP server](mcp.md), so a Job made through it shows up in the app and in `astera jobs list`, and keeps running when
 your program exits. The CLI is for people and shell scripts, MCP for agents, the SDK for applications and
-integrations: a CI step, a bot, a dashboard, a script of your own.
+integrations: a CI step, a bot, a dashboard, a script of your own. To run code that Astera starts and stops with
+its Host, write [a plugin](plugins.md): its `ctx.astera` is this client.
 
 Where it stands:
 
@@ -511,7 +512,6 @@ Node 22.6 to 22.17 needs `--experimental-strip-types`; on anything else use `npx
 - Paging done by the Host for the lists other than events.
 - `github.*` and `runtime.*` events.
 - A browser build.
-- Plugins and `@astera-app/plugin-sdk`.
 
 ## Troubleshooting
 

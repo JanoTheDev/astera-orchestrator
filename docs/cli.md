@@ -517,7 +517,8 @@ unless `--full-control` is given; a read-only controller can read Jobs, Runs and
 ### Plugins
 
 A plugin is a folder with a `package.json` whose `astera` field names its entry file, the Plugin API it is written
-for, and the permissions it asks for. Install one from its folder, or from npm when it is published there:
+for, and the permissions it asks for. Install one from its folder, or from npm when it is published there. To write
+one, see [the plugin guide](plugins.md).
 
 ```text
 astera plugins install --path ./my-plugin            shows what it is and asks for, installs nothing

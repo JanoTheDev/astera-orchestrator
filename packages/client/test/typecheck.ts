@@ -34,7 +34,9 @@ const GIVEN: Readonly<Record<string, string>> = {
   questionId: 'string',
   requestId: 'string',
   cursor: 'string',
-  signal: 'AbortSignal'
+  signal: 'AbortSignal',
+  // docs/plugins.md: by then its reader is inside a plugin's activate
+  ctx: "import('@astera-app/plugin-sdk').PluginContext"
 }
 
 /** tsc's output for a project: '' when it compiles. */
@@ -65,7 +67,10 @@ export function typecheckBlocks(blocks: readonly string[]): string {
       compilerOptions: {
         ...EXAMPLE_OPTIONS,
         typeRoots: [path.join(ROOT, 'node_modules', '@types')],
-        paths: { '@astera-app/client': [path.join(ROOT, 'packages', 'client', 'src', 'index.ts')] }
+        paths: {
+          '@astera-app/client': [path.join(ROOT, 'packages', 'client', 'src', 'index.ts')],
+          '@astera-app/plugin-sdk': [path.join(ROOT, 'packages', 'plugin-sdk', 'src', 'index.ts')]
+        }
       },
       files
     }
