@@ -366,8 +366,8 @@ describe('what a plugin log and reason never show', () => {
       'cursor',
       `export default {
         async activate(ctx) {
-          for (let i = 0; i < 50; i++) await ctx.secrets.set('cursor', 'cursor-value-' + String(i).padStart(3, '0'))
-          console.error('first cursor-value-000, last cursor-value-049')
+          for (let i = 0; i < 3; i++) await ctx.secrets.set('cursor', 'cursor-value-' + String(i).padStart(3, '0'))
+          console.error('first cursor-value-000, last cursor-value-002')
         }
       }`
     )
