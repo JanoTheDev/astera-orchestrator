@@ -38,6 +38,17 @@ describe('cachedResolver', () => {
     expect(resolve).toHaveBeenCalledTimes(2)
   })
 
+  // A hover over a name that missed asks again at once (the file may have just been written); what it finds is kept.
+  it('fresh asks again inside the miss window, and keeps what it finds', async () => {
+    const resolve = vi.fn(async (): Promise<string | null> => null)
+    const r = cachedResolver(resolve, () => 0, 5000)
+    expect(await r('a.png')).toBeNull()
+    resolve.mockResolvedValueOnce('D:\\out\\a.png')
+    expect(await r.fresh('a.png')).toBe('D:\\out\\a.png')
+    expect(await r('a.png')).toBe('D:\\out\\a.png')
+    expect(resolve).toHaveBeenCalledTimes(2)
+  })
+
   it('a request still in flight is shared, not repeated', async () => {
     let finish: (v: string | null) => void = () => {}
     const resolve = vi.fn(() => new Promise<string | null>((res) => (finish = res)))
@@ -125,5 +136,105 @@ describe('attachConsoleLinks across a cut path', () => {
     const one = fakeTerm(['  open D:\\x\\a.png now'], 40)
     attach(one, ['D:\\x\\a.png'])
     expect((await one.links(1))?.map((l) => l.text)).toEqual(['D:\\x\\a.png'])
+  })
+})
+
+// A name printed before its file exists (an agent's message, then its tool call that writes or copies the file):
+// xterm keeps a row's links while the pointer stays on that row, so a name that was no link when first hovered stayed
+// no link, though the file was there a moment later (bug report, 2026-10-13).
+describe('attachConsoleLinks with a file that appears after its name was printed', () => {
+  type Link = { text: string; decorations?: { underline: boolean; pointerCursor: boolean }; hover?: (e: unknown, t: string) => void; leave?: (e: unknown, t: string) => void; activate: (e: unknown, t: string) => void }
+  const termOf = (text: string) => {
+    let provider: { provideLinks: (y: number, cb: (links: unknown) => void) => void } | null = null
+    const cols = 60
+    const row = {
+      isWrapped: false,
+      length: cols,
+      translateToString: () => text.padEnd(cols),
+      getCell: (x: number) => {
+        const ch = text.padEnd(cols)[x]
+        return ch === undefined ? undefined : { getWidth: () => 1, getChars: () => (ch === ' ' ? '' : ch) }
+      }
+    }
+    const term = {
+      cols,
+      buffer: { active: { getLine: (y: number) => (y === 0 ? row : undefined), getNullCell: () => ({}) } },
+      registerLinkProvider: (p: typeof provider) => ((provider = p), { dispose: () => {} })
+    }
+    const links = () => new Promise<Link[] | undefined>((r) => provider!.provideLinks(1, r as never))
+    return { term, links }
+  }
+  const settle = () => new Promise((r) => setTimeout(r, 0))
+
+  it('hands a name it cannot find yet as a link with no underline and no pointer, which opens nothing', async () => {
+    const t = termOf('  - copied original: b.png')
+    const opened: string[] = []
+    attachConsoleLinks(t.term as never, { onUrl: () => {}, resolvePath: async () => null, onOpenFile: (p) => opened.push(p) })
+    const got = await t.links()
+    expect(got?.map((l) => [l.text, l.decorations])).toEqual([['b.png', { underline: false, pointerCursor: false }]])
+    got![0].activate(undefined, 'b.png')
+    await settle()
+    expect(opened).toEqual([])
+  })
+
+  it('marks it a link when the pointer comes back and the file is there, and opens it', async () => {
+    const t = termOf('  - copied original: b.png')
+    const files: string[] = []
+    const opened: string[] = []
+    attachConsoleLinks(t.term as never, {
+      onUrl: () => {},
+      resolvePath: async (target) => (files.includes(target) ? `/out/${target}` : null),
+      onOpenFile: (p) => opened.push(p)
+    })
+    const [link] = (await t.links()) ?? []
+    files.push('b.png')
+    // Within the miss window of the cached resolver, and on the same row: xterm does not ask for the row's links again.
+    link.hover?.(undefined, 'b.png')
+    await settle()
+    expect(link.decorations).toEqual({ underline: true, pointerCursor: true })
+    link.activate(undefined, 'b.png')
+    await settle()
+    expect(opened).toEqual(['/out/b.png'])
+  })
+
+  it('opens a file that appeared, clicked without a hover first', async () => {
+    const t = termOf('  - copied original: b.png')
+    const files: string[] = []
+    const opened: string[] = []
+    attachConsoleLinks(t.term as never, {
+      onUrl: () => {},
+      resolvePath: async (target) => (files.includes(target) ? `/out/${target}` : null),
+      onOpenFile: (p) => opened.push(p)
+    })
+    const [link] = (await t.links()) ?? []
+    files.push('b.png')
+    link.activate(undefined, 'b.png')
+    await settle()
+    expect(opened).toEqual(['/out/b.png'])
+  })
+
+  // xterm's decoration setters act on its current link: one set after the pointer left would mark another link.
+  it('leaves the decorations alone when the pointer left before the file was found', async () => {
+    const t = termOf('  - copied original: b.png')
+    let finish: (v: string | null) => void = () => {}
+    let calls = 0
+    attachConsoleLinks(t.term as never, {
+      onUrl: () => {},
+      resolvePath: (target) => (++calls === 1 ? Promise.resolve(null) : new Promise((r) => (finish = () => r(`/out/${target}`)))),
+      onOpenFile: () => {}
+    })
+    const [link] = (await t.links()) ?? []
+    link.hover?.(undefined, 'b.png')
+    link.leave?.(undefined, 'b.png')
+    finish(null)
+    await settle()
+    expect(link.decorations).toEqual({ underline: false, pointerCursor: false })
+  })
+
+  it('hands a name it finds at once as a plain link, as before', async () => {
+    const t = termOf('  - background: a.png')
+    attachConsoleLinks(t.term as never, { onUrl: () => {}, resolvePath: async (target) => `/out/${target}`, onOpenFile: () => {} })
+    const got = await t.links()
+    expect(got?.map((l) => [l.text, l.decorations])).toEqual([['a.png', undefined]])
   })
 })

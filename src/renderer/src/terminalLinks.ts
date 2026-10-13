@@ -9,17 +9,18 @@ const MISS_TTL_MS = 5000
 
 /** `resolve`, cached per target. A hit is kept for the terminal's life (a file that existed stays a
  *  link; following it to a deleted file is the opener's error to report). A miss — null or a
- *  rejection — is kept for `missTtlMs` only. A request still in flight is shared. Exported for the
- *  test; `now` is a parameter for the same reason. */
+ *  rejection — is kept for `missTtlMs` only. A request still in flight is shared. `fresh` asks again
+ *  whatever a miss said, for a pointer that came back to the name, and keeps what it finds. Exported for
+ *  the test; `now` is a parameter for the same reason. */
 export function cachedResolver(
   resolve: (target: string) => Promise<string | null>,
   now: () => number = Date.now,
   missTtlMs: number = MISS_TTL_MS
-): (target: string) => Promise<string | null> {
+): ((target: string) => Promise<string | null>) & { fresh(target: string): Promise<string | null> } {
   const cache = new Map<string, { p: Promise<string | null>; missAt?: number }>()
-  return (target) => {
+  const ask = (target: string, afresh: boolean): Promise<string | null> => {
     const hit = cache.get(target)
-    if (hit && (hit.missAt === undefined || now() - hit.missAt < missTtlMs)) return hit.p
+    if (hit && (hit.missAt === undefined || (!afresh && now() - hit.missAt < missTtlMs))) return hit.p
     const entry: { p: Promise<string | null>; missAt?: number } = { p: Promise.resolve(null) }
     entry.p = resolve(target)
       .catch(() => null)
@@ -30,6 +31,7 @@ export function cachedResolver(
     cache.set(target, entry)
     return entry.p
   }
+  return Object.assign((target: string) => ask(target, false), { fresh: (target: string) => ask(target, true) })
 }
 
 /** The xterm link provider the run console, the project terminals and the session terminals share.
@@ -50,7 +52,44 @@ export function attachConsoleLinks(
   }
 ): () => void {
   const resolvePath = opts.resolvePath
-  const resolve = resolvePath ? cachedResolver(resolvePath) : (): Promise<string | null> => Promise.resolve(null)
+  const resolve = resolvePath
+    ? cachedResolver(resolvePath)
+    : Object.assign((): Promise<string | null> => Promise.resolve(null), { fresh: (): Promise<string | null> => Promise.resolve(null) })
+  /** A name the resolver cannot find yet: an agent prints a file's name, then writes or copies the file. xterm keeps a
+   *  row's links while the pointer stays on that row, so a name that was no link at its first hover stayed none after
+   *  the file appeared (bug report, 2026-10-13). It is a link with no underline and no pointer, so it reads as text;
+   *  each time the pointer comes onto it the file is looked for again, and once found it is marked and opens. A link
+   *  that cannot be followed still shows nothing and opens nothing. */
+  const lateLink = (range: ILink['range'], target: string, at: { line?: number; col?: number }): ILink => {
+    let found: string | null = null
+    let hovered = false
+    const link: ILink = {
+      range,
+      text: target,
+      decorations: { underline: false, pointerCursor: false },
+      hover: () => {
+        hovered = true
+        void (found !== null ? Promise.resolve(found) : resolve.fresh(target)).then((p) => {
+          if (p === null) return
+          found = p
+          // xterm's setters act on its current link, so only while the pointer is still on this one.
+          if (hovered && link.decorations) {
+            link.decorations.underline = true
+            link.decorations.pointerCursor = true
+          }
+        })
+      },
+      leave: () => {
+        hovered = false
+      },
+      activate: () => {
+        void (found !== null ? Promise.resolve(found) : resolve.fresh(target)).then((p) => {
+          if (p !== null) opts.onOpenFile?.(p, at)
+        })
+      }
+    }
+    return link
+  }
   const provider = term.registerLinkProvider({
     provideLinks: (y, callback) => {
       const buf = term.buffer.active
@@ -116,7 +155,7 @@ export function attachConsoleLinks(
               return { range, text: l.url, activate: (event) => opts.onUrl(l.url, event) }
             }
             const path = await resolve(l.target)
-            if (!path) return null
+            if (!path) return lateLink(range, l.target, { line: l.line, col: l.col })
             return {
               range,
               text: l.target,
