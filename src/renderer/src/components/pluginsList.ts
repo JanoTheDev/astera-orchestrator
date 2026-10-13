@@ -64,5 +64,9 @@ export function keepOnly<V>(o: Record<string, V>, ids: ReadonlySet<string>): Rec
   return next
 }
 
+/** Whether an install holds the tab: from the folder or package being read (an npm inspect downloads, and the Host's
+ *  plugin calls wait behind it) to the install's end, the list is not polled and the cards wait (2e final review I4). */
+export const installHolds = (phase: 'idle' | 'reading' | 'installing'): boolean => phase !== 'idle'
+
 /** Whether the last list said there is nothing to install into: no Host, or one that runs no plugins (M5). */
 export const installBlocked = (code: string | null): boolean => code === 'HOST_NOT_RUNNING' || code === 'NOT_SUPPORTED'

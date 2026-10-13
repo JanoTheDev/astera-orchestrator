@@ -99,19 +99,18 @@ export async function installPlugin<R extends PluginCall>(a: {
   call: (cmd: string, args: Record<string, unknown>, request: string | undefined) => Promise<R>
 }): Promise<R | { status: number; body: unknown } | { approve: Record<string, unknown> }> {
   const given = a.args.path
-  if (typeof given !== 'string' || given === '') return { status: 400, body: { error: 'plugins install needs --path <folder>' } }
+  const pkg = a.args.npm
+  if (given !== undefined && pkg !== undefined) return { status: 400, body: { error: 'plugins install takes --path or --npm, not both' } }
+  // A folder, resolved against the shell's own; or a package on npm (plugins 2e), as the person wrote it.
+  const source = typeof pkg === 'string' && pkg !== '' ? { npm: pkg } : typeof given === 'string' && given !== '' ? { path: path.resolve(a.cwd, given) } : null
+  if (source === null) return { status: 400, body: { error: 'plugins install needs --path <folder> or --npm <package>' } }
   // The parser reads a bare `--grant` as true; read as "no list", --yes would then grant everything.
   if (a.args.grant === true) return { status: 400, body: { error: '--grant needs a list of permissions; --grant "" grants none' } }
-  const folder = path.resolve(a.cwd, given)
-  const shown = await a.call('plugins-inspect', { path: folder }, undefined)
+  const shown = await a.call('plugins-inspect', source, undefined)
   if (!('status' in shown) || shown.status !== 200) return shown
   const inspection = shown.body as Record<string, unknown>
   const named = grantOf(a.args.grant)
   if (named === null && a.args.yes !== true) return { approve: inspection }
   const grant = named ?? (Array.isArray(inspection.permissions) ? (inspection.permissions as string[]) : [])
-  return a.call(
-    'plugins-install',
-    { path: folder, grant, expect: { name: inspection.name, version: inspection.version } },
-    a.request
-  )
+  return a.call('plugins-install', { ...source, grant, expect: { name: inspection.name, version: inspection.version } }, a.request)
 }

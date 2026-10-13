@@ -59,6 +59,8 @@ const NAME = /^(?:@[a-z0-9-][a-z0-9-._]*\/)?[a-z0-9-][a-z0-9-._]*$/
 const NOT_A_FOLDER = /^(?:(?:con|prn|aux|nul|com[0-9]|lpt[0-9])(?:\..*)?|.*\.)$/
 const NAME_MAX = 214
 const SEMVER = /^(\d+)\.(\d+)\.(\d+)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/
+/** A semver version, as a manifest's `version` must be; an npm install's `expect.version` too (2e final review I3). */
+export const isSemver = (v: unknown): v is string => typeof v === 'string' && SEMVER.test(v)
 const DISPLAY_NAME_MAX = 64
 const DESCRIPTION_MAX = 500
 /** Control characters other than a tab (final review m5): the approval message prints the displayName and the
@@ -66,6 +68,14 @@ const DESCRIPTION_MAX = 500
 const CONTROL = /[\x00-\x08\x0a-\x1f\x7f-\x9f]/
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
+
+/** Why `name` cannot be a plugin's package name, or null: npm's rule for new names, as one folder on every platform. A
+ *  manifest's name and an npm spec's (npmSpec.ts) are read by the same rule. */
+export function npmNameProblem(name: unknown): string | null {
+  if (typeof name !== 'string' || name.length > NAME_MAX || !NAME.test(name)) return `name ${JSON.stringify(name ?? null)} is not an npm package name`
+  if (name.replace(/^@/, '').split('/').some((part) => NOT_A_FOLDER.test(part))) return `name ${JSON.stringify(name)} cannot be a folder of its own on Windows`
+  return null
+}
 
 /** A relative path that cannot leave the folder it is read in, on any platform. */
 const entryProblem = (v: unknown): string | null => {
@@ -102,10 +112,8 @@ export function parseManifest(pkg: unknown): { ok: true; manifest: PluginManifes
   if (!isObject(pkg)) return { ok: false, problems: ['package.json is not a JSON object'] }
   const problems: string[] = []
   const { name, version, displayName, description, astera } = pkg
-  if (typeof name !== 'string' || name.length > NAME_MAX || !NAME.test(name))
-    problems.push(`name ${JSON.stringify(name ?? null)} is not an npm package name`)
-  else if (name.replace(/^@/, '').split('/').some((part) => NOT_A_FOLDER.test(part)))
-    problems.push(`name ${JSON.stringify(name)} cannot be a folder of its own on Windows`)
+  const named = npmNameProblem(name)
+  if (named !== null) problems.push(named)
   if (typeof version !== 'string' || !SEMVER.test(version)) problems.push(`version ${JSON.stringify(version ?? null)} is not a semver version`)
   if (displayName !== undefined && (typeof displayName !== 'string' || displayName.trim() === '' || displayName.trim().length > DISPLAY_NAME_MAX))
     problems.push(`displayName must be text of 1 to ${DISPLAY_NAME_MAX} characters`)

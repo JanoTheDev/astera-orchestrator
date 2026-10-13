@@ -48,7 +48,8 @@ const list = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is st
  *  an Enter (2d final review I2). What the update newly asks for starts checked, as on a first install. */
 export function installPrompt(
   inspection: Record<string, unknown>,
-  folder: string,
+  /** The folder it is installed from, or the npm package (plugins 2e). */
+  from: string | { npm: string },
   t: T,
   previous?: { permissions?: unknown; requested?: unknown }
 ): { title: string; body: string; footer: string; confirmLabel: string; choices: { id: string; label: string; hint: string; defaultChecked: boolean }[] } {
@@ -57,7 +58,7 @@ export function installPrompt(
   const installed = inspection.installed as { version?: unknown } | undefined
   const lines = [
     t('settings.plugins.install.what', { id: str(inspection.id), version: str(inspection.version) }),
-    t('settings.plugins.install.from', { folder }),
+    typeof from === 'string' ? t('settings.plugins.install.from', { folder: from }) : t('settings.plugins.install.fromNpm', { spec: from.npm }),
     ...(installed && typeof installed.version === 'string' ? [t('settings.plugins.install.replaces', { version: installed.version })] : []),
     ...(str(inspection.description) !== '' ? [str(inspection.description)] : []),
     ...(capabilities.length > 0 ? [t('settings.plugins.install.capabilities', { list: capabilities.join(', ') })] : []),
@@ -163,6 +164,9 @@ export function failureLine(r: { ok: false; code: string; message: string }, t: 
       return o.read === true ? t('settings.plugins.fail.timeoutRead') : t('settings.plugins.fail.timeout')
     case 'HOST_LOST':
       return o.read === true ? t('settings.plugins.fail.lostRead') : t('settings.plugins.fail.lost')
+    // The Host's sentence points at a CLI flag; the app has a folder button (2e final review M4).
+    case 'PLUGIN_NPM_MISSING':
+      return t('settings.plugins.fail.npmMissing')
     default:
       return r.message
   }

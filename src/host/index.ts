@@ -259,6 +259,8 @@ async function main(): Promise<void> {
       // the workspaces and the spawns below, so the three caps overlap and the way out stays within the wait `host stop`
       // gives it (HOST_STOP_WAIT_MS). Capped: past the cap a plugin still ends, since its channel closes with this
       // process. Never rejects.
+      // An install from npm still running ends too, rather than outlive this Host (2e final review M8).
+      plugins.stopNpm()
       const pluginsStopped = disposeWithin(pluginRuntime.stopAll(), PLUGIN_STOP_CAP_MS, () =>
         log.write(`the plugins were still stopping after ${PLUGIN_STOP_CAP_MS / 1000} s; leaving anyway`)
       )

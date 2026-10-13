@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { PluginsCallAnswer } from '../../../core/types'
-import { createPluginsPoller, installBlocked, keepOnly } from './pluginsList'
+import { createPluginsPoller, installBlocked, installHolds, keepOnly } from './pluginsList'
 
 // 2d final review I1: the Host's plugin calls run one at a time, so a list read sent during a long change waits behind
 // it and passes the app's 15 s deadline; the tab does not poll while a change of its own is in flight.
@@ -80,6 +80,16 @@ describe('keepOnly', () => {
     const o = { a: 1, b: 2 }
     expect(keepOnly(o, new Set(['a', 'b']))).toBe(o)
     expect(keepOnly(o, new Set(['a']))).toEqual({ a: 1 })
+  })
+})
+
+// 2e final review I4: an npm inspect downloads, and the Host's plugin calls wait behind it; from the folder or package
+// being read to the install's end, the list is not polled and the cards wait.
+describe('installHolds', () => {
+  it('holds while a source is read and while it installs', () => {
+    expect(installHolds('reading')).toBe(true)
+    expect(installHolds('installing')).toBe(true)
+    expect(installHolds('idle')).toBe(false)
   })
 })
 

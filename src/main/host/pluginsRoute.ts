@@ -38,8 +38,9 @@ export function createPluginsRoute(d: { call: Call }): PluginsApi {
   }
   return {
     list: () => send('plugins-list', {}),
-    inspect: (path) => send('plugins-inspect', { path }),
-    install: ({ path, grant, expect }) => send('plugins-install', { path, grant, expect }, true),
+    // An npm package's inspect downloads it, so it waits as a change does (plugins 2e).
+    inspect: (source) => send('plugins-inspect', { ...source }, 'npm' in source),
+    install: (a) => send('plugins-install', { ...a }, true),
     setEnabled: (id, enabled) => send(enabled ? 'plugins-enable' : 'plugins-disable', { id }, true),
     remove: (id) => send('plugins-remove', { id }, true),
     logs: (id, lines) => send('plugins-logs', { id, lines }),

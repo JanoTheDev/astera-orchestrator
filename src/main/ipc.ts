@@ -4702,7 +4702,7 @@ export function registerIpc(
   // checks every argument; a value of the wrong type is its refusal to give.
   const plugins = createPluginsRoute({ call: (m) => orchCall(m) })
   ipcMain.handle('plugins.list', () => plugins.list())
-  ipcMain.handle('plugins.inspect', (_e, path: unknown) => plugins.inspect(path as string))
+  ipcMain.handle('plugins.inspect', (_e, source: unknown) => plugins.inspect(source as Parameters<typeof plugins.inspect>[0]))
   ipcMain.handle('plugins.install', (_e, a: unknown) => plugins.install(a as Parameters<typeof plugins.install>[0]))
   ipcMain.handle('plugins.setEnabled', (_e, id: unknown, enabled: unknown) => plugins.setEnabled(id as string, enabled === true))
   ipcMain.handle('plugins.remove', (_e, id: unknown) => plugins.remove(id as string))
