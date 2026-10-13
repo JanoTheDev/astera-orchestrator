@@ -11,18 +11,25 @@ its Host, write [a plugin](plugins.md): its `ctx.astera` is this client.
 
 Where it stands:
 
-- It is **not on npm yet**. Build it from this repository ([Get it](#get-it)); it will be published and versioned
-  apart from the app.
+- It is on npm as `@astera-app/client` ([Get it](#get-it)), versioned apart from the app.
 - It talks to the Host on this machine only, over the Host's own pipe or socket. There is no HTTP mode and no Runtime
   target yet ([Not yet](#not-yet)).
 - Node 22 or later, ESM and CommonJS, TypeScript types included. No browser build.
-- It is 0.x until it is published, so names may still change.
+- It is 0.x, so a minor version may still change names; [its changelog](../packages/client/CHANGELOG.md) says what
+  each version changed.
 
 ## Get it
 
 You need Node 22 or later, and the Astera app installed and running (or a Host started with `astera host start`).
 
-Build the package from a clone of this repository:
+```bash
+npm install @astera-app/client
+```
+
+It needs Astera 1.4.12 or later, the first whose Host keeps the public event log
+([Host versions and features](#host-versions-and-features) says what an older one answers).
+
+To try what this repository has before it is released, build the package from a clone:
 
 ```bash
 git clone https://github.com/parsingk/Astera.git

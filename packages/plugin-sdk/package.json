@@ -1,8 +1,16 @@
 {
   "name": "@astera-app/plugin-sdk",
   "version": "0.1.0",
-  "private": true,
-  "description": "Write Astera plugins: definePlugin and the plugin context. Not published yet.",
+  "description": "Write Astera plugins: definePlugin and the plugin context's types.",
+  "keywords": [
+    "astera",
+    "plugin",
+    "sdk"
+  ],
+  "homepage": "https://github.com/parsingk/Astera/blob/main/docs/plugins.md",
+  "bugs": {
+    "url": "https://github.com/parsingk/Astera/issues"
+  },
   "license": "Apache-2.0",
   "type": "module",
   "engines": {
@@ -28,19 +36,21 @@
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "CHANGELOG.md"
   ],
-  "peerDependencies": {
-    "@astera-app/client": "*"
+  "scripts": {
+    "prepublishOnly": "node ../../scripts/build-packages.mjs"
   },
-  "peerDependenciesMeta": {
-    "@astera-app/client": {
-      "optional": true
-    }
+  "peerDependencies": {
+    "@astera-app/client": ">=0.1.0 <1"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/parsingk/Astera.git",
+    "url": "git+https://github.com/parsingk/Astera.git",
     "directory": "packages/plugin-sdk"
   }
 }

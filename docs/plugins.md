@@ -11,8 +11,8 @@ Where it stands:
 - A plugin is installed from a folder or from npm, and runs in the background: Astera calls its `activate` and lets it
   work. The kinds of plugin that Astera calls on for something (a source of Jobs, a completion check) do not run yet
   ([Not yet](#not-yet)).
-- `@astera-app/plugin-sdk`, the package with the plugin's types, is **not on npm yet**. A plugin needs nothing from it
-  to run: [the sample](../examples/plugins/webhook-notifier) is plain JavaScript and uses its types for the editor only.
+- `@astera-app/plugin-sdk` holds the plugin's types and `definePlugin`. A plugin needs nothing from it to run:
+  [the sample](../examples/plugins/webhook-notifier) is plain JavaScript and uses its types for the editor only.
 - The Plugin API is version `1`.
 
 ## Plugins are trusted code
@@ -292,10 +292,16 @@ how).
 
 ### TypeScript, and bundling
 
-Until the plugin SDK is on npm, build its types from a clone of this repository (`npm ci --ignore-scripts` and
-`npm run build:packages`, as [the SDK guide](sdk.md#get-it) does), run `npm pack` in `packages/plugin-sdk` and in
-`packages/client`, and install both `.tgz` files into your plugin as dev dependencies. Import the types only and
-export a plain object, so the plugin needs nothing of the SDK when it runs:
+Install the plugin SDK for its types, as a dev dependency. npm installs `@astera-app/client` beside it, whose types
+`ctx.astera` has:
+
+```sh
+npm install --save-dev @astera-app/plugin-sdk typescript @types/node
+```
+
+A plugin uses Node's globals (`process` below), whose types are `@types/node`'s: put `"types": ["node"]` in the
+`compilerOptions` of its `tsconfig.json`, which a new one leaves empty. Import the types only and export a plain
+object, so the plugin needs nothing of the SDK when it runs: an install from npm leaves dev dependencies out.
 
 ```ts
 import type { PluginContext, PluginDefinition } from '@astera-app/plugin-sdk'
@@ -380,6 +386,5 @@ install Node.js, or install from a folder. [The `astera` command](cli.md#plugins
 
 - Plugins that Astera calls on for something: the `event`, `job-source`, `completion-check` and `notification`
   capabilities. A plugin that names one installs, and does not run until an Astera that runs that kind.
-- `@astera-app/plugin-sdk` on npm.
 - The `github` and `how-it-works` commands for plugins, which their permissions are already named for.
 - A folder for each plugin's own data, and a development mode that reloads a plugin as you edit it.
