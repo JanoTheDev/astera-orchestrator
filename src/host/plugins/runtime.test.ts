@@ -7,6 +7,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { createPluginRuntime, type PluginLaunch, type PluginRuntime, type PluginTimings } from './runtime'
 import { bundleLauncher } from '../../pluginHost/testkit'
+import { pluginSecrets } from './pluginData'
 
 let dir: string
 let launcher: string
@@ -28,8 +29,9 @@ type Call = { cmd: string; args: unknown; sessionId: string; from?: { role: stri
 function runtime(timings: Partial<PluginTimings> = {}, extra: { maxLine?: number } = {}) {
   const calls: Call[] = []
   const hostLog: string[] = []
+  const profile = path.join(dir, `profile ${++n}`)
   const r = createPluginRuntime({
-    profileDir: path.join(dir, `profile ${++n}`),
+    profileDir: profile,
     exec: process.execPath,
     launcher,
     env: { ...process.env, ASTERA_SESSION: 'ses-leak', ASTERA_PROFILE_DIR: 'leak' },
@@ -45,7 +47,7 @@ function runtime(timings: Partial<PluginTimings> = {}, extra: { maxLine?: number
     ...extra
   })
   started.push(r)
-  return { r, calls, hostLog }
+  return { r, calls, hostLog, profile }
 }
 
 /** A plugin folder holding `source` as its entry. */
@@ -291,5 +293,86 @@ describe('createPluginRuntime', () => {
     expect(r.status('nobody')).toBeUndefined()
     await r.stopAll()
     expect([r.status('one')?.status, r.status('two')?.status]).toEqual(['stopped', 'stopped'])
+  }, 30_000)
+})
+
+// 2c final review C1, I2, I3, I4, M11, M15: no secret of a plugin reaches its log or a reason a person reads.
+describe('what a plugin log and reason never show', () => {
+  it('hides a secret kept in an earlier run that a plugin with no settings reads and prints', async () => {
+    const { r, profile } = runtime()
+    mkdirSync(profile, { recursive: true })
+    await pluginSecrets(profile, 'earlier').secret.set('oauth', 'oauth-kept-earlier-31')
+    r.start(plugin('earlier', `export default { async activate(ctx) { console.error('read ' + (await ctx.secrets.get('oauth'))) } }`))
+    await until(() => expect(logOf(r, 'earlier')).toContain('read '))
+    expect(logOf(r, 'earlier')).toContain('read [redacted]')
+    expect(logOf(r, 'earlier')).not.toContain('oauth-kept-earlier-31')
+  }, 30_000)
+
+  it('keeps hiding a secret the plugin set before it crashed, after the restart', async () => {
+    const { r } = runtime()
+    const p = plugin(
+      'crashy',
+      `import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+      export default {
+        async activate(ctx) {
+          if (existsSync('cache.txt')) { console.error('cached ' + readFileSync('cache.txt', 'utf8')); return }
+          await ctx.secrets.set('refresh', 'refresh-before-crash-42')
+          writeFileSync('cache.txt', 'refresh-before-crash-42')
+          process.exit(1)
+        }
+      }`
+    )
+    r.start(p)
+    await until(() => expect(logOf(r, 'crashy')).toContain('cached '))
+    expect(logOf(r, 'crashy')).toContain('cached [redacted]')
+    expect(logOf(r, 'crashy')).not.toContain('refresh-before-crash-42')
+  }, 30_000)
+
+  it('hides a secret in the reason of a failed plugin and of one waiting to restart', async () => {
+    const source = `export default { activate(ctx) { throw new Error('401 for ' + ctx.settings.password) } }`
+    const secret = { settings: { password: 'hunter2-plain' }, redact: ['hunter2-plain'] }
+    const { r } = runtime({ failAfter: 1 })
+    r.start({ ...plugin('says', source), ...secret })
+    await until(() => expect(r.status('says')?.status).toBe('failed'))
+    expect(r.status('says')?.reason).toContain('activate threw: 401 for [redacted]')
+    const { r: waiting } = runtime({ backoffMs: [60_000] })
+    waiting.start({ ...plugin('waits', source), ...secret })
+    await until(() => expect(waiting.status('waits')?.reason).toBeDefined())
+    expect(waiting.status('waits')?.reason).toBe('restarting after activate threw: 401 for [redacted]')
+  }, 30_000)
+
+  it('hides each line of a secret of many lines, and a secret as JSON writes it', async () => {
+    const { r } = runtime()
+    const key = '-----BEGIN KEY-----\nMIIEvQIBADANBgkqhkiG9w0\nBAQEFAASCBKcwggSjAgEAAo\n-----END KEY-----'
+    const phrase = 'say "open" \\ sesame-77'
+    const p = plugin('pem', `export default { activate(ctx) { console.error(ctx.settings.key); console.error(JSON.stringify(ctx.settings)) } }`)
+    r.start({ ...p, settings: { key, phrase }, redact: [key, phrase] })
+    await until(() => expect(logOf(r, 'pem')).toContain('"phrase"'))
+    const log = logOf(r, 'pem')
+    for (const leak of ['MIIEvQIBADANBgkqhkiG9w0', 'BAQEFAASCBKcwggSjAgEAAo', 'sesame-77']) expect(log, leak).not.toContain(leak)
+  }, 30_000)
+
+  it('hides a secret that holds a shorter one whole', async () => {
+    const { r } = runtime()
+    const p = plugin('nested', `export default { activate() { console.error('long abcd-long-secret, short abcd') } }`)
+    r.start({ ...p, redact: ['abcd', 'abcd-long-secret'] })
+    await until(() => expect(logOf(r, 'nested')).toContain('long '))
+    expect(logOf(r, 'nested')).toContain('long [redacted], short [redacted]')
+  }, 30_000)
+
+  it('hides the last value set under a secret name, not every value it ever held', async () => {
+    const { r } = runtime()
+    const p = plugin(
+      'cursor',
+      `export default {
+        async activate(ctx) {
+          for (let i = 0; i < 50; i++) await ctx.secrets.set('cursor', 'cursor-value-' + String(i).padStart(3, '0'))
+          console.error('first cursor-value-000, last cursor-value-049')
+        }
+      }`
+    )
+    r.start(p)
+    await until(() => expect(logOf(r, 'cursor')).toContain('first '))
+    expect(logOf(r, 'cursor')).toContain('first cursor-value-000, last [redacted]')
   }, 30_000)
 })
