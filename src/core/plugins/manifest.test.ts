@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  PLUGIN_API_VERSIONS,
   PLUGIN_PERMISSIONS,
   PLUGIN_TRUST_WARNING,
   incompatibility,
@@ -210,5 +211,12 @@ describe('PLUGIN_TRUST_WARNING', () => {
     expect(PLUGIN_TRUST_WARNING).toBe(
       'Plugins run trusted code on this machine: a plugin can do anything you can, and its permissions limit only what it asks Astera for.'
     )
+  })
+})
+
+describe('the plugin SDK', () => {
+  it('is written for a Plugin API this Astera speaks', async () => {
+    const { PLUGIN_API_VERSION } = await import('../../../packages/plugin-sdk/src/index.js')
+    expect((PLUGIN_API_VERSIONS as readonly string[]).includes(PLUGIN_API_VERSION)).toBe(true)
   })
 })
