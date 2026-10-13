@@ -5,7 +5,7 @@
 // by it (2e final review I1). On Windows npm is a .cmd, reached through cmd.exe with every argument quoted; the spec has
 // been checked (npmSpec.ts) so no argument holds a character cmd.exe reads inside quotes.
 import { spawn as nodeSpawn, type ChildProcess } from 'node:child_process'
-import { promises as fs } from 'node:fs'
+import { promises as fs, statSync } from 'node:fs'
 import path from 'node:path'
 import { hostWorkerBaseEnv } from '../../core/host/spawn'
 import { killProcessTree } from '../../core/run/kill'
@@ -44,8 +44,6 @@ export type NpmRunner = NpmRun & { stopAll(): void }
 export const NPM_TIMEOUT_MS = 120_000
 /** What is kept of each stream: the end, where npm says what went wrong. */
 const OUTPUT_MAX = 1024 * 1024
-/** What cmd.exe answers for a command it cannot find. */
-const CMD_NOT_FOUND = 9009
 
 /** Astera's own npm (ownNpm.ts): its npm-cli.js, run on the Host's own Node. */
 export interface OwnNpm {
@@ -53,20 +51,54 @@ export interface OwnNpm {
   cli: string
 }
 
+const valueOf = (env: NodeJS.ProcessEnv, name: string): string | undefined => {
+  const key = Object.keys(env).find((k) => k.toUpperCase() === name)
+  return key === undefined ? undefined : env[key]
+}
+
+/** Where `name` is on PATH, or null: each absolute folder of PATH in order, never the current folder or a relative
+ *  one; on Windows with each PATHEXT extension, as cmd.exe would run it, and never the extensionless sh script npm
+ *  ships beside npm.cmd. Found on the dev app (2e-2): asked to run a command it cannot find, cmd.exe says so in the
+ *  system's language and code page and exits 1, so the Host finds npm itself rather than read cmd.exe's answer. */
+export function findOnPath(name: string, env: NodeJS.ProcessEnv, platform: NodeJS.Platform): string | null {
+  const p = platform === 'win32' ? path.win32 : path.posix
+  const dirs = (valueOf(env, 'PATH') ?? '')
+    .split(platform === 'win32' ? ';' : ':')
+    .map((d) => d.trim().replace(/^"(.*)"$/, '$1'))
+    .filter((d) => d !== '' && p.isAbsolute(d))
+  const exts =
+    platform === 'win32'
+      ? (valueOf(env, 'PATHEXT') ?? '.COM;.EXE;.BAT;.CMD')
+          .split(';')
+          .map((e) => e.trim())
+          .filter((e) => e !== '')
+      : ['']
+  for (const dir of dirs)
+    for (const ext of exts) {
+      const at = p.join(dir, `${name}${ext.toLowerCase()}`)
+      try {
+        if (statSync(at).isFile()) return at
+      } catch {
+        // not there
+      }
+    }
+  return null
+}
+
 /** The command that runs npm with `args`: Astera's own as a script on the Host's Node, with no shell between; the
- *  person's as the command on their PATH. */
+ *  person's by the path found on PATH, a .cmd or .bat through cmd.exe with that path and every argument quoted. */
 export function npmCommand(
   args: readonly string[],
   platform: NodeJS.Platform,
   env: NodeJS.ProcessEnv,
-  own?: OwnNpm
+  at: { own: OwnNpm } | { path: string }
 ): { file: string; args: string[]; verbatim: boolean } {
-  if (own) return { file: own.node, args: [own.cli, ...args], verbatim: false }
-  if (platform !== 'win32') return { file: 'npm', args: [...args], verbatim: false }
-  for (const a of args) if (/["%\r\n]/.test(a)) throw new Error(`${JSON.stringify(a)} cannot be passed to npm through cmd.exe`)
-  // `/s /c "..."`: cmd.exe drops the outer quotes and runs the rest, each argument in quotes of its own. `/v:off`: no
-  // `!` is expanded, whatever the machine's default.
-  return { file: env.ComSpec ?? 'cmd.exe', args: ['/d', '/v:off', '/s', '/c', `"npm ${args.map((a) => `"${a}"`).join(' ')}"`], verbatim: true }
+  if ('own' in at) return { file: at.own.node, args: [at.own.cli, ...args], verbatim: false }
+  if (platform !== 'win32' || !/\.(?:cmd|bat)$/i.test(at.path)) return { file: at.path, args: [...args], verbatim: false }
+  for (const a of [at.path, ...args]) if (/["%\r\n]/.test(a)) throw new Error(`${JSON.stringify(a)} cannot be passed to npm through cmd.exe`)
+  // `/s /c "..."`: cmd.exe drops the outer quotes and runs the rest, the path and each argument in quotes of their own.
+  // `/v:off`: no `!` is expanded, whatever the machine's default.
+  return { file: env.ComSpec ?? 'cmd.exe', args: ['/d', '/v:off', '/s', '/c', `""${at.path}" ${args.map((a) => `"${a}"`).join(' ')}"`], verbatim: true }
 }
 
 /** The environment npm runs with: the Host's, without what is the Host's alone (HOST_ONLY_ENV) or an Astera session's,
@@ -103,6 +135,8 @@ export function createNpmRunner(d: {
   kill?: (child: ChildProcess) => void
   /** Astera's own npm instead of the person's; its Node is the Host's binary, run as Node. */
   own?: OwnNpm
+  /** For tests: where the person's npm is (findOnPath). */
+  find?: (name: string) => string | null
 }): NpmRunner {
   const spawn = d.spawn ?? nodeSpawn
   const env = d.own ? { ...d.env, ELECTRON_RUN_AS_NODE: '1' } : d.env
@@ -112,7 +146,17 @@ export function createNpmRunner(d: {
   const running = new Set<() => void>()
   const run: NpmRun = (args, o) =>
     new Promise((resolve, reject) => {
-      const cmd = npmCommand(args, platform, d.env, d.own)
+      let cmd: { file: string; args: string[]; verbatim: boolean }
+      if (d.own) cmd = npmCommand(args, platform, d.env, { own: d.own })
+      else {
+        const where = (d.find ?? ((n: string) => findOnPath(n, d.env, platform)))('npm')
+        if (where === null) return reject(new NpmMissing())
+        try {
+          cmd = npmCommand(args, platform, d.env, { path: where })
+        } catch (e) {
+          return reject(e)
+        }
+      }
       let child: ChildProcess
       try {
         child = spawn(cmd.file, cmd.args, { cwd: o.cwd, env, windowsHide: true, windowsVerbatimArguments: cmd.verbatim, stdio: ['ignore', 'pipe', 'pipe'] })
@@ -145,7 +189,6 @@ export function createNpmRunner(d: {
         settle()
         if (ended === 'late') return reject(new Error(`npm did not finish within ${ms / 1000} s`))
         if (ended === 'stopped') return reject(new Error('npm was stopped: the Host is leaving'))
-        if (!d.own && platform === 'win32' && code === CMD_NOT_FOUND) return reject(new NpmMissing())
         resolve({ code: code ?? 1, stdout, stderr })
       })
     })
