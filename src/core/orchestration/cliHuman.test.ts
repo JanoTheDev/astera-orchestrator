@@ -127,10 +127,13 @@ describe('humanFor', () => {
         ok: false,
         checks: [
           { name: 'manifest', ok: true, detail: 'x 1.0.0, Plugin API 1' },
-          { name: 'native-addons', ok: false, detail: '1 native addon (a.node)' }
+          { name: 'native-addons', ok: true, warn: true, detail: '1 native addon (a.node)' },
+          { name: 'entry', ok: false, detail: 'index.js is not a file' }
         ]
       })
-    ).toBe('ok    manifest       x 1.0.0, Plugin API 1' + String.fromCharCode(10) + 'FAIL  native-addons  1 native addon (a.node)')
+    ).toBe(
+      ['ok    manifest       x 1.0.0, Plugin API 1', 'warn  native-addons  1 native addon (a.node)', 'FAIL  entry          index.js is not a file'].join(String.fromCharCode(10))
+    )
   })
 
   it('one plugin reads as its fields, like one project', () => {

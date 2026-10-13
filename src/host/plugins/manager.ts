@@ -391,7 +391,8 @@ export function createPluginManager(d: {
   async function doctor(id: unknown): Promise<PluginsAnswer> {
     const r = find(await readRegistry(root), idOf('plugins-doctor', id))
     const dir = path.join(installed, r.folder)
-    const checks: { name: string; ok: boolean; detail: string }[] = []
+    /** `warn`: worth knowing, and no fault: it leaves `ok` as it is. */
+    const checks: { name: string; ok: boolean; warn?: true; detail: string }[] = []
     const answer = (): PluginsAnswer => ({ status: 200, body: { id: r.id, ok: checks.every((c) => c.ok), checks } })
     const read = await readManifest(dir)
     if (!read.ok) {
@@ -404,18 +405,22 @@ export function createPluginManager(d: {
     checks.push({ name: 'compatible', ok: incompatible === null, detail: incompatible ?? 'this Astera runs it' })
     const entry = await fs.stat(path.resolve(dir, m.entry)).then((st) => st.isFile(), () => false)
     checks.push({ name: 'entry', ok: entry, detail: entry ? m.entry : `${m.entry} is not a file in the installed copy` })
-    // Design P2: plugins run on the Node inside Astera, whose ABI no prebuilt addon is built for everywhere.
+    // Design P2: plugins run on the Node inside Astera. An addon loads there only if it was built for it, as N-API addons
+    // are, so the doctor warns rather than fails (2b final review M4).
     const addons = (await fs.readdir(dir, { recursive: true }).catch(() => [] as string[]))
       .filter((f) => f.endsWith('.node'))
       .map((f) => f.split(path.sep).join('/'))
       .sort()
     checks.push({
       name: 'native-addons',
-      ok: addons.length === 0,
+      ok: true,
+      ...(addons.length > 0 ? { warn: true as const } : {}),
       detail:
         addons.length === 0
           ? 'none'
-          : `${addons.length} native addon${addons.length === 1 ? '' : 's'} (${addons[0]}${addons.length > 1 ? `, and ${addons.length - 1} more` : ''}); plugins run on the Node inside Astera, which cannot load them`
+          : `${addons.length} native addon${addons.length === 1 ? '' : 's'} (${addons[0]}${addons.length > 1 ? `, and ${addons.length - 1} more` : ''}): ` +
+            (addons.length === 1 ? 'it loads' : 'each loads') +
+            ' only if it was built for the Node inside Astera, as N-API addons are'
     })
     const run = r.enabled && incompatible === null ? d.runtime?.status(r.id) : undefined
     checks.push(

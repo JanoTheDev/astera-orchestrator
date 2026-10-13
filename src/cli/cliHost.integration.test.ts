@@ -1124,11 +1124,16 @@ describe('the public CLI against a real Host (§48, §49)', { timeout: 60_000 },
     expect(okData(await astera(['plugins', 'list'], h.env), 'plugins list')).toMatchObject({ plugins: [{ id: 'astera-hello', enabled: true }] })
     expect(okData(await astera(['plugins', 'doctor', '--id', 'astera-hello'], h.env), 'plugins doctor')).toMatchObject({ ok: true })
     expect(okData(await astera(['plugins', 'logs', '--id', 'astera-hello'], h.env), 'plugins logs')).toMatchObject({ id: 'astera-hello', lines: [] })
-    // A native addon in the copy: the doctor names it and exits 1.
+    // A native addon in the copy is a warning; an entry that is gone is a failure, and exit 1.
     await fs.writeFile(path.join(h.profileDir, 'plugins', 'installed', 'astera-hello', 'fast.node'), '')
+    expect(okData(await astera(['plugins', 'doctor', '--id', 'astera-hello'], h.env), 'plugins doctor')).toMatchObject({
+      ok: true,
+      checks: expect.arrayContaining([expect.objectContaining({ name: 'native-addons', warn: true })])
+    })
+    await fs.rm(path.join(h.profileDir, 'plugins', 'installed', 'astera-hello', 'index.js'))
     const sick = await astera(['plugins', 'doctor', '--id', 'astera-hello'], h.env)
     expect(sick.code, sick.stdout).toBe(1)
-    expect(sick.envelope.error).toMatchObject({ code: 'FAILED', message: expect.stringContaining('astera-hello has problems: native-addons: 1 native addon (fast.node)') })
+    expect(sick.envelope.error).toMatchObject({ code: 'FAILED', message: expect.stringContaining('astera-hello has problems: entry: index.js is not a file in the installed copy') })
     expect(okData(await astera(['plugins', 'disable', '--id', 'astera-hello'], h.env), 'plugins disable')).toMatchObject({ status: 'disabled', changed: true })
     expect(okData(await astera(['plugins', 'remove', '--id', 'astera-hello'], h.env), 'plugins remove')).toEqual({ id: 'astera-hello', version: '1.0.0', removed: true })
     expect((await astera(['plugins', 'get', '--id', 'astera-hello'], h.env)).code).toBe(4)

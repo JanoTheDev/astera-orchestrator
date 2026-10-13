@@ -161,7 +161,7 @@ export function humanFor(cmd: string, data: Record<string, unknown>): string | n
     }
     case 'plugins-doctor':
       return columns(
-        (Array.isArray(data.checks) ? (data.checks as Record<string, unknown>[]) : []).map((c) => [c.ok === true ? 'ok' : 'FAIL', str(c.name), str(c.detail)])
+        (Array.isArray(data.checks) ? (data.checks as Record<string, unknown>[]) : []).map((c) => [c.ok !== true ? 'FAIL' : c.warn === true ? 'warn' : 'ok', str(c.name), str(c.detail)])
       )
     case 'plugins-list':
       return columns(

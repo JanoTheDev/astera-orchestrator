@@ -600,19 +600,22 @@ describe('logs and doctor', () => {
     })
   })
 
-  it('names a native addon, which a plugin cannot load here', async () => {
+  // 2b final review M4: design P2 warns; an N-API addon, or one built for the Node a plugin runs on, loads fine.
+  it('warns about a native addon without failing the plugin', async () => {
     await manager.install({ path: await plugin(FOLDER), grant: [] })
     const addon = path.join(installed(), '@acme+astera-jira', 'node_modules', 'fast-thing', 'build', 'Release')
     await fs.mkdir(addon, { recursive: true })
     await fs.writeFile(path.join(addon, 'fast.node'), '')
     const r = await manager.doctor('@acme/astera-jira')
     expect(r.body).toMatchObject({
-      ok: false,
+      ok: true,
       checks: expect.arrayContaining([
         {
           name: 'native-addons',
-          ok: false,
-          detail: '1 native addon (node_modules/fast-thing/build/Release/fast.node); plugins run on the Node inside Astera, which cannot load them'
+          ok: true,
+          warn: true,
+          detail:
+            '1 native addon (node_modules/fast-thing/build/Release/fast.node): it loads only if it was built for the Node inside Astera, as N-API addons are'
         }
       ])
     })
