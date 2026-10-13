@@ -10,7 +10,7 @@ import os from 'node:os'
 import path from 'node:path'
 import type { AddressInfo } from 'node:net'
 import { NpmMissing, createNpm, createNpmRunner, installDependencies, npmEnv, packAndExtract, type NpmRun } from './npm'
-import { tgzOf } from './tarballFixture'
+import { pax, tgzOf, type Entry } from './tarballFixture'
 
 const hasNpm = spawnSync('npm --version', { shell: true, encoding: 'utf8' }).status === 0
 
@@ -157,17 +157,23 @@ describe.skipIf(!hasNpm)('npm against a registry of the test', () => {
   // test's registry, as registry.npmjs.org serves npm 11.21.0) and runs it on its own Node, with no shell.
   it('installs through its own npm where the person has none', async () => {
     // The npm folder whole, its node_modules with it, as the registry's npm tarball holds them (`npm pack` of an
-    // installed npm leaves them out).
+    // installed npm leaves them out). Packed here, a path longer than a tar header holds in a pax record before it:
+    // Windows' tar.exe, which this used, failed on GitHub's Windows runner without a word.
     // The npm installed with the Node running the tests: `npm root -g` names the configured global prefix, which a CI
     // runner sets apart from it (C:\npm\prefix on GitHub's Windows runners)
     const root =
       process.platform === 'win32' ? path.join(path.dirname(process.execPath), 'node_modules') : path.join(path.dirname(process.execPath), '..', 'lib', 'node_modules')
     const version = (JSON.parse(await fs.readFile(path.join(root, 'npm', 'package.json'), 'utf8')) as { version: string }).version
-    const file = path.join(dir, 'own-npm.tgz')
-    // Windows' own tar, which reads C:\ as a drive; a GNU tar first on PATH would read it as a remote host.
-    const tar = process.platform === 'win32' ? path.join(process.env.SystemRoot ?? 'C:/Windows', 'System32', 'tar.exe') : 'tar'
-    expect(spawnSync(tar, ['-czf', file, '-C', root, 'npm'], { encoding: 'utf8' }).status).toBe(0)
-    ownNpm = await fs.readFile(file)
+    const entries: Entry[] = []
+    for (const rel of (await fs.readdir(path.join(root, 'npm'), { recursive: true })).sort()) {
+      const full = path.join(root, 'npm', rel)
+      if (!(await fs.lstat(full)).isFile()) continue
+      const name = `npm/${rel.split(path.sep).join('/')}`
+      if (Buffer.byteLength(name) > 100) entries.push({ name: 'PaxHeader', type: 'x', body: pax({ path: name }) })
+      entries.push({ name, body: await fs.readFile(full) })
+    }
+    expect(entries.length).toBeGreaterThan(1000)
+    ownNpm = tgzOf(entries)
     let systemCalls = 0
     const none: NpmRun = async () => {
       systemCalls++
