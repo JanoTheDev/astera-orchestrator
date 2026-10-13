@@ -32,6 +32,10 @@ In PowerShell:
 $env:WEBHOOK_URL | astera plugins configure --id astera-webhook-notifier --stdin webhookUrl
 ```
 
+For a service of your own, give it a signing secret the same way (`--stdin signingSecret`). Each post then carries
+`X-Astera-Signature: sha256=<hex>`, the HMAC-SHA256 of the request body under that secret: compute it over the body
+as it arrived, before parsing it, and compare.
+
 To post only problems (no completed Runs):
 
 ```sh

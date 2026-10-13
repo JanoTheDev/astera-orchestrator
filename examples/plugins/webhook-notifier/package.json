@@ -18,6 +18,12 @@
           "description": "Where to post: a Slack incoming webhook, a Discord webhook with /slack added, or a URL of your own that takes JSON.",
           "secret": true
         },
+        "signingSecret": {
+          "type": "string",
+          "title": "Signing secret",
+          "description": "Optional. When set, each post carries X-Astera-Signature: sha256= and the HMAC-SHA256 of its body under this secret.",
+          "secret": true
+        },
         "onlyProblems": {
           "type": "boolean",
           "title": "Only problems",

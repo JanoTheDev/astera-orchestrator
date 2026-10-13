@@ -2,6 +2,7 @@
 // Node's own modules so its folder installs as it is, it typechecks against the SDK's types, and it runs in the real
 // plugin runtime (the launcher bundled, a process of its own) against a Host that answers what it asks.
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest'
+import { createHmac } from 'node:crypto'
 import { mkdtempSync, readFileSync, rmSync, existsSync } from 'node:fs'
 import http from 'node:http'
 import os from 'node:os'
@@ -38,19 +39,24 @@ const until = <T>(f: () => T, timeout = 20_000): Promise<T> => vi.waitFor(f, { t
 /** A webhook that answers with `statuses` in turn (200 once they run out), and keeps what it was sent. */
 async function webhook(statuses: number[] = []) {
   const bodies: unknown[] = []
+  const posts: { text: string; signature: string | undefined }[] = []
   const server = http.createServer((req, res) => {
     let text = ''
     req.setEncoding('utf8').on('data', (c: string) => (text += c))
     req.on('end', () => {
       const status = statuses.shift() ?? 200
-      if (status === 200) bodies.push(JSON.parse(text))
+      if (status === 200) {
+        bodies.push(JSON.parse(text))
+        const signature = req.headers['x-astera-signature']
+        posts.push({ text, signature: typeof signature === 'string' ? signature : undefined })
+      }
       res.writeHead(status)
       res.end()
     })
   })
   servers.push(server)
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
-  return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/hooks/T0/B0/secret-part`, bodies }
+  return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/hooks/T0/B0/secret-part`, bodies, posts }
 }
 
 const A = 'aaaaaaaaaaaa'
@@ -108,6 +114,7 @@ describe('the webhook notifier sample', () => {
     expect(read.manifest).toMatchObject({ id: ID, apiVersion: '1', entry: 'index.mjs', permissions: ['events.subscribe'], capabilities: [] })
     expect(read.manifest.settings).toEqual([
       expect.objectContaining({ key: 'webhookUrl', type: 'string', secret: true, required: true }),
+      expect.objectContaining({ key: 'signingSecret', type: 'string', secret: true, required: false }),
       expect.objectContaining({ key: 'onlyProblems', type: 'boolean', default: false, required: false })
     ])
   })
@@ -132,6 +139,19 @@ describe('the webhook notifier sample', () => {
     expect(host.polls[1]).toMatchObject({ after: `ev_${A}_1`, types: 'run.completed,run.failed,completion.exhausted,question.created' })
     await until(() => expect(logOf(r)).toContain(`posted run.completed ev_${A}_2`))
     expect(logOf(r)).not.toContain('secret-part')
+    // No signing secret, no signature
+    expect(hook.posts[0].signature).toBeUndefined()
+  }, 30_000)
+
+  // Spec §17: a webhook plugin's settings are its URL, a secret, event filters and a retry policy
+  it('signs each post with the signing secret when one is set, so a service of your own can tell it came from here', async () => {
+    const hook = await webhook()
+    const key = 'shh-signing-key'
+    const r = runtime(events([{ status: 200, body: { events: [completed], cursor: `ev_${A}_2`, gap: false } }]))
+    r.start(launch({ webhookUrl: hook.url, signingSecret: key, onlyProblems: false }, [hook.url, key]))
+    await until(() => expect(hook.posts).toHaveLength(1))
+    const { text, signature } = hook.posts[0]
+    expect(signature).toBe(`sha256=${createHmac('sha256', key).update(text).digest('hex')}`)
   }, 30_000)
 
   it('asks only for problems when told to', async () => {
