@@ -1,0 +1,108 @@
+// Publishing the SDK packages (docs/releasing.md): a tag names the package and its version, and the workflow that
+// publishes it does so with npm's trusted publishing, after building and testing it, and never on an app tag.
+import { describe, it, expect } from 'vitest'
+import { spawnSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { PACKAGES } from './build-packages.mjs'
+import { dryRunTarget, publishTarget } from './publish-target.mjs'
+
+const here = path.dirname(fileURLToPath(import.meta.url))
+const root = path.resolve(here, '..')
+const read = (f) => readFileSync(path.join(root, f), 'utf8')
+const version = (dir) => JSON.parse(read(`packages/${dir}/package.json`)).version
+const script = path.join(here, 'publish-target.mjs')
+const run = (...args) => spawnSync(process.execPath, [script, ...args], { encoding: 'utf8' })
+
+describe('publishTarget', () => {
+  it('maps a tag to its package at the version its package.json holds', () => {
+    expect(publishTarget(`client-v${version('client')}`)).toEqual({ dir: 'client', name: '@astera-app/client', version: version('client') })
+    expect(publishTarget(`plugin-sdk-v${version('plugin-sdk')}`)).toEqual({ dir: 'plugin-sdk', name: '@astera-app/plugin-sdk', version: version('plugin-sdk') })
+  })
+
+  it('refuses a tag whose version is not the package’s, saying which tag to push', () => {
+    const at = () => ({ name: '@astera-app/client', version: '0.2.0' })
+    expect(() => publishTarget('client-v0.1.9', at)).toThrow('client-v0.1.9 does not match packages/client/package.json (0.2.0): push client-v0.2.0')
+  })
+
+  it('refuses an app tag and a tag that names no package', () => {
+    for (const tag of ['v1.4.13', 'jira-v1.0.0', 'client-1.0.0', 'client-v1.0', 'client-v1.0.0-beta.1'])
+      expect(() => publishTarget(tag), tag).toThrow(`${tag} names no package: a publish tag is client-vX.Y.Z or plugin-sdk-vX.Y.Z`)
+  })
+
+  it('takes a package by its folder for a dry run, at its version', () => {
+    expect(dryRunTarget('plugin-sdk')).toEqual({ dir: 'plugin-sdk', name: '@astera-app/plugin-sdk', version: version('plugin-sdk') })
+    expect(() => dryRunTarget('nope')).toThrow('nope is not a package: client or plugin-sdk')
+  })
+
+  it('writes the workflow’s outputs as a script, and nothing but its reason when it refuses', () => {
+    const ok = run('--tag', `client-v${version('client')}`)
+    expect(ok.status, ok.stderr).toBe(0)
+    expect(ok.stdout).toBe(`dir=client\nname=@astera-app/client\nversion=${version('client')}\n`)
+    expect(run('--package', 'plugin-sdk').stdout).toBe(`dir=plugin-sdk\nname=@astera-app/plugin-sdk\nversion=${version('plugin-sdk')}\n`)
+    const refused = run('--tag', 'v1.4.13')
+    expect(refused.status).toBe(1)
+    expect(refused.stdout).toBe('')
+    expect(refused.stderr).toContain('v1.4.13 names no package')
+    expect(run().status).toBe(1)
+  })
+})
+
+describe('.github/workflows/publish-packages.yml', () => {
+  const wf = read('.github/workflows/publish-packages.yml')
+  /** The workflow without its comments, which name commands they do not run. */
+  const code = wf.replace(/^\s*#.*$/gm, '')
+  /** The lines of one step, from its `- ` to the next step's. */
+  const step = (marker) => {
+    const at = wf.indexOf(marker)
+    expect(at, marker).toBeGreaterThan(0)
+    const start = wf.lastIndexOf('\n      - ', at)
+    const end = wf.indexOf('\n      - ', at)
+    return wf.slice(start, end < 0 ? undefined : end)
+  }
+
+  it('runs on a tag of each package, and by hand for one of them', () => {
+    const tags = /^ {4}tags: \[(.+)\]$/m.exec(wf)?.[1].split(',').map((t) => t.trim().replace(/^'|'$/g, ''))
+    expect(tags).toEqual(PACKAGES.map((p) => `${p}-v[0-9]+.[0-9]+.[0-9]+`))
+    expect(wf).toMatch(/^ {2}workflow_dispatch:$/m)
+    expect(/^ {8}options: \[(.+)\]$/m.exec(wf)?.[1].split(',').map((o) => o.trim())).toEqual(PACKAGES)
+  })
+
+  it('publishes with npm’s trusted publishing: an OIDC token, and no npm token anywhere', () => {
+    expect(wf).toMatch(/^ {2}id-token: write\b/m)
+    expect(wf).toMatch(/^ {2}contents: read\b/m)
+    expect(wf).not.toMatch(/secrets\.|NODE_AUTH_TOKEN|NPM_TOKEN/)
+    // npm takes trusted publishing from 11.5.1
+    const npm = /npm install -g npm@(\d+)\.(\d+)\.(\d+)/.exec(wf)
+    expect(npm).not.toBeNull()
+    const [major, minor, patch] = npm.slice(1).map(Number)
+    expect(major * 1e6 + minor * 1e3 + patch).toBeGreaterThanOrEqual(11 * 1e6 + 5 * 1e3 + 1)
+  })
+
+  it('checks the tag before anything else, then builds and tests the package, and only then publishes it', () => {
+    const order = ['scripts/publish-target.mjs --tag "$GITHUB_REF_NAME"', 'npm ci --ignore-scripts', 'npm run build:packages', 'npx vitest run', 'npm publish']
+    const at = order.map((s) => code.indexOf(s))
+    for (const [i, s] of order.entries()) expect(at[i], s).toBeGreaterThan(0)
+    expect([...at].sort((a, b) => a - b)).toEqual(at)
+    expect(step('npx vitest run')).toContain('packages/${{ steps.target.outputs.dir }}')
+    expect(step('npx vitest run')).toContain('scripts/publish-packages.test.mjs')
+  })
+
+  it('publishes with provenance from the package’s folder on a tag, and only dry-runs by hand', () => {
+    const publish = step('run: npm publish --provenance\n')
+    expect(publish).toContain("if: github.event_name == 'push'")
+    expect(publish).toContain('working-directory: packages/${{ steps.target.outputs.dir }}')
+    const dry = step('run: npm publish --provenance --dry-run')
+    expect(dry).toContain("if: github.event_name == 'workflow_dispatch'")
+    expect(dry).toContain('working-directory: packages/${{ steps.target.outputs.dir }}')
+    expect(code.match(/npm publish/g)).toHaveLength(2)
+    // The package chosen by hand reaches the shell through the environment, not pasted into the script
+    expect(step('scripts/publish-target.mjs --package')).toContain('PACKAGE: ${{ inputs.package }}')
+    expect(wf).not.toMatch(/run:.*\$\{\{ inputs\./)
+  })
+
+  it('is apart from the app’s release, whose tag no package tag matches', () => {
+    expect(/^ {4}tags: \['(.+)'\]$/m.exec(read('.github/workflows/release.yml'))?.[1]).toBe('v[0-9]+.[0-9]+.[0-9]+')
+  })
+})
