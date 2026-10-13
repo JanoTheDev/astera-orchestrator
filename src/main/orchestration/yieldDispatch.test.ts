@@ -105,12 +105,31 @@ describe('appTimerTick (N3, D5)', () => {
       forgetArming: vi.fn(),
       armOnly: vi.fn(),
       fireTick: vi.fn(async () => {}),
-      nudge: vi.fn(async () => {})
+      nudge: vi.fn(async () => {}),
+      run: vi.fn(async () => {})
     }
     appTimerTick(loop, { serving: true, hostDrives: true, log: () => {} })
     expect(loop.armOnly).toHaveBeenCalledTimes(1)
     expect(loop.fireTick).not.toHaveBeenCalled()
     expect(loop.nudge).not.toHaveBeenCalled()
+    expect(loop.run).not.toHaveBeenCalled()
+  })
+
+  // Final review M5: a question is judged on a pass, and a session's exit commits nothing, so a Run whose external
+  // coordinator ended got no pass until some unrelated commit. The Host's tick runs one every 15 s; so does the app's
+  // when it drives.
+  it('runs the loop’s pass when the app drives, and not in front of a Host that drives', () => {
+    const loop = {
+      forgetArming: vi.fn(),
+      armOnly: vi.fn(),
+      fireTick: vi.fn(async () => {}),
+      nudge: vi.fn(async () => {}),
+      run: vi.fn(async () => {})
+    }
+    appTimerTick(loop, { serving: true, hostDrives: false, log: () => {} })
+    expect(loop.run).toHaveBeenCalledTimes(1)
+    appTimerTick(loop, { serving: false, hostDrives: false, log: () => {} })
+    expect(loop.run).toHaveBeenCalledTimes(1)
   })
 
   it.each([
@@ -139,7 +158,8 @@ describe('appTimerTick (N3, D5)', () => {
       forgetArming: vi.fn(),
       armOnly: vi.fn(),
       fireTick: vi.fn(async () => {}),
-      nudge: vi.fn(async () => {})
+      nudge: vi.fn(async () => {}),
+      run: vi.fn(async () => {})
     }
     appTimerTick(loop, {
       serving: true,
@@ -156,7 +176,8 @@ describe('appTimerTick (N3, D5)', () => {
       forgetArming: vi.fn(),
       armOnly: vi.fn(() => h.loop.armOnly()),
       fireTick: vi.fn(async () => {}),
-      nudge: vi.fn(async () => {})
+      nudge: vi.fn(async () => {}),
+      run: vi.fn(async () => {})
     }
     appTimerTick(loop, { serving: true, hostDrives: hostSpeaksDispatch(S4_UNRESPONSIVE), log: () => {} })
     expect(loop.fireTick).not.toHaveBeenCalled()
@@ -172,7 +193,8 @@ describe('appTimerTick (N3, D5)', () => {
       forgetArming: vi.fn(),
       armOnly: vi.fn(),
       fireTick: vi.fn(async () => {}),
-      nudge: vi.fn(async () => {})
+      nudge: vi.fn(async () => {}),
+      run: vi.fn(async () => {})
     }
     appTimerTick(loop, { serving: false, hostDrives: false, log: () => {} })
     expect(loop.forgetArming).toHaveBeenCalledTimes(1)
@@ -188,7 +210,8 @@ describe('appTimerTick (N3, D5)', () => {
         throw new Error('boom')
       }),
       fireTick: vi.fn(async () => {}),
-      nudge: vi.fn(async () => {})
+      nudge: vi.fn(async () => {}),
+      run: vi.fn(async () => {})
     }
     expect(() =>
       appTimerTick(loop, {

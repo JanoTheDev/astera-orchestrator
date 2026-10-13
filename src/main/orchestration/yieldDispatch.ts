@@ -19,12 +19,15 @@ export const HOST_STOP_BOUND_MS = 2000
  *   sidebar's next-fire time off that arming (`nextFireOf`), so without it the time would freeze at
  *   the last one the app computed. It also means a Host that goes away hands the app an arming that is
  *   already past every time the Host fired, so the app's first fire after it is not a burst.
- * - Otherwise (an S3 or S2 Host, or none, D5): fire and nudge, as the app always has.
+ * - Otherwise (an S3 or S2 Host, or none, D5): fire and nudge, as the app always has, and run the loop's pass,
+ *   as the Host's tick does (2026-10-13, final review M5): a question is judged on a pass, and the exit of a Run's
+ *   external coordinator commits nothing, so without it that Run's waiting worker got no pass until some unrelated
+ *   commit.
  *
  * Never throws: it runs inside a `setInterval` in the main process.
  */
 export function appTimerTick(
-  loop: Pick<DispatchLoop, 'forgetArming' | 'armOnly' | 'fireTick' | 'nudge'>,
+  loop: Pick<DispatchLoop, 'forgetArming' | 'armOnly' | 'fireTick' | 'nudge' | 'run'>,
   a: { serving: boolean; hostDrives: boolean; log(m: string): void }
 ): void {
   try {
@@ -42,6 +45,7 @@ export function appTimerTick(
   }
   void loop.fireTick().catch((e) => a.log(`fire tick failed: ${String(e)}`))
   void loop.nudge().catch((e) => a.log(`nudge failed: ${String(e)}`))
+  void loop.run().catch((e) => a.log(`pass failed: ${String(e)}`))
 }
 
 /**
