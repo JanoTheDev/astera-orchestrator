@@ -48,6 +48,10 @@ export interface PluginLaunch {
   /** The entry file, absolute. */
   entry: string
   granted: readonly string[]
+  /** Its settings, secret ones included, handed over at `initialize` (spec §24, design P10). */
+  settings: Readonly<Record<string, string | number | boolean>>
+  /** Values its log must never show: its secret settings and secrets (spec §23). */
+  redact: readonly string[]
 }
 
 export interface PluginRunStatus {

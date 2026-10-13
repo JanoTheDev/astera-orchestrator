@@ -53,7 +53,7 @@ function plugin(name: string, source: string, file = 'index.mjs'): PluginLaunch 
   const d = path.join(dir, 'plugins', name)
   mkdirSync(d, { recursive: true })
   writeFileSync(path.join(d, file), source)
-  return { id: name, version: '1.0.0', folder: name, dir: d, entry: path.join(d, file), granted: ['projects.read'] }
+  return { id: name, version: '1.0.0', folder: name, dir: d, entry: path.join(d, file), granted: ['projects.read'], settings: {}, redact: [] }
 }
 
 const logOf = (r: PluginRuntime, folder: string): string => (existsSync(r.logFile(folder)) ? readFileSync(r.logFile(folder), 'utf8') : '')
