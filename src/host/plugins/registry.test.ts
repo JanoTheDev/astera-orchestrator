@@ -42,6 +42,23 @@ describe('the plugin registry', () => {
     expect(await fs.readdir(root)).toEqual(['plugins.json'])
   })
 
+  it('waits out a scanner that holds plugins.json for longer than a moment', async () => {
+    const root = pluginsRoot(dir)
+    let refusals = 8
+    await writeRegistry(root, [record()], {
+      waitsMs: Array<number>(10).fill(0),
+      rename: async (from, to) => {
+        if (refusals > 0) {
+          refusals -= 1
+          throw Object.assign(new Error('EBUSY'), { code: 'EBUSY' })
+        }
+        await fs.rename(from, to)
+      }
+    })
+    expect(await readRegistry(root)).toEqual([record()])
+    expect(refusals).toBe(0)
+  })
+
   it('refuses a file that is not JSON, naming the file and how to repair it', async () => {
     const root = pluginsRoot(dir)
     await fs.mkdir(root, { recursive: true })

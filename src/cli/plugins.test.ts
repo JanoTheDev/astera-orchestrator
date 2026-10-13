@@ -70,6 +70,16 @@ describe('installPlugin', () => {
     expect(await installPlugin({ args: { path: 'jira', yes: true }, cwd: CWD, request: undefined, call: gone.call })).toEqual({ unreachable: 'no Host' })
   })
 
+  // Final review m4: the parser reads a bare --grant as true, which must not fall through to --yes's grant-everything.
+  it('refuses a --grant with no list, pointing to the empty one', async () => {
+    const h = host()
+    expect(await installPlugin({ args: { path: 'jira', grant: true, yes: true }, cwd: CWD, request: undefined, call: h.call })).toEqual({
+      status: 400,
+      body: { error: '--grant needs a list of permissions; --grant "" grants none' }
+    })
+    expect(h.calls).toEqual([])
+  })
+
   it('refuses a missing --path before asking the Host', async () => {
     const h = host()
     expect(await installPlugin({ args: { yes: true }, cwd: CWD, request: undefined, call: h.call })).toEqual({
@@ -86,9 +96,38 @@ describe('approvalMessage', () => {
       `Jira 1.0.0 (@acme/astera-jira) asks for: jobs.read, jobs.create. ${PLUGIN_TRUST_WARNING} Approve with --yes, or name what to grant with --grant <list>.`
     )
   })
+  // Final review m7: an update says what it replaces.
+  it('says what an install replaces', () => {
+    expect(approvalMessage({ ...INSPECTION, installed: { version: '0.9.0', enabled: false } })).toBe(
+      `Jira 1.0.0 (@acme/astera-jira) asks for: jobs.read, jobs.create. It replaces the installed 0.9.0. ${PLUGIN_TRUST_WARNING} Approve with --yes, or name what to grant with --grant <list>.`
+    )
+  })
+
+  // Final review m6: inside an agent session the approval is refused, so the message says who can give it.
+  it('tells an agent session that a person installs it', () => {
+    expect(approvalMessage(INSPECTION, { agent: true })).toBe(
+      `Jira 1.0.0 (@acme/astera-jira) asks for: jobs.read, jobs.create. ${PLUGIN_TRUST_WARNING} Installing it is for a person at their own shell or in the Astera app, not an agent session (ASTERA_SESSION is set): ask them to run astera plugins install with --yes.`
+    )
+  })
+
   it('says when it asks for nothing, and when it will not run here', () => {
     expect(approvalMessage({ ...INSPECTION, permissions: [], compatible: false, reason: 'this Astera does not run event plugins yet' })).toBe(
       `Jira 1.0.0 (@acme/astera-jira) asks for: no permissions. ${PLUGIN_TRUST_WARNING} It will not run here: this Astera does not run event plugins yet. Approve with --yes, or name what to grant with --grant <list>.`
     )
+  })
+})
+
+// Final review m7: what the install exits with before approval is a contract scripts read, so the guide and the usage
+// table say it.
+describe('the docs say what an unapproved install exits with', () => {
+  it('in docs/cli.md and in the usage table', async () => {
+    const { readFileSync } = await import('node:fs')
+    const { fileURLToPath } = await import('node:url')
+    const { USAGE } = await import('../core/orchestration/cliUsage')
+    const docs = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../docs/cli.md'), 'utf8')
+    const section = docs.slice(docs.indexOf('### Plugins'), docs.indexOf('## Command reference')).replace(/\s+/g, ' ')
+    expect(section).toContain('Without --yes or --grant, `install` installs nothing and exits 2')
+    expect(section).toContain('inside an agent session (`ASTERA_SESSION` is set) the changes are refused with exit 5')
+    expect(USAGE['plugins-install'].detail).toContain('Exits 2 until you approve')
   })
 })

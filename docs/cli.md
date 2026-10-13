@@ -531,9 +531,15 @@ astera plugins remove --id <pluginId>                uninstall it and delete its
 **Plugins run trusted code on this machine.** A plugin can do anything you can, and its permissions limit only what
 it asks Astera for: they are not a sandbox. Install plugins you trust, as you would any program.
 
-The folder is copied into the profile (`<profile>/plugins`), so later edits to it do nothing until you install it
-again. Installing the same plugin again replaces the copy and asks for your approval again. A link inside the folder
-that leads outside it stops the install; bundle the plugin or replace the link with a copy. A plugin written for a
+Without --yes or --grant, `install` installs nothing and exits 2, printing what the plugin is, what it asks for and
+what it would replace. `--grant ""` grants no permission at all.
+
+The folder is copied into the profile (`<profile>/plugins/installed`), so later edits to it do nothing until you
+install it again. Installing the same plugin again replaces the copy and asks for your approval again. A link inside
+the folder that leads outside it stops the install; bundle the plugin or replace the link with a copy. A copy holds
+plain files and folders, so dependencies installed with pnpm's isolated layout (`node_modules/.pnpm`) or npm's linked
+strategy (`node_modules/.store`) cannot work from it and stop the install too: bundle the plugin, or install its
+dependencies hoisted. A plugin written for a
 newer Astera, or for a kind of plugin this Astera does not run yet, installs but does not run, and `plugins list`
 says why.
 

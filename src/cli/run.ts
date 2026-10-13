@@ -1532,8 +1532,13 @@ export async function main(): Promise<void> {
         })
       )
       conn.close()
+      // An agent's shell would be refused the install itself (5), so it is told so now rather than how to approve.
       if ('approve' in installed)
-        fail({ code: 'INVALID_ARGUMENTS', message: approvalMessage(installed.approve), details: { plugin: installed.approve } })
+        fail({
+          code: sessionId !== '' ? 'PERMISSION_DENIED' : 'INVALID_ARGUMENTS',
+          message: approvalMessage(installed.approve, { agent: sessionId !== '' }),
+          details: { plugin: installed.approve }
+        })
       const lost = lostAnswerDetails({ argv, request: carried.send, fromStdin: parsed.wantsStdin })
       if ('stuck' in installed) fail({ code: SILENT_HOST_CODE, message: installed.stuck, details: lost })
       if ('unreachable' in installed) return withoutHost(installed.unreachable, lost)

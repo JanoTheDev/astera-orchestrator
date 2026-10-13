@@ -110,7 +110,9 @@ describe('humanFor', () => {
           { id: 'astera-hello', version: '0.1.0', status: 'incompatible', permissions: [], reason: 'this Astera does not run event plugins yet' }
         ]
       })
-    ).toBe('STOPPED       @acme/astera-jira  1.0.0  jobs.read,jobs.create\nINCOMPATIBLE  astera-hello       0.1.0  -')
+    ).toBe(
+      'STOPPED       @acme/astera-jira  1.0.0  jobs.read,jobs.create\nINCOMPATIBLE  astera-hello       0.1.0  -  this Astera does not run event plugins yet'
+    )
   })
 
   it('one plugin reads as its fields, like one project', () => {

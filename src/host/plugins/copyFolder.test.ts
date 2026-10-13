@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { PluginCopyRefused, copyPluginFolder } from './copyFolder'
+import { PluginCopyRefused, copyPluginFolder, layoutProblem } from './copyFolder'
 
 let dir: string
 let src: string
@@ -124,6 +124,29 @@ describe('copyPluginFolder', () => {
     await linkFolder(path.join(src, 'shared'), path.join(src, 'two'))
     await copyPluginFolder(src, dest)
     expect(await tree(dest)).toEqual(expect.arrayContaining(['one/x.js', 'two/x.js', 'shared/x.js']))
+  })
+
+  // Final review I2: these layouts find a dependency through the real path of a link, which a copy of plain folders loses.
+  it('refuses pnpm’s isolated layout and npm’s linked one, saying how to install instead', async () => {
+    await fs.mkdir(path.join(src, 'node_modules', '.pnpm'), { recursive: true })
+    expect(await refusal(copyPluginFolder(src, dest))).toBe(
+      "node_modules/.pnpm is pnpm's isolated layout, which a copy cannot keep: bundle the plugin, or install its dependencies hoisted (node-linker=hoisted)"
+    )
+    await fs.rm(path.join(src, 'node_modules', '.pnpm'), { recursive: true })
+    await fs.mkdir(path.join(src, 'node_modules', '.store'), { recursive: true })
+    expect(await refusal(copyPluginFolder(src, dest))).toBe(
+      "node_modules/.store is npm's linked install strategy, which a copy cannot keep: bundle the plugin, or install its dependencies without --install-strategy=linked"
+    )
+    expect(await layoutProblem(src)).toMatch(/^node_modules\/\.store /)
+    await fs.rm(path.join(src, 'node_modules', '.store'), { recursive: true })
+    expect(await layoutProblem(src)).toBeNull()
+  })
+
+  // Final review m8: a profile reached through a link (macOS /var, a redirected AppData) is still inside the folder.
+  it('refuses a destination inside the plugin when it is reached through a link', async () => {
+    const via = path.join(dir, 'via link')
+    await linkFolder(src, via)
+    expect(await refusal(copyPluginFolder(src, path.join(via, 'dist', 'copy')))).toMatch(/inside the folder it copies/)
   })
 
   it('refuses a destination inside the plugin', async () => {

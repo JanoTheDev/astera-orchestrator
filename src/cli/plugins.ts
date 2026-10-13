@@ -7,14 +7,20 @@ import { PLUGIN_TRUST_WARNING } from '../core/plugins/manifest'
 /** What one Host call came back as: an answer, or none (`callHost`). */
 export type PluginCall = { status: number; body: unknown } | { unreachable: string } | { stuck: string }
 
-/** The sentence a person reads before approving (spec §31). */
-export function approvalMessage(inspection: Record<string, unknown>): string {
+/** The sentence a person reads before approving (spec §31). Inside an agent session the approval would be refused,
+ *  so it says who can give it instead of how. */
+export function approvalMessage(inspection: Record<string, unknown>, o: { agent?: boolean } = {}): string {
   const permissions = Array.isArray(inspection.permissions) ? (inspection.permissions as string[]) : []
   const asks = permissions.length > 0 ? permissions.join(', ') : 'no permissions'
+  const installed = inspection.installed as { version?: unknown } | undefined
+  const replaces = installed && typeof installed.version === 'string' ? ` It replaces the installed ${installed.version}.` : ''
   const wontRun = inspection.compatible === false && typeof inspection.reason === 'string' ? ` It will not run here: ${inspection.reason}.` : ''
+  const how = o.agent
+    ? ' Installing it is for a person at their own shell or in the Astera app, not an agent session (ASTERA_SESSION is set): ask them to run astera plugins install with --yes.'
+    : ' Approve with --yes, or name what to grant with --grant <list>.'
   return (
-    `${String(inspection.displayName)} ${String(inspection.version)} (${String(inspection.id)}) asks for: ${asks}. ` +
-    `${PLUGIN_TRUST_WARNING}${wontRun} Approve with --yes, or name what to grant with --grant <list>.`
+    `${String(inspection.displayName)} ${String(inspection.version)} (${String(inspection.id)}) asks for: ${asks}.${replaces} ` +
+    `${PLUGIN_TRUST_WARNING}${wontRun}${how}`
   )
 }
 
@@ -37,6 +43,8 @@ export async function installPlugin<R extends PluginCall>(a: {
 }): Promise<R | { status: number; body: unknown } | { approve: Record<string, unknown> }> {
   const given = a.args.path
   if (typeof given !== 'string' || given === '') return { status: 400, body: { error: 'plugins install needs --path <folder>' } }
+  // The parser reads a bare `--grant` as true; read as "no list", --yes would then grant everything.
+  if (a.args.grant === true) return { status: 400, body: { error: '--grant needs a list of permissions; --grant "" grants none' } }
   const folder = path.resolve(a.cwd, given)
   const shown = await a.call('plugins-inspect', { path: folder }, undefined)
   if (!('status' in shown) || shown.status !== 200) return shown

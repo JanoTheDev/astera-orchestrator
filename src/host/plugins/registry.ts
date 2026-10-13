@@ -4,12 +4,13 @@ import { promises as fs } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import path from 'node:path'
 import type { PluginPermission } from '../../core/plugins/manifest'
+import { moveRetrying, type Rename } from './moves'
 
 export interface PluginRecord {
   id: string
   /** The version installed, as its package.json said when it was installed. */
   version: string
-  /** The folder under `<profile>/plugins` (`pluginFolderName`). */
+  /** The folder under `<profile>/plugins/installed` (`pluginFolderName`). */
   folder: string
   enabled: boolean
   /** What the person approved: a subset of what the plugin asks for (spec §11). */
@@ -72,30 +73,17 @@ export async function readRegistry(root: string): Promise<PluginRecord[]> {
   return parsed.plugins as PluginRecord[]
 }
 
-const RENAME_TRIES = 5
-const RENAME_WAIT_MS = 50
-
-/** Windows refuses a rename onto a file another process (an indexer, an antivirus) holds open for a moment. */
-async function moveOver(from: string, to: string): Promise<void> {
-  for (let i = 1; ; i++) {
-    try {
-      await fs.rename(from, to)
-      return
-    } catch (e) {
-      const code = (e as NodeJS.ErrnoException).code
-      if (i >= RENAME_TRIES || (code !== 'EPERM' && code !== 'EBUSY' && code !== 'EACCES')) throw e
-      await new Promise((r) => setTimeout(r, RENAME_WAIT_MS))
-    }
-  }
-}
-
-export async function writeRegistry(root: string, records: readonly PluginRecord[]): Promise<void> {
+export async function writeRegistry(
+  root: string,
+  records: readonly PluginRecord[],
+  o: { rename?: Rename; waitsMs?: readonly number[] } = {}
+): Promise<void> {
   await fs.mkdir(root, { recursive: true })
   const file = path.join(root, FILE)
   const tmp = `${file}.${randomBytes(6).toString('hex')}.tmp`
   await fs.writeFile(tmp, `${JSON.stringify({ version: VERSION, plugins: records }, null, 2)}\n`, 'utf8')
   try {
-    await moveOver(tmp, file)
+    await moveRetrying(tmp, file, o)
   } catch (e) {
     await fs.rm(tmp, { force: true })
     throw e

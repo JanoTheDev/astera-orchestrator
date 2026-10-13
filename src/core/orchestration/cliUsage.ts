@@ -177,7 +177,7 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
   'plugins-install': {
     summary: 'install a plugin from a folder, after you approve what it asks for',
     detail:
-      'Shows the plugin, its version and the permissions it asks for, and installs nothing until you approve: --yes grants what it asks for, --grant names exactly what to grant. Plugins run trusted code on this machine: a plugin can do anything you can, and its permissions limit only what it asks Astera for. The folder is copied into this profile; installing the same plugin again replaces it and asks again. Refused with 5 inside an agent session (ASTERA_SESSION is set).',
+      'Shows the plugin, its version and the permissions it asks for, and installs nothing until you approve: --yes grants what it asks for, --grant names exactly what to grant (--grant "" grants none). Exits 2 until you approve. Plugins run trusted code on this machine: a plugin can do anything you can, and its permissions limit only what it asks Astera for. The folder is copied into this profile; installing the same plugin again replaces it and asks again. Refused with 5 inside an agent session (ASTERA_SESSION is set).',
     flags: [
       { name: 'path', value: '<folder>', required: true, about: 'the plugin folder, the one with its package.json' },
       { name: 'yes', about: 'approve the permissions the plugin asks for' },

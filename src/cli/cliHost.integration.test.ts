@@ -1114,9 +1114,13 @@ describe('the public CLI against a real Host (§48, §49)', { timeout: 60_000 },
     expect(asked.envelope.error).toMatchObject({ code: 'INVALID_ARGUMENTS', details: { plugin: { id: 'astera-hello', permissions: ['jobs.read'] } } })
     expect(asked.envelope.error?.message).toContain('Hello 1.0.0 (astera-hello) asks for: jobs.read. Plugins run trusted code on this machine')
     expect(okData(await astera(['plugins', 'list'], h.env), 'plugins list')).toEqual({ plugins: [] })
+    // Inside an agent session the approval itself would be refused, so it is refused now, saying who can give it.
+    const agent = await astera(['plugins', 'install', '--path', folder], { ...h.env, ASTERA_SESSION: 'sess_agent' })
+    expect(agent.code, agent.stdout).toBe(5)
+    expect(agent.envelope.error?.message).toContain('not an agent session (ASTERA_SESSION is set)')
 
     const installed = okData(await astera(['plugins', 'install', '--path', folder, '--yes'], h.env), 'plugins install --yes')
-    expect(installed).toMatchObject({ id: 'astera-hello', status: 'stopped', permissions: ['jobs.read'], dir: path.join(h.profileDir, 'plugins', 'astera-hello') })
+    expect(installed).toMatchObject({ id: 'astera-hello', status: 'stopped', permissions: ['jobs.read'], dir: path.join(h.profileDir, 'plugins', 'installed', 'astera-hello') })
     expect(okData(await astera(['plugins', 'list'], h.env), 'plugins list')).toMatchObject({ plugins: [{ id: 'astera-hello', enabled: true }] })
     expect(okData(await astera(['plugins', 'disable', '--id', 'astera-hello'], h.env), 'plugins disable')).toMatchObject({ status: 'disabled', changed: true })
     expect(okData(await astera(['plugins', 'remove', '--id', 'astera-hello'], h.env), 'plugins remove')).toEqual({ id: 'astera-hello', version: '1.0.0', removed: true })

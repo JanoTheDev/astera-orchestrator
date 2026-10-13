@@ -15,10 +15,45 @@ const within = (a: string, b: string): boolean => {
   return r === '' || (!r.startsWith('..') && !path.isAbsolute(r))
 }
 
+/** Dependency layouts that find a package through the real path of a link (final review I2). Node resolves a
+ *  dependency from where a file really is, and a copy that turns links into folders moves it away from its siblings. */
+const LINKED_LAYOUTS: readonly { folder: string; what: string; instead: string }[] = [
+  { folder: '.pnpm', what: "pnpm's isolated layout", instead: 'install its dependencies hoisted (node-linker=hoisted)' },
+  { folder: '.store', what: "npm's linked install strategy", instead: 'install its dependencies without --install-strategy=linked' }
+]
+
+/** Why a copy of this folder could not run, or null. */
+export async function layoutProblem(src: string): Promise<string | null> {
+  for (const l of LINKED_LAYOUTS) {
+    const there = await fs.lstat(path.join(src, 'node_modules', l.folder)).then(() => true, () => false)
+    if (there) return `node_modules/${l.folder} is ${l.what}, which a copy cannot keep: bundle the plugin, or ${l.instead}`
+  }
+  return null
+}
+
+/** Where a path that may not exist yet really is: its nearest existing folder resolved through any link, with the rest
+ *  of the path after it (final review m8: a profile reached through a link is still inside a folder that holds it). */
+async function realOf(p: string): Promise<string> {
+  const rest: string[] = []
+  let at = p
+  for (;;) {
+    try {
+      return path.join(await fs.realpath(at), ...rest.reverse())
+    } catch {
+      const up = path.dirname(at)
+      if (up === at) return p
+      rest.push(path.basename(at))
+      at = up
+    }
+  }
+}
+
 export async function copyPluginFolder(src: string, dest: string): Promise<void> {
+  const layout = await layoutProblem(src)
+  if (layout !== null) throw new PluginCopyRefused(layout)
   const root = await fs.realpath(src)
   const target = path.resolve(dest)
-  if (within(path.resolve(src), target) || within(root, target))
+  if (within(path.resolve(src), target) || within(root, target) || within(root, await realOf(target)))
     throw new PluginCopyRefused(`${dest} is inside the folder it copies`)
   await fs.mkdir(target, { recursive: true })
   await copyInto(root, [root], target, '')

@@ -159,7 +159,9 @@ export function humanFor(cmd: string, data: Record<string, unknown>): string | n
       return columns(
         asList(data, 'plugins').map((p) => {
           const granted = Array.isArray(p.permissions) ? (p.permissions as unknown[]).map(str) : []
-          return [str(p.status).toUpperCase(), str(p.id), str(p.version), granted.length > 0 ? granted.join(',') : '-']
+          const row = [str(p.status).toUpperCase(), str(p.id), str(p.version), granted.length > 0 ? granted.join(',') : '-']
+          // Why it does not run, as docs/cli.md promises the list says.
+          return typeof p.reason === 'string' ? [...row, p.reason] : row
         })
       )
     case 'projects-list':

@@ -71,6 +71,15 @@ describe('parseManifest', () => {
       expect(problemsOf(valid({}, { name }))).toEqual([expect.stringMatching(/^name /)])
   })
 
+  // Final review m1: on Windows `astera~1` can be another folder's short name, `nul` is a device, and a trailing dot is
+  // dropped; npm itself refuses `~` in new names.
+  it('refuses a name that would not be its own folder on every system', () => {
+    for (const name of ['astera~1', '~x', '@acme/x~1', 'nul', 'con', 'aux.js', 'com1', 'lpt9.x', '@nul/x', 'foo.', '@acme./x'])
+      expect(problemsOf(valid({}, { name })), name).toEqual([expect.stringMatching(/^name /)])
+    for (const name of ['nullable', 'console', 'auxiliary', 'com', 'lpt10', 'a.b', '@acme/con-tools'])
+      expect(manifestOf(valid({}, { name })).id, name).toBe(name)
+  })
+
   it('refuses a version that is not semver', () => {
     for (const version of ['1.2', 'v1.2.3', '', 1])
       expect(problemsOf(valid({}, { version }))).toEqual([expect.stringMatching(/^version /)])
@@ -81,6 +90,20 @@ describe('parseManifest', () => {
     expect(problemsOf(valid({}, { displayName: '   ' }))).toEqual([expect.stringMatching(/^displayName /)])
     expect(problemsOf(valid({}, { displayName: 'x'.repeat(65) }))).toEqual([expect.stringMatching(/^displayName /)])
     expect(problemsOf(valid({}, { displayName: 3 }))).toEqual([expect.stringMatching(/^displayName /)])
+  })
+
+  // Final review m5: both are printed in the approval message, where a line feed could fake lines ahead of the
+  // permissions, and an escape could repaint the terminal.
+  it('refuses control characters in the displayName and the description', () => {
+    const lf = String.fromCharCode(10)
+    const esc = String.fromCharCode(27)
+    const del = String.fromCharCode(127)
+    const c1 = String.fromCharCode(155)
+    expect(problemsOf(valid({}, { displayName: `Jira${lf}asks for: nothing` }))).toEqual([expect.stringMatching(/^displayName /)])
+    expect(problemsOf(valid({}, { displayName: `Jira${del}` }))).toEqual([expect.stringMatching(/^displayName /)])
+    expect(problemsOf(valid({}, { description: `${esc}[2J` }))).toEqual([expect.stringMatching(/^description /)])
+    expect(problemsOf(valid({}, { description: `x${c1}y` }))).toEqual([expect.stringMatching(/^description /)])
+    expect(manifestOf(valid({}, { displayName: 'Jira 연동', description: 'Tabs	and Hangul 한글' })).displayName).toBe('Jira 연동')
   })
 
   it('refuses a description that is not a string', () => {

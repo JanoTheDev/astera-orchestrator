@@ -52,7 +52,12 @@ const listed = async (): Promise<Record<string, unknown>[]> => {
   expect(r.status).toBe(200)
   return body(r).plugins as Record<string, unknown>[]
 }
-const leftovers = async (): Promise<string[]> => (await fs.readdir(pluginsRoot(profile)).catch(() => [])).filter((n) => n.startsWith('.'))
+/** Where installed copies live (design P4): beside plugins.json, never as it. */
+const installed = (): string => path.join(pluginsRoot(profile), 'installed')
+const leftovers = async (): Promise<string[]> => [
+  ...(await fs.readdir(pluginsRoot(profile)).catch(() => [])),
+  ...(await fs.readdir(installed()).catch(() => []))
+].filter((n) => n.startsWith('.'))
 
 describe('inspect', () => {
   it('shows what a folder holds and asks for, before anything is installed', async () => {
@@ -82,6 +87,15 @@ describe('inspect', () => {
     })
   })
 
+  it('refuses a folder in a layout a copy cannot keep, before anything is approved', async () => {
+    const src = await plugin(FOLDER)
+    await fs.mkdir(path.join(src, 'node_modules', '.pnpm'), { recursive: true })
+    expect(await manager.inspect(src)).toEqual({
+      status: 400,
+      body: { error: `cannot install from ${src}: node_modules/.pnpm is pnpm's isolated layout, which a copy cannot keep: bundle the plugin, or install its dependencies hoisted (node-linker=hoisted)` }
+    })
+  })
+
   it('refuses a relative path, a missing folder, a folder with no package.json and a broken manifest', async () => {
     expect(await manager.inspect('relative/dir')).toEqual({ status: 400, body: { error: 'plugins-inspect needs an absolute --path' } })
     expect(await manager.inspect(3)).toEqual({ status: 400, body: { error: 'plugins-inspect needs an absolute --path' } })
@@ -103,7 +117,7 @@ describe('install', () => {
     const src = await plugin(FOLDER)
     const r = await manager.install({ path: src, grant: ['jobs.read', 'jobs.create'], expect: { name: '@acme/astera-jira', version: '1.0.0' } })
     expect(r.status).toBe(200)
-    const dirOf = path.join(pluginsRoot(profile), '@acme+astera-jira')
+    const dirOf = path.join(installed(), '@acme+astera-jira')
     expect(r.body).toEqual({
       id: '@acme/astera-jira',
       name: '@acme/astera-jira',
@@ -141,6 +155,27 @@ describe('install', () => {
     )
     expect(await listed()).toEqual([])
     expect(await leftovers()).toEqual([])
+  })
+
+  // Final review m2: an app or SDK caller sends install without inspecting first; a refusal must not cost a copy.
+  it('checks the folder before copying it', async () => {
+    const copies: string[] = []
+    const m = createPluginManager({
+      profileDir: profile,
+      hostVersion: '1.5.0',
+      copy: async (from) => {
+        copies.push(from)
+      }
+    })
+    const src = await plugin(FOLDER)
+    expect((await m.install({ path: src, grant: ['jobs.reed'] })).status).toBe(400)
+    expect((await m.install({ path: src, grant: [], expect: { name: '@acme/astera-jira', version: '9.9.9' } })).status).toBe(409)
+    const noEntry = await plugin('no entry', { astera: { entry: './missing.js' } })
+    expect((await m.install({ path: noEntry, grant: [] })).status).toBe(400)
+    const empty = path.join(dir, 'empty folder')
+    await fs.mkdir(empty)
+    expect((await m.install({ path: empty, grant: [] })).status).toBe(400)
+    expect(copies).toEqual([])
   })
 
   it('refuses an install with no grant', async () => {
@@ -197,7 +232,7 @@ describe('install', () => {
     })
     expect(await listed()).toMatchObject([{ version: '1.0.0', permissions: ['jobs.read'] }])
     expect(await leftovers()).toEqual([])
-    const pkg = JSON.parse(await fs.readFile(path.join(pluginsRoot(profile), '@acme+astera-jira', 'package.json'), 'utf8'))
+    const pkg = JSON.parse(await fs.readFile(path.join(installed(), '@acme+astera-jira', 'package.json'), 'utf8'))
     expect(pkg.version).toBe('1.0.0')
   })
 
@@ -233,11 +268,30 @@ describe('install', () => {
   })
 })
 
+describe('a plugin named like the Host’s own files', () => {
+  it('installs and removes beside plugins.json and the shared folders without touching them', async () => {
+    const root = pluginsRoot(profile)
+    // What 2b and 2c keep for every plugin, standing in for them here.
+    for (const shared of ['logs', 'settings', 'secrets']) {
+      await fs.mkdir(path.join(root, shared), { recursive: true })
+      await fs.writeFile(path.join(root, shared, 'keep'), shared)
+    }
+    for (const name of ['plugins.json', 'logs', 'settings', 'secrets', 'installed']) {
+      const src = await plugin(`named ${name}`, { name })
+      expect((await manager.install({ path: src, grant: [] })).status, name).toBe(200)
+    }
+    expect((await listed()).map((p) => p.id).sort()).toEqual(['installed', 'logs', 'plugins.json', 'secrets', 'settings'])
+    for (const name of ['logs', 'settings', 'secrets']) expect((await manager.remove(name)).status).toBe(200)
+    for (const shared of ['logs', 'settings', 'secrets']) expect(await fs.readFile(path.join(root, shared, 'keep'), 'utf8')).toBe(shared)
+    expect((await listed()).map((p) => p.id).sort()).toEqual(['installed', 'plugins.json'])
+  })
+})
+
 describe('a plugin whose installed copy cannot be read', () => {
   it('lists as incompatible and says so', async () => {
     const src = await plugin(FOLDER)
     await manager.install({ path: src, grant: [] })
-    await fs.rm(path.join(pluginsRoot(profile), '@acme+astera-jira', 'package.json'))
+    await fs.rm(path.join(installed(), '@acme+astera-jira', 'package.json'))
     expect(await listed()).toMatchObject([
       { id: '@acme/astera-jira', version: '1.0.0', status: 'incompatible', reason: expect.stringMatching(/^the installed copy cannot be read: no package\.json in /) }
     ])
@@ -263,7 +317,8 @@ describe('get, enable, disable, remove', () => {
   it('removes the folder and the record', async () => {
     expect(await manager.remove('@acme/astera-jira')).toEqual({ status: 200, body: { id: '@acme/astera-jira', version: '1.0.0', removed: true } })
     expect(await listed()).toEqual([])
-    expect(await fs.readdir(pluginsRoot(profile))).toEqual(['plugins.json'])
+    expect(await fs.readdir(pluginsRoot(profile))).toEqual(['installed', 'plugins.json'])
+    expect(await fs.readdir(installed())).toEqual([])
   })
 
   it('answers 404 for an id that is not installed, and 400 for no id', async () => {
@@ -274,6 +329,74 @@ describe('get, enable, disable, remove', () => {
     expect(await manager.setEnabled('', true)).toEqual({ status: 400, body: { error: 'plugins-enable needs --id' } })
     expect(await manager.setEnabled(3, false)).toEqual({ status: 400, body: { error: 'plugins-disable needs --id' } })
     expect(await manager.remove(undefined)).toEqual({ status: 400, body: { error: 'plugins-remove needs --id' } })
+  })
+})
+
+describe('a folder Windows will not let go of for a moment', () => {
+  const eperm = (): NodeJS.ErrnoException => Object.assign(new Error('EPERM: operation not permitted, rename'), { code: 'EPERM' })
+
+  it('moves it once the scanner lets go', async () => {
+    let refusals = 2
+    const m = createPluginManager({
+      profileDir: profile,
+      hostVersion: '1.5.0',
+      renameWaitsMs: [0, 0, 0],
+      rename: async (from, to) => {
+        if (refusals > 0) {
+          refusals -= 1
+          throw eperm()
+        }
+        await fs.rename(from, to)
+      }
+    })
+    expect((await m.install({ path: await plugin(FOLDER), grant: [] })).status).toBe(200)
+    expect(refusals).toBe(0)
+  })
+
+  it('says so, naming the folder, when an update cannot put the earlier copy back', async () => {
+    const src = await plugin(FOLDER)
+    await manager.install({ path: src, grant: [] })
+    await plugin(FOLDER, { version: '2.0.0' })
+    let moved = 0
+    const m = createPluginManager({
+      profileDir: profile,
+      hostVersion: '1.5.0',
+      renameWaitsMs: [0, 0],
+      // The earlier copy steps aside; after that nothing moves.
+      rename: async (from, to) => {
+        if (moved > 0) throw eperm()
+        moved += 1
+        await fs.rename(from, to)
+      }
+    })
+    const r = await m.install({ path: src, grant: [] })
+    expect(r.status).toBe(500)
+    const error = body(r).error as string
+    expect(error).toMatch(/^EPERM: operation not permitted, rename/)
+    expect(error).toMatch(/the earlier copy could not be put back: it is in .*\.retired-@acme\+astera-jira-[0-9a-f]{12}/)
+    expect(await fs.readdir(installed())).toEqual([expect.stringMatching(/^\.retired-@acme\+astera-jira-[0-9a-f]{12}$/)])
+  })
+})
+
+// Final review m3: a Host that stopped half way through a change leaves its working folders behind.
+describe('what a Host that stopped half way left behind', () => {
+  it('is cleared before the next change: a copy that stepped aside comes back, the rest goes', async () => {
+    await manager.install({ path: await plugin(FOLDER), grant: [] })
+    await manager.install({ path: await plugin('other', { name: 'astera-other' }), grant: [] })
+    // Stopped between the two moves of an update: the only copy of one plugin is in its retired folder.
+    await fs.rename(path.join(installed(), '@acme+astera-jira'), path.join(installed(), '.retired-@acme+astera-jira-0123456789ab'))
+    // And an older retired copy of a plugin whose new copy did land, and a staging folder.
+    await fs.mkdir(path.join(installed(), '.retired-astera-other-ba9876543210'))
+    await fs.mkdir(path.join(installed(), '.staging-deadbeef0000', 'dist'), { recursive: true })
+    // And a removal that stopped after its record was gone: nothing names that copy any more.
+    await fs.mkdir(path.join(installed(), '.retired-astera-gone-111111111111'))
+    const next = createPluginManager({ profileDir: profile, hostVersion: '1.5.0' })
+    expect(((await next.list()).body as { plugins: { id: string; status: string }[] }).plugins).toEqual([
+      expect.objectContaining({ id: '@acme/astera-jira', status: 'stopped' }),
+      expect.objectContaining({ id: 'astera-other', status: 'stopped' })
+    ])
+    expect(await leftovers()).toEqual([])
+    expect((await fs.readdir(installed())).sort()).toEqual(['@acme+astera-jira', 'astera-other'])
   })
 })
 

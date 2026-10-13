@@ -48,11 +48,18 @@ export interface PluginManifest {
   minAsteraVersion?: string
 }
 
-const NAME = /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/
+/** npm's rule for new names, which also leaves out `~`: on Windows `astera~1` can be another folder's short name. */
+const NAME = /^(?:@[a-z0-9-][a-z0-9-._]*\/)?[a-z0-9-][a-z0-9-._]*$/
+/** A part of a name Windows will not keep as a folder of its own: a device name (with or without an extension), or one
+ *  ending in a dot, which it drops. */
+const NOT_A_FOLDER = /^(?:(?:con|prn|aux|nul|com[0-9]|lpt[0-9])(?:\..*)?|.*\.)$/
 const NAME_MAX = 214
 const SEMVER = /^(\d+)\.(\d+)\.(\d+)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/
 const DISPLAY_NAME_MAX = 64
 const DESCRIPTION_MAX = 500
+/** Control characters other than a tab (final review m5): the approval message prints the displayName and the
+ *  description, where a line feed could fake lines ahead of the permissions and an escape could repaint the terminal. */
+const CONTROL = /[\x00-\x08\x0a-\x1f\x7f-\x9f]/
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
 
@@ -93,10 +100,14 @@ export function parseManifest(pkg: unknown): { ok: true; manifest: PluginManifes
   const { name, version, displayName, description, astera } = pkg
   if (typeof name !== 'string' || name.length > NAME_MAX || !NAME.test(name))
     problems.push(`name ${JSON.stringify(name ?? null)} is not an npm package name`)
+  else if (name.replace(/^@/, '').split('/').some((part) => NOT_A_FOLDER.test(part)))
+    problems.push(`name ${JSON.stringify(name)} cannot be a folder of its own on Windows`)
   if (typeof version !== 'string' || !SEMVER.test(version)) problems.push(`version ${JSON.stringify(version ?? null)} is not a semver version`)
   if (displayName !== undefined && (typeof displayName !== 'string' || displayName.trim() === '' || displayName.trim().length > DISPLAY_NAME_MAX))
     problems.push(`displayName must be text of 1 to ${DISPLAY_NAME_MAX} characters`)
+  else if (typeof displayName === 'string' && CONTROL.test(displayName)) problems.push('displayName holds a control character')
   if (description !== undefined && typeof description !== 'string') problems.push('description must be text')
+  else if (typeof description === 'string' && CONTROL.test(description)) problems.push('description holds a control character')
   if (astera === undefined) {
     problems.push('astera is missing: a plugin names its entry and Plugin API there')
     return { ok: false, problems }
