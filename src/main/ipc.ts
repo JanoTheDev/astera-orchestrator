@@ -3109,7 +3109,9 @@ export function registerIpc(
       integrate: (runRoot, merges) => integrateWorktrees(runRoot, merges, {}, gitCtx),
       reap: (p) => reapWorktree(p),
       isRegisteredWorktree: (p) => core.worktrees.list().some((w) => isSamePath(w.path, p)),
-      sessionAlive: (id) => core.sessions.list().some((x) => x.id === id && x.status !== 'exited'),
+      // Chats too (2026-10-13, spec E5): a Run's external coordinator can be a chat session. Every other caller asks
+      // about a Dispatch's session, and no Dispatch names a chat, so their answers do not change.
+      sessionAlive: (id) => allSessions().some((x) => x.id === id && x.status !== 'exited'),
       // L1: exited with a real code. A lost-sight exit is a Host-held session still running, and a
       // session not in the list is one this app cannot tell about: neither confirms a stop.
       sessionGone: (id) =>
