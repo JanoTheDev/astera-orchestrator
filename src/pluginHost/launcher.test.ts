@@ -13,7 +13,7 @@ const INIT_PARAMS = {
 }
 
 /** A launcher whose entry module is `mod`, with the Host's side of its stdio in the test's hands. */
-function launch(mod: unknown | (() => Promise<unknown>)) {
+function launch(mod: unknown | (() => Promise<unknown>), extra: { endGraceMs?: number } = {}) {
   const input = new PassThrough()
   const out: Record<string, unknown>[] = []
   const logs: string[] = []
@@ -27,7 +27,8 @@ function launch(mod: unknown | (() => Promise<unknown>)) {
       imported.push(file)
       return typeof mod === 'function' ? (mod as () => Promise<unknown>)() : mod
     },
-    exit: (code) => exits.push(code)
+    exit: (code) => exits.push(code),
+    ...extra
   })
   let id = 100
   const send = (m: Record<string, unknown>): void => void input.write(`${JSON.stringify({ jsonrpc: '2.0', ...m })}\n`)
@@ -144,6 +145,35 @@ describe('runLauncher', () => {
     await vi.waitFor(() => expect(l.exits).toEqual([0]))
     expect(deactivate).toHaveBeenCalledOnce()
     expect(ctx?.signal.aborted).toBe(true)
+  })
+
+  // 2b final review I3: with the Host gone a plugin must not outlive it, whatever its deactivate does.
+  it('when the Host has closed the channel, a call made in deactivate fails at once', async () => {
+    let ctx: PluginContext | undefined
+    let caught: unknown
+    const l = launch({
+      default: {
+        activate: (c: PluginContext) => void (ctx = c),
+        deactivate: async () => {
+          const started = Date.now()
+          await ctx!.astera.projects.list().catch((e: unknown) => (caught = e))
+          ;(caught as { took?: number }).took = Date.now() - started
+        }
+      }
+    })
+    await l.ask('initialize', INIT_PARAMS)
+    l.input.end()
+    await vi.waitFor(() => expect(l.exits).toEqual([0]))
+    expect(caught).toMatchObject({ code: 'HOST_NOT_RUNNING' })
+    expect((caught as { took: number }).took).toBeLessThan(1000)
+  })
+
+  it('when the Host has closed the channel, exits after the grace even if deactivate never ends', async () => {
+    const l = launch({ default: { activate() {}, deactivate: () => new Promise(() => {}) } }, { endGraceMs: 50 })
+    await l.ask('initialize', INIT_PARAMS)
+    l.input.end()
+    await vi.waitFor(() => expect(l.exits).toEqual([0]))
+    expect(l.logs.join('\n')).toContain('[launcher] deactivate did not finish within 0.05 s of the Host leaving')
   })
 
   it('answers an unknown method with -32601', async () => {

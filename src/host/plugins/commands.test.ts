@@ -124,7 +124,16 @@ describe('index.ts gives the Host a plugin manager', () => {
     const listen = src.indexOf('server = await startHostServer(')
     expect(listen).toBeGreaterThan(0)
     expect(src.indexOf('void plugins.startAll()')).toBeGreaterThan(listen)
+    // 2b final review I3: the leaving Host waits for its plugins, capped, while the orch still answers their last calls.
     const leave = src.slice(src.indexOf('const leave = '), src.indexOf('const hostVersion'))
-    expect(leave).toContain('void pluginRuntime.stopAll()')
+    expect(leave).not.toContain('void pluginRuntime.stopAll()')
+    // Started beside the workspaces and the spawns, so the three caps overlap and the way out stays within the wait
+    // `host stop` gives it (HOST_STOP_WAIT_MS); awaited before the server closes.
+    const started = leave.indexOf('const pluginsStopped = disposeWithin(pluginRuntime.stopAll(), PLUGIN_STOP_CAP_MS')
+    expect(started).toBeGreaterThan(0)
+    expect(started).toBeLessThan(leave.indexOf('workspaces.dispose()'))
+    const awaited = leave.indexOf('await pluginsStopped')
+    expect(awaited).toBeGreaterThan(leave.indexOf('spawner.closeAndSettle'))
+    expect(awaited).toBeLessThan(leave.indexOf('await server\n        .close()'))
   })
 })

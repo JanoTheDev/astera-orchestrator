@@ -5,7 +5,7 @@
 // Everything it needs arrives in the environment, because it has no `app.getPath('userData')` to ask.
 import childProcess from 'node:child_process'
 import { createPluginManager } from './plugins/manager'
-import { createPluginRuntime } from './plugins/runtime'
+import { PLUGIN_STOP_CAP_MS, createPluginRuntime } from './plugins/runtime'
 import { existsSync, promises as fsp, readFileSync, rmSync } from 'node:fs'
 import { defaultCwdProbe, setProbeLog } from '../core/sessions/pathProbe'
 import { createRequire } from 'node:module'
@@ -236,9 +236,6 @@ async function main(): Promise<void> {
     void mcpHttp.stop()
     // The Remote Gateway stops with the Host the same way: its stdin ends (remote runtime design §2.3). Never rejects.
     void gateway.stop()
-    // The plugins stop with it: each is sent `shutdown`, then killed with what it started. A Host that exits first still
-    // ends them: their stdin closes, which is their way out too. Never rejects.
-    void pluginRuntime.stopAll()
     // **The Slack stops with them** (Slack in the Host, Task 5): its socket is closed and its timers
     // stopped before the server stops accepting, so a Host on its way out holds no socket an app taking
     // Slack back would be a second one beside. Never rejects.
@@ -257,6 +254,14 @@ async function main(): Promise<void> {
     // only if the listen itself failed, and that path exits without coming here.
     server.stopAccepting()
     void (async () => {
+      // **The plugins stop with it** (plugin runtime design P11; 2b final review I3): each is sent `shutdown` with its
+      // grace, then killed with what it started, while the orch still answers their last calls. Started here, beside
+      // the workspaces and the spawns below, so the three caps overlap and the way out stays within the wait `host stop`
+      // gives it (HOST_STOP_WAIT_MS). Capped: past the cap a plugin still ends, since its channel closes with this
+      // process. Never rejects.
+      const pluginsStopped = disposeWithin(pluginRuntime.stopAll(), PLUGIN_STOP_CAP_MS, () =>
+        log.write(`the plugins were still stopping after ${PLUGIN_STOP_CAP_MS / 1000} s; leaving anyway`)
+      )
       // The workspaces first (spec, Lifecycle: "when the Host leaves"): each launched tree killed, each
       // desktop closed, each helper ended, and workspaces.json emptied. Never rejects. Capped (final
       // review Important 2): a hung helper must not hold the way out, and the server's listener with it,
@@ -272,6 +277,8 @@ async function main(): Promise<void> {
       // up on the session anyway. `closeAndSettle` never rejects, and the chain below runs whatever
       // happens here.
       if (spawner) await spawner.closeAndSettle(SPAWN_DEADLINE_MS).catch((err) => log.write(`the spawns in flight could not be waited for: ${String(err)}`))
+      // The plugins, awaited before the server closes (started at the top of this tail).
+      await pluginsStopped
       await server
         .close()
         .catch((err) => log.write(`the server did not close cleanly: ${String(err)}`))

@@ -4,6 +4,7 @@
 // plugin, within the permissions the person granted (P12); nothing here decides what a plugin may do.
 import type { Readable } from 'node:stream'
 import {
+  AsteraError,
   createAsteraClientOver,
   type AsteraClient,
   type ConnectionClientMessage,
@@ -49,6 +50,9 @@ function definitionOf(mod: unknown): PluginDefinition | null {
   return d as PluginDefinition
 }
 
+/** How long deactivate may take once the Host has closed the channel: the same grace the Host gives a stop. */
+const END_GRACE_MS = 5_000
+
 const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e))
 
 export function runLauncher(o: {
@@ -60,7 +64,10 @@ export function runLauncher(o: {
   log(line: string): void
   importEntry(file: string): Promise<unknown>
   exit(code: number): void
+  /** How long deactivate may take once the Host has closed the channel (2b final review I3). */
+  endGraceMs?: number
 }): void {
+  const endGraceMs = o.endGraceMs ?? END_GRACE_MS
   const lifetime = new AbortController()
   const toClient = new Set<(m: ConnectionHostMessage) => void>()
   const closers = new Set<() => void>()
@@ -68,6 +75,8 @@ export function runLauncher(o: {
   let definition: PluginDefinition | null = null
   let client: AsteraClient | null = null
   let stopping: Promise<void> | null = null
+  /** The Host closed the channel: no call can be answered from here on. */
+  let ended = false
 
   const peer = createRpcPeer({
     send: (line) => o.output(line),
@@ -147,7 +156,15 @@ export function runLauncher(o: {
       unref() {},
       close() {}
     }
-    client = await createAsteraClientOver({ connect: async () => connection, address: 'the plugin channel', profileDir: p.plugin.dir })
+    client = await createAsteraClientOver({
+      // Once the Host has closed the channel a call fails at once instead of waiting out its deadline.
+      connect: async () => {
+        if (ended) throw new AsteraError('HOST_NOT_RUNNING', 'the Host closed the plugin channel')
+        return connection
+      },
+      address: 'the plugin channel',
+      profileDir: p.plugin.dir
+    })
     const ctx: PluginContext = {
       astera: client,
       plugin: { id: p.plugin.id, version: p.plugin.version, dir: p.plugin.dir },
@@ -170,13 +187,26 @@ export function runLauncher(o: {
 
   o.input.setEncoding('utf8')
   o.input.on('data', (chunk: string) => peer.feed(chunk))
-  let ended = false
   const onEnd = (): void => {
     if (ended) return
     ended = true
     peer.close('the Host closed the plugin channel')
     closers.forEach((c) => c())
-    void stop().then(() => o.exit(0))
+    // With the Host gone a plugin must not outlive it, whatever its deactivate does.
+    let done = false
+    const leave = (): void => {
+      if (done) return
+      done = true
+      o.exit(0)
+    }
+    const grace = setTimeout(() => {
+      o.log(`[launcher] deactivate did not finish within ${endGraceMs / 1000} s of the Host leaving; exiting`)
+      leave()
+    }, endGraceMs)
+    void stop().then(() => {
+      clearTimeout(grace)
+      leave()
+    })
   }
   o.input.on('end', onEnd)
   o.input.on('close', onEnd)

@@ -33,6 +33,9 @@ export const PLUGIN_MAX_LINE = 32 * 1024 * 1024
 
 export const PLUGIN_TIMINGS: PluginTimings = { startMs: 30_000, stopGraceMs: 5_000, backoffMs: [1000, 2000, 5000], stableMs: 30_000, failAfter: 3 }
 
+/** How long a leaving Host waits for its plugins: a stop's grace after `shutdown`, the kill's, and a second more. */
+export const PLUGIN_STOP_CAP_MS = PLUGIN_TIMINGS.stopGraceMs * 2 + 1_000
+
 /** What the runtime needs to start a plugin, from its registry record and its installed copy. */
 export interface PluginLaunch {
   id: string
