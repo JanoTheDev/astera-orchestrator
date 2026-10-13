@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { attachConsoleLinks, cachedResolver } from './terminalLinks'
+import { LATE_RECHECK_MS, attachConsoleLinks, cachedResolver } from './terminalLinks'
 
 describe('cachedResolver', () => {
   it('a hit is cached: the same target is resolved once', async () => {
@@ -38,6 +38,42 @@ describe('cachedResolver', () => {
     expect(resolve).toHaveBeenCalledTimes(2)
   })
 
+  // A hover over a name that missed asks again at once (the file may have just been written); what it finds is kept.
+  it('fresh asks again inside the miss window, and keeps what it finds', async () => {
+    let now = 0
+    const resolve = vi.fn(async (): Promise<string | null> => null)
+    const r = cachedResolver(resolve, () => now, 5000, 500)
+    expect(await r('a.png')).toBeNull()
+    resolve.mockResolvedValueOnce('/out/a.png')
+    now = 500
+    expect(await r.fresh('a.png')).toBe('/out/a.png')
+    expect(await r('a.png')).toBe('/out/a.png')
+    expect(resolve).toHaveBeenCalledTimes(2)
+  })
+
+  // Late-link review M1: a hover right after the miss that made the link, or one per repaint of a row a TUI keeps
+  // redrawing, answers from the miss it has rather than asking main again.
+  it('fresh within its floor of the last miss answers that miss', async () => {
+    let now = 0
+    const resolve = vi.fn(async (): Promise<string | null> => null)
+    const r = cachedResolver(resolve, () => now, 5000, 500)
+    expect(await r('a.png')).toBeNull()
+    now = 499
+    expect(await r.fresh('a.png')).toBeNull()
+    expect(resolve).toHaveBeenCalledTimes(1)
+  })
+
+  it('fresh shares a request still in flight', async () => {
+    let finish: (v: string | null) => void = () => {}
+    const resolve = vi.fn(() => new Promise<string | null>((res) => (finish = res)))
+    const r = cachedResolver(resolve, () => 0)
+    const a = r('a.png')
+    const b = r.fresh('a.png')
+    finish('/out/a.png')
+    expect([await a, await b]).toEqual(['/out/a.png', '/out/a.png'])
+    expect(resolve).toHaveBeenCalledTimes(1)
+  })
+
   it('a request still in flight is shared, not repeated', async () => {
     let finish: (v: string | null) => void = () => {}
     const resolve = vi.fn(() => new Promise<string | null>((res) => (finish = res)))
@@ -51,32 +87,33 @@ describe('cachedResolver', () => {
   })
 })
 
+/** Rows as text, or as text marked soft-wrapped (a continuation the terminal itself made). */
+const fakeTerm = (lines: Array<string | { text: string; wrapped: true }>, cols: number) => {
+  let provider: { provideLinks: (y: number, cb: (links: unknown) => void) => void } | null = null
+  const line = (row: string | { text: string; wrapped: true }) => {
+    const text = typeof row === 'string' ? row : row.text
+    return {
+    isWrapped: typeof row !== 'string',
+    length: cols,
+    translateToString: () => text.padEnd(cols),
+    getCell: (x: number) => {
+      const ch = text.padEnd(cols)[x]
+      return ch === undefined ? undefined : { getWidth: () => 1, getChars: () => (ch === ' ' ? '' : ch) }
+    }
+    }
+  }
+  const term = {
+    cols,
+    buffer: { active: { getLine: (y: number) => (lines[y] === undefined ? undefined : line(lines[y])), getNullCell: () => ({}) } },
+    registerLinkProvider: (p: typeof provider) => ((provider = p), { dispose: () => {} })
+  }
+  const links = (y: number) => new Promise<Array<{ text: string; range: unknown }> | undefined>((r) => provider!.provideLinks(y, r as never))
+  return { term, links }
+}
+
 // A path Claude Code cut at the right edge and went on with after its indentation (core/run/consoleLinks.ts
 // joinCutLines) is one link, across the rows it takes, when the whole of it names a file.
 describe('attachConsoleLinks across a cut path', () => {
-  /** Rows as text, or as text marked soft-wrapped (a continuation the terminal itself made). */
-  const fakeTerm = (lines: Array<string | { text: string; wrapped: true }>, cols: number) => {
-    let provider: { provideLinks: (y: number, cb: (links: unknown) => void) => void } | null = null
-    const line = (row: string | { text: string; wrapped: true }) => {
-      const text = typeof row === 'string' ? row : row.text
-      return {
-      isWrapped: typeof row !== 'string',
-      length: cols,
-      translateToString: () => text.padEnd(cols),
-      getCell: (x: number) => {
-        const ch = text.padEnd(cols)[x]
-        return ch === undefined ? undefined : { getWidth: () => 1, getChars: () => (ch === ' ' ? '' : ch) }
-      }
-      }
-    }
-    const term = {
-      cols,
-      buffer: { active: { getLine: (y: number) => (lines[y] === undefined ? undefined : line(lines[y])), getNullCell: () => ({}) } },
-      registerLinkProvider: (p: typeof provider) => ((provider = p), { dispose: () => {} })
-    }
-    const links = (y: number) => new Promise<Array<{ text: string; range: unknown }> | undefined>((r) => provider!.provideLinks(y, r as never))
-    return { term, links }
-  }
 
   it('links the whole path from any row it is on, and not the pieces', async () => {
     const PATH = 'C:\\Users\\anipen\\AppData\\Roaming\\astera-dev\\preview\\shots\\app-226bd0e8.png'
@@ -125,5 +162,148 @@ describe('attachConsoleLinks across a cut path', () => {
     const one = fakeTerm(['  open D:\\x\\a.png now'], 40)
     attach(one, ['D:\\x\\a.png'])
     expect((await one.links(1))?.map((l) => l.text)).toEqual(['D:\\x\\a.png'])
+  })
+})
+
+// A media file named before it exists (an agent's message, then the tool call that writes or copies it): xterm keeps a
+// row's links while the pointer stays on that row, so a name that was no link at its first hover stayed none though the
+// file was there a moment later (bug report, 2026-10-13).
+describe('attachConsoleLinks with a media file that appears after its name was printed', () => {
+  type Decorations = { underline: boolean; pointerCursor: boolean }
+  type Link = { text: string; decorations?: Decorations; hover?: (e: unknown, t: string) => void; leave?: (e: unknown, t: string) => void; activate: (e: unknown, t: string) => void }
+
+  /** xterm's Linkifier as far as these links meet it: on hover the state takes the link's decorations, `hover` runs,
+   *  and `link.decorations` becomes setters on the state of xterm's *current* link (Linkifier.ts, _handleNewLink). */
+  const xterm = () => {
+    const states = new Map<Link, Decorations>()
+    let current: Link | null = null
+    return {
+      states,
+      hover(link: Link) {
+        current = link
+        states.set(link, { underline: link.decorations?.underline ?? true, pointerCursor: link.decorations?.pointerCursor ?? true })
+        link.hover?.(undefined, link.text)
+        const decorations = {} as Decorations
+        for (const key of ['underline', 'pointerCursor'] as const)
+          Object.defineProperty(decorations, key, {
+            get: () => (current ? states.get(current)?.[key] : undefined),
+            set: (v: boolean) => {
+              const s = current ? states.get(current) : undefined
+              if (s) s[key] = v
+            }
+          })
+        link.decorations = decorations
+      },
+      leave(link: Link) {
+        link.leave?.(undefined, link.text)
+        current = null
+      },
+      /** xterm activates only the link the pointer is on. */
+      click(link: Link) {
+        if (current === link) link.activate(undefined, link.text)
+      }
+    }
+  }
+
+  const setup = (line: string, resolve: (target: string) => Promise<string | null>) => {
+    const f = fakeTerm([line], 60)
+    const opened: string[] = []
+    const asked: string[] = []
+    attachConsoleLinks(f.term as never, {
+      onUrl: () => {},
+      resolvePath: (target) => (asked.push(target), resolve(target)),
+      onOpenFile: (p) => opened.push(p)
+    })
+    return { links: () => f.links(1) as Promise<Link[] | undefined>, opened, asked }
+  }
+  const settle = (ms = 0) => new Promise((r) => setTimeout(r, ms))
+
+  it('hands a media name it cannot find yet as a link with no underline and no pointer, which opens nothing', async () => {
+    const s = setup('  - copied original: b.png', async () => null)
+    const [link] = (await s.links()) ?? []
+    expect([link.text, link.decorations]).toEqual(['b.png', { underline: false, pointerCursor: false }])
+    const x = xterm()
+    x.hover(link)
+    await settle()
+    x.click(link)
+    await settle()
+    expect(x.states.get(link)).toEqual({ underline: false, pointerCursor: false })
+    expect(s.opened).toEqual([])
+  })
+
+  it('marks it when the pointer comes back and the file is there, and then opens it', async () => {
+    const files: string[] = []
+    const s = setup('  - copied original: b.png', async (t) => (files.includes(t) ? `/out/${t}` : null))
+    const [link] = (await s.links()) ?? []
+    const x = xterm()
+    x.hover(link)
+    await settle()
+    x.leave(link)
+    files.push('b.png')
+    // Past the floor that keeps a hover storm from asking main on every repaint.
+    await settle(LATE_RECHECK_MS + 20)
+    x.hover(link)
+    await settle()
+    expect(x.states.get(link)).toEqual({ underline: true, pointerCursor: true })
+    x.click(link)
+    await settle()
+    expect(s.opened).toEqual(['/out/b.png'])
+    // Found once, it is not asked about again however often the pointer comes back.
+    const asked = s.asked.length
+    x.leave(link)
+    x.hover(link)
+    await settle()
+    expect(s.asked).toHaveLength(asked)
+    // And when xterm asks for the row again (another row, then back), it is a plain link.
+    expect((await s.links())?.map((l) => [l.text, l.decorations])).toEqual([['b.png', undefined]])
+  })
+
+  // Final review M2: nothing opens that was never shown as a link: a click on a name still unmarked opens nothing,
+  // though its file was written meanwhile.
+  it('opens nothing on a click while it is unmarked, though the file is there now', async () => {
+    const files: string[] = []
+    const s = setup('  - copied original: b.png', async (t) => (files.includes(t) ? `/out/${t}` : null))
+    const [link] = (await s.links()) ?? []
+    const x = xterm()
+    x.hover(link)
+    await settle()
+    files.push('b.png')
+    x.click(link)
+    await settle()
+    expect(s.opened).toEqual([])
+  })
+
+  // xterm's setters act on its current link: a mark set after the pointer moved on would mark that other link.
+  it('marks nothing when the pointer left before the file was found', async () => {
+    let finish: () => void = () => {}
+    let calls = 0
+    const s = setup('  - copied original: b.png  c.png', (t) =>
+      t === 'c.png' ? Promise.resolve('/out/c.png') : ++calls === 1 ? Promise.resolve(null) : new Promise((r) => (finish = () => r(`/out/${t}`)))
+    )
+    const got = (await s.links()) ?? []
+    const late = got.find((l) => l.text === 'b.png')!
+    const other = got.find((l) => l.text === 'c.png')!
+    const x = xterm()
+    await settle(LATE_RECHECK_MS + 20)
+    x.hover(late)
+    x.leave(late)
+    x.hover(other)
+    x.states.set(other, { underline: false, pointerCursor: false })
+    finish()
+    await settle()
+    expect(x.states.get(other)).toEqual({ underline: false, pointerCursor: false })
+  })
+
+  // Final review I1: an unmarked link is xterm's current link, and xterm's double-click selects a current link whole,
+  // so only a media name gets one; a path that is no file stays plain text, its double-click a word as before.
+  it('gives no unmarked link to a name that is not media', async () => {
+    const s = setup('  edit src/a.ts,src/b.ts now', async () => null)
+    expect(await s.links()).toBeUndefined()
+  })
+
+  it('hands a media name it finds at once as a plain link, as before', async () => {
+    const s = setup('  - background: a.png', async (t) => `/out/${t}`)
+    const got = await s.links()
+    expect(got?.map((l) => [l.text, l.decorations])).toEqual([['a.png', undefined]])
   })
 })
