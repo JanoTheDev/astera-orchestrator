@@ -172,7 +172,7 @@ export class OrchRollTap {
         this.deps.log?.(`external coordinator rekey commit failed ${oldSessionId} -> ${newInfo.id}: ${String(err)}`)
       }
     }
-    const now =this.deps.now?.() ?? new Date().toISOString()
+    const now = this.deps.now?.() ?? new Date().toISOString()
     const r = rekeyDispatch(
       this.deps.getState(),
       { oldSessionId, newSessionId: newInfo.id, accountId: newInfo.accountId },
