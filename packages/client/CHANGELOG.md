@@ -9,7 +9,8 @@ The first release on npm. A client for the Astera Host on this machine, the one 
 and the MCP server reach:
 
 - Projects, Jobs, Runs, Tasks, questions and completion as typed calls, and `call()` for any other Host command.
-- `events.list`, `events.cursor` and `events.subscribe` on the Host's public event log, which needs Astera 1.4.12 or
-  later.
+- `events.list`, `events.cursor` and `events.subscribe` on the Host's public event log.
 - Stable error codes, request ids for calls that change something, and deadlines and cancellation on every call.
 - ESM and CommonJS, with types, on Node 22 or later.
+
+It needs Astera 1.4.12 or later.

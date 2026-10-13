@@ -2,7 +2,7 @@
 // publishes it does so with npm's trusted publishing, after building and testing it, and never on an app tag.
 import { describe, it, expect } from 'vitest'
 import { spawnSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { PACKAGES } from './build-packages.mjs'
@@ -104,5 +104,30 @@ describe('.github/workflows/publish-packages.yml', () => {
 
   it('is apart from the app’s release, whose tag no package tag matches', () => {
     expect(/^ {4}tags: \['(.+)'\]$/m.exec(read('.github/workflows/release.yml'))?.[1]).toBe('v[0-9]+.[0-9]+.[0-9]+')
+  })
+})
+
+describe('docs/releasing.md', () => {
+  const doc = read('docs/releasing.md')
+  const at = doc.indexOf('\n## Publishing the SDK packages\n')
+  const rest = at < 0 ? '' : doc.slice(at + 1)
+  const s = rest.slice(0, rest.indexOf('\n## ', 3) < 0 ? undefined : rest.indexOf('\n## ', 3))
+
+  it('says how a package is published: its tag, the workflow that takes it, and a dry run', () => {
+    for (const p of PACKAGES) expect(s, p).toContain(`\`${p}-vX.Y.Z\``)
+    expect(s).toContain('[publish-packages.yml](../.github/workflows/publish-packages.yml)')
+    expect(existsSync(path.join(root, '.github', 'workflows', 'publish-packages.yml'))).toBe(true)
+    expect(s).toContain('`npm publish --dry-run`')
+    expect(s).toContain('CHANGELOG.md')
+  })
+
+  it('says how the first version of each was published by hand, and what npm’s trusted publisher is set to', () => {
+    for (const p of PACKAGES) expect(s, p).toMatch(new RegExp(`cd (?:packages|\\.\\.)/${p}\\s*\\n\\s*npm publish`))
+    expect(s).toContain('npm login')
+    const [, owner, repo] = /github\.com\/([^/]+)\/([^/]+)\.git$/.exec(JSON.parse(read('packages/client/package.json')).repository.url)
+    expect(s).toContain(`| Organization or user | \`${owner}\` |`)
+    expect(s).toContain(`| Repository | \`${repo}\` |`)
+    expect(s).toContain('| Workflow filename | `publish-packages.yml` |')
+    expect(s).toContain('| Environment | none |')
   })
 })

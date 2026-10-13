@@ -170,6 +170,53 @@ Commit the same value to `policy.json` in the repo afterwards, or the next relea
   gh release delete v1.0.1
   ```
 
+## Publishing the SDK packages
+
+`@astera-app/client` and `@astera-app/plugin-sdk` (under `packages/`) are published to npm apart from the app, each
+at a version of its own, by pushing a tag: `client-vX.Y.Z` or `plugin-sdk-vX.Y.Z`.
+[publish-packages.yml](../.github/workflows/publish-packages.yml) checks that the version is the one the package's
+`package.json` holds, builds and tests the package, and publishes it with provenance. It holds no npm token: npm's
+trusted publishing lets that workflow, in this repository, publish the package.
+
+1. Bump `version` in `packages/<name>/package.json`, and put the new version's entry at the top of
+   `packages/<name>/CHANGELOG.md`.
+2. Commit, and push the tag:
+   ```bash
+   git tag client-v0.1.1
+   git push origin client-v0.1.1
+   ```
+3. Check the `Publish packages` run under **Actions**, and the version on npmjs.com.
+
+Run the workflow by hand (**Actions**, **Publish packages**, **Run workflow**) to try every step for one package: it
+ends with `npm publish --dry-run` and publishes nothing.
+
+### The first publish, and trusted publishing
+
+npm lets a workflow publish a package only once the package exists, so the first version of each was published by
+hand, by an owner of the `astera-app` organization on npm, from a clone with its dependencies installed
+(`npm ci --ignore-scripts`). Each `npm publish` builds the packages first (`prepublishOnly`), and asks for the
+account's two-factor code:
+
+```bash
+npm login
+cd packages/client
+npm publish
+cd ../plugin-sdk
+npm publish
+```
+
+Then, on npmjs.com, in each package's **Settings**, under **Trusted Publisher**, choose GitHub Actions and enter:
+
+| Field | Value |
+|---|---|
+| Organization or user | `parsingk` |
+| Repository | `Astera` |
+| Workflow filename | `publish-packages.yml` |
+| Environment | none |
+
+The workflow's publish of a package without it is refused. The same page can then require two-factor
+authentication and disallow tokens: trusted publishing still works, and nothing else can publish.
+
 ## Windows code signing (SignPath)
 
 The workflow has a built-in signing path modelled on how [Orca](https://github.com/stablyai/orca)

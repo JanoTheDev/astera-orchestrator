@@ -6,6 +6,10 @@ fields.
 
 The guide, with examples: [docs/sdk.md](https://github.com/parsingk/Astera/blob/main/docs/sdk.md).
 
+```bash
+npm install @astera-app/client
+```
+
 ```ts
 import { createAsteraClient, isAsteraError } from '@astera-app/client'
 
@@ -134,6 +138,6 @@ for await (const e of astera.events.subscribe({ types: ['run.completed', 'run.fa
 - Not produced yet: `run.cancelled` (there is no cancel; a stop pauses), `github.*`, `runtime.*`. Local Host only for
   now.
 
-**Not published yet.** It lives in the Astera repository and will be versioned separately from the app.
-[docs/sdk.md](https://github.com/parsingk/Astera/blob/main/docs/sdk.md#get-it) says how to build and install it until
-then.
+It is versioned apart from the Astera app, and 0.x, so a minor version may still change names:
+[CHANGELOG.md](https://github.com/parsingk/Astera/blob/main/packages/client/CHANGELOG.md) says what each version
+changed. It needs Astera 1.4.12 or later.
