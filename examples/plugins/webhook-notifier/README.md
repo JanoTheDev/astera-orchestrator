@@ -6,7 +6,9 @@ how it is built.
 
 It posts JSON, `{ "text": "...", "event": { ... } }`: `text` is one line for a person, which Slack's incoming
 webhooks and Discord's (with `/slack` added to the webhook URL) show as the message, and `event` is the Astera event
-as the [SDK](../../../docs/sdk.md#events) describes it, for a service of your own.
+as the [SDK](../../../docs/sdk.md#events) describes it, for a service of your own. `text` has `&`, `<` and `>`
+escaped, as Slack's message format asks, so a Task titled `<!channel>` does not ping a channel; `event` is as it
+was.
 
 ## Install it
 
@@ -34,7 +36,8 @@ $env:WEBHOOK_URL | astera plugins configure --id astera-webhook-notifier --stdin
 
 For a service of your own, give it a signing secret the same way (`--stdin signingSecret`). Each post then carries
 `X-Astera-Signature: sha256=<hex>`, the HMAC-SHA256 of the request body under that secret: compute it over the body
-as it arrived, before parsing it, and compare.
+as it arrived, before parsing it, and compare the two in constant time (`crypto.timingSafeEqual` in Node). A
+signature says where a post came from, not that it is new: `event.id` never repeats, so drop one you have seen.
 
 To post only problems (no completed Runs):
 
@@ -47,8 +50,8 @@ astera plugins configure --id astera-webhook-notifier --set onlyProblems=true
 ## What it does not do
 
 - It starts from the events of the moment it starts: what happened while it was stopped (the Host not running, the
-  plugin disabled) is not posted. [notify-webhook.ts](../../sdk/notify-webhook.ts), the SDK's script, keeps a cursor in
-  a file and posts those too.
+  plugin disabled, or starting again after a crash) is not posted. [notify-webhook.ts](../../sdk/notify-webhook.ts),
+  the SDK's script, keeps a cursor in a file and posts those too.
 - A post that fails is tried again three times, after 1, 2 and 4 seconds, then given up with a warning in the log.
 - If Astera refuses its subscription (the permission was withheld, or the Host is too old for events), it ends, and
   Astera starts it again; after three such ends in a row the plugin shows as `failed`, and its log says why.

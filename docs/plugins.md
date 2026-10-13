@@ -23,7 +23,8 @@ A plugin is a process running as you. It can read and write your files, open net
 programs, whatever permissions it was granted. Its permissions decide what `ctx.astera` may ask the Host for, so an
 honest plugin cannot reach further into Astera than you allowed; they are not a sandbox, and they do not stop a plugin
 that means harm. Install plugins you trust, as you would any program, and read the code of one you are not sure of.
-Astera shows this warning, with what the plugin asks for, every time you install one.
+Astera shows this warning, with what the plugin asks for, before you approve an install: in the app every time, and
+from `astera plugins install` without `--yes`.
 
 ## Quick start
 
@@ -53,8 +54,8 @@ export default {
 }
 ```
 
-With the Astera app running, install it from a terminal of your own (on Windows, macOS and Linux alike) and read its
-log:
+With the Astera app running and the `astera` command installed ([from Settings → CLI](cli.md#install)), install it
+from a terminal of your own (on Windows, macOS and Linux alike) and read its log:
 
 ```sh
 astera plugins install --path ./hello-astera --yes
@@ -147,10 +148,12 @@ the plugin counts as running when it has. Work that goes on (following events, a
 and not awaited, as [the sample](../examples/plugins/webhook-notifier) does. The process keeps running after
 `activate` returns, until Astera stops it.
 
-**Stop.** Disabling, removing or installing a plugin again stops it, configuring it restarts it, and the Host leaving
-stops every plugin. Astera aborts
-`ctx.signal` and calls `deactivate()`, and the plugin has 5 seconds to finish before Astera ends it and the processes
-it started. A plugin does not keep the Host running.
+**Stop.** Disabling, removing or installing a plugin again stops it, and the Host leaving stops every plugin.
+Configuring a running plugin restarts it; a `failed` one stays stopped until `astera plugins enable` starts it. To
+stop a plugin, Astera aborts `ctx.signal` and calls `deactivate()`, and the process ends as soon as `deactivate`
+finishes, at once when there is none: cleanup that must finish (a last post, a file closed) goes inside `deactivate`,
+not in a listener of the signal. It has 5 seconds to finish before Astera ends the plugin and the processes it
+started. A plugin does not keep the Host running.
 
 **Crash.** Any end Astera did not ask for is a crash: an uncaught exception, an unhandled rejection, `process.exit()`,
 an `activate` that throws or does not finish in time. A plugin that crashes is started again after 1, then 2 seconds;
@@ -204,7 +207,8 @@ off the command line, or in the app's form for the plugin. A running plugin star
 missing a required setting does not start: it waits, and `plugins list` says which settings it needs.
 
 A **secret setting** is kept apart from the others, in the plugin's own store under the profile: it is never shown
-back (`plugins settings` says only whether it is set), no other plugin can read it, and it is hidden in the log.
+back (`plugins settings` says only whether it is set), no other plugin can read it through Astera, and it is hidden in
+the log. It is a file under the profile, readable by any program running as you, as [any plugin is](#plugins-are-trusted-code).
 
 **Secrets** the plugin keeps itself (a token it was given in exchange for another, say) go in the same store, through
 `ctx.secrets`. A name is letters, digits, `_`, `-` and `.`, at most 73 characters, not starting or ending with `.`,
@@ -217,13 +221,15 @@ its own.
 
 ## The Node a plugin runs on
 
-A plugin runs on the Node inside Astera, so the computer needs no Node install: Astera 1.4 is built on Electron 41,
-whose Node is 24.15. Node's own modules and globals are there (`fetch`, `WebSocket`, `AbortSignal.any` and the rest).
-The plugin starts in its installed copy, with the Host's environment less Astera's own variables.
+A plugin runs on the Node its Host runs on, so the computer needs no Node install. On Windows that is a Node Astera
+ships for its Host, `astera-host.exe`; on macOS and Linux it is Astera's own executable run as Node, from Electron 41.
+Both are Node 24.15, with Node's own modules and globals (`fetch`, `WebSocket`, `AbortSignal.any` and the rest). The
+plugin starts in its installed copy, with the Host's environment less Astera's own variables.
 
-**`process.execPath` is Astera, not `node`.** To run a Node script in a child process, start `process.execPath` with
-`ELECTRON_RUN_AS_NODE=1` in the child's environment; without it, the child starts as Astera itself rather than Node.
-`fork()` needs the same `env`. Do not count on a `node` on the `PATH`: the computer may have none.
+**`process.execPath` is not a `node` to count on.** On macOS and Linux it is Astera itself: a child started from it
+without `ELECTRON_RUN_AS_NODE=1` in its environment starts as Astera rather than Node. On Windows it is the Host's
+Node, where the variable does nothing. Set it either way, and `fork()` needs the same `env`. Do not count on a `node`
+on the `PATH` either: the computer may have none.
 
 ```js
 import { spawn } from 'node:child_process'
@@ -239,10 +245,11 @@ const child = spawn(process.execPath, [worker], {
 With `stdio: 'inherit'` the child's output goes to the plugin's log. Worker threads (`node:worker_threads`) need
 nothing of this.
 
-**Native addons.** An addon built on Node-API loads, as most prebuilt ones are; one built for a particular Node
-version does not, as Electron's Node has a version of its own. Astera runs no install script, so an addon that is
-compiled when it is installed is never built: ship its prebuilt binaries for each platform in the package, or do
-without it. `astera plugins doctor` warns about each `.node` file it finds.
+**Native addons.** An addon built on Node-API loads on every platform, as most prebuilt ones are. One built for a
+particular Node version loads on Windows only if it was built for Node 24, and not on macOS or Linux, where Electron's
+Node numbers its version differently: use Node-API. Astera runs no install script, so an addon that is compiled when
+it is installed is never built: ship its prebuilt binaries for each platform in the package, or do without it.
+`astera plugins doctor` warns about each `.node` file it finds.
 
 ## Packaging
 
@@ -267,14 +274,19 @@ Publish the package to npm (or a registry of your own) with its `astera` field, 
 
 ```sh
 astera plugins install --npm @acme/astera-jira
-astera plugins install --npm @acme/astera-jira@^1.2
+astera plugins install --npm "@acme/astera-jira@^1.2"
 ```
+
+A range goes in quotes, as here: cmd.exe takes `^` for its escape character and drops it.
 
 Astera fetches it with `npm pack` and unpacks it itself, refusing a package that holds a link, a path outside it, a
 file name Windows cannot keep, two names that differ only in case, or more than 20,000 entries or 256 MiB. Its
-`dependencies` are installed with `npm install --omit=dev --ignore-scripts --no-bin-links`: `devDependencies` are
-not, no install script runs, neither the package's nor a dependency's, and no command links are made. Keep the package
-small with `files` in `package.json`. Astera runs your own npm when Node.js is installed, so your `.npmrc` (registries,
+`dependencies` and `optionalDependencies` are installed with
+`npm install --omit=dev --ignore-scripts --no-bin-links --no-package-lock`, in a folder of Astera's, hoisted, and
+moved into its `node_modules`; what the package bundles stays as it shipped. So `devDependencies` are not installed,
+no install script runs, neither the package's nor a dependency's, no command links are made, and your
+`package-lock.json` is not used: each install resolves the ranges afresh, within its `overrides`. Pin what must not
+move, or bundle. Keep the package small with `files` in `package.json`. Astera runs your own npm when Node.js is installed, so your `.npmrc` (registries,
 scopes, tokens) applies; without it, Astera fetches an npm of its own ([the `astera` command](cli.md#plugins) says
 how).
 
@@ -300,7 +312,8 @@ export default {
     watch(ctx).catch((e: unknown) => {
       if (ctx.signal.aborted) return
       ctx.log.error(`stopped: ${String(e)}`)
-      process.exit(1)
+      // Once the line above has left: ctx.log writes to stderr, which a pipe may write later
+      process.stderr.write('', () => process.exit(1))
     })
   }
 } satisfies PluginDefinition
@@ -310,8 +323,12 @@ Compile it with `tsc` and point `astera.entry` at the output. A plugin with depe
 into one file, which installs from a folder or from npm with no `node_modules` at all:
 
 ```sh
-npx esbuild src/index.ts --bundle --platform=node --format=esm --outfile=dist/index.mjs
+npx esbuild src/index.ts --bundle --platform=node --format=cjs --outfile=dist/index.cjs
 ```
+
+Bundle to CommonJS, as here, and point `astera.entry` at `dist/index.cjs`. Many dependencies are CommonJS and
+`require()` Node's modules, which an ES module bundle cannot do: it loads, then fails with
+`Dynamic require of "events" is not supported`.
 
 ## Developing a plugin
 
@@ -342,11 +359,13 @@ capability out of the manifest.
 **`stopped`, needs settings.** A required setting has no value. Set it with `astera plugins configure`.
 
 **`failed`.** It kept crashing ([Lifecycle](#lifecycle)). `astera plugins logs` shows why: the `[launcher]`
-and `[error]` lines, and the `[host]` lines saying how it ended. Fix it, install it again or run
-`astera plugins enable --id <id>`.
+and `[error]` lines, and the `[host]` lines saying how it ended. Fix it (its code, or its settings with
+`astera plugins configure`), then run `astera plugins enable --id <id>`: configuring it alone does not start it again.
+Installing it again starts it too.
 
-**`PERMISSION_DENIED` in its log.** The person who installed it did not grant the permission that call needs. Install
-it again and grant it.
+**`<command> needs the <permission> permission, which plugin <id> was not granted` in its log.** That is the Host's
+answer to a call the plugin made, refused with `PERMISSION_DENIED`: the person who installed it did not grant that
+permission. Install it again and grant it.
 
 **The install stops on a link, pnpm or `.store`.** See [From a folder](#from-a-folder).
 
@@ -354,8 +373,8 @@ it again and grant it.
 fetch an npm of its own (a company network, a firewall or a proxy may block registry.npmjs.org), the answer says so:
 install Node.js, or install from a folder. [The `astera` command](cli.md#plugins) has the details.
 
-**A child process starts Astera.** It was started from `process.execPath` without `ELECTRON_RUN_AS_NODE=1`
-([The Node a plugin runs on](#the-node-a-plugin-runs-on)).
+**A child process starts Astera** (on macOS or Linux). It was started from `process.execPath` without
+`ELECTRON_RUN_AS_NODE=1` ([The Node a plugin runs on](#the-node-a-plugin-runs-on)).
 
 ## Not yet
 

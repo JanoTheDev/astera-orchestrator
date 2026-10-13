@@ -2,7 +2,7 @@
 // and the SDK methods each opens, the runtime's waits and counts, the redaction floor, the secret and settings limits,
 // the capabilities this Astera does not run yet, and the Node a plugin runs on. Its quick start is run as written in
 // the real plugin runtime, its TypeScript compiles against the SDKs, its links land, and it is published.
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
@@ -10,7 +10,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { PLUGIN_CAPABILITIES, PLUGIN_PERMISSIONS, PLUGIN_TRUST_WARNING, parseManifest } from './manifest'
 import { SETTING_KEYWORDS, SETTING_TYPES, SETTINGS_MAX, parseSettingsSchema } from './settings'
-import { PLUGIN_COMMAND_PERMISSIONS } from '../host/pluginGate'
+import { PLUGIN_COMMAND_PERMISSIONS, pluginRefusal } from '../host/pluginGate'
 import { PLUGIN_TIMINGS, REDACT_MIN, createPluginRuntime } from '../../host/plugins/runtime'
 import { SECRET_NAME_MAX, SECRET_VALUE_MAX } from '../../host/plugins/pluginData'
 import { PLUGIN_SERVED_CAPABILITIES } from '../../host/plugins/manager'
@@ -49,7 +49,10 @@ const commandOf = (method: string): string =>
 describe('docs/plugins.md', () => {
   it('says plainly that a plugin is trusted code and its permissions are not a sandbox', () => {
     expect(guide).toContain(`**${PLUGIN_TRUST_WARNING}**`)
-    expect(prose(section(guide, '## Plugins are trusted code'))).toMatch(/not a sandbox/)
+    const trust = prose(section(guide, '## Plugins are trusted code'))
+    expect(trust).toMatch(/not a sandbox/)
+    // 2f final review m2: `--yes` approves without showing it
+    expect(trust).toContain('without `--yes`')
   })
 
   it('gives each permission the SDK methods the Host opens with it, and nothing else', () => {
@@ -84,10 +87,23 @@ describe('docs/plugins.md', () => {
     expect(life).toContain(`${t.stopGraceMs / 1000} seconds to finish`)
     expect(life).toContain(`started again after ${t.backoffMs[0] / 1000}, then ${t.backoffMs[1] / 1000} seconds`)
     expect(life).toContain(`the ${nth} crash without ${t.stableMs / 1000} seconds of steady running`)
+    // 2f final review I2: configuring a failed plugin does not start it (manager.ts, and cli.md says so too)
+    expect(life).toContain('a `failed` one stays stopped until `astera plugins enable` starts it')
+    expect(prose(section(guide, '## Troubleshooting'))).toContain('configuring it alone does not start it again')
+    // 2f final review m5: the process ends as soon as deactivate resolves
+    expect(life).toContain('inside `deactivate`')
   })
 
   it('says which values its log hides and which it cannot', () => {
     expect(prose(section(guide, '## Logs'))).toContain(`a value shorter than ${REDACT_MIN} characters is not hidden`)
+  })
+
+  // 2f final review m4: what a refused call leaves in the log is the Host's sentence, not the error code
+  it('quotes the refusal a plugin without a permission gets, as the gate words it', () => {
+    const words = pluginRefusal('jobs-list', { id: 'ID', granted: new Set() })!.body.error
+    const shape = words.replace('jobs-list', '<command>').replace('jobs.read', '<permission>').replace('ID', '<id>')
+    expect(shape).toBe('<command> needs the <permission> permission, which plugin <id> was not granted')
+    expect(prose(section(guide, '## Troubleshooting'))).toContain(shape)
   })
 
   it('gives the secret limits the store keeps, as the SDK’s own types do', () => {
@@ -95,6 +111,8 @@ describe('docs/plugins.md', () => {
     const settings = prose(section(guide, '## Settings and secrets'))
     expect(settings).toContain(`at most ${SECRET_NAME_MAX}`)
     expect(settings).toContain(value)
+    // 2f final review m3: the store is files under the profile, which any program running as you can read
+    for (const doc of [settings, prose(read('docs/cli.md'))]) expect(doc).toContain('no other plugin can read it through Astera')
     const sdk = read('packages/plugin-sdk/src/index.ts').replace(/\s+\*?\s*/g, ' ')
     expect(sdk).toContain(`at most ${SECRET_NAME_MAX}`)
     expect(sdk).toContain(value)
@@ -105,6 +123,32 @@ describe('docs/plugins.md', () => {
     for (const t of SETTING_TYPES) expect(settings, t).toContain(`\`${t}\``)
     for (const k of SETTING_KEYWORDS) expect(settings, k).toContain(`\`${k}\``)
     expect(prose(settings)).toContain(`at most ${SETTINGS_MAX} settings`)
+    // 2f final review m8: the example is one a manifest can hold
+    const [example] = fenced(settings, 'json')
+    expect(parseSettingsSchema((JSON.parse(`{${example}}`) as { settingsSchema: unknown }).settingsSchema)).toMatchObject({ ok: true })
+  })
+
+  // 2f final review m8, m9: what the guide says of the copy and of npm is what copyFolder.ts and npm.ts do
+  it('names the copy rules and the npm flags the Host uses', () => {
+    const copy = read('src/host/plugins/copyFolder.ts')
+    const folder = section(guide, '### From a folder')
+    for (const f of ['.pnpm', '.store']) {
+      expect(copy, f).toContain(`folder: '${f}'`)
+      expect(folder, f).toContain(`node_modules/${f}`)
+    }
+    expect(copy).toContain("e.name === '.git'")
+    expect(folder).toContain('`.git` at the top is left out')
+    const npm = section(guide, '### From npm')
+    const install = /\['install', ([^\]]+)\]/.exec(read('src/host/plugins/npm.ts'))![1]
+    const flags = [...prose(npm).matchAll(/--[a-z-]+(?:=[a-z]+)?/g)].map((m) => m[0])
+    expect(flags.length).toBeGreaterThanOrEqual(4)
+    for (const f of flags) expect(install, f).toContain(`'${f}'`)
+    expect(install).toContain("'--no-package-lock'")
+    expect(prose(npm)).toContain('`package-lock.json`')
+    expect(read('src/host/plugins/npm.ts')).toContain("own('optionalDependencies')")
+    expect(prose(npm)).toContain('`optionalDependencies`')
+    // cmd.exe takes ^ for its escape character, so a range is quoted where it is given
+    for (const l of fenced(guide, 'sh').join('\n').split('\n').filter((l) => l.includes('^'))) expect(l, l).toMatch(/"[^"\s]*\^[^"\s]*"/)
   })
 
   it('gives the other limits the parsers and the Host keep', () => {
@@ -150,9 +194,22 @@ describe('docs/plugins.md', () => {
     const node = section(guide, '## The Node a plugin runs on')
     const electron = /(\d+)\./.exec(JSON.parse(read('package.json')).devDependencies.electron as string)![1]
     expect(prose(node)).toContain(`Electron ${electron}`)
+    // 2f final review m7, m8: on Windows the Host, and so each plugin, runs on the Node Astera ships for it
+    const shipped = /const NODE = \{\s*version: '(\d+\.\d+)\.\d+'/.exec(read('scripts/host-runtime.mjs'))![1]
+    expect(prose(node)).toContain(`Node ${shipped}`)
+    expect(read('scripts/host-runtime.mjs')).toContain("const HOST_EXE = 'astera-host.exe'")
+    expect(prose(node)).toContain('`astera-host.exe`')
+    expect(guide).not.toMatch(/Astera 1\.\d/)
     // The launcher takes the switch away before a plugin loads, which is why a plugin must give it back to a child
     expect(read('src/pluginHost/index.ts')).toContain('delete process.env.ELECTRON_RUN_AS_NODE')
     expect(fenced(node, 'js').join('\n')).toContain("ELECTRON_RUN_AS_NODE: '1'")
+  })
+
+  // 2f final review m6: a process that exits right after writing a line can lose it where stderr is a pipe written later
+  it('ends a process only once its last log line has left', () => {
+    const exits = [...fenced(guide, 'ts'), ...fenced(guide, 'js')].filter((b) => b.includes('process.exit('))
+    expect(exits.length).toBeGreaterThanOrEqual(1)
+    for (const b of exits) expect(b.match(/process\.exit\(/g)!.length, b).toBe(b.match(/process\.stderr\.write\('', \(\) => process\.exit\(/g)?.length ?? 0)
   })
 
   it('every TypeScript block compiles against the plugin SDK and the client', () => {
@@ -174,7 +231,19 @@ describe('docs/plugins.md', () => {
 
   it('links the sample, and the sample links back', () => {
     expect(guide).toContain('](../examples/plugins/webhook-notifier)')
-    expect(read('examples/plugins/webhook-notifier/README.md')).toContain('docs/plugins.md)')
+    const sample = read('examples/plugins/webhook-notifier/README.md')
+    expect(sample).toContain('docs/plugins.md)')
+    // 2f final review m13 and its declined replay note: a signature is compared in constant time, and says nothing of
+    // whether a post is new
+    expect(sample).toContain('timingSafeEqual')
+    expect(sample).toContain('`event.id`')
+    // The review's note on the cursor ruling: events are missed while it starts again after a crash too
+    expect(prose(sample)).toContain('starting again after a crash')
+  })
+
+  // 2f final review m1: the quick start's commands need the astera command
+  it('says where the astera command comes from before the quick start uses it', () => {
+    expect(section(guide, '## Quick start')).toContain('](cli.md#install)')
   })
 
   it('is reached from the CLI and SDK guides, the README and the plugin SDK’s README, and the SDK no longer lists plugins as missing', () => {
@@ -208,6 +277,51 @@ describe('the quick start, followed as written', () => {
     rmSync(work, { recursive: true, force: true, maxRetries: 5 })
   })
 
+  const runtimes: ReturnType<typeof createPluginRuntime>[] = []
+  afterEach(async () => {
+    for (const r of runtimes.splice(0)) await r.stopAll()
+  })
+  /** A runtime whose Host answers projects-list with two projects, and the log of the plugin `id` in it. */
+  const runtime = (id: string) => {
+    const r = createPluginRuntime({
+      profileDir: path.join(work, `profile ${runtimes.length}`),
+      exec: process.execPath,
+      launcher,
+      env: process.env,
+      host: () => ({ version: '9.9.9', pid: process.pid, startedAt: 'T', features: ['orch', 'requests', 'events'] }),
+      orch: {
+        call: (async (a: { cmd: string }) =>
+          a.cmd === 'projects-list' ? { status: 200, body: [{ id: 'p1', path: '/a' }, { id: 'p2', path: '/b' }] } : { status: 404, body: { error: `no ${a.cmd}` } }) as never
+      },
+      log: () => {}
+    })
+    runtimes.push(r)
+    return { r, log: () => (existsSync(r.logFile(id)) ? readFileSync(r.logFile(id), 'utf8') : '') }
+  }
+
+  // 2f final review I1: esbuild's ESM output turns a CommonJS dependency's require('events') into a stub that throws
+  it('bundles, with the guide’s command, a plugin with a CommonJS dependency into one file that runs', async () => {
+    const command = fenced(section(guide, '### TypeScript, and bundling'), 'sh')
+      .join('\n')
+      .split('\n')
+      .find((l) => l.startsWith('npx esbuild '))!
+    const args = command.replace(/^npx esbuild /, '').split(' ')
+    const outfile = args.find((a) => a.startsWith('--outfile='))!.slice('--outfile='.length)
+    const dir = path.join(work, 'bundled')
+    mkdirSync(path.join(dir, 'src'), { recursive: true })
+    mkdirSync(path.join(dir, 'node_modules', 'cjs-dep'), { recursive: true })
+    writeFileSync(path.join(dir, 'node_modules', 'cjs-dep', 'package.json'), JSON.stringify({ name: 'cjs-dep', version: '1.0.0', main: 'index.js' }))
+    writeFileSync(path.join(dir, 'node_modules', 'cjs-dep', 'index.js'), "const { EventEmitter } = require('events')\nmodule.exports = () => typeof EventEmitter\n")
+    writeFileSync(
+      path.join(dir, 'src', 'index.ts'),
+      "import kind from 'cjs-dep'\nexport default { activate(ctx: { log: { info(m: string): void } }) { ctx.log.info(`bundled ${kind()}`) } }\n"
+    )
+    execFileSync(process.execPath, [path.join(root, 'node_modules', 'esbuild', 'bin', 'esbuild'), ...args], { cwd: dir, stdio: 'pipe' })
+    const { r, log } = runtime('bundled')
+    r.start({ id: 'bundled', version: '1.0.0', folder: 'bundled', dir, entry: path.join(dir, outfile), granted: [], settings: {}, redact: [] })
+    await expect.poll(log, { timeout: 20_000, interval: 50 }).toContain('[info] bundled function')
+  }, 40_000)
+
   it('is a plugin Astera installs and runs, and its log says what the guide says it will', async () => {
     const start = section(guide, '## Quick start')
     const [pkgText] = fenced(start, 'json')
@@ -222,32 +336,17 @@ describe('the quick start, followed as written', () => {
     writeFileSync(path.join(dir, 'package.json'), pkgText)
     writeFileSync(path.join(dir, m.entry), code)
 
-    const r = createPluginRuntime({
-      profileDir: path.join(work, 'profile'),
-      exec: process.execPath,
-      launcher,
-      env: process.env,
-      host: () => ({ version: '9.9.9', pid: process.pid, startedAt: 'T', features: ['orch', 'requests', 'events'] }),
-      orch: {
-        call: (async (a: { cmd: string }) =>
-          a.cmd === 'projects-list' ? { status: 200, body: [{ id: 'p1', path: '/a' }, { id: 'p2', path: '/b' }] } : { status: 404, body: { error: `no ${a.cmd}` } }) as never
-      },
-      log: () => {}
-    })
-    try {
-      r.start({ id: m.id, version: m.version, folder: m.id, dir, entry: path.join(dir, m.entry), granted: m.permissions, settings: {}, redact: [] })
-      // The log lines the guide shows, without their times and the process id
-      const shown = fenced(start, 'text')
-        .join('\n')
-        .split('\n')
-        .filter((l) => l !== '')
-        .map((l) => l.replace(/^\S+ /, '').replace(/pid \d+/, 'pid '))
-      expect(shown.length).toBeGreaterThanOrEqual(2)
-      await expect
-        .poll(() => (existsSync(r.logFile(m.id)) ? readFileSync(r.logFile(m.id), 'utf8').replace(/pid \d+/g, 'pid ') : ''), { timeout: 20_000, interval: 50 })
-        .toSatisfy((log: string) => shown.every((l) => log.includes(l)))
-    } finally {
-      await r.stopAll()
-    }
+    const { r, log } = runtime(m.id)
+    r.start({ id: m.id, version: m.version, folder: m.id, dir, entry: path.join(dir, m.entry), granted: m.permissions, settings: {}, redact: [] })
+    // The log lines the guide shows, without their times and the process id
+    const shown = fenced(start, 'text')
+      .join('\n')
+      .split('\n')
+      .filter((l) => l !== '')
+      .map((l) => l.replace(/^\S+ /, '').replace(/pid \d+/, 'pid '))
+    expect(shown.length).toBeGreaterThanOrEqual(2)
+    await expect
+      .poll(() => log().replace(/pid \d+/g, 'pid '), { timeout: 20_000, interval: 50 })
+      .toSatisfy((text: string) => shown.every((l) => text.includes(l)))
   }, 40_000)
 })

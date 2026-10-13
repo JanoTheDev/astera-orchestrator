@@ -115,6 +115,15 @@ describe('inspect', () => {
     const bad = await plugin('bad', { permissions: ['jobs.write'] })
     expect(body(await manager.inspect({ path: bad })).error).toMatch(/package\.json: astera\.permissions: jobs\.write is not a permission/)
   })
+
+  // 2f final review: Windows PowerShell 5.1's `Set-Content -Encoding UTF8`, and older Notepad, start the file with a
+  // byte order mark, which npm and Node's own JSON loading skip
+  it('reads a package.json that starts with a byte order mark', async () => {
+    const src = await plugin('bom')
+    const file = path.join(src, 'package.json')
+    await fs.writeFile(file, `﻿${await fs.readFile(file, 'utf8')}`)
+    expect(await manager.inspect({ path: src })).toMatchObject({ status: 200, body: { name: '@acme/astera-jira' } })
+  })
 })
 
 describe('install', () => {

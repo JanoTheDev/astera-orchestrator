@@ -86,7 +86,8 @@ async function readManifest(folder: string): Promise<{ ok: true; manifest: Plugi
   }
   let pkg: unknown
   try {
-    pkg = JSON.parse(text)
+    // A byte order mark first, as Windows PowerShell 5.1 and older Notepad write one, is skipped as npm skips it
+    pkg = JSON.parse(text.replace(/^\uFEFF/, ''))
   } catch {
     return { ok: false, error: `${file} is not JSON` }
   }

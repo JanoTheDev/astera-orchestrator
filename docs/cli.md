@@ -581,9 +581,9 @@ A plugin's manifest may declare settings (`astera.settingsSchema`). `plugins con
 and `plugins list` says which. The answer ends with how the plugin stands: a plugin that `failed` stays stopped after
 `plugins configure` until `plugins enable` starts it again. A secret setting, and any secret a plugin keeps itself, is
 kept in that plugin's own store under the profile: it is never shown back (`plugins settings` says only whether it is
-set), no other plugin can read it, and it is replaced by `[redacted]` in the plugin's log and in the reason `plugins
-list` gives, each line of one that runs over several lines too; a value shorter than 4 characters is not hidden, as
-it would take ordinary words out of every line. Give a secret with `--stdin <key>` so it stays off the command line.
+set), no other plugin can read it through Astera, and it is replaced by `[redacted]` in the plugin's log and in the
+reason `plugins list` gives, each line of one that runs over several lines too; a value shorter than 4 characters is
+not hidden, as it would take ordinary words out of every line. Give a secret with `--stdin <key>` so it stays off the command line.
 Removing a plugin deletes its settings and secrets, and says so if it could not.
 
 The app's Settings → Plugins does the same: it lists each plugin with its status and permissions, installs a folder

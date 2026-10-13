@@ -254,6 +254,16 @@ describe('packAndExtract and installDependencies', () => {
     expect(JSON.parse(await fs.readFile(path.join(got.folder, 'package.json'), 'utf8')).devDependencies).toEqual({ secret: '1' })
   })
 
+  // 2f final review: a package.json that starts with a byte order mark, which npm itself reads
+  it('reads the dependencies of a package.json that starts with a byte order mark', async () => {
+    const f = fake(plugin({ name: 'p', version: '1.0.0', dependencies: { a: '1' } }))
+    const got = await packAndExtract('p', dir, f.run)
+    const file = path.join(got.folder, 'package.json')
+    await fs.writeFile(file, `﻿${await fs.readFile(file, 'utf8')}`)
+    expect(await installDependencies(got.folder, dir, f.run)).toBe(true)
+    expect(JSON.parse(await fs.readFile(path.join(dir, 'deps', 'package.json'), 'utf8')).dependencies).toEqual({ a: '1' })
+  })
+
   it('runs no npm install for a package whose dependencies are all bundled, or none', async () => {
     const f = fake(plugin({ name: 'p', version: '1.0.0', dependencies: { b: '1' }, bundleDependencies: true }))
     const got = await packAndExtract('p', dir, f.run)

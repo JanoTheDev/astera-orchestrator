@@ -45,6 +45,10 @@ function textOf(e) {
   }
 }
 
+/** Slack reads `<...>` as a mention or a link and `&` as the start of an escape, so the text escapes all three, as
+ *  Slack's message format asks: a Task titled `<!channel>` does not ping a channel. The event is posted as it is. */
+const escaped = (/** @type {string} */ s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
 /** What went wrong, in words that never hold the URL: fetch's own error says only "fetch failed", its cause says why. */
 const problemOf = (/** @type {unknown} */ e) =>
   e instanceof Error && e.cause instanceof Error ? e.cause.message : e instanceof Error ? e.message : String(e)
@@ -63,7 +67,7 @@ const problemOf = (/** @type {unknown} */ e) =>
  * @param {PluginContext} ctx
  */
 async function post(target, event, ctx) {
-  const body = JSON.stringify({ text: textOf(event), event })
+  const body = JSON.stringify({ text: escaped(textOf(event)), event })
   /** @type {Record<string, string>} */
   const headers = { 'content-type': 'application/json' }
   if (target.signingSecret !== undefined)
@@ -94,10 +98,9 @@ async function post(target, event, ctx) {
 }
 
 /**
- * Follows the events until Astera stops the plugin. A subscription that ends otherwise (the Host refused it, or is too
- * old for events) ends the plugin's process with a failure, so Astera starts it again, and after three such ends in a
- * row marks it failed with this log's last lines as the reason to look at. A Host that restarts does not end it: the
- * subscription waits for the new one and reads on.
+ * Follows the events until Astera stops the plugin, which it does when the Host leaves too. A subscription that ends
+ * otherwise (the Host refused it, or is too old for events) ends the plugin's process with a failure, so Astera starts
+ * it again, and marks it failed when it keeps ending, with this log's last lines as the reason to look at.
  * @param {PluginContext} ctx
  * @param {Target} target
  * @param {readonly Posted[]} types
@@ -122,7 +125,7 @@ export default {
   async activate(ctx) {
     const url = ctx.settings.webhookUrl
     if (typeof url !== 'string' || !/^https?:\/\/\S+$/.test(url))
-      throw new Error('webhookUrl is not an http or https URL: set it again with astera plugins configure')
+      throw new Error('webhookUrl is not an http or https URL: set it with astera plugins configure, then start the plugin with astera plugins enable')
     const secret = ctx.settings.signingSecret
     const target = { url, signingSecret: typeof secret === 'string' && secret !== '' ? secret : undefined }
     const types = ctx.settings.onlyProblems === true ? PROBLEMS : EVERYTHING

@@ -284,7 +284,7 @@ const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'obj
  *  so it builds the same tree it would for the package and reads nothing the package holds; the tree is then moved in
  *  beside what the package bundles. Says whether npm ran. */
 export async function installDependencies(folder: string, staging: string, run: NpmRun): Promise<boolean> {
-  const pkg = JSON.parse(await fs.readFile(path.join(folder, 'package.json'), 'utf8')) as Record<string, unknown>
+  const pkg = JSON.parse((await fs.readFile(path.join(folder, 'package.json'), 'utf8')).replace(/^\uFEFF/, '')) as Record<string, unknown>
   const bundled = pkg.bundleDependencies ?? pkg.bundledDependencies
   const own = (k: string): Record<string, unknown> => {
     if (!isObject(pkg[k]) || bundled === true) return {}

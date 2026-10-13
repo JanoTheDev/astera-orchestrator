@@ -1,6 +1,7 @@
 // The sample plugins as a person uses them (plugins 2f): each manifest is one Astera installs, each plugin imports only
 // Node's own modules so its folder installs as it is, it typechecks against the SDK's types, and it runs in the real
-// plugin runtime (the launcher bundled, a process of its own) against a Host that answers what it asks.
+// plugin runtime (the launcher bundled, a process of its own) from a copy made as a folder install makes it, against a
+// Host that answers what it asks.
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest'
 import { createHmac } from 'node:crypto'
 import { mkdtempSync, readFileSync, rmSync, existsSync } from 'node:fs'
@@ -11,6 +12,7 @@ import type { AddressInfo } from 'node:net'
 import { fileURLToPath } from 'node:url'
 import { parseManifest } from '../../src/core/plugins/manifest'
 import { createPluginRuntime, type PluginRuntime } from '../../src/host/plugins/runtime'
+import { copyPluginFolder } from '../../src/host/plugins/copyFolder'
 import { bundleLauncher } from '../../src/pluginHost/testkit'
 import { runTsc } from '../../packages/client/test/typecheck'
 
@@ -20,9 +22,13 @@ const ID = 'astera-webhook-notifier'
 
 let work: string
 let launcher: string
+/** The sample as `astera plugins install --path` copies it (2f final review m10): it runs from there, not the repo. */
+let installed: string
 beforeAll(async () => {
   work = mkdtempSync(path.join(os.tmpdir(), 'astera plugin samples '))
   launcher = await bundleLauncher(work)
+  installed = path.join(work, 'installed', ID)
+  await copyPluginFolder(NOTIFIER, installed)
 }, 60_000)
 afterAll(() => {
   rmSync(work, { recursive: true, force: true, maxRetries: 5 })
@@ -63,8 +69,10 @@ const A = 'aaaaaaaaaaaa'
 const RUN = { id: 'run_1', jobId: 'job_1', ordinal: 1, createdAt: 'T', outcome: 'completed', progress: { done: 2, total: 2 }, questionsOpen: 0 }
 const completed = { id: `ev_${A}_2`, type: 'run.completed', sequence: 2, occurredAt: 'T', jobId: 'job_1', runId: 'run_1', payload: RUN }
 
-/** A Host that answers the plugin's events-poll: the tail's cursor, then `pages` in turn, then empty pages a moment apart. */
-function events(pages: Array<{ status: number; body: unknown }>) {
+type Answer = { status: number; body: unknown }
+/** A Host that answers the plugin's events-poll: the tail's cursor, then `pages` in turn, then `rest` (empty pages a
+ *  moment apart unless given). */
+function events(pages: Answer[], rest?: Answer) {
   const polls: Record<string, unknown>[] = []
   return {
     polls,
@@ -74,6 +82,7 @@ function events(pages: Array<{ status: number; body: unknown }>) {
       if (a.args.tail === true) return { status: 200, body: { events: [], cursor: `ev_${A}_1`, gap: false } }
       const next = pages.shift()
       if (next) return next
+      if (rest) return rest
       await new Promise((r) => setTimeout(r, 100))
       return { status: 200, body: { events: [], cursor: `ev_${A}_2`, gap: false } }
     }
@@ -99,8 +108,8 @@ const launch = (settings: Record<string, string | number | boolean>, redact: str
   id: ID,
   version: '0.1.0',
   folder: ID,
-  dir: NOTIFIER,
-  entry: path.join(NOTIFIER, 'index.mjs'),
+  dir: installed,
+  entry: path.join(installed, 'index.mjs'),
   granted: ['events.subscribe'],
   settings,
   redact
@@ -120,8 +129,10 @@ describe('the webhook notifier sample', () => {
   })
 
   it('imports only Node’s own modules, so its folder installs as it is', () => {
-    const code = readFileSync(path.join(NOTIFIER, 'index.mjs'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
-    const specifiers = [...code.matchAll(/\bfrom\s+'([^']+)'|\bimport\s*\(\s*'([^']+)'/g)].map((m) => m[1] ?? m[2])
+    const code = readFileSync(path.join(NOTIFIER, 'index.mjs'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+    // `from 'x'`, `import 'x'` and `import('x')`, in any quotes (2f final review m10)
+    const specifiers = [...code.matchAll(/\b(?:from|import)\s*\(?\s*(['"`])([^'"`]+)\1/g)].map((m) => m[2])
+    expect(specifiers).toContain('node:crypto')
     expect(specifiers.filter((s) => !s.startsWith('node:'))).toEqual([])
   })
 
@@ -163,23 +174,52 @@ describe('the webhook notifier sample', () => {
     expect(host.polls[1]).toMatchObject({ types: 'run.failed,completion.exhausted,question.created' })
   }, 30_000)
 
-  it('stops when Astera stops it', async () => {
+  // 2f final review I3: the runtime calls any exit it asked for a stop, so the log is what tells a quiet stop from one
+  // that wrote an error and exited with a failure
+  it('stops quietly when Astera stops it', async () => {
     const hook = await webhook()
     const r = runtime(events([]))
     r.start(launch({ webhookUrl: hook.url, onlyProblems: false }, [hook.url]))
     await until(() => expect(r.status(ID)?.status).toBe('running'))
-    const pid = r.status(ID)?.pid
     await r.stop(ID)
     expect(r.status(ID)?.status).toBe('stopped')
-    expect(pid).toBeDefined()
+    // The log is written a moment after the status changes
+    await until(() => expect(logOf(r)).toContain('[host] stopped'))
+    const log = logOf(r)
+    expect(log).toContain('[host] exited with code 0')
+    expect(log).not.toContain('[error]')
+    expect(log).not.toContain('did not stop within')
   }, 30_000)
 
-  it('ends itself when the Host refuses its subscription, so Astera restarts it and in the end marks it failed', async () => {
+  it('ends itself when the Host refuses its subscription, so Astera starts it again and then marks it failed', async () => {
     const hook = await webhook()
     const refused = { status: 403, body: { error: 'events-poll needs the events.subscribe permission, which plugin astera-webhook-notifier was not granted' } }
-    const r = runtime(events([refused]), 1)
+    const r = runtime(events([], refused), 2)
     r.start(launch({ webhookUrl: hook.url, onlyProblems: false }, [hook.url]))
     await until(() => expect(r.status(ID)?.status).toBe('failed'))
-    await until(() => expect(logOf(r)).toContain('[error] stopped: '))
+    await until(() => expect(logOf(r)).toContain('[host] failed: '))
+    const log = logOf(r)
+    expect(log).toContain('[host] restarting in')
+    expect(log).toContain('[error] stopped: events-poll needs the events.subscribe permission')
+  }, 30_000)
+
+  // 2f final review I2: configuring a failed plugin does not start it, so the message says what does
+  it('says how to start it again when its webhook URL is not one', async () => {
+    const r = runtime(events([]), 1)
+    r.start(launch({ webhookUrl: 'hooks.example.com/T0', onlyProblems: false }, ['hooks.example.com/T0']))
+    await until(() => expect(r.status(ID)?.status).toBe('failed'))
+    await until(() => expect(logOf(r)).toContain('[host] failed: '))
+    expect(logOf(r)).toMatch(/astera plugins configure.*astera plugins enable/)
+  }, 30_000)
+
+  // 2f final review m12: Slack reads <...> as a mention or a link, so <!channel> in a title would ping a channel
+  it('escapes what Slack reads as markup in the text it posts, and leaves the event as it is', async () => {
+    const hook = await webhook()
+    const payload = { taskId: 'task_1', title: '<!channel> & <b>', state: 'exhausted', attempt: 3, maxAttempts: 3, detail: null, failureSummary: null, lastFailure: 'a < b' }
+    const exhausted = { id: `ev_${A}_3`, type: 'completion.exhausted', sequence: 3, occurredAt: 'T', jobId: 'job_1', runId: 'run_1', taskId: 'task_1', payload }
+    const r = runtime(events([{ status: 200, body: { events: [exhausted], cursor: `ev_${A}_3`, gap: false } }]))
+    r.start(launch({ webhookUrl: hook.url, onlyProblems: false }, [hook.url]))
+    await until(() => expect(hook.bodies).toHaveLength(1))
+    expect(hook.bodies[0]).toEqual({ text: '"&lt;!channel&gt; &amp; &lt;b&gt;" ran out of repairs: a &lt; b', event: exhausted })
   }, 30_000)
 })
