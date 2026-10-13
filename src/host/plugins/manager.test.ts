@@ -7,6 +7,7 @@ import type { PluginLaunch, PluginRunStatus, PluginRuntime } from './runtime'
 import { pluginsRoot } from './registry'
 import { pluginSecrets } from './pluginData'
 import { NpmMissing, type NpmRun } from './npm'
+import { NpmUnavailable } from './ownNpm'
 import { tgzOf } from './tarballFixture'
 
 let dir: string
@@ -891,12 +892,13 @@ describe('installing from npm', () => {
   type Pkg = { json: Record<string, unknown>; extra?: { name: string; type?: string; body?: string }[] }
 
   /** An npm that knows `packages` by name@version (and by name alone, the latest), and installs a stub for each dependency. */
-  const fakeNpm = (packages: Pkg[], o: { missing?: boolean; lie?: boolean; failInstall?: boolean } = {}) => {
+  const fakeNpm = (packages: Pkg[], o: { missing?: boolean; lie?: boolean; failInstall?: boolean; unavailable?: NpmUnavailable['code'] } = {}) => {
     const calls: string[][] = []
     let stopped = 0
     const run: NpmRun = async (args, { cwd }) => {
       calls.push(args)
       if (o.missing) throw new NpmMissing()
+      if (o.unavailable) throw new NpmUnavailable(o.unavailable, `why ${o.unavailable}`)
       if (args[0] === 'pack') {
         const spec = args[1]
         const at = spec.indexOf('@', 1)
@@ -1004,6 +1006,14 @@ describe('installing from npm', () => {
     const evil = await withNpm(fakeNpm([{ json: JIRA, extra: [{ name: 'package/../../evil.js', body: 'x' }] }])).inspect({ npm: ID })
     expect(evil).toEqual({ status: 400, body: { error: 'cannot install @acme/astera-jira from npm: the package has an entry that leaves the package: package/../../evil.js' } })
     expect(existsSync(path.join(installed(), '..', 'evil.js'))).toBe(false)
+    expect(await leftovers()).toEqual([])
+  })
+
+  // Plugins 2e-2 (the user's decision 2026-10-13): where Astera could not have its own npm, the answer says which of
+  // the three it was, with a code the app words itself.
+  it('answers each reason its own npm could not be had with its code', async () => {
+    for (const code of ['PLUGIN_NPM_BLOCKED', 'PLUGIN_NPM_ALTERED', 'PLUGIN_NPM_FETCH_FAILED'] as const)
+      expect(await withNpm(fakeNpm([], { unavailable: code })).inspect({ npm: ID })).toEqual({ status: 500, body: { error: `why ${code}`, code } })
     expect(await leftovers()).toEqual([])
   })
 

@@ -549,8 +549,11 @@ dependencies hoisted. A plugin written for a
 newer Astera, or for a kind of plugin this Astera does not run yet, installs but does not run, and `plugins list`
 says why.
 
-From npm, Astera runs your own `npm` (Node.js must be installed), so the registries, scopes and tokens in your
-`.npmrc` apply. `--npm` takes a package name, with `@version`, `@tag` or a `^` or `~` range if you like; a URL, a git
+From npm, Astera runs your own `npm` when Node.js is installed, so the registries, scopes and tokens in your
+`.npmrc` apply. On a computer without it, Astera fetches npm 11.21.0 from registry.npmjs.org once, checks it against
+the hash it ships with, keeps it under the profile and runs it on its own Node. When that fetch cannot reach
+registry.npmjs.org (a company network, a firewall or a proxy may block it), or what comes back is not that npm, the
+answer says so; install Node.js or install the plugin from a folder instead. `--npm` takes a package name, with `@version`, `@tag` or a `^` or `~` range if you like; a URL, a git
 or file source, or an alias is refused. `npm pack` fetches the package and Astera unpacks it itself, refusing a
 package that holds a link or a path outside it, or a file name Windows cannot keep. Its dependencies, when it has
 any, are installed with `--omit=dev` in a folder of Astera's and moved into its own `node_modules`: npm never runs

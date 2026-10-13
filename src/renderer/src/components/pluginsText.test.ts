@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { t as translate, type MessageKey, type MessageParams } from '../../../core/i18n'
 import { PLUGIN_TRUST_WARNING } from '../../../core/plugins/manifest'
 import type { SettingField } from '../../../core/plugins/settings'
-import { configureChanges, configureDoneLine, failureLine, installFailureLine, installPrompt, permissionLabel, reasonLine, statusLabel } from './pluginsText'
+import { configureChanges, configureDoneLine, failureLine, installFailureLine, installPrompt, npmNotice, permissionLabel, reasonLine, statusLabel } from './pluginsText'
 
 const en = (key: MessageKey, params?: MessageParams): string => translate('en', key, params)
 const ko = (key: MessageKey, params?: MessageParams): string => translate('ko', key, params)
@@ -211,6 +211,27 @@ describe('failureLine', () => {
     const missing = { ok: false as const, code: 'PLUGIN_NPM_MISSING', message: 'npm was not found on this computer: ... with --path' }
     expect(failureLine(missing, en)).toBe('npm was not found on this computer. Install Node.js, which brings npm, or use Install from a folder…')
     expect(failureLine(missing, ko)).toBe('이 컴퓨터에 npm 이 없습니다. npm 이 함께 오는 Node.js 를 설치하거나, 폴더에서 설치… 를 쓰세요.')
+  })
+
+  // Plugins 2e-2 (the user's decision 2026-10-13): a network that blocks the fetch of Astera's npm gets its own notice.
+  it('says which of the three kept Astera from its own npm, a blocking network in so many words', () => {
+    const f = (code: string, message = 'x') => ({ ok: false as const, code, message })
+    expect(failureLine(f('PLUGIN_NPM_BLOCKED'), ko)).toBe(
+      'Astera 가 npm 을 받아 오지 못했습니다. registry.npmjs.org 에 닿지 못했습니다. 회사망, 방화벽, 프록시가 막고 있을 수 있습니다. 네트워크 관리자에게 registry.npmjs.org 접근을 요청하거나, Node.js 를 설치하거나, 폴더에서 설치… 를 쓰세요.'
+    )
+    expect(failureLine(f('PLUGIN_NPM_BLOCKED'), en)).toBe(
+      'Astera could not fetch npm: registry.npmjs.org did not answer. A company network, a firewall or a proxy may block it. Ask your network administrator for access to registry.npmjs.org, install Node.js, or use Install from a folder.'
+    )
+    expect(failureLine(f('PLUGIN_NPM_ALTERED'), en)).toBe(
+      'The npm Astera fetched is not the real one, so it was not used: something on the network, such as a security appliance or a sign-in page, may have changed it. Install Node.js, or use Install from a folder.'
+    )
+    expect(failureLine(f('PLUGIN_NPM_FETCH_FAILED', 'disk full'), en)).toBe('Astera could not set npm up. Install Node.js, or use Install from a folder. (disk full)')
+  })
+
+  it('keeps a notice under the package row for what kept npm away, and for nothing else', () => {
+    for (const code of ['PLUGIN_NPM_BLOCKED', 'PLUGIN_NPM_ALTERED', 'PLUGIN_NPM_FETCH_FAILED', 'PLUGIN_NPM_MISSING'])
+      expect(npmNotice({ ok: false, code, message: 'x' }), code).toBe(true)
+    for (const code of ['NOT_FOUND', 'CONFLICT', 'HOST_NOT_RUNNING', 'FAILED']) expect(npmNotice({ ok: false, code, message: 'x' }), code).toBe(false)
   })
 
   it('gives the Host’s own sentence otherwise', () => {

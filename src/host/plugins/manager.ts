@@ -7,7 +7,8 @@ import path from 'node:path'
 import { incompatibility, isSemver, parseManifest, pluginFolderName, type PluginManifest, type PluginPermission } from '../../core/plugins/manifest'
 import { PluginCopyRefused, copyPluginFolder, layoutProblem } from './copyFolder'
 import { parseNpmSpec } from '../../core/plugins/npmSpec'
-import { NpmFailed, NpmMissing, createNpmRunner, installDependencies, npmEnv, packAndExtract, type NpmRun, type NpmRunner } from './npm'
+import { NpmFailed, NpmMissing, createNpm, installDependencies, packAndExtract, type NpmRun, type NpmRunner } from './npm'
+import { NpmUnavailable } from './ownNpm'
 import { PackageRefused } from './tarball'
 import { RegistryUnreadable, pluginsRoot, readRegistry, writeRegistry, type PluginRecord } from './registry'
 import { moveRetrying, type Rename } from './moves'
@@ -140,7 +141,8 @@ export function createPluginManager(d: {
   // no npm name does.
   const installed = path.join(root, 'installed')
   const host = { version: d.hostVersion, capabilities: d.capabilities ?? [] }
-  const npm = d.npm ?? createNpmRunner({ env: npmEnv(process.env) })
+  // The person's npm, or where there is none Astera's own, run on the Host's own Node (plugins 2e-2).
+  const npm = d.npm ?? createNpm({ profileDir: d.profileDir, env: process.env, node: process.execPath })
   const now = d.now ?? Date.now
   let queue: Promise<unknown> = Promise.resolve()
   /** Moves a folder, trying again while the system refuses for a moment. */
@@ -324,7 +326,7 @@ export function createPluginManager(d: {
 
   /** A refusal for what npm, or the package it fetched, could not do. */
   const npmRefusal = (e: unknown, spec: string): unknown =>
-    e instanceof NpmMissing
+    e instanceof NpmMissing || e instanceof NpmUnavailable
       ? new Refused(500, e.message, e.code)
       : e instanceof NpmFailed
         ? new Refused(e.notFound ? 404 : 500, e.message)
