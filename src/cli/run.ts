@@ -3,7 +3,7 @@
 // cannot be tested — that is why the side-effect-free functions and main() were pulled in here.
 // main() does not call itself inside this file, so importing this module (as the tests do) does not
 // terminate the process.
-import { approvalMessage, installPlugin } from './plugins'
+import { approvalMessage, doctorEnd, installPlugin } from './plugins'
 import { randomBytes, randomUUID } from 'node:crypto'
 import fsSync, { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
@@ -1613,6 +1613,11 @@ export async function main(): Promise<void> {
       if (end !== null) {
         fail(end)
       }
+    }
+    // `plugins doctor`: a failed check is exit 1, with the checks in the details.
+    if (parsed.cmd === 'plugins-doctor') {
+      const end = doctorEnd(body)
+      if (end !== null) fail(end)
     }
     // `sessions send --wait` (CLI spec §15): how the turn ended decides the exit code, as for a wait.
     if (parsed.cmd === 'sessions-send' && args.wait === true) {

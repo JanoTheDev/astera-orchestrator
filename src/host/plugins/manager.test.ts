@@ -554,3 +554,95 @@ describe('with a runtime (plugin runtime design P11)', () => {
     expect(await withRuntime(rt).list()).toMatchObject({ body: { plugins: [{ status: 'stopped' }] } })
   })
 })
+
+describe('logs and doctor', () => {
+  const logFile = (folder: string): string => path.join(pluginsRoot(profile), 'logs', `${folder}.log`)
+
+  it('reads the tail of a plugin’s log, the rotated generation first', async () => {
+    await manager.install({ path: await plugin(FOLDER), grant: [] })
+    expect(await manager.logs('@acme/astera-jira', undefined)).toEqual({
+      status: 200,
+      body: { id: '@acme/astera-jira', file: logFile('@acme+astera-jira'), lines: [] }
+    })
+    await fs.mkdir(path.dirname(logFile('@acme+astera-jira')), { recursive: true })
+    await fs.writeFile(`${logFile('@acme+astera-jira')}.1`, 'old 1\nold 2\n')
+    await fs.writeFile(logFile('@acme+astera-jira'), 'new 1\n\nnew 2\n')
+    expect((await manager.logs('@acme/astera-jira', undefined)).body).toMatchObject({ lines: ['old 1', 'old 2', 'new 1', 'new 2'] })
+    expect((await manager.logs('@acme/astera-jira', 2)).body).toMatchObject({ lines: ['new 1', 'new 2'] })
+    expect((await manager.logs('@acme/astera-jira', '3')).body).toMatchObject({ lines: ['old 2', 'new 1', 'new 2'] })
+    for (const bad of [0, 1001, 2.5, 'x', -1])
+      expect(await manager.logs('@acme/astera-jira', bad)).toEqual({ status: 400, body: { error: 'plugins-logs --lines must be a whole number from 1 to 1000' } })
+    expect((await manager.logs('nope', undefined)).status).toBe(404)
+  })
+
+  it('finds nothing wrong with a healthy plugin', async () => {
+    await manager.install({ path: await plugin(FOLDER), grant: [] })
+    const r = await manager.doctor('@acme/astera-jira')
+    expect(r.status).toBe(200)
+    expect(r.body).toEqual({
+      id: '@acme/astera-jira',
+      ok: true,
+      checks: [
+        { name: 'manifest', ok: true, detail: '@acme/astera-jira 1.0.0, Plugin API 1' },
+        { name: 'compatible', ok: true, detail: 'this Astera runs it' },
+        { name: 'entry', ok: true, detail: './dist/plugin.js' },
+        { name: 'native-addons', ok: true, detail: 'none' },
+        { name: 'runtime', ok: true, detail: 'stopped' }
+      ]
+    })
+  })
+
+  it('names a native addon, which a plugin cannot load here', async () => {
+    await manager.install({ path: await plugin(FOLDER), grant: [] })
+    const addon = path.join(installed(), '@acme+astera-jira', 'node_modules', 'fast-thing', 'build', 'Release')
+    await fs.mkdir(addon, { recursive: true })
+    await fs.writeFile(path.join(addon, 'fast.node'), '')
+    const r = await manager.doctor('@acme/astera-jira')
+    expect(r.body).toMatchObject({
+      ok: false,
+      checks: expect.arrayContaining([
+        {
+          name: 'native-addons',
+          ok: false,
+          detail: '1 native addon (node_modules/fast-thing/build/Release/fast.node); plugins run on the Node inside Astera, which cannot load them'
+        }
+      ])
+    })
+  })
+
+  it('says why an incompatible plugin and a failed one do not run', async () => {
+    await manager.install({ path: await plugin(FOLDER, { capabilities: ['event'] }), grant: [] })
+    expect((await manager.doctor('@acme/astera-jira')).body).toMatchObject({
+      ok: false,
+      checks: expect.arrayContaining([{ name: 'compatible', ok: false, detail: 'this Astera does not run event plugins yet' }])
+    })
+    const failing = createPluginManager({
+      profileDir: profile,
+      hostVersion: '1.5.0',
+      runtime: { start() {}, restart() {}, stop: async () => {}, status: () => ({ status: 'failed', reason: 'activate threw: x' }) }
+    })
+    await failing.install({ path: await plugin('other', { name: 'astera-other' }), grant: [] })
+    expect((await failing.doctor('astera-other')).body).toMatchObject({
+      ok: false,
+      checks: expect.arrayContaining([{ name: 'runtime', ok: false, detail: 'failed: activate threw: x' }])
+    })
+  })
+
+  it('says a disabled plugin is disabled, which is not a fault', async () => {
+    await manager.install({ path: await plugin(FOLDER), grant: [] })
+    await manager.setEnabled('@acme/astera-jira', false)
+    expect((await manager.doctor('@acme/astera-jira')).body).toMatchObject({
+      ok: true,
+      checks: expect.arrayContaining([{ name: 'runtime', ok: true, detail: 'disabled' }])
+    })
+  })
+
+  it('reports a copy whose manifest cannot be read, and an unknown id', async () => {
+    await manager.install({ path: await plugin(FOLDER), grant: [] })
+    await fs.rm(path.join(installed(), '@acme+astera-jira', 'package.json'))
+    const r = await manager.doctor('@acme/astera-jira')
+    expect(r.body).toMatchObject({ ok: false, checks: [{ name: 'manifest', ok: false, detail: expect.stringMatching(/^no package\.json in /) }] })
+    expect((await manager.doctor('nope')).status).toBe(404)
+    expect((await manager.doctor(undefined)).status).toBe(400)
+  })
+})

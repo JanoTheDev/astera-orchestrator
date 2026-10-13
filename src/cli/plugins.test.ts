@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import path from 'node:path'
-import { approvalMessage, installPlugin } from './plugins'
+import { approvalMessage, doctorEnd, installPlugin } from './plugins'
 import { PLUGIN_TRUST_WARNING } from '../core/plugins/manifest'
 
 const INSPECTION = {
@@ -129,5 +129,25 @@ describe('the docs say what an unapproved install exits with', () => {
     expect(section).toContain('Without --yes or --grant, `install` installs nothing and exits 2')
     expect(section).toContain('inside an agent session (`ASTERA_SESSION` is set) the changes are refused with exit 5')
     expect(USAGE['plugins-install'].detail).toContain('Exits 2 until you approve')
+  })
+})
+
+describe('doctorEnd', () => {
+  it('ends a doctor that found a problem with FAILED, naming each failing check', () => {
+    const body = {
+      id: 'astera-hello',
+      ok: false,
+      checks: [
+        { name: 'manifest', ok: true, detail: 'fine' },
+        { name: 'native-addons', ok: false, detail: '1 native addon (a.node)' },
+        { name: 'runtime', ok: false, detail: 'failed: activate threw: x' }
+      ]
+    }
+    expect(doctorEnd(body)).toEqual({
+      code: 'FAILED',
+      message: 'astera-hello has problems: native-addons: 1 native addon (a.node); runtime: failed: activate threw: x',
+      details: body
+    })
+    expect(doctorEnd({ id: 'astera-hello', ok: true, checks: [] })).toBeNull()
   })
 })

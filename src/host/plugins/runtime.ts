@@ -58,6 +58,9 @@ export interface PluginRuntime {
   logFile(folder: string): string
 }
 
+/** A plugin's log (design P13): `<profile>/plugins/logs/<folder>.log`, rotated to `.1` past 2 MiB. */
+export const pluginLogFile = (profileDir: string, folder: string): string => path.join(pluginsRoot(profileDir), 'logs', `${folder}.log`)
+
 /** A line of stderr longer than this is written in pieces, so a plugin printing without end cannot grow a buffer. */
 const STDERR_LINE_MAX = 64 * 1024
 
@@ -123,8 +126,7 @@ export function createPluginRuntime(d: {
   const now = d.now ?? Date.now
   const slots = new Map<string, Slot>()
   const logs = new Map<string, HostLog>()
-  const logsDir = path.join(pluginsRoot(d.profileDir), 'logs')
-  const logFile = (folder: string): string => path.join(logsDir, `${folder}.log`)
+  const logFile = (folder: string): string => pluginLogFile(d.profileDir, folder)
   const logOf = (folder: string): HostLog => {
     let l = logs.get(folder)
     if (!l) logs.set(folder, (l = openHostLog({ path: logFile(folder) })))

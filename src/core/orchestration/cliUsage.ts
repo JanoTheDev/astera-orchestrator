@@ -189,6 +189,15 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
   'plugins-enable': { summary: 'let an installed plugin run', flags: [ID('<pluginId>', 'the plugin (from `plugins list`)')] },
   'plugins-disable': { summary: 'stop a plugin from running, keeping it installed', flags: [ID('<pluginId>', 'the plugin (from `plugins list`)')] },
   'plugins-remove': { summary: 'uninstall a plugin and delete its copy in this profile', flags: [ID('<pluginId>', 'the plugin (from `plugins list`)')] },
+  'plugins-logs': {
+    summary: "the last lines of a plugin's log: what it printed, and when it started, stopped or crashed",
+    flags: [ID('<pluginId>', 'the plugin (from `plugins list`)'), { name: 'lines', value: '<n>', about: 'how many lines, from 1 to 1000 (default 100)' }]
+  },
+  'plugins-doctor': {
+    summary: 'what could keep a plugin from running: its manifest, compatibility, entry, native addons and its last run',
+    detail: 'Exits 1 when a check fails, naming each failing check.',
+    flags: [ID('<pluginId>', 'the plugin (from `plugins list`)')]
+  },
   'mcp-status': {
     summary: 'would mcp serve work here: the Host, MCP access and the tool count',
     detail:

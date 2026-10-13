@@ -24,6 +24,19 @@ export function approvalMessage(inspection: Record<string, unknown>, o: { agent?
   )
 }
 
+/** How `plugins doctor` ends when a check failed: FAILED (exit 1), naming each failing check, with the checks in the
+ *  details. Null when every check passed. */
+export function doctorEnd(body: unknown): { code: 'FAILED'; message: string; details: Record<string, unknown> } | null {
+  const b = (typeof body === 'object' && body !== null ? body : {}) as Record<string, unknown>
+  if (b.ok !== false) return null
+  const failing = (Array.isArray(b.checks) ? (b.checks as Record<string, unknown>[]) : []).filter((c) => c.ok !== true)
+  return {
+    code: 'FAILED',
+    message: `${String(b.id)} has problems: ${failing.map((c) => `${String(c.name)}: ${String(c.detail)}`).join('; ')}`,
+    details: b
+  }
+}
+
 /** `--grant a,b`: the names, trimmed, with empty ones dropped. */
 const grantOf = (v: unknown): string[] | null =>
   typeof v === 'string'

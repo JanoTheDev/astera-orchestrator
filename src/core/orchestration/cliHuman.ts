@@ -155,6 +155,14 @@ export function jsonSafe(json: string): string {
 
 export function humanFor(cmd: string, data: Record<string, unknown>): string | null {
   switch (cmd) {
+    case 'plugins-logs': {
+      const lines = Array.isArray(data.lines) ? (data.lines as unknown[]).map(str) : []
+      return lines.length > 0 ? lines.join('\n') : 'no log yet'
+    }
+    case 'plugins-doctor':
+      return columns(
+        (Array.isArray(data.checks) ? (data.checks as Record<string, unknown>[]) : []).map((c) => [c.ok === true ? 'ok' : 'FAIL', str(c.name), str(c.detail)])
+      )
     case 'plugins-list':
       return columns(
         asList(data, 'plugins').map((p) => {

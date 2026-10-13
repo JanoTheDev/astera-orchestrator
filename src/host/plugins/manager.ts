@@ -8,7 +8,7 @@ import { incompatibility, parseManifest, pluginFolderName, type PluginManifest, 
 import { PluginCopyRefused, copyPluginFolder, layoutProblem } from './copyFolder'
 import { RegistryUnreadable, pluginsRoot, readRegistry, writeRegistry, type PluginRecord } from './registry'
 import { moveRetrying, type Rename } from './moves'
-import type { PluginLaunch, PluginRuntime } from './runtime'
+import { pluginLogFile, type PluginLaunch, type PluginRuntime } from './runtime'
 
 export type PluginStatus = 'disabled' | 'incompatible' | 'stopped' | 'starting' | 'running' | 'failed'
 
@@ -29,6 +29,10 @@ export interface PluginManager {
   records(): Promise<PluginRecord[]>
   /** Starts every enabled plugin this Astera runs: the Host calls it once it listens. */
   startAll(): Promise<void>
+  /** The last lines of a plugin's log (design P13). */
+  logs(id: unknown, lines: unknown): Promise<PluginsAnswer>
+  /** What could keep a plugin from running, one check at a time (spec §12 `doctor`). */
+  doctor(id: unknown): Promise<PluginsAnswer>
 }
 
 /** A refusal: a status and the sentence the caller reads. */
@@ -79,6 +83,9 @@ async function folderOf(cmd: string, p: unknown): Promise<string> {
 }
 
 const hex = (): string => randomBytes(6).toString('hex')
+
+const LOG_LINES_DEFAULT = 100
+const LOG_LINES_MAX = 1000
 
 /** The error a failed change answers with when the earlier copy could not be moved back either: the person is told
  *  where it is, since nothing else will find it. */
@@ -365,6 +372,64 @@ export function createPluginManager(d: {
     return { status: 200, body: { ...(await view(next)), changed: true } }
   }
 
+  async function logs(id: unknown, lines: unknown): Promise<PluginsAnswer> {
+    const want = idOf('plugins-logs', id)
+    const n = lines === undefined ? LOG_LINES_DEFAULT : typeof lines === 'string' && /^\d+$/.test(lines) ? Number(lines) : lines
+    if (typeof n !== 'number' || !Number.isInteger(n) || n < 1 || n > LOG_LINES_MAX)
+      throw new Refused(400, `plugins-logs --lines must be a whole number from 1 to ${LOG_LINES_MAX}`)
+    const r = find(await readRegistry(root), want)
+    const file = pluginLogFile(d.profileDir, r.folder)
+    const read = (f: string): Promise<string[]> =>
+      fs.readFile(f, 'utf8').then(
+        (t) => t.split(/\r?\n/).filter((l) => l !== ''),
+        () => []
+      )
+    const all = [...(await read(`${file}.1`)), ...(await read(file))]
+    return { status: 200, body: { id: r.id, file, lines: all.slice(-n) } }
+  }
+
+  async function doctor(id: unknown): Promise<PluginsAnswer> {
+    const r = find(await readRegistry(root), idOf('plugins-doctor', id))
+    const dir = path.join(installed, r.folder)
+    const checks: { name: string; ok: boolean; detail: string }[] = []
+    const answer = (): PluginsAnswer => ({ status: 200, body: { id: r.id, ok: checks.every((c) => c.ok), checks } })
+    const read = await readManifest(dir)
+    if (!read.ok) {
+      checks.push({ name: 'manifest', ok: false, detail: read.error })
+      return answer()
+    }
+    const m = read.manifest
+    checks.push({ name: 'manifest', ok: true, detail: `${m.name} ${m.version}, Plugin API ${m.apiVersion}` })
+    const incompatible = incompatibility(m, host)
+    checks.push({ name: 'compatible', ok: incompatible === null, detail: incompatible ?? 'this Astera runs it' })
+    const entry = await fs.stat(path.resolve(dir, m.entry)).then((st) => st.isFile(), () => false)
+    checks.push({ name: 'entry', ok: entry, detail: entry ? m.entry : `${m.entry} is not a file in the installed copy` })
+    // Design P2: plugins run on the Node inside Astera, whose ABI no prebuilt addon is built for everywhere.
+    const addons = (await fs.readdir(dir, { recursive: true }).catch(() => [] as string[]))
+      .filter((f) => f.endsWith('.node'))
+      .map((f) => f.split(path.sep).join('/'))
+      .sort()
+    checks.push({
+      name: 'native-addons',
+      ok: addons.length === 0,
+      detail:
+        addons.length === 0
+          ? 'none'
+          : `${addons.length} native addon${addons.length === 1 ? '' : 's'} (${addons[0]}${addons.length > 1 ? `, and ${addons.length - 1} more` : ''}); plugins run on the Node inside Astera, which cannot load them`
+    })
+    const run = r.enabled && incompatible === null ? d.runtime?.status(r.id) : undefined
+    checks.push(
+      !r.enabled
+        ? { name: 'runtime', ok: true, detail: 'disabled' }
+        : incompatible !== null
+          ? { name: 'runtime', ok: true, detail: 'not started' }
+          : run?.status === 'failed'
+            ? { name: 'runtime', ok: false, detail: `failed: ${run.reason ?? 'it kept crashing'}` }
+            : { name: 'runtime', ok: true, detail: `${run?.status ?? 'stopped'}${run?.pid !== undefined ? ` (pid ${run.pid})` : ''}` }
+    )
+    return answer()
+  }
+
   async function remove(id: unknown): Promise<PluginsAnswer> {
     const want = idOf('plugins-remove', id)
     const records = await readRegistry(root)
@@ -403,6 +468,8 @@ export function createPluginManager(d: {
       }),
     setEnabled: (id, enabled) => serial(() => setEnabled(id, enabled)),
     remove: (id) => serial(() => remove(id)),
+    logs: (id, lines) => serial(() => logs(id, lines)),
+    doctor: (id) => serial(() => doctor(id)),
     startAll: () =>
       serial(async () => {
         for (const r of await readRegistry(root)) await startIfRunnable(r)
