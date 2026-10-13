@@ -8,7 +8,9 @@ import { incompatibility, parseManifest, pluginFolderName, type PluginManifest, 
 import { PluginCopyRefused, copyPluginFolder, layoutProblem } from './copyFolder'
 import { RegistryUnreadable, pluginsRoot, readRegistry, writeRegistry, type PluginRecord } from './registry'
 import { moveRetrying, type Rename } from './moves'
-import { pluginLogFile, type PluginLaunch, type PluginRuntime } from './runtime'
+import { REDACT_MIN, pluginLogFile, type PluginLaunch, type PluginRuntime } from './runtime'
+import { coerceSetting, missingRequired, type SettingField, type SettingValue } from '../../core/plugins/settings'
+import { PluginSettingsUnreadable, forgetPluginData, pluginSecrets, readSettings, writeSettings } from './pluginData'
 
 export type PluginStatus = 'disabled' | 'incompatible' | 'stopped' | 'starting' | 'running' | 'failed'
 
@@ -33,7 +35,17 @@ export interface PluginManager {
   logs(id: unknown, lines: unknown): Promise<PluginsAnswer>
   /** What could keep a plugin from running, one check at a time (spec §12 `doctor`). */
   doctor(id: unknown): Promise<PluginsAnswer>
+  /** A plugin's settings as a person may see them: secret ones say only whether they are set (spec §23-§24). */
+  settings(id: unknown): Promise<PluginsAnswer>
+  /** Sets and unsets a plugin's settings, and restarts it if it runs. */
+  configure(id: unknown, set: unknown, unset: unknown): Promise<PluginsAnswer>
 }
+
+/** A plugin's settings as stored, read against its installed schema (manager's settingsState). */
+type SettingsState =
+  | { ok: true; plain: Record<string, SettingValue>; secrets: Record<string, string>; redact: string[]; missing: string[]; invalid: string[] }
+  | { ok: false; error: string }
+type SettingsRead = Extract<SettingsState, { ok: true }>
 
 /** A refusal: a status and the sentence the caller reads. */
 class Refused extends Error {
@@ -172,18 +184,74 @@ export function createPluginManager(d: {
     return run
   }
 
-  /** What the runtime needs to start the plugin a record names, with its installed copy's manifest. */
-  const launchOf = (r: PluginRecord, m: PluginManifest): PluginLaunch => {
-    const dir = path.join(installed, r.folder)
-    return { id: r.id, version: m.version, folder: r.folder, dir, entry: path.resolve(dir, m.entry), granted: r.granted }
+  /** A plugin's settings as stored, read against its installed schema (spec §24): the plain values that are valid for
+   *  a key it still has, defaults filled; its secret settings (for the plugin alone); every secret value of the plugin,
+   *  to redact from its log; the required ones missing; and stored values that no longer fit. */
+  async function settingsState(r: PluginRecord, m: PluginManifest): Promise<SettingsState> {
+    try {
+      const store = pluginSecrets(d.profileDir, r.folder)
+      // Every secret value, the ones a plugin with no settings keeps for itself too (2c final review C1).
+      const redact = await store.values()
+      if (m.settings.length === 0) return { ok: true, plain: {}, secrets: {}, redact, missing: [], invalid: [] }
+      const stored = await readSettings(d.profileDir, r.folder)
+      const plain: Record<string, SettingValue> = {}
+      const secrets: Record<string, string> = {}
+      const invalid: string[] = []
+      for (const f of m.settings) {
+        if (f.secret) {
+          const v = await store.setting.get(f.key)
+          if (v !== undefined) secrets[f.key] = v
+          else if (typeof f.default === 'string') secrets[f.key] = f.default
+          continue
+        }
+        if (Object.hasOwn(stored, f.key)) {
+          const c = coerceSetting(f, stored[f.key])
+          if (c.ok) plain[f.key] = c.value
+          else invalid.push(c.problem)
+        }
+        if (!Object.hasOwn(plain, f.key) && f.default !== undefined) plain[f.key] = f.default
+      }
+      const has = (k: string): boolean => Object.hasOwn(plain, k) || Object.hasOwn(secrets, k)
+      const valueOf = (k: string): unknown => (Object.hasOwn(secrets, k) ? secrets[k] : plain[k])
+      return { ok: true, plain, secrets, redact, missing: missingRequired(m.settings, has, valueOf), invalid }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
   }
 
-  /** The record's plugin, when it is enabled and this Astera runs it; null otherwise. */
+  /** Why an enabled, compatible plugin is held back by its settings, or null. */
+  const heldBack = (r: PluginRecord, state: SettingsState): string | null =>
+    !state.ok
+      ? `the settings cannot be read: ${state.error}`
+      : state.missing.length > 0
+        ? `needs settings: ${state.missing.join(', ')}; set them with astera plugins configure --id ${r.id}`
+        : null
+
+  /** What the runtime needs to start the plugin a record names, with its installed copy's manifest and settings. */
+  const launchOf = (r: PluginRecord, m: PluginManifest, state: SettingsRead): PluginLaunch => {
+    const dir = path.join(installed, r.folder)
+    return {
+      id: r.id,
+      version: m.version,
+      folder: r.folder,
+      dir,
+      entry: path.resolve(dir, m.entry),
+      granted: r.granted,
+      // The plugin is trusted (design P1): it gets its secret settings beside the plain ones.
+      settings: { ...state.plain, ...state.secrets },
+      // A value this short would redact ordinary words from its log.
+      redact: state.redact.filter((v) => v.length >= REDACT_MIN)
+    }
+  }
+
+  /** The record's plugin, when it is enabled, this Astera runs it and its required settings are set; null otherwise. */
   async function runnable(r: PluginRecord): Promise<PluginLaunch | null> {
     if (!r.enabled) return null
     const read = await readManifest(path.join(installed, r.folder))
     if (!read.ok || incompatibility(read.manifest, host) !== null) return null
-    return launchOf(r, read.manifest)
+    const state = await settingsState(r, read.manifest)
+    if (!state.ok || heldBack(r, state) !== null) return null
+    return launchOf(r, read.manifest, state)
   }
 
   /** Starts the record's plugin when it is enabled and runs here. */
@@ -201,7 +269,9 @@ export function createPluginManager(d: {
     const incompatible = m ? incompatibility(m, host) : `the installed copy cannot be read: ${read.ok ? '' : read.error}`
     const run = r.enabled && incompatible === null ? d.runtime?.status(r.id) : undefined
     const status: PluginStatus = !r.enabled ? 'disabled' : incompatible !== null ? 'incompatible' : (run?.status ?? 'stopped')
-    const reason = incompatible ?? run?.reason ?? null
+    let reason = incompatible ?? run?.reason ?? null
+    // A plugin that is not running may be waiting for its settings: say which.
+    if (m && r.enabled && incompatible === null && status === 'stopped') reason = heldBack(r, await settingsState(r, m)) ?? reason
     return {
       id: r.id,
       name: m?.name ?? r.id,
@@ -424,6 +494,16 @@ export function createPluginManager(d: {
             (addons.length === 1 ? 'it loads' : 'each loads') +
             ' only if it was built for the Node inside Astera, as N-API addons are'
     })
+    const state = await settingsState(r, m)
+    checks.push(
+      !state.ok
+        ? { name: 'settings', ok: false, detail: `the settings cannot be read: ${state.error}` }
+        : state.missing.length > 0
+          ? { name: 'settings', ok: false, detail: `needs settings: ${state.missing.join(', ')}` }
+          : state.invalid.length > 0
+            ? { name: 'settings', ok: false, detail: state.invalid.join('; ') }
+            : { name: 'settings', ok: true, detail: m.settings.length === 0 ? 'none' : `${m.settings.length} settings, every required one set` }
+    )
     const run = r.enabled && incompatible === null ? d.runtime?.status(r.id) : undefined
     checks.push(
       !r.enabled
@@ -435,6 +515,98 @@ export function createPluginManager(d: {
             : { name: 'runtime', ok: true, detail: `${run?.status ?? 'stopped'}${run?.pid !== undefined ? ` (pid ${run.pid})` : ''}` }
     )
     return answer()
+  }
+
+  /** The installed copy's manifest for a command that needs it, or a 409 saying why there is none. */
+  async function manifestOf(r: PluginRecord): Promise<PluginManifest> {
+    const read = await readManifest(path.join(installed, r.folder))
+    if (!read.ok) throw new Refused(409, `the installed copy of ${r.id} cannot be read: ${read.error}`)
+    return read.manifest
+  }
+
+  /** Settings as a person sees them: a secret one says only whether it is set. */
+  const settingsView = (r: PluginRecord, m: PluginManifest, state: SettingsRead): Record<string, unknown> => ({
+    id: r.id,
+    fields: m.settings,
+    values: state.plain,
+    secrets: Object.fromEntries(m.settings.filter((f) => f.secret).map((f) => [f.key, Object.hasOwn(state.secrets, f.key) ? 'set' : 'unset']))
+  })
+
+  async function settings(id: unknown): Promise<PluginsAnswer> {
+    const r = find(await readRegistry(root), idOf('plugins-settings', id))
+    const m = await manifestOf(r)
+    const state = await settingsState(r, m)
+    if (!state.ok) throw new Refused(500, state.error)
+    return { status: 200, body: settingsView(r, m, state) }
+  }
+
+  async function configure(id: unknown, set: unknown, unset: unknown): Promise<PluginsAnswer> {
+    const r = find(await readRegistry(root), idOf('plugins-configure', id))
+    const m = await manifestOf(r)
+    if (set !== undefined && (typeof set !== 'object' || set === null || Array.isArray(set)))
+      throw new Refused(400, 'plugins-configure --set must be key=value pairs')
+    if (unset !== undefined && (!Array.isArray(unset) || !unset.every((k) => typeof k === 'string')))
+      throw new Refused(400, 'plugins-configure --unset must be a list of keys')
+    const changes = Object.entries((set ?? {}) as Record<string, unknown>)
+    const removals = (unset ?? []) as string[]
+    if (changes.length === 0 && removals.length === 0) throw new Refused(400, 'plugins-configure needs --set or --unset')
+    const fieldOf = (key: string): SettingField => {
+      const f = m.settings.find((x) => x.key === key)
+      if (!f)
+        throw new Refused(
+          400,
+          `${key} is not a setting of ${r.id}; ${m.settings.length > 0 ? `its settings are: ${m.settings.map((x) => x.key).join(', ')}` : 'it has no settings'}`
+        )
+      return f
+    }
+    const both = changes.find(([k]) => removals.includes(k))
+    if (both) throw new Refused(400, `${both[0]} is both set and unset`)
+    const values = changes.map(([k, v]) => {
+      const c = coerceSetting(fieldOf(k), v)
+      if (!c.ok) throw new Refused(400, c.problem)
+      return [k, c.value] as const
+    })
+    for (const k of removals) fieldOf(k)
+    // A settings file broken by hand is written whole again: setting values is how a person repairs it.
+    const stored = await readSettings(d.profileDir, r.folder).catch((e: unknown) => {
+      if (e instanceof PluginSettingsUnreadable) return {} as Record<string, unknown>
+      throw e
+    })
+    const secret = (k: string): boolean => fieldOf(k).secret === true
+    const next = { ...stored }
+    for (const [k, v] of values) if (!secret(k)) next[k] = v
+    for (const k of removals) delete next[k]
+    // A key an update made secret keeps no plain copy of what it held before (2c final review M8).
+    for (const f of m.settings) if (f.secret) delete next[f.key]
+    const before = d.runtime?.status(r.id)?.status
+    const wasRunning = before === 'running' || before === 'starting'
+    try {
+      await writeSettings(d.profileDir, r.folder, next)
+      const store = pluginSecrets(d.profileDir, r.folder)
+      for (const [k, v] of values) if (secret(k)) await store.setting.set(k, String(v))
+      for (const k of removals) if (secret(k)) await store.setting.delete(k)
+    } finally {
+      // A running plugin took its settings at its start: it starts again to take the new ones, and a change that was
+      // written only in part still stops it, so it does not run on settings it no longer has (M8). One that was held
+      // back for them starts now if it can. A failed one waits for `plugins enable`, as before.
+      if (wasRunning) await d.runtime?.stop(r.id)
+      if (before !== 'failed') await startIfRunnable(r)
+    }
+    const state = await settingsState(r, m)
+    if (!state.ok) throw new Refused(500, state.error)
+    // How it stands now, so a person is not told it restarted when it is held back, or left to guess that a failed one
+    // still waits (2c final review M6).
+    const now = await view(r)
+    const runs = now.status === 'running' || now.status === 'starting'
+    return {
+      status: 200,
+      body: {
+        ...settingsView(r, m, state),
+        status: now.status,
+        ...(now.reason !== null && now.reason !== undefined ? { reason: now.reason } : {}),
+        ...(wasRunning && runs ? { restarted: true } : {})
+      }
+    }
   }
 
   async function remove(id: unknown): Promise<PluginsAnswer> {
@@ -465,7 +637,23 @@ export function createPluginManager(d: {
     await d.runtime?.forget(r.folder)
     const log = pluginLogFile(d.profileDir, r.folder)
     await Promise.all([fs.rm(log, { force: true }), fs.rm(`${log}.1`, { force: true })]).catch(() => {})
-    return { status: 200, body: { id: r.id, version: r.version, removed: true } }
+    // And its settings and secrets (spec §23: a plugin's secrets are its own, and go with it). What cannot be deleted is
+    // said, not swallowed (2c final review M12): a plugin installed again under the same id would find it.
+    const left = await forgetPluginData(d.profileDir, r.folder).then(
+      () => null,
+      (e: unknown) => (e instanceof Error ? e.message : String(e))
+    )
+    if (left === null) return { status: 200, body: { id: r.id, version: r.version, removed: true } }
+    d.log?.(`plugins: ${r.id} was removed, but its settings or secrets could not be deleted: ${left}`)
+    return {
+      status: 200,
+      body: {
+        id: r.id,
+        version: r.version,
+        removed: true,
+        warning: `its settings or secrets could not be deleted (${left}); a plugin installed again as ${r.id} would find them`
+      }
+    }
   }
 
   return {
@@ -482,6 +670,8 @@ export function createPluginManager(d: {
     remove: (id) => serial(() => remove(id)),
     logs: (id, lines) => serial(() => logs(id, lines)),
     doctor: (id) => serial(() => doctor(id)),
+    settings: (id) => serial(() => settings(id)),
+    configure: (id, set, unset) => serial(() => configure(id, set, unset)),
     startAll: () =>
       serial(async () => {
         for (const r of await readRegistry(root)) await startIfRunnable(r)

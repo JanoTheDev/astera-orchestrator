@@ -37,6 +37,50 @@ export function doctorEnd(body: unknown): { code: 'FAILED'; message: string; det
   }
 }
 
+/** `plugins configure`'s flags as the Host takes them (plugins 2c): `--set key=value` (split at the first `=`, as many
+ *  as given), `--unset key`, and `--stdin key`, whose value is what standard input held with one trailing newline
+ *  dropped, so a secret stays off the command line. */
+export function configureArgs(
+  args: Record<string, unknown>,
+  stdinText: string | undefined
+): { args: Record<string, unknown> } | { error: string } {
+  const { set: rawSet, unset: rawUnset, stdin, ...rest } = args
+  const set: Record<string, string> = {}
+  const put = (key: string, value: string): string | null => {
+    if (Object.hasOwn(set, key)) return `${key} is set twice`
+    set[key] = value
+    return null
+  }
+  for (const pair of Array.isArray(rawSet) ? (rawSet as unknown[]) : rawSet === undefined ? [] : [rawSet]) {
+    const text = String(pair)
+    const at = text.indexOf('=')
+    // The text is not repeated (2c final review I5): a --set without its key may be the secret itself.
+    if (at < 0) return { error: '--set needs key=value, and one has no =' }
+    if (at === 0) return { error: '--set needs key=value, and one has no key before its =' }
+    const twice = put(text.slice(0, at), text.slice(at + 1))
+    if (twice) return { error: twice }
+  }
+  if (stdin !== undefined) {
+    if (typeof stdin !== 'string' || stdin === '') return { error: '--stdin needs the key to set' }
+    if (stdinText === undefined || stdinText === '') return { error: `--stdin ${stdin} read nothing from standard input` }
+    const twice = put(stdin, stdinText.replace(/\r?\n$/, ''))
+    if (twice) return { error: twice }
+  }
+  const unset = Array.isArray(rawUnset) ? (rawUnset as unknown[]).map(String) : rawUnset === undefined ? [] : [String(rawUnset)]
+  return {
+    args: { ...rest, ...(Object.keys(set).length > 0 ? { set } : {}), ...(unset.length > 0 ? { unset } : {}) }
+  }
+}
+
+/** Why `plugins configure` refuses a `-` for a flag's value, or null (2c final review I5): it reads standard input only for
+ *  `--stdin <key>`, and a `-` would have it read standard input twice, the second time for nothing. Asked before
+ *  standard input is read at all. */
+export function configureStdinError(wantsStdin: readonly string[]): string | null {
+  if (wantsStdin.length === 0) return null
+  const flags = wantsStdin.map((k) => `--${k}`).join(' or ')
+  return `plugins configure reads standard input only as --stdin <key>, as in --stdin token; a - after ${flags} is not one`
+}
+
 /** `--grant a,b`: the names, trimmed, with empty ones dropped. */
 const grantOf = (v: unknown): string[] | null =>
   typeof v === 'string'

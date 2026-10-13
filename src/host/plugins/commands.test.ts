@@ -22,7 +22,9 @@ const fake = (): PluginManager & { calls: string[] } => {
     records: async () => [],
     startAll: async () => {},
     logs: vi.fn(ok('logs', { lines: [] })),
-    doctor: vi.fn(ok('doctor', { ok: true, checks: [] }))
+    doctor: vi.fn(ok('doctor', { ok: true, checks: [] })),
+    settings: vi.fn(ok('settings', { fields: [] })),
+    configure: vi.fn(ok('configure', { fields: [] }))
   }
 }
 
@@ -33,7 +35,7 @@ const run = (o: Partial<Parameters<typeof pluginsCommand>[0]> & { cmd: string })
 }
 
 describe('pluginsCommand', () => {
-  it('names the nine commands', () => {
+  it('names the eleven commands', () => {
     expect([...PLUGIN_COMMANDS]).toEqual([
       'plugins-inspect',
       'plugins-install',
@@ -43,7 +45,9 @@ describe('pluginsCommand', () => {
       'plugins-disable',
       'plugins-remove',
       'plugins-logs',
-      'plugins-doctor'
+      'plugins-doctor',
+      'plugins-settings',
+      'plugins-configure'
     ])
   })
 
@@ -55,9 +59,9 @@ describe('pluginsCommand', () => {
   })
 
   it('refuses the changes to an agent’s shell and lets it read', async () => {
-    for (const cmd of ['plugins-install', 'plugins-enable', 'plugins-disable', 'plugins-remove'])
+    for (const cmd of ['plugins-install', 'plugins-enable', 'plugins-disable', 'plugins-remove', 'plugins-configure'])
       expect(await run({ cmd, agentRefusal: 'not for agents' }).answer).toEqual({ status: 403, body: { error: 'not for agents' } })
-    for (const cmd of ['plugins-inspect', 'plugins-list', 'plugins-get', 'plugins-logs', 'plugins-doctor'])
+    for (const cmd of ['plugins-inspect', 'plugins-list', 'plugins-get', 'plugins-logs', 'plugins-doctor', 'plugins-settings'])
       expect((await run({ cmd, agentRefusal: 'not for agents' }).answer).status).toBe(200)
   })
 
@@ -78,6 +82,8 @@ describe('pluginsCommand', () => {
     await call('plugins-remove', { id: 'z' })
     await call('plugins-logs', { id: 'x', lines: 20 })
     await call('plugins-doctor', { id: 'y' })
+    await call('plugins-settings', { id: 'x' })
+    await call('plugins-configure', { id: 'x', set: { a: '1' }, unset: ['b'] })
     expect(manager.inspect).toHaveBeenCalledWith('/p')
     expect(manager.install).toHaveBeenNthCalledWith(1, { path: '/p', grant: ['jobs.read'], expect: { name: 'x', version: '1.0.0' } })
     expect(manager.install).toHaveBeenNthCalledWith(2, { path: '/q', grant: [] })
@@ -87,6 +93,8 @@ describe('pluginsCommand', () => {
     expect(manager.remove).toHaveBeenCalledWith('z')
     expect(manager.logs).toHaveBeenCalledWith('x', 20)
     expect(manager.doctor).toHaveBeenCalledWith('y')
+    expect(manager.settings).toHaveBeenCalledWith('x')
+    expect(manager.configure).toHaveBeenCalledWith('x', { a: '1' }, ['b'])
   })
 
   it('marks one effect for a change that acted, and none for a read, a refusal or a change that changed nothing', async () => {

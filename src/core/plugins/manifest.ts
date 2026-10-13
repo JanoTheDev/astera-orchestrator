@@ -2,6 +2,8 @@
 // so the Host, the CLI and the app read a plugin by the same rules. What it may ask Astera for is design §2's table;
 // whether this Astera runs it is `incompatibility` (spec §29).
 
+import { parseSettingsSchema, type SettingField } from './settings'
+
 /** The Plugin API versions this Astera speaks (spec §28): versioned apart from the Host protocol. */
 export const PLUGIN_API_VERSIONS = ['1'] as const
 
@@ -46,6 +48,8 @@ export interface PluginManifest {
   capabilities: PluginCapability[]
   permissions: PluginPermission[]
   minAsteraVersion?: string
+  /** `astera.settingsSchema`, read (settings.ts); none when the plugin has no settings. */
+  settings: SettingField[]
 }
 
 /** npm's rule for new names, which also leaves out `~`: on Windows `astera~1` can be another folder's short name. */
@@ -125,6 +129,8 @@ export function parseManifest(pkg: unknown): { ok: true; manifest: PluginManifes
   const min = astera.minAsteraVersion
   if (min !== undefined && (typeof min !== 'string' || !SEMVER.test(min)))
     problems.push(`astera.minAsteraVersion ${JSON.stringify(min)} is not a semver version`)
+  const schema = parseSettingsSchema(astera.settingsSchema)
+  if (!schema.ok) problems.push(...schema.problems)
   if (problems.length > 0) return { ok: false, problems }
   return {
     ok: true,
@@ -138,7 +144,8 @@ export function parseManifest(pkg: unknown): { ok: true; manifest: PluginManifes
       entry: astera.entry as string,
       capabilities,
       permissions,
-      ...(typeof min === 'string' ? { minAsteraVersion: min } : {})
+      ...(typeof min === 'string' ? { minAsteraVersion: min } : {}),
+      settings: schema.ok ? schema.fields : []
     }
   }
 }

@@ -10,7 +10,8 @@ import { hostWorkerBaseEnv } from '../../core/host/spawn'
 import { killProcessTree } from '../../core/run/kill'
 import { redactSecrets } from '../../core/remote/redact'
 import type { OrchCall } from '../../core/host/orchProtocol'
-import { RPC_INVALID_PARAMS, RPC_METHOD_NOT_FOUND, RpcError, createRpcPeer, type RpcPeer } from '../../core/plugins/rpc'
+import { RPC_INTERNAL_ERROR, RPC_INVALID_PARAMS, RPC_METHOD_NOT_FOUND, RpcError, createRpcPeer, type RpcPeer } from '../../core/plugins/rpc'
+import { PluginSecretRefused, pluginSecrets } from './pluginData'
 import { openHostLog, type HostLog } from '../log'
 import { releaseLogWriter } from '../../core/log/logWriter'
 import { pluginsRoot } from './registry'
@@ -48,6 +49,10 @@ export interface PluginLaunch {
   /** The entry file, absolute. */
   entry: string
   granted: readonly string[]
+  /** Its settings, secret ones included, handed over at `initialize` (spec §24, design P10). */
+  settings: Readonly<Record<string, string | number | boolean>>
+  /** Values its log must never show: its secret settings and secrets (spec §23). */
+  redact: readonly string[]
 }
 
 export interface PluginRunStatus {
@@ -88,8 +93,34 @@ interface Slot {
   failures: number
   reason?: string
   timers: Set<ReturnType<typeof setTimeout>>
+  /** Each secret it read or set since it was started, by name: kept through a restart after a crash (2c final review
+   *  I2), and one value a name, so a plugin that keeps a cursor there does not grow every log line's cost (M11). */
+  learned: Map<string, string>
+  /** What its log hides, worked out from `launch.redact` and `learned` when either changes. */
+  terms?: string[]
   exited?: Promise<void>
   stopping?: Promise<void>
+}
+
+/** A secret shorter than this is too common a run of text to take out of a log line (docs/cli.md says so). */
+export const REDACT_MIN = 4
+/** A line of a secret of many lines shorter than this is too common to take out on its own. */
+const REDACT_LINE_MIN = 8
+
+/** What a plugin's log hides for its secret values (2c final review I4, M15): each value; each line of a value of many
+ *  lines, since the log is written a line at a time; and each value as JSON writes it, for a plugin that prints its
+ *  settings. Longest first, so a secret that holds a shorter one is hidden whole. */
+export function redactionTerms(values: Iterable<string>): string[] {
+  const terms = new Set<string>()
+  for (const v of values) {
+    if (v.length < REDACT_MIN) continue
+    terms.add(v)
+    if (/[\r\n]/.test(v))
+      for (const l of v.split(/\r\n|\r|\n/)) if (l.trim().length >= REDACT_LINE_MIN) terms.add(l.trim())
+    const json = JSON.stringify(v).slice(1, -1)
+    if (json !== v) terms.add(json)
+  }
+  return [...terms].sort((a, b) => b.length - a.length)
 }
 
 /** Kills the plugin and everything it started: taskkill /T on Windows; elsewhere the process group the plugin was
@@ -169,7 +200,18 @@ export function createPluginRuntime(d: {
   }
   // What the Host writes about a plugin carries the plugin's own words (an error message, a stray line), which may hold
   // a secret: redacted like the plugin's own lines (2b final review M1).
-  const say = (s: Slot, m: string): void => logOf(s.launch.folder).write(redactSecrets(`[host] ${m}`))
+  /** A line for a plugin's log, with every secret of that plugin and every secret-shaped value taken out (P13). */
+  const hide = (s: Slot, line: string): string => {
+    let out = redactSecrets(line)
+    for (const v of (s.terms ??= redactionTerms([...s.launch.redact, ...s.learned.values()]))) out = out.split(v).join('[redacted]')
+    return out
+  }
+  const learn = (s: Slot, name: unknown, value: unknown): void => {
+    if (typeof name !== 'string' || typeof value !== 'string' || s.learned.get(name.toLowerCase()) === value) return
+    s.learned.set(name.toLowerCase(), value)
+    s.terms = undefined
+  }
+  const say = (s: Slot, m: string): void => logOf(s.launch.folder).write(hide(s, `[host] ${m}`))
   const later = (s: Slot, ms: number, f: () => void): void => {
     const timer = setTimeout(() => {
       s.timers.delete(timer)
@@ -199,6 +241,30 @@ export function createPluginRuntime(d: {
       return { status: r.status, body: r.body, ...(r.replayed === true ? { replayed: true } : {}), ...(r.observed === true ? { observed: true } : {}) }
     } catch (e) {
       return { status: 500, body: { error: e instanceof Error ? e.message : String(e) } }
+    }
+  }
+
+  /** A plugin's request about its own secrets (spec §23): answered from the store kept for that plugin alone, so no
+   *  name it passes reaches another's. A value it reads or sets joins what its log never shows (2c final review C1). */
+  async function secretRequest(s: Slot, method: string, params: unknown): Promise<unknown> {
+    const q = typeof params === 'object' && params !== null ? (params as Record<string, unknown>) : {}
+    const store = pluginSecrets(d.profileDir, s.launch.folder).secret
+    try {
+      if (method === 'secrets.get') {
+        const value = await store.get(q.name as string)
+        learn(s, q.name, value)
+        return { value: value ?? null }
+      }
+      if (method === 'secrets.set') {
+        await store.set(q.name as string, q.value as string)
+        learn(s, q.name, q.value)
+        return {}
+      }
+      await store.delete(q.name as string)
+      return {}
+    } catch (e) {
+      if (e instanceof PluginSecretRefused) throw new RpcError(RPC_INVALID_PARAMS, e.message)
+      throw new RpcError(RPC_INTERNAL_ERROR, `the plugin's secrets could not be used: ${e instanceof Error ? e.message : String(e)}`)
     }
   }
 
@@ -243,6 +309,7 @@ export function createPluginRuntime(d: {
       },
       onRequest: async (method, params) => {
         if (method === 'call') return forward(s, granted, params)
+        if (method === 'secrets.get' || method === 'secrets.set' || method === 'secrets.delete') return secretRequest(s, method, params)
         throw new RpcError(RPC_METHOD_NOT_FOUND, `no method ${method}`)
       }
     })
@@ -259,7 +326,7 @@ export function createPluginRuntime(d: {
     })
     const line = (l: string): void => {
       const text = l.replace(/\r$/, '')
-      if (text !== '') logOf(p.folder).write(redactSecrets(text))
+      if (text !== '') logOf(p.folder).write(hide(s, text))
     }
     // stdout and stderr are both the plugin's log, each read in lines of its own.
     const held = new Map<Readable, string>()
@@ -312,7 +379,7 @@ export function createPluginRuntime(d: {
     peer
       .request('initialize', {
         apiVersion: '1',
-        plugin: { id: p.id, version: p.version, dir: p.dir, entry: p.entry, permissions: [...p.granted] },
+        plugin: { id: p.id, version: p.version, dir: p.dir, entry: p.entry, permissions: [...p.granted], settings: { ...p.settings } },
         host: { version: host.version, pid: host.pid, startedAt: host.startedAt, features: [...host.features] }
       })
       .then(
@@ -356,7 +423,8 @@ export function createPluginRuntime(d: {
     if (s.failures >= t.failAfter) {
       s.state = 'failed'
       const times = s.failures === 1 ? '' : ` (${s.failures} times in a row, each within ${t.stableMs / 1000} s of starting)`
-      s.reason = redactSecrets(`${problem}${times}; see astera plugins logs --id ${s.launch.id}`)
+      // The reason is read by `plugins list`, `get` and `doctor`: hidden like the log (2c final review I3).
+      s.reason = hide(s, `${problem}${times}; see astera plugins logs --id ${s.launch.id}`)
       say(s, `failed: ${s.reason}`)
       // The Host log names the plugin only: its message can carry a token, and the plugin's own log has it redacted.
       d.log(`plugins: ${s.launch.id} failed; see astera plugins logs --id ${s.launch.id}`)
@@ -378,8 +446,9 @@ export function createPluginRuntime(d: {
       void s.stopping.then(() => start(p))
       return
     }
-    const slot: Slot = s ?? { launch: p, state: 'stopped', wanted: true, failures: 0, timers: new Set() }
+    const slot: Slot = s ?? { launch: p, state: 'stopped', wanted: true, failures: 0, timers: new Set(), learned: new Map() }
     slot.launch = p
+    slot.terms = undefined
     slot.wanted = true
     slot.reason = undefined
     if (slot.state !== 'failed') slot.failures = 0
@@ -445,7 +514,7 @@ export function createPluginRuntime(d: {
         case 'starting':
           return { status: 'starting', ...(pid !== undefined ? { pid } : {}) }
         case 'waiting':
-          return { status: 'starting', reason: redactSecrets(`restarting after ${s.problem ?? 'a crash'}`) }
+          return { status: 'starting', reason: hide(s, `restarting after ${s.problem ?? 'a crash'}`) }
         case 'failed':
           return { status: 'failed', ...(s.reason !== undefined ? { reason: s.reason } : {}) }
         default:

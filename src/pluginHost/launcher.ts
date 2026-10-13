@@ -16,7 +16,7 @@ import type { PluginContext, PluginDefinition } from '../../packages/plugin-sdk/
 
 interface InitializeParams {
   apiVersion: string
-  plugin: { id: string; version: string; dir: string; entry: string; permissions: string[] }
+  plugin: { id: string; version: string; dir: string; entry: string; permissions: string[]; settings?: Record<string, string | number | boolean> }
   host: { version: string; pid: number; startedAt: string; features: string[] }
 }
 
@@ -33,6 +33,7 @@ const initializeParams = (v: unknown): InitializeParams | null => {
     typeof p.dir === 'string' &&
     typeof p.entry === 'string' &&
     isStrings(p.permissions) &&
+    (p.settings === undefined || isObject(p.settings)) &&
     typeof h.version === 'string' &&
     typeof h.pid === 'number' &&
     typeof h.startedAt === 'string' &&
@@ -105,6 +106,12 @@ export function runLauncher(o: {
       client?.close()
     })())
 
+  /** A secrets request to the Host, its refusal turned into an Error with the Host's words. */
+  const secretCall = (method: string, params: Record<string, unknown>): Promise<unknown> =>
+    peer.request(method, params).catch((e: unknown) => {
+      throw new Error(messageOf(e))
+    })
+
   async function initialize(params: unknown): Promise<unknown> {
     const p = initializeParams(params)
     if (!p) throw new RpcError(RPC_INVALID_PARAMS, 'initialize needs apiVersion, plugin { id, version, dir, entry, permissions } and host { version, pid, startedAt, features }')
@@ -169,6 +176,16 @@ export function runLauncher(o: {
       astera: client,
       plugin: { id: p.plugin.id, version: p.plugin.version, dir: p.plugin.dir },
       permissions: Object.freeze([...p.plugin.permissions]),
+      settings: Object.freeze({ ...(p.plugin.settings ?? {}) }),
+      // Kept by the Host in the plugin's own store (spec §23); a refusal comes back as the Host worded it.
+      secrets: {
+        get: async (name) => {
+          const r = (await secretCall('secrets.get', { name })) as { value?: unknown } | null
+          return typeof r?.value === 'string' ? r.value : undefined
+        },
+        set: async (name, value) => void (await secretCall('secrets.set', { name, value })),
+        delete: async (name) => void (await secretCall('secrets.delete', { name }))
+      },
       log: {
         info: (m) => o.log(`[info] ${m}`),
         warn: (m) => o.log(`[warn] ${m}`),

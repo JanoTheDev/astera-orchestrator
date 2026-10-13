@@ -136,6 +136,46 @@ describe('humanFor', () => {
     )
   })
 
+  // Plugins 2c: a secret setting says only whether it is set.
+  it('plugins settings prints one row per setting, a secret one only as set or not', () => {
+    const data = {
+      id: 'x',
+      fields: [
+        { key: 'baseUrl', type: 'string', required: true },
+        { key: 'pageSize', type: 'integer', default: 50, required: false },
+        { key: 'token', type: 'string', secret: true, required: true },
+        { key: 'project', type: 'string', required: false }
+      ],
+      values: { baseUrl: 'https://jira.example.com', pageSize: 50 },
+      secrets: { token: 'set' }
+    }
+    const expected = [
+      'baseUrl   https://jira.example.com  required',
+      'pageSize  50',
+      'token     (secret, set)             required',
+      'project   (not set)'
+    ].join(String.fromCharCode(10))
+    expect(humanFor('plugins-settings', data)).toBe(expected)
+    expect(humanFor('plugins-configure', { ...data, restarted: true })).toBe(`${expected}${String.fromCharCode(10)}(restarted)`)
+    expect(humanFor('plugins-settings', { id: 'x', fields: [], values: {}, secrets: {} })).toBe('no settings')
+  })
+
+  // 2c final review M6: configure says how the plugin stands, not only that it restarted.
+  it('plugins configure ends with how the plugin stands after the change', () => {
+    const lf = String.fromCharCode(10)
+    const data = { id: 'x', fields: [{ key: 'token', type: 'string', secret: true, required: true }], values: {}, secrets: { token: 'set' } }
+    const row = 'token  (secret, set)  required'
+    expect(humanFor('plugins-configure', { ...data, status: 'running', restarted: true })).toBe(`${row}${lf}(restarted)`)
+    expect(humanFor('plugins-configure', { ...data, status: 'running' })).toBe(`${row}${lf}(running)`)
+    expect(humanFor('plugins-configure', { ...data, status: 'stopped', reason: 'needs settings: token; set them with astera plugins configure --id x' })).toBe(
+      `${row}${lf}(stopped: needs settings: token; set them with astera plugins configure --id x)`
+    )
+    expect(humanFor('plugins-configure', { ...data, status: 'failed', reason: 'activate threw: x' })).toBe(
+      `${row}${lf}(failed: activate threw: x; start it again with astera plugins enable --id x)`
+    )
+    expect(humanFor('plugins-settings', { ...data, status: 'running' })).toBe(row)
+  })
+
   it('one plugin reads as its fields, like one project', () => {
     const one = { id: 'astera-hello', version: '0.1.0', status: 'disabled', enabled: false }
     for (const cmd of ['plugins-get', 'plugins-install', 'plugins-enable', 'plugins-disable', 'plugins-remove'])

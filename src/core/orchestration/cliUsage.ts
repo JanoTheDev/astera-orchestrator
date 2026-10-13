@@ -193,6 +193,21 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
     summary: "the last lines of a plugin's log: what it printed, and when it started, stopped or crashed",
     flags: [ID('<pluginId>', 'the plugin (from `plugins list`)'), { name: 'lines', value: '<n>', about: 'how many lines, from 1 to 1000 (default 100)' }]
   },
+  'plugins-settings': {
+    summary: "a plugin's settings: each one's value, a secret one only as set or not",
+    flags: [ID('<pluginId>', 'the plugin (from `plugins list`)')]
+  },
+  'plugins-configure': {
+    summary: "set or unset a plugin's settings; a running plugin starts again with them",
+    detail:
+      'A secret setting is kept in the plugin\'s own store and never shown back. Give a secret with --stdin <key> so it stays off the command line and out of the shell history. A plugin waiting for a required setting starts once it is set.',
+    flags: [
+      ID('<pluginId>', 'the plugin (from `plugins list`)'),
+      { name: 'set', value: '<key=value>', about: 'set a setting; repeat for more' },
+      { name: 'unset', value: '<key>', about: 'go back to the default; repeat for more' },
+      { name: 'stdin', value: '<key>', about: 'set that setting to what standard input holds (one trailing newline dropped)' }
+    ]
+  },
   'plugins-doctor': {
     summary: 'what could keep a plugin from running: its manifest, compatibility, entry, native addons and its last run',
     detail: 'Exits 1 when a check fails, naming each failing check.',

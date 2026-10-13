@@ -153,7 +153,9 @@ const NOT_SWITCHED = [
   'plugins-disable',
   'plugins-remove',
   'plugins-logs',
-  'plugins-doctor'
+  'plugins-doctor',
+  'plugins-settings',
+  'plugins-configure'
 ]
 
 describe('agent-context — 명령 집합은 handleCommand 가 실제로 가르는 것이다', () => {

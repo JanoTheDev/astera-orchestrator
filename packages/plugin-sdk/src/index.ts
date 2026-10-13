@@ -15,9 +15,22 @@ export interface PluginLog {
   error(message: string): void
 }
 
+/** Secrets the plugin keeps (spec §23): in Astera's store for this plugin alone, never shown to anyone, and redacted
+ *  from the plugin's log. Names are letters, digits, `_`, `-` and `.`, at most 73, not starting with `.`; values are
+ *  text of at most 64 KiB. */
+export interface PluginSecrets {
+  get(name: string): Promise<string | undefined>
+  set(name: string, value: string): Promise<void>
+  delete(name: string): Promise<void>
+}
+
 export interface PluginContext {
   /** A client of the Host, answered within the permissions this plugin was granted. */
   astera: AsteraClient
+  /** The settings a person set for this plugin (`astera plugins configure`), with the manifest's defaults, secret ones
+   *  included. Read when the plugin starts; a change restarts it. */
+  settings: Readonly<Record<string, string | number | boolean>>
+  secrets: PluginSecrets
   /** This plugin as installed: its id (the package name), its version and its folder. */
   plugin: { id: string; version: string; dir: string }
   /** The permissions the person granted, a subset of those the manifest asks for. */

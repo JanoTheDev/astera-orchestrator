@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { promises as fs } from 'node:fs'
+import { existsSync, promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createPluginManager, type PluginManager } from './manager'
 import type { PluginLaunch, PluginRunStatus, PluginRuntime } from './runtime'
 import { pluginsRoot } from './registry'
+import { pluginSecrets } from './pluginData'
 
 let dir: string
 let profile: string
@@ -436,31 +437,32 @@ describe('a plugins.json broken by hand', () => {
   })
 })
 
-describe('with a runtime (plugin runtime design P11)', () => {
-  /** A runtime that records what it was asked, with a status per id the test sets. */
-  const fakeRuntime = () => {
-    const calls: string[] = []
-    const launches: PluginLaunch[] = []
-    const statuses = new Map<string, PluginRunStatus>()
-    const runtime: Pick<PluginRuntime, 'start' | 'restart' | 'stop' | 'status' | 'forget'> = {
-      start: (p) => {
-        calls.push(`start ${p.id}`)
-        launches.push(p)
-        statuses.set(p.id, { status: 'running', pid: 7 })
-      },
-      restart: (p) => {
-        calls.push(`restart ${p.id}`)
-        statuses.set(p.id, { status: 'running', pid: 8 })
-      },
-      stop: async (id) => {
-        calls.push(`stop ${id}`)
-        statuses.set(id, { status: 'stopped' })
-      },
-      status: (id) => statuses.get(id),
-      forget: async (folder) => void calls.push(`forget ${folder}`)
-    }
-    return { runtime, calls, launches, statuses }
+/** A runtime that records what it was asked, with a status per id the test sets. */
+const fakeRuntime = () => {
+  const calls: string[] = []
+  const launches: PluginLaunch[] = []
+  const statuses = new Map<string, PluginRunStatus>()
+  const runtime: Pick<PluginRuntime, 'start' | 'restart' | 'stop' | 'status' | 'forget'> = {
+    start: (p) => {
+      calls.push(`start ${p.id}`)
+      launches.push(p)
+      statuses.set(p.id, { status: 'running', pid: 7 })
+    },
+    restart: (p) => {
+      calls.push(`restart ${p.id}`)
+      statuses.set(p.id, { status: 'running', pid: 8 })
+    },
+    stop: async (id) => {
+      calls.push(`stop ${id}`)
+      statuses.set(id, { status: 'stopped' })
+    },
+    status: (id) => statuses.get(id),
+    forget: async (folder) => void calls.push(`forget ${folder}`)
   }
+  return { runtime, calls, launches, statuses }
+}
+
+describe('with a runtime (plugin runtime design P11)', () => {
   const withRuntime = (rt: ReturnType<typeof fakeRuntime>) =>
     createPluginManager({ profileDir: profile, hostVersion: '1.5.0', runtime: rt.runtime })
 
@@ -476,7 +478,9 @@ describe('with a runtime (plugin runtime design P11)', () => {
       folder: '@acme+astera-jira',
       dir: dirOf,
       entry: path.join(dirOf, 'dist', 'plugin.js'),
-      granted: ['jobs.read']
+      granted: ['jobs.read'],
+      settings: {},
+      redact: []
     })
     expect(r.body).toMatchObject({ status: 'running', pid: 7 })
   })
@@ -595,6 +599,7 @@ describe('logs and doctor', () => {
         { name: 'compatible', ok: true, detail: 'this Astera runs it' },
         { name: 'entry', ok: true, detail: './dist/plugin.js' },
         { name: 'native-addons', ok: true, detail: 'none' },
+        { name: 'settings', ok: true, detail: 'none' },
         { name: 'runtime', ok: true, detail: 'stopped' }
       ]
     })
@@ -667,5 +672,206 @@ describe('startAll with a registry it cannot read', () => {
     const lines: string[] = []
     await createPluginManager({ profileDir: profile, hostVersion: '1.5.0', log: (m) => lines.push(m) }).startAll()
     expect(lines).toEqual([expect.stringMatching(/^plugins: no plugin was started: .*plugins\.json is not JSON/)])
+  })
+})
+
+// Plugins 2c: settings a person sets (spec §24) and secrets kept apart (§23).
+describe('settings', () => {
+  const SCHEMA = {
+    type: 'object',
+    properties: {
+      baseUrl: { type: 'string', title: 'Base URL' },
+      pageSize: { type: 'integer', default: 50, enum: [25, 50, 100] },
+      token: { type: 'string', secret: true }
+    },
+    required: ['baseUrl', 'token']
+  }
+  const install = async (rt = fakeRuntime(), schema: unknown = SCHEMA) => {
+    const m = createPluginManager({ profileDir: profile, hostVersion: '1.5.0', runtime: rt.runtime })
+    expect((await m.install({ path: await plugin(FOLDER, { astera: { settingsSchema: schema } }), grant: [] })).status).toBe(200)
+    return { m, rt }
+  }
+  const ID = '@acme/astera-jira'
+
+  it('shows the fields, the plain values with their defaults, and whether each secret is set, never its value', async () => {
+    const { m } = await install()
+    expect(await m.settings(ID)).toEqual({
+      status: 200,
+      body: {
+        id: ID,
+        fields: [
+          { key: 'baseUrl', type: 'string', title: 'Base URL', required: true },
+          { key: 'pageSize', type: 'integer', default: 50, enum: [25, 50, 100], required: false },
+          { key: 'token', type: 'string', secret: true, required: true }
+        ],
+        values: { pageSize: 50 },
+        secrets: { token: 'unset' }
+      }
+    })
+    await m.configure(ID, { token: 'tok-secret-1', baseUrl: 'https://jira.example.com' }, undefined)
+    const after = await m.settings(ID)
+    expect(after.body).toMatchObject({ values: { baseUrl: 'https://jira.example.com', pageSize: 50 }, secrets: { token: 'set' } })
+    for (const r of [after, await m.get(ID), await m.list(), await m.doctor(ID)]) expect(JSON.stringify(r)).not.toContain('tok-secret-1')
+  })
+
+  it('holds back a plugin whose required settings are not all set, saying which', async () => {
+    const { m, rt } = await install()
+    expect(rt.calls).toEqual([])
+    expect((await m.get(ID)).body).toMatchObject({
+      status: 'stopped',
+      reason: `needs settings: baseUrl, token; set them with astera plugins configure --id ${ID}`
+    })
+  })
+
+  it('starts it once they are set, handing it every value with its defaults and the secret values to redact', async () => {
+    const { m, rt } = await install()
+    const r = await m.configure(ID, { baseUrl: 'https://jira.example.com', token: 'tok-secret-1', pageSize: '100' }, undefined)
+    expect(r.status).toBe(200)
+    expect(rt.calls).toEqual([`start ${ID}`])
+    expect(rt.launches[0]).toMatchObject({ settings: { baseUrl: 'https://jira.example.com', pageSize: 100, token: 'tok-secret-1' }, redact: ['tok-secret-1'] })
+    expect(JSON.stringify(r.body)).not.toContain('tok-secret-1')
+  })
+
+  it('restarts a running plugin after a change, and unsets a value back to its default', async () => {
+    const { m, rt } = await install()
+    await m.configure(ID, { baseUrl: 'https://a.example.com', token: 't-1', pageSize: 25 }, undefined)
+    const r = await m.configure(ID, undefined, ['pageSize'])
+    expect(r.body).toMatchObject({ values: { pageSize: 50 }, restarted: true })
+    expect(rt.calls).toEqual([`start ${ID}`, `stop ${ID}`, `start ${ID}`])
+    expect(rt.launches[1].settings).toMatchObject({ pageSize: 50 })
+  })
+
+  it('refuses an unknown key, a value of the wrong type, an empty change and a key both set and unset', async () => {
+    const { m } = await install()
+    expect(await m.configure(ID, { nope: 'x' }, undefined)).toEqual({
+      status: 400,
+      body: { error: `nope is not a setting of ${ID}; its settings are: baseUrl, pageSize, token` }
+    })
+    expect(await m.configure(ID, { pageSize: 'lots' }, undefined)).toEqual({ status: 400, body: { error: 'pageSize: lots is not a whole number' } })
+    expect(await m.configure(ID, { pageSize: 30 }, undefined)).toEqual({ status: 400, body: { error: 'pageSize: 30 is not one of 25, 50, 100' } })
+    expect(await m.configure(ID, undefined, undefined)).toEqual({ status: 400, body: { error: 'plugins-configure needs --set or --unset' } })
+    expect(await m.configure(ID, { baseUrl: 'x' }, ['baseUrl'])).toEqual({ status: 400, body: { error: 'baseUrl is both set and unset' } })
+    expect(await m.configure(ID, undefined, ['ghost'])).toEqual({
+      status: 400,
+      body: { error: `ghost is not a setting of ${ID}; its settings are: baseUrl, pageSize, token` }
+    })
+    expect(await m.configure(ID, 'x' as never, undefined)).toEqual({ status: 400, body: { error: 'plugins-configure --set must be key=value pairs' } })
+  })
+
+  it('reports a settings file broken by hand, and a configure writes it whole again', async () => {
+    const { m } = await install()
+    const file = path.join(pluginsRoot(profile), 'settings', '@acme+astera-jira.json')
+    await fs.mkdir(path.dirname(file), { recursive: true })
+    await fs.writeFile(file, '{ broken')
+    expect((await m.get(ID)).body).toMatchObject({ status: 'stopped', reason: expect.stringContaining(`${file} is not JSON`) })
+    expect((await m.settings(ID)).status).toBe(500)
+    expect((await m.doctor(ID)).body).toMatchObject({ ok: false, checks: expect.arrayContaining([expect.objectContaining({ name: 'settings', ok: false })]) })
+    expect((await m.configure(ID, { baseUrl: 'https://a.example.com', token: 't' }, undefined)).status).toBe(200)
+    expect((await m.settings(ID)).body).toMatchObject({ values: { baseUrl: 'https://a.example.com' } })
+  })
+
+  it('passes only the keys the installed schema has, and holds back an update that added a required one', async () => {
+    const { m, rt } = await install()
+    await m.configure(ID, { baseUrl: 'https://a.example.com', token: 't' }, undefined)
+    const next = { ...SCHEMA, properties: { ...SCHEMA.properties, project: { type: 'string' } }, required: ['token', 'project'] }
+    const src = await plugin(FOLDER, { version: '1.1.0', astera: { settingsSchema: { ...next, properties: { token: SCHEMA.properties.token, project: { type: 'string' } } } } })
+    await m.install({ path: src, grant: [] })
+    expect((await m.get(ID)).body).toMatchObject({ status: 'stopped', reason: expect.stringMatching(/^needs settings: project;/) })
+    await m.configure(ID, { project: 'ABC' }, undefined)
+    expect(rt.launches.at(-1)?.settings).toEqual({ token: 't', project: 'ABC' })
+  })
+
+  it('checks the settings in the doctor', async () => {
+    const { m } = await install()
+    expect((await m.doctor(ID)).body).toMatchObject({
+      ok: false,
+      checks: expect.arrayContaining([{ name: 'settings', ok: false, detail: 'needs settings: baseUrl, token' }])
+    })
+    await m.configure(ID, { baseUrl: 'https://a.example.com', token: 't' }, undefined)
+    expect((await m.doctor(ID)).body).toMatchObject({ checks: expect.arrayContaining([{ name: 'settings', ok: true, detail: '3 settings, every required one set' }]) })
+  })
+
+  it('forgets the settings and the secrets of a plugin it removes', async () => {
+    const { m } = await install()
+    await m.configure(ID, { baseUrl: 'https://a.example.com', token: 't' }, undefined)
+    await m.remove(ID)
+    expect(existsSync(path.join(pluginsRoot(profile), 'settings', '@acme+astera-jira.json'))).toBe(false)
+    expect(existsSync(path.join(pluginsRoot(profile), 'secrets', '@acme+astera-jira'))).toBe(false)
+  })
+
+  it('answers a plugin with no settings', async () => {
+    const m = createPluginManager({ profileDir: profile, hostVersion: '1.5.0' })
+    await m.install({ path: await plugin(FOLDER), grant: [] })
+    expect((await m.settings(ID)).body).toEqual({ id: ID, fields: [], values: {}, secrets: {} })
+    expect(await m.configure(ID, { a: 'x' }, undefined)).toEqual({ status: 400, body: { error: `a is not a setting of ${ID}; it has no settings` } })
+  })
+
+  // 2c final review C1, M6, M8, M9, M12.
+  describe('the settings review fixes', () => {
+    const settingsFile = (): string => path.join(pluginsRoot(profile), 'settings', '@acme+astera-jira.json')
+
+    it('hands a plugin with no settings the secrets it kept, to redact, when the Host starts it again', async () => {
+      const m = createPluginManager({ profileDir: profile, hostVersion: '1.5.0' })
+      await m.install({ path: await plugin(FOLDER), grant: [] })
+      await pluginSecrets(profile, '@acme+astera-jira').secret.set('oauth', 'oauth-kept-31')
+      const rt = fakeRuntime()
+      await createPluginManager({ profileDir: profile, hostVersion: '1.5.0', runtime: rt.runtime }).startAll()
+      expect(rt.launches.map((l) => l.redact)).toEqual([['oauth-kept-31']])
+    })
+
+    it('holds back a plugin whose required setting was set to empty text', async () => {
+      const { m, rt } = await install()
+      await m.configure(ID, { baseUrl: '', token: 't-1' }, undefined)
+      expect(rt.calls).toEqual([])
+      expect((await m.get(ID)).body).toMatchObject({ status: 'stopped', reason: expect.stringMatching(/^needs settings: baseUrl;/) })
+    })
+
+    it('says how the plugin stands after a change, and that it restarted only when it runs again', async () => {
+      const { m, rt } = await install()
+      const first = await m.configure(ID, { baseUrl: 'https://a.example.com', token: 't-1' }, undefined)
+      expect(first.body).toMatchObject({ status: 'running' })
+      expect(first.body).not.toHaveProperty('restarted')
+      const changed = await m.configure(ID, { pageSize: 25 }, undefined)
+      expect(changed.body).toMatchObject({ status: 'running', restarted: true })
+      const unset = await m.configure(ID, undefined, ['token'])
+      expect(unset.body).toMatchObject({ status: 'stopped', reason: expect.stringMatching(/^needs settings: token;/) })
+      expect(unset.body).not.toHaveProperty('restarted')
+      rt.statuses.set(ID, { status: 'failed', reason: 'activate threw: x' })
+      const failed = await m.configure(ID, { token: 't-2' }, undefined)
+      expect(failed.body).toMatchObject({ status: 'failed', reason: 'activate threw: x' })
+      expect(failed.body).not.toHaveProperty('restarted')
+    })
+
+    it('stops a running plugin even when a secret could not be kept, rather than leave it on settings it no longer has', async () => {
+      const { m, rt } = await install()
+      await m.configure(ID, { baseUrl: 'https://a.example.com', token: 't-1' }, undefined)
+      const secrets = path.join(pluginsRoot(profile), 'secrets', '@acme+astera-jira')
+      await fs.rm(secrets, { recursive: true, force: true })
+      await fs.writeFile(secrets, 'not a folder')
+      const r = await m.configure(ID, { baseUrl: 'https://b.example.com', token: 't-2' }, undefined)
+      expect(r.status).toBe(500)
+      expect(rt.calls).toEqual([`start ${ID}`, `stop ${ID}`])
+      expect(JSON.stringify(r.body)).not.toContain('t-2')
+    })
+
+    it('drops the plain copy of a setting an update made secret', async () => {
+      const plain = { ...SCHEMA, properties: { ...SCHEMA.properties, token: { type: 'string' } } }
+      const { m } = await install(fakeRuntime(), plain)
+      await m.configure(ID, { baseUrl: 'https://a.example.com', token: 'plain-tok-9' }, undefined)
+      await m.install({ path: await plugin(FOLDER, { version: '1.1.0', astera: { settingsSchema: SCHEMA } }), grant: [] })
+      await m.configure(ID, { token: 'secret-tok-9' }, undefined)
+      expect(await fs.readFile(settingsFile(), 'utf8')).not.toContain('plain-tok-9')
+    })
+
+    it('says so when it could not delete what a removed plugin kept', async () => {
+      const lines: string[] = []
+      const m = createPluginManager({ profileDir: profile, hostVersion: '1.5.0', log: (l) => lines.push(l) })
+      await m.install({ path: await plugin(FOLDER), grant: [] })
+      // A folder where the settings file goes: a removal cannot delete it as a file.
+      await fs.mkdir(path.join(settingsFile(), 'inside'), { recursive: true })
+      const r = await m.remove(ID)
+      expect(r).toMatchObject({ status: 200, body: { removed: true, warning: expect.stringContaining('could not be deleted') } })
+      expect(lines.some((l) => l.startsWith(`plugins: ${ID} was removed, but its settings or secrets could not be deleted`))).toBe(true)
+    })
   })
 })
