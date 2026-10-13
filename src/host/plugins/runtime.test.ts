@@ -27,6 +27,7 @@ type Call = { cmd: string; args: unknown; sessionId: string; from?: { role: stri
 
 function runtime(timings: Partial<PluginTimings> = {}, extra: { maxLine?: number } = {}) {
   const calls: Call[] = []
+  const hostLog: string[] = []
   const r = createPluginRuntime({
     profileDir: path.join(dir, `profile ${++n}`),
     exec: process.execPath,
@@ -39,12 +40,12 @@ function runtime(timings: Partial<PluginTimings> = {}, extra: { maxLine?: number
         return { status: 200, body: [] }
       }
     },
-    log: () => {},
+    log: (m) => hostLog.push(m),
     timings: { startMs: 10_000, stopGraceMs: 1_000, backoffMs: [50, 50, 50], stableMs: 5_000, failAfter: 3, ...timings },
     ...extra
   })
   started.push(r)
-  return { r, calls }
+  return { r, calls, hostLog }
 }
 
 /** A plugin folder holding `source` as its entry. */
@@ -110,6 +111,20 @@ describe('createPluginRuntime', () => {
     writeFileSync(p.entry, `export default { activate(ctx) { ctx.log.info('fixed') } }`)
     r.restart(p)
     await until(() => expect(r.status('throws')?.status).toBe('running'))
+  }, 30_000)
+
+  // 2b final review M1: what a plugin says when it fails is its own text, and may carry a secret.
+  it('redacts what a failing plugin says in its log and its reason, and keeps it out of the Host log', async () => {
+    const { r, hostLog } = runtime({ failAfter: 1 })
+    const p = plugin('leaks', `export default { activate() { throw new Error('bad config {"token": "tok-secret-9"}') } }`)
+    r.start(p)
+    await until(() => expect(r.status('leaks')?.status).toBe('failed'))
+    expect(r.status('leaks')?.reason).toContain('[redacted]')
+    expect(r.status('leaks')?.reason).not.toContain('tok-secret-9')
+    await until(() => expect(logOf(r, 'leaks')).toContain('[host] failed:'))
+    expect(logOf(r, 'leaks')).not.toContain('tok-secret-9')
+    expect(hostLog.join(String.fromCharCode(10))).not.toContain('tok-secret-9')
+    expect(hostLog).toContain('plugins: leaks failed; see astera plugins logs --id leaks')
   }, 30_000)
 
   it('counts only crashes without a steady run between them', async () => {

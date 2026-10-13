@@ -164,7 +164,9 @@ export function createPluginRuntime(d: {
     if (!l) logs.set(folder, (l = openHostLog({ path: logFile(folder) })))
     return l
   }
-  const say = (s: Slot, m: string): void => logOf(s.launch.folder).write(`[host] ${m}`)
+  // What the Host writes about a plugin carries the plugin's own words (an error message, a stray line), which may hold
+  // a secret: redacted like the plugin's own lines (2b final review M1).
+  const say = (s: Slot, m: string): void => logOf(s.launch.folder).write(redactSecrets(`[host] ${m}`))
   const later = (s: Slot, ms: number, f: () => void): void => {
     const timer = setTimeout(() => {
       s.timers.delete(timer)
@@ -351,9 +353,10 @@ export function createPluginRuntime(d: {
     if (s.failures >= t.failAfter) {
       s.state = 'failed'
       const times = s.failures === 1 ? '' : ` (${s.failures} times in a row, each within ${t.stableMs / 1000} s of starting)`
-      s.reason = `${problem}${times}; see astera plugins logs --id ${s.launch.id}`
+      s.reason = redactSecrets(`${problem}${times}; see astera plugins logs --id ${s.launch.id}`)
       say(s, `failed: ${s.reason}`)
-      d.log(`plugins: ${s.launch.id} failed: ${problem}`)
+      // The Host log names the plugin only: its message can carry a token, and the plugin's own log has it redacted.
+      d.log(`plugins: ${s.launch.id} failed; see astera plugins logs --id ${s.launch.id}`)
       return
     }
     const wait = t.backoffMs[Math.min(s.failures - 1, t.backoffMs.length - 1)] ?? 1000
@@ -439,7 +442,7 @@ export function createPluginRuntime(d: {
         case 'starting':
           return { status: 'starting', ...(pid !== undefined ? { pid } : {}) }
         case 'waiting':
-          return { status: 'starting', reason: `restarting after ${s.problem ?? 'a crash'}` }
+          return { status: 'starting', reason: redactSecrets(`restarting after ${s.problem ?? 'a crash'}`) }
         case 'failed':
           return { status: 'failed', ...(s.reason !== undefined ? { reason: s.reason } : {}) }
         default:
