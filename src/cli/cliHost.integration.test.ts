@@ -1168,6 +1168,12 @@ describe('the public CLI against a real Host (§48, §49)', { timeout: 60_000 },
     const bad = await astera(['plugins', 'configure', '--id', 'astera-configured', '--set', 'nope=1'], h.env)
     expect(bad.code).toBe(2)
     expect(bad.envelope.error?.message).toBe('nope is not a setting of astera-configured; its settings are: baseUrl, token')
+    // 2c final review I5: refused before standard input is read, never a second read that sets nothing.
+    const dash = await astera(['plugins', 'configure', '--id', 'astera-configured', '--stdin', '-'], h.env)
+    expect(dash.envelope.error).toMatchObject({
+      code: 'INVALID_ARGUMENTS',
+      message: 'plugins configure reads standard input only as --stdin <key>, as in --stdin token; a - after --stdin is not one'
+    })
   })
 
   it('a profile and a Job folder with spaces and Hangul work end to end', async () => {

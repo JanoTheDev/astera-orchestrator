@@ -175,7 +175,13 @@ export function humanFor(cmd: string, data: Record<string, unknown>): string | n
             ? str(values[str(f.key)])
             : '(not set)'
       const rows = columns(fields.map((f) => (f.required === true ? [str(f.key), shown(f), 'required'] : [str(f.key), shown(f)])))
-      return data.restarted === true ? `${rows}\n(restarted)` : rows
+      if (data.restarted === true) return `${rows}\n(restarted)`
+      // configure says how the plugin stands after the change (2c final review M6): held back, or failed and waiting
+      // for `plugins enable`.
+      if (cmd !== 'plugins-configure' || typeof data.status !== 'string') return rows
+      const reason = typeof data.reason === 'string' ? `: ${data.reason}` : ''
+      const next = data.status === 'failed' ? `; start it again with astera plugins enable --id ${str(data.id)}` : ''
+      return `${rows}\n(${data.status}${reason}${next})`
     }
     case 'plugins-doctor':
       return columns(

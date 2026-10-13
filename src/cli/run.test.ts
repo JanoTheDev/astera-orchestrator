@@ -961,6 +961,18 @@ describe('lostAnswerDetails — 잃은 답의 회복 줄', () => {
     expect(d.retryNote).toContain('stdin')
   })
 
+  // 2c final review M13: `plugins configure --set token=...` carries a secret on its line, and the envelope must not.
+  it('writes out no line to retry a command that can carry a secret on its line', () => {
+    const d = lostAnswerDetails({ argv: ['plugins', 'configure', '--id', 'x', '--set', 'token=tok-secret-1'], request: 'rq-1', secret: true })
+    expect(Object.hasOwn(d, 'retryCommand')).toBe(false)
+    expect(d.retryNote).toBe(
+      'this command can carry a secret on its line, so the line to retry it is not written out here. Run the same command again with --request-id rq-1.'
+    )
+    expect(JSON.stringify(d)).not.toContain('tok-secret-1')
+    const fed = lostAnswerDetails({ argv: ['plugins', 'configure', '--id', 'x', '--stdin', 'token'], request: 'rq-1', fromStdin: ['stdin'], secret: true })
+    expect(fed.retryNote).toContain('read --stdin from standard input')
+  })
+
   /** 여러 칸이 stdin 을 읽었으면 전부 댄다 — 어느 것을 다시 넣어야 하는지가 그 문장의 값이다. */
   it('stdin 을 읽은 칸이 여럿이면 전부 이름을 댄다', () => {
     const d = lostAnswerDetails({

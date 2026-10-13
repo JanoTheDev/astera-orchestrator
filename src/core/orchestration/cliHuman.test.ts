@@ -160,6 +160,22 @@ describe('humanFor', () => {
     expect(humanFor('plugins-settings', { id: 'x', fields: [], values: {}, secrets: {} })).toBe('no settings')
   })
 
+  // 2c final review M6: configure says how the plugin stands, not only that it restarted.
+  it('plugins configure ends with how the plugin stands after the change', () => {
+    const lf = String.fromCharCode(10)
+    const data = { id: 'x', fields: [{ key: 'token', type: 'string', secret: true, required: true }], values: {}, secrets: { token: 'set' } }
+    const row = 'token  (secret, set)  required'
+    expect(humanFor('plugins-configure', { ...data, status: 'running', restarted: true })).toBe(`${row}${lf}(restarted)`)
+    expect(humanFor('plugins-configure', { ...data, status: 'running' })).toBe(`${row}${lf}(running)`)
+    expect(humanFor('plugins-configure', { ...data, status: 'stopped', reason: 'needs settings: token; set them with astera plugins configure --id x' })).toBe(
+      `${row}${lf}(stopped: needs settings: token; set them with astera plugins configure --id x)`
+    )
+    expect(humanFor('plugins-configure', { ...data, status: 'failed', reason: 'activate threw: x' })).toBe(
+      `${row}${lf}(failed: activate threw: x; start it again with astera plugins enable --id x)`
+    )
+    expect(humanFor('plugins-settings', { ...data, status: 'running' })).toBe(row)
+  })
+
   it('one plugin reads as its fields, like one project', () => {
     const one = { id: 'astera-hello', version: '0.1.0', status: 'disabled', enabled: false }
     for (const cmd of ['plugins-get', 'plugins-install', 'plugins-enable', 'plugins-disable', 'plugins-remove'])

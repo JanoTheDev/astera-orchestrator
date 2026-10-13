@@ -3,7 +3,7 @@
 // cannot be tested — that is why the side-effect-free functions and main() were pulled in here.
 // main() does not call itself inside this file, so importing this module (as the tests do) does not
 // terminate the process.
-import { approvalMessage, configureArgs, doctorEnd, installPlugin } from './plugins'
+import { approvalMessage, configureArgs, configureStdinError, doctorEnd, installPlugin } from './plugins'
 import { randomBytes, randomUUID } from 'node:crypto'
 import fsSync, { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
@@ -537,6 +537,9 @@ export function lostAnswerDetails(a: {
   implicit?: Record<string, unknown>
   /** The flags whose value came from standard input (`parseArgs`'s `wantsStdin`). */
   fromStdin?: readonly string[]
+  /** A command whose line can carry a secret (`plugins configure --set token=...`, 2c final review M13): the line is
+   *  not written out, so the envelope does not carry the secret again. */
+  secret?: boolean
 }): Record<string, unknown> {
   if (a.request === undefined) return {}
   const head = {
@@ -572,6 +575,13 @@ export function lostAnswerDetails(a: {
         `Run the same command again with --request-id ${a.request} and the same input on stdin.`
     }
   }
+  if (a.secret === true)
+    return {
+      ...head,
+      retryNote:
+        'this command can carry a secret on its line, so the line to retry it is not written out here. ' +
+        `Run the same command again with --request-id ${a.request}.`
+    }
   return {
     ...head,
     retryCommand: retryCommandLine({ argv: a.argv, request: a.request, implicit: a.implicit })
@@ -1160,6 +1170,11 @@ export async function main(): Promise<void> {
   // finishes while the Host is gone fails at the connect, not at the reply. For every other command
   // this only changes the order of two steps that both end the same way.
   let args = parsed.args
+  // Before standard input is read: `plugins configure` reads it only for `--stdin <key>` (2c final review I5).
+  if (parsed.cmd === 'plugins-configure') {
+    const dash = configureStdinError(parsed.wantsStdin)
+    if (dash !== null) fail({ code: 'INVALID_ARGUMENTS', message: dash })
+  }
   if (parsed.wantsStdin.length > 0) {
     const text = await readStdin()
     // **An empty stdin is refused rather than passed on as an empty value.**
@@ -1571,11 +1586,14 @@ export async function main(): Promise<void> {
     // **답이 아예 오지 않은 두 끝은 요청 id 와 칠 명령 둘을 싣고 나간다**(`lostAnswerDetails`,
     // 설계 §8). 이 둘이 이 기능이 있는 이유다 — Host 는 답하기 전에 커밋하므로, 여기서 아는 것은
     // "일어났을 수도 있다" 하나뿐이고, 그것을 스스로 알아낼 길이 부르는 쪽에는 없었다.
+    // `plugins configure` read its `--stdin` key off standard input, and its `--set` can carry a secret (M13).
+    const configure = parsed.cmd === 'plugins-configure'
     const lost = lostAnswerDetails({
       argv,
       request: carried.send,
       implicit: implicitArgs(args, sentArgs),
-      fromStdin: parsed.wantsStdin
+      fromStdin: configure && parsed.args.stdin !== undefined ? ['stdin'] : parsed.wantsStdin,
+      ...(configure ? { secret: true } : {})
     })
     if ('stuck' in r) {
       // **`ask` 는 이 자리에서 한 마디를 더 한다**(cliOutput 의 silentHostEnd). 답이 오지 않았다는

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import path from 'node:path'
-import { approvalMessage, configureArgs, doctorEnd, installPlugin } from './plugins'
+import { approvalMessage, configureArgs, configureStdinError, doctorEnd, installPlugin } from './plugins'
 import { PLUGIN_TRUST_WARNING } from '../core/plugins/manifest'
 
 const INSPECTION = {
@@ -165,6 +165,17 @@ describe('the docs say how a crashing plugin is restarted', () => {
     const waits = PLUGIN_TIMINGS.backoffMs.map((ms) => String(ms / 1000))
     expect(section).toContain(`A plugin that crashes is started again after ${waits.slice(0, -1).join(', ')}, then ${waits.at(-1)} seconds`)
     expect(section).toContain(`the ${['first', 'second', 'third', 'fourth'][PLUGIN_TIMINGS.failAfter - 1]} crash without ${PLUGIN_TIMINGS.stableMs / 1000} seconds of steady running`)
+  })
+
+  // 2c final review M14: what configure does not do for a failed plugin, and which values the log does not hide.
+  it('with what configure leaves to plugins enable, and the shortest value the log hides', async () => {
+    const { readFileSync } = await import('node:fs')
+    const { fileURLToPath } = await import('node:url')
+    const { REDACT_MIN } = await import('../host/plugins/runtime')
+    const docs = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../docs/cli.md'), 'utf8')
+    const section = docs.slice(docs.indexOf('### Plugins'), docs.indexOf('## Command reference')).replace(/\s+/g, ' ')
+    expect(section).toContain('a plugin that `failed` stays stopped after `plugins configure` until `plugins enable` starts it again')
+    expect(section).toContain(`a value shorter than ${REDACT_MIN} characters is not hidden`)
   })
 })
 
