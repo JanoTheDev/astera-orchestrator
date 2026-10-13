@@ -12,12 +12,13 @@ import type { AddressInfo } from 'node:net'
 import { createNpmRunner, installDependencies, npmEnv, packAndExtract } from './npm'
 import { tgzOf } from './tarballFixture'
 
-const hasNpm = spawnSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['--version'], { shell: process.platform === 'win32', encoding: 'utf8' }).status === 0
+const hasNpm = spawnSync('npm --version', { shell: true, encoding: 'utf8' }).status === 0
 
 let dir: string
 let server: http.Server
 let registry: string
 const MARKER = path.join(os.tmpdir(), `astera-npm-postinstall-${process.pid}.txt`)
+const PWNED = path.join(os.tmpdir(), `astera-npm-pwned-${process.pid}.txt`)
 
 /** A packument and its tarball, as the registry answers them. */
 function pkg(name: string, version: string, json: Record<string, unknown>, files: Record<string, string>) {
@@ -56,6 +57,19 @@ const PACKAGES = [
     { dependencies: { 'tiny-dep': '^1.0.0' }, devDependencies: { 'never-installed': '1.0.0' }, astera: { apiVersion: '1', entry: 'index.mjs' } },
     { 'index.mjs': "import dep from 'tiny-dep'\nexport default { activate() { return dep } }\n" }
   ),
+  // 2e final review I1: a package that ships an npm.cmd and a git.cmd of its own, and an .npmrc that points npm at a
+  // registry that does not answer. None of them may be run or read.
+  pkg(
+    '@smoke/sly',
+    '1.0.0',
+    { dependencies: { 'tiny-dep': '^1.0.0' }, astera: { apiVersion: '1', entry: 'index.mjs' } },
+    {
+      'index.mjs': 'export default {}\n',
+      'npm.cmd': `@echo off\r\necho pwned> "${PWNED}"\r\nexit /b 1\r\n`,
+      'git.cmd': `@echo off\r\necho pwned> "${PWNED}"\r\nexit /b 1\r\n`,
+      '.npmrc': 'registry=http://127.0.0.1:9/\n'
+    }
+  ),
   pkg(
     'tiny-dep',
     '1.2.0',
@@ -89,6 +103,7 @@ afterAll(async () => {
   await new Promise<void>((r) => server.close(() => r()))
   await fs.rm(dir, { recursive: true, force: true, maxRetries: 3 })
   await fs.rm(MARKER, { force: true })
+  await fs.rm(PWNED, { force: true })
 })
 
 describe.skipIf(!hasNpm)('npm against a registry of the test', () => {
@@ -110,11 +125,26 @@ describe.skipIf(!hasNpm)('npm against a registry of the test', () => {
     expect(got).toMatchObject({ name: '@smoke/hello', version: '1.0.0' })
     expect(got.folder).toBe(path.join(staging, 'package'))
     expect(JSON.parse(await fs.readFile(path.join(got.folder, 'package.json'), 'utf8'))).toMatchObject({ name: '@smoke/hello' })
-    await installDependencies(got.folder, run())
+    await installDependencies(got.folder, staging, run())
     expect(await fs.readFile(path.join(got.folder, 'node_modules', 'tiny-dep', 'index.js'), 'utf8')).toBe("module.exports = 'tiny'\n")
     expect(existsSync(path.join(got.folder, 'node_modules', 'never-installed'))).toBe(false)
     expect(existsSync(path.join(got.folder, 'node_modules', '.bin'))).toBe(false)
     expect(existsSync(MARKER)).toBe(false)
+  }, 120_000)
+
+  // Without NoDefaultCurrentDirectoryInExePath, as a Host started from Explorer has it: cmd.exe would look in the
+  // current folder for npm first.
+  it('runs nothing the package ships and reads no .npmrc of its, even where cmd.exe looks in the current folder', async () => {
+    const staging = path.join(dir, 'stage sly')
+    await fs.mkdir(staging, { recursive: true })
+    const env: NodeJS.ProcessEnv = { ...npmEnv(process.env), npm_config_registry: registry, npm_config_cache: path.join(dir, 'cache'), npm_config_userconfig: path.join(dir, 'npmrc'), npm_config_globalconfig: path.join(dir, 'npmrc-global') }
+    // Under whatever case the environment block spells it.
+    for (const k of Object.keys(env)) if (k.toLowerCase() === 'nodefaultcurrentdirectoryinexepath') delete env[k]
+    const loose = createNpmRunner({ env })
+    const got = await packAndExtract('@smoke/sly', staging, loose)
+    expect(await installDependencies(got.folder, staging, loose)).toBe(true)
+    expect(await fs.readFile(path.join(got.folder, 'node_modules', 'tiny-dep', 'index.js'), 'utf8')).toBe("module.exports = 'tiny'\n")
+    expect(existsSync(PWNED)).toBe(false)
   }, 120_000)
 
   it('says why a package cannot be fetched, with npm’s last lines', async () => {

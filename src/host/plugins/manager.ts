@@ -4,10 +4,10 @@
 import { promises as fs } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import path from 'node:path'
-import { incompatibility, parseManifest, pluginFolderName, type PluginManifest, type PluginPermission } from '../../core/plugins/manifest'
+import { incompatibility, isSemver, parseManifest, pluginFolderName, type PluginManifest, type PluginPermission } from '../../core/plugins/manifest'
 import { PluginCopyRefused, copyPluginFolder, layoutProblem } from './copyFolder'
 import { parseNpmSpec } from '../../core/plugins/npmSpec'
-import { NpmFailed, NpmMissing, createNpmRunner, installDependencies, npmEnv, packAndExtract, type NpmRun } from './npm'
+import { NpmFailed, NpmMissing, createNpmRunner, installDependencies, npmEnv, packAndExtract, type NpmRun, type NpmRunner } from './npm'
 import { PackageRefused } from './tarball'
 import { RegistryUnreadable, pluginsRoot, readRegistry, writeRegistry, type PluginRecord } from './registry'
 import { moveRetrying, type Rename } from './moves'
@@ -42,6 +42,8 @@ export interface PluginManager {
   doctor(id: unknown): Promise<PluginsAnswer>
   /** A plugin's settings as a person may see them: secret ones say only whether they are set (spec §23-§24). */
   settings(id: unknown): Promise<PluginsAnswer>
+  /** Ends the npm still running for an install (2e final review M8): for a Host that leaves. */
+  stopNpm(): void
   /** Sets and unsets a plugin's settings, and restarts it if it runs. */
   configure(id: unknown, set: unknown, unset: unknown): Promise<PluginsAnswer>
 }
@@ -56,13 +58,15 @@ type SettingsRead = Extract<SettingsState, { ok: true }>
 class Refused extends Error {
   constructor(
     readonly status: number,
-    message: string
+    message: string,
+    /** A code the caller can say in its own words (2e final review M4: npm missing, in the app). */
+    readonly code?: string
   ) {
     super(message)
   }
 }
 
-const refused = (status: number, error: string): PluginsAnswer => ({ status, body: { error } })
+const refused = (status: number, error: string, code?: string): PluginsAnswer => ({ status, body: { error, ...(code !== undefined ? { code } : {}) } })
 
 /** The manifest a folder's package.json holds, or the sentence saying why it holds none. */
 async function readManifest(folder: string): Promise<{ ok: true; manifest: PluginManifest } | { ok: false; error: string }> {
@@ -124,7 +128,7 @@ export function createPluginManager(d: {
   /** For tests: the folder copy (`copyPluginFolder`). */
   copy?: (src: string, dest: string) => Promise<void>
   /** The person's own npm, for an install from npm (plugins 2e, design P14); a fake in tests. */
-  npm?: NpmRun
+  npm?: NpmRun & Partial<Pick<NpmRunner, 'stopAll'>>
   /** What runs the enabled plugins (2b). Absent: nothing runs, and an enabled, compatible plugin is `stopped`. */
   runtime?: Pick<PluginRuntime, 'start' | 'restart' | 'stop' | 'status' | 'forget'>
   /** The Host's log: what no caller is there to hear, such as plugins that could not be started at the Host's start. */
@@ -182,7 +186,7 @@ export function createPluginManager(d: {
         await (swept ??= sweep())
         return await fn()
       } catch (e) {
-        if (e instanceof Refused) return refused(e.status, e.message)
+        if (e instanceof Refused) return refused(e.status, e.message, e.code)
         if (e instanceof RegistryUnreadable) return refused(500, e.message)
         // A file the system would not move or write: the change was undone where it could be, and the caller is told.
         return refused(500, e instanceof Error ? e.message : String(e))
@@ -321,7 +325,7 @@ export function createPluginManager(d: {
   /** A refusal for what npm, or the package it fetched, could not do. */
   const npmRefusal = (e: unknown, spec: string): unknown =>
     e instanceof NpmMissing
-      ? new Refused(500, e.message)
+      ? new Refused(500, e.message, e.code)
       : e instanceof NpmFailed
         ? new Refused(e.notFound ? 404 : 500, e.message)
         : e instanceof PackageRefused
@@ -330,7 +334,7 @@ export function createPluginManager(d: {
 
   /** Fetches `spec` with npm into a staging folder of its own (cleared at a Host's start like any staging folder) and
    *  hands `use` the extracted package; the folder goes when `use` is done. */
-  async function fromNpm<T>(spec: string, use: (folder: string, got: { name: string; version: string }) => Promise<T>): Promise<T> {
+  async function fromNpm<T>(spec: string, use: (folder: string, got: { name: string; version: string }, staging: string) => Promise<T>): Promise<T> {
     await fs.mkdir(installed, { recursive: true })
     const staging = path.join(installed, `.staging-npm-${hex()}`)
     await fs.mkdir(staging)
@@ -341,7 +345,7 @@ export function createPluginManager(d: {
       } catch (e) {
         throw npmRefusal(e, spec)
       }
-      return await use(got.folder, got)
+      return await use(got.folder, got, staging)
     } finally {
       await discard(staging)
     }
@@ -351,7 +355,7 @@ export function createPluginManager(d: {
     const source = await sourceOf('plugins-inspect', a)
     if (source.kind === 'folder') return { status: 200, body: await inspection(source.folder, source.folder) }
     return fromNpm(source.spec, async (folder, got) => {
-      if (got.name !== source.name) throw new Refused(400, `npm answered ${got.name} for ${source.spec}`)
+      if (got.name !== source.name) throw new Refused(400, `npm answered ${source.spec} with a package that says it is ${got.name}@${got.version}`)
       return { status: 200, body: { ...(await inspection(folder, `${source.spec} from npm`)), source: { npm: source.spec, version: got.version } } }
     })
   }
@@ -430,13 +434,19 @@ export function createPluginManager(d: {
     // approved (design P14).
     if (expected === undefined) throw new Refused(400, 'plugins-install --npm needs expect: the { name, version } its inspect showed')
     if (expected.name !== source.name) throw new Refused(400, `expect names ${expected.name}, but --npm names ${source.name}`)
+    // Checked here, so no other source reaches npm through the version (2e final review I3).
+    if (!isSemver(expected.version)) throw new Refused(400, `expect.version ${expected.version} is not a version`)
     const records = await readRegistry(root)
     const shownAs = `${source.spec} from npm`
-    return fromNpm(`${expected.name}@${expected.version}`, async (folder, got) => {
+    const exact = `${expected.name}@${expected.version}`
+    return fromNpm(exact, async (folder, got, staging) => {
+      // The tarball is what is installed, so it must be what was asked for (2e final review M3).
+      if (got.name !== expected.name || got.version !== expected.version)
+        throw new Refused(400, `npm answered ${exact} with a package that says it is ${got.name}@${got.version}`)
       // Checked before its dependencies are fetched, so a refusal costs no npm install.
       await installable(folder, shownAs, grant as string[], expected)
       try {
-        await installDependencies(folder, npm)
+        await installDependencies(folder, staging, npm)
       } catch (e) {
         throw npmRefusal(e, source.spec)
       }
@@ -759,6 +769,7 @@ export function createPluginManager(d: {
     doctor: (id) => serial(() => doctor(id)),
     settings: (id) => serial(() => settings(id)),
     configure: (id, set, unset) => serial(() => configure(id, set, unset)),
+    stopNpm: () => npm.stopAll?.(),
     startAll: () =>
       serial(async () => {
         for (const r of await readRegistry(root)) await startIfRunnable(r)

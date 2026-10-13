@@ -164,6 +164,9 @@ export function failureLine(r: { ok: false; code: string; message: string }, t: 
       return o.read === true ? t('settings.plugins.fail.timeoutRead') : t('settings.plugins.fail.timeout')
     case 'HOST_LOST':
       return o.read === true ? t('settings.plugins.fail.lostRead') : t('settings.plugins.fail.lost')
+    // The Host's sentence points at a CLI flag; the app has a folder button (2e final review M4).
+    case 'PLUGIN_NPM_MISSING':
+      return t('settings.plugins.fail.npmMissing')
     default:
       return r.message
   }

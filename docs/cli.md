@@ -552,9 +552,10 @@ says why.
 From npm, Astera runs your own `npm` (Node.js must be installed), so the registries, scopes and tokens in your
 `.npmrc` apply. `--npm` takes a package name, with `@version`, `@tag` or a `^` or `~` range if you like; a URL, a git
 or file source, or an alias is refused. `npm pack` fetches the package and Astera unpacks it itself, refusing a
-package that holds a link or a path outside it. Its dependencies, when it has any, are installed in its own
-`node_modules` with `--omit=dev`. No install script runs, from the package or its dependencies, and the version
-installed is exactly the one shown. When npm fails, the answer carries its last lines, with registry tokens taken
+package that holds a link or a path outside it, or a file name Windows cannot keep. Its dependencies, when it has
+any, are installed with `--omit=dev` in a folder of Astera's and moved into its own `node_modules`: npm never runs
+inside the package, so nothing in it (an `.npmrc`, a program named like npm or git) is read or run. No install script
+runs, from the package or its dependencies, and the version installed is exactly the one shown. When npm fails, the answer carries its last lines, with registry tokens taken
 out.
 
 Only the app and a person at their own shell manage plugins: inside an agent session (`ASTERA_SESSION` is set) the

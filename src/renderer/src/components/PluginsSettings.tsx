@@ -6,7 +6,7 @@ import { toast } from '../lib/toast'
 import { confirmModal, confirmModalWithChoices } from '../lib/confirm'
 import { Select } from './Select'
 import { configureChanges, configureDoneLine, failureLine, installFailureLine, installPrompt, permissionLabel, reasonLine, statusLabel } from './pluginsText'
-import { createPluginsPoller, installBlocked, keepOnly } from './pluginsList'
+import { createPluginsPoller, installBlocked, installHolds, keepOnly } from './pluginsList'
 
 type Plugin = Record<string, unknown>
 type Shown = { fields: SettingField[]; values: Record<string, unknown>; secrets: Record<string, unknown> }
@@ -44,6 +44,8 @@ export function PluginsSettings(): React.JSX.Element {
   const [listFailure, setListFailure] = useState<Failure | null>(null)
   /** The install button's state: a folder being read and shown, or the install itself. */
   const [installing, setInstalling] = useState<'idle' | 'reading' | 'installing'>('idle')
+  /** What the install in flight reads from, so the button it came from says what it is doing. */
+  const [installingFrom, setInstallingFrom] = useState<'folder' | 'npm'>('folder')
   /** Plugins with a change in flight. */
   const [busy, setBusy] = useState<ReadonlySet<string>>(new Set())
   const [open, setOpen] = useState<Record<string, 'settings' | 'logs'>>({})
@@ -111,8 +113,10 @@ export function PluginsSettings(): React.JSX.Element {
   /** Shows what `source` holds and asks, then installs it; says whether it was installed. */
   const install = async (source: PluginSource): Promise<boolean> => {
     setInstalling('reading')
+    setInstallingFrom('path' in source ? 'folder' : 'npm')
     try {
-      const seen = await window.api.plugins.inspect(source).catch(failed)
+      // In flight like a change: an npm inspect downloads, and the list would wait behind it (2e final review I4).
+      const seen = await during(() => window.api.plugins.inspect(source).catch(failed))
       if (!seen.ok) {
         toast.error(failureLine(seen, t, { read: true }))
         return false
@@ -219,7 +223,7 @@ export function PluginsSettings(): React.JSX.Element {
       <div className="remote-actions">
         {/* Nothing to install into with no Host, or one that runs no plugins (M5). */}
         <button className="primary" disabled={installing !== 'idle' || installBlocked(listFailure?.code ?? null)} onClick={() => void installFolder()}>
-          {installing === 'installing' ? t('settings.plugins.installing') : t('settings.plugins.installFolder')}
+          {installing === 'installing' && installingFrom === 'folder' ? t('settings.plugins.installing') : t('settings.plugins.installFolder')}
         </button>
       </div>
       {/* A plugin published on npm (plugins 2e): the person's own npm fetches it, after the same warning. */}
@@ -242,7 +246,11 @@ export function PluginsSettings(): React.JSX.Element {
           disabled={installing !== 'idle' || npmSpec.trim() === '' || installBlocked(listFailure?.code ?? null)}
           onClick={() => void installNpm()}
         >
-          {t('settings.plugins.installNpm')}
+          {installingFrom !== 'npm' || installing === 'idle'
+            ? t('settings.plugins.installNpm')
+            : installing === 'reading'
+              ? t('settings.plugins.fetching')
+              : t('settings.plugins.installing')}
         </button>
       </div>
       {listFailure !== null && <p className="settings-hint is-warning">{failureLine(listFailure, t, { read: true })}</p>}
@@ -254,8 +262,9 @@ export function PluginsSettings(): React.JSX.Element {
           <div key={id} className="settings-group plugin-card">
             <PluginCard
               plugin={p}
-              // During an install every plugin call waits behind it in the Host, so every card waits too (I1).
-              busy={busy.has(id) || installing === 'installing'}
+              // During an install, from the read on, every plugin call waits behind it in the Host, so every card waits too
+              // (2d I1, 2e I4).
+              busy={busy.has(id) || installHolds(installing)}
               onConfigure={() => toggleOpen(id, 'settings')}
               onToggle={(enabled) => void change(id, () => window.api.plugins.setEnabled(id, enabled))}
               onStartAgain={() => void change(id, () => window.api.plugins.setEnabled(id, true))}

@@ -39,9 +39,10 @@ export function tgzOf(entries: Entry[], o: { end?: boolean } = {}): Buffer {
 export const pax = (records: Record<string, string>): string =>
   Object.entries(records)
     .map(([k, v]) => {
+      // A record's length is in bytes, its own digits included.
       const rest = ` ${k}=${v}\n`
-      let len = rest.length + 1
-      while (`${len}${rest}`.length !== len) len = `${len}${rest}`.length
+      let len = Buffer.byteLength(rest) + 1
+      while (Buffer.byteLength(`${len}${rest}`) !== len) len = Buffer.byteLength(`${len}${rest}`)
       return `${len}${rest}`
     })
     .join('')

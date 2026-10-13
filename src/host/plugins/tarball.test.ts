@@ -51,6 +51,36 @@ describe('extractPackage', () => {
     expect(await fs.readFile(path.join(dest, `${'p'.repeat(120)}.js`), 'utf8')).toBe('from pax')
   })
 
+  // 2e final review I2: a pax record's length is in bytes, so a file name in Hangul counts three a letter.
+  it('reads a long or non-ASCII name from a pax header by its length in bytes', async () => {
+    await extractPackage(
+      await write(
+        tgzOf([
+          { name: 'x', type: 'x', body: pax({ path: 'package/locales/한국어.json', mtime: '1700000000' }) },
+          { name: 'package/locales/placeholder', body: '{"안녕":"하세요"}' },
+          { name: 'package/package.json', body: '{}' }
+        ])
+      ),
+      dest
+    )
+    expect(await fs.readFile(path.join(dest, 'locales', '한국어.json'), 'utf8')).toBe('{"안녕":"하세요"}')
+  })
+
+  // 2e final review M7: Node writes these on Windows, and they then resist Explorer and cmd; two names one case apart
+  // are one file there.
+  it('refuses a name Windows keeps no file under, and two names that differ only in case', async () => {
+    for (const name of ['package/nul', 'package/con.txt', 'package/lib/aux.js', 'package/trailing.', 'package/space ', 'package/COM1/x.js'])
+      expect(await refusal(tgzOf([{ name, body: 'x' }])), name).toContain('cannot be a file on Windows')
+    expect(await refusal(tgzOf([{ name: 'package/Readme.md', body: 'a' }, { name: 'package/README.md', body: 'b' }]))).toBe(
+      'the package holds README.md and Readme.md, which differ only in case and are one file on Windows'
+    )
+  })
+
+  // 2e final review M9: a small archive that inflates past the limit stops while it inflates.
+  it('stops inflating a package past its limit', async () => {
+    expect(await refusal(gzipSync(Buffer.alloc(8 * 1024 * 1024)), { entries: 1, bytes: 1000 })).toBe('the package unpacks to more than 1000 bytes')
+  })
+
   it('refuses an entry that leaves the package, and writes nothing outside it', async () => {
     for (const name of ['package/../evil.txt', '../evil.txt', '/tmp/astera-evil.txt', 'package/a/../../evil.txt', 'C:evil.txt', 'package/C:/evil.txt', 'package\\..\\evil.txt'])
       expect(await refusal(tgzOf([{ name: 'package/ok.js', body: 'ok' }, { name, body: 'bad' }])), name).toContain('leaves the package')

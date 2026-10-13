@@ -155,6 +155,8 @@ export const en: Record<keyof typeof ko, string> = {
   'settings.plugins.done.needs': 'Saved. It still needs settings: {keys}.',
   'settings.plugins.fail.timeoutRead': 'The Host did not answer in time.',
   'settings.plugins.fail.lostRead': 'The connection to the Host closed.',
+  'settings.plugins.fail.npmMissing': 'npm was not found on this computer. Install Node.js, which brings npm, or use Install from a folder…',
+  'settings.plugins.fetching': 'Fetching…',
   'settings.plugins.fail.noHost': 'The app is not connected to the Host.',
   'settings.plugins.fail.notSupported': 'The running Host does not support plugins ({message}). Restart the Host.',
   'settings.plugins.fail.timeout': 'The Host did not answer in time. The list shows whether it was done.',

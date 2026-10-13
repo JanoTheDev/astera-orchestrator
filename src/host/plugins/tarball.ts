@@ -38,21 +38,26 @@ const checksumOk = (h: Buffer): boolean => {
   return sum === octal(h, 148, 8)
 }
 
-/** The `path` of a pax extended header, if it has one. */
+/** The `path` of a pax extended header, if it has one. A record's length is in bytes, so the records are cut from the
+ *  bytes and only then read as UTF-8 (2e final review I2: a file name in Hangul is three bytes a letter). */
 function paxPath(body: Buffer): string | undefined {
   let found: string | undefined
-  let rest = body.toString('utf8')
-  while (rest.length > 0) {
-    const space = rest.indexOf(' ')
-    const len = parseInt(rest.slice(0, space), 10)
-    if (space < 0 || !Number.isInteger(len) || len <= space) throw notTar()
-    const record = rest.slice(space + 1, len - 1)
+  let at = 0
+  while (at < body.length) {
+    const space = body.indexOf(0x20, at)
+    const len = space < 0 ? NaN : Number(body.subarray(at, space).toString('ascii'))
+    if (!Number.isInteger(len) || at + len > body.length || at + len <= space) throw notTar()
+    const record = body.subarray(space + 1, at + len - 1).toString('utf8')
     const eq = record.indexOf('=')
     if (eq > 0 && record.slice(0, eq) === 'path') found = record.slice(eq + 1)
-    rest = rest.slice(len)
+    at += len
   }
   return found
 }
+
+/** A part of a path Windows keeps no file under, though Node can write one there through `\\?\`: a device name, with or
+ *  without an extension, or a name that ends in a dot or a space (design P3's rule for folders, 2e final review M7). */
+const NOT_A_FILE = /^(?:(?:con|prn|aux|nul|com[0-9]|lpt[0-9])(?:\..*)?|.*[. ])$/i
 
 /** The entry's path inside the package (its top folder dropped), or null for the top folder itself. */
 function inside(name: string): string | null {
@@ -60,7 +65,10 @@ function inside(name: string): string | null {
   if (name.includes('\0') || name.includes('\\') || name.includes(':') || name.startsWith('/')) throw leaves()
   const parts = name.split('/').filter((p) => p !== '' && p !== '.')
   if (parts.includes('..')) throw leaves()
-  return parts.length <= 1 ? null : parts.slice(1).join('/')
+  const rel = parts.slice(1)
+  const odd = rel.find((p) => NOT_A_FILE.test(p))
+  if (odd !== undefined) throw new PackageRefused(`the package has ${odd} in ${rel.join('/')}, which cannot be a file on Windows`)
+  return rel.length === 0 ? null : rel.join('/')
 }
 
 export async function extractPackage(tgz: string, dest: string, limits: { entries?: number; bytes?: number } = {}): Promise<void> {
@@ -81,6 +89,8 @@ export async function extractPackage(tgz: string, dest: string, limits: { entrie
   let bytes = 0
   let ended = false
   let nextName: string | undefined
+  /** Each path written, by its lower case: two that differ only in case are one file on Windows. */
+  const seen = new Map<string, string>()
   while (at + BLOCK <= tar.length) {
     const h = tar.subarray(at, at + BLOCK)
     at += BLOCK
@@ -112,6 +122,10 @@ export async function extractPackage(tgz: string, dest: string, limits: { entrie
     if (type !== '0' && type !== '7' && type !== '5')
       throw new PackageRefused(`the package holds a link or a device at ${rel ?? name}; a plugin package holds files and folders only`)
     if (rel === null) continue
+    const first = seen.get(rel.toLowerCase())
+    if (first !== undefined && first !== rel)
+      throw new PackageRefused(`the package holds ${[first, rel].sort().join(' and ')}, which differ only in case and are one file on Windows`)
+    seen.set(rel.toLowerCase(), rel)
     const to = path.resolve(root, ...rel.split('/'))
     if (path.relative(root, to).startsWith('..') || path.isAbsolute(path.relative(root, to)))
       throw new PackageRefused(`the package has an entry that leaves the package: ${name}`)

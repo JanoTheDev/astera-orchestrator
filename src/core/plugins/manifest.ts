@@ -59,6 +59,8 @@ const NAME = /^(?:@[a-z0-9-][a-z0-9-._]*\/)?[a-z0-9-][a-z0-9-._]*$/
 const NOT_A_FOLDER = /^(?:(?:con|prn|aux|nul|com[0-9]|lpt[0-9])(?:\..*)?|.*\.)$/
 const NAME_MAX = 214
 const SEMVER = /^(\d+)\.(\d+)\.(\d+)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/
+/** A semver version, as a manifest's `version` must be; an npm install's `expect.version` too (2e final review I3). */
+export const isSemver = (v: unknown): v is string => typeof v === 'string' && SEMVER.test(v)
 const DISPLAY_NAME_MAX = 64
 const DESCRIPTION_MAX = 500
 /** Control characters other than a tab (final review m5): the approval message prints the displayName and the

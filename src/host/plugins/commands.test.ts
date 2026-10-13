@@ -21,6 +21,7 @@ const fake = (): PluginManager & { calls: string[] } => {
     remove: vi.fn(ok('remove')),
     records: async () => [],
     startAll: async () => {},
+    stopNpm: () => {},
     logs: vi.fn(ok('logs', { lines: [] })),
     doctor: vi.fn(ok('doctor', { ok: true, checks: [] })),
     settings: vi.fn(ok('settings', { fields: [] })),

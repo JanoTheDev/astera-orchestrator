@@ -159,6 +159,8 @@ export const ko = {
   'settings.plugins.done.needs': '저장했습니다. 설정이 더 필요합니다: {keys}.',
   'settings.plugins.fail.timeoutRead': 'Host 가 제때 답하지 않았습니다.',
   'settings.plugins.fail.lostRead': 'Host 연결이 끊겼습니다.',
+  'settings.plugins.fail.npmMissing': '이 컴퓨터에 npm 이 없습니다. npm 이 함께 오는 Node.js 를 설치하거나, 폴더에서 설치… 를 쓰세요.',
+  'settings.plugins.fetching': '가져오는 중…',
   'settings.plugins.fail.noHost': 'Host 에 연결되어 있지 않습니다.',
   'settings.plugins.fail.notSupported': '실행 중인 Host 가 플러그인을 지원하지 않습니다({message}). Host 를 다시 시작하세요.',
   'settings.plugins.fail.timeout': 'Host 가 제때 답하지 않았습니다. 처리됐는지는 목록에서 확인하세요.',

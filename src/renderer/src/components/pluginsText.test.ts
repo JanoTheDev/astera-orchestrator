@@ -202,6 +202,13 @@ describe('failureLine', () => {
     expect(failureLine({ ok: false, code: 'HOST_NOT_RUNNING', message: 'x' }, en, { read: true })).toBe('The app is not connected to the Host.')
   })
 
+  // 2e final review M4: the Host's sentence points at a CLI flag; the app has a folder button instead.
+  it('says npm is missing in the app’s words, pointing at the folder button', () => {
+    const missing = { ok: false as const, code: 'PLUGIN_NPM_MISSING', message: 'npm was not found on this computer: ... with --path' }
+    expect(failureLine(missing, en)).toBe('npm was not found on this computer. Install Node.js, which brings npm, or use Install from a folder…')
+    expect(failureLine(missing, ko)).toBe('이 컴퓨터에 npm 이 없습니다. npm 이 함께 오는 Node.js 를 설치하거나, 폴더에서 설치… 를 쓰세요.')
+  })
+
   it('gives the Host’s own sentence otherwise', () => {
     expect(failureLine({ ok: false, code: 'CONFLICT', message: 'D:/x changed since it was shown' }, en)).toBe('D:/x changed since it was shown')
   })

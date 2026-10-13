@@ -891,8 +891,9 @@ describe('installing from npm', () => {
   type Pkg = { json: Record<string, unknown>; extra?: { name: string; type?: string; body?: string }[] }
 
   /** An npm that knows `packages` by name@version (and by name alone, the latest), and installs a stub for each dependency. */
-  const fakeNpm = (packages: Pkg[], o: { missing?: boolean } = {}) => {
+  const fakeNpm = (packages: Pkg[], o: { missing?: boolean; lie?: boolean; failInstall?: boolean } = {}) => {
     const calls: string[][] = []
+    let stopped = 0
     const run: NpmRun = async (args, { cwd }) => {
       calls.push(args)
       if (o.missing) throw new NpmMissing()
@@ -901,7 +902,8 @@ describe('installing from npm', () => {
         const at = spec.indexOf('@', 1)
         const name = at < 0 ? spec : spec.slice(0, at)
         const range = at < 0 ? null : spec.slice(at + 1)
-        const p = packages.find((x) => x.json.name === name && (range === null || /^[\^~]/.test(range) || x.json.version === range))
+        // `lie`: a registry that answers a version with a tarball of another (2e final review M3).
+        const p = o.lie ? packages[0] : packages.find((x) => x.json.name === name && (range === null || /^[\^~]/.test(range) || x.json.version === range))
         if (!p) return { code: 1, stdout: '', stderr: `npm error code E404\nnpm error 404 Not Found - GET https://registry.npmjs.org/${name} - Not found` }
         const filename = `${name.replace('@', '').replace('/', '-')}-${String(p.json.version)}.tgz`
         await fs.writeFile(
@@ -915,6 +917,7 @@ describe('installing from npm', () => {
         return { code: 0, stdout: JSON.stringify([{ name, version: p.json.version, filename, integrity: 'sha512-x' }]), stderr: '' }
       }
       if (args[0] === 'install') {
+        if (o.failInstall) return { code: 1, stdout: '', stderr: 'npm error code E401\nnpm error 401 Unauthorized - GET https://reg.example.com/tiny-dep' }
         const pkg = JSON.parse(await fs.readFile(path.join(cwd, 'package.json'), 'utf8')) as { dependencies?: Record<string, string> }
         for (const dep of Object.keys(pkg.dependencies ?? {})) {
           await fs.mkdir(path.join(cwd, 'node_modules', dep), { recursive: true })
@@ -924,7 +927,7 @@ describe('installing from npm', () => {
       }
       return { code: 1, stdout: '', stderr: `unexpected npm ${args.join(' ')}` }
     }
-    return { run, calls }
+    return { run: Object.assign(run, { stopAll: () => void stopped++ }), calls, stopped: () => stopped }
   }
   const withNpm = (npm: ReturnType<typeof fakeNpm>) => createPluginManager({ profileDir: profile, hostVersion: '1.5.0', npm: npm.run })
   const ID = '@acme/astera-jira'
@@ -935,7 +938,7 @@ describe('installing from npm', () => {
     const r = await withNpm(npm).inspect({ npm: '@acme/astera-jira' })
     expect(r.status).toBe(200)
     expect(body(r)).toMatchObject({ id: ID, version: '1.0.0', permissions: ['jobs.read', 'jobs.create'], compatible: true, source: { npm: '@acme/astera-jira', version: '1.0.0' } })
-    expect(npm.calls).toEqual([['pack', '@acme/astera-jira', '--json', '--ignore-scripts', '--pack-destination', '.']])
+    expect(npm.calls).toEqual([['pack', '@acme/astera-jira', '--prefix', '.', '--ignore-scripts', '--pack-destination', '.']])
     expect(await leftovers()).toEqual([])
   })
 
@@ -945,7 +948,7 @@ describe('installing from npm', () => {
     const r = await m.install({ npm: '@acme/astera-jira@^1.0.0', grant: ['jobs.read'], expect: { name: ID, version: '1.0.0' } })
     expect(r.status).toBe(200)
     expect(body(r)).toMatchObject({ id: ID, version: '1.0.0', permissions: ['jobs.read'], source: { kind: 'npm', spec: '@acme/astera-jira@^1.0.0', version: '1.0.0' } })
-    expect(npm.calls.map((c) => c.slice(0, 2))).toEqual([['pack', '@acme/astera-jira@1.0.0'], ['install', '--omit=dev']])
+    expect(npm.calls.map((c) => c.slice(0, 2))).toEqual([['pack', '@acme/astera-jira@1.0.0'], ['install', '--prefix']])
     expect(npm.calls[1]).toContain('--ignore-scripts')
     expect(await fs.readFile(path.join(folderOf(), 'node_modules', 'tiny-dep', 'index.js'), 'utf8')).toBe("module.exports = 'tiny-dep'")
     expect(JSON.parse(await fs.readFile(path.join(pluginsRoot(profile), 'plugins.json'), 'utf8')).plugins[0].source).toEqual({
@@ -990,9 +993,10 @@ describe('installing from npm', () => {
   })
 
   it('says npm is missing, a package npm cannot find, and a package that would leave its folder, leaving nothing behind', async () => {
+    // With its code, so the app can say it in its own words (2e final review M4).
     expect(await withNpm(fakeNpm([], { missing: true })).inspect({ npm: ID })).toEqual({
       status: 500,
-      body: { error: 'npm was not found on this computer: install Node.js, which brings npm, or install the plugin from a folder with --path' }
+      body: { error: 'npm was not found on this computer: install Node.js, which brings npm, or install the plugin from a folder with --path', code: 'PLUGIN_NPM_MISSING' }
     })
     const nowhere = await withNpm(fakeNpm([])).inspect({ npm: '@acme/nowhere' })
     expect(nowhere.status).toBe(404)
@@ -1001,6 +1005,45 @@ describe('installing from npm', () => {
     expect(evil).toEqual({ status: 400, body: { error: 'cannot install @acme/astera-jira from npm: the package has an entry that leaves the package: package/../../evil.js' } })
     expect(existsSync(path.join(installed(), '..', 'evil.js'))).toBe(false)
     expect(await leftovers()).toEqual([])
+  })
+
+  // 2e final review I3: the version is checked by the Host, so no other source reaches npm through it.
+  it('refuses an expected version that is not a version, before npm runs', async () => {
+    const npm = fakeNpm([{ json: JIRA }])
+    expect(await withNpm(npm).install({ npm: ID, grant: [], expect: { name: ID, version: 'file:../dir' } })).toEqual({
+      status: 400,
+      body: { error: 'expect.version file:../dir is not a version' }
+    })
+    expect(npm.calls).toEqual([])
+  })
+
+  // 2e final review M3: what the tarball holds is what is shown and installed.
+  it('refuses a tarball that is another version than the one asked for', async () => {
+    const npm = fakeNpm([{ json: { ...JIRA, version: '1.1.0' } }], { lie: true })
+    expect(await withNpm(npm).install({ npm: ID, grant: [], expect: { name: ID, version: '1.0.0' } })).toEqual({
+      status: 400,
+      body: { error: 'npm answered @acme/astera-jira@1.0.0 with a package that says it is @acme/astera-jira@1.1.0' }
+    })
+    expect(await leftovers()).toEqual([])
+  })
+
+  // 2e final review M9: a failed npm install installs nothing and leaves nothing.
+  it('installs nothing when npm cannot install the dependencies, and leaves nothing behind', async () => {
+    const npm = fakeNpm([{ json: JIRA }], { failInstall: true })
+    const m = withNpm(npm)
+    const r = await m.install({ npm: ID, grant: [], expect: { name: ID, version: '1.0.0' } })
+    expect(r.status).toBe(500)
+    expect(body(r).error).toMatch(/^npm could not install the dependencies of @acme\/astera-jira: npm error code E401/)
+    expect(body(await m.list()).plugins).toEqual([])
+    expect(existsSync(folderOf())).toBe(false)
+    expect(await leftovers()).toEqual([])
+  })
+
+  // 2e final review M8: a Host that leaves ends the npm it still runs.
+  it('ends the npm it runs when told to', () => {
+    const npm = fakeNpm([])
+    withNpm(npm).stopNpm()
+    expect(npm.stopped()).toBe(1)
   })
 
   it('names the npm package, not a staging folder, when its manifest is wrong', async () => {
