@@ -5,6 +5,7 @@ import path from 'node:path'
 import { createPluginManager, type PluginManager } from './manager'
 import type { PluginLaunch, PluginRunStatus, PluginRuntime } from './runtime'
 import { pluginsRoot } from './registry'
+import { pluginSecrets } from './pluginData'
 
 let dir: string
 let profile: string
@@ -803,5 +804,74 @@ describe('settings', () => {
     await m.install({ path: await plugin(FOLDER), grant: [] })
     expect((await m.settings(ID)).body).toEqual({ id: ID, fields: [], values: {}, secrets: {} })
     expect(await m.configure(ID, { a: 'x' }, undefined)).toEqual({ status: 400, body: { error: `a is not a setting of ${ID}; it has no settings` } })
+  })
+
+  // 2c final review C1, M6, M8, M9, M12.
+  describe('the settings review fixes', () => {
+    const settingsFile = (): string => path.join(pluginsRoot(profile), 'settings', '@acme+astera-jira.json')
+
+    it('hands a plugin with no settings the secrets it kept, to redact, when the Host starts it again', async () => {
+      const m = createPluginManager({ profileDir: profile, hostVersion: '1.5.0' })
+      await m.install({ path: await plugin(FOLDER), grant: [] })
+      await pluginSecrets(profile, '@acme+astera-jira').secret.set('oauth', 'oauth-kept-31')
+      const rt = fakeRuntime()
+      await createPluginManager({ profileDir: profile, hostVersion: '1.5.0', runtime: rt.runtime }).startAll()
+      expect(rt.launches.map((l) => l.redact)).toEqual([['oauth-kept-31']])
+    })
+
+    it('holds back a plugin whose required setting was set to empty text', async () => {
+      const { m, rt } = await install()
+      await m.configure(ID, { baseUrl: '', token: 't-1' }, undefined)
+      expect(rt.calls).toEqual([])
+      expect((await m.get(ID)).body).toMatchObject({ status: 'stopped', reason: expect.stringMatching(/^needs settings: baseUrl;/) })
+    })
+
+    it('says how the plugin stands after a change, and that it restarted only when it runs again', async () => {
+      const { m, rt } = await install()
+      const first = await m.configure(ID, { baseUrl: 'https://a.example.com', token: 't-1' }, undefined)
+      expect(first.body).toMatchObject({ status: 'running' })
+      expect(first.body).not.toHaveProperty('restarted')
+      const changed = await m.configure(ID, { pageSize: 25 }, undefined)
+      expect(changed.body).toMatchObject({ status: 'running', restarted: true })
+      const unset = await m.configure(ID, undefined, ['token'])
+      expect(unset.body).toMatchObject({ status: 'stopped', reason: expect.stringMatching(/^needs settings: token;/) })
+      expect(unset.body).not.toHaveProperty('restarted')
+      rt.statuses.set(ID, { status: 'failed', reason: 'activate threw: x' })
+      const failed = await m.configure(ID, { token: 't-2' }, undefined)
+      expect(failed.body).toMatchObject({ status: 'failed', reason: 'activate threw: x' })
+      expect(failed.body).not.toHaveProperty('restarted')
+    })
+
+    it('stops a running plugin even when a secret could not be kept, rather than leave it on settings it no longer has', async () => {
+      const { m, rt } = await install()
+      await m.configure(ID, { baseUrl: 'https://a.example.com', token: 't-1' }, undefined)
+      const secrets = path.join(pluginsRoot(profile), 'secrets', '@acme+astera-jira')
+      await fs.rm(secrets, { recursive: true, force: true })
+      await fs.writeFile(secrets, 'not a folder')
+      const r = await m.configure(ID, { baseUrl: 'https://b.example.com', token: 't-2' }, undefined)
+      expect(r.status).toBe(500)
+      expect(rt.calls).toEqual([`start ${ID}`, `stop ${ID}`])
+      expect(JSON.stringify(r.body)).not.toContain('t-2')
+    })
+
+    it('drops the plain copy of a setting an update made secret', async () => {
+      const plain = { ...SCHEMA, properties: { ...SCHEMA.properties, token: { type: 'string' } } }
+      const { m } = await install(fakeRuntime(), plain)
+      await m.configure(ID, { baseUrl: 'https://a.example.com', token: 'plain-tok-9' }, undefined)
+      await m.install({ path: await plugin(FOLDER, { version: '1.1.0', astera: { settingsSchema: SCHEMA } }), grant: [] })
+      await m.configure(ID, { token: 'secret-tok-9' }, undefined)
+      expect(await fs.readFile(settingsFile(), 'utf8')).not.toContain('plain-tok-9')
+    })
+
+    it('says so when it could not delete what a removed plugin kept', async () => {
+      const lines: string[] = []
+      const m = createPluginManager({ profileDir: profile, hostVersion: '1.5.0', log: (l) => lines.push(l) })
+      await m.install({ path: await plugin(FOLDER), grant: [] })
+      // A folder where the settings file goes: a removal cannot delete it as a file.
+      await fs.mkdir(path.join(settingsFile(), 'inside'), { recursive: true })
+      const r = await m.remove(ID)
+      expect(r).toMatchObject({ status: 200, body: { removed: true, warning: expect.stringContaining('could not be deleted') } })
+      expect(lines.some((l) => l.startsWith(`plugins: ${ID} was removed, but its settings or secrets could not be deleted`))).toBe(true)
+    })
   })
 })

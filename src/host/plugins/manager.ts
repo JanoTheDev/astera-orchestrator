@@ -188,10 +188,12 @@ export function createPluginManager(d: {
    *  a key it still has, defaults filled; its secret settings (for the plugin alone); every secret value of the plugin,
    *  to redact from its log; the required ones missing; and stored values that no longer fit. */
   async function settingsState(r: PluginRecord, m: PluginManifest): Promise<SettingsState> {
-    if (m.settings.length === 0) return { ok: true, plain: {}, secrets: {}, redact: [], missing: [], invalid: [] }
     try {
-      const stored = await readSettings(d.profileDir, r.folder)
       const store = pluginSecrets(d.profileDir, r.folder)
+      // Every secret value, the ones a plugin with no settings keeps for itself too (2c final review C1).
+      const redact = await store.values()
+      if (m.settings.length === 0) return { ok: true, plain: {}, secrets: {}, redact, missing: [], invalid: [] }
+      const stored = await readSettings(d.profileDir, r.folder)
       const plain: Record<string, SettingValue> = {}
       const secrets: Record<string, string> = {}
       const invalid: string[] = []
@@ -210,7 +212,8 @@ export function createPluginManager(d: {
         if (!Object.hasOwn(plain, f.key) && f.default !== undefined) plain[f.key] = f.default
       }
       const has = (k: string): boolean => Object.hasOwn(plain, k) || Object.hasOwn(secrets, k)
-      return { ok: true, plain, secrets, redact: await store.values(), missing: missingRequired(m.settings, has), invalid }
+      const valueOf = (k: string): unknown => (Object.hasOwn(secrets, k) ? secrets[k] : plain[k])
+      return { ok: true, plain, secrets, redact, missing: missingRequired(m.settings, has, valueOf), invalid }
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) }
     }
@@ -572,20 +575,38 @@ export function createPluginManager(d: {
     const secret = (k: string): boolean => fieldOf(k).secret === true
     const next = { ...stored }
     for (const [k, v] of values) if (!secret(k)) next[k] = v
-    for (const k of removals) if (!secret(k)) delete next[k]
-    await writeSettings(d.profileDir, r.folder, next)
-    const store = pluginSecrets(d.profileDir, r.folder)
-    for (const [k, v] of values) if (secret(k)) await store.setting.set(k, String(v))
-    for (const k of removals) if (secret(k)) await store.setting.delete(k)
-    // A running plugin took its settings at its start: it starts again to take the new ones. One that was held back for
-    // them starts now if it can. A failed one waits for `plugins enable`, as before.
+    for (const k of removals) delete next[k]
+    // A key an update made secret keeps no plain copy of what it held before (2c final review M8).
+    for (const f of m.settings) if (f.secret) delete next[f.key]
     const before = d.runtime?.status(r.id)?.status
-    const restarted = before === 'running' || before === 'starting'
-    if (restarted) await d.runtime?.stop(r.id)
-    if (before !== 'failed') await startIfRunnable(r)
+    const wasRunning = before === 'running' || before === 'starting'
+    try {
+      await writeSettings(d.profileDir, r.folder, next)
+      const store = pluginSecrets(d.profileDir, r.folder)
+      for (const [k, v] of values) if (secret(k)) await store.setting.set(k, String(v))
+      for (const k of removals) if (secret(k)) await store.setting.delete(k)
+    } finally {
+      // A running plugin took its settings at its start: it starts again to take the new ones, and a change that was
+      // written only in part still stops it, so it does not run on settings it no longer has (M8). One that was held
+      // back for them starts now if it can. A failed one waits for `plugins enable`, as before.
+      if (wasRunning) await d.runtime?.stop(r.id)
+      if (before !== 'failed') await startIfRunnable(r)
+    }
     const state = await settingsState(r, m)
     if (!state.ok) throw new Refused(500, state.error)
-    return { status: 200, body: { ...settingsView(r, m, state), ...(restarted ? { restarted: true } : {}) } }
+    // How it stands now, so a person is not told it restarted when it is held back, or left to guess that a failed one
+    // still waits (2c final review M6).
+    const now = await view(r)
+    const runs = now.status === 'running' || now.status === 'starting'
+    return {
+      status: 200,
+      body: {
+        ...settingsView(r, m, state),
+        status: now.status,
+        ...(now.reason !== null && now.reason !== undefined ? { reason: now.reason } : {}),
+        ...(wasRunning && runs ? { restarted: true } : {})
+      }
+    }
   }
 
   async function remove(id: unknown): Promise<PluginsAnswer> {
@@ -616,9 +637,23 @@ export function createPluginManager(d: {
     await d.runtime?.forget(r.folder)
     const log = pluginLogFile(d.profileDir, r.folder)
     await Promise.all([fs.rm(log, { force: true }), fs.rm(`${log}.1`, { force: true })]).catch(() => {})
-    // And its settings and secrets (spec §23: a plugin's secrets are its own, and go with it).
-    await forgetPluginData(d.profileDir, r.folder).catch(() => {})
-    return { status: 200, body: { id: r.id, version: r.version, removed: true } }
+    // And its settings and secrets (spec §23: a plugin's secrets are its own, and go with it). What cannot be deleted is
+    // said, not swallowed (2c final review M12): a plugin installed again under the same id would find it.
+    const left = await forgetPluginData(d.profileDir, r.folder).then(
+      () => null,
+      (e: unknown) => (e instanceof Error ? e.message : String(e))
+    )
+    if (left === null) return { status: 200, body: { id: r.id, version: r.version, removed: true } }
+    d.log?.(`plugins: ${r.id} was removed, but its settings or secrets could not be deleted: ${left}`)
+    return {
+      status: 200,
+      body: {
+        id: r.id,
+        version: r.version,
+        removed: true,
+        warning: `its settings or secrets could not be deleted (${left}); a plugin installed again as ${r.id} would find them`
+      }
+    }
   }
 
   return {
