@@ -145,7 +145,9 @@ describe('docs/sdk.md', () => {
     expect(guide).toContain("Build integrations and automation on top of Astera's durable Host with the official TypeScript client.")
     expect(guide).toMatch(/[Cc]ancelling a call is not cancelling a Run/)
     expect(guide).toMatch(/npm run build:packages/)
-    expect(guide).toMatch(/not on npm yet/)
+    // On npm (SDK packages on npm): installed by name, and built from a clone only for what is not released yet
+    expect(section(guide, '## Get it')).toContain('npm install @astera-app/client')
+    expect(guide).not.toMatch(/not on npm yet/)
     expect(guide).toMatch(/requestId/)
     expect(guide).toMatch(/\{ items, nextCursor \}/)
     expect(guide).toContain("the subscription's own `cursor`")
@@ -178,6 +180,14 @@ describe('docs/sdk.md', () => {
       expect(guide, f).toContain(`](../examples/sdk/${f})`)
       expect(list, f).toContain(`](${f})`)
     }
+  })
+
+  // SDK packages on npm: the README is the package's page there
+  it('tells a reader of its npm page how to install it, and that it is versioned apart from the app', () => {
+    expect(readme).toContain('npm install @astera-app/client')
+    expect(readme).not.toMatch(/not published/i)
+    expect(readme).toContain('CHANGELOG.md')
+    expect(read('examples/sdk/README.md')).not.toMatch(/not on npm yet/)
   })
 
   it('is reached from the CLI and MCP guides and from the package README', () => {

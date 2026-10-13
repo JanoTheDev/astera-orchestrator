@@ -183,6 +183,22 @@ describe('docs/plugins.md', () => {
     expect(prose(section(guide, '## Logs'))).toContain(`It is kept to ${constant('src/host/log.ts', 'DEFAULT_MAX_BYTES') / 1024 / 1024} MiB`)
   })
 
+  // SDK packages on npm: the plugin SDK is installed by name, and npm brings the client its types import
+  it('installs the plugin SDK by name, in the guide and on its npm page', () => {
+    const ts = section(guide, '### TypeScript, and bundling')
+    expect(ts).toContain('npm install --save-dev @astera-app/plugin-sdk')
+    // Final review m2: the example uses process, whose types are Node's, which a new tsconfig leaves out
+    expect(ts).toMatch(/npm install --save-dev @astera-app\/plugin-sdk typescript @types\/node\n/)
+    expect(ts).toContain('"types": ["node"]')
+    expect(guide).not.toMatch(/not on npm yet/)
+    expect(section(guide, '## Not yet')).not.toContain('@astera-app/plugin-sdk')
+    // Its example imports definePlugin when the plugin runs, so there it is a dependency, which an npm install keeps
+    const readme = read('packages/plugin-sdk/README.md')
+    expect(readme).toContain('npm install @astera-app/plugin-sdk\n')
+    expect(readme).toContain('docs/plugins.md#typescript-and-bundling')
+    expect(readme).not.toMatch(/not published/i)
+  })
+
   it('names each kind of plugin this Astera does not run yet', () => {
     const notYet = section(guide, '## Not yet')
     const unserved = PLUGIN_CAPABILITIES.filter((c) => !PLUGIN_SERVED_CAPABILITIES.includes(c))

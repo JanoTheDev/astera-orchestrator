@@ -1,0 +1,70 @@
+name: Publish packages
+
+# Publishes @astera-app/client or @astera-app/plugin-sdk to npm (docs/releasing.md, "Publishing the SDK packages").
+# The tag names the package and its version, which must be the one its package.json holds:
+#
+#   client-v0.1.1       packages/client at 0.1.1
+#   plugin-sdk-v0.1.1   packages/plugin-sdk at 0.1.1
+#
+# No npm token: npm's trusted publishing takes this run's OIDC token, which names this repository and this file as
+# each package's settings on npmjs.com do, and npm attaches provenance from it. That needs each package to be on npm
+# already, so the first version of each was published by hand. Run by hand (Actions, Run workflow), it goes through
+# every step and ends with `npm publish --dry-run`: nothing is published.
+on:
+  push:
+    tags: ['client-v[0-9]+.[0-9]+.[0-9]+', 'plugin-sdk-v[0-9]+.[0-9]+.[0-9]+']
+  workflow_dispatch:
+    inputs:
+      package:
+        description: The package to try a publish of (nothing is published)
+        type: choice
+        options: [client, plugin-sdk]
+
+permissions:
+  contents: read
+  id-token: write # npm's trusted publishing, and the provenance it attaches
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      # Trusted publishing needs npm 11.5.1 or later; this is the npm Astera fetches for its own plugin installs.
+      - run: npm install -g npm@11.21.0
+
+      # Before anything is installed: a tag that names no package, or another version than the package's, stops here.
+      - name: Which package, at which version
+        id: target
+        shell: bash
+        env:
+          PACKAGE: ${{ inputs.package }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            node scripts/publish-target.mjs --package "$PACKAGE" >> "$GITHUB_OUTPUT"
+          else
+            node scripts/publish-target.mjs --tag "$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The app's install scripts (Electron's download, the native rebuilds) are not needed to build the packages.
+      - run: npm ci --ignore-scripts
+
+      - run: npm run build:packages
+
+      - name: The package's tests
+        run: npx vitest run packages/${{ steps.target.outputs.dir }} scripts/build-packages.test.mjs scripts/publish-packages.test.mjs scripts/publish-target.test.mjs
+
+      - name: Publish
+        if: github.event_name == 'push'
+        working-directory: packages/${{ steps.target.outputs.dir }}
+        run: npm publish --provenance
+
+      - name: Publish (dry run)
+        if: github.event_name == 'workflow_dispatch'
+        working-directory: packages/${{ steps.target.outputs.dir }}
+        run: npm publish --provenance --dry-run
