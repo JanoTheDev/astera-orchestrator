@@ -8947,3 +8947,74 @@ describe('handleCommand — understanding-list and understanding-get', () => {
     }
   })
 })
+
+// 2026-10-13: the session that ran run-create and loops on check --wait was recorded nowhere, so the net read its Run
+// as having nobody to answer and answered a worker 9 ms after the question (spec E3).
+describe('the external coordinator: run-create and check record the driving session', () => {
+  it('run-create from an agent session records it on the Run, and says so', async () => {
+    const deps = makeDeps()
+    const r = await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p' }, 'sess-drv')
+    expect(r.status).toBe(200)
+    expect(r.body).toMatchObject({ externalCoordinatorSessionId: 'sess-drv' })
+    expect(deps.getState().runs[0].externalCoordinatorSessionId).toBe('sess-drv')
+  })
+
+  it('records nothing for the app, the Host or a plain shell', async () => {
+    for (const sessionId of ['', APP_CALLER, HOST_CALLER]) {
+      const deps = makeDeps()
+      await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p' }, sessionId)
+      expect(deps.getState().runs[0]).not.toHaveProperty('externalCoordinatorSessionId')
+    }
+  })
+
+  it('a run-create that makes no Run records nothing (--auto waits for the person, a schedule for its fire)', async () => {
+    const deps = makeDeps()
+    await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p', auto: true }, 'sess-drv')
+    await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p', schedule: { kind: 'daily', time: '09:00' } }, 'sess-drv')
+    expect(deps.getState().runs).toEqual([])
+  })
+
+  it('check from another session takes the Run over; the same session writes nothing', async () => {
+    const deps = makeDeps()
+    await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p' }, 'sess-a')
+    const writes = vi.fn(deps.setState)
+    deps.setState = writes
+    await call(deps, 'check', {}, 'sess-a')
+    expect(writes).not.toHaveBeenCalled()
+    await call(deps, 'check', {}, 'sess-b')
+    expect(deps.getState().runs[0].externalCoordinatorSessionId).toBe('sess-b')
+  })
+
+  it('a plain shell’s check replaces nothing (Review Focus 3)', async () => {
+    const deps = makeDeps()
+    await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p' }, 'sess-a')
+    await call(deps, 'check', {}, '')
+    expect(deps.getState().runs[0].externalCoordinatorSessionId).toBe('sess-a')
+  })
+
+  it('check on a Run whose coordinator Astera started records nothing', async () => {
+    const deps = makeDeps()
+    await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p' }, '')
+    const s = deps.getState()
+    const owned = attachCoordinator(s, { runId: s.runs[0].id, sessionId: 'coord1' })
+    if (!owned.ok) throw new Error(owned.error)
+    await deps.setState(owned.state)
+    await call(deps, 'check', {}, 'sess-b')
+    expect(deps.getState().runs[0]).not.toHaveProperty('externalCoordinatorSessionId')
+  })
+
+  it('check --ack from a session taking over keeps the ack (Review Focus 2)', async () => {
+    const deps = makeDeps()
+    await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p' }, 'sess-a')
+    const s = deps.getState()
+    await deps.setState({
+      ...s,
+      messages: [{ id: 'msg_1', runId: s.runs[0].id, type: 'status', subject: 's', body: 'b', answered: false, createdAt: NOW }]
+    })
+    const first = (await call(deps, 'check', {}, 'sess-a')).body as { deliveryId: string }
+    expect(first.deliveryId).toBeDefined()
+    await call(deps, 'check', { ack: first.deliveryId }, 'sess-b')
+    expect(deps.getState().deliveries[0].ackedAt).toBeDefined()
+    expect(deps.getState().runs[0].externalCoordinatorSessionId).toBe('sess-b')
+  })
+})

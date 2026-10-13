@@ -37,6 +37,7 @@ import {
   runIdOf,
   attachCoordinator,
   detachCoordinator,
+  recordExternalCoordinator,
   pauseSchedule,
   resumeSchedule,
   resumeRun,
@@ -1244,6 +1245,9 @@ export async function handleCommand(
   const isRunCoordinator = s.runs.some(
     (r) => r.coordinatorSessionId === caller.sessionId && outcomeOf(s, r.id) === 'running'
   )
+  // A real agent session: not a shell or an MCP client (they call with an empty id), not the app or the Host. Only
+  // such a caller can be a Run's external coordinator (JobRun.externalCoordinatorSessionId).
+  const fromAgentSession = caller.sessionId !== '' && caller.sessionId !== APP_CALLER && caller.sessionId !== HOST_CALLER
 
   const commit = async <T>(r: Res<T>): Promise<Reply> => {
     // **404 is what state.ts marked `missing`, nothing else** (R4). This used to read the words: any
@@ -1604,8 +1608,8 @@ export async function handleCommand(
         }
       }
       // 이 Run 을 관리할 코디네이터 세션의 계정. **하나다** — 목록이 아닌 이유는 Run.coordinatorAccountId
-      // 의 주석에 있다(갈아타는 대신 같은 세션에서 기다린다). 없으면 코디네이터를 띄우지 않고 앱이
-      // 돌린다(옛 동작). 사이드바는 그 상태를 만들지 않지만 CLI 와 옛 Run 이 그 갈래다.
+      // 의 주석에 있다(갈아타는 대신 같은 세션에서 기다린다). 없으면 코디네이터를 띄우지 않는다:
+      // `--auto` 면 앱이 돌리고, 아니면 이 명령을 부른 세션이 몬다(아래 끝의 externalCoordinatorSessionId).
       const coordArg = str(args.coordinatorAccount)
       let coordinatorAccountId: string | undefined
       if (coordArg !== null) {
@@ -1724,7 +1728,13 @@ export async function handleCommand(
       // '실행' 을 누를 때까지 기다리고(`--auto` + pendingStart), 예약 Job 의 회차는 발화가 만든다 —
       // 여기서 하나 만들면 예약 시각이 되기도 전에 1회차가 도는 일이 된다.
       if (args.auto === true || schedule !== undefined) return commit(created)
-      return commit(startJobRun(created.state, created.value.id, now))
+      const started = startJobRun(created.state, created.value.id, now)
+      if (!started.ok || !fromAgentSession) return commit(started)
+      // **부른 세션이 이 회차를 몬다**(spec E3) — 스킬의 `run-create` → `check --wait` 고리다. 적지 않으면
+      // 받은편지함 그물이 이 회차를 답할 사람 없는 회차로 읽고, 그 세션보다 먼저 워커에게 답한다.
+      const driven = recordExternalCoordinator(started.state, { runId: started.value.id, sessionId: caller.sessionId })
+      if (!driven.ok || driven.value === null) return commit(started)
+      return commit(driven)
     }
     // **등록된 저장소들.** 만들지 않는다 — 프로젝트는 사람이 폴더를 여는 순간 등록되고
     // (ipc.ts 의 orch.list), CLI 가 그것을 흉내 내면 워커의 워크트리가 목록에 섞인다.
@@ -3744,6 +3754,12 @@ export async function handleCommand(
         // unacknowledged and its deliveryId. The `--run` 404 above carries none: that Run is not there.
         if (!acked.ok) return acked.missing ? { status: 404, body: { error: acked.error, runId } } : bad(acked.error)
         await deps.setState(acked.state)
+      }
+      // **이 받은편지함을 읽는 세션이 이 회차를 몬다**(spec E3). handoff 로 새 세션이 이어받으면 그 세션이
+      // 적힌다. ack 를 커밋한 **뒤의** 상태에 적는다 — `s` 는 ack 전의 것이라 그 위에 쓰면 ack 가 지워진다.
+      if (fromAgentSession) {
+        const taken = recordExternalCoordinator(deps.getState(), { runId, sessionId: caller.sessionId })
+        if (taken.ok && taken.value !== null) await deps.setState(taken.state)
       }
       const types =
         typeof args.types === 'string' ? (args.types.split(',') as MessageType[]) : undefined
