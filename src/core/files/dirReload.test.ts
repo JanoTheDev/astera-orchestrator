@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { createDirLoadQueue, planBatchReload, createDelayedPending, ROW_SPINNER_DELAY_MS } from './dirReload'
+import { createDirLoadQueue, DIR_READ_CONCURRENCY, planBatchReload, planRefresh, createDelayedPending, ROW_SPINNER_DELAY_MS } from './dirReload'
 
 /** 손으로 끝내는 load — 몇 개가 동시에 도는지, 어떤 순서로 불렸는지를 밖에서 본다 */
 function manualLoad(): {
@@ -53,7 +53,7 @@ describe('createDirLoadQueue — 같은 폴더를 겹쳐 읽지 않는다', () =
     expect(m.maxInFlight.get('/r/a')).toBe(1)
   })
 
-  it('다른 폴더는 서로 기다리지 않는다', () => {
+  it('다른 폴더는 상한까지 서로 기다리지 않는다', () => {
     const m = manualLoad()
     const q = createDirLoadQueue(m.load)
     q.request('/r/a')
@@ -102,6 +102,62 @@ describe('createDirLoadQueue — 같은 폴더를 겹쳐 읽지 않는다', () =
     expect(q.isPending('/r/a')).toBe(false)
     // 켜질 때 한 번, 꺼질 때 한 번 — 이어 읽기 사이에 깜빡이지 않는다
     expect(seen).toEqual([['/r/a'], []])
+  })
+})
+
+// 새로고침 한 번이 펼친 폴더 수만큼 readdir 를 한꺼번에 보내면, 끊긴 공유 드라이브에서 libuv 스레드풀(기본 4)이
+// 전부 묶여 main 의 다른 fs 호출(파일 탭 저장, 경로 probe)까지 멈춘다 — pathProbe 가 지키는 "풀의 절반은 비워
+// 둔다" 규칙을 여기서도 지킨다 (최종 리뷰 Important 1)
+describe('createDirLoadQueue — 폴더 사이의 동시 읽기 상한', () => {
+  it(`한 번에 ${DIR_READ_CONCURRENCY} 개까지만 읽고, 나머지는 온 순서대로 기다린다`, async () => {
+    expect(DIR_READ_CONCURRENCY).toBe(2)
+    const m = manualLoad()
+    const q = createDirLoadQueue(m.load)
+    for (const d of ['/r/a', '/r/b', '/r/c', '/r/d']) q.request(d)
+    expect(m.calls).toEqual(['/r/a', '/r/b'])
+    await m.finish('/r/a')
+    expect(m.calls).toEqual(['/r/a', '/r/b', '/r/c'])
+    await m.finish('/r/b')
+    expect(m.calls).toEqual(['/r/a', '/r/b', '/r/c', '/r/d'])
+  })
+
+  it('기다리는 폴더에 요청이 더 와도 한 번만 읽는다', async () => {
+    const m = manualLoad()
+    const q = createDirLoadQueue(m.load)
+    for (const d of ['/r/a', '/r/b', '/r/c', '/r/c', '/r/c']) q.request(d)
+    await m.finish('/r/a')
+    await m.finish('/r/b')
+    await m.finish('/r/c')
+    // Requests that arrive while it waits are covered by the read it has not started yet
+    expect(m.calls).toEqual(['/r/a', '/r/b', '/r/c'])
+  })
+
+  it('기다리는 폴더도 pending 이다 — 오래 기다리면 그 행에도 스피너가 뜬다', async () => {
+    const m = manualLoad()
+    const seen: string[][] = []
+    const q = createDirLoadQueue(m.load, (p) => seen.push([...p].sort()))
+    for (const d of ['/r/a', '/r/b', '/r/c']) q.request(d)
+    expect(q.isPending('/r/c')).toBe(true)
+    expect(seen.at(-1)).toEqual(['/r/a', '/r/b', '/r/c'])
+    await m.finish('/r/a')
+    await m.finish('/r/b')
+    await m.finish('/r/c')
+    expect(q.isPending('/r/c')).toBe(false)
+    expect(seen.at(-1)).toEqual([])
+  })
+
+  it('이어 읽기는 줄 뒤로 선다 — 계속 바뀌는 폴더 하나가 자리를 붙잡지 않는다', async () => {
+    const m = manualLoad()
+    const q = createDirLoadQueue(m.load)
+    q.request('/r/a')
+    q.request('/r/b')
+    q.request('/r/a') // a 를 읽는 동안 바뀌었다
+    q.request('/r/c')
+    await m.finish('/r/a')
+    expect(m.calls).toEqual(['/r/a', '/r/b', '/r/c'])
+    await m.finish('/r/b')
+    expect(m.calls).toEqual(['/r/a', '/r/b', '/r/c', '/r/a'])
+    expect(m.maxInFlight.get('/r/a')).toBe(1)
   })
 })
 
@@ -174,5 +230,54 @@ describe('createDelayedPending — 행 스피너의 보이기 지연', () => {
     d.update(new Set(['/r/b']))
     vi.advanceTimersByTime(ROW_SPINNER_DELAY_MS)
     expect(shown).toEqual([['/r/b']])
+  })
+})
+
+describe('planRefresh — 새로고침은 펼친 폴더를 그대로 두고 다시 읽는다', () => {
+  const R = 'D:/proj'
+  const p = (...parts: string[]): string => [R, ...parts].join('/')
+
+  it('루트와 펼친 폴더를 다시 읽고, 접힌 폴더의 캐시는 버린다', () => {
+    const plan = planRefresh({ root: R, cached: [R, p('a'), p('a', 'b'), p('c')], expanded: [p('a'), p('a', 'b')] })
+    expect(plan.reload).toEqual([R, p('a'), p('a', 'b')])
+    expect(plan.evict).toEqual([p('c')])
+  })
+
+  it('접힌 부모 아래의 펼친 폴더도 다시 읽는다 — 부모를 다시 열면 지금 디스크가 보인다', () => {
+    const plan = planRefresh({ root: R, cached: [R, p('a'), p('a', 'b')], expanded: [p('a', 'b')] })
+    expect(plan.reload).toEqual([R, p('a', 'b')])
+    expect(plan.evict).toEqual([p('a')])
+  })
+
+  it('캐시에 없어도 펼쳐져 있으면 읽고, 루트는 늘 읽는다', () => {
+    expect(planRefresh({ root: R, cached: [], expanded: [p('x')] }).reload).toEqual([R, p('x')])
+  })
+
+  it('루트 밖의 펼친 키는 읽지 않고, 루트 밖 캐시는 버린다', () => {
+    const plan = planRefresh({ root: R, cached: [R, 'D:/other', 'D:/other/y'], expanded: ['D:/other', p('a')] })
+    expect(plan.reload).toEqual([R, p('a')])
+    expect(plan.evict).toEqual(['D:/other', 'D:/other/y'])
+  })
+
+  it('같은 폴더는 한 번만, 루트가 펼친 목록에 있어도 한 번만', () => {
+    const plan = planRefresh({ root: R, cached: [R], expanded: [R, p('a'), p('a')] })
+    expect(plan.reload).toEqual([R, p('a')])
+    expect(plan.evict).toEqual([])
+  })
+
+  // 상한이 생긴 뒤로는 순서가 곧 기다리는 순서다 — 화면에 보이는 폴더를 먼저, 접힌 부모 아래 숨은 폴더를 나중에
+  it('화면에 보이는 폴더를 숨은 폴더보다 먼저 읽는다', () => {
+    const plan = planRefresh({ root: R, cached: [], expanded: [p('a', 'b'), p('c'), p('c', 'd')] })
+    expect(plan.reload).toEqual([R, p('c'), p('c', 'd'), p('a', 'b')])
+  })
+
+  // 최종 리뷰 minor 2: 원문 비교였을 때는 끝 구분자나 대소문자만 다른 루트 키를 루트와 따로 한 번 더 읽었다
+  it('루트를 다르게 적은 키는 루트로 친다', () => {
+    expect(planRefresh({ root: R, cached: [], expanded: [`${R}/`, p('a')] }).reload).toEqual([R, p('a')])
+  })
+
+  it('부모가 자식보다 먼저 온다', () => {
+    const plan = planRefresh({ root: R, cached: [], expanded: [p('a', 'b', 'c'), p('a'), p('a', 'b')] })
+    expect(plan.reload).toEqual([R, p('a'), p('a', 'b'), p('a', 'b', 'c')])
   })
 })

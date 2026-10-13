@@ -111,7 +111,7 @@ export function columns(rows: readonly (readonly string[])[]): string {
 const str = (v: unknown): string => (v === undefined || v === null ? '' : String(v))
 
 /** 한 개체를 이름과 값의 줄로. **목록을 따로 두지 않는다** — 무엇을 내보낼지는 가림막이 이미
- *  정했고(cliPublic.ts), 여기서 또 고르면 두 곳이 갈라진다. */
+ *  정했고(packages/client/src/shape.ts 의 publicFor), 여기서 또 고르면 두 곳이 갈라진다. */
 function fields(o: Record<string, unknown>): string {
   return columns(
     Object.entries(o).map(([k, v]) => [
@@ -155,6 +155,47 @@ export function jsonSafe(json: string): string {
 
 export function humanFor(cmd: string, data: Record<string, unknown>): string | null {
   switch (cmd) {
+    case 'plugins-logs': {
+      const lines = Array.isArray(data.lines) ? (data.lines as unknown[]).map(str) : []
+      return lines.length > 0 ? lines.join('\n') : 'no log yet'
+    }
+    case 'plugins-settings':
+    case 'plugins-configure': {
+      const fields = Array.isArray(data.fields) ? (data.fields as Record<string, unknown>[]) : []
+      if (fields.length === 0) return 'no settings'
+      const values = (data.values ?? {}) as Record<string, unknown>
+      const secrets = (data.secrets ?? {}) as Record<string, unknown>
+      // A secret one says only whether it is set (spec §23): the Host never answers its value.
+      const shown = (f: Record<string, unknown>): string =>
+        f.secret === true
+          ? secrets[str(f.key)] === 'set'
+            ? '(secret, set)'
+            : '(secret, not set)'
+          : Object.hasOwn(values, str(f.key))
+            ? str(values[str(f.key)])
+            : '(not set)'
+      const rows = columns(fields.map((f) => (f.required === true ? [str(f.key), shown(f), 'required'] : [str(f.key), shown(f)])))
+      if (data.restarted === true) return `${rows}\n(restarted)`
+      // configure says how the plugin stands after the change (2c final review M6): held back, or failed and waiting
+      // for `plugins enable`.
+      if (cmd !== 'plugins-configure' || typeof data.status !== 'string') return rows
+      const reason = typeof data.reason === 'string' ? `: ${data.reason}` : ''
+      const next = data.status === 'failed' ? `; start it again with astera plugins enable --id ${str(data.id)}` : ''
+      return `${rows}\n(${data.status}${reason}${next})`
+    }
+    case 'plugins-doctor':
+      return columns(
+        (Array.isArray(data.checks) ? (data.checks as Record<string, unknown>[]) : []).map((c) => [c.ok !== true ? 'FAIL' : c.warn === true ? 'warn' : 'ok', str(c.name), str(c.detail)])
+      )
+    case 'plugins-list':
+      return columns(
+        asList(data, 'plugins').map((p) => {
+          const granted = Array.isArray(p.permissions) ? (p.permissions as unknown[]).map(str) : []
+          const row = [str(p.status).toUpperCase(), str(p.id), str(p.version), granted.length > 0 ? granted.join(',') : '-']
+          // Why it does not run, as docs/cli.md promises the list says.
+          return typeof p.reason === 'string' ? [...row, p.reason] : row
+        })
+      )
     case 'projects-list':
       return columns(asList(data, 'projects').map((p) => [str(p.id), str(p.name), str(p.path)]))
     case 'jobs-list':
@@ -320,6 +361,11 @@ export function humanFor(cmd: string, data: Record<string, unknown>): string | n
     case 'jobs-wait':
     case 'runs-wait':
     case 'projects-get':
+    case 'plugins-get':
+    case 'plugins-install':
+    case 'plugins-enable':
+    case 'plugins-disable':
+    case 'plugins-remove':
     case 'projects-find':
     case 'runs-get':
     case 'questions-get':

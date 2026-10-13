@@ -353,7 +353,7 @@ describe('argsForCall — run-create의 --cwd 기본값 (task-13a)', () => {
 
 // **영수증이 가림막을 도는 길이 되면 안 된다.** `publicFor` 는 친 명령으로 가리는데(run.ts),
 // `requests show` 가 싣고 오는 것은 **다른 명령의 답**이고 `requests-show` 는 그 표에 없다 — 그대로
-// 두면 공개 표면이 가리는 칸이 영수증을 통해 그대로 나간다. cliPublic 이 한 경계이려면 여기서
+// 두면 공개 표면이 가리는 칸이 영수증을 통해 그대로 나간다. publicFor 가 한 경계이려면 여기서
 // 실려 온 명령으로 가려야 한다.
 describe('shownReceipt — 영수증 속 답은 그 답을 낸 명령으로 가린다', () => {
   const receipt = (cmd: string, body: unknown): Record<string, unknown> => ({
@@ -386,7 +386,7 @@ describe('shownReceipt — 영수증 속 답은 그 답을 낸 명령으로 가�
     expect((shown.response as { status: number }).status).toBe(200)
   })
 
-  // 세션 전용 명령은 애초에 가려진 적이 없다(cliPublic 의 SHAPE). 표에 없는 것을 여기서 거절로
+  // 세션 전용 명령은 애초에 가려진 적이 없다(packages/client/src/shape.ts 의 SHAPE). 표에 없는 것을 여기서 거절로
   // 바꾸면 재생이 원래 명령보다 적게 보여 주게 된다.
   it('표에 없는 명령의 답은 통째로 지나간다', () => {
     const body = { dispatchId: 'dsp_1', sessionId: 'ses_1', cwd: 'D:/x', specPath: 'D:/x/spec.md' }
@@ -961,6 +961,18 @@ describe('lostAnswerDetails — 잃은 답의 회복 줄', () => {
     expect(d.retryNote).toContain('stdin')
   })
 
+  // 2c final review M13: `plugins configure --set token=...` carries a secret on its line, and the envelope must not.
+  it('writes out no line to retry a command that can carry a secret on its line', () => {
+    const d = lostAnswerDetails({ argv: ['plugins', 'configure', '--id', 'x', '--set', 'token=tok-secret-1'], request: 'rq-1', secret: true })
+    expect(Object.hasOwn(d, 'retryCommand')).toBe(false)
+    expect(d.retryNote).toBe(
+      'this command can carry a secret on its line, so the line to retry it is not written out here. Run the same command again with --request-id rq-1.'
+    )
+    expect(JSON.stringify(d)).not.toContain('tok-secret-1')
+    const fed = lostAnswerDetails({ argv: ['plugins', 'configure', '--id', 'x', '--stdin', 'token'], request: 'rq-1', fromStdin: ['stdin'], secret: true })
+    expect(fed.retryNote).toContain('read --stdin from standard input')
+  })
+
   /** 여러 칸이 stdin 을 읽었으면 전부 댄다 — 어느 것을 다시 넣어야 하는지가 그 문장의 값이다. */
   it('stdin 을 읽은 칸이 여럿이면 전부 이름을 댄다', () => {
     const d = lostAnswerDetails({
@@ -1179,6 +1191,8 @@ describe('callHost — 명령 하나를 Host 에 묻는다', () => {
           closers.add(cb)
           return () => closers.delete(cb)
         },
+        ref: () => {},
+        unref: () => {},
         close: () => {}
       }
     }

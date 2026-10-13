@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "CommonJS",
+    "strict": true,
+    "verbatimModuleSyntax": false,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "types": ["node"],
+    "declaration": true,
+    "outDir": "dist/cjs",
+    "rootDir": "src",
+    "paths": { "@astera-app/client": ["./build/client.d.ts"] }
+  },
+  "include": ["src"],
+  "exclude": ["src/**/*.test.ts"]
+}

@@ -49,11 +49,13 @@ describe('reduce — 루트 전환 (데이터 손실 가드)', () => {
     expect(reduce(before, { type: 'rootRestored' })).toBe(before)
   })
 
-  it('새로고침은 선택·anchor·클립보드를 모두 비운다', () => {
+  // 새로고침이 펼친 폴더와 캐시를 지키게 된 뒤(2026-10-12)로는 클립보드를 비울 근거가 없다 — 루트 전환도
+  // 지키는 클립보드를 그보다 가벼운 새로고침이 지우면 잘라내기 → 새로고침 → 붙여넣기가 조용히 아무 일도 안 한다
+  it('새로고침은 선택과 anchor 만 비우고 클립보드는 지킨다', () => {
     const after = reduce(before, { type: 'refreshed' })
     expect(sel(after)).toEqual([])
     expect(after.anchor).toBeNull()
-    expect(after.clipboard).toBeNull()
+    expect(after.clipboard).toBe(before.clipboard)
   })
 })
 

@@ -198,8 +198,9 @@ export interface JobRun {
    *  남은 번호가 바뀌지 않는다. */
   ordinal: number
   createdAt: string
-  /** 지금 이 회차를 관리하고 있는 세션. **깨우기와 안전망이 이 칸의 유무로 판단한다** — "답할
-   *  사람이 있는가" 를 묻는 유일한 자리다. 세션이 사라지면 배선이 이 칸을 지운다.
+  /** 지금 이 회차를 관리하고 있는 세션 — **Astera 가 띄운 코디네이터다.** 깨우기와 안전망이 이 칸의
+   *  유무로 판단하고, 안전망은 밖에서 모는 세션(`externalCoordinatorSessionId`)도 함께 본다.
+   *  세션이 사라지면 배선이 이 칸을 지운다.
    *
    *  **사라진 코디네이터를 앱이 다시 띄우지는 않는다.** 탭을 닫는 것은 사람의 결정이고, 곧바로
    *  다시 열면 그 결정을 무시하는 것이다 — 크래시와 구별할 방법도 없다(`kill` 은 표시를 남기지
@@ -232,6 +233,13 @@ export interface JobRun {
    *  retried rather than remembered as done. A new coordinator (`attachCoordinator`) starts without it;
    *  a roll's rekey carries it, since the stop is meant for whatever session the slot follows. */
   coordinatorStopPending?: string
+  /** The session that drives this Run from outside: it made the Run with `run-create` (with no coordinator account),
+   *  or took it over with `check --run`, and Astera neither started nor owns it (2026-10-13, spec E1). **Only the inbox net reads it**
+   *  (`unattendedQuestions`, inbox.ts): while that session is alive, a worker's question is left to it. Nothing stops,
+   *  nudges or types into the session through this field, and nothing empties it when the session ends: whether it
+   *  lives is asked when a question is judged, because a chat session's end never reaches the orchestration (E4). A
+   *  roll moves it (`rekeyExternalCoordinator`). */
+  externalCoordinatorSessionId?: string
   /** 이 회차의 워커들이 일하는 워크트리. **없으면 아직 만들어지지 않았다** — 첫 워커를 띄우기
    *  직전에 만들고 기록한다: 예약의 게으른 포크는 배선이 `run-worktree-set` 으로(src/main/ipc.ts),
    *  코디네이터가 있는 Job 의 첫 실행은 command.ts 가 직접(Host 도 만든다, Host S3).
@@ -520,10 +528,9 @@ export const FAILURE_LIMIT = 3
  * 시간은 재지 않는다(2초 requestTimeout 으로 5초 응답을 돌려 확인했고, 이미 10분을 기다리는
  * ask 가 그 증거다). 그래서 한 시간을 붙잡아도 끊기지 않는다.
  */
-export const DEFAULT_WAIT_TIMEOUT_MS = 60 * 60_000
-export const DEFAULT_ASK_TIMEOUT_MS = 600_000
-/** Default long-poll deadline for check --wait. server.ts and the CLI share it for the same reason. */
-export const DEFAULT_CHECK_TIMEOUT_MS = 300_000
+// The three deadlines are the SDK package's (packages/client/src/deadlines.ts): the Host waits by them, and the CLI
+// and @astera-app/client wait past them. The renderer-safe door, since this file is in the renderer's program too.
+export { DEFAULT_ASK_TIMEOUT_MS, DEFAULT_CHECK_TIMEOUT_MS, DEFAULT_WAIT_TIMEOUT_MS } from '../publicProtocol'
 
 const ALLOWED: Record<TaskStatus, TaskStatus[]> = {
   pending: ['ready', 'dispatched', 'blocked'],

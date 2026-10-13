@@ -29,6 +29,7 @@ import { encodeLine, createLineReader } from '../host/framing'
 import { startHostServer, ADDRESS_TAKEN, type HostServer } from '../host/server'
 import { ensureHostKey, hostProof } from '../core/host/hostKey'
 import { createHostOrch, type HostOrch } from '../host/orch'
+import { createPluginManager } from '../host/plugins/manager'
 import { createHostJournal } from '../host/hostJournal'
 import { JournalReader } from '../core/continuity/journalReader'
 import type { JournalEventRow } from '../core/continuity/journal'
@@ -646,6 +647,7 @@ async function hostRig(
   const orch = createHostOrch({
     profileDir,
     version: '9.9.9',
+    plugins: createPluginManager({ profileDir, hostVersion: '9.9.9' }),
     now: () => new Date().toISOString(),
     hostStartedAt: () => serverOf().startedAt,
     runningSessions: () => registry.liveCount() + procs.liveCount(),
@@ -1099,6 +1101,81 @@ describe('the public CLI against a real Host (§48, §49)', { timeout: 60_000 },
 
   // §49 "spaces/non-ASCII user directory", "path quoting": a profile and a Job folder with a space and
   // Hangul in their names, through the address, `projects find`, `jobs create --cwd` and `--project`.
+  it('plugins install shows the request and installs nothing until --yes, then list, disable and remove (plugin runtime design P6)', async () => {
+    const h = await hostRig({ repo: false })
+    const folder = await tempDir('astera-플러그인 폴더-')
+    cleanups.push(() => rmrf(folder))
+    const manifest = { name: 'astera-hello', version: '1.0.0', displayName: 'Hello', astera: { apiVersion: '1', entry: 'index.js', permissions: ['jobs.read'] } }
+    await fs.writeFile(path.join(folder, 'package.json'), JSON.stringify(manifest))
+    await fs.writeFile(path.join(folder, 'index.js'), '')
+
+    const asked = await astera(['plugins', 'install', '--path', folder], h.env)
+    expect(asked.code, asked.stdout).toBe(2)
+    expect(asked.envelope.error).toMatchObject({ code: 'INVALID_ARGUMENTS', details: { plugin: { id: 'astera-hello', permissions: ['jobs.read'] } } })
+    expect(asked.envelope.error?.message).toContain('Hello 1.0.0 (astera-hello) asks for: jobs.read. Plugins run trusted code on this machine')
+    expect(okData(await astera(['plugins', 'list'], h.env), 'plugins list')).toEqual({ plugins: [] })
+    // Inside an agent session the approval itself would be refused, so it is refused now, saying who can give it.
+    const agent = await astera(['plugins', 'install', '--path', folder], { ...h.env, ASTERA_SESSION: 'sess_agent' })
+    expect(agent.code, agent.stdout).toBe(5)
+    expect(agent.envelope.error?.message).toContain('not an agent session (ASTERA_SESSION is set)')
+
+    const installed = okData(await astera(['plugins', 'install', '--path', folder, '--yes'], h.env), 'plugins install --yes')
+    expect(installed).toMatchObject({ id: 'astera-hello', status: 'stopped', permissions: ['jobs.read'], dir: path.join(h.profileDir, 'plugins', 'installed', 'astera-hello') })
+    expect(okData(await astera(['plugins', 'list'], h.env), 'plugins list')).toMatchObject({ plugins: [{ id: 'astera-hello', enabled: true }] })
+    expect(okData(await astera(['plugins', 'doctor', '--id', 'astera-hello'], h.env), 'plugins doctor')).toMatchObject({ ok: true })
+    expect(okData(await astera(['plugins', 'logs', '--id', 'astera-hello'], h.env), 'plugins logs')).toMatchObject({ id: 'astera-hello', lines: [] })
+    // A native addon in the copy is a warning; an entry that is gone is a failure, and exit 1.
+    await fs.writeFile(path.join(h.profileDir, 'plugins', 'installed', 'astera-hello', 'fast.node'), '')
+    expect(okData(await astera(['plugins', 'doctor', '--id', 'astera-hello'], h.env), 'plugins doctor')).toMatchObject({
+      ok: true,
+      checks: expect.arrayContaining([expect.objectContaining({ name: 'native-addons', warn: true })])
+    })
+    await fs.rm(path.join(h.profileDir, 'plugins', 'installed', 'astera-hello', 'index.js'))
+    const sick = await astera(['plugins', 'doctor', '--id', 'astera-hello'], h.env)
+    expect(sick.code, sick.stdout).toBe(1)
+    expect(sick.envelope.error).toMatchObject({ code: 'FAILED', message: expect.stringContaining('astera-hello has problems: entry: index.js is not a file in the installed copy') })
+    expect(okData(await astera(['plugins', 'disable', '--id', 'astera-hello'], h.env), 'plugins disable')).toMatchObject({ status: 'disabled', changed: true })
+    expect(okData(await astera(['plugins', 'remove', '--id', 'astera-hello'], h.env), 'plugins remove')).toEqual({ id: 'astera-hello', version: '1.0.0', removed: true })
+    expect((await astera(['plugins', 'get', '--id', 'astera-hello'], h.env)).code).toBe(4)
+  })
+
+  // Plugins 2c (spec §23-§24): a setting set from the CLI, a secret one never shown back.
+  it('plugins configure sets a plain and a secret setting, and plugins settings never shows the secret', async () => {
+    const h = await hostRig({ repo: false })
+    const folder = await tempDir('astera-설정 플러그인-')
+    cleanups.push(() => rmrf(folder))
+    const manifest = {
+      name: 'astera-configured',
+      version: '1.0.0',
+      astera: {
+        apiVersion: '1',
+        entry: 'index.js',
+        settingsSchema: { type: 'object', properties: { baseUrl: { type: 'string' }, token: { type: 'string', secret: true } }, required: ['token'] }
+      }
+    }
+    await fs.writeFile(path.join(folder, 'package.json'), JSON.stringify(manifest))
+    await fs.writeFile(path.join(folder, 'index.js'), '')
+    okData(await astera(['plugins', 'install', '--path', folder, '--yes'], h.env), 'plugins install')
+    expect(okData(await astera(['plugins', 'get', '--id', 'astera-configured'], h.env), 'plugins get')).toMatchObject({
+      reason: 'needs settings: token; set them with astera plugins configure --id astera-configured'
+    })
+    const set = await astera(['plugins', 'configure', '--id', 'astera-configured', '--set', 'baseUrl=https://jira.example.com', '--set', 'token=tok-secret-9'], h.env)
+    expect(okData(set, 'plugins configure')).toMatchObject({ values: { baseUrl: 'https://jira.example.com' }, secrets: { token: 'set' } })
+    expect(set.stdout).not.toContain('tok-secret-9')
+    const shown = await astera(['plugins', 'settings', '--id', 'astera-configured'], h.env)
+    expect(okData(shown, 'plugins settings')).toMatchObject({ secrets: { token: 'set' } })
+    expect(shown.stdout).not.toContain('tok-secret-9')
+    const bad = await astera(['plugins', 'configure', '--id', 'astera-configured', '--set', 'nope=1'], h.env)
+    expect(bad.code).toBe(2)
+    expect(bad.envelope.error?.message).toBe('nope is not a setting of astera-configured; its settings are: baseUrl, token')
+    // 2c final review I5: refused before standard input is read, never a second read that sets nothing.
+    const dash = await astera(['plugins', 'configure', '--id', 'astera-configured', '--stdin', '-'], h.env)
+    expect(dash.envelope.error).toMatchObject({
+      code: 'INVALID_ARGUMENTS',
+      message: 'plugins configure reads standard input only as --stdin <key>, as in --stdin token; a - after --stdin is not one'
+    })
+  })
+
   it('a profile and a Job folder with spaces and Hangul work end to end', async () => {
     const project = await tempDir('astera-한글 프로젝트-')
     cleanups.push(() => rmrf(project))

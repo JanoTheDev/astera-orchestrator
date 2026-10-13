@@ -19,9 +19,9 @@ export function clockOf(at: string): string {
   return `${two(d.getHours())}:${two(d.getMinutes())}:${two(d.getSeconds())}`
 }
 
-/** Which event this is, across polls. `sourceId` is unique within a kind only (JobEvent): a Gate
- *  opens and resolves under one id, and a Dispatch's stop and resume share `<dispatchId>:<n>`. */
-export const eventKey = (e: Pick<JobEvent, 'kind' | 'sourceId'>): string => `${e.kind}:${e.sourceId}`
+/** Which event this is, across polls: the SDK package's rule (packages/client/src/follow.ts), so the CLI, MCP and
+ *  @astera-app/client each show an event once by the same key. */
+export { eventKey } from '../publicContract'
 
 /** A summary is often a first line already, but a message subject is whatever its writer sent. */
 const oneLine = (text: string | undefined): string => (text ?? '').replace(/\s*\r?\n\s*/g, ' ').trim()

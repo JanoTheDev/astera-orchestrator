@@ -556,7 +556,18 @@ const NOT_SWITCHED = [
   // The controller's side (src/cli/runtimes.ts), answered in the CLI process from <profile>/runtimes.
   'runtimes-add',
   'runtimes-list',
-  'runtimes-remove'
+  'runtimes-remove',
+  // Answered by the Host's plugin manager (src/host/plugins/commands.ts), beside `projects-add`.
+  'plugins-install',
+  'plugins-list',
+  'plugins-get',
+  'plugins-enable',
+  'plugins-disable',
+  'plugins-remove',
+  'plugins-logs',
+  'plugins-doctor',
+  'plugins-settings',
+  'plugins-configure'
 ] as const satisfies readonly AgentCommand[]
 
 /**
@@ -610,7 +621,7 @@ export interface AgentContext {
 }
 
 /** What `error.code` means, one line each. The numbers are not written here — they come from
- *  `exitCodeFor`, which is the one table (cliOutput.ts). */
+ *  `exitCodeFor`, which is the one table (packages/client/src/errors.ts, through cliOutput.ts). */
 const MEANING: Record<CliErrorCode, string> = {
   FAILED: 'a failure none of the other codes describes',
   INVALID_ARGUMENTS: 'the parser refused, or the command rejected the arguments',

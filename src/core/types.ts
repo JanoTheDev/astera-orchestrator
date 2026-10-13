@@ -1840,6 +1840,31 @@ export interface OrchApi {
 }
 
 /** Settings › Remote Runtimes and the Jobs view's runtime and project selectors (remote runtime design Phase 6). */
+/** An answer to one of Settings › Plugins' calls (main/host/pluginsRoute.ts): the Host's body, or why there is none.
+ *  `code` is the Host's own when it sends one, else one for its status (INVALID_ARGUMENTS, FORBIDDEN, NOT_FOUND,
+ *  CONFLICT, NOT_SUPPORTED, FAILED), or HOST_NOT_RUNNING (nothing was sent), TIMEOUT or HOST_LOST (it was, and the
+ *  change may have been made). */
+export type PluginsCallAnswer = { ok: true; body: Record<string, unknown> } | { ok: false; code: string; message: string; reason?: string }
+
+/** Where a plugin is installed from: a folder on this machine, or a package on npm (plugins 2e). */
+export type PluginSource = { path: string } | { npm: string }
+
+/** Settings › Plugins (plugin runtime design slice 2d): the Host's `plugins-*` commands the tab uses, as the app, and
+ *  no other (design P5). */
+export interface PluginsApi {
+  list(): Promise<PluginsCallAnswer>
+  /** What a folder or an npm package holds, to show before it is installed. */
+  inspect(source: PluginSource): Promise<PluginsCallAnswer>
+  /** `grant` is what the person left checked; `expect` is what they were shown, which the Host checks the copy against
+   *  (and, from npm, the version it fetches). */
+  install(a: PluginSource & { grant: string[]; expect: { name: string; version: string } }): Promise<PluginsCallAnswer>
+  setEnabled(id: string, enabled: boolean): Promise<PluginsCallAnswer>
+  remove(id: string): Promise<PluginsCallAnswer>
+  logs(id: string, lines: number): Promise<PluginsCallAnswer>
+  settings(id: string): Promise<PluginsCallAnswer>
+  configure(id: string, set: Record<string, string | boolean>, unset: string[]): Promise<PluginsCallAnswer>
+}
+
 export interface RemoteApi {
   list(): Promise<RemoteRuntimeInfo[]>
   /** Pairs from the string `astera runtime pair` printed on the Runtime. The token is kept in main, never returned. */
@@ -1978,6 +2003,7 @@ export type RendererApi = CoreApi & {
   orch: OrchApi
   /** Remote Runtimes (remote runtime design Phase 6): Settings › Remote Runtimes and the Jobs view's selectors. */
   remote: RemoteApi
+  plugins: PluginsApi
   remoteSessions: RemoteSessionsApi
   understanding: UnderstandingApi
   sessionTasks: SessionTaskApi

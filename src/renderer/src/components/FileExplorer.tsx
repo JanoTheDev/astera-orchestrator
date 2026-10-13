@@ -135,12 +135,15 @@ export function FileExplorer({
   // mount, the effect on every root change), so it is not duplication.
   const tree = useFileTree(root, savedTree && savedTree.root === root ? savedTree : null)
   // Destructured to keep the existing identifiers, so extracting useFileTree touched the rest of the code as little as possible
-  const { dirs, expanded, dirsRef, loadDir, toggleDir, findEntry, entriesOf } = tree
+  const { dirs, expanded, dirsRef, toggleDir, findEntry, entriesOf } = tree
 
   // The root's first read on a big folder or a shared drive can take seconds. Past ROOT_SLOW_MS the tree
   // says it is still reading, instead of sitting blank; below that nothing shows, so a fast folder does
   // not flash a message for one frame.
   const rootPending = !!root && !dirs[root]
+  // A refresh keeps the tree on screen, so this is the one sign it is working: the icon turns while the root is
+  // read again. tree.loading lags a read by ROW_SPINNER_DELAY_MS, so a quick refresh does not flicker it.
+  const refreshing = root !== null && tree.loading.has(root)
   const [rootSlow, setRootSlow] = useState(false)
   useEffect(() => {
     setRootSlow(false)
@@ -301,12 +304,14 @@ export function FileExplorer({
   }, [root, expanded, dirs, sel.clipboard])
 
   const refresh = (): void => {
-    tree.resetTree()
-    // Clear selection, editing and clipboard too. If the selection survives, selectionPaths() silently
-    // filters out paths it can no longer find in the new cache and F2/Delete then do nothing; if the
-    // clipboard survives, pasteDir() cannot find the anchor entry and falls back to root, so Ctrl+V
-    // pastes in the wrong place (the root). An open input row would also be left behind with its parent
-    // gone, so it is closed as well.
+    // The folders the person opened stay open and are read again (planRefresh); resetting the tree here
+    // closed every one of them (2026-10-12).
+    tree.refreshTree()
+    // The selection and an open input row are still cleared. A refresh is the person asking for the disk as
+    // it is, and what they had selected may be gone from it: a selection naming a deleted file is silently
+    // filtered out by selectionPaths() and F2/Delete then do nothing, and an input row could be left behind
+    // with its parent gone. The clipboard stays, as it does on a root switch: a cut or copy survives a
+    // refresh, and a source that is gone is reported when it is pasted.
     sel.dispatch({ type: 'refreshed' })
     resetEditingState()
     // The undo journal is deliberately NOT cleared here — this is the intentional exception to the
@@ -314,10 +319,9 @@ export function FileExplorer({
     // effect above). That rule is about undo aimed at paths that are not on screen (root gone or
     // changed) being dangerous, but a refresh keeps root the same — and the journal's accuracy does not
     // depend on this tree cache, it depends on re-checking the actual disk with files.list at undo()
-    // time (partitionInvOps), so emptying the cache does not make the journal stale. Clearing it here
+    // time (partitionInvOps), so re-reading the cache does not make the journal stale. Clearing it here
     // would instead silently throw away undoable operations on every refresh (behavior is left as it
     // is; this comment documents the decision).
-    if (root) loadDir(root)
     gitStatus.refresh() // refresh git status along with the explorer — appended after the existing behavior, which is unchanged
   }
 
@@ -878,7 +882,7 @@ export function FileExplorer({
             title={t('explorer.refresh')}
             onClick={refresh}
           >
-            <RefreshCw size={14} />
+            <RefreshCw size={14} className={refreshing ? 'fx-refreshing' : undefined} />
           </button>
           <button
             className="icon-btn"

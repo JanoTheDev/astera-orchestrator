@@ -61,7 +61,8 @@ import { findHostHeld, hostHeldLive, nativeOfForwardedRekey } from './host/hostN
 import { applyAdoptRolling } from './host/adoptRolling'
 import { chatAdoptPlan, hostCarryOnIsOurs, hostStartingDefers } from './chatAdopt'
 import { reattachSessions, type ReattachResult } from './host/reattach'
-import { createWorktreeRoute, NO_HOST_CONNECTION } from './host/worktreeRoute'
+import { createWorktreeRoute, NO_HOST_CONNECTION, hostDeadlineMessage } from './host/worktreeRoute'
+import { createPluginsRoute } from './host/pluginsRoute'
 import { createHostGitOps } from '../core/workUnit/hostGitOps'
 import { appPathInUse } from './host/localPathInUse'
 import { HOST_PROTOCOL, HOST_ACT_PATH_IN_USE, HOST_ACT_SLACK_ANSWER, type ClientMessage, type HostMessage, type PtyEntry } from '../core/host/protocol'
@@ -512,6 +513,13 @@ export type SessionsTakenBack = ReattachResult | 'unknown' | null
  *  registry, where the middle answer cannot arise (design §6). Trivial, and a named function with
  *  tests anyway: this is the exact place the three answers could quietly become two, and that
  *  collapse is the duplicate-agent bug. */
+/** Whether a session with this id is running in this app, a chat included (2026-10-13, spec E5): the loop's
+ *  `sessionAlive`, which a Run's external coordinator is judged by. The caller passes the terminal and chat lists
+ *  together (`allSessions`). */
+export function liveSessionIn(sessions: readonly SessionInfo[], id: string): boolean {
+  return sessions.some((x) => x.id === id && x.status !== 'exited')
+}
+
 export function liveWorkersFor(taken: SessionsTakenBack): ReadonlySet<string> | 'unknown' | undefined {
   if (taken === null) return undefined
   if (taken === 'unknown') return 'unknown'
@@ -1223,13 +1231,16 @@ export function registerIpc(
    * and `state-put`, and both are one file write at the far end. The constant is the one the Host
    * judges a silent app by in the other direction, so the two cannot drift.
    */
-  const orchCall = (m: { cmd: string; args: Record<string, unknown>; sessionId: string }): Promise<OrchReply> =>
+  const orchCall = (m: { cmd: string; args: Record<string, unknown>; sessionId: string; timeoutMs?: number }): Promise<OrchReply> =>
     new Promise((resolve, reject) => {
       const call = `app_${++orchCallSeq}`
+      // Settings › Plugins' changes wait longer (pluginsRoute's PLUGIN_CHANGE_DEADLINE_MS): a large folder's copy runs
+      // past the usual deadline.
+      const ms = m.timeoutMs ?? HOST_UNRESPONSIVE_MS
       const timer = setTimeout(() => {
         pendingOrchCalls.delete(call)
-        reject(new Error(`the Host did not answer ${m.cmd} within ${HOST_UNRESPONSIVE_MS}ms`))
-      }, HOST_UNRESPONSIVE_MS)
+        reject(new Error(hostDeadlineMessage(m.cmd, ms)))
+      }, ms)
       timer.unref?.()
       pendingOrchCalls.set(call, { resolve, reject, timer })
       // A send that does not go out is the connection having dropped. Answered now rather than after
@@ -1572,12 +1583,13 @@ export function registerIpc(
   }
   /** What an ended session costs the app, whichever manager it came from. `core.sessions.onExit` and
    *  `core.chat.onExit` are both this function: a chat session's exit has to reach the renderer as the
-   *  same `session:exit` a pty's does (that is what closes the tab), and every other consumer here —
-   *  the agent-browser run, the Slack notice, the Work Unit collector, the coordinators — reasons about
-   *  a session id, not about how that session's process was spawned. The handful of things that are
-   *  genuinely per-kind are NOT here: the pty's own cleanup (busy scanners, the rolling coordinators)
-   *  is harmless for a chat id and is left where it was, and the chat's own (attention, the rollout
-   *  watcher) lives in the chat subscriber below, next to the events that set them up. */
+   *  same `session:exit` a pty's does (that is what marks its tab ended and closes its agent tab), and
+   *  every other consumer here — the agent-browser run, the Slack notice, the Work Unit collector, the
+   *  coordinators — reasons about a session id, not about how that session's process was spawned. The
+   *  handful of things that are genuinely per-kind are NOT here: the pty's own cleanup (busy scanners,
+   *  the rolling coordinators) is harmless for a chat id and is left where it was, and the chat's own
+   *  (attention, the rollout watcher) lives in the chat subscriber below, next to the events that set
+   *  them up. */
   // The exit of a session a Host roll is replacing waits until the new session is adopted, the rekey
   // forwarded and the mirror moved (S6 §3.4, withHostRollHold), so the renderer replaces the old tab
   // rather than closing it, and the app's orchestration tap finds the Dispatch already rekeyed.
@@ -3104,7 +3116,9 @@ export function registerIpc(
       integrate: (runRoot, merges) => integrateWorktrees(runRoot, merges, {}, gitCtx),
       reap: (p) => reapWorktree(p),
       isRegisteredWorktree: (p) => core.worktrees.list().some((w) => isSamePath(w.path, p)),
-      sessionAlive: (id) => core.sessions.list().some((x) => x.id === id && x.status !== 'exited'),
+      // Chats too (2026-10-13, spec E5): a Run's external coordinator can be a chat session. Every other caller asks
+      // about a Dispatch's session, and no Dispatch names a chat, so their answers do not change.
+      sessionAlive: (id) => liveSessionIn(allSessions(), id),
       // L1: exited with a real code. A lost-sight exit is a Host-held session still running, and a
       // session not in the list is one this app cannot tell about: neither confirms a stop.
       sessionGone: (id) =>
@@ -4693,6 +4707,19 @@ export function registerIpc(
     log: orchLog
   })
   ipcMain.handle('orch.list', (_e, projectPath: string, runtimeId?: string) => orchRouter.list(projectPath, runtimeId))
+  // Settings › Plugins (plugin runtime design slice 2d): the Host's plugins commands as the app, one a method. The Host
+  // checks every argument; a value of the wrong type is its refusal to give.
+  const plugins = createPluginsRoute({ call: (m) => orchCall(m) })
+  ipcMain.handle('plugins.list', () => plugins.list())
+  ipcMain.handle('plugins.inspect', (_e, source: unknown) => plugins.inspect(source as Parameters<typeof plugins.inspect>[0]))
+  ipcMain.handle('plugins.install', (_e, a: unknown) => plugins.install(a as Parameters<typeof plugins.install>[0]))
+  ipcMain.handle('plugins.setEnabled', (_e, id: unknown, enabled: unknown) => plugins.setEnabled(id as string, enabled === true))
+  ipcMain.handle('plugins.remove', (_e, id: unknown) => plugins.remove(id as string))
+  ipcMain.handle('plugins.logs', (_e, id: unknown, lines: unknown) => plugins.logs(id as string, lines as number))
+  ipcMain.handle('plugins.settings', (_e, id: unknown) => plugins.settings(id as string))
+  ipcMain.handle('plugins.configure', (_e, id: unknown, set: unknown, unset: unknown) =>
+    plugins.configure(id as string, set as Record<string, string | boolean>, unset as string[])
+  )
   // Settings › Remote Runtimes and the Jobs view's selectors (remote runtime design Phase 6). A runtime id that is not a
   // string names nothing; every answer is the client's or the registry's own, never a local fallback.
   ipcMain.handle('remote.list', () => remoteRuntimes.list())
@@ -5196,7 +5223,8 @@ export function registerIpc(
   // agent's current directory as the first base for a relative target: Claude Code prints a
   // SendUserFile path relative to wherever its Bash tool `cd`'d, which the session's statusLine
   // payload names (agentDirOf). That payload is one small JSON file per session, read on each call —
-  // cheap enough for hover, and the renderer caches hits and retries misses only every few seconds.
+  // cheap enough for hover, and the renderer caches hits and retries misses only every few seconds (half a second for a
+  // media name the pointer comes back onto, terminalLinks.ts' lateLink).
   // The id is checked for shape before it is joined into a file name.
   // A session id as this app makes them (randomUUID), checked before it becomes part of a file name
   const SESSION_ID_SHAPE = /^[A-Za-z0-9_-]{1,128}$/

@@ -58,6 +58,7 @@ import type { HostDriverReport } from '../core/types'
 import type { HostChecks } from './checks'
 import type { HostOrch } from './orch'
 import type { PtyRegistry } from './registry'
+import type { ProcRegistry } from './procRegistry'
 import type { HostSpawner } from './spawner'
 import type { HostWorktrees } from './worktrees'
 
@@ -96,6 +97,17 @@ export { APP_LEFT_GRACE_MS }
 /** Ticks that may find the last one still running before the Host says so (final review M7). */
 export const TICKS_SKIPPED_BEFORE_SAYING = 4
 
+/** Whether a terminal or a chat session with this id is running in this Host (2026-10-13, spec E5). A worker is
+ *  always a pty; a chat is a line process in `procs`, and only a Run's external coordinator can be one. */
+export function hostSessionAlive(
+  registry: Pick<PtyRegistry, 'sessionPty'>,
+  procs: Pick<ProcRegistry, 'list'> | undefined,
+  id: string
+): boolean {
+  if (registry.sessionPty(id) !== null) return true
+  return procs?.list().some((e) => e.alive && e.meta?.kind === 'chat' && e.meta.id === id) ?? false
+}
+
 export function createHostDriving(d: {
   profileDir: string
   orch: Pick<HostOrch, 'handle' | 'internalDeps' | 'loaded' | 'drainOnce' | 'state'>
@@ -110,6 +122,9 @@ export function createHostDriving(d: {
   startRepair(a: { dispatchId: string }): void
   /** `sessionExitCode` answers the loop's `sessionGone` (limits pass L1); optional for the test fakes. */
   registry: Pick<PtyRegistry, 'sessionPty' | 'list'> & Partial<Pick<PtyRegistry, 'sessionExitCode' | 'lastPersonWrite'>>
+  /** The chat sessions' line processes, so `sessionAlive` sees a Run's external coordinator on a chat (spec E5).
+   *  Optional for the test fakes. */
+  procs?: Pick<ProcRegistry, 'list'>
   specsDir: string
   log(m: string): void
   nowMs(): number
@@ -375,7 +390,7 @@ export function createHostDriving(d: {
     integrate: (runRoot, merges) => d.worktrees.integrate(runRoot, merges),
     reap: reapWhileDriving,
     isRegisteredWorktree: (p) => d.worktrees.isRegistered(p),
-    sessionAlive: (id) => d.registry.sessionPty(id) !== null,
+    sessionAlive: (id) => hostSessionAlive(d.registry, d.procs, id),
     // L1: an ended pty the registry still holds, never a session it never held (that answers null).
     sessionGone: (id) => {
       const ended = d.registry.sessionExitCode?.(id) ?? null

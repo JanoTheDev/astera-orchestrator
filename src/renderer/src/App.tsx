@@ -21,6 +21,7 @@ import type { EditorView } from '@codemirror/view'
 import { EditorStateCache } from './lib/editorStateCache'
 import { createSessionSizeReporters, mirrorsFromList, newlyOpened, openSessionIds, placeAppTabs, removeAppTab, type Mirrors } from './lib/workspaceMirror'
 import { flushPendingEdits } from './lib/editCoalescer'
+import { writeThrough } from './lib/writeThrough'
 import { mirrorFrames, takeWorkspaceEvent } from './lib/mirrorFrames'
 import { FileExplorer, type ExplorerTreeState } from './components/FileExplorer'
 import { JobsView } from './components/JobsView'
@@ -44,6 +45,7 @@ import { GeneratorSettings } from './components/GeneratorSettings'
 import { CliSettings } from './components/CliSettings'
 import { McpSettings } from './components/McpSettings'
 import { RemoteRuntimesSettings } from './components/RemoteRuntimesSettings'
+import { PluginsSettings } from './components/PluginsSettings'
 import { RuntimeSelector } from './components/RuntimeSelector'
 import { createReplyGate } from './lib/replyGate'
 import { LOCAL, controlReason, detailRunGone, isRemoteRuntime, offlineNote, remoteDetailKey, remoteNewJobFolder, remotePollReady } from './lib/remoteJobs'
@@ -458,10 +460,23 @@ export default function App(): React.JSX.Element {
   // AccountSettings would present them as manageable, and every one of those actions fails on a source
   // that cannot authenticate. Only HistoryBrowser and ResumeDialog receive them.
   const [ghostAccounts, setGhostAccounts] = useState<Account[]>([])
-  const [sessions, setSessions] = useState<SessionInfo[]>([])
+  const [sessions, setSessionsState] = useState<SessionInfo[]>([])
+  // The session rows are read from this ref the same way the tree is (closeSession, the session:created guard), so
+  // they are written through it too: a close during a burst of taken-back sessions once wrote a list made from the old
+  // rows over the new ones, and a tab with no row is not drawn (final review of the taken-back tabs fix, minor 1).
+  const sessionsRef = useRef(sessions)
+  const setSessions = useMemo(() => writeThrough(sessionsRef, setSessionsState), [])
   // The pane layout tree. It replaces the old single split-slot state — up to 4 panes.
-  const [layout, setLayout] = useState<PaneNode | null>(null)
-  const [activePaneId, setActivePaneId] = useState<string | null>(null)
+  const [layout, setLayoutState] = useState<PaneNode | null>(null)
+  const [activePaneId, setActivePaneIdState] = useState<string | null>(null)
+  // The tree and the active pane are read from these refs to compute the next ones, and every write goes through
+  // writeThrough (lib/writeThrough.ts), which moves the ref before React hears of it: a burst of writes before a
+  // render (the Host's sessions taken back after an update) builds on each other instead of overwriting. Nothing
+  // moves them at render, where a render that ran ahead of a queued write would have put back the older tree.
+  const layoutRef = useRef(layout)
+  const activePaneIdRef = useRef(activePaneId)
+  const setLayout = useMemo(() => writeThrough(layoutRef, setLayoutState), [])
+  const setActivePaneId = useMemo(() => writeThrough(activePaneIdRef, setActivePaneIdState), [])
   // The session whose tab is being dragged (for PaneGrid's drop preview)
   const [dragTabId, setDragTabId] = useState<string | null>(null)
   // Position of the tab context menu
@@ -681,6 +696,7 @@ export default function App(): React.JSX.Element {
     | 'notifications'
     | 'github'
     | 'remote'
+    | 'plugins'
     | 'worktree'
     | 'history'
   >('general') // the settings sidebar, with general and accounts added
@@ -885,8 +901,7 @@ export default function App(): React.JSX.Element {
   const sidebarRef = useRef<HTMLElement>(null)
 
   // A reference to the latest value for keyboard tab switching — the global listener registers once and reads without going stale
-  const sessionsRef = useRef(sessions)
-  sessionsRef.current = sessions
+  // (sessionsRef is declared with its state above: it moves with every write, not here at render)
   const activeFileIdRef = useRef(activeFileId)
   activeFileIdRef.current = activeFileId
   const MD_MODE_KEY = 'cm.md.viewMode'
@@ -898,10 +913,6 @@ export default function App(): React.JSX.Element {
     localStorage.setItem(MD_MODE_KEY, mode)
     setMdModes((prev) => ({ ...prev, [tabId]: mode }))
   }
-  const layoutRef = useRef(layout)
-  layoutRef.current = layout
-  const activePaneIdRef = useRef(activePaneId)
-  activePaneIdRef.current = activePaneId
   const modalOpenRef = useRef(false)
   modalOpenRef.current = showNew || showSettings
   const fileTabsRef = useRef(fileTabs)
@@ -1139,10 +1150,9 @@ export default function App(): React.JSX.Element {
       const act = activateTab(root, sessionTab(wanted))
       if (!act) return
       // This tree is built from scratch, so the mirror tabs a workspace.list that answered first has
-      // already placed go back in (fix round 1: they were wiped). The ref moves now, so a list that
-      // answers after this, before the render, builds on this tree.
+      // already placed go back in (fix round 1: they were wiped). setLayout moves the ref at once, so a
+      // list that answers after this, before the render, builds on this tree.
       const withMirrors = placeAppTabs(act.root, openSessionIds(mirrorsRef.current), act.paneId)
-      layoutRef.current = withMirrors
       setLayout(withMirrors)
       setActivePaneId(act.paneId)
     })
@@ -1175,10 +1185,10 @@ export default function App(): React.JSX.Element {
       // triggering the setSessions and setLayout re-render that comes along with that no-op.
       //
       // **A session we know about and marked exited is a different case, and it has to fall through.**
-      // When the channel to the Host drops, every pty handle in main ends and session:exit closes the
-      // tab here — but the Host is still running the process, so the reconnect takes the session back
-      // under the same id and re-emits this event. Returning early there would leave a live agent with
-      // no tab and an 'exited' row until the next reload.
+      // When the channel to the Host drops, every pty handle in main ends and session:exit marks the
+      // row exited here (the tab stays, drawn as ended) — but the Host is still running the process,
+      // so the reconnect takes the session back under the same id and re-emits this event. Returning
+      // early there would leave a live agent drawn as ended, with an 'exited' row, until the next reload.
       const known = sessionsRef.current.find((s) => s.id === info.id)
       if (known && known.status !== 'exited') return
       setSessions((prev) =>
@@ -1916,18 +1926,17 @@ export default function App(): React.JSX.Element {
   }
 
   /** 탭 하나를 트리에서 뺀다. 다음에 무엇이 활성이 되는지는 removeTab 이 정한다(세션 탭을 닫을 때와
-   *  같은 규칙). 여기서 ref 를 직접 맞춰 두는 것은 연쇄로 닫힐 때(폴더 삭제) 다음 반복이 렌더 전의
-   *  낡은 값을 읽지 않게 하기 위해서다 — closeFileTab 의 fileTabsRef 미러링과 같은 이유다.
+   *  같은 규칙). 연쇄로 닫힐 때(폴더 삭제) 다음 반복이 렌더 전의 낡은 값을 읽지 않는 것은
+   *  setLayout·setActivePaneId 가 ref 를 바로 옮기기 때문이다(lib/writeThrough.ts) — closeFileTab 의
+   *  fileTabsRef 미러링과 같은 이유다.
    *  기능 탭이 세 번째 종류로 들어오면서 파일 탭과 이 꼬리를 그대로 나눠 쓰게 되어 함수가 되었다 —
    *  기능 탭에는 버퍼도 죽일 프로세스도 없어 닫기가 이것 하나다. */
   const dropTabFromTree = (id: string): void => {
     const cur = layoutRef.current
     if (!cur || !groupOfTab(cur, id)) return
     const nextLayout = removeTab(cur, id)
-    layoutRef.current = nextLayout
     const p = activePaneIdRef.current
     const nextPane = nextLayout ? (p && leafOf(nextLayout, p) ? p : firstLeaf(nextLayout).id) : null
-    activePaneIdRef.current = nextPane
     setActivePaneId(nextPane)
     setLayout(nextLayout)
   }
@@ -2204,10 +2213,8 @@ export default function App(): React.JSX.Element {
     let nextLayout = layoutRef.current
     for (const tab of fileTabsRef.current)
       if (nextLayout && groupOfTab(nextLayout, tab.id)) nextLayout = removeTab(nextLayout, tab.id)
-    layoutRef.current = nextLayout
     const p = activePaneIdRef.current
     const nextPane = nextLayout ? (p && leafOf(nextLayout, p) ? p : firstLeaf(nextLayout).id) : null
-    activePaneIdRef.current = nextPane
     setActivePaneId(nextPane)
     setLayout(nextLayout)
     fileTabsRef.current = []
@@ -3082,12 +3089,11 @@ export default function App(): React.JSX.Element {
   const mirrorsRef = useRef<Mirrors>({})
   /** The Host showed workspaces for these sessions: their mirror tabs, placed once and in the
    *  background, the openAgentTab rule (the agent's work must not take the tab the person is on). The
-   *  ref moves with the tree (dropTabFromTree's rule), so two workspaces that open before a render both
-   *  keep their tab (fix round 1: the second placement overwrote the first). */
+   *  ref moves with the tree (setLayout is write-through), so two workspaces that open before a render
+   *  both keep their tab (fix round 1: the second placement overwrote the first). */
   const openAppTabs = (sessionIds: string[]): void => {
     const root = placeAppTabs(layoutRef.current, sessionIds, activePaneIdRef.current)
     if (root === layoutRef.current) return
-    layoutRef.current = root
     setLayout(root)
   }
   const openAppTabsRef = useRef(openAppTabs)
@@ -4896,6 +4902,8 @@ export default function App(): React.JSX.Element {
                     ['cli', 'CLI'],
                     // Remote Runtimes (remote runtime design Phase 6): pairing with another computer, and this one as a Runtime.
                     ['remote', t('settings.tab.remote')],
+                    // Plugins (plugin runtime design slice 2d, spec §30): beside the other ways in to the Host.
+                    ['plugins', t('settings.tab.plugins')],
                     ['hiw', t('hiw.title')],
                     ['shortcuts', t('settings.tab.shortcuts')],
                     ['slack', 'Slack'],
@@ -5330,6 +5338,7 @@ export default function App(): React.JSX.Element {
                 {settingsTab === 'notifications' && <NotificationSettings />}
                 {settingsTab === 'github' && <GithubSettings />}
                 {settingsTab === 'remote' && <RemoteRuntimesSettings onChanged={() => setPairedChanged((n) => n + 1)} />}
+                {settingsTab === 'plugins' && <PluginsSettings />}
                 {settingsTab === 'worktree' && (
                   <div className="settings-worktree">
                     <label className="settings-field-label">{t('settings.worktree.createLocation')}</label>
@@ -5383,8 +5392,13 @@ export default function App(): React.JSX.Element {
             // With only one tab in the group, splitting changes nothing (splitAndMove returns null) — shown as disabled
             const cantSplit = !group || atMax || group.tabIds.length < 2
             const split = (dir: PaneDir): void => {
-              if (!cur || !group) return
-              const res = splitAndMove(cur, tid, group.id, dir, false)
+              // The tree as written, not the copy this menu was rendered from: a tab placed in the background
+              // since that render (a session taken back, an agent's tab) would be dropped by a split made from it
+              // (final review of the taken-back tabs fix, minor 2).
+              const now = layoutRef.current
+              const from = now ? groupOfTab(now, tid) : null
+              if (!now || !from) return
+              const res = splitAndMove(now, tid, from.id, dir, false)
               if (!res) return
               setLayout(res.root)
               setActivePaneId(res.paneId)

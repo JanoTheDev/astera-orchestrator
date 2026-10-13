@@ -8,6 +8,8 @@
 // — the app's loopback HTTP server was removed once nothing reached it any more (§7). Nothing here
 // knows whether a dependency is answered locally or across a socket, which is what lets the same
 // command layer run in both places.
+import { FOLLOW_WINDOW_MS, type AnsweredQuestion, type StopResult, type WaitEnding, type WaitTimeout } from '../publicContract'
+import { briefTask, jobView, latestRunOf, runView } from './publicViews'
 import { lastByState } from './stateMemo'
 import { randomBytes } from 'node:crypto'
 import {
@@ -35,6 +37,7 @@ import {
   runIdOf,
   attachCoordinator,
   detachCoordinator,
+  recordExternalCoordinator,
   pauseSchedule,
   resumeSchedule,
   resumeRun,
@@ -101,7 +104,7 @@ import { isTerminal as taskFinished, outcomeOf, progressOf } from './view'
 import { runningRunCount } from './running'
 import { FINISHED_RUN_GRACE_MS } from './exec/dispatchLoop'
 import { appDriven } from './schedule'
-import type { JobEvent, RunOutcome, WorktreeInfo } from '../types'
+import type { JobEvent, WorktreeInfo } from '../types'
 import { ghFailureSentence, type GhFailed, type GhRunner } from '../github/gh'
 import { failedLogTail, readPrChecks, rerunFailed } from '../github/checks'
 import { prForBranch } from '../github/prs'
@@ -704,35 +707,6 @@ const stillStarting = (open: readonly Dispatch[], now: string): Reply | null => 
  *  is a start that died: no pty was ever opened for it, so there is nothing to release. */
 const releases = (d: Dispatch): boolean => !isPlaceholderSessionId(d.sessionId)
 
-/**
- * 계획과 회차에 붙는 파생값 — 공개 읽기 표면이 상태를 말하는 방식(공개 CLI 설계 §6).
- *
- * **저장된 칸이 아니다.** Job 에도 JobRun 에도 상태 칸은 없고, 상태는 그것이 거느린 Task 에 있다.
- * 화면이 쓰는 함수를 그대로 쓴다(view.ts 의 outcomeOf·progressOf) — 같은 Job 을 앱에서 보는 것과
- * 셸에서 보는 것이 다르면 둘 중 하나는 거짓이다.
- *
- * `questionsOpen` 을 따로 세는 이유는 status 명령과 같다: 그것만이 **사람을 기다리는** 수이고,
- * 나머지 상태와 달리 사람이 답해야 움직인다.
- *
- * One deliberate difference: for a Job with no Run the app's Jobs view (view.ts snapshotFor) keeps
- * `running`, which its glyph and sort rely on, and shows its "not started" chip from `pendingStart`,
- * while the CLI/MCP view says `pending` (jobView below).
- */
-const derivedFor = (
-  s: OrchState,
-  ownerId: string,
-  runIds: readonly string[]
-): { outcome: RunOutcome; progress: { done: number; total: number }; questionsOpen: number } => ({
-  outcome: outcomeOf(s, ownerId),
-  progress: progressOf(s, ownerId),
-  questionsOpen: s.gates.filter((g) => g.status === 'open' && runIds.includes(g.runId)).length
-})
-
-/** 그 계획의 마지막 회차. 번호로 고른다 — 배열의 순서가 곧 시간순이 아니다(앞 회차를 지워도
- *  남은 번호는 그대로다). */
-const latestRunOf = (s: OrchState, job: Job): JobRun | undefined =>
-  s.runs.filter((r) => r.jobId === job.id).sort((a, b) => a.ordinal - b.ordinal).at(-1)
-
 /** The Job's latest Run **while it still runs**, else undefined. `jobs run` refuses on it, and a fire
  *  skips on it (`run-spawn --unless-running`; the user's ruling of 2026-09-25 on U1): the same test in
  *  both, so a schedule never starts a second Run of a Job beside one `jobs run` would count as running. */
@@ -831,20 +805,6 @@ const startable = (tasks: readonly Task[], coordinated: boolean): Set<string> =>
   return new Set(tasks.filter(canStart).map((t) => t.id))
 }
 
-/** 회차가 없으면 계획의 정의 Task 를 센다 — tasksOwnedBy 가 두 id 를 다 받는다(view.ts). */
-const jobView = (s: OrchState, job: Job, run: JobRun | undefined): Record<string, unknown> => ({
-  ...job,
-  ...derivedFor(s, run?.id ?? job.id, run ? [run.id] : []),
-  // A Job with no Run has started nothing. outcomeOf reads a Task-less owner as running (right for a
-  // Run just made), so without this a Job whose `jobs run` failed read `running` beside
-  // `pendingStart: true` (the e2e check of 2026-10-01). `pending` is JOB_STATES' word for it, and
-  // stateWord reads it as PENDING. The app's sidebar keeps its own row (view.ts) with its
-  // not-started chip, and a scheduled Job still reads SCHEDULED, since stateWord asks that first.
-  ...(run === undefined ? { outcome: 'pending' } : {}),
-  // Its latest Run is paused: the same word runView gives that Run.
-  ...(run?.paused === true ? { outcome: 'paused' } : {})
-})
-
 /**
  * `wait` 가 끝나는 자리. **아직 아니면 null 이고, 그때만 계속 기다린다.**
  *
@@ -855,7 +815,7 @@ const jobView = (s: OrchState, job: Job, run: JobRun | undefined): Record<string
  * 질문을 먼저 본다. 열린 질문이 있는 회차는 Task 가 전부 terminal 이어도 아직 사람을 기다리는
  * 중이고, 그쪽이 스크립트가 먼저 알아야 하는 사실이다.
  */
-const waitEndingFor = (s: OrchState, runId: string, now: string): Record<string, unknown> | null => {
+const waitEndingFor = (s: OrchState, runId: string, now: string): WaitEnding | null => {
   const run = s.runs.find((r) => r.id === runId)
   if (!run) return null
   const job = s.jobs.find((j) => j.id === run.jobId)
@@ -932,15 +892,6 @@ const limitedUntil = (s: OrchState, runId: string, now: string): string | null =
   }
   return earliest
 }
-
-/** A paused Run's `outcome` is `paused` (e2e 2026-10-01: `runs stop` left `paused: true` beside
- *  `outcome: "running"`). outcomeOf reads only the Tasks, so it cannot see the pause. `paused` is the
- *  JOB_STATES word, and stateWord puts it ahead of the Tasks' outcome, as this does. */
-const runView = (s: OrchState, run: JobRun): Record<string, unknown> => ({
-  ...run,
-  ...derivedFor(s, run.id, [run.id]),
-  ...(run.paused === true ? { outcome: 'paused' } : {})
-})
 
 /**
  * The open Dispatches among `ds` whose worker shows a permission prompt now, by id: the hook-event
@@ -1121,15 +1072,16 @@ export function ghRefusal(f: GhFailed): Reply {
 
 const POLL_MS = 50
 
-/** How long one `runs-follow` call holds before it answers with nothing new (CLI spec §22). The client
- *  asks again at once, so this bounds only how long a poll outlives a client that went away, and how
- *  often an idle follow costs a round trip. `FOLLOW_WINDOW_MAX_MS` caps what a caller may ask for. */
-export const FOLLOW_WINDOW_MS = 20_000
+// How long one `runs-follow` call holds before it answers with nothing new (CLI spec §22): the SDK package's
+// FOLLOW_WINDOW_MS (packages/client/src/deadlines.ts), which the CLI and @astera-app/client ask for too. The client asks
+// again at once, so this bounds only how long a poll outlives a client that went away, and how often an idle follow
+// costs a round trip. `FOLLOW_WINDOW_MAX_MS` caps what a caller may ask for.
+export { FOLLOW_WINDOW_MS }
 /** How long `runs resume` waits for the coordinator `runs stop` stopped to be gone: the exit release
  *  waits EXIT_DEFER_MS (3 s) after the process exits, so a stop that landed has emptied the slot well
  *  within this. */
 export const RESUME_STOP_WAIT_MS = 10_000
-const FOLLOW_WINDOW_MAX_MS = 60_000
+export const FOLLOW_WINDOW_MAX_MS = 60_000
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
@@ -1209,7 +1161,7 @@ export async function handleCommand(
   deps: OrchServerDeps,
   /** `role` is the Host connection's (OrchCaller.role); absent where no Host connection exists. Only
    *  `'mcp'` changes an answer: an MCP client calls with an empty session id, as a shell does. */
-  caller: { sessionId: string; role?: 'app' | 'cli' | 'mcp' | 'controller' },
+  caller: { sessionId: string; role?: 'app' | 'cli' | 'mcp' | 'controller' | 'plugin' },
   cmd: string,
   args: Record<string, unknown>
 ): Promise<Reply> {
@@ -1293,6 +1245,9 @@ export async function handleCommand(
   const isRunCoordinator = s.runs.some(
     (r) => r.coordinatorSessionId === caller.sessionId && outcomeOf(s, r.id) === 'running'
   )
+  // A real agent session: not a shell or an MCP client (they call with an empty id), not the app or the Host. Only
+  // such a caller can be a Run's external coordinator (JobRun.externalCoordinatorSessionId).
+  const fromAgentSession = caller.sessionId !== '' && caller.sessionId !== APP_CALLER && caller.sessionId !== HOST_CALLER
 
   const commit = async <T>(r: Res<T>): Promise<Reply> => {
     // **404 is what state.ts marked `missing`, nothing else** (R4). This used to read the words: any
@@ -1653,8 +1608,8 @@ export async function handleCommand(
         }
       }
       // 이 Run 을 관리할 코디네이터 세션의 계정. **하나다** — 목록이 아닌 이유는 Run.coordinatorAccountId
-      // 의 주석에 있다(갈아타는 대신 같은 세션에서 기다린다). 없으면 코디네이터를 띄우지 않고 앱이
-      // 돌린다(옛 동작). 사이드바는 그 상태를 만들지 않지만 CLI 와 옛 Run 이 그 갈래다.
+      // 의 주석에 있다(갈아타는 대신 같은 세션에서 기다린다). 없으면 코디네이터를 띄우지 않는다:
+      // `--auto` 면 앱이 돌리고, 아니면 이 명령을 부른 세션이 몬다(아래 끝의 externalCoordinatorSessionId).
       const coordArg = str(args.coordinatorAccount)
       let coordinatorAccountId: string | undefined
       if (coordArg !== null) {
@@ -1773,7 +1728,14 @@ export async function handleCommand(
       // '실행' 을 누를 때까지 기다리고(`--auto` + pendingStart), 예약 Job 의 회차는 발화가 만든다 —
       // 여기서 하나 만들면 예약 시각이 되기도 전에 1회차가 도는 일이 된다.
       if (args.auto === true || schedule !== undefined) return commit(created)
-      return commit(startJobRun(created.state, created.value.id, now))
+      const started = startJobRun(created.state, created.value.id, now)
+      if (!started.ok || !fromAgentSession || coordinatorAccountId !== undefined) return commit(started)
+      // **부른 세션이 이 회차를 몬다**(spec E3) — 스킬의 `run-create` → `check --wait` 고리다. 적지 않으면
+      // 받은편지함 그물이 이 회차를 답할 사람 없는 회차로 읽고, 그 세션보다 먼저 워커에게 답한다.
+      // 코디네이터 계정이 있으면 적지 않는다(최종 리뷰 M3): 그 회차는 Astera 가 띄울 코디네이터가 몬다.
+      const driven = recordExternalCoordinator(started.state, { runId: started.value.id, sessionId: caller.sessionId })
+      if (!driven.ok || driven.value === null) return commit(started)
+      return commit(driven)
     }
     // **등록된 저장소들.** 만들지 않는다 — 프로젝트는 사람이 폴더를 여는 순간 등록되고
     // (ipc.ts 의 orch.list), CLI 가 그것을 흉내 내면 워커의 워크트리가 목록에 섞인다.
@@ -1970,7 +1932,7 @@ export async function handleCommand(
       } else if (!s.runs.some((r) => r.id === id)) {
         return notFound(`unknown run: ${id}`)
       }
-      const probe = (): Record<string, unknown> | null => {
+      const probe = (): WaitEnding | null => {
         const cur = deps.getState()
         const now = deps.now?.() ?? new Date().toISOString()
         if (!byJob) return waitEndingFor(cur, id, now)
@@ -1996,7 +1958,7 @@ export async function handleCommand(
         jobId: byJob ? id : run?.jobId,
         runId: run?.id ?? null,
         progress: run ? progressOf(cur, run.id) : { done: 0, total: 0 }
-      })
+      } satisfies WaitTimeout)
     }
     /**
      * 이 회차를 멈춘다 (공개 CLI 설계 §5·§15).
@@ -2061,7 +2023,7 @@ export async function handleCommand(
       // kept, marked pending, until the exit release confirms it, and the driving loop resends it.
       const coordinator = deps.getState().runs.find((r) => r.id === id)?.coordinatorSessionId
       if (coordinator !== undefined) await retireCoordinator(id, coordinator, 'the run was stopped', true)
-      return okBody({ runId: id, stopped: open.length, paused: true, coordinatorStopped: coordinator !== undefined })
+      return okBody({ runId: id, stopped: open.length, paused: true, coordinatorStopped: coordinator !== undefined } satisfies StopResult)
     }
     /** 세워 둔 회차를 다시 돌게 한다. **`runs stop` 이 만든 상태를 푸는 유일한 길이다** —
      *  기존 `run-resume` 은 예약(계획)의 것만 걷고 예약이 아닌 Job 을 거절한다. 되돌릴 수 있다는
@@ -2164,7 +2126,7 @@ export async function handleCommand(
           return []
         }
       }
-      type Seen = { gone: true } | { cur: OrchState; extra: JobEvent[]; count: number; ending: Record<string, unknown> | null }
+      type Seen = { gone: true } | { cur: OrchState; extra: JobEvent[]; count: number; ending: WaitEnding | null }
       // The Run's own events counted once per state object (audit OR-6): the probe runs every 50 ms and the state
       // changes only at a commit. The journal's rows and the ending (it reads the clock) are asked each time.
       const ownEvents = lastByState((cur: OrchState) => eventCountFor(cur, id))
@@ -2191,8 +2153,8 @@ export async function handleCommand(
       })
     }
     // **Each Task's completion checks, read and never run** (CLI spec §20: no new validation engine).
-    // runChecks.ts reads `Task.checks`, the review Dispatches and `Task.reviewIssues`; cliPublic.ts
-    // keeps the public fields of every layer of the answer.
+    // runChecks.ts reads `Task.checks`, the review Dispatches and `Task.reviewIssues`; publicFor
+    // (packages/client/src/shape.ts) keeps the public fields of every layer of the answer.
     case 'runs-checks': {
       const id = str(args.id)
       if (!id) return bad('--id is required')
@@ -3015,14 +2977,7 @@ export async function handleCommand(
       if (run) tasks = tasks.filter((t) => t.runId === run)
       if (str(args.status)) tasks = tasks.filter((t) => t.status === args.status)
       if (args.ready === true) tasks = tasks.filter((t) => t.status === 'ready')
-      if (args.brief === true)
-        return okBody(
-          tasks.map((t) => ({
-            ...t,
-            spec: t.spec.replace(/\s+/g, ' ').slice(0, 160),
-            spec_truncated: t.spec.replace(/\s+/g, ' ').length > 160
-          }))
-        )
+      if (args.brief === true) return okBody(tasks.map(briefTask))
       return okBody(tasks)
     }
     case 'task-update': {
@@ -3801,6 +3756,15 @@ export async function handleCommand(
         if (!acked.ok) return acked.missing ? { status: 404, body: { error: acked.error, runId } } : bad(acked.error)
         await deps.setState(acked.state)
       }
+      // **이 받은편지함을 읽는 세션이 이 회차를 몬다**(spec E3). handoff 로 새 세션이 이어받으면 그 세션이
+      // 적힌다. ack 를 커밋한 **뒤의** 상태에 적는다 — `s` 는 ack 전의 것이라 그 위에 쓰면 ack 가 지워진다.
+      // **`--run` 으로 회차를 지목했을 때만 적는다**(최종 리뷰 I1). 없으면 앱 전체의 마지막 회차를 읽는데,
+      // 그것은 이 세션의 run-create 뒤에 사이드바에서 만든 남의 회차일 수 있다 — 적으면 그 회차의 그물이
+      // 이 세션이 사는 동안 꺼진다.
+      if (fromAgentSession && str(args.run) !== null) {
+        const taken = recordExternalCoordinator(deps.getState(), { runId, sessionId: caller.sessionId })
+        if (taken.ok && taken.value !== null) await deps.setState(taken.state)
+      }
       const types =
         typeof args.types === 'string' ? (args.types.split(',') as MessageType[]) : undefined
       // The same logic is used whether or not wait was requested. pollUntil's probe has to be a
@@ -4015,8 +3979,8 @@ export async function handleCommand(
       // 사람의 "한 번 더" 가 조용히 무효가 된 사실까지 감추면 안 된다.
       const retried = exhaustedOpen && resolution === 'retry-once' ? await deps.repairOnce?.({ taskId: gate!.taskId }) : undefined
       if (retried && !retried.ok)
-        return okBody({ ...r.value, retryOnceFailed: retried.error })
-      return okBody(r.value)
+        return okBody({ ...r.value, retryOnceFailed: retried.error } satisfies AnsweredQuestion)
+      return okBody(r.value satisfies AnsweredQuestion)
     }
     /** 질문에 답한다 — `gate-resolve` 의 공개 이름(공개 CLI 설계 §5 Phase B).
      *  답을 받는 플래그 이름도 사람의 말로 바뀐다(`--answer`). 서버 안에서는 한 자리로 간다 —
@@ -4077,7 +4041,7 @@ export async function handleCommand(
     // CLI 는 자기 버전을 빌드에서 받아 알고 있다(§4) — 여기서 답하는 것은 앱 쪽 값이다.
     case 'version':
       return okBody({ version: deps.appVersion?.() ?? null, protocol: CLI_PROTOCOL })
-    // 공개 이름(phase C). 같은 목록이고, 공개 표면의 칸은 cliPublic 이 세 칸으로 가린다.
+    // 공개 이름(phase C). 같은 목록이고, 공개 표면의 칸은 publicFor(packages/client/src/shape.ts)가 가린다.
     case 'accounts':
     case 'accounts-list': {
       const agent = str(args.agent)

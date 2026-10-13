@@ -108,6 +108,11 @@ async function main() {
   if (!existsSync(join(built, 'host.js'))) {
     throw new Error('out/main/host.js is missing — run `electron-vite build` before this script')
   }
+  // The plugin launcher (plugin runtime design P2): the Host runs each plugin with this node.exe on it, from beside
+  // host.js, since the runtime folder holds no app.asar to read it from.
+  if (!existsSync(join(built, 'plugin-host.js'))) {
+    throw new Error('out/main/plugin-host.js is missing — run `electron-vite build` before this script')
+  }
 
   // node-pty ships its native binaries as prebuilds keyed by platform and architecture alone, with no
   // Node-ABI directory, because it is built on node-addon-api (N-API). That is what makes this whole
@@ -165,6 +170,7 @@ async function main() {
   const buildOut = join(tree, 'builds', appVersion)
   mkdirSync(buildOut, { recursive: true })
   cpSync(join(built, 'host.js'), join(buildOut, 'host.js'))
+  cpSync(join(built, 'plugin-host.js'), join(buildOut, 'plugin-host.js'))
   if (existsSync(join(built, 'chunks'))) {
     cpSync(join(built, 'chunks'), join(buildOut, 'chunks'), { recursive: true })
   }

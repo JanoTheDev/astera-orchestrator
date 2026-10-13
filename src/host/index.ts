@@ -4,6 +4,8 @@
 //
 // Everything it needs arrives in the environment, because it has no `app.getPath('userData')` to ask.
 import childProcess from 'node:child_process'
+import { createPluginManager } from './plugins/manager'
+import { PLUGIN_STOP_CAP_MS, createPluginRuntime } from './plugins/runtime'
 import { existsSync, promises as fsp, readFileSync, rmSync } from 'node:fs'
 import { defaultCwdProbe, setProbeLog } from '../core/sessions/pathProbe'
 import { createRequire } from 'node:module'
@@ -34,8 +36,9 @@ import { attachProcHost } from './procHost'
 import { ProcRegistry } from './procRegistry'
 import { createProcHolders, procHeldBy } from './procHolders'
 import { nodeProcSpawn } from './nodeProc'
-import { HOST_PROTOCOL, HOST_YIELD_JOURNAL, HOST_YIELD_UNDERSTANDING, HOST_YIELD_WORK_UNITS, HOST_YIELD_WORKSPACE, HOST_YIELD_WORKTREES } from '../core/host/protocol'
+import { HOST_FEATURE_ORCH, HOST_FEATURE_REQUESTS, HOST_PROTOCOL, HOST_YIELD_JOURNAL, HOST_YIELD_UNDERSTANDING, HOST_YIELD_WORK_UNITS, HOST_YIELD_WORKSPACE, HOST_YIELD_WORKTREES } from '../core/host/protocol'
 import { createHostJournal } from './hostJournal'
+import { createHostEventLog } from './eventLog'
 import { createHostUnderstanding } from './hostUnderstanding'
 import { createHostWorkUnits, readWorkUnitTracking, wireSessionExits, workUnitSessionsOf, type HostWorkUnits } from './hostWorkUnits'
 import { readHostMerges, hostMergesPathIn } from '../core/git/hostMerges'
@@ -251,6 +254,16 @@ async function main(): Promise<void> {
     // only if the listen itself failed, and that path exits without coming here.
     server.stopAccepting()
     void (async () => {
+      // **The plugins stop with it** (plugin runtime design P11; 2b final review I3): each is sent `shutdown` with its
+      // grace, then killed with what it started, while the orch still answers their last calls. Started here, beside
+      // the workspaces and the spawns below, so the three caps overlap and the way out stays within the wait `host stop`
+      // gives it (HOST_STOP_WAIT_MS). Capped: past the cap a plugin still ends, since its channel closes with this
+      // process. Never rejects.
+      // An install from npm still running ends too, rather than outlive this Host (2e final review M8).
+      plugins.stopNpm()
+      const pluginsStopped = disposeWithin(pluginRuntime.stopAll(), PLUGIN_STOP_CAP_MS, () =>
+        log.write(`the plugins were still stopping after ${PLUGIN_STOP_CAP_MS / 1000} s; leaving anyway`)
+      )
       // The workspaces first (spec, Lifecycle: "when the Host leaves"): each launched tree killed, each
       // desktop closed, each helper ended, and workspaces.json emptied. Never rejects. Capped (final
       // review Important 2): a hung helper must not hold the way out, and the server's listener with it,
@@ -266,6 +279,8 @@ async function main(): Promise<void> {
       // up on the session anyway. `closeAndSettle` never rejects, and the chain below runs whatever
       // happens here.
       if (spawner) await spawner.closeAndSettle(SPAWN_DEADLINE_MS).catch((err) => log.write(`the spawns in flight could not be waited for: ${String(err)}`))
+      // The plugins, awaited before the server closes (started at the top of this tail).
+      await pluginsStopped
       await server
         .close()
         .catch((err) => log.write(`the server did not close cleanly: ${String(err)}`))
@@ -273,6 +288,10 @@ async function main(): Promise<void> {
           // The journal's handle, once no command can reach a commit any more: the spawns have settled and
           // the server has closed. Never throws.
           hostJournal.close()
+          // And the public event log's lines a failed write still holds (SDK 1d final review I1), capped like the
+          // log's own flush below so a stuck disk cannot hold the way out. Never rejects.
+          await disposeWithin(eventLog.flushed(), LEAVE_LOG_FLUSH_CAP_MS, () => {})
+          eventLog.close()
           registry.killAll()
           procs.killAll()
           // Every buffered log line on disk before the exits below are armed (stage 3, task 3). First the
@@ -338,6 +357,11 @@ async function main(): Promise<void> {
   })
   await hostJournal.start()
 
+  // The public event log (SDK 1d): every commit's events, kept beside the state in <profile>/orch and read back here,
+  // so a cursor outlives the Host that gave it. Only read before the bind; commits, which write it, come after.
+  const eventLog = createHostEventLog({ dir: path.join(profileDir, 'orch'), bootId, now: () => new Date().toISOString(), log: (m) => log.write(m) })
+  await eventLog.load()
+
   // How It Works (E1 §2, §3): this Host writes understanding.json while every attached app yields it, or
   // none is attached, read per write. Loaded at start whether or not it writes now, so a record a dead
   // Host left `generating` reads as interrupted; **not the writer before the server listens** (a Host that
@@ -395,6 +419,9 @@ async function main(): Promise<void> {
   // error name and this Host announces no `slack-owner`, so the app keeps Slack. Nothing else reads it
   // yet: the Host's Slack composition is built below the rolling.
   const slackSdk = spawner ? await loadSlackSdk({ env: process.env, log: (m) => log.write(m) }) : null
+  /** What this Host announces beyond the core flags: in every hello, and to a plugin's client (plugin runtime design P10). */
+  const announcedFeatures = (): string[] =>
+    hostFeatures({ spawns: spawner !== null, slack: slackSdk !== null, workspace: workspaceSupported(process.platform) })
 
   // **The Host drives Jobs** (S4+S5 §4, §5.1): its own checks, the dispatch loop and its triggers, and
   // the hooks they hand `createHostOrch` and `startHostServer` — one composition, which the integration
@@ -407,6 +434,7 @@ async function main(): Promise<void> {
         platform: process.platform,
         env: process.env,
         registry,
+        procs,
         spawner,
         worktrees,
         orch: () => orch,
@@ -621,10 +649,30 @@ async function main(): Promise<void> {
       }),
     log: (m) => log.write(m)
   })
+  // The plugins this profile has installed (plugin runtime design P4, P5): answered to the app and the CLI by the orch,
+  // and run by this Host while it runs (P2, P11): its own executable as Node, on the launcher bundled beside it
+  // (out/main/plugin-host.js; the Windows runtime copies it beside host.js). A plugin's calls go to the orch as that
+  // plugin, which is created just below and asked only once a plugin runs.
+  const pluginRuntime = createPluginRuntime({
+    profileDir,
+    exec: process.execPath,
+    launcher: path.join(__dirname, 'plugin-host.js'),
+    env: process.env,
+    host: () => ({
+      version: hostVersion,
+      pid: process.pid,
+      startedAt: server.startedAt,
+      features: [HOST_FEATURE_ORCH, HOST_FEATURE_REQUESTS, ...announcedFeatures()]
+    }),
+    orch: { call: (a) => orch.call(a) },
+    log: (m) => log.write(m)
+  })
+  const plugins = createPluginManager({ profileDir, hostVersion, runtime: pluginRuntime, log: (m) => log.write(m) })
   const orch = createHostOrch({
     profileDir,
     version: hostVersion,
     controllers,
+    plugins,
     now: () => new Date().toISOString(),
     // The handshake's own string, not a second one taken here: `requests show` answers with it so a
     // caller can tell "this Host never saw my request" from "it never arrived" (request receipts
@@ -705,6 +753,8 @@ async function main(): Promise<void> {
     local: spawner,
     // Host journal (J1, J3, J4): the commits, the load's cleanup, journal-append and journal-reload.
     journal: hostJournal,
+    // The public event log (SDK 1d): every commit's events, and `events-poll`.
+    events: eventLog,
     // How It Works (E1 §3): every Run a commit finishes, recorded here while this Host is the writer.
     understanding: hostUnderstanding,
     // Session work units (E2 §5): built below, after this orch, since their in-Run test reads its state;
@@ -877,7 +927,7 @@ async function main(): Promise<void> {
       // Announced only when there is a spawner, so an app can tell a Host that starts sessions itself,
       // that it also owns worktrees.json (R5: the one decision is `spawner !== null`), that it drives
       // Jobs (R7) and that it rolls its sessions (R17) — the same one fact.
-      features: hostFeatures({ spawns: spawner !== null, slack: slackSdk !== null, workspace: workspaceSupported(process.platform) }),
+      features: announcedFeatures(),
       // An app's hello and its socket's close (N1). The server isolates the call too (`tellAppsChanged`).
       ...(wiring?.serverHooks ?? {}),
       // Both hear it: the driver's app-left rule and the rolling's app-gone watch. Each isolates itself.
@@ -937,6 +987,8 @@ async function main(): Promise<void> {
   void mcpHttp.reload()
   // And the Remote Gateway (remote runtime design §2.3: every Host start reads remote-runtime.json).
   void gateway.reload()
+  // And the enabled plugins (plugin runtime design P11), once the orch that answers them listens. Never rejects.
+  void plugins.startAll()
 
   handlePty = attachPtyHost({ registry, broadcast: (m, to) => server.broadcast(m, to) })
   handleProc = attachProcHost({ registry: procs, broadcast: (m) => server.broadcast(m) })

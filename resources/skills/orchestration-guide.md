@@ -219,14 +219,15 @@ EOF
 astera worker-start --task tsk_1a2b3c4d --agent claude --account acc_main --worktree new --name types-cleanup --json
 astera worker-start --task tsk_5e6f7a8b --agent codex --account acc_sub --worktree new --name add-tests --json
 
-# 5) Wait — blocks until worker_done, escalation, or question arrives (this can take tens of minutes)
-astera check --wait --json
+# 5) Wait — blocks until worker_done, escalation, or question arrives (this can take tens of minutes).
+#    Pass --run: it names the inbox you read and records your session as the one driving it (4.4)
+astera check --run run_9f8e7d6c5b4a3210 --wait --json
 
 # 6) Ack only after handling every message in the batch (reply first if it was a question)
 astera reply --id msg_9f9f9f9f --body - --json <<'EOF'
 That path is correct. Carry on.
 EOF
-astera check --ack dlv_aaaa1111 --json
+astera check --run run_9f8e7d6c5b4a3210 --ack dlv_aaaa1111 --json
 
 # 7) Clean up when done — reuse the session if there is follow-up work, otherwise release it
 astera worker-start --task tsk_next --agent claude --account acc_main --terminal <sessionId> --json
@@ -461,6 +462,11 @@ help [--skills-dir <p>]
 
 - `--task-id`, `--dispatch-id`, and `--outcome` are **required only** for `--type worker_done`. For
   other types, omitting them fills in the caller's currently open Dispatch.
+- **`run-create`, and `check --run <run>`, record your session as the one driving that Run.** While your
+  session is alive, Astera leaves that Run's workers' questions to you. With no live session driving it (and
+  no coordinator Astera started), Astera answers a waiting worker itself with a fixed "decide within your
+  spec" reply, so a worker never waits forever. A `check` with no `--run` records nothing: it reads
+  whichever Run was started last across the whole app, which may not be yours.
 - `check` has **no** read-only inspection flags such as `--peek` or `--all` — to look at history
   without consuming a batch, use `inbox --limit <n>`. `inbox` does not consume a batch (it never
   acks), but it is **coordinator-only** — a worker calling it gets a 403 (section 6).

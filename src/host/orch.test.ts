@@ -51,6 +51,7 @@ import type { HostJournal } from './hostJournal'
 import { createHostUnderstanding, NOT_WRITER, type HostUnderstanding } from './hostUnderstanding'
 import { runRecordInputOf } from '../core/orchestration/runRecord'
 import { createControllerRegistry } from './controllers'
+import { createPluginManager } from './plugins/manager'
 
 const NOW = '2026-09-22T00:00:00.000Z'
 /** 이 Host 가 선 시각. `now` 보다 **앞**이어야 하는 값이다 — `requests show` 가 이것을 실어 주는
@@ -105,6 +106,51 @@ describe('createHostOrch', () => {
     const r = await orch.call({ cmd: 'jobs-list', args: {}, sessionId: '' })
     expect(r.status).toBe(200)
     expect((r.body as { id: string }[]).map((j) => j.id)).toEqual([jobId])
+  })
+
+  describe('a plugin caller (plugin runtime design P12)', () => {
+    const pluginCaller = (granted: string[], id = 'astera-hello') => ({
+      role: 'plugin' as const,
+      plugin: { id, granted: new Set(granted) },
+      toOthers: () => {}
+    })
+    it('is answered within what it was granted, and refused the rest before any receipt is taken', async () => {
+      await seed()
+      const orch = orchOver()
+      expect((await orch.call({ cmd: 'projects-list', args: {}, sessionId: '', from: pluginCaller(['projects.read']) })).status).toBe(200)
+      const refused = await orch.call({ cmd: 'jobs-create', args: { objective: 'x', cwd: 'D:/p' }, sessionId: '', from: pluginCaller(['jobs.read']), request: 'r-p' })
+      expect(refused).toEqual({ status: 403, body: { error: 'jobs-create needs the jobs.create permission, which plugin astera-hello was not granted' } })
+      const shown = await orch.call({ cmd: 'requests-show', args: { id: 'r-p' }, sessionId: '', from: pluginCaller([]) })
+      expect((shown.body as { state: string }).state).toBe('absent')
+      expect((await orch.call({ cmd: 'plugins-list', args: {}, sessionId: '', from: pluginCaller(['jobs.read']) })).status).toBe(403)
+      expect((await orch.call({ cmd: 'state-put', args: { state: emptyState() }, sessionId: '', from: pluginCaller(['jobs.create']) })).status).toBe(403)
+    })
+    it('commits under its own name, with no session whatever it named', async () => {
+      const { jobId } = await seed()
+      const actors: unknown[] = []
+      const noop = (() => {}) as never
+      const orch = orchOver({
+        journal: { committed: ((e: { actor: unknown }) => { actors.push(e.actor) }) as never, loaded: noop, append: noop, reload: (async () => {}) as never, timeline: noop }
+      })
+      await orch.ready()
+      expect((await orch.call({ cmd: 'jobs-run', args: { id: jobId }, sessionId: 'ses-forged', from: pluginCaller(['jobs.run']) })).status).toBe(200)
+      expect(actors).toContainEqual({ surface: 'plugin', plugin: { id: 'astera-hello' } })
+    })
+    it('keys receipts by plugin, so two plugins sending the same request id do not collide', async () => {
+      await seed()
+      const orch = orchOver()
+      const a = pluginCaller(['jobs.create'], 'plugin-a')
+      const b = pluginCaller(['jobs.create'], 'plugin-b')
+      const first = await orch.call({ cmd: 'jobs-create', args: { objective: 'one', cwd: 'D:/p' }, sessionId: '', from: a, request: 'r-1' })
+      const again = await orch.call({ cmd: 'jobs-create', args: { objective: 'one', cwd: 'D:/p' }, sessionId: '', from: a, request: 'r-1' })
+      const second = await orch.call({ cmd: 'jobs-create', args: { objective: 'two', cwd: 'D:/p' }, sessionId: '', from: b, request: 'r-1' })
+      expect(first.status).toBe(200)
+      expect(again.replayed).toBe(true)
+      expect(second.status).toBe(200)
+      expect(second.replayed).not.toBe(true)
+      const shownByCli = await orch.call({ cmd: 'requests-show', args: { id: 'r-1' }, sessionId: '' })
+      expect((shownByCli.body as { state: string }).state).toBe('absent')
+    })
   })
 
   describe('a controller caller (remote runtime Phase 1)', () => {
@@ -913,6 +959,64 @@ describe('projects-add (remote runtime N5)', () => {
   it('is refused to a controller', async () => {
     const r = await orchOver().call({ cmd: 'projects-add', args: { path: dir }, sessionId: '', from: { role: 'controller', principal: { clientId: 'cli_x', name: 'x', permission: 'full-control' }, toOthers: () => {} } })
     expect(r.status).toBe(403)
+  })
+})
+
+describe('plugins (plugin runtime design P5)', () => {
+  const cli = { role: 'cli' as const, toOthers: () => {} }
+  const pluginFolder = async (): Promise<string> => {
+    const at = path.join(dir, 'my plugin')
+    await fs.mkdir(at, { recursive: true })
+    await fs.writeFile(
+      path.join(at, 'package.json'),
+      JSON.stringify({ name: 'astera-hello', version: '1.0.0', astera: { apiVersion: '1', entry: 'index.js', permissions: ['jobs.read'] } })
+    )
+    await fs.writeFile(path.join(at, 'index.js'), '')
+    return at
+  }
+  const withPlugins = () => orchOver({ plugins: createPluginManager({ profileDir: dir, hostVersion: '9.9.9' }) })
+
+  it('answers the CLI from the plugin manager', async () => {
+    expect(await withPlugins().call({ cmd: 'plugins-list', args: {}, sessionId: '', from: cli })).toEqual({ status: 200, body: { plugins: [] } })
+  })
+
+  it('is refused to MCP and to a controller by their gates', async () => {
+    const orch = withPlugins()
+    const mcp = await orch.call({ cmd: 'plugins-list', args: {}, sessionId: '', from: { role: 'mcp', toOthers: () => {} } })
+    expect(mcp.status).toBe(403)
+    const controller = await orch.call({
+      cmd: 'plugins-list',
+      args: {},
+      sessionId: '',
+      from: { role: 'controller', principal: { clientId: 'cli_x', name: 'x', permission: 'full-control' }, toOthers: () => {} }
+    })
+    expect(controller.status).toBe(403)
+  })
+
+  it('refuses an install to an agent session’s shell', async () => {
+    const r = await withPlugins().call({ cmd: 'plugins-install', args: { path: await pluginFolder(), grant: [] }, sessionId: 'sess_1', from: cli })
+    expect(r.status).toBe(403)
+    expect((r.body as { error: string }).error).toMatch(/not an agent session/)
+  })
+
+  it('answers 501 on a Host with no plugin manager', async () => {
+    expect((await orchOver().call({ cmd: 'plugins-list', args: {}, sessionId: '', from: cli })).status).toBe(501)
+  })
+
+  it('replays an install sent again with its request id, and installs once', async () => {
+    const orch = withPlugins()
+    const args = { path: await pluginFolder(), grant: ['jobs.read'] }
+    const first = await orch.call({ cmd: 'plugins-install', args, sessionId: '', from: cli, request: 'req-install-1' })
+    expect(first.status).toBe(200)
+    // The folder changes between the two: a second run would install 2.0.0, a replay answers what the first did.
+    await fs.writeFile(
+      path.join(args.path, 'package.json'),
+      JSON.stringify({ name: 'astera-hello', version: '2.0.0', astera: { apiVersion: '1', entry: 'index.js', permissions: ['jobs.read'] } })
+    )
+    const second = await orch.call({ cmd: 'plugins-install', args, sessionId: '', from: cli, request: 'req-install-1' })
+    expect(second).toEqual({ ...first, replayed: true })
+    const listed = await orch.call({ cmd: 'plugins-list', args: {}, sessionId: '', from: cli })
+    expect(listed.body).toMatchObject({ plugins: [{ id: 'astera-hello', version: '1.0.0' }] })
   })
 })
 
@@ -3767,6 +3871,121 @@ describe('OBSERVED — sessions send --wait', () => {
     for (const state of ['ended', 'prompt', 'exited'])
       expect(entry.stale({ status: 200, body: { id: 's1', sent: true, turn: { state } } }), state).toBe(false)
     expect(entry.stale({ status: 200, body: { id: 's1', sent: true } })).toBe(false)
+  })
+})
+
+describe('the public event log at the commit points (SDK 1d)', () => {
+  const fake = () => {
+    const committed: Array<{ prev: OrchState; next: OrchState }> = []
+    const events = {
+      committed: (prev: OrchState, next: OrchState) => void committed.push({ prev, next }),
+      read: () => ({ events: [], cursor: 'ev_0123456789ab_0', gap: false }),
+      tail: () => 'ev_0123456789ab_0',
+      next: async () => {}
+    }
+    return { committed, events }
+  }
+  const app: OrchCaller = { role: 'app', toOthers: () => {} }
+
+  it('hears a command’s commit with the state before and after it, after memory moved', async () => {
+    await seed()
+    const f = fake()
+    let seen: boolean | null = null
+    const orch = orchOver({
+      events: {
+        ...f.events,
+        committed: (prev, next) => {
+          seen = orch.state() === next
+          f.events.committed(prev, next)
+        }
+      }
+    })
+    await orch.ready()
+    // The load's own cleanup was the first (its own test, below)
+    f.committed.length = 0
+    const runId = orch.state().runs[0].id
+    expect((await orch.call({ cmd: 'runs-stop', args: { id: runId }, sessionId: '' })).status).toBe(200)
+    expect(f.committed).toHaveLength(1)
+    expect(f.committed[0].prev.runs[0].paused).toBeFalsy()
+    expect(f.committed[0].next.runs[0].paused).toBe(true)
+    expect(seen).toBe(true)
+  })
+
+  it('hears an app’s state-put with a base, and not one that stood in for the load', async () => {
+    const state = (await (async () => {
+      await seed()
+      return JSON.parse(await fs.readFile(path.join(dir, 'orchestration.json'), 'utf8'))
+    })()) as OrchState
+    const first = fake()
+    expect((await orchOver({ events: first.events }).call({ cmd: 'state-put', args: { state }, sessionId: '', from: app })).status).toBe(200)
+    expect(first.committed).toEqual([])
+
+    const f = fake()
+    const orch = orchOver({ events: f.events })
+    const got = (await orch.call({ cmd: 'state-get', args: {}, sessionId: '' })).body as { state: OrchState; version: number }
+    f.committed.length = 0
+    const paused: OrchState = { ...got.state, runs: got.state.runs.map((r) => ({ ...r, paused: true })) }
+    expect((await orch.call({ cmd: 'state-put', args: { state: paused, version: got.version }, sessionId: '', from: app })).status).toBe(200)
+    expect(f.committed).toHaveLength(1)
+    expect(f.committed[0].prev.runs[0].paused).toBeFalsy()
+    expect(f.committed[0].next.runs[0].paused).toBe(true)
+  })
+
+  it('hears the load’s restart cleanup once, from the state the file held', async () => {
+    const job = createJob(emptyState(), { objective: 'o', cwd: 'D:/p' }, NOW)
+    if (!job.ok) throw new Error(job.error)
+    const run = startJobRun(job.state, job.value.id, NOW)
+    if (!run.ok) throw new Error(run.error)
+    const task = createTask(run.state, { runId: run.value.id, title: 't', spec: 's', deps: [] }, NOW)
+    if (!task.ok) throw new Error(task.error)
+    const dsp = openDispatch(task.state, { taskId: task.value.id, provider: 'codex', accountId: 'accA', sessionId: 'ses_w', cwd: 'D:/p', specPath: 'D:/p/s.md' }, NOW)
+    if (!dsp.ok) throw new Error(dsp.error)
+    await fs.writeFile(path.join(dir, 'orchestration.json'), JSON.stringify(dsp.state), 'utf8')
+    const f = fake()
+    const orch = orchOver({ aliveSessionIds: () => new Set<string>(), events: f.events })
+    await orch.ready()
+    await orch.ready()
+    expect(f.committed).toHaveLength(1)
+    expect(f.committed[0].prev.dispatches[0].workerState).not.toBe('outcome_unknown')
+    expect(f.committed[0].next.dispatches[0].workerState).toBe('outcome_unknown')
+  })
+
+  it('a log that throws leaves the command answered and the state committed', async () => {
+    await seed()
+    const f = fake()
+    const orch = orchOver({
+      events: {
+        ...f.events,
+        committed: () => {
+          throw new Error('event log broke')
+        }
+      }
+    })
+    await orch.ready()
+    const runId = orch.state().runs[0].id
+    expect((await orch.call({ cmd: 'runs-stop', args: { id: runId }, sessionId: '' })).status).toBe(200)
+    expect(orch.state().runs[0].paused).toBe(true)
+    expect(logs.some((l) => l.includes('event log broke'))).toBe(true)
+  })
+
+  it('answers events-poll to a CLI caller, refuses it to MCP and a controller, and refuses a request id', async () => {
+    await fs.writeFile(path.join(dir, 'app-settings.json'), JSON.stringify({ mcpAccess: 'control' }))
+    const f = fake()
+    const orch = orchOver({ events: f.events })
+    const cli: OrchCaller = { role: 'cli', toOthers: () => {} }
+    expect(await orch.call({ cmd: 'events-poll', args: { tail: true }, sessionId: '', from: cli })).toEqual({
+      status: 200,
+      body: { events: [], cursor: 'ev_0123456789ab_0', gap: false }
+    })
+    const mcp: OrchCaller = { role: 'mcp', client: { name: 'x' }, toOthers: () => {} }
+    expect((await orch.call({ cmd: 'events-poll', args: { tail: true }, sessionId: '', from: mcp })).status).toBe(403)
+    const controller: OrchCaller = { role: 'controller', principal: { clientId: 'cli_x', name: 'x', permission: 'full-control' }, toOthers: () => {} }
+    expect((await orch.call({ cmd: 'events-poll', args: { tail: true }, sessionId: '', from: controller })).status).toBe(403)
+    expect((await orch.call({ cmd: 'events-poll', args: { tail: true }, sessionId: '', from: cli, request: 'req_1' })).status).toBe(400)
+  })
+
+  it('answers events-poll 501 on a Host with no event log', async () => {
+    expect((await orchOver().call({ cmd: 'events-poll', args: {}, sessionId: '' })).status).toBe(501)
   })
 })
 

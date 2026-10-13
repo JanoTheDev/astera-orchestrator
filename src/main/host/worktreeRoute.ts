@@ -22,6 +22,11 @@ import { RETIRE_SETTLE_MS } from './client'
  *  was sent, so the Host never saw it, and trying it again cannot apply it twice. */
 export const NO_HOST_CONNECTION = 'there is no connection to the Host'
 
+/** What the app's `orch-call` rejects with when its deadline passed (ipc.ts `orchCall`): the call went out, so the
+ *  Host may have done it. */
+export const hostDeadlineMessage = (cmd: string, ms: number): string => `the Host did not answer ${cmd} within ${ms}ms`
+export const isHostDeadline = (message: string): boolean => /^the Host did not answer \S+ within \d+ms$/.test(message)
+
 /** How long a write that found no socket waits for a new Host's hello before it fails (leftovers Task 1,
  *  S3-1): a Host replacement retires the old one, waits `RETIRE_SETTLE_MS`, then starts the new one, and
  *  the new handshake follows within a few seconds. */

@@ -347,12 +347,14 @@ describe('the MCP server', () => {
       ordinal: 1,
       coordinatorStop: { at: 'T' },
       coordinatorStartingAt: 'T',
-      coordinatorStopPending: true
+      coordinatorStopPending: true,
+      externalCoordinatorSessionId: 'sess-drv'
     }
     const client = await connected(answering({ 'jobs-run': { status: 200, body: run } }).link)
     const data = (await client.callTool({ name: 'run_job', arguments: { jobId: 'job_1' } })).structuredContent as object
     expect(data).toMatchObject({ id: 'run_1', jobId: 'job_1' })
-    for (const hidden of ['coordinatorStop', 'coordinatorStartingAt', 'coordinatorStopPending']) expect(hidden in data).toBe(false)
+    for (const hidden of ['coordinatorStop', 'coordinatorStartingAt', 'coordinatorStopPending', 'externalCoordinatorSessionId'])
+      expect(hidden in data).toBe(false)
   })
 
   // Read only: the count and the mark say a person must answer a prompt in Astera; no tool answers it.

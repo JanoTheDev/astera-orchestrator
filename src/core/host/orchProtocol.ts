@@ -100,7 +100,10 @@ export interface OrchCaller {
   /** What this client called itself in its `hello`. Absent there means `'cli'` (protocol.ts's
    *  `hello` says why the careful default is that one and not the other). `controller` comes only from the Host's
    *  own link to the Remote Gateway, never from a hello (remote runtime design §2.4). */
-  role: 'app' | 'cli' | 'mcp' | 'controller'
+  role: 'app' | 'cli' | 'mcp' | 'controller' | 'plugin'
+  /** Only on role `plugin`: which plugin, and the permissions the person granted it (plugin runtime design P12). Set by
+   *  the Host's plugin runtime from its own record, never from anything the plugin sent. */
+  plugin?: { id: string; granted: ReadonlySet<string> }
   /** Only on role `controller`: who the Host bound this call to, from its own binding of the link connection (remote
    *  runtime design §3.3, X1-08). Never a value a frame carried. */
   principal?: ControllerPrincipal

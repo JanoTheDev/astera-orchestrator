@@ -514,6 +514,82 @@ answering at that address is refused. Five wrong codes burn the code.
 Listen on a private network, a VPN or Tailscale. Do not forward the port to the internet. A pairing is read-only
 unless `--full-control` is given; a read-only controller can read Jobs, Runs and Tasks but not change them.
 
+### Plugins
+
+A plugin is a folder with a `package.json` whose `astera` field names its entry file, the Plugin API it is written
+for, and the permissions it asks for. Install one from its folder, or from npm when it is published there. To write
+one, see [the plugin guide](plugins.md).
+
+```text
+astera plugins install --path ./my-plugin            shows what it is and asks for, installs nothing
+astera plugins install --path ./my-plugin --yes      approves what it asks for and installs it
+astera plugins install --path ./my-plugin --grant jobs.read   approves only jobs.read
+astera plugins install --npm @acme/astera-jira --yes            the same, for a plugin published on npm
+astera plugins list                                  what is installed, its status and what it was granted
+astera plugins disable --id <pluginId>               keep it installed but do not run it
+astera plugins remove --id <pluginId>                uninstall it and delete its copy
+astera plugins logs --id <pluginId>                  the last lines of its log
+astera plugins doctor --id <pluginId>                what could keep it from running; exit 1 if anything does
+astera plugins settings --id <pluginId>              its settings; a secret one only as set or not
+astera plugins configure --id <pluginId> --set baseUrl=https://jira.example.com
+printf %s "$TOKEN" | astera plugins configure --id <pluginId> --stdin token   a secret, off the command line
+```
+
+**Plugins run trusted code on this machine.** A plugin can do anything you can, and its permissions limit only what
+it asks Astera for: they are not a sandbox. Install plugins you trust, as you would any program.
+
+Without --yes or --grant, `install` installs nothing and exits 2, printing what the plugin is, what it asks for and
+what it would replace. `--grant ""` grants no permission at all.
+
+The folder is copied into the profile (`<profile>/plugins/installed`), so later edits to it do nothing until you
+install it again. Installing the same plugin again replaces the copy and asks for your approval again. A link inside
+the folder that leads outside it stops the install; bundle the plugin or replace the link with a copy. A copy holds
+plain files and folders, so dependencies installed with pnpm's isolated layout (`node_modules/.pnpm`) or npm's linked
+strategy (`node_modules/.store`) cannot work from it and stop the install too: bundle the plugin, or install its
+dependencies hoisted. A plugin written for a
+newer Astera, or for a kind of plugin this Astera does not run yet, installs but does not run, and `plugins list`
+says why.
+
+From npm, Astera runs your own `npm` when Node.js is installed, so the registries, scopes and tokens in your
+`.npmrc` apply. On a computer without it, Astera fetches npm 11.21.0 from registry.npmjs.org once, through the proxy
+`HTTPS_PROXY` names if there is one (as npm does, `NO_PROXY` too), checks it against the hash it ships with, keeps it in
+`<profile>/plugins/npm` and runs it on its own Node; a copy that lost a file is fetched again, and deleting the folder
+is safe. Node.js installed while Astera runs is found on the next install, with no restart. When the fetch cannot
+reach registry.npmjs.org or is refused (a company network, a firewall or a proxy may block it), or what comes back is
+not that npm, the answer says so with the reason; install Node.js or install the plugin from a folder instead.
+`--npm` takes a package name, with `@version`, `@tag` or a `^` or `~` range if you like; a URL, a git
+or file source, or an alias is refused. `npm pack` fetches the package and Astera unpacks it itself, refusing a
+package that holds a link or a path outside it, or a file name Windows cannot keep. Its dependencies, when it has
+any, are installed with `--omit=dev` in a folder of Astera's and moved into its own `node_modules`: npm never runs
+inside the package, so nothing in it (an `.npmrc`, a program named like npm or git) is read or run. No install script
+runs, from the package or its dependencies, and the version installed is exactly the one shown. When npm fails, the answer carries its last lines, with registry tokens taken
+out.
+
+Only the app and a person at their own shell manage plugins: inside an agent session (`ASTERA_SESSION` is set) the
+changes are refused with exit 5, and MCP clients and remote controllers cannot reach them.
+
+An enabled plugin runs while the Host runs, as a process of its own on the Node inside Astera; no Node install is
+needed. A native addon loads there only if it was built for that Node, as N-API addons are; `plugins doctor` warns
+about any it finds. Its `ctx.astera` reaches Astera
+only within the permissions you granted. What it prints, and when it starts, stops or crashes, goes to its log
+(`<profile>/plugins/logs`, read with `plugins logs`). A plugin that crashes is started again after 1, then 2
+seconds; the third crash without 30 seconds of steady running marks it `failed`, and it stays stopped until
+`plugins enable` starts it again or the Host restarts. Plugins do not keep the Host running.
+
+A plugin's manifest may declare settings (`astera.settingsSchema`). `plugins configure` sets them, one `--set` or
+`--unset` each, and a running plugin starts again with the new values; a plugin missing a required setting waits,
+and `plugins list` says which. The answer ends with how the plugin stands: a plugin that `failed` stays stopped after
+`plugins configure` until `plugins enable` starts it again. A secret setting, and any secret a plugin keeps itself, is
+kept in that plugin's own store under the profile: it is never shown back (`plugins settings` says only whether it is
+set), no other plugin can read it through Astera, and it is replaced by `[redacted]` in the plugin's log and in the
+reason `plugins list` gives, each line of one that runs over several lines too; a value shorter than 4 characters is
+not hidden, as it would take ordinary words out of every line. Give a secret with `--stdin <key>` so it stays off the command line.
+Removing a plugin deletes its settings and secrets, and says so if it could not.
+
+The app's Settings → Plugins does the same: it lists each plugin with its status and permissions, installs a folder
+after showing what the plugin asks for (uncheck a permission to withhold it), and configures, enables, disables,
+removes and shows the log of each.
+
 ## Command reference
 
 Every command is a noun and a verb. A noun with no verb is rejected with the list of its verbs, so
@@ -544,6 +620,17 @@ astera runtime revoke  --id <clientId>
 astera runtimes list
 astera runtimes add    [--pair <string>] [--address <host>] [--port <n>] [--code <code>] [--fingerprint <fp>] [--name <n>] [--replace]
 astera runtimes remove --id <runtimeId|name>
+
+astera plugins list
+astera plugins get     --id <pluginId>
+astera plugins install [--path <folder>] [--npm <package>] [--yes] [--grant <list>]
+astera plugins enable  --id <pluginId>
+astera plugins disable --id <pluginId>
+astera plugins remove  --id <pluginId>
+astera plugins logs    --id <pluginId> [--lines <n>]
+astera plugins doctor  --id <pluginId>
+astera plugins settings  --id <pluginId>
+astera plugins configure --id <pluginId> [--set <key=value>] [--unset <key>] [--stdin <key>]
 
 astera projects list
 astera projects get   --id <projectId>
@@ -1712,4 +1799,5 @@ does the Host. Those reports are applied the next time the Host starts.
 ## See also
 
 - [Job lifecycle](jobs.md) for what a Job does once it starts.
+- [The SDK](sdk.md) for applications that drive the Host from TypeScript.
 - `astera help` for the full orchestration reference, including the commands agents use.

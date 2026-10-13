@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { privateDirProblem, unsafeSocketDir } from './socketDir'
+import { privateDirProblem, unsafeSocketDir } from './socketDir.js'
 
 const dirOf = (o: { dir?: boolean; uid?: number; mode?: number }) => ({
   isDirectory: () => o.dir ?? true,

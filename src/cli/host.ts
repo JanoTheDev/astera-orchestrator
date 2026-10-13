@@ -12,12 +12,12 @@ import { connectHost, type HostConnection } from '../core/host/connect'
 import { hostSpawnPlan, hostStderr, resolveHostEntry, type HostCliPaths } from '../core/host/spawn'
 import { hostRuntimeBase, hostRuntimePaths } from '../core/host/runtime'
 import { HOST_STOP_WAIT_MS } from '../core/host/unresponsive'
-import { hostAddress, siblingHostAddresses } from '../host/address'
+import { siblingHostAddresses } from '../host/address'
 import { answers, LEGACY_APP_NOTICE } from '../host/server'
 import { encodeLine } from '../host/framing'
 import net from 'node:net'
 import { resolveSkillsDir } from './skills'
-import { nativePath, userDataDir } from '../core/orchestration/cliDiscovery'
+import { hostTarget } from '../core/publicContract'
 import type { CliError } from '../core/orchestration/cliOutput'
 import { HOST_WAIT_EVERY_MS, HOST_WAIT_NOTICE_MS, hostWaitLine } from '../core/orchestration/cliKeepalive'
 
@@ -252,34 +252,8 @@ export function preparedRuntime(a: {
 }
 
 /**
- * 끝의 구분자를 걷는다 — `nativePath` 와 같은 이유로 같은 자리에서(바로 아래 `cliHostTarget`).
- *
- * `C:\astera-dev\` 는 `C:\astera-dev` 와 같은 폴더인데 sha256 이 달라 다른 Host 가 된다.
- * `userDataDir` 은 이미 같은 것을 걷고 값을 실어 보내는 쪽은 끝에 구분자를 붙이지 않으므로,
- * 이 줄도 지금 있는 주소를 하나도 바꾸지 않는다.
- *
- * **뿌리는 걷지 않는다.** `C:\` 를 `C:` 로 만들면 win32 에서 다른 것을 가리키고(그것은 그
- * 드라이브의 현재 디렉터리다), posix 의 `/` 를 걷으면 빈 문자열이 된다. 둘 다 구분자 하나짜리
- * 뿌리로 되돌린다 — 프로필이 뿌리일 리는 없지만, 그냥 두는 것과 망가뜨리는 것은 다른 일이다.
- *
- * **무엇이 구분자인지는 플랫폼이 정한다.** posix 에서 역슬래시는 파일 이름에 쓸 수 있는 보통
- * 글자다 — 조건 없이 걷으면 실재하는 폴더 `/home/me/dir\` 가 `/home/me/dir` 이 되고, 그 둘은 다른
- * 폴더다. 바로 아래 `nativePath` 가 같은 이유로 같은 자리에서 플랫폼을 받는다.
- *
- * **아무것도 걷지 않았으면 아무것도 붙이지 않는다.** 드라이브 갈래가 되돌리는 것은 자기가 방금
- * 걷어 낸 구분자이지 원본의 마지막 글자가 아니다 — 구분자 없는 `C:` 하나가 들어오면 그 둘이
- * 다르고, 마지막 글자를 붙이면 `C::` 가 된다.
- */
-const withoutTrailingSeparator = (p: string, platform: NodeJS.Platform): string => {
-  const stripped = p.replace(platform === 'win32' ? /[\\/]+$/ : /\/+$/, '')
-  if (stripped === p) return p
-  if (stripped === '') return p.slice(0, 1)
-  if (/^[A-Za-z]:$/.test(stripped)) return stripped + p.slice(stripped.length, stripped.length + 1)
-  return stripped
-}
-
-/**
- * 이 실행이 말을 걸 Host — 그 주소와, 그 Host 가 쓰는 프로필 폴더.
+ * 이 실행이 말을 걸 Host — 그 주소와, 그 Host 가 쓰는 프로필 폴더. 규칙은 SDK 패키지의 `hostTarget` 이다
+ * (packages/client/src/discovery.ts) — CLI 와 @astera-app/client 가 같은 Host 를 찾는다.
  *
  * **프로필이 먼저다.** 앱이 띄운 세션에는 그 앱의 프로필 폴더가 실려 온다(`ASTERA_PROFILE_DIR`,
  * core/sessions/manager.ts) — 주소도 보고 큐도 거기서 나온다. 그 변수가 없으면(사람이 셀에서 직접
@@ -296,7 +270,7 @@ const withoutTrailingSeparator = (p: string, platform: NodeJS.Platform): string 
  * **실려 온 경로는 그 플랫폼의 철자로 맞춘다.** 주소는 이 문자열의 sha256 이라(host/address.ts)
  * 같은 폴더라도 철자가 다르면 **다른** Host 를 가리킨다 — 정슬래시로 적은 것과 역슬래시로 적은
  * 것이 그렇고(`nativePath`), 끝에 구분자를 붙인 것과 안 붙인 것이 그렇다
- * (`withoutTrailingSeparator`). 어느 쪽이든 손으로 그렇게 적으면 살아 있는 Host 를 두고
+ * (`profilePath`). 어느 쪽이든 손으로 그렇게 적으면 살아 있는 Host 를 두고
  * `running: false` 라고 답하게 되고, 그것은 이 설계가 가장 애써 피하는 거짓말이다
  * (core/orchestration/stateFile.ts 의 머리말).
  * **지금 있는 주소는 하나도 바뀌지 않는다** — 값을 실어 보내는 쪽은 전부 이미 네이티브 철자이고
@@ -316,27 +290,7 @@ export function cliHostTarget(a: {
   platform: NodeJS.Platform
   home: string
 }): { address: string; profileDir: string } {
-  const given = a.env.ASTERA_PROFILE_DIR
-  const profileDir =
-    given !== undefined && given.length > 0
-      ? withoutTrailingSeparator(nativePath(given, a.platform), a.platform)
-      : userDataDir({
-          platform: a.platform,
-          env: a.env,
-          home: a.home,
-          dev: a.env.ASTERA_PROFILE === 'dev'
-        })
-  const explicit = a.env.ASTERA_HOST
-  if (explicit !== undefined && explicit.length > 0) return { address: explicit, profileDir }
-  return {
-    address: hostAddress({
-      profileDir,
-      platform: a.platform,
-      tmpDir: os.tmpdir(),
-      protocol: HOST_PROTOCOL
-    }).address,
-    profileDir
-  }
+  return hostTarget({ env: a.env, platform: a.platform, home: a.home, tmpDir: os.tmpdir() })
 }
 
 /** The answer when something at the address could not prove it is this profile's Host

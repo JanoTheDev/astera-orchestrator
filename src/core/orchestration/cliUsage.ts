@@ -174,6 +174,46 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
     summary: 'forget a paired Runtime on this machine (it does not revoke the pairing there)',
     flags: [ID('<runtimeId|name>', 'the Runtime to forget (from `runtimes list`)')]
   },
+  'plugins-install': {
+    summary: 'install a plugin from a folder or from npm, after you approve what it asks for',
+    detail:
+      'Shows the plugin, its version and the permissions it asks for, and installs nothing until you approve: --yes grants what it asks for, --grant names exactly what to grant (--grant "" grants none). Exits 2 until you approve. Plugins run trusted code on this machine: a plugin can do anything you can, and its permissions limit only what it asks Astera for. The folder is copied into this profile; installing the same plugin again replaces it and asks again. From npm, your npm fetches the package, or on a computer without Node.js an npm Astera fetches once from registry.npmjs.org; no install script runs, and the version installed is the one shown. Refused with 5 inside an agent session (ASTERA_SESSION is set).',
+    flags: [
+      { name: 'path', value: '<folder>', about: 'the plugin folder, the one with its package.json' },
+      { name: 'npm', value: '<package>', about: 'a plugin published on npm: its name, with @version, @tag or a ^ or ~ range if you like' },
+      { name: 'yes', about: 'approve the permissions the plugin asks for' },
+      { name: 'grant', value: '<list>', about: 'approve exactly these permissions, comma separated (empty grants none)' }
+    ]
+  },
+  'plugins-list': { summary: 'the plugins installed in this profile, with their status and what they were granted' },
+  'plugins-get': { summary: 'one installed plugin', flags: [ID('<pluginId>', 'the plugin (from `plugins list`)')] },
+  'plugins-enable': { summary: 'let an installed plugin run', flags: [ID('<pluginId>', 'the plugin (from `plugins list`)')] },
+  'plugins-disable': { summary: 'stop a plugin from running, keeping it installed', flags: [ID('<pluginId>', 'the plugin (from `plugins list`)')] },
+  'plugins-remove': { summary: 'uninstall a plugin and delete its copy in this profile', flags: [ID('<pluginId>', 'the plugin (from `plugins list`)')] },
+  'plugins-logs': {
+    summary: "the last lines of a plugin's log: what it printed, and when it started, stopped or crashed",
+    flags: [ID('<pluginId>', 'the plugin (from `plugins list`)'), { name: 'lines', value: '<n>', about: 'how many lines, from 1 to 1000 (default 100)' }]
+  },
+  'plugins-settings': {
+    summary: "a plugin's settings: each one's value, a secret one only as set or not",
+    flags: [ID('<pluginId>', 'the plugin (from `plugins list`)')]
+  },
+  'plugins-configure': {
+    summary: "set or unset a plugin's settings; a running plugin starts again with them",
+    detail:
+      'A secret setting is kept in the plugin\'s own store and never shown back. Give a secret with --stdin <key> so it stays off the command line and out of the shell history. A plugin waiting for a required setting starts once it is set.',
+    flags: [
+      ID('<pluginId>', 'the plugin (from `plugins list`)'),
+      { name: 'set', value: '<key=value>', about: 'set a setting; repeat for more' },
+      { name: 'unset', value: '<key>', about: 'go back to the default; repeat for more' },
+      { name: 'stdin', value: '<key>', about: 'set that setting to what standard input holds (one trailing newline dropped)' }
+    ]
+  },
+  'plugins-doctor': {
+    summary: 'what could keep a plugin from running: its manifest, compatibility, entry, native addons and its last run',
+    detail: 'Exits 1 when a check fails, naming each failing check.',
+    flags: [ID('<pluginId>', 'the plugin (from `plugins list`)')]
+  },
   'mcp-status': {
     summary: 'would mcp serve work here: the Host, MCP access and the tool count',
     detail:

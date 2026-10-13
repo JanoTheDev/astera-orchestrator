@@ -80,23 +80,24 @@ export function taskCompletionState(s: OrchState, task: Task): CompletionState {
 const withoutOutput = (d: CompletionDetail | null): CompletionDetail | null =>
   d === null ? null : { ...d, checks: d.checks.map(({ outputTail: _drop, ...rest }) => rest) }
 
+/** One Task's row: the run's read and the public completion events (publicEvents.ts) give the same one. */
+export function taskCompletionOf(s: OrchState, task: Task): TaskCompletion {
+  return {
+    taskId: task.id,
+    title: task.title,
+    state: taskCompletionState(s, task),
+    attempt: repairCountOf(s, task.id),
+    maxAttempts: policyOf(s, task)?.maxFixAttempts ?? null,
+    detail: withoutOutput(completionDetailOf(task)),
+    failureSummary: failureSummaryOf(s, task),
+    lastFailure: task.lastFailure ?? null
+  }
+}
+
 export function completionForRun(s: OrchState, runId: string): RunCompletion | null {
   const run = s.runs.find((r) => r.id === runId)
   if (!run) return null
-  const tasks = s.tasks
-    .filter((t) => t.runId === runId)
-    .map(
-      (task): TaskCompletion => ({
-        taskId: task.id,
-        title: task.title,
-        state: taskCompletionState(s, task),
-        attempt: repairCountOf(s, task.id),
-        maxAttempts: policyOf(s, task)?.maxFixAttempts ?? null,
-        detail: withoutOutput(completionDetailOf(task)),
-        failureSummary: failureSummaryOf(s, task),
-        lastFailure: task.lastFailure ?? null
-      })
-    )
+  const tasks = s.tasks.filter((t) => t.runId === runId).map((task) => taskCompletionOf(s, task))
   const states = tasks.map((t) => t.state)
   const state: CompletionState =
     states.length > 0 && states.every((x) => x === 'converged')

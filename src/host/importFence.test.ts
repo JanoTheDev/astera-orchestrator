@@ -73,6 +73,16 @@ describe('the Host import fence (constraint 10)', () => {
     expect(fenceViolations(srcRoot, starts)).toEqual([])
   })
 
+  // Plugin runtime design P2: the launcher runs on the Host's node.exe too, from beside host.js.
+  it('nothing reachable from the plugin launcher imports electron, chokidar, src/main or src/renderer', () => {
+    const launcher = path.join(srcRoot, 'pluginHost')
+    const starts = readdirSync(launcher)
+      .filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts') && f !== 'testkit.ts')
+      .map((f) => path.join(launcher, f))
+    expect(starts.map((f) => path.basename(f)).sort()).toEqual(['index.ts', 'launcher.ts'])
+    expect(fenceViolations(srcRoot, starts)).toEqual([])
+  })
+
   it('catches each kind of violation, through a chain, and ignores type-only imports', () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), 'astera-fence-'))
     try {

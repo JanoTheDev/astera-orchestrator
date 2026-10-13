@@ -3,6 +3,7 @@
 // cannot be tested — that is why the side-effect-free functions and main() were pulled in here.
 // main() does not call itself inside this file, so importing this module (as the tests do) does not
 // terminate the process.
+import { approvalMessage, configureArgs, configureStdinError, doctorEnd, installPlugin } from './plugins'
 import { randomBytes, randomUUID } from 'node:crypto'
 import fsSync, { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
@@ -85,7 +86,7 @@ import {
 } from '../core/orchestration/pendingReports'
 
 /** 오류 하나를 봉투에 담아 그 종료 코드와 함께 돌려준다 — 부르는 쪽이 둘을 따로 고르지 않도록.
- *  코드와 종료 코드의 표는 core/orchestration/cliOutput.ts 한 곳에만 있다(설계 §8).
+ *  코드와 종료 코드의 표는 SDK 패키지 한 곳에만 있다(packages/client/src/errors.ts, 설계 §8).
  *
  *  `cmd` 는 `nextSteps` 를 고르는 데만 쓰인다 — 무엇이 실패했는지에 따라 다음에 칠 것이 달라진다
  *  (`jobs get` 의 404 는 `astera jobs list`). 명령이 정해지기 전에 나는 실패(파서·모드)는 주지
@@ -536,6 +537,9 @@ export function lostAnswerDetails(a: {
   implicit?: Record<string, unknown>
   /** The flags whose value came from standard input (`parseArgs`'s `wantsStdin`). */
   fromStdin?: readonly string[]
+  /** A command whose line can carry a secret (`plugins configure --set token=...`, 2c final review M13): the line is
+   *  not written out, so the envelope does not carry the secret again. */
+  secret?: boolean
 }): Record<string, unknown> {
   if (a.request === undefined) return {}
   const head = {
@@ -571,6 +575,13 @@ export function lostAnswerDetails(a: {
         `Run the same command again with --request-id ${a.request} and the same input on stdin.`
     }
   }
+  if (a.secret === true)
+    return {
+      ...head,
+      retryNote:
+        'this command can carry a secret on its line, so the line to retry it is not written out here. ' +
+        `Run the same command again with --request-id ${a.request}.`
+    }
   return {
     ...head,
     retryCommand: retryCommandLine({ argv: a.argv, request: a.request, implicit: a.implicit })
@@ -1159,6 +1170,11 @@ export async function main(): Promise<void> {
   // finishes while the Host is gone fails at the connect, not at the reply. For every other command
   // this only changes the order of two steps that both end the same way.
   let args = parsed.args
+  // Before standard input is read: `plugins configure` reads it only for `--stdin <key>` (2c final review I5).
+  if (parsed.cmd === 'plugins-configure') {
+    const dash = configureStdinError(parsed.wantsStdin)
+    if (dash !== null) fail({ code: 'INVALID_ARGUMENTS', message: dash })
+  }
   if (parsed.wantsStdin.length > 0) {
     const text = await readStdin()
     // **An empty stdin is refused rather than passed on as an empty value.**
@@ -1181,6 +1197,12 @@ export async function main(): Promise<void> {
   // below writes `args` into a file, `argsForCall` hands them to the command, and this flag belongs
   // to neither. After stdin rather than before it, so `--request-id -` reads its id the way every
   // other flag with a `-` does.
+  // `plugins configure`'s flags as the Host takes them, with a `--stdin` secret read off standard input (plugins 2c).
+  if (parsed.cmd === 'plugins-configure') {
+    const configured = configureArgs(args, args.stdin !== undefined ? await readStdin() : undefined)
+    if ('error' in configured) fail({ code: 'INVALID_ARGUMENTS', message: configured.error })
+    args = configured.args
+  }
   const lifted = liftRequestId(args)
   if ('error' in lifted) fail({ code: 'INVALID_ARGUMENTS', message: lifted.error })
   args = withDefaultProject({ cmd: parsed.cmd, args: lifted.args, project: parsed.project })
@@ -1517,6 +1539,32 @@ export async function main(): Promise<void> {
       if ('refused' in followed) return followed.refused
       return { status: 200, body: followed.ended }
     }
+    // **`plugins install` is two calls on this one connection** (cli/plugins.ts, plugin runtime design P6): the Host
+    // inspects the folder, and only an approval (--yes or --grant) sends the install, with this invocation's request id.
+    // Without one it ends here, exit 2, saying what the plugin is and asks for and how to approve.
+    if (parsed.cmd === 'plugins-install') {
+      const installed = await keepaliveDuring(keepalive, () =>
+        installPlugin({
+          args,
+          cwd: process.cwd(),
+          request: carried.send,
+          call: (cmd, callArgs, request) =>
+            timedCall(verbose, { conn, cmd, args: callArgs, sessionId, request, timeoutMs: clientTimeoutMs({ cmd, args: callArgs }) })
+        })
+      )
+      conn.close()
+      // An agent's shell would be refused the install itself (5), so it is told so now rather than how to approve.
+      if ('approve' in installed)
+        fail({
+          code: sessionId !== '' ? 'PERMISSION_DENIED' : 'INVALID_ARGUMENTS',
+          message: approvalMessage(installed.approve, { agent: sessionId !== '' }),
+          details: { plugin: installed.approve }
+        })
+      const lost = lostAnswerDetails({ argv, request: carried.send, fromStdin: parsed.wantsStdin })
+      if ('stuck' in installed) fail({ code: SILENT_HOST_CODE, message: installed.stuck, details: lost })
+      if ('unreachable' in installed) return withoutHost(installed.unreachable, lost)
+      return installed
+    }
     // Held rather than passed inline: the retry line below has to carry what this actually sent,
     // and `argsForCall` fills a missing `--cwd` that the typed line does not have (`implicitArgs`).
     const sentArgs = argsForCall({ cmd: parsed.cmd, args, cwd: process.cwd() })
@@ -1538,11 +1586,14 @@ export async function main(): Promise<void> {
     // **답이 아예 오지 않은 두 끝은 요청 id 와 칠 명령 둘을 싣고 나간다**(`lostAnswerDetails`,
     // 설계 §8). 이 둘이 이 기능이 있는 이유다 — Host 는 답하기 전에 커밋하므로, 여기서 아는 것은
     // "일어났을 수도 있다" 하나뿐이고, 그것을 스스로 알아낼 길이 부르는 쪽에는 없었다.
+    // `plugins configure` read its `--stdin` key off standard input, and its `--set` can carry a secret (M13).
+    const configure = parsed.cmd === 'plugins-configure'
     const lost = lostAnswerDetails({
       argv,
       request: carried.send,
       implicit: implicitArgs(args, sentArgs),
-      fromStdin: parsed.wantsStdin
+      fromStdin: configure && parsed.args.stdin !== undefined ? ['stdin'] : parsed.wantsStdin,
+      ...(configure ? { secret: true } : {})
     })
     if ('stuck' in r) {
       // **`ask` 는 이 자리에서 한 마디를 더 한다**(cliOutput 의 silentHostEnd). 답이 오지 않았다는
@@ -1586,6 +1637,11 @@ export async function main(): Promise<void> {
       if (end !== null) {
         fail(end)
       }
+    }
+    // `plugins doctor`: a failed check is exit 1, with the checks in the details.
+    if (parsed.cmd === 'plugins-doctor') {
+      const end = doctorEnd(body)
+      if (end !== null) fail(end)
     }
     // `sessions send --wait` (CLI spec §15): how the turn ended decides the exit code, as for a wait.
     if (parsed.cmd === 'sessions-send' && args.wait === true) {

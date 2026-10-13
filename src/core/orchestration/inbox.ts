@@ -15,6 +15,12 @@ import type { OrchState } from './state'
  *  계정을 비워 둔 Run(그때는 앱이 직접 돌린다), 세션이 사라져 되띄우기가 그친 Run
  *  (`coordinatorFailures` 가 한계에 닿았다), 그리고 되띄우는 사이의 짧은 창.
  *
+ *  **밖에서 모는 세션이 살아 있는 Run 은 보지 않는다**(2026-10-13). 스킬로 `run-create` 를 부른 세션이
+ *  `check --wait` 로 이 받은편지함을 읽고 있었는데, 그 세션은 `coordinatorSessionId` 에 없다 — 그 칸은
+ *  Astera 가 띄운 코디네이터의 것이다. 그래서 질문을 저장하는 그 커밋에서 9ms 만에 이 문구가 나가
+ *  그 세션이 답할 틈이 없었다. 그 세션은 `externalCoordinatorSessionId` 에 적히고, 살아 있는지는 판정하는
+ *  순간에 묻는다 — 대화창 세션의 종료는 이 층에 오지 않으므로 종료로 칸을 지우는 방식은 맞지 않는다.
+ *
  *  **사람에게 올리지 않는 이유.** `question` 은 프로토콜상 "코디네이터여, 정해 달라"이고 그 질문의
  *  대부분은 spec 이 이미 답해 둔 것이다(위 실측이 그 사례다 — 물은 것이 "1을 2로 바꿔도 되나"였고
  *  spec 이 "2를 출력하라"였다). 그것을 사람에게 올리면 밤새 돌려두는 이 모드의 전제가 깨진다.
@@ -23,14 +29,14 @@ import type { OrchState } from './state'
  *  **영어인 이유.** 워커가 읽는 문구다 — spec 파일(coordinator.ts 의 buildSpecFile)과 재개 지시문
  *  (resumeSection.ts)이 영어인 것과 같은 자리이고, 화면 문구가 아니므로 i18n 을 타지 않는다. */
 export const NO_COORDINATOR_ANSWER =
-  'There is no coordinator on this Run — the app started you from its Jobs list and no agent is ' +
-  'reading this inbox, so nobody is going to weigh in. Decide within the scope your spec already ' +
-  'sets and carry on. If you genuinely cannot proceed, say so with `astera send --type escalation` ' +
-  'and stop there; that one reaches a person.'
+  'There is no coordinator reading this Run’s inbox right now, so nobody is going to weigh in. Decide within the ' +
+  'scope your spec already sets and carry on. If you genuinely cannot proceed, say so with ' +
+  '`astera send --type escalation` and stop there; that one reaches a person.'
 
 /** 답을 기다리며 멈춰 있는 워커의 질문들. 답할 코디네이터가 없는 Run 의 것만 낸다.
  *
- *  **Run 필터는 "답할 코디네이터가 없다" 하나다.** 예전에는 `autoDispatch` 로 물었다 — 코디네이터
+ *  **Run 필터는 "답할 코디네이터가 없다" 하나다** — Astera 가 띄운 코디네이터도, 살아 있는 바깥 코디네이터도
+ *  없다. 예전에는 `autoDispatch` 로 물었다 — 코디네이터
  *  세션이라는 개념이 아직 없었고, 앱이 돌리는 Run 이 곧 코디네이터 없는 Run 이었다. 이제는 그 둘이
  *  같지 않다: 코디네이터에게 넘긴 Run 은 `autoDispatch` 가 꺼져 있고(한 Run 에 운전자는 하나),
  *  그 Run 의 질문은 앱이 답해서는 안 된다 — 코디네이터가 답할 것이다.
@@ -47,9 +53,15 @@ export const NO_COORDINATOR_ANSWER =
  *  `!answered` 만 보면 기다리는 쪽과 답을 세는 쪽의 판단이 갈리고, 그 틈에서 워커는 영원히 선다:
  *  손으로 고친 파일에 `{answered:true, answerBody:''}` 와 열린 Dispatch 가 함께 있으면 `ask` 는
  *  계속 기다리는데 이 판정은 답한 것으로 읽는다. 이 파일은 프로세스보다 오래 산다. */
-export function unattendedQuestions(s: OrchState): string[] {
+export function unattendedQuestions(s: OrchState, isAlive: (sessionId: string) => boolean): string[] {
   const unattendedRuns = new Set(
-    s.runs.filter((r) => r.coordinatorSessionId === undefined).map((r) => r.id)
+    s.runs
+      .filter(
+        (r) =>
+          r.coordinatorSessionId === undefined &&
+          (r.externalCoordinatorSessionId === undefined || !isAlive(r.externalCoordinatorSessionId))
+      )
+      .map((r) => r.id)
   )
   const openDispatchIds = new Set(
     s.dispatches.filter((d) => !d.outcome && !d.endedAt).map((d) => d.id)

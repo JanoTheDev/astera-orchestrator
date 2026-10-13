@@ -102,6 +102,86 @@ describe('humanFor', () => {
       .toBe('p1  astera  D:/a')
   })
 
+  it('plugins list puts the status first in capitals, then the id, the version and what was granted', () => {
+    expect(
+      humanFor('plugins-list', {
+        plugins: [
+          { id: '@acme/astera-jira', version: '1.0.0', status: 'stopped', permissions: ['jobs.read', 'jobs.create'] },
+          { id: 'astera-hello', version: '0.1.0', status: 'incompatible', permissions: [], reason: 'this Astera does not run event plugins yet' }
+        ]
+      })
+    ).toBe(
+      'STOPPED       @acme/astera-jira  1.0.0  jobs.read,jobs.create\nINCOMPATIBLE  astera-hello       0.1.0  -  this Astera does not run event plugins yet'
+    )
+  })
+
+  it('plugins logs prints the lines, and says when there are none', () => {
+    expect(humanFor('plugins-logs', { id: 'x', file: 'f', lines: ['one', 'two'] })).toBe('one' + String.fromCharCode(10) + 'two')
+    expect(humanFor('plugins-logs', { id: 'x', file: 'f', lines: [] })).toBe('no log yet')
+  })
+
+  it('plugins doctor prints one line per check, a failure in capitals', () => {
+    expect(
+      humanFor('plugins-doctor', {
+        id: 'x',
+        ok: false,
+        checks: [
+          { name: 'manifest', ok: true, detail: 'x 1.0.0, Plugin API 1' },
+          { name: 'native-addons', ok: true, warn: true, detail: '1 native addon (a.node)' },
+          { name: 'entry', ok: false, detail: 'index.js is not a file' }
+        ]
+      })
+    ).toBe(
+      ['ok    manifest       x 1.0.0, Plugin API 1', 'warn  native-addons  1 native addon (a.node)', 'FAIL  entry          index.js is not a file'].join(String.fromCharCode(10))
+    )
+  })
+
+  // Plugins 2c: a secret setting says only whether it is set.
+  it('plugins settings prints one row per setting, a secret one only as set or not', () => {
+    const data = {
+      id: 'x',
+      fields: [
+        { key: 'baseUrl', type: 'string', required: true },
+        { key: 'pageSize', type: 'integer', default: 50, required: false },
+        { key: 'token', type: 'string', secret: true, required: true },
+        { key: 'project', type: 'string', required: false }
+      ],
+      values: { baseUrl: 'https://jira.example.com', pageSize: 50 },
+      secrets: { token: 'set' }
+    }
+    const expected = [
+      'baseUrl   https://jira.example.com  required',
+      'pageSize  50',
+      'token     (secret, set)             required',
+      'project   (not set)'
+    ].join(String.fromCharCode(10))
+    expect(humanFor('plugins-settings', data)).toBe(expected)
+    expect(humanFor('plugins-configure', { ...data, restarted: true })).toBe(`${expected}${String.fromCharCode(10)}(restarted)`)
+    expect(humanFor('plugins-settings', { id: 'x', fields: [], values: {}, secrets: {} })).toBe('no settings')
+  })
+
+  // 2c final review M6: configure says how the plugin stands, not only that it restarted.
+  it('plugins configure ends with how the plugin stands after the change', () => {
+    const lf = String.fromCharCode(10)
+    const data = { id: 'x', fields: [{ key: 'token', type: 'string', secret: true, required: true }], values: {}, secrets: { token: 'set' } }
+    const row = 'token  (secret, set)  required'
+    expect(humanFor('plugins-configure', { ...data, status: 'running', restarted: true })).toBe(`${row}${lf}(restarted)`)
+    expect(humanFor('plugins-configure', { ...data, status: 'running' })).toBe(`${row}${lf}(running)`)
+    expect(humanFor('plugins-configure', { ...data, status: 'stopped', reason: 'needs settings: token; set them with astera plugins configure --id x' })).toBe(
+      `${row}${lf}(stopped: needs settings: token; set them with astera plugins configure --id x)`
+    )
+    expect(humanFor('plugins-configure', { ...data, status: 'failed', reason: 'activate threw: x' })).toBe(
+      `${row}${lf}(failed: activate threw: x; start it again with astera plugins enable --id x)`
+    )
+    expect(humanFor('plugins-settings', { ...data, status: 'running' })).toBe(row)
+  })
+
+  it('one plugin reads as its fields, like one project', () => {
+    const one = { id: 'astera-hello', version: '0.1.0', status: 'disabled', enabled: false }
+    for (const cmd of ['plugins-get', 'plugins-install', 'plugins-enable', 'plugins-disable', 'plugins-remove'])
+      expect(humanFor(cmd, one), cmd).toBe(humanFor('projects-get', one))
+  })
+
   it('tasks list 와 questions list 는 상태를 대문자로 앞에 둔다', () => {
     expect(humanFor('tasks-list', { tasks: [{ id: 't1', title: '제목', status: 'ready' }] }))
       .toBe('READY  t1  제목')

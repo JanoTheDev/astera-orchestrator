@@ -56,6 +56,17 @@ describe('parseArgs', () => {
     // Security audit SEC-6: a pairing string off the command line, where other users of the machine can read it.
     expect(parseArgs(['runtimes', 'add', '--pair', '-'])).toMatchObject({ cmd: 'runtimes-add', wantsStdin: ['pair'] })
   })
+  // Plugin runtime design P6: install approves with --yes or names the grant.
+  it('reads plugins install with its path and its approval', () => {
+    expect(parseArgs(['plugins', 'install', '--path', 'my-plugin', '--yes'])).toMatchObject({ cmd: 'plugins-install', args: { path: 'my-plugin', yes: true } })
+    expect(parseArgs(['plugins', 'install', '--path', 'p', '--grant', 'jobs.read,jobs.create'])).toMatchObject({ args: { grant: 'jobs.read,jobs.create' } })
+    for (const verb of ['list', 'get', 'enable', 'disable', 'remove', 'logs', 'doctor', 'settings', 'configure']) expect(parseArgs(['plugins', verb])).toMatchObject({ cmd: `plugins-${verb}` })
+    // Plugins 2c: settings are set and unset one flag each, as many as given.
+    expect(parseArgs(['plugins', 'configure', '--id', 'x', '--set', 'a=1', '--set', 'b=two', '--unset', 'c'])).toMatchObject({
+      args: { id: 'x', set: ['a=1', 'b=two'], unset: ['c'] }
+    })
+    expect(parseArgs(['plugins', 'logs', '--id', 'x', '--lines', '20'])).toMatchObject({ cmd: 'plugins-logs', args: { id: 'x', lines: '20' } })
+  })
   it('--deps는 JSON 배열로 파싱한다', () => {
     const r = parseArgs(['task-create', '--deps', '["tsk_1","tsk_2"]']) as {
       args: Record<string, unknown>
