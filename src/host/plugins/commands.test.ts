@@ -19,7 +19,8 @@ const fake = (): PluginManager & { calls: string[] } => {
       return { status: 200, body: { changed: enabled } }
     }),
     remove: vi.fn(ok('remove')),
-    records: async () => []
+    records: async () => [],
+    startAll: async () => {}
   }
 }
 
@@ -101,7 +102,21 @@ describe('index.ts gives the Host a plugin manager', () => {
     const path = await import('node:path')
     const { fileURLToPath } = await import('node:url')
     const src = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'index.ts'), 'utf8')
-    expect(src).toMatch(/const plugins = createPluginManager\(\{ profileDir, hostVersion \}\)/)
+    expect(src).toMatch(/const plugins = createPluginManager\(\{ profileDir, hostVersion, runtime: pluginRuntime \}\)/)
     expect(src).toMatch(/createHostOrch\(\{[\s\S]*?\n    plugins,\n/)
+  })
+  // Plugin runtime design P2, P11: the Host's own executable on the launcher beside its bundle, enabled plugins started
+  // once the Host listens, and stopped when it leaves.
+  it('runs the enabled plugins from the Host start to its end', async () => {
+    const { readFileSync } = await import('node:fs')
+    const path = await import('node:path')
+    const { fileURLToPath } = await import('node:url')
+    const src = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'index.ts'), 'utf8')
+    expect(src).toMatch(/const pluginRuntime = createPluginRuntime\(\{[\s\S]*?exec: process\.execPath,[\s\S]*?launcher: path\.join\(__dirname, 'plugin-host\.js'\)/)
+    const listen = src.indexOf('server = await startHostServer(')
+    expect(listen).toBeGreaterThan(0)
+    expect(src.indexOf('void plugins.startAll()')).toBeGreaterThan(listen)
+    const leave = src.slice(src.indexOf('const leave = '), src.indexOf('const hostVersion'))
+    expect(leave).toContain('void pluginRuntime.stopAll()')
   })
 })

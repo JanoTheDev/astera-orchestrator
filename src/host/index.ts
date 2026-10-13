@@ -5,6 +5,7 @@
 // Everything it needs arrives in the environment, because it has no `app.getPath('userData')` to ask.
 import childProcess from 'node:child_process'
 import { createPluginManager } from './plugins/manager'
+import { createPluginRuntime } from './plugins/runtime'
 import { existsSync, promises as fsp, readFileSync, rmSync } from 'node:fs'
 import { defaultCwdProbe, setProbeLog } from '../core/sessions/pathProbe'
 import { createRequire } from 'node:module'
@@ -35,7 +36,7 @@ import { attachProcHost } from './procHost'
 import { ProcRegistry } from './procRegistry'
 import { createProcHolders, procHeldBy } from './procHolders'
 import { nodeProcSpawn } from './nodeProc'
-import { HOST_PROTOCOL, HOST_YIELD_JOURNAL, HOST_YIELD_UNDERSTANDING, HOST_YIELD_WORK_UNITS, HOST_YIELD_WORKSPACE, HOST_YIELD_WORKTREES } from '../core/host/protocol'
+import { HOST_FEATURE_ORCH, HOST_FEATURE_REQUESTS, HOST_PROTOCOL, HOST_YIELD_JOURNAL, HOST_YIELD_UNDERSTANDING, HOST_YIELD_WORK_UNITS, HOST_YIELD_WORKSPACE, HOST_YIELD_WORKTREES } from '../core/host/protocol'
 import { createHostJournal } from './hostJournal'
 import { createHostEventLog } from './eventLog'
 import { createHostUnderstanding } from './hostUnderstanding'
@@ -235,6 +236,9 @@ async function main(): Promise<void> {
     void mcpHttp.stop()
     // The Remote Gateway stops with the Host the same way: its stdin ends (remote runtime design §2.3). Never rejects.
     void gateway.stop()
+    // The plugins stop with it: each is sent `shutdown`, then killed with what it started. A Host that exits first still
+    // ends them: their stdin closes, which is their way out too. Never rejects.
+    void pluginRuntime.stopAll()
     // **The Slack stops with them** (Slack in the Host, Task 5): its socket is closed and its timers
     // stopped before the server stops accepting, so a Host on its way out holds no socket an app taking
     // Slack back would be a second one beside. Never rejects.
@@ -406,6 +410,9 @@ async function main(): Promise<void> {
   // error name and this Host announces no `slack-owner`, so the app keeps Slack. Nothing else reads it
   // yet: the Host's Slack composition is built below the rolling.
   const slackSdk = spawner ? await loadSlackSdk({ env: process.env, log: (m) => log.write(m) }) : null
+  /** What this Host announces beyond the core flags: in every hello, and to a plugin's client (plugin runtime design P10). */
+  const announcedFeatures = (): string[] =>
+    hostFeatures({ spawns: spawner !== null, slack: slackSdk !== null, workspace: workspaceSupported(process.platform) })
 
   // **The Host drives Jobs** (S4+S5 §4, §5.1): its own checks, the dispatch loop and its triggers, and
   // the hooks they hand `createHostOrch` and `startHostServer` — one composition, which the integration
@@ -632,8 +639,25 @@ async function main(): Promise<void> {
       }),
     log: (m) => log.write(m)
   })
-  // The plugins this profile has installed (plugin runtime design P4, P5): answered to the app and the CLI by the orch.
-  const plugins = createPluginManager({ profileDir, hostVersion })
+  // The plugins this profile has installed (plugin runtime design P4, P5): answered to the app and the CLI by the orch,
+  // and run by this Host while it runs (P2, P11): its own executable as Node, on the launcher bundled beside it
+  // (out/main/plugin-host.js; the Windows runtime copies it beside host.js). A plugin's calls go to the orch as that
+  // plugin, which is created just below and asked only once a plugin runs.
+  const pluginRuntime = createPluginRuntime({
+    profileDir,
+    exec: process.execPath,
+    launcher: path.join(__dirname, 'plugin-host.js'),
+    env: process.env,
+    host: () => ({
+      version: hostVersion,
+      pid: process.pid,
+      startedAt: server.startedAt,
+      features: [HOST_FEATURE_ORCH, HOST_FEATURE_REQUESTS, ...announcedFeatures()]
+    }),
+    orch: { call: (a) => orch.call(a) },
+    log: (m) => log.write(m)
+  })
+  const plugins = createPluginManager({ profileDir, hostVersion, runtime: pluginRuntime })
   const orch = createHostOrch({
     profileDir,
     version: hostVersion,
@@ -893,7 +917,7 @@ async function main(): Promise<void> {
       // Announced only when there is a spawner, so an app can tell a Host that starts sessions itself,
       // that it also owns worktrees.json (R5: the one decision is `spawner !== null`), that it drives
       // Jobs (R7) and that it rolls its sessions (R17) — the same one fact.
-      features: hostFeatures({ spawns: spawner !== null, slack: slackSdk !== null, workspace: workspaceSupported(process.platform) }),
+      features: announcedFeatures(),
       // An app's hello and its socket's close (N1). The server isolates the call too (`tellAppsChanged`).
       ...(wiring?.serverHooks ?? {}),
       // Both hear it: the driver's app-left rule and the rolling's app-gone watch. Each isolates itself.
@@ -953,6 +977,8 @@ async function main(): Promise<void> {
   void mcpHttp.reload()
   // And the Remote Gateway (remote runtime design §2.3: every Host start reads remote-runtime.json).
   void gateway.reload()
+  // And the enabled plugins (plugin runtime design P11), once the orch that answers them listens. Never rejects.
+  void plugins.startAll()
 
   handlePty = attachPtyHost({ registry, broadcast: (m, to) => server.broadcast(m, to) })
   handleProc = attachProcHost({ registry: procs, broadcast: (m) => server.broadcast(m) })

@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createPluginManager, type PluginManager } from './manager'
+import type { PluginLaunch, PluginRunStatus, PluginRuntime } from './runtime'
 import { pluginsRoot } from './registry'
 
 let dir: string
@@ -426,5 +427,130 @@ describe('a plugins.json broken by hand', () => {
     expect((await manager.inspect(src)).status).toBe(500)
     expect(await fs.readFile(file, 'utf8')).toBe('{ broken')
     expect(await leftovers()).toEqual([])
+  })
+})
+
+describe('with a runtime (plugin runtime design P11)', () => {
+  /** A runtime that records what it was asked, with a status per id the test sets. */
+  const fakeRuntime = () => {
+    const calls: string[] = []
+    const launches: PluginLaunch[] = []
+    const statuses = new Map<string, PluginRunStatus>()
+    const runtime: Pick<PluginRuntime, 'start' | 'restart' | 'stop' | 'status'> = {
+      start: (p) => {
+        calls.push(`start ${p.id}`)
+        launches.push(p)
+        statuses.set(p.id, { status: 'running', pid: 7 })
+      },
+      restart: (p) => {
+        calls.push(`restart ${p.id}`)
+        statuses.set(p.id, { status: 'running', pid: 8 })
+      },
+      stop: async (id) => {
+        calls.push(`stop ${id}`)
+        statuses.set(id, { status: 'stopped' })
+      },
+      status: (id) => statuses.get(id)
+    }
+    return { runtime, calls, launches, statuses }
+  }
+  const withRuntime = (rt: ReturnType<typeof fakeRuntime>) =>
+    createPluginManager({ profileDir: profile, hostVersion: '1.5.0', runtime: rt.runtime })
+
+  it('starts an enabled, compatible plugin when it is installed, with where it runs and what it was granted', async () => {
+    const rt = fakeRuntime()
+    const m = withRuntime(rt)
+    const r = await m.install({ path: await plugin(FOLDER), grant: ['jobs.read'] })
+    expect(rt.calls).toEqual(['start @acme/astera-jira'])
+    const dirOf = path.join(installed(), '@acme+astera-jira')
+    expect(rt.launches[0]).toEqual({
+      id: '@acme/astera-jira',
+      version: '1.0.0',
+      folder: '@acme+astera-jira',
+      dir: dirOf,
+      entry: path.join(dirOf, 'dist', 'plugin.js'),
+      granted: ['jobs.read']
+    })
+    expect(r.body).toMatchObject({ status: 'running', pid: 7 })
+  })
+
+  it('does not start a plugin this Astera will not run', async () => {
+    const rt = fakeRuntime()
+    await withRuntime(rt).install({ path: await plugin(FOLDER, { capabilities: ['event'] }), grant: [] })
+    expect(rt.calls).toEqual([])
+  })
+
+  it('stops a running copy before an update moves its folder, and starts the new one', async () => {
+    const rt = fakeRuntime()
+    const m = withRuntime(rt)
+    const src = await plugin(FOLDER)
+    await m.install({ path: src, grant: [] })
+    await plugin(FOLDER, { version: '1.1.0' })
+    await m.install({ path: src, grant: [] })
+    expect(rt.calls).toEqual(['start @acme/astera-jira', 'stop @acme/astera-jira', 'start @acme/astera-jira'])
+    expect(rt.launches[1].version).toBe('1.1.0')
+  })
+
+  it('starts the earlier copy again when an update fails after stopping it', async () => {
+    const rt = fakeRuntime()
+    const m = withRuntime(rt)
+    const src = await plugin(FOLDER)
+    await m.install({ path: src, grant: [] })
+    await plugin(FOLDER, { version: '2.0.0' })
+    let moved = 0
+    const failing = createPluginManager({
+      profileDir: profile,
+      hostVersion: '1.5.0',
+      runtime: rt.runtime,
+      renameWaitsMs: [],
+      rename: async (from, to) => {
+        // The earlier copy steps aside and comes back; the new copy never lands.
+        if (moved === 1) {
+          moved += 1
+          throw Object.assign(new Error('EPERM'), { code: 'EPERM' })
+        }
+        moved += 1
+        await fs.rename(from, to)
+      }
+    })
+    expect((await failing.install({ path: src, grant: [] })).status).toBe(500)
+    expect(rt.calls).toEqual(['start @acme/astera-jira', 'stop @acme/astera-jira', 'start @acme/astera-jira'])
+    expect(rt.launches[1].version).toBe('1.0.0')
+  })
+
+  it('stops on disable, starts on enable, and starts a failed plugin again on enable', async () => {
+    const rt = fakeRuntime()
+    const m = withRuntime(rt)
+    await m.install({ path: await plugin(FOLDER), grant: [] })
+    expect(await m.setEnabled('@acme/astera-jira', false)).toMatchObject({ body: { status: 'disabled', changed: true } })
+    expect(await m.setEnabled('@acme/astera-jira', true)).toMatchObject({ body: { status: 'running', changed: true } })
+    rt.statuses.set('@acme/astera-jira', { status: 'failed', reason: 'activate threw: x' })
+    expect(await m.list()).toMatchObject({ body: { plugins: [{ status: 'failed', reason: 'activate threw: x' }] } })
+    expect(await m.setEnabled('@acme/astera-jira', true)).toMatchObject({ body: { status: 'running', changed: true } })
+    expect(rt.calls).toEqual(['start @acme/astera-jira', 'stop @acme/astera-jira', 'start @acme/astera-jira', 'restart @acme/astera-jira'])
+  })
+
+  it('stops a plugin before removing it', async () => {
+    const rt = fakeRuntime()
+    const m = withRuntime(rt)
+    await m.install({ path: await plugin(FOLDER), grant: [] })
+    await m.remove('@acme/astera-jira')
+    expect(rt.calls).toEqual(['start @acme/astera-jira', 'stop @acme/astera-jira'])
+  })
+
+  it('starts every enabled, compatible plugin at the Host’s start', async () => {
+    await manager.install({ path: await plugin('a', { name: 'plugin-a' }), grant: [] })
+    await manager.install({ path: await plugin('b', { name: 'plugin-b' }), grant: [] })
+    await manager.install({ path: await plugin('c', { name: 'plugin-c', capabilities: ['event'] }), grant: [] })
+    await manager.setEnabled('plugin-b', false)
+    const rt = fakeRuntime()
+    await withRuntime(rt).startAll()
+    expect(rt.calls).toEqual(['start plugin-a'])
+  })
+
+  it('shows a plugin the runtime has not seen as stopped', async () => {
+    const rt = fakeRuntime()
+    await manager.install({ path: await plugin(FOLDER), grant: [] })
+    expect(await withRuntime(rt).list()).toMatchObject({ body: { plugins: [{ status: 'stopped' }] } })
   })
 })

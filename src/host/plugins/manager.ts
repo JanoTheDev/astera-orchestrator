@@ -8,6 +8,7 @@ import { incompatibility, parseManifest, pluginFolderName, type PluginManifest, 
 import { PluginCopyRefused, copyPluginFolder, layoutProblem } from './copyFolder'
 import { RegistryUnreadable, pluginsRoot, readRegistry, writeRegistry, type PluginRecord } from './registry'
 import { moveRetrying, type Rename } from './moves'
+import type { PluginLaunch, PluginRuntime } from './runtime'
 
 export type PluginStatus = 'disabled' | 'incompatible' | 'stopped' | 'starting' | 'running' | 'failed'
 
@@ -26,6 +27,8 @@ export interface PluginManager {
   remove(id: unknown): Promise<PluginsAnswer>
   /** The registry as it is, for the plugin runtime (2b). Throws `RegistryUnreadable`. */
   records(): Promise<PluginRecord[]>
+  /** Starts every enabled plugin this Astera runs: the Host calls it once it listens. */
+  startAll(): Promise<void>
 }
 
 /** A refusal: a status and the sentence the caller reads. */
@@ -96,6 +99,8 @@ export function createPluginManager(d: {
   renameWaitsMs?: readonly number[]
   /** For tests: the folder copy (`copyPluginFolder`). */
   copy?: (src: string, dest: string) => Promise<void>
+  /** What runs the enabled plugins (2b). Absent: nothing runs, and an enabled, compatible plugin is `stopped`. */
+  runtime?: Pick<PluginRuntime, 'start' | 'restart' | 'stop' | 'status'>
 }): PluginManager {
   const root = pluginsRoot(d.profileDir)
   // The copies live one level down, so no plugin name can be plugins.json or one of the folders the Host keeps for
@@ -158,13 +163,36 @@ export function createPluginManager(d: {
     return run
   }
 
-  /** A record as a person sees it, read with its installed copy's manifest. */
+  /** What the runtime needs to start the plugin a record names, with its installed copy's manifest. */
+  const launchOf = (r: PluginRecord, m: PluginManifest): PluginLaunch => {
+    const dir = path.join(installed, r.folder)
+    return { id: r.id, version: m.version, folder: r.folder, dir, entry: path.resolve(dir, m.entry), granted: r.granted }
+  }
+
+  /** The record's plugin, when it is enabled and this Astera runs it; null otherwise. */
+  async function runnable(r: PluginRecord): Promise<PluginLaunch | null> {
+    if (!r.enabled) return null
+    const read = await readManifest(path.join(installed, r.folder))
+    if (!read.ok || incompatibility(read.manifest, host) !== null) return null
+    return launchOf(r, read.manifest)
+  }
+
+  /** Starts the record's plugin when it is enabled and runs here. */
+  const startIfRunnable = async (r: PluginRecord): Promise<void> => {
+    if (!d.runtime) return
+    const launch = await runnable(r)
+    if (launch) d.runtime.start(launch)
+  }
+
+  /** A record as a person sees it, read with its installed copy's manifest and, while it runs, the runtime's word. */
   async function view(r: PluginRecord): Promise<Record<string, unknown>> {
     const dir = path.join(installed, r.folder)
     const read = await readManifest(dir)
     const m = read.ok ? read.manifest : null
-    const reason = m ? incompatibility(m, host) : `the installed copy cannot be read: ${read.ok ? '' : read.error}`
-    const status: PluginStatus = !r.enabled ? 'disabled' : reason !== null ? 'incompatible' : 'stopped'
+    const incompatible = m ? incompatibility(m, host) : `the installed copy cannot be read: ${read.ok ? '' : read.error}`
+    const run = r.enabled && incompatible === null ? d.runtime?.status(r.id) : undefined
+    const status: PluginStatus = !r.enabled ? 'disabled' : incompatible !== null ? 'incompatible' : (run?.status ?? 'stopped')
+    const reason = incompatible ?? run?.reason ?? null
     return {
       id: r.id,
       name: m?.name ?? r.id,
@@ -174,6 +202,7 @@ export function createPluginManager(d: {
       enabled: r.enabled,
       status,
       ...(reason !== null ? { reason } : {}),
+      ...(run?.pid !== undefined ? { pid: run.pid } : {}),
       capabilities: m?.capabilities ?? [],
       permissions: r.granted,
       requested: m?.permissions ?? [],
@@ -272,13 +301,26 @@ export function createPluginManager(d: {
       const folder = pluginFolderName(m.id)
       const final = path.join(installed, folder)
       const previous = records.find((r) => r.id === m.id)
-      // An earlier copy steps aside first and comes back if the registry cannot be written.
+      // A running copy stops before its folder moves: Windows will not move a folder a process runs from. If the change
+      // then fails, the earlier copy is put back and started again.
+      if (previous) await d.runtime?.stop(previous.id)
+      const startPrevious = async (): Promise<void> => {
+        if (previous) await startIfRunnable(previous)
+      }
+      // An earlier copy steps aside first and comes back if the change cannot be finished.
       const retired = (await isFolder(final)) ? retiredFor(folder) : null
-      if (retired) await move(final, retired)
+      if (retired) {
+        try {
+          await move(final, retired)
+        } catch (e) {
+          await startPrevious()
+          throw e
+        }
+      }
       try {
         await move(staging, final)
       } catch (e) {
-        await putBack(e, retired, final)
+        await putBack(e, retired, final).finally(startPrevious)
       }
       const record: PluginRecord = {
         id: m.id,
@@ -293,9 +335,10 @@ export function createPluginManager(d: {
         await writeRegistry(root, [...records.filter((r) => r.id !== m.id), record].sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0)))
       } catch (e) {
         await discard(final)
-        await putBack(e, retired, final)
+        await putBack(e, retired, final).finally(startPrevious)
       }
       if (retired) await discard(retired)
+      await startIfRunnable(record)
       return { status: 200, body: { ...(await view(record)), ...(previous ? { replaced: previous.version } : {}) } }
     } finally {
       await discard(staging)
@@ -306,9 +349,19 @@ export function createPluginManager(d: {
     const want = idOf(enabled ? 'plugins-enable' : 'plugins-disable', id)
     const records = await readRegistry(root)
     const r = find(records, want)
-    if (r.enabled === enabled) return { status: 200, body: { ...(await view(r)), changed: false } }
+    if (r.enabled === enabled) {
+      // Enabling a plugin that failed starts it again (design P11): a change, though the flag stays as it was.
+      const launch = enabled && d.runtime?.status(r.id)?.status === 'failed' ? await runnable(r) : null
+      if (launch && d.runtime) {
+        d.runtime.restart(launch)
+        return { status: 200, body: { ...(await view(r)), changed: true } }
+      }
+      return { status: 200, body: { ...(await view(r)), changed: false } }
+    }
     const next = { ...r, enabled }
     await writeRegistry(root, records.map((x) => (x.id === want ? next : x)))
+    if (enabled) await startIfRunnable(next)
+    else await d.runtime?.stop(r.id)
     return { status: 200, body: { ...(await view(next)), changed: true } }
   }
 
@@ -317,13 +370,22 @@ export function createPluginManager(d: {
     const records = await readRegistry(root)
     const r = find(records, want)
     const final = path.join(installed, r.folder)
-    // Out of the way before the record goes, so a folder Windows will not let go of fails the removal whole.
+    // Stopped first, then out of the way before the record goes, so a folder Windows will not let go of fails the
+    // removal whole; a removal that fails starts the plugin again.
+    await d.runtime?.stop(r.id)
     const retired = (await isFolder(final)) ? retiredFor(r.folder) : null
-    if (retired) await move(final, retired)
+    if (retired) {
+      try {
+        await move(final, retired)
+      } catch (e) {
+        await startIfRunnable(r)
+        throw e
+      }
+    }
     try {
       await writeRegistry(root, records.filter((x) => x.id !== want))
     } catch (e) {
-      await putBack(e, retired, final)
+      await putBack(e, retired, final).finally(() => startIfRunnable(r))
     }
     if (retired) await discard(retired)
     return { status: 200, body: { id: r.id, version: r.version, removed: true } }
@@ -341,6 +403,11 @@ export function createPluginManager(d: {
       }),
     setEnabled: (id, enabled) => serial(() => setEnabled(id, enabled)),
     remove: (id) => serial(() => remove(id)),
+    startAll: () =>
+      serial(async () => {
+        for (const r of await readRegistry(root)) await startIfRunnable(r)
+        return { status: 200, body: {} }
+      }).then(() => {}),
     records: () => readRegistry(root)
   }
 }
