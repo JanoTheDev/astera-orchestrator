@@ -151,3 +151,19 @@ describe('doctorEnd', () => {
     expect(doctorEnd({ id: 'astera-hello', ok: true, checks: [] })).toBeNull()
   })
 })
+
+// 2b final review M3: the guide said 1, 2 and 5 seconds, and the third wait never came. The waits it states are the
+// runtime's own, and the runtime has no wait the crash count never reaches.
+describe('the docs say how a crashing plugin is restarted', () => {
+  it('with the waits and the count the runtime uses', async () => {
+    const { readFileSync } = await import('node:fs')
+    const { fileURLToPath } = await import('node:url')
+    const { PLUGIN_TIMINGS } = await import('../host/plugins/runtime')
+    expect(PLUGIN_TIMINGS.backoffMs).toHaveLength(PLUGIN_TIMINGS.failAfter - 1)
+    const docs = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../docs/cli.md'), 'utf8')
+    const section = docs.slice(docs.indexOf('### Plugins'), docs.indexOf('## Command reference')).replace(/\s+/g, ' ')
+    const waits = PLUGIN_TIMINGS.backoffMs.map((ms) => String(ms / 1000))
+    expect(section).toContain(`A plugin that crashes is started again after ${waits.slice(0, -1).join(', ')}, then ${waits.at(-1)} seconds`)
+    expect(section).toContain(`the ${['first', 'second', 'third', 'fourth'][PLUGIN_TIMINGS.failAfter - 1]} crash without ${PLUGIN_TIMINGS.stableMs / 1000} seconds of steady running`)
+  })
+})

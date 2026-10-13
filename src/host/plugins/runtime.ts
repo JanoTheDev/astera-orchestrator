@@ -32,7 +32,7 @@ export interface PluginTimings {
  *  Host's own message, and a line without end must not grow the Host's memory until it falls over. */
 export const PLUGIN_MAX_LINE = 32 * 1024 * 1024
 
-export const PLUGIN_TIMINGS: PluginTimings = { startMs: 30_000, stopGraceMs: 5_000, backoffMs: [1000, 2000, 5000], stableMs: 30_000, failAfter: 3 }
+export const PLUGIN_TIMINGS: PluginTimings = { startMs: 30_000, stopGraceMs: 5_000, backoffMs: [1000, 2000], stableMs: 30_000, failAfter: 3 }
 
 /** How long a leaving Host waits for its plugins: a stop's grace after `shutdown`, the kill's, and a second more. */
 export const PLUGIN_STOP_CAP_MS = PLUGIN_TIMINGS.stopGraceMs * 2 + 1_000

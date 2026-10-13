@@ -551,7 +551,7 @@ changes are refused with exit 5, and MCP clients and remote controllers cannot r
 An enabled plugin runs while the Host runs, as a process of its own on the Node inside Astera; no Node install is
 needed, and native addons cannot load there (`plugins doctor` names any it finds). Its `ctx.astera` reaches Astera
 only within the permissions you granted. What it prints, and when it starts, stops or crashes, goes to its log
-(`<profile>/plugins/logs`, read with `plugins logs`). A plugin that crashes is started again after 1, 2, then 5
+(`<profile>/plugins/logs`, read with `plugins logs`). A plugin that crashes is started again after 1, then 2
 seconds; the third crash without 30 seconds of steady running marks it `failed`, and it stays stopped until
 `plugins enable` starts it again or the Host restarts. Plugins do not keep the Host running.
 
