@@ -41,7 +41,7 @@ describe('PluginCard (spec §30)', () => {
   it('says why a plugin does not run, and what it serves', () => {
     const html = card({ ...PLUGIN, status: 'stopped', reason: 'needs settings: token; set them with astera plugins configure --id x', capabilities: ['job-source'] })
     expect(html).toContain('Stopped')
-    expect(html).toContain('needs settings: token')
+    expect(html).toContain('Needs settings: token. Set them with Configure.')
     expect(html).toContain('Capabilities')
     expect(html).toContain('job-source')
   })
@@ -97,6 +97,13 @@ describe('PluginSettingsForm (spec §23, §24)', () => {
     expect(html).toContain('>set<')
     expect(html).toContain('>not set<')
     expect(html.match(/Clear/g)).toHaveLength(1)
+  })
+
+  // Found on the dev app: an empty box for a secret not set yet said "to change it".
+  it('asks for a secret not set yet, and for a new value of one that is', () => {
+    const html = form()
+    expect(html).toContain('placeholder="Type a new value to change it"')
+    expect(html).toContain('placeholder="Type the value"')
   })
 
   it('shows what the person typed over what is stored, and saves only when something changed', () => {

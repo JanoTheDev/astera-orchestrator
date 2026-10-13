@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { t as translate, type MessageKey, type MessageParams } from '../../../core/i18n'
 import { PLUGIN_TRUST_WARNING } from '../../../core/plugins/manifest'
 import type { SettingField } from '../../../core/plugins/settings'
-import { configureChanges, configureDoneLine, failureLine, installPrompt, permissionLabel, statusLabel } from './pluginsText'
+import { configureChanges, configureDoneLine, failureLine, installPrompt, permissionLabel, reasonLine, statusLabel } from './pluginsText'
 
 const en = (key: MessageKey, params?: MessageParams): string => translate('en', key, params)
 const ko = (key: MessageKey, params?: MessageParams): string => translate('ko', key, params)
@@ -138,6 +138,22 @@ describe('configureDoneLine', () => {
     expect(configureDoneLine({ status: 'failed', reason: 'activate threw: x' }, en)).toBe('Saved. It failed before, and starts again only when you press Start again.')
     expect(configureDoneLine({ status: 'disabled' }, en)).toBe('Saved. It is disabled, and starts with these values when you enable it.')
     expect(configureDoneLine({ status: 'stopped' }, en)).toBe('Saved.')
+  })
+})
+
+// Found on the dev app: the Host's reason for a held-back plugin points at the CLI, in English, beside a Configure button.
+describe('reasonLine', () => {
+  it('says which settings a held-back plugin needs, in the app’s words', () => {
+    expect(reasonLine('needs settings: baseUrl, token; set them with astera plugins configure --id @acme/jira', en)).toBe(
+      'Needs settings: baseUrl, token. Set them with Configure.'
+    )
+  })
+
+  it('gives any other reason as the Host said it', () => {
+    expect(reasonLine('activate threw: 401 for [redacted] (3 times in a row, each within 30 s of starting)', en)).toBe(
+      'activate threw: 401 for [redacted] (3 times in a row, each within 30 s of starting)'
+    )
+    expect(reasonLine('', en)).toBe('')
   })
 })
 

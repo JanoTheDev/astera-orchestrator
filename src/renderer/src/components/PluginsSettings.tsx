@@ -5,7 +5,7 @@ import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
 import { confirmModal, confirmModalWithChoices } from '../lib/confirm'
 import { Select } from './Select'
-import { configureChanges, configureDoneLine, failureLine, installPrompt, permissionLabel, statusLabel } from './pluginsText'
+import { configureChanges, configureDoneLine, failureLine, installPrompt, permissionLabel, reasonLine, statusLabel } from './pluginsText'
 
 type Plugin = Record<string, unknown>
 type Shown = { fields: SettingField[]; values: Record<string, unknown>; secrets: Record<string, unknown> }
@@ -260,7 +260,7 @@ export function PluginCard({
         {id} · {t('settings.plugins.version', { version: str(plugin.version) })}
       </span>
       {str(plugin.description) !== '' && <span className="settings-hint">{str(plugin.description)}</span>}
-      {reason !== '' && <span className={`settings-hint${status === 'failed' || status === 'incompatible' ? ' is-warning' : ''}`}>{reason}</span>}
+      {reason !== '' && <span className={`settings-hint${status === 'failed' || status === 'incompatible' ? ' is-warning' : ''}`}>{reasonLine(reason, t)}</span>}
       {capabilities.length > 0 && (
         <div className="plugin-facts">
           <span className="settings-field-label">{t('settings.plugins.capabilities')}</span>
@@ -366,7 +366,7 @@ export function PluginSettingsForm({
                   className="settings-gen-input remote-actions-grow"
                   aria-label={f.title ?? f.key}
                   value={typeof draft[f.key] === 'string' ? (draft[f.key] as string) : ''}
-                  placeholder={t('settings.plugins.form.secretPlaceholder')}
+                  placeholder={set ? t('settings.plugins.form.secretPlaceholder') : t('settings.plugins.form.secretPlaceholderNew')}
                   autoComplete="new-password"
                   spellCheck={false}
                   disabled={clear.has(f.key)}

@@ -123,6 +123,14 @@ export function configureDoneLine(body: Record<string, unknown>, t: T): string {
   }
 }
 
+/** The Host's reason a plugin does not run, as the tab shows it. A held-back plugin's names the settings it needs and
+ *  points at the CLI (manager.ts `heldBack`); beside a Configure button it says that instead. Any other reason is the
+ *  Host's, or the plugin's own words, as they came. */
+export function reasonLine(reason: string, t: T): string {
+  const held = /^needs settings: ([^;]+); set them with astera plugins configure\b/.exec(reason)
+  return held ? t('settings.plugins.needsSettings', { keys: held[1] }) : reason
+}
+
 /** Why a call came back with nothing: in the app's words when no Host answered or it runs no plugins, else the Host's
  *  own sentence. */
 export function failureLine(r: { ok: false; code: string; message: string }, t: T): string {
