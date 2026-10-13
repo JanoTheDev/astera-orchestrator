@@ -67,12 +67,20 @@ export function parseSettingsSchema(raw: unknown): { ok: true; fields: SettingFi
     }
   }
   const fields: SettingField[] = []
+  // A secret setting is a file named for its key, and Windows folds case (2c final review M10).
+  const folded = new Map<string, string>()
   for (const key of keys) {
     const at = `${PREFIX}.${key}`
     if (!KEY.test(key)) {
       problems.push(`${PREFIX}: ${key} is not a settings key (a letter, then letters, digits or _, at most 64)`)
       continue
     }
+    const first = folded.get(key.toLowerCase())
+    if (first !== undefined) {
+      problems.push(`${PREFIX}: ${key} and ${first} differ only in case`)
+      continue
+    }
+    folded.set(key.toLowerCase(), key)
     const f = raw.properties[key]
     if (!isObject(f)) {
       problems.push(`${at} is not an object`)
@@ -125,19 +133,34 @@ export function parseSettingsSchema(raw: unknown): { ok: true; fields: SettingFi
   return problems.length > 0 ? { ok: false, problems } : { ok: true, fields }
 }
 
-/** A value for `field`, from one of its type or from the text a command line gives (`astera plugins configure`). */
+/** Decimal digits only: `0x10`, `1e3` and ` 42 ` are not what a person meant to type (2c final review M9). */
+const DECIMAL = /^-?\d+(?:\.\d+)?$/
+const WHOLE = /^-?\d+$/
+
+/** A value for `field`, from one of its type or from the text a command line gives (`astera plugins configure`). A
+ *  refusal of a secret setting never repeats the value (2c final review M7): it may be the secret, mistyped. */
 export function coerceSetting(field: SettingField, value: unknown): { ok: true; value: SettingValue } | { ok: false; problem: string } {
   let v: unknown = value
   if (typeof value === 'string' && field.type !== 'string') {
     if (field.type === 'boolean') v = value === 'true' ? true : value === 'false' ? false : value
-    else if (value.trim() !== '' && Number.isFinite(Number(value))) v = Number(value)
+    else if ((field.type === 'integer' ? WHOLE : DECIMAL).test(value)) v = Number(value)
   }
   const bad = typeProblem(field.type, v)
-  if (bad) return { ok: false, problem: `${field.key}: ${bad}` }
-  if (field.enum && !field.enum.includes(v as SettingValue)) return { ok: false, problem: `${field.key}: ${String(v)} is not one of ${field.enum.join(', ')}` }
+  if (bad) return { ok: false, problem: field.secret ? `${field.key}: a secret setting takes text` : `${field.key}: ${bad}` }
+  if (field.enum && !field.enum.includes(v as SettingValue))
+    return {
+      ok: false,
+      problem: field.secret
+        ? `${field.key}: the value is not one of ${field.enum.join(', ')}`
+        : `${field.key}: ${String(v)} is not one of ${field.enum.join(', ')}`
+    }
   return { ok: true, value: v as SettingValue }
 }
 
-/** The required settings with neither a value (`has`) nor a default. */
-export const missingRequired = (fields: readonly SettingField[], has: (key: string) => boolean): string[] =>
-  fields.filter((f) => f.required && f.default === undefined && !has(f.key)).map((f) => f.key)
+/** The required settings with neither a value (`has`) nor a default. An empty text is no value (2c final review M9):
+ *  `--set token=` must not let a plugin start without its token. */
+export const missingRequired = (
+  fields: readonly SettingField[],
+  has: (key: string) => boolean,
+  valueOf: (key: string) => unknown = () => undefined
+): string[] => fields.filter((f) => f.required && f.default === undefined && (!has(f.key) || valueOf(f.key) === '')).map((f) => f.key)

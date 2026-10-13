@@ -78,10 +78,12 @@ export function pluginSecrets(profileDir: string, folder: string): { secret: Sec
   const exists = (): Promise<boolean> => fs.stat(dir).then((s) => s.isDirectory(), () => false)
   const all = async (): Promise<string[]> => ((await exists()) ? store.withLock((tx) => tx.list()) : [])
   const space = (prefix: string): SecretSpace => {
+    // A name is a file, and Windows folds case and drops a trailing dot: `Token` and `token`, `a.` and `a`, would be one
+    // file there and two elsewhere, so a name is kept folded and a trailing dot refused (2c final review M10).
     const checked = (name: unknown): string => {
-      if (typeof name !== 'string' || !NAME.test(name))
-        throw new PluginSecretRefused(`${String(name)} is not a secret name (letters, digits, _, - and ., at most 73, not starting with .)`)
-      return `${prefix}${name}`
+      if (typeof name !== 'string' || !NAME.test(name) || name.endsWith('.'))
+        throw new PluginSecretRefused(`${String(name)} is not a secret name (letters, digits, _, - and ., at most 73, not starting or ending with .)`)
+      return `${prefix}${name.toLowerCase()}`
     }
     return {
       get: async (name) => (await store.read(checked(name))) ?? undefined,

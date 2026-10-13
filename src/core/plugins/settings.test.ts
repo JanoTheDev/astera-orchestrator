@@ -134,3 +134,36 @@ describe('missingRequired', () => {
     expect(missingRequired(fields, (k) => k === 'a' || k === 'c')).toEqual([])
   })
 })
+
+// 2c final review M7, M9, M10.
+describe('the settings review fixes', () => {
+  const f = (over: Partial<SettingField>): SettingField => ({ key: 'k', type: 'string', required: false, ...over })
+
+  it('never puts a secret value in a refusal', () => {
+    expect(coerceSetting(f({ key: 'token', secret: true, enum: ['a-allowed'] }), 'my-real-secret')).toEqual({
+      ok: false,
+      problem: 'token: the value is not one of a-allowed'
+    })
+    expect(coerceSetting(f({ key: 'pin', secret: true }), 98765432)).toEqual({ ok: false, problem: 'pin: a secret setting takes text' })
+  })
+
+  it('reads a number from decimal digits only', () => {
+    for (const bad of ['0x10', '0b11', '1e3', ' 42 ', '+5', '.5', '5.', 'Infinity'])
+      expect(coerceSetting(f({ type: 'number' }), bad).ok, bad).toBe(false)
+    expect(coerceSetting(f({ type: 'number' }), '-2.5')).toEqual({ ok: true, value: -2.5 })
+    expect(coerceSetting(f({ type: 'integer' }), '-7')).toEqual({ ok: true, value: -7 })
+    expect(coerceSetting(f({ type: 'integer' }), '07')).toEqual({ ok: true, value: 7 })
+  })
+
+  it('counts an empty text as not set for a required setting', () => {
+    const fields = [f({ key: 'token', required: true, secret: true }), f({ key: 'url', required: true })]
+    expect(missingRequired(fields, () => true, () => '')).toEqual(['token', 'url'])
+    expect(missingRequired(fields, () => true, () => 'x')).toEqual([])
+  })
+
+  it('refuses two keys that differ only in case, which one file holds on Windows', () => {
+    expect(problemsOf({ type: 'object', properties: { apiKey: { type: 'string' }, apikey: { type: 'string' } } })).toEqual([
+      'astera.settingsSchema: apikey and apiKey differ only in case'
+    ])
+  })
+})

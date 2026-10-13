@@ -102,3 +102,18 @@ describe('forgetPluginData', () => {
     await forgetPluginData(profile, 'never-installed')
   })
 })
+
+// 2c final review M10: on Windows two names that differ in case, or by a trailing dot, are one file.
+describe('secret names on a file system that folds case', () => {
+  it('keeps names that differ only in case as one secret, everywhere', async () => {
+    const s = pluginSecrets(profile, 'p')
+    await s.secret.set('Token', 'upper')
+    await s.secret.set('token', 'lower')
+    expect(await s.secret.get('TOKEN')).toBe('lower')
+    expect(await s.secret.names()).toEqual(['token'])
+  })
+
+  it('refuses a name ending in a dot', async () => {
+    expect(await pluginSecrets(profile, 'p').secret.set('a.', 'v').catch((e: unknown) => e)).toBeInstanceOf(PluginSecretRefused)
+  })
+})
