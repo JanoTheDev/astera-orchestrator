@@ -233,8 +233,8 @@ export interface JobRun {
    *  retried rather than remembered as done. A new coordinator (`attachCoordinator`) starts without it;
    *  a roll's rekey carries it, since the stop is meant for whatever session the slot follows. */
   coordinatorStopPending?: string
-  /** The session that drives this Run from outside: it made the Run with `run-create`, or took it over with `check`,
-   *  and Astera neither started nor owns it (2026-10-13, spec E1). **Only the inbox net reads it**
+  /** The session that drives this Run from outside: it made the Run with `run-create` (with no coordinator account),
+   *  or took it over with `check --run`, and Astera neither started nor owns it (2026-10-13, spec E1). **Only the inbox net reads it**
    *  (`unattendedQuestions`, inbox.ts): while that session is alive, a worker's question is left to it. Nothing stops,
    *  nudges or types into the session through this field, and nothing empties it when the session ends: whether it
    *  lives is asked when a question is judged, because a chat session's end never reaches the orchestration (E4). A

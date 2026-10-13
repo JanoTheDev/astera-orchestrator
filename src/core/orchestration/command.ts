@@ -1729,9 +1729,10 @@ export async function handleCommand(
       // 여기서 하나 만들면 예약 시각이 되기도 전에 1회차가 도는 일이 된다.
       if (args.auto === true || schedule !== undefined) return commit(created)
       const started = startJobRun(created.state, created.value.id, now)
-      if (!started.ok || !fromAgentSession) return commit(started)
+      if (!started.ok || !fromAgentSession || coordinatorAccountId !== undefined) return commit(started)
       // **부른 세션이 이 회차를 몬다**(spec E3) — 스킬의 `run-create` → `check --wait` 고리다. 적지 않으면
       // 받은편지함 그물이 이 회차를 답할 사람 없는 회차로 읽고, 그 세션보다 먼저 워커에게 답한다.
+      // 코디네이터 계정이 있으면 적지 않는다(최종 리뷰 M3): 그 회차는 Astera 가 띄울 코디네이터가 몬다.
       const driven = recordExternalCoordinator(started.state, { runId: started.value.id, sessionId: caller.sessionId })
       if (!driven.ok || driven.value === null) return commit(started)
       return commit(driven)
@@ -3757,7 +3758,10 @@ export async function handleCommand(
       }
       // **이 받은편지함을 읽는 세션이 이 회차를 몬다**(spec E3). handoff 로 새 세션이 이어받으면 그 세션이
       // 적힌다. ack 를 커밋한 **뒤의** 상태에 적는다 — `s` 는 ack 전의 것이라 그 위에 쓰면 ack 가 지워진다.
-      if (fromAgentSession) {
+      // **`--run` 으로 회차를 지목했을 때만 적는다**(최종 리뷰 I1). 없으면 앱 전체의 마지막 회차를 읽는데,
+      // 그것은 이 세션의 run-create 뒤에 사이드바에서 만든 남의 회차일 수 있다 — 적으면 그 회차의 그물이
+      // 이 세션이 사는 동안 꺼진다.
+      if (fromAgentSession && str(args.run) !== null) {
         const taken = recordExternalCoordinator(deps.getState(), { runId, sessionId: caller.sessionId })
         if (taken.ok && taken.value !== null) await deps.setState(taken.state)
       }

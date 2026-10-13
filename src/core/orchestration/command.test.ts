@@ -8977,19 +8977,39 @@ describe('the external coordinator: run-create and check record the driving sess
   it('check from another session takes the Run over; the same session writes nothing', async () => {
     const deps = makeDeps()
     await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p' }, 'sess-a')
+    const run = deps.getState().runs[0].id
     const writes = vi.fn(deps.setState)
     deps.setState = writes
-    await call(deps, 'check', {}, 'sess-a')
+    await call(deps, 'check', { run }, 'sess-a')
     expect(writes).not.toHaveBeenCalled()
-    await call(deps, 'check', {}, 'sess-b')
+    await call(deps, 'check', { run }, 'sess-b')
     expect(deps.getState().runs[0].externalCoordinatorSessionId).toBe('sess-b')
   })
 
   it('a plain shell’s check replaces nothing (Review Focus 3)', async () => {
     const deps = makeDeps()
     await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p' }, 'sess-a')
-    await call(deps, 'check', {}, '')
+    await call(deps, 'check', { run: deps.getState().runs[0].id }, '')
     expect(deps.getState().runs[0].externalCoordinatorSessionId).toBe('sess-a')
+  })
+
+  // Final review I1: a `check` with no `--run` reads whichever Run was made last app-wide, and the guide's own loop
+  // used to call it that way. Taking that Run over would silence the net on somebody else's Run, a sidebar Job made
+  // after this session's run-create, for as long as this session lives.
+  it('check without --run takes nothing over: the latest Run may be someone else’s', async () => {
+    const deps = makeDeps()
+    await call(deps, 'run-create', { objective: 'mine', cwd: 'D:/p' }, 'sess-a')
+    await call(deps, 'run-create', { objective: 'theirs', cwd: 'D:/p' }, APP_CALLER)
+    await call(deps, 'check', {}, 'sess-a')
+    expect(deps.getState().runs.map((r) => r.externalCoordinatorSessionId)).toEqual(['sess-a', undefined])
+  })
+
+  // Final review M3: with a coordinator account Astera starts the Run's coordinator; the session that made it is not
+  // the one meant to read its inbox, and naming it would silence the net once that coordinator is closed.
+  it('run-create with a coordinator account records no session', async () => {
+    const deps = makeDeps()
+    await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p', coordinatorAccount: 'acc1' }, 'sess-drv')
+    expect(deps.getState().runs[0]).not.toHaveProperty('externalCoordinatorSessionId')
   })
 
   it('check on a Run whose coordinator Astera started records nothing', async () => {
@@ -8999,7 +9019,7 @@ describe('the external coordinator: run-create and check record the driving sess
     const owned = attachCoordinator(s, { runId: s.runs[0].id, sessionId: 'coord1' })
     if (!owned.ok) throw new Error(owned.error)
     await deps.setState(owned.state)
-    await call(deps, 'check', {}, 'sess-b')
+    await call(deps, 'check', { run: s.runs[0].id }, 'sess-b')
     expect(deps.getState().runs[0]).not.toHaveProperty('externalCoordinatorSessionId')
   })
 
@@ -9011,9 +9031,10 @@ describe('the external coordinator: run-create and check record the driving sess
       ...s,
       messages: [{ id: 'msg_1', runId: s.runs[0].id, type: 'status', subject: 's', body: 'b', answered: false, createdAt: NOW }]
     })
-    const first = (await call(deps, 'check', {}, 'sess-a')).body as { deliveryId: string }
+    const run = s.runs[0].id
+    const first = (await call(deps, 'check', { run }, 'sess-a')).body as { deliveryId: string }
     expect(first.deliveryId).toBeDefined()
-    await call(deps, 'check', { ack: first.deliveryId }, 'sess-b')
+    await call(deps, 'check', { run, ack: first.deliveryId }, 'sess-b')
     expect(deps.getState().deliveries[0].ackedAt).toBeDefined()
     expect(deps.getState().runs[0].externalCoordinatorSessionId).toBe('sess-b')
   })
