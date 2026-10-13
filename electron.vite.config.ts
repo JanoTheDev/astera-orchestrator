@@ -18,7 +18,8 @@ export default defineConfig({
         input: {
           index: 'src/main/index.ts',
           cli: 'src/cli/index.ts',
-          host: 'src/host/index.ts'
+          host: 'src/host/index.ts',
+          'plugin-host': 'src/pluginHost/index.ts'
         }
       }
     }
