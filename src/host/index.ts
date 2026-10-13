@@ -434,6 +434,7 @@ async function main(): Promise<void> {
         platform: process.platform,
         env: process.env,
         registry,
+        procs,
         spawner,
         worktrees,
         orch: () => orch,

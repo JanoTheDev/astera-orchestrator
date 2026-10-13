@@ -29,6 +29,7 @@ import { createLostGateGuard } from './lostGateGuard'
 import type { HostJournal } from './hostJournal'
 import type { HostOrch } from './orch'
 import type { PtyRegistry } from './registry'
+import type { ProcRegistry } from './procRegistry'
 import type { HostSpawner } from './spawner'
 import type { HostWorktrees } from './worktrees'
 
@@ -64,6 +65,8 @@ export function composeHostDriving(a: {
   platform: NodeJS.Platform
   env: NodeJS.ProcessEnv
   registry: PtyRegistry
+  /** The chat sessions' line processes, read by the loop's `sessionAlive` (spec E5). Absent in test rigs. */
+  procs?: ProcRegistry
   spawner: HostSpawner
   worktrees: HostWorktrees
   orch(): HostOrch
@@ -175,6 +178,7 @@ export function composeHostDriving(a: {
     checks,
     startRepair: (x) => checks.startRepair(x),
     registry: a.registry,
+    procs: a.procs,
     specsDir,
     log,
     nowMs: () => a.nowMs(),

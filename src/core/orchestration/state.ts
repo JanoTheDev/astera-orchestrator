@@ -2096,3 +2096,26 @@ export function clearCoordinatorStop(s: OrchState, a: { sessionId: string }): Re
   delete next.coordinatorStop
   return ok({ ...s, runs: replace(s.runs, next) }, next)
 }
+
+/** 이 회차를 밖에서 모는 세션을 적는다(JobRun.externalCoordinatorSessionId). **Astera 가 띄운 코디네이터가
+ *  있으면 적지 않는다** — 그쪽이 답한다. 이미 이 세션이면 null 이고 상태는 그대로다: 부르는 쪽이 아무것도
+ *  커밋하지 않게. */
+export function recordExternalCoordinator(s: OrchState, a: { runId: string; sessionId: string }): Res<JobRun | null> {
+  const run = s.runs.find((r) => r.id === a.runId)
+  if (!run) return gone(`unknown run: ${a.runId}`)
+  if (run.coordinatorSessionId !== undefined || run.externalCoordinatorSessionId === a.sessionId) return ok(s, null)
+  const next: JobRun = { ...run, externalCoordinatorSessionId: a.sessionId }
+  return ok({ ...s, runs: replace(s.runs, next) }, next)
+}
+
+/** 롤이 다시 띄운 세션을 그 세션이 밖에서 모는 회차들이 따라간다(spec E3). **한 세션이 여러 회차를 몰 수
+ *  있다**(rekeyCoordinator 와 다른 점). 옮긴 회차 수를 내고, 없으면 0 과 그대로인 상태다. */
+export function rekeyExternalCoordinator(s: OrchState, a: { oldSessionId: string; newSessionId: string }): Res<number> {
+  let moved = 0
+  const runs = s.runs.map((r) => {
+    if (r.externalCoordinatorSessionId !== a.oldSessionId) return r
+    moved++
+    return { ...r, externalCoordinatorSessionId: a.newSessionId }
+  })
+  return moved === 0 ? ok(s, 0) : ok({ ...s, runs }, moved)
+}

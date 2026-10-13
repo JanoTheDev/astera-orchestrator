@@ -16,6 +16,7 @@ import {
   parseAllowedExternalUrl,
   providerOfSession,
   liveWorkersFor,
+  liveSessionIn,
   rollCoordinatorForSession,
   retryRegistrationsFor,
   scheduleForAdoptedSession,
@@ -43,6 +44,22 @@ const sess = (id: string, accountId: string): SessionInfo =>
 
 // usage.session 은 이 값으로 어느 소스를 읽을지 고른다 — codex 는 rollout 감시자,
 // claude 는 statusLine 캡처 파일. 잘못 고르면 하단 바가 통째로 빈다.
+// 2026-10-13 (spec E5, final review M4): the app's loop asks whether a Run's external coordinator lives, and that
+// session can be a chat, so the list it reads holds the chat sessions too.
+describe('liveSessionIn', () => {
+  it('sees a running terminal or chat session, not an exited one or an unknown id', () => {
+    const list = [
+      sess('term', 'acc1'),
+      { ...sess('chat', 'acc1'), kind: 'chat' } as SessionInfo,
+      { ...sess('gone', 'acc1'), kind: 'chat', status: 'exited' } as SessionInfo
+    ]
+    expect(liveSessionIn(list, 'term')).toBe(true)
+    expect(liveSessionIn(list, 'chat')).toBe(true)
+    expect(liveSessionIn(list, 'gone')).toBe(false)
+    expect(liveSessionIn(list, 'none')).toBe(false)
+  })
+})
+
 describe('providerOfSession', () => {
   it('세션이 쓰는 계정의 provider 를 돌려준다', () => {
     const list = [sess('s1', 'acc1'), sess('s2', 'acc2')]

@@ -33,6 +33,8 @@ import {
   detachCoordinator,
   recordCoordinatorStop,
   clearCoordinatorStop,
+  recordExternalCoordinator,
+  rekeyExternalCoordinator,
   bindNativeSession,
   beginValidation,
   writeOffDispatch,
@@ -3599,5 +3601,55 @@ describe('없는 id 의 거절은 missing 을 싣는다 (R4)', () => {
       missing: true
     })
     expect(refusal(detachCoordinator(s, { runId: 'run_nope' }))).toEqual({ ok: false, error: 'unknown run: run_nope', missing: true })
+  })
+})
+
+// 2026-10-13: a session that drives a Run from the CLI (run-create, then check --wait) is recorded apart from the
+// coordinator Astera starts, because Astera acts on that one (stops it, types into it) and must not on this one.
+describe('the external coordinator (spec E1, E3)', () => {
+  it('records the session on a Run with no coordinator, and the same session again changes nothing', () => {
+    const { state, value: run } = seedRun({ objective: 'o', cwd: 'D:/p' }, NOW)
+    const r = recordExternalCoordinator(state, { runId: run.id, sessionId: 'sess-a' })
+    expect(r.ok && r.value?.externalCoordinatorSessionId).toBe('sess-a')
+    const after = unwrap<unknown>(r as never).state
+    expect(after.runs.find((x) => x.id === run.id)!.externalCoordinatorSessionId).toBe('sess-a')
+    const again = recordExternalCoordinator(after, { runId: run.id, sessionId: 'sess-a' })
+    expect(again.ok && again.value).toBeNull()
+    expect(again.ok && again.state).toBe(after)
+  })
+
+  it('a takeover replaces the session', () => {
+    const { state, value: run } = seedRun({ objective: 'o', cwd: 'D:/p' }, NOW)
+    const first = unwrap<unknown>(recordExternalCoordinator(state, { runId: run.id, sessionId: 'sess-a' }) as never).state
+    const r = recordExternalCoordinator(first, { runId: run.id, sessionId: 'sess-b' })
+    expect(r.ok && r.value?.externalCoordinatorSessionId).toBe('sess-b')
+  })
+
+  it('leaves a Run whose coordinator Astera started alone', () => {
+    const { state, value: run } = seedRun({ objective: 'o', cwd: 'D:/p' }, NOW)
+    const owned = unwrap<unknown>(attachCoordinator(state, { runId: run.id, sessionId: 'coord1' }) as never).state
+    const r = recordExternalCoordinator(owned, { runId: run.id, sessionId: 'sess-a' })
+    expect(r.ok && r.value).toBeNull()
+    expect(r.ok && r.state).toBe(owned)
+  })
+
+  it('an unknown Run is missing', () => {
+    const r = recordExternalCoordinator(emptyState(), { runId: 'run_nope', sessionId: 'sess-a' })
+    expect(r).toEqual({ ok: false, error: 'unknown run: run_nope', missing: true })
+  })
+
+  it('a roll moves every Run that session drives, and nothing else', () => {
+    const one = seedRun({ objective: 'one', cwd: 'D:/p' }, NOW)
+    const planned = unwrap<{ id: string }>(createJob(one.state, { objective: 'two', cwd: 'D:/p' }, NOW) as never)
+    const two = unwrap<{ id: string }>(startJobRun(planned.state, planned.value.id, NOW) as never)
+    let s = unwrap<unknown>(recordExternalCoordinator(two.state, { runId: one.value.id, sessionId: 'old' }) as never).state
+    s = unwrap<unknown>(recordExternalCoordinator(s, { runId: two.value.id, sessionId: 'old' }) as never).state
+    const r = rekeyExternalCoordinator(s, { oldSessionId: 'old', newSessionId: 'new' })
+    expect(r.ok && r.value).toBe(2)
+    const moved = unwrap<unknown>(r as never).state
+    expect(moved.runs.map((x) => x.externalCoordinatorSessionId)).toEqual(['new', 'new'])
+    const none = rekeyExternalCoordinator(moved, { oldSessionId: 'other', newSessionId: 'x' })
+    expect(none.ok && none.value).toBe(0)
+    expect(none.ok && none.state).toBe(moved)
   })
 })

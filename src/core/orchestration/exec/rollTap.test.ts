@@ -6,6 +6,7 @@ import type { git } from '../../worktrees/git'
 import { buildCheckpoint } from '../checkpoint'
 import {
   attachCoordinator,
+  recordExternalCoordinator,
   createJob,
   startJobRun,
   createTask,
@@ -716,6 +717,21 @@ describe('a roll that respawns a coordinator (S6 R14, a pre-existing defect)', (
     const tap = new OrchRollTap(deps)
     await tap.onRolled('coord-old', { id: 'coord-new', accountId: 'acc1' })
     expect(deps.state().runs[0].coordinatorSessionId).toBe('coord-new')
+  })
+})
+
+// 2026-10-13 (spec E3): a session that drives Runs from the CLI is rolled like any other. Left on its old id, its Runs
+// would read as having nobody alive to answer, and the net would answer its workers again.
+describe('a roll of a session that drives Runs from outside', () => {
+  it('moves every Run it drives to the new session (Review Focus 1)', async () => {
+    const one = seedRun({ objective: 'one', cwd: 'D:/p' }, NOW)
+    const planned = unwrap<{ id: string }>(createJob(one.state, { objective: 'two', cwd: 'D:/p' }, NOW) as never)
+    const two = unwrap<{ id: string }>(startJobRun(planned.state, planned.value.id, NOW) as never)
+    let s = unwrap<unknown>(recordExternalCoordinator(two.state, { runId: one.value.id, sessionId: 'drv-old' }) as never).state
+    s = unwrap<unknown>(recordExternalCoordinator(s, { runId: two.value.id, sessionId: 'drv-old' }) as never).state
+    const deps = makeDeps(s)
+    await new OrchRollTap(deps).onRolled('drv-old', { id: 'drv-new', accountId: 'acc2' })
+    expect(deps.state().runs.map((r) => r.externalCoordinatorSessionId)).toEqual(['drv-new', 'drv-new'])
   })
 })
 

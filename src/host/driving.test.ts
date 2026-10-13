@@ -12,7 +12,7 @@ import { promises as fs, existsSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createLostGateGuard, type LostGateGuard } from './lostGateGuard'
-import { APP_LEFT_GRACE_MS, TICKS_SKIPPED_BEFORE_SAYING, createHostDriving, type HostDriving } from './driving'
+import { APP_LEFT_GRACE_MS, TICKS_SKIPPED_BEFORE_SAYING, createHostDriving, hostSessionAlive, type HostDriving } from './driving'
 import { createHostOrch, type HostOrch } from './orch'
 import type { HostLocal } from './spawner'
 import { emptyState, type OrchState } from '../core/orchestration/state'
@@ -1565,5 +1565,29 @@ describe('dispatchOne — tasks dispatch through the Host loop', () => {
     const r = await h.driving.dispatchOne('tsk_0')
     expect(r.status).toBe(409)
     expect((r.body as { error: string }).error).toContain('parked')
+  })
+})
+
+// 2026-10-13 (spec E5): a Run's external coordinator can be a chat session, which is a line process in `procs`, not a
+// pty. The loop asks `sessionAlive` whether that session lives, so it must see chats too.
+describe('hostSessionAlive', () => {
+  const registry = { sessionPty: (id: string) => (id === 'ses_term' ? 'pty-1' : null) }
+  const procs = {
+    list: () => [
+      { id: 'proc-1', pid: 2, alive: true, meta: { kind: 'chat' as const, id: 'ses_chat', restore: {} } },
+      { id: 'proc-2', pid: 3, alive: false, meta: { kind: 'chat' as const, id: 'ses_chat_ended', restore: {} } }
+    ]
+  }
+
+  it('sees a live terminal session and a live chat session, and nothing else (Review Focus 4)', () => {
+    expect(hostSessionAlive(registry, procs, 'ses_term')).toBe(true)
+    expect(hostSessionAlive(registry, procs, 'ses_chat')).toBe(true)
+    expect(hostSessionAlive(registry, procs, 'ses_chat_ended')).toBe(false)
+    expect(hostSessionAlive(registry, procs, 'ses_none')).toBe(false)
+  })
+
+  it('without the proc registry (test rigs) it sees terminals only', () => {
+    expect(hostSessionAlive(registry, undefined, 'ses_chat')).toBe(false)
+    expect(hostSessionAlive(registry, undefined, 'ses_term')).toBe(true)
   })
 })

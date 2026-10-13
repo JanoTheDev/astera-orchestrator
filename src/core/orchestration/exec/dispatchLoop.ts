@@ -803,7 +803,8 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
         }
         // **답할 사람이 없는 질문을 풀어 준다.** `ask` 는 부드리기라 워커가 답이 올 때까지 멈춰
         // 서 있는데, 그 답을 줄 코디네이터가 앱이 만든 Run 에는 없다(inbox.ts 의 머리말 —
-        // 실측으로 잡힌 정지다). 사람에게 올리지 않는 이유도 거기 있다.
+        // 실측으로 잡힌 정지다). 사람에게 올리지 않는 이유도 거기 있다. 밖에서 모는 세션이 살아 있으면
+        // 그가 답하므로 건드리지 않는다(JobRun.externalCoordinatorSessionId).
         //
         // **Gate 로 올릴 수 없다는 것도 이유의 하나다.** createGate 는 열린 Dispatch 를 가진
         // Task 를 거절하고(state.ts), `dispatched -> blocked` 전이 자체가 없다(types.ts 의
@@ -812,7 +813,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
         // `UI_CALLER` 는 열린 Dispatch 를 갖지 않으므로 COORDINATOR_ONLY 가드를 지난다
         // (server.ts 의 isWorker 판정). 실패는 로그로만 남긴다 — 이 자리에서 할 수 있는 것이
         // 없고, 다음 바퀴에 같은 질문이 다시 후보로 올라온다.
-        for (const id of unattendedQuestions(c.getState())) {
+        for (const id of unattendedQuestions(c.getState(), (sessionId) => c.sessionAlive(sessionId))) {
           const answered = await c.handle('reply', { id, body: NO_COORDINATOR_ANSWER })
           log(
             answered.status >= 400
