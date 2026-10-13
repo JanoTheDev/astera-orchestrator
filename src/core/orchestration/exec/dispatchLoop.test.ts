@@ -265,6 +265,8 @@ function rig(o: RigOpts = {}) {
     ctx,
     loop,
     real,
+    /** The real command layer, called by an agent session (the rig's own `real` is the app). */
+    as: (sessionId: string, cmd: string, args: Record<string, unknown>) => handleCommand(deps, { sessionId }, cmd, args),
     startWorker,
     startCoordinator,
     stopCoordinator,
@@ -401,6 +403,54 @@ describe('createDispatchLoop', () => {
     await h.loop.run()
     await h.settle()
     expect(h.handled()).toContain('reply')
+  })
+
+  // The incident of 2026-10-13: a session ran the orchestration skill (run-create, worker-start, check --wait), its
+  // worker asked, and the loop answered NO_COORDINATOR_ANSWER 9 ms later, before that session could (spec §1).
+  describe('a Run its creating session drives from the CLI (spec E3, E4)', () => {
+    const driven = async (alive: (id: string) => boolean) => {
+      const h = rig()
+      h.ctx.sessionAlive = alive
+      const made = await h.as('sess-drv', 'run-create', { objective: 'drive it', cwd: '/p' })
+      await h.settle()
+      const runId = (made.body as { id: string }).id
+      const s = h.state()
+      const jobId = s.runs.find((r) => r.id === runId)!.jobId
+      h.setState({
+        ...s,
+        tasks: [...s.tasks, task({ id: 'tsk_w', runId, jobId, status: 'dispatched' })],
+        dispatches: [
+          ...s.dispatches,
+          {
+            id: 'dsp_w',
+            taskId: 'tsk_w',
+            provider: 'codex',
+            accountId: 'accA',
+            sessionId: 'sess-w',
+            cwd: '/p',
+            specPath: '/specs/w.md',
+            startedAt: NOW,
+            workerState: 'ready',
+            retained: false
+          }
+        ],
+        messages: [...s.messages, message({ id: 'msg_w', runId, type: 'question', taskId: 'tsk_w', dispatchId: 'dsp_w' })]
+      })
+      await h.loop.run()
+      await h.settle()
+      return h
+    }
+
+    it('leaves the worker’s question to that session while it lives', async () => {
+      const h = await driven(() => true)
+      expect(h.handled()).not.toContain('reply')
+      expect(h.state().messages.find((m) => m.id === 'msg_w')!.answered).toBe(false)
+    })
+
+    it('answers it once that session is gone', async () => {
+      const h = await driven((id) => id !== 'sess-drv')
+      expect(h.handled()).toContain('reply')
+    })
   })
 
   it('gates a ready Task with no account (tasksMissingAccounts)', async () => {

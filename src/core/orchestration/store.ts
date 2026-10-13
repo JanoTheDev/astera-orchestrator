@@ -406,8 +406,8 @@ export class OrchestrationStore {
     // (실제로 그렇게 썼다가 store.test.ts 의 복구 테스트 셋이 잡았다). dispatches 만 따로 넘기는
     // 것은 그것이 outcome 정규화를 거친 별도 배열이기 때문이다.
     // **The coordinator slot gets the same three answers the Dispatches above got, and for the same
-    // reason.** `Run.coordinatorSessionId` is the only record of "there is someone to answer", and two
-    // recoveries read it as *absent*: `inbox.ts` nets exactly the Runs without one, and the Jobs list
+    // reason.** `Run.coordinatorSessionId` is the record of a coordinator Astera started, and two
+    // recoveries read it as *absent*: `inbox.ts` nets the Runs without one (and with no live external coordinator), and the Jobs list
     // offers the restart button for exactly those (`view.ts`). Left naming a session that died with its
     // Host, one stale field silences both — the Job has nobody to answer its workers and no button to
     // fix it, which is what a worker asking a question and waiting until a person ran the CLI by hand

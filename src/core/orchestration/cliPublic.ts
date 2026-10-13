@@ -57,10 +57,16 @@ type Unlisted<
  *  the type check, not to make a value. */
 type NothingLeft<T extends never> = T
 
-/** Held back: the roll tap's bookkeeping of a stopped coordinator, the mark of a coordinator start in flight, and
- *  the mark of a coordinator stop not confirmed yet. What a script needs from the first, that the Run waits for a
- *  reset and until when, is the `limited` ending of `runs wait`. */
-const RUN_HIDDEN = ['coordinatorStop', 'coordinatorStartingAt', 'coordinatorStopPending'] as const
+/** Held back: the roll tap's bookkeeping of a stopped coordinator, the mark of a coordinator start in flight, the
+ *  mark of a coordinator stop not confirmed yet, and the session the inbox net leaves a Run's questions to (an
+ *  external coordinator; publishing it would add to the SDK's contract, which nothing has asked for). What a script
+ *  needs from the first, that the Run waits for a reset and until when, is the `limited` ending of `runs wait`. */
+const RUN_HIDDEN = [
+  'coordinatorStop',
+  'coordinatorStartingAt',
+  'coordinatorStopPending',
+  'externalCoordinatorSessionId'
+] as const
 
 /**
  * A Task's fields kept back on purpose: all of them **the ledger the app keeps to drive convergence**. The guide

@@ -51,6 +51,8 @@ const state = (over: Parameters<typeof stateFromLegacy>[0] = {}): OrchState =>
     ...over
   })
 
+const noneAlive = (): boolean => false
+
 describe('NO_COORDINATOR_ANSWER', () => {
   // 워커가 읽는 문구다 — 무엇을 하라는 것인지와, 그래도 막히면 어디로 가라는 것까지 있어야
   // "답을 받았지만 무엇을 할지 모르는" 상태가 안 된다
@@ -58,18 +60,20 @@ describe('NO_COORDINATOR_ANSWER', () => {
     expect(NO_COORDINATOR_ANSWER).toContain('no coordinator')
     expect(NO_COORDINATOR_ANSWER).toContain('your spec')
     expect(NO_COORDINATOR_ANSWER).toContain('--type escalation')
+    // The incident's worker was told the app had started it from its Jobs list, which was false (spec E7).
+    expect(NO_COORDINATOR_ANSWER).not.toContain('Jobs list')
   })
 })
 
 describe('unattendedQuestions', () => {
   it('답을 기다리는 질문을 낸다', () => {
-    expect(unattendedQuestions(state())).toEqual(['msg_1'])
+    expect(unattendedQuestions(state(), noneAlive)).toEqual(['msg_1'])
   })
 
   // 답이 실리면 다음 바퀴에 걸리지 않는다 — 그래서 되풀이가 없다
   it('이미 답한 질문은 내지 않는다', () => {
     const s = state({ messages: [question({ answered: true, answerBody: '승인' })] })
-    expect(unattendedQuestions(s)).toEqual([])
+    expect(unattendedQuestions(s, noneAlive)).toEqual([])
   })
 
   // settlePendingQuestions 가 남기는 정리 표시는 답이 아니다. `ask` 의 probe 가 같은 규칙을
@@ -77,19 +81,19 @@ describe('unattendedQuestions', () => {
   // 그 틈에서 워커가 영원히 선다
   it('빈 답만 실린 질문은 답이 아니다 — ask 쪽 폴링과 같은 규칙', () => {
     const s = state({ messages: [question({ answered: true, answerBody: '' })] })
-    expect(unattendedQuestions(s)).toEqual(['msg_1'])
+    expect(unattendedQuestions(s, noneAlive)).toEqual(['msg_1'])
   })
 
   it('Dispatch 가 끝났으면 내지 않는다 — 기다리는 쪽이 없다', () => {
     for (const over of [{ endedAt: NOW }, { outcome: 'succeeded' as const }]) {
       const s = state({ dispatches: [dispatch(over)] })
-      expect(unattendedQuestions(s)).toEqual([])
+      expect(unattendedQuestions(s, noneAlive)).toEqual([])
     }
   })
 
   it('Dispatch 를 가리키지 않는 질문은 내지 않는다 — 누가 기다리는지 알 수 없다', () => {
     const s = state({ messages: [question({ dispatchId: undefined })] })
-    expect(unattendedQuestions(s)).toEqual([])
+    expect(unattendedQuestions(s, noneAlive)).toEqual([])
   })
 
   // **판정의 기준은 "답할 코디네이터가 있는가" 하나다.** 예전에는 autoDispatch 로 물었는데, 그때는
@@ -97,12 +101,12 @@ describe('unattendedQuestions', () => {
   // 가 꺼져 있고(한 Run 에 운전자는 하나), 그 Run 의 질문은 앱이 답해서는 안 된다.
   it('코디네이터가 붙어 있으면 보지 않는다 — 그가 답한다', () => {
     const s = state({ runs: [run({ autoDispatch: undefined, coordinatorSessionId: 'coord1' })] })
-    expect(unattendedQuestions(s)).toEqual([])
+    expect(unattendedQuestions(s, noneAlive)).toEqual([])
   })
 
   it('코디네이터가 없으면 앱이 돌리는 Run 이 아니어도 본다 — 사람이 탭을 닫은 Run 이 그 갈래다', () => {
     const s = state({ runs: [run({ autoDispatch: undefined, coordinatorAccountId: 'acc1' })] })
-    expect(unattendedQuestions(s)).toEqual(['msg_1'])
+    expect(unattendedQuestions(s, noneAlive)).toEqual(['msg_1'])
   })
 
   // 부드리기가 있는 것은 question 뿐이다. 나머지는 워커가 계속 도는 중이라 풀어 줄 것이 없다
@@ -114,7 +118,7 @@ describe('unattendedQuestions', () => {
         question({ id: 'm_hb', type: 'heartbeat' })
       ]
     })
-    expect(unattendedQuestions(s)).toEqual([])
+    expect(unattendedQuestions(s, noneAlive)).toEqual([])
   })
 
   it('여럿이면 여럿을 낸다 — Run 이 둘이어도 각자 것을 낸다', () => {
@@ -126,7 +130,27 @@ describe('unattendedQuestions', () => {
         question({ id: 'msg_2', runId: 'run_2', taskId: 't2', dispatchId: 'd2' })
       ]
     })
-    expect(unattendedQuestions(s)).toEqual(['msg_1', 'msg_2'])
+    expect(unattendedQuestions(s, noneAlive)).toEqual(['msg_1', 'msg_2'])
+  })
+
+  // 2026-10-13: 스킬로 run-create 를 부른 세션이 check --wait 로 이 받은편지함을 읽고 있었는데, 그물이 9ms 만에 답했다
+  const driven = (sessionId = 'drv1'): OrchState => {
+    const s = state({ runs: [run({ autoDispatch: undefined })] })
+    return { ...s, runs: s.runs.map((r) => ({ ...r, externalCoordinatorSessionId: sessionId })) }
+  }
+
+  it('밖에서 모는 세션이 살아 있으면 보지 않는다 — 그가 답한다', () => {
+    expect(unattendedQuestions(driven(), (id) => id === 'drv1')).toEqual([])
+  })
+
+  it('그 세션이 사라졌으면 다시 본다 (Review Focus 5)', () => {
+    expect(unattendedQuestions(driven(), (id) => id === 'someone-else')).toEqual(['msg_1'])
+  })
+
+  it('Astera 가 띄운 코디네이터가 있으면 바깥 세션이 죽었어도 보지 않는다', () => {
+    const s = driven()
+    const owned = { ...s, runs: s.runs.map((r) => ({ ...r, coordinatorSessionId: 'coord1' })) }
+    expect(unattendedQuestions(owned, noneAlive)).toEqual([])
   })
 })
 
