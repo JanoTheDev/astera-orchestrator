@@ -1846,10 +1846,10 @@ export interface OrchApi {
  *  change may have been made). */
 export type PluginsCallAnswer = { ok: true; body: Record<string, unknown> } | { ok: false; code: string; message: string }
 
-/** Settings › Plugins (plugin runtime design slice 2d): the Host's `plugins-*` commands, as the app. */
+/** Settings › Plugins (plugin runtime design slice 2d): the Host's `plugins-*` commands the tab uses, as the app, and
+ *  no other (design P5). */
 export interface PluginsApi {
   list(): Promise<PluginsCallAnswer>
-  get(id: string): Promise<PluginsCallAnswer>
   /** What a folder holds, to show before it is installed. */
   inspect(path: string): Promise<PluginsCallAnswer>
   /** `grant` is what the person left checked; `expect` is what they were shown, which the Host checks the copy against. */
@@ -1859,7 +1859,6 @@ export interface PluginsApi {
   logs(id: string, lines: number): Promise<PluginsCallAnswer>
   settings(id: string): Promise<PluginsCallAnswer>
   configure(id: string, set: Record<string, string | boolean>, unset: string[]): Promise<PluginsCallAnswer>
-  doctor(id: string): Promise<PluginsCallAnswer>
 }
 
 export interface RemoteApi {

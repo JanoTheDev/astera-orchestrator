@@ -38,14 +38,12 @@ export function createPluginsRoute(d: { call: Call }): PluginsApi {
   }
   return {
     list: () => send('plugins-list', {}),
-    get: (id) => send('plugins-get', { id }),
     inspect: (path) => send('plugins-inspect', { path }),
     install: ({ path, grant, expect }) => send('plugins-install', { path, grant, expect }, true),
     setEnabled: (id, enabled) => send(enabled ? 'plugins-enable' : 'plugins-disable', { id }, true),
     remove: (id) => send('plugins-remove', { id }, true),
     logs: (id, lines) => send('plugins-logs', { id, lines }),
     settings: (id) => send('plugins-settings', { id }),
-    configure: (id, set, unset) => send('plugins-configure', { id, set, unset }, true),
-    doctor: (id) => send('plugins-doctor', { id })
+    configure: (id, set, unset) => send('plugins-configure', { id, set, unset }, true)
   }
 }

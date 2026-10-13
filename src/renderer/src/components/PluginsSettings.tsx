@@ -1,15 +1,17 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { PluginsCallAnswer } from '../../../core/types'
 import type { SettingField } from '../../../core/plugins/settings'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
 import { confirmModal, confirmModalWithChoices } from '../lib/confirm'
 import { Select } from './Select'
-import { configureChanges, configureDoneLine, failureLine, installPrompt, permissionLabel, reasonLine, statusLabel } from './pluginsText'
+import { configureChanges, configureDoneLine, failureLine, installFailureLine, installPrompt, permissionLabel, reasonLine, statusLabel } from './pluginsText'
+import { createPluginsPoller, installBlocked, keepOnly } from './pluginsList'
 
 type Plugin = Record<string, unknown>
 type Shown = { fields: SettingField[]; values: Record<string, unknown>; secrets: Record<string, unknown> }
 type Draft = Record<string, string | boolean>
+type Failure = Extract<PluginsCallAnswer, { ok: false }>
 
 /** How often the list is read while the tab is open: a plugin's status (starting, a crash, failed) has no event yet. */
 const LIST_EVERY_MS = 3_000
@@ -26,6 +28,7 @@ const shownOf = (body: Record<string, unknown>): Shown => ({
 /** A call that threw (main gone, an IPC error) answers like one the Host refused, so every path says why. */
 const failed = (e: unknown): PluginsCallAnswer => ({ ok: false, code: 'FAILED', message: e instanceof Error ? e.message : String(e) })
 const without = <V,>(o: Record<string, V>, key: string): Record<string, V> => {
+  if (!Object.hasOwn(o, key)) return o
   const next = { ...o }
   delete next[key]
   return next
@@ -36,11 +39,9 @@ const without = <V,>(o: Record<string, V>, key: string): Record<string, V> => {
  *  folder after the trust warning. Every check is the Host's: this shows what it answers. */
 export function PluginsSettings(): React.JSX.Element {
   const { t } = useI18n()
-  // Read through a ref by the timer, so a new `t` does not restart the list's clock.
-  const tRef = useRef(t)
-  tRef.current = t
   const [plugins, setPlugins] = useState<Plugin[] | null>(null)
-  const [listError, setListError] = useState<string | null>(null)
+  /** Why the last list could not be read; the list before it stays (review focus 1). */
+  const [listFailure, setListFailure] = useState<Failure | null>(null)
   /** The install button's state: a folder being read and shown, or the install itself. */
   const [installing, setInstalling] = useState<'idle' | 'reading' | 'installing'>('idle')
   /** Plugins with a change in flight. */
@@ -53,25 +54,47 @@ export function PluginsSettings(): React.JSX.Element {
   const [logs, setLogs] = useState<Record<string, string[]>>({})
   const [saving, setSaving] = useState<string | null>(null)
 
-  const reading = useRef(false)
-  const reload = useCallback(async (): Promise<void> => {
-    if (reading.current) return
-    reading.current = true
+  /** Changes in flight (installs, saves, enables, removals): the list is not polled meanwhile (2d final review I1). */
+  const inFlight = useRef(0)
+  const during = async <R,>(work: () => Promise<R>): Promise<R> => {
+    inFlight.current += 1
     try {
-      const r = await window.api.plugins.list().catch(failed)
-      // A list that cannot be read is said once, and the last one stays (review focus 1).
-      if (!r.ok) return setListError(failureLine(r, tRef.current))
-      setListError(null)
-      setPlugins(Array.isArray(r.body.plugins) ? (r.body.plugins as Plugin[]).filter(isObject) : [])
+      return await work()
     } finally {
-      reading.current = false
+      inFlight.current -= 1
     }
-  }, [])
-  useEffect(() => {
-    void reload()
-    const timer = setInterval(() => void reload(), LIST_EVERY_MS)
-    return () => clearInterval(timer)
-  }, [reload])
+  }
+  /** Everything the tab keeps about one plugin: dropped when it goes, or when a new copy of it comes (M3). */
+  const forget = (id: string): void => {
+    setOpen((o) => without(o, id))
+    setShown((s) => without(s, id))
+    setDrafts((d) => without(d, id))
+    setClears((c) => without(c, id))
+    setLogs((l) => without(l, id))
+  }
+  const poller = useMemo(
+    () =>
+      createPluginsPoller({
+        read: () => window.api.plugins.list().catch(failed),
+        onList: (listed) => {
+          setListFailure(null)
+          setPlugins(listed)
+          // A plugin removed from elsewhere (the CLI) takes its form, typing and log with it (M3).
+          const ids = new Set(listed.map((p) => str(p.id)))
+          setOpen((o) => keepOnly(o, ids))
+          setShown((s) => keepOnly(s, ids))
+          setDrafts((d) => keepOnly(d, ids))
+          setClears((c) => keepOnly(c, ids))
+          setLogs((l) => keepOnly(l, ids))
+        },
+        onFailure: setListFailure,
+        busy: () => inFlight.current > 0,
+        everyMs: LIST_EVERY_MS
+      }),
+    []
+  )
+  useEffect(() => poller.start(), [poller])
+  const reload = (): void => void poller.now()
 
   const install = async (): Promise<void> => {
     if (installing !== 'idle') return
@@ -80,19 +103,24 @@ export function PluginsSettings(): React.JSX.Element {
     setInstalling('reading')
     try {
       const seen = await window.api.plugins.inspect(folder).catch(failed)
-      if (!seen.ok) return void toast.error(failureLine(seen, t))
-      const answer = await confirmModalWithChoices(installPrompt(seen.body, folder, t))
+      if (!seen.ok) return void toast.error(failureLine(seen, t, { read: true }))
+      const id = str(seen.body.id)
+      // On an update, what the installed copy was granted (I2).
+      const before = plugins?.find((p) => str(p.id) === id)
+      const answer = await confirmModalWithChoices(installPrompt(seen.body, folder, t, before))
       if (!answer.ok) return
       setInstalling('installing')
       // What was shown is what the Host checks the copy against (design P6).
-      const r = await window.api.plugins
-        .install({ path: folder, grant: answer.checked, expect: { name: str(seen.body.name), version: str(seen.body.version) } })
-        .catch(failed)
-      if (!r.ok) return void toast.error(failureLine(r, t))
-      toast.success(t('settings.plugins.installed', { name: str(seen.body.displayName) || str(seen.body.id) }))
+      const r = await during(() =>
+        window.api.plugins.install({ path: folder, grant: answer.checked, expect: { name: str(seen.body.name), version: str(seen.body.version) } }).catch(failed)
+      )
+      if (!r.ok) return void toast.error(installFailureLine(r, t))
+      // A new copy may have a new schema: a form or log of the old one goes (M3).
+      forget(id)
+      toast.success(t('settings.plugins.installed', { name: str(seen.body.displayName) || id }))
     } finally {
       setInstalling('idle')
-      void reload()
+      reload()
     }
   }
 
@@ -101,7 +129,7 @@ export function PluginsSettings(): React.JSX.Element {
     if (busy.has(id)) return
     setBusy((s) => new Set(s).add(id))
     try {
-      const r = await work().catch(failed)
+      const r = await during(() => work().catch(failed))
       if (!r.ok) toast.error(failureLine(r, t))
       else done?.(r.body)
     } finally {
@@ -110,7 +138,7 @@ export function PluginsSettings(): React.JSX.Element {
         next.delete(id)
         return next
       })
-      void reload()
+      reload()
     }
   }
 
@@ -125,9 +153,7 @@ export function PluginsSettings(): React.JSX.Element {
       (body) => {
         if (typeof body.warning === 'string') toast.error(t('settings.plugins.remove.left', { name, warning: body.warning }))
         else toast.success(t('settings.plugins.remove.done', { name }))
-        setOpen((o) => without(o, id))
-        setDrafts((d) => without(d, id))
-        setClears((c) => without(c, id))
+        forget(id)
       }
     )
   }
@@ -135,14 +161,14 @@ export function PluginsSettings(): React.JSX.Element {
   const readShown = async (id: string): Promise<void> => {
     const r = await window.api.plugins.settings(id).catch(failed)
     if (!r.ok) {
-      toast.error(failureLine(r, t))
+      toast.error(failureLine(r, t, { read: true }))
       return setOpen((o) => without(o, id))
     }
     setShown((s) => ({ ...s, [id]: shownOf(r.body) }))
   }
   const readLogs = async (id: string): Promise<void> => {
     const r = await window.api.plugins.logs(id, LOG_LINES).catch(failed)
-    if (!r.ok) return void toast.error(failureLine(r, t))
+    if (!r.ok) return void toast.error(failureLine(r, t, { read: true }))
     setLogs((l) => ({ ...l, [id]: list(r.body.lines) }))
   }
   const toggleOpen = (id: string, what: 'settings' | 'logs'): void => {
@@ -157,7 +183,7 @@ export function PluginsSettings(): React.JSX.Element {
     if (!changes || saving !== null) return
     setSaving(id)
     try {
-      const r = await window.api.plugins.configure(id, changes.set, changes.unset).catch(failed)
+      const r = await during(() => window.api.plugins.configure(id, changes.set, changes.unset).catch(failed))
       // A refusal keeps what was typed, so the person can correct it.
       if (!r.ok) return void toast.error(failureLine(r, t))
       toast.success(configureDoneLine(r.body, t))
@@ -166,7 +192,7 @@ export function PluginsSettings(): React.JSX.Element {
       setClears((c) => without(c, id))
     } finally {
       setSaving(null)
-      void reload()
+      reload()
     }
   }
 
@@ -174,11 +200,12 @@ export function PluginsSettings(): React.JSX.Element {
     <div className="settings-stack">
       <p className="settings-hint">{t('settings.plugins.hint')}</p>
       <div className="remote-actions">
-        <button className="primary" disabled={installing !== 'idle'} onClick={() => void install()}>
+        {/* Nothing to install into with no Host, or one that runs no plugins (M5). */}
+        <button className="primary" disabled={installing !== 'idle' || installBlocked(listFailure?.code ?? null)} onClick={() => void install()}>
           {installing === 'installing' ? t('settings.plugins.installing') : t('settings.plugins.installFolder')}
         </button>
       </div>
-      {listError !== null && <p className="settings-hint is-warning">{listError}</p>}
+      {listFailure !== null && <p className="settings-hint is-warning">{failureLine(listFailure, t, { read: true })}</p>}
       {plugins !== null && plugins.length === 0 && <p className="settings-hint">{t('settings.plugins.none')}</p>}
       {plugins?.map((p) => {
         const id = str(p.id)
@@ -187,7 +214,8 @@ export function PluginsSettings(): React.JSX.Element {
           <div key={id} className="settings-group plugin-card">
             <PluginCard
               plugin={p}
-              busy={busy.has(id)}
+              // During an install every plugin call waits behind it in the Host, so every card waits too (I1).
+              busy={busy.has(id) || installing === 'installing'}
               onConfigure={() => toggleOpen(id, 'settings')}
               onToggle={(enabled) => void change(id, () => window.api.plugins.setEnabled(id, enabled))}
               onStartAgain={() => void change(id, () => window.api.plugins.setEnabled(id, true))}
@@ -234,7 +262,7 @@ export function PluginCard({
   onLogs
 }: {
   plugin: Record<string, unknown>
-  /** A change to it is in flight: its buttons wait. */
+  /** A change to it, or an install, is in flight: its buttons wait, Logs too, since a read would wait behind it. */
   busy: boolean
   onConfigure: () => void
   onToggle: (enabled: boolean) => void
@@ -292,7 +320,7 @@ export function PluginCard({
         <button className="settings-gen-refresh" disabled={busy} onClick={() => onToggle(!enabled)}>
           {enabled ? t('settings.plugins.disable') : t('settings.plugins.enable')}
         </button>
-        <button className="settings-gen-refresh" onClick={onLogs}>
+        <button className="settings-gen-refresh" disabled={busy} onClick={onLogs}>
           {t('settings.plugins.logs')}
         </button>
         <button className="ghost danger" disabled={busy} onClick={onRemove}>
@@ -335,7 +363,9 @@ export function PluginSettingsForm({
     typeof draft[f.key] === 'string' ? (draft[f.key] as string) : values[f.key] === undefined ? '' : String(values[f.key])
   const defaultLine = (f: SettingField): string => (f.default === undefined ? '' : t('settings.plugins.form.default', { value: String(f.default) }))
   return (
-    <div className="plugin-form">
+    // Held while it saves: a save restarts a running plugin, and what is typed meanwhile would go with its answer
+    // (2d final review M2).
+    <fieldset className="plugin-form" disabled={saving}>
       {fields.map((f) => {
         const label = (
           <span className="plugin-field-label">
@@ -386,7 +416,10 @@ export function PluginSettingsForm({
                 ariaLabel={f.title ?? f.key}
                 value={textOf(f)}
                 onChange={(v) => onDraft(f.key, v)}
-                items={[{ value: '', label: t('settings.plugins.form.notSet') }, ...f.enum.map((v) => ({ value: String(v), label: String(v) }))]}
+                items={[
+                  { value: '', label: f.default === undefined ? t('settings.plugins.form.notSet') : defaultLine(f) },
+                  ...f.enum.map((v) => ({ value: String(v), label: String(v) }))
+                ]}
               />
             ) : f.type !== 'boolean' ? (
               <input
@@ -408,7 +441,7 @@ export function PluginSettingsForm({
           {t('settings.plugins.form.save')}
         </button>
       </div>
-    </div>
+    </fieldset>
   )
 }
 

@@ -8,7 +8,6 @@ import { backdropProps } from '../lib/backdrop'
  *  match window.confirm: ESC and a backdrop click = cancel, and since the confirm button has focus,
  *  Enter = confirm. */
 export function ConfirmHost(): React.JSX.Element | null {
-  const { t } = useI18n()
   const [pending, setPending] = useState<PendingConfirm | null>(null)
   /** 켜진 choice 의 id 들. 창이 바뀌면 초기화한다 — 남겨 두면 다음 확인 창이 앞의 선택을 물려받는다 */
   const [checked, setChecked] = useState<string[]>([])
@@ -35,6 +34,20 @@ export function ConfirmHost(): React.JSX.Element | null {
 
   if (!pending) return null
 
+  return <ConfirmView pending={pending} checked={checked} onChecked={setChecked} />
+}
+
+/** The modal itself, apart from the store so it is tested as markup: title, body, choices, footer, buttons. */
+export function ConfirmView({
+  pending,
+  checked,
+  onChecked
+}: {
+  pending: PendingConfirm
+  checked: string[]
+  onChecked: (update: (prev: string[]) => string[]) => void
+}): React.JSX.Element {
+  const { t } = useI18n()
   return (
     <div className="modal-backdrop" {...backdropProps(() => settle(false))}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -50,7 +63,7 @@ export function ConfirmHost(): React.JSX.Element | null {
                   type="checkbox"
                   checked={checked.includes(c.id)}
                   onChange={(e) =>
-                    setChecked((prev) =>
+                    onChecked((prev) =>
                       e.target.checked ? [...prev, c.id] : prev.filter((x) => x !== c.id)
                     )
                   }
@@ -63,6 +76,8 @@ export function ConfirmHost(): React.JSX.Element | null {
             ))}
           </div>
         )}
+        {/* Read last, after the choices: the plugin install warning's trust sentence (spec §31). */}
+        {pending.footer !== undefined && pending.footer !== '' && <p className="confirm-text confirm-body">{pending.footer}</p>}
         <div className="row right">
           <button type="button" onClick={() => settle(false)}>
             {pending.cancelLabel ?? t('common.cancel')}

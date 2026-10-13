@@ -1227,7 +1227,8 @@ button.primary:disabled { background: var(--elevated); border-color: var(--line-
 .plugin-facts { display: flex; flex-wrap: wrap; gap: 4px 8px; font-size: 12.5px; }
 .plugin-facts > span:last-child { color: var(--text); overflow-wrap: anywhere; }
 .plugin-card .settings-hint { overflow-wrap: anywhere; }
-.plugin-form { display: flex; flex-direction: column; gap: 12px; margin-top: 6px; padding-top: 10px; border-top: 1px solid var(--line-soft); }
+/* A fieldset, so a save holds every field at once; its own frame is taken off. */
+.plugin-form { display: flex; flex-direction: column; gap: 12px; min-width: 0; margin: 6px 0 0; padding: 10px 0 0; border: 0; border-top: 1px solid var(--line-soft); }
 .plugin-field { display: flex; flex-direction: column; gap: 4px; }
 .plugin-field-label { font-size: 13px; color: var(--text); }
 .plugin-required { margin-left: 6px; font-size: 11px; color: var(--text-faint); }

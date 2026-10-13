@@ -41,13 +41,17 @@ export const statusLabel = (s: string, t: T): string => (Object.hasOwn(STATUSES,
 const str = (v: unknown): string => (typeof v === 'string' ? v : '')
 const list = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [])
 
-/** The install warning (spec §31) for what `plugins.inspect` answered about `folder`: one checked choice a permission
- *  (unchecking one grants the rest, design P6), and the trust sentence last. */
+/** The install warning (spec §31) for what `plugins.inspect` answered about `folder`: what it is, one choice a
+ *  permission (unchecking one grants the rest, design P6), then the trust sentence in `footer`, below the choices.
+ *  Every install asks again (P6); on an update, `previous` is the installed plugin as the list shows it, and a
+ *  permission it asked for and was not granted starts unchecked, so a "no" given once is not turned into a "yes" by
+ *  an Enter (2d final review I2). What the update newly asks for starts checked, as on a first install. */
 export function installPrompt(
   inspection: Record<string, unknown>,
   folder: string,
-  t: T
-): { title: string; body: string; confirmLabel: string; choices: { id: string; label: string; hint: string; defaultChecked: true }[] } {
+  t: T,
+  previous?: { permissions?: unknown; requested?: unknown }
+): { title: string; body: string; footer: string; confirmLabel: string; choices: { id: string; label: string; hint: string; defaultChecked: boolean }[] } {
   const permissions = list(inspection.permissions)
   const capabilities = list(inspection.capabilities)
   const installed = inspection.installed as { version?: unknown } | undefined
@@ -57,16 +61,22 @@ export function installPrompt(
     ...(installed && typeof installed.version === 'string' ? [t('settings.plugins.install.replaces', { version: installed.version })] : []),
     ...(str(inspection.description) !== '' ? [str(inspection.description)] : []),
     ...(capabilities.length > 0 ? [t('settings.plugins.install.capabilities', { list: capabilities.join(', ') })] : []),
-    ...(inspection.compatible === false ? [t('settings.plugins.install.incompatible', { reason: str(inspection.reason) })] : []),
-    permissions.length > 0 ? t('settings.plugins.install.uncheck') : t('settings.plugins.install.noPermissions'),
-    '',
-    t('settings.plugins.install.trust')
+    ...(inspection.compatible === false ? [t('settings.plugins.install.incompatible', { reason: str(inspection.reason) })] : [])
   ]
+  const granted = installed && previous ? list(previous.permissions) : null
+  const asked = installed && previous ? list(previous.requested) : []
+  const withheld = (p: string): boolean => granted !== null && asked.includes(p) && !granted.includes(p)
   return {
     title: t('settings.plugins.install.title', { name: str(inspection.displayName) || str(inspection.id) }),
     body: lines.join('\n'),
+    footer: [permissions.length > 0 ? t('settings.plugins.install.uncheck') : t('settings.plugins.install.noPermissions'), '', t('settings.plugins.install.trust')].join('\n'),
     confirmLabel: t('settings.plugins.install.button'),
-    choices: permissions.map((p) => ({ id: p, label: permissionLabel(p, t), hint: p, defaultChecked: true as const }))
+    choices: permissions.map((p) => ({
+      id: p,
+      label: permissionLabel(p, t),
+      hint: withheld(p) ? `${p} · ${t('settings.plugins.install.notGrantedBefore')}` : p,
+      defaultChecked: !withheld(p)
+    }))
   }
 }
 
@@ -93,7 +103,8 @@ export function configureChanges(
     const v = draft[f.key]
     const current = shown.values[f.key]
     if (f.type === 'boolean') {
-      if (typeof v === 'boolean' && v !== current) set[f.key] = v
+      // One with no value shows unchecked, so unchecking it again is no change (2d final review M6).
+      if (typeof v === 'boolean' && v !== (current === true)) set[f.key] = v
       continue
     }
     const text = String(v)
@@ -118,32 +129,48 @@ export function configureDoneLine(body: Record<string, unknown>, t: T): string {
       return t('settings.plugins.done.failed')
     case 'disabled':
       return t('settings.plugins.done.disabled')
-    default:
-      return typeof body.reason === 'string' ? t('settings.plugins.done.held', { reason: body.reason }) : t('settings.plugins.done.saved')
+    default: {
+      if (typeof body.reason !== 'string') return t('settings.plugins.done.saved')
+      // Still held back: the settings it needs, in the app's words (2d final review M1).
+      const keys = neededSettings(body.reason)
+      return keys !== null ? t('settings.plugins.done.needs', { keys }) : t('settings.plugins.done.held', { reason: body.reason })
+    }
   }
 }
 
+/** The settings a held-back plugin needs, read from the Host's reason (manager.ts `heldBack`, pinned by manager.test.ts),
+ *  or null for any other reason. */
+const neededSettings = (reason: string): string | null => /^needs settings: ([^;]+); set them with astera plugins configure\b/.exec(reason)?.[1] ?? null
+
 /** The Host's reason a plugin does not run, as the tab shows it. A held-back plugin's names the settings it needs and
- *  points at the CLI (manager.ts `heldBack`); beside a Configure button it says that instead. Any other reason is the
- *  Host's, or the plugin's own words, as they came. */
+ *  points at the CLI; beside a Configure button it says that instead. Any other reason is the Host's, or the plugin's
+ *  own words, as they came. */
 export function reasonLine(reason: string, t: T): string {
-  const held = /^needs settings: ([^;]+); set them with astera plugins configure\b/.exec(reason)
-  return held ? t('settings.plugins.needsSettings', { keys: held[1] }) : reason
+  const keys = neededSettings(reason)
+  return keys !== null ? t('settings.plugins.needsSettings', { keys }) : reason
 }
 
 /** Why a call came back with nothing: in the app's words when no Host answered or it runs no plugins, else the Host's
- *  own sentence. */
-export function failureLine(r: { ok: false; code: string; message: string }, t: T): string {
+ *  own sentence. A change that was not answered may have been made, and the list says whether; a read that was not
+ *  answered says only that, since the list is what failed (2d final review I1). */
+export function failureLine(r: { ok: false; code: string; message: string }, t: T, o: { read?: boolean } = {}): string {
   switch (r.code) {
     case 'HOST_NOT_RUNNING':
       return t('settings.plugins.fail.noHost')
     case 'NOT_SUPPORTED':
       return t('settings.plugins.fail.notSupported', { message: r.message })
     case 'TIMEOUT':
-      return t('settings.plugins.fail.timeout')
+      return o.read === true ? t('settings.plugins.fail.timeoutRead') : t('settings.plugins.fail.timeout')
     case 'HOST_LOST':
-      return t('settings.plugins.fail.lost')
+      return o.read === true ? t('settings.plugins.fail.lostRead') : t('settings.plugins.fail.lost')
     default:
       return r.message
   }
+}
+
+/** Why an install did not happen. Its one conflict is the folder changing between the warning and the install (the
+ *  Host checks the copy against what was shown, design P6): said in the app's words, with that nothing was installed
+ *  (2d final review M4). */
+export function installFailureLine(r: { ok: false; code: string; message: string }, t: T): string {
+  return r.code === 'CONFLICT' ? t('settings.plugins.install.changed') : failureLine(r, t)
 }

@@ -357,15 +357,13 @@ const api = {
   },
   plugins: {
     list: invoke('plugins.list'),
-    get: invoke('plugins.get'),
     inspect: invoke('plugins.inspect'),
     install: invoke('plugins.install'),
     setEnabled: invoke('plugins.setEnabled'),
     remove: invoke('plugins.remove'),
     logs: invoke('plugins.logs'),
     settings: invoke('plugins.settings'),
-    configure: invoke('plugins.configure'),
-    doctor: invoke('plugins.doctor')
+    configure: invoke('plugins.configure')
   },
   remote: {
     list: invoke('remote.list'),

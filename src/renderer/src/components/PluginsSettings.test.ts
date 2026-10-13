@@ -51,6 +51,17 @@ describe('PluginCard (spec §30)', () => {
     expect(buttons(card({ ...PLUGIN, status: 'failed', reason: 'activate threw: x' }))).toEqual(['Configure', 'Start again', 'Disable', 'Logs', 'Remove'])
   })
 
+  // 2d final review I1: while a change runs (an install included), every button of the card waits, Logs too: its read
+  // would wait behind the change in the Host.
+  it('makes every button wait while a change is in flight', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(PluginCard, { plugin: PLUGIN, busy: true, onConfigure: noop, onToggle: noop, onStartAgain: noop, onRemove: noop, onLogs: noop })
+    )
+    const all = [...html.matchAll(/<button[^>]*>/g)].map((m) => m[0])
+    expect(all).toHaveLength(4)
+    for (const b of all) expect(b).toContain('disabled=""')
+  })
+
   it('says a plugin was granted nothing', () => {
     expect(card({ ...PLUGIN, permissions: [] })).toContain('No permissions')
   })
@@ -60,6 +71,7 @@ describe('PluginSettingsForm (spec §23, §24)', () => {
   const fields: SettingField[] = [
     { key: 'baseUrl', type: 'string', title: 'Base URL', description: 'Where Jira answers', required: true },
     { key: 'dryRun', type: 'boolean', default: false, required: false },
+    { key: 'pageSize', type: 'integer', default: 50, enum: [25, 50, 100], required: false },
     { key: 'token', type: 'string', secret: true, required: true },
     { key: 'spare', type: 'string', secret: true, required: false }
   ]
@@ -111,6 +123,17 @@ describe('PluginSettingsForm (spec §23, §24)', () => {
     expect(html).toContain('value="https://b.example.com"')
     expect(html).toMatch(/<button[^>]*>Save<\/button>/)
     expect(form()).toMatch(/<button[^>]*disabled=""[^>]*>Save<\/button>/)
+  })
+
+  // 2d final review M2: a save restarts a running plugin, and what is typed meanwhile would be lost with its answer.
+  it('holds every field while it saves', () => {
+    expect(form({ saving: true })).toMatch(/<fieldset[^>]*disabled=""/)
+    expect(form()).not.toMatch(/<fieldset[^>]*disabled=""/)
+  })
+
+  // 2d final review M6: choosing no value for a choice that has a default leaves the default, and says so.
+  it('names the empty choice by the default it leaves', () => {
+    expect(form({ draft: { pageSize: '' } })).toContain('default 50')
   })
 
   it('says a plugin has no settings', () => {

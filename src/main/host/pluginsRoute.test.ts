@@ -21,7 +21,6 @@ describe('the plugins route (plugin runtime design P5, slice 2d)', () => {
   it('sends each command the tab uses, with its arguments, as the app with no session', async () => {
     const { route, sent } = host()
     await route.list()
-    await route.get('@acme/jira')
     await route.inspect('D:/work/jira 플러그인')
     await route.install({ path: 'D:/work/jira 플러그인', grant: ['jobs.read'], expect: { name: '@acme/jira', version: '1.0.0' } })
     await route.setEnabled('@acme/jira', false)
@@ -30,10 +29,8 @@ describe('the plugins route (plugin runtime design P5, slice 2d)', () => {
     await route.logs('@acme/jira', 200)
     await route.settings('@acme/jira')
     await route.configure('@acme/jira', { baseUrl: 'https://a.example.com', dryRun: true }, ['token'])
-    await route.doctor('@acme/jira')
     expect(sent.map(({ cmd, args, sessionId }) => ({ cmd, args, sessionId }))).toEqual([
       { cmd: 'plugins-list', args: {}, sessionId: '' },
-      { cmd: 'plugins-get', args: { id: '@acme/jira' }, sessionId: '' },
       { cmd: 'plugins-inspect', args: { path: 'D:/work/jira 플러그인' }, sessionId: '' },
       {
         cmd: 'plugins-install',
@@ -45,9 +42,13 @@ describe('the plugins route (plugin runtime design P5, slice 2d)', () => {
       { cmd: 'plugins-remove', args: { id: '@acme/jira' }, sessionId: '' },
       { cmd: 'plugins-logs', args: { id: '@acme/jira', lines: 200 }, sessionId: '' },
       { cmd: 'plugins-settings', args: { id: '@acme/jira' }, sessionId: '' },
-      { cmd: 'plugins-configure', args: { id: '@acme/jira', set: { baseUrl: 'https://a.example.com', dryRun: true }, unset: ['token'] }, sessionId: '' },
-      { cmd: 'plugins-doctor', args: { id: '@acme/jira' }, sessionId: '' }
+      { cmd: 'plugins-configure', args: { id: '@acme/jira', set: { baseUrl: 'https://a.example.com', dryRun: true }, unset: ['token'] }, sessionId: '' }
     ])
+  })
+
+  // 2d final review M8: only the commands the tab uses (design P5), nothing a renderer could reach beyond them.
+  it('offers exactly the commands Settings › Plugins uses', () => {
+    expect(Object.keys(host().route).sort()).toEqual(['configure', 'inspect', 'install', 'list', 'logs', 'remove', 'setEnabled', 'settings'])
   })
 
   it('waits as long as the CLI does for a change, and the usual deadline for a read', async () => {

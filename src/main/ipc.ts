@@ -4702,7 +4702,6 @@ export function registerIpc(
   // checks every argument; a value of the wrong type is its refusal to give.
   const plugins = createPluginsRoute({ call: (m) => orchCall(m) })
   ipcMain.handle('plugins.list', () => plugins.list())
-  ipcMain.handle('plugins.get', (_e, id: unknown) => plugins.get(id as string))
   ipcMain.handle('plugins.inspect', (_e, path: unknown) => plugins.inspect(path as string))
   ipcMain.handle('plugins.install', (_e, a: unknown) => plugins.install(a as Parameters<typeof plugins.install>[0]))
   ipcMain.handle('plugins.setEnabled', (_e, id: unknown, enabled: unknown) => plugins.setEnabled(id as string, enabled === true))
@@ -4712,7 +4711,6 @@ export function registerIpc(
   ipcMain.handle('plugins.configure', (_e, id: unknown, set: unknown, unset: unknown) =>
     plugins.configure(id as string, set as Record<string, string | boolean>, unset as string[])
   )
-  ipcMain.handle('plugins.doctor', (_e, id: unknown) => plugins.doctor(id as string))
   // Settings › Remote Runtimes and the Jobs view's selectors (remote runtime design Phase 6). A runtime id that is not a
   // string names nothing; every answer is the client's or the registry's own, never a local fallback.
   ipcMain.handle('remote.list', () => remoteRuntimes.list())

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { t as translate, type MessageKey, type MessageParams } from '../../../core/i18n'
 import { PLUGIN_TRUST_WARNING } from '../../../core/plugins/manifest'
 import type { SettingField } from '../../../core/plugins/settings'
-import { configureChanges, configureDoneLine, failureLine, installPrompt, permissionLabel, reasonLine, statusLabel } from './pluginsText'
+import { configureChanges, configureDoneLine, failureLine, installFailureLine, installPrompt, permissionLabel, reasonLine, statusLabel } from './pluginsText'
 
 const en = (key: MessageKey, params?: MessageParams): string => translate('en', key, params)
 const ko = (key: MessageKey, params?: MessageParams): string => translate('ko', key, params)
@@ -44,21 +44,32 @@ describe('permissionLabel and statusLabel', () => {
 })
 
 describe('installPrompt (spec §31)', () => {
-  it('asks for each permission, all checked, and ends with the trust sentence', () => {
+  // 2d final review M7: spec §31 lists the permissions, then the trust sentence, then the buttons.
+  it('asks for each permission, all checked, and puts the trust sentence after them', () => {
     const p = installPrompt(INSPECTION, 'D:/work/jira 플러그인', en)
     expect(p.title).toBe('Jira plugin requests:')
     expect(p.choices).toEqual([
       { id: 'jobs.read', label: 'Read Jobs', hint: 'jobs.read', defaultChecked: true },
       { id: 'jobs.create', label: 'Create Jobs', hint: 'jobs.create', defaultChecked: true }
     ])
-    expect(p.body.split(lf)).toEqual([
-      '@acme/astera-jira, version 1.0.0',
-      'From D:/work/jira 플러그인',
-      'A permission you uncheck is not granted.',
-      '',
-      PLUGIN_TRUST_WARNING
-    ])
+    expect(p.body.split(lf)).toEqual(['@acme/astera-jira, version 1.0.0', 'From D:/work/jira 플러그인'])
+    expect(p.footer.split(lf)).toEqual(['A permission you uncheck is not granted.', '', PLUGIN_TRUST_WARNING])
     expect(p.confirmLabel).toBe('Install')
+  })
+
+  // 2d final review I2: an update asks again (design P6), and what the person withheld stays unchecked.
+  it('leaves unchecked on an update what was withheld before, and checks what is newly asked for', () => {
+    const p = installPrompt(
+      { ...INSPECTION, permissions: ['jobs.read', 'jobs.create', 'events.subscribe'], installed: { version: '0.9.0', enabled: true } },
+      'D:/work/jira',
+      en,
+      { permissions: ['jobs.read'], requested: ['jobs.read', 'jobs.create'] }
+    )
+    expect(p.choices).toEqual([
+      { id: 'jobs.read', label: 'Read Jobs', hint: 'jobs.read', defaultChecked: true },
+      { id: 'jobs.create', label: 'Create Jobs', hint: 'jobs.create · not granted before', defaultChecked: false },
+      { id: 'events.subscribe', label: 'Subscribe to events', hint: 'events.subscribe', defaultChecked: true }
+    ])
   })
 
   it('says what it replaces, what it does, why it will not run, what it serves, and that it asks for nothing', () => {
@@ -82,15 +93,13 @@ describe('installPrompt (spec §31)', () => {
       'It replaces the installed version 0.9.0.',
       'Turns Jira issues into Jobs',
       'Capabilities: job-source',
-      'It will not run on this Astera: this Astera does not serve job-source plugins yet',
-      'It asks for no permissions.',
-      '',
-      PLUGIN_TRUST_WARNING
+      'It will not run on this Astera: this Astera does not serve job-source plugins yet'
     ])
+    expect(p.footer.split(lf)).toEqual(['It asks for no permissions.', '', PLUGIN_TRUST_WARNING])
   })
 
   it('reads in Korean too', () => {
-    expect(installPrompt(INSPECTION, 'D:/x', ko).body).toContain('신뢰된 코드')
+    expect(installPrompt(INSPECTION, 'D:/x', ko).footer).toContain('신뢰된 코드')
   })
 })
 
@@ -117,6 +126,13 @@ describe('configureChanges (spec §23, §24)', () => {
     })
   })
 
+  // 2d final review M6: a boolean with no value and no default shows unchecked; unchecking it again changes nothing.
+  it('sees a boolean turned on and off again as no change', () => {
+    const flag: SettingField[] = [{ key: 'flag', type: 'boolean', required: false }]
+    expect(configureChanges(flag, { values: {}, secrets: {} }, { flag: false }, new Set())).toBeNull()
+    expect(configureChanges(flag, { values: {}, secrets: {} }, { flag: true }, new Set())).toEqual({ set: { flag: true }, unset: [] })
+  })
+
   it('unsets an emptied field, unless what it showed was its default', () => {
     expect(configureChanges(fields, shown, { ratio: '' }, new Set())).toEqual({ set: {}, unset: ['ratio'] })
     expect(configureChanges(fields, shown, { pageSize: '' }, new Set())).toBeNull()
@@ -134,7 +150,11 @@ describe('configureDoneLine', () => {
   it('says how the plugin stands after a save', () => {
     expect(configureDoneLine({ status: 'running', restarted: true }, en)).toBe('Saved. The plugin was restarted.')
     expect(configureDoneLine({ status: 'starting' }, en)).toBe('Saved. The plugin is starting.')
-    expect(configureDoneLine({ status: 'stopped', reason: 'needs settings: token' }, en)).toBe('Saved. It does not run yet: needs settings: token')
+    // 2d final review M1: the Host's own sentence (manager.ts heldBack), said in the app's words.
+    expect(configureDoneLine({ status: 'stopped', reason: 'needs settings: token; set them with astera plugins configure --id @acme/jira' }, en)).toBe(
+      'Saved. It still needs settings: token.'
+    )
+    expect(configureDoneLine({ status: 'stopped', reason: 'the settings cannot be read: x' }, en)).toBe('Saved. It does not run yet: the settings cannot be read: x')
     expect(configureDoneLine({ status: 'failed', reason: 'activate threw: x' }, en)).toBe('Saved. It failed before, and starts again only when you press Start again.')
     expect(configureDoneLine({ status: 'disabled' }, en)).toBe('Saved. It is disabled, and starts with these values when you enable it.')
     expect(configureDoneLine({ status: 'stopped' }, en)).toBe('Saved.')
@@ -161,13 +181,31 @@ describe('failureLine', () => {
   it('says in the app’s words that no Host is there, that it runs no plugins, or that it did not answer', () => {
     expect(failureLine({ ok: false, code: 'HOST_NOT_RUNNING', message: 'x' }, en)).toBe('The app is not connected to the Host.')
     expect(failureLine({ ok: false, code: 'NOT_SUPPORTED', message: 'unknown command: plugins-list' }, en)).toBe(
-      'The running Host does not support plugins (unknown command: plugins-list). Update Astera and restart the Host.'
+      'The running Host does not support plugins (unknown command: plugins-list). Restart the Host.'
     )
     expect(failureLine({ ok: false, code: 'TIMEOUT', message: 'x' }, en)).toBe('The Host did not answer in time. The list shows whether it was done.')
     expect(failureLine({ ok: false, code: 'HOST_LOST', message: 'x' }, en)).toBe('The connection to the Host closed. The list shows whether it was done.')
   })
 
+  // 2d final review I1: a read that failed is the list itself; it does not send the person to the list.
+  it('says a read was not answered without pointing at the list', () => {
+    expect(failureLine({ ok: false, code: 'TIMEOUT', message: 'x' }, en, { read: true })).toBe('The Host did not answer in time.')
+    expect(failureLine({ ok: false, code: 'HOST_LOST', message: 'x' }, en, { read: true })).toBe('The connection to the Host closed.')
+    expect(failureLine({ ok: false, code: 'TIMEOUT', message: 'x' }, ko, { read: true })).toBe('Host 가 제때 답하지 않았습니다.')
+    expect(failureLine({ ok: false, code: 'HOST_NOT_RUNNING', message: 'x' }, en, { read: true })).toBe('The app is not connected to the Host.')
+  })
+
   it('gives the Host’s own sentence otherwise', () => {
     expect(failureLine({ ok: false, code: 'CONFLICT', message: 'D:/x changed since it was shown' }, en)).toBe('D:/x changed since it was shown')
+  })
+})
+
+// 2d final review M4: the one conflict an install has is the folder changing under the warning (manager.ts installable).
+describe('installFailureLine', () => {
+  it('says in the app’s words that the folder changed and nothing was installed', () => {
+    const changed = { ok: false as const, code: 'CONFLICT', message: 'the folder changed after it was shown: it now holds x@1.0.1; run the install again' }
+    expect(installFailureLine(changed, en)).toBe('The folder changed after the warning was shown, so nothing was installed. Install it again.')
+    expect(installFailureLine(changed, ko)).toBe('경고를 보여 준 뒤 폴더가 바뀌어 아무것도 설치하지 않았습니다. 다시 설치하세요.')
+    expect(installFailureLine({ ok: false, code: 'HOST_NOT_RUNNING', message: 'x' }, en)).toBe('The app is not connected to the Host.')
   })
 })

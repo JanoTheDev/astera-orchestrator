@@ -14,6 +14,9 @@ export type ConfirmChoice = {
 export type ConfirmRequest = {
   title: string
   body: string
+  /** Drawn after the choices, before the buttons: what to read last, as the plugin install warning's trust sentence
+   *  (spec §31). */
+  footer?: string
   confirmLabel?: string
   cancelLabel?: string
   choices?: ConfirmChoice[]
