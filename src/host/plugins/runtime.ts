@@ -4,6 +4,7 @@
 // backoff, and the third crash without a steady run between marks it failed until a person starts it again. Plugins do
 // not keep the Host alive: they run while it runs.
 import { spawn as nodeSpawn, type ChildProcess } from 'node:child_process'
+import type { Duplex, Readable } from 'node:stream'
 import path from 'node:path'
 import { hostWorkerBaseEnv } from '../../core/host/spawn'
 import { killProcessTree } from '../../core/run/kill'
@@ -175,7 +176,9 @@ export function createPluginRuntime(d: {
       proc = spawn(d.exec, [d.launcher], {
         cwd: p.dir,
         env: pluginEnv(d.env),
-        stdio: ['pipe', 'pipe', 'pipe'],
+        // The channel is the fourth pipe (2b final review I1): a child that inherits the plugin's stdio gets 0 to 2 only,
+        // so nothing printed reaches it. No stdin: a child that reads it cannot take the Host's messages either.
+        stdio: ['ignore', 'pipe', 'pipe', 'pipe'],
         windowsHide: true,
         // Elsewhere than Windows, the leader of a process group, so a stop can end what the plugin started too.
         detached: process.platform !== 'win32'
@@ -189,8 +192,11 @@ export function createPluginRuntime(d: {
     s.exited = new Promise((r) => (resolveExit = r))
     say(s, `started pid ${proc.pid ?? '?'}`)
     const granted: ReadonlySet<string> = new Set(p.granted)
+    const channel = proc.stdio[3] as Duplex | null | undefined
     const peer = createRpcPeer({
-      send: (line) => void proc.stdin?.write(line),
+      send: (line) => {
+        if (channel && !channel.destroyed && !channel.writableEnded) channel.write(line)
+      },
       onBadMessage: (m) => say(s, m),
       onRequest: async (method, params) => {
         if (method === 'call') return forward(s, granted, params)
@@ -198,31 +204,41 @@ export function createPluginRuntime(d: {
       }
     })
     s.peer = peer
-    proc.stdout?.setEncoding('utf8')
-    proc.stdout?.on('data', (c: string) => peer.feed(c))
-    let held = ''
+    channel?.setEncoding('utf8')
+    channel?.on('data', (c: string) => peer.feed(c))
     const line = (l: string): void => {
       const text = l.replace(/\r$/, '')
       if (text !== '') logOf(p.folder).write(redactSecrets(text))
     }
-    proc.stderr?.setEncoding('utf8')
-    proc.stderr?.on('data', (c: string) => {
-      held += c
-      for (let i = held.indexOf('\n'); i >= 0; i = held.indexOf('\n')) {
-        line(held.slice(0, i))
-        held = held.slice(i + 1)
-      }
-      while (held.length > STDERR_LINE_MAX) {
-        line(held.slice(0, STDERR_LINE_MAX))
-        held = held.slice(STDERR_LINE_MAX)
-      }
-    })
-    for (const stream of [proc.stdin, proc.stdout, proc.stderr]) stream?.on('error', (e) => say(s, `${e.name}: ${e.message}`))
+    // stdout and stderr are both the plugin's log, each read in lines of its own.
+    const held = new Map<Readable, string>()
+    const flushHeld = (): void => {
+      for (const rest of held.values()) if (rest !== '') line(rest)
+      held.clear()
+    }
+    for (const out of [proc.stdout, proc.stderr]) {
+      if (!out) continue
+      held.set(out, '')
+      out.setEncoding('utf8')
+      out.on('data', (c: string) => {
+        let buf = (held.get(out) ?? '') + c
+        for (let i = buf.indexOf('\n'); i >= 0; i = buf.indexOf('\n')) {
+          line(buf.slice(0, i))
+          buf = buf.slice(i + 1)
+        }
+        while (buf.length > STDERR_LINE_MAX) {
+          line(buf.slice(0, STDERR_LINE_MAX))
+          buf = buf.slice(STDERR_LINE_MAX)
+        }
+        held.set(out, buf)
+      })
+    }
+    for (const stream of [channel, proc.stdout, proc.stderr]) stream?.on('error', (e) => say(s, `${e.name}: ${e.message}`))
     let ended = false
     const end = (code: number | null, signal: NodeJS.Signals | null): void => {
       if (ended) return
       ended = true
-      if (held !== '') line(held)
+      flushHeld()
       resolveExit()
       exitedWith(s, proc, code, signal)
     }
