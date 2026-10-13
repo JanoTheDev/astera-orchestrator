@@ -139,6 +139,7 @@ export const ko = {
   'settings.plugins.form.clear': '지우기',
   'settings.plugins.form.notSet': '(설정 안 함)',
   'settings.plugins.form.default': '기본값 {value}',
+  'settings.plugins.form.none': '이 플러그인은 설정할 항목이 없습니다.',
   'settings.plugins.form.save': '저장',
   'settings.plugins.done.restarted': '저장했습니다. 플러그인을 다시 시작했습니다.',
   'settings.plugins.done.starting': '저장했습니다. 플러그인이 시작됩니다.',

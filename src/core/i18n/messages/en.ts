@@ -135,6 +135,7 @@ export const en: Record<keyof typeof ko, string> = {
   'settings.plugins.form.clear': 'Clear',
   'settings.plugins.form.notSet': '(not set)',
   'settings.plugins.form.default': 'default {value}',
+  'settings.plugins.form.none': 'This plugin has no settings.',
   'settings.plugins.form.save': 'Save',
   'settings.plugins.done.restarted': 'Saved. The plugin was restarted.',
   'settings.plugins.done.starting': 'Saved. The plugin is starting.',

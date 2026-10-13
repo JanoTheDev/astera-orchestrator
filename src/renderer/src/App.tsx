@@ -45,6 +45,7 @@ import { GeneratorSettings } from './components/GeneratorSettings'
 import { CliSettings } from './components/CliSettings'
 import { McpSettings } from './components/McpSettings'
 import { RemoteRuntimesSettings } from './components/RemoteRuntimesSettings'
+import { PluginsSettings } from './components/PluginsSettings'
 import { RuntimeSelector } from './components/RuntimeSelector'
 import { createReplyGate } from './lib/replyGate'
 import { LOCAL, controlReason, detailRunGone, isRemoteRuntime, offlineNote, remoteDetailKey, remoteNewJobFolder, remotePollReady } from './lib/remoteJobs'
@@ -695,6 +696,7 @@ export default function App(): React.JSX.Element {
     | 'notifications'
     | 'github'
     | 'remote'
+    | 'plugins'
     | 'worktree'
     | 'history'
   >('general') // the settings sidebar, with general and accounts added
@@ -4900,6 +4902,8 @@ export default function App(): React.JSX.Element {
                     ['cli', 'CLI'],
                     // Remote Runtimes (remote runtime design Phase 6): pairing with another computer, and this one as a Runtime.
                     ['remote', t('settings.tab.remote')],
+                    // Plugins (plugin runtime design slice 2d, spec §30): beside the other ways in to the Host.
+                    ['plugins', t('settings.tab.plugins')],
                     ['hiw', t('hiw.title')],
                     ['shortcuts', t('settings.tab.shortcuts')],
                     ['slack', 'Slack'],
@@ -5334,6 +5338,7 @@ export default function App(): React.JSX.Element {
                 {settingsTab === 'notifications' && <NotificationSettings />}
                 {settingsTab === 'github' && <GithubSettings />}
                 {settingsTab === 'remote' && <RemoteRuntimesSettings onChanged={() => setPairedChanged((n) => n + 1)} />}
+                {settingsTab === 'plugins' && <PluginsSettings />}
                 {settingsTab === 'worktree' && (
                   <div className="settings-worktree">
                     <label className="settings-field-label">{t('settings.worktree.createLocation')}</label>
