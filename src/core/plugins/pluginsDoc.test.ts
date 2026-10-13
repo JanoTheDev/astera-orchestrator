@@ -3,7 +3,7 @@
 // the capabilities this Astera does not run yet, and the Node a plugin runs on. Its quick start is run as written in
 // the real plugin runtime, its TypeScript compiles against the SDKs, its links land, and it is published.
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, execSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -305,8 +305,7 @@ describe('the quick start, followed as written', () => {
       .join('\n')
       .split('\n')
       .find((l) => l.startsWith('npx esbuild '))!
-    const args = command.replace(/^npx esbuild /, '').split(' ')
-    const outfile = args.find((a) => a.startsWith('--outfile='))!.slice('--outfile='.length)
+    const outfile = /--outfile=(\S+)/.exec(command)![1]
     const dir = path.join(work, 'bundled')
     mkdirSync(path.join(dir, 'src'), { recursive: true })
     mkdirSync(path.join(dir, 'node_modules', 'cjs-dep'), { recursive: true })
@@ -316,7 +315,11 @@ describe('the quick start, followed as written', () => {
       path.join(dir, 'src', 'index.ts'),
       "import kind from 'cjs-dep'\nexport default { activate(ctx: { log: { info(m: string): void } }) { ctx.log.info(`bundled ${kind()}`) } }\n"
     )
-    execFileSync(process.execPath, [path.join(root, 'node_modules', 'esbuild', 'bin', 'esbuild'), ...args], { cwd: dir, stdio: 'pipe' })
+    // As a reader runs it, with this repository's esbuild first on the PATH (`npx esbuild` in a folder of its own would
+    // fetch one), through the shell: bin/esbuild is a script on Windows and a native program on macOS and Linux
+    const pathKey = Object.keys(process.env).find((k) => k.toUpperCase() === 'PATH') ?? 'PATH'
+    const PATH = `${path.join(root, 'node_modules', '.bin')}${path.delimiter}${process.env[pathKey] ?? ''}`
+    execSync(command.replace(/^npx /, ''), { cwd: dir, stdio: 'pipe', env: { ...process.env, [pathKey]: PATH } })
     const { r, log } = runtime('bundled')
     r.start({ id: 'bundled', version: '1.0.0', folder: 'bundled', dir, entry: path.join(dir, outfile), granted: [], settings: {}, redact: [] })
     await expect.poll(log, { timeout: 20_000, interval: 50 }).toContain('[info] bundled function')

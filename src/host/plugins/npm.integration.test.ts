@@ -158,7 +158,10 @@ describe.skipIf(!hasNpm)('npm against a registry of the test', () => {
   it('installs through its own npm where the person has none', async () => {
     // The npm folder whole, its node_modules with it, as the registry's npm tarball holds them (`npm pack` of an
     // installed npm leaves them out).
-    const root = spawnSync('npm root -g', { shell: true, encoding: 'utf8' }).stdout.trim()
+    // The npm installed with the Node running the tests: `npm root -g` names the configured global prefix, which a CI
+    // runner sets apart from it (C:\npm\prefix on GitHub's Windows runners)
+    const root =
+      process.platform === 'win32' ? path.join(path.dirname(process.execPath), 'node_modules') : path.join(path.dirname(process.execPath), '..', 'lib', 'node_modules')
     const version = (JSON.parse(await fs.readFile(path.join(root, 'npm', 'package.json'), 'utf8')) as { version: string }).version
     const file = path.join(dir, 'own-npm.tgz')
     // Windows' own tar, which reads C:\ as a drive; a GNU tar first on PATH would read it as a remote host.
