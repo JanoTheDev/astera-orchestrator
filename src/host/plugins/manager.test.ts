@@ -6,6 +6,8 @@ import { createPluginManager, type PluginManager } from './manager'
 import type { PluginLaunch, PluginRunStatus, PluginRuntime } from './runtime'
 import { pluginsRoot } from './registry'
 import { pluginSecrets } from './pluginData'
+import { NpmMissing, type NpmRun } from './npm'
+import { tgzOf } from './tarballFixture'
 
 let dir: string
 let profile: string
@@ -64,7 +66,7 @@ const leftovers = async (): Promise<string[]> => [
 describe('inspect', () => {
   it('shows what a folder holds and asks for, before anything is installed', async () => {
     const src = await plugin(FOLDER)
-    const r = await manager.inspect(src)
+    const r = await manager.inspect({ path: src })
     expect(r.status).toBe(200)
     expect(r.body).toEqual({
       id: '@acme/astera-jira',
@@ -83,7 +85,7 @@ describe('inspect', () => {
   it('says why a plugin will not run here, and what is installed under its id', async () => {
     const src = await plugin(FOLDER, { capabilities: ['event'] })
     await manager.install({ path: src, grant: [] })
-    expect(await manager.inspect(src)).toMatchObject({
+    expect(await manager.inspect({ path: src })).toMatchObject({
       status: 200,
       body: { compatible: false, reason: 'this Astera does not run event plugins yet', installed: { version: '1.0.0', enabled: true } }
     })
@@ -92,25 +94,25 @@ describe('inspect', () => {
   it('refuses a folder in a layout a copy cannot keep, before anything is approved', async () => {
     const src = await plugin(FOLDER)
     await fs.mkdir(path.join(src, 'node_modules', '.pnpm'), { recursive: true })
-    expect(await manager.inspect(src)).toEqual({
+    expect(await manager.inspect({ path: src })).toEqual({
       status: 400,
       body: { error: `cannot install from ${src}: node_modules/.pnpm is pnpm's isolated layout, which a copy cannot keep: bundle the plugin, or install its dependencies hoisted (node-linker=hoisted)` }
     })
   })
 
   it('refuses a relative path, a missing folder, a folder with no package.json and a broken manifest', async () => {
-    expect(await manager.inspect('relative/dir')).toEqual({ status: 400, body: { error: 'plugins-inspect needs an absolute --path' } })
-    expect(await manager.inspect(3)).toEqual({ status: 400, body: { error: 'plugins-inspect needs an absolute --path' } })
+    expect(await manager.inspect({ path: 'relative/dir' })).toEqual({ status: 400, body: { error: 'plugins-inspect needs an absolute --path' } })
+    expect(await manager.inspect({ path: 3 })).toEqual({ status: 400, body: { error: 'plugins-inspect needs an absolute --path' } })
     const missing = path.join(dir, 'nope')
-    expect(await manager.inspect(missing)).toEqual({ status: 400, body: { error: `not a folder on this machine: ${missing}` } })
+    expect(await manager.inspect({ path: missing })).toEqual({ status: 400, body: { error: `not a folder on this machine: ${missing}` } })
     const empty = path.join(dir, 'empty')
     await fs.mkdir(empty)
-    expect(await manager.inspect(empty)).toEqual({ status: 400, body: { error: `no package.json in ${empty}` } })
+    expect(await manager.inspect({ path: empty })).toEqual({ status: 400, body: { error: `no package.json in ${empty}` } })
     const broken = await plugin('broken')
     await fs.writeFile(path.join(broken, 'package.json'), '{ nope')
-    expect(await manager.inspect(broken)).toEqual({ status: 400, body: { error: `${path.join(broken, 'package.json')} is not JSON` } })
+    expect(await manager.inspect({ path: broken })).toEqual({ status: 400, body: { error: `${path.join(broken, 'package.json')} is not JSON` } })
     const bad = await plugin('bad', { permissions: ['jobs.write'] })
-    expect(body(await manager.inspect(bad)).error).toMatch(/package\.json: astera\.permissions: jobs\.write is not a permission/)
+    expect(body(await manager.inspect({ path: bad })).error).toMatch(/package\.json: astera\.permissions: jobs\.write is not a permission/)
   })
 })
 
@@ -431,7 +433,7 @@ describe('a plugins.json broken by hand', () => {
     expect((await manager.install({ path: src, grant: [] })).status).toBe(500)
     expect((await manager.setEnabled('@acme/astera-jira', false)).status).toBe(500)
     expect((await manager.remove('@acme/astera-jira')).status).toBe(500)
-    expect((await manager.inspect(src)).status).toBe(500)
+    expect((await manager.inspect({ path: src })).status).toBe(500)
     expect(await fs.readFile(file, 'utf8')).toBe('{ broken')
     expect(await leftovers()).toEqual([])
   })
@@ -873,5 +875,138 @@ describe('settings', () => {
       expect(r).toMatchObject({ status: 200, body: { removed: true, warning: expect.stringContaining('could not be deleted') } })
       expect(lines.some((l) => l.startsWith(`plugins: ${ID} was removed, but its settings or secrets could not be deleted`))).toBe(true)
     })
+  })
+})
+
+// Plugins 2e (spec §12, design P14): a plugin published on npm, fetched by the person's own npm (a fake here; the real
+// one is npm.integration.test.ts), extracted by the Host, then installed as a folder is.
+describe('installing from npm', () => {
+  const JIRA = {
+    name: '@acme/astera-jira',
+    version: '1.0.0',
+    displayName: 'Jira',
+    dependencies: { 'tiny-dep': '^1.0.0' },
+    astera: { apiVersion: '1', entry: './dist/plugin.js', permissions: ['jobs.read', 'jobs.create'] }
+  }
+  type Pkg = { json: Record<string, unknown>; extra?: { name: string; type?: string; body?: string }[] }
+
+  /** An npm that knows `packages` by name@version (and by name alone, the latest), and installs a stub for each dependency. */
+  const fakeNpm = (packages: Pkg[], o: { missing?: boolean } = {}) => {
+    const calls: string[][] = []
+    const run: NpmRun = async (args, { cwd }) => {
+      calls.push(args)
+      if (o.missing) throw new NpmMissing()
+      if (args[0] === 'pack') {
+        const spec = args[1]
+        const at = spec.indexOf('@', 1)
+        const name = at < 0 ? spec : spec.slice(0, at)
+        const range = at < 0 ? null : spec.slice(at + 1)
+        const p = packages.find((x) => x.json.name === name && (range === null || /^[\^~]/.test(range) || x.json.version === range))
+        if (!p) return { code: 1, stdout: '', stderr: `npm error code E404\nnpm error 404 Not Found - GET https://registry.npmjs.org/${name} - Not found` }
+        const filename = `${name.replace('@', '').replace('/', '-')}-${String(p.json.version)}.tgz`
+        await fs.writeFile(
+          path.join(cwd, filename),
+          tgzOf([
+            { name: 'package/package.json', body: JSON.stringify(p.json) },
+            { name: 'package/dist/plugin.js', body: 'export default {}' },
+            ...(p.extra ?? [])
+          ])
+        )
+        return { code: 0, stdout: JSON.stringify([{ name, version: p.json.version, filename, integrity: 'sha512-x' }]), stderr: '' }
+      }
+      if (args[0] === 'install') {
+        const pkg = JSON.parse(await fs.readFile(path.join(cwd, 'package.json'), 'utf8')) as { dependencies?: Record<string, string> }
+        for (const dep of Object.keys(pkg.dependencies ?? {})) {
+          await fs.mkdir(path.join(cwd, 'node_modules', dep), { recursive: true })
+          await fs.writeFile(path.join(cwd, 'node_modules', dep, 'index.js'), `module.exports = '${dep}'`)
+        }
+        return { code: 0, stdout: '', stderr: '' }
+      }
+      return { code: 1, stdout: '', stderr: `unexpected npm ${args.join(' ')}` }
+    }
+    return { run, calls }
+  }
+  const withNpm = (npm: ReturnType<typeof fakeNpm>) => createPluginManager({ profileDir: profile, hostVersion: '1.5.0', npm: npm.run })
+  const ID = '@acme/astera-jira'
+  const folderOf = (): string => path.join(installed(), '@acme+astera-jira')
+
+  it('shows what an npm package is and asks for, from the package itself, and leaves nothing behind', async () => {
+    const npm = fakeNpm([{ json: JIRA }])
+    const r = await withNpm(npm).inspect({ npm: '@acme/astera-jira' })
+    expect(r.status).toBe(200)
+    expect(body(r)).toMatchObject({ id: ID, version: '1.0.0', permissions: ['jobs.read', 'jobs.create'], compatible: true, source: { npm: '@acme/astera-jira', version: '1.0.0' } })
+    expect(npm.calls).toEqual([['pack', '@acme/astera-jira', '--json', '--ignore-scripts', '--pack-destination', '.']])
+    expect(await leftovers()).toEqual([])
+  })
+
+  it('installs exactly the version shown, with its dependencies, and records where it came from', async () => {
+    const npm = fakeNpm([{ json: JIRA }, { json: { ...JIRA, version: '1.1.0' } }])
+    const m = withNpm(npm)
+    const r = await m.install({ npm: '@acme/astera-jira@^1.0.0', grant: ['jobs.read'], expect: { name: ID, version: '1.0.0' } })
+    expect(r.status).toBe(200)
+    expect(body(r)).toMatchObject({ id: ID, version: '1.0.0', permissions: ['jobs.read'], source: { kind: 'npm', spec: '@acme/astera-jira@^1.0.0', version: '1.0.0' } })
+    expect(npm.calls.map((c) => c.slice(0, 2))).toEqual([['pack', '@acme/astera-jira@1.0.0'], ['install', '--omit=dev']])
+    expect(npm.calls[1]).toContain('--ignore-scripts')
+    expect(await fs.readFile(path.join(folderOf(), 'node_modules', 'tiny-dep', 'index.js'), 'utf8')).toBe("module.exports = 'tiny-dep'")
+    expect(JSON.parse(await fs.readFile(path.join(pluginsRoot(profile), 'plugins.json'), 'utf8')).plugins[0].source).toEqual({
+      kind: 'npm',
+      spec: '@acme/astera-jira@^1.0.0',
+      version: '1.0.0'
+    })
+    expect(await leftovers()).toEqual([])
+  })
+
+  it('runs no npm install for a package without dependencies', async () => {
+    const { dependencies: _none, ...bare } = JIRA
+    const npm = fakeNpm([{ json: bare }])
+    expect((await withNpm(npm).install({ npm: ID, grant: [], expect: { name: ID, version: '1.0.0' } })).status).toBe(200)
+    expect(npm.calls.map((c) => c[0])).toEqual(['pack'])
+  })
+
+  it('refuses an npm install without what was shown, or with another package, before npm runs', async () => {
+    const npm = fakeNpm([{ json: JIRA }])
+    const m = withNpm(npm)
+    expect(await m.install({ npm: ID, grant: [] })).toEqual({
+      status: 400,
+      body: { error: 'plugins-install --npm needs expect: the { name, version } its inspect showed' }
+    })
+    expect(await m.install({ npm: ID, grant: [], expect: { name: '@other/x', version: '1.0.0' } })).toEqual({
+      status: 400,
+      body: { error: 'expect names @other/x, but --npm names @acme/astera-jira' }
+    })
+    expect(npm.calls).toEqual([])
+  })
+
+  it('refuses a spec that is not a registry package, and a source that is both or neither, before npm runs', async () => {
+    const npm = fakeNpm([{ json: JIRA }])
+    const m = withNpm(npm)
+    expect(await m.inspect({ npm: 'https://example.com/x.tgz' })).toEqual({
+      status: 400,
+      body: { error: 'https://example.com/x.tgz is not an npm package: give a package name, with @version or @tag if you like' }
+    })
+    expect(await m.inspect({ npm: ID, path: dir })).toEqual({ status: 400, body: { error: 'plugins-inspect takes --path or --npm, not both' } })
+    expect(await m.inspect({})).toEqual({ status: 400, body: { error: 'plugins-inspect needs --path <folder> or --npm <package>' } })
+    expect(npm.calls).toEqual([])
+  })
+
+  it('says npm is missing, a package npm cannot find, and a package that would leave its folder, leaving nothing behind', async () => {
+    expect(await withNpm(fakeNpm([], { missing: true })).inspect({ npm: ID })).toEqual({
+      status: 500,
+      body: { error: 'npm was not found on this computer: install Node.js, which brings npm, or install the plugin from a folder with --path' }
+    })
+    const nowhere = await withNpm(fakeNpm([])).inspect({ npm: '@acme/nowhere' })
+    expect(nowhere.status).toBe(404)
+    expect(body(nowhere).error).toMatch(/^npm could not fetch @acme\/nowhere: /)
+    const evil = await withNpm(fakeNpm([{ json: JIRA, extra: [{ name: 'package/../../evil.js', body: 'x' }] }])).inspect({ npm: ID })
+    expect(evil).toEqual({ status: 400, body: { error: 'cannot install @acme/astera-jira from npm: the package has an entry that leaves the package: package/../../evil.js' } })
+    expect(existsSync(path.join(installed(), '..', 'evil.js'))).toBe(false)
+    expect(await leftovers()).toEqual([])
+  })
+
+  it('names the npm package, not a staging folder, when its manifest is wrong', async () => {
+    const r = await withNpm(fakeNpm([{ json: { ...JIRA, astera: { apiVersion: '1', entry: './dist/plugin.js', permissions: ['jobs.write'] } } }])).inspect({ npm: ID })
+    expect(r.status).toBe(400)
+    expect(body(r).error).toContain('@acme/astera-jira from npm')
+    expect(body(r).error).not.toContain('.staging-')
   })
 })

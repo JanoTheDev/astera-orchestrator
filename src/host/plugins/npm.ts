@@ -21,6 +21,13 @@ export class NpmMissing extends Error {
 /** npm ran and could not do what it was asked; the message carries its last lines, redacted. */
 export class NpmFailed extends Error {
   readonly code = 'PLUGIN_NPM_FAILED'
+  constructor(
+    message: string,
+    /** npm said the registry has no such package or version (E404). */
+    readonly notFound = false
+  ) {
+    super(message)
+  }
 }
 
 export type NpmRun = (args: string[], o: { cwd: string; timeoutMs?: number }) => Promise<{ code: number; stdout: string; stderr: string }>
@@ -109,7 +116,7 @@ export async function packAndExtract(
   run: NpmRun
 ): Promise<{ name: string; version: string; integrity: string; folder: string }> {
   const r = await run(['pack', spec, '--json', '--ignore-scripts', '--pack-destination', '.'], { cwd: dir })
-  if (r.code !== 0) throw new NpmFailed(`npm could not fetch ${spec}: ${npmOutputTail(r.stderr || r.stdout, 6)}`)
+  if (r.code !== 0) throw new NpmFailed(`npm could not fetch ${spec}: ${npmOutputTail(r.stderr || r.stdout, 6)}`, /\bE404\b/.test(r.stderr + r.stdout))
   let info: { name?: unknown; version?: unknown; integrity?: unknown; filename?: unknown } | undefined
   try {
     info = (JSON.parse(r.stdout.slice(r.stdout.indexOf('['))) as unknown[])[0] as typeof info

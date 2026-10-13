@@ -6,6 +6,9 @@ import { randomBytes } from 'node:crypto'
 import path from 'node:path'
 import { incompatibility, parseManifest, pluginFolderName, type PluginManifest, type PluginPermission } from '../../core/plugins/manifest'
 import { PluginCopyRefused, copyPluginFolder, layoutProblem } from './copyFolder'
+import { parseNpmSpec } from '../../core/plugins/npmSpec'
+import { NpmFailed, NpmMissing, createNpmRunner, installDependencies, npmEnv, packAndExtract, type NpmRun } from './npm'
+import { PackageRefused } from './tarball'
 import { RegistryUnreadable, pluginsRoot, readRegistry, writeRegistry, type PluginRecord } from './registry'
 import { moveRetrying, type Rename } from './moves'
 import { REDACT_MIN, pluginLogFile, type PluginLaunch, type PluginRuntime } from './runtime'
@@ -21,8 +24,10 @@ export interface PluginsAnswer {
 }
 
 export interface PluginManager {
-  inspect(path: unknown): Promise<PluginsAnswer>
-  install(a: { path: unknown; grant: unknown; expect?: unknown }): Promise<PluginsAnswer>
+  /** What a folder (`path`) or an npm package (`npm`, plugins 2e) holds, before it is approved. */
+  inspect(a: { path?: unknown; npm?: unknown }): Promise<PluginsAnswer>
+  /** From a folder (`path`) or an npm package (`npm`, plugins 2e); an npm install needs `expect`. */
+  install(a: { path?: unknown; npm?: unknown; grant: unknown; expect?: unknown }): Promise<PluginsAnswer>
   list(): Promise<PluginsAnswer>
   get(id: unknown): Promise<PluginsAnswer>
   setEnabled(id: unknown, enabled: boolean): Promise<PluginsAnswer>
@@ -118,6 +123,8 @@ export function createPluginManager(d: {
   renameWaitsMs?: readonly number[]
   /** For tests: the folder copy (`copyPluginFolder`). */
   copy?: (src: string, dest: string) => Promise<void>
+  /** The person's own npm, for an install from npm (plugins 2e, design P14); a fake in tests. */
+  npm?: NpmRun
   /** What runs the enabled plugins (2b). Absent: nothing runs, and an enabled, compatible plugin is `stopped`. */
   runtime?: Pick<PluginRuntime, 'start' | 'restart' | 'stop' | 'status' | 'forget'>
   /** The Host's log: what no caller is there to hear, such as plugins that could not be started at the Host's start. */
@@ -129,6 +136,7 @@ export function createPluginManager(d: {
   // no npm name does.
   const installed = path.join(root, 'installed')
   const host = { version: d.hostVersion, capabilities: d.capabilities ?? [] }
+  const npm = d.npm ?? createNpmRunner({ env: npmEnv(process.env) })
   const now = d.now ?? Date.now
   let queue: Promise<unknown> = Promise.resolve()
   /** Moves a folder, trying again while the system refuses for a moment. */
@@ -297,32 +305,80 @@ export function createPluginManager(d: {
     return r
   }
 
-  async function inspect(p: unknown): Promise<PluginsAnswer> {
-    const folder = await folderOf('plugins-inspect', p)
+  /** Where an install comes from: a folder on this machine, or a package on npm (plugins 2e). */
+  async function sourceOf(cmd: string, a: { path?: unknown; npm?: unknown }): Promise<{ kind: 'folder'; folder: string } | { kind: 'npm'; spec: string; name: string }> {
+    if (a.path !== undefined && a.npm !== undefined) throw new Refused(400, `${cmd} takes --path or --npm, not both`)
+    if (a.npm !== undefined) {
+      // Checked before npm runs: only a registry name and a version ever reach it (design P14).
+      const spec = parseNpmSpec(a.npm)
+      if (!spec.ok) throw new Refused(400, spec.problem)
+      return { kind: 'npm', spec: a.npm as string, name: spec.name }
+    }
+    if (a.path === undefined) throw new Refused(400, `${cmd} needs --path <folder> or --npm <package>`)
+    return { kind: 'folder', folder: await folderOf(cmd, a.path) }
+  }
+
+  /** A refusal for what npm, or the package it fetched, could not do. */
+  const npmRefusal = (e: unknown, spec: string): unknown =>
+    e instanceof NpmMissing
+      ? new Refused(500, e.message)
+      : e instanceof NpmFailed
+        ? new Refused(e.notFound ? 404 : 500, e.message)
+        : e instanceof PackageRefused
+          ? new Refused(400, `cannot install ${spec} from npm: ${e.message}`)
+          : e
+
+  /** Fetches `spec` with npm into a staging folder of its own (cleared at a Host's start like any staging folder) and
+   *  hands `use` the extracted package; the folder goes when `use` is done. */
+  async function fromNpm<T>(spec: string, use: (folder: string, got: { name: string; version: string }) => Promise<T>): Promise<T> {
+    await fs.mkdir(installed, { recursive: true })
+    const staging = path.join(installed, `.staging-npm-${hex()}`)
+    await fs.mkdir(staging)
+    try {
+      let got: { name: string; version: string; folder: string }
+      try {
+        got = await packAndExtract(spec, staging, npm)
+      } catch (e) {
+        throw npmRefusal(e, spec)
+      }
+      return await use(got.folder, got)
+    } finally {
+      await discard(staging)
+    }
+  }
+
+  async function inspect(a: { path?: unknown; npm?: unknown }): Promise<PluginsAnswer> {
+    const source = await sourceOf('plugins-inspect', a)
+    if (source.kind === 'folder') return { status: 200, body: await inspection(source.folder, source.folder) }
+    return fromNpm(source.spec, async (folder, got) => {
+      if (got.name !== source.name) throw new Refused(400, `npm answered ${got.name} for ${source.spec}`)
+      return { status: 200, body: { ...(await inspection(folder, `${source.spec} from npm`)), source: { npm: source.spec, version: got.version } } }
+    })
+  }
+
+  /** What `folder` holds, as a person approves it; refusals name `shownAs`, where it came from. */
+  async function inspection(folder: string, shownAs: string): Promise<Record<string, unknown>> {
     const layout = await layoutProblem(folder)
-    if (layout !== null) throw new Refused(400, `cannot install from ${folder}: ${layout}`)
+    if (layout !== null) throw new Refused(400, `cannot install from ${shownAs}: ${layout}`)
     const read = await readManifest(folder)
-    if (!read.ok) throw new Refused(400, read.error)
+    if (!read.ok) throw new Refused(400, read.error.split(folder).join(shownAs))
     const m = read.manifest
     const installed = (await readRegistry(root)).find((r) => r.id === m.id)
     const reason = incompatibility(m, host)
     return {
-      status: 200,
-      body: {
-        id: m.id,
-        name: m.name,
-        displayName: m.displayName,
-        version: m.version,
-        ...(m.description !== undefined ? { description: m.description } : {}),
-        apiVersion: m.apiVersion,
-        entry: m.entry,
-        capabilities: m.capabilities,
-        permissions: m.permissions,
-        ...(m.minAsteraVersion !== undefined ? { minAsteraVersion: m.minAsteraVersion } : {}),
-        compatible: reason === null,
-        ...(reason !== null ? { reason } : {}),
-        ...(installed ? { installed: { version: installed.version, enabled: installed.enabled } } : {})
-      }
+      id: m.id,
+      name: m.name,
+      displayName: m.displayName,
+      version: m.version,
+      ...(m.description !== undefined ? { description: m.description } : {}),
+      apiVersion: m.apiVersion,
+      entry: m.entry,
+      capabilities: m.capabilities,
+      permissions: m.permissions,
+      ...(m.minAsteraVersion !== undefined ? { minAsteraVersion: m.minAsteraVersion } : {}),
+      compatible: reason === null,
+      ...(reason !== null ? { reason } : {}),
+      ...(installed ? { installed: { version: installed.version, enabled: installed.enabled } } : {})
     }
   }
 
@@ -350,8 +406,8 @@ export function createPluginManager(d: {
     return { manifest: m, granted }
   }
 
-  async function install(a: { path: unknown; grant: unknown; expect?: unknown }): Promise<PluginsAnswer> {
-    const src = await folderOf('plugins-install', a.path)
+  async function install(a: { path?: unknown; npm?: unknown; grant: unknown; expect?: unknown }): Promise<PluginsAnswer> {
+    const source = await sourceOf('plugins-install', a)
     const grant = a.grant
     if (!Array.isArray(grant) || !grant.every((g) => typeof g === 'string'))
       throw new Refused(400, 'plugins-install needs a grant: the permissions you approve, from those the plugin asks for')
@@ -362,21 +418,52 @@ export function createPluginManager(d: {
     )
       throw new Refused(400, 'expect must be { name, version }')
     const expected = want as { name: string; version: string } | undefined
-    // Read before anything is copied: a registry that cannot be read refuses the change with nothing written.
+    if (source.kind === 'folder') {
+      // Read before anything is copied: a registry that cannot be read refuses the change with nothing written.
+      const records = await readRegistry(root)
+      // The folder is checked before it is copied, so a refusal costs no copy (final review m2), and the copy is checked
+      // again, because the copy is what will run (design P6).
+      await installable(source.folder, source.folder, grant as string[], expected)
+      return place(source.folder, source.folder, grant as string[], expected, records, { kind: 'folder', path: source.folder })
+    }
+    // From npm, exactly the version that was shown: an npm version never changes, so the code installed is the code
+    // approved (design P14).
+    if (expected === undefined) throw new Refused(400, 'plugins-install --npm needs expect: the { name, version } its inspect showed')
+    if (expected.name !== source.name) throw new Refused(400, `expect names ${expected.name}, but --npm names ${source.name}`)
     const records = await readRegistry(root)
-    // The folder is checked before it is copied, so a refusal costs no copy (final review m2), and the copy is checked
-    // again, because the copy is what will run (design P6).
-    await installable(src, src, grant as string[], expected)
+    const shownAs = `${source.spec} from npm`
+    return fromNpm(`${expected.name}@${expected.version}`, async (folder, got) => {
+      // Checked before its dependencies are fetched, so a refusal costs no npm install.
+      await installable(folder, shownAs, grant as string[], expected)
+      try {
+        await installDependencies(folder, npm)
+      } catch (e) {
+        throw npmRefusal(e, source.spec)
+      }
+      return place(folder, shownAs, grant as string[], expected, records, { kind: 'npm', spec: source.spec, version: got.version })
+    })
+  }
+
+  /** Copies `src` into the profile, checks the copy, and puts it in place of any earlier copy of the plugin, which comes
+   *  back if the change cannot be finished. */
+  async function place(
+    src: string,
+    shownAs: string,
+    grant: string[],
+    expected: { name: string; version: string } | undefined,
+    records: PluginRecord[],
+    source: PluginRecord['source']
+  ): Promise<PluginsAnswer> {
     await fs.mkdir(installed, { recursive: true })
     const staging = path.join(installed, `.staging-${hex()}`)
     try {
       try {
         await (d.copy ?? copyPluginFolder)(src, staging)
       } catch (e) {
-        if (e instanceof PluginCopyRefused) throw new Refused(400, `cannot install from ${src}: ${e.message}`)
+        if (e instanceof PluginCopyRefused) throw new Refused(400, `cannot install from ${shownAs}: ${e.message}`)
         throw e
       }
-      const { manifest: m, granted } = await installable(staging, src, grant as string[], expected)
+      const { manifest: m, granted } = await installable(staging, shownAs, grant, expected)
       const folder = pluginFolderName(m.id)
       const final = path.join(installed, folder)
       const previous = records.find((r) => r.id === m.id)
@@ -408,7 +495,7 @@ export function createPluginManager(d: {
         enabled: previous?.enabled ?? true,
         granted,
         installedAt: now(),
-        source: { kind: 'folder', path: src }
+        source
       }
       try {
         await writeRegistry(root, [...records.filter((r) => r.id !== m.id), record].sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0)))

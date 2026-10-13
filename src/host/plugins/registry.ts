@@ -16,7 +16,9 @@ export interface PluginRecord {
   /** What the person approved: a subset of what the plugin asks for (spec §11). */
   granted: PluginPermission[]
   installedAt: number
-  source: { kind: 'folder'; path: string }
+  /** Where it was installed from: a folder, or an npm package by the spec the person gave and the version it was
+   *  (plugins 2e). */
+  source: { kind: 'folder'; path: string } | { kind: 'npm'; spec: string; version: string }
 }
 
 const FILE = 'plugins.json'
@@ -46,8 +48,8 @@ const isRecord = (v: unknown): v is PluginRecord =>
   v.granted.every((g) => typeof g === 'string') &&
   typeof v.installedAt === 'number' &&
   isObject(v.source) &&
-  v.source.kind === 'folder' &&
-  typeof v.source.path === 'string'
+  ((v.source.kind === 'folder' && typeof v.source.path === 'string') ||
+    (v.source.kind === 'npm' && typeof v.source.spec === 'string' && typeof v.source.version === 'string'))
 
 export async function readRegistry(root: string): Promise<PluginRecord[]> {
   const file = path.join(root, FILE)

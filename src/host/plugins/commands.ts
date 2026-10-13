@@ -38,7 +38,7 @@ export async function pluginsCommand(a: {
   let answer: PluginsAnswer
   switch (cmd) {
     case 'plugins-inspect':
-      return manager.inspect(args.path)
+      return manager.inspect({ path: args.path, npm: args.npm })
     case 'plugins-list':
       return manager.list()
     case 'plugins-get':
@@ -53,7 +53,12 @@ export async function pluginsCommand(a: {
       answer = await manager.configure(args.id, args.set, args.unset)
       break
     case 'plugins-install':
-      answer = await manager.install({ path: args.path, grant: args.grant, ...(args.expect !== undefined ? { expect: args.expect } : {}) })
+      answer = await manager.install({
+        ...(args.path !== undefined ? { path: args.path } : {}),
+        ...(args.npm !== undefined ? { npm: args.npm } : {}),
+        grant: args.grant,
+        ...(args.expect !== undefined ? { expect: args.expect } : {})
+      })
       break
     case 'plugins-enable':
       answer = await manager.setEnabled(args.id, true)
