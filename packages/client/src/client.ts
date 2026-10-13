@@ -140,7 +140,43 @@ export async function createAsteraClient(options: AsteraClientOptions = {}): Pro
   const address =
     options.address ??
     (options.profileDir !== undefined ? hostAddress({ profileDir, platform, tmpDir: os.tmpdir(), protocol: HOST_PROTOCOL }).address : target.address)
-  const ordinaryMs = options.callTimeoutMs ?? DEFAULT_CALL_TIMEOUT_MS
+  return createAsteraClientOver({
+    address,
+    profileDir,
+    options,
+    connect: async () => {
+      let reason: string | null = null
+      const c = await connectHost({
+        address,
+        profileDir,
+        app: `sdk-${CLIENT_VERSION}`,
+        role: 'cli',
+        timeoutMs: options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS,
+        log: (m) => {
+          reason = m
+          options.log?.(m)
+        }
+      })
+      if ('error' in c) throw connectError(c.error, address, profileDir, reason)
+      return c
+    }
+  })
+}
+
+/**
+ * A client over a connection its caller makes (plugin runtime design P10): the plugin launcher hands one built on the
+ * plugin's stdio, where the Host is on the other end of the process's pipes. Internal: the published package exports
+ * `createAsteraClient` only. `connect` resolves an open connection or throws the error a call should fail with;
+ * `address` names the connection in messages.
+ */
+export async function createAsteraClientOver(o: {
+  connect: () => Promise<HostConnection>
+  address: string
+  profileDir: string
+  options?: Pick<AsteraClientOptions, 'callTimeoutMs'>
+}): Promise<AsteraClient> {
+  const { address, profileDir } = o
+  const ordinaryMs = o.options?.callTimeoutMs ?? DEFAULT_CALL_TIMEOUT_MS
 
   let conn: HostConnection | null = null
   let connecting: Promise<HostConnection> | null = null
@@ -160,19 +196,7 @@ export async function createAsteraClient(options: AsteraClientOptions = {}): Pro
   const open = (): Promise<HostConnection> => {
     if (conn !== null) return Promise.resolve(conn)
     connecting ??= (async () => {
-      let reason: string | null = null
-      const c = await connectHost({
-        address,
-        profileDir,
-        app: `sdk-${CLIENT_VERSION}`,
-        role: 'cli',
-        timeoutMs: options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS,
-        log: (m) => {
-          reason = m
-          options.log?.(m)
-        }
-      })
-      if ('error' in c) throw connectError(c.error, address, profileDir, reason)
+      const c = await o.connect()
       // close() came while the handshake was out: this connection is nobody's
       if (closed) {
         c.close()
