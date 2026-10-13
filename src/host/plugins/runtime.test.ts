@@ -188,6 +188,39 @@ describe('createPluginRuntime', () => {
     await until(() => expect(alive(childPid)).toBe(false), 10_000)
   }, 30_000)
 
+  // 2b final review I4: a plugin that exits cleanly leaves nothing it started behind, on every platform (Windows: the
+  // launcher's job object; elsewhere: the Host ends the plugin's process group after every exit).
+  it('leaves nothing a plugin started behind when it stops cleanly or crashes', async () => {
+    const { r } = runtime({ failAfter: 1 })
+    const spawner = (name: string, end: string) =>
+      plugin(
+        name,
+        `import { spawn } from 'node:child_process'
+        export default {
+          activate(ctx) {
+            const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' })
+            ctx.log.info('child ' + child.pid)
+            ${end}
+          }
+        }`
+      )
+    const childOf = (folder: string) =>
+      until(() => {
+        const m = /\[info\] child (\d+)/.exec(logOf(r, folder))
+        if (!m) throw new Error('no child yet')
+        return Number(m[1])
+      })
+    r.start(spawner('clean', ''))
+    const cleanChild = await childOf('clean')
+    await until(() => expect(r.status('clean')?.status).toBe('running'))
+    await r.stop('clean')
+    await until(() => expect(alive(cleanChild)).toBe(false), 10_000)
+    r.start(spawner('crashes', "setTimeout(() => process.exit(1), 300)"))
+    const crashChild = await childOf('crashes')
+    await until(() => expect(r.status('crashes')?.status).toBe('failed'))
+    await until(() => expect(alive(crashChild)).toBe(false), 10_000)
+  }, 40_000)
+
   it('stops every plugin at once, starts a running plugin only once, and stops an unknown id quietly', async () => {
     const { r } = runtime()
     const a = plugin('one', `export default { activate() {} }`)

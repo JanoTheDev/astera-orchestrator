@@ -104,6 +104,28 @@ function killTree(proc: ChildProcess): void {
   }
 }
 
+/** How long what is left of a plugin's process group has after SIGTERM before SIGKILL. */
+const GROUP_KILL_GRACE_MS = 2_000
+
+/** Ends what is left of a plugin's process group once the plugin has exited (2b final review I4): a child it started
+ *  and did not end would outlive it, and one more set would be left at every restart or update. Elsewhere than Windows
+ *  only; there the launcher's job object ends its children with it. A group with nothing left in it is no error. */
+function endGroup(pid: number | undefined): void {
+  if (process.platform === 'win32' || pid === undefined) return
+  try {
+    process.kill(-pid, 'SIGTERM')
+  } catch {
+    return
+  }
+  setTimeout(() => {
+    try {
+      process.kill(-pid, 'SIGKILL')
+    } catch {
+      // already gone
+    }
+  }, GROUP_KILL_GRACE_MS).unref()
+}
+
 /** The environment a plugin starts with: the Host's own, without what is the Host's alone (HOST_ONLY_ENV) and without
  *  any ASTERA_ variable (a plugin is no agent session and reaches the Host on its own channel), plus the switch that
  *  runs the Host's executable as Node, which the launcher removes before the plugin loads. */
@@ -305,6 +327,7 @@ export function createPluginRuntime(d: {
   }
 
   function exitedWith(s: Slot, proc: ChildProcess, code: number | null, signal: NodeJS.Signals | null): void {
+    endGroup(proc.pid)
     if (s.proc !== proc) return
     s.proc = undefined
     s.peer?.close('the plugin exited')
