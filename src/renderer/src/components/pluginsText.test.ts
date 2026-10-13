@@ -100,9 +100,13 @@ describe('installPrompt (spec §31)', () => {
 
   // Plugins 2e: a package from npm says so where a folder would be named.
   it('names the npm package it comes from', () => {
+    // The words the user chose on 2026-10-13: the package, where it comes from.
     expect(installPrompt({ ...INSPECTION, source: { npm: '@acme/astera-jira@^1.0.0', version: '1.0.0' } }, { npm: '@acme/astera-jira@^1.0.0' }, en).body.split(lf)[1]).toBe(
-      'From npm: @acme/astera-jira@^1.0.0'
+      'From the npm package @acme/astera-jira@^1.0.0'
     )
+    expect(installPrompt(INSPECTION, { npm: '@acme/astera-jira' }, ko).body.split(lf)[1]).toBe('출처: npm 패키지 @acme/astera-jira')
+    expect(ko('settings.plugins.installNpm')).toBe('패키지 이름으로 설치')
+    expect(ko('settings.plugins.npmPlaceholder')).toBe('패키지 이름 (예: @acme/astera-jira)')
   })
 
   it('reads in Korean too', () => {

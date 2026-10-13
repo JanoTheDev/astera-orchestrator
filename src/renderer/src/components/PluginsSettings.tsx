@@ -253,6 +253,7 @@ export function PluginsSettings(): React.JSX.Element {
               : t('settings.plugins.installing')}
         </button>
       </div>
+      <p className="settings-hint">{t('settings.plugins.npmHint')}</p>
       {listFailure !== null && <p className="settings-hint is-warning">{failureLine(listFailure, t, { read: true })}</p>}
       {plugins !== null && plugins.length === 0 && <p className="settings-hint">{t('settings.plugins.none')}</p>}
       {plugins?.map((p) => {
