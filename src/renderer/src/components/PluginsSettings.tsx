@@ -5,7 +5,7 @@ import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
 import { confirmModal, confirmModalWithChoices } from '../lib/confirm'
 import { Select } from './Select'
-import { configureChanges, configureDoneLine, failureLine, installFailureLine, installPrompt, permissionLabel, reasonLine, statusLabel } from './pluginsText'
+import { configureChanges, configureDoneLine, failureLine, installFailureLine, installPrompt, npmNotice, permissionLabel, reasonLine, statusLabel } from './pluginsText'
 import { createPluginsPoller, installBlocked, installHolds, keepOnly } from './pluginsList'
 
 type Plugin = Record<string, unknown>
@@ -57,6 +57,9 @@ export function PluginsSettings(): React.JSX.Element {
   const [saving, setSaving] = useState<string | null>(null)
   /** An npm package to install, as the person types it (plugins 2e). */
   const [npmSpec, setNpmSpec] = useState('')
+  /** Why npm itself could not be had (a blocking network, an altered download), kept under the package row until an
+   *  install from npm works (plugins 2e-2; the user's decision 2026-10-13). */
+  const [npmProblem, setNpmProblem] = useState<string | null>(null)
 
   /** Changes in flight (installs, saves, enables, removals): the list is not polled meanwhile (2d final review I1). */
   const inFlight = useRef(0)
@@ -119,8 +122,10 @@ export function PluginsSettings(): React.JSX.Element {
       const seen = await during(() => window.api.plugins.inspect(source).catch(failed))
       if (!seen.ok) {
         toast.error(failureLine(seen, t, { read: true }))
+        if (npmNotice(seen)) setNpmProblem(failureLine(seen, t))
         return false
       }
+      if ('npm' in source) setNpmProblem(null)
       const id = str(seen.body.id)
       // On an update, what the installed copy was granted (I2).
       const before = plugins?.find((p) => str(p.id) === id)
@@ -133,6 +138,7 @@ export function PluginsSettings(): React.JSX.Element {
       )
       if (!r.ok) {
         toast.error(installFailureLine(r, t))
+        if (npmNotice(r)) setNpmProblem(failureLine(r, t))
         return false
       }
       // A new copy may have a new schema: a form or log of the old one goes (M3).
@@ -226,7 +232,8 @@ export function PluginsSettings(): React.JSX.Element {
           {installing === 'installing' && installingFrom === 'folder' ? t('settings.plugins.installing') : t('settings.plugins.installFolder')}
         </button>
       </div>
-      {/* A plugin published on npm (plugins 2e): the person's own npm fetches it, after the same warning. */}
+      {/* A plugin published on npm (plugins 2e): the person's npm fetches it, or Astera's own where they have none
+          (2e-2), after the same warning. */}
       <div className="remote-actions">
         <input
           className="settings-gen-input remote-actions-grow"
@@ -253,6 +260,8 @@ export function PluginsSettings(): React.JSX.Element {
               : t('settings.plugins.installing')}
         </button>
       </div>
+      <p className="settings-hint">{t('settings.plugins.npmHint')}</p>
+      {npmProblem !== null && <p className="settings-hint is-warning">{npmProblem}</p>}
       {listFailure !== null && <p className="settings-hint is-warning">{failureLine(listFailure, t, { read: true })}</p>}
       {plugins !== null && plugins.length === 0 && <p className="settings-hint">{t('settings.plugins.none')}</p>}
       {plugins?.map((p) => {

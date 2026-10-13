@@ -101,6 +101,12 @@ describe('the plugins route (plugin runtime design P5, slice 2d)', () => {
     }
   })
 
+  // 2e-2 final review M1: the reason the Host gives on its own reaches the app.
+  it('carries the reason the Host gives beside its sentence', async () => {
+    const { route } = host(async () => ({ status: 500, body: { error: 'npm is not installed, and ...', code: 'PLUGIN_NPM_BLOCKED', reason: 'answered 407' } }))
+    expect(await route.list()).toEqual({ ok: false, code: 'PLUGIN_NPM_BLOCKED', message: 'npm is not installed, and ...', reason: 'answered 407' })
+  })
+
   it('says a Host older than plugins, or one that runs none, does not support them', async () => {
     for (const error of ['unknown command: plugins-list', 'this Host does not run plugins']) {
       const { route } = host(async () => ({ status: 501, body: { error } }))

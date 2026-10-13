@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { t as translate, type MessageKey, type MessageParams } from '../../../core/i18n'
 import { PLUGIN_TRUST_WARNING } from '../../../core/plugins/manifest'
 import type { SettingField } from '../../../core/plugins/settings'
-import { configureChanges, configureDoneLine, failureLine, installFailureLine, installPrompt, permissionLabel, reasonLine, statusLabel } from './pluginsText'
+import { configureChanges, configureDoneLine, failureLine, installFailureLine, installPrompt, npmNotice, permissionLabel, reasonLine, statusLabel } from './pluginsText'
 
 const en = (key: MessageKey, params?: MessageParams): string => translate('en', key, params)
 const ko = (key: MessageKey, params?: MessageParams): string => translate('ko', key, params)
@@ -100,9 +100,13 @@ describe('installPrompt (spec §31)', () => {
 
   // Plugins 2e: a package from npm says so where a folder would be named.
   it('names the npm package it comes from', () => {
+    // The words the user chose on 2026-10-13: the package, where it comes from.
     expect(installPrompt({ ...INSPECTION, source: { npm: '@acme/astera-jira@^1.0.0', version: '1.0.0' } }, { npm: '@acme/astera-jira@^1.0.0' }, en).body.split(lf)[1]).toBe(
-      'From npm: @acme/astera-jira@^1.0.0'
+      'From the npm package @acme/astera-jira@^1.0.0'
     )
+    expect(installPrompt(INSPECTION, { npm: '@acme/astera-jira' }, ko).body.split(lf)[1]).toBe('출처: npm 패키지 @acme/astera-jira')
+    expect(ko('settings.plugins.installNpm')).toBe('패키지 이름으로 설치')
+    expect(ko('settings.plugins.npmPlaceholder')).toBe('패키지 이름 (예: @acme/astera-jira)')
   })
 
   it('reads in Korean too', () => {
@@ -207,6 +211,33 @@ describe('failureLine', () => {
     const missing = { ok: false as const, code: 'PLUGIN_NPM_MISSING', message: 'npm was not found on this computer: ... with --path' }
     expect(failureLine(missing, en)).toBe('npm was not found on this computer. Install Node.js, which brings npm, or use Install from a folder…')
     expect(failureLine(missing, ko)).toBe('이 컴퓨터에 npm 이 없습니다. npm 이 함께 오는 Node.js 를 설치하거나, 폴더에서 설치… 를 쓰세요.')
+  })
+
+  // Plugins 2e-2 (the user's decision 2026-10-13): a network that blocks the fetch of Astera's npm gets its own notice.
+  it('says which of the three kept Astera from its own npm, a blocking network in so many words', () => {
+    const f = (code: string, message = 'x', reason?: string) => ({ ok: false as const, code, message, ...(reason !== undefined ? { reason } : {}) })
+    // With what the Host found, so a person and an administrator can tell DNS from a proxy's sign-in (2e-2 final review M1).
+    expect(failureLine(f('PLUGIN_NPM_BLOCKED', 'x', 'Failed to establish tunnel: 407 Proxy Authentication Required'), ko)).toBe(
+      'Astera 가 npm 을 받아 오지 못했습니다. registry.npmjs.org 에 닿지 못했거나 거절당했습니다(Failed to establish tunnel: 407 Proxy Authentication Required). 회사망, 방화벽, 프록시가 막고 있을 수 있습니다. 네트워크 관리자에게 registry.npmjs.org 접근을 요청하거나, Node.js 를 설치하거나, 폴더에서 설치… 를 쓰세요.'
+    )
+    expect(failureLine(f('PLUGIN_NPM_BLOCKED', 'x', 'ENOTFOUND'), en)).toBe(
+      'Astera could not fetch npm: registry.npmjs.org could not be reached or refused it (ENOTFOUND). A company network, a firewall or a proxy may block it. Ask your network administrator for access to registry.npmjs.org, install Node.js, or use Install from a folder.'
+    )
+    expect(failureLine(f('PLUGIN_NPM_ALTERED'), en)).toBe(
+      'The npm Astera fetched is not the real one, so it was not used: something on the network, such as a security appliance or a sign-in page, may have changed it. Install Node.js, or use Install from a folder.'
+    )
+    expect(failureLine(f('PLUGIN_NPM_FETCH_FAILED', 'disk full'), en)).toBe('Astera could not set npm up. Install Node.js, or use Install from a folder. (disk full)')
+    // Found on the dev app: the Host's sentence repeated the advice in English; only its reason is kept, as the Host
+    // sends it on its own (2e-2 final review M1, rather than read out of the sentence).
+    expect(failureLine(f('PLUGIN_NPM_FETCH_FAILED', 'npm is not installed, and Astera could not set up ...', "EEXIST: file already exists, mkdir 'C:/p'"), en)).toBe(
+      "Astera could not set npm up. Install Node.js, or use Install from a folder. (EEXIST: file already exists, mkdir 'C:/p')"
+    )
+  })
+
+  it('keeps a notice under the package row for what kept npm away, and for nothing else', () => {
+    for (const code of ['PLUGIN_NPM_BLOCKED', 'PLUGIN_NPM_ALTERED', 'PLUGIN_NPM_FETCH_FAILED', 'PLUGIN_NPM_MISSING'])
+      expect(npmNotice({ ok: false, code, message: 'x' }), code).toBe(true)
+    for (const code of ['NOT_FOUND', 'CONFLICT', 'HOST_NOT_RUNNING', 'FAILED']) expect(npmNotice({ ok: false, code, message: 'x' }), code).toBe(false)
   })
 
   it('gives the Host’s own sentence otherwise', () => {

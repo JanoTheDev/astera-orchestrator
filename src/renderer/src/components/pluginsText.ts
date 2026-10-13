@@ -154,7 +154,7 @@ export function reasonLine(reason: string, t: T): string {
 /** Why a call came back with nothing: in the app's words when no Host answered or it runs no plugins, else the Host's
  *  own sentence. A change that was not answered may have been made, and the list says whether; a read that was not
  *  answered says only that, since the list is what failed (2d final review I1). */
-export function failureLine(r: { ok: false; code: string; message: string }, t: T, o: { read?: boolean } = {}): string {
+export function failureLine(r: { ok: false; code: string; message: string; reason?: string }, t: T, o: { read?: boolean } = {}): string {
   switch (r.code) {
     case 'HOST_NOT_RUNNING':
       return t('settings.plugins.fail.noHost')
@@ -167,10 +167,22 @@ export function failureLine(r: { ok: false; code: string; message: string }, t: 
     // The Host's sentence points at a CLI flag; the app has a folder button (2e final review M4).
     case 'PLUGIN_NPM_MISSING':
       return t('settings.plugins.fail.npmMissing')
+    // Why Astera could not have its own npm (plugins 2e-2), a blocking network in so many words (the user's decision).
+    case 'PLUGIN_NPM_BLOCKED':
+      return t('settings.plugins.fail.npmBlocked', { reason: r.reason ?? r.message })
+    case 'PLUGIN_NPM_ALTERED':
+      return t('settings.plugins.fail.npmAltered')
+    case 'PLUGIN_NPM_FETCH_FAILED':
+      // Only the reason the Host gives on its own: the rest of its sentence is the advice the app's words give.
+      return t('settings.plugins.fail.npmFailed', { message: r.reason ?? r.message })
     default:
       return r.message
   }
 }
+
+/** Whether a failure is about npm itself, which the tab keeps as a notice under the package row until an install from
+ *  npm works (the user's decision 2026-10-13), rather than a toast that goes. */
+export const npmNotice = (r: { ok: false; code: string; message: string }): boolean => /^PLUGIN_NPM_(?:BLOCKED|ALTERED|FETCH_FAILED|MISSING)$/.test(r.code)
 
 /** Why an install did not happen. Its one conflict is the folder changing between the warning and the install (the
  *  Host checks the copy against what was shown, design P6): said in the app's words, with that nothing was installed

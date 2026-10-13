@@ -33,7 +33,9 @@ export function createPluginsRoute(d: { call: Call }): PluginsApi {
     return {
       ok: false,
       code: typeof body.code === 'string' ? body.code : (CODES[r.status] ?? 'FAILED'),
-      message: typeof body.error === 'string' ? body.error : `the Host answered ${r.status}`
+      message: typeof body.error === 'string' ? body.error : `the Host answered ${r.status}`,
+      // What went wrong in a few words, when the Host gives it beside its sentence (2e-2 final review M1).
+      ...(typeof body.reason === 'string' ? { reason: body.reason } : {})
     }
   }
   return {
