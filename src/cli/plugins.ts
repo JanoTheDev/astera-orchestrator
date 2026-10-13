@@ -37,6 +37,39 @@ export function doctorEnd(body: unknown): { code: 'FAILED'; message: string; det
   }
 }
 
+/** `plugins configure`'s flags as the Host takes them (plugins 2c): `--set key=value` (split at the first `=`, as many
+ *  as given), `--unset key`, and `--stdin key`, whose value is what standard input held with one trailing newline
+ *  dropped, so a secret stays off the command line. */
+export function configureArgs(
+  args: Record<string, unknown>,
+  stdinText: string | undefined
+): { args: Record<string, unknown> } | { error: string } {
+  const { set: rawSet, unset: rawUnset, stdin, ...rest } = args
+  const set: Record<string, string> = {}
+  const put = (key: string, value: string): string | null => {
+    if (Object.hasOwn(set, key)) return `${key} is set twice`
+    set[key] = value
+    return null
+  }
+  for (const pair of Array.isArray(rawSet) ? (rawSet as unknown[]) : rawSet === undefined ? [] : [rawSet]) {
+    const text = String(pair)
+    const at = text.indexOf('=')
+    if (at <= 0) return { error: `--set needs key=value: ${text}` }
+    const twice = put(text.slice(0, at), text.slice(at + 1))
+    if (twice) return { error: twice }
+  }
+  if (stdin !== undefined) {
+    if (typeof stdin !== 'string' || stdin === '') return { error: '--stdin needs the key to set' }
+    if (stdinText === undefined || stdinText === '') return { error: `--stdin ${stdin} read nothing from standard input` }
+    const twice = put(stdin, stdinText.replace(/\r?\n$/, ''))
+    if (twice) return { error: twice }
+  }
+  const unset = Array.isArray(rawUnset) ? (rawUnset as unknown[]).map(String) : rawUnset === undefined ? [] : [String(rawUnset)]
+  return {
+    args: { ...rest, ...(Object.keys(set).length > 0 ? { set } : {}), ...(unset.length > 0 ? { unset } : {}) }
+  }
+}
+
 /** `--grant a,b`: the names, trimmed, with empty ones dropped. */
 const grantOf = (v: unknown): string[] | null =>
   typeof v === 'string'

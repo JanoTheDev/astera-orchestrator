@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import path from 'node:path'
-import { approvalMessage, doctorEnd, installPlugin } from './plugins'
+import { approvalMessage, configureArgs, doctorEnd, installPlugin } from './plugins'
 import { PLUGIN_TRUST_WARNING } from '../core/plugins/manifest'
 
 const INSPECTION = {
@@ -165,5 +165,29 @@ describe('the docs say how a crashing plugin is restarted', () => {
     const waits = PLUGIN_TIMINGS.backoffMs.map((ms) => String(ms / 1000))
     expect(section).toContain(`A plugin that crashes is started again after ${waits.slice(0, -1).join(', ')}, then ${waits.at(-1)} seconds`)
     expect(section).toContain(`the ${['first', 'second', 'third', 'fourth'][PLUGIN_TIMINGS.failAfter - 1]} crash without ${PLUGIN_TIMINGS.stableMs / 1000} seconds of steady running`)
+  })
+})
+
+// Plugins 2c: `--set key=value`, `--unset key` and `--stdin key` as the Host's { set, unset }.
+describe('configureArgs', () => {
+  it('turns the flags into what the Host takes, splitting at the first =', () => {
+    expect(configureArgs({ id: 'x', set: ['baseUrl=https://a.example.com/?q=1', 'pageSize=25'], unset: ['project'] }, undefined)).toEqual({
+      args: { id: 'x', set: { baseUrl: 'https://a.example.com/?q=1', pageSize: '25' }, unset: ['project'] }
+    })
+  })
+
+  it('sets the --stdin key from standard input, one trailing newline dropped, so a secret stays off the command line', () => {
+    const lf = String.fromCharCode(10)
+    expect(configureArgs({ id: 'x', stdin: 'token' }, `tok-1${lf}`)).toEqual({ args: { id: 'x', set: { token: 'tok-1' } } })
+    expect(configureArgs({ id: 'x', stdin: 'token', set: ['a=b'] }, `tok-1${lf}${lf}`)).toEqual({ args: { id: 'x', set: { a: 'b', token: `tok-1${lf}` } } })
+  })
+
+  it('refuses a --set without =, an empty key, a --stdin with nothing on standard input, and a key given twice', () => {
+    expect(configureArgs({ id: 'x', set: ['token'] }, undefined)).toEqual({ error: '--set needs key=value: token' })
+    expect(configureArgs({ id: 'x', set: ['=v'] }, undefined)).toEqual({ error: '--set needs key=value: =v' })
+    expect(configureArgs({ id: 'x', stdin: 'token' }, '')).toEqual({ error: '--stdin token read nothing from standard input' })
+    expect(configureArgs({ id: 'x', stdin: true }, 'v')).toEqual({ error: '--stdin needs the key to set' })
+    expect(configureArgs({ id: 'x', set: ['a=1', 'a=2'] }, undefined)).toEqual({ error: 'a is set twice' })
+    expect(configureArgs({ id: 'x', set: ['a=1'], stdin: 'a' }, 'v')).toEqual({ error: 'a is set twice' })
   })
 })

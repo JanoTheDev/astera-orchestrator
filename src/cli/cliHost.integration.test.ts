@@ -1139,6 +1139,37 @@ describe('the public CLI against a real Host (§48, §49)', { timeout: 60_000 },
     expect((await astera(['plugins', 'get', '--id', 'astera-hello'], h.env)).code).toBe(4)
   })
 
+  // Plugins 2c (spec §23-§24): a setting set from the CLI, a secret one never shown back.
+  it('plugins configure sets a plain and a secret setting, and plugins settings never shows the secret', async () => {
+    const h = await hostRig({ repo: false })
+    const folder = await tempDir('astera-설정 플러그인-')
+    cleanups.push(() => rmrf(folder))
+    const manifest = {
+      name: 'astera-configured',
+      version: '1.0.0',
+      astera: {
+        apiVersion: '1',
+        entry: 'index.js',
+        settingsSchema: { type: 'object', properties: { baseUrl: { type: 'string' }, token: { type: 'string', secret: true } }, required: ['token'] }
+      }
+    }
+    await fs.writeFile(path.join(folder, 'package.json'), JSON.stringify(manifest))
+    await fs.writeFile(path.join(folder, 'index.js'), '')
+    okData(await astera(['plugins', 'install', '--path', folder, '--yes'], h.env), 'plugins install')
+    expect(okData(await astera(['plugins', 'get', '--id', 'astera-configured'], h.env), 'plugins get')).toMatchObject({
+      reason: 'needs settings: token; set them with astera plugins configure --id astera-configured'
+    })
+    const set = await astera(['plugins', 'configure', '--id', 'astera-configured', '--set', 'baseUrl=https://jira.example.com', '--set', 'token=tok-secret-9'], h.env)
+    expect(okData(set, 'plugins configure')).toMatchObject({ values: { baseUrl: 'https://jira.example.com' }, secrets: { token: 'set' } })
+    expect(set.stdout).not.toContain('tok-secret-9')
+    const shown = await astera(['plugins', 'settings', '--id', 'astera-configured'], h.env)
+    expect(okData(shown, 'plugins settings')).toMatchObject({ secrets: { token: 'set' } })
+    expect(shown.stdout).not.toContain('tok-secret-9')
+    const bad = await astera(['plugins', 'configure', '--id', 'astera-configured', '--set', 'nope=1'], h.env)
+    expect(bad.code).toBe(2)
+    expect(bad.envelope.error?.message).toBe('nope is not a setting of astera-configured; its settings are: baseUrl, token')
+  })
+
   it('a profile and a Job folder with spaces and Hangul work end to end', async () => {
     const project = await tempDir('astera-한글 프로젝트-')
     cleanups.push(() => rmrf(project))

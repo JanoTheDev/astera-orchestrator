@@ -3,7 +3,7 @@
 // cannot be tested — that is why the side-effect-free functions and main() were pulled in here.
 // main() does not call itself inside this file, so importing this module (as the tests do) does not
 // terminate the process.
-import { approvalMessage, doctorEnd, installPlugin } from './plugins'
+import { approvalMessage, configureArgs, doctorEnd, installPlugin } from './plugins'
 import { randomBytes, randomUUID } from 'node:crypto'
 import fsSync, { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
@@ -1182,6 +1182,12 @@ export async function main(): Promise<void> {
   // below writes `args` into a file, `argsForCall` hands them to the command, and this flag belongs
   // to neither. After stdin rather than before it, so `--request-id -` reads its id the way every
   // other flag with a `-` does.
+  // `plugins configure`'s flags as the Host takes them, with a `--stdin` secret read off standard input (plugins 2c).
+  if (parsed.cmd === 'plugins-configure') {
+    const configured = configureArgs(args, args.stdin !== undefined ? await readStdin() : undefined)
+    if ('error' in configured) fail({ code: 'INVALID_ARGUMENTS', message: configured.error })
+    args = configured.args
+  }
   const lifted = liftRequestId(args)
   if ('error' in lifted) fail({ code: 'INVALID_ARGUMENTS', message: lifted.error })
   args = withDefaultProject({ cmd: parsed.cmd, args: lifted.args, project: parsed.project })

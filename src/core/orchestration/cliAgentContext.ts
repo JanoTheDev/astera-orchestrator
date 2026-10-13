@@ -565,7 +565,9 @@ const NOT_SWITCHED = [
   'plugins-disable',
   'plugins-remove',
   'plugins-logs',
-  'plugins-doctor'
+  'plugins-doctor',
+  'plugins-settings',
+  'plugins-configure'
 ] as const satisfies readonly AgentCommand[]
 
 /**

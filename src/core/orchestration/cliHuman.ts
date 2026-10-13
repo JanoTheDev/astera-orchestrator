@@ -159,6 +159,24 @@ export function humanFor(cmd: string, data: Record<string, unknown>): string | n
       const lines = Array.isArray(data.lines) ? (data.lines as unknown[]).map(str) : []
       return lines.length > 0 ? lines.join('\n') : 'no log yet'
     }
+    case 'plugins-settings':
+    case 'plugins-configure': {
+      const fields = Array.isArray(data.fields) ? (data.fields as Record<string, unknown>[]) : []
+      if (fields.length === 0) return 'no settings'
+      const values = (data.values ?? {}) as Record<string, unknown>
+      const secrets = (data.secrets ?? {}) as Record<string, unknown>
+      // A secret one says only whether it is set (spec §23): the Host never answers its value.
+      const shown = (f: Record<string, unknown>): string =>
+        f.secret === true
+          ? secrets[str(f.key)] === 'set'
+            ? '(secret, set)'
+            : '(secret, not set)'
+          : Object.hasOwn(values, str(f.key))
+            ? str(values[str(f.key)])
+            : '(not set)'
+      const rows = columns(fields.map((f) => (f.required === true ? [str(f.key), shown(f), 'required'] : [str(f.key), shown(f)])))
+      return data.restarted === true ? `${rows}\n(restarted)` : rows
+    }
     case 'plugins-doctor':
       return columns(
         (Array.isArray(data.checks) ? (data.checks as Record<string, unknown>[]) : []).map((c) => [c.ok !== true ? 'FAIL' : c.warn === true ? 'warn' : 'ok', str(c.name), str(c.detail)])

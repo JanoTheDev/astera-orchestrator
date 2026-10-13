@@ -82,7 +82,7 @@ const NUMERIC = new Set(['timeoutMs', 'limit'])
 const JSON_ARRAY = new Set(['deps'])
 /** Flags that may appear more than once and always arrive as an array. Everything else keeps the
  *  last value, which is what every existing caller expects. */
-const REPEATABLE = new Set(['check'])
+const REPEATABLE = new Set(['check', 'set', 'unset'])
 
 /** `astera browser <sub>`. Exported because cliUsage.ts prints usage for both of them, and a second
  *  copy of the list would drift from this one. */
@@ -159,7 +159,7 @@ export const NOUNS = {
   runtimes: ['add', 'list', 'remove'],
   // **Answered by the Host's plugin manager** (plugin runtime design P5): this machine's app and CLI install, list and
   // switch plugins. `install` asks the Host to inspect the folder first and needs --yes or --grant (cli/plugins.ts).
-  plugins: ['install', 'list', 'get', 'enable', 'disable', 'remove', 'logs', 'doctor']
+  plugins: ['install', 'list', 'get', 'enable', 'disable', 'remove', 'logs', 'doctor', 'settings', 'configure']
 } as const
 
 /** 명사이면서 동사 없이도 명령인 이름. `accounts` 는 공개 명사가 되기 전부터 세션 명령이었고

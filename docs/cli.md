@@ -528,6 +528,9 @@ astera plugins disable --id <pluginId>               keep it installed but do no
 astera plugins remove --id <pluginId>                uninstall it and delete its copy
 astera plugins logs --id <pluginId>                  the last lines of its log
 astera plugins doctor --id <pluginId>                what could keep it from running; exit 1 if anything does
+astera plugins settings --id <pluginId>              its settings; a secret one only as set or not
+astera plugins configure --id <pluginId> --set baseUrl=https://jira.example.com
+printf %s "$TOKEN" | astera plugins configure --id <pluginId> --stdin token   a secret, off the command line
 ```
 
 **Plugins run trusted code on this machine.** A plugin can do anything you can, and its permissions limit only what
@@ -555,6 +558,13 @@ only within the permissions you granted. What it prints, and when it starts, sto
 (`<profile>/plugins/logs`, read with `plugins logs`). A plugin that crashes is started again after 1, then 2
 seconds; the third crash without 30 seconds of steady running marks it `failed`, and it stays stopped until
 `plugins enable` starts it again or the Host restarts. Plugins do not keep the Host running.
+
+A plugin's manifest may declare settings (`astera.settingsSchema`). `plugins configure` sets them, one `--set` or
+`--unset` each, and a running plugin starts again with the new values; a plugin missing a required setting waits,
+and `plugins list` says which. A secret setting, and any secret a plugin keeps itself, is kept in that plugin's own
+store under the profile: it is never shown back (`plugins settings` says only whether it is set), no other plugin can
+read it, and it is replaced by `[redacted]` in the plugin's log. Give a secret with `--stdin <key>` so it stays off
+the command line. Removing a plugin deletes its settings and secrets.
 
 ## Command reference
 
@@ -595,6 +605,8 @@ astera plugins disable --id <pluginId>
 astera plugins remove  --id <pluginId>
 astera plugins logs    --id <pluginId> [--lines <n>]
 astera plugins doctor  --id <pluginId>
+astera plugins settings  --id <pluginId>
+astera plugins configure --id <pluginId> [--set <key=value>] [--unset <key>] [--stdin <key>]
 
 astera projects list
 astera projects get   --id <projectId>
