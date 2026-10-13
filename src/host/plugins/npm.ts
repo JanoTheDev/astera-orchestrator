@@ -1,12 +1,15 @@
-// The person's own npm, which the Host runs to install a plugin from npm (plugins 2e, spec §12, design P14): it has the
-// registries, scopes and tokens the person configured, and resolves dependencies. No package code runs: every call
-// passes --ignore-scripts, and npm never runs inside the package, so nothing the package holds (an npm.cmd or git.cmd
-// that Windows would find in the current folder first, an .npmrc npm would read as the project's) can be run or read
-// by it (2e final review I1). On Windows npm is a .cmd, reached through cmd.exe with every argument quoted; the spec has
-// been checked (npmSpec.ts) so no argument holds a character cmd.exe reads inside quotes.
+// The npm the Host runs to install a plugin from npm (plugins 2e, spec §12, design P14): the person's, which has the
+// registries, scopes and tokens they configured, or where they have none Astera's own (ownNpm.ts, 2e-2). No package
+// code runs: every call passes --ignore-scripts, and npm never runs inside the package, so nothing the package holds
+// (an npm.cmd or git.cmd that Windows would find in the current folder first, an .npmrc npm would read as the
+// project's) can be run or read by it (2e final review I1). The person's npm is found on PATH by the Host itself and run
+// by its full path; on Windows an npm.cmd goes through cmd.exe with the path and every argument quoted (the spec has
+// been checked in npmSpec.ts, so no argument holds a character cmd.exe reads inside quotes).
 import { spawn as nodeSpawn, type ChildProcess } from 'node:child_process'
-import { promises as fs, statSync } from 'node:fs'
+import { constants as fsConstants, promises as fs } from 'node:fs'
 import path from 'node:path'
+import { findOnWindowsPathAsync, PATH_LOOKUP_TIMEOUT_MS } from '../../core/sessions/windowsExecutable'
+import { ensureOnWindowsPath } from '../../core/sessions/windowsPath'
 import { hostWorkerBaseEnv } from '../../core/host/spawn'
 import { killProcessTree } from '../../core/run/kill'
 import { redactSecrets } from '../../core/remote/redact'
@@ -51,38 +54,50 @@ export interface OwnNpm {
   cli: string
 }
 
-const valueOf = (env: NodeJS.ProcessEnv, name: string): string | undefined => {
-  const key = Object.keys(env).find((k) => k.toUpperCase() === name)
-  return key === undefined ? undefined : env[key]
+/** Where `name` is on a POSIX PATH, executable, or null: each absolute folder in order, asked at once and off the
+ *  event loop, a folder that has not answered within PATH_LOOKUP_TIMEOUT_MS counting as not having it. */
+async function findOnPosixPath(name: string, env: NodeJS.ProcessEnv): Promise<string | null> {
+  const list = (env.PATH ?? '')
+    .split(':')
+    .filter((d) => d !== '' && path.posix.isAbsolute(d))
+    .map((d) => path.posix.join(d, name))
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const late = new Promise<'late'>((r) => {
+    timer = setTimeout(() => r('late'), PATH_LOOKUP_TIMEOUT_MS)
+  })
+  try {
+    const answers = list.map((p) => Promise.race([fs.access(p, fsConstants.X_OK).then(() => true, () => false), late]))
+    for (let i = 0; i < list.length; i++) if ((await answers[i]) === true) return list[i]
+    return null
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
-/** Where `name` is on PATH, or null: each absolute folder of PATH in order, never the current folder or a relative
- *  one; on Windows with each PATHEXT extension, as cmd.exe would run it, and never the extensionless sh script npm
- *  ships beside npm.cmd. Found on the dev app (2e-2): asked to run a command it cannot find, cmd.exe says so in the
- *  system's language and code page and exits 1, so the Host finds npm itself rather than read cmd.exe's answer. */
-export function findOnPath(name: string, env: NodeJS.ProcessEnv, platform: NodeJS.Platform): string | null {
-  const p = platform === 'win32' ? path.win32 : path.posix
-  const dirs = (valueOf(env, 'PATH') ?? '')
-    .split(platform === 'win32' ? ';' : ':')
-    .map((d) => d.trim().replace(/^"(.*)"$/, '$1'))
-    .filter((d) => d !== '' && p.isAbsolute(d))
-  const exts =
-    platform === 'win32'
-      ? (valueOf(env, 'PATHEXT') ?? '.COM;.EXE;.BAT;.CMD')
-          .split(';')
-          .map((e) => e.trim())
-          .filter((e) => e !== '')
-      : ['']
-  for (const dir of dirs)
-    for (const ext of exts) {
-      const at = p.join(dir, `${name}${ext.toLowerCase()}`)
-      try {
-        if (statSync(at).isFile()) return at
-      } catch {
-        // not there
-      }
-    }
-  return null
+/** Where the person's npm is, or null when they have none the Host can run. Found by the Host itself, never in the
+ *  current folder: asked to run a command it cannot find, cmd.exe says so in the system's language and code page and
+ *  exits 1 (found on the dev app, 2e-2), so its answer is not read. Off the event loop, since an offline drive on PATH
+ *  held a synchronous lookup 21 s (2e-2 final review I3). An npm without Node beside it or on PATH (a leftover npm.cmd)
+ *  is none, and so is one whose path cmd.exe cannot be given (M3). On Windows a PATH without npm is read again from
+ *  what Windows keeps, at most every 30 s, so Node.js installed while the Host runs is found without a restart (M5). */
+export async function locateNpm(
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform,
+  o: { refresh?: () => Promise<void> } = {}
+): Promise<string | null> {
+  const win = platform === 'win32'
+  const find = (name: string): Promise<string | null> => (win ? findOnWindowsPathAsync(name, env) : findOnPosixPath(name, env))
+  let npm = await find('npm')
+  if (npm === null) {
+    await (o.refresh ?? (() => (win ? ensureOnWindowsPath(['npm', 'node'], { env }) : Promise.resolve())))().catch(() => {})
+    npm = await find('npm')
+  }
+  if (npm === null) return null
+  if (win && /["%\r\n]/.test(npm)) return null
+  const beside = path.join(path.dirname(npm), win ? 'node.exe' : 'node')
+  const nodeThere = await fs.stat(beside).then((s) => s.isFile(), () => false)
+  if (!nodeThere && (await find('node')) === null) return null
+  return npm
 }
 
 /** The command that runs npm with `args`: Astera's own as a script on the Host's Node, with no shell between; the
@@ -128,35 +143,36 @@ export function npmOutputTail(text: string, lines = 12): string {
 }
 
 export function createNpmRunner(d: {
-  env: NodeJS.ProcessEnv
+  /** npm's environment, or how to make it at each call (createNpm reads the Host's, whose PATH a refresh may grow). */
+  env: NodeJS.ProcessEnv | (() => NodeJS.ProcessEnv)
   spawn?: typeof nodeSpawn
   platform?: NodeJS.Platform
   /** For tests: how a late npm is ended. */
   kill?: (child: ChildProcess) => void
   /** Astera's own npm instead of the person's; its Node is the Host's binary, run as Node. */
   own?: OwnNpm
-  /** For tests: where the person's npm is (findOnPath). */
-  find?: (name: string) => string | null
+  /** Where the person's npm is (locateNpm on `env`). */
+  locate?: () => Promise<string | null>
 }): NpmRunner {
   const spawn = d.spawn ?? nodeSpawn
-  const env = d.own ? { ...d.env, ELECTRON_RUN_AS_NODE: '1' } : d.env
+  const envNow = (): NodeJS.ProcessEnv => {
+    const e = typeof d.env === 'function' ? d.env() : d.env
+    return d.own ? { ...e, ELECTRON_RUN_AS_NODE: '1' } : e
+  }
   const platform = d.platform ?? process.platform
   const kill = d.kill ?? ((c: ChildProcess) => killProcessTree(c))
   /** The npm calls still running, and how to end each. */
   const running = new Set<() => void>()
-  const run: NpmRun = (args, o) =>
-    new Promise((resolve, reject) => {
-      let cmd: { file: string; args: string[]; verbatim: boolean }
-      if (d.own) cmd = npmCommand(args, platform, d.env, { own: d.own })
-      else {
-        const where = (d.find ?? ((n: string) => findOnPath(n, d.env, platform)))('npm')
-        if (where === null) return reject(new NpmMissing())
-        try {
-          cmd = npmCommand(args, platform, d.env, { path: where })
-        } catch (e) {
-          return reject(e)
-        }
-      }
+  const run: NpmRun = async (args, o) => {
+    const env = envNow()
+    let cmd: { file: string; args: string[]; verbatim: boolean }
+    if (d.own) cmd = npmCommand(args, platform, env, { own: d.own })
+    else {
+      const where = await (d.locate ?? (() => locateNpm(env, platform)))()
+      if (where === null) throw new NpmMissing()
+      cmd = npmCommand(args, platform, env, { path: where })
+    }
+    return new Promise((resolve, reject) => {
       let child: ChildProcess
       try {
         child = spawn(cmd.file, cmd.args, { cwd: o.cwd, env, windowsHide: true, windowsVerbatimArguments: cmd.verbatim, stdio: ['ignore', 'pipe', 'pipe'] })
@@ -192,6 +208,7 @@ export function createNpmRunner(d: {
         resolve({ code: code ?? 1, stdout, stderr })
       })
     })
+  }
   return Object.assign(run, {
     stopAll: () => {
       for (const stop of [...running]) stop()
@@ -214,9 +231,12 @@ export function createNpm(d: {
   ensure?: () => Promise<string>
   own?: (cli: string) => NpmRunner
 }): NpmRunner {
-  const env = npmEnv(d.env)
-  const system = d.system ?? createNpmRunner({ env })
-  const ensure = d.ensure ?? createOwnNpm({ profileDir: d.profileDir, ...(d.pinned ? { pinned: d.pinned } : {}) }).ensure
+  // Made at each call: a PATH read again from what Windows keeps (locateNpm) reaches the next npm.
+  const env = (): NodeJS.ProcessEnv => npmEnv(d.env)
+  const platform = process.platform
+  const system = d.system ?? createNpmRunner({ env, locate: () => locateNpm(d.env, platform) })
+  // The fetch reads the proxy the Host's environment names, as npm does (2e-2 final review I1).
+  const ensure = d.ensure ?? createOwnNpm({ profileDir: d.profileDir, env: d.env, ...(d.pinned ? { pinned: d.pinned } : {}) }).ensure
   const makeOwn = d.own ?? ((cli: string) => createNpmRunner({ env, own: { node: d.node, cli } }))
   let useOwn = false
   let own: NpmRunner | null = null

@@ -162,7 +162,7 @@ export const ko = {
   'settings.plugins.fail.lostRead': 'Host 연결이 끊겼습니다.',
   'settings.plugins.fail.npmMissing': '이 컴퓨터에 npm 이 없습니다. npm 이 함께 오는 Node.js 를 설치하거나, 폴더에서 설치… 를 쓰세요.',
   'settings.plugins.fetching': '가져오는 중…',
-  'settings.plugins.fail.npmBlocked': 'Astera 가 npm 을 받아 오지 못했습니다. registry.npmjs.org 에 닿지 못했습니다. 회사망, 방화벽, 프록시가 막고 있을 수 있습니다. 네트워크 관리자에게 registry.npmjs.org 접근을 요청하거나, Node.js 를 설치하거나, 폴더에서 설치… 를 쓰세요.',
+  'settings.plugins.fail.npmBlocked': 'Astera 가 npm 을 받아 오지 못했습니다. registry.npmjs.org 에 닿지 못했거나 거절당했습니다({reason}). 회사망, 방화벽, 프록시가 막고 있을 수 있습니다. 네트워크 관리자에게 registry.npmjs.org 접근을 요청하거나, Node.js 를 설치하거나, 폴더에서 설치… 를 쓰세요.',
   'settings.plugins.fail.npmAltered': 'Astera 가 받은 npm 이 원래 npm 과 달라서 쓰지 않았습니다. 회사망의 보안 장비나 로그인 페이지처럼 네트워크에 있는 무언가가 내용을 바꿨을 수 있습니다. Node.js 를 설치하거나, 폴더에서 설치… 를 쓰세요.',
   'settings.plugins.fail.npmFailed': 'Astera 가 npm 을 준비하지 못했습니다. Node.js 를 설치하거나, 폴더에서 설치… 를 쓰세요. ({message})',
   'settings.plugins.fail.noHost': 'Host 에 연결되어 있지 않습니다.',

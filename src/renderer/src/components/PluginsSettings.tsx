@@ -232,7 +232,8 @@ export function PluginsSettings(): React.JSX.Element {
           {installing === 'installing' && installingFrom === 'folder' ? t('settings.plugins.installing') : t('settings.plugins.installFolder')}
         </button>
       </div>
-      {/* A plugin published on npm (plugins 2e): the person's own npm fetches it, after the same warning. */}
+      {/* A plugin published on npm (plugins 2e): the person's npm fetches it, or Astera's own where they have none
+          (2e-2), after the same warning. */}
       <div className="remote-actions">
         <input
           className="settings-gen-input remote-actions-grow"

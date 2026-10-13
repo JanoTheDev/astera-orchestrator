@@ -26,46 +26,84 @@ export const OWN_NPM: OwnNpmPin = {
   url: 'https://registry.npmjs.org/npm/-/npm-11.21.0.tgz'
 }
 
-/** Astera's own npm could not be had: the registry did not answer or refused (blocked), the bytes were not the npm
- *  pinned (altered), or it could not be set up on disk (failed). Each code has words of its own in the app. */
+/** Astera's own npm could not be had: the registry could not be reached or refused (blocked), the bytes were not the
+ *  npm pinned (altered), or it could not be set up on disk (failed). Each code has words of its own in the app, and
+ *  `reason` is what went wrong in a few words, for the app to show beside them (2e-2 final review M1). */
 export class NpmUnavailable extends Error {
   constructor(
     readonly code: 'PLUGIN_NPM_BLOCKED' | 'PLUGIN_NPM_ALTERED' | 'PLUGIN_NPM_FETCH_FAILED',
-    message: string
+    message: string,
+    readonly reason?: string
   ) {
     super(message)
   }
 }
 
-const FETCH_TIMEOUT_MS = 60_000
+/** A connection that sends nothing for this long is given up on. */
+const IDLE_MS = 30_000
+/** The whole download's limit, so a gateway that trickles bytes cannot hold the Host's plugin calls past the caller's
+ *  wait (2e-2 final review M2; npm.test.ts checks the sum with an npm call after it). */
+export const DOWNLOAD_TOTAL_MS = 90_000
 /** npm is 3 MiB; a body past this is not it. */
 const DOWNLOAD_MAX = 64 * 1024 * 1024
-/** Written last into a fetched npm: a folder without it was left half written by a Host that stopped. */
+/** Written last into a fetched npm, with the count and size of its files: a folder without it was left half written by
+ *  a Host that stopped, and one whose files no longer add up lost one to a virus scanner (2e-2 final review M4). */
 const MARK = '.astera-npm'
 const ALTERNATIVES = 'install Node.js, which brings npm, or install the plugin from a folder with --path'
 
 const exists = (p: string): Promise<boolean> => fs.stat(p).then(() => true, () => false)
 
-/** Why a request did not answer, as briefly as Node says it: the system's code (ECONNREFUSED, ENOTFOUND, a
- *  certificate's), or its message. */
+/** Why a request did not get through, as briefly as Node says it: what a proxy answered a tunnel with (its message
+ *  carries the status), else the system's code (ECONNREFUSED, ENOTFOUND, a certificate's), else its message. */
 const reasonOf = (e: unknown): string => {
   const code = (e as { code?: unknown } | null)?.code
+  if (code === 'ERR_PROXY_TUNNEL' && e instanceof Error) return e.message
   return typeof code === 'string' ? code : e instanceof Error && e.message !== '' ? e.message : 'no reason given'
 }
 
 /** How many redirects are followed: a registry may move a tarball; a captive portal's page is refused by its hash. */
 const REDIRECTS_MAX = 3
 
-export function createOwnNpm(d: { profileDir: string; pinned?: OwnNpmPin }): { ensure(): Promise<string> } {
+/** Every file under `dir`, counted with their bytes. */
+async function tally(dir: string): Promise<{ files: number; bytes: number }> {
+  let files = 0
+  let bytes = 0
+  const walk = async (at: string): Promise<void> => {
+    for (const e of await fs.readdir(at, { withFileTypes: true })) {
+      const p = path.join(at, e.name)
+      if (e.isDirectory()) await walk(p)
+      else if (e.isFile() && e.name !== MARK) {
+        files++
+        bytes += (await fs.stat(p)).size
+      }
+    }
+  }
+  await walk(dir)
+  return { files, bytes }
+}
+
+export function createOwnNpm(d: {
+  profileDir: string
+  pinned?: OwnNpmPin
+  /** Where HTTPS_PROXY, HTTP_PROXY and NO_PROXY are read from, as npm itself reads them (2e-2 final review I1). */
+  env?: NodeJS.ProcessEnv
+  /** For tests. */
+  limits?: { bytes?: number; idleMs?: number; totalMs?: number }
+}): { ensure(): Promise<string> } {
   const pin = d.pinned ?? OWN_NPM
+  const env = d.env ?? process.env
+  const maxBytes = d.limits?.bytes ?? DOWNLOAD_MAX
+  const idleMs = d.limits?.idleMs ?? IDLE_MS
+  const totalMs = d.limits?.totalMs ?? DOWNLOAD_TOTAL_MS
   const root = path.join(pluginsRoot(d.profileDir), 'npm')
   const dir = path.join(root, pin.version)
   const cli = path.join(dir, 'bin', 'npm-cli.js')
   const host = new URL(pin.url).host
-  const blocked = (why: string): NpmUnavailable =>
+  const blocked = (reason: string): NpmUnavailable =>
     new NpmUnavailable(
       'PLUGIN_NPM_BLOCKED',
-      `npm is not installed, and Astera could not fetch its own npm ${pin.version}: ${host} ${why}. A company network, a firewall or a proxy may block it: ask for access to ${host}, ${ALTERNATIVES}`
+      `npm is not installed, and Astera could not fetch its own npm ${pin.version}: ${host} could not be reached or refused it (${reason}). A company network, a firewall or a proxy may block it: ask for access to ${host}, ${ALTERNATIVES}`,
+      reason
     )
   const altered = (): NpmUnavailable =>
     new NpmUnavailable(
@@ -73,40 +111,96 @@ export function createOwnNpm(d: { profileDir: string; pinned?: OwnNpmPin }): { e
       `npm is not installed, and the npm ${pin.version} Astera fetched is not the one it expects (its hash differs), so it was not used: something on the network may have changed it. Install Node.js, which brings npm, or install the plugin from a folder with --path`
     )
 
-  /** The bytes at `url`. A plain request rather than fetch, which turns a proxy's 407 into a network error and so
-   *  hides the one answer that says a proxy is in the way. */
-  const download = (url: string, redirects = 0): Promise<Buffer> =>
+  /** The bytes at the pinned URL. A plain request rather than fetch, with an agent that takes the proxy the
+   *  environment names (npm reads the same variables), and a status that stays a status. Nothing it is answered with
+   *  may throw outside the promise (2e-2 final review I2): a redirect it cannot follow is a reason like any other. */
+  const download = (): Promise<Buffer> =>
     new Promise((resolve, reject) => {
-      const get = url.startsWith('https:') ? https.get : http.get
-      const req = get(url, (res) => {
-        const status = res.statusCode ?? 0
-        if (status >= 300 && status < 400 && typeof res.headers.location === 'string' && redirects < REDIRECTS_MAX) {
-          res.resume()
-          return void download(new URL(res.headers.location, url).href, redirects + 1).then(resolve, reject)
-        }
-        if (status !== 200) {
-          res.resume()
-          return void reject(blocked(`answered ${status}`))
-        }
-        const chunks: Buffer[] = []
-        let size = 0
-        res.on('data', (c: Buffer) => {
-          size += c.length
-          if (size > DOWNLOAD_MAX) {
-            req.destroy()
-            reject(altered())
-          } else chunks.push(c)
+      let done = false
+      const fail = (e: NpmUnavailable): void => {
+        if (done) return
+        done = true
+        clearTimeout(total)
+        reject(e)
+      }
+      const succeed = (b: Buffer): void => {
+        if (done) return
+        done = true
+        clearTimeout(total)
+        resolve(b)
+      }
+      let current: http.ClientRequest | null = null
+      const total = setTimeout(() => {
+        fail(blocked(`took longer than ${totalMs / 1000} s`))
+        current?.destroy()
+      }, totalMs)
+      const go = (url: string, redirects: number): void => {
+        const secure = url.startsWith('https:')
+        const agent = secure ? new https.Agent({ proxyEnv: env }) : new http.Agent({ proxyEnv: env })
+        const req = (secure ? https : http).get(url, { agent, headers: { 'user-agent': `astera (fetching npm ${pin.version})` } }, (res) => {
+          const status = res.statusCode ?? 0
+          if (status >= 300 && status < 400 && typeof res.headers.location === 'string' && redirects < REDIRECTS_MAX) {
+            res.resume()
+            let next: URL
+            try {
+              next = new URL(res.headers.location, url)
+            } catch {
+              return fail(blocked('answered a redirect Astera cannot follow'))
+            }
+            if (next.protocol !== 'https:' && next.protocol !== 'http:') return fail(blocked('answered a redirect Astera cannot follow'))
+            return go(next.href, redirects + 1)
+          }
+          if (status !== 200) {
+            res.resume()
+            return fail(blocked(`answered ${status}`))
+          }
+          const chunks: Buffer[] = []
+          let size = 0
+          res.on('data', (c: Buffer) => {
+            size += c.length
+            if (size > maxBytes) {
+              req.destroy()
+              fail(altered())
+            } else chunks.push(c)
+          })
+          res.on('end', () => succeed(Buffer.concat(chunks)))
+          res.on('error', (e) => fail(blocked(reasonOf(e))))
         })
-        res.on('end', () => resolve(Buffer.concat(chunks)))
-        res.on('error', (e) => reject(blocked(`stopped answering (${reasonOf(e)})`)))
-      })
-      req.setTimeout(FETCH_TIMEOUT_MS, () => req.destroy(Object.assign(new Error(`no answer within ${FETCH_TIMEOUT_MS / 1000} s`), { code: undefined })))
-      req.on('error', (e) => reject(blocked(`did not answer (${reasonOf(e)})`)))
+        current = req
+        req.setTimeout(idleMs, () => {
+          fail(blocked(`no answer within ${idleMs / 1000} s`))
+          req.destroy()
+        })
+        req.on('error', (e) => fail(blocked(reasonOf(e))))
+      }
+      try {
+        go(pin.url, 0)
+      } catch (e) {
+        fail(blocked(reasonOf(e)))
+      }
     })
 
+  /** Whether the npm on disk is whole: its mark there, and its files as many and as large as when it was written. */
+  async function whole(): Promise<boolean> {
+    const mark = await fs.readFile(path.join(dir, MARK), 'utf8').catch(() => null)
+    if (mark === null || !(await exists(cli))) return false
+    try {
+      const want = JSON.parse(mark) as { integrity?: unknown; files?: unknown; bytes?: unknown }
+      const got = await tally(dir)
+      return want.integrity === pin.integrity && want.files === got.files && want.bytes === got.bytes
+    } catch {
+      return false
+    }
+  }
+
+  /** Checked once for this Host's life: a whole npm stays whole while the Host runs it. */
+  let checked = false
   async function fetchIt(): Promise<string> {
-    if ((await exists(path.join(dir, MARK))) && (await exists(cli))) return cli
-    const body = await download(pin.url)
+    if (checked || (await whole())) {
+      checked = true
+      return cli
+    }
+    const body = await download()
     if (`sha512-${createHash('sha512').update(body).digest('base64')}` !== pin.integrity) throw altered()
     const staging = path.join(root, `.staging-${randomBytes(6).toString('hex')}`)
     // Everything on disk is inside: a folder that cannot be made is a reason with a code too.
@@ -117,17 +211,22 @@ export function createOwnNpm(d: { profileDir: string; pinned?: OwnNpmPin }): { e
       await fs.mkdir(staging)
       await fs.writeFile(path.join(staging, 'npm.tgz'), body)
       await extractPackage(path.join(staging, 'npm.tgz'), path.join(staging, 'npm'))
-      await fs.writeFile(path.join(staging, 'npm', MARK), `${pin.integrity}\n`)
+      await fs.writeFile(path.join(staging, 'npm', MARK), `${JSON.stringify({ integrity: pin.integrity, ...(await tally(path.join(staging, 'npm'))) })}\n`)
       await fs.rm(dir, { recursive: true, force: true, maxRetries: 3 })
       await moveRetrying(path.join(staging, 'npm'), dir)
+      // An npm of an earlier pin is no longer run.
+      for (const n of await fs.readdir(root)) if (n !== pin.version && !n.startsWith('.staging-')) await fs.rm(path.join(root, n), { recursive: true, force: true }).catch(() => {})
     } catch (e) {
+      const reason = e instanceof Error ? e.message : String(e)
       throw new NpmUnavailable(
         'PLUGIN_NPM_FETCH_FAILED',
-        `npm is not installed, and Astera could not set up its own npm ${pin.version}: ${e instanceof Error ? e.message : String(e)}. Install Node.js, which brings npm, or install the plugin from a folder with --path`
+        `npm is not installed, and Astera could not set up its own npm ${pin.version}: ${reason}. Install Node.js, which brings npm, or install the plugin from a folder with --path`,
+        reason
       )
     } finally {
       await fs.rm(staging, { recursive: true, force: true, maxRetries: 3 }).catch(() => {})
     }
+    checked = true
     return cli
   }
 

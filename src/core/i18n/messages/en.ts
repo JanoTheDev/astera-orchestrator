@@ -158,7 +158,7 @@ export const en: Record<keyof typeof ko, string> = {
   'settings.plugins.fail.lostRead': 'The connection to the Host closed.',
   'settings.plugins.fail.npmMissing': 'npm was not found on this computer. Install Node.js, which brings npm, or use Install from a folder…',
   'settings.plugins.fetching': 'Fetching…',
-  'settings.plugins.fail.npmBlocked': 'Astera could not fetch npm: registry.npmjs.org did not answer. A company network, a firewall or a proxy may block it. Ask your network administrator for access to registry.npmjs.org, install Node.js, or use Install from a folder.',
+  'settings.plugins.fail.npmBlocked': 'Astera could not fetch npm: registry.npmjs.org could not be reached or refused it ({reason}). A company network, a firewall or a proxy may block it. Ask your network administrator for access to registry.npmjs.org, install Node.js, or use Install from a folder.',
   'settings.plugins.fail.npmAltered': 'The npm Astera fetched is not the real one, so it was not used: something on the network, such as a security appliance or a sign-in page, may have changed it. Install Node.js, or use Install from a folder.',
   'settings.plugins.fail.npmFailed': 'Astera could not set npm up. Install Node.js, or use Install from a folder. ({message})',
   'settings.plugins.fail.noHost': 'The app is not connected to the Host.',

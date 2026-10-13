@@ -154,7 +154,7 @@ export function reasonLine(reason: string, t: T): string {
 /** Why a call came back with nothing: in the app's words when no Host answered or it runs no plugins, else the Host's
  *  own sentence. A change that was not answered may have been made, and the list says whether; a read that was not
  *  answered says only that, since the list is what failed (2d final review I1). */
-export function failureLine(r: { ok: false; code: string; message: string }, t: T, o: { read?: boolean } = {}): string {
+export function failureLine(r: { ok: false; code: string; message: string; reason?: string }, t: T, o: { read?: boolean } = {}): string {
   switch (r.code) {
     case 'HOST_NOT_RUNNING':
       return t('settings.plugins.fail.noHost')
@@ -169,14 +169,12 @@ export function failureLine(r: { ok: false; code: string; message: string }, t: 
       return t('settings.plugins.fail.npmMissing')
     // Why Astera could not have its own npm (plugins 2e-2), a blocking network in so many words (the user's decision).
     case 'PLUGIN_NPM_BLOCKED':
-      return t('settings.plugins.fail.npmBlocked')
+      return t('settings.plugins.fail.npmBlocked', { reason: r.reason ?? r.message })
     case 'PLUGIN_NPM_ALTERED':
       return t('settings.plugins.fail.npmAltered')
     case 'PLUGIN_NPM_FETCH_FAILED':
-      // Only the reason of the Host's sentence (ownNpm.ts): the rest is the advice the app's own words give.
-      return t('settings.plugins.fail.npmFailed', {
-        message: r.message.replace(/^npm is not installed, and Astera could not set up its own npm [^:]+: /, '').replace(/\. Install Node\.js, which brings npm, .*$/, '')
-      })
+      // Only the reason the Host gives on its own: the rest of its sentence is the advice the app's words give.
+      return t('settings.plugins.fail.npmFailed', { message: r.reason ?? r.message })
     default:
       return r.message
   }

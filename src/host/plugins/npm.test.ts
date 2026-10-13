@@ -5,8 +5,8 @@ import { existsSync, promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import type { spawn as nodeSpawn } from 'node:child_process'
-import { NPM_TIMEOUT_MS, NpmFailed, NpmMissing, createNpm, createNpmRunner, findOnPath, installDependencies, npmCommand, npmEnv, npmOutputTail, packAndExtract, type NpmRun, type NpmRunner } from './npm'
-import { NpmUnavailable } from './ownNpm'
+import { NPM_TIMEOUT_MS, NpmFailed, NpmMissing, createNpm, createNpmRunner, installDependencies, locateNpm, npmCommand, npmEnv, npmOutputTail, packAndExtract, type NpmRun, type NpmRunner } from './npm'
+import { DOWNLOAD_TOTAL_MS, NpmUnavailable } from './ownNpm'
 import { DEFAULT_CHECK_TIMEOUT_MS } from '../../core/orchestration/types'
 import { TIMEOUT_HEADROOM_MS } from '../../core/publicContract'
 import { tgzOf } from './tarballFixture'
@@ -44,32 +44,71 @@ describe('npmCommand', () => {
   })
 })
 
-describe('findOnPath', () => {
+// 2e-2 final review I3, M3, M5: npm is found off the Host's event loop (an offline drive on PATH held it 21 s),
+// a leftover npm.cmd with no Node beside it or on PATH is no npm, and a PATH that lacks npm is read again from what
+// Windows keeps, so installing Node.js while the Host runs needs no restart.
+describe('locateNpm', () => {
   let bin: string
+  let other: string
   beforeEach(async () => {
     bin = await fs.mkdtemp(path.join(os.tmpdir(), 'astera find npm '))
+    other = await fs.mkdtemp(path.join(os.tmpdir(), 'astera find node '))
   })
   afterEach(async () => {
     await fs.rm(bin, { recursive: true, force: true })
+    await fs.rm(other, { recursive: true, force: true })
   })
+  const nothing = async (): Promise<void> => {}
 
-  it('finds npm on Windows by PATHEXT, never the sh script npm ships beside npm.cmd', async () => {
+  it.skipIf(process.platform !== 'win32')('finds npm.cmd by PATHEXT with Node beside it, never the sh script npm ships', async () => {
     await fs.writeFile(path.join(bin, 'npm'), '#!/bin/sh')
     await fs.writeFile(path.join(bin, 'npm.cmd'), '@echo off')
-    expect(findOnPath('npm', { Path: `C:\\nowhere;"${bin}"`, PATHEXT: '.COM;.EXE;.BAT;.CMD' }, 'win32')).toBe(path.join(bin, 'npm.cmd'))
-    // Found on the dev app: what a PATHEXT without .CMD leaves cmd.exe unable to run, it is not found.
-    expect(findOnPath('npm', { PATH: bin, PATHEXT: '.COM;.EXE' }, 'win32')).toBeNull()
+    await fs.writeFile(path.join(bin, 'node.exe'), '')
+    expect(await locateNpm({ Path: `C:\\nowhere;"${bin}"`, PATHEXT: '.COM;.EXE;.BAT;.CMD' }, 'win32', { refresh: nothing })).toBe(path.join(bin, 'npm.cmd'))
+    // What a PATHEXT without .CMD leaves cmd.exe unable to run, it is not found.
+    expect(await locateNpm({ PATH: bin, PATHEXT: '.COM;.EXE' }, 'win32', { refresh: nothing })).toBeNull()
   })
 
-  it('never looks in the current folder or a relative one on Windows', async () => {
-    expect(findOnPath('npm', { PATH: '.;relative' }, 'win32')).toBeNull()
-    expect(findOnPath('npm', {}, 'linux')).toBeNull()
+  it.skipIf(process.platform !== 'win32')('counts a leftover npm.cmd with no Node anywhere as no npm, and one with Node elsewhere on PATH as npm', async () => {
+    await fs.writeFile(path.join(bin, 'npm.cmd'), '@echo off')
+    expect(await locateNpm({ PATH: bin, PATHEXT: '.CMD;.EXE' }, 'win32', { refresh: nothing })).toBeNull()
+    await fs.writeFile(path.join(other, 'node.exe'), '')
+    expect(await locateNpm({ PATH: `${bin};${other}`, PATHEXT: '.CMD;.EXE' }, 'win32', { refresh: nothing })).toBe(path.join(bin, 'npm.cmd'))
   })
 
-  // A POSIX PATH holds POSIX folders, which a Windows machine has none of.
-  it.skipIf(process.platform === 'win32')('finds npm elsewhere by its own name, never in a relative folder', async () => {
-    await fs.writeFile(path.join(bin, 'npm'), '#!/bin/sh')
-    expect(findOnPath('npm', { PATH: `.:relative/bin:${bin}` }, 'linux')).toBe(path.join(bin, 'npm'))
+  it.skipIf(process.platform !== 'win32')('counts an npm.cmd cmd.exe cannot be given, a % in its path, as no npm', async () => {
+    const odd = path.join(bin, '100%')
+    await fs.mkdir(odd)
+    await fs.writeFile(path.join(odd, 'npm.cmd'), '@echo off')
+    await fs.writeFile(path.join(odd, 'node.exe'), '')
+    expect(await locateNpm({ PATH: odd, PATHEXT: '.CMD;.EXE' }, 'win32', { refresh: nothing })).toBeNull()
+  })
+
+  it('reads PATH again when npm is not on it, once, and finds what was installed meanwhile', async () => {
+    const env: NodeJS.ProcessEnv = { PATH: process.platform === 'win32' ? 'C:\\nowhere' : '/nowhere', PATHEXT: '.CMD;.EXE' }
+    let refreshed = 0
+    const npmFile = path.join(bin, process.platform === 'win32' ? 'npm.cmd' : 'npm')
+    await fs.writeFile(npmFile, process.platform === 'win32' ? '@echo off' : '#!/bin/sh\n', { mode: 0o755 })
+    await fs.writeFile(path.join(bin, process.platform === 'win32' ? 'node.exe' : 'node'), '', { mode: 0o755 })
+    const found = await locateNpm(env, process.platform, {
+      refresh: async () => {
+        refreshed++
+        env.PATH = bin
+      }
+    })
+    expect(found).toBe(npmFile)
+    expect(refreshed).toBe(1)
+  })
+
+  it('never looks in a relative folder', async () => {
+    expect(await locateNpm({ PATH: process.platform === 'win32' ? '.;relative' : '.:relative' }, process.platform, { refresh: nothing })).toBeNull()
+  })
+
+  it.skipIf(process.platform === 'win32')('finds npm elsewhere with Node beside it, and not without', async () => {
+    await fs.writeFile(path.join(bin, 'npm'), '#!/bin/sh\n', { mode: 0o755 })
+    expect(await locateNpm({ PATH: bin }, 'linux', { refresh: nothing })).toBeNull()
+    await fs.writeFile(path.join(bin, 'node'), '', { mode: 0o755 })
+    expect(await locateNpm({ PATH: `.:${bin}` }, 'linux', { refresh: nothing })).toBe(path.join(bin, 'npm'))
   })
 })
 
@@ -134,6 +173,11 @@ describe('npmOutputTail', () => {
 describe('NPM_TIMEOUT_MS', () => {
   it('lets a pack and an install, with a copy and a move after them, end before the caller stops waiting', () => {
     expect(2 * NPM_TIMEOUT_MS + 60_000).toBeLessThan(DEFAULT_CHECK_TIMEOUT_MS + TIMEOUT_HEADROOM_MS)
+  })
+
+  // 2e-2 final review M2: the first inspect without Node.js fetches npm, then packs.
+  it('lets the fetch of Astera’s own npm and a pack end before the caller stops waiting', () => {
+    expect(DOWNLOAD_TOTAL_MS + NPM_TIMEOUT_MS + 30_000).toBeLessThan(DEFAULT_CHECK_TIMEOUT_MS + TIMEOUT_HEADROOM_MS)
   })
 })
 
@@ -251,7 +295,7 @@ const fakeSpawn = (o: { code?: number; error?: NodeJS.ErrnoException; stdout?: s
 describe('createNpmRunner', () => {
   it('runs npm in the folder it is given, and answers its code and output', async () => {
     const f = fakeSpawn({ code: 0, stdout: '[{"name":"x"}]', stderr: 'npm warn x' })
-    const run = createNpmRunner({ env: { PATH: 'p' }, spawn: f.spawn, platform: 'linux', find: () => '/usr/bin/npm' })
+    const run = createNpmRunner({ env: { PATH: 'p' }, spawn: f.spawn, platform: 'linux', locate: async () => '/usr/bin/npm' })
     expect(await run(['pack', 'x'], { cwd: '/tmp/a b' })).toEqual({ code: 0, stdout: '[{"name":"x"}]', stderr: 'npm warn x' })
     expect(f.calls[0]).toMatchObject({ file: '/usr/bin/npm', args: ['pack', 'x'], opts: { cwd: '/tmp/a b', env: { PATH: 'p' }, windowsHide: true } })
   })
@@ -264,18 +308,18 @@ describe('createNpmRunner', () => {
 
   it('says npm is missing when it is not on PATH, without starting anything, or when it cannot be started', async () => {
     const none = fakeSpawn({ code: 0 })
-    expect(await createNpmRunner({ env: {}, spawn: none.spawn, platform: 'win32', find: () => null })(['pack', 'x'], { cwd: '.' }).catch((e: unknown) => e)).toBeInstanceOf(NpmMissing)
+    expect(await createNpmRunner({ env: {}, spawn: none.spawn, platform: 'win32', locate: async () => null })(['pack', 'x'], { cwd: '.' }).catch((e: unknown) => e)).toBeInstanceOf(NpmMissing)
     expect(none.calls).toEqual([])
     const enoent = Object.assign(new Error('spawn npm ENOENT'), { code: 'ENOENT' })
     expect(
-      await createNpmRunner({ env: {}, spawn: fakeSpawn({ error: enoent }).spawn, platform: 'linux', find: () => '/usr/bin/npm' })(['pack', 'x'], { cwd: '.' }).catch((e: unknown) => e)
+      await createNpmRunner({ env: {}, spawn: fakeSpawn({ error: enoent }).spawn, platform: 'linux', locate: async () => '/usr/bin/npm' })(['pack', 'x'], { cwd: '.' }).catch((e: unknown) => e)
     ).toBeInstanceOf(NpmMissing)
   })
 
   // 2e final review M8: a Host that leaves while npm runs ends it rather than leave it behind.
   it('ends every npm still running when told to stop', async () => {
     let killed = 0
-    const run = createNpmRunner({ env: {}, spawn: fakeSpawn({ hang: true }).spawn, platform: 'linux', find: () => '/usr/bin/npm', kill: (c) => void (killed++, c.kill()) })
+    const run = createNpmRunner({ env: {}, spawn: fakeSpawn({ hang: true }).spawn, platform: 'linux', locate: async () => '/usr/bin/npm', kill: (c) => void (killed++, c.kill()) })
     const pending = run(['install'], { cwd: '.' }).catch((err: unknown) => err)
     await new Promise((r) => setImmediate(r))
     run.stopAll()
@@ -284,7 +328,7 @@ describe('createNpmRunner', () => {
   })
 
   it('ends an npm that runs past its time, and says so', async () => {
-    const run = createNpmRunner({ env: {}, spawn: fakeSpawn({ hang: true }).spawn, platform: 'linux', find: () => '/usr/bin/npm', kill: (c) => void c.kill() })
+    const run = createNpmRunner({ env: {}, spawn: fakeSpawn({ hang: true }).spawn, platform: 'linux', locate: async () => '/usr/bin/npm', kill: (c) => void c.kill() })
     const e = await run(['install'], { cwd: '.', timeoutMs: 50 }).catch((err: unknown) => err)
     expect((e as Error).message).toBe('npm did not finish within 0.05 s')
   })

@@ -1844,7 +1844,7 @@ export interface OrchApi {
  *  `code` is the Host's own when it sends one, else one for its status (INVALID_ARGUMENTS, FORBIDDEN, NOT_FOUND,
  *  CONFLICT, NOT_SUPPORTED, FAILED), or HOST_NOT_RUNNING (nothing was sent), TIMEOUT or HOST_LOST (it was, and the
  *  change may have been made). */
-export type PluginsCallAnswer = { ok: true; body: Record<string, unknown> } | { ok: false; code: string; message: string }
+export type PluginsCallAnswer = { ok: true; body: Record<string, unknown> } | { ok: false; code: string; message: string; reason?: string }
 
 /** Where a plugin is installed from: a folder on this machine, or a package on npm (plugins 2e). */
 export type PluginSource = { path: string } | { npm: string }

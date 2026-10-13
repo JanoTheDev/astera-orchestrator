@@ -61,13 +61,18 @@ class Refused extends Error {
     readonly status: number,
     message: string,
     /** A code the caller can say in its own words (2e final review M4: npm missing, in the app). */
-    readonly code?: string
+    readonly code?: string,
+    /** What went wrong in a few words, for a caller that words the rest itself (2e-2 final review M1). */
+    readonly reason?: string
   ) {
     super(message)
   }
 }
 
-const refused = (status: number, error: string, code?: string): PluginsAnswer => ({ status, body: { error, ...(code !== undefined ? { code } : {}) } })
+const refused = (status: number, error: string, code?: string, reason?: string): PluginsAnswer => ({
+  status,
+  body: { error, ...(code !== undefined ? { code } : {}), ...(reason !== undefined ? { reason } : {}) }
+})
 
 /** The manifest a folder's package.json holds, or the sentence saying why it holds none. */
 async function readManifest(folder: string): Promise<{ ok: true; manifest: PluginManifest } | { ok: false; error: string }> {
@@ -188,7 +193,7 @@ export function createPluginManager(d: {
         await (swept ??= sweep())
         return await fn()
       } catch (e) {
-        if (e instanceof Refused) return refused(e.status, e.message, e.code)
+        if (e instanceof Refused) return refused(e.status, e.message, e.code, e.reason)
         if (e instanceof RegistryUnreadable) return refused(500, e.message)
         // A file the system would not move or write: the change was undone where it could be, and the caller is told.
         return refused(500, e instanceof Error ? e.message : String(e))
@@ -326,8 +331,10 @@ export function createPluginManager(d: {
 
   /** A refusal for what npm, or the package it fetched, could not do. */
   const npmRefusal = (e: unknown, spec: string): unknown =>
-    e instanceof NpmMissing || e instanceof NpmUnavailable
+    e instanceof NpmMissing
       ? new Refused(500, e.message, e.code)
+      : e instanceof NpmUnavailable
+        ? new Refused(500, e.message, e.code, e.reason)
       : e instanceof NpmFailed
         ? new Refused(e.notFound ? 404 : 500, e.message)
         : e instanceof PackageRefused

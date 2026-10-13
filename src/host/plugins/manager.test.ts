@@ -898,7 +898,7 @@ describe('installing from npm', () => {
     const run: NpmRun = async (args, { cwd }) => {
       calls.push(args)
       if (o.missing) throw new NpmMissing()
-      if (o.unavailable) throw new NpmUnavailable(o.unavailable, `why ${o.unavailable}`)
+      if (o.unavailable) throw new NpmUnavailable(o.unavailable, `why ${o.unavailable}`, 'ECONNREFUSED')
       if (args[0] === 'pack') {
         const spec = args[1]
         const at = spec.indexOf('@', 1)
@@ -1013,7 +1013,8 @@ describe('installing from npm', () => {
   // the three it was, with a code the app words itself.
   it('answers each reason its own npm could not be had with its code', async () => {
     for (const code of ['PLUGIN_NPM_BLOCKED', 'PLUGIN_NPM_ALTERED', 'PLUGIN_NPM_FETCH_FAILED'] as const)
-      expect(await withNpm(fakeNpm([], { unavailable: code })).inspect({ npm: ID })).toEqual({ status: 500, body: { error: `why ${code}`, code } })
+      // With the reason on its own, for the app to show beside its words (2e-2 final review M1).
+      expect(await withNpm(fakeNpm([], { unavailable: code })).inspect({ npm: ID })).toEqual({ status: 500, body: { error: `why ${code}`, code, reason: 'ECONNREFUSED' } })
     expect(await leftovers()).toEqual([])
   })
 
