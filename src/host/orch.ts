@@ -21,6 +21,7 @@ import { coordinatorReleaseOf } from '../core/orchestration/exec/releaseDefer'
 import type { OrchCall, OrchCaller } from '../core/host/orchProtocol'
 import { mcpRefusal } from '../core/host/mcpGate'
 import { controllerRefusal } from '../core/host/controllerGate'
+import { pluginRefusal } from '../core/host/pluginGate'
 import { sanitizeForController } from '../core/remote/sanitize'
 import type { GatewayState } from '../core/remote/gatewayState'
 import type { ControllerRegistry } from './controllers'
@@ -1231,7 +1232,11 @@ export function createHostOrch(a: {
   /** Whose receipts these are (remote runtime design §3.9, N11): a controller by the client the Host bound it to,
    *  everyone else by the session they sent, as before. A NUL cannot occur in either. */
   const receiptCaller = (sessionId: string, from: OrchCaller | undefined): string =>
-    from?.role === 'controller' && from.principal ? `controller:${from.principal.clientId}` : sessionId
+    from?.role === 'controller' && from.principal
+      ? `controller:${from.principal.clientId}`
+      : from?.role === 'plugin' && from.plugin
+        ? `plugin:${from.plugin.id}`
+        : sessionId
 
   /**
    * Writes one completed receipt down and then sweeps — **lazily, on the write that made the store
@@ -1566,6 +1571,8 @@ export function createHostOrch(a: {
         // **A controller has no session** (remote runtime design §2.5, D2.1): whatever it named is dropped, so
         // COORDINATOR_ONLY, chats-answer and actorOf never read it as one, and its receipts are keyed by its principal.
         if (from?.role === 'controller') sessionId = ''
+        // **Nor has a plugin** (plugin runtime design P12): its receipts are keyed by its id, and actorOf names it.
+        if (from?.role === 'plugin') sessionId = ''
         // A retry names the request it retries (§3.9). Without one there is no receipt to look for, and running it
         // as a fresh call is exactly what `retry` exists to prevent.
         if (retry === true && request === undefined) return { status: 400, body: { error: 'retry needs the request id it retries' } }
@@ -1588,6 +1595,12 @@ export function createHostOrch(a: {
         // no receipt and reaches nothing.
         if (from?.role === 'controller') {
           const refused = controllerRefusal(cmd, from.principal)
+          if (refused) return refused
+        }
+        // **And plugins pass theirs** (plugin runtime design P12), with the permissions the person granted, which the
+        // Host's runtime put on the call from its own record: refused before receipts and before any command.
+        if (from?.role === 'plugin') {
+          const refused = pluginRefusal(cmd, from.plugin)
           if (refused) return refused
         }
         // **A key presented on these two is refused, not dropped.** They answer above the receipt
@@ -1953,7 +1966,7 @@ export function createHostOrch(a: {
         await ready()
         // P5: judged on the state the call found, so a worker's report that closes its own Dispatch is
         // still the agent's.
-        const actor = actorOf({ sessionId, role: from?.role, client: from?.client, remote: from?.remote, principal: from?.principal, state: store.get() })
+        const actor = actorOf({ sessionId, role: from?.role, client: from?.client, remote: from?.remote, principal: from?.principal, plugin: from?.plugin, state: store.get() })
         const r = await handleCommand(depsFor(marks, actor), { sessionId, role: from?.role }, cmd, runArgs)
         const answered = answerOf(r, marks)
         // **Who drives, on `status`, from the Host and not from `handleCommand`** (R6): the two fields
