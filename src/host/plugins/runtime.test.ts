@@ -142,11 +142,12 @@ describe('createPluginRuntime', () => {
     const { r } = runtime({ failAfter: 1 }, { maxLine: 1000 })
     const p = plugin(
       'floods',
-      `import net from 'node:net'
+      // Written straight to the channel's descriptor: a second socket on fd 3, which the launcher already holds, is
+      // refused on macOS and Linux (EEXIST)
+      `import { writeSync } from 'node:fs'
       export default {
         activate() {
-          const channel = new net.Socket({ fd: 3, readable: false, writable: true })
-          channel.write('x'.repeat(5000))
+          writeSync(3, 'x'.repeat(5000))
           return new Promise(() => {})
         }
       }`
