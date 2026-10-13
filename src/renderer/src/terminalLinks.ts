@@ -1,5 +1,6 @@
 import type { ILink, Terminal } from '@xterm/xterm'
 import { bufferRangeAt, cellsOfJoinedLine, cutCandidates, findConsoleLinks, joinWrappedLine, type CharCell } from '../../core/run/consoleLinks'
+import { mediaKindOf } from '../../core/files/media'
 
 /** How long a target that did not resolve is believed. Long enough to absorb the stream of hover
  *  questions about one row (xterm re-asks on every mouse move across it); short enough that a path
@@ -7,20 +8,27 @@ import { bufferRangeAt, cellsOfJoinedLine, cutCandidates, findConsoleLinks, join
  *  becomes a link the next time the pointer comes back. */
 const MISS_TTL_MS = 5000
 
+/** How soon after a miss a pointer coming back onto a media name asks for it again (`fresh`): the hover that follows the
+ *  miss which made the link, and a hover per repaint of a row a TUI keeps redrawing, answer from that miss instead of
+ *  asking main each time. */
+export const LATE_RECHECK_MS = 500
+
 /** `resolve`, cached per target. A hit is kept for the terminal's life (a file that existed stays a
  *  link; following it to a deleted file is the opener's error to report). A miss — null or a
  *  rejection — is kept for `missTtlMs` only. A request still in flight is shared. `fresh` asks again
- *  whatever a miss said, for a pointer that came back to the name, and keeps what it finds. Exported for
- *  the test; `now` is a parameter for the same reason. */
+ *  sooner, for a pointer that came back onto a media name: once a miss is `freshFloorMs` old. What it
+ *  finds is kept like any hit. Exported for the test; `now` is a parameter for the same reason. */
 export function cachedResolver(
   resolve: (target: string) => Promise<string | null>,
   now: () => number = Date.now,
-  missTtlMs: number = MISS_TTL_MS
+  missTtlMs: number = MISS_TTL_MS,
+  freshFloorMs: number = LATE_RECHECK_MS
 ): ((target: string) => Promise<string | null>) & { fresh(target: string): Promise<string | null> } {
   const cache = new Map<string, { p: Promise<string | null>; missAt?: number }>()
   const ask = (target: string, afresh: boolean): Promise<string | null> => {
     const hit = cache.get(target)
-    if (hit && (hit.missAt === undefined || (!afresh && now() - hit.missAt < missTtlMs))) return hit.p
+    const keepFor = afresh ? freshFloorMs : missTtlMs
+    if (hit && (hit.missAt === undefined || now() - hit.missAt < keepFor)) return hit.p
     const entry: { p: Promise<string | null>; missAt?: number } = { p: Promise.resolve(null) }
     entry.p = resolve(target)
       .catch(() => null)
@@ -39,7 +47,9 @@ export function cachedResolver(
  *  hands the mouse event on, so the caller can read Ctrl/Cmd (the link rule in core/preview/url.ts).
  *
  *  Path links exist only when `resolvePath` is given, and a target is a link only when it resolves —
- *  a link that cannot be followed is worse than no link. The run console resolves through
+ *  a link that cannot be followed is worse than no link. One exception keeps that promise in what it
+ *  shows: a media name not found yet is a link with no underline and no pointer, which marks itself
+ *  when the pointer comes back and the file is there (lateLink). The run console resolves through
  *  run.resolveLink (its run's cwd, guarded, source roots tried); the session and project terminals
  *  through files.resolveLink (a session's agent directory then its cwd, or a project terminal's cwd;
  *  any regular file). Returns the dispose function. */
@@ -55,11 +65,13 @@ export function attachConsoleLinks(
   const resolve = resolvePath
     ? cachedResolver(resolvePath)
     : Object.assign((): Promise<string | null> => Promise.resolve(null), { fresh: (): Promise<string | null> => Promise.resolve(null) })
-  /** A name the resolver cannot find yet: an agent prints a file's name, then writes or copies the file. xterm keeps a
-   *  row's links while the pointer stays on that row, so a name that was no link at its first hover stayed none after
-   *  the file appeared (bug report, 2026-10-13). It is a link with no underline and no pointer, so it reads as text;
-   *  each time the pointer comes onto it the file is looked for again, and once found it is marked and opens. A link
-   *  that cannot be followed still shows nothing and opens nothing. */
+  /** A media name the resolver cannot find yet: an agent prints the name of an image or a video, then writes or copies
+   *  the file. xterm keeps a row's links while the pointer stays on that row, so a name that was no link at its first
+   *  hover stayed none after the file appeared (bug report, 2026-10-13). It is a link with no underline and no pointer,
+   *  so it reads as text; each time the pointer comes onto it the file is looked for again (no sooner than
+   *  LATE_RECHECK_MS after the last miss), and once found it is marked. It opens only once marked: nothing opens that
+   *  was never shown as a link (late-link review M2). Media names only (review I1): xterm's double-click selects its
+   *  current link whole, so a path that is no file must stay plain text. */
   const lateLink = (range: ILink['range'], target: string, at: { line?: number; col?: number }): ILink => {
     let found: string | null = null
     let hovered = false
@@ -83,9 +95,7 @@ export function attachConsoleLinks(
         hovered = false
       },
       activate: () => {
-        void (found !== null ? Promise.resolve(found) : resolve.fresh(target)).then((p) => {
-          if (p !== null) opts.onOpenFile?.(p, at)
-        })
+        if (found !== null) opts.onOpenFile?.(found, at)
       }
     }
     return link
@@ -155,7 +165,7 @@ export function attachConsoleLinks(
               return { range, text: l.url, activate: (event) => opts.onUrl(l.url, event) }
             }
             const path = await resolve(l.target)
-            if (!path) return lateLink(range, l.target, { line: l.line, col: l.col })
+            if (!path) return mediaKindOf(l.target) !== null ? lateLink(range, l.target, { line: l.line, col: l.col }) : null
             return {
               range,
               text: l.target,

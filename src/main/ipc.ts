@@ -5197,7 +5197,8 @@ export function registerIpc(
   // agent's current directory as the first base for a relative target: Claude Code prints a
   // SendUserFile path relative to wherever its Bash tool `cd`'d, which the session's statusLine
   // payload names (agentDirOf). That payload is one small JSON file per session, read on each call —
-  // cheap enough for hover, and the renderer caches hits and retries misses only every few seconds.
+  // cheap enough for hover, and the renderer caches hits and retries misses only every few seconds (half a second for a
+  // media name the pointer comes back onto, terminalLinks.ts' lateLink).
   // The id is checked for shape before it is joined into a file name.
   // A session id as this app makes them (randomUUID), checked before it becomes part of a file name
   const SESSION_ID_SHAPE = /^[A-Za-z0-9_-]{1,128}$/
