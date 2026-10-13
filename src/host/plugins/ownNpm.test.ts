@@ -115,6 +115,15 @@ describe('createOwnNpm', () => {
     expect(existsSync(npmRoot()) ? await fs.readdir(npmRoot()) : []).toEqual([])
   })
 
+  // Found planning the dev check: setting up the folder failed outside the reasons, with no code for the app to word.
+  it('says it could not set npm up when its folder cannot be made', async () => {
+    await fs.mkdir(pluginsRoot(profile), { recursive: true })
+    await fs.writeFile(npmRoot(), 'in the way')
+    const e = await refusal(createOwnNpm({ profileDir: profile, pinned: pin() }).ensure())
+    expect(e.code).toBe('PLUGIN_NPM_FETCH_FAILED')
+    expect(e.message).toMatch(/^npm is not installed, and Astera could not set up its own npm 0\.0\.1-test: /)
+  })
+
   it('tries again on the next ask after a failed fetch', async () => {
     answer = (res) => {
       res.writeHead(503)

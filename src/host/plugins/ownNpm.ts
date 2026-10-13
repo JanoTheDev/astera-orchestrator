@@ -108,11 +108,12 @@ export function createOwnNpm(d: { profileDir: string; pinned?: OwnNpmPin }): { e
     if ((await exists(path.join(dir, MARK))) && (await exists(cli))) return cli
     const body = await download(pin.url)
     if (`sha512-${createHash('sha512').update(body).digest('base64')}` !== pin.integrity) throw altered()
-    await fs.mkdir(root, { recursive: true })
-    // What a Host that stopped half way left goes first.
-    for (const n of await fs.readdir(root)) if (n.startsWith('.staging-')) await fs.rm(path.join(root, n), { recursive: true, force: true }).catch(() => {})
     const staging = path.join(root, `.staging-${randomBytes(6).toString('hex')}`)
+    // Everything on disk is inside: a folder that cannot be made is a reason with a code too.
     try {
+      await fs.mkdir(root, { recursive: true })
+      // What a Host that stopped half way left goes first.
+      for (const n of await fs.readdir(root)) if (n.startsWith('.staging-')) await fs.rm(path.join(root, n), { recursive: true, force: true }).catch(() => {})
       await fs.mkdir(staging)
       await fs.writeFile(path.join(staging, 'npm.tgz'), body)
       await extractPackage(path.join(staging, 'npm.tgz'), path.join(staging, 'npm'))
