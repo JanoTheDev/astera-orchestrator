@@ -316,7 +316,13 @@ describe('get, enable, disable, remove', () => {
   })
 
   it('removes the folder and the record', async () => {
+    // Its log goes too, the rotated generation with it: nothing can read it once the plugin is gone (2b smoke).
+    const log = path.join(pluginsRoot(profile), 'logs', '@acme+astera-jira.log')
+    await fs.mkdir(path.dirname(log), { recursive: true })
+    await fs.writeFile(log, 'x\n')
+    await fs.writeFile(`${log}.1`, 'y\n')
     expect(await manager.remove('@acme/astera-jira')).toEqual({ status: 200, body: { id: '@acme/astera-jira', version: '1.0.0', removed: true } })
+    expect(await fs.readdir(path.dirname(log))).toEqual([])
     expect(await listed()).toEqual([])
     expect(await fs.readdir(pluginsRoot(profile))).toEqual(['installed', 'plugins.json'])
     expect(await fs.readdir(installed())).toEqual([])

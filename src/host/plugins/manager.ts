@@ -453,6 +453,9 @@ export function createPluginManager(d: {
       await putBack(e, retired, final).finally(() => startIfRunnable(r))
     }
     if (retired) await discard(retired)
+    // Its log goes with it, the rotated generation too: nothing can read it once the plugin is gone.
+    const log = pluginLogFile(d.profileDir, r.folder)
+    await Promise.all([fs.rm(log, { force: true }), fs.rm(`${log}.1`, { force: true })]).catch(() => {})
     return { status: 200, body: { id: r.id, version: r.version, removed: true } }
   }
 
