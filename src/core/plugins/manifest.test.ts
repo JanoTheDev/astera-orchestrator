@@ -38,14 +38,15 @@ describe('parseManifest', () => {
       apiVersion: '1',
       entry: './dist/plugin.js',
       capabilities: [],
-      permissions: []
+      permissions: [],
+      settings: []
     })
   })
 
   it('keeps what the package gives', () => {
     const m = manifestOf(
       valid(
-        { capabilities: ['event'], permissions: ['jobs.read', 'jobs.create'], minAsteraVersion: '1.5.0', settingsSchema: { type: 'object' } },
+        { capabilities: ['event'], permissions: ['jobs.read', 'jobs.create'], minAsteraVersion: '1.5.0', settingsSchema: { type: 'object', properties: { token: { type: 'string', secret: true } }, required: ['token'] } },
         { displayName: '  Jira  ', description: 'Jobs from Jira issues' }
       )
     )
@@ -54,8 +55,16 @@ describe('parseManifest', () => {
       description: 'Jobs from Jira issues',
       capabilities: ['event'],
       permissions: ['jobs.read', 'jobs.create'],
-      minAsteraVersion: '1.5.0'
+      minAsteraVersion: '1.5.0',
+      settings: [{ key: 'token', type: 'string', secret: true, required: true }]
     })
+  })
+
+  // Plugins 2c: the settings schema is part of the manifest, and its problems are the manifest's.
+  it('lists the settings schema problems with the others', () => {
+    expect(problemsOf(valid({ settingsSchema: { type: 'object', properties: { 'bad-key': { type: 'string' } } } }))).toEqual([
+      'astera.settingsSchema: bad-key is not a settings key (a letter, then letters, digits or _, at most 64)'
+    ])
   })
 
   it('cuts a long description to 500 characters', () => {
