@@ -156,6 +156,9 @@ export const HOST_FEATURE_MCP_HTTP = 'mcp-http'
  *  the Remote Gateway while `remote-runtime.json` enables it, and pushes `gateway-state`. Announced by every Host that
  *  has it, like `mcp-http`: one without the CLI paths reports the Gateway failed. */
 export const HOST_FEATURE_REMOTE = 'remote-runtime'
+/** Plugins (plugin runtime design P5): this Host keeps `<profile>/plugins` and answers the `plugins-*` commands to this
+ *  machine's app and CLI. Announced by every Host, like `remote-runtime`: the manager needs nothing a Host may lack. */
+export const HOST_FEATURE_PLUGINS = 'plugins'
 /** Host-owned recovery (remote runtime design §2.6, DC-3): this Host decides and carries out the recovery of lost
  *  workers itself, while it drives, writes the Job Journal and no attached app keeps HOST_YIELD_RECOVERY. An app in
  *  front of a Host that announces it runs no reconciler of its own. Announced with `spawn`: recovery starts workers. */

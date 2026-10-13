@@ -1,0 +1,133 @@
+import { describe, it, expect } from 'vitest'
+import path from 'node:path'
+import { approvalMessage, installPlugin } from './plugins'
+import { PLUGIN_TRUST_WARNING } from '../core/plugins/manifest'
+
+const INSPECTION = {
+  id: '@acme/astera-jira',
+  name: '@acme/astera-jira',
+  displayName: 'Jira',
+  version: '1.0.0',
+  apiVersion: '1',
+  entry: './dist/plugin.js',
+  capabilities: [],
+  permissions: ['jobs.read', 'jobs.create'],
+  compatible: true
+}
+
+/** A Host that answers inspect with `inspection` and records every call. */
+const host = (inspection: { status: number; body: unknown } = { status: 200, body: INSPECTION }) => {
+  const calls: { cmd: string; args: Record<string, unknown>; request: string | undefined }[] = []
+  const call = async (cmd: string, args: Record<string, unknown>, request: string | undefined) => {
+    calls.push({ cmd, args, request })
+    return cmd === 'plugins-inspect' ? inspection : { status: 200, body: { id: '@acme/astera-jira', installed: true } }
+  }
+  return { calls, call }
+}
+
+const CWD = path.resolve('/work/plugins')
+
+describe('installPlugin', () => {
+  it('resolves --path against the shell’s folder and asks for approval without --yes or --grant, installing nothing', async () => {
+    const h = host()
+    const r = await installPlugin({ args: { path: 'jira' }, cwd: CWD, request: 'req-1', call: h.call })
+    expect(r).toEqual({ approve: INSPECTION })
+    expect(h.calls).toEqual([{ cmd: 'plugins-inspect', args: { path: path.join(CWD, 'jira') }, request: undefined }])
+  })
+
+  it('grants what the plugin asks for with --yes, pinning what it showed, under the request id', async () => {
+    const h = host()
+    const r = await installPlugin({ args: { path: 'jira', yes: true }, cwd: CWD, request: 'req-1', call: h.call })
+    expect(r).toEqual({ status: 200, body: { id: '@acme/astera-jira', installed: true } })
+    expect(h.calls[1]).toEqual({
+      cmd: 'plugins-install',
+      args: { path: path.join(CWD, 'jira'), grant: ['jobs.read', 'jobs.create'], expect: { name: '@acme/astera-jira', version: '1.0.0' } },
+      request: 'req-1'
+    })
+  })
+
+  it('grants exactly the --grant list, trimmed, and it wins over --yes', async () => {
+    const h = host()
+    await installPlugin({ args: { path: '/abs/jira', grant: 'jobs.read, jobs.create,', yes: true }, cwd: CWD, request: undefined, call: h.call })
+    expect(h.calls[1].args.grant).toEqual(['jobs.read', 'jobs.create'])
+    expect(h.calls[1].args.path).toBe(path.resolve('/abs/jira'))
+  })
+
+  it('takes an empty --grant as granting nothing', async () => {
+    const h = host()
+    await installPlugin({ args: { path: 'jira', grant: '' }, cwd: CWD, request: undefined, call: h.call })
+    expect(h.calls[1].args.grant).toEqual([])
+  })
+
+  it('hands back an inspection the Host refused, and an answer that never came', async () => {
+    const refused = host({ status: 400, body: { error: 'no package.json in /work/plugins/jira' } })
+    expect(await installPlugin({ args: { path: 'jira', yes: true }, cwd: CWD, request: undefined, call: refused.call })).toEqual({
+      status: 400,
+      body: { error: 'no package.json in /work/plugins/jira' }
+    })
+    expect(refused.calls).toHaveLength(1)
+    const gone = { calls: 0, call: async () => ({ unreachable: 'no Host' }) }
+    expect(await installPlugin({ args: { path: 'jira', yes: true }, cwd: CWD, request: undefined, call: gone.call })).toEqual({ unreachable: 'no Host' })
+  })
+
+  // Final review m4: the parser reads a bare --grant as true, which must not fall through to --yes's grant-everything.
+  it('refuses a --grant with no list, pointing to the empty one', async () => {
+    const h = host()
+    expect(await installPlugin({ args: { path: 'jira', grant: true, yes: true }, cwd: CWD, request: undefined, call: h.call })).toEqual({
+      status: 400,
+      body: { error: '--grant needs a list of permissions; --grant "" grants none' }
+    })
+    expect(h.calls).toEqual([])
+  })
+
+  it('refuses a missing --path before asking the Host', async () => {
+    const h = host()
+    expect(await installPlugin({ args: { yes: true }, cwd: CWD, request: undefined, call: h.call })).toEqual({
+      status: 400,
+      body: { error: 'plugins install needs --path <folder>' }
+    })
+    expect(h.calls).toEqual([])
+  })
+})
+
+describe('approvalMessage', () => {
+  it('says what the plugin is and asks for, that it is trusted code, and how to approve', () => {
+    expect(approvalMessage(INSPECTION)).toBe(
+      `Jira 1.0.0 (@acme/astera-jira) asks for: jobs.read, jobs.create. ${PLUGIN_TRUST_WARNING} Approve with --yes, or name what to grant with --grant <list>.`
+    )
+  })
+  // Final review m7: an update says what it replaces.
+  it('says what an install replaces', () => {
+    expect(approvalMessage({ ...INSPECTION, installed: { version: '0.9.0', enabled: false } })).toBe(
+      `Jira 1.0.0 (@acme/astera-jira) asks for: jobs.read, jobs.create. It replaces the installed 0.9.0. ${PLUGIN_TRUST_WARNING} Approve with --yes, or name what to grant with --grant <list>.`
+    )
+  })
+
+  // Final review m6: inside an agent session the approval is refused, so the message says who can give it.
+  it('tells an agent session that a person installs it', () => {
+    expect(approvalMessage(INSPECTION, { agent: true })).toBe(
+      `Jira 1.0.0 (@acme/astera-jira) asks for: jobs.read, jobs.create. ${PLUGIN_TRUST_WARNING} Installing it is for a person at their own shell or in the Astera app, not an agent session (ASTERA_SESSION is set): ask them to run astera plugins install with --yes.`
+    )
+  })
+
+  it('says when it asks for nothing, and when it will not run here', () => {
+    expect(approvalMessage({ ...INSPECTION, permissions: [], compatible: false, reason: 'this Astera does not run event plugins yet' })).toBe(
+      `Jira 1.0.0 (@acme/astera-jira) asks for: no permissions. ${PLUGIN_TRUST_WARNING} It will not run here: this Astera does not run event plugins yet. Approve with --yes, or name what to grant with --grant <list>.`
+    )
+  })
+})
+
+// Final review m7: what the install exits with before approval is a contract scripts read, so the guide and the usage
+// table say it.
+describe('the docs say what an unapproved install exits with', () => {
+  it('in docs/cli.md and in the usage table', async () => {
+    const { readFileSync } = await import('node:fs')
+    const { fileURLToPath } = await import('node:url')
+    const { USAGE } = await import('../core/orchestration/cliUsage')
+    const docs = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../docs/cli.md'), 'utf8')
+    const section = docs.slice(docs.indexOf('### Plugins'), docs.indexOf('## Command reference')).replace(/\s+/g, ' ')
+    expect(section).toContain('Without --yes or --grant, `install` installs nothing and exits 2')
+    expect(section).toContain('inside an agent session (`ASTERA_SESSION` is set) the changes are refused with exit 5')
+    expect(USAGE['plugins-install'].detail).toContain('Exits 2 until you approve')
+  })
+})

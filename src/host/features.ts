@@ -9,6 +9,7 @@ import {
   HOST_FEATURE_MCP_HTTP,
   HOST_FEATURE_RECOVERY,
   HOST_FEATURE_REMOTE,
+  HOST_FEATURE_PLUGINS,
   HOST_FEATURE_ROLLING,
   HOST_FEATURE_ROLL_JOURNAL,
   HOST_FEATURE_SLACK_OWNER,
@@ -38,7 +39,8 @@ export function hostFeatures(a: { spawns: boolean; slack?: boolean; workspace?: 
   // same: a finished Run is seen at a commit. `events` (SDK 1d) the same: the public event log is fed by every commit.
   // `workspace` rides no spawner: the Host answers `app js` from any session, and index.ts asks for it
   // on every platform the workspace runs on (workspaceSupported: win32, linux, darwin). `mcp-http` (MCP HTTP §3)
-  // rides nothing: every Host supervises the entrance, and one without the CLI paths reports it failed.
+  // rides nothing: every Host supervises the entrance, and one without the CLI paths reports it failed. `plugins`
+  // (plugin runtime design P5) rides nothing either: every Host keeps its profile's plugins.
   return [
     ...spawning,
     HOST_FEATURE_COORDINATOR_IDLE,
@@ -47,6 +49,7 @@ export function hostFeatures(a: { spawns: boolean; slack?: boolean; workspace?: 
     HOST_FEATURE_UNDERSTANDING,
     HOST_FEATURE_MCP_HTTP,
     HOST_FEATURE_REMOTE,
+    HOST_FEATURE_PLUGINS,
     ...(a.workspace === true ? [HOST_FEATURE_WORKSPACE, HOST_FEATURE_WORKSPACE_SIZE] : [])
   ]
 }
