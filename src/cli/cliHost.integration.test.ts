@@ -29,6 +29,7 @@ import { encodeLine, createLineReader } from '../host/framing'
 import { startHostServer, ADDRESS_TAKEN, type HostServer } from '../host/server'
 import { ensureHostKey, hostProof } from '../core/host/hostKey'
 import { createHostOrch, type HostOrch } from '../host/orch'
+import { createPluginManager } from '../host/plugins/manager'
 import { createHostJournal } from '../host/hostJournal'
 import { JournalReader } from '../core/continuity/journalReader'
 import type { JournalEventRow } from '../core/continuity/journal'
@@ -646,6 +647,7 @@ async function hostRig(
   const orch = createHostOrch({
     profileDir,
     version: '9.9.9',
+    plugins: createPluginManager({ profileDir, hostVersion: '9.9.9' }),
     now: () => new Date().toISOString(),
     hostStartedAt: () => serverOf().startedAt,
     runningSessions: () => registry.liveCount() + procs.liveCount(),
@@ -1099,6 +1101,28 @@ describe('the public CLI against a real Host (§48, §49)', { timeout: 60_000 },
 
   // §49 "spaces/non-ASCII user directory", "path quoting": a profile and a Job folder with a space and
   // Hangul in their names, through the address, `projects find`, `jobs create --cwd` and `--project`.
+  it('plugins install shows the request and installs nothing until --yes, then list, disable and remove (plugin runtime design P6)', async () => {
+    const h = await hostRig({ repo: false })
+    const folder = await tempDir('astera-플러그인 폴더-')
+    cleanups.push(() => rmrf(folder))
+    const manifest = { name: 'astera-hello', version: '1.0.0', displayName: 'Hello', astera: { apiVersion: '1', entry: 'index.js', permissions: ['jobs.read'] } }
+    await fs.writeFile(path.join(folder, 'package.json'), JSON.stringify(manifest))
+    await fs.writeFile(path.join(folder, 'index.js'), '')
+
+    const asked = await astera(['plugins', 'install', '--path', folder], h.env)
+    expect(asked.code, asked.stdout).toBe(2)
+    expect(asked.envelope.error).toMatchObject({ code: 'INVALID_ARGUMENTS', details: { plugin: { id: 'astera-hello', permissions: ['jobs.read'] } } })
+    expect(asked.envelope.error?.message).toContain('Hello 1.0.0 (astera-hello) asks for: jobs.read. Plugins run trusted code on this machine')
+    expect(okData(await astera(['plugins', 'list'], h.env), 'plugins list')).toEqual({ plugins: [] })
+
+    const installed = okData(await astera(['plugins', 'install', '--path', folder, '--yes'], h.env), 'plugins install --yes')
+    expect(installed).toMatchObject({ id: 'astera-hello', status: 'stopped', permissions: ['jobs.read'], dir: path.join(h.profileDir, 'plugins', 'astera-hello') })
+    expect(okData(await astera(['plugins', 'list'], h.env), 'plugins list')).toMatchObject({ plugins: [{ id: 'astera-hello', enabled: true }] })
+    expect(okData(await astera(['plugins', 'disable', '--id', 'astera-hello'], h.env), 'plugins disable')).toMatchObject({ status: 'disabled', changed: true })
+    expect(okData(await astera(['plugins', 'remove', '--id', 'astera-hello'], h.env), 'plugins remove')).toEqual({ id: 'astera-hello', version: '1.0.0', removed: true })
+    expect((await astera(['plugins', 'get', '--id', 'astera-hello'], h.env)).code).toBe(4)
+  })
+
   it('a profile and a Job folder with spaces and Hangul work end to end', async () => {
     const project = await tempDir('astera-한글 프로젝트-')
     cleanups.push(() => rmrf(project))

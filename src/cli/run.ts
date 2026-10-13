@@ -3,6 +3,7 @@
 // cannot be tested — that is why the side-effect-free functions and main() were pulled in here.
 // main() does not call itself inside this file, so importing this module (as the tests do) does not
 // terminate the process.
+import { approvalMessage, installPlugin } from './plugins'
 import { randomBytes, randomUUID } from 'node:crypto'
 import fsSync, { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
@@ -1516,6 +1517,27 @@ export async function main(): Promise<void> {
       if ('unreachable' in followed) fail({ code: 'HOST_NOT_RUNNING', message: followed.unreachable })
       if ('refused' in followed) return followed.refused
       return { status: 200, body: followed.ended }
+    }
+    // **`plugins install` is two calls on this one connection** (cli/plugins.ts, plugin runtime design P6): the Host
+    // inspects the folder, and only an approval (--yes or --grant) sends the install, with this invocation's request id.
+    // Without one it ends here, exit 2, saying what the plugin is and asks for and how to approve.
+    if (parsed.cmd === 'plugins-install') {
+      const installed = await keepaliveDuring(keepalive, () =>
+        installPlugin({
+          args,
+          cwd: process.cwd(),
+          request: carried.send,
+          call: (cmd, callArgs, request) =>
+            timedCall(verbose, { conn, cmd, args: callArgs, sessionId, request, timeoutMs: clientTimeoutMs({ cmd, args: callArgs }) })
+        })
+      )
+      conn.close()
+      if ('approve' in installed)
+        fail({ code: 'INVALID_ARGUMENTS', message: approvalMessage(installed.approve), details: { plugin: installed.approve } })
+      const lost = lostAnswerDetails({ argv, request: carried.send, fromStdin: parsed.wantsStdin })
+      if ('stuck' in installed) fail({ code: SILENT_HOST_CODE, message: installed.stuck, details: lost })
+      if ('unreachable' in installed) return withoutHost(installed.unreachable, lost)
+      return installed
     }
     // Held rather than passed inline: the retry line below has to carry what this actually sent,
     // and `argsForCall` fills a missing `--cwd` that the typed line does not have (`implicitArgs`).

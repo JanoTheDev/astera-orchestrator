@@ -514,6 +514,32 @@ answering at that address is refused. Five wrong codes burn the code.
 Listen on a private network, a VPN or Tailscale. Do not forward the port to the internet. A pairing is read-only
 unless `--full-control` is given; a read-only controller can read Jobs, Runs and Tasks but not change them.
 
+### Plugins
+
+A plugin is a folder with a `package.json` whose `astera` field names its entry file, the Plugin API it is written
+for, and the permissions it asks for. Install one from its folder:
+
+```text
+astera plugins install --path ./my-plugin            shows what it is and asks for, installs nothing
+astera plugins install --path ./my-plugin --yes      approves what it asks for and installs it
+astera plugins install --path ./my-plugin --grant jobs.read   approves only jobs.read
+astera plugins list                                  what is installed, its status and what it was granted
+astera plugins disable --id <pluginId>               keep it installed but do not run it
+astera plugins remove --id <pluginId>                uninstall it and delete its copy
+```
+
+**Plugins run trusted code on this machine.** A plugin can do anything you can, and its permissions limit only what
+it asks Astera for: they are not a sandbox. Install plugins you trust, as you would any program.
+
+The folder is copied into the profile (`<profile>/plugins`), so later edits to it do nothing until you install it
+again. Installing the same plugin again replaces the copy and asks for your approval again. A link inside the folder
+that leads outside it stops the install; bundle the plugin or replace the link with a copy. A plugin written for a
+newer Astera, or for a kind of plugin this Astera does not run yet, installs but does not run, and `plugins list`
+says why.
+
+Only the app and a person at their own shell manage plugins: inside an agent session (`ASTERA_SESSION` is set) the
+changes are refused with exit 5, and MCP clients and remote controllers cannot reach them.
+
 ## Command reference
 
 Every command is a noun and a verb. A noun with no verb is rejected with the list of its verbs, so
@@ -544,6 +570,13 @@ astera runtime revoke  --id <clientId>
 astera runtimes list
 astera runtimes add    [--pair <string>] [--address <host>] [--port <n>] [--code <code>] [--fingerprint <fp>] [--name <n>] [--replace]
 astera runtimes remove --id <runtimeId|name>
+
+astera plugins list
+astera plugins get     --id <pluginId>
+astera plugins install --path <folder> [--yes] [--grant <list>]
+astera plugins enable  --id <pluginId>
+astera plugins disable --id <pluginId>
+astera plugins remove  --id <pluginId>
 
 astera projects list
 astera projects get   --id <projectId>

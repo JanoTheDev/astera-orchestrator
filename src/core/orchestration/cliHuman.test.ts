@@ -102,6 +102,23 @@ describe('humanFor', () => {
       .toBe('p1  astera  D:/a')
   })
 
+  it('plugins list puts the status first in capitals, then the id, the version and what was granted', () => {
+    expect(
+      humanFor('plugins-list', {
+        plugins: [
+          { id: '@acme/astera-jira', version: '1.0.0', status: 'stopped', permissions: ['jobs.read', 'jobs.create'] },
+          { id: 'astera-hello', version: '0.1.0', status: 'incompatible', permissions: [], reason: 'this Astera does not run event plugins yet' }
+        ]
+      })
+    ).toBe('STOPPED       @acme/astera-jira  1.0.0  jobs.read,jobs.create\nINCOMPATIBLE  astera-hello       0.1.0  -')
+  })
+
+  it('one plugin reads as its fields, like one project', () => {
+    const one = { id: 'astera-hello', version: '0.1.0', status: 'disabled', enabled: false }
+    for (const cmd of ['plugins-get', 'plugins-install', 'plugins-enable', 'plugins-disable', 'plugins-remove'])
+      expect(humanFor(cmd, one), cmd).toBe(humanFor('projects-get', one))
+  })
+
   it('tasks list 와 questions list 는 상태를 대문자로 앞에 둔다', () => {
     expect(humanFor('tasks-list', { tasks: [{ id: 't1', title: '제목', status: 'ready' }] }))
       .toBe('READY  t1  제목')

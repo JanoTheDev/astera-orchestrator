@@ -556,7 +556,14 @@ const NOT_SWITCHED = [
   // The controller's side (src/cli/runtimes.ts), answered in the CLI process from <profile>/runtimes.
   'runtimes-add',
   'runtimes-list',
-  'runtimes-remove'
+  'runtimes-remove',
+  // Answered by the Host's plugin manager (src/host/plugins/commands.ts), beside `projects-add`.
+  'plugins-install',
+  'plugins-list',
+  'plugins-get',
+  'plugins-enable',
+  'plugins-disable',
+  'plugins-remove'
 ] as const satisfies readonly AgentCommand[]
 
 /**
