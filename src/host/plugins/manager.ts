@@ -8,7 +8,7 @@ import { incompatibility, parseManifest, pluginFolderName, type PluginManifest, 
 import { PluginCopyRefused, copyPluginFolder, layoutProblem } from './copyFolder'
 import { RegistryUnreadable, pluginsRoot, readRegistry, writeRegistry, type PluginRecord } from './registry'
 import { moveRetrying, type Rename } from './moves'
-import { pluginLogFile, type PluginLaunch, type PluginRuntime } from './runtime'
+import { REDACT_MIN, pluginLogFile, type PluginLaunch, type PluginRuntime } from './runtime'
 import { coerceSetting, missingRequired, type SettingField, type SettingValue } from '../../core/plugins/settings'
 import { PluginSettingsUnreadable, forgetPluginData, pluginSecrets, readSettings, writeSettings } from './pluginData'
 
@@ -240,7 +240,7 @@ export function createPluginManager(d: {
       // The plugin is trusted (design P1): it gets its secret settings beside the plain ones.
       settings: { ...state.plain, ...state.secrets },
       // A value this short would redact ordinary words from its log.
-      redact: state.redact.filter((v) => v.length >= 4)
+      redact: state.redact.filter((v) => v.length >= REDACT_MIN)
     }
   }
 

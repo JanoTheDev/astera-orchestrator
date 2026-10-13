@@ -194,11 +194,23 @@ describe('configureArgs', () => {
   })
 
   it('refuses a --set without =, an empty key, a --stdin with nothing on standard input, and a key given twice', () => {
-    expect(configureArgs({ id: 'x', set: ['token'] }, undefined)).toEqual({ error: '--set needs key=value: token' })
-    expect(configureArgs({ id: 'x', set: ['=v'] }, undefined)).toEqual({ error: '--set needs key=value: =v' })
+    // Never the text itself (2c final review I5): a --set without = may be a secret typed without its key.
+    expect(configureArgs({ id: 'x', set: ['tok-secret-1'] }, undefined)).toEqual({ error: '--set needs key=value, and one has no =' })
+    expect(configureArgs({ id: 'x', set: ['=tok-secret-1'] }, undefined)).toEqual({ error: '--set needs key=value, and one has no key before its =' })
     expect(configureArgs({ id: 'x', stdin: 'token' }, '')).toEqual({ error: '--stdin token read nothing from standard input' })
     expect(configureArgs({ id: 'x', stdin: true }, 'v')).toEqual({ error: '--stdin needs the key to set' })
     expect(configureArgs({ id: 'x', set: ['a=1', 'a=2'] }, undefined)).toEqual({ error: 'a is set twice' })
     expect(configureArgs({ id: 'x', set: ['a=1'], stdin: 'a' }, 'v')).toEqual({ error: 'a is set twice' })
+  })
+
+  // 2c final review I5: `--stdin -` read standard input twice and set nothing at exit 0, and `--set -` echoed it.
+  it('refuses a - for any of its flags, before standard input is read, pointing to --stdin <key>', () => {
+    expect(configureStdinError([])).toBeNull()
+    expect(configureStdinError(['stdin'])).toBe(
+      'plugins configure reads standard input only as --stdin <key>, as in --stdin token; a - after --stdin is not one'
+    )
+    expect(configureStdinError(['set', 'unset'])).toBe(
+      'plugins configure reads standard input only as --stdin <key>, as in --stdin token; a - after --set or --unset is not one'
+    )
   })
 })

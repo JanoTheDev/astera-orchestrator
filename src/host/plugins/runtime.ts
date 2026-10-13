@@ -102,8 +102,8 @@ interface Slot {
   stopping?: Promise<void>
 }
 
-/** A secret shorter than this is too common a run of text to take out of a log line. */
-const REDACT_MIN = 4
+/** A secret shorter than this is too common a run of text to take out of a log line (docs/cli.md says so). */
+export const REDACT_MIN = 4
 /** A line of a secret of many lines shorter than this is too common to take out on its own. */
 const REDACT_LINE_MIN = 8
 
