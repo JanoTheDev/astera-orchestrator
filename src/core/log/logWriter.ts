@@ -313,6 +313,18 @@ export function logWriterFor(p: string, opts: Omit<LogWriterOptions, 'path'> = {
   return w
 }
 
+/** Lets go of the writer for this file (2b final review M2): what it holds is written, an append in flight is awaited,
+ *  and it leaves the registry, so a file deleted after this stays deleted and the next writer starts afresh. For a log
+ *  that goes away with what it logged, such as a removed plugin's. Never rejects. */
+export async function releaseLogWriter(p: string): Promise<void> {
+  const key = keyOf(p)
+  const w = writers.get(key)
+  if (!w) return
+  writers.delete(key)
+  await w.flush().catch(() => {})
+  w.flushSync()
+}
+
 /** A logger in the format every log of the app has used: `<ISO time> <message>\n`. Never throws. */
 export function lineLog(p: string, opts: Omit<LogWriterOptions, 'path'> = {}): (m: string) => void {
   const w = logWriterFor(p, opts)

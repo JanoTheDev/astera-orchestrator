@@ -442,7 +442,7 @@ describe('with a runtime (plugin runtime design P11)', () => {
     const calls: string[] = []
     const launches: PluginLaunch[] = []
     const statuses = new Map<string, PluginRunStatus>()
-    const runtime: Pick<PluginRuntime, 'start' | 'restart' | 'stop' | 'status'> = {
+    const runtime: Pick<PluginRuntime, 'start' | 'restart' | 'stop' | 'status' | 'forget'> = {
       start: (p) => {
         calls.push(`start ${p.id}`)
         launches.push(p)
@@ -456,7 +456,8 @@ describe('with a runtime (plugin runtime design P11)', () => {
         calls.push(`stop ${id}`)
         statuses.set(id, { status: 'stopped' })
       },
-      status: (id) => statuses.get(id)
+      status: (id) => statuses.get(id),
+      forget: async (folder) => void calls.push(`forget ${folder}`)
     }
     return { runtime, calls, launches, statuses }
   }
@@ -541,7 +542,8 @@ describe('with a runtime (plugin runtime design P11)', () => {
     const m = withRuntime(rt)
     await m.install({ path: await plugin(FOLDER), grant: [] })
     await m.remove('@acme/astera-jira')
-    expect(rt.calls).toEqual(['start @acme/astera-jira', 'stop @acme/astera-jira'])
+    // Its log is let go of before it is deleted (2b final review M2).
+    expect(rt.calls).toEqual(['start @acme/astera-jira', 'stop @acme/astera-jira', 'forget @acme+astera-jira'])
   })
 
   it('starts every enabled, compatible plugin at the Host’s start', async () => {
@@ -625,7 +627,7 @@ describe('logs and doctor', () => {
     const failing = createPluginManager({
       profileDir: profile,
       hostVersion: '1.5.0',
-      runtime: { start() {}, restart() {}, stop: async () => {}, status: () => ({ status: 'failed', reason: 'activate threw: x' }) }
+      runtime: { start() {}, restart() {}, stop: async () => {}, forget: async () => {}, status: () => ({ status: 'failed', reason: 'activate threw: x' }) }
     })
     await failing.install({ path: await plugin('other', { name: 'astera-other' }), grant: [] })
     expect((await failing.doctor('astera-other')).body).toMatchObject({

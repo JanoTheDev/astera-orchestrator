@@ -107,7 +107,7 @@ export function createPluginManager(d: {
   /** For tests: the folder copy (`copyPluginFolder`). */
   copy?: (src: string, dest: string) => Promise<void>
   /** What runs the enabled plugins (2b). Absent: nothing runs, and an enabled, compatible plugin is `stopped`. */
-  runtime?: Pick<PluginRuntime, 'start' | 'restart' | 'stop' | 'status'>
+  runtime?: Pick<PluginRuntime, 'start' | 'restart' | 'stop' | 'status' | 'forget'>
 }): PluginManager {
   const root = pluginsRoot(d.profileDir)
   // The copies live one level down, so no plugin name can be plugins.json or one of the folders the Host keeps for
@@ -453,7 +453,9 @@ export function createPluginManager(d: {
       await putBack(e, retired, final).finally(() => startIfRunnable(r))
     }
     if (retired) await discard(retired)
-    // Its log goes with it, the rotated generation too: nothing can read it once the plugin is gone.
+    // Its log goes with it, the rotated generation too: nothing can read it once the plugin is gone. Let go of first, so
+    // a line still buffered cannot write it again.
+    await d.runtime?.forget(r.folder)
     const log = pluginLogFile(d.profileDir, r.folder)
     await Promise.all([fs.rm(log, { force: true }), fs.rm(`${log}.1`, { force: true })]).catch(() => {})
     return { status: 200, body: { id: r.id, version: r.version, removed: true } }

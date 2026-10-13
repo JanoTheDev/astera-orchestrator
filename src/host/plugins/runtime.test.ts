@@ -236,6 +236,20 @@ describe('createPluginRuntime', () => {
     await until(() => expect(alive(crashChild)).toBe(false), 10_000)
   }, 40_000)
 
+  // 2b final review M2: a removal deletes the log; nothing buffered may write it again afterwards.
+  it('forgets the log of a plugin, so it stays deleted', async () => {
+    const { r } = runtime()
+    const p = plugin('forgotten', `export default { activate(ctx) { ctx.log.info('hello') } }`)
+    r.start(p)
+    await until(() => expect(r.status('forgotten')?.status).toBe('running'))
+    await r.stop('forgotten')
+    await r.forget('forgotten')
+    const { rmSync: rm } = await import('node:fs')
+    rm(r.logFile('forgotten'), { force: true })
+    await new Promise((res) => setTimeout(res, 600))
+    expect(existsSync(r.logFile('forgotten'))).toBe(false)
+  }, 30_000)
+
   it('stops every plugin at once, starts a running plugin only once, and stops an unknown id quietly', async () => {
     const { r } = runtime()
     const a = plugin('one', `export default { activate() {} }`)

@@ -10,6 +10,7 @@ import {
   flushAllLogsSync,
   installExitFlush,
   flushAll,
+  releaseLogWriter,
   LOG_MAX_PENDING_BYTES,
   LOG_ROTATE_RETRY_MS,
   LOG_MAX_BYTES,
@@ -395,6 +396,20 @@ describe('the shared writers', () => {
     flushAllLogsSync()
     const lines = readFileSync(p, 'utf8').split('\n').filter(Boolean)
     expect(lines.map((l) => l.replace(/^\S+ /, ''))).toEqual(['[host] one', '[host][codex] two', '[host] three'])
+  })
+
+  // 2b final review M2: a plugin's log is deleted with the plugin; its writer must not write it again afterwards.
+  it('releases a writer: what it held is written, and the next writer for the file is a new one', async () => {
+    const p = path.join(dir, 'plugin.log')
+    const w = logWriterFor(p)
+    w.write('held line\n')
+    await releaseLogWriter(p)
+    expect(readFileSync(p, 'utf8')).toBe('held line\n')
+    rmSync(p)
+    await new Promise((r) => setTimeout(r, LOG_FLUSH_MS + 100))
+    expect(existsSync(p)).toBe(false)
+    expect(logWriterFor(p)).not.toBe(w)
+    await releaseLogWriter(path.join(dir, 'never-opened.log'))
   })
 
   it('lineLog keeps the line format: an ISO stamp, a space, the message', () => {

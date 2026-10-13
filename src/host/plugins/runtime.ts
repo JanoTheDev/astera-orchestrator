@@ -12,6 +12,7 @@ import { redactSecrets } from '../../core/remote/redact'
 import type { OrchCall } from '../../core/host/orchProtocol'
 import { RPC_INVALID_PARAMS, RPC_METHOD_NOT_FOUND, RpcError, createRpcPeer, type RpcPeer } from '../../core/plugins/rpc'
 import { openHostLog, type HostLog } from '../log'
+import { releaseLogWriter } from '../../core/log/logWriter'
 import { pluginsRoot } from './registry'
 
 export interface PluginTimings {
@@ -64,6 +65,8 @@ export interface PluginRuntime {
   stopAll(): Promise<void>
   status(id: string): PluginRunStatus | undefined
   logFile(folder: string): string
+  /** Lets go of a plugin's log, written out first, so a removal can delete it for good (2b final review M2). */
+  forget(folder: string): Promise<void>
 }
 
 /** A plugin's log (design P13): `<profile>/plugins/logs/<folder>.log`, rotated to `.1` past 2 MiB. */
@@ -449,6 +452,10 @@ export function createPluginRuntime(d: {
           return { status: 'stopped' }
       }
     },
-    logFile
+    logFile,
+    forget: async (folder) => {
+      logs.delete(folder)
+      await releaseLogWriter(logFile(folder))
+    }
   }
 }
