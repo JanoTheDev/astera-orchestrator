@@ -1,8 +1,17 @@
 {
   "name": "@astera-app/client",
   "version": "0.1.0",
-  "private": true,
-  "description": "TypeScript client for the Astera Host. Not published yet.",
+  "description": "TypeScript client for the Astera Host: Jobs, Runs, Tasks, questions, completion and events.",
+  "keywords": [
+    "astera",
+    "sdk",
+    "client",
+    "agents"
+  ],
+  "homepage": "https://github.com/parsingk/Astera/blob/main/docs/sdk.md",
+  "bugs": {
+    "url": "https://github.com/parsingk/Astera/issues"
+  },
   "license": "Apache-2.0",
   "type": "module",
   "engines": {
@@ -28,11 +37,18 @@
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "CHANGELOG.md"
   ],
+  "scripts": {
+    "prepublishOnly": "node ../../scripts/build-packages.mjs"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "repository": {
     "type": "git",
-    "url": "https://github.com/parsingk/Astera.git",
+    "url": "git+https://github.com/parsingk/Astera.git",
     "directory": "packages/client"
   }
 }
