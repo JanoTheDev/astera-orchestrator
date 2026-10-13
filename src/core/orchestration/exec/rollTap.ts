@@ -27,6 +27,7 @@ import {
   recordStopSnapshot,
   rekeyCoordinator,
   rekeyDispatch,
+  rekeyExternalCoordinator,
   updateStopReset
 } from '../state'
 import type { Dispatch } from '../types'
@@ -159,7 +160,19 @@ export class OrchRollTap {
         this.deps.log?.(`coordinator slot rekey commit failed run=${slot.value.id}: ${String(err)}`)
       }
     }
-    const now = this.deps.now?.() ?? new Date().toISOString()
+    // A session that drives Runs from outside follows the roll too (2026-10-13, spec E3). Its Runs are judged by
+    // whether that session is alive, and the old id is gone after a roll, so left there the net would answer its
+    // workers again. Committed on its own, like the slot above: nothing below depends on it.
+    const external = rekeyExternalCoordinator(this.deps.getState(), { oldSessionId, newSessionId: newInfo.id })
+    if (external.ok && external.value > 0) {
+      try {
+        await this.deps.setState(external.state)
+        this.deps.log?.(`external coordinator of ${external.value} run(s) rekeyed ${oldSessionId} -> ${newInfo.id}`)
+      } catch (err) {
+        this.deps.log?.(`external coordinator rekey commit failed ${oldSessionId} -> ${newInfo.id}: ${String(err)}`)
+      }
+    }
+    const now =this.deps.now?.() ?? new Date().toISOString()
     const r = rekeyDispatch(
       this.deps.getState(),
       { oldSessionId, newSessionId: newInfo.id, accountId: newInfo.accountId },
