@@ -80,13 +80,33 @@ describe('installPlugin', () => {
     expect(h.calls).toEqual([])
   })
 
-  it('refuses a missing --path before asking the Host', async () => {
+  it('refuses a missing source, or both, before asking the Host', async () => {
     const h = host()
     expect(await installPlugin({ args: { yes: true }, cwd: CWD, request: undefined, call: h.call })).toEqual({
       status: 400,
-      body: { error: 'plugins install needs --path <folder>' }
+      body: { error: 'plugins install needs --path <folder> or --npm <package>' }
+    })
+    expect(await installPlugin({ args: { path: 'jira', npm: '@acme/astera-jira', yes: true }, cwd: CWD, request: undefined, call: h.call })).toEqual({
+      status: 400,
+      body: { error: 'plugins install takes --path or --npm, not both' }
     })
     expect(h.calls).toEqual([])
+  })
+
+  // Plugins 2e (spec §12): a plugin published on npm, inspected and approved as a folder is.
+  it('inspects and installs an npm package by the spec as given, pinning the version it showed', async () => {
+    const h = host()
+    const r = await installPlugin({ args: { npm: '@acme/astera-jira@^1.0.0', yes: true }, cwd: CWD, request: 'req-1', call: h.call })
+    expect(r).toEqual({ status: 200, body: { id: '@acme/astera-jira', installed: true } })
+    expect(h.calls).toEqual([
+      { cmd: 'plugins-inspect', args: { npm: '@acme/astera-jira@^1.0.0' }, request: undefined },
+      {
+        cmd: 'plugins-install',
+        args: { npm: '@acme/astera-jira@^1.0.0', grant: ['jobs.read', 'jobs.create'], expect: { name: '@acme/astera-jira', version: '1.0.0' } },
+        request: 'req-1'
+      }
+    ])
+    expect(await installPlugin({ args: { npm: '@acme/astera-jira' }, cwd: CWD, request: undefined, call: host().call })).toEqual({ approve: INSPECTION })
   })
 })
 
