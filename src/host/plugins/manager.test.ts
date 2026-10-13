@@ -657,3 +657,15 @@ describe('logs and doctor', () => {
     expect((await manager.doctor(undefined)).status).toBe(400)
   })
 })
+
+// 2b final review M5: a Host that starts no plugin because plugins.json is broken says so in its log.
+describe('startAll with a registry it cannot read', () => {
+  it('logs why no plugin was started', async () => {
+    const root = pluginsRoot(profile)
+    await fs.mkdir(root, { recursive: true })
+    await fs.writeFile(path.join(root, 'plugins.json'), '{ broken')
+    const lines: string[] = []
+    await createPluginManager({ profileDir: profile, hostVersion: '1.5.0', log: (m) => lines.push(m) }).startAll()
+    expect(lines).toEqual([expect.stringMatching(/^plugins: no plugin was started: .*plugins\.json is not JSON/)])
+  })
+})

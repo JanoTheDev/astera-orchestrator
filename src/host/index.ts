@@ -664,7 +664,7 @@ async function main(): Promise<void> {
     orch: { call: (a) => orch.call(a) },
     log: (m) => log.write(m)
   })
-  const plugins = createPluginManager({ profileDir, hostVersion, runtime: pluginRuntime })
+  const plugins = createPluginManager({ profileDir, hostVersion, runtime: pluginRuntime, log: (m) => log.write(m) })
   const orch = createHostOrch({
     profileDir,
     version: hostVersion,

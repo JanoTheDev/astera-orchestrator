@@ -108,6 +108,8 @@ export function createPluginManager(d: {
   copy?: (src: string, dest: string) => Promise<void>
   /** What runs the enabled plugins (2b). Absent: nothing runs, and an enabled, compatible plugin is `stopped`. */
   runtime?: Pick<PluginRuntime, 'start' | 'restart' | 'stop' | 'status' | 'forget'>
+  /** The Host's log: what no caller is there to hear, such as plugins that could not be started at the Host's start. */
+  log?: (m: string) => void
 }): PluginManager {
   const root = pluginsRoot(d.profileDir)
   // The copies live one level down, so no plugin name can be plugins.json or one of the folders the Host keeps for
@@ -484,7 +486,10 @@ export function createPluginManager(d: {
       serial(async () => {
         for (const r of await readRegistry(root)) await startIfRunnable(r)
         return { status: 200, body: {} }
-      }).then(() => {}),
+      }).then((a) => {
+        // Nobody asked, so nobody would hear the refusal: the Host's log says why nothing runs (2b final review M5).
+        if (a.status !== 200) d.log?.(`plugins: no plugin was started: ${(a.body as { error?: string }).error ?? a.status}`)
+      }),
     records: () => readRegistry(root)
   }
 }

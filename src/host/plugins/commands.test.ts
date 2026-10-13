@@ -110,7 +110,7 @@ describe('index.ts gives the Host a plugin manager', () => {
     const path = await import('node:path')
     const { fileURLToPath } = await import('node:url')
     const src = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'index.ts'), 'utf8')
-    expect(src).toMatch(/const plugins = createPluginManager\(\{ profileDir, hostVersion, runtime: pluginRuntime \}\)/)
+    expect(src).toMatch(/const plugins = createPluginManager\(\{ profileDir, hostVersion, runtime: pluginRuntime, log: \(m\) => log\.write\(m\) \}\)/)
     expect(src).toMatch(/createHostOrch\(\{[\s\S]*?\n    plugins,\n/)
   })
   // Plugin runtime design P2, P11: the Host's own executable on the launcher beside its bundle, enabled plugins started
