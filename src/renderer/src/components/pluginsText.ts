@@ -173,7 +173,10 @@ export function failureLine(r: { ok: false; code: string; message: string }, t: 
     case 'PLUGIN_NPM_ALTERED':
       return t('settings.plugins.fail.npmAltered')
     case 'PLUGIN_NPM_FETCH_FAILED':
-      return t('settings.plugins.fail.npmFailed', { message: r.message })
+      // Only the reason of the Host's sentence (ownNpm.ts): the rest is the advice the app's own words give.
+      return t('settings.plugins.fail.npmFailed', {
+        message: r.message.replace(/^npm is not installed, and Astera could not set up its own npm [^:]+: /, '').replace(/\. Install Node\.js, which brings npm, .*$/, '')
+      })
     default:
       return r.message
   }

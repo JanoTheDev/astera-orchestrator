@@ -226,6 +226,13 @@ describe('failureLine', () => {
       'The npm Astera fetched is not the real one, so it was not used: something on the network, such as a security appliance or a sign-in page, may have changed it. Install Node.js, or use Install from a folder.'
     )
     expect(failureLine(f('PLUGIN_NPM_FETCH_FAILED', 'disk full'), en)).toBe('Astera could not set npm up. Install Node.js, or use Install from a folder. (disk full)')
+    // Found on the dev app: the Host's sentence repeated the advice in English; only its reason is kept.
+    expect(
+      failureLine(
+        f('PLUGIN_NPM_FETCH_FAILED', "npm is not installed, and Astera could not set up its own npm 11.21.0: EEXIST: file already exists, mkdir 'C:/p'. Install Node.js, which brings npm, or install the plugin from a folder with --path"),
+        en
+      )
+    ).toBe("Astera could not set npm up. Install Node.js, or use Install from a folder. (EEXIST: file already exists, mkdir 'C:/p')")
   })
 
   it('keeps a notice under the package row for what kept npm away, and for nothing else', () => {
