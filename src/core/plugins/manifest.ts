@@ -67,6 +67,14 @@ const CONTROL = /[\x00-\x08\x0a-\x1f\x7f-\x9f]/
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
 
+/** Why `name` cannot be a plugin's package name, or null: npm's rule for new names, as one folder on every platform. A
+ *  manifest's name and an npm spec's (npmSpec.ts) are read by the same rule. */
+export function npmNameProblem(name: unknown): string | null {
+  if (typeof name !== 'string' || name.length > NAME_MAX || !NAME.test(name)) return `name ${JSON.stringify(name ?? null)} is not an npm package name`
+  if (name.replace(/^@/, '').split('/').some((part) => NOT_A_FOLDER.test(part))) return `name ${JSON.stringify(name)} cannot be a folder of its own on Windows`
+  return null
+}
+
 /** A relative path that cannot leave the folder it is read in, on any platform. */
 const entryProblem = (v: unknown): string | null => {
   if (typeof v !== 'string' || v.trim() === '') return 'astera.entry is missing: the file Astera starts, relative to the plugin'
@@ -102,10 +110,8 @@ export function parseManifest(pkg: unknown): { ok: true; manifest: PluginManifes
   if (!isObject(pkg)) return { ok: false, problems: ['package.json is not a JSON object'] }
   const problems: string[] = []
   const { name, version, displayName, description, astera } = pkg
-  if (typeof name !== 'string' || name.length > NAME_MAX || !NAME.test(name))
-    problems.push(`name ${JSON.stringify(name ?? null)} is not an npm package name`)
-  else if (name.replace(/^@/, '').split('/').some((part) => NOT_A_FOLDER.test(part)))
-    problems.push(`name ${JSON.stringify(name)} cannot be a folder of its own on Windows`)
+  const named = npmNameProblem(name)
+  if (named !== null) problems.push(named)
   if (typeof version !== 'string' || !SEMVER.test(version)) problems.push(`version ${JSON.stringify(version ?? null)} is not a semver version`)
   if (displayName !== undefined && (typeof displayName !== 'string' || displayName.trim() === '' || displayName.trim().length > DISPLAY_NAME_MAX))
     problems.push(`displayName must be text of 1 to ${DISPLAY_NAME_MAX} characters`)
