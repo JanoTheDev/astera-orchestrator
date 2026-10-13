@@ -5,7 +5,8 @@ import { existsSync, promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import type { spawn as nodeSpawn } from 'node:child_process'
-import { NPM_TIMEOUT_MS, NpmFailed, NpmMissing, createNpmRunner, installDependencies, npmCommand, npmEnv, npmOutputTail, packAndExtract, type NpmRun } from './npm'
+import { NPM_TIMEOUT_MS, NpmFailed, NpmMissing, createNpm, createNpmRunner, installDependencies, npmCommand, npmEnv, npmOutputTail, packAndExtract, type NpmRun, type NpmRunner } from './npm'
+import { NpmUnavailable } from './ownNpm'
 import { DEFAULT_CHECK_TIMEOUT_MS } from '../../core/orchestration/types'
 import { TIMEOUT_HEADROOM_MS } from '../../core/publicContract'
 import { tgzOf } from './tarballFixture'
@@ -20,6 +21,13 @@ describe('npmCommand', () => {
       verbatim: true
     })
     expect(npmCommand(['pack', 'x'], 'win32', {}).file).toBe('cmd.exe')
+  })
+
+  // Plugins 2e-2: Astera's own npm is a script run on the Host's Node, with no shell between.
+  it('runs Astera’s own npm on the Host’s Node, with no shell, on every platform', () => {
+    const own = { node: 'C:\\Astera\\astera-host.exe', cli: 'C:\\p r\\npm\\bin\\npm-cli.js' }
+    expect(npmCommand(['pack', '@acme/x@^1.0.0'], 'win32', {}, own)).toEqual({ file: own.node, args: [own.cli, 'pack', '@acme/x@^1.0.0'], verbatim: false })
+    expect(npmCommand(['pack', 'a"b'], 'linux', {}, own).args).toEqual([own.cli, 'pack', 'a"b'])
   })
 
   it('runs npm itself elsewhere', () => {
@@ -214,6 +222,12 @@ describe('createNpmRunner', () => {
     expect(f.calls[0]).toMatchObject({ file: 'npm', args: ['pack', 'x'], opts: { cwd: '/tmp/a b', env: { PATH: 'p' }, windowsHide: true } })
   })
 
+  it('runs Astera’s own npm with its Node run as Node, whatever the Host binary is', async () => {
+    const f = fakeSpawn({ code: 0 })
+    await createNpmRunner({ env: { PATH: 'p' }, spawn: f.spawn, platform: 'win32', own: { node: 'electron.exe', cli: 'npm-cli.js' } })(['pack', 'x'], { cwd: '.' })
+    expect(f.calls[0]).toMatchObject({ file: 'electron.exe', args: ['npm-cli.js', 'pack', 'x'], opts: { env: { PATH: 'p', ELECTRON_RUN_AS_NODE: '1' }, windowsVerbatimArguments: false } })
+  })
+
   it('says npm is missing when it cannot be started, or cmd.exe cannot find it', async () => {
     const enoent = Object.assign(new Error('spawn npm ENOENT'), { code: 'ENOENT' })
     expect(await createNpmRunner({ env: {}, spawn: fakeSpawn({ error: enoent }).spawn, platform: 'linux' })(['pack', 'x'], { cwd: '.' }).catch((e: unknown) => e)).toBeInstanceOf(NpmMissing)
@@ -236,5 +250,76 @@ describe('createNpmRunner', () => {
     const run = createNpmRunner({ env: {}, spawn: fakeSpawn({ hang: true }).spawn, platform: 'linux', kill: (c) => void c.kill() })
     const e = await run(['install'], { cwd: '.', timeoutMs: 50 }).catch((err: unknown) => err)
     expect((e as Error).message).toBe('npm did not finish within 0.05 s')
+  })
+})
+
+// Plugins 2e-2 (the user's decision 2026-10-13): the person's npm when there is one, Astera's own when there is not.
+describe('createNpm', () => {
+  const ok = { code: 0, stdout: 'ok', stderr: '' }
+  const runner = (o: { missing?: boolean; code?: number } = {}) => {
+    const calls: string[][] = []
+    let stopped = 0
+    const run: NpmRun = async (args) => {
+      calls.push(args)
+      if (o.missing) throw new NpmMissing()
+      return { ...ok, code: o.code ?? 0 }
+    }
+    return { run: Object.assign(run, { stopAll: () => void stopped++ }) as NpmRunner, calls, stopped: () => stopped }
+  }
+
+  it('runs the person’s npm when it starts, and fetches nothing', async () => {
+    const system = runner()
+    let ensured = 0
+    const npm = createNpm({ profileDir: '/p', env: {}, node: 'node', system: system.run, ensure: async () => (ensured++, 'cli'), own: () => runner().run })
+    expect(await npm(['pack', 'x'], { cwd: '.' })).toEqual(ok)
+    expect(system.calls).toEqual([['pack', 'x']])
+    expect(ensured).toBe(0)
+  })
+
+  it('reports a person’s npm that fails, rather than hide it behind its own', async () => {
+    const system = runner({ code: 1 })
+    let ensured = 0
+    const npm = createNpm({ profileDir: '/p', env: {}, node: 'node', system: system.run, ensure: async () => (ensured++, 'cli'), own: () => runner().run })
+    expect((await npm(['pack', 'x'], { cwd: '.' })).code).toBe(1)
+    expect(ensured).toBe(0)
+  })
+
+  it('runs its own npm where none starts, and goes straight to it after', async () => {
+    const system = runner({ missing: true })
+    const own = runner()
+    const made: string[] = []
+    const npm = createNpm({
+      profileDir: '/p',
+      env: {},
+      node: 'node',
+      system: system.run,
+      ensure: async () => 'C:/p/npm/bin/npm-cli.js',
+      own: (cli) => (made.push(cli), own.run)
+    })
+    await npm(['pack', 'x'], { cwd: '.' })
+    await npm(['install'], { cwd: '.' })
+    expect(system.calls).toEqual([['pack', 'x']])
+    expect(own.calls).toEqual([['pack', 'x'], ['install']])
+    expect(made).toEqual(['C:/p/npm/bin/npm-cli.js'])
+    npm.stopAll()
+    expect([system.stopped(), own.stopped()]).toEqual([1, 1])
+  })
+
+  it('says why it could not fetch its own, and tries again the next time', async () => {
+    let tries = 0
+    const npm = createNpm({
+      profileDir: '/p',
+      env: {},
+      node: 'node',
+      system: runner({ missing: true }).run,
+      ensure: async () => {
+        tries++
+        throw new NpmUnavailable('PLUGIN_NPM_BLOCKED', 'blocked')
+      },
+      own: () => runner().run
+    })
+    expect(await npm(['pack', 'x'], { cwd: '.' }).catch((e: unknown) => e)).toBeInstanceOf(NpmUnavailable)
+    await npm(['pack', 'x'], { cwd: '.' }).catch(() => {})
+    expect(tries).toBe(2)
   })
 })

@@ -12,6 +12,7 @@ import { killProcessTree } from '../../core/run/kill'
 import { redactSecrets } from '../../core/remote/redact'
 import { extractPackage } from './tarball'
 import { moveRetrying } from './moves'
+import { createOwnNpm, type OwnNpmPin } from './ownNpm'
 
 /** npm could not be started: it is not installed, or not on the Host's PATH. */
 export class NpmMissing extends Error {
@@ -46,8 +47,21 @@ const OUTPUT_MAX = 1024 * 1024
 /** What cmd.exe answers for a command it cannot find. */
 const CMD_NOT_FOUND = 9009
 
-/** The command that runs npm with `args`. */
-export function npmCommand(args: readonly string[], platform: NodeJS.Platform, env: NodeJS.ProcessEnv): { file: string; args: string[]; verbatim: boolean } {
+/** Astera's own npm (ownNpm.ts): its npm-cli.js, run on the Host's own Node. */
+export interface OwnNpm {
+  node: string
+  cli: string
+}
+
+/** The command that runs npm with `args`: Astera's own as a script on the Host's Node, with no shell between; the
+ *  person's as the command on their PATH. */
+export function npmCommand(
+  args: readonly string[],
+  platform: NodeJS.Platform,
+  env: NodeJS.ProcessEnv,
+  own?: OwnNpm
+): { file: string; args: string[]; verbatim: boolean } {
+  if (own) return { file: own.node, args: [own.cli, ...args], verbatim: false }
   if (platform !== 'win32') return { file: 'npm', args: [...args], verbatim: false }
   for (const a of args) if (/["%\r\n]/.test(a)) throw new Error(`${JSON.stringify(a)} cannot be passed to npm through cmd.exe`)
   // `/s /c "..."`: cmd.exe drops the outer quotes and runs the rest, each argument in quotes of its own. `/v:off`: no
@@ -87,18 +101,21 @@ export function createNpmRunner(d: {
   platform?: NodeJS.Platform
   /** For tests: how a late npm is ended. */
   kill?: (child: ChildProcess) => void
+  /** Astera's own npm instead of the person's; its Node is the Host's binary, run as Node. */
+  own?: OwnNpm
 }): NpmRunner {
   const spawn = d.spawn ?? nodeSpawn
+  const env = d.own ? { ...d.env, ELECTRON_RUN_AS_NODE: '1' } : d.env
   const platform = d.platform ?? process.platform
   const kill = d.kill ?? ((c: ChildProcess) => killProcessTree(c))
   /** The npm calls still running, and how to end each. */
   const running = new Set<() => void>()
   const run: NpmRun = (args, o) =>
     new Promise((resolve, reject) => {
-      const cmd = npmCommand(args, platform, d.env)
+      const cmd = npmCommand(args, platform, d.env, d.own)
       let child: ChildProcess
       try {
-        child = spawn(cmd.file, cmd.args, { cwd: o.cwd, env: d.env, windowsHide: true, windowsVerbatimArguments: cmd.verbatim, stdio: ['ignore', 'pipe', 'pipe'] })
+        child = spawn(cmd.file, cmd.args, { cwd: o.cwd, env, windowsHide: true, windowsVerbatimArguments: cmd.verbatim, stdio: ['ignore', 'pipe', 'pipe'] })
       } catch (e) {
         return reject((e as NodeJS.ErrnoException).code === 'ENOENT' ? new NpmMissing() : e)
       }
@@ -128,13 +145,54 @@ export function createNpmRunner(d: {
         settle()
         if (ended === 'late') return reject(new Error(`npm did not finish within ${ms / 1000} s`))
         if (ended === 'stopped') return reject(new Error('npm was stopped: the Host is leaving'))
-        if (platform === 'win32' && code === CMD_NOT_FOUND) return reject(new NpmMissing())
+        if (!d.own && platform === 'win32' && code === CMD_NOT_FOUND) return reject(new NpmMissing())
         resolve({ code: code ?? 1, stdout, stderr })
       })
     })
   return Object.assign(run, {
     stopAll: () => {
       for (const stop of [...running]) stop()
+    }
+  })
+}
+
+/** The npm the Host runs (plugins 2e-2; the user's decision 2026-10-13): the person's when it starts; where none does,
+ *  Astera's own, fetched once (ownNpm.ts) and gone to directly from then on. A person's npm that starts and fails is
+ *  reported as it failed, never hidden behind the own one. */
+export function createNpm(d: {
+  profileDir: string
+  /** The Host's environment; npm's own is made from it (npmEnv). */
+  env: NodeJS.ProcessEnv
+  /** The Host's own binary, which runs the own npm as Node. */
+  node: string
+  pinned?: OwnNpmPin
+  /** For tests: the person's npm, the fetch of the own one, and the runner made for it. */
+  system?: NpmRunner
+  ensure?: () => Promise<string>
+  own?: (cli: string) => NpmRunner
+}): NpmRunner {
+  const env = npmEnv(d.env)
+  const system = d.system ?? createNpmRunner({ env })
+  const ensure = d.ensure ?? createOwnNpm({ profileDir: d.profileDir, ...(d.pinned ? { pinned: d.pinned } : {}) }).ensure
+  const makeOwn = d.own ?? ((cli: string) => createNpmRunner({ env, own: { node: d.node, cli } }))
+  let useOwn = false
+  let own: NpmRunner | null = null
+  const run: NpmRun = async (args, o) => {
+    if (!useOwn) {
+      try {
+        return await system(args, o)
+      } catch (e) {
+        if (!(e instanceof NpmMissing)) throw e
+        useOwn = true
+      }
+    }
+    own ??= makeOwn(await ensure())
+    return own(args, o)
+  }
+  return Object.assign(run, {
+    stopAll: () => {
+      system.stopAll()
+      own?.stopAll()
     }
   })
 }

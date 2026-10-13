@@ -9,7 +9,7 @@ import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
 import type { AddressInfo } from 'node:net'
-import { createNpmRunner, installDependencies, npmEnv, packAndExtract } from './npm'
+import { NpmMissing, createNpm, createNpmRunner, installDependencies, npmEnv, packAndExtract, type NpmRun } from './npm'
 import { tgzOf } from './tarballFixture'
 
 const hasNpm = spawnSync('npm --version', { shell: true, encoding: 'utf8' }).status === 0
@@ -17,6 +17,8 @@ const hasNpm = spawnSync('npm --version', { shell: true, encoding: 'utf8' }).sta
 let dir: string
 let server: http.Server
 let registry: string
+/** npm itself, packed from the npm installed on this machine, served as Astera's own npm would be fetched. */
+let ownNpm: Buffer | null = null
 const MARKER = path.join(os.tmpdir(), `astera-npm-postinstall-${process.pid}.txt`)
 const PWNED = path.join(os.tmpdir(), `astera-npm-pwned-${process.pid}.txt`)
 
@@ -83,6 +85,10 @@ beforeAll(async () => {
   server = http.createServer((req, res) => {
     const url = decodeURIComponent(req.url ?? '')
     const base = registry
+    if (url === '/own/npm.tgz' && ownNpm) {
+      res.writeHead(200, { 'content-type': 'application/octet-stream' })
+      return void res.end(ownNpm)
+    }
     for (const p of PACKAGES) {
       if (url === `/${p.name}`) {
         res.writeHead(200, { 'content-type': 'application/json' })
@@ -146,6 +152,40 @@ describe.skipIf(!hasNpm)('npm against a registry of the test', () => {
     expect(await fs.readFile(path.join(got.folder, 'node_modules', 'tiny-dep', 'index.js'), 'utf8')).toBe("module.exports = 'tiny'\n")
     expect(existsSync(PWNED)).toBe(false)
   }, 120_000)
+
+  // Plugins 2e-2: no npm on this computer, so Astera fetches its own (here the machine's npm, packed and served by the
+  // test's registry, as registry.npmjs.org serves npm 11.21.0) and runs it on its own Node, with no shell.
+  it('installs through its own npm where the person has none', async () => {
+    // The npm folder whole, its node_modules with it, as the registry's npm tarball holds them (`npm pack` of an
+    // installed npm leaves them out).
+    const root = spawnSync('npm root -g', { shell: true, encoding: 'utf8' }).stdout.trim()
+    const version = (JSON.parse(await fs.readFile(path.join(root, 'npm', 'package.json'), 'utf8')) as { version: string }).version
+    const file = path.join(dir, 'own-npm.tgz')
+    // Windows' own tar, which reads C:\ as a drive; a GNU tar first on PATH would read it as a remote host.
+    const tar = process.platform === 'win32' ? path.join(process.env.SystemRoot ?? 'C:/Windows', 'System32', 'tar.exe') : 'tar'
+    expect(spawnSync(tar, ['-czf', file, '-C', root, 'npm'], { encoding: 'utf8' }).status).toBe(0)
+    ownNpm = await fs.readFile(file)
+    let systemCalls = 0
+    const none: NpmRun = async () => {
+      systemCalls++
+      throw new NpmMissing()
+    }
+    const profile = path.join(dir, 'own profile')
+    const npm = createNpm({
+      profileDir: profile,
+      env: { ...process.env, npm_config_registry: registry, npm_config_cache: path.join(dir, 'cache'), npm_config_userconfig: path.join(dir, 'npmrc') },
+      node: process.execPath,
+      pinned: { version, integrity: `sha512-${createHash('sha512').update(ownNpm).digest('base64')}`, url: `${registry}own/npm.tgz` },
+      system: Object.assign(none, { stopAll: () => {} })
+    })
+    const staging = path.join(dir, 'stage own')
+    await fs.mkdir(staging, { recursive: true })
+    const got = await packAndExtract('@smoke/hello@^1.0.0', staging, npm)
+    expect(await installDependencies(got.folder, staging, npm)).toBe(true)
+    expect(await fs.readFile(path.join(got.folder, 'node_modules', 'tiny-dep', 'index.js'), 'utf8')).toBe("module.exports = 'tiny'\n")
+    expect(systemCalls).toBe(1)
+    expect(existsSync(path.join(profile, 'plugins', 'npm', version, 'bin', 'npm-cli.js'))).toBe(true)
+  }, 180_000)
 
   it('says why a package cannot be fetched, with npm’s last lines', async () => {
     const staging = path.join(dir, 'stage 2')
