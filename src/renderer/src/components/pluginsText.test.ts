@@ -98,6 +98,13 @@ describe('installPrompt (spec §31)', () => {
     expect(p.footer.split(lf)).toEqual(['It asks for no permissions.', '', PLUGIN_TRUST_WARNING])
   })
 
+  // Plugins 2e: a package from npm says so where a folder would be named.
+  it('names the npm package it comes from', () => {
+    expect(installPrompt({ ...INSPECTION, source: { npm: '@acme/astera-jira@^1.0.0', version: '1.0.0' } }, { npm: '@acme/astera-jira@^1.0.0' }, en).body.split(lf)[1]).toBe(
+      'From npm: @acme/astera-jira@^1.0.0'
+    )
+  })
+
   it('reads in Korean too', () => {
     expect(installPrompt(INSPECTION, 'D:/x', ko).footer).toContain('신뢰된 코드')
   })

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { PluginsCallAnswer } from '../../../core/types'
+import type { PluginSource, PluginsCallAnswer } from '../../../core/types'
 import type { SettingField } from '../../../core/plugins/settings'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
@@ -53,6 +53,8 @@ export function PluginsSettings(): React.JSX.Element {
   const [clears, setClears] = useState<Record<string, ReadonlySet<string>>>({})
   const [logs, setLogs] = useState<Record<string, string[]>>({})
   const [saving, setSaving] = useState<string | null>(null)
+  /** An npm package to install, as the person types it (plugins 2e). */
+  const [npmSpec, setNpmSpec] = useState('')
 
   /** Changes in flight (installs, saves, enables, removals): the list is not polled meanwhile (2d final review I1). */
   const inFlight = useRef(0)
@@ -96,28 +98,43 @@ export function PluginsSettings(): React.JSX.Element {
   useEffect(() => poller.start(), [poller])
   const reload = (): void => void poller.now()
 
-  const install = async (): Promise<void> => {
+  const installFolder = async (): Promise<void> => {
     if (installing !== 'idle') return
     const folder = await window.api.system.pickFolder()
-    if (!folder) return
+    if (folder) await install({ path: folder })
+  }
+  const installNpm = async (): Promise<void> => {
+    if (installing !== 'idle' || npmSpec.trim() === '') return
+    if (await install({ npm: npmSpec.trim() })) setNpmSpec('')
+  }
+
+  /** Shows what `source` holds and asks, then installs it; says whether it was installed. */
+  const install = async (source: PluginSource): Promise<boolean> => {
     setInstalling('reading')
     try {
-      const seen = await window.api.plugins.inspect(folder).catch(failed)
-      if (!seen.ok) return void toast.error(failureLine(seen, t, { read: true }))
+      const seen = await window.api.plugins.inspect(source).catch(failed)
+      if (!seen.ok) {
+        toast.error(failureLine(seen, t, { read: true }))
+        return false
+      }
       const id = str(seen.body.id)
       // On an update, what the installed copy was granted (I2).
       const before = plugins?.find((p) => str(p.id) === id)
-      const answer = await confirmModalWithChoices(installPrompt(seen.body, folder, t, before))
-      if (!answer.ok) return
+      const answer = await confirmModalWithChoices(installPrompt(seen.body, 'path' in source ? source.path : source, t, before))
+      if (!answer.ok) return false
       setInstalling('installing')
-      // What was shown is what the Host checks the copy against (design P6).
+      // What was shown is what the Host checks the copy against (design P6), and from npm the version it fetches.
       const r = await during(() =>
-        window.api.plugins.install({ path: folder, grant: answer.checked, expect: { name: str(seen.body.name), version: str(seen.body.version) } }).catch(failed)
+        window.api.plugins.install({ ...source, grant: answer.checked, expect: { name: str(seen.body.name), version: str(seen.body.version) } }).catch(failed)
       )
-      if (!r.ok) return void toast.error(installFailureLine(r, t))
+      if (!r.ok) {
+        toast.error(installFailureLine(r, t))
+        return false
+      }
       // A new copy may have a new schema: a form or log of the old one goes (M3).
       forget(id)
       toast.success(t('settings.plugins.installed', { name: str(seen.body.displayName) || id }))
+      return true
     } finally {
       setInstalling('idle')
       reload()
@@ -201,8 +218,31 @@ export function PluginsSettings(): React.JSX.Element {
       <p className="settings-hint">{t('settings.plugins.hint')}</p>
       <div className="remote-actions">
         {/* Nothing to install into with no Host, or one that runs no plugins (M5). */}
-        <button className="primary" disabled={installing !== 'idle' || installBlocked(listFailure?.code ?? null)} onClick={() => void install()}>
+        <button className="primary" disabled={installing !== 'idle' || installBlocked(listFailure?.code ?? null)} onClick={() => void installFolder()}>
           {installing === 'installing' ? t('settings.plugins.installing') : t('settings.plugins.installFolder')}
+        </button>
+      </div>
+      {/* A plugin published on npm (plugins 2e): the person's own npm fetches it, after the same warning. */}
+      <div className="remote-actions">
+        <input
+          className="settings-gen-input remote-actions-grow"
+          aria-label={t('settings.plugins.installNpm')}
+          placeholder={t('settings.plugins.npmPlaceholder')}
+          value={npmSpec}
+          spellCheck={false}
+          autoComplete="off"
+          disabled={installing !== 'idle'}
+          onChange={(e) => setNpmSpec(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') void installNpm()
+          }}
+        />
+        <button
+          className="settings-gen-refresh"
+          disabled={installing !== 'idle' || npmSpec.trim() === '' || installBlocked(listFailure?.code ?? null)}
+          onClick={() => void installNpm()}
+        >
+          {t('settings.plugins.installNpm')}
         </button>
       </div>
       {listFailure !== null && <p className="settings-hint is-warning">{failureLine(listFailure, t, { read: true })}</p>}

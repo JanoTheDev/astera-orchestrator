@@ -1846,14 +1846,18 @@ export interface OrchApi {
  *  change may have been made). */
 export type PluginsCallAnswer = { ok: true; body: Record<string, unknown> } | { ok: false; code: string; message: string }
 
+/** Where a plugin is installed from: a folder on this machine, or a package on npm (plugins 2e). */
+export type PluginSource = { path: string } | { npm: string }
+
 /** Settings › Plugins (plugin runtime design slice 2d): the Host's `plugins-*` commands the tab uses, as the app, and
  *  no other (design P5). */
 export interface PluginsApi {
   list(): Promise<PluginsCallAnswer>
-  /** What a folder holds, to show before it is installed. */
-  inspect(path: string): Promise<PluginsCallAnswer>
-  /** `grant` is what the person left checked; `expect` is what they were shown, which the Host checks the copy against. */
-  install(a: { path: string; grant: string[]; expect: { name: string; version: string } }): Promise<PluginsCallAnswer>
+  /** What a folder or an npm package holds, to show before it is installed. */
+  inspect(source: PluginSource): Promise<PluginsCallAnswer>
+  /** `grant` is what the person left checked; `expect` is what they were shown, which the Host checks the copy against
+   *  (and, from npm, the version it fetches). */
+  install(a: PluginSource & { grant: string[]; expect: { name: string; version: string } }): Promise<PluginsCallAnswer>
   setEnabled(id: string, enabled: boolean): Promise<PluginsCallAnswer>
   remove(id: string): Promise<PluginsCallAnswer>
   logs(id: string, lines: number): Promise<PluginsCallAnswer>

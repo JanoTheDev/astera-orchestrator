@@ -21,7 +21,7 @@ describe('the plugins route (plugin runtime design P5, slice 2d)', () => {
   it('sends each command the tab uses, with its arguments, as the app with no session', async () => {
     const { route, sent } = host()
     await route.list()
-    await route.inspect('D:/work/jira 플러그인')
+    await route.inspect({ path: 'D:/work/jira 플러그인' })
     await route.install({ path: 'D:/work/jira 플러그인', grant: ['jobs.read'], expect: { name: '@acme/jira', version: '1.0.0' } })
     await route.setEnabled('@acme/jira', false)
     await route.setEnabled('@acme/jira', true)
@@ -49,6 +49,19 @@ describe('the plugins route (plugin runtime design P5, slice 2d)', () => {
   // 2d final review M8: only the commands the tab uses (design P5), nothing a renderer could reach beyond them.
   it('offers exactly the commands Settings › Plugins uses', () => {
     expect(Object.keys(host().route).sort()).toEqual(['configure', 'inspect', 'install', 'list', 'logs', 'remove', 'setEnabled', 'settings'])
+  })
+
+  // Plugins 2e: a package on npm is a source beside a folder, and its inspect downloads, so it waits as a change does.
+  it('inspects and installs an npm package, waiting for the download', async () => {
+    const { route, sent } = host()
+    await route.inspect({ npm: '@acme/jira@^1.0.0' })
+    await route.install({ npm: '@acme/jira@^1.0.0', grant: [], expect: { name: '@acme/jira', version: '1.0.0' } })
+    await route.inspect({ path: 'D:/p' })
+    expect(sent.map(({ cmd, args, timeoutMs }) => ({ cmd, args, timeoutMs }))).toEqual([
+      { cmd: 'plugins-inspect', args: { npm: '@acme/jira@^1.0.0' }, timeoutMs: PLUGIN_CHANGE_DEADLINE_MS },
+      { cmd: 'plugins-install', args: { npm: '@acme/jira@^1.0.0', grant: [], expect: { name: '@acme/jira', version: '1.0.0' } }, timeoutMs: PLUGIN_CHANGE_DEADLINE_MS },
+      { cmd: 'plugins-inspect', args: { path: 'D:/p' }, timeoutMs: undefined }
+    ])
   })
 
   it('waits as long as the CLI does for a change, and the usual deadline for a read', async () => {
