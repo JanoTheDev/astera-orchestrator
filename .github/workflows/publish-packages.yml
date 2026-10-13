@@ -64,7 +64,20 @@ jobs:
         working-directory: packages/${{ steps.target.outputs.dir }}
         run: npm publish --provenance
 
+      # npm refuses even a dry run of a version it already holds, as it would the publish. Between releases that is the
+      # version package.json holds, so there the try stops at the tarball and says so; bump the version on a branch and
+      # run this from that branch to try the publish itself.
       - name: Publish (dry run)
         if: github.event_name == 'workflow_dispatch'
         working-directory: packages/${{ steps.target.outputs.dir }}
-        run: npm publish --provenance --dry-run
+        shell: bash
+        env:
+          NAME: ${{ steps.target.outputs.name }}
+          VERSION: ${{ steps.target.outputs.version }}
+        run: |
+          if [ -n "$(npm view "$NAME@$VERSION" version 2>/dev/null)" ]; then
+            echo "::notice::$NAME@$VERSION is already on npm, which refuses it again: this tried the tarball only. Bump the version to try the publish."
+            npm pack --dry-run
+          else
+            npm publish --provenance --dry-run
+          fi
