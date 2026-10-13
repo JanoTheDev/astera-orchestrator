@@ -117,10 +117,17 @@ describe('.github/workflows/publish-packages.yml', () => {
     const publish = step('run: npm publish --provenance\n')
     expect(publish).toContain("if: github.event_name == 'push'")
     expect(publish).toContain('working-directory: packages/${{ steps.target.outputs.dir }}')
-    const dry = step('run: npm publish --provenance --dry-run')
+    const dry = step('npm publish --provenance --dry-run')
     expect(dry).toContain("if: github.event_name == 'workflow_dispatch'")
     expect(dry).toContain('working-directory: packages/${{ steps.target.outputs.dir }}')
     expect(code.match(/npm publish/g)).toHaveLength(2)
+    // Found on the first dry run from main: npm refuses even a dry run of a version it holds, which between releases
+    // is the one package.json holds, so the try stops at the tarball there and says so, rather than ending red
+    expect(dry).toContain('npm view "$NAME@$VERSION" version')
+    expect(dry).toContain('npm pack --dry-run')
+    expect(dry).toContain('NAME: ${{ steps.target.outputs.name }}')
+    expect(dry).toContain('VERSION: ${{ steps.target.outputs.version }}')
+    expect(dry).not.toMatch(/run:.*\$\{\{/)
     // The package chosen by hand reaches the shell through the environment, not pasted into the script
     expect(step('scripts/publish-target.mjs --package')).toContain('PACKAGE: ${{ inputs.package }}')
     expect(wf).not.toMatch(/run:.*\$\{\{ inputs\./)
@@ -147,6 +154,9 @@ describe('docs/releasing.md', () => {
     expect(s).toContain('`## X.Y.Z`')
     // Final review m1: GitHub offers Run workflow only for a workflow on the default branch
     expect(s).toContain('default branch')
+    // The first dry run from main: a version npm holds is tried as far as the tarball, a bumped one on a branch in full
+    expect(s).toContain('`npm pack --dry-run`')
+    expect(s).toContain('gh workflow run publish-packages.yml --ref')
   })
 
   // Final review I1: client.test.ts holds CLIENT_VERSION to the package's version, and runs before the publish

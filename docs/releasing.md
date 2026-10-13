@@ -196,7 +196,13 @@ trusted publishing lets that workflow, in this repository, publish the package.
 
 Run the workflow by hand (**Actions**, **Publish packages**, **Run workflow**) to try every step for one package: it
 ends with `npm publish --dry-run` and publishes nothing. GitHub offers that for a workflow on the default branch,
-main, only.
+main, only, and runs it from the branch you pick there. npm refuses even a dry run of a version it already holds, so
+for one (between releases, the version `package.json` holds) the try stops at the tarball, `npm pack --dry-run`, and
+says so. To try the publish itself, bump the version on a branch, push it and run the workflow from that branch:
+
+```bash
+gh workflow run publish-packages.yml --ref my-branch -f package=client
+```
 
 ### The first publish, and trusted publishing
 
