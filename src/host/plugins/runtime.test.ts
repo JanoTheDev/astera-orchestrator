@@ -25,7 +25,7 @@ afterAll(() => {
 
 type Call = { cmd: string; args: unknown; sessionId: string; from?: { role: string; plugin?: { id: string; granted: ReadonlySet<string> } }; request?: string }
 
-function runtime(timings: Partial<PluginTimings> = {}) {
+function runtime(timings: Partial<PluginTimings> = {}, extra: { maxLine?: number } = {}) {
   const calls: Call[] = []
   const r = createPluginRuntime({
     profileDir: path.join(dir, `profile ${++n}`),
@@ -40,7 +40,8 @@ function runtime(timings: Partial<PluginTimings> = {}) {
       }
     },
     log: () => {},
-    timings: { startMs: 10_000, stopGraceMs: 1_000, backoffMs: [50, 50, 50], stableMs: 5_000, failAfter: 3, ...timings }
+    timings: { startMs: 10_000, stopGraceMs: 1_000, backoffMs: [50, 50, 50], stableMs: 5_000, failAfter: 3, ...timings },
+    ...extra
   })
   started.push(r)
   return { r, calls }
@@ -117,6 +118,25 @@ describe('createPluginRuntime', () => {
     r.start(p)
     await until(() => expect(logOf(r, 'steady').match(/\[host\] exited with code 1/g)?.length ?? 0).toBeGreaterThanOrEqual(4), 20_000)
     expect(r.status('steady')?.status).not.toBe('failed')
+  }, 30_000)
+
+  // 2b final review I2: a plugin that sends a line without end is stopped before it can grow the Host's memory.
+  it('kills a plugin whose message runs past the ceiling, and counts it as a crash', async () => {
+    const { r } = runtime({ failAfter: 1 }, { maxLine: 1000 })
+    const p = plugin(
+      'floods',
+      `import net from 'node:net'
+      export default {
+        activate() {
+          const channel = new net.Socket({ fd: 3, readable: false, writable: true })
+          channel.write('x'.repeat(5000))
+          return new Promise(() => {})
+        }
+      }`
+    )
+    r.start(p)
+    await until(() => expect(r.status('floods')?.status).toBe('failed'))
+    expect(r.status('floods')?.reason).toMatch(/^it sent the Host a message longer than 1000 characters/)
   }, 30_000)
 
   it('counts a start that never finishes as a crash', async () => {

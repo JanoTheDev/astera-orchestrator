@@ -34,6 +34,10 @@ export function createRpcPeer(o: {
   onRequest(method: string, params: unknown): Promise<unknown>
   /** A line that is not a JSON-RPC 2.0 message: reported, and reading goes on. */
   onBadMessage?(message: string): void
+  /** The longest line read, in characters. Past it `onOverflow` is called once and nothing more is read: a sender that
+   *  never ends its line would otherwise grow the buffer without bound (2b final review I2). No ceiling when absent. */
+  maxLine?: number
+  onOverflow?(): void
 }): RpcPeer {
   let nextId = 0
   let closed: string | null = null
@@ -76,7 +80,8 @@ export function createRpcPeer(o: {
   const reader = createLineReader({
     onMessage,
     onBadLine: (raw) => bad(`not JSON: ${raw.slice(0, 200)}`),
-    onHandlerError: (_v, err) => bad(`a message could not be handled: ${err instanceof Error ? err.message : String(err)}`)
+    onHandlerError: (_v, err) => bad(`a message could not be handled: ${err instanceof Error ? err.message : String(err)}`),
+    ...(o.maxLine !== undefined ? { maxLine: o.maxLine, onOverflow: () => o.onOverflow?.() } : {})
   })
 
   return {

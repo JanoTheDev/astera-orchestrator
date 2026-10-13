@@ -68,3 +68,18 @@ describe('createRpcPeer (plugin runtime design P9)', () => {
     await expect(peer.request('m', {})).rejects.toMatchObject({ message: 'the plugin exited' })
   })
 })
+
+// 2b final review I2: what a plugin sends is not the Host's own message, so a line has a ceiling.
+describe('a line past the ceiling', () => {
+  it('is reported once, and nothing after it is read', async () => {
+    const got: unknown[] = []
+    let overflows = 0
+    const peer = createRpcPeer({ send: () => {}, onRequest: async (_m, p) => (got.push(p), {}), maxLine: 50, onOverflow: () => (overflows += 1) })
+    peer.feed('x'.repeat(30))
+    peer.feed('x'.repeat(30))
+    peer.feed('\n{"jsonrpc":"2.0","id":1,"method":"m","params":1}\n')
+    await new Promise((r) => setImmediate(r))
+    expect(overflows).toBe(1)
+    expect(got).toEqual([])
+  })
+})

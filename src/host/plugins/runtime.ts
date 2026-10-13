@@ -27,6 +27,10 @@ export interface PluginTimings {
   failAfter: number
 }
 
+/** The longest message a plugin may send the Host, in characters (2b final review I2): what a plugin sends is not the
+ *  Host's own message, and a line without end must not grow the Host's memory until it falls over. */
+export const PLUGIN_MAX_LINE = 32 * 1024 * 1024
+
 export const PLUGIN_TIMINGS: PluginTimings = { startMs: 30_000, stopGraceMs: 5_000, backoffMs: [1000, 2000, 5000], stableMs: 30_000, failAfter: 3 }
 
 /** What the runtime needs to start a plugin, from its registry record and its installed copy. */
@@ -121,6 +125,8 @@ export function createPluginRuntime(d: {
   spawn?: typeof nodeSpawn
   timings?: Partial<PluginTimings>
   now?: () => number
+  /** For tests: the ceiling on a plugin's message (`PLUGIN_MAX_LINE`). */
+  maxLine?: number
 }): PluginRuntime {
   const t: PluginTimings = { ...PLUGIN_TIMINGS, ...d.timings }
   const spawn = d.spawn ?? nodeSpawn
@@ -198,6 +204,13 @@ export function createPluginRuntime(d: {
         if (channel && !channel.destroyed && !channel.writableEnded) channel.write(line)
       },
       onBadMessage: (m) => say(s, m),
+      maxLine: d.maxLine ?? PLUGIN_MAX_LINE,
+      onOverflow: () => {
+        if (s.proc !== proc) return
+        s.problem = `it sent the Host a message longer than ${d.maxLine ?? PLUGIN_MAX_LINE} characters`
+        say(s, s.problem)
+        killTree(proc)
+      },
       onRequest: async (method, params) => {
         if (method === 'call') return forward(s, granted, params)
         throw new RpcError(RPC_METHOD_NOT_FOUND, `no method ${method}`)
@@ -205,7 +218,15 @@ export function createPluginRuntime(d: {
     })
     s.peer = peer
     channel?.setEncoding('utf8')
-    channel?.on('data', (c: string) => peer.feed(c))
+    channel?.on('data', (c: string) => {
+      // Nothing a plugin sends may throw into the Host's event loop (spec §13).
+      try {
+        peer.feed(c)
+      } catch (e) {
+        say(s, `the channel could not be read: ${e instanceof Error ? e.message : String(e)}`)
+        killTree(proc)
+      }
+    })
     const line = (l: string): void => {
       const text = l.replace(/\r$/, '')
       if (text !== '') logOf(p.folder).write(redactSecrets(text))
