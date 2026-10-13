@@ -123,15 +123,18 @@ describe('ContinuityRecorder.checkpoint', () => {
     expect(journal.latestCheckpointFor('dsp_1')?.gitHead).toBeNull()
   })
 
-  it('handoffRef is null unless Smart Resume is on and a memo exists', async () => {
-    const cases: Array<[boolean, boolean, string | null]> = [[false, true, null], [true, false, null], [true, true, 'sess-1']]
-    for (const [smart, found, expected] of cases) {
-      const { r, journal } = recorder({ smart, handoffFound: found })
-      const next = state(dispatch())
-      await r.checkpoint(r.record(state(dispatch({ sessionId: 'pending:ab' })), next), next)
-      expect(journal.latestCheckpointFor('dsp_1')?.handoffRef).toBe(expected)
-      journal.close()
-    }
+  // One case a test: each opens a journal and reads a worktree's HEAD with git, and the three in one test ran past its
+  // 10 s on a loaded Windows CI runner
+  it.each<[boolean, boolean, string | null]>([
+    [false, true, null],
+    [true, false, null],
+    [true, true, 'sess-1']
+  ])('handoffRef is null unless Smart Resume is on and a memo exists (smart %s, memo %s)', async (smart, found, expected) => {
+    const { r, journal } = recorder({ smart, handoffFound: found })
+    const next = state(dispatch())
+    await r.checkpoint(r.record(state(dispatch({ sessionId: 'pending:ab' })), next), next)
+    expect(journal.latestCheckpointFor('dsp_1')?.handoffRef).toBe(expected)
+    journal.close()
   })
 
   it('a lost attempt gets no checkpoint', async () => {
