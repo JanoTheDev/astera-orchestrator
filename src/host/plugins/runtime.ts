@@ -10,7 +10,8 @@ import { hostWorkerBaseEnv } from '../../core/host/spawn'
 import { killProcessTree } from '../../core/run/kill'
 import { redactSecrets } from '../../core/remote/redact'
 import type { OrchCall } from '../../core/host/orchProtocol'
-import { RPC_INVALID_PARAMS, RPC_METHOD_NOT_FOUND, RpcError, createRpcPeer, type RpcPeer } from '../../core/plugins/rpc'
+import { RPC_INTERNAL_ERROR, RPC_INVALID_PARAMS, RPC_METHOD_NOT_FOUND, RpcError, createRpcPeer, type RpcPeer } from '../../core/plugins/rpc'
+import { PluginSecretRefused, pluginSecrets } from './pluginData'
 import { openHostLog, type HostLog } from '../log'
 import { releaseLogWriter } from '../../core/log/logWriter'
 import { pluginsRoot } from './registry'
@@ -92,6 +93,8 @@ interface Slot {
   failures: number
   reason?: string
   timers: Set<ReturnType<typeof setTimeout>>
+  /** Values its log must never show: its secret settings and secrets, and each secret it sets while it runs. */
+  redact: Set<string>
   exited?: Promise<void>
   stopping?: Promise<void>
 }
@@ -173,7 +176,13 @@ export function createPluginRuntime(d: {
   }
   // What the Host writes about a plugin carries the plugin's own words (an error message, a stray line), which may hold
   // a secret: redacted like the plugin's own lines (2b final review M1).
-  const say = (s: Slot, m: string): void => logOf(s.launch.folder).write(redactSecrets(`[host] ${m}`))
+  /** A line for a plugin's log, with every secret of that plugin and every secret-shaped value taken out (P13). */
+  const hide = (s: Slot, line: string): string => {
+    let out = redactSecrets(line)
+    for (const v of s.redact) out = out.split(v).join('[redacted]')
+    return out
+  }
+  const say = (s: Slot, m: string): void => logOf(s.launch.folder).write(hide(s, `[host] ${m}`))
   const later = (s: Slot, ms: number, f: () => void): void => {
     const timer = setTimeout(() => {
       s.timers.delete(timer)
@@ -206,10 +215,31 @@ export function createPluginRuntime(d: {
     }
   }
 
+  /** A plugin's request about its own secrets (spec §23): answered from the store kept for that plugin alone, so no
+   *  name it passes reaches another's. A value it sets joins what its log never shows. */
+  async function secretRequest(s: Slot, method: string, params: unknown): Promise<unknown> {
+    const q = typeof params === 'object' && params !== null ? (params as Record<string, unknown>) : {}
+    const store = pluginSecrets(d.profileDir, s.launch.folder).secret
+    try {
+      if (method === 'secrets.get') return { value: (await store.get(q.name as string)) ?? null }
+      if (method === 'secrets.set') {
+        await store.set(q.name as string, q.value as string)
+        if (typeof q.value === 'string' && q.value.length >= 4) s.redact.add(q.value)
+        return {}
+      }
+      await store.delete(q.name as string)
+      return {}
+    } catch (e) {
+      if (e instanceof PluginSecretRefused) throw new RpcError(RPC_INVALID_PARAMS, e.message)
+      throw new RpcError(RPC_INTERNAL_ERROR, `the plugin's secrets could not be used: ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+
   function launch(s: Slot): void {
     const p = s.launch
     s.state = 'starting'
     s.problem = undefined
+    s.redact = new Set(p.redact)
     s.runningSince = undefined
     let proc: ChildProcess
     try {
@@ -247,6 +277,7 @@ export function createPluginRuntime(d: {
       },
       onRequest: async (method, params) => {
         if (method === 'call') return forward(s, granted, params)
+        if (method === 'secrets.get' || method === 'secrets.set' || method === 'secrets.delete') return secretRequest(s, method, params)
         throw new RpcError(RPC_METHOD_NOT_FOUND, `no method ${method}`)
       }
     })
@@ -263,7 +294,7 @@ export function createPluginRuntime(d: {
     })
     const line = (l: string): void => {
       const text = l.replace(/\r$/, '')
-      if (text !== '') logOf(p.folder).write(redactSecrets(text))
+      if (text !== '') logOf(p.folder).write(hide(s, text))
     }
     // stdout and stderr are both the plugin's log, each read in lines of its own.
     const held = new Map<Readable, string>()
@@ -316,7 +347,7 @@ export function createPluginRuntime(d: {
     peer
       .request('initialize', {
         apiVersion: '1',
-        plugin: { id: p.id, version: p.version, dir: p.dir, entry: p.entry, permissions: [...p.granted] },
+        plugin: { id: p.id, version: p.version, dir: p.dir, entry: p.entry, permissions: [...p.granted], settings: { ...p.settings } },
         host: { version: host.version, pid: host.pid, startedAt: host.startedAt, features: [...host.features] }
       })
       .then(
@@ -382,7 +413,7 @@ export function createPluginRuntime(d: {
       void s.stopping.then(() => start(p))
       return
     }
-    const slot: Slot = s ?? { launch: p, state: 'stopped', wanted: true, failures: 0, timers: new Set() }
+    const slot: Slot = s ?? { launch: p, state: 'stopped', wanted: true, failures: 0, timers: new Set(), redact: new Set(p.redact) }
     slot.launch = p
     slot.wanted = true
     slot.reason = undefined

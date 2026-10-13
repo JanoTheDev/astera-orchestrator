@@ -250,6 +250,33 @@ describe('createPluginRuntime', () => {
     expect(existsSync(r.logFile('forgotten'))).toBe(false)
   }, 30_000)
 
+  // Plugins 2c (spec §23-§24): settings handed over at the start, secrets kept per plugin and out of its log.
+  it('hands a plugin its settings, keeps its secrets from another plugin, and redacts every secret from its log', async () => {
+    const { r } = runtime()
+    const keeper = plugin(
+      'keeper',
+      `export default {
+        async activate(ctx) {
+          console.error('token is ' + ctx.settings.token + ', page ' + ctx.settings.pageSize)
+          await ctx.secrets.set('refresh', 'refresh-secret-77')
+          console.error('kept ' + (await ctx.secrets.get('refresh')))
+          try { await ctx.secrets.set('../escape', 'x') } catch (e) { console.error('refused: ' + e.message) }
+        }
+      }`
+    )
+    r.start({ ...keeper, settings: { token: 'tok-secret-55', pageSize: 50 }, redact: ['tok-secret-55'] })
+    await until(() => expect(r.status('keeper')?.status).toBe('running'))
+    await until(() => expect(logOf(r, 'keeper')).toContain('refused:'))
+    const log = logOf(r, 'keeper')
+    expect(log).toContain('token is [redacted], page 50')
+    expect(log).toContain('kept [redacted]')
+    expect(log).not.toContain('tok-secret-55')
+    expect(log).not.toContain('refresh-secret-77')
+    expect(log).toMatch(/refused: \.\.\/escape is not a secret name/)
+    r.start(plugin('other', `export default { async activate(ctx) { console.error('sees ' + (await ctx.secrets.get('refresh'))) } }`))
+    await until(() => expect(logOf(r, 'other')).toContain('sees undefined'))
+  }, 30_000)
+
   it('stops every plugin at once, starts a running plugin only once, and stops an unknown id quietly', async () => {
     const { r } = runtime()
     const a = plugin('one', `export default { activate() {} }`)

@@ -181,3 +181,65 @@ describe('runLauncher', () => {
     expect(await l.ask('reticulate', {})).toMatchObject({ error: { code: -32601 } })
   })
 })
+
+// Plugins 2c: the settings a person set, and secrets the plugin keeps (spec §23-§24).
+describe('runLauncher: settings and secrets', () => {
+  const withSettings = { ...INIT_PARAMS, plugin: { ...INIT_PARAMS.plugin, settings: { baseUrl: 'https://jira.example.com', pageSize: 50, token: 'tok-1' } } }
+
+  it('hands activate the settings it was started with, frozen', async () => {
+    let ctx: PluginContext | undefined
+    const l = launch({ default: { activate: (c: PluginContext) => void (ctx = c) } })
+    await l.ask('initialize', withSettings)
+    expect(ctx?.settings).toEqual({ baseUrl: 'https://jira.example.com', pageSize: 50, token: 'tok-1' })
+    expect(Object.isFrozen(ctx?.settings)).toBe(true)
+  })
+
+  it('hands an empty settings object to a plugin started with none', async () => {
+    let ctx: PluginContext | undefined
+    const l = launch({ default: { activate: (c: PluginContext) => void (ctx = c) } })
+    await l.ask('initialize', INIT_PARAMS)
+    expect(ctx?.settings).toEqual({})
+  })
+
+  it('asks the Host for its secrets, and keeps them there', async () => {
+    let ctx: PluginContext | undefined
+    const l = launch({ default: { activate: (c: PluginContext) => void (ctx = c) } })
+    await l.ask('initialize', INIT_PARAMS)
+    const answer = async (method: string, result: unknown): Promise<Record<string, unknown>> => {
+      const req = await vi.waitFor(() => {
+        const r = l.out.find((m) => m.method === method && !(m as { answered?: boolean }).answered)
+        if (!r) throw new Error(`no ${method}`)
+        return r
+      })
+      ;(req as { answered?: boolean }).answered = true
+      l.send({ id: req.id, result })
+      return req
+    }
+    const got = ctx!.secrets.get('refresh-token')
+    expect(await answer('secrets.get', { value: 'r-1' })).toMatchObject({ params: { name: 'refresh-token' } })
+    expect(await got).toBe('r-1')
+    const none = ctx!.secrets.get('other')
+    await answer('secrets.get', { value: null })
+    expect(await none).toBeUndefined()
+    const set = ctx!.secrets.set('refresh-token', 'r-2')
+    expect(await answer('secrets.set', {})).toMatchObject({ params: { name: 'refresh-token', value: 'r-2' } })
+    await set
+    const del = ctx!.secrets.delete('refresh-token')
+    expect(await answer('secrets.delete', {})).toMatchObject({ params: { name: 'refresh-token' } })
+    await del
+  })
+
+  it('rejects with what the Host said when it refuses a secret', async () => {
+    let ctx: PluginContext | undefined
+    const l = launch({ default: { activate: (c: PluginContext) => void (ctx = c) } })
+    await l.ask('initialize', INIT_PARAMS)
+    const refused = ctx!.secrets.set('../x', 'v').catch((e: unknown) => e)
+    const req = await vi.waitFor(() => {
+      const r = l.out.find((m) => m.method === 'secrets.set')
+      if (!r) throw new Error('no secrets.set')
+      return r
+    })
+    l.send({ id: req.id, error: { code: -32602, message: '../x is not a secret name' } })
+    expect(await refused).toMatchObject({ message: '../x is not a secret name' })
+  })
+})
