@@ -1,0 +1,131 @@
+// GitHub issues as a job source (plugin Phase 4 J3, J12): built into the Host, answering as a job-source plugin does.
+// Per project: the open issues of the repository the project folder's remote names, read with the person's gh. An issue
+// a non-member wrote is listed but cannot be picked, as `jobs-create-from-issue` has always refused it. Pure over an
+// injected GhRunner.
+import { ghFailureSentence, type GhFailed, type GhRunner } from './gh'
+import { ISSUE_JOB_ASSOCIATIONS, issueFrom, readIssue, repoOf, type GhIssue } from './issue'
+import type { SourceContext, SourceDetail, SourceItem } from '../sources/answers'
+
+/** The source id GitHub issues answer under, beside the plugins' ids (which are npm names, never this). */
+export const GITHUB_SOURCE_ID = 'github'
+/** Issues a page: GitHub's own default. */
+export const GITHUB_PAGE = 30
+
+/** An issue as an item a person may or may not pick. */
+export type IssueItem = SourceItem & { selectable: boolean; reason?: string }
+
+/** The search qualifiers that would leave the repository or the open issues: GitHub ORs two `repo:` qualifiers, so a
+ *  person's own would widen the search (Review Focus 4). A leading `-` is the negated form. */
+const LEAVING = /(^|\s)-?(?:repo|org|user|owner|is):\S*/gi
+
+const SUMMARY_MAX = 300
+
+const memberReason = (issue: GhIssue): string | undefined =>
+  (ISSUE_JOB_ASSOCIATIONS as readonly string[]).includes(issue.authorAssociation)
+    ? undefined
+    : `written by a ${issue.authorAssociation} of the repository; only an owner, member or collaborator's issue becomes a Job`
+
+const itemOf = (issue: GhIssue): IssueItem => {
+  const reason = memberReason(issue)
+  return {
+    id: String(issue.number),
+    title: issue.title,
+    status: issue.state,
+    url: issue.url,
+    ...(issue.body !== '' ? { summary: Array.from(issue.body).slice(0, SUMMARY_MAX).join('') } : {}),
+    selectable: reason === undefined,
+    ...(reason !== undefined ? { reason } : {})
+  }
+}
+
+const failed = (message: string): GhFailed => ({ ok: false, kind: 'other', message })
+
+/** A page of the open issues of the repository at `cwd`, searched with `query` when there is one. `slugs` keeps each
+ *  folder's `owner/repo` for the Host's life, so a search costs one call after the first. */
+export async function listIssueItems(
+  gh: GhRunner,
+  cwd: string,
+  q: { query?: string; cursor?: string },
+  slugs: Map<string, string> = new Map()
+): Promise<{ ok: true; items: IssueItem[]; nextCursor?: string } | GhFailed> {
+  const page = q.cursor === undefined || q.cursor === '' ? 1 : /^[1-9][0-9]{0,3}$/.test(q.cursor) ? Number(q.cursor) : NaN
+  if (!Number.isFinite(page)) return failed(`the cursor ${q.cursor} is not a page number`)
+  const query = (q.query ?? '').replace(LEAVING, ' ').replace(/\s+/g, ' ').trim()
+  let raw: unknown[]
+  if (query === '') {
+    const r = await gh(['api', `repos/{owner}/{repo}/issues?state=open&per_page=${GITHUB_PAGE}&page=${page}`], cwd)
+    if (!r.ok) return { ok: false, ...ghFailureSentence(r) }
+    const parsed = parseJson(r.stdout)
+    if (!Array.isArray(parsed)) return failed('gh api answered with something that is not a list of issues')
+    raw = parsed
+  } else {
+    let slug = slugs.get(cwd)
+    if (slug === undefined) {
+      const named = await gh(['api', 'repos/{owner}/{repo}', '--jq', '.full_name'], cwd)
+      if (!named.ok) return { ok: false, ...ghFailureSentence(named) }
+      slug = named.stdout.trim()
+      if (!/^[^/\s]+\/[^/\s]+$/.test(slug)) return failed('gh api answered with something that is not a repository name')
+      slugs.set(cwd, slug)
+    }
+    const r = await gh(
+      ['api', '-X', 'GET', 'search/issues', '-f', `q=repo:${slug} is:issue is:open ${query}`, '-f', `per_page=${GITHUB_PAGE}`, '-f', `page=${page}`],
+      cwd
+    )
+    if (!r.ok) return { ok: false, ...ghFailureSentence(r) }
+    const parsed = parseJson(r.stdout) as { items?: unknown } | null
+    if (parsed === null || !Array.isArray(parsed.items)) return failed('gh api answered with something that is not a search of issues')
+    raw = parsed.items
+  }
+  const items = raw.flatMap((v) => {
+    const issue = issueFrom(v)
+    return issue === null || issue.isPullRequest ? [] : [itemOf(issue)]
+  })
+  return { ok: true, items, ...(raw.length === GITHUB_PAGE ? { nextCursor: String(page + 1) } : {}) }
+}
+
+/** Issue `id` read whole, and whether it may become a Job. */
+export async function issueDetail(
+  gh: GhRunner,
+  cwd: string,
+  id: string
+): Promise<{ ok: true; detail: SourceDetail; selectable: boolean; reason?: string; issue: GhIssue } | GhFailed> {
+  if (!/^[1-9][0-9]{0,9}$/.test(id)) return { ok: false, kind: 'not-found', message: `${id} is not an issue number` }
+  const read = await readIssue(gh, cwd, Number(id))
+  if (!read.ok) return read
+  const issue = read.issue
+  if (issue.isPullRequest) return { ok: false, kind: 'not-found', message: `#${issue.number} is a pull request, not an issue` }
+  const reason = issue.state === 'closed' ? `Issue #${issue.number} is closed` : memberReason(issue)
+  return {
+    ok: true,
+    issue,
+    detail: {
+      id: String(issue.number),
+      title: issue.title,
+      status: issue.state,
+      url: issue.url,
+      ...(issue.body !== '' ? { body: issue.body } : {}),
+      fields: { author: issue.author, ...(issue.labels.length > 0 ? { labels: issue.labels.join(', ') } : {}) }
+    },
+    selectable: reason === undefined,
+    ...(reason !== undefined ? { reason } : {})
+  }
+}
+
+/** What a Job made from `issue` is to do: its title, with its body as the evidence. */
+export function issueContext(issue: GhIssue): SourceContext {
+  return {
+    objective: issue.title,
+    sourceLabel: `GitHub issue #${issue.number} in ${repoOf(issue.url)}`,
+    sourceUrl: issue.url,
+    ...(issue.body !== '' ? { evidence: [{ label: 'Body', content: issue.body }] } : {}),
+    ...(issue.labels.length > 0 ? { metadata: { labels: issue.labels.join(', ') } } : {})
+  }
+}
+
+const parseJson = (s: string): unknown => {
+  try {
+    return JSON.parse(s)
+  } catch {
+    return null
+  }
+}

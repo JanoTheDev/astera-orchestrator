@@ -33,6 +33,11 @@ export function parseIssue(stdout: string): GhIssue | null {
   } catch {
     return null
   }
+  return issueFrom(raw)
+}
+
+/** One issue object as the REST API and its search answer it, or null when it is not one. */
+export function issueFrom(raw: unknown): GhIssue | null {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return null
   const r = raw as Record<string, unknown>
   const user = r.user as Record<string, unknown> | null | undefined
