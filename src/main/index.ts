@@ -53,6 +53,7 @@ import { SlackConfigStore } from './slackConfigStore'
 import { SlackInboxController } from '../core/slack/inbox'
 import { createSocketClient, createWebClient } from './slackSdk'
 import { createSlackOwnership, type SlackOwnership } from './slackOwnership'
+import { createSessionSignalForwarder } from './sessionSignals'
 import { hearForwarded } from '../core/slack/forwarded'
 import { HookEventWatcher } from '../core/hooks/eventWatcher'
 import { fanOutHookEvent } from './hookFanOut'
@@ -641,6 +642,10 @@ app.whenReady().then(async () => {
     log: slackLog
   })
   slackOwnershipRef = slackOwnership
+  // Plugin Phase 3 (events and notifications design N3): what only this app sees of its sessions, told to a Host that
+  // records session events, whoever owns Slack. Its log runs only once registerIpc has handed it the Host client,
+  // after hostLog below exists.
+  const sessionSignals = createSessionSignalForwarder({ log: (m) => hostLog(m) })
   // codex rollout watcher: codex has neither hooks nor a statusLine mechanism, so this one tail of
   // the rollout jsonl answers both questions — task_complete for turn completion, and the token_count
   // records the usage chips draw. Independent of rolling. Every codex session is watched (the caller
@@ -928,6 +933,21 @@ app.whenReady().then(async () => {
     } catch {
       /* an orchestration tap failure must not block rolling */
     }
+    // Plugin Phase 3 (N3): the roll states of this app's own chains, for the Host's session events. A Host roll
+    // (orchestration false) is the Host's own, which it records itself.
+    try {
+      if (opts.orchestration && channel === 'session:rollState') {
+        const ev = payload as RollStateEvent
+        const chat = core!.chat.has(ev.sessionId)
+        const info = chat ? core!.chat.info(ev.sessionId) : core!.sessions.list().find((s) => s.id === ev.sessionId)
+        sessionSignals.rollState(
+          { id: ev.sessionId, kind: chat ? 'chat' : 'terminal', ...(info?.title ? { title: info.title } : {}), ...(info?.cwd ? { cwd: info.cwd } : {}) },
+          ev
+        )
+      }
+    } catch {
+      /* a session signal failure must not block rolling */
+    }
     // Slack notifications tap rolling events too, for both providers. Isolated so a tap exception does
     // not block rolling. Without this the SlackNotifier record stays on the old id, so turn
     // notifications stop after the switch, onRolled cannot cancel the scheduled exit timer so a false
@@ -1214,6 +1234,8 @@ app.whenReady().then(async () => {
       // orchestration tap: the Host already rekeyed the Dispatch, and hostRollView (ipc.ts) passes
       // `orchestration: false` — pinned by its tests rather than here.
       fanOutRollEvent,
+      // Plugin Phase 3 (N3): handed the Host client in registerIpc, which also feeds it the chat events.
+      sessionSignals,
       // Handed over as soon as the client exists, whether or not a Host is ever reached — the same
       // shape as onTabResumeReady above. Read from will-quit.
       onHostClientReady: ({ stop, retire, survivesUpdate }) => {
