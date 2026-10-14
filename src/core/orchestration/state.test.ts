@@ -1166,6 +1166,36 @@ describe('applyValidationResult — a plugin check (plugin Phase 5 C9, C10)', ()
       expect(r.value.checks?.[1]).toMatchObject({ skipped: true, status: 'not-run' })
     })
 
+  // 5a final review M3: the coordinator reads this; a skipped check did not pass
+  it('tells the coordinator how many checks passed and how many a person skipped', () => {
+    const { s, taskId } = armed(true)
+    const results: CheckResult[] = [
+      { configId: 'npm-test', name: 'Tests', status: 'passed', exitCode: 0 },
+      { configId: 'plugin:d', name: 'D', status: 'not-run', skipped: true, summary: 'Skipped by a person: service down' },
+      { configId: 'lint', name: 'lint', status: 'passed', exitCode: 0 }
+    ]
+    const r = unwrap<Task>(applyValidationResult(s, { taskId, results, repair: SAME }, NOW) as never)
+    expect(r.state.messages.at(-1)?.subject).toBe('2 of 3 checks passed, 1 skipped by a person: D')
+  })
+
+  // 5a final review M4: the results a skipped round carried were recorded in its first verdict already
+  it('records in the history only the checks the resumed round ran', () => {
+    const armedState = armed(false, { checkHistory: { 'npm-test': ['passed'] } })
+    const taskId = armedState.taskId
+    const dispatchId = armedState.s.dispatches.find((d) => d.taskId === taskId)!.id
+    const done: CheckResult[] = [
+      { configId: 'npm-test', name: 'Tests', status: 'passed', exitCode: 0 },
+      { configId: 'plugin:d', name: 'D', status: 'not-run', skipped: true, summary: 'Skipped by a person: service down' }
+    ]
+    const s: OrchState = {
+      ...armedState.s,
+      tasks: armedState.s.tasks.map((t) => (t.id === taskId ? { ...t, checkResume: { dispatchId, done, rest: ['lint'] } } : t))
+    }
+    const results: CheckResult[] = [...done, { configId: 'lint', name: 'lint', status: 'passed', exitCode: 0 }]
+    const r = unwrap<Task>(applyValidationResult(s, { taskId, results }, NOW) as never)
+    expect(r.value.checkHistory).toEqual({ 'npm-test': ['passed'], lint: ['passed'] })
+  })
+
   it('tells the coordinator what a failed plugin check found, without convergence', () => {
     const { s, taskId } = armed(false)
     const failed: CheckResult = { configId: 'plugin:d', name: 'D', status: 'failed', summary: '1 leftover', diagnostics: [{ file: 'src/a.js', line: 3, message: 'adds console.log' }] }

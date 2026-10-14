@@ -813,6 +813,7 @@ export function applyValidationResult(
   const total = a.results.length
   const ran = a.results.filter((r) => r.status !== 'not-run').length
   const failedNames = a.results.filter((r) => r.status !== 'passed' && r.status !== 'not-run').map((r) => r.name)
+  const skippedNames = a.results.filter((r) => r.skipped === true).map((r) => r.name)
   const firstFailed = a.results.find((r) => r.status !== 'passed' && r.status !== 'not-run')
   const exitCode = firstFailed?.exitCode ?? (passed ? 0 : 1)
   // A plugin check's text is its summary and findings (C10); a command check's is its output, as it always was
@@ -829,7 +830,9 @@ export function applyValidationResult(
   // 용량의 대부분이다. **여기서 벗긴다, validator 가 아니라** — 아래 status 메시지의 body 는 a.results 에서 앞서
   // 계산한 output 을 그대로 실어 코디네이터가 읽던 문구가 바뀌지 않는다. checkHistory 는 판정('passed'|'failed')만
   // 들고 있어 손댈 것이 없다. 키를 아예 빼는 이유: undefined 값은 JSON 에 안 남지만 메모리의 Task 비교에 남는다.
-  const history = appendHistory(task.checkHistory, a.results)
+  // A resumed round carries results its first verdict recorded already (plugin Phase 5 C9; 5a final review M4)
+  const carried = liveCheckResume(s, task)?.done.length ?? 0
+  const history = appendHistory(task.checkHistory, a.results.slice(carried))
   const unstable = new Set(unstableChecks(history))
   const checks: CheckResult[] = a.results.map((r) => {
     const { outputTail, ...rest } = r
@@ -905,7 +908,11 @@ export function applyValidationResult(
         runId: runIdOf(task),
         type: 'status',
         taskId: task.id,
-        subject: `All ${total} checks passed`,
+        // A check a person skipped did not pass (plugin Phase 5 C9; 5a final review M3): the coordinator reads this
+        subject:
+          skippedNames.length > 0
+            ? `${total - skippedNames.length} of ${total} checks passed, ${skippedNames.length} skipped by a person: ${skippedNames.join(', ')}`
+            : `All ${total} checks passed`,
         body: `exitCode=0. ${reviewing ? 'The Task moved to reviewing — a reviewer on another provider now reads it.' : 'The Task moved to completed.'}`
       },
       now
