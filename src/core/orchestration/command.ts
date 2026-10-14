@@ -128,6 +128,7 @@ import { APP_CALLER, HOST_CALLER } from '../host/driver'
 import { UNREADABLE, recordDetail, recordSummary, recordsFor, type StoreShape } from '../understanding/read'
 import { JOB_SOURCE, SOURCE_COMMANDS, createFromContext, sourcesCommand, type JobSourcesDeps } from './commandSources'
 export { JOB_SOURCE } from './commandSources'
+import type { CompletionCheckInput, PluginCheckAnswer } from './pluginChecks'
 
 /** One row of `listAccounts`. Named only because the declaration below is a union and repeating the
  *  shape on both sides invites the two halves to drift. */
@@ -645,6 +646,29 @@ export interface OrchServerDeps {
   /** The job-source plugins (plugin Phase 4 J10): which there are and a question to one. **Only the Host injects it**,
    *  from its plugin manager and runtime; absent, the sources are GitHub's alone. */
   jobSources?: JobSourcesDeps
+  /** The completion check plugins (plugin Phase 5 C7, C8): which there are, for `tasks add` and `jobs run` to refuse a
+   *  missing one early, and a check asked of one, for the checks to run. The Host's is its plugin manager and runtime;
+   *  the app's goes through the Host (`plugins-list`, `checks-plugin-run`). Absent, nothing is refused early and a
+   *  plugin check is an `error` that says so. */
+  completionChecks?: CompletionChecksDeps
+}
+
+/** A plugin as the early refusal reads it (plugin Phase 5 C7). */
+export interface CompletionCheckPlugin {
+  id: string
+  displayName: string
+  /** Its manifest names `completion-check` */
+  check: boolean
+  enabled: boolean
+}
+
+/** How completion check plugins are reached (plugin Phase 5 C7, C8). */
+export interface CompletionChecksDeps {
+  /** Every installed plugin, or null when the list could not be read (then nothing is refused early). */
+  plugins(): Promise<CompletionCheckPlugin[] | null>
+  /** Asks plugin `plugin` to check: its answer checked and cut (`checkAnswerOf`), named by its display name. Never
+   *  rejects: a plugin that could not answer is an `error` answer saying why. */
+  run(plugin: string, input: CompletionCheckInput): Promise<PluginCheckAnswer>
 }
 
 /** A chat session's turn as `chatTurn` reads it. `prompt` is the open prompt, as `chats pending` lists

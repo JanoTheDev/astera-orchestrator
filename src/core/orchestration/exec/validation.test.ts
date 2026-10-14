@@ -10,8 +10,9 @@ import os from 'node:os'
 import path from 'node:path'
 import { createTaskValidation, type ValidationContext } from './validation'
 import { applyWorkerDone, createJob, createTask, emptyState, openDispatch, startJobRun, type OrchState } from '../state'
-import { CHECK_TIMEOUT_MS } from '../types'
+import { CHECK_TIMEOUT_MS, type CheckResult } from '../types'
 import type { StartOpts } from '../../run/runManager'
+import type { CompletionCheckInput, PluginCheckAnswer } from '../pluginChecks'
 
 const NOW = '2026-09-24T00:00:00.000Z'
 const unwrap = <T>(r: { ok: boolean } & Record<string, unknown>): { state: OrchState; value: T } => {
@@ -35,6 +36,12 @@ interface RigOpts {
   exitInMicrotask?: number
   /** The journal's answer for the first checkpoint head; null (no baseline) when left out. */
   checkpointHead?: () => string | null | 'unknown' | Promise<string | null | 'unknown'>
+  /** The Task's check list; `['seed:npm:test']` when left out. */
+  checks?: string[]
+  /** The Task's skipped round (plugin Phase 5 C9) */
+  checkResume?: { done: CheckResult[]; rest: string[] }
+  /** How a plugin check is asked (plugin Phase 5 C8); answers passed when left out. */
+  pluginCheck?: (plugin: string, input: CompletionCheckInput) => Promise<PluginCheckAnswer>
 }
 
 function rig(o: RigOpts = {}) {
@@ -61,7 +68,7 @@ function rig(o: RigOpts = {}) {
         deps: [],
         // 실재하는 구성이다(package.json 의 test 스크립트) — startValidation 이 큐에 넣는 check 가 진짜로
         // 떠서, finish() 가 그 run 을 끝내 치울 수 있다(review m3).
-        validateConfigIds: ['seed:npm:test'],
+        validateConfigIds: o.checks ?? ['seed:npm:test'],
         ...(o.review ? { reviewRequested: true } : {})
       },
       NOW
@@ -90,6 +97,8 @@ function rig(o: RigOpts = {}) {
   ).state
   const taskId = t.value.id
   if (state.tasks.find((x) => x.id === taskId)?.status !== 'validating') throw new Error('rig: not validating')
+  if (o.checkResume) state = { ...state, tasks: state.tasks.map((x) => (x.id === taskId ? { ...x, checkResume: o.checkResume } : x)) }
+  const pluginAsks: Array<{ plugin: string; input: CompletionCheckInput }> = []
 
   const logs: string[] = []
   const startedOpts: StartOpts[] = []
@@ -126,7 +135,11 @@ function rig(o: RigOpts = {}) {
     startReview,
     startRepair,
     firstCheckpointHead: o.checkpointHead ?? (() => null),
-    diffNames
+    diffNames,
+    pluginCheck: async (plugin, input) => {
+      pluginAsks.push({ plugin, input })
+      return o.pluginCheck ? o.pluginCheck(plugin, input) : { name: plugin.toUpperCase(), status: 'passed', summary: 'passed' }
+    }
   }
   const validation = createTaskValidation(ctx)
 
@@ -152,6 +165,7 @@ function rig(o: RigOpts = {}) {
       return startedOpts[n]
     },
     lastRunId: () => `r${startedOpts.length}`,
+    pluginAsks,
     task: () => state.tasks.find((x) => x.id === taskId)!,
     state: () => state,
     runsStarted: () => startedOpts.length,
@@ -174,6 +188,76 @@ function rig(o: RigOpts = {}) {
     }
   }
 }
+
+describe('createTaskValidation — a plugin check (plugin Phase 5 C3, C8, C9, C11)', () => {
+  it('asks the plugin with the Task’s input, and a pass completes the Task', async () => {
+    const h = rig({ checks: ['plugin:d'] })
+    h.validation.startValidation({ taskId: h.taskId, cwd: h.cwd })
+    await vi.waitFor(() => expect(h.task().status).toBe('completed'))
+    expect(h.pluginAsks).toHaveLength(1)
+    expect(h.pluginAsks[0].plugin).toBe('d')
+    expect(h.pluginAsks[0].input).toMatchObject({ taskId: h.taskId, task: { title: 'T' }, workspace: { root: h.cwd } })
+    expect(h.task().checks).toEqual([expect.objectContaining({ configId: 'plugin:d', name: 'D', status: 'passed' })])
+  })
+
+  it('a failure in a convergence Job records the findings and opens a repair', async () => {
+    const h = rig({
+      checks: ['plugin:d'],
+      convergence: true,
+      pluginCheck: async () => ({ name: 'D', status: 'failed', summary: '1 leftover', diagnostics: [{ file: 'a.ts', line: 3, message: 'adds console.log' }] })
+    })
+    h.validation.startValidation({ taskId: h.taskId, cwd: h.cwd })
+    await vi.waitFor(() => expect(h.startRepair).toHaveBeenCalled())
+    expect(h.task().checks?.[0].diagnostics).toEqual([{ file: 'a.ts', line: 3, message: 'adds console.log' }])
+  })
+
+  it('goes on from a skipped round: runs the rest alone, the carried results first, and clears the bookkeeping', async () => {
+    const done: CheckResult[] = [
+      { configId: 'plugin:a', name: 'A', status: 'passed', summary: 'ok' },
+      { configId: 'plugin:b', name: 'B', status: 'not-run', skipped: true, summary: 'Skipped by a person: down' }
+    ]
+    const h = rig({ checks: ['plugin:a', 'plugin:b', 'plugin:c'], checkResume: { done, rest: ['plugin:c'] } })
+    h.validation.startValidation({ taskId: h.taskId, cwd: h.cwd })
+    await vi.waitFor(() => expect(h.task().status).toBe('completed'))
+    expect(h.pluginAsks.map((x) => x.plugin)).toEqual(['c'])
+    expect(h.task().checks?.map((c) => c.configId)).toEqual(['plugin:a', 'plugin:b', 'plugin:c'])
+    expect(h.task()).not.toHaveProperty('checkResume')
+  })
+
+  it('does not ask a plugin for a folder the guard refuses: the Task waits on a plain question', async () => {
+    const h = rig({
+      checks: ['plugin:d'],
+      guard: async () => {
+        throw new Error('not an allowed path')
+      }
+    })
+    h.validation.startValidation({ taskId: h.taskId, cwd: h.cwd })
+    await vi.waitFor(() => expect(h.task().status).toBe('blocked'))
+    expect(h.pluginAsks).toEqual([])
+    expect(h.state().gates.find((g) => g.taskId === h.taskId)?.kind).toBeUndefined()
+  })
+
+  it('does not ask for a Task that left validating while it waited', async () => {
+    const h = rig({ checks: ['plugin:d'] })
+    const s = h.state()
+    await (async () => {
+      const moved = { ...s, tasks: s.tasks.map((x) => (x.id === h.taskId ? { ...x, status: 'failed' as const } : x)) }
+      // The rig's state box is written through the validation's own setState
+      Object.assign(s, moved)
+    })()
+    h.validation.validator.enqueue({ taskId: h.taskId, cwd: h.cwd, configIds: ['plugin:d'] })
+    await h.settle()
+    await h.settle()
+    expect(h.pluginAsks).toEqual([])
+  })
+
+  it('names a plugin check in the completion policy’s fingerprint', async () => {
+    const h = rig({ checks: ['plugin:d'], convergence: true })
+    h.validation.startValidation({ taskId: h.taskId, cwd: h.cwd })
+    await vi.waitFor(() => expect(h.task().policySnapshot).toBeDefined())
+    expect(h.task().policySnapshot!.key.endsWith('|plugin:d=plugin')).toBe(true)
+  })
+})
 
 describe('createTaskValidation', () => {
   it('a passing check commits the Task completed and asks for nothing else (no review, no repair)', async () => {

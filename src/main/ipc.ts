@@ -143,6 +143,7 @@ import { ExitsBeforeTap, OrchRollTap } from '../core/orchestration/exec/rollTap'
 import { coordinatorReleaseOf, PendingCoordinatorReleases } from '../core/orchestration/exec/releaseDefer'
 import type { TaskValidator } from '../core/orchestration/exec/validator'
 import { createTaskValidation } from '../core/orchestration/exec/validation'
+import { unavailable } from '../core/orchestration/pluginChecks'
 import {
   bindNativeSession,
   writeOffDispatch
@@ -3063,7 +3064,10 @@ export function registerIpc(
       diffNames: async (cwd, fromHead) => {
         const r = await git(['diff', '--name-only', fromHead, 'HEAD'], { cwd })
         return r.ok ? r.stdout.split('\n').map((line) => line.trim()).filter(Boolean) : null
-      }
+      },
+      // Plugins run in the Host: the app asks it (plugin Phase 5 C8). `deps` is defined below and read at the call.
+      pluginCheck: (plugin, input) =>
+        deps.completionChecks?.run(plugin, input) ?? Promise.resolve({ name: plugin, ...unavailable('plugin checks cannot run here') })
     })
     orchValidator = validation.validator
 

@@ -451,7 +451,8 @@ const NOT_FORWARDED = [
   'github',
   'readUnderstanding',
   'changes',
-  'jobSources'
+  'jobSources',
+  'completionChecks'
 ] as const
 
 /** Every name the groups above classify between them. Nothing is unsupplied any more: the four
@@ -592,7 +593,10 @@ const EFFECTFUL: Record<Classified, boolean> = {
   changes: false,
   // NOT_FORWARDED as well (plugin Phase 4 J10): this Host's job-source plugins, asked for their items, never the app's.
   // A question to a plugin leaves nothing outside the call; the Job a person makes from an item is a commit.
-  jobSources: false
+  jobSources: false,
+  // NOT_FORWARDED as well (plugin Phase 5 C7, C8): this Host's completion check plugins, listed and asked to check,
+  // never the app's. A check reads the work; its verdict is committed by the checks that asked.
+  completionChecks: false
 }
 
 /** The names an action really travels under, narrowed to the effectful ones — the NESTED groups
