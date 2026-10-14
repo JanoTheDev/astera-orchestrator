@@ -126,7 +126,9 @@ export function SourceJobView(p: SourceJobViewProps): React.JSX.Element {
     <div className="modal-backdrop" {...backdropProps(() => !p.busy && p.onClose())}>
       <div className="modal source-job" onClick={(e) => e.stopPropagation()}>
         <h2>{t('jobs.source.title')}</h2>
-        <div className="source-pick">
+        {/* A native select, not the app's Select: a source that is not ready is a greyed option, which Select has no
+            way to draw (§3.1). `field` gives the search the app's input look. */}
+        <div className="field source-pick">
           {p.sources === null ? (
             <p className="modal-hint">{p.sourcesError ?? t('jobs.source.sourcesLoading')}</p>
           ) : (
