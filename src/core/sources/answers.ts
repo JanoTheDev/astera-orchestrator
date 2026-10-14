@@ -43,6 +43,7 @@ export const SOURCE_EVIDENCE_MAX = 20
 export const SOURCE_EVIDENCE_TOTAL_MAX = 100_000
 export const SOURCE_LABEL_MAX = 200
 export const SOURCE_OBJECTIVE_MAX = 20_000
+export const SOURCE_URL_MAX = 2_048
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
 
@@ -50,19 +51,25 @@ const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'obj
  *  array, since a cut needs at most twice the limit in code units. */
 const fits = (s: string, max: number): boolean => s.length <= max || (s.length <= max * 2 && Array.from(s).length <= max)
 
-/** `s` within `max` characters, `…` included; cut by code points, so an emoji is never halved. */
+/** Characters (code points) in `s`, which a caller has already cut to a limit. */
+const chars = (s: string): number => Array.from(s).length
+
+/** `s` within `max` characters, `…` included; cut by code points, so an emoji is never halved. No room is nothing. */
 function cutTo(s: string, max: number, cut: { cut: boolean }): string {
   if (fits(s, max)) return s
   cut.cut = true
+  if (max <= 0) return ''
   return `${Array.from(s.slice(0, max * 2)).slice(0, max - 1).join('')}…`
 }
 
-/** A web address a person can open: http or https, nothing else (no `javascript:`, no `file:`). */
+/** A web address a person can open: http or https, nothing else (no `javascript:`, no `file:`), as the parser read it
+ *  (the tabs and line breaks it skips are gone), and within SOURCE_URL_MAX characters, since half an address opens
+ *  somewhere else. */
 const webUrl = (v: unknown): string | undefined => {
   if (typeof v !== 'string') return undefined
   try {
     const u = new URL(v)
-    return u.protocol === 'http:' || u.protocol === 'https:' ? v : undefined
+    return (u.protocol === 'http:' || u.protocol === 'https:') && u.href.length <= SOURCE_URL_MAX ? u.href : undefined
   } catch {
     return undefined
   }
@@ -137,7 +144,7 @@ export function itemDetail(answer: unknown): Checked<SourceDetail> {
 }
 
 /** What `buildJobContext` answers: an objective and a label it needs, evidence within SOURCE_EVIDENCE_MAX entries and
- *  SOURCE_EVIDENCE_TOTAL_MAX characters in all. */
+ *  SOURCE_EVIDENCE_TOTAL_MAX characters in all, counted as each entry's limit counts them. */
 export function jobContext(answer: unknown): Checked<SourceContext> {
   if (!isObject(answer)) return { ok: false, problem: 'not an object' }
   if (typeof answer.objective !== 'string' || answer.objective.trim() === '') return { ok: false, problem: 'it has no objective' }
@@ -148,12 +155,12 @@ export function jobContext(answer: unknown): Checked<SourceContext> {
     let left = SOURCE_EVIDENCE_TOTAL_MAX
     for (const e of answer.evidence) {
       if (!isObject(e) || typeof e.label !== 'string' || typeof e.content !== 'string') continue
-      if (evidence.length === SOURCE_EVIDENCE_MAX || left === 0) {
+      if (evidence.length === SOURCE_EVIDENCE_MAX || left <= 0) {
         cut.cut = true
         break
       }
       const content = cutTo(e.content, Math.min(SOURCE_BODY_MAX, left), cut)
-      left -= content.length
+      left -= chars(content)
       evidence.push({ label: cutTo(e.label, SOURCE_LABEL_MAX, cut), content })
     }
   }

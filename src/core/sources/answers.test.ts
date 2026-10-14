@@ -82,6 +82,29 @@ describe('jobContext (J7)', () => {
     expect(r.value).toMatchObject({ sourceLabel: 'Linear ENG-1', sourceUrl: 'https://linear.app/x/ENG-1', metadata: { team: 'ENG' } })
   })
 
+  // The 4a review's I1: the total counts characters, as each entry's limit does, and never goes below nothing
+  it('counts the 100,000 in characters, so emoji evidence stays within it and each entry within 20,000', () => {
+    const r = jobContext({
+      objective: 'o',
+      sourceLabel: 'L',
+      evidence: Array.from({ length: 8 }, (_, i) => ({ label: `e${i}`, content: '😀'.repeat(100_000) }))
+    })
+    if (!r.ok) throw new Error(r.problem)
+    expect(r.cut).toBe(true)
+    const sizes = r.value.evidence!.map((e) => Array.from(e.content).length)
+    expect(sizes).toEqual([20_000, 20_000, 20_000, 20_000, 20_000])
+  })
+
+  // The 4a review's M4: the address the Host passes on is the one the URL parser read, within 2,048 characters
+  it('passes a source url as the parser reads it, and drops one longer than 2,048 characters', () => {
+    const r = jobContext({ objective: 'o', sourceLabel: 'L', sourceUrl: 'HTTPS://Linear.app/x/\nENG 1' })
+    expect(r.ok && r.value.sourceUrl).toBe('https://linear.app/x/ENG%201')
+    const long = jobContext({ objective: 'o', sourceLabel: 'L', sourceUrl: `https://x.dev/${'a'.repeat(2_048)}` })
+    expect(long.ok && long.value.sourceUrl).toBeUndefined()
+    const item = itemsPage({ items: [{ id: 'A', title: 't', url: 'https://x.dev/\tb' }] })
+    expect(item.ok && item.value.items[0].url).toBe('https://x.dev/b')
+  })
+
   it('drops evidence that is not a label and text, and a source url that is not http or https', () => {
     const r = jobContext({ objective: 'o', sourceLabel: 'L', sourceUrl: 'file:///etc/passwd', evidence: [{ label: 'x' }, 'y', { label: 'B', content: 'c' }] })
     if (!r.ok) throw new Error(r.problem)
