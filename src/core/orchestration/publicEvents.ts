@@ -191,7 +191,10 @@ export function derivePublicEvents(prev: OrchState, next: OrchState): EventDraft
         const from = was === undefined ? 'not-started' : eventState(prev, byBefore, was)
         const to = eventState(next, byNow, t)
         if (from === to) continue
-        const types = completionTypes(from, to)
+        // A check that could not be made (plugin Phase 5 C9) ends no round in failure: the question it opens says the
+        // Task waits, and its answer starts the checks again (5a final review M2)
+        const unavailable = to === 'waiting-for-user' && (byNow.gates.get(t.id) ?? []).some((g) => g.status === 'open' && g.kind === 'check-unavailable')
+        const types = completionTypes(from, to).filter((x) => !(unavailable && x === 'completion.failed'))
         if (types.length === 0) continue
         const payload = taskCompletionOf(narrowed(next, byNow, t.id), t)
         for (const type of types) push(type, idsOf(t.runId, t.id), payload)
