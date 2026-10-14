@@ -415,6 +415,39 @@ describe('runLauncher: settings and secrets', () => {
     expect(await l.ask('jobSource.context', { id: 'ENG-1' })).toMatchObject({ result: { objective: 'Fix' } })
   })
 
+  // Plugin Phase 5 C2: a completion check answers the Host with what runCheck returned, given the input and the context
+  it('says a check plugin has runCheck, and answers completionCheck.run with what it returned', async () => {
+    const seen: unknown[][] = []
+    const l = launch({
+      default: {
+        async runCheck(input: unknown, ctx: PluginContext) {
+          seen.push([input, ctx.plugin.id])
+          return { status: 'failed', summary: '1 leftover', diagnostics: [{ file: 'a.ts', line: 3, message: 'adds console.log' }] }
+        }
+      }
+    })
+    expect(await l.ask('initialize', INIT_PARAMS)).toMatchObject({ result: { handlers: ['runCheck'] } })
+    const input = { jobId: 'job1', runId: 'run1', taskId: 't1', task: { title: 'T' }, workspace: { root: '/w' } }
+    expect(await l.ask('completionCheck.run', { input })).toMatchObject({ result: { status: 'failed', summary: '1 leftover' } })
+    expect(seen).toEqual([[input, 'astera-hello']])
+  })
+
+  it('answers a check’s throw with its message, a missing runCheck, and a request without an input', async () => {
+    const thrower = launch({
+      default: {
+        runCheck() {
+          throw new Error('git is not installed')
+        }
+      }
+    })
+    await thrower.ask('initialize', INIT_PARAMS)
+    expect(await thrower.ask('completionCheck.run', { input: {} })).toMatchObject({ error: { code: -32603, message: 'runCheck threw: git is not installed' } })
+    expect(await thrower.ask('completionCheck.run', {})).toMatchObject({ error: { code: -32602, message: 'completionCheck.run needs { input }' } })
+    const none = launch({ default: { listItems: () => ({ items: [] }) } })
+    await none.ask('initialize', INIT_PARAMS)
+    expect(await none.ask('completionCheck.run', { input: {} })).toMatchObject({ error: { code: -32601, message: 'the plugin has no runCheck' } })
+  })
+
   // The 4a review's M8: not started yet, or stopping, is said with a code of its own, which the Host answers as 503
   it('answers a job source request before the start, and while stopping, with the not-ready code', async () => {
     const early = launch({ default: { listItems: () => ({ items: [] }) } })

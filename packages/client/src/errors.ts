@@ -24,6 +24,10 @@ export const REMOTE_ERROR_CODES = Object.freeze([
 ] as const)
 export type RemoteErrorCode = (typeof REMOTE_ERROR_CODES)[number]
 
+/** The plugins' codes: `PLUGIN_CAPABILITY_MISSING`, a Task's check names a plugin that is not installed, does not offer
+ *  completion checks, or is disabled (Astera 1.4.14). */
+export const PLUGIN_ERROR_CODES = Object.freeze(['PLUGIN_CAPABILITY_MISSING'] as const)
+
 export const ERROR_CODES = Object.freeze([
   'FAILED',
   'INVALID_ARGUMENTS',
@@ -37,7 +41,9 @@ export const ERROR_CODES = Object.freeze([
   'RUN_FAILED',
   // A controller's answers from a paired Runtime. Each exits as its nearest local code, so a script that branches
   // on the exit keeps working and one that reads the code can tell them apart.
-  ...REMOTE_ERROR_CODES
+  ...REMOTE_ERROR_CODES,
+  // The same for the plugins' codes
+  ...PLUGIN_ERROR_CODES
 ] as const)
 export type AsteraErrorCode = (typeof ERROR_CODES)[number]
 
@@ -66,7 +72,8 @@ export const EXIT_CODES: Readonly<Record<AsteraErrorCode, number>> = Object.free
   RUNTIME_OUTCOME_UNKNOWN: 6,
   REMOTE_TIMEOUT: 7,
   REMOTE_OPERATION_CONFLICT: 6,
-  REMOTE_REPLY_TOO_LARGE: 1
+  REMOTE_REPLY_TOO_LARGE: 1,
+  PLUGIN_CAPABILITY_MISSING: 6
 })
 
 const REMOTE: ReadonlySet<string> = new Set(REMOTE_ERROR_CODES)
@@ -76,6 +83,16 @@ const REMOTE: ReadonlySet<string> = new Set(REMOTE_ERROR_CODES)
 export const remoteCodeOf = (body: unknown): RemoteErrorCode | null => {
   const code = typeof body === 'object' && body !== null ? (body as { code?: unknown }).code : undefined
   return typeof code === 'string' && REMOTE.has(code) ? (code as RemoteErrorCode) : null
+}
+
+/** The codes a refusal may name in its body: the remote ones and the plugins' ones. */
+const BODY: ReadonlySet<string> = new Set([...REMOTE_ERROR_CODES, ...PLUGIN_ERROR_CODES])
+
+/** The code a refusal names in its body (`{ code }`), remote or a plugin's, or null. Read from the field, never the
+ *  sentence: the status then gives the code (`codeForStatus`). */
+export const bodyCodeOf = (body: unknown): AsteraErrorCode | null => {
+  const code = typeof body === 'object' && body !== null ? (body as { code?: unknown }).code : undefined
+  return typeof code === 'string' && BODY.has(code) ? (code as AsteraErrorCode) : null
 }
 
 export const exitCodeFor = (code: AsteraErrorCode): number => EXIT_CODES[code]

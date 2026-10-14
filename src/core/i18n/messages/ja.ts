@@ -1364,6 +1364,7 @@ export const ja: Catalog = {
   'jobs.convergence.gate.stopped': 'このTaskの自動修正は停止しており、チェックはまだ失敗しています: {failures}',
   'jobs.convergence.gate.paused': '完了チェックの実行中にこのRunが一時停止され、チェックはまだ失敗しています: {failures}',
   'jobs.convergence.gate.repairFailed': '修正ワーカーを起動できませんでした: {reason}',
+  'jobs.checks.gate.unavailable': 'チェックを実行できませんでした: {check}: {reason}',
   'jobs.convergence.gate.retryOnce': 'もう一度修正',
   'jobs.convergence.gate.markFailed': '失敗として記録',
   'jobs.convergence.retryOnceFailed': 'ゲートは解除しましたが、修正を開始できませんでした: {reason}',

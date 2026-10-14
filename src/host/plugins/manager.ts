@@ -127,9 +127,9 @@ const stranded = (first: unknown, retired: string): Error =>
 const discard = (p: string): Promise<void> => fs.rm(p, { recursive: true, force: true, maxRetries: 3 }).catch(() => {})
 
 /** The plugin capabilities this Host serves (design P8): `event` and `notification` from plugin Phase 3, `job-source`
- *  from Phase 4. A plugin that names another one installs and does not run; docs/plugins.md names each of those as not
- *  yet (pluginsDoc.test.ts). */
-export const PLUGIN_SERVED_CAPABILITIES: readonly PluginCapability[] = ['event', 'notification', 'job-source']
+ *  from Phase 4, `completion-check` from Phase 5. A plugin that names another one installs and does not run;
+ *  docs/plugins.md names each of those as not yet (pluginsDoc.test.ts). */
+export const PLUGIN_SERVED_CAPABILITIES: readonly PluginCapability[] = ['event', 'notification', 'job-source', 'completion-check']
 
 export function createPluginManager(d: {
   profileDir: string

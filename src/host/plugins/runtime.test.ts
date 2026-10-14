@@ -12,6 +12,7 @@ import type { DeliveryTimings } from './deliverer'
 import type { AsteraEvent } from '../../core/publicContract'
 import type { PluginNotification } from '../../core/plugins/notifications'
 import { bundleLauncher } from '../../pluginHost/testkit'
+import { hostCompletionChecks } from '../completionChecks'
 import { cursorFile, pluginSecrets, type CursorStore } from './pluginData'
 import { createEventRing, type EventRing } from '../../core/events/eventRing'
 import { notificationOf } from '../../core/plugins/notifications'
@@ -768,6 +769,54 @@ describe('notification plugins, against what a person would not expect (plugin 3
   }, 90_000)
 })
 
+// Plugin Phase 5 C1-C5: a completion check plugin asked through the Host's own path, in a real plugin process
+describe('completion check plugins through the Host (plugin Phase 5)', () => {
+  const SOURCE = `export default {
+    async runCheck(input, ctx) {
+      const title = input.task.title
+      if (title === 'boom') throw new Error('git is not installed')
+      if (title === 'odd') return { status: 'maybe' }
+      if (title === 'long') return { status: 'failed', summary: 'x'.repeat(5000), diagnostics: Array.from({ length: 150 }, (_, i) => ({ file: 'src/a.js', line: i + 1, message: 'adds console.log' })) }
+      if (title === 'dirty') return { status: 'failed', summary: '1 leftover in ' + input.workspace.root, diagnostics: [{ file: 'src/a.js', line: 3, message: 'adds console.log', severity: 'error' }], externalUrl: 'https://ci.example/r/1' }
+      return { status: 'passed', summary: 'checked by ' + ctx.plugin.id }
+    }
+  }`
+  const input = (title: string) => ({ jobId: 'job1', runId: 'run1', taskId: 't1', task: { title }, workspace: { root: '/w' } })
+  const listing = (id: string) => ({
+    listNow: async () => ({ status: 200, body: { plugins: [{ id, displayName: 'Debug leftovers', enabled: true, status: 'running', capabilities: ['completion-check'] }] } })
+  })
+
+  it('answers a pass, a failure with its findings, a throw, an answer of the wrong shape and a cut answer', async () => {
+    const { r } = runtime()
+    r.start({ ...plugin('cc-real', SOURCE), capabilities: ['completion-check'], granted: [] })
+    await until(() => expect(r.status('cc-real')?.status).toBe('running'))
+    const checks = hostCompletionChecks({ manager: listing('cc-real') as never, runtime: r })
+    expect(await checks.run('cc-real', input('clean'))).toEqual({ name: 'Debug leftovers', status: 'passed', summary: 'checked by cc-real' })
+    expect(await checks.run('cc-real', input('dirty'))).toEqual({
+      name: 'Debug leftovers',
+      status: 'failed',
+      summary: '1 leftover in /w',
+      diagnostics: [{ file: 'src/a.js', line: 3, message: 'adds console.log', severity: 'error' }],
+      externalUrl: 'https://ci.example/r/1'
+    })
+    expect(await checks.run('cc-real', input('boom'))).toEqual({ name: 'Debug leftovers', status: 'error', summary: 'runCheck threw: git is not installed' })
+    expect((await checks.run('cc-real', input('odd'))).summary).toBe('the plugin answered with something that is not a check result: status must be passed, failed or error')
+    const long = await checks.run('cc-real', input('long'))
+    expect(long.diagnostics).toHaveLength(100)
+    expect(long.summary.length).toBeLessThanOrEqual(1000)
+    expect(long.summary.endsWith('(the first 100 of 150 findings are kept)')).toBe(true)
+  }, 90_000)
+
+  it('answers error saying so for a plugin that stopped', async () => {
+    const { r } = runtime()
+    r.start({ ...plugin('cc-stop', SOURCE), capabilities: ['completion-check'], granted: [] })
+    await until(() => expect(r.status('cc-stop')?.status).toBe('running'))
+    await r.stop('cc-stop')
+    const checks = hostCompletionChecks({ manager: listing('cc-stop') as never, runtime: r })
+    expect(await checks.run('cc-stop', input('clean'))).toEqual({ name: 'Debug leftovers', status: 'error', summary: 'cc-stop is stopped' })
+  }, 90_000)
+})
+
 describe('job-source plugins (plugin Phase 4 J6, J8)', () => {
   const SOURCE = `export default {
     listItems(input) { return { items: [{ id: 'ENG-1', title: 'Fix ' + (input.query ?? '') }] } },
@@ -846,6 +895,17 @@ describe('job-source plugins (plugin Phase 4 J6, J8)', () => {
     expect(requestFailure('js', new RpcError(RPC_CLOSED, 'gone'), hide)).toMatchObject({ status: 503, message: 'js exited while it answered' })
     expect(requestFailure('js', new RpcError(-32603, 'listItems threw: 401 for sk-1'), hide)).toMatchObject({ status: 502, message: 'listItems threw: 401 for [redacted]' })
   })
+
+  // Plugin Phase 5 C1: a check plugin is served through runCheck, and one without it does not start
+  it('asks a running check plugin and answers what runCheck returned; one without runCheck does not start', async () => {
+    const { r } = runtime({ failAfter: 1 })
+    const check = (name: string, source: string): PluginLaunch => ({ ...plugin(name, source), capabilities: ['completion-check'], granted: [] })
+    r.start(check('cc1', `export default { runCheck(input) { return { status: 'passed', summary: 'checked ' + input.task.title } } }`))
+    await until(() => expect(r.status('cc1')?.status).toBe('running'))
+    expect(await r.request('cc1', 'completionCheck.run', { input: { task: { title: 'T' } } }, 5_000)).toEqual({ status: 'passed', summary: 'checked T' })
+    r.start(check('cc2', 'export default { listItems() {} }'))
+    await until(() => expect(r.status('cc2')).toMatchObject({ status: 'failed', reason: expect.stringContaining('the completion-check capability needs runCheck in its entry') }))
+  }, 90_000)
 
   it('fails the start of a job source whose entry lacks one of its functions, saying which', async () => {
     const { r } = runtime({ failAfter: 1 })

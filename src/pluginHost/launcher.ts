@@ -42,7 +42,7 @@ const initializeParams = (v: unknown): InitializeParams | null => {
 }
 
 /** What a plugin's entry may define for the Host to call, beside activate and deactivate (plugin Phase 3 N5). */
-const HANDLERS = ['onEvent', 'send', 'listItems', 'getItem', 'buildJobContext'] as const
+const HANDLERS = ['onEvent', 'send', 'listItems', 'getItem', 'buildJobContext', 'runCheck'] as const
 const MEMBERS = ['activate', 'deactivate', ...HANDLERS] as const
 
 /** The plugin an entry exports as its default (`definePlugin`), one default deeper for CommonJS compiled from ESM. */
@@ -104,6 +104,11 @@ export function runLauncher(o: {
         const id = isObject(params) && typeof params.id === 'string' && params.id !== '' ? params.id : null
         if (id === null) throw new RpcError(RPC_INVALID_PARAMS, `${method} needs { id }`)
         return sendable(method === 'jobSource.get' ? 'getItem' : 'buildJobContext', [id])
+      }
+      // Plugin Phase 5 C2: a completion check answers with what runCheck returned; the Host checks and cuts it (C5)
+      if (method === 'completionCheck.run') {
+        if (!isObject(params) || !isObject(params.input)) throw new RpcError(RPC_INVALID_PARAMS, 'completionCheck.run needs { input }')
+        return sendable('runCheck', [params.input])
       }
       if (method === 'shutdown') {
         await stop()
@@ -252,9 +257,9 @@ export function runLauncher(o: {
     }
   }
 
-  /** A job source's answer (plugin Phase 4 J6), refused with why when JSON cannot hold it: a BigInt or a loop would
-   *  otherwise be lost on its way to the Host (4a final review I3). An event's or a notification's answer is not sent,
-   *  so it is not checked. */
+  /** A job source's or a check's answer (plugin Phase 4 J6, Phase 5 C2), refused with why when JSON cannot hold it: a
+   *  BigInt or a loop would otherwise be lost on its way to the Host (4a final review I3). An event's or a
+   *  notification's answer is not sent, so it is not checked. */
   async function sendable(handler: (typeof HANDLERS)[number], args: unknown[]): Promise<unknown> {
     const result = await answer(handler, args)
     try {

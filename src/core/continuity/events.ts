@@ -196,6 +196,10 @@ function runEndEvents(prev: OrchState, next: OrchState, now: string, stamp: stri
   return out
 }
 
+/** Whether a Gate of this kind is a verdict's result. A `check-unavailable` one is not (plugin Phase 5 C9): the check
+ *  could not be made, as a Gate with no kind says a check could not run. */
+const isVerdictGate = (kind: GateKind | undefined): boolean => kind !== undefined && kind !== 'check-unavailable'
+
 /** Which events a Task transition is. A check's verdict (validating → a state other than blocked)
  *  comes first; blocked out of validating is ordinarily a question about an interrupted check, not a
  *  verdict — but a Gate of **either** convergence kind opened out of validating/reviewing is a
@@ -218,7 +222,7 @@ function taskTransitionEvents(
   gateKind: GateKind | undefined,
   override: boolean
 ): ContinuityEventType[] {
-  const verdictGated = gateKind !== undefined
+  const verdictGated = isVerdictGate(gateKind)
   const exhausted = gateKind === 'convergence-exhausted'
   const verdicts: ContinuityEventType[] = []
   if (from === 'validating' && (to !== 'blocked' || verdictGated))
@@ -267,7 +271,7 @@ function taskEvents(prev: OrchState, next: OrchState, now: string, stamp: string
     const payload: Record<string, unknown> = { from, to }
     const openGate = to === 'blocked' ? latestGate(next.gates, task.id, 'open') : undefined
     const gateKind = openGate?.kind
-    const verdictGated = gateKind !== undefined
+    const verdictGated = isVerdictGate(gateKind)
     const exhausted = gateKind === 'convergence-exhausted'
     if (to === 'blocked') payload.question = openGate?.question ?? null
     if (from === 'blocked') payload.resolution = latestGate(next.gates, task.id, 'resolved')?.resolution ?? null

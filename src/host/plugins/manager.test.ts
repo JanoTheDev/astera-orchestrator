@@ -10,6 +10,8 @@ import { NpmMissing, type NpmRun } from './npm'
 import { NpmUnavailable } from './ownNpm'
 import { tgzOf } from './tarballFixture'
 
+/** A Host from before plugin Phase 5, which serves every capability but completion-check: what an unserved one does. */
+const WITHOUT_CHECKS = ['event', 'notification', 'job-source'] as const
 let dir: string
 let profile: string
 let manager: PluginManager
@@ -84,9 +86,11 @@ describe('inspect', () => {
   })
 
   it('says why a plugin will not run here, and what is installed under its id', async () => {
+    // Every capability is served since plugin Phase 5: an older Host, which does not serve completion-check, stands in
+    const older = createPluginManager({ profileDir: profile, hostVersion: '1.5.0', capabilities: WITHOUT_CHECKS })
     const src = await plugin(FOLDER, { capabilities: ['completion-check'] })
-    await manager.install({ path: src, grant: [] })
-    expect(await manager.inspect({ path: src })).toMatchObject({
+    await older.install({ path: src, grant: [] })
+    expect(await older.inspect({ path: src })).toMatchObject({
       status: 200,
       body: { compatible: false, reason: 'this Astera does not run completion-check plugins yet', installed: { version: '1.0.0', enabled: true } }
     })
@@ -520,8 +524,8 @@ const fakeRuntime = () => {
 }
 
 describe('with a runtime (plugin runtime design P11)', () => {
-  const withRuntime = (rt: ReturnType<typeof fakeRuntime>) =>
-    createPluginManager({ profileDir: profile, hostVersion: '1.5.0', runtime: rt.runtime })
+  const withRuntime = (rt: ReturnType<typeof fakeRuntime>, capabilities?: readonly string[]) =>
+    createPluginManager({ profileDir: profile, hostVersion: '1.5.0', runtime: rt.runtime, ...(capabilities ? { capabilities } : {}) })
 
   it('starts an enabled, compatible plugin when it is installed, with where it runs and what it was granted', async () => {
     const rt = fakeRuntime()
@@ -591,7 +595,7 @@ describe('with a runtime (plugin runtime design P11)', () => {
 
   it('does not start a plugin this Astera will not run', async () => {
     const rt = fakeRuntime()
-    await withRuntime(rt).install({ path: await plugin(FOLDER, { capabilities: ['completion-check'] }), grant: [] })
+    await withRuntime(rt, WITHOUT_CHECKS).install({ path: await plugin(FOLDER, { capabilities: ['completion-check'] }), grant: [] })
     expect(rt.calls).toEqual([])
   })
 
@@ -660,7 +664,7 @@ describe('with a runtime (plugin runtime design P11)', () => {
     await manager.install({ path: await plugin('c', { name: 'plugin-c', capabilities: ['completion-check'] }), grant: [] })
     await manager.setEnabled('plugin-b', false)
     const rt = fakeRuntime()
-    await withRuntime(rt).startAll()
+    await withRuntime(rt, WITHOUT_CHECKS).startAll()
     expect(rt.calls).toEqual(['start plugin-a'])
   })
 
@@ -731,8 +735,9 @@ describe('logs and doctor', () => {
   })
 
   it('says why an incompatible plugin and a failed one do not run', async () => {
-    await manager.install({ path: await plugin(FOLDER, { capabilities: ['completion-check'] }), grant: [] })
-    expect((await manager.doctor('@acme/astera-jira')).body).toMatchObject({
+    const older = createPluginManager({ profileDir: profile, hostVersion: '1.5.0', capabilities: WITHOUT_CHECKS })
+    await older.install({ path: await plugin(FOLDER, { capabilities: ['completion-check'] }), grant: [] })
+    expect((await older.doctor('@acme/astera-jira')).body).toMatchObject({
       ok: false,
       checks: expect.arrayContaining([{ name: 'compatible', ok: false, detail: 'this Astera does not run completion-check plugins yet' }])
     })

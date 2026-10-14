@@ -8,7 +8,7 @@ export type TaskStatus = 'pending' | 'ready' | 'dispatched' | 'validating' | 're
 export type Outcome = 'succeeded' | 'failed'
 export type MessageType = 'status' | 'worker_done' | 'question' | 'escalation' | 'heartbeat' | 'decision_gate'
 export type RepairReason = 'check-failure' | 'review-failure'
-export type GateKind = 'convergence-exhausted' | 'convergence-blocked'
+export type GateKind = 'convergence-exhausted' | 'convergence-blocked' | 'check-unavailable'
 export type ReviewSeverity = 'critical' | 'high' | 'medium' | 'low' | 'info'
 
 /** When a scheduled Job fires again. */
@@ -104,16 +104,34 @@ export interface Run {
 /** `jobs.get`: the Job, with the Run it names or its latest folded in. */
 export type JobWithRun = Job & { readonly run?: Run }
 
+/** One finding of a completion check plugin (Astera 1.4.14). */
+export interface CheckDiagnostic {
+  readonly file?: string
+  readonly line?: number
+  readonly message: string
+  readonly severity?: 'error' | 'warning'
+}
+
 export interface CheckResult {
+  /** A run configuration's id, or `plugin:<pluginId>` for a completion check plugin's check. */
   readonly configId: string
   readonly name: string
-  readonly status: 'passed' | 'failed' | 'timed-out' | 'not-run'
+  /** `error`: a plugin's check could not be made (twice); the Task waits on a `check-unavailable` question. */
+  readonly status: 'passed' | 'failed' | 'timed-out' | 'not-run' | 'error'
   readonly exitCode?: number
   /** The last 4000 characters of the check's output. */
   readonly outputTail?: string
   readonly startedAt?: string
   readonly endedAt?: string
   readonly unstable?: true
+  /** A plugin check's own words: what it found, or why it could not be made. */
+  readonly summary?: string
+  /** A plugin check's findings, at most 100. */
+  readonly diagnostics?: readonly CheckDiagnostic[]
+  /** Where a plugin check's whole report is. */
+  readonly externalUrl?: string
+  /** A person let the round go on without this check; its status is `not-run`. */
+  readonly skipped?: true
 }
 
 export interface ReviewIssue {
@@ -205,10 +223,14 @@ export type CompletionState =
 export interface CompletionCheckDetail {
   readonly configId: string
   readonly name: string
-  readonly status: 'passed' | 'failed' | 'timed-out' | 'not-run'
+  readonly status: 'passed' | 'failed' | 'timed-out' | 'not-run' | 'error'
   readonly exitCode?: number
   readonly outputTail?: string
   readonly unstable?: true
+  readonly summary?: string
+  readonly diagnostics?: readonly CheckDiagnostic[]
+  readonly externalUrl?: string
+  readonly skipped?: true
 }
 
 export interface CompletionDetail {

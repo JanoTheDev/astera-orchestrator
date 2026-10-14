@@ -202,7 +202,8 @@ function metaText(m: NodeMeta, t: Translate): string | undefined {
  *  지난 라운드에 막혔던 검사는 지금 다시 도는 중이라는 뜻이다(UI 설계 U12 — validator 는 라운드 끝에만 결과를
  *  주므로 "지금 도는 검사" 는 그렇게밖에 알 수 없다). */
 type GlyphKind = JobCheck['status'] | 'retrying'
-const GLYPH: Record<GlyphKind, string> = { passed: '✓', failed: '✗', 'timed-out': '✗', 'not-run': '○', retrying: '●' }
+// `error` (a plugin check that could not be made, plugin Phase 5 C9) draws apart from a failure; its words are 5c's.
+const GLYPH: Record<GlyphKind, string> = { passed: '✓', failed: '✗', 'timed-out': '✗', 'not-run': '○', error: '!', retrying: '●' }
 
 /** "{이름} — {결과} ({지난 라운드 실제 시간}), {흔들림}". 시간은 formatRunDuration 을 빌린다 — {startedAt, exitedAt}
  *  과 now 를 받는 함수라 0·durationMs·0 을 넘긴다(어댑터 한 줄). */

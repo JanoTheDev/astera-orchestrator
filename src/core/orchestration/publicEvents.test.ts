@@ -135,6 +135,13 @@ describe('derivePublicEvents', () => {
     expect(types(derivePublicEvents(before, after))).toEqual(['completion.failed', 'completion.exhausted', 'question.created'])
   })
 
+  // 5a final review M2: a check that could not be made is no failed round; the question says the Task waits
+  it('a check that could not be made gives the question, and no completion.failed', () => {
+    const before = state({ tasks: [task('t1', 'validating')] })
+    const after = state({ tasks: [task('t1', 'blocked')], gates: [gate('g1', 't1', { kind: 'check-unavailable', options: ['retry', 'skip-check', 'mark-failed'] })] })
+    expect(types(derivePublicEvents(before, after))).toEqual(['question.created'])
+  })
+
   it('a completion move made by a Dispatch alone, the Task object unchanged', () => {
     const before = state({ tasks: [task('t1', 'dispatched')], dispatches: [] })
     const after = { ...before, dispatches: [dispatch('d2', 't1', { repair: 'review-failure' })] }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { completionDetailOf, completionForTaskOf } from './completion'
+import { completionDetailOf, completionForTaskOf, failedChecksSummary } from './completion'
 import type { CheckResult, ReviewIssue, Task } from './types'
 
 const task = (over: Partial<Task> = {}): Task => ({
@@ -19,6 +19,30 @@ const issue = (over: Partial<ReviewIssue> & Pick<ReviewIssue, 'id' | 'severity' 
   title: 'issue',
   description: 'd',
   ...over
+})
+
+describe('a plugin check in the completion read model (plugin Phase 5 C12, C13)', () => {
+  it('carries its summary, its findings, its link, and that a person skipped it', () => {
+    const d = completionDetailOf(
+      task({
+        checks: [
+          check({ configId: 'plugin:d', name: 'D', status: 'failed', summary: 's', diagnostics: [{ file: 'a.ts', line: 2, message: 'm' }], externalUrl: 'https://x.example/r' }),
+          check({ configId: 'plugin:e', name: 'E', status: 'not-run', skipped: true, summary: 'Skipped by a person: down' }),
+          check({ configId: 'plugin:f', name: 'F', status: 'error', summary: 'down' })
+        ]
+      })
+    )!
+    expect(d.checks).toEqual([
+      { configId: 'plugin:d', name: 'D', status: 'failed', summary: 's', diagnostics: [{ file: 'a.ts', line: 2, message: 'm' }], externalUrl: 'https://x.example/r' },
+      { configId: 'plugin:e', name: 'E', status: 'not-run', skipped: true, summary: 'Skipped by a person: down' },
+      { configId: 'plugin:f', name: 'F', status: 'error', summary: 'down' }
+    ])
+  })
+
+  it('names a failed plugin check by its summary in the failure summary, and leaves a check that could not be made out', () => {
+    expect(failedChecksSummary([check({ configId: 'plugin:d', name: 'D', status: 'failed', summary: '2 leftovers' })])).toBe('D failed: 2 leftovers')
+    expect(failedChecksSummary([check({ configId: 'plugin:d', name: 'D', status: 'error', summary: 'down' })])).toBeNull()
+  })
 })
 
 describe('completionDetailOf', () => {

@@ -11,8 +11,8 @@ Where it stands:
 - A plugin is installed from a folder or from npm, and runs in the background: Astera calls its `activate` and lets it
   work. An event plugin is also handed each of Astera's events ([Event plugins](#event-plugins)), a notification
   plugin each thing worth telling a person ([Notification plugins](#notification-plugins)), and a job source is asked
-  for the tickets a Job can be made from ([Job source plugins](#job-source-plugins)); a completion check does not run
-  yet ([Not yet](#not-yet)).
+  for the tickets a Job can be made from ([Job source plugins](#job-source-plugins)), and a completion check plugin is
+  asked whether a Task's work passes, when a Task names it among its checks as `plugin:<id>`.
 - `@astera-app/plugin-sdk` holds the plugin's types and `definePlugin`. A plugin needs nothing from it to run:
   [the sample](../examples/plugins/webhook-notifier) is plain JavaScript and uses its types for the editor only.
 - The Plugin API is version `1`.
@@ -92,7 +92,7 @@ The manifest is `package.json`: npm's own fields, and an `astera` field for Aste
 | `astera.permissions` | What it asks Astera for ([Permissions](#permissions)). A person may grant fewer. |
 | `astera.settingsSchema` | Optional. The settings a person gives it ([Settings and secrets](#settings-and-secrets)). |
 | `astera.minAsteraVersion` | Optional. The oldest Astera it runs on; an older one installs it and does not run it. |
-| `astera.capabilities` | Optional. `["event"]` for a plugin Astera hands its events ([Event plugins](#event-plugins)), `["notification"]` for one it sends notifications ([Notification plugins](#notification-plugins)), `["job-source"]` for one it asks for tickets ([Job source plugins](#job-source-plugins)); `completion-check` does not run yet ([Not yet](#not-yet)). |
+| `astera.capabilities` | Optional. `["event"]` for a plugin Astera hands its events ([Event plugins](#event-plugins)), `["notification"]` for one it sends notifications ([Notification plugins](#notification-plugins)), `["job-source"]` for one it asks for tickets ([Job source plugins](#job-source-plugins)), `["completion-check"]` for one it asks to check a Task's work (`runCheck`). |
 
 The entry's default export is the plugin: an object with an `activate` and, if it needs one, a `deactivate` (and an
 `onEvent` for an event plugin, a `send` for a notification plugin, and `listItems`, `getItem` and `buildJobContext`
@@ -592,7 +592,5 @@ install Node.js, or install from a folder. [The `astera` command](cli.md#plugins
 
 ## Not yet
 
-- The `completion-check` capability, which Astera would call on to judge a Task. A plugin that names it installs, and
-  does not run until an Astera that runs it.
 - The `github` and `how-it-works` commands for plugins, which their permissions are already named for.
 - A folder for each plugin's own data, and a development mode that reloads a plugin as you edit it.

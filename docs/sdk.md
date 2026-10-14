@@ -291,7 +291,7 @@ outlives a Host restart, and `events` reads it. An event:
 | `task.completed`, `task.failed` | a Task completes; fails (a failure it will retry included) | `Task` |
 | `question.created`, `question.answered` | a question for a person opens; is answered | `Question` |
 | `completion.started` | a Task's first check starts | `TaskCompletion` |
-| `completion.failed` | a check or review round fails | `TaskCompletion` |
+| `completion.failed` | a check or review round fails (a plugin's check that could not be made fails no round: its question, `question.created`, says the Task waits) | `TaskCompletion` |
 | `completion.repair_started` | a repair of a failed check or review starts, once its worker has its session | `TaskCompletion` |
 | `completion.converged`, `completion.exhausted` | a Task is done; its repairs ran out | `TaskCompletion` |
 | `session.input_needed` | a session turns to waiting on a person (a permission, a question), once per turn into it | `{ session, prompt }` |
@@ -397,6 +397,7 @@ CommonJS copies.
 | `VERSION_MISMATCH` | the Host and this client do not speak the same version, or the Host lacks a feature the call needs | update the app |
 | `WAITING_FOR_INPUT` | not thrown: the waits answer `waiting`, `paused` and `limited` as data | |
 | `RUN_FAILED` | not thrown: the waits answer `failed` as data | |
+| `PLUGIN_CAPABILITY_MISSING` | a Task's check names `plugin:<id>` and that plugin is not installed, does not offer completion checks, or is disabled | `astera plugins list`; install or enable it, or take the check out |
 
 `EXIT_CODES` maps every code to the exit code `astera` uses for it, for a script that exits the same way
 ([run-a-job.ts](../examples/sdk/run-a-job.ts) does).

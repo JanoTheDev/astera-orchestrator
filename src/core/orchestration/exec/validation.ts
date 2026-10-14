@@ -19,11 +19,13 @@ import {
   applyValidationResult,
   blockForValidation,
   jobOf,
+  liveCheckResume,
   stampPolicySnapshot,
   type OrchState
 } from '../state'
 import { cutTail } from '../taskOutput'
 import type { Dispatch } from '../types'
+import { checkInputOf, pluginIdOfCheck, type CompletionCheckInput, type PluginCheckAnswer } from '../pluginChecks'
 import { repairTargetFor } from './repair'
 import { TaskValidator } from './validator'
 
@@ -52,6 +54,10 @@ export interface ValidationContext {
   firstCheckpointHead(dispatchId: string): CheckpointHead | Promise<CheckpointHead>
   /** `git diff` for the suspicious-file calculation. */
   diffNames(cwd: string, fromHead: string): Promise<string[] | null>
+  /** Asks a completion check plugin (plugin Phase 5 C8): the Host's plugin runtime where the Host drives, the Host
+   *  command `checks-plugin-run` where the app does. Never rejects: a plugin that could not answer is an `error`
+   *  answer, its reason in `summary`. */
+  pluginCheck(plugin: string, input: CompletionCheckInput): Promise<PluginCheckAnswer>
 }
 /** A git head, null when there is no baseline, 'unknown' when there may be one the journal could not give. */
 export type CheckpointHead = string | null | 'unknown'
@@ -122,6 +128,18 @@ export function createTaskValidation(c: ValidationContext): TaskValidation {
         } catch (e) {
           c.log(`validator: run.stop failed for run=${runId}: ${String(e)}`)
         }
+      }
+    },
+    // A `plugin:` check (plugin Phase 5 C8): the same gates as a run's start — the Task still validating, the folder
+    // through the path guard (a refusal is a Gate) — then the plugin is asked with the Task's input (C3).
+    plugins: {
+      run: async ({ cwd, taskId, configId }) => {
+        const st = c.getState()
+        const task = st.tasks.find((t) => t.id === taskId)
+        if (!task) throw new Error(`unknown task ${taskId}`)
+        if (task.status !== 'validating') return 'skip'
+        await c.assertAllowedPath(cwd)
+        return c.pluginCheck(pluginIdOfCheck(configId)!, checkInputOf(st, task, cwd))
       }
     },
     onSettled: async ({ taskId, results }) => {
@@ -222,7 +240,15 @@ export function createTaskValidation(c: ValidationContext): TaskValidation {
   // 존재할 수 있는 모든 Task 에 대해 이것으로 충분하다.
   const startValidation = ({ taskId, cwd }: { taskId: string; cwd: string }): void => {
     const task = c.getState().tasks.find((t) => t.id === taskId)
-    validator.enqueue({ taskId, cwd, configIds: task ? checkConfigIdsOf(task) : [] })
+    // A round a person let go on past a check that could not be made (plugin Phase 5 C9 skip-check): the checks after
+    // it alone, its results carried in front. The verdict clears it.
+    const resume = task ? liveCheckResume(c.getState(), task) : null
+    validator.enqueue({
+      taskId,
+      cwd,
+      configIds: resume ? resume.rest : task ? checkConfigIdsOf(task) : [],
+      ...(resume ? { done: resume.done } : {})
+    })
     // 의심 파일(설계 §8.3) — **convergence Run 에서만** 계산한다(리뷰 fix 1차, Important 1).
     // 이 계산은 Task 에 suspiciousFiles 를 써서 리뷰어 spec 에 새 절을 만드는데, 다른 모든
     // convergence 전용 자리(state.ts 의 checks 기록, server.ts 의 readReviewFile 가드)가
@@ -247,6 +273,8 @@ export function createTaskValidation(c: ValidationContext): TaskValidation {
       })
       const byId = new Map(configs.map((cfg) => [cfg.id, cfg]))
       const key = completionPolicyHash(task, pol, (id) => {
+        // A plugin's check has no configuration here: its id is what the fingerprint names (plugin Phase 5 C11)
+        if (pluginIdOfCheck(id) !== null) return 'plugin'
         const cfg = byId.get(id)
         return cfg ? seedKeyOf(cfg) : null
       })

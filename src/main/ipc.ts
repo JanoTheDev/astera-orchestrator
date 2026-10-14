@@ -65,6 +65,7 @@ import { reattachSessions, type ReattachResult } from './host/reattach'
 import { createWorktreeRoute, NO_HOST_CONNECTION, hostDeadlineMessage } from './host/worktreeRoute'
 import { createPluginsRoute } from './host/pluginsRoute'
 import { createSourcesRoute } from './host/sourcesRoute'
+import { createAppCompletionChecks } from './host/pluginChecksRoute'
 import { createHostGitOps } from '../core/workUnit/hostGitOps'
 import { appPathInUse } from './host/localPathInUse'
 import { HOST_PROTOCOL, HOST_ACT_PATH_IN_USE, HOST_ACT_SLACK_ANSWER, type ClientMessage, type HostMessage, type PtyEntry } from '../core/host/protocol'
@@ -143,6 +144,7 @@ import { ExitsBeforeTap, OrchRollTap } from '../core/orchestration/exec/rollTap'
 import { coordinatorReleaseOf, PendingCoordinatorReleases } from '../core/orchestration/exec/releaseDefer'
 import type { TaskValidator } from '../core/orchestration/exec/validator'
 import { createTaskValidation } from '../core/orchestration/exec/validation'
+import { unavailable } from '../core/orchestration/pluginChecks'
 import {
   bindNativeSession,
   writeOffDispatch
@@ -3063,7 +3065,10 @@ export function registerIpc(
       diffNames: async (cwd, fromHead) => {
         const r = await git(['diff', '--name-only', fromHead, 'HEAD'], { cwd })
         return r.ok ? r.stdout.split('\n').map((line) => line.trim()).filter(Boolean) : null
-      }
+      },
+      // Plugins run in the Host: the app asks it (plugin Phase 5 C8). `deps` is defined below and read at the call.
+      pluginCheck: (plugin, input) =>
+        deps.completionChecks?.run(plugin, input) ?? Promise.resolve({ name: plugin, ...unavailable('plugin checks cannot run here') })
     })
     orchValidator = validation.validator
 
@@ -3191,6 +3196,9 @@ export function registerIpc(
 
     const deps: OrchServerDeps = {
       getState: () => store.get(),
+      // The completion check plugins are the Host's (plugin Phase 5 C7, C8): this copy's early refusals and the app's
+      // own checks ask it, as the app.
+      completionChecks: createAppCompletionChecks({ call: (m) => orchCall(m) }),
       // A local Run's changed files and diffs (remote runtime design Phase 10), from this machine's git, as the Host
       // reads them for a remote one.
       changes: { read: (repo, base, head) => readChanges(repo, base, head), diff: (repo, base, head, f) => readFileDiff(repo, base, head, f) },

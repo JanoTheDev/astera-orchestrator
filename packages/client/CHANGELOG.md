@@ -8,6 +8,15 @@ is the guide.
 - A Job's `source`: the job source and the item it was made from (`{ id, itemId, label, title?, url? }`, `title` the item's own, at most 300 characters), when Astera made it
   from a ticket, a Linear issue or a GitHub issue, say. It needs Astera 1.4.14 or later; an older one leaves it out.
 - `call()` of `jobs-create-from-source` answers with the Job's public fields, as `jobs.create` does.
+- Completion check plugins: a Task's check list can name `plugin:<pluginId>`. `CheckResult` (and the completion read
+  model's `CompletionCheckDetail`) gains the status `error`, a plugin's check that could not be made, and the optional
+  `summary`, `diagnostics` (`CheckDiagnostic`: `file?`, `line?`, `message`, `severity?`), `externalUrl` and `skipped`
+  (a person let the round go on without it; its status is `not-run`). A script that switches on four statuses meets a
+  fifth. The question a check that could not be made opens has the new `GateKind` `check-unavailable`, answered with
+  `retry`, `skip-check` or `mark-failed`. It needs Astera 1.4.14 or later; an older one has no plugin checks.
+- The error code `PLUGIN_CAPABILITY_MISSING` (exit 6): a Task's check names a plugin that is not installed, does not
+  offer completion checks, or is disabled. `bodyCodeOf` reads it, and the remote codes, from a refusal's body. It
+  comes from Astera 1.4.14 or later.
 
 ## 0.2.0
 

@@ -12,6 +12,7 @@ import { USAGE, spelledCommand } from './cliUsage'
 import {
   ERROR_CODES,
   REMOTE_ERROR_CODES,
+  bodyCodeOf,
   codeForStatus,
   exitCodeFor,
   remoteCodeOf,
@@ -24,7 +25,7 @@ import {
  * contract for the CLI, MCP and @astera-app/client. They keep their CLI names here, so nothing that imports them
  * changes. `astera agent-context` still prints the list as it is (cliAgentContext.ts).
  */
-export { REMOTE_ERROR_CODES, codeForStatus, exitCodeFor, remoteCodeOf, type RemoteErrorCode }
+export { REMOTE_ERROR_CODES, bodyCodeOf, codeForStatus, exitCodeFor, remoteCodeOf, type RemoteErrorCode }
 /** The CLI's name for the package's code list. */
 export const CLI_ERROR_CODES = ERROR_CODES
 export type CliErrorCode = AsteraErrorCode
@@ -287,6 +288,9 @@ const STEPS: Record<
   REMOTE_TIMEOUT: (_cmd, details) => [typeof details.runtime === 'string' ? `astera --runtime ${details.runtime} jobs list` : 'astera runtimes list'],
   REMOTE_OPERATION_CONFLICT: (_cmd, details) => [typeof details.runtime === 'string' ? `astera --runtime ${details.runtime} jobs list` : 'astera runtimes list'],
   REMOTE_REPLY_TOO_LARGE: () => [],
+  // Which plugins offer completion checks, and whether each runs, is the plugin list (plugin Phase 5 C6): this machine's.
+  // A Runtime's refusal names its plugins, which a controller cannot list (C14): nothing to type here (5a review M6).
+  PLUGIN_CAPABILITY_MISSING: (_cmd, details) => (typeof details.runtime === 'string' ? [] : ['astera plugins list']),
   // **`host start` 가 3 으로 끝난 것에 `host start` 를 권하지 않는다**(리뷰 I1). 방금 그것이 안 됐다.
   // 무엇을 봤는지는 `host status` 가 말하고, Host 의 로그 자리는 이 오류의 details 가 싣는다.
   HOST_NOT_RUNNING: (cmd) => [cmd === 'host-start' ? 'astera host status' : 'astera host start'],

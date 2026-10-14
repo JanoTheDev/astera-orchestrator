@@ -1605,6 +1605,10 @@ with the exit of its nearest code above: `RUNTIME_NOT_FOUND` 4, `RUNTIME_OFFLINE
 `RUNTIME_OUTCOME_UNKNOWN` 6, `REMOTE_TIMEOUT` 7, `REMOTE_OPERATION_CONFLICT` 6 and `REMOTE_REPLY_TOO_LARGE` 1
 ([remote-runtime.md](remote-runtime.md#error-codes) says what each means).
 
+`tasks add`, `jobs run` and `run-start` refuse a check list naming `plugin:<id>` whose plugin is not installed, does
+not offer completion checks, or is disabled, with `PLUGIN_CAPABILITY_MISSING` in `error.code`, exit 6, the message
+saying which; `astera plugins list` shows each plugin's capabilities and whether it runs.
+
 **3 and 4 are different questions.** 3 means nothing answered; 4 means something answered and does
 not know that id. Do not retry a 4.
 

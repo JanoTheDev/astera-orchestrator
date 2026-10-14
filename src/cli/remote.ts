@@ -13,7 +13,7 @@
 import { remoteMutation, remoteTarget } from '../core/remote/targets'
 import { openRemoteLink, type RemoteLink, type RemoteTarget } from '../core/remote/link'
 import { RemoteError } from '../core/remote/client'
-import { codeForStatus, messageFrom, refusalDetailsOf, remoteCodeOf, type CliError } from '../core/orchestration/cliOutput'
+import { bodyCodeOf, codeForStatus, messageFrom, refusalDetailsOf, remoteCodeOf, type CliError } from '../core/orchestration/cliOutput'
 import type { RuntimeRegistry } from '../core/runtimes/registry'
 import { spelledCommand } from '../core/orchestration/cliUsage'
 import { DEFAULT_WAIT_TIMEOUT_MS } from '../core/orchestration/types'
@@ -127,7 +127,7 @@ export async function answerRemote(a: {
     await reached()
     if (r.status >= 200 && r.status < 300) return r
     // A refusal from the Runtime names that Runtime (review I2), so its next steps point there and not here.
-    const code = remoteCodeOf(r.body) ?? codeForStatus(r.status)
+    const code = bodyCodeOf(r.body) ?? codeForStatus(r.status)
     const message = messageFrom(r.body, `the Runtime answered ${r.status}`)
     if (code === 'RUNTIME_OUTCOME_UNKNOWN') return refusalOf(new RemoteError(code, message), found.runtimeId, request)
     return { error: { code, message, details: { ...refusalDetailsOf(r.body), runtime: found.runtimeId } } }

@@ -115,7 +115,20 @@ export const RUN_CHECKS_FIELDS = Object.freeze(['runId', 'jobId', 'tasks'] as co
 export const TASK_CHECKS_FIELDS = Object.freeze(['id', 'title', 'status', 'validation', 'review', 'failureSummary', 'completionOverride'] as const)
 export const VALIDATION_FIELDS = Object.freeze(['required', 'status', 'checks'] as const)
 export const REVIEW_FIELDS = Object.freeze(['required', 'status', 'verdict', 'issues'] as const)
-export const CHECK_FIELDS = Object.freeze(['configId', 'name', 'status', 'exitCode', 'outputTail', 'startedAt', 'endedAt', 'unstable'] as const)
+export const CHECK_FIELDS = Object.freeze([
+  'configId',
+  'name',
+  'status',
+  'exitCode',
+  'outputTail',
+  'startedAt',
+  'endedAt',
+  'unstable',
+  'summary',
+  'diagnostics',
+  'externalUrl',
+  'skipped'
+] as const)
 export const REVIEW_ISSUE_FIELDS = Object.freeze(['id', 'severity', 'blocking', 'title', 'description', 'file', 'line', 'suggestedFix'] as const)
 
 /** One timeline event as `runs follow` prints it. A message's whole body (a worker's report can be pages long) and
@@ -140,7 +153,18 @@ export const FOLLOW_EVENT_FIELDS = Object.freeze([
 export const COMPLETION_FIELDS = Object.freeze(['runId', 'jobId', 'state', 'tasks'] as const)
 export const TASK_COMPLETION_FIELDS = Object.freeze(['taskId', 'title', 'state', 'attempt', 'maxAttempts', 'detail', 'failureSummary', 'lastFailure'] as const)
 export const COMPLETION_DETAIL_FIELDS = Object.freeze(['taskId', 'checks', 'blockingIssues', 'otherIssueCount', 'suspiciousFiles', 'policyChanged'] as const)
-export const COMPLETION_CHECK_FIELDS = Object.freeze(['configId', 'name', 'status', 'exitCode', 'outputTail', 'unstable'] as const)
+export const COMPLETION_CHECK_FIELDS = Object.freeze([
+  'configId',
+  'name',
+  'status',
+  'exitCode',
+  'outputTail',
+  'unstable',
+  'summary',
+  'diagnostics',
+  'externalUrl',
+  'skipped'
+] as const)
 
 /** One public event's envelope (SDK spec §6); its payload is shaped by its type (shape.ts shapeEvent). */
 export const EVENT_FIELDS = Object.freeze(['id', 'type', 'sequence', 'occurredAt', 'projectId', 'jobId', 'runId', 'taskId', 'sessionId', 'payload'] as const)

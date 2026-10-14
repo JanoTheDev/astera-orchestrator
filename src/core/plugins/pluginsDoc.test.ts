@@ -218,11 +218,10 @@ describe('docs/plugins.md', () => {
     expect(readme).not.toMatch(/not published/i)
   })
 
-  it('names each kind of plugin this Astera does not run yet', () => {
+  // Every capability runs since plugin Phase 5: Not yet names a capability exactly when this Astera does not run it
+  it('names each kind of plugin this Astera does not run yet, and no kind it runs', () => {
     const notYet = section(guide, '## Not yet')
-    const unserved = PLUGIN_CAPABILITIES.filter((c) => !PLUGIN_SERVED_CAPABILITIES.includes(c))
-    expect(unserved.length).toBeGreaterThan(0)
-    for (const c of unserved) expect(notYet, c).toContain(`\`${c}\``)
+    for (const c of PLUGIN_CAPABILITIES) expect(notYet.includes(`\`${c}\``), c).toBe(!PLUGIN_SERVED_CAPABILITIES.includes(c))
   })
 
   // Plugin Phase 3 N4-N9: the event capability as the code runs it

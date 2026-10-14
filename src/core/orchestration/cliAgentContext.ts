@@ -651,7 +651,8 @@ const MEANING: Record<CliErrorCode, string> = {
   RUNTIME_OUTCOME_UNKNOWN: 'a change was sent and its answer lost, and the Runtime cannot say whether it ran; list before trying again',
   REMOTE_TIMEOUT: 'the Runtime did not answer in time; the command may still finish',
   REMOTE_OPERATION_CONFLICT: 'refused by the Runtime because of current state',
-  REMOTE_REPLY_TOO_LARGE: "the Runtime's answer was over 64 MiB and was refused"
+  REMOTE_REPLY_TOO_LARGE: "the Runtime's answer was over 64 MiB and was refused",
+  PLUGIN_CAPABILITY_MISSING: 'a check names a plugin that is not installed, does not offer completion checks, or is disabled (plugin:<id>)'
 }
 
 /** The flags every command accepts. They are read by the parser and by the output layer rather than

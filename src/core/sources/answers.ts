@@ -74,7 +74,7 @@ export const isItemId = (id: string): boolean => id !== '' && fits(id, SOURCE_ID
 /** A web address a person can open: http or https, nothing else (no `javascript:`, no `file:`), as the parser read it
  *  (the tabs and line breaks it skips are gone), and within SOURCE_URL_MAX characters, since half an address opens
  *  somewhere else. */
-const webUrl = (v: unknown): string | undefined => {
+export const webUrl = (v: unknown): string | undefined => {
   if (typeof v !== 'string') return undefined
   try {
     const u = new URL(v)
