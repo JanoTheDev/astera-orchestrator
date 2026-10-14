@@ -12,7 +12,7 @@ import type { AddressInfo } from 'node:net'
 import { fileURLToPath } from 'node:url'
 import { removeFixture } from '../../src/core/testFixtures'
 import { parseManifest } from '../../src/core/plugins/manifest'
-import { createPluginRuntime, type PluginRuntime } from '../../src/host/plugins/runtime'
+import { PluginRequestFailed, createPluginRuntime, type PluginRuntime } from '../../src/host/plugins/runtime'
 import { copyPluginFolder } from '../../src/host/plugins/copyFolder'
 import { createEventRing, type EventRing } from '../../src/core/events/eventRing'
 import type { EventDraft } from '../../src/core/orchestration/publicEvents'
@@ -364,4 +364,168 @@ describe('the Discord notifier sample', () => {
     await until(() => expect(discordLog(r)).toContain('[host] failed: '))
     expect(discordLog(r)).toMatch(/astera plugins configure.*astera plugins enable/)
   }, 90_000)
+})
+
+// Plugin Phase 4 J23: the Linear sample, a job source, against a fake Linear GraphQL endpoint
+describe('the Linear source sample', () => {
+  const LINEAR = path.join(here, 'linear-source')
+  const LINEAR_ID = 'astera-linear-source'
+  const KEY = 'lin_api_SECRET0123456789'
+  let linearInstalled: string
+  beforeAll(async () => {
+    linearInstalled = path.join(work, 'installed', LINEAR_ID)
+    await copyPluginFolder(LINEAR, linearInstalled)
+  }, 60_000)
+
+  const ISSUE = {
+    identifier: 'ENG-1',
+    title: 'Fix login',
+    url: 'https://linear.app/acme/issue/ENG-1/fix-login',
+    description: `It fails on Safari.\n${'x'.repeat(300)}`,
+    priorityLabel: 'High',
+    state: { name: 'Todo' },
+    team: { key: 'ENG', name: 'Engineering' },
+    assignee: { name: 'Ann' },
+    labels: { nodes: [{ name: 'bug' }, { name: 'web' }] }
+  }
+  type Asked = { authorization: string | undefined; query: string; variables: Record<string, unknown> }
+  type Answer = { status?: number; json?: unknown; text?: string }
+  const page = (nodes: unknown[], next?: string): Answer => ({
+    json: { data: { issues: { nodes, pageInfo: { hasNextPage: next !== undefined, endCursor: next ?? null } } } }
+  })
+
+  /** A fake Linear GraphQL endpoint: each request's authorization header and body kept, answered by `answer`. */
+  async function linear(answer: (asked: Asked) => Answer) {
+    const seen: Asked[] = []
+    const server = http.createServer((req, res) => {
+      let text = ''
+      req.setEncoding('utf8').on('data', (c: string) => (text += c))
+      req.on('end', () => {
+        const body = JSON.parse(text) as { query: string; variables: Record<string, unknown> }
+        const asked = { authorization: req.headers.authorization, query: body.query, variables: body.variables }
+        seen.push(asked)
+        const a = answer(asked)
+        res.writeHead(a.status ?? 200, { 'content-type': 'application/json' })
+        res.end(a.text ?? JSON.stringify(a.json))
+      })
+    })
+    servers.push(server)
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
+    return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/graphql`, seen }
+  }
+
+  /** The sample started as Astera starts a job source, and running. */
+  async function started(apiUrl: string, extra: Record<string, string> = {}): Promise<PluginRuntime> {
+    const { r } = runtime()
+    r.start({
+      id: LINEAR_ID,
+      version: '0.1.0',
+      folder: LINEAR_ID,
+      dir: linearInstalled,
+      entry: path.join(linearInstalled, 'index.mjs'),
+      granted: [],
+      capabilities: ['job-source'],
+      settings: { apiKey: KEY, apiUrl, teamKey: 'ENG', states: 'unstarted, started', ...extra },
+      redact: [KEY]
+    })
+    await until(() => expect(r.status(LINEAR_ID)?.status).toBe('running'))
+    return r
+  }
+  const ask = (r: PluginRuntime, method: string, params: unknown) => r.request(LINEAR_ID, method, params, 15_000)
+  /** The failure a request rejected with, as its status and message. */
+  const failure = async (p: Promise<unknown>): Promise<{ status: number; message: string }> => {
+    try {
+      await p
+    } catch (e) {
+      if (e instanceof PluginRequestFailed) return { status: e.status, message: e.message }
+      throw e
+    }
+    throw new Error('it did not reject')
+  }
+  const linearLog = (r: PluginRuntime): string => (existsSync(r.logFile(LINEAR_ID)) ? readFileSync(r.logFile(LINEAR_ID), 'utf8') : '')
+
+  it('is a manifest Astera installs: a job source, no permission, a secret key and three settings with defaults', () => {
+    const read = parseManifest(JSON.parse(readFileSync(path.join(LINEAR, 'package.json'), 'utf8')))
+    if (!read.ok) throw new Error(read.problems.join('; '))
+    expect(read.manifest).toMatchObject({ id: LINEAR_ID, apiVersion: '1', entry: 'index.mjs', permissions: [], capabilities: ['job-source'] })
+    expect(read.manifest.settings).toEqual([
+      expect.objectContaining({ key: 'apiKey', type: 'string', secret: true, required: true }),
+      expect.objectContaining({ key: 'teamKey', type: 'string', required: false }),
+      expect.objectContaining({ key: 'states', type: 'string', default: 'unstarted,started', required: false }),
+      expect.objectContaining({ key: 'apiUrl', type: 'string', default: 'https://api.linear.app/graphql', required: false })
+    ])
+  })
+
+  it('imports only Node’s own modules, so its folder installs as it is', () => {
+    const code = readFileSync(path.join(LINEAR, 'index.mjs'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+    const specifiers = [...code.matchAll(/\b(?:from|import)\s*\(?\s*(['"`])([^'"`]+)\1/g)].map((m) => m[2])
+    expect(specifiers.filter((s) => !s.startsWith('node:'))).toEqual([])
+  })
+
+  it('lists a page of issues with the key, the team, the states and the search, and gives the next cursor', async () => {
+    const api = await linear((a) => (a.variables.after === null ? page([ISSUE], 'cur-1') : page([{ ...ISSUE, identifier: 'ENG-2', description: '' }])))
+    const r = await started(api.url)
+    expect(await ask(r, 'jobSource.list', { query: 'login' })).toEqual({
+      items: [{ id: 'ENG-1', title: 'Fix login', status: 'Todo', url: ISSUE.url, summary: ISSUE.description.slice(0, 200) }],
+      nextCursor: 'cur-1'
+    })
+    expect(api.seen[0].authorization).toBe(KEY)
+    expect(api.seen[0].variables).toEqual({
+      first: 30,
+      after: null,
+      filter: { team: { key: { eq: 'ENG' } }, state: { type: { in: ['unstarted', 'started'] } }, title: { containsIgnoreCase: 'login' } }
+    })
+    // The next page from the cursor; the last page gives none, and an issue with no description no summary
+    expect(await ask(r, 'jobSource.list', { cursor: 'cur-1' })).toEqual({ items: [{ id: 'ENG-2', title: 'Fix login', status: 'Todo', url: ISSUE.url }] })
+    expect(api.seen[1].variables).toMatchObject({ after: 'cur-1', filter: { team: { key: { eq: 'ENG' } } } })
+    expect(api.seen[1].variables.filter).not.toHaveProperty('title')
+  }, 90_000)
+
+  // Review Focus 5: an empty teamKey is every team, and no states is every state
+  it('asks for every team when teamKey is empty, and every state when states is', async () => {
+    const api = await linear(() => page([]))
+    const r = await started(api.url, { teamKey: '', states: ' ' })
+    expect(await ask(r, 'jobSource.list', {})).toEqual({ items: [] })
+    expect(api.seen[0].variables).toEqual({ first: 30, after: null, filter: {} })
+  }, 90_000)
+
+  it('reads an issue whole, and makes a Job’s context of it', async () => {
+    const api = await linear(() => ({ json: { data: { issue: ISSUE } } }))
+    const r = await started(api.url)
+    expect(await ask(r, 'jobSource.get', { id: 'ENG-1' })).toEqual({
+      id: 'ENG-1',
+      title: 'Fix login',
+      status: 'Todo',
+      url: ISSUE.url,
+      body: ISSUE.description,
+      fields: { team: 'Engineering', state: 'Todo', priority: 'High', assignee: 'Ann', labels: 'bug, web' }
+    })
+    expect(api.seen[0].variables).toEqual({ id: 'ENG-1' })
+    expect(await ask(r, 'jobSource.context', { id: 'ENG-1' })).toEqual({
+      objective: 'Fix login',
+      sourceLabel: 'Linear ENG-1',
+      sourceUrl: ISSUE.url,
+      evidence: [{ label: 'Description', content: ISSUE.description }]
+    })
+  }, 90_000)
+
+  // Review Focus 4: Linear's own sentence reaches the person, and the key never does
+  it('throws Linear’s sentence for an error, a refusal and an unknown issue, and keeps the key out of all of it', async () => {
+    let next: Answer = { json: { errors: [{ message: 'Authentication required, not authenticated' }] } }
+    const api = await linear(() => next)
+    const r = await started(api.url)
+    expect(await failure(ask(r, 'jobSource.list', {}))).toEqual({ status: 502, message: 'listItems threw: Linear: Authentication required, not authenticated' })
+    next = { status: 401, text: 'Unauthorized' }
+    expect(await failure(ask(r, 'jobSource.list', {}))).toEqual({ status: 502, message: 'listItems threw: Linear answered 401' })
+    next = { status: 400, json: { errors: [{ message: 'Argument Validation Error' }] } }
+    expect(await failure(ask(r, 'jobSource.get', { id: 'ENG-1' }))).toEqual({ status: 502, message: 'getItem threw: Linear answered 400: Argument Validation Error' })
+    next = { json: { data: { issue: null } } }
+    expect(await failure(ask(r, 'jobSource.context', { id: 'ENG-404' }))).toEqual({ status: 502, message: 'buildJobContext threw: Linear has no issue ENG-404' })
+    await until(() => expect(linearLog(r)).toContain('jobSource.context failed'))
+    expect(linearLog(r)).not.toContain(KEY)
+  }, 90_000)
+
+  it('says where to read about it, and the guide links back', () => {
+    expect(readFileSync(path.join(LINEAR, 'README.md'), 'utf8')).toContain('docs/plugins.md#job-source-plugins)')
+  })
 })
