@@ -1,10 +1,10 @@
 import { describe, it, expect, vi } from 'vitest'
 import path from 'node:path'
-import { agentDirOf, resolveConsolePath, resolveExistingFile } from './resolveLink'
+import { agentDirOf, folderToOpen, resolveConsolePath, resolveExistingFile, resolveExistingPath } from './resolveLink'
 import { absPath } from '../../core/testPaths'
 
-const file = { isFile: () => true }
-const dir = { isFile: () => false }
+const file = { isFile: () => true, isDirectory: () => false }
+const dir = { isFile: () => false, isDirectory: () => true }
 const allow = async (): Promise<void> => {}
 
 describe('resolveConsolePath', () => {
@@ -91,6 +91,57 @@ describe('resolveConsolePath', () => {
 // no source roots, a target names one place — and wider in another: there is no path guard, because
 // a session's agent writes wherever it was told to (a video pipeline's output folder is rarely a
 // registered project), and this only ever answers "is there a regular file here".
+// D2 (2026-10-14): a folder path in a terminal is a link too, when the terminal asks for folders. The SendUserFile row
+// and the run console keep files only.
+describe('resolveExistingPath', () => {
+  const missing = async (): Promise<typeof file> => {
+    throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
+  }
+
+  it('answers a folder only when asked for folders', async () => {
+    const cwd = absPath('proj')
+    expect(await resolveExistingPath({ cwd, target: 'clips', stat: async () => dir, dirs: true })).toEqual({ path: path.resolve(cwd, 'clips'), dir: true })
+    expect(await resolveExistingPath({ cwd, target: 'clips', stat: async () => dir, dirs: false })).toBeNull()
+    expect(await resolveExistingPath({ cwd, target: 'a.png', stat: async () => file, dirs: true })).toEqual({ path: path.resolve(cwd, 'a.png') })
+    expect(await resolveExistingPath({ cwd, target: 'gone', stat: missing, dirs: true })).toBeNull()
+  })
+
+  it('never answers a root, a bare separator or a path of dots alone', async () => {
+    const cwd = absPath('proj', 'sub')
+    // A drive is a root on Windows only: on macOS and Linux `C:\` names an entry in the folder, as any name does
+    const drives = process.platform === 'win32' ? ['C:\\', 'C:/'] : []
+    for (const target of ['/', '\\', ...drives, './', '../', '..\\..\\', '~/'])
+      expect(await resolveExistingPath({ cwd, target, stat: async () => dir, dirs: true }), target).toBeNull()
+  })
+
+  it('refuses a UNC folder before the disk', async () => {
+    const stat = vi.fn(async () => dir)
+    expect(await resolveExistingPath({ cwd: absPath('proj'), target: '\\\\host\\share\\x', stat, dirs: true })).toBeNull()
+    expect(stat).not.toHaveBeenCalled()
+  })
+})
+
+// The system file manager opens a folder a link named outside the project, and only a folder: shell.openPath on a file
+// would run it.
+describe('folderToOpen', () => {
+  it('answers an absolute folder', async () => {
+    const p = absPath('elsewhere', 'specs')
+    expect(await folderToOpen(p, async () => dir)).toBe(path.resolve(p))
+  })
+
+  it('refuses a file, a missing path, a relative path, a UNC path and anything not a string', async () => {
+    expect(await folderToOpen(absPath('a', 'run.exe'), async () => file)).toBeNull()
+    expect(
+      await folderToOpen(absPath('gone'), async () => {
+        throw new Error('ENOENT')
+      })
+    ).toBeNull()
+    expect(await folderToOpen('relative/dir', async () => dir)).toBeNull()
+    expect(await folderToOpen('\\\\host\\share', async () => dir)).toBeNull()
+    expect(await folderToOpen(42, async () => dir)).toBeNull()
+  })
+})
+
 describe('resolveExistingFile', () => {
   it('an absolute existing file is answered as it is', async () => {
     const target = absPath('elsewhere', 'clips', 'g1.mp4')

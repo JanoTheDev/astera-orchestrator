@@ -1,5 +1,6 @@
-// The Host's public event log (SDK 1d; gap analysis decision 4): the events every commit makes, kept in memory for
-// `events-poll` and appended to <profile>/orch/events.jsonl so the next Host reads them back. Always on, and apart
+// The Host's public event log (SDK 1d; gap analysis decision 4): the events every commit makes, and the session events
+// no commit makes (plugin Phase 3, `recorded`), kept in memory for `events-poll` and appended to
+// <profile>/orch/events.jsonl so the next Host reads them back. Always on, and apart
 // from the Job Journal: the journal's opt-in, its SQLite file and its Run-keyed tables are not touched.
 //
 // **Bounded twice.** On disk: two segments, `events.jsonl` and the one before it, `events.1.jsonl`, each closed at
@@ -19,7 +20,7 @@
 import { appendFile, mkdir, readFile, rename } from 'node:fs/promises'
 import path from 'node:path'
 import { EVENT_TYPES, type AsteraEvent } from '../core/publicContract'
-import { derivePublicEvents } from '../core/orchestration/publicEvents'
+import { derivePublicEvents, type EventDraft } from '../core/orchestration/publicEvents'
 import type { OrchState } from '../core/orchestration/state'
 import { createEventRing, EVENT_ID, type EventRing } from '../core/events/eventRing'
 
@@ -42,6 +43,9 @@ export interface HostEventLog extends Pick<EventRing, 'read' | 'tail' | 'next'> 
   load(): Promise<void>
   /** This commit's events: made, kept, and queued for the disk. Never throws. */
   committed(prev: OrchState, next: OrchState): void
+  /** Events no commit makes (plugin Phase 3: the session events, sessionEvents.ts), made, kept and queued the same
+   *  way, numbered on with the commits'. Never throws. */
+  recorded(drafts: readonly EventDraft[]): void
   /** Writes what is held, a failed write's lines included, and settles once that write landed or failed. */
   flushed(): Promise<void>
   /** No more retries on a timer: the Host is leaving. Lines still held are lost from disk. */
@@ -109,6 +113,13 @@ export function createHostEventLog(a: {
   let queue: Promise<void> = Promise.resolve()
 
   const enqueue = (): Promise<void> => (queue = queue.then(write))
+
+  /** Drafts made into events, kept, and queued for the disk. */
+  const take = (drafts: readonly EventDraft[]): void => {
+    if (drafts.length === 0) return
+    pending.push(...ring.append(drafts, a.now()).map((w) => w.line))
+    void enqueue()
+  }
 
   const retryLater = (): void => {
     if (closed || retryTimer !== null) return
@@ -221,12 +232,16 @@ export function createHostEventLog(a: {
     },
     committed(prev, next) {
       try {
-        const drafts = derive(prev, next)
-        if (drafts.length === 0) return
-        pending.push(...ring.append(drafts, a.now()).map((w) => w.line))
-        void enqueue()
+        take(derive(prev, next))
       } catch (err) {
         a.log(`events: could not record this commit's events: ${String(err)}`)
+      }
+    },
+    recorded(drafts) {
+      try {
+        take(drafts)
+      } catch (err) {
+        a.log(`events: could not record ${drafts.length} event(s): ${String(err)}`)
       }
     },
     flushed: () => (pending.length > 0 ? enqueue() : queue),

@@ -352,7 +352,7 @@ describe('runDetail’s journal rows on the main thread (stage 3 T1)', () => {
     expect(t).toEqual({ events: [], busy: true, older: false, capped: false })
     expect(logs.some((l) => /busy/.test(l))).toBe(true)
     expect(j.timeline('run_1', on())).toMatchObject({ busy: false, events: [expect.objectContaining({ kind: 'runtime-lost' })] })
-  }, 15_000)
+  })
 
   it('a busy read shows the rows it last read for that Run, with the busy flag, and never throws', () => {
     const host = new ContinuityJournal(file())

@@ -30,6 +30,8 @@ export interface EventDraft {
   jobId?: string
   runId?: string
   taskId?: string
+  /** A session event's session (plugin Phase 3); never set by a commit's derive. */
+  sessionId?: string
   payload: unknown
 }
 

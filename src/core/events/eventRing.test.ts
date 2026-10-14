@@ -36,6 +36,13 @@ describe('the event ring', () => {
     expect(r.lastSequence()).toBe(2)
   })
 
+  // Plugin Phase 3 (events and notifications design N2): a session event names its session in the envelope
+  it('keeps a draft’s session id', () => {
+    const r = ring()
+    const [w] = r.append([{ type: 'session.input_needed', sessionId: 's1', payload: { session: { id: 's1', kind: 'terminal' }, prompt: null } }], 'T')
+    expect(w.event).toEqual({ id: `ev_${A}_1`, type: 'session.input_needed', sequence: 1, occurredAt: 'T', sessionId: 's1', payload: { session: { id: 's1', kind: 'terminal' }, prompt: null } })
+  })
+
   it('reads from the oldest without a cursor, and after a cursor', () => {
     const r = ring()
     r.append([draft('run.started'), draft('task.started'), draft('task.completed')], 'T')

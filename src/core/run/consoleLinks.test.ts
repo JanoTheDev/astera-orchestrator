@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { findConsoleLinks, joinWrappedLine, bufferRangeAt, cellsOfJoinedLine, cutCandidates } from './consoleLinks'
+import { findConsoleLinks, firstLoopbackUrl, joinWrappedLine, bufferRangeAt, cellsOfJoinedLine, cutCandidates } from './consoleLinks'
 
 const only = (line: string) => {
   const links = findConsoleLinks(line)
@@ -47,6 +47,181 @@ describe('findConsoleLinks — paths', () => {
 
   it('trailing punctuation is not part of the link', () => {
     expect(only('failed: src/a.ts:3.')).toEqual({ kind: 'path', start: 8, end: 18, target: 'src/a.ts', line: 3 })
+  })
+})
+
+// Korean, Japanese and Chinese put a particle or a copula right after a word, with no space between: a sentence names a
+// file as `...concept_vs_app.png입니다.` (bug report, 2026-10-14: that link did not open while the same path at the end of
+// a line did). The token is still the link; the same path without the glued-on run is its `alt`, which the renderer
+// tries when the whole names no file, so a file or folder whose own name ends in Hangul still links whole.
+describe('findConsoleLinks — a path with a word glued to it', () => {
+  it('offers the path without a Korean ending glued to it', () => {
+    const line = '마지막 장은 C:\\Users\\a\\concept_vs_app.png입니다.'
+    const l = only(line)
+    expect(l).toEqual({
+      kind: 'path',
+      start: 7,
+      end: line.length - 1,
+      target: 'C:\\Users\\a\\concept_vs_app.png입니다',
+      alts: [{ start: 7, end: line.length - 4, target: 'C:\\Users\\a\\concept_vs_app.png' }]
+    })
+    if (l.kind !== 'path' || !l.alts) throw new Error('no alt')
+    expect(line.slice(l.alts[0].start, l.alts[0].end)).toBe('C:\\Users\\a\\concept_vs_app.png')
+  })
+
+  it('reads a file and line a Japanese particle follows, which as a whole is no path', () => {
+    expect(only('src/a.ts:12を見て')).toEqual({ kind: 'path', start: 0, end: 11, target: 'src/a.ts', line: 12 })
+  })
+
+  it('peels a closing parenthesis and full-width punctuation around the glued run', () => {
+    expect(only('(C:\\a\\b.png)를 보세요')).toMatchObject({ start: 1, target: 'C:\\a\\b.png)를', alts: [{ start: 1, end: 11, target: 'C:\\a\\b.png' }] })
+    expect(only('看 C:\\a\\b.png。')).toMatchObject({ start: 2, target: 'C:\\a\\b.png。', alts: [{ start: 2, end: 12, target: 'C:\\a\\b.png' }] })
+  })
+
+  // A folder is a link now (a terminal asks main for folders too), so an absolute reading that ends in a separator is
+  // offered (`...\\specs\\에 있습니다`); a relative one is prose far more often (`읽기/쓰기를`) and is not
+  // Final review m5 of the links slice: and only before a particle or a copula; `보고서` is the name, not a word of the
+  // sentence, so its parent folder is no reading
+  it('offers a folder reading only when it is absolute', () => {
+    expect(only('C:\\문서\\보고서')).toEqual({ kind: 'path', start: 0, end: 9, target: 'C:\\문서\\보고서' })
+    expect(only('C:\\a\\specs\\에 있습니다')).toMatchObject({ alts: [{ start: 0, end: 11, target: 'C:\\a\\specs\\' }] })
+    expect(findConsoleLinks('읽기/쓰기를 켜기/끄기로').map((l) => (l.kind === 'path' ? l.alts : 'url'))).toEqual([undefined, undefined])
+  })
+
+  // Review m1: kana's prolonged sound mark and the like are Common script, used by Japanese only; and a question, an
+  // exclamation, a tilde or an ellipsis can close the sentence after the glued word
+  it('takes a Japanese word with a prolonged sound mark, and a sentence that ends in ! ? ~ or …', () => {
+    expect(only('D:\\写真\\猫.pngをコピーしました。')).toMatchObject({ alts: [{ target: 'D:\\写真\\猫.png' }] })
+    for (const tail of ['인가요?', '입니다!', '예요~', '입니다…', '!'])
+      expect(only(`C:\\a\\b.png${tail}`), tail).toMatchObject({ alts: [{ start: 0, end: 10, target: 'C:\\a\\b.png' }] })
+  })
+
+  // Review I1: the glued run is looked for from its first character only. Anchored at the end alone, a long run of
+  // letters the class takes followed by one it does not was tried from every position: 2.4 s for 20,000 characters,
+  // on every hover of the row.
+  it('reads a long run of CJK text with no space in linear time', () => {
+    const line = 'あ'.repeat(20_000) + 'x' + '/' + '中'.repeat(20_000) + 'y'
+    const t0 = performance.now()
+    findConsoleLinks(line)
+    expect(performance.now() - t0).toBeLessThan(250)
+  })
+
+  it('offers nothing more when no word is glued on, or nothing is left without it', () => {
+    expect(only('D:\\p\\a.png')).toEqual({ kind: 'path', start: 0, end: 10, target: 'D:\\p\\a.png' })
+    expect(findConsoleLinks('보고서를 확인하세요')).toEqual([])
+  })
+})
+
+// The 2026-10-14 investigation (D1): a path a word, a bracket or `=` is glued to the front of, or that quotes or
+// brackets wrap, is still a link, by a reading that starts where the path does.
+describe('findConsoleLinks — a path with something glued to its front', () => {
+  const alts = (line: string) => {
+    const l = only(line)
+    if (l.kind !== 'path') throw new Error('not a path')
+    return [l, ...(l.alts ?? [])].map((a) => [line.slice(a.start, a.end), a.target])
+  }
+
+  it('reads the path in a markdown image or link', () => {
+    expect(alts('![C6-1a 스틸](D:\\a\\b.png)')).toContainEqual(['D:\\a\\b.png', 'D:\\a\\b.png'])
+    expect(alts('[보기](C:\\x\\y.md)')).toContainEqual(['C:\\x\\y.md', 'C:\\x\\y.md'])
+  })
+
+  it('reads the path after a word and a parenthesis, an equals sign, or a colon', () => {
+    expect(alts('경로(C:\\a\\claude.exe)로')).toContainEqual(['C:\\a\\claude.exe', 'C:\\a\\claude.exe'])
+    expect(alts('GIT=E:\\Git\\bin\\bash.exe')).toContainEqual(['E:\\Git\\bin\\bash.exe', 'E:\\Git\\bin\\bash.exe'])
+    expect(alts('경로:C:\\a\\b.png')).toContainEqual(['C:\\a\\b.png', 'C:\\a\\b.png'])
+  })
+
+  it('reads the path inside full-width brackets and curly quotes', () => {
+    expect(alts('「C:\\a\\b.png」を開く')).toContainEqual(['C:\\a\\b.png', 'C:\\a\\b.png'])
+    expect(alts('“C:\\a\\b.png”')).toContainEqual(['C:\\a\\b.png', 'C:\\a\\b.png'])
+    expect(alts('‘C:\\a\\b.png’')).toContainEqual(['C:\\a\\b.png', 'C:\\a\\b.png'])
+  })
+
+  it('offers readings longest first, each inside the link and naming something a path could', () => {
+    const line = '경로(C:\\a\\b.png)를'
+    const l = only(line)
+    if (l.kind !== 'path' || !l.alts) throw new Error('no alts')
+    const lengths = l.alts.map((a) => a.end - a.start)
+    expect([...lengths].sort((a, b) => b - a)).toEqual(lengths)
+    for (const a of l.alts) expect(a.start >= l.start && a.end <= l.end, JSON.stringify(a)).toBe(true)
+  })
+
+  it('finds nothing more in words that only look like it', () => {
+    for (const line of ['foo(bar)', 'a=b', 'f(x) = y', 'src/a.ts(12,5): error TS2322'])
+      expect(findConsoleLinks(line).flatMap((l) => (l.kind === 'path' ? (l.alts ?? []) : [])), line).toEqual([])
+  })
+})
+
+// D3 (2026-10-14): a path with spaces is a link only inside quotes. The quoted reading claims no range, so a quote that
+// only seems to open a path cannot hide one; the renderer keeps the longest link that resolves.
+describe('findConsoleLinks — a quoted path with spaces', () => {
+  const paths = (line: string) => findConsoleLinks(line).flatMap((l) => (l.kind === 'path' ? [[line.slice(l.start, l.end), l.target, l.line]] : []))
+
+  it('reads a path with spaces inside double, single or curly quotes', () => {
+    expect(paths('open "C:\\Program Files\\a.txt" now')).toContainEqual(['C:\\Program Files\\a.txt', 'C:\\Program Files\\a.txt', undefined])
+    expect(paths("see 'D:\\My Docs\\b.png'")).toContainEqual(['D:\\My Docs\\b.png', 'D:\\My Docs\\b.png', undefined])
+    expect(paths('“C:\\My Docs\\a.png”')).toContainEqual(['C:\\My Docs\\a.png', 'C:\\My Docs\\a.png', undefined])
+    expect(paths('"./my dir/a b.ts"')).toContainEqual(['./my dir/a b.ts', './my dir/a b.ts', undefined])
+  })
+
+  it('keeps the position of a quoted path', () => {
+    expect(paths('at "C:\\Program Files\\a.ts:12"')).toContainEqual(['C:\\Program Files\\a.ts:12', 'C:\\Program Files\\a.ts', 12])
+  })
+
+  it('reads nothing more from apostrophes in prose or quoted words', () => {
+    expect(paths("don't open C:\\a\\b.png, it's fine")).toEqual([['C:\\a\\b.png', 'C:\\a\\b.png', undefined]])
+    expect(paths('"just words here" and "C:\\nospace.txt"')).toEqual([['C:\\nospace.txt', 'C:\\nospace.txt', undefined]])
+  })
+
+  it('takes an unclosed quote over a long line in linear time', () => {
+    const line = '"C:\\' + 'a '.repeat(20_000)
+    const t0 = performance.now()
+    findConsoleLinks(line)
+    expect(performance.now() - t0).toBeLessThan(250)
+  })
+})
+
+// Final review of the 2026-10-14 links slice: the minors, each a case the first pass missed
+describe('findConsoleLinks — review fixes', () => {
+  const readingsOf = (line: string) =>
+    findConsoleLinks(line).flatMap((l) => (l.kind === 'path' ? [l, ...(l.alts ?? [])].map((r) => r.target) : []))
+  const fast = (line: string) => {
+    const t0 = performance.now()
+    findConsoleLinks(line)
+    return performance.now() - t0
+  }
+
+  // m1: the path is at the token's end, after the last of what is glued to its front
+  it('takes the starts nearest the path, and a drive letter always', () => {
+    expect(readingsOf('![shot(1)[v2]](D:\\a\\b.png)')).toContain('D:\\a\\b.png')
+    expect(readingsOf('dict(a=1,b=[2],path=C:\\a\\b.png)')).toContain('C:\\a\\b.png')
+    expect(readingsOf('a=(b/c)=[d/e]=f/g.png')).toContain('f/g.png')
+  })
+
+  // m9
+  it('opens on a guillemet as it closes on one', () => {
+    expect(readingsOf('«/a/b.png»')).toContain('/a/b.png')
+  })
+
+  // m2, m3: linear on the inputs that were quadratic
+  it('reads many curly quotes, and long runs of trailing punctuation, in linear time', () => {
+    expect(fast('“/a '.repeat(20_000))).toBeLessThan(250)
+    expect(fast('a=b(c[d=e/' + '.'.repeat(20_000) + 'x')).toBeLessThan(250)
+    expect(fast('http://a/' + '.'.repeat(20_000) + 'x')).toBeLessThan(250)
+    expect(fast('x' + ')'.repeat(20_000) + 'y')).toBeLessThan(250)
+  })
+
+  // m5: a folder reading from a glued word only when that word is a particle or a copula, not a name
+  it('offers the folder before a particle, not the parent of a Korean name', () => {
+    expect(readingsOf('C:\\a\\specs\\에 있습니다')).toContain('C:\\a\\specs\\')
+    expect(readingsOf('D:\\out\\결과물')).toEqual(['D:\\out\\결과물'])
+  })
+
+  // m6: a Python frame's quoted path with spaces is one link, the frame's, with its line
+  it('reads a quoted path a Python frame already took once', () => {
+    const links = findConsoleLinks('  File "C:\\Users\\John Smith\\app.py", line 9, in main')
+    expect(links).toEqual([{ kind: 'path', start: 8, end: 34, target: 'C:\\Users\\John Smith\\app.py', line: 9 }])
   })
 })
 
@@ -141,6 +316,46 @@ describe('findConsoleLinks — Python frames', () => {
   ])('%s carries its line', (_name, line, target, lineNo) => {
     const start = line.indexOf(target)
     expect(findConsoleLinks(line)).toEqual([{ kind: 'path', start, end: start + target.length, target, line: lineNo }])
+  })
+})
+
+// D1 (2026-10-14): a Korean, Japanese or Chinese word glued to a URL's end made it open a broken address. Cut when the
+// run follows an ASCII letter, digit or closing bracket; after a `/` the run is the URL's own (a wiki title).
+describe('findConsoleLinks — a URL with a word glued to it', () => {
+  const urlOf = (line: string) => {
+    const l = only(line)
+    if (l.kind !== 'url') throw new Error('not a URL')
+    return [l.url, line.slice(l.start, l.end)]
+  }
+  it('cuts the word glued after a port, a path or a file name', () => {
+    expect(urlOf('서버는 http://localhost:5173에서 실행 중입니다')).toEqual(['http://localhost:5173', 'http://localhost:5173'])
+    expect(urlOf('https://example.com/docs를 보세요')).toEqual(['https://example.com/docs', 'https://example.com/docs'])
+    expect(urlOf('https://x.com/a.png입니다.')).toEqual(['https://x.com/a.png', 'https://x.com/a.png'])
+    expect(urlOf('http://localhost:3000で起動')).toEqual(['http://localhost:3000', 'http://localhost:3000'])
+  })
+  // Final review m4: a title with a number in it is the URL's own (`/wiki/2026년`); a run is cut after a host or a port,
+  // after a file name with an extension, or when it is a particle or a copula (`/docs를`)
+  it('keeps a title that starts with a number, and cuts a particle after a word', () => {
+    expect(urlOf('https://ko.wikipedia.org/wiki/2026년')[0]).toBe('https://ko.wikipedia.org/wiki/2026년')
+    expect(urlOf('https://ko.wikipedia.org/wiki/10월_14일')[0]).toBe('https://ko.wikipedia.org/wiki/10월_14일')
+    expect(urlOf('https://example.com/api에서 받았습니다')[0]).toBe('https://example.com/api')
+    expect(urlOf('http://localhost:5173/에서')[0]).toBe('http://localhost:5173/')
+  })
+
+  it('keeps a title that is the path itself', () => {
+    expect(urlOf('https://ko.wikipedia.org/wiki/서울')).toEqual(['https://ko.wikipedia.org/wiki/서울', 'https://ko.wikipedia.org/wiki/서울'])
+    expect(urlOf('https://ko.wikipedia.org/wiki/서울에서')[0]).toBe('https://ko.wikipedia.org/wiki/서울에서')
+  })
+  it('gives the dev server address without the glued word', () => {
+    expect(firstLoopbackUrl('dev: http://localhost:5173에서 실행')).toBe('http://localhost:5173')
+  })
+
+  // Found by the test above: firstLoopbackUrl walked the shared global URL_RE with exec and returned at its first find,
+  // leaving the regex's lastIndex there, and findConsoleLinks' matchAll starts from a copy of it. A run panel that had
+  // looked for its dev server's address made the next terminal row's URLs before that index no link.
+  it('leaves nothing behind that a later search starts from', () => {
+    expect(firstLoopbackUrl('a long line first, then http://localhost:4321/ and more')).toBe('http://localhost:4321/')
+    expect(only('│ http://localhost:5173/│')).toEqual({ kind: 'url', start: 2, end: 24, url: 'http://localhost:5173/' })
   })
 })
 
@@ -322,6 +537,28 @@ describe('cutCandidates', () => {
     const i = c.text.indexOf(PATH)
     return { start: c.cells[i], end: c.cells[i + PATH.length - 1] }
   }
+
+  // D1 (2026-10-14): in xterm a Korean character takes two cells, the second with no chars and width 0. That half is
+  // part of the word, not a blank: read as one, a path with a Korean folder in it was cut at that folder.
+  it('joins a cut path with a Korean folder name in it, its characters taking two cells', () => {
+    const wideRow = (text: string, cols: number) => {
+      const cells: Array<{ width: number; chars: string }> = []
+      for (const ch of text) {
+        if (/[\uAC00-\uD7A3]/.test(ch)) cells.push({ width: 2, chars: ch }, { width: 0, chars: '' })
+        else cells.push({ width: 1, chars: ch === ' ' ? '' : ch })
+      }
+      while (cells.length < cols) cells.push({ width: 1, chars: '' })
+      return { cells, isWrapped: false }
+    }
+    const first = '  C:\\Users\\a\\문서\\terraluen-r'
+    const cols = wideRow(first, 0).cells.length
+    const rows = [wideRow(first, cols), wideRow('  eview\\concept.png', cols)]
+    for (const y of [0, 1])
+      expect(
+        cutCandidates((r) => rows[r], y, cols).map((c) => c.text),
+        String(y)
+      ).toContain('C:\\Users\\a\\문서\\terraluen-review\\concept.png')
+  })
 
   // 30 columns, as a split pane narrows them: the 73-character path takes three rows.
   it('joins a quoted path cut across three rows, from any of them, with where it sits', () => {

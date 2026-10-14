@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { removeFixture } from '../../core/testFixtures'
 import { EventEmitter } from 'node:events'
 import { PassThrough } from 'node:stream'
 import { existsSync, promises as fs } from 'node:fs'
@@ -51,12 +52,12 @@ describe('locateNpm', () => {
   let bin: string
   let other: string
   beforeEach(async () => {
-    bin = await fs.mkdtemp(path.join(os.tmpdir(), 'astera find npm '))
-    other = await fs.mkdtemp(path.join(os.tmpdir(), 'astera find node '))
+    bin = await fs.mkdtemp(path.join(os.tmpdir(), 'astera-find npm '))
+    other = await fs.mkdtemp(path.join(os.tmpdir(), 'astera-find node '))
   })
   afterEach(async () => {
-    await fs.rm(bin, { recursive: true, force: true })
-    await fs.rm(other, { recursive: true, force: true })
+    await removeFixture(bin)
+    await removeFixture(other)
   })
   const nothing = async (): Promise<void> => {}
 
@@ -187,7 +188,7 @@ describe('packAndExtract and installDependencies', () => {
     dir = await fs.mkdtemp(path.join(os.tmpdir(), 'astera-npm-unit-'))
   })
   afterEach(async () => {
-    await fs.rm(dir, { recursive: true, force: true })
+    await removeFixture(dir)
   })
 
   /** An npm that writes `tgz` for a pack and records where it ran; for an install, a stub of each dependency. */

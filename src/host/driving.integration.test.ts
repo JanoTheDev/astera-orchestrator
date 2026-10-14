@@ -17,6 +17,7 @@
 // **Portable:** every path comes from `tempDir`/`path.join`, git runs through the S3 fixtures, and every
 // wait is a bounded `vi.waitFor` or a quiescence check — no fixed sleep decides an assertion.
 import { describe, it, expect, afterEach, vi } from 'vitest'
+import { removeFixture } from '../core/testFixtures'
 import { promises as fs, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -84,7 +85,7 @@ async function rig(o: RigOpts) {
   const home = await tempDir('astera-hostdrive-home-')
   const repo = await makeRepo('astera-hostdrive-repo-')
   cleanups.push(async () => {
-    for (const d of [profileDir, home, repo]) await fs.rm(d, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+    for (const d of [profileDir, home, repo]) await removeFixture(d)
   })
   // The seed run configuration `seed:npm:test` comes from the project's package.json, and every worktree
   // is a checkout of the repo, so it is committed.
@@ -849,7 +850,7 @@ describe('the Host drives with no app (§9.3)', { timeout: 40_000 }, () => {
     const rollingCall = src.slice(src.indexOf('composeHostRolling('))
     // E2 §4: a roll reaches the work units first, then the Slack.
     expect(rollingCall).toMatch(/onRollEvent: \(e\) => \{[^}]*hostWorkUnits\?\.onRolled\([^]*?slackWiring\?\.onRollEvent\(e\)/)
-    expect(rollingCall).toMatch(/hookTap: \(sid, p\) => slackWiring\?\.onHookEvent\(sid, p\)/)
+    expect(rollingCall).toMatch(/hookTap: \(sid, p\) => \{\s*slackWiring\?\.onHookEvent\(sid, p\)/)
     const slackCall = src.slice(src.indexOf('composeHostSlack('), src.indexOf('createHostOrch({'))
     expect(slackCall).toMatch(/chats: rollingWiring\.chats/)
     expect(slackCall).toMatch(/rolling: rollingWiring\.rolling/)

@@ -1292,6 +1292,7 @@ export const en: Record<keyof typeof ko, string> = {
   'media.action.openExternal': 'Open in default app',
   'media.action.reveal': 'Show in folder',
   'media.error.cannotOpen': 'Cannot open the file',
+  'files.openFolder.notFolder': 'That folder is not there any more',
   'conversation.sentFile.open': 'Open {name}',
   // ---- preview ----
   'preview.tab.untitled': 'Preview',

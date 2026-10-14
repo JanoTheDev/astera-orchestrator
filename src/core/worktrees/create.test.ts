@@ -307,7 +307,7 @@ describe('createWorktree, taking back the repo folder', () => {
     expect(asked).toBe(true)
     expect(Date.now() - started).toBeLessThan(PROBE_TIMEOUT_MS + 8_000)
     expect(budget.stuckCount()).toBe(0)
-  }, 20_000)
+  })
 })
 
 
@@ -604,7 +604,7 @@ describe('rollback fs — slow removal is not a probe', () => {
     expect(await rfs.exists(dir)).toBe('yes')
     expect(await removing).toBe(true)
     expect(budget.stuckCount()).toBe(0)
-  }, 15_000)
+  })
 
   it('an rm past its own deadline answers not done, still without marking the root stuck', async () => {
     const budget = new ProbeBudget()

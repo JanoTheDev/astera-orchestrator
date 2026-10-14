@@ -294,8 +294,9 @@ export interface ListResult<T> {
   readonly nextCursor?: string
 }
 
-/** What the Host's public event log records (SDK spec §6). `run.cancelled`, `github.*` and `runtime.*` are not
- *  produced yet: there is no cancel (a stop pauses), and neither GitHub nor a Runtime's presence moves the state. */
+/** What the Host's public event log records (SDK spec §6, and the session events of plugin Phase 3). `run.cancelled`,
+ *  `github.*` and `runtime.*` are not produced yet: there is no cancel (a stop pauses), and neither GitHub nor a
+ *  Runtime's presence moves the state. */
 export type EventType =
   | 'job.created'
   | 'job.updated'
@@ -312,9 +313,44 @@ export type EventType =
   | 'completion.repair_started'
   | 'completion.converged'
   | 'completion.exhausted'
+  | 'session.input_needed'
+  | 'session.limit_waiting'
+  | 'session.account_switched'
+
+/** The session a session event is about: five of the fields `astera sessions list` shows for it. `title`, `provider`
+ *  and `cwd` are absent when the Host does not know them. */
+export interface EventSession {
+  readonly id: string
+  readonly kind: 'terminal' | 'chat'
+  readonly title?: string
+  readonly provider?: 'claude' | 'codex'
+  readonly cwd?: string
+}
+
+/** `session.input_needed`: the session turned to waiting on a person, once per turn into it. `prompt` says for what:
+ *  a permission, a question, or `null` when the Host cannot tell. */
+export interface SessionInputNeeded {
+  readonly session: EventSession
+  readonly prompt: 'permission' | 'question' | null
+}
+
+/** `session.limit_waiting`: the session stopped at a usage limit and waits for it to reset; `scope` and `nextRetryAt`
+ *  when the Host knows them. */
+export interface SessionLimitWaiting {
+  readonly session: EventSession
+  readonly scope?: 'session' | 'weekly'
+  readonly nextRetryAt?: string
+}
+
+/** `session.account_switched`: the session goes on under another account, named by its label. */
+export interface SessionAccountSwitched {
+  readonly session: EventSession
+  readonly accountLabel: string
+}
 
 /** Each event's payload: the public DTO of the object it is about, as it stood right after the change. A Task is cut
- *  like `tasks.list({ brief: true })` and its checks carry no output; `get` reads the whole object. */
+ *  like `tasks.list({ brief: true })` and its checks carry no output; `get` reads the whole object. A session event
+ *  carries its session and what happened to it. */
 export interface EventPayloads {
   readonly 'job.created': Job
   readonly 'job.updated': Job
@@ -331,6 +367,9 @@ export interface EventPayloads {
   readonly 'completion.repair_started': TaskCompletion
   readonly 'completion.converged': TaskCompletion
   readonly 'completion.exhausted': TaskCompletion
+  readonly 'session.input_needed': SessionInputNeeded
+  readonly 'session.limit_waiting': SessionLimitWaiting
+  readonly 'session.account_switched': SessionAccountSwitched
 }
 
 /** One event. A notification, not the source of truth: read the object again when it matters. Delivered at least
@@ -345,6 +384,7 @@ export type AsteraEvent<K extends EventType = EventType> = {
     readonly jobId?: string
     readonly runId?: string
     readonly taskId?: string
+    readonly sessionId?: string
     readonly payload: EventPayloads[P]
   }
 }[K]
@@ -359,6 +399,7 @@ export interface EventGap {
   readonly jobId?: undefined
   readonly runId?: undefined
   readonly taskId?: undefined
+  readonly sessionId?: undefined
 }
 
 /** `events.list`: a page of events, the cursor to read on from, and whether events before the page were lost. Unlike

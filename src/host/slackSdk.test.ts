@@ -69,5 +69,5 @@ describe('loadSlackSdk (Slack in the Host Task 3, P1)', () => {
     } finally {
       await new Promise<void>((r) => server.close(() => r()))
     }
-  }, 15_000)
+  })
 })

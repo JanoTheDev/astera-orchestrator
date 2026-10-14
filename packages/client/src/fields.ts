@@ -142,7 +142,7 @@ export const COMPLETION_DETAIL_FIELDS = Object.freeze(['taskId', 'checks', 'bloc
 export const COMPLETION_CHECK_FIELDS = Object.freeze(['configId', 'name', 'status', 'exitCode', 'outputTail', 'unstable'] as const)
 
 /** One public event's envelope (SDK spec §6); its payload is shaped by its type (shape.ts shapeEvent). */
-export const EVENT_FIELDS = Object.freeze(['id', 'type', 'sequence', 'occurredAt', 'projectId', 'jobId', 'runId', 'taskId', 'payload'] as const)
+export const EVENT_FIELDS = Object.freeze(['id', 'type', 'sequence', 'occurredAt', 'projectId', 'jobId', 'runId', 'taskId', 'sessionId', 'payload'] as const)
 
 /** Built from a record of every EventType, so a type added to the union and not here fails the typecheck. */
 const EVENT_TYPE_SET = {
@@ -160,7 +160,18 @@ const EVENT_TYPE_SET = {
   'completion.failed': true,
   'completion.repair_started': true,
   'completion.converged': true,
-  'completion.exhausted': true
+  'completion.exhausted': true,
+  'session.input_needed': true,
+  'session.limit_waiting': true,
+  'session.account_switched': true
 } as const satisfies Record<EventType, true>
 /** The event types the Host produces, in the order of the spec's list. */
 export const EVENT_TYPES: readonly EventType[] = Object.freeze(Object.keys(EVENT_TYPE_SET) as EventType[])
+/** The session a session event names (types.ts EventSession): five of `sessions list`'s fields. */
+export const EVENT_SESSION_FIELDS = Object.freeze(['id', 'kind', 'title', 'provider', 'cwd'] as const)
+/** Each session event's payload fields (types.ts SessionInputNeeded and the two after it). */
+export const SESSION_EVENT_FIELDS = Object.freeze({
+  'session.input_needed': Object.freeze(['session', 'prompt'] as const),
+  'session.limit_waiting': Object.freeze(['session', 'scope', 'nextRetryAt'] as const),
+  'session.account_switched': Object.freeze(['session', 'accountLabel'] as const)
+} as const satisfies Record<Extract<EventType, `session.${string}`>, readonly string[]>)

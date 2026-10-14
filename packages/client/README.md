@@ -112,10 +112,13 @@ for await (const e of astera.events.subscribe({ types: ['run.completed', 'run.fa
 | `completion.failed` | a check or review round fails | `TaskCompletion` |
 | `completion.repair_started` | a repair of a failed check or review starts, once its worker has its session | `TaskCompletion` |
 | `completion.converged`, `completion.exhausted` | a Task is done; its repairs ran out | `TaskCompletion` |
+| `session.input_needed` | a session turns to waiting on a person (a permission, a question), once per turn into it | `{ session, prompt }` |
+| `session.limit_waiting` | a session stops at a usage limit and waits for it to reset | `{ session, scope?, nextRetryAt? }` |
+| `session.account_switched` | a session goes on under another account | `{ session, accountLabel }` |
 
-- An event is `{ id, type, sequence, occurredAt, projectId?, jobId?, runId?, taskId?, payload }`, the payload the
-  object as it stood right after the change. A Task is cut like `tasks.list({ brief: true })` and its checks carry no
-  output; `get` reads the whole object.
+- An event is `{ id, type, sequence, occurredAt, projectId?, jobId?, runId?, taskId?, sessionId?, payload }`, the
+  payload the object as it stood right after the change (a session event's is `{ session, ... }`). A Task is cut like
+  `tasks.list({ brief: true })` and its checks carry no output; `get` reads the whole object.
 - Events are notifications, not the state. Delivery is at least once; an `id` never repeats, so drop one you have
   seen. `sequence` orders the events of one log.
 - `subscribe()` starts with what happens next; `subscribe({ after })` reads on from an event id or a cursor.
@@ -140,4 +143,4 @@ for await (const e of astera.events.subscribe({ types: ['run.completed', 'run.fa
 
 It is versioned apart from the Astera app, and 0.x, so a minor version may still change names:
 [CHANGELOG.md](https://github.com/parsingk/Astera/blob/main/packages/client/CHANGELOG.md) says what each version
-changed. It needs Astera 1.4.12 or later.
+changed. It needs Astera 1.4.12 or later, and 1.4.13 for the session events.

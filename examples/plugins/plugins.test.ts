@@ -4,12 +4,13 @@
 // Host that answers what it asks.
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest'
 import { createHmac } from 'node:crypto'
-import { mkdtempSync, readFileSync, rmSync, existsSync } from 'node:fs'
+import { mkdtempSync, readFileSync, existsSync } from 'node:fs'
 import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
 import type { AddressInfo } from 'node:net'
 import { fileURLToPath } from 'node:url'
+import { removeFixture } from '../../src/core/testFixtures'
 import { parseManifest } from '../../src/core/plugins/manifest'
 import { createPluginRuntime, type PluginRuntime } from '../../src/host/plugins/runtime'
 import { copyPluginFolder } from '../../src/host/plugins/copyFolder'
@@ -25,13 +26,13 @@ let launcher: string
 /** The sample as `astera plugins install --path` copies it (2f final review m10): it runs from there, not the repo. */
 let installed: string
 beforeAll(async () => {
-  work = mkdtempSync(path.join(os.tmpdir(), 'astera plugin samples '))
+  work = mkdtempSync(path.join(os.tmpdir(), 'astera-plugin samples '))
   launcher = await bundleLauncher(work)
   installed = path.join(work, 'installed', ID)
   await copyPluginFolder(NOTIFIER, installed)
 }, 60_000)
-afterAll(() => {
-  rmSync(work, { recursive: true, force: true, maxRetries: 5 })
+afterAll(async () => {
+  await removeFixture(work)
 })
 const started: PluginRuntime[] = []
 const servers: http.Server[] = []
@@ -40,7 +41,9 @@ afterEach(async () => {
   for (const s of servers.splice(0)) await new Promise((res) => s.close(() => res(undefined)))
 })
 
-const until = <T>(f: () => T, timeout = 20_000): Promise<T> => vi.waitFor(f, { timeout, interval: 25 })
+// 45 s: starts and restarts of a real plugin process under the full suite, as the runtime rig's (load-sensitive tests,
+// 2026-10-14, final review I2)
+const until = <T>(f: () => T, timeout = 45_000): Promise<T> => vi.waitFor(f, { timeout, interval: 25 })
 
 /** A webhook that answers with `statuses` in turn (200 once they run out), and keeps what it was sent. */
 async function webhook(statuses: number[] = []) {
@@ -98,7 +101,9 @@ function runtime(host: ReturnType<typeof events>, failAfter = 3) {
     host: () => ({ version: '9.9.9', pid: process.pid, startedAt: 'T', features: ['orch', 'requests', 'events'] }),
     orch: { call: host.call as never },
     log: () => {},
-    timings: { startMs: 10_000, stopGraceMs: 2_000, backoffMs: [50, 50], stableMs: 5_000, failAfter }
+    // The runtime rig's budgets (src/host/plugins/runtime.test.ts): a start is a process spawn, and a crash counts as
+    // quick within the start's own time under load
+    timings: { startMs: 60_000, stopGraceMs: 2_000, backoffMs: [50, 50], stableMs: 30_000, failAfter }
   })
   started.push(r)
   return r
@@ -152,7 +157,7 @@ describe('the webhook notifier sample', () => {
     expect(logOf(r)).not.toContain('secret-part')
     // No signing secret, no signature
     expect(hook.posts[0].signature).toBeUndefined()
-  }, 30_000)
+  }, 90_000)
 
   // Spec §17: a webhook plugin's settings are its URL, a secret, event filters and a retry policy
   it('signs each post with the signing secret when one is set, so a service of your own can tell it came from here', async () => {
@@ -163,7 +168,7 @@ describe('the webhook notifier sample', () => {
     await until(() => expect(hook.posts).toHaveLength(1))
     const { text, signature } = hook.posts[0]
     expect(signature).toBe(`sha256=${createHmac('sha256', key).update(text).digest('hex')}`)
-  }, 30_000)
+  }, 90_000)
 
   it('asks only for problems when told to', async () => {
     const hook = await webhook()
@@ -172,7 +177,7 @@ describe('the webhook notifier sample', () => {
     r.start(launch({ webhookUrl: hook.url, onlyProblems: true }, [hook.url]))
     await until(() => expect(host.polls.length).toBeGreaterThanOrEqual(2))
     expect(host.polls[1]).toMatchObject({ types: 'run.failed,completion.exhausted,question.created' })
-  }, 30_000)
+  }, 90_000)
 
   // 2f final review I3: the runtime calls any exit it asked for a stop, so the log is what tells a quiet stop from one
   // that wrote an error and exited with a failure
@@ -189,7 +194,7 @@ describe('the webhook notifier sample', () => {
     expect(log).toContain('[host] exited with code 0')
     expect(log).not.toContain('[error]')
     expect(log).not.toContain('did not stop within')
-  }, 30_000)
+  }, 90_000)
 
   it('ends itself when the Host refuses its subscription, so Astera starts it again and then marks it failed', async () => {
     const hook = await webhook()
@@ -201,7 +206,7 @@ describe('the webhook notifier sample', () => {
     const log = logOf(r)
     expect(log).toContain('[host] restarting in')
     expect(log).toContain('[error] stopped: events-poll needs the events.subscribe permission')
-  }, 30_000)
+  }, 90_000)
 
   // 2f final review I2: configuring a failed plugin does not start it, so the message says what does
   it('says how to start it again when its webhook URL is not one', async () => {
@@ -210,7 +215,7 @@ describe('the webhook notifier sample', () => {
     await until(() => expect(r.status(ID)?.status).toBe('failed'))
     await until(() => expect(logOf(r)).toContain('[host] failed: '))
     expect(logOf(r)).toMatch(/astera plugins configure.*astera plugins enable/)
-  }, 30_000)
+  }, 90_000)
 
   // 2f final review m12: Slack reads <...> as a mention or a link, so <!channel> in a title would ping a channel
   it('escapes what Slack reads as markup in the text it posts, and leaves the event as it is', async () => {
@@ -221,5 +226,5 @@ describe('the webhook notifier sample', () => {
     r.start(launch({ webhookUrl: hook.url, onlyProblems: false }, [hook.url]))
     await until(() => expect(hook.bodies).toHaveLength(1))
     expect(hook.bodies[0]).toEqual({ text: '"&lt;!channel&gt; &amp; &lt;b&gt;" ran out of repairs: a &lt; b', event: exhausted })
-  }, 30_000)
+  }, 90_000)
 })

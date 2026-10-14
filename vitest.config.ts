@@ -1,5 +1,7 @@
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vitest/config'
+import os from 'node:os'
+import { workersFor } from './vitest.workers'
 
 export default defineConfig({
   // The vendored shadcn and assistant-ui components (src/renderer/src/components/ui/,
@@ -25,10 +27,16 @@ export default defineConfig({
       'packages/*/src/**/*.test.ts',
       'examples/**/*.test.ts',
       'scripts/**/*.test.mjs',
-      'vitest.globalSetup.test.ts'
+      'vitest.globalSetup.test.ts',
+      'vitest.config.test.ts'
     ],
     environment: 'node',
-    testTimeout: 10_000,
+    // 30 s, not 10: a test that spawns git, node or PowerShell takes up to 5 s alone here (integrateGit's merges: 4.6 s)
+    // and two to three times that under the full suite, so 10 s failed tests that were only slow (load-sensitive
+    // tests, 2026-10-14). A test that really hangs still fails, 20 s later.
+    testTimeout: 30_000,
+    // vitest's own cores - 1 up to 3 workers, half the cores above that: see vitest.workers.ts for the measurements.
+    maxWorkers: workersFor(os.availableParallelism()),
     // Hooks get their own, longer budget. The worktree fixtures build a real git repository in
     // beforeEach — mkdtemp, then five `git` processes — and on a loaded CI runner that overran the
     // 10s a hook otherwise inherits from testTimeout, failing two files with "Hook timed out" rather

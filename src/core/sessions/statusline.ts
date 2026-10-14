@@ -201,7 +201,7 @@ export function captureCommand(node: string, script: string): string {
 }
 
 /** The one tool whose PreToolUse/PostToolUse pair **every** session gets. Its `tool_input` is the question
- *  the conversation view draws as a card (main/pendingPrompt.ts → core/prompts/askUserQuestion.ts), and
+ *  the conversation view draws as a card (core/sessions/pendingPrompt.ts → core/prompts/askUserQuestion.ts), and
  *  a question is minutes apart, so the cost is one node process per question — the same order as Stop. */
 const ASK_MATCHER = 'AskUserQuestion'
 
@@ -278,7 +278,7 @@ export class StatusLineManager {
     // The cost is one node process when a prompt appears.
     //
     // Stop goes into every session for the same reason, and it is what lets a session stop waiting.
-    // main/attention.ts reads Notification to learn a session is waiting on a person, and Stop or
+    // core/sessions/attention.ts reads Notification to learn a session is waiting on a person, and Stop or
     // PostToolUse to learn it no longer is. PostToolUse only ever fires when a call actually runs, so
     // a person who answers "no" produces neither — and without Stop here an ordinary session would
     // stay `waiting` for the rest of its life, with the conversation view's banner up and its

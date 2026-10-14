@@ -8,6 +8,7 @@ import type { GatewayState } from '../remote/gatewayState'
 import type { OrchState } from '../orchestration/state'
 import type { HostDriverReport, RollStateEvent, SessionInfo, WorktreeInfo } from '../types'
 import type { SlackForwardedEvent } from '../slack/forwarded'
+import type { SessionSignal } from '../sessions/sessionSignal'
 import type { McpHttpUrl } from '../mcp/httpUrls'
 import {
   HOST_FEATURE_EVENTS,
@@ -57,6 +58,10 @@ export const HOST_FEATURE_MCP = 'mcp'
  *  just started; and it answers `pty-opened` by adopting that session. An app that sees no `spawn`
  *  keeps doing both as it always has. Additive, so HOST_PROTOCOL stays 3. */
 export const HOST_FEATURE_SPAWN = 'spawn'
+
+/** The Host records session events (plugin Phase 3, events and notifications design N3) and takes the app's
+ *  `session-signal`. Rides a spawner: without one there is no rolling and no hook tap to record from. */
+export const HOST_FEATURE_SESSION_SIGNALS = 'session-signals'
 
 /** The Host owns worktrees.json and runs the worktree git itself (host S3 design §3): the app writes
  *  its registry through `worktree-*` orch-calls and mirrors `worktrees-state`. Only a Host that also
@@ -389,6 +394,10 @@ export type ClientMessage =
    *  Host §3.3). Fire and forget: nothing answers it. Taken only from a greeted app, and dropped for a
    *  session the Host sources itself, so no notice is posted twice. A Host without the feature is sent none. */
   | { t: 'slack-event'; event: SlackForwardedEvent }
+  /** What only an app sees of its sessions, for a Host that announced HOST_FEATURE_SESSION_SIGNALS to record as session
+   *  events (plugin Phase 3). Fire and forget, sent whoever owns Slack. Taken only from a greeted app, and dropped for a
+   *  session the Host sources itself. A Host without the feature is sent none. */
+  | { t: 'session-signal'; signal: SessionSignal }
 
 export type HostMessage =
   | HostHelloMessage

@@ -276,7 +276,7 @@ describe('git 어댑터 — 중단', () => {
     expect(r.cancelled).toBe(true)
     expect(r.exitCode).toBeUndefined()
     expect(Date.now() - started).toBeLessThan(8_000)
-  }, 15_000)
+  })
 
   it('이미 중단된 신호면 git 을 띄우지 않는다', async () => {
     const ac = new AbortController()

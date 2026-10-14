@@ -11,6 +11,7 @@ import {
   COMPLETION_FIELDS,
   DERIVED_FIELDS,
   EVENT_FIELDS,
+  EVENT_SESSION_FIELDS,
   EVENT_TYPES,
   FOLLOW_EVENT_FIELDS,
   JOB_FIELDS,
@@ -21,6 +22,7 @@ import {
   RUN_CHECKS_FIELDS,
   RUN_CONFIG_FIELDS,
   RUN_FIELDS,
+  SESSION_EVENT_FIELDS,
   SESSION_FIELDS,
   SKILL_INSTALLED_FIELDS,
   SKILL_LISTED_FIELDS,
@@ -199,6 +201,11 @@ function shapePayload(type: unknown, payload: unknown): unknown {
     return task
   }
   if (kind === 'completion') return shapeTaskCompletion(payload)
+  if (kind === 'session') {
+    const out = pick(SESSION_EVENT_FIELDS[type as keyof typeof SESSION_EVENT_FIELDS], payload)
+    if (out.session !== null && typeof out.session === 'object') out.session = pick(EVENT_SESSION_FIELDS, out.session)
+    return out
+  }
   return {}
 }
 

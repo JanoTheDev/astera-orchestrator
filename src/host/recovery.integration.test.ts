@@ -12,6 +12,7 @@
 // **Portable:** every path comes from `tempDir`/`path.join`, git runs through the fixtures, and every wait is a
 // bounded `vi.waitFor` or a quiescence check.
 import { describe, it, expect, afterEach, vi } from 'vitest'
+import { removeFixture } from '../core/testFixtures'
 import { promises as fs, existsSync } from 'node:fs'
 import path from 'node:path'
 import { composeHostDriving, type HostDrivingWiring } from './drivingWiring'
@@ -54,7 +55,7 @@ async function profile(settings: Record<string, unknown>) {
   const home = await tempDir('astera-hostrecovery-home-')
   const repo = await makeRepo('astera-hostrecovery-repo-')
   cleanups.push(async () => {
-    for (const d of [profileDir, home, repo]) await fs.rm(d, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+    for (const d of [profileDir, home, repo]) await removeFixture(d)
   })
   await fs.writeFile(path.join(repo, 'package.json'), JSON.stringify({ name: 'rig', scripts: { test: 'node -e "process.exit(0)"' } }))
   gitSync(repo, ['add', 'package.json'])

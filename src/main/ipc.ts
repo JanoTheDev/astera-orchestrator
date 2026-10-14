@@ -24,10 +24,11 @@ import type { SlackConfigStore } from './slackConfigStore'
 import type { SlackConfig } from '../core/slack/config'
 import { codexRolloutFromNote, type CodexRolloutWatcher } from '../core/sessions/codexRolloutWatcher'
 import type { DesktopNotifier } from './desktopNotifier'
+import type { SessionSignalForwarder } from './sessionSignals'
 import type { DesktopNotifySettings } from '../core/notify/settings'
-import type { AttentionState, Attention } from './attention'
+import type { AttentionState, Attention } from '../core/sessions/attention'
 import { createRendererGate } from './rendererGate'
-import type { PendingPromptState } from './pendingPrompt'
+import type { PendingPromptState } from '../core/sessions/pendingPrompt'
 import {
   createConversationSessions,
   transcriptPathFor,
@@ -262,7 +263,7 @@ import { listDotnetProjects } from './dotnetScanner'
 import { loadRunConfigs, prepareLaunch } from '../core/run/prepare'
 import { allowingJobCwds, orchRunConfigOf } from '../core/run/runConfigsFile'
 import { executeLaunch } from './run/launch'
-import { agentDirOf, resolveConsolePath, resolveExistingFile } from './run/resolveLink'
+import { agentDirOf, folderToOpen, resolveConsolePath, resolveExistingPath } from './run/resolveLink'
 import { mediaAllowlist } from './media/allowlist'
 import { admitProjectMedia } from './media/admit'
 import { mediaKindOf } from '../core/files/media'
@@ -359,6 +360,10 @@ export interface HostWiring {
   /** The app's one block registry, shared by both coordinators (index.ts). Exchanged with a Host that
    *  announces `blocks` (S6 D4, blockSync.ts). Optional so a test wiring can omit it. */
   blocks?: BlockRegistry
+  /** What only this app sees of its sessions, told to a Host that records session events (plugin Phase 3,
+   *  sessionSignals.ts): handed the Host client below, and every chat event of this app's adapters. Optional so a
+   *  test wiring can omit it. */
+  sessionSignals?: SessionSignalForwarder
   /** Hands over the shutdown handle once the client is built. Called from inside `registerIpc`, not
    *  from a boot path — the same shape as `OrchWiring.onTabResumeReady` — and read from will-quit.
    *  Not called at all when there is no Host bundle to talk to: there is then nothing to stop. */
@@ -753,7 +758,7 @@ export function historyResumePlan(a: {
 }
 
 /**
- * Whether a session exit should forget its attention verdict (main/attention.ts), and does so.
+ * Whether a session exit should forget its attention verdict (core/sessions/attention.ts), and does so.
  *
  * **Not on a lost-sight exit** (`PTY_LOST_SIGHT_EXIT_CODE`): that code means the app lost its pty
  * handle, not that the session ended — the Host keeps running it, and no hook event arrives again
@@ -811,7 +816,7 @@ export function conversationAttentionOf(attention: Pick<AttentionState, 'get'>, 
 export function registerIpc(
   core: Core,
   win: BrowserWindow,
-  /** The one attention verdict (main/attention.ts). Built in index.ts alongside `desktop` and handed
+  /** The one attention verdict (core/sessions/attention.ts). Built in index.ts alongside `desktop` and handed
    *  the same instance — forgetting a session's verdict on exit, and pushing every change through
    *  `conversation:attention`, both read it. Required, not optional, and placed ahead of
    *  every optional parameter below (TypeScript refuses a required parameter after an optional one) —
@@ -820,7 +825,7 @@ export function registerIpc(
    *  caught either, since `registerIpc` cannot be exercised without a full Electron harness. Requiring
    *  it turns that specific mistake into a type error at the one real call site. */
   attention: AttentionState,
-  /** The waiting-tool-call capture (main/pendingPrompt.ts). Required for the same reason `attention` is:
+  /** The waiting-tool-call capture (core/sessions/pendingPrompt.ts). Required for the same reason `attention` is:
    *  dropping it from index.ts's call must be a type error, not a dark feature. */
   pendingPrompt: PendingPromptState,
   rolling?: RollingCoordinator,
@@ -1743,6 +1748,16 @@ export function registerIpc(
    *  chain is not on this list. */
   core.chat.subscribe((sessionId, event) => {
     send('chat:event', { sessionId, event })
+    // Plugin Phase 3 (N3): every chat of this app's adapters, for the Host's session events, whoever owns Slack. The
+    // Host drops a signal for a chat whose adapter it holds itself, so a Host-held chat is recorded once.
+    if (event.type === 'status' || event.type === 'request') {
+      const info = core.chat.info(sessionId)
+      const provider = core.chat.state(sessionId)?.provider
+      hostWiring?.sessionSignals?.chat(
+        { id: sessionId, kind: 'chat', ...(info?.title ? { title: info.title } : {}), ...(provider ? { provider } : {}), ...(info?.cwd ? { cwd: info.cwd } : {}) },
+        event
+      )
+    }
     // Slack hears every event of a registered chat session (slice 4 design §7.1); unregistered ones
     // return at the notifier's first line. The transcript path is a getter because Claude's file exists
     // only after the first turn and Codex names its rollout at `ready` — the summary reads it when the
@@ -5228,16 +5243,27 @@ export function registerIpc(
   // The id is checked for shape before it is joined into a file name.
   // A session id as this app makes them (randomUUID), checked before it becomes part of a file name
   const SESSION_ID_SHAPE = /^[A-Za-z0-9_-]{1,128}$/
-  ipcMain.handle('files.resolveLink', async (_e, cwd: unknown, target: unknown, sessionId?: unknown) => {
+  // `opts.dirs` (a terminal that opens folders, D2 2026-10-14) answers a folder too, as `{ path, dir: true }`; the
+  // SendUserFile row asks without it and keeps files only.
+  ipcMain.handle('files.resolveLink', async (_e, cwd: unknown, target: unknown, sessionId?: unknown, opts?: unknown) => {
     if (typeof cwd !== 'string' || typeof target !== 'string') return null
     const currentDir =
       typeof sessionId === 'string' && SESSION_ID_SHAPE.test(sessionId) && !path.isAbsolute(target)
         ? agentDirOf(await core.statusLinePayload(sessionId))
         : null
-    const p = await resolveExistingFile({ cwd, currentDir, target, stat: (f) => fs.stat(f) })
-    if (!p) return null
-    if (mediaKindOf(p)) mediaAllowlist.add(p)
-    return { path: p }
+    const dirs = typeof opts === 'object' && opts !== null && (opts as { dirs?: unknown }).dirs === true
+    const found = await resolveExistingPath({ cwd, currentDir, target, stat: (f) => fs.stat(f), dirs })
+    if (!found) return null
+    if (!found.dir && mediaKindOf(found.path)) mediaAllowlist.add(found.path)
+    return found
+  })
+  // A folder a terminal link named, outside the current project, opened in the system file manager (D2): only a path
+  // that is a directory now (folderToOpen), never a file, which shell.openPath would run.
+  ipcMain.handle('files.openFolder', async (_e, p: unknown) => {
+    const folder = await folderToOpen(p, (f) => fs.stat(f))
+    if (folder === null) throw new Error(t(core.lang, 'files.openFolder.notFolder'))
+    const err = await shell.openPath(folder)
+    if (err) throw new Error(err)
   })
   // An image or a video the explorer or a Markdown preview opens (App's openProjectFile): admitted to the media
   // allowlist through the project guard, so a project on a share or in \\wsl$ opens its images too and nothing outside
@@ -6290,6 +6316,9 @@ export function registerIpc(
       },
       forward: (event) => client.send({ t: 'slack-event', event })
     })
+    // Plugin Phase 3 (N3): the session signals go to this client's Host, whoever owns Slack. The client lives as long as
+    // the app; its status says at each send whether a Host that takes them is there.
+    hostWiring?.sessionSignals?.setHost({ status: () => client.status(), send: (m) => client.send(m) })
 
     // Limits L3: who drives, as a Host that announced `driver` says it, pushed to the window so its Jobs
     // sidebar can say why a parked Host starts nothing. Neither callback throws (hostDriver.ts).
@@ -7467,7 +7496,7 @@ export function registerIpc(
     conversationSessions.pause(sessionId, paused === true)
   })
   // Independent of open/more/close — a fresh session sitting on a trust prompt is `waiting` while
-  // `open` still answers null, so this reads main/attention.ts directly rather than folding onto
+  // `open` still answers null, so this reads core/sessions/attention.ts directly rather than folding onto
   // conversationSessions.
   ipcMain.handle('conversation.attention', (_e, sessionId: string) => conversationAttentionOf(attention, sessionId))
   ipcMain.handle('conversation.pendingPrompt', (_e, sessionId: string) => pendingPrompt.get(sessionId))

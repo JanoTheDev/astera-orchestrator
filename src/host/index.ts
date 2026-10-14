@@ -39,6 +39,7 @@ import { nodeProcSpawn } from './nodeProc'
 import { HOST_FEATURE_ORCH, HOST_FEATURE_REQUESTS, HOST_PROTOCOL, HOST_YIELD_JOURNAL, HOST_YIELD_UNDERSTANDING, HOST_YIELD_WORK_UNITS, HOST_YIELD_WORKSPACE, HOST_YIELD_WORKTREES } from '../core/host/protocol'
 import { createHostJournal } from './hostJournal'
 import { createHostEventLog } from './eventLog'
+import { createHostSessionEvents, type HostSessionEvents } from './sessionEvents'
 import { createHostUnderstanding } from './hostUnderstanding'
 import { createHostWorkUnits, readWorkUnitTracking, wireSessionExits, workUnitSessionsOf, type HostWorkUnits } from './hostWorkUnits'
 import { readHostMerges, hostMergesPathIn } from '../core/git/hostMerges'
@@ -229,6 +230,8 @@ async function main(): Promise<void> {
     // from here on, and every chain is quieted. No roll waits: `killAll` below ends every session, a roll
     // in flight included, and the spawner refuses new respawns from `closeAndSettle` on. Never throws.
     rollingWiring?.dispose()
+    // The session events stop with the rolling that feeds them. Never throws.
+    sessionEvents?.dispose()
     // The work units' watchers and their sync timer stop with them. Never throws.
     hostWorkUnits?.dispose()
     // The MCP HTTP entrance stops with the Host (MCP HTTP §3): its stdin ends, which is its way out, and
@@ -450,6 +453,10 @@ async function main(): Promise<void> {
   /** Declared above the rolling (the S6 final review M3 lesson): Task 6 has the rolling's events reach it,
    *  and a `const` below would be in its temporal dead zone. Null without a spawner or without the SDK. */
   let slackWiring: HostSlackWiring | null = null
+  /** The session events of the public log (plugin Phase 3, events and notifications design N2, N3), declared above the
+   *  rolling for the same reason: its taps read it at the call. Made below once the session rows exist; null without a
+   *  spawner. */
+  let sessionEvents: HostSessionEvents | null = null
 
   // **The Host rolls its sessions** (S6 §2, §3A): the two coordinators over this registry, the roll tap, and
   // the takeover of a gone app's sessions — one composition, which the S6 rig builds too. **Only with a
@@ -479,8 +486,12 @@ async function main(): Promise<void> {
             if (e.t === 'session-rolled')
               hostWorkUnits?.onRolled({ oldSessionId: e.oldSessionId, newSessionId: e.info.id, transcriptPath: e.dest, kind: e.info.kind })
             slackWiring?.onRollEvent(e)
+            if (e.t === 'roll-state') sessionEvents?.onRollState(e.event)
           },
-          hookTap: (sid, p) => slackWiring?.onHookEvent(sid, p)
+          hookTap: (sid, p) => {
+            slackWiring?.onHookEvent(sid, p)
+            sessionEvents?.onHookEvent(sid, p)
+          }
         })
       : null
 
@@ -522,6 +533,19 @@ async function main(): Promise<void> {
     hookEventsDir: hookEventsDirIn(profileDir),
     accounts: () => readAccountEntries(path.join(profileDir, 'accounts.json'))
   })
+  // Plugin Phase 3 (N2, N3): a session waiting on a person, stopped at a limit or moved to another account, recorded in
+  // the public event log. Only with the rolling: without a spawner there is no hook tap and no chain to hear.
+  sessionEvents = rollingWiring
+    ? createHostSessionEvents({
+        record: (drafts) => eventLog.recorded(drafts),
+        sessionById: async (id) => (await hostSessions.sessionById?.(id)) ?? null,
+        registry,
+        procs,
+        chats: rollingWiring.chats,
+        rolling: rollingWiring.rolling,
+        log: (m) => log.write(`session events: ${m}`)
+      })
+    : null
   const projectRoots = createHostProjectRoots({ profileDir, repoPaths: () => worktrees.repoPaths() })
 
   // The agent app workspace (agent workspace design): answered here whether or not an app is open (W2).
@@ -896,6 +920,12 @@ async function main(): Promise<void> {
         // from a greeted app; the Host drops what it sources itself.
         if (m.t === 'slack-event') {
           if (slackWiring && from.greeted && from.role === 'app') slackWiring.forwarded(m.event)
+          return true
+        }
+        // Plugin Phase 3 (N3): what only an app sees of its sessions, for the session events. Only from a greeted app;
+        // the recorder drops what this Host sources itself.
+        if (m.t === 'session-signal') {
+          if (sessionEvents && from.greeted && from.role === 'app') sessionEvents.forwarded(m.signal)
           return true
         }
         return (handlePty?.(m, send, { socket: from.socket }) ?? false) || (handleProc?.(m, send) ?? false)

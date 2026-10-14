@@ -26,6 +26,7 @@ export function BottomPanel({
   onRerun,
   onDismissRun,
   onOpenFile,
+  onOpenFolder,
   onOpenUrl,
   onOpenPreview,
   terminals,
@@ -55,6 +56,8 @@ export function BottomPanel({
   /** A path link in a console or a terminal was activated — App opens the file at that line, or a
    *  media file in the viewer */
   onOpenFile: (path: string, at: { line?: number; col?: number }) => void
+  /** A folder a project terminal's link named (D2, 2026-10-14); the run console links files only. */
+  onOpenFolder?: (path: string) => void
   /** A URL link in a console or a terminal was activated — App's link rule routes it. */
   onOpenUrl: (url: string, ev: MouseEvent) => void
   /** Open a running server's address in a preview tab — the run tab's globe button. */
@@ -226,6 +229,7 @@ export function BottomPanel({
               cwd={terminalCwd}
               onOpenUrl={onOpenUrl}
               onOpenFile={onOpenFile}
+              onOpenFolder={onOpenFolder}
             />
           </div>
         ))}

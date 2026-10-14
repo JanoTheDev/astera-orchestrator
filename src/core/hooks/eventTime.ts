@@ -51,7 +51,7 @@ export const REORDER_WINDOW_MS = 5_000
  * a time and `a`'s is earlier by more than 0 and less than REORDER_WINDOW_MS. False means "not known
  * to be earlier": the caller then keeps the order the lines landed in. The Host picks the latest event with it
  * (core/hooks/sessionState.ts `latestEventLine`); the app's readers use it to tell a turn end that
- * belongs to the turn before the latest prompt (main/attention.ts, pendingPrompt.ts, slack.ts).
+ * belongs to the turn before the latest prompt (core/sessions/attention.ts, pendingPrompt.ts, slack.ts).
  */
 export function happenedBefore(a: number | null, b: number | null): boolean {
   return a !== null && b !== null && b - a > 0 && b - a < REORDER_WINDOW_MS

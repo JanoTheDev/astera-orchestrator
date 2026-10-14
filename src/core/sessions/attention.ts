@@ -2,9 +2,9 @@ import {
   isIdleNotification,
   isNonPromptNotification,
   type NotificationPayload
-} from '../core/hooks/notification'
-import { happenedBefore, hookEventAt } from '../core/hooks/eventTime'
-import type { Attention } from '../core/types'
+} from '../hooks/notification'
+import { happenedBefore, hookEventAt } from '../hooks/eventTime'
+import type { Attention } from '../types'
 
 /** Where a session stands right now, from the app's own point of view rather than the transcript's —
  *  the transcript stays frozen while a permission prompt sits on screen (measured in the countToolUses
@@ -12,7 +12,11 @@ import type { Attention } from '../core/types'
  *
  *  Declared in core/types.ts because it crosses IPC and the renderer has to name it, and re-exported
  *  here so this module's own consumers keep importing it from the module that produces it. One
- *  declaration, not two kept in step by hand. */
+ *  declaration, not two kept in step by hand.
+ *
+ *  In core since plugin Phase 3 (events and notifications design N3): the Host builds one too, from
+ *  its rolling's hook tap (src/host/sessionEvents.ts), so "waiting for input" is decided by this one
+ *  rule in both processes. */
 export type { Attention }
 
 export interface AttentionState {

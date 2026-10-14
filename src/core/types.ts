@@ -401,16 +401,16 @@ export interface SchedStateEvent {
   rule?: ScheduleRule // for the rule summary shown in the banner
 }
 
-/** Where a session stands right now (main/attention.ts's own type, restated here). This file cannot
+/** Where a session stands right now (core/sessions/attention.ts's own type, restated here). This file cannot
  *  import that module directly: it is compiled by tsconfig.web.json for the renderer too, and every
  *  entry in that config's include list resolves under src/core or src/renderer — nothing there ever
  *  reaches into src/main, unlike the softer, core-internal "role" boundary this file's note on
- *  orchestration/state.ts describes (above). So this is the single declaration, and main/attention.ts
+ *  orchestration/state.ts describes (above). So this is the single declaration, and core/sessions/attention.ts
  *  re-exports it rather than carrying a copy that would have to be kept in step by hand. */
 export type Attention = 'idle' | 'working' | 'waiting'
 
 /** The tool call a session's Claude Code is waiting on, captured by the PreToolUse hook **before** the
- *  CLI draws its dialog (main/pendingPrompt.ts). `input` is the model's own tool input, untouched — for
+ *  CLI draws its dialog (core/sessions/pendingPrompt.ts). `input` is the model's own tool input, untouched — for
  *  `AskUserQuestion` the questions the conversation view draws as a card. Gone once the matching
  *  PostToolUse, or the turn's Stop, arrives. Only Claude sessions produce this: codex has no hooks. */
 export interface PendingToolPrompt {
@@ -907,12 +907,12 @@ export interface CoreEvents {
    *  session reusing the path) since the last read, so the renderer should treat this as a fresh
    *  conversation rather than an addition to what it drew. */
   'conversation:append': { sessionId: string; turns: ConvTurn[]; restarted: boolean }
-  /** A session's attention verdict changed (main/attention.ts's `subscribe`). Unlike
+  /** A session's attention verdict changed (core/sessions/attention.ts's `subscribe`). Unlike
    *  'conversation:append' this is **not** gated on an open conversation — it is the same per-session
    *  verdict the desktop notifier already reads, so it fires for every session regardless of which
    *  tab, if any, is showing its conversation. */
   'conversation:attention': { sessionId: string; value: Attention }
-  /** A session's waiting tool call changed (main/pendingPrompt.ts's `subscribe`): captured, replaced, or
+  /** A session's waiting tool call changed (core/sessions/pendingPrompt.ts's `subscribe`): captured, replaced, or
    *  cleared (`prompt: null`). Not gated on an open conversation, like 'conversation:attention'. */
   'conversation:pendingPrompt': { sessionId: string; prompt: PendingToolPrompt | null }
   /** A chat session's adapter reported something (core/chat/manager.ts's `subscribe`). Not gated on an
@@ -1463,8 +1463,11 @@ export interface CoreApi {
      *  here without the path guard — it reads nothing (main/run/resolveLink.ts resolveExistingFile).
      *  A media file it answers becomes loadable by the media viewer (media.* below).
      *  `sessionId`, when the link is in a session, makes a relative target try the agent's current
-     *  directory (from that session's statusLine payload) before `cwd`. */
-    resolveLink(cwd: string, target: string, sessionId?: string): Promise<{ path: string } | null>
+     *  directory (from that session's statusLine payload) before `cwd`. `opts.dirs` (a terminal that opens folders)
+     *  answers a folder too, as `{ path, dir: true }`; never a root or a path of dots and separators alone. */
+    resolveLink(cwd: string, target: string, sessionId?: string, opts?: { dirs?: boolean }): Promise<{ path: string; dir?: true } | null>
+    /** A folder a terminal link named, opened in the system file manager: only a path that is a folder now. */
+    openFolder(path: string): Promise<void>
     /** An image or a video in a project, admitted for the media viewer (main/media/admit.ts); null for anything else. */
     admitMedia(path: string): Promise<{ path: string } | null>
   }
@@ -2082,7 +2085,7 @@ export type RendererApi = CoreApi & {
     /** Stops reading this conversation while its tab is not showing, or reads it again (performance audit R4). What
      *  was written meanwhile arrives in one append on the resume. */
     pause(sessionId: string, paused: boolean): Promise<void>
-    /** One session's attention verdict (main/attention.ts), read once rather than waited for — the
+    /** One session's attention verdict (core/sessions/attention.ts), read once rather than waited for — the
      *  'conversation:attention' event only fires on a change, so a session already `waiting` (or
      *  `working`) when its pane mounts needs this to know that before the first change arrives, if
      *  one ever does. Independent of `open`: a fresh session on a trust prompt is `waiting` while

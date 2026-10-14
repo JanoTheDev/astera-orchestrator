@@ -241,6 +241,7 @@ const api = {
     reveal: invoke('files.reveal'),
     countEntries: invoke('files.countEntries'),
     resolveLink: invoke('files.resolveLink'),
+    openFolder: invoke('files.openFolder'),
     admitMedia: invoke('files.admitMedia')
   },
   media: {
