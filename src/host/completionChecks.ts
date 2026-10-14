@@ -8,7 +8,7 @@
 // plugins as its sweep re-drives the checks a restart interrupted, and a check asked at once would put a question to a
 // person over Astera's own restart.
 import type { CompletionChecksDeps } from '../core/orchestration/command'
-import { checkAnswerOf, pluginCheckMissing, unavailable } from '../core/orchestration/pluginChecks'
+import { checkAnswerOf, pluginCheckMissing, unavailable, type CompletionCheckInput, type PluginCheckAnswer } from '../core/orchestration/pluginChecks'
 import { CHECK_TIMEOUT_MS } from '../core/orchestration/types'
 import type { PluginManager } from './plugins/manager'
 import { PluginRequestFailed, type PluginRuntime } from './plugins/runtime'
@@ -62,26 +62,38 @@ export function hostCompletionChecks(d: {
       await new Promise((r) => setTimeout(r, pollMs))
     }
   }
+  const ask = async (plugin: string, input: CompletionCheckInput): Promise<PluginCheckAnswer> => {
+    const { listed, view } = await settled(plugin)
+    const found = view ? pluginOf(view) : undefined
+    const name = found?.displayName ?? plugin
+    // A list that could not be read judges nothing: the plugin is asked, and the runtime says if it does not run
+    const missing = listed ? pluginCheckMissing(plugin, found) : null
+    if (missing !== null) return { name, ...unavailable(missing) }
+    try {
+      return { name, ...checkAnswerOf(await d.runtime.request(plugin, 'completionCheck.run', { input }, timeoutMs)) }
+    } catch (e) {
+      const reason =
+        e instanceof PluginRequestFailed && e.status === 504
+          ? `${plugin} did not answer within ${spoken(timeoutMs)}`
+          : e instanceof Error
+            ? e.message
+            : String(e)
+      return { name, ...unavailable(reason) }
+    }
+  }
+  /** The checks being asked now, by plugin, Task and folder (5a final review M7): an app that leaves mid-check, and this
+   *  Host's sweep asking again for the same Task, join one question rather than ask a plugin (one that starts CI, say)
+   *  twice. Once it has answered, the next ask is a new question: a retry, a new round. */
+  const inFlight = new Map<string, Promise<PluginCheckAnswer>>()
   return {
     plugins: async () => (await views())?.map(pluginOf) ?? null,
-    run: async (plugin, input) => {
-      const { listed, view } = await settled(plugin)
-      const found = view ? pluginOf(view) : undefined
-      const name = found?.displayName ?? plugin
-      // A list that could not be read judges nothing: the plugin is asked, and the runtime says if it does not run
-      const missing = listed ? pluginCheckMissing(plugin, found) : null
-      if (missing !== null) return { name, ...unavailable(missing) }
-      try {
-        return { name, ...checkAnswerOf(await d.runtime.request(plugin, 'completionCheck.run', { input }, timeoutMs)) }
-      } catch (e) {
-        const reason =
-          e instanceof PluginRequestFailed && e.status === 504
-            ? `${plugin} did not answer within ${spoken(timeoutMs)}`
-            : e instanceof Error
-              ? e.message
-              : String(e)
-        return { name, ...unavailable(reason) }
-      }
+    run: (plugin, input) => {
+      const key = JSON.stringify([plugin, input.taskId, input.workspace.root])
+      const joined = inFlight.get(key)
+      if (joined) return joined
+      const asked = ask(plugin, input).finally(() => inFlight.delete(key))
+      inFlight.set(key, asked)
+      return asked
     }
   }
 }

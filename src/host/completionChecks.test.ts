@@ -1,6 +1,6 @@
 // The Host's completion check plugins (plugin Phase 5 C1, C2, C5, C7): which there are, and a check asked of one through
 // the runtime's request with CHECK_TIMEOUT_MS, its answer checked and cut, every failure an `error` answer saying why.
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { hostCompletionChecks } from './completionChecks'
 import { PluginRequestFailed } from './plugins/runtime'
 import { CHECK_TIMEOUT_MS } from '../core/orchestration/types'
@@ -113,6 +113,27 @@ describe('the Host’s completion check plugins', () => {
     expect(await make2('failed').run('ok', INPUT)).toMatchObject({ status: 'error' })
     expect(Date.now() - t1).toBeLessThan(15)
     expect(asked).toEqual(['starting', 'stopped', 'failed'])
+  })
+
+  // 5a final review M7: an app that leaves mid-check, and the Host's sweep asking again for the same Task, ask once
+  it('joins a check of the same Task already being asked, and asks again once it has answered', async () => {
+    const pending: Array<(v: unknown) => void> = []
+    const { checks, asked } = make(() => new Promise((r) => pending.push(r)))
+    const first = checks.run('ok', INPUT)
+    const second = checks.run('ok', INPUT)
+    const otherTask = checks.run('ok', { ...INPUT, taskId: 't2' })
+    await vi.waitFor(() => expect(pending).toHaveLength(2))
+    expect(asked.map((a) => (a[2] as { input: CompletionCheckInput }).input.taskId)).toEqual(['t1', 't2'])
+    pending[0]({ status: 'passed', summary: 'joined' })
+    expect(await first).toEqual({ name: 'ok display', status: 'passed', summary: 'joined' })
+    expect(await second).toEqual({ name: 'ok display', status: 'passed', summary: 'joined' })
+    pending[1]({ status: 'passed' })
+    await otherTask
+    // Answered: the next ask (a retry, a new round) is a new question
+    const again = checks.run('ok', INPUT)
+    await vi.waitFor(() => expect(pending).toHaveLength(3))
+    pending[2]({ status: 'passed' })
+    await again
   })
 
   it('asks a plugin it could not look up, rather than refuse a check the list could not judge', async () => {
