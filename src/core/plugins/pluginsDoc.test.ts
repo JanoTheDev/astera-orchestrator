@@ -338,7 +338,7 @@ describe('the quick start, followed as written', () => {
     const PATH = `${path.join(root, 'node_modules', '.bin')}${path.delimiter}${process.env[pathKey] ?? ''}`
     execSync(command.replace(/^npx /, ''), { cwd: dir, stdio: 'pipe', env: { ...process.env, [pathKey]: PATH } })
     const { r, log } = runtime('bundled')
-    r.start({ id: 'bundled', version: '1.0.0', folder: 'bundled', dir, entry: path.join(dir, outfile), granted: [], settings: {}, redact: [] })
+    r.start({ id: 'bundled', version: '1.0.0', folder: 'bundled', dir, entry: path.join(dir, outfile), granted: [], capabilities: [], settings: {}, redact: [] })
     await expect.poll(log, { timeout: 20_000, interval: 50 }).toContain('[info] bundled function')
   }, 40_000)
 
@@ -357,7 +357,7 @@ describe('the quick start, followed as written', () => {
     writeFileSync(path.join(dir, m.entry), code)
 
     const { r, log } = runtime(m.id)
-    r.start({ id: m.id, version: m.version, folder: m.id, dir, entry: path.join(dir, m.entry), granted: m.permissions, settings: {}, redact: [] })
+    r.start({ id: m.id, version: m.version, folder: m.id, dir, entry: path.join(dir, m.entry), granted: m.permissions, capabilities: m.capabilities, settings: {}, redact: [] })
     // The log lines the guide shows, without their times and the process id
     const shown = fenced(start, 'text')
       .join('\n')

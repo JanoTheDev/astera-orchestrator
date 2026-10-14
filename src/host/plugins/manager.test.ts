@@ -505,10 +505,20 @@ describe('with a runtime (plugin runtime design P11)', () => {
       dir: dirOf,
       entry: path.join(dirOf, 'dist', 'plugin.js'),
       granted: ['jobs.read'],
+      capabilities: [],
       settings: {},
       redact: []
     })
     expect(r.body).toMatchObject({ status: 'running', pid: 7 })
+  })
+
+  // Plugin Phase 3: this Astera runs event plugins
+  it('starts an event plugin, with its capability in the launch', async () => {
+    const rt = fakeRuntime()
+    const src = await plugin(FOLDER, { capabilities: ['event'], permissions: ['events.subscribe'] })
+    await withRuntime(rt).install({ path: src, grant: ['events.subscribe'] })
+    expect(rt.calls).toEqual(['start @acme/astera-jira'])
+    expect(rt.launches[0]).toMatchObject({ capabilities: ['event'], granted: ['events.subscribe'] })
   })
 
   it('does not start a plugin this Astera will not run', async () => {

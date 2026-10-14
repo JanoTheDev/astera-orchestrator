@@ -8,7 +8,9 @@ import os from 'node:os'
 import path from 'node:path'
 import { createPluginRuntime, type PluginLaunch, type PluginRuntime, type PluginTimings } from './runtime'
 import { bundleLauncher } from '../../pluginHost/testkit'
-import { pluginSecrets } from './pluginData'
+import { cursorFile, pluginSecrets } from './pluginData'
+import { createEventRing, type EventRing } from '../../core/events/eventRing'
+import type { EventDraft } from '../../core/orchestration/publicEvents'
 
 let dir: string
 let launcher: string
@@ -27,10 +29,21 @@ afterAll(async () => {
 
 type Call = { cmd: string; args: unknown; sessionId: string; from?: { role: string; plugin?: { id: string; granted: ReadonlySet<string> } }; request?: string }
 
-function runtime(timings: Partial<PluginTimings> = {}, extra: { maxLine?: number } = {}) {
+/** The Host's event log, as the runtime reads it for event plugins (plugin Phase 3). */
+const eventLog = (): EventRing => createEventRing({ boot: 'aaaaaaaaaaaa', retainEvents: 2000, retainChars: 1 << 23 })
+const RUN = { id: 'run_1', jobId: 'job_1', ordinal: 1, createdAt: 'T', outcome: 'completed', progress: { done: 2, total: 2 }, questionsOpen: 0 }
+/** Appends `count` completed Runs to the log, each with `payload` over the Run. */
+const add = (ring: EventRing, count: number, payload: Record<string, unknown> = {}): void =>
+  void ring.append(
+    Array.from({ length: count }, (): EventDraft => ({ type: 'run.completed', jobId: 'job_1', runId: 'run_1', payload: { ...RUN, ...payload } })),
+    'T'
+  )
+
+function runtime(timings: Partial<PluginTimings> = {}, extra: { maxLine?: number; profile?: string; ring?: EventRing } = {}) {
   const calls: Call[] = []
   const hostLog: string[] = []
-  const profile = path.join(dir, `profile ${++n}`)
+  const profile = extra.profile ?? path.join(dir, `profile ${++n}`)
+  const ring = extra.ring ?? eventLog()
   const r = createPluginRuntime({
     profileDir: profile,
     exec: process.execPath,
@@ -48,10 +61,12 @@ function runtime(timings: Partial<PluginTimings> = {}, extra: { maxLine?: number
     // crash counted as quick only within 5 s of a start that itself took that long. No test here is about these two
     // budgets; the ones that are set their own.
     timings: { startMs: 60_000, stopGraceMs: 1_000, backoffMs: [50, 50, 50], stableMs: 30_000, failAfter: 3, ...timings },
-    ...extra
+    events: ring,
+    delivery: { retryFirstMs: 50, retryMaxMs: 50 },
+    ...(extra.maxLine !== undefined ? { maxLine: extra.maxLine } : {})
   })
   started.push(r)
-  return { r, calls, hostLog, profile }
+  return { r, calls, hostLog, profile, ring }
 }
 
 /** A plugin folder holding `source` as its entry. */
@@ -59,8 +74,11 @@ function plugin(name: string, source: string, file = 'index.mjs'): PluginLaunch 
   const d = path.join(dir, 'plugins', name)
   mkdirSync(d, { recursive: true })
   writeFileSync(path.join(d, file), source)
-  return { id: name, version: '1.0.0', folder: name, dir: d, entry: path.join(d, file), granted: ['projects.read'], settings: {}, redact: [] }
+  return { id: name, version: '1.0.0', folder: name, dir: d, entry: path.join(d, file), granted: ['projects.read'], capabilities: [], settings: {}, redact: [] }
 }
+
+/** An `event` plugin (plugin Phase 3): the capability, and the permission it needs. */
+const eventPlugin = (name: string, source: string): PluginLaunch => ({ ...plugin(name, source), capabilities: ['event'], granted: ['events.subscribe'] })
 
 const logOf = (r: PluginRuntime, folder: string): string => (existsSync(r.logFile(folder)) ? readFileSync(r.logFile(folder), 'utf8') : '')
 // 45 s: three starts and restarts of a real process, under the full suite (load-sensitive tests, 2026-10-14). Every
@@ -382,5 +400,94 @@ describe('what a plugin log and reason never show', () => {
     r.start(p)
     await until(() => expect(logOf(r, 'cursor')).toContain('first '))
     expect(logOf(r, 'cursor')).toContain('first cursor-value-000, last [redacted]')
+  }, 90_000)
+})
+
+describe('event plugins (plugin Phase 3 N1, N5-N8)', () => {
+  const ON_EVENT = `export default {
+    async onEvent(e, ctx) {
+      if (e.type !== 'gap' && e.payload.boom) throw new Error('boom ' + ctx.settings.token)
+      ctx.log.info('got ' + (e.type === 'gap' ? 'gap' : e.id))
+    }
+  }`
+  /** Ends its process the first time it sees the second event, then takes every event. */
+  const CRASH_ONCE_ON_2 = `import { existsSync, writeFileSync } from 'node:fs'
+  import path from 'node:path'
+  export default {
+    onEvent(e, ctx) {
+      const marker = path.join(ctx.plugin.dir, 'crashed')
+      if (e.type !== 'gap' && e.id === 'ev_aaaaaaaaaaaa_2' && !existsSync(marker)) {
+        writeFileSync(marker, '1')
+        process.exit(1)
+      }
+      ctx.log.info('got ' + (e.type === 'gap' ? 'gap' : e.id))
+    }
+  }`
+
+  it('hands a running event plugin what comes after its start, in order, and keeps its place in a file', async () => {
+    const { r, profile, ring } = runtime()
+    add(ring, 1)
+    r.start(eventPlugin('ev1', ON_EVENT))
+    await until(() => expect(r.status('ev1')?.status).toBe('running'))
+    add(ring, 2)
+    await until(() => expect(logOf(r, 'ev1')).toMatch(/got ev_aaaaaaaaaaaa_2[\s\S]*got ev_aaaaaaaaaaaa_3/))
+    expect(logOf(r, 'ev1')).not.toContain('got ev_aaaaaaaaaaaa_1')
+    await r.stop('ev1')
+    expect(JSON.parse(readFileSync(cursorFile(profile, 'ev1'), 'utf8'))).toEqual({ version: 1, cursor: 'ev_aaaaaaaaaaaa_3' })
+  }, 90_000)
+
+  // Review Focus 4
+  it('resumes where it left off after a crash, and after the Host starts again', async () => {
+    const first = runtime()
+    add(first.ring, 1)
+    const p = eventPlugin('ev2', CRASH_ONCE_ON_2)
+    first.r.start(p)
+    await until(() => expect(first.r.status('ev2')?.status).toBe('running'))
+    add(first.ring, 2)
+    await until(() => expect(logOf(first.r, 'ev2')).toMatch(/got ev_aaaaaaaaaaaa_2[\s\S]*got ev_aaaaaaaaaaaa_3/))
+    expect(logOf(first.r, 'ev2')).toContain('restarting in')
+    await first.r.stopAll()
+    const again = runtime({}, { profile: first.profile, ring: first.ring })
+    add(first.ring, 1)
+    again.r.start(p)
+    await until(() => expect(logOf(again.r, 'ev2')).toContain('got ev_aaaaaaaaaaaa_4'))
+    expect(logOf(again.r, 'ev2').match(/got ev_aaaaaaaaaaaa_3/g)).toHaveLength(1)
+  }, 90_000)
+
+  // Review Focus 5
+  it('logs a failed delivery with its secrets hidden, and tries it again', async () => {
+    const { r, ring } = runtime()
+    r.start({ ...eventPlugin('ev3', ON_EVENT), settings: { token: 'tok-secret-123' }, redact: ['tok-secret-123'] })
+    await until(() => expect(r.status('ev3')?.status).toBe('running'))
+    add(ring, 1, { boom: true })
+    await until(() => expect(logOf(r, 'ev3')).toContain('[host] delivering run.completed ev_aaaaaaaaaaaa_1 failed (try 1): onEvent threw: boom [redacted]'))
+    expect(logOf(r, 'ev3')).not.toContain('tok-secret-123')
+  }, 90_000)
+
+  it('fails the start of an event plugin whose entry has no onEvent, saying so', async () => {
+    const { r } = runtime({ failAfter: 1 })
+    r.start(eventPlugin('ev4', 'export default { activate() {} }'))
+    await until(() => expect(r.status('ev4')).toMatchObject({ status: 'failed', reason: expect.stringContaining('the event capability needs an onEvent in its entry') }))
+  }, 90_000)
+
+  it('does not start an event plugin that was not granted events.subscribe', async () => {
+    const { r } = runtime({ failAfter: 1 })
+    r.start({ ...eventPlugin('ev5', ON_EVENT), granted: [] })
+    await until(() =>
+      expect(r.status('ev5')).toMatchObject({ status: 'failed', reason: expect.stringContaining('the event capability needs the events.subscribe permission') })
+    )
+  }, 90_000)
+
+  // Review Focus 1
+  it('stops a plugin whose onEvent never settles within its grace', async () => {
+    const { r, ring } = runtime()
+    r.start(eventPlugin('ev6', `export default { onEvent(e, ctx) { ctx.log.info('holding'); return new Promise(() => {}) } }`))
+    await until(() => expect(r.status('ev6')?.status).toBe('running'))
+    add(ring, 1)
+    await until(() => expect(logOf(r, 'ev6')).toContain('holding'))
+    const t0 = Date.now()
+    await r.stop('ev6')
+    expect(Date.now() - t0).toBeLessThan(10_000)
+    expect(r.status('ev6')?.status).toBe('stopped')
   }, 90_000)
 })
