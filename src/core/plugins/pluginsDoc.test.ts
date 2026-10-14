@@ -19,6 +19,20 @@ import { DELIVERY_GIVE_UP_MS, DELIVERY_LOG_EVERY, DELIVERY_RETRY_MS, DELIVERY_TI
 import { EVENT_RETAIN_EVENTS } from '../../host/eventLog'
 import { NOTIFICATION_KINDS, NOTIFICATION_LEVEL, NOTIFICATION_MAX_AGE_MS, NOTIFICATION_TITLE_MAX, NOTIFICATION_VALUE_MAX } from './notifications'
 import { t, type MessageKey } from '../i18n'
+import { JOB_SOURCE_TIMEOUT_MS } from '../../host/jobSources'
+import {
+  SOURCE_BODY_MAX,
+  SOURCE_CURSOR_MAX,
+  SOURCE_EVIDENCE_MAX,
+  SOURCE_EVIDENCE_TOTAL_MAX,
+  SOURCE_FIELDS_MAX,
+  SOURCE_ID_MAX,
+  SOURCE_ITEMS_MAX,
+  SOURCE_LABEL_MAX,
+  SOURCE_OBJECTIVE_MAX,
+  SOURCE_SUMMARY_MAX,
+  SOURCE_TITLE_MAX
+} from '../sources/answers'
 import { bundleLauncher } from '../../pluginHost/testkit'
 import { createNamespaces } from '../../../packages/client/src/namespaces'
 import { typecheckBlocks } from '../../../packages/client/test/typecheck'
@@ -281,6 +295,37 @@ describe('docs/plugins.md', () => {
     expect(sec).toContain('](../examples/plugins/discord-notifier)')
     expect(read('examples/plugins/discord-notifier/README.md')).toContain('docs/plugins.md#notification-plugins)')
     expect(section(guide, '## Not yet')).not.toContain('`notification`')
+  })
+
+  // Plugin Phase 4 J24: the job-source capability as the Host serves it
+  it('says how a job source is asked, with the Host’s limits and errors, and the objective it writes', () => {
+    const sec = section(guide, '## Job source plugins')
+    const js = prose(sec)
+    for (const f of ['`listItems`', '`getItem`', '`buildJobContext`', '`defineJobSourceProvider`']) expect(js, f).toContain(f)
+    expect(js).toContain(`${JOB_SOURCE_TIMEOUT_MS / 1000} seconds`)
+    for (const n of [SOURCE_ITEMS_MAX, SOURCE_ID_MAX, SOURCE_TITLE_MAX, SOURCE_SUMMARY_MAX, SOURCE_CURSOR_MAX, SOURCE_BODY_MAX, SOURCE_FIELDS_MAX, SOURCE_OBJECTIVE_MAX, SOURCE_LABEL_MAX, SOURCE_EVIDENCE_MAX, SOURCE_EVIDENCE_TOTAL_MAX])
+      expect(js, String(n)).toContain(n.toLocaleString('en-US'))
+    for (const status of ['502', '503', '504']) expect(js, status).toContain(status)
+    expect(js).toContain('`<<<SOURCE')
+    expect(js).toContain('`source`')
+    expect(js).toContain('needs no permission')
+    expect(js).toContain('control character')
+    // The 4b review's M4: the sentence a person reads, as commandSources words it with what the function threw
+    expect(js).toContain('"the Linear source could not list items: 401 Unauthorized"')
+    expect(js).toContain('`cut: true`')
+    // Its manifest fragment is one Astera reads as a job source
+    const [fragment] = fenced(sec, 'json')
+    const parsed = parseManifest({ name: 'x', version: '1.0.0', astera: { apiVersion: '1', entry: 'index.js', ...JSON.parse(fragment) } })
+    expect(parsed.ok && parsed.manifest.capabilities).toEqual(['job-source'])
+    expect(sec).toContain('](../examples/plugins/linear-source)')
+    expect(read('examples/plugins/linear-source/README.md')).toContain('docs/plugins.md#job-source-plugins)')
+    expect(section(guide, '## Not yet')).not.toContain('`job-source`')
+    expect(prose(section(guide, '## The manifest'))).toContain('[Job source plugins](#job-source-plugins)')
+    // docs/sdk.md: a Job made from a source carries where it came from, and the 4b review's M10: how an SDK user makes one
+    const sdkJobs = prose(section(read('docs/sdk.md'), '### Jobs and Runs'))
+    expect(sdkJobs).toContain('`source`')
+    expect(sdkJobs).toContain("call('jobs-create-from-source'")
+    expect(read('packages/client/CHANGELOG.md')).toContain('`jobs-create-from-source`')
   })
 
   // The design's note on N2: a session event carries its title and folder, so the grant says so

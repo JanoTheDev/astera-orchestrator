@@ -1,0 +1,43 @@
+{
+  "name": "astera-linear-source",
+  "version": "0.1.0",
+  "displayName": "Linear",
+  "description": "Lists your team's Linear issues in Astera, so a person can make a Job from one.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "astera": {
+    "apiVersion": "1",
+    "entry": "index.mjs",
+    "capabilities": ["job-source"],
+    "permissions": [],
+    "settingsSchema": {
+      "type": "object",
+      "properties": {
+        "apiKey": {
+          "type": "string",
+          "title": "API key",
+          "description": "A Linear personal API key (Linear: Settings, Security & access, Personal API keys). It reads the issues your account can see.",
+          "secret": true
+        },
+        "teamKey": {
+          "type": "string",
+          "title": "Team key",
+          "description": "The team whose issues to list, by its key (ENG for ENG-123). Empty lists every team's."
+        },
+        "states": {
+          "type": "string",
+          "title": "State types",
+          "description": "The kinds of state to list, comma separated: triage, backlog, unstarted, started, completed, canceled. Empty lists every state.",
+          "default": "unstarted,started"
+        },
+        "apiUrl": {
+          "type": "string",
+          "title": "API URL",
+          "description": "Linear's GraphQL endpoint. Change it only for a proxy or a test server.",
+          "default": "https://api.linear.app/graphql"
+        }
+      },
+      "required": ["apiKey"]
+    }
+  }
+}

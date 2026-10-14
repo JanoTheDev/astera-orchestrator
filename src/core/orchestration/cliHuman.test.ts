@@ -469,3 +469,40 @@ describe('quietFor', () => {
     expect(quietFor({ cli: '1.0.0', app: null })).toBe('')
   })
 })
+
+// Plugin Phase 4 J21: the job-source commands as a person reads them
+describe('humanFor — the job-source commands', () => {
+  it('lists the sources, ready or with why not', () => {
+    expect(
+      humanFor('sources-list', {
+        sources: [
+          { id: 'github', displayName: 'GitHub issues', ready: true, needsProject: true },
+          { id: 'astera-linear-source', displayName: 'Linear', ready: false, reason: 'astera-linear-source is disabled', needsProject: false }
+        ]
+      })
+    ).toBe(['READY      github                GitHub issues', 'NOT READY  astera-linear-source  Linear         astera-linear-source is disabled'].join('\n'))
+  })
+
+  it('lists a page of items with their Jobs, why one cannot be picked, and the next cursor', () => {
+    expect(
+      humanFor('sources-items', {
+        items: [
+          { id: 'ENG-1', title: 'Fix login', status: 'Todo', selectable: true, jobs: ['job_1'] },
+          { id: '13', title: 'Add a thing', status: 'open', selectable: false, reason: 'written by a NONE', jobs: [] }
+        ],
+        nextCursor: 'c2'
+      })
+    ).toBe(['ENG-1  Todo  Fix login    job_1', '13     open  Add a thing  cannot be picked: written by a NONE', '', 'more: --cursor c2'].join('\n'))
+    expect(humanFor('sources-items', { items: [], cut: true })).toBe("(no items)\n(cut to Astera's limits)")
+  })
+
+  it('shows an item: its fields, then its body as text', () => {
+    expect(
+      humanFor('sources-show', { id: 'ENG-1', title: 'Fix', status: 'Todo', body: 'It fails\non Safari', fields: { team: 'ENG' }, selectable: true, jobs: [] })
+    ).toBe(['id          ENG-1', 'title       Fix', 'status      Todo', 'selectable  true', 'jobs        []', '', 'fields', '  team  ENG', '', 'It fails', 'on Safari'].join('\n'))
+  })
+
+  it('gives the Job made as jobs create does', () => {
+    expect(humanFor('jobs-create-from-source', { id: 'job_1', objective: 'Resolve' })).toBe(humanFor('jobs-create', { id: 'job_1', objective: 'Resolve' }))
+  })
+})

@@ -22,6 +22,14 @@ describe('publicFor', () => {
     expect(publicFor('jobs-get', { id: 'job_1', objective: 'o', cwd: 'D:/p', createdAt: 'T', source })).toMatchObject({ source })
   })
 
+  // Plugin Phase 4 J21: a Job made from a source is shaped as jobs create's Job
+  it('shapes the Job jobs create-from-source makes as a Job', () => {
+    const source = { id: 'github', itemId: '12', label: 'GitHub issue #12 in o/r' }
+    const made = publicFor('jobs-create-from-source', { id: 'job_1', objective: 'o', cwd: 'D:/p', createdAt: 'T', source, internalField: 1 })
+    expect(made).toMatchObject({ id: 'job_1', source })
+    expect(made).not.toHaveProperty('internalField')
+  })
+
   // 없는 것을 undefined 로 찍으면 JSON 에서 사라져 결과는 같지만, 있는데 비어 있는 것과
   // 아예 없는 것이 한 모양이 된다
   it('없는 칸을 만들지 않는다', () => {

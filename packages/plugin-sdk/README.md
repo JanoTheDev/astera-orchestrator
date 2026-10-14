@@ -30,7 +30,10 @@ permissions the person granted. A plugin that names the `event` capability gets 
 its `onEvent` ([event plugins](https://github.com/parsingk/Astera/blob/main/docs/plugins.md#event-plugins)), and one
 that names the `notification` capability gets each notification, worded for a person, in its `send`
 ([notification plugins](https://github.com/parsingk/Astera/blob/main/docs/plugins.md#notification-plugins)), which
-`defineNotificationProvider` types.
+`defineNotificationProvider` types. One that names the `job-source` capability is asked for tickets a Job can be made
+from, in its `listItems`, `getItem` and `buildJobContext`
+([job source plugins](https://github.com/parsingk/Astera/blob/main/docs/plugins.md#job-source-plugins)), which
+`defineJobSourceProvider` types.
 
 Plugins run trusted code on the person's machine: a plugin can do anything they can, and its permissions limit only
 what it asks Astera for.

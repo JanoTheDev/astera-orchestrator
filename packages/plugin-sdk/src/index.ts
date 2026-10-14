@@ -107,3 +107,64 @@ export interface NotificationProvider extends PluginDefinition {
 export function defineNotificationProvider<T extends NotificationProvider>(provider: T): T {
   return provider
 }
+
+/** What `listItems` is asked: the person's search, and the cursor of the page before when there is one. */
+export interface JobSourceQuery {
+  query?: string
+  cursor?: string
+}
+
+/** One item of a job source: a ticket, an issue. Astera refuses an item whose `id` is not 1 to 200 characters with no
+ *  control characters (it is your own, opaque id, `ENG-123` say), cuts `title` at 300 characters, `status` at 100 and
+ *  `summary` at 1,000, and keeps `url` only when it is http or https. */
+export interface JobSourceItem {
+  id: string
+  title: string
+  status?: string
+  url?: string
+  summary?: string
+}
+
+/** A page of items: at most 100 are kept, and `nextCursor` (at most 2,000 characters) is handed back to `listItems`
+ *  for the next page. No `nextCursor` means this is the last page. */
+export interface JobSourcePage {
+  items: JobSourceItem[]
+  nextCursor?: string
+}
+
+/** One item read whole: `body` cut at 20,000 characters, and at most 50 `fields` of short text (100 characters a name,
+ *  1,000 a value), shown beside it. */
+export interface JobSourceItemDetail extends JobSourceItem {
+  body?: string
+  fields?: Record<string, string>
+}
+
+/** What a Job made from an item is to do. Astera writes the Job's objective itself: a first line naming
+ *  `sourceLabel` (`Linear ENG-123`, at most 200 characters) and `sourceUrl`, then your `objective` (at most 20,000), each
+ *  `evidence` entry under its label (at most 20 entries, 20,000 characters each and 100,000 in all) and the `metadata`
+ *  (at most 50 pairs), quoted as data the Job's agent does not take orders from. The Job keeps the item as its source. */
+export interface JobSourceContext {
+  objective: string
+  sourceLabel: string
+  sourceUrl?: string
+  evidence?: Array<{ label: string; content: string }>
+  metadata?: Record<string, string>
+}
+
+/** A plugin of the `job-source` capability (`astera.capabilities: ["job-source"]`, with no permission): Astera asks it
+ *  for items when a person, the `astera sources` commands or an MCP client looks for a ticket to make a Job from. Each
+ *  call has 15 seconds. Throw or reject to say why there is no answer ("401 Unauthorized"): the person reads that
+ *  sentence, and Astera tries nothing again. A plugin missing any of the three does not start. */
+export interface JobSourceProvider extends PluginDefinition {
+  /** A page of items, searched with `input.query`, from `input.cursor` on. */
+  listItems: (input: JobSourceQuery, ctx: PluginContext) => JobSourcePage | Promise<JobSourcePage>
+  /** One item read whole, by the id `listItems` gave it. Throw for an id you do not know. */
+  getItem: (id: string, ctx: PluginContext) => JobSourceItemDetail | Promise<JobSourceItemDetail>
+  /** What a Job made from the item is to do, by the id `listItems` gave it. */
+  buildJobContext: (id: string, ctx: PluginContext) => JobSourceContext | Promise<JobSourceContext>
+}
+
+/** The provider an entry file exports as its default. */
+export function defineJobSourceProvider<T extends JobSourceProvider>(provider: T): T {
+  return provider
+}

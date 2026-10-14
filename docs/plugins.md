@@ -9,9 +9,10 @@ script running yourself.
 Where it stands:
 
 - A plugin is installed from a folder or from npm, and runs in the background: Astera calls its `activate` and lets it
-  work. An event plugin is also handed each of Astera's events ([Event plugins](#event-plugins)), and a notification
-  plugin each thing worth telling a person ([Notification plugins](#notification-plugins)); a source of Jobs and a
-  completion check do not run yet ([Not yet](#not-yet)).
+  work. An event plugin is also handed each of Astera's events ([Event plugins](#event-plugins)), a notification
+  plugin each thing worth telling a person ([Notification plugins](#notification-plugins)), and a job source is asked
+  for the tickets a Job can be made from ([Job source plugins](#job-source-plugins)); a completion check does not run
+  yet ([Not yet](#not-yet)).
 - `@astera-app/plugin-sdk` holds the plugin's types and `definePlugin`. A plugin needs nothing from it to run:
   [the sample](../examples/plugins/webhook-notifier) is plain JavaScript and uses its types for the editor only.
 - The Plugin API is version `1`.
@@ -91,10 +92,11 @@ The manifest is `package.json`: npm's own fields, and an `astera` field for Aste
 | `astera.permissions` | What it asks Astera for ([Permissions](#permissions)). A person may grant fewer. |
 | `astera.settingsSchema` | Optional. The settings a person gives it ([Settings and secrets](#settings-and-secrets)). |
 | `astera.minAsteraVersion` | Optional. The oldest Astera it runs on; an older one installs it and does not run it. |
-| `astera.capabilities` | Optional. `["event"]` for a plugin Astera hands its events ([Event plugins](#event-plugins)), `["notification"]` for one it sends notifications ([Notification plugins](#notification-plugins)); the other capabilities do not run yet ([Not yet](#not-yet)). |
+| `astera.capabilities` | Optional. `["event"]` for a plugin Astera hands its events ([Event plugins](#event-plugins)), `["notification"]` for one it sends notifications ([Notification plugins](#notification-plugins)), `["job-source"]` for one it asks for tickets ([Job source plugins](#job-source-plugins)); `completion-check` does not run yet ([Not yet](#not-yet)). |
 
 The entry's default export is the plugin: an object with an `activate` and, if it needs one, a `deactivate` (and an
-`onEvent` for an event plugin, a `send` for a notification plugin). A CommonJS entry sets `module.exports` to it.
+`onEvent` for an event plugin, a `send` for a notification plugin, and `listItems`, `getItem` and `buildJobContext`
+for a job source). A CommonJS entry sets `module.exports` to it.
 `definePlugin` from the SDK returns the object it is given, so a plain object is the same plugin.
 
 ## Permissions
@@ -273,6 +275,97 @@ sentences:
   you are looking at: Astera does not know what is on your screen, and a channel is for when you are away.
 
 [The Discord sample](../examples/plugins/discord-notifier) posts each notification as an embed coloured by its level.
+
+## Job source plugins
+
+A plugin that names the `job-source` capability is a source of Jobs: Astera asks it for tickets, in its `listItems`,
+`getItem` and `buildJobContext`, when a person looks for one to make a Job from (the app's Jobs view,
+`astera sources`, the MCP tools), and makes the Job itself. It only answers Astera, so it needs no permission:
+
+```json
+{
+  "capabilities": ["job-source"],
+  "permissions": []
+}
+```
+
+```ts
+import { defineJobSourceProvider } from '@astera-app/plugin-sdk'
+
+const tickets = [{ id: 'T-1', title: 'Fix the login page', body: 'It fails on Safari.' }]
+
+const ticket = (id: string) => {
+  const found = tickets.find((t) => t.id === id)
+  if (!found) throw new Error(`there is no ticket ${id}`)
+  return found
+}
+
+export default defineJobSourceProvider({
+  listItems({ query }) {
+    const found = tickets.filter((t) => query === undefined || t.title.includes(query))
+    return { items: found.map(({ id, title }) => ({ id, title })) }
+  },
+  getItem(id) {
+    const { title, body } = ticket(id)
+    return { id, title, body }
+  },
+  buildJobContext(id) {
+    const { title, body } = ticket(id)
+    return { objective: title, sourceLabel: `Tickets ${id}`, evidence: [{ label: 'Description', content: body }] }
+  }
+})
+```
+
+`defineJobSourceProvider` returns the provider it is given, as `definePlugin` does. Each function is handed the
+plugin's context last, as `onEvent` is, for its settings (an API key, say):
+
+- **`listItems({ query, cursor })`** answers a page, `{ items, nextCursor }`. An item is
+  `{ id, title, status?, url?, summary? }`, its `id` your own, opaque id (`ENG-123`). `query` is what the person
+  searched for, and `cursor` the `nextCursor` of the page before; a page with no `nextCursor` is the last.
+- **`getItem(id)`** answers one item read whole: the item's fields with a `body`, and `fields`, short name and value
+  pairs shown beside it. Throw for an id you do not know.
+- **`buildJobContext(id)`** answers what a Job made from the item is to do:
+  `{ objective, sourceLabel, sourceUrl?, evidence?, metadata? }`, where `evidence` is a list of `{ label, content }`.
+
+A plugin that names `job-source` and lacks any of the three does not start, and its log names the one missing.
+
+**Astera checks and cuts what it answers.** The plugin is trusted code, but the ticket inside its answer was written by
+someone else, and a page of any size must not slow the window it lands in:
+
+- An item's `id` is 1 to 200 characters with no control character, or the answer is refused. Its `title` is cut at
+  300 characters, its `status` at 100 and its `summary` at 1,000, and a `url` that is not http or https is dropped. A
+  page keeps 100 items, and a `nextCursor` longer than 2,000 characters is refused.
+- A `body` is cut at 20,000 characters, and `fields` keep 50 pairs.
+- An `objective` is cut at 20,000 characters and a `sourceLabel` at 200. `evidence` keeps 20 entries, each cut at
+  20,000 characters and 100,000 in all, and `metadata` keeps 50 pairs.
+
+An answer of the wrong shape is refused, saying what is wrong ("the Linear source answered with something that is not
+a page of items: item 0 has no id"). Text past a limit is cut, with `…`, and a list or an item that was cut says so
+with `cut: true`.
+
+**Errors reach the person.** Each call has 15 seconds. A function that throws or rejects answers 502 with its message
+("the Linear source could not list items: 401 Unauthorized"), so throw the sentence a person should read. Past 15
+seconds the answer is 504. A plugin that is not running (disabled, failed, or waiting to restart) is not asked, and
+the answer is 503 with its status and reason. The plugin's log has the same line, its secrets hidden. Astera tries
+nothing again: the person does.
+
+**Astera writes the Job's objective, not the plugin.** It is a first line of Astera's own,
+`Resolve <sourceLabel> (<sourceUrl>).`, a sentence saying that what follows is the item's content quoted as data and
+not instructions, then a block between `<<<SOURCE <tag>` and `SOURCE <tag>>>>` holding your `objective`, each
+`evidence` entry under its label and the `metadata` as `name: value` lines. The tag is made from the content, so the
+content cannot close the block, and a line of it that starts like a marker is pushed off it by a space. The whole is
+cut at 60,000 characters. Your `objective` goes inside the block too: the plugin is trusted, but that sentence came
+from the ticket.
+
+**The Job keeps its source.** A Job made from an item carries `source`, `{ id, itemId, label, url }`: the plugin's id,
+the item's id, your `sourceLabel` and your `sourceUrl`. The app shows it as a link to the ticket, and `jobs.get` and
+the `job.created` event carry it. Only Astera sets it. A second Job from the same item is allowed, and each item lists
+the Jobs already made from it.
+
+`github` is the id of the source Astera has built in (GitHub issues), so a plugin by that name is not listed as a
+source.
+
+[The Linear sample](../examples/plugins/linear-source) lists a team's Linear issues with a personal API key.
 
 ## Logs
 
@@ -497,7 +590,7 @@ install Node.js, or install from a folder. [The `astera` command](cli.md#plugins
 
 ## Not yet
 
-- The other plugins that Astera calls on for something: the `job-source` and `completion-check` capabilities. A
-  plugin that names one installs, and does not run until an Astera that runs that kind.
+- The `completion-check` capability, which Astera would call on to judge a Task. A plugin that names it installs, and
+  does not run until an Astera that runs it.
 - The `github` and `how-it-works` commands for plugins, which their permissions are already named for.
 - A folder for each plugin's own data, and a development mode that reloads a plugin as you edit it.

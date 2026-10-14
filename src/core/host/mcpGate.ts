@@ -24,7 +24,7 @@ export const MCP_READ_COMMANDS = [
   // Plugin Phase 4 J11: a job source's list, page and item
   'sources-list',
   'sources-items',
-  'sources-item',
+  'sources-show',
   // How It Works records (MCP P2-C): read only, from the Host's copy of understanding.json.
   'understanding-list',
   'understanding-get',

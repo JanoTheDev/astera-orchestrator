@@ -196,6 +196,38 @@ export function humanFor(cmd: string, data: Record<string, unknown>): string | n
           return typeof p.reason === 'string' ? [...row, p.reason] : row
         })
       )
+    // Plugin Phase 4 J21. Four cells on every row, the reason empty when there is none, so the names line up.
+    case 'sources-list':
+      return columns(
+        asList(data, 'sources').map((s) => [s.ready === true ? 'READY' : 'NOT READY', str(s.id), str(s.displayName), str(s.reason)])
+      )
+    // An item's Jobs, else why it cannot be picked. Under the table, a cut the Host made and the next page's cursor.
+    case 'sources-items': {
+      const items = asList(data, 'items')
+      const table =
+        items.length === 0
+          ? '(no items)'
+          : columns(
+              items.map((i) => {
+                const jobs = Array.isArray(i.jobs) ? (i.jobs as unknown[]).map(str) : []
+                return [str(i.id), str(i.status), str(i.title), jobs.length > 0 ? jobs.join(',') : i.selectable === false ? `cannot be picked: ${str(i.reason)}` : '']
+              })
+            )
+      return [
+        table,
+        ...(data.cut === true ? ["(cut to Astera's limits)"] : []),
+        ...(typeof data.nextCursor === 'string' ? ['', `more: --cursor ${data.nextCursor}`] : [])
+      ].join('\n')
+    }
+    // The item's own fields, then the source's fields, then its body as the text it is: a table cell would cut it.
+    case 'sources-show': {
+      const { body, fields: theirs, ...own } = data
+      const parts = [fields(own)]
+      if (theirs !== null && typeof theirs === 'object' && Object.keys(theirs).length > 0)
+        parts.push(`fields\n${indent(columns(Object.entries(theirs as Record<string, unknown>).map(([k, v]) => [k, str(v)])))}`)
+      if (typeof body === 'string' && body !== '') parts.push(body)
+      return parts.join('\n\n')
+    }
     case 'projects-list':
       return columns(asList(data, 'projects').map((p) => [str(p.id), str(p.name), str(p.path)]))
     case 'jobs-list':
@@ -370,6 +402,7 @@ export function humanFor(cmd: string, data: Record<string, unknown>): string | n
     case 'runs-get':
     case 'questions-get':
     case 'jobs-create':
+    case 'jobs-create-from-source':
     case 'tasks-add':
     case 'sessions-send':
     case 'chats-answer':

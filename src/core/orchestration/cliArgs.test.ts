@@ -210,12 +210,12 @@ describe('공개 표면 — 두 낱말 명령', () => {
 
   it('동사가 없으면 무엇을 칠 수 있는지 말한다', () => {
     expect(parseArgs(['projects'])).toEqual({ error: 'projects needs one of: list, get, find, add' })
-    expect(parseArgs(['jobs'])).toEqual({ error: 'jobs needs one of: list, get, wait, run, create' })
+    expect(parseArgs(['jobs'])).toEqual({ error: 'jobs needs one of: list, get, wait, run, create, create-from-source' })
   })
 
   it('모르는 동사는 거절하고 목록을 보여 준다', () => {
     expect(parseArgs(['jobs', 'fly'])).toEqual({
-      error: 'unknown jobs subcommand: fly (expected list, get, wait, run, create)'
+      error: 'unknown jobs subcommand: fly (expected list, get, wait, run, create, create-from-source)'
     })
   })
 
@@ -391,5 +391,25 @@ describe('parseArgs — the global --runtime, before the command', () => {
   it('needs a value', () => {
     expect(parseArgs(['--runtime'])).toEqual({ error: '--runtime needs a runtime id or name' })
     expect(parseArgs(['--runtime', '--json', 'jobs', 'list'])).toEqual({ error: '--runtime needs a runtime id or name' })
+  })
+})
+
+// Plugin Phase 4 J21: the job-source commands, the wire named as the CLI spells them (plan 4b R1)
+describe('parseArgs — the job-source commands', () => {
+  it('parses them into their wire names', () => {
+    expect(parseArgs(['sources', 'list'])).toMatchObject({ cmd: 'sources-list', args: {} })
+    expect(parseArgs(['sources', 'items', '--source', 'github', '--project', 'proj_1', '--query', 'login', '--cursor', '2'])).toMatchObject({
+      cmd: 'sources-items',
+      args: { source: 'github', project: 'proj_1', query: 'login', cursor: '2' }
+    })
+    expect(parseArgs(['sources', 'show', '--source', 'astera-linear-source', '--item', 'ENG-1'])).toMatchObject({
+      cmd: 'sources-show',
+      args: { source: 'astera-linear-source', item: 'ENG-1' }
+    })
+    expect(parseArgs(['jobs', 'create-from-source', '--source', 'github', '--item', '12', '--project', 'proj_1', '--coordinator-account', 'acc_1'])).toMatchObject({
+      cmd: 'jobs-create-from-source',
+      args: { source: 'github', item: '12', project: 'proj_1', coordinatorAccount: 'acc_1' }
+    })
+    expect(parseArgs(['sources'])).toEqual({ error: 'sources needs one of: list, items, show' })
   })
 })

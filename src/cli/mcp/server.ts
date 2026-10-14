@@ -70,7 +70,10 @@ const FREE_TEXT = new Set([
   'jobName',
   'outcome',
   // A Run's timeline events (MCP P2-D, wait_for_run): `summary` is above; a Task's title rides on each.
-  'taskTitle'
+  'taskTitle',
+  // A job source's item (plugin Phase 4 J22): its fields and its status are someone else's text, as an issue's body is.
+  'fields',
+  'status'
 ])
 
 /** Every object in a `checks` array, at any depth, without its `outputTail`: raw validator output
@@ -273,10 +276,11 @@ async function runTool(link: HostLink, t: ToolDef, input: Record<string, unknown
   let args = input
   // A list tool's cursor (lists.ts) is read before anything reaches the Host: one from another tool,
   // or one that is no cursor at all, is the caller's mistake.
-  const offset = typeof input.cursor === 'string' ? cursorOffset(t.name, input.cursor) : 0
+  // list_source_items's cursor is the source's own, passed through to the Host (plugin 4b R4).
+  const offset = typeof input.cursor === 'string' && t.name !== 'list_source_items' ? cursorOffset(t.name, input.cursor) : 0
   if (typeof offset !== 'number') return errorResult('INVALID_ARGUMENTS', offset.error)
   const refused =
-    t.name === 'create_job' || t.name === 'create_job_from_issue'
+    t.name === 'create_job' || t.name === 'create_job_from_issue' || t.name === 'create_job_from_source'
       ? convergenceRefusal(input)
       : t.name === 'create_task'
         ? taskTargetRefusal(input)

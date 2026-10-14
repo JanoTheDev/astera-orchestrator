@@ -10,8 +10,11 @@ is the guide.
 - `defineNotificationProvider` and its `send`: the `notification` capability, which hands the plugin each thing worth
   telling a person (a question, a session waiting, a failed or finished Run, a usage limit), worded by Astera in the
   person's language. `NOTIFICATION_KINDS` lists the kinds, for a provider's setting of the ones it leaves out.
+- `defineJobSourceProvider` and its `listItems`, `getItem` and `buildJobContext`, with the types they answer
+  (`JobSourceItem`, `JobSourcePage`, `JobSourceItemDetail`, `JobSourceContext`): the `job-source` capability, from
+  which a person, the `astera sources` commands and MCP clients pick a ticket to make a Job from.
 
-Both need Astera 1.4.14 or later. The plugin SDK needs `@astera-app/client` 0.2.0 or later, whose events include the
+All three need Astera 1.4.14 or later. The plugin SDK needs `@astera-app/client` 0.2.0 or later, whose events include the
 session events.
 
 ## 0.1.0
