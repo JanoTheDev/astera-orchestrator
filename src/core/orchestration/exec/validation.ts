@@ -19,6 +19,7 @@ import {
   applyValidationResult,
   blockForValidation,
   jobOf,
+  liveCheckResume,
   stampPolicySnapshot,
   type OrchState
 } from '../state'
@@ -241,7 +242,7 @@ export function createTaskValidation(c: ValidationContext): TaskValidation {
     const task = c.getState().tasks.find((t) => t.id === taskId)
     // A round a person let go on past a check that could not be made (plugin Phase 5 C9 skip-check): the checks after
     // it alone, its results carried in front. The verdict clears it.
-    const resume = task?.checkResume
+    const resume = task ? liveCheckResume(c.getState(), task) : null
     validator.enqueue({
       taskId,
       cwd,

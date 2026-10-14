@@ -1177,7 +1177,7 @@ describe('applyValidationResult — a plugin check (plugin Phase 5 C9, C10)', ()
   })
 
   it('clears the skipped round’s bookkeeping once the round is recorded', () => {
-    const { s, taskId } = armed(false, { checkResume: { done: [], rest: ['lint'] } })
+    const { s, taskId } = armed(false, { checkResume: { dispatchId: 'dsp_any', done: [], rest: ['lint'] } })
     const results: CheckResult[] = [{ configId: 'lint', name: 'lint', status: 'passed', exitCode: 0 }]
     const r = unwrap<Task>(applyValidationResult(s, { taskId, results }, NOW) as never)
     expect(r.value).not.toHaveProperty('checkResume')

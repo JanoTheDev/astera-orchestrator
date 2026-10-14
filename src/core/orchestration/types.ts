@@ -361,9 +361,11 @@ export interface Task {
   checks?: CheckResult[]
   /** configId → 라운드별 판정. unstable 판정의 근거(convergence.ts 의 unstableChecks) */
   checkHistory?: Record<string, ('passed' | 'failed')[]>
-  /** A round a person let go on past a check that could not be made (plugin Phase 5 C9 `skip-check`): the results it
-   *  had, the skipped one last, and the checks still to run. startValidation reads it; the round's verdict clears it. */
-  checkResume?: { done: CheckResult[]; rest: string[] }
+  /** A round a person let go on past a check that could not be made (plugin Phase 5 C9 `skip-check`): the attempt whose
+   *  work it checks, the results it had, the skipped one last, and the checks still to run. startValidation reads it
+   *  through `liveCheckResume`, which holds it to that attempt; the round's verdict clears it, and so does any move out
+   *  of `validating` (5a final review C1): the skip is for that round of that work, never for new work. */
+  checkResume?: { dispatchId: string; done: CheckResult[]; rest: string[] }
   /** The failed checks of the last round that failed, as `failureSummary` words them. `checks` is
    *  overwritten each round, so this is what still says why a repair ran after the recheck passed. */
   lastFailure?: string

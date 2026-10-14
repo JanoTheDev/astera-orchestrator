@@ -196,7 +196,21 @@ const replace = <T extends { id: string }>(xs: T[], next: T): T[] =>
 function moveTask(t: Task, to: Task['status'], now: string): Task | null {
   if (t.status === to) return t
   if (!canTransition(t.status, to)) return null
+  // A skipped round goes with its round (plugin Phase 5 C9; 5a final review C1): out of `validating`, it is over
+  if (to !== 'validating' && t.checkResume !== undefined) {
+    const { checkResume: _over, ...rest } = t
+    return { ...rest, status: to, updatedAt: now }
+  }
   return { ...t, status: to, updatedAt: now }
+}
+
+/** The Task's skipped round (plugin Phase 5 C9), when it is still the round of the Task's latest attempt; null
+ *  otherwise. A move past the transition table (task-update) can leave one behind a newer attempt, whose work no check
+ *  of that round has seen (5a final review C1). */
+export function liveCheckResume(s: OrchState, task: Task): NonNullable<Task['checkResume']> | null {
+  const resume = task.checkResume
+  if (resume === undefined) return null
+  return latestImplDispatch(s, task.id)?.id === resume.dispatchId ? resume : null
 }
 
 function pushMessage(
@@ -959,18 +973,22 @@ export function answerCheckUnavailable(
   const other = s.gates.find((g) => g.taskId === task.id && g.status === 'open' && g.id !== gate.id)
   if (other) return err(`another question about this Task is still open: ${other.id}`)
   const resolved: Gate = { ...gate, status: 'resolved', resolution: a.resolution, resolvedAt: now }
+  // A question left open over a Task a person has already moved (task-update leaves Gates open): it is answered, and
+  // the Task stays where the person put it (5a final review I1)
+  if (task.status !== 'blocked') return ok({ ...s, gates: replace(s.gates, resolved) }, { gate: resolved, revalidate: null })
   const { checkResume: _old, ...base } = task
   if (a.resolution === 'mark-failed') {
     const failed: Task = { ...base, status: 'failed', updatedAt: now }
     return ok({ ...s, gates: replace(s.gates, resolved), tasks: replace(s.tasks, failed) }, { gate: resolved, revalidate: null })
   }
-  const cwd = latestImplDispatch(s, task.id)?.cwd
-  if (cwd === undefined) return err(`task ${task.id} has no attempt whose folder its checks could run in`)
+  const attempt = latestImplDispatch(s, task.id)
+  if (attempt === undefined) return err(`task ${task.id} has no attempt whose folder its checks could run in`)
+  const cwd = attempt.cwd
   const round = task.checks ?? []
   const at = round.findIndex((c) => c.status === 'error')
   const resume =
     a.resolution === 'skip-check' && at >= 0
-      ? { done: [...round.slice(0, at), skippedResult(round[at])], rest: round.slice(at + 1).map((c) => c.configId) }
+      ? { dispatchId: attempt.id, done: [...round.slice(0, at), skippedResult(round[at])], rest: round.slice(at + 1).map((c) => c.configId) }
       : null
   const again: Task = { ...base, status: 'validating', updatedAt: now, ...(resume ? { checkResume: resume } : {}) }
   return ok({ ...s, gates: replace(s.gates, resolved), tasks: replace(s.tasks, again) }, { gate: resolved, revalidate: { taskId: task.id, cwd } })

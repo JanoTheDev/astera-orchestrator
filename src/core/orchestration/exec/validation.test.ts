@@ -38,8 +38,8 @@ interface RigOpts {
   checkpointHead?: () => string | null | 'unknown' | Promise<string | null | 'unknown'>
   /** The Task's check list; `['seed:npm:test']` when left out. */
   checks?: string[]
-  /** The Task's skipped round (plugin Phase 5 C9) */
-  checkResume?: { done: CheckResult[]; rest: string[] }
+  /** The Task's skipped round (plugin Phase 5 C9), of the rig's attempt unless it names another */
+  checkResume?: { dispatchId?: string; done: CheckResult[]; rest: string[] }
   /** How a plugin check is asked (plugin Phase 5 C8); answers passed when left out. */
   pluginCheck?: (plugin: string, input: CompletionCheckInput) => Promise<PluginCheckAnswer>
 }
@@ -97,7 +97,10 @@ function rig(o: RigOpts = {}) {
   ).state
   const taskId = t.value.id
   if (state.tasks.find((x) => x.id === taskId)?.status !== 'validating') throw new Error('rig: not validating')
-  if (o.checkResume) state = { ...state, tasks: state.tasks.map((x) => (x.id === taskId ? { ...x, checkResume: o.checkResume } : x)) }
+  if (o.checkResume) {
+    const checkResume = { ...o.checkResume, dispatchId: o.checkResume.dispatchId ?? d.value.id }
+    state = { ...state, tasks: state.tasks.map((x) => (x.id === taskId ? { ...x, checkResume } : x)) }
+  }
   const pluginAsks: Array<{ plugin: string; input: CompletionCheckInput }> = []
 
   const logs: string[] = []
@@ -221,6 +224,16 @@ describe('createTaskValidation — a plugin check (plugin Phase 5 C3, C8, C9, C1
     await vi.waitFor(() => expect(h.task().status).toBe('completed'))
     expect(h.pluginAsks.map((x) => x.plugin)).toEqual(['c'])
     expect(h.task().checks?.map((c) => c.configId)).toEqual(['plugin:a', 'plugin:b', 'plugin:c'])
+    expect(h.task()).not.toHaveProperty('checkResume')
+  })
+
+  // 5a final review C1: a skipped round of another attempt checked other work
+  it('runs every check when the skipped round is another attempt’s', async () => {
+    const done: CheckResult[] = [{ configId: 'plugin:a', name: 'A', status: 'passed', summary: 'ok' }]
+    const h = rig({ checks: ['plugin:a', 'plugin:b'], checkResume: { dispatchId: 'dsp_earlier', done, rest: ['plugin:b'] } })
+    h.validation.startValidation({ taskId: h.taskId, cwd: h.cwd })
+    await vi.waitFor(() => expect(h.task().status).toBe('completed'))
+    expect(h.pluginAsks.map((x) => x.plugin)).toEqual(['a', 'b'])
     expect(h.task()).not.toHaveProperty('checkResume')
   })
 

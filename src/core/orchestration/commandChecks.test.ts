@@ -98,6 +98,39 @@ describe('tasks add refuses a plugin check whose plugin is missing', () => {
   })
 })
 
+// 5a final review I2: the plugin list is read before the state, so nothing a command commits is built on a state read
+// before an await
+describe('the early refusal reads the plugins before the state', () => {
+  it('run-start of a Job keeps a commit that landed while the plugins were read', async () => {
+    const deps = makeDeps()
+    const jobId = await job(deps, 'plugin:ok')
+    const other = ((await call(deps, 'run-create', { objective: 'other', cwd: 'D:/q', auto: true })).body as { id: string }).id
+    ;(deps.completionChecks as { plugins: () => Promise<CompletionCheckPlugin[]> }).plugins = async () => {
+      // Another client commits while the list is read
+      await call(deps, 'task-create', { run: other, spec: 'landed meanwhile', account: 'acc1' })
+      return PLUGINS
+    }
+    expect((await call(deps, 'run-start', { run: jobId })).status).toBe(200)
+    expect(deps.getState().tasks.filter((t) => t.jobId === other)).toHaveLength(1)
+    expect(deps.getState().runs.filter((r) => r.jobId === jobId)).toHaveLength(1)
+  })
+
+  it('jobs run reads the list once, and two at once make one Run', async () => {
+    const deps = makeDeps()
+    const jobId = await job(deps, 'plugin:ok')
+    let reads = 0
+    ;(deps.completionChecks as { plugins: () => Promise<CompletionCheckPlugin[]> }).plugins = async () => {
+      reads++
+      await new Promise((r) => setTimeout(r, 5))
+      return PLUGINS
+    }
+    const [a, b] = await Promise.all([call(deps, 'jobs-run', { id: jobId }), call(deps, 'jobs-run', { id: jobId })])
+    expect([a.status, b.status].sort()).toEqual([200, 409])
+    expect(deps.getState().runs.filter((r) => r.jobId === jobId)).toHaveLength(1)
+    expect(reads).toBe(2)
+  })
+})
+
 describe('jobs run and run-start refuse a Run whose Tasks name a missing plugin', () => {
   it('jobs run makes no Run', async () => {
     const deps = makeDeps()

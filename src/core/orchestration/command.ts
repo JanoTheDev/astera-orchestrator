@@ -1192,6 +1192,37 @@ function parseAccountList(
   return { ok: true, ids: parts }
 }
 
+/** The mark `jobs run` gives the `run-start` it calls: its plugin checks were looked at already (plugin Phase 5 C7). A
+ *  symbol, so no JSON a caller sends can carry it. */
+const PLUGIN_CHECKS_PASSED: unique symbol = Symbol('plugin-checks-passed')
+
+/** Whether `run-start` of a Run id would start a coordinator for it: the one case it does anything. A finished Run, a
+ *  paused one, one with a coordinator, or one whose Job names no coordinator account is answered as it is. */
+function coordinatorWanted(deps: OrchServerDeps, s: OrchState, run: JobRun, job: Job): boolean {
+  return (
+    !run.coordinatorSessionId &&
+    run.paused !== true &&
+    !!job.coordinatorAccountId &&
+    !!deps.startCoordinator &&
+    outcomeOf(s, run.id) === 'running'
+  )
+}
+
+/** The check ids of the Tasks `jobs run` or `run-start` is about to start (plugin Phase 5 C7), read from a state of
+ *  their own: a Job's next Run's Tasks, or a Run's unfinished Tasks when a coordinator would be started for it. */
+function startingCheckIds(deps: OrchServerDeps, cmd: string, args: Record<string, unknown>): string[] {
+  const s = deps.getState()
+  const id = cmd === 'jobs-run' ? str(args.id) : str(args.run)
+  if (id === null) return []
+  const run = cmd === 'run-start' ? s.runs.find((r) => r.id === id) : undefined
+  if (run) {
+    const job = jobOf(s, run)
+    return job && coordinatorWanted(deps, s, run, job) ? checkIdsOf(s.tasks.filter((t) => t.runId === run.id && t.status !== 'completed')) : []
+  }
+  const job = s.jobs.find((j) => j.id === id)
+  return job ? checkIdsOf(tasksOfNextRun(s, job)) : []
+}
+
 /** The source `args` carry under JOB_SOURCE, when they carry one whole. */
 const jobSourceOf = (args: Record<string, unknown>): JobSourceRef | undefined => {
   const v = (args as Record<PropertyKey, unknown>)[JOB_SOURCE]
@@ -1246,6 +1277,14 @@ export async function handleCommand(
     // **이 await 도 상태 앞이다.** 바로 아래 `deps.getState()` 가 이 명령이 상태를 처음 읽는
     // 자리이고, 그 위에 커밋은 없다 — 여기서 멈춰도 읽고-쓰는 창이 열리지 않는다.
     if (!(await deps.trackingEnabled?.())) return conflict('work unit tracking is off')
+  }
+  // **The plugin checks of a Run about to start, before the state too** (plugin Phase 5 C7; 5a final review I2). The
+  // plugin list is a disk read in the Host: a refusal read after `s` below would commit a state from before it, over
+  // whatever landed meanwhile. The ids come from a read of their own; `jobs run` checks once for the `run-start` it
+  // calls (PLUGIN_CHECKS_PASSED).
+  if ((cmd === 'jobs-run' || cmd === 'run-start') && (args as Record<PropertyKey, unknown>)[PLUGIN_CHECKS_PASSED] !== true) {
+    const refusal = await pluginCheckRefusal(deps, startingCheckIds(deps, cmd, args))
+    if (refusal) return refusal
   }
   const now = deps.now?.() ?? new Date().toISOString()
   const s = deps.getState()
@@ -1864,14 +1903,12 @@ export async function handleCommand(
       const running = runningRunOf(s, job, now)
       if (running)
         return conflict(`job ${id} is already running (run ${running.id}) — wait for it or stop it first`)
-      // The Run this makes copies these Tasks: a plugin check among them must have its plugin (plugin Phase 5 C7)
-      const pluginRefusal = await pluginCheckRefusal(deps, checkIdsOf(tasksOfNextRun(s, job)))
-      if (pluginRefusal) return pluginRefusal
       // **예약은 무장을 건드리지 않는다.** "지금 돌려라" 는 한 회차를 지금 만들라는 말이지
       // "이 예약을 켜라" 가 아니다 — 켜는 것은 발화 시각마다 도는 것을 뜻하고, 사람이 그것까지
       // 원했다면 사이드바의 '실행' 이 그 버튼이다.
       const first = job.schedule === undefined && (job.pendingStart === true || latest === undefined)
-      const reply = await handleCommand(deps, caller, first ? 'run-start' : 'run-spawn', { run: id })
+      // Its plugin checks were looked at before the state (above): the run-start this calls does not look again
+      const reply = await handleCommand(deps, caller, first ? 'run-start' : 'run-spawn', { run: id, [PLUGIN_CHECKS_PASSED]: true })
       // **carry 4 (R18, 사용자의 Q2), 그리고 U1: 뒤 회차도 앞 회차와 같이 코디네이터를 띄운다.** 그
       // 일은 이제 `run-spawn` 자신이 한다(handToCoordinator) — 발화가 같은 명령을 부르므로, 예약의
       // 회차와 `jobs run` 의 회차가 같은 몸통으로 시작한다. 예전에는 이 자리가 `run-spawn` 뒤에
@@ -2489,28 +2526,12 @@ export async function handleCommand(
         // shows no ▶ for it either (view.ts's rowFor). A start in flight is answered the same way, by
         // handToCoordinator (I1). **So does a paused Run**: `runs resume` takes it back, not ▶, and a Run
         // a fire replaced (U4) is paused with its coordinator stopped on purpose. The view shows no ▶ on it.
-        if (
-          namedRun.coordinatorSessionId ||
-          namedRun.paused === true ||
-          !runJob.coordinatorAccountId ||
-          !deps.startCoordinator ||
-          outcomeOf(s, namedRun.id) !== 'running'
-        )
-          return okBody(namedRun)
-        // A coordinator would drive these Tasks' checks: a plugin check among them must have its plugin (C7)
-        const runRefusal = await pluginCheckRefusal(
-          deps,
-          checkIdsOf(s.tasks.filter((t) => t.runId === namedRun.id && t.status !== 'completed'))
-        )
-        if (runRefusal) return runRefusal
-        return handToCoordinator(s, runJob, namedRun, runJob.coordinatorAccountId, true)
+        if (!coordinatorWanted(deps, s, namedRun, runJob)) return okBody(namedRun)
+        return handToCoordinator(s, runJob, namedRun, runJob.coordinatorAccountId!, true)
       }
       // **그 밖의 id 는 Job 이다.** '실행' 은 계획을 푸는 일이고, 회차는 그 결과로 생긴다.
       const job = s.jobs.find((j) => j.id === id)
       if (!job) return notFound(`unknown job: ${id}`)
-      // The Run this may make copies these Tasks (plugin Phase 5 C7)
-      const jobRefusal = await pluginCheckRefusal(deps, checkIdsOf(tasksOfNextRun(s, job)))
-      if (jobRefusal) return jobRefusal
       // **Not reachable today.** releaseJob and startJobRun refuse only `unknown job: <id>` — the id
       // this command was given, which the guard above has just found in the same state. Were that
       // guard ever to drift from them, the answer is still "no such id", so they go through
