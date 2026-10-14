@@ -158,15 +158,28 @@ export async function sourcesCommand(deps: OrchServerDeps, caller: Caller, cmd: 
     ctx = checked.value
   }
   const { source: _source, id: _id, project: _project, ...rest } = args
-  return handle(deps, caller, 'jobs-create', {
-    ...rest,
+  return createFromContext(deps, caller, handle, {
+    rest,
     cwd: project.path,
-    objective: sourcedObjective(ctx, source.kind === 'github' ? 'GitHub' : source.name),
-    [JOB_SOURCE]: {
-      id: source.kind === 'github' ? GITHUB_SOURCE_ID : source.id,
-      itemId,
-      label: ctx.sourceLabel,
-      ...(ctx.sourceUrl ? { url: ctx.sourceUrl } : {})
-    }
+    ctx,
+    sourceId: source.kind === 'github' ? GITHUB_SOURCE_ID : source.id,
+    sourceName: source.kind === 'github' ? 'GitHub' : source.name,
+    itemId
+  })
+}
+
+/** The Job of an item: through `jobs-create` with the rest of the caller's flags, in `cwd`, its objective the Host's
+ *  (J14) and its source the item (J15). `jobs-create-from-issue` makes its Job here too (J13). */
+export function createFromContext(
+  deps: OrchServerDeps,
+  caller: Caller,
+  handle: Handle,
+  a: { rest: Record<string, unknown>; cwd: string; ctx: SourceContext; sourceId: string; sourceName: string; itemId: string }
+): Promise<Reply> {
+  return handle(deps, caller, 'jobs-create', {
+    ...a.rest,
+    cwd: a.cwd,
+    objective: sourcedObjective(a.ctx, a.sourceName),
+    [JOB_SOURCE]: { id: a.sourceId, itemId: a.itemId, label: a.ctx.sourceLabel, ...(a.ctx.sourceUrl ? { url: a.ctx.sourceUrl } : {}) }
   })
 }

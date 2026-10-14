@@ -109,7 +109,8 @@ import type { JobEvent, WorktreeInfo } from '../types'
 import { ghFailureSentence, type GhFailed, type GhRunner } from '../github/gh'
 import { failedLogTail, readPrChecks, rerunFailed } from '../github/checks'
 import { prForBranch } from '../github/prs'
-import { ISSUE_JOB_ASSOCIATIONS, issueObjective, readIssue } from '../github/issue'
+import { ISSUE_JOB_ASSOCIATIONS, readIssue } from '../github/issue'
+import { GITHUB_SOURCE_ID, issueContext } from '../github/issueSource'
 import { fillFromCommits, type CommitSummary } from '../github/fill'
 import type { PrCreateRequest, PrCreateResult } from '../github/prCreate'
 import type { SessionCheck } from '../workUnit/types'
@@ -122,7 +123,7 @@ import { isOverrideCompletion, policyOf } from './convergence'
 import { leftNothingBehind } from '../host/orchProtocol'
 import { APP_CALLER, HOST_CALLER } from '../host/driver'
 import { UNREADABLE, recordDetail, recordSummary, recordsFor, type StoreShape } from '../understanding/read'
-import { JOB_SOURCE, SOURCE_COMMANDS, sourcesCommand, type JobSourcesDeps } from './commandSources'
+import { JOB_SOURCE, SOURCE_COMMANDS, createFromContext, sourcesCommand, type JobSourcesDeps } from './commandSources'
 export { JOB_SOURCE } from './commandSources'
 
 /** One row of `listAccounts`. Named only because the declaration below is a union and repeating the
@@ -4583,7 +4584,8 @@ export async function handleCommand(
       return r.ok ? okBody({ runId, rerun: true }) : ghRefusal(r)
     }
     /**
-     * An issue becomes a Job, through `jobs-create` with the issue as its objective (`issueObjective`).
+     * An issue becomes a Job, as the GitHub job source makes one (plugin Phase 4 J13): the objective the job sources'
+     * writer makes of it, and the issue as the Job's source.
      * The checks are here, on the Host, so no client can skip them: a pull request, a closed issue and
      * an author the repository does not already trust with its code are refused. The objective and the
      * folder are the issue's and the project's, so a caller that gives either is refused.
@@ -4607,7 +4609,14 @@ export async function handleCommand(
           `Issue #${n} was written by a ${issue.authorAssociation} of the repository; only an owner, member or collaborator's issue becomes a Job`
         )
       const { project: _project, number: _number, ...rest } = args
-      const reply = await handleCommand(deps, caller, 'jobs-create', { ...rest, cwd: t.cwd, objective: issueObjective(issue) })
+      const reply = await createFromContext(deps, caller, handleCommand, {
+        rest,
+        cwd: t.cwd,
+        ctx: issueContext(issue),
+        sourceId: GITHUB_SOURCE_ID,
+        sourceName: 'GitHub',
+        itemId: String(issue.number)
+      })
       if (reply.status < 200 || reply.status >= 300) return reply
       return okBody({ ...(reply.body as object), issue: { number: issue.number, url: issue.url } })
     }

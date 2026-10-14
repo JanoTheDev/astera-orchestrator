@@ -71,7 +71,9 @@ import { connectHost } from '../core/host/connect'
 import { createMcpServer } from './mcp/server'
 import { openHostLink, type HostLink } from './mcp/hostLink'
 import type { OrchServerDeps } from '../core/orchestration/command'
-import { issueObjective, parseIssue } from '../core/github/issue'
+import { parseIssue } from '../core/github/issue'
+import { issueContext } from '../core/github/issueSource'
+import { sourcedObjective } from '../core/sources/objective'
 import { readUnderstandingFile } from '../core/understanding/read'
 import { createHostUnderstanding } from '../host/hostUnderstanding'
 import { createHostWorkUnits, readWorkUnitTracking, wireSessionExits, workUnitSessionsOf, type HostWorkUnits } from '../host/hostWorkUnits'
@@ -2091,7 +2093,7 @@ describe('MCP against the Host', { timeout: 60_000 }, () => {
     const jobs = h.state().jobs
     expect(jobs).toHaveLength(1)
     expect(jobs[0]).toMatchObject({ cwd: projectPath, projectId, coordinatorAccountId: h.accountId })
-    expect(jobs[0].objective).toBe(issueObjective(parseIssue(JSON.stringify(issues[11]))!))
+    expect(jobs[0].objective).toBe(sourcedObjective(issueContext(parseIssue(JSON.stringify(issues[11]))!), 'GitHub'))
     const lines = jobs[0].objective.split('\n')
     expect(lines.filter((l) => l === '<<<ISSUE')).toHaveLength(1)
     // The body's own delimiter line is pushed off by a space; the block closes once, at its end.

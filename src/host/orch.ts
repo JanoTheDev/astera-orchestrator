@@ -1589,7 +1589,8 @@ export function createHostOrch(a: {
             cmd,
             await readMcpAccess(settingsFile),
             await readMcpSessions(settingsFile),
-            await readMcpGithubWrite(settingsFile)
+            await readMcpGithubWrite(settingsFile),
+            args
           )
           if (refused) return refused
         }

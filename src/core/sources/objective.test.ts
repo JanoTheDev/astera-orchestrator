@@ -56,6 +56,14 @@ describe('sourcedObjective (J14)', () => {
     expect(lines.at(-1)).toBe('SOURCE>>>')
   })
 
+  // From the GitHub issue objective this replaces: the marker check is anchored, so a long run of whitespace is cheap
+  it('takes a body of 200,000 spaces in linear time', () => {
+    const started = performance.now()
+    const o = sourcedObjective({ objective: 'x', sourceLabel: 'L', evidence: [{ label: 'B', content: ' '.repeat(200_000) + 'x' }] }, 'S')
+    expect(performance.now() - started).toBeLessThan(500)
+    expect(o).toContain('<<<SOURCE')
+  })
+
   it('cuts the whole at 60,000 characters and says so after the block', () => {
     const o = sourcedObjective(
       { objective: 'x', sourceLabel: 'L', evidence: Array.from({ length: 5 }, (_, i) => ({ label: `e${i}`, content: 'c'.repeat(20_000) })) },
