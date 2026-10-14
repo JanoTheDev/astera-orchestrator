@@ -108,7 +108,9 @@ describe('resolveExistingPath', () => {
 
   it('never answers a root, a bare separator or a path of dots alone', async () => {
     const cwd = absPath('proj', 'sub')
-    for (const target of ['/', '\\', 'C:\\', 'C:/', './', '../', '..\\..\\', '~/'])
+    // A drive is a root on Windows only: on macOS and Linux `C:\` names an entry in the folder, as any name does
+    const drives = process.platform === 'win32' ? ['C:\\', 'C:/'] : []
+    for (const target of ['/', '\\', ...drives, './', '../', '..\\..\\', '~/'])
       expect(await resolveExistingPath({ cwd, target, stat: async () => dir, dirs: true }), target).toBeNull()
   })
 
