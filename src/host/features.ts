@@ -8,6 +8,7 @@ import {
   HOST_FEATURE_JOURNAL,
   HOST_FEATURE_MCP_HTTP,
   HOST_FEATURE_RECOVERY,
+  HOST_FEATURE_SESSION_SIGNALS,
   HOST_FEATURE_REMOTE,
   HOST_FEATURE_PLUGINS,
   HOST_FEATURE_ROLLING,
@@ -31,7 +32,7 @@ import {
  *  `driver` (limits L3) rides it too: the driving that computes the report exists exactly then. So does
  *  `recovery` (remote runtime design §2.6): recovering a lost worker is starting one. */
 export function hostFeatures(a: { spawns: boolean; slack?: boolean; workspace?: boolean }): string[] {
-  const spawning = a.spawns ? [HOST_FEATURE_SPAWN, HOST_FEATURE_WORKTREES, HOST_FEATURE_DISPATCH, HOST_FEATURE_DRIVER, HOST_FEATURE_ROLLING, HOST_FEATURE_BLOCKS, HOST_FEATURE_ROLL_JOURNAL, HOST_FEATURE_CHAT_TAKEOVER, HOST_FEATURE_WORK_UNITS, HOST_FEATURE_RECOVERY] : []
+  const spawning = a.spawns ? [HOST_FEATURE_SPAWN, HOST_FEATURE_WORKTREES, HOST_FEATURE_DISPATCH, HOST_FEATURE_DRIVER, HOST_FEATURE_ROLLING, HOST_FEATURE_BLOCKS, HOST_FEATURE_ROLL_JOURNAL, HOST_FEATURE_CHAT_TAKEOVER, HOST_FEATURE_WORK_UNITS, HOST_FEATURE_RECOVERY, HOST_FEATURE_SESSION_SIGNALS] : []
   if (a.spawns && a.slack === true) spawning.push(HOST_FEATURE_SLACK_OWNER)
   // `coordinator-idle` (final round 3) does not ride that fact: every Host serves the CLI's
   // `check --wait`, spawner or not, and it is exactly the Host an app drives in front of that is asked.
@@ -41,6 +42,7 @@ export function hostFeatures(a: { spawns: boolean; slack?: boolean; workspace?: 
   // on every platform the workspace runs on (workspaceSupported: win32, linux, darwin). `mcp-http` (MCP HTTP §3)
   // rides nothing: every Host supervises the entrance, and one without the CLI paths reports it failed. `plugins`
   // (plugin runtime design P5) rides nothing either: every Host keeps its profile's plugins.
+  // `session-signals` (plugin Phase 3) rides the spawner: the session events come from the rolling's hook tap and chains.
   return [
     ...spawning,
     HOST_FEATURE_COORDINATOR_IDLE,

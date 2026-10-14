@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { hostFeatures } from './features'
-import { HOST_FEATURE_BLOCKS, HOST_FEATURE_CHAT_TAKEOVER, HOST_FEATURE_COORDINATOR_IDLE, HOST_FEATURE_DISPATCH, HOST_FEATURE_DRIVER, HOST_FEATURE_EVENTS, HOST_FEATURE_JOURNAL, HOST_FEATURE_MCP_HTTP, HOST_FEATURE_PLUGINS, HOST_FEATURE_RECOVERY, HOST_FEATURE_REMOTE, HOST_FEATURE_ROLLING, HOST_FEATURE_ROLL_JOURNAL, HOST_FEATURE_SLACK_OWNER, HOST_FEATURE_SPAWN, HOST_FEATURE_UNDERSTANDING, HOST_FEATURE_WORKSPACE, HOST_FEATURE_WORKSPACE_SIZE, HOST_FEATURE_WORK_UNITS, HOST_FEATURE_WORKTREES } from '../core/host/protocol'
+import { HOST_FEATURE_BLOCKS, HOST_FEATURE_CHAT_TAKEOVER, HOST_FEATURE_COORDINATOR_IDLE, HOST_FEATURE_DISPATCH, HOST_FEATURE_DRIVER, HOST_FEATURE_EVENTS, HOST_FEATURE_JOURNAL, HOST_FEATURE_MCP_HTTP, HOST_FEATURE_PLUGINS, HOST_FEATURE_RECOVERY, HOST_FEATURE_REMOTE, HOST_FEATURE_ROLLING, HOST_FEATURE_ROLL_JOURNAL, HOST_FEATURE_SESSION_SIGNALS, HOST_FEATURE_SLACK_OWNER, HOST_FEATURE_SPAWN, HOST_FEATURE_UNDERSTANDING, HOST_FEATURE_WORKSPACE, HOST_FEATURE_WORKSPACE_SIZE, HOST_FEATURE_WORK_UNITS, HOST_FEATURE_WORKTREES } from '../core/host/protocol'
 
 describe('hostFeatures (R17)', () => {
   it('announces spawn, worktrees, dispatch, rolling, blocks and roll-journal together, or none of them', () => {
@@ -15,6 +15,7 @@ describe('hostFeatures (R17)', () => {
       HOST_FEATURE_CHAT_TAKEOVER,
       HOST_FEATURE_WORK_UNITS,
       HOST_FEATURE_RECOVERY,
+      HOST_FEATURE_SESSION_SIGNALS,
       HOST_FEATURE_COORDINATOR_IDLE,
       HOST_FEATURE_JOURNAL,
       HOST_FEATURE_EVENTS,
@@ -39,6 +40,14 @@ describe('hostFeatures (R17)', () => {
   it('announces chat-takeover exactly with rolling', () => {
     expect(hostFeatures({ spawns: true })).toContain(HOST_FEATURE_CHAT_TAKEOVER)
     expect(hostFeatures({ spawns: false })).not.toContain(HOST_FEATURE_CHAT_TAKEOVER)
+  })
+
+  // Plugin Phase 3 (events and notifications design N3): a Host that rolls records session events, so it takes the
+  // app's session signals; one without a spawner has no rolling and announces none.
+  it('announces session-signals with a spawner only', () => {
+    expect(HOST_FEATURE_SESSION_SIGNALS).toBe('session-signals')
+    expect(hostFeatures({ spawns: true })).toContain(HOST_FEATURE_SESSION_SIGNALS)
+    expect(hostFeatures({ spawns: false })).not.toContain(HOST_FEATURE_SESSION_SIGNALS)
   })
 
   // MCP HTTP §3 (Ruling 2): every Host supervises the entrance, and one without CLI paths answers its state as failed.
