@@ -80,6 +80,41 @@ describe('the Host’s completion check plugins', () => {
     expect(await checks.run('ok', INPUT)).toMatchObject({ status: 'error', summary: expect.stringMatching(/^the plugin answered with something that is not a check result: /) })
   })
 
+  // 5a final review M1: a Host that just started is still starting its plugins; their checks wait for them, a while
+  it('waits for a plugin that is coming up, then asks it', async () => {
+    const states = ['stopped', 'starting', 'running']
+    let n = 0
+    const asked: unknown[] = []
+    const checks = hostCompletionChecks({
+      manager: { listNow: async () => ({ status: 200, body: { plugins: [view('ok', { status: states[Math.min(n++, 2)] })] } }) } as never,
+      runtime: { request: async (...a: unknown[]) => (asked.push(a), { status: 'passed' }) } as never,
+      startWaitMs: 5_000,
+      pollMs: 1
+    })
+    expect(await checks.run('ok', INPUT)).toEqual({ name: 'ok display', status: 'passed', summary: 'passed' })
+    expect(n).toBe(3)
+    expect(asked).toHaveLength(1)
+  })
+
+  it('asks a plugin that stays starting once the wait is over, and does not wait for one held back or failed', async () => {
+    const asked: string[] = []
+    const make2 = (status: string, reason?: string) =>
+      hostCompletionChecks({
+        manager: { listNow: async () => ({ status: 200, body: { plugins: [view('ok', { status, ...(reason ? { reason } : {}) })] } }) } as never,
+        runtime: { request: async () => (asked.push(status), Promise.reject(new PluginRequestFailed(503, `ok is ${status}`))) } as never,
+        startWaitMs: 20,
+        pollMs: 1
+      })
+    const t0 = Date.now()
+    expect(await make2('starting').run('ok', INPUT)).toMatchObject({ status: 'error', summary: 'ok is starting' })
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(15)
+    const t1 = Date.now()
+    expect(await make2('stopped', 'waiting for its settings').run('ok', INPUT)).toMatchObject({ status: 'error' })
+    expect(await make2('failed').run('ok', INPUT)).toMatchObject({ status: 'error' })
+    expect(Date.now() - t1).toBeLessThan(15)
+    expect(asked).toEqual(['starting', 'stopped', 'failed'])
+  })
+
   it('asks a plugin it could not look up, rather than refuse a check the list could not judge', async () => {
     const { checks, asked } = make(async () => ({ status: 'passed' }), async () => ({ status: 500, body: { error: 'broken' } }))
     expect(await checks.run('ok', INPUT)).toEqual({ name: 'ok', status: 'passed', summary: 'passed' })
