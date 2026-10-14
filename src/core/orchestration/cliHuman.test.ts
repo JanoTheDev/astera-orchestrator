@@ -454,6 +454,41 @@ describe('humanFor', () => {
     )
   })
 
+  // 5b final review M5, M6, M7: a round being run again shows nothing stale; a skipped check's line comes before the
+  // failure it did not cause, so the findings sit under their own check; a round a person failed says why once
+  it('runs checks 는 다시 도는 검사의 지난 줄을 내지 않고, 지적은 제 검사 아래에, 실패 처리된 검사는 한 번만 말한다', () => {
+    const a = { configId: 'plugin:a', name: 'A' }
+    const b = { configId: 'plugin:b', name: 'B' }
+    const row = (id: string, status: string, validation: Record<string, unknown>, failureSummary: string | null) => ({
+      id,
+      title: id,
+      status,
+      validation,
+      review: { status: 'not-required' },
+      failureSummary
+    })
+    expect(
+      humanFor('runs-checks', {
+        runId: 'run_1',
+        tasks: [
+          row('t1', 'validating', { status: 'running', checks: [{ ...b, status: 'failed', summary: 'old', diagnostics: [{ file: 'x.js', line: 1, message: 'adds TODO' }] }, { ...a, status: 'error', summary: 'down' }] }, null),
+          row('t2', 'failed', { status: 'failed', checks: [{ ...a, status: 'not-run', skipped: true, summary: 'Skipped by a person: down' }, { ...b, status: 'failed', summary: '1 leftover', diagnostics: [{ file: 'y.js', line: 2, message: 'adds TODO' }] }] }, 'B failed: 1 leftover'),
+          row('t3', 'failed', { status: 'failed', checks: [{ ...a, status: 'error', summary: 'down' }] }, 'A could not run: down')
+        ]
+      })
+    ).toBe(
+      [
+        'VALIDATING  t1  validation running  review not-required  t1',
+        'FAILED      t2  validation failed   review not-required  t2',
+        '  A: Skipped by a person: down',
+        '  B failed: 1 leftover',
+        '    y.js:2 adds TODO',
+        'FAILED      t3  validation failed   review not-required  t3',
+        '  A could not run: down'
+      ].join('\n')
+    )
+  })
+
   // The last line of a follow that ended well. The other endings are errors and print as one (run.ts).
   it('runs follow 의 끝은 한 줄이다', () => {
     expect(humanFor('runs-follow', { state: 'completed', runId: 'run_1', progress: { done: 3, total: 3 } })).toBe(

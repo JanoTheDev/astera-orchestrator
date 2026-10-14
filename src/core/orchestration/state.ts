@@ -40,7 +40,7 @@ import {
 } from './convergence'
 import { normalizeIssues, type ReviewIssueInput } from './review'
 import { failedChecksSummary } from './completion'
-import { pluginCheckText, skippedResult } from './pluginChecks'
+import { oneLine, pluginCheckText, skippedResult } from './pluginChecks'
 
 export interface OrchState {
   /** 계획. 설계 §4 — 여기 있는 것이 "무엇을 시킬 것인가" 이고, 아래 runs 가 "실제로 돈 것" 이다. */
@@ -858,7 +858,8 @@ export function applyValidationResult(
       { ...s, tasks: replace(s.tasks, recorded) },
       {
         taskId: task.id,
-        question: t(lang, 'jobs.checks.gate.unavailable', { check: unavailableCheck.name, reason: unavailableCheck.summary ?? '' }),
+        // One line, as every list of questions shows it; the result keeps the reason as the plugin wrote it
+        question: t(lang, 'jobs.checks.gate.unavailable', { check: unavailableCheck.name, reason: oneLine(unavailableCheck.summary ?? '') }),
         options: [...CHECK_UNAVAILABLE_OPTIONS],
         kind: 'check-unavailable'
       },

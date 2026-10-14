@@ -160,24 +160,33 @@ export function jsonSafe(json: string): string {
 /** How many of a failed plugin check's findings `runs checks --human` shows under its row; JSON has them all. */
 export const HUMAN_DIAGNOSTICS = 5
 
-/** The lines a Task's plugin checks add under its `runs checks` row (plugin Phase 5 C13): a failed one's first findings
- *  and its link (its summary is the failure summary's), one that could not run and why, one a person skipped. A
- *  command check has no summary and adds nothing: its failure summary says it all. */
-function pluginCheckLines(validation: unknown): string[] {
-  const checks = validation !== null && typeof validation === 'object' ? (validation as { checks?: unknown }).checks : undefined
-  if (!Array.isArray(checks)) return []
-  return (checks as CheckResult[]).flatMap((c): string[] => {
-    if (typeof c.summary !== 'string') return []
-    if (c.skipped === true) return [`  ${str(c.name)}: ${oneLine(c.summary)}`]
-    if (c.status === 'error') return [`  ${str(c.name)} could not run: ${oneLine(c.summary)}`]
-    if (c.status !== 'failed') return []
-    const found = Array.isArray(c.diagnostics) ? c.diagnostics : []
-    return [
-      ...found.slice(0, HUMAN_DIAGNOSTICS).map((d) => `    ${oneLine(diagnosticLine(d))}`),
-      ...(found.length > HUMAN_DIAGNOSTICS ? [`    … and ${found.length - HUMAN_DIAGNOSTICS} more`] : []),
-      ...(typeof c.externalUrl === 'string' ? [`    Details: ${c.externalUrl}`] : [])
-    ]
-  })
+/** The lines a Task's plugin checks add under its `runs checks` row (plugin Phase 5 C13). Before the failure summary,
+ *  in the round's order: one a person skipped, and one that could not run while its question waits (once the Task
+ *  failed on it, the failure summary says so). After it: the failed one's first findings and its link, its summary being
+ *  the failure summary's, so the findings sit under their own check. A round being run again shows none of the last
+ *  one's. A command check has no summary and adds nothing: its failure summary says it all. */
+function pluginCheckLines(validation: unknown): { before: string[]; after: string[] } {
+  const v = validation !== null && typeof validation === 'object' ? (validation as { status?: unknown; checks?: unknown }) : {}
+  if (!Array.isArray(v.checks) || v.status === 'running') return { before: [], after: [] }
+  const plugins = (v.checks as CheckResult[]).filter((c) => typeof c.summary === 'string')
+  const before = plugins.flatMap((c): string[] =>
+    c.skipped === true
+      ? [`  ${str(c.name)}: ${oneLine(c.summary!)}`]
+      : c.status === 'error' && v.status !== 'failed'
+        ? [`  ${str(c.name)} could not run: ${oneLine(c.summary!)}`]
+        : []
+  )
+  const after = plugins
+    .filter((c) => c.status === 'failed')
+    .flatMap((c): string[] => {
+      const found = Array.isArray(c.diagnostics) ? c.diagnostics : []
+      return [
+        ...found.slice(0, HUMAN_DIAGNOSTICS).map((d) => `    ${oneLine(diagnosticLine(d))}`),
+        ...(found.length > HUMAN_DIAGNOSTICS ? [`    … and ${found.length - HUMAN_DIAGNOSTICS} more`] : []),
+        ...(typeof c.externalUrl === 'string' ? [`    Details: ${c.externalUrl}`] : [])
+      ]
+    })
+  return { before, after }
 }
 
 export function humanFor(cmd: string, data: Record<string, unknown>): string | null {
@@ -310,11 +319,10 @@ export function humanFor(cmd: string, data: Record<string, unknown>): string | n
         ])
       ).split('\n')
       return tasks
-        .flatMap((t, i) => [
-          table[i],
-          ...(typeof t.failureSummary === 'string' ? [`  ${t.failureSummary}`] : []),
-          ...pluginCheckLines(t.validation)
-        ])
+        .flatMap((t, i) => {
+          const plugin = pluginCheckLines(t.validation)
+          return [table[i], ...plugin.before, ...(typeof t.failureSummary === 'string' ? [`  ${t.failureSummary}`] : []), ...plugin.after]
+        })
         .join('\n')
     }
     case 'questions-list':

@@ -1340,9 +1340,12 @@ made, each with its `id`, `title` and `status`, and two parts:
   policy counts as blocking rejects. `issues` are that review's findings, each with `blocking`.
 
 Both parts carry `status`: `not-required`, `pending` (asked for, and no answer yet, or the last review
-ended without a verdict), `running`, `passed` or `failed`. `failureSummary` says in one line what
-failed, validation first: the failing checks with their exit codes and the last line of their output,
-then the blocking findings or the reviewer's reason. It is `null` when nothing failed.
+ended without a verdict), `running`, `passed` or `failed`. A check a person skipped counts as passed. A
+plugin check that could not be made leaves validation `pending` while the task waits on its question, and
+`failed` once it does not (a person answered `mark-failed`, say). `failureSummary` says in one line what
+failed, validation first: the failing checks with their exit codes and the last line of their output, a
+plugin check's summary or why it could not run, then the blocking findings or the reviewer's reason. It
+is `null` when nothing failed.
 `completionOverride` is there when a person marked the task done without its checks being met, with
 their reason. An unknown run is a 4, a Job id included, with `astera runs list` as its step.
 `--human` prints one line per task and the failure summary under a task that has one. Under it go a

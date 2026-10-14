@@ -361,6 +361,9 @@ describe('docs/plugins.md', () => {
     // The other guides: the id a Task names, the fields a result carries, the question's answers
     const cli = prose(read('docs/cli.md'))
     for (const f of ['`plugin:<id>`', '`skip-check`', '`diagnostics`', '`externalUrl`', '`skipped: true`', 'could not run']) expect(cli, f).toContain(f)
+    // 5b final review M7: how a skipped check and one that could not be made count in `runs checks`
+    expect(cli).toContain('A check a person skipped counts as passed.')
+    expect(cli).toContain('leaves validation `pending` while the task waits on its question, and `failed` once it does not')
     const sdk = prose(read('docs/sdk.md'))
     for (const f of ['`plugin:<id>`', '`check-unavailable`', '`diagnostics`', '`skip-check`']) expect(sdk, f).toContain(f)
     const mcp = prose(read('docs/mcp.md'))

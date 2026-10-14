@@ -1147,6 +1147,15 @@ describe('applyValidationResult — a plugin check (plugin Phase 5 C9, C10)', ()
       expect(gate.question).toBe('The check could not be made: D: service down')
     })
 
+  // 5b final review M8: a question is one line in every list it shows in, whatever line breaks the plugin's reason holds
+  it('puts the reason on one line in the question', () => {
+    const { s, taskId } = armed(false)
+    const multi: CheckResult = { ...unavailable, summary: 'git diff failed:\n  fatal: not a git repository\r\n' }
+    const r = unwrap<Task>(applyValidationResult(s, { taskId, results: round(multi) }, NOW) as never)
+    expect(r.state.gates.find((g) => g.taskId === taskId)!.question).toBe('The check could not be made: D: git diff failed: fatal: not a git repository')
+    expect(r.value.checks?.[1].summary).toBe(multi.summary)
+  })
+
   it('asks in the app’s language', () => {
     const { s, taskId } = armed(false)
     const r = unwrap<Task>(applyValidationResult(s, { taskId, results: round(unavailable), lang: 'ko' }, NOW) as never)

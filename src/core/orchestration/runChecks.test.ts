@@ -129,6 +129,18 @@ describe('checksForRun', () => {
     expect(row.failureSummary).toBeNull()
   })
 
+  // 5b final review M7: once a person answered mark-failed, the round that could not be made is what failed the Task
+  it('a round that could not be made fails validation once the Task is no longer waiting on it, and says why', () => {
+    const t = task('t1', {
+      status: 'failed',
+      validateConfigIds: ['cfg_build', 'plugin:d'],
+      checks: [check({}), check({ configId: 'plugin:d', name: 'D', status: 'error', summary: 'git diff:\nfatal: not a git repository' })]
+    })
+    const row = rowOf(stateWith([t]), 't1')
+    expect(row.validation.status).toBe('failed')
+    expect(row.failureSummary).toBe('D could not run: git diff: fatal: not a git repository')
+  })
+
   it('a timed-out check fails validation too', () => {
     const t = task('t1', { validateConfigIds: ['cfg_build'], checks: [check({ status: 'timed-out' })] })
     const row = rowOf(stateWith([t]), 't1')
