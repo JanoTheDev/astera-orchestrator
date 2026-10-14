@@ -7,6 +7,9 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import os from 'node:os'
 import path from 'node:path'
 import { createPluginRuntime, type PluginLaunch, type PluginRuntime, type PluginTimings } from './runtime'
+import type { DeliveryTimings } from './deliverer'
+import type { AsteraEvent } from '../../core/publicContract'
+import type { PluginNotification } from '../../core/plugins/notifications'
 import { bundleLauncher } from '../../pluginHost/testkit'
 import { cursorFile, pluginSecrets, type CursorStore } from './pluginData'
 import { createEventRing, type EventRing } from '../../core/events/eventRing'
@@ -42,7 +45,15 @@ const add = (ring: EventRing, count: number, payload: Record<string, unknown> = 
 
 function runtime(
   timings: Partial<PluginTimings> = {},
-  extra: { maxLine?: number; profile?: string; ring?: EventRing; cursors?: (folder: string) => CursorStore } = {}
+  extra: {
+    maxLine?: number
+    profile?: string
+    ring?: EventRing
+    cursors?: (folder: string) => CursorStore
+    notify?: (e: AsteraEvent) => PluginNotification | null | Promise<PluginNotification | null>
+    delivery?: Partial<DeliveryTimings>
+    now?: () => number
+  } = {}
 ) {
   const calls: Call[] = []
   const hostLog: string[] = []
@@ -66,9 +77,10 @@ function runtime(
     // budgets; the ones that are set their own.
     timings: { startMs: 60_000, stopGraceMs: 1_000, backoffMs: [50, 50, 50], stableMs: 30_000, failAfter: 3, ...timings },
     events: ring,
-    delivery: { retryFirstMs: 50, retryMaxMs: 50 },
+    delivery: { retryFirstMs: 50, retryMaxMs: 50, ...extra.delivery },
     // Worded as the Host words them, in English, every Job's objective "Ship it"
-    notify: (e) => notificationOf(e, { lang: 'en', objectiveOf: () => 'Ship it' }),
+    notify: extra.notify ?? ((e) => notificationOf(e, { lang: 'en', objectiveOf: () => 'Ship it' })),
+    ...(extra.now ? { now: extra.now } : {}),
     ...(extra.maxLine !== undefined ? { maxLine: extra.maxLine } : {}),
     ...(extra.cursors ? { cursors: extra.cursors } : {})
   })
@@ -654,5 +666,103 @@ describe('notification plugins (plugin Phase 3 N1, N9, N10)', () => {
     const { r } = runtime({ failAfter: 1 })
     r.start(provider('n6', 'export default { onEvent() {} }'))
     await until(() => expect(r.status('n6')).toMatchObject({ status: 'failed', reason: expect.stringContaining('the notification capability needs send in its entry') }))
+  }, 90_000)
+})
+
+describe('notification plugins, against what a person would not expect (plugin 3c final review)', () => {
+  const word = (e: AsteraEvent): PluginNotification | null => notificationOf(e, { lang: 'en', objectiveOf: () => 'Ship it' })
+  const append = (ring: EventRing, occurredAt = new Date().toISOString()): void =>
+    void ring.append([{ type: 'run.completed', jobId: 'job_1', runId: 'run_1', payload: RUN } as EventDraft], occurredAt)
+
+  // I1: a wording that fails is the Host's fault, not the plugin's, and retrying it changes nothing
+  it('sends nothing for an event it cannot word, says so, and goes on at once', async () => {
+    const notify = (e: AsteraEvent) => {
+      if (e.sequence === 1) throw new Error('bad payload')
+      return word(e)
+    }
+    const { r, ring } = runtime({}, { notify })
+    r.start(provider('w1', `export default { send(n, ctx) { ctx.log.info('sent ' + n.id) } }`))
+    await until(() => expect(r.status('w1')?.status).toBe('running'))
+    append(ring)
+    append(ring)
+    await until(() => expect(logOf(r, 'w1')).toContain('sent ev_aaaaaaaaaaaa_2'))
+    expect(logOf(r, 'w1')).toContain('[host] could not word run.completed ev_aaaaaaaaaaaa_1 (bad payload): it is not sent')
+    expect(logOf(r, 'w1')).not.toContain('failed (try')
+  }, 90_000)
+
+  // M2: an attempt the deliverer gave up at the time limit must not go on to send beside the next try
+  it('does not send for an attempt that ran past the time limit', async () => {
+    const { r, ring } = runtime({}, { delivery: { timeoutMs: 300 } })
+    const source = `import { existsSync, writeFileSync } from 'node:fs'
+      import path from 'node:path'
+      export default {
+        async onEvent(e, ctx) {
+          const m = path.join(ctx.plugin.dir, 'slow')
+          if (!existsSync(m)) { writeFileSync(m, '1'); await new Promise((res) => setTimeout(res, 800)) }
+        },
+        send(n, ctx) { ctx.log.info('sent ' + n.id) }
+      }`
+    r.start({ ...provider('w2', source), capabilities: ['event', 'notification'] })
+    await until(() => expect(r.status('w2')?.status).toBe('running'))
+    append(ring)
+    await until(() => expect(logOf(r, 'w2')).toContain('sent ev_aaaaaaaaaaaa_1'))
+    await new Promise((res) => setTimeout(res, 1500))
+    expect(logOf(r, 'w2').match(/sent ev_aaaaaaaaaaaa_1/g)).toHaveLength(1)
+  }, 90_000)
+
+  // M4: a notification that was fresh when it was first sent is tried until it is sent or given up, not skipped as stale
+  it('keeps trying a notification that grows old while it fails, rather than counting it stale', async () => {
+    const { r, ring } = runtime()
+    r.start(provider('w3', `let n = 0; export default { send(no, ctx) { if (++n <= 5) throw new Error('down'); ctx.log.info('sent ' + no.id) } }`))
+    await until(() => expect(r.status('w3')?.status).toBe('running'))
+    append(ring, new Date(Date.now() - 60 * 60_000 + 100).toISOString())
+    await until(() => expect(logOf(r, 'w3')).toContain('sent ev_aaaaaaaaaaaa_1'))
+    expect(logOf(r, 'w3')).not.toContain('skipped')
+  }, 90_000)
+
+  // 3c final review, re-graded from "declined": the give-up hour is the deliverer's own forward-only clock (3b M1)
+  it('counts the give-up hour on the deliverer’s own clock, not the runtime’s', async () => {
+    let skew = 0
+    const { r, ring } = runtime({}, { now: () => Date.now() + skew, delivery: { retryFirstMs: 1_000, retryMaxMs: 1_000 } })
+    r.start(eventPlugin('w4', `let n = 0; export default { onEvent(e, ctx) { if (++n <= 2) throw new Error('down ' + n); ctx.log.info('got ' + e.id) } }`))
+    await until(() => expect(r.status('w4')?.status).toBe('running'))
+    add(ring, 1)
+    await until(() => expect(logOf(r, 'w4')).toContain('failed (try 1)'))
+    skew = 2 * 60 * 60_000
+    await until(() => expect(logOf(r, 'w4')).toContain('got ev_aaaaaaaaaaaa_1'))
+    expect(logOf(r, 'w4')).not.toContain('gave up')
+  }, 90_000)
+
+  // M10: the stop says the stale ones still uncounted
+  it('counts the stale notifications at the stop when nothing else has', async () => {
+    const { r, ring } = runtime()
+    const source = `export default {
+      onEvent(e) { if (e.sequence === 3) return new Promise(() => {}) },
+      send(n, ctx) { ctx.log.info('sent ' + n.id) }
+    }`
+    r.start({ ...provider('w5', source), capabilities: ['event', 'notification'] })
+    await until(() => expect(r.status('w5')?.status).toBe('running'))
+    const old = new Date(Date.now() - 2 * 60 * 60_000).toISOString()
+    append(ring, old)
+    append(ring, old)
+    append(ring)
+    await new Promise((res) => setTimeout(res, 500))
+    expect(logOf(r, 'w5')).not.toContain('skipped')
+    await r.stop('w5')
+    await until(() => expect(logOf(r, 'w5')).toContain('[host] skipped 2 notifications older than an hour (ev_aaaaaaaaaaaa_1 to ev_aaaaaaaaaaaa_2)'))
+  }, 90_000)
+
+  // M10: the ruling that a failed send hands the whole event over again, onEvent included
+  it('hands a plugin that names both onEvent again when its send failed', async () => {
+    const { r, ring } = runtime()
+    const source = `let n = 0; export default {
+      onEvent(e, ctx) { ctx.log.info('event ' + e.id) },
+      send(no, ctx) { if (++n === 1) throw new Error('down'); ctx.log.info('sent ' + no.id) }
+    }`
+    r.start({ ...provider('w6', source), capabilities: ['event', 'notification'] })
+    await until(() => expect(r.status('w6')?.status).toBe('running'))
+    append(ring)
+    await until(() => expect(logOf(r, 'w6')).toContain('sent ev_aaaaaaaaaaaa_1'))
+    expect(logOf(r, 'w6').match(/event ev_aaaaaaaaaaaa_1/g)).toHaveLength(2)
   }, 90_000)
 })

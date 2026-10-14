@@ -106,12 +106,19 @@ interface Slot {
   terms?: string[]
   exited?: Promise<void>
   stopping?: Promise<void>
-  /** An event plugin's deliverer (plugin Phase 3): from its start until a stop, through its crashes and restarts. */
+  /** An event or notification plugin's deliverer (plugin Phase 3): from its start until a stop, through its crashes
+   *  and restarts. */
   deliverer?: Deliverer
   /** The last deliverer's stop, until its cursor is written: a second stop and a start wait for it (final review M4). */
   delivering?: Promise<void>
   /** The notifications skipped as older than NOTIFICATION_MAX_AGE_MS since the last line that counted them (N9). */
   stale: string[]
+  /** Counts the deliveries begun, so one the deliverer gave up at its time limit does not go on to send beside the
+   *  next try (3c final review M2). */
+  attempts: number
+  /** The notification whose send was last begun: one that grows old while it fails is tried until it is sent or
+   *  given up, not counted stale (3c final review M4). */
+  tried?: string
 }
 
 /** The handler each capability is served through (plugin Phase 3 N5): a plugin whose entry lacks it does not start. */
@@ -214,7 +221,7 @@ export function createPluginRuntime(d: {
   cursors?: (folder: string) => CursorStore
   /** The notification for an event, worded for a person (plugin Phase 3 N10, notifications.ts), or null when the event
    *  is not one. Absent: a notification plugin is sent nothing. */
-  notify?: (event: AsteraEvent) => PluginNotification | null
+  notify?: (event: AsteraEvent) => PluginNotification | null | Promise<PluginNotification | null>
 }): PluginRuntime {
   const t: PluginTimings = { ...PLUGIN_TIMINGS, ...d.timings }
   const spawn = d.spawn ?? nodeSpawn
@@ -316,6 +323,7 @@ export function createPluginRuntime(d: {
       deliver: async (item) => {
         const peer = s.peer
         if (!peer || s.state !== 'running') throw new DeliveryInterrupted('the plugin is not running')
+        const attempt = ++s.attempts
         const ask = async (method: string, params: unknown): Promise<void> => {
           try {
             await peer.request(method, params)
@@ -327,21 +335,30 @@ export function createPluginRuntime(d: {
         }
         const caps = s.launch.capabilities
         if (caps.includes('event')) await ask('events.deliver', { event: item })
-        if (!caps.includes('notification')) return
+        // A newer try began while this one waited past the time limit: it sends, not this one
+        if (!caps.includes('notification') || attempt !== s.attempts) return
         // N9: a notification plugin is told of a gap in its log only, and is sent no stale notification
         if (item.type === 'gap') return say(s, 'events were lost before the next one (older than the log keeps): no notification was sent for them')
-        const n = d.notify?.(item) ?? null
-        if (n === null) return
-        if (Date.now() - Date.parse(n.occurredAt) > NOTIFICATION_MAX_AGE_MS) {
+        let n: PluginNotification | null
+        try {
+          n = (await d.notify?.(item)) ?? null
+        } catch (e) {
+          // The Host's wording failed: trying again changes nothing, and the plugin is not at fault (3c final review I1)
+          say(s, `could not word ${item.type} ${item.id} (${e instanceof Error ? e.message : String(e)}): it is not sent`)
+          return
+        }
+        if (n === null || attempt !== s.attempts) return
+        if (n.id !== s.tried && Date.now() - Date.parse(n.occurredAt) > NOTIFICATION_MAX_AGE_MS) {
           s.stale.push(n.id)
           return
         }
         sayStale(s)
+        s.tried = n.id
         await ask('notifications.send', { notification: n })
       },
       log: (m) => say(s, m),
       idle: () => sayStale(s),
-      now,
+      // Not the runtime's clock: the deliverer's own goes only forward, which the give-up hour is counted on (3b M1)
       ...(d.delivery ? { timings: d.delivery } : {})
     })
 
@@ -350,7 +367,8 @@ export function createPluginRuntime(d: {
     s.state = 'starting'
     s.problem = undefined
     s.runningSince = undefined
-    // Plugin Phase 3 N4: an event plugin without the grant its events need is not started (the install refuses it too)
+    // Plugin Phase 3 N4: an event or notification plugin without the grant its events need is not started (the install
+    // refuses it too)
     const ungranted = capabilityPermissionProblem(p.capabilities, p.granted)
     if (ungranted !== null) {
       s.problem = ungranted
@@ -546,7 +564,7 @@ export function createPluginRuntime(d: {
       void pending.then(() => start(p))
       return
     }
-    const slot: Slot = s ?? { launch: p, state: 'stopped', wanted: true, failures: 0, timers: new Set(), learned: new Map(), stale: [] }
+    const slot: Slot = s ?? { launch: p, state: 'stopped', wanted: true, failures: 0, timers: new Set(), learned: new Map(), stale: [], attempts: 0 }
     slot.launch = p
     slot.terms = undefined
     slot.wanted = true
