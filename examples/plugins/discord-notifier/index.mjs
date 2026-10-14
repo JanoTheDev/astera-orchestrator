@@ -99,11 +99,14 @@ export default {
     const answer = await answerOf(res)
     // A payload Discord refuses (400) is refused again on every try: said, and left, so the next one goes
     if (res.status === 400) {
-      ctx.log.warn(`Discord refused ${notification.kind} ${notification.id} (400${answer.message ? `: ${answer.message}` : ''}): it is not posted`)
+      const why = answer.message ? `: ${answer.message}` : ''
+      ctx.log.warn(`Discord refused ${notification.kind} ${notification.id} (400${why}): it is not posted`)
       return
     }
-    if (!res.ok)
-      throw new Error(`Discord answered ${res.status}${typeof answer.retry_after === 'number' ? `; it asks to wait ${answer.retry_after} s` : ''}`)
+    if (!res.ok) {
+      const wait = typeof answer.retry_after === 'number' ? `; it asks to wait ${answer.retry_after} s` : ''
+      throw new Error(`Discord answered ${res.status}${wait}`)
+    }
     ctx.log.info(`posted ${notification.kind} ${notification.id}`)
   }
 }
