@@ -253,6 +253,12 @@ describe('docs/plugins.md', () => {
     expect(nt).toContain('older than an hour')
     expect(nt).toContain('a line in its log')
     expect(nt).toContain(`cut at ${NOTIFICATION_VALUE_MAX} characters and a title at ${NOTIFICATION_TITLE_MAX}`)
+    // 3c final review: the title rules as notifications.ts has them (I2), the shared time limit (M1), and that a failed
+    // send hands onEvent the event again (M5)
+    expect(nt).toContain('the first line of its objective that holds something')
+    expect(nt).toContain('else the last part of its folder, else Astera')
+    expect(nt).toContain('`onEvent` and `send` share the 30 seconds')
+    expect(nt).toContain('`onEvent` included')
     // One row per kind, in NOTIFICATION_KINDS' order, with its level and every sentence it can be
     const rows = sec.split('\n').filter((l) => /^\| `[a-z_]+\.[a-z_]+` \|/.test(l))
     expect(rows.map((l) => /^\| `([^`]+)`/.exec(l)![1])).toEqual([...NOTIFICATION_KINDS])

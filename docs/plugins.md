@@ -256,15 +256,16 @@ sentences:
 | `run.completed` | `info` | the Job's objective | Run {ordinal} finished. |
 | `session.account_switched` | `info` | the session's title | Continuing on the {label} account. |
 
-- **Titles.** A Job's is the first line of its objective as it stands when the notification is made, or the Job's id
-  once the Job is gone; a session's is its title, else the last part of its folder. A value set into a sentence is
-  cut at 500 characters and a title at 120, with `…`.
+- **Titles.** A Job's is the first line of its objective that holds something, as it stands when the notification is
+  made, or the Job's id once the Job is gone; a session's is its title, else the last part of its folder, else Astera.
+  A value set into a sentence is cut at 500 characters and a title at 120, with `…`.
 - **Every kind is sent.** Choosing what to hear is the plugin's: offer a setting for the kinds it leaves out, as the
   Discord sample's `skip` does. A later Astera may send a kind this list does not name yet: post a kind it does not
   know by its title and body.
 - **Delivered as events are.** From where it left off, one at a time, and sent again when `send` throws, rejects or
   has not settled within 30 seconds ([Event plugins](#event-plugins)). A plugin that names both capabilities gets
-  `onEvent`, then `send`, for each event.
+  `onEvent`, then `send`, for each event: `onEvent` and `send` share the 30 seconds, and when `send` fails the whole
+  event is handed over again, `onEvent` included.
 - **Not stale.** A notification older than an hour when its turn comes is not sent: a notifier enabled the morning
   after does not post last night's prompts. Its log counts the ones skipped, in one line.
 - **A gap** (events lost before the next one) sends nothing: a line in its log says so.
