@@ -12,7 +12,7 @@ import { redactSecrets } from '../../core/remote/redact'
 import type { OrchCall } from '../../core/host/orchProtocol'
 import { RPC_CLOSED, RPC_INTERNAL_ERROR, RPC_INVALID_PARAMS, RPC_METHOD_NOT_FOUND, RpcError, createRpcPeer, type RpcPeer } from '../../core/plugins/rpc'
 import { capabilityPermissionProblem, type PluginCapability } from '../../core/plugins/manifest'
-import { PluginSecretRefused, pluginCursor, pluginSecrets } from './pluginData'
+import { PluginSecretRefused, pluginCursor, pluginSecrets, type CursorStore } from './pluginData'
 import { DeliveryInterrupted, createDeliverer, type Deliverer, type DeliverySource, type DeliveryTimings } from './deliverer'
 import { openHostLog, type HostLog } from '../log'
 import { releaseLogWriter } from '../../core/log/logWriter'
@@ -106,6 +106,8 @@ interface Slot {
   stopping?: Promise<void>
   /** An event plugin's deliverer (plugin Phase 3): from its start until a stop, through its crashes and restarts. */
   deliverer?: Deliverer
+  /** The last deliverer's stop, until its cursor is written: a second stop and a start wait for it (final review M4). */
+  delivering?: Promise<void>
 }
 
 /** The handler each capability is served through (plugin Phase 3 N5): a plugin whose entry lacks it does not start. */
@@ -201,6 +203,8 @@ export function createPluginRuntime(d: {
   events?: DeliverySource
   /** For tests: the deliverer's waits (DELIVERY_TIMINGS). */
   delivery?: Partial<DeliveryTimings>
+  /** For tests: where an event plugin's cursor is kept (pluginCursor). */
+  cursors?: (folder: string) => CursorStore
 }): PluginRuntime {
   const t: PluginTimings = { ...PLUGIN_TIMINGS, ...d.timings }
   const spawn = d.spawn ?? nodeSpawn
@@ -288,7 +292,7 @@ export function createPluginRuntime(d: {
   const makeDeliverer = (s: Slot, events: DeliverySource): Deliverer =>
     createDeliverer({
       source: events,
-      cursor: pluginCursor(d.profileDir, s.launch.folder),
+      cursor: d.cursors ? d.cursors(s.launch.folder) : pluginCursor(d.profileDir, s.launch.folder),
       running: () => s.state === 'running' && s.peer !== undefined,
       deliver: async (item) => {
         const peer = s.peer
@@ -500,9 +504,11 @@ export function createPluginRuntime(d: {
   const start = (p: PluginLaunch): void => {
     const s = slots.get(p.id)
     if (s && s.wanted && (s.state === 'starting' || s.state === 'running' || s.state === 'waiting')) return
-    // A stop still under way finishes first; the start follows it.
-    if (s?.stopping) {
-      void s.stopping.then(() => start(p))
+    // A stop still under way finishes first, its cursor written too, so a new deliverer reads where the last one left
+    // off; the start follows it.
+    const pending = s?.stopping ?? s?.delivering
+    if (pending) {
+      void pending.then(() => start(p))
       return
     }
     const slot: Slot = s ?? { launch: p, state: 'stopped', wanted: true, failures: 0, timers: new Set(), learned: new Map() }
@@ -525,8 +531,14 @@ export function createPluginRuntime(d: {
     clearTimers(s)
     // Delivery ends first, so no event goes to a plugin on its way out, and its cursor is written before the stop is
     // over: a removal deletes the file after this, and nothing writes it again (plugin Phase 3 N6)
-    const delivered = s.deliverer?.stop() ?? Promise.resolve()
-    s.deliverer = undefined
+    if (s.deliverer) {
+      const ending: Promise<void> = s.deliverer.stop().finally(() => {
+        if (s.delivering === ending) s.delivering = undefined
+      })
+      s.delivering = ending
+      s.deliverer = undefined
+    }
+    const delivered = s.delivering ?? Promise.resolve()
     const proc = s.proc
     if (!proc) {
       s.state = 'stopped'

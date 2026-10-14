@@ -8,7 +8,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { createPluginRuntime, type PluginLaunch, type PluginRuntime, type PluginTimings } from './runtime'
 import { bundleLauncher } from '../../pluginHost/testkit'
-import { cursorFile, pluginSecrets } from './pluginData'
+import { cursorFile, pluginSecrets, type CursorStore } from './pluginData'
 import { createEventRing, type EventRing } from '../../core/events/eventRing'
 import type { EventDraft } from '../../core/orchestration/publicEvents'
 
@@ -39,7 +39,10 @@ const add = (ring: EventRing, count: number, payload: Record<string, unknown> = 
     'T'
   )
 
-function runtime(timings: Partial<PluginTimings> = {}, extra: { maxLine?: number; profile?: string; ring?: EventRing } = {}) {
+function runtime(
+  timings: Partial<PluginTimings> = {},
+  extra: { maxLine?: number; profile?: string; ring?: EventRing; cursors?: (folder: string) => CursorStore } = {}
+) {
   const calls: Call[] = []
   const hostLog: string[] = []
   const profile = extra.profile ?? path.join(dir, `profile ${++n}`)
@@ -63,7 +66,8 @@ function runtime(timings: Partial<PluginTimings> = {}, extra: { maxLine?: number
     timings: { startMs: 60_000, stopGraceMs: 1_000, backoffMs: [50, 50, 50], stableMs: 30_000, failAfter: 3, ...timings },
     events: ring,
     delivery: { retryFirstMs: 50, retryMaxMs: 50 },
-    ...(extra.maxLine !== undefined ? { maxLine: extra.maxLine } : {})
+    ...(extra.maxLine !== undefined ? { maxLine: extra.maxLine } : {}),
+    ...(extra.cursors ? { cursors: extra.cursors } : {})
   })
   started.push(r)
   return { r, calls, hostLog, profile, ring }
@@ -501,6 +505,63 @@ describe('event plugins (plugin Phase 3 N1, N5-N8)', () => {
     await r.stop('ev7')
     expect(JSON.parse(readFileSync(cursorFile(profile, 'ev7'), 'utf8')).cursor).toBe('ev_aaaaaaaaaaaa_2')
     expect(logOf(r, 'ev7')).not.toContain('did not finish within')
+  }, 90_000)
+
+  /** A cursor store whose second write waits for `release()`, and the order of what it was asked. */
+  const gatedCursors = () => {
+    const order: string[] = []
+    let release: () => void = () => {}
+    const gate = new Promise<void>((res) => (release = res))
+    let writes = 0
+    const store: CursorStore = {
+      read: async () => {
+        order.push('read')
+        return null
+      },
+      write: async (c) => {
+        writes += 1
+        order.push(`write ${c}`)
+        if (writes === 2) await gate
+        order.push(`wrote ${c}`)
+      }
+    }
+    return { order, release: () => release(), cursors: () => store }
+  }
+
+  // Final review M4: the stop's promise is not the only one that waits for the deliverer's last write
+  it('makes a second stop wait for the cursor write the first one began', async () => {
+    const c = gatedCursors()
+    const { r, ring } = runtime({}, { cursors: c.cursors })
+    r.start(eventPlugin('ev8', `export default { onEvent(e, ctx) { ctx.log.info('got ' + e.id) } }`))
+    await until(() => expect(r.status('ev8')?.status).toBe('running'))
+    add(ring, 1)
+    await until(() => expect(c.order).toContain('write ev_aaaaaaaaaaaa_1'))
+    void r.stop('ev8')
+    let second = false
+    void r.stop('ev8').then(() => (second = true))
+    await until(() => expect(r.status('ev8')?.status).toBe('stopped'))
+    await new Promise((res) => setTimeout(res, 300))
+    expect(second).toBe(false)
+    c.release()
+    await until(() => expect(second).toBe(true))
+  }, 90_000)
+
+  it('starts a plugin again only once the cursor write of its stop has landed', async () => {
+    const c = gatedCursors()
+    const { r, ring } = runtime({}, { cursors: c.cursors })
+    const p = eventPlugin('ev9', `export default { onEvent(e, ctx) { ctx.log.info('got ' + e.id) } }`)
+    r.start(p)
+    await until(() => expect(r.status('ev9')?.status).toBe('running'))
+    add(ring, 1)
+    await until(() => expect(c.order).toContain('write ev_aaaaaaaaaaaa_1'))
+    void r.stop('ev9')
+    await until(() => expect(r.status('ev9')?.status).toBe('stopped'))
+    r.start(p)
+    await new Promise((res) => setTimeout(res, 300))
+    expect(c.order.filter((x) => x === 'read')).toHaveLength(1)
+    c.release()
+    await until(() => expect(c.order.filter((x) => x === 'read')).toHaveLength(2))
+    expect(c.order.indexOf('wrote ev_aaaaaaaaaaaa_1')).toBeLessThan(c.order.lastIndexOf('read'))
   }, 90_000)
 
   // Review Focus 1
