@@ -376,13 +376,16 @@ export function SourceJobModal({
   /** The source and the text the paused search asks: the ones picked when it fires, not when the key was pressed. */
   const sourceRef = useRef('')
   const queryRef = useRef('')
+  /** Whether the window is still open, for an answer that comes back after it closed. Set again on every mount: React's
+   *  StrictMode mounts, unmounts and mounts again in development, and a flag only ever cleared stayed false there, so
+   *  every answer was dropped and the sources never left "loading" (found on the hidden desktop in the 4c fix pass). */
   const live = useRef(true)
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    live.current = true
+    return () => {
       live.current = false
-    },
-    []
-  )
+    }
+  }, [])
 
   const loadSources = useCallback(async (): Promise<void> => {
     setSourcesError(undefined)
