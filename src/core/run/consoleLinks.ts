@@ -58,8 +58,15 @@ const SEP = /[\\/]/
 // Korean, Japanese and Chinese glue a particle or a copula to the word before it, with no space: a sentence names a file
 // as `...concept_vs_app.png입니다.` (bug report, 2026-10-14). A run of their letters, and of the full-width punctuation
 // that closes their sentences, at the end of a token is such a word. It is not cut away outright, since a file or a
-// folder can be named in Hangul too: the path without it is offered as the link's `alt`.
-const GLUED_WORD = /[\p{Script=Hangul}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\u3000-\u303F\uFF00-\uFFEF]+$/u
+// folder can be named in Hangul too: the path without it is offered as the link's `alt`. Script_Extensions takes the
+// marks only these languages use that Unicode files under Common (kana's prolonged sound mark ー, the middle dot ・),
+// and a question, an exclamation, a tilde or an ellipsis can close the sentence after the word (review m1). Each run is
+// looked for from its first character only, the lookbehind: anchored at the end alone, a long run of these letters
+// before one that is not was tried from every position, seconds on a long line of text with no space (review I1).
+const CJK = String.raw`\p{Script_Extensions=Hangul}\p{Script_Extensions=Han}\p{Script_Extensions=Hiragana}\p{Script_Extensions=Katakana}\u3000-\u303F\uFF00-\uFFEF`
+const GLUED_WORD = new RegExp(`(?<![${CJK}])[${CJK}]+$`, 'u')
+const GLUED_MARK = /(?<![!?~\u2026])[!?~\u2026]+$/
+const ENDS_IN_SEP = /[\\/]$/
 const EXT = /\.[A-Za-z0-9]{1,10}$/
 // A JVM stack frame: `at [module/]pkg.Class.method(File.ext:line)`. The file inside the parentheses
 // carries no directory — the package in front of the class is the directory, so the target is the
@@ -132,11 +139,11 @@ export function findConsoleLinks(line: string): ConsoleLink[] {
       text = text.slice(lead[0].length)
     }
     const whole = readPath(text)
-    // The same token without a word glued to its end, when that leaves something to read: the sentence's punctuation
-    // and a closing parenthesis after the word come off first (`...png입니다.`, `...png를)`)
-    const trimmed = text.replace(TRAIL_PUNCT, '').replace(TRAIL_CLOSE, '').replace(TRAIL_PUNCT, '')
-    const bare = GLUED_WORD.test(trimmed) ? trimmed.replace(GLUED_WORD, '') : text
-    const cut = bare !== text && bare !== '' ? readPath(bare) : null
+    // The same token without a word glued to its end, when that leaves something to read. A reading that ends in a
+    // separator names a folder, which neither resolver answers (review m2), so it is none.
+    const bare = withoutGluedTail(text)
+    const read = bare !== null && bare !== '' ? readPath(bare) : null
+    const cut = read !== null && !ENDS_IN_SEP.test(read.target) ? read : null
     const first = whole ?? cut
     if (first === null) continue
     const link: ConsoleLink = { kind: 'path', start, end: start + first.length, target: first.target }
@@ -151,6 +158,21 @@ export function findConsoleLinks(line: string): ConsoleLink[] {
     out.push(link)
   }
   return out.sort((a, b) => a.start - b.start)
+}
+
+/** The token without the word glued to its end (GLUED_WORD) and the marks and punctuation around it, peeled in turn
+ *  (`...png입니다.`, `...png를)`, `...png인가요?`), or null when there was no glued word or mark: punctuation alone is
+ *  readPath's to peel. */
+function withoutGluedTail(token: string): string | null {
+  let rest = token
+  let glued = false
+  for (;;) {
+    const peeled = rest.replace(TRAIL_PUNCT, '').replace(TRAIL_CLOSE, '').replace(TRAIL_PUNCT, '')
+    const next = peeled.replace(GLUED_MARK, '').replace(GLUED_WORD, '')
+    if (next === peeled) return glued ? peeled : null
+    glued = true
+    rest = next
+  }
 }
 
 /** One token, its opening brackets already peeled, read as a path: the target, its position, and how many of the

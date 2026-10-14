@@ -78,8 +78,28 @@ describe('findConsoleLinks — a path with a word glued to it', () => {
     expect(only('看 C:\\a\\b.png。')).toMatchObject({ start: 2, target: 'C:\\a\\b.png。', alt: { end: 12, target: 'C:\\a\\b.png' } })
   })
 
-  it('keeps a Korean folder name whole, its cut only an alternative', () => {
-    expect(only('C:\\문서\\보고서')).toEqual({ kind: 'path', start: 0, end: 9, target: 'C:\\문서\\보고서', alt: { end: 6, target: 'C:\\문서\\' } })
+  // Review m2: an alt that ends in a separator names a folder, which no resolver answers, so none is offered
+  it('keeps a Korean folder or file name whole, and offers no alt that names a folder', () => {
+    expect(only('C:\\문서\\보고서')).toEqual({ kind: 'path', start: 0, end: 9, target: 'C:\\문서\\보고서' })
+    expect(findConsoleLinks('읽기/쓰기를 켜기/끄기로').map((l) => (l.kind === 'path' ? l.alt : 'url'))).toEqual([undefined, undefined])
+  })
+
+  // Review m1: kana's prolonged sound mark and the like are Common script, used by Japanese only; and a question, an
+  // exclamation, a tilde or an ellipsis can close the sentence after the glued word
+  it('takes a Japanese word with a prolonged sound mark, and a sentence that ends in ! ? ~ or …', () => {
+    expect(only('D:\\写真\\猫.pngをコピーしました。')).toMatchObject({ alt: { target: 'D:\\写真\\猫.png' } })
+    for (const tail of ['인가요?', '입니다!', '예요~', '입니다…', '!'])
+      expect(only(`C:\\a\\b.png${tail}`), tail).toMatchObject({ alt: { end: 10, target: 'C:\\a\\b.png' } })
+  })
+
+  // Review I1: the glued run is looked for from its first character only. Anchored at the end alone, a long run of
+  // letters the class takes followed by one it does not was tried from every position: 2.4 s for 20,000 characters,
+  // on every hover of the row.
+  it('reads a long run of CJK text with no space in linear time', () => {
+    const line = 'あ'.repeat(20_000) + 'x' + '/' + '中'.repeat(20_000) + 'y'
+    const t0 = performance.now()
+    findConsoleLinks(line)
+    expect(performance.now() - t0).toBeLessThan(250)
   })
 
   it('offers nothing more when no word is glued on, or nothing is left without it', () => {
