@@ -352,4 +352,44 @@ describe('runLauncher: settings and secrets', () => {
     const early = launch({ default: { send() {} } })
     expect(await early.ask('notifications.send', { notification: {} })).toMatchObject({ error: { message: 'the plugin is not started' } })
   })
+
+  // Plugin Phase 4 J6: a job source answers the Host with what its functions return
+  it('says a job source has its three functions, and answers each request with what it returned', async () => {
+    const seen: unknown[][] = []
+    const l = launch({
+      default: {
+        listItems(input: unknown, ctx: PluginContext) {
+          seen.push(['list', input, ctx.plugin.id])
+          return { items: [{ id: 'ENG-1', title: 'Fix' }], nextCursor: 'c2' }
+        },
+        async getItem(id: unknown) {
+          seen.push(['get', id])
+          return { id, title: 'Fix', body: 'b' }
+        },
+        buildJobContext(id: unknown) {
+          seen.push(['context', id])
+          return { objective: 'Fix', sourceLabel: `Linear ${String(id)}` }
+        }
+      }
+    })
+    expect(await l.ask('initialize', INIT_PARAMS)).toMatchObject({ result: { handlers: ['listItems', 'getItem', 'buildJobContext'] } })
+    expect(await l.ask('jobSource.list', { query: 'login', cursor: 'c1', extra: 1 })).toMatchObject({ result: { items: [{ id: 'ENG-1', title: 'Fix' }], nextCursor: 'c2' } })
+    expect(await l.ask('jobSource.get', { id: 'ENG-1' })).toMatchObject({ result: { id: 'ENG-1', body: 'b' } })
+    expect(await l.ask('jobSource.context', { id: 'ENG-1' })).toMatchObject({ result: { objective: 'Fix', sourceLabel: 'Linear ENG-1' } })
+    expect(seen).toEqual([['list', { query: 'login', cursor: 'c1' }, 'astera-hello'], ['get', 'ENG-1'], ['context', 'ENG-1']])
+  })
+
+  it('answers a job source’s throw with its message, a missing function, and a request without an id', async () => {
+    const l = launch({
+      default: {
+        listItems() {
+          throw new Error('401 Unauthorized')
+        }
+      }
+    })
+    await l.ask('initialize', INIT_PARAMS)
+    expect(await l.ask('jobSource.list', {})).toMatchObject({ error: { code: -32603, message: 'listItems threw: 401 Unauthorized' } })
+    expect(await l.ask('jobSource.get', { id: 'x' })).toMatchObject({ error: { code: -32601, message: 'the plugin has no getItem' } })
+    expect(await l.ask('jobSource.context', {})).toMatchObject({ error: { code: -32602, message: 'jobSource.context needs { id }' } })
+  })
 })

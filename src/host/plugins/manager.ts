@@ -123,9 +123,10 @@ const stranded = (first: unknown, retired: string): Error =>
 /** Removes a folder the Host no longer needs; a failure leaves it behind rather than failing the change it followed. */
 const discard = (p: string): Promise<void> => fs.rm(p, { recursive: true, force: true, maxRetries: 3 }).catch(() => {})
 
-/** The plugin capabilities this Host serves (design P8): `event` and `notification` from plugin Phase 3. A plugin that
- *  names another one installs and does not run; docs/plugins.md names each of those as not yet (pluginsDoc.test.ts). */
-export const PLUGIN_SERVED_CAPABILITIES: readonly PluginCapability[] = ['event', 'notification']
+/** The plugin capabilities this Host serves (design P8): `event` and `notification` from plugin Phase 3, `job-source`
+ *  from Phase 4. A plugin that names another one installs and does not run; docs/plugins.md names each of those as not
+ *  yet (pluginsDoc.test.ts). */
+export const PLUGIN_SERVED_CAPABILITIES: readonly PluginCapability[] = ['event', 'notification', 'job-source']
 
 export function createPluginManager(d: {
   profileDir: string

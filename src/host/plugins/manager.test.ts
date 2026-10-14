@@ -84,11 +84,11 @@ describe('inspect', () => {
   })
 
   it('says why a plugin will not run here, and what is installed under its id', async () => {
-    const src = await plugin(FOLDER, { capabilities: ['job-source'] })
+    const src = await plugin(FOLDER, { capabilities: ['completion-check'] })
     await manager.install({ path: src, grant: [] })
     expect(await manager.inspect({ path: src })).toMatchObject({
       status: 200,
-      body: { compatible: false, reason: 'this Astera does not run job-source plugins yet', installed: { version: '1.0.0', enabled: true } }
+      body: { compatible: false, reason: 'this Astera does not run completion-check plugins yet', installed: { version: '1.0.0', enabled: true } }
     })
   })
 
@@ -521,6 +521,15 @@ describe('with a runtime (plugin runtime design P11)', () => {
     expect(rt.launches[0]).toMatchObject({ capabilities: ['event'], granted: ['events.subscribe'] })
   })
 
+  // Plugin Phase 4 J1, J2: a job source runs, and asks for no permission
+  it('starts a job-source plugin that asks for no permission, with its capability in the launch', async () => {
+    const rt = fakeRuntime()
+    const src = await plugin(FOLDER, { capabilities: ['job-source'], permissions: [] })
+    await withRuntime(rt).install({ path: src, grant: [] })
+    expect(rt.calls).toEqual(['start @acme/astera-jira'])
+    expect(rt.launches[0]).toMatchObject({ capabilities: ['job-source'], granted: [] })
+  })
+
   // Plugin Phase 3c: this Astera runs notification plugins
   it('starts a notification plugin, with its capability in the launch', async () => {
     const rt = fakeRuntime()
@@ -551,7 +560,7 @@ describe('with a runtime (plugin runtime design P11)', () => {
 
   it('does not start a plugin this Astera will not run', async () => {
     const rt = fakeRuntime()
-    await withRuntime(rt).install({ path: await plugin(FOLDER, { capabilities: ['job-source'] }), grant: [] })
+    await withRuntime(rt).install({ path: await plugin(FOLDER, { capabilities: ['completion-check'] }), grant: [] })
     expect(rt.calls).toEqual([])
   })
 
@@ -617,7 +626,7 @@ describe('with a runtime (plugin runtime design P11)', () => {
   it('starts every enabled, compatible plugin at the Host’s start', async () => {
     await manager.install({ path: await plugin('a', { name: 'plugin-a' }), grant: [] })
     await manager.install({ path: await plugin('b', { name: 'plugin-b' }), grant: [] })
-    await manager.install({ path: await plugin('c', { name: 'plugin-c', capabilities: ['job-source'] }), grant: [] })
+    await manager.install({ path: await plugin('c', { name: 'plugin-c', capabilities: ['completion-check'] }), grant: [] })
     await manager.setEnabled('plugin-b', false)
     const rt = fakeRuntime()
     await withRuntime(rt).startAll()
@@ -691,10 +700,10 @@ describe('logs and doctor', () => {
   })
 
   it('says why an incompatible plugin and a failed one do not run', async () => {
-    await manager.install({ path: await plugin(FOLDER, { capabilities: ['job-source'] }), grant: [] })
+    await manager.install({ path: await plugin(FOLDER, { capabilities: ['completion-check'] }), grant: [] })
     expect((await manager.doctor('@acme/astera-jira')).body).toMatchObject({
       ok: false,
-      checks: expect.arrayContaining([{ name: 'compatible', ok: false, detail: 'this Astera does not run job-source plugins yet' }])
+      checks: expect.arrayContaining([{ name: 'compatible', ok: false, detail: 'this Astera does not run completion-check plugins yet' }])
     })
     const failing = createPluginManager({
       profileDir: profile,

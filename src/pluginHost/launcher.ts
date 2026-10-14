@@ -42,7 +42,7 @@ const initializeParams = (v: unknown): InitializeParams | null => {
 }
 
 /** What a plugin's entry may define for the Host to call, beside activate and deactivate (plugin Phase 3 N5). */
-const HANDLERS = ['onEvent', 'send'] as const
+const HANDLERS = ['onEvent', 'send', 'listItems', 'getItem', 'buildJobContext'] as const
 const MEMBERS = ['activate', 'deactivate', ...HANDLERS] as const
 
 /** The plugin an entry exports as its default (`definePlugin`), one default deeper for CommonJS compiled from ESM. */
@@ -94,6 +94,17 @@ export function runLauncher(o: {
       if (method === 'initialize') return initialize(params)
       if (method === 'events.deliver') return handOver('onEvent', 'event', method, params)
       if (method === 'notifications.send') return handOver('send', 'notification', method, params)
+      // Plugin Phase 4 J6: a job source answers with what its function returned
+      if (method === 'jobSource.list') {
+        const q = isObject(params) ? params : {}
+        const input = { ...(typeof q.query === 'string' ? { query: q.query } : {}), ...(typeof q.cursor === 'string' ? { cursor: q.cursor } : {}) }
+        return answer('listItems', [input])
+      }
+      if (method === 'jobSource.get' || method === 'jobSource.context') {
+        const id = isObject(params) && typeof params.id === 'string' && params.id !== '' ? params.id : null
+        if (id === null) throw new RpcError(RPC_INVALID_PARAMS, `${method} needs { id }`)
+        return answer(method === 'jobSource.get' ? 'getItem' : 'buildJobContext', [id])
+      }
       if (method === 'shutdown') {
         await stop()
         // After the answer is written: the peer writes it as this resolves, before the next turn.
@@ -222,15 +233,23 @@ export function runLauncher(o: {
     if (stopping) throw new RpcError(RPC_INTERNAL_ERROR, 'the plugin is stopping')
     const item = isObject(params) && isObject(params[param]) ? params[param] : null
     if (!item) throw new RpcError(RPC_INVALID_PARAMS, `${method} needs { ${param} }`)
+    await answer(handler, [item])
+    return {}
+  }
+
+  /** Calls `handler` with `args` and the plugin's context, and answers what it returned (null for nothing), or the
+   *  message it threw. */
+  async function answer(handler: (typeof HANDLERS)[number], args: unknown[]): Promise<unknown> {
+    if (!definition || !context) throw new RpcError(RPC_INTERNAL_ERROR, 'the plugin is not started')
+    if (stopping) throw new RpcError(RPC_INTERNAL_ERROR, 'the plugin is stopping')
     const own = definition as unknown as Record<string, unknown>
     const fn = own[handler]
     if (typeof fn !== 'function') throw new RpcError(RPC_METHOD_NOT_FOUND, `the plugin has no ${handler}`)
     try {
-      await (fn as (item: unknown, ctx: PluginContext) => unknown).call(definition, item, context)
+      return (await (fn as (...a: unknown[]) => unknown).call(definition, ...args, context)) ?? null
     } catch (e) {
       throw new RpcError(RPC_INTERNAL_ERROR, `${handler} threw: ${messageOf(e)}`)
     }
-    return {}
   }
 
   o.input.setEncoding('utf8')
