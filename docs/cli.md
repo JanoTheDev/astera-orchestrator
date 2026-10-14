@@ -613,8 +613,8 @@ repository the project folder's remote names, read with your `gh`. An issue a no
 `jobs create-from-source` returns the Job, with no run yet, as `jobs create` does, and takes its flags but `--objective`
 and `--cwd`: Astera writes the objective, and the Job works in the project's folder. The objective names the item and
 quotes its text as data inside a block the text cannot close, since someone else wrote it. The Job keeps the item as its
-`source` (`{ id, itemId, label, url }`), which `jobs get` shows and the app links to. The same `--request-id` never makes
-two Jobs.
+`source` (`{ id, itemId, label, title, url }`), which `jobs get` shows; the app and `jobs list --human` name the Job by
+its `title`, the ticket's own, and the app links to the ticket. The same `--request-id` never makes two Jobs.
 
 What a refusal means: `INVALID_ARGUMENTS` (exit 2) a flag missing, or an item id no source gives (longer than 200
 characters, or with a control character); `PERMISSION_DENIED` (exit 5) an item that cannot be picked (a GitHub issue a

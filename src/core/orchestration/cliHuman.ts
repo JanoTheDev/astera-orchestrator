@@ -6,6 +6,9 @@
 // **스크립트는 이것을 읽으면 안 된다**(명세 §23). 그래서 이 모양에는 계약이 없다 — 칸이 늘고
 // 너비가 바뀌는 것이 정상이다. 기계가 읽을 것은 `--json` 의 봉투다.
 
+import { jobNameOf } from './jobName'
+import type { JobSourceRef } from './types'
+
 /** 상태 한 낱말. **파생값과 플래그를 한 낱말로 접는다** — 사람이 목록에서 훑는 것이 이것이고,
  *  훑으려면 한 칸에 있어야 한다.
  *
@@ -235,7 +238,8 @@ export function humanFor(cmd: string, data: Record<string, unknown>): string | n
         asList(data, 'jobs').map((j) => [
           stateWord(j),
           str(j.id),
-          str(j.objective),
+          // A Job made from a ticket by the ticket's title (plugin 4d), not by the objective Astera wrote for it
+          jobNameOf({ objective: str(j.objective), source: j.source as JobSourceRef | undefined }),
           progressWord(j)
         ])
       )

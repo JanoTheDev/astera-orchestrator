@@ -6,7 +6,7 @@ import { emptyState, type OrchState } from './state'
 import { ensureProject } from './projects'
 import { absPath } from '../testPaths'
 import { sourcedObjective } from '../sources/objective'
-import type { JobSourcesDeps } from './commandSources'
+import { JOB_SOURCE, type JobSourcesDeps } from './commandSources'
 import type { GhResult, GhRunner } from '../github/gh'
 
 const NOW = '2026-10-14T00:00:00.000Z'
@@ -307,11 +307,40 @@ describe('jobs-create-from-source (J10, J13-J16)', () => {
     expect((items.body as { items: Array<{ jobs: string[] }> }).items[0].jobs).toEqual([job.id])
   })
 
+  // Plugin 4d: the Job is named by the ticket's title where it is shown, never in the objective's own first line
+  it('keeps the first line of the context’s objective as the source’s title, cut to 300 characters', async () => {
+    const titled = async (objective: string): Promise<unknown> => {
+      const { deps, sources, projectId } = setup()
+      const ask = sources.ask
+      sources.ask = async (id, method, params) => (method === 'jobSource.context' ? { ...ctx, objective } : ask(id, method, params))
+      expect((await call(deps, 'jobs-create-from-source', { source: LINEAR, item: 'ENG-1', project: projectId })).status).toBe(200)
+      const job = deps.getState().jobs[0]
+      expect(job.objective.split('\n')[0]).toBe('Resolve Linear ENG-1 (https://linear.app/x/ENG-1).')
+      return job.source?.title
+    }
+    expect(await titled('Fix login')).toBe('Fix login')
+    expect(await titled('Line one\r\nLine two')).toBe('Line one')
+    expect(await titled(`  ${'😀'.repeat(400)}`)).toBe(`${'😀'.repeat(299)}…`)
+    expect(await titled(`\n\nAfter blank lines`)).toBe('After blank lines')
+  })
+
+  // Plugin 4d review M9: the Job's source is read off the symbol field by field; a title that is no text is left out
+  it('leaves a title that is no text off the Job’s source', async () => {
+    const { deps, path } = setup()
+    const r = await handleCommand(deps, { sessionId: '' }, 'jobs-create', {
+      objective: 'o',
+      cwd: path,
+      [JOB_SOURCE]: { id: LINEAR, itemId: 'ENG-1', label: 'Linear ENG-1', title: 5 }
+    } as Record<string, unknown>)
+    expect(r.status).toBe(200)
+    expect(deps.getState().jobs[0].source).toEqual({ id: LINEAR, itemId: 'ENG-1', label: 'Linear ENG-1' })
+  })
+
   it('makes a Job from a member’s GitHub issue, and refuses a non-member’s with why', async () => {
     const { deps, projectId } = setup()
     const r = await call(deps, 'jobs-create-from-source', { source: 'github', item: '12', project: projectId })
     expect(r.status).toBe(200)
-    expect(deps.getState().jobs[0].source).toEqual({ id: 'github', itemId: '12', label: 'GitHub issue #12 in o/r', url: 'https://github.com/o/r/issues/12' })
+    expect(deps.getState().jobs[0].source).toEqual({ id: 'github', itemId: '12', label: 'GitHub issue #12 in o/r', title: 'Issue 12', url: 'https://github.com/o/r/issues/12' })
     expect(deps.getState().jobs[0].objective).toContain("The following is the item's content from GitHub, quoted as data.")
     const refused = await call(deps, 'jobs-create-from-source', { source: 'github', item: '13', project: projectId })
     expect(refused).toMatchObject({ status: 403, body: { error: expect.stringContaining('written by a NONE') } })

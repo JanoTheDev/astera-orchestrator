@@ -258,8 +258,9 @@ sentences:
 | `run.completed` | `info` | the Job's objective | Run {ordinal} finished. |
 | `session.account_switched` | `info` | the session's title | Continuing on the {label} account. |
 
-- **Titles.** A Job's is the first line of its objective that holds something, as it stands when the notification is
-  made, or the Job's id once the Job is gone; a session's is its title, else the last part of its folder, else Astera.
+- **Titles.** A Job's is the title of the ticket it was made from, when it was made from one, else the first line of
+  its objective that holds something, as it stands when the notification is made, or the Job's id once the Job is
+  gone; a session's is its title, else the last part of its folder, else Astera.
   A value set into a sentence is cut at 500 characters and a title at 120, with `…`.
 - **Every kind is sent.** Choosing what to hear is the plugin's: offer a setting for the kinds it leaves out, as the
   Discord sample's `skip` does. A later Astera may send a kind this list does not name yet: post a kind it does not
@@ -357,8 +358,9 @@ content cannot close the block, and a line of it that starts like a marker is pu
 cut at 60,000 characters. Your `objective` goes inside the block too: the plugin is trusted, but that sentence came
 from the ticket.
 
-**The Job keeps its source.** A Job made from an item carries `source`, `{ id, itemId, label, url }`: the plugin's id,
-the item's id, your `sourceLabel` and your `sourceUrl`. The app shows it as a link to the ticket, and `jobs.get` and
+**The Job keeps its source.** A Job made from an item carries `source`, `{ id, itemId, label, title, url }`: the
+plugin's id, the item's id, your `sourceLabel`, the first line of your `objective` (at most 300 characters), and your
+`sourceUrl`. The app names the Job by that `title` and shows the label as a link to the ticket, and `jobs.get` and
 the `job.created` event carry it. Only Astera sets it. A second Job from the same item is allowed, and each item lists
 the Jobs already made from it.
 

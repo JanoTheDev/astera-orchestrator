@@ -31,6 +31,20 @@ function rig(langs: Lang[] = ['en']) {
 }
 
 describe('hostNotifier', () => {
+  // Plugin 4d review M3: a notification names a Job made from a ticket as its card does
+  it('titles a Job made from a ticket by the ticket’s title', async () => {
+    const notify = hostNotifier({
+      lang: async () => 'en',
+      orch: {
+        ready: async () => {},
+        state: () => ({
+          jobs: [{ id: 'job_1', objective: 'Resolve Linear ENG-1 (https://linear.app/x/ENG-1).', source: { id: 'astera-linear-source', itemId: 'ENG-1', label: 'Linear ENG-1', title: 'Fix login' } }]
+        })
+      }
+    })
+    expect((await notify(completed))?.title).toBe('Fix login')
+  })
+
   it('titles a Job once the state is in memory, not from the empty state before the load', async () => {
     const r = rig()
     const pending = r.notify(completed)

@@ -10,7 +10,7 @@ import { isSamePath } from '../files/tree'
 import type { Project } from './types'
 import type { OrchState } from './state'
 import { SOURCE_ERROR_MAX, clip, isItemId, itemDetail, itemsPage, jobContext, type SourceContext } from '../sources/answers'
-import { sourcedObjective } from '../sources/objective'
+import { sourceTitleOf, sourcedObjective } from '../sources/objective'
 import { GITHUB_SOURCE_ID, issueContext, issueDetail, listIssueItems } from '../github/issueSource'
 import { repoOf } from '../github/issue'
 import type { GhFailed } from '../github/gh'
@@ -213,10 +213,18 @@ export function createFromContext(
   handle: Handle,
   a: { rest: Record<string, unknown>; cwd: string; ctx: SourceContext; sourceId: string; sourceName: string; itemId: string }
 ): Promise<Reply> {
+  // The ticket's title the Job is named by where it is shown (plugin 4d); never part of the objective's own first line
+  const title = sourceTitleOf(a.ctx.objective)
   return handle(deps, caller, 'jobs-create', {
     ...a.rest,
     cwd: a.cwd,
     objective: sourcedObjective(a.ctx, a.sourceName),
-    [JOB_SOURCE]: { id: a.sourceId, itemId: a.itemId, label: a.ctx.sourceLabel, ...(a.ctx.sourceUrl ? { url: a.ctx.sourceUrl } : {}) }
+    [JOB_SOURCE]: {
+      id: a.sourceId,
+      itemId: a.itemId,
+      label: a.ctx.sourceLabel,
+      ...(title !== undefined ? { title } : {}),
+      ...(a.ctx.sourceUrl ? { url: a.ctx.sourceUrl } : {})
+    }
   })
 }

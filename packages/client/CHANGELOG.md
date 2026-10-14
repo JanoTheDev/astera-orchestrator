@@ -5,7 +5,7 @@ is the guide.
 
 ## 0.3.0
 
-- A Job's `source`: the job source and the item it was made from (`{ id, itemId, label, url? }`), when Astera made it
+- A Job's `source`: the job source and the item it was made from (`{ id, itemId, label, title?, url? }`, `title` the item's own, at most 300 characters), when Astera made it
   from a ticket, a Linear issue or a GitHub issue, say. It needs Astera 1.4.14 or later; an older one leaves it out.
 - `call()` of `jobs-create-from-source` answers with the Job's public fields, as `jobs.create` does.
 

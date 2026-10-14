@@ -142,7 +142,9 @@ export interface JobSourceItemDetail extends JobSourceItem {
 /** What a Job made from an item is to do. Astera writes the Job's objective itself: a first line naming
  *  `sourceLabel` (`Linear ENG-123`, at most 200 characters) and `sourceUrl`, then your `objective` (at most 20,000), each
  *  `evidence` entry under its label (at most 20 entries, 20,000 characters each and 100,000 in all) and the `metadata`
- *  (at most 50 pairs), quoted as data the Job's agent does not take orders from. The Job keeps the item as its source. */
+ *  (at most 50 pairs), quoted as data the Job's agent does not take orders from. The Job keeps the item as its source,
+ *  and is named, in the app, the CLI and notifications, by the first line of your `objective` (at most 300 characters):
+ *  start it with the item's title. */
 export interface JobSourceContext {
   objective: string
   sourceLabel: string

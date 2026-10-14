@@ -8758,7 +8758,7 @@ describe('handleCommand — github-pr, github-ci and github-issue', () => {
       expect(body.issue).toEqual({ number: 5, url: 'https://github.com/o/r/issues/5' })
       const job = deps.getState().jobs.find((j) => j.id === body.id)
       expect(job?.objective).toBe(sourcedObjective(issueContext(parseIssue(JSON.stringify(issueJson))!), 'GitHub'))
-      expect(job?.source).toEqual({ id: 'github', itemId: '5', label: 'GitHub issue #5 in o/r', url: 'https://github.com/o/r/issues/5' })
+      expect(job?.source).toEqual({ id: 'github', itemId: '5', label: 'GitHub issue #5 in o/r', title: 'Broken', url: 'https://github.com/o/r/issues/5' })
       expect(job?.cwd).toBe(projectPath)
       expect(job?.concurrency).toBe(2)
       expect(body.objective).toBe(job?.objective)

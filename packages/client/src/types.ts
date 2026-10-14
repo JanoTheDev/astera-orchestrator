@@ -54,6 +54,8 @@ export interface JobSource {
   readonly id: string
   readonly itemId: string
   readonly label: string
+  /** The item's title, as the app names the Job: someone else's text, at most 300 characters. */
+  readonly title?: string
   readonly url?: string
 }
 

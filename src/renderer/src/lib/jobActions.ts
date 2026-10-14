@@ -4,6 +4,7 @@
 import type { OrchSnapshot } from '../../../core/types'
 import { findRun } from '../../../core/orchestration/snapshot'
 import { isOutcomeUnknown, replyNote, type CommandReply, type OrchDoor } from './orchDoor'
+import { jobName } from './jobName'
 
 export interface ActionUi {
   t(key: string, params?: Record<string, string | number>): string
@@ -74,7 +75,8 @@ export async function deleteRun(door: OrchDoor, snapshot: OrchSnapshot | null, r
     title: ui.t('jobs.run.delete'),
     // Only deleting a template stops workers (run-delete): what goes with it is said here.
     body:
-      ui.t('jobs.run.deleteBody', { objective: run.objective, tasks, events }) +
+      // Named as its card names it (plugin 4d review I1): a Job made from a ticket by the ticket's title
+      ui.t('jobs.run.deleteBody', { objective: jobName(run), tasks, events }) +
       (run.schedule && workers > 0 ? '\n\n' + ui.t('jobs.run.deleteStopsWorkers', { workers }) : ''),
     confirmLabel: ui.t('jobs.run.delete'),
     ...(wt.length > 0

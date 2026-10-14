@@ -270,6 +270,8 @@ describe('docs/plugins.md', () => {
     // 3c final review: the title rules as notifications.ts has them (I2), the shared time limit (M1), and that a failed
     // send hands onEvent the event again (M5)
     expect(nt).toContain('the first line of its objective that holds something')
+    // Plugin 4d review M3: a Job made from a ticket is named by the ticket's title
+    expect(nt).toContain('the title of the ticket it was made from')
     expect(nt).toContain('else the last part of its folder, else Astera')
     expect(nt).toContain('`onEvent` and `send` share the 30 seconds')
     expect(nt).toContain('`onEvent` included')
