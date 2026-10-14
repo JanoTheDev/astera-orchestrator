@@ -266,11 +266,11 @@ console.log(body) // the public shape `astera accounts list --json` prints, unty
 
 ## Events
 
-The Host keeps a log of what happens to Jobs, Runs, Tasks, questions and completion. It is always on, it outlives a
-Host restart, and `events` reads it. An event:
+The Host keeps a log of what happens to Jobs, Runs, Tasks, questions, completion and sessions. It is always on, it
+outlives a Host restart, and `events` reads it. An event:
 
 ```text
-{ id, type, sequence, occurredAt, projectId?, jobId?, runId?, taskId?, payload }
+{ id, type, sequence, occurredAt, projectId?, jobId?, runId?, taskId?, sessionId?, payload }
 ```
 
 | Type | When | Payload |
@@ -285,9 +285,19 @@ Host restart, and `events` reads it. An event:
 | `completion.failed` | a check or review round fails | `TaskCompletion` |
 | `completion.repair_started` | a repair of a failed check or review starts, once its worker has its session | `TaskCompletion` |
 | `completion.converged`, `completion.exhausted` | a Task is done; its repairs ran out | `TaskCompletion` |
+| `session.input_needed` | a session turns to waiting on a person (a permission, a question), once per turn into it | `{ session, prompt }` |
+| `session.limit_waiting` | a session stops at a usage limit and waits for it to reset | `{ session, scope?, nextRetryAt? }` |
+| `session.account_switched` | a session goes on under another account | `{ session, accountLabel }` |
 
 The payload is the object as it stood right after the change. A Task is cut like `tasks.list({ brief: true })` and its
 checks carry no output; the `get` methods read the whole object.
+
+A session event's `session` is `{ id, kind, title?, provider?, cwd? }`, as `astera sessions list` shows it; `prompt` is
+`permission`, `question` or `null` when the Host cannot tell. They are what Astera's desktop notifications announce: a
+Claude terminal or a chat waiting (a Codex terminal says nothing the Host can read), and the usage-limit waits and
+account switches of Account Rolling. A Host records the sessions it runs; a paired Runtime's are in that Runtime's log.
+Hosts older than the session events answer `INVALID_ARGUMENT` to them in `types`, and a client from before them passes
+them on with an empty payload.
 
 Events are notifications, not the state. Delivery is at least once and an `id` never repeats, so drop one you have
 seen; `sequence` orders the events of one log.

@@ -414,7 +414,7 @@ describe('publicFor runs-completion', () => {
 // SDK 1d: the public events (SDK spec §6). The envelope is an allowlist like any answer, and the payload is the public
 // DTO of its type, shaped by the same rules as the read that returns that object.
 describe('the event types', () => {
-  it('are the fifteen the Host produces, once each, frozen', () => {
+  it('are the eighteen the Host produces, once each, frozen', () => {
     expect(pkg.EVENT_TYPES).toEqual([
       'job.created',
       'job.updated',
@@ -430,7 +430,10 @@ describe('the event types', () => {
       'completion.failed',
       'completion.repair_started',
       'completion.converged',
-      'completion.exhausted'
+      'completion.exhausted',
+      'session.input_needed',
+      'session.limit_waiting',
+      'session.account_switched'
     ])
     expect(Object.isFrozen(pkg.EVENT_TYPES)).toBe(true)
   })
@@ -517,6 +520,15 @@ describe('shapeEvent', () => {
       type: 'completion.repair_started',
       payload: row
     })
+  })
+
+  // Plugin Phase 3 (events and notifications design N2): a session event names its session, cut to five fields
+  it('keeps a session event’s session id, and its payload’s fields only', () => {
+    const session = { id: 's1', kind: 'terminal', title: 't', provider: 'claude', cwd: 'D:\p' }
+    const raw = { id: 'ev_0123456789ab_3', type: 'session.input_needed', sequence: 3, occurredAt: 'T', sessionId: 's1', payload: { session: { ...session, accountId: 'a1', alive: true }, prompt: 'permission', note: 1 } }
+    expect(pkg.shapeEvent(raw)).toEqual({ id: 'ev_0123456789ab_3', type: 'session.input_needed', sequence: 3, occurredAt: 'T', sessionId: 's1', payload: { session, prompt: 'permission' } })
+    expect(pkg.shapeEvent({ ...raw, type: 'session.limit_waiting', payload: { session, scope: 'weekly', nextRetryAt: 'R', reattach: true } })).toEqual({ ...raw, type: 'session.limit_waiting', payload: { session, scope: 'weekly', nextRetryAt: 'R' } })
+    expect(pkg.shapeEvent({ ...raw, type: 'session.account_switched', payload: { session, accountLabel: 'work', accountId: 'a2' } })).toEqual({ ...raw, type: 'session.account_switched', payload: { session, accountLabel: 'work' } })
   })
 
   it('gives an unknown type an empty payload', () => {
