@@ -699,6 +699,30 @@ button.primary:disabled { background: var(--elevated); border-color: var(--line-
    the draft box. align-self restores the width the class already asked for. The same is true of
    every check-small in every modal; fixing it there is its own change, not this feature's. */
 .modal.create-pr label.check-small { align-self: flex-start; }
+
+/* The Jobs view's "+ From a source" window (plugin Phase 4 J20): the source and the search on one line, then the list
+   beside the picked item, each scrolling on its own so the buttons stay in view. */
+.modal.source-job { width: 820px; max-width: calc(100vw - 48px); max-height: calc(100vh - 48px); }
+.modal.source-job .source-pick { display: flex; gap: 8px; }
+.modal.source-job .source-pick select { flex: 0 0 240px; }
+.modal.source-job .source-pick input { flex: 1; }
+.modal.source-job .source-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; min-height: 0; }
+.modal.source-job .source-items, .modal.source-job .source-detail { max-height: 320px; overflow: auto; display: flex; flex-direction: column; gap: 6px; }
+.modal.source-job .source-items ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.modal.source-job .source-item { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; padding: 4px 6px; border-radius: var(--radius); cursor: pointer; }
+.modal.source-job .source-item:hover { background: var(--surface-hover); }
+.modal.source-job .source-item.picked { box-shadow: inset 2px 0 0 var(--accent); background: var(--surface-hover); }
+.modal.source-job .source-item.disabled { opacity: 0.55; }
+.modal.source-job .source-id { font-family: var(--mono); font-size: 11.5px; color: var(--text-faint); }
+.modal.source-job .source-title { flex: 1; min-width: 0; color: var(--text); }
+.modal.source-job .source-status, .modal.source-job .source-reason { font-size: 11px; color: var(--text-faint); }
+.modal.source-job .source-exists { font-size: 11px; padding: 0 6px; }
+.modal.source-job .source-detail h3 { font-size: 13px; font-weight: 600; color: var(--text); margin: 0; }
+.modal.source-job .source-fields { font-size: 11.5px; border-collapse: collapse; }
+.modal.source-job .source-fields th { text-align: left; color: var(--text-faint); font-weight: 400; padding-right: 10px; vertical-align: top; }
+/* The ticket's text as it is (§3.3): wrapped, never rendered */
+.modal.source-job .source-body { white-space: pre-wrap; word-break: break-word; font-family: var(--mono); font-size: 11.5px; margin: 0; padding: 8px; background: var(--bg); border-radius: var(--radius); }
+.modal.source-job .source-error { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
 /* The palette, width and resize now come from `.field textarea`, which this dialog's fields sit in
    like every other modal's. Only the two things that differ stay here: a PR body is prose, not
    code, so it keeps the UI face rather than .field's mono, and it gets a little more side padding. */
