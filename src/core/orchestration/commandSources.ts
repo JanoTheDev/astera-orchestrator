@@ -1,5 +1,6 @@
 // The job-source commands (plugin Phase 4 J10-J16): the sources a person can make a Job from (the job-source plugins
-// and GitHub issues), a page of a source's items, one item read whole, and a Job made from an item. The Host asks the
+// and GitHub issues), a page of a source's items, one item read whole (`sources-show`), and a Job made from an item;
+// each named, with its flags, as the CLI spells it (`astera sources show --item`, plan 4b R1). The Host asks the
 // plugins (`deps.jobSources`) and gh (`deps.github`); what a plugin answers is checked and cut (sources/answers.ts),
 // the Job's objective is the Host's own, the item's content quoted inside it as data (sources/objective.ts), and the Job
 // keeps where it came from, set here alone (JOB_SOURCE).
@@ -16,7 +17,7 @@ type Reply = { status: number; body: unknown }
 type Caller = { sessionId: string; role?: 'app' | 'cli' | 'mcp' | 'controller' | 'plugin' }
 type Handle = (deps: OrchServerDeps, caller: Caller, cmd: string, args: Record<string, unknown>) => Promise<Reply>
 
-export const SOURCE_COMMANDS: ReadonlySet<string> = new Set(['sources-list', 'sources-items', 'sources-item', 'jobs-create-from-source'])
+export const SOURCE_COMMANDS: ReadonlySet<string> = new Set(['sources-list', 'sources-items', 'sources-show', 'jobs-create-from-source'])
 
 /** The key the Host gives `jobs-create` (and `run-create`) the job source's item under (plugin Phase 4 J15). A symbol:
  *  no JSON a caller sends can hold one, so only `jobs-create-from-source`, inside this process, sets a Job's source. */
@@ -140,11 +141,11 @@ export async function sourcesCommand(deps: OrchServerDeps, caller: Caller, cmd: 
     })
   }
 
-  const itemId = str(args.id)
-  if (itemId === null) return bad('--id is required: an item from sources items')
-  if (!isItemId(itemId)) return bad('--id is not an item id: at most 200 characters, and no control characters')
+  const itemId = str(args.item)
+  if (itemId === null) return bad('--item is required: an item from sources items')
+  if (!isItemId(itemId)) return bad('--item is not an item id: at most 200 characters, and no control characters')
 
-  if (cmd === 'sources-item') {
+  if (cmd === 'sources-show') {
     if (source.kind === 'github') {
       const at = githubFolder()
       if (isReply(at)) return at
@@ -187,7 +188,7 @@ export async function sourcesCommand(deps: OrchServerDeps, caller: Caller, cmd: 
     if (!checked.ok) return { status: 502, body: { error: `the ${source.name} source answered with something that is not a Job's context: ${checked.problem}` } }
     ctx = checked.value
   }
-  const { source: _source, id: _id, project: _project, ...rest } = args
+  const { source: _source, item: _item, project: _project, ...rest } = args
   return createFromContext(deps, caller, handle, {
     rest,
     cwd: project.path,

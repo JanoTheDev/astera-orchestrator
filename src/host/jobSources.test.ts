@@ -101,7 +101,7 @@ describe('a Job made from an item through the Host', () => {
     })
     await orch.ready()
     const cli = { role: 'cli' as const, toOthers: () => {} }
-    const args = { source: 'astera-linear-source', id: 'ENG-1', project: reg.project.id }
+    const args = { source: 'astera-linear-source', item: 'ENG-1', project: reg.project.id }
     const first = await orch.call({ cmd: 'jobs-create-from-source', args, sessionId: '', from: cli, request: 'req-src-1' })
     expect(first.status, logged.join(' || ')).toBe(200)
     const second = await orch.call({ cmd: 'jobs-create-from-source', args, sessionId: '', from: cli, request: 'req-src-1' })

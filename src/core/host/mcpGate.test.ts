@@ -103,15 +103,15 @@ describe('mcpRefusal', () => {
   describe('job-source commands', () => {
     it('admits the three reads at read and control', () => {
       for (const access of ['read', 'control'] as const)
-        for (const cmd of ['sources-list', 'sources-items', 'sources-item']) expect(mcpRefusal(cmd, access, false, false), cmd).toBeNull()
+        for (const cmd of ['sources-list', 'sources-items', 'sources-show']) expect(mcpRefusal(cmd, access, false, false), cmd).toBeNull()
     })
     it('admits a Job from a plugin’s source at control only', () => {
-      const args = { source: 'astera-linear-source', id: 'ENG-1', project: 'p' }
+      const args = { source: 'astera-linear-source', item: 'ENG-1', project: 'p' }
       expect(mcpRefusal('jobs-create-from-source', 'control', false, false, args)).toBeNull()
       expect(mcpRefusal('jobs-create-from-source', 'read', false, false, args)?.status).toBe(403)
     })
     it('needs the GitHub-write setting too for a Job from the GitHub source', () => {
-      const args = { source: 'github', id: '12', project: 'p' }
+      const args = { source: 'github', item: '12', project: 'p' }
       expect(mcpRefusal('jobs-create-from-source', 'control', false, false, args)?.body.error).toMatch(/Let MCP clients act on GitHub/)
       expect(mcpRefusal('jobs-create-from-source', 'control', false, true, args)).toBeNull()
       expect(mcpRefusal('jobs-create-from-source', 'read', false, true, args)?.status).toBe(403)
