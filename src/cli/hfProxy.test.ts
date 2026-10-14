@@ -424,7 +424,7 @@ describe('hfProxy', () => {
       expect((await calls()).find((x) => x.args[1] === 'create').args).toEqual(['generate', 'create', 'k', '--image', file])
       expect(await fs.readFile(ledgerFile(), 'utf8')).toBe(before)
       await fs.rm(lock, { force: true })
-    }, 20000)
+    })
 
     it('keeps the id and says so once when the download fails', async () => {
       const { a, b } = await setup()
@@ -454,7 +454,7 @@ describe('hfProxy', () => {
       expect((await calls()).find((x) => x.args[1] === 'create').args).toEqual(['generate', 'create', 'k', '--image', J])
       expect(msgs).toEqual([`higgsfield: could not bring ${J} over from account "A"; passing it through
 `])
-    }, 10000)
+    })
   })
 
   describe('which CLI the name finds', () => {

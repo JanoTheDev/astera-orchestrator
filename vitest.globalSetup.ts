@@ -42,6 +42,11 @@ const APP_PREFIX = 'astera-host-'
  *  and a hook is allowed 60 seconds (vitest.config.ts). An hour is far past any of those. */
 export const STALE_MS = 60 * 60 * 1000
 
+/** Whether a folder directly under the temp folder is a fixture this sweeper removes once it is stale: `astera-*`, but
+ *  never the app's own `astera-host-*`. Exported so a test that leaves a held fixture behind (src/core/testFixtures.ts)
+ *  leaves only what this removes. */
+export const isSweptFixtureName = (name: string): boolean => name.startsWith(PREFIX) && !name.startsWith(APP_PREFIX)
+
 /** Removes every `astera-*` fixture directory in `tmp` created more than STALE_MS before `startedAt`,
  *  ignoring every failure. Returns how many were removed. */
 export async function removeStaleFixtures(tmp: string, startedAt: number): Promise<number> {
@@ -53,7 +58,7 @@ export async function removeStaleFixtures(tmp: string, startedAt: number): Promi
   }
   let removed = 0
   for (const name of entries) {
-    if (!name.startsWith(PREFIX) || name.startsWith(APP_PREFIX)) continue
+    if (!isSweptFixtureName(name)) continue
     const full = path.join(tmp, name)
     try {
       const st = await fs.stat(full)

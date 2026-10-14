@@ -117,10 +117,11 @@ afterEach(async () => {
 // A script runs in a child process of its own (scriptWorker.ts), which has to start before the script
 // reaches any helper. In a full run the slowest files start together, and that start alone took past
 // vi.waitFor's 1 s default, so the test saw a helper "never called". A wait for the script to reach a
-// helper gets the same 15 s the launch-wait tests below give it, and its test gets that plus its own 10 s.
+// helper gets the same 15 s the launch-wait tests below give it, and its test gets that plus the suite's own 30 s
+// (vitest.config.ts; load-sensitive tests, 2026-10-14: a budget under the suite's default only shortened it).
 const SCRIPT_START_MS = 15_000
 const reachesHelper = { timeout: SCRIPT_START_MS, interval: 20 }
-const STARTS_A_SCRIPT = { timeout: SCRIPT_START_MS + 10_000 }
+const STARTS_A_SCRIPT = { timeout: SCRIPT_START_MS + 30_000 }
 
 const rig = async (over: Partial<WorkspaceManagerDeps> = {}) => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'astera-ws-'))
@@ -1005,7 +1006,7 @@ describe('the app size (the mirror tab fills with the app)', () => {
     await m.run('s1', "await launch({ command: 'app.exe' })")
     expect(overrides(cdp)).toEqual([at({ width: 1200, height: 750 }), at({ width: 1200, height: 750 })])
     expect(vi.mocked(deps.log).mock.calls.map((c) => c[0]).join(' | ')).toContain('the page lays out at that size (set 2 times)')
-  }, 20_000)
+  })
 
   it('a frame whose page is another size than it was given sizes it again, a few times at most', STARTS_A_SCRIPT, async () => {
     // The page measured on the hidden desktop: maximized by the app itself to 3840x2088.

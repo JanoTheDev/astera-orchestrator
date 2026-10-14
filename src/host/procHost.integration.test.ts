@@ -117,5 +117,5 @@ describe('proc-* over the Host server', () => {
     expect(procs.liveCount()).toBe(0)
     a.end()
     b.end()
-  }, 20_000)
+  })
 })

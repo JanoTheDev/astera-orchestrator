@@ -1,4 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest'
+import { removeFixture } from '../core/testFixtures'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { tempDir } from '../core/worktrees/testRepo'
@@ -9,7 +10,7 @@ import type { SessionInfo } from '../core/types'
 
 const dirs: string[] = []
 afterEach(async () => {
-  for (const d of dirs.splice(0)) await fs.rm(d, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 })
+  for (const d of dirs.splice(0)) await removeFixture(d)
 })
 
 const T0 = Date.parse('2026-09-25T00:00:00.000Z')

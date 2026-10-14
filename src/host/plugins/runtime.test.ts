@@ -2,6 +2,7 @@
 // P11-P13): calls go to the orch as the plugin, stderr goes to a redacted log, a crash restarts, a crash loop fails,
 // and stop runs deactivate or kills the whole tree. In a folder with a space and Hangul (spec §48).
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest'
+import { removeFixture } from '../../core/testFixtures'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -13,15 +14,15 @@ let dir: string
 let launcher: string
 let n = 0
 beforeAll(async () => {
-  dir = mkdtempSync(path.join(os.tmpdir(), 'astera runtime 플러그인 '))
+  dir = mkdtempSync(path.join(os.tmpdir(), 'astera-runtime 플러그인 '))
   launcher = await bundleLauncher(dir)
 }, 60_000)
 const started: PluginRuntime[] = []
 afterEach(async () => {
   for (const r of started.splice(0)) await r.stopAll()
 })
-afterAll(() => {
-  rmSync(dir, { recursive: true, force: true, maxRetries: 5 })
+afterAll(async () => {
+  await removeFixture(dir)
 })
 
 type Call = { cmd: string; args: unknown; sessionId: string; from?: { role: string; plugin?: { id: string; granted: ReadonlySet<string> } }; request?: string }
@@ -43,7 +44,10 @@ function runtime(timings: Partial<PluginTimings> = {}, extra: { maxLine?: number
       }
     },
     log: (m) => hostLog.push(m),
-    timings: { startMs: 10_000, stopGraceMs: 1_000, backoffMs: [50, 50, 50], stableMs: 5_000, failAfter: 3, ...timings },
+    // A plugin's start is a process spawn: 10 s ran out under the full suite (load-sensitive tests, 2026-10-14), and a
+    // crash counted as quick only within 5 s of a start that itself took that long. No test here is about these two
+    // budgets; the ones that are set their own.
+    timings: { startMs: 60_000, stopGraceMs: 1_000, backoffMs: [50, 50, 50], stableMs: 30_000, failAfter: 3, ...timings },
     ...extra
   })
   started.push(r)
@@ -59,7 +63,10 @@ function plugin(name: string, source: string, file = 'index.mjs'): PluginLaunch 
 }
 
 const logOf = (r: PluginRuntime, folder: string): string => (existsSync(r.logFile(folder)) ? readFileSync(r.logFile(folder), 'utf8') : '')
-const until = <T>(f: () => T, timeout = 15_000): Promise<T> => vi.waitFor(f, { timeout, interval: 25 })
+// 45 s: three starts and restarts of a real process, under the full suite (load-sensitive tests, 2026-10-14). Every
+// test here waits with it at least once, so each gets 90 s: a wait that runs out fails with its assertion's message
+// rather than the runner's timeout (final review m9: all of them, on purpose).
+const until = <T>(f: () => T, timeout = 45_000): Promise<T> => vi.waitFor(f, { timeout, interval: 25 })
 const alive = (pid: number): boolean => {
   try {
     process.kill(pid, 0)
@@ -97,7 +104,7 @@ describe('createPluginRuntime', () => {
     expect(log).toContain('session none profile none')
     expect(log).toMatch(/\[host\] started pid \d+/)
     expect(log).toContain('[host] running')
-  }, 30_000)
+  }, 90_000)
 
   it('restarts a plugin whose activate throws, marks it failed after the third quick crash, and starts it again on restart', async () => {
     const { r } = runtime()
@@ -105,7 +112,7 @@ describe('createPluginRuntime', () => {
     r.start(p)
     await until(() => expect(r.status('throws')?.status).toBe('failed'))
     expect(r.status('throws')?.reason).toBe(
-      'activate threw: no token configured (3 times in a row, each within 5 s of starting); see astera plugins logs --id throws'
+      'activate threw: no token configured (3 times in a row, each within 30 s of starting); see astera plugins logs --id throws'
     )
     // The log is written a moment after: the writer buffers.
     await until(() => expect(logOf(r, 'throws')).toContain('[host] failed: activate threw: no token configured'))
@@ -113,7 +120,7 @@ describe('createPluginRuntime', () => {
     writeFileSync(p.entry, `export default { activate(ctx) { ctx.log.info('fixed') } }`)
     r.restart(p)
     await until(() => expect(r.status('throws')?.status).toBe('running'))
-  }, 30_000)
+  }, 90_000)
 
   // 2b final review M1: what a plugin says when it fails is its own text, and may carry a secret.
   it('redacts what a failing plugin says in its log and its reason, and keeps it out of the Host log', async () => {
@@ -127,7 +134,7 @@ describe('createPluginRuntime', () => {
     expect(logOf(r, 'leaks')).not.toContain('tok-secret-9')
     expect(hostLog.join(String.fromCharCode(10))).not.toContain('tok-secret-9')
     expect(hostLog).toContain('plugins: leaks failed; see astera plugins logs --id leaks')
-  }, 30_000)
+  }, 90_000)
 
   it('counts only crashes without a steady run between them', async () => {
     const { r } = runtime({ stableMs: 150 })
@@ -135,7 +142,7 @@ describe('createPluginRuntime', () => {
     r.start(p)
     await until(() => expect(logOf(r, 'steady').match(/\[host\] exited with code 1/g)?.length ?? 0).toBeGreaterThanOrEqual(4), 20_000)
     expect(r.status('steady')?.status).not.toBe('failed')
-  }, 30_000)
+  }, 90_000)
 
   // 2b final review I2: a plugin that sends a line without end is stopped before it can grow the Host's memory.
   it('kills a plugin whose message runs past the ceiling, and counts it as a crash', async () => {
@@ -155,7 +162,7 @@ describe('createPluginRuntime', () => {
     r.start(p)
     await until(() => expect(r.status('floods')?.status).toBe('failed'))
     expect(r.status('floods')?.reason).toMatch(/^it sent the Host a message longer than 1000 characters/)
-  }, 30_000)
+  }, 90_000)
 
   it('counts a start that never finishes as a crash', async () => {
     const { r } = runtime({ startMs: 300, failAfter: 1 })
@@ -163,7 +170,7 @@ describe('createPluginRuntime', () => {
     r.start(p)
     await until(() => expect(r.status('hangs')?.status).toBe('failed'))
     expect(r.status('hangs')?.reason).toMatch(/^it did not finish starting within 0\.3 s/)
-  }, 30_000)
+  }, 90_000)
 
   it('stops a plugin with shutdown, so its deactivate runs, and does not restart it', async () => {
     const { r } = runtime()
@@ -179,7 +186,7 @@ describe('createPluginRuntime', () => {
     await new Promise((res) => setTimeout(res, 200))
     expect(r.status('stops')?.status).toBe('stopped')
     await until(() => expect(logOf(r, 'stops')).toContain('[host] stopped'))
-  }, 30_000)
+  }, 90_000)
 
   it('kills a plugin that ignores shutdown, and what it started', async () => {
     const { r } = runtime({ stopGraceMs: 300 })
@@ -204,7 +211,7 @@ describe('createPluginRuntime', () => {
     await r.stop('stubborn')
     expect(r.status('stubborn')?.status).toBe('stopped')
     await until(() => expect(alive(childPid)).toBe(false), 10_000)
-  }, 30_000)
+  }, 90_000)
 
   // 2b final review I4: a plugin that exits cleanly leaves nothing it started behind, on every platform (Windows: the
   // launcher's job object; elsewhere: the Host ends the plugin's process group after every exit).
@@ -251,7 +258,7 @@ describe('createPluginRuntime', () => {
     rm(r.logFile('forgotten'), { force: true })
     await new Promise((res) => setTimeout(res, 600))
     expect(existsSync(r.logFile('forgotten'))).toBe(false)
-  }, 30_000)
+  }, 90_000)
 
   // Plugins 2c (spec §23-§24): settings handed over at the start, secrets kept per plugin and out of its log.
   it('hands a plugin its settings, keeps its secrets from another plugin, and redacts every secret from its log', async () => {
@@ -278,7 +285,7 @@ describe('createPluginRuntime', () => {
     expect(log).toMatch(/refused: \.\.\/escape is not a secret name/)
     r.start(plugin('other', `export default { async activate(ctx) { console.error('sees ' + (await ctx.secrets.get('refresh'))) } }`))
     await until(() => expect(logOf(r, 'other')).toContain('sees undefined'))
-  }, 30_000)
+  }, 90_000)
 
   it('stops every plugin at once, starts a running plugin only once, and stops an unknown id quietly', async () => {
     const { r } = runtime()
@@ -294,7 +301,7 @@ describe('createPluginRuntime', () => {
     expect(r.status('nobody')).toBeUndefined()
     await r.stopAll()
     expect([r.status('one')?.status, r.status('two')?.status]).toEqual(['stopped', 'stopped'])
-  }, 30_000)
+  }, 90_000)
 })
 
 // 2c final review C1, I2, I3, I4, M11, M15: no secret of a plugin reaches its log or a reason a person reads.
@@ -307,7 +314,7 @@ describe('what a plugin log and reason never show', () => {
     await until(() => expect(logOf(r, 'earlier')).toContain('read '))
     expect(logOf(r, 'earlier')).toContain('read [redacted]')
     expect(logOf(r, 'earlier')).not.toContain('oauth-kept-earlier-31')
-  }, 30_000)
+  }, 90_000)
 
   it('keeps hiding a secret the plugin set before it crashed, after the restart', async () => {
     const { r } = runtime()
@@ -327,7 +334,7 @@ describe('what a plugin log and reason never show', () => {
     await until(() => expect(logOf(r, 'crashy')).toContain('cached '))
     expect(logOf(r, 'crashy')).toContain('cached [redacted]')
     expect(logOf(r, 'crashy')).not.toContain('refresh-before-crash-42')
-  }, 30_000)
+  }, 90_000)
 
   it('hides a secret in the reason of a failed plugin and of one waiting to restart', async () => {
     const source = `export default { activate(ctx) { throw new Error('401 for ' + ctx.settings.password) } }`
@@ -340,7 +347,7 @@ describe('what a plugin log and reason never show', () => {
     waiting.start({ ...plugin('waits', source), ...secret })
     await until(() => expect(waiting.status('waits')?.reason).toBeDefined())
     expect(waiting.status('waits')?.reason).toBe('restarting after activate threw: 401 for [redacted]')
-  }, 30_000)
+  }, 90_000)
 
   it('hides each line of a secret of many lines, and a secret as JSON writes it', async () => {
     const { r } = runtime()
@@ -351,7 +358,7 @@ describe('what a plugin log and reason never show', () => {
     await until(() => expect(logOf(r, 'pem')).toContain('"phrase"'))
     const log = logOf(r, 'pem')
     for (const leak of ['MIIEvQIBADANBgkqhkiG9w0', 'BAQEFAASCBKcwggSjAgEAAo', 'sesame-77']) expect(log, leak).not.toContain(leak)
-  }, 30_000)
+  }, 90_000)
 
   it('hides a secret that holds a shorter one whole', async () => {
     const { r } = runtime()
@@ -359,7 +366,7 @@ describe('what a plugin log and reason never show', () => {
     r.start({ ...p, redact: ['abcd', 'abcd-long-secret'] })
     await until(() => expect(logOf(r, 'nested')).toContain('long '))
     expect(logOf(r, 'nested')).toContain('long [redacted], short [redacted]')
-  }, 30_000)
+  }, 90_000)
 
   it('hides the last value set under a secret name, not every value it ever held', async () => {
     const { r } = runtime()
@@ -375,5 +382,5 @@ describe('what a plugin log and reason never show', () => {
     r.start(p)
     await until(() => expect(logOf(r, 'cursor')).toContain('first '))
     expect(logOf(r, 'cursor')).toContain('first cursor-value-000, last [redacted]')
-  }, 30_000)
+  }, 90_000)
 })

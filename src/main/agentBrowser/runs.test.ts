@@ -142,20 +142,24 @@ describe('AgentBrowserRuns', () => {
   // run has ended parks instead of driving the user's page.
   it('a run cut off by its deadline stops driving the tab', async () => {
     // Fake timers, because the deadline is the one cut-off the tab cannot trigger itself. Wall clock
-    // would be a race: the 150 ms has to land on a loop that is still running. `advanceTimersByTimeAsync`
+    // would be a race: the deadline has to land on a loop that is still running. `advanceTimersByTimeAsync`
     // fires timers in due order and drains microtasks between each, which is the interleaving the real
     // path has — and `queueMicrotask`, which the fake's loadURL uses, is not faked, so open() still
     // resolves on its own.
     vi.useFakeTimers()
     try {
-      const { runs, guest } = harness({ scriptTimeoutMs: 150 })
+      // 2 s, not 150 ms: the same number is runInContext's watchdog over the script's synchronous start, and that one
+      // runs on the real clock. Under the full suite, compiling and starting the script took longer than 150 ms, so the
+      // run ended at the watchdog before it ever looped (load-sensitive tests, 2026-10-14; 1 ms reproduces it).
+      const { runs, guest } = harness({ scriptTimeoutMs: 2_000 })
       const p = runs.run('s1', FOREVER)
-      await vi.advanceTimersByTimeAsync(200)
+      await vi.advanceTimersByTimeAsync(2_100)
       const r = await p
       expect(r.ok && r.result.error?.at).toBe('timeout')
+      expect(r.ok && r.result.error?.message).not.toMatch(/never awaited/) // the deadline, not the start's watchdog
       const atReturn = guest.counts.reload
       expect(atReturn).toBeGreaterThan(0) // it really was looping when the deadline hit
-      await vi.advanceTimersByTimeAsync(200)
+      await vi.advanceTimersByTimeAsync(2_000)
       expect(guest.counts.reload).toBe(atReturn)
     } finally {
       vi.useRealTimers()

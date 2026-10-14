@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { removeFixture } from '../../core/testFixtures'
 import { createHash } from 'node:crypto'
 import { existsSync, promises as fs } from 'node:fs'
 import { spawnSync } from 'node:child_process'
@@ -26,7 +27,7 @@ let base: string
 let requests = 0
 let answer: (res: http.ServerResponse, req: http.IncomingMessage) => void
 beforeEach(async () => {
-  dir = await fs.mkdtemp(path.join(os.tmpdir(), 'astera own npm 플러그인 '))
+  dir = await fs.mkdtemp(path.join(os.tmpdir(), 'astera-own npm 플러그인 '))
   profile = path.join(dir, 'profile')
   await fs.mkdir(profile)
   requests = 0
@@ -43,7 +44,7 @@ beforeEach(async () => {
 })
 afterEach(async () => {
   await new Promise<void>((r) => server.close(() => r()))
-  await fs.rm(dir, { recursive: true, force: true, maxRetries: 3 })
+  await removeFixture(dir)
 })
 
 const pin = (over: Partial<typeof OWN_NPM> = {}) => ({ version: '0.0.1-test', integrity: sha512(FAKE), url: `${base}/npm/-/npm-0.0.1-test.tgz`, ...over })

@@ -53,7 +53,7 @@ export function runTsc(project: string): string {
 /** Each block as a module of its own (`blockN.mts`), with a `declare const` for each GIVEN name it uses and does not
  *  make. tsc's output names the block by its number, counted from 1 in the order given. */
 export function typecheckBlocks(blocks: readonly string[]): string {
-  const dir = mkdtempSync(path.join(os.tmpdir(), 'astera blocks '))
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'astera-blocks '))
   try {
     const files = blocks.map((code, i) => {
       const given = Object.entries(GIVEN).filter(
@@ -77,6 +77,11 @@ export function typecheckBlocks(blocks: readonly string[]): string {
     writeFileSync(path.join(dir, 'tsconfig.json'), JSON.stringify(config))
     return runTsc(path.join(dir, 'tsconfig.json'))
   } finally {
-    rmSync(dir, { recursive: true, force: true })
+    try {
+      rmSync(dir, { recursive: true, force: true })
+    } catch {
+      // Still held on Windows: an `astera-` folder the suite's sweeper removes once stale (vitest.globalSetup.ts). This
+      // helper may not import the app's removeFixture (fence.test.ts), so it keeps the same rule here.
+    }
   }
 }

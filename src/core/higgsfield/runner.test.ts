@@ -29,7 +29,7 @@ describe('realRunner signal', () => {
     const r = await p
     expect(r.code).not.toBe(0)
     expect(Date.now() - t0).toBeLessThan(5000)
-  }, 15000)
+  })
   it('answers anyway when the child never exits after the kill', async () => {
     const { EventEmitter } = await import('node:events')
     let kills = 0
