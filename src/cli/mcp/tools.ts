@@ -364,7 +364,7 @@ const LISTED_TOOLS: ToolDef[] = [
     readOnly: false,
     cmd: 'questions-answer',
     description:
-      'Answer a blocking question raised in an Astera Run. Use list_questions first to retrieve open questions.',
+      'Answer a blocking question raised in an Astera Run. Use list_questions first to retrieve open questions. When a question lists options, answer with one of them. A check that could not be made (kind check-unavailable) refuses any answer but retry, skip-check or mark-failed.',
     inputSchema: { questionId: id, answer: z.string().min(1).max(MCP_LIMITS.answer), requestId },
     args: (i) => ({ id: i.questionId, answer: i.answer })
   },
@@ -374,7 +374,7 @@ const LISTED_TOOLS: ToolDef[] = [
     readOnly: true,
     cmd: 'runs-completion',
     description:
-      'Where each Task of a Run stands in completion: not-started, working, checking, fixing, rechecking, reviewing, waiting-for-user, exhausted, converged or failed, with attempts and check results, and, per Task, a failureSummary (what fails in the current round: each failed check, its exit code and its last output line) and a lastFailure (the same for the last round of failed checks, not reviews; kept while it is rechecked and after it converged, so it says why a repair ran). Astera runs the checks and repairs; this only reads them.',
+      'Where each Task of a Run stands in completion: not-started, working, checking, fixing, rechecking, reviewing, waiting-for-user, exhausted, converged or failed, with attempts and check results, and, per Task, a failureSummary (what fails in the current round: each failed check, its exit code and its last output line) and a lastFailure (the same for the last round of failed checks, not reviews; kept while it is rechecked and after it converged, so it says why a repair ran). A plugin check (configId plugin:<pluginId>) carries its summary, its findings (diagnostics: file, line, message) and a link (externalUrl); its status error means it could not be made, and the Task waits on a question (kind check-unavailable). Astera runs the checks and repairs; this only reads them.',
     inputSchema: { runId: id },
     args: (i) => ({ id: i.runId })
   },
@@ -384,7 +384,7 @@ const LISTED_TOOLS: ToolDef[] = [
     readOnly: false,
     cmd: 'tasks-add',
     description:
-      "Add a Task to a Job's plan (jobId: every Run started from then on copies it) or to one Run (runId). Give exactly one. Use this to lay out the work yourself; a Job run with no Tasks is planned by its coordinator instead. deps are the Task ids it waits for; validate names run configurations from list_run_configs that must pass on the result; review asks for a review before it counts as done. Without accountId the Task runs on the Job's coordinator account.",
+      "Add a Task to a Job's plan (jobId: every Run started from then on copies it) or to one Run (runId). Give exactly one. Use this to lay out the work yourself; a Job run with no Tasks is planned by its coordinator instead. deps are the Task ids it waits for; validate names run configurations from list_run_configs, or plugin:<pluginId> completion checks a person installed, that must pass on the result; review asks for a review before it counts as done. Without accountId the Task runs on the Job's coordinator account.",
     inputSchema: {
       jobId: id.optional(),
       runId: id.optional(),
@@ -392,7 +392,11 @@ const LISTED_TOOLS: ToolDef[] = [
       title: z.string().min(1).max(MCP_LIMITS.title).optional().describe("A short name (default: the spec's first line)."),
       deps: z.array(id).optional().describe('The ids of the Tasks this one waits for.'),
       accountId: id.optional().describe("The account its worker runs on, from list_accounts (default: the Job's coordinator account)."),
-      validate: z.array(id).min(1).optional().describe('Run configuration ids from list_run_configs that must pass.'),
+      validate: z
+        .array(id)
+        .min(1)
+        .optional()
+        .describe('Run configuration ids from list_run_configs, or plugin:<pluginId> for a completion check plugin a person installed, that must pass.'),
       review: z.boolean().optional().describe('Have the result reviewed before the Task counts as done.'),
       requestId
     },
@@ -510,7 +514,7 @@ const LISTED_TOOLS: ToolDef[] = [
     title: 'Get check output',
     readOnly: true,
     cmd: 'tasks-check-output',
-    description: `The output of a Task's failed check (the named one, or the first that failed): the last ${MCP_LIMITS.checkOutput} characters of its log, from the last round only, with anything that looks like a secret redacted. offset and limit page through the redacted log; total is how many characters it has. A Task with no failed check output is refused with CONFLICT. Needs MCP access "Read only" or "Read and control".`,
+    description: `The output of a Task's failed check (the named one, or the first that failed): the last ${MCP_LIMITS.checkOutput} characters of its log, from the last round only, with anything that looks like a secret redacted. offset and limit page through the redacted log; total is how many characters it has. A Task with no failed check output is refused with CONFLICT. A plugin's check (plugin:<pluginId>) has no output: read its findings in get_completion. Needs MCP access "Read only" or "Read and control".`,
     inputSchema: {
       taskId: id,
       check: id.optional().describe('A run configuration id from the Task\'s checks (default: the first failed one).'),

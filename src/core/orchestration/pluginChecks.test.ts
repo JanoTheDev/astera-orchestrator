@@ -3,7 +3,39 @@
 import { describe, it, expect } from 'vitest'
 import type { OrchState } from './state'
 import type { Task } from './types'
-import { checkAnswerOf, checkInputOf, diagnosticLine, pluginCheckText, pluginIdOfCheck } from './pluginChecks'
+import {
+  checkAnswerOf,
+  checkInputOf,
+  diagnosticLine,
+  pluginCheckText,
+  pluginIdOfCheck,
+  type CheckDiagnostic,
+  type CompletionCheckInput,
+  type PluginCheckAnswer
+} from './pluginChecks'
+import type { CompletionCheckDiagnostic, CompletionCheckInput as SdkInput, CompletionCheckResult } from '../../../packages/plugin-sdk/src/index'
+
+// Plugin Phase 5 C1: what the plugin SDK types a check to be asked and to answer is what the Host sends and takes
+describe('the plugin SDK’s completion-check types', () => {
+  it('are the shapes the Host sends and keeps', () => {
+    // Each takes the other, and they name the same fields: an optional field on one side alone fails too
+    type Keys<A, B> = [keyof A] extends [keyof B] ? ([keyof B] extends [keyof A] ? true : false) : false
+    type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? Keys<A, B> : false) : false
+    const same: [Same<SdkInput, CompletionCheckInput>, Same<CompletionCheckDiagnostic, CheckDiagnostic>, Same<CompletionCheckResult['status'], PluginCheckAnswer['status']>] = [true, true, true]
+    expect(same).toEqual([true, true, true])
+    // 5b final review M11: and the objects inside the input, field for field
+    const nested: [Same<SdkInput['workspace'], CompletionCheckInput['workspace']>, Same<SdkInput['task'], CompletionCheckInput['task']>] = [true, true]
+    expect(nested).toEqual([true, true])
+    // A result the SDK types is one the Host keeps as it is
+    const answer: CompletionCheckResult = {
+      status: 'failed',
+      summary: '1 leftover',
+      diagnostics: [{ file: 'src/a.js', line: 2, message: 'adds console.log', severity: 'warning' }],
+      externalUrl: 'https://ci.example/1'
+    }
+    expect(checkAnswerOf(answer)).toEqual(answer)
+  })
+})
 
 describe('a plugin check id', () => {
   it('is plugin:<id>', () => {

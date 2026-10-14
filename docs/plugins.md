@@ -12,7 +12,8 @@ Where it stands:
   work. An event plugin is also handed each of Astera's events ([Event plugins](#event-plugins)), a notification
   plugin each thing worth telling a person ([Notification plugins](#notification-plugins)), and a job source is asked
   for the tickets a Job can be made from ([Job source plugins](#job-source-plugins)), and a completion check plugin is
-  asked whether a Task's work passes, when a Task names it among its checks as `plugin:<id>`.
+  asked whether a Task's work passes, when a Task names it among its checks as `plugin:<id>`
+  ([Completion check plugins](#completion-check-plugins)).
 - `@astera-app/plugin-sdk` holds the plugin's types and `definePlugin`. A plugin needs nothing from it to run:
   [the sample](../examples/plugins/webhook-notifier) is plain JavaScript and uses its types for the editor only.
 - The Plugin API is version `1`.
@@ -92,11 +93,11 @@ The manifest is `package.json`: npm's own fields, and an `astera` field for Aste
 | `astera.permissions` | What it asks Astera for ([Permissions](#permissions)). A person may grant fewer. |
 | `astera.settingsSchema` | Optional. The settings a person gives it ([Settings and secrets](#settings-and-secrets)). |
 | `astera.minAsteraVersion` | Optional. The oldest Astera it runs on; an older one installs it and does not run it. |
-| `astera.capabilities` | Optional. `["event"]` for a plugin Astera hands its events ([Event plugins](#event-plugins)), `["notification"]` for one it sends notifications ([Notification plugins](#notification-plugins)), `["job-source"]` for one it asks for tickets ([Job source plugins](#job-source-plugins)), `["completion-check"]` for one it asks to check a Task's work (`runCheck`). |
+| `astera.capabilities` | Optional. `["event"]` for a plugin Astera hands its events ([Event plugins](#event-plugins)), `["notification"]` for one it sends notifications ([Notification plugins](#notification-plugins)), `["job-source"]` for one it asks for tickets ([Job source plugins](#job-source-plugins)), `["completion-check"]` for one it asks to check a Task's work ([Completion check plugins](#completion-check-plugins)). |
 
 The entry's default export is the plugin: an object with an `activate` and, if it needs one, a `deactivate` (and an
-`onEvent` for an event plugin, a `send` for a notification plugin, and `listItems`, `getItem` and `buildJobContext`
-for a job source). A CommonJS entry sets `module.exports` to it.
+`onEvent` for an event plugin, a `send` for a notification plugin, `listItems`, `getItem` and `buildJobContext` for a
+job source, and a `runCheck` for a completion check). A CommonJS entry sets `module.exports` to it.
 `definePlugin` from the SDK returns the object it is given, so a plain object is the same plugin.
 
 ## Permissions
@@ -368,6 +369,104 @@ the Jobs already made from it.
 source.
 
 [The Linear sample](../examples/plugins/linear-source) lists a team's Linear issues with a personal API key.
+
+## Completion check plugins
+
+A plugin that names the `completion-check` capability checks a Task's work. A Task names it among its checks as
+`plugin:<id>`, beside its run configurations and in their order (`astera tasks add --validate npm-test,plugin:<id>`).
+When the Task's worker says it is done, Astera runs the checks one after another, stopping at the first that fails,
+and at this one it asks the plugin, in its `runCheck`. Installing a plugin adds no check: only an id a person put in a
+Task's list runs. It only answers Astera, so it needs no permission:
+
+```json
+{
+  "capabilities": ["completion-check"],
+  "permissions": []
+}
+```
+
+```ts
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+import { defineCompletionCheckProvider } from '@astera-app/plugin-sdk'
+
+const run = promisify(execFile)
+
+export default defineCompletionCheckProvider({
+  async runCheck({ workspace }) {
+    // The migrations the Task changed, deleted or renamed since its work started, named from its folder as they are
+    // on disk. A new migration is how to change the schema, so an added one is not listed.
+    const args = ['-c', 'core.quotepath=false', 'diff', '--name-only', '--relative', '--diff-filter=MDR', workspace.base ?? 'HEAD', '--', 'migrations/']
+    const listed = await run('git', args, { cwd: workspace.root }).catch((e: { stderr?: string }) => {
+      // git's first line, the sentence a person reads in the question
+      throw new Error(`git could not list the changes: ${String(e.stderr ?? '').trim().split('\n')[0] || 'git failed'}`)
+    })
+    const touched = listed.stdout.split('\n').filter((file) => file !== '')
+    if (touched.length === 0) return { status: 'passed', summary: 'no migration was changed' }
+    return {
+      status: 'failed',
+      summary: `${touched.length === 1 ? 'a migration was' : `${touched.length} migrations were`} changed: add a new one instead`,
+      diagnostics: touched.map((file) => ({ file, message: 'changes a migration that may have run already' }))
+    }
+  }
+})
+```
+
+`defineCompletionCheckProvider` returns the provider it is given, as `definePlugin` does. `runCheck(input, ctx)` is
+asked with:
+
+- `jobId`, `runId`, `taskId`, `projectId` when the Job has a project, and `task.title`;
+- `workspace.root`, the folder the Task's checks run in (its worktree, or the project folder), and `workspace.base`
+  and `workspace.head`, the commit the Task's work started from and the one its last attempt reached, when Astera
+  recorded them. A check configured per project reads the project's own files under `root`; the plugin's settings are
+  the rest of its configuration.
+
+It answers `{ status, summary?, diagnostics?, externalUrl? }`. `status` is `passed`, `failed` (the code's fault) or
+`error` (the check could not be made: a service down, a missing token). A diagnostic is a finding,
+`{ file?, line?, message, severity? }`, `severity` `error` or `warning`. A plugin that names `completion-check` and has
+no `runCheck` does not start, and its log says why.
+
+**Astera checks and cuts what it answers.** The plugin is trusted code, but its answer reaches a worker's instructions
+and a person's screen. `summary` is cut at 1,000 characters, and is the status word when there is none. `diagnostics`
+keep the first 100, and the summary then says how many there were; each `message` is required and cut at 1,000
+characters, each `file` at 500, a `line` that is not a positive integer is dropped, and so is a `severity` that is not
+one of the two. An `externalUrl` that is not http or https, or is longer than 2,048 characters, is dropped. An answer
+of the wrong shape counts as `error`, saying why ("the plugin answered with something that is not a check result:
+status must be passed, failed or error").
+
+**Each call has 30 minutes**, as a run configuration's check has. A `runCheck` that throws or rejects counts as `error`
+with its message ("runCheck threw: git is not installed"), so throw the sentence a person should read. A call past 30
+minutes, a plugin that is not running (disabled, failed, or waiting to restart) and a plugin that crashes mid call
+count as `error` too, each saying so. A plugin that is starting is waited for, up to a minute. The same check of the
+same Task, asked twice at once (by the app and the Host both, say), is asked of the plugin once.
+
+**A failed check goes to the repair loop.** In a Job with `--convergence`, the Task's repair request names the check
+and gives its summary, its first 20 findings as `file:line message`, and its link, as it gives a run configuration's
+output; the recheck runs the Task's checks again. In a Job without it the Task fails, and its coordinator is told, as
+for any check. The plugin runs no loop of its own: Astera keeps the retries and the repairs.
+
+**A check that could not be made goes to a person.** An `error` is asked again at once. A second one is not the code's
+fault: no repair is sent and none is spent. The Task waits on a question of kind `check-unavailable`, "The check could
+not be made: <plugin>: <reason>", whose answers are its `options`: `retry` runs the Task's checks again, `skip-check`
+lets this round go on without the check (the result keeps `skipped: true`, and the checks after it run), and
+`mark-failed` fails the Task. The app, `astera questions answer` and MCP's `answer_question` answer it; any other
+answer is refused.
+
+**A missing plugin is refused before a Run starts.** `tasks add`, `jobs run` and `run-start` refuse a check list that
+names a plugin that is not installed, does not offer completion checks, or is disabled, with
+`PLUGIN_CAPABILITY_MISSING` and a sentence saying which. A Job on a paired Runtime runs its checks there, so the plugin
+must be installed on the Runtime.
+
+**A pass skips nothing else.** A plugin's `passed` counts for its own check only, and the Task's check list is part of
+its completion policy, so changing it shows as a changed policy.
+
+The result is a check like any other in `astera runs checks` (its `--human` lines show a failed plugin check's first
+findings, and one that could not run as "could not run: <reason>"), in MCP's `get_completion`, in the SDK's
+`completion.get` and in the `completion.*` events, with its `configId` `plugin:<id>` and its `name` the plugin's
+display name.
+
+[The debug-leftovers sample](../examples/plugins/debug-leftovers) fails a Task whose changes add a `console.log`, a
+`debugger`, a `TODO` or a `FIXME`, naming each at its file and line.
 
 ## Logs
 

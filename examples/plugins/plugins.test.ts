@@ -4,7 +4,7 @@
 // makes it, handed the events of a real event log as the Host hands them.
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest'
 import { createHmac } from 'node:crypto'
-import { mkdtempSync, readFileSync, existsSync } from 'node:fs'
+import { mkdtempSync, readFileSync, existsSync, promises as fs } from 'node:fs'
 import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
@@ -20,6 +20,9 @@ import type { AsteraEvent } from '../../src/core/publicContract'
 import { bundleLauncher } from '../../src/pluginHost/testkit'
 import { notificationOf } from '../../src/core/plugins/notifications'
 import { runTsc } from '../../packages/client/test/typecheck'
+import { gitSync, tempDir } from '../../src/core/worktrees/testRepo'
+import { hostCompletionChecks } from '../../src/host/completionChecks'
+import { pluginCheckText } from '../../src/core/orchestration/pluginChecks'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const NOTIFIER = path.join(here, 'webhook-notifier')
@@ -88,13 +91,13 @@ const failed = (ring: EventRing): AsteraEvent => append(ring, { type: 'run.faile
 
 /** The plugin runtime with a Host that answers no command (the sample asks for none) and an event log of its own,
  *  holding at most `retain` events. */
-function runtime(o: { failAfter?: number; retain?: number } = {}) {
+function runtime(o: { failAfter?: number; retain?: number; env?: NodeJS.ProcessEnv } = {}) {
   const ring = createEventRing({ boot: 'aaaaaaaaaaaa', retainEvents: o.retain ?? 2000, retainChars: 1 << 23 })
   const r = createPluginRuntime({
     profileDir: path.join(work, `profile ${started.length + Math.random()}`),
     exec: process.execPath,
     launcher,
-    env: process.env,
+    env: o.env ?? process.env,
     host: () => ({ version: '9.9.9', pid: process.pid, startedAt: 'T', features: ['orch', 'requests', 'events'] }),
     orch: { call: (async (a: { cmd: string }) => ({ status: 404, body: { error: `no ${a.cmd} here` } })) as never },
     log: () => {},
@@ -559,5 +562,284 @@ describe('the Linear source sample', () => {
 
   it('says where to read about it, and the guide links back', () => {
     expect(readFileSync(path.join(LINEAR, 'README.md'), 'utf8')).toContain('docs/plugins.md#job-source-plugins)')
+  })
+})
+
+// Plugin Phase 5 C15: the debug-leftovers check, asked as the Host asks it (hostCompletionChecks over the real runtime),
+// against real git repositories. Each repository's folder name holds a space.
+describe('the debug leftovers sample', () => {
+  const LEFTOVERS = path.join(here, 'debug-leftovers')
+  const LEFTOVERS_ID = 'astera-debug-leftovers'
+  let leftoversInstalled: string
+  beforeAll(async () => {
+    leftoversInstalled = path.join(work, 'installed', LEFTOVERS_ID)
+    await copyPluginFolder(LEFTOVERS, leftoversInstalled)
+  }, 60_000)
+  const dirs: string[] = []
+  afterEach(async () => {
+    for (const d of dirs.splice(0)) await removeFixture(d)
+  })
+
+  /** The sample started as Astera starts a completion check, running, and asked the way the Host asks it. */
+  async function checker(patterns = 'console.log,debugger,TODO,FIXME', env?: NodeJS.ProcessEnv) {
+    const { r } = runtime({ env })
+    r.start({
+      id: LEFTOVERS_ID,
+      version: '0.1.0',
+      folder: LEFTOVERS_ID,
+      dir: leftoversInstalled,
+      entry: path.join(leftoversInstalled, 'index.mjs'),
+      granted: [],
+      capabilities: ['completion-check'],
+      settings: { patterns },
+      redact: []
+    })
+    await until(() => expect(r.status(LEFTOVERS_ID)?.status).toBe('running'))
+    const manager = {
+      listNow: async () => ({
+        status: 200,
+        body: { plugins: [{ id: LEFTOVERS_ID, displayName: 'Debug leftovers', enabled: true, status: 'running', capabilities: ['completion-check'] }] }
+      })
+    }
+    const checks = hostCompletionChecks({ manager: manager as never, runtime: r })
+    return (root: string, base?: string) =>
+      checks.run(LEFTOVERS_ID, { jobId: 'job_1', runId: 'run_1', taskId: 't1', task: { title: 'Fix login' }, workspace: { root, ...(base !== undefined ? { base } : {}) } })
+  }
+  const check0 = async (root: string, base?: string) => (await checker())(root, base)
+
+  const write = async (dir: string, files: Record<string, string | Buffer>): Promise<void> => {
+    for (const [name, text] of Object.entries(files)) {
+      await fs.mkdir(path.dirname(path.join(dir, name)), { recursive: true })
+      await fs.writeFile(path.join(dir, name), text)
+    }
+  }
+  /** A repository with `files` committed: its folder and that commit. */
+  async function repo(files: Record<string, string>): Promise<{ dir: string; base: string }> {
+    const dir = await tempDir('astera-leftovers repo ')
+    dirs.push(dir)
+    gitSync(dir, ['init', '-b', 'main'])
+    gitSync(dir, ['config', 'user.email', 't@t.com'])
+    gitSync(dir, ['config', 'user.name', 'Test User'])
+    await write(dir, files)
+    gitSync(dir, ['add', '-A'])
+    gitSync(dir, ['commit', '-m', 'base'])
+    return { dir, base: gitSync(dir, ['rev-parse', 'HEAD']) }
+  }
+  const commit = (dir: string): void => {
+    gitSync(dir, ['add', '-A'])
+    gitSync(dir, ['commit', '-m', 'work'])
+  }
+  const found = (file: string, line: number, pattern: string) => ({ file, line, message: `adds ${pattern}`, severity: 'error' })
+
+  it('is a manifest Astera installs: a completion check, no permission, and a patterns setting with the defaults', () => {
+    const read = parseManifest(JSON.parse(readFileSync(path.join(LEFTOVERS, 'package.json'), 'utf8')))
+    if (!read.ok) throw new Error(read.problems.join('; '))
+    expect(read.manifest).toMatchObject({ id: LEFTOVERS_ID, displayName: 'Debug leftovers', apiVersion: '1', entry: 'index.mjs', permissions: [], capabilities: ['completion-check'] })
+    expect(read.manifest.settings).toEqual([expect.objectContaining({ key: 'patterns', type: 'string', default: 'console.log,debugger,TODO,FIXME', required: false })])
+  })
+
+  it('imports only Node’s own modules, so its folder installs as it is', () => {
+    const code = readFileSync(path.join(LEFTOVERS, 'index.mjs'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+    const specifiers = [...code.matchAll(/\b(?:from|import)\s*\(?\s*(['"`])([^'"`]+)\1/g)].map((m) => m[2])
+    expect(specifiers).toContain('node:child_process')
+    expect(specifiers.filter((s) => !s.startsWith('node:'))).toEqual([])
+  })
+
+  // The design's "what success looks like": the worker is told the file and the line, and the recheck passes
+  it('fails a Task that adds leftovers in what it committed, what it left uncommitted and a new file, and passes once they are gone', async () => {
+    const { dir, base } = await repo({ 'src/app.js': 'const a = 1\n', 'src/util.js': 'export const u = 1\nexport const v = 2\n' })
+    await write(dir, { 'src/app.js': 'const a = 1\nconsole.log(a)\n' })
+    commit(dir)
+    await write(dir, { 'src/util.js': 'export const u = 1\nexport const v = 2\ndebugger\n', 'src/new file.js': 'export const x = 1\r\n// FIXME later\r\n' })
+    const check = await checker()
+    const failed = await check(dir, base)
+    expect(failed).toEqual({
+      name: 'Debug leftovers',
+      status: 'failed',
+      summary: '3 debug leftovers in 3 files',
+      // In git's order: one diff reads the new file beside the tracked ones
+      diagnostics: [found('src/app.js', 2, 'console.log'), found('src/new file.js', 2, 'FIXME'), found('src/util.js', 3, 'debugger')]
+    })
+    expect(pluginCheckText({ configId: `plugin:${LEFTOVERS_ID}`, ...failed })).toContain('src/app.js:2 adds console.log')
+    await write(dir, { 'src/app.js': 'const a = 1\n', 'src/util.js': 'export const u = 1\nexport const v = 2\n', 'src/new file.js': 'export const x = 1\r\n' })
+    expect(await check(dir, base)).toEqual({ name: 'Debug leftovers', status: 'passed', summary: 'no debug leftovers in 1 changed file' })
+  }, 90_000)
+
+  it('looks only at the lines a Task adds: a leftover its base had, or one it removes, is not its', async () => {
+    const { dir, base } = await repo({ 'src/app.js': 'console.log(1)\nconst a = 1\n// TODO keep\n' })
+    await write(dir, { 'src/app.js': 'const a = 2\n// TODO keep\n' })
+    expect(await check0(dir, base)).toEqual({ name: 'Debug leftovers', status: 'passed', summary: 'no debug leftovers in 1 changed file' })
+  }, 90_000)
+
+  it('with no base, looks at what is not committed yet', async () => {
+    const { dir } = await repo({ 'src/app.js': 'const a = 1\n' })
+    await write(dir, { 'src/app.js': 'const a = 1\nconsole.log(a)\n' })
+    commit(dir)
+    await write(dir, { 'src/b.js': 'debugger\n' })
+    expect((await check0(dir)).diagnostics).toEqual([found('src/b.js', 1, 'debugger')])
+  }, 90_000)
+
+  it('looks for the patterns its setting names, as written, and for the defaults when it names none', async () => {
+    const { dir, base } = await repo({ 'a.py': 'x = 1\n' })
+    await write(dir, { 'a.py': 'x = 1\nprint(x)\nconsole.log(x)\nPrint(x)\n' })
+    expect((await (await checker('print(, pdb.set_trace'))(dir, base)).diagnostics).toEqual([found('a.py', 2, 'print(')])
+    expect((await (await checker(' , '))(dir, base)).diagnostics).toEqual([found('a.py', 3, 'console.log')])
+  }, 120_000)
+
+  // Review Focus 2
+  it('reads a new file whole unless git ignores it, it is binary, or it is larger than 1 MB', async () => {
+    const { dir, base } = await repo({ '.gitignore': 'dist/\n' })
+    await write(dir, {
+      'dist/bundle.js': 'console.log(1)\n',
+      'blob.bin': Buffer.from('console.log\0', 'utf8'),
+      'big.js': `${'x\n'.repeat(600_000)}console.log(1)\n`,
+      'small.js': 'console.log(1)\n'
+    })
+    expect(await check0(dir, base)).toMatchObject({ status: 'failed', summary: '1 debug leftover in 1 file', diagnostics: [found('small.js', 1, 'console.log')] })
+  }, 90_000)
+
+  it('names the first 100 findings and counts them all', async () => {
+    const { dir, base } = await repo({ 'a.js': '' })
+    await write(dir, { 'a.js': 'console.log(1)\n'.repeat(150) })
+    const answer = await check0(dir, base)
+    expect(answer.summary).toBe('150 debug leftovers in 1 file')
+    expect(answer.diagnostics).toHaveLength(100)
+    expect(answer.diagnostics?.[99]).toEqual(found('a.js', 100, 'console.log'))
+  }, 90_000)
+
+  // Review Focus 1: git puts a tab after a name with a space, and prints a name outside ASCII as it is (core.quotepath off)
+  it('names a file whose path holds a space or a letter outside ASCII as it is on disk', async () => {
+    const { dir, base } = await repo({ 'src/naïve café.js': 'const a = 1\n' })
+    await write(dir, { 'src/naïve café.js': 'const a = 1\nconsole.log(a)\n', 'src/über neu.js': 'debugger\n' })
+    expect((await check0(dir, base)).diagnostics).toEqual([found('src/naïve café.js', 2, 'console.log'), found('src/über neu.js', 1, 'debugger')])
+  }, 90_000)
+
+  // Review Focus 1: a name with a quote or a backslash, which git prints quoted; Windows allows neither in a name
+  it.skipIf(process.platform === 'win32')('names a file whose path holds a quote and a backslash, which git prints quoted', async () => {
+    const { dir, base } = await repo({ 'we"ird\\name.js': 'const a = 1\n' })
+    await write(dir, { 'we"ird\\name.js': 'const a = 1\nconsole.log(a)\n', 'new"one.js': 'debugger\n' })
+    expect((await check0(dir, base)).diagnostics).toEqual([found('we"ird\\name.js', 2, 'console.log'), found('new"one.js', 1, 'debugger')])
+  }, 90_000)
+
+  // Review Focus 3
+  it('looks only at the Task folder’s own changes when it is a subfolder of the repository, naming files from it', async () => {
+    const { dir, base } = await repo({ 'pkg/a.js': 'const a = 1\n', 'other/b.js': 'const b = 1\n' })
+    await write(dir, { 'pkg/a.js': 'const a = 1\nconsole.log(a)\n', 'other/b.js': 'const b = 1\nconsole.log(b)\n', 'other/new.js': 'debugger\n', 'pkg/new.js': '// TODO\n' })
+    expect((await check0(path.join(dir, 'pkg'), base)).diagnostics).toEqual([found('a.js', 2, 'console.log'), found('new.js', 1, 'TODO')])
+  }, 90_000)
+
+  // Review Focus 4, and 5b final review I1 and I2: context between nearby hunks, renames turned off, a submodule's diff
+  it('finds the same whatever the repository’s git config says of colours, prefixes, quoting, context, renames and diff tools', async () => {
+    const { dir, base } = await repo({ 'a b.js': 'l1\nl2\n\nl4\nl5\n', 'old.js': 'a\nb\n// TODO keep\n' })
+    const config = [
+      ['color.ui', 'always'],
+      ['color.diff', 'always'],
+      ['diff.noprefix', 'true'],
+      ['diff.mnemonicPrefix', 'true'],
+      ['diff.external', 'no-such-diff-tool'],
+      ['diff.relative', 'false'],
+      ['diff.interHunkContext', '5'],
+      ['diff.suppressBlankEmpty', 'true'],
+      ['diff.renames', 'false'],
+      ['diff.submodule', 'diff'],
+      ['core.quotepath', 'true']
+    ]
+    for (const [k, v] of config) gitSync(dir, ['config', k, v])
+    await write(dir, { 'a b.js': 'l1\nconsole.log(1)\nl2\n\nl4\nl5\ndebugger\n', 'é.js': 'debugger\n' })
+    gitSync(dir, ['mv', 'old.js', 'moved.js'])
+    expect((await check0(dir, base)).diagnostics).toEqual([found('a b.js', 2, 'console.log'), found('a b.js', 7, 'debugger'), found('é.js', 1, 'debugger')])
+  }, 90_000)
+
+  // 5b final review I1: git documents GIT_DIFF_OPTS as overriding --unified, so context lines can come in any repository
+  it('counts lines right when GIT_DIFF_OPTS asks git for context', async () => {
+    const { dir, base } = await repo({ 'a.js': 'l1\nl2\n\nl4\nl5\nl6\nl7\nl8\nl9\nl10\n' })
+    await write(dir, { 'a.js': 'l1\nconsole.log(1)\nl2\n\nl4\nl5\nl6\nl7\nl8\nl9\nl10\ndebugger\n' })
+    const check = await checker(undefined, { ...process.env, GIT_DIFF_OPTS: '--unified=3' })
+    expect((await check(dir, base)).diagnostics).toEqual([found('a.js', 2, 'console.log'), found('a.js', 12, 'debugger')])
+  }, 90_000)
+
+  // 5b final review I2: a submodule's own changes are its repository's, not the Task's
+  it('reads no submodule’s own changes, whatever diff.submodule says', async () => {
+    const sub = await repo({ 's.js': 'const s = 1\n' })
+    const { dir } = await repo({ 'a.js': 'const a = 1\n' })
+    gitSync(dir, ['-c', 'protocol.file.allow=always', 'submodule', 'add', '--quiet', sub.dir, 'vendored'])
+    gitSync(dir, ['commit', '-m', 'add the submodule'])
+    const base = gitSync(dir, ['rev-parse', 'HEAD'])
+    gitSync(dir, ['config', 'diff.submodule', 'diff'])
+    const vendored = path.join(dir, 'vendored')
+    gitSync(vendored, ['config', 'user.email', 't@t.com'])
+    gitSync(vendored, ['config', 'user.name', 'Test User'])
+    await write(vendored, { 's.js': 'const s = 1\nconsole.log(s)\n' })
+    commit(vendored)
+    expect(await check0(dir, base)).toMatchObject({ status: 'passed' })
+  }, 90_000)
+
+  // 5b final review M1: a lone carriage return is not a line break to git, nor to a file read whole
+  it('takes a lone carriage return in a line as part of the line', async () => {
+    const { dir, base } = await repo({ 'a.js': 'x\n' })
+    await write(dir, { 'a.js': 'x\nprogress 10%\rconsole.log(1)\n+fake\r+debugger\nlast TODO\n' })
+    expect((await check0(dir, base)).diagnostics).toEqual([found('a.js', 2, 'console.log'), found('a.js', 3, 'debugger'), found('a.js', 4, 'TODO')])
+  }, 90_000)
+
+  // 5b final review M2: a move without `git add` is a move, and what the file held before is not the Task's
+  it('reads a file moved without git add as a move', async () => {
+    const { dir, base } = await repo({ 'src/old.js': 'a\nb\n// TODO keep\n' })
+    await fs.rename(path.join(dir, 'src/old.js'), path.join(dir, 'src/new.js'))
+    expect(await check0(dir, base)).toEqual({ name: 'Debug leftovers', status: 'passed', summary: 'no debug leftovers in 1 changed file' })
+    // The person's own index is left as it was: the new file is still not added
+    expect(gitSync(dir, ['status', '--porcelain'])).toContain('?? src/new.js')
+  }, 90_000)
+
+  // 5b final review M3: git sees a link's text, not the file it points at; Windows makes links only with a privilege
+  it.skipIf(process.platform === 'win32')('reads a new symbolic link as git does, not the file it points at', async () => {
+    const { dir, base } = await repo({ 'a.js': '' })
+    const outside = await tempDir('astera-leftovers outside ')
+    dirs.push(outside)
+    await write(outside, { 'loud.js': 'console.log(1)\n' })
+    await fs.symlink(path.join(outside, 'loud.js'), path.join(dir, 'link.js'))
+    expect(await check0(dir, base)).toMatchObject({ status: 'passed' })
+  }, 90_000)
+
+  // 5b final review M4: a repository with no commit yet, and no base, reads everything in it as the Task's
+  it('reads a repository with no commit yet whole', async () => {
+    const dir = await tempDir('astera-leftovers fresh ')
+    dirs.push(dir)
+    gitSync(dir, ['init', '-b', 'main'])
+    await write(dir, { 'staged.js': 'debugger\n', 'loose.js': 'x\nconsole.log(1)\n' })
+    gitSync(dir, ['add', 'staged.js'])
+    expect((await check0(dir)).diagnostics).toEqual([found('loose.js', 2, 'console.log'), found('staged.js', 1, 'debugger')])
+  }, 90_000)
+
+  // 5b final review M14: the sentence a person reads when git is not there
+  it('says git could not be started when it is not on the PATH', async () => {
+    const { dir, base } = await repo({ 'a.js': '' })
+    // An empty folder as the PATH: without one, Windows hands a child its parent's PATH and POSIX looks in /usr/bin
+    const empty = await tempDir('astera-leftovers no git ')
+    dirs.push(empty)
+    const noGit = { ...Object.fromEntries(Object.entries(process.env).filter(([k]) => k.toUpperCase() !== 'PATH')), PATH: empty }
+    const check = await checker(undefined, noGit)
+    expect(await check(dir, base)).toMatchObject({ status: 'error', summary: expect.stringMatching(/^git could not be started: is it installed/) })
+  }, 90_000)
+
+  it('answers error with git’s sentence for a folder that is not a repository or a base that is not a commit, and says so for a folder that is gone', async () => {
+    const plain = await tempDir('astera-leftovers plain ')
+    dirs.push(plain)
+    const check = await checker()
+    expect(await check(plain)).toMatchObject({ status: 'error', summary: expect.stringMatching(/^git [a-z-]+: .*not a git repository/i) })
+    const { dir } = await repo({ 'a.js': '' })
+    expect(await check(dir, 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef')).toMatchObject({
+      status: 'error',
+      summary: expect.stringMatching(/^git diff: .*(bad object|bad revision|unknown revision)/i)
+    })
+    const gone = path.join(plain, 'gone')
+    expect(await check(gone)).toMatchObject({ status: 'error', summary: `the Task’s folder is not there: ${gone}` })
+  }, 90_000)
+
+  it('says where to read about it, and the guide links back', () => {
+    const readme = readFileSync(path.join(LEFTOVERS, 'README.md'), 'utf8')
+    expect(readme).toContain('docs/plugins.md#completion-check-plugins)')
+    // 5b final review M13: git's sentence when git fails; the sample's own when git is missing or the folder is gone
+    expect(readme).not.toContain("The summary is git's own sentence")
+    expect(readme.replace(/\s+/g, ' ')).toContain('git 2.25 or later')
   })
 })

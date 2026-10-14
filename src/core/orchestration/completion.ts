@@ -9,6 +9,7 @@
 // spec 본문째 넘긴다. 한 Task 의 꼬리를 보려고 그것을 전부 건너보내는 것은 U4 가 막으려던 무게
 // 그대로이고, 남의 Task 내용까지 화면에 들어온다.
 import type { CheckDiagnostic, CheckResult, ReviewIssue, Task } from './types'
+import { oneLine } from './pluginChecks'
 
 /** 검사 하나 — 칩이 말하지 않는 것(왜 실패했는지)까지. */
 export interface CompletionCheckDetail {
@@ -106,8 +107,8 @@ export const checkFailed = (c: CheckResult): boolean => c.status === 'failed' ||
  *  The shape of `failureSummary`, and what `Task.lastFailure` keeps when the round is overwritten. */
 export function failedChecksSummary(checks: CheckResult[]): string | null {
   const parts = checks.filter(checkFailed).map((c) => {
-    // A plugin check says what it found in its own words (plugin Phase 5 C4)
-    if (c.summary !== undefined) return `${c.name} failed: ${c.summary.slice(0, 200)}`
+    // A plugin check says what it found in its own words (plugin Phase 5 C4), made one line: this summary is one
+    if (c.summary !== undefined) return `${c.name} failed: ${oneLine(c.summary).slice(0, 200)}`
     const exit = c.exitCode === undefined ? '' : ` (exit ${c.exitCode})`
     const line = lastLine(c.outputTail)
     return `${c.name} ${c.status === 'timed-out' ? 'timed out' : 'failed'}${exit}${line === null ? '' : `: ${line}`}`

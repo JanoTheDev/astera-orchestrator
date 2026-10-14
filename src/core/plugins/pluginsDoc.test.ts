@@ -31,9 +31,17 @@ import {
   SOURCE_LABEL_MAX,
   SOURCE_OBJECTIVE_MAX,
   SOURCE_SUMMARY_MAX,
-  SOURCE_TITLE_MAX
+  SOURCE_TITLE_MAX,
+  SOURCE_URL_MAX
 } from '../sources/answers'
+import { CHECK_DIAGNOSTICS_MAX, CHECK_FILE_MAX, CHECK_MESSAGE_MAX, CHECK_SUMMARY_MAX, REPAIR_DIAGNOSTICS } from '../orchestration/pluginChecks'
+import { CHECK_TIMEOUT_MS } from '../orchestration/types'
+import { CHECK_UNAVAILABLE_OPTIONS } from '../orchestration/state'
+import { HUMAN_DIAGNOSTICS } from '../orchestration/cliHuman'
 import { bundleLauncher } from '../../pluginHost/testkit'
+import { transform } from 'esbuild'
+import { PluginRequestFailed } from '../../host/plugins/runtime'
+import { gitSync, tempDir } from '../worktrees/testRepo'
 import { createNamespaces } from '../../../packages/client/src/namespaces'
 import { typecheckBlocks } from '../../../packages/client/test/typecheck'
 
@@ -329,6 +337,46 @@ describe('docs/plugins.md', () => {
     expect(read('packages/client/CHANGELOG.md')).toContain('`jobs-create-from-source`')
   })
 
+  // Plugin Phase 5 C16: how a completion check is asked, in the constants' own numbers, and the other guides with it
+  it('says how a completion check is asked, with the Host’s limits and errors, the question and the repair', () => {
+    const sec = section(guide, '## Completion check plugins')
+    const cc = prose(sec)
+    for (const f of ['`runCheck`', '`defineCompletionCheckProvider`', '`plugin:<id>`', '`passed`', '`failed`', '`error`', '`check-unavailable`', '`PLUGIN_CAPABILITY_MISSING`'])
+      expect(cc, f).toContain(f)
+    for (const o of CHECK_UNAVAILABLE_OPTIONS) expect(cc, o).toContain(`\`${o}\``)
+    for (const n of [CHECK_SUMMARY_MAX, CHECK_DIAGNOSTICS_MAX, CHECK_MESSAGE_MAX, CHECK_FILE_MAX, SOURCE_URL_MAX, REPAIR_DIAGNOSTICS])
+      expect(cc, String(n)).toContain(n.toLocaleString('en-US'))
+    expect(cc).toContain(`${CHECK_TIMEOUT_MS / 60_000} minutes`)
+    // The sentences a person reads, as the Host words them (completionChecks.ts, pluginChecks.ts)
+    expect(cc).toContain('"runCheck threw: ')
+    expect(cc).toContain('"the plugin answered with something that is not a check result: ')
+    expect(cc).toContain('needs no permission')
+    expect(cc).toContain('adds no check')
+    const [fragment] = fenced(sec, 'json')
+    const parsed = parseManifest({ name: 'x', version: '1.0.0', astera: { apiVersion: '1', entry: 'index.js', ...JSON.parse(fragment) } })
+    expect(parsed.ok && parsed.manifest.capabilities).toEqual(['completion-check'])
+    expect(sec).toContain('](../examples/plugins/debug-leftovers)')
+    expect(prose(section(guide, '## The manifest'))).toContain('[Completion check plugins](#completion-check-plugins)')
+    expect(prose(section(guide, '## The manifest'))).toContain('a `runCheck` for a completion check')
+    expect(guide.split('\n## ')[0]).toContain('(#completion-check-plugins)')
+    // The other guides: the id a Task names, the fields a result carries, the question's answers
+    const cli = prose(read('docs/cli.md'))
+    for (const f of ['`plugin:<id>`', '`skip-check`', '`diagnostics`', '`externalUrl`', '`skipped: true`', 'could not run']) expect(cli, f).toContain(f)
+    // 5b final review M7: how a skipped check and one that could not be made count in `runs checks`
+    expect(cli).toContain('A check a person skipped counts as passed.')
+    expect(cli).toContain('leaves validation `pending` while the task waits on its question, and `failed` once it does not')
+    const sdk = prose(read('docs/sdk.md'))
+    for (const f of ['`plugin:<id>`', '`check-unavailable`', '`diagnostics`', '`skip-check`']) expect(sdk, f).toContain(f)
+    const mcp = prose(read('docs/mcp.md'))
+    for (const f of ['plugin:<pluginId>', 'check-unavailable', '`diagnostics`', '`externalUrl`']) expect(mcp, f).toContain(f)
+    // 5b final review M9, M10: only a check-unavailable question refuses other answers; a plugin's check has no output
+    for (const doc of [sdk, mcp]) expect(doc).toContain('refuses any answer but `retry`, `skip-check` or `mark-failed`')
+    for (const doc of [sdk, mcp]) expect(doc).not.toContain('takes one of them')
+    expect(mcp).toContain("A plugin's check (`plugin:<pluginId>`) has no output: its findings are in `get_completion`.")
+    // 5b final review M14: the guide's count of findings under a row is the renderer's
+    expect(cli).toContain(`first ${HUMAN_DIAGNOSTICS} findings`)
+  })
+
   // The design's note on N2: a session event carries its title and folder, so the grant says so
   it('says that events.subscribe hands a plugin the titles and folders of sessions', () => {
     expect(prose(section(guide, '## Permissions'))).toMatch(/`events\.subscribe`[^.]*session[^.]*titles[^.]*folders/)
@@ -499,4 +547,87 @@ describe('the quick start, followed as written', () => {
       .poll(() => log().replace(/pid \d+/g, 'pid '), { timeout: 20_000, interval: 50 })
       .toSatisfy((text: string) => shown.every((l) => text.includes(l)))
   }, 40_000)
+})
+
+// 5b final review I3: the guide's completion check is one a worker can satisfy. Run as written in the real runtime, it
+// passes a Task that adds a new migration as told, fails one that changes an old one, reads a Task folder inside a
+// larger repository, and throws one sentence when git fails.
+describe('the completion check example, run as written', () => {
+  let work: string
+  let launcher: string
+  beforeAll(async () => {
+    work = mkdtempSync(path.join(os.tmpdir(), 'astera-check example '))
+    launcher = await bundleLauncher(work)
+  }, 60_000)
+  afterAll(async () => {
+    await removeFixture(work)
+  })
+  const runtimes: ReturnType<typeof createPluginRuntime>[] = []
+  afterEach(async () => {
+    for (const r of runtimes.splice(0)) await r.stopAll()
+  })
+
+  it('passes a new migration, fails a changed one, reads a subfolder, and throws one sentence', async () => {
+    const [block] = fenced(section(guide, '## Completion check plugins'), 'ts')
+    const sdk = "import { defineCompletionCheckProvider } from '@astera-app/plugin-sdk'"
+    expect(block).toContain(sdk)
+    // The SDK's function is the provider it is given; the rest is the block as a reader writes it
+    const ts = block.replace(sdk, 'const defineCompletionCheckProvider = <T,>(provider: T): T => provider')
+    const dir = path.join(work, 'example')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(path.join(dir, 'index.mjs'), (await transform(ts, { loader: 'ts', format: 'esm', target: 'node22' })).code)
+    const r = createPluginRuntime({
+      profileDir: path.join(work, 'profile'),
+      exec: process.execPath,
+      launcher,
+      env: process.env,
+      host: () => ({ version: '9.9.9', pid: process.pid, startedAt: 'T', features: ['orch', 'requests', 'events'] }),
+      orch: { call: (async (a: { cmd: string }) => ({ status: 404, body: { error: `no ${a.cmd}` } })) as never },
+      log: () => {}
+    })
+    runtimes.push(r)
+    r.start({ id: 'example', version: '1.0.0', folder: 'example', dir, entry: path.join(dir, 'index.mjs'), granted: [], capabilities: ['completion-check'], settings: {}, redact: [] })
+    await expect.poll(() => r.status('example')?.status, { timeout: 45_000, interval: 50 }).toBe('running')
+    const ask = (root: string, base?: string) =>
+      r.request('example', 'completionCheck.run', { input: { jobId: 'j', runId: 'r', taskId: 't', task: { title: 'x' }, workspace: { root, ...(base ? { base } : {}) } } }, 60_000) as Promise<{
+        status: string
+        summary: string
+        diagnostics?: Array<{ file: string }>
+      }>
+
+    const repo = await tempDir('astera-check example repo ')
+    try {
+      gitSync(repo, ['init', '-b', 'main'])
+      gitSync(repo, ['config', 'user.email', 't@t.com'])
+      gitSync(repo, ['config', 'user.name', 'Test User'])
+      mkdirSync(path.join(repo, 'db', 'migrations'), { recursive: true })
+      writeFileSync(path.join(repo, 'db', 'migrations', '001 première.sql'), 'create table a (id int);\n')
+      gitSync(repo, ['add', '-A'])
+      gitSync(repo, ['commit', '-m', 'base'])
+      const base = gitSync(repo, ['rev-parse', 'HEAD'])
+      const db = path.join(repo, 'db')
+      // A new migration, committed, is how the worker was told to change the schema
+      writeFileSync(path.join(repo, 'db', 'migrations', '002.sql'), 'alter table a add b int;\n')
+      gitSync(repo, ['add', '-A'])
+      gitSync(repo, ['commit', '-m', 'work'])
+      expect(await ask(db, base)).toMatchObject({ status: 'passed' })
+      // Changing an old one is what it fails, named from the Task's folder as it is on disk
+      writeFileSync(path.join(repo, 'db', 'migrations', '001 première.sql'), 'create table a (id bigint);\n')
+      expect(await ask(db, base)).toEqual({
+        status: 'failed',
+        summary: 'a migration was changed: add a new one instead',
+        diagnostics: [{ file: 'migrations/001 première.sql', message: 'changes a migration that may have run already' }]
+      })
+      // git failing is one sentence, as the guide tells a plugin to throw
+      const failed = await ask(db, 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef').then(
+        () => null,
+        (e: unknown) => e
+      )
+      expect(failed).toBeInstanceOf(PluginRequestFailed)
+      expect((failed as Error).message).toMatch(/^runCheck threw: git could not list the changes: fatal: bad (object|revision)/)
+      expect((failed as Error).message).not.toContain('\n')
+    } finally {
+      await removeFixture(repo)
+    }
+  }, 120_000)
 })

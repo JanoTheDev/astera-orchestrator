@@ -10,14 +10,17 @@
 import { checkConfigIdsOf, policyOf } from './convergence'
 import type { OrchState } from './state'
 import { checkFailed, failedChecksSummary } from './completion'
+import { oneLine } from './pluginChecks'
 import type { CheckResult, ReviewIssue, Task, TaskStatus } from './types'
 
 /**
  * Where one kind of check stands for one Task.
  * - `not-required`: the Task asked for none.
- * - `pending`: asked for, and no round has given an answer yet.
+ * - `pending`: asked for, and no round has given an answer yet, a round whose plugin check could not be made while
+ *   its question waits included.
  * - `running`: a round is under way now.
- * - `passed` / `failed`: what the last round that gave an answer said.
+ * - `passed` / `failed`: what the last round that gave an answer said. A check a person skipped counts as passed; a
+ *   plugin check that could not be made counts as failed once the Task no longer waits on its question.
  */
 export type CheckStanding = 'not-required' | 'pending' | 'running' | 'passed' | 'failed'
 
@@ -67,13 +70,16 @@ const firstLine = (text: string | undefined): string | null => {
 function validationOf(task: Task): TaskValidation {
   const checks = task.checks ?? []
   const required = checkConfigIdsOf(task).length > 0 || checks.length > 0
+  // A check a person let the round go on without counts as passing. One that could not be made gives no verdict while
+  // its question is open (the Task blocked), so the round stays pending; once the Task left that question (a person
+  // answered mark-failed, say), that round is what it failed on (plugin Phase 5 C9)
   const status: CheckStanding = !required
     ? 'not-required'
     : task.status === 'validating'
       ? 'running'
-      : checks.some(checkFailed)
+      : checks.some(checkFailed) || (task.status !== 'blocked' && checks.some((c) => c.status === 'error'))
         ? 'failed'
-        : checks.length > 0 && checks.every((c) => c.status === 'passed')
+        : checks.length > 0 && checks.every((c) => c.status === 'passed' || c.skipped === true)
           ? 'passed'
           : 'pending'
   return { required, status, checks }
@@ -115,6 +121,8 @@ function summaryOf(task: Task, validation: TaskValidation, review: TaskReview): 
   if (validation.status === 'failed') {
     const checks = failedChecksSummary(validation.checks)
     if (checks !== null) parts.push(checks)
+    for (const c of validation.checks.filter((x) => x.status === 'error'))
+      parts.push(`${c.name} could not run: ${oneLine(c.summary ?? 'error').slice(0, 200)}`)
   }
   if (review.status === 'failed') {
     const blocking = review.issues.filter((i) => i.blocking)

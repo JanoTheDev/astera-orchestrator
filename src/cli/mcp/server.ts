@@ -73,7 +73,11 @@ const FREE_TEXT = new Set([
   'taskTitle',
   // A job source's item (plugin Phase 4 J22): its fields and its status are someone else's text, as an issue's body is.
   'fields',
-  'status'
+  'status',
+  // A plugin check's findings and link (plugin Phase 5 C13): the plugin's text, as a check's output is. Its summary and
+  // each finding's message are under `summary` and `message` above; this takes a finding's file and the link too.
+  'diagnostics',
+  'externalUrl'
 ])
 
 /** Every object in a `checks` array, at any depth, without its `outputTail`: raw validator output
