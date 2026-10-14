@@ -1,0 +1,144 @@
+// The completion check plugin contract (plugin Phase 5 C3-C5, C10): the id a Task's check list names a plugin by, the
+// input Astera asks with, what the Host makes of the answer, and the text a repair request and a status message carry.
+//
+// **The answer is checked and cut here, once, for every caller**: the Host's runtime path and the app's path through
+// `checks-plugin-run` both pass what they received through `checkAnswerOf`, so a check result in the state has the same
+// limits whoever drove it. A plugin is third-party code; what it answers reaches a worker's spec and a person's screen.
+//
+// Pure, and type-only imports from the state: state.ts imports this module.
+import { clip, webUrl } from '../sources/answers'
+import type { OrchState } from './state'
+import type { CheckDiagnostic, CheckResult, Task } from './types'
+
+export type { CheckDiagnostic } from './types'
+
+/** A Task's check list names a plugin's check as `plugin:<pluginId>` (C6). */
+export const PLUGIN_CHECK_PREFIX = 'plugin:'
+
+/** The plugin a check id names, or null for a run configuration's id. */
+export function pluginIdOfCheck(configId: string): string | null {
+  if (!configId.startsWith(PLUGIN_CHECK_PREFIX)) return null
+  const id = configId.slice(PLUGIN_CHECK_PREFIX.length)
+  return id === '' ? null : id
+}
+
+/** What Astera asks a check plugin with (C3). `root` is the folder the Task's checks run in; `base` the commit its work
+ *  started from, `head` the commit its last attempt reached, each when the Host recorded one. */
+export interface CompletionCheckInput {
+  projectId?: string
+  jobId: string
+  runId: string
+  taskId: string
+  task: { title: string }
+  workspace: { root: string; base?: string; head?: string; branch?: string }
+}
+
+/** A plugin check's answer as Astera keeps it (C4, C5), named by the plugin's display name. */
+export interface PluginCheckAnswer {
+  name: string
+  status: 'passed' | 'failed' | 'error'
+  summary: string
+  diagnostics?: CheckDiagnostic[]
+  externalUrl?: string
+}
+
+export const CHECK_SUMMARY_MAX = 1_000
+export const CHECK_DIAGNOSTICS_MAX = 100
+export const CHECK_MESSAGE_MAX = 1_000
+export const CHECK_FILE_MAX = 500
+/** How many findings a repair request and a status message name (C10); the rest are counted. */
+export const REPAIR_DIAGNOSTICS = 20
+
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
+const STATUSES: ReadonlySet<string> = new Set(['passed', 'failed', 'error'])
+
+/** A check that could not be made, for the reason given (C5). */
+export const unavailable = (reason: string): Omit<PluginCheckAnswer, 'name'> => ({
+  status: 'error',
+  summary: clip(reason.trim() === '' ? 'error' : reason, CHECK_SUMMARY_MAX)
+})
+
+const wrongShape = (why: string): Omit<PluginCheckAnswer, 'name'> =>
+  unavailable(`the plugin answered with something that is not a check result: ${why}`)
+
+/** One finding, its message required and the rest kept when they are what they say (C5), or null when it has no message. */
+function diagnosticOf(v: unknown): CheckDiagnostic | null {
+  if (!isObject(v) || typeof v.message !== 'string' || v.message.trim() === '') return null
+  const line = v.line
+  return {
+    ...(typeof v.file === 'string' && v.file !== '' ? { file: clip(v.file, CHECK_FILE_MAX) } : {}),
+    ...(typeof line === 'number' && Number.isInteger(line) && line > 0 ? { line } : {}),
+    message: clip(v.message, CHECK_MESSAGE_MAX),
+    ...(v.severity === 'error' || v.severity === 'warning' ? { severity: v.severity } : {})
+  }
+}
+
+/**
+ * What the Host keeps of a plugin's answer (C5): the summary within 1,000 characters (the status word when there is
+ * none), at most 100 findings (the summary then says how many there were), each message within 1,000, each file within
+ * 500, a line only when it is a positive integer, a severity only when it is one of the two, and a link only when it is
+ * http or https within 2,048 characters. An answer of the wrong shape is `error`, saying why: the plugin's author reads
+ * that in the question a person is asked.
+ */
+export function checkAnswerOf(raw: unknown): Omit<PluginCheckAnswer, 'name'> {
+  if (!isObject(raw)) return wrongShape('the answer is not an object')
+  const status = raw.status
+  if (typeof status !== 'string' || !STATUSES.has(status)) return wrongShape('status must be passed, failed or error')
+  if (raw.summary !== undefined && typeof raw.summary !== 'string') return wrongShape('summary must be text')
+  if (raw.diagnostics !== undefined && !Array.isArray(raw.diagnostics)) return wrongShape('diagnostics must be a list')
+  const given = (raw.diagnostics ?? []) as unknown[]
+  const diagnostics: CheckDiagnostic[] = []
+  for (const d of given.slice(0, CHECK_DIAGNOSTICS_MAX)) {
+    const kept = diagnosticOf(d)
+    if (kept === null) return wrongShape('each diagnostic needs a message')
+    diagnostics.push(kept)
+  }
+  const said = typeof raw.summary === 'string' && raw.summary.trim() !== '' ? raw.summary : status
+  const cut = given.length > CHECK_DIAGNOSTICS_MAX ? ` (the first ${CHECK_DIAGNOSTICS_MAX} of ${given.length} findings are kept)` : ''
+  const link = webUrl(raw.externalUrl)
+  return {
+    status: status as PluginCheckAnswer['status'],
+    summary: `${clip(said, CHECK_SUMMARY_MAX - cut.length)}${cut}`,
+    ...(diagnostics.length > 0 ? { diagnostics } : {}),
+    ...(link !== undefined ? { externalUrl: link } : {})
+  }
+}
+
+/** One finding as a repair request names it: `file:line message`, a warning said as one. */
+export function diagnosticLine(d: CheckDiagnostic): string {
+  const where = d.file === undefined ? '' : `${d.file}${d.line !== undefined ? `:${d.line}` : ''} `
+  return `${where}${d.severity === 'warning' ? 'warning: ' : ''}${d.message}`
+}
+
+/** A plugin check's result as text (C10): its summary, its first 20 findings, how many more, and its link. Null for a
+ *  command check, whose text is its output. */
+export function pluginCheckText(c: CheckResult): string | null {
+  if (c.summary === undefined) return null
+  const lines = [c.summary]
+  const found = c.diagnostics ?? []
+  for (const d of found.slice(0, REPAIR_DIAGNOSTICS)) lines.push(diagnosticLine(d))
+  if (found.length > REPAIR_DIAGNOSTICS) lines.push(`… ${found.length - REPAIR_DIAGNOSTICS} more finding(s)`)
+  if (c.externalUrl !== undefined) lines.push(`Details: ${c.externalUrl}`)
+  return lines.join('\n')
+}
+
+/** The input for one Task's check in `cwd` (C3). The commits are the Host's record of its attempts (Dispatch.git): the
+ *  base of its first, falling back to its Run's, and the head of its last. `branch` is left to the plugin, which can ask
+ *  git in `root`: nothing in the state names it. */
+export function checkInputOf(s: OrchState, task: Task, cwd: string): CompletionCheckInput {
+  const run = s.runs.find((r) => r.id === task.runId)
+  const job = run ? s.jobs.find((j) => j.id === run.jobId) : undefined
+  const attempts = s.dispatches
+    .filter((d) => d.taskId === task.id && !d.review)
+    .sort((a, b) => a.startedAt.localeCompare(b.startedAt))
+  const base = attempts[0]?.git?.base ?? run?.git?.base
+  const head = attempts.at(-1)?.git?.head
+  return {
+    ...(job?.projectId !== undefined ? { projectId: job.projectId } : {}),
+    jobId: run?.jobId ?? '',
+    runId: task.runId ?? '',
+    taskId: task.id,
+    task: { title: task.title },
+    workspace: { root: cwd, ...(base !== undefined ? { base } : {}), ...(head !== undefined ? { head } : {}) }
+  }
+}

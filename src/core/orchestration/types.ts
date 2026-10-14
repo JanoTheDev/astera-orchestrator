@@ -48,13 +48,24 @@ export const CHECK_TIMEOUT_MS = 30 * 60_000
 /** checkHistory 가 configId 마다 들고 있는 라운드 수의 상한 */
 export const HISTORY_MAX = 8
 
+/** One finding of a plugin check (plugin Phase 5 C4), as the Host kept it after its checks and cuts (C5). */
+export interface CheckDiagnostic {
+  file?: string
+  line?: number
+  message: string
+  severity?: 'error' | 'warning'
+}
+
 export interface CheckResult {
+  /** A run configuration's id, or `plugin:<pluginId>` for a plugin's check (plugin Phase 5 C6) */
   configId: string
-  /** RunConfig.name 을 찍어 둔다 — 구성이 뒤에 지워져도 화면과 fix 요청이 이름을 부를 수 있게 */
+  /** RunConfig.name 을 찍어 둔다 — 구성이 뒤에 지워져도 화면과 fix 요청이 이름을 부를 수 있게. A plugin check's is
+   *  the plugin's display name */
   name: string
   /** not-run: 앞의 check 가 실패해 돌지 않았다(설계 D9). timed-out: validator 가 두 번 타임아웃을 내면
-   *  Gate 로 가므로 판정 함수에는 도달하지 않지만, 화면과 Journal 을 위해 값이 있다 */
-  status: 'passed' | 'failed' | 'timed-out' | 'not-run'
+   *  Gate 로 가므로 판정 함수에는 도달하지 않지만, 화면과 Journal 을 위해 값이 있다. error: a plugin check that
+   *  could not be made, twice (plugin Phase 5 C9): no code failure, a question to a person */
+  status: 'passed' | 'failed' | 'timed-out' | 'not-run' | 'error'
   exitCode?: number
   /** ANSI 를 벗긴 마지막 4000자. not-run 에는 없다 */
   outputTail?: string
@@ -62,6 +73,14 @@ export interface CheckResult {
   endedAt?: string
   /** 라운드 사이에서 fail→pass→fail 로 흔들렸다(설계 §7). 자동으로 무시되지 않는다 — 표시만이다 */
   unstable?: true
+  /** A plugin check's own words (C4): what it found, or why it could not be made */
+  summary?: string
+  /** A plugin check's findings, at most 100 (C5) */
+  diagnostics?: CheckDiagnostic[]
+  /** Where a plugin check's whole report is, http or https (C5) */
+  externalUrl?: string
+  /** A person let this round go on without this check (C9 `skip-check`); its status is `not-run` */
+  skipped?: true
 }
 
 export type ReviewSeverity = 'critical' | 'high' | 'medium' | 'low' | 'info'
@@ -81,7 +100,7 @@ export interface ReviewIssue {
 export type RepairReason = 'check-failure' | 'review-failure'
 /** 앱이 특별히 다루는 Gate. exhausted 의 해소는 retry-once / mark-failed 로 갈라지고(server.ts 의
  *  gate-resolve), blocked 는 보통 Gate 처럼 풀린다 — 질문이 왜 막혔는지 말한다 */
-export type GateKind = 'convergence-exhausted' | 'convergence-blocked'
+export type GateKind = 'convergence-exhausted' | 'convergence-blocked' | 'check-unavailable'
 
 /** worker-start 가 세션을 띄우기 전에 Dispatch 에 적어 두는 자리표시자와 같은 모양(server.ts 의
  *  pendingSessionId). 순수 층은 node:crypto 를 못 쓰므로 newId 의 hex 를 빌린다 — 어떤 세션도 가리키지
@@ -342,6 +361,9 @@ export interface Task {
   checks?: CheckResult[]
   /** configId → 라운드별 판정. unstable 판정의 근거(convergence.ts 의 unstableChecks) */
   checkHistory?: Record<string, ('passed' | 'failed')[]>
+  /** A round a person let go on past a check that could not be made (plugin Phase 5 C9 `skip-check`): the results it
+   *  had, the skipped one last, and the checks still to run. startValidation reads it; the round's verdict clears it. */
+  checkResume?: { done: CheckResult[]; rest: string[] }
   /** The failed checks of the last round that failed, as `failureSummary` words them. `checks` is
    *  overwritten each round, so this is what still says why a repair ran after the recheck passed. */
   lastFailure?: string
