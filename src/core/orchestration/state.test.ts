@@ -1113,6 +1113,77 @@ describe('applyValidationResult', () => {
   })
 })
 
+describe('applyValidationResult — a plugin check (plugin Phase 5 C9, C10)', () => {
+  /** A Task validating with [npm-test, plugin:d, lint], with or without a convergence policy */
+  const armed = (convergence: boolean, extra: Partial<Task> = {}): { s: OrchState; taskId: string } => {
+    const { s, taskId, dispatchId } = seed()
+    const on: OrchState = {
+      ...s,
+      jobs: s.jobs.map((j) => (convergence ? { ...j, convergence: {} } : j)),
+      tasks: s.tasks.map((t) => (t.id === taskId ? { ...t, validateConfigIds: ['npm-test', 'plugin:d', 'lint'], ...extra } : t))
+    }
+    const r = unwrap(applyWorkerDone(on, { taskId, dispatchId, outcome: 'succeeded', subject: 's', body: 'b' }, NOW) as never)
+    return { s: r.state, taskId }
+  }
+  const round = (plugin: CheckResult): CheckResult[] => [
+    { configId: 'npm-test', name: 'Tests', status: 'passed', exitCode: 0, outputTail: 'ok' },
+    plugin,
+    { configId: 'lint', name: 'lint', status: 'not-run' }
+  ]
+  const unavailable: CheckResult = { configId: 'plugin:d', name: 'D', status: 'error', summary: 'service down' }
+
+  for (const convergence of [false, true])
+    it(`puts a check that could not be made to a person${convergence ? ' in a convergence Job' : ''}, spending nothing`, () => {
+      const { s, taskId } = armed(convergence, { consecutiveFailures: 1 })
+      const r = unwrap<Task>(applyValidationResult(s, { taskId, results: round(unavailable), repair: SAME }, NOW) as never)
+      expect(r.value.status).toBe('blocked')
+      expect(r.value.consecutiveFailures).toBe(1)
+      expect(r.value.checks?.[1]).toEqual(unavailable)
+      expect(r.value.checkHistory?.['plugin:d']).toBeUndefined()
+      expect(r.state.dispatches.filter((d) => d.repair !== undefined)).toEqual([])
+      const gate = r.state.gates.find((g) => g.taskId === taskId && g.status === 'open')!
+      expect(gate.kind).toBe('check-unavailable')
+      expect(gate.options).toEqual(['retry', 'skip-check', 'mark-failed'])
+      expect(gate.question).toBe('The check could not be made: D: service down')
+    })
+
+  it('asks in the app’s language', () => {
+    const { s, taskId } = armed(false)
+    const r = unwrap<Task>(applyValidationResult(s, { taskId, results: round(unavailable), lang: 'ko' }, NOW) as never)
+    expect(r.state.gates.find((g) => g.taskId === taskId)!.question).toBe('검사를 할 수 없었습니다: D: service down')
+  })
+
+  for (const convergence of [false, true])
+    it(`counts a check a person skipped as no failure${convergence ? ' in a convergence Job' : ''}`, () => {
+      const { s, taskId } = armed(convergence)
+      const results: CheckResult[] = [
+        { configId: 'npm-test', name: 'Tests', status: 'passed', exitCode: 0 },
+        { configId: 'plugin:d', name: 'D', status: 'not-run', skipped: true, summary: 'Skipped by a person: service down' },
+        { configId: 'lint', name: 'lint', status: 'passed', exitCode: 0 }
+      ]
+      const r = unwrap<Task>(applyValidationResult(s, { taskId, results, repair: SAME }, NOW) as never)
+      expect(r.value.status).toBe('completed')
+      expect(r.value.checks?.[1]).toMatchObject({ skipped: true, status: 'not-run' })
+    })
+
+  it('tells the coordinator what a failed plugin check found, without convergence', () => {
+    const { s, taskId } = armed(false)
+    const failed: CheckResult = { configId: 'plugin:d', name: 'D', status: 'failed', summary: '1 leftover', diagnostics: [{ file: 'src/a.ts', line: 3, message: 'adds console.log' }] }
+    const r = unwrap<Task>(applyValidationResult(s, { taskId, results: round(failed) }, NOW) as never)
+    expect(r.value.status).toBe('failed')
+    expect(r.value.result).toContain('1 leftover\nsrc/a.ts:3 adds console.log')
+    expect(r.state.messages.at(-1)?.body).toContain('src/a.ts:3 adds console.log')
+    expect(r.value.lastFailure).toBe('D failed: 1 leftover')
+  })
+
+  it('clears the skipped round’s bookkeeping once the round is recorded', () => {
+    const { s, taskId } = armed(false, { checkResume: { done: [], rest: ['lint'] } })
+    const results: CheckResult[] = [{ configId: 'lint', name: 'lint', status: 'passed', exitCode: 0 }]
+    const r = unwrap<Task>(applyValidationResult(s, { taskId, results }, NOW) as never)
+    expect(r.value).not.toHaveProperty('checkResume')
+  })
+})
+
 describe('applyValidationResult — convergence', () => {
   /** convergence Run 에 check 둘이 걸린 Task 를 validating 까지 보낸 상태 */
   const armed = (

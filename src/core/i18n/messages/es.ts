@@ -1383,6 +1383,7 @@ export const es: Catalog = {
   'jobs.convergence.gate.stopped': 'La corrección automática está detenida para esta tarea y sus comprobaciones siguen fallando: {failures}',
   'jobs.convergence.gate.paused': 'Esta ejecución se pausó mientras corrían sus comprobaciones, y siguen fallando: {failures}',
   'jobs.convergence.gate.repairFailed': 'La aplicación no pudo iniciar un worker de reparación: {reason}',
+  'jobs.checks.gate.unavailable': 'No se pudo realizar la comprobación: {check}: {reason}',
   'jobs.convergence.gate.retryOnce': 'Reparar una vez más',
   'jobs.convergence.gate.markFailed': 'Marcar como fallida',
   'jobs.convergence.retryOnceFailed': 'La compuerta se resolvió, pero la reparación no pudo iniciarse: {reason}',

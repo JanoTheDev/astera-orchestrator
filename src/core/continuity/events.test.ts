@@ -378,6 +378,16 @@ describe('deriveEvents — convergence', () => {
     expect(fromReviewing.map((e) => e.type)).toEqual(['TASK_REVIEW_CHANGES_REQUESTED', 'TASK_WAITING_INPUT'])
     expect(fromReviewing[0].payload.issues).toEqual([{ severity: 'high', title: 'race', blocking: true }])
   })
+  it("a 'check-unavailable' Gate is no verdict: the check could not be made (plugin Phase 5 C9)", () => {
+    const gate = { id: 'g1', runId: 'run_1', taskId: 'tsk_1', question: 'The check could not be made: D: down', status: 'open' as const, createdAt: NOW, kind: 'check-unavailable' as const, options: ['retry', 'skip-check', 'mark-failed'] }
+    const ev = deriveEvents(
+      withRun(run(), [task({ status: 'validating' })]),
+      { ...withRun(run(), [task({ status: 'blocked', checks: [{ configId: 'plugin:d', name: 'D', status: 'error', summary: 'down' }] })]), gates: [gate] },
+      NOW
+    )
+    expect(ev.map((e) => e.type)).toEqual(['TASK_WAITING_INPUT'])
+    expect(ev[0].payload.checks).toBeUndefined()
+  })
   it('Gate 없는 interrupted block 은 판정이 아니라 이전 라운드의 checks 를 새것처럼 싣지 않는다', () => {
     // A second-round Task still carries round 1's checks (the field is overwritten only when a new
     // round finishes) when blockForValidation interrupts round 2 before any check ran — no Gate kind,

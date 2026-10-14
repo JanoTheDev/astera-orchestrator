@@ -40,6 +40,7 @@ import {
 } from './convergence'
 import { normalizeIssues, type ReviewIssueInput } from './review'
 import { failedChecksSummary } from './completion'
+import { pluginCheckText } from './pluginChecks'
 
 export interface OrchState {
   /** 계획. 설계 §4 — 여기 있는 것이 "무엇을 시킬 것인가" 이고, 아래 runs 가 "실제로 돈 것" 이다. */
@@ -792,14 +793,18 @@ export function applyValidationResult(
   if (!task) return err(`unknown task: ${a.taskId}`)
   if (task.status !== 'validating') return err(`task is not validating: ${task.status}`)
   const lang: Lang = a.lang ?? 'en'
-  const passed = a.results.every((r) => r.status === 'passed')
+  // A check a person let the round go on without (plugin Phase 5 C9 skip-check) is no failure
+  const passed = a.results.every((r) => r.status === 'passed' || r.skipped === true)
   const policy = policyOf(s, task)
   const total = a.results.length
   const ran = a.results.filter((r) => r.status !== 'not-run').length
   const failedNames = a.results.filter((r) => r.status !== 'passed' && r.status !== 'not-run').map((r) => r.name)
   const firstFailed = a.results.find((r) => r.status !== 'passed' && r.status !== 'not-run')
   const exitCode = firstFailed?.exitCode ?? (passed ? 0 : 1)
-  const output = firstFailed?.outputTail ?? a.results.map((r) => r.outputTail ?? '').join('\n')
+  // A plugin check's text is its summary and findings (C10); a command check's is its output, as it always was
+  const output =
+    (firstFailed ? (pluginCheckText(firstFailed) ?? firstFailed.outputTail) : undefined) ??
+    a.results.map((r) => pluginCheckText(r) ?? r.outputTail ?? '').join('\n')
 
   // 검증이 통과했어도 검토가 걸려 있으면 아직 끝난 것이 아니다. applyWorkerDone 과 같은 판단이고,
   // 여기에 없으면 검증이 걸린 Task 만 검토를 건너뛴다.
@@ -819,11 +824,31 @@ export function applyValidationResult(
     return unstable.has(r.configId) ? { ...kept, unstable: true } : kept
   })
   const failedRound = failedChecksSummary(a.results)
+  // The skipped round's bookkeeping ends with its verdict (plugin Phase 5 C9)
+  const { checkResume: _resume, ...settled } = task
   const recorded: Task = {
-    ...task,
+    ...settled,
     checks,
     checkHistory: history,
     ...(failedRound !== null ? { lastFailure: failedRound } : {})
+  }
+
+  // ---- a check that could not be made (plugin Phase 5 C9) ---- not the code's fault: no repair, no failure counted,
+  // with or without a policy. The round is recorded, its `error` with its reason, and a person chooses.
+  const unavailableCheck = a.results.find((r) => r.status === 'error')
+  if (unavailableCheck) {
+    const g = createGate(
+      { ...s, tasks: replace(s.tasks, recorded) },
+      {
+        taskId: task.id,
+        question: t(lang, 'jobs.checks.gate.unavailable', { check: unavailableCheck.name, reason: unavailableCheck.summary ?? '' }),
+        options: [...CHECK_UNAVAILABLE_OPTIONS],
+        kind: 'check-unavailable'
+      },
+      now
+    )
+    if (!g.ok) return err(g.error)
+    return ok(g.state, g.state.tasks.find((x) => x.id === task.id)!)
   }
 
   if (policy === null) {
@@ -901,6 +926,11 @@ export function applyValidationResult(
     now
   )
 }
+
+/** The answers to a `check-unavailable` question (plugin Phase 5 C9): run the Task's checks again, let this round go on
+ *  without the check, or fail the Task. gate-resolve takes these three and no other. */
+export const CHECK_UNAVAILABLE_OPTIONS = ['retry', 'skip-check', 'mark-failed'] as const
+export type CheckUnavailableAnswer = (typeof CHECK_UNAVAILABLE_OPTIONS)[number]
 
 /** 배선이 판정 직전에 정해 넘기는 "repair 를 어디에 열 것인가". **할지**는 순수 층이 정한다(정책·예산·
  *  멈춤), **어디에**는 배선이 안다(세션이 살아 있는가). same-session 은 그 세션에 fix 요청을 써넣고,

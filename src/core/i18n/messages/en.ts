@@ -1548,6 +1548,7 @@ export const en: Record<keyof typeof ko, string> = {
   'jobs.convergence.gate.stopped': 'Auto-fix is stopped for this Task and its checks still fail: {failures}',
   'jobs.convergence.gate.paused': 'This Run was paused while its completion checks ran, and they still fail: {failures}',
   'jobs.convergence.gate.repairFailed': 'The app could not start a repair worker: {reason}',
+  'jobs.checks.gate.unavailable': 'The check could not be made: {check}: {reason}',
   'jobs.convergence.gate.retryOnce': 'Repair once more',
   'jobs.convergence.gate.markFailed': 'Mark failed',
   'jobs.convergence.retryOnceFailed': 'The gate was resolved, but the repair could not start: {reason}',
