@@ -44,6 +44,8 @@ export const SOURCE_EVIDENCE_TOTAL_MAX = 100_000
 export const SOURCE_LABEL_MAX = 200
 export const SOURCE_OBJECTIVE_MAX = 20_000
 export const SOURCE_URL_MAX = 2_048
+/** A plugin's own sentence (what it threw, why it does not run), as far as a caller reads it. */
+export const SOURCE_ERROR_MAX = 1_000
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
 
@@ -61,6 +63,13 @@ function cutTo(s: string, max: number, cut: { cut: boolean }): string {
   if (max <= 0) return ''
   return `${Array.from(s.slice(0, max * 2)).slice(0, max - 1).join('')}…`
 }
+
+/** `s` within `max` characters, `…` included, for text that says nothing of having been cut. */
+export const clip = (s: string, max: number): string => cutTo(s, max, { cut: false })
+
+/** Whether `id` can be an item's id (J9): 1 to SOURCE_ID_MAX characters, none of them a control character, since an id
+ *  goes into a Job's source and onto the screen as it is (4a final review M3). */
+export const isItemId = (id: string): boolean => id !== '' && fits(id, SOURCE_ID_MAX) && !/\p{Cc}/u.test(id)
 
 /** A web address a person can open: http or https, nothing else (no `javascript:`, no `file:`), as the parser read it
  *  (the tabs and line breaks it skips are gone), and within SOURCE_URL_MAX characters, since half an address opens
@@ -97,6 +106,7 @@ function itemOf(v: unknown, where: string, cut: { cut: boolean }): SourceItem | 
   if (!isObject(v)) return `${where} is not an object`
   if (typeof v.id !== 'string' || v.id === '') return `${where} has no id`
   if (!fits(v.id, SOURCE_ID_MAX)) return `${where} has an id longer than ${SOURCE_ID_MAX} characters`
+  if (!isItemId(v.id)) return `${where} has a control character in its id`
   if (typeof v.title !== 'string') return `${where} has no title`
   const url = webUrl(v.url)
   return {

@@ -4,7 +4,7 @@
 // injected GhRunner.
 import { ghFailureSentence, type GhFailed, type GhRunner } from './gh'
 import { ISSUE_JOB_ASSOCIATIONS, issueFrom, readIssue, repoOf, type GhIssue } from './issue'
-import type { SourceContext, SourceDetail, SourceItem } from '../sources/answers'
+import { itemDetail, jobContext, type SourceContext, type SourceDetail, type SourceItem } from '../sources/answers'
 
 /** The source id GitHub issues answer under, beside the plugins' ids (which are npm names, never this). */
 export const GITHUB_SOURCE_ID = 'github'
@@ -40,18 +40,20 @@ const itemOf = (issue: GhIssue): IssueItem => {
 
 const failed = (message: string): GhFailed => ({ ok: false, kind: 'other', message })
 
-/** A page of the open issues of the repository at `cwd`, searched with `query` when there is one. `slugs` keeps each
- *  folder's `owner/repo` for the Host's life, so a search costs one call after the first. */
+/** A page of the open issues of the repository at `cwd`, searched with `query` when there is one. A search reads the
+ *  repository's name first, each time, so a folder whose remote changed is searched as it is now (4a final review M6),
+ *  and keeps the issues of that repository alone (M5). */
 export async function listIssueItems(
   gh: GhRunner,
   cwd: string,
-  q: { query?: string; cursor?: string },
-  slugs: Map<string, string> = new Map()
+  q: { query?: string; cursor?: string }
 ): Promise<{ ok: true; items: IssueItem[]; nextCursor?: string } | GhFailed> {
   const page = q.cursor === undefined || q.cursor === '' ? 1 : /^[1-9][0-9]{0,3}$/.test(q.cursor) ? Number(q.cursor) : NaN
   if (!Number.isFinite(page)) return failed(`the cursor ${q.cursor} is not a page number`)
   const query = (q.query ?? '').replace(LEAVING, ' ').replace(/\s+/g, ' ').trim()
   let raw: unknown[]
+  /** The repository a search was kept to, in GitHub's case-blind form; null for the list, which is the repository's. */
+  let searched: string | null = null
   if (query === '') {
     const r = await gh(['api', `repos/{owner}/{repo}/issues?state=open&per_page=${GITHUB_PAGE}&page=${page}`], cwd)
     if (!r.ok) return { ok: false, ...ghFailureSentence(r) }
@@ -59,14 +61,11 @@ export async function listIssueItems(
     if (!Array.isArray(parsed)) return failed('gh api answered with something that is not a list of issues')
     raw = parsed
   } else {
-    let slug = slugs.get(cwd)
-    if (slug === undefined) {
-      const named = await gh(['api', 'repos/{owner}/{repo}', '--jq', '.full_name'], cwd)
-      if (!named.ok) return { ok: false, ...ghFailureSentence(named) }
-      slug = named.stdout.trim()
-      if (!/^[^/\s]+\/[^/\s]+$/.test(slug)) return failed('gh api answered with something that is not a repository name')
-      slugs.set(cwd, slug)
-    }
+    const named = await gh(['api', 'repos/{owner}/{repo}', '--jq', '.full_name'], cwd)
+    if (!named.ok) return { ok: false, ...ghFailureSentence(named) }
+    const slug = named.stdout.trim()
+    if (!/^[^/\s]+\/[^/\s]+$/.test(slug)) return failed('gh api answered with something that is not a repository name')
+    searched = slug.toLowerCase()
     const r = await gh(
       ['api', '-X', 'GET', 'search/issues', '-f', `q=repo:${slug} is:issue is:open ${query}`, '-f', `per_page=${GITHUB_PAGE}`, '-f', `page=${page}`],
       cwd
@@ -78,48 +77,56 @@ export async function listIssueItems(
   }
   const items = raw.flatMap((v) => {
     const issue = issueFrom(v)
-    return issue === null || issue.isPullRequest ? [] : [itemOf(issue)]
+    if (issue === null || issue.isPullRequest) return []
+    return searched !== null && repoOf(issue.url).toLowerCase() !== searched ? [] : [itemOf(issue)]
   })
   return { ok: true, items, ...(raw.length === GITHUB_PAGE ? { nextCursor: String(page + 1) } : {}) }
 }
 
-/** Issue `id` read whole, and whether it may become a Job. */
+/** Issue `id` read whole, checked and cut as a plugin's item is (4a final review M1), and whether it may become a Job. */
 export async function issueDetail(
   gh: GhRunner,
   cwd: string,
   id: string
-): Promise<{ ok: true; detail: SourceDetail; selectable: boolean; reason?: string; issue: GhIssue } | GhFailed> {
+): Promise<{ ok: true; detail: SourceDetail; cut: boolean; selectable: boolean; reason?: string; issue: GhIssue } | GhFailed> {
   if (!/^[1-9][0-9]{0,9}$/.test(id)) return { ok: false, kind: 'not-found', message: `${id} is not an issue number` }
   const read = await readIssue(gh, cwd, Number(id))
   if (!read.ok) return read
   const issue = read.issue
   if (issue.isPullRequest) return { ok: false, kind: 'not-found', message: `#${issue.number} is a pull request, not an issue` }
   const reason = issue.state === 'closed' ? `Issue #${issue.number} is closed` : memberReason(issue)
+  const detail = itemDetail({
+    id: String(issue.number),
+    title: issue.title,
+    status: issue.state,
+    url: issue.url,
+    ...(issue.body !== '' ? { body: issue.body } : {}),
+    fields: { author: issue.author, ...(issue.labels.length > 0 ? { labels: issue.labels.join(', ') } : {}) }
+  })
+  if (!detail.ok) return failed(`gh answered with an issue that is not an item: ${detail.problem}`)
   return {
     ok: true,
     issue,
-    detail: {
-      id: String(issue.number),
-      title: issue.title,
-      status: issue.state,
-      url: issue.url,
-      ...(issue.body !== '' ? { body: issue.body } : {}),
-      fields: { author: issue.author, ...(issue.labels.length > 0 ? { labels: issue.labels.join(', ') } : {}) }
-    },
+    detail: detail.value,
+    cut: detail.cut,
     selectable: reason === undefined,
     ...(reason !== undefined ? { reason } : {})
   }
 }
 
-/** What a Job made from `issue` is to do: its title, with its body as the evidence. */
+/** What a Job made from `issue` is to do: its title, with its body as the evidence; cut as a plugin's context is (4a
+ *  final review M1). */
 export function issueContext(issue: GhIssue): SourceContext {
-  return {
-    objective: issue.title,
+  const raw: SourceContext = {
+    objective: issue.title.trim() !== '' ? issue.title : `Issue #${issue.number}`,
     sourceLabel: `GitHub issue #${issue.number} in ${repoOf(issue.url)}`,
     sourceUrl: issue.url,
     ...(issue.body !== '' ? { evidence: [{ label: 'Body', content: issue.body }] } : {}),
     ...(issue.labels.length > 0 ? { metadata: { labels: issue.labels.join(', ') } } : {})
   }
+  // Always the shape: the objective and the label are never blank
+  const checked = jobContext(raw)
+  return checked.ok ? checked.value : raw
 }
 
 const parseJson = (s: string): unknown => {

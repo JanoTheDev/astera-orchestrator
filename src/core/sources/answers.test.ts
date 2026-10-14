@@ -38,6 +38,8 @@ describe('itemsPage (J7)', () => {
     expect(itemsPage({ items: [{ title: 'no id' }] })).toEqual({ ok: false, problem: 'item 0 has no id' })
     expect(itemsPage({ items: [{ id: 'x'.repeat(201), title: 't' }] })).toEqual({ ok: false, problem: 'item 0 has an id longer than 200 characters' })
     expect(itemsPage({ items: [{ id: 'a' }] })).toEqual({ ok: false, problem: 'item 0 has no title' })
+    // The 4a review's M3: an item listed is one a person can pick, so its id holds no control character
+    expect(itemsPage({ items: [{ id: 'a\nb', title: 't' }] })).toEqual({ ok: false, problem: 'item 0 has a control character in its id' })
     expect(itemsPage({ items: [], nextCursor: 'c'.repeat(2_001) })).toEqual({ ok: false, problem: 'its nextCursor is longer than 2000 characters' })
     expect(itemsPage({ items: [], nextCursor: 7 })).toEqual({ ok: false, problem: 'its nextCursor is not text' })
   })
