@@ -1,7 +1,12 @@
 // The Host's completion check plugins (plugin Phase 5 C1, C2, C5, C7): which there are, and a check asked of one through
 // the runtime's request with CHECK_TIMEOUT_MS, its answer checked and cut, every failure an `error` answer saying why.
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import { promises as fs } from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { hostCompletionChecks } from './completionChecks'
+import { createPluginManager } from './plugins/manager'
+import { removeFixture } from '../core/testFixtures'
 import { PluginRequestFailed } from './plugins/runtime'
 import { CHECK_TIMEOUT_MS } from '../core/orchestration/types'
 import type { CompletionCheckInput } from '../core/orchestration/pluginChecks'
@@ -30,6 +35,41 @@ const make = (answer: () => Promise<unknown>, list: () => Promise<{ status: numb
   })
   return { checks, asked }
 }
+
+// 5a final review M9: the views it reads are the plugin manager's own, as a person's install leaves them
+describe('the Host’s completion check plugins over the real plugin manager', () => {
+  const dirs: string[] = []
+  afterEach(async () => {
+    for (const d of dirs.splice(0)) await removeFixture(d)
+  })
+  /** A plugin folder: its manifest names `capabilities`. */
+  const folder = async (root: string, name: string, displayName: string, capabilities: string[]): Promise<string> => {
+    const at = path.join(root, name.replace(/[@/]/g, '_'))
+    await fs.mkdir(path.join(at, 'dist'), { recursive: true })
+    const pkg = { name, version: '1.0.0', displayName, astera: { apiVersion: '1', entry: './dist/plugin.js', permissions: [], capabilities } }
+    await fs.writeFile(path.join(at, 'package.json'), JSON.stringify(pkg))
+    await fs.writeFile(path.join(at, 'dist', 'plugin.js'), 'export default {}')
+    return at
+  }
+
+  it('reads whether each installed plugin checks and is enabled, by its display name', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'astera-checks-'))
+    dirs.push(root)
+    const manager = createPluginManager({ profileDir: path.join(root, 'profile'), hostVersion: '9.9.9' })
+    expect((await manager.install({ path: await folder(root, '@acme/astera-leftovers', 'Debug leftovers', ['completion-check']), grant: [] })).status).toBe(200)
+    expect((await manager.install({ path: await folder(root, '@acme/astera-quiet', 'Quiet', []), grant: [] })).status).toBe(200)
+    await manager.setEnabled('@acme/astera-quiet', false)
+    const asked: unknown[] = []
+    const checks = hostCompletionChecks({ manager, runtime: { request: async (...a: unknown[]) => (asked.push(a), { status: 'passed' }) }, startWaitMs: 0 })
+    expect(await checks.plugins()).toEqual([
+      { id: '@acme/astera-leftovers', displayName: 'Debug leftovers', check: true, enabled: true },
+      { id: '@acme/astera-quiet', displayName: 'Quiet', check: false, enabled: false }
+    ])
+    expect(await checks.run('@acme/astera-leftovers', INPUT)).toEqual({ name: 'Debug leftovers', status: 'passed', summary: 'passed' })
+    expect(await checks.run('@acme/astera-quiet', INPUT)).toEqual({ name: 'Quiet', status: 'error', summary: '@acme/astera-quiet does not offer completion checks' })
+    expect(asked).toHaveLength(1)
+  })
+})
 
 describe('the Host’s completion check plugins', () => {
   it('lists every installed plugin with whether it checks and whether it is enabled', async () => {
