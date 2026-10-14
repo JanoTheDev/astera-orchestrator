@@ -151,6 +151,10 @@ const LISTING: Record<string, readonly string[]> = {
   'run-create': ['astera accounts list'],
   // 공개 이름도 같다 — 명사 규칙(`jobs list`)은 계획 id 를 주는데, 이 명령이 못 찾는 것은 계정이다.
   'jobs-create': ['astera accounts list'],
+  // Plugin Phase 4: an unknown source, project or item, or (making a Job) an unknown coordinator account
+  'sources-items': ['astera sources list', 'astera projects list'],
+  'sources-show': ['astera sources items', 'astera projects list'],
+  'jobs-create-from-source': ['astera sources list', 'astera projects list', 'astera accounts list'],
   // **`--id` 는 Job 도 회차도 받고, 지우는 것이 다르다.** Job 을 주면 그 계획과 회차 전부가
   // 사라진다 — 회차 하나를 지우려던 사람에게 `jobs list` 만 주면 그 목록의 id 가 바로 그 사고다.
   'run-delete': ['astera jobs list', 'astera runs list'],

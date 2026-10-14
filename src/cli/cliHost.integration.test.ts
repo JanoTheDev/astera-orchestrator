@@ -2019,6 +2019,52 @@ describe('MCP against the Host', { timeout: 60_000 }, () => {
     expect(after.isError, after.content[0]?.text).toBeFalsy()
     expect(after.structuredContent).toEqual({ taskId, dispatchId: worker.dispatchId, recorded: false, totalLines: 0, more: false, lines: [] })
   })
+  // Plugin Phase 4 J21: the job sources through the CLI, against a real Host and a fake gh
+  it('sources through the CLI: list, items, show, and a Job made from a GitHub issue', async () => {
+    const issue = {
+      number: 21,
+      title: 'Crash on save',
+      body: 'Steps to reproduce.',
+      state: 'open',
+      labels: [{ name: 'bug' }],
+      user: { login: 'owner-1' },
+      author_association: 'OWNER',
+      html_url: 'https://github.com/o/r/issues/21'
+    }
+    const unused = (): never => {
+      throw new Error('not in this test')
+    }
+    const { h, projectId, projectPath } = await projectRig({
+      github: {
+        run: async (args) => {
+          if (args[0] === 'api' && args[1]?.startsWith('repos/{owner}/{repo}/issues?')) return { ok: true, stdout: JSON.stringify([issue]), stderr: '' }
+          if (args[0] === 'api' && args[1] === 'repos/{owner}/{repo}/issues/21') return { ok: true, stdout: JSON.stringify(issue), stderr: '' }
+          return { ok: false, stdout: '', stderr: 'HTTP 404: Not Found' }
+        },
+        createPr: unused,
+        readCommits: unused,
+        isClean: unused
+      }
+    })
+    const listed = okData(await astera(['sources', 'list'], h.env), 'sources list')
+    expect((listed.sources as unknown[])[0]).toEqual({ id: 'github', displayName: 'GitHub issues', ready: true, needsProject: true })
+    const items = okData(await astera(['sources', 'items', '--source', 'github', '--project', projectId], h.env), 'sources items')
+    expect(items.items).toEqual([expect.objectContaining({ id: '21', title: 'Crash on save', selectable: true, jobs: [] })])
+    const shown = okData(await astera(['sources', 'show', '--source', 'github', '--item', '21', '--project', projectId], h.env), 'sources show')
+    expect(shown).toMatchObject({ id: '21', body: 'Steps to reproduce.', fields: { author: 'owner-1', labels: 'bug' } })
+    // A flag the command does not take is refused before the Host is asked
+    const wrong = await astera(['sources', 'show', '--source', 'github', '--id', '21'], h.env)
+    expect(wrong.code).toBe(2)
+    const made = okData(
+      await astera(['jobs', 'create-from-source', '--source', 'github', '--item', '21', '--project', projectId, '--coordinator-account', h.accountId], h.env),
+      'jobs create-from-source'
+    )
+    expect(made).toMatchObject({ cwd: projectPath, source: { id: 'github', itemId: '21', label: 'GitHub issue #21 in o/r', url: 'https://github.com/o/r/issues/21' } })
+    // J16: the issue now names the Job made from it
+    const again = okData(await astera(['sources', 'items', '--source', 'github', '--project', projectId], h.env), 'sources items')
+    expect((again.items as Array<{ jobs: string[] }>)[0].jobs).toEqual([made.id])
+  })
+
   it('GitHub issues through the Host: get_issue reads with the write setting off; create_job_from_issue needs it, and takes only a trusted author', async () => {
     // The repository's issues as `gh api repos/{owner}/{repo}/issues/<n>` answers them. #11's body
     // holds a line that reads as the block's closing delimiter.

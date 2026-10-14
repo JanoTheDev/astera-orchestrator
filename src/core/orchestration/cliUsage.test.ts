@@ -46,9 +46,9 @@ describe('cliUsage — 세 층', () => {
       const r = usageFor(argv)
       expect(r).not.toBeNull()
       const text = (r as { text: string }).text
-      // `agent-context` 는 대시가 있지만 한 낱말이다 — 쪼개어 찍으면 없는 명령을 가르치게 된다.
-      for (const cmd of Object.keys(USAGE))
-        expect(text).toContain(cmd === 'agent-context' ? cmd : cmd.replace(/-(?=[^-]*$)/, ' '))
+      // `agent-context` 는 대시가 있지만 한 낱말이다 — 쪼개어 찍으면 없는 명령을 가르치게 된다. 동사에도
+      // 대시가 들 수 있다(`jobs create-from-source`): 가르는 것은 spelledCommand 다.
+      for (const cmd of Object.keys(USAGE)) expect(text).toContain(spelledCommand(cmd))
     }
   })
 
@@ -568,5 +568,27 @@ describe('문서가 보여 주는 명령 줄은 전부 파서와 플래그 검�
 describe('--runtime is a leading flag only (remote runtime design §2.8)', () => {
   it('after the command it is refused as a flag the command does not take', () => {
     expect(unknownFlagError('jobs-list', ['jobs', 'list', '--runtime', 'rt_a'])).toMatch(/does not take --runtime/)
+  })
+})
+
+// Plugin Phase 4 J21: the job-source commands are public, with their own flags
+describe('cliUsage — the job-source commands', () => {
+  it('refuses a flag they do not take, naming the ones they do', () => {
+    expect(unknownFlagError('sources-show', ['sources', 'show', '--source', 's', '--id', 'x'])).toMatch(
+      /^sources show does not take --id: its flags are --source, --item, --project,/
+    )
+    expect(unknownFlagError('jobs-create-from-source', ['jobs', 'create-from-source', '--objective', 'x'])).toMatch(
+      /^jobs create-from-source does not take --objective/
+    )
+    expect(unknownFlagError('sources-items', ['sources', 'items', '--source', 's', '--query', 'q', '--cursor', 'c', '--project', 'p'])).toBeNull()
+  })
+
+  // A verb with a dash in it (create-from-source) is spelled as two words, as one without is
+  it('spells a verb with a dash as the second word', () => {
+    expect(spelledCommand('jobs-create-from-source')).toBe('jobs create-from-source')
+    expect(spelledCommand('run-configs-list')).toBe('run-configs list')
+    expect(spelledCommand('sources-show')).toBe('sources show')
+    const help = usageFor(['jobs', 'create-from-source', '--help'])
+    expect(help !== null && 'text' in help && help.text).toMatch(/^astera jobs create-from-source --source <sourceId> --item <itemId> --project <projectId>/)
   })
 })

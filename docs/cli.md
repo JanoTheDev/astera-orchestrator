@@ -590,6 +590,43 @@ The app's Settings → Plugins does the same: it lists each plugin with its stat
 after showing what the plugin asks for (uncheck a permission to withhold it), and configures, enables, disables,
 removes and shows the log of each.
 
+### Job sources
+
+A Job can start from a ticket: an issue of a project's GitHub repository, or an item of a job-source plugin (a Linear
+issue with [the Linear sample](../examples/plugins/linear-source), say). `sources list` names the sources, each ready
+or with why not; `sources items` lists a page of a source's items and `sources show` reads one whole; `jobs
+create-from-source` makes a Job from one.
+
+```text
+astera sources list                                              GitHub issues and the job-source plugins
+astera sources items --source github --project <projectId>       the open issues of the project's repository
+astera sources items --source astera-linear-source --query login a search; --cursor <nextCursor> for the next page
+astera sources show --source astera-linear-source --item ENG-123 one item, read whole
+astera jobs create-from-source --source github --item 12 --project <projectId> --coordinator-account <accountId>
+```
+
+GitHub issues need `--project` (its `needsProject` is true): they are the open issues, not pull requests, of the
+repository the project folder's remote names, read with your `gh`. An issue a non-member wrote is listed with
+`selectable: false` and the reason, and cannot become a Job. A plugin source ignores `--project`. Each item carries
+`jobs`, the ids of the Jobs already made from it; a second Job from the same item is allowed.
+
+`jobs create-from-source` returns the Job, with no run yet, as `jobs create` does, and takes its flags but `--objective`
+and `--cwd`: Astera writes the objective, and the Job works in the project's folder. The objective names the item and
+quotes its text as data inside a block the text cannot close, since someone else wrote it. The Job keeps the item as its
+`source` (`{ id, itemId, label, url }`), which `jobs get` shows and the app links to. The same `--request-id` never makes
+two Jobs.
+
+What a refusal means: 400 a flag missing or an item id no source gives (longer than 200 characters, or with a control
+character); 403 an item that cannot be picked (a GitHub issue a non-member wrote, or a closed one); 404 an unknown
+source, project or GitHub issue, or a pull request's number; 409 `gh` missing or logged out. A plugin source that does
+not run is 503 with its status and reason, one that throws 502 with what it threw, and one that takes more than 15
+seconds 504. `jobs-create-from-issue`, which agents used before job sources, still answers 409 for a closed issue or a
+pull request.
+
+The commands reach this machine's Host only: a paired Runtime's sources are not listed, plugins cannot call them, and
+an agent session may make a Job from a source as it may with `jobs create`. Writing a job source:
+[the plugin guide](plugins.md#job-source-plugins).
+
 ## Command reference
 
 Every command is a noun and a verb. A noun with no verb is rejected with the list of its verbs, so
@@ -632,6 +669,10 @@ astera plugins doctor  --id <pluginId>
 astera plugins settings  --id <pluginId>
 astera plugins configure --id <pluginId> [--set <key=value>] [--unset <key>] [--stdin <key>]
 
+astera sources list
+astera sources items --source <sourceId> [--query <text>] [--cursor <cursor>] [--project <projectId>]
+astera sources show  --source <sourceId> --item <itemId> [--project <projectId>]
+
 astera projects list
 astera projects get   --id <projectId>
 astera projects find  --path <path>
@@ -642,6 +683,7 @@ astera jobs    get    --id <jobId | runId>
 astera jobs    run    --id <jobId>
 astera jobs    wait   --id <jobId>  [--timeout-ms <n>]
 astera jobs    create --objective <text> [--cwd <path>] [--concurrency <n>] [--coordinator-account <accountId>] [--coordinator-provider <claude|codex>] [--convergence [--max-fix-attempts <n>] [--max-review-rounds <n>] [--blocking-severity <high|medium>] [--max-total-minutes <n>]]
+astera jobs    create-from-source --source <sourceId> --item <itemId> --project <projectId> [--concurrency <n>] [--coordinator-account <accountId>] [--coordinator-provider <claude|codex>] [--convergence [--max-fix-attempts <n>] [--max-review-rounds <n>] [--blocking-severity <high|medium>] [--max-total-minutes <n>]]
 
 astera runs    list   [--job <jobId>] [--project <path>]
 astera runs    get    --id <runId>
