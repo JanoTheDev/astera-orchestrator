@@ -12,9 +12,10 @@ import { isLoopbackUrl, previewTargetOf } from '../preview/url'
  *  This is what lets a dev server be previewed with nothing configured — the run prints its address,
  *  and the run's tab grows a button that opens it. */
 export function firstLoopbackUrl(text: string): string | null {
-  URL_RE.lastIndex = 0
-  for (let m = URL_RE.exec(text); m; m = URL_RE.exec(text)) {
-    const url = m[0].replace(URL_TRAIL, '')
+  // matchAll, never exec: exec on the shared global regex left its lastIndex where it returned, and findConsoleLinks'
+  // matchAll starts from a copy of it, so the next row's URLs before that index were no link
+  for (const m of text.matchAll(URL_RE)) {
+    const url = urlOf(m[0])
     if (isLoopbackUrl(url)) return previewTargetOf(url)
   }
   return null
@@ -70,6 +71,15 @@ const GLUED_WORD = new RegExp(`(?<![${CJK}])[${CJK}]+$`, 'u')
 // Marks that close a sentence or a quotation after the word, curly closing quotes and guillemets included
 const GLUED_MARK = /(?<![!?~\u2026\u201D\u2019\u00BB])[!?~\u2026\u201D\u2019\u00BB]+$/
 const ENDS_IN_SEP = /[\\/]$/
+// A word glued to a URL's end (`http://localhost:5173에서`, D1 2026-10-14): a run of those letters, and the marks after
+// it, right after an ASCII letter, a digit or a closing bracket. After a `/` the run is the URL's own (a wiki title), and
+// a run that follows another of its letters is not where one starts, which keeps this linear.
+const URL_GLUED = new RegExp(`(?<=[A-Za-z0-9)\\]])[${CJK}]+[!?~\u2026.,;:]*$`, 'u')
+
+/** A URL as the regex took it, without the punctuation a sentence or a parenthesis left on it, nor a word glued to it. */
+function urlOf(match: string): string {
+  return match.replace(URL_TRAIL, '').replace(URL_GLUED, '').replace(URL_TRAIL, '')
+}
 const ABSOLUTE = /^(?:[A-Za-z]:[\\/]|[\\/]|~[\\/])/
 // What can sit glued in front of a path inside one token: a markdown image or link's `](`, a word and a parenthesis
 // (`경로(C:\...)로`), an assignment (`NAME=C:\...`), full-width brackets and curly quotes (D1, 2026-10-14). The path
@@ -111,7 +121,7 @@ export function findConsoleLinks(line: string): ConsoleLink[] {
   const taken: [number, number][] = []
   // URLs first: a URL has slashes and would otherwise be read as a path by the token pass below
   for (const m of line.matchAll(URL_RE)) {
-    const url = m[0].replace(URL_TRAIL, '')
+    const url = urlOf(m[0])
     // Nothing left after the scheme once trailing punctuation was stripped. Measured against the
     // scheme this match actually took, not a fixed 'https://' — that fixed length rejected a valid
     // `http://a` (8 characters) along with a truly empty `http://`.

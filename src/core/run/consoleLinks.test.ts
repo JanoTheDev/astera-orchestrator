@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { findConsoleLinks, joinWrappedLine, bufferRangeAt, cellsOfJoinedLine, cutCandidates } from './consoleLinks'
+import { findConsoleLinks, firstLoopbackUrl, joinWrappedLine, bufferRangeAt, cellsOfJoinedLine, cutCandidates } from './consoleLinks'
 
 const only = (line: string) => {
   const links = findConsoleLinks(line)
@@ -242,6 +242,37 @@ describe('findConsoleLinks — Python frames', () => {
   ])('%s carries its line', (_name, line, target, lineNo) => {
     const start = line.indexOf(target)
     expect(findConsoleLinks(line)).toEqual([{ kind: 'path', start, end: start + target.length, target, line: lineNo }])
+  })
+})
+
+// D1 (2026-10-14): a Korean, Japanese or Chinese word glued to a URL's end made it open a broken address. Cut when the
+// run follows an ASCII letter, digit or closing bracket; after a `/` the run is the URL's own (a wiki title).
+describe('findConsoleLinks — a URL with a word glued to it', () => {
+  const urlOf = (line: string) => {
+    const l = only(line)
+    if (l.kind !== 'url') throw new Error('not a URL')
+    return [l.url, line.slice(l.start, l.end)]
+  }
+  it('cuts the word glued after a port, a path or a file name', () => {
+    expect(urlOf('서버는 http://localhost:5173에서 실행 중입니다')).toEqual(['http://localhost:5173', 'http://localhost:5173'])
+    expect(urlOf('https://example.com/docs를 보세요')).toEqual(['https://example.com/docs', 'https://example.com/docs'])
+    expect(urlOf('https://x.com/a.png입니다.')).toEqual(['https://x.com/a.png', 'https://x.com/a.png'])
+    expect(urlOf('http://localhost:3000で起動')).toEqual(['http://localhost:3000', 'http://localhost:3000'])
+  })
+  it('keeps a title that is the path itself', () => {
+    expect(urlOf('https://ko.wikipedia.org/wiki/서울')).toEqual(['https://ko.wikipedia.org/wiki/서울', 'https://ko.wikipedia.org/wiki/서울'])
+    expect(urlOf('https://ko.wikipedia.org/wiki/서울에서')[0]).toBe('https://ko.wikipedia.org/wiki/서울에서')
+  })
+  it('gives the dev server address without the glued word', () => {
+    expect(firstLoopbackUrl('dev: http://localhost:5173에서 실행')).toBe('http://localhost:5173')
+  })
+
+  // Found by the test above: firstLoopbackUrl walked the shared global URL_RE with exec and returned at its first find,
+  // leaving the regex's lastIndex there, and findConsoleLinks' matchAll starts from a copy of it. A run panel that had
+  // looked for its dev server's address made the next terminal row's URLs before that index no link.
+  it('leaves nothing behind that a later search starts from', () => {
+    expect(firstLoopbackUrl('a long line first, then http://localhost:4321/ and more')).toBe('http://localhost:4321/')
+    expect(only('│ http://localhost:5173/│')).toEqual({ kind: 'url', start: 2, end: 24, url: 'http://localhost:5173/' })
   })
 })
 
