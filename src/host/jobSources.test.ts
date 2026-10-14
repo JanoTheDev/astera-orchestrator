@@ -13,9 +13,14 @@ import type { JobSourcesDeps } from '../core/orchestration/commandSources'
 const view = (id: string, o: Record<string, unknown> = {}) => ({ id, displayName: id.toUpperCase(), enabled: true, status: 'running', capabilities: ['job-source'], ...o })
 
 describe('hostJobSources', () => {
-  it('lists the enabled job-source plugins, ready when they run, and why not otherwise', async () => {
+  // The 4a review's I4: the list is read beside the manager's changes, not behind them; and Review Focus 3: a disabled
+  // plugin is listed with why, so a call to it answers 503 rather than 404
+  it('lists the job-source plugins, ready when they run, and why not otherwise, without waiting for a change', async () => {
     const manager = {
-      list: async () => ({
+      list: async (): Promise<never> => {
+        throw new Error('list waits behind the change in progress')
+      },
+      listNow: async () => ({
         status: 200,
         body: {
           plugins: [
@@ -32,6 +37,7 @@ describe('hostJobSources', () => {
     expect(await sources.plugins()).toEqual([
       { id: 'a', displayName: 'A', ready: true },
       { id: 'b', displayName: 'B', ready: false, reason: 'b is failed: no key' },
+      { id: 'c', displayName: 'C', ready: false, reason: 'c is disabled' },
       { id: 'e', displayName: 'E', ready: false, reason: 'e is incompatible: this Astera speaks Plugin API 1' }
     ])
   })
@@ -39,7 +45,7 @@ describe('hostJobSources', () => {
   it('asks through the runtime with the 15 s limit', async () => {
     const asked: unknown[] = []
     const sources = hostJobSources({
-      manager: { list: async () => ({ status: 200, body: { plugins: [] } }) },
+      manager: { listNow: async () => ({ status: 200, body: { plugins: [] } }) },
       runtime: {
         request: async (...a: unknown[]) => {
           asked.push(a)

@@ -30,6 +30,9 @@ export interface PluginManager {
   /** From a folder (`path`) or an npm package (`npm`, plugins 2e); an npm install needs `expect`. */
   install(a: { path?: unknown; npm?: unknown; grant: unknown; expect?: unknown }): Promise<PluginsAnswer>
   list(): Promise<PluginsAnswer>
+  /** What `list` answers, read beside a change in progress rather than after it: a person picking a job source's item
+   *  must not wait for an npm install (plugin Phase 4, 4a final review I4). It changes nothing, so it needs no turn. */
+  listNow(): Promise<PluginsAnswer>
   get(id: unknown): Promise<PluginsAnswer>
   setEnabled(id: unknown, enabled: boolean): Promise<PluginsAnswer>
   remove(id: unknown): Promise<PluginsAnswer>
@@ -787,6 +790,13 @@ export function createPluginManager(d: {
     install: (a) => serial(() => install(a)),
     list: () =>
       serial(async () => ({ status: 200, body: { plugins: await Promise.all((await readRegistry(root)).map(view)) } })),
+    listNow: async () => {
+      try {
+        return { status: 200, body: { plugins: await Promise.all((await readRegistry(root)).map(view)) } }
+      } catch (e) {
+        return refused(500, e instanceof Error ? e.message : String(e))
+      }
+    },
     get: (id) =>
       serial(async () => {
         const want = idOf('plugins-get', id)

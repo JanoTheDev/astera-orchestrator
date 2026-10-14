@@ -296,6 +296,37 @@ describe('install', () => {
   })
 })
 
+// Plugin Phase 4, the 4a review's I4: a job source's list must not wait behind an npm install
+describe('listNow', () => {
+  it('answers what list answers while a change is under way', async () => {
+    let release!: () => void
+    const held = new Promise<void>((r) => (release = r))
+    let hold = false
+    const m = createPluginManager({
+      profileDir: profile,
+      hostVersion: '1.5.0',
+      now: () => clock,
+      copy: async (src, dest) => {
+        if (hold) await held
+        await fs.cp(src, dest, { recursive: true })
+      }
+    })
+    expect((await m.install({ path: await plugin(FOLDER), grant: ['jobs.read'] })).status).toBe(200)
+    hold = true
+    const installing = m.install({ path: await plugin('second', { name: '@acme/astera-linear' }), grant: ['jobs.read'] })
+    let listedBehind = false
+    const behind = m.list().then(() => (listedBehind = true))
+    const now = await m.listNow()
+    expect(now.status).toBe(200)
+    expect((body(now).plugins as Array<{ id: string }>).map((p) => p.id)).toEqual(['@acme/astera-jira'])
+    expect(listedBehind).toBe(false)
+    release()
+    expect((await installing).status).toBe(200)
+    await behind
+    expect(((await m.listNow()).body as { plugins: unknown[] }).plugins).toHaveLength(2)
+  })
+})
+
 describe('a plugin named like the Host’s own files', () => {
   it('installs and removes beside plugins.json and the shared folders without touching them', async () => {
     const root = pluginsRoot(profile)
