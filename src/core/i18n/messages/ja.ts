@@ -1602,5 +1602,16 @@ export const ja: Catalog = {
   'jobs.changes.reportedNone': 'ワーカーが報告したファイルはありません。',
   'jobs.changes.unsupported': 'この Runtime はまだ変更ファイルの表示に対応していません。そのコンピューターの Astera を更新してください。',
   'jobs.changes.listCut': 'ファイルが多すぎるため、{total} 件中 {shown} 件だけを表示します。',
-  'jobs.changes.moreRows': 'さらに {count} 行を表示(残り {left} 行)'
+  'jobs.changes.moreRows': 'さらに {count} 行を表示(残り {left} 行)',
+  // A notification plugin's sentences (plugin Phase 3 N10, src/core/plugins/notifications.ts), posted as they are
+  'pluginNotify.questionCreated': '回答を待っています: {question}',
+  'pluginNotify.inputNeeded.permission': '許可を待っています。',
+  'pluginNotify.inputNeeded.question': '質問への回答を待っています。',
+  'pluginNotify.inputNeeded': '入力を待っています。',
+  'pluginNotify.runFailed': 'Run {ordinal} が失敗しました (Task {total} 件中 {done} 件完了)。',
+  'pluginNotify.completionExhausted': '{task} の完了チェックが修正の回数を使い切りました。',
+  'pluginNotify.limitWaitingAt': '使用上限で止まりました。{time} に再試行します。',
+  'pluginNotify.limitWaiting': '使用上限で止まりました。',
+  'pluginNotify.runCompleted': 'Run {ordinal} が終わりました。',
+  'pluginNotify.accountSwitched': '{label} アカウントで続けます。'
 }

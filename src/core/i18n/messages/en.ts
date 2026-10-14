@@ -1888,5 +1888,16 @@ export const en: Record<keyof typeof ko, string> = {
   'jobs.changes.reportedNone': 'The workers reported no files.',
   'jobs.changes.unsupported': 'This Runtime does not offer changed files yet. Update Astera on that computer.',
   'jobs.changes.listCut': 'Too many files: {shown} of {total} are shown.',
-  'jobs.changes.moreRows': 'Show {count} more lines ({left} left)'
+  'jobs.changes.moreRows': 'Show {count} more lines ({left} left)',
+  // A notification plugin's sentences (plugin Phase 3 N10, src/core/plugins/notifications.ts), posted as they are
+  'pluginNotify.questionCreated': 'Waiting for an answer: {question}',
+  'pluginNotify.inputNeeded.permission': 'Waiting for permission.',
+  'pluginNotify.inputNeeded.question': 'Waiting for an answer to a question.',
+  'pluginNotify.inputNeeded': 'Waiting for input.',
+  'pluginNotify.runFailed': 'Run {ordinal} failed ({done} of {total} Tasks done).',
+  'pluginNotify.completionExhausted': 'The completion checks of {task} used every repair.',
+  'pluginNotify.limitWaitingAt': 'Stopped at a usage limit; trying again at {time}.',
+  'pluginNotify.limitWaiting': 'Stopped at a usage limit.',
+  'pluginNotify.runCompleted': 'Run {ordinal} finished.',
+  'pluginNotify.accountSwitched': 'Continuing on the {label} account.'
 }
