@@ -59,3 +59,50 @@ export interface PluginDefinition {
 export function definePlugin<T extends PluginDefinition>(definition: T): T {
   return definition
 }
+
+/** The kinds of notification Astera sends a `notification` plugin, most pressing first. A provider offers a setting
+ *  for the ones it leaves out; Astera sends all of them. Astera's own copy of this list is checked against this one. */
+export const NOTIFICATION_KINDS = [
+  'question.created',
+  'session.input_needed',
+  'run.failed',
+  'completion.exhausted',
+  'session.limit_waiting',
+  'run.completed',
+  'session.account_switched'
+] as const
+export type NotificationKind = (typeof NOTIFICATION_KINDS)[number]
+
+/** How much it matters: `action` waits on the person, `error` failed, `warning` stopped for now, `info` went on. */
+export type NotificationLevel = 'action' | 'error' | 'warning' | 'info'
+
+/** Something worth telling a person, already worded by Astera in the language the app is set to: post `title` and
+ *  `body` as they are. */
+export interface AsteraNotification {
+  /** The event's id: a notification can come twice, so drop one you have seen. */
+  readonly id: string
+  /** The event's type. A later Astera may send a kind this list does not name yet: post it by its title and body. */
+  readonly kind: NotificationKind | (string & {})
+  readonly level: NotificationLevel
+  /** What it is about: a Job's objective, or a session's title. */
+  readonly title: string
+  /** One sentence. */
+  readonly body: string
+  readonly occurredAt: string
+  /** The whole event, for its ids and detail. */
+  readonly event: AsteraEvent
+}
+
+/** A plugin of the `notification` capability (`astera.capabilities: ["notification"]`, with the `events.subscribe`
+ *  permission). */
+export interface NotificationProvider extends PluginDefinition {
+  /** Each notification, in order, one at a time, once `activate` has resolved. Throw or reject to have it sent again
+   *  (after 1 s, doubling to 5 min, for an hour); it must settle within 30 s. A notification older than an hour when
+   *  its turn comes is not sent. */
+  send: (notification: AsteraNotification, ctx: PluginContext) => void | Promise<void>
+}
+
+/** The provider an entry file exports as its default. */
+export function defineNotificationProvider<T extends NotificationProvider>(provider: T): T {
+  return provider
+}

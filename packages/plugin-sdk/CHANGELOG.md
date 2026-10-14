@@ -6,8 +6,13 @@ is the guide.
 ## 0.2.0
 
 - `onEvent` on a plugin: the `event` capability, which hands the plugin each of Astera's events in order, from where
-  it left off, and tries an event again when the handler throws. It needs Astera 1.4.14 or later, and
-  `@astera-app/client` 0.2.0 or later, whose events include the session events.
+  it left off, and tries an event again when the handler throws.
+- `defineNotificationProvider` and its `send`: the `notification` capability, which hands the plugin each thing worth
+  telling a person (a question, a session waiting, a failed or finished Run, a usage limit), worded by Astera in the
+  person's language. `NOTIFICATION_KINDS` lists the kinds, for a provider's setting of the ones it leaves out.
+
+Both need Astera 1.4.14 or later. The plugin SDK needs `@astera-app/client` 0.2.0 or later, whose events include the
+session events.
 
 ## 0.1.0
 

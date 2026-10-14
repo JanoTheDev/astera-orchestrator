@@ -27,8 +27,9 @@ describe('build-packages', () => {
       for (const f of ['esm/index.js', 'esm/index.d.ts', 'cjs/index.js', 'cjs/index.d.ts']) expect(existsSync(path.join(dist, f)), f).toBe(true)
       const esm = await import(pathToFileURL(path.join(dist, 'esm', 'index.js')).href)
       const cjs = createRequire(import.meta.url)(path.join(dist, 'cjs', 'index.js'))
-      expect(Object.keys(esm).sort()).toEqual(['PLUGIN_API_VERSION', 'definePlugin'])
-      expect(Object.keys(cjs).filter((k) => k !== '__esModule').sort()).toEqual(['PLUGIN_API_VERSION', 'definePlugin'])
+      const exported = ['NOTIFICATION_KINDS', 'PLUGIN_API_VERSION', 'defineNotificationProvider', 'definePlugin']
+      expect(Object.keys(esm).sort()).toEqual(exported)
+      expect(Object.keys(cjs).filter((k) => k !== '__esModule').sort()).toEqual(exported)
       const def = { activate() {} }
       expect(esm.definePlugin(def)).toBe(def)
       expect(cjs.definePlugin(def)).toBe(def)
