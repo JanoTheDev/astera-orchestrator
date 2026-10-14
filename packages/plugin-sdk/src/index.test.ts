@@ -2,10 +2,14 @@ import { describe, it, expect } from 'vitest'
 import type { AsteraEvent, EventGap } from '@astera-app/client'
 import {
   NOTIFICATION_KINDS,
+  defineCompletionCheckProvider,
   defineJobSourceProvider,
   defineNotificationProvider,
   definePlugin,
   type AsteraNotification,
+  type CompletionCheckDiagnostic,
+  type CompletionCheckInput,
+  type CompletionCheckResult,
   type JobSourceContext,
   type JobSourceItemDetail,
   type JobSourcePage,
@@ -80,5 +84,26 @@ describe('@astera-app/plugin-sdk', () => {
     defineJobSourceProvider({ listItems: () => ({ items: [{ id: 'x' }] }), getItem: (id: string) => ({ id, title: 't' }), buildJobContext: () => ({ objective: 'o', sourceLabel: 'l' }) })
     // @ts-expect-error a context needs a sourceLabel
     defineJobSourceProvider({ listItems: () => ({ items: [] }), getItem: (id: string) => ({ id, title: 't' }), buildJobContext: () => ({ objective: 'o' }) })
+  })
+
+  // Plugin Phase 5 C1: the completion-check capability's provider
+  it('defineCompletionCheckProvider hands back the provider, and a provider is its runCheck', async () => {
+    const p = defineCompletionCheckProvider({
+      async runCheck(input: CompletionCheckInput, ctx: PluginContext): Promise<CompletionCheckResult> {
+        void ctx
+        const found: CompletionCheckDiagnostic[] = [{ file: 'src/a.js', line: 2, message: 'adds console.log', severity: 'error' }]
+        return input.workspace.base === undefined
+          ? { status: 'passed' }
+          : { status: 'failed', summary: '1 leftover', diagnostics: found, externalUrl: 'https://ci.example/1' }
+      }
+    })
+    const input: CompletionCheckInput = { jobId: 'j', runId: 'r', taskId: 't', task: { title: 'x' }, workspace: { root: '/w', base: 'abc' } }
+    expect((await p.runCheck(input, {} as PluginContext)).status).toBe('failed')
+    // @ts-expect-error a provider has runCheck
+    defineCompletionCheckProvider({ activate() {} })
+    // @ts-expect-error a status is passed, failed or error
+    defineCompletionCheckProvider({ runCheck: () => ({ status: 'ok' }) })
+    // @ts-expect-error a finding needs a message
+    defineCompletionCheckProvider({ runCheck: () => ({ status: 'failed', diagnostics: [{ file: 'a.js' }] }) })
   })
 })

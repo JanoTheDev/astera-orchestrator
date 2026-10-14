@@ -170,3 +170,50 @@ export interface JobSourceProvider extends PluginDefinition {
 export function defineJobSourceProvider<T extends JobSourceProvider>(provider: T): T {
   return provider
 }
+
+/** What a completion check is asked about: the Task and the folder its checks run in. `root` is the Task's worktree, or
+ *  the project folder; `base` is the commit the Task's work started from and `head` the one its last attempt reached,
+ *  when Astera recorded them, so a check can look at what the Task changed. A check configured per project reads the
+ *  project's own files under `root`; the plugin's settings are the rest of its configuration. */
+export interface CompletionCheckInput {
+  projectId?: string
+  jobId: string
+  runId: string
+  taskId: string
+  task: { title: string }
+  workspace: { root: string; base?: string; head?: string; branch?: string }
+}
+
+/** One finding. Astera keeps a `message` (required) of up to 1,000 characters, a `file` of up to 500, a `line` that is a
+ *  positive integer and a `severity` that is one of the two, and drops what is not. */
+export interface CompletionCheckDiagnostic {
+  file?: string
+  line?: number
+  message: string
+  severity?: 'error' | 'warning'
+}
+
+/** A check's answer. `passed` lets the Task's next check run. `failed` is the code's fault: the Task's repair request
+ *  carries your summary, your first 20 findings as `file:line message` and your link, and the Task fails where its Job
+ *  repairs nothing. `error` says the check could not be made (a service down, a missing token): Astera asks once more,
+ *  then puts it to a person, and no repair is spent on it. `summary` is cut at 1,000 characters (the status word when
+ *  there is none), `diagnostics` keep the first 100, and `externalUrl` is kept when it is http or https within 2,048. */
+export interface CompletionCheckResult {
+  status: 'passed' | 'failed' | 'error'
+  summary?: string
+  diagnostics?: CompletionCheckDiagnostic[]
+  externalUrl?: string
+}
+
+/** A plugin of the `completion-check` capability (`astera.capabilities: ["completion-check"]`, with no permission):
+ *  Astera asks it when a Task whose checks name `plugin:<its id>` is done, in the order the Task lists its checks. A
+ *  call has 30 minutes. Throw or reject to say the check could not be made: it counts as `error`, with your message. A
+ *  plugin missing `runCheck` does not start. */
+export interface CompletionCheckProvider extends PluginDefinition {
+  runCheck: (input: CompletionCheckInput, ctx: PluginContext) => CompletionCheckResult | Promise<CompletionCheckResult>
+}
+
+/** The provider an entry file exports as its default. */
+export function defineCompletionCheckProvider<T extends CompletionCheckProvider>(provider: T): T {
+  return provider
+}

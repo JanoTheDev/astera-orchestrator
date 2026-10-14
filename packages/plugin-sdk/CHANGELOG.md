@@ -14,8 +14,12 @@ is the guide.
   (`JobSourceItem`, `JobSourcePage`, `JobSourceItemDetail`, `JobSourceContext`): the `job-source` capability, from
   which a person, the `astera sources` commands and MCP clients pick a ticket to make a Job from. The Job is named by
   the first line of the context's `objective`, so a provider starts it with the item's title.
+- `defineCompletionCheckProvider` and its `runCheck`, with the types it is asked with and answers
+  (`CompletionCheckInput`, `CompletionCheckResult`, `CompletionCheckDiagnostic`): the `completion-check` capability,
+  which a Task names among its checks as `plugin:<id>`. Its `failed` goes to the Task's repair loop with its findings;
+  its `error` is asked once more, then put to a person.
 
-All three need Astera 1.4.14 or later. The plugin SDK needs `@astera-app/client` 0.2.0 or later, whose events include the
+All four need Astera 1.4.14 or later. The plugin SDK needs `@astera-app/client` 0.2.0 or later, whose events include the
 session events.
 
 ## 0.1.0

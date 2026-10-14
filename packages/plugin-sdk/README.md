@@ -33,7 +33,10 @@ that names the `notification` capability gets each notification, worded for a pe
 `defineNotificationProvider` types. One that names the `job-source` capability is asked for tickets a Job can be made
 from, in its `listItems`, `getItem` and `buildJobContext`
 ([job source plugins](https://github.com/parsingk/Astera/blob/main/docs/plugins.md#job-source-plugins)), which
-`defineJobSourceProvider` types.
+`defineJobSourceProvider` types. One that names the `completion-check` capability is asked whether a Task's work
+passes, in its `runCheck`
+([completion check plugins](https://github.com/parsingk/Astera/blob/main/docs/plugins.md#completion-check-plugins)),
+which `defineCompletionCheckProvider` types.
 
 Plugins run trusted code on the person's machine: a plugin can do anything they can, and its permissions limit only
 what it asks Astera for.
