@@ -14,6 +14,7 @@
 //
 // Imports only core modules and this folder: this bundles into the Host.
 import { createAttentionState } from '../core/sessions/attention'
+import { createPendingPromptState } from '../core/sessions/pendingPrompt'
 import { hookEventPrompt } from '../core/hooks/sessionState'
 import { parseSessionSignal, type SignalSession } from '../core/sessions/sessionSignal'
 import type { EventDraft } from '../core/orchestration/publicEvents'
@@ -35,10 +36,19 @@ export interface HostSessionEvents {
   forwarded(raw: unknown): void
   /** Settles once every event noticed so far is recorded. */
   settled(): Promise<void>
+  /** How many sessions it keeps anything for (at most SESSION_EVENTS_TRACKED_MAX). For tests and diagnostics. */
+  tracked(): number
   dispose(): void
 }
 
+/** The most sessions the recorder keeps anything for. A session ends in this Host's registries and is forgotten then,
+ *  but some never do (a pty an app started before it reached the Host, a chat status that lands after its proc's
+ *  exit), so the least recently heard is forgotten past this many: a Host that runs for weeks keeps a bounded set
+ *  (final review m1). A forgotten session that turns to waiting later is told as a fresh turn into it. */
+export const SESSION_EVENTS_TRACKED_MAX = 1000
+
 type Prompt = 'permission' | 'question' | null
+type Kind = SignalSession['kind']
 type ChatSignal = { type: 'status'; status: Attention } | { type: 'request'; request: 'approval' | 'question' | null }
 
 export function createHostSessionEvents(d: {
@@ -61,34 +71,39 @@ export function createHostSessionEvents(d: {
   const attention = createAttentionState()
   /** What each session would be waiting on, were it to turn to waiting now. */
   const asking = new Map<string, Prompt>()
-  /** Sessions with an AskUserQuestion call outstanding: the prompt that comes up for it is a question. */
-  const questions = new Set<string>()
-  const kinds = new Map<string, SignalSession['kind']>()
-  /** The session as an app forwarded it, for a session the Host has no row for. */
+  /** The call each terminal session waits on, by the app's own rules (pendingPrompt.ts): the latest PreToolUse wins, and a
+   *  turn end from before the latest prompt is the previous turn's. A waiting on an AskUserQuestion is a question. */
+  const pending = createPendingPromptState()
+  const kinds = new Map<string, Kind>()
+  /** The chat as an app forwarded it, for a chat the Host has no row for. A forwarded roll carries its own. */
   const told = new Map<string, SignalSession>()
+  /** The sessions any of these maps holds, least recently heard first. */
+  const order = new Map<string, true>()
   let queue: Promise<void> = Promise.resolve()
   let disposed = false
 
-  const sessionOf = async (id: string): Promise<SignalSession> => {
+  /** The session as the Host's row has it, else as the app told it, else its id and the kind its signal implies. */
+  const sessionOf = async (id: string, fallback: SignalSession | undefined, kind: Kind | undefined): Promise<SignalSession> => {
     let found: HostSession | null = null
     try {
       found = await d.sessionById(id)
     } catch (err) {
       log(`session ${id} could not be read: ${String(err)}`)
     }
-    const known = found ?? told.get(id) ?? null
+    const known = found ?? fallback ?? null
     return {
       id,
-      kind: known?.kind ?? kinds.get(id) ?? 'terminal',
+      kind: known?.kind ?? kind ?? 'terminal',
       ...(known?.title ? { title: known.title } : {}),
       ...(known?.provider ? { provider: known.provider } : {}),
       ...(known?.cwd ? { cwd: known.cwd } : {})
     }
   }
 
-  const record = (sessionId: string, type: EventType, rest: Record<string, unknown>): void => {
+  /** Queued behind the events before it; what the session is known by is taken now, before anything can forget it. */
+  const record = (sessionId: string, type: EventType, rest: Record<string, unknown>, fallback = told.get(sessionId), kind = kinds.get(sessionId)): void => {
     queue = queue.then(async () => {
-      const session = await sessionOf(sessionId)
+      const session = await sessionOf(sessionId, fallback, kind)
       try {
         d.record([{ type, sessionId, payload: { session, ...rest } }])
       } catch (err) {
@@ -101,7 +116,27 @@ export function createHostSessionEvents(d: {
     if (value === 'waiting') record(sessionId, 'session.input_needed', { prompt: asking.get(sessionId) ?? null })
   })
 
+  const ended = (sessionId: string): void => {
+    attention.forget(sessionId)
+    asking.delete(sessionId)
+    pending.forget(sessionId)
+    kinds.delete(sessionId)
+    told.delete(sessionId)
+    order.delete(sessionId)
+  }
+
+  /** The session was just heard from: it is the most recent, and the least recent past the bound is forgotten. */
+  const touch = (sessionId: string): void => {
+    order.delete(sessionId)
+    order.set(sessionId, true)
+    for (const oldest of order.keys()) {
+      if (order.size <= SESSION_EVENTS_TRACKED_MAX) break
+      ended(oldest)
+    }
+  }
+
   const onChat = (sessionId: string, e: ChatSignal): void => {
+    touch(sessionId)
     kinds.set(sessionId, 'chat')
     // A chat's adapter emits its request before the status it puts the session in (adapterCore.ts flush), so the
     // prompt is known when the status turns to waiting.
@@ -109,19 +144,16 @@ export function createHostSessionEvents(d: {
     else attention.set(sessionId, e.status)
   }
 
-  const onRoll = (e: RollStateEvent): void => {
+  /** A roll keeps nothing: it records or not by itself, with the session an app forwarded it with, if any. */
+  const onRoll = (e: RollStateEvent, from?: SignalSession): void => {
     if (e.reattach) return
-    if (e.state === 'waiting')
-      record(e.sessionId, 'session.limit_waiting', { ...(e.scope ? { scope: e.scope } : {}), ...(e.nextRetryAt ? { nextRetryAt: e.nextRetryAt } : {}) })
-    else if (e.state === 'switching' && e.accountLabel) record(e.sessionId, 'session.account_switched', { accountLabel: e.accountLabel })
-  }
-
-  const ended = (sessionId: string): void => {
-    attention.forget(sessionId)
-    asking.delete(sessionId)
-    questions.delete(sessionId)
-    kinds.delete(sessionId)
-    told.delete(sessionId)
+    const rest =
+      e.state === 'waiting'
+        ? { type: 'session.limit_waiting' as const, payload: { ...(e.scope ? { scope: e.scope } : {}), ...(e.nextRetryAt ? { nextRetryAt: e.nextRetryAt } : {}) } }
+        : e.state === 'switching' && e.accountLabel
+          ? { type: 'session.account_switched' as const, payload: { accountLabel: e.accountLabel } }
+          : null
+    if (rest !== null) record(e.sessionId, rest.type, rest.payload, from ?? told.get(e.sessionId), from?.kind ?? kinds.get(e.sessionId))
   }
 
   const guard = (what: string, fn: () => void): void => {
@@ -160,13 +192,11 @@ export function createHostSessionEvents(d: {
     onHookEvent: (sessionId, payload) =>
       guard('a hook event', () => {
         if (typeof payload !== 'object' || payload === null) return
-        const p = payload as { hook_event_name?: unknown; tool_name?: unknown }
+        touch(sessionId)
         kinds.set(sessionId, 'terminal')
-        if (p.hook_event_name === 'PreToolUse' && p.tool_name === 'AskUserQuestion') questions.add(sessionId)
-        else if ((p.hook_event_name === 'PostToolUse' && p.tool_name === 'AskUserQuestion') || p.hook_event_name === 'Stop' || p.hook_event_name === 'StopFailure')
-          questions.delete(sessionId)
+        pending.onHookEvent(sessionId, payload)
         // Set before attention hears the event: its subscriber, which records, runs inside onHookEvent.
-        asking.set(sessionId, questions.has(sessionId) ? 'question' : hookEventPrompt(payload))
+        asking.set(sessionId, pending.get(sessionId)?.tool === 'AskUserQuestion' ? 'question' : hookEventPrompt(payload))
         attention.onHookEvent(sessionId, payload)
       }),
     onRollState: (e) => guard('a roll state', () => onRoll(e)),
@@ -176,16 +206,16 @@ export function createHostSessionEvents(d: {
         if (s === null) return log(`a malformed session signal was dropped: ${String(JSON.stringify(raw)).slice(0, 200)}`)
         if (s.kind === 'chat') {
           if (d.chats?.has(s.session.id)) return
+          // Kept first: a first signal that is already the waiting records inside onChat, and is named by it.
           told.set(s.session.id, s.session)
           onChat(s.session.id, s.event)
         } else {
           if (d.rolling?.has(s.session.id)) return
-          told.set(s.session.id, s.session)
-          kinds.set(s.session.id, s.session.kind)
-          onRoll(s.event)
+          onRoll(s.event, s.session)
         }
       }),
     settled: () => queue,
+    tracked: () => order.size,
     dispose() {
       disposed = true
       for (const off of offs) off()

@@ -2,7 +2,7 @@
 // Host's own chats and chains, and what an app forwards become `session.*` drafts, by the rules the desktop
 // notifications follow. The registries and chats are small fakes: only their callbacks are read.
 import { describe, it, expect } from 'vitest'
-import { createHostSessionEvents } from './sessionEvents'
+import { createHostSessionEvents, SESSION_EVENTS_TRACKED_MAX } from './sessionEvents'
 import type { EventDraft } from '../core/orchestration/publicEvents'
 import type { HostSession } from '../core/orchestration/command'
 import type { ChatEvent } from '../core/chat/types'
@@ -30,13 +30,15 @@ function rig(
   const chatListeners = new Set<(id: string, e: ChatEvent) => void>()
   const metas = new Map<string, { kind: 'session'; id: string; restore: Record<string, unknown> }>()
   const procs: Array<{ id: string; alive: boolean; meta?: { kind: 'chat'; id: string; restore: Record<string, unknown> } }> = []
+  /** A session's live pty, as `sessionPty` answers it: a respawn that keeps the id opens its new pty first. */
+  const livePty = new Map<string, string>()
   const events = createHostSessionEvents({
     record: o.record ?? ((d) => drafts.push(...d)),
     sessionById: o.lookup ?? (async (id) => o.rows?.[id] ?? null),
     registry: {
       onExit: (cb) => (exits.add(cb), () => exits.delete(cb)),
       metaOf: (id) => metas.get(id) ?? null,
-      sessionPty: () => null
+      sessionPty: (id) => livePty.get(id) ?? null
     },
     procs: { onExit: (cb) => (procExits.add(cb), () => procExits.delete(cb)), list: () => procs as never },
     chats: { subscribe: (fn) => (chatListeners.add(fn), () => chatListeners.delete(fn)), has: (id) => (o.heldChats ?? []).includes(id) },
@@ -49,11 +51,13 @@ function rig(
     logged,
     listening: () => exits.size + procExits.size + chatListeners.size,
     chat: (id: string, e: ChatEvent) => chatListeners.forEach((l) => l(id, e)),
-    ptyExit: (ptyId: string, sessionId: string) => {
+    ptyExit: (ptyId: string, sessionId: string, respawnedAs?: string) => {
       metas.set(ptyId, { kind: 'session', id: sessionId, restore: {} })
+      if (respawnedAs) livePty.set(sessionId, respawnedAs)
       exits.forEach((cb) => cb(ptyId, 0))
     },
-    procExit: (procId: string, sessionId: string) => {
+    procExit: (procId: string, sessionId: string, liveSibling?: string) => {
+      if (liveSibling) procs.push({ id: liveSibling, alive: true, meta: { kind: 'chat', id: sessionId, restore: {} } })
       procs.push({ id: procId, alive: false, meta: { kind: 'chat', id: sessionId, restore: {} } })
       procExits.forEach((cb) => cb(procId, 0))
     }
@@ -77,8 +81,30 @@ describe('the Host session events', () => {
 
   it('says question for an AskUserQuestion that waits', async () => {
     const r = rig({ rows: { s1: row('s1') } })
-    r.events.onHookEvent('s1', hook('PreToolUse', { tool_use_id: 't1', tool_name: 'AskUserQuestion' }))
+    r.events.onHookEvent('s1', hook('PreToolUse', { tool_use_id: 't1', tool_name: 'AskUserQuestion', tool_input: {} }))
     r.events.onHookEvent('s1', permissionPrompt)
+    await r.events.settled()
+    expect(r.drafts.map((d) => (d.payload as { prompt: unknown }).prompt)).toEqual(['question'])
+  })
+
+  // Final review m2: the waiting call follows pendingPrompt's rules (src/core/sessions/pendingPrompt.ts): the latest
+  // PreToolUse wins, and a turn end from before the latest prompt is the previous turn's
+  it('says permission once a declined question is followed by another call', async () => {
+    const r = rig({ rows: { s1: row('s1') } })
+    r.events.onHookEvent('s1', hook('PreToolUse', { tool_use_id: 'q', tool_name: 'AskUserQuestion', tool_input: {} }))
+    // declined: no PostToolUse for it, and the turn goes on to a Bash call that needs permission
+    r.events.onHookEvent('s1', hook('PreToolUse', { tool_use_id: 'b', tool_name: 'Bash', tool_input: { command: 'ls' } }))
+    r.events.onHookEvent('s1', permissionPrompt)
+    await r.events.settled()
+    expect(r.drafts.map((d) => (d.payload as { prompt: unknown }).prompt)).toEqual(['permission'])
+  })
+
+  it('keeps a question up when the previous turn’s StopFailure lands late', async () => {
+    const r = rig({ rows: { s1: row('s1') } })
+    r.events.onHookEvent('s1', hook('UserPromptSubmit', { astera_at: 2000 }))
+    r.events.onHookEvent('s1', hook('PreToolUse', { tool_use_id: 'q', tool_name: 'AskUserQuestion', tool_input: {}, astera_at: 2100 }))
+    r.events.onHookEvent('s1', hook('StopFailure', { astera_at: 1900 }))
+    r.events.onHookEvent('s1', hook('Notification', { notification_type: 'permission_prompt', message: 'm', astera_at: 2200 }))
     await r.events.settled()
     expect(r.drafts.map((d) => (d.payload as { prompt: unknown }).prompt)).toEqual(['question'])
   })
@@ -155,6 +181,13 @@ describe('the Host session events', () => {
     ])
   })
 
+  it('names a forwarded chat whose first signal is already its waiting', async () => {
+    const r = rig()
+    r.events.forwarded({ kind: 'chat', session: { id: 'c9', kind: 'chat', title: 'App chat' }, event: { type: 'status', status: 'waiting' } })
+    await r.events.settled()
+    expect(r.drafts).toEqual([{ type: 'session.input_needed', sessionId: 'c9', payload: { session: { id: 'c9', kind: 'chat', title: 'App chat' }, prompt: null } }])
+  })
+
   it('reads the session the Host has a row for over what the app forwarded', async () => {
     const r = rig({ rows: { s9: row('s9', { title: 'Host title' }) } })
     r.events.forwarded({ kind: 'roll-state', session: { id: 's9', kind: 'terminal', title: 'App title' }, event: { sessionId: 's9', state: 'switching', accountLabel: 'b' } })
@@ -215,6 +248,50 @@ describe('the Host session events', () => {
     r.chat('c1', { type: 'status', status: 'waiting' })
     await r.events.settled()
     expect(r.drafts).toHaveLength(2)
+  })
+
+  // Final review m4: an exit that is not the session's end keeps what the session is waiting on, so a prompt still up
+  // is not told again
+  it('does not end a session whose respawn kept its id', async () => {
+    const r = rig({ rows: { s1: row('s1') } })
+    r.events.onHookEvent('s1', hook('PreToolUse', { tool_use_id: 't1', tool_name: 'Bash' }))
+    r.events.onHookEvent('s1', permissionPrompt)
+    r.ptyExit('pty1', 's1', 'pty2')
+    r.events.onHookEvent('s1', permissionPrompt)
+    await r.events.settled()
+    expect(r.drafts).toHaveLength(1)
+  })
+
+  it('does not end a chat while another of its procs is alive', async () => {
+    const r = rig({ rows: { c1: row('c1', { kind: 'chat' }) } })
+    r.chat('c1', { type: 'status', status: 'waiting' })
+    r.procExit('p1', 'c1', 'p2')
+    r.chat('c1', { type: 'status', status: 'waiting' })
+    await r.events.settled()
+    expect(r.drafts).toHaveLength(1)
+  })
+
+  // Final review m1: what the recorder keeps per session is bounded for the Host's life. A session that never ends in
+  // this Host's registries (an app's own pty, a chat whose status lands after its exit) is forgotten oldest first.
+  it('keeps at most a bounded number of sessions, forgetting the oldest', async () => {
+    const r = rig()
+    for (let i = 0; i < SESSION_EVENTS_TRACKED_MAX + 5; i++) r.events.onHookEvent(`s${i}`, hook('PreToolUse', { tool_use_id: 't', tool_name: 'Bash' }))
+    expect(r.events.tracked()).toBe(SESSION_EVENTS_TRACKED_MAX)
+    // the oldest was forgotten, so its prompt is a fresh turn into waiting; the newest still knows its call
+    r.events.onHookEvent('s0', permissionPrompt)
+    r.events.onHookEvent(`s${SESSION_EVENTS_TRACKED_MAX + 4}`, permissionPrompt)
+    await r.events.settled()
+    expect(r.drafts.map((d) => d.sessionId)).toEqual(['s0', `s${SESSION_EVENTS_TRACKED_MAX + 4}`])
+    expect(r.events.tracked()).toBe(SESSION_EVENTS_TRACKED_MAX)
+  })
+
+  it('keeps nothing for a forwarded roll state, a final one after the session ended included', async () => {
+    const r = rig()
+    r.events.forwarded({ kind: 'roll-state', session: { id: 's9', kind: 'terminal', title: 'App term' }, event: { sessionId: 's9', state: 'none' } })
+    r.events.forwarded({ kind: 'roll-state', session: { id: 's9', kind: 'terminal', title: 'App term' }, event: { sessionId: 's9', state: 'waiting' } })
+    await r.events.settled()
+    expect(r.drafts).toEqual([{ type: 'session.limit_waiting', sessionId: 's9', payload: { session: { id: 's9', kind: 'terminal', title: 'App term' } } }])
+    expect(r.events.tracked()).toBe(0)
   })
 
   it('never throws: a record that throws is logged', async () => {

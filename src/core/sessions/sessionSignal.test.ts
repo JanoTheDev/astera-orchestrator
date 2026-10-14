@@ -32,6 +32,8 @@ describe('parseSessionSignal', () => {
       { kind: 'chat', session, event: { type: 'request', request: { kind: 'approval' } } },
       { kind: 'chat', session, event: { type: 'ready' } },
       { kind: 'chat', session },
+      // Final review m5: a chat signal names a chat
+      { kind: 'chat', session: { ...session, kind: 'terminal' }, event: { type: 'status', status: 'waiting' } },
       { kind: 'roll-state', session, event: { sessionId: 's2', state: 'waiting' } },
       { kind: 'roll-state', session, event: { sessionId: 's1' } },
       { kind: 'roll-state', session, event: { sessionId: 's1', state: 'switching', accountLabel: 5 } },

@@ -201,7 +201,7 @@ export function captureCommand(node: string, script: string): string {
 }
 
 /** The one tool whose PreToolUse/PostToolUse pair **every** session gets. Its `tool_input` is the question
- *  the conversation view draws as a card (main/pendingPrompt.ts → core/prompts/askUserQuestion.ts), and
+ *  the conversation view draws as a card (core/sessions/pendingPrompt.ts → core/prompts/askUserQuestion.ts), and
  *  a question is minutes apart, so the cost is one node process per question — the same order as Stop. */
 const ASK_MATCHER = 'AskUserQuestion'
 

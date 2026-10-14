@@ -410,7 +410,7 @@ export interface SchedStateEvent {
 export type Attention = 'idle' | 'working' | 'waiting'
 
 /** The tool call a session's Claude Code is waiting on, captured by the PreToolUse hook **before** the
- *  CLI draws its dialog (main/pendingPrompt.ts). `input` is the model's own tool input, untouched — for
+ *  CLI draws its dialog (core/sessions/pendingPrompt.ts). `input` is the model's own tool input, untouched — for
  *  `AskUserQuestion` the questions the conversation view draws as a card. Gone once the matching
  *  PostToolUse, or the turn's Stop, arrives. Only Claude sessions produce this: codex has no hooks. */
 export interface PendingToolPrompt {
@@ -912,7 +912,7 @@ export interface CoreEvents {
    *  verdict the desktop notifier already reads, so it fires for every session regardless of which
    *  tab, if any, is showing its conversation. */
   'conversation:attention': { sessionId: string; value: Attention }
-  /** A session's waiting tool call changed (main/pendingPrompt.ts's `subscribe`): captured, replaced, or
+  /** A session's waiting tool call changed (core/sessions/pendingPrompt.ts's `subscribe`): captured, replaced, or
    *  cleared (`prompt: null`). Not gated on an open conversation, like 'conversation:attention'. */
   'conversation:pendingPrompt': { sessionId: string; prompt: PendingToolPrompt | null }
   /** A chat session's adapter reported something (core/chat/manager.ts's `subscribe`). Not gated on an

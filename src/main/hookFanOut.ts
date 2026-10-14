@@ -27,7 +27,7 @@ export interface HookFanOutTaps {
   /** The one attention verdict (core/sessions/attention.ts) — see `fanOutHookEvent`'s own comment for why it
    *  runs first. */
   attention: HookFanOutTap
-  /** The pending-prompt capture (main/pendingPrompt.ts). Second, after `attention`, for the same reason
+  /** The pending-prompt capture (core/sessions/pendingPrompt.ts). Second, after `attention`, for the same reason
    *  `attention` is first: it produces a value other code reads, and a later tap that reads it should
    *  find it current. In its own `try`, like the others. */
   pendingPrompt: HookFanOutTap

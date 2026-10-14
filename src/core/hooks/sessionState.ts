@@ -15,7 +15,7 @@
 //   after this capture ran: no turn, no Stop, and `working` until something is typed.
 // - PreToolUse / PostToolUse: a tool call inside a turn that has not stopped yet → `working`.
 //   Except AskUserQuestion's PreToolUse, which is the question going up on screen → `waiting` (the
-//   same moment main/pendingPrompt.ts draws it as a card). Its PostToolUse is the answer → `working`.
+//   same moment core/sessions/pendingPrompt.ts draws it as a card). Its PostToolUse is the answer → `working`.
 // - Stop: the turn is over (the edge slack.ts posts its turn summary on) → `waiting` for the next one.
 // - StopFailure: fired *instead of* Stop when an API error (a limit, an auth failure) ends the turn
 //   → `waiting`, for the same reason.

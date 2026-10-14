@@ -28,7 +28,7 @@ import type { SessionSignalForwarder } from './sessionSignals'
 import type { DesktopNotifySettings } from '../core/notify/settings'
 import type { AttentionState, Attention } from '../core/sessions/attention'
 import { createRendererGate } from './rendererGate'
-import type { PendingPromptState } from './pendingPrompt'
+import type { PendingPromptState } from '../core/sessions/pendingPrompt'
 import {
   createConversationSessions,
   transcriptPathFor,
@@ -825,7 +825,7 @@ export function registerIpc(
    *  caught either, since `registerIpc` cannot be exercised without a full Electron harness. Requiring
    *  it turns that specific mistake into a type error at the one real call site. */
   attention: AttentionState,
-  /** The waiting-tool-call capture (main/pendingPrompt.ts). Required for the same reason `attention` is:
+  /** The waiting-tool-call capture (core/sessions/pendingPrompt.ts). Required for the same reason `attention` is:
    *  dropping it from index.ts's call must be a type error, not a dark feature. */
   pendingPrompt: PendingPromptState,
   rolling?: RollingCoordinator,

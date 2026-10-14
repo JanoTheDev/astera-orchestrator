@@ -46,6 +46,8 @@ export function parseSessionSignal(v: unknown): SessionSignal | null {
   if (session === null || !obj(v.event)) return null
   const e = v.event
   if (v.kind === 'chat') {
+    // A chat's signal names a chat: the Host would otherwise record a chat's waiting as a terminal's (final review m5).
+    if (session.kind !== 'chat') return null
     if (e.type === 'status' && STATUSES.has(e.status)) return { kind: 'chat', session, event: { type: 'status', status: e.status as Attention } }
     if (e.type === 'request' && (e.request === null || e.request === 'approval' || e.request === 'question'))
       return { kind: 'chat', session, event: { type: 'request', request: e.request } }

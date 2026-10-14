@@ -1,4 +1,4 @@
-// What an approval prompt is about, from the tool call the PreToolUse hook captured (main/pendingPrompt.ts).
+// What an approval prompt is about, from the tool call the PreToolUse hook captured (core/sessions/pendingPrompt.ts).
 // The banner quotes the CLI's screen for the question and the buttons; this adds, above that quote, the
 // one thing the screen shows least legibly — the command, or the file. Only the write/execute family
 // the hook matcher covers is known here; anything else is null and the banner is as it was.

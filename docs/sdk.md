@@ -295,9 +295,10 @@ checks carry no output; the `get` methods read the whole object.
 A session event's `session` is `{ id, kind, title?, provider?, cwd? }`, as `astera sessions list` shows it; `prompt` is
 `permission`, `question` or `null` when the Host cannot tell. They are what Astera's desktop notifications announce: a
 Claude terminal or a chat waiting (a Codex terminal says nothing the Host can read), and the usage-limit waits and
-account switches of Account Rolling. A Host records the sessions it runs; a paired Runtime's are in that Runtime's log.
-Hosts older than the session events answer `INVALID_ARGUMENT` to them in `types`, and a client from before them passes
-them on with an empty payload.
+account switches of Account Rolling. A Host records the sessions it runs; a paired Runtime's are in that Runtime's log,
+and a Host that cannot start sessions records none. Named in `types`, they are refused with `INVALID_ARGUMENTS` by a
+Host older than the session events, and by a client older than them before it asks; subscribed to without `types`, an
+older client passes them on with no `sessionId` and an empty payload.
 
 Events are notifications, not the state. Delivery is at least once and an `id` never repeats, so drop one you have
 seen; `sequence` orders the events of one log.

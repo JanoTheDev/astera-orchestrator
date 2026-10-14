@@ -59,7 +59,7 @@ import { HookEventWatcher } from '../core/hooks/eventWatcher'
 import { fanOutHookEvent } from './hookFanOut'
 import { DesktopNotifier } from './desktopNotifier'
 import { createAttentionState } from '../core/sessions/attention'
-import { createPendingPromptState } from './pendingPrompt'
+import { createPendingPromptState } from '../core/sessions/pendingPrompt'
 import { CodexRolloutWatcher } from '../core/sessions/codexRolloutWatcher'
 import { t } from '../core/i18n'
 import { loadPolicy, nextCheckDelayMs, parsePolicyUrl, shouldApplyCampaign } from './updatePolicy'
@@ -529,7 +529,7 @@ app.whenReady().then(async () => {
   // Notification payload itself, and ipc.ts's session-exit path forgets a session's entry here too
   // (its own comment there explains the lost-sight exception).
   const attention = createAttentionState()
-  // The waiting tool call per session (main/pendingPrompt.ts): what the conversation view draws a
+  // The waiting tool call per session (core/sessions/pendingPrompt.ts): what the conversation view draws a
   // question card from. Built here, beside attention, for the same two readers — the fan-out and ipc.
   const pendingPrompt = createPendingPromptState()
   // The second outlet on the same pipe (design doc §6). Electron's Notification was unused in this

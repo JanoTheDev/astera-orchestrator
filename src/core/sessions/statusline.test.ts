@@ -80,7 +80,7 @@ describe('StatusLineManager 훅 주입', () => {
 
   // 원래 회귀 가드가 지키려던 것은 "훅이 없다"가 아니라 "읽는 사람이 없는 훅에 프로세스를 쓰지
   // 않는다"였다. AskUserQuestion 짝은 이제 모든 세션이 읽는다 — 대화 뷰가 그 tool_input 으로 질문
-  // 카드를 그린다(main/pendingPrompt.ts). 질문은 몇 분에 한 번이라 Stop 과 같은 비용이다. 나머지
+  // 카드를 그린다(core/sessions/pendingPrompt.ts). 질문은 몇 분에 한 번이라 Stop 과 같은 비용이다. 나머지
   // 도구(Bash·Write·Edit…)는 호출마다 프로세스를 띄우므로 여전히 Slack·롤링 세션의 파일에만 있다.
   it('기본 설정 파일의 도구 훅 짝은 AskUserQuestion 만 본다', async () => {
     const settings = JSON.parse(await fs.readFile(path.join(dir, 'astera-statusline-settings.json'), 'utf8'))
