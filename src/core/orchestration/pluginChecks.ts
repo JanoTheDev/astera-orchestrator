@@ -104,6 +104,18 @@ export function checkAnswerOf(raw: unknown): Omit<PluginCheckAnswer, 'name'> {
   }
 }
 
+/** A check that could not be made, as a round a person let go on without it keeps it (C9 `skip-check`): not run,
+ *  marked skipped, the reason it could not be made in its words. */
+export function skippedResult(c: CheckResult): CheckResult {
+  return {
+    configId: c.configId,
+    name: c.name,
+    status: 'not-run',
+    skipped: true,
+    summary: clip(`Skipped by a person: ${c.summary ?? 'it could not be made'}`, CHECK_SUMMARY_MAX)
+  }
+}
+
 /** One finding as a repair request names it: `file:line message`, a warning said as one. */
 export function diagnosticLine(d: CheckDiagnostic): string {
   const where = d.file === undefined ? '' : `${d.file}${d.line !== undefined ? `:${d.line}` : ''} `

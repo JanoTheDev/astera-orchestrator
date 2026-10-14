@@ -28,6 +28,9 @@ import {
   nextDelivery,
   openDispatch,
   resolveGate,
+  answerCheckUnavailable,
+  isCheckUnavailableAnswer,
+  CHECK_UNAVAILABLE_OPTIONS,
   deleteRuns,
   deleteJobs,
   startJobRun,
@@ -3963,6 +3966,19 @@ export async function handleCommand(
       if (!gateId) return bad('--id is required')
       if (!resolution) return bad('--resolution is required')
       const gate = s.gates.find((g) => g.id === gateId)
+      // **A check that could not be made takes its three answers and no other** (plugin Phase 5 C9): the plain
+      // resolve below would move the Task to ready, and a worker would redo work that is done.
+      if (gate?.kind === 'check-unavailable' && gate.status === 'open') {
+        if (!isCheckUnavailableAnswer(resolution)) return bad(`answer one of ${CHECK_UNAVAILABLE_OPTIONS.join(', ')}`)
+        if (resolution !== 'mark-failed' && !deps.startValidation) return conflict('the checks cannot be run here')
+        const answered = answerCheckUnavailable(s, { gateId, resolution }, now)
+        if (!answered.ok) return answered.missing ? refused(answered) : conflict(answered.error)
+        deps.log?.(`gate-resolve: task=${gate.taskId} blocked -> ${resolution === 'mark-failed' ? 'failed' : 'validating'} (${resolution} on a check-unavailable Gate)`)
+        await deps.setState(answered.state)
+        // After the commit, as every start of checks is: the Task is validating before the runner reads it
+        if (answered.value.revalidate) deps.startValidation?.(answered.value.revalidate)
+        return okBody(answered.value.gate satisfies AnsweredQuestion)
+      }
       const r = resolveGate(s, { gateId, resolution }, now)
       if (!r.ok) return refused(r)
       // 소진 Gate 의 두 답(설계 §5.2). **다른 모든 Gate·다른 모든 resolution 은 지금처럼 풀린다** —
