@@ -39,6 +39,8 @@ import { nodeProcSpawn } from './nodeProc'
 import { HOST_FEATURE_ORCH, HOST_FEATURE_REQUESTS, HOST_PROTOCOL, HOST_YIELD_JOURNAL, HOST_YIELD_UNDERSTANDING, HOST_YIELD_WORK_UNITS, HOST_YIELD_WORKSPACE, HOST_YIELD_WORKTREES } from '../core/host/protocol'
 import { createHostJournal } from './hostJournal'
 import { createHostEventLog } from './eventLog'
+import { notificationOf } from '../core/plugins/notifications'
+import { pickInitialLang } from '../core/i18n/locale'
 import { createHostSessionEvents, type HostSessionEvents } from './sessionEvents'
 import { createHostUnderstanding } from './hostUnderstanding'
 import { createHostWorkUnits, readWorkUnitTracking, wireSessionExits, workUnitSessionsOf, type HostWorkUnits } from './hostWorkUnits'
@@ -691,7 +693,14 @@ async function main(): Promise<void> {
     orch: { call: (a) => orch.call(a) },
     log: (m) => log.write(m),
     // Event plugins are handed the public event log from a cursor of their own (plugin Phase 3 N1)
-    events: eventLog
+    events: eventLog,
+    // Notification plugins are sent each one worded in the app's language at the time, a Job by its objective as the
+    // state holds it then (N10). A Host with no checks (no spawner) reads no settings: the system's language
+    notify: (e) =>
+      notificationOf(e, {
+        lang: wiring?.checks.langNow() ?? pickInitialLang(Intl.DateTimeFormat().resolvedOptions().locale),
+        objectiveOf: (id) => orch.state().jobs.find((j) => j.id === id)?.objective
+      })
   })
   const plugins = createPluginManager({ profileDir, hostVersion, runtime: pluginRuntime, log: (m) => log.write(m) })
   const orch = createHostOrch({

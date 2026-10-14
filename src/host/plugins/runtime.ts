@@ -14,6 +14,8 @@ import { RPC_CLOSED, RPC_INTERNAL_ERROR, RPC_INVALID_PARAMS, RPC_METHOD_NOT_FOUN
 import { capabilityPermissionProblem, type PluginCapability } from '../../core/plugins/manifest'
 import { PluginSecretRefused, pluginCursor, pluginSecrets, type CursorStore } from './pluginData'
 import { DeliveryInterrupted, createDeliverer, type Deliverer, type DeliverySource, type DeliveryTimings } from './deliverer'
+import { NOTIFICATION_MAX_AGE_MS, type PluginNotification } from '../../core/plugins/notifications'
+import type { AsteraEvent } from '../../core/publicContract'
 import { openHostLog, type HostLog } from '../log'
 import { releaseLogWriter } from '../../core/log/logWriter'
 import { pluginsRoot } from './registry'
@@ -108,10 +110,15 @@ interface Slot {
   deliverer?: Deliverer
   /** The last deliverer's stop, until its cursor is written: a second stop and a start wait for it (final review M4). */
   delivering?: Promise<void>
+  /** The notifications skipped as older than NOTIFICATION_MAX_AGE_MS since the last line that counted them (N9). */
+  stale: string[]
 }
 
 /** The handler each capability is served through (plugin Phase 3 N5): a plugin whose entry lacks it does not start. */
-const HANDLER_OF: Partial<Record<PluginCapability, string>> = { event: 'onEvent' }
+const HANDLER_OF: Partial<Record<PluginCapability, string>> = { event: 'onEvent', notification: 'send' }
+
+/** The capabilities served from the event log by a deliverer (plugin Phase 3 N1). */
+const delivered = (p: PluginLaunch): boolean => p.capabilities.includes('event') || p.capabilities.includes('notification')
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
 
@@ -205,6 +212,9 @@ export function createPluginRuntime(d: {
   delivery?: Partial<DeliveryTimings>
   /** For tests: where an event plugin's cursor is kept (pluginCursor). */
   cursors?: (folder: string) => CursorStore
+  /** The notification for an event, worded for a person (plugin Phase 3 N10, notifications.ts), or null when the event
+   *  is not one. Absent: a notification plugin is sent nothing. */
+  notify?: (event: AsteraEvent) => PluginNotification | null
 }): PluginRuntime {
   const t: PluginTimings = { ...PLUGIN_TIMINGS, ...d.timings }
   const spawn = d.spawn ?? nodeSpawn
@@ -287,8 +297,17 @@ export function createPluginRuntime(d: {
     }
   }
 
-  /** The deliverer of an event plugin (plugin Phase 3 N1, N6-N8): it hands the plugin the event log from its cursor
-   *  while the plugin runs, and its lines go to the plugin's log. */
+  /** Counts the stale notifications skipped since the last such line, in one line (N9). */
+  const sayStale = (s: Slot): void => {
+    const n = s.stale.length
+    if (n === 0) return
+    const ids = n === 1 ? s.stale[0] : `${s.stale[0]} to ${s.stale[n - 1]}`
+    s.stale = []
+    say(s, `skipped ${n} notification${n === 1 ? '' : 's'} older than an hour (${ids})`)
+  }
+
+  /** The deliverer of an event or notification plugin (plugin Phase 3 N1, N6-N10): it hands the plugin the event log
+   *  from its cursor while the plugin runs, onEvent first and then send, and its lines go to the plugin's log. */
   const makeDeliverer = (s: Slot, events: DeliverySource): Deliverer =>
     createDeliverer({
       source: events,
@@ -297,15 +316,31 @@ export function createPluginRuntime(d: {
       deliver: async (item) => {
         const peer = s.peer
         if (!peer || s.state !== 'running') throw new DeliveryInterrupted('the plugin is not running')
-        try {
-          await peer.request('events.deliver', { event: item })
-        } catch (e) {
-          // The process ended under the delivery: it is started again, and the event goes again once it runs
-          if (e instanceof RpcError && e.code === RPC_CLOSED) throw new DeliveryInterrupted(e.message)
-          throw e
+        const ask = async (method: string, params: unknown): Promise<void> => {
+          try {
+            await peer.request(method, params)
+          } catch (e) {
+            // The process ended under the delivery: it is started again, and the event goes again once it runs
+            if (e instanceof RpcError && e.code === RPC_CLOSED) throw new DeliveryInterrupted(e.message)
+            throw e
+          }
         }
+        const caps = s.launch.capabilities
+        if (caps.includes('event')) await ask('events.deliver', { event: item })
+        if (!caps.includes('notification')) return
+        // N9: a notification plugin is told of a gap in its log only, and is sent no stale notification
+        if (item.type === 'gap') return say(s, 'events were lost before the next one (older than the log keeps): no notification was sent for them')
+        const n = d.notify?.(item) ?? null
+        if (n === null) return
+        if (Date.now() - Date.parse(n.occurredAt) > NOTIFICATION_MAX_AGE_MS) {
+          s.stale.push(n.id)
+          return
+        }
+        sayStale(s)
+        await ask('notifications.send', { notification: n })
       },
       log: (m) => say(s, m),
+      idle: () => sayStale(s),
       now,
       ...(d.delivery ? { timings: d.delivery } : {})
     })
@@ -511,7 +546,7 @@ export function createPluginRuntime(d: {
       void pending.then(() => start(p))
       return
     }
-    const slot: Slot = s ?? { launch: p, state: 'stopped', wanted: true, failures: 0, timers: new Set(), learned: new Map() }
+    const slot: Slot = s ?? { launch: p, state: 'stopped', wanted: true, failures: 0, timers: new Set(), learned: new Map(), stale: [] }
     slot.launch = p
     slot.terms = undefined
     slot.wanted = true
@@ -519,7 +554,7 @@ export function createPluginRuntime(d: {
     if (slot.state !== 'failed') slot.failures = 0
     slots.set(p.id, slot)
     // Kept through crashes and restarts, so the cursor in memory is not read back from the file each time
-    if (d.events && p.capabilities.includes('event')) slot.deliverer ??= makeDeliverer(slot, d.events)
+    if (d.events && delivered(p)) slot.deliverer ??= makeDeliverer(slot, d.events)
     if (slot.state === 'failed') return
     launch(slot)
   }
@@ -532,6 +567,7 @@ export function createPluginRuntime(d: {
     // Delivery ends first, so no event goes to a plugin on its way out, and its cursor is written before the stop is
     // over: a removal deletes the file after this, and nothing writes it again (plugin Phase 3 N6)
     if (s.deliverer) {
+      sayStale(s)
       const ending: Promise<void> = s.deliverer.stop().finally(() => {
         if (s.delivering === ending) s.delivering = undefined
       })

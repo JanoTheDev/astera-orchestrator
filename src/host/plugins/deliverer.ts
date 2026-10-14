@@ -69,6 +69,9 @@ export function createDeliverer(d: {
   deliver(item: AsteraEvent | EventGap): Promise<void>
   /** A line for the plugin's log. */
   log(m: string): void
+  /** Called each time it has handed over everything the log holds, before it waits for more (plugin Phase 3c: where
+   *  the stale notifications skipped on the way are counted in one line). */
+  idle?(): void
   /** A clock that only goes forward (final review M1): the give-up hour must not move with the time of day. */
   now?: () => number
   timings?: Partial<DeliveryTimings>
@@ -230,6 +233,7 @@ export function createDeliverer(d: {
         if (r.events.length === 0) move(r.cursor)
       }
       if (r.events.length === 0) {
+        d.idle?.()
         await Promise.race([d.source.next(IDLE_WAIT_MS), pause()])
         continue
       }

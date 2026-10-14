@@ -10,6 +10,7 @@ import { createPluginRuntime, type PluginLaunch, type PluginRuntime, type Plugin
 import { bundleLauncher } from '../../pluginHost/testkit'
 import { cursorFile, pluginSecrets, type CursorStore } from './pluginData'
 import { createEventRing, type EventRing } from '../../core/events/eventRing'
+import { notificationOf } from '../../core/plugins/notifications'
 import type { EventDraft } from '../../core/orchestration/publicEvents'
 
 let dir: string
@@ -66,6 +67,8 @@ function runtime(
     timings: { startMs: 60_000, stopGraceMs: 1_000, backoffMs: [50, 50, 50], stableMs: 30_000, failAfter: 3, ...timings },
     events: ring,
     delivery: { retryFirstMs: 50, retryMaxMs: 50 },
+    // Worded as the Host words them, in English, every Job's objective "Ship it"
+    notify: (e) => notificationOf(e, { lang: 'en', objectiveOf: () => 'Ship it' }),
     ...(extra.maxLine !== undefined ? { maxLine: extra.maxLine } : {}),
     ...(extra.cursors ? { cursors: extra.cursors } : {})
   })
@@ -80,6 +83,9 @@ function plugin(name: string, source: string, file = 'index.mjs'): PluginLaunch 
   writeFileSync(path.join(d, file), source)
   return { id: name, version: '1.0.0', folder: name, dir: d, entry: path.join(d, file), granted: ['projects.read'], capabilities: [], settings: {}, redact: [] }
 }
+
+/** A `notification` plugin (plugin Phase 3c): the capability, and the permission it needs. */
+const provider = (name: string, source: string): PluginLaunch => ({ ...plugin(name, source), capabilities: ['notification'], granted: ['events.subscribe'] })
 
 /** An `event` plugin (plugin Phase 3): the capability, and the permission it needs. */
 const eventPlugin = (name: string, source: string): PluginLaunch => ({ ...plugin(name, source), capabilities: ['event'], granted: ['events.subscribe'] })
@@ -582,5 +588,71 @@ describe('event plugins (plugin Phase 3 N1, N5-N8)', () => {
     await r.stop('ev6')
     expect(Date.now() - t0).toBeLessThan(10_000)
     expect(r.status('ev6')?.status).toBe('stopped')
+  }, 90_000)
+})
+
+describe('notification plugins (plugin Phase 3 N1, N9, N10)', () => {
+  const SEND = `export default { send(n, ctx) { ctx.log.info('sent ' + n.kind + ' ' + n.level + ' ' + n.title + ': ' + n.body + ' ' + n.id) } }`
+  /** Appends one event of `type` at `occurredAt`. */
+  const append = (ring: EventRing, type: string, occurredAt = new Date().toISOString(), payload: unknown = RUN): void =>
+    void ring.append([{ type, jobId: 'job_1', runId: 'run_1', payload } as EventDraft], occurredAt)
+
+  it('hands a provider each notification, worded, and nothing for other events', async () => {
+    const { r, ring } = runtime()
+    r.start(provider('n1', SEND))
+    await until(() => expect(r.status('n1')?.status).toBe('running'))
+    append(ring, 'job.created', undefined, { id: 'job_1', objective: 'Ship it' })
+    append(ring, 'run.completed')
+    await until(() => expect(logOf(r, 'n1')).toContain('sent run.completed info Ship it: Run 1 finished. ev_aaaaaaaaaaaa_2'))
+    expect(logOf(r, 'n1').match(/\[info\] sent /g)).toHaveLength(1)
+  }, 90_000)
+
+  it('calls onEvent, then send, for a plugin that names both', async () => {
+    const { r, ring } = runtime()
+    const both = `export default {
+      onEvent(e, ctx) { ctx.log.info('event ' + e.id) },
+      send(n, ctx) { ctx.log.info('sent ' + n.id) }
+    }`
+    r.start({ ...provider('n2', both), capabilities: ['event', 'notification'] })
+    await until(() => expect(r.status('n2')?.status).toBe('running'))
+    append(ring, 'run.completed')
+    await until(() => expect(logOf(r, 'n2')).toContain('sent ev_aaaaaaaaaaaa_1'))
+    expect(logOf(r, 'n2')).toMatch(/event ev_aaaaaaaaaaaa_1[\s\S]*sent ev_aaaaaaaaaaaa_1/)
+  }, 90_000)
+
+  // Review Focus 1
+  it('skips notifications older than an hour, counting them in one line, and sends the fresh ones', async () => {
+    const { r, ring } = runtime()
+    r.start(provider('n3', SEND))
+    await until(() => expect(r.status('n3')?.status).toBe('running'))
+    const old = new Date(Date.now() - 2 * 60 * 60_000).toISOString()
+    for (let i = 0; i < 3; i++) append(ring, 'run.completed', old)
+    append(ring, 'run.failed', undefined, { ...RUN, outcome: 'failed' })
+    await until(() => expect(logOf(r, 'n3')).toContain('sent run.failed error Ship it'))
+    const log = logOf(r, 'n3')
+    expect(log.match(/skipped/g)).toHaveLength(1)
+    expect(log).toContain('[host] skipped 3 notifications older than an hour (ev_aaaaaaaaaaaa_1 to ev_aaaaaaaaaaaa_3)')
+    expect(log).not.toContain('sent run.completed')
+  }, 90_000)
+
+  it('counts the stale ones once it has caught up, when no fresh one follows', async () => {
+    const { r, ring } = runtime()
+    r.start(provider('n4', SEND))
+    await until(() => expect(r.status('n4')?.status).toBe('running'))
+    append(ring, 'run.completed', new Date(Date.now() - 2 * 60 * 60_000).toISOString())
+    await until(() => expect(logOf(r, 'n4')).toContain('[host] skipped 1 notification older than an hour (ev_aaaaaaaaaaaa_1)'))
+  }, 90_000)
+
+  it('logs a gap for a provider, and hands it nothing', async () => {
+    const { r } = runtime({}, { cursors: () => ({ read: async () => 'ev_bbbbbbbbbbbb_9', write: async () => {} }) })
+    r.start(provider('n5', SEND))
+    await until(() => expect(logOf(r, 'n5')).toContain('[host] events were lost before the next one (older than the log keeps): no notification was sent for them'))
+    expect(logOf(r, 'n5')).not.toContain('[info] sent')
+  }, 90_000)
+
+  it('fails the start of a provider whose entry has no send, saying so', async () => {
+    const { r } = runtime({ failAfter: 1 })
+    r.start(provider('n6', 'export default { onEvent() {} }'))
+    await until(() => expect(r.status('n6')).toMatchObject({ status: 'failed', reason: expect.stringContaining('the notification capability needs send in its entry') }))
   }, 90_000)
 })
