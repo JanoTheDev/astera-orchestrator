@@ -25,7 +25,7 @@
 //   session's turn → no verdict. The app's notifiers err toward notifying on an unknown type; a
 //   state errs toward `unknown`, the answer that cannot be wrong.
 //
-// **Where this differs from main/attention.ts, and why.** Attention answers "does this session need
+// **Where this differs from core/sessions/attention.ts, and why.** Attention answers "does this session need
 // you": after a tool call returns it reads `idle`, and a bare `idle_prompt` leaves it alone, because
 // neither is a reason to raise a banner. This answers "is a turn running": a returned tool call is
 // still inside the turn, and `idle_prompt` ("Claude is waiting for your input") is emitted only when

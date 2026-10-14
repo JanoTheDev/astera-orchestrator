@@ -278,7 +278,7 @@ export class StatusLineManager {
     // The cost is one node process when a prompt appears.
     //
     // Stop goes into every session for the same reason, and it is what lets a session stop waiting.
-    // main/attention.ts reads Notification to learn a session is waiting on a person, and Stop or
+    // core/sessions/attention.ts reads Notification to learn a session is waiting on a person, and Stop or
     // PostToolUse to learn it no longer is. PostToolUse only ever fires when a call actually runs, so
     // a person who answers "no" produces neither — and without Stop here an ordinary session would
     // stay `waiting` for the rest of its life, with the conversation view's banner up and its

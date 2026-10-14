@@ -24,7 +24,7 @@ export interface HookFanOutTap {
 }
 
 export interface HookFanOutTaps {
-  /** The one attention verdict (main/attention.ts) — see `fanOutHookEvent`'s own comment for why it
+  /** The one attention verdict (core/sessions/attention.ts) — see `fanOutHookEvent`'s own comment for why it
    *  runs first. */
   attention: HookFanOutTap
   /** The pending-prompt capture (main/pendingPrompt.ts). Second, after `attention`, for the same reason

@@ -401,11 +401,11 @@ export interface SchedStateEvent {
   rule?: ScheduleRule // for the rule summary shown in the banner
 }
 
-/** Where a session stands right now (main/attention.ts's own type, restated here). This file cannot
+/** Where a session stands right now (core/sessions/attention.ts's own type, restated here). This file cannot
  *  import that module directly: it is compiled by tsconfig.web.json for the renderer too, and every
  *  entry in that config's include list resolves under src/core or src/renderer — nothing there ever
  *  reaches into src/main, unlike the softer, core-internal "role" boundary this file's note on
- *  orchestration/state.ts describes (above). So this is the single declaration, and main/attention.ts
+ *  orchestration/state.ts describes (above). So this is the single declaration, and core/sessions/attention.ts
  *  re-exports it rather than carrying a copy that would have to be kept in step by hand. */
 export type Attention = 'idle' | 'working' | 'waiting'
 
@@ -907,7 +907,7 @@ export interface CoreEvents {
    *  session reusing the path) since the last read, so the renderer should treat this as a fresh
    *  conversation rather than an addition to what it drew. */
   'conversation:append': { sessionId: string; turns: ConvTurn[]; restarted: boolean }
-  /** A session's attention verdict changed (main/attention.ts's `subscribe`). Unlike
+  /** A session's attention verdict changed (core/sessions/attention.ts's `subscribe`). Unlike
    *  'conversation:append' this is **not** gated on an open conversation — it is the same per-session
    *  verdict the desktop notifier already reads, so it fires for every session regardless of which
    *  tab, if any, is showing its conversation. */
@@ -2082,7 +2082,7 @@ export type RendererApi = CoreApi & {
     /** Stops reading this conversation while its tab is not showing, or reads it again (performance audit R4). What
      *  was written meanwhile arrives in one append on the resume. */
     pause(sessionId: string, paused: boolean): Promise<void>
-    /** One session's attention verdict (main/attention.ts), read once rather than waited for — the
+    /** One session's attention verdict (core/sessions/attention.ts), read once rather than waited for — the
      *  'conversation:attention' event only fires on a change, so a session already `waiting` (or
      *  `working`) when its pane mounts needs this to know that before the first change arrives, if
      *  one ever does. Independent of `open`: a fresh session on a trust prompt is `waiting` while

@@ -57,7 +57,7 @@ import { hearForwarded } from '../core/slack/forwarded'
 import { HookEventWatcher } from '../core/hooks/eventWatcher'
 import { fanOutHookEvent } from './hookFanOut'
 import { DesktopNotifier } from './desktopNotifier'
-import { createAttentionState } from './attention'
+import { createAttentionState } from '../core/sessions/attention'
 import { createPendingPromptState } from './pendingPrompt'
 import { CodexRolloutWatcher } from '../core/sessions/codexRolloutWatcher'
 import { t } from '../core/i18n'
@@ -522,7 +522,7 @@ app.whenReady().then(async () => {
       }
     }
   })
-  // The one attention verdict (main/attention.ts): is a session working, or waiting for a person,
+  // The one attention verdict (core/sessions/attention.ts): is a session working, or waiting for a person,
   // decided from the same hook stream Slack and the desktop sink already read. Constructed here,
   // beside them, and handed to both — the desktop sink below reads it instead of classifying a
   // Notification payload itself, and ipc.ts's session-exit path forgets a session's entry here too

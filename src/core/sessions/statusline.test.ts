@@ -100,7 +100,7 @@ describe('StatusLineManager 훅 주입', () => {
   })
 
   // Stop left the guard above deliberately, and the rule that guard states is why it could: it asks
-  // that no process be spent on a hook nobody reads, and main/attention.ts reads this one for every
+  // that no process be spent on a hook nobody reads, and core/sessions/attention.ts reads this one for every
   // session. It is the only event an ordinary session ever gets that can end a `waiting` value —
   // PostToolUse fires only when a call actually runs, so answering "no" to an approval produces
   // none, and without this the conversation view's banner and its locked composer never come back.

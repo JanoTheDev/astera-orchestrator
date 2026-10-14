@@ -25,7 +25,7 @@ import type { SlackConfig } from '../core/slack/config'
 import { codexRolloutFromNote, type CodexRolloutWatcher } from '../core/sessions/codexRolloutWatcher'
 import type { DesktopNotifier } from './desktopNotifier'
 import type { DesktopNotifySettings } from '../core/notify/settings'
-import type { AttentionState, Attention } from './attention'
+import type { AttentionState, Attention } from '../core/sessions/attention'
 import { createRendererGate } from './rendererGate'
 import type { PendingPromptState } from './pendingPrompt'
 import {
@@ -753,7 +753,7 @@ export function historyResumePlan(a: {
 }
 
 /**
- * Whether a session exit should forget its attention verdict (main/attention.ts), and does so.
+ * Whether a session exit should forget its attention verdict (core/sessions/attention.ts), and does so.
  *
  * **Not on a lost-sight exit** (`PTY_LOST_SIGHT_EXIT_CODE`): that code means the app lost its pty
  * handle, not that the session ended — the Host keeps running it, and no hook event arrives again
@@ -811,7 +811,7 @@ export function conversationAttentionOf(attention: Pick<AttentionState, 'get'>, 
 export function registerIpc(
   core: Core,
   win: BrowserWindow,
-  /** The one attention verdict (main/attention.ts). Built in index.ts alongside `desktop` and handed
+  /** The one attention verdict (core/sessions/attention.ts). Built in index.ts alongside `desktop` and handed
    *  the same instance — forgetting a session's verdict on exit, and pushing every change through
    *  `conversation:attention`, both read it. Required, not optional, and placed ahead of
    *  every optional parameter below (TypeScript refuses a required parameter after an optional one) —
@@ -7467,7 +7467,7 @@ export function registerIpc(
     conversationSessions.pause(sessionId, paused === true)
   })
   // Independent of open/more/close — a fresh session sitting on a trust prompt is `waiting` while
-  // `open` still answers null, so this reads main/attention.ts directly rather than folding onto
+  // `open` still answers null, so this reads core/sessions/attention.ts directly rather than folding onto
   // conversationSessions.
   ipcMain.handle('conversation.attention', (_e, sessionId: string) => conversationAttentionOf(attention, sessionId))
   ipcMain.handle('conversation.pendingPrompt', (_e, sessionId: string) => pendingPrompt.get(sessionId))
