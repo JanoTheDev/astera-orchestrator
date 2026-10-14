@@ -148,7 +148,8 @@ interface Slot {
 const HANDLER_OF: Partial<Record<PluginCapability, readonly string[]>> = {
   event: ['onEvent'],
   notification: ['send'],
-  'job-source': ['listItems', 'getItem', 'buildJobContext']
+  'job-source': ['listItems', 'getItem', 'buildJobContext'],
+  'completion-check': ['runCheck']
 }
 
 /** The capabilities served from the event log by a deliverer (plugin Phase 3 N1). */

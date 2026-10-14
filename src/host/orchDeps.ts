@@ -716,6 +716,7 @@ export function hostOrchDeps(a: {
   changes?: OrchServerDeps['changes']
   /** This Host's job-source plugins (plugin Phase 4 J10). Absent: the sources are GitHub's alone. */
   jobSources?: OrchServerDeps['jobSources']
+  completionChecks?: OrchServerDeps['completionChecks']
   /** The Host's own session work units (HOST_TRACKS, E2 §5), asked whether it is their writer at every
    *  call. Null or absent (no spawner): `trackingEnabled` and `sessionTasks.*` only forward, as before. */
   workUnits?: (Pick<HostWorkUnits, 'isWriter' | 'trackingEnabled'> & {
@@ -1293,6 +1294,7 @@ export function hostOrchDeps(a: {
     ...(a.readUnderstanding ? { readUnderstanding: a.readUnderstanding } : {}),
     ...(a.changes ? { changes: a.changes } : {}),
     ...(a.jobSources ? { jobSources: a.jobSources } : {}),
+    ...(a.completionChecks ? { completionChecks: a.completionChecks } : {}),
     ...(a.checkWaits
       ? {
           enterCheckWait: (runId: string, sessionId: string) => a.checkWaits!.enter(runId, sessionId),

@@ -847,6 +847,17 @@ describe('job-source plugins (plugin Phase 4 J6, J8)', () => {
     expect(requestFailure('js', new RpcError(-32603, 'listItems threw: 401 for sk-1'), hide)).toMatchObject({ status: 502, message: 'listItems threw: 401 for [redacted]' })
   })
 
+  // Plugin Phase 5 C1: a check plugin is served through runCheck, and one without it does not start
+  it('asks a running check plugin and answers what runCheck returned; one without runCheck does not start', async () => {
+    const { r } = runtime({ failAfter: 1 })
+    const check = (name: string, source: string): PluginLaunch => ({ ...plugin(name, source), capabilities: ['completion-check'], granted: [] })
+    r.start(check('cc1', `export default { runCheck(input) { return { status: 'passed', summary: 'checked ' + input.task.title } } }`))
+    await until(() => expect(r.status('cc1')?.status).toBe('running'))
+    expect(await r.request('cc1', 'completionCheck.run', { input: { task: { title: 'T' } } }, 5_000)).toEqual({ status: 'passed', summary: 'checked T' })
+    r.start(check('cc2', 'export default { listItems() {} }'))
+    await until(() => expect(r.status('cc2')).toMatchObject({ status: 'failed', reason: expect.stringContaining('the completion-check capability needs runCheck in its entry') }))
+  }, 90_000)
+
   it('fails the start of a job source whose entry lacks one of its functions, saying which', async () => {
     const { r } = runtime({ failAfter: 1 })
     r.start(sourcePlugin('js6', 'export default { listItems() {}, buildJobContext() {} }'))

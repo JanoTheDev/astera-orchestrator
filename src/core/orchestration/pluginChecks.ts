@@ -52,6 +52,15 @@ export const REPAIR_DIAGNOSTICS = 20
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
 const STATUSES: ReadonlySet<string> = new Set(['passed', 'failed', 'error'])
 
+/** Why plugin `id` cannot make a Task's check (C7), or null when it can: not installed, not offering completion checks,
+ *  or disabled. Whether it runs now is the runtime's to say, when it is asked. */
+export function pluginCheckMissing(id: string, p: { check: boolean; enabled: boolean } | undefined): string | null {
+  if (p === undefined) return `no plugin ${id} is installed`
+  if (!p.check) return `${id} does not offer completion checks`
+  if (!p.enabled) return `${id} is disabled`
+  return null
+}
+
 /** A check that could not be made, for the reason given (C5). */
 export const unavailable = (reason: string): Omit<PluginCheckAnswer, 'name'> => ({
   status: 'error',

@@ -10,6 +10,7 @@ import { stat } from 'node:fs/promises'
 import { jobsViewOf, runsTimelineOf, type RuntimeFacts } from './remoteReads'
 import { createPresence } from './presence'
 import { handleCommand, handleExit, type OrchServerDeps } from '../core/orchestration/command'
+import type { CompletionCheckInput } from '../core/orchestration/pluginChecks'
 import { OrchestrationStore, isValidState, type OrchLoadResult } from '../core/orchestration/store'
 import { applyPendingReports, readPendingReports, type QueuedReport } from '../core/orchestration/pendingDrain'
 import { dispatchesHeldOnlyByReport, pendingReportsDirIn, reportedDispatchIdsOf } from '../core/orchestration/pendingReports'
@@ -530,6 +531,10 @@ export function createHostOrch(a: {
   github?: OrchServerDeps['github']
   /** This Host's job-source plugins (plugin Phase 4 J10), from its plugin manager and runtime (host/jobSources.ts). */
   jobSources?: OrchServerDeps['jobSources']
+  /** This Host's completion check plugins (plugin Phase 5 C7, C8), from its plugin manager and runtime
+   *  (host/completionChecks.ts): the command layer's early refusals and checks read them, and the app asks through
+   *  `checks-plugin-run`. */
+  completionChecks?: OrchServerDeps['completionChecks']
   /** How It Works records (MCP P2-C), passed through to `hostOrchDeps`. Absent: the `understanding-*`
    *  commands answer 409. */
   readUnderstanding?: OrchServerDeps['readUnderstanding']
@@ -797,6 +802,7 @@ export function createHostOrch(a: {
       ...(a.readUnderstanding ? { readUnderstanding: a.readUnderstanding } : {}),
       ...(a.changes ? { changes: a.changes } : {}),
       ...(a.jobSources ? { jobSources: a.jobSources } : {}),
+      ...(a.completionChecks ? { completionChecks: a.completionChecks } : {}),
       workUnits: a.workUnits?.() ?? null,
       ...(a.journal ? { journalTimeline: (runId: string, st: OrchState) => a.journal!.timeline(runId, st) } : {}),
       onEffect: () => {
@@ -1757,6 +1763,18 @@ export function createHostOrch(a: {
           if (!a.slack) return { status: 501, body: { error: 'this Host does not own Slack' } }
           await a.slack.reload()
           return { status: 200, body: { reloaded: true, active: a.slack.active() } }
+        }
+        // **The app's Task checks, asking this Host's plugins (plugin Phase 5 C8).** Where the app drives a Task's checks,
+        // a `plugin:` check is asked here: plugins run in the Host. For the app alone (MCP, plugins, controllers and the
+        // CLI make no checks of their own); the answer is always 200, a plugin that could not answer being an `error`
+        // answer the checks read. Never a command layer command, never a receipt.
+        if (cmd === 'checks-plugin-run') {
+          if (from?.role !== 'app') return { status: 403, body: { error: 'checks-plugin-run is the app’s to send' } }
+          if (!a.completionChecks) return { status: 501, body: { error: 'this Host runs no completion check plugins' } }
+          const { plugin, input } = args
+          if (typeof plugin !== 'string' || plugin === '' || typeof input !== 'object' || input === null || Array.isArray(input))
+            return { status: 400, body: { error: 'checks-plugin-run needs a plugin and an input' } }
+          return { status: 200, body: await a.completionChecks.run(plugin, input as CompletionCheckInput) }
         }
         // **Beside slack-reload, for its reason (MCP HTTP design §3).** The settings screen, after it wrote
         // `mcpHttp`, has the Host read it again, and asks the entrance's state. Both answer the state. A reload
