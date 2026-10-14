@@ -18,21 +18,27 @@ import { createEventRing, type EventRing } from '../../src/core/events/eventRing
 import type { EventDraft } from '../../src/core/orchestration/publicEvents'
 import type { AsteraEvent } from '../../src/core/publicContract'
 import { bundleLauncher } from '../../src/pluginHost/testkit'
+import { notificationOf } from '../../src/core/plugins/notifications'
 import { runTsc } from '../../packages/client/test/typecheck'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const NOTIFIER = path.join(here, 'webhook-notifier')
 const ID = 'astera-webhook-notifier'
+const DISCORD = path.join(here, 'discord-notifier')
+const DISCORD_ID = 'astera-discord-notifier'
 
 let work: string
 let launcher: string
 /** The sample as `astera plugins install --path` copies it (2f final review m10): it runs from there, not the repo. */
 let installed: string
+let discordInstalled: string
 beforeAll(async () => {
   work = mkdtempSync(path.join(os.tmpdir(), 'astera-plugin samples '))
   launcher = await bundleLauncher(work)
   installed = path.join(work, 'installed', ID)
   await copyPluginFolder(NOTIFIER, installed)
+  discordInstalled = path.join(work, 'installed', DISCORD_ID)
+  await copyPluginFolder(DISCORD, discordInstalled)
 }, 60_000)
 afterAll(async () => {
   await removeFixture(work)
@@ -95,7 +101,9 @@ function runtime(o: { failAfter?: number; retain?: number } = {}) {
     timings: { startMs: 60_000, stopGraceMs: 2_000, backoffMs: [50, 50], stableMs: 30_000, failAfter: o.failAfter ?? 3 },
     events: ring,
     // Astera's own retries, quick: a failed post is handed over again
-    delivery: { retryFirstMs: 50, retryMaxMs: 50 }
+    delivery: { retryFirstMs: 50, retryMaxMs: 50 },
+    // Worded as the Host words them, in English, every Job's objective "Ship it"
+    notify: (e) => notificationOf(e, { lang: 'en', objectiveOf: () => 'Ship it' })
   })
   started.push(r)
   return { r, ring }
@@ -241,5 +249,104 @@ describe('the webhook notifier sample', () => {
     const e = append(ring, { type: 'completion.exhausted', jobId: 'job_1', runId: 'run_1', taskId: 'task_1', payload })
     await until(() => expect(hook.bodies).toHaveLength(1))
     expect(hook.bodies[0]).toEqual({ text: '"&lt;!channel&gt; &amp; &lt;b&gt;" ran out of repairs: a &lt; b', event: e })
+  }, 90_000)
+})
+
+describe('the Discord notifier sample', () => {
+  const settingsOf = (url: string, skip = 'session.account_switched') => ({ webhookUrl: url, skip })
+  const discordLaunch = (settings: Record<string, string | number | boolean>, redact: string[]) => ({
+    id: DISCORD_ID,
+    version: '0.1.0',
+    folder: DISCORD_ID,
+    dir: discordInstalled,
+    entry: path.join(discordInstalled, 'index.mjs'),
+    granted: ['events.subscribe'],
+    capabilities: ['notification' as const],
+    settings,
+    redact
+  })
+  const discordLog = (r: PluginRuntime): string => (existsSync(r.logFile(DISCORD_ID)) ? readFileSync(r.logFile(DISCORD_ID), 'utf8') : '')
+  async function discord(r: PluginRuntime, settings: Record<string, string | number | boolean>, redact: string[]): Promise<void> {
+    r.start(discordLaunch(settings, redact))
+    await until(() => expect(r.status(DISCORD_ID)?.status).toBe('running'))
+  }
+  const now = (): string => new Date().toISOString()
+  const SESSION = { id: 's1', kind: 'terminal', title: 'Fix the build', cwd: '/w/proj' }
+
+  it('is a manifest Astera installs: a notification plugin with the permission that needs, a secret webhook URL, and the kinds to leave out', () => {
+    const read = parseManifest(JSON.parse(readFileSync(path.join(DISCORD, 'package.json'), 'utf8')))
+    if (!read.ok) throw new Error(read.problems.join('; '))
+    expect(read.manifest).toMatchObject({ id: DISCORD_ID, apiVersion: '1', entry: 'index.mjs', permissions: ['events.subscribe'], capabilities: ['notification'] })
+    expect(read.manifest.settings).toEqual([
+      expect.objectContaining({ key: 'webhookUrl', type: 'string', secret: true, required: true }),
+      expect.objectContaining({ key: 'skip', type: 'string', default: 'session.account_switched', required: false })
+    ])
+  })
+
+  it('imports only Node’s own modules, so its folder installs as it is', () => {
+    const code = readFileSync(path.join(DISCORD, 'index.mjs'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+    const specifiers = [...code.matchAll(/\b(?:from|import)\s*\(?\s*(['"`])([^'"`]+)\1/g)].map((m) => m[2])
+    expect(specifiers.filter((x) => !x.startsWith('node:'))).toEqual([])
+  })
+
+  it('posts a notification as an embed coloured by its level, with its title, body, time and kind', async () => {
+    const hook = await webhook()
+    const { r, ring } = runtime()
+    await discord(r, settingsOf(hook.url), [hook.url])
+    const at = now()
+    ring.append([{ type: 'run.failed', jobId: 'job_1', runId: 'run_1', payload: { ...RUN, outcome: 'failed' } }], at)
+    await until(() => expect(hook.bodies).toHaveLength(1))
+    expect(hook.bodies[0]).toEqual({
+      embeds: [{ title: 'Ship it', description: 'Run 1 failed (2 of 2 Tasks done).', color: 0xef4444, timestamp: at, footer: { text: 'run.failed' } }],
+      allowed_mentions: { parse: [] }
+    })
+    await until(() => expect(discordLog(r)).toContain('posted run.failed ev_aaaaaaaaaaaa_1'))
+    expect(discordLog(r)).not.toContain('secret-part')
+  }, 90_000)
+
+  // Review Focus 2: text from a question or a session is posted as it is, and Discord is told to ping nobody
+  it('pings nobody, whatever the text holds', async () => {
+    const hook = await webhook()
+    const { r, ring } = runtime()
+    await discord(r, settingsOf(hook.url), [hook.url])
+    const question = { id: 'q1', runId: 'run_1', taskId: 't1', question: '@everyone <@123> which branch?', status: 'open', createdAt: 'T' }
+    ring.append([{ type: 'question.created', jobId: 'job_1', runId: 'run_1', taskId: 't1', payload: question }], now())
+    await until(() => expect(hook.bodies).toHaveLength(1))
+    expect(hook.bodies[0]).toMatchObject({ embeds: [{ description: 'Waiting for an answer: @everyone <@123> which branch?', color: 0x3b82f6 }], allowed_mentions: { parse: [] } })
+  }, 90_000)
+
+  it('leaves out the kinds its skip setting names, account switches by default', async () => {
+    const hook = await webhook()
+    const { r, ring } = runtime()
+    await discord(r, settingsOf(hook.url), [hook.url])
+    ring.append([{ type: 'session.account_switched', sessionId: 's1', payload: { session: SESSION, accountLabel: 'work' } }], now())
+    ring.append([{ type: 'session.input_needed', sessionId: 's1', payload: { session: SESSION, prompt: 'permission' } }], now())
+    await until(() => expect(hook.bodies).toHaveLength(1))
+    expect(hook.bodies[0]).toMatchObject({ embeds: [{ title: 'Fix the build', description: 'Waiting for permission.', footer: { text: 'session.input_needed' } }] })
+    const other = await webhook()
+    const second = runtime()
+    await discord(second.r, settingsOf(other.url, ' run.completed , session.input_needed '), [other.url])
+    second.ring.append([{ type: 'run.completed', jobId: 'job_1', runId: 'run_1', payload: RUN }], now())
+    second.ring.append([{ type: 'session.input_needed', sessionId: 's1', payload: { session: SESSION, prompt: null } }], now())
+    second.ring.append([{ type: 'session.account_switched', sessionId: 's1', payload: { session: SESSION, accountLabel: 'work' } }], now())
+    await until(() => expect(other.bodies).toHaveLength(1))
+    expect(other.bodies[0]).toMatchObject({ embeds: [{ description: 'Continuing on the work account.' }] })
+  }, 90_000)
+
+  it('is sent a notification again by Astera when Discord refuses a post', async () => {
+    const hook = await webhook([429])
+    const { r, ring } = runtime()
+    await discord(r, settingsOf(hook.url), [hook.url])
+    ring.append([{ type: 'run.completed', jobId: 'job_1', runId: 'run_1', payload: RUN }], now())
+    await until(() => expect(hook.bodies).toHaveLength(1))
+    await until(() => expect(discordLog(r)).toContain('failed (try 1): send threw: Discord answered 429'))
+  }, 90_000)
+
+  it('says how to start it again when its webhook URL is not one', async () => {
+    const { r } = runtime({ failAfter: 1 })
+    r.start(discordLaunch(settingsOf('discord.com/api/webhooks/1'), ['discord.com/api/webhooks/1']))
+    await until(() => expect(r.status(DISCORD_ID)?.status).toBe('failed'))
+    await until(() => expect(discordLog(r)).toContain('[host] failed: '))
+    expect(discordLog(r)).toMatch(/astera plugins configure.*astera plugins enable/)
   }, 90_000)
 })
