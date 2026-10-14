@@ -442,7 +442,7 @@ export function createPluginRuntime(d: {
           for (const c of p.capabilities) {
             const h = HANDLER_OF[c]
             if (h === undefined || handlers.includes(h)) continue
-            s.problem = `the ${c} capability needs an ${h} in its entry`
+            s.problem = `the ${c} capability needs ${h} in its entry`
             say(s, s.problem)
             killTree(proc)
             return

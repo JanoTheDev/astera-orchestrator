@@ -19,7 +19,8 @@ astera plugins install --path examples/plugins/webhook-notifier
 ```
 
 That shows what the plugin is and the one permission it asks for, `events.subscribe`: it is an event plugin, which
-Astera hands each of its events, and that is the permission the events need. It installs nothing yet. Approve it with `--yes`, or in the app under Settings, Plugins, Install from a folder.
+Astera hands each of its events, and that is the permission the events need. It installs nothing yet. Approve it with
+`--yes`, or in the app under Settings, Plugins, Install from a folder.
 
 The plugin waits until it has a webhook URL. The URL is a secret setting: give it on standard input so it stays out of
 your shell history, and Astera keeps it out of the plugin's log.
@@ -49,9 +50,9 @@ astera plugins configure --id astera-webhook-notifier --set onlyProblems=true
 
 ## How it posts
 
-- It posts from the events after its install, and what happened while it was stopped (the Host not running, the
-  plugin disabled, or starting again after a crash) is posted when it runs again, as far back as Astera's event log
-  keeps; when older events were lost, it posts a line saying so first.
+- It posts the events after it first starts, once it has its webhook URL, and what happened while it was stopped (the
+  Host not running, the plugin disabled, or starting again after a crash) is posted when it runs again, as far back as
+  Astera's event log keeps; when older events were lost, it posts a line saying so first.
 - A post that fails is handed to it again by Astera: after 1 second, then 2, 4 and so on up to 5 minutes, and given
   up after an hour with a line in the log naming the event. The events after it wait their turn.
 - A post can come twice (after a crash in the middle of one): `event.id` never repeats, so drop one you have seen.

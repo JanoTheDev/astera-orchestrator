@@ -483,7 +483,7 @@ describe('event plugins (plugin Phase 3 N1, N5-N8)', () => {
   it('fails the start of an event plugin whose entry has no onEvent, saying so', async () => {
     const { r } = runtime({ failAfter: 1 })
     r.start(eventPlugin('ev4', 'export default { activate() {} }'))
-    await until(() => expect(r.status('ev4')).toMatchObject({ status: 'failed', reason: expect.stringContaining('the event capability needs an onEvent in its entry') }))
+    await until(() => expect(r.status('ev4')).toMatchObject({ status: 'failed', reason: expect.stringContaining('the event capability needs onEvent in its entry') }))
   }, 90_000)
 
   it('does not start an event plugin that was not granted events.subscribe', async () => {

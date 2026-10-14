@@ -16,6 +16,7 @@ import { PLUGIN_TIMINGS, REDACT_MIN, createPluginRuntime } from '../../host/plug
 import { SECRET_NAME_MAX, SECRET_VALUE_MAX } from '../../host/plugins/pluginData'
 import { PLUGIN_SERVED_CAPABILITIES } from '../../host/plugins/manager'
 import { DELIVERY_GIVE_UP_MS, DELIVERY_LOG_EVERY, DELIVERY_RETRY_MS, DELIVERY_TIMEOUT_MS } from '../../host/plugins/deliverer'
+import { EVENT_RETAIN_EVENTS } from '../../host/eventLog'
 import { bundleLauncher } from '../../pluginHost/testkit'
 import { createNamespaces } from '../../../packages/client/src/namespaces'
 import { typecheckBlocks } from '../../../packages/client/test/typecheck'
@@ -229,6 +230,13 @@ describe('docs/plugins.md', () => {
     expect(read.ok && read.manifest.capabilities).toEqual(['event'])
     expect(section(guide, '## Not yet')).not.toContain('`event`')
     expect(prose(section(guide, '## The manifest'))).toContain('[Event plugins](#event-plugins)')
+    // Final review M5: a call past the limit is not stopped, so one-at-a-time holds only for handlers within it
+    expect(ev).toContain(`A call that runs past ${DELIVERY_TIMEOUT_MS / 1000} seconds is not stopped`)
+    // Final review M6: the place is taken when the plugin first starts, which a plugin missing a setting has not
+    expect(ev).toContain('after it first starts')
+    expect(ev).not.toContain('after its install')
+    // Final review M10: what the log keeps, tied to the code
+    expect(ev).toContain(`up to its most recent ${EVENT_RETAIN_EVENTS} events, fewer`)
   })
 
   it('says which Node a plugin runs on, and how to start Node from process.execPath', () => {
@@ -280,6 +288,7 @@ describe('docs/plugins.md', () => {
     expect(sample).toContain('`event.id`')
     // Plugin Phase 3: an event plugin is handed what happened while it was stopped, a crash's restart included
     expect(prose(sample)).toContain('what happened while it was stopped')
+    expect(prose(sample)).toContain('after it first starts')
     expect(prose(sample)).toContain('starting again after a crash')
     expect(prose(sample)).not.toContain('is not posted')
   })

@@ -192,12 +192,15 @@ export default {
 ```
 
 - **From where it left off.** Astera keeps the plugin's place in its events, in
-  `<profile>/plugins/cursors/<folder>.json`. A plugin starts from the events after its install, and what happened
-  while it was stopped (disabled, starting again after a crash, the Host not running) is handed to it when it runs
-  again, as far back as Astera's event log keeps: its most recent 1000 to 2000 events. Removing the plugin removes its
-  place too.
+  `<profile>/plugins/cursors/<folder>.json`. A plugin is handed the events after it first starts (a plugin waiting for
+  a required setting has not started), and what happened while it was stopped (disabled, starting again after a
+  crash, the Host not running) is handed to it when it runs again, as far back as Astera's event log keeps: up to its
+  most recent 2000 events, fewer when events are large or the Host has started again since. Removing the plugin
+  removes its place too.
 - **One at a time, in order.** The next event waits until `onEvent` settles, so a slow plugin holds up only itself.
-  `onEvent` is called only while the plugin runs, once `activate` has finished.
+  `onEvent` is called only while the plugin runs, once `activate` has finished. A call that runs past 30 seconds is not
+  stopped: it goes on beside the event's next try and the events after it, so a handler that can take that long must
+  not mind running twice at once.
 - **A failure is tried again.** When `onEvent` throws, rejects or has not settled within 30 seconds, Astera hands the
   same event over again after 1 second, then 2, 4 and so on up to 5 minutes. An event that keeps failing is given up
   after an hour, and the next one follows. The plugin's log has the first failure of an event, then a line every 10
