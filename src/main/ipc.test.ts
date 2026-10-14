@@ -23,7 +23,7 @@ import {
   sessionsTakenBackOnFailure,
   staleSpecFiles
 } from './ipc'
-import { createAttentionState } from './attention'
+import { createAttentionState } from '../core/sessions/attention'
 import { sanitizeResumePrompt } from '../core/sessions/commands'
 import { PTY_LOST_SIGHT_EXIT_CODE } from '../core/sessions/pty'
 import type { PtyEntry } from '../core/host/protocol'
@@ -656,7 +656,7 @@ describe('hostHoldings — what the Info tab says the Host is holding', () => {
   })
 })
 
-// The real attention state (main/attention.ts) is used below rather than a recorder stub, so these
+// The real attention state (core/sessions/attention.ts) is used below rather than a recorder stub, so these
 // pin the actual observable effect — what get() reads back after the exit — not just which branch
 // forget() happened to be called from.
 describe('forgetAttentionOnExit — the attention verdict on a session exit', () => {
@@ -717,7 +717,7 @@ describe('conversationAttentionOf — the pane\'s one-shot read on mount', () =>
     expect(conversationAttentionOf(attention, 's1')).toBe('waiting')
   })
 
-  // A session `get` has never seen defaults to idle (main/attention.ts) — this only has to prove
+  // A session `get` has never seen defaults to idle (core/sessions/attention.ts) — this only has to prove
   // the pass-through does not substitute a different default of its own.
   it('reads idle for a session it has never seen', () => {
     const attention = createAttentionState()

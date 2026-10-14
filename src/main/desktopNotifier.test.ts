@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import type { RollStateEvent, SessionInfo } from '../core/types'
 import { DESKTOP_NOTIFY_DEFAULTS, type DesktopNotifySettings } from '../core/notify/settings'
 import { DesktopNotifier, type DesktopShowRequest } from './desktopNotifier'
-import { createAttentionState } from './attention'
+import { createAttentionState } from '../core/sessions/attention'
 
 const session = (id: string): SessionInfo => ({
   id,
@@ -31,7 +31,7 @@ interface Harness {
 function harness(flags: Partial<DesktopNotifySettings> = {}, sessions = ['s1', 's2']): Harness {
   const shown: DesktopShowRequest[] = []
   const focused = { value: false }
-  // The real state (main/attention.ts), not a stub. `DesktopNotifier` subscribes to it in its own
+  // The real state (core/sessions/attention.ts), not a stub. `DesktopNotifier` subscribes to it in its own
   // constructor and fires on the TRANSITION into `waiting` (see that constructor's comment) — a stub
   // that just returned canned values would not exercise the thing several tests below need to prove:
   // that a specific sequence of hook events produces the right number of transitions, not the right

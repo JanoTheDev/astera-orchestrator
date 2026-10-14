@@ -15,7 +15,7 @@
 //   after this capture ran: no turn, no Stop, and `working` until something is typed.
 // - PreToolUse / PostToolUse: a tool call inside a turn that has not stopped yet → `working`.
 //   Except AskUserQuestion's PreToolUse, which is the question going up on screen → `waiting` (the
-//   same moment main/pendingPrompt.ts draws it as a card). Its PostToolUse is the answer → `working`.
+//   same moment core/sessions/pendingPrompt.ts draws it as a card). Its PostToolUse is the answer → `working`.
 // - Stop: the turn is over (the edge slack.ts posts its turn summary on) → `waiting` for the next one.
 // - StopFailure: fired *instead of* Stop when an API error (a limit, an auth failure) ends the turn
 //   → `waiting`, for the same reason.
@@ -25,7 +25,7 @@
 //   session's turn → no verdict. The app's notifiers err toward notifying on an unknown type; a
 //   state errs toward `unknown`, the answer that cannot be wrong.
 //
-// **Where this differs from main/attention.ts, and why.** Attention answers "does this session need
+// **Where this differs from core/sessions/attention.ts, and why.** Attention answers "does this session need
 // you": after a tool call returns it reads `idle`, and a bare `idle_prompt` leaves it alone, because
 // neither is a reason to raise a banner. This answers "is a turn running": a returned tool call is
 // still inside the turn, and `idle_prompt` ("Claude is waiting for your input") is emitted only when

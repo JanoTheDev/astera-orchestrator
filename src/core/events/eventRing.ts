@@ -100,6 +100,7 @@ export function createEventRing(a: {
           ...(d.jobId !== undefined ? { jobId: d.jobId } : {}),
           ...(d.runId !== undefined ? { runId: d.runId } : {}),
           ...(d.taskId !== undefined ? { taskId: d.taskId } : {}),
+          ...(d.sessionId !== undefined ? { sessionId: d.sessionId } : {}),
           payload: d.payload
         } as AsteraEvent
         const line = JSON.stringify(event)

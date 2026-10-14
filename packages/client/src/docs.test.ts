@@ -12,6 +12,7 @@ import { ERROR_CODES, REMOTE_ERROR_CODES } from './errors.js'
 import { EVENTS_RETRY_MS } from './events.js'
 import { EVENT_TYPES } from './fields.js'
 import { createNamespaces } from './namespaces.js'
+import * as pkg from './index.js'
 import { typecheckBlocks } from '../test/typecheck.js'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..')
@@ -71,6 +72,17 @@ describe('docs/sdk.md', () => {
       expect(events, t).toContain(`\`${t}\``)
       expect(readme, t).toContain(`\`${t}\``)
     }
+  })
+
+  // Final review of plugin slice 3a, minor 3: `INVALID_ARGUMENT` was written for `INVALID_ARGUMENTS`, and code that
+  // compares an error's code against the written one never matches
+  it('names no error code the package does not have, here or in the README', () => {
+    const exported = new Set(Object.keys(pkg))
+    for (const text of [guide, readme]) {
+      const named = [...text.matchAll(/`([A-Z][A-Z0-9_]{3,})`/g)].map((m) => m[1]).filter((n) => !n.startsWith('ASTERA_') && !exported.has(n))
+      expect(named.filter((n) => !(ERROR_CODES as readonly string[]).includes(n))).toEqual([])
+    }
+    expect([...guide.matchAll(/`([A-Z][A-Z0-9_]{3,})`/g)].length).toBeGreaterThan(20)
   })
 
   it('names every local error code in its Errors section', () => {

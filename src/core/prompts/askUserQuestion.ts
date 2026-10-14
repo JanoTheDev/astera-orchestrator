@@ -1,7 +1,7 @@
 // The question Claude Code's AskUserQuestion tool asks, as the model wrote it, and the answers a person
 // composes for it on the conversation view's card.
 //
-// The input arrives through the PreToolUse hook (main/pendingPrompt.ts) — the transcript holds nothing
+// The input arrives through the PreToolUse hook (core/sessions/pendingPrompt.ts) — the transcript holds nothing
 // while the CLI waits, so the hook is the only structured copy. This module never looks at the screen:
 // labels, descriptions and the multi-select flag are quoted from the call, and the screen is read
 // elsewhere (askScreen.ts) only to drive the dialog and to check its review.

@@ -6,7 +6,9 @@ import * as types from './types.js'
 import type {
   AnsweredQuestion,
   AsteraEvent,
+  EventGap,
   EventList,
+  EventSession,
   Job,
   JobWithRun,
   ListResult,
@@ -116,12 +118,28 @@ const page = { items: [runEvent, repairEvent], nextCursor: 'ev_0123456789ab_8', 
 // @ts-expect-error a job.created event carries a Job, not a Run
 const wrongPayload: AsteraEvent<'job.created'> = { id: 'ev_0123456789ab_9', type: 'job.created', sequence: 9, occurredAt: 'T', payload: run }
 
+// Plugin Phase 3: the session events (events and notifications design N2)
+const session = { id: 's1', kind: 'chat', title: 't', provider: 'codex', cwd: 'D:\p' } satisfies EventSession
+const inputEvent = { id: 'ev_0123456789ab_10', type: 'session.input_needed', sequence: 10, occurredAt: 'T', sessionId: 's1', payload: { session, prompt: null } } satisfies AsteraEvent<'session.input_needed'>
+const limitEvent = {
+  id: 'ev_0123456789ab_11',
+  type: 'session.limit_waiting',
+  sequence: 11,
+  occurredAt: 'T',
+  sessionId: 's1',
+  payload: { session: { id: 's1', kind: 'terminal' }, scope: 'session', nextRetryAt: 'T' }
+} satisfies AsteraEvent<'session.limit_waiting'>
+const switchEvent = { id: 'ev_0123456789ab_12', type: 'session.account_switched', sequence: 12, occurredAt: 'T', sessionId: 's1', payload: { session, accountLabel: 'work' } } satisfies AsteraEvent<'session.account_switched'>
+const gapHasNoSession = ((g: EventGap) => g.sessionId)({ type: 'gap' }) satisfies undefined
+// @ts-expect-error a session event's prompt is permission, question or null
+const wrongPrompt: AsteraEvent<'session.input_needed'> = { ...inputEvent, payload: { session, prompt: 'other' } }
+
 describe('the public DTOs', () => {
   it('are types only', () => {
     expect(Object.keys(types)).toEqual([])
   })
 
   it('take the reference samples', () => {
-    expect([project, job, run, task, detail, question, answered, completion, event, endings, stopped, listed, withRun, runEvent, repairEvent, page, wrongPayload].length).toBe(17)
+    expect([project, job, run, task, detail, question, answered, completion, event, endings, stopped, listed, withRun, runEvent, repairEvent, page, wrongPayload, inputEvent, limitEvent, switchEvent, gapHasNoSession, wrongPrompt].length).toBe(22)
   })
 })

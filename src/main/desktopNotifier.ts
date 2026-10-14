@@ -2,7 +2,7 @@ import { t } from '../core/i18n'
 import type { Lang, MessageKey } from '../core/i18n'
 import type { RollStateEvent, SessionInfo } from '../core/types'
 import type { DesktopNotifySettings } from '../core/notify/settings'
-import type { Attention } from './attention'
+import type { Attention } from '../core/sessions/attention'
 
 /** The events (design doc §6). The names are the AppSettingsStore flag names, so the flag lookup is
  *  the event name and there is no second table mapping one to the other. */
@@ -35,7 +35,7 @@ export interface DesktopNotifierDeps {
   /** The OS sink. Injected so the decision is testable without Electron: index.ts passes the real
    *  Notification, a test passes a recorder. It is also where an OS refusal is swallowed (§9). */
   show: (req: DesktopShowRequest) => void
-  /** The one attention verdict (main/attention.ts). This sink subscribes to it rather than polling it —
+  /** The one attention verdict (core/sessions/attention.ts). This sink subscribes to it rather than polling it —
    *  see the constructor's own comment for why a read-per-event was tried and reverted. index.ts's
    *  dedicated tap is the sole writer, and it runs before this one in the fan-out so a subscriber
    *  attached here sees a session's transitions in the same order they actually happened. */
@@ -48,7 +48,7 @@ export interface DesktopNotifierDeps {
  * The desktop sink for the three notification events (design doc §6).
  *
  * **Nothing new is detected here.** `inputNeeded` comes from subscribing to the one shared attention
- * verdict (main/attention.ts) rather than tapping the HookEventWatcher callback itself — the constructor
+ * verdict (core/sessions/attention.ts) rather than tapping the HookEventWatcher callback itself — the constructor
  * comment explains why a per-event tap was tried and reverted. `limitWaiting`/`accountSwitched` still
  * come straight from the rolling state publisher, unchanged. That is most of why the feature is small.
  *

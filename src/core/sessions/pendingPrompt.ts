@@ -11,9 +11,10 @@
 // StopFailure, the turn end of an API error) ends it whatever the id (a declined question runs no tool,
 // so its PostToolUse can be missed), unless it happened before the latest UserPromptSubmit; a session's exit
 // forgets it. Fed by the hook fan-out (hookFanOut.ts), read over IPC (ipc.ts: `conversation.pendingPrompt`
-// and the `conversation:pendingPrompt` push).
-import { happenedBefore, hookEventAt } from '../core/hooks/eventTime'
-import type { PendingToolPrompt } from '../core/types'
+// and the `conversation:pendingPrompt` push). In core since plugin Phase 3 (final review m2 of slice 3a): the Host's
+// session events (src/host/sessionEvents.ts) build one too, to tell a question from a permission by these same rules.
+import { happenedBefore, hookEventAt } from '../hooks/eventTime'
+import type { PendingToolPrompt } from '../types'
 
 export interface PendingPromptState {
   /** One hook event for one session — the raw payload, as every other fan-out tap receives it. */
