@@ -516,6 +516,51 @@ describe('the MCP server', () => {
     expect(textOf(r)).not.toContain(token)
   })
 
+  // Plugin Phase 5 C13: a plugin check's words, its findings and its link are the plugin's text, as a check's output is
+  it('get_completion redacts a secret in a plugin check’s summary, findings and link, and keeps the rest', async () => {
+    const token = 'sk-abcdefghijklmnopqrstuvwxyz0123456789'
+    const check = {
+      configId: 'plugin:x',
+      name: 'Debug leftovers',
+      status: 'failed',
+      summary: `leaked ${token}`,
+      diagnostics: [{ file: `src/${token}.js`, line: 2, message: `adds ${token}`, severity: 'error' }],
+      externalUrl: `https://ci.example/r?key=${token}`
+    }
+    const detail = { taskId: 't1', checks: [check], blockingIssues: [], otherIssueCount: 0, suspiciousFiles: [], policyChanged: false }
+    const body = { runId: 'run_1', jobId: 'job_1', state: 'failed', tasks: [{ taskId: 't1', title: 'x', state: 'failed', attempt: 0, maxAttempts: null, detail, failureSummary: null }] }
+    const r = await (await connected(answering({ 'runs-completion': { status: 200, body } }).link)).callTool({ name: 'get_completion', arguments: { runId: 'run_1' } })
+    expect(textOf(r)).not.toContain(token)
+    const kept = (r.structuredContent as { tasks: Array<{ detail: { checks: Array<Record<string, unknown>> } }> }).tasks[0].detail.checks[0]
+    expect(kept).toMatchObject({ configId: 'plugin:x', name: 'Debug leftovers', status: 'failed', diagnostics: [{ line: 2, severity: 'error' }] })
+    expect(String(kept.summary)).toContain('leaked ')
+    expect(JSON.stringify(kept.diagnostics)).toContain('src/')
+    expect(String(kept.externalUrl)).toContain('https://ci.example/r?key=')
+  })
+
+  // Plugin Phase 5 C6, C7: the id goes as it is, and a missing plugin is a refusal a client can branch on
+  it('create_task passes a plugin check’s id as it is, and a missing plugin comes back as PLUGIN_CAPABILITY_MISSING with its step', async () => {
+    const { link, calls } = answering({
+      'tasks-add': { status: 409, body: { error: 'no plugin astera-x is installed', code: 'PLUGIN_CAPABILITY_MISSING' } }
+    })
+    const r = await (await connected(link)).callTool({
+      name: 'create_task',
+      arguments: { jobId: 'job_1', spec: 'Fix', accountId: 'acc_1', validate: ['npm-test', 'plugin:astera-x'] }
+    })
+    expect(calls.at(-1)).toMatchObject({ cmd: 'tasks-add', args: { validate: 'npm-test,plugin:astera-x' } })
+    expect(r.isError).toBe(true)
+    expect(errorOf(r)).toMatchObject({ code: 'PLUGIN_CAPABILITY_MISSING', message: 'no plugin astera-x is installed', nextSteps: ['astera plugins list'] })
+  })
+
+  it('tells a client the plugin check ids create_task takes, what a plugin check carries, and that a question with options takes one', async () => {
+    const { tools } = await (await connected(answering({}).link)).listTools()
+    const of = (n: string) => tools.find((t) => t.name === n)!
+    expect(JSON.stringify(of('create_task').inputSchema)).toContain('plugin:<pluginId>')
+    expect(of('create_task').description).toContain('plugin:<pluginId>')
+    expect(of('answer_question').description).toMatch(/check-unavailable.*retry, skip-check or mark-failed/)
+    expect(of('get_completion').description).toMatch(/diagnostics.*externalUrl.*check-unavailable/)
+  })
+
   it('every list tool takes a limit of 1 to 200', async () => {
     const client = await connected(answering({}).link)
     const { tools } = await client.listTools()
