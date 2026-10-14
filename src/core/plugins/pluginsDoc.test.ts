@@ -31,8 +31,12 @@ import {
   SOURCE_LABEL_MAX,
   SOURCE_OBJECTIVE_MAX,
   SOURCE_SUMMARY_MAX,
-  SOURCE_TITLE_MAX
+  SOURCE_TITLE_MAX,
+  SOURCE_URL_MAX
 } from '../sources/answers'
+import { CHECK_DIAGNOSTICS_MAX, CHECK_FILE_MAX, CHECK_MESSAGE_MAX, CHECK_SUMMARY_MAX, REPAIR_DIAGNOSTICS } from '../orchestration/pluginChecks'
+import { CHECK_TIMEOUT_MS } from '../orchestration/types'
+import { CHECK_UNAVAILABLE_OPTIONS } from '../orchestration/state'
 import { bundleLauncher } from '../../pluginHost/testkit'
 import { createNamespaces } from '../../../packages/client/src/namespaces'
 import { typecheckBlocks } from '../../../packages/client/test/typecheck'
@@ -327,6 +331,37 @@ describe('docs/plugins.md', () => {
     expect(sdkJobs).toContain('`source`')
     expect(sdkJobs).toContain("call('jobs-create-from-source'")
     expect(read('packages/client/CHANGELOG.md')).toContain('`jobs-create-from-source`')
+  })
+
+  // Plugin Phase 5 C16: how a completion check is asked, in the constants' own numbers, and the other guides with it
+  it('says how a completion check is asked, with the Host’s limits and errors, the question and the repair', () => {
+    const sec = section(guide, '## Completion check plugins')
+    const cc = prose(sec)
+    for (const f of ['`runCheck`', '`defineCompletionCheckProvider`', '`plugin:<id>`', '`passed`', '`failed`', '`error`', '`check-unavailable`', '`PLUGIN_CAPABILITY_MISSING`'])
+      expect(cc, f).toContain(f)
+    for (const o of CHECK_UNAVAILABLE_OPTIONS) expect(cc, o).toContain(`\`${o}\``)
+    for (const n of [CHECK_SUMMARY_MAX, CHECK_DIAGNOSTICS_MAX, CHECK_MESSAGE_MAX, CHECK_FILE_MAX, SOURCE_URL_MAX, REPAIR_DIAGNOSTICS])
+      expect(cc, String(n)).toContain(n.toLocaleString('en-US'))
+    expect(cc).toContain(`${CHECK_TIMEOUT_MS / 60_000} minutes`)
+    // The sentences a person reads, as the Host words them (completionChecks.ts, pluginChecks.ts)
+    expect(cc).toContain('"runCheck threw: ')
+    expect(cc).toContain('"the plugin answered with something that is not a check result: ')
+    expect(cc).toContain('needs no permission')
+    expect(cc).toContain('adds no check')
+    const [fragment] = fenced(sec, 'json')
+    const parsed = parseManifest({ name: 'x', version: '1.0.0', astera: { apiVersion: '1', entry: 'index.js', ...JSON.parse(fragment) } })
+    expect(parsed.ok && parsed.manifest.capabilities).toEqual(['completion-check'])
+    expect(sec).toContain('](../examples/plugins/debug-leftovers)')
+    expect(prose(section(guide, '## The manifest'))).toContain('[Completion check plugins](#completion-check-plugins)')
+    expect(prose(section(guide, '## The manifest'))).toContain('a `runCheck` for a completion check')
+    expect(guide.split('\n## ')[0]).toContain('(#completion-check-plugins)')
+    // The other guides: the id a Task names, the fields a result carries, the question's answers
+    const cli = prose(read('docs/cli.md'))
+    for (const f of ['`plugin:<id>`', '`skip-check`', '`diagnostics`', '`externalUrl`', '`skipped: true`', 'could not run']) expect(cli, f).toContain(f)
+    const sdk = prose(read('docs/sdk.md'))
+    for (const f of ['`plugin:<id>`', '`check-unavailable`', '`diagnostics`', '`skip-check`']) expect(sdk, f).toContain(f)
+    const mcp = prose(read('docs/mcp.md'))
+    for (const f of ['plugin:<pluginId>', 'check-unavailable', '`diagnostics`', '`externalUrl`']) expect(mcp, f).toContain(f)
   })
 
   // The design's note on N2: a session event carries its title and folder, so the grant says so

@@ -236,6 +236,10 @@ for (const q of items) {
 }
 ```
 
+A question with `options` takes one of them as its answer. The one a plugin's completion check opens when it could
+not be made, `kind` `check-unavailable`, takes `retry` (run the Task's checks again), `skip-check` (go on without that
+check this round) or `mark-failed`; any other answer is refused with `INVALID_ARGUMENTS`.
+
 A question someone already answered (in the app, say) keeps that answer, and `questions.answer` gives it back, so
 compare `resolution` with what you sent. When a person takes a while to type, read the question again
 (`questions.get`) right before sending: answered meanwhile in the same words, it would otherwise look like yours.
@@ -245,8 +249,10 @@ compare `resolution` with what you sent. When a person takes a while to type, re
 
 `tasks.create` adds a Task to a Job's definition (`jobId`) or to a Run under way (`runId`): `spec` (what to do), and
 optionally `title`, `deps` (Task ids it waits for), `parentId`, `accountIds` (the accounts to run it on, in failover
-order), `validate` (run configuration ids that check the work) and `review`. Without `accountIds` it uses the Job's
-coordinator account, and is refused when the Job has none. `tasks.list({ runId, status, ready, brief })` and
+order), `validate` (run configuration ids that check the work, or `plugin:<id>` for a completion check plugin, in
+the order the checks run) and `review`. Without `accountIds` it uses the Job's coordinator account, and is refused when
+the Job has none. A `plugin:<id>` whose plugin is not installed, does not offer completion checks, or is disabled is
+refused with `PLUGIN_CAPABILITY_MISSING` ([plugins.md](plugins.md#completion-check-plugins)). `tasks.list({ runId, status, ready, brief })` and
 `tasks.get` read them.
 
 ### Completion
@@ -262,6 +268,11 @@ A Task is `not-started`, `working`, `checking`, `rechecking`, `reviewing`, `fixi
 `waiting-for-user`, `exhausted`, `converged` or `failed`; the Run wears its most urgent Task's state. `attempt` counts
 repairs against `maxAttempts`, and `failureSummary` and `lastFailure` say what failed. It is read only: whether the
 work is done stays Astera's call.
+
+A Task's `detail.checks` are its last round, each a check's `status` (`passed`, `failed`, `timed-out`, `not-run`, or
+`error` for a plugin's check that could not be made) with its `exitCode` and output. A plugin's check, `configId`
+`plugin:<id>`, carries its `summary`, its findings as `diagnostics` (`file?`, `line?`, `message`, `severity?`) and a
+link as `externalUrl`; one a person let the round go on without is `not-run` with `skipped: true`.
 
 ### Any other command
 

@@ -345,6 +345,10 @@ questions list [--task <tsk>] [--status <s>] [--json]
   which covers what happens next and when it is worth attaching). **A list runs in the order given, and
   the first failure stops it** — later configurations in the list report `not-run`, not `failed`; they
   never got the chance to say either way.
+- **`--validate` also takes `plugin:<id>`, a completion check plugin a person installed; add one only when the
+  person named that check** (in the objective, say). Installing a plugin adds no check, and which checks a Task must
+  pass is the person's call. It runs in the list's order like a run configuration, and its failure is repaired the
+  same way; a check the plugin could not make opens a Gate instead (section 11).
 - **`--review` makes this Task's completion depend on another agent's judgement** — a value-less flag,
   the same shape as `tasks list --ready`. Omit it and nothing changes. With it, a successful report (and
   a passing validation, if `--validate` is also attached) moves the Task to `reviewing` instead of
@@ -979,6 +983,8 @@ meaningless and repeats the same failure indefinitely.
   refused — and do not `task-update` it either, even though that one is not refused (section 11).
 - Do not resolve a `convergence-exhausted` Gate yourself — `retry-once`/`mark-failed` is a person's call
   (section 11).
+- Do not resolve a `check-unavailable` Gate yourself: `retry`, `skip-check` and `mark-failed` are a person's call
+  (section 11).
 - Do not `sessions send` without a `sessions read` right before it. The text answers whatever prompt
   the other session shows, a folder-trust or first-run screen included (12.3).
 - Do not send anything again after exit `3` or `7`. Follow `nextSteps` in its order (4.10): after a
@@ -1066,6 +1072,11 @@ run-create --objective <s> --convergence [--max-fix-attempts <n>] [--max-review-
   does, bypassing the transition table, without touching `consecutiveFailures` — it is being given up
   on, not rescued. Do not call `gate-resolve` on this Gate yourself; let the person answer it in the
   app, the same as any other Gate you would raise rather than decide (section 1).
+- **A plugin's check could not be made.** A `plugin:<id>` check that answers `error` twice in a row (a service down,
+  a token missing, the plugin stopped) opens a Gate with `kind: "check-unavailable"` and
+  `options: ["retry", "skip-check", "mark-failed"]`, on any Run, convergence or not. No repair is sent and none is
+  spent. **This is a person's decision, not yours:** `skip-check` lets the Task complete without a check the person
+  asked for. Do not call `gate-resolve` on it yourself.
 
 **What is refused while a Task is converging, and why.** A repair keeps the Task on the same worker on
 purpose — close that session now and the next one starts fresh, having forgotten what it just tried —

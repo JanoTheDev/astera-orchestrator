@@ -369,6 +369,15 @@ run panel when Astera opens, and stopping it there stops it in the Host. A Host 
 replaced while a check runs does not count that check as failed. The next Host starts it again in a
 `--convergence` Job, and otherwise opens a question about it.
 
+**A plugin's completion check that could not be made opens a question.** A `plugin:<id>` check is asked
+of the plugin rather than run in a terminal. A failure goes to the repair loop with the plugin's findings,
+as a run configuration's does. A check the plugin could not make (`error`: a service down, a token
+missing, the plugin stopped) is asked again at once, and a second one spends no repair: the task waits
+on a question of kind `check-unavailable`, and `runs wait` ends with 8. Its `options` are the answers:
+`retry` runs the task's checks again, `skip-check` lets this round go on without that check, which the
+task's record keeps as skipped, and `mark-failed` fails the task, as in
+`astera questions answer --id <questionId> --answer retry`. Any other answer is a 2.
+
 **A worker lost while Astera is closed opens a question.** When a worker ends without reporting while
 Astera is closed, in a run with no coordinator session, the Host opens a question on its task, and
 `runs wait` ends with 8. That includes a worker Astera saw before it closed, which Astera might
@@ -866,7 +875,12 @@ id given to `--job`, or a Job id given to `--run`, is a 4, never quietly the oth
 `--account` takes come from `accounts list`, first one first, the rest in the order to fail over to.
 `--validate` names the run configurations that must pass on the worker's result before the task counts
 as done; the ids come from `run-configs list --job`, comma-separated. An id that is not one of that
-Job's is a 4, and `nextSteps` is `astera run-configs list --job <jobId>` with the Job filled in.
+Job's is a 4, and `nextSteps` is `astera run-configs list --job <jobId>` with the Job filled in. The
+list can also name `plugin:<id>`, a completion check plugin from `plugins list` (one whose `capabilities`
+include `completion-check`), in the order the checks run: `--validate npm-test,plugin:astera-debug-leftovers`.
+That id is checked against the plugins, not the run configurations, and a plugin that is not installed,
+does not offer completion checks, or is disabled is refused with `PLUGIN_CAPABILITY_MISSING` (see Exit
+codes). Installing a plugin adds no check to any task.
 
 **`tasks dispatch --id <taskId>` places one ready task now**, for a person or a script. The Host
 places it the way its own loop places a task: the task's first account (logged in, of the right
@@ -1316,7 +1330,10 @@ made, each with its `id`, `title` and `status`, and two parts:
   --validate`), and `checks` is the last round, each check with `configId`, `name`, `status`
   (`passed`, `failed`, `timed-out`, or `not-run` when an earlier check failed), `exitCode`,
   `outputTail` (the end of its output), `startedAt`, `endedAt` and `unstable`. Each round replaces the
-  one before it.
+  one before it. A plugin's check (`configId` `plugin:<id>`, `name` the plugin's) carries its `summary`,
+  its findings as `diagnostics` (`file`, `line`, `message`, `severity`) and a link as `externalUrl`;
+  its `status` can also be `error`, a check the plugin could not make, while the task waits on its
+  question, and a check a person let the round go on without is `not-run` with `skipped: true`.
 - `review`: `required` is whether a review was asked for (`tasks add --review`) or has run. `verdict`
   is `accepted` or `rejected`, from the last reviewer that gave one, or `null` before any did. Without
   `--convergence` on the Job the reviewer's own outcome is the verdict; with it, any finding the Job's
@@ -1328,7 +1345,9 @@ failed, validation first: the failing checks with their exit codes and the last 
 then the blocking findings or the reviewer's reason. It is `null` when nothing failed.
 `completionOverride` is there when a person marked the task done without its checks being met, with
 their reason. An unknown run is a 4, a Job id included, with `astera runs list` as its step.
-`--human` prints one line per task and the failure summary under a task that has one.
+`--human` prints one line per task and the failure summary under a task that has one. Under it go a
+failed plugin check's first 5 findings as `file:line message`, its link, a plugin check that could not
+run as `<name> could not run: <reason>`, and one a person skipped.
 
 ```json
 {"ok":true,"data":{"runId":"run_9f8e","jobId":"job_4f2a","tasks":[{"id":"tsk_1","title":"Fix the build","status":"failed",

@@ -629,4 +629,13 @@ describe('cliUsage — completion check plugins', () => {
     const detail = USAGE['runs-checks'].detail ?? ''
     for (const f of ['`plugin:<id>`', '`summary`', '`diagnostics`', '`externalUrl`', '`error`']) expect(detail, f).toContain(f)
   })
+
+  // A coordinator plans Tasks with --validate and meets the question a check that could not be made opens (C9, C11)
+  it('the coordinator guide says a plugin check is added only when the person named it, and its question is theirs', () => {
+    const guide = readFileSync(guidePath, 'utf8').replace(/\s+/g, ' ')
+    expect(guide).toContain('`plugin:<id>`')
+    expect(guide).toMatch(/plugin:<id>`[^.]*only when the person named/)
+    expect(guide).toMatch(/Do not resolve a `check-unavailable` Gate yourself/)
+    expect(guide).toContain('`options: ["retry", "skip-check", "mark-failed"]`')
+  })
 })
