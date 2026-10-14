@@ -49,6 +49,19 @@ describe('Job actions through a door (remote runtime design Phase 7)', () => {
     expect(u.asked[0].choices?.map((c) => c.id)).toEqual(['merge', 'hide', 'worktrees'])
     expect(d.sent).toEqual([['run-delete', { id: 'r1', merge: true, removeWorktrees: true }]])
   })
+  // Plugin 4d review I1: a Job made from a ticket is asked about by the name its card shows, not by its whole objective
+  it('delete names a Job made from a ticket by the ticket’s title', async () => {
+    const u = ui({ checked: null })
+    const s = snapshot()
+    Object.assign(s.runs[0], {
+      objective: 'Resolve Linear ENG-1 (https://linear.app/x/ENG-1).\n\nThe following is the item’s content',
+      source: { id: 'astera-linear-source', itemId: 'ENG-1', label: 'Linear ENG-1', title: 'Fix login' }
+    })
+    await deleteRun(door(), s, 'r1', u)
+    expect(u.asked[0].body).toContain('"objective":"Fix login"')
+    expect(u.asked[0].body).not.toContain('Resolve')
+  })
+
   it('hide hides the folders only after the delete went through', async () => {
     const u = ui({ checked: ['hide'], hide: true })
     await deleteRun(door(), snapshot(), 'r1', u)

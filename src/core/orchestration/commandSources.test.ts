@@ -6,7 +6,7 @@ import { emptyState, type OrchState } from './state'
 import { ensureProject } from './projects'
 import { absPath } from '../testPaths'
 import { sourcedObjective } from '../sources/objective'
-import type { JobSourcesDeps } from './commandSources'
+import { JOB_SOURCE, type JobSourcesDeps } from './commandSources'
 import type { GhResult, GhRunner } from '../github/gh'
 
 const NOW = '2026-10-14T00:00:00.000Z'
@@ -322,6 +322,18 @@ describe('jobs-create-from-source (J10, J13-J16)', () => {
     expect(await titled('Line one\r\nLine two')).toBe('Line one')
     expect(await titled(`  ${'😀'.repeat(400)}`)).toBe(`${'😀'.repeat(299)}…`)
     expect(await titled(`\n\nAfter blank lines`)).toBe('After blank lines')
+  })
+
+  // Plugin 4d review M9: the Job's source is read off the symbol field by field; a title that is no text is left out
+  it('leaves a title that is no text off the Job’s source', async () => {
+    const { deps, path } = setup()
+    const r = await handleCommand(deps, { sessionId: '' }, 'jobs-create', {
+      objective: 'o',
+      cwd: path,
+      [JOB_SOURCE]: { id: LINEAR, itemId: 'ENG-1', label: 'Linear ENG-1', title: 5 }
+    } as Record<string, unknown>)
+    expect(r.status).toBe(200)
+    expect(deps.getState().jobs[0].source).toEqual({ id: LINEAR, itemId: 'ENG-1', label: 'Linear ENG-1' })
   })
 
   it('makes a Job from a member’s GitHub issue, and refuses a non-member’s with why', async () => {

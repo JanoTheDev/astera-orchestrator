@@ -96,6 +96,16 @@ describe('runRecordInputOf', () => {
     vi.useRealTimers()
   })
 
+  // Plugin 4d review M2: a Job made from a ticket is named in How It Works as its card names it; the request stays the
+  // objective, which the write-up is made from
+  it('names a Job made from a ticket by the ticket’s title, and keeps its objective', () => {
+    const { s, runId } = finished()
+    const titled = { ...s, jobs: s.jobs.map((j) => ({ ...j, source: { id: 'astera-linear-source', itemId: 'ENG-1', label: 'Linear ENG-1', title: 'Fix login' } })) }
+    const r = runRecordInputOf(titled, runId)
+    expect(r?.jobName).toBe('Fix login')
+    expect(r?.objective).toBe('x'.repeat(70))
+  })
+
   // The app's inline construction in ipc.ts before it moved here, field for field.
   it('builds what the app built inline, with the Job cwd as the project', () => {
     vi.useFakeTimers()

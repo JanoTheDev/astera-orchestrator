@@ -6,7 +6,7 @@
 // like a marker, after any invisible characters, is pushed off it by a space (4a final review M9). The GitHub issue
 // objective this replaces had the second layer alone.
 import { createHash } from 'node:crypto'
-import type { SourceContext } from './answers'
+import { SOURCE_TITLE_MAX, clip, type SourceContext } from './answers'
 
 export const SOURCED_OBJECTIVE_MAX = 60_000
 
@@ -15,6 +15,24 @@ const LINE_BREAK = /\r\n?|[\n\v\f\u0085\u2028\u2029]/g
  *  characters (a zero-width space), combining marks (a variation selector, U+034F) and the blank letters U+115F,
  *  U+1160, U+3164 and U+2800. Anchored, so linear on a long run of whitespace. */
 const READS_AS_MARKER = /^[\s\p{Cf}\p{Mn}\u115F\u1160\u3164\u2800]*SOURCE/u
+
+/** A line a reader sees nothing on: whitespace, format characters, combining marks and the blank letters (the set
+ *  READS_AS_MARKER skips). */
+const BLANK_LINE = /^[\s\p{Cf}\p{Mn}\u115F\u1160\u3164\u2800]*$/u
+const CONTROL = /\p{Cc}/gu
+const SPACES = /\s+/g
+
+/** The name a Job made from an item is shown by (plugin 4d): the first line of the context's objective a reader sees
+ *  something on, its control characters made spaces and its runs of space one, cut to SOURCE_TITLE_MAX; none when no
+ *  line holds anything visible. Every line terminator ends a line, as in the objective. Someone else's text: shown as
+ *  text, never put into the objective's own first line. */
+export function sourceTitleOf(objective: string): string | undefined {
+  const line = objective
+    .split(LINE_BREAK)
+    .map((l) => l.replace(CONTROL, ' ').replace(SPACES, ' ').trim())
+    .find((l) => !BLANK_LINE.test(l))
+  return line === undefined ? undefined : clip(line, SOURCE_TITLE_MAX)
+}
 
 /** Text on one line: a line break in a label would start the next line early. */
 const oneLine = (s: string): string => s.replace(LINE_BREAK, ' ')
