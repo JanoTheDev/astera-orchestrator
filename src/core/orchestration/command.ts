@@ -128,7 +128,8 @@ import { APP_CALLER, HOST_CALLER } from '../host/driver'
 import { UNREADABLE, recordDetail, recordSummary, recordsFor, type StoreShape } from '../understanding/read'
 import { JOB_SOURCE, SOURCE_COMMANDS, createFromContext, sourcesCommand, type JobSourcesDeps } from './commandSources'
 export { JOB_SOURCE } from './commandSources'
-import type { CompletionCheckInput, PluginCheckAnswer } from './pluginChecks'
+import { pluginIdOfCheck, type CompletionCheckInput, type PluginCheckAnswer } from './pluginChecks'
+import { checkIdsOf, pluginCheckRefusal, tasksOfNextRun } from './commandChecks'
 
 /** One row of `listAccounts`. Named only because the declaration below is a union and repeating the
  *  shape on both sides invites the two halves to drift. */
@@ -1863,6 +1864,9 @@ export async function handleCommand(
       const running = runningRunOf(s, job, now)
       if (running)
         return conflict(`job ${id} is already running (run ${running.id}) — wait for it or stop it first`)
+      // The Run this makes copies these Tasks: a plugin check among them must have its plugin (plugin Phase 5 C7)
+      const pluginRefusal = await pluginCheckRefusal(deps, checkIdsOf(tasksOfNextRun(s, job)))
+      if (pluginRefusal) return pluginRefusal
       // **예약은 무장을 건드리지 않는다.** "지금 돌려라" 는 한 회차를 지금 만들라는 말이지
       // "이 예약을 켜라" 가 아니다 — 켜는 것은 발화 시각마다 도는 것을 뜻하고, 사람이 그것까지
       // 원했다면 사이드바의 '실행' 이 그 버튼이다.
@@ -1962,9 +1966,14 @@ export async function handleCommand(
         if (ids.some((x) => x === '')) return bad('--validate must not contain an empty entry')
         const owner = job !== null ? s.jobs.find((j) => j.id === job) : jobOf(s, s.runs.find((r) => r.id === run)!)
         if (!owner) return notFound(`unknown job for run: ${String(run)}`)
-        if (!deps.listRunConfigs) return conflict('run configurations cannot be listed here')
-        const known = new Set((await deps.listRunConfigs(owner.cwd)).map((c) => c.id))
-        const unknown = ids.filter((x) => !known.has(x))
+        // A plugin's check (plugin Phase 5 C7): its plugin must be here, offer checks and be enabled. It is no run
+        // configuration, so the configuration list neither knows it nor is needed for it.
+        const pluginRefusal = await pluginCheckRefusal(deps, ids)
+        if (pluginRefusal) return pluginRefusal
+        const configIds = ids.filter((x) => pluginIdOfCheck(x) === null)
+        if (configIds.length > 0 && !deps.listRunConfigs) return conflict('run configurations cannot be listed here')
+        const known = new Set(configIds.length > 0 ? (await deps.listRunConfigs!(owner.cwd)).map((c) => c.id) : [])
+        const unknown = configIds.filter((x) => !known.has(x))
         if (unknown.length > 0)
           return {
             status: 404,
@@ -2488,11 +2497,20 @@ export async function handleCommand(
           outcomeOf(s, namedRun.id) !== 'running'
         )
           return okBody(namedRun)
+        // A coordinator would drive these Tasks' checks: a plugin check among them must have its plugin (C7)
+        const runRefusal = await pluginCheckRefusal(
+          deps,
+          checkIdsOf(s.tasks.filter((t) => t.runId === namedRun.id && t.status !== 'completed'))
+        )
+        if (runRefusal) return runRefusal
         return handToCoordinator(s, runJob, namedRun, runJob.coordinatorAccountId, true)
       }
       // **그 밖의 id 는 Job 이다.** '실행' 은 계획을 푸는 일이고, 회차는 그 결과로 생긴다.
       const job = s.jobs.find((j) => j.id === id)
       if (!job) return notFound(`unknown job: ${id}`)
+      // The Run this may make copies these Tasks (plugin Phase 5 C7)
+      const jobRefusal = await pluginCheckRefusal(deps, checkIdsOf(tasksOfNextRun(s, job)))
+      if (jobRefusal) return jobRefusal
       // **Not reachable today.** releaseJob and startJobRun refuse only `unknown job: <id>` — the id
       // this command was given, which the guard above has just found in the same state. Were that
       // guard ever to drift from them, the answer is still "no such id", so they go through
