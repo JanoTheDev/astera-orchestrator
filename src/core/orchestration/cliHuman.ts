@@ -235,7 +235,8 @@ export function humanFor(cmd: string, data: Record<string, unknown>): string | n
         asList(data, 'jobs').map((j) => [
           stateWord(j),
           str(j.id),
-          str(j.objective),
+          // A Job made from a ticket by the ticket's title (plugin 4d), not by the objective Astera wrote for it
+          str((j.source as { title?: unknown } | undefined)?.title ?? j.objective),
           progressWord(j)
         ])
       )

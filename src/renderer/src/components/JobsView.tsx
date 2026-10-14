@@ -12,6 +12,7 @@ import { PauseIcon, PlayIcon, RunIcon, STATE_KEY, STATUS_COLOR, TaskGlyph, TaskI
 import type { RunIconKind } from './JobIcons'
 import { ArrowUpRight, ChevronDown, ChevronRight } from 'lucide-react'
 import { SourceChip } from './SourceChip'
+import { jobName } from '../lib/jobName'
 
 /** Run 헤더 글리프의 툴팁. 끝난·실패·막힘은 줄의 글리프와 같은 모양이고 같은 뜻이라 같은 문구를 쓴다.
  *
@@ -191,7 +192,7 @@ function RunCardImpl({
           <span className="jobs-ordinal">{t('jobs.run.scheduleOrdinal', { n: ordinal })}</span>
         )}
         <span className={`jobs-objective${kind === 'done' ? ' done' : ''}`} title={run.objective}>
-          {run.objective}
+          {jobName(run)}
         </span>
         {/* The ticket the Job was made from (plugin Phase 4 J18): a click opens it, and does not fold the card */}
         <SourceChip source={run.source} />
@@ -439,7 +440,7 @@ function ScheduleCard({
       <div className="jobs-run-head" onClick={onToggle}>
         <span className="jobs-caret">{open ? <ChevronDown size={10} /> : <ChevronRight size={10} />}</span>
         <span className="jobs-objective" title={run.objective}>
-          {run.objective}
+          {jobName(run)}
         </span>
         {/* A Job made from a ticket and run more than once is this card: its chip stands here too (4c final review M12) */}
         <SourceChip source={run.source} />

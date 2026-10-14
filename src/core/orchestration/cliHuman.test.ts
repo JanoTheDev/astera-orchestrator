@@ -83,6 +83,22 @@ describe('humanFor', () => {
     )
   })
 
+  // Plugin 4d: a Job made from a ticket is named by the ticket's title, not by the objective Astera wrote
+  it('jobs list names a Job made from a ticket by its title', () => {
+    const out = humanFor('jobs-list', {
+      jobs: [
+        {
+          id: 'job_1',
+          objective: 'Resolve Linear ENG-101 (https://linear.app/acme/issue/ENG-101).\n\nThe following is the item’s content',
+          outcome: 'pending',
+          progress: { done: 0, total: 0 },
+          source: { id: 'astera-linear-source', itemId: 'ENG-101', label: 'Linear ENG-101', title: 'Fix the login page on Safari' }
+        }
+      ]
+    })
+    expect(out).toBe('PENDING  job_1  Fix the login page on Safari  0/0')
+  })
+
   it('질문이 여럿이면 복수로 센다', () => {
     const out = humanFor('jobs-list', {
       jobs: [{ id: 'j', objective: 'o', outcome: 'running', questionsOpen: 3 }]

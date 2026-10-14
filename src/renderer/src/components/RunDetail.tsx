@@ -42,6 +42,7 @@ import { JournalBusy, JournalOlder } from './RunDetailJournal'
 import { ArrowUpRight, Play, Square, WrenchOff, X } from 'lucide-react'
 import { backdropProps } from '../lib/backdrop'
 import { SourceChip } from './SourceChip'
+import { jobName } from '../lib/jobName'
 
 /** 종류 배지의 문구. message 는 messageType 이 정한다.
  *  heartbeat 과 decision_gate 는 timeline.ts 의 SKIP 이 걸러 지금은 도달하지 않지만, 맵을
@@ -800,7 +801,7 @@ export function RunDetail({
       <div className="modal run-detail" onClick={(e) => e.stopPropagation()}>
         {/* 머리말이 없다 — Run 의 목표가 제목이고, 그 옆의 아이콘과 숫자가 상태를 말한다 */}
         <div className="detail-head">
-          <h2 title={run?.objective}>{run?.objective ?? ''}</h2>
+          <h2 title={run?.objective}>{run ? jobName(run) : ''}</h2>
           <SourceChip source={run?.source} />
           {running > 0 && (
             <span className="jobs-count">
