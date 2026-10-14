@@ -84,11 +84,11 @@ describe('inspect', () => {
   })
 
   it('says why a plugin will not run here, and what is installed under its id', async () => {
-    const src = await plugin(FOLDER, { capabilities: ['job-source'] })
+    const src = await plugin(FOLDER, { capabilities: ['completion-check'] })
     await manager.install({ path: src, grant: [] })
     expect(await manager.inspect({ path: src })).toMatchObject({
       status: 200,
-      body: { compatible: false, reason: 'this Astera does not run job-source plugins yet', installed: { version: '1.0.0', enabled: true } }
+      body: { compatible: false, reason: 'this Astera does not run completion-check plugins yet', installed: { version: '1.0.0', enabled: true } }
     })
   })
 
@@ -293,6 +293,37 @@ describe('install', () => {
     const [ra, rb] = await Promise.all([manager.install({ path: a, grant: [] }), manager.install({ path: b, grant: [] })])
     expect([ra.status, rb.status]).toEqual([200, 200])
     expect((await listed()).map((p) => p.id)).toEqual(['plugin-a', 'plugin-b'])
+  })
+})
+
+// Plugin Phase 4, the 4a review's I4: a job source's list must not wait behind an npm install
+describe('listNow', () => {
+  it('answers what list answers while a change is under way', async () => {
+    let release!: () => void
+    const held = new Promise<void>((r) => (release = r))
+    let hold = false
+    const m = createPluginManager({
+      profileDir: profile,
+      hostVersion: '1.5.0',
+      now: () => clock,
+      copy: async (src, dest) => {
+        if (hold) await held
+        await fs.cp(src, dest, { recursive: true })
+      }
+    })
+    expect((await m.install({ path: await plugin(FOLDER), grant: ['jobs.read'] })).status).toBe(200)
+    hold = true
+    const installing = m.install({ path: await plugin('second', { name: '@acme/astera-linear' }), grant: ['jobs.read'] })
+    let listedBehind = false
+    const behind = m.list().then(() => (listedBehind = true))
+    const now = await m.listNow()
+    expect(now.status).toBe(200)
+    expect((body(now).plugins as Array<{ id: string }>).map((p) => p.id)).toEqual(['@acme/astera-jira'])
+    expect(listedBehind).toBe(false)
+    release()
+    expect((await installing).status).toBe(200)
+    await behind
+    expect(((await m.listNow()).body as { plugins: unknown[] }).plugins).toHaveLength(2)
   })
 })
 
@@ -521,6 +552,15 @@ describe('with a runtime (plugin runtime design P11)', () => {
     expect(rt.launches[0]).toMatchObject({ capabilities: ['event'], granted: ['events.subscribe'] })
   })
 
+  // Plugin Phase 4 J1, J2: a job source runs, and asks for no permission
+  it('starts a job-source plugin that asks for no permission, with its capability in the launch', async () => {
+    const rt = fakeRuntime()
+    const src = await plugin(FOLDER, { capabilities: ['job-source'], permissions: [] })
+    await withRuntime(rt).install({ path: src, grant: [] })
+    expect(rt.calls).toEqual(['start @acme/astera-jira'])
+    expect(rt.launches[0]).toMatchObject({ capabilities: ['job-source'], granted: [] })
+  })
+
   // Plugin Phase 3c: this Astera runs notification plugins
   it('starts a notification plugin, with its capability in the launch', async () => {
     const rt = fakeRuntime()
@@ -551,7 +591,7 @@ describe('with a runtime (plugin runtime design P11)', () => {
 
   it('does not start a plugin this Astera will not run', async () => {
     const rt = fakeRuntime()
-    await withRuntime(rt).install({ path: await plugin(FOLDER, { capabilities: ['job-source'] }), grant: [] })
+    await withRuntime(rt).install({ path: await plugin(FOLDER, { capabilities: ['completion-check'] }), grant: [] })
     expect(rt.calls).toEqual([])
   })
 
@@ -617,7 +657,7 @@ describe('with a runtime (plugin runtime design P11)', () => {
   it('starts every enabled, compatible plugin at the Host’s start', async () => {
     await manager.install({ path: await plugin('a', { name: 'plugin-a' }), grant: [] })
     await manager.install({ path: await plugin('b', { name: 'plugin-b' }), grant: [] })
-    await manager.install({ path: await plugin('c', { name: 'plugin-c', capabilities: ['job-source'] }), grant: [] })
+    await manager.install({ path: await plugin('c', { name: 'plugin-c', capabilities: ['completion-check'] }), grant: [] })
     await manager.setEnabled('plugin-b', false)
     const rt = fakeRuntime()
     await withRuntime(rt).startAll()
@@ -691,10 +731,10 @@ describe('logs and doctor', () => {
   })
 
   it('says why an incompatible plugin and a failed one do not run', async () => {
-    await manager.install({ path: await plugin(FOLDER, { capabilities: ['job-source'] }), grant: [] })
+    await manager.install({ path: await plugin(FOLDER, { capabilities: ['completion-check'] }), grant: [] })
     expect((await manager.doctor('@acme/astera-jira')).body).toMatchObject({
       ok: false,
-      checks: expect.arrayContaining([{ name: 'compatible', ok: false, detail: 'this Astera does not run job-source plugins yet' }])
+      checks: expect.arrayContaining([{ name: 'compatible', ok: false, detail: 'this Astera does not run completion-check plugins yet' }])
     })
     const failing = createPluginManager({
       profileDir: profile,

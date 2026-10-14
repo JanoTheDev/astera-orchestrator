@@ -25,7 +25,7 @@ export interface McpRuntimes {
   /** The paired Runtimes, with no token. */
   list(): Promise<RuntimeProfile[]>
   /** Why this machine's MCP settings refuse `cmd` for a remote target, or null. Read per call. */
-  refusal(cmd: string): Promise<string | null>
+  refusal(cmd: string, args?: Record<string, unknown>): Promise<string | null>
   /** The link to the Runtime `key` names (id, or a name), opened once and kept. */
   linkFor(key: string): Promise<HostLink | LinkFailure>
   close(): void
@@ -77,7 +77,7 @@ export function openMcpRuntimes(a: {
   let known: { stamp: string; list: RuntimeProfile[] } | null = null
   return {
     list: async () => (await reg()).list(),
-    refusal: async (cmd) => {
+    refusal: async (cmd, args) => {
       let o: Record<string, unknown> | null
       try {
         o = await readAppSettingsObject(settingsFile)
@@ -86,7 +86,7 @@ export function openMcpRuntimes(a: {
         return `this machine's app-settings.json could not be read: ${e instanceof Error ? e.message : String(e)}`
       }
       // DC-4: for a remote target an unrecognized mcpAccess is off; an absent one keeps the default.
-      const refused = mcpRefusal(cmd, mcpAccessForRemote(o?.mcpAccess), mcpSessionsOf(o?.mcpSessions), mcpGithubWriteOf(o?.mcpGithubWrite))
+      const refused = mcpRefusal(cmd, mcpAccessForRemote(o?.mcpAccess), mcpSessionsOf(o?.mcpSessions), mcpGithubWriteOf(o?.mcpGithubWrite), args)
       return refused ? `${refused.body.error} (this machine's Astera settings)` : null
     },
     linkFor: async (key) => {

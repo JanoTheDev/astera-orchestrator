@@ -6,7 +6,8 @@ import { removeFixture } from '../../core/testFixtures'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { createPluginRuntime, type PluginLaunch, type PluginRuntime, type PluginTimings } from './runtime'
+import { PluginRequestFailed, createPluginRuntime, requestFailure, type PluginLaunch, type PluginRuntime, type PluginTimings } from './runtime'
+import { RPC_CLOSED, RPC_NOT_READY, RpcError } from '../../core/plugins/rpc'
 import type { DeliveryTimings } from './deliverer'
 import type { AsteraEvent } from '../../core/publicContract'
 import type { PluginNotification } from '../../core/plugins/notifications'
@@ -764,5 +765,91 @@ describe('notification plugins, against what a person would not expect (plugin 3
     append(ring)
     await until(() => expect(logOf(r, 'w6')).toContain('sent ev_aaaaaaaaaaaa_1'))
     expect(logOf(r, 'w6').match(/event ev_aaaaaaaaaaaa_1/g)).toHaveLength(2)
+  }, 90_000)
+})
+
+describe('job-source plugins (plugin Phase 4 J6, J8)', () => {
+  const SOURCE = `export default {
+    listItems(input) { return { items: [{ id: 'ENG-1', title: 'Fix ' + (input.query ?? '') }] } },
+    getItem(id) { if (id === 'boom') throw new Error('401 Unauthorized'); return { id, title: 'Fix' } },
+    buildJobContext(id) { return new Promise(() => {}) }
+  }`
+  const sourcePlugin = (name: string, source = SOURCE): PluginLaunch => ({ ...plugin(name, source), capabilities: ['job-source'], granted: [] })
+  /** The failure `p` rejected with, as its status and message. */
+  const failure = async (p: Promise<unknown>): Promise<{ status: number; message: string }> => {
+    try {
+      await p
+    } catch (e) {
+      if (e instanceof PluginRequestFailed) return { status: e.status, message: e.message }
+      throw e
+    }
+    throw new Error('it did not reject')
+  }
+
+  it('asks a running job source and answers what it returned', async () => {
+    const { r } = runtime()
+    r.start(sourcePlugin('js1'))
+    await until(() => expect(r.status('js1')?.status).toBe('running'))
+    expect(await r.request('js1', 'jobSource.list', { query: 'login' }, 5_000)).toEqual({ items: [{ id: 'ENG-1', title: 'Fix login' }] })
+  }, 90_000)
+
+  it('rejects a function that threw with 502 and its message, and logs it', async () => {
+    const { r } = runtime()
+    r.start(sourcePlugin('js2'))
+    await until(() => expect(r.status('js2')?.status).toBe('running'))
+    expect(await failure(r.request('js2', 'jobSource.get', { id: 'boom' }, 5_000))).toEqual({ status: 502, message: 'getItem threw: 401 Unauthorized' })
+    await until(() => expect(logOf(r, 'js2')).toContain('[host] jobSource.get failed: getItem threw: 401 Unauthorized'))
+  }, 90_000)
+
+  it('rejects past the time limit with 504', async () => {
+    const { r } = runtime()
+    r.start(sourcePlugin('js3'))
+    await until(() => expect(r.status('js3')?.status).toBe('running'))
+    expect(await failure(r.request('js3', 'jobSource.context', { id: 'ENG-1' }, 300))).toEqual({ status: 504, message: 'js3 did not answer within 0.3 s' })
+  }, 90_000)
+
+  // Review Focus 3: a person listing a source that does not run hears why at once
+  it('rejects at once with 503, the status and the reason, when the plugin does not run', async () => {
+    const { r } = runtime({ failAfter: 1 })
+    expect(await failure(r.request('nobody', 'jobSource.list', {}, 5_000))).toEqual({ status: 503, message: 'nobody is not running' })
+    r.start(sourcePlugin('js4', `export default { listItems() {}, getItem() {}, buildJobContext() {}, activate() { throw new Error('no key') } }`))
+    await until(() => expect(r.status('js4')?.status).toBe('failed'))
+    const t0 = Date.now()
+    expect(await failure(r.request('js4', 'jobSource.list', {}, 15_000))).toMatchObject({ status: 503, message: expect.stringMatching(/^js4 is failed: activate threw: no key/) })
+    expect(Date.now() - t0).toBeLessThan(1_000)
+    r.start(sourcePlugin('js5'))
+    await until(() => expect(r.status('js5')?.status).toBe('running'))
+    await r.stop('js5')
+    expect(await failure(r.request('js5', 'jobSource.list', {}, 5_000))).toEqual({ status: 503, message: 'js5 is stopped' })
+  }, 90_000)
+
+  // The 4a review's M10: a crash loop and an exit while it answers are 503 too, at once
+  it('rejects with 503 at once while the plugin waits to restart, and when it exits while it answers', async () => {
+    const { r } = runtime({ backoffMs: [60_000], failAfter: 5 })
+    r.start(sourcePlugin('js7', `export default { listItems() {}, getItem() {}, buildJobContext() {}, activate() { throw new Error('no key') } }`))
+    await until(() => expect(r.status('js7')?.reason).toBeDefined())
+    const t0 = Date.now()
+    expect(await failure(r.request('js7', 'jobSource.list', {}, 15_000))).toMatchObject({
+      status: 503,
+      message: expect.stringMatching(/^js7 is starting: restarting after activate threw: no key/)
+    })
+    expect(Date.now() - t0).toBeLessThan(1_000)
+    r.start(sourcePlugin('js8', `export default { listItems() { process.exit(3) }, getItem() {}, buildJobContext() {} }`))
+    await until(() => expect(r.status('js8')?.status).toBe('running'))
+    expect(await failure(r.request('js8', 'jobSource.list', {}, 15_000))).toEqual({ status: 503, message: 'js8 exited while it answered' })
+  }, 90_000)
+
+  // The 4a review's M8: the launcher's not-ready code, from a race with a stop, is a plugin not running
+  it('answers the launcher’s not-ready code as 503, and hides a secret in what a plugin threw', () => {
+    const hide = (m: string): string => m.replaceAll('sk-1', '[redacted]')
+    expect(requestFailure('js', new RpcError(RPC_NOT_READY, 'the plugin is stopping'), hide)).toMatchObject({ status: 503, message: 'js is not ready: the plugin is stopping' })
+    expect(requestFailure('js', new RpcError(RPC_CLOSED, 'gone'), hide)).toMatchObject({ status: 503, message: 'js exited while it answered' })
+    expect(requestFailure('js', new RpcError(-32603, 'listItems threw: 401 for sk-1'), hide)).toMatchObject({ status: 502, message: 'listItems threw: 401 for [redacted]' })
+  })
+
+  it('fails the start of a job source whose entry lacks one of its functions, saying which', async () => {
+    const { r } = runtime({ failAfter: 1 })
+    r.start(sourcePlugin('js6', 'export default { listItems() {}, buildJobContext() {} }'))
+    await until(() => expect(r.status('js6')).toMatchObject({ status: 'failed', reason: expect.stringContaining('the job-source capability needs getItem in its entry') }))
   }, 90_000)
 })

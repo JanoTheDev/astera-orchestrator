@@ -4,6 +4,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { PassThrough } from 'node:stream'
 import { runLauncher } from './launcher'
 import { AsteraError } from '../core/publicContract'
+import { RPC_NOT_READY } from '../core/plugins/rpc'
 import type { PluginContext } from '../../packages/plugin-sdk/src/index'
 
 const INIT_PARAMS = {
@@ -351,5 +352,76 @@ describe('runLauncher: settings and secrets', () => {
     expect(await none.ask('notifications.send', { notification: {} })).toMatchObject({ error: { code: -32601, message: 'the plugin has no send' } })
     const early = launch({ default: { send() {} } })
     expect(await early.ask('notifications.send', { notification: {} })).toMatchObject({ error: { message: 'the plugin is not started' } })
+  })
+
+  // Plugin Phase 4 J6: a job source answers the Host with what its functions return
+  it('says a job source has its three functions, and answers each request with what it returned', async () => {
+    const seen: unknown[][] = []
+    const l = launch({
+      default: {
+        listItems(input: unknown, ctx: PluginContext) {
+          seen.push(['list', input, ctx.plugin.id])
+          return { items: [{ id: 'ENG-1', title: 'Fix' }], nextCursor: 'c2' }
+        },
+        async getItem(id: unknown) {
+          seen.push(['get', id])
+          return { id, title: 'Fix', body: 'b' }
+        },
+        buildJobContext(id: unknown) {
+          seen.push(['context', id])
+          return { objective: 'Fix', sourceLabel: `Linear ${String(id)}` }
+        }
+      }
+    })
+    expect(await l.ask('initialize', INIT_PARAMS)).toMatchObject({ result: { handlers: ['listItems', 'getItem', 'buildJobContext'] } })
+    expect(await l.ask('jobSource.list', { query: 'login', cursor: 'c1', extra: 1 })).toMatchObject({ result: { items: [{ id: 'ENG-1', title: 'Fix' }], nextCursor: 'c2' } })
+    expect(await l.ask('jobSource.get', { id: 'ENG-1' })).toMatchObject({ result: { id: 'ENG-1', body: 'b' } })
+    expect(await l.ask('jobSource.context', { id: 'ENG-1' })).toMatchObject({ result: { objective: 'Fix', sourceLabel: 'Linear ENG-1' } })
+    expect(seen).toEqual([['list', { query: 'login', cursor: 'c1' }, 'astera-hello'], ['get', 'ENG-1'], ['context', 'ENG-1']])
+  })
+
+  it('answers a job source’s throw with its message, a missing function, and a request without an id', async () => {
+    const l = launch({
+      default: {
+        listItems() {
+          throw new Error('401 Unauthorized')
+        }
+      }
+    })
+    await l.ask('initialize', INIT_PARAMS)
+    expect(await l.ask('jobSource.list', {})).toMatchObject({ error: { code: -32603, message: 'listItems threw: 401 Unauthorized' } })
+    expect(await l.ask('jobSource.get', { id: 'x' })).toMatchObject({ error: { code: -32601, message: 'the plugin has no getItem' } })
+    expect(await l.ask('jobSource.context', {})).toMatchObject({ error: { code: -32602, message: 'jobSource.context needs { id }' } })
+  })
+
+  // The 4a review's I3: an answer JSON cannot hold is refused with why, and the launcher answers on
+  it('answers a job source whose answer cannot be sent with why, and goes on answering', async () => {
+    const circular: Record<string, unknown> = { id: 'c', title: 't' }
+    circular.self = circular
+    const l = launch({
+      default: {
+        listItems: () => ({ items: [{ id: 'ENG-1', title: 'Fix', size: BigInt(1) }] }),
+        getItem: () => circular,
+        buildJobContext: () => ({ objective: 'Fix', sourceLabel: 'L' })
+      }
+    })
+    await l.ask('initialize', INIT_PARAMS)
+    expect(await l.ask('jobSource.list', {})).toMatchObject({
+      error: { code: -32603, message: expect.stringMatching(/^listItems answered with something that cannot be sent: .*BigInt/) }
+    })
+    expect(await l.ask('jobSource.get', { id: 'c' })).toMatchObject({
+      error: { code: -32603, message: expect.stringMatching(/^getItem answered with something that cannot be sent: /) }
+    })
+    expect(await l.ask('jobSource.context', { id: 'ENG-1' })).toMatchObject({ result: { objective: 'Fix' } })
+  })
+
+  // The 4a review's M8: not started yet, or stopping, is said with a code of its own, which the Host answers as 503
+  it('answers a job source request before the start, and while stopping, with the not-ready code', async () => {
+    const early = launch({ default: { listItems: () => ({ items: [] }) } })
+    expect(await early.ask('jobSource.list', {})).toMatchObject({ error: { code: RPC_NOT_READY, message: 'the plugin is not started' } })
+    const l = launch({ default: { listItems: () => ({ items: [] }) } })
+    await l.ask('initialize', INIT_PARAMS)
+    await l.ask('shutdown', {})
+    expect(await l.ask('jobSource.list', {})).toMatchObject({ error: { code: RPC_NOT_READY, message: 'the plugin is stopping' } })
   })
 })

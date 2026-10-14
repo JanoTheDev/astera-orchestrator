@@ -16,6 +16,12 @@ describe('publicFor', () => {
     })
   })
 
+  // Phase 4 J15: where a Job came from is public
+  it('keeps the job source a Job was made from', () => {
+    const source = { id: 'astera-linear-source', itemId: 'ENG-1', label: 'Linear ENG-1', url: 'https://linear.app/x/ENG-1' }
+    expect(publicFor('jobs-get', { id: 'job_1', objective: 'o', cwd: 'D:/p', createdAt: 'T', source })).toMatchObject({ source })
+  })
+
   // 없는 것을 undefined 로 찍으면 JSON 에서 사라져 결과는 같지만, 있는데 비어 있는 것과
   // 아예 없는 것이 한 모양이 된다
   it('없는 칸을 만들지 않는다', () => {

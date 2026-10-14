@@ -5,6 +5,7 @@
 // Everything it needs arrives in the environment, because it has no `app.getPath('userData')` to ask.
 import childProcess from 'node:child_process'
 import { createPluginManager } from './plugins/manager'
+import { hostJobSources } from './jobSources'
 import { PLUGIN_STOP_CAP_MS, createPluginRuntime } from './plugins/runtime'
 import { existsSync, promises as fsp, readFileSync, rmSync } from 'node:fs'
 import { defaultCwdProbe, setProbeLog } from '../core/sessions/pathProbe'
@@ -711,6 +712,8 @@ async function main(): Promise<void> {
     version: hostVersion,
     controllers,
     plugins,
+    // The job-source plugins a person makes Jobs from (plugin Phase 4 J10), asked through the runtime
+    jobSources: hostJobSources({ manager: plugins, runtime: pluginRuntime }),
     now: () => new Date().toISOString(),
     // The handshake's own string, not a second one taken here: `requests show` answers with it so a
     // caller can tell "this Host never saw my request" from "it never arrived" (request receipts

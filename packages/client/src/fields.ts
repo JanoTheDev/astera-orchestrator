@@ -31,7 +31,8 @@ export const JOB_FIELDS = Object.freeze([
   'fireCount',
   'pendingStart',
   'paused',
-  'convergence'
+  'convergence',
+  'source'
 ] as const)
 
 export const RUN_FIELDS = Object.freeze([

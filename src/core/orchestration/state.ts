@@ -9,6 +9,7 @@ import {
   recomputeReady,
   type CheckResult,
   type ConvergencePolicy,
+  type JobSourceRef,
   type Delivery,
   type Dispatch,
   type Gate,
@@ -236,6 +237,8 @@ export function createJob(
     schedule?: ScheduleRule
     /** 완료 수렴 정책. 있으면 이 Job 의 검증·검토 실패는 앱이 repair 로 되돌린다(설계 D2·D12) */
     convergence?: ConvergencePolicy
+    /** The job source's item the Job is made from (plugin Phase 4 J15); only the Host gives it. */
+    source?: JobSourceRef
   },
   now: string
 ): Res<Job> {
@@ -255,7 +258,8 @@ export function createJob(
     ...(a.autoDispatch ? { autoDispatch: true } : {}),
     ...(a.schedule ? { schedule: a.schedule } : {}),
     ...(a.pendingStart ? { pendingStart: true } : {}),
-    ...(a.convergence ? { convergence: a.convergence } : {})
+    ...(a.convergence ? { convergence: a.convergence } : {}),
+    ...(a.source ? { source: a.source } : {})
   }
   return ok({ ...s, jobs: [...s.jobs, job] }, job)
 }

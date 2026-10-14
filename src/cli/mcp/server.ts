@@ -438,7 +438,7 @@ async function linkForCall(a: { link: HostLink; runtimes?: McpRuntimes }, t: Too
   if (remoteTarget(t.cmd) === 'no')
     return errorResult('RUNTIME_CAPABILITY_MISSING', `${t.name} works on this machine only; leave runtimeId out`)
   if (!a.runtimes) return errorResult('RUNTIME_CAPABILITY_MISSING', 'this MCP server reaches no paired Runtime')
-  const refused = await a.runtimes.refusal(t.cmd)
+  const refused = await a.runtimes.refusal(t.cmd, input)
   if (refused !== null) return errorResult('PERMISSION_DENIED', refused)
   const link = await a.runtimes.linkFor(input.runtimeId)
   if ('code' in link) return errorResult(link.code, link.message)
@@ -569,7 +569,7 @@ export async function serveMcp(a: {
     })
   const runtimes: McpRuntimes = {
     list: () => opened.list(),
-    refusal: (cmd) => opened.refusal(cmd),
+    refusal: (cmd, args) => opened.refusal(cmd, args),
     linkFor: async (key) => {
       const l = await opened.linkFor(key)
       return 'code' in l ? l : counted(l)

@@ -87,6 +87,7 @@ import {
   type Dispatch,
   type Job,
   type JobRun,
+  type JobSourceRef,
   type MessageType,
   type Project,
   type Task,
@@ -108,7 +109,8 @@ import type { JobEvent, WorktreeInfo } from '../types'
 import { ghFailureSentence, type GhFailed, type GhRunner } from '../github/gh'
 import { failedLogTail, readPrChecks, rerunFailed } from '../github/checks'
 import { prForBranch } from '../github/prs'
-import { ISSUE_JOB_ASSOCIATIONS, issueObjective, readIssue } from '../github/issue'
+import { ISSUE_JOB_ASSOCIATIONS, readIssue } from '../github/issue'
+import { GITHUB_SOURCE_ID, issueContext } from '../github/issueSource'
 import { fillFromCommits, type CommitSummary } from '../github/fill'
 import type { PrCreateRequest, PrCreateResult } from '../github/prCreate'
 import type { SessionCheck } from '../workUnit/types'
@@ -121,6 +123,8 @@ import { isOverrideCompletion, policyOf } from './convergence'
 import { leftNothingBehind } from '../host/orchProtocol'
 import { APP_CALLER, HOST_CALLER } from '../host/driver'
 import { UNREADABLE, recordDetail, recordSummary, recordsFor, type StoreShape } from '../understanding/read'
+import { JOB_SOURCE, SOURCE_COMMANDS, createFromContext, sourcesCommand, type JobSourcesDeps } from './commandSources'
+export { JOB_SOURCE } from './commandSources'
 
 /** One row of `listAccounts`. Named only because the declaration below is a union and repeating the
  *  shape on both sides invites the two halves to drift. */
@@ -635,6 +639,9 @@ export interface OrchServerDeps {
    *  never written (`readUnderstandingFile`). **Only the Host injects it**, over its profile's file: the
    *  app has the records in its own store and no caller asks it. Absent, `understanding-*` answer 409. */
   readUnderstanding?(): Promise<StoreShape>
+  /** The job-source plugins (plugin Phase 4 J10): which there are and a question to one. **Only the Host injects it**,
+   *  from its plugin manager and runtime; absent, the sources are GitHub's alone. */
+  jobSources?: JobSourcesDeps
 }
 
 /** A chat session's turn as `chatTurn` reads it. `prompt` is the open prompt, as `chats pending` lists
@@ -1157,6 +1164,15 @@ function parseAccountList(
   return { ok: true, ids: parts }
 }
 
+/** The source `args` carry under JOB_SOURCE, when they carry one whole. */
+const jobSourceOf = (args: Record<string, unknown>): JobSourceRef | undefined => {
+  const v = (args as Record<PropertyKey, unknown>)[JOB_SOURCE]
+  if (typeof v !== 'object' || v === null) return undefined
+  const r = v as Record<string, unknown>
+  if (typeof r.id !== 'string' || typeof r.itemId !== 'string' || typeof r.label !== 'string') return undefined
+  return { id: r.id, itemId: r.itemId, label: r.label, ...(typeof r.url === 'string' ? { url: r.url } : {}) }
+}
+
 export async function handleCommand(
   deps: OrchServerDeps,
   /** `role` is the Host connection's (OrchCaller.role); absent where no Host connection exists. Only
@@ -1165,6 +1181,8 @@ export async function handleCommand(
   cmd: string,
   args: Record<string, unknown>
 ): Promise<Reply> {
+  // The job-source commands (plugin Phase 4), in a module of their own; jobs-create-from-source comes back here
+  if (SOURCE_COMMANDS.has(cmd)) return sourcesCommand(deps, caller, cmd, args, handleCommand)
   if (cmd === 'browser-js') {
     // The browser has its own toggle and needs none of the orchestration state below.
     // **이 await 는 상태를 읽기 전이다.** 이 분기는 handleCommand 의 첫 문장이고, 위에는 읽은
@@ -1716,7 +1734,8 @@ export async function handleCommand(
             // 전에 첫 회차가 도는 것은 보통 Run 에서 없앤 바로 그 문제다. 게이트가 걷히는 순간부터
             // 무장하므로(firesDue), '실행' 을 누른 뒤의 첫 예약 시각이 첫 회차가 된다.
             ...(args.auto === true ? { pendingStart: true } : {}),
-            ...(convergence ? { convergence } : {})
+            ...(convergence ? { convergence } : {}),
+            ...(jobSourceOf(args) ? { source: jobSourceOf(args) } : {})
           },
         now
       )
@@ -4565,7 +4584,8 @@ export async function handleCommand(
       return r.ok ? okBody({ runId, rerun: true }) : ghRefusal(r)
     }
     /**
-     * An issue becomes a Job, through `jobs-create` with the issue as its objective (`issueObjective`).
+     * An issue becomes a Job, as the GitHub job source makes one (plugin Phase 4 J13): the objective the job sources'
+     * writer makes of it, and the issue as the Job's source.
      * The checks are here, on the Host, so no client can skip them: a pull request, a closed issue and
      * an author the repository does not already trust with its code are refused. The objective and the
      * folder are the issue's and the project's, so a caller that gives either is refused.
@@ -4589,7 +4609,14 @@ export async function handleCommand(
           `Issue #${n} was written by a ${issue.authorAssociation} of the repository; only an owner, member or collaborator's issue becomes a Job`
         )
       const { project: _project, number: _number, ...rest } = args
-      const reply = await handleCommand(deps, caller, 'jobs-create', { ...rest, cwd: t.cwd, objective: issueObjective(issue) })
+      const reply = await createFromContext(deps, caller, handleCommand, {
+        rest,
+        cwd: t.cwd,
+        ctx: issueContext(issue),
+        sourceId: GITHUB_SOURCE_ID,
+        sourceName: 'GitHub',
+        itemId: String(issue.number)
+      })
       if (reply.status < 200 || reply.status >= 300) return reply
       return okBody({ ...(reply.body as object), issue: { number: issue.number, url: issue.url } })
     }

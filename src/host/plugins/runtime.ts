@@ -10,7 +10,7 @@ import { hostWorkerBaseEnv } from '../../core/host/spawn'
 import { killProcessTree } from '../../core/run/kill'
 import { redactSecrets } from '../../core/remote/redact'
 import type { OrchCall } from '../../core/host/orchProtocol'
-import { RPC_CLOSED, RPC_INTERNAL_ERROR, RPC_INVALID_PARAMS, RPC_METHOD_NOT_FOUND, RpcError, createRpcPeer, type RpcPeer } from '../../core/plugins/rpc'
+import { RPC_CLOSED, RPC_INTERNAL_ERROR, RPC_INVALID_PARAMS, RPC_METHOD_NOT_FOUND, RPC_NOT_READY, RpcError, createRpcPeer, type RpcPeer } from '../../core/plugins/rpc'
 import { capabilityPermissionProblem, type PluginCapability } from '../../core/plugins/manifest'
 import { PluginSecretRefused, pluginCursor, pluginSecrets, type CursorStore } from './pluginData'
 import { DeliveryInterrupted, createDeliverer, type Deliverer, type DeliverySource, type DeliveryTimings } from './deliverer'
@@ -78,6 +78,29 @@ export interface PluginRuntime {
   logFile(folder: string): string
   /** Lets go of a plugin's log, written out first, so a removal can delete it for good (2b final review M2). */
   forget(folder: string): Promise<void>
+  /** Asks a running plugin `method` and answers what it returned (plugin Phase 4 J6, J8): rejects with
+   *  PluginRequestFailed, 503 at once when the plugin does not run, 504 past `timeoutMs`, 502 with what it threw. */
+  request(id: string, method: string, params: unknown, timeoutMs: number): Promise<unknown>
+}
+
+/** Why a request to a plugin got no answer, as the status the Host answers its caller with (plugin Phase 4 J8). */
+export class PluginRequestFailed extends Error {
+  constructor(
+    readonly status: 502 | 503 | 504,
+    message: string
+  ) {
+    super(message)
+  }
+}
+
+/** What a request that failed answers its caller (J8): a channel that ended, or a launcher whose plugin is not started
+ *  or is stopping (a race with a stop: 4a final review M8), is a plugin that does not run, 503; anything else is what
+ *  the plugin threw, 502, through `hide`, since it can hold a secret like every line of its log. */
+export function requestFailure(id: string, e: unknown, hide: (m: string) => string): PluginRequestFailed {
+  if (e instanceof PluginRequestFailed) return e
+  if (e instanceof RpcError && e.code === RPC_CLOSED) return new PluginRequestFailed(503, `${id} exited while it answered`)
+  if (e instanceof RpcError && e.code === RPC_NOT_READY) return new PluginRequestFailed(503, `${id} is not ready: ${e.message}`)
+  return new PluginRequestFailed(502, hide(e instanceof Error ? e.message : String(e)))
 }
 
 /** A plugin's log (design P13): `<profile>/plugins/logs/<folder>.log`, rotated to `.1` past 2 MiB. */
@@ -122,7 +145,11 @@ interface Slot {
 }
 
 /** The handler each capability is served through (plugin Phase 3 N5): a plugin whose entry lacks it does not start. */
-const HANDLER_OF: Partial<Record<PluginCapability, string>> = { event: 'onEvent', notification: 'send' }
+const HANDLER_OF: Partial<Record<PluginCapability, readonly string[]>> = {
+  event: ['onEvent'],
+  notification: ['send'],
+  'job-source': ['listItems', 'getItem', 'buildJobContext']
+}
 
 /** The capabilities served from the event log by a deliverer (plugin Phase 3 N1). */
 const delivered = (p: PluginLaunch): boolean => p.capabilities.includes('event') || p.capabilities.includes('notification')
@@ -493,8 +520,8 @@ export function createPluginRuntime(d: {
           // Plugin Phase 3 N5: a capability served through a handler its entry does not have fails the start
           const handlers = isObject(r) && Array.isArray(r.handlers) ? r.handlers : []
           for (const c of p.capabilities) {
-            const h = HANDLER_OF[c]
-            if (h === undefined || handlers.includes(h)) continue
+            const h = (HANDLER_OF[c] ?? []).find((name) => !handlers.includes(name))
+            if (h === undefined) continue
             s.problem = `the ${c} capability needs ${h} in its entry`
             say(s, s.problem)
             killTree(proc)
@@ -620,6 +647,47 @@ export function createPluginRuntime(d: {
     return Promise.all([stopped, delivered]).then(() => {})
   }
 
+  function statusOf(id: string): PluginRunStatus | undefined {
+    const s = slots.get(id)
+    if (!s) return undefined
+    const pid = s.proc?.pid
+    switch (s.state) {
+      case 'running':
+        return { status: 'running', ...(pid !== undefined ? { pid } : {}) }
+      case 'starting':
+        return { status: 'starting', ...(pid !== undefined ? { pid } : {}) }
+      case 'waiting':
+        return { status: 'starting', reason: hide(s, `restarting after ${s.problem ?? 'a crash'}`) }
+      case 'failed':
+        return { status: 'failed', ...(s.reason !== undefined ? { reason: s.reason } : {}) }
+      default:
+        return { status: 'stopped' }
+    }
+  }
+
+  async function request(id: string, method: string, params: unknown, timeoutMs: number): Promise<unknown> {
+    const s = slots.get(id)
+    const peer = s?.peer
+    // A plugin that does not run is not asked: a person hears why at once, not after the time limit (Review Focus 3)
+    if (!s || s.state !== 'running' || !peer) {
+      const st = statusOf(id)
+      throw new PluginRequestFailed(503, st ? `${id} is ${st.status}${st.reason ? `: ${st.reason}` : ''}` : `${id} is not running`)
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const late = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new PluginRequestFailed(504, `${id} did not answer within ${timeoutMs / 1000} s`)), timeoutMs)
+    })
+    try {
+      return await Promise.race([peer.request(method, params), late])
+    } catch (e) {
+      const failure = requestFailure(id, e, (m) => hide(s, m))
+      say(s, `${method} failed: ${failure.message}`)
+      throw failure
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
   return {
     start,
     restart: (p) => {
@@ -636,24 +704,9 @@ export function createPluginRuntime(d: {
       await Promise.all([...slots.keys()].map(stop))
       for (const l of logs.values()) l.close()
     },
-    status: (id) => {
-      const s = slots.get(id)
-      if (!s) return undefined
-      const pid = s.proc?.pid
-      switch (s.state) {
-        case 'running':
-          return { status: 'running', ...(pid !== undefined ? { pid } : {}) }
-        case 'starting':
-          return { status: 'starting', ...(pid !== undefined ? { pid } : {}) }
-        case 'waiting':
-          return { status: 'starting', reason: hide(s, `restarting after ${s.problem ?? 'a crash'}`) }
-        case 'failed':
-          return { status: 'failed', ...(s.reason !== undefined ? { reason: s.reason } : {}) }
-        default:
-          return { status: 'stopped' }
-      }
-    },
+    status: statusOf,
     logFile,
+    request,
     forget: async (folder) => {
       logs.delete(folder)
       await releaseLogWriter(logFile(folder))

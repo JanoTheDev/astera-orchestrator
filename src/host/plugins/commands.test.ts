@@ -13,6 +13,7 @@ const fake = (): PluginManager & { calls: string[] } => {
     inspect: vi.fn(ok('inspect')),
     install: vi.fn(ok('install')),
     list: vi.fn(ok('list', { plugins: [] })),
+    listNow: vi.fn(ok('listNow', { plugins: [] })),
     get: vi.fn(ok('get')),
     setEnabled: vi.fn(async (_id: unknown, enabled: boolean) => {
       calls.push(enabled ? 'enable' : 'disable')

@@ -48,6 +48,15 @@ export interface Project {
   readonly addedAt: string
 }
 
+/** A job source's item a Job was made from: the source (a plugin's id, or `github` for GitHub issues), the item's id
+ *  there, how a person names it (`Linear ENG-123`), and where to open it. */
+export interface JobSource {
+  readonly id: string
+  readonly itemId: string
+  readonly label: string
+  readonly url?: string
+}
+
 export interface Job {
   readonly id: string
   readonly objective: string
@@ -62,6 +71,9 @@ export interface Job {
   readonly pendingStart?: boolean
   readonly paused?: boolean
   readonly convergence?: ConvergencePolicy
+  /** Where the Job came from: a job source and its item, set by Astera when it made the Job from that item (Astera
+   *  1.4.14 and later). */
+  readonly source?: JobSource
   /** Derived on every read: how the Job's latest Run (or the Job itself before one) stands. */
   readonly outcome: JobOutcome
   readonly progress: Progress

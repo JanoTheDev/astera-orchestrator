@@ -21,6 +21,10 @@ export const MCP_READ_COMMANDS = [
   'github-pr',
   'github-ci',
   'github-issue',
+  // Plugin Phase 4 J11: a job source's list, page and item
+  'sources-list',
+  'sources-items',
+  'sources-item',
   // How It Works records (MCP P2-C): read only, from the Host's copy of understanding.json.
   'understanding-list',
   'understanding-get',
@@ -33,6 +37,7 @@ export const MCP_READ_COMMANDS = [
 
 export const MCP_CONTROL_COMMANDS = [
   'jobs-create',
+  'jobs-create-from-source',
   'jobs-run',
   'runs-stop',
   'runs-resume',
@@ -56,7 +61,14 @@ const SESSION_READ: ReadonlySet<string> = new Set(MCP_SESSION_READ_COMMANDS)
 const SESSION_WRITE: ReadonlySet<string> = new Set(MCP_SESSION_WRITE_COMMANDS)
 const GITHUB_WRITE: ReadonlySet<string> = new Set(MCP_GITHUB_WRITE_COMMANDS)
 
-export function mcpRefusal(cmd: string, access: McpAccess, sessions: boolean, githubWrite: boolean): { status: 403; body: { error: string } } | null {
+/** `args` tell a Job made from a job source apart by its source: from GitHub it is a GitHub write (plugin Phase 4 J11). */
+export function mcpRefusal(
+  cmd: string,
+  access: McpAccess,
+  sessions: boolean,
+  githubWrite: boolean,
+  args?: Record<string, unknown>
+): { status: 403; body: { error: string } } | null {
   if (access === 'off')
     return { status: 403, body: { error: 'MCP access is off in Astera Settings (CLI tab). Turn it on to use Astera from an MCP client.' } }
   if (SESSION_READ.has(cmd) || SESSION_WRITE.has(cmd)) {
@@ -65,7 +77,7 @@ export function mcpRefusal(cmd: string, access: McpAccess, sessions: boolean, gi
     if (SESSION_READ.has(cmd) || access === 'control') return null
     return { status: 403, body: { error: `${cmd} needs MCP access "Read and control" in Astera Settings (CLI tab); it is "Read only".` } }
   }
-  if (GITHUB_WRITE.has(cmd)) {
+  if (GITHUB_WRITE.has(cmd) || (cmd === 'jobs-create-from-source' && args?.source === 'github')) {
     if (!githubWrite)
       return { status: 403, body: { error: `${cmd} is off: turn on "Let MCP clients act on GitHub" in Astera Settings (CLI tab).` } }
     if (access === 'control') return null
