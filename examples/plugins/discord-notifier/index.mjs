@@ -1,8 +1,8 @@
 // @ts-check
 // An Astera notification plugin that posts to a Discord channel: each notification as an embed, its title and its
-// sentence as Astera worded them in your language, coloured by how much it matters. Astera hands it a question waiting
-// for an answer, a session waiting for you, a failed or finished Run, a Task whose repairs ran out, a usage limit and an
-// account switch; the skip setting leaves kinds out.
+// sentence as Astera worded them in your language, coloured by how much it matters. Astera hands it a question
+// waiting for an answer, a session waiting for you, a failed or finished Run, a Task whose repairs ran out, a usage
+// limit and an account switch; the skip setting leaves kinds out.
 //
 // Plain JavaScript with no dependency, so its folder installs as it is. The types are the plugin SDK's, for your
 // editor and tsc only: Astera never loads @astera-app/plugin-sdk, and a plain object is the provider
@@ -43,7 +43,8 @@ function skipped(ctx) {
   return new Set(typeof skip === 'string' ? skip.split(',').map((k) => k.trim()).filter((k) => k !== '') : [])
 }
 
-/** What went wrong, in words that never hold the URL: fetch's own error says only "fetch failed", its cause says why. */
+/** What went wrong, in words that never hold the URL: fetch's own error says only "fetch failed", its cause says
+ *  why. */
 const problemOf = (/** @type {unknown} */ e) =>
   e instanceof Error && e.cause instanceof Error ? e.cause.message : e instanceof Error ? e.message : String(e)
 

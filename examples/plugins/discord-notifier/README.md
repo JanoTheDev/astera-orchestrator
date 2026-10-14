@@ -1,8 +1,8 @@
 # Discord notifier
 
 An Astera plugin that posts Astera's notifications to a Discord channel: a question or a session waiting for you, a
-failed or finished Run, a Task whose repairs ran out, a usage limit. [The plugin guide](../../../docs/plugins.md#notification-plugins)
-says what each notification holds.
+failed or finished Run, a Task whose repairs ran out, a usage limit.
+[The plugin guide](../../../docs/plugins.md#notification-plugins) says what each notification holds.
 
 Each one is an embed: its title (the Job's objective, or the session's title), its sentence as Astera worded it in the
 language the app is set to, a colour for how much it matters (blue waits on you, red failed, amber stopped for now,
