@@ -1854,6 +1854,18 @@ export type PluginsCallAnswer = { ok: true; body: Record<string, unknown> } | { 
 /** Where a plugin is installed from: a folder on this machine, or a package on npm (plugins 2e). */
 export type PluginSource = { path: string } | { npm: string }
 
+/** What the Host answered a job-source command, as the plugins' answers are. */
+export type SourcesCallAnswer = PluginsCallAnswer
+
+/** The Jobs view's "+ From a source" (plugin Phase 4c): the Host's job-source commands, as the app, and no other. A
+ *  project is named by its folder; main finds its id. */
+export interface SourcesApi {
+  list(): Promise<SourcesCallAnswer>
+  items(a: { source: string; projectPath: string; query?: string; cursor?: string }): Promise<SourcesCallAnswer>
+  show(a: { source: string; item: string; projectPath: string }): Promise<SourcesCallAnswer>
+  create(a: { source: string; item: string; projectPath: string; coordinatorAccount: string; convergence?: boolean }): Promise<SourcesCallAnswer>
+}
+
 /** Settings › Plugins (plugin runtime design slice 2d): the Host's `plugins-*` commands the tab uses, as the app, and
  *  no other (design P5). */
 export interface PluginsApi {
@@ -2009,6 +2021,8 @@ export type RendererApi = CoreApi & {
   /** Remote Runtimes (remote runtime design Phase 6): Settings › Remote Runtimes and the Jobs view's selectors. */
   remote: RemoteApi
   plugins: PluginsApi
+  /** The Jobs view's "+ From a source" (plugin Phase 4c): the Host's job sources, as the app. */
+  sources: SourcesApi
   remoteSessions: RemoteSessionsApi
   understanding: UnderstandingApi
   sessionTasks: SessionTaskApi
