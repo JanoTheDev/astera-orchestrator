@@ -2,7 +2,7 @@
 // P11-P13): calls go to the orch as the plugin, stderr goes to a redacted log, a crash restarts, a crash loop fails,
 // and stop runs deactivate or kills the whole tree. In a folder with a space and Hangul (spec §48).
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest'
-import { removeFixtureSync } from '../../core/testFixtures'
+import { removeFixture } from '../../core/testFixtures'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -21,8 +21,8 @@ const started: PluginRuntime[] = []
 afterEach(async () => {
   for (const r of started.splice(0)) await r.stopAll()
 })
-afterAll(() => {
-  removeFixtureSync(dir)
+afterAll(async () => {
+  await removeFixture(dir)
 })
 
 type Call = { cmd: string; args: unknown; sessionId: string; from?: { role: string; plugin?: { id: string; granted: ReadonlySet<string> } }; request?: string }
@@ -63,7 +63,9 @@ function plugin(name: string, source: string, file = 'index.mjs'): PluginLaunch 
 }
 
 const logOf = (r: PluginRuntime, folder: string): string => (existsSync(r.logFile(folder)) ? readFileSync(r.logFile(folder), 'utf8') : '')
-// 45 s: three starts and restarts of a real process, under the full suite (load-sensitive tests, 2026-10-14)
+// 45 s: three starts and restarts of a real process, under the full suite (load-sensitive tests, 2026-10-14). Every
+// test here waits with it at least once, so each gets 90 s: a wait that runs out fails with its assertion's message
+// rather than the runner's timeout (final review m9: all of them, on purpose).
 const until = <T>(f: () => T, timeout = 45_000): Promise<T> => vi.waitFor(f, { timeout, interval: 25 })
 const alive = (pid: number): boolean => {
   try {

@@ -6,9 +6,12 @@
 // `createHostExits` wired to it, and a real `PtyRegistry` over fake ptys. **Fake:** the server (which apps
 // are attached and what each yields, and a recorded `broadcast`) and the spawner (its roll spawn opens the
 // next pty in the real registry). Fake timers for `setTimeout`/`setInterval`/`Date` only: the store's disk
-// I/O stays real, so every assertion on the state goes through `vi.waitFor`.
+// I/O stays real, so every assertion on the state goes through `untilReal` (core/testWait.ts), which polls on the
+// real clock and moves no fake time; `vi.waitFor` moved the clock by its interval at every check (load-sensitive tests,
+// 2026-10-14). The one wait that needs the clock to move says so where it is.
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import { removeFixture } from '../core/testFixtures'
+import { untilReal } from '../core/testWait'
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -32,11 +35,6 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 const NOW = '2026-09-25T00:00:00.000Z'
-/** How long a wait over the store's real disk writes may take: 2.5 s, not vi.waitFor's 1 s, which ran out under the full
- *  suite (load-sensitive tests, 2026-10-14). Under these fake timers each check also moves the clock by its interval, so a
- *  wait that long moves it up to 2.5 s: kept under EXIT_DEFER_MS (3 s) and the rolling's 15 s tick, so no timer a test
- *  has not advanced to fires inside one. */
-const WAIT = { timeout: 2_500 }
 const LIMIT = 'Claude usage limit ' + 'reached ∙ resets 3am' // constraint 14
 const cleanups: Array<() => Promise<void> | void> = []
 afterEach(async () => {
@@ -250,7 +248,7 @@ describe('the Host rolls, with and without an app (S6 rig)', () => {
     await h.spawnWorker('p1', 's1', ['a1', 'a2'])
     h.limit('p1', 's1')
     await h.settle()
-    await vi.waitFor(() => expect(h.dispatch().sessionId).toBe('s2'), WAIT)
+    await untilReal(() => expect(h.dispatch().sessionId).toBe('s2'))
     expect(h.broadcasts.some((m) => m.t === 'session-rolled' && m.oldSessionId === 's1')).toBe(true)
   })
   it('the session-rolled push names the new session’s pty, so the app can adopt it first (Task 13 carry)', async () => {
@@ -258,7 +256,7 @@ describe('the Host rolls, with and without an app (S6 rig)', () => {
     await h.spawnWorker('p1', 's1', ['a1', 'a2'])
     h.limit('p1', 's1')
     await h.settle()
-    await vi.waitFor(() => expect(h.broadcasts.some((m) => m.t === 'session-rolled')).toBe(true), WAIT)
+    await untilReal(() => expect(h.broadcasts.some((m) => m.t === 'session-rolled')).toBe(true))
     const rolled = h.broadcasts.find((m) => m.t === 'session-rolled')
     expect(rolled).toMatchObject({ t: 'session-rolled', oldSessionId: 's1', ptyId: 'p2' })
     expect(h.broadcasts.some((m) => m.t === 'roll-state')).toBe(true)
@@ -269,7 +267,7 @@ describe('the Host rolls, with and without an app (S6 rig)', () => {
     h.attachApp(3, ['worktrees', 'dispatch', 'rolling'], ['p1'])
     h.limit('p1', 's1')
     await h.settle()
-    await vi.waitFor(() => expect(h.dispatch().sessionId).toBe('s2'), WAIT)
+    await untilReal(() => expect(h.dispatch().sessionId).toBe('s2'))
   })
   it('an older app holds the pty: the Host stays quiet until it leaves (Review Focus 4)', async () => {
     const h = await rig()
@@ -277,11 +275,11 @@ describe('the Host rolls, with and without an app (S6 rig)', () => {
     h.attachApp(4, ['worktrees', 'dispatch'], ['p1'])
     h.limit('p1', 's1')
     await h.settle()
-    await vi.waitFor(() => expect(h.dispatch().sessionId).toBe('s1'), WAIT)
+    await untilReal(() => expect(h.dispatch().sessionId).toBe('s1'))
     h.detachApp(4)
     h.limit('p1', 's1')
     await h.settle()
-    await vi.waitFor(() => expect(h.dispatch().sessionId).toBe('s2'), WAIT)
+    await untilReal(() => expect(h.dispatch().sessionId).toBe('s2'))
   })
   it('takes over an app session once its app is gone, and resumes its planned wait (Q2)', async () => {
     const h = await rig({ appPid: 100 })
@@ -306,7 +304,7 @@ describe('the Host rolls, with and without an app (S6 rig)', () => {
     expect(h.note('p9').rolledBy).toBeUndefined() // the gone decision waits on the read, not a tick
     release()
     await h.advance(0)
-    await vi.waitFor(() => expect(h.note('p9').rolledBy).toBe('host'), WAIT)
+    await untilReal(() => expect(h.note('p9').rolledBy).toBe('host'))
   })
   it('a failed first accounts read takes nothing over; a later good read lets the next pass run (Task 16 review)', async () => {
     const h = await rig({ appPid: 100, accountsFail: 1 })
@@ -328,14 +326,14 @@ describe('the Host rolls, with and without an app (S6 rig)', () => {
     h.setAppPid(null)
     h.graceEnds()
     expect(h.note('p1').rolledBy).toBe('host')
-    await vi.waitFor(() => expect(h.dispatch().nativeSessionId).toBe('cs'), WAIT)
+    await untilReal(() => expect(h.dispatch().nativeSessionId).toBe('cs'))
   })
   it('a codex session the spawner located is mapped: its thread id reaches the note and the Dispatch (Task 16 review, M14)', async () => {
     const h = await rig()
     await h.spawnWorker('p1', 's1', ['x1', 'x2'])
     h.rolloutLocated('s1', 'thread-1', path.join(h.profileDir, 'x1', 'sessions', 'rollout-thread-1.jsonl'))
     expect(h.note('p1').nativeSessionId).toBe('thread-1')
-    await vi.waitFor(() => expect(h.dispatch().nativeSessionId).toBe('thread-1'), WAIT)
+    await untilReal(() => expect(h.dispatch().nativeSessionId).toBe('thread-1'))
   })
   it('a dropped socket whose app lives takes nothing, however long it stays away (Review Focus 1)', async () => {
     const h = await rig({ appPid: 100 })
@@ -357,13 +355,13 @@ describe('the Host rolls, with and without an app (S6 rig)', () => {
     h.detachApp(3)
     h.setAppPid(null)
     await h.exitsHandoverRuns() // the 3 s sweep: s1 ended, p2 names it as rolledFrom
-    await vi.waitFor(() => expect(h.dispatch().sessionId).toBe('s2'), WAIT)
-    await vi.waitFor(() => expect(h.dispatch().endedAt).toBeUndefined(), WAIT)
+    await untilReal(() => expect(h.dispatch().sessionId).toBe('s2'))
+    await untilReal(() => expect(h.dispatch().endedAt).toBeUndefined())
     h.graceEnds()
     h.statuslineAppears('s2')
     await h.advance(2_000)
     // The handover text is built over real git and disk (buildResumePacket), so it lands in real time.
-    await vi.waitFor(() => expect(h.typedInto('p2').length).toBeGreaterThan(0), { timeout: 10_000 })
+    await untilReal(() => expect(h.typedInto('p2').length).toBeGreaterThan(0), { timeout: 10_000 })
   })
   it('a respawned coordinator keeps its slot across a Host roll (R14)', async () => {
     const h = await rig({ coordinator: 'c1' })
@@ -372,7 +370,7 @@ describe('the Host rolls, with and without an app (S6 rig)', () => {
     h.forceRoll('c1')
     await h.settle()
     // Preflight C5: one exact check. The rig's fake spawner names the respawn s2.
-    await vi.waitFor(() => expect(h.run().coordinatorSessionId).toBe('s2'), WAIT)
+    await untilReal(() => expect(h.run().coordinatorSessionId).toBe('s2'))
   })
   it('a Host coordinator that waits for its reset makes runs wait end limited (S6 limits D2)', async () => {
     const h = await rig({ coordinator: 'c1' })
@@ -380,7 +378,7 @@ describe('the Host rolls, with and without an app (S6 rig)', () => {
     expect((await h.runsWait()).body).toMatchObject({ state: 'timeout' })
     h.limit('pc', 'c1')
     await h.settle()
-    await vi.waitFor(() => expect(h.run().coordinatorStop?.resetsAt).toBeDefined(), WAIT)
+    await untilReal(() => expect(h.run().coordinatorStop?.resetsAt).toBeDefined())
     expect(h.run().coordinatorSessionId).toBe('c1')
     expect((await h.runsWait()).body).toMatchObject({ state: 'limited', resetsAt: h.run().coordinatorStop?.resetsAt })
   })
@@ -392,7 +390,7 @@ describe('the Host rolls, with and without an app (S6 rig)', () => {
     h.setAppPid(null)
     h.graceEnds()
     await h.settle()
-    await vi.waitFor(() => expect(h.note('p1').rolledBy).toBe('host'), WAIT)
+    await untilReal(() => expect(h.note('p1').rolledBy).toBe('host'))
     expect(h.dispatch().resumes).toHaveLength(1)
   })
   it('a restored wait that resumes in place closes the app’s stop, so runs wait stops ending limited (final review I1)', async () => {
@@ -402,14 +400,16 @@ describe('the Host rolls, with and without an app (S6 rig)', () => {
     h.detachApp(3)
     h.setAppPid(null)
     h.graceEnds()
-    await vi.waitFor(() => expect(h.note('p1').rolledBy).toBe('host'), WAIT)
+    await untilReal(() => expect(h.note('p1').rolledBy).toBe('host'))
     // While the worker waits, `runs wait` rightly ends limited.
     expect((await h.runsWait()).body).toMatchObject({ state: 'limited' })
     await h.advance(31_000)
     // Resumed in place, same session. The update line is built from the Dispatch's packet on disk
     // first, so the Enter lands after real I/O.
-    await vi.waitFor(() => expect(h.typedInto('p1').some((d) => d === '\r')).toBe(true), WAIT)
-    await vi.waitFor(() => expect(h.dispatch().resumes?.[0].resumedAt).toBeDefined(), WAIT)
+    // vi.waitFor, not untilReal: the Enter follows the text after a short timer, so this wait needs the fake clock to
+    // move as it checks. 2.5 s of it at most, under EXIT_DEFER_MS (3 s) and the 15 s tick (load-sensitive tests).
+    await vi.waitFor(() => expect(h.typedInto('p1').some((d) => d === '\r')).toBe(true), { timeout: 2_500 })
+    await untilReal(() => expect(h.dispatch().resumes?.[0].resumedAt).toBeDefined())
     expect(h.dispatch().resumes).toHaveLength(1)
     expect(h.dispatch().resumes?.[0].toAccountId).toBe('a1')
     // The worker works again: `runs wait` keeps waiting instead of ending limited on a past reset.
@@ -454,7 +454,7 @@ describe('block records between the Host and the app (S6 Task 3)', () => {
     h.limit('p1', 's1')
     await h.settle()
     // 10 s, not the 1 s default: under the full suite this took longer (2026-10-08).
-    await vi.waitFor(() => expect(blockPushes(h).some((m) => m.t === 'blocks' && 'a1' in m.records)).toBe(true), { timeout: 10_000 })
+    await untilReal(() => expect(blockPushes(h).some((m) => m.t === 'blocks' && 'a1' in m.records)).toBe(true), { timeout: 10_000 })
   })
   it('a clear the Host makes is broadcast with its time', async () => {
     const h = await rig()
@@ -501,7 +501,7 @@ describe('block records between the Host and the app (S6 Task 3)', () => {
     await h.spawnWorker('p1', 's1', ['a1', 'a2'])
     h.limit('p1', 's1')
     await h.settle()
-    await vi.waitFor(() => expect(blockPushes(h).length).toBeGreaterThan(0), { timeout: 10_000 })
+    await untilReal(() => expect(blockPushes(h).length).toBeGreaterThan(0), { timeout: 10_000 })
     for (const m of h.broadcasts) sync.pushed(m) // every push the app would hear, not only `blocks`
     expect(app.get('a1', h.now())).toEqual(h.blocks().get('a1', h.now()))
     expect(app.get('a1', h.now())).not.toBeNull()
@@ -529,11 +529,11 @@ describe('the Host journals the rolls no app saw (S6 limits Task 4, D5)', () => 
     await h.spawnWorker('p1', 's1', ['a1', 'a2'])
     h.limit('p1', 's1')
     await h.settle()
-    await vi.waitFor(async () => {
+    await untilReal(async () => {
       const r = await h.journal()
       expect(r.status).toBe(200)
       expect((r.body as Journal).entries.some((e) => e.kind === 'rolled' && e.oldSessionId === 's1' && e.sessionId === 's2')).toBe(true)
-    }, WAIT)
+    })
     const body = (await h.journal()).body as Journal
     expect(body.entries.some((e) => e.kind === 'state' && e.state === 'switching' && e.sessionId === 's1')).toBe(true)
     expect(body.lastSeq).toBe(body.entries[body.entries.length - 1].seq)
@@ -547,7 +547,7 @@ describe('the Host journals the rolls no app saw (S6 limits Task 4, D5)', () => 
     h.attachApp(3, ['worktrees', 'dispatch', 'rolling'], ['p1'])
     h.limit('p1', 's1')
     await h.settle()
-    await vi.waitFor(() => expect(h.broadcasts.some((m) => m.t === 'session-rolled' && m.oldSessionId === 's1')).toBe(true), WAIT)
+    await untilReal(() => expect(h.broadcasts.some((m) => m.t === 'session-rolled' && m.oldSessionId === 's1')).toBe(true))
     expect((await h.journal()).body).toEqual({ entries: [], lastSeq: 0 })
   })
   // Leftovers Task 5: an app 1.3.25 or older counts as attached but reads no session-rolled push, so a roll
@@ -558,10 +558,10 @@ describe('the Host journals the rolls no app saw (S6 limits Task 4, D5)', () => 
     h.attachLegacyApp()
     h.limit('p1', 's1')
     await h.settle()
-    await vi.waitFor(async () => {
+    await untilReal(async () => {
       const body = (await h.journal()).body as Journal
       expect(body.entries.some((e) => e.kind === 'rolled' && e.oldSessionId === 's1')).toBe(true)
-    }, WAIT)
+    })
   })
   it('the Slack roll tap hears every roll event, and a throwing tap costs the journal nothing (Slack in the Host Task 6)', async () => {
     const heard: HostRollEvent[] = []
@@ -569,7 +569,7 @@ describe('the Host journals the rolls no app saw (S6 limits Task 4, D5)', () => 
     await h.spawnWorker('p1', 's1', ['a1', 'a2'])
     h.limit('p1', 's1')
     await h.settle()
-    await vi.waitFor(() => expect(heard.some((e) => e.t === 'session-rolled' && e.oldSessionId === 's1' && e.info.id === 's2')).toBe(true), WAIT)
+    await untilReal(() => expect(heard.some((e) => e.t === 'session-rolled' && e.oldSessionId === 's1' && e.info.id === 's2')).toBe(true))
     expect(heard.some((e) => e.t === 'roll-state' && e.event.state === 'switching')).toBe(true)
     expect(h.logs.some((m) => m.includes('the Slack roll tap failed'))).toBe(true)
     const body = (await h.journal()).body as Journal

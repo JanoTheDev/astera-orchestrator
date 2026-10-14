@@ -7,6 +7,7 @@
 //
 // Fake timers for `setTimeout`/`setInterval`/`Date` only: the store's disk I/O stays real.
 import { describe, it, expect, afterEach, vi } from 'vitest'
+import { untilReal } from '../core/testWait'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { composeHostRolling, type HostRollingWiring } from './rollingWiring'
@@ -188,12 +189,12 @@ describe('the chat rig (chat takeover spec §5)', () => {
     appChat(h, { transcript })
     h.appAttach(1, [HOST_YIELD_ROLLING, HOST_YIELD_CHAT_TAKEOVER]); h.appLeave(1); h.fireAfters()
     // Task 5 review M12: the wiring's takeover really adopts (a mutation `adopt: () => false` fails here).
-    await vi.waitFor(() => expect(h.wiring.chats.has('c1')).toBe(true))
+    await untilReal(() => expect(h.wiring.chats.has('c1')).toBe(true))
     h.proc('pa').say(rejected(Date.now() + 3_600_000))
-    await vi.waitFor(() => expect(h.proc('pa').killed).toBe(true))
-    const next = await vi.waitFor(() => { const p = h.procsOpened().find((x) => x !== 'pa'); expect(p).toBeDefined(); return p! })
+    await untilReal(() => expect(h.proc('pa').killed).toBe(true))
+    const next = await untilReal(() => { const p = h.procsOpened().find((x) => x !== 'pa'); expect(p).toBeDefined(); return p! })
     await vi.advanceTimersByTimeAsync(1_000)
-    await vi.waitFor(() => expect(turns(h.proc(next), '')).toBe(1))
+    await untilReal(() => expect(turns(h.proc(next), '')).toBe(1))
     await vi.advanceTimersByTimeAsync(120_000)
     expect(turns(h.proc(next), '')).toBe(1)
     const e = h.procList().find((x) => x.id === next)!
@@ -209,11 +210,11 @@ describe('the chat rig (chat takeover spec §5)', () => {
     const transcript = path.join(h.profileDir, 'th1.jsonl'); await fs.writeFile(transcript, '')
     appChat(h, { transcript })
     h.appAttach(1, [HOST_YIELD_ROLLING, HOST_YIELD_CHAT_TAKEOVER]); h.appLeave(1); h.fireAfters()
-    await vi.waitFor(() => expect(h.wiring.chats.has('c1')).toBe(true))
+    await untilReal(() => expect(h.wiring.chats.has('c1')).toBe(true))
     h.appAttach(2, [HOST_YIELD_ROLLING, HOST_YIELD_CHAT_TAKEOVER]); h.holders.heldBy('pa', 2)
     h.appAttach(3, [HOST_YIELD_ROLLING])
     h.proc('pa').say(rejected(Date.now() + 3_600_000))
-    await vi.waitFor(() => expect(h.broadcasts.some((x) => x.t === 'session-rolled')).toBe(true))
+    await untilReal(() => expect(h.broadcasts.some((x) => x.t === 'session-rolled')).toBe(true))
     const rolledTo = h.delivered.filter(([, m]) => m.t === 'session-rolled').map(([no]) => no)
     expect(rolledTo).toEqual([2])
   })
@@ -223,11 +224,11 @@ describe('the chat rig (chat takeover spec §5)', () => {
     const transcript = path.join(h.profileDir, 'th1.jsonl'); await fs.writeFile(transcript, '')
     appChat(h, { transcript })
     h.appAttach(1, [HOST_YIELD_ROLLING, HOST_YIELD_CHAT_TAKEOVER]); h.appLeave(1); h.fireAfters()
-    await vi.waitFor(() => expect(h.wiring.chats.has('c1')).toBe(true))
+    await untilReal(() => expect(h.wiring.chats.has('c1')).toBe(true))
     h.appAttach(2, [HOST_YIELD_ROLLING, HOST_YIELD_CHAT_TAKEOVER]); h.holders.heldBy('pa', 2)
     expect(h.wiring.chats.isWriter('c1')).toBe(false)
     h.proc('pa').say(rejected(Date.now() + 3_600_000))
-    const pushed = await vi.waitFor(() => { const m = h.broadcasts.find((x) => x.t === 'session-rolled'); expect(m).toBeDefined(); return m as Extract<HostMessage, { t: 'session-rolled' }> })
+    const pushed = await untilReal(() => { const m = h.broadcasts.find((x) => x.t === 'session-rolled'); expect(m).toBeDefined(); return m as Extract<HostMessage, { t: 'session-rolled' }> })
     expect(pushed.ptyId).toBeNull()
     expect(pushed.procId).toBeDefined()
     expect(h.procList().find((x) => x.id === pushed.procId)!.meta?.restore.hostStarting).toBeNull()
@@ -241,14 +242,14 @@ describe('the chat rig (chat takeover spec §5)', () => {
     const transcript = path.join(h.profileDir, 'th1.jsonl'); await fs.writeFile(transcript, '')
     appChat(h, { accounts: ['a1'], transcript })
     h.appAttach(1, [HOST_YIELD_ROLLING, HOST_YIELD_CHAT_TAKEOVER]); h.appLeave(1); h.fireAfters()
-    await vi.waitFor(() => expect(h.wiring.chats.has('c1')).toBe(true))
+    await untilReal(() => expect(h.wiring.chats.has('c1')).toBe(true))
     h.appAttach(2, [HOST_YIELD_ROLLING, HOST_YIELD_CHAT_TAKEOVER]); h.holders.heldBy('pa', 2)
     h.proc('pa').say(rejected(Date.now() + 60_000))
     // The limit's evidence gate awaits real I/O, so the wait is planned before the clock is moved. With no
     // usage figure the wait is the cycle's 15-minute fallback, past the event's own reset time.
-    await vi.waitFor(() => expect(h.wiring.rolling.stateOf('c1')?.state).toBe('waiting'))
+    await untilReal(() => expect(h.wiring.rolling.stateOf('c1')?.state).toBe('waiting'))
     await vi.advanceTimersByTimeAsync(20 * 60_000)
-    await vi.waitFor(() => expect(h.acts.filter((c) => c[0] === 'chatSend' && c[1][0] === 'c1')).toHaveLength(1))
+    await untilReal(() => expect(h.acts.filter((c) => c[0] === 'chatSend' && c[1][0] === 'c1')).toHaveLength(1))
     expect(h.proc('pa').killed).toBe(false)
     // Nothing was typed on the wire by the Host: the app is the writer.
     expect(turns(h.proc('pa'), '')).toBe(0)
@@ -259,7 +260,7 @@ describe('the chat rig (chat takeover spec §5)', () => {
     const transcript = path.join(h.profileDir, 'th1.jsonl'); await fs.writeFile(transcript, '')
     appChat(h, { transcript })
     h.appAttach(1, [HOST_YIELD_ROLLING, HOST_YIELD_CHAT_TAKEOVER]); h.appLeave(1); h.fireAfters()
-    await vi.waitFor(() => expect(h.wiring.chats.has('c1')).toBe(true))
+    await untilReal(() => expect(h.wiring.chats.has('c1')).toBe(true))
     h.appAttach(2, [HOST_YIELD_ROLLING]); h.holders.heldBy('pa', 2)
     h.proc('pa').say(rejected(Date.now() + 3_600_000))
     await vi.advanceTimersByTimeAsync(5 * 60_000)
@@ -286,7 +287,7 @@ describe('the chat rig (chat takeover spec §5)', () => {
     const transcript = path.join(h.profileDir, 'th1.jsonl'); await fs.writeFile(transcript, '')
     appChat(h, { transcript })
     h.appAttach(1, [HOST_YIELD_ROLLING, HOST_YIELD_CHAT_TAKEOVER]); h.appLeave(1); h.fireAfters()
-    await vi.waitFor(() => expect(h.wiring.chats.has('c1')).toBe(true))
+    await untilReal(() => expect(h.wiring.chats.has('c1')).toBe(true))
     h.proc('pa').say(JSON.parse(F.CAN_USE_TOOL_WRITE))
     expect(h.wiring.chats.hasOpenRequest('c1')).toBe(true)
     h.proc('pa').say(rejected(Date.now() + 3_600_000))

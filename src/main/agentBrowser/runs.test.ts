@@ -142,7 +142,7 @@ describe('AgentBrowserRuns', () => {
   // run has ended parks instead of driving the user's page.
   it('a run cut off by its deadline stops driving the tab', async () => {
     // Fake timers, because the deadline is the one cut-off the tab cannot trigger itself. Wall clock
-    // would be a race: the 150 ms has to land on a loop that is still running. `advanceTimersByTimeAsync`
+    // would be a race: the deadline has to land on a loop that is still running. `advanceTimersByTimeAsync`
     // fires timers in due order and drains microtasks between each, which is the interleaving the real
     // path has — and `queueMicrotask`, which the fake's loadURL uses, is not faked, so open() still
     // resolves on its own.

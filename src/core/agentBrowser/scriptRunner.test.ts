@@ -46,10 +46,13 @@ describe('runScript', () => {
     expect(r.error?.message).toMatch(/Unexpected/)
   })
 
+  // 1 s, not 30 ms: the same number is runInContext's real-clock watchdog over the script's synchronous start, and under
+  // a loaded suite that start can pass 30 ms, which ends it at the watchdog instead (load-sensitive tests, 2026-10-14,
+  // final review m13; the agentBrowser deadline test met exactly that at 150 ms)
   it('the whole-script deadline ends it with at: timeout and the log kept', async () => {
-    const r = await run(`log('started'); await new Promise(() => {})`, {}, { timeoutMs: 30 })
+    const r = await run(`log('started'); await new Promise(() => {})`, {}, { timeoutMs: 1_000 })
     expect(r.log).toEqual(['started'])
-    expect(r.error).toEqual({ message: 'script did not finish within 30 ms', at: 'timeout' })
+    expect(r.error).toEqual({ message: 'script did not finish within 1000 ms', at: 'timeout' })
   })
 
   // The other half of that deadline: a body with no `await` in it never returns to the event loop, so

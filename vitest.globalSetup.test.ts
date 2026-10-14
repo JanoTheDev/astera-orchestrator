@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import setup, { removeStaleFixtures, STALE_MS } from './vitest.globalSetup'
+import config from './vitest.config'
 
 // The sweep runs against a private folder, never the real temp directory: run against that, the old
 // rule this file guards against would delete the fixtures of every test running beside it.
@@ -55,5 +56,13 @@ describe('vitest.globalSetup', () => {
     expect(await exists(host)).toBe(true)
     expect(await exists(foreign)).toBe(true)
     expect(await exists(file)).toBe(true)
+  })
+})
+
+// Final review m7 of the load-sensitive tests: vitest.config.test.ts pins the suite's budgets, but a test that is not in
+// `include` never runs, so it cannot say it was dropped. This file runs either way.
+describe('vitest.config', () => {
+  it('runs the test that pins its budgets', () => {
+    expect(config.test?.include).toContain('vitest.config.test.ts')
   })
 })

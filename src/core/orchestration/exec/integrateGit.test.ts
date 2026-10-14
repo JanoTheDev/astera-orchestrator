@@ -34,9 +34,14 @@ const ctx = (over: Partial<IntegrateContext> = {}): IntegrateContext => {
     ...over
   }
 }
+/** A log writer into this test's own `logs`, captured now, as ctx() does (final review m8 of the load-sensitive tests). */
+const logTo = (): ((m: string) => void) => {
+  const own = logs
+  return (m) => void own.push(m)
+}
 /** A worktree forked off the branch the repo stands on, with one commit of its own. */
 const worked = async (name: string, file = `${name}.txt`, body = name): Promise<string> => {
-  const wt = await forkWorktree({ repoPath: repo, name }, { registry, log: (m) => logs.push(m) })
+  const wt = await forkWorktree({ repoPath: repo, name }, { registry, log: logTo() })
   await fs.writeFile(path.join(wt, file), body)
   gitSync(wt, ['add', file]); gitSync(wt, ['commit', '-m', name])
   return wt
@@ -154,7 +159,7 @@ describe('integrateWorktrees — the rules of the one automatic writer into a re
       }
     }))
     expect(r.kind).toBe('merged')
-  }, 20_000)
+  })
   // Review I1: the scenario. A worktree on an offline share keeps a presence call stuck; a merge into a
   // repository on another drive goes on, with the process-wide action lane (not the sweep's slot).
   it('a stuck presence call on another root does not stop the marker check here', async () => {
@@ -167,7 +172,7 @@ describe('integrateWorktrees — the rules of the one automatic writer into a re
     await new Promise((res) => setTimeout(res, PROBE_TIMEOUT_MS + 50))
     const r = await integrateWorktrees(repo, [a], { reap: false }, ctx({ presence: lane }))
     expect(r.kind).toBe('merged')
-  }, 15_000)
+  })
   it('reads the markers through the presence check (present means busy)', async () => {
     const a = await worked('a')
     const r = await integrateWorktrees(repo, [a], {}, ctx({ presence: async (p) => (p.endsWith('REVERT_HEAD') ? 'present' : 'missing') }))
@@ -365,7 +370,7 @@ describe('reapWorktree (rule 11)', () => {
     }
   })
   const reapCtx = (over: Partial<ReapContext> = {}): ReapContext => ({
-    registry, sessions: sessions([]), dispatches: () => [], isPathInUse: () => null, log: (m) => logs.push(m), closeTimeoutMs: 300, pollMs: 10, ...over
+    registry, sessions: sessions([]), dispatches: () => [], isPathInUse: () => null, log: logTo(), closeTimeoutMs: 300, pollMs: 10, ...over
   })
   it('leaves alone a worktree where a working or retained session is', async () => {
     const a = await worked('a')
@@ -422,7 +427,7 @@ const cleanGit = (async () => ({ ok: true, stdout: '', stderr: '' })) as unknown
 describe('worktreeDeps', () => {
   it('mergeWorktrees skips folders already gone, and nothing left is success', async () => {
     const calls: unknown[] = []
-    const d = worktreeDeps({ integrate: async (...a) => { calls.push(a); return { kind: 'merged', uncommitted: 0 } }, reap: async () => true, log: (m) => logs.push(m), presence: async () => 'missing' })
+    const d = worktreeDeps({ integrate: async (...a) => { calls.push(a); return { kind: 'merged', uncommitted: 0 } }, reap: async () => true, log: logTo(), presence: async () => 'missing' })
     expect(await d.mergeWorktrees('D:/p', ['D:/gone'])).toEqual({ ok: true, merged: [], uncommitted: 0 })
     expect(calls).toEqual([])   // no git runs over an empty list (it would still check the folder)
     expect(logs.join('\n')).toMatch(/skipping 1 removed worktree/)
@@ -475,7 +480,7 @@ describe('worktreeDeps', () => {
     const calls: unknown[] = []
     const d = worktreeDeps({
       integrate: async (_i, paths) => { calls.push(paths); return { kind: 'merged', uncommitted: 0 } },
-      reap: async () => true, log: (m) => logs.push(m),
+      reap: async () => true, log: logTo(),
       presence: async (p) => (p === 'D:/dead' ? 'unreachable' : p === 'D:/busy' ? 'refused' : 'present')
     })
     expect(await d.mergeWorktrees('D:/p', ['D:/ok', 'D:/dead', 'D:/busy'])).toEqual({
@@ -494,7 +499,7 @@ describe('worktreeDeps', () => {
     const d = worktreeDeps({
       integrate: async () => ({ kind: 'merged', uncommitted: 0 }),
       reap: async (p) => { tried.push(p); return true },
-      log: (m) => logs.push(m),
+      log: logTo(),
       presence: async (p) => (p === 'D:/dead' ? 'unreachable' : p === 'D:/busy' ? 'refused' : 'present'),
       git: statusGit({ 'D:/clean': '', 'D:/dirty': ' M a.txt\n?? b.txt', 'D:/nostatus': null })
     })
@@ -556,12 +561,12 @@ describe.runIf(process.platform === 'win32')('run-delete removal of a worktree h
     await fs.symlink(outside, path.join(a, 'node_modules', 'pkg'), 'junction')
     const reapCtx: ReapContext = {
       registry, sessions: { inTree: () => [], anyRunningIn: () => false, kill: () => {} },
-      dispatches: () => [], isPathInUse: () => null, log: (m) => logs.push(m), closeTimeoutMs: 300, pollMs: 10
+      dispatches: () => [], isPathInUse: () => null, log: logTo(), closeTimeoutMs: 300, pollMs: 10
     }
     const d = worktreeDeps({
       integrate: async () => { throw new Error('must not merge') },
       reap: (p) => reapWorktree(p, reapCtx),
-      log: (m) => logs.push(m)
+      log: logTo()
     })
     expect(await d.removeWorktrees([a])).toEqual({ failed: [], uncommitted: 0 })
     await expect(fs.stat(a)).rejects.toThrow()

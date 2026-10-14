@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { untilReal } from '../core/testWait'
 import { removeFixture } from '../core/testFixtures'
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
@@ -320,7 +321,9 @@ describe('HostRolling.restore wiring (S6 Task 12, carry C-a)', () => {
     }
     expect(r.rolling.restore(info('s1'), snap)).toBe(true)
     expect(natives).toEqual(['s1=cs-1'])
-    await vi.waitFor(async () => {
+    // The config write nobody awaits, read on the real clock: vi.waitFor's 1 s ran out under the full suite
+    // (load-sensitive tests, 2026-10-14, final review m12)
+    await untilReal(async () => {
       expect(await readRollConfigKey(hostRollConfigPath(r.profileDir), 'cs-1')).toMatchObject({ accountIds: ['a1', 'a2'] })
     })
     r.rolling.dispose()
@@ -338,7 +341,9 @@ describe('HostRolling.restore wiring (S6 Task 12, carry C-a)', () => {
     }
     expect(r.rolling.restore({ ...info('s1', 'c1'), rollAccountIds: ['c1', 'c2'] }, snap)).toBe(true)
     expect(natives).toEqual(['s1=thread-1'])
-    await vi.waitFor(async () => {
+    // The config write nobody awaits, read on the real clock: vi.waitFor's 1 s ran out under the full suite
+    // (load-sensitive tests, 2026-10-14, final review m12)
+    await untilReal(async () => {
       expect(await readRollConfigKey(hostRollConfigPath(r.profileDir), 'thread-1')).toMatchObject({ accountIds: ['c1', 'c2'] })
     })
     r.rolling.dispose()

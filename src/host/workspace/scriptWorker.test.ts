@@ -44,7 +44,7 @@ const gone = (c: import('node:child_process').ChildProcess): boolean => {
 // Every path ends its child: whatever a test did, nothing it spawned is still running after it.
 afterAll(async () => {
   await vi.waitFor(() => expect(made.children.filter((c) => !gone(c)).map((c) => c.pid)).toEqual([]), { timeout: 15_000, interval: 100 })
-}, 20_000)
+})
 
 const LOOP_MS = 20_000
 const LOOP_TEST_MS = 40_000
@@ -222,14 +222,14 @@ describe('helpers cross to this thread', () => {
     expect(r).toEqual({ log: ['after'] })
   })
 
-  it('a helper still pending when the worker is ended settles without an unhandled rejection', { timeout: 20_000 }, async () => {
+  it('a helper still pending when the worker is ended settles without an unhandled rejection', async () => {
     const unhandled = vi.fn()
     process.on('unhandledRejection', unhandled)
     try {
       // Ended by Stop once the helper is known to be pending, not by a short deadline: the deadline
       // counts from the child's spawn, and on a loaded machine the child had not reached `slow()` by
       // then, so the helper was never called. Stop and the deadline end the worker through the same
-      // path (finish), so what is left pending is the same. The 15s wait (and the 20s budget of this
+      // path (finish), so what is left pending is the same. The 15s wait (and the suite's 30 s budget for this
       // test and the next) is for that child's start alone, the same allowance the launch tests give it.
       let fail!: (e: Error) => void
       const stop = new AbortController()
@@ -245,7 +245,7 @@ describe('helpers cross to this thread', () => {
     }
   })
 
-  it('a helper the body calls after the script ended is never run', { timeout: 20_000 }, async () => {
+  it('a helper the body calls after the script ended is never run', async () => {
     const after = vi.fn()
     let release!: () => void
     const stop = new AbortController()

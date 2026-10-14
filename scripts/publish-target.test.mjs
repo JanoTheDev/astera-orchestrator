@@ -1,8 +1,9 @@
 // Publishing the SDK packages (docs/releasing.md): a tag names the package and its version, and the workflow that
 // publishes it does so with npm's trusted publishing, after building and testing it, and never on an app tag.
 import { describe, it, expect } from 'vitest'
+import { removeFixture } from '../src/core/testFixtures'
 import { spawnSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -51,8 +52,8 @@ describe('publishTarget', () => {
 
   // Final review C1: the workflow runs it before `npm ci`, on a checkout with nothing installed, where a module that
   // looked for typescript when it was imported crashed every run
-  it('runs on a checkout with nothing installed', () => {
-    const work = mkdtempSync(path.join(os.tmpdir(), 'astera publish target '))
+  it('runs on a checkout with nothing installed', async () => {
+    const work = mkdtempSync(path.join(os.tmpdir(), 'astera-publish target '))
     try {
       mkdirSync(path.join(work, 'scripts'))
       for (const f of readdirSync(here).filter((f) => f.endsWith('.mjs') && !f.includes('.test.')))
@@ -66,7 +67,7 @@ describe('publishTarget', () => {
       expect(r.status).toBe(0)
       expect(r.stdout).toBe(`dir=client\nname=@astera-app/client\nversion=${version('client')}\n`)
     } finally {
-      rmSync(work, { recursive: true, force: true, maxRetries: 5 })
+      await removeFixture(work)
     }
   })
 })

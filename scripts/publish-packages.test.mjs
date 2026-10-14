@@ -2,8 +2,9 @@
 // at this repository for provenance and at its guide, and building itself before a publish; each tarball holds the
 // package and nothing else; the plugin SDK brings the client its types import.
 import { describe, it, expect } from 'vitest'
+import { removeFixture } from '../src/core/testFixtures'
 import { spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { cpSync, existsSync, mkdtempSync, readFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -46,8 +47,8 @@ describe.each(PACKAGES)('the %s package, as npm publishes it', (name) => {
     expect(/^## (.+)$/m.exec(log)?.[1]).toBe(m.version)
   })
 
-  it('packs its manifest, readme, licence, changelog and build, every entry point among them, and nothing else', () => {
-    const work = mkdtempSync(path.join(os.tmpdir(), 'astera pack '))
+  it('packs its manifest, readme, licence, changelog and build, every entry point among them, and nothing else', async () => {
+    const work = mkdtempSync(path.join(os.tmpdir(), 'astera-pack '))
     try {
       // A copy built in a folder of its own, so the package's own dist, which other tests build, is not touched
       const pkg = path.join(work, name)
@@ -62,7 +63,7 @@ describe.each(PACKAGES)('the %s package, as npm publishes it', (name) => {
       for (const e of entries) expect(files, e).toContain(e.replace(/^\.\//, ''))
       expect(files.filter((f) => /\.test\./.test(f))).toEqual([])
     } finally {
-      rmSync(work, { recursive: true, force: true, maxRetries: 5 })
+      await removeFixture(work)
     }
   }, 120_000)
 })

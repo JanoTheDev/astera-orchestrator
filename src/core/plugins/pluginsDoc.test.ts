@@ -3,7 +3,7 @@
 // the capabilities this Astera does not run yet, and the Node a plugin runs on. Its quick start is run as written in
 // the real plugin runtime, its TypeScript compiles against the SDKs, its links land, and it is published.
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest'
-import { removeFixtureSync } from '../testFixtures'
+import { removeFixture } from '../testFixtures'
 import { execFileSync, execSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
@@ -290,8 +290,8 @@ describe('the quick start, followed as written', () => {
     work = mkdtempSync(path.join(os.tmpdir(), 'astera-quick start '))
     launcher = await bundleLauncher(work)
   }, 60_000)
-  afterAll(() => {
-    removeFixtureSync(work)
+  afterAll(async () => {
+    await removeFixture(work)
   })
 
   const runtimes: ReturnType<typeof createPluginRuntime>[] = []
