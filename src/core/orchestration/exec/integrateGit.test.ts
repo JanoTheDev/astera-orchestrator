@@ -22,12 +22,18 @@ beforeEach(async () => {
   registry = new WorktreeRegistry(path.join(root, 'worktrees.json'), root); await registry.load()
   logs = []; ops = []; reaped = []
 })
-const ctx = (over: Partial<IntegrateContext> = {}): IntegrateContext => ({
-  log: (m) => logs.push(m),
-  gitOp: { begin: (kind, cwd) => { ops.push(`begin ${kind} ${cwd}`); return `op${ops.length}` }, end: (id) => { ops.push(`end ${id}`) } },
-  reap: async (p) => { reaped.push(p); return true },
-  ...over
-})
+/** The context a test integrates with, writing into that test's own arrays, captured now: a test that ran past its budget
+ *  kept merging and reaping into the next test's `reaped` once beforeEach had replaced it (load-sensitive tests,
+ *  2026-10-14). */
+const ctx = (over: Partial<IntegrateContext> = {}): IntegrateContext => {
+  const own = { logs, ops, reaped }
+  return {
+    log: (m) => own.logs.push(m),
+    gitOp: { begin: (kind, cwd) => { own.ops.push(`begin ${kind} ${cwd}`); return `op${own.ops.length}` }, end: (id) => { own.ops.push(`end ${id}`) } },
+    reap: async (p) => { own.reaped.push(p); return true },
+    ...over
+  }
+}
 /** A worktree forked off the branch the repo stands on, with one commit of its own. */
 const worked = async (name: string, file = `${name}.txt`, body = name): Promise<string> => {
   const wt = await forkWorktree({ repoPath: repo, name }, { registry, log: (m) => logs.push(m) })
