@@ -484,6 +484,28 @@ describe('cutCandidates', () => {
     return { start: c.cells[i], end: c.cells[i + PATH.length - 1] }
   }
 
+  // D1 (2026-10-14): in xterm a Korean character takes two cells, the second with no chars and width 0. That half is
+  // part of the word, not a blank: read as one, a path with a Korean folder in it was cut at that folder.
+  it('joins a cut path with a Korean folder name in it, its characters taking two cells', () => {
+    const wideRow = (text: string, cols: number) => {
+      const cells: Array<{ width: number; chars: string }> = []
+      for (const ch of text) {
+        if (/[\uAC00-\uD7A3]/.test(ch)) cells.push({ width: 2, chars: ch }, { width: 0, chars: '' })
+        else cells.push({ width: 1, chars: ch === ' ' ? '' : ch })
+      }
+      while (cells.length < cols) cells.push({ width: 1, chars: '' })
+      return { cells, isWrapped: false }
+    }
+    const first = '  C:\\Users\\a\\문서\\terraluen-r'
+    const cols = wideRow(first, 0).cells.length
+    const rows = [wideRow(first, cols), wideRow('  eview\\concept.png', cols)]
+    for (const y of [0, 1])
+      expect(
+        cutCandidates((r) => rows[r], y, cols).map((c) => c.text),
+        String(y)
+      ).toContain('C:\\Users\\a\\문서\\terraluen-review\\concept.png')
+  })
+
   // 30 columns, as a split pane narrows them: the 73-character path takes three rows.
   it('joins a quoted path cut across three rows, from any of them, with where it sits', () => {
     const cols = 30

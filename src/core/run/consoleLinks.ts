@@ -387,7 +387,9 @@ export interface CutCandidate {
 export function cutCandidates(getRow: (y: number) => CutRow | undefined, y: number, cols: number): CutCandidate[] {
   type Row = { cells: readonly { width: number; chars: string }[]; first: number; last: number; single: boolean }
   const memo = new Map<number, Row | null>()
-  const blank = (c: { chars: string }): boolean => c.chars === '' || c.chars === ' '
+  // A cell with no chars and width 0 is a wide character's trailing half, part of its word (D1, 2026-10-14: a path with
+  // a Korean folder in it was cut at that folder); an empty cell of width 1 is a blank
+  const blank = (c: { chars: string; width: number }): boolean => (c.chars === '' && c.width !== 0) || c.chars === ' '
   const rowAt = (r: number): Row | null => {
     if (memo.has(r)) return memo.get(r)!
     const raw = r >= 0 ? getRow(r) : undefined
