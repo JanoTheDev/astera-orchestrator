@@ -49,8 +49,9 @@ export interface PluginDefinition {
    *  Astera's events, in order, one at a time, from where this plugin left off, once `activate` has resolved. A
    *  `{ type: 'gap' }` first means events were lost before the next one. Throw or reject to have the same event handed
    *  over again (after 1 s, doubling to 5 min, for an hour); it must settle within 30 s. An event can come twice:
-   *  `event.id` never repeats, so drop one you have seen. */
-  onEvent?(event: AsteraEvent | EventGap, ctx: PluginContext): void | Promise<void>
+   *  `event.id` never repeats, so drop one you have seen. A property rather than a method, so a handler that takes
+   *  only `AsteraEvent` does not typecheck: it would throw on a gap. */
+  onEvent?: (event: AsteraEvent | EventGap, ctx: PluginContext) => void | Promise<void>
 }
 
 /** The plugin an entry file exports as its default. */

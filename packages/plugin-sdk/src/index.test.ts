@@ -23,6 +23,11 @@ describe('@astera-app/plugin-sdk', () => {
     expect(typeof def.onEvent).toBe('function')
     // @ts-expect-error onEvent takes an event and the context
     definePlugin({ onEvent: (event: AsteraEvent, ctx: PluginContext, extra: number) => void [event, ctx, extra] })
+    // Final review M8: a handler that leaves out the gap would throw on it and hold every later event for an hour
+    // @ts-expect-error onEvent is handed a gap too
+    definePlugin({ onEvent: (event: AsteraEvent, ctx: PluginContext) => void [event.id, ctx] })
+    // @ts-expect-error the same, written as a method
+    definePlugin({ onEvent(event: AsteraEvent, ctx: PluginContext) { void [event.id, ctx] } })
     expect(seen).toEqual([])
   })
 })
