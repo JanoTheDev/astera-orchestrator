@@ -2059,7 +2059,7 @@ describe('MCP against the Host', { timeout: 60_000 }, () => {
       await astera(['jobs', 'create-from-source', '--source', 'github', '--item', '21', '--project', projectId, '--coordinator-account', h.accountId], h.env),
       'jobs create-from-source'
     )
-    expect(made).toMatchObject({ cwd: projectPath, source: { id: 'github', itemId: '21', label: 'GitHub issue #21 in o/r', url: 'https://github.com/o/r/issues/21' } })
+    expect(made).toMatchObject({ cwd: projectPath, source: { id: 'github', itemId: '21', label: 'GitHub issue #21 in o/r', title: 'Crash on save', url: 'https://github.com/o/r/issues/21' } })
     // J16: the issue now names the Job made from it
     const again = okData(await astera(['sources', 'items', '--source', 'github', '--project', projectId], h.env), 'sources items')
     expect((again.items as Array<{ jobs: string[] }>)[0].jobs).toEqual([made.id])
@@ -2107,7 +2107,7 @@ describe('MCP against the Host', { timeout: 60_000 }, () => {
     await setMcpSettings(h, { mcpGithubWrite: true })
     const made = await mcp.call('create_job_from_source', { source: 'github', itemId: '31', projectId, coordinatorAccountId: h.accountId, requestId: 's-2' })
     expect(made.isError, made.content[0]?.text).toBeFalsy()
-    expect(h.state().jobs[0].source).toEqual({ id: 'github', itemId: '31', label: 'GitHub issue #31 in o/r', url: 'https://github.com/o/r/issues/31' })
+    expect(h.state().jobs[0].source).toEqual({ id: 'github', itemId: '31', label: 'GitHub issue #31 in o/r', title: 'Typo in the README', url: 'https://github.com/o/r/issues/31' })
   })
 
   it('GitHub issues through the Host: get_issue reads with the write setting off; create_job_from_issue needs it, and takes only a trusted author', async () => {
@@ -2194,7 +2194,7 @@ describe('MCP against the Host', { timeout: 60_000 }, () => {
     expect(lines).toContain(' SOURCE>>>')
     expect(lines.at(-1)).toBe(close)
     // Plugin Phase 4 J13: the Job keeps the issue it was made from
-    expect(jobs[0].source).toEqual({ id: 'github', itemId: '11', label: expect.stringMatching(/^GitHub issue #11 in /), url: expect.any(String) })
+    expect(jobs[0].source).toEqual({ id: 'github', itemId: '11', label: expect.stringMatching(/^GitHub issue #11 in /), title: 'Login breaks', url: expect.any(String) })
     expect((made.structuredContent as { id: string }).id).toBe(jobs[0].id)
 
     // A CONTRIBUTOR's issue is refused with the setting on, and makes nothing.

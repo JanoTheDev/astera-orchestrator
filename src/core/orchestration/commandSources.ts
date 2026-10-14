@@ -9,7 +9,7 @@ import { findProject } from './projects'
 import { isSamePath } from '../files/tree'
 import type { Project } from './types'
 import type { OrchState } from './state'
-import { SOURCE_ERROR_MAX, clip, isItemId, itemDetail, itemsPage, jobContext, type SourceContext } from '../sources/answers'
+import { SOURCE_ERROR_MAX, SOURCE_TITLE_MAX, clip, isItemId, itemDetail, itemsPage, jobContext, type SourceContext } from '../sources/answers'
 import { sourcedObjective } from '../sources/objective'
 import { GITHUB_SOURCE_ID, issueContext, issueDetail, listIssueItems } from '../github/issueSource'
 import { repoOf } from '../github/issue'
@@ -207,6 +207,11 @@ export async function sourcesCommand(deps: OrchServerDeps, caller: Caller, cmd: 
 
 /** The Job of an item: through `jobs-create` with the rest of the caller's flags, in `cwd`, its objective the Host's
  *  (J14) and its source the item (J15). `jobs-create-from-issue` makes its Job here too (J13). */
+/** The ticket's title a Job is named by where it is shown (plugin 4d): the first line of the context's objective that
+ *  holds something, cut to SOURCE_TITLE_MAX. Every line terminator ends a line, as in the objective Astera writes. */
+const titleOf = (objective: string): string =>
+  clip(objective.split(/\r\n?|[\n\v\f\u0085\u2028\u2029]/).map((l) => l.trim()).find((l) => l !== '') ?? '', SOURCE_TITLE_MAX)
+
 export function createFromContext(
   deps: OrchServerDeps,
   caller: Caller,
@@ -217,6 +222,12 @@ export function createFromContext(
     ...a.rest,
     cwd: a.cwd,
     objective: sourcedObjective(a.ctx, a.sourceName),
-    [JOB_SOURCE]: { id: a.sourceId, itemId: a.itemId, label: a.ctx.sourceLabel, ...(a.ctx.sourceUrl ? { url: a.ctx.sourceUrl } : {}) }
+    [JOB_SOURCE]: {
+      id: a.sourceId,
+      itemId: a.itemId,
+      label: a.ctx.sourceLabel,
+      ...(titleOf(a.ctx.objective) !== '' ? { title: titleOf(a.ctx.objective) } : {}),
+      ...(a.ctx.sourceUrl ? { url: a.ctx.sourceUrl } : {})
+    }
   })
 }

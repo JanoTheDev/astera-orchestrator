@@ -1170,7 +1170,13 @@ const jobSourceOf = (args: Record<string, unknown>): JobSourceRef | undefined =>
   if (typeof v !== 'object' || v === null) return undefined
   const r = v as Record<string, unknown>
   if (typeof r.id !== 'string' || typeof r.itemId !== 'string' || typeof r.label !== 'string') return undefined
-  return { id: r.id, itemId: r.itemId, label: r.label, ...(typeof r.url === 'string' ? { url: r.url } : {}) }
+  return {
+    id: r.id,
+    itemId: r.itemId,
+    label: r.label,
+    ...(typeof r.title === 'string' ? { title: r.title } : {}),
+    ...(typeof r.url === 'string' ? { url: r.url } : {})
+  }
 }
 
 export async function handleCommand(

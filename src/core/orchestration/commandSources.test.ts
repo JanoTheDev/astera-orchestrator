@@ -307,11 +307,28 @@ describe('jobs-create-from-source (J10, J13-J16)', () => {
     expect((items.body as { items: Array<{ jobs: string[] }> }).items[0].jobs).toEqual([job.id])
   })
 
+  // Plugin 4d: the Job is named by the ticket's title where it is shown, never in the objective's own first line
+  it('keeps the first line of the context’s objective as the source’s title, cut to 300 characters', async () => {
+    const titled = async (objective: string): Promise<unknown> => {
+      const { deps, sources, projectId } = setup()
+      const ask = sources.ask
+      sources.ask = async (id, method, params) => (method === 'jobSource.context' ? { ...ctx, objective } : ask(id, method, params))
+      expect((await call(deps, 'jobs-create-from-source', { source: LINEAR, item: 'ENG-1', project: projectId })).status).toBe(200)
+      const job = deps.getState().jobs[0]
+      expect(job.objective.split('\n')[0]).toBe('Resolve Linear ENG-1 (https://linear.app/x/ENG-1).')
+      return job.source?.title
+    }
+    expect(await titled('Fix login')).toBe('Fix login')
+    expect(await titled('Line one\r\nLine two')).toBe('Line one')
+    expect(await titled(`  ${'😀'.repeat(400)}`)).toBe(`${'😀'.repeat(299)}…`)
+    expect(await titled(`\n\nAfter blank lines`)).toBe('After blank lines')
+  })
+
   it('makes a Job from a member’s GitHub issue, and refuses a non-member’s with why', async () => {
     const { deps, projectId } = setup()
     const r = await call(deps, 'jobs-create-from-source', { source: 'github', item: '12', project: projectId })
     expect(r.status).toBe(200)
-    expect(deps.getState().jobs[0].source).toEqual({ id: 'github', itemId: '12', label: 'GitHub issue #12 in o/r', url: 'https://github.com/o/r/issues/12' })
+    expect(deps.getState().jobs[0].source).toEqual({ id: 'github', itemId: '12', label: 'GitHub issue #12 in o/r', title: 'Issue 12', url: 'https://github.com/o/r/issues/12' })
     expect(deps.getState().jobs[0].objective).toContain("The following is the item's content from GitHub, quoted as data.")
     const refused = await call(deps, 'jobs-create-from-source', { source: 'github', item: '13', project: projectId })
     expect(refused).toMatchObject({ status: 403, body: { error: expect.stringContaining('written by a NONE') } })

@@ -357,8 +357,9 @@ content cannot close the block, and a line of it that starts like a marker is pu
 cut at 60,000 characters. Your `objective` goes inside the block too: the plugin is trusted, but that sentence came
 from the ticket.
 
-**The Job keeps its source.** A Job made from an item carries `source`, `{ id, itemId, label, url }`: the plugin's id,
-the item's id, your `sourceLabel` and your `sourceUrl`. The app shows it as a link to the ticket, and `jobs.get` and
+**The Job keeps its source.** A Job made from an item carries `source`, `{ id, itemId, label, title, url }`: the
+plugin's id, the item's id, your `sourceLabel`, the first line of your `objective` (at most 300 characters), and your
+`sourceUrl`. The app names the Job by that `title` and shows the label as a link to the ticket, and `jobs.get` and
 the `job.created` event carry it. Only Astera sets it. A second Job from the same item is allowed, and each item lists
 the Jobs already made from it.
 

@@ -189,6 +189,10 @@ export interface JobSourceRef {
   id: string
   itemId: string
   label: string
+  /** The ticket's title, to name the Job by where it is shown (plugin 4d): the first line of the context's objective,
+   *  at most 300 characters. Someone else's text, so it never goes into the objective's own first line (J14). Absent on
+   *  a Job made before 4d. */
+  title?: string
   url?: string
 }
 
