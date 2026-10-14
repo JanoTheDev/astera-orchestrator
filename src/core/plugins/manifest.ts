@@ -31,6 +31,19 @@ export const PLUGIN_PERMISSIONS = [
 ] as const
 export type PluginPermission = (typeof PLUGIN_PERMISSIONS)[number]
 
+/** The permission a capability cannot work without (plugin Phase 3 N4): `event` and `notification` hand the plugin
+ *  event content, which `events.subscribe` is the grant for. */
+const CAPABILITY_NEEDS: Partial<Record<PluginCapability, PluginPermission>> = { event: 'events.subscribe', notification: 'events.subscribe' }
+
+/** Why `capabilities` cannot work with `permissions` (those a manifest asks for, or those a person granted), or null. */
+export function capabilityPermissionProblem(capabilities: readonly PluginCapability[], permissions: readonly string[]): string | null {
+  for (const c of capabilities) {
+    const need = CAPABILITY_NEEDS[c]
+    if (need !== undefined && !permissions.includes(need)) return `the ${c} capability needs the ${need} permission`
+  }
+  return null
+}
+
 /** Shown wherever a person approves a plugin (spec §31, design P1): permissions are not a sandbox. */
 export const PLUGIN_TRUST_WARNING =
   'Plugins run trusted code on this machine: a plugin can do anything you can, and its permissions limit only what it asks Astera for.'
@@ -134,6 +147,8 @@ export function parseManifest(pkg: unknown): { ok: true; manifest: PluginManifes
   if (entry !== null) problems.push(entry)
   const capabilities = namesOf('astera.capabilities', astera.capabilities, PLUGIN_CAPABILITIES, 'capability', problems)
   const permissions = namesOf('astera.permissions', astera.permissions, PLUGIN_PERMISSIONS, 'permission', problems)
+  const needs = capabilityPermissionProblem(capabilities, permissions)
+  if (needs !== null) problems.push(needs)
   const min = astera.minAsteraVersion
   if (min !== undefined && (typeof min !== 'string' || !SEMVER.test(min)))
     problems.push(`astera.minAsteraVersion ${JSON.stringify(min)} is not a semver version`)

@@ -4,7 +4,7 @@
 import { promises as fs } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import path from 'node:path'
-import { incompatibility, isSemver, parseManifest, pluginFolderName, type PluginCapability, type PluginManifest, type PluginPermission } from '../../core/plugins/manifest'
+import { capabilityPermissionProblem, incompatibility, isSemver, parseManifest, pluginFolderName, type PluginCapability, type PluginManifest, type PluginPermission } from '../../core/plugins/manifest'
 import { PluginCopyRefused, copyPluginFolder, layoutProblem } from './copyFolder'
 import { parseNpmSpec } from '../../core/plugins/npmSpec'
 import { NpmFailed, NpmMissing, createNpm, installDependencies, packAndExtract, type NpmRun, type NpmRunner } from './npm'
@@ -419,6 +419,9 @@ export function createPluginManager(d: {
         throw new Refused(400, `${g} is not one the plugin asks for; it asks for: ${m.permissions.length > 0 ? m.permissions.join(', ') : 'nothing'}`)
       if (!granted.includes(g as PluginPermission)) granted.push(g as PluginPermission)
     }
+    // Plugin Phase 3 N4: refused before anything is copied, with the reason the manifest's own check gives
+    const needs = capabilityPermissionProblem(m.capabilities, granted)
+    if (needs !== null) throw new Refused(400, needs)
     const entry = await fs.stat(path.join(folder, m.entry)).then((s) => s.isFile(), () => false)
     if (!entry) throw new Refused(400, `the entry ${m.entry} is not a file in the plugin`)
     return { manifest: m, granted }
