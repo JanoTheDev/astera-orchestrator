@@ -320,6 +320,18 @@ describe('createPluginRuntime', () => {
     await r.stopAll()
     expect([r.status('one')?.status, r.status('two')?.status]).toEqual(['stopped', 'stopped'])
   }, 90_000)
+
+  // Plugin Phase 3, found under onEvent: on Windows the plugin's end of a 'pipe' channel is a synchronous handle, whose
+  // pending read holds every write until the Host writes again, so a call a plugin made from a timer waited for the
+  // Host's next message, for ever when none came
+  it('takes a call the plugin makes from a timer, with nothing else said on the channel', async () => {
+    const { r, calls } = runtime()
+    const p = plugin('ticks', `export default { activate(ctx) { setTimeout(() => ctx.astera.projects.list().then(() => ctx.log.info('listed')), 300) } }`)
+    r.start(p)
+    await until(() => expect(r.status('ticks')?.status).toBe('running'))
+    await until(() => expect(logOf(r, 'ticks')).toContain('[info] listed'), 10_000)
+    expect(calls.map((c) => c.cmd)).toEqual(['projects-list'])
+  }, 90_000)
 })
 
 // 2c final review C1, I2, I3, I4, M11, M15: no secret of a plugin reaches its log or a reason a person reads.
@@ -476,6 +488,19 @@ describe('event plugins (plugin Phase 3 N1, N5-N8)', () => {
     await until(() =>
       expect(r.status('ev5')).toMatchObject({ status: 'failed', reason: expect.stringContaining('the event capability needs the events.subscribe permission') })
     )
+  }, 90_000)
+
+  // The answer of an onEvent that awaits something is written after the Host's message was read, the case the
+  // channel's synchronous handle held until the next message (see 'takes a call the plugin makes from a timer')
+  it('takes the answer of an onEvent that settles later, and goes on to the next event at once', async () => {
+    const { r, profile, ring } = runtime()
+    r.start(eventPlugin('ev7', `export default { async onEvent(e, ctx) { await new Promise((res) => setTimeout(res, 50)); ctx.log.info('got ' + e.id) } }`))
+    await until(() => expect(r.status('ev7')?.status).toBe('running'))
+    add(ring, 2)
+    await until(() => expect(logOf(r, 'ev7')).toContain('got ev_aaaaaaaaaaaa_2'), 10_000)
+    await r.stop('ev7')
+    expect(JSON.parse(readFileSync(cursorFile(profile, 'ev7'), 'utf8')).cursor).toBe('ev_aaaaaaaaaaaa_2')
+    expect(logOf(r, 'ev7')).not.toContain('did not finish within')
   }, 90_000)
 
   // Review Focus 1

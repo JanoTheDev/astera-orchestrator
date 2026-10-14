@@ -325,7 +325,10 @@ export function createPluginRuntime(d: {
         env: pluginEnv(d.env),
         // The channel is the fourth pipe (2b final review I1): a child that inherits the plugin's stdio gets 0 to 2 only,
         // so nothing printed reaches it. No stdin: a child that reads it cannot take the Host's messages either.
-        stdio: ['ignore', 'pipe', 'pipe', 'pipe'],
+        // Overlapped (plugin Phase 3): a 'pipe' gives the plugin a synchronous handle on Windows, where the read always
+        // pending holds every write until the Host writes again, so a call or an answer the plugin sent from a timer
+        // waited for the Host's next message. Elsewhere it is a plain pipe.
+        stdio: ['ignore', 'pipe', 'pipe', 'overlapped'],
         windowsHide: true,
         // Elsewhere than Windows, the leader of a process group, so a stop can end what the plugin started too.
         detached: process.platform !== 'win32'
