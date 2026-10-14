@@ -10,8 +10,10 @@ import { hostWorkerBaseEnv } from '../../core/host/spawn'
 import { killProcessTree } from '../../core/run/kill'
 import { redactSecrets } from '../../core/remote/redact'
 import type { OrchCall } from '../../core/host/orchProtocol'
-import { RPC_INTERNAL_ERROR, RPC_INVALID_PARAMS, RPC_METHOD_NOT_FOUND, RpcError, createRpcPeer, type RpcPeer } from '../../core/plugins/rpc'
-import { PluginSecretRefused, pluginSecrets } from './pluginData'
+import { RPC_CLOSED, RPC_INTERNAL_ERROR, RPC_INVALID_PARAMS, RPC_METHOD_NOT_FOUND, RpcError, createRpcPeer, type RpcPeer } from '../../core/plugins/rpc'
+import { capabilityPermissionProblem, type PluginCapability } from '../../core/plugins/manifest'
+import { PluginSecretRefused, pluginCursor, pluginSecrets, type CursorStore } from './pluginData'
+import { DeliveryInterrupted, createDeliverer, type Deliverer, type DeliverySource, type DeliveryTimings } from './deliverer'
 import { openHostLog, type HostLog } from '../log'
 import { releaseLogWriter } from '../../core/log/logWriter'
 import { pluginsRoot } from './registry'
@@ -49,6 +51,8 @@ export interface PluginLaunch {
   /** The entry file, absolute. */
   entry: string
   granted: readonly string[]
+  /** The capabilities its manifest names that this Astera serves (plugin Phase 3): `event` gets it the event log. */
+  capabilities: readonly PluginCapability[]
   /** Its settings, secret ones included, handed over at `initialize` (spec §24, design P10). */
   settings: Readonly<Record<string, string | number | boolean>>
   /** Values its log must never show: its secret settings and secrets (spec §23). */
@@ -100,7 +104,16 @@ interface Slot {
   terms?: string[]
   exited?: Promise<void>
   stopping?: Promise<void>
+  /** An event plugin's deliverer (plugin Phase 3): from its start until a stop, through its crashes and restarts. */
+  deliverer?: Deliverer
+  /** The last deliverer's stop, until its cursor is written: a second stop and a start wait for it (final review M4). */
+  delivering?: Promise<void>
 }
+
+/** The handler each capability is served through (plugin Phase 3 N5): a plugin whose entry lacks it does not start. */
+const HANDLER_OF: Partial<Record<PluginCapability, string>> = { event: 'onEvent' }
+
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
 
 /** A secret shorter than this is too common a run of text to take out of a log line (docs/cli.md says so). */
 export const REDACT_MIN = 4
@@ -186,6 +199,12 @@ export function createPluginRuntime(d: {
   now?: () => number
   /** For tests: the ceiling on a plugin's message (`PLUGIN_MAX_LINE`). */
   maxLine?: number
+  /** The Host's public event log, which event plugins are handed (plugin Phase 3 N1). Absent: none is delivered to. */
+  events?: DeliverySource
+  /** For tests: the deliverer's waits (DELIVERY_TIMINGS). */
+  delivery?: Partial<DeliveryTimings>
+  /** For tests: where an event plugin's cursor is kept (pluginCursor). */
+  cursors?: (folder: string) => CursorStore
 }): PluginRuntime {
   const t: PluginTimings = { ...PLUGIN_TIMINGS, ...d.timings }
   const spawn = d.spawn ?? nodeSpawn
@@ -268,11 +287,41 @@ export function createPluginRuntime(d: {
     }
   }
 
+  /** The deliverer of an event plugin (plugin Phase 3 N1, N6-N8): it hands the plugin the event log from its cursor
+   *  while the plugin runs, and its lines go to the plugin's log. */
+  const makeDeliverer = (s: Slot, events: DeliverySource): Deliverer =>
+    createDeliverer({
+      source: events,
+      cursor: d.cursors ? d.cursors(s.launch.folder) : pluginCursor(d.profileDir, s.launch.folder),
+      running: () => s.state === 'running' && s.peer !== undefined,
+      deliver: async (item) => {
+        const peer = s.peer
+        if (!peer || s.state !== 'running') throw new DeliveryInterrupted('the plugin is not running')
+        try {
+          await peer.request('events.deliver', { event: item })
+        } catch (e) {
+          // The process ended under the delivery: it is started again, and the event goes again once it runs
+          if (e instanceof RpcError && e.code === RPC_CLOSED) throw new DeliveryInterrupted(e.message)
+          throw e
+        }
+      },
+      log: (m) => say(s, m),
+      now,
+      ...(d.delivery ? { timings: d.delivery } : {})
+    })
+
   function launch(s: Slot): void {
     const p = s.launch
     s.state = 'starting'
     s.problem = undefined
     s.runningSince = undefined
+    // Plugin Phase 3 N4: an event plugin without the grant its events need is not started (the install refuses it too)
+    const ungranted = capabilityPermissionProblem(p.capabilities, p.granted)
+    if (ungranted !== null) {
+      s.problem = ungranted
+      say(s, ungranted)
+      return crashed(s, ungranted)
+    }
     let proc: ChildProcess
     try {
       proc = spawn(d.exec, [d.launcher], {
@@ -280,7 +329,10 @@ export function createPluginRuntime(d: {
         env: pluginEnv(d.env),
         // The channel is the fourth pipe (2b final review I1): a child that inherits the plugin's stdio gets 0 to 2 only,
         // so nothing printed reaches it. No stdin: a child that reads it cannot take the Host's messages either.
-        stdio: ['ignore', 'pipe', 'pipe', 'pipe'],
+        // Overlapped (plugin Phase 3): a 'pipe' gives the plugin a synchronous handle on Windows, where the read always
+        // pending holds every write until the Host writes again, so a call or an answer the plugin sent from a timer
+        // waited for the Host's next message. Elsewhere it is a plain pipe.
+        stdio: ['ignore', 'pipe', 'pipe', 'overlapped'],
         windowsHide: true,
         // Elsewhere than Windows, the leader of a process group, so a stop can end what the plugin started too.
         detached: process.platform !== 'win32'
@@ -383,11 +435,22 @@ export function createPluginRuntime(d: {
         host: { version: host.version, pid: host.pid, startedAt: host.startedAt, features: [...host.features] }
       })
       .then(
-        () => {
+        (r: unknown) => {
           if (s.proc !== proc || s.state !== 'starting') return
+          // Plugin Phase 3 N5: a capability served through a handler its entry does not have fails the start
+          const handlers = isObject(r) && Array.isArray(r.handlers) ? r.handlers : []
+          for (const c of p.capabilities) {
+            const h = HANDLER_OF[c]
+            if (h === undefined || handlers.includes(h)) continue
+            s.problem = `the ${c} capability needs ${h} in its entry`
+            say(s, s.problem)
+            killTree(proc)
+            return
+          }
           s.state = 'running'
           s.runningSince = now()
           say(s, 'running')
+          s.deliverer?.wake()
         },
         (e: unknown) => {
           if (s.proc !== proc || !s.wanted) return
@@ -441,9 +504,11 @@ export function createPluginRuntime(d: {
   const start = (p: PluginLaunch): void => {
     const s = slots.get(p.id)
     if (s && s.wanted && (s.state === 'starting' || s.state === 'running' || s.state === 'waiting')) return
-    // A stop still under way finishes first; the start follows it.
-    if (s?.stopping) {
-      void s.stopping.then(() => start(p))
+    // A stop still under way finishes first, its cursor written too, so a new deliverer reads where the last one left
+    // off; the start follows it.
+    const pending = s?.stopping ?? s?.delivering
+    if (pending) {
+      void pending.then(() => start(p))
       return
     }
     const slot: Slot = s ?? { launch: p, state: 'stopped', wanted: true, failures: 0, timers: new Set(), learned: new Map() }
@@ -453,6 +518,8 @@ export function createPluginRuntime(d: {
     slot.reason = undefined
     if (slot.state !== 'failed') slot.failures = 0
     slots.set(p.id, slot)
+    // Kept through crashes and restarts, so the cursor in memory is not read back from the file each time
+    if (d.events && p.capabilities.includes('event')) slot.deliverer ??= makeDeliverer(slot, d.events)
     if (slot.state === 'failed') return
     launch(slot)
   }
@@ -462,12 +529,22 @@ export function createPluginRuntime(d: {
     if (!s) return Promise.resolve()
     s.wanted = false
     clearTimers(s)
+    // Delivery ends first, so no event goes to a plugin on its way out, and its cursor is written before the stop is
+    // over: a removal deletes the file after this, and nothing writes it again (plugin Phase 3 N6)
+    if (s.deliverer) {
+      const ending: Promise<void> = s.deliverer.stop().finally(() => {
+        if (s.delivering === ending) s.delivering = undefined
+      })
+      s.delivering = ending
+      s.deliverer = undefined
+    }
+    const delivered = s.delivering ?? Promise.resolve()
     const proc = s.proc
     if (!proc) {
       s.state = 'stopped'
-      return Promise.resolve()
+      return delivered
     }
-    return (s.stopping ??= (async () => {
+    const stopped = (s.stopping ??= (async () => {
       const exited = s.exited ?? Promise.resolve()
       const within = (ms: number): Promise<boolean> =>
         Promise.race([exited.then(() => true), new Promise<boolean>((r) => setTimeout(() => r(false), ms))])
@@ -486,6 +563,7 @@ export function createPluginRuntime(d: {
     })().finally(() => {
       s.stopping = undefined
     }))
+    return Promise.all([stopped, delivered]).then(() => {})
   }
 
   return {

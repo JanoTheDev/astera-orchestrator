@@ -8,7 +8,9 @@ import os from 'node:os'
 import path from 'node:path'
 import { createPluginRuntime, type PluginLaunch, type PluginRuntime, type PluginTimings } from './runtime'
 import { bundleLauncher } from '../../pluginHost/testkit'
-import { pluginSecrets } from './pluginData'
+import { cursorFile, pluginSecrets, type CursorStore } from './pluginData'
+import { createEventRing, type EventRing } from '../../core/events/eventRing'
+import type { EventDraft } from '../../core/orchestration/publicEvents'
 
 let dir: string
 let launcher: string
@@ -27,10 +29,24 @@ afterAll(async () => {
 
 type Call = { cmd: string; args: unknown; sessionId: string; from?: { role: string; plugin?: { id: string; granted: ReadonlySet<string> } }; request?: string }
 
-function runtime(timings: Partial<PluginTimings> = {}, extra: { maxLine?: number } = {}) {
+/** The Host's event log, as the runtime reads it for event plugins (plugin Phase 3). */
+const eventLog = (): EventRing => createEventRing({ boot: 'aaaaaaaaaaaa', retainEvents: 2000, retainChars: 1 << 23 })
+const RUN = { id: 'run_1', jobId: 'job_1', ordinal: 1, createdAt: 'T', outcome: 'completed', progress: { done: 2, total: 2 }, questionsOpen: 0 }
+/** Appends `count` completed Runs to the log, each with `payload` over the Run. */
+const add = (ring: EventRing, count: number, payload: Record<string, unknown> = {}): void =>
+  void ring.append(
+    Array.from({ length: count }, (): EventDraft => ({ type: 'run.completed', jobId: 'job_1', runId: 'run_1', payload: { ...RUN, ...payload } })),
+    'T'
+  )
+
+function runtime(
+  timings: Partial<PluginTimings> = {},
+  extra: { maxLine?: number; profile?: string; ring?: EventRing; cursors?: (folder: string) => CursorStore } = {}
+) {
   const calls: Call[] = []
   const hostLog: string[] = []
-  const profile = path.join(dir, `profile ${++n}`)
+  const profile = extra.profile ?? path.join(dir, `profile ${++n}`)
+  const ring = extra.ring ?? eventLog()
   const r = createPluginRuntime({
     profileDir: profile,
     exec: process.execPath,
@@ -48,10 +64,13 @@ function runtime(timings: Partial<PluginTimings> = {}, extra: { maxLine?: number
     // crash counted as quick only within 5 s of a start that itself took that long. No test here is about these two
     // budgets; the ones that are set their own.
     timings: { startMs: 60_000, stopGraceMs: 1_000, backoffMs: [50, 50, 50], stableMs: 30_000, failAfter: 3, ...timings },
-    ...extra
+    events: ring,
+    delivery: { retryFirstMs: 50, retryMaxMs: 50 },
+    ...(extra.maxLine !== undefined ? { maxLine: extra.maxLine } : {}),
+    ...(extra.cursors ? { cursors: extra.cursors } : {})
   })
   started.push(r)
-  return { r, calls, hostLog, profile }
+  return { r, calls, hostLog, profile, ring }
 }
 
 /** A plugin folder holding `source` as its entry. */
@@ -59,8 +78,11 @@ function plugin(name: string, source: string, file = 'index.mjs'): PluginLaunch 
   const d = path.join(dir, 'plugins', name)
   mkdirSync(d, { recursive: true })
   writeFileSync(path.join(d, file), source)
-  return { id: name, version: '1.0.0', folder: name, dir: d, entry: path.join(d, file), granted: ['projects.read'], settings: {}, redact: [] }
+  return { id: name, version: '1.0.0', folder: name, dir: d, entry: path.join(d, file), granted: ['projects.read'], capabilities: [], settings: {}, redact: [] }
 }
+
+/** An `event` plugin (plugin Phase 3): the capability, and the permission it needs. */
+const eventPlugin = (name: string, source: string): PluginLaunch => ({ ...plugin(name, source), capabilities: ['event'], granted: ['events.subscribe'] })
 
 const logOf = (r: PluginRuntime, folder: string): string => (existsSync(r.logFile(folder)) ? readFileSync(r.logFile(folder), 'utf8') : '')
 // 45 s: three starts and restarts of a real process, under the full suite (load-sensitive tests, 2026-10-14). Every
@@ -302,6 +324,18 @@ describe('createPluginRuntime', () => {
     await r.stopAll()
     expect([r.status('one')?.status, r.status('two')?.status]).toEqual(['stopped', 'stopped'])
   }, 90_000)
+
+  // Plugin Phase 3, found under onEvent: on Windows the plugin's end of a 'pipe' channel is a synchronous handle, whose
+  // pending read holds every write until the Host writes again, so a call a plugin made from a timer waited for the
+  // Host's next message, for ever when none came
+  it('takes a call the plugin makes from a timer, with nothing else said on the channel', async () => {
+    const { r, calls } = runtime()
+    const p = plugin('ticks', `export default { activate(ctx) { setTimeout(() => ctx.astera.projects.list().then(() => ctx.log.info('listed')), 300) } }`)
+    r.start(p)
+    await until(() => expect(r.status('ticks')?.status).toBe('running'))
+    await until(() => expect(logOf(r, 'ticks')).toContain('[info] listed'), 10_000)
+    expect(calls.map((c) => c.cmd)).toEqual(['projects-list'])
+  }, 90_000)
 })
 
 // 2c final review C1, I2, I3, I4, M11, M15: no secret of a plugin reaches its log or a reason a person reads.
@@ -382,5 +416,171 @@ describe('what a plugin log and reason never show', () => {
     r.start(p)
     await until(() => expect(logOf(r, 'cursor')).toContain('first '))
     expect(logOf(r, 'cursor')).toContain('first cursor-value-000, last [redacted]')
+  }, 90_000)
+})
+
+describe('event plugins (plugin Phase 3 N1, N5-N8)', () => {
+  const ON_EVENT = `export default {
+    async onEvent(e, ctx) {
+      if (e.type !== 'gap' && e.payload.boom) throw new Error('boom ' + ctx.settings.token)
+      ctx.log.info('got ' + (e.type === 'gap' ? 'gap' : e.id))
+    }
+  }`
+  /** Ends its process the first time it sees the second event, then takes every event. */
+  const CRASH_ONCE_ON_2 = `import { existsSync, writeFileSync } from 'node:fs'
+  import path from 'node:path'
+  export default {
+    onEvent(e, ctx) {
+      const marker = path.join(ctx.plugin.dir, 'crashed')
+      if (e.type !== 'gap' && e.id === 'ev_aaaaaaaaaaaa_2' && !existsSync(marker)) {
+        writeFileSync(marker, '1')
+        process.exit(1)
+      }
+      ctx.log.info('got ' + (e.type === 'gap' ? 'gap' : e.id))
+    }
+  }`
+
+  it('hands a running event plugin what comes after its start, in order, and keeps its place in a file', async () => {
+    const { r, profile, ring } = runtime()
+    add(ring, 1)
+    r.start(eventPlugin('ev1', ON_EVENT))
+    await until(() => expect(r.status('ev1')?.status).toBe('running'))
+    add(ring, 2)
+    await until(() => expect(logOf(r, 'ev1')).toMatch(/got ev_aaaaaaaaaaaa_2[\s\S]*got ev_aaaaaaaaaaaa_3/))
+    expect(logOf(r, 'ev1')).not.toContain('got ev_aaaaaaaaaaaa_1')
+    await r.stop('ev1')
+    expect(JSON.parse(readFileSync(cursorFile(profile, 'ev1'), 'utf8'))).toEqual({ version: 1, cursor: 'ev_aaaaaaaaaaaa_3' })
+  }, 90_000)
+
+  // Review Focus 4
+  it('resumes where it left off after a crash, and after the Host starts again', async () => {
+    const first = runtime()
+    add(first.ring, 1)
+    const p = eventPlugin('ev2', CRASH_ONCE_ON_2)
+    first.r.start(p)
+    await until(() => expect(first.r.status('ev2')?.status).toBe('running'))
+    add(first.ring, 2)
+    await until(() => expect(logOf(first.r, 'ev2')).toMatch(/got ev_aaaaaaaaaaaa_2[\s\S]*got ev_aaaaaaaaaaaa_3/))
+    expect(logOf(first.r, 'ev2')).toContain('restarting in')
+    await first.r.stopAll()
+    // The next Host (final review M9): a boot of its own, and the log read back from what the first one wrote, as
+    // eventLog.ts reads its segments at a start
+    const ring = createEventRing({ boot: 'bbbbbbbbbbbb', retainEvents: 2000, retainChars: 1 << 23 })
+    const held = first.ring.read({ limit: 1000 })
+    if ('error' in held) throw new Error(held.error)
+    ring.restore(held.events.map((event) => ({ event, line: JSON.stringify(event) })))
+    const again = runtime({}, { profile: first.profile, ring })
+    add(ring, 1)
+    again.r.start(p)
+    await until(() => expect(logOf(again.r, 'ev2')).toContain('got ev_bbbbbbbbbbbb_4'))
+    expect(logOf(again.r, 'ev2').match(/got ev_aaaaaaaaaaaa_3/g)).toHaveLength(1)
+    expect(logOf(again.r, 'ev2')).not.toContain('got gap')
+  }, 90_000)
+
+  // Review Focus 5
+  it('logs a failed delivery with its secrets hidden, and tries it again', async () => {
+    const { r, ring } = runtime()
+    r.start({ ...eventPlugin('ev3', ON_EVENT), settings: { token: 'tok-secret-123' }, redact: ['tok-secret-123'] })
+    await until(() => expect(r.status('ev3')?.status).toBe('running'))
+    add(ring, 1, { boom: true })
+    await until(() => expect(logOf(r, 'ev3')).toContain('[host] delivering run.completed ev_aaaaaaaaaaaa_1 failed (try 1): onEvent threw: boom [redacted]'))
+    expect(logOf(r, 'ev3')).not.toContain('tok-secret-123')
+  }, 90_000)
+
+  it('fails the start of an event plugin whose entry has no onEvent, saying so', async () => {
+    const { r } = runtime({ failAfter: 1 })
+    r.start(eventPlugin('ev4', 'export default { activate() {} }'))
+    await until(() => expect(r.status('ev4')).toMatchObject({ status: 'failed', reason: expect.stringContaining('the event capability needs onEvent in its entry') }))
+  }, 90_000)
+
+  it('does not start an event plugin that was not granted events.subscribe', async () => {
+    const { r } = runtime({ failAfter: 1 })
+    r.start({ ...eventPlugin('ev5', ON_EVENT), granted: [] })
+    await until(() =>
+      expect(r.status('ev5')).toMatchObject({ status: 'failed', reason: expect.stringContaining('the event capability needs the events.subscribe permission') })
+    )
+  }, 90_000)
+
+  // The answer of an onEvent that awaits something is written after the Host's message was read, the case the
+  // channel's synchronous handle held until the next message (see 'takes a call the plugin makes from a timer')
+  it('takes the answer of an onEvent that settles later, and goes on to the next event at once', async () => {
+    const { r, profile, ring } = runtime()
+    r.start(eventPlugin('ev7', `export default { async onEvent(e, ctx) { await new Promise((res) => setTimeout(res, 50)); ctx.log.info('got ' + e.id) } }`))
+    await until(() => expect(r.status('ev7')?.status).toBe('running'))
+    add(ring, 2)
+    await until(() => expect(logOf(r, 'ev7')).toContain('got ev_aaaaaaaaaaaa_2'), 10_000)
+    await r.stop('ev7')
+    expect(JSON.parse(readFileSync(cursorFile(profile, 'ev7'), 'utf8')).cursor).toBe('ev_aaaaaaaaaaaa_2')
+    expect(logOf(r, 'ev7')).not.toContain('did not finish within')
+  }, 90_000)
+
+  /** A cursor store whose second write waits for `release()`, and the order of what it was asked. */
+  const gatedCursors = () => {
+    const order: string[] = []
+    let release: () => void = () => {}
+    const gate = new Promise<void>((res) => (release = res))
+    let writes = 0
+    const store: CursorStore = {
+      read: async () => {
+        order.push('read')
+        return null
+      },
+      write: async (c) => {
+        writes += 1
+        order.push(`write ${c}`)
+        if (writes === 2) await gate
+        order.push(`wrote ${c}`)
+      }
+    }
+    return { order, release: () => release(), cursors: () => store }
+  }
+
+  // Final review M4: the stop's promise is not the only one that waits for the deliverer's last write
+  it('makes a second stop wait for the cursor write the first one began', async () => {
+    const c = gatedCursors()
+    const { r, ring } = runtime({}, { cursors: c.cursors })
+    r.start(eventPlugin('ev8', `export default { onEvent(e, ctx) { ctx.log.info('got ' + e.id) } }`))
+    await until(() => expect(r.status('ev8')?.status).toBe('running'))
+    add(ring, 1)
+    await until(() => expect(c.order).toContain('write ev_aaaaaaaaaaaa_1'))
+    void r.stop('ev8')
+    let second = false
+    void r.stop('ev8').then(() => (second = true))
+    await until(() => expect(r.status('ev8')?.status).toBe('stopped'))
+    await new Promise((res) => setTimeout(res, 300))
+    expect(second).toBe(false)
+    c.release()
+    await until(() => expect(second).toBe(true))
+  }, 90_000)
+
+  it('starts a plugin again only once the cursor write of its stop has landed', async () => {
+    const c = gatedCursors()
+    const { r, ring } = runtime({}, { cursors: c.cursors })
+    const p = eventPlugin('ev9', `export default { onEvent(e, ctx) { ctx.log.info('got ' + e.id) } }`)
+    r.start(p)
+    await until(() => expect(r.status('ev9')?.status).toBe('running'))
+    add(ring, 1)
+    await until(() => expect(c.order).toContain('write ev_aaaaaaaaaaaa_1'))
+    void r.stop('ev9')
+    await until(() => expect(r.status('ev9')?.status).toBe('stopped'))
+    r.start(p)
+    await new Promise((res) => setTimeout(res, 300))
+    expect(c.order.filter((x) => x === 'read')).toHaveLength(1)
+    c.release()
+    await until(() => expect(c.order.filter((x) => x === 'read')).toHaveLength(2))
+    expect(c.order.indexOf('wrote ev_aaaaaaaaaaaa_1')).toBeLessThan(c.order.lastIndexOf('read'))
+  }, 90_000)
+
+  // Review Focus 1
+  it('stops a plugin whose onEvent never settles within its grace', async () => {
+    const { r, ring } = runtime()
+    r.start(eventPlugin('ev6', `export default { onEvent(e, ctx) { ctx.log.info('holding'); return new Promise(() => {}) } }`))
+    await until(() => expect(r.status('ev6')?.status).toBe('running'))
+    add(ring, 1)
+    await until(() => expect(logOf(r, 'ev6')).toContain('holding'))
+    const t0 = Date.now()
+    await r.stop('ev6')
+    expect(Date.now() - t0).toBeLessThan(10_000)
+    expect(r.status('ev6')?.status).toBe('stopped')
   }, 90_000)
 })

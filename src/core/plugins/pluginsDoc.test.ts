@@ -9,12 +9,14 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { PLUGIN_CAPABILITIES, PLUGIN_PERMISSIONS, PLUGIN_TRUST_WARNING, parseManifest } from './manifest'
+import { PLUGIN_CAPABILITIES, PLUGIN_PERMISSIONS, PLUGIN_TRUST_WARNING, capabilityPermissionProblem, parseManifest } from './manifest'
 import { SETTING_KEYWORDS, SETTING_TYPES, SETTINGS_MAX, parseSettingsSchema } from './settings'
 import { PLUGIN_COMMAND_PERMISSIONS, pluginRefusal } from '../host/pluginGate'
 import { PLUGIN_TIMINGS, REDACT_MIN, createPluginRuntime } from '../../host/plugins/runtime'
 import { SECRET_NAME_MAX, SECRET_VALUE_MAX } from '../../host/plugins/pluginData'
 import { PLUGIN_SERVED_CAPABILITIES } from '../../host/plugins/manager'
+import { DELIVERY_GIVE_UP_MS, DELIVERY_LOG_EVERY, DELIVERY_RETRY_MS, DELIVERY_TIMEOUT_MS } from '../../host/plugins/deliverer'
+import { EVENT_RETAIN_EVENTS } from '../../host/eventLog'
 import { bundleLauncher } from '../../pluginHost/testkit'
 import { createNamespaces } from '../../../packages/client/src/namespaces'
 import { typecheckBlocks } from '../../../packages/client/test/typecheck'
@@ -207,6 +209,36 @@ describe('docs/plugins.md', () => {
     for (const c of unserved) expect(notYet, c).toContain(`\`${c}\``)
   })
 
+  // Plugin Phase 3 N4-N9: the event capability as the code runs it
+  it('says how an event plugin is handed events, with the deliverer’s numbers and the permission rule', () => {
+    const ev = prose(section(guide, '## Event plugins'))
+    expect(ev).toContain('`onEvent`')
+    expect(ev).toContain(`within ${DELIVERY_TIMEOUT_MS / 1000} seconds`)
+    expect(ev).toContain(`after ${DELIVERY_RETRY_MS.first / 1000} second,`)
+    expect(ev).toContain(`up to ${DELIVERY_RETRY_MS.max / 60_000} minutes`)
+    expect(DELIVERY_GIVE_UP_MS).toBe(60 * 60_000)
+    expect(ev).toContain('after an hour')
+    expect(ev).toContain(`every ${DELIVERY_LOG_EVERY} tries`)
+    expect(ev).toContain("`{ type: 'gap' }`")
+    expect(ev).toContain('`events.subscribe`')
+    expect(ev).toContain(capabilityPermissionProblem(['event'], [])!)
+    expect(ev).toContain('`<profile>/plugins/cursors/<folder>.json`')
+    expect(ev).toContain('`event.id`')
+    // Its manifest fragment is one Astera reads as an event plugin
+    const [fragment] = fenced(section(guide, '## Event plugins'), 'json')
+    const read = parseManifest({ name: 'x', version: '1.0.0', astera: { apiVersion: '1', entry: 'index.js', ...JSON.parse(fragment) } })
+    expect(read.ok && read.manifest.capabilities).toEqual(['event'])
+    expect(section(guide, '## Not yet')).not.toContain('`event`')
+    expect(prose(section(guide, '## The manifest'))).toContain('[Event plugins](#event-plugins)')
+    // Final review M5: a call past the limit is not stopped, so one-at-a-time holds only for handlers within it
+    expect(ev).toContain(`A call that runs past ${DELIVERY_TIMEOUT_MS / 1000} seconds is not stopped`)
+    // Final review M6: the place is taken when the plugin first starts, which a plugin missing a setting has not
+    expect(ev).toContain('after it first starts')
+    expect(ev).not.toContain('after its install')
+    // Final review M10: what the log keeps, tied to the code
+    expect(ev).toContain(`up to its most recent ${EVENT_RETAIN_EVENTS} events, fewer`)
+  })
+
   it('says which Node a plugin runs on, and how to start Node from process.execPath', () => {
     const node = section(guide, '## The Node a plugin runs on')
     const electron = /(\d+)\./.exec(JSON.parse(read('package.json')).devDependencies.electron as string)![1]
@@ -254,8 +286,11 @@ describe('docs/plugins.md', () => {
     // whether a post is new
     expect(sample).toContain('timingSafeEqual')
     expect(sample).toContain('`event.id`')
-    // The review's note on the cursor ruling: events are missed while it starts again after a crash too
+    // Plugin Phase 3: an event plugin is handed what happened while it was stopped, a crash's restart included
+    expect(prose(sample)).toContain('what happened while it was stopped')
+    expect(prose(sample)).toContain('after it first starts')
     expect(prose(sample)).toContain('starting again after a crash')
+    expect(prose(sample)).not.toContain('is not posted')
   })
 
   // 2f final review m1: the quick start's commands need the astera command
@@ -338,7 +373,7 @@ describe('the quick start, followed as written', () => {
     const PATH = `${path.join(root, 'node_modules', '.bin')}${path.delimiter}${process.env[pathKey] ?? ''}`
     execSync(command.replace(/^npx /, ''), { cwd: dir, stdio: 'pipe', env: { ...process.env, [pathKey]: PATH } })
     const { r, log } = runtime('bundled')
-    r.start({ id: 'bundled', version: '1.0.0', folder: 'bundled', dir, entry: path.join(dir, outfile), granted: [], settings: {}, redact: [] })
+    r.start({ id: 'bundled', version: '1.0.0', folder: 'bundled', dir, entry: path.join(dir, outfile), granted: [], capabilities: [], settings: {}, redact: [] })
     await expect.poll(log, { timeout: 20_000, interval: 50 }).toContain('[info] bundled function')
   }, 40_000)
 
@@ -357,7 +392,7 @@ describe('the quick start, followed as written', () => {
     writeFileSync(path.join(dir, m.entry), code)
 
     const { r, log } = runtime(m.id)
-    r.start({ id: m.id, version: m.version, folder: m.id, dir, entry: path.join(dir, m.entry), granted: m.permissions, settings: {}, redact: [] })
+    r.start({ id: m.id, version: m.version, folder: m.id, dir, entry: path.join(dir, m.entry), granted: m.permissions, capabilities: m.capabilities, settings: {}, redact: [] })
     // The log lines the guide shows, without their times and the process id
     const shown = fenced(start, 'text')
       .join('\n')

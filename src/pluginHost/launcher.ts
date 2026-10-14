@@ -7,6 +7,8 @@ import {
   AsteraError,
   createAsteraClientOver,
   type AsteraClient,
+  type AsteraEvent,
+  type EventGap,
   type ConnectionClientMessage,
   type ConnectionHostMessage,
   type HostConnection
@@ -41,13 +43,19 @@ const initializeParams = (v: unknown): InitializeParams | null => {
   return ok ? (v as unknown as InitializeParams) : null
 }
 
+/** What a plugin's entry may define for the Host to call, beside activate and deactivate (plugin Phase 3 N5). */
+const HANDLERS = ['onEvent', 'send'] as const
+const MEMBERS = ['activate', 'deactivate', ...HANDLERS] as const
+
 /** The plugin an entry exports as its default (`definePlugin`), one default deeper for CommonJS compiled from ESM. */
 function definitionOf(mod: unknown): PluginDefinition | null {
   let d: unknown = isObject(mod) && 'default' in mod ? mod.default : mod
-  if (isObject(d) && d.activate === undefined && d.deactivate === undefined && isObject(d.default)) d = d.default
+  if (isObject(d)) {
+    const outer = d
+    if (MEMBERS.every((k) => outer[k] === undefined) && isObject(outer.default)) d = outer.default
+  }
   if (!isObject(d)) return null
-  if (d.activate !== undefined && typeof d.activate !== 'function') return null
-  if (d.deactivate !== undefined && typeof d.deactivate !== 'function') return null
+  for (const k of MEMBERS) if (d[k] !== undefined && typeof d[k] !== 'function') return null
   return d as PluginDefinition
 }
 
@@ -74,6 +82,8 @@ export function runLauncher(o: {
   const closers = new Set<() => void>()
   let started = false
   let definition: PluginDefinition | null = null
+  /** The plugin's context, once activate has it: what its handlers are called with. */
+  let context: PluginContext | null = null
   let client: AsteraClient | null = null
   let stopping: Promise<void> | null = null
   /** The Host closed the channel: no call can be answered from here on. */
@@ -84,6 +94,7 @@ export function runLauncher(o: {
     onBadMessage: (m) => o.log(`[launcher] ${m}`),
     onRequest: async (method, params) => {
       if (method === 'initialize') return initialize(params)
+      if (method === 'events.deliver') return deliver(params)
       if (method === 'shutdown') {
         await stop()
         // After the answer is written: the peer writes it as this resolves, before the next turn.
@@ -193,11 +204,30 @@ export function runLauncher(o: {
       },
       signal: lifetime.signal
     }
+    context = ctx
     try {
       await definition.activate?.(ctx)
     } catch (e) {
       o.log(`[launcher] activate threw: ${e instanceof Error ? (e.stack ?? e.message) : String(e)}`)
       throw new RpcError(RPC_INTERNAL_ERROR, `activate threw: ${messageOf(e)}`)
+    }
+    // The Host fails the start of a plugin whose capability has no handler here (plugin Phase 3 N5)
+    const own = definition as unknown as Record<string, unknown>
+    return { handlers: HANDLERS.filter((h) => typeof own[h] === 'function') }
+  }
+
+  /** One event for onEvent (plugin Phase 3 N5): answered once its promise settles, with its message when it threw.
+   *  The Host logs the failure and hands the event over again. */
+  async function deliver(params: unknown): Promise<unknown> {
+    if (!definition || !context) throw new RpcError(RPC_INTERNAL_ERROR, 'the plugin is not started')
+    if (stopping) throw new RpcError(RPC_INTERNAL_ERROR, 'the plugin is stopping')
+    const event = isObject(params) && isObject(params.event) ? params.event : null
+    if (!event) throw new RpcError(RPC_INVALID_PARAMS, 'events.deliver needs { event }')
+    if (typeof definition.onEvent !== 'function') throw new RpcError(RPC_METHOD_NOT_FOUND, 'the plugin has no onEvent')
+    try {
+      await definition.onEvent(event as unknown as AsteraEvent | EventGap, context)
+    } catch (e) {
+      throw new RpcError(RPC_INTERNAL_ERROR, `onEvent threw: ${messageOf(e)}`)
     }
     return {}
   }

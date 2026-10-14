@@ -1,16 +1,19 @@
 // Where a plugin's settings and secrets are kept (SDK + Plugin spec §23-§24; plugin runtime design P4, slice 2c):
 // plain setting values in `<profile>/plugins/settings/<folder>.json`, written by the Host alone; secret settings and the
 // secrets the plugin keeps itself in a SecretStore of its own at `<profile>/plugins/secrets/<folder>/` (owner-only
-// files, checked on every read). The two kinds share the store under prefixes, so neither can name the other's.
+// files, checked on every read). The two kinds share the store under prefixes, so neither can name the other's. An
+// event plugin's place in the event log is `<profile>/plugins/cursors/<folder>.json` (plugin Phase 3 N6).
 import { promises as fs } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import path from 'node:path'
 import { openSecretStore } from '../../core/secrets/secretStore'
+import { EVENT_ID } from '../../core/events/eventRing'
 import { moveRetrying } from './moves'
 import { pluginsRoot } from './registry'
 
 export const settingsFile = (profileDir: string, folder: string): string => path.join(pluginsRoot(profileDir), 'settings', `${folder}.json`)
 export const secretsDir = (profileDir: string, folder: string): string => path.join(pluginsRoot(profileDir), 'secrets', folder)
+export const cursorFile = (profileDir: string, folder: string): string => path.join(pluginsRoot(profileDir), 'cursors', `${folder}.json`)
 
 const VERSION = 1
 
@@ -47,16 +50,58 @@ export async function readSettings(profileDir: string, folder: string): Promise<
   return parsed.values
 }
 
-export async function writeSettings(profileDir: string, folder: string, values: Record<string, unknown>): Promise<void> {
-  const file = settingsFile(profileDir, folder)
+/** Writes `value` as the whole of `file`, through a temp file and a move, so a reader never sees half of it. */
+async function writeWhole(file: string, value: unknown): Promise<void> {
   await fs.mkdir(path.dirname(file), { recursive: true })
   const tmp = `${file}.${randomBytes(6).toString('hex')}.tmp`
-  await fs.writeFile(tmp, `${JSON.stringify({ version: VERSION, values }, null, 2)}\n`, 'utf8')
+  await fs.writeFile(tmp, `${JSON.stringify(value, null, 2)}\n`, 'utf8')
   try {
     await moveRetrying(tmp, file)
   } catch (e) {
     await fs.rm(tmp, { force: true })
     throw e
+  }
+}
+
+export async function writeSettings(profileDir: string, folder: string, values: Record<string, unknown>): Promise<void> {
+  await writeWhole(settingsFile(profileDir, folder), { version: VERSION, values })
+}
+
+/** A cursor file that is there and cannot be read: the deliverer goes on from now and writes it again. */
+export class PluginCursorUnreadable extends Error {
+  readonly code = 'PLUGIN_CURSOR_UNREADABLE'
+}
+
+/** Where an event plugin's deliverer keeps its place in the event log (plugin Phase 3 N6): the id of the last event it
+ *  handed over or gave up. */
+export interface CursorStore {
+  /** The cursor, or null when there is none yet. Throws PluginCursorUnreadable when the file holds no cursor. */
+  read(): Promise<string | null>
+  write(cursor: string): Promise<void>
+}
+
+export function pluginCursor(profileDir: string, folder: string): CursorStore {
+  const file = cursorFile(profileDir, folder)
+  return {
+    read: async () => {
+      let text: string
+      try {
+        text = await fs.readFile(file, 'utf8')
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null
+        throw e
+      }
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(text)
+      } catch {
+        throw new PluginCursorUnreadable(`${file} is not JSON`)
+      }
+      if (!isObject(parsed) || parsed.version !== VERSION || typeof parsed.cursor !== 'string' || !EVENT_ID.test(parsed.cursor))
+        throw new PluginCursorUnreadable(`${file} is not a version ${VERSION} cursor file`)
+      return parsed.cursor
+    },
+    write: (cursor) => writeWhole(file, { version: VERSION, cursor })
   }
 }
 
@@ -116,8 +161,10 @@ export function pluginSecrets(profileDir: string, folder: string): { secret: Sec
   }
 }
 
-/** Deletes a plugin's settings file and its secrets, for `plugins remove`. Nothing there is no error. */
+/** Deletes a plugin's settings file, its event cursor and its secrets, for `plugins remove`. Nothing there is no
+ *  error. */
 export async function forgetPluginData(profileDir: string, folder: string): Promise<void> {
   await fs.rm(settingsFile(profileDir, folder), { force: true })
+  await fs.rm(cursorFile(profileDir, folder), { force: true })
   await fs.rm(secretsDir(profileDir, folder), { recursive: true, force: true, maxRetries: 3 })
 }

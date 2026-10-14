@@ -3,7 +3,7 @@
 // and calls `activate`. `ctx.astera` is a client from @astera-app/client, which the Host answers within the
 // permissions the person granted the plugin. Plugins run trusted code on the person's machine: the permissions limit
 // what a plugin asks Astera for, not what it can do (design P1).
-import type { AsteraClient } from '@astera-app/client'
+import type { AsteraClient, AsteraEvent, EventGap } from '@astera-app/client'
 
 /** The Plugin API this package is written for: the manifest's `astera.apiVersion` (spec §28). */
 export const PLUGIN_API_VERSION = '1'
@@ -45,6 +45,14 @@ export interface PluginDefinition {
   activate?(ctx: PluginContext): void | Promise<void>
   /** Called before the plugin is stopped, with a few seconds to finish. */
   deactivate?(): void | Promise<void>
+  /** The `event` capability (`astera.capabilities: ["event"]`, with the `events.subscribe` permission): each of
+   *  Astera's events, in order, one at a time, from where this plugin left off, once `activate` has resolved. A
+   *  `{ type: 'gap' }` first means events were lost before the next one. Throw or reject to have the same event handed
+   *  over again (after 1 s, doubling to 5 min, for an hour). It must settle within 30 s: a call past that is not
+   *  stopped, and runs beside the event's next try. An event can come twice: `event.id` never repeats, so drop one
+   *  you have seen. A property rather than a method, so a handler that takes only `AsteraEvent` does not typecheck:
+   *  it would throw on a gap. */
+  onEvent?: (event: AsteraEvent | EventGap, ctx: PluginContext) => void | Promise<void>
 }
 
 /** The plugin an entry file exports as its default. */

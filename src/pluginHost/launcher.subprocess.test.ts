@@ -30,7 +30,8 @@ function start(name: string, file: string, source: string, extra: Record<string,
   const child = spawn(process.execPath, [launcher], {
     cwd: pluginDir,
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
-    stdio: ['ignore', 'pipe', 'pipe', 'pipe']
+    // As the Host starts it (runtime.ts): the channel overlapped
+    stdio: ['ignore', 'pipe', 'pipe', 'overlapped']
   })
   const channel = child.stdio[3] as Duplex
   const lines: Record<string, unknown>[] = []

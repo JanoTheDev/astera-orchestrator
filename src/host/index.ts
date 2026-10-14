@@ -689,7 +689,9 @@ async function main(): Promise<void> {
       features: [HOST_FEATURE_ORCH, HOST_FEATURE_REQUESTS, ...announcedFeatures()]
     }),
     orch: { call: (a) => orch.call(a) },
-    log: (m) => log.write(m)
+    log: (m) => log.write(m),
+    // Event plugins are handed the public event log from a cursor of their own (plugin Phase 3 N1)
+    events: eventLog
   })
   const plugins = createPluginManager({ profileDir, hostVersion, runtime: pluginRuntime, log: (m) => log.write(m) })
   const orch = createHostOrch({

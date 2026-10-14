@@ -46,7 +46,7 @@ describe('parseManifest', () => {
   it('keeps what the package gives', () => {
     const m = manifestOf(
       valid(
-        { capabilities: ['event'], permissions: ['jobs.read', 'jobs.create'], minAsteraVersion: '1.5.0', settingsSchema: { type: 'object', properties: { token: { type: 'string', secret: true } }, required: ['token'] } },
+        { capabilities: ['event'], permissions: ['jobs.read', 'jobs.create', 'events.subscribe'], minAsteraVersion: '1.5.0', settingsSchema: { type: 'object', properties: { token: { type: 'string', secret: true } }, required: ['token'] } },
         { displayName: '  Jira  ', description: 'Jobs from Jira issues' }
       )
     )
@@ -54,7 +54,7 @@ describe('parseManifest', () => {
       displayName: 'Jira',
       description: 'Jobs from Jira issues',
       capabilities: ['event'],
-      permissions: ['jobs.read', 'jobs.create'],
+      permissions: ['jobs.read', 'jobs.create', 'events.subscribe'],
       minAsteraVersion: '1.5.0',
       settings: [{ key: 'token', type: 'string', secret: true, required: true }]
     })
@@ -140,8 +140,16 @@ describe('parseManifest', () => {
     expect(problemsOf(valid({ capabilities: ['events'] }))).toEqual([
       'astera.capabilities: events is not a capability; they are event, job-source, completion-check, notification'
     ])
-    expect(problemsOf(valid({ capabilities: ['event', 'event'] }))).toEqual(['astera.capabilities names event twice'])
+    expect(problemsOf(valid({ capabilities: ['event', 'event'], permissions: ['events.subscribe'] }))).toEqual(['astera.capabilities names event twice'])
     expect(problemsOf(valid({ capabilities: 'event' }))).toEqual(['astera.capabilities is not a list'])
+  })
+
+  // Plugin Phase 3 N4: both capabilities hand the plugin event content
+  it('refuses an event or notification plugin that does not ask for events.subscribe', () => {
+    expect(problemsOf(valid({ capabilities: ['event'], permissions: ['jobs.read'] }))).toEqual(['the event capability needs the events.subscribe permission'])
+    expect(problemsOf(valid({ capabilities: ['notification'] }))).toEqual(['the notification capability needs the events.subscribe permission'])
+    expect(manifestOf(valid({ capabilities: ['event'], permissions: ['events.subscribe'] })).capabilities).toEqual(['event'])
+    expect(manifestOf(valid({ capabilities: ['job-source'] })).capabilities).toEqual(['job-source'])
   })
 
   it('refuses an unknown permission, naming the known ones, and a repeated one', () => {
@@ -209,7 +217,7 @@ describe('incompatibility', () => {
     expect(incompatibility(manifestOf(valid({ minAsteraVersion: '1.5.0' })), { ...host, version: '1.5.0-beta.1' })).toBeNull()
   })
   it('names a capability this Astera does not run yet', () => {
-    expect(incompatibility(manifestOf(valid({ capabilities: ['event', 'job-source'] })), { ...host, capabilities: ['event'] })).toBe(
+    expect(incompatibility(manifestOf(valid({ capabilities: ['event', 'job-source'], permissions: ['events.subscribe'] })), { ...host, capabilities: ['event'] })).toBe(
       'this Astera does not run job-source plugins yet'
     )
   })

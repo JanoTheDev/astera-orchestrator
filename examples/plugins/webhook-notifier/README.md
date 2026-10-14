@@ -18,8 +18,9 @@ From a clone of the Astera repository, with the Astera app running:
 astera plugins install --path examples/plugins/webhook-notifier
 ```
 
-That shows what the plugin is and the one permission it asks for, `events.subscribe` (to read Astera's events), and
-installs nothing. Approve it with `--yes`, or in the app under Settings, Plugins, Install from a folder.
+That shows what the plugin is and the one permission it asks for, `events.subscribe`: it is an event plugin, which
+Astera hands each of its events, and that is the permission the events need. It installs nothing yet. Approve it with
+`--yes`, or in the app under Settings, Plugins, Install from a folder.
 
 The plugin waits until it has a webhook URL. The URL is a secret setting: give it on standard input so it stays out of
 your shell history, and Astera keeps it out of the plugin's log.
@@ -47,11 +48,11 @@ astera plugins configure --id astera-webhook-notifier --set onlyProblems=true
 
 `astera plugins logs --id astera-webhook-notifier` shows a line for each post, and why one failed.
 
-## What it does not do
+## How it posts
 
-- It starts from the events of the moment it starts: what happened while it was stopped (the Host not running, the
-  plugin disabled, or starting again after a crash) is not posted. [notify-webhook.ts](../../sdk/notify-webhook.ts),
-  the SDK's script, keeps a cursor in a file and posts those too.
-- A post that fails is tried again three times, after 1, 2 and 4 seconds, then given up with a warning in the log.
-- If Astera refuses its subscription (the permission was withheld, or the Host is too old for events), it ends, and
-  Astera starts it again; after three such ends in a row the plugin shows as `failed`, and its log says why.
+- It posts the events after it first starts, once it has its webhook URL, and what happened while it was stopped (the
+  Host not running, the plugin disabled, or starting again after a crash) is posted when it runs again, as far back as
+  Astera's event log keeps; when older events were lost, it posts a line saying so first.
+- A post that fails is handed to it again by Astera: after 1 second, then 2, 4 and so on up to 5 minutes, and given
+  up after an hour with a line in the log naming the event. The events after it wait their turn.
+- A post can come twice (after a crash in the middle of one): `event.id` never repeats, so drop one you have seen.
