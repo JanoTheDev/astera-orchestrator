@@ -179,6 +179,12 @@ const run = await astera.jobs.run(job.id, { requestId: randomUUID() })
 console.log(`run ${run.ordinal} of ${job.id}: ${run.id}`)
 ```
 
+A Job made from a job source's item (a ticket a person picked in the app, with `astera jobs create-from-source`, or
+with MCP's `create_job_from_source`) carries `source`: `{ id, itemId, label, url? }`, the source (`github`, or a
+plugin's id), the item's id there, how a person names it (`Linear ENG-123`) and its link. Astera sets it, from 1.4.14
+and `@astera-app/client` 0.3.0; `jobs.create` takes no such field. [Job source plugins](plugins.md#job-source-plugins)
+says where the items come from.
+
 `jobs.run` answers the Run it started. `runs.stop` releases the Run's workers and pauses it; `runs.resume` takes it
 back.
 
