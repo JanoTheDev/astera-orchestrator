@@ -83,7 +83,8 @@ export interface AsteraNotification {
   readonly id: string
   /** The event's type. A later Astera may send a kind this list does not name yet: post it by its title and body. */
   readonly kind: NotificationKind | (string & {})
-  readonly level: NotificationLevel
+  /** How much it matters. A later Astera may add a level: post it as the nearest one you know. */
+  readonly level: NotificationLevel | (string & {})
   /** What it is about: a Job's objective, or a session's title. */
   readonly title: string
   /** One sentence. */

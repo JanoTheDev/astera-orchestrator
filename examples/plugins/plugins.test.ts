@@ -54,22 +54,24 @@ afterEach(async () => {
 // 2026-10-14, final review I2)
 const until = <T>(f: () => T, timeout = 45_000): Promise<T> => vi.waitFor(f, { timeout, interval: 25 })
 
-/** A webhook that answers with `statuses` in turn (200 once they run out), and keeps what it was sent. */
-async function webhook(statuses: number[] = []) {
+/** A webhook that answers with `statuses` in turn (200 once they run out), each with its body when it has one, and
+ *  keeps what it was sent. */
+async function webhook(statuses: Array<number | { status: number; body: string }> = []) {
   const bodies: unknown[] = []
   const posts: { text: string; signature: string | undefined }[] = []
   const server = http.createServer((req, res) => {
     let text = ''
     req.setEncoding('utf8').on('data', (c: string) => (text += c))
     req.on('end', () => {
-      const status = statuses.shift() ?? 200
+      const next = statuses.shift() ?? 200
+      const status = typeof next === 'number' ? next : next.status
       if (status === 200) {
         bodies.push(JSON.parse(text))
         const signature = req.headers['x-astera-signature']
         posts.push({ text, signature: typeof signature === 'string' ? signature : undefined })
       }
-      res.writeHead(status)
-      res.end()
+      res.writeHead(status, typeof next === 'number' ? {} : { 'content-type': 'application/json' })
+      res.end(typeof next === 'number' ? undefined : next.body)
     })
   })
   servers.push(server)
@@ -333,13 +335,26 @@ describe('the Discord notifier sample', () => {
     expect(other.bodies[0]).toMatchObject({ embeds: [{ description: 'Continuing on the work account.' }] })
   }, 90_000)
 
-  it('is sent a notification again by Astera when Discord refuses a post', async () => {
-    const hook = await webhook([429])
+  it('is sent a notification again by Astera when Discord asks it to wait, and says how long Discord asked', async () => {
+    const hook = await webhook([{ status: 429, body: '{"message":"You are being rate limited.","retry_after":0.5,"global":false}' }])
     const { r, ring } = runtime()
     await discord(r, settingsOf(hook.url), [hook.url])
     ring.append([{ type: 'run.completed', jobId: 'job_1', runId: 'run_1', payload: RUN }], now())
     await until(() => expect(hook.bodies).toHaveLength(1))
-    await until(() => expect(discordLog(r)).toContain('failed (try 1): send threw: Discord answered 429'))
+    await until(() => expect(discordLog(r)).toContain('failed (try 1): send threw: Discord answered 429; it asks to wait 0.5 s'))
+  }, 90_000)
+
+  // 3c final review M11: a payload Discord refuses is refused again on every try, and would hold the rest for an hour
+  it('leaves a notification Discord refuses as malformed, says why, and posts the next one', async () => {
+    const hook = await webhook([{ status: 400, body: '{"message":"Invalid Form Body","code":50035}' }])
+    const { r, ring } = runtime()
+    await discord(r, settingsOf(hook.url), [hook.url])
+    ring.append([{ type: 'run.completed', jobId: 'job_1', runId: 'run_1', payload: RUN }], now())
+    ring.append([{ type: 'run.failed', jobId: 'job_1', runId: 'run_1', payload: { ...RUN, outcome: 'failed' } }], now())
+    await until(() => expect(hook.bodies).toHaveLength(1))
+    expect(hook.bodies[0]).toMatchObject({ embeds: [{ footer: { text: 'run.failed' } }] })
+    await until(() => expect(discordLog(r)).toContain('[warn] Discord refused run.completed ev_aaaaaaaaaaaa_1 (400: Invalid Form Body): it is not posted'))
+    expect(discordLog(r)).not.toContain('failed (try')
   }, 90_000)
 
   it('says how to start it again when its webhook URL is not one', async () => {

@@ -46,5 +46,8 @@ describe('@astera-app/plugin-sdk', () => {
     defineNotificationProvider({ activate() {} })
     expect(NOTIFICATION_KINDS).toContain('session.input_needed')
     expect(sent).toEqual([])
+    // 3c final review M6: a kind and a level a later Astera adds are strings a provider posts as it can
+    const later: AsteraNotification = { id: 'x', kind: 'later.kind', level: 'notice', title: 't', body: 'b', occurredAt: 'T', event: {} as AsteraNotification['event'] }
+    expect(later.level).toBe('notice')
   })
 })

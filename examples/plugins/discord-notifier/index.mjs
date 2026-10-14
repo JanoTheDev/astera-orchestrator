@@ -9,16 +9,16 @@
 // `defineNotificationProvider` would have returned.
 //
 // It retries nothing itself: a post that fails throws, and Astera sends the notification again (after 1 s, doubling to
-// 5 min, for an hour). The text a session, a question or a Task holds is posted as it is, and Discord is told to ping
+// 5 min, for an hour). A post Discord refuses as malformed (400) would be refused again every time, so it is logged and
+// left. The text a session, a question or a Task holds is posted as it is, and Discord is told to ping
 // nobody, so `@everyone` in a question stays text. The webhook URL is a secret setting: Astera keeps it out of the
 // plugin's log.
 
 /** @typedef {import('@astera-app/plugin-sdk').NotificationProvider} NotificationProvider */
-/** @typedef {import('@astera-app/plugin-sdk').NotificationLevel} NotificationLevel */
 /** @typedef {import('@astera-app/plugin-sdk').PluginContext} PluginContext */
 
 /** An embed's colour for each level: blue waits on you, red failed, amber stopped for now, green went on.
- *  @type {Record<NotificationLevel, number>} */
+ *  @type {Record<string, number>} */
 const COLOR = { action: 0x3b82f6, error: 0xef4444, warning: 0xf59e0b, info: 0x22c55e }
 /** Well within the 30 s Astera gives send. */
 const POST_TIMEOUT_MS = 10_000
@@ -48,6 +48,22 @@ function skipped(ctx) {
 const problemOf = (/** @type {unknown} */ e) =>
   e instanceof Error && e.cause instanceof Error ? e.cause.message : e instanceof Error ? e.message : String(e)
 
+/**
+ * What Discord said, read to the end so the connection is freed: its `message`, and a rate limit's `retry_after` in
+ * seconds. Nothing when the answer is no JSON (a 204 has none).
+ * @param {Response} res
+ * @returns {Promise<{ message?: string, retry_after?: number }>}
+ */
+async function answerOf(res) {
+  const text = await res.text()
+  try {
+    const parsed = JSON.parse(text)
+    return typeof parsed === 'object' && parsed !== null ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
 /** @type {NotificationProvider} */
 export default {
   // Checked at the start, so a URL that is not one fails the plugin where a person sees it
@@ -62,7 +78,7 @@ export default {
           title: notification.title,
           description: notification.body,
           // A level a later Astera adds is posted in the colour of `info`
-          color: COLOR[/** @type {NotificationLevel} */ (notification.level)] ?? COLOR.info,
+          color: COLOR[notification.level] ?? COLOR.info,
           timestamp: notification.occurredAt,
           footer: { text: notification.kind }
         }
@@ -80,9 +96,14 @@ export default {
     } catch (e) {
       throw new Error(problemOf(e))
     }
-    // The answer's body is not needed; reading it to the end frees the connection.
-    await res.arrayBuffer()
-    if (!res.ok) throw new Error(`Discord answered ${res.status}`)
+    const answer = await answerOf(res)
+    // A payload Discord refuses (400) is refused again on every try: said, and left, so the next one goes
+    if (res.status === 400) {
+      ctx.log.warn(`Discord refused ${notification.kind} ${notification.id} (400${answer.message ? `: ${answer.message}` : ''}): it is not posted`)
+      return
+    }
+    if (!res.ok)
+      throw new Error(`Discord answered ${res.status}${typeof answer.retry_after === 'number' ? `; it asks to wait ${answer.retry_after} s` : ''}`)
     ctx.log.info(`posted ${notification.kind} ${notification.id}`)
   }
 }
