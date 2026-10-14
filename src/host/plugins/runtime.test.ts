@@ -463,11 +463,18 @@ describe('event plugins (plugin Phase 3 N1, N5-N8)', () => {
     await until(() => expect(logOf(first.r, 'ev2')).toMatch(/got ev_aaaaaaaaaaaa_2[\s\S]*got ev_aaaaaaaaaaaa_3/))
     expect(logOf(first.r, 'ev2')).toContain('restarting in')
     await first.r.stopAll()
-    const again = runtime({}, { profile: first.profile, ring: first.ring })
-    add(first.ring, 1)
+    // The next Host (final review M9): a boot of its own, and the log read back from what the first one wrote, as
+    // eventLog.ts reads its segments at a start
+    const ring = createEventRing({ boot: 'bbbbbbbbbbbb', retainEvents: 2000, retainChars: 1 << 23 })
+    const held = first.ring.read({ limit: 1000 })
+    if ('error' in held) throw new Error(held.error)
+    ring.restore(held.events.map((event) => ({ event, line: JSON.stringify(event) })))
+    const again = runtime({}, { profile: first.profile, ring })
+    add(ring, 1)
     again.r.start(p)
-    await until(() => expect(logOf(again.r, 'ev2')).toContain('got ev_aaaaaaaaaaaa_4'))
+    await until(() => expect(logOf(again.r, 'ev2')).toContain('got ev_bbbbbbbbbbbb_4'))
     expect(logOf(again.r, 'ev2').match(/got ev_aaaaaaaaaaaa_3/g)).toHaveLength(1)
+    expect(logOf(again.r, 'ev2')).not.toContain('got gap')
   }, 90_000)
 
   // Review Focus 5
