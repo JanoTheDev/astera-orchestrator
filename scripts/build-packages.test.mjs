@@ -34,7 +34,8 @@ describe('build-packages', () => {
       expect(cjs.definePlugin(def)).toBe(def)
       for (const half of ['esm', 'cjs']) {
         const dts = readFileSync(path.join(dist, half, 'index.d.ts'), 'utf8')
-        expect(dts, half).toMatch(/import type \{ AsteraClient \} from ['"]@astera-app\/client['"]/)
+        // The client's types by name: the context's client, and the events onEvent is handed (plugin Phase 3)
+        expect(dts, half).toMatch(/import type \{ AsteraClient, AsteraEvent, EventGap \} from ['"]@astera-app\/client['"]/)
         // Nothing of the client is copied in, and the run-time half requires nothing.
         expect(readdirSync(path.join(dist, half)).filter((f) => f.endsWith('.js'))).toEqual(['index.js'])
       }
