@@ -11,7 +11,7 @@ import {
   type ConnectionHostMessage,
   type HostConnection
 } from '../core/publicContract'
-import { RPC_CLOSED, RPC_INTERNAL_ERROR, RPC_INVALID_PARAMS, RPC_METHOD_NOT_FOUND, RpcError, createRpcPeer } from '../core/plugins/rpc'
+import { RPC_CLOSED, RPC_INTERNAL_ERROR, RPC_INVALID_PARAMS, RPC_METHOD_NOT_FOUND, RPC_NOT_READY, RpcError, createRpcPeer } from '../core/plugins/rpc'
 import type { PluginContext, PluginDefinition } from '../../packages/plugin-sdk/src/index'
 
 interface InitializeParams {
@@ -98,12 +98,12 @@ export function runLauncher(o: {
       if (method === 'jobSource.list') {
         const q = isObject(params) ? params : {}
         const input = { ...(typeof q.query === 'string' ? { query: q.query } : {}), ...(typeof q.cursor === 'string' ? { cursor: q.cursor } : {}) }
-        return answer('listItems', [input])
+        return sendable('listItems', [input])
       }
       if (method === 'jobSource.get' || method === 'jobSource.context') {
         const id = isObject(params) && typeof params.id === 'string' && params.id !== '' ? params.id : null
         if (id === null) throw new RpcError(RPC_INVALID_PARAMS, `${method} needs { id }`)
-        return answer(method === 'jobSource.get' ? 'getItem' : 'buildJobContext', [id])
+        return sendable(method === 'jobSource.get' ? 'getItem' : 'buildJobContext', [id])
       }
       if (method === 'shutdown') {
         await stop()
@@ -229,8 +229,8 @@ export function runLauncher(o: {
   /** One event for onEvent, or one notification for send (plugin Phase 3 N5): answered once the handler's promise
    *  settles, with its message when it threw. The Host logs the failure and hands the same one over again. */
   async function handOver(handler: (typeof HANDLERS)[number], param: string, method: string, params: unknown): Promise<unknown> {
-    if (!definition || !context) throw new RpcError(RPC_INTERNAL_ERROR, 'the plugin is not started')
-    if (stopping) throw new RpcError(RPC_INTERNAL_ERROR, 'the plugin is stopping')
+    if (!definition || !context) throw new RpcError(RPC_NOT_READY, 'the plugin is not started')
+    if (stopping) throw new RpcError(RPC_NOT_READY, 'the plugin is stopping')
     const item = isObject(params) && isObject(params[param]) ? params[param] : null
     if (!item) throw new RpcError(RPC_INVALID_PARAMS, `${method} needs { ${param} }`)
     await answer(handler, [item])
@@ -240,8 +240,8 @@ export function runLauncher(o: {
   /** Calls `handler` with `args` and the plugin's context, and answers what it returned (null for nothing), or the
    *  message it threw. */
   async function answer(handler: (typeof HANDLERS)[number], args: unknown[]): Promise<unknown> {
-    if (!definition || !context) throw new RpcError(RPC_INTERNAL_ERROR, 'the plugin is not started')
-    if (stopping) throw new RpcError(RPC_INTERNAL_ERROR, 'the plugin is stopping')
+    if (!definition || !context) throw new RpcError(RPC_NOT_READY, 'the plugin is not started')
+    if (stopping) throw new RpcError(RPC_NOT_READY, 'the plugin is stopping')
     const own = definition as unknown as Record<string, unknown>
     const fn = own[handler]
     if (typeof fn !== 'function') throw new RpcError(RPC_METHOD_NOT_FOUND, `the plugin has no ${handler}`)
@@ -250,6 +250,19 @@ export function runLauncher(o: {
     } catch (e) {
       throw new RpcError(RPC_INTERNAL_ERROR, `${handler} threw: ${messageOf(e)}`)
     }
+  }
+
+  /** A job source's answer (plugin Phase 4 J6), refused with why when JSON cannot hold it: a BigInt or a loop would
+   *  otherwise be lost on its way to the Host (4a final review I3). An event's or a notification's answer is not sent,
+   *  so it is not checked. */
+  async function sendable(handler: (typeof HANDLERS)[number], args: unknown[]): Promise<unknown> {
+    const result = await answer(handler, args)
+    try {
+      JSON.stringify(result)
+    } catch (e) {
+      throw new RpcError(RPC_INTERNAL_ERROR, `${handler} answered with something that cannot be sent: ${messageOf(e)}`)
+    }
+    return result
   }
 
   o.input.setEncoding('utf8')

@@ -10,7 +10,7 @@ import { hostWorkerBaseEnv } from '../../core/host/spawn'
 import { killProcessTree } from '../../core/run/kill'
 import { redactSecrets } from '../../core/remote/redact'
 import type { OrchCall } from '../../core/host/orchProtocol'
-import { RPC_CLOSED, RPC_INTERNAL_ERROR, RPC_INVALID_PARAMS, RPC_METHOD_NOT_FOUND, RpcError, createRpcPeer, type RpcPeer } from '../../core/plugins/rpc'
+import { RPC_CLOSED, RPC_INTERNAL_ERROR, RPC_INVALID_PARAMS, RPC_METHOD_NOT_FOUND, RPC_NOT_READY, RpcError, createRpcPeer, type RpcPeer } from '../../core/plugins/rpc'
 import { capabilityPermissionProblem, type PluginCapability } from '../../core/plugins/manifest'
 import { PluginSecretRefused, pluginCursor, pluginSecrets, type CursorStore } from './pluginData'
 import { DeliveryInterrupted, createDeliverer, type Deliverer, type DeliverySource, type DeliveryTimings } from './deliverer'
@@ -91,6 +91,16 @@ export class PluginRequestFailed extends Error {
   ) {
     super(message)
   }
+}
+
+/** What a request that failed answers its caller (J8): a channel that ended, or a launcher whose plugin is not started
+ *  or is stopping (a race with a stop: 4a final review M8), is a plugin that does not run, 503; anything else is what
+ *  the plugin threw, 502, through `hide`, since it can hold a secret like every line of its log. */
+export function requestFailure(id: string, e: unknown, hide: (m: string) => string): PluginRequestFailed {
+  if (e instanceof PluginRequestFailed) return e
+  if (e instanceof RpcError && e.code === RPC_CLOSED) return new PluginRequestFailed(503, `${id} exited while it answered`)
+  if (e instanceof RpcError && e.code === RPC_NOT_READY) return new PluginRequestFailed(503, `${id} is not ready: ${e.message}`)
+  return new PluginRequestFailed(502, hide(e instanceof Error ? e.message : String(e)))
 }
 
 /** A plugin's log (design P13): `<profile>/plugins/logs/<folder>.log`, rotated to `.1` past 2 MiB. */
@@ -670,13 +680,7 @@ export function createPluginRuntime(d: {
     try {
       return await Promise.race([peer.request(method, params), late])
     } catch (e) {
-      // What it threw can hold a secret: hidden like every line of its log
-      const failure =
-        e instanceof PluginRequestFailed
-          ? e
-          : e instanceof RpcError && e.code === RPC_CLOSED
-            ? new PluginRequestFailed(503, `${id} exited while it answered`)
-            : new PluginRequestFailed(502, hide(s, e instanceof Error ? e.message : String(e)))
+      const failure = requestFailure(id, e, (m) => hide(s, m))
       say(s, `${method} failed: ${failure.message}`)
       throw failure
     } finally {

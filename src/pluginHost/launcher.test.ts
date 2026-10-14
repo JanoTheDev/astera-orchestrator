@@ -4,6 +4,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { PassThrough } from 'node:stream'
 import { runLauncher } from './launcher'
 import { AsteraError } from '../core/publicContract'
+import { RPC_NOT_READY } from '../core/plugins/rpc'
 import type { PluginContext } from '../../packages/plugin-sdk/src/index'
 
 const INIT_PARAMS = {
@@ -391,5 +392,36 @@ describe('runLauncher: settings and secrets', () => {
     expect(await l.ask('jobSource.list', {})).toMatchObject({ error: { code: -32603, message: 'listItems threw: 401 Unauthorized' } })
     expect(await l.ask('jobSource.get', { id: 'x' })).toMatchObject({ error: { code: -32601, message: 'the plugin has no getItem' } })
     expect(await l.ask('jobSource.context', {})).toMatchObject({ error: { code: -32602, message: 'jobSource.context needs { id }' } })
+  })
+
+  // The 4a review's I3: an answer JSON cannot hold is refused with why, and the launcher answers on
+  it('answers a job source whose answer cannot be sent with why, and goes on answering', async () => {
+    const circular: Record<string, unknown> = { id: 'c', title: 't' }
+    circular.self = circular
+    const l = launch({
+      default: {
+        listItems: () => ({ items: [{ id: 'ENG-1', title: 'Fix', size: BigInt(1) }] }),
+        getItem: () => circular,
+        buildJobContext: () => ({ objective: 'Fix', sourceLabel: 'L' })
+      }
+    })
+    await l.ask('initialize', INIT_PARAMS)
+    expect(await l.ask('jobSource.list', {})).toMatchObject({
+      error: { code: -32603, message: expect.stringMatching(/^listItems answered with something that cannot be sent: .*BigInt/) }
+    })
+    expect(await l.ask('jobSource.get', { id: 'c' })).toMatchObject({
+      error: { code: -32603, message: expect.stringMatching(/^getItem answered with something that cannot be sent: /) }
+    })
+    expect(await l.ask('jobSource.context', { id: 'ENG-1' })).toMatchObject({ result: { objective: 'Fix' } })
+  })
+
+  // The 4a review's M8: not started yet, or stopping, is said with a code of its own, which the Host answers as 503
+  it('answers a job source request before the start, and while stopping, with the not-ready code', async () => {
+    const early = launch({ default: { listItems: () => ({ items: [] }) } })
+    expect(await early.ask('jobSource.list', {})).toMatchObject({ error: { code: RPC_NOT_READY, message: 'the plugin is not started' } })
+    const l = launch({ default: { listItems: () => ({ items: [] }) } })
+    await l.ask('initialize', INIT_PARAMS)
+    await l.ask('shutdown', {})
+    expect(await l.ask('jobSource.list', {})).toMatchObject({ error: { code: RPC_NOT_READY, message: 'the plugin is stopping' } })
   })
 })

@@ -6,7 +6,8 @@ import { removeFixture } from '../../core/testFixtures'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { PluginRequestFailed, createPluginRuntime, type PluginLaunch, type PluginRuntime, type PluginTimings } from './runtime'
+import { PluginRequestFailed, createPluginRuntime, requestFailure, type PluginLaunch, type PluginRuntime, type PluginTimings } from './runtime'
+import { RPC_CLOSED, RPC_NOT_READY, RpcError } from '../../core/plugins/rpc'
 import type { DeliveryTimings } from './deliverer'
 import type { AsteraEvent } from '../../core/publicContract'
 import type { PluginNotification } from '../../core/plugins/notifications'
@@ -821,6 +822,30 @@ describe('job-source plugins (plugin Phase 4 J6, J8)', () => {
     await r.stop('js5')
     expect(await failure(r.request('js5', 'jobSource.list', {}, 5_000))).toEqual({ status: 503, message: 'js5 is stopped' })
   }, 90_000)
+
+  // The 4a review's M10: a crash loop and an exit while it answers are 503 too, at once
+  it('rejects with 503 at once while the plugin waits to restart, and when it exits while it answers', async () => {
+    const { r } = runtime({ backoffMs: [60_000], failAfter: 5 })
+    r.start(sourcePlugin('js7', `export default { listItems() {}, getItem() {}, buildJobContext() {}, activate() { throw new Error('no key') } }`))
+    await until(() => expect(r.status('js7')?.reason).toBeDefined())
+    const t0 = Date.now()
+    expect(await failure(r.request('js7', 'jobSource.list', {}, 15_000))).toMatchObject({
+      status: 503,
+      message: expect.stringMatching(/^js7 is starting: restarting after activate threw: no key/)
+    })
+    expect(Date.now() - t0).toBeLessThan(1_000)
+    r.start(sourcePlugin('js8', `export default { listItems() { process.exit(3) }, getItem() {}, buildJobContext() {} }`))
+    await until(() => expect(r.status('js8')?.status).toBe('running'))
+    expect(await failure(r.request('js8', 'jobSource.list', {}, 15_000))).toEqual({ status: 503, message: 'js8 exited while it answered' })
+  }, 90_000)
+
+  // The 4a review's M8: the launcher's not-ready code, from a race with a stop, is a plugin not running
+  it('answers the launcher’s not-ready code as 503, and hides a secret in what a plugin threw', () => {
+    const hide = (m: string): string => m.replaceAll('sk-1', '[redacted]')
+    expect(requestFailure('js', new RpcError(RPC_NOT_READY, 'the plugin is stopping'), hide)).toMatchObject({ status: 503, message: 'js is not ready: the plugin is stopping' })
+    expect(requestFailure('js', new RpcError(RPC_CLOSED, 'gone'), hide)).toMatchObject({ status: 503, message: 'js exited while it answered' })
+    expect(requestFailure('js', new RpcError(-32603, 'listItems threw: 401 for sk-1'), hide)).toMatchObject({ status: 502, message: 'listItems threw: 401 for [redacted]' })
+  })
 
   it('fails the start of a job source whose entry lacks one of its functions, saying which', async () => {
     const { r } = runtime({ failAfter: 1 })

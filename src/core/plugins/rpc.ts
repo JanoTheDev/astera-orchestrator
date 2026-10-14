@@ -13,11 +13,13 @@ export class RpcError extends Error {
   }
 }
 
-/** JSON-RPC's codes, and the one this protocol adds for a channel that ended. */
+/** JSON-RPC's codes, and the two this protocol adds: a channel that ended, and a launcher whose plugin is not started
+ *  yet or is stopping (the Host answers its caller as it does for a plugin that does not run: 4a final review M8). */
 export const RPC_METHOD_NOT_FOUND = -32601
 export const RPC_INVALID_PARAMS = -32602
 export const RPC_INTERNAL_ERROR = -32603
 export const RPC_CLOSED = -32000
+export const RPC_NOT_READY = -32001
 
 export interface RpcPeer {
   request(method: string, params: unknown): Promise<unknown>
@@ -46,7 +48,16 @@ export function createRpcPeer(o: {
 
   const answer = (id: unknown, outcome: { result: unknown } | { error: { code: number; message: string } }): void => {
     if (closed !== null) return
-    o.send(encodeLine({ jsonrpc: '2.0', id, ...outcome }))
+    let line: string
+    try {
+      line = encodeLine({ jsonrpc: '2.0', id, ...outcome })
+    } catch (e) {
+      // A result JSON cannot hold (a BigInt, a loop): the asker hears why, rather than waiting for an answer that never
+      // comes while the throw ends this process (4a final review I3)
+      const message = `the answer could not be sent: ${e instanceof Error ? e.message : String(e)}`
+      line = encodeLine({ jsonrpc: '2.0', id, error: { code: RPC_INTERNAL_ERROR, message } })
+    }
+    o.send(line)
   }
 
   const onMessage = (m: unknown): void => {

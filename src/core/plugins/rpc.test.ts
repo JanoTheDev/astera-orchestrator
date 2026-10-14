@@ -37,6 +37,12 @@ describe('createRpcPeer (plugin runtime design P9)', () => {
     expect(await a.request('nope', {}).catch((e: unknown) => e)).toBeInstanceOf(RpcError)
   })
 
+  // The 4a review's I3: a result JSON cannot hold is answered as an error, not left to hang or to end the process
+  it('answers a result that cannot be sent with an error saying so', async () => {
+    const { a } = pair({ b: async () => ({ n: BigInt(1) }) })
+    await expect(a.request('x', {})).rejects.toMatchObject({ code: -32603, message: expect.stringMatching(/^the answer could not be sent: .*BigInt/) })
+  })
+
   it('reads a chunk that splits a line, and a chunk that holds two', async () => {
     const got: unknown[] = []
     const sent: string[] = []
