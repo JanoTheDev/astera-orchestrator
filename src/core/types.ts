@@ -50,7 +50,7 @@ export type { ConvTurn } from './history/convTypes'
 // (the server owns OrchState), so importing it from here would make that reliance direct rather than
 // incidental. Either way the wrong fix for a genuinely missing import is "types": ["node"] — it hands
 // the renderer typecheck every Node global, which is the guard this note stands to protect.
-import type { CheckResult, GateKind, MessageType, Outcome, RepairReason, TaskStatus } from './orchestration/types'
+import type { CheckResult, GateKind, JobSourceRef, MessageType, Outcome, RepairReason, TaskStatus } from './orchestration/types'
 import type { CompletionDetail } from './orchestration/completion'
 import type { McpHttpState, WorkspaceEvent, WorkspaceSummary } from './host/protocol'
 export type { CompletionDetail, CompletionCheckDetail } from './orchestration/completion'
@@ -692,6 +692,8 @@ export interface JobRow {
    *  **예약이 아닌 Run 에는 이 칸이 아예 없다.** 빈 배열을 달면 sameSnapshot 의 문자열이 이유
    *  없이 길어지고, 화면에서 "회차가 아직 없는 템플릿"과 "템플릿이 아님"이 같아 보인다. */
   children?: JobRow[]
+  /** The job source's item the Job was made from (plugin Phase 4 J18): the chip on its card and in its detail. */
+  source?: JobSourceRef
   tasks: JobTask[]
 }
 /** Why the Jobs view has nothing to draw, when the reason is the Host rather than the state.
