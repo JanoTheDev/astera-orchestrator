@@ -91,13 +91,13 @@ const failed = (ring: EventRing): AsteraEvent => append(ring, { type: 'run.faile
 
 /** The plugin runtime with a Host that answers no command (the sample asks for none) and an event log of its own,
  *  holding at most `retain` events. */
-function runtime(o: { failAfter?: number; retain?: number } = {}) {
+function runtime(o: { failAfter?: number; retain?: number; env?: NodeJS.ProcessEnv } = {}) {
   const ring = createEventRing({ boot: 'aaaaaaaaaaaa', retainEvents: o.retain ?? 2000, retainChars: 1 << 23 })
   const r = createPluginRuntime({
     profileDir: path.join(work, `profile ${started.length + Math.random()}`),
     exec: process.execPath,
     launcher,
-    env: process.env,
+    env: o.env ?? process.env,
     host: () => ({ version: '9.9.9', pid: process.pid, startedAt: 'T', features: ['orch', 'requests', 'events'] }),
     orch: { call: (async (a: { cmd: string }) => ({ status: 404, body: { error: `no ${a.cmd} here` } })) as never },
     log: () => {},
@@ -581,8 +581,8 @@ describe('the debug leftovers sample', () => {
   })
 
   /** The sample started as Astera starts a completion check, running, and asked the way the Host asks it. */
-  async function checker(patterns = 'console.log,debugger,TODO,FIXME') {
-    const { r } = runtime()
+  async function checker(patterns = 'console.log,debugger,TODO,FIXME', env?: NodeJS.ProcessEnv) {
+    const { r } = runtime({ env })
     r.start({
       id: LEFTOVERS_ID,
       version: '0.1.0',
@@ -657,7 +657,8 @@ describe('the debug leftovers sample', () => {
       name: 'Debug leftovers',
       status: 'failed',
       summary: '3 debug leftovers in 3 files',
-      diagnostics: [found('src/app.js', 2, 'console.log'), found('src/util.js', 3, 'debugger'), found('src/new file.js', 2, 'FIXME')]
+      // In git's order: one diff reads the new file beside the tracked ones
+      diagnostics: [found('src/app.js', 2, 'console.log'), found('src/new file.js', 2, 'FIXME'), found('src/util.js', 3, 'debugger')]
     })
     expect(pluginCheckText({ configId: `plugin:${LEFTOVERS_ID}`, ...failed })).toContain('src/app.js:2 adds console.log')
     await write(dir, { 'src/app.js': 'const a = 1\n', 'src/util.js': 'export const u = 1\nexport const v = 2\n', 'src/new file.js': 'export const x = 1\r\n' })
@@ -727,9 +728,9 @@ describe('the debug leftovers sample', () => {
     expect((await check0(path.join(dir, 'pkg'), base)).diagnostics).toEqual([found('a.js', 2, 'console.log'), found('new.js', 1, 'TODO')])
   }, 90_000)
 
-  // Review Focus 4
-  it('finds the same whatever the repository’s git config says of colours, prefixes, quoting and diff tools', async () => {
-    const { dir, base } = await repo({ 'a b.js': 'const a = 1\n' })
+  // Review Focus 4, and 5b final review I1 and I2: context between nearby hunks, renames turned off, a submodule's diff
+  it('finds the same whatever the repository’s git config says of colours, prefixes, quoting, context, renames and diff tools', async () => {
+    const { dir, base } = await repo({ 'a b.js': 'l1\nl2\n\nl4\nl5\n', 'old.js': 'a\nb\n// TODO keep\n' })
     const config = [
       ['color.ui', 'always'],
       ['color.diff', 'always'],
@@ -737,18 +738,94 @@ describe('the debug leftovers sample', () => {
       ['diff.mnemonicPrefix', 'true'],
       ['diff.external', 'no-such-diff-tool'],
       ['diff.relative', 'false'],
+      ['diff.interHunkContext', '5'],
+      ['diff.suppressBlankEmpty', 'true'],
+      ['diff.renames', 'false'],
+      ['diff.submodule', 'diff'],
       ['core.quotepath', 'true']
     ]
     for (const [k, v] of config) gitSync(dir, ['config', k, v])
-    await write(dir, { 'a b.js': 'const a = 1\nconsole.log(a)\n', 'é.js': 'debugger\n' })
-    expect((await check0(dir, base)).diagnostics).toEqual([found('a b.js', 2, 'console.log'), found('é.js', 1, 'debugger')])
+    await write(dir, { 'a b.js': 'l1\nconsole.log(1)\nl2\n\nl4\nl5\ndebugger\n', 'é.js': 'debugger\n' })
+    gitSync(dir, ['mv', 'old.js', 'moved.js'])
+    expect((await check0(dir, base)).diagnostics).toEqual([found('a b.js', 2, 'console.log'), found('a b.js', 7, 'debugger'), found('é.js', 1, 'debugger')])
+  }, 90_000)
+
+  // 5b final review I1: git documents GIT_DIFF_OPTS as overriding --unified, so context lines can come in any repository
+  it('counts lines right when GIT_DIFF_OPTS asks git for context', async () => {
+    const { dir, base } = await repo({ 'a.js': 'l1\nl2\n\nl4\nl5\nl6\nl7\nl8\nl9\nl10\n' })
+    await write(dir, { 'a.js': 'l1\nconsole.log(1)\nl2\n\nl4\nl5\nl6\nl7\nl8\nl9\nl10\ndebugger\n' })
+    const check = await checker(undefined, { ...process.env, GIT_DIFF_OPTS: '--unified=3' })
+    expect((await check(dir, base)).diagnostics).toEqual([found('a.js', 2, 'console.log'), found('a.js', 12, 'debugger')])
+  }, 90_000)
+
+  // 5b final review I2: a submodule's own changes are its repository's, not the Task's
+  it('reads no submodule’s own changes, whatever diff.submodule says', async () => {
+    const sub = await repo({ 's.js': 'const s = 1\n' })
+    const { dir } = await repo({ 'a.js': 'const a = 1\n' })
+    gitSync(dir, ['-c', 'protocol.file.allow=always', 'submodule', 'add', '--quiet', sub.dir, 'vendored'])
+    gitSync(dir, ['commit', '-m', 'add the submodule'])
+    const base = gitSync(dir, ['rev-parse', 'HEAD'])
+    gitSync(dir, ['config', 'diff.submodule', 'diff'])
+    const vendored = path.join(dir, 'vendored')
+    gitSync(vendored, ['config', 'user.email', 't@t.com'])
+    gitSync(vendored, ['config', 'user.name', 'Test User'])
+    await write(vendored, { 's.js': 'const s = 1\nconsole.log(s)\n' })
+    commit(vendored)
+    expect(await check0(dir, base)).toMatchObject({ status: 'passed' })
+  }, 90_000)
+
+  // 5b final review M1: a lone carriage return is not a line break to git, nor to a file read whole
+  it('takes a lone carriage return in a line as part of the line', async () => {
+    const { dir, base } = await repo({ 'a.js': 'x\n' })
+    await write(dir, { 'a.js': 'x\nprogress 10%\rconsole.log(1)\n+fake\r+debugger\nlast TODO\n' })
+    expect((await check0(dir, base)).diagnostics).toEqual([found('a.js', 2, 'console.log'), found('a.js', 3, 'debugger'), found('a.js', 4, 'TODO')])
+  }, 90_000)
+
+  // 5b final review M2: a move without `git add` is a move, and what the file held before is not the Task's
+  it('reads a file moved without git add as a move', async () => {
+    const { dir, base } = await repo({ 'src/old.js': 'a\nb\n// TODO keep\n' })
+    await fs.rename(path.join(dir, 'src/old.js'), path.join(dir, 'src/new.js'))
+    expect(await check0(dir, base)).toEqual({ name: 'Debug leftovers', status: 'passed', summary: 'no debug leftovers in 1 changed file' })
+    // The person's own index is left as it was: the new file is still not added
+    expect(gitSync(dir, ['status', '--porcelain'])).toContain('?? src/new.js')
+  }, 90_000)
+
+  // 5b final review M3: git sees a link's text, not the file it points at; Windows makes links only with a privilege
+  it.skipIf(process.platform === 'win32')('reads a new symbolic link as git does, not the file it points at', async () => {
+    const { dir, base } = await repo({ 'a.js': '' })
+    const outside = await tempDir('astera-leftovers outside ')
+    dirs.push(outside)
+    await write(outside, { 'loud.js': 'console.log(1)\n' })
+    await fs.symlink(path.join(outside, 'loud.js'), path.join(dir, 'link.js'))
+    expect(await check0(dir, base)).toMatchObject({ status: 'passed' })
+  }, 90_000)
+
+  // 5b final review M4: a repository with no commit yet, and no base, reads everything in it as the Task's
+  it('reads a repository with no commit yet whole', async () => {
+    const dir = await tempDir('astera-leftovers fresh ')
+    dirs.push(dir)
+    gitSync(dir, ['init', '-b', 'main'])
+    await write(dir, { 'staged.js': 'debugger\n', 'loose.js': 'x\nconsole.log(1)\n' })
+    gitSync(dir, ['add', 'staged.js'])
+    expect((await check0(dir)).diagnostics).toEqual([found('loose.js', 2, 'console.log'), found('staged.js', 1, 'debugger')])
+  }, 90_000)
+
+  // 5b final review M14: the sentence a person reads when git is not there
+  it('says git could not be started when it is not on the PATH', async () => {
+    const { dir, base } = await repo({ 'a.js': '' })
+    // An empty folder as the PATH: without one, Windows hands a child its parent's PATH and POSIX looks in /usr/bin
+    const empty = await tempDir('astera-leftovers no git ')
+    dirs.push(empty)
+    const noGit = { ...Object.fromEntries(Object.entries(process.env).filter(([k]) => k.toUpperCase() !== 'PATH')), PATH: empty }
+    const check = await checker(undefined, noGit)
+    expect(await check(dir, base)).toMatchObject({ status: 'error', summary: expect.stringMatching(/^git could not be started: is it installed/) })
   }, 90_000)
 
   it('answers error with git’s sentence for a folder that is not a repository or a base that is not a commit, and says so for a folder that is gone', async () => {
     const plain = await tempDir('astera-leftovers plain ')
     dirs.push(plain)
     const check = await checker()
-    expect(await check(plain)).toMatchObject({ status: 'error', summary: expect.stringMatching(/^git diff: .*not a git repository/i) })
+    expect(await check(plain)).toMatchObject({ status: 'error', summary: expect.stringMatching(/^git [a-z-]+: .*not a git repository/i) })
     const { dir } = await repo({ 'a.js': '' })
     expect(await check(dir, 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef')).toMatchObject({
       status: 'error',
@@ -759,6 +836,10 @@ describe('the debug leftovers sample', () => {
   }, 90_000)
 
   it('says where to read about it, and the guide links back', () => {
-    expect(readFileSync(path.join(LEFTOVERS, 'README.md'), 'utf8')).toContain('docs/plugins.md#completion-check-plugins)')
+    const readme = readFileSync(path.join(LEFTOVERS, 'README.md'), 'utf8')
+    expect(readme).toContain('docs/plugins.md#completion-check-plugins)')
+    // 5b final review M13: git's sentence when git fails; the sample's own when git is missing or the folder is gone
+    expect(readme).not.toContain("The summary is git's own sentence")
+    expect(readme.replace(/\s+/g, ' ')).toContain('git 2.25 or later')
   })
 })

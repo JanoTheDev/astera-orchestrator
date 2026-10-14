@@ -3,18 +3,19 @@
 // `TODO` or a `FIXME`, or whatever text its `patterns` setting names. Each one is a finding at its file and line, which
 // Astera hands the Task's worker in its repair request, so the worker takes it out and the recheck passes.
 //
-// It reads the Task's changes with git, in the folder the Task's checks run in: what that folder holds now against the
-// commit the Task's work started from (`git diff`, only the lines it adds), and each new file git does not ignore, read
-// whole. A leftover from before the Task, or a line the Task removes, is not the Task's.
+// It reads the Task's changes with one `git diff`, in the folder the Task's checks run in: what that folder holds now
+// against the commit the Task's work started from, only the lines it adds. New files git does not ignore are in it too,
+// marked as intended (`git add -N`) in a copy of the index, so a file moved without `git add` reads as a move and the
+// person's own index is never touched. A leftover from before the Task, or a line the Task removes, is not the Task's.
 //
 // Plain JavaScript with no dependency, so its folder installs as it is. The types are the plugin SDK's, for your editor
 // and tsc only: Astera never loads @astera-app/plugin-sdk, and a plain object is the provider
 // `defineCompletionCheckProvider` would have returned.
 
 import { spawn } from 'node:child_process'
-import { readFile, stat } from 'node:fs/promises'
+import { copyFile, lstat, mkdtemp, rm, stat } from 'node:fs/promises'
+import os from 'node:os'
 import path from 'node:path'
-import readline from 'node:readline'
 
 /** @typedef {import('@astera-app/plugin-sdk').CompletionCheckProvider} CompletionCheckProvider */
 /** @typedef {import('@astera-app/plugin-sdk').CompletionCheckDiagnostic} CompletionCheckDiagnostic */
@@ -75,29 +76,59 @@ function complaintOf(/** @type {string} */ stderr) {
 }
 
 /**
- * Runs git once in `cwd`, handing each line it prints to `onLine`. Resolves when git ends well; rejects with git's
- * sentence when it fails, or with the error that kept it from starting.
+ * @typedef {object} GitRun
+ * @property {AbortSignal} signal
+ * @property {NodeJS.ProcessEnv} [env]
+ * @property {string} [input] what git reads on its standard input
+ * @property {'\n' | '\0'} [sep] what ends an item of its output: a line, or a NUL with `-z`
+ */
+
+/**
+ * Runs git once in `cwd`, handing each item it prints to `onItem`. A line ends at a line feed only, one carriage return
+ * before it dropped: git does not end a line at a lone carriage return, and nor does this. Resolves when git ends well;
+ * rejects with git's sentence when it fails, or with the error that kept it from starting.
  * @param {string} cwd
  * @param {string[]} args
- * @param {AbortSignal} signal
- * @param {(line: string) => void} onLine
+ * @param {GitRun} run
+ * @param {(item: string) => void} onItem
  * @returns {Promise<void>}
  */
-function gitOnce(cwd, args, signal, onLine) {
+function gitOnce(cwd, args, run, onItem) {
   return new Promise((resolve, reject) => {
     // Names as they are, and the a/ b/ prefixes this file reads, whatever the repository's own config says
     const config = ['-c', 'core.quotepath=false', '-c', 'diff.noprefix=false', '-c', 'diff.mnemonicPrefix=false']
-    const child = spawn('git', [...config, ...args], { cwd, signal, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawn('git', [...config, ...args], {
+      cwd,
+      env: run.env ?? process.env,
+      signal: run.signal,
+      windowsHide: true,
+      stdio: [run.input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe']
+    })
+    const sep = run.sep ?? '\n'
+    let rest = ''
+    const item = (/** @type {string} */ text) => onItem(sep === '\n' && text.endsWith('\r') ? text.slice(0, -1) : text)
+    // Both are pipes, as stdio says
+    const out = /** @type {import('node:stream').Readable} */ (child.stdout)
+    const err = /** @type {import('node:stream').Readable} */ (child.stderr)
+    out.setEncoding('utf8').on('data', (/** @type {string} */ chunk) => {
+      const items = (rest + chunk).split(sep)
+      rest = items.pop() ?? ''
+      items.forEach(item)
+    })
     let stderr = ''
-    child.stderr.setEncoding('utf8').on('data', (/** @type {string} */ chunk) => {
+    err.setEncoding('utf8').on('data', (/** @type {string} */ chunk) => {
       if (stderr.length < STDERR_MAX) stderr += chunk
     })
-    const lines = readline.createInterface({ input: child.stdout, crlfDelay: Infinity })
-    lines.on('line', onLine)
-    const read = new Promise((r) => lines.once('close', r))
+    if (child.stdin !== null) {
+      child.stdin.on('error', () => {})
+      child.stdin.end(run.input)
+    }
     child.once('error', reject)
+    // 'close' comes after the output has all been read
     child.once('close', (code) => {
-      void read.then(() => (code === 0 ? resolve() : reject(new Error(`git ${args[0]}: ${complaintOf(stderr) ?? `exit ${code}`}`))))
+      if (rest !== '') item(rest)
+      if (code === 0) resolve()
+      else reject(new Error(`git ${args[0]}: ${complaintOf(stderr) ?? `exit ${code}`}`))
     })
   })
 }
@@ -109,18 +140,37 @@ const codeOf = (/** @type {unknown} */ e) => (e instanceof Error ? /** @type {{ 
  * gitOnce, tried once more when the system refused to start git.
  * @param {string} cwd
  * @param {string[]} args
- * @param {AbortSignal} signal
- * @param {(line: string) => void} onLine
+ * @param {GitRun} run
+ * @param {(item: string) => void} [onItem]
  */
-async function git(cwd, args, signal, onLine) {
+async function git(cwd, args, run, onItem = () => {}) {
   try {
-    await gitOnce(cwd, args, signal, onLine)
+    await gitOnce(cwd, args, run, onItem)
   } catch (e) {
     const code = codeOf(e)
     if (typeof code !== 'string' || !SPAWN_REFUSED.has(code)) throw e
     await new Promise((r) => setTimeout(r, 50))
-    await gitOnce(cwd, args, signal, onLine)
+    await gitOnce(cwd, args, run, onItem)
   }
+}
+
+/**
+ * The commit to read the Task's changes against: its own, else HEAD, else (a repository with no commit yet) the empty
+ * tree, so everything in it is the Task's.
+ * @param {string} root
+ * @param {string | undefined} base
+ * @param {AbortSignal} signal
+ */
+async function baseOf(root, base, signal) {
+  if (base !== undefined) return base
+  const committed = await git(root, ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}'], { signal }).then(
+    () => true,
+    () => false
+  )
+  if (committed) return 'HEAD'
+  let empty = ''
+  await git(root, ['hash-object', '-t', 'tree', '--stdin'], { signal, input: '' }, (line) => (empty ||= line))
+  return empty
 }
 
 /** @type {CompletionCheckProvider} */
@@ -148,15 +198,55 @@ export default {
       if (diagnostics.length < FINDINGS_MAX) diagnostics.push({ file, line, message: `adds ${pattern}`, severity: 'error' })
     }
 
+    /** @type {string | null} */
+    let scratch = null
     try {
-      // What the folder holds now against the commit the Task started from: the lines it adds, with no context, colour,
-      // external tool or text conversion, named from the folder and only the folder's (--relative)
+      const signal = ctx.signal
+      // A copy of the index (the person's own is not touched), with the new files git does not ignore marked as intended
+      let real = ''
+      await git(root, ['rev-parse', '--git-path', 'index'], { signal }, (line) => (real ||= line))
+      const base = await baseOf(root, input.workspace.base, signal)
+      scratch = await mkdtemp(path.join(os.tmpdir(), 'astera-leftovers-'))
+      const index = path.join(scratch, 'index')
+      // A repository with nothing staged yet has no index: the copy then starts empty
+      await copyFile(path.resolve(root, real), index).catch(() => {})
+      const env = { ...process.env, GIT_INDEX_FILE: index, GIT_LITERAL_PATHSPECS: '1' }
+      /** @type {string[]} */
+      const fresh = []
+      await git(root, ['ls-files', '-z', '--others', '--exclude-standard'], { signal, env, sep: '\0' }, (name) => {
+        if (name !== '') fresh.push(name)
+      })
+      /** @type {string[]} */
+      const small = []
+      for (const name of fresh) {
+        // A link is read as git reads it, its own text, never the file it points at
+        const info = await lstat(path.join(root, name)).catch(() => null)
+        if (info !== null && (info.isFile() || info.isSymbolicLink()) && info.size <= NEW_FILE_MAX) small.push(name)
+      }
+      if (small.length > 0)
+        await git(root, ['add', '--intent-to-add', '--pathspec-from-file=-', '--pathspec-file-nul'], { signal, env, input: `${small.join('\0')}\0` })
+
+      // The lines the Task adds, named from the folder and only the folder's (--relative); renames found and a
+      // submodule read as its commit, whatever the config says; no colour, external tool or text conversion. Context
+      // lines are counted, as GIT_DIFF_OPTS can ask git for them whatever --unified says.
       /** @type {string | null} */
       let file = null
       let header = false
       let next = 0
-      const diff = ['diff', '--no-color', '--no-ext-diff', '--no-textconv', '--relative', '--unified=0', '--src-prefix=a/', '--dst-prefix=b/']
-      await git(root, [...diff, input.workspace.base ?? 'HEAD', '--'], ctx.signal, (line) => {
+      const diff = [
+        'diff',
+        '--no-color',
+        '--no-ext-diff',
+        '--no-textconv',
+        '--relative',
+        '--find-renames',
+        '--submodule=short',
+        '--unified=0',
+        '--inter-hunk-context=0',
+        '--src-prefix=a/',
+        '--dst-prefix=b/'
+      ]
+      await git(root, [...diff, base, '--'], { signal, env }, (line) => {
         if (line.startsWith('diff --git ')) {
           changed++
           file = null
@@ -178,31 +268,19 @@ export default {
           }
           return
         }
-        if (file !== null && line.startsWith('+')) added(file, next++, line.slice(1))
+        // In a hunk: `+` is a line the Task adds, ` ` (or nothing, with diff.suppressBlankEmpty) a line it kept, and
+        // `-` and `\` take no line on the new side
+        if (line.startsWith('+')) {
+          if (file !== null) added(file, next, line.slice(1))
+          next++
+        } else if (line === '' || line.startsWith(' ')) next++
       })
-
-      // The new files git does not ignore, read whole: a worker that did not add a file to git still made it
-      /** @type {string[]} */
-      const fresh = []
-      await git(root, ['ls-files', '--others', '--exclude-standard'], ctx.signal, (line) => {
-        if (line !== '') fresh.push(unquote(line))
-      })
-      for (const name of fresh) {
-        const full = path.join(root, name)
-        const info = await stat(full).catch(() => null)
-        if (info === null || !info.isFile() || info.size > NEW_FILE_MAX) continue
-        const bytes = await readFile(full).catch(() => null)
-        if (bytes === null || bytes.includes(0)) continue
-        changed++
-        bytes
-          .toString('utf8')
-          .split(/\r?\n/)
-          .forEach((text, i) => added(name, i + 1, text))
-      }
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e)
       if (codeOf(e) === 'ENOENT') return { status: 'error', summary: `git could not be started: is it installed, and on the PATH Astera runs with? (${message})` }
       return { status: 'error', summary: message }
+    } finally {
+      if (scratch !== null) await rm(scratch, { recursive: true, force: true })
     }
 
     if (total === 0) return { status: 'passed', summary: `no debug leftovers in ${count(changed, 'changed file')}` }
