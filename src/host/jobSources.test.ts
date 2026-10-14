@@ -5,6 +5,7 @@ import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { hostJobSources, JOB_SOURCE_TIMEOUT_MS } from './jobSources'
+import { PluginRequestFailed } from './plugins/runtime'
 import { createHostOrch } from './orch'
 import { emptyState } from '../core/orchestration/state'
 import { ensureProject } from '../core/orchestration/projects'
@@ -56,6 +57,25 @@ describe('hostJobSources', () => {
     await sources.ask('a', 'jobSource.list', { query: 'q' })
     expect(asked).toEqual([['a', 'jobSource.list', { query: 'q' }, JOB_SOURCE_TIMEOUT_MS]])
     expect(JOB_SOURCE_TIMEOUT_MS).toBe(15_000)
+  })
+
+  // The 4b review's M4: the person reads what the function threw, as the guide quotes it, not the launcher's frame
+  it('passes on what a function threw without the launcher’s "<function> threw:" before it', async () => {
+    const failing = (message: string, status: 502 | 503 | 504 = 502) =>
+      hostJobSources({
+        manager: { listNow: async () => ({ status: 200, body: { plugins: [] } }) },
+        runtime: { request: async () => Promise.reject(new PluginRequestFailed(status, message)) }
+      })
+    const caught = (p: Promise<unknown>) => p.then(() => null, (e: unknown) => e as PluginRequestFailed)
+    expect(await caught(failing('listItems threw: 401 Unauthorized').ask('a', 'jobSource.list', {}))).toMatchObject({ status: 502, message: '401 Unauthorized' })
+    expect(await caught(failing('getItem threw: no ticket X').ask('a', 'jobSource.get', { id: 'X' }))).toMatchObject({ status: 502, message: 'no ticket X' })
+    expect(await caught(failing('buildJobContext threw: gone').ask('a', 'jobSource.context', { id: 'X' }))).toMatchObject({ message: 'gone' })
+    // Anything else is left as it is: a frame that names another function, an answer that cannot be sent, a 503
+    expect(await caught(failing('getItem threw: x').ask('a', 'jobSource.list', {}))).toMatchObject({ message: 'getItem threw: x' })
+    expect(await caught(failing('listItems answered with something that cannot be sent: y').ask('a', 'jobSource.list', {}))).toMatchObject({
+      message: 'listItems answered with something that cannot be sent: y'
+    })
+    expect(await caught(failing('a is stopped', 503).ask('a', 'jobSource.list', {}))).toMatchObject({ status: 503, message: 'a is stopped' })
   })
 })
 
