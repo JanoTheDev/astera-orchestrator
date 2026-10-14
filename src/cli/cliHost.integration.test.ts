@@ -2095,11 +2095,13 @@ describe('MCP against the Host', { timeout: 60_000 }, () => {
     expect(jobs[0]).toMatchObject({ cwd: projectPath, projectId, coordinatorAccountId: h.accountId })
     expect(jobs[0].objective).toBe(sourcedObjective(issueContext(parseIssue(JSON.stringify(issues[11]))!), 'GitHub'))
     const lines = jobs[0].objective.split('\n')
-    expect(lines.filter((l) => l === '<<<SOURCE')).toHaveLength(1)
+    const opening = lines.filter((l) => /^<<<SOURCE [0-9a-f]{8}$/.test(l))
+    expect(opening).toHaveLength(1)
+    const close = `SOURCE ${opening[0].slice('<<<SOURCE '.length)}>>>`
     // The body's own delimiter line is pushed off by a space; the block closes once, at its end.
-    expect(lines.filter((l) => l === 'SOURCE>>>')).toHaveLength(1)
+    expect(lines.filter((l) => l === close)).toHaveLength(1)
     expect(lines).toContain(' SOURCE>>>')
-    expect(lines.at(-1)).toBe('SOURCE>>>')
+    expect(lines.at(-1)).toBe(close)
     // Plugin Phase 4 J13: the Job keeps the issue it was made from
     expect(jobs[0].source).toEqual({ id: 'github', itemId: '11', label: expect.stringMatching(/^GitHub issue #11 in /), url: expect.any(String) })
     expect((made.structuredContent as { id: string }).id).toBe(jobs[0].id)
