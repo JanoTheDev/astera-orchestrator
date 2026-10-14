@@ -2293,6 +2293,8 @@ input[type="checkbox"]:not(.md-task input):focus-visible {
    그래프이기 때문이다. 두 자리 모두 `>` 로 잡아 특이도를 맞춰 두었다: 그러지 않으면 위
    .jobs-new:hover 와 동점이 되어 순서에 기대게 된다. */
 .jobs-view > .jobs-new, .jobs-empty > .jobs-new { background: var(--btn-bg); border-color: var(--btn-bg); color: var(--btn-ink); font-weight: 600; }
+/* "+ From a source" (plugin Phase 4 J20) stands under "+ New job" as the plain button it is, not a second primary */
+.jobs-view > .jobs-new.jobs-new-source, .jobs-empty > .jobs-new.jobs-new-source { background: none; border-color: var(--line-soft); color: var(--text-dim); font-weight: 400; margin-top: 0; }
 .jobs-view > .jobs-new:hover, .jobs-empty > .jobs-new:hover { filter: brightness(.85); }
 /* 목록 쪽만 오른쪽 끝에 선다 — 왼쪽 열은 Run 의 글리프와 제목이 쓰는 자리라, 버튼이 거기 서면
    목록의 첫 줄처럼 읽힌다. 빈 화면 쪽은 .jobs-empty 의 text-align: center 를 그대로 따른다.

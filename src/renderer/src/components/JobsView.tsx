@@ -606,6 +606,7 @@ export function JobsView({
   onOpenSession,
   onOpenRun,
   onNewRun,
+  onNewFromSource,
   onPauseRun,
   onResumeRun,
   onDeleteRun,
@@ -649,6 +650,9 @@ export function JobsView({
   /** Opens NewRunModal. This view creates no Run itself — App owns the modal and the project path it
    *  needs, the same split as onOpenRun/onOpenSession above. */
   onNewRun: () => void
+  /** Opens the "+ From a source" window (plugin Phase 4 J20): a Job made from a source's ticket. App passes it for this
+   *  machine's projects only: a paired Runtime's sources are not listed (§3), so its view has no such button. */
+  onNewFromSource?: () => void
   /** 예약을 세운다·다시 돌린다. **App 이 들고 있다** — 상세 창의 같은 아이콘과 확인 문구·409 의
    *  갈래를 공유해야 하므로 이 뷰가 자기 사본을 갖지 않는다(onDeleteRun 과 같은 갈래다). */
   onPauseRun: (runId: string) => void
@@ -665,6 +669,13 @@ export function JobsView({
 }): React.JSX.Element {
   const { t } = useI18n()
   const acts = { onPauseRun, onResumeRun, onDeleteRun, onRestartCoordinator }
+  // "+ From a source" (plugin Phase 4 J20) under "+ New job", in both places it stands: this machine's projects only
+  const newFromSource =
+    onNewFromSource !== undefined && !remote ? (
+      <button className="jobs-new jobs-new-source" disabled={disabledReason !== undefined} title={disabledReason} onClick={onNewFromSource}>
+        + {t('jobs.source.open')}
+      </button>
+    ) : null
   // Runs the user collapsed. Absence means expanded — a Run that just appeared, or one from before this
   // component ever rendered, opens by default rather than needing to be found and expanded by hand.
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
@@ -768,6 +779,7 @@ export function JobsView({
             + {t('jobs.new.open')}
           </button>
         )}
+        {hasProject && newFromSource}
       </div>
     )
   }
@@ -779,6 +791,7 @@ export function JobsView({
       <button className="jobs-new" disabled={disabledReason !== undefined} title={disabledReason} onClick={onNewRun}>
         + {t('jobs.new.open')}
       </button>
+      {newFromSource}
       {/* **회차가 여럿이면 예약이 아니어도 펼치는 카드다.** 접히는 카드를 예약에만 쓰던 것은 회차가
           예약에서만 생겼기 때문이고, 이제는 끝난 Job 을 다시 돌려도 생긴다 — 조건을 `schedule` 로
           두면 그 회차들이 화면에서 통째로 사라진다(상태에는 있는데 그리는 곳이 없다). */}
