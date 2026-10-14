@@ -84,7 +84,13 @@ async function graphql(ctx, query, variables) {
     if (e instanceof Error && e.name === 'TimeoutError') throw new Error(`Linear did not answer within ${TIMEOUT_MS / 1000} s`)
     throw new Error(`Linear could not be reached: ${problemOf(e)}`)
   }
-  const body = await res.text()
+  let body
+  try {
+    body = await res.text()
+  } catch (e) {
+    if (e instanceof Error && e.name === 'TimeoutError') throw new Error(`Linear did not answer within ${TIMEOUT_MS / 1000} s`)
+    throw new Error(`Linear could not be reached: ${problemOf(e)}`)
+  }
   /** @type {unknown} */
   let json = null
   try {
@@ -139,21 +145,23 @@ export default {
 
   async listItems(input, ctx) {
     const team = text(ctx.settings.teamKey)
+    // Linear's state types are lower case; a person may write them otherwise, and a team key in either case
     const states = text(ctx.settings.states ?? 'unstarted,started')
       .split(',')
-      .map((s) => s.trim())
+      .map((s) => s.trim().toLowerCase())
       .filter((s) => s !== '')
     const filter = {
-      ...(team !== '' ? { team: { key: { eq: team } } } : {}),
+      ...(team !== '' ? { team: { key: { eqIgnoreCase: team } } } : {}),
       ...(states.length > 0 ? { state: { type: { in: states } } } : {}),
       ...(input.query ? { title: { containsIgnoreCase: input.query } } : {})
     }
     const data = await graphql(ctx, LIST, { first: PAGE, after: input.cursor ?? null, filter })
-    /** @type {{ nodes: LinearIssue[], pageInfo: { hasNextPage: boolean, endCursor: string | null } }} */
+    /** @type {{ nodes: LinearIssue[], pageInfo: { hasNextPage: boolean, endCursor: string | null } } | null | undefined} */
     const issues = data.issues
+    if (!issues || !Array.isArray(issues.nodes)) throw new Error('Linear answered with no issues')
     return {
       items: issues.nodes.map(itemOf),
-      ...(issues.pageInfo.hasNextPage && issues.pageInfo.endCursor ? { nextCursor: issues.pageInfo.endCursor } : {})
+      ...(issues.pageInfo?.hasNextPage && issues.pageInfo.endCursor ? { nextCursor: issues.pageInfo.endCursor } : {})
     }
   },
 

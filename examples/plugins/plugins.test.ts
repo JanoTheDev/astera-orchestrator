@@ -473,11 +473,11 @@ describe('the Linear source sample', () => {
     expect(api.seen[0].variables).toEqual({
       first: 30,
       after: null,
-      filter: { team: { key: { eq: 'ENG' } }, state: { type: { in: ['unstarted', 'started'] } }, title: { containsIgnoreCase: 'login' } }
+      filter: { team: { key: { eqIgnoreCase: 'ENG' } }, state: { type: { in: ['unstarted', 'started'] } }, title: { containsIgnoreCase: 'login' } }
     })
     // The next page from the cursor; the last page gives none, and an issue with no description no summary
     expect(await ask(r, 'jobSource.list', { cursor: 'cur-1' })).toEqual({ items: [{ id: 'ENG-2', title: 'Fix login', status: 'Todo', url: ISSUE.url }] })
-    expect(api.seen[1].variables).toMatchObject({ after: 'cur-1', filter: { team: { key: { eq: 'ENG' } } } })
+    expect(api.seen[1].variables).toMatchObject({ after: 'cur-1', filter: { team: { key: { eqIgnoreCase: 'ENG' } } } })
     expect(api.seen[1].variables.filter).not.toHaveProperty('title')
   }, 90_000)
 
@@ -487,6 +487,38 @@ describe('the Linear source sample', () => {
     const r = await started(api.url, { teamKey: '', states: ' ' })
     expect(await ask(r, 'jobSource.list', {})).toEqual({ items: [] })
     expect(api.seen[0].variables).toEqual({ first: 30, after: null, filter: {} })
+  }, 90_000)
+
+  // The 4b review's M6: a team key and state types as a person types them, in any case
+  it('matches the team key in any case, and the state types in lower case', async () => {
+    const api = await linear(() => page([]))
+    const r = await started(api.url, { teamKey: 'eng', states: 'Unstarted, STARTED' })
+    await ask(r, 'jobSource.list', {})
+    expect(api.seen[0].variables.filter).toEqual({ team: { key: { eqIgnoreCase: 'eng' } }, state: { type: { in: ['unstarted', 'started'] } } })
+  }, 90_000)
+
+  // The 4b review's M5: an answer that breaks off, and one with no issues in it, say so in a sentence
+  it('says Linear broke off, or answered with no issues, rather than a JavaScript error', async () => {
+    let cut = true
+    const server = http.createServer((req, res) => {
+      req.resume()
+      req.on('end', () => {
+        if (cut) {
+          res.writeHead(200, { 'content-type': 'application/json', 'content-length': '1000' })
+          res.write('{"data":')
+          setTimeout(() => res.destroy(), 20)
+          return
+        }
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ data: { issues: null } }))
+      })
+    })
+    servers.push(server)
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const r = await started(`http://127.0.0.1:${(server.address() as AddressInfo).port}/graphql`)
+    expect((await failure(ask(r, 'jobSource.list', {}))).message).toMatch(/^listItems threw: Linear could not be reached: /)
+    cut = false
+    expect(await failure(ask(r, 'jobSource.list', {}))).toEqual({ status: 502, message: 'listItems threw: Linear answered with no issues' })
   }, 90_000)
 
   it('reads an issue whole, and makes a Job’s context of it', async () => {
