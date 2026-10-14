@@ -22,6 +22,20 @@ export function folderLinkAction(folder: string, root: string | null): FolderLin
   return { kind: 'explorer', segments: f.slice(prefix.length).split('/') }
 }
 
+/** A folder link's request to the explorer: the root it was made for, the names below it, and a number that makes a
+ *  second click on the same folder a new request. */
+export interface FolderReveal {
+  root: string
+  segments: string[]
+  seq: number
+}
+
+/** The names to reveal under `root`, or null when the request was made for another root (the active tab changed under
+ *  it) or there is none (final review I2 of the links slice: a request is for its own root, and run once). */
+export function revealFor(request: FolderReveal | null | undefined, root: string | null): readonly string[] | null {
+  return request && root !== null && request.root === root ? request.segments : null
+}
+
 /** The explorer's keys for each folder from the root's child down to the last of `segments`, found by listing each
  *  level as the explorer does (main's files.list: path.join of the parent's key and the name), the name matched
  *  without regard to case on Windows. null when a name is no folder there, or a listing fails. */

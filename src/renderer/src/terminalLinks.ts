@@ -180,7 +180,9 @@ export function attachConsoleLinks(
       const cells = cellsOfJoinedLine(rowCells, startY)
       const acrossLinks = Promise.all(
         across.map(async ({ r, range, head }): Promise<{ link: ILink; length: number } | null> => {
-          if (head && head.kind === 'path' && (await resolve(head.target))) return null
+          // A first row that names a file by itself keeps its own link; a folder there is only where the path begins
+          // (final review I1 of the links slice)
+          if (head && head.kind === 'path' && (await resolve(head.target))?.dir === false) return null
           const found = await resolve(r.target)
           return found ? { link: { range, text: r.target, activate: opener(found, { line: r.line, col: r.col }) }, length: r.target.length } : null
         })
@@ -188,7 +190,7 @@ export function attachConsoleLinks(
       void Promise.all([
         acrossLinks,
         Promise.all(
-          found.map(async (l): Promise<{ link: ILink; length: number } | null> => {
+          found.map(async (l): Promise<{ link: ILink; length: number; late?: true } | null> => {
             const range = bufferRangeAt(cells, l.start, l.end)
             if (l.kind === 'url') {
               return { link: { range, text: l.url, activate: (event) => opts.onUrl(l.url, event) }, length: l.end - l.start }
@@ -202,7 +204,7 @@ export function attachConsoleLinks(
             // A media name not there yet (lateLink): the reading that is one, the shorter first, since a word glued to a
             // media name is what keeps the whole from being one
             const media = [...readings].reverse().find((r) => mediaKindOf(r.target) !== null)
-            return media ? { link: lateLink(media.range, media.target, { line: media.line, col: media.col }), length: media.end - media.start } : null
+            return media ? { link: lateLink(media.range, media.target, { line: media.line, col: media.col }), length: media.end - media.start, late: true } : null
           })
         )
       ])
@@ -217,7 +219,12 @@ export function attachConsoleLinks(
           // row's own links the same holds: a quoted path with spaces and a word inside it, both found, are one link, the
           // longest (xterm drops a row's links that overlap).
           const rest: ILink[] = []
-          for (const c of links.filter((x): x is { link: ILink; length: number } => x !== null).sort((p, q) => q.length - p.length))
+          // A link that resolved before a late one (a media name not found yet), however long: an unmarked late link over a
+          // quoted sentence must not hide the paths in it (final review I3); then the longest
+          const ranked = links
+            .filter((x): x is { link: ILink; length: number; late?: true } => x !== null)
+            .sort((p, q) => Number(p.late === true) - Number(q.late === true) || q.length - p.length)
+          for (const c of ranked)
             if (!whole.some((w) => overlaps(w, c.link)) && !rest.some((r) => overlaps(r, c.link))) rest.push(c.link)
           rest.sort((p, q) => (before(p.range.start, q.range.start) ? -1 : 1))
           const real = [...whole, ...rest]

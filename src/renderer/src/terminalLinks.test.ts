@@ -295,6 +295,26 @@ describe('attachConsoleLinks with several readings, quotes and folders', () => {
     expect([s.folders, s.files]).toEqual([['C:\\a\\specs'], []])
   })
 
+  // Final review I1: a TUI-cut path whose first row's word is a folder is still linked whole across the rows; only a
+  // first row that names a FILE by itself keeps its own link (final review I2 of the cut-path work)
+  it('links a cut path whole when its first row names a folder', async () => {
+    const FULL = 'C:\\Users\\anipen\\review\\a.png'
+    const f = fakeTerm(['  C:\\Users\\anipen\\', '  review\\a.png'], 20)
+    attachConsoleLinks(f.term as never, {
+      onUrl: () => {},
+      resolvePath: async (t) => (t === FULL ? FULL : t === 'C:\\Users\\anipen\\' ? { path: 'C:\\Users\\anipen', dir: true } : null),
+      onOpenFile: () => {},
+      onOpenFolder: () => {}
+    })
+    for (const y of [1, 2]) expect((await f.links(y))?.map((l) => l.text), String(y)).toEqual([FULL])
+  })
+
+  // Final review I3: an unmarked late link (a media name not found yet) never hides a link that resolved
+  it('keeps the links that resolved over a longer late link around them', async () => {
+    const s = setup('"/tmp/a.png is done, see /tmp/b.png"', { '/tmp/a.png': '/tmp/a.png', '/tmp/b.png': '/tmp/b.png' })
+    expect((await s.links())?.map((l) => l.text)).toEqual(['/tmp/a.png', '/tmp/b.png'])
+  })
+
   it('gives no link to a folder when nothing opens folders', async () => {
     const s = setup('C:\\a\\specs\\', { 'C:\\a\\specs\\': { path: 'C:\\a\\specs', dir: true } }, false)
     expect(await s.links()).toBeUndefined()

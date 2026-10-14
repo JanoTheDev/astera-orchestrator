@@ -80,8 +80,10 @@ describe('findConsoleLinks — a path with a word glued to it', () => {
 
   // A folder is a link now (a terminal asks main for folders too), so an absolute reading that ends in a separator is
   // offered (`...\\specs\\에 있습니다`); a relative one is prose far more often (`읽기/쓰기를`) and is not
+  // Final review m5 of the links slice: and only before a particle or a copula; `보고서` is the name, not a word of the
+  // sentence, so its parent folder is no reading
   it('offers a folder reading only when it is absolute', () => {
-    expect(only('C:\\문서\\보고서')).toEqual({ kind: 'path', start: 0, end: 9, target: 'C:\\문서\\보고서', alts: [{ start: 0, end: 6, target: 'C:\\문서\\' }] })
+    expect(only('C:\\문서\\보고서')).toEqual({ kind: 'path', start: 0, end: 9, target: 'C:\\문서\\보고서' })
     expect(only('C:\\a\\specs\\에 있습니다')).toMatchObject({ alts: [{ start: 0, end: 11, target: 'C:\\a\\specs\\' }] })
     expect(findConsoleLinks('읽기/쓰기를 켜기/끄기로').map((l) => (l.kind === 'path' ? l.alts : 'url'))).toEqual([undefined, undefined])
   })
@@ -177,6 +179,49 @@ describe('findConsoleLinks — a quoted path with spaces', () => {
     const t0 = performance.now()
     findConsoleLinks(line)
     expect(performance.now() - t0).toBeLessThan(250)
+  })
+})
+
+// Final review of the 2026-10-14 links slice: the minors, each a case the first pass missed
+describe('findConsoleLinks — review fixes', () => {
+  const readingsOf = (line: string) =>
+    findConsoleLinks(line).flatMap((l) => (l.kind === 'path' ? [l, ...(l.alts ?? [])].map((r) => r.target) : []))
+  const fast = (line: string) => {
+    const t0 = performance.now()
+    findConsoleLinks(line)
+    return performance.now() - t0
+  }
+
+  // m1: the path is at the token's end, after the last of what is glued to its front
+  it('takes the starts nearest the path, and a drive letter always', () => {
+    expect(readingsOf('![shot(1)[v2]](D:\\a\\b.png)')).toContain('D:\\a\\b.png')
+    expect(readingsOf('dict(a=1,b=[2],path=C:\\a\\b.png)')).toContain('C:\\a\\b.png')
+    expect(readingsOf('a=(b/c)=[d/e]=f/g.png')).toContain('f/g.png')
+  })
+
+  // m9
+  it('opens on a guillemet as it closes on one', () => {
+    expect(readingsOf('«/a/b.png»')).toContain('/a/b.png')
+  })
+
+  // m2, m3: linear on the inputs that were quadratic
+  it('reads many curly quotes, and long runs of trailing punctuation, in linear time', () => {
+    expect(fast('“/a '.repeat(20_000))).toBeLessThan(250)
+    expect(fast('a=b(c[d=e/' + '.'.repeat(20_000) + 'x')).toBeLessThan(250)
+    expect(fast('http://a/' + '.'.repeat(20_000) + 'x')).toBeLessThan(250)
+    expect(fast('x' + ')'.repeat(20_000) + 'y')).toBeLessThan(250)
+  })
+
+  // m5: a folder reading from a glued word only when that word is a particle or a copula, not a name
+  it('offers the folder before a particle, not the parent of a Korean name', () => {
+    expect(readingsOf('C:\\a\\specs\\에 있습니다')).toContain('C:\\a\\specs\\')
+    expect(readingsOf('D:\\out\\결과물')).toEqual(['D:\\out\\결과물'])
+  })
+
+  // m6: a Python frame's quoted path with spaces is one link, the frame's, with its line
+  it('reads a quoted path a Python frame already took once', () => {
+    const links = findConsoleLinks('  File "C:\\Users\\John Smith\\app.py", line 9, in main')
+    expect(links).toEqual([{ kind: 'path', start: 8, end: 34, target: 'C:\\Users\\John Smith\\app.py', line: 9 }])
   })
 })
 
@@ -288,6 +333,15 @@ describe('findConsoleLinks — a URL with a word glued to it', () => {
     expect(urlOf('https://x.com/a.png입니다.')).toEqual(['https://x.com/a.png', 'https://x.com/a.png'])
     expect(urlOf('http://localhost:3000で起動')).toEqual(['http://localhost:3000', 'http://localhost:3000'])
   })
+  // Final review m4: a title with a number in it is the URL's own (`/wiki/2026년`); a run is cut after a host or a port,
+  // after a file name with an extension, or when it is a particle or a copula (`/docs를`)
+  it('keeps a title that starts with a number, and cuts a particle after a word', () => {
+    expect(urlOf('https://ko.wikipedia.org/wiki/2026년')[0]).toBe('https://ko.wikipedia.org/wiki/2026년')
+    expect(urlOf('https://ko.wikipedia.org/wiki/10월_14일')[0]).toBe('https://ko.wikipedia.org/wiki/10월_14일')
+    expect(urlOf('https://example.com/api에서 받았습니다')[0]).toBe('https://example.com/api')
+    expect(urlOf('http://localhost:5173/에서')[0]).toBe('http://localhost:5173/')
+  })
+
   it('keeps a title that is the path itself', () => {
     expect(urlOf('https://ko.wikipedia.org/wiki/서울')).toEqual(['https://ko.wikipedia.org/wiki/서울', 'https://ko.wikipedia.org/wiki/서울'])
     expect(urlOf('https://ko.wikipedia.org/wiki/서울에서')[0]).toBe('https://ko.wikipedia.org/wiki/서울에서')

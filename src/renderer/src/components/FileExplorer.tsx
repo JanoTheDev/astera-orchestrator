@@ -35,7 +35,7 @@ import type { UndoEntry } from '../../../core/files/undo'
 import { runnableKindForFile } from '../../../core/run/runFile'
 import { RefreshCw, X } from 'lucide-react'
 import { deleteKey, isMac, modKey } from '../lib/platformKeys'
-import { isWindowsPath, treeKeysTo } from '../lib/folderLink'
+import { isWindowsPath, revealFor, treeKeysTo, type FolderReveal } from '../lib/folderLink'
 
 /** Tree snapshot the App holds on to, so that even when the explorer toggle unmounts FileExplorer the tree can be handed back on remount */
 export interface ExplorerTreeState {
@@ -72,7 +72,8 @@ export function FileExplorer({
   onPathRenamed,
   onPathDeleted,
   onRunFile,
-  revealFolder
+  revealFolder,
+  onRevealDone
 }: {
   root: string | null
   onOpenFile: (path: string) => void
@@ -98,7 +99,10 @@ export function FileExplorer({
   onRunFile: (path: string) => void
   /** A folder a terminal link named under this root (D2, 2026-10-14), as its names below the root: each level is
    *  expanded and the folder selected and scrolled to. A new `seq` asks again for the same folder. */
-  revealFolder?: { segments: readonly string[]; seq: number } | null
+  revealFolder?: FolderReveal | null
+  /** The request with this seq is handled (or was for another root): the App clears it, so a remount does not run it
+   *  again (final review I2). */
+  onRevealDone?: (seq: number) => void
 }): React.JSX.Element {
   const { t, tm } = useI18n()
   const [menu, setMenu] = useState<{ x: number; y: number; entry: Entry | null } | null>(null)
@@ -190,10 +194,22 @@ export function FileExplorer({
   // brings it into view (requestReveal through opsSel). A request for another root, or one that no longer matches the
   // disk, does nothing.
   useEffect(() => {
-    if (!revealFolder || !root) return
+    if (!revealFolder) return
+    const segments = revealFor(revealFolder, root)
+    if (segments === null || !root) {
+      // Made for another root: it can never apply here, and must not when this root's tree has the same names
+      onRevealDone?.(revealFolder.seq)
+      return
+    }
     let cancelled = false
-    void treeKeysTo(root, revealFolder.segments, (dir) => window.api.files.list(dir), isWindowsPath(root)).then((keys) => {
-      if (cancelled || keys === null) return
+    void treeKeysTo(root, segments, (dir) => window.api.files.list(dir), isWindowsPath(root)).then((keys) => {
+      if (cancelled) return
+      onRevealDone?.(revealFolder.seq)
+      if (keys === null) {
+        // Gone since the link resolved, as the system file manager's path says too (final review m7)
+        toast.error(t('files.openFolder.notFolder'))
+        return
+      }
       for (const key of keys) {
         tree.expandDir(key)
         tree.loadDir(key)

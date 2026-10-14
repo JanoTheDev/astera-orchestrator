@@ -138,7 +138,7 @@ import { useRemoteSessionWatch } from './hooks/useRemoteSessionWatch'
 import { mediaTabsUnder, placeMediaTab, placeTab } from '../../core/panes/place'
 import { mediaKindOf } from '../../core/files/media'
 import { openPath } from './lib/openPath'
-import { folderLinkAction } from './lib/folderLink'
+import { folderLinkAction, type FolderReveal } from './lib/folderLink'
 import { errText } from './hooks/useFileOps'
 import { sessionKindOf } from '../../core/sessions/kind'
 import { displayHostOf, linkDestination, normalizeUrl, previewTargetOf } from '../../core/preview/url'
@@ -2923,12 +2923,14 @@ export default function App(): React.JSX.Element {
 
   /** A folder a terminal link named (D2, 2026-10-14). The explorer shows the current project, so a folder under it is
    *  revealed there; any other opens in the system file manager (files.openFolder, which opens folders only). */
-  const [explorerReveal, setExplorerReveal] = useState<{ segments: string[]; seq: number } | null>(null)
+  const [explorerReveal, setExplorerReveal] = useState<FolderReveal | null>(null)
+  const revealSeqRef = useRef(0)
   const openLinkedFolder = (folder: string): void => {
     const action = folderLinkAction(folder, currentProjectRef.current)
-    if (action.kind === 'explorer') {
+    if (action.kind === 'explorer' && currentProjectRef.current) {
       showExplorer()
-      setExplorerReveal((prev) => ({ segments: action.segments, seq: (prev?.seq ?? 0) + 1 }))
+      revealSeqRef.current += 1
+      setExplorerReveal({ root: currentProjectRef.current, segments: action.segments, seq: revealSeqRef.current })
       return
     }
     void window.api.files.openFolder(folder).catch((err: unknown) => toast.error(errText(err)))
@@ -4414,6 +4416,7 @@ export default function App(): React.JSX.Element {
                 onPathDeleted={handlePathDeleted}
                 onRunFile={runFile}
                 revealFolder={explorerReveal}
+                onRevealDone={(seq) => setExplorerReveal((r) => (r !== null && r.seq === seq ? null : r))}
               />
             ) : sidebarPane === 'jobs' ? (
               <>

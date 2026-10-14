@@ -2,7 +2,7 @@
 // other folder in the system file manager. The explorer's rows are keyed by main's path.join of each name under the
 // root as the explorer was given it, so the keys are found by listing, not built from the link's spelling.
 import { describe, it, expect } from 'vitest'
-import { folderLinkAction, treeKeysTo } from './folderLink'
+import { folderLinkAction, revealFor, treeKeysTo } from './folderLink'
 
 describe('folderLinkAction', () => {
   it('reveals a folder inside the project in the explorer, by its names under the root', () => {
@@ -22,6 +22,21 @@ describe('folderLinkAction', () => {
     expect(folderLinkAction('D:\\parsingk\\astera\\src', null)).toEqual({ kind: 'system' })
     // case matters on POSIX
     expect(folderLinkAction('/home/me/Proj/docs', '/home/me/proj')).toEqual({ kind: 'system' })
+  })
+})
+
+// Final review I2 of the links slice: a reveal names the root it was made for, and applies to that root only, once. The
+// explorer mounts only while it is shown, so a request left in place was run again at every remount, and on another
+// project's tree whose names happened to match.
+describe('revealFor', () => {
+  const request = { root: 'D:\\projA', segments: ['src', 'core'], seq: 3 }
+  it('gives the names to reveal under the root the request was made for', () => {
+    expect(revealFor(request, 'D:\\projA')).toEqual(['src', 'core'])
+  })
+  it('gives nothing for another root, no root, or no request', () => {
+    expect(revealFor(request, 'D:\\projB')).toBeNull()
+    expect(revealFor(request, null)).toBeNull()
+    expect(revealFor(null, 'D:\\projA')).toBeNull()
   })
 })
 

@@ -21,6 +21,15 @@ describe('the folder link is wired', () => {
     expect(read(path.join(components, 'BottomPanel.tsx'))).toMatch(/onOpenFolder=\{onOpenFolder\}/)
   })
 
+  // Final review I2: the request carries its root and is cleared once the explorer has handled it
+  it('the explorer hands a reveal back once handled, and the App clears it', () => {
+    const explorer = read(path.join(components, 'FileExplorer.tsx'))
+    expect(explorer).toMatch(/revealFor\(revealFolder, root\)/)
+    expect(explorer.match(/onRevealDone\?\.\(revealFolder\.seq\)/g)?.length).toBeGreaterThanOrEqual(2)
+    expect(app).toMatch(/onRevealDone=\{\(seq\) => setExplorerReveal\(\(r\) => \(r !== null && r\.seq === seq \? null : r\)\)\}/)
+    expect(app).toMatch(/root: currentProjectRef\.current/)
+  })
+
   it('the App reveals a folder of its project in the explorer, and opens any other in the file manager', () => {
     expect(app.match(/onOpenFolder=\{openLinkedFolder\}/g)).toHaveLength(2)
     expect(app).toMatch(/revealFolder=\{explorerReveal\}/)
