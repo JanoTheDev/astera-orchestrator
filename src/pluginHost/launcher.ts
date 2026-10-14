@@ -7,8 +7,6 @@ import {
   AsteraError,
   createAsteraClientOver,
   type AsteraClient,
-  type AsteraEvent,
-  type EventGap,
   type ConnectionClientMessage,
   type ConnectionHostMessage,
   type HostConnection
@@ -94,7 +92,8 @@ export function runLauncher(o: {
     onBadMessage: (m) => o.log(`[launcher] ${m}`),
     onRequest: async (method, params) => {
       if (method === 'initialize') return initialize(params)
-      if (method === 'events.deliver') return deliver(params)
+      if (method === 'events.deliver') return handOver('onEvent', 'event', method, params)
+      if (method === 'notifications.send') return handOver('send', 'notification', method, params)
       if (method === 'shutdown') {
         await stop()
         // After the answer is written: the peer writes it as this resolves, before the next turn.
@@ -216,18 +215,20 @@ export function runLauncher(o: {
     return { handlers: HANDLERS.filter((h) => typeof own[h] === 'function') }
   }
 
-  /** One event for onEvent (plugin Phase 3 N5): answered once its promise settles, with its message when it threw.
-   *  The Host logs the failure and hands the event over again. */
-  async function deliver(params: unknown): Promise<unknown> {
+  /** One event for onEvent, or one notification for send (plugin Phase 3 N5): answered once the handler's promise
+   *  settles, with its message when it threw. The Host logs the failure and hands the same one over again. */
+  async function handOver(handler: (typeof HANDLERS)[number], param: string, method: string, params: unknown): Promise<unknown> {
     if (!definition || !context) throw new RpcError(RPC_INTERNAL_ERROR, 'the plugin is not started')
     if (stopping) throw new RpcError(RPC_INTERNAL_ERROR, 'the plugin is stopping')
-    const event = isObject(params) && isObject(params.event) ? params.event : null
-    if (!event) throw new RpcError(RPC_INVALID_PARAMS, 'events.deliver needs { event }')
-    if (typeof definition.onEvent !== 'function') throw new RpcError(RPC_METHOD_NOT_FOUND, 'the plugin has no onEvent')
+    const item = isObject(params) && isObject(params[param]) ? params[param] : null
+    if (!item) throw new RpcError(RPC_INVALID_PARAMS, `${method} needs { ${param} }`)
+    const own = definition as unknown as Record<string, unknown>
+    const fn = own[handler]
+    if (typeof fn !== 'function') throw new RpcError(RPC_METHOD_NOT_FOUND, `the plugin has no ${handler}`)
     try {
-      await definition.onEvent(event as unknown as AsteraEvent | EventGap, context)
+      await (fn as (item: unknown, ctx: PluginContext) => unknown).call(definition, item, context)
     } catch (e) {
-      throw new RpcError(RPC_INTERNAL_ERROR, `onEvent threw: ${messageOf(e)}`)
+      throw new RpcError(RPC_INTERNAL_ERROR, `${handler} threw: ${messageOf(e)}`)
     }
     return {}
   }

@@ -17,6 +17,8 @@ import { SECRET_NAME_MAX, SECRET_VALUE_MAX } from '../../host/plugins/pluginData
 import { PLUGIN_SERVED_CAPABILITIES } from '../../host/plugins/manager'
 import { DELIVERY_GIVE_UP_MS, DELIVERY_LOG_EVERY, DELIVERY_RETRY_MS, DELIVERY_TIMEOUT_MS } from '../../host/plugins/deliverer'
 import { EVENT_RETAIN_EVENTS } from '../../host/eventLog'
+import { NOTIFICATION_KINDS, NOTIFICATION_LEVEL, NOTIFICATION_MAX_AGE_MS, NOTIFICATION_TITLE_MAX, NOTIFICATION_VALUE_MAX } from './notifications'
+import { t, type MessageKey } from '../i18n'
 import { bundleLauncher } from '../../pluginHost/testkit'
 import { createNamespaces } from '../../../packages/client/src/namespaces'
 import { typecheckBlocks } from '../../../packages/client/test/typecheck'
@@ -237,6 +239,53 @@ describe('docs/plugins.md', () => {
     expect(ev).not.toContain('after its install')
     // Final review M10: what the log keeps, tied to the code
     expect(ev).toContain(`up to its most recent ${EVENT_RETAIN_EVENTS} events, fewer`)
+  })
+
+  // Plugin Phase 3 N9-N12: the notification capability as the Host words it
+  it('says how a notification plugin is sent notifications: each kind with its level and its English sentence', () => {
+    const sec = section(guide, '## Notification plugins')
+    const nt = prose(sec)
+    expect(nt).toContain('`send`')
+    expect(nt).toContain('`defineNotificationProvider`')
+    expect(nt).toContain('the language the app is set to')
+    expect(nt).toContain('a kind it does not know')
+    expect(NOTIFICATION_MAX_AGE_MS).toBe(60 * 60_000)
+    expect(nt).toContain('older than an hour')
+    expect(nt).toContain('a line in its log')
+    expect(nt).toContain(`cut at ${NOTIFICATION_VALUE_MAX} characters and a title at ${NOTIFICATION_TITLE_MAX}`)
+    // 3c final review: the title rules as notifications.ts has them (I2), the shared time limit (M1), and that a failed
+    // send hands onEvent the event again (M5)
+    expect(nt).toContain('the first line of its objective that holds something')
+    expect(nt).toContain('else the last part of its folder, else Astera')
+    expect(nt).toContain('`onEvent` and `send` share the 30 seconds')
+    expect(nt).toContain('`onEvent` included')
+    // One row per kind, in NOTIFICATION_KINDS' order, with its level and every sentence it can be
+    const rows = sec.split('\n').filter((l) => /^\| `[a-z_]+\.[a-z_]+` \|/.test(l))
+    expect(rows.map((l) => /^\| `([^`]+)`/.exec(l)![1])).toEqual([...NOTIFICATION_KINDS])
+    const sentences: Record<string, MessageKey[]> = {
+      'question.created': ['pluginNotify.questionCreated'],
+      'session.input_needed': ['pluginNotify.inputNeeded.permission', 'pluginNotify.inputNeeded.question', 'pluginNotify.inputNeeded'],
+      'run.failed': ['pluginNotify.runFailed'],
+      'completion.exhausted': ['pluginNotify.completionExhausted'],
+      'session.limit_waiting': ['pluginNotify.limitWaitingAt', 'pluginNotify.limitWaiting'],
+      'run.completed': ['pluginNotify.runCompleted'],
+      'session.account_switched': ['pluginNotify.accountSwitched']
+    }
+    for (const [i, kind] of NOTIFICATION_KINDS.entries()) {
+      expect(rows[i], kind).toContain(`| \`${NOTIFICATION_LEVEL[kind]}\` |`)
+      for (const key of sentences[kind]) expect(rows[i], key).toContain(t('en', key))
+    }
+    const [fragment] = fenced(sec, 'json')
+    const parsed = parseManifest({ name: 'x', version: '1.0.0', astera: { apiVersion: '1', entry: 'index.js', ...JSON.parse(fragment) } })
+    expect(parsed.ok && parsed.manifest.capabilities).toEqual(['notification'])
+    expect(sec).toContain('](../examples/plugins/discord-notifier)')
+    expect(read('examples/plugins/discord-notifier/README.md')).toContain('docs/plugins.md#notification-plugins)')
+    expect(section(guide, '## Not yet')).not.toContain('`notification`')
+  })
+
+  // The design's note on N2: a session event carries its title and folder, so the grant says so
+  it('says that events.subscribe hands a plugin the titles and folders of sessions', () => {
+    expect(prose(section(guide, '## Permissions'))).toMatch(/`events\.subscribe`[^.]*session[^.]*titles[^.]*folders/)
   })
 
   it('says which Node a plugin runs on, and how to start Node from process.execPath', () => {

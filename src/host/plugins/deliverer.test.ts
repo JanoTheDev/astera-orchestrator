@@ -49,6 +49,8 @@ interface RigOptions {
   running?: boolean
   /** The first delivery finds the plugin's process gone. */
   interruptOnce?: boolean
+  /** Called when the deliverer has caught up. */
+  idle?: () => void
 }
 
 function rig(o: RigOptions = {}) {
@@ -98,7 +100,8 @@ function rig(o: RigOptions = {}) {
       got.push(label)
       return Promise.resolve()
     },
-    log: (m) => logs.push(m)
+    log: (m) => logs.push(m),
+    ...(o.idle ? { idle: o.idle } : {})
   })
   live.push(d)
   return {
@@ -172,7 +175,8 @@ describe('createDeliverer (plugin Phase 3 N6-N9)', () => {
     const r = rig({ stored: ev(0), hang: true })
     await flush()
     await vi.advanceTimersByTimeAsync(DELIVERY_TIMEOUT_MS)
-    expect(r.logs).toEqual([`delivering run.completed ${ev(1)} failed (try 1): onEvent did not finish within 30 s; trying again in 1 s`])
+    // A provider's send runs under the same limit, so the line names neither handler (3c final review M1)
+    expect(r.logs).toEqual([`delivering run.completed ${ev(1)} failed (try 1): the plugin did not finish with it within 30 s; trying again in 1 s`])
     r.settleAll()
     await flush()
     expect(r.store.writes).toEqual([])
@@ -214,6 +218,26 @@ describe('createDeliverer (plugin Phase 3 N6-N9)', () => {
     await flush()
     expect(r.got).toEqual([ev(1)])
     expect(r.logs).toEqual([])
+  })
+
+  // Plugin Phase 3c: where the stale notifications are counted in one line
+  it('says when it has caught up, before it waits for more, and not while events remain', async () => {
+    add(2)
+    let idles = 0
+    const r = rig({ stored: ev(0), slow: true, idle: () => void (idles += 1) })
+    await flush()
+    r.settle()
+    await flush()
+    expect(idles).toBe(0)
+    r.settle()
+    await flush()
+    expect(idles).toBe(1)
+    add(1)
+    await flush()
+    r.settle()
+    await flush()
+    expect(r.got).toEqual([ev(1), ev(2), ev(3)])
+    expect(idles).toBe(2)
   })
 
   // Review Focus 2

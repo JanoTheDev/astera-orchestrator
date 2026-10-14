@@ -521,6 +521,15 @@ describe('with a runtime (plugin runtime design P11)', () => {
     expect(rt.launches[0]).toMatchObject({ capabilities: ['event'], granted: ['events.subscribe'] })
   })
 
+  // Plugin Phase 3c: this Astera runs notification plugins
+  it('starts a notification plugin, with its capability in the launch', async () => {
+    const rt = fakeRuntime()
+    const src = await plugin(FOLDER, { capabilities: ['notification'], permissions: ['events.subscribe'] })
+    await withRuntime(rt).install({ path: src, grant: ['events.subscribe'] })
+    expect(rt.calls).toEqual(['start @acme/astera-jira'])
+    expect(rt.launches[0]).toMatchObject({ capabilities: ['notification'] })
+  })
+
   // Final review M7: an Astera that did not run event plugins (1.4.12, 1.4.13) installed one with any grant
   it('holds back an event plugin whose grant leaves out events.subscribe, and says how to fix it', async () => {
     const rt = fakeRuntime()

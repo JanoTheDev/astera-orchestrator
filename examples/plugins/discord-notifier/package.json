@@ -1,0 +1,32 @@
+{
+  "name": "astera-discord-notifier",
+  "version": "0.1.0",
+  "displayName": "Discord notifier",
+  "description": "Posts Astera's notifications to a Discord channel: questions and sessions waiting for you, failed and finished Runs, usage limits.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "astera": {
+    "apiVersion": "1",
+    "entry": "index.mjs",
+    "capabilities": ["notification"],
+    "permissions": ["events.subscribe"],
+    "settingsSchema": {
+      "type": "object",
+      "properties": {
+        "webhookUrl": {
+          "type": "string",
+          "title": "Webhook URL",
+          "description": "The Discord channel's webhook: Edit Channel, Integrations, Webhooks, Copy Webhook URL.",
+          "secret": true
+        },
+        "skip": {
+          "type": "string",
+          "title": "Kinds to leave out",
+          "description": "Notification kinds not to post, separated by commas: question.created, session.input_needed, run.failed, completion.exhausted, session.limit_waiting, run.completed, session.account_switched.",
+          "default": "session.account_switched"
+        }
+      },
+      "required": ["webhookUrl"]
+    }
+  }
+}

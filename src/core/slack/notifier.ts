@@ -8,6 +8,7 @@
 import { promises as fs } from 'node:fs'
 import type { Account, SessionInfo, RollStateEvent } from '../types'
 import { OutputScanner } from '../rolling/detect'
+import { resumeAtText } from '../notify/resumeAt'
 import { CodexLimitScanner } from '../rolling/codexSignal'
 import { PROVIDER_META, providerOf, type Provider } from '../providers/meta'
 import { parseStatusLinePayload } from '../usage/statusline'
@@ -798,7 +799,7 @@ export class SlackNotifier {
       if (!Number.isFinite(at)) return
       const lang = this.deps.lang()
       const scope = t(lang, weekly ? 'slack.limitScope.weekly' : 'slack.limitScope.session')
-      void this.send(record, t(lang, 'slack.limitWaiting', { at: fmtAt(at, weekly), scope }))
+      void this.send(record, t(lang, 'slack.limitWaiting', { at: resumeAtText(at, weekly), scope }))
     } else if (ev.state === 'switching' && ev.accountLabel && !ev.reattach) {
       // reattach is the re-publish that reattaches the banner to the new sessionId after a respawn — the
       // same switch is not announced twice. (The account in the prefix differs before and after the switch,
@@ -1205,15 +1206,8 @@ export class SlackNotifier {
     await this.send(
       record,
       worst
-        ? t(lang, 'slack.limitNoResumeAt', { at: fmtAt(worst.at, worst.weekly) })
+        ? t(lang, 'slack.limitNoResumeAt', { at: resumeAtText(worst.at, worst.weekly) })
         : t(lang, 'slack.limitNoResume')
     )
   }
-}
-
-/** Formatting for a resume or reset time — HH:MM for the 5-hour window, M/D HH:MM for the weekly one (the same distinction as the TerminalView banner) */
-function fmtAt(atMs: number, weekly: boolean): string {
-  const d = new Date(atMs)
-  const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
-  return weekly ? `${d.getMonth() + 1}/${d.getDate()} ${hm}` : hm
 }

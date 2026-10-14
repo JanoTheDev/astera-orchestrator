@@ -1,8 +1,9 @@
-// Hands a plugin the Host's public events (plugin Phase 3 N1, N6-N9): every event of the log, in order, one at a time,
-// to the `event` capability's onEvent, from a cursor kept for that plugin. A failed delivery is tried again after
-// DELIVERY_RETRY_MS.first, doubling to its max, and given up after DELIVERY_GIVE_UP_MS of failures on one event. The
-// cursor moves when a delivery succeeds or is given up, and is written behind it, one write in flight and the latest
-// waiting: a write lost repeats a delivery, never skips one. Nothing is delivered while the plugin does not run.
+// Hands a plugin the Host's public events (plugin Phase 3 N1, N6-N10): every event of the log, in order, one at a time,
+// to the `event` capability's onEvent and the `notification` capability's send, from a cursor kept for that plugin. A
+// failed delivery is tried again after DELIVERY_RETRY_MS.first, doubling to its max, and given up after
+// DELIVERY_GIVE_UP_MS of failures on one event. The cursor moves when a delivery succeeds or is given up, and is written
+// behind it, one write in flight and the latest waiting: a write lost repeats a delivery, never skips one. Nothing is
+// delivered while the plugin does not run.
 import type { AsteraEvent, EventGap } from '../../core/publicContract'
 import type { RingRead } from '../../core/events/eventRing'
 import { PluginCursorUnreadable, type CursorStore } from './pluginData'
@@ -69,6 +70,9 @@ export function createDeliverer(d: {
   deliver(item: AsteraEvent | EventGap): Promise<void>
   /** A line for the plugin's log. */
   log(m: string): void
+  /** Called each time it has handed over everything the log holds, before it waits for more (plugin Phase 3c: where
+   *  the stale notifications skipped on the way are counted in one line). */
+  idle?(): void
   /** A clock that only goes forward (final review M1): the give-up hour must not move with the time of day. */
   now?: () => number
   timings?: Partial<DeliveryTimings>
@@ -174,7 +178,7 @@ export function createDeliverer(d: {
           if (generation === gen) await idle()
           continue
         }
-        problem = e instanceof TimedOut ? `onEvent did not finish within ${seconds(t.timeoutMs)}` : messageOf(e)
+        problem = e instanceof TimedOut ? `the plugin did not finish with it within ${seconds(t.timeoutMs)}` : messageOf(e)
       }
       tries += 1
       firstFailure ??= now()
@@ -230,6 +234,7 @@ export function createDeliverer(d: {
         if (r.events.length === 0) move(r.cursor)
       }
       if (r.events.length === 0) {
+        d.idle?.()
         await Promise.race([d.source.next(IDLE_WAIT_MS), pause()])
         continue
       }

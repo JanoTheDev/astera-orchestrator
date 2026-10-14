@@ -309,4 +309,47 @@ describe('runLauncher: settings and secrets', () => {
     expect(await l.ask('events.deliver', { event: { type: 'gap' } })).toMatchObject({ error: { message: 'the plugin is stopping' } })
     expect(seen).toEqual([])
   })
+
+  // Plugin Phase 3 N5: the notification capability's handler
+  it('says a provider has send, and hands it a notification with the context, answering once it settled', async () => {
+    const sent: unknown[] = []
+    let ctxSeen: PluginContext | undefined
+    let release: () => void = () => {}
+    const l = launch({
+      default: {
+        async send(n: unknown, ctx: PluginContext) {
+          sent.push(n)
+          ctxSeen = ctx
+          await new Promise<void>((r) => (release = r))
+        }
+      }
+    })
+    expect(await l.ask('initialize', INIT_PARAMS)).toMatchObject({ result: { handlers: ['send'] } })
+    const notification = { id: 'ev_aaaaaaaaaaaa_1', kind: 'run.completed', level: 'info', title: 'Ship', body: 'Run 1 finished.', occurredAt: 'T', event: {} }
+    const answered = l.ask('notifications.send', { notification })
+    await vi.waitFor(() => expect(sent).toEqual([notification]))
+    // Not answered while send has not settled (the initialize was 101, this is 102)
+    expect(l.out.some((m) => m.id === 102)).toBe(false)
+    release()
+    expect(await answered).toMatchObject({ result: {} })
+    expect(ctxSeen?.plugin.id).toBe('astera-hello')
+  })
+
+  it('answers a throwing send with its message, an entry without one, and a request without a notification', async () => {
+    const l = launch({
+      default: {
+        send() {
+          throw new Error('rate limited')
+        }
+      }
+    })
+    await l.ask('initialize', INIT_PARAMS)
+    expect(await l.ask('notifications.send', { notification: { kind: 'run.completed' } })).toMatchObject({ error: { code: -32603, message: 'send threw: rate limited' } })
+    expect(await l.ask('notifications.send', {})).toMatchObject({ error: { code: -32602, message: 'notifications.send needs { notification }' } })
+    const none = launch({ default: { onEvent() {} } })
+    await none.ask('initialize', INIT_PARAMS)
+    expect(await none.ask('notifications.send', { notification: {} })).toMatchObject({ error: { code: -32601, message: 'the plugin has no send' } })
+    const early = launch({ default: { send() {} } })
+    expect(await early.ask('notifications.send', { notification: {} })).toMatchObject({ error: { message: 'the plugin is not started' } })
+  })
 })

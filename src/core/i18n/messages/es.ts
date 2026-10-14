@@ -1628,5 +1628,16 @@ export const es: Catalog = {
   'jobs.changes.reportedNone': 'Los workers no informaron archivos.',
   'jobs.changes.unsupported': 'Este Runtime aún no ofrece los archivos cambiados. Actualiza Astera en ese equipo.',
   'jobs.changes.listCut': 'Demasiados archivos: se muestran {shown} de {total}.',
-  'jobs.changes.moreRows': 'Mostrar {count} líneas más (quedan {left})'
+  'jobs.changes.moreRows': 'Mostrar {count} líneas más (quedan {left})',
+  // A notification plugin's sentences (plugin Phase 3 N10, src/core/plugins/notifications.ts), posted as they are
+  'pluginNotify.questionCreated': 'Esperando una respuesta: {question}',
+  'pluginNotify.inputNeeded.permission': 'Esperando permiso.',
+  'pluginNotify.inputNeeded.question': 'Esperando la respuesta a una pregunta.',
+  'pluginNotify.inputNeeded': 'Esperando una entrada.',
+  'pluginNotify.runFailed': 'El Run {ordinal} falló ({done} de {total} Tasks hechas).',
+  'pluginNotify.completionExhausted': 'Las comprobaciones de finalización de {task} agotaron todas las reparaciones.',
+  'pluginNotify.limitWaitingAt': 'Detenido por un límite de uso; se reintentará a las {time}.',
+  'pluginNotify.limitWaiting': 'Detenido por un límite de uso.',
+  'pluginNotify.runCompleted': 'El Run {ordinal} terminó.',
+  'pluginNotify.accountSwitched': 'Continuando con la cuenta {label}.'
 }

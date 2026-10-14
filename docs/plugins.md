@@ -9,9 +9,9 @@ script running yourself.
 Where it stands:
 
 - A plugin is installed from a folder or from npm, and runs in the background: Astera calls its `activate` and lets it
-  work. An event plugin is also handed each of Astera's events ([Event plugins](#event-plugins)); the other kinds that
-  Astera calls on for something (a source of Jobs, a completion check, notifications) do not run yet
-  ([Not yet](#not-yet)).
+  work. An event plugin is also handed each of Astera's events ([Event plugins](#event-plugins)), and a notification
+  plugin each thing worth telling a person ([Notification plugins](#notification-plugins)); a source of Jobs and a
+  completion check do not run yet ([Not yet](#not-yet)).
 - `@astera-app/plugin-sdk` holds the plugin's types and `definePlugin`. A plugin needs nothing from it to run:
   [the sample](../examples/plugins/webhook-notifier) is plain JavaScript and uses its types for the editor only.
 - The Plugin API is version `1`.
@@ -91,11 +91,11 @@ The manifest is `package.json`: npm's own fields, and an `astera` field for Aste
 | `astera.permissions` | What it asks Astera for ([Permissions](#permissions)). A person may grant fewer. |
 | `astera.settingsSchema` | Optional. The settings a person gives it ([Settings and secrets](#settings-and-secrets)). |
 | `astera.minAsteraVersion` | Optional. The oldest Astera it runs on; an older one installs it and does not run it. |
-| `astera.capabilities` | Optional. `["event"]` for a plugin Astera hands its events ([Event plugins](#event-plugins)); the other capabilities do not run yet ([Not yet](#not-yet)). |
+| `astera.capabilities` | Optional. `["event"]` for a plugin Astera hands its events ([Event plugins](#event-plugins)), `["notification"]` for one it sends notifications ([Notification plugins](#notification-plugins)); the other capabilities do not run yet ([Not yet](#not-yet)). |
 
 The entry's default export is the plugin: an object with an `activate` and, if it needs one, a `deactivate` (and an
-`onEvent` for an event plugin). A CommonJS entry sets `module.exports` to it. `definePlugin` from the SDK returns the
-object it is given, so a plain object is the same plugin.
+`onEvent` for an event plugin, a `send` for a notification plugin). A CommonJS entry sets `module.exports` to it.
+`definePlugin` from the SDK returns the object it is given, so a plain object is the same plugin.
 
 ## Permissions
 
@@ -124,6 +124,8 @@ own request receipts.
 
 `jobs.create` given a `projectId`, and `jobs.list` filtered by one, read that project first, so they need
 `projects.read` too.
+`events.subscribe` hands a plugin every event, session events included, and with them the titles and folders of your
+sessions and the text of the questions agents ask: grant it to a plugin you would show those to.
 Ask for what the plugin needs and no more: a person sees the list before installing, and may uncheck any of it.
 `ctx.permissions` is what was granted, so a plugin can leave out what it was not given rather than fail at it.
 
@@ -214,6 +216,63 @@ export default {
 
 `ctx.astera.events.subscribe` inside `activate` still works, as [TypeScript, and bundling](#typescript-and-bundling)
 shows; it starts from the moment it subscribes, and keeps no place across a stop.
+
+## Notification plugins
+
+A plugin that names the `notification` capability is sent, in its `send`, each thing worth telling a person: already
+worded by Astera, in the language the app is set to, so a notifier posts the title and the body as they are. Its
+notifications come from Astera's events, so it asks for `events.subscribe` as an event plugin does:
+
+```json
+{
+  "capabilities": ["notification"],
+  "permissions": ["events.subscribe"]
+}
+```
+
+```ts
+import { defineNotificationProvider } from '@astera-app/plugin-sdk'
+
+export default defineNotificationProvider({
+  async send(notification, ctx) {
+    // Posted as it is: a kind this plugin does not know reads the same way
+    ctx.log.info(`[${notification.level}] ${notification.title}: ${notification.body}`)
+  }
+})
+```
+
+`defineNotificationProvider` returns the provider it is given, as `definePlugin` does. A notification is
+`{ id, kind, level, title, body, occurredAt, event }`: `id` is its event's id, `kind` its event's type, and `event`
+the whole event, for its ids and detail. There are seven kinds (`NOTIFICATION_KINDS` in the SDK), with their English
+sentences:
+
+| `kind` | `level` | `title` | `body` |
+|---|---|---|---|
+| `question.created` | `action` | the Job's objective | Waiting for an answer: {question} |
+| `session.input_needed` | `action` | the session's title | Waiting for permission. / Waiting for an answer to a question. / Waiting for input. |
+| `run.failed` | `error` | the Job's objective | Run {ordinal} failed ({done} of {total} Tasks done). |
+| `completion.exhausted` | `error` | the Job's objective | The completion checks of {task} used every repair. |
+| `session.limit_waiting` | `warning` | the session's title | Stopped at a usage limit; trying again at {time}. / Stopped at a usage limit. |
+| `run.completed` | `info` | the Job's objective | Run {ordinal} finished. |
+| `session.account_switched` | `info` | the session's title | Continuing on the {label} account. |
+
+- **Titles.** A Job's is the first line of its objective that holds something, as it stands when the notification is
+  made, or the Job's id once the Job is gone; a session's is its title, else the last part of its folder, else Astera.
+  A value set into a sentence is cut at 500 characters and a title at 120, with `…`.
+- **Every kind is sent.** Choosing what to hear is the plugin's: offer a setting for the kinds it leaves out, as the
+  Discord sample's `skip` does. A later Astera may send a kind this list does not name yet: post a kind it does not
+  know by its title and body.
+- **Delivered as events are.** From where it left off, one at a time, and sent again when `send` throws, rejects or
+  has not settled within 30 seconds ([Event plugins](#event-plugins)). A plugin that names both capabilities gets
+  `onEvent`, then `send`, for each event: `onEvent` and `send` share the 30 seconds, and when `send` fails the whole
+  event is handed over again, `onEvent` included.
+- **Not stale.** A notification older than an hour when its turn comes is not sent: a notifier enabled the morning
+  after does not post last night's prompts. Its log counts the ones skipped, in one line.
+- **A gap** (events lost before the next one) sends nothing: a line in its log says so.
+- **No link, and no focus rule.** A notification carries no link into the app, and it is sent even for the session
+  you are looking at: Astera does not know what is on your screen, and a channel is for when you are away.
+
+[The Discord sample](../examples/plugins/discord-notifier) posts each notification as an embed coloured by its level.
 
 ## Logs
 
@@ -438,7 +497,7 @@ install Node.js, or install from a folder. [The `astera` command](cli.md#plugins
 
 ## Not yet
 
-- The other plugins that Astera calls on for something: the `job-source`, `completion-check` and `notification`
-  capabilities. A plugin that names one installs, and does not run until an Astera that runs that kind.
+- The other plugins that Astera calls on for something: the `job-source` and `completion-check` capabilities. A
+  plugin that names one installs, and does not run until an Astera that runs that kind.
 - The `github` and `how-it-works` commands for plugins, which their permissions are already named for.
 - A folder for each plugin's own data, and a development mode that reloads a plugin as you edit it.
