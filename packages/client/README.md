@@ -143,4 +143,4 @@ for await (const e of astera.events.subscribe({ types: ['run.completed', 'run.fa
 
 It is versioned apart from the Astera app, and 0.x, so a minor version may still change names:
 [CHANGELOG.md](https://github.com/parsingk/Astera/blob/main/packages/client/CHANGELOG.md) says what each version
-changed. It needs Astera 1.4.12 or later.
+changed. It needs Astera 1.4.12 or later, and 1.4.13 for the session events.
