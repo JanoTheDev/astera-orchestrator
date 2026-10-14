@@ -30,7 +30,8 @@ export function TerminalBody({
   active,
   cwd,
   onOpenUrl,
-  onOpenFile
+  onOpenFile,
+  onOpenFolder
 }: {
   id: string
   initialBuffer?: string
@@ -42,6 +43,8 @@ export function TerminalBody({
   onOpenUrl: (url: string, ev: MouseEvent) => void
   /** A path link was activated — the path main resolved, and the line/column the output named */
   onOpenFile: (path: string, at: { line?: number; col?: number }) => void
+  /** A folder link's click (D2, 2026-10-14), as in a session terminal. */
+  onOpenFolder?: (path: string) => void
 }): React.JSX.Element {
   const { family } = useTerminalFont()
   const { theme } = useTheme()
@@ -52,6 +55,8 @@ export function TerminalBody({
   onOpenUrlRef.current = onOpenUrl
   const onOpenFileRef = useRef(onOpenFile)
   onOpenFileRef.current = onOpenFile
+  const onOpenFolderRef = useRef(onOpenFolder)
+  onOpenFolderRef.current = onOpenFolder
   // Read through a ref by the link provider, which the construction effect builds once per id
   const cwdRef = useRef(cwd)
   cwdRef.current = cwd
@@ -77,9 +82,9 @@ export function TerminalBody({
     // rule as a session terminal (TerminalView), with the same blind spot after a `cd`
     const disposeLinks = attachConsoleLinks(term, {
       onUrl: (url, ev) => onOpenUrlRef.current(url, ev),
-      resolvePath: (target) =>
-        window.api.files.resolveLink(cwdRef.current ?? '', target).then((r) => r?.path ?? null, () => null),
-      onOpenFile: (path, at) => onOpenFileRef.current(path, at)
+      resolvePath: (target) => window.api.files.resolveLink(cwdRef.current ?? '', target, undefined, { dirs: true }).catch(() => null),
+      onOpenFile: (path, at) => onOpenFileRef.current(path, at),
+      onOpenFolder: (path) => onOpenFolderRef.current?.(path)
     })
     fit.fit()
     termRef.current = term

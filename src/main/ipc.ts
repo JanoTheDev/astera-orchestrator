@@ -263,7 +263,7 @@ import { listDotnetProjects } from './dotnetScanner'
 import { loadRunConfigs, prepareLaunch } from '../core/run/prepare'
 import { allowingJobCwds, orchRunConfigOf } from '../core/run/runConfigsFile'
 import { executeLaunch } from './run/launch'
-import { agentDirOf, resolveConsolePath, resolveExistingFile } from './run/resolveLink'
+import { agentDirOf, folderToOpen, resolveConsolePath, resolveExistingPath } from './run/resolveLink'
 import { mediaAllowlist } from './media/allowlist'
 import { admitProjectMedia } from './media/admit'
 import { mediaKindOf } from '../core/files/media'
@@ -5243,16 +5243,27 @@ export function registerIpc(
   // The id is checked for shape before it is joined into a file name.
   // A session id as this app makes them (randomUUID), checked before it becomes part of a file name
   const SESSION_ID_SHAPE = /^[A-Za-z0-9_-]{1,128}$/
-  ipcMain.handle('files.resolveLink', async (_e, cwd: unknown, target: unknown, sessionId?: unknown) => {
+  // `opts.dirs` (a terminal that opens folders, D2 2026-10-14) answers a folder too, as `{ path, dir: true }`; the
+  // SendUserFile row asks without it and keeps files only.
+  ipcMain.handle('files.resolveLink', async (_e, cwd: unknown, target: unknown, sessionId?: unknown, opts?: unknown) => {
     if (typeof cwd !== 'string' || typeof target !== 'string') return null
     const currentDir =
       typeof sessionId === 'string' && SESSION_ID_SHAPE.test(sessionId) && !path.isAbsolute(target)
         ? agentDirOf(await core.statusLinePayload(sessionId))
         : null
-    const p = await resolveExistingFile({ cwd, currentDir, target, stat: (f) => fs.stat(f) })
-    if (!p) return null
-    if (mediaKindOf(p)) mediaAllowlist.add(p)
-    return { path: p }
+    const dirs = typeof opts === 'object' && opts !== null && (opts as { dirs?: unknown }).dirs === true
+    const found = await resolveExistingPath({ cwd, currentDir, target, stat: (f) => fs.stat(f), dirs })
+    if (!found) return null
+    if (!found.dir && mediaKindOf(found.path)) mediaAllowlist.add(found.path)
+    return found
+  })
+  // A folder a terminal link named, outside the current project, opened in the system file manager (D2): only a path
+  // that is a directory now (folderToOpen), never a file, which shell.openPath would run.
+  ipcMain.handle('files.openFolder', async (_e, p: unknown) => {
+    const folder = await folderToOpen(p, (f) => fs.stat(f))
+    if (folder === null) throw new Error(t(core.lang, 'files.openFolder.notFolder'))
+    const err = await shell.openPath(folder)
+    if (err) throw new Error(err)
   })
   // An image or a video the explorer or a Markdown preview opens (App's openProjectFile): admitted to the media
   // allowlist through the project guard, so a project on a share or in \\wsl$ opens its images too and nothing outside

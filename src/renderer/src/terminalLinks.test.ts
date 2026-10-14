@@ -12,6 +12,20 @@ describe('cachedResolver', () => {
 
   // An agent prints the output path in its tool call before the file is written; the first hover
   // misses. A miss kept forever meant that path never became a link for the terminal's life.
+  // D4 (2026-10-14): a file that is not there yet is asked again after 2 s, not 5
+  it('remembers a miss for 2 s by default', async () => {
+    let t = 0
+    const resolve = vi.fn(async () => null)
+    const r = cachedResolver(resolve, () => t)
+    await r('a.txt')
+    t = 1_999
+    await r('a.txt')
+    expect(resolve).toHaveBeenCalledTimes(1)
+    t = 2_001
+    await r('a.txt')
+    expect(resolve).toHaveBeenCalledTimes(2)
+  })
+
   it('a miss is remembered only briefly, then asked again', async () => {
     let now = 0
     const resolve = vi.fn(async (): Promise<string | null> => null)
@@ -241,6 +255,69 @@ describe('attachConsoleLinks with a word glued to a path', () => {
     const PATH = 'C:\\Users\\anipen\\terraluen-review\\concept_vs_app.png'
     const s = setup(['  ' + PATH.slice(0, 28), '  ' + PATH.slice(28) + '입니다.'], [PATH], 30)
     expect((await s.links(2))?.map((l) => [l.text, l.range])).toEqual([[PATH, { start: { x: 3, y: 1 }, end: { x: 2 + PATH.length - 28, y: 2 } }]])
+  })
+})
+
+// The 2026-10-14 investigation: readings that start inside a token, quoted paths with spaces, and folders.
+describe('attachConsoleLinks with several readings, quotes and folders', () => {
+  type Link = { text: string; range: unknown; activate: (e: unknown, t: string) => void }
+  const setup = (line: string, answers: Record<string, string | { path: string; dir: true }>, withFolders = true) => {
+    const f = fakeTerm([line], 80)
+    const files: string[] = []
+    const folders: string[] = []
+    attachConsoleLinks(f.term as never, {
+      onUrl: () => {},
+      resolvePath: async (target) => answers[target] ?? null,
+      onOpenFile: (p) => files.push(p),
+      ...(withFolders ? { onOpenFolder: (p: string) => folders.push(p) } : {})
+    })
+    return { links: () => f.links(1) as Promise<Link[] | undefined>, files, folders }
+  }
+
+  it('links the path inside a markdown image over its own cells', async () => {
+    const line = '![C6-1a 스틸](D:\\a\\b.png)'
+    const s = setup(line, { 'D:\\a\\b.png': '/abs/b.png' })
+    const at = line.indexOf('D:')
+    expect((await s.links())?.map((l) => [l.text, l.range])).toEqual([['D:\\a\\b.png', { start: { x: at + 1, y: 1 }, end: { x: at + 10, y: 1 } }]])
+  })
+
+  // Review Focus 3: two links over the same cells reach xterm as one, the longest
+  it('keeps one link, the longest, where a quoted path and a word inside it both resolve', async () => {
+    const s = setup('"C:\\Program Files\\a.txt"', { 'C:\\Program Files\\a.txt': '/pf/a.txt', 'Files\\a.txt': '/cwd/Files/a.txt' })
+    expect((await s.links())?.map((l) => l.text)).toEqual(['C:\\Program Files\\a.txt'])
+  })
+
+  it('links a folder to the folder opener', async () => {
+    const s = setup('읽어 보세요: C:\\a\\specs\\에 있습니다', { 'C:\\a\\specs\\': { path: 'C:\\a\\specs', dir: true } })
+    const got = await s.links()
+    expect(got?.map((l) => l.text)).toEqual(['C:\\a\\specs\\'])
+    got![0].activate(undefined, got![0].text)
+    expect([s.folders, s.files]).toEqual([['C:\\a\\specs'], []])
+  })
+
+  // Final review I1: a TUI-cut path whose first row's word is a folder is still linked whole across the rows; only a
+  // first row that names a FILE by itself keeps its own link (final review I2 of the cut-path work)
+  it('links a cut path whole when its first row names a folder', async () => {
+    const FULL = 'C:\\Users\\anipen\\review\\a.png'
+    const f = fakeTerm(['  C:\\Users\\anipen\\', '  review\\a.png'], 20)
+    attachConsoleLinks(f.term as never, {
+      onUrl: () => {},
+      resolvePath: async (t) => (t === FULL ? FULL : t === 'C:\\Users\\anipen\\' ? { path: 'C:\\Users\\anipen', dir: true } : null),
+      onOpenFile: () => {},
+      onOpenFolder: () => {}
+    })
+    for (const y of [1, 2]) expect((await f.links(y))?.map((l) => l.text), String(y)).toEqual([FULL])
+  })
+
+  // Final review I3: an unmarked late link (a media name not found yet) never hides a link that resolved
+  it('keeps the links that resolved over a longer late link around them', async () => {
+    const s = setup('"/tmp/a.png is done, see /tmp/b.png"', { '/tmp/a.png': '/tmp/a.png', '/tmp/b.png': '/tmp/b.png' })
+    expect((await s.links())?.map((l) => l.text)).toEqual(['/tmp/a.png', '/tmp/b.png'])
+  })
+
+  it('gives no link to a folder when nothing opens folders', async () => {
+    const s = setup('C:\\a\\specs\\', { 'C:\\a\\specs\\': { path: 'C:\\a\\specs', dir: true } }, false)
+    expect(await s.links()).toBeUndefined()
   })
 })
 

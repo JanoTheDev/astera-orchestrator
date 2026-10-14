@@ -1135,6 +1135,7 @@ export const ja: Catalog = {
   'media.action.openExternal': '既定のアプリで開く',
   'media.action.reveal': 'フォルダーで表示',
   'media.error.cannotOpen': 'ファイルを開けません',
+  'files.openFolder.notFolder': 'そのフォルダーはもうありません',
   'conversation.sentFile.open': '{name} を開く',
   // ---- preview ----
   'preview.tab.untitled': 'プレビュー',

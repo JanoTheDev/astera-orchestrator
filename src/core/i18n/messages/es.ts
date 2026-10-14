@@ -1149,6 +1149,7 @@ export const es: Catalog = {
   'media.action.openExternal': 'Abrir con la app predeterminada',
   'media.action.reveal': 'Mostrar en la carpeta',
   'media.error.cannotOpen': 'No se puede abrir el archivo',
+  'files.openFolder.notFolder': 'Esa carpeta ya no existe',
   'conversation.sentFile.open': 'Abrir {name}',
   // ---- preview ----
   'preview.tab.untitled': 'Vista previa',
