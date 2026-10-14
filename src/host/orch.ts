@@ -528,6 +528,8 @@ export function createHostOrch(a: {
   /** GitHub through the Host's gh (MCP P2-B), passed through to `hostOrchDeps`. Absent: the `github-*`
    *  commands answer 409. */
   github?: OrchServerDeps['github']
+  /** This Host's job-source plugins (plugin Phase 4 J10), from its plugin manager and runtime (host/jobSources.ts). */
+  jobSources?: OrchServerDeps['jobSources']
   /** How It Works records (MCP P2-C), passed through to `hostOrchDeps`. Absent: the `understanding-*`
    *  commands answer 409. */
   readUnderstanding?: OrchServerDeps['readUnderstanding']
@@ -794,6 +796,7 @@ export function createHostOrch(a: {
       ...(a.github ? { github: a.github } : {}),
       ...(a.readUnderstanding ? { readUnderstanding: a.readUnderstanding } : {}),
       ...(a.changes ? { changes: a.changes } : {}),
+      ...(a.jobSources ? { jobSources: a.jobSources } : {}),
       workUnits: a.workUnits?.() ?? null,
       ...(a.journal ? { journalTimeline: (runId: string, st: OrchState) => a.journal!.timeline(runId, st) } : {}),
       onEffect: () => {

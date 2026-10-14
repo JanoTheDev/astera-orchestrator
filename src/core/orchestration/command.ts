@@ -122,6 +122,8 @@ import { isOverrideCompletion, policyOf } from './convergence'
 import { leftNothingBehind } from '../host/orchProtocol'
 import { APP_CALLER, HOST_CALLER } from '../host/driver'
 import { UNREADABLE, recordDetail, recordSummary, recordsFor, type StoreShape } from '../understanding/read'
+import { JOB_SOURCE, SOURCE_COMMANDS, sourcesCommand, type JobSourcesDeps } from './commandSources'
+export { JOB_SOURCE } from './commandSources'
 
 /** One row of `listAccounts`. Named only because the declaration below is a union and repeating the
  *  shape on both sides invites the two halves to drift. */
@@ -636,6 +638,9 @@ export interface OrchServerDeps {
    *  never written (`readUnderstandingFile`). **Only the Host injects it**, over its profile's file: the
    *  app has the records in its own store and no caller asks it. Absent, `understanding-*` answer 409. */
   readUnderstanding?(): Promise<StoreShape>
+  /** The job-source plugins (plugin Phase 4 J10): which there are and a question to one. **Only the Host injects it**,
+   *  from its plugin manager and runtime; absent, the sources are GitHub's alone. */
+  jobSources?: JobSourcesDeps
 }
 
 /** A chat session's turn as `chatTurn` reads it. `prompt` is the open prompt, as `chats pending` lists
@@ -1158,10 +1163,6 @@ function parseAccountList(
   return { ok: true, ids: parts }
 }
 
-/** The key the Host gives `jobs-create` (and `run-create`) the job source's item under (plugin Phase 4 J15). A symbol:
- *  no JSON a caller sends can hold one, so only `jobs-create-from-source`, inside this process, sets a Job's source. */
-export const JOB_SOURCE: unique symbol = Symbol('job-source')
-
 /** The source `args` carry under JOB_SOURCE, when they carry one whole. */
 const jobSourceOf = (args: Record<string, unknown>): JobSourceRef | undefined => {
   const v = (args as Record<PropertyKey, unknown>)[JOB_SOURCE]
@@ -1179,6 +1180,8 @@ export async function handleCommand(
   cmd: string,
   args: Record<string, unknown>
 ): Promise<Reply> {
+  // The job-source commands (plugin Phase 4), in a module of their own; jobs-create-from-source comes back here
+  if (SOURCE_COMMANDS.has(cmd)) return sourcesCommand(deps, caller, cmd, args, handleCommand)
   if (cmd === 'browser-js') {
     // The browser has its own toggle and needs none of the orchestration state below.
     // **이 await 는 상태를 읽기 전이다.** 이 분기는 handleCommand 의 첫 문장이고, 위에는 읽은
