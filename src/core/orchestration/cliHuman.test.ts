@@ -118,16 +118,22 @@ describe('humanFor', () => {
       .toBe('p1  astera  D:/a')
   })
 
-  it('plugins list puts the status first in capitals, then the id, the version and what was granted', () => {
+  // Plugin Phase 5 C6: what each plugin offers, so a person finds the plugin:<id> a Task's checks can name
+  it('plugins list puts the status first in capitals, then the id, the version, what was granted and what it offers', () => {
     expect(
       humanFor('plugins-list', {
         plugins: [
-          { id: '@acme/astera-jira', version: '1.0.0', status: 'stopped', permissions: ['jobs.read', 'jobs.create'] },
-          { id: 'astera-hello', version: '0.1.0', status: 'incompatible', permissions: [], reason: 'this Astera does not run event plugins yet' }
+          { id: '@acme/astera-jira', version: '1.0.0', status: 'stopped', permissions: ['jobs.read', 'jobs.create'], capabilities: ['completion-check'] },
+          { id: 'astera-hello', version: '0.1.0', status: 'incompatible', permissions: [], capabilities: ['event', 'job-source'], reason: 'this Astera does not run event plugins yet' },
+          { id: 'astera-plain', version: '0.1.0', status: 'running', permissions: [] }
         ]
       })
     ).toBe(
-      'STOPPED       @acme/astera-jira  1.0.0  jobs.read,jobs.create\nINCOMPATIBLE  astera-hello       0.1.0  -  this Astera does not run event plugins yet'
+      [
+        'STOPPED       @acme/astera-jira  1.0.0  jobs.read,jobs.create  completion-check',
+        `INCOMPATIBLE  astera-hello       0.1.0  -${' '.repeat(22)}event,job-source  this Astera does not run event plugins yet`,
+        `RUNNING       astera-plain       0.1.0  -${' '.repeat(22)}-`
+      ].join('\n')
     )
   })
 
@@ -389,6 +395,63 @@ describe('humanFor', () => {
       ].join('\n')
     )
     expect(humanFor('runs-checks', { runId: 'run_1', tasks: [] })).toBe('(no tasks in run_1)')
+  })
+
+  // Plugin Phase 5 C13: a plugin check's findings under its row, its link, one that could not run said so, and one a
+  // person skipped. Every line a plugin wrote is one line here (Review Focus 5).
+  it('runs checks 는 플러그인 검사의 지적 다섯 개와 링크, 할 수 없었던 검사와 건너뛴 검사를 줄 아래에 둔다', () => {
+    const found = Array.from({ length: 7 }, (_, i) => ({ file: 'src/a.js', line: i + 1, message: i === 0 ? 'adds\nconsole.log' : 'adds TODO' }))
+    const d = { configId: 'plugin:x', name: 'Debug leftovers' }
+    expect(
+      humanFor('runs-checks', {
+        runId: 'run_1',
+        tasks: [
+          {
+            id: 't1',
+            title: 'login',
+            status: 'failed',
+            validation: {
+              status: 'failed',
+              checks: [{ ...d, status: 'failed', summary: '7 debug leftovers in 1 file', diagnostics: found, externalUrl: 'https://ci.example/1' }]
+            },
+            review: { status: 'not-required' },
+            failureSummary: 'Debug leftovers failed: 7 debug leftovers in 1 file'
+          },
+          {
+            id: 't2',
+            title: 'docs',
+            status: 'blocked',
+            validation: { status: 'pending', checks: [{ configId: 'npm-test', name: 'test', status: 'passed' }, { ...d, status: 'error', summary: 'git diff: fatal:\nnot a git repository' }] },
+            review: { status: 'not-required' },
+            failureSummary: null
+          },
+          {
+            id: 't3',
+            title: 'api',
+            status: 'completed',
+            validation: { status: 'passed', checks: [{ ...d, status: 'not-run', skipped: true, summary: 'Skipped by a person: git is missing' }] },
+            review: { status: 'not-required' },
+            failureSummary: null
+          }
+        ]
+      })
+    ).toBe(
+      [
+        'FAILED     t1  validation failed   review not-required  login',
+        '  Debug leftovers failed: 7 debug leftovers in 1 file',
+        '    src/a.js:1 adds console.log',
+        '    src/a.js:2 adds TODO',
+        '    src/a.js:3 adds TODO',
+        '    src/a.js:4 adds TODO',
+        '    src/a.js:5 adds TODO',
+        '    … and 2 more',
+        '    Details: https://ci.example/1',
+        'BLOCKED    t2  validation pending  review not-required  docs',
+        '  Debug leftovers could not run: git diff: fatal: not a git repository',
+        'COMPLETED  t3  validation passed   review not-required  api',
+        '  Debug leftovers: Skipped by a person: git is missing'
+      ].join('\n')
+    )
   })
 
   // The last line of a follow that ended well. The other endings are errors and print as one (run.ts).

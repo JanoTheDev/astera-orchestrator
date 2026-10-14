@@ -125,6 +125,10 @@ export function skippedResult(c: CheckResult): CheckResult {
   }
 }
 
+/** A plugin's text on one line, for a place that promises one (`failureSummary`, a row of `runs checks --human`): its
+ *  line breaks, with the spaces around them, become one space. */
+export const oneLine = (text: string): string => text.replace(/\s*[\r\n]+\s*/g, ' ').trim()
+
 /** One finding as a repair request names it: `file:line message`, a warning said as one. */
 export function diagnosticLine(d: CheckDiagnostic): string {
   const where = d.file === undefined ? '' : `${d.file}${d.line !== undefined ? `:${d.line}` : ''} `

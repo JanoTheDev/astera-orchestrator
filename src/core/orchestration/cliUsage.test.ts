@@ -619,3 +619,14 @@ describe('docs/cli.md — Job sources', () => {
     }
   })
 })
+
+// Plugin Phase 5 C6, C13: the usage says a check list takes plugin:<id>, and what a plugin's check carries
+describe('cliUsage — completion check plugins', () => {
+  it('names plugin:<id> beside the run configurations, and the fields a plugin check carries', () => {
+    const validate = (USAGE['tasks-add'].flags ?? []).find((f) => f.name === 'validate')?.about ?? ''
+    expect(validate).toContain('`plugin:<id>`')
+    expect(validate).toContain('`plugins list`')
+    const detail = USAGE['runs-checks'].detail ?? ''
+    for (const f of ['`plugin:<id>`', '`summary`', '`diagnostics`', '`externalUrl`', '`error`']) expect(detail, f).toContain(f)
+  })
+})

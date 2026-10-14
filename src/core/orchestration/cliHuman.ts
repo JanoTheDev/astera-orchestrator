@@ -7,7 +7,8 @@
 // 너비가 바뀌는 것이 정상이다. 기계가 읽을 것은 `--json` 의 봉투다.
 
 import { jobNameOf } from './jobName'
-import type { JobSourceRef } from './types'
+import { diagnosticLine, oneLine } from './pluginChecks'
+import type { CheckResult, JobSourceRef } from './types'
 
 /** 상태 한 낱말. **파생값과 플래그를 한 낱말로 접는다** — 사람이 목록에서 훑는 것이 이것이고,
  *  훑으려면 한 칸에 있어야 한다.
@@ -156,6 +157,29 @@ export function jsonSafe(json: string): string {
   return json.replace(/[\u007f-\u009f]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`)
 }
 
+/** How many of a failed plugin check's findings `runs checks --human` shows under its row; JSON has them all. */
+export const HUMAN_DIAGNOSTICS = 5
+
+/** The lines a Task's plugin checks add under its `runs checks` row (plugin Phase 5 C13): a failed one's first findings
+ *  and its link (its summary is the failure summary's), one that could not run and why, one a person skipped. A
+ *  command check has no summary and adds nothing: its failure summary says it all. */
+function pluginCheckLines(validation: unknown): string[] {
+  const checks = validation !== null && typeof validation === 'object' ? (validation as { checks?: unknown }).checks : undefined
+  if (!Array.isArray(checks)) return []
+  return (checks as CheckResult[]).flatMap((c): string[] => {
+    if (typeof c.summary !== 'string') return []
+    if (c.skipped === true) return [`  ${str(c.name)}: ${oneLine(c.summary)}`]
+    if (c.status === 'error') return [`  ${str(c.name)} could not run: ${oneLine(c.summary)}`]
+    if (c.status !== 'failed') return []
+    const found = Array.isArray(c.diagnostics) ? c.diagnostics : []
+    return [
+      ...found.slice(0, HUMAN_DIAGNOSTICS).map((d) => `    ${oneLine(diagnosticLine(d))}`),
+      ...(found.length > HUMAN_DIAGNOSTICS ? [`    … and ${found.length - HUMAN_DIAGNOSTICS} more`] : []),
+      ...(typeof c.externalUrl === 'string' ? [`    Details: ${c.externalUrl}`] : [])
+    ]
+  })
+}
+
 export function humanFor(cmd: string, data: Record<string, unknown>): string | null {
   switch (cmd) {
     case 'plugins-logs': {
@@ -194,7 +218,15 @@ export function humanFor(cmd: string, data: Record<string, unknown>): string | n
       return columns(
         asList(data, 'plugins').map((p) => {
           const granted = Array.isArray(p.permissions) ? (p.permissions as unknown[]).map(str) : []
-          const row = [str(p.status).toUpperCase(), str(p.id), str(p.version), granted.length > 0 ? granted.join(',') : '-']
+          // What it offers, so a person finds the plugin:<id> a Task's checks can name (plugin Phase 5 C6)
+          const offers = Array.isArray(p.capabilities) ? (p.capabilities as unknown[]).map(str) : []
+          const row = [
+            str(p.status).toUpperCase(),
+            str(p.id),
+            str(p.version),
+            granted.length > 0 ? granted.join(',') : '-',
+            offers.length > 0 ? offers.join(',') : '-'
+          ]
           // Why it does not run, as docs/cli.md promises the list says.
           return typeof p.reason === 'string' ? [...row, p.reason] : row
         })
@@ -278,7 +310,11 @@ export function humanFor(cmd: string, data: Record<string, unknown>): string | n
         ])
       ).split('\n')
       return tasks
-        .flatMap((t, i) => [table[i], ...(typeof t.failureSummary === 'string' ? [`  ${t.failureSummary}`] : [])])
+        .flatMap((t, i) => [
+          table[i],
+          ...(typeof t.failureSummary === 'string' ? [`  ${t.failureSummary}`] : []),
+          ...pluginCheckLines(t.validation)
+        ])
         .join('\n')
     }
     case 'questions-list':

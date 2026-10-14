@@ -43,6 +43,13 @@ describe('a plugin check in the completion read model (plugin Phase 5 C12, C13)'
     expect(failedChecksSummary([check({ configId: 'plugin:d', name: 'D', status: 'failed', summary: '2 leftovers' })])).toBe('D failed: 2 leftovers')
     expect(failedChecksSummary([check({ configId: 'plugin:d', name: 'D', status: 'error', summary: 'down' })])).toBeNull()
   })
+
+  // Plugin Phase 5b Review Focus 5: the failure summary is one line, whatever line breaks a plugin's summary holds
+  it('makes a plugin summary’s line breaks one space', () => {
+    expect(failedChecksSummary([check({ configId: 'plugin:d', name: 'D', status: 'failed', summary: '3 leftovers\n  in 2 files\r\n' })])).toBe(
+      'D failed: 3 leftovers in 2 files'
+    )
+  })
 })
 
 describe('completionDetailOf', () => {

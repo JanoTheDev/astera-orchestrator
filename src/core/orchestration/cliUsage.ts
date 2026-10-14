@@ -379,7 +379,7 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
   'runs-checks': {
     summary: "each task's validation and review, and what they came to",
     detail:
-      'One row per task of the run: `validation` (the run configurations it must pass, the last round of checks, each with its status, exit code and output tail) and `review` (whether one was asked for, and the verdict of the last reviewer that gave one, with its findings). Each has a `status`: not-required, pending, running, passed or failed. `failureSummary` says in one line what failed, validation first. It reads what the checks already recorded and runs nothing.',
+      'One row per task of the run: `validation` (the run configurations it must pass, the last round of checks, each with its status, exit code and output tail) and `review` (whether one was asked for, and the verdict of the last reviewer that gave one, with its findings). Each has a `status`: not-required, pending, running, passed or failed. `failureSummary` says in one line what failed, validation first. A plugin check (`plugin:<id>`) carries its `summary`, `diagnostics` and `externalUrl`; its status `error` means it could not be made, and the task waits on a question. It reads what the checks already recorded and runs nothing.',
     flags: [ID('<runId>', 'the run whose checks to read')]
   },
 
@@ -420,7 +420,8 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       {
         name: 'validate',
         value: '<configId,…>',
-        about: 'run configurations that must pass before it counts as done (from `run-configs list`)'
+        about:
+          'run configurations that must pass before it counts as done (from `run-configs list`), or `plugin:<id>` for a completion check plugin (from `plugins list`)'
       },
       { name: 'review', about: 'have the result reviewed before it counts as done' }
     ]

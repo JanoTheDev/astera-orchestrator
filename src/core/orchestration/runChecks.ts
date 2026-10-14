@@ -67,13 +67,15 @@ const firstLine = (text: string | undefined): string | null => {
 function validationOf(task: Task): TaskValidation {
   const checks = task.checks ?? []
   const required = checkConfigIdsOf(task).length > 0 || checks.length > 0
+  // A check a person let the round go on without counts as passing; one that could not be made gives no verdict, so
+  // the round stays pending while its question is open (plugin Phase 5 C9)
   const status: CheckStanding = !required
     ? 'not-required'
     : task.status === 'validating'
       ? 'running'
       : checks.some(checkFailed)
         ? 'failed'
-        : checks.length > 0 && checks.every((c) => c.status === 'passed')
+        : checks.length > 0 && checks.every((c) => c.status === 'passed' || c.skipped === true)
           ? 'passed'
           : 'pending'
   return { required, status, checks }
