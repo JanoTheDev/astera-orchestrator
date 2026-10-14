@@ -1634,6 +1634,7 @@ export function createHostOrch(a: {
             cmd === 'slack-reload' ||
             cmd === 'mcp-http-reload' ||
             cmd === 'mcp-http-status' ||
+            cmd === 'checks-plugin-run' ||
             cmd === 'journal-append' ||
             cmd === 'journal-reload' ||
             cmd === 'understanding-unit' ||

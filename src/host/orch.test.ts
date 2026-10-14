@@ -3219,6 +3219,11 @@ describe('Host-local spawn (S2)', () => {
     expect((await orch.call({ cmd: 'checks-plugin-run', args: { input }, sessionId: '', from: app })).status).toBe(400)
     expect((await orch.call({ cmd: 'checks-plugin-run', args: { plugin: 'd', input: 'x' }, sessionId: '', from: app })).status).toBe(400)
     expect((await orchOver().call({ cmd: 'checks-plugin-run', args: { plugin: 'd', input }, sessionId: '', from: app })).status).toBe(501)
+    // 5a final review M5: it answers above the receipt line, so a request id would be ignored; it is refused
+    expect(await orch.call({ cmd: 'checks-plugin-run', args: { plugin: 'd', input }, sessionId: '', from: app, request: 'q1' })).toEqual({
+      status: 400,
+      body: { error: 'checks-plugin-run does not take a request id' }
+    })
     expect(asked).toHaveLength(1)
   })
   it('answers mcp-http-reload and mcp-http-status for the app only, and 501 without a supervisor (MCP HTTP §3)', async () => {
