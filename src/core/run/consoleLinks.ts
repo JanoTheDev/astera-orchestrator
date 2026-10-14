@@ -20,8 +20,17 @@ export function firstLoopbackUrl(text: string): string | null {
   return null
 }
 
+/** The same path read without a word glued to its end (GLUED_WORD), for the renderer to try when the whole names no
+ *  file. It starts where the link starts. */
+export interface PathAlt {
+  end: number
+  target: string
+  line?: number
+  col?: number
+}
+
 export type ConsoleLink =
-  | { kind: 'path'; start: number; end: number; target: string; line?: number; col?: number }
+  | { kind: 'path'; start: number; end: number; target: string; line?: number; col?: number; alt?: PathAlt }
   | { kind: 'url'; start: number; end: number; url: string }
 
 // Box Drawing (U+2500–U+257F) ends a URL and a token too: Claude Code's TUI frames its output with
@@ -46,6 +55,11 @@ const POSITION_RE = /^((?:[A-Za-z]:[\\/])?[^:]*?)(?::(\d+)(?::(\d+))?)?$/
 // TypeScript's `path(line,col)`
 const TS_POSITION_RE = /^((?:[A-Za-z]:[\\/])?[^:()]+)\((\d+),(\d+)\)$/
 const SEP = /[\\/]/
+// Korean, Japanese and Chinese glue a particle or a copula to the word before it, with no space: a sentence names a file
+// as `...concept_vs_app.png입니다.` (bug report, 2026-10-14). A run of their letters, and of the full-width punctuation
+// that closes their sentences, at the end of a token is such a word. It is not cut away outright, since a file or a
+// folder can be named in Hangul too: the path without it is offered as the link's `alt`.
+const GLUED_WORD = /[\p{Script=Hangul}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\u3000-\u303F\uFF00-\uFFEF]+$/u
 const EXT = /\.[A-Za-z0-9]{1,10}$/
 // A JVM stack frame: `at [module/]pkg.Class.method(File.ext:line)`. The file inside the parentheses
 // carries no directory — the package in front of the class is the directory, so the target is the
@@ -117,31 +131,53 @@ export function findConsoleLinks(line: string): ConsoleLink[] {
       start += lead[0].length
       text = text.slice(lead[0].length)
     }
-    // `a.ts(12,5):` — the colon after the parenthesis is punctuation, the parenthesis is the position
-    text = text.replace(TRAIL_PUNCT, '')
-    const ts = text.match(TS_POSITION_RE)
-    if (ts) {
-      const target = ts[1]
-      if (acceptPath(target, Number(ts[2]))) {
-        out.push({ kind: 'path', start, end: start + text.length, target, line: Number(ts[2]), col: Number(ts[3]) })
-      }
-      continue
+    const whole = readPath(text)
+    // The same token without a word glued to its end, when that leaves something to read: the sentence's punctuation
+    // and a closing parenthesis after the word come off first (`...png입니다.`, `...png를)`)
+    const trimmed = text.replace(TRAIL_PUNCT, '').replace(TRAIL_CLOSE, '').replace(TRAIL_PUNCT, '')
+    const bare = GLUED_WORD.test(trimmed) ? trimmed.replace(GLUED_WORD, '') : text
+    const cut = bare !== text && bare !== '' ? readPath(bare) : null
+    const first = whole ?? cut
+    if (first === null) continue
+    const link: ConsoleLink = { kind: 'path', start, end: start + first.length, target: first.target }
+    if (first.line !== undefined) link.line = first.line
+    if (first.col !== undefined) link.col = first.col
+    if (whole !== null && cut !== null && cut.target !== whole.target) {
+      const alt: PathAlt = { end: start + cut.length, target: cut.target }
+      if (cut.line !== undefined) alt.line = cut.line
+      if (cut.col !== undefined) alt.col = cut.col
+      link.alt = alt
     }
-    // `(D:\p\a.ts:12:5)` — a stack frame's closing parenthesis, then any punctuation before it
-    text = text.replace(TRAIL_CLOSE, '').replace(TRAIL_PUNCT, '')
-    const scheme = text.match(FILE_SCHEME)
-    const body = scheme ? text.slice(scheme[0].length) : text
-    const pos = body.match(POSITION_RE)
-    if (!pos) continue
-    const target = pos[1]
-    const lineNo = pos[2] === undefined ? undefined : Number(pos[2])
-    if (!acceptPath(target, lineNo)) continue
-    const link: ConsoleLink = { kind: 'path', start, end: start + text.length, target }
-    if (lineNo !== undefined) link.line = lineNo
-    if (pos[3] !== undefined) link.col = Number(pos[3])
     out.push(link)
   }
   return out.sort((a, b) => a.start - b.start)
+}
+
+/** One token, its opening brackets already peeled, read as a path: the target, its position, and how many of the
+ *  token's characters the link covers. null when it names no file (acceptPath). */
+function readPath(token: string): { target: string; line?: number; col?: number; length: number } | null {
+  // `a.ts(12,5):` — the colon after the parenthesis is punctuation, the parenthesis is the position
+  let text = token.replace(TRAIL_PUNCT, '')
+  const ts = text.match(TS_POSITION_RE)
+  if (ts) {
+    const target = ts[1]
+    return acceptPath(target, Number(ts[2])) ? { target, line: Number(ts[2]), col: Number(ts[3]), length: text.length } : null
+  }
+  // `(D:\p\a.ts:12:5)` — a stack frame's closing parenthesis, then any punctuation before it
+  text = text.replace(TRAIL_CLOSE, '').replace(TRAIL_PUNCT, '')
+  const scheme = text.match(FILE_SCHEME)
+  const body = scheme ? text.slice(scheme[0].length) : text
+  const pos = body.match(POSITION_RE)
+  if (!pos) return null
+  const target = pos[1]
+  const lineNo = pos[2] === undefined ? undefined : Number(pos[2])
+  if (!acceptPath(target, lineNo)) return null
+  return {
+    target,
+    ...(lineNo !== undefined ? { line: lineNo } : {}),
+    ...(pos[3] !== undefined ? { col: Number(pos[3]) } : {}),
+    length: text.length
+  }
 }
 
 /** The logical line a buffer row belongs to. xterm marks a row that continues the previous one

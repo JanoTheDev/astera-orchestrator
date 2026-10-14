@@ -165,6 +165,55 @@ describe('attachConsoleLinks across a cut path', () => {
   })
 })
 
+// Bug report, 2026-10-14: a Korean sentence glued its ending to a path (`...concept_vs_app.png입니다.`), and that link
+// did not open, while the same path at the end of a line did. The whole token is tried first, then the path without
+// the glued word (core/run/consoleLinks.ts GLUED_WORD), over its own cells.
+describe('attachConsoleLinks with a word glued to a path', () => {
+  type Link = { text: string; range: unknown; decorations?: { underline: boolean; pointerCursor: boolean }; activate: (e: unknown, t: string) => void }
+  const setup = (lines: string[], files: string[], cols = 60) => {
+    const f = fakeTerm(lines, cols)
+    const opened: string[] = []
+    const asked: string[] = []
+    attachConsoleLinks(f.term as never, {
+      onUrl: () => {},
+      resolvePath: async (target) => (asked.push(target), files.includes(target) ? `/abs/${target}` : null),
+      onOpenFile: (p) => opened.push(p)
+    })
+    return { links: (y = 1) => f.links(y) as Promise<Link[] | undefined>, opened, asked }
+  }
+
+  it('links the path without the glued ending when only that names a file, over its own cells', async () => {
+    const s = setup(['마지막 장은 C:\\a\\b.png입니다.'], ['C:\\a\\b.png'])
+    const got = await s.links()
+    expect(got?.map((l) => [l.text, l.range])).toEqual([['C:\\a\\b.png', { start: { x: 8, y: 1 }, end: { x: 17, y: 1 } }]])
+    got![0].activate(undefined, got![0].text)
+    expect(s.opened).toEqual(['/abs/C:\\a\\b.png'])
+    expect(s.asked).toEqual(['C:\\a\\b.png입니다', 'C:\\a\\b.png'])
+  })
+
+  it('links the whole token when the whole names a file', async () => {
+    const s = setup(['열기: C:\\문서\\보고서'], ['C:\\문서\\보고서', 'C:\\문서\\'])
+    expect((await s.links())?.map((l) => l.text)).toEqual(['C:\\문서\\보고서'])
+  })
+
+  it('links nothing when neither names a file and it is no media name', async () => {
+    const s = setup(['C:\\a\\notes.txt입니다'], [])
+    expect(await s.links()).toBeUndefined()
+  })
+
+  it('hands a media name glued to a word, not found yet, as an unmarked link over the name alone', async () => {
+    const s = setup(['C:\\a\\b.png입니다.'], [])
+    const [link] = (await s.links()) ?? []
+    expect([link.text, link.range, link.decorations]).toEqual(['C:\\a\\b.png', { start: { x: 1, y: 1 }, end: { x: 10, y: 1 } }, { underline: false, pointerCursor: false }])
+  })
+
+  it('links a glued path a TUI cut across rows', async () => {
+    const PATH = 'C:\\Users\\anipen\\terraluen-review\\concept_vs_app.png'
+    const s = setup(['  ' + PATH.slice(0, 28), '  ' + PATH.slice(28) + '입니다.'], [PATH], 30)
+    expect((await s.links(2))?.map((l) => [l.text, l.range])).toEqual([[PATH, { start: { x: 3, y: 1 }, end: { x: 2 + PATH.length - 28, y: 2 } }]])
+  })
+})
+
 // A media file named before it exists (an agent's message, then the tool call that writes or copies it): xterm keeps a
 // row's links while the pointer stays on that row, so a name that was no link at its first hover stayed none though the
 // file was there a moment later (bug report, 2026-10-13).

@@ -50,6 +50,44 @@ describe('findConsoleLinks — paths', () => {
   })
 })
 
+// Korean, Japanese and Chinese put a particle or a copula right after a word, with no space between: a sentence names a
+// file as `...concept_vs_app.png입니다.` (bug report, 2026-10-14: that link did not open while the same path at the end of
+// a line did). The token is still the link; the same path without the glued-on run is its `alt`, which the renderer
+// tries when the whole names no file, so a file or folder whose own name ends in Hangul still links whole.
+describe('findConsoleLinks — a path with a word glued to it', () => {
+  it('offers the path without a Korean ending glued to it', () => {
+    const line = '마지막 장은 C:\\Users\\a\\concept_vs_app.png입니다.'
+    const l = only(line)
+    expect(l).toEqual({
+      kind: 'path',
+      start: 7,
+      end: line.length - 1,
+      target: 'C:\\Users\\a\\concept_vs_app.png입니다',
+      alt: { end: line.length - 4, target: 'C:\\Users\\a\\concept_vs_app.png' }
+    })
+    if (l.kind !== 'path' || !l.alt) throw new Error('no alt')
+    expect(line.slice(l.start, l.alt.end)).toBe('C:\\Users\\a\\concept_vs_app.png')
+  })
+
+  it('reads a file and line a Japanese particle follows, which as a whole is no path', () => {
+    expect(only('src/a.ts:12を見て')).toEqual({ kind: 'path', start: 0, end: 11, target: 'src/a.ts', line: 12 })
+  })
+
+  it('peels a closing parenthesis and full-width punctuation around the glued run', () => {
+    expect(only('(C:\\a\\b.png)를 보세요')).toMatchObject({ start: 1, target: 'C:\\a\\b.png)를', alt: { end: 11, target: 'C:\\a\\b.png' } })
+    expect(only('看 C:\\a\\b.png。')).toMatchObject({ start: 2, target: 'C:\\a\\b.png。', alt: { end: 12, target: 'C:\\a\\b.png' } })
+  })
+
+  it('keeps a Korean folder name whole, its cut only an alternative', () => {
+    expect(only('C:\\문서\\보고서')).toEqual({ kind: 'path', start: 0, end: 9, target: 'C:\\문서\\보고서', alt: { end: 6, target: 'C:\\문서\\' } })
+  })
+
+  it('offers nothing more when no word is glued on, or nothing is left without it', () => {
+    expect(only('D:\\p\\a.png')).toEqual({ kind: 'path', start: 0, end: 10, target: 'D:\\p\\a.png' })
+    expect(findConsoleLinks('보고서를 확인하세요')).toEqual([])
+  })
+})
+
 describe('findConsoleLinks — URLs', () => {
   it('an http URL', () => {
     expect(only('  ➜  Local:   http://localhost:5173/')).toEqual({ kind: 'url', start: 14, end: 36, url: 'http://localhost:5173/' })
