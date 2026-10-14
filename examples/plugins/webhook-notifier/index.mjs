@@ -10,24 +10,33 @@
 // editor and tsc only: Astera never loads @astera-app/plugin-sdk, and a plain object is the plugin `definePlugin`
 // would have returned.
 //
-// It starts from the events of the moment it starts: what happened while it was stopped is not posted. A post that
-// fails is tried again three times, then given up with a warning in the plugin's log. The webhook URL and the signing
+// It is an event plugin: Astera hands its onEvent each event, in order, from where it left off, so what happened while
+// it was stopped is posted when it runs again, as far back as Astera's event log keeps. A post that fails throws, and
+// Astera hands the same event over again (after 1 s, doubling to 5 min, for an hour). The webhook URL and the signing
 // secret are secret settings: Astera keeps them out of the plugin's log, and this plugin never writes them there anyway.
 import { createHmac } from 'node:crypto'
-import { setTimeout as sleep } from 'node:timers/promises'
 
 /** @typedef {import('@astera-app/plugin-sdk').PluginContext} PluginContext */
 /** @typedef {import('@astera-app/plugin-sdk').PluginDefinition} PluginDefinition */
+/** @typedef {import('@astera-app/client').AsteraEvent} AsteraEvent */
+/** @typedef {import('@astera-app/client').EventGap} EventGap */
 /** @typedef {'run.completed' | 'run.failed' | 'completion.exhausted' | 'question.created'} Posted */
-/** @typedef {import('@astera-app/client').AsteraEvent<Posted> | import('@astera-app/client').EventGap} Seen */
+/** @typedef {import('@astera-app/client').AsteraEvent<Posted> | EventGap} Seen */
 
 /** @type {readonly Posted[]} */
 const PROBLEMS = ['run.failed', 'completion.exhausted', 'question.created']
 /** @type {readonly Posted[]} */
 const EVERYTHING = ['run.completed', ...PROBLEMS]
-/** How long to wait before each of the three posts after a failed one. */
-const RETRY_MS = [1000, 2000, 4000]
+/** Well within the 30 s Astera gives onEvent. */
 const POST_TIMEOUT_MS = 10_000
+
+/**
+ * Whether the event is one this plugin posts: a gap, or one of `types`.
+ * @param {AsteraEvent | EventGap} e
+ * @param {readonly Posted[]} types
+ * @returns {e is Seen}
+ */
+const posted = (e, types) => e.type === 'gap' || types.some((t) => t === e.type)
 
 /** @param {Seen} e */
 function textOf(e) {
@@ -60,8 +69,20 @@ const problemOf = (/** @type {unknown} */ e) =>
  */
 
 /**
- * Posts one event, trying again after a failure; false when every try failed. Ends with the signal's reason when
- * Astera stops the plugin.
+ * The webhook and the signing secret a person set; throws, saying what to do, when the URL is not one.
+ * @param {PluginContext} ctx
+ * @returns {Target}
+ */
+function targetOf(ctx) {
+  const url = ctx.settings.webhookUrl
+  if (typeof url !== 'string' || !/^https?:\/\/\S+$/.test(url))
+    throw new Error('webhookUrl is not an http or https URL: set it with astera plugins configure, then start the plugin with astera plugins enable')
+  const secret = ctx.settings.signingSecret
+  return { url, signingSecret: typeof secret === 'string' && secret !== '' ? secret : undefined }
+}
+
+/**
+ * Posts one event; throws when the post fails, so Astera hands the event over again.
  * @param {Target} target
  * @param {Seen} event
  * @param {PluginContext} ctx
@@ -72,65 +93,26 @@ async function post(target, event, ctx) {
   const headers = { 'content-type': 'application/json' }
   if (target.signingSecret !== undefined)
     headers['x-astera-signature'] = `sha256=${createHmac('sha256', target.signingSecret).update(body).digest('hex')}`
-  for (let attempt = 0; ; attempt++) {
-    let problem
-    try {
-      const res = await fetch(target.url, {
-        method: 'POST',
-        headers,
-        body,
-        signal: AbortSignal.any([ctx.signal, AbortSignal.timeout(POST_TIMEOUT_MS)])
-      })
-      // The answer's body is not needed; reading it to the end frees the connection.
-      await res.arrayBuffer()
-      if (res.ok) return true
-      problem = `the webhook answered ${res.status}`
-    } catch (e) {
-      if (ctx.signal.aborted) throw e
-      problem = problemOf(e)
-    }
-    if (attempt === RETRY_MS.length) {
-      ctx.log.warn(`could not post ${event.type === 'gap' ? 'a gap' : `${event.type} ${event.id}`}: ${problem}`)
-      return false
-    }
-    await sleep(RETRY_MS[attempt], undefined, { signal: ctx.signal })
-  }
-}
-
-/**
- * Follows the events until Astera stops the plugin, which it does when the Host leaves too. A subscription that ends
- * otherwise (the Host refused it, or is too old for events) ends the plugin's process with a failure, so Astera starts
- * it again, and marks it failed when it keeps ending, with this log's last lines as the reason to look at.
- * @param {PluginContext} ctx
- * @param {Target} target
- * @param {readonly Posted[]} types
- * @param {string} after
- */
-async function follow(ctx, target, types, after) {
+  let res
   try {
-    for await (const event of ctx.astera.events.subscribe({ after, types, signal: ctx.signal })) {
-      if (await post(target, event, ctx)) ctx.log.info(`posted ${event.type === 'gap' ? 'a gap' : `${event.type} ${event.id}`}`)
-    }
+    res = await fetch(target.url, { method: 'POST', headers, body, signal: AbortSignal.any([ctx.signal, AbortSignal.timeout(POST_TIMEOUT_MS)]) })
   } catch (e) {
-    if (ctx.signal.aborted) return
-    ctx.log.error(`stopped: ${problemOf(e)}`)
-    // ctx.log writes to stderr, and an empty write's callback comes after every write before it: the line above is in
-    // the log before the process ends.
-    process.stderr.write('', () => process.exit(1))
+    throw new Error(problemOf(e))
   }
+  // The answer's body is not needed; reading it to the end frees the connection.
+  await res.arrayBuffer()
+  if (!res.ok) throw new Error(`the webhook answered ${res.status}`)
 }
 
 /** @type {PluginDefinition} */
 export default {
-  async activate(ctx) {
-    const url = ctx.settings.webhookUrl
-    if (typeof url !== 'string' || !/^https?:\/\/\S+$/.test(url))
-      throw new Error('webhookUrl is not an http or https URL: set it with astera plugins configure, then start the plugin with astera plugins enable')
-    const secret = ctx.settings.signingSecret
-    const target = { url, signingSecret: typeof secret === 'string' && secret !== '' ? secret : undefined }
-    const types = ctx.settings.onlyProblems === true ? PROBLEMS : EVERYTHING
-    // Taken before activate returns, so a Host that refuses events fails the start, where a person sees it.
-    const after = await ctx.astera.events.cursor({ signal: ctx.signal })
-    void follow(ctx, target, types, after)
+  // Checked at the start, so a URL that is not one fails the plugin where a person sees it
+  activate(ctx) {
+    targetOf(ctx)
+  },
+  async onEvent(event, ctx) {
+    if (!posted(event, ctx.settings.onlyProblems === true ? PROBLEMS : EVERYTHING)) return
+    await post(targetOf(ctx), event, ctx)
+    ctx.log.info(`posted ${event.type === 'gap' ? 'a gap' : `${event.type} ${event.id}`}`)
   }
 }

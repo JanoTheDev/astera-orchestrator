@@ -254,8 +254,10 @@ describe('docs/plugins.md', () => {
     // whether a post is new
     expect(sample).toContain('timingSafeEqual')
     expect(sample).toContain('`event.id`')
-    // The review's note on the cursor ruling: events are missed while it starts again after a crash too
+    // Plugin Phase 3: an event plugin is handed what happened while it was stopped, a crash's restart included
+    expect(prose(sample)).toContain('what happened while it was stopped')
     expect(prose(sample)).toContain('starting again after a crash')
+    expect(prose(sample)).not.toContain('is not posted')
   })
 
   // 2f final review m1: the quick start's commands need the astera command
