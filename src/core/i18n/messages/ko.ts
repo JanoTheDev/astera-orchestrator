@@ -1881,6 +1881,7 @@ export const ko = {
   'jobs.source.openLink': '브라우저에서 열기',
   'jobs.source.make': '작업 만들기',
   'jobs.source.lost': '답을 받지 못했습니다. 작업이 이미 만들어졌을 수 있으니 작업 목록을 확인하세요.',
+  'jobs.source.chipOpen': '{label} 을 브라우저에서 엽니다',
   // 스케줄러가 워커를 띄울 계정을 못 골랐을 때 여는 Gate 의 문구(ipc.ts). 첫째는 예전부터
   // 있던 경우(그 provider 에 로그인된 계정이 없다), 둘째는 사람이 이 Task 에 지정한 계정을
   // 쓸 수 없는 경우다 — 지정을 무시하고 기본 계정으로 갈아타지 않으므로 사람에게 말해야 한다

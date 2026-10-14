@@ -1653,6 +1653,7 @@ export const en: Record<keyof typeof ko, string> = {
   'jobs.source.openLink': 'Open in the browser',
   'jobs.source.make': 'Make the job',
   'jobs.source.lost': 'No answer came back. The job may have been made: check the job list.',
+  'jobs.source.chipOpen': 'Open {label} in the browser',
   'jobs.gate.noAccountAssigned': 'This Task has no account, so there is no way to tell which agent should run it — assign one',
   'jobs.gate.noAccount': 'No {provider} account is logged in, so this Task cannot start',
   // The Host's lost-worker Gate (R16): a worker that ended unreported while no app was attached, in a Run

@@ -1483,6 +1483,7 @@ export const es: Catalog = {
   'jobs.source.openLink': 'Abrir en el navegador',
   'jobs.source.make': 'Crear el trabajo',
   'jobs.source.lost': 'No llegó respuesta. Puede que el trabajo se haya creado: revisa la lista de trabajos.',
+  'jobs.source.chipOpen': 'Abrir {label} en el navegador',
   'jobs.gate.noAccountAssigned': 'Esta tarea no tiene cuenta, así que no hay forma de saber qué agente debe ejecutarla — asigna una',
   'jobs.gate.noAccount': 'Ninguna cuenta de {provider} tiene la sesión iniciada, así que esta Task no puede empezar',
   'jobs.gate.workerLostNoApp': 'El worker de esta Task se perdió (dispatch {dispatch}) mientras ningún Astera estaba abierto para recuperarlo. Resuelve esta Gate para volver a iniciarlo.',

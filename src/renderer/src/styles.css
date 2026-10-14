@@ -723,6 +723,10 @@ button.primary:disabled { background: var(--elevated); border-color: var(--line-
 /* The ticket's text as it is (§3.3): wrapped, never rendered */
 .modal.source-job .source-body { white-space: pre-wrap; word-break: break-word; font-family: var(--mono); font-size: 11.5px; margin: 0; padding: 8px; background: var(--bg); border-radius: var(--radius); }
 .modal.source-job .source-error { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+/* A Job's source (plugin Phase 4 J18): a small chip after its objective, on the card and in the detail's header */
+.source-chip { flex: 0 0 auto; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10.5px; line-height: 16px; padding: 0 6px; border: 1px solid var(--line-soft); border-radius: var(--radius-sm); background: none; color: var(--text-dim); }
+button.source-chip { cursor: pointer; }
+button.source-chip:hover { color: var(--accent); border-color: var(--accent); }
 /* The palette, width and resize now come from `.field textarea`, which this dialog's fields sit in
    like every other modal's. Only the two things that differ stay here: a PR body is prose, not
    code, so it keeps the UI face rather than .field's mono, and it gets a little more side padding. */
