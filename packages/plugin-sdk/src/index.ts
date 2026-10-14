@@ -173,8 +173,9 @@ export function defineJobSourceProvider<T extends JobSourceProvider>(provider: T
 
 /** What a completion check is asked about: the Task and the folder its checks run in. `root` is the Task's worktree, or
  *  the project folder; `base` is the commit the Task's work started from and `head` the one its last attempt reached,
- *  when Astera recorded them, so a check can look at what the Task changed. A check configured per project reads the
- *  project's own files under `root`; the plugin's settings are the rest of its configuration. */
+ *  when Astera recorded them, so a check can look at what the Task changed. `branch` is not sent by this Astera: a
+ *  check that needs it asks git in `root`. A check configured per project reads the project's own files under `root`;
+ *  the plugin's settings are the rest of its configuration. */
 export interface CompletionCheckInput {
   projectId?: string
   jobId: string

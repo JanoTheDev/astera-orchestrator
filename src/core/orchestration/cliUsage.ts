@@ -222,7 +222,7 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       { name: 'grant', value: '<list>', about: 'approve exactly these permissions, comma separated (empty grants none)' }
     ]
   },
-  'plugins-list': { summary: 'the plugins installed in this profile, with their status and what they were granted' },
+  'plugins-list': { summary: 'the plugins installed in this profile, with their status, what they were granted and what they offer' },
   'plugins-get': { summary: 'one installed plugin', flags: [ID('<pluginId>', 'the plugin (from `plugins list`)')] },
   'plugins-enable': { summary: 'let an installed plugin run', flags: [ID('<pluginId>', 'the plugin (from `plugins list`)')] },
   'plugins-disable': { summary: 'stop a plugin from running, keeping it installed', flags: [ID('<pluginId>', 'the plugin (from `plugins list`)')] },

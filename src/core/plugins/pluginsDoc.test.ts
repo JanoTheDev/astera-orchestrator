@@ -37,6 +37,7 @@ import {
 import { CHECK_DIAGNOSTICS_MAX, CHECK_FILE_MAX, CHECK_MESSAGE_MAX, CHECK_SUMMARY_MAX, REPAIR_DIAGNOSTICS } from '../orchestration/pluginChecks'
 import { CHECK_TIMEOUT_MS } from '../orchestration/types'
 import { CHECK_UNAVAILABLE_OPTIONS } from '../orchestration/state'
+import { HUMAN_DIAGNOSTICS } from '../orchestration/cliHuman'
 import { bundleLauncher } from '../../pluginHost/testkit'
 import { transform } from 'esbuild'
 import { PluginRequestFailed } from '../../host/plugins/runtime'
@@ -368,6 +369,12 @@ describe('docs/plugins.md', () => {
     for (const f of ['`plugin:<id>`', '`check-unavailable`', '`diagnostics`', '`skip-check`']) expect(sdk, f).toContain(f)
     const mcp = prose(read('docs/mcp.md'))
     for (const f of ['plugin:<pluginId>', 'check-unavailable', '`diagnostics`', '`externalUrl`']) expect(mcp, f).toContain(f)
+    // 5b final review M9, M10: only a check-unavailable question refuses other answers; a plugin's check has no output
+    for (const doc of [sdk, mcp]) expect(doc).toContain('refuses any answer but `retry`, `skip-check` or `mark-failed`')
+    for (const doc of [sdk, mcp]) expect(doc).not.toContain('takes one of them')
+    expect(mcp).toContain("A plugin's check (`plugin:<pluginId>`) has no output: its findings are in `get_completion`.")
+    // 5b final review M14: the guide's count of findings under a row is the renderer's
+    expect(cli).toContain(`first ${HUMAN_DIAGNOSTICS} findings`)
   })
 
   // The design's note on N2: a session event carries its title and folder, so the grant says so

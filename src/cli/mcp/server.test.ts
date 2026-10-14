@@ -557,8 +557,12 @@ describe('the MCP server', () => {
     const of = (n: string) => tools.find((t) => t.name === n)!
     expect(JSON.stringify(of('create_task').inputSchema)).toContain('plugin:<pluginId>')
     expect(of('create_task').description).toContain('plugin:<pluginId>')
-    expect(of('answer_question').description).toMatch(/check-unavailable.*retry, skip-check or mark-failed/)
+    // 5b final review M9: only a check-unavailable question refuses an answer that is not one of its options
+    expect(of('answer_question').description).toContain('A check that could not be made (kind check-unavailable) refuses any answer but retry, skip-check or mark-failed.')
+    expect(of('answer_question').description).not.toContain('takes one of them')
     expect(of('get_completion').description).toMatch(/diagnostics.*externalUrl.*check-unavailable/)
+    // 5b final review M10: a plugin's check has no output; its findings are in get_completion
+    expect(of('get_check_output').description).toContain("A plugin's check (plugin:<pluginId>) has no output: read its findings in get_completion.")
   })
 
   it('every list tool takes a limit of 1 to 200', async () => {

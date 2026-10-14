@@ -23,6 +23,9 @@ describe('the plugin SDK’s completion-check types', () => {
     type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? Keys<A, B> : false) : false
     const same: [Same<SdkInput, CompletionCheckInput>, Same<CompletionCheckDiagnostic, CheckDiagnostic>, Same<CompletionCheckResult['status'], PluginCheckAnswer['status']>] = [true, true, true]
     expect(same).toEqual([true, true, true])
+    // 5b final review M11: and the objects inside the input, field for field
+    const nested: [Same<SdkInput['workspace'], CompletionCheckInput['workspace']>, Same<SdkInput['task'], CompletionCheckInput['task']>] = [true, true]
+    expect(nested).toEqual([true, true])
     // A result the SDK types is one the Host keeps as it is
     const answer: CompletionCheckResult = {
       status: 'failed',

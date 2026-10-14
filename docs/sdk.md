@@ -236,9 +236,10 @@ for (const q of items) {
 }
 ```
 
-A question with `options` takes one of them as its answer. The one a plugin's completion check opens when it could
-not be made, `kind` `check-unavailable`, takes `retry` (run the Task's checks again), `skip-check` (go on without that
-check this round) or `mark-failed`; any other answer is refused with `INVALID_ARGUMENTS`.
+When a question lists `options`, answer with one of them. The one a plugin's completion check opens when it could not
+be made, `kind` `check-unavailable`, refuses any answer but `retry`, `skip-check` or `mark-failed` with
+`INVALID_ARGUMENTS`: `retry` runs the Task's checks again, `skip-check` goes on without that check this round, and
+`mark-failed` fails the Task.
 
 A question someone already answered (in the app, say) keeps that answer, and `questions.answer` gives it back, so
 compare `resolution` with what you sent. When a person takes a while to type, read the question again

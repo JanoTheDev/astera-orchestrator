@@ -628,6 +628,9 @@ describe('cliUsage — completion check plugins', () => {
     expect(validate).toContain('`plugins list`')
     const detail = USAGE['runs-checks'].detail ?? ''
     for (const f of ['`plugin:<id>`', '`summary`', '`diagnostics`', '`externalUrl`', '`error`']) expect(detail, f).toContain(f)
+    // 5b final review M12: the list shows what each plugin offers, and says so
+    expect(USAGE['plugins-list'].summary).toContain('what they offer')
+    expect(readFileSync(docPath, 'utf8')).toMatch(/astera plugins list +what is installed, its status, what it was granted and what it offers/)
   })
 
   // A coordinator plans Tasks with --validate and meets the question a check that could not be made opens (C9, C11)

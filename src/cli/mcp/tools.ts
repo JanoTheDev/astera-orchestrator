@@ -364,7 +364,7 @@ const LISTED_TOOLS: ToolDef[] = [
     readOnly: false,
     cmd: 'questions-answer',
     description:
-      'Answer a blocking question raised in an Astera Run. Use list_questions first to retrieve open questions. A question with options takes one of them as its answer: a check that could not be made (kind check-unavailable) takes retry, skip-check or mark-failed.',
+      'Answer a blocking question raised in an Astera Run. Use list_questions first to retrieve open questions. When a question lists options, answer with one of them. A check that could not be made (kind check-unavailable) refuses any answer but retry, skip-check or mark-failed.',
     inputSchema: { questionId: id, answer: z.string().min(1).max(MCP_LIMITS.answer), requestId },
     args: (i) => ({ id: i.questionId, answer: i.answer })
   },
@@ -514,7 +514,7 @@ const LISTED_TOOLS: ToolDef[] = [
     title: 'Get check output',
     readOnly: true,
     cmd: 'tasks-check-output',
-    description: `The output of a Task's failed check (the named one, or the first that failed): the last ${MCP_LIMITS.checkOutput} characters of its log, from the last round only, with anything that looks like a secret redacted. offset and limit page through the redacted log; total is how many characters it has. A Task with no failed check output is refused with CONFLICT. Needs MCP access "Read only" or "Read and control".`,
+    description: `The output of a Task's failed check (the named one, or the first that failed): the last ${MCP_LIMITS.checkOutput} characters of its log, from the last round only, with anything that looks like a secret redacted. offset and limit page through the redacted log; total is how many characters it has. A Task with no failed check output is refused with CONFLICT. A plugin's check (plugin:<pluginId>) has no output: read its findings in get_completion. Needs MCP access "Read only" or "Read and control".`,
     inputSchema: {
       taskId: id,
       check: id.optional().describe('A run configuration id from the Task\'s checks (default: the first failed one).'),
