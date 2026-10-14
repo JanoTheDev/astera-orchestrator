@@ -30,6 +30,7 @@ import { UnderstandingView } from './components/UnderstandingView'
 import { RecordDetailHost } from './components/RecordDetail'
 import { RunDetail } from './components/RunDetail'
 import { NewRunModal } from './components/NewRunModal'
+import { SourceJobModal } from './components/SourceJobModal'
 import { NewSessionDialog } from './components/NewSessionDialog'
 import { RemoteSessionsDialog } from './components/RemoteSessionsDialog'
 import { WorktreePanel } from './components/WorktreePanel'
@@ -2750,6 +2751,10 @@ export default function App(): React.JSX.Element {
    *  돌아가지 않는다"는 이유로 도달 불가능이라 판단했지만, 새로 설치한 상태의 stickyRoot 는
    *  처음부터 비어 있어 정확히 그 경로에 닿았다 — 그 판단은 틀렸다. */
   const [newRunOpen, setNewRunOpen] = useState(false)
+  /** The "+ From a source" window (plugin Phase 4 J20): the project it was opened in, this machine's only, or null.
+   *  The project is kept rather than read live, so a tab change while it is open does not move the Job elsewhere (4c
+   *  final review M17). */
+  const [sourceJobOpen, setSourceJobOpen] = useState<string | null>(null)
 
   // A remote Run's detail: read from the latest remote snapshot, asked again only when its key changes.
   const remoteSnapshotRef = useRef(remoteSnapshot)
@@ -2915,7 +2920,7 @@ export default function App(): React.JSX.Element {
   // the same chain: while it is open the shortcuts must not reach the workbench behind it.
   // newRunOpen joins for the same reason — it has a text input (objective), and without this a global
   // shortcut key would reach the workbench behind the modal while that field has focus.
-  modalOpenRef.current = modalOpenRef.current || runManagerVisible || openRun !== null || newRunOpen || remoteNewRunOpen
+  modalOpenRef.current = modalOpenRef.current || runManagerVisible || openRun !== null || newRunOpen || remoteNewRunOpen || sourceJobOpen !== null
 
   // Mirrors currentProject into a ref — avoids a stale closure in the run:status subscription effect
   const currentProjectRef = useRef(currentProject)
@@ -4508,6 +4513,9 @@ export default function App(): React.JSX.Element {
                 onNewRun={() => {
                   if (currentProject) setNewRunOpen(true)
                 }}
+                onNewFromSource={() => {
+                  if (currentProject) setSourceJobOpen(currentProject)
+                }}
                 // Run 을 물러나게 한다. **확인을 여기서 받는다** — 되돌릴 수 없고, 지워지는 것을
                 // 세어 보여 줄 수 있는 곳이 스냅숏을 든 이 자리다. 워크트리는 건드리지 않으므로
                 // (사용자의 git 저장소다) 몇 개가 남는지도 함께 말한다: 조용히 고아로 두지 않는다.
@@ -5584,6 +5592,27 @@ export default function App(): React.JSX.Element {
             setNewRunOpen(false)
             // 만들자마자 상세 창을 열어 Task 를 짤 수 있게 한다 — onOpenRun 이 하는 것과 같은 짝
             setOpenRun({ projectPath: currentProject, runId })
+          }}
+        />
+      )}
+      {sourceJobOpen !== null && (
+        <SourceJobModal
+          projectPath={sourceJobOpen}
+          accounts={accounts}
+          onClose={() => setSourceJobOpen(null)}
+          onCreated={(jobId) => {
+            const project = sourceJobOpen
+            setSourceJobOpen(null)
+            // As NewRunModal's: the Job made opens at once (plan P5)
+            setOpenRun({ projectPath: project, runId: jobId })
+          }}
+          onOpenJob={(jobId) => {
+            // Only a Job the Jobs view shows can open: one it does not would close its detail at once and take the
+            // window with it (4c final review I2). The Host lists the project's own Jobs; this is the second guard.
+            if (orchSnapshot === null || !findRun(orchSnapshot, jobId)) return
+            const project = sourceJobOpen
+            setSourceJobOpen(null)
+            setOpenRun({ projectPath: project, runId: jobId })
           }}
         />
       )}

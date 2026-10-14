@@ -366,6 +366,13 @@ const api = {
     settings: invoke('plugins.settings'),
     configure: invoke('plugins.configure')
   },
+  // The Jobs view's "+ From a source" (plugin Phase 4c): the Host's job sources, through main's sources route
+  sources: {
+    list: invoke('sources.list'),
+    items: invoke('sources.items'),
+    show: invoke('sources.show'),
+    create: invoke('sources.create')
+  },
   remote: {
     list: invoke('remote.list'),
     add: invoke('remote.add'),

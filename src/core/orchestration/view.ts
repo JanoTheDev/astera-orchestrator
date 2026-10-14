@@ -385,6 +385,8 @@ export function snapshotFor(
       ...(run === undefined && job.schedule ? { schedule: job.schedule } : {}),
       ...(run === undefined && job.fireCount !== undefined ? { fireCount: job.fireCount } : {}),
       ...(run !== undefined ? { fireOrdinal: run.ordinal } : {}),
+      // Where the Job came from (plugin Phase 4 J18), on every row of the Job: the chip opens the ticket
+      ...(job.source ? { source: job.source } : {}),
       ...(run === undefined && job.schedule && nextFireOf(job.id) !== null
         ? { nextFireAt: nextFireOf(job.id) as number }
         : {}),

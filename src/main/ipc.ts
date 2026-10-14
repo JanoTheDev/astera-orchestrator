@@ -64,6 +64,7 @@ import { chatAdoptPlan, hostCarryOnIsOurs, hostStartingDefers } from './chatAdop
 import { reattachSessions, type ReattachResult } from './host/reattach'
 import { createWorktreeRoute, NO_HOST_CONNECTION, hostDeadlineMessage } from './host/worktreeRoute'
 import { createPluginsRoute } from './host/pluginsRoute'
+import { createSourcesRoute } from './host/sourcesRoute'
 import { createHostGitOps } from '../core/workUnit/hostGitOps'
 import { appPathInUse } from './host/localPathInUse'
 import { HOST_PROTOCOL, HOST_ACT_PATH_IN_USE, HOST_ACT_SLACK_ANSWER, type ClientMessage, type HostMessage, type PtyEntry } from '../core/host/protocol'
@@ -4735,6 +4736,13 @@ export function registerIpc(
   ipcMain.handle('plugins.configure', (_e, id: unknown, set: unknown, unset: unknown) =>
     plugins.configure(id as string, set as Record<string, string | boolean>, unset as string[])
   )
+  // The Jobs view's "+ From a source" (plugin Phase 4c): the Host's job sources as the app. The Host checks every
+  // argument; a value of the wrong type is its refusal to give.
+  const sources = createSourcesRoute({ call: (m) => orchCall(m), projectRoot: (p) => repoPathOf(core.worktrees.list(), p) })
+  ipcMain.handle('sources.list', () => sources.list())
+  ipcMain.handle('sources.items', (_e, a: unknown) => sources.items(a as Parameters<typeof sources.items>[0]))
+  ipcMain.handle('sources.show', (_e, a: unknown) => sources.show(a as Parameters<typeof sources.show>[0]))
+  ipcMain.handle('sources.create', (_e, a: unknown) => sources.create(a as Parameters<typeof sources.create>[0]))
   // Settings › Remote Runtimes and the Jobs view's selectors (remote runtime design Phase 6). A runtime id that is not a
   // string names nothing; every answer is the client's or the registry's own, never a local fallback.
   ipcMain.handle('remote.list', () => remoteRuntimes.list())

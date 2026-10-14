@@ -1862,6 +1862,28 @@ export const ko = {
   // 파일을 안 건드리는 워커끼리는 충돌할 것이 없고 앱은 그것을 알 수 없다
   'jobs.new.folderBusy': '이 폴더에서 이미 워커가 일하고 있습니다 — 동시 실행 1 이면 이 작업의 워커도 같은 폴더에서 돌아 서로의 편집이 섞일 수 있습니다',
   'jobs.new.failed': '작업을 만들지 못했습니다',
+  'jobs.source.open': '소스에서',
+  'jobs.source.title': '소스에서 작업 만들기',
+  'jobs.source.source': '소스',
+  'jobs.source.sourcePick': '소스를 고르세요',
+  'jobs.source.sourcesLoading': '소스를 불러오는 중…',
+  'jobs.source.search': '검색',
+  'jobs.source.searchPlaceholder': '검색어',
+  'jobs.source.notReady': '준비 안 됨',
+  'jobs.source.needsSettings': '설정이 필요합니다: {keys}. 설정 › 플러그인에서 입력하세요',
+  'jobs.source.loading': '불러오는 중…',
+  'jobs.source.empty': '항목이 없습니다',
+  'jobs.source.retry': '다시 시도',
+  'jobs.source.more': '더 보기',
+  'jobs.source.exists': '작업 있음',
+  'jobs.source.cannotPick': '고를 수 없음: {reason}',
+  'jobs.source.cut': 'Astera 의 한도에 맞춰 일부를 잘랐습니다',
+  'jobs.source.pickItem': '항목을 고르면 내용이 여기 보입니다',
+  'jobs.source.dataHint': '다른 사람이 쓴 글입니다. 작업은 이 내용을 지시가 아닌 자료로 받습니다.',
+  'jobs.source.openLink': '브라우저에서 열기',
+  'jobs.source.make': '작업 만들기',
+  'jobs.source.lost': '답을 받지 못했습니다. 작업이 이미 만들어졌을 수 있으니 작업 목록을 확인하세요.',
+  'jobs.source.chipOpen': '{label} 을 브라우저에서 엽니다',
   // 스케줄러가 워커를 띄울 계정을 못 골랐을 때 여는 Gate 의 문구(ipc.ts). 첫째는 예전부터
   // 있던 경우(그 provider 에 로그인된 계정이 없다), 둘째는 사람이 이 Task 에 지정한 계정을
   // 쓸 수 없는 경우다 — 지정을 무시하고 기본 계정으로 갈아타지 않으므로 사람에게 말해야 한다

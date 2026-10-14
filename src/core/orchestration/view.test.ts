@@ -226,6 +226,16 @@ describe('snapshotFor', () => {
     ])
   })
 
+  // Plugin Phase 4 J18: the chip reads where the Job came from off its row
+  it('carries the job source a Job was made from, on its row; none on a Job without one', () => {
+    const source = { id: 'astera-linear-source', itemId: 'ENG-1', label: 'Linear ENG-1', url: 'https://linear.app/x/ENG-1' }
+    const base = withRuns([run('r1', absPath('p')), run('r2', absPath('p'))])
+    const s: OrchState = { ...base, jobs: base.jobs.map((j) => (j.id === 'job_r1' ? { ...j, source } : j)) }
+    const rows = new Map(snapshotFor(s, absPath('p'), anySession, noWorktrees, noFires, allExist).runs.map((r) => [r.id, r]))
+    expect(rows.get('job_r1')?.source).toEqual(source)
+    expect(rows.get('job_r2')).not.toHaveProperty('source')
+  })
+
   // 끝난 Run 이 아래로 간다 — 예전에는 저장된 status 로 판정했고, 이제는 Task 에서 파생한다.
   // 목록의 맨 위는 지금 도는 작업의 자리다
   it('도는 Run 이 먼저, 그 안에서 최신순', () => {
