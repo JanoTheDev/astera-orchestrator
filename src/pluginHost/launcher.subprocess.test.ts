@@ -2,6 +2,7 @@
 // (fd 3), so nothing the plugin or its children print can reach it, and neither the plugin nor its children see
 // ELECTRON_RUN_AS_NODE. In a folder with a space and Hangul (spec §48).
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { removeFixtureSync } from '../core/testFixtures'
 import { spawn } from 'node:child_process'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import type { Duplex } from 'node:stream'
@@ -12,11 +13,11 @@ import { bundleLauncher } from './testkit'
 let dir: string
 let launcher: string
 beforeAll(async () => {
-  dir = mkdtempSync(path.join(os.tmpdir(), 'astera launcher 플러그인 '))
+  dir = mkdtempSync(path.join(os.tmpdir(), 'astera-launcher 플러그인 '))
   launcher = await bundleLauncher(dir)
 }, 60_000)
 afterAll(() => {
-  rmSync(dir, { recursive: true, force: true, maxRetries: 3 })
+  removeFixtureSync(dir)
 })
 
 /** Starts the launcher on a plugin whose entry is `source`, as the Host does: ELECTRON_RUN_AS_NODE set, stdin

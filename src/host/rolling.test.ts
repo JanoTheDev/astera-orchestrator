@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { removeFixture } from '../core/testFixtures'
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -58,7 +59,7 @@ afterEach(async () => {
   // moment to land, so the removal neither races it (ENOTEMPTY) nor is undone by it.
   vi.useRealTimers()
   await new Promise((r) => setTimeout(r, 50))
-  for (const p of profiles.splice(0)) await fs.rm(p, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 })
+  for (const p of profiles.splice(0)) await removeFixture(p)
 })
 
 type Over = {

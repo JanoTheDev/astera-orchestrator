@@ -2,6 +2,7 @@
 // P11-P13): calls go to the orch as the plugin, stderr goes to a redacted log, a crash restarts, a crash loop fails,
 // and stop runs deactivate or kills the whole tree. In a folder with a space and Hangul (spec §48).
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest'
+import { removeFixtureSync } from '../../core/testFixtures'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -13,7 +14,7 @@ let dir: string
 let launcher: string
 let n = 0
 beforeAll(async () => {
-  dir = mkdtempSync(path.join(os.tmpdir(), 'astera runtime 플러그인 '))
+  dir = mkdtempSync(path.join(os.tmpdir(), 'astera-runtime 플러그인 '))
   launcher = await bundleLauncher(dir)
 }, 60_000)
 const started: PluginRuntime[] = []
@@ -21,7 +22,7 @@ afterEach(async () => {
   for (const r of started.splice(0)) await r.stopAll()
 })
 afterAll(() => {
-  rmSync(dir, { recursive: true, force: true, maxRetries: 5 })
+  removeFixtureSync(dir)
 })
 
 type Call = { cmd: string; args: unknown; sessionId: string; from?: { role: string; plugin?: { id: string; granted: ReadonlySet<string> } }; request?: string }

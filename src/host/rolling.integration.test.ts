@@ -8,6 +8,7 @@
 // next pty in the real registry). Fake timers for `setTimeout`/`setInterval`/`Date` only: the store's disk
 // I/O stays real, so every assertion on the state goes through `vi.waitFor`.
 import { describe, it, expect, afterEach, vi } from 'vitest'
+import { removeFixture } from '../core/testFixtures'
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -38,7 +39,7 @@ afterEach(async () => {
   vi.useRealTimers()
   // A roll's config write lands without anyone awaiting it; give it a real moment before the removal.
   await new Promise((r) => setTimeout(r, 50))
-  for (const d of dirs.splice(0)) await fs.rm(d, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 })
+  for (const d of dirs.splice(0)) await removeFixture(d)
 })
 const dirs: string[] = []
 

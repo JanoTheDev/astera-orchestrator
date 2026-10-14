@@ -2,6 +2,7 @@
 // through cmd.exe on Windows with its spec quoted, the Host extracts it, and `npm install` puts its one dependency in
 // the plugin's own node_modules without running the dependency's install script. Skipped where npm is not installed.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { removeFixture } from '../../core/testFixtures'
 import { createHash } from 'node:crypto'
 import { existsSync, promises as fs } from 'node:fs'
 import { spawnSync } from 'node:child_process'
@@ -81,7 +82,7 @@ const PACKAGES = [
 ]
 
 beforeAll(async () => {
-  dir = await fs.mkdtemp(path.join(os.tmpdir(), 'astera npm 플러그인 '))
+  dir = await fs.mkdtemp(path.join(os.tmpdir(), 'astera-npm 플러그인 '))
   server = http.createServer((req, res) => {
     const url = decodeURIComponent(req.url ?? '')
     const base = registry
@@ -107,7 +108,7 @@ beforeAll(async () => {
 }, 30_000)
 afterAll(async () => {
   await new Promise<void>((r) => server.close(() => r()))
-  await fs.rm(dir, { recursive: true, force: true, maxRetries: 3 })
+  await removeFixture(dir)
   await fs.rm(MARKER, { force: true })
   await fs.rm(PWNED, { force: true })
 })

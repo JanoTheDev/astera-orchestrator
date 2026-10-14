@@ -8,6 +8,7 @@
 // The fakes are only what starts a process (the spawner's startWorker), the server (`app`, `keeps`),
 // the worktrees, the checks and the belt's startRepair; `every` is captured so the test runs the tick.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { removeFixture } from '../core/testFixtures'
 import { promises as fs, existsSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -38,7 +39,7 @@ beforeEach(async () => {
 const rigs: HostDriving[] = []
 afterEach(async () => {
   for (const r of rigs.splice(0)) r.dispose()
-  await fs.rm(dir, { recursive: true, force: true })
+  await removeFixture(dir)
 })
 
 const task = (over: Partial<Task> & Pick<Task, 'id'>): Task => ({
