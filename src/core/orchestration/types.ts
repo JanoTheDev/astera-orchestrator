@@ -178,6 +178,18 @@ export interface Job {
   paused?: boolean
   /** 완료 수렴 정책. 있으면 이 Job 의 검증·검토 실패는 앱이 repair 로 되돌린다(설계 D2·D12) */
   convergence?: ConvergencePolicy
+  /** Where the Job came from: a job source and its item (plugin Phase 4 J15). Set only by the Host, when it makes the
+   *  Job from that item (`jobs-create-from-source`); no caller of `jobs-create` can give it. */
+  source?: JobSourceRef
+}
+
+/** A job source's item a Job was made from: the source (a plugin's id, or `github`), the item's id there, how a person
+ *  names it (`Linear ENG-123`), and where to open it. */
+export interface JobSourceRef {
+  id: string
+  itemId: string
+  label: string
+  url?: string
 }
 
 /** 한 번의 실행. **계획이 실제로 돈 기록이고, 계획 자체는 Job 이다.**

@@ -3,6 +3,11 @@
 `@astera-app/client` is versioned apart from the Astera app. [docs/sdk.md](https://github.com/parsingk/Astera/blob/main/docs/sdk.md)
 is the guide.
 
+## 0.3.0
+
+- A Job's `source`: the job source and the item it was made from (`{ id, itemId, label, url? }`), when Astera made it
+  from a ticket, a Linear issue or a GitHub issue, say. It needs Astera 1.4.14 or later; an older one leaves it out.
+
 ## 0.2.0
 
 - Three session events in the public event log: `session.input_needed` (a session waits on a person, for a permission

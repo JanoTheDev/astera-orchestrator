@@ -87,6 +87,7 @@ import {
   type Dispatch,
   type Job,
   type JobRun,
+  type JobSourceRef,
   type MessageType,
   type Project,
   type Task,
@@ -1157,6 +1158,19 @@ function parseAccountList(
   return { ok: true, ids: parts }
 }
 
+/** The key the Host gives `jobs-create` (and `run-create`) the job source's item under (plugin Phase 4 J15). A symbol:
+ *  no JSON a caller sends can hold one, so only `jobs-create-from-source`, inside this process, sets a Job's source. */
+export const JOB_SOURCE: unique symbol = Symbol('job-source')
+
+/** The source `args` carry under JOB_SOURCE, when they carry one whole. */
+const jobSourceOf = (args: Record<string, unknown>): JobSourceRef | undefined => {
+  const v = (args as Record<PropertyKey, unknown>)[JOB_SOURCE]
+  if (typeof v !== 'object' || v === null) return undefined
+  const r = v as Record<string, unknown>
+  if (typeof r.id !== 'string' || typeof r.itemId !== 'string' || typeof r.label !== 'string') return undefined
+  return { id: r.id, itemId: r.itemId, label: r.label, ...(typeof r.url === 'string' ? { url: r.url } : {}) }
+}
+
 export async function handleCommand(
   deps: OrchServerDeps,
   /** `role` is the Host connection's (OrchCaller.role); absent where no Host connection exists. Only
@@ -1716,7 +1730,8 @@ export async function handleCommand(
             // 전에 첫 회차가 도는 것은 보통 Run 에서 없앤 바로 그 문제다. 게이트가 걷히는 순간부터
             // 무장하므로(firesDue), '실행' 을 누른 뒤의 첫 예약 시각이 첫 회차가 된다.
             ...(args.auto === true ? { pendingStart: true } : {}),
-            ...(convergence ? { convergence } : {})
+            ...(convergence ? { convergence } : {}),
+            ...(jobSourceOf(args) ? { source: jobSourceOf(args) } : {})
           },
         now
       )
