@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { AsteraError, ERROR_CODES, EXIT_CODES, REMOTE_ERROR_CODES, codeForStatus, exitCodeFor, isAsteraError, remoteCodeOf } from './index.js'
+import { AsteraError, ERROR_CODES, EXIT_CODES, REMOTE_ERROR_CODES, bodyCodeOf, codeForStatus, exitCodeFor, isAsteraError, remoteCodeOf } from './index.js'
 
 // The codes are the CLI's and MCP's (public CLI design §7-§8, remote runtime design §3.10); the SDK throws the same.
 describe('the error contract', () => {
@@ -23,6 +23,16 @@ describe('the error contract', () => {
     expect(remoteCodeOf({ code: 'NOT_FOUND' })).toBeNull()
     expect(remoteCodeOf({ error: 'RUNTIME_BUSY' })).toBeNull()
     expect(REMOTE_ERROR_CODES.every((c) => ERROR_CODES.includes(c))).toBe(true)
+  })
+
+  it('reads a code a refusal names in its body, a remote one or a plugin one, never the sentence (plugin Phase 5 C7)', () => {
+    expect(bodyCodeOf({ code: 'PLUGIN_CAPABILITY_MISSING' })).toBe('PLUGIN_CAPABILITY_MISSING')
+    expect(bodyCodeOf({ code: 'RUNTIME_BUSY' })).toBe('RUNTIME_BUSY')
+    expect(bodyCodeOf({ code: 'NOPE' })).toBeNull()
+    expect(bodyCodeOf({ error: 'PLUGIN_CAPABILITY_MISSING' })).toBeNull()
+    expect(bodyCodeOf(null)).toBeNull()
+    // Its refusal is a 409: it exits as CONFLICT does
+    expect(exitCodeFor('PLUGIN_CAPABILITY_MISSING')).toBe(6)
   })
 
   it('AsteraError carries the code and the details', () => {

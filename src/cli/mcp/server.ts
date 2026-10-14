@@ -10,7 +10,7 @@ import {
   dataFor,
   nextStepsFor,
   refusalDetailsOf,
-  remoteCodeOf,
+  bodyCodeOf,
   type CliErrorCode
 } from '../../core/orchestration/cliOutput'
 import type { JobEvent } from '../../core/types'
@@ -268,7 +268,7 @@ export async function hostRead(link: HostLink, cmd: string, tool: string, args: 
   const r = await link.call(cmd, args, request)
   if ('code' in r) return { ok: false, code: r.code, message: r.message }
   if (r.status < 200 || r.status >= 300)
-    return { ok: false, code: remoteCodeOf(r.body) ?? codeForStatus(r.status), message: refusalMessage(r.status, r.body), body: r.body }
+    return { ok: false, code: bodyCodeOf(r.body) ?? codeForStatus(r.status), message: refusalMessage(r.status, r.body), body: r.body }
   return { ok: true, shaped: redactOutput(tool, redact(dropCheckOutput(publicFor(cmd, r.body)))), replayed: r.replayed === true }
 }
 

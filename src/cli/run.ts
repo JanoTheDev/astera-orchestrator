@@ -42,7 +42,7 @@ import {
   CLI_PROTOCOL,
   askTimeoutBody,
   codeForStatus,
-  remoteCodeOf,
+  bodyCodeOf,
   dataFor,
   waitEnd,
   errEnvelope,
@@ -1657,7 +1657,7 @@ export async function main(): Promise<void> {
   // 제 코드로 분명하게 말한다.
   if (parsed.cmd === 'version') versionWithoutHost()
   // A Runtime's refusal names its own code (remote runtime design §3.10); read from the field, never the sentence.
-  const code = remoteCodeOf(reply.body) ?? codeForStatus(reply.status)
+  const code = bodyCodeOf(reply.body) ?? codeForStatus(reply.status)
   fail({
     code,
     message: messageFrom(reply.body, `the Host answered ${reply.status}`),

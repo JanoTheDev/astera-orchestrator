@@ -10,7 +10,7 @@ import { connectHost, type ConnectFailure, type HostConnection } from './connect
 import { hostAddress } from './address.js'
 import { callDeadlineMs, DEFAULT_CHECK_TIMEOUT_MS, TIMEOUT_HEADROOM_MS } from './deadlines.js'
 import { hostTarget, profilePath } from './discovery.js'
-import { AsteraError, codeForStatus, remoteCodeOf } from './errors.js'
+import { AsteraError, bodyCodeOf, codeForStatus } from './errors.js'
 import { HOST_FEATURE_ORCH, HOST_FEATURE_REQUESTS, HOST_PROTOCOL, type OrchResultMessage } from './protocol.js'
 import { publicFor } from './shape.js'
 import { createNamespaces, type Namespaces } from './namespaces.js'
@@ -115,7 +115,7 @@ const connectError = (error: ConnectFailure['error'], address: string, profileDi
 const callError = (cmd: string, status: number, body: unknown): AsteraError => {
   const said = typeof body === 'object' && body !== null ? (body as { error?: unknown }).error : undefined
   const message = typeof said === 'string' && said.length > 0 ? said : `the Host answered ${status} to ${cmd}`
-  return new AsteraError(remoteCodeOf(body) ?? codeForStatus(status), message, body)
+  return new AsteraError(bodyCodeOf(body) ?? codeForStatus(status), message, body)
 }
 
 const CLOSED_IN_FLIGHT = 'the client was closed before the Host answered'

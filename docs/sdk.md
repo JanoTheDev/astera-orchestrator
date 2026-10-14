@@ -397,6 +397,7 @@ CommonJS copies.
 | `VERSION_MISMATCH` | the Host and this client do not speak the same version, or the Host lacks a feature the call needs | update the app |
 | `WAITING_FOR_INPUT` | not thrown: the waits answer `waiting`, `paused` and `limited` as data | |
 | `RUN_FAILED` | not thrown: the waits answer `failed` as data | |
+| `PLUGIN_CAPABILITY_MISSING` | a Task's check names `plugin:<id>` and that plugin is not installed, does not offer completion checks, or is disabled | `astera plugins list`; install or enable it, or take the check out |
 
 `EXIT_CODES` maps every code to the exit code `astera` uses for it, for a script that exits the same way
 ([run-a-job.ts](../examples/sdk/run-a-job.ts) does).
