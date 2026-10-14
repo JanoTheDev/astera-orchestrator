@@ -883,8 +883,8 @@ describe('buildSpecFile — a plugin check in the repair request (plugin Phase 5
         status: 'failed',
         summary: '2 leftovers',
         diagnostics: [
-          { file: 'src/a.ts', line: 3, message: 'adds console.log' },
-          { file: 'src/b.ts', line: 9, message: 'adds debugger', severity: 'warning' }
+          { file: 'src/a.js', line: 3, message: 'adds console.log' },
+          { file: 'src/b.js', line: 9, message: 'adds debugger', severity: 'warning' }
         ],
         externalUrl: 'https://ci.example/r/1'
       },
@@ -895,8 +895,8 @@ describe('buildSpecFile — a plugin check in the repair request (plugin Phase 5
       [
         '- Check "Debug leftovers" — failed: 2 leftovers',
         '  Findings:',
-        '    src/a.ts:3 adds console.log',
-        '    src/b.ts:9 warning: adds debugger',
+        '    src/a.js:3 adds console.log',
+        '    src/b.js:9 warning: adds debugger',
         '  Details: https://ci.example/r/1',
         '- Check "Build" — not run (stopped at the first failure).'
       ].join('\n')
@@ -906,11 +906,11 @@ describe('buildSpecFile — a plugin check in the repair request (plugin Phase 5
 
   it('names the first 20 findings and counts the rest', () => {
     const checks: CheckResult[] = [
-      { configId: 'plugin:d', name: 'D', status: 'failed', summary: 'many', diagnostics: Array.from({ length: 25 }, (_, i) => ({ file: 'a.ts', line: i + 1, message: 'm' })) }
+      { configId: 'plugin:d', name: 'D', status: 'failed', summary: 'many', diagnostics: Array.from({ length: 25 }, (_, i) => ({ file: 'a.js', line: i + 1, message: 'm' })) }
     ]
     const spec = buildSpecFile({ title: 'T', spec: 'do', taskId: 'tsk_1', dispatchId: 'dsp_2', repair: { reason: 'check-failure', repair: 1, maxFixAttempts: 3, checks } })
-    expect(spec).toContain('    a.ts:20 m\n    … 5 more finding(s)')
-    expect(spec).not.toContain('a.ts:21 m')
+    expect(spec).toContain('    a.js:20 m\n    … 5 more finding(s)')
+    expect(spec).not.toContain('a.js:21 m')
   })
 })
 

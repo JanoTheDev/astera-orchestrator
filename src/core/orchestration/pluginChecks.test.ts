@@ -18,7 +18,7 @@ describe('a plugin’s answer (C5)', () => {
     const answer = {
       status: 'failed',
       summary: '2 leftovers',
-      diagnostics: [{ file: 'a.ts', line: 3, message: 'adds console.log', severity: 'error' }],
+      diagnostics: [{ file: 'a.js', line: 3, message: 'adds console.log', severity: 'error' }],
       externalUrl: 'https://ci.example/1'
     }
     expect(checkAnswerOf(answer)).toEqual(answer)
@@ -97,12 +97,12 @@ describe('the text a repair request and a status message carry (C10)', () => {
       status: 'failed',
       summary: '22 leftovers',
       externalUrl: 'https://x.example/r',
-      diagnostics: Array.from({ length: 22 }, (_, i) => ({ file: 'src/a.ts', line: i + 1, message: 'adds console.log' }))
+      diagnostics: Array.from({ length: 22 }, (_, i) => ({ file: 'src/a.js', line: i + 1, message: 'adds console.log' }))
     })!
     const lines = text.split('\n')
     expect(lines[0]).toBe('22 leftovers')
-    expect(lines[1]).toBe('src/a.ts:1 adds console.log')
-    expect(lines[20]).toBe('src/a.ts:20 adds console.log')
+    expect(lines[1]).toBe('src/a.js:1 adds console.log')
+    expect(lines[20]).toBe('src/a.js:20 adds console.log')
     expect(lines[21]).toBe('… 2 more finding(s)')
     expect(lines.at(-1)).toBe('Details: https://x.example/r')
   })
@@ -116,9 +116,9 @@ describe('the text a repair request and a status message carry (C10)', () => {
   })
 
   it('names a file without a line, a finding without a file, and a warning', () => {
-    expect(diagnosticLine({ file: 'a.ts', message: 'm' })).toBe('a.ts m')
+    expect(diagnosticLine({ file: 'a.js', message: 'm' })).toBe('a.js m')
     expect(diagnosticLine({ message: 'm' })).toBe('m')
-    expect(diagnosticLine({ file: 'a.ts', line: 2, message: 'm', severity: 'warning' })).toBe('a.ts:2 warning: m')
+    expect(diagnosticLine({ file: 'a.js', line: 2, message: 'm', severity: 'warning' })).toBe('a.js:2 warning: m')
   })
 })
 

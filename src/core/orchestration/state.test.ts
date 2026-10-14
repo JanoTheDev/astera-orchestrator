@@ -1168,11 +1168,11 @@ describe('applyValidationResult — a plugin check (plugin Phase 5 C9, C10)', ()
 
   it('tells the coordinator what a failed plugin check found, without convergence', () => {
     const { s, taskId } = armed(false)
-    const failed: CheckResult = { configId: 'plugin:d', name: 'D', status: 'failed', summary: '1 leftover', diagnostics: [{ file: 'src/a.ts', line: 3, message: 'adds console.log' }] }
+    const failed: CheckResult = { configId: 'plugin:d', name: 'D', status: 'failed', summary: '1 leftover', diagnostics: [{ file: 'src/a.js', line: 3, message: 'adds console.log' }] }
     const r = unwrap<Task>(applyValidationResult(s, { taskId, results: round(failed) }, NOW) as never)
     expect(r.value.status).toBe('failed')
-    expect(r.value.result).toContain('1 leftover\nsrc/a.ts:3 adds console.log')
-    expect(r.state.messages.at(-1)?.body).toContain('src/a.ts:3 adds console.log')
+    expect(r.value.result).toContain('1 leftover\nsrc/a.js:3 adds console.log')
+    expect(r.state.messages.at(-1)?.body).toContain('src/a.js:3 adds console.log')
     expect(r.value.lastFailure).toBe('D failed: 1 leftover')
   })
 

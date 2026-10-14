@@ -65,6 +65,7 @@ import { reattachSessions, type ReattachResult } from './host/reattach'
 import { createWorktreeRoute, NO_HOST_CONNECTION, hostDeadlineMessage } from './host/worktreeRoute'
 import { createPluginsRoute } from './host/pluginsRoute'
 import { createSourcesRoute } from './host/sourcesRoute'
+import { createAppCompletionChecks } from './host/pluginChecksRoute'
 import { createHostGitOps } from '../core/workUnit/hostGitOps'
 import { appPathInUse } from './host/localPathInUse'
 import { HOST_PROTOCOL, HOST_ACT_PATH_IN_USE, HOST_ACT_SLACK_ANSWER, type ClientMessage, type HostMessage, type PtyEntry } from '../core/host/protocol'
@@ -3195,6 +3196,9 @@ export function registerIpc(
 
     const deps: OrchServerDeps = {
       getState: () => store.get(),
+      // The completion check plugins are the Host's (plugin Phase 5 C7, C8): this copy's early refusals and the app's
+      // own checks ask it, as the app.
+      completionChecks: createAppCompletionChecks({ call: (m) => orchCall(m) }),
       // A local Run's changed files and diffs (remote runtime design Phase 10), from this machine's git, as the Host
       // reads them for a remote one.
       changes: { read: (repo, base, head) => readChanges(repo, base, head), diff: (repo, base, head, f) => readFileDiff(repo, base, head, f) },
