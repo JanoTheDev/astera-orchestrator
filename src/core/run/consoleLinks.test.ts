@@ -151,6 +151,35 @@ describe('findConsoleLinks — a path with something glued to its front', () => 
   })
 })
 
+// D3 (2026-10-14): a path with spaces is a link only inside quotes. The quoted reading claims no range, so a quote that
+// only seems to open a path cannot hide one; the renderer keeps the longest link that resolves.
+describe('findConsoleLinks — a quoted path with spaces', () => {
+  const paths = (line: string) => findConsoleLinks(line).flatMap((l) => (l.kind === 'path' ? [[line.slice(l.start, l.end), l.target, l.line]] : []))
+
+  it('reads a path with spaces inside double, single or curly quotes', () => {
+    expect(paths('open "C:\\Program Files\\a.txt" now')).toContainEqual(['C:\\Program Files\\a.txt', 'C:\\Program Files\\a.txt', undefined])
+    expect(paths("see 'D:\\My Docs\\b.png'")).toContainEqual(['D:\\My Docs\\b.png', 'D:\\My Docs\\b.png', undefined])
+    expect(paths('“C:\\My Docs\\a.png”')).toContainEqual(['C:\\My Docs\\a.png', 'C:\\My Docs\\a.png', undefined])
+    expect(paths('"./my dir/a b.ts"')).toContainEqual(['./my dir/a b.ts', './my dir/a b.ts', undefined])
+  })
+
+  it('keeps the position of a quoted path', () => {
+    expect(paths('at "C:\\Program Files\\a.ts:12"')).toContainEqual(['C:\\Program Files\\a.ts:12', 'C:\\Program Files\\a.ts', 12])
+  })
+
+  it('reads nothing more from apostrophes in prose or quoted words', () => {
+    expect(paths("don't open C:\\a\\b.png, it's fine")).toEqual([['C:\\a\\b.png', 'C:\\a\\b.png', undefined]])
+    expect(paths('"just words here" and "C:\\nospace.txt"')).toEqual([['C:\\nospace.txt', 'C:\\nospace.txt', undefined]])
+  })
+
+  it('takes an unclosed quote over a long line in linear time', () => {
+    const line = '"C:\\' + 'a '.repeat(20_000)
+    const t0 = performance.now()
+    findConsoleLinks(line)
+    expect(performance.now() - t0).toBeLessThan(250)
+  })
+})
+
 describe('findConsoleLinks — URLs', () => {
   it('an http URL', () => {
     expect(only('  ➜  Local:   http://localhost:5173/')).toEqual({ kind: 'url', start: 14, end: 36, url: 'http://localhost:5173/' })

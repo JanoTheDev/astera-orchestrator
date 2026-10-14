@@ -103,6 +103,15 @@ const JVM_FRAME_RE = /\bat\s+(?:[\w.]+\/\/?)?((?:[\w$]+\.)*)[\w$]+\.[\w$<>]+\(((
 // its own separators and spaces; the token pass already finds it (quotes end a token) but loses the
 // line, so this rule claims the range to keep the line attached.
 const PY_FRAME_RE = /File "([^"]+)", line (\d+)/g
+// A path with spaces is a link only inside quotes (D3, 2026-10-14): `"C:\Program Files\a.txt"`, `'D:\My Docs\b.png'`,
+// `“C:\My Docs\a.png”`. The quoted text starts like a path (a drive, `/`, `\`, `./`, `../`, `~/`); one with no space
+// in it is the token pass's. One class per quote, so the match is a single run and linear on an unclosed quote.
+const QUOTED_START = String.raw`(?:[A-Za-z]:[\\/]|\.{1,2}[\\/]|~[\\/]|[\\/])`
+const QUOTED_RE = [
+  new RegExp(String.raw`"(${QUOTED_START}[^"\n]*)"`, 'g'),
+  new RegExp(String.raw`'(${QUOTED_START}[^'\n]*)'`, 'g'),
+  new RegExp(String.raw`\u201C(${QUOTED_START}[^\u201D\n]*)\u201D`, 'g')
+]
 
 /** A path candidate is a link when it contains a separator, or has an extension and a line — a bare
  *  word is not a file, and `12:30` is a clock. A bare video or image name is the exception: Claude
@@ -151,6 +160,17 @@ export function findConsoleLinks(line: string): ConsoleLink[] {
     out.push({ kind: 'path', start, end, target, line: Number(m[2]) })
     taken.push([start, end])
   }
+  // Quoted paths with spaces. They claim no range: a quote that only seems to open a path (an apostrophe in prose) must
+  // not hide the real path inside it, so the token pass still reads the words, and the renderer keeps the longest link
+  // that resolves.
+  for (const re of QUOTED_RE)
+    for (const m of line.matchAll(re)) {
+      if (!m[1].includes(' ')) continue
+      const r = readPath(m[1])
+      if (r === null) continue
+      const start = (m.index ?? 0) + 1
+      out.push({ kind: 'path', start, end: start + r.length, target: r.target, ...pos(r) })
+    }
   for (const m of line.matchAll(TOKEN_RE)) {
     let start = m.index ?? 0
     let text = m[0]
