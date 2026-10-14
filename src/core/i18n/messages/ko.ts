@@ -2141,10 +2141,10 @@ export const ko = {
   'pluginNotify.inputNeeded.permission': '권한 허가를 기다립니다.',
   'pluginNotify.inputNeeded.question': '질문의 답을 기다립니다.',
   'pluginNotify.inputNeeded': '입력을 기다립니다.',
-  'pluginNotify.runFailed': 'Run {ordinal} 이 실패했습니다 (Task {total}개 중 {done}개 완료).',
-  'pluginNotify.completionExhausted': '{task} 의 완료 확인이 수정 기회를 모두 썼습니다.',
+  'pluginNotify.runFailed': '{ordinal}번째 Run 이 실패했습니다 (Task {total}개 중 {done}개 완료).',
+  'pluginNotify.completionExhausted': '{task} 의 완료 검사가 수정 기회를 모두 썼습니다.',
   'pluginNotify.limitWaitingAt': '사용 한도에 걸려 멈췄습니다. {time} 에 다시 시도합니다.',
   'pluginNotify.limitWaiting': '사용 한도에 걸려 멈췄습니다.',
-  'pluginNotify.runCompleted': 'Run {ordinal} 이 끝났습니다.',
+  'pluginNotify.runCompleted': '{ordinal}번째 Run 이 끝났습니다.',
   'pluginNotify.accountSwitched': '{label} 계정으로 이어 갑니다.'
 } as const

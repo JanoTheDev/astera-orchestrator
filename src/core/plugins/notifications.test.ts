@@ -113,6 +113,54 @@ it('names the kinds the plugin SDK exports, in the same order', () => {
   expect([...SDK_KINDS]).toEqual([...NOTIFICATION_KINDS])
 })
 
+describe('notificationOf, against what a person would not expect (plugin 3c final review)', () => {
+  // I1: an older Host's payload, or a line restored from disk, is no reason to hold a provider's queue for an hour
+  it('words nothing for a payload that lacks what its sentence needs, and never throws', () => {
+    expect(word(ev('run.failed', { id: 'run_1', jobId: 'job_1' }))).toBeNull()
+    expect(word(ev('run.completed', { id: 'run_1', ordinal: 'two' }))).toBeNull()
+    expect(word(ev('question.created', {}))).toBeNull()
+    expect(word(ev('completion.exhausted', { taskId: 't' }))).toBeNull()
+    expect(word(ev('session.account_switched', { session }, { sessionId: 's1' }))).toBeNull()
+    for (const payload of [null, 'x', 7, []]) for (const kind of NOTIFICATION_KINDS) expect(() => word(ev(kind, payload)), `${kind} ${JSON.stringify(payload)}`).not.toThrow()
+    // A session event without a usable session still says what happened, under Astera's name
+    expect(word(ev('session.input_needed', { session: { id: 's', kind: 'terminal', cwd: 7, title: 9 }, prompt: null }, { sessionId: 's' }))!.title).toBe('Astera')
+    expect(word(ev('session.input_needed', { prompt: null }, { sessionId: 's' }))).toMatchObject({ title: 'Astera', body: 'Waiting for input.' })
+  })
+
+  // I2: an objective stored as typed can start with a blank line, and a session's title can be spaces
+  it('titles a Job by its first line that holds something, and a blank title by what comes next', () => {
+    objectives.job_blank = '\n  \n  Ship it  \nmore'
+    expect(word(ev('run.completed', RUN, { jobId: 'job_blank' }))!.title).toBe('Ship it')
+    objectives.job_spaces = '   '
+    expect(word(ev('run.completed', RUN, { jobId: 'job_spaces' }))!.title).toBe('job_spaces')
+    expect(word(ev('session.input_needed', { session: { id: 's', kind: 'terminal', title: '   ', cwd: '/a/proj' }, prompt: null }, { sessionId: 's' }))!.title).toBe('proj')
+    expect(word(ev('session.input_needed', { session: { id: 's', kind: 'terminal', title: ' Fix it ' }, prompt: null }, { sessionId: 's' }))!.title).toBe('Fix it')
+  })
+
+  // M7: a number before 이 reads wrong for 2, 4, 5 and 9; the Job screens call the checks 완료 검사
+  it('says a Run’s number in Korean as the app does, and the checks by the Job screens’ name', () => {
+    expect(word(ev('run.completed', RUN), 'ko')!.body).toBe('2번째 Run 이 끝났습니다.')
+    expect(word(ev('run.failed', RUN), 'ko')!.body).toBe('2번째 Run 이 실패했습니다 (Task 5개 중 3개 완료).')
+    expect(word(ev('completion.exhausted', { taskId: 't1', title: 'Add tests' }), 'ko')!.body).toBe('Add tests 의 완료 검사가 수정 기회를 모두 썼습니다.')
+  })
+
+  // M8: 3/4 reads as the 3rd of April to a Spanish reader
+  it('says a weekly limit’s day in the order the language reads it', () => {
+    const d = new Date(AT)
+    const weekly = (lang: Lang) =>
+      word(ev('session.limit_waiting', { session, scope: 'weekly', nextRetryAt: new Date(AT).toISOString() }, { sessionId: 's1' }), lang)!.body
+    expect(weekly('es')).toContain(`${d.getDate()}/${d.getMonth() + 1}`)
+    expect(weekly('en')).toContain(`${d.getMonth() + 1}/${d.getDate()}`)
+  })
+
+  // M9: an emoji cut in half shows as a broken character
+  it('cuts by characters, never inside an emoji', () => {
+    const n = word(ev('question.created', { question: '😀'.repeat(600) }))!
+    expect(n.body).toBe(`Waiting for an answer: ${'😀'.repeat(499)}…`)
+    expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(n.body)).toBe(false)
+  })
+})
+
 describe('resumeAtText', () => {
   it('says the hour and minute for a session limit, and the day too for a weekly one', () => {
     expect(resumeAtText(AT, false)).toMatch(/^\d\d:\d\d$/)
