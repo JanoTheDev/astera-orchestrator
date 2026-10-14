@@ -15,8 +15,8 @@ is the guide.
   fifth. The question a check that could not be made opens has the new `GateKind` `check-unavailable`, answered with
   `retry`, `skip-check` or `mark-failed`. It needs Astera 1.4.14 or later; an older one has no plugin checks.
 - The error code `PLUGIN_CAPABILITY_MISSING` (exit 6): a Task's check names a plugin that is not installed, does not
-  offer completion checks, or is disabled. `bodyCodeOf` reads it, and the remote codes, from a refusal's body. Astera
-  1.4.14 or later answers with it.
+  offer completion checks, or is disabled. `bodyCodeOf` reads it, and the remote codes, from a refusal's body. It
+  comes from Astera 1.4.14 or later.
 
 ## 0.2.0
 
