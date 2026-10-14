@@ -59,7 +59,7 @@ describe('runLauncher', () => {
   it('loads the entry, gives activate the plugin’s context, and answers initialize once activate resolved', async () => {
     let ctx: PluginContext | undefined
     const l = launch({ default: { activate: (c: PluginContext) => void (ctx = c) } })
-    expect(await l.ask('initialize', INIT_PARAMS)).toEqual({ jsonrpc: '2.0', id: 101, result: {} })
+    expect(await l.ask('initialize', INIT_PARAMS)).toEqual({ jsonrpc: '2.0', id: 101, result: { handlers: [] } })
     expect(l.imported).toEqual(['/plugins/astera-hello/index.js'])
     expect(ctx?.plugin).toEqual({ id: 'astera-hello', version: '1.0.0', dir: '/plugins/astera-hello' })
     expect(ctx?.permissions).toEqual(['projects.read'])
@@ -241,5 +241,72 @@ describe('runLauncher: settings and secrets', () => {
     })
     l.send({ id: req.id, error: { code: -32602, message: '../x is not a secret name' } })
     expect(await refused).toMatchObject({ message: '../x is not a secret name' })
+  })
+
+  // Plugin Phase 3 N5: the Host fails the start of a plugin whose capability has no handler, so it asks which it has
+  it('says which handlers the entry has when it starts', async () => {
+    const l = launch({ default: { onEvent() {}, activate() {} } })
+    expect(await l.ask('initialize', INIT_PARAMS)).toMatchObject({ result: { handlers: ['onEvent'] } })
+    const none = launch({ default: { activate() {} } })
+    expect(await none.ask('initialize', INIT_PARAMS)).toMatchObject({ result: { handlers: [] } })
+    // One default deeper, as CommonJS compiled out of ESM has it, when the outer object holds only a handler's default
+    const cjs = launch({ default: { default: { onEvent() {} } } })
+    expect(await cjs.ask('initialize', INIT_PARAMS)).toMatchObject({ result: { handlers: ['onEvent'] } })
+  })
+
+  it('hands an event to onEvent with the plugin’s context, and answers once it settled', async () => {
+    const seen: unknown[] = []
+    let ctxSeen: PluginContext | undefined
+    let release: () => void = () => {}
+    const l = launch({
+      default: {
+        async onEvent(e: unknown, ctx: PluginContext) {
+          seen.push(e)
+          ctxSeen = ctx
+          await new Promise<void>((r) => (release = r))
+        }
+      }
+    })
+    await l.ask('initialize', INIT_PARAMS)
+    const event = { id: 'ev_aaaaaaaaaaaa_1', type: 'run.completed', sequence: 1, occurredAt: 'T', payload: {} }
+    const answered = l.ask('events.deliver', { event })
+    await vi.waitFor(() => expect(seen).toEqual([event]))
+    // Not answered while onEvent has not settled (the initialize was 101, this is 102)
+    expect(l.out.some((m) => m.id === 102)).toBe(false)
+    release()
+    expect(await answered).toMatchObject({ result: {} })
+    expect(ctxSeen?.plugin.id).toBe('astera-hello')
+  })
+
+  it('answers a throwing onEvent with its message, and an entry without one with an error', async () => {
+    const l = launch({
+      default: {
+        onEvent() {
+          throw new Error('boom')
+        }
+      }
+    })
+    await l.ask('initialize', INIT_PARAMS)
+    expect(await l.ask('events.deliver', { event: { type: 'gap' } })).toMatchObject({ error: { code: -32603, message: 'onEvent threw: boom' } })
+    const none = launch({ default: {} })
+    await none.ask('initialize', INIT_PARAMS)
+    expect(await none.ask('events.deliver', { event: { type: 'gap' } })).toMatchObject({ error: { code: -32601, message: 'the plugin has no onEvent' } })
+    expect(await l.ask('events.deliver', {})).toMatchObject({ error: { code: -32602, message: 'events.deliver needs { event }' } })
+  })
+
+  it('refuses an onEvent that is not a function as no plugin, and an event before the start', async () => {
+    const bad = launch({ default: { onEvent: 'x' } })
+    expect(await bad.ask('initialize', INIT_PARAMS)).toMatchObject({ error: { message: expect.stringContaining('does not export a plugin') } })
+    const early = launch({ default: { onEvent() {} } })
+    expect(await early.ask('events.deliver', { event: { type: 'gap' } })).toMatchObject({ error: { message: 'the plugin is not started' } })
+  })
+
+  it('refuses an event once the plugin is stopping', async () => {
+    const seen: unknown[] = []
+    const l = launch({ default: { onEvent: (e: unknown) => void seen.push(e) } })
+    await l.ask('initialize', INIT_PARAMS)
+    await l.ask('shutdown', {})
+    expect(await l.ask('events.deliver', { event: { type: 'gap' } })).toMatchObject({ error: { message: 'the plugin is stopping' } })
+    expect(seen).toEqual([])
   })
 })
