@@ -72,6 +72,49 @@ describe('the Host event log', () => {
     expect(ids(log)).toEqual([`ev_${A}_1`, `ev_${A}_2`])
   })
 
+  // Plugin Phase 3 (events and notifications design N2): what no commit makes is recorded through `recorded`,
+  // numbered on with the commits' events and kept the same way
+  it('records drafts that no commit made, numbered with the rest, and writes them', async () => {
+    const d = scripted()
+    const log = open(BOOT_A, d.derive)
+    await log.load()
+    d.next.push([draft('run.started')])
+    log.committed(s0, s1)
+    log.recorded([{ type: 'session.input_needed', sessionId: 's1', payload: { session: { id: 's1', kind: 'chat' }, prompt: 'question' } }])
+    log.recorded([])
+    await log.flushed()
+    expect(lines('events.jsonl')).toEqual([
+      { id: `ev_${A}_1`, type: 'run.started', sequence: 1, occurredAt: 'T', runId: 'run_1', payload: { id: 'run_1' } },
+      { id: `ev_${A}_2`, type: 'session.input_needed', sequence: 2, occurredAt: 'T', sessionId: 's1', payload: { session: { id: 's1', kind: 'chat' }, prompt: 'question' } }
+    ])
+  })
+
+  it('a new Host reads session events back with their session id', async () => {
+    const a = open(BOOT_A, () => [])
+    await a.load()
+    a.recorded([{ type: 'session.limit_waiting', sessionId: 's1', payload: { session: { id: 's1', kind: 'terminal' }, scope: 'weekly' } }])
+    await a.flushed()
+    const b = open(BOOT_B, () => [])
+    await b.load()
+    const r = b.read({ limit: 10 })
+    if ('error' in r) throw new Error(r.error)
+    expect(r.events).toEqual([{ id: `ev_${A}_1`, type: 'session.limit_waiting', sequence: 1, occurredAt: 'T', sessionId: 's1', payload: { session: { id: 's1', kind: 'terminal' }, scope: 'weekly' } }])
+  })
+
+  it('a recorded draft the ring cannot take is logged and nothing throws', async () => {
+    const log = open(BOOT_A, () => [])
+    await log.load()
+    const poisoned = {
+      type: 'session.input_needed',
+      sessionId: 's1',
+      get payload(): unknown {
+        throw new Error('boom')
+      }
+    } as unknown as EventDraft
+    expect(() => log.recorded([poisoned])).not.toThrow()
+    expect(logged.some((m) => m.includes('could not record') && m.includes('boom'))).toBe(true)
+  })
+
   it('writes nothing, and makes no file, for a commit with no events', async () => {
     const log = open(BOOT_A, () => [])
     await log.load()
