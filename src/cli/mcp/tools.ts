@@ -624,8 +624,9 @@ const LISTED_TOOLS: ToolDef[] = [
     },
     args: (i) => ({ project: i.projectId, number: i.number, ...coordinatorArgs(i) })
   },
-  // Plugin Phase 4 J22. The Host's job-source commands, named for the CLI (`sources show --item`); `source` keeps its
-  // name, since the remote gate reads the tool's input as it came (mcpRefusal: a Job from GitHub is a GitHub write).
+  // Plugin Phase 4 J22. The Host's job-source commands, named for the CLI (`sources show --item`). `source` keeps its
+  // name because the Host's MCP gate reads it off the command's args (mcpRefusal: a Job from GitHub is a GitHub write);
+  // the remote gate never sees these tools, which reach this machine's Host only (remoteTarget 'no').
   {
     name: 'list_job_sources',
     title: 'List job sources',

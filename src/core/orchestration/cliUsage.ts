@@ -79,12 +79,6 @@ const TIMEOUT: UsageFlag = {
   about: 'how long to wait (default 3600000, one hour)'
 }
 
-/**
- * Every public command, one entry each.
- *
- * Missing keys and unknown keys are both compile errors, so this object is exactly the public
- * surface. See the head of this file for what that does and does not guarantee.
- */
 /** What a Job is made with, beside its objective and its folder: `jobs create`'s flags, and `jobs create-from-source`'s
  *  after its own. */
 const JOB_MAKING_FLAGS: readonly UsageFlag[] = [
@@ -122,6 +116,12 @@ const SOURCE_PROJECT: UsageFlag = {
   about: 'the project, for a source that needs one: GitHub issues are its repository\'s (from `projects list`)'
 }
 
+/**
+ * Every public command, one entry each.
+ *
+ * Missing keys and unknown keys are both compile errors, so this object is exactly the public
+ * surface. See the head of this file for what that does and does not guarantee.
+ */
 export const USAGE: Record<PublicCommand, CommandUsage> = {
   version: { summary: 'CLI, app and protocol versions' },
   status: { summary: 'is the orchestrator there, and what is running' },
@@ -156,7 +156,7 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
   'mcp-serve': {
     summary: 'serve Astera to an MCP client over stdio',
     detail:
-      'For an MCP client to launch, not for a person to type: stdout carries the MCP protocol. It connects to the Host of this profile, starting one when none answers, and serves thirty-four tools that create, plan, run, observe, answer, stop and resume Jobs, read and use sessions when Settings allows it, read pull requests, CI and issues on GitHub and, when Settings allows it, act on them, and read the How It Works records of a project and regenerate one. What it may do is set by MCP access in Settings (CLI tab). See docs/mcp.md.'
+      'For an MCP client to launch, not for a person to type: stdout carries the MCP protocol. It connects to the Host of this profile, starting one when none answers, and serves forty tools that create, plan, run, observe, answer, stop and resume Jobs, read and use sessions when Settings allows it, read pull requests, CI and issues on GitHub and, when Settings allows it, act on them, read the job sources and make a Job from an item, read the How It Works records of a project and regenerate one, and list the Runtimes this machine is paired with. What it may do is set by MCP access in Settings (CLI tab). See docs/mcp.md.'
   },
   'runtime-start': {
     summary: 'turn Remote Runtime on: other machines may pair with this one',
@@ -264,7 +264,7 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
   'sources-items': {
     summary: "a page of a source's items, searched with --query",
     detail:
-      "GitHub issues are the open issues of the project's repository; one a non-member wrote is listed but cannot be picked. A plugin source ignores --project. Each item names the Jobs made from it. A source that does not run is 503, one that throws 502, one past 15 seconds 504.",
+      "GitHub issues are the open issues of the project's repository; one a non-member wrote is listed but cannot be picked. A plugin source ignores --project. Each item names the Jobs made from it. A source that does not run, one that throws and one past 15 seconds are FAILED (exit 1), saying which.",
     flags: [
       SOURCE,
       { name: 'query', value: '<text>', about: 'what to search for' },
@@ -334,7 +334,7 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
   'jobs-create-from-source': {
     summary: "create a Job in a project from a source's item: the item quoted as its objective, and kept as its source",
     detail:
-      "Returns the Job, with no run yet, as `jobs create` does; it takes that command's flags but --objective and --cwd. Astera writes the objective, the item's text quoted as data, and the Job works in the project's folder. Refused for an item that cannot be picked (403: a GitHub issue a non-member wrote, or a closed one) and for a GitHub pull request's number (404). A source that does not run is 503, one that throws 502, one past 15 seconds 504.",
+      "Returns the Job, with no run yet, as `jobs create` does; it takes that command's flags but --objective and --cwd. Astera writes the objective, the item's text quoted as data, and the Job works in the project's folder. Refused for an item that cannot be picked (PERMISSION_DENIED, exit 5: a GitHub issue a non-member wrote, or a closed one) and for a GitHub pull request's number (NOT_FOUND, exit 4). A source that does not run, one that throws and one past 15 seconds are FAILED (exit 1), saying which.",
     flags: [SOURCE, ITEM, { name: 'project', value: '<projectId>', required: true, about: 'the project the Job works in (from `projects list`)' }, ...JOB_MAKING_FLAGS]
   },
   'jobs-wait': {
@@ -590,8 +590,9 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
  * the whole command. So the test is `NOUNS` itself, not a hand-kept list of exceptions: `worker` is
  * not a noun, `runs` is.
  *
- * **The last dash, not the first**, because a noun can hold a dash of its own: `run-configs-list` is
- * `run-configs list`. No verb has a dash, so the last one is the only place a verb can start.
+ * **Each dash in turn, until a noun's verb follows it**, because a noun can hold a dash of its own
+ * (`run-configs-list` is `run-configs list`) and so can a verb (`jobs-create-from-source` is
+ * `jobs create-from-source`). The first dash where the rest is one of that noun's verbs is the split.
  *
  * Exported because cliOutput.ts builds `astera jobs get --help` as a recovery step and
  * cliAgentContext.ts prints one line per command, and three spellings of one rule would drift.

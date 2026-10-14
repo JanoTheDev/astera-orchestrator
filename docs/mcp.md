@@ -382,7 +382,8 @@ oldest first by `createdAt`; `list_tasks` keeps the Run's order (dependencies, t
 `list_projects`, `list_accounts` and `list_run_configs` keep Astera's, `list_sessions` puts live
 sessions first and otherwise keeps Astera's, and `list_work_records` comes newest first by `at`. The list is ordered first and cut second. A cut
 list carries `truncated: true` and `total` (how many there were) beside it; a whole list carries
-neither.
+neither. Three list tools take no `limit` and are not cut: `list_runtimes` and `list_job_sources` answer their few
+rows whole, and `list_source_items` answers the page the source gave, with the source's own `nextCursor`.
 
 **Paging.** Every list tool also takes an optional `cursor`. A cut list that has more rows after it
 carries `nextCursor`; pass it as `cursor`, with the same filters, for the next page, which follows
@@ -392,15 +393,16 @@ cursor is opaque and belongs to the tool that gave it: one from another tool, or
 cursor at all, is refused with `INVALID_ARGUMENTS`. A cursor holds a position in the list, not a
 snapshot of it, so a list that changes between calls shifts: when rows are added ahead of the
 position (a new Job in `list_jobs`, newest first), the next page starts that many rows earlier and
-repeats them.
+repeats them. `list_source_items` is the exception: its `cursor` is the source's own (up to 2,000 characters), passed
+to the source as it was given, and refused only by the source.
 
 Every result carries the data twice, as `structuredContent` and as the same JSON in the text
 content. An error is the exception: its text content is a `CODE: message` line followed by the JSON
 (`code`, `message`, `nextSteps` and, when there are any, `details`), and it carries no
 `structuredContent`, because some clients (Cursor) validate `structuredContent` even on an error.
-The twelve tools that change something (`create_job`, `create_task`, `run_job`, `stop_run`,
+The thirteen tools that change something (`create_job`, `create_task`, `run_job`, `stop_run`,
 `resume_run`, `answer_question`, `send_message`, `create_session`, `create_pr`, `retry_ci`,
-`create_job_from_issue`, `regenerate_work_record`) accept an optional `requestId`. Retrying with
+`create_job_from_issue`, `create_job_from_source`, `regenerate_work_record`) accept an optional `requestId`. Retrying with
 the same id returns the first result instead of acting twice; for a failed GitHub write, see
 [GitHub](#github). The Host keeps these receipts in memory for one hour, and a Host restart forgets
 them.

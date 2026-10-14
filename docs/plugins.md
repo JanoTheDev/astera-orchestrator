@@ -340,7 +340,8 @@ someone else, and a page of any size must not slow the window it lands in:
   20,000 characters and 100,000 in all, and `metadata` keeps 50 pairs.
 
 An answer of the wrong shape is refused, saying what is wrong ("the Linear source answered with something that is not
-a page of items: item 0 has no id"). Text past a limit is cut, with `…`, and the answer says it was cut.
+a page of items: item 0 has no id"). Text past a limit is cut, with `…`, and a list or an item that was cut says so
+with `cut: true`.
 
 **Errors reach the person.** Each call has 15 seconds. A function that throws or rejects answers 502 with its message
 ("the Linear source could not list items: 401 Unauthorized"), so throw the sentence a person should read. Past 15

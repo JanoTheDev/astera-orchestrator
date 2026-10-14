@@ -310,6 +310,9 @@ describe('docs/plugins.md', () => {
     expect(js).toContain('`source`')
     expect(js).toContain('needs no permission')
     expect(js).toContain('control character')
+    // The 4b review's M4: the sentence a person reads, as commandSources words it with what the function threw
+    expect(js).toContain('"the Linear source could not list items: 401 Unauthorized"')
+    expect(js).toContain('`cut: true`')
     // Its manifest fragment is one Astera reads as a job source
     const [fragment] = fenced(sec, 'json')
     const parsed = parseManifest({ name: 'x', version: '1.0.0', astera: { apiVersion: '1', entry: 'index.js', ...JSON.parse(fragment) } })
@@ -318,8 +321,11 @@ describe('docs/plugins.md', () => {
     expect(read('examples/plugins/linear-source/README.md')).toContain('docs/plugins.md#job-source-plugins)')
     expect(section(guide, '## Not yet')).not.toContain('`job-source`')
     expect(prose(section(guide, '## The manifest'))).toContain('[Job source plugins](#job-source-plugins)')
-    // docs/sdk.md: a Job made from a source carries where it came from
-    expect(prose(section(read('docs/sdk.md'), '### Jobs and Runs'))).toContain('`source`')
+    // docs/sdk.md: a Job made from a source carries where it came from, and the 4b review's M10: how an SDK user makes one
+    const sdkJobs = prose(section(read('docs/sdk.md'), '### Jobs and Runs'))
+    expect(sdkJobs).toContain('`source`')
+    expect(sdkJobs).toContain("call('jobs-create-from-source'")
+    expect(read('packages/client/CHANGELOG.md')).toContain('`jobs-create-from-source`')
   })
 
   // The design's note on N2: a session event carries its title and folder, so the grant says so

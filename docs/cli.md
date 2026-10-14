@@ -598,10 +598,10 @@ or with why not; `sources items` lists a page of a source's items and `sources s
 create-from-source` makes a Job from one.
 
 ```text
-astera sources list                                              GitHub issues and the job-source plugins
-astera sources items --source github --project <projectId>       the open issues of the project's repository
-astera sources items --source astera-linear-source --query login a search; --cursor <nextCursor> for the next page
-astera sources show --source astera-linear-source --item ENG-123 one item, read whole
+astera sources list                                                GitHub issues and the job-source plugins
+astera sources items --source github --project <projectId>         the open issues of the project's repository
+astera sources items --source astera-linear-source --query login   a search; --cursor <nextCursor> for the next page
+astera sources show --source astera-linear-source --item ENG-123   one item, read whole
 astera jobs create-from-source --source github --item 12 --project <projectId> --coordinator-account <accountId>
 ```
 
@@ -616,12 +616,13 @@ quotes its text as data inside a block the text cannot close, since someone else
 `source` (`{ id, itemId, label, url }`), which `jobs get` shows and the app links to. The same `--request-id` never makes
 two Jobs.
 
-What a refusal means: 400 a flag missing or an item id no source gives (longer than 200 characters, or with a control
-character); 403 an item that cannot be picked (a GitHub issue a non-member wrote, or a closed one); 404 an unknown
-source, project or GitHub issue, or a pull request's number; 409 `gh` missing or logged out. A plugin source that does
-not run is 503 with its status and reason, one that throws 502 with what it threw, and one that takes more than 15
-seconds 504. `jobs-create-from-issue`, which agents used before job sources, still answers 409 for a closed issue or a
-pull request.
+What a refusal means: `INVALID_ARGUMENTS` (exit 2) a flag missing, or an item id no source gives (longer than 200
+characters, or with a control character); `PERMISSION_DENIED` (exit 5) an item that cannot be picked (a GitHub issue a
+non-member wrote, or a closed one); `NOT_FOUND` (exit 4) an unknown source, project or GitHub issue, or a pull
+request's number; `CONFLICT` (exit 6) `gh` missing or logged out. A plugin source that does not run, one that throws
+and one that takes more than 15 seconds are `FAILED` (exit 1), the message saying which: the source's status and
+reason, what it threw, or the time it had. `jobs-create-from-issue`, which agents used before job sources, still
+answers `CONFLICT` for a closed issue or a pull request.
 
 The commands reach this machine's Host only: a paired Runtime's sources are not listed, plugins cannot call them, and
 an agent session may make a Job from a source as it may with `jobs create`. Writing a job source:
@@ -968,13 +969,14 @@ skill installed after it, and `data.note` says so. Open a new session.
 
 **`mcp serve` is for an MCP client to launch, not for a person to type**: its stdout carries the MCP
 protocol. It connects to the Host of this profile, starting one when none answers, and serves
-thirty-four tools that create, plan, run, observe, answer, stop and resume Jobs, read and use
+forty tools that create, plan, run, observe, answer, stop and resume Jobs, read and use
 sessions when Settings allows it, read pull requests, CI and issues on GitHub and, when Settings
-allows it, act on them, and read the How It Works records of a project and regenerate one. What it may do is set by
-MCP access in Settings (CLI tab). The six Job tools that change something (`create_job`,
-`create_task`, `run_job`, `stop_run`, `resume_run`, `answer_question`) take an optional `requestId`, and so do `send_message`, `create_session` and the
-three GitHub writes (`create_pr`, `retry_ci`, `create_job_from_issue`). See
-[MCP](mcp.md).
+allows it, act on them, read the job sources and make a Job from an item, read the How It Works records of a project
+and regenerate one, and list the Runtimes this machine is paired with. What it may do is set by MCP access in
+Settings (CLI tab). The six Job tools that change something (`create_job`, `create_task`, `run_job`, `stop_run`,
+`resume_run`, `answer_question`) take an optional `requestId`, and so do `send_message`, `create_session`, the three
+GitHub writes (`create_pr`, `retry_ci`, `create_job_from_issue`), `create_job_from_source` and
+`regenerate_work_record`. See [MCP](mcp.md).
 
 **`mcp status` says whether `mcp serve` would work on this profile**, and starts no Host. It prints
 `cliVersion`, `transport` (`stdio`), `host` (`running`, and for a running Host its `version`,
