@@ -1507,7 +1507,7 @@ describe('MCP against the Host', { timeout: 60_000 }, () => {
   const cliBuilt = existsSync(cliBundle)
   if (!cliBuilt) console.warn(`skipping "over HTTP" (MCP against the Host): ${cliBundle} is missing; run npm run build first`)
   it.runIf(cliBuilt)(
-    'over HTTP: the Host runs the entrance, a client with the token lists 34 tools and acts, the journal names its address, and off stops it',
+    'over HTTP: the Host runs the entrance, a client with the token lists 38 tools and acts, the journal names its address, and off stops it',
     async () => {
       const cli: HostCliPaths = {
         exec: createRequire(import.meta.url)('electron') as string,
@@ -1534,7 +1534,7 @@ describe('MCP against the Host', { timeout: 60_000 }, () => {
       const client = new Client({ name: 'it-http', version: '1' })
       await client.connect(new StreamableHTTPClientTransport(url, { requestInit: { headers: { Authorization: `Bearer ${token}` } } }))
       cleanups.push(() => client.close())
-      expect((await client.listTools()).tools).toHaveLength(34)
+      expect((await client.listTools()).tools).toHaveLength(38)
       const projects = (await client.callTool({ name: 'list_projects', arguments: {} })) as ToolResult
       expect(projects.isError).toBeFalsy()
       expect(projects.structuredContent).toEqual({ projects: [expect.objectContaining({ id: projectId, path: projectPath })] })
@@ -2063,6 +2063,51 @@ describe('MCP against the Host', { timeout: 60_000 }, () => {
     // J16: the issue now names the Job made from it
     const again = okData(await astera(['sources', 'items', '--source', 'github', '--project', projectId], h.env), 'sources items')
     expect((again.items as Array<{ jobs: string[] }>)[0].jobs).toEqual([made.id])
+  })
+
+  // Plugin Phase 4 J11, J22: the job sources over MCP, a Job from GitHub behind the GitHub-write setting
+  it('job sources through MCP: the reads with the write setting off, a Job from an issue only with it on', async () => {
+    const issue = {
+      number: 31,
+      title: 'Typo in the README',
+      body: 'Line 3.',
+      state: 'open',
+      labels: [],
+      user: { login: 'owner-1' },
+      author_association: 'OWNER',
+      html_url: 'https://github.com/o/r/issues/31'
+    }
+    const unused = (): never => {
+      throw new Error('not in this test')
+    }
+    const { h, projectId } = await projectRig({
+      github: {
+        run: async (args) => {
+          if (args[0] === 'api' && args[1]?.startsWith('repos/{owner}/{repo}/issues?')) return { ok: true, stdout: JSON.stringify([issue]), stderr: '' }
+          if (args[0] === 'api' && args[1] === 'repos/{owner}/{repo}/issues/31') return { ok: true, stdout: JSON.stringify(issue), stderr: '' }
+          return { ok: false, stdout: '', stderr: 'HTTP 404: Not Found' }
+        },
+        createPr: unused,
+        readCommits: unused,
+        isClean: unused
+      }
+    })
+    const mcp = await mcpClient(h)
+    const sources = await mcp.call('list_job_sources', {})
+    expect(sources.isError, sources.content[0]?.text).toBeFalsy()
+    expect((sources.structuredContent as { sources: Array<{ id: string }> }).sources[0]).toMatchObject({ id: 'github', ready: true })
+    const items = await mcp.call('list_source_items', { source: 'github', projectId })
+    expect((items.structuredContent as { items: Array<{ id: string }> }).items.map((i) => i.id)).toEqual(['31'])
+    const read = await mcp.call('get_source_item', { source: 'github', itemId: '31', projectId })
+    expect(read.structuredContent).toMatchObject({ id: '31', body: 'Line 3.' })
+    const off = await mcp.call('create_job_from_source', { source: 'github', itemId: '31', projectId, coordinatorAccountId: h.accountId, requestId: 's-1' })
+    expect(off.isError).toBe(true)
+    expect(off.content[0]?.text).toMatch(/Let MCP clients act on GitHub/)
+    expect(h.state().jobs).toEqual([])
+    await setMcpSettings(h, { mcpGithubWrite: true })
+    const made = await mcp.call('create_job_from_source', { source: 'github', itemId: '31', projectId, coordinatorAccountId: h.accountId, requestId: 's-2' })
+    expect(made.isError, made.content[0]?.text).toBeFalsy()
+    expect(h.state().jobs[0].source).toEqual({ id: 'github', itemId: '31', label: 'GitHub issue #31 in o/r', url: 'https://github.com/o/r/issues/31' })
   })
 
   it('GitHub issues through the Host: get_issue reads with the write setting off; create_job_from_issue needs it, and takes only a trusted author', async () => {

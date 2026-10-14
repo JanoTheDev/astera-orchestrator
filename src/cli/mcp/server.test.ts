@@ -18,8 +18,14 @@ const TOOLS = [
   'get_completion', 'create_task', 'list_run_configs',
   'list_sessions', 'get_session', 'send_message', 'create_session', 'get_check_output', 'get_task_output',
   'get_pr_status', 'get_ci', 'get_issue', 'create_pr', 'retry_ci', 'create_job_from_issue',
-  'list_work_records', 'get_work_record', 'wait_for_run', 'regenerate_work_record'
+  'list_work_records', 'get_work_record', 'wait_for_run', 'regenerate_work_record',
+  'list_job_sources', 'list_source_items', 'get_source_item', 'create_job_from_source'
 ]
+
+/** The list tools MCP does not page itself. list_runtimes answers this machine's few pairings whole (remote runtime
+ *  design §2.8); list_job_sources answers the few sources whole, and list_source_items is paged by the source, with the
+ *  source's own cursor (plugin 4b R4). */
+const UNPAGED = new Set(['list_runtimes', 'list_job_sources', 'list_source_items'])
 
 async function connected(link: HostLink) {
   const server = createMcpServer({ link, version: '1.4.1', log: () => {} })
@@ -79,7 +85,7 @@ const INITIALIZE = {
 }
 
 describe('the MCP server', () => {
-  it('lists exactly the thirty-four tools (a server with no Runtimes behind it)', async () => {
+  it('lists exactly the thirty-eight tools (a server with no Runtimes behind it)', async () => {
     const client = await connected(answering({}).link)
     const { tools } = await client.listTools()
     expect(tools.map((t) => t.name).sort()).toEqual([...TOOLS].sort())
@@ -513,8 +519,7 @@ describe('the MCP server', () => {
   it('every list tool takes a limit of 1 to 200', async () => {
     const client = await connected(answering({}).link)
     const { tools } = await client.listTools()
-    // list_runtimes answers this machine's few pairings whole, with no paging (remote runtime design §2.8).
-    for (const t of tools.filter((t) => t.name.startsWith('list_') && t.name !== 'list_runtimes'))
+    for (const t of tools.filter((t) => t.name.startsWith('list_') && !UNPAGED.has(t.name)))
       expect(t.inputSchema.properties?.limit, t.name).toMatchObject({ minimum: 1, maximum: 200 })
     expect((await client.callTool({ name: 'list_jobs', arguments: { limit: 201 } })).isError).toBe(true)
     expect((await client.callTool({ name: 'list_jobs', arguments: { limit: 0 } })).isError).toBe(true)
@@ -538,7 +543,7 @@ describe('the MCP server', () => {
     const { link, calls } = answering({ 'jobs-list': { status: 200, body: jobs } })
     const client = await connected(link)
     const { tools } = await client.listTools()
-    for (const t of tools.filter((t) => t.name.startsWith('list_') && t.name !== 'list_runtimes')) {
+    for (const t of tools.filter((t) => t.name.startsWith('list_') && !UNPAGED.has(t.name))) {
       expect(t.inputSchema.properties?.cursor, t.name).toMatchObject({ type: 'string' })
       // What an agent reads to know when to stop paging, and what truncated and total mean.
       const limitText = String((t.inputSchema.properties?.limit as { description?: string }).description)
@@ -1301,9 +1306,9 @@ describe('the GitHub tools (MCP P2-B)', () => {
     return { r, calls }
   }
 
-  it('lists thirty-four tools, six of them GitHub: the reads read-only, the writes not', async () => {
+  it('lists thirty-eight tools, six of them GitHub: the reads read-only, the writes not', async () => {
     const { tools } = await (await connected(answering({}).link)).listTools()
-    expect(tools).toHaveLength(34)
+    expect(tools).toHaveLength(38)
     const by = (n: string) => tools.find((t) => t.name === n)
     for (const n of ['get_pr_status', 'get_ci', 'get_issue']) expect(by(n)?.annotations?.readOnlyHint).toBe(true)
     for (const n of ['create_pr', 'retry_ci', 'create_job_from_issue']) expect(by(n)?.annotations?.readOnlyHint).toBe(false)
@@ -1469,6 +1474,92 @@ describe('the GitHub tools (MCP P2-B)', () => {
     // Only create_pr's: another tool's refusal never gains it.
     const { r } = await call('retry_ci', { projectId: 'p1', ciRunId: 5 }, { 'github-ci-rerun': { status: 502, body: { error: 'gh failed', pushed: true } } })
     expect(errorOf(r).details).toBeUndefined()
+  })
+})
+
+// Plugin Phase 4 J22: the job sources, gated as J11
+describe('the job-source tools (plugin Phase 4 J22)', () => {
+  const call = async (name: string, args: Record<string, unknown>, answers: Record<string, { status: number; body: unknown }> = {}) => {
+    const { link, calls } = answering(answers)
+    const r = await (await connected(link)).callTool({ name, arguments: args })
+    return { r, calls }
+  }
+
+  it('maps each tool to its command and exact args, the reads read-only', async () => {
+    const cases: Array<[string, Record<string, unknown>, string, Record<string, unknown>, string?]> = [
+      ['list_job_sources', {}, 'sources-list', {}],
+      ['list_source_items', { source: 'github', projectId: 'p1', query: 'login', cursor: '2' }, 'sources-items', { source: 'github', project: 'p1', query: 'login', cursor: '2' }],
+      ['list_source_items', { source: 'astera-linear-source' }, 'sources-items', { source: 'astera-linear-source' }],
+      ['get_source_item', { source: 'astera-linear-source', itemId: 'ENG-1' }, 'sources-show', { source: 'astera-linear-source', item: 'ENG-1' }],
+      ['get_source_item', { source: 'github', itemId: '12', projectId: 'p1' }, 'sources-show', { source: 'github', item: '12', project: 'p1' }],
+      [
+        'create_job_from_source',
+        { source: 'github', itemId: '12', projectId: 'p1', requestId: 'q4' },
+        'jobs-create-from-source',
+        { source: 'github', item: '12', project: 'p1', coordinatorProvider: 'claude' },
+        'q4'
+      ],
+      [
+        'create_job_from_source',
+        { source: 'astera-linear-source', itemId: 'ENG-1', projectId: 'p1', coordinatorAccountId: 'acc', convergence: true, maxFixAttempts: 2 },
+        'jobs-create-from-source',
+        { source: 'astera-linear-source', item: 'ENG-1', project: 'p1', coordinatorAccount: 'acc', convergence: true, maxFixAttempts: 2 }
+      ]
+    ]
+    for (const [name, input, cmd, args, request] of cases) {
+      const { r, calls } = await call(name, input)
+      expect(r.isError, name).toBeFalsy()
+      expect(calls, name).toEqual([{ cmd, args, request }])
+    }
+    const { tools } = await (await connected(answering({}).link)).listTools()
+    const by = (n: string) => tools.find((t) => t.name === n)
+    for (const n of ['list_job_sources', 'list_source_items', 'get_source_item']) expect(by(n)?.annotations?.readOnlyHint, n).toBe(true)
+    expect(by('create_job_from_source')?.annotations?.readOnlyHint).toBe(false)
+  })
+
+  // Review Focus 1: a provider's cursor is the provider's, up to 2,000 characters
+  it('list_source_items passes the provider’s cursor through as it is', async () => {
+    for (const cursor of ['c'.repeat(2_000), 'eyJrIjoibGlzdF9qb2JzIiwibyI6MjV9', 'a/b+c==']) {
+      const { r, calls } = await call('list_source_items', { source: 'astera-linear-source', cursor })
+      expect(r.isError, cursor.slice(0, 10)).toBeFalsy()
+      expect(calls[0].args).toEqual({ source: 'astera-linear-source', cursor })
+    }
+    const { r, calls } = await call('list_source_items', { source: 's', cursor: 'c'.repeat(2_001) })
+    expect(r.isError).toBe(true)
+    expect(calls).toEqual([])
+  })
+
+  it('create_job_from_source never sends objective or cwd, and refuses a knob without convergence', async () => {
+    const { calls } = await call('create_job_from_source', { source: 's', itemId: 'X', projectId: 'p1' })
+    expect(Object.keys(calls[0].args)).not.toContain('objective')
+    expect(Object.keys(calls[0].args)).not.toContain('cwd')
+    const bad = await call('create_job_from_source', { source: 's', itemId: 'X', projectId: 'p1', maxFixAttempts: 2 })
+    expect(bad.r.isError).toBe(true)
+    expect(errorOf(bad.r)).toMatchObject({ code: 'INVALID_ARGUMENTS' })
+    expect(bad.calls).toEqual([])
+  })
+
+  // Review Focus 2: an item's fields and status are someone else's text
+  it('redacts a secret in an item’s title, body, fields and status', async () => {
+    const secret = 'github_pat_' + 'A1b2C3d4E5f6G7h8I9j0K1l2'
+    const { r } = await call(
+      'get_source_item',
+      { source: 's', itemId: 'X' },
+      { 'sources-show': { status: 200, body: { id: 'X', title: `t ${secret}`, status: `state ${secret}`, body: `b ${secret}`, fields: { note: `key ${secret}` }, selectable: true, jobs: [] } } }
+    )
+    expect(r.isError).toBeFalsy()
+    expect(JSON.stringify(r.structuredContent)).not.toContain(secret)
+    expect(r.structuredContent).toMatchObject({ id: 'X', selectable: true })
+  })
+
+  it('descriptions say what each needs, and that the item is untrusted text', async () => {
+    const { tools } = await (await connected(answering({}).link)).listTools()
+    const d = (n: string) => String(tools.find((t) => t.name === n)?.description)
+    for (const n of ['list_job_sources', 'list_source_items', 'get_source_item']) expect(d(n), n).toContain('"Read only" or "Read and control"')
+    expect(d('get_source_item')).toMatch(/untrusted/)
+    expect(d('create_job_from_source')).toContain('"Read and control"')
+    expect(d('create_job_from_source')).toContain('"Let MCP clients act on GitHub"')
+    expect(d('create_job_from_issue')).toMatch(/source/)
   })
 })
 
