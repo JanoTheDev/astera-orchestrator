@@ -4,7 +4,7 @@
 // here. Type-only: nothing in this file runs. The answers command.ts builds as records (a wait's ending and timeout, a
 // stop, an answered question) carry `satisfies <DTO>` where they are built; the views' derived fields and the Task
 // detail's extra fields are checked below.
-import type { CheckResult, ConvergencePolicy, Gate, GitRange, Job, JobRun, Project, ReviewIssue, Task } from './types'
+import type { CheckResult, ConvergencePolicy, Gate, GitRange, Job, JobRun, JobSourceRef, Project, ReviewIssue, Task } from './types'
 import type { TaskAttempt, TaskDetail } from './taskDetail'
 import type { outcomeOf } from './running'
 import type { progressOf } from './view'
@@ -25,6 +25,7 @@ import type {
   GitRange as GitRangeDto,
   JOB_FIELDS,
   Job as JobDto,
+  JobSource as JobSourceDto,
   PROJECT_FIELDS,
   Project as ProjectDto,
   QUESTION_FIELDS,
@@ -91,6 +92,9 @@ type _convergencePolicyKeys = Check<SameKeys<ConvergencePolicyDto, keyof Converg
 type _gitRange = Check<Fits<GitRange, GitRangeDto>>
 type _gitRangeKeys = Check<SameKeys<GitRangeDto, keyof GitRange>>
 type _scheduleRule = Check<Fits<ScheduleRule, ScheduleRuleDto>>
+// A Job's source (plugin Phase 4 J15; the 4a review's M10): the field the Job carries, both ways
+type _jobSource = Check<Fits<JobSourceRef, JobSourceDto>>
+type _jobSourceKeys = Check<SameKeys<JobSourceDto, keyof JobSourceRef>>
 // The views' derived fields (command.ts derivedFor, jobView, runView): a Run's outcome, or `paused`; a Job's adds
 // `pending` before its first Run.
 type _runOutcome = Check<Fits<ReturnType<typeof outcomeOf> | 'paused', RunOutcomeDto>>
