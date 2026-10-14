@@ -13,10 +13,11 @@ const MISS_TTL_MS = 5000
  *  asking main each time. */
 export const LATE_RECHECK_MS = 500
 
-/** The ways a path link can read, in the order they are tried: the whole token, then the same path without a word a
- *  sentence glued to it (`...png입니다.`, consoleLinks.ts GLUED_WORD), over its own cells. */
-const readingsOf = (l: ConsoleLink): Array<{ target: string; end: number; line?: number; col?: number }> =>
-  l.kind === 'path' ? [{ target: l.target, end: l.end, line: l.line, col: l.col }, ...(l.alt ? [l.alt] : [])] : []
+/** The ways a path link can read, in the order they are tried: the link's own target, then its other readings
+ *  (consoleLinks.ts `alts`: without a word glued to its end, or from after something glued to its front), each over its
+ *  own cells. */
+const readingsOf = (l: ConsoleLink): Array<{ target: string; start: number; end: number; line?: number; col?: number }> =>
+  l.kind === 'path' ? [{ target: l.target, start: l.start, end: l.end, line: l.line, col: l.col }, ...(l.alts ?? [])] : []
 
 /** `resolve`, cached per target. A hit is kept for the terminal's life (a file that existed stays a
  *  link; following it to a deleted file is the opener's error to report). A miss — null or a
@@ -146,8 +147,8 @@ export function attachConsoleLinks(
       const across = (resolvePath ? cutCandidates(rowCells, y - 1, term.cols) : []).flatMap((c) =>
         findConsoleLinks(c.text)
           .flatMap((l) => readingsOf(l).map((r) => ({ l, r })))
-          .filter(({ l, r }) => l.start < c.head.text.length && r.end > c.head.text.length)
-          .map(({ l, r }) => ({ r, range: bufferRangeAt(c.cells, l.start, r.end), head: findConsoleLinks(c.head.text).find((h) => h.kind === 'path' && h.start === l.start) }))
+          .filter(({ r }) => r.start < c.head.text.length && r.end > c.head.text.length)
+          .map(({ l, r }) => ({ r, range: bufferRangeAt(c.cells, r.start, r.end), head: findConsoleLinks(c.head.text).find((h) => h.kind === 'path' && h.start === l.start) }))
           .filter(({ range }) => range.start.y <= y && y <= range.end.y)
       )
       if (found.length === 0 && across.length === 0) {
@@ -171,7 +172,7 @@ export function attachConsoleLinks(
               return { range, text: l.url, activate: (event) => opts.onUrl(l.url, event) }
             }
             // The whole token first, then the path without a word glued to it, each over its own cells
-            const readings = readingsOf(l).map((r) => ({ ...r, range: r.end === l.end ? range : bufferRangeAt(cells, l.start, r.end) }))
+            const readings = readingsOf(l).map((r) => ({ ...r, range: r.start === l.start && r.end === l.end ? range : bufferRangeAt(cells, r.start, r.end) }))
             for (const r of readings) {
               const path = await resolve(r.target)
               if (path) return { range: r.range, text: r.target, activate: () => opts.onOpenFile?.(path, { line: r.line, col: r.col }) }

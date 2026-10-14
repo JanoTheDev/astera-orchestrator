@@ -63,10 +63,10 @@ describe('findConsoleLinks — a path with a word glued to it', () => {
       start: 7,
       end: line.length - 1,
       target: 'C:\\Users\\a\\concept_vs_app.png입니다',
-      alt: { end: line.length - 4, target: 'C:\\Users\\a\\concept_vs_app.png' }
+      alts: [{ start: 7, end: line.length - 4, target: 'C:\\Users\\a\\concept_vs_app.png' }]
     })
-    if (l.kind !== 'path' || !l.alt) throw new Error('no alt')
-    expect(line.slice(l.start, l.alt.end)).toBe('C:\\Users\\a\\concept_vs_app.png')
+    if (l.kind !== 'path' || !l.alts) throw new Error('no alt')
+    expect(line.slice(l.alts[0].start, l.alts[0].end)).toBe('C:\\Users\\a\\concept_vs_app.png')
   })
 
   it('reads a file and line a Japanese particle follows, which as a whole is no path', () => {
@@ -74,22 +74,24 @@ describe('findConsoleLinks — a path with a word glued to it', () => {
   })
 
   it('peels a closing parenthesis and full-width punctuation around the glued run', () => {
-    expect(only('(C:\\a\\b.png)를 보세요')).toMatchObject({ start: 1, target: 'C:\\a\\b.png)를', alt: { end: 11, target: 'C:\\a\\b.png' } })
-    expect(only('看 C:\\a\\b.png。')).toMatchObject({ start: 2, target: 'C:\\a\\b.png。', alt: { end: 12, target: 'C:\\a\\b.png' } })
+    expect(only('(C:\\a\\b.png)를 보세요')).toMatchObject({ start: 1, target: 'C:\\a\\b.png)를', alts: [{ start: 1, end: 11, target: 'C:\\a\\b.png' }] })
+    expect(only('看 C:\\a\\b.png。')).toMatchObject({ start: 2, target: 'C:\\a\\b.png。', alts: [{ start: 2, end: 12, target: 'C:\\a\\b.png' }] })
   })
 
-  // Review m2: an alt that ends in a separator names a folder, which no resolver answers, so none is offered
-  it('keeps a Korean folder or file name whole, and offers no alt that names a folder', () => {
-    expect(only('C:\\문서\\보고서')).toEqual({ kind: 'path', start: 0, end: 9, target: 'C:\\문서\\보고서' })
-    expect(findConsoleLinks('읽기/쓰기를 켜기/끄기로').map((l) => (l.kind === 'path' ? l.alt : 'url'))).toEqual([undefined, undefined])
+  // A folder is a link now (a terminal asks main for folders too), so an absolute reading that ends in a separator is
+  // offered (`...\\specs\\에 있습니다`); a relative one is prose far more often (`읽기/쓰기를`) and is not
+  it('offers a folder reading only when it is absolute', () => {
+    expect(only('C:\\문서\\보고서')).toEqual({ kind: 'path', start: 0, end: 9, target: 'C:\\문서\\보고서', alts: [{ start: 0, end: 6, target: 'C:\\문서\\' }] })
+    expect(only('C:\\a\\specs\\에 있습니다')).toMatchObject({ alts: [{ start: 0, end: 11, target: 'C:\\a\\specs\\' }] })
+    expect(findConsoleLinks('읽기/쓰기를 켜기/끄기로').map((l) => (l.kind === 'path' ? l.alts : 'url'))).toEqual([undefined, undefined])
   })
 
   // Review m1: kana's prolonged sound mark and the like are Common script, used by Japanese only; and a question, an
   // exclamation, a tilde or an ellipsis can close the sentence after the glued word
   it('takes a Japanese word with a prolonged sound mark, and a sentence that ends in ! ? ~ or …', () => {
-    expect(only('D:\\写真\\猫.pngをコピーしました。')).toMatchObject({ alt: { target: 'D:\\写真\\猫.png' } })
+    expect(only('D:\\写真\\猫.pngをコピーしました。')).toMatchObject({ alts: [{ target: 'D:\\写真\\猫.png' }] })
     for (const tail of ['인가요?', '입니다!', '예요~', '입니다…', '!'])
-      expect(only(`C:\\a\\b.png${tail}`), tail).toMatchObject({ alt: { end: 10, target: 'C:\\a\\b.png' } })
+      expect(only(`C:\\a\\b.png${tail}`), tail).toMatchObject({ alts: [{ start: 0, end: 10, target: 'C:\\a\\b.png' }] })
   })
 
   // Review I1: the glued run is looked for from its first character only. Anchored at the end alone, a long run of
@@ -105,6 +107,47 @@ describe('findConsoleLinks — a path with a word glued to it', () => {
   it('offers nothing more when no word is glued on, or nothing is left without it', () => {
     expect(only('D:\\p\\a.png')).toEqual({ kind: 'path', start: 0, end: 10, target: 'D:\\p\\a.png' })
     expect(findConsoleLinks('보고서를 확인하세요')).toEqual([])
+  })
+})
+
+// The 2026-10-14 investigation (D1): a path a word, a bracket or `=` is glued to the front of, or that quotes or
+// brackets wrap, is still a link, by a reading that starts where the path does.
+describe('findConsoleLinks — a path with something glued to its front', () => {
+  const alts = (line: string) => {
+    const l = only(line)
+    if (l.kind !== 'path') throw new Error('not a path')
+    return [l, ...(l.alts ?? [])].map((a) => [line.slice(a.start, a.end), a.target])
+  }
+
+  it('reads the path in a markdown image or link', () => {
+    expect(alts('![C6-1a 스틸](D:\\a\\b.png)')).toContainEqual(['D:\\a\\b.png', 'D:\\a\\b.png'])
+    expect(alts('[보기](C:\\x\\y.md)')).toContainEqual(['C:\\x\\y.md', 'C:\\x\\y.md'])
+  })
+
+  it('reads the path after a word and a parenthesis, an equals sign, or a colon', () => {
+    expect(alts('경로(C:\\a\\claude.exe)로')).toContainEqual(['C:\\a\\claude.exe', 'C:\\a\\claude.exe'])
+    expect(alts('GIT=E:\\Git\\bin\\bash.exe')).toContainEqual(['E:\\Git\\bin\\bash.exe', 'E:\\Git\\bin\\bash.exe'])
+    expect(alts('경로:C:\\a\\b.png')).toContainEqual(['C:\\a\\b.png', 'C:\\a\\b.png'])
+  })
+
+  it('reads the path inside full-width brackets and curly quotes', () => {
+    expect(alts('「C:\\a\\b.png」を開く')).toContainEqual(['C:\\a\\b.png', 'C:\\a\\b.png'])
+    expect(alts('“C:\\a\\b.png”')).toContainEqual(['C:\\a\\b.png', 'C:\\a\\b.png'])
+    expect(alts('‘C:\\a\\b.png’')).toContainEqual(['C:\\a\\b.png', 'C:\\a\\b.png'])
+  })
+
+  it('offers readings longest first, each inside the link and naming something a path could', () => {
+    const line = '경로(C:\\a\\b.png)를'
+    const l = only(line)
+    if (l.kind !== 'path' || !l.alts) throw new Error('no alts')
+    const lengths = l.alts.map((a) => a.end - a.start)
+    expect([...lengths].sort((a, b) => b - a)).toEqual(lengths)
+    for (const a of l.alts) expect(a.start >= l.start && a.end <= l.end, JSON.stringify(a)).toBe(true)
+  })
+
+  it('finds nothing more in words that only look like it', () => {
+    for (const line of ['foo(bar)', 'a=b', 'f(x) = y', 'src/a.ts(12,5): error TS2322'])
+      expect(findConsoleLinks(line).flatMap((l) => (l.kind === 'path' ? (l.alts ?? []) : [])), line).toEqual([])
   })
 })
 

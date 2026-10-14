@@ -20,9 +20,11 @@ export function firstLoopbackUrl(text: string): string | null {
   return null
 }
 
-/** The same path read without a word glued to its end (GLUED_WORD), for the renderer to try when the whole names no
- *  file. It starts where the link starts. */
+/** Another reading of a path link's token, for the renderer to try when the link's own target names nothing: the path
+ *  without a word glued to its end (GLUED_WORD), or the path that starts after a word, a bracket or `=` glued to its
+ *  front (INNER_OPEN). It lies inside the link's range. */
 export interface PathAlt {
+  start: number
   end: number
   target: string
   line?: number
@@ -30,7 +32,7 @@ export interface PathAlt {
 }
 
 export type ConsoleLink =
-  | { kind: 'path'; start: number; end: number; target: string; line?: number; col?: number; alt?: PathAlt }
+  | { kind: 'path'; start: number; end: number; target: string; line?: number; col?: number; alts?: PathAlt[] }
   | { kind: 'url'; start: number; end: number; url: string }
 
 // Box Drawing (U+2500–U+257F) ends a URL and a token too: Claude Code's TUI frames its output with
@@ -65,8 +67,19 @@ const SEP = /[\\/]/
 // before one that is not was tried from every position, seconds on a long line of text with no space (review I1).
 const CJK = String.raw`\p{Script_Extensions=Hangul}\p{Script_Extensions=Han}\p{Script_Extensions=Hiragana}\p{Script_Extensions=Katakana}\u3000-\u303F\uFF00-\uFFEF`
 const GLUED_WORD = new RegExp(`(?<![${CJK}])[${CJK}]+$`, 'u')
-const GLUED_MARK = /(?<![!?~\u2026])[!?~\u2026]+$/
+// Marks that close a sentence or a quotation after the word, curly closing quotes and guillemets included
+const GLUED_MARK = /(?<![!?~\u2026\u201D\u2019\u00BB])[!?~\u2026\u201D\u2019\u00BB]+$/
 const ENDS_IN_SEP = /[\\/]$/
+const ABSOLUTE = /^(?:[A-Za-z]:[\\/]|[\\/]|~[\\/])/
+// What can sit glued in front of a path inside one token: a markdown image or link's `](`, a word and a parenthesis
+// (`경로(C:\...)로`), an assignment (`NAME=C:\...`), full-width brackets and curly quotes (D1, 2026-10-14). The path
+// starts after the last of these that comes before it; LEAD_OPEN keeps peeling ASCII brackets off the token's front.
+const INNER_OPEN = /[([=\u300C\u300E\u201C\u2018\u300A\u3008\uFF08\uFF3B]/g
+// A drive letter inside a token, after something that is not a letter: `경로:C:\...`
+const INNER_DRIVE = /(?<=[^A-Za-z])[A-Za-z]:[\\/]/g
+/** The most starts inside one token that are tried: a token is a few words at most, and every reading is a question to
+ *  main on hover. */
+const INNER_STARTS_MAX = 3
 const EXT = /\.[A-Za-z0-9]{1,10}$/
 // A JVM stack frame: `at [module/]pkg.Class.method(File.ext:line)`. The file inside the parentheses
 // carries no directory — the package in front of the class is the directory, so the target is the
@@ -138,26 +151,55 @@ export function findConsoleLinks(line: string): ConsoleLink[] {
       start += lead[0].length
       text = text.slice(lead[0].length)
     }
-    const whole = readPath(text)
-    // The same token without a word glued to its end, when that leaves something to read. A reading that ends in a
-    // separator names a folder, which neither resolver answers (review m2), so it is none.
-    const bare = withoutGluedTail(text)
-    const read = bare !== null && bare !== '' ? readPath(bare) : null
-    const cut = read !== null && !ENDS_IN_SEP.test(read.target) ? read : null
-    const first = whole ?? cut
-    if (first === null) continue
-    const link: ConsoleLink = { kind: 'path', start, end: start + first.length, target: first.target }
-    if (first.line !== undefined) link.line = first.line
-    if (first.col !== undefined) link.col = first.col
-    if (whole !== null && cut !== null && cut.target !== whole.target) {
-      const alt: PathAlt = { end: start + cut.length, target: cut.target }
-      if (cut.line !== undefined) alt.line = cut.line
-      if (cut.col !== undefined) alt.col = cut.col
-      link.alt = alt
+    // Every reading of the token: the whole of it, then the same without a word glued to its end, then the path that
+    // starts after something glued to its front, each whole and without its glued end
+    const readings: PathAlt[] = []
+    let whole: PathAlt | null = null
+    const add = (at: number, from: string, derived: boolean): void => {
+      const bare = withoutGluedTail(from)
+      for (const [variant, isDerived] of [[from, derived], [bare, true]] as const) {
+        if (variant === null || variant === '') continue
+        const r = readPath(variant)
+        if (r === null) continue
+        // A derived reading that ends in a separator names a folder: offered when absolute (`...\specs\에 있습니다`),
+        // not when relative, which is prose far more often than a folder (`읽기/쓰기를`)
+        if (isDerived && ENDS_IN_SEP.test(r.target) && !ABSOLUTE.test(r.target)) continue
+        if (readings.some((x) => x.start === start + at && x.target === r.target)) continue
+        const reading: PathAlt = { start: start + at, end: start + at + r.length, target: r.target, ...pos(r) }
+        if (!isDerived) whole = reading
+        readings.push(reading)
+      }
     }
+    add(0, text, false)
+    for (const at of innerStarts(text)) add(at, text.slice(at), true)
+    if (readings.length === 0) continue
+    // The link is the whole token when that reads as a path, as it always was; the rest are tried after it, longest first
+    const rest = readings.filter((r) => r !== whole).sort((a, b) => b.end - b.start - (a.end - a.start))
+    const first = whole ?? rest.shift()!
+    const link: ConsoleLink = { kind: 'path', start: first.start, end: first.end, target: first.target, ...pos(first) }
+    const alts = rest.filter((r) => r.target !== first.target && r.start >= first.start && r.end <= first.end)
+    if (alts.length > 0) link.alts = alts
     out.push(link)
   }
   return out.sort((a, b) => a.start - b.start)
+}
+
+/** A reading's line and column, when it has them. */
+const pos = (r: { line?: number; col?: number }): { line?: number; col?: number } => ({
+  ...(r.line !== undefined ? { line: r.line } : {}),
+  ...(r.col !== undefined ? { col: r.col } : {})
+})
+
+/** Where a path may start inside a token, after something glued to its front (INNER_OPEN, INNER_DRIVE): the first few,
+ *  each an index into the token. */
+function innerStarts(token: string): number[] {
+  const at = new Set<number>()
+  for (const m of token.matchAll(INNER_OPEN)) {
+    const i = (m.index ?? 0) + 1
+    if (i > 0 && i < token.length) at.add(i)
+  }
+  for (const m of token.matchAll(INNER_DRIVE)) if ((m.index ?? 0) > 0) at.add(m.index ?? 0)
+  return [...at].sort((a, b) => a - b).slice(0, INNER_STARTS_MAX)
 }
 
 /** The token without the word glued to its end (GLUED_WORD) and the marks and punctuation around it, peeled in turn
