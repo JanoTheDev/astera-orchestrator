@@ -9,7 +9,8 @@ script running yourself.
 Where it stands:
 
 - A plugin is installed from a folder or from npm, and runs in the background: Astera calls its `activate` and lets it
-  work. The kinds of plugin that Astera calls on for something (a source of Jobs, a completion check) do not run yet
+  work. An event plugin is also handed each of Astera's events ([Event plugins](#event-plugins)); the other kinds that
+  Astera calls on for something (a source of Jobs, a completion check, notifications) do not run yet
   ([Not yet](#not-yet)).
 - `@astera-app/plugin-sdk` holds the plugin's types and `definePlugin`. A plugin needs nothing from it to run:
   [the sample](../examples/plugins/webhook-notifier) is plain JavaScript and uses its types for the editor only.
@@ -90,11 +91,11 @@ The manifest is `package.json`: npm's own fields, and an `astera` field for Aste
 | `astera.permissions` | What it asks Astera for ([Permissions](#permissions)). A person may grant fewer. |
 | `astera.settingsSchema` | Optional. The settings a person gives it ([Settings and secrets](#settings-and-secrets)). |
 | `astera.minAsteraVersion` | Optional. The oldest Astera it runs on; an older one installs it and does not run it. |
-| `astera.capabilities` | Leave it out: a plugin that names a capability does not run yet ([Not yet](#not-yet)). |
+| `astera.capabilities` | Optional. `["event"]` for a plugin Astera hands its events ([Event plugins](#event-plugins)); the other capabilities do not run yet ([Not yet](#not-yet)). |
 
-The entry's default export is the plugin: an object with an `activate` and, if it needs one, a `deactivate`. A
-CommonJS entry sets `module.exports` to it. `definePlugin` from the SDK returns the object it is given, so a plain
-object is the same plugin.
+The entry's default export is the plugin: an object with an `activate` and, if it needs one, a `deactivate` (and an
+`onEvent` for an event plugin). A CommonJS entry sets `module.exports` to it. `definePlugin` from the SDK returns the
+object it is given, so a plain object is the same plugin.
 
 ## Permissions
 
@@ -144,9 +145,10 @@ Ask for what the plugin needs and no more: a person sees the list before install
 
 **Start.** The Host starts every enabled plugin when it starts, and starts a plugin when it is installed or enabled.
 It runs the entry in a process of its own and calls `activate(ctx)`, which must finish within 30 seconds;
-the plugin counts as running when it has. Work that goes on (following events, a timer) is started from `activate`
-and not awaited, as [the sample](../examples/plugins/webhook-notifier) does. The process keeps running after
-`activate` returns, until Astera stops it.
+the plugin counts as running when it has. Work that goes on (a subscription, a timer) is started from `activate`
+and not awaited, as the example in [TypeScript, and bundling](#typescript-and-bundling) does; an event plugin is
+handed its events instead ([Event plugins](#event-plugins)). The process keeps running after `activate` returns,
+until Astera stops it.
 
 **Stop.** Disabling, removing or installing a plugin again stops it, and the Host leaving stops every plugin.
 Configuring a running plugin restarts it; a `failed` one stays stopped until `astera plugins enable` starts it. To
@@ -159,7 +161,56 @@ started. A plugin does not keep the Host running.
 an `activate` that throws or does not finish in time. A plugin that crashes is started again after 1, then 2 seconds;
 the third crash without 30 seconds of steady running marks it `failed`, and it stays stopped until
 `astera plugins enable` starts it again or the Host restarts. A plugin that cannot go on (say its subscription was
-refused) can end its own process with a failure to hand itself to this policy, as the sample does.
+refused) can end its own process with a failure to hand itself to this policy, as the example in
+[TypeScript, and bundling](#typescript-and-bundling) does.
+
+## Event plugins
+
+A plugin that names the `event` capability is handed each of Astera's events ([the list](sdk.md#events)) in its
+`onEvent`, in order, one at a time. Beside the capability it asks for `events.subscribe`, the permission the events
+need:
+
+```json
+{
+  "capabilities": ["event"],
+  "permissions": ["events.subscribe"]
+}
+```
+
+A manifest that names the capability and not the permission is refused ("the event capability needs the
+events.subscribe permission"), and so is an install that does not grant it.
+
+```ts
+import type { PluginDefinition } from '@astera-app/plugin-sdk'
+
+export default {
+  async onEvent(event, ctx) {
+    if (event.type === 'gap') return ctx.log.warn('some events were lost before the next one')
+    if (event.type === 'run.failed') ctx.log.warn(`Run ${event.payload.id} of job ${event.payload.jobId} failed`)
+  }
+} satisfies PluginDefinition
+```
+
+- **From where it left off.** Astera keeps the plugin's place in its events, in
+  `<profile>/plugins/cursors/<folder>.json`. A plugin starts from the events after its install, and what happened
+  while it was stopped (disabled, starting again after a crash, the Host not running) is handed to it when it runs
+  again, as far back as Astera's event log keeps: its most recent 1000 to 2000 events. Removing the plugin removes its
+  place too.
+- **One at a time, in order.** The next event waits until `onEvent` settles, so a slow plugin holds up only itself.
+  `onEvent` is called only while the plugin runs, once `activate` has finished.
+- **A failure is tried again.** When `onEvent` throws, rejects or has not settled within 30 seconds, Astera hands the
+  same event over again after 1 second, then 2, 4 and so on up to 5 minutes. An event that keeps failing is given up
+  after an hour, and the next one follows. The plugin's log has the first failure of an event, then a line every 10
+  tries, and the event given up.
+- **At least once.** An event can come twice, after a crash or a stop in the middle of one: `event.id` never repeats,
+  so drop one you have seen.
+- **A gap.** When events the plugin had not had were lost (older than the log keeps), `onEvent` gets
+  `{ type: 'gap' }` first, then the oldest event the log holds.
+- **A missing handler.** A plugin that names `event` and whose entry has no `onEvent` does not start: it shows as
+  `failed`, and its log says why.
+
+`ctx.astera.events.subscribe` inside `activate` still works, as [TypeScript, and bundling](#typescript-and-bundling)
+shows; it starts from the moment it subscribes, and keeps no place across a stop.
 
 ## Logs
 
@@ -350,9 +401,9 @@ Installing the same plugin again replaces its copy, asks for your approval again
 new copy. `plugins doctor` checks what could keep it from running: the manifest, whether this Astera runs it, the
 entry file, native addons, its settings, and how it last ran. It exits 1 when anything would.
 
-Start from [the sample](../examples/plugins/webhook-notifier), a plugin that posts Astera's events to a webhook: plain
-JavaScript with no dependency, typed against the SDK by JSDoc comments, with tests that run it in Astera's plugin
-runtime.
+Start from [the sample](../examples/plugins/webhook-notifier), an event plugin that posts Astera's events to a
+webhook: plain JavaScript with no dependency, typed against the SDK by JSDoc comments, with tests that run it in
+Astera's plugin runtime.
 
 ## Troubleshooting
 
@@ -384,7 +435,7 @@ install Node.js, or install from a folder. [The `astera` command](cli.md#plugins
 
 ## Not yet
 
-- Plugins that Astera calls on for something: the `event`, `job-source`, `completion-check` and `notification`
+- The other plugins that Astera calls on for something: the `job-source`, `completion-check` and `notification`
   capabilities. A plugin that names one installs, and does not run until an Astera that runs that kind.
 - The `github` and `how-it-works` commands for plugins, which their permissions are already named for.
 - A folder for each plugin's own data, and a development mode that reloads a plugin as you edit it.

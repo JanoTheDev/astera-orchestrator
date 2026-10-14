@@ -9,12 +9,13 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { PLUGIN_CAPABILITIES, PLUGIN_PERMISSIONS, PLUGIN_TRUST_WARNING, parseManifest } from './manifest'
+import { PLUGIN_CAPABILITIES, PLUGIN_PERMISSIONS, PLUGIN_TRUST_WARNING, capabilityPermissionProblem, parseManifest } from './manifest'
 import { SETTING_KEYWORDS, SETTING_TYPES, SETTINGS_MAX, parseSettingsSchema } from './settings'
 import { PLUGIN_COMMAND_PERMISSIONS, pluginRefusal } from '../host/pluginGate'
 import { PLUGIN_TIMINGS, REDACT_MIN, createPluginRuntime } from '../../host/plugins/runtime'
 import { SECRET_NAME_MAX, SECRET_VALUE_MAX } from '../../host/plugins/pluginData'
 import { PLUGIN_SERVED_CAPABILITIES } from '../../host/plugins/manager'
+import { DELIVERY_GIVE_UP_MS, DELIVERY_LOG_EVERY, DELIVERY_RETRY_MS, DELIVERY_TIMEOUT_MS } from '../../host/plugins/deliverer'
 import { bundleLauncher } from '../../pluginHost/testkit'
 import { createNamespaces } from '../../../packages/client/src/namespaces'
 import { typecheckBlocks } from '../../../packages/client/test/typecheck'
@@ -205,6 +206,29 @@ describe('docs/plugins.md', () => {
     const unserved = PLUGIN_CAPABILITIES.filter((c) => !PLUGIN_SERVED_CAPABILITIES.includes(c))
     expect(unserved.length).toBeGreaterThan(0)
     for (const c of unserved) expect(notYet, c).toContain(`\`${c}\``)
+  })
+
+  // Plugin Phase 3 N4-N9: the event capability as the code runs it
+  it('says how an event plugin is handed events, with the deliverer’s numbers and the permission rule', () => {
+    const ev = prose(section(guide, '## Event plugins'))
+    expect(ev).toContain('`onEvent`')
+    expect(ev).toContain(`within ${DELIVERY_TIMEOUT_MS / 1000} seconds`)
+    expect(ev).toContain(`after ${DELIVERY_RETRY_MS.first / 1000} second,`)
+    expect(ev).toContain(`up to ${DELIVERY_RETRY_MS.max / 60_000} minutes`)
+    expect(DELIVERY_GIVE_UP_MS).toBe(60 * 60_000)
+    expect(ev).toContain('after an hour')
+    expect(ev).toContain(`every ${DELIVERY_LOG_EVERY} tries`)
+    expect(ev).toContain("`{ type: 'gap' }`")
+    expect(ev).toContain('`events.subscribe`')
+    expect(ev).toContain(capabilityPermissionProblem(['event'], [])!)
+    expect(ev).toContain('`<profile>/plugins/cursors/<folder>.json`')
+    expect(ev).toContain('`event.id`')
+    // Its manifest fragment is one Astera reads as an event plugin
+    const [fragment] = fenced(section(guide, '## Event plugins'), 'json')
+    const read = parseManifest({ name: 'x', version: '1.0.0', astera: { apiVersion: '1', entry: 'index.js', ...JSON.parse(fragment) } })
+    expect(read.ok && read.manifest.capabilities).toEqual(['event'])
+    expect(section(guide, '## Not yet')).not.toContain('`event`')
+    expect(prose(section(guide, '## The manifest'))).toContain('[Event plugins](#event-plugins)')
   })
 
   it('says which Node a plugin runs on, and how to start Node from process.execPath', () => {
