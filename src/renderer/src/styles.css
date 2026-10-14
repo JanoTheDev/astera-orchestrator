@@ -702,7 +702,8 @@ button.primary:disabled { background: var(--elevated); border-color: var(--line-
 
 /* The Jobs view's "+ From a source" window (plugin Phase 4 J20): the source and the search on one line, then the list
    beside the picked item, each scrolling on its own so the buttons stay in view. */
-.modal.source-job { width: 820px; max-width: calc(100vw - 48px); max-height: calc(100vh - 48px); }
+/* Scrolls as a whole in a short app window, so the columns never run over the account field and the buttons (4c final review M11) */
+.modal.source-job { width: 820px; max-width: calc(100vw - 48px); max-height: calc(100vh - 48px); overflow: auto; }
 .modal.source-job .source-pick { display: flex; gap: 8px; }
 .modal.source-job .source-pick select { flex: 0 0 240px; background: var(--bg); color: var(--text); border: 1px solid var(--line-soft); padding: 6px; border-radius: var(--radius); color-scheme: dark; }
 .modal.source-job .source-pick input { flex: 1; }
@@ -2302,6 +2303,8 @@ input[type="checkbox"]:not(.md-task input):focus-visible {
 .jobs-view > .jobs-new, .jobs-empty > .jobs-new { background: var(--btn-bg); border-color: var(--btn-bg); color: var(--btn-ink); font-weight: 600; }
 /* "+ From a source" (plugin Phase 4 J20) stands under "+ New job" as the plain button it is, not a second primary */
 .jobs-view > .jobs-new.jobs-new-source, .jobs-empty > .jobs-new.jobs-new-source { background: none; border-color: var(--line-soft); color: var(--text-dim); font-weight: 400; margin-top: 0; }
+/* Its hover is the plain button's, not the primary's dimming (4c final review M10) */
+.jobs-view > .jobs-new.jobs-new-source:hover:not(:disabled), .jobs-empty > .jobs-new.jobs-new-source:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); filter: none; }
 .jobs-view > .jobs-new:hover, .jobs-empty > .jobs-new:hover { filter: brightness(.85); }
 /* 목록 쪽만 오른쪽 끝에 선다 — 왼쪽 열은 Run 의 글리프와 제목이 쓰는 자리라, 버튼이 거기 서면
    목록의 첫 줄처럼 읽힌다. 빈 화면 쪽은 .jobs-empty 의 text-align: center 를 그대로 따른다.

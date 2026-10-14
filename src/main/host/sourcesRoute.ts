@@ -18,7 +18,13 @@ const CODES: Record<number, string> = { 400: 'INVALID_ARGUMENTS', 403: 'FORBIDDE
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
 
-export function createSourcesRoute(d: { call: Call }): SourcesApi {
+export function createSourcesRoute(d: {
+  call: Call
+  /** The project folder a folder belongs to: a worker's worktree tab is its repository's for the Jobs view (orch.list),
+   *  so for the sources too (4c final review I1). The folder itself when absent. */
+  projectRoot?: (path: string) => string
+}): SourcesApi {
+  const rootOf = d.projectRoot ?? ((p: string): string => p)
   const ask = async (cmd: string, args: Record<string, unknown>, timeoutMs?: number): Promise<SourcesCallAnswer> => {
     let r: { status: number; body: unknown }
     try {
@@ -38,7 +44,7 @@ export function createSourcesRoute(d: { call: Call }): SourcesApi {
   }
   /** The registered project holding `path`: its id, or the Host's answer when there is none. */
   const projectOf = async (path: string): Promise<{ id: string } | SourcesCallAnswer> => {
-    const found = await ask('projects-find', { path })
+    const found = await ask('projects-find', { path: rootOf(path) })
     if (!found.ok) return found
     return typeof found.body.id === 'string' ? { id: found.body.id } : { ok: false, code: 'FAILED', message: 'the Host answered projects-find with no id' }
   }
@@ -66,10 +72,12 @@ export function createSourcesRoute(d: { call: Call }): SourcesApi {
       if (isAnswer(project)) return project
       return ask('sources-show', { source: a.source, item: a.item, ...project }, SOURCES_DEADLINE_MS)
     },
-    // A Job needs its project: a folder the Host does not know makes none, and nothing is sent
+    // A Job needs its project: a folder the Host does not know makes none, and nothing is sent. A lookup that timed out
+    // or lost its answer sent no create either, so it is no lost create, and the window must not lock over it (4c final
+    // review M13).
     create: async (a) => {
       const p = await projectOf(a.projectPath)
-      if (!('id' in p)) return p
+      if (!('id' in p)) return !p.ok && (p.code === 'TIMEOUT' || p.code === 'HOST_LOST') ? { ok: false, code: 'FAILED', message: p.message } : p
       return ask(
         'jobs-create-from-source',
         { source: a.source, item: a.item, project: p.id, coordinatorAccount: a.coordinatorAccount, ...(a.convergence === true ? { convergence: true } : {}) },

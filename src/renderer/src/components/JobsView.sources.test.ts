@@ -49,6 +49,8 @@ describe('JobsView: + 소스에서', () => {
       expect(fromSource(render({ snapshot, onNewFromSource: undefined }))).toEqual([])
     }
     expect(fromSource(render({ snapshot: empty, hasProject: false }))).toEqual([])
+    // The 4c review's M1: the remote guard holds even when a handler is given
+    for (const snapshot of [withRows, empty]) expect(fromSource(render({ snapshot, remote: true }))).toEqual([])
   })
 
   it('is drawn disabled with the reason, as + 새 작업 is', () => {

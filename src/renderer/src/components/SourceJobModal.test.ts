@@ -14,7 +14,10 @@ vi.mock('../i18n/I18nProvider', () => ({
   useI18n: () => ({ lang: 'en', t: (key: string, p?: Record<string, unknown>) => (p ? `${key} ${JSON.stringify(p)}` : key) })
 }))
 
-const { SourceJobView, EMPTY_LIST, canMake, listAfter, madeOutcome, sourceChoice } = await import('./SourceJobModal')
+const { SourceJobView, EMPTY_LIST, EMPTY_PANE, canMake, jobToOpen, listAfter, madeOutcome, paneOnDetail, paneOnPick, paneOnSource, sourceChoice, sourceFailure } =
+  await import('./SourceJobModal')
+/** The helpers' `t`, worded as the mocked hook words it: the key, and its parameters when there are any. */
+const t = ((key: string, p?: Record<string, unknown>) => (p ? `${key} ${JSON.stringify(p)}` : key)) as never
 type ViewProps = React.ComponentProps<typeof SourceJobView>
 
 const SOURCES = [
@@ -50,6 +53,7 @@ const render = (over: Partial<ViewProps> = {}): string =>
       onConvergence: noop,
       onMake: noop,
       onClose: noop,
+      onRetrySources: noop,
       ...over
     } as ViewProps)
   )
@@ -57,8 +61,8 @@ const render = (over: Partial<ViewProps> = {}): string =>
 describe('SourceJobView', () => {
   // Review Focus 4
   it('greys a source that is not ready, with its reason, and shows no list before a source is picked', () => {
-    expect(sourceChoice(SOURCES[1])).toEqual({ value: 'astera-linear-source', label: 'Linear (astera-linear-source is disabled)', disabled: true })
-    expect(sourceChoice(SOURCES[0])).toEqual({ value: 'github', label: 'GitHub issues', disabled: false })
+    expect(sourceChoice(SOURCES[1], t)).toEqual({ value: 'astera-linear-source', label: 'Linear (astera-linear-source is disabled)', disabled: true })
+    expect(sourceChoice(SOURCES[0], t)).toEqual({ value: 'github', label: 'GitHub issues', disabled: false })
     const html = render()
     expect(html).toMatch(/<option value="astera-linear-source" disabled="">Linear \(astera-linear-source is disabled\)<\/option>/)
     expect(html).toContain('jobs.source.sourcePick')
@@ -145,5 +149,81 @@ describe('the window’s words', () => {
       for (const m of readFileSync(path.join(here, f), 'utf8').matchAll(/\bt\('(jobs\.source\.[A-Za-z.]+)'/g)) keys.add(m[1])
     expect(keys.size).toBeGreaterThan(10)
     for (const key of keys) for (const lang of LANGS) expect((CATALOGS[lang].messages as Record<string, string>)[key], `${lang} ${key}`).toBeTruthy()
+  })
+})
+
+// The 4c review's fixes, one test each
+describe('the window, after its review', () => {
+  // M5: the app has Settings › Plugins for a missing setting, and a source with no reason still says it is not ready
+  it('words a source that is not ready the app’s way', () => {
+    const held = { id: 'x', displayName: 'Linear', ready: false, reason: 'x is stopped: needs settings: apiKey; set them with astera plugins configure --id x', needsProject: false }
+    expect(sourceChoice(held, t).label).toBe('Linear (jobs.source.needsSettings {"keys":"apiKey"})')
+    expect(sourceChoice({ id: 'y', displayName: 'Y', ready: false, needsProject: false }, t).label).toBe('Y (jobs.source.notReady)')
+  })
+
+  // M4: no Host, a deadline and a lost answer in the app's words, as Settings › Plugins says them
+  it('words a failure the app met in the app’s words, and the Host’s own sentence as it is', () => {
+    expect(sourceFailure({ ok: false, code: 'HOST_NOT_RUNNING', message: 'there is no connection to the Host' }, t)).toBe('settings.plugins.fail.noHost')
+    expect(sourceFailure({ ok: false, code: 'TIMEOUT', message: 'x' }, t)).toBe('settings.plugins.fail.timeoutRead')
+    expect(sourceFailure({ ok: false, code: 'HOST_LOST', message: 'x' }, t)).toBe('settings.plugins.fail.lostRead')
+    expect(sourceFailure({ ok: false, code: 'FAILED', message: 'the Linear source could not list items: 401' }, t)).toBe('the Linear source could not list items: 401')
+  })
+
+  // M2, M3: a source change or a new pick leaves no loading line and no old error behind
+  it('resets the pane on a source change, and the error on a pick; an answer for another item is dropped', () => {
+    expect(paneOnSource()).toEqual(EMPTY_PANE)
+    expect(EMPTY_PANE).toEqual({ detail: null, detailLoading: false })
+    const errored = { ...EMPTY_PANE, picked: 'A', error: 'could not make it', detailLoading: true }
+    expect(paneOnPick('B')).toEqual({ picked: 'B', detail: null, detailLoading: true })
+    expect(paneOnSource()).not.toHaveProperty('error')
+    const asking = paneOnPick('B')
+    expect(paneOnDetail(asking, 'A', { ok: true, body: { id: 'A', title: 'a' } }, t)).toBe(asking)
+    expect(paneOnDetail(asking, 'B', { ok: true, body: { id: 'B', title: 'b' } }, t)).toEqual({ picked: 'B', detail: { id: 'B', title: 'b' }, detailLoading: false })
+    expect(paneOnDetail(asking, 'B', { ok: false, code: 'HOST_LOST', message: 'x' }, t)).toEqual({ picked: 'B', detail: null, detailLoading: false, detailError: 'settings.plugins.fail.lostRead' })
+    expect(errored.error).toBe('could not make it')
+  })
+
+  // M6: the sources' own failure has Try again
+  it('offers Try again when the sources could not be read', () => {
+    const html = render({ sources: null, sourcesError: 'settings.plugins.fail.noHost' })
+    expect(html).toContain('settings.plugins.fail.noHost')
+    expect(html).toContain('jobs.source.retry')
+  })
+
+  // M7, M8: a cut item says so, and why it cannot be picked and the way to it come before a long body
+  it('says a cut item was cut, and puts the reason, the note and the link above the body', () => {
+    const detail = { id: '13', title: 't', url: 'https://x.dev/13', body: 'b'.repeat(100), selectable: false, reason: 'closed', jobs: [], cut: true }
+    const html = render({ source: 'github', picked: '13', detail })
+    const body = html.indexOf('source-body')
+    expect(html.indexOf('jobs.source.cut')).toBeGreaterThan(-1)
+    for (const k of ['jobs.source.cannotPick', 'jobs.source.openLink', 'jobs.source.dataHint', 'jobs.source.cut']) expect(html.indexOf(k), k).toBeLessThan(body)
+  })
+
+  // M9: a ticket can be picked from the keyboard
+  it('lets a row be reached and picked from the keyboard', () => {
+    const html = render({ source: 'github', list: { ...EMPTY_LIST, items: [{ id: 'A', title: 'a', selectable: true, jobs: [] }] } })
+    expect(html).toMatch(/<li class="source-item" role="button" tabindex="0"/)
+  })
+
+  // M14: More keeps a cut said, and shows an item a page repeated once
+  it('keeps a cut and skips an item already shown when More adds a page', () => {
+    const shown = { seq: 3, items: [{ id: 'A', title: 'a' }], cut: true, loading: true }
+    expect(listAfter(shown, 3, { ok: true, body: { items: [{ id: 'A', title: 'a' }, { id: 'B', title: 'b' }] } }, true)).toEqual({
+      seq: 3,
+      items: [{ id: 'A', title: 'a' }, { id: 'B', title: 'b' }],
+      cut: true,
+      loading: false
+    })
+  })
+
+  // M16: what the new-Job window says about the coordinator, the repairs and git, said here too
+  it('says what the new-Job window says about the coordinator, the repairs and git', () => {
+    const html = render()
+    for (const k of ['jobs.new.coordinatorHint', 'jobs.new.convergenceDefaults', 'jobs.new.gitRequired']) expect(html, k).toContain(k)
+  })
+
+  // M18: "Job exists" opens the newest Job made from the ticket
+  it('opens the newest Job made from an item', () => {
+    expect(jobToOpen(['job_1', 'job_2'])).toBe('job_2')
   })
 })

@@ -4738,7 +4738,7 @@ export function registerIpc(
   )
   // The Jobs view's "+ From a source" (plugin Phase 4c): the Host's job sources as the app. The Host checks every
   // argument; a value of the wrong type is its refusal to give.
-  const sources = createSourcesRoute({ call: (m) => orchCall(m) })
+  const sources = createSourcesRoute({ call: (m) => orchCall(m), projectRoot: (p) => repoPathOf(core.worktrees.list(), p) })
   ipcMain.handle('sources.list', () => sources.list())
   ipcMain.handle('sources.items', (_e, a: unknown) => sources.items(a as Parameters<typeof sources.items>[0]))
   ipcMain.handle('sources.show', (_e, a: unknown) => sources.show(a as Parameters<typeof sources.show>[0]))

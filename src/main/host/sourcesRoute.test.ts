@@ -70,6 +70,31 @@ describe('createSourcesRoute', () => {
     expect(none.sent.map((s) => s.cmd)).toEqual(['projects-find'])
   })
 
+  // The 4c review's I1: a worker's worktree tab is the project's folder for the Jobs view, so for the sources too
+  it('asks for the project the folder belongs to: a worktree’s is its repository’s', async () => {
+    const sent: Sent[] = []
+    const route = createSourcesRoute({
+      call: async (m) => {
+        sent.push({ cmd: m.cmd, args: m.args })
+        return m.cmd === 'projects-find' ? { status: 200, body: { id: 'proj_1' } } : { status: 200, body: {} }
+      },
+      projectRoot: (p) => (p === 'D:/p-worktrees/wt-1' ? 'D:/p' : p)
+    })
+    await route.items({ source: 'github', projectPath: 'D:/p-worktrees/wt-1' })
+    await route.create({ source: 'github', item: '1', projectPath: 'D:/p-worktrees/wt-1', coordinatorAccount: 'a' })
+    expect(sent.filter((s) => s.cmd === 'projects-find').map((s) => s.args)).toEqual([{ path: 'D:/p' }, { path: 'D:/p' }])
+  })
+
+  // The 4c review's M13: a create that never left is no lost create, so the window must not lock over it
+  it('answers a failed project lookup before a create as no Job made, not as a lost one', async () => {
+    for (const e of [new Error(hostDeadlineMessage('projects-find', 15_000)), new Error('the Host connection closed')]) {
+      const { route, sent } = host({ 'projects-find': e })
+      const r = await route.create({ source: 'github', item: '1', projectPath: 'D:/p', coordinatorAccount: 'a' })
+      expect(r).toMatchObject({ ok: false, code: 'FAILED' })
+      expect(sent.map((s) => s.cmd)).toEqual(['projects-find'])
+    }
+  })
+
   it('says what the Host refused with, its code first', async () => {
     const answer = async (status: number, body: unknown) => host({ 'sources-list': { status, body } }).route.list()
     expect(await answer(502, { error: 'the Linear source could not list items: 401 Unauthorized' })).toEqual({

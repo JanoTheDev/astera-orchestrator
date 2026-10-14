@@ -441,6 +441,8 @@ function ScheduleCard({
         <span className="jobs-objective" title={run.objective}>
           {run.objective}
         </span>
+        {/* A Job made from a ticket and run more than once is this card: its chip stands here too (4c final review M12) */}
+        <SourceChip source={run.source} />
         {/* 예약에만 붙는다 — 손으로 다시 돌린 Job 도 이 카드를 쓰지만 예약은 아니다.
             그 Job 이 무엇인지는 아래 "N회 실행" 과 회차 목록이 이미 말한다. */}
         {run.schedule && (

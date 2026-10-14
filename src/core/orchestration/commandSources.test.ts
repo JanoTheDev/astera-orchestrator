@@ -238,6 +238,24 @@ describe('sources-items and sources-show (J10, J16)', () => {
   })
 
   // The 4a review's I2: issue numbers repeat across repositories; a Job is its own issue's alone
+  // The 4c review's I2: the app's window asks in a project, and "Job exists" there must be a Job of that project
+  it('names the Jobs of a plugin’s item made in the project asked about, when one is given', async () => {
+    const { deps, projectId } = setup()
+    await call(deps, 'jobs-create-from-source', { source: LINEAR, item: 'ENG-1', project: projectId })
+    const made = deps.getState().jobs[0].id
+    const other = ensureProject(deps.getState(), { path: absPath('other'), now: NOW })
+    await deps.setState(other.state)
+    const jobsIn = async (args: Record<string, unknown>) => {
+      const items = (await call(deps, 'sources-items', { source: LINEAR, ...args })).body as { items: Array<{ jobs: string[] }> }
+      const item = (await call(deps, 'sources-show', { source: LINEAR, item: 'ENG-1', ...args })).body as { jobs: string[] }
+      return [items.items[0].jobs, item.jobs]
+    }
+    expect(await jobsIn({ project: projectId })).toEqual([[made], [made]])
+    expect(await jobsIn({ project: other.project.id })).toEqual([[], []])
+    // With no project (the CLI, MCP), every Job made from it
+    expect(await jobsIn({})).toEqual([[made], [made]])
+  })
+
   it('names the Jobs of a GitHub issue in its own repository, not of every issue with its number', async () => {
     const { deps, projectId } = setup()
     await call(deps, 'jobs-create-from-source', { source: 'github', item: '12', project: projectId })

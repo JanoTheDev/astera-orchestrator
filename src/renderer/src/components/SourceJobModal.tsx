@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Account, SourcesCallAnswer } from '../../../core/types'
+import type { MessageKey, MessageParams } from '../../../core/i18n'
+import { DEFAULT_BLOCKING_SEVERITY } from '../../../core/orchestration/convergence'
+import { FAILURE_LIMIT, MAX_REVIEW_ROUNDS } from '../../../core/orchestration/types'
 import { useI18n } from '../i18n/I18nProvider'
 import { AccountSelect } from './AccountSelect'
+import { failureLine } from './pluginsText'
 import { backdropProps } from '../lib/backdrop'
 import { createPause } from '../lib/pausedSearch'
 
@@ -9,6 +13,8 @@ import { createPause } from '../lib/pausedSearch'
 // in one step. The Host does the work (window.api.sources, main's sources route); this window keeps what the person
 // picked and what came back. The rules it keeps are pure functions below, and what it shows is SourceJobView, so the
 // node-only renderer tests cover both; SourceJobModal is the state and the calls between them.
+
+type T = (key: MessageKey, params?: MessageParams) => string
 
 /** A source as `sources-list` answers it. */
 export interface SourceRow {
@@ -33,6 +39,8 @@ export interface ItemRow {
 export interface ItemDetail extends ItemRow {
   body?: string
   fields?: Record<string, string>
+  /** The Host cut it to its limits (J7), and says so. */
+  cut?: boolean
 }
 
 /** The list under the search: the request it shows (`seq`), its items, the next page's cursor, whether the Host cut
@@ -47,32 +55,66 @@ export interface ListState {
 }
 export const EMPTY_LIST: ListState = { seq: 0, items: [], loading: false }
 
+/** The picked item and what the window says about it: its detail, or the read under way or failed, and why a make
+ *  failed. One value, so a source change and a new pick reset it in one place (4c final review M2, M3). */
+export interface PaneState {
+  picked?: string
+  detail: ItemDetail | null
+  detailLoading: boolean
+  detailError?: string
+  error?: string
+}
+export const EMPTY_PANE: PaneState = { detail: null, detailLoading: false }
+
 /** How long the search waits after the last key (J12): GitHub's search is rate limited. */
 export const SEARCH_PAUSE_MS = 300
 
+/** Why a source does not run, as the app says it: a plugin missing a setting points at Settings › Plugins rather than
+ *  at the CLI the Host's sentence names (4c final review M5). */
+function sourceReason(reason: string, t: T): string {
+  const keys = /needs settings: ([^;]+); set them with astera plugins configure\b/.exec(reason)?.[1]
+  return keys !== undefined ? t('jobs.source.needsSettings', { keys }) : reason
+}
+
 /** A source as an option of the dropdown: one that is not ready is greyed with its reason, and cannot be picked
  *  (§3.1), so it is never asked for items (Review Focus 4). */
-export function sourceChoice(s: SourceRow): { value: string; label: string; disabled: boolean } {
-  return { value: s.id, label: s.ready ? s.displayName : `${s.displayName} (${s.reason ?? ''})`, disabled: !s.ready }
+export function sourceChoice(s: SourceRow, t: T): { value: string; label: string; disabled: boolean } {
+  if (s.ready) return { value: s.id, label: s.displayName, disabled: false }
+  return { value: s.id, label: `${s.displayName} (${s.reason !== undefined ? sourceReason(s.reason, t) : t('jobs.source.notReady')})`, disabled: true }
+}
+
+/** A read that came back with nothing, as the app says it: no Host, a deadline and a lost answer in the app's words,
+ *  as Settings › Plugins says them, the Host's own sentence otherwise (4c final review M4). */
+export function sourceFailure(answer: Extract<SourcesCallAnswer, { ok: false }>, t: T): string {
+  return failureLine(answer, t, { read: true })
 }
 
 /** The list once the answer to request `seq` came back. An answer to an older request is dropped, so a slow first
- *  search never replaces a newer one (Review Focus 1); `append` adds a page ("More") to what is shown. */
-export function listAfter(state: ListState, seq: number, answer: SourcesCallAnswer, append: boolean): ListState {
+ *  search never replaces a newer one (Review Focus 1); `append` adds a page ("More") to what is shown, keeping a cut
+ *  already said and leaving out an item a page repeated (4c final review M14). */
+export function listAfter(state: ListState, seq: number, answer: SourcesCallAnswer, append: boolean, t?: T): ListState {
   if (seq !== state.seq) return state
   if (!answer.ok) {
     const { error: _old, ...rest } = state
-    return { ...rest, loading: false, error: answer.message }
+    return { ...rest, loading: false, error: t !== undefined ? sourceFailure(answer, t) : answer.message }
   }
-  const items = Array.isArray(answer.body.items) ? (answer.body.items as ItemRow[]) : []
+  const page = Array.isArray(answer.body.items) ? (answer.body.items as ItemRow[]) : []
+  const shown = new Set(append ? state.items.map((i) => i.id) : [])
+  const items = append ? [...state.items, ...page.filter((i) => !shown.has(i.id))] : page
   const next = typeof answer.body.nextCursor === 'string' ? answer.body.nextCursor : undefined
-  return {
-    seq,
-    items: append ? [...state.items, ...items] : items,
-    ...(next !== undefined ? { nextCursor: next } : {}),
-    ...(answer.body.cut === true ? { cut: true } : {}),
-    loading: false
-  }
+  const cut = answer.body.cut === true || (append && state.cut === true)
+  return { seq, items, ...(next !== undefined ? { nextCursor: next } : {}), ...(cut ? { cut: true } : {}), loading: false }
+}
+
+/** The pane once the source changed: nothing picked, nothing loading, no error left from before (M2, M3). */
+export const paneOnSource = (): PaneState => EMPTY_PANE
+/** The pane once `id` is picked: its read under way, and a make's error from before gone. */
+export const paneOnPick = (id: string): PaneState => ({ picked: id, detail: null, detailLoading: true })
+/** The pane once the read of `id` came back: dropped when another item was picked since. */
+export function paneOnDetail(pane: PaneState, id: string, answer: SourcesCallAnswer, t: T): PaneState {
+  if (pane.picked !== id) return pane
+  if (answer.ok) return { picked: id, detail: answer.body as unknown as ItemDetail, detailLoading: false }
+  return { picked: id, detail: null, detailLoading: false, detailError: sourceFailure(answer, t) }
 }
 
 /** Whether "Make the Job" may be pressed: an item that can be picked, read whole; a coordinator account (§3.4); not
@@ -88,8 +130,11 @@ export function madeOutcome(answer: SourcesCallAnswer): { made: string } | { err
   return { error: answer.message, lock: answer.code === 'HOST_LOST' || answer.code === 'TIMEOUT' }
 }
 
+/** The Job "Job exists" opens: the newest made from the item, the likelier one wanted (4c final review M18). */
+export const jobToOpen = (jobs: readonly string[]): string => jobs[jobs.length - 1]
+
 export interface SourceJobViewProps {
-  /** null while the sources load. */
+  /** null while the sources load, or when they could not be read (`sourcesError`). */
   sources: SourceRow[] | null
   sourcesError?: string
   source: string
@@ -107,6 +152,7 @@ export interface SourceJobViewProps {
   locked: boolean
   error?: string
   onSource(id: string): void
+  onRetrySources(): void
   onQuery(q: string): void
   onRetry(): void
   onMore(): void
@@ -126,16 +172,24 @@ export function SourceJobView(p: SourceJobViewProps): React.JSX.Element {
     <div className="modal-backdrop" {...backdropProps(() => !p.busy && p.onClose())}>
       <div className="modal source-job" onClick={(e) => e.stopPropagation()}>
         <h2>{t('jobs.source.title')}</h2>
+        <p className="modal-hint">{t('jobs.new.gitRequired')}</p>
         {/* A native select, not the app's Select: a source that is not ready is a greyed option, which Select has no
             way to draw (§3.1). `field` gives the search the app's input look. */}
         <div className="field source-pick">
           {p.sources === null ? (
-            <p className="modal-hint">{p.sourcesError ?? t('jobs.source.sourcesLoading')}</p>
+            p.sourcesError !== undefined ? (
+              <div className="source-error">
+                <p className="warn-text">{p.sourcesError}</p>
+                <button onClick={p.onRetrySources}>{t('jobs.source.retry')}</button>
+              </div>
+            ) : (
+              <p className="modal-hint">{t('jobs.source.sourcesLoading')}</p>
+            )
           ) : (
-            <select value={p.source} onChange={(e) => p.onSource(e.target.value)} aria-label={t('jobs.source.source')}>
+            <select value={p.source} onChange={(e) => p.onSource(e.target.value)} aria-label={t('jobs.source.source')} autoFocus>
               <option value="">{t('jobs.source.sourcePick')}</option>
               {p.sources.map((s) => {
-                const c = sourceChoice(s)
+                const c = sourceChoice(s, t)
                 return (
                   <option key={c.value} value={c.value} disabled={c.disabled}>
                     {c.label}
@@ -171,11 +225,19 @@ export function SourceJobView(p: SourceJobViewProps): React.JSX.Element {
                   {p.list.items.map((i) => {
                     const cannot = i.selectable === false
                     return (
+                      // A row is picked by the keyboard too (4c final review M9)
                       <li
                         key={i.id}
                         className={`source-item${cannot ? ' disabled' : ''}${p.picked === i.id ? ' picked' : ''}`}
+                        role="button"
+                        tabIndex={0}
                         title={cannot ? i.reason : i.title}
                         onClick={() => p.onPick(i.id)}
+                        onKeyDown={(e) => {
+                          if (e.key !== 'Enter' && e.key !== ' ') return
+                          e.preventDefault()
+                          p.onPick(i.id)
+                        }}
                       >
                         <span className="source-id">{i.id}</span>
                         <span className="source-title">{i.title}</span>
@@ -186,8 +248,9 @@ export function SourceJobView(p: SourceJobViewProps): React.JSX.Element {
                             className="source-exists"
                             onClick={(e) => {
                               e.stopPropagation()
-                              p.onOpenJob(i.jobs![0])
+                              p.onOpenJob(jobToOpen(i.jobs!))
                             }}
+                            onKeyDown={(e) => e.stopPropagation()}
                           >
                             {t('jobs.source.exists')}
                           </button>
@@ -211,6 +274,10 @@ export function SourceJobView(p: SourceJobViewProps): React.JSX.Element {
                   <h3>
                     {p.detail.id} {p.detail.title}
                   </h3>
+                  {/* Why it cannot be picked, a cut and the way to the ticket come before a body of up to 20,000
+                      characters, so they are in view (4c final review M7, M8) */}
+                  {p.detail.selectable === false && <p className="warn-text">{t('jobs.source.cannotPick', { reason: p.detail.reason ?? '' })}</p>}
+                  {p.detail.cut === true && <p className="modal-hint">{t('jobs.source.cut')}</p>}
                   {p.detail.fields !== undefined && Object.keys(p.detail.fields).length > 0 && (
                     <table className="source-fields">
                       <tbody>
@@ -223,15 +290,14 @@ export function SourceJobView(p: SourceJobViewProps): React.JSX.Element {
                       </tbody>
                     </table>
                   )}
-                  {/* Someone else wrote it: shown as the text it is, never as Markdown or HTML (§3.3) */}
-                  <pre className="source-body">{p.detail.body ?? ''}</pre>
-                  <p className="modal-hint">{t('jobs.source.dataHint')}</p>
                   {p.detail.url !== undefined && (
                     <button type="button" onClick={() => p.onOpenLink(p.detail!.url!)}>
                       {t('jobs.source.openLink')}
                     </button>
                   )}
-                  {p.detail.selectable === false && <p className="warn-text">{t('jobs.source.cannotPick', { reason: p.detail.reason ?? '' })}</p>}
+                  <p className="modal-hint">{t('jobs.source.dataHint')}</p>
+                  {/* Someone else wrote it: shown as the text it is, never as Markdown or HTML (§3.3) */}
+                  <pre className="source-body">{p.detail.body ?? ''}</pre>
                 </>
               ) : (
                 <p className="modal-hint">{p.detailError ?? (p.detailLoading ? t('jobs.source.loading') : t('jobs.source.pickItem'))}</p>
@@ -243,15 +309,22 @@ export function SourceJobView(p: SourceJobViewProps): React.JSX.Element {
           <div className="field">
             <label>{t('jobs.new.coordinator')}</label>
             <AccountSelect accounts={p.accounts} value={p.account} onChange={p.onAccount} allLabel={t('jobs.new.coordinatorPick')} />
+            <p className="modal-hint">{t('jobs.new.coordinatorHint')}</p>
             {p.accounts.length === 0 && <p className="warn-text">{t('jobs.task.accountEmpty')}</p>}
           </div>
         )}
+        {/* As the new-Job window has them (plan P4, 4c final review M16) */}
         <div className="field">
           <label className="check-small">
             <input type="checkbox" checked={p.convergence} onChange={(e) => p.onConvergence(e.target.checked)} />
             {t('jobs.new.convergence')}
           </label>
           <p className="modal-hint">{t('jobs.new.convergenceHint')}</p>
+          <p className="modal-hint">
+            {t('jobs.new.convergenceDefaults', { fix: FAILURE_LIMIT, review: MAX_REVIEW_ROUNDS, severity: DEFAULT_BLOCKING_SEVERITY })}
+            {' — '}
+            {t('jobs.new.convergenceCliOnly')}
+          </p>
         </div>
         {p.error !== undefined && <p className="warn">{p.error}</p>}
         <div className="row right">
@@ -276,13 +349,13 @@ export function SourceJobModal({
   onCreated,
   onOpenJob
 }: {
-  /** The project the Job is made in: the Jobs view's, on this machine. */
+  /** The project the Job is made in: the one the Jobs view showed when the window opened. */
   projectPath: string
   accounts: Account[] | null
   onClose: () => void
   /** The Job made: the caller opens it (plan P5). */
   onCreated: (jobId: string) => void
-  /** "Job exists" on an item (J16): the caller opens that Job. */
+  /** "Job exists" on an item (J16): the caller opens that Job, and keeps the window when it cannot. */
   onOpenJob: (jobId: string) => void
 }): React.JSX.Element {
   const { t } = useI18n()
@@ -291,38 +364,42 @@ export function SourceJobModal({
   const [source, setSource] = useState('')
   const [query, setQuery] = useState('')
   const [list, setList] = useState<ListState>(EMPTY_LIST)
-  const [picked, setPicked] = useState<string>()
-  const [detail, setDetail] = useState<ItemDetail | null>(null)
-  const [detailLoading, setDetailLoading] = useState(false)
-  const [detailError, setDetailError] = useState<string>()
+  const [pane, setPane] = useState<PaneState>(EMPTY_PANE)
   const [account, setAccount] = useState('')
   const [convergence, setConvergence] = useState(false)
   const [busy, setBusy] = useState(false)
   const [locked, setLocked] = useState(false)
-  const [error, setError] = useState<string>()
-  /** The latest list and detail requests: an answer to an older one is dropped (Review Focus 1). */
+  /** The latest list request: an answer to an older one is dropped (Review Focus 1). */
   const listSeq = useRef(0)
-  const detailSeq = useRef(0)
-  /** The source the paused search asks: the one picked when it fires, not when the key was pressed. */
+  /** A make under way, read synchronously: two quick presses come before React draws the button disabled. */
+  const making = useRef(false)
+  /** The source and the text the paused search asks: the ones picked when it fires, not when the key was pressed. */
   const sourceRef = useRef('')
   const queryRef = useRef('')
+  const live = useRef(true)
+  useEffect(
+    () => () => {
+      live.current = false
+    },
+    []
+  )
 
-  useEffect(() => {
-    let live = true
-    window.api.sources.list().then(
-      (a) => {
-        if (!live) return
-        if (!a.ok) setSourcesError(a.message)
-        else setSources(Array.isArray(a.body.sources) ? (a.body.sources as SourceRow[]) : [])
-      },
-      (e: unknown) => {
-        if (live) setSourcesError(e instanceof Error ? e.message : String(e))
-      }
-    )
-    return () => {
-      live = false
+  const loadSources = useCallback(async (): Promise<void> => {
+    setSourcesError(undefined)
+    setSources(null)
+    let a: SourcesCallAnswer
+    try {
+      a = await window.api.sources.list()
+    } catch (e) {
+      a = failure(e)
     }
-  }, [])
+    if (!live.current) return
+    if (!a.ok) setSourcesError(sourceFailure(a, t))
+    else setSources(Array.isArray(a.body.sources) ? (a.body.sources as SourceRow[]) : [])
+  }, [t])
+  useEffect(() => {
+    void loadSources()
+  }, [loadSources])
 
   const search = useCallback(
     async (src: string, q: string, cursor?: string): Promise<void> => {
@@ -335,52 +412,52 @@ export function SourceJobModal({
       } catch (e) {
         answer = failure(e)
       }
-      setList((s) => listAfter(s, mine, answer, cursor !== undefined))
+      if (!live.current) return
+      setList((s) => listAfter(s, mine, answer, cursor !== undefined, t))
+      // A source the Host no longer has (a plugin removed while the window was open): the list of sources is read again
+      if (!answer.ok && answer.code === 'NOT_FOUND' && mine === listSeq.current) void loadSources()
     },
-    [projectPath]
+    [projectPath, t, loadSources]
   )
   const pause = useMemo(() => createPause(SEARCH_PAUSE_MS, (q) => void search(sourceRef.current, q)), [search])
   useEffect(() => () => pause.cancel(), [pause])
 
   const pick = async (id: string): Promise<void> => {
-    setPicked(id)
-    setDetail(null)
-    setDetailError(undefined)
-    setDetailLoading(true)
-    const mine = ++detailSeq.current
+    setPane(paneOnPick(id))
     let answer: SourcesCallAnswer
     try {
       answer = await window.api.sources.show({ source: sourceRef.current, item: id, projectPath })
     } catch (e) {
       answer = failure(e)
     }
-    if (mine !== detailSeq.current) return
-    setDetailLoading(false)
-    if (answer.ok) setDetail(answer.body as unknown as ItemDetail)
-    else setDetailError(answer.message)
+    if (live.current) setPane((p) => paneOnDetail(p, id, answer, t))
   }
 
   const make = async (): Promise<void> => {
-    // Checked again here: the button's disabled may not be drawn yet on a second quick press
-    if (!canMake({ item: detail, account, busy, locked }) || detail === null) return
+    const item = pane.detail
+    if (making.current || !canMake({ item, account, busy, locked }) || item === null) return
+    making.current = true
     setBusy(true)
-    setError(undefined)
+    setPane((p) => ({ ...p, error: undefined }))
     try {
       const outcome = madeOutcome(
-        await window.api.sources.create({ source: sourceRef.current, item: detail.id, projectPath, coordinatorAccount: account, ...(convergence ? { convergence: true } : {}) })
+        await window.api.sources.create({ source: sourceRef.current, item: item.id, projectPath, coordinatorAccount: account, ...(convergence ? { convergence: true } : {}) })
       )
       if ('made' in outcome) {
         onCreated(outcome.made)
         return
       }
-      setError(outcome.lock ? t('jobs.source.lost') : outcome.error)
+      if (!live.current) return
+      setPane((p) => ({ ...p, error: outcome.lock ? t('jobs.source.lost') : outcome.error }))
       if (outcome.lock) setLocked(true)
     } catch {
       // The IPC itself failed: whether the Job was made is not known, so no second one is offered
-      setError(t('jobs.source.lost'))
+      if (!live.current) return
+      setPane((p) => ({ ...p, error: t('jobs.source.lost') }))
       setLocked(true)
     } finally {
-      setBusy(false)
+      making.current = false
+      if (live.current) setBusy(false)
     }
   }
 
@@ -391,31 +468,29 @@ export function SourceJobModal({
       source={source}
       query={query}
       list={list}
-      picked={picked}
-      detail={detail}
-      detailLoading={detailLoading}
-      detailError={detailError}
+      picked={pane.picked}
+      detail={pane.detail}
+      detailLoading={pane.detailLoading}
+      detailError={pane.detailError}
       accounts={accounts}
       account={account}
       convergence={convergence}
       busy={busy}
       locked={locked}
-      error={error}
+      error={pane.error}
       onSource={(id) => {
         pause.cancel()
         sourceRef.current = id
         queryRef.current = ''
         setSource(id)
         setQuery('')
-        setPicked(undefined)
-        setDetail(null)
-        setDetailError(undefined)
-        ++detailSeq.current
+        setPane(paneOnSource())
         if (id === '') {
           ++listSeq.current
           setList(EMPTY_LIST)
         } else void search(id, '')
       }}
+      onRetrySources={() => void loadSources()}
       onQuery={(q) => {
         queryRef.current = q
         setQuery(q)

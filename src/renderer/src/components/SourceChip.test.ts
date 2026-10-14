@@ -52,6 +52,31 @@ describe('SourceChip', () => {
     expect(html.indexOf('source-chip')).toBeLessThan(html.indexOf('>other<'))
   })
 
+  // The 4c review's M12: a Job run more than once is drawn as a card with its runs under it; the chip stands on its head
+  it('stands on the head of a Job’s card that holds its runs', () => {
+    const run = (over: Partial<JobRow>): JobRow =>
+      ({ id: 'job_1', objective: 'Resolve Linear ENG-1', outcome: 'running', done: 0, total: 1, eventCount: 1, sharesProjectFolder: false, tasks: [], ...over }) as JobRow
+    const card = run({ source: SOURCE, children: [run({ id: 'run_1' }), run({ id: 'run_2' })] })
+    const html = renderToStaticMarkup(
+      React.createElement(JobsView, {
+        snapshot: { runs: [card], projectFolderBusy: false },
+        hostGate: null,
+        stall: null,
+        hasProject: true,
+        canOpenSession: () => false,
+        onOpenSession: () => {},
+        onOpenRun: () => {},
+        onNewRun: () => {},
+        onPauseRun: () => {},
+        onResumeRun: () => {},
+        onDeleteRun: () => {},
+        onRestartCoordinator: () => {}
+      })
+    )
+    const head = html.slice(html.indexOf('jobs-run-head'), html.indexOf('</div>', html.indexOf('jobs-run-head')))
+    expect(head).toContain('source-chip')
+  })
+
   it('stands in the header of the Job’s detail', () => {
     const src = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'RunDetail.tsx'), 'utf8')
     const head = src.slice(src.indexOf('<div className="detail-head">'), src.indexOf('</div>', src.indexOf('<div className="detail-head">')))
