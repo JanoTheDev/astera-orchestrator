@@ -21,7 +21,8 @@ export function TerminalView({
   schedState = null,
   active = false,
   onOpenUrl,
-  onOpenFile
+  onOpenFile,
+  onOpenFolder
 }: {
   session: SessionInfo
   onRestart: (old: SessionInfo) => void
@@ -31,6 +32,8 @@ export function TerminalView({
   onOpenUrl: (url: string, ev: MouseEvent) => void
   /** A path link was activated — the path main resolved, and the line/column the output named */
   onOpenFile: (path: string, at: { line?: number; col?: number }) => void
+  /** A folder link's click (D2, 2026-10-14): the App reveals it in its explorer or opens the system file manager. */
+  onOpenFolder?: (path: string) => void
 }): React.JSX.Element {
   const { t } = useI18n()
   const { family } = useTerminalFont()
@@ -41,6 +44,8 @@ export function TerminalView({
   onOpenUrlRef.current = onOpenUrl
   const onOpenFileRef = useRef(onOpenFile)
   onOpenFileRef.current = onOpenFile
+  const onOpenFolderRef = useRef(onOpenFolder)
+  onOpenFolderRef.current = onOpenFolder
   // Set by the construction effect so the font effect can reuse its lastSent-guarded fit
   // instead of calling window.api.sessions.resize directly (which would bypass the guard and leave
   // its lastSent stale for the next ResizeObserver-driven call)
@@ -78,9 +83,9 @@ export function TerminalView({
       onUrl: (url, ev) => onOpenUrlRef.current(url, ev),
       // The session id lets main try the agent's current directory first: Claude Code prints a sent
       // file relative to wherever its Bash tool `cd`'d, not to the session's cwd
-      resolvePath: (target) =>
-        window.api.files.resolveLink(cwd, target, sessionId).then((r) => r?.path ?? null, () => null),
-      onOpenFile: (path, at) => onOpenFileRef.current(path, at)
+      resolvePath: (target) => window.api.files.resolveLink(cwd, target, sessionId, { dirs: true }).catch(() => null),
+      onOpenFile: (path, at) => onOpenFileRef.current(path, at),
+      onOpenFolder: (path) => onOpenFolderRef.current?.(path)
     })
     termRef.current = term
     // The dimensions last sent to the PTY — stops a resize of the same size from being re-sent on a tab

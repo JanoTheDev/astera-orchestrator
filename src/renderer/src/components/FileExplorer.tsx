@@ -35,6 +35,7 @@ import type { UndoEntry } from '../../../core/files/undo'
 import { runnableKindForFile } from '../../../core/run/runFile'
 import { RefreshCw, X } from 'lucide-react'
 import { deleteKey, isMac, modKey } from '../lib/platformKeys'
+import { isWindowsPath, treeKeysTo } from '../lib/folderLink'
 
 /** Tree snapshot the App holds on to, so that even when the explorer toggle unmounts FileExplorer the tree can be handed back on remount */
 export interface ExplorerTreeState {
@@ -70,7 +71,8 @@ export function FileExplorer({
   undoRef,
   onPathRenamed,
   onPathDeleted,
-  onRunFile
+  onRunFile,
+  revealFolder
 }: {
   root: string | null
   onOpenFile: (path: string) => void
@@ -94,6 +96,9 @@ export function FileExplorer({
   /** Runs a file from the context menu. The explorer does not own the run panel, so what a started run
    *  does to the screen stays in one place — the App's own run-start path. */
   onRunFile: (path: string) => void
+  /** A folder a terminal link named under this root (D2, 2026-10-14), as its names below the root: each level is
+   *  expanded and the folder selected and scrolled to. A new `seq` asks again for the same folder. */
+  revealFolder?: { segments: readonly string[]; seq: number } | null
 }): React.JSX.Element {
   const { t, tm } = useI18n()
   const [menu, setMenu] = useState<{ x: number; y: number; entry: Entry | null } | null>(null)
@@ -179,6 +184,28 @@ export function FileExplorer({
         requestReveal(action.paths[action.paths.length - 1])
     }
   }
+
+  // A folder link's reveal: the keys are found by listing each level as the tree does (folderLink.ts treeKeysTo), so a
+  // link spelled in another case still finds the rows; then every level is expanded and the folder selected, which
+  // brings it into view (requestReveal through opsSel). A request for another root, or one that no longer matches the
+  // disk, does nothing.
+  useEffect(() => {
+    if (!revealFolder || !root) return
+    let cancelled = false
+    void treeKeysTo(root, revealFolder.segments, (dir) => window.api.files.list(dir), isWindowsPath(root)).then((keys) => {
+      if (cancelled || keys === null) return
+      for (const key of keys) {
+        tree.expandDir(key)
+        tree.loadDir(key)
+      }
+      if (keys.length > 0) opsSel.dispatch({ type: 'selectionSet', paths: [keys[keys.length - 1]] })
+    })
+    return () => {
+      cancelled = true
+    }
+    // The request's seq is the trigger; tree and opsSel are this render's, read when it fires
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revealFolder?.seq, root])
 
   // Mirror of the currently committed root, independent of the per-root map — useFileOps needs to know
   // whether root changed while an async op was in flight, and a map has no single "current root" of its

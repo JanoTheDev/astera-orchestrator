@@ -74,6 +74,7 @@ export function PaneGrid({
   onRestart,
   onOpenUrl,
   onOpenPath,
+  onOpenFolder,
   mediaNonces,
   onSelectTab,
   onCloseTab,
@@ -139,6 +140,9 @@ export function PaneGrid({
   /** A path a session resolved to a real file was activated — a terminal link, or a file a
    *  SendUserFile row names. App opens media in the viewer and anything else as a file tab. */
   onOpenPath: (path: string, at?: { line?: number; col?: number }) => void
+  /** A folder a session terminal's link named (D2, 2026-10-14): App reveals it in its explorer or opens the system
+   *  file manager. */
+  onOpenFolder?: (path: string) => void
   /** Media tab id -> how many times a link to that already-open file was clicked again. A change
    *  tells its viewer to look at the file again (MediaViewer). */
   mediaNonces: Record<string, number>
@@ -331,6 +335,7 @@ export function PaneGrid({
                   active={visible && pane != null && pane.id === activePaneId}
                   onOpenUrl={onOpenUrl}
                   onOpenFile={onOpenPath}
+                  onOpenFolder={onOpenFolder}
                 />
               </div>
             )}

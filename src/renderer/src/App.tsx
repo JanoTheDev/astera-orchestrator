@@ -138,6 +138,8 @@ import { useRemoteSessionWatch } from './hooks/useRemoteSessionWatch'
 import { mediaTabsUnder, placeMediaTab, placeTab } from '../../core/panes/place'
 import { mediaKindOf } from '../../core/files/media'
 import { openPath } from './lib/openPath'
+import { folderLinkAction } from './lib/folderLink'
+import { errText } from './hooks/useFileOps'
 import { sessionKindOf } from '../../core/sessions/kind'
 import { displayHostOf, linkDestination, normalizeUrl, previewTargetOf } from '../../core/preview/url'
 import { isWaitingOnDialog, POST_PASTE_SUBMIT_DELAY_MS } from '../../core/preview/pick/send'
@@ -2266,6 +2268,13 @@ export default function App(): React.JSX.Element {
     setJobsOpen(next.jobs)
     setHiwOpen(next.understanding)
   }
+  /** Shows the explorer whatever the sidebar showed: a folder link's reveal needs it open, never toggled shut. */
+  const showExplorer = (): void => {
+    setSidebarOpen(true)
+    setExplorerOpen(true)
+    setJobsOpen(false)
+    setHiwOpen(false)
+  }
   const toggleSessions = (): void => toggleSidebar('sessions')
   const toggleExplorer = (): void => toggleSidebar('explorer')
   const toggleJobs = (): void => toggleSidebar('jobs')
@@ -2911,6 +2920,19 @@ export default function App(): React.JSX.Element {
   // Mirrors currentProject into a ref — avoids a stale closure in the run:status subscription effect
   const currentProjectRef = useRef(currentProject)
   currentProjectRef.current = currentProject
+
+  /** A folder a terminal link named (D2, 2026-10-14). The explorer shows the current project, so a folder under it is
+   *  revealed there; any other opens in the system file manager (files.openFolder, which opens folders only). */
+  const [explorerReveal, setExplorerReveal] = useState<{ segments: string[]; seq: number } | null>(null)
+  const openLinkedFolder = (folder: string): void => {
+    const action = folderLinkAction(folder, currentProjectRef.current)
+    if (action.kind === 'explorer') {
+      showExplorer()
+      setExplorerReveal((prev) => ({ segments: action.segments, seq: (prev?.seq ?? 0) + 1 }))
+      return
+    }
+    void window.api.files.openFolder(folder).catch((err: unknown) => toast.error(errText(err)))
+  }
 
   /** bottomRoot 를 ref 로 비춘다 — 비동기 흐름 중에 루트가 바뀌었는지 보는 데 쓴다(openTerminal).
    *  currentProjectRef 로는 안 된다: 프로젝트가 없을 때 그쪽은 null 이고 bottomRoot 는 홈이다. */
@@ -4391,6 +4413,7 @@ export default function App(): React.JSX.Element {
                 onPathRenamed={handlePathRenamed}
                 onPathDeleted={handlePathDeleted}
                 onRunFile={runFile}
+                revealFolder={explorerReveal}
               />
             ) : sidebarPane === 'jobs' ? (
               <>
@@ -4633,6 +4656,7 @@ export default function App(): React.JSX.Element {
                 onDropTabInBar={dropTabInGroup}
                 onOpenUrl={openUrl}
                 onOpenPath={openLinkedPath}
+                onOpenFolder={openLinkedFolder}
                 mediaNonces={mediaNonces}
               />
               {/* When the layout is empty (not one group in the tree) there is no group tab bar, so there
@@ -4716,6 +4740,7 @@ export default function App(): React.JSX.Element {
                     onRerun={(configId) => runStart(configId)}
                     onDismissRun={runDismiss}
                     onOpenFile={openLinkedPath}
+                    onOpenFolder={openLinkedFolder}
                     onOpenUrl={openUrl}
                     onOpenPreview={(url) => openBrowserTab(previewTargetOf(url))}
                     terminals={terminals}
