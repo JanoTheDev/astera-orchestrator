@@ -6,6 +6,7 @@ import { createEventRing, type EventRing } from '../../core/events/eventRing'
 import type { AsteraEvent } from '../../core/publicContract'
 import type { EventDraft } from '../../core/orchestration/publicEvents'
 import { DELIVERY_GIVE_UP_MS, DELIVERY_RETRY_MS, DELIVERY_TIMEOUT_MS, DeliveryInterrupted, createDeliverer, type Deliverer } from './deliverer'
+import { PluginCursorUnreadable } from './pluginData'
 
 const RUN = { id: 'run_1', jobId: 'job_1', ordinal: 1, createdAt: 'T', outcome: 'completed', progress: { done: 2, total: 2 }, questionsOpen: 0 }
 const ev = (n: number): string => `ev_aaaaaaaaaaaa_${n}`
@@ -31,8 +32,10 @@ const flush = async (): Promise<void> => void (await vi.advanceTimersByTimeAsync
 interface RigOptions {
   /** The cursor the store holds. */
   stored?: string
-  /** The store's read throws this. */
+  /** The store's read throws PluginCursorUnreadable with this. */
   unreadable?: string
+  /** The store's first reads throw an error of the system, this many times. */
+  readFails?: number
   /** Each write waits for `store.finish()`. */
   slowWrites?: boolean
   /** Each delivery waits for `settle()`; with `fail`, it then fails. */
@@ -57,11 +60,13 @@ function rig(o: RigOptions = {}) {
   const unwritten: Array<() => void> = []
   let running = o.running ?? true
   let interrupted = false
+  let readFails = o.readFails ?? 0
   const store = {
     writes,
     finish: (): void => unwritten.splice(0).forEach((f) => f()),
     read: async (): Promise<string | null> => {
-      if (o.unreadable !== undefined) throw new Error(o.unreadable)
+      if (o.unreadable !== undefined) throw new PluginCursorUnreadable(o.unreadable)
+      if (readFails-- > 0) throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' })
       return o.stored ?? null
     },
     write: (c: string): Promise<void> => {
@@ -257,6 +262,70 @@ describe('createDeliverer (plugin Phase 3 N6-N9)', () => {
     expect(logs).toEqual(['the event cursor could not be written: disk full'])
     await d.stop()
     expect(writes).toEqual([ev(1)])
+  })
+
+  // Final review M1: the hour is time spent failing while the plugin ran, not the wall clock's
+  it('counts toward the hour only the time the plugin ran, so a night stopped does not give an event up after one try', async () => {
+    add(2)
+    const r = rig({ stored: ev(0), failIds: [ev(1)] })
+    await flush()
+    r.setRunning(false)
+    await vi.advanceTimersByTimeAsync(2 * DELIVERY_GIVE_UP_MS)
+    r.setRunning(true)
+    r.d.wake()
+    await flush()
+    expect(r.logs.filter((l) => l.startsWith('gave up'))).toEqual([])
+    expect(r.got).toEqual([])
+    await vi.advanceTimersByTimeAsync(DELIVERY_GIVE_UP_MS + DELIVERY_RETRY_MS.max)
+    expect(r.got).toEqual([ev(2)])
+  })
+
+  // Final review M2: a read the system refused (a file mid-move on Windows) is no reason to skip the backlog
+  it('reads the cursor again when the system refuses the read, and skips nothing', async () => {
+    add(3)
+    const r = rig({ stored: ev(1), readFails: 2 })
+    await flush()
+    expect(r.got).toEqual([])
+    expect(r.logs).toEqual(['the event cursor could not be read (EPERM: operation not permitted); trying again in 1 s'])
+    await vi.advanceTimersByTimeAsync(1_000 + 2_000)
+    expect(r.got).toEqual([ev(2), ev(3)])
+    expect(r.store.writes).toEqual([ev(2), ev(3)])
+  })
+
+  it('stops while it waits to read the cursor again, and writes nothing', async () => {
+    add(1)
+    const r = rig({ stored: ev(0), readFails: 5 })
+    await flush()
+    await r.d.stop()
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(r.got).toEqual([])
+    expect(r.store.writes).toEqual([])
+  })
+
+  // Final review M3
+  it('still writes the cursor at the stop when the write in flight fails', async () => {
+    add(2)
+    let failFirst: (e: Error) => void = () => {}
+    const writes: string[] = []
+    const d = createDeliverer({
+      source: ring,
+      cursor: {
+        read: async () => ev(0),
+        write: (c) => {
+          writes.push(c)
+          return writes.length === 1 ? new Promise<void>((_, reject) => (failFirst = reject)) : Promise.resolve()
+        }
+      },
+      running: () => true,
+      deliver: async () => {},
+      log: () => {}
+    })
+    await flush()
+    expect(writes).toEqual([ev(1)])
+    const stopped = d.stop()
+    failFirst(new Error('disk full'))
+    await stopped
+    expect(writes).toEqual([ev(1), ev(2)])
   })
 
   // Review Focus 3

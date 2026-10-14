@@ -5,13 +5,13 @@
 // waiting: a write lost repeats a delivery, never skips one. Nothing is delivered while the plugin does not run.
 import type { AsteraEvent, EventGap } from '../../core/publicContract'
 import type { RingRead } from '../../core/events/eventRing'
-import type { CursorStore } from './pluginData'
+import { PluginCursorUnreadable, type CursorStore } from './pluginData'
 
 /** How long onEvent may take; a late settle is ignored. */
 export const DELIVERY_TIMEOUT_MS = 30_000
 /** The wait after a failed delivery: the first, doubling to the max. */
 export const DELIVERY_RETRY_MS = Object.freeze({ first: 1_000, max: 5 * 60_000 })
-/** How long one event is tried before it is given up and the next one follows. */
+/** How long one event is tried, counted while the plugin runs, before it is given up and the next one follows. */
 export const DELIVERY_GIVE_UP_MS = 60 * 60_000
 /** While one event keeps failing, the log gets its first failure and then every this many. */
 export const DELIVERY_LOG_EVERY = 10
@@ -69,11 +69,12 @@ export function createDeliverer(d: {
   deliver(item: AsteraEvent | EventGap): Promise<void>
   /** A line for the plugin's log. */
   log(m: string): void
+  /** A clock that only goes forward (final review M1): the give-up hour must not move with the time of day. */
   now?: () => number
   timings?: Partial<DeliveryTimings>
 }): Deliverer {
   const t: DeliveryTimings = { ...DELIVERY_TIMINGS, ...d.timings }
-  const now = d.now ?? Date.now
+  const now = d.now ?? (() => performance.now())
   let stopped = false
   /** Counts the wakes, so a delivery the plugin's end interrupted waits for the next run, not one already begun. */
   let generation = 0
@@ -148,10 +149,17 @@ export function createDeliverer(d: {
     let tries = 0
     let firstFailure: number | null = null
     let wait = t.retryFirstMs
+    /** Waits for the plugin to run again. That time is not time spent failing (final review M1): a plugin stopped for a
+     *  night does not give an event up after one more try. */
+    const idle = async (): Promise<void> => {
+      const from = now()
+      await pause()
+      if (firstFailure !== null) firstFailure += now() - from
+    }
     for (;;) {
       if (stopped) return false
       if (!d.running()) {
-        await pause()
+        await idle()
         continue
       }
       const gen = generation
@@ -163,7 +171,7 @@ export function createDeliverer(d: {
         if (stopped) return false
         if (e instanceof DeliveryInterrupted) {
           // Not counted: the plugin is started again by its restart policy, and the event goes again once it runs
-          if (generation === gen) await pause()
+          if (generation === gen) await idle()
           continue
         }
         problem = e instanceof TimedOut ? `onEvent did not finish within ${seconds(t.timeoutMs)}` : messageOf(e)
@@ -182,10 +190,22 @@ export function createDeliverer(d: {
 
   async function run(): Promise<void> {
     let stored: string | null = null
-    try {
-      stored = await d.cursor.read()
-    } catch (e) {
-      d.log(`the event cursor could not be read (${messageOf(e)}); delivering from now on`)
+    // A file that holds no cursor is gone for good, and delivery goes on from now. A read the system refused (a file
+    // being moved, on Windows) is tried again, since going on from now would skip the backlog (final review M2).
+    let wait = t.retryFirstMs
+    for (let tries = 1; !stopped; tries++) {
+      try {
+        stored = await d.cursor.read()
+        break
+      } catch (e) {
+        if (e instanceof PluginCursorUnreadable) {
+          d.log(`the event cursor could not be read (${messageOf(e)}); delivering from now on`)
+          break
+        }
+        if (tries === 1 || tries % t.logEvery === 0) d.log(`the event cursor could not be read (${messageOf(e)}); trying again in ${seconds(wait)}`)
+        await pause(wait)
+        wait = Math.min(wait * 2, t.retryMaxMs)
+      }
     }
     if (stopped) return
     // No cursor yet: from the tail, written at once, so an install replays no history and a first stop has a place
@@ -232,6 +252,8 @@ export function createDeliverer(d: {
       stopped = true
       kick()
       await persist()
+      // A write in flight that failed leaves the latest cursor unwritten: the stop writes it (final review M3)
+      if (cursor !== null && cursor !== written) await persist()
     }
   }
 }
