@@ -394,14 +394,19 @@ const run = promisify(execFile)
 
 export default defineCompletionCheckProvider({
   async runCheck({ workspace }) {
-    // The files the Task changed since its work started
-    const { stdout } = await run('git', ['diff', '--name-only', workspace.base ?? 'HEAD', '--'], { cwd: workspace.root })
-    const migrations = stdout.split('\n').filter((file) => file.startsWith('migrations/'))
-    if (migrations.length === 0) return { status: 'passed', summary: 'no migration changed' }
+    // The migrations the Task changed, deleted or renamed since its work started, named from its folder as they are
+    // on disk. A new migration is how to change the schema, so an added one is not listed.
+    const args = ['-c', 'core.quotepath=false', 'diff', '--name-only', '--relative', '--diff-filter=MDR', workspace.base ?? 'HEAD', '--', 'migrations/']
+    const listed = await run('git', args, { cwd: workspace.root }).catch((e: { stderr?: string }) => {
+      // git's first line, the sentence a person reads in the question
+      throw new Error(`git could not list the changes: ${String(e.stderr ?? '').trim().split('\n')[0] || 'git failed'}`)
+    })
+    const touched = listed.stdout.split('\n').filter((file) => file !== '')
+    if (touched.length === 0) return { status: 'passed', summary: 'no migration was changed' }
     return {
       status: 'failed',
-      summary: `${migrations.length} migrations changed: add them to a new migration instead`,
-      diagnostics: migrations.map((file) => ({ file, message: 'changes a migration that may have run already' }))
+      summary: `${touched.length === 1 ? 'a migration was' : `${touched.length} migrations were`} changed: add a new one instead`,
+      diagnostics: touched.map((file) => ({ file, message: 'changes a migration that may have run already' }))
     }
   }
 })
