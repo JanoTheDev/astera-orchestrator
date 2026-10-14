@@ -1,5 +1,5 @@
 import type { ILink, Terminal } from '@xterm/xterm'
-import { bufferRangeAt, cellsOfJoinedLine, cutCandidates, findConsoleLinks, joinWrappedLine, type CharCell } from '../../core/run/consoleLinks'
+import { bufferRangeAt, cellsOfJoinedLine, cutCandidates, findConsoleLinks, joinWrappedLine, type CharCell, type ConsoleLink } from '../../core/run/consoleLinks'
 import { mediaKindOf } from '../../core/files/media'
 
 /** How long a target that did not resolve is believed. Long enough to absorb the stream of hover
@@ -12,6 +12,11 @@ const MISS_TTL_MS = 5000
  *  miss which made the link, and a hover per repaint of a row a TUI keeps redrawing, answer from that miss instead of
  *  asking main each time. */
 export const LATE_RECHECK_MS = 500
+
+/** The ways a path link can read, in the order they are tried: the whole token, then the same path without a word a
+ *  sentence glued to it (`...png입니다.`, consoleLinks.ts GLUED_WORD), over its own cells. */
+const readingsOf = (l: ConsoleLink): Array<{ target: string; end: number; line?: number; col?: number }> =>
+  l.kind === 'path' ? [{ target: l.target, end: l.end, line: l.line, col: l.col }, ...(l.alt ? [l.alt] : [])] : []
 
 /** `resolve`, cached per target. A hit is kept for the terminal's life (a file that existed stays a
  *  link; following it to a deleted file is the opener's error to report). A miss — null or a
@@ -137,10 +142,12 @@ export function attachConsoleLinks(
       // joined, word by word. Only a link that crosses a cut and covers the row under the pointer (final review I1: xterm
       // drops a row's links that another row's link overlaps), only one the resolver finds, the longest of those, and
       // none where the first row's word names a file by itself (final review I2: a file and its line, then the next row's list number, is not a longer line number).
+      // Each reading of a link (readingsOf) is a candidate of its own; the longest one found wins below.
       const across = (resolvePath ? cutCandidates(rowCells, y - 1, term.cols) : []).flatMap((c) =>
         findConsoleLinks(c.text)
-          .filter((l) => l.kind === 'path' && l.start < c.head.text.length && l.end > c.head.text.length)
-          .map((l) => ({ l, range: bufferRangeAt(c.cells, l.start, l.end), head: findConsoleLinks(c.head.text).find((h) => h.kind === 'path' && h.start === l.start) }))
+          .flatMap((l) => readingsOf(l).map((r) => ({ l, r })))
+          .filter(({ l, r }) => l.start < c.head.text.length && r.end > c.head.text.length)
+          .map(({ l, r }) => ({ r, range: bufferRangeAt(c.cells, l.start, r.end), head: findConsoleLinks(c.head.text).find((h) => h.kind === 'path' && h.start === l.start) }))
           .filter(({ range }) => range.start.y <= y && y <= range.end.y)
       )
       if (found.length === 0 && across.length === 0) {
@@ -149,11 +156,10 @@ export function attachConsoleLinks(
       }
       const cells = cellsOfJoinedLine(rowCells, startY)
       const acrossLinks = Promise.all(
-        across.map(async ({ l, range, head }): Promise<{ link: ILink; length: number } | null> => {
-          if (l.kind !== 'path') return null
+        across.map(async ({ r, range, head }): Promise<{ link: ILink; length: number } | null> => {
           if (head && head.kind === 'path' && (await resolve(head.target))) return null
-          const path = await resolve(l.target)
-          return path ? { link: { range, text: l.target, activate: () => opts.onOpenFile?.(path, { line: l.line, col: l.col }) }, length: l.target.length } : null
+          const path = await resolve(r.target)
+          return path ? { link: { range, text: r.target, activate: () => opts.onOpenFile?.(path, { line: r.line, col: r.col }) }, length: r.target.length } : null
         })
       )
       void Promise.all([
@@ -164,13 +170,16 @@ export function attachConsoleLinks(
             if (l.kind === 'url') {
               return { range, text: l.url, activate: (event) => opts.onUrl(l.url, event) }
             }
-            const path = await resolve(l.target)
-            if (!path) return mediaKindOf(l.target) !== null ? lateLink(range, l.target, { line: l.line, col: l.col }) : null
-            return {
-              range,
-              text: l.target,
-              activate: () => opts.onOpenFile?.(path, { line: l.line, col: l.col })
+            // The whole token first, then the path without a word glued to it, each over its own cells
+            const readings = readingsOf(l).map((r) => ({ ...r, range: r.end === l.end ? range : bufferRangeAt(cells, l.start, r.end) }))
+            for (const r of readings) {
+              const path = await resolve(r.target)
+              if (path) return { range: r.range, text: r.target, activate: () => opts.onOpenFile?.(path, { line: r.line, col: r.col }) }
             }
+            // A media name not there yet (lateLink): the reading that is one, the shorter first, since a word glued to a
+            // media name is what keeps the whole from being one
+            const media = [...readings].reverse().find((r) => mediaKindOf(r.target) !== null)
+            return media ? lateLink(media.range, media.target, { line: media.line, col: media.col }) : null
           })
         )
       ])

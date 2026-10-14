@@ -50,6 +50,64 @@ describe('findConsoleLinks — paths', () => {
   })
 })
 
+// Korean, Japanese and Chinese put a particle or a copula right after a word, with no space between: a sentence names a
+// file as `...concept_vs_app.png입니다.` (bug report, 2026-10-14: that link did not open while the same path at the end of
+// a line did). The token is still the link; the same path without the glued-on run is its `alt`, which the renderer
+// tries when the whole names no file, so a file or folder whose own name ends in Hangul still links whole.
+describe('findConsoleLinks — a path with a word glued to it', () => {
+  it('offers the path without a Korean ending glued to it', () => {
+    const line = '마지막 장은 C:\\Users\\a\\concept_vs_app.png입니다.'
+    const l = only(line)
+    expect(l).toEqual({
+      kind: 'path',
+      start: 7,
+      end: line.length - 1,
+      target: 'C:\\Users\\a\\concept_vs_app.png입니다',
+      alt: { end: line.length - 4, target: 'C:\\Users\\a\\concept_vs_app.png' }
+    })
+    if (l.kind !== 'path' || !l.alt) throw new Error('no alt')
+    expect(line.slice(l.start, l.alt.end)).toBe('C:\\Users\\a\\concept_vs_app.png')
+  })
+
+  it('reads a file and line a Japanese particle follows, which as a whole is no path', () => {
+    expect(only('src/a.ts:12を見て')).toEqual({ kind: 'path', start: 0, end: 11, target: 'src/a.ts', line: 12 })
+  })
+
+  it('peels a closing parenthesis and full-width punctuation around the glued run', () => {
+    expect(only('(C:\\a\\b.png)를 보세요')).toMatchObject({ start: 1, target: 'C:\\a\\b.png)를', alt: { end: 11, target: 'C:\\a\\b.png' } })
+    expect(only('看 C:\\a\\b.png。')).toMatchObject({ start: 2, target: 'C:\\a\\b.png。', alt: { end: 12, target: 'C:\\a\\b.png' } })
+  })
+
+  // Review m2: an alt that ends in a separator names a folder, which no resolver answers, so none is offered
+  it('keeps a Korean folder or file name whole, and offers no alt that names a folder', () => {
+    expect(only('C:\\문서\\보고서')).toEqual({ kind: 'path', start: 0, end: 9, target: 'C:\\문서\\보고서' })
+    expect(findConsoleLinks('읽기/쓰기를 켜기/끄기로').map((l) => (l.kind === 'path' ? l.alt : 'url'))).toEqual([undefined, undefined])
+  })
+
+  // Review m1: kana's prolonged sound mark and the like are Common script, used by Japanese only; and a question, an
+  // exclamation, a tilde or an ellipsis can close the sentence after the glued word
+  it('takes a Japanese word with a prolonged sound mark, and a sentence that ends in ! ? ~ or …', () => {
+    expect(only('D:\\写真\\猫.pngをコピーしました。')).toMatchObject({ alt: { target: 'D:\\写真\\猫.png' } })
+    for (const tail of ['인가요?', '입니다!', '예요~', '입니다…', '!'])
+      expect(only(`C:\\a\\b.png${tail}`), tail).toMatchObject({ alt: { end: 10, target: 'C:\\a\\b.png' } })
+  })
+
+  // Review I1: the glued run is looked for from its first character only. Anchored at the end alone, a long run of
+  // letters the class takes followed by one it does not was tried from every position: 2.4 s for 20,000 characters,
+  // on every hover of the row.
+  it('reads a long run of CJK text with no space in linear time', () => {
+    const line = 'あ'.repeat(20_000) + 'x' + '/' + '中'.repeat(20_000) + 'y'
+    const t0 = performance.now()
+    findConsoleLinks(line)
+    expect(performance.now() - t0).toBeLessThan(250)
+  })
+
+  it('offers nothing more when no word is glued on, or nothing is left without it', () => {
+    expect(only('D:\\p\\a.png')).toEqual({ kind: 'path', start: 0, end: 10, target: 'D:\\p\\a.png' })
+    expect(findConsoleLinks('보고서를 확인하세요')).toEqual([])
+  })
+})
+
 describe('findConsoleLinks — URLs', () => {
   it('an http URL', () => {
     expect(only('  ➜  Local:   http://localhost:5173/')).toEqual({ kind: 'url', start: 14, end: 36, url: 'http://localhost:5173/' })
