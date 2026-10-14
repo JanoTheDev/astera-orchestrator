@@ -13,9 +13,10 @@ is the guide.
   `summary`, `diagnostics` (`CheckDiagnostic`: `file?`, `line?`, `message`, `severity?`), `externalUrl` and `skipped`
   (a person let the round go on without it; its status is `not-run`). A script that switches on four statuses meets a
   fifth. The question a check that could not be made opens has the new `GateKind` `check-unavailable`, answered with
-  `retry`, `skip-check` or `mark-failed`.
+  `retry`, `skip-check` or `mark-failed`. It needs Astera 1.4.14 or later; an older one has no plugin checks.
 - The error code `PLUGIN_CAPABILITY_MISSING` (exit 6): a Task's check names a plugin that is not installed, does not
-  offer completion checks, or is disabled. `bodyCodeOf` reads it, and the remote codes, from a refusal's body.
+  offer completion checks, or is disabled. `bodyCodeOf` reads it, and the remote codes, from a refusal's body. Astera
+  1.4.14 or later answers with it.
 
 ## 0.2.0
 
