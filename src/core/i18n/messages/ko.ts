@@ -1462,6 +1462,7 @@ export const ko = {
   'media.action.openExternal': '기본 앱으로 열기',
   'media.action.reveal': '폴더에서 보기',
   'media.error.cannotOpen': '파일을 열 수 없습니다',
+  'files.openFolder.notFolder': '그 폴더가 더 이상 없습니다',
   'conversation.sentFile.open': '{name} 열기',
   // ---- preview ----
   'preview.tab.untitled': '미리보기',

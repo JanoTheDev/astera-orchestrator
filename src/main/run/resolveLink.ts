@@ -59,8 +59,24 @@ export async function resolveExistingFile(a: {
    *  the statusLine payload). Tried before `cwd`; null or absent means cwd only. */
   currentDir?: string | null
   target: string
-  stat: (p: string) => Promise<{ isFile(): boolean }>
+  stat: (p: string) => Promise<{ isFile(): boolean; isDirectory?(): boolean }>
 }): Promise<string | null> {
+  return (await resolveExistingPath({ ...a, dirs: false }))?.path ?? null
+}
+
+/** A path only of separators, dots and a home `~`: `/`, `./`, `../..`, `~/`. Never a folder link: it names where the
+ *  reader stands, not a place the text points to. */
+const NO_NAME = /^[~.\\/]*$/
+
+/** resolveExistingFile, and a folder too when `dirs` is set (D2, 2026-10-14: a terminal's folder path is a link that
+ *  opens the folder). A folder is never a drive or filesystem root, nor a path of dots and separators alone. */
+export async function resolveExistingPath(a: {
+  cwd: string
+  currentDir?: string | null
+  target: string
+  stat: (p: string) => Promise<{ isFile(): boolean; isDirectory?(): boolean }>
+  dirs: boolean
+}): Promise<{ path: string; dir?: true } | null> {
   if (a.target === '') return null
   // This runs on hover (xterm asks about the row under the pointer), over text any program or web
   // page can put on the screen. On win32 a stat of `\\host\share\x` — or of `//host/...`, which
@@ -83,14 +99,30 @@ export async function resolveExistingFile(a: {
       if (typeof base !== 'string' || !path.isAbsolute(base) || UNC_LIKE.test(base)) continue
       add(path.resolve(base, a.target))
     }
+  const folders = a.dirs && !NO_NAME.test(a.target)
   for (const resolved of candidates) {
     try {
-      if ((await a.stat(resolved)).isFile()) return resolved
+      const st = await a.stat(resolved)
+      if (st.isFile()) return { path: resolved }
+      if (folders && st.isDirectory?.() === true && path.parse(resolved).root !== resolved) return { path: resolved, dir: true }
     } catch {
       // missing, or unreadable — try the next directory
     }
   }
   return null
+}
+
+/** The folder `files.openFolder` may hand the system file manager: an absolute, non-UNC path that is a directory now.
+ *  Never a file, which shell.openPath would run. null for anything else. */
+export async function folderToOpen(p: unknown, stat: (p: string) => Promise<{ isDirectory(): boolean }>): Promise<string | null> {
+  if (typeof p !== 'string' || p === '' || UNC_LIKE.test(p) || !path.isAbsolute(p)) return null
+  const resolved = path.resolve(p)
+  if (UNC_LIKE.test(resolved)) return null
+  try {
+    return (await stat(resolved)).isDirectory() ? resolved : null
+  } catch {
+    return null
+  }
 }
 
 /** The directory the agent is in now, from a Claude statusLine payload (StatusLineManager.read):

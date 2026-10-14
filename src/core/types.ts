@@ -1463,8 +1463,11 @@ export interface CoreApi {
      *  here without the path guard — it reads nothing (main/run/resolveLink.ts resolveExistingFile).
      *  A media file it answers becomes loadable by the media viewer (media.* below).
      *  `sessionId`, when the link is in a session, makes a relative target try the agent's current
-     *  directory (from that session's statusLine payload) before `cwd`. */
-    resolveLink(cwd: string, target: string, sessionId?: string): Promise<{ path: string } | null>
+     *  directory (from that session's statusLine payload) before `cwd`. `opts.dirs` (a terminal that opens folders)
+     *  answers a folder too, as `{ path, dir: true }`; never a root or a path of dots and separators alone. */
+    resolveLink(cwd: string, target: string, sessionId?: string, opts?: { dirs?: boolean }): Promise<{ path: string; dir?: true } | null>
+    /** A folder a terminal link named, opened in the system file manager: only a path that is a folder now. */
+    openFolder(path: string): Promise<void>
     /** An image or a video in a project, admitted for the media viewer (main/media/admit.ts); null for anything else. */
     admitMedia(path: string): Promise<{ path: string } | null>
   }
