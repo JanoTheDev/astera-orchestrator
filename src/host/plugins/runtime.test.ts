@@ -302,6 +302,17 @@ describe('createPluginRuntime', () => {
     expect(existsSync(r.logFile('forgotten'))).toBe(false)
   }, 90_000)
 
+  // 5d (performance review): a removed plugin's settings and secret values do not stay in the Host's memory
+  it('forgets the slot of a plugin it was told to forget', async () => {
+    const { r } = runtime()
+    r.start(plugin('dropped', `export default { activate() {} }`))
+    await until(() => expect(r.status('dropped')?.status).toBe('running'))
+    await r.stop('dropped')
+    expect(r.status('dropped')).toBeDefined()
+    await r.forget('dropped')
+    expect(r.status('dropped')).toBeUndefined()
+  }, 90_000)
+
   // Plugins 2c (spec §23-§24): settings handed over at the start, secrets kept per plugin and out of its log.
   it('hands a plugin its settings, keeps its secrets from another plugin, and redacts every secret from its log', async () => {
     const { r } = runtime()

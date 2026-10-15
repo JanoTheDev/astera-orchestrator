@@ -714,6 +714,8 @@ export function createPluginRuntime(d: {
     logFile,
     request,
     forget: async (folder) => {
+      // A removed plugin's slot holds its settings and secret values: they go with it (5d)
+      for (const [id, s] of slots) if (s.launch.folder === folder && s.state !== 'running') slots.delete(id)
       logs.delete(folder)
       await releaseLogWriter(logFile(folder))
     }

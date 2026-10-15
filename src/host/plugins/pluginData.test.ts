@@ -53,6 +53,16 @@ describe('a plugin settings file', () => {
 })
 
 describe('a plugin secret store', () => {
+  // 5d (performance review: every secret read ran icacls three times): one store per plugin, so its ACL and SID checks
+  // are cached across calls, and let go with the plugin's data
+  it('is the same store for every call about one plugin, and a fresh one once the plugin’s data is forgotten', async () => {
+    const first = pluginSecrets(profile, 'kept')
+    expect(pluginSecrets(profile, 'kept')).toBe(first)
+    expect(pluginSecrets(profile, 'other')).not.toBe(first)
+    await forgetPluginData(profile, 'kept')
+    expect(pluginSecrets(profile, 'kept')).not.toBe(first)
+  })
+
   it('keeps the plugin secrets and its secret settings apart, by name', async () => {
     const s = pluginSecrets(profile, '@acme+jira')
     await s.secret.set('refresh-token', 'r-123')
