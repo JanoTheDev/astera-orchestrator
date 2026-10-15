@@ -1805,6 +1805,8 @@ export const ko = {
   'jobs.completion.empty': '이 Task 에는 아직 검사 결과도 검토 지적도 없습니다.',
   'jobs.completion.showTail': '출력 보기',
   'jobs.completion.hideTail': '출력 접기',
+  'jobs.completion.openReport': '보고서 열기',
+  'jobs.completion.warning': '경고',
   'jobs.completion.blocking': '막는 검토 지적 {n}',
   // 막지 않는 이슈는 개수만 말한다 — 없는 것과 다르다는 사실까지가 필요한 전부다.
   'jobs.completion.other': '그 밖의 지적 {n}',

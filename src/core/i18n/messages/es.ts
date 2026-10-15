@@ -1418,6 +1418,8 @@ export const es: Catalog = {
   'jobs.completion.empty': 'Esta tarea aún no tiene resultados de comprobación ni hallazgos de revisión.',
   'jobs.completion.showTail': 'Ver salida',
   'jobs.completion.hideTail': 'Ocultar salida',
+  'jobs.completion.openReport': 'Abrir informe',
+  'jobs.completion.warning': 'aviso',
   'jobs.completion.blocking': '{n} hallazgos de revisión que bloquean',
   'jobs.completion.other': '{n} hallazgos más',
   'jobs.completion.suspicious': 'Archivos que cambiaron la configuración de comprobación',

@@ -2497,6 +2497,14 @@ input[type="checkbox"]:not(.md-task input):focus-visible {
 .detail-completion-name--passed { color: var(--text-dim); font-weight: 400; }
 .detail-completion-name--failed, .detail-completion-name--timed-out { color: var(--git-conflict); }
 .detail-completion-name--not-run { color: var(--text-faint); font-weight: 400; }
+.detail-completion-name--error { color: var(--warn-ink); }
+/* A plugin check's own words and its findings (plugin Phase 5 C13): full width under the check's row; a hundred
+   findings scroll here rather than push the graph away */
+.detail-completion-summary { flex: 0 0 100%; margin: 0; color: var(--text-dim); white-space: pre-wrap; overflow-wrap: anywhere; }
+.detail-completion-summary--error { color: var(--warn-ink); }
+.detail-completion-diags { flex: 0 0 100%; list-style: none; margin: 0; padding: 0; max-height: 160px; overflow: auto; display: flex; flex-direction: column; gap: 2px; font-size: 11px; }
+.detail-completion-diags > li { display: flex; gap: 6px; align-items: baseline; overflow-wrap: anywhere; white-space: pre-wrap; }
+.detail-completion-diags > li.warning { color: var(--text-dim); }
 .detail-completion-verdict { color: var(--text-dim); }
 .detail-completion-more { background: none; border: 0; padding: 0; color: var(--accent); font-size: 11px; cursor: pointer; }
 .detail-completion-more:hover { text-decoration: underline; background: none; }

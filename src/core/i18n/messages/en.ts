@@ -1583,6 +1583,8 @@ export const en: Record<keyof typeof ko, string> = {
   'jobs.completion.empty': 'No check results or review findings for this task yet.',
   'jobs.completion.showTail': 'Show output',
   'jobs.completion.hideTail': 'Hide output',
+  'jobs.completion.openReport': 'Open report',
+  'jobs.completion.warning': 'warning',
   'jobs.completion.blocking': '{n} blocking review findings',
   'jobs.completion.other': '{n} other findings',
   'jobs.completion.suspicious': 'Files that changed check configuration',

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { CompletionDetail } from '../../../core/types'
 import { useI18n } from '../i18n/I18nProvider'
+import { CompletionChecks } from './CompletionChecks'
 
 /**
  * 고른 Task 가 **왜** 완료 정책을 못 넘었는가 — 칩이 말하지 않는 나머지.
@@ -75,35 +76,13 @@ export function CompletionBlock({
       {open && detail === null && <p className="modal-hint">{t('jobs.completion.empty')}</p>}
       {open && detail !== null && detail !== undefined && (
         <>
-          {detail.checks.length > 0 && (
-            <ul className="detail-completion-checks">
-              {detail.checks.map((c) => (
-                <li key={c.configId}>
-                  <span className={`detail-completion-name detail-completion-name--${c.status}`}>{c.name}</span>
-                  <span className="detail-completion-verdict">
-                    {c.status === 'passed'
-                      ? t('jobs.convergence.check.passed')
-                      : c.status === 'failed'
-                        ? t('jobs.convergence.check.failed', { code: c.exitCode ?? '?' })
-                        : c.status === 'timed-out'
-                          ? t('jobs.convergence.check.timedOut')
-                          : t('jobs.convergence.check.notRun')}
-                    {c.unstable === true && ` · ${t('jobs.convergence.check.unstable')}`}
-                  </span>
-                  {/* 꼬리는 검사마다 따로 접는다 — 넷이 한꺼번에 펼쳐지면 그중 무엇이 막고 있는지
-                      다시 찾아야 한다(설계 §2.3) */}
-                  {c.outputTail !== undefined && (
-                    <button className="detail-completion-more" onClick={() => toggleTail(c.configId)}>
-                      {tails.has(c.configId) ? t('jobs.completion.hideTail') : t('jobs.completion.showTail')}
-                    </button>
-                  )}
-                  {c.outputTail !== undefined && tails.has(c.configId) && (
-                    <pre className="detail-completion-tail">{c.outputTail}</pre>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
+          <CompletionChecks
+            checks={detail.checks}
+            tails={tails}
+            onToggleTail={toggleTail}
+            // main checks the link again (parseAllowedExternalUrl) before the browser opens it
+            onOpenLink={(url) => void window.api.system.openExternal(url)}
+          />
 
           {detail.blockingIssues.length > 0 && (
             <>

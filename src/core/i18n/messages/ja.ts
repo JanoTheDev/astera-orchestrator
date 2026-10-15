@@ -1399,6 +1399,8 @@ export const ja: Catalog = {
   'jobs.completion.empty': 'このタスクにはまだ検査結果もレビュー指摘もありません。',
   'jobs.completion.showTail': '出力を表示',
   'jobs.completion.hideTail': '出力を隠す',
+  'jobs.completion.openReport': 'レポートを開く',
+  'jobs.completion.warning': '警告',
   'jobs.completion.blocking': 'ブロックするレビュー指摘 {n}',
   'jobs.completion.other': 'その他の指摘 {n}',
   'jobs.completion.suspicious': '検査設定を変更したファイル',
