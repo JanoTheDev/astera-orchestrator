@@ -428,9 +428,11 @@ no `runCheck` does not start, and its log says why.
 
 **Astera checks and cuts what it answers.** The plugin is trusted code, but its answer reaches a worker's instructions
 and a person's screen. `summary` is cut at 1,000 characters, and is the status word when there is none. `diagnostics`
-keep the first 100, and the summary then says how many there were; each `message` is required and cut at 1,000
-characters, each `file` at 500, a `line` that is not a positive integer is dropped, and so is a `severity` that is not
-one of the two. An `externalUrl` that is not http or https, or is longer than 2,048 characters, is dropped. An answer
+keep the first 20, and the result's `diagnosticsTotal` then says how many there were: a check that found thousands
+sends its first 20 and its own `diagnosticsTotal` rather than all of them, and gives the whole report as `externalUrl`.
+A `passed` check keeps its summary and link and none of its findings, as a passed run configuration keeps none of its
+output. Each `message` is required and cut at 1,000 characters, each `file` at 500, a `line` that is not a positive
+integer is dropped, and so is a `severity` that is not one of the two. An `externalUrl` that is not http or https, or is longer than 2,048 characters, is dropped. An answer
 of the wrong shape counts as `error`, saying why ("the plugin answered with something that is not a check result:
 status must be passed, failed or error").
 

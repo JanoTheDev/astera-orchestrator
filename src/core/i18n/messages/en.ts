@@ -1592,6 +1592,7 @@ export const en: Record<keyof typeof ko, string> = {
   'jobs.completion.hideTail': 'Hide output',
   'jobs.completion.openReport': 'Open report',
   'jobs.completion.warning': 'warning',
+  'jobs.completion.moreFindings': "… and {n} more findings (the plugin's report has them all)",
   'jobs.completion.blocking': '{n} blocking review findings',
   'jobs.completion.other': '{n} other findings',
   'jobs.completion.suspicious': 'Files that changed check configuration',

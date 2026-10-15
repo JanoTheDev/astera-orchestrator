@@ -912,6 +912,22 @@ describe('buildSpecFile — a plugin check in the repair request (plugin Phase 5
     expect(spec).toContain('    a.js:20 m\n    … 5 more finding(s)')
     expect(spec).not.toContain('a.js:21 m')
   })
+
+  // 5d: the Host keeps 20 findings; the count of the rest is the plugin's
+  it('counts the findings the Host did not keep', () => {
+    const checks: CheckResult[] = [
+      {
+        configId: 'plugin:d',
+        name: 'D',
+        status: 'failed',
+        summary: 'many',
+        diagnostics: Array.from({ length: 20 }, (_, i) => ({ file: 'a.js', line: i + 1, message: 'm' })),
+        diagnosticsTotal: 150
+      }
+    ]
+    const spec = buildSpecFile({ title: 'T', spec: 'do', taskId: 'tsk_1', dispatchId: 'dsp_2', repair: { reason: 'check-failure', repair: 1, maxFixAttempts: 3, checks } })
+    expect(spec).toContain('    a.js:20 m\n    … 130 more finding(s)')
+  })
 })
 
 describe('buildSpecFile — repair 절', () => {

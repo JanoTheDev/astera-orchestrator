@@ -24,6 +24,7 @@ export interface CompletionCheckDetail {
   /** A plugin check's (plugin Phase 5 C12): its words, its findings, its link, and that a person skipped it */
   summary?: string
   diagnostics?: CheckDiagnostic[]
+  diagnosticsTotal?: number
   externalUrl?: string
   skipped?: true
 }
@@ -57,6 +58,7 @@ export function completionDetailOf(task: Task): CompletionDetail | null {
     ...(c.unstable ? { unstable: true as const } : {}),
     ...(c.summary !== undefined ? { summary: c.summary } : {}),
     ...(c.diagnostics !== undefined ? { diagnostics: c.diagnostics } : {}),
+    ...(c.diagnosticsTotal !== undefined ? { diagnosticsTotal: c.diagnosticsTotal } : {}),
     ...(c.externalUrl !== undefined ? { externalUrl: c.externalUrl } : {}),
     ...(c.skipped ? { skipped: true as const } : {})
   }))

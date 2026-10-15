@@ -1215,6 +1215,34 @@ describe('applyValidationResult — a plugin check (plugin Phase 5 C9, C10)', ()
     expect(r.value.lastFailure).toBe('D failed: 1 leftover')
   })
 
+  // 5d (performance review H1): a passed plugin check keeps no findings, as a passed command check keeps no output (U2)
+  it('keeps no findings of a passed plugin check, and a failed one’s with their count', () => {
+    const { s, taskId } = armed(false)
+    const lint: CheckResult = { configId: 'lint', name: 'lint', status: 'passed', exitCode: 0 }
+    const tests: CheckResult = { configId: 'npm-test', name: 'Tests', status: 'passed', exitCode: 0 }
+    const passed: CheckResult = {
+      configId: 'plugin:d',
+      name: 'D',
+      status: 'passed',
+      summary: '30 warnings',
+      externalUrl: 'https://x.example/r',
+      diagnostics: [{ message: 'w', severity: 'warning' }],
+      diagnosticsTotal: 30
+    }
+    const p = unwrap<Task>(applyValidationResult(s, { taskId, results: [tests, passed, lint] }, NOW) as never)
+    expect(p.value.checks?.find((c) => c.configId === 'plugin:d')).toEqual({
+      configId: 'plugin:d',
+      name: 'D',
+      status: 'passed',
+      summary: '30 warnings',
+      externalUrl: 'https://x.example/r'
+    })
+    const again = armed(false)
+    const failed: CheckResult = { ...passed, status: 'failed', summary: '30 leftovers' }
+    const f = unwrap<Task>(applyValidationResult(again.s, { taskId: again.taskId, results: round(failed) }, NOW) as never)
+    expect(f.value.checks?.find((c) => c.configId === 'plugin:d')).toMatchObject({ diagnostics: [{ message: 'w' }], diagnosticsTotal: 30 })
+  })
+
   it('clears the skipped round’s bookkeeping once the round is recorded', () => {
     const { s, taskId } = armed(false, { checkResume: { dispatchId: 'dsp_any', done: [], rest: ['lint'] } })
     const results: CheckResult[] = [{ configId: 'lint', name: 'lint', status: 'passed', exitCode: 0 }]

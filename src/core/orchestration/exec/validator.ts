@@ -413,6 +413,7 @@ export class TaskValidator {
       status: answer.status,
       summary: answer.summary,
       ...(answer.diagnostics !== undefined ? { diagnostics: answer.diagnostics } : {}),
+      ...(answer.diagnosticsTotal !== undefined ? { diagnosticsTotal: answer.diagnosticsTotal } : {}),
       ...(answer.externalUrl !== undefined ? { externalUrl: answer.externalUrl } : {}),
       startedAt: head.startedAt,
       endedAt: new Date().toISOString()

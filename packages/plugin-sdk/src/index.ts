@@ -198,11 +198,14 @@ export interface CompletionCheckDiagnostic {
  *  carries your summary, your first 20 findings as `file:line message` and your link, and the Task fails where its Job
  *  repairs nothing. `error` says the check could not be made (a service down, a missing token): Astera asks once more,
  *  then puts it to a person, and no repair is spent on it. `summary` is cut at 1,000 characters (the status word when
- *  there is none), `diagnostics` keep the first 100, and `externalUrl` is kept when it is http or https within 2,048. */
+ *  there is none), `diagnostics` keep the first 20 (Astera counts the rest, and keeps none of a `passed` check's: give
+ *  the whole report as `externalUrl`), and `externalUrl` is kept when it is http or https within 2,048. */
 export interface CompletionCheckResult {
   status: 'passed' | 'failed' | 'error'
   summary?: string
   diagnostics?: CompletionCheckDiagnostic[]
+  /** How many findings there are, when you send fewer: send the first 20 and the count, not thousands to be cut. */
+  diagnosticsTotal?: number
   externalUrl?: string
 }
 

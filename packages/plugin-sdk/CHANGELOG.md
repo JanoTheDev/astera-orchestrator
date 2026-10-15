@@ -16,8 +16,8 @@ is the guide.
   the first line of the context's `objective`, so a provider starts it with the item's title.
 - `defineCompletionCheckProvider` and its `runCheck`, with the types it is asked with and answers
   (`CompletionCheckInput`, `CompletionCheckResult`, `CompletionCheckDiagnostic`): the `completion-check` capability,
-  which a Task names among its checks as `plugin:<id>`. Its `failed` goes to the Task's repair loop with its findings;
-  its `error` is asked once more, then put to a person.
+  which a Task names among its checks as `plugin:<id>`. Its `failed` goes to the Task's repair loop with its findings
+  (Astera keeps the first 20; a check that found more sends 20 and its own `diagnosticsTotal`); its `error` is asked once more, then put to a person.
 
 All four need Astera 1.4.14 or later. The plugin SDK needs `@astera-app/client` 0.2.0 or later, whose events include the
 session events.

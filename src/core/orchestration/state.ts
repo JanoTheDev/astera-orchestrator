@@ -835,9 +835,17 @@ export function applyValidationResult(
   const history = appendHistory(task.checkHistory, a.results.slice(carried))
   const unstable = new Set(unstableChecks(history))
   const checks: CheckResult[] = a.results.map((r) => {
-    const { outputTail, ...rest } = r
+    // A passed check keeps neither its output (U2) nor its findings (5d): its summary and link say what it found
+    const { outputTail, diagnostics, diagnosticsTotal, ...rest } = r
     const kept: CheckResult =
-      r.status === 'passed' ? rest : { ...rest, ...(outputTail !== undefined ? { outputTail } : {}) }
+      r.status === 'passed'
+        ? rest
+        : {
+            ...rest,
+            ...(outputTail !== undefined ? { outputTail } : {}),
+            ...(diagnostics !== undefined ? { diagnostics } : {}),
+            ...(diagnosticsTotal !== undefined ? { diagnosticsTotal } : {})
+          }
     return unstable.has(r.configId) ? { ...kept, unstable: true } : kept
   })
   const failedRound = failedChecksSummary(a.results)

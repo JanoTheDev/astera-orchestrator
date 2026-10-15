@@ -214,6 +214,18 @@ describe('createTaskValidation — a plugin check (plugin Phase 5 C3, C8, C9, C1
     expect(h.task().checks?.[0].diagnostics).toEqual([{ file: 'a.ts', line: 3, message: 'adds console.log' }])
   })
 
+  // 5d: the count of findings the Host did not keep reaches the Task's record
+  it('records how many findings the check gave beside the ones kept', async () => {
+    const h = rig({
+      checks: ['plugin:d'],
+      convergence: true,
+      pluginCheck: async () => ({ name: 'D', status: 'failed', summary: 'many', diagnostics: [{ message: 'm' }], diagnosticsTotal: 150 })
+    })
+    h.validation.startValidation({ taskId: h.taskId, cwd: h.cwd })
+    await vi.waitFor(() => expect(h.startRepair).toHaveBeenCalled())
+    expect(h.task().checks?.[0].diagnosticsTotal).toBe(150)
+  })
+
   it('goes on from a skipped round: runs the rest alone, the carried results first, and clears the bookkeeping', async () => {
     const done: CheckResult[] = [
       { configId: 'plugin:a', name: 'A', status: 'passed', summary: 'ok' },

@@ -7,7 +7,7 @@
 // 너비가 바뀌는 것이 정상이다. 기계가 읽을 것은 `--json` 의 봉투다.
 
 import { jobNameOf } from './jobName'
-import { diagnosticLine, oneLine } from './pluginChecks'
+import { diagnosticLine, findingsCountOf, oneLine } from './pluginChecks'
 import type { CheckResult, JobSourceRef } from './types'
 
 /** 상태 한 낱말. **파생값과 플래그를 한 낱말로 접는다** — 사람이 목록에서 훑는 것이 이것이고,
@@ -180,9 +180,12 @@ function pluginCheckLines(validation: unknown): { before: string[]; after: strin
     .filter((c) => c.status === 'failed')
     .flatMap((c): string[] => {
       const found = Array.isArray(c.diagnostics) ? c.diagnostics : []
+      const shown = found.slice(0, HUMAN_DIAGNOSTICS)
+      // The Host keeps 20 findings and counts the rest (5d): "more" is every finding not on screen
+      const more = findingsCountOf(c) - shown.length
       return [
-        ...found.slice(0, HUMAN_DIAGNOSTICS).map((d) => `    ${oneLine(diagnosticLine(d))}`),
-        ...(found.length > HUMAN_DIAGNOSTICS ? [`    … and ${found.length - HUMAN_DIAGNOSTICS} more`] : []),
+        ...shown.map((d) => `    ${oneLine(diagnosticLine(d))}`),
+        ...(more > 0 ? [`    … and ${more} more`] : []),
         ...(typeof c.externalUrl === 'string' ? [`    Details: ${c.externalUrl}`] : [])
       ]
     })

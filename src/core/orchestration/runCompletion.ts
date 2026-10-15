@@ -80,6 +80,18 @@ export function taskCompletionState(s: OrchState, task: Task): CompletionState {
 const withoutOutput = (d: CompletionDetail | null): CompletionDetail | null =>
   d === null ? null : { ...d, checks: d.checks.map(({ outputTail: _drop, ...rest }) => rest) }
 
+/** A Task's completion as an event carries it (5d, from the performance review): each check's findings left out and
+ *  counted in `diagnosticsTotal`, so the event log holds many transitions; `completion.get` reads the findings. */
+export function findingsCounted(tc: TaskCompletion): TaskCompletion {
+  if (tc.detail === null) return tc
+  const checks = tc.detail.checks.map((c) => {
+    if (c.diagnostics === undefined) return c
+    const { diagnostics, ...rest } = c
+    return { ...rest, diagnosticsTotal: Math.max(c.diagnosticsTotal ?? 0, diagnostics.length) }
+  })
+  return { ...tc, detail: { ...tc.detail, checks } }
+}
+
 /** One Task's row: the run's read and the public completion events (publicEvents.ts) give the same one. */
 export function taskCompletionOf(s: OrchState, task: Task): TaskCompletion {
   return {

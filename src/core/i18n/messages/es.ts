@@ -1427,6 +1427,7 @@ export const es: Catalog = {
   'jobs.completion.hideTail': 'Ocultar salida',
   'jobs.completion.openReport': 'Abrir informe',
   'jobs.completion.warning': 'aviso',
+  'jobs.completion.moreFindings': '… y {n} hallazgos más (el informe del plugin los tiene todos)',
   'jobs.completion.blocking': '{n} hallazgos de revisión que bloquean',
   'jobs.completion.other': '{n} hallazgos más',
   'jobs.completion.suspicious': 'Archivos que cambiaron la configuración de comprobación',

@@ -1331,7 +1331,8 @@ made, each with its `id`, `title` and `status`, and two parts:
   (`passed`, `failed`, `timed-out`, or `not-run` when an earlier check failed), `exitCode`,
   `outputTail` (the end of its output), `startedAt`, `endedAt` and `unstable`. Each round replaces the
   one before it. A plugin's check (`configId` `plugin:<id>`, `name` the plugin's) carries its `summary`,
-  its findings as `diagnostics` (`file`, `line`, `message`, `severity`) and a link as `externalUrl`;
+  its findings as `diagnostics` (`file`, `line`, `message`, `severity`; the first 20, none once it passed),
+  `diagnosticsTotal` when it gave more, and a link as `externalUrl`;
   its `status` can also be `error`, a check the plugin could not make, while the task waits on its
   question, and a check a person let the round go on without is `not-run` with `skipped: true`.
 - `review`: `required` is whether a review was asked for (`tasks add --review`) or has run. `verdict`

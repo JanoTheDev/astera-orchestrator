@@ -397,6 +397,25 @@ describe('humanFor', () => {
     expect(humanFor('runs-checks', { runId: 'run_1', tasks: [] })).toBe('(no tasks in run_1)')
   })
 
+  // 5d (performance review H1): the Host keeps 20 findings and their count; the count says how many are not shown
+  it('runs checks 는 Host 가 남기지 않은 지적까지 세어 "and N more" 로 말한다', () => {
+    const kept = Array.from({ length: 20 }, (_, i) => ({ file: 'src/a.js', line: i + 1, message: 'adds TODO' }))
+    const out = humanFor('runs-checks', {
+      runId: 'run_1',
+      tasks: [
+        {
+          id: 't1',
+          title: 'login',
+          status: 'failed',
+          validation: { status: 'failed', checks: [{ configId: 'plugin:x', name: 'D', status: 'failed', summary: '150 leftovers', diagnostics: kept, diagnosticsTotal: 150 }] },
+          review: { status: 'not-required' },
+          failureSummary: 'D failed: 150 leftovers'
+        }
+      ]
+    })
+    expect(out?.split('\n')).toContain('    … and 145 more')
+  })
+
   // Plugin Phase 5 C13: a plugin check's findings under its row, its link, one that could not run said so, and one a
   // person skipped. Every line a plugin wrote is one line here (Review Focus 5).
   it('runs checks 는 플러그인 검사의 지적 다섯 개와 링크, 할 수 없었던 검사와 건너뛴 검사를 줄 아래에 둔다', () => {

@@ -129,6 +129,30 @@ describe('derivePublicEvents', () => {
     expect(es[2].payload).toMatchObject({ state: 'fixing', attempt: 1 })
   })
 
+  // 5d (performance review M3): an event carries how many findings a check has, not the findings; completion.get reads them
+  it('a completion event counts a plugin check’s findings and leaves the list to the completion read', () => {
+    const found: CheckResult = {
+      configId: 'plugin:d',
+      name: 'D',
+      status: 'failed',
+      summary: '3 leftovers',
+      diagnostics: [{ message: 'a' }, { message: 'b' }, { message: 'c' }]
+    }
+    const cut: CheckResult = { ...found, configId: 'plugin:e', name: 'E', diagnosticsTotal: 150 }
+    const before = state({ tasks: [task('t1', 'validating')], dispatches: [dispatch('d1', 't1', { endedAt: NOW })] })
+    const after = state({
+      tasks: [task('t1', 'dispatched', { checks: [found, cut] })],
+      dispatches: [dispatch('d1', 't1', { endedAt: NOW }), dispatch('d2', 't1', { repair: 'check-failure' })]
+    })
+    const failed = derivePublicEvents(before, after).find((e) => e.type === 'completion.failed')!
+    const checks = (failed.payload as { detail: { checks: Array<Record<string, unknown>> } }).detail.checks
+    expect(checks[0]).not.toHaveProperty('diagnostics')
+    expect(checks[0].diagnosticsTotal).toBe(3)
+    expect(checks[1]).not.toHaveProperty('diagnostics')
+    expect(checks[1].diagnosticsTotal).toBe(150)
+    expect(checks[0].summary).toBe('3 leftovers')
+  })
+
   it('completion.failed then completion.exhausted, then the question, when repairs run out', () => {
     const before = state({ tasks: [task('t1', 'validating')] })
     const after = state({ tasks: [task('t1', 'blocked')], gates: [gate('g1', 't1', { kind: 'convergence-exhausted' })] })

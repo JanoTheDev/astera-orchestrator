@@ -126,8 +126,10 @@ export interface CheckResult {
   readonly unstable?: true
   /** A plugin check's own words: what it found, or why it could not be made. */
   readonly summary?: string
-  /** A plugin check's findings, at most 100. */
+  /** A plugin check's findings, at most 20; a passed check keeps none. */
   readonly diagnostics?: readonly CheckDiagnostic[]
+  /** How many findings it gave, when more than `diagnostics` holds: Astera keeps 20, and a completion event lists none. */
+  readonly diagnosticsTotal?: number
   /** Where a plugin check's whole report is. */
   readonly externalUrl?: string
   /** A person let the round go on without this check; its status is `not-run`. */
@@ -229,6 +231,7 @@ export interface CompletionCheckDetail {
   readonly unstable?: true
   readonly summary?: string
   readonly diagnostics?: readonly CheckDiagnostic[]
+  readonly diagnosticsTotal?: number
   readonly externalUrl?: string
   readonly skipped?: true
 }

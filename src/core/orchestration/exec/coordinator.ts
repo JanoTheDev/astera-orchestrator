@@ -21,7 +21,7 @@ import { isSamePath } from '../../files/tree'
 import type { Provider } from '../../providers/meta'
 import { KNOWLEDGE_DIRS, knowledgeFilesFrom, type KnowledgeFiles } from '../../knowledge/detect'
 import type { CheckResult, RepairReason, ReviewIssue } from '../types'
-import { REPAIR_DIAGNOSTICS, diagnosticLine } from '../pluginChecks'
+import { REPAIR_DIAGNOSTICS, diagnosticLine, findingsCountOf } from '../pluginChecks'
 import { boundedSlug } from '../../worktrees/naming'
 
 /** Job Continuity's two prompt events (P0 design §5): 'requested' right before the prompt leaves
@@ -196,8 +196,10 @@ function repairSection(a: RepairSection): string {
       const found = c.diagnostics ?? []
       if (found.length > 0) {
         lines.push('  Findings:')
-        for (const d of found.slice(0, REPAIR_DIAGNOSTICS)) lines.push(`    ${diagnosticLine(d)}`)
-        if (found.length > REPAIR_DIAGNOSTICS) lines.push(`    … ${found.length - REPAIR_DIAGNOSTICS} more finding(s)`)
+        const shown = found.slice(0, REPAIR_DIAGNOSTICS)
+        for (const d of shown) lines.push(`    ${diagnosticLine(d)}`)
+        const more = findingsCountOf(c) - shown.length
+        if (more > 0) lines.push(`    … ${more} more finding(s)`)
       }
       if (c.externalUrl !== undefined) lines.push(`  Details: ${c.externalUrl}`)
     } else {
