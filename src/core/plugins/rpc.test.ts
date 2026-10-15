@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { RpcError, createRpcPeer } from './rpc'
 
 /** Two peers wired back to back, each line handed over on the next tick like a pipe would. */
@@ -87,5 +87,80 @@ describe('a line past the ceiling', () => {
     await new Promise((r) => setImmediate(r))
     expect(overflows).toBe(1)
     expect(got).toEqual([])
+  })
+})
+
+// 5d (performance review M2 and L4): a request its asker no longer waits for is cancelled, on both sides
+describe('cancelling a request', () => {
+  const RPC_CANCELLED = -32800
+  const lineOf = (l: string): unknown => JSON.parse(l.slice(2))
+
+  it('rejects at once, tells the other side, aborts its handler, and the other side does not answer it', async () => {
+    let seen: AbortSignal | undefined
+    const bad: string[] = []
+    const lines: string[] = []
+    let a: ReturnType<typeof createRpcPeer> | undefined
+    const b = createRpcPeer({
+      send: (l) => (lines.push(`b>${l}`), setImmediate(() => a?.feed(l))),
+      onRequest: (_m, _p, signal) =>
+        new Promise((r) => {
+          seen = signal
+          setTimeout(() => r('late'), 300)
+        })
+    })
+    a = createRpcPeer({ send: (l) => (lines.push(`a>${l}`), setImmediate(() => b.feed(l))), onRequest: async () => ({}), onBadMessage: (m) => bad.push(m) })
+    const ctl = new AbortController()
+    const asked = a.request('slow', {}, { signal: ctl.signal })
+    await vi.waitFor(() => expect(seen).toBeDefined())
+    ctl.abort()
+    await expect(asked).rejects.toMatchObject({ code: RPC_CANCELLED })
+    await vi.waitFor(() => expect(seen?.aborted).toBe(true))
+    expect(lines.map(lineOf)).toContainEqual({ jsonrpc: '2.0', method: '$/cancel', params: { id: 1 } })
+    await new Promise((r) => setTimeout(r, 400))
+    expect(lines.filter((l) => l.startsWith('b>'))).toEqual([])
+    expect(bad).toEqual([])
+  })
+
+  it('sends nothing for a signal that was aborted before it was asked', async () => {
+    const lines: string[] = []
+    const a = createRpcPeer({ send: (l) => void lines.push(l), onRequest: async () => ({}) })
+    await expect(a.request('x', {}, { signal: AbortSignal.abort() })).rejects.toMatchObject({ code: RPC_CANCELLED })
+    expect(lines).toEqual([])
+  })
+
+  it('drops a late answer to a request it cancelled without a word', async () => {
+    const bad: string[] = []
+    const a = createRpcPeer({ send: () => {}, onRequest: async () => ({}), onBadMessage: (m) => bad.push(m) })
+    const ctl = new AbortController()
+    const asked = a.request('x', {}, { signal: ctl.signal })
+    ctl.abort()
+    await expect(asked).rejects.toMatchObject({ code: RPC_CANCELLED })
+    a.feed('{"jsonrpc":"2.0","id":1,"result":"late"}\n')
+    expect(bad).toEqual([])
+  })
+
+  it('a cancel for a request it does not hold does nothing, and is not a request', async () => {
+    const methods: string[] = []
+    const lines: string[] = []
+    const b = createRpcPeer({ send: (l) => void lines.push(l), onRequest: async (m) => void methods.push(m) })
+    b.feed('{"jsonrpc":"2.0","method":"$/cancel","params":{"id":99}}\n')
+    await new Promise((r) => setImmediate(r))
+    expect(methods).toEqual([])
+    expect(lines).toEqual([])
+  })
+
+  it('closing aborts every request it is answering', async () => {
+    let seen: AbortSignal | undefined
+    const b = createRpcPeer({
+      send: () => {},
+      onRequest: (_m, _p, signal) => {
+        seen = signal
+        return new Promise(() => {})
+      }
+    })
+    b.feed('{"jsonrpc":"2.0","id":7,"method":"slow","params":{}}\n')
+    await vi.waitFor(() => expect(seen).toBeDefined())
+    b.close('gone')
+    expect(seen?.aborted).toBe(true)
   })
 })

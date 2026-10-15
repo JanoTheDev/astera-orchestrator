@@ -348,13 +348,13 @@ export function createPluginRuntime(d: {
       source: events,
       cursor: d.cursors ? d.cursors(s.launch.folder) : pluginCursor(d.profileDir, s.launch.folder),
       running: () => s.state === 'running' && s.peer !== undefined,
-      deliver: async (item) => {
+      deliver: async (item, signal) => {
         const peer = s.peer
         if (!peer || s.state !== 'running') throw new DeliveryInterrupted('the plugin is not running')
         const attempt = ++s.attempts
         const ask = async (method: string, params: unknown): Promise<void> => {
           try {
-            await peer.request(method, params)
+            await peer.request(method, params, { signal })
           } catch (e) {
             // The process ended under the delivery: it is started again, and the event goes again once it runs
             if (e instanceof RpcError && e.code === RPC_CLOSED) throw new DeliveryInterrupted(e.message)
@@ -675,11 +675,16 @@ export function createPluginRuntime(d: {
       throw new PluginRequestFailed(503, st ? `${id} is ${st.status}${st.reason ? `: ${st.reason}` : ''}` : `${id} is not running`)
     }
     let timer: ReturnType<typeof setTimeout> | undefined
+    // Past the time limit the plugin is told (5d): the call's ctx.signal aborts there, and its late answer is dropped
+    const ctl = new AbortController()
     const late = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new PluginRequestFailed(504, `${id} did not answer within ${timeoutMs / 1000} s`)), timeoutMs)
+      timer = setTimeout(() => {
+        reject(new PluginRequestFailed(504, `${id} did not answer within ${timeoutMs / 1000} s`))
+        ctl.abort()
+      }, timeoutMs)
     })
     try {
-      return await Promise.race([peer.request(method, params), late])
+      return await Promise.race([peer.request(method, params, { signal: ctl.signal }), late])
     } catch (e) {
       const failure = requestFailure(id, e, (m) => hide(s, m))
       say(s, `${method} failed: ${failure.message}`)

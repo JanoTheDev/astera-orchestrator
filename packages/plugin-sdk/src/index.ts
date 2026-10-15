@@ -36,7 +36,9 @@ export interface PluginContext {
   /** The permissions the person granted, a subset of those the manifest asks for. */
   permissions: readonly string[]
   log: PluginLog
-  /** Aborted when Astera stops the plugin: disabled, removed, updated, or the Host leaving. */
+  /** Aborted when Astera stops the plugin: disabled, removed, updated, or the Host leaving. In a handler (`onEvent`,
+   *  `send`, `listItems`, `getItem`, `buildJobContext`, `runCheck`) it is that call's: it also aborts when Astera stops
+   *  waiting for the call (30 seconds for an event, 15 for a job source, 30 minutes for a check). */
   signal: AbortSignal
 }
 

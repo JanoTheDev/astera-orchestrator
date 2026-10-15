@@ -57,6 +57,30 @@ function launch(mod: unknown | (() => Promise<unknown>), extra: { endGraceMs?: n
 }
 
 describe('runLauncher', () => {
+  // 5d (performance review M2): a call the Host cancels aborts that call's ctx.signal, and only that one's
+  it('hands each handler call a ctx.signal the Host can cancel, and answers a cancelled call no more', async () => {
+    const signals: AbortSignal[] = []
+    let own: PluginContext | undefined
+    const l = launch({
+      default: {
+        activate: (c: PluginContext) => void (own = c),
+        runCheck: (_input: unknown, ctx: PluginContext) => {
+          signals.push(ctx.signal)
+          return new Promise(() => {})
+        }
+      }
+    })
+    await l.ask('initialize', INIT_PARAMS)
+    l.send({ id: 201, method: 'completionCheck.run', params: { input: { taskId: 't' } } })
+    l.send({ id: 202, method: 'completionCheck.run', params: { input: { taskId: 'u' } } })
+    await vi.waitFor(() => expect(signals).toHaveLength(2))
+    l.send({ method: '$/cancel', params: { id: 201 } })
+    await vi.waitFor(() => expect(signals[0].aborted).toBe(true))
+    expect(signals[1].aborted).toBe(false)
+    expect(own?.signal.aborted).toBe(false)
+    expect(l.out.some((m) => m.id === 201)).toBe(false)
+  })
+
   it('loads the entry, gives activate the plugin’s context, and answers initialize once activate resolved', async () => {
     let ctx: PluginContext | undefined
     const l = launch({ default: { activate: (c: PluginContext) => void (ctx = c) } })

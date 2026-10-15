@@ -17,9 +17,12 @@ is the guide.
 - `defineCompletionCheckProvider` and its `runCheck`, with the types it is asked with and answers
   (`CompletionCheckInput`, `CompletionCheckResult`, `CompletionCheckDiagnostic`): the `completion-check` capability,
   which a Task names among its checks as `plugin:<id>`. Its `failed` goes to the Task's repair loop with its findings
-  (Astera keeps the first 20; a check that found more sends 20 and its own `diagnosticsTotal`); its `error` is asked once more, then put to a person.
+  (Astera keeps the first 20; a check that found more sends 20 and its own `diagnosticsTotal`); its `error` is asked
+  once more, then put to a person.
+- In a handler (`onEvent`, `send`, `listItems`, `getItem`, `buildJobContext`, `runCheck`), `ctx.signal` is that call's:
+  it also aborts when Astera stops waiting for the call, so a handler can stop the work it started.
 
-All four need Astera 1.4.14 or later. The plugin SDK needs `@astera-app/client` 0.2.0 or later, whose events include the
+All five need Astera 1.4.14 or later. The plugin SDK needs `@astera-app/client` 0.2.0 or later, whose events include the
 session events.
 
 ## 0.1.0

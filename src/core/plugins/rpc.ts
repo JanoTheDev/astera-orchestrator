@@ -20,9 +20,15 @@ export const RPC_INVALID_PARAMS = -32602
 export const RPC_INTERNAL_ERROR = -32603
 export const RPC_CLOSED = -32000
 export const RPC_NOT_READY = -32001
+/** The asker stopped waiting (5d): its request is cancelled, as LSP's RequestCancelled. */
+export const RPC_CANCELLED = -32800
+/** The notification a cancelled request's id is sent in (5d). It is the protocol's own, never a request. */
+export const RPC_CANCEL = '$/cancel'
 
 export interface RpcPeer {
-  request(method: string, params: unknown): Promise<unknown>
+  /** Asks the other side. With `signal`, aborting it cancels the request: it rejects with RPC_CANCELLED at once, the
+   *  other side is told (`$/cancel`), and an answer that still comes is dropped. */
+  request(method: string, params: unknown, opts?: { signal?: AbortSignal }): Promise<unknown>
   /** What arrived on the channel, in chunks as they came. */
   feed(chunk: string): void
   /** The channel ended: every request in flight, and every later one, fails with `reason`. */
@@ -33,7 +39,8 @@ const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'obj
 
 export function createRpcPeer(o: {
   send(line: string): void
-  onRequest(method: string, params: unknown): Promise<unknown>
+  /** `signal` aborts when the asker cancels this request, or the channel ends; a cancelled request is not answered. */
+  onRequest(method: string, params: unknown, signal: AbortSignal): Promise<unknown>
   /** A line that is not a JSON-RPC 2.0 message: reported, and reading goes on. */
   onBadMessage?(message: string): void
   /** The longest line read, in characters. Past it `onOverflow` is called once and nothing more is read: a sender that
@@ -44,6 +51,10 @@ export function createRpcPeer(o: {
   let nextId = 0
   let closed: string | null = null
   const waiting = new Map<number, { resolve(v: unknown): void; reject(e: unknown): void }>()
+  /** Requests this side cancelled: an answer that still comes is dropped without a word. */
+  const cancelled = new Set<number>()
+  /** Requests the other side asked that are being answered, by their id: a cancel aborts one. */
+  const answering = new Map<unknown, AbortController>()
   const bad = (m: string): void => o.onBadMessage?.(m)
 
   const answer = (id: unknown, outcome: { result: unknown } | { error: { code: number; message: string } }): void => {
@@ -63,14 +74,29 @@ export function createRpcPeer(o: {
   const onMessage = (m: unknown): void => {
     if (!isObject(m) || m.jsonrpc !== '2.0') return bad(`not a JSON-RPC 2.0 message: ${JSON.stringify(m).slice(0, 200)}`)
     if (typeof m.method === 'string') {
-      // A notification (no id) asks for no answer; this protocol sends none, so one is only read.
+      // The other side stopped waiting for one of its requests (5d): its handler's signal aborts, and it is not answered
+      if (m.method === RPC_CANCEL && m.id === undefined) {
+        const id = isObject(m.params) ? m.params.id : undefined
+        answering.get(id)?.abort()
+        answering.delete(id)
+        return
+      }
+      // A notification (no id) asks for no answer, and cannot be cancelled.
       const id = m.id
-      o.onRequest(m.method, m.params).then(
+      const ctl = new AbortController()
+      if (id !== undefined) answering.set(id, ctl)
+      // Answered only when it is still the request in flight under this id: a cancelled one is not
+      const current = (): boolean => {
+        if (id === undefined || answering.get(id) !== ctl) return false
+        answering.delete(id)
+        return true
+      }
+      o.onRequest(m.method, m.params, ctl.signal).then(
         (result) => {
-          if (id !== undefined) answer(id, { result: result ?? null })
+          if (current()) answer(id, { result: result ?? null })
         },
         (e: unknown) => {
-          if (id === undefined) return
+          if (!current()) return
           const error =
             e instanceof RpcError
               ? { code: e.code, message: e.message }
@@ -81,6 +107,7 @@ export function createRpcPeer(o: {
       return
     }
     if (typeof m.id !== 'number') return bad(`an answer without a numeric id: ${JSON.stringify(m).slice(0, 200)}`)
+    if (cancelled.delete(m.id)) return
     const w = waiting.get(m.id)
     if (!w) return bad(`an answer to no request in flight (id ${m.id})`)
     waiting.delete(m.id)
@@ -96,11 +123,24 @@ export function createRpcPeer(o: {
   })
 
   return {
-    request(method, params) {
+    request(method, params, opts) {
       if (closed !== null) return Promise.reject(new RpcError(RPC_CLOSED, closed))
+      const signal = opts?.signal
+      if (signal?.aborted) return Promise.reject(new RpcError(RPC_CANCELLED, `${method} was cancelled`))
       const id = ++nextId
       return new Promise((resolve, reject) => {
-        waiting.set(id, { resolve, reject })
+        const onAbort = (): void => {
+          if (!waiting.delete(id)) return
+          cancelled.add(id)
+          reject(new RpcError(RPC_CANCELLED, `${method} was cancelled`))
+          if (closed === null) o.send(encodeLine({ jsonrpc: '2.0', method: RPC_CANCEL, params: { id } }))
+        }
+        const done = (): void => signal?.removeEventListener('abort', onAbort)
+        waiting.set(id, {
+          resolve: (v) => (done(), resolve(v)),
+          reject: (e) => (done(), reject(e))
+        })
+        signal?.addEventListener('abort', onAbort, { once: true })
         o.send(encodeLine({ jsonrpc: '2.0', id, method, params }))
       })
     },
@@ -112,6 +152,8 @@ export function createRpcPeer(o: {
       closed = reason
       for (const w of waiting.values()) w.reject(new RpcError(RPC_CLOSED, reason))
       waiting.clear()
+      for (const ctl of answering.values()) ctl.abort()
+      answering.clear()
     }
   }
 }

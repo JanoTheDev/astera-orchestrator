@@ -253,8 +253,10 @@ describe('docs/plugins.md', () => {
     expect(read.ok && read.manifest.capabilities).toEqual(['event'])
     expect(section(guide, '## Not yet')).not.toContain('`event`')
     expect(prose(section(guide, '## The manifest'))).toContain('[Event plugins](#event-plugins)')
-    // Final review M5: a call past the limit is not stopped, so one-at-a-time holds only for handlers within it
-    expect(ev).toContain(`A call that runs past ${DELIVERY_TIMEOUT_MS / 1000} seconds is not stopped`)
+    // Final review M5, then 5d: a call past the limit is cancelled through its ctx.signal; one that ignores it goes on
+    // beside the next try, so one-at-a-time holds only for handlers within it
+    expect(ev).toContain(`When a call runs past ${DELIVERY_TIMEOUT_MS / 1000} seconds Astera stops waiting and aborts that call's \`ctx.signal\``)
+    expect(ev).toContain('A handler that does not stop goes on beside the event')
     // Final review M6: the place is taken when the plugin first starts, which a plugin missing a setting has not
     expect(ev).toContain('after it first starts')
     expect(ev).not.toContain('after its install')
