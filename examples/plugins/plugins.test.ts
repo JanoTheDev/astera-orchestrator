@@ -16,6 +16,7 @@ import { PluginRequestFailed, createPluginRuntime, type PluginRuntime } from '..
 import { copyPluginFolder } from '../../src/host/plugins/copyFolder'
 import { createEventRing, type EventRing } from '../../src/core/events/eventRing'
 import type { EventDraft } from '../../src/core/orchestration/publicEvents'
+import { itemSplitter } from './debug-leftovers/index.mjs'
 import type { AsteraEvent } from '../../src/core/publicContract'
 import { bundleLauncher } from '../../src/pluginHost/testkit'
 import { notificationOf } from '../../src/core/plugins/notifications'
@@ -697,6 +698,41 @@ describe('the debug leftovers sample', () => {
     })
     expect(await check0(dir, base)).toMatchObject({ status: 'failed', summary: '1 debug leftover in 1 file', diagnostics: [found('small.js', 1, 'console.log')] })
   }, 90_000)
+
+  // 5e (performance review): a worktree of thousands of files git does not ignore is not read one by one for a minute:
+  // the check cannot be made, and says what to do
+  it('answers error for more than 2,000 new files git does not ignore, and reads 2,000', async () => {
+    const { dir, base } = await repo({ 'a.js': '' })
+    const many: Record<string, string> = {}
+    for (let i = 0; i < 2_001; i++) many[`gen/f${i}.txt`] = 'x\n'
+    await write(dir, many)
+    const over = await check0(dir, base)
+    expect(over.status).toBe('error')
+    expect(over.summary).toBe('2001 new files are not ignored by git, more than 2,000 to read: add them to .gitignore, or commit them')
+    await fs.rm(path.join(dir, 'gen', 'f2000.txt'))
+    await write(dir, { 'gen/f0.txt': 'console.log(1)\n' })
+    const read = await check0(dir, base)
+    expect(read.status).toBe('failed')
+    expect(read.diagnostics).toEqual([found('gen/f0.txt', 1, 'console.log')])
+  }, 180_000)
+
+  // 5e (performance review): git's output is split in one pass, so a line of tens of megabytes costs its size
+  it('splits a stream into items across chunks, a long item over many, and the last one at its end', () => {
+    const items: string[] = []
+    const lines = itemSplitter('\n', (i) => items.push(i))
+    lines.push('a\nb')
+    lines.push('c\n')
+    for (let i = 0; i < 1_000; i++) lines.push('x'.repeat(64))
+    lines.push('\nlast')
+    lines.end()
+    expect(items).toEqual(['a', 'bc', 'x'.repeat(64_000), 'last'])
+    const names: string[] = []
+    const nul = itemSplitter('\0', (i) => names.push(i))
+    nul.push('one\0tw')
+    nul.push('o\0')
+    nul.end()
+    expect(names).toEqual(['one', 'two'])
+  })
 
   // 5d: Astera keeps 20 findings; the sample sends those and says how many there are
   it('names the first 20 findings and counts them all', async () => {

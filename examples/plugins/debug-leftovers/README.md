@@ -45,7 +45,8 @@ before the Task, or one it removes, is not the Task's. With no starting commit r
 yet, and in a repository with no commit at all, everything in it.
 
 - A new file git does not ignore is read too, whole, unless it is binary or larger than 1 MB. A file moved or renamed
-  without `git add` reads as a move, so what it held before is not counted.
+  without `git add` reads as a move, so what it held before is not counted. More than 2,000 such files and the check
+  answers `error` (it cannot be made in good time): put a folder of generated files in `.gitignore`, or commit them.
 - A symbolic link is read as git reads it, by the path it holds, not the file it points at.
 - A submodule's own changes are not the Task's: it is read as the commit it stands at.
 - In a folder inside a larger repository, only that folder's changes count, named from the folder.
