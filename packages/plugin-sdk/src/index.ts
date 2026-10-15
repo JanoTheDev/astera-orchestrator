@@ -38,7 +38,7 @@ export interface PluginContext {
   log: PluginLog
   /** Aborted when Astera stops the plugin: disabled, removed, updated, or the Host leaving. In a handler (`onEvent`,
    *  `send`, `listItems`, `getItem`, `buildJobContext`, `runCheck`) it is that call's: it also aborts when Astera stops
-   *  waiting for the call (30 seconds for an event, 15 for a job source, 30 minutes for a check). */
+   *  waiting for the call (30 seconds for an event or a notification, 15 for a job source, 30 minutes for a check). */
   signal: AbortSignal
 }
 
@@ -50,8 +50,8 @@ export interface PluginDefinition {
   /** The `event` capability (`astera.capabilities: ["event"]`, with the `events.subscribe` permission): each of
    *  Astera's events, in order, one at a time, from where this plugin left off, once `activate` has resolved. A
    *  `{ type: 'gap' }` first means events were lost before the next one. Throw or reject to have the same event handed
-   *  over again (after 1 s, doubling to 5 min, for an hour). It must settle within 30 s: a call past that is not
-   *  stopped, and runs beside the event's next try. An event can come twice: `event.id` never repeats, so drop one
+   *  over again (after 1 s, doubling to 5 min, for an hour). It must settle within 30 s: past that the call's
+   *  `ctx.signal` aborts, and a handler that does not stop runs beside the event's next try. An event can come twice: `event.id` never repeats, so drop one
    *  you have seen. A property rather than a method, so a handler that takes only `AsteraEvent` does not typecheck:
    *  it would throw on a gap. */
   onEvent?: (event: AsteraEvent | EventGap, ctx: PluginContext) => void | Promise<void>

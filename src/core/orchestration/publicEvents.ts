@@ -19,7 +19,7 @@
 import { JOB_FIELDS, shapeEvent, type EventType } from '../publicContract'
 import { briefTask, jobView, latestRunOf, runView } from './publicViews'
 import { outcomeOfTasks } from './running'
-import { findingsCounted, taskCompletionOf, taskCompletionState, type CompletionState } from './runCompletion'
+import { countedCheck, findingsCounted, taskCompletionOf, taskCompletionState, type CompletionState } from './runCompletion'
 import type { OrchState } from './state'
 import { isPlaceholderSessionId, type Dispatch, type Gate, type Job, type JobRun, type Task } from './types'
 
@@ -56,10 +56,10 @@ function completionTypes(was: CompletionState, now: CompletionState): EventType[
   return out
 }
 
-/** A Task as an event carries it: brief, and its checks without their output. */
+/** A Task as an event carries it: brief, and its checks without their output, their findings counted (5d). */
 const taskPayload = (t: Task): Record<string, unknown> => ({
   ...briefTask(t),
-  ...(t.checks !== undefined ? { checks: t.checks.map(({ outputTail: _output, ...check }) => check) } : {})
+  ...(t.checks !== undefined ? { checks: t.checks.map(({ outputTail: _output, ...check }) => countedCheck(check)) } : {})
 })
 
 /** Each Task's Gates and Dispatches in one state, gathered once. */

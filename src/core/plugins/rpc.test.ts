@@ -139,6 +139,41 @@ describe('cancelling a request', () => {
     expect(bad).toEqual([])
   })
 
+  // 5d final review M1: the ids it cancelled are remembered to drop their late answers, the last 1,000 of them only
+  it('remembers only the last 1,000 cancelled ids', async () => {
+    const bad: string[] = []
+    const a = createRpcPeer({ send: () => {}, onRequest: async () => ({}), onBadMessage: (m) => bad.push(m) })
+    for (let i = 0; i < 1_001; i++) {
+      const ctl = new AbortController()
+      const asked = a.request('x', {}, { signal: ctl.signal }).catch(() => {})
+      ctl.abort()
+      await asked
+    }
+    a.feed('{"jsonrpc":"2.0","id":1001,"result":"late"}\n')
+    expect(bad).toEqual([])
+    a.feed('{"jsonrpc":"2.0","id":1,"result":"late"}\n')
+    expect(bad).toEqual(['an answer to no request in flight (id 1)'])
+  })
+
+  // 5d final review M2: a cancel that comes after the answer, on either side, changes nothing
+  it('a cancel after the answer sends nothing, and one that arrives after answering is ignored', async () => {
+    const lines: string[] = []
+    const a = createRpcPeer({ send: (l) => void lines.push(l), onRequest: async () => ({}) })
+    const ctl = new AbortController()
+    const asked = a.request('x', {}, { signal: ctl.signal })
+    a.feed('{"jsonrpc":"2.0","id":1,"result":"done"}\n')
+    expect(await asked).toBe('done')
+    ctl.abort()
+    expect(lines).toHaveLength(1)
+    const answered: string[] = []
+    const b = createRpcPeer({ send: (l) => void answered.push(l), onRequest: async () => 'ok' })
+    b.feed('{"jsonrpc":"2.0","id":5,"method":"x","params":{}}\n')
+    await vi.waitFor(() => expect(answered).toHaveLength(1))
+    b.feed('{"jsonrpc":"2.0","method":"$/cancel","params":{"id":5}}\n')
+    await new Promise((r) => setImmediate(r))
+    expect(answered).toHaveLength(1)
+  })
+
   it('a cancel for a request it does not hold does nothing, and is not a request', async () => {
     const methods: string[] = []
     const lines: string[] = []

@@ -29,6 +29,15 @@ describe('the app’s completion check plugins', () => {
     expect(r.diagnostics).toEqual([{ message: 'm' }])
   })
 
+  // 5d final review M2: the Host has already cut the answer to 20 findings; checking it again here keeps its count
+  it('keeps the count of findings the Host cut, when it checks the answer again', async () => {
+    const twenty = Array.from({ length: 20 }, (_, i) => ({ message: `m${i}` }))
+    const call: Call = async () => ({ status: 200, body: { name: 'D', status: 'failed', summary: 's', diagnostics: twenty, diagnosticsTotal: 150 } })
+    const r = await createAppCompletionChecks({ call }).run('d', INPUT)
+    expect(r.diagnostics).toHaveLength(20)
+    expect(r.diagnosticsTotal).toBe(150)
+  })
+
   it('names a check by its plugin id when the Host’s answer has no name', async () => {
     const r = await createAppCompletionChecks({ call: async () => ({ status: 200, body: { status: 'passed' } }) }).run('d', INPUT)
     expect(r).toEqual({ name: 'd', status: 'passed', summary: 'passed' })

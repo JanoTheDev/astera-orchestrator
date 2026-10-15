@@ -144,7 +144,7 @@ Ask for what the plugin needs and no more: a person sees the list before install
 | `ctx.plugin` | Its `id`, `version` and `dir`, the installed copy it runs from. |
 | `ctx.permissions` | The permissions granted, out of those it asked for. |
 | `ctx.log` | `info`, `warn` and `error`, to the plugin's log ([Logs](#logs)). |
-| `ctx.signal` | An `AbortSignal` that aborts when Astera stops the plugin. Pass it to whatever waits: a subscription, a `fetch`, a timer. In a handler (`onEvent`, `send`, `listItems`, `getItem`, `buildJobContext`, `runCheck`) it also aborts when Astera stops waiting for that call. |
+| `ctx.signal` | An `AbortSignal` that aborts when Astera stops the plugin. Pass it to whatever waits: a subscription, a `fetch`, a timer. In a handler (`onEvent`, `send`, `listItems`, `getItem`, `buildJobContext`, `runCheck`) it also aborts when that call runs past its time limit (30 seconds for an event or a notification, 15 for a job source, 30 minutes for a check). |
 
 ## Lifecycle
 
@@ -421,7 +421,7 @@ asked with:
   recorded them. A check configured per project reads the project's own files under `root`; the plugin's settings are
   the rest of its configuration.
 
-It answers `{ status, summary?, diagnostics?, externalUrl? }`. `status` is `passed`, `failed` (the code's fault) or
+It answers `{ status, summary?, diagnostics?, diagnosticsTotal?, externalUrl? }`. `status` is `passed`, `failed` (the code's fault) or
 `error` (the check could not be made: a service down, a missing token). A diagnostic is a finding,
 `{ file?, line?, message, severity? }`, `severity` `error` or `warning`. A plugin that names `completion-check` and has
 no `runCheck` does not start, and its log says why.

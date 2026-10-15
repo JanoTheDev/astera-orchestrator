@@ -1814,7 +1814,10 @@ export const ko = {
   'jobs.completion.hideTail': '출력 접기',
   'jobs.completion.openReport': '보고서 열기',
   'jobs.completion.warning': '경고',
-  'jobs.completion.moreFindings': '… 그 밖의 지적 {n}개 (전체는 플러그인 보고서에 있습니다)',
+  'jobs.completion.moreFindings': '… 그 밖에 {n}개는 여기 나오지 않습니다',
+  'jobs.completion.moreFindingsReport': '… 그 밖에 {n}개는 보고서에 있습니다',
+  'jobs.completion.findingsUnlisted': '지적 {n}개, 여기 나오지 않습니다',
+  'jobs.completion.findingsUnlistedReport': '지적 {n}개, 보고서에 있습니다',
   'jobs.completion.blocking': '막는 검토 지적 {n}',
   // 막지 않는 이슈는 개수만 말한다 — 없는 것과 다르다는 사실까지가 필요한 전부다.
   'jobs.completion.other': '그 밖의 지적 {n}',

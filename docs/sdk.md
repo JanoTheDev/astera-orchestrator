@@ -312,8 +312,9 @@ outlives a Host restart, and `events` reads it. An event:
 | `session.account_switched` | a session goes on under another account | `{ session, accountLabel }` |
 
 The payload is the object as it stood right after the change. A Task is cut like `tasks.list({ brief: true })` and its
-checks carry no output; a `TaskCompletion`'s plugin checks carry how many findings they have (`diagnosticsTotal`) and
-not the findings, which `completion.get` reads. The `get` methods read the whole object.
+checks carry no output; a plugin check, in a Task or a `TaskCompletion`, carries how many findings it has
+(`diagnosticsTotal`) and not the findings, which `tasks.get` and `completion.get` read. The `get` methods read the whole
+object.
 
 A session event's `session` is `{ id, kind, title?, provider?, cwd? }`, as `astera sessions list` shows it; `prompt` is
 `permission`, `question` or `null` when the Host cannot tell. They are what Astera's desktop notifications announce: a

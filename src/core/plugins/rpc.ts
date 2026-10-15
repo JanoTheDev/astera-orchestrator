@@ -24,6 +24,8 @@ export const RPC_NOT_READY = -32001
 export const RPC_CANCELLED = -32800
 /** The notification a cancelled request's id is sent in (5d). It is the protocol's own, never a request. */
 export const RPC_CANCEL = '$/cancel'
+/** How many cancelled ids a peer remembers to drop their late answers: the other side answers none it supports. */
+const CANCELLED_KEPT = 1_000
 
 export interface RpcPeer {
   /** Asks the other side. With `signal`, aborting it cancels the request: it rejects with RPC_CANCELLED at once, the
@@ -132,6 +134,7 @@ export function createRpcPeer(o: {
         const onAbort = (): void => {
           if (!waiting.delete(id)) return
           cancelled.add(id)
+          if (cancelled.size > CANCELLED_KEPT) cancelled.delete(cancelled.values().next().value as number)
           reject(new RpcError(RPC_CANCELLED, `${method} was cancelled`))
           if (closed === null) o.send(encodeLine({ jsonrpc: '2.0', method: RPC_CANCEL, params: { id } }))
         }

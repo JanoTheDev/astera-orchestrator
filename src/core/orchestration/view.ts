@@ -85,6 +85,18 @@ const progressOfTasks = (tasks: readonly Task[]): { done: number; total: number 
 // does not. They are re-exported here for the callers that always took them from this file.
 export { isTerminal, outcomeOf }
 
+/** How much of a Job's objective a sidebar row carries (5d, from the performance review): the row shows a line of it and
+ *  its tooltip a paragraph, and a ticket's objective is up to 60,000 characters, pushed on every change. */
+export const OBJECTIVE_PREVIEW_MAX = 500
+
+/** The first OBJECTIVE_PREVIEW_MAX characters, with `…` when there were more, never splitting a surrogate pair. */
+const previewOf = (text: string): string => {
+  if (text.length <= OBJECTIVE_PREVIEW_MAX) return text
+  const high = text.charCodeAt(OBJECTIVE_PREVIEW_MAX - 1)
+  const end = high >= 0xd800 && high <= 0xdbff ? OBJECTIVE_PREVIEW_MAX - 1 : OBJECTIVE_PREVIEW_MAX
+  return `${text.slice(0, end)}…`
+}
+
 /** One Task row.
  *
  *  sessionId comes from the Task's most recent Dispatch, not from the open one: a retry opens a new
@@ -116,18 +128,6 @@ export { isTerminal, outcomeOf }
  *  the sidebar needs: the badge and the clock must disappear the moment the work stops, well before
  *  the tab they sat next to stops being worth opening. Keeping the lookups apart is how each one
  *  says what it means rather than what it happens to equal. */
-/** How much of a Job's objective a sidebar row carries (5d, from the performance review): the row shows a line of it and
- *  its tooltip a paragraph, and a ticket's objective is up to 60,000 characters, pushed on every change. */
-export const OBJECTIVE_PREVIEW_MAX = 500
-
-/** The first OBJECTIVE_PREVIEW_MAX characters, with `…` when there were more, never splitting a surrogate pair. */
-const previewOf = (text: string): string => {
-  if (text.length <= OBJECTIVE_PREVIEW_MAX) return text
-  const high = text.charCodeAt(OBJECTIVE_PREVIEW_MAX - 1)
-  const end = high >= 0xd800 && high <= 0xdbff ? OBJECTIVE_PREVIEW_MAX - 1 : OBJECTIVE_PREVIEW_MAX
-  return `${text.slice(0, end)}…`
-}
-
 function jobTaskOf(
   ix: FoldIndex,
   task: Task,

@@ -346,6 +346,8 @@ describe('docs/plugins.md', () => {
     for (const f of ['`runCheck`', '`defineCompletionCheckProvider`', '`plugin:<id>`', '`passed`', '`failed`', '`error`', '`check-unavailable`', '`PLUGIN_CAPABILITY_MISSING`'])
       expect(cc, f).toContain(f)
     for (const o of CHECK_UNAVAILABLE_OPTIONS) expect(cc, o).toContain(`\`${o}\``)
+    // 5d final review M5: the answer's shape names the count a check may give
+    expect(cc).toContain('`{ status, summary?, diagnostics?, diagnosticsTotal?, externalUrl? }`')
     for (const n of [CHECK_SUMMARY_MAX, CHECK_DIAGNOSTICS_MAX, CHECK_MESSAGE_MAX, CHECK_FILE_MAX, SOURCE_URL_MAX, REPAIR_DIAGNOSTICS])
       expect(cc, String(n)).toContain(n.toLocaleString('en-US'))
     expect(cc).toContain(`${CHECK_TIMEOUT_MS / 60_000} minutes`)

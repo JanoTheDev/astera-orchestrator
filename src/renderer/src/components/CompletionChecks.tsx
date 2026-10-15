@@ -65,7 +65,14 @@ export function CompletionChecks({
                 ))}
               </ul>
             )}
-            {more > 0 && <p className="detail-completion-summary">{t('jobs.completion.moreFindings', { n: more })}</p>}
+            {more > 0 && (
+              <p className="detail-completion-summary">
+                {/* Where the rest are only when there is a report; a count with no list reads as a count (5d review M4) */}
+                {(c.diagnostics?.length ?? 0) > 0
+                  ? t(link !== undefined ? 'jobs.completion.moreFindingsReport' : 'jobs.completion.moreFindings', { n: more })
+                  : t(link !== undefined ? 'jobs.completion.findingsUnlistedReport' : 'jobs.completion.findingsUnlisted', { n: more })}
+              </p>
+            )}
           </li>
         )
       })}

@@ -388,8 +388,9 @@ export interface SessionAccountSwitched {
 }
 
 /** Each event's payload: the public DTO of the object it is about, as it stood right after the change. A Task is cut
- *  like `tasks.list({ brief: true })` and its checks carry no output; `get` reads the whole object. A session event
- *  carries its session and what happened to it. */
+ *  like `tasks.list({ brief: true })` and its checks carry no output; a plugin check, in a Task or a `TaskCompletion`,
+ *  carries how many findings it has (`diagnosticsTotal`) and not the findings. `get` reads the whole object. A session
+ *  event carries its session and what happened to it. */
 export interface EventPayloads {
   readonly 'job.created': Job
   readonly 'job.updated': Job

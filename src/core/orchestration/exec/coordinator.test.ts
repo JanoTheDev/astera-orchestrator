@@ -928,6 +928,13 @@ describe('buildSpecFile — a plugin check in the repair request (plugin Phase 5
     const spec = buildSpecFile({ title: 'T', spec: 'do', taskId: 'tsk_1', dispatchId: 'dsp_2', repair: { reason: 'check-failure', repair: 1, maxFixAttempts: 3, checks } })
     expect(spec).toContain('    a.js:20 m\n    … 130 more finding(s)')
   })
+
+  // 5d final review M3: a check that gave only a count still says how many it found
+  it('says the count of findings a check gave without listing them', () => {
+    const checks: CheckResult[] = [{ configId: 'plugin:d', name: 'D', status: 'failed', summary: '4 leftovers', diagnosticsTotal: 4 }]
+    const spec = buildSpecFile({ title: 'T', spec: 'do', taskId: 'tsk_1', dispatchId: 'dsp_2', repair: { reason: 'check-failure', repair: 1, maxFixAttempts: 3, checks } })
+    expect(spec).toContain('- Check "D" — failed: 4 leftovers\n  … 4 more finding(s)')
+  })
 })
 
 describe('buildSpecFile — repair 절', () => {

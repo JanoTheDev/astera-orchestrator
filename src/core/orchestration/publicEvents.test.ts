@@ -153,6 +153,32 @@ describe('derivePublicEvents', () => {
     expect(checks[0].summary).toBe('3 leftovers')
   })
 
+  // 5d final review I1: a task.* event counts a check's findings as completion.* events do, in the same commit
+  it('a task event counts a plugin check’s findings too, as the completion event of the same change does', () => {
+    const found: CheckResult = {
+      configId: 'plugin:d',
+      name: 'D',
+      status: 'failed',
+      summary: '30 leftovers',
+      diagnostics: Array.from({ length: 20 }, (_, i) => ({ message: `m${i}` })),
+      diagnosticsTotal: 30
+    }
+    const before = state({ tasks: [task('t1', 'validating')], dispatches: [dispatch('d1', 't1', { endedAt: NOW })] })
+    const after = state({
+      tasks: [task('t1', 'dispatched', { checks: [found] })],
+      dispatches: [dispatch('d1', 't1', { endedAt: NOW }), dispatch('d2', 't1', { repair: 'check-failure' })]
+    })
+    const started = derivePublicEvents(before, after).find((e) => e.type === 'task.started')!
+    const check = (started.payload as { checks: Array<Record<string, unknown>> }).checks[0]
+    expect(check).not.toHaveProperty('diagnostics')
+    expect(check.diagnosticsTotal).toBe(30)
+    const failed = derivePublicEvents(before, state({ tasks: [task('t1', 'failed', { checks: [{ ...found, diagnosticsTotal: undefined }] })] })).find(
+      (e) => e.type === 'task.failed'
+    )!
+    expect((failed.payload as { checks: Array<Record<string, unknown>> }).checks[0]).toMatchObject({ diagnosticsTotal: 20 })
+    expect((failed.payload as { checks: Array<Record<string, unknown>> }).checks[0]).not.toHaveProperty('diagnostics')
+  })
+
   it('completion.failed then completion.exhausted, then the question, when repairs run out', () => {
     const before = state({ tasks: [task('t1', 'validating')] })
     const after = state({ tasks: [task('t1', 'blocked')], gates: [gate('g1', 't1', { kind: 'convergence-exhausted' })] })

@@ -60,13 +60,14 @@ describe('runLauncher', () => {
   // 5d (performance review M2): a call the Host cancels aborts that call's ctx.signal, and only that one's
   it('hands each handler call a ctx.signal the Host can cancel, and answers a cancelled call no more', async () => {
     const signals: AbortSignal[] = []
+    const finish: Array<() => void> = []
     let own: PluginContext | undefined
     const l = launch({
       default: {
         activate: (c: PluginContext) => void (own = c),
         runCheck: (_input: unknown, ctx: PluginContext) => {
           signals.push(ctx.signal)
-          return new Promise(() => {})
+          return new Promise((r) => finish.push(() => r({ status: 'passed' })))
         }
       }
     })
@@ -78,6 +79,9 @@ describe('runLauncher', () => {
     await vi.waitFor(() => expect(signals[0].aborted).toBe(true))
     expect(signals[1].aborted).toBe(false)
     expect(own?.signal.aborted).toBe(false)
+    // Both handlers then finish: the one not cancelled is answered, the cancelled one is not (5d final review M2)
+    finish.forEach((f) => f())
+    await vi.waitFor(() => expect(l.out.some((m) => m.id === 202)).toBe(true))
     expect(l.out.some((m) => m.id === 201)).toBe(false)
   })
 

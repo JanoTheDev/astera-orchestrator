@@ -714,8 +714,10 @@ export function createPluginRuntime(d: {
     logFile,
     request,
     forget: async (folder) => {
-      // A removed plugin's slot holds its settings and secret values: they go with it (5d)
-      for (const [id, s] of slots) if (s.launch.folder === folder && s.state !== 'running') slots.delete(id)
+      // A removed plugin's slot holds its settings and secret values: they go with it (5d). Only a slot with nothing left
+      // to stop: one with a process, a stop or a delivery under way is still the runtime's to end (5d final review M7)
+      for (const [id, s] of slots)
+        if (s.launch.folder === folder && !s.proc && !s.stopping && !s.delivering && s.timers.size === 0) slots.delete(id)
       logs.delete(folder)
       await releaseLogWriter(logFile(folder))
     }

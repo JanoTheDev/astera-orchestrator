@@ -313,6 +313,17 @@ describe('createPluginRuntime', () => {
     expect(r.status('dropped')).toBeUndefined()
   }, 90_000)
 
+  // 5d final review M7: a slot whose process is still there (starting, or waiting to restart) is not let go: the
+  // runtime could not stop that process any more
+  it('keeps the slot of a plugin that still has a process, even when told to forget it', async () => {
+    const { r } = runtime()
+    r.start(plugin('slow-start', `export default { activate() { return new Promise(() => {}) } }`))
+    await until(() => expect(r.status('slow-start')?.status).toBe('starting'))
+    await r.forget('slow-start')
+    expect(r.status('slow-start')?.status).toBe('starting')
+    await r.stop('slow-start')
+  }, 90_000)
+
   // Plugins 2c (spec §23-§24): settings handed over at the start, secrets kept per plugin and out of its log.
   it('hands a plugin its settings, keeps its secrets from another plugin, and redacts every secret from its log', async () => {
     const { r } = runtime()
