@@ -3874,9 +3874,10 @@ describe('coordinator-idle (final round 3)', () => {
       orch.call({ cmd: 'coordinator-idle', args: { runId, sessionId: 'ses_c' }, sessionId: '', from })
     expect(await ask({ role: 'cli', toOthers: () => {} })).toMatchObject({ status: 403 })
     expect(await ask(app)).toEqual({ status: 200, body: { idle: false } })
-    const waiting = orch.call({ cmd: 'check', args: { run: runId, wait: true, timeoutMs: 300 }, sessionId: 'ses_c' })
-    await new Promise((r) => setTimeout(r, 30))
-    expect(await ask(app)).toEqual({ status: 200, body: { idle: true } })
+    // A wait long enough to be asked about, and asked about until it is recorded: a fixed 30 ms against a 300 ms wait
+    // read idle false under the full suite's load (2026-10-15)
+    const waiting = orch.call({ cmd: 'check', args: { run: runId, wait: true, timeoutMs: 2_000 }, sessionId: 'ses_c' })
+    await vi.waitFor(async () => expect(await ask(app)).toEqual({ status: 200, body: { idle: true } }), { timeout: 1_500 })
     await waiting
     expect(await ask(app)).toEqual({ status: 200, body: { idle: false } })
     expect(await orch.call({ cmd: 'coordinator-idle', args: { runId }, sessionId: '', from: app })).toMatchObject({ status: 400 })
