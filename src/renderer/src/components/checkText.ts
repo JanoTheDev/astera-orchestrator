@@ -1,6 +1,7 @@
 // A check's verdict in words, for the run's graph (a chip and its tooltip) and a Task's completion block (plugin Phase 5
 // C13). One source, so the two never word a check differently; pure, so the node tests hold it.
 import type { JobCheck } from '../../../core/types'
+import type { NodeMeta } from '../../../core/orchestration/nodeMeta'
 import type { MessageKey, MessageParams } from '../../../core/i18n'
 import { formatRunDuration } from '../../../core/run/duration'
 import { PLUGIN_CHECK_PREFIX } from '../../../core/orchestration/pluginChecks'
@@ -30,6 +31,9 @@ export function checkVerdict(c: { status: JobCheck['status']; exitCode?: number;
       return t('jobs.convergence.check.error')
     case 'not-run':
       return c.skipped ? t('jobs.convergence.check.skipped') : t('jobs.convergence.check.notRun')
+    default:
+      // A status this app does not know (a Runtime of another version) is said as it is (5c final review)
+      return String(c.status)
   }
 }
 
@@ -53,4 +57,42 @@ export function checkChoicesOf(configs: { id: string; name: string }[], plugins:
       name: p.status === 'running' ? t('jobs.task.checkPlugin', { name: p.name }) : t('jobs.task.checkPluginStatus', { name: p.name, status: statusLabel(p.status, t) })
     }))
   ]
+}
+
+/** nodeMetaOf 의 판정을 문장으로. 우선순위는 그쪽에 있다 — 여기는 kind 마다 문구 하나다. undefined 면 줄을 그리지 않는다 */
+export function nodeMetaText(m: NodeMeta, t: Translate): string | undefined {
+  switch (m.kind) {
+    case 'gate':
+      return m.question
+    case 'stopped':
+      return m.failed === null
+        ? t('jobs.convergence.node.stopped')
+        : m.unavailable
+          ? t('jobs.convergence.node.stoppedUnavailable', { failed: m.failed })
+          : t('jobs.convergence.node.stoppedWithCheck', { failed: m.failed })
+    case 'repairing':
+      // A repair is never for a check that could not be made (C9): that one is not named as failing
+      return m.failed === null || m.unavailable
+        ? t('jobs.convergence.node.repairingNoCheck', { repairs: m.repairs, max: m.max })
+        : t('jobs.convergence.node.repairing', { repairs: m.repairs, max: m.max, failed: m.failed })
+    case 'checking':
+      return m.retrying === null ? t('jobs.convergence.node.checking') : t('jobs.convergence.node.rechecking', { name: m.retrying })
+    case 'reviewing':
+      return t('jobs.convergence.node.reviewing', { round: m.round, max: m.max })
+    case 'failed':
+      return t(m.unavailable ? 'jobs.convergence.node.unavailable' : 'jobs.convergence.node.failed', { name: m.name })
+    case 'provider':
+      return m.provider
+    case 'none':
+      return undefined
+    default: {
+      // 반환형이 string | undefined 라 case 를 하나 빼먹어도 "값을 안 준다"는 undefined 로도
+      // 읽혀 tsc 가 조용히 통과한다(noImplicitReturns 는 이 저장소 세 tsconfig 어디에도 없다) —
+      // 이 default 가 그 구멍을 막는다. NodeMeta 에 여덟째 kind 가 생기고 위 case 들이 그걸
+      // 못 따라가면 m 이 여기서 never 가 아니게 되어 아래 대입이 타입 에러가 난다. 지금 일곱
+      // kind 모두 위에서 처리되므로 이 분기는 실행되지 않는다.
+      const exhaustive: never = m
+      return exhaustive
+    }
+  }
 }

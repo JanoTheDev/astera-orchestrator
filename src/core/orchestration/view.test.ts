@@ -968,6 +968,7 @@ describe('snapshotFor — 검사 결과와 자동 수정 진행', () => {
     const resumed = withRuns([run('r1', absPath('p'))], [
       { ...task('t1', 'r1', 'validating'), checks: round, checkResume: { dispatchId: 'd1', done: [round[0], skipped], rest: ['c2'] } }
     ])
+    resumed.dispatches.push(dispatch('d1', 't1', 's1', '2026-08-18T01:00:00.000Z'))
     expect(taskOf(resumed).checks).toEqual([
       { configId: 'c1', name: 'Typecheck', status: 'passed' },
       { configId: 'plugin:d', name: 'D', status: 'not-run', skipped: true },
@@ -977,6 +978,40 @@ describe('snapshotFor — 검사 결과와 자동 수정 진행', () => {
     const settled = withRuns([run('r1', absPath('p'))], [{ ...task('t1', 'r1', 'completed'), checks: [round[0], skipped] }])
     expect(taskOf(settled).checks?.[1]).toEqual({ configId: 'plugin:d', name: 'D', status: 'not-run', skipped: true })
     expect(taskOf(settled)).not.toHaveProperty('resumeAt')
+  })
+
+  // 5c final review M2: a skip of the round's last check leaves nothing to run, and the graph marks no check
+  it('a resumed round with nothing left to run says so, rather than leaving the first check to be marked', () => {
+    const round: CheckResult[] = [
+      { configId: 'c1', name: 'Typecheck', status: 'passed' },
+      { configId: 'plugin:d', name: 'D', status: 'error', summary: 'down' }
+    ]
+    const skipped: CheckResult = { configId: 'plugin:d', name: 'D', status: 'not-run', skipped: true, summary: 'Skipped by a person: down' }
+    const s = withRuns([run('r1', absPath('p'))], [
+      { ...task('t1', 'r1', 'validating'), checks: round, checkResume: { dispatchId: 'd1', done: [round[0], skipped], rest: [] } }
+    ])
+    s.dispatches.push(dispatch('d1', 't1', 's1', '2026-08-18T01:00:00.000Z'))
+    expect(taskOf(s).resumeAt).toBeNull()
+    expect(taskOf(s).checks?.[1]).toEqual({ configId: 'plugin:d', name: 'D', status: 'not-run', skipped: true })
+  })
+
+  // 5c final review M3: a skipped round left behind by task-update (a newer attempt, or a Task no longer validating) is
+  // not the round that runs: the graph shows the Task's last round as it was recorded
+  it('a skipped round that is no longer the Task’s live round is not drawn', () => {
+    const round: CheckResult[] = [
+      { configId: 'plugin:d', name: 'D', status: 'error', summary: 'down' },
+      { configId: 'c2', name: 'Tests', status: 'not-run' }
+    ]
+    const skipped: CheckResult = { configId: 'plugin:d', name: 'D', status: 'not-run', skipped: true, summary: 'Skipped by a person: down' }
+    const resume = { dispatchId: 'd1', done: [skipped], rest: ['c2'] }
+    const newer = withRuns([run('r1', absPath('p'))], [{ ...task('t1', 'r1', 'validating'), checks: round, checkResume: resume }])
+    newer.dispatches.push(dispatch('d1', 't1', 's1', '2026-08-18T01:00:00.000Z'), dispatch('d2', 't1', 's2', '2026-08-18T02:00:00.000Z'))
+    expect(taskOf(newer).checks?.[0].status).toBe('error')
+    expect(taskOf(newer)).not.toHaveProperty('resumeAt')
+    const moved = withRuns([run('r1', absPath('p'))], [{ ...task('t1', 'r1', 'dispatched'), checks: round, checkResume: resume }])
+    moved.dispatches.push(dispatch('d1', 't1', 's1', '2026-08-18T01:00:00.000Z'))
+    expect(taskOf(moved).checks?.[0].status).toBe('error')
+    expect(taskOf(moved)).not.toHaveProperty('resumeAt')
   })
 
   it('checks 가 없는 Task 는 칸 자체가 없다', () => {

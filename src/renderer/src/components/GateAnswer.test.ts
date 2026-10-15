@@ -30,10 +30,10 @@ describe('gateChoicesOf', () => {
   })
 
   it('another question keeps its options as they are and takes an answer in words', () => {
-    expect(gateChoicesOf({ id: 'g2', question: 'q', options: ['retry-once', 'mark-failed'], kind: 'convergence-exhausted' }, t)).toEqual({
+    expect(gateChoicesOf({ id: 'g2', question: 'q', options: ['Drop the check', 'Stop the Job'] }, t)).toEqual({
       choices: [
-        { value: 'retry-once', label: 'retry-once' },
-        { value: 'mark-failed', label: 'mark-failed' }
+        { value: 'Drop the check', label: 'Drop the check' },
+        { value: 'Stop the Job', label: 'Stop the Job' }
       ],
       freeText: true
     })
@@ -43,13 +43,37 @@ describe('gateChoicesOf', () => {
   })
 })
 
+// 5c final review (declined, ruled a finding): the exhausted question's two answers have had words in all four languages
+// (jobs.convergence.gate.retryOnce, markFailed) that no screen used
+it('an exhausted repair budget offers its two answers in words, sent as the option, and still takes words', () => {
+  expect(gateChoicesOf({ id: 'g2', question: 'q', options: ['retry-once', 'mark-failed'], kind: 'convergence-exhausted' }, t)).toEqual({
+    choices: [
+      { value: 'retry-once', label: 'jobs.convergence.gate.retryOnce' },
+      { value: 'mark-failed', label: 'jobs.convergence.gate.markFailed' }
+    ],
+    freeText: true
+  })
+})
+
 describe('GateAnswer', () => {
   it('a check that could not be made shows the question, three described choices and no box to type in', () => {
     const html = render(unavailable)
     expect(html).toContain('The check could not be made: D: down')
-    expect(html.match(/<button[^>]*title="jobs\.gate\.checkUnavailable\.\w+Hint"/g)).toHaveLength(3)
-    expect(html).toContain('<span class="detail-gate-option-hint">jobs.gate.checkUnavailable.skipHint</span>')
+    expect(html.match(/<span class="detail-gate-option-hint">jobs\.gate\.checkUnavailable\.\w+Hint<\/span>/g)).toHaveLength(3)
     expect(html).not.toContain('<textarea')
+  })
+
+  // 5c final review M7: the line under a choice is read once, not again as its title
+  it('a choice’s description is its visible line only, not a title that repeats it', () => {
+    expect(render(unavailable)).not.toContain('title="jobs.gate.checkUnavailable')
+  })
+
+  // 5c final review M6: with no box to focus, the first choice takes the focus the Unlock button had
+  it('the first choice takes the focus when there is no box', () => {
+    const html = render(unavailable)
+    expect(html.match(/<button[^>]*autofocus=""/g)).toHaveLength(1)
+    expect(html).toMatch(/<button autofocus=""[^>]*>jobs\.gate\.checkUnavailable\.retry</)
+    expect(render({ id: 'g3', question: 'Which way?', options: ['a'] })).not.toMatch(/<button[^>]*autofocus/)
   })
 
   it('a question a coordinator asked keeps its box', () => {

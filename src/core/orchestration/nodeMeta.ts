@@ -9,8 +9,8 @@ export type NodeMeta =
   | { kind: 'gate'; question: string }
   /** 사람이 이 Task 의 자동 수정을 멈춰 뒀다(설계 §4.2 의 V3). 도는 수리보다 **뒤**, Gate 보다
    *  **앞**은 아니다 — 아래 nodeMetaOf 가 그 자리를 설명한다 */
-  | { kind: 'stopped'; failed: string | null }
-  | { kind: 'repairing'; repairs: number; max: number; failed: string | null }
+  | { kind: 'stopped'; failed: string | null; unavailable?: true }
+  | { kind: 'repairing'; repairs: number; max: number; failed: string | null; unavailable?: true }
   | { kind: 'checking'; retrying: string | null }
   | { kind: 'reviewing'; round: number; max: number }
   /** `unavailable`: the check that stopped it could not be made, and a person failed the Task (plugin Phase 5 C9) */
@@ -26,6 +26,13 @@ export const firstBlockedCheck = (task: Pick<JobTask, 'checks'>): JobCheck | nul
 /** 그 검사의 이름 — meta 줄이 부르는 것 */
 export const firstBlocked = (task: Pick<JobTask, 'checks'>): string | null => firstBlockedCheck(task)?.name ?? null
 
+/** The blocked check as a line names it: its name, and whether it could not be made rather than failed (plugin Phase 5
+ *  C9), so the line does not call it a failure. */
+const blockedOf = (task: Pick<JobTask, 'checks'>): { failed: string | null; unavailable?: true } => {
+  const c = firstBlockedCheck(task)
+  return c === null ? { failed: null } : { failed: c.name, ...(c.status === 'error' ? { unavailable: true as const } : {}) }
+}
+
 /** validating 인 Task 에서 **지금 다시 도는 검사**. 검사는 고른 순서로 돌고 첫 실패에서 멈추므로(validator),
  *  다시 도는 순간 화면이 아는 것은 지난 라운드에 어디서 멈췼는가뿐이다(U12) — 그 검사가 다시 도는 중이라는
  *  뜻이라 firstBlockedCheck 를 그대로 가리킨다. **지난 라운드가 막힌 데 없이 전부 통과했을 때**(검토 실패로
@@ -37,7 +44,7 @@ export const retryingCheckOf = (task: Pick<JobTask, 'status' | 'checks' | 'resum
   if (task.status !== 'validating') return null
   if (!task.checks || task.checks.length === 0) return null
   // A round a person let go on without a check runs the checks after it, not from the first (plugin Phase 5 C9)
-  if (task.resumeAt !== undefined) return task.checks.find((c) => c.configId === task.resumeAt) ?? null
+  if (task.resumeAt !== undefined) return task.resumeAt === null ? null : (task.checks.find((c) => c.configId === task.resumeAt) ?? null)
   return firstBlockedCheck(task) ?? task.checks[0]
 }
 
@@ -52,8 +59,8 @@ export function nodeMetaOf(task: JobTask): NodeMeta {
   //
   // 이 갈래가 생기기 전에는 멈춘 Task 가 도는 Task 와 똑같은 `수정 2/3` 을 달고 서 있었다 —
   // 첫 조각이 `JobConvergence.stopped` 를 투영에 싣고 아무도 읽지 않은 결과다.
-  if (conv?.repairing) return { kind: 'repairing', repairs: conv.repairs, max: conv.maxFixAttempts, failed: firstBlocked(task) }
-  if (conv?.stopped) return { kind: 'stopped', failed: firstBlocked(task) }
+  if (conv?.repairing) return { kind: 'repairing', repairs: conv.repairs, max: conv.maxFixAttempts, ...blockedOf(task) }
+  if (conv?.stopped) return { kind: 'stopped', ...blockedOf(task) }
   // validator 는 라운드 끝에 한 번 결과를 준다 — 도는 동안 화면이 아는 것은 지난 라운드뿐이다(U12). "지금 도는
   // 검사" 를 지어내지 않고 지난 라운드에 막힌 것을 가리킨다: 그것이 다시 도는 중이라는 뜻이다. retryingCheckOf
   // 를 그대로 쓴다 — ● 로 그릴 칩과 여기 문구가 서로 다른 검사를 가리키면 안 되므로 판정을 두 곳에 따로 적지

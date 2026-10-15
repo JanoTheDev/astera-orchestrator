@@ -1406,6 +1406,7 @@ export const es: Catalog = {
   'jobs.convergence.chip.stopped': 'auto-reparación detenida',
   'jobs.convergence.node.stopped': 'auto-reparación detenida',
   'jobs.convergence.node.stoppedWithCheck': 'auto-reparación detenida · {failed} falló',
+  'jobs.convergence.node.stoppedUnavailable': 'auto-reparación detenida · {failed} no se pudo ejecutar',
   'jobs.convergence.stop': 'Detener auto-reparación',
   'jobs.convergence.stopConfirmTitle': '¿Detener la auto-reparación de esta tarea?',
   'jobs.convergence.stopConfirmBody':
@@ -1526,7 +1527,7 @@ export const es: Catalog = {
   'jobs.task.checksHint': 'Pon primero las comprobaciones rápidas: se detiene en el primer fallo, así que una lenta al principio cuesta todo su tiempo en cada corrección.',
   'jobs.task.checksUnpicked': 'Sin elegir',
   'jobs.task.checksNone': 'No hay configuración de ejecución ni plugin de comprobación que usar como comprobación',
-  'jobs.task.checksRuntimePlugins': 'Las comprobaciones de plugins de un Runtime no aparecen aquí. Añade una con astera --runtime <id> tasks add --validate plugin:<id del plugin>.',
+  'jobs.task.checksRuntimePlugins': 'Las comprobaciones de plugins de un Runtime no aparecen aquí. Añade una desde la CLI: astera --runtime {runtime} tasks add --run {run} --spec <el trabajo> --validate plugin:<id del plugin>',
   'jobs.task.checkPlugin': 'Plugin: {name}',
   'jobs.task.checkPluginStatus': 'Plugin: {name} ({status})',
   'jobs.task.checkUp': 'Subir',

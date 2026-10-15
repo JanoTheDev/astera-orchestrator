@@ -1780,15 +1780,16 @@ export const ko = {
   'jobs.convergence.node.checking': '검사 중',
   'jobs.convergence.node.reviewing': '검토 라운드 {round}/{max}',
   'jobs.convergence.node.failed': '{name} 실패',
+  'jobs.convergence.node.unavailable': '{name} 검사 불가',
   // 사이드바 도는 줄·Gate 줄의 칩(JobsView, convergenceChipOf)
   'jobs.convergence.chip.repairing': '수정 {repairs}/{max}',
-  'jobs.convergence.node.unavailable': '{name} 검사 불가',
   'jobs.convergence.chip.reviewing': '검토 {round}/{max}',
   'jobs.convergence.chip.exhausted': '소진',
   // 설계 §4(V3). 멈춘 Task 는 도는 Task 와 같은 줄을 달고 있으면 안 된다.
   'jobs.convergence.chip.stopped': '수정 멈춤',
   'jobs.convergence.node.stopped': '자동 수정 멈춤',
   'jobs.convergence.node.stoppedWithCheck': '자동 수정 멈춤 · {failed} 실패',
+  'jobs.convergence.node.stoppedUnavailable': '자동 수정 멈춤 · {failed} 검사 불가',
   'jobs.convergence.stop': '자동 수정 중지',
   'jobs.convergence.stopConfirmTitle': '이 Task 의 자동 수정을 멈출까요?',
   // 두 가지를 말한다. 되돌릴 수 없다는 것(서버에 --convergence on 이 없다)과, 지금 도는
@@ -1933,7 +1934,7 @@ export const ko = {
   'jobs.task.checksHint': '빠른 검사를 앞에 두세요 — 첫 실패에서 멈추므로, 느린 검사가 앞에 있으면 매 수정마다 그 시간을 버립니다.',
   'jobs.task.checksUnpicked': '고르지 않은 것',
   'jobs.task.checksNone': '검사로 쓸 실행 구성이나 검사 플러그인이 없습니다',
-  'jobs.task.checksRuntimePlugins': 'Runtime 의 플러그인 검사는 여기 나오지 않습니다. astera --runtime <id> tasks add --validate plugin:<플러그인 id> 로 추가하세요.',
+  'jobs.task.checksRuntimePlugins': 'Runtime 의 플러그인 검사는 여기 나오지 않습니다. CLI 로 추가하세요: astera --runtime {runtime} tasks add --run {run} --spec <할 일> --validate plugin:<플러그인 id>',
   'jobs.task.checkPlugin': '플러그인: {name}',
   'jobs.task.checkPluginStatus': '플러그인: {name} ({status})',
   // ↑ ↓ ✕ — 아이콘만 있는 버튼의 aria-label·title

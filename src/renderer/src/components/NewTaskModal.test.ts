@@ -25,7 +25,8 @@ describe('NewTaskModal checks', () => {
     expect(html).not.toContain('jobs.task.checksRuntimePlugins')
   })
 
-  it('a Runtime’s Task says its plugin checks are added from the CLI', () => {
-    expect(render(door('rt_1'), [])).toContain('jobs.task.checksRuntimePlugins')
+  // 5c final review M8: the command it gives runs as written: this Runtime and this run, and the work it needs
+  it('a Runtime’s Task says its plugin checks are added from the CLI, naming this Runtime and this run', () => {
+    expect(render(door('rt_1'), [])).toContain('jobs.task.checksRuntimePlugins {&quot;runtime&quot;:&quot;rt_1&quot;,&quot;run&quot;:&quot;run_1&quot;}')
   })
 })

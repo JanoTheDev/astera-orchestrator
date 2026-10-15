@@ -310,7 +310,9 @@ export function NewTaskModal({
               </ol>
             )}
             {/* A Runtime's plugins are its own and a controller cannot list them (C14): say where its plugin checks are added */}
-            {door.runtimeId !== undefined && <p className="modal-hint">{t('jobs.task.checksRuntimePlugins')}</p>}
+            {door.runtimeId !== undefined && (
+              <p className="modal-hint">{t('jobs.task.checksRuntimePlugins', { runtime: door.runtimeId, run: runId })}</p>
+            )}
             {configs.length === 0 ? (
               <p className="modal-hint">{t('jobs.task.checksNone')}</p>
             ) : (

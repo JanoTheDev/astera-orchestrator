@@ -1387,6 +1387,7 @@ export const ja: Catalog = {
   'jobs.convergence.chip.stopped': '修正停止',
   'jobs.convergence.node.stopped': '自動修正を停止',
   'jobs.convergence.node.stoppedWithCheck': '自動修正を停止 · {failed} 失敗',
+  'jobs.convergence.node.stoppedUnavailable': '自動修正を停止 · {failed} を実行できず',
   'jobs.convergence.stop': '自動修正を停止',
   'jobs.convergence.stopConfirmTitle': 'このタスクの自動修正を停止しますか?',
   'jobs.convergence.stopConfirmBody':
@@ -1505,7 +1506,7 @@ export const ja: Catalog = {
   'jobs.task.checksHint': '速い検査を前に置いてください — 最初の失敗で止まるので、遅い検査が前にあると修正のたびにその時間を失います。',
   'jobs.task.checksUnpicked': '未選択',
   'jobs.task.checksNone': '検査に使える実行構成や検査プラグインがありません',
-  'jobs.task.checksRuntimePlugins': 'Runtime のプラグインチェックはここに表示されません。astera --runtime <id> tasks add --validate plugin:<プラグイン id> で追加してください。',
+  'jobs.task.checksRuntimePlugins': 'Runtime のプラグインチェックはここに表示されません。CLI で追加してください: astera --runtime {runtime} tasks add --run {run} --spec <作業内容> --validate plugin:<プラグイン id>',
   'jobs.task.checkPlugin': 'プラグイン: {name}',
   'jobs.task.checkPluginStatus': 'プラグイン: {name} ({status})',
   'jobs.task.checkUp': '上へ',

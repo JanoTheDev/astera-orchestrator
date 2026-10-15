@@ -1571,6 +1571,7 @@ export const en: Record<keyof typeof ko, string> = {
   'jobs.convergence.chip.stopped': 'auto-fix off',
   'jobs.convergence.node.stopped': 'auto-fix stopped',
   'jobs.convergence.node.stoppedWithCheck': 'auto-fix stopped · {failed} failed',
+  'jobs.convergence.node.stoppedUnavailable': 'auto-fix stopped · {failed} could not run',
   'jobs.convergence.stop': 'Stop auto-fix',
   'jobs.convergence.stopConfirmTitle': 'Stop auto-fix for this task?',
   'jobs.convergence.stopConfirmBody':
@@ -1704,7 +1705,7 @@ export const en: Record<keyof typeof ko, string> = {
   'jobs.task.checksHint': 'Put fast checks first — the run stops at the first failure, so a slow check up front costs its full time on every fix.',
   'jobs.task.checksUnpicked': 'Not picked',
   'jobs.task.checksNone': 'No run configuration or check plugin to use as a check',
-  'jobs.task.checksRuntimePlugins': "A Runtime's plugin checks are not listed here. Add one with astera --runtime <id> tasks add --validate plugin:<plugin id>.",
+  'jobs.task.checksRuntimePlugins': "A Runtime's plugin checks are not listed here. Add one from the CLI: astera --runtime {runtime} tasks add --run {run} --spec <the work> --validate plugin:<plugin id>",
   'jobs.task.checkPlugin': 'Plugin: {name}',
   'jobs.task.checkPluginStatus': 'Plugin: {name} ({status})',
   'jobs.task.checkUp': 'Move up',

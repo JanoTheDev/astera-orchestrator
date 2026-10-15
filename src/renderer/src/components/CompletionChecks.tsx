@@ -24,8 +24,9 @@ export function CompletionChecks({
   return (
     <ul className="detail-completion-checks">
       {checks.map((c) => {
-        // A skipped check's record starts with English words the verdict already says in this app's language
-        const said = c.skipped ? skipReasonOf(c.summary) : c.summary
+        // A skipped check's record starts with English words the verdict already says in this app's language; a
+        // summary the Host filled with the status word (the plugin gave none, C5) says only what the verdict says
+        const said = c.skipped ? skipReasonOf(c.summary) : c.summary === c.status ? undefined : c.summary
         const link = c.externalUrl
         return (
           <li key={c.configId}>

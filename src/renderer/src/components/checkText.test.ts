@@ -2,7 +2,7 @@
 // block, in all four languages.
 import { describe, it, expect } from 'vitest'
 import { CATALOGS, LANGS } from '../../../core/i18n'
-import { GLYPH, checkChoicesOf, checkTooltip, checkVerdict } from './checkText'
+import { GLYPH, checkChoicesOf, checkTooltip, checkVerdict, nodeMetaText } from './checkText'
 
 const t = (key: string, p?: Record<string, string | number>): string => (p ? `${key} ${JSON.stringify(p)}` : key)
 
@@ -15,6 +15,26 @@ describe('checkVerdict', () => {
     expect(checkVerdict({ status: 'error' }, t)).toBe('jobs.convergence.check.error')
     expect(checkVerdict({ status: 'not-run' }, t)).toBe('jobs.convergence.check.notRun')
     expect(checkVerdict({ status: 'not-run', skipped: true }, t)).toBe('jobs.convergence.check.skipped')
+  })
+
+  // 5c final review (declined, ruled a finding): a status this app does not know, from a Runtime of another version, is
+  // said as it is rather than as "undefined"
+  it('says a status it does not know as it is', () => {
+    expect(checkVerdict({ status: 'paused' as never }, t)).toBe('paused')
+  })
+})
+
+// 5c final review M1: the node line in words, a check that could not be made said so wherever a line names it
+describe('nodeMetaText', () => {
+  it('says a check could not run on the failed and stopped lines, and drops its name from a repair’s', () => {
+    expect(nodeMetaText({ kind: 'failed', name: 'D', unavailable: true }, t)).toBe('jobs.convergence.node.unavailable {"name":"D"}')
+    expect(nodeMetaText({ kind: 'failed', name: 'Tests' }, t)).toBe('jobs.convergence.node.failed {"name":"Tests"}')
+    expect(nodeMetaText({ kind: 'stopped', failed: 'D', unavailable: true }, t)).toBe('jobs.convergence.node.stoppedUnavailable {"failed":"D"}')
+    expect(nodeMetaText({ kind: 'stopped', failed: 'Tests' }, t)).toBe('jobs.convergence.node.stoppedWithCheck {"failed":"Tests"}')
+    expect(nodeMetaText({ kind: 'repairing', repairs: 1, max: 3, failed: 'D', unavailable: true }, t)).toBe(
+      'jobs.convergence.node.repairingNoCheck {"repairs":1,"max":3}'
+    )
+    expect(nodeMetaText({ kind: 'none' }, t)).toBeUndefined()
   })
 })
 
@@ -57,7 +77,8 @@ describe('the check words', () => {
       'jobs.convergence.node.unavailable',
       'jobs.task.checkPlugin',
       'jobs.task.checkPluginStatus',
-      'jobs.task.checksRuntimePlugins'
+      'jobs.task.checksRuntimePlugins',
+      'jobs.convergence.node.stoppedUnavailable'
     ]
     for (const key of keys) for (const lang of LANGS) expect((CATALOGS[lang].messages as Record<string, string>)[key], `${lang} ${key}`).toBeTruthy()
   })

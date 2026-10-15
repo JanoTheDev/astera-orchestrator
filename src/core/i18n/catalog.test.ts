@@ -69,3 +69,20 @@ describe('카탈로그 불변식', () => {
     }
   })
 })
+
+// Plugin Phase 5c (final review M8, M9): the new-Task window's words for completion check plugins
+describe('the completion check plugin words', () => {
+  it('sit beside the words they belong with, in every catalog', () => {
+    for (const lang of LANGS) {
+      const keys = Object.keys(CATALOGS[lang].messages)
+      expect(keys.indexOf('jobs.convergence.node.unavailable'), lang).toBe(keys.indexOf('jobs.convergence.node.failed') + 1)
+    }
+  })
+
+  it('a Runtime’s hint gives a tasks add that runs as written: this Runtime, this run and the work', () => {
+    for (const lang of LANGS) {
+      const hint = CATALOGS[lang].messages['jobs.task.checksRuntimePlugins'] as string
+      for (const part of ['astera --runtime {runtime} tasks add', '--run {run}', '--spec', '--validate plugin:']) expect(hint, lang).toContain(part)
+    }
+  })
+})

@@ -516,8 +516,8 @@ export interface JobTask {
    *  (UI 설계 U2). 없으면 검사가 없는 Task 이고, 그때 노드는 칩 줄 자체를 그리지 않는다. */
   checks?: JobCheck[]
   /** A round a person let go on without a check (plugin Phase 5 C9 skip-check) runs the checks after it: the one it
-   *  runs now. Absent otherwise. */
-  resumeAt?: string
+   *  runs now, or null when the skipped check was the round's last. Absent when no such round is live. */
+  resumeAt?: string | null
   /** 자동 수정 정책이 있는 Run 의 Task 만 갖는다(`policyOf !== null`). 검사가 없는 Task 도 Run 에 정책이 있으면
    *  갖는다 — 검토만 걸린 Task 의 라운드를 그리기 위해서다. 없는 Run 에 실으면 의미 없는 3/2 가 모든 카드를
    *  따라다닌다. */

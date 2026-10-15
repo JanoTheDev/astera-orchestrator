@@ -20,6 +20,11 @@ const CHECK_UNAVAILABLE_WORDS = {
   'skip-check': ['jobs.gate.checkUnavailable.skip', 'jobs.gate.checkUnavailable.skipHint'],
   'mark-failed': ['jobs.gate.checkUnavailable.fail', 'jobs.gate.checkUnavailable.failHint']
 } as const
+/** An exhausted repair budget's options in words (convergence design §5.2): words the catalogs held and no screen used */
+const EXHAUSTED_WORDS = {
+  'retry-once': 'jobs.convergence.gate.retryOnce',
+  'mark-failed': 'jobs.convergence.gate.markFailed'
+} as const
 
 /** The choices a question offers, in words, and whether it takes an answer in words too. An option this app does not
  *  know is offered as it is. */
@@ -33,6 +38,11 @@ export function gateChoicesOf(gate: Gate, t: Translate): { choices: GateChoice[]
         return { value: o, label: t(label), hint: t(hint) }
       }),
       freeText: false
+    }
+  if (gate.kind === 'convergence-exhausted')
+    return {
+      choices: options.map((o) => ({ value: o, label: Object.hasOwn(EXHAUSTED_WORDS, o) ? t(EXHAUSTED_WORDS[o as keyof typeof EXHAUSTED_WORDS]) : o })),
+      freeText: true
     }
   return { choices: options.map((o) => ({ value: o, label: o })), freeText: true }
 }
@@ -75,8 +85,9 @@ export function GateAnswer({
             치게 하지 않는다. 버튼은 라벨이 아니라 그 선택지를 resolution 으로 보낸다 */}
         {choices.length > 0 && (
           <div className="detail-gate-options">
-            {choices.map((c) => (
-              <button key={c.value} disabled={busy} title={c.hint} onClick={() => onResolve(c.value)}>
+            {/* With no box to focus, the first choice takes the focus the Unlock button had: it left with the form's opening */}
+            {choices.map((c, i) => (
+              <button key={c.value} autoFocus={!freeText && i === 0} disabled={busy} onClick={() => onResolve(c.value)}>
                 {c.label}
                 {c.hint !== undefined && <span className="detail-gate-option-hint">{c.hint}</span>}
               </button>

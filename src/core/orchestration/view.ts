@@ -133,8 +133,11 @@ function jobTaskOf(
   // outcome_unknown 으로 닫힌 경우)이 "아직 기다리는 중"으로 보인다. 그 Dispatch 는 이미 끝났으므로
   // 아무도 그 리셋을 기다리지 않는다.
   // A round a person let go on without a check (plugin Phase 5 C9 skip-check) is drawn as it runs: the results it
-  // carries, the skipped check as skipped, and the old round's rest, of which the first runs now
-  const resume = task.checkResume
+  // carries, the skipped check as skipped, and the old round's rest, of which the first runs now. Only while it is
+  // live, as state.ts's liveCheckResume says: task-update can leave one behind a newer attempt, or a Task no longer
+  // validating, and that round is not the one running (5c final review M3)
+  const latestAttempt = dispatches.filter((d) => !d.review).at(-1)
+  const resume = task.status === 'validating' && task.checkResume?.dispatchId === latestAttempt?.id ? task.checkResume : undefined
   const round = resume ? [...resume.done, ...(task.checks ?? []).slice(resume.done.length)] : task.checks
   const entries = running?.resumes ?? []
   const openEntry =
@@ -196,7 +199,7 @@ function jobTaskOf(
           }))
         }
       : {}),
-    ...(resume && resume.rest.length > 0 ? { resumeAt: resume.rest[0] } : {}),
+    ...(resume ? { resumeAt: resume.rest[0] ?? null } : {}),
     // 예산과 진행은 정책 있는 Run 에만(U3)
     ...(policy
       ? {

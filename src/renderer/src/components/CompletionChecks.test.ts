@@ -62,6 +62,16 @@ describe('CompletionChecks', () => {
     expect(render([])).toBe('')
   })
 
+  // 5c final review M4: a summary the Host filled with the status word (the plugin gave none) says nothing the verdict
+  // does not, in English beside the verdict in this app's language
+  it('draws no summary that is only the status word', () => {
+    const html = render([
+      { configId: 'plugin:a', name: 'A', status: 'passed', summary: 'passed' },
+      { configId: 'plugin:b', name: 'B', status: 'error', summary: 'error' }
+    ])
+    expect(html).not.toContain('detail-completion-summary')
+  })
+
   it('its words are in all four languages', () => {
     for (const key of ['jobs.completion.openReport', 'jobs.completion.warning'])
       for (const lang of LANGS) expect((CATALOGS[lang].messages as Record<string, string>)[key], `${lang} ${key}`).toBeTruthy()
