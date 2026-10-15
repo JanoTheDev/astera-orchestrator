@@ -9,6 +9,9 @@ import {
   diagnosticLine,
   pluginCheckText,
   pluginIdOfCheck,
+  skippedResult,
+  skipReasonOf,
+  SKIPPED_PREFIX,
   type CheckDiagnostic,
   type CompletionCheckInput,
   type PluginCheckAnswer
@@ -183,5 +186,16 @@ describe('the input (C3)', () => {
     const input = checkInputOf(s, task, 'P')
     expect(input.workspace).toEqual({ root: 'P', base: 'r0' })
     expect(input).not.toHaveProperty('projectId')
+  })
+})
+
+// Plugin Phase 5c: a screen says "skipped" in its own words, then the reason the record keeps
+describe('a skipped check’s reason', () => {
+  it('skipReasonOf gives the reason a skipped check could not be made, without the record’s English words', () => {
+    const skipped = skippedResult({ configId: 'plugin:d', name: 'D', status: 'error', summary: 'astera-d is stopped' })
+    expect(skipped.summary).toBe(`${SKIPPED_PREFIX}astera-d is stopped`)
+    expect(skipReasonOf(skipped.summary)).toBe('astera-d is stopped')
+    expect(skipReasonOf('a summary of its own')).toBe('a summary of its own')
+    expect(skipReasonOf(undefined)).toBeUndefined()
   })
 })

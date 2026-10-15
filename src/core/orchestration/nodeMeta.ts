@@ -13,13 +13,15 @@ export type NodeMeta =
   | { kind: 'repairing'; repairs: number; max: number; failed: string | null }
   | { kind: 'checking'; retrying: string | null }
   | { kind: 'reviewing'; round: number; max: number }
-  | { kind: 'failed'; name: string }
+  /** `unavailable`: the check that stopped it could not be made, and a person failed the Task (plugin Phase 5 C9) */
+  | { kind: 'failed'; name: string; unavailable?: true }
   | { kind: 'provider'; provider: Provider }
   | { kind: 'none' }
 
-/** 마지막 라운드에서 첫 실패(failed·timed-out)한 검사. 첫 실패 뒤는 not-run 이라(validator) 막힌 것은 하나다 */
+/** 마지막 라운드에서 첫 실패(failed·timed-out)한 검사. 첫 실패 뒤는 not-run 이라(validator) 막힌 것은 하나다. A check
+ *  that could not be made (`error`, plugin Phase 5 C9) stops a round as well. */
 export const firstBlockedCheck = (task: Pick<JobTask, 'checks'>): JobCheck | null =>
-  task.checks?.find((c) => c.status === 'failed' || c.status === 'timed-out') ?? null
+  task.checks?.find((c) => c.status === 'failed' || c.status === 'timed-out' || c.status === 'error') ?? null
 
 /** 그 검사의 이름 — meta 줄이 부르는 것 */
 export const firstBlocked = (task: Pick<JobTask, 'checks'>): string | null => firstBlockedCheck(task)?.name ?? null
@@ -31,9 +33,11 @@ export const firstBlocked = (task: Pick<JobTask, 'checks'>): string | null => fi
  *  firstBlockedCheck 가 null 을 주는데, 거기서 그대로 null 을 돌려주면 칩 줄이 전부 ✓ 로 서서 "지금 도는
  *  검사가 없다"고 거짓말한다 — 실제로는 처음부터 다시 돈다. 그 라운드가 도는 순서는 고른 순서 그대로이므로
  *  가리킬 것은 그 순서의 첫 검사다. validating 이 아니거나 검사 자체가 없으면(첫 라운드) null. */
-export const retryingCheckOf = (task: Pick<JobTask, 'status' | 'checks'>): JobCheck | null => {
+export const retryingCheckOf = (task: Pick<JobTask, 'status' | 'checks' | 'resumeAt'>): JobCheck | null => {
   if (task.status !== 'validating') return null
   if (!task.checks || task.checks.length === 0) return null
+  // A round a person let go on without a check runs the checks after it, not from the first (plugin Phase 5 C9)
+  if (task.resumeAt !== undefined) return task.checks.find((c) => c.configId === task.resumeAt) ?? null
   return firstBlockedCheck(task) ?? task.checks[0]
 }
 
@@ -59,8 +63,9 @@ export function nodeMetaOf(task: JobTask): NodeMeta {
   if (task.status === 'reviewing' && conv) return { kind: 'reviewing', round: conv.reviewRound + 1, max: conv.maxReviewRounds }
   // failed 상태에만 — --retry-of 로 다시 띄운 dispatched Task 도 지난 라운드의 실패를 들고 있는데, 그 줄이 "실패"
   // 라고 말하면 지금 도는 워커가 없는 것처럼 읽힌다. 거기서는 provider 가 맞다.
-  const blocked = firstBlocked(task)
-  if (task.status === 'failed' && blocked !== null) return { kind: 'failed', name: blocked }
+  const blocked = firstBlockedCheck(task)
+  if (task.status === 'failed' && blocked !== null)
+    return { kind: 'failed', name: blocked.name, ...(blocked.status === 'error' ? { unavailable: true as const } : {}) }
   if (task.provider) return { kind: 'provider', provider: task.provider }
   return { kind: 'none' }
 }

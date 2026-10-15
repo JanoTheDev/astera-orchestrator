@@ -170,3 +170,21 @@ describe('canStopConvergence', () => {
     expect(canStopConvergence(task({ convergence: conv(), status: 'failed' }))).toBe(false)
   })
 })
+
+// Plugin Phase 5c: a check that could not be made stops a round as a failure does (C9)
+describe('a check that could not be made', () => {
+  const unmade = [check('Typecheck', 'passed'), check('D', 'error'), check('Tests', 'not-run')]
+
+  it('is the round’s blocked check, and a failed Task’s line says it could not run', () => {
+    expect(firstBlocked(task({ checks: unmade }))).toBe('D')
+    expect(nodeMetaOf(task({ status: 'failed', checks: unmade, provider: 'claude' }))).toEqual({ kind: 'failed', name: 'D', unavailable: true })
+    expect(nodeMetaOf(task({ status: 'failed', checks: failing, provider: 'claude' }))).toEqual({ kind: 'failed', name: 'Tests' })
+  })
+
+  it('a resumed round marks the check it runs now, and none when nothing is left to run', () => {
+    const resumed = [check('Typecheck', 'passed'), { ...check('D', 'not-run'), skipped: true as const }, check('Tests', 'not-run')]
+    expect(retryingCheckOf(task({ status: 'validating', checks: resumed, resumeAt: 'tests' }))?.name).toBe('Tests')
+    expect(retryingCheckOf(task({ status: 'validating', checks: resumed, resumeAt: 'gone' }))).toBeNull()
+    expect(retryingCheckOf(task({ status: 'validating', checks: unmade }))?.name).toBe('D')
+  })
+})

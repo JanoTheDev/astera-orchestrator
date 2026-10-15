@@ -113,6 +113,9 @@ export function checkAnswerOf(raw: unknown): Omit<PluginCheckAnswer, 'name'> {
   }
 }
 
+/** The words a skipped check's record starts with, before the reason it could not be made (C9 `skip-check`). */
+export const SKIPPED_PREFIX = 'Skipped by a person: '
+
 /** A check that could not be made, as a round a person let go on without it keeps it (C9 `skip-check`): not run,
  *  marked skipped, the reason it could not be made in its words. */
 export function skippedResult(c: CheckResult): CheckResult {
@@ -121,9 +124,14 @@ export function skippedResult(c: CheckResult): CheckResult {
     name: c.name,
     status: 'not-run',
     skipped: true,
-    summary: clip(`Skipped by a person: ${c.summary ?? 'it could not be made'}`, CHECK_SUMMARY_MAX)
+    summary: clip(`${SKIPPED_PREFIX}${c.summary ?? 'it could not be made'}`, CHECK_SUMMARY_MAX)
   }
 }
+
+/** The reason a skipped check could not be made, without the words its record says it with: a screen says "skipped"
+ *  in its own language. Any other summary is given back as it is. */
+export const skipReasonOf = (summary: string | undefined): string | undefined =>
+  summary !== undefined && summary.startsWith(SKIPPED_PREFIX) ? summary.slice(SKIPPED_PREFIX.length) : summary
 
 /** A plugin's text on one line, for a place that promises one (`failureSummary`, a row of `runs checks --human`): its
  *  line breaks, with the spaces around them, become one space. */

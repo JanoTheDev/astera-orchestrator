@@ -132,6 +132,10 @@ function jobTaskOf(
   // waiting 은 running 에서만 읽는다 — latest 를 쓰면 끝난 Dispatch 의 열린 항목(앱이 꺼져
   // outcome_unknown 으로 닫힌 경우)이 "아직 기다리는 중"으로 보인다. 그 Dispatch 는 이미 끝났으므로
   // 아무도 그 리셋을 기다리지 않는다.
+  // A round a person let go on without a check (plugin Phase 5 C9 skip-check) is drawn as it runs: the results it
+  // carries, the skipped check as skipped, and the old round's rest, of which the first runs now
+  const resume = task.checkResume
+  const round = resume ? [...resume.done, ...(task.checks ?? []).slice(resume.done.length)] : task.checks
   const entries = running?.resumes ?? []
   const openEntry =
     entries.length > 0 && entries[entries.length - 1].resumedAt === undefined
@@ -179,18 +183,20 @@ function jobTaskOf(
     // 검사 결과는 **검사가 걸린 모든 Task** 에 — 자동 수정을 켠 Run 만이 아니다(UI 설계 U2). 칩이 그리는 것만
     // 싣는다: 출력 꼬리는 이 스냅숏이 사이드바 푸시마다 나가는 것이라 빼고(U4), 시간은 ISO 둘이 아니라 뺄셈
     // 결과 하나로 — 렌더러가 계산하면 테스트할 자리가 없다.
-    ...(task.checks?.length
+    ...(round?.length
       ? {
-          checks: task.checks.map((c) => ({
+          checks: round.map((c) => ({
             configId: c.configId,
             name: c.name,
             status: c.status,
             ...(c.exitCode !== undefined ? { exitCode: c.exitCode } : {}),
             ...(c.startedAt && c.endedAt ? { durationMs: Date.parse(c.endedAt) - Date.parse(c.startedAt) } : {}),
-            ...(c.unstable ? { unstable: true as const } : {})
+            ...(c.unstable ? { unstable: true as const } : {}),
+            ...(c.skipped ? { skipped: true as const } : {})
           }))
         }
       : {}),
+    ...(resume && resume.rest.length > 0 ? { resumeAt: resume.rest[0] } : {}),
     // 예산과 진행은 정책 있는 Run 에만(U3)
     ...(policy
       ? {

@@ -1805,6 +1805,8 @@ input[type="checkbox"]:not(.md-task input):focus-visible {
 .detail-check--passed { color: var(--ok); }
 .detail-check--failed, .detail-check--timed-out { color: var(--git-deleted); }
 .detail-check--not-run { color: var(--text-faint); }
+/* A plugin check that could not be made (plugin Phase 5 C9): not the code's failure, so not its colour */
+.detail-check--error { color: var(--warn-ink); }
 .detail-check--retrying { color: var(--accent); }
 /* Task 짓기 중 고른 의존 표시. 필터의 고른 표시(노드 자신의 상태색 링)와 다른 채널이라 위치도
    다르다 — 테두리가 아니라 제목 옆에 글리프를 하나 더 세운다. color 를 accent(청록)로 주는 것은

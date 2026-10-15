@@ -1776,6 +1776,7 @@ export const ko = {
   'jobs.convergence.node.failed': '{name} 실패',
   // 사이드바 도는 줄·Gate 줄의 칩(JobsView, convergenceChipOf)
   'jobs.convergence.chip.repairing': '수정 {repairs}/{max}',
+  'jobs.convergence.node.unavailable': '{name} 검사 불가',
   'jobs.convergence.chip.reviewing': '검토 {round}/{max}',
   'jobs.convergence.chip.exhausted': '소진',
   // 설계 §4(V3). 멈춘 Task 는 도는 Task 와 같은 줄을 달고 있으면 안 된다.
@@ -1793,6 +1794,9 @@ export const ko = {
   'jobs.convergence.check.failed': '실패 (exit {code})',
   'jobs.convergence.check.timedOut': '타임아웃',
   'jobs.convergence.check.notRun': '돌지 않음',
+  'jobs.convergence.check.failedNoCode': '실패',
+  'jobs.convergence.check.error': '검사할 수 없었음',
+  'jobs.convergence.check.skipped': '사람이 건너뜀',
   'jobs.convergence.check.retrying': '다시 도는 중',
   'jobs.convergence.check.unstable': '라운드 사이에 판정이 흔들림',
   // 설계 §2(V1). 칩은 '무엇이 어디서 멈췄나' 까지고, 이 블록이 '그래서 뭐가 틀렸나' 를 맡는다.

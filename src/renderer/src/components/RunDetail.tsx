@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import type {
   Account,
-  JobCheck,
   JobEvent,
   JobRow,
   JobTask,
@@ -17,7 +16,6 @@ import { chainOf } from '../../../core/orchestration/graph'
 import type { GraphBox } from '../../../core/orchestration/graphLayout'
 import { edgePath, layoutRows, NODE_H, NODE_W } from '../../../core/orchestration/graphLayout'
 import { canStopConvergence, nodeMetaOf, retryingCheckOf, type NodeMeta } from '../../../core/orchestration/nodeMeta'
-import { formatRunDuration } from '../../../core/run/duration'
 import { DEFAULT_CONCURRENCY, type Dispatch } from '../../../core/orchestration/types'
 import { runningCount } from '../../../core/orchestration/running'
 import { runIdToMerge } from '../../../core/orchestration/snapshot'
@@ -26,6 +24,7 @@ import { replyNote, type OrchDoor } from '../lib/orchDoor'
 import { confirmModal } from '../lib/confirm'
 import { ChangedFilesBlock } from './ChangedFilesBlock'
 import { CompletionBlock } from './CompletionBlock'
+import { GLYPH, checkTooltip, type GlyphKind } from './checkText'
 import { toast } from '../lib/toast'
 import { errText } from '../hooks/useFileOps'
 import {
@@ -181,7 +180,7 @@ function metaText(m: NodeMeta, t: Translate): string | undefined {
     case 'reviewing':
       return t('jobs.convergence.node.reviewing', { round: m.round, max: m.max })
     case 'failed':
-      return t('jobs.convergence.node.failed', { name: m.name })
+      return t(m.unavailable ? 'jobs.convergence.node.unavailable' : 'jobs.convergence.node.failed', { name: m.name })
     case 'provider':
       return m.provider
     case 'none':
@@ -196,31 +195,6 @@ function metaText(m: NodeMeta, t: Translate): string | undefined {
       return exhaustive
     }
   }
-}
-
-/** 칩 기호의 종류 — CheckResult.status 넷에 그리기 위한 다섯째 `retrying` 이 더해진다: validating 인 Task 에서
- *  지난 라운드에 막혔던 검사는 지금 다시 도는 중이라는 뜻이다(UI 설계 U12 — validator 는 라운드 끝에만 결과를
- *  주므로 "지금 도는 검사" 는 그렇게밖에 알 수 없다). */
-type GlyphKind = JobCheck['status'] | 'retrying'
-// `error` (a plugin check that could not be made, plugin Phase 5 C9) draws apart from a failure; its words are 5c's.
-const GLYPH: Record<GlyphKind, string> = { passed: '✓', failed: '✗', 'timed-out': '✗', 'not-run': '○', error: '!', retrying: '●' }
-
-/** "{이름} — {결과} ({지난 라운드 실제 시간}), {흔들림}". 시간은 formatRunDuration 을 빌린다 — {startedAt, exitedAt}
- *  과 now 를 받는 함수라 0·durationMs·0 을 넘긴다(어댑터 한 줄). */
-function checkTooltip(c: JobCheck, glyph: GlyphKind, t: Translate): string {
-  const verdict =
-    glyph === 'retrying'
-      ? t('jobs.convergence.check.retrying')
-      : c.status === 'passed'
-        ? t('jobs.convergence.check.passed')
-        : c.status === 'failed'
-          ? t('jobs.convergence.check.failed', { code: c.exitCode ?? '?' })
-          : c.status === 'timed-out'
-            ? t('jobs.convergence.check.timedOut')
-            : t('jobs.convergence.check.notRun')
-  const time = c.durationMs !== undefined ? ` (${formatRunDuration({ startedAt: 0, exitedAt: c.durationMs }, 0)})` : ''
-  const flip = c.unstable ? `, ${t('jobs.convergence.check.unstable')}` : ''
-  return `${c.name} — ${verdict}${time}${flip}`
 }
 
 export function RunDetail({

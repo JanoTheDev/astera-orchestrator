@@ -956,6 +956,29 @@ describe('snapshotFor — 검사 결과와 자동 수정 진행', () => {
     expect(taskOf(s).convergence).toBeUndefined()
   })
 
+  // Plugin Phase 5c: a skipped check says so, and a round a person let go on without a check (C9 skip-check) shows what
+  // it carries, and which check runs now
+  it('a skipped check is projected as skipped, and a resumed round shows its skipped check and the check it runs now', () => {
+    const round: CheckResult[] = [
+      { configId: 'c1', name: 'Typecheck', status: 'passed' },
+      { configId: 'plugin:d', name: 'D', status: 'error', summary: 'down' },
+      { configId: 'c2', name: 'Tests', status: 'not-run' }
+    ]
+    const skipped: CheckResult = { configId: 'plugin:d', name: 'D', status: 'not-run', skipped: true, summary: 'Skipped by a person: down' }
+    const resumed = withRuns([run('r1', absPath('p'))], [
+      { ...task('t1', 'r1', 'validating'), checks: round, checkResume: { dispatchId: 'd1', done: [round[0], skipped], rest: ['c2'] } }
+    ])
+    expect(taskOf(resumed).checks).toEqual([
+      { configId: 'c1', name: 'Typecheck', status: 'passed' },
+      { configId: 'plugin:d', name: 'D', status: 'not-run', skipped: true },
+      { configId: 'c2', name: 'Tests', status: 'not-run' }
+    ])
+    expect(taskOf(resumed).resumeAt).toBe('c2')
+    const settled = withRuns([run('r1', absPath('p'))], [{ ...task('t1', 'r1', 'completed'), checks: [round[0], skipped] }])
+    expect(taskOf(settled).checks?.[1]).toEqual({ configId: 'plugin:d', name: 'D', status: 'not-run', skipped: true })
+    expect(taskOf(settled)).not.toHaveProperty('resumeAt')
+  })
+
   it('checks 가 없는 Task 는 칸 자체가 없다', () => {
     const s = withRuns([run('r1', absPath('p'))], [task('t1', 'r1', 'completed')])
     expect(taskOf(s)).not.toHaveProperty('checks')
