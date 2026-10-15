@@ -355,6 +355,29 @@ describe('createPluginRuntime', () => {
     for (let i = 1; i < times.length; i++) expect(times[i] - times[i - 1], `count ${i}`).toBeGreaterThanOrEqual(800)
   }, 90_000)
 
+  // A timer can fire before its second is over by the runtime's clock (Node keeps whole milliseconds, a loaded machine
+  // drifts): a count said then was followed by a second count of the same second (the Windows runner, 12 ms apart)
+  it('says a second’s count only once that second is over by its own clock, though a timer fires early', async () => {
+    const real = performance.now.bind(performance)
+    const start = real()
+    // A clock 5% slow: every timer the budget sets fires early by it
+    const clock = vi.spyOn(performance, 'now').mockImplementation(() => start + (real() - start) * 0.95)
+    try {
+      const { r } = runtime()
+      const flood = `export default { activate() { let n = 0; const t = setInterval(() => { for (let i = 0; i < 200; i++) console.log('line ' + n++); if (n >= 20000) clearInterval(t) }, 20) } }`
+      r.start(plugin('early-timer', flood))
+      await until(() => expect(budgetOf(r, 'early-timer', /\sline \d+$/)).toMatchObject({ dropped: 20_000 - budgetOf(r, 'early-timer', /\sline \d+$/).kept }), 30_000)
+      const times = logOf(r, 'early-timer')
+        .split('\n')
+        .filter((l) => /\[host\] dropped [\d,]+ lines? of its output/.test(l))
+        .map((l) => Date.parse(l.slice(0, 24)))
+      expect(times.length).toBeGreaterThan(1)
+      for (let i = 1; i < times.length; i++) expect(times[i] - times[i - 1], `count ${i}`).toBeGreaterThanOrEqual(800)
+    } finally {
+      clock.mockRestore()
+    }
+  }, 90_000)
+
   // 5e final review I2: a flood that ends in a crash keeps the crash's own lines, dropped or not
   it('writes the last lines it dropped when the process ends, so a crash at the end of a flood keeps its stack', async () => {
     const { r } = runtime({ failAfter: 1 })

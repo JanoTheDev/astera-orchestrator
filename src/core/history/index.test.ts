@@ -62,6 +62,33 @@ async function writeLines(acc: Account, slug: string, name: string, lines: unkno
 const sessionIds = async (req?: Parameters<HistoryIndex['page']>[0]): Promise<string[]> =>
   (await index!.page(req)).entries.map((e) => e.sessionId).sort()
 
+/** Waits until the watcher's reports stop: 1.5 s without one (drainWatcher says why that long), 15 s at most. */
+async function untilQuiet(hits: () => number): Promise<void> {
+  for (let quiet = 0, round = 0; quiet < 15 && round < 150; round += 1) {
+    const before = hits()
+    await new Promise((r) => setTimeout(r, 100))
+    quiet = hits() === before ? quiet + 1 : 0
+  }
+}
+
+/** A test that waits for the report of one change makes it only once the watch is live. On macOS fs.watch returns
+ *  before FSEvents has started its stream (libuv starts it on a thread of its own), and a change made in that moment
+ *  is never reported: a removal right after startBackground() went unseen for 5 s on the macOS runner. So the test
+ *  touches a transcript until the watcher reports it, and waits until the reports stop. */
+async function watching(file: string): Promise<void> {
+  let hits = 0
+  index!.onUpdated = (): void => {
+    hits += 1
+  }
+  for (let round = 0; hits === 0 && round < 50; round += 1) {
+    const now = new Date()
+    await fs.utimes(file, now, now)
+    await new Promise((r) => setTimeout(r, 200))
+  }
+  expect(hits, 'the watcher never reported a touched transcript').toBeGreaterThan(0)
+  await untilQuiet(() => hits)
+}
+
 beforeEach(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'astera-history-'))
 })
@@ -158,9 +185,10 @@ describe('HistoryIndex (lazy)', () => {
 
   it('워쳐가 새 transcript를 감지해 onUpdated를 발화하고 이후 page에 반영된다', async () => {
     const a = account('acc-a')
-    await writeTranscript(a, 'p', 'first.jsonl', 'first')
+    const first = await writeTranscript(a, 'p', 'first.jsonl', 'first')
     index = new HistoryIndex(() => [a])
     await index.startBackground()
+    await watching(first)
     const updated = vi.fn()
     index.onUpdated = updated
     await writeTranscript(a, 'p', 'second.jsonl', 'second')
@@ -245,11 +273,7 @@ describe('HistoryIndex (lazy)', () => {
       // 조용함의 기준을 넉넉히 잡는다 — 100ms×15 = 1.5초 동안 새 통지가 없어야 재생이 끝난 것으로
       // 본다(macOS FSEvents 는 부하 아래 0.5초 뒤에도 앞 폴더의 생성 통지를 늦게 재생했다). 상한은
       // 라운드 수로 센다(최대 15초): 넘으면 기다림이 부족한 것이 아니라 다른 일이다.
-      for (let quiet = 0, round = 0; quiet < 15 && round < 150; round += 1) {
-        const before = hits
-        await new Promise((r) => setTimeout(r, 100))
-        quiet = hits === before ? quiet + 1 : 0
-      }
+      await untilQuiet(() => hits)
       await projectNames() // 재생이 남긴 pendingDirs 를 여기서 소진한다
       dirs.length = 0
     }
@@ -358,10 +382,11 @@ describe('HistoryIndex (lazy)', () => {
 
     it('새 폴더가 생기면 행이 추가된다', async () => {
       const a = account('acc-a')
-      await writeTranscript(a, 'proj-a', 's1.jsonl', 's1')
+      const s1 = await writeTranscript(a, 'proj-a', 's1.jsonl', 's1')
       index = new HistoryIndex(() => [a])
       expect(await projectNames()).toEqual(['proj-a'])
       await index.startBackground()
+      await watching(s1)
       const updated = vi.fn()
       index.onUpdated = updated
       await writeTranscript(a, 'proj-new', 's2.jsonl', 's2')
@@ -371,11 +396,12 @@ describe('HistoryIndex (lazy)', () => {
 
     it('폴더의 세션이 모두 사라지면 행이 빠진다', async () => {
       const a = account('acc-a')
-      await writeTranscript(a, 'proj-a', 's1.jsonl', 's1')
+      const s1 = await writeTranscript(a, 'proj-a', 's1.jsonl', 's1')
       await writeTranscript(a, 'proj-b', 's2.jsonl', 's2')
       index = new HistoryIndex(() => [a])
       expect(await projectNames()).toEqual(['proj-a', 'proj-b'])
       await index.startBackground()
+      await watching(s1)
       const updated = vi.fn()
       index.onUpdated = updated
       await fs.rm(path.join(a.configDir, 'projects', 'proj-b', 's2.jsonl'))
@@ -390,10 +416,11 @@ describe('HistoryIndex (lazy)', () => {
      *  sessions then sit behind a stale cache until something else happens to touch them. */
     it('폴더 이름만 바뀌어 자식 이벤트가 없어도 그 폴더를 다시 읽는다', async () => {
       const a = account('acc-a')
-      await writeTranscript(a, 'proj-a', 's1.jsonl', 's1')
+      const s1 = await writeTranscript(a, 'proj-a', 's1.jsonl', 's1')
       index = new HistoryIndex(() => [a])
       expect(await projectNames()).toEqual(['proj-a'])
       await index.startBackground()
+      await watching(s1)
       const updated = vi.fn()
       index.onUpdated = updated
       const projects = path.join(a.configDir, 'projects')
@@ -407,12 +434,13 @@ describe('HistoryIndex (lazy)', () => {
 
     it('폴더가 대표하는 cwd가 바뀌면 옛 행이 남지 않는다', async () => {
       const a = account('acc-a')
-      await writeLines(a, 'moving', 'old.jsonl', [
+      const old = await writeLines(a, 'moving', 'old.jsonl', [
         { type: 'user', sessionId: 'old', cwd: 'D:\\work\\before', message: { role: 'user', content: '옛 질문' } }
       ])
       index = new HistoryIndex(() => [a])
       expect(await projectNames()).toEqual(['before'])
       await index.startBackground()
+      await watching(old)
       const updated = vi.fn()
       index.onUpdated = updated
       // 같은 폴더에 더 새로운 파일이 다른 cwd로 들어온다 — resolveProjectCwd 는 최신부터 읽는다

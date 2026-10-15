@@ -468,6 +468,8 @@ export function createPluginRuntime(d: {
     // redacted or written. The count is said once, when its second is over (a timer at its end, or the next second's
     // first line), or when the process ends; then the last lines dropped in that second are written too, so a crash at
     // the end of a flood keeps its stack (5e final review I1, I2). A steady clock: a clock set back holds no window open.
+    // A timer can fire before its second is over by that clock (whole milliseconds, a loaded machine's drift), so it
+    // waits out the rest: a count said early was followed by another count of the same second.
     let windowStart = -Infinity
     let lines = 0
     let chars = 0
@@ -485,6 +487,13 @@ export function createPluginRuntime(d: {
       dropped = 0
       tail = []
     }
+    const sayAtEndOf = (second: number): void => {
+      later(s, Math.max(0, second + 1_000 - performance.now()), () => {
+        if (windowStart !== second) return
+        if (performance.now() - second < 1_000) sayAtEndOf(second)
+        else sayDropped(false)
+      })
+    }
     const line = (l: string): void => {
       const text = l.replace(/\r$/, '')
       if (text === '') return
@@ -496,12 +505,7 @@ export function createPluginRuntime(d: {
         chars = 0
       }
       if (lines >= LOG_LINES_PER_SECOND || chars + text.length > LOG_CHARS_PER_SECOND) {
-        if (dropped++ === 0) {
-          const second = windowStart
-          later(s, Math.max(0, second + 1_000 - now), () => {
-            if (windowStart === second) sayDropped(false)
-          })
-        }
+        if (dropped++ === 0) sayAtEndOf(windowStart)
         tail.push(text)
         if (tail.length > DROPPED_TAIL) tail.shift()
         return
