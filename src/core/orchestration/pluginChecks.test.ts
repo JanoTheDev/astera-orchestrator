@@ -11,6 +11,7 @@ import {
   pluginIdOfCheck,
   skippedResult,
   skipReasonOf,
+  CHECK_DIAGNOSTICS_MAX,
   SKIPPED_PREFIX,
   type CheckDiagnostic,
   type CompletionCheckInput,
@@ -91,13 +92,27 @@ describe('a plugin’s answer (C5)', () => {
     expect(checkAnswerOf({ status: 'passed', externalUrl: 'http://x.example/r' }).externalUrl).toBe('http://x.example/r')
   })
 
-  it('keeps the first 100 diagnostics and says it cut', () => {
-    const r = checkAnswerOf({ status: 'failed', summary: 'many', diagnostics: Array.from({ length: 340 }, (_, i) => ({ message: `m${i}` })) })
-    expect(r.diagnostics).toHaveLength(100)
-    expect(r.summary).toBe('many (the first 100 of 340 findings are kept)')
-    const long = checkAnswerOf({ status: 'failed', summary: 'y'.repeat(2000), diagnostics: Array.from({ length: 101 }, () => ({ message: 'm' })) })
-    expect(long.summary.length).toBeLessThanOrEqual(1000)
-    expect(long.summary.endsWith('(the first 100 of 101 findings are kept)')).toBe(true)
+  // 5d (performance review H1): 20 findings are kept, the count says how many there were, and the summary is the plugin's
+  it('keeps the first 20 diagnostics and counts them all', () => {
+    const r = checkAnswerOf({ status: 'failed', summary: 'many', diagnostics: Array.from({ length: 150 }, (_, i) => ({ message: `m${i}` })) })
+    expect(CHECK_DIAGNOSTICS_MAX).toBe(20)
+    expect(r.diagnostics).toHaveLength(20)
+    expect(r.diagnostics?.[19].message).toBe('m19')
+    expect(r.diagnosticsTotal).toBe(150)
+    expect(r.summary).toBe('many')
+    const few = checkAnswerOf({ status: 'failed', summary: 'few', diagnostics: Array.from({ length: 20 }, () => ({ message: 'm' })) })
+    expect(few.diagnostics).toHaveLength(20)
+    expect(few).not.toHaveProperty('diagnosticsTotal')
+  })
+
+  // 5d: a plugin with thousands of findings sends 20 and says how many, rather than sending them all to be cut
+  it('takes the count a plugin gives when it is more than it sent, and ignores one that is not a count', () => {
+    const twenty = Array.from({ length: 20 }, () => ({ message: 'm' }))
+    expect(checkAnswerOf({ status: 'failed', diagnostics: twenty, diagnosticsTotal: 10_000 }).diagnosticsTotal).toBe(10_000)
+    expect(checkAnswerOf({ status: 'failed', diagnostics: twenty, diagnosticsTotal: 5 })).not.toHaveProperty('diagnosticsTotal')
+    expect(checkAnswerOf({ status: 'failed', diagnostics: twenty, diagnosticsTotal: 30.5 })).not.toHaveProperty('diagnosticsTotal')
+    expect(checkAnswerOf({ status: 'failed', diagnostics: twenty, diagnosticsTotal: '30' })).not.toHaveProperty('diagnosticsTotal')
+    expect(checkAnswerOf({ status: 'failed', summary: 'none listed', diagnosticsTotal: 4 }).diagnosticsTotal).toBe(4)
   })
 
   it('leaves out an empty list of diagnostics', () => {
@@ -140,6 +155,19 @@ describe('the text a repair request and a status message carry (C10)', () => {
     expect(lines[20]).toBe('src/a.js:20 adds console.log')
     expect(lines[21]).toBe('… 2 more finding(s)')
     expect(lines.at(-1)).toBe('Details: https://x.example/r')
+  })
+
+  // 5d: the Host keeps 20; the count says how many more the plugin found
+  it('counts the findings the Host did not keep', () => {
+    const text = pluginCheckText({
+      configId: 'plugin:d',
+      name: 'Debug leftovers',
+      status: 'failed',
+      summary: '150 leftovers',
+      diagnostics: Array.from({ length: 20 }, (_, i) => ({ file: 'src/a.js', line: i + 1, message: 'adds console.log' })),
+      diagnosticsTotal: 150
+    })!
+    expect(text.split('\n').at(-1)).toBe('… 130 more finding(s)')
   })
 
   it('is the summary alone when there is nothing else', () => {

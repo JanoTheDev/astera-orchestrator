@@ -57,7 +57,7 @@ Then it answers one of:
 
 - `passed`: "no debug leftovers in 3 changed files".
 - `failed`: "2 debug leftovers in 1 file", with a finding for each line that holds a pattern (`src/app.js`, line 12,
-  "adds console.log"). It names the first 100 and counts them all.
+  "adds console.log"). It names the first 20, the most Astera keeps, and gives the count of all of them.
 - `error`, when the check could not be made: the folder is not a repository, or the starting commit is not there
   (the summary is git's own sentence, "git diff: fatal: bad object …"), or git is not installed or not on the PATH,
   or the folder is gone (each said in the plugin's own words). Astera asks once more, then asks a person whether to

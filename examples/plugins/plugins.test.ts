@@ -698,13 +698,15 @@ describe('the debug leftovers sample', () => {
     expect(await check0(dir, base)).toMatchObject({ status: 'failed', summary: '1 debug leftover in 1 file', diagnostics: [found('small.js', 1, 'console.log')] })
   }, 90_000)
 
-  it('names the first 100 findings and counts them all', async () => {
+  // 5d: Astera keeps 20 findings; the sample sends those and says how many there are
+  it('names the first 20 findings and counts them all', async () => {
     const { dir, base } = await repo({ 'a.js': '' })
     await write(dir, { 'a.js': 'console.log(1)\n'.repeat(150) })
     const answer = await check0(dir, base)
     expect(answer.summary).toBe('150 debug leftovers in 1 file')
-    expect(answer.diagnostics).toHaveLength(100)
-    expect(answer.diagnostics?.[99]).toEqual(found('a.js', 100, 'console.log'))
+    expect(answer.diagnostics).toHaveLength(20)
+    expect(answer.diagnostics?.[19]).toEqual(found('a.js', 20, 'console.log'))
+    expect(answer.diagnosticsTotal).toBe(150)
   }, 90_000)
 
   // Review Focus 1: git puts a tab after a name with a space, and prints a name outside ASCII as it is (core.quotepath off)

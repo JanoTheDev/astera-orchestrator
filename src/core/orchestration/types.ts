@@ -75,8 +75,10 @@ export interface CheckResult {
   unstable?: true
   /** A plugin check's own words (C4): what it found, or why it could not be made */
   summary?: string
-  /** A plugin check's findings, at most 100 (C5) */
+  /** A plugin check's findings, at most 20 (C5, 5d); a passed check keeps none */
   diagnostics?: CheckDiagnostic[]
+  /** How many findings it gave, when more than `diagnostics` holds (the Host kept 20, or an event left them out) */
+  diagnosticsTotal?: number
   /** Where a plugin check's whole report is, http or https (C5) */
   externalUrl?: string
   /** A person let this round go on without this check (C9 `skip-check`); its status is `not-run` */

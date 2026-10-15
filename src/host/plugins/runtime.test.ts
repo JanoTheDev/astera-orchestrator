@@ -302,6 +302,28 @@ describe('createPluginRuntime', () => {
     expect(existsSync(r.logFile('forgotten'))).toBe(false)
   }, 90_000)
 
+  // 5d (performance review): a removed plugin's settings and secret values do not stay in the Host's memory
+  it('forgets the slot of a plugin it was told to forget', async () => {
+    const { r } = runtime()
+    r.start(plugin('dropped', `export default { activate() {} }`))
+    await until(() => expect(r.status('dropped')?.status).toBe('running'))
+    await r.stop('dropped')
+    expect(r.status('dropped')).toBeDefined()
+    await r.forget('dropped')
+    expect(r.status('dropped')).toBeUndefined()
+  }, 90_000)
+
+  // 5d final review M7: a slot whose process is still there (starting, or waiting to restart) is not let go: the
+  // runtime could not stop that process any more
+  it('keeps the slot of a plugin that still has a process, even when told to forget it', async () => {
+    const { r } = runtime()
+    r.start(plugin('slow-start', `export default { activate() { return new Promise(() => {}) } }`))
+    await until(() => expect(r.status('slow-start')?.status).toBe('starting'))
+    await r.forget('slow-start')
+    expect(r.status('slow-start')?.status).toBe('starting')
+    await r.stop('slow-start')
+  }, 90_000)
+
   // Plugins 2c (spec §23-§24): settings handed over at the start, secrets kept per plugin and out of its log.
   it('hands a plugin its settings, keeps its secrets from another plugin, and redacts every secret from its log', async () => {
     const { r } = runtime()
@@ -802,9 +824,10 @@ describe('completion check plugins through the Host (plugin Phase 5)', () => {
     expect(await checks.run('cc-real', input('boom'))).toEqual({ name: 'Debug leftovers', status: 'error', summary: 'runCheck threw: git is not installed' })
     expect((await checks.run('cc-real', input('odd'))).summary).toBe('the plugin answered with something that is not a check result: status must be passed, failed or error')
     const long = await checks.run('cc-real', input('long'))
-    expect(long.diagnostics).toHaveLength(100)
+    // 5d: 20 are kept and the rest counted
+    expect(long.diagnostics).toHaveLength(20)
+    expect(long.diagnosticsTotal).toBe(150)
     expect(long.summary.length).toBeLessThanOrEqual(1000)
-    expect(long.summary.endsWith('(the first 100 of 150 findings are kept)')).toBe(true)
   }, 90_000)
 
   it('answers error saying so for a plugin that stopped', async () => {
@@ -855,6 +878,20 @@ describe('job-source plugins (plugin Phase 4 J6, J8)', () => {
     r.start(sourcePlugin('js3'))
     await until(() => expect(r.status('js3')?.status).toBe('running'))
     expect(await failure(r.request('js3', 'jobSource.context', { id: 'ENG-1' }, 300))).toEqual({ status: 504, message: 'js3 did not answer within 0.3 s' })
+  }, 90_000)
+
+  // 5d (performance review M2): past the time limit the plugin is told, and that call's ctx.signal aborts
+  it('cancels the call it stopped waiting for, so the plugin can stop it', async () => {
+    const { r } = runtime()
+    r.start(
+      sourcePlugin(
+        'js6',
+        `export default { listItems() { return { items: [] } }, getItem() { return {} }, buildJobContext(id, ctx) { return new Promise(() => ctx.signal.addEventListener('abort', () => ctx.log.info('cancelled ' + id))) } }`
+      )
+    )
+    await until(() => expect(r.status('js6')?.status).toBe('running'))
+    expect(await failure(r.request('js6', 'jobSource.context', { id: 'ENG-9' }, 300))).toEqual({ status: 504, message: 'js6 did not answer within 0.3 s' })
+    await until(() => expect(logOf(r, 'js6')).toContain('[info] cancelled ENG-9'))
   }, 90_000)
 
   // Review Focus 3: a person listing a source that does not run hears why at once

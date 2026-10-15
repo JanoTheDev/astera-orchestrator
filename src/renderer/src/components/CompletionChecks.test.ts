@@ -72,8 +72,36 @@ describe('CompletionChecks', () => {
     expect(html).not.toContain('detail-completion-summary')
   })
 
+  // 5d: the Host keeps 20 findings; the block says how many more the plugin found
+  it('says how many findings the Host did not keep', () => {
+    const kept = Array.from({ length: 20 }, (_, i) => ({ file: 'src/a.js', line: i + 1, message: 'adds TODO' }))
+    const html = render([{ configId: 'plugin:d', name: 'D', status: 'failed', summary: '150 leftovers', diagnostics: kept, diagnosticsTotal: 150 }])
+    expect(html).toContain('jobs.completion.moreFindings {&quot;n&quot;:130}')
+    expect(render([{ configId: 'plugin:d', name: 'D', status: 'failed', summary: 's', diagnostics: kept }])).not.toContain('moreFindings')
+  })
+
+  // 5d final review M4: the line says where the rest are only when there is a report, and reads right with no list
+  it('words the rest by whether there is a report, and a count with no list as a count', () => {
+    const kept = [{ message: 'm' }]
+    const link = 'https://x.example/r'
+    expect(render([{ configId: 'plugin:d', name: 'D', status: 'failed', summary: 's', diagnostics: kept, diagnosticsTotal: 5, externalUrl: link }])).toContain(
+      'jobs.completion.moreFindingsReport {&quot;n&quot;:4}'
+    )
+    expect(render([{ configId: 'plugin:d', name: 'D', status: 'failed', summary: 's', diagnosticsTotal: 4 }])).toContain('jobs.completion.findingsUnlisted {&quot;n&quot;:4}')
+    expect(render([{ configId: 'plugin:d', name: 'D', status: 'failed', summary: 's', diagnosticsTotal: 4, externalUrl: link }])).toContain(
+      'jobs.completion.findingsUnlistedReport {&quot;n&quot;:4}'
+    )
+  })
+
   it('its words are in all four languages', () => {
-    for (const key of ['jobs.completion.openReport', 'jobs.completion.warning'])
+    for (const key of [
+      'jobs.completion.openReport',
+      'jobs.completion.warning',
+      'jobs.completion.moreFindings',
+      'jobs.completion.moreFindingsReport',
+      'jobs.completion.findingsUnlisted',
+      'jobs.completion.findingsUnlistedReport'
+    ])
       for (const lang of LANGS) expect((CATALOGS[lang].messages as Record<string, string>)[key], `${lang} ${key}`).toBeTruthy()
   })
 })

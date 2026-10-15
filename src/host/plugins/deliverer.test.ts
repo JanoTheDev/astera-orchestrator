@@ -57,6 +57,7 @@ function rig(o: RigOptions = {}) {
   const got: string[] = []
   const logs: string[] = []
   const calls: number[] = []
+  const signals: AbortSignal[] = []
   const waiting: Array<() => void> = []
   const writes: string[] = []
   const unwritten: Array<() => void> = []
@@ -80,8 +81,9 @@ function rig(o: RigOptions = {}) {
     source: ring,
     cursor: store,
     running: () => running,
-    deliver: (item) => {
+    deliver: (item, signal) => {
       calls.push(Date.now())
+      signals.push(signal)
       const label = item.type === 'gap' ? 'gap' : (item as AsteraEvent).id
       if (o.interruptOnce && !interrupted) {
         interrupted = true
@@ -109,6 +111,7 @@ function rig(o: RigOptions = {}) {
     got,
     logs,
     store,
+    signals,
     inFlight: (): number => waiting.length,
     settle: (): void => waiting.shift()?.(),
     settleAll: (): void => waiting.splice(0).forEach((f) => f()),
@@ -168,6 +171,20 @@ describe('createDeliverer (plugin Phase 3 N6-N9)', () => {
     expect(r.logs.filter((l) => /^gave up delivering run\.completed ev_aaaaaaaaaaaa_1 after \d+ tries: boom$/.test(l))).toHaveLength(1)
     expect(r.got).toEqual([ev(2)])
     expect(r.store.writes).toEqual([ev(1), ev(2)])
+  })
+
+  // 5d (performance review L4): the try that ran out of time is cancelled, so the plugin can stop it and the Host's
+  // channel keeps nothing waiting for its answer
+  it('aborts the signal of a try that has not settled within 30 s, and not the next one’s', async () => {
+    add(1)
+    const r = rig({ stored: ev(0), hang: true })
+    await flush()
+    expect(r.signals[0].aborted).toBe(false)
+    await vi.advanceTimersByTimeAsync(DELIVERY_TIMEOUT_MS)
+    expect(r.signals[0].aborted).toBe(true)
+    await vi.advanceTimersByTimeAsync(DELIVERY_RETRY_MS.first)
+    expect(r.signals).toHaveLength(2)
+    expect(r.signals[1].aborted).toBe(false)
   })
 
   it('counts a handler that has not settled within 30 s as failed, and ignores its late settle', async () => {

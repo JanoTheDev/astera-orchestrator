@@ -36,7 +36,9 @@ export interface PluginContext {
   /** The permissions the person granted, a subset of those the manifest asks for. */
   permissions: readonly string[]
   log: PluginLog
-  /** Aborted when Astera stops the plugin: disabled, removed, updated, or the Host leaving. */
+  /** Aborted when Astera stops the plugin: disabled, removed, updated, or the Host leaving. In a handler (`onEvent`,
+   *  `send`, `listItems`, `getItem`, `buildJobContext`, `runCheck`) it is that call's: it also aborts when Astera stops
+   *  waiting for the call (30 seconds for an event or a notification, 15 for a job source, 30 minutes for a check). */
   signal: AbortSignal
 }
 
@@ -48,8 +50,8 @@ export interface PluginDefinition {
   /** The `event` capability (`astera.capabilities: ["event"]`, with the `events.subscribe` permission): each of
    *  Astera's events, in order, one at a time, from where this plugin left off, once `activate` has resolved. A
    *  `{ type: 'gap' }` first means events were lost before the next one. Throw or reject to have the same event handed
-   *  over again (after 1 s, doubling to 5 min, for an hour). It must settle within 30 s: a call past that is not
-   *  stopped, and runs beside the event's next try. An event can come twice: `event.id` never repeats, so drop one
+   *  over again (after 1 s, doubling to 5 min, for an hour). It must settle within 30 s: past that the call's
+   *  `ctx.signal` aborts, and a handler that does not stop runs beside the event's next try. An event can come twice: `event.id` never repeats, so drop one
    *  you have seen. A property rather than a method, so a handler that takes only `AsteraEvent` does not typecheck:
    *  it would throw on a gap. */
   onEvent?: (event: AsteraEvent | EventGap, ctx: PluginContext) => void | Promise<void>
@@ -198,11 +200,14 @@ export interface CompletionCheckDiagnostic {
  *  carries your summary, your first 20 findings as `file:line message` and your link, and the Task fails where its Job
  *  repairs nothing. `error` says the check could not be made (a service down, a missing token): Astera asks once more,
  *  then puts it to a person, and no repair is spent on it. `summary` is cut at 1,000 characters (the status word when
- *  there is none), `diagnostics` keep the first 100, and `externalUrl` is kept when it is http or https within 2,048. */
+ *  there is none), `diagnostics` keep the first 20 (Astera counts the rest, and keeps none of a `passed` check's: give
+ *  the whole report as `externalUrl`), and `externalUrl` is kept when it is http or https within 2,048. */
 export interface CompletionCheckResult {
   status: 'passed' | 'failed' | 'error'
   summary?: string
   diagnostics?: CompletionCheckDiagnostic[]
+  /** How many findings there are, when you send fewer: send the first 20 and the count, not thousands to be cut. */
+  diagnosticsTotal?: number
   externalUrl?: string
 }
 

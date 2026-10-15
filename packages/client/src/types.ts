@@ -126,8 +126,10 @@ export interface CheckResult {
   readonly unstable?: true
   /** A plugin check's own words: what it found, or why it could not be made. */
   readonly summary?: string
-  /** A plugin check's findings, at most 100. */
+  /** A plugin check's findings, at most 20; a passed check keeps none. */
   readonly diagnostics?: readonly CheckDiagnostic[]
+  /** How many findings it gave, when more than `diagnostics` holds: Astera keeps 20, and a completion event lists none. */
+  readonly diagnosticsTotal?: number
   /** Where a plugin check's whole report is. */
   readonly externalUrl?: string
   /** A person let the round go on without this check; its status is `not-run`. */
@@ -229,6 +231,7 @@ export interface CompletionCheckDetail {
   readonly unstable?: true
   readonly summary?: string
   readonly diagnostics?: readonly CheckDiagnostic[]
+  readonly diagnosticsTotal?: number
   readonly externalUrl?: string
   readonly skipped?: true
 }
@@ -385,8 +388,9 @@ export interface SessionAccountSwitched {
 }
 
 /** Each event's payload: the public DTO of the object it is about, as it stood right after the change. A Task is cut
- *  like `tasks.list({ brief: true })` and its checks carry no output; `get` reads the whole object. A session event
- *  carries its session and what happened to it. */
+ *  like `tasks.list({ brief: true })` and its checks carry no output; a plugin check, in a Task or a `TaskCompletion`,
+ *  carries how many findings it has (`diagnosticsTotal`) and not the findings. `get` reads the whole object. A session
+ *  event carries its session and what happened to it. */
 export interface EventPayloads {
   readonly 'job.created': Job
   readonly 'job.updated': Job

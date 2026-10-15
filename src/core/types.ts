@@ -621,6 +621,7 @@ export type RunOutcome = 'running' | 'completed' | 'failed'
  *  단어를 세 가지가 두고 부딪히므로, 화면의 것은 화면의 말로 부른다. */
 export interface JobRow {
   id: string
+  /** The Job's objective, its first 500 characters (OBJECTIVE_PREVIEW_MAX, 5d): the detail and `jobs get` read it whole */
   objective: string
   /** 관리자가 있어야 하는데 없다 — 코디네이터 계정이 지정돼 있지만 붙어 있는 세션이 없다.
    *  **사이드바가 다시 띄우는 버튼을 내보이는 근거다.** 계정 지정이 없는 Run(옛 Run·CLI Run)은

@@ -22,8 +22,9 @@ import path from 'node:path'
 
 /** What it looks for when its setting names nothing. */
 const DEFAULT_PATTERNS = ['console.log', 'debugger', 'TODO', 'FIXME']
-/** Astera keeps the first 100 findings of an answer, so more would only be cut; the summary counts them all. */
-const FINDINGS_MAX = 100
+/** Astera keeps the first 20 findings of an answer, so more would only be cut: the rest are counted in
+ *  `diagnosticsTotal`, and the summary counts them too. */
+const FINDINGS_MAX = 20
 /** A new file larger than this is not read: a file that size was generated, not written. */
 const NEW_FILE_MAX = 1_000_000
 /** How much of git's complaint is kept. */
@@ -284,6 +285,11 @@ export default {
     }
 
     if (total === 0) return { status: 'passed', summary: `no debug leftovers in ${count(changed, 'changed file')}` }
-    return { status: 'failed', summary: `${count(total, 'debug leftover')} in ${count(withFindings.size, 'file')}`, diagnostics }
+    return {
+      status: 'failed',
+      summary: `${count(total, 'debug leftover')} in ${count(withFindings.size, 'file')}`,
+      diagnostics,
+      ...(total > diagnostics.length ? { diagnosticsTotal: total } : {})
+    }
   }
 }

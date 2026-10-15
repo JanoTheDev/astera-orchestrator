@@ -119,7 +119,24 @@ export const SECRET_VALUE_MAX = 64 * 1024
 /** A name a plugin can give: what the store accepts after the prefix, and nothing that could leave the folder. */
 const NAME = new RegExp(`^[A-Za-z0-9_-][A-Za-z0-9_.-]{0,${SECRET_NAME_MAX - 1}}$`)
 
-export function pluginSecrets(profileDir: string, folder: string): { secret: SecretSpace; setting: SecretSpace; values(): Promise<string[]> } {
+export type PluginSecrets = { secret: SecretSpace; setting: SecretSpace; values(): Promise<string[]> }
+
+/** The store of each plugin folder (5d, from the performance review): a store caches the ACL and SID checks Windows
+ *  needs (icacls and whoami, three processes), so one opened per call ran them on every secret a plugin read. */
+const opened = new Map<string, PluginSecrets>()
+
+/** A plugin's secret store, one per folder for as long as the plugin's data is kept (forgetPluginData lets it go). */
+export function pluginSecrets(profileDir: string, folder: string): PluginSecrets {
+  const key = secretsDir(profileDir, folder)
+  let store = opened.get(key)
+  if (store === undefined) {
+    store = openPluginSecrets(profileDir, folder)
+    opened.set(key, store)
+  }
+  return store
+}
+
+function openPluginSecrets(profileDir: string, folder: string): PluginSecrets {
   const dir = secretsDir(profileDir, folder)
   const store = openSecretStore({ dir, profileDir })
   const exists = (): Promise<boolean> => fs.stat(dir).then((s) => s.isDirectory(), () => false)
@@ -164,6 +181,7 @@ export function pluginSecrets(profileDir: string, folder: string): { secret: Sec
 /** Deletes a plugin's settings file, its event cursor and its secrets, for `plugins remove`. Nothing there is no
  *  error. */
 export async function forgetPluginData(profileDir: string, folder: string): Promise<void> {
+  opened.delete(secretsDir(profileDir, folder))
   await fs.rm(settingsFile(profileDir, folder), { force: true })
   await fs.rm(cursorFile(profileDir, folder), { force: true })
   await fs.rm(secretsDir(profileDir, folder), { recursive: true, force: true, maxRetries: 3 })

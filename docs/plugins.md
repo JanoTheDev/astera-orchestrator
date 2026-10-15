@@ -144,7 +144,7 @@ Ask for what the plugin needs and no more: a person sees the list before install
 | `ctx.plugin` | Its `id`, `version` and `dir`, the installed copy it runs from. |
 | `ctx.permissions` | The permissions granted, out of those it asked for. |
 | `ctx.log` | `info`, `warn` and `error`, to the plugin's log ([Logs](#logs)). |
-| `ctx.signal` | An `AbortSignal` that aborts when Astera stops the plugin. Pass it to whatever waits: a subscription, a `fetch`, a timer. |
+| `ctx.signal` | An `AbortSignal` that aborts when Astera stops the plugin. Pass it to whatever waits: a subscription, a `fetch`, a timer. In a handler (`onEvent`, `send`, `listItems`, `getItem`, `buildJobContext`, `runCheck`) it also aborts when that call runs past its time limit (30 seconds for an event or a notification, 15 for a job source, 30 minutes for a check). |
 
 ## Lifecycle
 
@@ -203,9 +203,9 @@ export default {
   most recent 2000 events, fewer when events are large or the Host has started again since. Removing the plugin
   removes its place too.
 - **One at a time, in order.** The next event waits until `onEvent` settles, so a slow plugin holds up only itself.
-  `onEvent` is called only while the plugin runs, once `activate` has finished. A call that runs past 30 seconds is not
-  stopped: it goes on beside the event's next try and the events after it, so a handler that can take that long must
-  not mind running twice at once.
+  `onEvent` is called only while the plugin runs, once `activate` has finished. When a call runs past 30 seconds
+  Astera stops waiting and aborts that call's `ctx.signal`: pass it to what the handler waits on. A handler that does
+  not stop goes on beside the event's next try, so one that can take that long must not mind running twice at once.
 - **A failure is tried again.** When `onEvent` throws, rejects or has not settled within 30 seconds, Astera hands the
   same event over again after 1 second, then 2, 4 and so on up to 5 minutes. An event that keeps failing is given up
   after an hour, and the next one follows. The plugin's log has the first failure of an event, then a line every 10
@@ -347,7 +347,7 @@ with `cut: true`.
 
 **Errors reach the person.** Each call has 15 seconds. A function that throws or rejects answers 502 with its message
 ("the Linear source could not list items: 401 Unauthorized"), so throw the sentence a person should read. Past 15
-seconds the answer is 504. A plugin that is not running (disabled, failed, or waiting to restart) is not asked, and
+seconds the answer is 504, and the call's `ctx.signal` aborts. A plugin that is not running (disabled, failed, or waiting to restart) is not asked, and
 the answer is 503 with its status and reason. The plugin's log has the same line, its secrets hidden. Astera tries
 nothing again: the person does.
 
@@ -421,22 +421,24 @@ asked with:
   recorded them. A check configured per project reads the project's own files under `root`; the plugin's settings are
   the rest of its configuration.
 
-It answers `{ status, summary?, diagnostics?, externalUrl? }`. `status` is `passed`, `failed` (the code's fault) or
+It answers `{ status, summary?, diagnostics?, diagnosticsTotal?, externalUrl? }`. `status` is `passed`, `failed` (the code's fault) or
 `error` (the check could not be made: a service down, a missing token). A diagnostic is a finding,
 `{ file?, line?, message, severity? }`, `severity` `error` or `warning`. A plugin that names `completion-check` and has
 no `runCheck` does not start, and its log says why.
 
 **Astera checks and cuts what it answers.** The plugin is trusted code, but its answer reaches a worker's instructions
 and a person's screen. `summary` is cut at 1,000 characters, and is the status word when there is none. `diagnostics`
-keep the first 100, and the summary then says how many there were; each `message` is required and cut at 1,000
-characters, each `file` at 500, a `line` that is not a positive integer is dropped, and so is a `severity` that is not
-one of the two. An `externalUrl` that is not http or https, or is longer than 2,048 characters, is dropped. An answer
+keep the first 20, and the result's `diagnosticsTotal` then says how many there were: a check that found thousands
+sends its first 20 and its own `diagnosticsTotal` rather than all of them, and gives the whole report as `externalUrl`.
+A `passed` check keeps its summary and link and none of its findings, as a passed run configuration keeps none of its
+output. Each `message` is required and cut at 1,000 characters, each `file` at 500, a `line` that is not a positive
+integer is dropped, and so is a `severity` that is not one of the two. An `externalUrl` that is not http or https, or is longer than 2,048 characters, is dropped. An answer
 of the wrong shape counts as `error`, saying why ("the plugin answered with something that is not a check result:
 status must be passed, failed or error").
 
 **Each call has 30 minutes**, as a run configuration's check has. A `runCheck` that throws or rejects counts as `error`
 with its message ("runCheck threw: git is not installed"), so throw the sentence a person should read. A call past 30
-minutes, a plugin that is not running (disabled, failed, or waiting to restart) and a plugin that crashes mid call
+minutes (its `ctx.signal` then aborts: pass it to the build or the request you start), a plugin that is not running (disabled, failed, or waiting to restart) and a plugin that crashes mid call
 count as `error` too, each saying so. A plugin that is starting is waited for, up to a minute. The same check of the
 same Task, asked twice at once (by the app and the Host both, say), is asked of the plugin once.
 

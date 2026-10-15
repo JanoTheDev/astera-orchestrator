@@ -21,7 +21,7 @@ import { isSamePath } from '../../files/tree'
 import type { Provider } from '../../providers/meta'
 import { KNOWLEDGE_DIRS, knowledgeFilesFrom, type KnowledgeFiles } from '../../knowledge/detect'
 import type { CheckResult, RepairReason, ReviewIssue } from '../types'
-import { REPAIR_DIAGNOSTICS, diagnosticLine } from '../pluginChecks'
+import { REPAIR_DIAGNOSTICS, diagnosticLine, findingsCountOf } from '../pluginChecks'
 import { boundedSlug } from '../../worktrees/naming'
 
 /** Job Continuity's two prompt events (P0 design §5): 'requested' right before the prompt leaves
@@ -194,11 +194,14 @@ function repairSection(a: RepairSection): string {
       // A plugin check (plugin Phase 5 C10): its words, its first findings as file:line message, its link
       lines.push(`- Check "${c.name}" — ${c.status === 'error' ? 'could not be made' : 'failed'}: ${c.summary}`)
       const found = c.diagnostics ?? []
-      if (found.length > 0) {
+      const shown = found.slice(0, REPAIR_DIAGNOSTICS)
+      if (shown.length > 0) {
         lines.push('  Findings:')
-        for (const d of found.slice(0, REPAIR_DIAGNOSTICS)) lines.push(`    ${diagnosticLine(d)}`)
-        if (found.length > REPAIR_DIAGNOSTICS) lines.push(`    … ${found.length - REPAIR_DIAGNOSTICS} more finding(s)`)
+        for (const d of shown) lines.push(`    ${diagnosticLine(d)}`)
       }
+      // Counted whether or not any is listed: a check may give only how many it found (5d final review M3)
+      const more = findingsCountOf(c) - shown.length
+      if (more > 0) lines.push(`${shown.length > 0 ? '    ' : '  '}… ${more} more finding(s)`)
       if (c.externalUrl !== undefined) lines.push(`  Details: ${c.externalUrl}`)
     } else {
       lines.push(`- Check "${c.name}" — exit ${c.exitCode ?? '?'}${c.status === 'timed-out' ? ' (timed out)' : ''}.`)

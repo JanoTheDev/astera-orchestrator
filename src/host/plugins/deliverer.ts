@@ -67,7 +67,8 @@ export function createDeliverer(d: {
   running(): boolean
   /** Hands one event, or a gap, to the plugin: settles when its handler did, rejects with its error, or with
    *  DeliveryInterrupted when its process ended first. */
-  deliver(item: AsteraEvent | EventGap): Promise<void>
+  /** `signal` aborts when this try runs out of time (5d): the plugin is told, and its late answer is dropped. */
+  deliver(item: AsteraEvent | EventGap, signal: AbortSignal): Promise<void>
   /** A line for the plugin's log. */
   log(m: string): void
   /** Called each time it has handed over everything the log holds, before it waits for more (plugin Phase 3c: where
@@ -132,9 +133,15 @@ export function createDeliverer(d: {
     void persist()
   }
 
-  const withTimeout = (p: Promise<void>): Promise<void> =>
+  /** One try, cancelled when it runs past the time limit (5d): its signal aborts, which tells the plugin. */
+  const withTimeout = (start: (signal: AbortSignal) => Promise<void>): Promise<void> =>
     new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new TimedOut()), t.timeoutMs)
+      const ctl = new AbortController()
+      const p = start(ctl.signal)
+      const timer = setTimeout(() => {
+        reject(new TimedOut())
+        ctl.abort()
+      }, t.timeoutMs)
       p.then(
         () => {
           clearTimeout(timer)
@@ -169,7 +176,7 @@ export function createDeliverer(d: {
       const gen = generation
       let problem: string
       try {
-        await withTimeout(d.deliver(item))
+        await withTimeout((signal) => d.deliver(item, signal))
         return !stopped
       } catch (e) {
         if (stopped) return false

@@ -209,6 +209,16 @@ describe('outcomeOf', () => {
 })
 
 describe('snapshotFor', () => {
+  // 5d (performance review M1): a ticket's objective is up to 60,000 characters and the sidebar shows a line of it, so a
+  // row carries its first 500; the Job's detail and `jobs get` read the whole
+  it('a row carries the first 500 characters of its Job’s objective', () => {
+    const long = withRuns([{ ...run('r1', absPath('p')), objective: 'x'.repeat(60_000) }], [task('t1', 'r1', 'ready')])
+    const row = snapshotFor(long, absPath('p'), anySession, noWorktrees, noFires, allExist).runs[0]
+    expect(row.objective).toBe(`${'x'.repeat(500)}…`)
+    const short = withRuns([run('r1', absPath('p'))], [task('t1', 'r1', 'ready')])
+    expect(snapshotFor(short, absPath('p'), anySession, noWorktrees, noFires, allExist).runs[0].objective).toBe('objective r1')
+  })
+
   it('그 프로젝트의 Run 을 진행률과 함께 접는다', () => {
     const s = withRuns([run('r1', absPath('p')), run('r2', absPath('other'))], [
       task('t1', 'r1', 'completed'), task('t2', 'r1', 'ready'), task('t3', 'r2', 'ready')

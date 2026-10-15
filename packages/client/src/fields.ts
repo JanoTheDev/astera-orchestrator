@@ -126,6 +126,7 @@ export const CHECK_FIELDS = Object.freeze([
   'unstable',
   'summary',
   'diagnostics',
+  'diagnosticsTotal',
   'externalUrl',
   'skipped'
 ] as const)
@@ -162,6 +163,7 @@ export const COMPLETION_CHECK_FIELDS = Object.freeze([
   'unstable',
   'summary',
   'diagnostics',
+  'diagnosticsTotal',
   'externalUrl',
   'skipped'
 ] as const)

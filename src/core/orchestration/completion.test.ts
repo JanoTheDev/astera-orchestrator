@@ -57,6 +57,14 @@ describe('completionDetailOf', () => {
     expect(completionDetailOf(task())).toBeNull()
   })
 
+  // 5d: how many findings the plugin gave, when the Host kept fewer
+  it('carries a plugin check’s count of findings', () => {
+    const d = completionDetailOf(
+      task({ checks: [check({ configId: 'plugin:d', name: 'D', status: 'failed', summary: 's', diagnostics: [{ message: 'm' }], diagnosticsTotal: 150 })] })
+    )
+    expect(d?.checks[0].diagnosticsTotal).toBe(150)
+  })
+
   it('실패한 검사의 꼬리와 종료 코드를 그대로 나른다', () => {
     const d = completionDetailOf(
       task({

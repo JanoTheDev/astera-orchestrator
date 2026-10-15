@@ -39,11 +39,15 @@ export interface PluginCheckAnswer {
   status: 'passed' | 'failed' | 'error'
   summary: string
   diagnostics?: CheckDiagnostic[]
+  /** How many findings the plugin gave, when the Host kept fewer (CHECK_DIAGNOSTICS_MAX) */
+  diagnosticsTotal?: number
   externalUrl?: string
 }
 
 export const CHECK_SUMMARY_MAX = 1_000
-export const CHECK_DIAGNOSTICS_MAX = 100
+/** How many findings of a check the Host keeps (C5 said 100; 5d, from the performance review, keeps what a repair request
+ *  names): they travel in the state, every completion read and the repair request, and the plugin's link holds the rest. */
+export const CHECK_DIAGNOSTICS_MAX = 20
 export const CHECK_MESSAGE_MAX = 1_000
 export const CHECK_FILE_MAX = 500
 /** How many findings a repair request and a status message name (C10); the rest are counted. */
@@ -84,7 +88,7 @@ function diagnosticOf(v: unknown): CheckDiagnostic | null {
 
 /**
  * What the Host keeps of a plugin's answer (C5): the summary within 1,000 characters (the status word when there is
- * none), at most 100 findings (the summary then says how many there were), each message within 1,000, each file within
+ * none), at most 20 findings (`diagnosticsTotal` then says how many there were), each message within 1,000, each file within
  * 500, a line only when it is a positive integer, a severity only when it is one of the two, and a link only when it is
  * http or https within 2,048 characters. An answer of the wrong shape is `error`, saying why: the plugin's author reads
  * that in the question a person is asked.
@@ -103,12 +107,15 @@ export function checkAnswerOf(raw: unknown): Omit<PluginCheckAnswer, 'name'> {
     diagnostics.push(kept)
   }
   const said = typeof raw.summary === 'string' && raw.summary.trim() !== '' ? raw.summary : status
-  const cut = given.length > CHECK_DIAGNOSTICS_MAX ? ` (the first ${CHECK_DIAGNOSTICS_MAX} of ${given.length} findings are kept)` : ''
+  // The plugin may say how many it found rather than send them all (5d); a count below what it sent changes nothing
+  const claimed = typeof raw.diagnosticsTotal === 'number' && Number.isSafeInteger(raw.diagnosticsTotal) ? raw.diagnosticsTotal : 0
+  const total = Math.max(given.length, claimed)
   const link = webUrl(raw.externalUrl)
   return {
     status: status as PluginCheckAnswer['status'],
-    summary: `${clip(said, CHECK_SUMMARY_MAX - cut.length)}${cut}`,
+    summary: clip(said, CHECK_SUMMARY_MAX),
     ...(diagnostics.length > 0 ? { diagnostics } : {}),
+    ...(total > diagnostics.length ? { diagnosticsTotal: total } : {}),
     ...(link !== undefined ? { externalUrl: link } : {})
   }
 }
@@ -137,6 +144,10 @@ export const skipReasonOf = (summary: string | undefined): string | undefined =>
  *  line breaks, with the spaces around them, become one space. */
 export const oneLine = (text: string): string => text.replace(/\s*[\r\n]+\s*/g, ' ').trim()
 
+/** How many findings a check gave: its count when the Host kept fewer (5d), else the ones it has. */
+export const findingsCountOf = (c: { diagnostics?: readonly unknown[]; diagnosticsTotal?: number }): number =>
+  Math.max(c.diagnosticsTotal ?? 0, c.diagnostics?.length ?? 0)
+
 /** One finding as a repair request names it: `file:line message`, a warning said as one. */
 export function diagnosticLine(d: CheckDiagnostic): string {
   const where = d.file === undefined ? '' : `${d.file}${d.line !== undefined ? `:${d.line}` : ''} `
@@ -149,8 +160,10 @@ export function pluginCheckText(c: CheckResult): string | null {
   if (c.summary === undefined) return null
   const lines = [c.summary]
   const found = c.diagnostics ?? []
-  for (const d of found.slice(0, REPAIR_DIAGNOSTICS)) lines.push(diagnosticLine(d))
-  if (found.length > REPAIR_DIAGNOSTICS) lines.push(`… ${found.length - REPAIR_DIAGNOSTICS} more finding(s)`)
+  const shown = found.slice(0, REPAIR_DIAGNOSTICS)
+  for (const d of shown) lines.push(diagnosticLine(d))
+  const more = findingsCountOf(c) - shown.length
+  if (more > 0) lines.push(`… ${more} more finding(s)`)
   if (c.externalUrl !== undefined) lines.push(`Details: ${c.externalUrl}`)
   return lines.join('\n')
 }

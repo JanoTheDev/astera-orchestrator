@@ -272,8 +272,9 @@ work is done stays Astera's call.
 
 A Task's `detail.checks` are its last round, each a check's `status` (`passed`, `failed`, `timed-out`, `not-run`, or
 `error` for a plugin's check that could not be made) with its `exitCode` and output. A plugin's check, `configId`
-`plugin:<id>`, carries its `summary`, its findings as `diagnostics` (`file?`, `line?`, `message`, `severity?`) and a
-link as `externalUrl`; one a person let the round go on without is `not-run` with `skipped: true`.
+`plugin:<id>`, carries its `summary`, its findings as `diagnostics` (`file?`, `line?`, `message`, `severity?`; the first
+20, and none for a passed check), `diagnosticsTotal` when the plugin gave more, and a link as `externalUrl`; one a person
+let the round go on without is `not-run` with `skipped: true`.
 
 ### Any other command
 
@@ -311,7 +312,9 @@ outlives a Host restart, and `events` reads it. An event:
 | `session.account_switched` | a session goes on under another account | `{ session, accountLabel }` |
 
 The payload is the object as it stood right after the change. A Task is cut like `tasks.list({ brief: true })` and its
-checks carry no output; the `get` methods read the whole object.
+checks carry no output; a plugin check, in a Task or a `TaskCompletion`, carries how many findings it has
+(`diagnosticsTotal`) and not the findings, which `tasks.get` and `completion.get` read. The `get` methods read the whole
+object.
 
 A session event's `session` is `{ id, kind, title?, provider?, cwd? }`, as `astera sessions list` shows it; `prompt` is
 `permission`, `question` or `null` when the Host cannot tell. They are what Astera's desktop notifications announce: a

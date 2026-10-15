@@ -2,7 +2,7 @@
 // behind its own toggle; a plugin check's own words, its findings as `file:line message` and a link to its report. A
 // check that could not be made is drawn apart with its reason, and one a person skipped says so in this app's words.
 import type { CompletionCheckDetail } from '../../../core/types'
-import { skipReasonOf } from '../../../core/orchestration/pluginChecks'
+import { findingsCountOf, skipReasonOf } from '../../../core/orchestration/pluginChecks'
 import { useI18n } from '../i18n/I18nProvider'
 import { checkVerdict } from './checkText'
 
@@ -28,6 +28,8 @@ export function CompletionChecks({
         // summary the Host filled with the status word (the plugin gave none, C5) says only what the verdict says
         const said = c.skipped ? skipReasonOf(c.summary) : c.summary === c.status ? undefined : c.summary
         const link = c.externalUrl
+        // The Host keeps 20 findings and counts the rest (5d)
+        const more = findingsCountOf(c) - (c.diagnostics?.length ?? 0)
         return (
           <li key={c.configId}>
             <span className={`detail-completion-name detail-completion-name--${c.status}`}>{c.name}</span>
@@ -62,6 +64,14 @@ export function CompletionChecks({
                   </li>
                 ))}
               </ul>
+            )}
+            {more > 0 && (
+              <p className="detail-completion-summary">
+                {/* Where the rest are only when there is a report; a count with no list reads as a count (5d review M4) */}
+                {(c.diagnostics?.length ?? 0) > 0
+                  ? t(link !== undefined ? 'jobs.completion.moreFindingsReport' : 'jobs.completion.moreFindings', { n: more })
+                  : t(link !== undefined ? 'jobs.completion.findingsUnlistedReport' : 'jobs.completion.findingsUnlisted', { n: more })}
+              </p>
             )}
           </li>
         )
