@@ -444,6 +444,8 @@ export interface JobCheck {
   /** 밀리초. CheckResult 의 startedAt·endedAt 둘 다 있을 때만 — 툴팁의 "지난 라운드 실제 시간" */
   durationMs?: number
   unstable?: true
+  /** A person let the round go on without it (plugin Phase 5 C9 skip-check); its status is not-run */
+  skipped?: true
 }
 /** JobTask.convergence — 자동 수정의 예산과 지금 자리. 정책 있는 Run 의 Task 만 갖는다(UI 설계 U3) */
 export interface JobConvergence {
@@ -513,6 +515,9 @@ export interface JobTask {
   /** 이 Task 의 마지막 검증 라운드. **검사가 걸린 모든 Task 가 갖는다** — 자동 수정을 켠 Run 만이 아니다
    *  (UI 설계 U2). 없으면 검사가 없는 Task 이고, 그때 노드는 칩 줄 자체를 그리지 않는다. */
   checks?: JobCheck[]
+  /** A round a person let go on without a check (plugin Phase 5 C9 skip-check) runs the checks after it: the one it
+   *  runs now, or null when the skipped check was the round's last. Absent when no such round is live. */
+  resumeAt?: string | null
   /** 자동 수정 정책이 있는 Run 의 Task 만 갖는다(`policyOf !== null`). 검사가 없는 Task 도 Run 에 정책이 있으면
    *  갖는다 — 검토만 걸린 Task 의 라운드를 그리기 위해서다. 없는 Run 에 실으면 의미 없는 3/2 가 모든 카드를
    *  따라다닌다. */

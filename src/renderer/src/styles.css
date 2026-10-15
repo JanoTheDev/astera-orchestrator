@@ -1805,6 +1805,8 @@ input[type="checkbox"]:not(.md-task input):focus-visible {
 .detail-check--passed { color: var(--ok); }
 .detail-check--failed, .detail-check--timed-out { color: var(--git-deleted); }
 .detail-check--not-run { color: var(--text-faint); }
+/* A plugin check that could not be made (plugin Phase 5 C9): not the code's failure, so not its colour */
+.detail-check--error { color: var(--warn-ink); }
 .detail-check--retrying { color: var(--accent); }
 /* Task 짓기 중 고른 의존 표시. 필터의 고른 표시(노드 자신의 상태색 링)와 다른 채널이라 위치도
    다르다 — 테두리가 아니라 제목 옆에 글리프를 하나 더 세운다. color 를 accent(청록)로 주는 것은
@@ -1932,6 +1934,9 @@ input[type="checkbox"]:not(.md-task input):focus-visible {
 /* 코디네이터가 준 선택지. 줄바꿈을 허용한다 — 문장이 선택지로 오는 경우가 있고, 한 줄에 밀어 넣고
    자르면 무엇을 고르는지 읽을 수 없다 */
 .detail-gate-options { display: flex; flex-wrap: wrap; gap: 6px; }
+/* A choice that says what it does (a check that could not be made, plugin Phase 5 C9): its label, its line under it */
+.detail-gate-options > button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; }
+.detail-gate-option-hint { font-size: 11px; color: var(--text-dim); white-space: normal; }
 
 /* RunTypePicker — the ＋ button's kind-picker popup. Anchored the same way as .run-more/.run-more-menu
    in RunToolbar; a separate namespace because it also holds a search input and two grouped sections
@@ -2495,6 +2500,14 @@ input[type="checkbox"]:not(.md-task input):focus-visible {
 .detail-completion-name--passed { color: var(--text-dim); font-weight: 400; }
 .detail-completion-name--failed, .detail-completion-name--timed-out { color: var(--git-conflict); }
 .detail-completion-name--not-run { color: var(--text-faint); font-weight: 400; }
+.detail-completion-name--error { color: var(--warn-ink); }
+/* A plugin check's own words and its findings (plugin Phase 5 C13): full width under the check's row; a hundred
+   findings scroll here rather than push the graph away */
+.detail-completion-summary { flex: 0 0 100%; margin: 0; max-height: 160px; overflow: auto; color: var(--text-dim); white-space: pre-wrap; overflow-wrap: anywhere; }
+.detail-completion-summary--error { color: var(--warn-ink); }
+.detail-completion-diags { flex: 0 0 100%; list-style: none; margin: 0; padding: 0; max-height: 160px; overflow: auto; display: flex; flex-direction: column; gap: 2px; font-size: 11px; }
+.detail-completion-diags > li { display: flex; gap: 6px; align-items: baseline; overflow-wrap: anywhere; white-space: pre-wrap; }
+.detail-completion-diags > li.warning { color: var(--text-dim); }
 .detail-completion-verdict { color: var(--text-dim); }
 .detail-completion-more { background: none; border: 0; padding: 0; color: var(--accent); font-size: 11px; cursor: pointer; }
 .detail-completion-more:hover { text-decoration: underline; background: none; }

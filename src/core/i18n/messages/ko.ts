@@ -1759,6 +1759,12 @@ export const ko = {
   'jobs.convergence.gate.paused': '완료 검사가 도는 동안 이 Run 이 멈췄고, 검사는 아직 실패합니다: {failures}',
   'jobs.convergence.gate.repairFailed': '수정할 워커를 띄울 수 없었습니다: {reason}',
   'jobs.checks.gate.unavailable': '검사를 할 수 없었습니다: {check}: {reason}',
+  'jobs.gate.checkUnavailable.retry': '검사 다시 돌리기',
+  'jobs.gate.checkUnavailable.retryHint': '이 Task 의 검사를 처음부터 다시 돌립니다.',
+  'jobs.gate.checkUnavailable.skip': '이 검사 없이 계속',
+  'jobs.gate.checkUnavailable.skipHint': '이번 라운드는 이 검사를 돌지 않은 것으로 치고 계속합니다. 건너뛴 사실은 Task 기록에 남습니다.',
+  'jobs.gate.checkUnavailable.fail': 'Task 를 실패로 처리',
+  'jobs.gate.checkUnavailable.failHint': 'Task 를 실패로 끝냅니다.',
   'jobs.convergence.gate.retryOnce': '한 번 더 수정',
   'jobs.convergence.gate.markFailed': '실패로 표시',
   // 설계 §5(V4). Gate 는 풀렸는데 수리는 안 열린 경우다 — 사람이 누른 것이 아무 일도 하지
@@ -1774,6 +1780,7 @@ export const ko = {
   'jobs.convergence.node.checking': '검사 중',
   'jobs.convergence.node.reviewing': '검토 라운드 {round}/{max}',
   'jobs.convergence.node.failed': '{name} 실패',
+  'jobs.convergence.node.unavailable': '{name} 검사 불가',
   // 사이드바 도는 줄·Gate 줄의 칩(JobsView, convergenceChipOf)
   'jobs.convergence.chip.repairing': '수정 {repairs}/{max}',
   'jobs.convergence.chip.reviewing': '검토 {round}/{max}',
@@ -1782,6 +1789,7 @@ export const ko = {
   'jobs.convergence.chip.stopped': '수정 멈춤',
   'jobs.convergence.node.stopped': '자동 수정 멈춤',
   'jobs.convergence.node.stoppedWithCheck': '자동 수정 멈춤 · {failed} 실패',
+  'jobs.convergence.node.stoppedUnavailable': '자동 수정 멈춤 · {failed} 검사 불가',
   'jobs.convergence.stop': '자동 수정 중지',
   'jobs.convergence.stopConfirmTitle': '이 Task 의 자동 수정을 멈출까요?',
   // 두 가지를 말한다. 되돌릴 수 없다는 것(서버에 --convergence on 이 없다)과, 지금 도는
@@ -1793,6 +1801,9 @@ export const ko = {
   'jobs.convergence.check.failed': '실패 (exit {code})',
   'jobs.convergence.check.timedOut': '타임아웃',
   'jobs.convergence.check.notRun': '돌지 않음',
+  'jobs.convergence.check.failedNoCode': '실패',
+  'jobs.convergence.check.error': '검사할 수 없었음',
+  'jobs.convergence.check.skipped': '사람이 건너뜀',
   'jobs.convergence.check.retrying': '다시 도는 중',
   'jobs.convergence.check.unstable': '라운드 사이에 판정이 흔들림',
   // 설계 §2(V1). 칩은 '무엇이 어디서 멈췄나' 까지고, 이 블록이 '그래서 뭐가 틀렸나' 를 맡는다.
@@ -1801,6 +1812,8 @@ export const ko = {
   'jobs.completion.empty': '이 Task 에는 아직 검사 결과도 검토 지적도 없습니다.',
   'jobs.completion.showTail': '출력 보기',
   'jobs.completion.hideTail': '출력 접기',
+  'jobs.completion.openReport': '보고서 열기',
+  'jobs.completion.warning': '경고',
   'jobs.completion.blocking': '막는 검토 지적 {n}',
   // 막지 않는 이슈는 개수만 말한다 — 없는 것과 다르다는 사실까지가 필요한 전부다.
   'jobs.completion.other': '그 밖의 지적 {n}',
@@ -1920,7 +1933,10 @@ export const ko = {
   // 검사는 고른 순서대로 돌고 첫 실패에서 멈춘다(Plan 1 설계 D9) — 순서가 비용을 좌우하므로 힌트가 그것을 말한다
   'jobs.task.checksHint': '빠른 검사를 앞에 두세요 — 첫 실패에서 멈추므로, 느린 검사가 앞에 있으면 매 수정마다 그 시간을 버립니다.',
   'jobs.task.checksUnpicked': '고르지 않은 것',
-  'jobs.task.checksNone': '검사로 쓸 실행 구성이 없습니다',
+  'jobs.task.checksNone': '검사로 쓸 실행 구성이나 검사 플러그인이 없습니다',
+  'jobs.task.checksRuntimePlugins': 'Runtime 의 플러그인 검사는 여기 나오지 않습니다. CLI 로 추가하세요: astera --runtime {runtime} tasks add --run {run} --spec <할 일> --validate plugin:<플러그인 id>',
+  'jobs.task.checkPlugin': '플러그인: {name}',
+  'jobs.task.checkPluginStatus': '플러그인: {name} ({status})',
   // ↑ ↓ ✕ — 아이콘만 있는 버튼의 aria-label·title
   'jobs.task.checkUp': '위로',
   'jobs.task.checkDown': '아래로',

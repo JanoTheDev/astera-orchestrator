@@ -12,7 +12,8 @@ const door = (reply: { status: number; body: unknown } = { status: 200, body: {}
     command: async (cmd, args) => (sent.push([cmd, args]), reply),
     accounts: async () => [],
     signedInIds: async () => new Set(),
-    runConfigs: async () => []
+    runConfigs: async () => [],
+    checkPlugins: async () => []
   }
   return Object.assign(d, { sent })
 }
