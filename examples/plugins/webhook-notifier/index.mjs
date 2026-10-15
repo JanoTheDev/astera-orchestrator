@@ -12,8 +12,10 @@
 //
 // It is an event plugin: Astera hands its onEvent each event, in order, from where it left off, so what happened while
 // it was stopped is posted when it runs again, as far back as Astera's event log keeps. A post that fails throws, and
-// Astera hands the same event over again (after 1 s, doubling to 5 min, for an hour). The webhook URL and the signing
-// secret are secret settings: Astera keeps them out of the plugin's log, and this plugin never writes them there anyway.
+// Astera hands the same event over again (after 1 s, doubling to 5 min, for an hour); one the webhook would refuse again
+// every time (a 4xx other than 408 and 429: deleted, forbidden, not found) is logged and left. The webhook URL and the
+// signing secret are secret settings: Astera keeps them out of the plugin's log, and this plugin never writes them there
+// anyway.
 import { createHmac } from 'node:crypto'
 
 /** @typedef {import('@astera-app/plugin-sdk').PluginContext} PluginContext */
@@ -81,11 +83,17 @@ function targetOf(ctx) {
   return { url, signingSecret: typeof secret === 'string' && secret !== '' ? secret : undefined }
 }
 
+/** How an event is named in the log. */
+const labelOf = (/** @type {Seen} */ event) => (event.type === 'gap' ? 'a gap' : `${event.type} ${event.id}`)
+
 /**
- * Posts one event; throws when the post fails, so Astera hands the event over again.
+ * Posts one event; throws when the post fails, so Astera hands the event over again. A refusal the webhook will give on
+ * every try (a 4xx other than 408 and 429: a webhook deleted, forbidden, or not found) is said and left, so the next
+ * event goes rather than waiting behind it for an hour. True when it was posted.
  * @param {Target} target
  * @param {Seen} event
  * @param {PluginContext} ctx
+ * @returns {Promise<boolean>}
  */
 async function post(target, event, ctx) {
   const body = JSON.stringify({ text: escaped(textOf(event)), event })
@@ -101,7 +109,12 @@ async function post(target, event, ctx) {
   }
   // The answer's body is not needed; reading it to the end frees the connection.
   await res.arrayBuffer()
+  if (res.status >= 400 && res.status < 500 && res.status !== 408 && res.status !== 429) {
+    ctx.log.warn(`the webhook refused ${labelOf(event)} (${res.status}): it is not posted`)
+    return false
+  }
   if (!res.ok) throw new Error(`the webhook answered ${res.status}`)
+  return true
 }
 
 /** @type {PluginDefinition} */
@@ -112,7 +125,6 @@ export default {
   },
   async onEvent(event, ctx) {
     if (!posted(event, ctx.settings.onlyProblems === true ? PROBLEMS : EVERYTHING)) return
-    await post(targetOf(ctx), event, ctx)
-    ctx.log.info(`posted ${event.type === 'gap' ? 'a gap' : `${event.type} ${event.id}`}`)
+    if (await post(targetOf(ctx), event, ctx)) ctx.log.info(`posted ${labelOf(event)}`)
   }
 }

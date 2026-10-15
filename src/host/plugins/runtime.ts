@@ -108,6 +108,13 @@ export const pluginLogFile = (profileDir: string, folder: string): string => pat
 
 /** A line of stderr longer than this is written in pieces, so a plugin printing without end cannot grow a buffer. */
 const STDERR_LINE_MAX = 64 * 1024
+/** How many lines of a plugin's output its log takes a second (5e, from the performance review): every line is redacted
+ *  on the Host's thread, which also serves every terminal, so a plugin printing without end must not have them all. */
+export const LOG_LINES_PER_SECOND = 1_000
+/** And how many characters (5e final review M4): long lines are what cost the redaction and the log's rotation. */
+export const LOG_CHARS_PER_SECOND = 1_048_576
+/** How many of the lines dropped in a second are written when the process ends then: a crash's stack (I2). */
+const DROPPED_TAIL = 20
 
 interface Slot {
   launch: PluginLaunch
@@ -457,9 +464,51 @@ export function createPluginRuntime(d: {
         killTree(proc)
       }
     })
+    // A budget a second (LOG_LINES_PER_SECOND lines, LOG_CHARS_PER_SECOND characters): past it a line is counted, not
+    // redacted or written. The count is said once, when its second is over (a timer at its end, or the next second's
+    // first line), or when the process ends; then the last lines dropped in that second are written too, so a crash at
+    // the end of a flood keeps its stack (5e final review I1, I2). A steady clock: a clock set back holds no window open.
+    let windowStart = -Infinity
+    let lines = 0
+    let chars = 0
+    let dropped = 0
+    let tail: string[] = []
+    const sayDropped = (atEnd: boolean): void => {
+      if (dropped > 0) {
+        const n = dropped.toLocaleString('en-US')
+        say(s, `dropped ${n} line${dropped === 1 ? '' : 's'} of its output: more than ${LOG_LINES_PER_SECOND.toLocaleString('en-US')} lines or ${LOG_CHARS_PER_SECOND.toLocaleString('en-US')} characters a second`)
+        if (atEnd && tail.length > 0) {
+          say(s, `the last ${tail.length} of them, before it ended:`)
+          for (const t of tail) logOf(p.folder).write(hide(s, t))
+        }
+      }
+      dropped = 0
+      tail = []
+    }
     const line = (l: string): void => {
       const text = l.replace(/\r$/, '')
-      if (text !== '') logOf(p.folder).write(hide(s, text))
+      if (text === '') return
+      const now = performance.now()
+      if (now - windowStart >= 1_000) {
+        sayDropped(false)
+        windowStart = now
+        lines = 0
+        chars = 0
+      }
+      if (lines >= LOG_LINES_PER_SECOND || chars + text.length > LOG_CHARS_PER_SECOND) {
+        if (dropped++ === 0) {
+          const second = windowStart
+          later(s, Math.max(0, second + 1_000 - now), () => {
+            if (windowStart === second) sayDropped(false)
+          })
+        }
+        tail.push(text)
+        if (tail.length > DROPPED_TAIL) tail.shift()
+        return
+      }
+      lines += 1
+      chars += text.length
+      logOf(p.folder).write(hide(s, text))
     }
     // stdout and stderr are both the plugin's log, each read in lines of its own.
     const held = new Map<Readable, string>()
@@ -490,6 +539,7 @@ export function createPluginRuntime(d: {
       if (ended) return
       ended = true
       flushHeld()
+      sayDropped(true)
       resolveExit()
       exitedWith(s, proc, code, signal)
     }

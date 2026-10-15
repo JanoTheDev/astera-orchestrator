@@ -8,20 +8,30 @@
 // editor and tsc only: Astera never loads @astera-app/plugin-sdk, and a plain object is the provider
 // `defineNotificationProvider` would have returned.
 //
-// It retries nothing itself: a post that fails throws, and Astera sends the notification again (after 1 s, doubling to
-// 5 min, for an hour). A post Discord refuses as malformed (400) would be refused again every time, so it is logged and
-// left. The text a session, a question or a Task holds is posted as it is, and Discord is told to ping
+// A post that fails throws, and Astera sends the notification again (after 1 s, doubling to 5 min, for an hour); the
+// one wait it makes itself is a short rate limit (up to 5 s), waited out once inside the call. A post Discord would
+// refuse again every time (a 4xx other than 408 and 429: malformed, unauthorized, forbidden, a webhook gone) is logged
+// and left. The text a session, a question or a Task holds is posted as it is, and Discord is told to ping
 // nobody, so `@everyone` in a question stays text. The webhook URL is a secret setting: Astera keeps it out of the
 // plugin's log.
 
 /** @typedef {import('@astera-app/plugin-sdk').NotificationProvider} NotificationProvider */
 /** @typedef {import('@astera-app/plugin-sdk').PluginContext} PluginContext */
 
+import { setTimeout as sleep } from 'node:timers/promises'
+
 /** An embed's colour for each level: blue waits on you, red failed, amber stopped for now, green went on.
  *  @type {Record<string, number>} */
 const COLOR = { action: 0x3b82f6, error: 0xef4444, warning: 0xf59e0b, info: 0x22c55e }
 /** Well within the 30 s Astera gives send. */
 const POST_TIMEOUT_MS = 10_000
+/** The longest wait Discord asks for (`retry_after`, seconds) that is waited out inside one call, then posted again: a
+ *  longer one is left to Astera's next try. Within the 30 s Astera gives a call, two posts included. */
+const SHORT_WAIT_S = 5
+
+/** A status Discord answers on every try for this webhook and payload (malformed, unauthorized, forbidden, gone): the
+ *  notification is said and left, so the next one goes. A rate limit (429) and a timeout (408) are tried again. */
+const final = (/** @type {number} */ status) => status >= 400 && status < 500 && status !== 408 && status !== 429
 
 /**
  * The webhook a person set; throws, saying what to do, when it is not a URL.
@@ -85,22 +95,29 @@ export default {
       ],
       allowed_mentions: { parse: [] }
     })
-    let res
-    try {
-      res = await fetch(urlOf(ctx), {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body,
-        signal: AbortSignal.any([ctx.signal, AbortSignal.timeout(POST_TIMEOUT_MS)])
-      })
-    } catch (e) {
-      throw new Error(problemOf(e))
+    const post = async () => {
+      try {
+        return await fetch(urlOf(ctx), {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body,
+          signal: AbortSignal.any([ctx.signal, AbortSignal.timeout(POST_TIMEOUT_MS)])
+        })
+      } catch (e) {
+        throw new Error(problemOf(e))
+      }
     }
-    const answer = await answerOf(res)
-    // A payload Discord refuses (400) is refused again on every try: said, and left, so the next one goes
-    if (res.status === 400) {
+    let res = await post()
+    let answer = await answerOf(res)
+    // A short wait Discord asks for is waited out once, and the post made again
+    if (res.status === 429 && typeof answer.retry_after === 'number' && answer.retry_after <= SHORT_WAIT_S) {
+      await sleep(answer.retry_after * 1000, undefined, { signal: ctx.signal })
+      res = await post()
+      answer = await answerOf(res)
+    }
+    if (final(res.status)) {
       const why = answer.message ? `: ${answer.message}` : ''
-      ctx.log.warn(`Discord refused ${notification.kind} ${notification.id} (400${why}): it is not posted`)
+      ctx.log.warn(`Discord refused ${notification.kind} ${notification.id} (${res.status}${why}): it is not posted`)
       return
     }
     if (!res.ok) {

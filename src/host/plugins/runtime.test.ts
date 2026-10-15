@@ -313,6 +313,65 @@ describe('createPluginRuntime', () => {
     expect(r.status('dropped')).toBeUndefined()
   }, 90_000)
 
+  // 5e (performance review): a plugin printing without end cannot take the Host's thread; its log keeps a budget of
+  // lines a second and says how many it dropped, and ordinary logging is never touched
+  /** The lines a plugin's log kept that match `kept`, and the lines its [host] lines say were dropped. */
+  const budgetOf = (r: PluginRuntime, folder: string, kept: RegExp): { kept: number; dropped: number; reports: number } => {
+    const log = logOf(r, folder)
+    const reports = [...log.matchAll(/\[host\] dropped ([\d,]+) lines? of its output/g)]
+    return {
+      kept: log.split('\n').filter((l) => kept.test(l)).length,
+      dropped: reports.reduce((n, m) => n + Number(m[1].replace(/,/g, '')), 0),
+      reports: reports.length
+    }
+  }
+
+  it('keeps a budget of a plugin’s output lines a second, and counts the ones it drops', async () => {
+    const { r } = runtime()
+    r.start(plugin('flood', `export default { activate() { for (let i = 0; i < 50000; i++) console.log('line ' + i) } }`))
+    await until(() => expect(r.status('flood')?.status).toBe('running'))
+    // The flood can be read across a second's end: its second count comes a second later (5e final review M3)
+    await until(() => expect(budgetOf(r, 'flood', /\sline \d+$/)).toMatchObject({ dropped: 50_000 - budgetOf(r, 'flood', /\sline \d+$/).kept }), 20_000)
+    expect(budgetOf(r, 'flood', /\sline \d+$/).kept).toBeLessThan(50_000)
+    r.start(plugin('quiet', `export default { activate() { for (let i = 0; i < 10; i++) console.log('note ' + i) } }`))
+    await until(() => expect(logOf(r, 'quiet').split('\n').filter((l) => /note \d+$/.test(l))).toHaveLength(10))
+    expect(logOf(r, 'quiet')).not.toContain('dropped')
+  }, 90_000)
+
+  // 5e final review I1: a flood over several seconds says its count once a second, not more often as it goes on
+  it('says the count of a long flood once a second', async () => {
+    const { r } = runtime()
+    // A second whose drops start late (1,000 lines, half a second's pause, then the flood) before seconds whose drops
+    // start early: a count timed from a second's first drop would then fire inside the next second
+    const flood = `export default { activate() { for (let i = 0; i < 1000; i++) console.log('line ' + i); let n = 1000; setTimeout(() => { const t = setInterval(() => { for (let i = 0; i < 200; i++) console.log('line ' + n++); if (n >= 30000) clearInterval(t) }, 20) }, 500) } }`
+    r.start(plugin('long-flood', flood))
+    await until(() => expect(budgetOf(r, 'long-flood', /\sline \d+$/)).toMatchObject({ dropped: 30_000 - budgetOf(r, 'long-flood', /\sline \d+$/).kept }), 30_000)
+    // One count a second: the counts are a second apart, give or take the moment a second's first line arrives
+    const times = logOf(r, 'long-flood')
+      .split('\n')
+      .filter((l) => /\[host\] dropped [\d,]+ lines? of its output/.test(l))
+      .map((l) => Date.parse(l.slice(0, 24)))
+    expect(times.length).toBeGreaterThan(1)
+    for (let i = 1; i < times.length; i++) expect(times[i] - times[i - 1], `count ${i}`).toBeGreaterThanOrEqual(800)
+  }, 90_000)
+
+  // 5e final review I2: a flood that ends in a crash keeps the crash's own lines, dropped or not
+  it('writes the last lines it dropped when the process ends, so a crash at the end of a flood keeps its stack', async () => {
+    const { r } = runtime({ failAfter: 1 })
+    r.start(plugin('flood-crash', `export default { activate() { for (let i = 0; i < 5000; i++) console.log('line ' + i); setImmediate(() => { throw new Error('boom at the end') }) } }`))
+    await until(() => expect(logOf(r, 'flood-crash')).toContain('boom at the end'), 30_000)
+  }, 90_000)
+
+  // 5e final review M4: the budget counts characters too, so long lines cannot push megabytes a second through it
+  it('keeps a budget of characters a second as well as lines', async () => {
+    const { r } = runtime()
+    r.start(plugin('wide', `export default { activate() { for (let i = 0; i < 100; i++) console.log('w' + i + ' ' + 'x'.repeat(64 * 1024 - 20)) } }`))
+    await until(() => expect(logOf(r, 'wide')).toMatch(/\[host\] dropped [\d,]+ lines? of its output/), 20_000)
+    const kept = logOf(r, 'wide').split('\n').filter((l) => / w\d+ x+$/.test(l)).length
+    expect(kept).toBeLessThan(100)
+    expect(kept).toBeGreaterThan(0)
+  }, 90_000)
+
   // 5d final review M7: a slot whose process is still there (starting, or waiting to restart) is not let go: the
   // runtime could not stop that process any more
   it('keeps the slot of a plugin that still has a process, even when told to forget it', async () => {

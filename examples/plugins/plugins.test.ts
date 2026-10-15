@@ -16,6 +16,7 @@ import { PluginRequestFailed, createPluginRuntime, type PluginRuntime } from '..
 import { copyPluginFolder } from '../../src/host/plugins/copyFolder'
 import { createEventRing, type EventRing } from '../../src/core/events/eventRing'
 import type { EventDraft } from '../../src/core/orchestration/publicEvents'
+import { itemSplitter } from './debug-leftovers/index.mjs'
 import type { AsteraEvent } from '../../src/core/publicContract'
 import { bundleLauncher } from '../../src/pluginHost/testkit'
 import { notificationOf } from '../../src/core/plugins/notifications'
@@ -62,10 +63,13 @@ const until = <T>(f: () => T, timeout = 45_000): Promise<T> => vi.waitFor(f, { t
 async function webhook(statuses: Array<number | { status: number; body: string }> = []) {
   const bodies: unknown[] = []
   const posts: { text: string; signature: string | undefined }[] = []
+  /** When each request arrived, answered or refused */
+  const at: number[] = []
   const server = http.createServer((req, res) => {
     let text = ''
     req.setEncoding('utf8').on('data', (c: string) => (text += c))
     req.on('end', () => {
+      at.push(Date.now())
       const next = statuses.shift() ?? 200
       const status = typeof next === 'number' ? next : next.status
       if (status === 200) {
@@ -79,7 +83,7 @@ async function webhook(statuses: Array<number | { status: number; body: string }
   })
   servers.push(server)
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
-  return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/hooks/T0/B0/secret-part`, bodies, posts }
+  return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/hooks/T0/B0/secret-part`, bodies, posts, at }
 }
 
 const RUN = { id: 'run_1', jobId: 'job_1', ordinal: 1, createdAt: 'T', outcome: 'completed', progress: { done: 2, total: 2 }, questionsOpen: 0 }
@@ -157,6 +161,33 @@ describe('the webhook notifier sample', () => {
   it('typechecks against the plugin SDK’s types', () => {
     expect(runTsc(path.join(here, 'tsconfig.json'))).toBe('')
   }, 60_000)
+
+  // 5e (performance review): a webhook that was deleted or forbids posting refuses every try; the event is left, said
+  // once, and the next one goes, rather than holding the rest for an hour
+  it('leaves an event a webhook refuses for good, says why, and posts the next one', async () => {
+    const hook = await webhook([410])
+    const { r, ring } = runtime()
+    await running(r, { webhookUrl: hook.url, onlyProblems: false }, [hook.url])
+    const first = completed(ring)
+    const second = completed(ring)
+    await until(() => expect(hook.bodies).toHaveLength(1))
+    expect(hook.bodies[0]).toMatchObject({ event: { id: second.id } })
+    await until(() => expect(logOf(r)).toContain(`[warn] the webhook refused run.completed ${first.id} (410): it is not posted`))
+    expect(logOf(r)).not.toContain('failed (try')
+  }, 90_000)
+
+  // 5e final review M9: a rate limit or a timeout is not a refusal for good: Astera hands the event over again
+  it('is handed an event again when the webhook asks it to wait (429)', async () => {
+    const hook = await webhook([429])
+    const { r, ring } = runtime()
+    await running(r, { webhookUrl: hook.url, onlyProblems: false }, [hook.url])
+    const e = completed(ring)
+    await until(() => expect(hook.bodies).toHaveLength(1))
+    // The log is written after the post: the line that says it was posted comes after the failure's
+    await until(() => expect(logOf(r)).toContain(`posted run.completed ${e.id}`))
+    expect(logOf(r)).toContain(`delivering run.completed ${e.id} failed (try 1): onEvent threw: the webhook answered 429`)
+    expect(logOf(r)).not.toContain('refused')
+  }, 90_000)
 
   it('posts a completed Run to the webhook, is handed it again by Astera when a post fails, and keeps the URL out of its log', async () => {
     const hook = await webhook([500])
@@ -338,13 +369,38 @@ describe('the Discord notifier sample', () => {
     expect(other.bodies[0]).toMatchObject({ embeds: [{ description: 'Continuing on the work account.' }] })
   }, 90_000)
 
-  it('is sent a notification again by Astera when Discord asks it to wait, and says how long Discord asked', async () => {
-    const hook = await webhook([{ status: 429, body: '{"message":"You are being rate limited.","retry_after":0.5,"global":false}' }])
+  // 5e (performance review): a short wait Discord asks for is waited out once, inside the call
+  it('waits out a short rate limit once and posts, rather than failing the try', async () => {
+    const hook = await webhook([{ status: 429, body: '{"message":"You are being rate limited.","retry_after":0.2,"global":false}' }])
     const { r, ring } = runtime()
     await discord(r, settingsOf(hook.url), [hook.url])
     ring.append([{ type: 'run.completed', jobId: 'job_1', runId: 'run_1', payload: RUN }], now())
     await until(() => expect(hook.bodies).toHaveLength(1))
-    await until(() => expect(discordLog(r)).toContain('failed (try 1): send threw: Discord answered 429; it asks to wait 0.5 s'))
+    await until(() => expect(discordLog(r)).toContain('posted run.completed'))
+    expect(discordLog(r)).not.toContain('failed (try')
+    // It waited what Discord asked before posting again (5e final review M8)
+    expect(hook.at[1] - hook.at[0]).toBeGreaterThanOrEqual(180)
+  }, 90_000)
+
+  it('is sent a notification again by Astera when Discord asks it to wait long, and says how long Discord asked', async () => {
+    const hook = await webhook([{ status: 429, body: '{"message":"You are being rate limited.","retry_after":60,"global":false}' }])
+    const { r, ring } = runtime()
+    await discord(r, settingsOf(hook.url), [hook.url])
+    ring.append([{ type: 'run.completed', jobId: 'job_1', runId: 'run_1', payload: RUN }], now())
+    await until(() => expect(hook.bodies).toHaveLength(1))
+    await until(() => expect(discordLog(r)).toContain('failed (try 1): send threw: Discord answered 429; it asks to wait 60 s'))
+  }, 90_000)
+
+  // 5e (performance review): a webhook Discord deleted (404) refuses every try, as a malformed payload does
+  it('leaves a notification whose webhook is gone, says why, and posts the next one', async () => {
+    const hook = await webhook([{ status: 404, body: '{"message":"Unknown Webhook","code":10015}' }])
+    const { r, ring } = runtime()
+    await discord(r, settingsOf(hook.url), [hook.url])
+    ring.append([{ type: 'run.completed', jobId: 'job_1', runId: 'run_1', payload: RUN }], now())
+    ring.append([{ type: 'run.failed', jobId: 'job_1', runId: 'run_1', payload: { ...RUN, outcome: 'failed' } }], now())
+    await until(() => expect(hook.bodies).toHaveLength(1))
+    await until(() => expect(discordLog(r)).toContain('[warn] Discord refused run.completed ev_aaaaaaaaaaaa_1 (404: Unknown Webhook): it is not posted'))
+    expect(discordLog(r)).not.toContain('failed (try')
   }, 90_000)
 
   // 3c final review M11: a payload Discord refuses is refused again on every try, and would hold the rest for an hour
@@ -697,6 +753,41 @@ describe('the debug leftovers sample', () => {
     })
     expect(await check0(dir, base)).toMatchObject({ status: 'failed', summary: '1 debug leftover in 1 file', diagnostics: [found('small.js', 1, 'console.log')] })
   }, 90_000)
+
+  // 5e (performance review): a worktree of thousands of files git does not ignore is not read one by one for a minute:
+  // the check cannot be made, and says what to do
+  it('answers error for more than 2,000 new files git does not ignore, and reads 2,000', async () => {
+    const { dir, base } = await repo({ 'a.js': '' })
+    const many: Record<string, string> = {}
+    for (let i = 0; i < 2_001; i++) many[`gen/f${i}.txt`] = 'x\n'
+    await write(dir, many)
+    const over = await check0(dir, base)
+    expect(over.status).toBe('error')
+    expect(over.summary).toBe('2,001 new files are not ignored by git, more than 2,000 to read: add the folder they are generated in to .gitignore')
+    await fs.rm(path.join(dir, 'gen', 'f2000.txt'))
+    await write(dir, { 'gen/f0.txt': 'console.log(1)\n' })
+    const read = await check0(dir, base)
+    expect(read.status).toBe('failed')
+    expect(read.diagnostics).toEqual([found('gen/f0.txt', 1, 'console.log')])
+  }, 180_000)
+
+  // 5e (performance review): git's output is split in one pass, so a line of tens of megabytes costs its size
+  it('splits a stream into items across chunks, a long item over many, and the last one at its end', () => {
+    const items: string[] = []
+    const lines = itemSplitter('\n', (i) => items.push(i))
+    lines.push('a\nb')
+    lines.push('c\n')
+    for (let i = 0; i < 1_000; i++) lines.push('x'.repeat(64))
+    lines.push('\nlast')
+    lines.end()
+    expect(items).toEqual(['a', 'bc', 'x'.repeat(64_000), 'last'])
+    const names: string[] = []
+    const nul = itemSplitter('\0', (i) => names.push(i))
+    nul.push('one\0tw')
+    nul.push('o\0')
+    nul.end()
+    expect(names).toEqual(['one', 'two'])
+  })
 
   // 5d: Astera keeps 20 findings; the sample sends those and says how many there are
   it('names the first 20 findings and counts them all', async () => {

@@ -27,6 +27,11 @@ const DEFAULT_PATTERNS = ['console.log', 'debugger', 'TODO', 'FIXME']
 const FINDINGS_MAX = 20
 /** A new file larger than this is not read: a file that size was generated, not written. */
 const NEW_FILE_MAX = 1_000_000
+/** More new files that git does not ignore than this, and the check cannot be made in good time: a folder of generated
+ *  files (an environment, a build) belongs in .gitignore, and reading them all would take minutes on every round. */
+const NEW_FILES_MAX = 2_000
+/** How many new files are looked at at once. */
+const STAT_BATCH = 64
 /** How much of git's complaint is kept. */
 const STDERR_MAX = 4_000
 /** Windows refuses to start a process for a moment when many start at once: nothing ran, so one more try is safe. */
@@ -85,6 +90,35 @@ function complaintOf(/** @type {string} */ stderr) {
  */
 
 /**
+ * Hands each item of a stream to `onItem` as its separator arrives, in one pass: an item spread over many chunks is kept
+ * in pieces and joined once, so a line of tens of megabytes costs its size, not its square.
+ * @param {'\n' | '\0'} sep
+ * @param {(item: string) => void} onItem
+ * @returns {{ push(chunk: string): void, end(): void }}
+ */
+export function itemSplitter(sep, onItem) {
+  /** @type {string[]} */
+  let pieces = []
+  return {
+    push(chunk) {
+      let from = 0
+      for (let at = chunk.indexOf(sep); at !== -1; at = chunk.indexOf(sep, from)) {
+        pieces.push(chunk.slice(from, at))
+        onItem(pieces.join(''))
+        pieces = []
+        from = at + 1
+      }
+      if (from < chunk.length) pieces.push(chunk.slice(from))
+    },
+    end() {
+      const last = pieces.join('')
+      pieces = []
+      if (last !== '') onItem(last)
+    }
+  }
+}
+
+/**
  * Runs git once in `cwd`, handing each item it prints to `onItem`. A line ends at a line feed only, one carriage return
  * before it dropped: git does not end a line at a lone carriage return, and nor does this. Resolves when git ends well;
  * rejects with git's sentence when it fails, or with the error that kept it from starting.
@@ -106,16 +140,12 @@ function gitOnce(cwd, args, run, onItem) {
       stdio: [run.input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe']
     })
     const sep = run.sep ?? '\n'
-    let rest = ''
     const item = (/** @type {string} */ text) => onItem(sep === '\n' && text.endsWith('\r') ? text.slice(0, -1) : text)
+    const items = itemSplitter(sep, item)
     // Both are pipes, as stdio says
     const out = /** @type {import('node:stream').Readable} */ (child.stdout)
     const err = /** @type {import('node:stream').Readable} */ (child.stderr)
-    out.setEncoding('utf8').on('data', (/** @type {string} */ chunk) => {
-      const items = (rest + chunk).split(sep)
-      rest = items.pop() ?? ''
-      items.forEach(item)
-    })
+    out.setEncoding('utf8').on('data', (/** @type {string} */ chunk) => items.push(chunk))
     let stderr = ''
     err.setEncoding('utf8').on('data', (/** @type {string} */ chunk) => {
       if (stderr.length < STDERR_MAX) stderr += chunk
@@ -127,7 +157,7 @@ function gitOnce(cwd, args, run, onItem) {
     child.once('error', reject)
     // 'close' comes after the output has all been read
     child.once('close', (code) => {
-      if (rest !== '') item(rest)
+      items.end()
       if (code === 0) resolve()
       else reject(new Error(`git ${args[0]}: ${complaintOf(stderr) ?? `exit ${code}`}`))
     })
@@ -217,12 +247,21 @@ export default {
       await git(root, ['ls-files', '-z', '--others', '--exclude-standard'], { signal, env, sep: '\0' }, (name) => {
         if (name !== '') fresh.push(name)
       })
+      if (fresh.length > NEW_FILES_MAX)
+        return {
+          status: 'error',
+          // Generated files, almost always (an environment, a build): committing them would make the check read them
+          summary: `${fresh.length.toLocaleString('en-US')} new files are not ignored by git, more than ${NEW_FILES_MAX.toLocaleString('en-US')} to read: add the folder they are generated in to .gitignore`
+        }
       /** @type {string[]} */
       const small = []
-      for (const name of fresh) {
+      for (let at = 0; at < fresh.length; at += STAT_BATCH) {
+        const batch = fresh.slice(at, at + STAT_BATCH)
         // A link is read as git reads it, its own text, never the file it points at
-        const info = await lstat(path.join(root, name)).catch(() => null)
-        if (info !== null && (info.isFile() || info.isSymbolicLink()) && info.size <= NEW_FILE_MAX) small.push(name)
+        const infos = await Promise.all(batch.map((name) => lstat(path.join(root, name)).catch(() => null)))
+        infos.forEach((info, i) => {
+          if (info !== null && (info.isFile() || info.isSymbolicLink()) && info.size <= NEW_FILE_MAX) small.push(batch[i])
+        })
       }
       if (small.length > 0)
         await git(root, ['add', '--intent-to-add', '--pathspec-from-file=-', '--pathspec-file-nul'], { signal, env, input: `${small.join('\0')}\0` })
