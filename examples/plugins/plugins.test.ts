@@ -718,7 +718,8 @@ describe('the debug leftovers sample', () => {
   it.skipIf(process.platform === 'win32')('names a file whose path holds a quote and a backslash, which git prints quoted', async () => {
     const { dir, base } = await repo({ 'we"ird\\name.js': 'const a = 1\n' })
     await write(dir, { 'we"ird\\name.js': 'const a = 1\nconsole.log(a)\n', 'new"one.js': 'debugger\n' })
-    expect((await check0(dir, base)).diagnostics).toEqual([found('we"ird\\name.js', 2, 'console.log'), found('new"one.js', 1, 'debugger')])
+    // In git's path order, as every finding is since one diff reads the new files too (5b final review I1)
+    expect((await check0(dir, base)).diagnostics).toEqual([found('new"one.js', 1, 'debugger'), found('we"ird\\name.js', 2, 'console.log')])
   }, 90_000)
 
   // Review Focus 3
