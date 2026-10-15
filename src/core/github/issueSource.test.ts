@@ -2,7 +2,7 @@
 // gh; pull requests left out; an issue a non-member wrote listed but not selectable; the query kept to this repository.
 import { describe, it, expect } from 'vitest'
 import type { GhResult, GhRunner } from './gh'
-import { issueContext, issueDetail, listIssueItems } from './issueSource'
+import { issueContext, issueDetail, listIssueItems, REPO_NAME_TTL_MS } from './issueSource'
 import { parseIssue } from './issue'
 
 const issue = (n: number, o: Record<string, unknown> = {}) => ({
@@ -58,14 +58,25 @@ describe('listIssueItems (J12)', () => {
 
   // The 4a review's M5 and M6: the repository's name is read for each search, as the folder's remote names it now, and
   // an issue the search found in another repository is left out
-  it('searches the repository with a query, reading its name each time, and keeps its own issues alone', async () => {
+  // 4a M6 read the name on every search; 5e (performance review) keeps it a minute per folder: a second gh call (~0.7 s)
+  // per search pause otherwise, and a folder whose remote changed is searched as it is now within a minute
+  it('searches the repository with a query, reading its name once a minute per folder, and keeps its own issues alone', async () => {
     const { gh, calls } = fakeGh([
       [/^repos\/\{owner\}\/\{repo\}$/, 'o/r\n'],
       [/^search\/issues$/, { items: [issue(7), issue(8, { html_url: 'https://github.com/x/y/issues/8' }), issue(9, { html_url: 'https://github.com/O/R/issues/9' })] }]
     ])
-    await listIssueItems(gh, 'D:/p', { query: 'login fails' })
-    const r = await listIssueItems(gh, 'D:/p', { query: 'crash' })
-    expect(calls.filter((c) => c.includes('repos/{owner}/{repo}'))).toHaveLength(2)
+    let clock = 1_000_000
+    const now = (): number => clock
+    const named = (): number => calls.filter((c) => c.includes('repos/{owner}/{repo}')).length
+    await listIssueItems(gh, 'D:/p', { query: 'login fails' }, now)
+    clock += REPO_NAME_TTL_MS - 1
+    await listIssueItems(gh, 'D:/p', { query: 'login' }, now)
+    expect(named()).toBe(1)
+    await listIssueItems(gh, 'D:/q', { query: 'login' }, now)
+    expect(named()).toBe(2)
+    clock += 1
+    const r = await listIssueItems(gh, 'D:/p', { query: 'crash' }, now)
+    expect(named()).toBe(3)
     expect(calls.at(-1)).toEqual(['api', '-X', 'GET', 'search/issues', '-f', 'q=repo:o/r is:issue is:open crash', '-f', 'per_page=30', '-f', 'page=1'])
     expect(r.ok && r.items.map((i) => i.id)).toEqual(['7', '9'])
   })

@@ -40,13 +40,21 @@ const itemOf = (issue: GhIssue): IssueItem => {
 
 const failed = (message: string): GhFailed => ({ ok: false, kind: 'other', message })
 
+/** How long a folder's repository name is kept between searches (5e, from the performance review): asking it is a second
+ *  gh call, about 0.7 s, on every search pause; a folder whose remote changed is searched as it is now within a minute
+ *  (4a final review M6 read it every time). */
+export const REPO_NAME_TTL_MS = 60_000
+/** The names read, per gh runner (one per Host) and folder. */
+const repoNames = new WeakMap<GhRunner, Map<string, { slug: string; at: number }>>()
+
 /** A page of the open issues of the repository at `cwd`, searched with `query` when there is one. A search reads the
- *  repository's name first, each time, so a folder whose remote changed is searched as it is now (4a final review M6),
- *  and keeps the issues of that repository alone (M5). */
+ *  repository's name first, at most once a minute per folder (REPO_NAME_TTL_MS), and keeps the issues of that repository
+ *  alone (4a final review M5). */
 export async function listIssueItems(
   gh: GhRunner,
   cwd: string,
-  q: { query?: string; cursor?: string }
+  q: { query?: string; cursor?: string },
+  now: () => number = Date.now
 ): Promise<{ ok: true; items: IssueItem[]; nextCursor?: string } | GhFailed> {
   const page = q.cursor === undefined || q.cursor === '' ? 1 : /^[1-9][0-9]{0,3}$/.test(q.cursor) ? Number(q.cursor) : NaN
   if (!Number.isFinite(page)) return failed(`the cursor ${q.cursor} is not a page number`)
@@ -61,10 +69,18 @@ export async function listIssueItems(
     if (!Array.isArray(parsed)) return failed('gh api answered with something that is not a list of issues')
     raw = parsed
   } else {
-    const named = await gh(['api', 'repos/{owner}/{repo}', '--jq', '.full_name'], cwd)
-    if (!named.ok) return { ok: false, ...ghFailureSentence(named) }
-    const slug = named.stdout.trim()
-    if (!/^[^/\s]+\/[^/\s]+$/.test(slug)) return failed('gh api answered with something that is not a repository name')
+    const names = repoNames.get(gh) ?? new Map<string, { slug: string; at: number }>()
+    repoNames.set(gh, names)
+    const known = names.get(cwd)
+    let slug: string
+    if (known !== undefined && now() - known.at < REPO_NAME_TTL_MS) slug = known.slug
+    else {
+      const named = await gh(['api', 'repos/{owner}/{repo}', '--jq', '.full_name'], cwd)
+      if (!named.ok) return { ok: false, ...ghFailureSentence(named) }
+      slug = named.stdout.trim()
+      if (!/^[^/\s]+\/[^/\s]+$/.test(slug)) return failed('gh api answered with something that is not a repository name')
+      names.set(cwd, { slug, at: now() })
+    }
     searched = slug.toLowerCase()
     const r = await gh(
       ['api', '-X', 'GET', 'search/issues', '-f', `q=repo:${slug} is:issue is:open ${query}`, '-f', `per_page=${GITHUB_PAGE}`, '-f', `page=${page}`],

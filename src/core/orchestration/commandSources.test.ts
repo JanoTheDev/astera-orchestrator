@@ -1,6 +1,6 @@
 // The job-source commands (plugin Phase 4 J10-J16): listing the sources and their items, reading one, and making a Job
 // from it with the objective the Host writes and the source the Job keeps. Against a fake plugin source and a fake gh.
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { handleCommand, type OrchServerDeps } from './command'
 import { emptyState, type OrchState } from './state'
 import { ensureProject } from './projects'
@@ -8,6 +8,7 @@ import { absPath } from '../testPaths'
 import { sourcedObjective } from '../sources/objective'
 import { JOB_SOURCE, type JobSourcesDeps } from './commandSources'
 import type { GhResult, GhRunner } from '../github/gh'
+import { REPO_NAME_TTL_MS } from '../github/issueSource'
 
 const NOW = '2026-10-14T00:00:00.000Z'
 const LINEAR = 'astera-linear-source'
@@ -271,8 +272,10 @@ describe('sources-items and sources-show (J10, J16)', () => {
     expect(await jobsOf(other.project.id)).toEqual([[], []])
   })
 
-  // The 4a review's M6: no folder's repository is remembered, so a remote changed under the Host is searched as it is
-  it('searches the repository the folder names now', async () => {
+  // The 4a review's M6, then 5e: a folder's repository is remembered a minute, so a remote changed under the Host is
+  // searched as it is within one, while a search pause asks gh once
+  it('searches the repository the folder names, read again after a minute', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
     let slug = 'o/r'
     const searched: string[] = []
     const { deps, projectId } = setup(async (args, cwd) => {
@@ -283,10 +286,16 @@ describe('sources-items and sources-show (J10, J16)', () => {
       }
       return gh(args, cwd)
     })
-    await call(deps, 'sources-items', { source: 'github', project: projectId, query: 'bug' })
-    slug = 'o/moved'
-    await call(deps, 'sources-items', { source: 'github', project: projectId, query: 'bug' })
-    expect(searched).toEqual(['q=repo:o/r is:issue is:open bug', 'q=repo:o/moved is:issue is:open bug'])
+    try {
+      await call(deps, 'sources-items', { source: 'github', project: projectId, query: 'bug' })
+      slug = 'o/moved'
+      await call(deps, 'sources-items', { source: 'github', project: projectId, query: 'bug' })
+      vi.setSystemTime(Date.now() + REPO_NAME_TTL_MS)
+      await call(deps, 'sources-items', { source: 'github', project: projectId, query: 'bug' })
+      expect(searched).toEqual(['q=repo:o/r is:issue is:open bug', 'q=repo:o/r is:issue is:open bug', 'q=repo:o/moved is:issue is:open bug'])
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 
