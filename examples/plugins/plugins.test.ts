@@ -63,10 +63,13 @@ const until = <T>(f: () => T, timeout = 45_000): Promise<T> => vi.waitFor(f, { t
 async function webhook(statuses: Array<number | { status: number; body: string }> = []) {
   const bodies: unknown[] = []
   const posts: { text: string; signature: string | undefined }[] = []
+  /** When each request arrived, answered or refused */
+  const at: number[] = []
   const server = http.createServer((req, res) => {
     let text = ''
     req.setEncoding('utf8').on('data', (c: string) => (text += c))
     req.on('end', () => {
+      at.push(Date.now())
       const next = statuses.shift() ?? 200
       const status = typeof next === 'number' ? next : next.status
       if (status === 200) {
@@ -80,7 +83,7 @@ async function webhook(statuses: Array<number | { status: number; body: string }
   })
   servers.push(server)
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
-  return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/hooks/T0/B0/secret-part`, bodies, posts }
+  return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/hooks/T0/B0/secret-part`, bodies, posts, at }
 }
 
 const RUN = { id: 'run_1', jobId: 'job_1', ordinal: 1, createdAt: 'T', outcome: 'completed', progress: { done: 2, total: 2 }, questionsOpen: 0 }
@@ -171,6 +174,19 @@ describe('the webhook notifier sample', () => {
     expect(hook.bodies[0]).toMatchObject({ event: { id: second.id } })
     await until(() => expect(logOf(r)).toContain(`[warn] the webhook refused run.completed ${first.id} (410): it is not posted`))
     expect(logOf(r)).not.toContain('failed (try')
+  }, 90_000)
+
+  // 5e final review M9: a rate limit or a timeout is not a refusal for good: Astera hands the event over again
+  it('is handed an event again when the webhook asks it to wait (429)', async () => {
+    const hook = await webhook([429])
+    const { r, ring } = runtime()
+    await running(r, { webhookUrl: hook.url, onlyProblems: false }, [hook.url])
+    const e = completed(ring)
+    await until(() => expect(hook.bodies).toHaveLength(1))
+    // The log is written after the post: the line that says it was posted comes after the failure's
+    await until(() => expect(logOf(r)).toContain(`posted run.completed ${e.id}`))
+    expect(logOf(r)).toContain(`delivering run.completed ${e.id} failed (try 1): onEvent threw: the webhook answered 429`)
+    expect(logOf(r)).not.toContain('refused')
   }, 90_000)
 
   it('posts a completed Run to the webhook, is handed it again by Astera when a post fails, and keeps the URL out of its log', async () => {
@@ -362,6 +378,8 @@ describe('the Discord notifier sample', () => {
     await until(() => expect(hook.bodies).toHaveLength(1))
     await until(() => expect(discordLog(r)).toContain('posted run.completed'))
     expect(discordLog(r)).not.toContain('failed (try')
+    // It waited what Discord asked before posting again (5e final review M8)
+    expect(hook.at[1] - hook.at[0]).toBeGreaterThanOrEqual(180)
   }, 90_000)
 
   it('is sent a notification again by Astera when Discord asks it to wait long, and says how long Discord asked', async () => {
@@ -745,7 +763,7 @@ describe('the debug leftovers sample', () => {
     await write(dir, many)
     const over = await check0(dir, base)
     expect(over.status).toBe('error')
-    expect(over.summary).toBe('2001 new files are not ignored by git, more than 2,000 to read: add them to .gitignore, or commit them')
+    expect(over.summary).toBe('2,001 new files are not ignored by git, more than 2,000 to read: add the folder they are generated in to .gitignore')
     await fs.rm(path.join(dir, 'gen', 'f2000.txt'))
     await write(dir, { 'gen/f0.txt': 'console.log(1)\n' })
     const read = await check0(dir, base)

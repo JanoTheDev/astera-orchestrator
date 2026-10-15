@@ -56,5 +56,6 @@ astera plugins configure --id astera-webhook-notifier --set onlyProblems=true
 - A post that fails is handed to it again by Astera: after 1 second, then 2, 4 and so on up to 5 minutes, and given
   up after an hour with a line in the log naming the event. The events after it wait their turn.
 - A post the webhook would refuse again every time (a 4xx other than 408 and 429: deleted, forbidden, not found) is
-  not tried again: the log says so, and the next event goes.
+  not tried again: the log says so, and the next event goes. A service of your own that is not ready yet (starting,
+  restarting, behind a tunnel that is down) should answer 503, which is tried again, rather than 404.
 - A post can come twice (after a crash in the middle of one): `event.id` never repeats, so drop one you have seen.

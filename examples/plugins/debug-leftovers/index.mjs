@@ -250,7 +250,8 @@ export default {
       if (fresh.length > NEW_FILES_MAX)
         return {
           status: 'error',
-          summary: `${fresh.length} new files are not ignored by git, more than ${NEW_FILES_MAX.toLocaleString('en-US')} to read: add them to .gitignore, or commit them`
+          // Generated files, almost always (an environment, a build): committing them would make the check read them
+          summary: `${fresh.length.toLocaleString('en-US')} new files are not ignored by git, more than ${NEW_FILES_MAX.toLocaleString('en-US')} to read: add the folder they are generated in to .gitignore`
         }
       /** @type {string[]} */
       const small = []

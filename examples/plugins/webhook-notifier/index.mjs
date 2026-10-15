@@ -12,8 +12,10 @@
 //
 // It is an event plugin: Astera hands its onEvent each event, in order, from where it left off, so what happened while
 // it was stopped is posted when it runs again, as far back as Astera's event log keeps. A post that fails throws, and
-// Astera hands the same event over again (after 1 s, doubling to 5 min, for an hour). The webhook URL and the signing
-// secret are secret settings: Astera keeps them out of the plugin's log, and this plugin never writes them there anyway.
+// Astera hands the same event over again (after 1 s, doubling to 5 min, for an hour); one the webhook would refuse again
+// every time (a 4xx other than 408 and 429: deleted, forbidden, not found) is logged and left. The webhook URL and the
+// signing secret are secret settings: Astera keeps them out of the plugin's log, and this plugin never writes them there
+// anyway.
 import { createHmac } from 'node:crypto'
 
 /** @typedef {import('@astera-app/plugin-sdk').PluginContext} PluginContext */

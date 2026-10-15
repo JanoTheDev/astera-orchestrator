@@ -8,9 +8,10 @@
 // editor and tsc only: Astera never loads @astera-app/plugin-sdk, and a plain object is the provider
 // `defineNotificationProvider` would have returned.
 //
-// It retries nothing itself: a post that fails throws, and Astera sends the notification again (after 1 s, doubling to
-// 5 min, for an hour). A post Discord refuses as malformed (400) would be refused again every time, so it is logged and
-// left. The text a session, a question or a Task holds is posted as it is, and Discord is told to ping
+// A post that fails throws, and Astera sends the notification again (after 1 s, doubling to 5 min, for an hour); the
+// one wait it makes itself is a short rate limit (up to 5 s), waited out once inside the call. A post Discord would
+// refuse again every time (a 4xx other than 408 and 429: malformed, unauthorized, forbidden, a webhook gone) is logged
+// and left. The text a session, a question or a Task holds is posted as it is, and Discord is told to ping
 // nobody, so `@everyone` in a question stays text. The webhook URL is a secret setting: Astera keeps it out of the
 // plugin's log.
 
