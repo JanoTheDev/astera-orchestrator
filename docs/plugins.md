@@ -482,6 +482,9 @@ with one older file beside it. Each line has its time, and holds:
 - Astera's own lines, as `[host]`: started, running, exited, restarting, failed and why;
 - the launcher's, as `[launcher]`: an entry that could not be loaded, or an `activate` that threw, with its stack.
 
+The log takes up to 1,000 lines a second of a plugin's output, as Astera reads each line on the thread that also serves
+your terminals: past that, lines are dropped and counted, and a `[host]` line says how many once the second is over.
+
 **Secrets are hidden.** Every secret setting, and every secret the plugin read or set, is replaced by `[redacted]` in
 the log and in the reason `plugins list` gives, each line of a secret that runs over several lines too; a value shorter
 than 4 characters is not hidden, as it would take ordinary words out of every line. Only the value itself is found: a

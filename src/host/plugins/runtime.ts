@@ -108,6 +108,9 @@ export const pluginLogFile = (profileDir: string, folder: string): string => pat
 
 /** A line of stderr longer than this is written in pieces, so a plugin printing without end cannot grow a buffer. */
 const STDERR_LINE_MAX = 64 * 1024
+/** How many lines of a plugin's output its log takes a second (5e, from the performance review): every line is redacted
+ *  on the Host's thread, which also serves every terminal, so a plugin printing without end must not have them all. */
+export const LOG_LINES_PER_SECOND = 1_000
 
 interface Slot {
   launch: PluginLaunch
@@ -457,9 +460,31 @@ export function createPluginRuntime(d: {
         killTree(proc)
       }
     })
+    // A budget of lines a second (LOG_LINES_PER_SECOND): past it a line is counted, not redacted or written, and the
+    // count is said once its second is over, or when the process ends
+    let windowStart = 0
+    let inWindow = 0
+    let dropped = 0
+    const sayDropped = (): void => {
+      if (dropped === 0) return
+      say(s, `dropped ${dropped} lines of its output: more than ${LOG_LINES_PER_SECOND} a second`)
+      dropped = 0
+    }
     const line = (l: string): void => {
       const text = l.replace(/\r$/, '')
-      if (text !== '') logOf(p.folder).write(hide(s, text))
+      if (text === '') return
+      const now = Date.now()
+      if (now - windowStart >= 1_000) {
+        sayDropped()
+        windowStart = now
+        inWindow = 0
+      }
+      if (inWindow >= LOG_LINES_PER_SECOND) {
+        if (dropped++ === 0) later(s, 1_000, sayDropped)
+        return
+      }
+      inWindow += 1
+      logOf(p.folder).write(hide(s, text))
     }
     // stdout and stderr are both the plugin's log, each read in lines of its own.
     const held = new Map<Readable, string>()
@@ -490,6 +515,7 @@ export function createPluginRuntime(d: {
       if (ended) return
       ended = true
       flushHeld()
+      sayDropped()
       resolveExit()
       exitedWith(s, proc, code, signal)
     }

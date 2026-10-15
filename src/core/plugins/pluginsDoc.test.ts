@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url'
 import { PLUGIN_CAPABILITIES, PLUGIN_PERMISSIONS, PLUGIN_TRUST_WARNING, capabilityPermissionProblem, parseManifest } from './manifest'
 import { SETTING_KEYWORDS, SETTING_TYPES, SETTINGS_MAX, parseSettingsSchema } from './settings'
 import { PLUGIN_COMMAND_PERMISSIONS, pluginRefusal } from '../host/pluginGate'
-import { PLUGIN_TIMINGS, REDACT_MIN, createPluginRuntime } from '../../host/plugins/runtime'
+import { LOG_LINES_PER_SECOND, PLUGIN_TIMINGS, REDACT_MIN, createPluginRuntime } from '../../host/plugins/runtime'
 import { SECRET_NAME_MAX, SECRET_VALUE_MAX } from '../../host/plugins/pluginData'
 import { PLUGIN_SERVED_CAPABILITIES } from '../../host/plugins/manager'
 import { DELIVERY_GIVE_UP_MS, DELIVERY_LOG_EVERY, DELIVERY_RETRY_MS, DELIVERY_TIMEOUT_MS } from '../../host/plugins/deliverer'
@@ -123,6 +123,8 @@ describe('docs/plugins.md', () => {
 
   it('says which values its log hides and which it cannot', () => {
     expect(prose(section(guide, '## Logs'))).toContain(`a value shorter than ${REDACT_MIN} characters is not hidden`)
+    // 5e: the budget of lines a second, in the runtime's own number
+    expect(prose(section(guide, '## Logs'))).toContain(`${LOG_LINES_PER_SECOND.toLocaleString('en-US')} lines a second`)
   })
 
   // 2f final review m4: what a refused call leaves in the log is the Host's sentence, not the error code

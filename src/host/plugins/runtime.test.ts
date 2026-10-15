@@ -313,6 +313,23 @@ describe('createPluginRuntime', () => {
     expect(r.status('dropped')).toBeUndefined()
   }, 90_000)
 
+  // 5e (performance review): a plugin printing without end cannot take the Host's thread; its log keeps a budget of
+  // lines a second and says how many it dropped, and ordinary logging is never touched
+  it('keeps a budget of a plugin’s output lines a second, and counts the ones it drops', async () => {
+    const { r } = runtime()
+    r.start(plugin('flood', `export default { activate() { for (let i = 0; i < 50000; i++) console.log('line ' + i) } }`))
+    await until(() => expect(r.status('flood')?.status).toBe('running'))
+    await until(() => expect(logOf(r, 'flood')).toMatch(/\[host\] dropped \d+ lines of its output/), 20_000)
+    const log = logOf(r, 'flood')
+    const kept = log.split('\n').filter((l) => /\sline \d+$/.test(l)).length
+    const dropped = [...log.matchAll(/\[host\] dropped (\d+) lines of its output/g)].reduce((n, m) => n + Number(m[1]), 0)
+    expect(kept).toBeLessThan(50_000)
+    expect(kept + dropped).toBe(50_000)
+    r.start(plugin('quiet', `export default { activate() { for (let i = 0; i < 10; i++) console.log('note ' + i) } }`))
+    await until(() => expect(logOf(r, 'quiet').split('\n').filter((l) => /note \d+$/.test(l))).toHaveLength(10))
+    expect(logOf(r, 'quiet')).not.toContain('dropped')
+  }, 90_000)
+
   // 5d final review M7: a slot whose process is still there (starting, or waiting to restart) is not let go: the
   // runtime could not stop that process any more
   it('keeps the slot of a plugin that still has a process, even when told to forget it', async () => {
