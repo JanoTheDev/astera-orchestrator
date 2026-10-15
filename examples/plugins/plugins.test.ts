@@ -159,6 +159,20 @@ describe('the webhook notifier sample', () => {
     expect(runTsc(path.join(here, 'tsconfig.json'))).toBe('')
   }, 60_000)
 
+  // 5e (performance review): a webhook that was deleted or forbids posting refuses every try; the event is left, said
+  // once, and the next one goes, rather than holding the rest for an hour
+  it('leaves an event a webhook refuses for good, says why, and posts the next one', async () => {
+    const hook = await webhook([410])
+    const { r, ring } = runtime()
+    await running(r, { webhookUrl: hook.url, onlyProblems: false }, [hook.url])
+    const first = completed(ring)
+    const second = completed(ring)
+    await until(() => expect(hook.bodies).toHaveLength(1))
+    expect(hook.bodies[0]).toMatchObject({ event: { id: second.id } })
+    await until(() => expect(logOf(r)).toContain(`[warn] the webhook refused run.completed ${first.id} (410): it is not posted`))
+    expect(logOf(r)).not.toContain('failed (try')
+  }, 90_000)
+
   it('posts a completed Run to the webhook, is handed it again by Astera when a post fails, and keeps the URL out of its log', async () => {
     const hook = await webhook([500])
     const { r, ring } = runtime()
@@ -339,13 +353,36 @@ describe('the Discord notifier sample', () => {
     expect(other.bodies[0]).toMatchObject({ embeds: [{ description: 'Continuing on the work account.' }] })
   }, 90_000)
 
-  it('is sent a notification again by Astera when Discord asks it to wait, and says how long Discord asked', async () => {
-    const hook = await webhook([{ status: 429, body: '{"message":"You are being rate limited.","retry_after":0.5,"global":false}' }])
+  // 5e (performance review): a short wait Discord asks for is waited out once, inside the call
+  it('waits out a short rate limit once and posts, rather than failing the try', async () => {
+    const hook = await webhook([{ status: 429, body: '{"message":"You are being rate limited.","retry_after":0.2,"global":false}' }])
     const { r, ring } = runtime()
     await discord(r, settingsOf(hook.url), [hook.url])
     ring.append([{ type: 'run.completed', jobId: 'job_1', runId: 'run_1', payload: RUN }], now())
     await until(() => expect(hook.bodies).toHaveLength(1))
-    await until(() => expect(discordLog(r)).toContain('failed (try 1): send threw: Discord answered 429; it asks to wait 0.5 s'))
+    await until(() => expect(discordLog(r)).toContain('posted run.completed'))
+    expect(discordLog(r)).not.toContain('failed (try')
+  }, 90_000)
+
+  it('is sent a notification again by Astera when Discord asks it to wait long, and says how long Discord asked', async () => {
+    const hook = await webhook([{ status: 429, body: '{"message":"You are being rate limited.","retry_after":60,"global":false}' }])
+    const { r, ring } = runtime()
+    await discord(r, settingsOf(hook.url), [hook.url])
+    ring.append([{ type: 'run.completed', jobId: 'job_1', runId: 'run_1', payload: RUN }], now())
+    await until(() => expect(hook.bodies).toHaveLength(1))
+    await until(() => expect(discordLog(r)).toContain('failed (try 1): send threw: Discord answered 429; it asks to wait 60 s'))
+  }, 90_000)
+
+  // 5e (performance review): a webhook Discord deleted (404) refuses every try, as a malformed payload does
+  it('leaves a notification whose webhook is gone, says why, and posts the next one', async () => {
+    const hook = await webhook([{ status: 404, body: '{"message":"Unknown Webhook","code":10015}' }])
+    const { r, ring } = runtime()
+    await discord(r, settingsOf(hook.url), [hook.url])
+    ring.append([{ type: 'run.completed', jobId: 'job_1', runId: 'run_1', payload: RUN }], now())
+    ring.append([{ type: 'run.failed', jobId: 'job_1', runId: 'run_1', payload: { ...RUN, outcome: 'failed' } }], now())
+    await until(() => expect(hook.bodies).toHaveLength(1))
+    await until(() => expect(discordLog(r)).toContain('[warn] Discord refused run.completed ev_aaaaaaaaaaaa_1 (404: Unknown Webhook): it is not posted'))
+    expect(discordLog(r)).not.toContain('failed (try')
   }, 90_000)
 
   // 3c final review M11: a payload Discord refuses is refused again on every try, and would hold the rest for an hour

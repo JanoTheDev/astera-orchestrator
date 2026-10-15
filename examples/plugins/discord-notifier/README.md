@@ -49,9 +49,10 @@ astera plugins configure --id astera-discord-notifier --set skip=session.account
 - It posts the notifications after it first starts, once it has its webhook URL, and what happened while it was
   stopped when it runs again, as far back as Astera's event log keeps. A notification more than an hour old by then is
   not posted: Astera skips it, and the plugin's log counts the ones skipped.
-- A post Discord refuses for now (a rate limit, say) is sent to it again by Astera: after 1 second, then 2, 4 and so
-  on up to 5 minutes, and given up after an hour with a line in the log. The notifications after it wait their turn.
-  The log says how long Discord asked it to wait.
-- A post Discord refuses as malformed (400) would be refused again every time: the log says why, and the next one
-  goes.
+- A short wait Discord asks for (a rate limit of up to 5 seconds) is waited out once, and the post made again.
+- A post Discord refuses for now (a longer rate limit, a server error) is sent to it again by Astera: after 1 second,
+  then 2, 4 and so on up to 5 minutes, and given up after an hour with a line in the log. The notifications after it
+  wait their turn. The log says how long Discord asked it to wait.
+- A post Discord would refuse again every time (malformed, 400; a webhook deleted, 404; or forbidden, 401 or 403): the
+  log says why, and the next one goes.
 - A notification can come twice (after a crash in the middle of one): its `id` never repeats.
