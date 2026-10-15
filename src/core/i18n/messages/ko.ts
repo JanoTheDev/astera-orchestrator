@@ -1759,6 +1759,12 @@ export const ko = {
   'jobs.convergence.gate.paused': '완료 검사가 도는 동안 이 Run 이 멈췄고, 검사는 아직 실패합니다: {failures}',
   'jobs.convergence.gate.repairFailed': '수정할 워커를 띄울 수 없었습니다: {reason}',
   'jobs.checks.gate.unavailable': '검사를 할 수 없었습니다: {check}: {reason}',
+  'jobs.gate.checkUnavailable.retry': '검사 다시 돌리기',
+  'jobs.gate.checkUnavailable.retryHint': '이 Task 의 검사를 처음부터 다시 돌립니다.',
+  'jobs.gate.checkUnavailable.skip': '이 검사 없이 계속',
+  'jobs.gate.checkUnavailable.skipHint': '이번 라운드는 이 검사를 돌지 않은 것으로 치고 계속합니다. 건너뛴 사실은 Task 기록에 남습니다.',
+  'jobs.gate.checkUnavailable.fail': 'Task 를 실패로 처리',
+  'jobs.gate.checkUnavailable.failHint': 'Task 를 실패로 끝냅니다.',
   'jobs.convergence.gate.retryOnce': '한 번 더 수정',
   'jobs.convergence.gate.markFailed': '실패로 표시',
   // 설계 §5(V4). Gate 는 풀렸는데 수리는 안 열린 경우다 — 사람이 누른 것이 아무 일도 하지

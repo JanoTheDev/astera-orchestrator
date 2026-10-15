@@ -24,6 +24,7 @@ import { replyNote, type OrchDoor } from '../lib/orchDoor'
 import { confirmModal } from '../lib/confirm'
 import { ChangedFilesBlock } from './ChangedFilesBlock'
 import { CompletionBlock } from './CompletionBlock'
+import { GateAnswer } from './GateAnswer'
 import { GLYPH, checkTooltip, type GlyphKind } from './checkText'
 import { toast } from '../lib/toast'
 import { errText } from '../hooks/useFileOps'
@@ -924,61 +925,15 @@ export function RunDetail({
                 const gate = tasks.find((tk) => tk.id === answering)?.gate
                 if (!gate) return <></>
                 return (
-                  <>
-                    <div className="detail-filter">
-                      <b>{t('jobs.node.answer')}</b>
-                      <button
-                        className="detail-clear"
-                        title={t('common.cancel')}
-                        aria-label={t('common.cancel')}
-                        onClick={cancelAnswer}
-                      >
-                        <X size={12} />
-                      </button>
-                    </div>
-                    <div className="detail-task-fields">
-                      {/* 질문을 그대로 보여 준다 — 답하는 사람이 그래프의 Gate 줄을 기억하고 있을
-                          이유가 없다. 읽는 글이라 modal-hint 가 아니라 본문 톤이다 */}
-                      <p className="detail-gate-question">{gate.question}</p>
-                      {/* 코디네이터가 고를 것을 줬으면 그것이 답이다 — 자유 입력으로 그 낱말을 다시
-                          치게 하지 않는다. 버튼의 라벨을 그대로 resolution 으로 보낸다 */}
-                      {gate.options && gate.options.length > 0 && (
-                        <div className="detail-gate-options">
-                          {gate.options.map((opt) => (
-                            <button
-                              key={opt}
-                              disabled={busy !== null}
-                              onClick={() => void resolveGate(gate.id, opt)}
-                            >
-                              {opt}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                      <div className="field">
-                        <label>{t('jobs.node.answerLabel')}</label>
-                        <textarea
-                          rows={3}
-                          value={answer}
-                          onChange={(e) => setAnswer(e.target.value)}
-                          autoFocus
-                        />
-                      </div>
-                      {gateError && <p className="warn">{gateError}</p>}
-                    </div>
-                    <div className="row right">
-                      <button onClick={cancelAnswer} disabled={busy !== null}>
-                        {t('common.cancel')}
-                      </button>
-                      <button
-                        className="primary"
-                        disabled={busy !== null || !answer.trim()}
-                        onClick={() => void resolveGate(gate.id, answer)}
-                      >
-                        {t('jobs.node.answer')}
-                      </button>
-                    </div>
-                  </>
+                  <GateAnswer
+                    gate={gate}
+                    answer={answer}
+                    busy={busy !== null}
+                    error={gateError}
+                    onAnswer={setAnswer}
+                    onResolve={(resolution) => void resolveGate(gate.id, resolution)}
+                    onCancel={cancelAnswer}
+                  />
                 )
               })()
             ) : asking !== null ? (

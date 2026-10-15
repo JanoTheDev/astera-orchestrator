@@ -1934,6 +1934,9 @@ input[type="checkbox"]:not(.md-task input):focus-visible {
 /* 코디네이터가 준 선택지. 줄바꿈을 허용한다 — 문장이 선택지로 오는 경우가 있고, 한 줄에 밀어 넣고
    자르면 무엇을 고르는지 읽을 수 없다 */
 .detail-gate-options { display: flex; flex-wrap: wrap; gap: 6px; }
+/* A choice that says what it does (a check that could not be made, plugin Phase 5 C9): its label, its line under it */
+.detail-gate-options > button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; }
+.detail-gate-option-hint { font-size: 11px; color: var(--text-dim); white-space: normal; }
 
 /* RunTypePicker — the ＋ button's kind-picker popup. Anchored the same way as .run-more/.run-more-menu
    in RunToolbar; a separate namespace because it also holds a search input and two grouped sections
