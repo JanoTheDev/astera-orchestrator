@@ -261,6 +261,7 @@ import type { LangPreference } from '../core/i18n'
 import { pickInitialLang } from '../core/i18n/locale'
 import { listJdks } from './jdkScanner'
 import { listPythonInterpreters } from './pythonScanner'
+import { hasPythonProject } from '../core/run/python'
 import { listComposeServices } from './composeScanner'
 import { listDotnetProjects } from './dotnetScanner'
 import { loadRunConfigs, prepareLaunch } from '../core/run/prepare'
@@ -4422,7 +4423,6 @@ export function registerIpc(
     })
     const { isSpringBootProject, hasDockerfile } = await import('../core/run/config')
     const { buildRunContext } = await import('../core/run/build')
-    const { hasPythonProject } = await import('../core/run/python')
     return {
       configs,
       // Every run of this project, finished ones included, in seat order. Output is not shipped here —
