@@ -20,12 +20,12 @@ import { DEFAULT_CONCURRENCY, type Dispatch } from '../../../core/orchestration/
 import { runningCount } from '../../../core/orchestration/running'
 import { runIdToMerge } from '../../../core/orchestration/snapshot'
 import { useI18n } from '../i18n/I18nProvider'
-import { replyNote, type OrchDoor } from '../lib/orchDoor'
+import { replyNote, type CheckPluginRow, type OrchDoor } from '../lib/orchDoor'
 import { confirmModal } from '../lib/confirm'
 import { ChangedFilesBlock } from './ChangedFilesBlock'
 import { CompletionBlock } from './CompletionBlock'
 import { GateAnswer } from './GateAnswer'
-import { GLYPH, checkTooltip, type GlyphKind } from './checkText'
+import { GLYPH, checkChoicesOf, checkTooltip, type GlyphKind } from './checkText'
 import { toast } from '../lib/toast'
 import { errText } from '../hooks/useFileOps'
 import {
@@ -315,6 +315,28 @@ export function RunDetail({
       cancelled = true
     }
   }, [authoring, door, runId])
+  /** This computer's completion check plugins for the form (plugin Phase 5 C6), read beside the run configurations and
+   *  apart from them: the Host may be slow or down, and the run configurations are offered without waiting for it. A
+   *  Runtime's door offers none (C14). null = not read yet. */
+  const [checkPlugins, setCheckPlugins] = useState<CheckPluginRow[] | null>(null)
+  useEffect(() => {
+    if (!authoring) {
+      setCheckPlugins(null)
+      return
+    }
+    let cancelled = false
+    void door.checkPlugins().then(
+      (list) => {
+        if (!cancelled) setCheckPlugins(list)
+      },
+      () => {
+        if (!cancelled) setCheckPlugins([])
+      }
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [authoring, door])
   /** 물어보기(Gate)의 질문을 쓰는 중인 Task id. null 이면 안 쓰는 중이다 — authoring 과 같은 자리에
    *  서는 세 번째 모습이다(그래프는 그대로, .detail-events 만 바뀐다). authoring 처럼 selected(필터)는
    *  건드리지 않는다. */
@@ -913,7 +935,7 @@ export function RunDetail({
                 runId={runId}
                 tasks={tasks}
                 accounts={accounts}
-                runConfigs={runConfigs}
+                runConfigs={runConfigs === null ? null : checkChoicesOf(runConfigs, checkPlugins, t)}
                 onClose={() => setAuthoring(false)}
                 onCreated={() => setAuthoring(false)}
               />

@@ -1932,7 +1932,10 @@ export const ko = {
   // 검사는 고른 순서대로 돌고 첫 실패에서 멈춘다(Plan 1 설계 D9) — 순서가 비용을 좌우하므로 힌트가 그것을 말한다
   'jobs.task.checksHint': '빠른 검사를 앞에 두세요 — 첫 실패에서 멈추므로, 느린 검사가 앞에 있으면 매 수정마다 그 시간을 버립니다.',
   'jobs.task.checksUnpicked': '고르지 않은 것',
-  'jobs.task.checksNone': '검사로 쓸 실행 구성이 없습니다',
+  'jobs.task.checksNone': '검사로 쓸 실행 구성이나 검사 플러그인이 없습니다',
+  'jobs.task.checksRuntimePlugins': 'Runtime 의 플러그인 검사는 여기 나오지 않습니다. astera --runtime <id> tasks add --validate plugin:<플러그인 id> 로 추가하세요.',
+  'jobs.task.checkPlugin': '플러그인: {name}',
+  'jobs.task.checkPluginStatus': '플러그인: {name} ({status})',
   // ↑ ↓ ✕ — 아이콘만 있는 버튼의 aria-label·title
   'jobs.task.checkUp': '위로',
   'jobs.task.checkDown': '아래로',

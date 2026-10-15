@@ -2,7 +2,7 @@
 // block, in all four languages.
 import { describe, it, expect } from 'vitest'
 import { CATALOGS, LANGS } from '../../../core/i18n'
-import { GLYPH, checkTooltip, checkVerdict } from './checkText'
+import { GLYPH, checkChoicesOf, checkTooltip, checkVerdict } from './checkText'
 
 const t = (key: string, p?: Record<string, string | number>): string => (p ? `${key} ${JSON.stringify(p)}` : key)
 
@@ -29,9 +29,36 @@ describe('checkTooltip', () => {
   })
 })
 
+describe('checkChoicesOf', () => {
+  it('offers the run configurations, then the check plugins as Plugin: name, with a status when not running', () => {
+    const configs = [{ id: 'cfg_t', name: 'npm test' }]
+    const plugins = [
+      { id: 'astera-debug-leftovers', name: 'Debug leftovers', status: 'running' },
+      { id: 'astera-guard', name: 'Guard', status: 'stopped' }
+    ]
+    expect(checkChoicesOf(configs, plugins, t)).toEqual([
+      { id: 'cfg_t', name: 'npm test' },
+      { id: 'plugin:astera-debug-leftovers', name: 'jobs.task.checkPlugin {"name":"Debug leftovers"}' },
+      { id: 'plugin:astera-guard', name: 'jobs.task.checkPluginStatus {"name":"Guard","status":"settings.plugins.status.stopped"}' }
+    ])
+  })
+
+  it('plugins not read yet add nothing, so the run configurations are offered at once', () => {
+    expect(checkChoicesOf([{ id: 'cfg_t', name: 'npm test' }], null, t)).toEqual([{ id: 'cfg_t', name: 'npm test' }])
+  })
+})
+
 describe('the check words', () => {
   it('are in all four languages', () => {
-    const keys = ['jobs.convergence.check.failedNoCode', 'jobs.convergence.check.error', 'jobs.convergence.check.skipped', 'jobs.convergence.node.unavailable']
+    const keys = [
+      'jobs.convergence.check.failedNoCode',
+      'jobs.convergence.check.error',
+      'jobs.convergence.check.skipped',
+      'jobs.convergence.node.unavailable',
+      'jobs.task.checkPlugin',
+      'jobs.task.checkPluginStatus',
+      'jobs.task.checksRuntimePlugins'
+    ]
     for (const key of keys) for (const lang of LANGS) expect((CATALOGS[lang].messages as Record<string, string>)[key], `${lang} ${key}`).toBeTruthy()
   })
 })

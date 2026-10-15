@@ -3,6 +3,9 @@
 import type { JobCheck } from '../../../core/types'
 import type { MessageKey, MessageParams } from '../../../core/i18n'
 import { formatRunDuration } from '../../../core/run/duration'
+import { PLUGIN_CHECK_PREFIX } from '../../../core/orchestration/pluginChecks'
+import type { CheckPluginRow } from '../lib/orchDoor'
+import { statusLabel } from './pluginsText'
 
 export type Translate = (key: MessageKey, params?: MessageParams) => string
 
@@ -37,4 +40,17 @@ export function checkTooltip(c: JobCheck, glyph: GlyphKind, t: Translate): strin
   const time = c.durationMs !== undefined ? ` (${formatRunDuration({ startedAt: 0, exitedAt: c.durationMs }, 0)})` : ''
   const flip = c.unstable ? `, ${t('jobs.convergence.check.unstable')}` : ''
   return `${c.name} — ${verdict}${time}${flip}`
+}
+
+/** The checks the new-Task window offers (plugin Phase 5 C6): the run configurations, then this computer's check
+ *  plugins as "Plugin: <name>", one that is not running with its status. Plugins not read yet add nothing, so the run
+ *  configurations are offered as soon as they arrive. */
+export function checkChoicesOf(configs: { id: string; name: string }[], plugins: CheckPluginRow[] | null, t: Translate): { id: string; name: string }[] {
+  return [
+    ...configs,
+    ...(plugins ?? []).map((p) => ({
+      id: `${PLUGIN_CHECK_PREFIX}${p.id}`,
+      name: p.status === 'running' ? t('jobs.task.checkPlugin', { name: p.name }) : t('jobs.task.checkPluginStatus', { name: p.name, status: statusLabel(p.status, t) })
+    }))
+  ]
 }

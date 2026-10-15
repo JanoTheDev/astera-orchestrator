@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import { formFailure, isOutcomeUnknown, localDoor, remoteDoor, replyNote, type DoorApi } from './orchDoor'
-import type { Account } from '../../../core/types'
+import type { Account, PluginsCallAnswer } from '../../../core/types'
 
 const acc = (id: string): Account => ({ id, label: id, configDir: `C:/${id}`, color: '#123456', createdAt: 'x', provider: 'claude' })
 
 /** A DoorApi that records each call as one line, and answers a remote command from `answers` (by command name). */
-function fakeApi(answers: Record<string, unknown> = {}, status = 200) {
+function fakeApi(answers: Record<string, unknown> = {}, status = 200, plugins: PluginsCallAnswer = { ok: true, body: { plugins: [] } }) {
   const calls: string[] = []
   const api: DoorApi = {
     orch: {
@@ -18,7 +18,8 @@ function fakeApi(answers: Record<string, unknown> = {}, status = 200) {
       list: async () => (calls.push('accounts.list'), [acc('a1'), acc('a2')]),
       loginStatus: async (id) => (calls.push(`accounts.loginStatus ${id}`), id === 'a1')
     },
-    run: { list: async (p) => (calls.push(`run.list ${p}`), { configs: [{ id: 'c', name: 'C', type: 'npm' }] }) }
+    run: { list: async (p) => (calls.push(`run.list ${p}`), { configs: [{ id: 'c', name: 'C', type: 'npm' }] }) },
+    plugins: { list: async () => (calls.push('plugins.list'), plugins) }
   }
   return Object.assign(api, { calls })
 }
@@ -34,6 +35,33 @@ describe('the orchestration door (remote runtime design Phase 7, N10)', () => {
     expect([...(await d.signedInIds([acc('a1'), acc('a2')]))]).toEqual(['a1'])
     expect(await d.runConfigs('r1')).toEqual([{ id: 'c', name: 'C', type: 'npm' }])
     expect(api.calls).toEqual(['orch.command /repo run-start {"run":"r1"} -', 'accounts.list', 'accounts.loginStatus a1', 'accounts.loginStatus a2', 'run.list /repo'])
+  })
+
+  // Plugin Phase 5 C6, C14: the new-Task window offers this computer's check plugins; a Runtime's none
+  it('the local door offers the enabled plugins that make completion checks, by name and status; none when the list fails', async () => {
+    const plugins = [
+      { id: 'astera-debug-leftovers', displayName: 'Debug leftovers', status: 'stopped', enabled: true, capabilities: ['completion-check'] },
+      { id: 'astera-off', displayName: 'Off', status: 'disabled', enabled: false, capabilities: ['completion-check'] },
+      { id: 'astera-linear-source', displayName: 'Linear', status: 'running', enabled: true, capabilities: ['job-source'] },
+      { id: 'astera-bare', status: 'running', enabled: true, capabilities: ['completion-check', 'event-subscriber'] }
+    ]
+    expect(await localDoor(fakeApi({}, 200, { ok: true, body: { plugins } }), '/repo').checkPlugins()).toEqual([
+      { id: 'astera-debug-leftovers', name: 'Debug leftovers', status: 'stopped' },
+      { id: 'astera-bare', name: 'astera-bare', status: 'running' }
+    ])
+    expect(await localDoor(fakeApi({}, 200, { ok: false, code: 'HOST_NOT_RUNNING', message: 'no Host' }), '/repo').checkPlugins()).toEqual([])
+    const rejecting = fakeApi()
+    rejecting.plugins.list = async () => {
+      throw new Error('ipc gone')
+    }
+    expect(await localDoor(rejecting, '/repo').checkPlugins()).toEqual([])
+  })
+
+  it('the remote door offers none and asks nothing: a controller cannot list a Runtime’s plugins', async () => {
+    const api = fakeApi()
+    const d = remoteDoor(api, { runtimeId: 'rt_1', projectKey: 'pk', permission: 'full-control', readOnlyReason: 'ro' })
+    expect(await d.checkPlugins()).toEqual([])
+    expect(api.calls).toEqual([])
   })
 
   it('the remote door sends every call to its Runtime and reads accounts and configurations from it', async () => {
