@@ -305,7 +305,9 @@ describe('createWorktree, taking back the repo folder', () => {
       })
     ).rejects.toThrow(/NAME_EXHAUSTED/)
     expect(asked).toBe(true)
-    expect(Date.now() - started).toBeLessThan(PROBE_TIMEOUT_MS + 8_000)
+    // Well under the 30 s test limit a hang forever would hit, and wide of the real git work around it: under the full
+    // suite's load that took 10.1 s on this machine (2026-10-15), past the 9.5 s this bound used to be
+    expect(Date.now() - started).toBeLessThan(PROBE_TIMEOUT_MS + 20_000)
     expect(budget.stuckCount()).toBe(0)
   })
 })
