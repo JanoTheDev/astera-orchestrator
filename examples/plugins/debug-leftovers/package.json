@@ -1,0 +1,25 @@
+{
+  "name": "astera-debug-leftovers",
+  "version": "0.1.0",
+  "displayName": "Debug leftovers",
+  "description": "Fails a Task whose changes add a console.log, a debugger, a TODO or a FIXME, naming each at its file and line.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "astera": {
+    "apiVersion": "1",
+    "entry": "index.mjs",
+    "capabilities": ["completion-check"],
+    "permissions": [],
+    "settingsSchema": {
+      "type": "object",
+      "properties": {
+        "patterns": {
+          "type": "string",
+          "title": "Patterns",
+          "description": "The text that counts as a leftover, comma separated, matched as it is written (case counts). Empty looks for the defaults.",
+          "default": "console.log,debugger,TODO,FIXME"
+        }
+      }
+    }
+  }
+}

@@ -19,7 +19,7 @@
 import { JOB_FIELDS, shapeEvent, type EventType } from '../publicContract'
 import { briefTask, jobView, latestRunOf, runView } from './publicViews'
 import { outcomeOfTasks } from './running'
-import { taskCompletionOf, taskCompletionState, type CompletionState } from './runCompletion'
+import { countedCheck, findingsCounted, taskCompletionOf, taskCompletionState, type CompletionState } from './runCompletion'
 import type { OrchState } from './state'
 import { isPlaceholderSessionId, type Dispatch, type Gate, type Job, type JobRun, type Task } from './types'
 
@@ -56,10 +56,10 @@ function completionTypes(was: CompletionState, now: CompletionState): EventType[
   return out
 }
 
-/** A Task as an event carries it: brief, and its checks without their output. */
+/** A Task as an event carries it: brief, and its checks without their output, their findings counted (5d). */
 const taskPayload = (t: Task): Record<string, unknown> => ({
   ...briefTask(t),
-  ...(t.checks !== undefined ? { checks: t.checks.map(({ outputTail: _output, ...check }) => check) } : {})
+  ...(t.checks !== undefined ? { checks: t.checks.map(({ outputTail: _output, ...check }) => countedCheck(check)) } : {})
 })
 
 /** Each Task's Gates and Dispatches in one state, gathered once. */
@@ -191,9 +191,12 @@ export function derivePublicEvents(prev: OrchState, next: OrchState): EventDraft
         const from = was === undefined ? 'not-started' : eventState(prev, byBefore, was)
         const to = eventState(next, byNow, t)
         if (from === to) continue
-        const types = completionTypes(from, to)
+        // A check that could not be made (plugin Phase 5 C9) ends no round in failure: the question it opens says the
+        // Task waits, and its answer starts the checks again (5a final review M2)
+        const unavailable = to === 'waiting-for-user' && (byNow.gates.get(t.id) ?? []).some((g) => g.status === 'open' && g.kind === 'check-unavailable')
+        const types = completionTypes(from, to).filter((x) => !(unavailable && x === 'completion.failed'))
         if (types.length === 0) continue
-        const payload = taskCompletionOf(narrowed(next, byNow, t.id), t)
+        const payload = findingsCounted(taskCompletionOf(narrowed(next, byNow, t.id), t))
         for (const type of types) push(type, idsOf(t.runId, t.id), payload)
       }
     }

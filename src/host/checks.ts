@@ -32,6 +32,7 @@ import { performRepair, repairOnce, repairTargetFor, type RepairDeps } from '../
 import { createResumeSweep } from '../core/orchestration/exec/resumeSweep'
 import { createReviewStarter } from '../core/orchestration/exec/review'
 import { createTaskValidation } from '../core/orchestration/exec/validation'
+import { unavailable } from '../core/orchestration/pluginChecks'
 import type { TaskValidator } from '../core/orchestration/exec/validator'
 import { readAccountEntries } from '../core/accounts/accountsFile'
 import { isLoggedIn } from '../core/accounts/loginCheck'
@@ -266,7 +267,10 @@ export function createHostChecksForTest(d: HostChecksDeps): HostChecks & { _vali
     startRepair: (a) => startRepairOnce(a),
     // R12: the continuity journal is the app's (D8), so there is no diff base here.
     firstCheckpointHead: () => null,
-    diffNames: async () => null
+    diffNames: async () => null,
+    // The Host's plugin runtime, through its deps (plugin Phase 5 C8)
+    pluginCheck: (plugin, input) =>
+      d.deps().completionChecks?.run(plugin, input) ?? Promise.resolve({ name: plugin, ...unavailable('this Host runs no plugin checks') })
   })
 
   // The Host's twin of the app's `core.run.onStatus` hook (ipc.ts): a run pty this manager started has

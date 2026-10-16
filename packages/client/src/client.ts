@@ -10,13 +10,13 @@ import { connectHost, type ConnectFailure, type HostConnection } from './connect
 import { hostAddress } from './address.js'
 import { callDeadlineMs, DEFAULT_CHECK_TIMEOUT_MS, TIMEOUT_HEADROOM_MS } from './deadlines.js'
 import { hostTarget, profilePath } from './discovery.js'
-import { AsteraError, codeForStatus, remoteCodeOf } from './errors.js'
+import { AsteraError, bodyCodeOf, codeForStatus } from './errors.js'
 import { HOST_FEATURE_ORCH, HOST_FEATURE_REQUESTS, HOST_PROTOCOL, type OrchResultMessage } from './protocol.js'
 import { publicFor } from './shape.js'
 import { createNamespaces, type Namespaces } from './namespaces.js'
 
 /** This package's version, sent in the hello as `sdk-<version>`. Kept equal to package.json by a test. */
-export const CLIENT_VERSION = '0.2.0'
+export const CLIENT_VERSION = '0.3.0'
 
 /** The handshake's deadline when the options name none. */
 export const DEFAULT_CONNECT_TIMEOUT_MS = 5000
@@ -115,7 +115,7 @@ const connectError = (error: ConnectFailure['error'], address: string, profileDi
 const callError = (cmd: string, status: number, body: unknown): AsteraError => {
   const said = typeof body === 'object' && body !== null ? (body as { error?: unknown }).error : undefined
   const message = typeof said === 'string' && said.length > 0 ? said : `the Host answered ${status} to ${cmd}`
-  return new AsteraError(remoteCodeOf(body) ?? codeForStatus(status), message, body)
+  return new AsteraError(bodyCodeOf(body) ?? codeForStatus(status), message, body)
 }
 
 const CLOSED_IN_FLIGHT = 'the client was closed before the Host answered'

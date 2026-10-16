@@ -8,18 +8,25 @@
 // `task-list` 를 렌더러가 부르는 대신 전용 투영을 두는 이유(W2): 그 명령은 Run 의 모든 Task 를
 // spec 본문째 넘긴다. 한 Task 의 꼬리를 보려고 그것을 전부 건너보내는 것은 U4 가 막으려던 무게
 // 그대로이고, 남의 Task 내용까지 화면에 들어온다.
-import type { CheckResult, ReviewIssue, Task } from './types'
+import type { CheckDiagnostic, CheckResult, ReviewIssue, Task } from './types'
+import { oneLine } from './pluginChecks'
 
 /** 검사 하나 — 칩이 말하지 않는 것(왜 실패했는지)까지. */
 export interface CompletionCheckDetail {
   configId: string
   name: string
-  status: 'passed' | 'failed' | 'timed-out' | 'not-run'
+  status: 'passed' | 'failed' | 'timed-out' | 'not-run' | 'error'
   exitCode?: number
   /** 실패·타임아웃한 검사에만 있다. 통과한 검사는 애초에 꼬리를 저장하지 않는다(첫 조각 U2) —
    *  그래서 여기서 지우는 것이 아니라, 원래 없는 것을 그대로 옮긴다. */
   outputTail?: string
   unstable?: true
+  /** A plugin check's (plugin Phase 5 C12): its words, its findings, its link, and that a person skipped it */
+  summary?: string
+  diagnostics?: CheckDiagnostic[]
+  diagnosticsTotal?: number
+  externalUrl?: string
+  skipped?: true
 }
 
 export interface CompletionDetail {
@@ -48,7 +55,12 @@ export function completionDetailOf(task: Task): CompletionDetail | null {
     status: c.status,
     ...(c.exitCode !== undefined ? { exitCode: c.exitCode } : {}),
     ...(c.outputTail !== undefined ? { outputTail: c.outputTail } : {}),
-    ...(c.unstable ? { unstable: true as const } : {})
+    ...(c.unstable ? { unstable: true as const } : {}),
+    ...(c.summary !== undefined ? { summary: c.summary } : {}),
+    ...(c.diagnostics !== undefined ? { diagnostics: c.diagnostics } : {}),
+    ...(c.diagnosticsTotal !== undefined ? { diagnosticsTotal: c.diagnosticsTotal } : {}),
+    ...(c.externalUrl !== undefined ? { externalUrl: c.externalUrl } : {}),
+    ...(c.skipped ? { skipped: true as const } : {})
   }))
   const issues = task.reviewIssues ?? []
   const blockingIssues = issues.filter((i) => i.blocking)
@@ -97,6 +109,8 @@ export const checkFailed = (c: CheckResult): boolean => c.status === 'failed' ||
  *  The shape of `failureSummary`, and what `Task.lastFailure` keeps when the round is overwritten. */
 export function failedChecksSummary(checks: CheckResult[]): string | null {
   const parts = checks.filter(checkFailed).map((c) => {
+    // A plugin check says what it found in its own words (plugin Phase 5 C4), made one line: this summary is one
+    if (c.summary !== undefined) return `${c.name} failed: ${oneLine(c.summary).slice(0, 200)}`
     const exit = c.exitCode === undefined ? '' : ` (exit ${c.exitCode})`
     const line = lastLine(c.outputTail)
     return `${c.name} ${c.status === 'timed-out' ? 'timed out' : 'failed'}${exit}${line === null ? '' : `: ${line}`}`

@@ -34,7 +34,9 @@ import type { ChatAnswerResult, ChatPrompt, ChatPromptList } from '../sessions/c
 import type { GhResult } from '../github/gh'
 import type { CommitSummary } from '../github/fill'
 import type { PrCreateRequest, PrCreateResult } from '../github/prCreate'
-import { issueObjective, parseIssue } from '../github/issue'
+import { parseIssue } from '../github/issue'
+import { issueContext } from '../github/issueSource'
+import { sourcedObjective } from '../sources/objective'
 
 const NOW = '2026-08-04T00:00:00.000Z'
 
@@ -8747,14 +8749,16 @@ describe('handleCommand — github-pr, github-ci and github-issue', () => {
     const ISSUE_API = 'api repos/{owner}/{repo}/issues/5'
     const issueSetup = (over: Record<string, unknown> = {}) => setup({ [ISSUE_API]: { stdout: JSON.stringify({ ...issueJson, ...over }) } })
 
-    it("jobs-create-from-issue makes an OWNER's issue a Job in the project, its objective the delimited issue", async () => {
+    // Plugin Phase 4 J13: the issue command makes its Job through the GitHub source, so the Job keeps where it came from
+    it("jobs-create-from-issue makes an OWNER's issue a Job in the project, its objective the source's, its source the issue", async () => {
       const { deps, projectId, projectPath } = issueSetup()
       const r = await call(deps, 'jobs-create-from-issue', { project: projectId, number: 5, concurrency: 2 }, '')
       expect(r.status).toBe(200)
       const body = r.body as { id: string; objective: string; cwd: string; concurrency?: number; issue: unknown }
       expect(body.issue).toEqual({ number: 5, url: 'https://github.com/o/r/issues/5' })
       const job = deps.getState().jobs.find((j) => j.id === body.id)
-      expect(job?.objective).toBe(issueObjective(parseIssue(JSON.stringify(issueJson))!))
+      expect(job?.objective).toBe(sourcedObjective(issueContext(parseIssue(JSON.stringify(issueJson))!), 'GitHub'))
+      expect(job?.source).toEqual({ id: 'github', itemId: '5', label: 'GitHub issue #5 in o/r', title: 'Broken', url: 'https://github.com/o/r/issues/5' })
       expect(job?.cwd).toBe(projectPath)
       expect(job?.concurrency).toBe(2)
       expect(body.objective).toBe(job?.objective)

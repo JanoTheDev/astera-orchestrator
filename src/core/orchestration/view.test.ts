@@ -209,6 +209,16 @@ describe('outcomeOf', () => {
 })
 
 describe('snapshotFor', () => {
+  // 5d (performance review M1): a ticket's objective is up to 60,000 characters and the sidebar shows a line of it, so a
+  // row carries its first 500; the Job's detail and `jobs get` read the whole
+  it('a row carries the first 500 characters of its Job’s objective', () => {
+    const long = withRuns([{ ...run('r1', absPath('p')), objective: 'x'.repeat(60_000) }], [task('t1', 'r1', 'ready')])
+    const row = snapshotFor(long, absPath('p'), anySession, noWorktrees, noFires, allExist).runs[0]
+    expect(row.objective).toBe(`${'x'.repeat(500)}…`)
+    const short = withRuns([run('r1', absPath('p'))], [task('t1', 'r1', 'ready')])
+    expect(snapshotFor(short, absPath('p'), anySession, noWorktrees, noFires, allExist).runs[0].objective).toBe('objective r1')
+  })
+
   it('그 프로젝트의 Run 을 진행률과 함께 접는다', () => {
     const s = withRuns([run('r1', absPath('p')), run('r2', absPath('other'))], [
       task('t1', 'r1', 'completed'), task('t2', 'r1', 'ready'), task('t3', 'r2', 'ready')
@@ -224,6 +234,16 @@ describe('snapshotFor', () => {
         ]
       }
     ])
+  })
+
+  // Plugin Phase 4 J18: the chip reads where the Job came from off its row
+  it('carries the job source a Job was made from, on its row; none on a Job without one', () => {
+    const source = { id: 'astera-linear-source', itemId: 'ENG-1', label: 'Linear ENG-1', url: 'https://linear.app/x/ENG-1' }
+    const base = withRuns([run('r1', absPath('p')), run('r2', absPath('p'))])
+    const s: OrchState = { ...base, jobs: base.jobs.map((j) => (j.id === 'job_r1' ? { ...j, source } : j)) }
+    const rows = new Map(snapshotFor(s, absPath('p'), anySession, noWorktrees, noFires, allExist).runs.map((r) => [r.id, r]))
+    expect(rows.get('job_r1')?.source).toEqual(source)
+    expect(rows.get('job_r2')).not.toHaveProperty('source')
   })
 
   // 끝난 Run 이 아래로 간다 — 예전에는 저장된 status 로 판정했고, 이제는 Task 에서 파생한다.
@@ -944,6 +964,64 @@ describe('snapshotFor — 검사 결과와 자동 수정 진행', () => {
       { configId: 'c2', name: 'Tests', status: 'failed', exitCode: 1, unstable: true }
     ])
     expect(taskOf(s).convergence).toBeUndefined()
+  })
+
+  // Plugin Phase 5c: a skipped check says so, and a round a person let go on without a check (C9 skip-check) shows what
+  // it carries, and which check runs now
+  it('a skipped check is projected as skipped, and a resumed round shows its skipped check and the check it runs now', () => {
+    const round: CheckResult[] = [
+      { configId: 'c1', name: 'Typecheck', status: 'passed' },
+      { configId: 'plugin:d', name: 'D', status: 'error', summary: 'down' },
+      { configId: 'c2', name: 'Tests', status: 'not-run' }
+    ]
+    const skipped: CheckResult = { configId: 'plugin:d', name: 'D', status: 'not-run', skipped: true, summary: 'Skipped by a person: down' }
+    const resumed = withRuns([run('r1', absPath('p'))], [
+      { ...task('t1', 'r1', 'validating'), checks: round, checkResume: { dispatchId: 'd1', done: [round[0], skipped], rest: ['c2'] } }
+    ])
+    resumed.dispatches.push(dispatch('d1', 't1', 's1', '2026-08-18T01:00:00.000Z'))
+    expect(taskOf(resumed).checks).toEqual([
+      { configId: 'c1', name: 'Typecheck', status: 'passed' },
+      { configId: 'plugin:d', name: 'D', status: 'not-run', skipped: true },
+      { configId: 'c2', name: 'Tests', status: 'not-run' }
+    ])
+    expect(taskOf(resumed).resumeAt).toBe('c2')
+    const settled = withRuns([run('r1', absPath('p'))], [{ ...task('t1', 'r1', 'completed'), checks: [round[0], skipped] }])
+    expect(taskOf(settled).checks?.[1]).toEqual({ configId: 'plugin:d', name: 'D', status: 'not-run', skipped: true })
+    expect(taskOf(settled)).not.toHaveProperty('resumeAt')
+  })
+
+  // 5c final review M2: a skip of the round's last check leaves nothing to run, and the graph marks no check
+  it('a resumed round with nothing left to run says so, rather than leaving the first check to be marked', () => {
+    const round: CheckResult[] = [
+      { configId: 'c1', name: 'Typecheck', status: 'passed' },
+      { configId: 'plugin:d', name: 'D', status: 'error', summary: 'down' }
+    ]
+    const skipped: CheckResult = { configId: 'plugin:d', name: 'D', status: 'not-run', skipped: true, summary: 'Skipped by a person: down' }
+    const s = withRuns([run('r1', absPath('p'))], [
+      { ...task('t1', 'r1', 'validating'), checks: round, checkResume: { dispatchId: 'd1', done: [round[0], skipped], rest: [] } }
+    ])
+    s.dispatches.push(dispatch('d1', 't1', 's1', '2026-08-18T01:00:00.000Z'))
+    expect(taskOf(s).resumeAt).toBeNull()
+    expect(taskOf(s).checks?.[1]).toEqual({ configId: 'plugin:d', name: 'D', status: 'not-run', skipped: true })
+  })
+
+  // 5c final review M3: a skipped round left behind by task-update (a newer attempt, or a Task no longer validating) is
+  // not the round that runs: the graph shows the Task's last round as it was recorded
+  it('a skipped round that is no longer the Task’s live round is not drawn', () => {
+    const round: CheckResult[] = [
+      { configId: 'plugin:d', name: 'D', status: 'error', summary: 'down' },
+      { configId: 'c2', name: 'Tests', status: 'not-run' }
+    ]
+    const skipped: CheckResult = { configId: 'plugin:d', name: 'D', status: 'not-run', skipped: true, summary: 'Skipped by a person: down' }
+    const resume = { dispatchId: 'd1', done: [skipped], rest: ['c2'] }
+    const newer = withRuns([run('r1', absPath('p'))], [{ ...task('t1', 'r1', 'validating'), checks: round, checkResume: resume }])
+    newer.dispatches.push(dispatch('d1', 't1', 's1', '2026-08-18T01:00:00.000Z'), dispatch('d2', 't1', 's2', '2026-08-18T02:00:00.000Z'))
+    expect(taskOf(newer).checks?.[0].status).toBe('error')
+    expect(taskOf(newer)).not.toHaveProperty('resumeAt')
+    const moved = withRuns([run('r1', absPath('p'))], [{ ...task('t1', 'r1', 'dispatched'), checks: round, checkResume: resume }])
+    moved.dispatches.push(dispatch('d1', 't1', 's1', '2026-08-18T01:00:00.000Z'))
+    expect(taskOf(moved).checks?.[0].status).toBe('error')
+    expect(taskOf(moved)).not.toHaveProperty('resumeAt')
   })
 
   it('checks 가 없는 Task 는 칸 자체가 없다', () => {

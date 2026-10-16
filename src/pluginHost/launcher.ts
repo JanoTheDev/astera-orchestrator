@@ -11,7 +11,7 @@ import {
   type ConnectionHostMessage,
   type HostConnection
 } from '../core/publicContract'
-import { RPC_CLOSED, RPC_INTERNAL_ERROR, RPC_INVALID_PARAMS, RPC_METHOD_NOT_FOUND, RpcError, createRpcPeer } from '../core/plugins/rpc'
+import { RPC_CLOSED, RPC_INTERNAL_ERROR, RPC_INVALID_PARAMS, RPC_METHOD_NOT_FOUND, RPC_NOT_READY, RpcError, createRpcPeer } from '../core/plugins/rpc'
 import type { PluginContext, PluginDefinition } from '../../packages/plugin-sdk/src/index'
 
 interface InitializeParams {
@@ -41,13 +41,19 @@ const initializeParams = (v: unknown): InitializeParams | null => {
   return ok ? (v as unknown as InitializeParams) : null
 }
 
+/** What a plugin's entry may define for the Host to call, beside activate and deactivate (plugin Phase 3 N5). */
+const HANDLERS = ['onEvent', 'send', 'listItems', 'getItem', 'buildJobContext', 'runCheck'] as const
+const MEMBERS = ['activate', 'deactivate', ...HANDLERS] as const
+
 /** The plugin an entry exports as its default (`definePlugin`), one default deeper for CommonJS compiled from ESM. */
 function definitionOf(mod: unknown): PluginDefinition | null {
   let d: unknown = isObject(mod) && 'default' in mod ? mod.default : mod
-  if (isObject(d) && d.activate === undefined && d.deactivate === undefined && isObject(d.default)) d = d.default
+  if (isObject(d)) {
+    const outer = d
+    if (MEMBERS.every((k) => outer[k] === undefined) && isObject(outer.default)) d = outer.default
+  }
   if (!isObject(d)) return null
-  if (d.activate !== undefined && typeof d.activate !== 'function') return null
-  if (d.deactivate !== undefined && typeof d.deactivate !== 'function') return null
+  for (const k of MEMBERS) if (d[k] !== undefined && typeof d[k] !== 'function') return null
   return d as PluginDefinition
 }
 
@@ -74,6 +80,8 @@ export function runLauncher(o: {
   const closers = new Set<() => void>()
   let started = false
   let definition: PluginDefinition | null = null
+  /** The plugin's context, once activate has it: what its handlers are called with. */
+  let context: PluginContext | null = null
   let client: AsteraClient | null = null
   let stopping: Promise<void> | null = null
   /** The Host closed the channel: no call can be answered from here on. */
@@ -82,8 +90,26 @@ export function runLauncher(o: {
   const peer = createRpcPeer({
     send: (line) => o.output(line),
     onBadMessage: (m) => o.log(`[launcher] ${m}`),
-    onRequest: async (method, params) => {
+    onRequest: async (method, params, signal) => {
       if (method === 'initialize') return initialize(params)
+      if (method === 'events.deliver') return handOver('onEvent', 'event', method, params, signal)
+      if (method === 'notifications.send') return handOver('send', 'notification', method, params, signal)
+      // Plugin Phase 4 J6: a job source answers with what its function returned
+      if (method === 'jobSource.list') {
+        const q = isObject(params) ? params : {}
+        const input = { ...(typeof q.query === 'string' ? { query: q.query } : {}), ...(typeof q.cursor === 'string' ? { cursor: q.cursor } : {}) }
+        return sendable('listItems', [input], signal)
+      }
+      if (method === 'jobSource.get' || method === 'jobSource.context') {
+        const id = isObject(params) && typeof params.id === 'string' && params.id !== '' ? params.id : null
+        if (id === null) throw new RpcError(RPC_INVALID_PARAMS, `${method} needs { id }`)
+        return sendable(method === 'jobSource.get' ? 'getItem' : 'buildJobContext', [id], signal)
+      }
+      // Plugin Phase 5 C2: a completion check answers with what runCheck returned; the Host checks and cuts it (C5)
+      if (method === 'completionCheck.run') {
+        if (!isObject(params) || !isObject(params.input)) throw new RpcError(RPC_INVALID_PARAMS, 'completionCheck.run needs { input }')
+        return sendable('runCheck', [params.input], signal)
+      }
       if (method === 'shutdown') {
         await stop()
         // After the answer is written: the peer writes it as this resolves, before the next turn.
@@ -193,13 +219,57 @@ export function runLauncher(o: {
       },
       signal: lifetime.signal
     }
+    context = ctx
     try {
       await definition.activate?.(ctx)
     } catch (e) {
       o.log(`[launcher] activate threw: ${e instanceof Error ? (e.stack ?? e.message) : String(e)}`)
       throw new RpcError(RPC_INTERNAL_ERROR, `activate threw: ${messageOf(e)}`)
     }
+    // The Host fails the start of a plugin whose capability has no handler here (plugin Phase 3 N5)
+    const own = definition as unknown as Record<string, unknown>
+    return { handlers: HANDLERS.filter((h) => typeof own[h] === 'function') }
+  }
+
+  /** One event for onEvent, or one notification for send (plugin Phase 3 N5): answered once the handler's promise
+   *  settles, with its message when it threw. The Host logs the failure and hands the same one over again. */
+  async function handOver(handler: (typeof HANDLERS)[number], param: string, method: string, params: unknown, signal: AbortSignal): Promise<unknown> {
+    if (!definition || !context) throw new RpcError(RPC_NOT_READY, 'the plugin is not started')
+    if (stopping) throw new RpcError(RPC_NOT_READY, 'the plugin is stopping')
+    const item = isObject(params) && isObject(params[param]) ? params[param] : null
+    if (!item) throw new RpcError(RPC_INVALID_PARAMS, `${method} needs { ${param} }`)
+    await answer(handler, [item], signal)
     return {}
+  }
+
+  /** Calls `handler` with `args` and the plugin's context, and answers what it returned (null for nothing), or the
+   *  message it threw. The context's `signal` is this call's (5d): it aborts when the Host stops waiting for it, as
+   *  well as when the plugin stops. */
+  async function answer(handler: (typeof HANDLERS)[number], args: unknown[], signal: AbortSignal): Promise<unknown> {
+    if (!definition || !context) throw new RpcError(RPC_NOT_READY, 'the plugin is not started')
+    if (stopping) throw new RpcError(RPC_NOT_READY, 'the plugin is stopping')
+    const own = definition as unknown as Record<string, unknown>
+    const fn = own[handler]
+    if (typeof fn !== 'function') throw new RpcError(RPC_METHOD_NOT_FOUND, `the plugin has no ${handler}`)
+    const ctx: PluginContext = { ...context, signal: AbortSignal.any([context.signal, signal]) }
+    try {
+      return (await (fn as (...a: unknown[]) => unknown).call(definition, ...args, ctx)) ?? null
+    } catch (e) {
+      throw new RpcError(RPC_INTERNAL_ERROR, `${handler} threw: ${messageOf(e)}`)
+    }
+  }
+
+  /** A job source's or a check's answer (plugin Phase 4 J6, Phase 5 C2), refused with why when JSON cannot hold it: a
+   *  BigInt or a loop would otherwise be lost on its way to the Host (4a final review I3). An event's or a
+   *  notification's answer is not sent, so it is not checked. */
+  async function sendable(handler: (typeof HANDLERS)[number], args: unknown[], signal: AbortSignal): Promise<unknown> {
+    const result = await answer(handler, args, signal)
+    try {
+      JSON.stringify(result)
+    } catch (e) {
+      throw new RpcError(RPC_INTERNAL_ERROR, `${handler} answered with something that cannot be sent: ${messageOf(e)}`)
+    }
+    return result
   }
 
   o.input.setEncoding('utf8')

@@ -120,7 +120,8 @@ export const NOUNS = {
   projects: ['list', 'get', 'find', 'add'],
   // `jobs create` 와 `tasks add` 는 phase C 다 — 앞의 것은 run-create 를 `--auto` 로, 뒤의 것은
   // task-create 를 부른다(command.ts). 코디네이터가 쓰는 두 이름은 그대로 남는다.
-  jobs: ['list', 'get', 'wait', 'run', 'create'],
+  // `create-from-source` (plugin Phase 4 J21) is answered before handleCommand's switch, with the `sources` commands.
+  jobs: ['list', 'get', 'wait', 'run', 'create', 'create-from-source'],
   runs: ['list', 'get', 'wait', 'follow', 'stop', 'resume', 'checks'],
   tasks: ['list', 'add', 'dispatch'],
   questions: ['list', 'get', 'answer'],
@@ -159,7 +160,10 @@ export const NOUNS = {
   runtimes: ['add', 'list', 'remove'],
   // **Answered by the Host's plugin manager** (plugin runtime design P5): this machine's app and CLI install, list and
   // switch plugins. `install` asks the Host to inspect the folder first and needs --yes or --grant (cli/plugins.ts).
-  plugins: ['install', 'list', 'get', 'enable', 'disable', 'remove', 'logs', 'doctor', 'settings', 'configure']
+  plugins: ['install', 'list', 'get', 'enable', 'disable', 'remove', 'logs', 'doctor', 'settings', 'configure'],
+  // **The job sources** (plugin Phase 4 J21): GitHub issues and the job-source plugins, a page of a source's items, one
+  // item read whole. Answered by the Host before handleCommand's switch (src/core/orchestration/commandSources.ts).
+  sources: ['list', 'items', 'show']
 } as const
 
 /** 명사이면서 동사 없이도 명령인 이름. `accounts` 는 공개 명사가 되기 전부터 세션 명령이었고

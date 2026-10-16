@@ -10,8 +10,12 @@ import { hostWorkerBaseEnv } from '../../core/host/spawn'
 import { killProcessTree } from '../../core/run/kill'
 import { redactSecrets } from '../../core/remote/redact'
 import type { OrchCall } from '../../core/host/orchProtocol'
-import { RPC_INTERNAL_ERROR, RPC_INVALID_PARAMS, RPC_METHOD_NOT_FOUND, RpcError, createRpcPeer, type RpcPeer } from '../../core/plugins/rpc'
-import { PluginSecretRefused, pluginSecrets } from './pluginData'
+import { RPC_CLOSED, RPC_INTERNAL_ERROR, RPC_INVALID_PARAMS, RPC_METHOD_NOT_FOUND, RPC_NOT_READY, RpcError, createRpcPeer, type RpcPeer } from '../../core/plugins/rpc'
+import { capabilityPermissionProblem, type PluginCapability } from '../../core/plugins/manifest'
+import { PluginSecretRefused, pluginCursor, pluginSecrets, type CursorStore } from './pluginData'
+import { DeliveryInterrupted, createDeliverer, type Deliverer, type DeliverySource, type DeliveryTimings } from './deliverer'
+import { NOTIFICATION_MAX_AGE_MS, type PluginNotification } from '../../core/plugins/notifications'
+import type { AsteraEvent } from '../../core/publicContract'
 import { openHostLog, type HostLog } from '../log'
 import { releaseLogWriter } from '../../core/log/logWriter'
 import { pluginsRoot } from './registry'
@@ -49,6 +53,8 @@ export interface PluginLaunch {
   /** The entry file, absolute. */
   entry: string
   granted: readonly string[]
+  /** The capabilities its manifest names that this Astera serves (plugin Phase 3): `event` gets it the event log. */
+  capabilities: readonly PluginCapability[]
   /** Its settings, secret ones included, handed over at `initialize` (spec §24, design P10). */
   settings: Readonly<Record<string, string | number | boolean>>
   /** Values its log must never show: its secret settings and secrets (spec §23). */
@@ -72,6 +78,29 @@ export interface PluginRuntime {
   logFile(folder: string): string
   /** Lets go of a plugin's log, written out first, so a removal can delete it for good (2b final review M2). */
   forget(folder: string): Promise<void>
+  /** Asks a running plugin `method` and answers what it returned (plugin Phase 4 J6, J8): rejects with
+   *  PluginRequestFailed, 503 at once when the plugin does not run, 504 past `timeoutMs`, 502 with what it threw. */
+  request(id: string, method: string, params: unknown, timeoutMs: number): Promise<unknown>
+}
+
+/** Why a request to a plugin got no answer, as the status the Host answers its caller with (plugin Phase 4 J8). */
+export class PluginRequestFailed extends Error {
+  constructor(
+    readonly status: 502 | 503 | 504,
+    message: string
+  ) {
+    super(message)
+  }
+}
+
+/** What a request that failed answers its caller (J8): a channel that ended, or a launcher whose plugin is not started
+ *  or is stopping (a race with a stop: 4a final review M8), is a plugin that does not run, 503; anything else is what
+ *  the plugin threw, 502, through `hide`, since it can hold a secret like every line of its log. */
+export function requestFailure(id: string, e: unknown, hide: (m: string) => string): PluginRequestFailed {
+  if (e instanceof PluginRequestFailed) return e
+  if (e instanceof RpcError && e.code === RPC_CLOSED) return new PluginRequestFailed(503, `${id} exited while it answered`)
+  if (e instanceof RpcError && e.code === RPC_NOT_READY) return new PluginRequestFailed(503, `${id} is not ready: ${e.message}`)
+  return new PluginRequestFailed(502, hide(e instanceof Error ? e.message : String(e)))
 }
 
 /** A plugin's log (design P13): `<profile>/plugins/logs/<folder>.log`, rotated to `.1` past 2 MiB. */
@@ -79,6 +108,13 @@ export const pluginLogFile = (profileDir: string, folder: string): string => pat
 
 /** A line of stderr longer than this is written in pieces, so a plugin printing without end cannot grow a buffer. */
 const STDERR_LINE_MAX = 64 * 1024
+/** How many lines of a plugin's output its log takes a second (5e, from the performance review): every line is redacted
+ *  on the Host's thread, which also serves every terminal, so a plugin printing without end must not have them all. */
+export const LOG_LINES_PER_SECOND = 1_000
+/** And how many characters (5e final review M4): long lines are what cost the redaction and the log's rotation. */
+export const LOG_CHARS_PER_SECOND = 1_048_576
+/** How many of the lines dropped in a second are written when the process ends then: a crash's stack (I2). */
+const DROPPED_TAIL = 20
 
 interface Slot {
   launch: PluginLaunch
@@ -100,7 +136,33 @@ interface Slot {
   terms?: string[]
   exited?: Promise<void>
   stopping?: Promise<void>
+  /** An event or notification plugin's deliverer (plugin Phase 3): from its start until a stop, through its crashes
+   *  and restarts. */
+  deliverer?: Deliverer
+  /** The last deliverer's stop, until its cursor is written: a second stop and a start wait for it (final review M4). */
+  delivering?: Promise<void>
+  /** The notifications skipped as older than NOTIFICATION_MAX_AGE_MS since the last line that counted them (N9). */
+  stale: string[]
+  /** Counts the deliveries begun, so one the deliverer gave up at its time limit does not go on to send beside the
+   *  next try (3c final review M2). */
+  attempts: number
+  /** The notification whose send was last begun: one that grows old while it fails is tried until it is sent or
+   *  given up, not counted stale (3c final review M4). */
+  tried?: string
 }
+
+/** The handler each capability is served through (plugin Phase 3 N5): a plugin whose entry lacks it does not start. */
+const HANDLER_OF: Partial<Record<PluginCapability, readonly string[]>> = {
+  event: ['onEvent'],
+  notification: ['send'],
+  'job-source': ['listItems', 'getItem', 'buildJobContext'],
+  'completion-check': ['runCheck']
+}
+
+/** The capabilities served from the event log by a deliverer (plugin Phase 3 N1). */
+const delivered = (p: PluginLaunch): boolean => p.capabilities.includes('event') || p.capabilities.includes('notification')
+
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
 
 /** A secret shorter than this is too common a run of text to take out of a log line (docs/cli.md says so). */
 export const REDACT_MIN = 4
@@ -186,6 +248,15 @@ export function createPluginRuntime(d: {
   now?: () => number
   /** For tests: the ceiling on a plugin's message (`PLUGIN_MAX_LINE`). */
   maxLine?: number
+  /** The Host's public event log, which event plugins are handed (plugin Phase 3 N1). Absent: none is delivered to. */
+  events?: DeliverySource
+  /** For tests: the deliverer's waits (DELIVERY_TIMINGS). */
+  delivery?: Partial<DeliveryTimings>
+  /** For tests: where an event plugin's cursor is kept (pluginCursor). */
+  cursors?: (folder: string) => CursorStore
+  /** The notification for an event, worded for a person (plugin Phase 3 N10, notifications.ts), or null when the event
+   *  is not one. Absent: a notification plugin is sent nothing. */
+  notify?: (event: AsteraEvent) => PluginNotification | null | Promise<PluginNotification | null>
 }): PluginRuntime {
   const t: PluginTimings = { ...PLUGIN_TIMINGS, ...d.timings }
   const spawn = d.spawn ?? nodeSpawn
@@ -268,11 +339,77 @@ export function createPluginRuntime(d: {
     }
   }
 
+  /** Counts the stale notifications skipped since the last such line, in one line (N9). */
+  const sayStale = (s: Slot): void => {
+    const n = s.stale.length
+    if (n === 0) return
+    const ids = n === 1 ? s.stale[0] : `${s.stale[0]} to ${s.stale[n - 1]}`
+    s.stale = []
+    say(s, `skipped ${n} notification${n === 1 ? '' : 's'} older than an hour (${ids})`)
+  }
+
+  /** The deliverer of an event or notification plugin (plugin Phase 3 N1, N6-N10): it hands the plugin the event log
+   *  from its cursor while the plugin runs, onEvent first and then send, and its lines go to the plugin's log. */
+  const makeDeliverer = (s: Slot, events: DeliverySource): Deliverer =>
+    createDeliverer({
+      source: events,
+      cursor: d.cursors ? d.cursors(s.launch.folder) : pluginCursor(d.profileDir, s.launch.folder),
+      running: () => s.state === 'running' && s.peer !== undefined,
+      deliver: async (item, signal) => {
+        const peer = s.peer
+        if (!peer || s.state !== 'running') throw new DeliveryInterrupted('the plugin is not running')
+        const attempt = ++s.attempts
+        const ask = async (method: string, params: unknown): Promise<void> => {
+          try {
+            await peer.request(method, params, { signal })
+          } catch (e) {
+            // The process ended under the delivery: it is started again, and the event goes again once it runs
+            if (e instanceof RpcError && e.code === RPC_CLOSED) throw new DeliveryInterrupted(e.message)
+            throw e
+          }
+        }
+        const caps = s.launch.capabilities
+        if (caps.includes('event')) await ask('events.deliver', { event: item })
+        // A newer try began while this one waited past the time limit: it sends, not this one
+        if (!caps.includes('notification') || attempt !== s.attempts) return
+        // N9: a notification plugin is told of a gap in its log only, and is sent no stale notification
+        if (item.type === 'gap') return say(s, 'events were lost before the next one (older than the log keeps): no notification was sent for them')
+        let n: PluginNotification | null
+        try {
+          n = (await d.notify?.(item)) ?? null
+        } catch (e) {
+          // The Host's wording failed: trying again changes nothing, and the plugin is not at fault (3c final review I1)
+          say(s, `could not word ${item.type} ${item.id} (${e instanceof Error ? e.message : String(e)}): it is not sent`)
+          return
+        }
+        if (n === null || attempt !== s.attempts) return
+        if (n.id !== s.tried && Date.now() - Date.parse(n.occurredAt) > NOTIFICATION_MAX_AGE_MS) {
+          s.stale.push(n.id)
+          return
+        }
+        sayStale(s)
+        s.tried = n.id
+        await ask('notifications.send', { notification: n })
+      },
+      log: (m) => say(s, m),
+      idle: () => sayStale(s),
+      // Not the runtime's clock: the deliverer's own goes only forward, which the give-up hour is counted on (3b M1)
+      ...(d.delivery ? { timings: d.delivery } : {})
+    })
+
   function launch(s: Slot): void {
     const p = s.launch
     s.state = 'starting'
     s.problem = undefined
     s.runningSince = undefined
+    // Plugin Phase 3 N4: an event or notification plugin without the grant its events need is not started (the install
+    // refuses it too)
+    const ungranted = capabilityPermissionProblem(p.capabilities, p.granted)
+    if (ungranted !== null) {
+      s.problem = ungranted
+      say(s, ungranted)
+      return crashed(s, ungranted)
+    }
     let proc: ChildProcess
     try {
       proc = spawn(d.exec, [d.launcher], {
@@ -280,7 +417,10 @@ export function createPluginRuntime(d: {
         env: pluginEnv(d.env),
         // The channel is the fourth pipe (2b final review I1): a child that inherits the plugin's stdio gets 0 to 2 only,
         // so nothing printed reaches it. No stdin: a child that reads it cannot take the Host's messages either.
-        stdio: ['ignore', 'pipe', 'pipe', 'pipe'],
+        // Overlapped (plugin Phase 3): a 'pipe' gives the plugin a synchronous handle on Windows, where the read always
+        // pending holds every write until the Host writes again, so a call or an answer the plugin sent from a timer
+        // waited for the Host's next message. Elsewhere it is a plain pipe.
+        stdio: ['ignore', 'pipe', 'pipe', 'overlapped'],
         windowsHide: true,
         // Elsewhere than Windows, the leader of a process group, so a stop can end what the plugin started too.
         detached: process.platform !== 'win32'
@@ -324,9 +464,55 @@ export function createPluginRuntime(d: {
         killTree(proc)
       }
     })
+    // A budget a second (LOG_LINES_PER_SECOND lines, LOG_CHARS_PER_SECOND characters): past it a line is counted, not
+    // redacted or written. The count is said once, when its second is over (a timer at its end, or the next second's
+    // first line), or when the process ends; then the last lines dropped in that second are written too, so a crash at
+    // the end of a flood keeps its stack (5e final review I1, I2). A steady clock: a clock set back holds no window open.
+    // A timer can fire before its second is over by that clock (whole milliseconds, a loaded machine's drift), so it
+    // waits out the rest: a count said early was followed by another count of the same second.
+    let windowStart = -Infinity
+    let lines = 0
+    let chars = 0
+    let dropped = 0
+    let tail: string[] = []
+    const sayDropped = (atEnd: boolean): void => {
+      if (dropped > 0) {
+        const n = dropped.toLocaleString('en-US')
+        say(s, `dropped ${n} line${dropped === 1 ? '' : 's'} of its output: more than ${LOG_LINES_PER_SECOND.toLocaleString('en-US')} lines or ${LOG_CHARS_PER_SECOND.toLocaleString('en-US')} characters a second`)
+        if (atEnd && tail.length > 0) {
+          say(s, `the last ${tail.length} of them, before it ended:`)
+          for (const t of tail) logOf(p.folder).write(hide(s, t))
+        }
+      }
+      dropped = 0
+      tail = []
+    }
+    const sayAtEndOf = (second: number): void => {
+      later(s, Math.max(0, second + 1_000 - performance.now()), () => {
+        if (windowStart !== second) return
+        if (performance.now() - second < 1_000) sayAtEndOf(second)
+        else sayDropped(false)
+      })
+    }
     const line = (l: string): void => {
       const text = l.replace(/\r$/, '')
-      if (text !== '') logOf(p.folder).write(hide(s, text))
+      if (text === '') return
+      const now = performance.now()
+      if (now - windowStart >= 1_000) {
+        sayDropped(false)
+        windowStart = now
+        lines = 0
+        chars = 0
+      }
+      if (lines >= LOG_LINES_PER_SECOND || chars + text.length > LOG_CHARS_PER_SECOND) {
+        if (dropped++ === 0) sayAtEndOf(windowStart)
+        tail.push(text)
+        if (tail.length > DROPPED_TAIL) tail.shift()
+        return
+      }
+      lines += 1
+      chars += text.length
+      logOf(p.folder).write(hide(s, text))
     }
     // stdout and stderr are both the plugin's log, each read in lines of its own.
     const held = new Map<Readable, string>()
@@ -357,6 +543,7 @@ export function createPluginRuntime(d: {
       if (ended) return
       ended = true
       flushHeld()
+      sayDropped(true)
       resolveExit()
       exitedWith(s, proc, code, signal)
     }
@@ -383,11 +570,22 @@ export function createPluginRuntime(d: {
         host: { version: host.version, pid: host.pid, startedAt: host.startedAt, features: [...host.features] }
       })
       .then(
-        () => {
+        (r: unknown) => {
           if (s.proc !== proc || s.state !== 'starting') return
+          // Plugin Phase 3 N5: a capability served through a handler its entry does not have fails the start
+          const handlers = isObject(r) && Array.isArray(r.handlers) ? r.handlers : []
+          for (const c of p.capabilities) {
+            const h = (HANDLER_OF[c] ?? []).find((name) => !handlers.includes(name))
+            if (h === undefined) continue
+            s.problem = `the ${c} capability needs ${h} in its entry`
+            say(s, s.problem)
+            killTree(proc)
+            return
+          }
           s.state = 'running'
           s.runningSince = now()
           say(s, 'running')
+          s.deliverer?.wake()
         },
         (e: unknown) => {
           if (s.proc !== proc || !s.wanted) return
@@ -441,18 +639,22 @@ export function createPluginRuntime(d: {
   const start = (p: PluginLaunch): void => {
     const s = slots.get(p.id)
     if (s && s.wanted && (s.state === 'starting' || s.state === 'running' || s.state === 'waiting')) return
-    // A stop still under way finishes first; the start follows it.
-    if (s?.stopping) {
-      void s.stopping.then(() => start(p))
+    // A stop still under way finishes first, its cursor written too, so a new deliverer reads where the last one left
+    // off; the start follows it.
+    const pending = s?.stopping ?? s?.delivering
+    if (pending) {
+      void pending.then(() => start(p))
       return
     }
-    const slot: Slot = s ?? { launch: p, state: 'stopped', wanted: true, failures: 0, timers: new Set(), learned: new Map() }
+    const slot: Slot = s ?? { launch: p, state: 'stopped', wanted: true, failures: 0, timers: new Set(), learned: new Map(), stale: [], attempts: 0 }
     slot.launch = p
     slot.terms = undefined
     slot.wanted = true
     slot.reason = undefined
     if (slot.state !== 'failed') slot.failures = 0
     slots.set(p.id, slot)
+    // Kept through crashes and restarts, so the cursor in memory is not read back from the file each time
+    if (d.events && delivered(p)) slot.deliverer ??= makeDeliverer(slot, d.events)
     if (slot.state === 'failed') return
     launch(slot)
   }
@@ -462,12 +664,23 @@ export function createPluginRuntime(d: {
     if (!s) return Promise.resolve()
     s.wanted = false
     clearTimers(s)
+    // Delivery ends first, so no event goes to a plugin on its way out, and its cursor is written before the stop is
+    // over: a removal deletes the file after this, and nothing writes it again (plugin Phase 3 N6)
+    if (s.deliverer) {
+      sayStale(s)
+      const ending: Promise<void> = s.deliverer.stop().finally(() => {
+        if (s.delivering === ending) s.delivering = undefined
+      })
+      s.delivering = ending
+      s.deliverer = undefined
+    }
+    const delivered = s.delivering ?? Promise.resolve()
     const proc = s.proc
     if (!proc) {
       s.state = 'stopped'
-      return Promise.resolve()
+      return delivered
     }
-    return (s.stopping ??= (async () => {
+    const stopped = (s.stopping ??= (async () => {
       const exited = s.exited ?? Promise.resolve()
       const within = (ms: number): Promise<boolean> =>
         Promise.race([exited.then(() => true), new Promise<boolean>((r) => setTimeout(() => r(false), ms))])
@@ -486,6 +699,53 @@ export function createPluginRuntime(d: {
     })().finally(() => {
       s.stopping = undefined
     }))
+    return Promise.all([stopped, delivered]).then(() => {})
+  }
+
+  function statusOf(id: string): PluginRunStatus | undefined {
+    const s = slots.get(id)
+    if (!s) return undefined
+    const pid = s.proc?.pid
+    switch (s.state) {
+      case 'running':
+        return { status: 'running', ...(pid !== undefined ? { pid } : {}) }
+      case 'starting':
+        return { status: 'starting', ...(pid !== undefined ? { pid } : {}) }
+      case 'waiting':
+        return { status: 'starting', reason: hide(s, `restarting after ${s.problem ?? 'a crash'}`) }
+      case 'failed':
+        return { status: 'failed', ...(s.reason !== undefined ? { reason: s.reason } : {}) }
+      default:
+        return { status: 'stopped' }
+    }
+  }
+
+  async function request(id: string, method: string, params: unknown, timeoutMs: number): Promise<unknown> {
+    const s = slots.get(id)
+    const peer = s?.peer
+    // A plugin that does not run is not asked: a person hears why at once, not after the time limit (Review Focus 3)
+    if (!s || s.state !== 'running' || !peer) {
+      const st = statusOf(id)
+      throw new PluginRequestFailed(503, st ? `${id} is ${st.status}${st.reason ? `: ${st.reason}` : ''}` : `${id} is not running`)
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined
+    // Past the time limit the plugin is told (5d): the call's ctx.signal aborts there, and its late answer is dropped
+    const ctl = new AbortController()
+    const late = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        reject(new PluginRequestFailed(504, `${id} did not answer within ${timeoutMs / 1000} s`))
+        ctl.abort()
+      }, timeoutMs)
+    })
+    try {
+      return await Promise.race([peer.request(method, params, { signal: ctl.signal }), late])
+    } catch (e) {
+      const failure = requestFailure(id, e, (m) => hide(s, m))
+      say(s, `${method} failed: ${failure.message}`)
+      throw failure
+    } finally {
+      clearTimeout(timer)
+    }
   }
 
   return {
@@ -504,25 +764,14 @@ export function createPluginRuntime(d: {
       await Promise.all([...slots.keys()].map(stop))
       for (const l of logs.values()) l.close()
     },
-    status: (id) => {
-      const s = slots.get(id)
-      if (!s) return undefined
-      const pid = s.proc?.pid
-      switch (s.state) {
-        case 'running':
-          return { status: 'running', ...(pid !== undefined ? { pid } : {}) }
-        case 'starting':
-          return { status: 'starting', ...(pid !== undefined ? { pid } : {}) }
-        case 'waiting':
-          return { status: 'starting', reason: hide(s, `restarting after ${s.problem ?? 'a crash'}`) }
-        case 'failed':
-          return { status: 'failed', ...(s.reason !== undefined ? { reason: s.reason } : {}) }
-        default:
-          return { status: 'stopped' }
-      }
-    },
+    status: statusOf,
     logFile,
+    request,
     forget: async (folder) => {
+      // A removed plugin's slot holds its settings and secret values: they go with it (5d). Only a slot with nothing left
+      // to stop: one with a process, a stop or a delivery under way is still the runtime's to end (5d final review M7)
+      for (const [id, s] of slots)
+        if (s.launch.folder === folder && !s.proc && !s.stopping && !s.delivering && s.timers.size === 0) slots.delete(id)
       logs.delete(folder)
       await releaseLogWriter(logFile(folder))
     }

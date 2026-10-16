@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { completionDetailOf, completionForTaskOf } from './completion'
+import { completionDetailOf, completionForTaskOf, failedChecksSummary } from './completion'
 import type { CheckResult, ReviewIssue, Task } from './types'
 
 const task = (over: Partial<Task> = {}): Task => ({
@@ -21,9 +21,48 @@ const issue = (over: Partial<ReviewIssue> & Pick<ReviewIssue, 'id' | 'severity' 
   ...over
 })
 
+describe('a plugin check in the completion read model (plugin Phase 5 C12, C13)', () => {
+  it('carries its summary, its findings, its link, and that a person skipped it', () => {
+    const d = completionDetailOf(
+      task({
+        checks: [
+          check({ configId: 'plugin:d', name: 'D', status: 'failed', summary: 's', diagnostics: [{ file: 'a.ts', line: 2, message: 'm' }], externalUrl: 'https://x.example/r' }),
+          check({ configId: 'plugin:e', name: 'E', status: 'not-run', skipped: true, summary: 'Skipped by a person: down' }),
+          check({ configId: 'plugin:f', name: 'F', status: 'error', summary: 'down' })
+        ]
+      })
+    )!
+    expect(d.checks).toEqual([
+      { configId: 'plugin:d', name: 'D', status: 'failed', summary: 's', diagnostics: [{ file: 'a.ts', line: 2, message: 'm' }], externalUrl: 'https://x.example/r' },
+      { configId: 'plugin:e', name: 'E', status: 'not-run', skipped: true, summary: 'Skipped by a person: down' },
+      { configId: 'plugin:f', name: 'F', status: 'error', summary: 'down' }
+    ])
+  })
+
+  it('names a failed plugin check by its summary in the failure summary, and leaves a check that could not be made out', () => {
+    expect(failedChecksSummary([check({ configId: 'plugin:d', name: 'D', status: 'failed', summary: '2 leftovers' })])).toBe('D failed: 2 leftovers')
+    expect(failedChecksSummary([check({ configId: 'plugin:d', name: 'D', status: 'error', summary: 'down' })])).toBeNull()
+  })
+
+  // Plugin Phase 5b Review Focus 5: the failure summary is one line, whatever line breaks a plugin's summary holds
+  it('makes a plugin summary’s line breaks one space', () => {
+    expect(failedChecksSummary([check({ configId: 'plugin:d', name: 'D', status: 'failed', summary: '3 leftovers\n  in 2 files\r\n' })])).toBe(
+      'D failed: 3 leftovers in 2 files'
+    )
+  })
+})
+
 describe('completionDetailOf', () => {
   it('보여 줄 것이 하나도 없으면 null — 빈 블록과 "아직 안 왔다" 를 구별하게', () => {
     expect(completionDetailOf(task())).toBeNull()
+  })
+
+  // 5d: how many findings the plugin gave, when the Host kept fewer
+  it('carries a plugin check’s count of findings', () => {
+    const d = completionDetailOf(
+      task({ checks: [check({ configId: 'plugin:d', name: 'D', status: 'failed', summary: 's', diagnostics: [{ message: 'm' }], diagnosticsTotal: 150 })] })
+    )
+    expect(d?.checks[0].diagnosticsTotal).toBe(150)
   })
 
   it('실패한 검사의 꼬리와 종료 코드를 그대로 나른다', () => {

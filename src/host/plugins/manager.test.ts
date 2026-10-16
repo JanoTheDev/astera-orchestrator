@@ -10,6 +10,8 @@ import { NpmMissing, type NpmRun } from './npm'
 import { NpmUnavailable } from './ownNpm'
 import { tgzOf } from './tarballFixture'
 
+/** A Host from before plugin Phase 5, which serves every capability but completion-check: what an unserved one does. */
+const WITHOUT_CHECKS = ['event', 'notification', 'job-source'] as const
 let dir: string
 let profile: string
 let manager: PluginManager
@@ -84,11 +86,13 @@ describe('inspect', () => {
   })
 
   it('says why a plugin will not run here, and what is installed under its id', async () => {
-    const src = await plugin(FOLDER, { capabilities: ['event'] })
-    await manager.install({ path: src, grant: [] })
-    expect(await manager.inspect({ path: src })).toMatchObject({
+    // Every capability is served since plugin Phase 5: an older Host, which does not serve completion-check, stands in
+    const older = createPluginManager({ profileDir: profile, hostVersion: '1.5.0', capabilities: WITHOUT_CHECKS })
+    const src = await plugin(FOLDER, { capabilities: ['completion-check'] })
+    await older.install({ path: src, grant: [] })
+    expect(await older.inspect({ path: src })).toMatchObject({
       status: 200,
-      body: { compatible: false, reason: 'this Astera does not run event plugins yet', installed: { version: '1.0.0', enabled: true } }
+      body: { compatible: false, reason: 'this Astera does not run completion-check plugins yet', installed: { version: '1.0.0', enabled: true } }
     })
   })
 
@@ -167,6 +171,20 @@ describe('install', () => {
     expect(body(await manager.install({ path: none, grant: ['jobs.read'] })).error).toBe(
       'jobs.read is not one the plugin asks for; it asks for: nothing'
     )
+    expect(await listed()).toEqual([])
+    expect(await leftovers()).toEqual([])
+  })
+
+  // Plugin Phase 3 N4: the events an event plugin is handed are what events.subscribe grants
+  it('refuses an event plugin’s install whose grant leaves out events.subscribe, before anything is copied', async () => {
+    const copied: string[] = []
+    const m = createPluginManager({ profileDir: profile, hostVersion: '1.5.0', copy: async (src) => void copied.push(src) })
+    const src = await plugin(FOLDER, { capabilities: ['event'], permissions: ['events.subscribe', 'jobs.read'] })
+    expect(await m.install({ path: src, grant: ['jobs.read'] })).toEqual({
+      status: 400,
+      body: { error: 'the event capability needs the events.subscribe permission' }
+    })
+    expect(copied).toEqual([])
     expect(await listed()).toEqual([])
     expect(await leftovers()).toEqual([])
   })
@@ -279,6 +297,37 @@ describe('install', () => {
     const [ra, rb] = await Promise.all([manager.install({ path: a, grant: [] }), manager.install({ path: b, grant: [] })])
     expect([ra.status, rb.status]).toEqual([200, 200])
     expect((await listed()).map((p) => p.id)).toEqual(['plugin-a', 'plugin-b'])
+  })
+})
+
+// Plugin Phase 4, the 4a review's I4: a job source's list must not wait behind an npm install
+describe('listNow', () => {
+  it('answers what list answers while a change is under way', async () => {
+    let release!: () => void
+    const held = new Promise<void>((r) => (release = r))
+    let hold = false
+    const m = createPluginManager({
+      profileDir: profile,
+      hostVersion: '1.5.0',
+      now: () => clock,
+      copy: async (src, dest) => {
+        if (hold) await held
+        await fs.cp(src, dest, { recursive: true })
+      }
+    })
+    expect((await m.install({ path: await plugin(FOLDER), grant: ['jobs.read'] })).status).toBe(200)
+    hold = true
+    const installing = m.install({ path: await plugin('second', { name: '@acme/astera-linear' }), grant: ['jobs.read'] })
+    let listedBehind = false
+    const behind = m.list().then(() => (listedBehind = true))
+    const now = await m.listNow()
+    expect(now.status).toBe(200)
+    expect((body(now).plugins as Array<{ id: string }>).map((p) => p.id)).toEqual(['@acme/astera-jira'])
+    expect(listedBehind).toBe(false)
+    release()
+    expect((await installing).status).toBe(200)
+    await behind
+    expect(((await m.listNow()).body as { plugins: unknown[] }).plugins).toHaveLength(2)
   })
 })
 
@@ -475,8 +524,8 @@ const fakeRuntime = () => {
 }
 
 describe('with a runtime (plugin runtime design P11)', () => {
-  const withRuntime = (rt: ReturnType<typeof fakeRuntime>) =>
-    createPluginManager({ profileDir: profile, hostVersion: '1.5.0', runtime: rt.runtime })
+  const withRuntime = (rt: ReturnType<typeof fakeRuntime>, capabilities?: readonly string[]) =>
+    createPluginManager({ profileDir: profile, hostVersion: '1.5.0', runtime: rt.runtime, ...(capabilities ? { capabilities } : {}) })
 
   it('starts an enabled, compatible plugin when it is installed, with where it runs and what it was granted', async () => {
     const rt = fakeRuntime()
@@ -491,15 +540,62 @@ describe('with a runtime (plugin runtime design P11)', () => {
       dir: dirOf,
       entry: path.join(dirOf, 'dist', 'plugin.js'),
       granted: ['jobs.read'],
+      capabilities: [],
       settings: {},
       redact: []
     })
     expect(r.body).toMatchObject({ status: 'running', pid: 7 })
   })
 
+  // Plugin Phase 3: this Astera runs event plugins
+  it('starts an event plugin, with its capability in the launch', async () => {
+    const rt = fakeRuntime()
+    const src = await plugin(FOLDER, { capabilities: ['event'], permissions: ['events.subscribe'] })
+    await withRuntime(rt).install({ path: src, grant: ['events.subscribe'] })
+    expect(rt.calls).toEqual(['start @acme/astera-jira'])
+    expect(rt.launches[0]).toMatchObject({ capabilities: ['event'], granted: ['events.subscribe'] })
+  })
+
+  // Plugin Phase 4 J1, J2: a job source runs, and asks for no permission
+  it('starts a job-source plugin that asks for no permission, with its capability in the launch', async () => {
+    const rt = fakeRuntime()
+    const src = await plugin(FOLDER, { capabilities: ['job-source'], permissions: [] })
+    await withRuntime(rt).install({ path: src, grant: [] })
+    expect(rt.calls).toEqual(['start @acme/astera-jira'])
+    expect(rt.launches[0]).toMatchObject({ capabilities: ['job-source'], granted: [] })
+  })
+
+  // Plugin Phase 3c: this Astera runs notification plugins
+  it('starts a notification plugin, with its capability in the launch', async () => {
+    const rt = fakeRuntime()
+    const src = await plugin(FOLDER, { capabilities: ['notification'], permissions: ['events.subscribe'] })
+    await withRuntime(rt).install({ path: src, grant: ['events.subscribe'] })
+    expect(rt.calls).toEqual(['start @acme/astera-jira'])
+    expect(rt.launches[0]).toMatchObject({ capabilities: ['notification'] })
+  })
+
+  // Final review M7: an Astera that did not run event plugins (1.4.12, 1.4.13) installed one with any grant
+  it('holds back an event plugin whose grant leaves out events.subscribe, and says how to fix it', async () => {
+    const rt = fakeRuntime()
+    const m = withRuntime(rt)
+    const src = await plugin(FOLDER, { capabilities: ['event'], permissions: ['events.subscribe', 'jobs.read'] })
+    await m.install({ path: src, grant: ['events.subscribe', 'jobs.read'] })
+    const file = path.join(pluginsRoot(profile), 'plugins.json')
+    const registry = JSON.parse(await fs.readFile(file, 'utf8')) as { plugins: { granted: string[] }[] }
+    registry.plugins[0].granted = ['jobs.read']
+    await fs.writeFile(file, JSON.stringify(registry))
+    const again = fakeRuntime()
+    const later = withRuntime(again)
+    await later.startAll()
+    expect(again.calls).toEqual([])
+    const reason = 'the event capability needs the events.subscribe permission, which it was not granted: install it again and grant it'
+    expect(body(await later.get('@acme/astera-jira'))).toMatchObject({ status: 'stopped', reason })
+    expect(body(await later.doctor('@acme/astera-jira')).checks).toContainEqual({ name: 'permissions', ok: false, detail: reason })
+  })
+
   it('does not start a plugin this Astera will not run', async () => {
     const rt = fakeRuntime()
-    await withRuntime(rt).install({ path: await plugin(FOLDER, { capabilities: ['event'] }), grant: [] })
+    await withRuntime(rt, WITHOUT_CHECKS).install({ path: await plugin(FOLDER, { capabilities: ['completion-check'] }), grant: [] })
     expect(rt.calls).toEqual([])
   })
 
@@ -565,10 +661,10 @@ describe('with a runtime (plugin runtime design P11)', () => {
   it('starts every enabled, compatible plugin at the Host’s start', async () => {
     await manager.install({ path: await plugin('a', { name: 'plugin-a' }), grant: [] })
     await manager.install({ path: await plugin('b', { name: 'plugin-b' }), grant: [] })
-    await manager.install({ path: await plugin('c', { name: 'plugin-c', capabilities: ['event'] }), grant: [] })
+    await manager.install({ path: await plugin('c', { name: 'plugin-c', capabilities: ['completion-check'] }), grant: [] })
     await manager.setEnabled('plugin-b', false)
     const rt = fakeRuntime()
-    await withRuntime(rt).startAll()
+    await withRuntime(rt, WITHOUT_CHECKS).startAll()
     expect(rt.calls).toEqual(['start plugin-a'])
   })
 
@@ -639,10 +735,11 @@ describe('logs and doctor', () => {
   })
 
   it('says why an incompatible plugin and a failed one do not run', async () => {
-    await manager.install({ path: await plugin(FOLDER, { capabilities: ['event'] }), grant: [] })
-    expect((await manager.doctor('@acme/astera-jira')).body).toMatchObject({
+    const older = createPluginManager({ profileDir: profile, hostVersion: '1.5.0', capabilities: WITHOUT_CHECKS })
+    await older.install({ path: await plugin(FOLDER, { capabilities: ['completion-check'] }), grant: [] })
+    expect((await older.doctor('@acme/astera-jira')).body).toMatchObject({
       ok: false,
-      checks: expect.arrayContaining([{ name: 'compatible', ok: false, detail: 'this Astera does not run event plugins yet' }])
+      checks: expect.arrayContaining([{ name: 'compatible', ok: false, detail: 'this Astera does not run completion-check plugins yet' }])
     })
     const failing = createPluginManager({
       profileDir: profile,

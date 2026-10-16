@@ -11,6 +11,8 @@ import { useI18n } from '../i18n/I18nProvider'
 import { PauseIcon, PlayIcon, RunIcon, STATE_KEY, STATUS_COLOR, TaskGlyph, TaskIcon, TrashIcon } from './JobIcons'
 import type { RunIconKind } from './JobIcons'
 import { ArrowUpRight, ChevronDown, ChevronRight } from 'lucide-react'
+import { SourceChip } from './SourceChip'
+import { jobName } from '../lib/jobName'
 
 /** Run 헤더 글리프의 툴팁. 끝난·실패·막힘은 줄의 글리프와 같은 모양이고 같은 뜻이라 같은 문구를 쓴다.
  *
@@ -190,8 +192,10 @@ function RunCardImpl({
           <span className="jobs-ordinal">{t('jobs.run.scheduleOrdinal', { n: ordinal })}</span>
         )}
         <span className={`jobs-objective${kind === 'done' ? ' done' : ''}`} title={run.objective}>
-          {run.objective}
+          {jobName(run)}
         </span>
+        {/* The ticket the Job was made from (plugin Phase 4 J18): a click opens it, and does not fold the card */}
+        <SourceChip source={run.source} />
         {/* 이 Run 의 워커가 프로젝트 폴더를 다른 Run 과 나눠 쓰고 있다. **막힌 것이 아니라
             얽힌 것**이라 Gate 글리프(주황 `!`)를 빌리지 않는다 — 그것은 사람을 기다리는
             자리의 모양이고, 여기서는 기다리는 것이 없다. 경고 톤의 테두리(styles.css)와 이
@@ -436,8 +440,10 @@ function ScheduleCard({
       <div className="jobs-run-head" onClick={onToggle}>
         <span className="jobs-caret">{open ? <ChevronDown size={10} /> : <ChevronRight size={10} />}</span>
         <span className="jobs-objective" title={run.objective}>
-          {run.objective}
+          {jobName(run)}
         </span>
+        {/* A Job made from a ticket and run more than once is this card: its chip stands here too (4c final review M12) */}
+        <SourceChip source={run.source} />
         {/* 예약에만 붙는다 — 손으로 다시 돌린 Job 도 이 카드를 쓰지만 예약은 아니다.
             그 Job 이 무엇인지는 아래 "N회 실행" 과 회차 목록이 이미 말한다. */}
         {run.schedule && (
@@ -606,6 +612,7 @@ export function JobsView({
   onOpenSession,
   onOpenRun,
   onNewRun,
+  onNewFromSource,
   onPauseRun,
   onResumeRun,
   onDeleteRun,
@@ -649,6 +656,9 @@ export function JobsView({
   /** Opens NewRunModal. This view creates no Run itself — App owns the modal and the project path it
    *  needs, the same split as onOpenRun/onOpenSession above. */
   onNewRun: () => void
+  /** Opens the "+ From a source" window (plugin Phase 4 J20): a Job made from a source's ticket. App passes it for this
+   *  machine's projects only: a paired Runtime's sources are not listed (§3), so its view has no such button. */
+  onNewFromSource?: () => void
   /** 예약을 세운다·다시 돌린다. **App 이 들고 있다** — 상세 창의 같은 아이콘과 확인 문구·409 의
    *  갈래를 공유해야 하므로 이 뷰가 자기 사본을 갖지 않는다(onDeleteRun 과 같은 갈래다). */
   onPauseRun: (runId: string) => void
@@ -665,6 +675,13 @@ export function JobsView({
 }): React.JSX.Element {
   const { t } = useI18n()
   const acts = { onPauseRun, onResumeRun, onDeleteRun, onRestartCoordinator }
+  // "+ From a source" (plugin Phase 4 J20) under "+ New job", in both places it stands: this machine's projects only
+  const newFromSource =
+    onNewFromSource !== undefined && !remote ? (
+      <button className="jobs-new jobs-new-source" disabled={disabledReason !== undefined} title={disabledReason} onClick={onNewFromSource}>
+        + {t('jobs.source.open')}
+      </button>
+    ) : null
   // Runs the user collapsed. Absence means expanded — a Run that just appeared, or one from before this
   // component ever rendered, opens by default rather than needing to be found and expanded by hand.
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
@@ -768,6 +785,7 @@ export function JobsView({
             + {t('jobs.new.open')}
           </button>
         )}
+        {hasProject && newFromSource}
       </div>
     )
   }
@@ -779,6 +797,7 @@ export function JobsView({
       <button className="jobs-new" disabled={disabledReason !== undefined} title={disabledReason} onClick={onNewRun}>
         + {t('jobs.new.open')}
       </button>
+      {newFromSource}
       {/* **회차가 여럿이면 예약이 아니어도 펼치는 카드다.** 접히는 카드를 예약에만 쓰던 것은 회차가
           예약에서만 생겼기 때문이고, 이제는 끝난 Job 을 다시 돌려도 생긴다 — 조건을 `schedule` 로
           두면 그 회차들이 화면에서 통째로 사라진다(상태에는 있는데 그리는 곳이 없다). */}

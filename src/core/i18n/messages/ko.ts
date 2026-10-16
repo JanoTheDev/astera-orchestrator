@@ -777,6 +777,8 @@ export const ko = {
   'update.toast.download': '다운로드',
   'update.toast.ready': '업데이트 v{version} 준비됨',
   'update.toast.installNow': '지금 설치',
+  'update.toast.manual': '업데이트 v{version}은 직접 설치해야 합니다',
+  'update.toast.manualInstall': '직접 설치',
   // Slice 2 of the Astera Host. Installing quits the app, so this is the same three-way split the
   // close confirmation faces, counted the same way (host.sessionsOutlivingApp) and shared with it —
   // see `updateConfirmBody`. `body` is unchanged and still exact when the app owns every session.
@@ -1758,6 +1760,13 @@ export const ko = {
   'jobs.convergence.gate.stopped': '이 Task 의 자동 수정이 멈춰 있고 검사는 아직 실패합니다: {failures}',
   'jobs.convergence.gate.paused': '완료 검사가 도는 동안 이 Run 이 멈췄고, 검사는 아직 실패합니다: {failures}',
   'jobs.convergence.gate.repairFailed': '수정할 워커를 띄울 수 없었습니다: {reason}',
+  'jobs.checks.gate.unavailable': '검사를 할 수 없었습니다: {check}: {reason}',
+  'jobs.gate.checkUnavailable.retry': '검사 다시 돌리기',
+  'jobs.gate.checkUnavailable.retryHint': '이 Task 의 검사를 처음부터 다시 돌립니다.',
+  'jobs.gate.checkUnavailable.skip': '이 검사 없이 계속',
+  'jobs.gate.checkUnavailable.skipHint': '이번 라운드는 이 검사를 돌지 않은 것으로 치고 계속합니다. 건너뛴 사실은 Task 기록에 남습니다.',
+  'jobs.gate.checkUnavailable.fail': 'Task 를 실패로 처리',
+  'jobs.gate.checkUnavailable.failHint': 'Task 를 실패로 끝냅니다.',
   'jobs.convergence.gate.retryOnce': '한 번 더 수정',
   'jobs.convergence.gate.markFailed': '실패로 표시',
   // 설계 §5(V4). Gate 는 풀렸는데 수리는 안 열린 경우다 — 사람이 누른 것이 아무 일도 하지
@@ -1773,6 +1782,7 @@ export const ko = {
   'jobs.convergence.node.checking': '검사 중',
   'jobs.convergence.node.reviewing': '검토 라운드 {round}/{max}',
   'jobs.convergence.node.failed': '{name} 실패',
+  'jobs.convergence.node.unavailable': '{name} 검사 불가',
   // 사이드바 도는 줄·Gate 줄의 칩(JobsView, convergenceChipOf)
   'jobs.convergence.chip.repairing': '수정 {repairs}/{max}',
   'jobs.convergence.chip.reviewing': '검토 {round}/{max}',
@@ -1781,6 +1791,7 @@ export const ko = {
   'jobs.convergence.chip.stopped': '수정 멈춤',
   'jobs.convergence.node.stopped': '자동 수정 멈춤',
   'jobs.convergence.node.stoppedWithCheck': '자동 수정 멈춤 · {failed} 실패',
+  'jobs.convergence.node.stoppedUnavailable': '자동 수정 멈춤 · {failed} 검사 불가',
   'jobs.convergence.stop': '자동 수정 중지',
   'jobs.convergence.stopConfirmTitle': '이 Task 의 자동 수정을 멈출까요?',
   // 두 가지를 말한다. 되돌릴 수 없다는 것(서버에 --convergence on 이 없다)과, 지금 도는
@@ -1792,6 +1803,9 @@ export const ko = {
   'jobs.convergence.check.failed': '실패 (exit {code})',
   'jobs.convergence.check.timedOut': '타임아웃',
   'jobs.convergence.check.notRun': '돌지 않음',
+  'jobs.convergence.check.failedNoCode': '실패',
+  'jobs.convergence.check.error': '검사할 수 없었음',
+  'jobs.convergence.check.skipped': '사람이 건너뜀',
   'jobs.convergence.check.retrying': '다시 도는 중',
   'jobs.convergence.check.unstable': '라운드 사이에 판정이 흔들림',
   // 설계 §2(V1). 칩은 '무엇이 어디서 멈췄나' 까지고, 이 블록이 '그래서 뭐가 틀렸나' 를 맡는다.
@@ -1800,6 +1814,12 @@ export const ko = {
   'jobs.completion.empty': '이 Task 에는 아직 검사 결과도 검토 지적도 없습니다.',
   'jobs.completion.showTail': '출력 보기',
   'jobs.completion.hideTail': '출력 접기',
+  'jobs.completion.openReport': '보고서 열기',
+  'jobs.completion.warning': '경고',
+  'jobs.completion.moreFindings': '… 그 밖에 {n}개는 여기 나오지 않습니다',
+  'jobs.completion.moreFindingsReport': '… 그 밖에 {n}개는 보고서에 있습니다',
+  'jobs.completion.findingsUnlisted': '지적 {n}개, 여기 나오지 않습니다',
+  'jobs.completion.findingsUnlistedReport': '지적 {n}개, 보고서에 있습니다',
   'jobs.completion.blocking': '막는 검토 지적 {n}',
   // 막지 않는 이슈는 개수만 말한다 — 없는 것과 다르다는 사실까지가 필요한 전부다.
   'jobs.completion.other': '그 밖의 지적 {n}',
@@ -1862,6 +1882,28 @@ export const ko = {
   // 파일을 안 건드리는 워커끼리는 충돌할 것이 없고 앱은 그것을 알 수 없다
   'jobs.new.folderBusy': '이 폴더에서 이미 워커가 일하고 있습니다 — 동시 실행 1 이면 이 작업의 워커도 같은 폴더에서 돌아 서로의 편집이 섞일 수 있습니다',
   'jobs.new.failed': '작업을 만들지 못했습니다',
+  'jobs.source.open': '소스에서',
+  'jobs.source.title': '소스에서 작업 만들기',
+  'jobs.source.source': '소스',
+  'jobs.source.sourcePick': '소스를 고르세요',
+  'jobs.source.sourcesLoading': '소스를 불러오는 중…',
+  'jobs.source.search': '검색',
+  'jobs.source.searchPlaceholder': '검색어',
+  'jobs.source.notReady': '준비 안 됨',
+  'jobs.source.needsSettings': '설정이 필요합니다: {keys}. 설정 › 플러그인에서 입력하세요',
+  'jobs.source.loading': '불러오는 중…',
+  'jobs.source.empty': '항목이 없습니다',
+  'jobs.source.retry': '다시 시도',
+  'jobs.source.more': '더 보기',
+  'jobs.source.exists': '작업 있음',
+  'jobs.source.cannotPick': '고를 수 없음: {reason}',
+  'jobs.source.cut': 'Astera 의 한도에 맞춰 일부를 잘랐습니다',
+  'jobs.source.pickItem': '항목을 고르면 내용이 여기 보입니다',
+  'jobs.source.dataHint': '다른 사람이 쓴 글입니다. 작업은 이 내용을 지시가 아닌 자료로 받습니다.',
+  'jobs.source.openLink': '브라우저에서 열기',
+  'jobs.source.make': '작업 만들기',
+  'jobs.source.lost': '답을 받지 못했습니다. 작업이 이미 만들어졌을 수 있으니 작업 목록을 확인하세요.',
+  'jobs.source.chipOpen': '{label} 을 브라우저에서 엽니다',
   // 스케줄러가 워커를 띄울 계정을 못 골랐을 때 여는 Gate 의 문구(ipc.ts). 첫째는 예전부터
   // 있던 경우(그 provider 에 로그인된 계정이 없다), 둘째는 사람이 이 Task 에 지정한 계정을
   // 쓸 수 없는 경우다 — 지정을 무시하고 기본 계정으로 갈아타지 않으므로 사람에게 말해야 한다
@@ -1897,7 +1939,10 @@ export const ko = {
   // 검사는 고른 순서대로 돌고 첫 실패에서 멈춘다(Plan 1 설계 D9) — 순서가 비용을 좌우하므로 힌트가 그것을 말한다
   'jobs.task.checksHint': '빠른 검사를 앞에 두세요 — 첫 실패에서 멈추므로, 느린 검사가 앞에 있으면 매 수정마다 그 시간을 버립니다.',
   'jobs.task.checksUnpicked': '고르지 않은 것',
-  'jobs.task.checksNone': '검사로 쓸 실행 구성이 없습니다',
+  'jobs.task.checksNone': '검사로 쓸 실행 구성이나 검사 플러그인이 없습니다',
+  'jobs.task.checksRuntimePlugins': 'Runtime 의 플러그인 검사는 여기 나오지 않습니다. CLI 로 추가하세요: astera --runtime {runtime} tasks add --run {run} --spec <할 일> --validate plugin:<플러그인 id>',
+  'jobs.task.checkPlugin': '플러그인: {name}',
+  'jobs.task.checkPluginStatus': '플러그인: {name} ({status})',
   // ↑ ↓ ✕ — 아이콘만 있는 버튼의 aria-label·title
   'jobs.task.checkUp': '위로',
   'jobs.task.checkDown': '아래로',
@@ -2135,5 +2180,16 @@ export const ko = {
   'jobs.changes.reportedNone': '워커가 보고한 파일이 없습니다.',
   'jobs.changes.unsupported': '이 Runtime 은 바뀐 파일 보기를 아직 지원하지 않습니다. 그 컴퓨터의 Astera 를 업데이트하세요.',
   'jobs.changes.listCut': '파일이 너무 많아 {total}개 중 {shown}개만 보여 줍니다.',
-  'jobs.changes.moreRows': '{count}줄 더 보기 (남은 {left}줄)'
+  'jobs.changes.moreRows': '{count}줄 더 보기 (남은 {left}줄)',
+  // A notification plugin's sentences (plugin Phase 3 N10, src/core/plugins/notifications.ts), posted as they are
+  'pluginNotify.questionCreated': '답을 기다립니다: {question}',
+  'pluginNotify.inputNeeded.permission': '권한 허가를 기다립니다.',
+  'pluginNotify.inputNeeded.question': '질문의 답을 기다립니다.',
+  'pluginNotify.inputNeeded': '입력을 기다립니다.',
+  'pluginNotify.runFailed': '{ordinal}번째 Run 이 실패했습니다 (Task {total}개 중 {done}개 완료).',
+  'pluginNotify.completionExhausted': '{task} 의 완료 검사가 수정 기회를 모두 썼습니다.',
+  'pluginNotify.limitWaitingAt': '사용 한도에 걸려 멈췄습니다. {time} 에 다시 시도합니다.',
+  'pluginNotify.limitWaiting': '사용 한도에 걸려 멈췄습니다.',
+  'pluginNotify.runCompleted': '{ordinal}번째 Run 이 끝났습니다.',
+  'pluginNotify.accountSwitched': '{label} 계정으로 이어 갑니다.'
 } as const

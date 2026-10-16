@@ -4,7 +4,7 @@
 import { promises as fs } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import path from 'node:path'
-import { incompatibility, isSemver, parseManifest, pluginFolderName, type PluginCapability, type PluginManifest, type PluginPermission } from '../../core/plugins/manifest'
+import { capabilityPermissionProblem, incompatibility, isSemver, parseManifest, pluginFolderName, type PluginCapability, type PluginManifest, type PluginPermission } from '../../core/plugins/manifest'
 import { PluginCopyRefused, copyPluginFolder, layoutProblem } from './copyFolder'
 import { parseNpmSpec } from '../../core/plugins/npmSpec'
 import { NpmFailed, NpmMissing, createNpm, installDependencies, packAndExtract, type NpmRun, type NpmRunner } from './npm'
@@ -30,6 +30,9 @@ export interface PluginManager {
   /** From a folder (`path`) or an npm package (`npm`, plugins 2e); an npm install needs `expect`. */
   install(a: { path?: unknown; npm?: unknown; grant: unknown; expect?: unknown }): Promise<PluginsAnswer>
   list(): Promise<PluginsAnswer>
+  /** What `list` answers, read beside a change in progress rather than after it: a person picking a job source's item
+   *  must not wait for an npm install (plugin Phase 4, 4a final review I4). It changes nothing, so it needs no turn. */
+  listNow(): Promise<PluginsAnswer>
   get(id: unknown): Promise<PluginsAnswer>
   setEnabled(id: unknown, enabled: boolean): Promise<PluginsAnswer>
   remove(id: unknown): Promise<PluginsAnswer>
@@ -123,9 +126,10 @@ const stranded = (first: unknown, retired: string): Error =>
 /** Removes a folder the Host no longer needs; a failure leaves it behind rather than failing the change it followed. */
 const discard = (p: string): Promise<void> => fs.rm(p, { recursive: true, force: true, maxRetries: 3 }).catch(() => {})
 
-/** The plugin capabilities this Host serves (design P8): none yet, so a plugin that names one installs and does not run.
- *  docs/plugins.md names each of the others as not yet (pluginsDoc.test.ts). */
-export const PLUGIN_SERVED_CAPABILITIES: readonly PluginCapability[] = []
+/** The plugin capabilities this Host serves (design P8): `event` and `notification` from plugin Phase 3, `job-source`
+ *  from Phase 4, `completion-check` from Phase 5. A plugin that names another one installs and does not run;
+ *  docs/plugins.md names each of those as not yet (pluginsDoc.test.ts). */
+export const PLUGIN_SERVED_CAPABILITIES: readonly PluginCapability[] = ['event', 'notification', 'job-source', 'completion-check']
 
 export function createPluginManager(d: {
   profileDir: string
@@ -251,6 +255,14 @@ export function createPluginManager(d: {
         ? `needs settings: ${state.missing.join(', ')}; set them with astera plugins configure --id ${r.id}`
         : null
 
+  /** Why the record's grant cannot serve the capabilities its plugin names, or null (final review M7): an Astera that
+   *  did not run event plugins (1.4.12, 1.4.13) installed one whatever was granted. It is held back rather than
+   *  started into a failure, with what to do. */
+  const ungranted = (r: PluginRecord, m: PluginManifest): string | null => {
+    const problem = capabilityPermissionProblem(m.capabilities, r.granted)
+    return problem === null ? null : `${problem}, which it was not granted: install it again and grant it`
+  }
+
   /** What the runtime needs to start the plugin a record names, with its installed copy's manifest and settings. */
   const launchOf = (r: PluginRecord, m: PluginManifest, state: SettingsRead): PluginLaunch => {
     const dir = path.join(installed, r.folder)
@@ -261,6 +273,7 @@ export function createPluginManager(d: {
       dir,
       entry: path.resolve(dir, m.entry),
       granted: r.granted,
+      capabilities: m.capabilities,
       // The plugin is trusted (design P1): it gets its secret settings beside the plain ones.
       settings: { ...state.plain, ...state.secrets },
       // A value this short would redact ordinary words from its log.
@@ -272,7 +285,7 @@ export function createPluginManager(d: {
   async function runnable(r: PluginRecord): Promise<PluginLaunch | null> {
     if (!r.enabled) return null
     const read = await readManifest(path.join(installed, r.folder))
-    if (!read.ok || incompatibility(read.manifest, host) !== null) return null
+    if (!read.ok || incompatibility(read.manifest, host) !== null || ungranted(r, read.manifest) !== null) return null
     const state = await settingsState(r, read.manifest)
     if (!state.ok || heldBack(r, state) !== null) return null
     return launchOf(r, read.manifest, state)
@@ -294,8 +307,8 @@ export function createPluginManager(d: {
     const run = r.enabled && incompatible === null ? d.runtime?.status(r.id) : undefined
     const status: PluginStatus = !r.enabled ? 'disabled' : incompatible !== null ? 'incompatible' : (run?.status ?? 'stopped')
     let reason = incompatible ?? run?.reason ?? null
-    // A plugin that is not running may be waiting for its settings: say which.
-    if (m && r.enabled && incompatible === null && status === 'stopped') reason = heldBack(r, await settingsState(r, m)) ?? reason
+    // A plugin that is not running may be waiting for a grant or for its settings: say which.
+    if (m && r.enabled && incompatible === null && status === 'stopped') reason = ungranted(r, m) ?? heldBack(r, await settingsState(r, m)) ?? reason
     return {
       id: r.id,
       name: m?.name ?? r.id,
@@ -419,6 +432,9 @@ export function createPluginManager(d: {
         throw new Refused(400, `${g} is not one the plugin asks for; it asks for: ${m.permissions.length > 0 ? m.permissions.join(', ') : 'nothing'}`)
       if (!granted.includes(g as PluginPermission)) granted.push(g as PluginPermission)
     }
+    // Plugin Phase 3 N4: refused before anything is copied, with the reason the manifest's own check gives
+    const needs = capabilityPermissionProblem(m.capabilities, granted)
+    if (needs !== null) throw new Refused(400, needs)
     const entry = await fs.stat(path.join(folder, m.entry)).then((s) => s.isFile(), () => false)
     if (!entry) throw new Refused(400, `the entry ${m.entry} is not a file in the plugin`)
     return { manifest: m, granted }
@@ -588,6 +604,8 @@ export function createPluginManager(d: {
     checks.push({ name: 'compatible', ok: incompatible === null, detail: incompatible ?? 'this Astera runs it' })
     const entry = await fs.stat(path.resolve(dir, m.entry)).then((st) => st.isFile(), () => false)
     checks.push({ name: 'entry', ok: entry, detail: entry ? m.entry : `${m.entry} is not a file in the installed copy` })
+    const grant = ungranted(r, m)
+    if (grant !== null) checks.push({ name: 'permissions', ok: false, detail: grant })
     // Design P2: plugins run on the Node inside Astera. An addon loads there only if it was built for it, as N-API addons
     // are, so the doctor warns rather than fails (2b final review M4).
     const addons = (await fs.readdir(dir, { recursive: true }).catch(() => [] as string[]))
@@ -772,6 +790,13 @@ export function createPluginManager(d: {
     install: (a) => serial(() => install(a)),
     list: () =>
       serial(async () => ({ status: 200, body: { plugins: await Promise.all((await readRegistry(root)).map(view)) } })),
+    listNow: async () => {
+      try {
+        return { status: 200, body: { plugins: await Promise.all((await readRegistry(root)).map(view)) } }
+      } catch (e) {
+        return refused(500, e instanceof Error ? e.message : String(e))
+      }
+    },
     get: (id) =>
       serial(async () => {
         const want = idOf('plugins-get', id)

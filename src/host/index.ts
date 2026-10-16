@@ -5,6 +5,8 @@
 // Everything it needs arrives in the environment, because it has no `app.getPath('userData')` to ask.
 import childProcess from 'node:child_process'
 import { createPluginManager } from './plugins/manager'
+import { hostJobSources } from './jobSources'
+import { hostCompletionChecks } from './completionChecks'
 import { PLUGIN_STOP_CAP_MS, createPluginRuntime } from './plugins/runtime'
 import { existsSync, promises as fsp, readFileSync, rmSync } from 'node:fs'
 import { defaultCwdProbe, setProbeLog } from '../core/sessions/pathProbe'
@@ -39,6 +41,8 @@ import { nodeProcSpawn } from './nodeProc'
 import { HOST_FEATURE_ORCH, HOST_FEATURE_REQUESTS, HOST_PROTOCOL, HOST_YIELD_JOURNAL, HOST_YIELD_UNDERSTANDING, HOST_YIELD_WORK_UNITS, HOST_YIELD_WORKSPACE, HOST_YIELD_WORKTREES } from '../core/host/protocol'
 import { createHostJournal } from './hostJournal'
 import { createHostEventLog } from './eventLog'
+import { hostNotifier } from './pluginNotify'
+import { pickInitialLang } from '../core/i18n/locale'
 import { createHostSessionEvents, type HostSessionEvents } from './sessionEvents'
 import { createHostUnderstanding } from './hostUnderstanding'
 import { createHostWorkUnits, readWorkUnitTracking, wireSessionExits, workUnitSessionsOf, type HostWorkUnits } from './hostWorkUnits'
@@ -689,7 +693,19 @@ async function main(): Promise<void> {
       features: [HOST_FEATURE_ORCH, HOST_FEATURE_REQUESTS, ...announcedFeatures()]
     }),
     orch: { call: (a) => orch.call(a) },
-    log: (m) => log.write(m)
+    log: (m) => log.write(m),
+    // Event plugins are handed the public event log from a cursor of their own (plugin Phase 3 N1)
+    events: eventLog,
+    // Notification plugins are sent each one worded in the app's language, read when it is made, a Job by its
+    // objective once the state is in memory (N10, pluginNotify.ts). A Host with no checks (no spawner) reads no
+    // settings: the system's language
+    notify: hostNotifier({
+      lang: async () =>
+        wiring
+          ? await wiring.checks.lang().catch(() => wiring.checks.langNow())
+          : pickInitialLang(Intl.DateTimeFormat().resolvedOptions().locale),
+      orch: { ready: () => orch.ready(), state: () => orch.state() }
+    })
   })
   const plugins = createPluginManager({ profileDir, hostVersion, runtime: pluginRuntime, log: (m) => log.write(m) })
   const orch = createHostOrch({
@@ -697,6 +713,10 @@ async function main(): Promise<void> {
     version: hostVersion,
     controllers,
     plugins,
+    // The job-source plugins a person makes Jobs from (plugin Phase 4 J10), asked through the runtime
+    jobSources: hostJobSources({ manager: plugins, runtime: pluginRuntime }),
+    // The completion check plugins a Task's checks ask (plugin Phase 5 C8), through the same runtime
+    completionChecks: hostCompletionChecks({ manager: plugins, runtime: pluginRuntime }),
     now: () => new Date().toISOString(),
     // The handshake's own string, not a second one taken here: `requests show` answers with it so a
     // caller can tell "this Host never saw my request" from "it never arrived" (request receipts

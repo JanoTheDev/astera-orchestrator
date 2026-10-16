@@ -26,7 +26,17 @@ export default definePlugin({
 
 A plugin is a folder with a `package.json` whose `astera` field names its entry file, the Plugin API it is written for
 (`"1"`) and the permissions it asks for. `ctx.astera` is a client from `@astera-app/client`, answered within the
-permissions the person granted.
+permissions the person granted. A plugin that names the `event` capability gets each of Astera's events, in order, in
+its `onEvent` ([event plugins](https://github.com/parsingk/Astera/blob/main/docs/plugins.md#event-plugins)), and one
+that names the `notification` capability gets each notification, worded for a person, in its `send`
+([notification plugins](https://github.com/parsingk/Astera/blob/main/docs/plugins.md#notification-plugins)), which
+`defineNotificationProvider` types. One that names the `job-source` capability is asked for tickets a Job can be made
+from, in its `listItems`, `getItem` and `buildJobContext`
+([job source plugins](https://github.com/parsingk/Astera/blob/main/docs/plugins.md#job-source-plugins)), which
+`defineJobSourceProvider` types. One that names the `completion-check` capability is asked whether a Task's work
+passes, in its `runCheck`
+([completion check plugins](https://github.com/parsingk/Astera/blob/main/docs/plugins.md#completion-check-plugins)),
+which `defineCompletionCheckProvider` types.
 
 Plugins run trusted code on the person's machine: a plugin can do anything they can, and its permissions limit only
 what it asks Astera for.

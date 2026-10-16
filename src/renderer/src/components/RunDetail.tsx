@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import type {
   Account,
-  JobCheck,
   JobEvent,
   JobRow,
   JobTask,
@@ -10,22 +9,23 @@ import type {
   RunDetail as RunDetailData,
   TaskStatus
 } from '../../../core/types'
-import type { MessageKey, MessageParams } from '../../../core/i18n'
+import type { MessageKey } from '../../../core/i18n'
 import { accountToDispatchOn } from '../../../core/accounts/dispatchAccount'
 import { providerOf } from '../../../core/providers/meta'
 import { chainOf } from '../../../core/orchestration/graph'
 import type { GraphBox } from '../../../core/orchestration/graphLayout'
 import { edgePath, layoutRows, NODE_H, NODE_W } from '../../../core/orchestration/graphLayout'
-import { canStopConvergence, nodeMetaOf, retryingCheckOf, type NodeMeta } from '../../../core/orchestration/nodeMeta'
-import { formatRunDuration } from '../../../core/run/duration'
+import { canStopConvergence, nodeMetaOf, retryingCheckOf } from '../../../core/orchestration/nodeMeta'
 import { DEFAULT_CONCURRENCY, type Dispatch } from '../../../core/orchestration/types'
 import { runningCount } from '../../../core/orchestration/running'
 import { runIdToMerge } from '../../../core/orchestration/snapshot'
 import { useI18n } from '../i18n/I18nProvider'
-import { replyNote, type OrchDoor } from '../lib/orchDoor'
+import { replyNote, type CheckPluginRow, type OrchDoor } from '../lib/orchDoor'
 import { confirmModal } from '../lib/confirm'
 import { ChangedFilesBlock } from './ChangedFilesBlock'
 import { CompletionBlock } from './CompletionBlock'
+import { GateAnswer } from './GateAnswer'
+import { GLYPH, checkChoicesOf, checkTooltip, nodeMetaText, type GlyphKind } from './checkText'
 import { toast } from '../lib/toast'
 import { errText } from '../hooks/useFileOps'
 import {
@@ -41,6 +41,8 @@ import { NewTaskModal } from './NewTaskModal'
 import { JournalBusy, JournalOlder } from './RunDetailJournal'
 import { ArrowUpRight, Play, Square, WrenchOff, X } from 'lucide-react'
 import { backdropProps } from '../lib/backdrop'
+import { SourceChip } from './SourceChip'
+import { jobName } from '../lib/jobName'
 
 /** 종류 배지의 문구. message 는 messageType 이 정한다.
  *  heartbeat 과 decision_gate 는 timeline.ts 의 SKIP 이 걸러 지금은 도달하지 않지만, 맵을
@@ -159,67 +161,6 @@ const RUN_START = 'run:start'
 /** 병합 버튼의 busy 센티넬. RUN_START 와 같은 이유로 Task id 와 겹칠 수 없는 값이다 */
 const RUN_MERGE = 'run:merge'
 
-type Translate = (key: MessageKey, params?: MessageParams) => string
-
-/** nodeMetaOf 의 판정을 문장으로. 우선순위는 그쪽에 있다 — 여기는 kind 마다 문구 하나다. undefined 면 줄을 그리지 않는다 */
-function metaText(m: NodeMeta, t: Translate): string | undefined {
-  switch (m.kind) {
-    case 'gate':
-      return m.question
-    case 'stopped':
-      return m.failed === null
-        ? t('jobs.convergence.node.stopped')
-        : t('jobs.convergence.node.stoppedWithCheck', { failed: m.failed })
-    case 'repairing':
-      return m.failed === null
-        ? t('jobs.convergence.node.repairingNoCheck', { repairs: m.repairs, max: m.max })
-        : t('jobs.convergence.node.repairing', { repairs: m.repairs, max: m.max, failed: m.failed })
-    case 'checking':
-      return m.retrying === null ? t('jobs.convergence.node.checking') : t('jobs.convergence.node.rechecking', { name: m.retrying })
-    case 'reviewing':
-      return t('jobs.convergence.node.reviewing', { round: m.round, max: m.max })
-    case 'failed':
-      return t('jobs.convergence.node.failed', { name: m.name })
-    case 'provider':
-      return m.provider
-    case 'none':
-      return undefined
-    default: {
-      // 반환형이 string | undefined 라 case 를 하나 빼먹어도 "값을 안 준다"는 undefined 로도
-      // 읽혀 tsc 가 조용히 통과한다(noImplicitReturns 는 이 저장소 세 tsconfig 어디에도 없다) —
-      // 이 default 가 그 구멍을 막는다. NodeMeta 에 여덟째 kind 가 생기고 위 case 들이 그걸
-      // 못 따라가면 m 이 여기서 never 가 아니게 되어 아래 대입이 타입 에러가 난다. 지금 일곱
-      // kind 모두 위에서 처리되므로 이 분기는 실행되지 않는다.
-      const exhaustive: never = m
-      return exhaustive
-    }
-  }
-}
-
-/** 칩 기호의 종류 — CheckResult.status 넷에 그리기 위한 다섯째 `retrying` 이 더해진다: validating 인 Task 에서
- *  지난 라운드에 막혔던 검사는 지금 다시 도는 중이라는 뜻이다(UI 설계 U12 — validator 는 라운드 끝에만 결과를
- *  주므로 "지금 도는 검사" 는 그렇게밖에 알 수 없다). */
-type GlyphKind = JobCheck['status'] | 'retrying'
-const GLYPH: Record<GlyphKind, string> = { passed: '✓', failed: '✗', 'timed-out': '✗', 'not-run': '○', retrying: '●' }
-
-/** "{이름} — {결과} ({지난 라운드 실제 시간}), {흔들림}". 시간은 formatRunDuration 을 빌린다 — {startedAt, exitedAt}
- *  과 now 를 받는 함수라 0·durationMs·0 을 넘긴다(어댑터 한 줄). */
-function checkTooltip(c: JobCheck, glyph: GlyphKind, t: Translate): string {
-  const verdict =
-    glyph === 'retrying'
-      ? t('jobs.convergence.check.retrying')
-      : c.status === 'passed'
-        ? t('jobs.convergence.check.passed')
-        : c.status === 'failed'
-          ? t('jobs.convergence.check.failed', { code: c.exitCode ?? '?' })
-          : c.status === 'timed-out'
-            ? t('jobs.convergence.check.timedOut')
-            : t('jobs.convergence.check.notRun')
-  const time = c.durationMs !== undefined ? ` (${formatRunDuration({ startedAt: 0, exitedAt: c.durationMs }, 0)})` : ''
-  const flip = c.unstable ? `, ${t('jobs.convergence.check.unstable')}` : ''
-  return `${c.name} — ${verdict}${time}${flip}`
-}
-
 export function RunDetail({
   run,
   detail,
@@ -337,6 +278,28 @@ export function RunDetail({
       cancelled = true
     }
   }, [authoring, door, runId])
+  /** This computer's completion check plugins for the form (plugin Phase 5 C6), read beside the run configurations and
+   *  apart from them: the Host may be slow or down, and the run configurations are offered without waiting for it. A
+   *  Runtime's door offers none (C14). null = not read yet. */
+  const [checkPlugins, setCheckPlugins] = useState<CheckPluginRow[] | null>(null)
+  useEffect(() => {
+    if (!authoring) {
+      setCheckPlugins(null)
+      return
+    }
+    let cancelled = false
+    void door.checkPlugins().then(
+      (list) => {
+        if (!cancelled) setCheckPlugins(list)
+      },
+      () => {
+        if (!cancelled) setCheckPlugins([])
+      }
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [authoring, door])
   /** 물어보기(Gate)의 질문을 쓰는 중인 Task id. null 이면 안 쓰는 중이다 — authoring 과 같은 자리에
    *  서는 세 번째 모습이다(그래프는 그대로, .detail-events 만 바뀐다). authoring 처럼 selected(필터)는
    *  건드리지 않는다. */
@@ -742,8 +705,8 @@ export function RunDetail({
     setQuestion('')
   }
 
-  /** Gate 에 답한다. **선택지 버튼도 이것을 부른다** — 그 버튼의 라벨을 그대로 resolution 으로
-   *  보낸다(gate-resolve 는 자유 텍스트를 받으므로 새 규약이 필요 없다).
+  /** Gate 에 답한다. **선택지 버튼도 이것을 부른다** — 그 버튼은 라벨이 아니라 선택지 값을 resolution 으로
+   *  보낸다(GateAnswer: a check-unavailable or exhausted choice is shown in this app's words, and sent as its option).
    *
    *  풀린 뒤 Task 를 어디로 보낼지는 core 가 이미 정해 두었다(resolveGate) — blocked 에서 곧바로
    *  ready 로 올리지 않고 pending 으로 내린 뒤 recomputeReady 가 판단한다. 여기서 그 판단을
@@ -797,9 +760,10 @@ export function RunDetail({
   return (
     <div className="modal-backdrop" {...backdropProps(() => !formOpen && onClose())}>
       <div className="modal run-detail" onClick={(e) => e.stopPropagation()}>
-        {/* 머리말이 없다 — Run 의 목표가 제목이고, 그 옆의 아이콘과 숫자가 상태를 말한다 */}
+        {/* 머리말이 없다 — Job 의 이름(jobName: 티켓에서 만든 Job 은 티켓 제목, 아니면 목표)이 제목이고, 그 옆의 아이콘과 숫자가 상태를 말한다 */}
         <div className="detail-head">
-          <h2 title={run?.objective}>{run?.objective ?? ''}</h2>
+          <h2 title={run?.objective}>{run ? jobName(run) : ''}</h2>
+          <SourceChip source={run?.source} />
           {running > 0 && (
             <span className="jobs-count">
               <RunIcon kind="running" label={t('jobs.run.running')} />
@@ -934,7 +898,7 @@ export function RunDetail({
                 runId={runId}
                 tasks={tasks}
                 accounts={accounts}
-                runConfigs={runConfigs}
+                runConfigs={runConfigs === null ? null : checkChoicesOf(runConfigs, checkPlugins, t)}
                 onClose={() => setAuthoring(false)}
                 onCreated={() => setAuthoring(false)}
               />
@@ -946,61 +910,15 @@ export function RunDetail({
                 const gate = tasks.find((tk) => tk.id === answering)?.gate
                 if (!gate) return <></>
                 return (
-                  <>
-                    <div className="detail-filter">
-                      <b>{t('jobs.node.answer')}</b>
-                      <button
-                        className="detail-clear"
-                        title={t('common.cancel')}
-                        aria-label={t('common.cancel')}
-                        onClick={cancelAnswer}
-                      >
-                        <X size={12} />
-                      </button>
-                    </div>
-                    <div className="detail-task-fields">
-                      {/* 질문을 그대로 보여 준다 — 답하는 사람이 그래프의 Gate 줄을 기억하고 있을
-                          이유가 없다. 읽는 글이라 modal-hint 가 아니라 본문 톤이다 */}
-                      <p className="detail-gate-question">{gate.question}</p>
-                      {/* 코디네이터가 고를 것을 줬으면 그것이 답이다 — 자유 입력으로 그 낱말을 다시
-                          치게 하지 않는다. 버튼의 라벨을 그대로 resolution 으로 보낸다 */}
-                      {gate.options && gate.options.length > 0 && (
-                        <div className="detail-gate-options">
-                          {gate.options.map((opt) => (
-                            <button
-                              key={opt}
-                              disabled={busy !== null}
-                              onClick={() => void resolveGate(gate.id, opt)}
-                            >
-                              {opt}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                      <div className="field">
-                        <label>{t('jobs.node.answerLabel')}</label>
-                        <textarea
-                          rows={3}
-                          value={answer}
-                          onChange={(e) => setAnswer(e.target.value)}
-                          autoFocus
-                        />
-                      </div>
-                      {gateError && <p className="warn">{gateError}</p>}
-                    </div>
-                    <div className="row right">
-                      <button onClick={cancelAnswer} disabled={busy !== null}>
-                        {t('common.cancel')}
-                      </button>
-                      <button
-                        className="primary"
-                        disabled={busy !== null || !answer.trim()}
-                        onClick={() => void resolveGate(gate.id, answer)}
-                      >
-                        {t('jobs.node.answer')}
-                      </button>
-                    </div>
-                  </>
+                  <GateAnswer
+                    gate={gate}
+                    answer={answer}
+                    busy={busy !== null}
+                    error={gateError}
+                    onAnswer={setAnswer}
+                    onResolve={(resolution) => void resolveGate(gate.id, resolution)}
+                    onCancel={cancelAnswer}
+                  />
                 )
               })()
             ) : asking !== null ? (
@@ -1309,7 +1227,7 @@ function Graph({
     // 그래프 안에서 제목의 높이가 두 가지가 된다. 무엇을 쓰는지는 core 의 nodeMetaOf 가 정한다 —
     // Gate 질문 → 막힌 검사 → 도는 검사 → 검토 라운드 → provider. 여기서는 kind 를 문장으로 바꾸기만
     // 한다(렌더러에는 테스트가 없다).
-    const meta = metaText(nodeMetaOf(task), t)
+    const meta = nodeMetaText(nodeMetaOf(task), t)
     // validating 이면 지금 다시 도는 검사 하나를 ● 로 그린다 — 지난 라운드에 막힌 것, 지난 라운드가 다 통과했으면
     // (검토 실패로 되돌아온 라운드) 첫 검사(checkTooltip 의 주석). nodeMetaOf 의 checking.retrying 과 같은 함수를
     // 써서 meta 문구와 이 칩이 서로 다른 검사를 가리키는 일이 없게 한다.

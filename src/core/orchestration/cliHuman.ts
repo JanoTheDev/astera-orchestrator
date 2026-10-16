@@ -6,6 +6,10 @@
 // **스크립트는 이것을 읽으면 안 된다**(명세 §23). 그래서 이 모양에는 계약이 없다 — 칸이 늘고
 // 너비가 바뀌는 것이 정상이다. 기계가 읽을 것은 `--json` 의 봉투다.
 
+import { jobNameOf } from './jobName'
+import { diagnosticLine, findingsCountOf, oneLine } from './pluginChecks'
+import type { CheckResult, JobSourceRef } from './types'
+
 /** 상태 한 낱말. **파생값과 플래그를 한 낱말로 접는다** — 사람이 목록에서 훑는 것이 이것이고,
  *  훑으려면 한 칸에 있어야 한다.
  *
@@ -153,6 +157,41 @@ export function jsonSafe(json: string): string {
   return json.replace(/[\u007f-\u009f]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`)
 }
 
+/** How many of a failed plugin check's findings `runs checks --human` shows under its row; JSON has them all. */
+export const HUMAN_DIAGNOSTICS = 5
+
+/** The lines a Task's plugin checks add under its `runs checks` row (plugin Phase 5 C13). Before the failure summary,
+ *  in the round's order: one a person skipped, and one that could not run while its question waits (once the Task
+ *  failed on it, the failure summary says so). After it: the failed one's first findings and its link, its summary being
+ *  the failure summary's, so the findings sit under their own check. A round being run again shows none of the last
+ *  one's. A command check has no summary and adds nothing: its failure summary says it all. */
+function pluginCheckLines(validation: unknown): { before: string[]; after: string[] } {
+  const v = validation !== null && typeof validation === 'object' ? (validation as { status?: unknown; checks?: unknown }) : {}
+  if (!Array.isArray(v.checks) || v.status === 'running') return { before: [], after: [] }
+  const plugins = (v.checks as CheckResult[]).filter((c) => typeof c.summary === 'string')
+  const before = plugins.flatMap((c): string[] =>
+    c.skipped === true
+      ? [`  ${str(c.name)}: ${oneLine(c.summary!)}`]
+      : c.status === 'error' && v.status !== 'failed'
+        ? [`  ${str(c.name)} could not run: ${oneLine(c.summary!)}`]
+        : []
+  )
+  const after = plugins
+    .filter((c) => c.status === 'failed')
+    .flatMap((c): string[] => {
+      const found = Array.isArray(c.diagnostics) ? c.diagnostics : []
+      const shown = found.slice(0, HUMAN_DIAGNOSTICS)
+      // The Host keeps 20 findings and counts the rest (5d): "more" is every finding not on screen
+      const more = findingsCountOf(c) - shown.length
+      return [
+        ...shown.map((d) => `    ${oneLine(diagnosticLine(d))}`),
+        ...(more > 0 ? [`    … and ${more} more`] : []),
+        ...(typeof c.externalUrl === 'string' ? [`    Details: ${c.externalUrl}`] : [])
+      ]
+    })
+  return { before, after }
+}
+
 export function humanFor(cmd: string, data: Record<string, unknown>): string | null {
   switch (cmd) {
     case 'plugins-logs': {
@@ -191,11 +230,51 @@ export function humanFor(cmd: string, data: Record<string, unknown>): string | n
       return columns(
         asList(data, 'plugins').map((p) => {
           const granted = Array.isArray(p.permissions) ? (p.permissions as unknown[]).map(str) : []
-          const row = [str(p.status).toUpperCase(), str(p.id), str(p.version), granted.length > 0 ? granted.join(',') : '-']
+          // What it offers, so a person finds the plugin:<id> a Task's checks can name (plugin Phase 5 C6)
+          const offers = Array.isArray(p.capabilities) ? (p.capabilities as unknown[]).map(str) : []
+          const row = [
+            str(p.status).toUpperCase(),
+            str(p.id),
+            str(p.version),
+            granted.length > 0 ? granted.join(',') : '-',
+            offers.length > 0 ? offers.join(',') : '-'
+          ]
           // Why it does not run, as docs/cli.md promises the list says.
           return typeof p.reason === 'string' ? [...row, p.reason] : row
         })
       )
+    // Plugin Phase 4 J21. Four cells on every row, the reason empty when there is none, so the names line up.
+    case 'sources-list':
+      return columns(
+        asList(data, 'sources').map((s) => [s.ready === true ? 'READY' : 'NOT READY', str(s.id), str(s.displayName), str(s.reason)])
+      )
+    // An item's Jobs, else why it cannot be picked. Under the table, a cut the Host made and the next page's cursor.
+    case 'sources-items': {
+      const items = asList(data, 'items')
+      const table =
+        items.length === 0
+          ? '(no items)'
+          : columns(
+              items.map((i) => {
+                const jobs = Array.isArray(i.jobs) ? (i.jobs as unknown[]).map(str) : []
+                return [str(i.id), str(i.status), str(i.title), jobs.length > 0 ? jobs.join(',') : i.selectable === false ? `cannot be picked: ${str(i.reason)}` : '']
+              })
+            )
+      return [
+        table,
+        ...(data.cut === true ? ["(cut to Astera's limits)"] : []),
+        ...(typeof data.nextCursor === 'string' ? ['', `more: --cursor ${data.nextCursor}`] : [])
+      ].join('\n')
+    }
+    // The item's own fields, then the source's fields, then its body as the text it is: a table cell would cut it.
+    case 'sources-show': {
+      const { body, fields: theirs, ...own } = data
+      const parts = [fields(own)]
+      if (theirs !== null && typeof theirs === 'object' && Object.keys(theirs).length > 0)
+        parts.push(`fields\n${indent(columns(Object.entries(theirs as Record<string, unknown>).map(([k, v]) => [k, str(v)])))}`)
+      if (typeof body === 'string' && body !== '') parts.push(body)
+      return parts.join('\n\n')
+    }
     case 'projects-list':
       return columns(asList(data, 'projects').map((p) => [str(p.id), str(p.name), str(p.path)]))
     case 'jobs-list':
@@ -203,7 +282,8 @@ export function humanFor(cmd: string, data: Record<string, unknown>): string | n
         asList(data, 'jobs').map((j) => [
           stateWord(j),
           str(j.id),
-          str(j.objective),
+          // A Job made from a ticket by the ticket's title (plugin 4d), not by the objective Astera wrote for it
+          jobNameOf({ objective: str(j.objective), source: j.source as JobSourceRef | undefined }),
           progressWord(j)
         ])
       )
@@ -242,7 +322,10 @@ export function humanFor(cmd: string, data: Record<string, unknown>): string | n
         ])
       ).split('\n')
       return tasks
-        .flatMap((t, i) => [table[i], ...(typeof t.failureSummary === 'string' ? [`  ${t.failureSummary}`] : [])])
+        .flatMap((t, i) => {
+          const plugin = pluginCheckLines(t.validation)
+          return [table[i], ...plugin.before, ...(typeof t.failureSummary === 'string' ? [`  ${t.failureSummary}`] : []), ...plugin.after]
+        })
         .join('\n')
     }
     case 'questions-list':
@@ -370,6 +453,7 @@ export function humanFor(cmd: string, data: Record<string, unknown>): string | n
     case 'runs-get':
     case 'questions-get':
     case 'jobs-create':
+    case 'jobs-create-from-source':
     case 'tasks-add':
     case 'sessions-send':
     case 'chats-answer':

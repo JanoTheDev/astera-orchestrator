@@ -83,6 +83,22 @@ describe('humanFor', () => {
     )
   })
 
+  // Plugin 4d: a Job made from a ticket is named by the ticket's title, not by the objective Astera wrote
+  it('jobs list names a Job made from a ticket by its title', () => {
+    const out = humanFor('jobs-list', {
+      jobs: [
+        {
+          id: 'job_1',
+          objective: 'Resolve Linear ENG-101 (https://linear.app/acme/issue/ENG-101).\n\nThe following is the item’s content',
+          outcome: 'pending',
+          progress: { done: 0, total: 0 },
+          source: { id: 'astera-linear-source', itemId: 'ENG-101', label: 'Linear ENG-101', title: 'Fix the login page on Safari' }
+        }
+      ]
+    })
+    expect(out).toBe('PENDING  job_1  Fix the login page on Safari  0/0')
+  })
+
   it('질문이 여럿이면 복수로 센다', () => {
     const out = humanFor('jobs-list', {
       jobs: [{ id: 'j', objective: 'o', outcome: 'running', questionsOpen: 3 }]
@@ -102,16 +118,22 @@ describe('humanFor', () => {
       .toBe('p1  astera  D:/a')
   })
 
-  it('plugins list puts the status first in capitals, then the id, the version and what was granted', () => {
+  // Plugin Phase 5 C6: what each plugin offers, so a person finds the plugin:<id> a Task's checks can name
+  it('plugins list puts the status first in capitals, then the id, the version, what was granted and what it offers', () => {
     expect(
       humanFor('plugins-list', {
         plugins: [
-          { id: '@acme/astera-jira', version: '1.0.0', status: 'stopped', permissions: ['jobs.read', 'jobs.create'] },
-          { id: 'astera-hello', version: '0.1.0', status: 'incompatible', permissions: [], reason: 'this Astera does not run event plugins yet' }
+          { id: '@acme/astera-jira', version: '1.0.0', status: 'stopped', permissions: ['jobs.read', 'jobs.create'], capabilities: ['completion-check'] },
+          { id: 'astera-hello', version: '0.1.0', status: 'incompatible', permissions: [], capabilities: ['event', 'job-source'], reason: 'this Astera does not run event plugins yet' },
+          { id: 'astera-plain', version: '0.1.0', status: 'running', permissions: [] }
         ]
       })
     ).toBe(
-      'STOPPED       @acme/astera-jira  1.0.0  jobs.read,jobs.create\nINCOMPATIBLE  astera-hello       0.1.0  -  this Astera does not run event plugins yet'
+      [
+        'STOPPED       @acme/astera-jira  1.0.0  jobs.read,jobs.create  completion-check',
+        `INCOMPATIBLE  astera-hello       0.1.0  -${' '.repeat(22)}event,job-source  this Astera does not run event plugins yet`,
+        `RUNNING       astera-plain       0.1.0  -${' '.repeat(22)}-`
+      ].join('\n')
     )
   })
 
@@ -375,6 +397,117 @@ describe('humanFor', () => {
     expect(humanFor('runs-checks', { runId: 'run_1', tasks: [] })).toBe('(no tasks in run_1)')
   })
 
+  // 5d (performance review H1): the Host keeps 20 findings and their count; the count says how many are not shown
+  it('runs checks 는 Host 가 남기지 않은 지적까지 세어 "and N more" 로 말한다', () => {
+    const kept = Array.from({ length: 20 }, (_, i) => ({ file: 'src/a.js', line: i + 1, message: 'adds TODO' }))
+    const out = humanFor('runs-checks', {
+      runId: 'run_1',
+      tasks: [
+        {
+          id: 't1',
+          title: 'login',
+          status: 'failed',
+          validation: { status: 'failed', checks: [{ configId: 'plugin:x', name: 'D', status: 'failed', summary: '150 leftovers', diagnostics: kept, diagnosticsTotal: 150 }] },
+          review: { status: 'not-required' },
+          failureSummary: 'D failed: 150 leftovers'
+        }
+      ]
+    })
+    expect(out?.split('\n')).toContain('    … and 145 more')
+  })
+
+  // Plugin Phase 5 C13: a plugin check's findings under its row, its link, one that could not run said so, and one a
+  // person skipped. Every line a plugin wrote is one line here (Review Focus 5).
+  it('runs checks 는 플러그인 검사의 지적 다섯 개와 링크, 할 수 없었던 검사와 건너뛴 검사를 줄 아래에 둔다', () => {
+    const found = Array.from({ length: 7 }, (_, i) => ({ file: 'src/a.js', line: i + 1, message: i === 0 ? 'adds\nconsole.log' : 'adds TODO' }))
+    const d = { configId: 'plugin:x', name: 'Debug leftovers' }
+    expect(
+      humanFor('runs-checks', {
+        runId: 'run_1',
+        tasks: [
+          {
+            id: 't1',
+            title: 'login',
+            status: 'failed',
+            validation: {
+              status: 'failed',
+              checks: [{ ...d, status: 'failed', summary: '7 debug leftovers in 1 file', diagnostics: found, externalUrl: 'https://ci.example/1' }]
+            },
+            review: { status: 'not-required' },
+            failureSummary: 'Debug leftovers failed: 7 debug leftovers in 1 file'
+          },
+          {
+            id: 't2',
+            title: 'docs',
+            status: 'blocked',
+            validation: { status: 'pending', checks: [{ configId: 'npm-test', name: 'test', status: 'passed' }, { ...d, status: 'error', summary: 'git diff: fatal:\nnot a git repository' }] },
+            review: { status: 'not-required' },
+            failureSummary: null
+          },
+          {
+            id: 't3',
+            title: 'api',
+            status: 'completed',
+            validation: { status: 'passed', checks: [{ ...d, status: 'not-run', skipped: true, summary: 'Skipped by a person: git is missing' }] },
+            review: { status: 'not-required' },
+            failureSummary: null
+          }
+        ]
+      })
+    ).toBe(
+      [
+        'FAILED     t1  validation failed   review not-required  login',
+        '  Debug leftovers failed: 7 debug leftovers in 1 file',
+        '    src/a.js:1 adds console.log',
+        '    src/a.js:2 adds TODO',
+        '    src/a.js:3 adds TODO',
+        '    src/a.js:4 adds TODO',
+        '    src/a.js:5 adds TODO',
+        '    … and 2 more',
+        '    Details: https://ci.example/1',
+        'BLOCKED    t2  validation pending  review not-required  docs',
+        '  Debug leftovers could not run: git diff: fatal: not a git repository',
+        'COMPLETED  t3  validation passed   review not-required  api',
+        '  Debug leftovers: Skipped by a person: git is missing'
+      ].join('\n')
+    )
+  })
+
+  // 5b final review M5, M6, M7: a round being run again shows nothing stale; a skipped check's line comes before the
+  // failure it did not cause, so the findings sit under their own check; a round a person failed says why once
+  it('runs checks 는 다시 도는 검사의 지난 줄을 내지 않고, 지적은 제 검사 아래에, 실패 처리된 검사는 한 번만 말한다', () => {
+    const a = { configId: 'plugin:a', name: 'A' }
+    const b = { configId: 'plugin:b', name: 'B' }
+    const row = (id: string, status: string, validation: Record<string, unknown>, failureSummary: string | null) => ({
+      id,
+      title: id,
+      status,
+      validation,
+      review: { status: 'not-required' },
+      failureSummary
+    })
+    expect(
+      humanFor('runs-checks', {
+        runId: 'run_1',
+        tasks: [
+          row('t1', 'validating', { status: 'running', checks: [{ ...b, status: 'failed', summary: 'old', diagnostics: [{ file: 'x.js', line: 1, message: 'adds TODO' }] }, { ...a, status: 'error', summary: 'down' }] }, null),
+          row('t2', 'failed', { status: 'failed', checks: [{ ...a, status: 'not-run', skipped: true, summary: 'Skipped by a person: down' }, { ...b, status: 'failed', summary: '1 leftover', diagnostics: [{ file: 'y.js', line: 2, message: 'adds TODO' }] }] }, 'B failed: 1 leftover'),
+          row('t3', 'failed', { status: 'failed', checks: [{ ...a, status: 'error', summary: 'down' }] }, 'A could not run: down')
+        ]
+      })
+    ).toBe(
+      [
+        'VALIDATING  t1  validation running  review not-required  t1',
+        'FAILED      t2  validation failed   review not-required  t2',
+        '  A: Skipped by a person: down',
+        '  B failed: 1 leftover',
+        '    y.js:2 adds TODO',
+        'FAILED      t3  validation failed   review not-required  t3',
+        '  A could not run: down'
+      ].join('\n')
+    )
+  })
+
   // The last line of a follow that ended well. The other endings are errors and print as one (run.ts).
   it('runs follow 의 끝은 한 줄이다', () => {
     expect(humanFor('runs-follow', { state: 'completed', runId: 'run_1', progress: { done: 3, total: 3 } })).toBe(
@@ -467,5 +600,42 @@ describe('quietFor', () => {
   it('id 가 없으면 아무것도 내지 않는다', () => {
     expect(quietFor({ running: true, jobs: 3 })).toBe('')
     expect(quietFor({ cli: '1.0.0', app: null })).toBe('')
+  })
+})
+
+// Plugin Phase 4 J21: the job-source commands as a person reads them
+describe('humanFor — the job-source commands', () => {
+  it('lists the sources, ready or with why not', () => {
+    expect(
+      humanFor('sources-list', {
+        sources: [
+          { id: 'github', displayName: 'GitHub issues', ready: true, needsProject: true },
+          { id: 'astera-linear-source', displayName: 'Linear', ready: false, reason: 'astera-linear-source is disabled', needsProject: false }
+        ]
+      })
+    ).toBe(['READY      github                GitHub issues', 'NOT READY  astera-linear-source  Linear         astera-linear-source is disabled'].join('\n'))
+  })
+
+  it('lists a page of items with their Jobs, why one cannot be picked, and the next cursor', () => {
+    expect(
+      humanFor('sources-items', {
+        items: [
+          { id: 'ENG-1', title: 'Fix login', status: 'Todo', selectable: true, jobs: ['job_1'] },
+          { id: '13', title: 'Add a thing', status: 'open', selectable: false, reason: 'written by a NONE', jobs: [] }
+        ],
+        nextCursor: 'c2'
+      })
+    ).toBe(['ENG-1  Todo  Fix login    job_1', '13     open  Add a thing  cannot be picked: written by a NONE', '', 'more: --cursor c2'].join('\n'))
+    expect(humanFor('sources-items', { items: [], cut: true })).toBe("(no items)\n(cut to Astera's limits)")
+  })
+
+  it('shows an item: its fields, then its body as text', () => {
+    expect(
+      humanFor('sources-show', { id: 'ENG-1', title: 'Fix', status: 'Todo', body: 'It fails\non Safari', fields: { team: 'ENG' }, selectable: true, jobs: [] })
+    ).toBe(['id          ENG-1', 'title       Fix', 'status      Todo', 'selectable  true', 'jobs        []', '', 'fields', '  team  ENG', '', 'It fails', 'on Safari'].join('\n'))
+  })
+
+  it('gives the Job made as jobs create does', () => {
+    expect(humanFor('jobs-create-from-source', { id: 'job_1', objective: 'Resolve' })).toBe(humanFor('jobs-create', { id: 'job_1', objective: 'Resolve' }))
   })
 })

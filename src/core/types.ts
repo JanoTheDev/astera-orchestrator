@@ -50,7 +50,7 @@ export type { ConvTurn } from './history/convTypes'
 // (the server owns OrchState), so importing it from here would make that reliance direct rather than
 // incidental. Either way the wrong fix for a genuinely missing import is "types": ["node"] — it hands
 // the renderer typecheck every Node global, which is the guard this note stands to protect.
-import type { CheckResult, GateKind, MessageType, Outcome, RepairReason, TaskStatus } from './orchestration/types'
+import type { CheckResult, GateKind, JobSourceRef, MessageType, Outcome, RepairReason, TaskStatus } from './orchestration/types'
 import type { CompletionDetail } from './orchestration/completion'
 import type { McpHttpState, WorkspaceEvent, WorkspaceSummary } from './host/protocol'
 export type { CompletionDetail, CompletionCheckDetail } from './orchestration/completion'
@@ -444,6 +444,8 @@ export interface JobCheck {
   /** 밀리초. CheckResult 의 startedAt·endedAt 둘 다 있을 때만 — 툴팁의 "지난 라운드 실제 시간" */
   durationMs?: number
   unstable?: true
+  /** A person let the round go on without it (plugin Phase 5 C9 skip-check); its status is not-run */
+  skipped?: true
 }
 /** JobTask.convergence — 자동 수정의 예산과 지금 자리. 정책 있는 Run 의 Task 만 갖는다(UI 설계 U3) */
 export interface JobConvergence {
@@ -513,6 +515,9 @@ export interface JobTask {
   /** 이 Task 의 마지막 검증 라운드. **검사가 걸린 모든 Task 가 갖는다** — 자동 수정을 켠 Run 만이 아니다
    *  (UI 설계 U2). 없으면 검사가 없는 Task 이고, 그때 노드는 칩 줄 자체를 그리지 않는다. */
   checks?: JobCheck[]
+  /** A round a person let go on without a check (plugin Phase 5 C9 skip-check) runs the checks after it: the one it
+   *  runs now, or null when the skipped check was the round's last. Absent when no such round is live. */
+  resumeAt?: string | null
   /** 자동 수정 정책이 있는 Run 의 Task 만 갖는다(`policyOf !== null`). 검사가 없는 Task 도 Run 에 정책이 있으면
    *  갖는다 — 검토만 걸린 Task 의 라운드를 그리기 위해서다. 없는 Run 에 실으면 의미 없는 3/2 가 모든 카드를
    *  따라다닌다. */
@@ -616,6 +621,7 @@ export type RunOutcome = 'running' | 'completed' | 'failed'
  *  단어를 세 가지가 두고 부딪히므로, 화면의 것은 화면의 말로 부른다. */
 export interface JobRow {
   id: string
+  /** The Job's objective, its first 500 characters (OBJECTIVE_PREVIEW_MAX, 5d): the detail and `jobs get` read it whole */
   objective: string
   /** 관리자가 있어야 하는데 없다 — 코디네이터 계정이 지정돼 있지만 붙어 있는 세션이 없다.
    *  **사이드바가 다시 띄우는 버튼을 내보이는 근거다.** 계정 지정이 없는 Run(옛 Run·CLI Run)은
@@ -692,6 +698,8 @@ export interface JobRow {
    *  **예약이 아닌 Run 에는 이 칸이 아예 없다.** 빈 배열을 달면 sameSnapshot 의 문자열이 이유
    *  없이 길어지고, 화면에서 "회차가 아직 없는 템플릿"과 "템플릿이 아님"이 같아 보인다. */
   children?: JobRow[]
+  /** The job source's item the Job was made from (plugin Phase 4 J18): the chip on its card and in its detail. */
+  source?: JobSourceRef
   tasks: JobTask[]
 }
 /** Why the Jobs view has nothing to draw, when the reason is the Host rather than the state.
@@ -1852,6 +1860,18 @@ export type PluginsCallAnswer = { ok: true; body: Record<string, unknown> } | { 
 /** Where a plugin is installed from: a folder on this machine, or a package on npm (plugins 2e). */
 export type PluginSource = { path: string } | { npm: string }
 
+/** What the Host answered a job-source command, as the plugins' answers are. */
+export type SourcesCallAnswer = PluginsCallAnswer
+
+/** The Jobs view's "+ From a source" (plugin Phase 4c): the Host's job-source commands, as the app, and no other. A
+ *  project is named by its folder; main finds its id. */
+export interface SourcesApi {
+  list(): Promise<SourcesCallAnswer>
+  items(a: { source: string; projectPath: string; query?: string; cursor?: string }): Promise<SourcesCallAnswer>
+  show(a: { source: string; item: string; projectPath: string }): Promise<SourcesCallAnswer>
+  create(a: { source: string; item: string; projectPath: string; coordinatorAccount: string; convergence?: boolean }): Promise<SourcesCallAnswer>
+}
+
 /** Settings › Plugins (plugin runtime design slice 2d): the Host's `plugins-*` commands the tab uses, as the app, and
  *  no other (design P5). */
 export interface PluginsApi {
@@ -2007,6 +2027,8 @@ export type RendererApi = CoreApi & {
   /** Remote Runtimes (remote runtime design Phase 6): Settings › Remote Runtimes and the Jobs view's selectors. */
   remote: RemoteApi
   plugins: PluginsApi
+  /** The Jobs view's "+ From a source" (plugin Phase 4c): the Host's job sources, as the app. */
+  sources: SourcesApi
   remoteSessions: RemoteSessionsApi
   understanding: UnderstandingApi
   sessionTasks: SessionTaskApi

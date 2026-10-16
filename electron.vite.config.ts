@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url'
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import { isNoise } from './electron.vite.warnings'
 
 // CLI 는 Electron 없이 도는 번들이라(ELECTRON_RUN_AS_NODE) `app.getVersion()` 을 부를 수 없다.
 // 앱과 CLI 는 한 프로그램이므로 버전도 하나여야 하고, 그 하나를 빌드가 박아 넣는다 — 두 곳에서
@@ -15,6 +16,10 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     build: {
       rollupOptions: {
+        // zod's prose about @__PURE__ reads to Rollup as a misplaced annotation on every build: see electron.vite.warnings.ts
+        onwarn(warning, warn) {
+          if (!isNoise(warning)) warn(warning)
+        },
         input: {
           index: 'src/main/index.ts',
           cli: 'src/cli/index.ts',

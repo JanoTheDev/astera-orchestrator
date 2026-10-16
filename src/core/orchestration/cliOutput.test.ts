@@ -682,4 +682,10 @@ describe('the remote runtime codes', () => {
   it('outcome unknown says to list the newest Jobs on that runtime', () => {
     expect(nextStepsFor({ code: 'RUNTIME_OUTCOME_UNKNOWN', details: { runtime: 'rt_a' } })).toEqual(['astera --runtime rt_a jobs list'])
   })
+  // Plugin Phase 5 C7, C14; 5a final review M6: this machine's plugin list says nothing of a Runtime's, and a
+  // controller cannot list a Runtime's plugins
+  it('a missing plugin check points at this machine’s plugins, and at nothing for a Runtime', () => {
+    expect(nextStepsFor({ code: 'PLUGIN_CAPABILITY_MISSING', cmd: 'tasks-add' })).toEqual(['astera plugins list'])
+    expect(nextStepsFor({ code: 'PLUGIN_CAPABILITY_MISSING', cmd: 'tasks-add', details: { runtime: 'rt_a' } })).toEqual([])
+  })
 })

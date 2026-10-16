@@ -4,6 +4,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { PassThrough } from 'node:stream'
 import { runLauncher } from './launcher'
 import { AsteraError } from '../core/publicContract'
+import { RPC_NOT_READY } from '../core/plugins/rpc'
 import type { PluginContext } from '../../packages/plugin-sdk/src/index'
 
 const INIT_PARAMS = {
@@ -56,10 +57,38 @@ function launch(mod: unknown | (() => Promise<unknown>), extra: { endGraceMs?: n
 }
 
 describe('runLauncher', () => {
+  // 5d (performance review M2): a call the Host cancels aborts that call's ctx.signal, and only that one's
+  it('hands each handler call a ctx.signal the Host can cancel, and answers a cancelled call no more', async () => {
+    const signals: AbortSignal[] = []
+    const finish: Array<() => void> = []
+    let own: PluginContext | undefined
+    const l = launch({
+      default: {
+        activate: (c: PluginContext) => void (own = c),
+        runCheck: (_input: unknown, ctx: PluginContext) => {
+          signals.push(ctx.signal)
+          return new Promise((r) => finish.push(() => r({ status: 'passed' })))
+        }
+      }
+    })
+    await l.ask('initialize', INIT_PARAMS)
+    l.send({ id: 201, method: 'completionCheck.run', params: { input: { taskId: 't' } } })
+    l.send({ id: 202, method: 'completionCheck.run', params: { input: { taskId: 'u' } } })
+    await vi.waitFor(() => expect(signals).toHaveLength(2))
+    l.send({ method: '$/cancel', params: { id: 201 } })
+    await vi.waitFor(() => expect(signals[0].aborted).toBe(true))
+    expect(signals[1].aborted).toBe(false)
+    expect(own?.signal.aborted).toBe(false)
+    // Both handlers then finish: the one not cancelled is answered, the cancelled one is not (5d final review M2)
+    finish.forEach((f) => f())
+    await vi.waitFor(() => expect(l.out.some((m) => m.id === 202)).toBe(true))
+    expect(l.out.some((m) => m.id === 201)).toBe(false)
+  })
+
   it('loads the entry, gives activate the plugin’s context, and answers initialize once activate resolved', async () => {
     let ctx: PluginContext | undefined
     const l = launch({ default: { activate: (c: PluginContext) => void (ctx = c) } })
-    expect(await l.ask('initialize', INIT_PARAMS)).toEqual({ jsonrpc: '2.0', id: 101, result: {} })
+    expect(await l.ask('initialize', INIT_PARAMS)).toEqual({ jsonrpc: '2.0', id: 101, result: { handlers: [] } })
     expect(l.imported).toEqual(['/plugins/astera-hello/index.js'])
     expect(ctx?.plugin).toEqual({ id: 'astera-hello', version: '1.0.0', dir: '/plugins/astera-hello' })
     expect(ctx?.permissions).toEqual(['projects.read'])
@@ -241,5 +270,219 @@ describe('runLauncher: settings and secrets', () => {
     })
     l.send({ id: req.id, error: { code: -32602, message: '../x is not a secret name' } })
     expect(await refused).toMatchObject({ message: '../x is not a secret name' })
+  })
+
+  // Plugin Phase 3 N5: the Host fails the start of a plugin whose capability has no handler, so it asks which it has
+  it('says which handlers the entry has when it starts', async () => {
+    const l = launch({ default: { onEvent() {}, activate() {} } })
+    expect(await l.ask('initialize', INIT_PARAMS)).toMatchObject({ result: { handlers: ['onEvent'] } })
+    const none = launch({ default: { activate() {} } })
+    expect(await none.ask('initialize', INIT_PARAMS)).toMatchObject({ result: { handlers: [] } })
+    // One default deeper, as CommonJS compiled out of ESM has it, when the outer object holds only a handler's default
+    const cjs = launch({ default: { default: { onEvent() {} } } })
+    expect(await cjs.ask('initialize', INIT_PARAMS)).toMatchObject({ result: { handlers: ['onEvent'] } })
+  })
+
+  it('hands an event to onEvent with the plugin’s context, and answers once it settled', async () => {
+    const seen: unknown[] = []
+    let ctxSeen: PluginContext | undefined
+    let release: () => void = () => {}
+    const l = launch({
+      default: {
+        async onEvent(e: unknown, ctx: PluginContext) {
+          seen.push(e)
+          ctxSeen = ctx
+          await new Promise<void>((r) => (release = r))
+        }
+      }
+    })
+    await l.ask('initialize', INIT_PARAMS)
+    const event = { id: 'ev_aaaaaaaaaaaa_1', type: 'run.completed', sequence: 1, occurredAt: 'T', payload: {} }
+    const answered = l.ask('events.deliver', { event })
+    await vi.waitFor(() => expect(seen).toEqual([event]))
+    // Not answered while onEvent has not settled (the initialize was 101, this is 102)
+    expect(l.out.some((m) => m.id === 102)).toBe(false)
+    release()
+    expect(await answered).toMatchObject({ result: {} })
+    expect(ctxSeen?.plugin.id).toBe('astera-hello')
+  })
+
+  it('answers a throwing onEvent with its message, and an entry without one with an error', async () => {
+    const l = launch({
+      default: {
+        onEvent() {
+          throw new Error('boom')
+        }
+      }
+    })
+    await l.ask('initialize', INIT_PARAMS)
+    expect(await l.ask('events.deliver', { event: { type: 'gap' } })).toMatchObject({ error: { code: -32603, message: 'onEvent threw: boom' } })
+    const none = launch({ default: {} })
+    await none.ask('initialize', INIT_PARAMS)
+    expect(await none.ask('events.deliver', { event: { type: 'gap' } })).toMatchObject({ error: { code: -32601, message: 'the plugin has no onEvent' } })
+    expect(await l.ask('events.deliver', {})).toMatchObject({ error: { code: -32602, message: 'events.deliver needs { event }' } })
+  })
+
+  it('refuses an onEvent that is not a function as no plugin, and an event before the start', async () => {
+    const bad = launch({ default: { onEvent: 'x' } })
+    expect(await bad.ask('initialize', INIT_PARAMS)).toMatchObject({ error: { message: expect.stringContaining('does not export a plugin') } })
+    const early = launch({ default: { onEvent() {} } })
+    expect(await early.ask('events.deliver', { event: { type: 'gap' } })).toMatchObject({ error: { message: 'the plugin is not started' } })
+  })
+
+  it('refuses an event once the plugin is stopping', async () => {
+    const seen: unknown[] = []
+    const l = launch({ default: { onEvent: (e: unknown) => void seen.push(e) } })
+    await l.ask('initialize', INIT_PARAMS)
+    await l.ask('shutdown', {})
+    expect(await l.ask('events.deliver', { event: { type: 'gap' } })).toMatchObject({ error: { message: 'the plugin is stopping' } })
+    expect(seen).toEqual([])
+  })
+
+  // Plugin Phase 3 N5: the notification capability's handler
+  it('says a provider has send, and hands it a notification with the context, answering once it settled', async () => {
+    const sent: unknown[] = []
+    let ctxSeen: PluginContext | undefined
+    let release: () => void = () => {}
+    const l = launch({
+      default: {
+        async send(n: unknown, ctx: PluginContext) {
+          sent.push(n)
+          ctxSeen = ctx
+          await new Promise<void>((r) => (release = r))
+        }
+      }
+    })
+    expect(await l.ask('initialize', INIT_PARAMS)).toMatchObject({ result: { handlers: ['send'] } })
+    const notification = { id: 'ev_aaaaaaaaaaaa_1', kind: 'run.completed', level: 'info', title: 'Ship', body: 'Run 1 finished.', occurredAt: 'T', event: {} }
+    const answered = l.ask('notifications.send', { notification })
+    await vi.waitFor(() => expect(sent).toEqual([notification]))
+    // Not answered while send has not settled (the initialize was 101, this is 102)
+    expect(l.out.some((m) => m.id === 102)).toBe(false)
+    release()
+    expect(await answered).toMatchObject({ result: {} })
+    expect(ctxSeen?.plugin.id).toBe('astera-hello')
+  })
+
+  it('answers a throwing send with its message, an entry without one, and a request without a notification', async () => {
+    const l = launch({
+      default: {
+        send() {
+          throw new Error('rate limited')
+        }
+      }
+    })
+    await l.ask('initialize', INIT_PARAMS)
+    expect(await l.ask('notifications.send', { notification: { kind: 'run.completed' } })).toMatchObject({ error: { code: -32603, message: 'send threw: rate limited' } })
+    expect(await l.ask('notifications.send', {})).toMatchObject({ error: { code: -32602, message: 'notifications.send needs { notification }' } })
+    const none = launch({ default: { onEvent() {} } })
+    await none.ask('initialize', INIT_PARAMS)
+    expect(await none.ask('notifications.send', { notification: {} })).toMatchObject({ error: { code: -32601, message: 'the plugin has no send' } })
+    const early = launch({ default: { send() {} } })
+    expect(await early.ask('notifications.send', { notification: {} })).toMatchObject({ error: { message: 'the plugin is not started' } })
+  })
+
+  // Plugin Phase 4 J6: a job source answers the Host with what its functions return
+  it('says a job source has its three functions, and answers each request with what it returned', async () => {
+    const seen: unknown[][] = []
+    const l = launch({
+      default: {
+        listItems(input: unknown, ctx: PluginContext) {
+          seen.push(['list', input, ctx.plugin.id])
+          return { items: [{ id: 'ENG-1', title: 'Fix' }], nextCursor: 'c2' }
+        },
+        async getItem(id: unknown) {
+          seen.push(['get', id])
+          return { id, title: 'Fix', body: 'b' }
+        },
+        buildJobContext(id: unknown) {
+          seen.push(['context', id])
+          return { objective: 'Fix', sourceLabel: `Linear ${String(id)}` }
+        }
+      }
+    })
+    expect(await l.ask('initialize', INIT_PARAMS)).toMatchObject({ result: { handlers: ['listItems', 'getItem', 'buildJobContext'] } })
+    expect(await l.ask('jobSource.list', { query: 'login', cursor: 'c1', extra: 1 })).toMatchObject({ result: { items: [{ id: 'ENG-1', title: 'Fix' }], nextCursor: 'c2' } })
+    expect(await l.ask('jobSource.get', { id: 'ENG-1' })).toMatchObject({ result: { id: 'ENG-1', body: 'b' } })
+    expect(await l.ask('jobSource.context', { id: 'ENG-1' })).toMatchObject({ result: { objective: 'Fix', sourceLabel: 'Linear ENG-1' } })
+    expect(seen).toEqual([['list', { query: 'login', cursor: 'c1' }, 'astera-hello'], ['get', 'ENG-1'], ['context', 'ENG-1']])
+  })
+
+  it('answers a job source’s throw with its message, a missing function, and a request without an id', async () => {
+    const l = launch({
+      default: {
+        listItems() {
+          throw new Error('401 Unauthorized')
+        }
+      }
+    })
+    await l.ask('initialize', INIT_PARAMS)
+    expect(await l.ask('jobSource.list', {})).toMatchObject({ error: { code: -32603, message: 'listItems threw: 401 Unauthorized' } })
+    expect(await l.ask('jobSource.get', { id: 'x' })).toMatchObject({ error: { code: -32601, message: 'the plugin has no getItem' } })
+    expect(await l.ask('jobSource.context', {})).toMatchObject({ error: { code: -32602, message: 'jobSource.context needs { id }' } })
+  })
+
+  // The 4a review's I3: an answer JSON cannot hold is refused with why, and the launcher answers on
+  it('answers a job source whose answer cannot be sent with why, and goes on answering', async () => {
+    const circular: Record<string, unknown> = { id: 'c', title: 't' }
+    circular.self = circular
+    const l = launch({
+      default: {
+        listItems: () => ({ items: [{ id: 'ENG-1', title: 'Fix', size: BigInt(1) }] }),
+        getItem: () => circular,
+        buildJobContext: () => ({ objective: 'Fix', sourceLabel: 'L' })
+      }
+    })
+    await l.ask('initialize', INIT_PARAMS)
+    expect(await l.ask('jobSource.list', {})).toMatchObject({
+      error: { code: -32603, message: expect.stringMatching(/^listItems answered with something that cannot be sent: .*BigInt/) }
+    })
+    expect(await l.ask('jobSource.get', { id: 'c' })).toMatchObject({
+      error: { code: -32603, message: expect.stringMatching(/^getItem answered with something that cannot be sent: /) }
+    })
+    expect(await l.ask('jobSource.context', { id: 'ENG-1' })).toMatchObject({ result: { objective: 'Fix' } })
+  })
+
+  // Plugin Phase 5 C2: a completion check answers the Host with what runCheck returned, given the input and the context
+  it('says a check plugin has runCheck, and answers completionCheck.run with what it returned', async () => {
+    const seen: unknown[][] = []
+    const l = launch({
+      default: {
+        async runCheck(input: unknown, ctx: PluginContext) {
+          seen.push([input, ctx.plugin.id])
+          return { status: 'failed', summary: '1 leftover', diagnostics: [{ file: 'a.ts', line: 3, message: 'adds console.log' }] }
+        }
+      }
+    })
+    expect(await l.ask('initialize', INIT_PARAMS)).toMatchObject({ result: { handlers: ['runCheck'] } })
+    const input = { jobId: 'job1', runId: 'run1', taskId: 't1', task: { title: 'T' }, workspace: { root: '/w' } }
+    expect(await l.ask('completionCheck.run', { input })).toMatchObject({ result: { status: 'failed', summary: '1 leftover' } })
+    expect(seen).toEqual([[input, 'astera-hello']])
+  })
+
+  it('answers a check’s throw with its message, a missing runCheck, and a request without an input', async () => {
+    const thrower = launch({
+      default: {
+        runCheck() {
+          throw new Error('git is not installed')
+        }
+      }
+    })
+    await thrower.ask('initialize', INIT_PARAMS)
+    expect(await thrower.ask('completionCheck.run', { input: {} })).toMatchObject({ error: { code: -32603, message: 'runCheck threw: git is not installed' } })
+    expect(await thrower.ask('completionCheck.run', {})).toMatchObject({ error: { code: -32602, message: 'completionCheck.run needs { input }' } })
+    const none = launch({ default: { listItems: () => ({ items: [] }) } })
+    await none.ask('initialize', INIT_PARAMS)
+    expect(await none.ask('completionCheck.run', { input: {} })).toMatchObject({ error: { code: -32601, message: 'the plugin has no runCheck' } })
+  })
+
+  // The 4a review's M8: not started yet, or stopping, is said with a code of its own, which the Host answers as 503
+  it('answers a job source request before the start, and while stopping, with the not-ready code', async () => {
+    const early = launch({ default: { listItems: () => ({ items: [] }) } })
+    expect(await early.ask('jobSource.list', {})).toMatchObject({ error: { code: RPC_NOT_READY, message: 'the plugin is not started' } })
+    const l = launch({ default: { listItems: () => ({ items: [] }) } })
+    await l.ask('initialize', INIT_PARAMS)
+    await l.ask('shutdown', {})
+    expect(await l.ask('jobSource.list', {})).toMatchObject({ error: { code: RPC_NOT_READY, message: 'the plugin is stopping' } })
   })
 })

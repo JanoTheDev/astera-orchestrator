@@ -9,6 +9,7 @@ import {
   recomputeReady,
   type CheckResult,
   type ConvergencePolicy,
+  type JobSourceRef,
   type Delivery,
   type Dispatch,
   type Gate,
@@ -39,6 +40,7 @@ import {
 } from './convergence'
 import { normalizeIssues, type ReviewIssueInput } from './review'
 import { failedChecksSummary } from './completion'
+import { oneLine, pluginCheckText, skippedResult } from './pluginChecks'
 
 export interface OrchState {
   /** 계획. 설계 §4 — 여기 있는 것이 "무엇을 시킬 것인가" 이고, 아래 runs 가 "실제로 돈 것" 이다. */
@@ -194,7 +196,21 @@ const replace = <T extends { id: string }>(xs: T[], next: T): T[] =>
 function moveTask(t: Task, to: Task['status'], now: string): Task | null {
   if (t.status === to) return t
   if (!canTransition(t.status, to)) return null
+  // A skipped round goes with its round (plugin Phase 5 C9; 5a final review C1): out of `validating`, it is over
+  if (to !== 'validating' && t.checkResume !== undefined) {
+    const { checkResume: _over, ...rest } = t
+    return { ...rest, status: to, updatedAt: now }
+  }
   return { ...t, status: to, updatedAt: now }
+}
+
+/** The Task's skipped round (plugin Phase 5 C9), when it is still the round of the Task's latest attempt; null
+ *  otherwise. A move past the transition table (task-update) can leave one behind a newer attempt, whose work no check
+ *  of that round has seen (5a final review C1). */
+export function liveCheckResume(s: OrchState, task: Task): NonNullable<Task['checkResume']> | null {
+  const resume = task.checkResume
+  if (resume === undefined) return null
+  return latestImplDispatch(s, task.id)?.id === resume.dispatchId ? resume : null
 }
 
 function pushMessage(
@@ -236,6 +252,8 @@ export function createJob(
     schedule?: ScheduleRule
     /** 완료 수렴 정책. 있으면 이 Job 의 검증·검토 실패는 앱이 repair 로 되돌린다(설계 D2·D12) */
     convergence?: ConvergencePolicy
+    /** The job source's item the Job is made from (plugin Phase 4 J15); only the Host gives it. */
+    source?: JobSourceRef
   },
   now: string
 ): Res<Job> {
@@ -255,7 +273,8 @@ export function createJob(
     ...(a.autoDispatch ? { autoDispatch: true } : {}),
     ...(a.schedule ? { schedule: a.schedule } : {}),
     ...(a.pendingStart ? { pendingStart: true } : {}),
-    ...(a.convergence ? { convergence: a.convergence } : {})
+    ...(a.convergence ? { convergence: a.convergence } : {}),
+    ...(a.source ? { source: a.source } : {})
   }
   return ok({ ...s, jobs: [...s.jobs, job] }, job)
 }
@@ -788,14 +807,19 @@ export function applyValidationResult(
   if (!task) return err(`unknown task: ${a.taskId}`)
   if (task.status !== 'validating') return err(`task is not validating: ${task.status}`)
   const lang: Lang = a.lang ?? 'en'
-  const passed = a.results.every((r) => r.status === 'passed')
+  // A check a person let the round go on without (plugin Phase 5 C9 skip-check) is no failure
+  const passed = a.results.every((r) => r.status === 'passed' || r.skipped === true)
   const policy = policyOf(s, task)
   const total = a.results.length
   const ran = a.results.filter((r) => r.status !== 'not-run').length
   const failedNames = a.results.filter((r) => r.status !== 'passed' && r.status !== 'not-run').map((r) => r.name)
+  const skippedNames = a.results.filter((r) => r.skipped === true).map((r) => r.name)
   const firstFailed = a.results.find((r) => r.status !== 'passed' && r.status !== 'not-run')
   const exitCode = firstFailed?.exitCode ?? (passed ? 0 : 1)
-  const output = firstFailed?.outputTail ?? a.results.map((r) => r.outputTail ?? '').join('\n')
+  // A plugin check's text is its summary and findings (C10); a command check's is its output, as it always was
+  const output =
+    (firstFailed ? (pluginCheckText(firstFailed) ?? firstFailed.outputTail) : undefined) ??
+    a.results.map((r) => pluginCheckText(r) ?? r.outputTail ?? '').join('\n')
 
   // 검증이 통과했어도 검토가 걸려 있으면 아직 끝난 것이 아니다. applyWorkerDone 과 같은 판단이고,
   // 여기에 없으면 검증이 걸린 Task 만 검토를 건너뛴다.
@@ -806,20 +830,51 @@ export function applyValidationResult(
   // 용량의 대부분이다. **여기서 벗긴다, validator 가 아니라** — 아래 status 메시지의 body 는 a.results 에서 앞서
   // 계산한 output 을 그대로 실어 코디네이터가 읽던 문구가 바뀌지 않는다. checkHistory 는 판정('passed'|'failed')만
   // 들고 있어 손댈 것이 없다. 키를 아예 빼는 이유: undefined 값은 JSON 에 안 남지만 메모리의 Task 비교에 남는다.
-  const history = appendHistory(task.checkHistory, a.results)
+  // A resumed round carries results its first verdict recorded already (plugin Phase 5 C9; 5a final review M4)
+  const carried = liveCheckResume(s, task)?.done.length ?? 0
+  const history = appendHistory(task.checkHistory, a.results.slice(carried))
   const unstable = new Set(unstableChecks(history))
   const checks: CheckResult[] = a.results.map((r) => {
-    const { outputTail, ...rest } = r
+    // A passed check keeps neither its output (U2) nor its findings (5d): its summary and link say what it found
+    const { outputTail, diagnostics, diagnosticsTotal, ...rest } = r
     const kept: CheckResult =
-      r.status === 'passed' ? rest : { ...rest, ...(outputTail !== undefined ? { outputTail } : {}) }
+      r.status === 'passed'
+        ? rest
+        : {
+            ...rest,
+            ...(outputTail !== undefined ? { outputTail } : {}),
+            ...(diagnostics !== undefined ? { diagnostics } : {}),
+            ...(diagnosticsTotal !== undefined ? { diagnosticsTotal } : {})
+          }
     return unstable.has(r.configId) ? { ...kept, unstable: true } : kept
   })
   const failedRound = failedChecksSummary(a.results)
+  // The skipped round's bookkeeping ends with its verdict (plugin Phase 5 C9)
+  const { checkResume: _resume, ...settled } = task
   const recorded: Task = {
-    ...task,
+    ...settled,
     checks,
     checkHistory: history,
     ...(failedRound !== null ? { lastFailure: failedRound } : {})
+  }
+
+  // ---- a check that could not be made (plugin Phase 5 C9) ---- not the code's fault: no repair, no failure counted,
+  // with or without a policy. The round is recorded, its `error` with its reason, and a person chooses.
+  const unavailableCheck = a.results.find((r) => r.status === 'error')
+  if (unavailableCheck) {
+    const g = createGate(
+      { ...s, tasks: replace(s.tasks, recorded) },
+      {
+        taskId: task.id,
+        // One line, as every list of questions shows it; the result keeps the reason as the plugin wrote it
+        question: t(lang, 'jobs.checks.gate.unavailable', { check: unavailableCheck.name, reason: oneLine(unavailableCheck.summary ?? '') }),
+        options: [...CHECK_UNAVAILABLE_OPTIONS],
+        kind: 'check-unavailable'
+      },
+      now
+    )
+    if (!g.ok) return err(g.error)
+    return ok(g.state, g.state.tasks.find((x) => x.id === task.id)!)
   }
 
   if (policy === null) {
@@ -862,7 +917,11 @@ export function applyValidationResult(
         runId: runIdOf(task),
         type: 'status',
         taskId: task.id,
-        subject: `All ${total} checks passed`,
+        // A check a person skipped did not pass (plugin Phase 5 C9; 5a final review M3): the coordinator reads this
+        subject:
+          skippedNames.length > 0
+            ? `${total - skippedNames.length} of ${total} checks passed, ${skippedNames.length} skipped by a person: ${skippedNames.join(', ')}`
+            : `All ${total} checks passed`,
         body: `exitCode=0. ${reviewing ? 'The Task moved to reviewing — a reviewer on another provider now reads it.' : 'The Task moved to completed.'}`
       },
       now
@@ -896,6 +955,59 @@ export function applyValidationResult(
     },
     now
   )
+}
+
+/** The answers to a `check-unavailable` question (plugin Phase 5 C9): run the Task's checks again, let this round go on
+ *  without the check, or fail the Task. gate-resolve takes these three and no other. */
+export const CHECK_UNAVAILABLE_OPTIONS = ['retry', 'skip-check', 'mark-failed'] as const
+export type CheckUnavailableAnswer = (typeof CHECK_UNAVAILABLE_OPTIONS)[number]
+export const isCheckUnavailableAnswer = (v: string): v is CheckUnavailableAnswer =>
+  (CHECK_UNAVAILABLE_OPTIONS as readonly string[]).includes(v)
+
+/**
+ * A person's answer to a `check-unavailable` question (plugin Phase 5 C9), in one commit with the Gate's resolution.
+ *
+ * - `retry`: the Task goes back to `validating`, and its checks run again from the first (`revalidate`).
+ * - `skip-check`: back to `validating`, carrying the round on (`checkResume`): the results before the check that could
+ *   not be made, that check as skipped, and the checks after it still to run.
+ * - `mark-failed`: the Task fails, as mark-failed on an exhausted Gate fails it.
+ *
+ * **The Task moves out of `blocked` past the transition table** (blocked → validating, blocked → failed), as gate-resolve's
+ * mark-failed does: resolveGate's own move (blocked → pending → ready) would hand the Task to a worker, whose work is
+ * done. Refused while another question about the Task is open, since that one still holds it.
+ */
+export function answerCheckUnavailable(
+  s: OrchState,
+  a: { gateId: string; resolution: CheckUnavailableAnswer },
+  now: string
+): Res<{ gate: Gate; revalidate: { taskId: string; cwd: string } | null }> {
+  const gate = s.gates.find((g) => g.id === a.gateId)
+  if (!gate) return gone(`unknown gate: ${a.gateId}`)
+  if (gate.kind !== 'check-unavailable' || gate.status !== 'open') return err(`not an open check-unavailable question: ${a.gateId}`)
+  const task = s.tasks.find((t) => t.id === gate.taskId)
+  if (!task) return err(`unknown task for gate: ${a.gateId}`)
+  const other = s.gates.find((g) => g.taskId === task.id && g.status === 'open' && g.id !== gate.id)
+  if (other) return err(`another question about this Task is still open: ${other.id}`)
+  const resolved: Gate = { ...gate, status: 'resolved', resolution: a.resolution, resolvedAt: now }
+  // A question left open over a Task a person has already moved (task-update leaves Gates open): it is answered, and
+  // the Task stays where the person put it (5a final review I1)
+  if (task.status !== 'blocked') return ok({ ...s, gates: replace(s.gates, resolved) }, { gate: resolved, revalidate: null })
+  const { checkResume: _old, ...base } = task
+  if (a.resolution === 'mark-failed') {
+    const failed: Task = { ...base, status: 'failed', updatedAt: now }
+    return ok({ ...s, gates: replace(s.gates, resolved), tasks: replace(s.tasks, failed) }, { gate: resolved, revalidate: null })
+  }
+  const attempt = latestImplDispatch(s, task.id)
+  if (attempt === undefined) return err(`task ${task.id} has no attempt whose folder its checks could run in`)
+  const cwd = attempt.cwd
+  const round = task.checks ?? []
+  const at = round.findIndex((c) => c.status === 'error')
+  const resume =
+    a.resolution === 'skip-check' && at >= 0
+      ? { dispatchId: attempt.id, done: [...round.slice(0, at), skippedResult(round[at])], rest: round.slice(at + 1).map((c) => c.configId) }
+      : null
+  const again: Task = { ...base, status: 'validating', updatedAt: now, ...(resume ? { checkResume: resume } : {}) }
+  return ok({ ...s, gates: replace(s.gates, resolved), tasks: replace(s.tasks, again) }, { gate: resolved, revalidate: { taskId: task.id, cwd } })
 }
 
 /** 배선이 판정 직전에 정해 넘기는 "repair 를 어디에 열 것인가". **할지**는 순수 층이 정한다(정책·예산·

@@ -64,6 +64,8 @@ import { chatAdoptPlan, hostCarryOnIsOurs, hostStartingDefers } from './chatAdop
 import { reattachSessions, type ReattachResult } from './host/reattach'
 import { createWorktreeRoute, NO_HOST_CONNECTION, hostDeadlineMessage } from './host/worktreeRoute'
 import { createPluginsRoute } from './host/pluginsRoute'
+import { createSourcesRoute } from './host/sourcesRoute'
+import { createAppCompletionChecks } from './host/pluginChecksRoute'
 import { createHostGitOps } from '../core/workUnit/hostGitOps'
 import { appPathInUse } from './host/localPathInUse'
 import { HOST_PROTOCOL, HOST_ACT_PATH_IN_USE, HOST_ACT_SLACK_ANSWER, type ClientMessage, type HostMessage, type PtyEntry } from '../core/host/protocol'
@@ -142,6 +144,7 @@ import { ExitsBeforeTap, OrchRollTap } from '../core/orchestration/exec/rollTap'
 import { coordinatorReleaseOf, PendingCoordinatorReleases } from '../core/orchestration/exec/releaseDefer'
 import type { TaskValidator } from '../core/orchestration/exec/validator'
 import { createTaskValidation } from '../core/orchestration/exec/validation'
+import { unavailable } from '../core/orchestration/pluginChecks'
 import {
   bindNativeSession,
   writeOffDispatch
@@ -258,6 +261,7 @@ import type { LangPreference } from '../core/i18n'
 import { pickInitialLang } from '../core/i18n/locale'
 import { listJdks } from './jdkScanner'
 import { listPythonInterpreters } from './pythonScanner'
+import { hasPythonProject } from '../core/run/python'
 import { listComposeServices } from './composeScanner'
 import { listDotnetProjects } from './dotnetScanner'
 import { loadRunConfigs, prepareLaunch } from '../core/run/prepare'
@@ -3062,7 +3066,10 @@ export function registerIpc(
       diffNames: async (cwd, fromHead) => {
         const r = await git(['diff', '--name-only', fromHead, 'HEAD'], { cwd })
         return r.ok ? r.stdout.split('\n').map((line) => line.trim()).filter(Boolean) : null
-      }
+      },
+      // Plugins run in the Host: the app asks it (plugin Phase 5 C8). `deps` is defined below and read at the call.
+      pluginCheck: (plugin, input) =>
+        deps.completionChecks?.run(plugin, input) ?? Promise.resolve({ name: plugin, ...unavailable('plugin checks cannot run here') })
     })
     orchValidator = validation.validator
 
@@ -3190,6 +3197,9 @@ export function registerIpc(
 
     const deps: OrchServerDeps = {
       getState: () => store.get(),
+      // The completion check plugins are the Host's (plugin Phase 5 C7, C8): this copy's early refusals and the app's
+      // own checks ask it, as the app.
+      completionChecks: createAppCompletionChecks({ call: (m) => orchCall(m) }),
       // A local Run's changed files and diffs (remote runtime design Phase 10), from this machine's git, as the Host
       // reads them for a remote one.
       changes: { read: (repo, base, head) => readChanges(repo, base, head), diff: (repo, base, head, f) => readFileDiff(repo, base, head, f) },
@@ -4413,7 +4423,6 @@ export function registerIpc(
     })
     const { isSpringBootProject, hasDockerfile } = await import('../core/run/config')
     const { buildRunContext } = await import('../core/run/build')
-    const { hasPythonProject } = await import('../core/run/python')
     return {
       configs,
       // Every run of this project, finished ones included, in seat order. Output is not shipped here —
@@ -4735,6 +4744,13 @@ export function registerIpc(
   ipcMain.handle('plugins.configure', (_e, id: unknown, set: unknown, unset: unknown) =>
     plugins.configure(id as string, set as Record<string, string | boolean>, unset as string[])
   )
+  // The Jobs view's "+ From a source" (plugin Phase 4c): the Host's job sources as the app. The Host checks every
+  // argument; a value of the wrong type is its refusal to give.
+  const sources = createSourcesRoute({ call: (m) => orchCall(m), projectRoot: (p) => repoPathOf(core.worktrees.list(), p) })
+  ipcMain.handle('sources.list', () => sources.list())
+  ipcMain.handle('sources.items', (_e, a: unknown) => sources.items(a as Parameters<typeof sources.items>[0]))
+  ipcMain.handle('sources.show', (_e, a: unknown) => sources.show(a as Parameters<typeof sources.show>[0]))
+  ipcMain.handle('sources.create', (_e, a: unknown) => sources.create(a as Parameters<typeof sources.create>[0]))
   // Settings › Remote Runtimes and the Jobs view's selectors (remote runtime design Phase 6). A runtime id that is not a
   // string names nothing; every answer is the client's or the registry's own, never a local fallback.
   ipcMain.handle('remote.list', () => remoteRuntimes.list())

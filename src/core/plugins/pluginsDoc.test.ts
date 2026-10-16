@@ -9,13 +9,39 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { PLUGIN_CAPABILITIES, PLUGIN_PERMISSIONS, PLUGIN_TRUST_WARNING, parseManifest } from './manifest'
+import { PLUGIN_CAPABILITIES, PLUGIN_PERMISSIONS, PLUGIN_TRUST_WARNING, capabilityPermissionProblem, parseManifest } from './manifest'
 import { SETTING_KEYWORDS, SETTING_TYPES, SETTINGS_MAX, parseSettingsSchema } from './settings'
 import { PLUGIN_COMMAND_PERMISSIONS, pluginRefusal } from '../host/pluginGate'
-import { PLUGIN_TIMINGS, REDACT_MIN, createPluginRuntime } from '../../host/plugins/runtime'
+import { LOG_CHARS_PER_SECOND, LOG_LINES_PER_SECOND, PLUGIN_TIMINGS, REDACT_MIN, createPluginRuntime } from '../../host/plugins/runtime'
 import { SECRET_NAME_MAX, SECRET_VALUE_MAX } from '../../host/plugins/pluginData'
 import { PLUGIN_SERVED_CAPABILITIES } from '../../host/plugins/manager'
+import { DELIVERY_GIVE_UP_MS, DELIVERY_LOG_EVERY, DELIVERY_RETRY_MS, DELIVERY_TIMEOUT_MS } from '../../host/plugins/deliverer'
+import { EVENT_RETAIN_EVENTS } from '../../host/eventLog'
+import { NOTIFICATION_KINDS, NOTIFICATION_LEVEL, NOTIFICATION_MAX_AGE_MS, NOTIFICATION_TITLE_MAX, NOTIFICATION_VALUE_MAX } from './notifications'
+import { t, type MessageKey } from '../i18n'
+import { JOB_SOURCE_TIMEOUT_MS } from '../../host/jobSources'
+import {
+  SOURCE_BODY_MAX,
+  SOURCE_CURSOR_MAX,
+  SOURCE_EVIDENCE_MAX,
+  SOURCE_EVIDENCE_TOTAL_MAX,
+  SOURCE_FIELDS_MAX,
+  SOURCE_ID_MAX,
+  SOURCE_ITEMS_MAX,
+  SOURCE_LABEL_MAX,
+  SOURCE_OBJECTIVE_MAX,
+  SOURCE_SUMMARY_MAX,
+  SOURCE_TITLE_MAX,
+  SOURCE_URL_MAX
+} from '../sources/answers'
+import { CHECK_DIAGNOSTICS_MAX, CHECK_FILE_MAX, CHECK_MESSAGE_MAX, CHECK_SUMMARY_MAX, REPAIR_DIAGNOSTICS } from '../orchestration/pluginChecks'
+import { CHECK_TIMEOUT_MS } from '../orchestration/types'
+import { CHECK_UNAVAILABLE_OPTIONS } from '../orchestration/state'
+import { HUMAN_DIAGNOSTICS } from '../orchestration/cliHuman'
 import { bundleLauncher } from '../../pluginHost/testkit'
+import { transform } from 'esbuild'
+import { PluginRequestFailed } from '../../host/plugins/runtime'
+import { gitSync, tempDir } from '../worktrees/testRepo'
 import { createNamespaces } from '../../../packages/client/src/namespaces'
 import { typecheckBlocks } from '../../../packages/client/test/typecheck'
 
@@ -97,6 +123,11 @@ describe('docs/plugins.md', () => {
 
   it('says which values its log hides and which it cannot', () => {
     expect(prose(section(guide, '## Logs'))).toContain(`a value shorter than ${REDACT_MIN} characters is not hidden`)
+    // 5e: the budget a second, in the runtime's own numbers, what it covers, and that Astera's own lines are never dropped
+    const logs = prose(section(guide, '## Logs'))
+    expect(logs).toContain(`${LOG_LINES_PER_SECOND.toLocaleString('en-US')} lines or ${LOG_CHARS_PER_SECOND.toLocaleString('en-US')} characters a second`)
+    expect(logs).toContain('its `ctx.log` lines and the launcher’s included')
+    expect(logs).toContain('Astera’s own `[host]` lines are never dropped')
   })
 
   // 2f final review m4: what a refused call leaves in the log is the Host's sentence, not the error code
@@ -200,11 +231,164 @@ describe('docs/plugins.md', () => {
     expect(readme).not.toMatch(/not published/i)
   })
 
-  it('names each kind of plugin this Astera does not run yet', () => {
+  // Every capability runs since plugin Phase 5: Not yet names a capability exactly when this Astera does not run it
+  it('names each kind of plugin this Astera does not run yet, and no kind it runs', () => {
     const notYet = section(guide, '## Not yet')
-    const unserved = PLUGIN_CAPABILITIES.filter((c) => !PLUGIN_SERVED_CAPABILITIES.includes(c))
-    expect(unserved.length).toBeGreaterThan(0)
-    for (const c of unserved) expect(notYet, c).toContain(`\`${c}\``)
+    for (const c of PLUGIN_CAPABILITIES) expect(notYet.includes(`\`${c}\``), c).toBe(!PLUGIN_SERVED_CAPABILITIES.includes(c))
+  })
+
+  // Plugin Phase 3 N4-N9: the event capability as the code runs it
+  it('says how an event plugin is handed events, with the deliverer’s numbers and the permission rule', () => {
+    const ev = prose(section(guide, '## Event plugins'))
+    expect(ev).toContain('`onEvent`')
+    expect(ev).toContain(`within ${DELIVERY_TIMEOUT_MS / 1000} seconds`)
+    expect(ev).toContain(`after ${DELIVERY_RETRY_MS.first / 1000} second,`)
+    expect(ev).toContain(`up to ${DELIVERY_RETRY_MS.max / 60_000} minutes`)
+    expect(DELIVERY_GIVE_UP_MS).toBe(60 * 60_000)
+    expect(ev).toContain('after an hour')
+    expect(ev).toContain(`every ${DELIVERY_LOG_EVERY} tries`)
+    expect(ev).toContain("`{ type: 'gap' }`")
+    expect(ev).toContain('`events.subscribe`')
+    expect(ev).toContain(capabilityPermissionProblem(['event'], [])!)
+    expect(ev).toContain('`<profile>/plugins/cursors/<folder>.json`')
+    expect(ev).toContain('`event.id`')
+    // Its manifest fragment is one Astera reads as an event plugin
+    const [fragment] = fenced(section(guide, '## Event plugins'), 'json')
+    const read = parseManifest({ name: 'x', version: '1.0.0', astera: { apiVersion: '1', entry: 'index.js', ...JSON.parse(fragment) } })
+    expect(read.ok && read.manifest.capabilities).toEqual(['event'])
+    expect(section(guide, '## Not yet')).not.toContain('`event`')
+    expect(prose(section(guide, '## The manifest'))).toContain('[Event plugins](#event-plugins)')
+    // Final review M5, then 5d: a call past the limit is cancelled through its ctx.signal; one that ignores it goes on
+    // beside the next try, so one-at-a-time holds only for handlers within it
+    expect(ev).toContain(`When a call runs past ${DELIVERY_TIMEOUT_MS / 1000} seconds Astera stops waiting and aborts that call's \`ctx.signal\``)
+    expect(ev).toContain('A handler that does not stop goes on beside the event')
+    // Final review M6: the place is taken when the plugin first starts, which a plugin missing a setting has not
+    expect(ev).toContain('after it first starts')
+    expect(ev).not.toContain('after its install')
+    // Final review M10: what the log keeps, tied to the code
+    expect(ev).toContain(`up to its most recent ${EVENT_RETAIN_EVENTS} events, fewer`)
+  })
+
+  // Plugin Phase 3 N9-N12: the notification capability as the Host words it
+  it('says how a notification plugin is sent notifications: each kind with its level and its English sentence', () => {
+    const sec = section(guide, '## Notification plugins')
+    const nt = prose(sec)
+    expect(nt).toContain('`send`')
+    expect(nt).toContain('`defineNotificationProvider`')
+    expect(nt).toContain('the language the app is set to')
+    expect(nt).toContain('a kind it does not know')
+    expect(NOTIFICATION_MAX_AGE_MS).toBe(60 * 60_000)
+    expect(nt).toContain('older than an hour')
+    expect(nt).toContain('a line in its log')
+    expect(nt).toContain(`cut at ${NOTIFICATION_VALUE_MAX} characters and a title at ${NOTIFICATION_TITLE_MAX}`)
+    // 3c final review: the title rules as notifications.ts has them (I2), the shared time limit (M1), and that a failed
+    // send hands onEvent the event again (M5)
+    expect(nt).toContain('the first line of its objective that holds something')
+    // Plugin 4d review M3: a Job made from a ticket is named by the ticket's title
+    expect(nt).toContain('the title of the ticket it was made from')
+    expect(nt).toContain('else the last part of its folder, else Astera')
+    expect(nt).toContain('`onEvent` and `send` share the 30 seconds')
+    expect(nt).toContain('`onEvent` included')
+    // One row per kind, in NOTIFICATION_KINDS' order, with its level and every sentence it can be
+    const rows = sec.split('\n').filter((l) => /^\| `[a-z_]+\.[a-z_]+` \|/.test(l))
+    expect(rows.map((l) => /^\| `([^`]+)`/.exec(l)![1])).toEqual([...NOTIFICATION_KINDS])
+    const sentences: Record<string, MessageKey[]> = {
+      'question.created': ['pluginNotify.questionCreated'],
+      'session.input_needed': ['pluginNotify.inputNeeded.permission', 'pluginNotify.inputNeeded.question', 'pluginNotify.inputNeeded'],
+      'run.failed': ['pluginNotify.runFailed'],
+      'completion.exhausted': ['pluginNotify.completionExhausted'],
+      'session.limit_waiting': ['pluginNotify.limitWaitingAt', 'pluginNotify.limitWaiting'],
+      'run.completed': ['pluginNotify.runCompleted'],
+      'session.account_switched': ['pluginNotify.accountSwitched']
+    }
+    for (const [i, kind] of NOTIFICATION_KINDS.entries()) {
+      expect(rows[i], kind).toContain(`| \`${NOTIFICATION_LEVEL[kind]}\` |`)
+      for (const key of sentences[kind]) expect(rows[i], key).toContain(t('en', key))
+    }
+    const [fragment] = fenced(sec, 'json')
+    const parsed = parseManifest({ name: 'x', version: '1.0.0', astera: { apiVersion: '1', entry: 'index.js', ...JSON.parse(fragment) } })
+    expect(parsed.ok && parsed.manifest.capabilities).toEqual(['notification'])
+    expect(sec).toContain('](../examples/plugins/discord-notifier)')
+    expect(read('examples/plugins/discord-notifier/README.md')).toContain('docs/plugins.md#notification-plugins)')
+    expect(section(guide, '## Not yet')).not.toContain('`notification`')
+  })
+
+  // Plugin Phase 4 J24: the job-source capability as the Host serves it
+  it('says how a job source is asked, with the Host’s limits and errors, and the objective it writes', () => {
+    const sec = section(guide, '## Job source plugins')
+    const js = prose(sec)
+    for (const f of ['`listItems`', '`getItem`', '`buildJobContext`', '`defineJobSourceProvider`']) expect(js, f).toContain(f)
+    expect(js).toContain(`${JOB_SOURCE_TIMEOUT_MS / 1000} seconds`)
+    for (const n of [SOURCE_ITEMS_MAX, SOURCE_ID_MAX, SOURCE_TITLE_MAX, SOURCE_SUMMARY_MAX, SOURCE_CURSOR_MAX, SOURCE_BODY_MAX, SOURCE_FIELDS_MAX, SOURCE_OBJECTIVE_MAX, SOURCE_LABEL_MAX, SOURCE_EVIDENCE_MAX, SOURCE_EVIDENCE_TOTAL_MAX])
+      expect(js, String(n)).toContain(n.toLocaleString('en-US'))
+    for (const status of ['502', '503', '504']) expect(js, status).toContain(status)
+    expect(js).toContain('`<<<SOURCE')
+    expect(js).toContain('`source`')
+    expect(js).toContain('needs no permission')
+    expect(js).toContain('control character')
+    // The 4b review's M4: the sentence a person reads, as commandSources words it with what the function threw
+    expect(js).toContain('"the Linear source could not list items: 401 Unauthorized"')
+    expect(js).toContain('`cut: true`')
+    // Its manifest fragment is one Astera reads as a job source
+    const [fragment] = fenced(sec, 'json')
+    const parsed = parseManifest({ name: 'x', version: '1.0.0', astera: { apiVersion: '1', entry: 'index.js', ...JSON.parse(fragment) } })
+    expect(parsed.ok && parsed.manifest.capabilities).toEqual(['job-source'])
+    expect(sec).toContain('](../examples/plugins/linear-source)')
+    expect(read('examples/plugins/linear-source/README.md')).toContain('docs/plugins.md#job-source-plugins)')
+    expect(section(guide, '## Not yet')).not.toContain('`job-source`')
+    expect(prose(section(guide, '## The manifest'))).toContain('[Job source plugins](#job-source-plugins)')
+    // docs/sdk.md: a Job made from a source carries where it came from, and the 4b review's M10: how an SDK user makes one
+    const sdkJobs = prose(section(read('docs/sdk.md'), '### Jobs and Runs'))
+    expect(sdkJobs).toContain('`source`')
+    expect(sdkJobs).toContain("call('jobs-create-from-source'")
+    expect(read('packages/client/CHANGELOG.md')).toContain('`jobs-create-from-source`')
+  })
+
+  // Plugin Phase 5 C16: how a completion check is asked, in the constants' own numbers, and the other guides with it
+  it('says how a completion check is asked, with the Host’s limits and errors, the question and the repair', () => {
+    const sec = section(guide, '## Completion check plugins')
+    const cc = prose(sec)
+    for (const f of ['`runCheck`', '`defineCompletionCheckProvider`', '`plugin:<id>`', '`passed`', '`failed`', '`error`', '`check-unavailable`', '`PLUGIN_CAPABILITY_MISSING`'])
+      expect(cc, f).toContain(f)
+    for (const o of CHECK_UNAVAILABLE_OPTIONS) expect(cc, o).toContain(`\`${o}\``)
+    // 5d final review M5: the answer's shape names the count a check may give
+    expect(cc).toContain('`{ status, summary?, diagnostics?, diagnosticsTotal?, externalUrl? }`')
+    for (const n of [CHECK_SUMMARY_MAX, CHECK_DIAGNOSTICS_MAX, CHECK_MESSAGE_MAX, CHECK_FILE_MAX, SOURCE_URL_MAX, REPAIR_DIAGNOSTICS])
+      expect(cc, String(n)).toContain(n.toLocaleString('en-US'))
+    expect(cc).toContain(`${CHECK_TIMEOUT_MS / 60_000} minutes`)
+    // The sentences a person reads, as the Host words them (completionChecks.ts, pluginChecks.ts)
+    expect(cc).toContain('"runCheck threw: ')
+    expect(cc).toContain('"the plugin answered with something that is not a check result: ')
+    expect(cc).toContain('needs no permission')
+    expect(cc).toContain('adds no check')
+    const [fragment] = fenced(sec, 'json')
+    const parsed = parseManifest({ name: 'x', version: '1.0.0', astera: { apiVersion: '1', entry: 'index.js', ...JSON.parse(fragment) } })
+    expect(parsed.ok && parsed.manifest.capabilities).toEqual(['completion-check'])
+    expect(sec).toContain('](../examples/plugins/debug-leftovers)')
+    expect(prose(section(guide, '## The manifest'))).toContain('[Completion check plugins](#completion-check-plugins)')
+    expect(prose(section(guide, '## The manifest'))).toContain('a `runCheck` for a completion check')
+    expect(guide.split('\n## ')[0]).toContain('(#completion-check-plugins)')
+    // The other guides: the id a Task names, the fields a result carries, the question's answers
+    const cli = prose(read('docs/cli.md'))
+    for (const f of ['`plugin:<id>`', '`skip-check`', '`diagnostics`', '`externalUrl`', '`skipped: true`', 'could not run']) expect(cli, f).toContain(f)
+    // 5b final review M7: how a skipped check and one that could not be made count in `runs checks`
+    expect(cli).toContain('A check a person skipped counts as passed.')
+    expect(cli).toContain('leaves validation `pending` while the task waits on its question, and `failed` once it does not')
+    const sdk = prose(read('docs/sdk.md'))
+    for (const f of ['`plugin:<id>`', '`check-unavailable`', '`diagnostics`', '`skip-check`']) expect(sdk, f).toContain(f)
+    const mcp = prose(read('docs/mcp.md'))
+    for (const f of ['plugin:<pluginId>', 'check-unavailable', '`diagnostics`', '`externalUrl`']) expect(mcp, f).toContain(f)
+    // 5b final review M9, M10: only a check-unavailable question refuses other answers; a plugin's check has no output
+    for (const doc of [sdk, mcp]) expect(doc).toContain('refuses any answer but `retry`, `skip-check` or `mark-failed`')
+    for (const doc of [sdk, mcp]) expect(doc).not.toContain('takes one of them')
+    expect(mcp).toContain("A plugin's check (`plugin:<pluginId>`) has no output: its findings are in `get_completion`.")
+    // 5b final review M14: the guide's count of findings under a row is the renderer's
+    expect(cli).toContain(`first ${HUMAN_DIAGNOSTICS} findings`)
+  })
+
+  // The design's note on N2: a session event carries its title and folder, so the grant says so
+  it('says that events.subscribe hands a plugin the titles and folders of sessions', () => {
+    expect(prose(section(guide, '## Permissions'))).toMatch(/`events\.subscribe`[^.]*session[^.]*titles[^.]*folders/)
   })
 
   it('says which Node a plugin runs on, and how to start Node from process.execPath', () => {
@@ -254,8 +438,11 @@ describe('docs/plugins.md', () => {
     // whether a post is new
     expect(sample).toContain('timingSafeEqual')
     expect(sample).toContain('`event.id`')
-    // The review's note on the cursor ruling: events are missed while it starts again after a crash too
+    // Plugin Phase 3: an event plugin is handed what happened while it was stopped, a crash's restart included
+    expect(prose(sample)).toContain('what happened while it was stopped')
+    expect(prose(sample)).toContain('after it first starts')
     expect(prose(sample)).toContain('starting again after a crash')
+    expect(prose(sample)).not.toContain('is not posted')
   })
 
   // 2f final review m1: the quick start's commands need the astera command
@@ -338,7 +525,7 @@ describe('the quick start, followed as written', () => {
     const PATH = `${path.join(root, 'node_modules', '.bin')}${path.delimiter}${process.env[pathKey] ?? ''}`
     execSync(command.replace(/^npx /, ''), { cwd: dir, stdio: 'pipe', env: { ...process.env, [pathKey]: PATH } })
     const { r, log } = runtime('bundled')
-    r.start({ id: 'bundled', version: '1.0.0', folder: 'bundled', dir, entry: path.join(dir, outfile), granted: [], settings: {}, redact: [] })
+    r.start({ id: 'bundled', version: '1.0.0', folder: 'bundled', dir, entry: path.join(dir, outfile), granted: [], capabilities: [], settings: {}, redact: [] })
     await expect.poll(log, { timeout: 20_000, interval: 50 }).toContain('[info] bundled function')
   }, 40_000)
 
@@ -357,7 +544,7 @@ describe('the quick start, followed as written', () => {
     writeFileSync(path.join(dir, m.entry), code)
 
     const { r, log } = runtime(m.id)
-    r.start({ id: m.id, version: m.version, folder: m.id, dir, entry: path.join(dir, m.entry), granted: m.permissions, settings: {}, redact: [] })
+    r.start({ id: m.id, version: m.version, folder: m.id, dir, entry: path.join(dir, m.entry), granted: m.permissions, capabilities: m.capabilities, settings: {}, redact: [] })
     // The log lines the guide shows, without their times and the process id
     const shown = fenced(start, 'text')
       .join('\n')
@@ -369,4 +556,87 @@ describe('the quick start, followed as written', () => {
       .poll(() => log().replace(/pid \d+/g, 'pid '), { timeout: 20_000, interval: 50 })
       .toSatisfy((text: string) => shown.every((l) => text.includes(l)))
   }, 40_000)
+})
+
+// 5b final review I3: the guide's completion check is one a worker can satisfy. Run as written in the real runtime, it
+// passes a Task that adds a new migration as told, fails one that changes an old one, reads a Task folder inside a
+// larger repository, and throws one sentence when git fails.
+describe('the completion check example, run as written', () => {
+  let work: string
+  let launcher: string
+  beforeAll(async () => {
+    work = mkdtempSync(path.join(os.tmpdir(), 'astera-check example '))
+    launcher = await bundleLauncher(work)
+  }, 60_000)
+  afterAll(async () => {
+    await removeFixture(work)
+  })
+  const runtimes: ReturnType<typeof createPluginRuntime>[] = []
+  afterEach(async () => {
+    for (const r of runtimes.splice(0)) await r.stopAll()
+  })
+
+  it('passes a new migration, fails a changed one, reads a subfolder, and throws one sentence', async () => {
+    const [block] = fenced(section(guide, '## Completion check plugins'), 'ts')
+    const sdk = "import { defineCompletionCheckProvider } from '@astera-app/plugin-sdk'"
+    expect(block).toContain(sdk)
+    // The SDK's function is the provider it is given; the rest is the block as a reader writes it
+    const ts = block.replace(sdk, 'const defineCompletionCheckProvider = <T,>(provider: T): T => provider')
+    const dir = path.join(work, 'example')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(path.join(dir, 'index.mjs'), (await transform(ts, { loader: 'ts', format: 'esm', target: 'node22' })).code)
+    const r = createPluginRuntime({
+      profileDir: path.join(work, 'profile'),
+      exec: process.execPath,
+      launcher,
+      env: process.env,
+      host: () => ({ version: '9.9.9', pid: process.pid, startedAt: 'T', features: ['orch', 'requests', 'events'] }),
+      orch: { call: (async (a: { cmd: string }) => ({ status: 404, body: { error: `no ${a.cmd}` } })) as never },
+      log: () => {}
+    })
+    runtimes.push(r)
+    r.start({ id: 'example', version: '1.0.0', folder: 'example', dir, entry: path.join(dir, 'index.mjs'), granted: [], capabilities: ['completion-check'], settings: {}, redact: [] })
+    await expect.poll(() => r.status('example')?.status, { timeout: 45_000, interval: 50 }).toBe('running')
+    const ask = (root: string, base?: string) =>
+      r.request('example', 'completionCheck.run', { input: { jobId: 'j', runId: 'r', taskId: 't', task: { title: 'x' }, workspace: { root, ...(base ? { base } : {}) } } }, 60_000) as Promise<{
+        status: string
+        summary: string
+        diagnostics?: Array<{ file: string }>
+      }>
+
+    const repo = await tempDir('astera-check example repo ')
+    try {
+      gitSync(repo, ['init', '-b', 'main'])
+      gitSync(repo, ['config', 'user.email', 't@t.com'])
+      gitSync(repo, ['config', 'user.name', 'Test User'])
+      mkdirSync(path.join(repo, 'db', 'migrations'), { recursive: true })
+      writeFileSync(path.join(repo, 'db', 'migrations', '001 première.sql'), 'create table a (id int);\n')
+      gitSync(repo, ['add', '-A'])
+      gitSync(repo, ['commit', '-m', 'base'])
+      const base = gitSync(repo, ['rev-parse', 'HEAD'])
+      const db = path.join(repo, 'db')
+      // A new migration, committed, is how the worker was told to change the schema
+      writeFileSync(path.join(repo, 'db', 'migrations', '002.sql'), 'alter table a add b int;\n')
+      gitSync(repo, ['add', '-A'])
+      gitSync(repo, ['commit', '-m', 'work'])
+      expect(await ask(db, base)).toMatchObject({ status: 'passed' })
+      // Changing an old one is what it fails, named from the Task's folder as it is on disk
+      writeFileSync(path.join(repo, 'db', 'migrations', '001 première.sql'), 'create table a (id bigint);\n')
+      expect(await ask(db, base)).toEqual({
+        status: 'failed',
+        summary: 'a migration was changed: add a new one instead',
+        diagnostics: [{ file: 'migrations/001 première.sql', message: 'changes a migration that may have run already' }]
+      })
+      // git failing is one sentence, as the guide tells a plugin to throw
+      const failed = await ask(db, 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef').then(
+        () => null,
+        (e: unknown) => e
+      )
+      expect(failed).toBeInstanceOf(PluginRequestFailed)
+      expect((failed as Error).message).toMatch(/^runCheck threw: git could not list the changes: fatal: bad (object|revision)/)
+      expect((failed as Error).message).not.toContain('\n')
+    } finally {
+      await removeFixture(repo)
+    }
+  }, 120_000)
 })

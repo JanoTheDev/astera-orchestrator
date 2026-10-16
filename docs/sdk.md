@@ -179,6 +179,15 @@ const run = await astera.jobs.run(job.id, { requestId: randomUUID() })
 console.log(`run ${run.ordinal} of ${job.id}: ${run.id}`)
 ```
 
+A Job made from a job source's item (a ticket a person picked in the app, with `astera jobs create-from-source`, or
+with MCP's `create_job_from_source`) carries `source`: `{ id, itemId, label, title?, url? }`, the source (`github`,
+or a plugin's id), the item's id there, how a person names it (`Linear ENG-123`), the item's title (someone else's
+text, at most 300 characters), and its link. Astera sets it, from 1.4.14
+and `@astera-app/client` 0.3.0; `jobs.create` takes no such field. There is no namespace for job sources yet: make
+such a Job with `call('jobs-create-from-source', { source, item, project })`, as the CLI does (`astera jobs
+create-from-source`), with `jobs.create`'s coordinator and convergence arguments beside them; the answer is the Job.
+[Job source plugins](plugins.md#job-source-plugins) says where the items come from.
+
 `jobs.run` answers the Run it started. `runs.stop` releases the Run's workers and pauses it; `runs.resume` takes it
 back.
 
@@ -227,6 +236,11 @@ for (const q of items) {
 }
 ```
 
+When a question lists `options`, answer with one of them. The one a plugin's completion check opens when it could not
+be made, `kind` `check-unavailable`, refuses any answer but `retry`, `skip-check` or `mark-failed` with
+`INVALID_ARGUMENTS`: `retry` runs the Task's checks again, `skip-check` goes on without that check this round, and
+`mark-failed` fails the Task.
+
 A question someone already answered (in the app, say) keeps that answer, and `questions.answer` gives it back, so
 compare `resolution` with what you sent. When a person takes a while to type, read the question again
 (`questions.get`) right before sending: answered meanwhile in the same words, it would otherwise look like yours.
@@ -236,8 +250,10 @@ compare `resolution` with what you sent. When a person takes a while to type, re
 
 `tasks.create` adds a Task to a Job's definition (`jobId`) or to a Run under way (`runId`): `spec` (what to do), and
 optionally `title`, `deps` (Task ids it waits for), `parentId`, `accountIds` (the accounts to run it on, in failover
-order), `validate` (run configuration ids that check the work) and `review`. Without `accountIds` it uses the Job's
-coordinator account, and is refused when the Job has none. `tasks.list({ runId, status, ready, brief })` and
+order), `validate` (run configuration ids that check the work, or `plugin:<id>` for a completion check plugin, in
+the order the checks run) and `review`. Without `accountIds` it uses the Job's coordinator account, and is refused when
+the Job has none. A `plugin:<id>` whose plugin is not installed, does not offer completion checks, or is disabled is
+refused with `PLUGIN_CAPABILITY_MISSING` ([plugins.md](plugins.md#completion-check-plugins)). `tasks.list({ runId, status, ready, brief })` and
 `tasks.get` read them.
 
 ### Completion
@@ -253,6 +269,12 @@ A Task is `not-started`, `working`, `checking`, `rechecking`, `reviewing`, `fixi
 `waiting-for-user`, `exhausted`, `converged` or `failed`; the Run wears its most urgent Task's state. `attempt` counts
 repairs against `maxAttempts`, and `failureSummary` and `lastFailure` say what failed. It is read only: whether the
 work is done stays Astera's call.
+
+A Task's `detail.checks` are its last round, each a check's `status` (`passed`, `failed`, `timed-out`, `not-run`, or
+`error` for a plugin's check that could not be made) with its `exitCode` and output. A plugin's check, `configId`
+`plugin:<id>`, carries its `summary`, its findings as `diagnostics` (`file?`, `line?`, `message`, `severity?`; the first
+20, and none for a passed check), `diagnosticsTotal` when the plugin gave more, and a link as `externalUrl`; one a person
+let the round go on without is `not-run` with `skipped: true`.
 
 ### Any other command
 
@@ -282,7 +304,7 @@ outlives a Host restart, and `events` reads it. An event:
 | `task.completed`, `task.failed` | a Task completes; fails (a failure it will retry included) | `Task` |
 | `question.created`, `question.answered` | a question for a person opens; is answered | `Question` |
 | `completion.started` | a Task's first check starts | `TaskCompletion` |
-| `completion.failed` | a check or review round fails | `TaskCompletion` |
+| `completion.failed` | a check or review round fails (a plugin's check that could not be made fails no round: its question, `question.created`, says the Task waits) | `TaskCompletion` |
 | `completion.repair_started` | a repair of a failed check or review starts, once its worker has its session | `TaskCompletion` |
 | `completion.converged`, `completion.exhausted` | a Task is done; its repairs ran out | `TaskCompletion` |
 | `session.input_needed` | a session turns to waiting on a person (a permission, a question), once per turn into it | `{ session, prompt }` |
@@ -290,7 +312,9 @@ outlives a Host restart, and `events` reads it. An event:
 | `session.account_switched` | a session goes on under another account | `{ session, accountLabel }` |
 
 The payload is the object as it stood right after the change. A Task is cut like `tasks.list({ brief: true })` and its
-checks carry no output; the `get` methods read the whole object.
+checks carry no output; a plugin check, in a Task or a `TaskCompletion`, carries how many findings it has
+(`diagnosticsTotal`) and not the findings, which `tasks.get` and `completion.get` read. The `get` methods read the whole
+object.
 
 A session event's `session` is `{ id, kind, title?, provider?, cwd? }`, as `astera sessions list` shows it; `prompt` is
 `permission`, `question` or `null` when the Host cannot tell. They are what Astera's desktop notifications announce: a
@@ -388,6 +412,7 @@ CommonJS copies.
 | `VERSION_MISMATCH` | the Host and this client do not speak the same version, or the Host lacks a feature the call needs | update the app |
 | `WAITING_FOR_INPUT` | not thrown: the waits answer `waiting`, `paused` and `limited` as data | |
 | `RUN_FAILED` | not thrown: the waits answer `failed` as data | |
+| `PLUGIN_CAPABILITY_MISSING` | a Task's check names `plugin:<id>` and that plugin is not installed, does not offer completion checks, or is disabled | `astera plugins list`; install or enable it, or take the check out |
 
 `EXIT_CODES` maps every code to the exit code `astera` uses for it, for a script that exits the same way
 ([run-a-job.ts](../examples/sdk/run-a-job.ts) does).

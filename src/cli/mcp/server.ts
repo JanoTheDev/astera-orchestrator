@@ -10,7 +10,7 @@ import {
   dataFor,
   nextStepsFor,
   refusalDetailsOf,
-  remoteCodeOf,
+  bodyCodeOf,
   type CliErrorCode
 } from '../../core/orchestration/cliOutput'
 import type { JobEvent } from '../../core/types'
@@ -70,7 +70,14 @@ const FREE_TEXT = new Set([
   'jobName',
   'outcome',
   // A Run's timeline events (MCP P2-D, wait_for_run): `summary` is above; a Task's title rides on each.
-  'taskTitle'
+  'taskTitle',
+  // A job source's item (plugin Phase 4 J22): its fields and its status are someone else's text, as an issue's body is.
+  'fields',
+  'status',
+  // A plugin check's findings and link (plugin Phase 5 C13): the plugin's text, as a check's output is. Its summary and
+  // each finding's message are under `summary` and `message` above; this takes a finding's file and the link too.
+  'diagnostics',
+  'externalUrl'
 ])
 
 /** Every object in a `checks` array, at any depth, without its `outputTail`: raw validator output
@@ -265,7 +272,7 @@ export async function hostRead(link: HostLink, cmd: string, tool: string, args: 
   const r = await link.call(cmd, args, request)
   if ('code' in r) return { ok: false, code: r.code, message: r.message }
   if (r.status < 200 || r.status >= 300)
-    return { ok: false, code: remoteCodeOf(r.body) ?? codeForStatus(r.status), message: refusalMessage(r.status, r.body), body: r.body }
+    return { ok: false, code: bodyCodeOf(r.body) ?? codeForStatus(r.status), message: refusalMessage(r.status, r.body), body: r.body }
   return { ok: true, shaped: redactOutput(tool, redact(dropCheckOutput(publicFor(cmd, r.body)))), replayed: r.replayed === true }
 }
 
@@ -273,10 +280,11 @@ async function runTool(link: HostLink, t: ToolDef, input: Record<string, unknown
   let args = input
   // A list tool's cursor (lists.ts) is read before anything reaches the Host: one from another tool,
   // or one that is no cursor at all, is the caller's mistake.
-  const offset = typeof input.cursor === 'string' ? cursorOffset(t.name, input.cursor) : 0
+  // list_source_items's cursor is the source's own, passed through to the Host (plugin 4b R4).
+  const offset = typeof input.cursor === 'string' && t.name !== 'list_source_items' ? cursorOffset(t.name, input.cursor) : 0
   if (typeof offset !== 'number') return errorResult('INVALID_ARGUMENTS', offset.error)
   const refused =
-    t.name === 'create_job' || t.name === 'create_job_from_issue'
+    t.name === 'create_job' || t.name === 'create_job_from_issue' || t.name === 'create_job_from_source'
       ? convergenceRefusal(input)
       : t.name === 'create_task'
         ? taskTargetRefusal(input)
@@ -438,7 +446,7 @@ async function linkForCall(a: { link: HostLink; runtimes?: McpRuntimes }, t: Too
   if (remoteTarget(t.cmd) === 'no')
     return errorResult('RUNTIME_CAPABILITY_MISSING', `${t.name} works on this machine only; leave runtimeId out`)
   if (!a.runtimes) return errorResult('RUNTIME_CAPABILITY_MISSING', 'this MCP server reaches no paired Runtime')
-  const refused = await a.runtimes.refusal(t.cmd)
+  const refused = await a.runtimes.refusal(t.cmd, input)
   if (refused !== null) return errorResult('PERMISSION_DENIED', refused)
   const link = await a.runtimes.linkFor(input.runtimeId)
   if ('code' in link) return errorResult(link.code, link.message)
@@ -569,7 +577,7 @@ export async function serveMcp(a: {
     })
   const runtimes: McpRuntimes = {
     list: () => opened.list(),
-    refusal: (cmd) => opened.refusal(cmd),
+    refusal: (cmd, args) => opened.refusal(cmd, args),
     linkFor: async (key) => {
       const l = await opened.linkFor(key)
       return 'code' in l ? l : counted(l)

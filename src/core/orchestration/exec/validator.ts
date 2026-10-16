@@ -1,6 +1,7 @@
 import { stripAnsi } from '../../rolling/detect'
 import { PTY_LOST_SIGHT_EXIT_CODE } from '../../sessions/pty'
 import { CHECK_TIMEOUT_MS, type CheckResult } from '../types'
+import { pluginIdOfCheck, unavailable, type PluginCheckAnswer } from '../pluginChecks'
 
 // Validation run sequencing. Knows neither RunManager nor OrchState — only a runner and two callbacks,
 // which is what lets tests reach it (inside ipc.ts they could not).
@@ -15,6 +16,18 @@ import { CHECK_TIMEOUT_MS, type CheckResult } from '../types'
 // 돌리는 것은 분 단위 낭비이고 진단도 흐려진다. 뒤의 check 는 not-run 으로 기록한다. check 마다 타이머가
 // 있고, 첫 timeout 은 그 check 를 한 번 다시 띄우며 두 번째는 onCannotRun 이다 — timeout 은 코드 실패가
 // 아니다(명세 §19).
+//
+// **A `plugin:` entry is asked, not started** (plugin Phase 5 C8). It keeps its place in the order and the stop at
+// the first failure; it has no terminal, so no exit, no timer here (the request carries the time limit, C2) and no
+// early exit. An `error` answer is asked once more at once, as a first timeout is; a second settles the round with it,
+// and the verdict (applyValidationResult) puts it to a person (C9).
+
+/** Asks a completion check plugin for one `plugin:` entry (plugin Phase 5 C8). Its failure to answer is an `error`
+ *  answer, not a rejection; it rejects only when it could not ask at all (the path guard refused, the Task is gone),
+ *  which is a check that could not start (onCannotRun). `'skip'` as ValidatorRunner.start's. */
+export interface ValidatorPluginRunner {
+  run(a: { cwd: string; taskId: string; configId: string }): Promise<PluginCheckAnswer | 'skip'>
+}
 
 export interface ValidatorRunner {
   /** Starts the run and returns its id. Throws when it cannot start — that reason becomes the Gate's
@@ -57,6 +70,8 @@ interface Pending {
   timedOut: boolean
   /** 한 번 timeout 을 낸 configId 들. 두 번째면 onCannotRun */
   timedOutOnce: Set<string>
+  /** The plugin checks that answered `error` once this round: a second settles it (plugin Phase 5 C9) */
+  erroredOnce: Set<string>
   timer: ReturnType<typeof setTimeout> | null
 }
 
@@ -91,6 +106,8 @@ export class TaskValidator {
   constructor(
     private deps: {
       runner: ValidatorRunner
+      /** How a `plugin:` entry is asked (plugin Phase 5 C8). Absent: each is an `error` that says so. */
+      plugins?: ValidatorPluginRunner
       onSettled: (a: { taskId: string; results: CheckResult[] }) => Promise<void>
       onCannotRun: (a: { taskId: string; reason: string }) => Promise<void>
       log?: (message: string) => void
@@ -101,14 +118,16 @@ export class TaskValidator {
     this.timeoutMs = deps.timeoutMs ?? CHECK_TIMEOUT_MS
   }
 
-  enqueue(a: { taskId: string; cwd: string; configIds: string[] }): void {
+  /** `done`: the results a round already has, carried in front of the ones this runs: a round a person let go on past
+   *  a check that could not be made (plugin Phase 5 C9 `skip-check`). */
+  enqueue(a: { taskId: string; cwd: string; configIds: string[]; done?: CheckResult[] }): void {
     // 중복 configId 를 지운다(첫 자리만 남긴다) — timedOutOnce 는 configId 로 키를 잡으므로, 같은
     // id 가 두 번 있으면 둘째 자리의 *첫* timeout 이 이미 "두 번째"로 읽혀 곧장 onCannotRun 으로 간다.
     const configIds = [...new Set(a.configIds)]
     const entry: Pending = {
-      taskId: a.taskId, cwd: a.cwd, configIds, index: 0, results: [],
+      taskId: a.taskId, cwd: a.cwd, configIds, index: 0, results: [...(a.done ?? [])],
       runId: null, name: null, startedAt: null, settling: false, stopped: false,
-      timedOut: false, timedOutOnce: new Set(), timer: null
+      timedOut: false, timedOutOnce: new Set(), erroredOnce: new Set(), timer: null
     }
     const q = this.queues.get(a.cwd)
     if (q) {
@@ -272,6 +291,15 @@ export class TaskValidator {
   /** head 의 index 번째 check 를 띄운다. skip·시작 실패의 처리는 옛 startHead 그대로다 */
   private async startCheck(cwd: string, head: Pending): Promise<void> {
     const configId = head.configIds[head.index]
+    // A carried round with nothing left to run is whole: its results are the verdict's (C9 skip-check of the last check)
+    if (configId === undefined && head.index === 0 && head.results.length > 0) {
+      this.settle(cwd, head)
+      return
+    }
+    if (configId !== undefined && pluginIdOfCheck(configId) !== null) {
+      await this.askPlugin(cwd, head, configId)
+      return
+    }
     if (configId === undefined) {
       // 빈 목록은 onSettled 로 보내지 않는다 — results: [] 는 위쪽에서 [].every(...) 로 통과로
       // 읽혀 "검증할 것이 없다"가 "검증 통과"가 된다. 이것은 그 자체로 배선 결함이다: 배선은
@@ -346,6 +374,67 @@ export class TaskValidator {
         .catch((err) => this.deps.log?.(`onCannotRun failed task=${head.taskId}: ${String(err)}`))
       this.advance(cwd, head)
     }
+  }
+
+  /** Asks the plugin for the head's `plugin:` check (plugin Phase 5 C8, C9). The same moves as a run's exit: a pass goes
+   *  on, a failure stops the round, the checks after it not run. An `error` is asked once more; a second is recorded and
+   *  settles the round. **Identity-checked after the await**: the entry may have left its queue meanwhile. */
+  private async askPlugin(cwd: string, head: Pending, configId: string): Promise<void> {
+    head.startedAt = new Date().toISOString()
+    let answer: PluginCheckAnswer | 'skip'
+    try {
+      answer = this.deps.plugins
+        ? await this.deps.plugins.run({ cwd, taskId: head.taskId, configId })
+        : { name: configId, ...unavailable('plugin checks cannot run here') }
+    } catch (e) {
+      // It could not be asked at all: as a run that could not start
+      this.deps.log?.(`plugin check could not be asked task=${head.taskId} check=${configId}: ${String(e)}`)
+      await this.deps
+        .onCannotRun({ taskId: head.taskId, reason: String(e) })
+        .catch((err) => this.deps.log?.(`onCannotRun failed task=${head.taskId}: ${String(err)}`))
+      this.advance(cwd, head)
+      return
+    }
+    if (this.queues.get(cwd)?.[0] !== head) return
+    if (answer === 'skip') {
+      this.deps.log?.(`validation no longer needed task=${head.taskId} cwd=${cwd}`)
+      this.advance(cwd, head)
+      return
+    }
+    if (answer.status === 'error' && !head.erroredOnce.has(configId)) {
+      head.erroredOnce.add(configId)
+      this.deps.log?.(`check "${answer.name}" could not be made task=${head.taskId}: ${answer.summary} — asking it once more`)
+      void this.startCheck(cwd, head)
+      return
+    }
+    head.results.push({
+      configId,
+      name: answer.name,
+      status: answer.status,
+      summary: answer.summary,
+      ...(answer.diagnostics !== undefined ? { diagnostics: answer.diagnostics } : {}),
+      ...(answer.diagnosticsTotal !== undefined ? { diagnosticsTotal: answer.diagnosticsTotal } : {}),
+      ...(answer.externalUrl !== undefined ? { externalUrl: answer.externalUrl } : {}),
+      startedAt: head.startedAt,
+      endedAt: new Date().toISOString()
+    })
+    if (answer.status === 'passed' && head.index + 1 < head.configIds.length) {
+      head.index += 1
+      void this.startCheck(cwd, head)
+      return
+    }
+    if (answer.status !== 'passed')
+      for (const rest of head.configIds.slice(head.index + 1)) head.results.push({ configId: rest, name: rest, status: 'not-run' })
+    this.settle(cwd, head)
+  }
+
+  /** Hands the head's round to onSettled, then moves past it. */
+  private settle(cwd: string, head: Pending): void {
+    head.settling = true
+    void this.deps
+      .onSettled({ taskId: head.taskId, results: head.results })
+      .catch((e) => this.deps.log?.(`validation settle failed task=${head.taskId}: ${String(e)}`))
+      .finally(() => this.advance(cwd, head))
   }
 
   /** Moves past the head to the next entry.

@@ -42,7 +42,8 @@ export function NewTaskModal({
    *  provider 를 정하므로(orchestration/types.ts 의 Task.accountIds), 걸러 올 기준이 부르는 쪽에
    *  없다. 둘째 칸부터 첫 계정의 provider 로 좁히는 일은 이 폼이 한다. null 은 아직 안 온 것 */
   accounts: Account[] | null
-  /** 검증 구성 목록. null 은 아직 안 온 것 */
+  /** 검증 구성 목록. null 은 아직 안 온 것. The checks a Task can name: the run configurations, then this computer's
+   *  check plugins as `plugin:<id>` (plugin Phase 5 C6, RunDetail's checkChoicesOf) */
   runConfigs: { id: string; name: string }[] | null
   onClose: () => void
   onCreated: () => void
@@ -307,6 +308,10 @@ export function NewTaskModal({
                   </li>
                 ))}
               </ol>
+            )}
+            {/* A Runtime's plugins are its own and a controller cannot list them (C14): say where its plugin checks are added */}
+            {door.runtimeId !== undefined && (
+              <p className="modal-hint">{t('jobs.task.checksRuntimePlugins', { runtime: door.runtimeId, run: runId })}</p>
             )}
             {configs.length === 0 ? (
               <p className="modal-hint">{t('jobs.task.checksNone')}</p>

@@ -170,3 +170,43 @@ describe('canStopConvergence', () => {
     expect(canStopConvergence(task({ convergence: conv(), status: 'failed' }))).toBe(false)
   })
 })
+
+// Plugin Phase 5c: a check that could not be made stops a round as a failure does (C9)
+describe('a check that could not be made', () => {
+  const unmade = [check('Typecheck', 'passed'), check('D', 'error'), check('Tests', 'not-run')]
+
+  it('is the round’s blocked check, and a failed Task’s line says it could not run', () => {
+    expect(firstBlocked(task({ checks: unmade }))).toBe('D')
+    expect(nodeMetaOf(task({ status: 'failed', checks: unmade, provider: 'claude' }))).toEqual({ kind: 'failed', name: 'D', unavailable: true })
+    expect(nodeMetaOf(task({ status: 'failed', checks: failing, provider: 'claude' }))).toEqual({ kind: 'failed', name: 'Tests' })
+  })
+
+  it('a resumed round marks the check it runs now, and none when nothing is left to run', () => {
+    const resumed = [check('Typecheck', 'passed'), { ...check('D', 'not-run'), skipped: true as const }, check('Tests', 'not-run')]
+    expect(retryingCheckOf(task({ status: 'validating', checks: resumed, resumeAt: 'tests' }))?.name).toBe('Tests')
+    // 5c final review M2: the skipped check was the last, so nothing of the round is left to run
+    const last = [check('Typecheck', 'passed'), { ...check('D', 'not-run'), skipped: true as const }]
+    expect(retryingCheckOf(task({ status: 'validating', checks: last, resumeAt: null }))).toBeNull()
+    expect(nodeMetaOf(task({ status: 'validating', checks: last, resumeAt: null }))).toEqual({ kind: 'checking', retrying: null })
+    // An id the round does not hold marks none rather than a check that is not running
+    expect(retryingCheckOf(task({ status: 'validating', checks: resumed, resumeAt: 'gone' }))).toBeNull()
+    expect(retryingCheckOf(task({ status: 'validating', checks: unmade }))?.name).toBe('D')
+  })
+
+  // 5c final review M1: a line that names the blocked check says when it could not be made, not that it failed
+  it('the stopped and repairing lines say the check could not be made', () => {
+    expect(nodeMetaOf(task({ status: 'failed', checks: unmade, convergence: conv({ stopped: true }) }))).toEqual({
+      kind: 'stopped',
+      failed: 'D',
+      unavailable: true
+    })
+    expect(nodeMetaOf(task({ status: 'failed', checks: failing, convergence: conv({ stopped: true }) }))).toEqual({ kind: 'stopped', failed: 'Tests' })
+    expect(nodeMetaOf(task({ checks: unmade, convergence: conv({ repairing: 'check-failure', repairs: 1 }) }))).toEqual({
+      kind: 'repairing',
+      repairs: 1,
+      max: 3,
+      failed: 'D',
+      unavailable: true
+    })
+  })
+})

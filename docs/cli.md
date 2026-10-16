@@ -369,6 +369,15 @@ run panel when Astera opens, and stopping it there stops it in the Host. A Host 
 replaced while a check runs does not count that check as failed. The next Host starts it again in a
 `--convergence` Job, and otherwise opens a question about it.
 
+**A plugin's completion check that could not be made opens a question.** A `plugin:<id>` check is asked
+of the plugin rather than run in a terminal. A failure goes to the repair loop with the plugin's findings,
+as a run configuration's does. A check the plugin could not make (`error`: a service down, a token
+missing, the plugin stopped) is asked again at once, and a second one spends no repair: the task waits
+on a question of kind `check-unavailable`, and `runs wait` ends with 8. Its `options` are the answers:
+`retry` runs the task's checks again, `skip-check` lets this round go on without that check, which the
+task's record keeps as skipped, and `mark-failed` fails the task, as in
+`astera questions answer --id <questionId> --answer retry`. Any other answer is a 2.
+
 **A worker lost while Astera is closed opens a question.** When a worker ends without reporting while
 Astera is closed, in a run with no coordinator session, the Host opens a question on its task, and
 `runs wait` ends with 8. That includes a worker Astera saw before it closed, which Astera might
@@ -525,7 +534,7 @@ astera plugins install --path ./my-plugin            shows what it is and asks f
 astera plugins install --path ./my-plugin --yes      approves what it asks for and installs it
 astera plugins install --path ./my-plugin --grant jobs.read   approves only jobs.read
 astera plugins install --npm @acme/astera-jira --yes            the same, for a plugin published on npm
-astera plugins list                                  what is installed, its status and what it was granted
+astera plugins list                                  what is installed, its status, what it was granted and what it offers
 astera plugins disable --id <pluginId>               keep it installed but do not run it
 astera plugins remove --id <pluginId>                uninstall it and delete its copy
 astera plugins logs --id <pluginId>                  the last lines of its log
@@ -590,6 +599,44 @@ The app's Settings → Plugins does the same: it lists each plugin with its stat
 after showing what the plugin asks for (uncheck a permission to withhold it), and configures, enables, disables,
 removes and shows the log of each.
 
+### Job sources
+
+A Job can start from a ticket: an issue of a project's GitHub repository, or an item of a job-source plugin (a Linear
+issue with [the Linear sample](../examples/plugins/linear-source), say). `sources list` names the sources, each ready
+or with why not; `sources items` lists a page of a source's items and `sources show` reads one whole; `jobs
+create-from-source` makes a Job from one.
+
+```text
+astera sources list                                                GitHub issues and the job-source plugins
+astera sources items --source github --project <projectId>         the open issues of the project's repository
+astera sources items --source astera-linear-source --query login   a search; --cursor <nextCursor> for the next page
+astera sources show --source astera-linear-source --item ENG-123   one item, read whole
+astera jobs create-from-source --source github --item 12 --project <projectId> --coordinator-account <accountId>
+```
+
+GitHub issues need `--project` (its `needsProject` is true): they are the open issues, not pull requests, of the
+repository the project folder's remote names, read with your `gh`. An issue a non-member wrote is listed with
+`selectable: false` and the reason, and cannot become a Job. A plugin source ignores `--project`. Each item carries
+`jobs`, the ids of the Jobs already made from it; a second Job from the same item is allowed.
+
+`jobs create-from-source` returns the Job, with no run yet, as `jobs create` does, and takes its flags but `--objective`
+and `--cwd`: Astera writes the objective, and the Job works in the project's folder. The objective names the item and
+quotes its text as data inside a block the text cannot close, since someone else wrote it. The Job keeps the item as its
+`source` (`{ id, itemId, label, title, url }`), which `jobs get` shows; the app and `jobs list --human` name the Job by
+its `title`, the ticket's own, and the app links to the ticket. The same `--request-id` never makes two Jobs.
+
+What a refusal means: `INVALID_ARGUMENTS` (exit 2) a flag missing, or an item id no source gives (longer than 200
+characters, or with a control character); `PERMISSION_DENIED` (exit 5) an item that cannot be picked (a GitHub issue a
+non-member wrote, or a closed one); `NOT_FOUND` (exit 4) an unknown source, project or GitHub issue, or a pull
+request's number; `CONFLICT` (exit 6) `gh` missing or logged out. A plugin source that does not run, one that throws
+and one that takes more than 15 seconds are `FAILED` (exit 1), the message saying which: the source's status and
+reason, what it threw, or the time it had. `jobs-create-from-issue`, which agents used before job sources, still
+answers `CONFLICT` for a closed issue or a pull request.
+
+The commands reach this machine's Host only: a paired Runtime's sources are not listed, plugins cannot call them, and
+an agent session may make a Job from a source as it may with `jobs create`. Writing a job source:
+[the plugin guide](plugins.md#job-source-plugins).
+
 ## Command reference
 
 Every command is a noun and a verb. A noun with no verb is rejected with the list of its verbs, so
@@ -632,6 +679,10 @@ astera plugins doctor  --id <pluginId>
 astera plugins settings  --id <pluginId>
 astera plugins configure --id <pluginId> [--set <key=value>] [--unset <key>] [--stdin <key>]
 
+astera sources list
+astera sources items --source <sourceId> [--query <text>] [--cursor <cursor>] [--project <projectId>]
+astera sources show  --source <sourceId> --item <itemId> [--project <projectId>]
+
 astera projects list
 astera projects get   --id <projectId>
 astera projects find  --path <path>
@@ -642,6 +693,7 @@ astera jobs    get    --id <jobId | runId>
 astera jobs    run    --id <jobId>
 astera jobs    wait   --id <jobId>  [--timeout-ms <n>]
 astera jobs    create --objective <text> [--cwd <path>] [--concurrency <n>] [--coordinator-account <accountId>] [--coordinator-provider <claude|codex>] [--convergence [--max-fix-attempts <n>] [--max-review-rounds <n>] [--blocking-severity <high|medium>] [--max-total-minutes <n>]]
+astera jobs    create-from-source --source <sourceId> --item <itemId> --project <projectId> [--concurrency <n>] [--coordinator-account <accountId>] [--coordinator-provider <claude|codex>] [--convergence [--max-fix-attempts <n>] [--max-review-rounds <n>] [--blocking-severity <high|medium>] [--max-total-minutes <n>]]
 
 astera runs    list   [--job <jobId>] [--project <path>]
 astera runs    get    --id <runId>
@@ -823,7 +875,12 @@ id given to `--job`, or a Job id given to `--run`, is a 4, never quietly the oth
 `--account` takes come from `accounts list`, first one first, the rest in the order to fail over to.
 `--validate` names the run configurations that must pass on the worker's result before the task counts
 as done; the ids come from `run-configs list --job`, comma-separated. An id that is not one of that
-Job's is a 4, and `nextSteps` is `astera run-configs list --job <jobId>` with the Job filled in.
+Job's is a 4, and `nextSteps` is `astera run-configs list --job <jobId>` with the Job filled in. The
+list can also name `plugin:<id>`, a completion check plugin from `plugins list` (one whose `capabilities`
+include `completion-check`), in the order the checks run: `--validate npm-test,plugin:astera-debug-leftovers`.
+That id is checked against the plugins, not the run configurations, and a plugin that is not installed,
+does not offer completion checks, or is disabled is refused with `PLUGIN_CAPABILITY_MISSING` (see Exit
+codes). Installing a plugin adds no check to any task.
 
 **`tasks dispatch --id <taskId>` places one ready task now**, for a person or a script. The Host
 places it the way its own loop places a task: the task's first account (logged in, of the right
@@ -926,13 +983,14 @@ skill installed after it, and `data.note` says so. Open a new session.
 
 **`mcp serve` is for an MCP client to launch, not for a person to type**: its stdout carries the MCP
 protocol. It connects to the Host of this profile, starting one when none answers, and serves
-thirty-four tools that create, plan, run, observe, answer, stop and resume Jobs, read and use
+forty tools that create, plan, run, observe, answer, stop and resume Jobs, read and use
 sessions when Settings allows it, read pull requests, CI and issues on GitHub and, when Settings
-allows it, act on them, and read the How It Works records of a project and regenerate one. What it may do is set by
-MCP access in Settings (CLI tab). The six Job tools that change something (`create_job`,
-`create_task`, `run_job`, `stop_run`, `resume_run`, `answer_question`) take an optional `requestId`, and so do `send_message`, `create_session` and the
-three GitHub writes (`create_pr`, `retry_ci`, `create_job_from_issue`). See
-[MCP](mcp.md).
+allows it, act on them, read the job sources and make a Job from an item, read the How It Works records of a project
+and regenerate one, and list the Runtimes this machine is paired with. What it may do is set by MCP access in
+Settings (CLI tab). The six Job tools that change something (`create_job`, `create_task`, `run_job`, `stop_run`,
+`resume_run`, `answer_question`) take an optional `requestId`, and so do `send_message`, `create_session`, the three
+GitHub writes (`create_pr`, `retry_ci`, `create_job_from_issue`), `create_job_from_source` and
+`regenerate_work_record`. See [MCP](mcp.md).
 
 **`mcp status` says whether `mcp serve` would work on this profile**, and starts no Host. It prints
 `cliVersion`, `transport` (`stdio`), `host` (`running`, and for a running Host its `version`,
@@ -1272,19 +1330,28 @@ made, each with its `id`, `title` and `status`, and two parts:
   --validate`), and `checks` is the last round, each check with `configId`, `name`, `status`
   (`passed`, `failed`, `timed-out`, or `not-run` when an earlier check failed), `exitCode`,
   `outputTail` (the end of its output), `startedAt`, `endedAt` and `unstable`. Each round replaces the
-  one before it.
+  one before it. A plugin's check (`configId` `plugin:<id>`, `name` the plugin's) carries its `summary`,
+  its findings as `diagnostics` (`file`, `line`, `message`, `severity`; the first 20, none once it passed),
+  `diagnosticsTotal` when it gave more, and a link as `externalUrl`;
+  its `status` can also be `error`, a check the plugin could not make, while the task waits on its
+  question, and a check a person let the round go on without is `not-run` with `skipped: true`.
 - `review`: `required` is whether a review was asked for (`tasks add --review`) or has run. `verdict`
   is `accepted` or `rejected`, from the last reviewer that gave one, or `null` before any did. Without
   `--convergence` on the Job the reviewer's own outcome is the verdict; with it, any finding the Job's
   policy counts as blocking rejects. `issues` are that review's findings, each with `blocking`.
 
 Both parts carry `status`: `not-required`, `pending` (asked for, and no answer yet, or the last review
-ended without a verdict), `running`, `passed` or `failed`. `failureSummary` says in one line what
-failed, validation first: the failing checks with their exit codes and the last line of their output,
-then the blocking findings or the reviewer's reason. It is `null` when nothing failed.
+ended without a verdict), `running`, `passed` or `failed`. A check a person skipped counts as passed. A
+plugin check that could not be made leaves validation `pending` while the task waits on its question, and
+`failed` once it does not (a person answered `mark-failed`, say). `failureSummary` says in one line what
+failed, validation first: the failing checks with their exit codes and the last line of their output, a
+plugin check's summary or why it could not run, then the blocking findings or the reviewer's reason. It
+is `null` when nothing failed.
 `completionOverride` is there when a person marked the task done without its checks being met, with
 their reason. An unknown run is a 4, a Job id included, with `astera runs list` as its step.
-`--human` prints one line per task and the failure summary under a task that has one.
+`--human` prints one line per task and the failure summary under a task that has one. Under it go a
+failed plugin check's first 5 findings as `file:line message`, its link, a plugin check that could not
+run as `<name> could not run: <reason>`, and one a person skipped.
 
 ```json
 {"ok":true,"data":{"runId":"run_9f8e","jobId":"job_4f2a","tasks":[{"id":"tsk_1","title":"Fix the build","status":"failed",
@@ -1560,6 +1627,10 @@ with the exit of its nearest code above: `RUNTIME_NOT_FOUND` 4, `RUNTIME_OFFLINE
 `RUNTIME_ACCOUNT_NOT_FOUND` 4, `RUNTIME_CAPABILITY_MISSING` 9, `RUNTIME_BUSY` 6, `RUNTIME_PERMISSION_DENIED` 5,
 `RUNTIME_OUTCOME_UNKNOWN` 6, `REMOTE_TIMEOUT` 7, `REMOTE_OPERATION_CONFLICT` 6 and `REMOTE_REPLY_TOO_LARGE` 1
 ([remote-runtime.md](remote-runtime.md#error-codes) says what each means).
+
+`tasks add`, `jobs run` and `run-start` refuse a check list naming `plugin:<id>` whose plugin is not installed, does
+not offer completion checks, or is disabled, with `PLUGIN_CAPABILITY_MISSING` in `error.code`, exit 6, the message
+saying which; `astera plugins list` shows each plugin's capabilities and whether it runs.
 
 **3 and 4 are different questions.** 3 means nothing answered; 4 means something answered and does
 not know that id. Do not retry a 4.

@@ -873,6 +873,70 @@ describe('OrchCoordinator.releaseWorker', () => {
   })
 })
 
+describe('buildSpecFile — a plugin check in the repair request (plugin Phase 5 C10)', () => {
+  it('gives its summary, its findings as file:line message and its link', () => {
+    const checks: CheckResult[] = [
+      { configId: 'c1', name: 'Typecheck', status: 'passed', exitCode: 0 },
+      {
+        configId: 'plugin:d',
+        name: 'Debug leftovers',
+        status: 'failed',
+        summary: '2 leftovers',
+        diagnostics: [
+          { file: 'src/a.js', line: 3, message: 'adds console.log' },
+          { file: 'src/b.js', line: 9, message: 'adds debugger', severity: 'warning' }
+        ],
+        externalUrl: 'https://ci.example/r/1'
+      },
+      { configId: 'c3', name: 'Build', status: 'not-run' }
+    ]
+    const spec = buildSpecFile({ title: 'T', spec: 'do', taskId: 'tsk_1', dispatchId: 'dsp_2', repair: { reason: 'check-failure', repair: 1, maxFixAttempts: 3, checks } })
+    expect(spec).toContain(
+      [
+        '- Check "Debug leftovers" — failed: 2 leftovers',
+        '  Findings:',
+        '    src/a.js:3 adds console.log',
+        '    src/b.js:9 warning: adds debugger',
+        '  Details: https://ci.example/r/1',
+        '- Check "Build" — not run (stopped at the first failure).'
+      ].join('\n')
+    )
+    expect(spec).not.toContain('exit ?')
+  })
+
+  it('names the first 20 findings and counts the rest', () => {
+    const checks: CheckResult[] = [
+      { configId: 'plugin:d', name: 'D', status: 'failed', summary: 'many', diagnostics: Array.from({ length: 25 }, (_, i) => ({ file: 'a.js', line: i + 1, message: 'm' })) }
+    ]
+    const spec = buildSpecFile({ title: 'T', spec: 'do', taskId: 'tsk_1', dispatchId: 'dsp_2', repair: { reason: 'check-failure', repair: 1, maxFixAttempts: 3, checks } })
+    expect(spec).toContain('    a.js:20 m\n    … 5 more finding(s)')
+    expect(spec).not.toContain('a.js:21 m')
+  })
+
+  // 5d: the Host keeps 20 findings; the count of the rest is the plugin's
+  it('counts the findings the Host did not keep', () => {
+    const checks: CheckResult[] = [
+      {
+        configId: 'plugin:d',
+        name: 'D',
+        status: 'failed',
+        summary: 'many',
+        diagnostics: Array.from({ length: 20 }, (_, i) => ({ file: 'a.js', line: i + 1, message: 'm' })),
+        diagnosticsTotal: 150
+      }
+    ]
+    const spec = buildSpecFile({ title: 'T', spec: 'do', taskId: 'tsk_1', dispatchId: 'dsp_2', repair: { reason: 'check-failure', repair: 1, maxFixAttempts: 3, checks } })
+    expect(spec).toContain('    a.js:20 m\n    … 130 more finding(s)')
+  })
+
+  // 5d final review M3: a check that gave only a count still says how many it found
+  it('says the count of findings a check gave without listing them', () => {
+    const checks: CheckResult[] = [{ configId: 'plugin:d', name: 'D', status: 'failed', summary: '4 leftovers', diagnosticsTotal: 4 }]
+    const spec = buildSpecFile({ title: 'T', spec: 'do', taskId: 'tsk_1', dispatchId: 'dsp_2', repair: { reason: 'check-failure', repair: 1, maxFixAttempts: 3, checks } })
+    expect(spec).toContain('- Check "D" — failed: 4 leftovers\n  … 4 more finding(s)')
+  })
+})
+
 describe('buildSpecFile — repair 절', () => {
   const checks: CheckResult[] = [
     { configId: 'c1', name: 'Typecheck', status: 'passed', exitCode: 0 },

@@ -699,6 +699,41 @@ button.primary:disabled { background: var(--elevated); border-color: var(--line-
    the draft box. align-self restores the width the class already asked for. The same is true of
    every check-small in every modal; fixing it there is its own change, not this feature's. */
 .modal.create-pr label.check-small { align-self: flex-start; }
+
+/* The Jobs view's "+ From a source" window (plugin Phase 4 J20): the source and the search on one line, then the list
+   beside the picked item, each scrolling on its own so the buttons stay in view. */
+/* Scrolls as a whole in a short app window, so the columns never run over the account field and the buttons (4c final review M11) */
+.modal.source-job { width: 820px; max-width: calc(100vw - 48px); max-height: calc(100vh - 48px); overflow: auto; }
+.modal.source-job .source-pick { display: flex; gap: 8px; }
+.modal.source-job .source-pick select { flex: 0 0 240px; background: var(--bg); color: var(--text); border: 1px solid var(--line-soft); padding: 6px; border-radius: var(--radius); color-scheme: dark; }
+.modal.source-job .source-pick input { flex: 1; }
+.modal.source-job .source-pick select:focus-visible, .modal.source-job .source-pick input:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--ring); }
+.modal.source-job .source-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; min-height: 0; }
+.modal.source-job .source-items, .modal.source-job .source-detail { max-height: 320px; overflow: auto; display: flex; flex-direction: column; gap: 6px; }
+.modal.source-job .source-items ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.modal.source-job .source-item { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; padding: 4px 6px; border-radius: var(--radius); cursor: pointer; font-size: 12.5px; }
+.modal.source-job .source-item:hover { background: var(--surface-hover); }
+.modal.source-job .source-item.picked { box-shadow: inset 2px 0 0 var(--accent); background: var(--surface-hover); }
+.modal.source-job .source-item.disabled { opacity: 0.55; }
+/* A row takes the keyboard (4c final review M9): the app's focus ring, not the browser's outline */
+.modal.source-job .source-item:focus { outline: none; }
+.modal.source-job .source-item:focus-visible { box-shadow: inset 0 0 0 2px var(--ring); }
+.modal.source-job .source-id { font-family: var(--mono); font-size: 11.5px; color: var(--text-faint); }
+.modal.source-job .source-title { flex: 1; min-width: 0; color: var(--text); }
+.modal.source-job .source-status, .modal.source-job .source-reason { font-size: 11px; color: var(--text-faint); }
+.modal.source-job .source-exists { font-size: 11px; padding: 0 6px; }
+.modal.source-job .source-detail h3 { font-size: 13px; font-weight: 600; color: var(--text); margin: 0; }
+.modal.source-job .source-fields { font-size: 11.5px; border-collapse: collapse; align-self: flex-start; }
+/* The detail's and the list's own buttons keep their size rather than the column's width */
+.modal.source-job .source-detail > button, .modal.source-job .source-items > button, .modal.source-job .source-error > button { align-self: flex-start; }
+.modal.source-job .source-fields th { text-align: left; color: var(--text-faint); font-weight: 400; padding-right: 10px; vertical-align: top; }
+/* The ticket's text as it is (§3.3): wrapped, never rendered */
+.modal.source-job .source-body { white-space: pre-wrap; word-break: break-word; font-family: var(--mono); font-size: 11.5px; margin: 0; padding: 8px; background: var(--bg); border-radius: var(--radius); }
+.modal.source-job .source-error { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+/* A Job's source (plugin Phase 4 J18): a small chip after its objective, on the card and in the detail's header */
+.source-chip { flex: 0 0 auto; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10.5px; line-height: 16px; padding: 0 6px; border: 1px solid var(--line-soft); border-radius: var(--radius-sm); background: none; color: var(--text-dim); }
+button.source-chip { cursor: pointer; }
+button.source-chip:hover { color: var(--accent); border-color: var(--accent); }
 /* The palette, width and resize now come from `.field textarea`, which this dialog's fields sit in
    like every other modal's. Only the two things that differ stay here: a PR body is prose, not
    code, so it keeps the UI face rather than .field's mono, and it gets a little more side padding. */
@@ -1770,6 +1805,8 @@ input[type="checkbox"]:not(.md-task input):focus-visible {
 .detail-check--passed { color: var(--ok); }
 .detail-check--failed, .detail-check--timed-out { color: var(--git-deleted); }
 .detail-check--not-run { color: var(--text-faint); }
+/* A plugin check that could not be made (plugin Phase 5 C9): not the code's failure, so not its colour */
+.detail-check--error { color: var(--warn-ink); }
 .detail-check--retrying { color: var(--accent); }
 /* Task 짓기 중 고른 의존 표시. 필터의 고른 표시(노드 자신의 상태색 링)와 다른 채널이라 위치도
    다르다 — 테두리가 아니라 제목 옆에 글리프를 하나 더 세운다. color 를 accent(청록)로 주는 것은
@@ -1897,6 +1934,9 @@ input[type="checkbox"]:not(.md-task input):focus-visible {
 /* 코디네이터가 준 선택지. 줄바꿈을 허용한다 — 문장이 선택지로 오는 경우가 있고, 한 줄에 밀어 넣고
    자르면 무엇을 고르는지 읽을 수 없다 */
 .detail-gate-options { display: flex; flex-wrap: wrap; gap: 6px; }
+/* A choice that says what it does (a check that could not be made, plugin Phase 5 C9): its label, its line under it */
+.detail-gate-options > button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; }
+.detail-gate-option-hint { font-size: 11px; color: var(--text-dim); white-space: normal; }
 
 /* RunTypePicker — the ＋ button's kind-picker popup. Anchored the same way as .run-more/.run-more-menu
    in RunToolbar; a separate namespace because it also holds a search input and two grouped sections
@@ -2269,6 +2309,10 @@ input[type="checkbox"]:not(.md-task input):focus-visible {
    그래프이기 때문이다. 두 자리 모두 `>` 로 잡아 특이도를 맞춰 두었다: 그러지 않으면 위
    .jobs-new:hover 와 동점이 되어 순서에 기대게 된다. */
 .jobs-view > .jobs-new, .jobs-empty > .jobs-new { background: var(--btn-bg); border-color: var(--btn-bg); color: var(--btn-ink); font-weight: 600; }
+/* "+ From a source" (plugin Phase 4 J20) stands under "+ New job" as the plain button it is, not a second primary */
+.jobs-view > .jobs-new.jobs-new-source, .jobs-empty > .jobs-new.jobs-new-source { background: none; border-color: var(--line-soft); color: var(--text-dim); font-weight: 400; margin-top: 0; }
+/* Its hover is the plain button's, not the primary's dimming (4c final review M10) */
+.jobs-view > .jobs-new.jobs-new-source:hover:not(:disabled), .jobs-empty > .jobs-new.jobs-new-source:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); filter: none; }
 .jobs-view > .jobs-new:hover, .jobs-empty > .jobs-new:hover { filter: brightness(.85); }
 /* 목록 쪽만 오른쪽 끝에 선다 — 왼쪽 열은 Run 의 글리프와 제목이 쓰는 자리라, 버튼이 거기 서면
    목록의 첫 줄처럼 읽힌다. 빈 화면 쪽은 .jobs-empty 의 text-align: center 를 그대로 따른다.
@@ -2456,6 +2500,14 @@ input[type="checkbox"]:not(.md-task input):focus-visible {
 .detail-completion-name--passed { color: var(--text-dim); font-weight: 400; }
 .detail-completion-name--failed, .detail-completion-name--timed-out { color: var(--git-conflict); }
 .detail-completion-name--not-run { color: var(--text-faint); font-weight: 400; }
+.detail-completion-name--error { color: var(--warn-ink); }
+/* A plugin check's own words and its findings (plugin Phase 5 C13): full width under the check's row; a hundred
+   findings scroll here rather than push the graph away */
+.detail-completion-summary { flex: 0 0 100%; margin: 0; max-height: 160px; overflow: auto; color: var(--text-dim); white-space: pre-wrap; overflow-wrap: anywhere; }
+.detail-completion-summary--error { color: var(--warn-ink); }
+.detail-completion-diags { flex: 0 0 100%; list-style: none; margin: 0; padding: 0; max-height: 160px; overflow: auto; display: flex; flex-direction: column; gap: 2px; font-size: 11px; }
+.detail-completion-diags > li { display: flex; gap: 6px; align-items: baseline; overflow-wrap: anywhere; white-space: pre-wrap; }
+.detail-completion-diags > li.warning { color: var(--text-dim); }
 .detail-completion-verdict { color: var(--text-dim); }
 .detail-completion-more { background: none; border: 0; padding: 0; color: var(--accent); font-size: 11px; cursor: pointer; }
 .detail-completion-more:hover { text-decoration: underline; background: none; }

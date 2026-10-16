@@ -82,7 +82,9 @@ const TASK_HIDDEN = [
   'convergenceStartedAt',
   'convergenceOff',
   'suspiciousFiles',
-  'reviewRequested'
+  'reviewRequested',
+  // A skipped round's bookkeeping (plugin Phase 5 C9): its results are the Task's `checks` once it settles
+  'checkResume'
 ] as const
 
 /** A followed event's message body (pages long) and the app's link from an event to a tab. */

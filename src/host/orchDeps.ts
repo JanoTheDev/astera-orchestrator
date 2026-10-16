@@ -450,7 +450,9 @@ const NOT_FORWARDED = [
   'journalTimeline',
   'github',
   'readUnderstanding',
-  'changes'
+  'changes',
+  'jobSources',
+  'completionChecks'
 ] as const
 
 /** Every name the groups above classify between them. Nothing is unsupplied any more: the four
@@ -588,7 +590,13 @@ const EFFECTFUL: Record<Classified, boolean> = {
   readUnderstanding: false,
   // NOT_FORWARDED as well (remote runtime design Phase 10): git reads on this Host's machine, never the app's. It
   // runs `git diff` and leaves nothing outside the call.
-  changes: false
+  changes: false,
+  // NOT_FORWARDED as well (plugin Phase 4 J10): this Host's job-source plugins, asked for their items, never the app's.
+  // A question to a plugin leaves nothing outside the call; the Job a person makes from an item is a commit.
+  jobSources: false,
+  // NOT_FORWARDED as well (plugin Phase 5 C7, C8): this Host's completion check plugins, listed and asked to check,
+  // never the app's. A check reads the work; its verdict is committed by the checks that asked.
+  completionChecks: false
 }
 
 /** The names an action really travels under, narrowed to the effectful ones — the NESTED groups
@@ -706,6 +714,9 @@ export function hostOrchDeps(a: {
   readUnderstanding?: OrchServerDeps['readUnderstanding']
   /** A Run's changed files and diffs from this Host's git (Phase 10). Absent: the two commands answer 409. */
   changes?: OrchServerDeps['changes']
+  /** This Host's job-source plugins (plugin Phase 4 J10). Absent: the sources are GitHub's alone. */
+  jobSources?: OrchServerDeps['jobSources']
+  completionChecks?: OrchServerDeps['completionChecks']
   /** The Host's own session work units (HOST_TRACKS, E2 §5), asked whether it is their writer at every
    *  call. Null or absent (no spawner): `trackingEnabled` and `sessionTasks.*` only forward, as before. */
   workUnits?: (Pick<HostWorkUnits, 'isWriter' | 'trackingEnabled'> & {
@@ -1282,6 +1293,8 @@ export function hostOrchDeps(a: {
     ...(github ? { github } : {}),
     ...(a.readUnderstanding ? { readUnderstanding: a.readUnderstanding } : {}),
     ...(a.changes ? { changes: a.changes } : {}),
+    ...(a.jobSources ? { jobSources: a.jobSources } : {}),
+    ...(a.completionChecks ? { completionChecks: a.completionChecks } : {}),
     ...(a.checkWaits
       ? {
           enterCheckWait: (runId: string, sessionId: string) => a.checkWaits!.enter(runId, sessionId),

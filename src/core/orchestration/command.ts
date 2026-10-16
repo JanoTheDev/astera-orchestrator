@@ -28,6 +28,9 @@ import {
   nextDelivery,
   openDispatch,
   resolveGate,
+  answerCheckUnavailable,
+  isCheckUnavailableAnswer,
+  CHECK_UNAVAILABLE_OPTIONS,
   deleteRuns,
   deleteJobs,
   startJobRun,
@@ -87,6 +90,7 @@ import {
   type Dispatch,
   type Job,
   type JobRun,
+  type JobSourceRef,
   type MessageType,
   type Project,
   type Task,
@@ -108,7 +112,8 @@ import type { JobEvent, WorktreeInfo } from '../types'
 import { ghFailureSentence, type GhFailed, type GhRunner } from '../github/gh'
 import { failedLogTail, readPrChecks, rerunFailed } from '../github/checks'
 import { prForBranch } from '../github/prs'
-import { ISSUE_JOB_ASSOCIATIONS, issueObjective, readIssue } from '../github/issue'
+import { ISSUE_JOB_ASSOCIATIONS, readIssue } from '../github/issue'
+import { GITHUB_SOURCE_ID, issueContext } from '../github/issueSource'
 import { fillFromCommits, type CommitSummary } from '../github/fill'
 import type { PrCreateRequest, PrCreateResult } from '../github/prCreate'
 import type { SessionCheck } from '../workUnit/types'
@@ -121,6 +126,10 @@ import { isOverrideCompletion, policyOf } from './convergence'
 import { leftNothingBehind } from '../host/orchProtocol'
 import { APP_CALLER, HOST_CALLER } from '../host/driver'
 import { UNREADABLE, recordDetail, recordSummary, recordsFor, type StoreShape } from '../understanding/read'
+import { JOB_SOURCE, SOURCE_COMMANDS, createFromContext, sourcesCommand, type JobSourcesDeps } from './commandSources'
+export { JOB_SOURCE } from './commandSources'
+import { pluginIdOfCheck, type CompletionCheckInput, type PluginCheckAnswer } from './pluginChecks'
+import { checkIdsOf, pluginCheckRefusal, tasksOfNextRun } from './commandChecks'
 
 /** One row of `listAccounts`. Named only because the declaration below is a union and repeating the
  *  shape on both sides invites the two halves to drift. */
@@ -635,6 +644,32 @@ export interface OrchServerDeps {
    *  never written (`readUnderstandingFile`). **Only the Host injects it**, over its profile's file: the
    *  app has the records in its own store and no caller asks it. Absent, `understanding-*` answer 409. */
   readUnderstanding?(): Promise<StoreShape>
+  /** The job-source plugins (plugin Phase 4 J10): which there are and a question to one. **Only the Host injects it**,
+   *  from its plugin manager and runtime; absent, the sources are GitHub's alone. */
+  jobSources?: JobSourcesDeps
+  /** The completion check plugins (plugin Phase 5 C7, C8): which there are, for `tasks add` and `jobs run` to refuse a
+   *  missing one early, and a check asked of one, for the checks to run. The Host's is its plugin manager and runtime;
+   *  the app's goes through the Host (`plugins-list`, `checks-plugin-run`). Absent, nothing is refused early and a
+   *  plugin check is an `error` that says so. */
+  completionChecks?: CompletionChecksDeps
+}
+
+/** A plugin as the early refusal reads it (plugin Phase 5 C7). */
+export interface CompletionCheckPlugin {
+  id: string
+  displayName: string
+  /** Its manifest names `completion-check` */
+  check: boolean
+  enabled: boolean
+}
+
+/** How completion check plugins are reached (plugin Phase 5 C7, C8). */
+export interface CompletionChecksDeps {
+  /** Every installed plugin, or null when the list could not be read (then nothing is refused early). */
+  plugins(): Promise<CompletionCheckPlugin[] | null>
+  /** Asks plugin `plugin` to check: its answer checked and cut (`checkAnswerOf`), named by its display name. Never
+   *  rejects: a plugin that could not answer is an `error` answer saying why. */
+  run(plugin: string, input: CompletionCheckInput): Promise<PluginCheckAnswer>
 }
 
 /** A chat session's turn as `chatTurn` reads it. `prompt` is the open prompt, as `chats pending` lists
@@ -1157,6 +1192,52 @@ function parseAccountList(
   return { ok: true, ids: parts }
 }
 
+/** The mark `jobs run` gives the `run-start` it calls: its plugin checks were looked at already (plugin Phase 5 C7). A
+ *  symbol, so no JSON a caller sends can carry it. */
+const PLUGIN_CHECKS_PASSED: unique symbol = Symbol('plugin-checks-passed')
+
+/** Whether `run-start` of a Run id would start a coordinator for it: the one case it does anything. A finished Run, a
+ *  paused one, one with a coordinator, or one whose Job names no coordinator account is answered as it is. */
+function coordinatorWanted(deps: OrchServerDeps, s: OrchState, run: JobRun, job: Job): boolean {
+  return (
+    !run.coordinatorSessionId &&
+    run.paused !== true &&
+    !!job.coordinatorAccountId &&
+    !!deps.startCoordinator &&
+    outcomeOf(s, run.id) === 'running'
+  )
+}
+
+/** The check ids of the Tasks `jobs run` or `run-start` is about to start (plugin Phase 5 C7), read from a state of
+ *  their own: a Job's next Run's Tasks, or a Run's unfinished Tasks when a coordinator would be started for it. */
+function startingCheckIds(deps: OrchServerDeps, cmd: string, args: Record<string, unknown>): string[] {
+  const s = deps.getState()
+  const id = cmd === 'jobs-run' ? str(args.id) : str(args.run)
+  if (id === null) return []
+  const run = cmd === 'run-start' ? s.runs.find((r) => r.id === id) : undefined
+  if (run) {
+    const job = jobOf(s, run)
+    return job && coordinatorWanted(deps, s, run, job) ? checkIdsOf(s.tasks.filter((t) => t.runId === run.id && t.status !== 'completed')) : []
+  }
+  const job = s.jobs.find((j) => j.id === id)
+  return job ? checkIdsOf(tasksOfNextRun(s, job)) : []
+}
+
+/** The source `args` carry under JOB_SOURCE, when they carry one whole. */
+const jobSourceOf = (args: Record<string, unknown>): JobSourceRef | undefined => {
+  const v = (args as Record<PropertyKey, unknown>)[JOB_SOURCE]
+  if (typeof v !== 'object' || v === null) return undefined
+  const r = v as Record<string, unknown>
+  if (typeof r.id !== 'string' || typeof r.itemId !== 'string' || typeof r.label !== 'string') return undefined
+  return {
+    id: r.id,
+    itemId: r.itemId,
+    label: r.label,
+    ...(typeof r.title === 'string' ? { title: r.title } : {}),
+    ...(typeof r.url === 'string' ? { url: r.url } : {})
+  }
+}
+
 export async function handleCommand(
   deps: OrchServerDeps,
   /** `role` is the Host connection's (OrchCaller.role); absent where no Host connection exists. Only
@@ -1165,6 +1246,8 @@ export async function handleCommand(
   cmd: string,
   args: Record<string, unknown>
 ): Promise<Reply> {
+  // The job-source commands (plugin Phase 4), in a module of their own; jobs-create-from-source comes back here
+  if (SOURCE_COMMANDS.has(cmd)) return sourcesCommand(deps, caller, cmd, args, handleCommand)
   if (cmd === 'browser-js') {
     // The browser has its own toggle and needs none of the orchestration state below.
     // **이 await 는 상태를 읽기 전이다.** 이 분기는 handleCommand 의 첫 문장이고, 위에는 읽은
@@ -1194,6 +1277,14 @@ export async function handleCommand(
     // **이 await 도 상태 앞이다.** 바로 아래 `deps.getState()` 가 이 명령이 상태를 처음 읽는
     // 자리이고, 그 위에 커밋은 없다 — 여기서 멈춰도 읽고-쓰는 창이 열리지 않는다.
     if (!(await deps.trackingEnabled?.())) return conflict('work unit tracking is off')
+  }
+  // **The plugin checks of a Run about to start, before the state too** (plugin Phase 5 C7; 5a final review I2). The
+  // plugin list is a disk read in the Host: a refusal read after `s` below would commit a state from before it, over
+  // whatever landed meanwhile. The ids come from a read of their own; `jobs run` checks once for the `run-start` it
+  // calls (PLUGIN_CHECKS_PASSED).
+  if ((cmd === 'jobs-run' || cmd === 'run-start') && (args as Record<PropertyKey, unknown>)[PLUGIN_CHECKS_PASSED] !== true) {
+    const refusal = await pluginCheckRefusal(deps, startingCheckIds(deps, cmd, args))
+    if (refusal) return refusal
   }
   const now = deps.now?.() ?? new Date().toISOString()
   const s = deps.getState()
@@ -1716,7 +1807,8 @@ export async function handleCommand(
             // 전에 첫 회차가 도는 것은 보통 Run 에서 없앤 바로 그 문제다. 게이트가 걷히는 순간부터
             // 무장하므로(firesDue), '실행' 을 누른 뒤의 첫 예약 시각이 첫 회차가 된다.
             ...(args.auto === true ? { pendingStart: true } : {}),
-            ...(convergence ? { convergence } : {})
+            ...(convergence ? { convergence } : {}),
+            ...(jobSourceOf(args) ? { source: jobSourceOf(args) } : {})
           },
         now
       )
@@ -1815,7 +1907,8 @@ export async function handleCommand(
       // "이 예약을 켜라" 가 아니다 — 켜는 것은 발화 시각마다 도는 것을 뜻하고, 사람이 그것까지
       // 원했다면 사이드바의 '실행' 이 그 버튼이다.
       const first = job.schedule === undefined && (job.pendingStart === true || latest === undefined)
-      const reply = await handleCommand(deps, caller, first ? 'run-start' : 'run-spawn', { run: id })
+      // Its plugin checks were looked at before the state (above): the run-start this calls does not look again
+      const reply = await handleCommand(deps, caller, first ? 'run-start' : 'run-spawn', { run: id, [PLUGIN_CHECKS_PASSED]: true })
       // **carry 4 (R18, 사용자의 Q2), 그리고 U1: 뒤 회차도 앞 회차와 같이 코디네이터를 띄운다.** 그
       // 일은 이제 `run-spawn` 자신이 한다(handToCoordinator) — 발화가 같은 명령을 부르므로, 예약의
       // 회차와 `jobs run` 의 회차가 같은 몸통으로 시작한다. 예전에는 이 자리가 `run-spawn` 뒤에
@@ -1910,9 +2003,14 @@ export async function handleCommand(
         if (ids.some((x) => x === '')) return bad('--validate must not contain an empty entry')
         const owner = job !== null ? s.jobs.find((j) => j.id === job) : jobOf(s, s.runs.find((r) => r.id === run)!)
         if (!owner) return notFound(`unknown job for run: ${String(run)}`)
-        if (!deps.listRunConfigs) return conflict('run configurations cannot be listed here')
-        const known = new Set((await deps.listRunConfigs(owner.cwd)).map((c) => c.id))
-        const unknown = ids.filter((x) => !known.has(x))
+        // A plugin's check (plugin Phase 5 C7): its plugin must be here, offer checks and be enabled. It is no run
+        // configuration, so the configuration list neither knows it nor is needed for it.
+        const pluginRefusal = await pluginCheckRefusal(deps, ids)
+        if (pluginRefusal) return pluginRefusal
+        const configIds = ids.filter((x) => pluginIdOfCheck(x) === null)
+        if (configIds.length > 0 && !deps.listRunConfigs) return conflict('run configurations cannot be listed here')
+        const known = new Set(configIds.length > 0 ? (await deps.listRunConfigs!(owner.cwd)).map((c) => c.id) : [])
+        const unknown = configIds.filter((x) => !known.has(x))
         if (unknown.length > 0)
           return {
             status: 404,
@@ -2428,15 +2526,8 @@ export async function handleCommand(
         // shows no ▶ for it either (view.ts's rowFor). A start in flight is answered the same way, by
         // handToCoordinator (I1). **So does a paused Run**: `runs resume` takes it back, not ▶, and a Run
         // a fire replaced (U4) is paused with its coordinator stopped on purpose. The view shows no ▶ on it.
-        if (
-          namedRun.coordinatorSessionId ||
-          namedRun.paused === true ||
-          !runJob.coordinatorAccountId ||
-          !deps.startCoordinator ||
-          outcomeOf(s, namedRun.id) !== 'running'
-        )
-          return okBody(namedRun)
-        return handToCoordinator(s, runJob, namedRun, runJob.coordinatorAccountId, true)
+        if (!coordinatorWanted(deps, s, namedRun, runJob)) return okBody(namedRun)
+        return handToCoordinator(s, runJob, namedRun, runJob.coordinatorAccountId!, true)
       }
       // **그 밖의 id 는 Job 이다.** '실행' 은 계획을 푸는 일이고, 회차는 그 결과로 생긴다.
       const job = s.jobs.find((j) => j.id === id)
@@ -3938,6 +4029,19 @@ export async function handleCommand(
       if (!gateId) return bad('--id is required')
       if (!resolution) return bad('--resolution is required')
       const gate = s.gates.find((g) => g.id === gateId)
+      // **A check that could not be made takes its three answers and no other** (plugin Phase 5 C9): the plain
+      // resolve below would move the Task to ready, and a worker would redo work that is done.
+      if (gate?.kind === 'check-unavailable' && gate.status === 'open') {
+        if (!isCheckUnavailableAnswer(resolution)) return bad(`answer one of ${CHECK_UNAVAILABLE_OPTIONS.join(', ')}`)
+        if (resolution !== 'mark-failed' && !deps.startValidation) return conflict('the checks cannot be run here')
+        const answered = answerCheckUnavailable(s, { gateId, resolution }, now)
+        if (!answered.ok) return answered.missing ? refused(answered) : conflict(answered.error)
+        deps.log?.(`gate-resolve: task=${gate.taskId} blocked -> ${resolution === 'mark-failed' ? 'failed' : 'validating'} (${resolution} on a check-unavailable Gate)`)
+        await deps.setState(answered.state)
+        // After the commit, as every start of checks is: the Task is validating before the runner reads it
+        if (answered.value.revalidate) deps.startValidation?.(answered.value.revalidate)
+        return okBody(answered.value.gate satisfies AnsweredQuestion)
+      }
       const r = resolveGate(s, { gateId, resolution }, now)
       if (!r.ok) return refused(r)
       // 소진 Gate 의 두 답(설계 §5.2). **다른 모든 Gate·다른 모든 resolution 은 지금처럼 풀린다** —
@@ -4565,7 +4669,8 @@ export async function handleCommand(
       return r.ok ? okBody({ runId, rerun: true }) : ghRefusal(r)
     }
     /**
-     * An issue becomes a Job, through `jobs-create` with the issue as its objective (`issueObjective`).
+     * An issue becomes a Job, as the GitHub job source makes one (plugin Phase 4 J13): the objective the job sources'
+     * writer makes of it, and the issue as the Job's source.
      * The checks are here, on the Host, so no client can skip them: a pull request, a closed issue and
      * an author the repository does not already trust with its code are refused. The objective and the
      * folder are the issue's and the project's, so a caller that gives either is refused.
@@ -4589,7 +4694,14 @@ export async function handleCommand(
           `Issue #${n} was written by a ${issue.authorAssociation} of the repository; only an owner, member or collaborator's issue becomes a Job`
         )
       const { project: _project, number: _number, ...rest } = args
-      const reply = await handleCommand(deps, caller, 'jobs-create', { ...rest, cwd: t.cwd, objective: issueObjective(issue) })
+      const reply = await createFromContext(deps, caller, handleCommand, {
+        rest,
+        cwd: t.cwd,
+        ctx: issueContext(issue),
+        sourceId: GITHUB_SOURCE_ID,
+        sourceName: 'GitHub',
+        itemId: String(issue.number)
+      })
       if (reply.status < 200 || reply.status >= 300) return reply
       return okBody({ ...(reply.body as object), issue: { number: issue.number, url: issue.url } })
     }

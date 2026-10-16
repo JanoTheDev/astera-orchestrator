@@ -1,6 +1,6 @@
 {
   "name": "@astera-app/plugin-sdk",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Write Astera plugins: definePlugin and the plugin context's types.",
   "keywords": [
     "astera",
@@ -43,7 +43,7 @@
     "prepublishOnly": "node ../../scripts/build-packages.mjs"
   },
   "peerDependencies": {
-    "@astera-app/client": ">=0.1.0 <1"
+    "@astera-app/client": ">=0.2.0 <1"
   },
   "publishConfig": {
     "access": "public"

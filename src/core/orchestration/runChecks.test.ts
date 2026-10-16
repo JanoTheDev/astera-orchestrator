@@ -111,6 +111,36 @@ describe('checksForRun', () => {
     expect(row.failureSummary).toBe('build failed (exit 2): error TS2322: nope')
   })
 
+  // Plugin Phase 5 C9: a check a person let the round go on without counts as passing (5a's ruling); one that could
+  // not be made fails nothing and has no verdict yet
+  it('a skipped plugin check counts as passing, and one that could not be made leaves validation pending', () => {
+    const skipped = task('t1', {
+      validateConfigIds: ['cfg_build', 'plugin:d'],
+      checks: [check({}), check({ configId: 'plugin:d', name: 'D', status: 'not-run', skipped: true, summary: 'Skipped by a person: down' })]
+    })
+    expect(rowOf(stateWith([skipped]), 't1').validation.status).toBe('passed')
+    const unmade = task('t1', {
+      status: 'blocked',
+      validateConfigIds: ['cfg_build', 'plugin:d'],
+      checks: [check({}), check({ configId: 'plugin:d', name: 'D', status: 'error', summary: 'down' })]
+    })
+    const row = rowOf(stateWith([unmade]), 't1')
+    expect(row.validation.status).toBe('pending')
+    expect(row.failureSummary).toBeNull()
+  })
+
+  // 5b final review M7: once a person answered mark-failed, the round that could not be made is what failed the Task
+  it('a round that could not be made fails validation once the Task is no longer waiting on it, and says why', () => {
+    const t = task('t1', {
+      status: 'failed',
+      validateConfigIds: ['cfg_build', 'plugin:d'],
+      checks: [check({}), check({ configId: 'plugin:d', name: 'D', status: 'error', summary: 'git diff:\nfatal: not a git repository' })]
+    })
+    const row = rowOf(stateWith([t]), 't1')
+    expect(row.validation.status).toBe('failed')
+    expect(row.failureSummary).toBe('D could not run: git diff: fatal: not a git repository')
+  })
+
   it('a timed-out check fails validation too', () => {
     const t = task('t1', { validateConfigIds: ['cfg_build'], checks: [check({ status: 'timed-out' })] })
     const row = rowOf(stateWith([t]), 't1')

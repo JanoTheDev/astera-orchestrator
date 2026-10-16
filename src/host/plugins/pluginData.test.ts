@@ -3,9 +3,12 @@ import { existsSync, promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import {
+  PluginCursorUnreadable,
   PluginSecretRefused,
   PluginSettingsUnreadable,
+  cursorFile,
   forgetPluginData,
+  pluginCursor,
   pluginSecrets,
   readSettings,
   secretsDir,
@@ -50,6 +53,16 @@ describe('a plugin settings file', () => {
 })
 
 describe('a plugin secret store', () => {
+  // 5d (performance review: every secret read ran icacls three times): one store per plugin, so its ACL and SID checks
+  // are cached across calls, and let go with the plugin's data
+  it('is the same store for every call about one plugin, and a fresh one once the plugin’s data is forgotten', async () => {
+    const first = pluginSecrets(profile, 'kept')
+    expect(pluginSecrets(profile, 'kept')).toBe(first)
+    expect(pluginSecrets(profile, 'other')).not.toBe(first)
+    await forgetPluginData(profile, 'kept')
+    expect(pluginSecrets(profile, 'kept')).not.toBe(first)
+  })
+
   it('keeps the plugin secrets and its secret settings apart, by name', async () => {
     const s = pluginSecrets(profile, '@acme+jira')
     await s.secret.set('refresh-token', 'r-123')
@@ -115,5 +128,31 @@ describe('secret names on a file system that folds case', () => {
 
   it('refuses a name ending in a dot', async () => {
     expect(await pluginSecrets(profile, 'p').secret.set('a.', 'v').catch((e: unknown) => e)).toBeInstanceOf(PluginSecretRefused)
+  })
+})
+
+describe('pluginCursor (plugin Phase 3 N6)', () => {
+  it('lives in <profile>/plugins/cursors, has none until one is written, then reads back the last one written', async () => {
+    expect(cursorFile(profile, '@acme+jira')).toBe(path.join(profile, 'plugins', 'cursors', '@acme+jira.json'))
+    const c = pluginCursor(profile, 'p')
+    expect(await c.read()).toBeNull()
+    await c.write('ev_aaaaaaaaaaaa_3')
+    await c.write('ev_aaaaaaaaaaaa_4')
+    expect(await c.read()).toBe('ev_aaaaaaaaaaaa_4')
+    expect(JSON.parse(await fs.readFile(cursorFile(profile, 'p'), 'utf8'))).toEqual({ version: 1, cursor: 'ev_aaaaaaaaaaaa_4' })
+  })
+
+  it('refuses a file that is not a version 1 cursor naming an event id', async () => {
+    await fs.mkdir(path.dirname(cursorFile(profile, 'p')), { recursive: true })
+    for (const text of ['{ broken', '{"version":2,"cursor":"ev_aaaaaaaaaaaa_1"}', '{"version":1,"cursor":"nope"}', '[]']) {
+      await fs.writeFile(cursorFile(profile, 'p'), text)
+      await expect(pluginCursor(profile, 'p').read(), text).rejects.toBeInstanceOf(PluginCursorUnreadable)
+    }
+  })
+
+  it('goes with the plugin’s other data', async () => {
+    await pluginCursor(profile, 'p').write('ev_aaaaaaaaaaaa_1')
+    await forgetPluginData(profile, 'p')
+    expect(existsSync(cursorFile(profile, 'p'))).toBe(false)
   })
 })

@@ -4,11 +4,13 @@
 // through main's router: commands, its own accounts with the signed-in flag it decided (N5), and its own run
 // configurations. A read-only pairing refuses a control command here, before it is sent; the Runtime would refuse it
 // too (controllerGate), but a button that does nothing until a round trip says no is not a disabled button.
-import type { Account, Provider } from '../../../core/types'
+import type { Account, PluginsCallAnswer, Provider } from '../../../core/types'
 import { remoteMutation } from '../../../core/remote/targets'
 
 export type CommandReply = { status: number; body: unknown }
 export type RunConfigRow = { id: string; name: string; type?: string }
+/** A completion check plugin a Task's checks can name as `plugin:<id>` (plugin Phase 5 C6), with its status. */
+export type CheckPluginRow = { id: string; name: string; status: string }
 
 export interface OrchDoor {
   /** undefined for this computer. */
@@ -23,15 +25,20 @@ export interface OrchDoor {
   signedInIds(accounts: Account[]): Promise<Set<string>>
   /** Run configurations for a Task's validation: local by the project folder, remote by the Run's Job. */
   runConfigs(runId: string): Promise<RunConfigRow[]>
+  /** This computer's enabled completion check plugins (plugin Phase 5 C6); none for a Runtime's, whose plugins a
+   *  controller cannot list (C14). */
+  checkPlugins(): Promise<CheckPluginRow[]>
 }
 
 export interface DoorApi {
   orch: { command(projectPath: string, cmd: string, args: Record<string, unknown>, runtimeId?: string): Promise<CommandReply> }
   accounts: { list(): Promise<Account[]>; loginStatus(id: string): Promise<boolean> }
   run: { list(projectPath: string): Promise<{ configs: RunConfigRow[] }> }
+  plugins: { list(): Promise<PluginsCallAnswer> }
 }
 
 type T = (key: string, params?: Record<string, string | number>) => string
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
 const codeOf = (r: CommandReply): unknown => (r.body as { code?: unknown } | null)?.code
 
 /** A change whose answer was lost (the link dropped after sending it): it may have run on the Runtime. Main answers
@@ -52,6 +59,20 @@ export function replyNote(r: CommandReply, t: T, fallback: string): string {
   return fallback
 }
 
+/** The enabled plugins that make completion checks, from the Host's plugins list (C6), each by its display name (its id
+ *  when it has none). A list that could not be read offers none: the window still offers the run configurations. */
+export function checkPluginsOf(a: PluginsCallAnswer): CheckPluginRow[] {
+  if (!a.ok || !Array.isArray(a.body.plugins)) return []
+  return (a.body.plugins as unknown[])
+    .filter(isObject)
+    .filter((p) => typeof p.id === 'string' && p.enabled === true && Array.isArray(p.capabilities) && p.capabilities.includes('completion-check'))
+    .map((p) => ({
+      id: p.id as string,
+      name: typeof p.displayName === 'string' && p.displayName !== '' ? p.displayName : (p.id as string),
+      status: typeof p.status === 'string' ? p.status : ''
+    }))
+}
+
 export function localDoor(api: DoorApi, projectPath: string): OrchDoor {
   return {
     projectKey: projectPath,
@@ -61,7 +82,14 @@ export function localDoor(api: DoorApi, projectPath: string): OrchDoor {
     // In parallel: one probe per account, waited on one after another, is as slow as the accounts are many.
     signedInIds: async (accounts) =>
       new Set((await Promise.all(accounts.map(async (a) => ((await api.accounts.loginStatus(a.id)) ? a.id : null)))).filter((id): id is string => id !== null)),
-    runConfigs: async () => (await api.run.list(projectPath)).configs
+    runConfigs: async () => (await api.run.list(projectPath)).configs,
+    checkPlugins: async () => {
+      try {
+        return checkPluginsOf(await api.plugins.list())
+      } catch {
+        return []
+      }
+    }
   }
 }
 
@@ -122,7 +150,9 @@ export function remoteDoor(
       if (typeof jobId !== 'string') return []
       const r = await send('run-configs-list', { job: jobId }).catch(() => null)
       return r && ok(r) && Array.isArray(r.body) ? (r.body as RunConfigRow[]) : []
-    }
+    },
+    // A Runtime's plugins are its own: a controller cannot list them (C14), and its Task names one from the CLI
+    checkPlugins: async () => []
   }
 }
 

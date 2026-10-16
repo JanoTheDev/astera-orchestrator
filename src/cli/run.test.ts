@@ -826,6 +826,17 @@ describe('renderOk / renderErr', () => {
     expect(renderErr({ code: 'FAILED', message: `no ${E}]8;;http://x${BEL}link` }, 'human')).toBe('error: no ]8;;http://xlink')
     expect(renderOk('jobs-list', evil, 'json')).toContain('\\u001b')
   })
+  // Plugin 4b Review Focus 3: a ticket is someone else's text, and --human prints it to a terminal
+  it('human output of a source item drops the control characters in its title, fields and body', () => {
+    const E = String.fromCharCode(27)
+    const BEL = String.fromCharCode(7)
+    const item = { id: 'ENG-1', title: `red ${E}[31mtitle`, body: `line ${E}]52;c;ZXZpbA==${BEL}two`, fields: { team: `${E}[2KENG` }, selectable: true, jobs: [] }
+    const human = renderOk('sources-show', item, 'human')
+    expect(human).not.toMatch(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/)
+    expect(human).toContain('red [31mtitle')
+    expect(human).toContain('line ]52;c;ZXZpbA==two')
+    expect(human).toContain('team  [2KENG')
+  })
   // Final review M-6: JSON.stringify leaves DEL and the C1 controls as they are, and a terminal reads U+009B as CSI.
   it('json 도 DEL 과 C1 제어 문자를 이스케이프한다', () => {
     const evil = [{ id: 'job_1', objective: `a${String.fromCharCode(0x9b)}31mb${String.fromCharCode(0x7f)}`, outcome: 'running', progress: { done: 0, total: 1 } }]

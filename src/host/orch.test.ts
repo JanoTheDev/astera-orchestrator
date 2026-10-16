@@ -3201,6 +3201,31 @@ describe('Host-local spawn (S2)', () => {
     expect((await orchOver().call({ cmd: 'slack-reload', args: {}, sessionId: '', from: app })).status).toBe(501)
     expect(slack.reload).toHaveBeenCalledTimes(1)
   })
+  // Plugin Phase 5 C8: where the app drives a Task's checks, it asks the Host's plugins through this; nobody else may
+  it('answers checks-plugin-run for the app only, with the plugin’s answer, and 501 without completion checks', async () => {
+    const answer = { name: 'D', status: 'failed' as const, summary: '1 leftover' }
+    const asked: unknown[][] = []
+    const completionChecks = { plugins: async () => [], run: async (...a: unknown[]) => (asked.push(a), answer) }
+    const orch = orchOver({ completionChecks })
+    const app = { role: 'app' as const, toOthers: () => {} }
+    const input = { jobId: 'job1', runId: 'run1', taskId: 't1', task: { title: 'T' }, workspace: { root: '/w' } }
+    expect(await orch.call({ cmd: 'checks-plugin-run', args: { plugin: 'd', input }, sessionId: '', from: app })).toEqual({ status: 200, body: answer })
+    expect(asked).toEqual([['d', input]])
+    for (const role of ['cli', 'mcp', 'plugin'] as const)
+      expect((await orch.call({ cmd: 'checks-plugin-run', args: { plugin: 'd', input }, sessionId: '', from: { role, toOthers: () => {} } })).status).toBe(403)
+    // A controller is refused by its gate before this (an unpaired one 401, as here)
+    expect((await orch.call({ cmd: 'checks-plugin-run', args: { plugin: 'd', input }, sessionId: '', from: { role: 'controller', toOthers: () => {} } })).status).not.toBe(200)
+    expect((await orch.call({ cmd: 'checks-plugin-run', args: { plugin: 'd', input }, sessionId: '' })).status).toBe(403)
+    expect((await orch.call({ cmd: 'checks-plugin-run', args: { input }, sessionId: '', from: app })).status).toBe(400)
+    expect((await orch.call({ cmd: 'checks-plugin-run', args: { plugin: 'd', input: 'x' }, sessionId: '', from: app })).status).toBe(400)
+    expect((await orchOver().call({ cmd: 'checks-plugin-run', args: { plugin: 'd', input }, sessionId: '', from: app })).status).toBe(501)
+    // 5a final review M5: it answers above the receipt line, so a request id would be ignored; it is refused
+    expect(await orch.call({ cmd: 'checks-plugin-run', args: { plugin: 'd', input }, sessionId: '', from: app, request: 'q1' })).toEqual({
+      status: 400,
+      body: { error: 'checks-plugin-run does not take a request id' }
+    })
+    expect(asked).toHaveLength(1)
+  })
   it('answers mcp-http-reload and mcp-http-status for the app only, and 501 without a supervisor (MCP HTTP §3)', async () => {
     const state = { state: 'running' as const, url: 'http://127.0.0.1:7871/mcp', lan: false, port: 7871 }
     const mcpHttp = { reload: vi.fn(async (_o?: { retry?: boolean }) => {}), status: () => state }
@@ -3849,9 +3874,10 @@ describe('coordinator-idle (final round 3)', () => {
       orch.call({ cmd: 'coordinator-idle', args: { runId, sessionId: 'ses_c' }, sessionId: '', from })
     expect(await ask({ role: 'cli', toOthers: () => {} })).toMatchObject({ status: 403 })
     expect(await ask(app)).toEqual({ status: 200, body: { idle: false } })
-    const waiting = orch.call({ cmd: 'check', args: { run: runId, wait: true, timeoutMs: 300 }, sessionId: 'ses_c' })
-    await new Promise((r) => setTimeout(r, 30))
-    expect(await ask(app)).toEqual({ status: 200, body: { idle: true } })
+    // A wait long enough to be asked about, and asked about until it is recorded: a fixed 30 ms against a 300 ms wait
+    // read idle false under the full suite's load (2026-10-15)
+    const waiting = orch.call({ cmd: 'check', args: { run: runId, wait: true, timeoutMs: 2_000 }, sessionId: 'ses_c' })
+    await vi.waitFor(async () => expect(await ask(app)).toEqual({ status: 200, body: { idle: true } }), { timeout: 1_500 })
     await waiting
     expect(await ask(app)).toEqual({ status: 200, body: { idle: false } })
     expect(await orch.call({ cmd: 'coordinator-idle', args: { runId }, sessionId: '', from: app })).toMatchObject({ status: 400 })

@@ -8,7 +8,7 @@ export type TaskStatus = 'pending' | 'ready' | 'dispatched' | 'validating' | 're
 export type Outcome = 'succeeded' | 'failed'
 export type MessageType = 'status' | 'worker_done' | 'question' | 'escalation' | 'heartbeat' | 'decision_gate'
 export type RepairReason = 'check-failure' | 'review-failure'
-export type GateKind = 'convergence-exhausted' | 'convergence-blocked'
+export type GateKind = 'convergence-exhausted' | 'convergence-blocked' | 'check-unavailable'
 export type ReviewSeverity = 'critical' | 'high' | 'medium' | 'low' | 'info'
 
 /** When a scheduled Job fires again. */
@@ -48,6 +48,17 @@ export interface Project {
   readonly addedAt: string
 }
 
+/** A job source's item a Job was made from: the source (a plugin's id, or `github` for GitHub issues), the item's id
+ *  there, how a person names it (`Linear ENG-123`), and where to open it. */
+export interface JobSource {
+  readonly id: string
+  readonly itemId: string
+  readonly label: string
+  /** The item's title, as the app names the Job: someone else's text, at most 300 characters. */
+  readonly title?: string
+  readonly url?: string
+}
+
 export interface Job {
   readonly id: string
   readonly objective: string
@@ -62,6 +73,9 @@ export interface Job {
   readonly pendingStart?: boolean
   readonly paused?: boolean
   readonly convergence?: ConvergencePolicy
+  /** Where the Job came from: a job source and its item, set by Astera when it made the Job from that item (Astera
+   *  1.4.14 and later). */
+  readonly source?: JobSource
   /** Derived on every read: how the Job's latest Run (or the Job itself before one) stands. */
   readonly outcome: JobOutcome
   readonly progress: Progress
@@ -90,16 +104,36 @@ export interface Run {
 /** `jobs.get`: the Job, with the Run it names or its latest folded in. */
 export type JobWithRun = Job & { readonly run?: Run }
 
+/** One finding of a completion check plugin (Astera 1.4.14). */
+export interface CheckDiagnostic {
+  readonly file?: string
+  readonly line?: number
+  readonly message: string
+  readonly severity?: 'error' | 'warning'
+}
+
 export interface CheckResult {
+  /** A run configuration's id, or `plugin:<pluginId>` for a completion check plugin's check. */
   readonly configId: string
   readonly name: string
-  readonly status: 'passed' | 'failed' | 'timed-out' | 'not-run'
+  /** `error`: a plugin's check could not be made (twice); the Task waits on a `check-unavailable` question. */
+  readonly status: 'passed' | 'failed' | 'timed-out' | 'not-run' | 'error'
   readonly exitCode?: number
   /** The last 4000 characters of the check's output. */
   readonly outputTail?: string
   readonly startedAt?: string
   readonly endedAt?: string
   readonly unstable?: true
+  /** A plugin check's own words: what it found, or why it could not be made. */
+  readonly summary?: string
+  /** A plugin check's findings, at most 20; a passed check keeps none. */
+  readonly diagnostics?: readonly CheckDiagnostic[]
+  /** How many findings it gave, when more than `diagnostics` holds: Astera keeps 20, and a completion event lists none. */
+  readonly diagnosticsTotal?: number
+  /** Where a plugin check's whole report is. */
+  readonly externalUrl?: string
+  /** A person let the round go on without this check; its status is `not-run`. */
+  readonly skipped?: true
 }
 
 export interface ReviewIssue {
@@ -191,10 +225,15 @@ export type CompletionState =
 export interface CompletionCheckDetail {
   readonly configId: string
   readonly name: string
-  readonly status: 'passed' | 'failed' | 'timed-out' | 'not-run'
+  readonly status: 'passed' | 'failed' | 'timed-out' | 'not-run' | 'error'
   readonly exitCode?: number
   readonly outputTail?: string
   readonly unstable?: true
+  readonly summary?: string
+  readonly diagnostics?: readonly CheckDiagnostic[]
+  readonly diagnosticsTotal?: number
+  readonly externalUrl?: string
+  readonly skipped?: true
 }
 
 export interface CompletionDetail {
@@ -349,8 +388,9 @@ export interface SessionAccountSwitched {
 }
 
 /** Each event's payload: the public DTO of the object it is about, as it stood right after the change. A Task is cut
- *  like `tasks.list({ brief: true })` and its checks carry no output; `get` reads the whole object. A session event
- *  carries its session and what happened to it. */
+ *  like `tasks.list({ brief: true })` and its checks carry no output; a plugin check, in a Task or a `TaskCompletion`,
+ *  carries how many findings it has (`diagnosticsTotal`) and not the findings. `get` reads the whole object. A session
+ *  event carries its session and what happened to it. */
 export interface EventPayloads {
   readonly 'job.created': Job
   readonly 'job.updated': Job

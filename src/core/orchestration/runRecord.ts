@@ -10,6 +10,7 @@ import type { Job, JobRun, Task } from './types'
 import { runRootOf } from './integrate'
 import { isSamePath } from '../files/tree'
 import type { RunRecordInput } from '../understanding/pipeline'
+import { jobNameOf } from './jobName'
 
 export function justFinished(
   before: OrchState,
@@ -63,7 +64,8 @@ export function runRecordInputOf(state: OrchState, runId: string): (RunRecordInp
   return {
     projectPath: job.cwd,
     runId,
-    jobName: job.objective.slice(0, 60),
+    // Named as its card names it (plugin 4d review M2); the request stays the objective, the write-up's material
+    jobName: jobNameOf(job).slice(0, 60),
     objective: job.objective,
     at: new Date().toISOString(),
     taskIds: tasks.map((t) => t.id),

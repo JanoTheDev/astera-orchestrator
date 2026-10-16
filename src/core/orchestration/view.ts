@@ -85,6 +85,18 @@ const progressOfTasks = (tasks: readonly Task[]): { done: number; total: number 
 // does not. They are re-exported here for the callers that always took them from this file.
 export { isTerminal, outcomeOf }
 
+/** How much of a Job's objective a sidebar row carries (5d, from the performance review): the row shows a line of it and
+ *  its tooltip a paragraph, and a ticket's objective is up to 60,000 characters, pushed on every change. */
+export const OBJECTIVE_PREVIEW_MAX = 500
+
+/** The first OBJECTIVE_PREVIEW_MAX characters, with `…` when there were more, never splitting a surrogate pair. */
+const previewOf = (text: string): string => {
+  if (text.length <= OBJECTIVE_PREVIEW_MAX) return text
+  const high = text.charCodeAt(OBJECTIVE_PREVIEW_MAX - 1)
+  const end = high >= 0xd800 && high <= 0xdbff ? OBJECTIVE_PREVIEW_MAX - 1 : OBJECTIVE_PREVIEW_MAX
+  return `${text.slice(0, end)}…`
+}
+
 /** One Task row.
  *
  *  sessionId comes from the Task's most recent Dispatch, not from the open one: a retry opens a new
@@ -132,6 +144,13 @@ function jobTaskOf(
   // waiting 은 running 에서만 읽는다 — latest 를 쓰면 끝난 Dispatch 의 열린 항목(앱이 꺼져
   // outcome_unknown 으로 닫힌 경우)이 "아직 기다리는 중"으로 보인다. 그 Dispatch 는 이미 끝났으므로
   // 아무도 그 리셋을 기다리지 않는다.
+  // A round a person let go on without a check (plugin Phase 5 C9 skip-check) is drawn as it runs: the results it
+  // carries, the skipped check as skipped, and the old round's rest, of which the first runs now. Only while it is
+  // live, as state.ts's liveCheckResume says: task-update can leave one behind a newer attempt, or a Task no longer
+  // validating, and that round is not the one running (5c final review M3)
+  const latestAttempt = dispatches.filter((d) => !d.review).at(-1)
+  const resume = task.status === 'validating' && task.checkResume?.dispatchId === latestAttempt?.id ? task.checkResume : undefined
+  const round = resume ? [...resume.done, ...(task.checks ?? []).slice(resume.done.length)] : task.checks
   const entries = running?.resumes ?? []
   const openEntry =
     entries.length > 0 && entries[entries.length - 1].resumedAt === undefined
@@ -179,18 +198,20 @@ function jobTaskOf(
     // 검사 결과는 **검사가 걸린 모든 Task** 에 — 자동 수정을 켠 Run 만이 아니다(UI 설계 U2). 칩이 그리는 것만
     // 싣는다: 출력 꼬리는 이 스냅숏이 사이드바 푸시마다 나가는 것이라 빼고(U4), 시간은 ISO 둘이 아니라 뺄셈
     // 결과 하나로 — 렌더러가 계산하면 테스트할 자리가 없다.
-    ...(task.checks?.length
+    ...(round?.length
       ? {
-          checks: task.checks.map((c) => ({
+          checks: round.map((c) => ({
             configId: c.configId,
             name: c.name,
             status: c.status,
             ...(c.exitCode !== undefined ? { exitCode: c.exitCode } : {}),
             ...(c.startedAt && c.endedAt ? { durationMs: Date.parse(c.endedAt) - Date.parse(c.startedAt) } : {}),
-            ...(c.unstable ? { unstable: true as const } : {})
+            ...(c.unstable ? { unstable: true as const } : {}),
+            ...(c.skipped ? { skipped: true as const } : {})
           }))
         }
       : {}),
+    ...(resume ? { resumeAt: resume.rest[0] ?? null } : {}),
     // 예산과 진행은 정책 있는 Run 에만(U3)
     ...(policy
       ? {
@@ -348,7 +369,7 @@ export function snapshotFor(
     ).filter(exists)
     return {
       id: rowId,
-      objective: job.objective,
+      objective: previewOf(job.objective),
       // Run 이 그대로 들고 있는 값을 그대로 옮긴다 — 계산도 기본값도 여기서 넣지 않는다(JobRow
       // 의 주석과 같다). 워크트리 배치 규칙(동시 실행 한도가 1 이하일 때만 프로젝트 폴더)의
       // 판단은 이 값을 받은 렌더러가 한다. **provider 는 여기 없다** — Task 의 계정이 정하므로
@@ -385,6 +406,8 @@ export function snapshotFor(
       ...(run === undefined && job.schedule ? { schedule: job.schedule } : {}),
       ...(run === undefined && job.fireCount !== undefined ? { fireCount: job.fireCount } : {}),
       ...(run !== undefined ? { fireOrdinal: run.ordinal } : {}),
+      // Where the Job came from (plugin Phase 4 J18), on every row of the Job: the chip opens the ticket
+      ...(job.source ? { source: job.source } : {}),
       ...(run === undefined && job.schedule && nextFireOf(job.id) !== null
         ? { nextFireAt: nextFireOf(job.id) as number }
         : {}),

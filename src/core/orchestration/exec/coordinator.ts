@@ -21,6 +21,7 @@ import { isSamePath } from '../../files/tree'
 import type { Provider } from '../../providers/meta'
 import { KNOWLEDGE_DIRS, knowledgeFilesFrom, type KnowledgeFiles } from '../../knowledge/detect'
 import type { CheckResult, RepairReason, ReviewIssue } from '../types'
+import { REPAIR_DIAGNOSTICS, diagnosticLine, findingsCountOf } from '../pluginChecks'
 import { boundedSlug } from '../../worktrees/naming'
 
 /** Job Continuity's two prompt events (P0 design §5): 'requested' right before the prompt leaves
@@ -187,9 +188,22 @@ export interface RepairSection {
 function repairSection(a: RepairSection): string {
   const lines: string[] = []
   for (const c of a.checks ?? []) {
-    if (c.status === 'passed') continue
+    if (c.status === 'passed' || c.skipped) continue
     if (c.status === 'not-run') lines.push(`- Check "${c.name}" — not run (stopped at the first failure).`)
-    else {
+    else if (c.summary !== undefined) {
+      // A plugin check (plugin Phase 5 C10): its words, its first findings as file:line message, its link
+      lines.push(`- Check "${c.name}" — ${c.status === 'error' ? 'could not be made' : 'failed'}: ${c.summary}`)
+      const found = c.diagnostics ?? []
+      const shown = found.slice(0, REPAIR_DIAGNOSTICS)
+      if (shown.length > 0) {
+        lines.push('  Findings:')
+        for (const d of shown) lines.push(`    ${diagnosticLine(d)}`)
+      }
+      // Counted whether or not any is listed: a check may give only how many it found (5d final review M3)
+      const more = findingsCountOf(c) - shown.length
+      if (more > 0) lines.push(`${shown.length > 0 ? '    ' : '  '}… ${more} more finding(s)`)
+      if (c.externalUrl !== undefined) lines.push(`  Details: ${c.externalUrl}`)
+    } else {
       lines.push(`- Check "${c.name}" — exit ${c.exitCode ?? '?'}${c.status === 'timed-out' ? ' (timed out)' : ''}.`)
       // outputTail 이 없거나 빈 문자열이면 아무것도 싣지 않는다 — 예전에는 "Output tail:" 뒤에 빈
       // 들여쓰기 줄 하나가 남았다. 40줄로 자를 때는 몇 줄이 잘렸는지도 남긴다 — 안 그러면 잘린

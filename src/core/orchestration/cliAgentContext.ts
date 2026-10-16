@@ -378,7 +378,7 @@ const SESSION = {
   'jobs-create-from-issue': {
     summary: "create a Job from a GitHub issue of a project, through the Host's gh (the MCP server's create_job_from_issue)",
     detail:
-      "The Job's objective is the issue, quoted as data, and its folder is the project's. Refused for a pull request or a closed issue (409) and for an author who is not the repository's owner, a member or a collaborator (403). Takes `jobs create`'s other flags. MCP clients need the \"Let MCP clients act on GitHub\" setting.",
+      "The Job's objective is the issue, quoted as data, its folder is the project's, and it keeps the issue as its source. Refused for a pull request or a closed issue (409) and for an author who is not the repository's owner, a member or a collaborator (403). `jobs create-from-source --source github` makes the same Job, but answers 403 for a closed issue and 404 for a pull request where this command answers 409, as it always has. Takes `jobs create`'s other flags. MCP clients need the \"Let MCP clients act on GitHub\" setting.",
     flags: [
       req('project', '<projectId>', 'the project whose repository to read (from `projects list`)'),
       req('number', '<n>', 'the issue number'),
@@ -567,7 +567,12 @@ const NOT_SWITCHED = [
   'plugins-logs',
   'plugins-doctor',
   'plugins-settings',
-  'plugins-configure'
+  'plugins-configure',
+  // Answered before the switch by the job-source commands (plugin Phase 4, src/core/orchestration/commandSources.ts).
+  'sources-list',
+  'sources-items',
+  'sources-show',
+  'jobs-create-from-source'
 ] as const satisfies readonly AgentCommand[]
 
 /**
@@ -646,7 +651,8 @@ const MEANING: Record<CliErrorCode, string> = {
   RUNTIME_OUTCOME_UNKNOWN: 'a change was sent and its answer lost, and the Runtime cannot say whether it ran; list before trying again',
   REMOTE_TIMEOUT: 'the Runtime did not answer in time; the command may still finish',
   REMOTE_OPERATION_CONFLICT: 'refused by the Runtime because of current state',
-  REMOTE_REPLY_TOO_LARGE: "the Runtime's answer was over 64 MiB and was refused"
+  REMOTE_REPLY_TOO_LARGE: "the Runtime's answer was over 64 MiB and was refused",
+  PLUGIN_CAPABILITY_MISSING: 'a check names a plugin that is not installed, does not offer completion checks, or is disabled (plugin:<id>)'
 }
 
 /** The flags every command accepts. They are read by the parser and by the output layer rather than

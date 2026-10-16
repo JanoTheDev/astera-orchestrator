@@ -129,10 +129,67 @@ describe('derivePublicEvents', () => {
     expect(es[2].payload).toMatchObject({ state: 'fixing', attempt: 1 })
   })
 
+  // 5d (performance review M3): an event carries how many findings a check has, not the findings; completion.get reads them
+  it('a completion event counts a plugin check’s findings and leaves the list to the completion read', () => {
+    const found: CheckResult = {
+      configId: 'plugin:d',
+      name: 'D',
+      status: 'failed',
+      summary: '3 leftovers',
+      diagnostics: [{ message: 'a' }, { message: 'b' }, { message: 'c' }]
+    }
+    const cut: CheckResult = { ...found, configId: 'plugin:e', name: 'E', diagnosticsTotal: 150 }
+    const before = state({ tasks: [task('t1', 'validating')], dispatches: [dispatch('d1', 't1', { endedAt: NOW })] })
+    const after = state({
+      tasks: [task('t1', 'dispatched', { checks: [found, cut] })],
+      dispatches: [dispatch('d1', 't1', { endedAt: NOW }), dispatch('d2', 't1', { repair: 'check-failure' })]
+    })
+    const failed = derivePublicEvents(before, after).find((e) => e.type === 'completion.failed')!
+    const checks = (failed.payload as { detail: { checks: Array<Record<string, unknown>> } }).detail.checks
+    expect(checks[0]).not.toHaveProperty('diagnostics')
+    expect(checks[0].diagnosticsTotal).toBe(3)
+    expect(checks[1]).not.toHaveProperty('diagnostics')
+    expect(checks[1].diagnosticsTotal).toBe(150)
+    expect(checks[0].summary).toBe('3 leftovers')
+  })
+
+  // 5d final review I1: a task.* event counts a check's findings as completion.* events do, in the same commit
+  it('a task event counts a plugin check’s findings too, as the completion event of the same change does', () => {
+    const found: CheckResult = {
+      configId: 'plugin:d',
+      name: 'D',
+      status: 'failed',
+      summary: '30 leftovers',
+      diagnostics: Array.from({ length: 20 }, (_, i) => ({ message: `m${i}` })),
+      diagnosticsTotal: 30
+    }
+    const before = state({ tasks: [task('t1', 'validating')], dispatches: [dispatch('d1', 't1', { endedAt: NOW })] })
+    const after = state({
+      tasks: [task('t1', 'dispatched', { checks: [found] })],
+      dispatches: [dispatch('d1', 't1', { endedAt: NOW }), dispatch('d2', 't1', { repair: 'check-failure' })]
+    })
+    const started = derivePublicEvents(before, after).find((e) => e.type === 'task.started')!
+    const check = (started.payload as { checks: Array<Record<string, unknown>> }).checks[0]
+    expect(check).not.toHaveProperty('diagnostics')
+    expect(check.diagnosticsTotal).toBe(30)
+    const failed = derivePublicEvents(before, state({ tasks: [task('t1', 'failed', { checks: [{ ...found, diagnosticsTotal: undefined }] })] })).find(
+      (e) => e.type === 'task.failed'
+    )!
+    expect((failed.payload as { checks: Array<Record<string, unknown>> }).checks[0]).toMatchObject({ diagnosticsTotal: 20 })
+    expect((failed.payload as { checks: Array<Record<string, unknown>> }).checks[0]).not.toHaveProperty('diagnostics')
+  })
+
   it('completion.failed then completion.exhausted, then the question, when repairs run out', () => {
     const before = state({ tasks: [task('t1', 'validating')] })
     const after = state({ tasks: [task('t1', 'blocked')], gates: [gate('g1', 't1', { kind: 'convergence-exhausted' })] })
     expect(types(derivePublicEvents(before, after))).toEqual(['completion.failed', 'completion.exhausted', 'question.created'])
+  })
+
+  // 5a final review M2: a check that could not be made is no failed round; the question says the Task waits
+  it('a check that could not be made gives the question, and no completion.failed', () => {
+    const before = state({ tasks: [task('t1', 'validating')] })
+    const after = state({ tasks: [task('t1', 'blocked')], gates: [gate('g1', 't1', { kind: 'check-unavailable', options: ['retry', 'skip-check', 'mark-failed'] })] })
+    expect(types(derivePublicEvents(before, after))).toEqual(['question.created'])
   })
 
   it('a completion move made by a Dispatch alone, the Task object unchanged', () => {

@@ -495,6 +495,9 @@ describe('HostClient', () => {
   // Review of S3-T2, minor 3: `ready(ms)` is what reattach and *Restart now* wait on, and both used to
   // read an install still running as "no Host". Time spent inside an asynchronous spawnHost — the
   // runtime being installed — does not count against it.
+  // The install outlasts the wait (1.2 s against 1 s), so a wait that counted it would run out; the wait then has its
+  // whole second to connect, since a loaded CI runner took about 190 ms to connect after a 300 ms install against a 100 ms
+  // wait (macOS, 2026-10-15). The Host listens before the install returns, as a started Host soon does.
   it('does not let ready() run out while spawnHost is still installing', async () => {
     const addr = addressFor('ready-during-install')
     const c = new HostClient({ hostKey,
@@ -502,13 +505,13 @@ describe('HostClient', () => {
       appVersion: '9.0.0',
       retryMs: 10,
       spawnHost: async () => {
-        await new Promise((r) => setTimeout(r, 300))
-        void serveAt(addr)
+        await new Promise((r) => setTimeout(r, 1_200))
+        await serveAt(addr)
       },
       log: () => {}
     })
     c.start()
-    await c.ready(100)
+    await c.ready(1_000)
     expect(c.status().connected).toBe(true)
     await c.stop()
   })

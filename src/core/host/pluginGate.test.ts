@@ -49,7 +49,7 @@ describe('pluginRefusal (plugin runtime design P12)', () => {
   })
 
   it('refuses what no plugin reaches, whatever it was granted', () => {
-    for (const cmd of ['state-put', 'plugins-install', 'plugins-list', 'app-js', 'runtime-status', 'sessions-send', 'a-command-added-later'])
+    for (const cmd of ['state-put', 'plugins-install', 'plugins-list', 'app-js', 'runtime-status', 'sessions-send', 'sources-list', 'sources-items', 'sources-show', 'jobs-create-from-source', 'a-command-added-later'])
       expect(pluginRefusal(cmd, plugin([...PLUGIN_PERMISSIONS])), cmd).toEqual({ status: 403, body: { error: `${cmd} is not available to plugins` } })
   })
 

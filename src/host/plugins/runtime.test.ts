@@ -6,9 +6,17 @@ import { removeFixture } from '../../core/testFixtures'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { createPluginRuntime, type PluginLaunch, type PluginRuntime, type PluginTimings } from './runtime'
+import { PluginRequestFailed, createPluginRuntime, requestFailure, type PluginLaunch, type PluginRuntime, type PluginTimings } from './runtime'
+import { RPC_CLOSED, RPC_NOT_READY, RpcError } from '../../core/plugins/rpc'
+import type { DeliveryTimings } from './deliverer'
+import type { AsteraEvent } from '../../core/publicContract'
+import type { PluginNotification } from '../../core/plugins/notifications'
 import { bundleLauncher } from '../../pluginHost/testkit'
-import { pluginSecrets } from './pluginData'
+import { hostCompletionChecks } from '../completionChecks'
+import { cursorFile, pluginSecrets, type CursorStore } from './pluginData'
+import { createEventRing, type EventRing } from '../../core/events/eventRing'
+import { notificationOf } from '../../core/plugins/notifications'
+import type { EventDraft } from '../../core/orchestration/publicEvents'
 
 let dir: string
 let launcher: string
@@ -27,10 +35,32 @@ afterAll(async () => {
 
 type Call = { cmd: string; args: unknown; sessionId: string; from?: { role: string; plugin?: { id: string; granted: ReadonlySet<string> } }; request?: string }
 
-function runtime(timings: Partial<PluginTimings> = {}, extra: { maxLine?: number } = {}) {
+/** The Host's event log, as the runtime reads it for event plugins (plugin Phase 3). */
+const eventLog = (): EventRing => createEventRing({ boot: 'aaaaaaaaaaaa', retainEvents: 2000, retainChars: 1 << 23 })
+const RUN = { id: 'run_1', jobId: 'job_1', ordinal: 1, createdAt: 'T', outcome: 'completed', progress: { done: 2, total: 2 }, questionsOpen: 0 }
+/** Appends `count` completed Runs to the log, each with `payload` over the Run. */
+const add = (ring: EventRing, count: number, payload: Record<string, unknown> = {}): void =>
+  void ring.append(
+    Array.from({ length: count }, (): EventDraft => ({ type: 'run.completed', jobId: 'job_1', runId: 'run_1', payload: { ...RUN, ...payload } })),
+    'T'
+  )
+
+function runtime(
+  timings: Partial<PluginTimings> = {},
+  extra: {
+    maxLine?: number
+    profile?: string
+    ring?: EventRing
+    cursors?: (folder: string) => CursorStore
+    notify?: (e: AsteraEvent) => PluginNotification | null | Promise<PluginNotification | null>
+    delivery?: Partial<DeliveryTimings>
+    now?: () => number
+  } = {}
+) {
   const calls: Call[] = []
   const hostLog: string[] = []
-  const profile = path.join(dir, `profile ${++n}`)
+  const profile = extra.profile ?? path.join(dir, `profile ${++n}`)
+  const ring = extra.ring ?? eventLog()
   const r = createPluginRuntime({
     profileDir: profile,
     exec: process.execPath,
@@ -48,10 +78,16 @@ function runtime(timings: Partial<PluginTimings> = {}, extra: { maxLine?: number
     // crash counted as quick only within 5 s of a start that itself took that long. No test here is about these two
     // budgets; the ones that are set their own.
     timings: { startMs: 60_000, stopGraceMs: 1_000, backoffMs: [50, 50, 50], stableMs: 30_000, failAfter: 3, ...timings },
-    ...extra
+    events: ring,
+    delivery: { retryFirstMs: 50, retryMaxMs: 50, ...extra.delivery },
+    // Worded as the Host words them, in English, every Job's objective "Ship it"
+    notify: extra.notify ?? ((e) => notificationOf(e, { lang: 'en', objectiveOf: () => 'Ship it' })),
+    ...(extra.now ? { now: extra.now } : {}),
+    ...(extra.maxLine !== undefined ? { maxLine: extra.maxLine } : {}),
+    ...(extra.cursors ? { cursors: extra.cursors } : {})
   })
   started.push(r)
-  return { r, calls, hostLog, profile }
+  return { r, calls, hostLog, profile, ring }
 }
 
 /** A plugin folder holding `source` as its entry. */
@@ -59,8 +95,14 @@ function plugin(name: string, source: string, file = 'index.mjs'): PluginLaunch 
   const d = path.join(dir, 'plugins', name)
   mkdirSync(d, { recursive: true })
   writeFileSync(path.join(d, file), source)
-  return { id: name, version: '1.0.0', folder: name, dir: d, entry: path.join(d, file), granted: ['projects.read'], settings: {}, redact: [] }
+  return { id: name, version: '1.0.0', folder: name, dir: d, entry: path.join(d, file), granted: ['projects.read'], capabilities: [], settings: {}, redact: [] }
 }
+
+/** A `notification` plugin (plugin Phase 3c): the capability, and the permission it needs. */
+const provider = (name: string, source: string): PluginLaunch => ({ ...plugin(name, source), capabilities: ['notification'], granted: ['events.subscribe'] })
+
+/** An `event` plugin (plugin Phase 3): the capability, and the permission it needs. */
+const eventPlugin = (name: string, source: string): PluginLaunch => ({ ...plugin(name, source), capabilities: ['event'], granted: ['events.subscribe'] })
 
 const logOf = (r: PluginRuntime, folder: string): string => (existsSync(r.logFile(folder)) ? readFileSync(r.logFile(folder), 'utf8') : '')
 // 45 s: three starts and restarts of a real process, under the full suite (load-sensitive tests, 2026-10-14). Every
@@ -260,6 +302,110 @@ describe('createPluginRuntime', () => {
     expect(existsSync(r.logFile('forgotten'))).toBe(false)
   }, 90_000)
 
+  // 5d (performance review): a removed plugin's settings and secret values do not stay in the Host's memory
+  it('forgets the slot of a plugin it was told to forget', async () => {
+    const { r } = runtime()
+    r.start(plugin('dropped', `export default { activate() {} }`))
+    await until(() => expect(r.status('dropped')?.status).toBe('running'))
+    await r.stop('dropped')
+    expect(r.status('dropped')).toBeDefined()
+    await r.forget('dropped')
+    expect(r.status('dropped')).toBeUndefined()
+  }, 90_000)
+
+  // 5e (performance review): a plugin printing without end cannot take the Host's thread; its log keeps a budget of
+  // lines a second and says how many it dropped, and ordinary logging is never touched
+  /** The lines a plugin's log kept that match `kept`, and the lines its [host] lines say were dropped. */
+  const budgetOf = (r: PluginRuntime, folder: string, kept: RegExp): { kept: number; dropped: number; reports: number } => {
+    const log = logOf(r, folder)
+    const reports = [...log.matchAll(/\[host\] dropped ([\d,]+) lines? of its output/g)]
+    return {
+      kept: log.split('\n').filter((l) => kept.test(l)).length,
+      dropped: reports.reduce((n, m) => n + Number(m[1].replace(/,/g, '')), 0),
+      reports: reports.length
+    }
+  }
+
+  it('keeps a budget of a plugin’s output lines a second, and counts the ones it drops', async () => {
+    const { r } = runtime()
+    r.start(plugin('flood', `export default { activate() { for (let i = 0; i < 50000; i++) console.log('line ' + i) } }`))
+    await until(() => expect(r.status('flood')?.status).toBe('running'))
+    // The flood can be read across a second's end: its second count comes a second later (5e final review M3)
+    await until(() => expect(budgetOf(r, 'flood', /\sline \d+$/)).toMatchObject({ dropped: 50_000 - budgetOf(r, 'flood', /\sline \d+$/).kept }), 20_000)
+    expect(budgetOf(r, 'flood', /\sline \d+$/).kept).toBeLessThan(50_000)
+    r.start(plugin('quiet', `export default { activate() { for (let i = 0; i < 10; i++) console.log('note ' + i) } }`))
+    await until(() => expect(logOf(r, 'quiet').split('\n').filter((l) => /note \d+$/.test(l))).toHaveLength(10))
+    expect(logOf(r, 'quiet')).not.toContain('dropped')
+  }, 90_000)
+
+  // 5e final review I1: a flood over several seconds says its count once a second, not more often as it goes on
+  it('says the count of a long flood once a second', async () => {
+    const { r } = runtime()
+    // A second whose drops start late (1,000 lines, half a second's pause, then the flood) before seconds whose drops
+    // start early: a count timed from a second's first drop would then fire inside the next second
+    const flood = `export default { activate() { for (let i = 0; i < 1000; i++) console.log('line ' + i); let n = 1000; setTimeout(() => { const t = setInterval(() => { for (let i = 0; i < 200; i++) console.log('line ' + n++); if (n >= 30000) clearInterval(t) }, 20) }, 500) } }`
+    r.start(plugin('long-flood', flood))
+    await until(() => expect(budgetOf(r, 'long-flood', /\sline \d+$/)).toMatchObject({ dropped: 30_000 - budgetOf(r, 'long-flood', /\sline \d+$/).kept }), 30_000)
+    // One count a second: the counts are a second apart, give or take the moment a second's first line arrives
+    const times = logOf(r, 'long-flood')
+      .split('\n')
+      .filter((l) => /\[host\] dropped [\d,]+ lines? of its output/.test(l))
+      .map((l) => Date.parse(l.slice(0, 24)))
+    expect(times.length).toBeGreaterThan(1)
+    for (let i = 1; i < times.length; i++) expect(times[i] - times[i - 1], `count ${i}`).toBeGreaterThanOrEqual(800)
+  }, 90_000)
+
+  // A timer can fire before its second is over by the runtime's clock (Node keeps whole milliseconds, a loaded machine
+  // drifts): a count said then was followed by a second count of the same second (the Windows runner, 12 ms apart)
+  it('says a second’s count only once that second is over by its own clock, though a timer fires early', async () => {
+    const real = performance.now.bind(performance)
+    const start = real()
+    // A clock 5% slow: every timer the budget sets fires early by it
+    const clock = vi.spyOn(performance, 'now').mockImplementation(() => start + (real() - start) * 0.95)
+    try {
+      const { r } = runtime()
+      const flood = `export default { activate() { let n = 0; const t = setInterval(() => { for (let i = 0; i < 200; i++) console.log('line ' + n++); if (n >= 20000) clearInterval(t) }, 20) } }`
+      r.start(plugin('early-timer', flood))
+      await until(() => expect(budgetOf(r, 'early-timer', /\sline \d+$/)).toMatchObject({ dropped: 20_000 - budgetOf(r, 'early-timer', /\sline \d+$/).kept }), 30_000)
+      const times = logOf(r, 'early-timer')
+        .split('\n')
+        .filter((l) => /\[host\] dropped [\d,]+ lines? of its output/.test(l))
+        .map((l) => Date.parse(l.slice(0, 24)))
+      expect(times.length).toBeGreaterThan(1)
+      for (let i = 1; i < times.length; i++) expect(times[i] - times[i - 1], `count ${i}`).toBeGreaterThanOrEqual(800)
+    } finally {
+      clock.mockRestore()
+    }
+  }, 90_000)
+
+  // 5e final review I2: a flood that ends in a crash keeps the crash's own lines, dropped or not
+  it('writes the last lines it dropped when the process ends, so a crash at the end of a flood keeps its stack', async () => {
+    const { r } = runtime({ failAfter: 1 })
+    r.start(plugin('flood-crash', `export default { activate() { for (let i = 0; i < 5000; i++) console.log('line ' + i); setImmediate(() => { throw new Error('boom at the end') }) } }`))
+    await until(() => expect(logOf(r, 'flood-crash')).toContain('boom at the end'), 30_000)
+  }, 90_000)
+
+  // 5e final review M4: the budget counts characters too, so long lines cannot push megabytes a second through it
+  it('keeps a budget of characters a second as well as lines', async () => {
+    const { r } = runtime()
+    r.start(plugin('wide', `export default { activate() { for (let i = 0; i < 100; i++) console.log('w' + i + ' ' + 'x'.repeat(64 * 1024 - 20)) } }`))
+    await until(() => expect(logOf(r, 'wide')).toMatch(/\[host\] dropped [\d,]+ lines? of its output/), 20_000)
+    const kept = logOf(r, 'wide').split('\n').filter((l) => / w\d+ x+$/.test(l)).length
+    expect(kept).toBeLessThan(100)
+    expect(kept).toBeGreaterThan(0)
+  }, 90_000)
+
+  // 5d final review M7: a slot whose process is still there (starting, or waiting to restart) is not let go: the
+  // runtime could not stop that process any more
+  it('keeps the slot of a plugin that still has a process, even when told to forget it', async () => {
+    const { r } = runtime()
+    r.start(plugin('slow-start', `export default { activate() { return new Promise(() => {}) } }`))
+    await until(() => expect(r.status('slow-start')?.status).toBe('starting'))
+    await r.forget('slow-start')
+    expect(r.status('slow-start')?.status).toBe('starting')
+    await r.stop('slow-start')
+  }, 90_000)
+
   // Plugins 2c (spec §23-§24): settings handed over at the start, secrets kept per plugin and out of its log.
   it('hands a plugin its settings, keeps its secrets from another plugin, and redacts every secret from its log', async () => {
     const { r } = runtime()
@@ -301,6 +447,18 @@ describe('createPluginRuntime', () => {
     expect(r.status('nobody')).toBeUndefined()
     await r.stopAll()
     expect([r.status('one')?.status, r.status('two')?.status]).toEqual(['stopped', 'stopped'])
+  }, 90_000)
+
+  // Plugin Phase 3, found under onEvent: on Windows the plugin's end of a 'pipe' channel is a synchronous handle, whose
+  // pending read holds every write until the Host writes again, so a call a plugin made from a timer waited for the
+  // Host's next message, for ever when none came
+  it('takes a call the plugin makes from a timer, with nothing else said on the channel', async () => {
+    const { r, calls } = runtime()
+    const p = plugin('ticks', `export default { activate(ctx) { setTimeout(() => ctx.astera.projects.list().then(() => ctx.log.info('listed')), 300) } }`)
+    r.start(p)
+    await until(() => expect(r.status('ticks')?.status).toBe('running'))
+    await until(() => expect(logOf(r, 'ticks')).toContain('[info] listed'), 10_000)
+    expect(calls.map((c) => c.cmd)).toEqual(['projects-list'])
   }, 90_000)
 })
 
@@ -382,5 +540,495 @@ describe('what a plugin log and reason never show', () => {
     r.start(p)
     await until(() => expect(logOf(r, 'cursor')).toContain('first '))
     expect(logOf(r, 'cursor')).toContain('first cursor-value-000, last [redacted]')
+  }, 90_000)
+})
+
+describe('event plugins (plugin Phase 3 N1, N5-N8)', () => {
+  const ON_EVENT = `export default {
+    async onEvent(e, ctx) {
+      if (e.type !== 'gap' && e.payload.boom) throw new Error('boom ' + ctx.settings.token)
+      ctx.log.info('got ' + (e.type === 'gap' ? 'gap' : e.id))
+    }
+  }`
+  /** Ends its process the first time it sees the second event, then takes every event. */
+  const CRASH_ONCE_ON_2 = `import { existsSync, writeFileSync } from 'node:fs'
+  import path from 'node:path'
+  export default {
+    onEvent(e, ctx) {
+      const marker = path.join(ctx.plugin.dir, 'crashed')
+      if (e.type !== 'gap' && e.id === 'ev_aaaaaaaaaaaa_2' && !existsSync(marker)) {
+        writeFileSync(marker, '1')
+        process.exit(1)
+      }
+      ctx.log.info('got ' + (e.type === 'gap' ? 'gap' : e.id))
+    }
+  }`
+
+  it('hands a running event plugin what comes after its start, in order, and keeps its place in a file', async () => {
+    const { r, profile, ring } = runtime()
+    add(ring, 1)
+    r.start(eventPlugin('ev1', ON_EVENT))
+    await until(() => expect(r.status('ev1')?.status).toBe('running'))
+    add(ring, 2)
+    await until(() => expect(logOf(r, 'ev1')).toMatch(/got ev_aaaaaaaaaaaa_2[\s\S]*got ev_aaaaaaaaaaaa_3/))
+    expect(logOf(r, 'ev1')).not.toContain('got ev_aaaaaaaaaaaa_1')
+    await r.stop('ev1')
+    expect(JSON.parse(readFileSync(cursorFile(profile, 'ev1'), 'utf8'))).toEqual({ version: 1, cursor: 'ev_aaaaaaaaaaaa_3' })
+  }, 90_000)
+
+  // Review Focus 4
+  it('resumes where it left off after a crash, and after the Host starts again', async () => {
+    const first = runtime()
+    add(first.ring, 1)
+    const p = eventPlugin('ev2', CRASH_ONCE_ON_2)
+    first.r.start(p)
+    await until(() => expect(first.r.status('ev2')?.status).toBe('running'))
+    add(first.ring, 2)
+    await until(() => expect(logOf(first.r, 'ev2')).toMatch(/got ev_aaaaaaaaaaaa_2[\s\S]*got ev_aaaaaaaaaaaa_3/))
+    expect(logOf(first.r, 'ev2')).toContain('restarting in')
+    await first.r.stopAll()
+    // The next Host (final review M9): a boot of its own, and the log read back from what the first one wrote, as
+    // eventLog.ts reads its segments at a start
+    const ring = createEventRing({ boot: 'bbbbbbbbbbbb', retainEvents: 2000, retainChars: 1 << 23 })
+    const held = first.ring.read({ limit: 1000 })
+    if ('error' in held) throw new Error(held.error)
+    ring.restore(held.events.map((event) => ({ event, line: JSON.stringify(event) })))
+    const again = runtime({}, { profile: first.profile, ring })
+    add(ring, 1)
+    again.r.start(p)
+    await until(() => expect(logOf(again.r, 'ev2')).toContain('got ev_bbbbbbbbbbbb_4'))
+    expect(logOf(again.r, 'ev2').match(/got ev_aaaaaaaaaaaa_3/g)).toHaveLength(1)
+    expect(logOf(again.r, 'ev2')).not.toContain('got gap')
+  }, 90_000)
+
+  // Review Focus 5
+  it('logs a failed delivery with its secrets hidden, and tries it again', async () => {
+    const { r, ring } = runtime()
+    r.start({ ...eventPlugin('ev3', ON_EVENT), settings: { token: 'tok-secret-123' }, redact: ['tok-secret-123'] })
+    await until(() => expect(r.status('ev3')?.status).toBe('running'))
+    add(ring, 1, { boom: true })
+    await until(() => expect(logOf(r, 'ev3')).toContain('[host] delivering run.completed ev_aaaaaaaaaaaa_1 failed (try 1): onEvent threw: boom [redacted]'))
+    expect(logOf(r, 'ev3')).not.toContain('tok-secret-123')
+  }, 90_000)
+
+  it('fails the start of an event plugin whose entry has no onEvent, saying so', async () => {
+    const { r } = runtime({ failAfter: 1 })
+    r.start(eventPlugin('ev4', 'export default { activate() {} }'))
+    await until(() => expect(r.status('ev4')).toMatchObject({ status: 'failed', reason: expect.stringContaining('the event capability needs onEvent in its entry') }))
+  }, 90_000)
+
+  it('does not start an event plugin that was not granted events.subscribe', async () => {
+    const { r } = runtime({ failAfter: 1 })
+    r.start({ ...eventPlugin('ev5', ON_EVENT), granted: [] })
+    await until(() =>
+      expect(r.status('ev5')).toMatchObject({ status: 'failed', reason: expect.stringContaining('the event capability needs the events.subscribe permission') })
+    )
+  }, 90_000)
+
+  // The answer of an onEvent that awaits something is written after the Host's message was read, the case the
+  // channel's synchronous handle held until the next message (see 'takes a call the plugin makes from a timer')
+  it('takes the answer of an onEvent that settles later, and goes on to the next event at once', async () => {
+    const { r, profile, ring } = runtime()
+    r.start(eventPlugin('ev7', `export default { async onEvent(e, ctx) { await new Promise((res) => setTimeout(res, 50)); ctx.log.info('got ' + e.id) } }`))
+    await until(() => expect(r.status('ev7')?.status).toBe('running'))
+    add(ring, 2)
+    await until(() => expect(logOf(r, 'ev7')).toContain('got ev_aaaaaaaaaaaa_2'), 10_000)
+    await r.stop('ev7')
+    expect(JSON.parse(readFileSync(cursorFile(profile, 'ev7'), 'utf8')).cursor).toBe('ev_aaaaaaaaaaaa_2')
+    expect(logOf(r, 'ev7')).not.toContain('did not finish within')
+  }, 90_000)
+
+  /** A cursor store whose second write waits for `release()`, and the order of what it was asked. */
+  const gatedCursors = () => {
+    const order: string[] = []
+    let release: () => void = () => {}
+    const gate = new Promise<void>((res) => (release = res))
+    let writes = 0
+    const store: CursorStore = {
+      read: async () => {
+        order.push('read')
+        return null
+      },
+      write: async (c) => {
+        writes += 1
+        order.push(`write ${c}`)
+        if (writes === 2) await gate
+        order.push(`wrote ${c}`)
+      }
+    }
+    return { order, release: () => release(), cursors: () => store }
+  }
+
+  // Final review M4: the stop's promise is not the only one that waits for the deliverer's last write
+  it('makes a second stop wait for the cursor write the first one began', async () => {
+    const c = gatedCursors()
+    const { r, ring } = runtime({}, { cursors: c.cursors })
+    r.start(eventPlugin('ev8', `export default { onEvent(e, ctx) { ctx.log.info('got ' + e.id) } }`))
+    await until(() => expect(r.status('ev8')?.status).toBe('running'))
+    add(ring, 1)
+    await until(() => expect(c.order).toContain('write ev_aaaaaaaaaaaa_1'))
+    void r.stop('ev8')
+    let second = false
+    void r.stop('ev8').then(() => (second = true))
+    await until(() => expect(r.status('ev8')?.status).toBe('stopped'))
+    await new Promise((res) => setTimeout(res, 300))
+    expect(second).toBe(false)
+    c.release()
+    await until(() => expect(second).toBe(true))
+  }, 90_000)
+
+  it('starts a plugin again only once the cursor write of its stop has landed', async () => {
+    const c = gatedCursors()
+    const { r, ring } = runtime({}, { cursors: c.cursors })
+    const p = eventPlugin('ev9', `export default { onEvent(e, ctx) { ctx.log.info('got ' + e.id) } }`)
+    r.start(p)
+    await until(() => expect(r.status('ev9')?.status).toBe('running'))
+    add(ring, 1)
+    await until(() => expect(c.order).toContain('write ev_aaaaaaaaaaaa_1'))
+    void r.stop('ev9')
+    await until(() => expect(r.status('ev9')?.status).toBe('stopped'))
+    r.start(p)
+    await new Promise((res) => setTimeout(res, 300))
+    expect(c.order.filter((x) => x === 'read')).toHaveLength(1)
+    c.release()
+    await until(() => expect(c.order.filter((x) => x === 'read')).toHaveLength(2))
+    expect(c.order.indexOf('wrote ev_aaaaaaaaaaaa_1')).toBeLessThan(c.order.lastIndexOf('read'))
+  }, 90_000)
+
+  // Review Focus 1
+  it('stops a plugin whose onEvent never settles within its grace', async () => {
+    const { r, ring } = runtime()
+    r.start(eventPlugin('ev6', `export default { onEvent(e, ctx) { ctx.log.info('holding'); return new Promise(() => {}) } }`))
+    await until(() => expect(r.status('ev6')?.status).toBe('running'))
+    add(ring, 1)
+    await until(() => expect(logOf(r, 'ev6')).toContain('holding'))
+    const t0 = Date.now()
+    await r.stop('ev6')
+    expect(Date.now() - t0).toBeLessThan(10_000)
+    expect(r.status('ev6')?.status).toBe('stopped')
+  }, 90_000)
+})
+
+describe('notification plugins (plugin Phase 3 N1, N9, N10)', () => {
+  const SEND = `export default { send(n, ctx) { ctx.log.info('sent ' + n.kind + ' ' + n.level + ' ' + n.title + ': ' + n.body + ' ' + n.id) } }`
+  /** Appends one event of `type` at `occurredAt`. */
+  const append = (ring: EventRing, type: string, occurredAt = new Date().toISOString(), payload: unknown = RUN): void =>
+    void ring.append([{ type, jobId: 'job_1', runId: 'run_1', payload } as EventDraft], occurredAt)
+
+  it('hands a provider each notification, worded, and nothing for other events', async () => {
+    const { r, ring } = runtime()
+    r.start(provider('n1', SEND))
+    await until(() => expect(r.status('n1')?.status).toBe('running'))
+    append(ring, 'job.created', undefined, { id: 'job_1', objective: 'Ship it' })
+    append(ring, 'run.completed')
+    await until(() => expect(logOf(r, 'n1')).toContain('sent run.completed info Ship it: Run 1 finished. ev_aaaaaaaaaaaa_2'))
+    expect(logOf(r, 'n1').match(/\[info\] sent /g)).toHaveLength(1)
+  }, 90_000)
+
+  it('calls onEvent, then send, for a plugin that names both', async () => {
+    const { r, ring } = runtime()
+    const both = `export default {
+      onEvent(e, ctx) { ctx.log.info('event ' + e.id) },
+      send(n, ctx) { ctx.log.info('sent ' + n.id) }
+    }`
+    r.start({ ...provider('n2', both), capabilities: ['event', 'notification'] })
+    await until(() => expect(r.status('n2')?.status).toBe('running'))
+    append(ring, 'run.completed')
+    await until(() => expect(logOf(r, 'n2')).toContain('sent ev_aaaaaaaaaaaa_1'))
+    expect(logOf(r, 'n2')).toMatch(/event ev_aaaaaaaaaaaa_1[\s\S]*sent ev_aaaaaaaaaaaa_1/)
+  }, 90_000)
+
+  // Review Focus 1
+  it('skips notifications older than an hour, counting them in one line, and sends the fresh ones', async () => {
+    const { r, ring } = runtime()
+    r.start(provider('n3', SEND))
+    await until(() => expect(r.status('n3')?.status).toBe('running'))
+    const old = new Date(Date.now() - 2 * 60 * 60_000).toISOString()
+    for (let i = 0; i < 3; i++) append(ring, 'run.completed', old)
+    append(ring, 'run.failed', undefined, { ...RUN, outcome: 'failed' })
+    await until(() => expect(logOf(r, 'n3')).toContain('sent run.failed error Ship it'))
+    const log = logOf(r, 'n3')
+    expect(log.match(/skipped/g)).toHaveLength(1)
+    expect(log).toContain('[host] skipped 3 notifications older than an hour (ev_aaaaaaaaaaaa_1 to ev_aaaaaaaaaaaa_3)')
+    expect(log).not.toContain('sent run.completed')
+  }, 90_000)
+
+  it('counts the stale ones once it has caught up, when no fresh one follows', async () => {
+    const { r, ring } = runtime()
+    r.start(provider('n4', SEND))
+    await until(() => expect(r.status('n4')?.status).toBe('running'))
+    append(ring, 'run.completed', new Date(Date.now() - 2 * 60 * 60_000).toISOString())
+    await until(() => expect(logOf(r, 'n4')).toContain('[host] skipped 1 notification older than an hour (ev_aaaaaaaaaaaa_1)'))
+  }, 90_000)
+
+  it('logs a gap for a provider, and hands it nothing', async () => {
+    const { r } = runtime({}, { cursors: () => ({ read: async () => 'ev_bbbbbbbbbbbb_9', write: async () => {} }) })
+    r.start(provider('n5', SEND))
+    await until(() => expect(logOf(r, 'n5')).toContain('[host] events were lost before the next one (older than the log keeps): no notification was sent for them'))
+    expect(logOf(r, 'n5')).not.toContain('[info] sent')
+  }, 90_000)
+
+  it('fails the start of a provider whose entry has no send, saying so', async () => {
+    const { r } = runtime({ failAfter: 1 })
+    r.start(provider('n6', 'export default { onEvent() {} }'))
+    await until(() => expect(r.status('n6')).toMatchObject({ status: 'failed', reason: expect.stringContaining('the notification capability needs send in its entry') }))
+  }, 90_000)
+})
+
+describe('notification plugins, against what a person would not expect (plugin 3c final review)', () => {
+  const word = (e: AsteraEvent): PluginNotification | null => notificationOf(e, { lang: 'en', objectiveOf: () => 'Ship it' })
+  const append = (ring: EventRing, occurredAt = new Date().toISOString()): void =>
+    void ring.append([{ type: 'run.completed', jobId: 'job_1', runId: 'run_1', payload: RUN } as EventDraft], occurredAt)
+
+  // I1: a wording that fails is the Host's fault, not the plugin's, and retrying it changes nothing
+  it('sends nothing for an event it cannot word, says so, and goes on at once', async () => {
+    const notify = (e: AsteraEvent) => {
+      if (e.sequence === 1) throw new Error('bad payload')
+      return word(e)
+    }
+    const { r, ring } = runtime({}, { notify })
+    r.start(provider('w1', `export default { send(n, ctx) { ctx.log.info('sent ' + n.id) } }`))
+    await until(() => expect(r.status('w1')?.status).toBe('running'))
+    append(ring)
+    append(ring)
+    await until(() => expect(logOf(r, 'w1')).toContain('sent ev_aaaaaaaaaaaa_2'))
+    expect(logOf(r, 'w1')).toContain('[host] could not word run.completed ev_aaaaaaaaaaaa_1 (bad payload): it is not sent')
+    expect(logOf(r, 'w1')).not.toContain('failed (try')
+  }, 90_000)
+
+  // M2: an attempt the deliverer gave up at the time limit must not go on to send beside the next try
+  it('does not send for an attempt that ran past the time limit', async () => {
+    const { r, ring } = runtime({}, { delivery: { timeoutMs: 300 } })
+    const source = `import { existsSync, writeFileSync } from 'node:fs'
+      import path from 'node:path'
+      export default {
+        async onEvent(e, ctx) {
+          const m = path.join(ctx.plugin.dir, 'slow')
+          if (!existsSync(m)) { writeFileSync(m, '1'); await new Promise((res) => setTimeout(res, 800)) }
+        },
+        send(n, ctx) { ctx.log.info('sent ' + n.id) }
+      }`
+    r.start({ ...provider('w2', source), capabilities: ['event', 'notification'] })
+    await until(() => expect(r.status('w2')?.status).toBe('running'))
+    append(ring)
+    await until(() => expect(logOf(r, 'w2')).toContain('sent ev_aaaaaaaaaaaa_1'))
+    await new Promise((res) => setTimeout(res, 1500))
+    expect(logOf(r, 'w2').match(/sent ev_aaaaaaaaaaaa_1/g)).toHaveLength(1)
+  }, 90_000)
+
+  // M4: a notification that was fresh when it was first sent is tried until it is sent or given up, not skipped as stale
+  it('keeps trying a notification that grows old while it fails, rather than counting it stale', async () => {
+    const { r, ring } = runtime()
+    r.start(provider('w3', `let n = 0; export default { send(no, ctx) { if (++n <= 5) throw new Error('down'); ctx.log.info('sent ' + no.id) } }`))
+    await until(() => expect(r.status('w3')?.status).toBe('running'))
+    append(ring, new Date(Date.now() - 60 * 60_000 + 100).toISOString())
+    await until(() => expect(logOf(r, 'w3')).toContain('sent ev_aaaaaaaaaaaa_1'))
+    expect(logOf(r, 'w3')).not.toContain('skipped')
+  }, 90_000)
+
+  // 3c final review, re-graded from "declined": the give-up hour is the deliverer's own forward-only clock (3b M1)
+  it('counts the give-up hour on the deliverer’s own clock, not the runtime’s', async () => {
+    let skew = 0
+    const { r, ring } = runtime({}, { now: () => Date.now() + skew, delivery: { retryFirstMs: 1_000, retryMaxMs: 1_000 } })
+    r.start(eventPlugin('w4', `let n = 0; export default { onEvent(e, ctx) { if (++n <= 2) throw new Error('down ' + n); ctx.log.info('got ' + e.id) } }`))
+    await until(() => expect(r.status('w4')?.status).toBe('running'))
+    add(ring, 1)
+    await until(() => expect(logOf(r, 'w4')).toContain('failed (try 1)'))
+    skew = 2 * 60 * 60_000
+    await until(() => expect(logOf(r, 'w4')).toContain('got ev_aaaaaaaaaaaa_1'))
+    expect(logOf(r, 'w4')).not.toContain('gave up')
+  }, 90_000)
+
+  // M10: the stop says the stale ones still uncounted
+  it('counts the stale notifications at the stop when nothing else has', async () => {
+    const { r, ring } = runtime()
+    const source = `export default {
+      onEvent(e) { if (e.sequence === 3) return new Promise(() => {}) },
+      send(n, ctx) { ctx.log.info('sent ' + n.id) }
+    }`
+    r.start({ ...provider('w5', source), capabilities: ['event', 'notification'] })
+    await until(() => expect(r.status('w5')?.status).toBe('running'))
+    const old = new Date(Date.now() - 2 * 60 * 60_000).toISOString()
+    append(ring, old)
+    append(ring, old)
+    append(ring)
+    await new Promise((res) => setTimeout(res, 500))
+    expect(logOf(r, 'w5')).not.toContain('skipped')
+    await r.stop('w5')
+    await until(() => expect(logOf(r, 'w5')).toContain('[host] skipped 2 notifications older than an hour (ev_aaaaaaaaaaaa_1 to ev_aaaaaaaaaaaa_2)'))
+  }, 90_000)
+
+  // M10: the ruling that a failed send hands the whole event over again, onEvent included
+  it('hands a plugin that names both onEvent again when its send failed', async () => {
+    const { r, ring } = runtime()
+    const source = `let n = 0; export default {
+      onEvent(e, ctx) { ctx.log.info('event ' + e.id) },
+      send(no, ctx) { if (++n === 1) throw new Error('down'); ctx.log.info('sent ' + no.id) }
+    }`
+    r.start({ ...provider('w6', source), capabilities: ['event', 'notification'] })
+    await until(() => expect(r.status('w6')?.status).toBe('running'))
+    append(ring)
+    await until(() => expect(logOf(r, 'w6')).toContain('sent ev_aaaaaaaaaaaa_1'))
+    expect(logOf(r, 'w6').match(/event ev_aaaaaaaaaaaa_1/g)).toHaveLength(2)
+  }, 90_000)
+})
+
+// Plugin Phase 5 C1-C5: a completion check plugin asked through the Host's own path, in a real plugin process
+describe('completion check plugins through the Host (plugin Phase 5)', () => {
+  const SOURCE = `export default {
+    async runCheck(input, ctx) {
+      const title = input.task.title
+      if (title === 'boom') throw new Error('git is not installed')
+      if (title === 'odd') return { status: 'maybe' }
+      if (title === 'long') return { status: 'failed', summary: 'x'.repeat(5000), diagnostics: Array.from({ length: 150 }, (_, i) => ({ file: 'src/a.js', line: i + 1, message: 'adds console.log' })) }
+      if (title === 'dirty') return { status: 'failed', summary: '1 leftover in ' + input.workspace.root, diagnostics: [{ file: 'src/a.js', line: 3, message: 'adds console.log', severity: 'error' }], externalUrl: 'https://ci.example/r/1' }
+      return { status: 'passed', summary: 'checked by ' + ctx.plugin.id }
+    }
+  }`
+  const input = (title: string) => ({ jobId: 'job1', runId: 'run1', taskId: 't1', task: { title }, workspace: { root: '/w' } })
+  const listing = (id: string) => ({
+    listNow: async () => ({ status: 200, body: { plugins: [{ id, displayName: 'Debug leftovers', enabled: true, status: 'running', capabilities: ['completion-check'] }] } })
+  })
+
+  it('answers a pass, a failure with its findings, a throw, an answer of the wrong shape and a cut answer', async () => {
+    const { r } = runtime()
+    r.start({ ...plugin('cc-real', SOURCE), capabilities: ['completion-check'], granted: [] })
+    await until(() => expect(r.status('cc-real')?.status).toBe('running'))
+    const checks = hostCompletionChecks({ manager: listing('cc-real') as never, runtime: r })
+    expect(await checks.run('cc-real', input('clean'))).toEqual({ name: 'Debug leftovers', status: 'passed', summary: 'checked by cc-real' })
+    expect(await checks.run('cc-real', input('dirty'))).toEqual({
+      name: 'Debug leftovers',
+      status: 'failed',
+      summary: '1 leftover in /w',
+      diagnostics: [{ file: 'src/a.js', line: 3, message: 'adds console.log', severity: 'error' }],
+      externalUrl: 'https://ci.example/r/1'
+    })
+    expect(await checks.run('cc-real', input('boom'))).toEqual({ name: 'Debug leftovers', status: 'error', summary: 'runCheck threw: git is not installed' })
+    expect((await checks.run('cc-real', input('odd'))).summary).toBe('the plugin answered with something that is not a check result: status must be passed, failed or error')
+    const long = await checks.run('cc-real', input('long'))
+    // 5d: 20 are kept and the rest counted
+    expect(long.diagnostics).toHaveLength(20)
+    expect(long.diagnosticsTotal).toBe(150)
+    expect(long.summary.length).toBeLessThanOrEqual(1000)
+  }, 90_000)
+
+  it('answers error saying so for a plugin that stopped', async () => {
+    const { r } = runtime()
+    r.start({ ...plugin('cc-stop', SOURCE), capabilities: ['completion-check'], granted: [] })
+    await until(() => expect(r.status('cc-stop')?.status).toBe('running'))
+    await r.stop('cc-stop')
+    const checks = hostCompletionChecks({ manager: listing('cc-stop') as never, runtime: r })
+    expect(await checks.run('cc-stop', input('clean'))).toEqual({ name: 'Debug leftovers', status: 'error', summary: 'cc-stop is stopped' })
+  }, 90_000)
+})
+
+describe('job-source plugins (plugin Phase 4 J6, J8)', () => {
+  const SOURCE = `export default {
+    listItems(input) { return { items: [{ id: 'ENG-1', title: 'Fix ' + (input.query ?? '') }] } },
+    getItem(id) { if (id === 'boom') throw new Error('401 Unauthorized'); return { id, title: 'Fix' } },
+    buildJobContext(id) { return new Promise(() => {}) }
+  }`
+  const sourcePlugin = (name: string, source = SOURCE): PluginLaunch => ({ ...plugin(name, source), capabilities: ['job-source'], granted: [] })
+  /** The failure `p` rejected with, as its status and message. */
+  const failure = async (p: Promise<unknown>): Promise<{ status: number; message: string }> => {
+    try {
+      await p
+    } catch (e) {
+      if (e instanceof PluginRequestFailed) return { status: e.status, message: e.message }
+      throw e
+    }
+    throw new Error('it did not reject')
+  }
+
+  it('asks a running job source and answers what it returned', async () => {
+    const { r } = runtime()
+    r.start(sourcePlugin('js1'))
+    await until(() => expect(r.status('js1')?.status).toBe('running'))
+    expect(await r.request('js1', 'jobSource.list', { query: 'login' }, 5_000)).toEqual({ items: [{ id: 'ENG-1', title: 'Fix login' }] })
+  }, 90_000)
+
+  it('rejects a function that threw with 502 and its message, and logs it', async () => {
+    const { r } = runtime()
+    r.start(sourcePlugin('js2'))
+    await until(() => expect(r.status('js2')?.status).toBe('running'))
+    expect(await failure(r.request('js2', 'jobSource.get', { id: 'boom' }, 5_000))).toEqual({ status: 502, message: 'getItem threw: 401 Unauthorized' })
+    await until(() => expect(logOf(r, 'js2')).toContain('[host] jobSource.get failed: getItem threw: 401 Unauthorized'))
+  }, 90_000)
+
+  it('rejects past the time limit with 504', async () => {
+    const { r } = runtime()
+    r.start(sourcePlugin('js3'))
+    await until(() => expect(r.status('js3')?.status).toBe('running'))
+    expect(await failure(r.request('js3', 'jobSource.context', { id: 'ENG-1' }, 300))).toEqual({ status: 504, message: 'js3 did not answer within 0.3 s' })
+  }, 90_000)
+
+  // 5d (performance review M2): past the time limit the plugin is told, and that call's ctx.signal aborts
+  it('cancels the call it stopped waiting for, so the plugin can stop it', async () => {
+    const { r } = runtime()
+    r.start(
+      sourcePlugin(
+        'js6',
+        `export default { listItems() { return { items: [] } }, getItem() { return {} }, buildJobContext(id, ctx) { return new Promise(() => ctx.signal.addEventListener('abort', () => ctx.log.info('cancelled ' + id))) } }`
+      )
+    )
+    await until(() => expect(r.status('js6')?.status).toBe('running'))
+    expect(await failure(r.request('js6', 'jobSource.context', { id: 'ENG-9' }, 300))).toEqual({ status: 504, message: 'js6 did not answer within 0.3 s' })
+    await until(() => expect(logOf(r, 'js6')).toContain('[info] cancelled ENG-9'))
+  }, 90_000)
+
+  // Review Focus 3: a person listing a source that does not run hears why at once
+  it('rejects at once with 503, the status and the reason, when the plugin does not run', async () => {
+    const { r } = runtime({ failAfter: 1 })
+    expect(await failure(r.request('nobody', 'jobSource.list', {}, 5_000))).toEqual({ status: 503, message: 'nobody is not running' })
+    r.start(sourcePlugin('js4', `export default { listItems() {}, getItem() {}, buildJobContext() {}, activate() { throw new Error('no key') } }`))
+    await until(() => expect(r.status('js4')?.status).toBe('failed'))
+    const t0 = Date.now()
+    expect(await failure(r.request('js4', 'jobSource.list', {}, 15_000))).toMatchObject({ status: 503, message: expect.stringMatching(/^js4 is failed: activate threw: no key/) })
+    expect(Date.now() - t0).toBeLessThan(1_000)
+    r.start(sourcePlugin('js5'))
+    await until(() => expect(r.status('js5')?.status).toBe('running'))
+    await r.stop('js5')
+    expect(await failure(r.request('js5', 'jobSource.list', {}, 5_000))).toEqual({ status: 503, message: 'js5 is stopped' })
+  }, 90_000)
+
+  // The 4a review's M10: a crash loop and an exit while it answers are 503 too, at once
+  it('rejects with 503 at once while the plugin waits to restart, and when it exits while it answers', async () => {
+    const { r } = runtime({ backoffMs: [60_000], failAfter: 5 })
+    r.start(sourcePlugin('js7', `export default { listItems() {}, getItem() {}, buildJobContext() {}, activate() { throw new Error('no key') } }`))
+    await until(() => expect(r.status('js7')?.reason).toBeDefined())
+    const t0 = Date.now()
+    expect(await failure(r.request('js7', 'jobSource.list', {}, 15_000))).toMatchObject({
+      status: 503,
+      message: expect.stringMatching(/^js7 is starting: restarting after activate threw: no key/)
+    })
+    expect(Date.now() - t0).toBeLessThan(1_000)
+    r.start(sourcePlugin('js8', `export default { listItems() { process.exit(3) }, getItem() {}, buildJobContext() {} }`))
+    await until(() => expect(r.status('js8')?.status).toBe('running'))
+    expect(await failure(r.request('js8', 'jobSource.list', {}, 15_000))).toEqual({ status: 503, message: 'js8 exited while it answered' })
+  }, 90_000)
+
+  // The 4a review's M8: the launcher's not-ready code, from a race with a stop, is a plugin not running
+  it('answers the launcher’s not-ready code as 503, and hides a secret in what a plugin threw', () => {
+    const hide = (m: string): string => m.replaceAll('sk-1', '[redacted]')
+    expect(requestFailure('js', new RpcError(RPC_NOT_READY, 'the plugin is stopping'), hide)).toMatchObject({ status: 503, message: 'js is not ready: the plugin is stopping' })
+    expect(requestFailure('js', new RpcError(RPC_CLOSED, 'gone'), hide)).toMatchObject({ status: 503, message: 'js exited while it answered' })
+    expect(requestFailure('js', new RpcError(-32603, 'listItems threw: 401 for sk-1'), hide)).toMatchObject({ status: 502, message: 'listItems threw: 401 for [redacted]' })
+  })
+
+  // Plugin Phase 5 C1: a check plugin is served through runCheck, and one without it does not start
+  it('asks a running check plugin and answers what runCheck returned; one without runCheck does not start', async () => {
+    const { r } = runtime({ failAfter: 1 })
+    const check = (name: string, source: string): PluginLaunch => ({ ...plugin(name, source), capabilities: ['completion-check'], granted: [] })
+    r.start(check('cc1', `export default { runCheck(input) { return { status: 'passed', summary: 'checked ' + input.task.title } } }`))
+    await until(() => expect(r.status('cc1')?.status).toBe('running'))
+    expect(await r.request('cc1', 'completionCheck.run', { input: { task: { title: 'T' } } }, 5_000)).toEqual({ status: 'passed', summary: 'checked T' })
+    r.start(check('cc2', 'export default { listItems() {} }'))
+    await until(() => expect(r.status('cc2')).toMatchObject({ status: 'failed', reason: expect.stringContaining('the completion-check capability needs runCheck in its entry') }))
+  }, 90_000)
+
+  it('fails the start of a job source whose entry lacks one of its functions, saying which', async () => {
+    const { r } = runtime({ failAfter: 1 })
+    r.start(sourcePlugin('js6', 'export default { listItems() {}, buildJobContext() {} }'))
+    await until(() => expect(r.status('js6')).toMatchObject({ status: 'failed', reason: expect.stringContaining('the job-source capability needs getItem in its entry') }))
   }, 90_000)
 })

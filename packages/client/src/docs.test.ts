@@ -202,6 +202,18 @@ describe('docs/sdk.md', () => {
     expect(read('examples/sdk/README.md')).not.toMatch(/not on npm yet/)
   })
 
+  // 5a final review M8: a script on an older Astera meets none of it, and the CHANGELOG says which Astera it needs
+  it('says which Astera the completion check plugins need, and how the CLI refuses a missing one', () => {
+    const changelog = read('packages/client/CHANGELOG.md')
+    const v030 = changelog.slice(changelog.indexOf('## 0.3.0'), changelog.indexOf('## 0.2.0'))
+    const checks = v030.slice(v030.indexOf('- Completion check plugins'))
+    expect(checks.slice(0, checks.indexOf('\n- '))).toContain('Astera 1.4.14')
+    const code = v030.slice(v030.indexOf('- The error code `PLUGIN_CAPABILITY_MISSING`'))
+    expect(code).toContain('Astera 1.4.14')
+    const cli = read('docs/cli.md').replace(/\s+/g, ' ')
+    expect(cli).toContain('or is disabled, with `PLUGIN_CAPABILITY_MISSING` in `error.code`')
+  })
+
   it('is reached from the CLI and MCP guides and from the package README', () => {
     expect(read('docs/cli.md')).toContain('](sdk.md)')
     expect(read('docs/mcp.md')).toContain('](sdk.md)')
