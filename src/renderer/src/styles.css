@@ -2431,6 +2431,12 @@ input[type="checkbox"]:not(.md-task input):focus-visible {
    그 숫자들과 한 덩어리로 읽히지 않게 하는 것이다 */
 .jobs-delete { margin-left: auto; display: inline-flex; align-items: center; padding: 2px; background: none; border: 0; color: var(--text-dim); cursor: pointer; }
 .jobs-delete:hover { background: none; color: var(--git-deleted); }
+/* W1-C plan lifecycle: rename and archive beside the trash, the name's field, and the archived toggle */
+.jobs-lifecycle { display: inline-flex; align-items: center; padding: 2px; background: none; border: 0; color: var(--text-dim); cursor: pointer; }
+.jobs-lifecycle:hover { background: none; color: var(--text); }
+.jobs-title-input { flex: 1; min-width: 0; font: inherit; padding: 0 4px; }
+.jobs-archived-toggle { align-self: flex-start; background: none; border: 0; padding: 2px 0; color: var(--text-dim); cursor: pointer; font-size: 11px; }
+.jobs-archived-toggle:hover { color: var(--text); }
 .jobs-empty { margin: auto; text-align: center; padding: 0 24px; color: var(--text-faint); font-size: 13px; }
 .jobs-empty-hint { margin-top: 6px; font-size: 11.5px; }
 /* 아무것도 움직이지 않는 까닭(한도 L3). 경고 색 한 줄 — 사람이 할 일이 있을 수도 있다는 뜻이지 실패가 아니다 */

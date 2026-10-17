@@ -99,6 +99,13 @@ describe('humanFor', () => {
     expect(out).toBe('PENDING  job_1  Fix the login page on Safari  0/0')
   })
 
+  // W1-C: a Job a person named is listed by that name
+  it('jobs list 는 사람이 붙인 이름을 먼저 쓴다', () => {
+    const out = humanFor('jobs-list', { jobs: [{ id: 'j', objective: 'o', title: 'Login', outcome: 'running' }] })
+    expect(out).toContain('Login')
+    expect(out).not.toMatch(/\bo\b/)
+  })
+
   it('질문이 여럿이면 복수로 센다', () => {
     const out = humanFor('jobs-list', {
       jobs: [{ id: 'j', objective: 'o', outcome: 'running', questionsOpen: 3 }]

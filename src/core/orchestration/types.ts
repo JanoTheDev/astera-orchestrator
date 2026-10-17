@@ -206,6 +206,13 @@ export interface Job {
   /** Per-Job model override per role, ahead of the app's setting (resolveRoleModel, roleModels.ts).
    *  Empty or absent: the app's setting. */
   models?: Partial<Record<'coordinator' | 'planner' | 'worker' | 'reviewer', string>>
+  // W1-C plan lifecycle (lifecycle.ts)
+  /** What a person named this plan (`jobs rename`). Absent: it is named by its source's title or its objective
+   *  (jobNameOf). One line, at most JOB_TITLE_MAX characters. */
+  title?: string
+  /** When the plan was archived (`jobs archive`). **Present: it starts no new work** (isJobActive) and default lists
+   *  hide it; its running sessions are left alone unless the archive asked to close them. */
+  archivedAt?: string
 }
 
 /** A job source's item a Job was made from: the source (a plugin's id, or `github`), the item's id there, how a person

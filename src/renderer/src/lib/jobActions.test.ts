@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { deleteRun, pauseRun, restartCoordinator, resumeRun, type ActionUi } from './jobActions'
+import { archiveJob, deleteRun, pauseRun, renameJob, restartCoordinator, resumeRun, unarchiveJob, type ActionUi } from './jobActions'
 import type { OrchDoor } from './orchDoor'
 import type { OrchSnapshot } from '../../../core/types'
 
@@ -133,5 +133,34 @@ describe('Job actions through a door (remote runtime design Phase 7)', () => {
     const u = ui()
     await resumeRun(door({ status: 400, body: { error: 'no' } }), 'r1', u)
     expect(u.errors).toEqual(['jobs.run.resumeFailed'])
+  })
+})
+
+// W1-C plan lifecycle: closing sessions on archive is only ever the person's own tick (SPEC §12, CONTEXT rule 6)
+describe('plan lifecycle actions', () => {
+  it('archive asks, offers closing the sessions unticked, and sends killSessions only when ticked', async () => {
+    const left = door()
+    const u = ui()
+    await archiveJob(left, snapshot(), 'r1', u)
+    expect(u.asked[0].choices?.map((c) => c.id)).toEqual(['kill'])
+    expect(left.sent).toEqual([['jobs-archive', { id: 'r1' }]])
+    const killed = door()
+    await archiveJob(killed, snapshot(), 'r1', ui({ checked: ['kill'] }))
+    expect(killed.sent).toEqual([['jobs-archive', { id: 'r1', killSessions: true }]])
+    const declined = door()
+    await archiveJob(declined, snapshot(), 'r1', ui({ checked: null }))
+    expect(declined.sent).toEqual([])
+  })
+
+  it('rename and unarchive send their commands without asking, and a refusal is shown', async () => {
+    const d = door()
+    const u = ui()
+    await renameJob(d, 'r1', 'Login', u)
+    await unarchiveJob(d, 'r1', u)
+    expect(d.sent).toEqual([['jobs-rename', { id: 'r1', title: 'Login' }], ['jobs-unarchive', { id: 'r1' }]])
+    expect(u.asked).toEqual([])
+    const refused = ui()
+    await renameJob(door({ status: 404, body: { error: 'unknown job: r1' } }), 'r1', 'x', refused)
+    expect(refused.errors).toHaveLength(1)
   })
 })

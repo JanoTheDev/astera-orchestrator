@@ -63,6 +63,10 @@ const SHAPE: Record<string, readonly string[]> = {
   'jobs-create': JOB,
   // Plugin Phase 4 J21: the Job made from a source's item
   'jobs-create-from-source': JOB,
+  // W1-C: a renamed, archived or unarchived Job
+  'jobs-rename': JOB,
+  'jobs-archive': JOB,
+  'jobs-unarchive': JOB,
   'runs-list': RUN,
   'runs-get': RUN,
   // `jobs run` answers with the Run it started, so it hides what `runs get` hides.

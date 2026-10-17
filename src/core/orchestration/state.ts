@@ -41,6 +41,7 @@ import {
 import { normalizeIssues, type ReviewIssueInput } from './review'
 import { failedChecksSummary } from './completion'
 import { oneLine, pluginCheckText, skippedResult } from './pluginChecks'
+import { isJobActive } from './lifecycle'
 
 export interface OrchState {
   /** 계획. 설계 §4 — 여기 있는 것이 "무엇을 시킬 것인가" 이고, 아래 runs 가 "실제로 돈 것" 이다. */
@@ -137,7 +138,8 @@ export function runGatedForTask(s: OrchState, task: Pick<Task, 'runId'>): boolea
   const run = s.runs.find((r) => r.id === task.runId)
   const job = run && jobOf(s, run)
   if (!run || !job) return true
-  return run.paused === true || job.paused === true || job.pendingStart === true
+  // W1-C: an archived plan gets no new session either (lifecycle.ts)
+  return run.paused === true || job.paused === true || job.pendingStart === true || !isJobActive(job)
 }
 
 /** How long a `coordinatorStartingAt` mark holds (I1). A coordinator start is bounded by the spawn

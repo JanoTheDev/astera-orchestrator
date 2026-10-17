@@ -4576,6 +4576,10 @@ export function registerIpc(
     'run-pause': 'run',
     'run-resume': 'run',
     'run-delete': 'id',
+    // W1-C plan lifecycle: each names its Job by `--id`
+    'jobs-rename': 'id',
+    'jobs-archive': 'id',
+    'jobs-unarchive': 'id',
     // Phase 10: the renderer names the Run as `runId`; a file of another project's Run is not read through this door.
     'runs-changed-files': 'runId',
     'runs-diff': 'runId'

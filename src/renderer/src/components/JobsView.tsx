@@ -10,7 +10,7 @@ import { convergenceChipOf, type ConvergenceChip } from '../../../core/orchestra
 import { useI18n } from '../i18n/I18nProvider'
 import { PauseIcon, PlayIcon, RunIcon, STATE_KEY, STATUS_COLOR, TaskGlyph, TaskIcon, TrashIcon } from './JobIcons'
 import type { RunIconKind } from './JobIcons'
-import { ArrowUpRight, ChevronDown, ChevronRight } from 'lucide-react'
+import { Archive, ArchiveRestore, ArrowUpRight, ChevronDown, ChevronRight, Pencil } from 'lucide-react'
 import { SourceChip } from './SourceChip'
 import { jobName } from '../lib/jobName'
 
@@ -133,6 +133,94 @@ function ConvergenceChipView({
 /** Run 하나의 카드 — 머리말·띠·도는 줄·Gate 줄·아래 한 줄. **JobsView 에서 뽑아낸 것이고 그리는
  *  것이 달라지지 않았다.** 뽑은 이유는 예약 템플릿의 회차를 같은 모양으로 그려야 해서다: 한 벌을
  *  두 자리에서 쓰지 않으면 두 벌이 갈라진다. */
+/** W1-C plan lifecycle (core/orchestration/lifecycle.ts): a top-level card's rename and archive. Absent: not drawn,
+ *  as on a round's card, which is a Run and not a plan. */
+interface LifecycleActs {
+  onRenameJob?: (jobId: string, title: string) => void
+  onArchiveJob?: (jobId: string) => void
+  onUnarchiveJob?: (jobId: string) => void
+}
+
+/** The head's name, or a field while it is renamed: Enter keeps it, Escape and leaving the field drop it. An empty
+ *  name is sent as it is, and the Job is named by its objective again. */
+function JobTitle({
+  run,
+  className,
+  renaming,
+  onRename,
+  onClose
+}: {
+  run: JobRow
+  className: string
+  renaming: boolean
+  onRename?: (jobId: string, title: string) => void
+  onClose: () => void
+}): React.JSX.Element {
+  const { t } = useI18n()
+  if (!renaming || !onRename)
+    return (
+      <span className={className} title={run.objective}>
+        {jobName(run)}
+      </span>
+    )
+  return (
+    <input
+      className="jobs-title-input"
+      autoFocus
+      defaultValue={jobName(run)}
+      placeholder={t('jobs.lifecycle.titlePlaceholder')}
+      aria-label={t('jobs.lifecycle.rename')}
+      // The head folds the card on a click; typing in the field must not
+      onClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => {
+        e.stopPropagation()
+        // An Enter that ends a Korean or Japanese composition is the IME's, not a save
+        if (e.nativeEvent.isComposing) return
+        if (e.key === 'Enter') {
+          onRename(run.id, e.currentTarget.value)
+          onClose()
+        } else if (e.key === 'Escape') onClose()
+      }}
+      onBlur={onClose}
+    />
+  )
+}
+
+/** The foot's rename and archive or unarchive, after the trash. */
+function LifecycleButtons({
+  run,
+  acts,
+  onStartRename,
+  disabledReason
+}: {
+  run: JobRow
+  acts: LifecycleActs
+  onStartRename: () => void
+  disabledReason?: string
+}): React.JSX.Element {
+  const { t } = useI18n()
+  const off = disabledReason !== undefined
+  const button = (label: string, icon: React.JSX.Element, onClick: () => void): React.JSX.Element => (
+    <button className="jobs-lifecycle" disabled={off} title={disabledReason ?? label} aria-label={label} onClick={onClick}>
+      {icon}
+    </button>
+  )
+  return (
+    <>
+      {acts.onRenameJob && button(t('jobs.lifecycle.rename'), <Pencil size={11} />, onStartRename)}
+      {run.archivedAt !== undefined
+        ? acts.onUnarchiveJob && button(t('jobs.lifecycle.unarchive'), <ArchiveRestore size={11} />, () => acts.onUnarchiveJob?.(run.id))
+        : acts.onArchiveJob && button(t('jobs.lifecycle.archive'), <Archive size={11} />, () => acts.onArchiveJob?.(run.id))}
+    </>
+  )
+}
+
+/** An archived plan's chip in its head, beside the name. */
+const ArchivedChip = ({ run }: { run: JobRow }): React.JSX.Element | null => {
+  const { t } = useI18n()
+  return run.archivedAt !== undefined ? <span className="jobs-tmpl-badge">{t('jobs.lifecycle.archived')}</span> : null
+}
+
 function RunCardImpl({
   run,
   open,
@@ -144,7 +232,8 @@ function RunCardImpl({
   onOpenRun,
   onDeleteRun,
   onRestartCoordinator,
-  disabledReason
+  disabledReason,
+  lifecycle
 }: {
   run: JobRow
   open: boolean
@@ -163,8 +252,11 @@ function RunCardImpl({
   onRestartCoordinator?: (runId: string) => void
   /** Why the controls are off (a read-only pairing, Phase 7): drawn disabled with this as their title. */
   disabledReason?: string
+  /** W1-C: only on a top-level card */
+  lifecycle?: LifecycleActs
 }): React.JSX.Element {
   const { t } = useI18n()
+  const [renaming, setRenaming] = useState(false)
   const kind = runKind(run)
   // 줄은 열린 Dispatch 기반이다 — 줄에는 provider 배지와 경과 시간이 있고 둘 다 열린
   // Dispatch 에서만 온다. 숫자는 그것과 다른 질문이라 core 의 runningCount 가 답한다
@@ -191,9 +283,14 @@ function RunCardImpl({
         {ordinal !== undefined && (
           <span className="jobs-ordinal">{t('jobs.run.scheduleOrdinal', { n: ordinal })}</span>
         )}
-        <span className={`jobs-objective${kind === 'done' ? ' done' : ''}`} title={run.objective}>
-          {jobName(run)}
-        </span>
+        <JobTitle
+          run={run}
+          className={`jobs-objective${kind === 'done' ? ' done' : ''}`}
+          renaming={renaming}
+          onRename={lifecycle?.onRenameJob}
+          onClose={() => setRenaming(false)}
+        />
+        <ArchivedChip run={run} />
         {/* The ticket the Job was made from (plugin Phase 4 J18): a click opens it, and does not fold the card */}
         <SourceChip source={run.source} />
         {/* 이 Run 의 워커가 프로젝트 폴더를 다른 Run 과 나눠 쓰고 있다. **막힌 것이 아니라
@@ -372,6 +469,7 @@ function RunCardImpl({
               <TrashIcon />
             </button>
           )}
+          {lifecycle && <LifecycleButtons run={run} acts={lifecycle} onStartRename={() => setRenaming(true)} disabledReason={disabledReason} />}
         </div>
       )}
     </div>
@@ -411,7 +509,8 @@ function ScheduleCard({
   onResumeRun,
   onDeleteRun,
   onRestartCoordinator,
-  disabledReason
+  disabledReason,
+  lifecycle
 }: {
   run: JobRow
   open: boolean
@@ -428,8 +527,11 @@ function ScheduleCard({
   onRestartCoordinator?: (runId: string) => void
   /** Why the controls are off (a read-only pairing, Phase 7): drawn disabled with this as their title. */
   disabledReason?: string
+  /** W1-C plan lifecycle: the plan's, never its rounds' */
+  lifecycle?: LifecycleActs
 }): React.JSX.Element {
   const { t } = useI18n()
+  const [renaming, setRenaming] = useState(false)
   const children = run.children ?? []
   /** 지금까지 펼친 회차 수. **접었다 펴도 유지된다** — 이 컴포넌트는 접힘에 언마운트되지 않으므로,
    *  더 보기를 누른 사람이 접기 한 번에 그 자리를 잃지 않는다. */
@@ -439,9 +541,14 @@ function ScheduleCard({
     <div className={`jobs-run jobs-tmpl${open ? '' : ' collapsed'}`}>
       <div className="jobs-run-head" onClick={onToggle}>
         <span className="jobs-caret">{open ? <ChevronDown size={10} /> : <ChevronRight size={10} />}</span>
-        <span className="jobs-objective" title={run.objective}>
-          {jobName(run)}
-        </span>
+        <JobTitle
+          run={run}
+          className="jobs-objective"
+          renaming={renaming}
+          onRename={lifecycle?.onRenameJob}
+          onClose={() => setRenaming(false)}
+        />
+        <ArchivedChip run={run} />
         {/* A Job made from a ticket and run more than once is this card: its chip stands here too (4c final review M12) */}
         <SourceChip source={run.source} />
         {/* 예약에만 붙는다 — 손으로 다시 돌린 Job 도 이 카드를 쓰지만 예약은 아니다.
@@ -586,6 +693,7 @@ function ScheduleCard({
               <TrashIcon />
             </button>
           )}
+          {lifecycle && <LifecycleButtons run={run} acts={lifecycle} onStartRename={() => setRenaming(true)} disabledReason={disabledReason} />}
         </div>
       )}
     </div>
@@ -618,7 +726,10 @@ export function JobsView({
   onDeleteRun,
   onRestartCoordinator,
   remote = false,
-  disabledReason
+  disabledReason,
+  onRenameJob,
+  onArchiveJob,
+  onUnarchiveJob
 }: {
   snapshot: OrchSnapshot | null
   /** Why there is nothing to draw, when the Host is the reason — null in the ordinary case.
@@ -672,9 +783,13 @@ export function JobsView({
   /** Why the controls are off (a read-only pairing, Phase 7): every control is drawn disabled with this as its title.
    *  The sentence itself is said once, by the runtime selector above the list. Absent: the controls act. */
   disabledReason?: string
-}): React.JSX.Element {
+} & LifecycleActs): React.JSX.Element {
   const { t } = useI18n()
   const acts = { onPauseRun, onResumeRun, onDeleteRun, onRestartCoordinator }
+  const lifecycle: LifecycleActs | undefined =
+    onRenameJob || onArchiveJob || onUnarchiveJob ? { onRenameJob, onArchiveJob, onUnarchiveJob } : undefined
+  // W1-C: archived plans are hidden until asked for. Not remembered: the list opens on the plans that work.
+  const [showArchived, setShowArchived] = useState(false)
   // "+ From a source" (plugin Phase 4 J20) under "+ New job", in both places it stands: this machine's projects only
   const newFromSource =
     onNewFromSource !== undefined && !remote ? (
@@ -790,6 +905,8 @@ export function JobsView({
     )
   }
 
+  const archivedCount = snapshot.runs.filter((r) => r.archivedAt !== undefined).length
+  const listed = showArchived ? snapshot.runs : snapshot.runs.filter((r) => r.archivedAt === undefined)
   return (
     <section className="jobs-view">
       {stallLine}
@@ -798,10 +915,15 @@ export function JobsView({
         + {t('jobs.new.open')}
       </button>
       {newFromSource}
+      {archivedCount > 0 && (
+        <button className="jobs-archived-toggle" aria-pressed={showArchived} onClick={() => setShowArchived((v) => !v)}>
+          {showArchived ? t('jobs.lifecycle.hideArchived') : t('jobs.lifecycle.showArchived', { count: archivedCount })}
+        </button>
+      )}
       {/* **회차가 여럿이면 예약이 아니어도 펼치는 카드다.** 접히는 카드를 예약에만 쓰던 것은 회차가
           예약에서만 생겼기 때문이고, 이제는 끝난 Job 을 다시 돌려도 생긴다 — 조건을 `schedule` 로
           두면 그 회차들이 화면에서 통째로 사라진다(상태에는 있는데 그리는 곳이 없다). */}
-      {snapshot.runs.map((run) =>
+      {listed.map((run) =>
         run.schedule || (run.children?.length ?? 0) > 0 ? (
           <ScheduleCard
             key={run.id}
@@ -819,6 +941,7 @@ export function JobsView({
             onDeleteRun={acts.onDeleteRun}
             onRestartCoordinator={acts.onRestartCoordinator}
             disabledReason={disabledReason}
+            lifecycle={lifecycle}
           />
         ) : (
           <RunCard
@@ -833,6 +956,7 @@ export function JobsView({
             onDeleteRun={acts.onDeleteRun}
             onRestartCoordinator={acts.onRestartCoordinator}
             disabledReason={disabledReason}
+            lifecycle={lifecycle}
           />
         )
       )}

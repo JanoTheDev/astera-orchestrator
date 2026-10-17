@@ -87,6 +87,17 @@ describe('astera.jobs', () => {
     ])
   })
 
+  // W1-C: archived Jobs are left out by the Host unless asked for
+  it('asks for archived Jobs only when told to', async () => {
+    const { host, astera } = await setup(answers)
+    await astera.jobs.list({ archived: true })
+    await astera.jobs.list({ archived: false })
+    expect(sent(host)).toEqual([
+      ['jobs-list', { archived: true }, undefined],
+      ['jobs-list', {}, undefined]
+    ])
+  })
+
   it('gets a Job with its Run folded in, both shaped', async () => {
     const { astera } = await setup(answers)
     expect(await astera.jobs.get('job_1')).toEqual({ ...job, run })
