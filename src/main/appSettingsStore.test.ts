@@ -735,28 +735,33 @@ describe('AppSettingsStore desktop notifications', () => {
 // YOLO_TUI_AGENT_ARGS, src/shared/tui-agent-launch-defaults.ts), and this app follows it — a Job
 // worker starts in a worktree with no approval history of its own, so manual is a wall by default.
 // The narrowing is githubPolling's: a default-on setting reads as off only on the explicit value.
+// Fork W0 reverses that default: the bypass is never on until the person picks it (SECURITY-AUDIT.md item 2).
 describe('agentPermissionMode', () => {
-  it('defaults to yolo — a fresh install runs Jobs without a permission wall', async () => {
+  it('defaults to manual — the bypass is never on by default', async () => {
     const store = new AppSettingsStore(file())
     await store.load()
-    expect(store.getAgentPermissionMode()).toBe('yolo')
+    expect(store.getAgentPermissionMode()).toBe('manual')
   })
 
-  it("only an explicit 'manual' turns it off, and it persists", async () => {
+  it("only an explicit 'yolo' turns the bypass on, and it persists, as does turning it off again", async () => {
     const a = new AppSettingsStore(file())
     await a.load()
-    await a.setAgentPermissionMode('manual')
+    await a.setAgentPermissionMode('yolo')
     const b = new AppSettingsStore(file())
     await b.load()
-    expect(b.getAgentPermissionMode()).toBe('manual')
+    expect(b.getAgentPermissionMode()).toBe('yolo')
+    await b.setAgentPermissionMode('manual')
+    const c = new AppSettingsStore(file())
+    await c.load()
+    expect(c.getAgentPermissionMode()).toBe('manual')
   })
 
-  it('anything else in the user-editable file reads as yolo', async () => {
+  it('anything else in the user-editable file reads as manual', async () => {
     const f = file()
     await fs.writeFile(f, JSON.stringify({ agentPermissionMode: 'nope' }), 'utf8')
     const store = new AppSettingsStore(f)
     await store.load()
-    expect(store.getAgentPermissionMode()).toBe('yolo')
+    expect(store.getAgentPermissionMode()).toBe('manual')
   })
 
   // I2: a file that cannot be read may have said 'manual'. Recovering to the 'yolo' default would
@@ -782,10 +787,10 @@ describe('agentPermissionMode', () => {
     expect(await fs.readFile(file() + '.bak', 'utf8')).toBe('{ not json')
   })
 
-  it('a missing file is still the yolo default, and nothing is announced', async () => {
+  it('a missing file is the manual default, and nothing is announced', async () => {
     const store = new AppSettingsStore(file())
     await store.load()
-    expect(store.getAgentPermissionMode()).toBe('yolo')
+    expect(store.getAgentPermissionMode()).toBe('manual')
     expect(store.takeRecoveryNotice()).toBe(false)
   })
 

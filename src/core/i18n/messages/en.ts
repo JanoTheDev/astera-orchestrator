@@ -260,7 +260,7 @@ export const en: Record<keyof typeof ko, string> = {
   'settings.mcp.saveFailed': 'Could not save MCP access: {detail}',
   'settings.mcp.loadFailed': 'Could not read MCP access: {detail}',
   'settings.mcp.sessions.label': 'Let MCP clients see and use sessions',
-  'settings.mcp.sessions.hint': 'Covers every session Astera holds, your own terminals included. Seeing them needs Read only; typing into them and starting them need Read and control. A session a client starts follows "Run agents without permission checks" (on by default), so it can run commands without asking.',
+  'settings.mcp.sessions.hint': 'Covers every session Astera holds, your own terminals included. Seeing them needs Read only; typing into them and starting them need Read and control. A session a client starts follows "Run agents without permission checks" (off by default), so with it on it can run commands without asking.',
   'settings.mcp.sessions.saveFailed': 'Could not save the MCP sessions setting: {detail}',
   'settings.mcp.sessions.loadFailed': 'Could not read the MCP sessions setting: {detail}',
   'settings.mcp.githubWrite.label': 'Let MCP clients act on GitHub',
@@ -308,7 +308,7 @@ export const en: Record<keyof typeof ko, string> = {
   'settings.agentPermission.hint':
     'Every agent session the app starts runs without permission prompts ' +
     '(--dangerously-skip-permissions for claude, --dangerously-bypass-approvals-and-sandbox for codex). ' +
-    'On by default. A Job worker always starts in a worktree created moments earlier: that folder has no ' +
+    'Off by default. A Job worker always starts in a worktree created moments earlier: that folder has no ' +
     'approval history, and the allow list built up in the project (.claude/settings.local.json) does not ' +
     'follow it there, so with this off a worker stalls on its first command. ' +
     'Sessions already running are unaffected. It applies from the next session.',

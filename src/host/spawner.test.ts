@@ -156,7 +156,7 @@ describe('createHostSpawner', () => {
     const r = await h.spawner!.startWorker(startArgs(taskId, dispatchId))
     expect(h.spawned).toHaveLength(1)
     const entry = h.registry.list()[0]
-    expect(entry.meta).toMatchObject({ kind: 'session', id: r.sessionId, restore: { accountId: 'acc1', cwd: repo, title: 'Write hello', rollAccountIds: ['acc1'], bypassPermissions: true } })
+    expect(entry.meta).toMatchObject({ kind: 'session', id: r.sessionId, restore: { accountId: 'acc1', cwd: repo, title: 'Write hello', rollAccountIds: ['acc1'], bypassPermissions: false } })
     expect(h.sent).toEqual([{ t: 'pty-opened', entry }])
     expect(r.specPath.startsWith(path.join(profile, 'orch', 'specs'))).toBe(true)
   })
@@ -176,20 +176,25 @@ describe('createHostSpawner', () => {
     expect(env.ASTERA_STATUSLINE_OUT).toBe(path.join(profile, 'statusline', `${r.sessionId}.json`))
   })
 
-  // D12: no settings file is the app's default, yolo; an explicit manual turns the bypass off.
-  // Both spawns go through the same spawner, so a mode remembered from the first spawn would fail here:
+  // D12, fork W0: no settings file is the app's default, manual; an explicit yolo turns the bypass on.
+  // Every spawn goes through the same spawner, so a mode remembered from an earlier spawn would fail here:
   // a person who switches to manual must not keep getting bypassed workers from a long-lived Host.
-  it('reads the permission mode from the profile at every spawn, yolo when there is no file', async () => {
+  it('reads the permission mode from the profile at every spawn, manual when there is no file', async () => {
     const first = seeded()
     let state = first.s
     const h = rig({ state: () => state })
     await h.spawner!.startWorker(startArgs(first.taskId, first.dispatchId))
-    expect(JSON.stringify(h.spawned[0].args)).toMatch(/--dangerously-skip-permissions/)
-    await fs.writeFile(path.join(profile, 'app-settings.json'), JSON.stringify({ agentPermissionMode: 'manual' }))
+    expect(JSON.stringify(h.spawned[0].args)).not.toMatch(/--dangerously-skip-permissions/)
+    await fs.writeFile(path.join(profile, 'app-settings.json'), JSON.stringify({ agentPermissionMode: 'yolo' }))
     const again = seeded()
     state = again.s
     await h.spawner!.startWorker(startArgs(again.taskId, again.dispatchId))
-    expect(JSON.stringify(h.spawned[1].args)).not.toMatch(/--dangerously-skip-permissions/)
+    expect(JSON.stringify(h.spawned[1].args)).toMatch(/--dangerously-skip-permissions/)
+    await fs.writeFile(path.join(profile, 'app-settings.json'), JSON.stringify({ agentPermissionMode: 'manual' }))
+    const third = seeded()
+    state = third.s
+    await h.spawner!.startWorker(startArgs(third.taskId, third.dispatchId))
+    expect(JSON.stringify(h.spawned[2].args)).not.toMatch(/--dangerously-skip-permissions/)
   })
 
   // Task 4's ruling: a broken file may have said manual, so it is never read as yolo. The spawn is
@@ -234,7 +239,7 @@ describe('createHostSpawner', () => {
     const h = rig()
     const r = await h.spawner!.startCoordinator({ runId: 'run_abcdefghijklmn', cwd: repo, accountId: 'acc1', brief: 'the brief' })
     const entry = h.registry.list()[0]
-    expect(entry.meta).toMatchObject({ kind: 'session', id: r.sessionId, restore: { accountId: 'acc1', rollAccountIds: ['acc1'], bypassPermissions: true, title: 'Coordinator · run_abcdefgh' } })
+    expect(entry.meta).toMatchObject({ kind: 'session', id: r.sessionId, restore: { accountId: 'acc1', rollAccountIds: ['acc1'], bypassPermissions: false, title: 'Coordinator · run_abcdefgh' } })
     expect(h.sent).toEqual([{ t: 'pty-opened', entry }])
     const briefs = await fs.readdir(path.join(profile, 'orch', 'specs'))
     expect(briefs).toHaveLength(1)
@@ -253,7 +258,7 @@ describe('createHostSpawner', () => {
       makeDescriptors(process.platform), undefined, undefined, path.join(dir, 'home'), (id, a, o) => sl.spawnConfig(id, a, o), [previewShotsDir(profile)], hostEnv())
     const account = JSON.parse(await fs.readFile(path.join(profile, 'accounts.json'), 'utf8')).accounts[0]
     const initialPrompt = (h.spawned[0].args as string[]).at(-1)
-    const info = m.spawn({ account, cwd: repo, bypassPermissions: true, initialPrompt, title: 'Write hello', rollAccountIds: ['acc1'],
+    const info = m.spawn({ account, cwd: repo, bypassPermissions: false, initialPrompt, title: 'Write hello', rollAccountIds: ['acc1'],
       rollPrompt: (h.registry.list()[0].meta!.restore as { rollPrompt: string }).rollPrompt, rollProviders: ['claude'],
       orchEnv: { cliPath: path.join(profile, 'orch', process.platform === 'win32' ? 'astera.cmd' : 'astera'), skillsPath: path.join(dir, 'skills'), profileDir: profile },
       // S6 R6: the one key the Host's note adds, that the Host started it; everything else stays equal.

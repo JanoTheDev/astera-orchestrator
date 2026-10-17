@@ -945,7 +945,10 @@ export type ResumeStrategy = 'smart' | 'original'
  *  자율로 돌라고 띄운 세션이 첫 명령에서 선다.
  *
  *  Orca(stablyai/orca)가 같은 문제에 내린 결론이기도 하다 — 그쪽은 에이전트별 기본 실행 인수를
- *  두고 그 기본값이 곧 우회 플래그다(`DEFAULT_TUI_AGENT_ARGS = YOLO_TUI_AGENT_ARGS`). */
+ *  두고 그 기본값이 곧 우회 플래그다(`DEFAULT_TUI_AGENT_ARGS = YOLO_TUI_AGENT_ARGS`).
+ *
+ *  Fork (orchestrator W0): the default here is 'manual' — the bypass is never on until the person picks 'yolo'
+ *  (docs/orchestrator/SECURITY-AUDIT.md item 2). */
 export type AgentPermissionMode = 'yolo' | 'manual'
 
 /** What an MCP client may do through the Host (MCP design M5). Default 'control' (M6). */

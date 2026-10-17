@@ -116,7 +116,7 @@ export class AppSettingsStore {
   private resumeStrategy: ResumeStrategy = SKILL_SETTINGS_DEFAULTS.resumeStrategy
   /** 에이전트를 권한 확인 없이 띄우는가. **기본은 'yolo'** — 그 근거는 AgentPermissionMode 에 있다.
    *  githubPolling 과 같은 방향의 좁히기다: 기본이 켜짐인 값이라 파일에 명시된 'manual' 만 끈다. */
-  private agentPermissionMode: AgentPermissionMode = 'yolo'
+  private agentPermissionMode: AgentPermissionMode = 'manual' // fork W0: never bypass by default
   /** What an MCP client may do through `astera mcp serve` (MCP design M5). Default 'control'; only
    *  the two narrower values are written to the file. */
   private mcpAccess: McpAccess = 'control'
@@ -192,8 +192,8 @@ export class AppSettingsStore {
       // means the CLI default (or, for the account, no generation at all).
       this.generator = readGeneratorSettings((parsed as { generator?: unknown }).generator)
       this.resumeStrategy = gates.resumeStrategy
-      // Narrowed the other way round, because the default is the other way round: only the explicit
-      // 'manual' turns the bypass off, and anything else the user-editable file holds reads as 'yolo'.
+      // Fork W0: only the explicit 'yolo' turns the bypass on; anything else the user-editable file holds
+      // reads as 'manual'.
       // The same function the Host's read uses (readAgentPermissionMode), so the two cannot differ.
       this.agentPermissionMode = agentPermissionModeOf(
         (parsed as { agentPermissionMode?: unknown }).agentPermissionMode
@@ -252,7 +252,7 @@ export class AppSettingsStore {
         this.desktopNotify = { ...DESKTOP_NOTIFY_DEFAULTS }
         this.generator = {}
         this.resumeStrategy = SKILL_SETTINGS_DEFAULTS.resumeStrategy
-        this.agentPermissionMode = 'yolo'
+        this.agentPermissionMode = 'manual'
         this.mcpAccess = 'control'
         this.mcpSessions = false
         this.mcpGithubWrite = false
@@ -628,10 +628,10 @@ export class AppSettingsStore {
     // below — and here it carries the difference between a new install and an old one, so an absent
     // key has to keep meaning "asked". See the field's own note.
     if (this.firstRunAsked === false) data.firstRunAsked = false
-    // Written only when it is off, for the same reason githubPolling is: the default belongs in one
-    // place, and that place is load's narrowing.
-    if (this.agentPermissionMode === 'manual') data.agentPermissionMode = 'manual'
-    // Written only when narrower than the default, like agentPermissionMode.
+    // Written only when it is not the default, for the same reason githubPolling is: the default belongs in one
+    // place, and that place is load's narrowing. Fork W0: the default is 'manual', so only 'yolo' is written.
+    if (this.agentPermissionMode === 'yolo') data.agentPermissionMode = 'yolo'
+    // Written only when narrower than the default.
     if (this.mcpAccess !== 'control') data.mcpAccess = this.mcpAccess
     if (this.mcpSessions) data.mcpSessions = true
     if (this.mcpGithubWrite) data.mcpGithubWrite = true
