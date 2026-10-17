@@ -4,6 +4,7 @@ import { PROVIDERS, PROVIDER_META, providerOf, type Provider } from '../../../co
 import {
   BUILTIN_ROLE_MODELS,
   DIFFICULTIES,
+  MODEL_ID,
   ROLES,
   type Difficulty,
   type Role,
@@ -56,6 +57,11 @@ export function OrchestratorModelsSettings({ accounts }: { accounts: Account[] }
           defaultValue={shown}
           onBlur={(e) => {
             const next = e.target.value.trim()
+            if (next !== '' && !MODEL_ID.test(next)) {
+              e.target.value = shown
+              toast.error(t('settings.roleModels.invalid', { model: next }))
+              return
+            }
             if (next !== shown) save(provider, kind, key, next)
           }}
         />

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  MODEL_ID,
   dispatchModelFields,
   modelFitsProvider,
   pickTaskProvider,
@@ -109,6 +110,20 @@ describe('readRoleModelSettings', () => {
     })
     expect(readRoleModelSettings(null)).toEqual({})
     expect(readRoleModelSettings([])).toEqual({})
+  })
+})
+
+describe('MODEL_ID (argv trust boundary)', () => {
+  it('passes aliases and vendor ids, refuses flags and shell syntax', () => {
+    for (const ok of ['opus', 'claude-opus-5-5', 'claude-opus-5-5[1m]', 'gpt-5.5', 'org/model:tag'])
+      expect(MODEL_ID.test(ok), ok).toBe(true)
+    for (const bad of ['-x', '--dangerously-skip-permissions', 'opus&calc', 'a|b', '%PATH%', 'a b', '"q"', ''])
+      expect(MODEL_ID.test(bad), bad).toBe(false)
+  })
+  it('a bad id from a Task, a Job or the settings resolves to nothing rather than reaching argv', () => {
+    expect(resolveRoleModel({ claude: { roles: { planner: 'opus&calc' } } }, undefined, 'planner', 'claude')).toBeUndefined()
+    expect(resolveRoleModel({}, { models: { planner: '--x' } }, 'planner', 'claude')).toBe('opus')
+    expect(resolveWorkerModel({ settings: {}, job: undefined, provider: 'claude', accounts: claudeOnly, task: { model: '-x', difficulty: 'light' } }).model).toBe('haiku')
   })
 })
 

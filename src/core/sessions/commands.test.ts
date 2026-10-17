@@ -28,6 +28,10 @@ describe('model', () => {
       ...NO_UPDATE, '-m', 'gpt-5.5', 'resume', 'r1', 'go'
     ])
   })
+  it('never puts an id that is not a model id on the command line (a flag, cmd.exe syntax)', () => {
+    expect(buildClaudeCommand('linux')({ model: '--dangerously-skip-permissions' }).args).toEqual([])
+    expect(buildCodexCommand('linux')({ model: 'x&calc' }).args).toEqual(NO_UPDATE)
+  })
   it('adds nothing without a model', () => {
     expect(buildClaudeCommand('linux')({ model: null }).args).toEqual([])
     expect(buildCodexCommand('linux')({}).args).toEqual(NO_UPDATE)

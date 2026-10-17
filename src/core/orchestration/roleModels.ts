@@ -64,8 +64,14 @@ function configured(settings: RoleModelSettings, provider: Provider, kind: 'diff
 function configured(settings: RoleModelSettings, provider: Provider, kind: 'roles' | 'difficulty', key: string): string | undefined {
   const own = (settings[provider]?.[kind] as Record<string, string> | undefined)?.[key]
   const v = own !== undefined ? own : (BUILTIN_ROLE_MODELS[provider][kind] as Record<string, string>)[key]
-  return v ? v : undefined
+  return v && MODEL_ID.test(v) ? v : undefined
 }
+
+/** The shape a model id may have to reach a CLI's argv: an alias or a vendor id (`opus`,
+ *  `claude-opus-5-5[1m]`, `gpt-5.5`, `org/model:tag`). **A trust boundary**: ids come from a hand-edited
+ *  settings file, `orchestration.json` and, later, a planner LLM. A leading `-` would read as a flag, and on
+ *  win32 a `.cmd` shim runs argv through cmd.exe (windowsExecutable.ts), where `&` `|` `%` are syntax. */
+export const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/@\[\]-]{0,127}$/
 
 /** Does this id belong to the other CLI? A Job override and `Task.model` name no provider, and handing
  *  `--model gpt-5` to claude (or `-m opus` to codex) fails the start.
@@ -78,7 +84,7 @@ export function modelFitsProvider(model: string, provider: Provider): boolean {
 }
 
 const fitting = (model: string | undefined, provider: Provider): string | undefined =>
-  model && modelFitsProvider(model, provider) ? model : undefined
+  model && MODEL_ID.test(model) && modelFitsProvider(model, provider) ? model : undefined
 
 /** The model for `role` on `provider`: the Job's override, then the app's setting (or the built-in
  *  default), then undefined (the CLI's default). **W2-A's planner calls this — keep the signature.** */

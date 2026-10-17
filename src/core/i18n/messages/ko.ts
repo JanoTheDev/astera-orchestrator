@@ -362,6 +362,7 @@ export const ko = {
   'settings.roleModels.workerPlaceholder': '난이도에 따라, 없으면 CLI 기본값',
   'settings.roleModels.noAccounts': '계정을 추가하면 그 모델을 고를 수 있습니다.',
   'settings.roleModels.saveFailed': '오케스트레이션 모델을 저장하지 못했습니다: {detail}',
+  'settings.roleModels.invalid': '"{model}" 은(는) 모델 id 가 아닙니다. opus 같은 별칭이나 claude-opus-5-5 같은 전체 id 를 쓰세요.',
   'settings.roleModels.role.coordinator': '코디네이터',
   'settings.roleModels.role.planner': '플래너',
   'settings.roleModels.role.worker': '워커',

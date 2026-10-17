@@ -360,6 +360,7 @@ export const en: Record<keyof typeof ko, string> = {
   'settings.roleModels.workerPlaceholder': 'By difficulty, else CLI default',
   'settings.roleModels.noAccounts': 'Add an account to choose its models.',
   'settings.roleModels.saveFailed': "Couldn't save the orchestration models: {detail}",
+  'settings.roleModels.invalid': '"{model}" is not a model id. Use an alias like opus or a full id like claude-opus-5-5.',
   'settings.roleModels.role.coordinator': 'Coordinator',
   'settings.roleModels.role.planner': 'Planner',
   'settings.roleModels.role.worker': 'Worker',

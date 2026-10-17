@@ -1,5 +1,6 @@
 import { claudeLaunchArgs } from '../chat/claudeProtocol'
 import { resolveWindowsExecutable, windowsSpawn } from './windowsExecutable'
+import { MODEL_ID } from '../orchestration/roleModels'
 
 /** Where a CLI is on win32, by PATH alone — injected so a test can say where `claude` lives. The
  *  default asks this process's PATH (windowsExecutable.ts says why the working directory never takes
@@ -34,7 +35,8 @@ export type CommandBuilder = (opts: {
 export function buildClaudeCommand(platform: NodeJS.Platform, resolve: ResolveExecutable = resolveWindowsExecutable): CommandBuilder {
   return ({ resumeSessionId, settingsFile, bypassPermissions, addDirs, initialPrompt, model }) => {
     const args: string[] = []
-    if (model) args.push('--model', model)
+    // Checked here too, for every source (a renderer spawn, a roll's note): see MODEL_ID.
+    if (model && MODEL_ID.test(model)) args.push('--model', model)
     // Injects a session-scoped statusLine via --settings (the global settings.json is left alone) — goes before resume
     if (settingsFile) args.push('--settings', settingsFile)
     // Read access to the app's screenshot folder, so the paths Design Mode puts in a prompt open
@@ -120,7 +122,7 @@ export function buildCodexCommand(
     if (developerInstructions && !LAUNCH_FORBIDDEN.test(developerInstructions))
       args.push('-c', `developer_instructions=${developerInstructions}`)
     // A root option, ahead of `resume` like the two above, so a roll's resume keeps the model.
-    if (model) args.push('-m', model)
+    if (model && MODEL_ID.test(model)) args.push('-m', model)
     if (resumeSessionId) {
       args.push('resume', resumeSessionId)
       const safe = resumePrompt ? sanitizeResumePrompt(resumePrompt) : ''
