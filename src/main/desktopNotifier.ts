@@ -3,12 +3,16 @@ import type { Lang, MessageKey } from '../core/i18n'
 import type { RollStateEvent, SessionInfo } from '../core/types'
 import type { DesktopNotifySettings } from '../core/notify/settings'
 import type { Attention } from '../core/sessions/attention'
+import type { ActivityNotice } from '../core/orchestration/activity'
 
 /** The events (design doc §6). The names are the AppSettingsStore flag names, so the flag lookup is
  *  the event name and there is no second table mapping one to the other. */
 export type DesktopNotifyEvent = keyof DesktopNotifySettings
 
-const BODY_KEY: Record<DesktopNotifyEvent, MessageKey> = {
+/** The session events, which word their own body. W3-A's `orchestration` notices bring theirs (activity.ts). */
+type SessionNotifyEvent = Exclude<DesktopNotifyEvent, 'orchestration'>
+
+const BODY_KEY: Record<SessionNotifyEvent, MessageKey> = {
   inputNeeded: 'notify.inputNeeded',
   limitWaiting: 'notify.limitWaiting',
   accountSwitched: 'notify.accountSwitched'
@@ -138,7 +142,15 @@ export class DesktopNotifier {
     this.fire('inputNeeded', key, undefined, title)
   }
 
-  private fire(event: DesktopNotifyEvent, sessionId: string, accountLabel?: string, title?: string | null): void {
+  /** W3-A: an orchestration notice (core/orchestration/activity.ts), already deduped and rate limited, on its own
+   *  switch. Held back like a session's when it names the session on screen in a focused window. */
+  activity(n: ActivityNotice): void {
+    if (!this.deps.settings.getDesktopNotify().orchestration) return
+    if (n.sessionId !== undefined && this.deps.isFocused() && this.activeSessionId === n.sessionId) return
+    this.deps.show({ event: 'orchestration', sessionId: n.sessionId ?? '', title: n.title, body: n.body })
+  }
+
+  private fire(event: SessionNotifyEvent, sessionId: string, accountLabel?: string, title?: string | null): void {
     if (!this.deps.settings.getDesktopNotify()[event]) return
     // Suppressed when the window is focused and this is the session on screen — you are already
     // looking at it (§7).

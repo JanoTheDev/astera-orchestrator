@@ -1430,6 +1430,9 @@ export interface CoreApi {
     /** W1-B: the app-wide Job worker cap; null is no cap. */
     getMaxConcurrentWorkers(): Promise<number | null>
     setMaxConcurrentWorkers(n: number | null): Promise<void>
+    /** W3-A: minutes between activity digests; 0 is none. */
+    getActivityDigestMinutes(): Promise<number>
+    setActivityDigestMinutes(n: number): Promise<void>
     // The four desktop-notification switches (design doc §6/§8). Read by the settings screen and by
     // DesktopNotifier itself (main), which is why the type lives in core/notify/settings rather than here.
     getDesktopNotify(): Promise<DesktopNotifySettings>
@@ -1904,6 +1907,12 @@ export interface OrchApi {
    *  `null` 은 둘 중 하나다 — 보여 줄 것이 없거나, 이 프로젝트가 볼 수 없는 Run·Task 다.
    *  구분해 주지 않는 것이 의도다(ipc.ts 의 orch.completion). */
   completion(projectPath: string, runId: string, taskId: string, runtimeId?: string): Promise<CompletionDetail | null>
+  // ── W3-A activity feed (core/orchestration/activity.ts) ──
+  /** The local Host's activity lines after `after` (an event id or cursor; none: the oldest held), a page at a time.
+   *  The answer is `activity-poll`'s: `{ events, cursor, gap }` on 200. */
+  activity(after?: string): Promise<{ status: number; body: unknown }>
+  /** `summarize` of the lines since `since` (ISO; none: the last 15 minutes), with what is blocked now. */
+  activitySummary(since?: string): Promise<{ status: number; body: unknown }>
   /** UI 가 오케스트레이션 상태를 바꾸는 유일한 통로 — server.ts 의 명령 표면을 그대로 부른다.
    *  cmd 는 CLI 와 같은 이름이고(`task-create`, `worker-start`, …) args 도 같은 키를 쓴다.
    *

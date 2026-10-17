@@ -22,6 +22,7 @@ import type { SkillSettings } from '../core/orchestration/skills'
 import { settingsObjectOf } from '../core/settings/settingsObject'
 import { agentPermissionModeOf } from '../core/settings/agentPermissionMode'
 import { maxConcurrentWorkersOf } from '../core/settings/maxConcurrentWorkers'
+import { ACTIVITY_DIGEST_DEFAULT_MINUTES, activityDigestMinutesOf } from '../core/settings/activityDigest'
 import { mcpAccessOf } from '../core/settings/mcpAccess'
 import { mcpSessionsOf } from '../core/settings/mcpSessions'
 import { mcpGithubWriteOf } from '../core/settings/mcpGithubWrite'
@@ -116,6 +117,8 @@ export class AppSettingsStore {
   /** W1-B: how many Job workers may be open at once across every plan. null: no cap (the default, and
    *  the behaviour from before the setting). Written only when set. */
   private maxConcurrentWorkers: number | null = null
+  /** W3-A: minutes between activity digests, 0 for none. Written only when it is not the default. */
+  private activityDigestMinutes = ACTIVITY_DIGEST_DEFAULT_MINUTES
   /** 설명을 누가·무엇으로 만드는가. 비어 있으면 생성하지 않는다 (설계 D2) */
   private generator: GeneratorSettings = {}
   /** Orchestrator W1-A: per-provider role and difficulty models. Empty = the built-in defaults. */
@@ -196,6 +199,10 @@ export class AppSettingsStore {
       this.maxConcurrentWorkers = maxConcurrentWorkersOf(
         (parsed as { maxConcurrentWorkers?: unknown }).maxConcurrentWorkers
       )
+      // The same function the Host's read uses (readActivityDigestMinutes)
+      this.activityDigestMinutes = activityDigestMinutesOf(
+        (parsed as { activityDigestMinutes?: unknown }).activityDigestMinutes
+      )
       // Narrowed on read, like generator and terminalFont and for the same reason: the file is
       // user-editable, and the narrowing is per flag's own default (see readDesktopNotify).
       this.desktopNotify = readDesktopNotify((parsed as { desktopNotify?: unknown }).desktopNotify)
@@ -263,6 +270,7 @@ export class AppSettingsStore {
         this.jobContinuityEnabled = false
         this.githubPolling = true
         this.maxConcurrentWorkers = null
+        this.activityDigestMinutes = ACTIVITY_DIGEST_DEFAULT_MINUTES
         this.desktopNotify = { ...DESKTOP_NOTIFY_DEFAULTS }
         this.generator = {}
         this.roleModels = {}
@@ -296,6 +304,7 @@ export class AppSettingsStore {
       this.jobContinuityEnabled = false
       this.githubPolling = true
       this.maxConcurrentWorkers = null
+      this.activityDigestMinutes = ACTIVITY_DIGEST_DEFAULT_MINUTES
       this.desktopNotify = { ...DESKTOP_NOTIFY_DEFAULTS }
       this.generator = {}
       this.roleModels = {}
@@ -495,6 +504,16 @@ export class AppSettingsStore {
     await this.persist()
   }
 
+  getActivityDigestMinutes(): number {
+    return this.activityDigestMinutes
+  }
+
+  /** Narrowed like the file: the value arrives from the renderer. */
+  async setActivityDigestMinutes(n: number): Promise<void> {
+    this.activityDigestMinutes = activityDigestMinutesOf(n)
+    await this.persist()
+  }
+
   getDesktopNotify(): DesktopNotifySettings {
     return { ...this.desktopNotify }
   }
@@ -628,6 +647,7 @@ export class AppSettingsStore {
       jobContinuityEnabled?: boolean
       githubPolling?: boolean
       maxConcurrentWorkers?: number
+      activityDigestMinutes?: number
       desktopNotify?: DesktopNotifySettings
       generator?: GeneratorSettings
       roleModels?: RoleModelSettings
@@ -664,6 +684,7 @@ export class AppSettingsStore {
     if (this.jobContinuityEnabled) data.jobContinuityEnabled = true
     if (this.githubPolling === false) data.githubPolling = false
     if (this.maxConcurrentWorkers !== null) data.maxConcurrentWorkers = this.maxConcurrentWorkers
+    if (this.activityDigestMinutes !== ACTIVITY_DIGEST_DEFAULT_MINUTES) data.activityDigestMinutes = this.activityDigestMinutes
     // Written only while the question is still open, which is the same one-sided rule as the two
     // below — and here it carries the difference between a new install and an old one, so an absent
     // key has to keep meaning "asked". See the field's own note.

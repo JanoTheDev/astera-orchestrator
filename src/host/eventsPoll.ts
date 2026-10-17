@@ -20,16 +20,22 @@ type Reply = { status: number; body: unknown }
 const bad = (error: string): Reply => ({ status: 400, body: { error } })
 const wholeIn = (v: unknown, min: number, max: number): v is number => typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max
 
-export async function pollEvents(log: Pick<HostEventLog, 'read' | 'tail' | 'next'> | null | undefined, args: Record<string, unknown>, nowMs: () => number = Date.now): Promise<Reply> {
+/** `known`: the log's types, EVENT_TYPES for the public log (W3-A's `activity-poll` passes ACTIVITY_KINDS). */
+export async function pollEvents(
+  log: Pick<HostEventLog, 'read' | 'tail' | 'next'> | null | undefined,
+  args: Record<string, unknown>,
+  nowMs: () => number = Date.now,
+  known: readonly string[] = EVENT_TYPES
+): Promise<Reply> {
   if (!log) return { status: 501, body: { error: 'this Host keeps no public event log; update the Astera app' } }
   if (args.tail === true) return { status: 200, body: { events: [], cursor: log.tail(), gap: false } }
   if (args.after !== undefined && (typeof args.after !== 'string' || args.after === '')) return bad('after is an event id')
   let types: Set<string> | undefined
   if (args.types !== undefined) {
-    if (typeof args.types !== 'string' || args.types === '') return bad(`types is a comma list of event types: ${EVENT_TYPES.join(', ')}`)
+    if (typeof args.types !== 'string' || args.types === '') return bad(`types is a comma list of event types: ${known.join(', ')}`)
     types = new Set(args.types.split(','))
-    const unknown = [...types].filter((t) => !(EVENT_TYPES as readonly string[]).includes(t))
-    if (unknown.length > 0) return bad(`unknown event type: ${unknown.join(', ')} (one of ${EVENT_TYPES.join(', ')})`)
+    const unknown = [...types].filter((t) => !known.includes(t))
+    if (unknown.length > 0) return bad(`unknown event type: ${unknown.join(', ')} (one of ${known.join(', ')})`)
   }
   if (args.limit !== undefined && !wholeIn(args.limit, 1, EVENTS_PAGE_MAX)) return bad(`limit must be an integer from 1 to ${EVENTS_PAGE_MAX}`)
   if (args.waitMs !== undefined && !wholeIn(args.waitMs, 0, FOLLOW_WINDOW_MAX_MS)) return bad(`waitMs must be an integer from 0 to ${FOLLOW_WINDOW_MAX_MS}`)

@@ -13,6 +13,9 @@ export const EVENT_ID = /^ev_([0-9a-f]{12})_(0|[1-9][0-9]*)$/
 
 export const eventId = (boot: string, sequence: number): string => `ev_${boot}_${sequence}`
 
+/** A draft as the ring takes it: a public event's, or one of another log's types (W3-A: the activity feed's). */
+export type LogDraft = Omit<EventDraft, 'type'> & { type: string }
+
 export interface RingRead {
   events: AsteraEvent[]
   /** Where to read on from: the last event looked at, given or skipped by the filter. */
@@ -24,7 +27,7 @@ export interface RingRead {
 
 export interface EventRing {
   /** Numbers the drafts, keeps them, and wakes whoever waits. Answers each event with its JSON line. */
-  append(drafts: readonly EventDraft[], occurredAt: string): Array<{ event: AsteraEvent; line: string }>
+  append(drafts: readonly LogDraft[], occurredAt: string): Array<{ event: AsteraEvent; line: string }>
   /** The events the files held, oldest first. Called once, before any append. */
   restore(entries: ReadonlyArray<{ event: AsteraEvent; line: string }>): void
   read(q: { after?: string; types?: ReadonlySet<string>; limit: number }): RingRead | { error: string }

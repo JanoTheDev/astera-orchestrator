@@ -20,9 +20,9 @@
 import { appendFile, mkdir, readFile, rename } from 'node:fs/promises'
 import path from 'node:path'
 import { EVENT_TYPES, type AsteraEvent } from '../core/publicContract'
-import { derivePublicEvents, type EventDraft } from '../core/orchestration/publicEvents'
+import { derivePublicEvents } from '../core/orchestration/publicEvents'
 import type { OrchState } from '../core/orchestration/state'
-import { createEventRing, EVENT_ID, type EventRing } from '../core/events/eventRing'
+import { createEventRing, EVENT_ID, type EventRing, type LogDraft } from '../core/events/eventRing'
 
 export const EVENT_SEGMENT_EVENTS = 1000
 export const EVENT_SEGMENT_BYTES = 4 * 1024 * 1024
@@ -31,8 +31,6 @@ export const EVENT_RETAIN_CHARS = 8 * 1024 * 1024
 /** How long after a failed write it is tried again on its own: the first time, then every later time. */
 export const EVENT_RETRY_MS = Object.freeze([1000, 5000] as const)
 
-const CURRENT = 'events.jsonl'
-const PREVIOUS = 'events.1.jsonl'
 /** A segment that cannot be read for a reason other than its absence (another process holding it) is read again
  *  this many times, this far apart, before the load goes on without it. */
 const READ_TRIES = 3
@@ -45,7 +43,7 @@ export interface HostEventLog extends Pick<EventRing, 'read' | 'tail' | 'next'> 
   committed(prev: OrchState, next: OrchState): void
   /** Events no commit makes (plugin Phase 3: the session events, sessionEvents.ts), made, kept and queued the same
    *  way, numbered on with the commits'. Never throws. */
-  recorded(drafts: readonly EventDraft[]): void
+  recorded(drafts: readonly LogDraft[]): void
   /** Writes what is held, a failed write's lines included, and settles once that write landed or failed. */
   flushed(): Promise<void>
   /** No more retries on a timer: the Host is leaving. Lines still held are lost from disk. */
@@ -53,14 +51,14 @@ export interface HostEventLog extends Pick<EventRing, 'read' | 'tail' | 'next'> 
 }
 
 /** A line the log wrote: an object with an event id, a known type, a sequence, a time and a payload. */
-const isEvent = (x: unknown): x is AsteraEvent => {
+const isEvent = (x: unknown, types: readonly string[]): x is AsteraEvent => {
   if (x === null || typeof x !== 'object') return false
   const e = x as Record<string, unknown>
   return (
     typeof e.id === 'string' &&
     EVENT_ID.test(e.id) &&
     typeof e.type === 'string' &&
-    (EVENT_TYPES as readonly string[]).includes(e.type) &&
+    types.includes(e.type) &&
     Number.isSafeInteger(e.sequence) &&
     typeof e.occurredAt === 'string' &&
     e.payload !== null &&
@@ -77,7 +75,11 @@ export function createHostEventLog(a: {
   bootId: string
   now(): string
   log(message: string): void
-  derive?: typeof derivePublicEvents
+  derive?: (prev: OrchState, next: OrchState) => readonly LogDraft[]
+  /** W3-A: a second log in the same dir (the activity feed's): its segments are `<name>.jsonl` and `<name>.1.jsonl`,
+   *  and a line read back must have one of `types`. Default: the public event log, `events`, EVENT_TYPES. */
+  name?: string
+  types?: readonly string[]
   segmentEvents?: number
   segmentBytes?: number
   retainEvents?: number
@@ -90,8 +92,10 @@ export function createHostEventLog(a: {
   const retainEvents = a.retainEvents ?? EVENT_RETAIN_EVENTS
   const retryMs = a.retryMs ?? EVENT_RETRY_MS
   const ring = createEventRing({ boot: a.bootId.slice(0, 12), retainEvents, retainChars: a.retainChars ?? EVENT_RETAIN_CHARS })
-  const current = path.join(a.dir, CURRENT)
-  const previous = path.join(a.dir, PREVIOUS)
+  const name = a.name ?? 'events'
+  const types: readonly string[] = a.types ?? EVENT_TYPES
+  const current = path.join(a.dir, `${name}.jsonl`)
+  const previous = path.join(a.dir, `${name}.1.jsonl`)
 
   /** Lines made and not yet on disk, oldest first. */
   let pending: string[] = []
@@ -115,7 +119,7 @@ export function createHostEventLog(a: {
   const enqueue = (): Promise<void> => (queue = queue.then(write))
 
   /** Drafts made into events, kept, and queued for the disk. */
-  const take = (drafts: readonly EventDraft[]): void => {
+  const take = (drafts: readonly LogDraft[]): void => {
     if (drafts.length === 0) return
     pending.push(...ring.append(drafts, a.now()).map((w) => w.line))
     void enqueue()
@@ -217,7 +221,7 @@ export function createHostEventLog(a: {
           } catch {
             event = null
           }
-          if (isEvent(event)) held.push({ event, line })
+          if (isEvent(event, types)) held.push({ event, line })
           else skipped += 1
         }
         if (file === current) {

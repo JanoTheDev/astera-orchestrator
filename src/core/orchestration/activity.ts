@@ -1,0 +1,472 @@
+// The activity feed (orchestrator SPEC §9, W3-A): what happened across every project and plan, as one stream, with the
+// plan, Task, session, model and account on each line; the summaries it gives ("what finished in the last 15
+// minutes"); and the notices it raises, deduped and rate limited.
+//
+// **Derived, like the public events (publicEvents.ts), never written by the code that moves the state.** Each commit's
+// two states go through `deriveActivity`; the Host keeps the result in a second instance of its event log
+// (src/host/eventLog.ts, `activity.jsonl`), bounded the same way and read back at its start. The public events stay the
+// SDK's contract; these are the app's own lines, so they can name a model, an account and a cancellation without
+// widening that contract.
+//
+// **No second copy of a rule.** A Task's bucket (done, failed, cancelled, awaiting review) is `taskBoardsOf`'s
+// (blocked.ts), a Run's ending is `outcomeOfTasks`'s (running.ts), a plan awaiting approval is
+// `pendingStart && plannerSessionIds !== undefined` (W2-A), a plan's name is `jobNameOf`'s.
+//
+// Pure: no clock (the log stamps each event), no files.
+import type { TaskBlockedReason, TaskCategory } from '../types'
+import { taskBoardsOf } from './blocked'
+import { jobNameOf } from './jobName'
+import { outcomeOfTasks } from './running'
+import type { ScheduleLimits } from './schedule'
+import { emptyState, type OrchState } from './state'
+import {
+  isPlaceholderSessionId,
+  type Dispatch,
+  type GateKind,
+  type Job,
+  type Outcome,
+  type RunPr,
+  type Task,
+  type TaskLinks,
+  type TaskStatus,
+  type WorkerState
+} from './types'
+
+export const ACTIVITY_KINDS = [
+  'task.status',
+  'dispatch.started',
+  'dispatch.exited',
+  'dispatch.rolled',
+  'dispatch.resumed',
+  'gate.opened',
+  'gate.resolved',
+  'task.links',
+  'run.pr',
+  'plan.awaiting-approval',
+  'plan.done'
+] as const
+export type ActivityKind = (typeof ACTIVITY_KINDS)[number]
+
+export interface ActivityPayload {
+  /** What the line is about: the Task's title, or the plan's name for a plan's line. */
+  title: string
+  /** The plan's name (`jobNameOf`). */
+  plan?: string
+  model?: string
+  accountId?: string
+  // task.status
+  status?: TaskStatus
+  from?: TaskStatus
+  category?: TaskCategory
+  // dispatch.*
+  review?: boolean
+  outcome?: Outcome
+  workerState?: WorkerState
+  closedBy?: Dispatch['closedBy']
+  rollReason?: 'waiting' | 'switching'
+  resetsAt?: string
+  toAccountId?: string
+  // gate.*
+  gateId?: string
+  question?: string
+  gateKind?: GateKind
+  resolution?: string
+  // task.links, run.pr
+  links?: TaskLinks
+  pr?: RunPr
+  // plan.done
+  runOutcome?: 'completed' | 'failed'
+}
+
+/** One line before the log numbers and stamps it (the shape of publicEvents.ts's EventDraft). */
+export interface ActivityDraft {
+  type: ActivityKind
+  projectId?: string
+  jobId?: string
+  runId?: string
+  taskId?: string
+  sessionId?: string
+  payload: ActivityPayload
+}
+
+/** One line as the log keeps it (eventRing.ts gives it its id, sequence and time). */
+export interface ActivityEvent extends ActivityDraft {
+  id: string
+  sequence: number
+  occurredAt: string
+}
+
+const byId = <T extends { id: string }>(xs: readonly T[]): Map<string, T> => new Map(xs.map((x) => [x.id, x]))
+const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b)
+
+/** A Task's bucket, asked of `taskBoardsOf` with the Task and its own Dispatches alone: the bucket reads nothing else,
+ *  and with no Job in the state the reasons (which do read the rest) are skipped. */
+const categoryOf = (t: Task, ds: readonly Dispatch[]): TaskCategory =>
+  taskBoardsOf({ ...emptyState(), tasks: [t], dispatches: [...ds] }).get(t.id)!.category
+
+/** The Dispatch a Task's line names: its open one, else its latest; a worker before a review. */
+const dispatchOf = (ds: readonly Dispatch[]): Dispatch | undefined => {
+  const sorted = [...ds].sort((a, b) => a.startedAt.localeCompare(b.startedAt))
+  return sorted.find((d) => d.endedAt === undefined && !d.review) ?? sorted.at(-1)
+}
+
+export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[] {
+  if (prev === next) return []
+  // Most commits move only messages and deliveries (a heartbeat): nothing to read then
+  if (prev.tasks === next.tasks && prev.dispatches === next.dispatches && prev.gates === next.gates && prev.runs === next.runs && prev.jobs === next.jobs)
+    return []
+  const out: ActivityDraft[] = []
+  const runs = byId(next.runs)
+  const jobs = byId(next.jobs)
+  const tasks = byId(next.tasks)
+  const where = (runId: string | undefined, taskId?: string): Omit<ActivityDraft, 'type' | 'payload'> & { job?: Job } => {
+    const job = runId === undefined ? undefined : jobs.get(runs.get(runId)?.jobId ?? '')
+    return {
+      ...(job?.projectId !== undefined ? { projectId: job.projectId } : {}),
+      ...(job !== undefined ? { jobId: job.id, job } : {}),
+      ...(runId !== undefined ? { runId } : {}),
+      ...(taskId !== undefined ? { taskId } : {})
+    }
+  }
+  const push = (type: ActivityKind, at: ReturnType<typeof where>, payload: ActivityPayload, sessionId?: string): void => {
+    const { job, ...ids } = at
+    out.push({
+      type,
+      ...ids,
+      ...(sessionId !== undefined ? { sessionId } : {}),
+      payload: { ...(job !== undefined ? { plan: jobNameOf(job) } : {}), ...payload }
+    })
+  }
+  const dispatchesOf = (s: OrchState): Map<string, Dispatch[]> => {
+    const m = new Map<string, Dispatch[]>()
+    for (const d of s.dispatches) m.set(d.taskId, [...(m.get(d.taskId) ?? []), d])
+    return m
+  }
+  const taskWho = (t: Task, d: Dispatch | undefined): Pick<ActivityPayload, 'model' | 'accountId'> => {
+    const model = d?.model ?? t.model
+    return { ...(model !== undefined ? { model } : {}), ...(d !== undefined ? { accountId: d.accountId } : {}) }
+  }
+  const realSession = (d: Dispatch | undefined): string | undefined =>
+    d !== undefined && !isPlaceholderSessionId(d.sessionId) ? d.sessionId : undefined
+
+  // Tasks: a status or bucket that moved. A Dispatch closed by a person moves the bucket (cancelled) and not the status.
+  if (prev.tasks !== next.tasks || prev.dispatches !== next.dispatches) {
+    const before = byId(prev.tasks)
+    const dsBefore = dispatchesOf(prev)
+    const dsNow = prev.dispatches === next.dispatches ? dsBefore : dispatchesOf(next)
+    const affected = new Set<string>()
+    for (const t of next.tasks) if (before.get(t.id) !== t) affected.add(t.id)
+    if (prev.dispatches !== next.dispatches) {
+      const was = byId(prev.dispatches)
+      for (const d of next.dispatches) if (was.get(d.id) !== d) affected.add(d.taskId)
+    }
+    for (const id of affected) {
+      const t = tasks.get(id)
+      const was = before.get(id)
+      // A new Task (a Run copying its plan's Tasks) is no news yet: its first move is
+      if (t === undefined || t.runId === undefined || was === undefined) continue
+      const ds = dsNow.get(id) ?? []
+      const category = categoryOf(t, ds)
+      const from = categoryOf(was, dsBefore.get(id) ?? [])
+      if (was.status === t.status && from === category) continue
+      const d = dispatchOf(ds)
+      push(
+        'task.status',
+        where(t.runId, t.id),
+        { title: t.title, status: t.status, from: was.status, category, ...taskWho(t, d) },
+        realSession(d)
+      )
+    }
+    for (const t of next.tasks) {
+      const was = before.get(t.id)
+      if (was === undefined || was === t || t.runId === undefined || same(was.links, t.links)) continue
+      push('task.links', where(t.runId, t.id), { title: t.title, ...(t.links !== undefined ? { links: t.links } : {}) })
+    }
+  }
+
+  // Dispatches: a worker's session started (not its `pending:` placeholder), ended, rolled at a limit, resumed.
+  if (prev.dispatches !== next.dispatches) {
+    const before = byId(prev.dispatches)
+    for (const d of next.dispatches) {
+      const was = before.get(d.id)
+      if (was === d) continue
+      const t = tasks.get(d.taskId)
+      if (t === undefined || t.runId === undefined) continue
+      const at = where(t.runId, t.id)
+      const base: ActivityPayload = { title: t.title, accountId: d.accountId, ...(d.model ?? t.model ? { model: d.model ?? t.model } : {}), ...(d.review ? { review: true } : {}) }
+      const session = realSession(d)
+      if (session !== undefined && realSession(was) === undefined) push('dispatch.started', at, base, session)
+      if (d.endedAt !== undefined && was?.endedAt === undefined)
+        push(
+          'dispatch.exited',
+          at,
+          { ...base, workerState: d.workerState, ...(d.outcome ? { outcome: d.outcome } : {}), ...(d.closedBy ? { closedBy: d.closedBy } : {}) },
+          session
+        )
+      const entries = d.resumes ?? []
+      const old = was?.resumes ?? []
+      entries.forEach((e, i) => {
+        if (i >= old.length)
+          push('dispatch.rolled', at, { ...base, accountId: e.fromAccountId, rollReason: e.reason, ...(e.resetsAt ? { resetsAt: e.resetsAt } : {}) }, session)
+        if (e.resumedAt !== undefined && old[i]?.resumedAt === undefined)
+          push('dispatch.resumed', at, { ...base, accountId: e.fromAccountId, ...(e.toAccountId ? { toAccountId: e.toAccountId } : {}) }, session)
+      })
+    }
+  }
+
+  if (prev.gates !== next.gates) {
+    const before = byId(prev.gates)
+    for (const g of next.gates) {
+      const was = before.get(g.id)
+      if (was === g) continue
+      const title = tasks.get(g.taskId)?.title ?? g.taskId
+      const gate = { gateId: g.id, question: g.question, ...(g.kind ? { gateKind: g.kind } : {}) }
+      if (was === undefined && g.status === 'open') push('gate.opened', where(g.runId, g.taskId), { title, ...gate })
+      if (g.status === 'resolved' && was?.status !== 'resolved')
+        push('gate.resolved', where(g.runId, g.taskId), { title, ...gate, ...(g.resolution !== undefined ? { resolution: g.resolution } : {}) })
+    }
+  }
+
+  if (prev.runs !== next.runs) {
+    const before = byId(prev.runs)
+    for (const r of next.runs) {
+      const was = before.get(r.id)
+      if (was === undefined || was === r || same(was.pr, r.pr)) continue
+      const at = where(r.id)
+      push('run.pr', at, { title: at.job ? jobNameOf(at.job) : r.id, ...(r.pr !== undefined ? { pr: r.pr } : {}) })
+    }
+  }
+
+  if (prev.jobs !== next.jobs) {
+    const before = byId(prev.jobs)
+    const awaiting = (j: Job | undefined): boolean => j?.pendingStart === true && j.plannerSessionIds !== undefined
+    for (const j of next.jobs)
+      if (awaiting(j) && !awaiting(before.get(j.id)))
+        out.push({ type: 'plan.awaiting-approval', ...(j.projectId !== undefined ? { projectId: j.projectId } : {}), jobId: j.id, payload: { title: jobNameOf(j), plan: jobNameOf(j) } })
+  }
+
+  // Last, so a plan's ending follows the Task lines that ended it. Only a Run in both states that was running.
+  if (prev.tasks !== next.tasks) {
+    const group = (s: OrchState): Map<string, Task[]> => {
+      const m = new Map<string, Task[]>()
+      for (const t of s.tasks) if (t.runId !== undefined) m.set(t.runId, [...(m.get(t.runId) ?? []), t])
+      return m
+    }
+    const was = group(prev)
+    const now = group(next)
+    const prevRuns = new Set(prev.runs.map((r) => r.id))
+    for (const [runId, ts] of now) {
+      if (!prevRuns.has(runId) || !runs.has(runId) || outcomeOfTasks(was.get(runId) ?? []) !== 'running') continue
+      const outcome = outcomeOfTasks(ts)
+      if (outcome === 'running') continue
+      const at = where(runId)
+      push('plan.done', at, { title: at.job ? jobNameOf(at.job) : runId, runOutcome: outcome })
+    }
+  }
+  return out
+}
+
+// ── Summaries ────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+export interface ActivityItem {
+  taskId?: string
+  jobId?: string
+  runId?: string
+  title: string
+  plan?: string
+  model?: string
+  accountId?: string
+  at: string
+}
+
+export interface ActivitySummary {
+  since: string
+  completed: ActivityItem[]
+  failed: ActivityItem[]
+  cancelled: ActivityItem[]
+  /** Tasks waiting on their review, and plans waiting on their approval. */
+  awaitingReview: ActivityItem[]
+  plansDone: Array<ActivityItem & { outcome: 'completed' | 'failed' }>
+  /** Every Task not running now, with why (blocked.ts), when a state was given. */
+  blocked: Array<ActivityItem & { reason: TaskBlockedReason }>
+}
+
+/** Reasons that are not a block: about to start, a plan's definition copy, a plan put away. */
+const NOT_BLOCKED: ReadonlySet<TaskBlockedReason['kind']> = new Set(['next', 'definition', 'archived'])
+
+const itemOf = (e: ActivityEvent): ActivityItem => ({
+  ...(e.taskId !== undefined ? { taskId: e.taskId } : {}),
+  ...(e.jobId !== undefined ? { jobId: e.jobId } : {}),
+  ...(e.runId !== undefined ? { runId: e.runId } : {}),
+  title: e.payload.title,
+  ...(e.payload.plan !== undefined ? { plan: e.payload.plan } : {}),
+  ...(e.payload.model !== undefined ? { model: e.payload.model } : {}),
+  ...(e.payload.accountId !== undefined ? { accountId: e.payload.accountId } : {}),
+  at: e.occurredAt
+})
+
+/** What happened since `since` (ISO): each Task once, in the bucket its latest line in the window put it. With a
+ *  state, the plans still awaiting approval and every Task blocked now, each with its reason (`taskBoardsOf`). */
+export function summarize(events: readonly ActivityEvent[], since: string, state?: OrchState, limits: ScheduleLimits = {}): ActivitySummary {
+  const window = events.filter((e) => e.occurredAt >= since)
+  const latest = new Map<string, ActivityEvent>()
+  for (const e of window) if (e.type === 'task.status' && e.taskId !== undefined) latest.set(e.taskId, e)
+  const s: ActivitySummary = { since, completed: [], failed: [], cancelled: [], awaitingReview: [], plansDone: [], blocked: [] }
+  for (const e of latest.values()) {
+    const bucket = { done: s.completed, failed: s.failed, cancelled: s.cancelled, 'awaiting-review': s.awaitingReview }[e.payload.category as string]
+    bucket?.push(itemOf(e))
+  }
+  const jobs = state ? byId(state.jobs) : undefined
+  const approvals = new Map<string, ActivityEvent>()
+  for (const e of window) if (e.type === 'plan.awaiting-approval' && e.jobId !== undefined) approvals.set(e.jobId, e)
+  for (const e of approvals.values()) {
+    const j = jobs?.get(e.jobId!)
+    if (jobs === undefined || (j?.pendingStart === true && j.plannerSessionIds !== undefined)) s.awaitingReview.push(itemOf(e))
+  }
+  for (const e of window) if (e.type === 'plan.done' && e.payload.runOutcome) s.plansDone.push({ ...itemOf(e), outcome: e.payload.runOutcome })
+  if (state) {
+    const runs = byId(state.runs)
+    for (const [taskId, board] of taskBoardsOf(state, limits)) {
+      if (!board.reason || NOT_BLOCKED.has(board.reason.kind)) continue
+      const t = state.tasks.find((x) => x.id === taskId)
+      const job = jobs!.get(runs.get(t?.runId ?? '')?.jobId ?? '')
+      if (!t || t.runId === undefined || !job) continue
+      s.blocked.push({ taskId, jobId: job.id, runId: t.runId, title: t.title, plan: jobNameOf(job), at: t.updatedAt, reason: board.reason })
+    }
+  }
+  return s
+}
+
+// ── Notices ──────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+/** One notification. `key` dedupes it; `sessionId`, when there is one, is the tab a click opens. */
+export interface ActivityNotice {
+  key: string
+  title: string
+  body: string
+  sessionId?: string
+}
+
+const inPlan = (e: ActivityEvent): string => (e.payload.plan !== undefined && e.payload.plan !== e.payload.title ? ` (${e.payload.plan})` : '')
+
+/** The lines worth interrupting someone for: a Task failed, a plan ended, a question waits on a person, a plan waits
+ *  on its approval. A worker waiting at a prompt is not here: the desktop's `inputNeeded` and Slack's own notice
+ *  already say it, from the session's attention (desktopNotifier.ts), and a second notice would be the flood. */
+export function noticeOf(e: ActivityEvent): ActivityNotice | null {
+  const session = e.sessionId !== undefined ? { sessionId: e.sessionId } : {}
+  switch (e.type) {
+    case 'task.status':
+      return e.payload.status === 'failed' && e.payload.from !== 'failed'
+        ? { key: `failed:${e.taskId}`, title: 'Task failed', body: `${e.payload.title}${inPlan(e)}`, ...session }
+        : null
+    case 'plan.done':
+      return {
+        key: `done:${e.runId}`,
+        title: e.payload.runOutcome === 'failed' ? 'Plan finished with failures' : 'Plan done',
+        body: e.payload.title
+      }
+    case 'gate.opened':
+      return { key: `gate:${e.payload.gateId}`, title: 'Needs your answer', body: `${e.payload.title}${inPlan(e)}: ${e.payload.question ?? ''}`.slice(0, 240) }
+    case 'plan.awaiting-approval':
+      return { key: `approve:${e.jobId}`, title: 'Plan ready for approval', body: e.payload.title }
+    default:
+      return null
+  }
+}
+
+export const NOTICE_DEDUP_MS = 10 * 60_000
+export const NOTICE_WINDOW_MS = 60_000
+export const NOTICE_MAX_PER_WINDOW = 3
+
+/** At most `max` notices a `windowMs`, and one key once a `dedupMs`. What the rate turns away is counted, for the
+ *  next digest to say. */
+export function createNoticeThrottle(o: { dedupMs?: number; windowMs?: number; max?: number } = {}): {
+  admit(key: string, nowMs: number): boolean
+  takeSuppressed(): number
+} {
+  const dedupMs = o.dedupMs ?? NOTICE_DEDUP_MS
+  const windowMs = o.windowMs ?? NOTICE_WINDOW_MS
+  const max = o.max ?? NOTICE_MAX_PER_WINDOW
+  const seen = new Map<string, number>()
+  let sent: number[] = []
+  let suppressed = 0
+  return {
+    admit(key, nowMs) {
+      for (const [k, at] of seen) if (nowMs - at >= dedupMs) seen.delete(k)
+      if (seen.has(key)) return false
+      seen.set(key, nowMs)
+      sent = sent.filter((at) => nowMs - at < windowMs)
+      if (sent.length >= max) {
+        suppressed += 1
+        return false
+      }
+      sent.push(nowMs)
+      return true
+    },
+    takeSuppressed() {
+      const n = suppressed
+      suppressed = 0
+      return n
+    }
+  }
+}
+
+const titles = (xs: readonly ActivityItem[]): string => {
+  const shown = xs.slice(0, 3).map((x) => x.title)
+  return shown.join(', ') + (xs.length > shown.length ? ` and ${xs.length - shown.length} more` : '')
+}
+
+/** A digest's text, or null when nothing happened. `suppressed`: notices the rate held back since the last digest. */
+export function digestText(s: ActivitySummary, suppressed = 0): string | null {
+  const lines: string[] = []
+  if (s.completed.length > 0) lines.push(`${s.completed.length} completed: ${titles(s.completed)}`)
+  if (s.failed.length > 0) lines.push(`${s.failed.length} failed: ${titles(s.failed)}`)
+  if (s.cancelled.length > 0) lines.push(`${s.cancelled.length} cancelled: ${titles(s.cancelled)}`)
+  if (s.awaitingReview.length > 0) lines.push(`${s.awaitingReview.length} awaiting review: ${titles(s.awaitingReview)}`)
+  if (s.plansDone.length > 0) lines.push(`${s.plansDone.length} plan(s) finished: ${titles(s.plansDone)}`)
+  // Blocked alone is no news: it says what is still true, so it only rides along with something that happened
+  if (lines.length === 0 && suppressed === 0) return null
+  if (s.blocked.length > 0) lines.push(`${s.blocked.length} waiting: ${titles(s.blocked)}`)
+  if (suppressed > 0) lines.push(`${suppressed} more notice(s) held back`)
+  return lines.join('\n')
+}
+
+/**
+ * The notices of one sink (the Host's Slack, the app's desktop): each important line at once, through the throttle,
+ * and a digest every `digestMs()` (0: none). With no digest, what the rate held back is told in one notice at the next
+ * tick, so nothing is dropped unsaid. `summary` is asked for the window since the last digest.
+ */
+export function createActivityNotices(a: {
+  send(n: ActivityNotice): void
+  summary(since: string): Promise<ActivitySummary | null>
+  digestMs(): number | Promise<number>
+  nowMs(): number
+  throttle?: ReturnType<typeof createNoticeThrottle>
+}): { onEvents(events: readonly ActivityEvent[]): void; tick(): Promise<void> } {
+  const throttle = a.throttle ?? createNoticeThrottle()
+  let last = a.nowMs()
+  return {
+    onEvents(events) {
+      for (const e of events) {
+        const n = noticeOf(e)
+        if (n && throttle.admit(n.key, a.nowMs())) a.send(n)
+      }
+    },
+    async tick() {
+      const now = a.nowMs()
+      const ms = await a.digestMs()
+      if (!(ms > 0)) {
+        last = now
+        const held = throttle.takeSuppressed()
+        if (held > 0) a.send({ key: `held:${now}`, title: 'More orchestration updates', body: `${held} more notice(s) held back; open Astera's activity feed` })
+        return
+      }
+      if (now - last < ms) return
+      const since = new Date(last).toISOString()
+      last = now
+      const s = await a.summary(since)
+      const text = s ? digestText(s, throttle.takeSuppressed()) : null
+      if (text) a.send({ key: `digest:${now}`, title: 'Activity summary', body: text })
+    }
+  }
+}

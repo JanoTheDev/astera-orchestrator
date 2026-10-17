@@ -41,6 +41,10 @@ import { nodeProcSpawn } from './nodeProc'
 import { HOST_FEATURE_ORCH, HOST_FEATURE_REQUESTS, HOST_PROTOCOL, HOST_YIELD_JOURNAL, HOST_YIELD_UNDERSTANDING, HOST_YIELD_WORK_UNITS, HOST_YIELD_WORKSPACE, HOST_YIELD_WORKTREES } from '../core/host/protocol'
 import { createHostJournal } from './hostJournal'
 import { createHostEventLog } from './eventLog'
+import { followActivity } from './activity'
+import { ACTIVITY_KINDS, deriveActivity } from '../core/orchestration/activity'
+import { readActivityDigestMinutes } from '../core/settings/activityDigest'
+import { readMaxConcurrentWorkers } from '../core/settings/maxConcurrentWorkers'
 import { hostNotifier } from './pluginNotify'
 import { pickInitialLang } from '../core/i18n/locale'
 import { createHostSessionEvents, type HostSessionEvents } from './sessionEvents'
@@ -299,6 +303,8 @@ async function main(): Promise<void> {
           // log's own flush below so a stuck disk cannot hold the way out. Never rejects.
           await disposeWithin(eventLog.flushed(), LEAVE_LOG_FLUSH_CAP_MS, () => {})
           eventLog.close()
+          await disposeWithin(activityLog.flushed(), LEAVE_LOG_FLUSH_CAP_MS, () => {})
+          activityLog.close()
           registry.killAll()
           procs.killAll()
           // Every buffered log line on disk before the exits below are armed (stage 3, task 3). First the
@@ -368,6 +374,17 @@ async function main(): Promise<void> {
   // so a cursor outlives the Host that gave it. Only read before the bind; commits, which write it, come after.
   const eventLog = createHostEventLog({ dir: path.join(profileDir, 'orch'), bootId, now: () => new Date().toISOString(), log: (m) => log.write(m) })
   await eventLog.load()
+  // W3-A: the activity feed (core/orchestration/activity.ts), a second log of the same kind beside it.
+  const activityLog = createHostEventLog({
+    dir: path.join(profileDir, 'orch'),
+    bootId,
+    now: () => new Date().toISOString(),
+    log: (m) => log.write(m),
+    name: 'activity',
+    types: ACTIVITY_KINDS,
+    derive: deriveActivity
+  })
+  await activityLog.load()
 
   // How It Works (E1 §2, §3): this Host writes understanding.json while every attached app yields it, or
   // none is attached, read per write. Loaded at start whether or not it writes now, so a record a dead
@@ -799,6 +816,8 @@ async function main(): Promise<void> {
     journal: hostJournal,
     // The public event log (SDK 1d): every commit's events, and `events-poll`.
     events: eventLog,
+    // W3-A: the activity feed, and `activity-poll` / `activity-summary`.
+    activity: activityLog,
     // How It Works (E1 §3): every Run a commit finishes, recorded here while this Host is the writer.
     understanding: hostUnderstanding,
     // Session work units (E2 §5): built below, after this orch, since their in-Run test reads its state;
@@ -1029,6 +1048,21 @@ async function main(): Promise<void> {
 
   // The Host's Slack starts once the server exists: who keeps Slack is the server's to say.
   slackWiring?.start()
+  // W3-A: the activity feed's notices to Slack, while this Host holds it (the app's desktop notices are its own).
+  if (slackWiring) {
+    const slack = slackWiring
+    const settingsFile = path.join(profileDir, 'app-settings.json')
+    followActivity({
+      log: activityLog,
+      send: (n) => {
+        if (slack.active()) void slack.notifier.postNotice(`*${n.title}*\n${n.body}`)
+      },
+      state: () => orch.state(),
+      limits: async () => ({ maxConcurrentWorkers: await readMaxConcurrentWorkers(settingsFile).catch(() => null) }),
+      digestMs: async () => (await readActivityDigestMinutes(settingsFile)) * 60_000,
+      report: (m) => log.write(m)
+    })
+  }
   // And How It Works: with no app attached yet this Host is the writer now (E1 §2).
   void hostUnderstanding.writerMayHaveChanged()
   // And the work units (E2 §3).

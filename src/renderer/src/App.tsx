@@ -113,6 +113,7 @@ import { toggleSidebarView, type SidebarView } from '../../core/ui/sidebar'
 // W2-B workspace sidebar
 import { WorkspaceSidebar } from './components/workspace/WorkspaceSidebar'
 import { WorkspaceHeader } from './components/workspace/WorkspaceHeader'
+import { ActivityPanel } from './components/activity/ActivityPanel' // W3-A
 import { useWorkspaceData } from './components/workspace/useWorkspaceData'
 import { buildWorkspaceTree, findPlan, planSessions, scopeLayout } from './components/workspace/workspaceTree'
 import { terminalsWithCreated } from './lib/terminalTabs'
@@ -4624,6 +4625,16 @@ export default function App(): React.JSX.Element {
                   onSelectPlan={openWorkspacePlan}
                   canOpenSession={canOpenSessionTab}
                   onOpenSession={(sessionId, jobId) => {
+                    setWorkspacePlanId(jobId)
+                    selectWorkbenchTab(sessionTab(sessionId))
+                  }}
+                />
+                {/* W3-A: the activity feed, the open plan's (its workspace) or every plan's */}
+                <ActivityPanel
+                  planId={workspacePlanId}
+                  accounts={accounts}
+                  onOpenSession={(sessionId, jobId) => {
+                    if (!canOpenSessionTab(sessionId)) return
                     setWorkspacePlanId(jobId)
                     selectWorkbenchTab(sessionTab(sessionId))
                   }}

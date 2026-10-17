@@ -3,6 +3,7 @@ import type { DesktopNotifySettings } from '../../../core/notify/settings'
 import type { MessageKey } from '../../../core/i18n'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
+import { ActivityDigestSetting } from './activity/ActivityDigestSetting'
 
 /** The three events, in the order §6's table lists them: the two that mean *the work has stopped*
  *  first, then the one that means *it is proceeding*. That order is the explanation — a person
@@ -22,6 +23,12 @@ const EVENTS = [
     key: 'accountSwitched',
     label: 'settings.notifications.accountSwitched',
     hint: 'settings.notifications.accountSwitchedHint'
+  },
+  // W3-A: the activity feed's notices (core/orchestration/activity.ts)
+  {
+    key: 'orchestration',
+    label: 'settings.notifications.orchestration',
+    hint: 'settings.notifications.orchestrationHint'
   }
 ] as const satisfies readonly { key: keyof DesktopNotifySettings; label: MessageKey; hint: MessageKey }[]
 
@@ -76,6 +83,7 @@ export function NotificationSettings(): React.JSX.Element {
           <span className="settings-hint">{t(hint)}</span>
         </div>
       ))}
+      <ActivityDigestSetting />
     </>
   )
 }

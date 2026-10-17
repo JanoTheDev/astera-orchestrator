@@ -196,6 +196,9 @@ const api = {
     getGithubPolling: invoke('settings.getGithubPolling'),
     setGithubPolling: invoke('settings.setGithubPolling'),
     getMaxConcurrentWorkers: invoke('settings.getMaxConcurrentWorkers'),
+    // W3-A
+    getActivityDigestMinutes: invoke('settings.getActivityDigestMinutes'),
+    setActivityDigestMinutes: invoke('settings.setActivityDigestMinutes'),
     setMaxConcurrentWorkers: invoke('settings.setMaxConcurrentWorkers'),
     getDesktopNotify: invoke('settings.getDesktopNotify'),
     setDesktopNotify: invoke('settings.setDesktopNotify'),
@@ -358,6 +361,9 @@ const api = {
     runDetail: invoke('orch.runDetail'),
     completion: invoke('orch.completion'),
     command: invoke('orch.command'),
+    // W3-A: the activity feed, a page after a cursor, and its summary since a time
+    activity: invoke('orch.activity'),
+    activitySummary: invoke('orch.activitySummary'),
     unwatch: invoke('orch.unwatch')
   },
   plugins: {

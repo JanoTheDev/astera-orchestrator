@@ -49,6 +49,7 @@ import { WORKTREE_CALLS, type HostWorktrees } from './worktrees'
 import type { HostJournal } from './hostJournal'
 import type { HostEventLog } from './eventLog'
 import { pollEvents } from './eventsPoll'
+import { ACTIVITY_COMMANDS, activityReply } from './activity'
 import { NOT_WRITER, type HostUnderstanding } from './hostUnderstanding'
 import type { HostWorkUnits } from './hostWorkUnits'
 import { ensureProject, findProject } from '../core/orchestration/projects'
@@ -548,6 +549,9 @@ export function createHostOrch(a: {
    *  accepted `state-put` with a base included, and read by `events-poll`. Absent: no events are kept, and
    *  `events-poll` answers 501. */
   events?: Pick<HostEventLog, 'committed' | 'read' | 'tail' | 'next'> | null
+  /** W3-A: the activity feed's log (host/activity.ts), fed with the public one and read by `activity-poll` and
+   *  `activity-summary`. Absent: both answer 501. */
+  activity?: Pick<HostEventLog, 'committed' | 'read' | 'tail' | 'next'> | null
   /** How It Works in the Host (hostUnderstanding.ts, E1 §3, §4): handed every Run a commit finishes, and
    *  the app's `understanding-unit` and the app's and MCP's `understanding-regenerate`. Absent: this Host
    *  records no Run, and both calls answer 501. */
@@ -586,6 +590,11 @@ export function createHostOrch(a: {
     }
   }
 
+  /** W3-A: the app-wide cap the blocked reasons of `activity-summary` read (blocked.ts), as the dispatch reads it. */
+  const activityLimits = async (): Promise<{ maxConcurrentWorkers: number | null }> => ({
+    maxConcurrentWorkers: await readMaxConcurrentWorkers(path.join(a.profileDir, 'app-settings.json')).catch(() => null)
+  })
+
   /** The public event log, isolated like the journal: a log that throws must not turn a landed commit into a failed
    *  command (eventLog.ts never throws; this is for one that does anyway). */
   const recordEvents = (prev: OrchState, next: OrchState): void => {
@@ -593,6 +602,11 @@ export function createHostOrch(a: {
       a.events?.committed(prev, next)
     } catch (err) {
       a.log(`events: recording a commit failed on the Host: ${String(err)}`)
+    }
+    try {
+      a.activity?.committed(prev, next)
+    } catch (err) {
+      a.log(`activity: recording a commit failed on the Host: ${String(err)}`)
     }
   }
 
@@ -1630,6 +1644,7 @@ export function createHostOrch(a: {
             cmd === 'jobs-view' ||
             cmd === 'runs-timeline' ||
             cmd === 'events-poll' ||
+            ACTIVITY_COMMANDS.has(cmd) ||
             REMOTE_SESSION_READS.has(cmd) ||
             cmd === 'validation-stop' ||
             cmd === 'roll-state' ||
@@ -1694,6 +1709,8 @@ export function createHostOrch(a: {
         // command. Read only, and it needs no load: the log is fed by commits, not read from the state. MCP and a
         // controller were refused above (neither allowlist names it).
         if (cmd === 'events-poll') return await pollEvents(a.events, args)
+        // W3-A: the activity feed's reads, beside the public log's and for its reason. Read only.
+        if (ACTIVITY_COMMANDS.has(cmd)) return await activityReply(a.activity, cmd, args, () => store.get(), activityLimits)
         // **Answered here, beside the two above, and for the same reason (Host S3, §3.1).** None of
         // the four `worktree-*` names goes through `handleCommand` — the app is their only caller
         // (`HostWorktrees.call` itself checks `from?.role === 'app'`) — so a Host too old to own

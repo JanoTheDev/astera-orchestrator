@@ -17,12 +17,16 @@ export interface DesktopNotifySettings {
   inputNeeded: boolean
   limitWaiting: boolean
   accountSwitched: boolean
+  /** W3-A: orchestration notices (core/orchestration/activity.ts): a Task failed, a plan ended, a question or a plan
+   *  waits on you, and the periodic digest. They mean the work needs you or is done, so on by default. */
+  orchestration: boolean
 }
 
 export const DESKTOP_NOTIFY_DEFAULTS: DesktopNotifySettings = {
   inputNeeded: true,
   limitWaiting: true,
-  accountSwitched: false
+  accountSwitched: false,
+  orchestration: true
 }
 
 /** Read from a file a user can edit by hand, so the narrowing is per default — the convention
@@ -35,7 +39,8 @@ export function readDesktopNotify(v: unknown): DesktopNotifySettings {
   return {
     inputNeeded: o.inputNeeded !== false,
     limitWaiting: o.limitWaiting !== false,
-    accountSwitched: o.accountSwitched === true
+    accountSwitched: o.accountSwitched === true,
+    orchestration: o.orchestration !== false
   }
 }
 
