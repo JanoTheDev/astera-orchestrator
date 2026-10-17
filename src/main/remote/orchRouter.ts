@@ -18,11 +18,18 @@ export const isLocalRuntime = (runtimeId?: unknown): boolean => runtimeId === un
 /** A runtimeId from the renderer that is not a string names no Runtime (review M-1): it is never looked up. */
 const NOT_A_RUNTIME = { code: 'RUNTIME_NOT_FOUND', message: 'a runtime id is a string' }
 
+/** W4: commands only the local Host can answer, because it owns the sessions (`listSessions`, `sendSession`, `chatSend`).
+ *  Main's copy of the command layer has no such deps and refused them ("sessions are answered by the Astera Host"),
+ *  so the command bar's `send` never reached a worker. These go to the Host as the app (`host`). */
+export const HOST_ANSWERED: ReadonlySet<string> = new Set(['sessions-send'])
+
 const EMPTY_DETAIL: RunDetail = { events: [], layers: [], deps: {}, cyclic: [] }
 const offlineView = (runtimeId: unknown): RuntimeView => ({ runtimeId: typeof runtimeId === 'string' ? runtimeId : '', offline: true, stale: false, version: 0 })
 
 export function createOrchRouter(a: {
   local: OrchHandlers
+  /** The local Host's command layer, as the app: where HOST_ANSWERED commands go. */
+  host?(projectPath: string, cmd: string, args: Record<string, unknown>): Promise<{ status: number; body: unknown }>
   remote: { client(runtimeId: string): Promise<RemoteRuntimeClient | { code: string; message: string }> }
   log?(m: string): void
 }): OrchHandlers {
@@ -75,7 +82,9 @@ export function createOrchRouter(a: {
         : guarded<CompletionDetail | null>(runtimeId!, 'completion', null, (c) => c.completion(runId, taskId), () => null),
     command: (projectPath, cmd, args, runtimeId) =>
       isLocalRuntime(runtimeId)
-        ? a.local.command(projectPath, cmd, args)
+        ? HOST_ANSWERED.has(cmd) && a.host
+          ? a.host(projectPath, cmd, args)
+          : a.local.command(projectPath, cmd, args)
         : guarded(
             runtimeId!,
             'command',
