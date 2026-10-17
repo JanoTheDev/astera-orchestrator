@@ -12,6 +12,7 @@ import { slotsToFill } from './schedule'
 import { firesDue } from './fire'
 import { OrchestrationStore, RUN_TTL_MS } from './store'
 import { snapshotFor } from './view'
+import { TOOLS } from '../../cli/mcp/tools'
 
 const NOW = '2026-10-17T00:00:00.000Z'
 
@@ -157,12 +158,24 @@ describe('archiving a Job', () => {
     expect(isJobActive(deps.getState().jobs[0])).toBe(true)
   })
 
+  it('MCP list_jobs asks for archived Jobs only with includeArchived', () => {
+    const tool = TOOLS.find((t) => t.name === 'list_jobs')!
+    expect(tool.args({ includeArchived: true })).toEqual({ archived: true })
+    expect(tool.args({})).toEqual({})
+  })
+
   it('hides it from jobs list unless --archived, and unarchive brings it back', async () => {
     const { deps, jobId, second } = await withWorker()
     await call(deps, 'jobs-archive', { id: jobId })
     expect((await call(deps, 'jobs-list')).body).toEqual([])
     expect((await call(deps, 'jobs-list', { archived: true })).body).toMatchObject([{ id: jobId }])
     expect(snapshotFor(deps.getState(), dir, () => true, [], () => null, () => true).runs[0]).toMatchObject({ archivedAt: NOW })
+    // A coordinator Job that lost its coordinator offers ▶ only while it is not archived (run-start refuses it)
+    const withAccount = (st: OrchState): OrchState => ({ ...st, jobs: st.jobs.map((j) => ({ ...j, coordinatorAccountId: 'acc1' })) })
+    const rowOf = (st: OrchState) => snapshotFor(withAccount(st), dir, () => true, [], () => null, () => true).runs[0]
+    expect(rowOf(deps.getState())).not.toHaveProperty('coordinatorMissing')
+    const live = unarchiveJob(deps.getState(), jobId)
+    expect(live.ok && rowOf(live.state).coordinatorMissing).toBe(true)
     const back = await call(deps, 'jobs-unarchive', { id: jobId })
     expect(back.status).toBe(200)
     expect('archivedAt' in (back.body as object)).toBe(false)

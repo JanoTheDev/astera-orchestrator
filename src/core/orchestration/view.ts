@@ -379,7 +379,9 @@ export function snapshotFor(
       // Not while its start is in flight (I1: a second ▶ would start a second coordinator), and not on a
       // finished Run (I3: there is nothing left to manage), and not on a paused one (`runs resume` takes
       // it back; a Run a fire replaced is paused, U4). run-start answers all three the same way.
+      // Not on an archived plan either (W1-C): run-start refuses it, so ▶ would only fail
       ...(job.coordinatorAccountId !== undefined &&
+      job.archivedAt === undefined &&
       run !== undefined &&
       run.coordinatorSessionId === undefined &&
       run.paused !== true &&

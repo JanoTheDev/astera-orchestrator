@@ -76,7 +76,8 @@ export interface ProjectsApi {
 }
 
 export interface JobsApi {
-  list(filter?: { readonly status?: JobState; readonly projectId?: string }, options?: ReadOptions): Promise<ListResult<Job>>
+  /** `archived: true` also lists archived Jobs, which are left out otherwise. */
+  list(filter?: { readonly status?: JobState; readonly projectId?: string; readonly archived?: boolean }, options?: ReadOptions): Promise<ListResult<Job>>
   get(jobId: string, options?: ReadOptions): Promise<JobWithRun>
   create(input: CreateJobInput, options?: WriteOptions): Promise<Job>
   run(jobId: string, options?: WriteOptions): Promise<Run>
@@ -215,7 +216,15 @@ export function createNamespaces(call: Call, features: () => readonly string[], 
     list: async (filter = {}, o) => {
       const r = readOptions(o)
       const project = filter.projectId !== undefined ? await folderOf(need('projectId', filter.projectId), r) : undefined
-      return list<Job>('jobs-list', { ...(filter.status !== undefined ? { status: filter.status } : {}), ...(project !== undefined ? { project } : {}) }, r)
+      return list<Job>(
+        'jobs-list',
+        {
+          ...(filter.status !== undefined ? { status: filter.status } : {}),
+          ...(project !== undefined ? { project } : {}),
+          ...(filter.archived === true ? { archived: true } : {})
+        },
+        r
+      )
     },
     get: async (jobId, o) => body<JobWithRun>('jobs-get', { id: need('jobId', jobId) }, readOptions(o)),
     create: async (input, o) => {

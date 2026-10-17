@@ -283,7 +283,8 @@ export function humanFor(cmd: string, data: Record<string, unknown>): string | n
           stateWord(j),
           str(j.id),
           // A Job made from a ticket by the ticket's title (plugin 4d), not by the objective Astera wrote for it
-          jobNameOf({ objective: str(j.objective), source: j.source as JobSourceRef | undefined }),
+          // and by the name a person gave it first (W1-C)
+          jobNameOf({ objective: str(j.objective), source: j.source as JobSourceRef | undefined, title: typeof j.title === 'string' ? j.title : undefined }),
           progressWord(j)
         ])
       )

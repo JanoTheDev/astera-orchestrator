@@ -174,6 +174,8 @@ function JobTitle({
       onClick={(e) => e.stopPropagation()}
       onKeyDown={(e) => {
         e.stopPropagation()
+        // An Enter that ends a Korean or Japanese composition is the IME's, not a save
+        if (e.nativeEvent.isComposing) return
         if (e.key === 'Enter') {
           onRename(run.id, e.currentTarget.value)
           onClose()
