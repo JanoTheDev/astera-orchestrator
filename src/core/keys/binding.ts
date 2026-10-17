@@ -34,6 +34,9 @@ export type ActionId =
   | 'run.stop'
   | 'run.rerun'
   | 'run.selectConfig'
+  // W3-B command bar
+  | 'command.open'
+  | 'command.talk'
 
 export type ActionSpec = {
   id: ActionId
@@ -207,6 +210,21 @@ export function makeActions(platform: string): readonly ActionSpec[] {
       id: 'run.selectConfig',
       defaults: ['Alt+Shift+F10'],
       descKey: 'shortcut.run.selectConfig',
+      yieldsToTerminal: false
+    },
+    // W3-B: the command bar (a conversation with the coordinator) and its push-to-talk. K for the command palette
+    // habit, M for the microphone; neither is a DevTools accelerator nor one of the sidebar letters. Not yielded to
+    // the terminal: the bar is where a person goes from a session, as the sidebar keys are.
+    {
+      id: 'command.open',
+      defaults: [`${M}+Shift+K`],
+      descKey: 'shortcut.command.open',
+      yieldsToTerminal: false
+    },
+    {
+      id: 'command.talk',
+      defaults: [`${M}+Shift+M`],
+      descKey: 'shortcut.command.talk',
       yieldsToTerminal: false
     }
   ]

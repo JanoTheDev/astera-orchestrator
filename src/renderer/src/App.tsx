@@ -59,6 +59,12 @@ import { localDoor, remoteDoor, type OrchDoor } from './lib/orchDoor'
 import { deleteRun, pauseRun, restartCoordinator as restartRunCoordinator, resumeRun, type ActionUi } from './lib/jobActions'
 // W1-C plan lifecycle
 import { archiveJob, renameJob, unarchiveJob } from './lib/jobActions'
+// W3-B command bar and voice
+import { approvePlan } from './lib/jobActions'
+import { jobName } from './lib/jobName'
+import { defaultAccountIdOf } from '../../core/accounts/defaultAccount'
+import { CommandBar } from './components/command/CommandBar'
+import { VoiceSettings } from './components/command/VoiceSettings'
 import { ResumeStrategySettings } from './components/ResumeStrategySettings'
 import { GithubSettings } from './components/GithubSettings'
 import { MaxWorkersSetting } from './components/MaxWorkersSetting'
@@ -1421,6 +1427,18 @@ export default function App(): React.JSX.Element {
       // Both toggles are recreated on every render and this listener holds the first one, but their
       // bodies are all refs and setters, so a stale closure still acts on the latest state — the same
       // convention toggleExplorer and closeFileTab already rely on.
+      // W3-B: the command bar opens (or closes) like a sidebar key; the talk key opens it and toggles recording.
+      if (action === 'command.open' || action === 'command.talk') {
+        e.preventDefault()
+        e.stopPropagation()
+        if (e.repeat) return
+        if (action === 'command.open') setCommandOpen((v) => !v)
+        else {
+          setCommandOpen(true)
+          setTalkSignal((n) => n + 1)
+        }
+        return
+      }
       if (action === 'sidebar.home' || action === 'sidebar.jobs' || action === 'sidebar.howItWorks') {
         e.preventDefault()
         e.stopPropagation()
@@ -2683,6 +2701,11 @@ export default function App(): React.JSX.Element {
   const restartCoordinator = (runId: string): void => {
     if (currentProject) void restartRunCoordinator(localDoor(window.api, currentProject), runId, actionUi)
   }
+  /** W3-B: "Approve & execute" asks first (approvePlan): approving starts workers and spends quota. */
+  const approve = (door: OrchDoor, snapshot: OrchSnapshot | null, runId: string, ui: ActionUi): void => {
+    const row = snapshot ? findRun(snapshot, runId) : undefined
+    void approvePlan(door, runId, row ? jobName(row) : runId, ui)
+  }
 
   /** 활성 탭이 말하는 루트 — 파일 탭이면 그 파일의 프로젝트, 기능 탭이면 그 기능의 프로젝트,
    *  세션 탭이면 그 세션의 cwd.
@@ -3418,9 +3441,12 @@ export default function App(): React.JSX.Element {
   // tree is on screen or a plan is open; the anchor is only the path the reads are sent through.
   const [workspacePlanId, setWorkspacePlanId] = useState<string | null>(null)
   const [workspaceArchived, setWorkspaceArchived] = useState(false)
+  // W3-B: the command bar resolves names against the same data, so it is read while the bar is open too
+  const [commandOpen, setCommandOpen] = useState(false)
+  const [talkSignal, setTalkSignal] = useState(0)
   const workspaceData = useWorkspaceData(
     currentProject ?? sessions[0]?.cwd ?? null,
-    (sidebarOpen && sidebarPane === 'sessions') || workspacePlanId !== null
+    (sidebarOpen && sidebarPane === 'sessions') || workspacePlanId !== null || commandOpen
   )
   const workspaceTree = useMemo(
     () => (workspaceData ? buildWorkspaceTree(workspaceData, { showArchived: workspaceArchived }) : []),
@@ -4530,6 +4556,9 @@ export default function App(): React.JSX.Element {
                   onRestartCoordinator={(runId) => {
                     if (remoteViewDoor) void restartRunCoordinator(remoteViewDoor, runId, remoteActionUi)
                   }}
+                  onApprove={(runId) => {
+                    if (remoteViewDoor) approve(remoteViewDoor, remoteSnapshot, runId, remoteActionUi)
+                  }}
                 />
               ) : (
               <JobsView
@@ -4574,6 +4603,9 @@ export default function App(): React.JSX.Element {
                 onPauseRun={pauseScheduleRun}
                 onResumeRun={resumeScheduleRun}
                 onRestartCoordinator={restartCoordinator}
+                onApprove={(runId) => {
+                  if (currentProject) approve(localDoor(window.api, currentProject), orchSnapshot, runId, actionUi)
+                }}
                 onDeleteRun={(runId) => {
                   if (currentProject) void deleteRun(localDoor(window.api, currentProject), orchSnapshot, runId, actionUi)
                 }}
@@ -5142,6 +5174,8 @@ export default function App(): React.JSX.Element {
                     <ResumeStrategySettings />
                     {/* Orchestrator W1-A: the model each Job role and task difficulty starts on. */}
                     <OrchestratorModelsSettings accounts={accounts} />
+                    {/* W3-B: the local whisper.cpp the command bar's push-to-talk runs on */}
+                    <VoiceSettings />
                     {/* Agent browser — same settings-row/settings-hint/label shape and the same
                         optimistic-update-then-revert as the two above. Off by default: it installs a
                         skill into every account and starts the local server. */}
@@ -5663,6 +5697,35 @@ export default function App(): React.JSX.Element {
           }}
         />
       )}
+      {/* W3-B command bar: names resolve against the workspace tree; changes go through this computer's doors */}
+      <CommandBar
+        open={commandOpen}
+        onClose={() => setCommandOpen(false)}
+        tree={workspaceTree}
+        data={workspaceData}
+        currentProject={currentProject}
+        currentPlanId={workspacePlanId}
+        ui={actionUi}
+        talkSignal={talkSignal}
+        onOpenSession={(sessionId, jobId) => {
+          if (jobId) setWorkspacePlanId(jobId)
+          selectWorkbenchTab(sessionTab(sessionId))
+        }}
+        deps={{
+          door: (projectPath) => localDoor(window.api, projectPath),
+          attention: (sessionId) => window.api.conversation.attention(sessionId),
+          openPlan: openWorkspacePlan,
+          openRun: (projectPath, runId) => {
+            setDetail(null)
+            setOpenRun({ projectPath, runId })
+          },
+          snapshotFor: (projectPath) => (projectPath === currentProject ? orchSnapshot : null),
+          coordinatorAccount: async () => {
+            const signedIn = await localDoor(window.api, currentProject ?? homeDir ?? '').signedInIds(accounts)
+            return defaultAccountIdOf('claude', accounts, signedIn)
+          }
+        }}
+      />
       {newRunOpen && currentProject && (
         <NewRunModal
           door={localDoor(window.api, currentProject)}
