@@ -9,7 +9,7 @@
 5. Job workers stop at Claude permission prompts by default (CONTEXT.md rule 7). For unattended runs, enable
    Settings → "Run agents without permission checks".
 
-Status: Wave 0 merged (PR #25, 2026-10-17). See `docs/orchestrator/LINUX.md`.
+Status: Wave 0 merged (PR #25), Wave 1 merged (PRs #26–#29), 2026-10-17. See `docs/orchestrator/LINUX.md`.
 
 | Order | Tabs (parallel) |
 |---|---|

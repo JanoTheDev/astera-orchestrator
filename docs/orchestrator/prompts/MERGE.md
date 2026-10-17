@@ -3,10 +3,12 @@ Run in ONE Claude tab after every tab in a wave has opened its PR.
 You are in /home/jonx/Desktop/Astera (my private fork, repo JanoTheDev/astera-orchestrator). Read
 docs/orchestrator/CONTEXT.md and PLAN.md first.
 
+0. Wait until every tab of the wave has opened its PR (the README's wave table lists them). Run `npm ci` in
+   this checkout first if it has no `node_modules`.
 1. `gh pr list --state open` — these are this wave's PRs. Read each PR description.
 2. Merge them one by one into `main` (merge commits, not squash), in an order that minimises conflicts
    (core before UI). For conflicts: they should be small additive hunks in shared files (`types.ts`,
-   `command.ts`, settings types, `App.tsx`) — keep both sides. Reconcile any helper the PLAN says two PRs
+   `command.ts`, settings types, `App.tsx`, the `tsconfig.web.json` include list) — keep both sides. Reconcile any helper the PLAN says two PRs
    both define (e.g. `isJobActive`) into one.
 3. After each merge: `npm ci` if the lockfile changed, `npm run typecheck`, `flock /tmp/astera-fullsuite.lock nice -n 10 npx vitest run --maxWorkers=2` (never bare
    `npm test`: it overloads the laptop). If `main` was an ancestor of the PR branch and the PR's own full

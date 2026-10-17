@@ -68,7 +68,7 @@ Many code comments are Korean — read them, they carry the invariants.
 6. **Safety.** Voice/NL input is never authorization for destructive actions (kill, delete, merge, force
    push, archive-with-kill) — require explicit UI confirmation. Never auto-switch accounts beyond what the
    existing rolling feature already does and the user enabled. Never send credentials anywhere.
-7. **Linux facts from Wave 0** (`docs/orchestrator/LINUX.md` is the Linux source of truth: read it, and update it
+7. **Linux and runtime facts (Waves 0–1)** (`docs/orchestrator/LINUX.md` is the Linux source of truth: read it, and update it
    when you learn something about Linux):
    - Agents never bypass permissions by default: `agentPermissionModeOf` returns `'yolo'` only when set
      explicitly. Job workers and the coordinator therefore stop at Claude permission prompts unless the
@@ -82,6 +82,19 @@ Many code comments are Korean — read them, they carry the invariants.
    - Driving the app for manual checks: `npx electron-vite dev --remoteDebuggingPort <fresh port>` + CDP.
      Use a new port every launch, because the Host inherits the old socket. Native dialogs can't be driven
      over CDP.
-8. **Finish.** Commit in small logical commits, push the branch, open a PR **into `main` of
+   - **The Host drives Jobs**, even while the app is open (`driverOf` answers `'host'`, `src/host/driving.ts`), and
+     keeps dispatching when the window is closed. A gate on starting work must hold on the Host's command path, not
+     only the app's.
+   - The `astera` CLI against the dev profile, from a worktree after a build:
+     `ASTERA_PROFILE_DIR=~/.config/astera-dev ELECTRON_RUN_AS_NODE=1 node_modules/electron/dist/electron out/main/cli.js <cmd>`
+   - **Manual checks in the real app**: all tabs share one dev profile (`~/.config/astera-dev`) and its Host, so only
+     one tab runs the app at a time. Test Jobs start real `claude` sessions on the owner's account: keep them to one
+     or two tiny tasks in a scratch repo. Clean up afterwards: `jobs archive --id <job> --kill-sessions`, then remove
+     the test worktrees and scratch repo.
+9. **Reuse Wave 1.** Archived/paused/not-started: `isJobActive` (`lifecycle.ts`) and `jobActive` (`schedule.ts`).
+   Models: `resolveRoleModel` / `resolveWorkerModel` (`roleModels.ts`), `Dispatch.model`. App-wide cap:
+   `maxConcurrentWorkers` (`src/core/settings/maxConcurrentWorkers.ts`), `Job.priority`. Plan name: `Job.title` via
+   `jobNameOf`. Don't add another copy of these rules.
+10. **Finish.** Commit in small logical commits, push the branch, open a PR **into `main` of
    `JanoTheDev/astera-orchestrator`** (`gh pr create --base main`). PR body: what changed, which existing
    code you extended, test output, known gaps. Do not merge it yourself.

@@ -13,13 +13,14 @@ Today `RunDetail.tsx` + `graph.ts`/`graphLayout.ts` render a Run. Don't replace 
 
 Build:
 - Pure `src/core/orchestration/blocked.ts`: for each non-running Task return a reason: waiting on deps
-  (which), global cap / plan cap full (W1-B), plan paused / archived / pendingStart, no account,
-  failure limit hit, gate open (which), awaiting review, rate-limited (roll state). Derived from
-  existing state only.
+  (which), global cap / plan cap full (W1-B `maxConcurrentWorkers`, `Job.priority`), plan paused / archived /
+  pendingStart (`jobActive`, `isJobActive`), no account, failure limit hit, gate open (which), awaiting
+  review, rate-limited (roll state). Derived from existing state only; call the W1 helpers rather than
+  re-deriving their rules (CONTEXT.md rule 9).
 - New `src/renderer/src/components/plan/`: plan overview (progress %, counts of done / running / queued /
   failed / cancelled / awaiting-review clearly distinct), task board with per-task model + account +
-  branch + attempts, reason badges from `blocked.ts`. Mount inside `RunDetail.tsx` (additive). Do NOT
-  edit `App.tsx` (W2-B owns it this wave).
+  branch + attempts, reason badges from `blocked.ts`. Mount inside `RunDetail.tsx` (additive; you are its
+  only editor this wave). Do NOT edit `App.tsx` (W2-B owns it this wave).
 - Tests: each blocked reason, progress counting, status categorization.
 
 ## Done means

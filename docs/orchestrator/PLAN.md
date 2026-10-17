@@ -60,7 +60,7 @@ starting the next wave. Each prompt owns its own files, which keeps conflicts to
 | W1-B | `schedule.ts`, `exec/dispatchLoop.ts` | `types.ts` (`Job.priority`), app-settings type |
 | W1-C | new `src/core/orchestration/lifecycle.ts`, `store.ts` | `types.ts` (`Job.title`, `Job.archivedAt`), `command.ts` (new commands), `JobsView.tsx` (archive filter, rename) |
 | W1-D | `src/main/index.ts` window/quit lifecycle, `src/main/ozone.ts`, `loginPath.ts`, tray | `App.tsx` close handling only |
-| W2-A | `handover.ts`, new `exec/plannerStart.ts`, `resources/skills/orchestration-guide.md`, new `resources/skills/planner-guide.md` | `types.ts` (Task fields), `command.ts` (planner guard), `NewRunModal.tsx` |
+| W2-A | `handover.ts`, new `exec/plannerStart.ts`, `resources/skills/orchestration-guide.md`, new `resources/skills/planner-guide.md` | `types.ts` (Task fields), `command.ts` (planner guard), `NewRunModal.tsx`, `JobsView.tsx` / `lib/jobActions.ts` (approve button) |
 | W2-B | new `src/renderer/src/components/workspace/*` | `App.tsx` (mount + plan selection state) |
 | W2-C | new `src/core/orchestration/blocked.ts`, new `src/renderer/src/components/plan/*` | `RunDetail.tsx` (mount) |
 | W2-D | new `src/core/github/taskLinks.ts`, `src/core/github/issues*.ts` | `types.ts` (`Task.links`), `command.ts` |

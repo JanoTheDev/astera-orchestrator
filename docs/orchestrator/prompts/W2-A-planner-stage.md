@@ -22,7 +22,9 @@ Build:
   objective, repo root, and is told to read the repo's own CLAUDE.md/AGENTS.md and follow them.
 - Plan-only enforcement in code, not just in the prompt: commands from a planner session may create /
   edit Tasks and deps but `worker-start`, `merge`, and anything that dispatches are rejected (find how
-  `command.ts` knows the calling session/role — e.g. orchestration env on spawn — and gate on it). The
+  `command.ts` knows the calling session/role — e.g. orchestration env on spawn — and gate on it). The Host
+  runs these commands too and drives Jobs (CONTEXT.md rule 7), so the gate must hold there; test it through
+  the Host's command path. The
   planner's settings must also deny file-edit tools if the existing per-session `--settings` mechanism
   (`src/core/sessions/statusline.ts`) allows it; if not, explain.
 - Wave 0 note: permission bypass is **off by default** (CONTEXT.md rule 7), so the planner and workers will
@@ -39,8 +41,9 @@ Build:
 - New `resources/skills/planner-guide.md` instructing: analyze, don't implement, produce tasks via the
   commands, maximize safe parallelism, list affected paths so parallel tasks don't collide.
 - Approval: the existing "Run"/start action on a pendingStart Job = approve plan → execution
-  (coordinator/autoDispatch as today). UI: `NewRunModal.tsx` gets "Plan with planner first" option; plan
-  view shows a clear "Approve & execute" button.
+  (coordinator/autoDispatch as today). UI: `NewRunModal.tsx` gets "Plan with planner first" option; the
+  existing start action for a `pendingStart` run (`JobsView.tsx`, `lib/jobActions.ts`) becomes a clear
+  "Approve & execute" button. Do not edit `RunDetail.tsx` (W2-C) or `App.tsx` (W2-B) this wave.
 - Tests: planner cannot dispatch, task validation (missing criteria, unknown dep, cycle), approval
   transition, plan.md written, worker spec contains the new fields.
 

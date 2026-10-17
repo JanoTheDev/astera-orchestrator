@@ -20,8 +20,10 @@ Build:
   sessions; clicking a session focuses its live terminal (reuse existing pane/terminal components — no
   new terminal).
 - Switching plans must not kill/restart processes, lose scrollback, change cwd, or route input to
-  another plan. Find how scrollback is held today (Host registry replay vs xterm instance) and prove it
-  with a test or documented manual check.
+  another plan. Scrollback lives in the mounted xterm (5000 lines); a remounted pane only gets the Host's
+  replay ring (256 000 chars) plus a repaint (LINUX.md "Closing the window"). So switch plans by hiding
+  panes (`display:none`, as tabs do today), never by unmounting them. Prove it with a test or a documented
+  manual check.
 - Each session header shows project, plan, task, model (W1-A Dispatch field), account, cwd, branch,
   status (attention idle/working/waiting).
 - Derive everything from orchestration data so the tree rebuilds after restart.
