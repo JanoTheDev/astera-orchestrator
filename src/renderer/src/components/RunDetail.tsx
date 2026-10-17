@@ -10,6 +10,8 @@ import type {
   TaskStatus
 } from '../../../core/types'
 import type { MessageKey } from '../../../core/i18n'
+// W2-D GitHub links
+import { RunPrChip, TaskLinkChips } from './TaskLinkChips'
 import { accountToDispatchOn } from '../../../core/accounts/dispatchAccount'
 import { providerOf } from '../../../core/providers/meta'
 import { chainOf } from '../../../core/orchestration/graph'
@@ -858,6 +860,8 @@ export function RunDetail({
                       {t('jobs.run.merge')}
                     </button>
                   )}
+                {/* W2-D: the plan's one pull request, beside the local Merge, which stays */}
+                {run?.pr && <RunPrChip pr={run.pr} />}
               </div>
             )}
             <Graph
@@ -985,6 +989,8 @@ export function RunDetail({
                           .join(' → ')}
                       </span>
                     )}
+                    {/* W2-D GitHub links */}
+                    <TaskLinkChips links={selectedTask.links} />
                     <button
                       className="detail-clear"
                       title={t('jobs.detail.clearFilter')}

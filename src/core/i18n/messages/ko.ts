@@ -474,6 +474,11 @@ export const ko = {
   'github.state.open': '열림',
   'github.state.merged': '머지됨',
   'github.state.closed': '닫힘',
+  // W2-D GitHub links (TaskLinkChips)
+  'github.link.issue': '이슈',
+  'github.link.branch': '브랜치',
+  'github.link.runPr': '이 계획의 풀 리퀘스트',
+  'github.link.runPrFailed': '풀 리퀘스트를 열지 못했습니다',
   // ---- notifications ----
   'settings.notifications.hint':
     '데스크톱 알림입니다. 다른 세션을 보고 있거나 다른 화면을 보고 있을 때 알림을 보냅니다.',
