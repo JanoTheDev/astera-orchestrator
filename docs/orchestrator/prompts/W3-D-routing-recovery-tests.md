@@ -18,7 +18,9 @@ Cover (use existing test helpers/fakes in `src/core/orchestration/**/*.test.ts`,
 - Global cap + per-plan cap under churn (W1-B), pause isolation, archive isolation (W1-C).
 - Failure / retry / circuit-break / cancel: dependents never launch; cancelled vs failed vs
   awaiting-review distinct.
-- Planner cannot dispatch (W2-A).
+- Planner cannot dispatch (W2-A): already covered by `planner.test.ts` and `src/host/orchPlanner.test.ts`. Read
+  them and add only what is missing (e.g. the planner stays gated after approval, a second `jobs plan` on the
+  same Job, an agent session approving through `jobs run`). Don't duplicate.
 - A Linux e2e smoke if feasible with existing e2e setup (`*.linux.e2e.test.ts`): spawn Host, create
   plan with 3 tasks (A, B parallel; C depends on both) using a fake CLI script instead of real claude,
   assert ordering and completion.

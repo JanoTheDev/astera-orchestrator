@@ -1203,6 +1203,14 @@ and writes the Job's Tasks with `task-create`, each with `--prompt`, `--criteria
 - A planned Task's prompt, acceptance criteria and affected paths are added to its worker's spec file.
 - The plan is kept readable at `plans/<jobId>/plan.md` in the profile, beside `orchestration.json`.
 
+### 12.2.2 GitHub links (W2-D): `task-link-issue` and `run-open-pr`
+
+- `astera task-link-issue --id <taskId>` with exactly one of `--number <n>` (link that issue), `--find` (link an
+  existing one, else 404) or `--create`. `--create` links an existing issue rather than open a duplicate, and is
+  refused (409) when the repo's CLAUDE.md describes its own issue workflow: follow that workflow instead.
+- `astera run-open-pr --run <runId>` opens one pull request for a completed Run (the Host does this on
+  its own when it saw the Run complete). It never merges. A recorded failure is retried only with `--force`.
+
 ### 12.3 Another session: `sessions list`, `sessions read`, `sessions send`
 
 ```bash

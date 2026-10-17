@@ -95,6 +95,16 @@ Many code comments are Korean — read them, they carry the invariants.
    Models: `resolveRoleModel` / `resolveWorkerModel` (`roleModels.ts`), `Dispatch.model`. App-wide cap:
    `maxConcurrentWorkers` (`src/core/settings/maxConcurrentWorkers.ts`), `Job.priority`. Plan name: `Job.title` via
    `jobNameOf`. Don't add another copy of these rules.
-10. **Finish.** Commit in small logical commits, push the branch, open a PR **into `main` of
+10. **Reuse Wave 2.** Planner: `jobs plan --id <job>` starts it (`exec/plannerStart.ts`); its sessions are
+   `Job.plannerSessionIds`. `plannerRefusal` (`planner.ts`) runs first in `handleCommand` and is an **allowlist**:
+   a new command is refused to planners until added to `PLANNER_COMMANDS`. Plan Tasks carry `prompt`,
+   `acceptanceCriteria`, `affectedPaths`, `modelReason`; `validatePlan` checks them. **Approving a plan is
+   `run-start --run <jobId>` from the app or the person's shell; it is refused from any agent session**, and answers
+   `{ error, problems[] }` while the plan does not hold. A plan awaiting approval is
+   `job.pendingStart && job.plannerSessionIds !== undefined`. Why a Task is not running: `taskBoardsOf`
+   (`blocked.ts`, W2-C), carried on `JobTask.board`. Project → Plan → sessions tree: `workspaceTree.ts`,
+   `useWorkspaceData`, `useAttention` (`components/workspace/`, W2-B). GitHub: `Task.links`, `JobRun.pr`,
+   `task-link-issue`, `run-open-pr` (`src/core/github/taskLinks.ts`, W2-D). Use these; don't re-derive them.
+11. **Finish.** Commit in small logical commits, push the branch, open a PR **into `main` of
    `JanoTheDev/astera-orchestrator`** (`gh pr create --base main`). PR body: what changed, which existing
    code you extended, test output, known gaps. Do not merge it yourself.

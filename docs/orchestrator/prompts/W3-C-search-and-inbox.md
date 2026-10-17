@@ -17,6 +17,13 @@ Build:
   context; selecting focuses the session in its plan workspace (reuse W2-B navigation).
 - "Needs my input" list: sessions waiting on permission / question, open Gates, plans awaiting approval —
   across all projects; badge count in sidebar.
+- Reuse W2 (CONTEXT rule 10): build on `workspaceTree.ts` / `useWorkspaceData` / `useAttention` and W2-B's plan
+  navigation; the waiting reason per Task is `JobTask.board` (`taskBoardsOf`); planner sessions are
+  `Job.plannerSessionIds`. "Plans awaiting approval" = `job.pendingStart && job.plannerSessionIds !== undefined`.
+- W2-B's known gap: no read returns every project's Dispatches, so other projects' sessions refresh poorly. Add
+  the read-only `dispatches-list [--run]` case in `command.ts` (same shape as `tasks-list`, with `cliUsage` /
+  `docs/cli.md` entries; add it to `PLANNER_COMMANDS` only if a planner needs it) and switch `useWorkspaceData`
+  to it.
 - Tests: index building, search ranking basics, needs-input classification.
 
 ## Done means

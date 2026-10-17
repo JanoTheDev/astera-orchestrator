@@ -29,6 +29,14 @@ Build:
 - Parser: the `coordinator` role model (W1-A) turns free text into intent JSON via a short one-shot CLI
   call or existing chat adapter — never the planner model. Deterministic fast-path for simple phrasings
   before calling a model.
+- Plan and approve (W2-A, CONTEXT rule 10): "plan X" = `run-create --auto --coordinator-account <acc>` (the
+  "+ New job" form's call) then `jobs-plan --id <jobId>`. "Approve/start" = `run-start --run <jobId>` sent through
+  the app's own door (`localDoor`), never from an agent session (refused there). Approval spends quota: it needs
+  the same explicit confirm click as a destructive intent. Show the refusal's `problems[]` when the plan does not
+  hold.
+- Approve button: the Jobs card's "Approve & execute" reuses `onRestartCoordinator` today (W2-A, App.tsx was
+  off-limits). Give `JobsView` its own `onApprove` prop wired in `App.tsx`, through one `approvePlan` in
+  `lib/jobActions.ts` that your approve intent also calls.
 - Executors call existing commands (`command.ts`, `sessions-send` via SessionDriver) — no new routing.
 - UI: command bar (hotkey, via existing keybindings system) showing parsed intent, resolution, and
   confirm/clarify. `SpeechProvider` interface + push-to-talk wiring that feeds the same command bar.

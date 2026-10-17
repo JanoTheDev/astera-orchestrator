@@ -65,8 +65,8 @@ starting the next wave. Each prompt owns its own files, which keeps conflicts to
 | W2-C | new `src/core/orchestration/blocked.ts`, new `src/renderer/src/components/plan/*` | `RunDetail.tsx` (mount) |
 | W2-D | new `src/core/github/taskLinks.ts`, `src/core/github/issues*.ts` | `types.ts` (`Task.links`), `command.ts` |
 | W3-A | new `src/core/orchestration/activity.ts`, new `components/activity/*` | notifier wiring, workspace view mount |
-| W3-B | new `src/core/intents/*`, new `components/command/*` | `App.tsx` (hotkey + mount), keybindings |
-| W3-C | new `src/core/orchestration/sessionIndex.ts`, new `components/search/*` | workspace sidebar mount |
+| W3-B | new `src/core/intents/*`, new `components/command/*` | `App.tsx` (hotkey + mount, JobsView `onApprove`), keybindings, `lib/jobActions.ts`, `JobsView.tsx` (approve prop) |
+| W3-C | new `src/core/orchestration/sessionIndex.ts`, new `components/search/*` | workspace sidebar mount, `command.ts` (`dispatches-list`) |
 | W3-D | test files only (`*.test.ts`, e2e) + minimal bug fixes it finds, each fix described | — |
 
 ## Explicit non-goals / limits

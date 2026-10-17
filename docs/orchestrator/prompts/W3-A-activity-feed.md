@@ -14,6 +14,10 @@ Build:
   transitions (task status changes, dispatch start/exit, gate open/resolve, roll events, PR/issue link
   changes) with project/plan/task/session/model/account on each event. Persist bounded (reuse store
   patterns / TTL), survive restart.
+- W2 sources (CONTEXT rule 10): link and PR changes are `Task.links` / `JobRun.pr` (W2-D); blocked reasons come
+  from `taskBoardsOf` / `JobTask.board` (W2-C); "plan awaiting approval" is
+  `job.pendingStart && job.plannerSessionIds !== undefined` (W2-A). The plan workspace to mount in is W2-B's
+  `components/workspace/` (and the plan board in `components/plan/`).
 - Summaries: pure `summarize(events, since)` → completed / failed / cancelled / awaiting review /
   blocked-with-reasons (reuse `blocked.ts`). Powers "what finished in the last 15 minutes".
 - Notifications: route important events (task failed, plan done, gate needs me, worker waiting for input)
