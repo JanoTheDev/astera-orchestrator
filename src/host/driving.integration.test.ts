@@ -50,6 +50,8 @@ interface RigOpts {
   tasks: number
   /** Each Task after the first depends on the one before it. */
   chained?: boolean
+  /** W3-D: each Task's deps by index (`[[], [], [0, 1]]` is A ∥ B → C). Overrides `chained`. */
+  deps?: number[][]
   concurrency?: number
   /** The run configurations every Task validates with. */
   validate?: string[]
@@ -373,17 +375,19 @@ async function rig(o: RigOpts) {
   })
   const jobId = job.id as string
   let previous: string | null = null
+  const made: string[] = []
   for (let i = 0; i < o.tasks; i++) {
     const task = await ok('tasks-add', {
       job: jobId,
       title: `task ${i + 1}`,
       spec: `do part ${i + 1}`,
       account: accounts[0].id,
-      ...(o.chained && previous ? { deps: [previous] } : {}),
+      ...(o.deps ? (o.deps[i]?.length ? { deps: o.deps[i].map((d) => made[d]) } : {}) : o.chained && previous ? { deps: [previous] } : {}),
       ...(o.validate ? { validate: o.validate.join(',') } : {}),
       ...(o.review ? { review: true } : {})
     })
     previous = task.id as string
+    made.push(previous)
   }
 
   const state = (): OrchState => orch.state()
@@ -503,6 +507,28 @@ describe('the Host drives with no app (§9.3)', { timeout: 40_000 }, () => {
     }
     await until(() => expect(h.runOutcome()).toBe('completed'))
     expect(h.spawns()).toHaveLength(2)
+  })
+
+  // W3-D smoke (SPEC §3): A and B run in parallel, C starts only once both completed, and nothing starts twice.
+  it('drives A ∥ B → C to completed with no app: C waits for both, and each Task starts once', async () => {
+    const h = await rig({ tasks: 3, deps: [[], [], [0, 1]], concurrency: 3 })
+    await h.cli('jobs-run', { id: h.jobId })
+    await until(() => expect(h.spawns()).toHaveLength(2))
+    await h.settle()
+    const titleOf = (taskId: string): string | undefined => h.orch.state().tasks.find((t) => t.id === taskId)?.title
+    const [a, b] = h.spawns()
+    expect([a, b].map((x) => titleOf(x.taskId)).sort()).toEqual(['task 1', 'task 2'])
+    await h.workerReports(a, 'succeeded')
+    await h.settle()
+    expect(h.spawns()).toHaveLength(2)
+    await h.workerReports(b, 'succeeded')
+    await until(() => expect(h.spawns()).toHaveLength(3))
+    expect(titleOf(h.spawns()[2].taskId)).toBe('task 3')
+    await h.workerReports(h.spawns()[2], 'succeeded')
+    await until(() => expect(h.runOutcome()).toBe('completed'))
+    await h.settle()
+    expect(h.spawns()).toHaveLength(3)
+    expect(new Set(h.spawns().map((x) => x.taskId)).size).toBe(3)
   })
 
   // Review Focus 2.

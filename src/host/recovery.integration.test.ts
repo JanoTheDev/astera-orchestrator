@@ -71,7 +71,13 @@ async function profile(settings: Record<string, unknown>) {
 }
 
 /** One Host's orchestration over the profile. `startedAt` keeps each Host's journal stamps apart. */
-async function boot(p: { profileDir: string; home: string }, startedAt: string, server: { app: boolean; keeps: Set<string> }) {
+async function boot(
+  p: { profileDir: string; home: string },
+  startedAt: string,
+  server: { app: boolean; keeps: Set<string> },
+  /** W3-D: worker sessions still alive when this Host loads, as a reattached session is (their ptys open first). */
+  alive: Array<{ sessionId: string; cwd: string }> = []
+) {
   const logs: string[] = []
   const log = (m: string): void => {
     logs.push(m)
@@ -110,6 +116,10 @@ async function boot(p: { profileDir: string; home: string }, startedAt: string, 
     },
     log
   })
+  for (const x of alive) {
+    const opened = registry.open({ id: `pty_${x.sessionId}`, file: 'agent', args: [], opts: { cwd: x.cwd, cols: 80, rows: 24, env: {} }, meta: { kind: 'session', id: x.sessionId, restore: {} } })
+    if (!opened.ok) throw new Error(opened.error)
+  }
   const procs = new ProcRegistry({ spawn: () => ({ pid: 1, onData() {}, onExit() {}, write() {}, kill() {} }), log })
   const srv = {
     hasApp: () => server.app,
@@ -459,5 +469,43 @@ describe('Host-owned recovery after a restart, with no app (remote runtime desig
     await second.cli('jobs-list', {})
     await until(() => expect(second.state().tasks.find((t) => t.id === taskId)?.status).toBe('blocked'))
     expect(second.spawns()).toHaveLength(0)
+  })
+
+  // W3-D (SPEC §10 "recover after restart without duplicate workers"): of two workers, the one whose session is
+  // still there is reattached, never started again; only the lost one is recovered, once, and both finish.
+  it('a live worker is kept and a lost one recovered once: no duplicate worker, and the run completes', async () => {
+    const p = await profile({ jobContinuityEnabled: true, resumeStrategy: 'smart' })
+    const server = { app: false, keeps: new Set<string>() }
+    const first = await boot(p, '2026-10-08T01:00:00.000Z', server)
+    const job = await first.ok('jobs-create', { objective: 'the rig', cwd: p.repo, concurrency: 2 })
+    for (const n of [1, 2]) await first.ok('tasks-add', { job: job.id, title: `task ${n}`, spec: 'do it', account: p.accountId })
+    await first.ok('jobs-run', { id: job.id })
+    await until(() => expect(first.spawns()).toHaveLength(2))
+    await first.settle()
+    const [kept, lost] = first.spawns()
+    first.kill()
+
+    // A stamp whose last six characters differ from the first Host's: the rig names its sessions by them, and the
+    // surviving session must not share an id with the one recovery starts.
+    const second = await boot(p, '2026-10-08T02:00:01.000Z', server, [{ sessionId: kept.sessionId, cwd: kept.cwd }])
+    await second.cli('jobs-list', {})
+    await until(() => expect(second.spawns()).toHaveLength(1))
+    await second.settle()
+    // one start in all, for the lost Task; the kept one's Dispatch is still open on its own session
+    expect(second.spawns().map((x) => x.taskId)).toEqual([lost.taskId])
+    const s = second.state()
+    expect(s.dispatches.find((d) => d.id === kept.dispatchId)).toMatchObject({ sessionId: kept.sessionId })
+    expect(s.dispatches.find((d) => d.id === kept.dispatchId)?.endedAt).toBeUndefined()
+    expect(s.dispatches.find((d) => d.id === lost.dispatchId)?.endedAt).toBeDefined()
+    const open = s.dispatches.filter((d) => !d.endedAt)
+    expect(open.map((d) => d.taskId).sort()).toEqual([kept.taskId, lost.taskId].sort())
+
+    // the kept worker reports on its own session, the recovered one on its new one
+    await second.workerReports(kept, 'succeeded')
+    await second.workerReports(second.spawns()[0], 'succeeded')
+    const runId = s.tasks.find((t) => t.id === kept.taskId)!.runId!
+    await until(() => expect(second.state().tasks.filter((t) => t.runId === runId).every((t) => t.status === 'completed')).toBe(true))
+    await second.settle()
+    expect(second.spawns()).toHaveLength(1)
   })
 })
