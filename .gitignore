@@ -27,6 +27,8 @@ docs/*
 !docs/cli.md
 # Published deliberately: `astera mcp serve` is a public interface, and the README links to it.
 !docs/mcp.md
+# Published deliberately: the fork's orchestrator plan, spec, audit and wave prompts.
+!docs/orchestrator/
 # Published deliberately: @astera-app/client is a public interface, and cli.md, mcp.md and the package README link to it.
 !docs/sdk.md
 # Published deliberately: the plugin author's guide, which cli.md, sdk.md, the README and the plugin SDK's README link to.
