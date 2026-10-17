@@ -6,18 +6,106 @@
 
 **Guide: [astera.run](https://astera.run)**
 
-[![CI](https://github.com/parsingk/Astera/actions/workflows/ci.yml/badge.svg)](https://github.com/parsingk/Astera/actions/workflows/ci.yml)
-[![Latest release](https://img.shields.io/github/v/release/parsingk/Astera?logo=github)](https://github.com/parsingk/Astera/releases/latest)
 [![License](https://img.shields.io/github/license/parsingk/Astera?color=blue)](LICENSE)
-![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-555)
+![Platform](https://img.shields.io/badge/platform-Linux%20first-555)
 
-[Guide](https://astera.run) · [Download](#install) · [What it does](#what-it-does) · [Jobs](#jobs) · [Documentation](#documentation) · [Report a bug](https://github.com/parsingk/Astera/issues/new)
+[Status](#where-the-fork-stands) · [What's left](#whats-left) · [Run it](#run-it-locally) · [What the fork adds](#what-this-fork-adds) · [Upstream features](#what-it-does) · [Documentation](#documentation)
 
-**English** · [한국어](README.ko.md) · [日本語](README.ja.md) · [Español](README.es.md)
+**English** · [한국어](README.ko.md) · [日本語](README.ja.md) · [Español](README.es.md) (the translations are upstream's and have no fork section)
 
 <img src="assets/hero.jpg" width="960" alt="Astera running four sessions in one window as a 2x2 grid — three Claude Code and one Codex, on two Claude accounts and a Codex one — with the accounts and the project history in the sidebar" />
 
 </div>
+
+> **This is a private fork:** [JanoTheDev/astera-orchestrator](https://github.com/JanoTheDev/astera-orchestrator),
+> built on [parsingk/Astera](https://github.com/parsingk/Astera). It turns Astera's Jobs into an orchestrator.
+> You talk to a cheap coordinator. A premium planner splits the work into tasks with prompts. You approve the
+> plan, and workers run the tasks in parallel, in dependency order, on the right model. Each plan ends as one PR.
+> The requirements are in [SPEC.md](docs/orchestrator/SPEC.md), the plan is in [PLAN.md](docs/orchestrator/PLAN.md),
+> and Linux facts are in [LINUX.md](docs/orchestrator/LINUX.md).
+
+## Where the fork stands
+
+Status on 2026-10-17. The work runs in waves of parallel PRs. Each wave is merged with
+[MERGE.md](docs/orchestrator/prompts/MERGE.md) before the next wave starts.
+
+| Wave | Item | PR | State |
+|---|---|---|---|
+| 0 | Linux baseline + security hardening | #25 | Merged |
+| 1 | W1-A Per-role models (coordinator, planner, worker, reviewer) | #26 | Merged |
+| 1 | W1-B App-wide worker cap + Job priority | #29 | Merged |
+| 1 | W1-C Plan lifecycle: title, rename, archive, unarchive | #28 | Merged |
+| 1 | W1-D Linux: orchestration survives closing the window | #27 | Merged |
+| 2 | W2-A Plan-only planner stage, Approve & execute | #33 | Merged |
+| 2 | W2-D GitHub task links (issue, branch, commits, PR), one PR per plan | #30 | Open. Merge into `main` in progress locally |
+| 2 | W2-C Plan overview + task board with why-is-it-waiting reasons | #31 | Open |
+| 2 | W2-B Workspace sidebar (Project → Plan → sessions) | #32 | Open |
+| 3 | W3-A Activity feed, summaries, throttled notifications | — | Not started |
+| 3 | W3-B Command bar + push-to-talk voice (local whisper.cpp) | — | Not started |
+| 3 | W3-C Cross-project search + "needs my input" inbox | — | Not started |
+| 3 | W3-D Routing and recovery tests | — | Not started |
+| 4 | Final Linux verification | — | Not started |
+
+## What's left
+
+1. **Finish Wave 2.** Merge #30, #31 and #32 into `main`, run the typecheck and the full suite, and push.
+2. **Wave 3.** Run the four W3 prompts in [docs/orchestrator/prompts/](docs/orchestrator/prompts/) in parallel,
+   then merge them.
+3. **Wave 4.** Verify the whole flow by hand on Linux, and update [LINUX.md](docs/orchestrator/LINUX.md).
+4. **Later.**
+   - Codex accounts. For now only Claude accounts are set up, so review falls back to Claude on a stronger model.
+   - Moving the per-session command scheduler into the Host, so it keeps running with the window closed.
+
+Known Linux issues are listed in [LINUX.md](docs/orchestrator/LINUX.md#known-issues--gaps-not-fixed-in-wave-0).
+
+## Run it locally
+
+You need Node ≥ 22.13, `python3`, `make` and `g++`, because `node-pty` is compiled on install. You also need the
+`claude` CLI on your `PATH`, and `gh` for PRs.
+
+```bash
+git pull origin main
+npm ci                         # also builds node-pty against Electron
+npm run dev                    # the dev app; its profile is ~/.config/astera-dev
+```
+
+Checks before a PR:
+
+```bash
+npm run typecheck
+npx vitest run --maxWorkers=2  # never run this at the same time as npm run dev or a build: it crashed the laptop
+```
+
+Things to know before you test:
+
+- **Agents stop at permission prompts by default.** Job workers and the coordinator wait for you unless you turn
+  on **Settings → Run agents without permission checks**.
+- **Closing the window quits the app on Linux, but the Host keeps going.** Jobs, workers and account rolling
+  keep running. Choose "End the kept sessions too" in the close dialog to stop them.
+- **Auto-update is off.** To take upstream changes, run `git fetch upstream && git merge upstream/main`, then
+  rebuild.
+
+## What this fork adds
+
+What's merged into `main` so far:
+
+- **Per-role models.** The coordinator, planner, workers and reviewers each get their own model. They are set
+  in **Settings → Orchestration models**, and a Job can override them. Defaults: coordinator haiku, planner and
+  reviewer opus. Workers get haiku, sonnet or opus by the task's difficulty.
+- **Planner stage.** `jobs plan` starts a planner session that can only plan. It writes each Task's prompt,
+  acceptance criteria, affected paths, difficulty and model. In the Jobs view, **Approve & execute** starts the
+  workers.
+- **Global scheduling.** An app-wide `maxConcurrentWorkers` cap across all plans. `Job.priority` decides who
+  gets a free slot first.
+- **Plan lifecycle.** `astera jobs rename`, `jobs archive [--kill-sessions]` and `jobs unarchive`, also inline in
+  the Jobs view. An archived plan starts no new work.
+- **Linux.** Orchestration keeps running in the Host after the window closes. A reattached pane repaints.
+- **Security defaults.** Auto-update and the remote policy are off unless built with `ASTERA_AUTO_UPDATE=1`.
+  Agents never skip permission checks unless you turn that on. Dependencies are bumped (electron 41.10.7).
+
+---
+
+Everything below is upstream Astera's README, and it still applies to this fork.
 
 ## What it does
 
@@ -322,6 +410,9 @@ running end with it. See [the `astera` command](docs/cli.md) for everything else
 
 ## Install
 
+> **This fork publishes no releases.** Build it from source ([Run it locally](#run-it-locally)). The
+> text below is about upstream's releases.
+
 Download the latest release from
 **[Releases](https://github.com/parsingk/Astera/releases/latest)** and run it — `astera-<version>-setup.exe`
 on Windows, `astera-<version>-universal.dmg` on macOS, and `astera-<version>-x86_64.AppImage` or
@@ -372,7 +463,7 @@ You will also need:
 
 ## Build from source
 
-Building needs **Node.js 22.12+**, and a C++ toolchain for `node-pty`'s native rebuild (via
+Building needs **Node.js 22.13+**, and a C++ toolchain for `node-pty`'s native rebuild (via
 `electron-builder install-app-deps`): the **Visual Studio Build Tools (C++)** on Windows, the
 **Xcode Command Line Tools** (`xcode-select --install`) on macOS, or **build-essential** and
 **python3** on Linux, where node-pty ships no prebuild and is always compiled.
@@ -399,6 +490,8 @@ and a full bundle build.
 
 ## Documentation
 
+- [Orchestrator plan](docs/orchestrator/PLAN.md), [spec](docs/orchestrator/SPEC.md), [context](docs/orchestrator/CONTEXT.md), [security audit](docs/orchestrator/SECURITY-AUDIT.md) and [wave prompts](docs/orchestrator/prompts/README.md) — this fork's work
+- [Linux](docs/orchestrator/LINUX.md) — prerequisites, commands, what is verified, known issues
 - [Everyday usage guide](docs/usage-guide.md) — sessions, accounts, scheduling, files, previews, recovery, and settings
 - [How It Works](docs/how-it-works.md) — record a task, read its explanation, and follow the implementation
 - [Job lifecycle](docs/jobs.md) — tasks, worktrees, completion, merging, and scheduled runs
