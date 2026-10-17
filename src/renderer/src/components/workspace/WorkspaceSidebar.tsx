@@ -34,7 +34,8 @@ export function WorkspaceSidebar({
   selectedPlanId: string | null
   onSelectPlan: (jobId: string | null) => void
   canOpenSession: (sessionId: string) => boolean
-  onOpenSession: (sessionId: string) => void
+  /** Focuses the session in its plan's workspace. */
+  onOpenSession: (sessionId: string, jobId: string) => void
 }): React.JSX.Element {
   const [open, setOpen] = useState(true)
   // Collapsed rather than expanded, so a plan made while the app is open shows up unfolded
@@ -48,7 +49,7 @@ export function WorkspaceSidebar({
   const infoOf = new Map(sessions.map((s) => [s.id, s]))
   const attention = useAttention(tree.flatMap((p) => p.plans.flatMap((plan) => planSessions(plan).map((s) => s.sessionId))))
 
-  const sessionRow = (s: WorkspaceSession): React.JSX.Element => {
+  const sessionRow = (plan: WorkspacePlan) => (s: WorkspaceSession): React.JSX.Element => {
     const status = sessionStatusOf(infoOf.get(s.sessionId), attention[s.sessionId])
     const openable = canOpenSession(s.sessionId)
     return (
@@ -57,7 +58,7 @@ export function WorkspaceSidebar({
           className="ws-row ws-session"
           disabled={!openable}
           title={[s.taskTitle, s.model, s.cwd].filter(Boolean).join(' · ')}
-          onClick={() => onOpenSession(s.sessionId)}
+          onClick={() => onOpenSession(s.sessionId, plan.jobId)}
         >
           <span className={`ws-dot ws-${status.replace(' ', '-')}`} aria-label={status} />
           <span className="ws-name">{s.label}</span>
@@ -118,7 +119,7 @@ export function WorkspaceSidebar({
                           {GROUPS.filter(([k]) => plan[k].length > 0).map(([k, title]) => (
                             <li key={k}>
                               <div className="ws-group">{title}</div>
-                              <ul>{plan[k].map(sessionRow)}</ul>
+                              <ul>{plan[k].map(sessionRow(plan))}</ul>
                             </li>
                           ))}
                         </ul>

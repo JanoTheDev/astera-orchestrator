@@ -3435,6 +3435,13 @@ export default function App(): React.JSX.Element {
     [layout, workspacePlan !== undefined, workspaceKey]
   )
   const workspaceActive = active ? workspaceSessions.find((x) => x.sessionId === active.id) : undefined
+  // A session of another plan focused from elsewhere (a notification, the Jobs view) leaves the workspace: the
+  // scoped view would hide the very tab the person just asked for.
+  useEffect(() => {
+    if (workspacePlan && activeSessionId && !workspaceSessions.some((x) => x.sessionId === activeSessionId))
+      setWorkspacePlanId(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a focus change decides this, not a refresh
+  }, [activeSessionId])
   const canOpenSessionTab = (sessionId: string): boolean => !!layout && !!groupOfTab(layout, sessionTab(sessionId))
   const openWorkspacePlan = (jobId: string | null): void => {
     setWorkspacePlanId(jobId)
@@ -4616,7 +4623,10 @@ export default function App(): React.JSX.Element {
                   selectedPlanId={workspacePlanId}
                   onSelectPlan={openWorkspacePlan}
                   canOpenSession={canOpenSessionTab}
-                  onOpenSession={(sessionId) => selectWorkbenchTab(sessionTab(sessionId))}
+                  onOpenSession={(sessionId, jobId) => {
+                    setWorkspacePlanId(jobId)
+                    selectWorkbenchTab(sessionTab(sessionId))
+                  }}
                 />
                 <WorktreePanel
                   onStartSession={(p) => {
