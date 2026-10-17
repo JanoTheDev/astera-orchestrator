@@ -408,6 +408,9 @@ export function snapshotFor(
       ...(run !== undefined ? { fireOrdinal: run.ordinal } : {}),
       // Where the Job came from (plugin Phase 4 J18), on every row of the Job: the chip opens the ticket
       ...(job.source ? { source: job.source } : {}),
+      // W1-C: the plan's name and archive mark, on every row of the Job, as its source is
+      ...(job.title !== undefined ? { title: job.title } : {}),
+      ...(job.archivedAt !== undefined ? { archivedAt: job.archivedAt } : {}),
       ...(run === undefined && job.schedule && nextFireOf(job.id) !== null
         ? { nextFireAt: nextFireOf(job.id) as number }
         : {}),

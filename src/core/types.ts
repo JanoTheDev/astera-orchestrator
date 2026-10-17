@@ -623,6 +623,9 @@ export interface JobRow {
   id: string
   /** The Job's objective, its first 500 characters (OBJECTIVE_PREVIEW_MAX, 5d): the detail and `jobs get` read it whole */
   objective: string
+  // W1-C plan lifecycle: the Job's own fields, on every row of the Job (lifecycle.ts)
+  title?: string
+  archivedAt?: string
   /** 관리자가 있어야 하는데 없다 — 코디네이터 계정이 지정돼 있지만 붙어 있는 세션이 없다.
    *  **사이드바가 다시 띄우는 버튼을 내보이는 근거다.** 계정 지정이 없는 Run(옛 Run·CLI Run)은
    *  애초에 관리자를 기대하지 않으므로 거짓이다.

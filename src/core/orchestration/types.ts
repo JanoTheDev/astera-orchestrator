@@ -202,6 +202,13 @@ export interface Job {
   /** Where the Job came from: a job source and its item (plugin Phase 4 J15). Set only by the Host, when it makes the
    *  Job from that item (`jobs-create-from-source`); no caller of `jobs-create` can give it. */
   source?: JobSourceRef
+  // W1-C plan lifecycle (lifecycle.ts)
+  /** What a person named this plan (`jobs rename`). Absent: it is named by its source's title or its objective
+   *  (jobNameOf). One line, at most JOB_TITLE_MAX characters. */
+  title?: string
+  /** When the plan was archived (`jobs archive`). **Present: it starts no new work** (isJobActive) and default lists
+   *  hide it; its running sessions are left alone unless the archive asked to close them. */
+  archivedAt?: string
 }
 
 /** A job source's item a Job was made from: the source (a plugin's id, or `github`), the item's id there, how a person

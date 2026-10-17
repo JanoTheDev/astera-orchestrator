@@ -38,6 +38,7 @@ import { reapableChildRuns } from '../reap'
 import { lostAttemptOf } from '../../recovery/candidates'
 import { slotsToFill, tasksMissingAccounts, type Slot } from '../schedule'
 import { coordinatorStarting, jobOf, type OrchState } from '../state'
+import { isJobActive } from '../lifecycle'
 import { DEFAULT_CONCURRENCY, FAILURE_LIMIT, type JobRun } from '../types'
 import { tasksOwnedBy } from '../running'
 import { outcomeOf } from '../view'
@@ -953,6 +954,8 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       if (run.coordinatorSessionId !== undefined || coordinatorStarting(run, c.nowMs()))
         return refuse(`run ${run.id} is driven by its coordinator, which places its tasks`)
       if (run.paused === true || job?.paused === true) return refuse(`run ${run.id} is paused`)
+      // W1-C: archived meanwhile (lifecycle.ts)
+      if (job !== undefined && !isJobActive(job)) return refuse(`job ${job.id} is archived`)
       if (job?.pendingStart === true || outcomeOf(s, run.id) !== 'running')
         return refuse(`run ${run.id} is not running`)
       const limit = job?.concurrency ?? DEFAULT_CONCURRENCY

@@ -1,5 +1,6 @@
 import { DEFAULT_CONCURRENCY, FAILURE_LIMIT, type JobRun } from './types'
 import { jobOf, placedByApp, type OrchState } from './state'
+import { isJobActive } from './lifecycle'
 
 /** 지금 워커를 띄워야 할 자리 하나.
  *
@@ -36,6 +37,8 @@ export function appDriven(s: OrchState, run: JobRun): boolean {
   if (!job || !placedByApp(job, run)) return false
   if (job.pendingStart) return false
   if (job.paused) return false
+  // W1-C: an archived plan places nothing new; what it already runs is left alone (lifecycle.ts)
+  if (!isJobActive(job)) return false
   // **세워 둔 회차도 배치하지 않는다.** 일시 중지가 도는 워커를 닫아도, 그 자리에 그 회차의 다음
   // ready Task 가 곧바로 뜨면 "일시 중지" 가 "지금 도는 Task 하나만 멈춤" 이 된다.
   if (run.paused) return false

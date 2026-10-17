@@ -7,6 +7,7 @@
 // 그것이 "놓친 발화는 버린다"는 규칙의 구현이고, 세션 스케줄러가 같은 이유로 같은 선택을 했다.
 import { nextFireAt } from '../scheduler/rule'
 import type { OrchState } from './state'
+import { isJobActive } from './lifecycle'
 
 export interface Fires {
   /** 지금 한 회차를 만들 템플릿 Run 의 id 들 */
@@ -37,6 +38,8 @@ export function firesDue(
     // **세워 둔 예약도 같다 — 발화도 무장도 하지 않는다.** 무장을 놓으므로 재개하면 그 순간부터 다시
     // 잡히고, 첫 회차는 그 뒤의 첫 예약 시각이다. 세워 둔 동안 지나간 시각은 따라잡지 않는다.
     if (run.paused) continue
+    // W1-C: an archived schedule neither fires nor arms, like a held one (lifecycle.ts)
+    if (!isJobActive(run)) continue
     const next = (): void => {
       const at = nextFireAt(rule, nowMs)
       // isValidRule 이 거절할 규칙이 파일에서 들어온 경우 — 무장하지 않으면 영원히 발화하지

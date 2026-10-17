@@ -3,6 +3,8 @@
 // and for a Job made before 4d, whose source has no title. The app's cards and detail, its delete question, the CLI's
 // `jobs list --human`, How It Works and the notifications all name a Job by this. The objective stays the Job's text,
 // and what an agent is given.
+// A title a person gave the plan (`jobs rename`, W1-C) comes first.
 import type { JobSourceRef } from './types'
 
-export const jobNameOf = (job: { objective: string; source?: JobSourceRef }): string => job.source?.title ?? job.objective
+export const jobNameOf = (job: { objective: string; source?: JobSourceRef; title?: string }): string =>
+  job.title ?? job.source?.title ?? job.objective
