@@ -56,6 +56,8 @@ import { dropKeys } from './lib/dropKeys'
 import { forgetDrafts } from './components/conversation/drafts'
 import { localDoor, remoteDoor, type OrchDoor } from './lib/orchDoor'
 import { deleteRun, pauseRun, restartCoordinator as restartRunCoordinator, resumeRun, type ActionUi } from './lib/jobActions'
+// W1-C plan lifecycle
+import { archiveJob, renameJob, unarchiveJob } from './lib/jobActions'
 import { ResumeStrategySettings } from './components/ResumeStrategySettings'
 import { GithubSettings } from './components/GithubSettings'
 import { CreativeHubSettings } from './components/CreativeHubSettings'
@@ -4531,6 +4533,16 @@ export default function App(): React.JSX.Element {
                 onRestartCoordinator={restartCoordinator}
                 onDeleteRun={(runId) => {
                   if (currentProject) void deleteRun(localDoor(window.api, currentProject), orchSnapshot, runId, actionUi)
+                }}
+                // W1-C plan lifecycle: this computer's Jobs only (a paired Runtime's controller gate does not list them)
+                onRenameJob={(jobId, title) => {
+                  if (currentProject) void renameJob(localDoor(window.api, currentProject), jobId, title, actionUi)
+                }}
+                onArchiveJob={(jobId) => {
+                  if (currentProject) void archiveJob(localDoor(window.api, currentProject), orchSnapshot, jobId, actionUi)
+                }}
+                onUnarchiveJob={(jobId) => {
+                  if (currentProject) void unarchiveJob(localDoor(window.api, currentProject), jobId, actionUi)
                 }}
               />
               )}

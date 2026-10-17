@@ -118,3 +118,33 @@ export async function deleteRun(door: OrchDoor, snapshot: OrchSnapshot | null, r
     if (Array.isArray(kept) && kept.length > 0) ui.error(ui.t('jobs.run.deleteKeptWorktrees', { count: kept.length }))
   }
 }
+
+// W1-C plan lifecycle (core/orchestration/lifecycle.ts): rename, archive, unarchive. A row's id is its Job's.
+
+/** Names a Job; an empty title names it by its objective again. Asks nothing: a name loses nothing. */
+export async function renameJob(door: OrchDoor, jobId: string, title: string, ui: ActionUi): Promise<void> {
+  const reply = await send(door, 'jobs-rename', { id: jobId, title }, ui, ui.t('jobs.lifecycle.renameFailed'))
+  if (reply && reply.status >= 400) failure(reply, ui, ui.t('jobs.lifecycle.renameFailed'))
+}
+
+/** Archives a Job after asking. **Closing its sessions is a choice the person ticks** (SPEC §12): it starts unticked,
+ *  and only then does the command get `killSessions`. */
+export async function archiveJob(door: OrchDoor, snapshot: OrchSnapshot | null, jobId: string, ui: ActionUi): Promise<void> {
+  const row = snapshot?.runs.find((r) => r.id === jobId)
+  if (!row) return
+  const answer = await ui.confirmChoices({
+    title: ui.t('jobs.lifecycle.archive'),
+    body: ui.t('jobs.lifecycle.archiveBody', { objective: jobName(row) }),
+    confirmLabel: ui.t('jobs.lifecycle.archive'),
+    choices: [{ id: 'kill', label: ui.t('jobs.lifecycle.archiveKill'), hint: ui.t('jobs.lifecycle.archiveKillHint') }]
+  })
+  if (!answer.ok) return
+  const kill = answer.checked.includes('kill')
+  const reply = await send(door, 'jobs-archive', { id: jobId, ...(kill ? { killSessions: true } : {}) }, ui, ui.t('jobs.lifecycle.archiveFailed'))
+  if (reply && reply.status >= 400) failure(reply, ui, ui.t('jobs.lifecycle.archiveFailed'))
+}
+
+export async function unarchiveJob(door: OrchDoor, jobId: string, ui: ActionUi): Promise<void> {
+  const reply = await send(door, 'jobs-unarchive', { id: jobId }, ui, ui.t('jobs.lifecycle.unarchiveFailed'))
+  if (reply && reply.status >= 400) failure(reply, ui, ui.t('jobs.lifecycle.unarchiveFailed'))
+}
