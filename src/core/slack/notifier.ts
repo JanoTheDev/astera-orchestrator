@@ -1132,6 +1132,22 @@ export class SlackNotifier {
    *  Failures are only logged. */
   /** 'sent', 'dup' (the same text went out within DEDUP_MS), 'failed' (the post threw; logged) or
    *  'none' (no transport). Every caller but announceOffline ignores it. */
+  /** W3-A: an orchestration notice (core/orchestration/activity.ts) to the channel, in no session's thread: a plan's
+   *  news is no one session's. Its caller dedupes and rate limits it. False when it was not posted. */
+  async postNotice(text: string): Promise<boolean> {
+    const transport = this.transport
+    if (!transport) return false
+    const full = text.length > SLACK_TEXT_MAX ? `${text.slice(0, SLACK_TEXT_MAX - 1)}…` : text
+    try {
+      const ts = await transport.post(full)
+      if (ts) this.rememberOwnPost(ts)
+      return true
+    } catch (err) {
+      this.deps.log(`slack notice failed ${err instanceof SlackPostError ? err.reason : 'unknown'}`)
+      return false
+    }
+  }
+
   private async send(record: SlackRecord, text: string): Promise<'sent' | 'dup' | 'failed' | 'none'> {
     const transport = this.transport
     if (!transport) return 'none'

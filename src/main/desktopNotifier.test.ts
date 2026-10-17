@@ -15,6 +15,7 @@ const session = (id: string): SessionInfo => ({
 /** What every existing test in this file drives — the same surface `DesktopNotifier` itself exposes,
  *  so no test body has to change to route through the feed below. */
 interface HarnessNotifier {
+  activity: DesktopNotifier['activity']
   onHookEvent: (sessionId: string, payload: unknown) => void
   onRollState: (ev: RollStateEvent) => void
   setActiveSession: (sessionId: string | null) => void
@@ -54,7 +55,8 @@ function harness(flags: Partial<DesktopNotifySettings> = {}, sessions = ['s1', '
     onRollState: (ev) => real.onRollState(ev),
     setActiveSession: (sessionId) => real.setActiveSession(sessionId),
     announceOffline: (count, sessionId) => real.announceOffline(count, sessionId),
-    remoteInputNeeded: (key, title) => real.remoteInputNeeded(key, title)
+    remoteInputNeeded: (key, title) => real.remoteInputNeeded(key, title),
+    activity: (n) => real.activity(n)
   }
   return { notifier, shown, focused }
 }
@@ -415,5 +417,27 @@ describe('DesktopNotifier — a remote session waiting', () => {
     expect(h.shown).toEqual([])
     h.notifier.remoteInputNeeded('rt_1:other', null)
     expect(h.shown.map((x) => x.sessionId)).toEqual(['rt_1:other'])
+  })
+})
+
+describe('DesktopNotifier — W3-A orchestration notices', () => {
+  const notice = { key: 'failed:a', title: 'Task failed', body: 'Task A (Plan A)', sessionId: 's1' }
+
+  it('shows the notice as it is worded, on its own switch', () => {
+    const on = harness()
+    on.notifier.activity(notice)
+    expect(on.shown).toEqual([{ event: 'orchestration', sessionId: 's1', title: 'Task failed', body: 'Task A (Plan A)' }])
+    const off = harness({ orchestration: false })
+    off.notifier.activity(notice)
+    expect(off.shown).toEqual([])
+  })
+
+  it('is held back only for the session on screen in a focused window', () => {
+    const h = harness()
+    h.focused.value = true
+    h.notifier.setActiveSession('s1')
+    h.notifier.activity(notice)
+    h.notifier.activity({ key: 'done:r1', title: 'Plan done', body: 'Plan A' })
+    expect(h.shown.map((r) => r.title)).toEqual(['Plan done'])
   })
 })

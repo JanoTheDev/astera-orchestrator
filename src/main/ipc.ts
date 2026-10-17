@@ -24,6 +24,8 @@ import type { SlackConfigStore } from './slackConfigStore'
 import type { SlackConfig } from '../core/slack/config'
 import { codexRolloutFromNote, type CodexRolloutWatcher } from '../core/sessions/codexRolloutWatcher'
 import type { DesktopNotifier } from './desktopNotifier'
+import { startActivityNotices } from './activityNotices'
+import { ACTIVITY_DIGEST_MAX_MINUTES } from '../core/settings/activityDigest'
 import type { SessionSignalForwarder } from './sessionSignals'
 import type { DesktopNotifySettings } from '../core/notify/settings'
 import type { AttentionState, Attention } from '../core/sessions/attention'
@@ -4244,6 +4246,13 @@ export function registerIpc(
     await core.appSettings.setGithubPolling(enabled)
   })
   // W1-B: the app-wide Job worker cap. null clears it.
+  // W3-A: minutes between activity digests, 0 for none
+  ipcMain.handle('settings.getActivityDigestMinutes', () => core.appSettings.getActivityDigestMinutes())
+  ipcMain.handle('settings.setActivityDigestMinutes', async (_e, n: unknown) => {
+    if (typeof n !== 'number' || !Number.isInteger(n) || n < 0 || n > ACTIVITY_DIGEST_MAX_MINUTES)
+      throw new Error(`INVALID_ACTIVITY_DIGEST_MINUTES: ${String(n)}`)
+    await core.appSettings.setActivityDigestMinutes(n)
+  })
   ipcMain.handle('settings.getMaxConcurrentWorkers', () => core.appSettings.getMaxConcurrentWorkers())
   ipcMain.handle('settings.setMaxConcurrentWorkers', async (_e, n: unknown) => {
     if (n !== null && (typeof n !== 'number' || !Number.isInteger(n) || n < 1))
@@ -4829,6 +4838,24 @@ export function registerIpc(
       return null
     }
   })
+  // W3-A: the activity feed (core/orchestration/activity.ts). Its log is the Host's, not in main's mirror, so the
+  // renderer's two reads go to the Host as the app; a page at a time, never held open from the renderer.
+  const activityCall = async (cmd: string, args: Record<string, unknown>, timeoutMs?: number): Promise<{ status: number; body: unknown }> => {
+    const r = await orchCall({ cmd, args, sessionId: '', ...(timeoutMs !== undefined ? { timeoutMs } : {}) })
+    return { status: r.status, body: r.body }
+  }
+  ipcMain.handle('orch.activity', (_e, after: unknown) =>
+    activityCall('activity-poll', { limit: 500, ...(typeof after === 'string' && after !== '' ? { after } : {}) })
+  )
+  ipcMain.handle('orch.activitySummary', (_e, since: unknown) => activityCall('activity-summary', typeof since === 'string' ? { since } : {}))
+  // And the desktop's notices from it, from now on (activityNotices.ts)
+  if (desktop)
+    startActivityNotices({
+      call: activityCall,
+      send: (n) => desktop.activity(n),
+      digestMinutes: () => core.appSettings.getActivityDigestMinutes(),
+      log: orchLog
+    })
   ipcMain.handle('orch.runDetail', (_e, projectPath: string, runId: string, opts?: { journalPages?: unknown }, runtimeId?: string) =>
     orchRouter.runDetail(projectPath, runId, opts, runtimeId)
   )

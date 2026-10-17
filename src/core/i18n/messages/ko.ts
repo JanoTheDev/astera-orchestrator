@@ -489,6 +489,8 @@ export const ko = {
   'settings.notifications.limitWaitingHint': '한도에 걸렸을 때 알림을 보냅니다.',
   'settings.notifications.accountSwitched': '계정을 전환할 때',
   'settings.notifications.accountSwitchedHint': '계정을 전환할 때 알림을 보냅니다.',
+  'settings.notifications.orchestration': '오케스트레이션 소식',
+  'settings.notifications.orchestrationHint': 'Task 가 실패하거나 계획이 끝나거나, 질문이나 계획이 사용자를 기다릴 때, 그리고 주기 요약을 보냅니다. 한꺼번에 몰리면 미뤄 두었다가 다음 요약에서 셉니다.',
   'settings.notifications.saveFailed': '알림 설정을 저장하지 못했습니다: {detail}',
   'worktree.push.aheadUnknown': '푸시하지 않은 커밋이 있습니다',
   'worktree.push.createPr': 'PR 만들기',
@@ -1914,6 +1916,9 @@ export const ko = {
   'settings.maxWorkers.label': '모든 작업을 합친 최대 워커 수',
   'settings.maxWorkers.hint': '비워 두면 한도가 없다. 한도에 닿으면 우선순위가 높은 작업부터, 같으면 번갈아 빈자리를 받는다.',
   'settings.maxWorkers.saveFailed': '워커 한도를 저장하지 못했습니다: {detail}',
+  'settings.activityDigest.label': '활동 요약 주기(분)',
+  'settings.activityDigest.hint': '끝났거나 실패했거나 기다리는 일의 요약을 데스크톱과 Slack 에 보내는 주기입니다. 일이 있었을 때만 보냅니다. 0 이면 보내지 않습니다.',
+  'settings.activityDigest.saveFailed': '요약 주기를 저장하지 못했습니다: {detail}',
   'jobs.new.schedule': '예약 실행',
   'jobs.new.scheduleHint': '정한 시각마다 이 작업의 회차를 하나 만들어 돌린다',
   // 겹침을 막지 않기로 한 결정을 사람에게 알리는 자리 — 도는 워커 수가 상한을 넘을 수 있다
