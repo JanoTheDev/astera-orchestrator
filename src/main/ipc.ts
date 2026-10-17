@@ -1500,7 +1500,10 @@ export function registerIpc(
       // 폴더가 아직 있는가 — 캐시만 읽는다(worktreePresence). 이 폴드는 모든 setState 뒤에 메인
       // 스레드에서 돌므로 fs 를 동기로 만지지 않는다. 확인된 missing 만 뺀다: unknown(아직 묻는 중)과
       // unreachable(닿지 못했다)은 사라졌다는 증거가 아니다.
-      (p) => worktreePresence.peek(p) !== 'missing'
+      (p) => worktreePresence.peek(p) !== 'missing',
+      Date.now(),
+      // W2-C plan board: the app-wide cap, so a Task held by it says so
+      { maxConcurrentWorkers: core.appSettings.getMaxConcurrentWorkers() }
     )
   }
   // The push is a notification hung off the awaited setState (below). It folds later in the tick, so a fold that

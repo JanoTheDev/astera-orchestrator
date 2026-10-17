@@ -529,6 +529,54 @@ export interface JobTask {
   convergence?: JobConvergence
   // W2-D GitHub links: the Task's issue, branch, commits and pull requests (Task.links)
   links?: TaskLinks
+  // W2-C plan board (core/orchestration/blocked.ts)
+  /** Where the board puts this Task and, when it is not running, why (taskBoardsOf). Absent from a snapshot folded
+   *  without it (a paired Runtime on an older Astera): the board falls back to the status. */
+  board?: TaskBoard
+  /** The model of its latest attempt (Dispatch.model), else the Task's own (Task.model). Absent: the CLI's default. */
+  model?: string
+  /** The account its latest attempt ran on. Absent until it is dispatched; `accountIds` says what it will use. */
+  accountId?: string
+  /** The branch of the worktree its latest attempt worked in, when the worktree registry knows it. */
+  branch?: string
+  /** How many times a worker started on it: implementation and repair Dispatches, not reviews. Absent when 0. */
+  attempts?: number
+}
+
+// W2-C plan board: declared here, as RunOutcome is, because the renderer reads them and blocked.ts is not in its build.
+/** The plan overview's buckets. Each Task is in exactly one. */
+export type TaskCategory = 'done' | 'running' | 'queued' | 'failed' | 'cancelled' | 'awaiting-review'
+
+/** Why a Task is not running right now. One reason: the first that holds, in the order taskBoardsOf asks. */
+export type TaskBlockedReason =
+  /** Its worker stopped at a usage limit: waiting for the reset, or moving to the next account. */
+  | { kind: 'rate-limited'; accountId: string; switching: boolean; resetsAt?: string }
+  | { kind: 'archived' }
+  | { kind: 'pending-start' }
+  | { kind: 'paused' }
+  /** A definition Task: copied into each Run, never placed itself. */
+  | { kind: 'definition' }
+  | { kind: 'gate'; gateId: string; question: string; gateKind?: GateKind }
+  /** FAILURE_LIMIT consecutive failures: nothing restarts it on its own. */
+  | { kind: 'failure-limit'; failures: number; limit: number }
+  /** Failed with retries left: its coordinator (or a person) decides whether to retry. */
+  | { kind: 'failed-retry'; failures: number; limit: number }
+  /** The reviewer has not started yet, or was stopped. */
+  | { kind: 'awaiting-review' }
+  /** `dispatched` with no worker: a person stopped it, or its worker was lost. */
+  | { kind: 'stopped' }
+  | { kind: 'deps'; waitingOn: { id: string; title: string; status: TaskStatus }[] }
+  | { kind: 'no-account' }
+  /** A coordinator drives this Run: the app does not place its Tasks, the coordinator starts them. */
+  | { kind: 'coordinator' }
+  | { kind: 'plan-cap'; used: number; limit: number }
+  | { kind: 'global-cap'; used: number; limit: number; priority: number }
+  /** It has a slot: the dispatch loop starts it on its next pass. */
+  | { kind: 'next' }
+
+export interface TaskBoard {
+  category: TaskCategory
+  reason?: TaskBlockedReason
 }
 
 export type JobEventKind =

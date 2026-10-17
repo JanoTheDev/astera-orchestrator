@@ -12,13 +12,15 @@
 import { isSamePath } from '../files/tree'
 import { findProjectByPath } from './projects'
 import { runsWorkingIn, runWorktreesFrom } from './integrate'
-import type { JobRow, JobTask, OrchSnapshot, WorktreeInfo } from '../types'
+import type { JobRow, JobTask, OrchSnapshot, TaskBoard, WorktreeInfo } from '../types'
 import { repoPathOf } from '../worktrees/repo'
 import { coordinatorStarting, type OrchState } from './state'
 import { eventCountsOf } from './timeline'
 import { isTerminal, outcomeOf, outcomeOfTasks, tasksOwnedBy } from './running'
 import { policyOfJob, repairCountIn, reviewRoundIn } from './convergence'
 import type { Dispatch, Gate, Job, JobRun, Task } from './types'
+import { taskBoardsOf } from './blocked'
+import type { ScheduleLimits } from './schedule'
 
 /** 한 프로젝트에 속한 Run 들, 최신순.
  *
@@ -131,7 +133,10 @@ const previewOf = (text: string): string => {
 function jobTaskOf(
   ix: FoldIndex,
   task: Task,
-  isKnownSession: (sessionId: string) => boolean
+  isKnownSession: (sessionId: string) => boolean,
+  // W2-C plan board: the Task's board entry, and the branch of a worktree path
+  board?: TaskBoard,
+  branchOf: (path: string) => string | undefined = () => undefined
 ): JobTask {
   const own = ix.dispatchesByTask.get(task.id) ?? []
   const dispatches = [...own].sort((a, b) => a.startedAt.localeCompare(b.startedAt))
@@ -160,6 +165,11 @@ function jobTaskOf(
   // 수렴 판정은 policyOf 다 — `convergence !== undefined` 가 아니다(Plan 1 설계 §18): 손으로 null 을 적어 둔 Run 이
   // "켜진 것" 으로 읽히면 안 된다. 기본값이 채워진 정책이라 화면이 3/2 를 지어내지 않는다.
   const policy = policyOfJob(task.runId === undefined ? undefined : ix.jobOfRun(task.runId))
+  // W2-C plan board: what the board card says beside the reason. The model and account are the latest attempt's
+  // (a review runs on another model and account, so it is not the attempt)
+  const model = latestAttempt?.model ?? task.model
+  const branch = latestAttempt ? branchOf(latestAttempt.cwd) : undefined
+  const attempts = dispatches.filter((d) => !d.review).length
   return {
     id: task.id,
     title: task.title,
@@ -234,7 +244,13 @@ function jobTaskOf(
             stopped: task.convergenceOff === true
           }
         }
-      : {})
+      : {}),
+    // W2-C plan board
+    ...(board ? { board } : {}),
+    ...(model !== undefined ? { model } : {}),
+    ...(latestAttempt ? { accountId: latestAttempt.accountId } : {}),
+    ...(branch !== undefined ? { branch } : {}),
+    ...(attempts > 0 ? { attempts } : {})
   }
 }
 
@@ -344,12 +360,16 @@ export function snapshotFor(
   exists: (path: string) => boolean,
   /** Now, for the one time-bound fact a row reads: whether a coordinator start is still in flight
    *  (`coordinatorStarting`, Task 1 fix round 1 I1). Defaults to the clock; tests pass one. */
-  nowMs: number = Date.now()
+  nowMs: number = Date.now(),
+  /** W2-C plan board: the app-wide worker cap, for the "why is it waiting" reasons (taskBoardsOf). Absent: no cap. */
+  limits: ScheduleLimits = {}
 ): OrchSnapshot {
   // 폴더 사실을 **한 번만** 센다 — Run 마다 다시 세면 같은 순회가 Run 수만큼 돌고, 그보다 나쁜
   // 것은 두 값(폴더 수준과 Run 수준)이 다른 순간의 상태를 볼 수 있다는 것이다.
   const workingHere = runsWorkingIn(state, projectPath)
   const ix = foldIndex(state)
+  const boards = taskBoardsOf(state, limits)
+  const branchOf = (p: string): string | undefined => worktrees.find((w) => isSamePath(w.path, p))?.branch
 
   /**
    * 한 줄을 만든다. **Job 줄과 회차 줄이 같은 함수에서 나온다** — 화면에서 둘은 같은 모양이고,
@@ -424,7 +444,7 @@ export function snapshotFor(
       // the dependency chain reads in. Task.deps is not a total order, so it cannot sort this.
       tasks: [...((run ? ix.tasksByRun.get(run.id) : ix.tasksByJob.get(job.id)) ?? [])]
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-        .map((t) => jobTaskOf(ix, t, isKnownSession))
+        .map((t) => jobTaskOf(ix, t, isKnownSession, boards.get(t.id), branchOf))
     }
   }
 
