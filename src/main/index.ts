@@ -63,6 +63,7 @@ import { createPendingPromptState } from '../core/sessions/pendingPrompt'
 import { CodexRolloutWatcher } from '../core/sessions/codexRolloutWatcher'
 import { t } from '../core/i18n'
 import { loadPolicy, nextCheckDelayMs, parsePolicyUrl, shouldApplyCampaign } from './updatePolicy'
+import { AUTO_UPDATE } from '../core/update/autoUpdate'
 import {
   NOTHING_STAGED,
   extractForManualInstall,
@@ -1277,7 +1278,8 @@ app.whenReady().then(async () => {
 
   // Auto-update: pulled from public GitHub Releases with no credentials. Progress is surfaced both
   // to a file log (userData/updater.log) and to the renderer (shown in the title bar).
-  if (app.isPackaged) {
+  // Fork: off unless built with ASTERA_AUTO_UPDATE=1; this also skips the remote policy.json fetch below.
+  if (app.isPackaged && AUTO_UPDATE) {
     const flog = lineLog(path.join(app.getPath('userData'), 'updater.log'))
     // The last state pushed, so a check that runs out of time knows what the screen is showing
     // (afterCheckTimeout).

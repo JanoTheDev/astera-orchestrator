@@ -264,7 +264,7 @@ export const ko = {
   'settings.mcp.saveFailed': 'MCP 접근 설정을 저장하지 못했습니다: {detail}',
   'settings.mcp.loadFailed': 'MCP 접근 설정을 읽지 못했습니다: {detail}',
   'settings.mcp.sessions.label': 'MCP 클라이언트가 세션을 보고 사용하게 하기',
-  'settings.mcp.sessions.hint': 'Astera 가 가진 모든 세션이 대상이며, 직접 연 터미널도 포함됩니다. 세션을 보려면 읽기 전용 이상이면 되고, 입력하거나 시작하려면 읽기와 제어가 필요합니다. 클라이언트가 시작한 세션은 "권한 확인 없이 에이전트 실행"(기본값 켜짐)을 따르므로, 묻지 않고 명령을 실행할 수 있습니다.',
+  'settings.mcp.sessions.hint': 'Astera 가 가진 모든 세션이 대상이며, 직접 연 터미널도 포함됩니다. 세션을 보려면 읽기 전용 이상이면 되고, 입력하거나 시작하려면 읽기와 제어가 필요합니다. 클라이언트가 시작한 세션은 "권한 확인 없이 에이전트 실행"(기본값 꺼짐)을 따르므로, 켜 두면 묻지 않고 명령을 실행할 수 있습니다.',
   'settings.mcp.sessions.saveFailed': 'MCP 세션 설정을 저장하지 못했습니다: {detail}',
   'settings.mcp.sessions.loadFailed': 'MCP 세션 설정을 읽지 못했습니다: {detail}',
   'settings.mcp.githubWrite.label': 'MCP 클라이언트가 GitHub 에서 작업하게 하기',
@@ -312,7 +312,7 @@ export const ko = {
   'settings.agentPermission.hint':
     '켜면 앱이 띄우는 모든 에이전트 세션이 권한 확인 없이 실행됩니다 ' +
     '(claude 는 --dangerously-skip-permissions, codex 는 --dangerously-bypass-approvals-and-sandbox). ' +
-    '기본값은 켜짐입니다. Job 워커는 매번 새로 만든 워크트리에서 뜨는데, 그 폴더에는 승인 이력이 없고 ' +
+    '기본값은 꺼짐입니다. Job 워커는 매번 새로 만든 워크트리에서 뜨는데, 그 폴더에는 승인 이력이 없고 ' +
     '프로젝트에 쌓아 둔 허용 목록(.claude/settings.local.json)도 따라오지 않아, 끄면 워커가 첫 명령에서 멈춥니다. ' +
     '이미 열려 있는 세션에는 적용되지 않습니다. 새 세션부터 동작합니다.',
   'settings.agentPermission.saveFailed': '권한 모드를 저장하지 못했습니다: {detail}',
@@ -766,6 +766,7 @@ export const ko = {
   // 예전에는 이 실패가 로그에만 남아서, 사람 눈에는 버튼이 죽은 것과 구별되지 않았다.
   'update.info.manualInstallVersion': 'v{version} 직접 설치',
   'update.info.manualWhy': '이 빌드는 자동 설치가 되지 않아 직접 옮겨야 합니다',
+  'update.info.manualOnly': '이 빌드는 자동 업데이트를 하지 않습니다: 소스를 받아 다시 빌드하세요',
   'update.manual.title': '직접 설치',
   'update.manual.done':
     '새 버전을 Finder 에 열었습니다. Astera 를 응용 프로그램 폴더로 끌어다 놓고 다시 실행하세요.\n\n{path}',

@@ -11,21 +11,24 @@ afterEach(async () => { await fs.rm(dir, { recursive: true, force: true }) })
 const file = (): string => path.join(dir, 'app-settings.json')
 
 describe('readAgentPermissionMode (D12)', () => {
-  it('is yolo when there is no settings file', async () => {
-    expect(await readAgentPermissionMode(file())).toBe('yolo')
+  // Fork W0: the bypass is never the default (docs/orchestrator/SECURITY-AUDIT.md item 2)
+  it('is manual when there is no settings file', async () => {
+    expect(await readAgentPermissionMode(file())).toBe('manual')
   })
-  it('is manual only when the file says manual', async () => {
+  it('is yolo only when the file says yolo', async () => {
+    await fs.writeFile(file(), JSON.stringify({ agentPermissionMode: 'yolo' }))
+    expect(await readAgentPermissionMode(file())).toBe('yolo')
     await fs.writeFile(file(), JSON.stringify({ agentPermissionMode: 'manual' }))
     expect(await readAgentPermissionMode(file())).toBe('manual')
   })
   it('is the store default when a valid file does not name the field', async () => {
     await fs.writeFile(file(), JSON.stringify({ theme: 'dark' }))
-    expect(await readAgentPermissionMode(file())).toBe('yolo')
+    expect(await readAgentPermissionMode(file())).toBe('manual')
   })
   // The same answer AppSettingsStore.load gives for a value it does not know.
-  it('is yolo for a value the store does not know, as load reads it', async () => {
-    await fs.writeFile(file(), JSON.stringify({ agentPermissionMode: 'MANUAL' }))
-    expect(await readAgentPermissionMode(file())).toBe('yolo')
+  it('is manual for a value the store does not know, as load reads it', async () => {
+    await fs.writeFile(file(), JSON.stringify({ agentPermissionMode: 'YOLO' }))
+    expect(await readAgentPermissionMode(file())).toBe('manual')
   })
   // A broken file must not read as 'yolo': it may have said 'manual', and answering the bypass
   // would start the Host's workers with permissions off. Only a missing file is D12's default.
@@ -49,7 +52,8 @@ describe('readAgentPermissionMode (D12)', () => {
   })
   it('narrows a raw value the way the store does', () => {
     expect(agentPermissionModeOf('manual')).toBe('manual')
-    expect(agentPermissionModeOf(undefined)).toBe('yolo')
+    expect(agentPermissionModeOf('yolo')).toBe('yolo')
+    expect(agentPermissionModeOf(undefined)).toBe('manual')
   })
 })
 

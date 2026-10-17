@@ -100,7 +100,8 @@ export function NewSessionDialog({
   // 것은 아래 fetch 가 돌아오기 전의 한 프레임을 위해서다 — false 로 시작하면 기본이 켜짐인 설정에서
   // 체크박스가 꺼진 채 잠깐 보였다가 켜진다. 사람이 이 모달에서 끄면 그 세션에만 적용되고 전역
   // 설정은 그대로다: 이 체크박스는 언제나 "이번 세션"을 말한다.
-  const [bypassPermissions, setBypassPermissions] = useState(true) // start without permission prompts
+  // Fork W0: the global default is 'manual' now, so start false. A failed or late fetch must never leave the bypass on.
+  const [bypassPermissions, setBypassPermissions] = useState(false) // start without permission prompts
   // chat takeover P8: the new chat session's policy for a permission prompt nobody answers while a
   // Host holds it as the writer. Meaningless once bypassPermissions is on — that session never holds a
   // prompt at all — so the control offering this is hidden then (see the checkbox below).

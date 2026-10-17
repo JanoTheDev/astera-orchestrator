@@ -179,7 +179,9 @@ publish:
   # release workflow builds with --publish never and attaches assets through `gh` (the split exists
   # so the installer can be code-signed between packaging and upload). This block still matters:
   # it is what generates app-update.yml, which tells the installed app where updates live.
+  # Fork: pointed at this fork, never upstream, so even an ASTERA_AUTO_UPDATE=1 build cannot fetch upstream
+  # releases or policy.json. Off by default anyway (src/core/update/autoUpdate.ts).
   provider: github
-  owner: parsingk
-  repo: Astera
+  owner: JanoTheDev
+  repo: astera-orchestrator
   releaseType: draft

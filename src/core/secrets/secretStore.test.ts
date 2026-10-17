@@ -100,6 +100,12 @@ describe('SecretStore (remote runtime design §4.6)', () => {
     execFileSync(path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'icacls.exe'), [path.join(dir, 'a'), '/grant', '*S-1-5-32-545:(W)'])
     await expect(s.read('a')).rejects.toBeInstanceOf(SecretFileUnsafe)
   })
+  // Linux baseline (w0): Ubuntu's umask 002 made the parents 775, which the store's own check then refused
+  it.runIf(process.platform !== 'win32')('makes the directories above the store owner-only, whatever the umask', async () => {
+    const nested = path.join(profile, 'plugins', 'secrets', 'p')
+    await openSecretStore({ dir: nested, profileDir: profile }).withLock((tx) => tx.write('a', '1'))
+    for (const d of [path.dirname(nested), path.dirname(path.dirname(nested))]) expect((await fs.stat(d)).mode & 0o077).toBe(0)
+  })
   it.runIf(process.platform !== 'win32')('refuses a file whose mode was widened after it was read (Review Focus 3)', async () => {
     const s = openSecretStore({ dir, profileDir: profile })
     await s.withLock((tx) => tx.write('a', 'x'))

@@ -143,7 +143,7 @@ export const es: Catalog = {
   'settings.mcp.loadFailed': 'No se pudo leer el acceso MCP: {detail}',
   'settings.mcp.sessions.label': 'Permitir que los clientes MCP vean y usen sesiones',
   'settings.mcp.sessions.hint':
-    'Abarca todas las sesiones que tiene Astera, incluidas tus propias terminales. Verlas requiere al menos solo lectura; escribir en ellas e iniciarlas requiere lectura y control. Una sesión que inicia un cliente sigue «Ejecutar agentes sin comprobar permisos» (activado por defecto), así que puede ejecutar comandos sin preguntar.',
+    'Abarca todas las sesiones que tiene Astera, incluidas tus propias terminales. Verlas requiere al menos solo lectura; escribir en ellas e iniciarlas requiere lectura y control. Una sesión que inicia un cliente sigue «Ejecutar agentes sin comprobar permisos» (desactivado por defecto), así que si está activado puede ejecutar comandos sin preguntar.',
   'settings.mcp.sessions.saveFailed': 'No se pudo guardar el ajuste de sesiones MCP: {detail}',
   'settings.mcp.sessions.loadFailed': 'No se pudo leer el ajuste de sesiones MCP: {detail}',
   'settings.mcp.githubWrite.label': 'Permitir que los clientes MCP actúen en GitHub',
@@ -191,7 +191,7 @@ export const es: Catalog = {
   'settings.agentPermission.hint':
     'Todas las sesiones de agente que inicia la aplicación se ejecutan sin preguntar por permisos ' +
     '(--dangerously-skip-permissions para claude, --dangerously-bypass-approvals-and-sandbox para codex). ' +
-    'Activado de forma predeterminada. Un worker de Job siempre arranca en un worktree recién creado: esa ' +
+    'Desactivado de forma predeterminada. Un worker de Job siempre arranca en un worktree recién creado: esa ' +
     'carpeta no tiene historial de aprobaciones y la lista de permitidos acumulada en el proyecto ' +
     '(.claude/settings.local.json) no lo acompaña, así que al desactivarlo el worker se detiene en su primer comando. ' +
     'Las sesiones ya abiertas no se ven afectadas. Se aplica a partir de la siguiente sesión.',
@@ -517,6 +517,7 @@ export const es: Catalog = {
   'update.info.checkFailed': 'Error al comprobar',
   'update.info.manualInstallVersion': 'Instalar v{version} a mano',
   'update.info.manualWhy': 'Esta versión no puede instalarse sola: hay que moverla a mano',
+  'update.info.manualOnly': 'Esta versión no se actualiza sola: actualiza el código y vuelve a compilar',
   'update.manual.title': 'Instalar a mano',
   'update.manual.done':
     'La nueva versión está abierta en el Finder. Arrastra Astera a la carpeta Aplicaciones y vuelve a abrirla.\n\n{path}',

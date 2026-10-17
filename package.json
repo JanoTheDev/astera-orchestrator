@@ -75,7 +75,7 @@
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "remark-gfm": "^4.0.1",
-    "undici": "^7.29.0",
+    "undici": "^7.30.1",
     "zustand": "^5.0.15"
   },
   "devDependencies": {
@@ -85,7 +85,7 @@
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.2.0",
-    "electron": "^41.7.1",
+    "electron": "^41.10.7",
     "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
     "tailwindcss": "^4.3.3",

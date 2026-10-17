@@ -9,10 +9,12 @@ import { isNoise } from './electron.vite.warnings'
 // 앱과 CLI 는 한 프로그램이므로 버전도 하나여야 하고, 그 하나를 빌드가 박아 넣는다 — 두 곳에서
 // 읽으면 갈라진다.
 const version = (createRequire(import.meta.url)('./package.json') as { version: string }).version
+// Fork: auto-update stays off unless built with ASTERA_AUTO_UPDATE=1 (src/core/update/autoUpdate.ts)
+const autoUpdate = JSON.stringify(process.env.ASTERA_AUTO_UPDATE === '1')
 
 export default defineConfig({
   main: {
-    define: { __ASTERA_VERSION__: JSON.stringify(version) },
+    define: { __ASTERA_VERSION__: JSON.stringify(version), __ASTERA_AUTO_UPDATE__: autoUpdate },
     plugins: [externalizeDepsPlugin()],
     build: {
       rollupOptions: {
@@ -31,6 +33,7 @@ export default defineConfig({
   },
   preload: { plugins: [externalizeDepsPlugin()] },
   renderer: {
+    define: { __ASTERA_AUTO_UPDATE__: autoUpdate },
     resolve: {
       alias: {
         '@': fileURLToPath(new URL('./src/renderer/src', import.meta.url))

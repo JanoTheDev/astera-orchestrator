@@ -142,7 +142,7 @@ export const ja: Catalog = {
   'settings.mcp.loadFailed': 'MCP アクセスの設定を読み込めませんでした: {detail}',
   'settings.mcp.sessions.label': 'MCP クライアントにセッションの閲覧と操作を許可する',
   'settings.mcp.sessions.hint':
-    'Astera が保持するすべてのセッションが対象で、自分で開いたターミナルも含まれます。閲覧には読み取り専用以上、入力と開始には読み取りと操作が必要です。クライアントが開始したセッションは「権限確認なしでエージェントを実行」(既定でオン)に従うため、確認なしでコマンドを実行できます。',
+    'Astera が保持するすべてのセッションが対象で、自分で開いたターミナルも含まれます。閲覧には読み取り専用以上、入力と開始には読み取りと操作が必要です。クライアントが開始したセッションは「権限確認なしでエージェントを実行」(既定でオフ)に従うため、オンにすると確認なしでコマンドを実行できます。',
   'settings.mcp.sessions.saveFailed': 'MCP セッションの設定を保存できませんでした: {detail}',
   'settings.mcp.sessions.loadFailed': 'MCP セッションの設定を読み込めませんでした: {detail}',
   'settings.mcp.githubWrite.label': 'MCP クライアントに GitHub での操作を許可する',
@@ -190,7 +190,7 @@ export const ja: Catalog = {
   'settings.agentPermission.hint':
     'アプリが起動するすべてのエージェントセッションを権限確認なしで実行します' +
     '(claude は --dangerously-skip-permissions、codex は --dangerously-bypass-approvals-and-sandbox)。' +
-    '既定はオンです。Job のワーカーは毎回新しく作られた worktree で起動しますが、そのフォルダには承認履歴がなく、' +
+    '既定はオフです。Job のワーカーは毎回新しく作られた worktree で起動しますが、そのフォルダには承認履歴がなく、' +
     'プロジェクトに蓄積した許可リスト(.claude/settings.local.json)も引き継がれないため、' +
     'オフにするとワーカーは最初のコマンドで停止します。' +
     'すでに開いているセッションには適用されません。次のセッションから有効です。',
@@ -509,6 +509,7 @@ export const ja: Catalog = {
   'update.info.checkFailed': '確認に失敗',
   'update.info.manualInstallVersion': 'v{version} を手動でインストール',
   'update.info.manualWhy': 'このビルドは自動インストールできないため、手動で移動してください',
+  'update.info.manualOnly': 'このビルドは自動更新しません。ソースを取得して再ビルドしてください',
   'update.manual.title': '手動インストール',
   'update.manual.done':
     '新しいバージョンを Finder で開きました。Astera をアプリケーションフォルダにドラッグしてから、もう一度起動してください。\n\n{path}',

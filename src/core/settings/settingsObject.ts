@@ -17,7 +17,7 @@ export function settingsObjectOf(text: string): Record<string, unknown> {
  * themselves (preflight ruling F5) — one read, one parse, one pair of `RepairNeeded` messages.
  *
  * - **Missing file: `null`**, distinct from an empty object, so each caller applies its own default
- *   (D12's 'yolo' for the permission mode, off for the agent app workspace).
+ *   (D12's 'yolo' for the permission mode, 'manual' in this fork (W0), off for the agent app workspace).
  * - **A valid file:** the parsed object, `settingsObjectOf`'s guard applied.
  * - **Unreadable, or not a JSON object: it throws** `RepairNeeded`. The file may have set a field a
  *   caller cares about, and answering as though it were empty would tell an agent that a setting the
