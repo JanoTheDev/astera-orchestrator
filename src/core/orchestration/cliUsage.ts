@@ -306,7 +306,9 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
         value: '<pending|paused|scheduled|waiting|running|completed|failed>',
         about: 'only Jobs in this state'
       },
-      { name: 'project', value: '<path>', about: 'only the Jobs of the project at this folder (from `projects list`)' }
+      { name: 'project', value: '<path>', about: 'only the Jobs of the project at this folder (from `projects list`)' },
+      // W1-C plan lifecycle
+      { name: 'archived', about: 'include archived Jobs, which are left out otherwise' }
     ]
   },
   'jobs-get': {
@@ -336,6 +338,27 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
     detail:
       "Returns the Job, with no run yet, as `jobs create` does; it takes that command's flags but --objective and --cwd. Astera writes the objective, the item's text quoted as data, and the Job works in the project's folder. Refused for an item that cannot be picked (PERMISSION_DENIED, exit 5: a GitHub issue a non-member wrote, or a closed one) and for a GitHub pull request's number (NOT_FOUND, exit 4). A source that does not run, one that throws and one past 15 seconds are FAILED (exit 1), saying which.",
     flags: [SOURCE, ITEM, { name: 'project', value: '<projectId>', required: true, about: 'the project the Job works in (from `projects list`)' }, ...JOB_MAKING_FLAGS]
+  },
+  // W1-C plan lifecycle (lifecycle.ts)
+  'jobs-rename': {
+    summary: 'name a Job',
+    detail:
+      'The name is one line, cut at 300 characters, and is what the app, `jobs list --human` and the notifications show. An empty --title drops it, and the Job is named by its objective again. The objective, which is what agents are given, does not change.',
+    flags: [ID('<jobId>', 'the Job to name'), { name: 'title', value: '<text>', required: true, about: 'the new name' }]
+  },
+  'jobs-archive': {
+    summary: 'archive a Job: hide it and start nothing new for it',
+    detail:
+      'An archived Job is left out of `jobs list` (unless --archived) and the app hides it unless "show archived" is on. No new run, coordinator or worker starts for it; its running workers and coordinator keep running. With --kill-sessions each running run is stopped as `runs stop` stops it first, with the same refusals, and the Job is archived only if all of them went through. `jobs unarchive` takes it back.',
+    flags: [
+      ID('<jobId>', 'the Job to archive'),
+      { name: 'kill-sessions', about: "also close its running runs' workers and coordinators (as `runs stop`)" }
+    ]
+  },
+  'jobs-unarchive': {
+    summary: 'bring an archived Job back',
+    detail: 'It can start work again. A run that `jobs archive --kill-sessions` stopped stays paused until `runs resume`.',
+    flags: [ID('<jobId>', 'the Job to bring back')]
   },
   'jobs-wait': {
     summary: "wait until this Job's latest run ends",

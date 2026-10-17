@@ -130,6 +130,8 @@ import { JOB_SOURCE, SOURCE_COMMANDS, createFromContext, sourcesCommand, type Jo
 export { JOB_SOURCE } from './commandSources'
 import { pluginIdOfCheck, type CompletionCheckInput, type PluginCheckAnswer } from './pluginChecks'
 import { checkIdsOf, pluginCheckRefusal, tasksOfNextRun } from './commandChecks'
+// W1-C plan lifecycle
+import { archiveJob, archivedTargetOf, isJobActive, renameJob, unarchiveJob } from './lifecycle'
 
 /** One row of `listAccounts`. Named only because the declaration below is a union and repeating the
  *  shape on both sides invites the two halves to drift. */
@@ -980,7 +982,11 @@ const COORDINATOR_ONLY = new Set([
   'check',
   'inbox',
   // A worker placing another Task is nested orchestration, refused for worker-start's reason.
-  'tasks-dispatch'
+  'tasks-dispatch',
+  // W1-C: a worker does not rename, archive or bring back the plan it works for
+  'jobs-rename',
+  'jobs-archive',
+  'jobs-unarchive'
 ])
 
 /** Session-task commands answer to the work-unit tracking toggle, not the orchestration one. They
@@ -1637,6 +1643,11 @@ export async function handleCommand(
     })
     return commit(attachCoordinator({ ...onto, jobs: handed }, { runId: target.id, sessionId }))
   }
+
+  // W1-C: an archived plan starts no new Run, coordinator or worker (lifecycle.ts). One refusal for the five commands
+  // that would, before any of them reads further; `jobs unarchive` is the way back.
+  const archived = archivedTargetOf(s, cmd, args)
+  if (archived) return conflict(`job ${archived.id} is archived; \`jobs unarchive --id ${archived.id}\` lets it start work again`)
 
   // **이 캐스트가 아래 표를 `astera agent-context` 의 명령 목록에 못 박는다**(cliAgentContext.ts).
   // `cmd` 는 여전히 아무 문자열이나 될 수 있고 — 모르는 명령은 아래 `default` 가 501 로 답한다 —
@@ -2316,7 +2327,8 @@ export async function handleCommand(
     case 'jobs-list': {
       const status = enumFilter('status', args.status, JOB_STATES)
       if ('error' in status) return bad(status.error)
-      let jobs = s.jobs
+      // W1-C: archived plans are listed only when asked for (`--archived`)
+      let jobs = args.archived === true ? s.jobs : s.jobs.filter(isJobActive)
       const inProject = projectFilter(s, args.project)
       if ('error' in inProject) return inProject.error
       if (inProject.project) {
@@ -2362,6 +2374,44 @@ export async function handleCommand(
       // **파생값은 접어 실은 그 회차의 것이다.** 회차를 지목해 물었는데 계획의 숫자가 다른
       // 회차를 말하면 한 응답 안에서 두 가지를 말하는 셈이 된다.
       return okBody({ ...jobView(s, job, run), ...(run ? { run: runView(s, run) } : {}) })
+    }
+    // W1-C plan lifecycle (lifecycle.ts). Each answers the Job as `jobs get` does, without the folded Run.
+    case 'jobs-rename': {
+      const id = str(args.id)
+      if (!id) return bad('--id is required')
+      if (typeof args.title !== 'string') return bad('--title is required: the new name, or "" to name the Job by its objective again')
+      const r = renameJob(s, id, args.title)
+      if (!r.ok) return refused(r)
+      await deps.setState(r.state)
+      return okBody(jobView(r.state, r.value, latestRunOf(r.state, r.value)))
+    }
+    // **Archiving ends nothing unless asked** (SPEC §12): `--kill-sessions` stops each running Run of the Job the way
+    // `runs stop` does, its refusals included (a worker held by worker-retain, a start in flight), and archives only
+    // when every stop went through: a refusal leaves the Job unarchived (a Run stopped before it stays stopped, as
+    // `runs stop` left it). Without it, what runs keeps running and only new work is refused.
+    case 'jobs-archive': {
+      const id = str(args.id)
+      if (!id) return bad('--id is required')
+      if (!s.jobs.some((j) => j.id === id)) return notFound(`unknown job: ${id}`)
+      if (args.killSessions === true) {
+        for (const run of s.runs.filter((r) => r.jobId === id && outcomeOf(s, r.id) === 'running' && r.paused !== true)) {
+          const stopped = await handleCommand(deps, caller, 'runs-stop', { id: run.id })
+          if (stopped.status !== 200) return stopped
+        }
+      }
+      const after = deps.getState()
+      const r = archiveJob(after, id, now)
+      if (!r.ok) return refused(r)
+      await deps.setState(r.state)
+      return okBody(jobView(r.state, r.value, latestRunOf(r.state, r.value)))
+    }
+    case 'jobs-unarchive': {
+      const id = str(args.id)
+      if (!id) return bad('--id is required')
+      const r = unarchiveJob(s, id)
+      if (!r.ok) return refused(r)
+      await deps.setState(r.state)
+      return okBody(jobView(r.state, r.value, latestRunOf(r.state, r.value)))
     }
     // 사람이 사이드바에서 Run 을 물러나게 한다. **되돌릴 수 없다.**
     //

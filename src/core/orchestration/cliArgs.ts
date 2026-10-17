@@ -121,7 +121,9 @@ export const NOUNS = {
   // `jobs create` 와 `tasks add` 는 phase C 다 — 앞의 것은 run-create 를 `--auto` 로, 뒤의 것은
   // task-create 를 부른다(command.ts). 코디네이터가 쓰는 두 이름은 그대로 남는다.
   // `create-from-source` (plugin Phase 4 J21) is answered before handleCommand's switch, with the `sources` commands.
-  jobs: ['list', 'get', 'wait', 'run', 'create', 'create-from-source'],
+  jobs: ['list', 'get', 'wait', 'run', 'create', 'create-from-source',
+    // W1-C plan lifecycle (lifecycle.ts)
+    'rename', 'archive', 'unarchive'],
   runs: ['list', 'get', 'wait', 'follow', 'stop', 'resume', 'checks'],
   tasks: ['list', 'add', 'dispatch'],
   questions: ['list', 'get', 'answer'],

@@ -32,7 +32,10 @@ export const JOB_FIELDS = Object.freeze([
   'pendingStart',
   'paused',
   'convergence',
-  'source'
+  'source',
+  // A plan's name and whether it is archived (W1-C)
+  'title',
+  'archivedAt'
 ] as const)
 
 export const RUN_FIELDS = Object.freeze([

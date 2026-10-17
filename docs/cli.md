@@ -688,10 +688,13 @@ astera projects get   --id <projectId>
 astera projects find  --path <path>
 astera projects add   --path <path>
 
-astera jobs    list   [--status <pending|paused|scheduled|waiting|running|completed|failed>] [--project <path>]
+astera jobs    list   [--status <pending|paused|scheduled|waiting|running|completed|failed>] [--project <path>] [--archived]
 astera jobs    get    --id <jobId | runId>
 astera jobs    run    --id <jobId>
 astera jobs    wait   --id <jobId>  [--timeout-ms <n>]
+astera jobs    rename --id <jobId> --title <text>
+astera jobs    archive --id <jobId> [--kill-sessions]
+astera jobs    unarchive --id <jobId>
 astera jobs    create --objective <text> [--cwd <path>] [--concurrency <n>] [--coordinator-account <accountId>] [--coordinator-provider <claude|codex>] [--convergence [--max-fix-attempts <n>] [--max-review-rounds <n>] [--blocking-severity <high|medium>] [--max-total-minutes <n>]]
 astera jobs    create-from-source --source <sourceId> --item <itemId> --project <projectId> [--concurrency <n>] [--coordinator-account <accountId>] [--coordinator-provider <claude|codex>] [--convergence [--max-fix-attempts <n>] [--max-review-rounds <n>] [--blocking-severity <high|medium>] [--max-total-minutes <n>]]
 

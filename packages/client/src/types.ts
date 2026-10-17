@@ -76,6 +76,10 @@ export interface Job {
   /** Where the Job came from: a job source and its item, set by Astera when it made the Job from that item (Astera
    *  1.4.14 and later). */
   readonly source?: JobSource
+  /** What a person named the Job (`jobs rename`); absent, it is named by its source's title or its objective. */
+  readonly title?: string
+  /** When the Job was archived (`jobs archive`): it starts no new work and `jobs list` leaves it out. */
+  readonly archivedAt?: string
   /** Derived on every read: how the Job's latest Run (or the Job itself before one) stands. */
   readonly outcome: JobOutcome
   readonly progress: Progress
