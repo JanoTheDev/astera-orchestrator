@@ -1374,6 +1374,9 @@ export interface CoreApi {
     // refresh only happens on an explicit github.refresh call.
     getGithubPolling(): Promise<boolean>
     setGithubPolling(enabled: boolean): Promise<void>
+    /** W1-B: the app-wide Job worker cap; null is no cap. */
+    getMaxConcurrentWorkers(): Promise<number | null>
+    setMaxConcurrentWorkers(n: number | null): Promise<void>
     // The four desktop-notification switches (design doc §6/§8). Read by the settings screen and by
     // DesktopNotifier itself (main), which is why the type lives in core/notify/settings rather than here.
     getDesktopNotify(): Promise<DesktopNotifySettings>

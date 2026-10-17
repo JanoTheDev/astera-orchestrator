@@ -256,6 +256,8 @@ export function createJob(
     convergence?: ConvergencePolicy
     /** The job source's item the Job is made from (plugin Phase 4 J15); only the Host gives it. */
     source?: JobSourceRef
+    /** W1-B: Job.priority. The caller checks it is an integer. */
+    priority?: number
   },
   now: string
 ): Res<Job> {
@@ -276,7 +278,9 @@ export function createJob(
     ...(a.schedule ? { schedule: a.schedule } : {}),
     ...(a.pendingStart ? { pendingStart: true } : {}),
     ...(a.convergence ? { convergence: a.convergence } : {}),
-    ...(a.source ? { source: a.source } : {})
+    ...(a.source ? { source: a.source } : {}),
+    // 0 is the default, so it is not written — the same rule as autoDispatch above
+    ...(a.priority ? { priority: a.priority } : {})
   }
   return ok({ ...s, jobs: [...s.jobs, job] }, job)
 }
@@ -627,6 +631,13 @@ export function openDispatch(
     return err(`task is awaiting a verdict: ${task.status}`)
   if (!a.ignoreCircuit && task.consecutiveFailures >= FAILURE_LIMIT)
     return err(`circuit break: ${FAILURE_LIMIT} consecutive failures`)
+  // **Every dep completed, or no worker** (W1-B, spec §3). ALLOWED.pending lets a pending Task go
+  // straight to dispatched, so without this a coordinator's `worker-start` on a Task whose dep is still
+  // dispatched, validating, failed or blocked started a worker without that dep's output — the case
+  // resolveGate already refuses to create by unblocking to pending. Only `completed` counts: a dep that
+  // failed or was abandoned never releases its dependents.
+  const unmet = task.deps.filter((d) => s.tasks.find((x) => x.id === d)?.status !== 'completed')
+  if (unmet.length > 0) return err(`task depends on unfinished tasks: ${unmet.join(', ')}`)
   // An open dispatch is rejected unconditionally even with retryOf — retryOf has to mean "the
   // previous attempt already finished", and an open dispatch breaks that premise by itself. This
   // used to filter on `open && !a.retryOf`, so just attaching retryOf bypassed the whole check.

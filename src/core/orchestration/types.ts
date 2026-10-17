@@ -213,6 +213,10 @@ export interface Job {
   /** When the plan was archived (`jobs archive`). **Present: it starts no new work** (isJobActive) and default lists
    *  hide it; its running sessions are left alone unless the archive asked to close them. */
   archivedAt?: string
+  // W1-B: global scheduling.
+  /** Where this Job stands when the app-wide `maxConcurrentWorkers` leaves fewer slots than ready
+   *  Tasks: higher first (`slotsToFill`). Absent reads as 0. Any integer, negative included. */
+  priority?: number
 }
 
 /** A job source's item a Job was made from: the source (a plugin's id, or `github`), the item's id there, how a person

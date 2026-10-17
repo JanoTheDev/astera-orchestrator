@@ -320,6 +320,27 @@ describe('createDispatchLoop', () => {
     expect(h.handled()).toEqual([])
   })
 
+  // W1-B.
+  it('places no more than the app-wide cap, under a larger Job concurrency', async () => {
+    const h = rig({ concurrency: 2 })
+    h.ctx.maxConcurrentWorkers = async () => 1
+    await h.loop.run()
+    await h.settle()
+    expect(h.startWorker).toHaveBeenCalledTimes(1)
+  })
+
+  it('a worker-start held at the app-wide cap (atCapacity) opens no Gate', async () => {
+    const h = rig({ concurrency: 2 })
+    h.ctx.handle = async (cmd, args) =>
+      cmd === 'worker-start'
+        ? { status: 409, body: { error: 'the app-wide worker cap is reached: 1 of 1 workers are open', atCapacity: true } }
+        : h.real(cmd, args)
+    await h.loop.run()
+    await h.settle()
+    expect(h.handled()).not.toContain('gate-create')
+    expect(h.state().tasks.every((t) => t.status === 'ready')).toBe(true)
+  })
+
   // Review Focus 1, R15.
   it('a retiring Host’s refusal stops the activation and gates nothing', async () => {
     const h = rig({ concurrency: 2 })

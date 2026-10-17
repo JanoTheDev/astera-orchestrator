@@ -61,6 +61,8 @@ interface CreateJobFields {
   /** Who coordinates the Job's Runs. None means a Job that runs only the Tasks added to it (the CLI's default). */
   readonly coordinator?: Coordinator
   readonly concurrency?: number
+  /** Higher takes a free slot first when the app-wide worker cap is reached. Any integer; absent is 0. */
+  readonly priority?: number
   /** Repair and recheck failing Tasks: `true` for the Host's defaults, or a policy. */
   readonly convergence?: true | ConvergencePolicy
 }
@@ -251,6 +253,7 @@ export function createNamespaces(call: Call, features: () => readonly string[], 
         ...(coordinator?.accountId !== undefined ? { coordinatorAccount: coordinator.accountId } : {}),
         ...(coordinator?.provider !== undefined ? { coordinatorProvider: coordinator.provider } : {}),
         ...(input.concurrency !== undefined ? { concurrency: input.concurrency } : {}),
+        ...(input.priority !== undefined ? { priority: input.priority } : {}),
         ...(policy !== undefined ? { convergence: true } : {}),
         ...(isRecord(policy) ? Object.fromEntries(CONVERGENCE_KNOBS.filter((k) => policy[k] !== undefined).map((k) => [k, policy[k]])) : {})
       }

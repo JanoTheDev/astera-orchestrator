@@ -57,6 +57,7 @@ import { justFinished, runRecordInputOf } from '../core/orchestration/runRecord'
 import type { WorkspaceManager } from './workspace/manager'
 import { DESKTOP_ACTOR, HOST_ACTOR, actorOf, type JournalActor } from '../core/continuity/actor'
 import { parseJournalOps } from '../core/continuity/journalOps'
+import { readMaxConcurrentWorkers } from '../core/settings/maxConcurrentWorkers'
 
 /** One reply — today's HTTP status and body, the shape `OrchCall.call` already answers with. Named
  *  only because the receipt store below holds one. */
@@ -780,6 +781,9 @@ export function createHostOrch(a: {
       // `reset` 이 지우기 전에 파일을 옆으로 복사한다. **store 의 쓰기 큐를 통과하므로** 아직 땅에
       // 닿지 않은 저장을 앞지르지 않는다 — 앱이 이 복사를 대신하던 동안은 그 보장이 없었다.
       backup: () => store.backup(),
+      // W1-B. A damaged file reads as no cap: the spawn behind worker-start refuses on that file anyway
+      // (spawner.ts reads the permission mode from it), so nothing starts past the cap on a guess.
+      maxConcurrentWorkers: () => readMaxConcurrentWorkers(path.join(a.profileDir, 'app-settings.json')).catch(() => null),
       act: a.act,
       hasApp: a.hasApp,
       log: a.log,

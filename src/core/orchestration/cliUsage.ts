@@ -83,6 +83,7 @@ const TIMEOUT: UsageFlag = {
  *  after its own. */
 const JOB_MAKING_FLAGS: readonly UsageFlag[] = [
   { name: 'concurrency', value: '<n>', about: 'how many workers this Job places at once' },
+  { name: 'priority', value: '<n>', about: 'which Job gets a free slot first when the app-wide worker cap is reached (higher first, default 0)' },
   {
     name: 'coordinator-account',
     value: '<accountId>',

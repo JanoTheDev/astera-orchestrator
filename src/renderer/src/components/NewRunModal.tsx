@@ -40,6 +40,8 @@ export function NewRunModal({
   const { t } = useI18n()
   const [objective, setObjective] = useState('')
   const [concurrency, setConcurrency] = useState(3)
+  /** W1-B: Job.priority. 0 is the default and is not sent. */
+  const [priority, setPriority] = useState(0)
   /** 이 Run 을 관리할 코디네이터 세션의 계정. **하나다**(Run.coordinatorAccountId). 고르기 전에는
    *  만들 수 없다 — 이 폼은 코디네이터 없는 Run 을 만들지 않는다. 코드에는 그 갈래가 남아 있지만
    *  (옛 Run·CLI) 여기서 만드는 것은 언제나 관리자가 있는 Run 이다. */
@@ -70,6 +72,7 @@ export function NewRunModal({
         // 정한다(orchestration/types.ts 의 Task.accountIds). run-create 는 이 플래그를 이제
         // 거절한다(server.ts).
         concurrency,
+        ...(priority !== 0 ? { priority } : {}),
         // **언제나 보낸다** — 아래 버튼이 계정 없이는 눌리지 않는다
         coordinatorAccount: coordinatorAccountId,
         // **`auto` 는 예약에도 보낸다.** 뜻은 "앱이 이것을 돌린다" 이고, 예약도 앱이 돌린다 —
@@ -151,6 +154,21 @@ export function NewRunModal({
           {concurrency <= 1 && projectFolderBusy && (
             <p className="warn-text">{t('jobs.new.folderBusy')}</p>
           )}
+        </div>
+        {/* W1-B: where this Job stands when the app-wide worker cap is reached. */}
+        <div className="field">
+          <label>{t('jobs.new.priority')}</label>
+          <input
+            type="number"
+            className="jobs-concurrency"
+            step={1}
+            value={priority}
+            onChange={(e) => {
+              const n = e.target.valueAsNumber
+              setPriority(Number.isFinite(n) ? Math.trunc(n) : 0)
+            }}
+          />
+          <p className="modal-hint">{t('jobs.new.priorityHint')}</p>
         </div>
         {/* 계정이 없어도 칸을 접지 않는다 — 접으면 만들기 버튼이 왜 죽어 있는지 화면이 말하지
             않는다(NewTaskModal 의 같은 판단). null 은 아직 안 온 것이라 그때만 접는다. */}

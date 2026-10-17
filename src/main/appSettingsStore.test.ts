@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { readMaxConcurrentWorkers } from '../core/settings/maxConcurrentWorkers'
 import { AppSettingsStore, readSkillSettings } from './appSettingsStore'
 import { RepairNeeded } from '../core/settings/repairNeeded'
 import type { DesktopNotifySettings } from '../core/notify/settings'
@@ -391,6 +392,37 @@ describe('githubPolling', () => {
     const store = new AppSettingsStore(file())
     await store.load()
     expect(store.getGithubPolling()).toBe(true)
+  })
+})
+
+// W1-B
+describe('maxConcurrentWorkers', () => {
+  it('defaults to no cap, and the Host reads the same', async () => {
+    const store = new AppSettingsStore(file())
+    await store.load()
+    expect(store.getMaxConcurrentWorkers()).toBeNull()
+    expect(await readMaxConcurrentWorkers(file())).toBeNull()
+  })
+
+  it('persists a cap the Host then reads, and null clears it', async () => {
+    const a = new AppSettingsStore(file())
+    await a.load()
+    await a.setMaxConcurrentWorkers(4)
+    const b = new AppSettingsStore(file())
+    await b.load()
+    expect(b.getMaxConcurrentWorkers()).toBe(4)
+    expect(await readMaxConcurrentWorkers(file())).toBe(4)
+    await b.setMaxConcurrentWorkers(null)
+    expect(await readMaxConcurrentWorkers(file())).toBeNull()
+  })
+
+  it('reads anything but a whole number >= 1 as no cap', async () => {
+    for (const v of [0, -2, 1.5, '3', true]) {
+      await fs.writeFile(file(), JSON.stringify({ maxConcurrentWorkers: v }), 'utf8')
+      const store = new AppSettingsStore(file())
+      await store.load()
+      expect(store.getMaxConcurrentWorkers()).toBeNull()
+    }
   })
 })
 

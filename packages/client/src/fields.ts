@@ -35,7 +35,9 @@ export const JOB_FIELDS = Object.freeze([
   'source',
   // A plan's name and whether it is archived (W1-C)
   'title',
-  'archivedAt'
+  'archivedAt',
+  // Which Job takes a free slot first under the app-wide worker cap (orchestrator W1-B).
+  'priority'
 ] as const)
 
 export const RUN_FIELDS = Object.freeze([

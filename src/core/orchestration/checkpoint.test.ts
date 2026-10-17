@@ -44,7 +44,8 @@ function seed() {
       NOW
     ) as never
   )
-  s = dep.state
+  // The dep is finished: openDispatch refuses a worker for a Task whose deps are not all completed (W1-B).
+  s = { ...dep.state, tasks: dep.state.tasks.map((t) => (t.id === dep.value.id ? { ...t, status: 'completed' as const } : t)) }
   const main = unwrap<{ id: string }>(
     createTask(
       s,
@@ -184,7 +185,7 @@ describe('buildCheckpoint', () => {
     const { s, dispatchId, depTaskId } = seed()
     const c = buildCheckpoint(s, { dispatchId, git: null, now: NOW })
     expect(c!.dependencies).toEqual([
-      { id: depTaskId, title: 'Add OAuth provider config', status: 'ready' }
+      { id: depTaskId, title: 'Add OAuth provider config', status: 'completed' }
     ])
   })
 

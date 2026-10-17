@@ -61,6 +61,7 @@ import type { PtyRegistry } from './registry'
 import type { ProcRegistry } from './procRegistry'
 import type { HostSpawner } from './spawner'
 import type { HostWorktrees } from './worktrees'
+import { readMaxConcurrentWorkers } from '../core/settings/maxConcurrentWorkers'
 
 export interface HostDriving {
   /** Computes now, reading the settings file (used by mayDrain, N2). */
@@ -383,6 +384,8 @@ export function createHostDriving(d: {
   const loop = createDispatchLoop({
     handle: (cmd, args) => d.orch.handle(cmd, args),
     getState: () => d.orch.state(),
+    // W1-B. A damaged file reads as no cap: the spawn refuses on that file anyway (orch.ts, the same line).
+    maxConcurrentWorkers: () => readMaxConcurrentWorkers(settingsPath).catch(() => null),
     accounts: () => d.checks.accounts(),
     loginStatus: (id) => d.checks.loginStatus(id),
     lang: () => d.checks.langNow(),

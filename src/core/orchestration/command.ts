@@ -107,7 +107,7 @@ import { parseCheckFlag } from '../workUnit/verification'
 import { isTerminal as taskFinished, outcomeOf, progressOf } from './view'
 import { runningRunCount } from './running'
 import { FINISHED_RUN_GRACE_MS } from './exec/dispatchLoop'
-import { appDriven } from './schedule'
+import { appDriven, workersAgainstCap } from './schedule'
 import type { JobEvent, WorktreeInfo } from '../types'
 import { ghFailureSentence, type GhFailed, type GhRunner } from '../github/gh'
 import { failedLogTail, readPrChecks, rerunFailed } from '../github/checks'
@@ -612,6 +612,10 @@ export interface OrchServerDeps {
    *  (exec/dispatchLoop.ts `dispatchOne`), through the slot the loop fills. **Only the Host injects it**,
    *  and answers 409 itself when it does not drive. Absent, the command answers 409. */
   dispatchTask?(taskId: string): Promise<Reply>
+  /** W1-B: the app-wide worker cap from app settings (`maxConcurrentWorkers`), or null for none. Each
+   *  process reads its own copy of the file: the app its AppSettingsStore, the Host the file. Absent:
+   *  no cap. */
+  maxConcurrentWorkers?(): number | null | Promise<number | null>
   /** Starts an agent session for `sessions create` (CLI spec §14): a terminal one through the Host's
    *  spawner (the path its workers take), a chat one through the Host's chat manager (the path its rolls
    *  take). **Only the Host injects it.** Rejects with the reason when the start fails; answers the new
@@ -1680,6 +1684,9 @@ export async function handleCommand(
       const concurrency = args.concurrency === undefined ? null : posInt(args.concurrency)
       if (args.concurrency !== undefined && concurrency === null)
         return bad('--concurrency must be an integer >= 1')
+      // W1-B: Job.priority. Any integer; absent is 0.
+      const priority = args.priority === undefined ? 0 : typeof args.priority === 'string' ? Number(args.priority) : args.priority
+      if (typeof priority !== 'number' || !Number.isInteger(priority)) return bad('--priority must be an integer')
       // 완료 수렴(설계 D12). --convergence 만 주면 빈 정책(기본값). 숫자 셋은 --convergence 없이는
       // 거절한다 — 조용히 받으면 "정책을 줬는데 꺼져 있다" 가 된다.
       let convergence: ConvergencePolicy | undefined
@@ -1809,6 +1816,7 @@ export async function handleCommand(
             cwd,
             ...(project ? { projectId: project.id } : {}),
             ...(concurrency !== null ? { concurrency } : {}),
+            ...(priority !== 0 ? { priority } : {}),
             ...(coordinatorAccountId ? { coordinatorAccountId } : {}),
             // `--auto` 는 값이 없는 플래그다(task-create --review 와 같은 모양). **예약이면 켜지
             // 않는다** — 템플릿 자신은 돌지 않기 때문이다.
@@ -3329,6 +3337,16 @@ export async function handleCommand(
         return conflict(
           `run ${run.id} is at its concurrency limit: ${openHere} of ${limit} dispatches are open`
         )
+      // **W1-B: the app-wide cap**, for every placer — the app's loop, `tasks dispatch` and a
+      // coordinator alike, since a coordinator's workers share the machine too. Only new work is held
+      // here: reviews and repairs open through their own doors (startReview, openRepairDispatch) and
+      // are counted, never refused, so a Task half-way through its checks is not stranded.
+      // `atCapacity` tells the app's loop this is a wait, not a reason for a Gate.
+      // Awaited only when wired: an `await` on nothing would still yield, and move this command's commit a tick later.
+      const cap = deps.maxConcurrentWorkers ? ((await deps.maxConcurrentWorkers()) ?? null) : null
+      const busy = cap === null ? 0 : workersAgainstCap(s)
+      if (cap !== null && busy >= cap)
+        return { status: 409, body: { error: `the app-wide worker cap is reached: ${busy} of ${cap} workers are open`, atCapacity: true } }
 
 
       // **`--worktree` 를 생략한 호출은 "이 Run 이 일하는 자리" 를 뜻한다** — 그것은 Run 이
