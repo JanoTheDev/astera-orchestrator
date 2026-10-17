@@ -517,6 +517,7 @@ export const es: Catalog = {
   'update.info.checkFailed': 'Error al comprobar',
   'update.info.manualInstallVersion': 'Instalar v{version} a mano',
   'update.info.manualWhy': 'Esta versión no puede instalarse sola: hay que moverla a mano',
+  'update.info.manualOnly': 'Esta versión no se actualiza sola: actualiza el código y vuelve a compilar',
   'update.manual.title': 'Instalar a mano',
   'update.manual.done':
     'La nueva versión está abierta en el Finder. Arrastra Astera a la carpeta Aplicaciones y vuelve a abrirla.\n\n{path}',

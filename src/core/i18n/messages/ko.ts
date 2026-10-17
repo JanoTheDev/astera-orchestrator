@@ -766,6 +766,7 @@ export const ko = {
   // 예전에는 이 실패가 로그에만 남아서, 사람 눈에는 버튼이 죽은 것과 구별되지 않았다.
   'update.info.manualInstallVersion': 'v{version} 직접 설치',
   'update.info.manualWhy': '이 빌드는 자동 설치가 되지 않아 직접 옮겨야 합니다',
+  'update.info.manualOnly': '이 빌드는 자동 업데이트를 하지 않습니다: 소스를 받아 다시 빌드하세요',
   'update.manual.title': '직접 설치',
   'update.manual.done':
     '새 버전을 Finder 에 열었습니다. Astera 를 응용 프로그램 폴더로 끌어다 놓고 다시 실행하세요.\n\n{path}',

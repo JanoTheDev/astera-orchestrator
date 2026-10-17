@@ -91,6 +91,7 @@ import {
   shouldNotifyDownloaded,
   showChecking
 } from '../../core/update/checkFeedback'
+import { AUTO_UPDATE } from '../../core/update/autoUpdate'
 import { installOutcomeNotice, readyToast } from '../../core/update/manualInstallNotice'
 import { applyEol, classifyExternalChange, detectEol, toLf, type Eol } from '../../core/files/edit'
 import { isSubPath, rebasePath } from '../../core/files/ops'
@@ -5274,7 +5275,10 @@ export default function App(): React.JSX.Element {
                       {/* When the check time widens the cell, the label used to break across lines in a narrow modal */}
                       <span className="update-label">{t('settings.info.update')}</span>
                       <span className="update-cell">
-                        {update?.state === 'downloading' ? (
+                        {/* Fork: no updater in this build, so there is nothing to check (core/update/autoUpdate.ts) */}
+                        {!AUTO_UPDATE ? (
+                          <span className="update-note">{t('update.info.manualOnly')}</span>
+                        ) : update?.state === 'downloading' ? (
                           <span className="update-note">{t('update.info.downloading', { percent: update.percent ?? 0 })}</span>
                         ) : (
                           <>

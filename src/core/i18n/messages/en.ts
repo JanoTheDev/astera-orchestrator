@@ -703,6 +703,7 @@ export const en: Record<keyof typeof ko, string> = {
   'update.info.checkFailed': 'Check failed',
   'update.info.manualInstallVersion': 'Install v{version} by hand',
   'update.info.manualWhy': 'This build cannot install itself — you have to move it across',
+  'update.info.manualOnly': 'Updates are manual in this build: pull and rebuild from source',
   'update.manual.title': 'Install by hand',
   'update.manual.done':
     'The new version is open in Finder. Drag Astera into your Applications folder, then start it again.\n\n{path}',

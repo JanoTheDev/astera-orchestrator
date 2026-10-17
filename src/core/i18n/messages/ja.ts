@@ -509,6 +509,7 @@ export const ja: Catalog = {
   'update.info.checkFailed': '確認に失敗',
   'update.info.manualInstallVersion': 'v{version} を手動でインストール',
   'update.info.manualWhy': 'このビルドは自動インストールできないため、手動で移動してください',
+  'update.info.manualOnly': 'このビルドは自動更新しません。ソースを取得して再ビルドしてください',
   'update.manual.title': '手動インストール',
   'update.manual.done':
     '新しいバージョンを Finder で開きました。Astera をアプリケーションフォルダにドラッグしてから、もう一度起動してください。\n\n{path}',
