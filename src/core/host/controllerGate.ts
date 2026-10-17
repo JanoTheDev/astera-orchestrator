@@ -14,6 +14,8 @@ export const CONTROLLER_READ_COMMANDS = [
   'tasks-list',
   'tasks-get',
   'dispatch-show',
+  // W3-C: every Run's Dispatches, read only
+  'dispatches-list',
   'runs-completion',
   'runs-checks',
   'tasks-check-output',

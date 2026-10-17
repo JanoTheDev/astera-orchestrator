@@ -2,9 +2,10 @@ import { describe, it, expect, vi } from 'vitest'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { SessionInfo } from '../../../../core/types'
-import type { WorkspaceProject } from './workspaceTree'
+import type { WorkspaceData, WorkspaceProject } from './workspaceTree'
 
 vi.mock('./workspace.css', () => ({}))
+vi.mock('../search/search.css', () => ({}))
 const { WorkspaceSidebar, sessionStatusOf } = await import('./WorkspaceSidebar')
 
 const tree: WorkspaceProject[] = [
@@ -21,10 +22,10 @@ const tree: WorkspaceProject[] = [
   }
 ]
 
-const render = (selectedPlanId: string | null): string =>
+const render = (selectedPlanId: string | null, data: WorkspaceData | null = null): string =>
   renderToStaticMarkup(
     React.createElement(WorkspaceSidebar, {
-      tree, sessions: [{ id: 'w', status: 'running' } as SessionInfo], showArchived: true, onShowArchived: () => {},
+      tree, data, sessions: [{ id: 'w', status: 'running' } as SessionInfo], showArchived: true, onShowArchived: () => {},
       selectedPlanId, onSelectPlan: () => {}, canOpenSession: (id) => id === 'w', onOpenSession: () => {}
     })
   )
@@ -44,6 +45,17 @@ describe('WorkspaceSidebar', () => {
     const html = render('j1')
     expect(html).toContain('ws-plan selected')
     expect(html).toContain('All sessions')
+  })
+
+  // W3-C
+  it('shows the search box and counts what needs input in the header badge', () => {
+    expect(render(null)).toMatch(/class="ss-badge"[^>]*>0</)
+    expect(render(null)).toContain('Search sessions across projects')
+    const awaiting: WorkspaceData = {
+      projects: [], runs: [], tasks: [], dispatches: [], gates: [],
+      jobsByProject: { p1: [{ id: 'j1', objective: 'o', cwd: '/x', createdAt: '', pendingStart: true, plannerSessionIds: [] }] }
+    }
+    expect(render(null, awaiting)).toMatch(/class="ss-badge ss-due"[^>]*>1</)
   })
 
   it('reads a session’s status from its process first, then its attention', () => {

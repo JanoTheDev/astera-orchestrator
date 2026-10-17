@@ -3,7 +3,7 @@
 // **Everything here is derived, nothing is stored.** The pane tree is in memory only, but orchestration.json
 // survives a restart, so a tree built from its Projects, Jobs, Runs, Tasks and Dispatches is the same tree after
 // one. Pure, so it is tested in vitest's node environment like the rest of the renderer's judgements.
-import type { Dispatch, Job, JobRun, Project, Task } from '../../../../core/orchestration/types'
+import type { Dispatch, Gate, Job, JobRun, Project, Task } from '../../../../core/orchestration/types'
 import { jobNameOf } from '../../../../core/orchestration/jobName'
 import { isJobActive } from '../../../../core/orchestration/lifecycle'
 import { leaves, removeTab, type PaneNode } from '../../../../core/panes/tree'
@@ -17,6 +17,8 @@ export interface WorkspaceData {
   runs: JobRun[]
   tasks: Task[]
   dispatches: Dispatch[]
+  /** W3-C: the open Gates of every project (`questions-list --status open`), for the "needs my input" list. */
+  gates: Gate[]
 }
 
 export type SessionRole = 'planner' | 'coordinator' | 'worker'
@@ -28,6 +30,8 @@ export interface WorkspaceSession {
   label: string
   projectName: string
   planName: string
+  /** W3-C: a worker's Task, so search and the inbox can read its branch and Gates (sessionIndex.ts). */
+  taskId?: string
   taskTitle?: string
   /** The Dispatch's model (W1-A), else the Task's. Absent for a coordinator: its session carries it. */
   model?: string
@@ -78,6 +82,7 @@ function workersOf(run: JobRun, tasks: Task[], dispatches: Dispatch[], projectNa
       label: `${planName} Worker ${i + 1}`,
       projectName,
       planName,
+      taskId: task.id,
       taskTitle: task.title,
       ...((last.model ?? task.model) !== undefined ? { model: last.model ?? task.model } : {}),
       accountId: last.accountId,

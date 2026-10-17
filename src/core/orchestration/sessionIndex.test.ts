@@ -1,0 +1,139 @@
+import { describe, it, expect } from 'vitest'
+import type { Gate, Job, JobRun, Task } from './types'
+import {
+  buildSessionIndex,
+  needsInput,
+  searchSessions,
+  type SessionIndexInput,
+  type TreePlan,
+  type TreeProject,
+  type TreeSession
+} from './sessionIndex'
+
+const at = '2026-10-01T00:00:00Z'
+const s = (sessionId: string, role: TreeSession['role'], label: string, project: string, plan: string, over: Partial<TreeSession> = {}): TreeSession => ({
+  sessionId, role, label, projectName: project, planName: plan, ...over
+})
+const plan = (jobId: string, name: string, project: string, over: Partial<TreePlan> = {}): TreePlan => ({
+  jobId, projectId: project, name, planner: [], coordinator: [], workers: [], ...over
+})
+const job = (id: string, over: Partial<Job> = {}): Job => ({ id, objective: id, cwd: '/repos/x', createdAt: at, ...over })
+const run = (id: string, jobId: string): JobRun => ({ id, jobId, ordinal: 1, createdAt: at })
+const task = (id: string, over: Partial<Task> = {}): Task => ({
+  id, runId: 'r1', title: `task ${id}`, spec: '', deps: [], status: 'dispatched', consecutiveFailures: 0, createdAt: at, updatedAt: at, ...over
+})
+const gate = (id: string, taskId: string, over: Partial<Gate> = {}): Gate => ({
+  id, runId: 'r1', taskId, question: `question ${id}`, status: 'open', createdAt: at, ...over
+})
+
+/** Two projects: Gameful has the Trading plan (planner, coordinator, two workers), Redis has a plan with one worker. */
+const tree: TreeProject[] = [
+  {
+    id: 'p1', name: 'Gameful', path: '/repos/gameful',
+    plans: [
+      plan('j1', 'Trading', 'p1', {
+        planner: [s('pl', 'planner', 'Trading Planner', 'Gameful', 'Trading')],
+        coordinator: [s('co', 'coordinator', 'Trading Coordinator', 'Gameful', 'Trading')],
+        workers: [
+          s('w1', 'worker', 'Trading Worker 1', 'Gameful', 'Trading', { taskId: 't1', taskTitle: 'Split the order book', model: 'sonnet' }),
+          s('w2', 'worker', 'Trading Worker 2', 'Gameful', 'Trading', { taskId: 't2', taskTitle: 'Price feed' })
+        ]
+      })
+    ]
+  },
+  {
+    id: 'p2', name: 'Redis', path: '/repos/redis',
+    plans: [plan('j2', 'Perf', 'p2', { workers: [s('w3', 'worker', 'Perf Worker 1', 'Redis', 'Perf', { taskId: 't3', taskTitle: 'Trace the slow path' })] })]
+  }
+]
+
+const input = (over: Partial<SessionIndexInput> = {}): SessionIndexInput => ({
+  tree,
+  jobs: [job('j1'), job('j2')],
+  runs: [run('r1', 'j1'), run('r2', 'j2')],
+  tasks: [task('t1', { links: { branch: 'astera/t1' } }), task('t2'), task('t3', { runId: 'r2' })],
+  gates: [],
+  attention: {},
+  ...over
+})
+
+describe('buildSessionIndex', () => {
+  it('lists every session of every project with its plan, task, branch, attention and open Gates', () => {
+    const index = buildSessionIndex(
+      input({ attention: { w1: 'working', w3: 'waiting' }, gates: [gate('g1', 't1'), gate('g2', 't1', { status: 'resolved' })] })
+    )
+    expect(index.map((x) => x.sessionId)).toEqual(['pl', 'co', 'w1', 'w2', 'w3'])
+    const w1 = index.find((x) => x.sessionId === 'w1')!
+    expect(w1).toMatchObject({
+      jobId: 'j1', projectId: 'p1', projectName: 'Gameful', planName: 'Trading', role: 'worker',
+      taskTitle: 'Split the order book', model: 'sonnet', branch: 'astera/t1', attention: 'working', openGates: 1
+    })
+    // A session with no verdict yet reads idle, as attention.ts answers for an id it never saw
+    expect(index.find((x) => x.sessionId === 'co')).toMatchObject({ attention: 'idle', openGates: 0 })
+    expect(index.find((x) => x.sessionId === 'co')!.branch).toBeUndefined()
+    expect(index.find((x) => x.sessionId === 'w3')).toMatchObject({ projectName: 'Redis', attention: 'waiting' })
+  })
+})
+
+describe('searchSessions', () => {
+  const index = buildSessionIndex(input())
+  const ids = (q: string): string[] => searchSessions(index, q).map((x) => x.sessionId)
+
+  it('asks for nothing with an empty query', () => {
+    expect(ids('')).toEqual([])
+    expect(ids('   ')).toEqual([])
+  })
+
+  it('finds a session by project, plan, task title or label, keeping its context', () => {
+    expect(ids('redis')).toEqual(['w3'])
+    expect(ids('order book')).toEqual(['w1'])
+    expect(ids('coordinator')).toEqual(['co'])
+    expect(searchSessions(index, 'slow')[0]).toMatchObject({ projectName: 'Redis', planName: 'Perf' })
+  })
+
+  it('ranks a whole or word-start match ahead of a part of a word, then a fuzzy one', () => {
+    // "price" starts w2's task; "trading" is every Trading session's plan, so the label's own word wins only by field
+    expect(ids('price')).toEqual(['w2'])
+    expect(ids('worker 2')[0]).toBe('w2')
+    // the letters of "Trading Worker 1" in order, but not of the other labels
+    expect(ids('tw1')).toEqual(['w1'])
+    // a word-start in a label beats a part of a word in a task title
+    expect(ids('pl')[0]).toBe('pl')
+  })
+
+  it('needs every word to match, and keeps the index order on a tie', () => {
+    expect(ids('gameful worker')).toEqual(['w1', 'w2'])
+    expect(ids('gameful redis')).toEqual([])
+  })
+})
+
+describe('needsInput', () => {
+  it('collects waiting sessions, open Gates and plans awaiting approval across projects', () => {
+    const items = needsInput(
+      input({
+        attention: { w3: 'waiting', w1: 'working' },
+        gates: [gate('g1', 't2'), gate('g0', 't1', { status: 'resolved' })],
+        jobs: [job('j1'), job('j2', { pendingStart: true, plannerSessionIds: [] })]
+      })
+    )
+    expect(items.map((x) => x.kind)).toEqual(['session', 'gate', 'approval'])
+    expect(items[0]).toMatchObject({ kind: 'session', session: { sessionId: 'w3', projectName: 'Redis' } })
+    // The Gate's Task has a worker, so selecting it focuses that session
+    expect(items[1]).toMatchObject({ kind: 'gate', jobId: 'j1', projectName: 'Gameful', planName: 'Trading', taskTitle: 'task t2', sessionId: 'w2' })
+    expect(items[2]).toMatchObject({ kind: 'approval', jobId: 'j2', projectName: 'Redis', planName: 'Perf' })
+  })
+
+  it('an approval names the latest planner; a not-started plan with no planner is not awaiting approval', () => {
+    const items = needsInput(input({ jobs: [job('j1', { pendingStart: true, plannerSessionIds: ['pl'] }), job('j2', { pendingStart: true })] }))
+    expect(items).toEqual([{ kind: 'approval', jobId: 'j1', projectName: 'Gameful', planName: 'Trading', sessionId: 'pl' }])
+  })
+
+  it('leaves out what belongs to a plan the tree does not show (an archived one)', () => {
+    const shown = input({ tree: [tree[0]], attention: { w3: 'waiting' }, gates: [gate('g3', 't3', { runId: 'r2' })], jobs: [job('j2', { pendingStart: true, plannerSessionIds: [] })] })
+    expect(needsInput(shown)).toEqual([])
+  })
+
+  it('an idle or working session is not waiting on anyone', () => {
+    expect(needsInput(input({ attention: { w1: 'idle', w2: 'working' } }))).toEqual([])
+  })
+})

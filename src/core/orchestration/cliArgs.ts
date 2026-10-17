@@ -128,6 +128,8 @@ export const NOUNS = {
     'plan'],
   runs: ['list', 'get', 'wait', 'follow', 'stop', 'resume', 'checks'],
   tasks: ['list', 'add', 'dispatch'],
+  // W3-C search and inbox: every Run's Dispatches (command.ts `dispatches-list`), read only
+  dispatches: ['list'],
   questions: ['list', 'get', 'answer'],
   // `jobs create --coordinator-account` 와 `tasks add --account` 에 넣을 id 가 여기서 나온다.
   // 동사 없는 `accounts` 는 가이드가 가르치는 세션 명령 그대로다(BARE_NOUNS).

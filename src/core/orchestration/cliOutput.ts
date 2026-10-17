@@ -80,6 +80,8 @@ const LIST_FIELD: Record<string, string> = {
   // 묶으면 가이드가 그 자리마다 "어떤 items 인가" 를 다시 설명해야 한다.
   'run-configs': 'configs',
   'dispatch-show': 'dispatches',
+  // W3-C search and inbox
+  'dispatches-list': 'dispatches',
   inbox: 'messages'
 }
 
@@ -213,6 +215,8 @@ const LISTING: Record<string, readonly string[]> = {
   // **The Run of `--run`, not a Task.** The noun rule would offer `tasks list` again, which gives
   // Task ids; `runs list` gives run ids and is public.
   'tasks-list': ['astera runs list'],
+  // W3-C: `--run` fails the same way
+  'dispatches-list': ['astera runs list'],
   // **The Job of `--job`, not a run** — the same shape the other way round. The noun rule would offer
   // `runs list` again, which gives run ids, and a run id given to `--job` is the same 404.
   'runs-list': ['astera jobs list'],

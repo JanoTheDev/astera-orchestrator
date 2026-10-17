@@ -3427,6 +3427,16 @@ export async function handleCommand(
       if (!taskId) return bad('--task is required')
       return okBody(s.dispatches.filter((d) => d.taskId === taskId))
     }
+    // W3-C search and inbox: every project's Dispatches in one read, `--run` narrowing to one Run's. Same shape as
+    // tasks-list, so the workspace sidebar can read them all without one `dispatch-show` per Task.
+    case 'dispatches-list': {
+      if (args.run === undefined) return okBody(s.dispatches)
+      const run = str(args.run)
+      if (run === null) return bad('--run needs a value: the run id')
+      if (!s.runs.some((r) => r.id === run)) return notFound(`unknown run: ${run}`)
+      const tasks = new Set(s.tasks.filter((t) => t.runId === run).map((t) => t.id))
+      return okBody(s.dispatches.filter((d) => tasks.has(d.taskId)))
+    }
     case 'worker-start': {
       const taskId = str(args.taskId ?? args.task)
       const agent = str(args.agent)

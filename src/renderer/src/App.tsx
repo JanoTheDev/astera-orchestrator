@@ -4618,6 +4618,7 @@ export default function App(): React.JSX.Element {
                 <AccountPanel accounts={accounts} />
                 <WorkspaceSidebar
                   tree={workspaceTree}
+                  data={workspaceData}
                   sessions={sessions}
                   showArchived={workspaceArchived}
                   onShowArchived={setWorkspaceArchived}
