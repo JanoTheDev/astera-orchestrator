@@ -1,10 +1,11 @@
 // 검토를 누구에게 맡기는가. 순수 함수이고 배선이 계정 목록과 로그인 여부를 모아 부른다 —
 // 그 둘은 main 의 것이라(core.accounts) 이 층이 직접 읽지 않는다.
 import { defaultAccountIdOf } from '../accounts/defaultAccount'
-import { PROVIDERS } from '../providers/meta'
+import { PROVIDERS, providerOf } from '../providers/meta'
 import type { Account, Provider } from '../types'
 
-/** 구현자와 **다른** provider 의 계정 하나. 없으면 null(그것이 Gate 가 된다).
+/** 구현자와 **다른** provider 의 계정 하나 — 다른 provider 에 계정이 아예 없으면 같은 provider 의
+ *  계정(`sameProvider`, 아래). 없으면 null(그것이 Gate 가 된다).
  *
  *  자기 코드를 자기가 읽으면 같은 맹점을 두 번 지나므로 provider 를 갈라야 한다.
  *
@@ -18,11 +19,18 @@ export function pickReviewer(a: {
   implProvider: Provider
   accounts: readonly Account[]
   loggedInIds: ReadonlySet<string>
-}): { provider: Provider; accountId: string } | null {
+}): { provider: Provider; accountId: string; sameProvider?: true } | null {
   for (const provider of PROVIDERS) {
     if (provider === a.implProvider) continue
     const accountId = defaultAccountIdOf(provider, a.accounts, a.loggedInIds)
     if (accountId) return { provider, accountId }
   }
-  return null
+  // **Only one provider has accounts** (orchestrator W1-A, owner decision 2026-10-17): review on the
+  // implementer's provider rather than not at all. The blind spot is then broken by the model instead —
+  // the reviewer runs on the `reviewer` role model, never the implementer's (resolveReviewerModel). When
+  // another provider does have an account that is merely logged out, this stays null: logging in is the
+  // fix, and the Gate says so.
+  if (a.accounts.some((x) => providerOf(x) !== a.implProvider)) return null
+  const accountId = defaultAccountIdOf(a.implProvider, a.accounts, a.loggedInIds)
+  return accountId ? { provider: a.implProvider, accountId, sameProvider: true } : null
 }

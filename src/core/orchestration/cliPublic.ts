@@ -84,8 +84,15 @@ const TASK_HIDDEN = [
   'suspiciousFiles',
   'reviewRequested',
   // A skipped round's bookkeeping (plugin Phase 5 C9): its results are the Task's `checks` once it settles
-  'checkResume'
+  'checkResume',
+  // W1-A role models: not in the SDK's contract until the planner (W2-A) settles how they are written
+  'difficulty',
+  'model',
+  'provider'
 ] as const
+
+/** W1-A role models: a Job's per-role model override, held back from the SDK like the Task's three above. */
+const JOB_HIDDEN = ['models'] as const
 
 /** A followed event's message body (pages long) and the app's link from an event to a tab. */
 const FOLLOW_EVENT_HIDDEN = ['body', 'sessionId'] as const
@@ -93,7 +100,7 @@ const FOLLOW_EVENT_HIDDEN = ['body', 'sessionId'] as const
 // A Job's and a Run's derived fields (the package's DERIVED_FIELDS: outcome, progress, questionsOpen) are not fields
 // of the objects, so they are on neither side of these checks.
 type _project = NothingLeft<Unlisted<Project, typeof PROJECT_FIELDS, []>>
-type _job = NothingLeft<Unlisted<Job, typeof JOB_FIELDS, []>>
+type _job = NothingLeft<Unlisted<Job, typeof JOB_FIELDS, typeof JOB_HIDDEN>>
 type _run = NothingLeft<Unlisted<JobRun, typeof RUN_FIELDS, typeof RUN_HIDDEN>>
 type _task = NothingLeft<Unlisted<Task, typeof TASK_FIELDS, typeof TASK_HIDDEN>>
 type _question = NothingLeft<Unlisted<Gate, typeof QUESTION_FIELDS, []>>

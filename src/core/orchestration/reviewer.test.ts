@@ -13,9 +13,17 @@ describe('pickReviewer', () => {
       .toEqual({ provider: 'codex', accountId: 'b1' })
   })
 
-  it('구현자와 같은 provider 만 있으면 null 이다', () => {
+  // W1-A (owner decision 2026-10-17): with only one provider, review on it rather than not at all —
+  // the reviewer model (resolveReviewerModel) keeps it off the implementer's model.
+  it('구현자와 같은 provider 만 있으면 그 provider 로 검토한다 (sameProvider)', () => {
     const accounts = [acc('a1', 'claude', '2026-01-01T00:00:00.000Z')]
-    expect(pickReviewer({ implProvider: 'claude', accounts, loggedInIds: new Set(['a1']) })).toBeNull()
+    expect(pickReviewer({ implProvider: 'claude', accounts, loggedInIds: new Set(['a1']) }))
+      .toEqual({ provider: 'claude', accountId: 'a1', sameProvider: true })
+  })
+
+  it('같은 provider 계정도 로그인돼 있지 않으면 null 이다', () => {
+    const accounts = [acc('a1', 'claude', '2026-01-01T00:00:00.000Z')]
+    expect(pickReviewer({ implProvider: 'claude', accounts, loggedInIds: new Set() })).toBeNull()
   })
 
   it('로그인되지 않은 계정은 쓰지 않는다', () => {

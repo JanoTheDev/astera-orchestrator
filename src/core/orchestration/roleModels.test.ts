@@ -1,0 +1,125 @@
+import { describe, it, expect } from 'vitest'
+import {
+  dispatchModelFields,
+  modelFitsProvider,
+  pickTaskProvider,
+  readRoleModelSettings,
+  resolveReviewerModel,
+  resolveRoleModel,
+  resolveWorkerModel
+} from './roleModels'
+import type { Account } from '../types'
+
+const acct = (id: string, provider: 'claude' | 'codex' = 'claude'): Account =>
+  ({ id, label: id, configDir: `/cfg/${id}`, color: '#888', createdAt: '2026-10-17T00:00:00.000Z', provider })
+const claudeOnly = [acct('c1')]
+const both = [acct('c1'), acct('x1', 'codex')]
+
+describe('resolveRoleModel', () => {
+  it('job override > app setting > built-in default', () => {
+    const settings = { claude: { roles: { planner: 'sonnet' } } }
+    expect(resolveRoleModel(settings, { models: { planner: 'claude-opus-5-5' } }, 'planner', 'claude')).toBe('claude-opus-5-5')
+    expect(resolveRoleModel(settings, undefined, 'planner', 'claude')).toBe('sonnet')
+    expect(resolveRoleModel({}, undefined, 'planner', 'claude')).toBe('opus')
+  })
+
+  it('the owner defaults: planner and reviewer opus, coordinator haiku, worker none', () => {
+    expect(resolveRoleModel({}, undefined, 'coordinator', 'claude')).toBe('haiku')
+    expect(resolveRoleModel({}, undefined, 'reviewer', 'claude')).toBe('opus')
+    expect(resolveRoleModel({}, undefined, 'worker', 'claude')).toBeUndefined()
+  })
+
+  it('an emptied setting means the CLI default (undefined), not the built-in one', () => {
+    expect(resolveRoleModel({ claude: { roles: { planner: '' } } }, undefined, 'planner', 'claude')).toBeUndefined()
+  })
+
+  it('codex has no built-in models, and never gets a claude alias from a Job override', () => {
+    expect(resolveRoleModel({}, undefined, 'planner', 'codex')).toBeUndefined()
+    expect(resolveRoleModel({}, { models: { planner: 'opus' } }, 'planner', 'codex')).toBeUndefined()
+    expect(resolveRoleModel({ codex: { roles: { planner: 'gpt-5.5' } } }, undefined, 'planner', 'codex')).toBe('gpt-5.5')
+  })
+
+  it('an empty Job override does not mask the app setting', () => {
+    expect(resolveRoleModel({}, { models: { planner: '  ' } }, 'planner', 'claude')).toBe('opus')
+  })
+})
+
+describe('resolveWorkerModel', () => {
+  const base = { settings: {}, job: undefined, provider: 'claude' as const, accounts: claudeOnly }
+
+  it('Task.model > difficulty map > Job override > app default > CLI default', () => {
+    const job = { models: { worker: 'sonnet' } }
+    const settings = { claude: { roles: { worker: 'haiku' } } }
+    expect(resolveWorkerModel({ ...base, settings, job, task: { model: 'claude-x', difficulty: 'hard' } }).model).toBe('claude-x')
+    expect(resolveWorkerModel({ ...base, settings, job, task: { difficulty: 'hard' } }).model).toBe('opus')
+    expect(resolveWorkerModel({ ...base, settings, job, task: {} }).model).toBe('sonnet')
+    expect(resolveWorkerModel({ ...base, settings, task: {} }).model).toBe('haiku')
+    expect(resolveWorkerModel({ ...base, task: {} })).toEqual({})
+  })
+
+  it('maps difficulty to haiku / sonnet / opus by default, and follows the app map', () => {
+    expect(resolveWorkerModel({ ...base, task: { difficulty: 'light' } }).model).toBe('haiku')
+    expect(resolveWorkerModel({ ...base, task: { difficulty: 'standard' } }).model).toBe('sonnet')
+    expect(resolveWorkerModel({ ...base, settings: { claude: { difficulty: { light: 'sonnet' } } }, task: { difficulty: 'light' } }).model).toBe('sonnet')
+  })
+
+  it('a Task asking for codex with no codex account runs on claude, drops its codex model, and says why', () => {
+    const r = resolveWorkerModel({ ...base, task: { provider: 'codex', model: 'gpt-5.5', difficulty: 'standard' } })
+    expect(r.model).toBe('sonnet')
+    expect(r.note).toMatch(/codex, which has no account/)
+  })
+
+  it('a Task asking for codex is fine once a codex account exists and it runs there', () => {
+    const r = resolveWorkerModel({ ...base, provider: 'codex', accounts: both, task: { provider: 'codex', model: 'gpt-5.5' } })
+    expect(r).toEqual({ model: 'gpt-5.5' })
+  })
+})
+
+describe('pickTaskProvider', () => {
+  it('honours the ask only among providers with an account', () => {
+    expect(pickTaskProvider({ provider: 'codex' }, claudeOnly).provider).toBe('claude')
+    expect(pickTaskProvider({ provider: 'codex' }, both)).toEqual({ provider: 'codex' })
+    expect(pickTaskProvider({ accountIds: ['x1'] }, both)).toEqual({ provider: 'codex' })
+    expect(pickTaskProvider({}, claudeOnly)).toEqual({ provider: 'claude' })
+  })
+})
+
+describe('resolveReviewerModel', () => {
+  it('cross-provider review uses the reviewer model as is', () => {
+    expect(resolveReviewerModel({ settings: {}, job: undefined, provider: 'claude', impl: { provider: 'codex', model: 'opus' } })).toEqual({ model: 'opus' })
+  })
+
+  it('same-provider review keeps the reviewer model when it differs from the implementer\'s', () => {
+    expect(resolveReviewerModel({ settings: {}, job: undefined, provider: 'claude', impl: { provider: 'claude', model: 'sonnet' } })).toEqual({ model: 'opus' })
+  })
+
+  it('same-provider review on the implementer\'s own model moves one tier (down from the top)', () => {
+    const top = resolveReviewerModel({ settings: {}, job: undefined, provider: 'claude', impl: { provider: 'claude', model: 'opus' } })
+    expect(top.model).toBe('sonnet')
+    expect(top.note).toMatch(/moved to sonnet/)
+    const settings = { claude: { roles: { reviewer: 'haiku' } } }
+    expect(resolveReviewerModel({ settings, job: undefined, provider: 'claude', impl: { provider: 'claude', model: 'haiku' } }).model).toBe('sonnet')
+  })
+})
+
+describe('readRoleModelSettings', () => {
+  it('keeps strings (empty included) and drops everything else', () => {
+    expect(readRoleModelSettings({ claude: { roles: { planner: ' opus ', worker: '', bogus: 'x', reviewer: 3 } }, codex: 'no' })).toEqual({
+      claude: { roles: { planner: 'opus', worker: '' } }
+    })
+    expect(readRoleModelSettings(null)).toEqual({})
+    expect(readRoleModelSettings([])).toEqual({})
+  })
+})
+
+describe('modelFitsProvider / dispatchModelFields', () => {
+  it('tells the two vendors apart by name', () => {
+    expect(modelFitsProvider('opus', 'codex')).toBe(false)
+    expect(modelFitsProvider('gpt-5.5', 'claude')).toBe(false)
+    expect(modelFitsProvider('claude-sonnet-5-5', 'claude')).toBe(true)
+  })
+  it('carries only what is set', () => {
+    expect(dispatchModelFields({})).toEqual({})
+    expect(dispatchModelFields({ model: 'opus', modelNote: 'n' })).toEqual({ model: 'opus', modelNote: 'n' })
+  })
+})

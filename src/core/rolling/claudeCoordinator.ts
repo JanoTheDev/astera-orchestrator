@@ -123,7 +123,8 @@ export interface RollingDeps {
      *  latter has the default already resolved, and writing a resolved default into the note pins the
      *  language it was resolved in. */
     rollPrompt?: string
-    /** Chat only, Claude only: start the next process on this model. See `chosenModelOf` below. */
+    /** Start the next process on this model. A chat chain: the person's pick (`chosenModelOf` below). A
+     *  terminal chain: the model it was started with (`SessionInfo.model`, orchestrator W1-A). */
     model?: string | null
     /** design F5 fix round 1 (Important 3, the roll-inheritance fix): start the respawned process
      *  with the toolchain bypass already applied, because the chain being rolled had already been
@@ -1816,7 +1817,9 @@ export class RollingCoordinator {
         rollPrompt: chain.liveInfo.rollPrompt,
         // Carried so the chain keeps running on what the person chose. The respawned session records it
         // as its own choice, so the roll after this one reads it back the same way.
-        model: chosenModel,
+        // A terminal chain has no such choice; it keeps the model it was started with instead
+        // (orchestrator W1-A: a Job worker's `--model`), so a roll does not drop it to the CLI default.
+        model: chosenModel ?? chain.liveInfo.model ?? null,
         startWithBypass: wasBypassed,
         // S6 R6: the new pty is born with what a takeover needs if this process dies before the
         // rekey commits: where it came from, and the chain on its new account awaiting its prompt.

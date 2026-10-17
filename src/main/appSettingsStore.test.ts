@@ -5,6 +5,7 @@ import path from 'node:path'
 import { AppSettingsStore, readSkillSettings } from './appSettingsStore'
 import { RepairNeeded } from '../core/settings/repairNeeded'
 import type { DesktopNotifySettings } from '../core/notify/settings'
+import { readRoleModelsSetting } from '../core/settings/agentPermissionMode'
 
 let dir: string
 beforeEach(async () => {
@@ -30,6 +31,20 @@ describe('AppSettingsStore', () => {
     const b = new AppSettingsStore(file())
     await b.load()
     expect(b.getLang()).toBe('en')
+  })
+
+  // Orchestrator W1-A: the role models survive a reload, an emptied field stays empty (the CLI default),
+  // and the Host reads the same key from the same file.
+  it('roleModels 를 저장하고 다시 읽으며, Host 의 읽기도 같은 값을 본다', async () => {
+    const a = new AppSettingsStore(file())
+    await a.load()
+    expect(a.getRoleModels()).toEqual({})
+    await a.setRoleModels({ claude: { roles: { planner: 'sonnet', coordinator: '' }, difficulty: { hard: 'claude-opus-5-5' } } })
+    const b = new AppSettingsStore(file())
+    await b.load()
+    const want = { claude: { roles: { planner: 'sonnet', coordinator: '' }, difficulty: { hard: 'claude-opus-5-5' } } }
+    expect(b.getRoleModels()).toEqual(want)
+    expect(await readRoleModelsSetting(file())).toEqual(want)
   })
 
   it('setLang은 즉시 getLang에 반영된다', async () => {

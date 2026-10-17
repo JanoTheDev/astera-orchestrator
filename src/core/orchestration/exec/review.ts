@@ -20,6 +20,7 @@ import { pickReviewer } from '../reviewer'
 import { openReviewDispatch, type OrchState } from '../state'
 import { buildReviewSpecFile, knowledgeIn, specFileName } from './coordinator'
 import { createReviewGate } from './reviewGate'
+import { dispatchModelFields } from '../roleModels'
 
 export interface ReviewContext {
   getState(): OrchState
@@ -84,6 +85,9 @@ export function createReviewStarter(c: ReviewContext): (a: { taskId: string }) =
       const picked = pickReviewer({ implProvider: impl.provider, accounts, loggedInIds: loggedIn })
       if (!picked)
         return void (await gate(`no logged-in account on a provider other than ${impl.provider}`))
+      // Same-provider review (W1-A): the reviewer's model is kept off the implementer's by
+      // startWorkerWithChain (resolveReviewerModel), and the log says which way this review went.
+      if (picked.sameProvider) c.log(`review task=${taskId}: no other provider has an account — reviewing on ${impl.provider}`)
       // PTY 를 띄울 경로는 가드를 통과해야 한다 — validator.start 와 같은 이유(Dispatch.cwd 는
       // 오케스트레이션 소켓에서 온 값이고 정규화는 검증이 아니다, ADR-003).
       await c.assertAllowedPath(cwd)
@@ -169,7 +173,7 @@ export function createReviewStarter(c: ReviewContext): (a: { taskId: string }) =
           ? { resultPath: path.join(c.specsDir, `${specFileName(taskId, opened.value.id)}.review.json`) }
           : {})
       })
-      let started: { sessionId: string; cwd: string; specPath: string }
+      let started: { sessionId: string; cwd: string; specPath: string; model?: string; modelNote?: string }
       try {
         // 검토자는 구현자가 일한 트리에서 돈다 — worktree 'current' + runCwd = 그 cwd.
         //
@@ -210,7 +214,7 @@ export function createReviewStarter(c: ReviewContext): (a: { taskId: string }) =
         ...latest,
         dispatches: latest.dispatches.map((d) =>
           d.id === opened.value.id
-            ? { ...d, sessionId: started.sessionId, cwd: started.cwd, specPath: started.specPath }
+            ? { ...d, sessionId: started.sessionId, cwd: started.cwd, specPath: started.specPath, ...dispatchModelFields(started) }
             : d
         )
       })

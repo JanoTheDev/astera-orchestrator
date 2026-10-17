@@ -531,6 +531,16 @@ describe('RollingCoordinator', () => {
     expect(h.spawned[0].bypassPermissions).toBe(true)
   })
 
+  // Orchestrator W1-A: a terminal chain keeps the --model it was started with (a Job worker's role model).
+  it('롤 respawn 시 터미널 세션의 모델(--model)을 그대로 전달한다', async () => {
+    const h = harness()
+    h.payloads.set('s1', payload(97))
+    h.coord.register({ ...h.info1, model: 'opus' })
+    h.coord.handleData({ sessionId: 's1', data: LIMIT_TEXT })
+    await flush()
+    expect(h.spawnedOpts[0].model).toBe('opus')
+  })
+
   it('활성 체인의 claude 세션 ID로 live 세션을 찾는다 (resume 가드)', async () => {
     const h = harness()
     h.payloads.set('s1', payload(97))

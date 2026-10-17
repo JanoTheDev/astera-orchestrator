@@ -670,6 +670,19 @@ describe('CodexRollingCoordinator', () => {
     h.coord.stop()
   })
 
+  // Orchestrator W1-A: a Job worker started with `-m` must not come back on the CLI default after a roll.
+  it('롤 respawn 시 세션의 모델(-m)을 그대로 전달한다', async () => {
+    const h = harness()
+    const file = await writeRollout({ accountId: 'c1', uuid: 'cx-model', cwd: h.info1.cwd, primary: 95 })
+    h.coord.register({ ...h.info1, model: 'gpt-5.5' })
+    await advance(1_500)
+    await appendLimitError(file)
+    h.coord.handleData({ sessionId: 's1', data: LIMIT_TEXT })
+    await advance(100)
+    expect(h.spawnedOpts[0].model).toBe('gpt-5.5')
+    h.coord.stop()
+  })
+
   it('rate_limit_reached_type이 있으면 문구 없이도 롤한다 (판정 ①)', async () => {
     const h = harness()
     await writeRollout({ accountId: 'c1', uuid: 'cx-2', cwd: h.info1.cwd, primary: 40, reached: 'primary' })

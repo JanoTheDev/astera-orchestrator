@@ -199,6 +199,8 @@ const api = {
     setDesktopNotify: invoke('settings.setDesktopNotify'),
     getGenerator: invoke('settings.getGenerator'),
     setGenerator: invoke('settings.setGenerator'),
+    getRoleModels: invoke('settings.getRoleModels'),
+    setRoleModels: invoke('settings.setRoleModels'),
     listModels: invoke('settings.listModels'),
     getResumeStrategy: invoke('settings.getResumeStrategy'),
     setResumeStrategy: invoke('settings.setResumeStrategy'),

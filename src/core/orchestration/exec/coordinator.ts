@@ -79,6 +79,9 @@ export interface CoordinatorDeps {
      *  워커에게는 워커용 문구를 준다(startWorker 의 호출 자리). optional 인 이유는 넘기지 않아도
      *  롤링이 기본값으로 돌기 때문이다 — rollAccountIds 처럼 지우면 기능이 꺼지는 값이 아니다. */
     rollPrompt?: string
+    /** The role model to start on (orchestrator W1-A, roleModels.ts) — `--model` / `-m`. Absent: the
+     *  CLI's default. The wiring hands it to the session spawn, which keeps it across rolls. */
+    model?: string
   }): Promise<{ id: string }>
   writeToSession(sessionId: string, data: string): void
   /** Is that session working. **null = it cannot be decided for this provider** (codex — a
@@ -717,6 +720,9 @@ export class OrchCoordinator {
      *  **required 인 이유는 rollAccountIds 와 같다** — optional 이면 넘기지 않아도 typecheck 가
      *  통과하고, 그때 워커는 조용히 계정 하나짜리 체인으로 돌아간다. */
     rollAccountIds: string[]
+    /** The model to start the session on (W1-A; resolved by startWorkerWithChain). Unused on a
+     *  `--terminal` reuse, which types into a session already running on its own model. */
+    model?: string
     /** Run.cwd — the base cwd when worktree is 'current', and the base a new worktree forks from.
      *  The commit obligation below derives from `cwd !== runCwd`, which is what makes a worker in a
      *  worktree commit and a worker standing on runCwd not.
@@ -926,6 +932,7 @@ export class OrchCoordinator {
         // JSDoc 참고). 넘기지 않던 동안 한도에 걸린 워커는 살아 있지만 멈춘 채 남았고, 사람이
         // 다시 띄워야 했다.
         rollAccountIds: a.rollAccountIds,
+        ...(a.model ? { model: a.model } : {}),
         // 재개 문구도 워커의 것을 준다. 넘기지 않으면 롤링은 앱의 UI 언어 문구를 타이핑하는데,
         // 그것은 워커에게 두 가지로 틀리다: 영어로 지시받은 워커가 다른 언어로 재개되고, 문구가
         // "계속하라" 여서 끝내고 보고하라는 의무(buildSpecFile 의 Reporting obligation)를 상기시키지

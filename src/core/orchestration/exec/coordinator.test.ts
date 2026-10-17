@@ -419,6 +419,15 @@ describe('OrchCoordinator.startWorker', () => {
       'acc2'
     ])
   })
+  // Orchestrator W1-A: the role model startWorkerWithChain resolved reaches the session spawn, and only when set.
+  it('받은 모델을 spawnSession 에 넘기고, 없으면 싣지 않는다', async () => {
+    const deps = makeDeps()
+    const co = new OrchCoordinator(deps)
+    await co.startWorker({ ...baseArgs(), model: 'sonnet', runCwd: dir })
+    await co.startWorker({ ...baseArgs(), dispatchId: 'dsp_2', runCwd: dir })
+    expect((deps.spawned[0] as { model?: string }).model).toBe('sonnet')
+    expect(deps.spawned[1]).not.toHaveProperty('model')
+  })
   // 재개 문구. 넘기지 않으면 롤링이 앱의 **UI 언어** 기본값을 타이핑한다 — 영어로 지시받은 워커가
   // 다른 언어로 재개되고, 그 문구는 "계속하라"라서 보고 의무를 상기시키지 않는다.
   it('워커 세션에 워커용 재개 문구를 넘긴다 — 보고 명령과 식별자를 담는다', async () => {

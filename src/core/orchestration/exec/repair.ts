@@ -17,6 +17,7 @@ import {
 import type { KnowledgeFiles } from '../../knowledge/detect'
 import { buildSpecFile, repairWorkerPrompt } from './coordinator'
 import type { OrchServerDeps } from '../command'
+import { dispatchModelFields } from '../roleModels'
 
 export interface RepairDeps {
   getState(): OrchState
@@ -137,7 +138,7 @@ export async function performRepair(deps: RepairDeps, a: { dispatchId: string })
     await deps.setState({
       ...latest,
       dispatches: latest.dispatches.map((x) =>
-        x.id === d.id ? { ...x, sessionId: started.sessionId, cwd: started.cwd, specPath: started.specPath } : x
+        x.id === d.id ? { ...x, sessionId: started.sessionId, cwd: started.cwd, specPath: started.specPath, ...dispatchModelFields(started) } : x
       )
     })
     return { ok: true }

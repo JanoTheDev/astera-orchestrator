@@ -233,6 +233,22 @@ describe('SessionManager', () => {
     expect(argsText(spawned[0].args)).not.toContain('--dangerously-skip-permissions')
   })
 
+  // Orchestrator W1-A: the role model rides the argv, the info and the note (what a roll and an adoption read).
+  it('model 을 주면 --model 로 띄우고 info 와 note 에 남긴다', () => {
+    const { manager, spawned } = setup()
+    const info = manager.spawn({ account, cwd: process.cwd(), model: 'opus' })
+    expect(argsText(spawned[0].args)).toContain('--model opus')
+    expect(info.model).toBe('opus')
+    expect(spawned[0].opts.meta?.restore).toMatchObject({ model: 'opus' })
+  })
+
+  it('model 이 없으면 --model 을 붙이지 않는다 (CLI 기본값)', () => {
+    const { manager, spawned } = setup()
+    const info = manager.spawn({ account, cwd: process.cwd() })
+    expect(argsText(spawned[0].args)).not.toContain('--model')
+    expect(info).not.toHaveProperty('model')
+  })
+
   it('pty 출력은 onData로, write는 pty로 전달된다', () => {
     const { manager, spawned } = setup()
     const events: string[] = []

@@ -202,6 +202,10 @@ export interface Job {
   /** Where the Job came from: a job source and its item (plugin Phase 4 J15). Set only by the Host, when it makes the
    *  Job from that item (`jobs-create-from-source`); no caller of `jobs-create` can give it. */
   source?: JobSourceRef
+  // ── W1-A role models ──
+  /** Per-Job model override per role, ahead of the app's setting (resolveRoleModel, roleModels.ts).
+   *  Empty or absent: the app's setting. */
+  models?: Partial<Record<'coordinator' | 'planner' | 'worker' | 'reviewer', string>>
 }
 
 /** A job source's item a Job was made from: the source (a plugin's id, or `github`), the item's id there, how a person
@@ -400,6 +404,16 @@ export interface Task {
   consecutiveFailures: number
   createdAt: string
   updatedAt: string
+  // ── W1-A role models ──
+  /** How hard the planner judged this Task; picks the worker model through the difficulty map
+   *  (app setting, defaults light=haiku, standard=sonnet, hard=opus — roleModels.ts). */
+  difficulty?: 'light' | 'standard' | 'hard'
+  /** This Task's own model, ahead of everything else for its worker (resolveWorkerModel). */
+  model?: string
+  /** The provider this Task asks for. Honoured only when that provider has an account; otherwise the
+   *  worker runs on claude and the Dispatch says why (pickTaskProvider). The account list
+   *  (`accountIds`) still decides what actually starts. */
+  provider?: Provider
 }
 
 /** 한 번의 정지와 그 재개. **이 배열이 없으면 "몇 번 이어졌는가" 를 되살릴 방법이 아예 없다** —
@@ -507,6 +521,13 @@ export interface Dispatch {
    *  적을 수 있어(`LostAttempt.grantedExtra`), "사람이 허락했다" 는 문구가 재시작을 거쳐도 참으로
    *  남는다. */
   grantedExtra?: true
+  // ── W1-A role models ──
+  /** The model this attempt's session was started with (`--model` / `-m`), resolved by
+   *  `resolveWorkerModel` / `resolveReviewerModel` (roleModels.ts). Absent: the CLI's own default. */
+  model?: string
+  /** Why the model or provider is not what the Task asked for (a provider with no account, a
+   *  same-provider review moved off the implementer's model). Absent when nothing was overridden. */
+  modelNote?: string
 }
 
 export interface Message {

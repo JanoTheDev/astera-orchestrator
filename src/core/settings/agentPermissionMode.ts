@@ -1,6 +1,7 @@
 // The permission mode from app-settings.json, read by a process that is not the app (the Host).
 import type { AgentPermissionMode } from '../types'
 import { readAppSettingsObject } from './settingsObject'
+import { readRoleModelSettings, type RoleModelSettings } from '../orchestration/roleModels'
 
 /** The store's own narrowing. Fork (orchestrator W0): only the explicit 'yolo' turns the bypass on; upstream read
  *  everything but 'manual' as 'yolo'. Workers then wait at permission prompts until the person opts in. */
@@ -25,4 +26,10 @@ export function agentPermissionModeOf(value: unknown): AgentPermissionMode {
 export async function readAgentPermissionMode(filePath: string): Promise<AgentPermissionMode> {
   const parsed = await readAppSettingsObject(filePath)
   return agentPermissionModeOf(parsed?.agentPermissionMode)
+}
+
+/** Orchestrator W1-A: the role models, for the Host's start paths. Same file read as above; a broken
+ *  file throws here too, and the caller (workerStart.ts's settingsFor) falls back to the defaults. */
+export async function readRoleModelsSetting(filePath: string): Promise<RoleModelSettings> {
+  return readRoleModelSettings((await readAppSettingsObject(filePath))?.roleModels)
 }

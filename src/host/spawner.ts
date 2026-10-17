@@ -31,7 +31,7 @@ import {
 } from '../core/orchestration/exec/workerStart'
 import { readAccountEntries } from '../core/accounts/accountsFile'
 import { isLoggedIn } from '../core/accounts/loginCheck'
-import { readAgentPermissionMode } from '../core/settings/agentPermissionMode'
+import { readAgentPermissionMode, readRoleModelsSetting } from '../core/settings/agentPermissionMode'
 import { RepairNeeded } from '../core/settings/repairNeeded'
 import { HostRetiring } from '../core/host/hostRetiring'
 import { refusedBeforeActing, undoneBeforeFailing } from '../core/host/orchProtocol'
@@ -488,6 +488,7 @@ export function createHostSpawner(d: HostSpawnerDeps): HostSpawner | null {
       rollPrompt: o.rollPrompt,
       resumeSessionId: o.resumeSessionId,
       resumePrompt: o.resumePrompt,
+      model: o.model, // the role model (orchestrator W1-A, roleModels.ts)
       rollProviders,
       orchEnv: { cliPath, skillsPath: cli.skills, profileDir },
       // R6: a session this Host started is the Host's own, whichever process later holds its tab.
@@ -548,7 +549,8 @@ export function createHostSpawner(d: HostSpawnerDeps): HostSpawner | null {
       resumePrompt: o.resumePrompt,
       slackNotify: o.slackNotify,
       orchEnv: { cliPath: preparedShuttle, skillsPath: cli.skills, profileDir },
-      restoreExtra: o.restoreExtra
+      restoreExtra: o.restoreExtra,
+      model: o.model // the chain's model (orchestrator W1-A), so the roll does not fall back to the CLI default
     })
   }
 
@@ -637,7 +639,8 @@ export function createHostSpawner(d: HostSpawnerDeps): HostSpawner | null {
         },
         coordinator: coordinatorFor(accounts, trace),
         tails,
-        log
+        log,
+        roleModels: () => readRoleModelsSetting(settingsPath)
       },
       a
     )
@@ -753,6 +756,9 @@ export function createHostSpawner(d: HostSpawnerDeps): HostSpawner | null {
             preTrust: async (accountId, cwd) =>
               preTrustWorkspace({ account: accountIn(accounts, accountId), cwd, homeDir, descriptors, log }),
             bypassPermissions: bypassFromSettings,
+            getState: d.getState,
+            accounts: async () => accounts,
+            roleModels: () => readRoleModelsSetting(settingsPath),
             spawn: (o) => spawnSession(o, accounts, trace),
             log
           },
