@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { nextResize } from './resize'
+import { nextResize, repaintNudge } from './resize'
 
 describe('nextResize', () => {
   it('last가 null이면(첫 전송) 항상 치수를 반환한다', () => {
@@ -16,5 +16,15 @@ describe('nextResize', () => {
 
   it('rows가 바뀌면 새 치수를 반환한다', () => {
     expect(nextResize({ cols: 120, rows: 30 }, 120, 29)).toEqual({ cols: 120, rows: 29 })
+  })
+})
+
+describe('repaintNudge', () => {
+  it('is one row short of the real size, same columns', () => {
+    expect(repaintNudge({ cols: 120, rows: 30 })).toEqual({ cols: 120, rows: 29 })
+  })
+
+  it('is null for a one-row grid (no smaller size to nudge to)', () => {
+    expect(repaintNudge({ cols: 120, rows: 1 })).toBeNull()
   })
 })

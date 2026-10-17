@@ -14,3 +14,14 @@ export function nextResize(last: Dims | null, cols: number, rows: number): Dims 
   if (last && last.cols === cols && last.rows === rows) return null
   return { cols, rows }
 }
+
+/** How long the real size waits behind the nudge. The child reads its size when its event loop gets to the
+ *  SIGWINCH, not when the signal lands, so two resizes back to back read as one unchanged size and repaint nothing. */
+export const REPAINT_NUDGE_MS = 120
+
+/** The size a newly mounted pane sends before its real one: a row short, so the child sees a real change and repaints.
+ *  A reattached pty usually has the pane's size already, and Linux sends no SIGWINCH for an unchanged size, so the TUI
+ *  never redrew over the replay and the pane stayed blank until a resize (LINUX.md known issue 1). Null for one row. */
+export function repaintNudge(d: Dims): Dims | null {
+  return d.rows > 1 ? { cols: d.cols, rows: d.rows - 1 } : null
+}
