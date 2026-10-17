@@ -1,8 +1,10 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import type { Attention, SessionInfo } from '../../../../core/types'
-import { planSessions, type WorkspacePlan, type WorkspaceProject, type WorkspaceSession } from './workspaceTree'
+import { planSessions, type WorkspaceData, type WorkspacePlan, type WorkspaceProject, type WorkspaceSession } from './workspaceTree'
 import { useAttention } from './useAttention'
+import { buildSessionIndex, needsInput } from '../../../../core/orchestration/sessionIndex'
+import { SessionSearch } from '../search/SessionSearch'
 import './workspace.css'
 
 /** The status word of a session row and header: exited when its process is gone, else its attention. */
@@ -19,6 +21,7 @@ const GROUPS: Array<[keyof Pick<WorkspacePlan, 'planner' | 'coordinator' | 'work
  *  its sessions); clicking a session focuses its live terminal. */
 export function WorkspaceSidebar({
   tree,
+  data,
   sessions,
   showArchived,
   onShowArchived,
@@ -28,6 +31,8 @@ export function WorkspaceSidebar({
   onOpenSession
 }: {
   tree: WorkspaceProject[]
+  /** W3-C: what the tree was built from, for search and the "needs my input" list. */
+  data: WorkspaceData | null
   sessions: SessionInfo[]
   showArchived: boolean
   onShowArchived: (v: boolean) => void
@@ -48,6 +53,20 @@ export function WorkspaceSidebar({
     })
   const infoOf = new Map(sessions.map((s) => [s.id, s]))
   const attention = useAttention(tree.flatMap((p) => p.plans.flatMap((plan) => planSessions(plan).map((s) => s.sessionId))))
+  // W3-C search and "needs my input" (core/orchestration/sessionIndex.ts)
+  const [inboxOpen, setInboxOpen] = useState(false)
+  const { index, inbox } = useMemo(() => {
+    const input = {
+      tree,
+      jobs: Object.values(data?.jobsByProject ?? {}).flat(),
+      runs: data?.runs ?? [],
+      tasks: data?.tasks ?? [],
+      gates: data?.gates ?? [],
+      attention
+    }
+    const index = buildSessionIndex(input)
+    return { index, inbox: needsInput(input, index) }
+  }, [tree, data, attention])
 
   const sessionRow = (plan: WorkspacePlan) => (s: WorkspaceSession): React.JSX.Element => {
     const status = sessionStatusOf(infoOf.get(s.sessionId), attention[s.sessionId])
@@ -74,6 +93,18 @@ export function WorkspaceSidebar({
         <button className="panel-toggle" onClick={() => setOpen((v) => !v)}>
           {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />} Workspaces
         </button>
+        <button
+          className={`ss-badge${inbox.length > 0 ? ' ss-due' : ''}`}
+          title="Needs my input: sessions at a prompt, open questions, plans awaiting approval"
+          aria-label={`${inbox.length} need your input`}
+          aria-pressed={inboxOpen}
+          onClick={() => {
+            setOpen(true)
+            setInboxOpen((v) => !v)
+          }}
+        >
+          {inbox.length}
+        </button>
         <div className="panel-actions">
           {selectedPlanId && (
             <button className="ws-link" title="Show every session again" onClick={() => onSelectPlan(null)}>
@@ -85,6 +116,16 @@ export function WorkspaceSidebar({
           </label>
         </div>
       </header>
+      {open && (
+        <SessionSearch
+          index={index}
+          inbox={inbox}
+          showInbox={inboxOpen}
+          canOpenSession={canOpenSession}
+          onOpenSession={onOpenSession}
+          onSelectPlan={onSelectPlan}
+        />
+      )}
       {open && (
         <ul className="ws-tree">
           {tree.length === 0 && <li className="ws-empty">No projects yet</li>}

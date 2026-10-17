@@ -14,7 +14,7 @@ const dispatch = (id: string, taskId: string, startedAt: string, over: Partial<D
   id, taskId, provider: 'claude', accountId: 'acc1', sessionId: `s-${id}`, cwd: `/wt/${id}`, specPath: '', startedAt, workerState: 'running', retained: false, ...over
 } as Dispatch)
 
-const data = (over: Partial<WorkspaceData> = {}): WorkspaceData => ({ projects: [], jobsByProject: {}, runs: [], tasks: [], dispatches: [], ...over })
+const data = (over: Partial<WorkspaceData> = {}): WorkspaceData => ({ projects: [], jobsByProject: {}, runs: [], tasks: [], dispatches: [], gates: [], ...over })
 
 describe('buildWorkspaceTree', () => {
   it('nests projects → plans, names a plan by its title (jobNameOf) and lists the latest run', () => {
