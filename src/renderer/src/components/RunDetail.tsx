@@ -43,6 +43,9 @@ import { ArrowUpRight, Play, Square, WrenchOff, X } from 'lucide-react'
 import { backdropProps } from '../lib/backdrop'
 import { SourceChip } from './SourceChip'
 import { jobName } from '../lib/jobName'
+// W2-C plan board
+import { PlanOverview } from './plan/PlanOverview'
+import { TaskBoard } from './plan/TaskBoard'
 
 /** 종류 배지의 문구. message 는 messageType 이 정한다.
  *  heartbeat 과 decision_gate 는 timeline.ts 의 SKIP 이 걸러 지금은 도달하지 않지만, 맵을
@@ -393,6 +396,8 @@ export function RunDetail({
     })
 
   const tasks = run?.tasks ?? []
+  // W2-C plan board: the graph or the board in the upper half; the overview sits above either
+  const [view, setView] = useState<'graph' | 'board'>('graph')
   // 고른 Task 가 스냅샷에서 사라졌으면 필터도 없다 — 걸러 낸 목록이 영원히 비는 대신 전체를 그린다
   const selectedTask = tasks.find((tk) => tk.id === selected)
   const events = detail?.events ?? null
@@ -802,6 +807,17 @@ export function RunDetail({
                 통째로 NewTaskModal 로 바뀌어 아직 안 보낸 질문을 잃고, Task 를 짓는 중에 누르면
                 폼이 다시 그려져 채워 둔 것을 잃는다. 이 버튼이 여는 것은 새 창이 아니라 아래 칸
                 (.detail-events)의 두 번째 모습이다: 그래프는 그대로 보이고 아래만 바뀐다. */}
+            {/* W2-C plan board: progress, the buckets, and the graph/board switch */}
+            <div className="plan-head">
+              <PlanOverview tasks={tasks} />
+              <div className="plan-view-toggle" role="group">
+                {(['graph', 'board'] as const).map((v) => (
+                  <button key={v} type="button" aria-pressed={view === v} className={view === v ? 'active' : ''} onClick={() => setView(v)}>
+                    {t(`plan.view.${v}`)}
+                  </button>
+                ))}
+              </div>
+            </div>
             {lockedReason !== undefined && <p className="jobs-disabled-reason">{lockedReason}</p>}
             {!authoringOpen && (
               <div className="detail-graph-head">
@@ -860,6 +876,9 @@ export function RunDetail({
                   )}
               </div>
             )}
+            {view === 'board' ? (
+              <TaskBoard tasks={tasks} accounts={accounts} selected={selectedTask?.id} onSelect={onNodeClick} />
+            ) : (
             <Graph
               tasks={tasks}
               layers={detail?.layers ?? []}
@@ -887,6 +906,7 @@ export function RunDetail({
               onRestart={(taskId) => void restartTask(taskId)}
               onStopConvergence={(taskId) => void stopConvergence(taskId)}
             />
+            )}
           </div>
           <div className="detail-events">
             {authoring ? (
