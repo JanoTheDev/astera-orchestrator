@@ -427,10 +427,25 @@ Commit before you report below.
 `
     : ''
 
+  // W2-D GitHub links: the repository's own CLAUDE.md owns issues (SPEC §7); the worker only reports the number, which
+  // links it to this Task (`send --issue`, command.ts's linkReportedWork).
+  const issueSection = `
+---
+## GitHub issues (assembled by the app — do not delete)
+
+GitHub is where this project tracks its work. Follow this repository's CLAUDE.md for issues: if it says to
+create an issue or add one to a GitHub Project for work like this, do exactly that. If it says nothing about
+issues, do not create one. Never open a second issue for the same work: search first
+(\`gh issue list --state all --search "<words from the title>"\`).
+
+If this task has an issue, add \`--issue <number>\` to the worker_done report below, and also
+\`--issue-created\` when you created that issue for this task.
+`
+
   return `# ${a.title}
 
 ${a.spec}
-${knowledgeSection}${commitObligation}${a.repair ? repairSection(a.repair) : ''}
+${knowledgeSection}${commitObligation}${issueSection}${a.repair ? repairSection(a.repair) : ''}
 ---
 ## Reporting obligation (assembled by the app — do not delete)
 
