@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 import type { RollStateEvent, SchedStateEvent, SessionInfo } from '../../../core/types'
-import { nextResize, type Dims } from '../../../core/terminal/resize'
+import { nextResize, repaintNudge, REPAINT_NUDGE_MS, type Dims } from '../../../core/terminal/resize'
 import { xtermThemeOf } from '../../../core/theme/apply'
 import { NOTE_RESERVE_PX, PaneSize, showOwn, showPty, wantedOf } from '../lib/terminalScale'
 import { pinCursorBlinkOff } from '../lib/cursorBlink'
@@ -91,6 +91,7 @@ export function TerminalView({
     // The dimensions last sent to the PTY — stops a resize of the same size from being re-sent on a tab
     // switch (display:none→flex), which would push claude's interactive TUI around
     let lastSent: Dims | null = null
+    let nudgeTimer: ReturnType<typeof setTimeout> | undefined
     // The size follows the side that typed last (the Host's registry `sizeOwner`): while a controller on another
     // computer owns it, this tab shows the pty whole at a smaller font instead of cutting rows off, and says so.
     const pane = new PaneSize()
@@ -101,8 +102,19 @@ export function TerminalView({
       if (!wanted) return
       const d = nextResize(lastSent, wanted.cols, wanted.rows)
       if (d) {
+        // This pane's first send goes a row short, and the real size follows a moment later, so a reattached
+        // TUI repaints over the replay instead of staying blank (repaintNudge). The timer sends whatever was
+        // sent last by then, so a resize in between is never undone.
+        const nudge = lastSent === null ? repaintNudge(d) : null
+        if (nudge) {
+          pane.sent(nudge)
+          window.api.sessions.resize(session.id, nudge.cols, nudge.rows)
+          nudgeTimer = setTimeout(() => {
+            if (lastSent) window.api.sessions.resize(session.id, lastSent.cols, lastSent.rows)
+          }, REPAINT_NUDGE_MS)
+        }
         pane.sent(d)
-        window.api.sessions.resize(session.id, d.cols, d.rows)
+        if (!nudge) window.api.sessions.resize(session.id, d.cols, d.rows)
         lastSent = d
       }
       const note = pane.note(wanted)
@@ -252,6 +264,7 @@ export function TerminalView({
       input.dispose()
       observer.disconnect()
       clearTimeout(resizeTimer)
+      clearTimeout(nudgeTimer)
       clearTimeout(loadingSafety)
       offSize()
       termRef.current = null
