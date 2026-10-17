@@ -1,0 +1,68 @@
+# Orchestrator work — shared context for every Claude tab
+
+Read this whole file before doing anything. Every prompt in `docs/orchestrator/prompts/` assumes it.
+
+## What this repo is
+
+Personal private fork of Astera (`github.com/JanoTheDev/astera-orchestrator`, upstream `parsingk/Astera`,
+Apache-2.0). Electron + electron-vite + React + TypeScript. Target platform for this fork: **Linux**
+(the owner runs Linux; upstream says Linux is untested on real machines).
+
+Goal: turn Astera's existing **Jobs** system into the orchestrator described in `docs/orchestrator/SPEC.md`.
+**Do not build a second orchestrator, terminal manager, account manager, or task tracker.** Extend what exists.
+
+## Vocabulary mapping (spec → existing code)
+
+| Spec term | Existing concept | Where |
+|---|---|---|
+| Project | orchestration `Project` | `src/core/orchestration/types.ts` (`interface Project`), `projects.ts` |
+| Plan | `Job` (the plan) + `JobRun` (one execution of it) | `types.ts` (`interface Job`, `interface JobRun`) |
+| Task | `Task` (has `deps[]`, `spec`, `status`, `accountIds`) | `types.ts` (`interface Task`), state machine `ALLOWED`, `recomputeReady` |
+| Worker CLI session | `Dispatch` (one attempt = one real PTY session) | `types.ts` (`interface Dispatch`), `exec/workerStart.ts`, `exec/coordinator.ts` |
+| Coordinator / planner | coordinator LLM session (plans, never edits files) | `exec/workerStart.ts` (`startCoordinatorSession`), `handover.ts`, `resources/skills/orchestration-guide.md` |
+| Scheduler | pure `slotsToFill` + 15 s `createDispatchLoop` tick | `schedule.ts`, `exec/dispatchLoop.ts` |
+| Completion / retries / review | `ConvergencePolicy`, validator, cross-provider reviewer, repair dispatches, Gates | `convergence.ts`, `exec/validator.ts`, `reviewer.ts`, `exec/repair.ts`, `state.ts` |
+| Persistence + recovery | `<profile>/orchestration.json` (atomic write, `.bak`), host recovery | `store.ts`, `src/host/recovery.ts`, `exec/resumeSweep.ts`, `lostGate.ts` |
+| Worktrees | `createWorktree`, `WorktreeRegistry` (`~/astera-worktrees`) | `src/core/worktrees/*`, `exec/integrateGit.ts`, `integrate.ts` |
+| Terminals | node-pty in the **Host** process (outlives the app), `SessionManager`, `SessionDriver` (programmatic input) | `src/host/*`, `src/core/sessions/*`, `src/main/host/*` |
+| Session state | hooks → `hook-events/<sid>.jsonl` → `sessionStateOf`; attention idle/working/waiting | `src/core/hooks/*`, `src/core/sessions/attention.ts` |
+| Accounts / rolling / usage | `Account`, `RollCycle`, `RateLimitFetcher` | `src/core/accounts`, `src/core/rolling`, `src/core/usage` |
+| Commands | ~84 `astera` orchestration commands (also exposed over MCP) | `src/core/orchestration/command.ts`, `src/cli/mcp` |
+| GitHub | `gh` CLI wrapper, PRs, checks, issues-as-job-source | `src/core/github/*`, `src/main/githubPrs.ts` |
+| Notifications | Slack notifier/inbox, desktop notifier | `src/core/slack/*`, `src/main/desktopNotifier.ts` |
+| UI | `JobsView.tsx`, `RunDetail.tsx`, `NewRunModal.tsx`, `NewTaskModal.tsx`, `GateAnswer.tsx`; state in `App.tsx` (5.6k lines, `useState`, no store) | `src/renderer/src/*` |
+
+Design docs worth reading for your area: `docs/jobs.md` (Korean), `docs/how-it-works.md`,
+`knowledge/decisions/ADR-*.md` (ADR-004 persistence, ADR-005 cite code by symbol not line).
+Many code comments are Korean — read them, they carry the invariants.
+
+## Rules for every tab
+
+1. **Isolation.** Work only in your own git worktree on your own branch (the prompt gives the name):
+   ```bash
+   cd /home/jonx/Desktop/Astera && git fetch origin
+   git worktree add ../astera-wt/<slug> -b <branch> origin/main
+   cd ../astera-wt/<slug> && npm ci
+   ```
+   Never edit `/home/jonx/Desktop/Astera` itself. Never touch another tab's worktree.
+2. **Stay in your lane.** Each prompt lists files you OWN and files you may only touch additively.
+   Shared hot files (`types.ts`, `command.ts`, `App.tsx`, settings types): append new fields/commands in
+   their own block with a comment naming your task, don't reorder or reformat existing code — that keeps
+   merges trivial.
+3. **Extend, don't fork.** Before writing anything, find the existing code that does the nearest thing
+   and extend it. If you believe something new is needed, say why in the PR description.
+4. **Tests.** Tests live next to code (`*.test.ts`, vitest, `environment: node`). Add tests for every new
+   pure function and state transition. Run before pushing:
+   ```bash
+   npm run typecheck && npx vitest run <your test files> && npm test
+   ```
+   If a pre-existing test fails on Linux and it is not yours, note it in the PR — do not "fix" it unless
+   your prompt says so. Never claim done without pasting the test summary into the PR.
+5. **Linux.** Everything must work on Linux. No `process.platform === 'win32'`-only paths for new
+   features; use `path`/`isSamePath` helpers the repo already has.
+6. **Safety.** Voice/NL input is never authorization for destructive actions (kill, delete, merge, force
+   push, archive-with-kill) — require explicit UI confirmation. Never auto-switch accounts beyond what the
+   existing rolling feature already does and the user enabled. Never send credentials anywhere.
+7. **Finish.** Commit in small logical commits, push the branch, open a PR **into `main` of
+   `JanoTheDev/astera-orchestrator`** (`gh pr create --base main`). PR body: what changed, which existing
+   code you extended, test output, known gaps. Do not merge it yourself.
