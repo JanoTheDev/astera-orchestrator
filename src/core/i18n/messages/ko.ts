@@ -1867,6 +1867,12 @@ export const ko = {
   'jobs.new.coordinatorHint': '이 작업을 관리할 에이전트 세션의 계정입니다.',
   'jobs.new.concurrency': '동시 실행',
   'jobs.new.concurrencyHint': '이 작업이 한 번에 열어 둘 워커 수',
+  // W1-B: global scheduling
+  'jobs.new.priority': '우선순위',
+  'jobs.new.priorityHint': '앱 전체 워커 한도에 닿았을 때 높은 쪽이 먼저 빈자리를 받는다 (기본 0)',
+  'settings.maxWorkers.label': '모든 작업을 합친 최대 워커 수',
+  'settings.maxWorkers.hint': '비워 두면 한도가 없다. 한도에 닿으면 우선순위가 높은 작업부터, 같으면 번갈아 빈자리를 받는다.',
+  'settings.maxWorkers.saveFailed': '워커 한도를 저장하지 못했습니다: {detail}',
   'jobs.new.schedule': '예약 실행',
   'jobs.new.scheduleHint': '정한 시각마다 이 작업의 회차를 하나 만들어 돌린다',
   // 겹침을 막지 않기로 한 결정을 사람에게 알리는 자리 — 도는 워커 수가 상한을 넘을 수 있다

@@ -3354,6 +3354,62 @@ describe('worker-start — 인계된 Run 의 워크트리', () => {
   })
 })
 
+// W1-B: the app-wide cap holds every placer, a coordinator included, across Jobs.
+describe('worker-start — app-wide worker cap', () => {
+  const twoJobs = async (cap: number | null): Promise<{ deps: OrchServerDeps & { state: OrchState }; a: string[]; b: string[] }> => {
+    const deps = makeDeps()
+    deps.maxConcurrentWorkers = () => cap
+    const tasksOf = async (): Promise<string[]> => {
+      const run = await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p', concurrency: 5 })
+      const runId = (run.body as { id: string }).id
+      const out: string[] = []
+      for (const spec of ['x', 'y']) out.push(((await call(deps, 'task-create', { account: 'acc1', runId, spec })).body as { id: string }).id)
+      return out
+    }
+    return { deps, a: await tasksOf(), b: await tasksOf() }
+  }
+  const start = (deps: OrchServerDeps, task: string) =>
+    call(deps, 'worker-start', { task, agent: 'codex', account: 'acc1', worktree: 'current' })
+
+  it('refuses a new worker in another Job once the cap is reached, marked atCapacity', async () => {
+    const { deps, a, b } = await twoJobs(2)
+    expect((await start(deps, a[0])).status).toBe(200)
+    expect((await start(deps, b[0])).status).toBe(200)
+    const third = await start(deps, a[1])
+    expect(third.status).toBe(409)
+    expect(third.body).toMatchObject({ atCapacity: true })
+    expect(String((third.body as { error?: string }).error)).toContain('2 of 2')
+  })
+
+  it('no cap (null) changes nothing', async () => {
+    const { deps, a, b } = await twoJobs(null)
+    for (const id of [...a, ...b]) expect((await start(deps, id)).status).toBe(200)
+  })
+
+  it('a worker that ends frees its place under the cap', async () => {
+    const { deps, a, b } = await twoJobs(1)
+    expect((await start(deps, a[0])).status).toBe(200)
+    expect((await start(deps, b[0])).status).toBe(409)
+    const now = deps.getState()
+    await deps.setState({ ...now, dispatches: now.dispatches.map((d) => ({ ...d, outcome: 'failed' as const, endedAt: '2026-10-17T00:00:00.000Z' })) })
+    expect((await start(deps, b[0])).status).toBe(200)
+  })
+})
+
+describe('run-create --priority (W1-B)', () => {
+  it('stores a non-zero priority on the Job, and leaves 0 out', async () => {
+    const deps = makeDeps()
+    await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p', priority: '3' })
+    await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p', priority: 0 })
+    expect(deps.getState().jobs.map((j) => j.priority)).toEqual([3, undefined])
+  })
+
+  it('refuses a priority that is not an integer', async () => {
+    const r = await call(makeDeps(), 'run-create', { objective: 'o', cwd: 'D:/p', priority: '1.5' })
+    expect(r.status).toBe(400)
+  })
+})
+
 describe('worker-start — 동시 실행 한도', () => {
   const twoTasks = async (
     concurrency?: number

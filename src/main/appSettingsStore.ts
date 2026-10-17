@@ -20,6 +20,7 @@ import {
 import type { SkillSettings } from '../core/orchestration/skills'
 import { settingsObjectOf } from '../core/settings/settingsObject'
 import { agentPermissionModeOf } from '../core/settings/agentPermissionMode'
+import { maxConcurrentWorkersOf } from '../core/settings/maxConcurrentWorkers'
 import { mcpAccessOf } from '../core/settings/mcpAccess'
 import { mcpSessionsOf } from '../core/settings/mcpSessions'
 import { mcpGithubWriteOf } from '../core/settings/mcpGithubWrite'
@@ -111,6 +112,9 @@ export class AppSettingsStore {
    *  is inverted from the toggles above — the file is user-editable, so only an explicit false
    *  reads as off, and anything else (absent, corrupt) reads as on. */
   private githubPolling = true
+  /** W1-B: how many Job workers may be open at once across every plan. null: no cap (the default, and
+   *  the behaviour from before the setting). Written only when set. */
+  private maxConcurrentWorkers: number | null = null
   /** 설명을 누가·무엇으로 만드는가. 비어 있으면 생성하지 않는다 (설계 D2) */
   private generator: GeneratorSettings = {}
   private resumeStrategy: ResumeStrategy = SKILL_SETTINGS_DEFAULTS.resumeStrategy
@@ -185,6 +189,10 @@ export class AppSettingsStore {
       this.jobContinuityEnabled =
         (parsed as { jobContinuityEnabled?: unknown }).jobContinuityEnabled === true
       this.githubPolling = (parsed as { githubPolling?: unknown }).githubPolling !== false
+      // The same function the Host's read uses (readMaxConcurrentWorkers), so the two cannot differ.
+      this.maxConcurrentWorkers = maxConcurrentWorkersOf(
+        (parsed as { maxConcurrentWorkers?: unknown }).maxConcurrentWorkers
+      )
       // Narrowed on read, like generator and terminalFont and for the same reason: the file is
       // user-editable, and the narrowing is per flag's own default (see readDesktopNotify).
       this.desktopNotify = readDesktopNotify((parsed as { desktopNotify?: unknown }).desktopNotify)
@@ -250,6 +258,7 @@ export class AppSettingsStore {
         this.orchAlwaysOnMigrated = false
         this.jobContinuityEnabled = false
         this.githubPolling = true
+        this.maxConcurrentWorkers = null
         this.desktopNotify = { ...DESKTOP_NOTIFY_DEFAULTS }
         this.generator = {}
         this.resumeStrategy = SKILL_SETTINGS_DEFAULTS.resumeStrategy
@@ -281,6 +290,7 @@ export class AppSettingsStore {
       this.orchAlwaysOnMigrated = false
       this.jobContinuityEnabled = false
       this.githubPolling = true
+      this.maxConcurrentWorkers = null
       this.desktopNotify = { ...DESKTOP_NOTIFY_DEFAULTS }
       this.generator = {}
       this.resumeStrategy = SKILL_SETTINGS_DEFAULTS.resumeStrategy
@@ -469,6 +479,16 @@ export class AppSettingsStore {
     await this.persist()
   }
 
+  getMaxConcurrentWorkers(): number | null {
+    return this.maxConcurrentWorkers
+  }
+
+  /** Narrowed like the file: the value arrives from the renderer. */
+  async setMaxConcurrentWorkers(n: number | null): Promise<void> {
+    this.maxConcurrentWorkers = maxConcurrentWorkersOf(n)
+    await this.persist()
+  }
+
   getDesktopNotify(): DesktopNotifySettings {
     return { ...this.desktopNotify }
   }
@@ -591,6 +611,7 @@ export class AppSettingsStore {
       orchestrationEnabled?: true
       jobContinuityEnabled?: boolean
       githubPolling?: boolean
+      maxConcurrentWorkers?: number
       desktopNotify?: DesktopNotifySettings
       generator?: GeneratorSettings
       resumeStrategy?: ResumeStrategy
@@ -625,6 +646,7 @@ export class AppSettingsStore {
       data.orchestrationEnabled = true
     if (this.jobContinuityEnabled) data.jobContinuityEnabled = true
     if (this.githubPolling === false) data.githubPolling = false
+    if (this.maxConcurrentWorkers !== null) data.maxConcurrentWorkers = this.maxConcurrentWorkers
     // Written only while the question is still open, which is the same one-sided rule as the two
     // below — and here it carries the difference between a new install and an old one, so an absent
     // key has to keep meaning "asked". See the field's own note.

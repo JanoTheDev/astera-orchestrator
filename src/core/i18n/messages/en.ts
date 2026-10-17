@@ -1644,6 +1644,12 @@ export const en: Record<keyof typeof ko, string> = {
   'jobs.new.coordinatorHint': 'The account for the agent session that manages this job.',
   'jobs.new.concurrency': 'Run at once',
   'jobs.new.concurrencyHint': 'How many workers this job keeps open at once',
+  // W1-B: global scheduling
+  'jobs.new.priority': 'Priority',
+  'jobs.new.priorityHint': 'When the app-wide worker limit is reached, higher goes first (default 0)',
+  'settings.maxWorkers.label': 'Max workers across all jobs',
+  'settings.maxWorkers.hint': 'Leave empty for no limit. At the limit, higher-priority jobs get the next free slot; equal ones take turns.',
+  'settings.maxWorkers.saveFailed': 'Could not save the worker limit: {detail}',
   'jobs.new.schedule': 'Scheduled run',
   'jobs.new.scheduleHint': 'Starts one run of this job at each scheduled time',
   'jobs.new.scheduleOverlapHint': 'A new run starts even if the previous one is still going — workers can overlap',

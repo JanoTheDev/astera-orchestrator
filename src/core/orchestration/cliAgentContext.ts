@@ -71,6 +71,7 @@ const SESSION = {
       req('objective', '<text>', 'what this Job is for'),
       { name: 'cwd', value: '<path>', about: 'the repository root this Job belongs to' },
       { name: 'concurrency', value: '<n>', about: 'how many workers this Job places at once' },
+      { name: 'priority', value: '<n>', about: 'which Job gets a free slot first when the app-wide worker cap is reached (higher first, default 0)' },
       {
         name: 'coordinator-account',
         value: '<accountId>',

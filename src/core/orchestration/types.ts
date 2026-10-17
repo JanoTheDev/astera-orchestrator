@@ -201,7 +201,10 @@ export interface Job {
   convergence?: ConvergencePolicy
   /** Where the Job came from: a job source and its item (plugin Phase 4 J15). Set only by the Host, when it makes the
    *  Job from that item (`jobs-create-from-source`); no caller of `jobs-create` can give it. */
-  source?: JobSourceRef
+  source?: JobSourceRef  // W1-B: global scheduling.
+  /** Where this Job stands when the app-wide `maxConcurrentWorkers` leaves fewer slots than ready
+   *  Tasks: higher first (`slotsToFill`). Absent reads as 0. Any integer, negative included. */
+  priority?: number
 }
 
 /** A job source's item a Job was made from: the source (a plugin's id, or `github`), the item's id there, how a person

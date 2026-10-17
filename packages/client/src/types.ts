@@ -66,6 +66,8 @@ export interface Job {
   readonly projectId?: string
   readonly createdAt: string
   readonly concurrency?: number
+  /** Higher takes a free slot first when the app-wide worker cap is reached. Absent is 0. */
+  readonly priority?: number
   readonly coordinatorAccountId?: string
   readonly autoDispatch?: boolean
   readonly schedule?: ScheduleRule

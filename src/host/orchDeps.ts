@@ -30,7 +30,8 @@ import { chatPendingOf, type ChatPrompt, type ChatPromptList } from '../core/ses
  *  so the copy is of the state the command that asked for it just saw. */
 // `resumeStopWaitMs` is a number, not a call: the Host leaves it unset (RESUME_STOP_WAIT_MS) and only
 // tests set it, so it is never forwarded.
-const OWNED = ['getState', 'setState', 'now', 'log', 'runningSessions', 'appVersion', 'backup', 'resumeStopWaitMs'] as const
+// `maxConcurrentWorkers` (W1-B): the Host reads app-settings.json itself, as it does for the permission mode.
+const OWNED = ['getState', 'setState', 'now', 'log', 'runningSessions', 'appVersion', 'backup', 'resumeStopWaitMs', 'maxConcurrentWorkers'] as const
 
 /**
  * **Forwarded, and a refusal reaches the caller.** `handleCommand` either awaits these and lets the
@@ -503,6 +504,7 @@ const EFFECTFUL: Record<Classified, boolean> = {
   appVersion: false,
   backup: true,
   resumeStopWaitMs: false,
+  maxConcurrentWorkers: false,
   // HOST_LOCAL — the same values these names had in PROPAGATES and SWALLOWED before S2 (the six), and
   // in PROPAGATES before S3 (the three worktree names).
   startWorker: true,
@@ -630,6 +632,8 @@ export function hostOrchDeps(a: {
   /** `reset`'s one safety net: the state file copied aside before it is wiped. The Host's own store
    *  does it — see OWNED for why it stopped being the app's. */
   backup(): Promise<void>
+  /** W1-B: the app-wide worker cap, read from app-settings.json by the Host itself (OWNED). */
+  maxConcurrentWorkers?(): Promise<number | null>
   act(name: string, args: unknown[]): Promise<unknown>
   hasApp(): boolean
   /** The `check --wait` long-polls this Host serves, one tracker for the Host's life (final round 2,
@@ -1280,6 +1284,7 @@ export function hostOrchDeps(a: {
     runningSessions: a.runningSessions,
     appVersion: a.appVersion,
     backup: a.backup,
+    ...(a.maxConcurrentWorkers ? { maxConcurrentWorkers: a.maxConcurrentWorkers } : {}),
     listSessions: own('listSessions'),
     readSession: own('readSession'),
     sendSession: own('sendSession'),

@@ -195,6 +195,8 @@ const api = {
     setAgentAppEnabled: invoke('settings.setAgentAppEnabled'),
     getGithubPolling: invoke('settings.getGithubPolling'),
     setGithubPolling: invoke('settings.setGithubPolling'),
+    getMaxConcurrentWorkers: invoke('settings.getMaxConcurrentWorkers'),
+    setMaxConcurrentWorkers: invoke('settings.setMaxConcurrentWorkers'),
     getDesktopNotify: invoke('settings.getDesktopNotify'),
     setDesktopNotify: invoke('settings.setDesktopNotify'),
     getGenerator: invoke('settings.getGenerator'),

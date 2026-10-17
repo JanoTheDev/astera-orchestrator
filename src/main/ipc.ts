@@ -3130,6 +3130,7 @@ export function registerIpc(
     const loop = createDispatchLoop({
       handle: (cmd, args) => orchHandleCommand(deps, { sessionId: UI_CALLER }, cmd, args),
       getState: () => deps.getState(),
+      maxConcurrentWorkers: () => core.appSettings.getMaxConcurrentWorkers(),
       accounts: () => core.accounts.list(),
       loginStatus: (accountId) => core.accounts.loginStatus(accountId),
       lang: () => core.lang,
@@ -3397,6 +3398,8 @@ export function registerIpc(
       // 받은 cwd 로의 폴백)은 Host 와 같이 쓰는 resolveProjectRootFrom(core/files/tree.ts)에 있고,
       // 여기서는 앱의 두 후보 목록을 모아 넘긴다. 앱이 없을 때는 Host 가 제 워크트리 레지스트리와
       // 감시자 없는 기록 목록으로 같은 함수를 부른다(host/projectRoots.ts).
+      // W1-B: worker-start holds new workers at the app-wide cap.
+      maxConcurrentWorkers: () => core.appSettings.getMaxConcurrentWorkers(),
       resolveProjectRoot: async (cwd) =>
         resolveProjectRootFrom({
           cwd,
@@ -4230,6 +4233,13 @@ export function registerIpc(
   ipcMain.handle('settings.setGithubPolling', async (_e, enabled: boolean) => {
     if (typeof enabled !== 'boolean') throw new Error(`INVALID_GITHUB_POLLING: ${String(enabled)}`)
     await core.appSettings.setGithubPolling(enabled)
+  })
+  // W1-B: the app-wide Job worker cap. null clears it.
+  ipcMain.handle('settings.getMaxConcurrentWorkers', () => core.appSettings.getMaxConcurrentWorkers())
+  ipcMain.handle('settings.setMaxConcurrentWorkers', async (_e, n: unknown) => {
+    if (n !== null && (typeof n !== 'number' || !Number.isInteger(n) || n < 1))
+      throw new Error(`INVALID_MAX_CONCURRENT_WORKERS: ${String(n)}`)
+    await core.appSettings.setMaxConcurrentWorkers(n)
   })
 
   // The renderer pushes the session on screen; main cannot work it out (§7). Narrowed on arrival, and

@@ -1,4 +1,4 @@
-import { DEFAULT_CONCURRENCY, FAILURE_LIMIT, type JobRun } from './types'
+import { DEFAULT_CONCURRENCY, FAILURE_LIMIT, type Dispatch, type Job, type JobRun } from './types'
 import { jobOf, placedByApp, type OrchState } from './state'
 
 /** 지금 워커를 띄워야 할 자리 하나.
@@ -34,12 +34,49 @@ export interface Slot {
 export function appDriven(s: OrchState, run: JobRun): boolean {
   const job = jobOf(s, run)
   if (!job || !placedByApp(job, run)) return false
-  if (job.pendingStart) return false
-  if (job.paused) return false
+  if (!jobActive(job)) return false
   // **세워 둔 회차도 배치하지 않는다.** 일시 중지가 도는 워커를 닫아도, 그 자리에 그 회차의 다음
   // ready Task 가 곧바로 뜨면 "일시 중지" 가 "지금 도는 Task 하나만 멈춤" 이 된다.
   if (run.paused) return false
   return true
+}
+
+// W1-B: global concurrency across plans.
+
+/** Whether a Job may take new work: not waiting for its first start, not paused, not archived.
+ *  `archivedAt` arrives with W1-C (`isJobActive` in lifecycle.ts); read through a cast until the two
+ *  branches meet, so this file does not wait on that one. */
+export function jobActive(job: Job): boolean {
+  return !job.pendingStart && !job.paused && (job as { archivedAt?: string }).archivedAt === undefined
+}
+
+const isOpen = (d: Dispatch): boolean => !d.outcome && !d.endedAt
+
+/** Workers that count against the app-wide cap (`maxConcurrentWorkers`): every open Dispatch — a
+ *  review and a repair are processes too — whose Run is live: its Job active (`jobActive`) and the Run
+ *  itself not paused. Who placed it does not matter: a coordinator's workers share the machine with
+ *  the app's. */
+export function workersAgainstCap(s: OrchState): number {
+  const live = new Set(
+    s.runs
+      .filter((r) => {
+        const job = jobOf(s, r)
+        return job !== undefined && jobActive(job) && !r.paused
+      })
+      .map((r) => r.id)
+  )
+  const runOf = new Map(s.tasks.map((t) => [t.id, t.runId]))
+  return s.dispatches.filter((d) => {
+    if (!isOpen(d)) return false
+    const runId = runOf.get(d.taskId)
+    return runId !== undefined && live.has(runId)
+  }).length
+}
+
+/** What `slotsToFill` takes besides the state: the app-wide cap from app settings. `null` or absent is
+ *  no cap, the behaviour from before the setting existed. */
+export interface ScheduleLimits {
+  maxConcurrentWorkers?: number | null
 }
 
 /** 지금 띄워야 할 것들. **부수 효과가 없고 같은 입력에 같은 답을 준다** — 이 판정이 순수해야
@@ -55,18 +92,27 @@ export function appDriven(s: OrchState, run: JobRun): boolean {
  *  손으로 고친 파일에는 그 칸이 없다. graph.ts 가 순환을 다루는 것과 같은 이유다.
  *
  *  건너뛴 Task 가 조용히 멈추지는 않는다 — 아래 tasksMissingAccounts 가 그것들을 따로 내고,
- *  배선이 그 목록에 Gate 를 연다(accountToDispatchOn 이 거절할 때와 같은 자리). */
-export function slotsToFill(s: OrchState): Slot[] {
-  const slots: Slot[] = []
-  for (const run of s.runs) {
-    if (!appDriven(s, run)) continue
-    const open = s.dispatches.filter((d) => !d.outcome && !d.endedAt)
-    const openHere = open.filter((d) => {
-      const t = s.tasks.find((x) => x.id === d.taskId)
-      return t?.runId === run.id
-    }).length
-    const room = (jobOf(s, run)?.concurrency ?? DEFAULT_CONCURRENCY) - openHere
-    if (room <= 0) continue
+ *  배선이 그 목록에 Gate 를 연다(accountToDispatchOn 이 거절할 때와 같은 자리).
+ *
+ *  **W1-B: one queue per Run, one shared cap.** Each Run keeps its own `concurrency`; on top of that
+ *  `limits.maxConcurrentWorkers` caps every live worker in the app (`workersAgainstCap`, so the
+ *  coordinators' workers and open reviews take room too). Slots are handed out one at a time: the
+ *  highest `Job.priority` first, and among equals the Run with the fewest open workers, then the one
+ *  served longest ago (its newest Dispatch) — so with a cap of one, two plans of equal priority take
+ *  turns instead of the first in the array winning every freed slot. That order is read off the state
+ *  alone, which keeps this function pure. */
+export function slotsToFill(s: OrchState, limits: ScheduleLimits = {}): Slot[] {
+  const open = s.dispatches.filter(isOpen)
+  const runOf = new Map(s.tasks.map((t) => [t.id, t.runId]))
+  const cap = limits.maxConcurrentWorkers
+  let globalRoom = cap === null || cap === undefined ? Infinity : cap - workersAgainstCap(s)
+  const queues = s.runs.flatMap((run, order) => {
+    if (!appDriven(s, run)) return []
+    const job = jobOf(s, run)
+    const mine = s.dispatches.filter((d) => runOf.get(d.taskId) === run.id)
+    const openHere = mine.filter(isOpen).length
+    const room = (job?.concurrency ?? DEFAULT_CONCURRENCY) - openHere
+    if (room <= 0) return []
     const candidates = s.tasks.filter(
       (t) =>
         t.runId === run.id &&
@@ -80,10 +126,33 @@ export function slotsToFill(s: OrchState): Slot[] {
         // 않는다. 기대면 그 불변식이 깨지는 날 두 워커가 같은 Task 를 잡는다
         !open.some((d) => d.taskId === t.id)
     )
-    for (const t of candidates.slice(0, room)) {
-      // accountIds 는 위 필터가 비어 있지 않음을 보장한다(Slot.accountIds 의 주석)
-      slots.push({ runId: run.id, taskId: t.id, accountIds: t.accountIds as string[] })
+    if (candidates.length === 0) return []
+    const lastServed = Math.max(-Infinity, ...mine.map((d) => Date.parse(d.startedAt) || -Infinity))
+    return [{ run, order, priority: job?.priority ?? 0, room, openHere, lastServed, candidates }]
+  })
+  const slots: Slot[] = []
+  while (globalRoom > 0) {
+    let best: (typeof queues)[number] | undefined
+    for (const q of queues) {
+      if (q.room <= 0 || q.candidates.length === 0) continue
+      if (
+        !best ||
+        q.priority > best.priority ||
+        (q.priority === best.priority &&
+          (q.openHere < best.openHere ||
+            (q.openHere === best.openHere &&
+              (q.lastServed < best.lastServed || (q.lastServed === best.lastServed && q.order < best.order)))))
+      )
+        best = q
     }
+    if (!best) break
+    const t = best.candidates.shift()!
+    // accountIds 는 위 필터가 비어 있지 않음을 보장한다(Slot.accountIds 의 주석)
+    slots.push({ runId: best.run.id, taskId: t.id, accountIds: t.accountIds as string[] })
+    best.room--
+    best.openHere++
+    best.lastServed = Infinity
+    globalRoom--
   }
   return slots
 }

@@ -123,6 +123,9 @@ export interface DispatchLoopContext {
   /** handleCommand under this process's own caller id (the app's UI_CALLER, the Host's HOST_CALLER). */
   handle(cmd: string, args: Record<string, unknown>): Promise<{ status: number; body: unknown }>
   getState(): OrchState
+  /** W1-B: the app-wide worker cap from app settings, or null for none. Read once per pass. Optional:
+   *  without it there is no cap. */
+  maxConcurrentWorkers?(): number | null | Promise<number | null>
   accounts(): Account[] | Promise<Account[]>
   loginStatus(accountId: string): Promise<boolean>
   lang(): Lang
@@ -746,6 +749,10 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     // 건너뛴다 — 떠나는 Host 가 세션을 닫고 git 을 돌리지 않는다. 다음 운전자의 첫 바퀴가 둘 다 본다.
     if (reply.status === 409 && typeof (reply.body as { retry?: unknown })?.retry === 'string')
       return { kind: 'leaving', reply }
+    // W1-B: the app-wide cap filled between slotsToFill and here (a coordinator's worker took the room).
+    // Nothing for a person to fix, so no Gate: the next pass after a worker ends places it.
+    if (reply.status === 409 && (reply.body as { atCapacity?: unknown })?.atCapacity === true)
+      return { kind: 'wait', why: 'the app-wide worker cap is reached' }
     return reply.status >= 400 ? { kind: 'refused', reply } : { kind: 'started', reply }
   }
 
@@ -821,7 +828,9 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
               : `inbox: answered an unattended question message=${id} — no coordinator on this run`
           )
         }
-        const slots = slotsToFill(c.getState()).filter((s) => !attempted.has(s.taskId))
+        // Awaited only when wired, so a pass with no cap keeps its old timing.
+        const maxConcurrentWorkers = c.maxConcurrentWorkers ? ((await c.maxConcurrentWorkers()) ?? null) : null
+        const slots = slotsToFill(c.getState(), { maxConcurrentWorkers }).filter((s) => !attempted.has(s.taskId))
         // 띄울 자리가 없으면 계정 조회까지 가지 않는다. 이 함수는 **모든 저장마다** 불리고 그
         // 대부분은 띄울 것이 없는 저장이다 — 아래 조회에 계정마다 파일(macOS 에서는 Keychain)
         // 읽기가 하나씩 붙으므로, 빈 바퀴에 그것을 치르면 상태를 쓰는 모든 명령이 그만큼 느려진다.

@@ -32,7 +32,9 @@ export const JOB_FIELDS = Object.freeze([
   'pendingStart',
   'paused',
   'convergence',
-  'source'
+  'source',
+  // Which Job takes a free slot first under the app-wide worker cap (orchestrator W1-B).
+  'priority'
 ] as const)
 
 export const RUN_FIELDS = Object.freeze([
