@@ -1385,7 +1385,7 @@ export interface CoreApi {
     // Job Continuity (docs/ASTERA_JOB_CONTINUITY_DURABLE_RECOVERY_SPEC.md §3). Off by default. Turning
     // it on while Smart Resume is off turns Smart Resume on as well — the result says so and the
     // settings screen shows the notice. Turning it off leaves Smart Resume alone.
-    // 에이전트를 권한 확인 없이 띄우는가. See AgentPermissionMode — 기본은 'yolo' 다.
+    // 에이전트를 권한 확인 없이 띄우는가. See AgentPermissionMode — 기본은 'yolo' 다. Fork W0: the default is 'manual'.
     getAgentPermissionMode(): Promise<AgentPermissionMode>
     setAgentPermissionMode(mode: AgentPermissionMode): Promise<void>
     // What an MCP client may do through `astera mcp serve`. See McpAccess.

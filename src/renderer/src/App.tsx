@@ -711,7 +711,8 @@ export default function App(): React.JSX.Element {
   const [wtRoot, setWtRoot] = useState('') // the worktree root in the settings modal
   // 에이전트 권한 모드. **기본이 yolo 라 초기값도 true 다** — false 로 두면 모달이 열리는 순간
   // 꺼진 체크박스가 잠깐 보였다가 켜지고, 그 깜빡임은 사용자가 끈 것으로 읽힌다.
-  const [agentYolo, setAgentYolo] = useState(true)
+  // Fork W0: the default is 'manual' now, so false; a failed read must not show the bypass as on.
+  const [agentYolo, setAgentYolo] = useState(false)
   const [workUnitTrackingEnabled, setWorkUnitTrackingEnabled] = useState(false) // the work unit tracking toggle
   const [agentBrowserEnabled, setAgentBrowserEnabled] = useState(false) // the agent browser toggle
   const [agentAppEnabled, setAgentAppEnabled] = useState(false) // the agent app workspace toggle

@@ -115,7 +115,8 @@ export class AppSettingsStore {
   private generator: GeneratorSettings = {}
   private resumeStrategy: ResumeStrategy = SKILL_SETTINGS_DEFAULTS.resumeStrategy
   /** 에이전트를 권한 확인 없이 띄우는가. **기본은 'yolo'** — 그 근거는 AgentPermissionMode 에 있다.
-   *  githubPolling 과 같은 방향의 좁히기다: 기본이 켜짐인 값이라 파일에 명시된 'manual' 만 끈다. */
+   *  githubPolling 과 같은 방향의 좁히기다: 기본이 켜짐인 값이라 파일에 명시된 'manual' 만 끈다.
+   *  Fork W0: reversed. The default is 'manual', and only an explicit 'yolo' in the file turns the bypass on. */
   private agentPermissionMode: AgentPermissionMode = 'manual' // fork W0: never bypass by default
   /** What an MCP client may do through `astera mcp serve` (MCP design M5). Default 'control'; only
    *  the two narrower values are written to the file. */
