@@ -104,6 +104,29 @@ describe('session grouping', () => {
     expect(findPlan(tree, 'j1')?.name).toBe('Trading')
     expect(findPlan(tree, 'nope')).toBeUndefined()
   })
+
+  // W3-D routing: "plan A worker 2" names one session, and it is never another plan's.
+  it('two plans dispatching interleaved: each plan’s Worker 2 is its own Task’s session, and no session is in both', () => {
+    const d = data({
+      projects: [project('p1', 'Gameful'), project('p2', 'Other')],
+      jobsByProject: { p1: [job('jA', { title: 'A' })], p2: [job('jB', { title: 'B' })] },
+      runs: [run('rA', 'jA', 1, { coordinatorSessionId: 'coordA' }), run('rB', 'jB', 1, { coordinatorSessionId: 'coordB' })],
+      tasks: [task('a1', 'rA'), task('a2', 'rA'), task('b1', 'rB'), task('b2', 'rB')],
+      dispatches: [
+        dispatch('da1', 'a1', '2026-10-01T01:00:00Z'),
+        dispatch('db1', 'b1', '2026-10-01T02:00:00Z'),
+        dispatch('da2', 'a2', '2026-10-01T03:00:00Z'),
+        dispatch('db2', 'b2', '2026-10-01T04:00:00Z')
+      ]
+    })
+    const tree = buildWorkspaceTree(d, { showArchived: false })
+    const a = findPlan(tree, 'jA')!
+    const b = findPlan(tree, 'jB')!
+    expect(a.workers[1]).toMatchObject({ label: 'A Worker 2', sessionId: 's-da2', taskTitle: 'task a2', projectName: 'Gameful' })
+    expect(b.workers[1]).toMatchObject({ label: 'B Worker 2', sessionId: 's-db2', taskTitle: 'task b2', projectName: 'Other' })
+    const ofA = new Set(planSessions(a).map((s) => s.sessionId))
+    expect(planSessions(b).filter((s) => ofA.has(s.sessionId))).toEqual([])
+  })
 })
 
 describe('scopeLayout', () => {
