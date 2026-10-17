@@ -89,12 +89,20 @@ function planOf(d: WorkspaceData, project: Project, job: Job): WorkspacePlan {
   const name = jobNameOf(job)
   const run = latestRun(d.runs, job.id)
   const lead = run?.coordinatorSessionId ?? run?.externalCoordinatorSessionId
-  // A lead session on a plan not yet approved is its planner (W2-A: the planner reuses the coordinator's spawn
-  // path and runs while the Job is pendingStart); after approval it is the coordinator.
-  const leadRole: SessionRole = job.pendingStart === true ? 'planner' : 'coordinator'
-  const leadSession: WorkspaceSession[] = lead
-    ? [{ sessionId: lead, role: leadRole, label: `${name} ${leadRole === 'planner' ? 'Planner' : 'Coordinator'}`, projectName: project.name, planName: name, cwd: run?.worktree ?? job.cwd }]
+  const coordinator: WorkspaceSession[] = lead
+    ? [{ sessionId: lead, role: 'coordinator', label: `${name} Coordinator`, projectName: project.name, planName: name, cwd: run?.worktree ?? job.cwd }]
     : []
+  // W2-A: the planners `jobs plan` started are recorded on the Job (Job.plannerSessionIds), latest last. They run
+  // in the Job's folder, before any Run exists, and stay listed after the plan is approved.
+  const ids = job.plannerSessionIds ?? []
+  const planner: WorkspaceSession[] = ids.map((sessionId, i) => ({
+    sessionId,
+    role: 'planner' as const,
+    label: `${name} Planner${ids.length > 1 ? ` ${i + 1}` : ''}`,
+    projectName: project.name,
+    planName: name,
+    cwd: job.cwd
+  }))
   return {
     jobId: job.id,
     projectId: project.id,
@@ -102,8 +110,8 @@ function planOf(d: WorkspaceData, project: Project, job: Job): WorkspacePlan {
     archived: !isJobActive(job),
     paused: job.paused === true || run?.paused === true,
     ...(run ? { runId: run.id } : {}),
-    planner: leadRole === 'planner' ? leadSession : [],
-    coordinator: leadRole === 'coordinator' ? leadSession : [],
+    planner,
+    coordinator,
     workers: run ? workersOf(run, d.tasks, d.dispatches, project.name, name) : []
   }
 }

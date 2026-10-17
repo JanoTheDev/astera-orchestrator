@@ -82,12 +82,15 @@ describe('session grouping', () => {
     expect(planSessions(plan).map((s) => s.sessionId)).not.toContain('s-dx')
   })
 
-  it('calls the lead session the Planner while the plan awaits approval (pendingStart)', () => {
+  it('lists the planners the Job records (W2-A Job.plannerSessionIds), apart from its coordinator', () => {
     const d = base()
-    d.jobsByProject.p1 = [job('j1', { title: 'Trading', pendingStart: true })]
+    d.jobsByProject.p1 = [job('j1', { title: 'Trading', plannerSessionIds: ['pl1', 'pl2'] })]
     const plan = buildWorkspaceTree(d, { showArchived: false })[0].plans[0]
-    expect(plan.planner.map((s) => [s.sessionId, s.label, s.role])).toEqual([['coord', 'Trading Planner', 'planner']])
-    expect(plan.coordinator).toEqual([])
+    expect(plan.planner.map((s) => [s.sessionId, s.label, s.role])).toEqual([
+      ['pl1', 'Trading Planner 1', 'planner'],
+      ['pl2', 'Trading Planner 2', 'planner']
+    ])
+    expect(plan.coordinator.map((s) => s.sessionId)).toEqual(['coord'])
   })
 
   it('takes an external coordinator when Astera did not start one', () => {
