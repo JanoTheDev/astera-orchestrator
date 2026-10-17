@@ -3,6 +3,13 @@
 1. Open a Claude Code tab in `/home/jonx/Desktop/Astera` for each prompt.
 2. Paste: `Follow docs/orchestrator/prompts/<FILE>.md exactly.` (or paste the file's contents).
 3. Each wave runs in parallel; after all PRs of a wave are open, run `MERGE.md` in one tab.
+4. Load: parallel tabs share one laptop. Full test runs are queued through
+   `flock /tmp/astera-fullsuite.lock` with 2 workers (CONTEXT.md rule 4), so only one runs at a time.
+   Don't run `npm run dev` yourself while the tabs are testing.
+5. Job workers stop at Claude permission prompts by default (CONTEXT.md rule 7). For unattended runs, enable
+   Settings → "Run agents without permission checks".
+
+Status: Wave 0 merged (PR #25, 2026-10-17). See `docs/orchestrator/LINUX.md`.
 
 | Order | Tabs (parallel) |
 |---|---|

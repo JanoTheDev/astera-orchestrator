@@ -25,6 +25,10 @@ Build:
   `command.ts` knows the calling session/role — e.g. orchestration env on spawn — and gate on it). The
   planner's settings must also deny file-edit tools if the existing per-session `--settings` mechanism
   (`src/core/sessions/statusline.ts`) allows it; if not, explain.
+- Wave 0 note: permission bypass is **off by default** (CONTEXT.md rule 7), so the planner and workers will
+  hit Claude permission prompts. The planner must not need the bypass (it only creates Tasks through
+  `astera` commands; make sure those are covered by the session's allowed tools, or say what the owner must
+  allow). Never enable the bypass from code.
 - Structured task fields (append to `interface Task`): `prompt` (explicit worker prompt; `spec` stays),
   `acceptanceCriteria: string[]`, `affectedPaths: string[]`, and set W1-A's `difficulty` (and optionally
   `provider`/`model` with a one-line reason) on every task so workers get a fitting model. Worker spec file
@@ -42,7 +46,7 @@ Build:
 
 ## Done means
 - Acceptance criteria above all demonstrably met.
-- `npm run typecheck` clean; your new tests pass; full `npm test` run with results pasted in the PR (call
+- `npm run typecheck` clean; your new tests pass; full suite run (`flock /tmp/astera-fullsuite.lock nice -n 10 npx vitest run --maxWorkers=2`, CONTEXT.md rule 4 — never bare `npm test`) with results pasted in the PR (call
   out any pre-existing failures separately).
 - Only files in your ownership row of PLAN.md changed (additive hunks elsewhere).
 - Branch pushed, PR opened into `main` of JanoTheDev/astera-orchestrator. Do not merge.

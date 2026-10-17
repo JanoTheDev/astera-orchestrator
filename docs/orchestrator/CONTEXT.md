@@ -54,8 +54,13 @@ Many code comments are Korean — read them, they carry the invariants.
 4. **Tests.** Tests live next to code (`*.test.ts`, vitest, `environment: node`). Add tests for every new
    pure function and state transition. Run before pushing:
    ```bash
-   npm run typecheck && npx vitest run <your test files> && npm test
+   npm run typecheck && npx vitest run --maxWorkers=2 <your test files>
+   flock /tmp/astera-fullsuite.lock nice -n 10 npx vitest run --maxWorkers=2   # the full suite
    ```
+   **Never run bare `npm test`.** Four tabs running it at default workers, alongside Electron, crashed the
+   owner's laptop in Wave 0. The `flock` line queues full runs across tabs, so only one runs at a time. While
+   `npm run dev`, `npm run dist:linux` or another tab's full suite is running, run only your own test files.
+   Stop any `npm run dev` / Electron you started before you finish.
    If a pre-existing test fails on Linux and it is not yours, note it in the PR — do not "fix" it unless
    your prompt says so. Never claim done without pasting the test summary into the PR.
 5. **Linux.** Everything must work on Linux. No `process.platform === 'win32'`-only paths for new
@@ -63,6 +68,20 @@ Many code comments are Korean — read them, they carry the invariants.
 6. **Safety.** Voice/NL input is never authorization for destructive actions (kill, delete, merge, force
    push, archive-with-kill) — require explicit UI confirmation. Never auto-switch accounts beyond what the
    existing rolling feature already does and the user enabled. Never send credentials anywhere.
-7. **Finish.** Commit in small logical commits, push the branch, open a PR **into `main` of
+7. **Linux facts from Wave 0** (`docs/orchestrator/LINUX.md` is the Linux source of truth: read it, and update it
+   when you learn something about Linux):
+   - Agents never bypass permissions by default: `agentPermissionModeOf` returns `'yolo'` only when set
+     explicitly. Job workers and the coordinator therefore stop at Claude permission prompts unless the
+     owner enables Settings → "Run agents without permission checks". Never flip this default back. Design
+     around it: surface "waiting for permission" and let the owner answer.
+   - Auto-update is off (`AUTO_UPDATE`, `src/core/update/autoUpdate.ts`). Don't add network calls to upstream.
+   - Ubuntu's umask is 002, so new dirs are 775. Anything that checks modes must create its dirs with an
+     explicit `mode`.
+   - Windows-style test paths such as `'D:/cfg'` are *relative* on Linux and get written into the cwd. Use
+     paths under the test's temp dir.
+   - Driving the app for manual checks: `npx electron-vite dev --remoteDebuggingPort <fresh port>` + CDP.
+     Use a new port every launch, because the Host inherits the old socket. Native dialogs can't be driven
+     over CDP.
+8. **Finish.** Commit in small logical commits, push the branch, open a PR **into `main` of
    `JanoTheDev/astera-orchestrator`** (`gh pr create --base main`). PR body: what changed, which existing
    code you extended, test output, known gaps. Do not merge it yourself.

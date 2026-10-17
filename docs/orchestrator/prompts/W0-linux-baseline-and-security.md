@@ -34,7 +34,7 @@ Goal: prove this repo builds, tests and runs on this Linux machine, and make the
 
 ## Done means
 - Acceptance criteria above all demonstrably met.
-- `npm run typecheck` clean; your new tests pass; full `npm test` run with results pasted in the PR (call
+- `npm run typecheck` clean; your new tests pass; full suite run (`flock /tmp/astera-fullsuite.lock nice -n 10 npx vitest run --maxWorkers=2`, CONTEXT.md rule 4 — never bare `npm test`) with results pasted in the PR (call
   out any pre-existing failures separately).
 - Only files in your ownership row of PLAN.md changed (additive hunks elsewhere).
 - Branch pushed, PR opened into `main` of JanoTheDev/astera-orchestrator. Do not merge.

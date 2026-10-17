@@ -8,7 +8,10 @@ docs/orchestrator/CONTEXT.md and PLAN.md first.
    (core before UI). For conflicts: they should be small additive hunks in shared files (`types.ts`,
    `command.ts`, settings types, `App.tsx`) — keep both sides. Reconcile any helper the PLAN says two PRs
    both define (e.g. `isJobActive`) into one.
-3. After each merge: `npm ci` if the lockfile changed, `npm run typecheck`, `npm test`. Stop and report if
+3. After each merge: `npm ci` if the lockfile changed, `npm run typecheck`, `flock /tmp/astera-fullsuite.lock nice -n 10 npx vitest run --maxWorkers=2` (never bare
+   `npm test`: it overloads the laptop). If `main` was an ancestor of the PR branch and the PR's own full
+   run is pasted in its body, the merge tree equals the tested tree (`git diff <merge> <merge>^2` is empty);
+   say so and skip the re-run. Stop and report if
    a merge breaks tests that passed on its branch — fix only integration breakage, explain each fix.
 4. Push `main`. Remove merged worktrees: `git worktree remove ../astera-wt/<slug>` and delete merged
    branches locally and on origin.
