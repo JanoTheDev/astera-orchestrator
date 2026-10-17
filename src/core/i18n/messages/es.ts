@@ -1314,6 +1314,13 @@ export const es: Catalog = {
   'jobs.run.mergeFailed': 'No se pudo fusionar: {reason}',
   'jobs.run.notStarted': 'Sin iniciar',
   'jobs.run.notStartedHint': 'Aún no se ha iniciado — pulsa Ejecutar en la ventana de detalle para empezar',
+  // W2-A planner stage
+  'jobs.new.planner': 'Planificar primero con el planificador',
+  'jobs.new.plannerHint': 'Una sesión de planificación (con el modelo de planificación) lee el repositorio y escribe las tareas, cada una con su prompt y sus criterios de aceptación. No cambia archivos ni inicia nada: apruebas el plan con Aprobar y ejecutar.',
+  'jobs.new.plannerFailed': 'El trabajo se creó, pero el planificador no se inició',
+  'jobs.run.approve': 'Aprobar y ejecutar',
+  'jobs.run.approveHint': 'Aprobar este plan e iniciar sus workers',
+  'jobs.run.planInvalid': 'El plan aún no se puede aprobar:',
   'jobs.run.deleteMerge': 'Fusionar en la carpeta del proyecto',
   'jobs.run.deleteMergeHint': 'Incorpora ahora lo que los trabajadores dejaron commiteado en sus worktrees ({count})',
   'jobs.run.deleteHide': 'Ocultar de la lista de historial',

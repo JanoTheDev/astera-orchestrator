@@ -98,7 +98,9 @@ import {
 } from './types'
 import { runWorktrees } from './integrate'
 import { isPathWithin } from '../files/tree'
-import { buildHandoverPrompt } from './handover'
+import { buildHandoverPrompt, buildPlannerBrief } from './handover'
+// W2-A planner stage
+import { editPlanTask, planFieldsFromArgs, plannerJobOf, plannerRefusal, validatePlan, workerSpecOf } from './planner'
 import { parseReviewFile, type ReviewIssueInput } from './review'
 import { nameForRun } from '../worktrees/naming'
 import type { Provider } from '../providers/meta'
@@ -378,6 +380,9 @@ export interface OrchServerDeps {
     /** 인계 브리핑의 **본문**. 배선이 이것을 파일로 쓰고, 세션에는 그 파일을 가리키는 한 줄만
      *  넣는다(handover.ts 의 coordinatorLaunchPrompt) — 여러 줄은 argv 를 지나갈 수 없다. */
     brief: string
+    /** W2-A: `'planner'` starts the Job's planner instead (exec/plannerStart.ts), and `runId` is then the
+     *  Job's id: a planner works before its Job has a Run. */
+    role?: 'planner'
   }): Promise<{ sessionId: string }>
   /** Stops a coordinator session `startCoordinator` opened, when the hand-over finds another one
    *  already in the Run's slot (Task 1 fix round 1, I2). Optional: without it that session is left
@@ -998,6 +1003,8 @@ const COORDINATOR_ONLY = new Set([
   'tasks-dispatch',
   // W1-C: a worker does not rename, archive or bring back the plan it works for
   'jobs-rename',
+  // W2-A: nor start a planner
+  'jobs-plan',
   'jobs-archive',
   'jobs-unarchive'
 ])
@@ -1265,6 +1272,10 @@ export async function handleCommand(
   cmd: string,
   args: Record<string, unknown>
 ): Promise<Reply> {
+  // W2-A: a planner session plans and never starts work (planner.ts). Asked first, so no path below acts for
+  // one: the app and the Host both answer commands here.
+  const plannerNo = plannerRefusal(deps.getState(), caller.sessionId, cmd, args)
+  if (plannerNo !== null) return denied(plannerNo)
   // The job-source commands (plugin Phase 4), in a module of their own; jobs-create-from-source comes back here
   if (SOURCE_COMMANDS.has(cmd)) return sourcesCommand(deps, caller, cmd, args, handleCommand)
   if (cmd === 'browser-js') {
@@ -1425,6 +1436,18 @@ export async function handleCommand(
     const reply = await startAndAttach(deps.getState(), job, target, accountId, true)
     if (reply.status < 200 || reply.status >= 300) await dropStartMark(target.id, now)
     return reply
+  }
+
+  /** W2-A: rewrites a Job's `plannerSessionIds` on the state as it is now (`jobs plan` awaits a spawn);
+   *  `undefined` drops the field. False when the Job is gone. */
+  const setJobPlanners = async (jobId: string, f: (ids: string[]) => string[] | undefined): Promise<boolean> => {
+    const current = deps.getState()
+    const job = current.jobs.find((j) => j.id === jobId)
+    if (!job) return false
+    const { plannerSessionIds: was, ...rest } = job
+    const ids = f(was ?? [])
+    await deps.setState({ ...current, jobs: current.jobs.map((j) => (j.id === jobId ? (ids ? { ...rest, plannerSessionIds: ids } : rest) : j)) })
+    return true
   }
 
   /** Drops a Run's `coordinatorStartingAt`, on the state as it is now (I1), **only when it is the
@@ -2430,6 +2453,51 @@ export async function handleCommand(
       await deps.setState(r.state)
       return okBody(jobView(r.state, r.value, latestRunOf(r.state, r.value)))
     }
+    // W2-A planner stage: a planner session for a Job that has not started (planner.ts, exec/plannerStart.ts).
+    case 'jobs-plan': {
+      const id = str(args.id)
+      if (!id) return bad('--id is required')
+      const job = s.jobs.find((j) => j.id === id)
+      if (!job) return notFound(`unknown job: ${id}`)
+      if (!job.pendingStart) return conflict(`job ${id} has started: a planner plans a Job before it is approved`)
+      if (!deps.startCoordinator) return conflict('starting a planner is not available in this build')
+      const accountArg = str(args.account)
+      const accountId = accountArg ?? job.coordinatorAccountId
+      if (!accountId) return bad('--account is required: the Job names no coordinator account to plan on')
+      if (accountArg !== null && !(await deps.listAccounts()).some((k) => k.id === accountArg))
+        return notFound(`unknown account: ${accountArg}`)
+      // **Marked planned before the session exists** (an empty list): from here an agent cannot approve it
+      // (run-start above), which covers the seconds before the new session's id is recorded below.
+      const marked = job.plannerSessionIds === undefined
+      if (marked) await setJobPlanners(id, (ids) => ids)
+      let sessionId: string
+      try {
+        sessionId = (
+          await deps.startCoordinator({
+            runId: id,
+            cwd: job.cwd,
+            accountId,
+            role: 'planner',
+            brief: buildPlannerBrief({
+              jobId: id,
+              objective: job.objective,
+              repoRoot: job.cwd,
+              accountId,
+              concurrency: job.concurrency ?? DEFAULT_CONCURRENCY
+            })
+          })
+        ).sessionId
+      } catch (e) {
+        if (marked) await setJobPlanners(id, () => undefined)
+        return bad(`could not start the planner: ${String(e)}`)
+      }
+      if (!(await setJobPlanners(id, (ids) => [...ids, sessionId]))) {
+        // The Job went while the session started: nothing would gate that session, so it is stopped.
+        await deps.stopCoordinator?.(sessionId, 'its Job was deleted while the planner started').catch(() => {})
+        return notFound(`unknown job: ${id}`)
+      }
+      return okBody({ jobId: id, sessionId })
+    }
     // 사람이 사이드바에서 Run 을 물러나게 한다. **되돌릴 수 없다.**
     //
     // 자동 정리는 이미 있지만(store.ts 의 TTL: 모든 Task 가 terminal 인 Run 이 30일 지나면 버린다)
@@ -2599,6 +2667,13 @@ export async function handleCommand(
       // **그 밖의 id 는 Job 이다.** '실행' 은 계획을 푸는 일이고, 회차는 그 결과로 생긴다.
       const job = s.jobs.find((j) => j.id === id)
       if (!job) return notFound(`unknown job: ${id}`)
+      // W2-A: starting a planned Job is approving its plan. That is the person's act (the app, or their own
+      // shell), not an agent's, and the plan must hold together first (validatePlan).
+      if (job.pendingStart && job.plannerSessionIds !== undefined) {
+        if (fromAgentSession) return denied('approving a plan is for the person, in Astera or at their own shell')
+        const problems = validatePlan(s, id)
+        if (problems.length) return { status: 400, body: { error: `the plan cannot be approved yet: ${problems.join('; ')}`, problems } }
+      }
       // **Not reachable today.** releaseJob and startJobRun refuse only `unknown job: <id>` — the id
       // this command was given, which the guard above has just found in the same state. Were that
       // guard ever to drift from them, the answer is still "no such id", so they go through
@@ -3008,6 +3083,11 @@ export async function handleCommand(
       // from `s` would overwrite whatever landed during that await. Exactly the inversion
       // `run-create`'s re-read documents at length a few hundred lines up, arriving here for the
       // same reason: a dependency that used to be a function call became a round trip.
+      // W2-A: the plan fields; a planner's Task must carry its prompt and at least one criterion.
+      const plan = planFieldsFromArgs(args)
+      if (!plan.ok) return bad(plan.error)
+      if (plannerJobOf(s, caller.sessionId) && (!plan.fields.prompt || !plan.fields.acceptanceCriteria))
+        return bad('a planner Task needs --prompt and --criteria (one or more acceptance criteria)')
       const latest = deps.getState()
       return commit(
         createTask(
@@ -3024,7 +3104,8 @@ export async function handleCommand(
             ...(validateIds ? { validateConfigIds: validateIds } : {}),
             // `--review` 는 값이 없는 플래그다(task-list --ready 와 같은 모양). 어느 provider 가
             // 읽을지는 앱이 고른다 — 계정 풀을 아는 것은 앱이다.
-            reviewRequested: args.review === true ? true : undefined
+            reviewRequested: args.review === true ? true : undefined,
+            ...plan.fields
           },
           now
         )
@@ -3158,6 +3239,27 @@ export async function handleCommand(
           tasks: s.tasks.map((t) => (t.id === id ? { ...t, convergenceOff: true as const, updatedAt: now } : t))
         })
         return okBody({ id, convergenceOff: true })
+      }
+      // W2-A: editing a plan's Task (its title, spec, deps and plan fields) instead of moving its status.
+      const PLAN_EDIT = ['title', 'spec', 'deps', 'prompt', 'criteria', 'affectedPaths', 'difficulty', 'provider', 'model', 'modelReason']
+      if (args.status === undefined && PLAN_EDIT.some((k) => args[k] !== undefined)) {
+        const plan = planFieldsFromArgs(args)
+        if (!plan.ok) return bad(plan.error)
+        if (args.deps !== undefined && !(Array.isArray(args.deps) && args.deps.every((d) => typeof d === 'string')))
+          return bad('--deps must be a JSON array of Task ids')
+        return commit(
+          editPlanTask(
+            s,
+            id,
+            {
+              ...plan.fields,
+              ...(str(args.title) ? { title: str(args.title)! } : {}),
+              ...(str(args.spec) ? { spec: str(args.spec)! } : {}),
+              ...(args.deps !== undefined ? { deps: args.deps as string[] } : {})
+            },
+            now
+          )
+        )
       }
       const status = str(args.status)
       if (!status) return bad('--status is required')
@@ -3460,7 +3562,8 @@ export async function handleCommand(
           dispatchId,
           taskId,
           title: task.title,
-          spec: task.spec,
+          // W2-A: a planned Task's prompt, criteria and paths go into the worker's spec file.
+          spec: workerSpecOf(task),
           provider: agent,
           accountId: account,
           runCwd: runJob?.cwd ?? '',

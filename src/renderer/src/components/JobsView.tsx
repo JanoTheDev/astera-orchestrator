@@ -343,6 +343,22 @@ function RunCardImpl({
             <PlayIcon />
           </button>
         )}
+        {/* W2-A: a Job not started yet is a plan waiting for its approval. Starting it (run-start, the same
+            command as the ▶ above and the detail window's Run) approves it; a planned Job's plan is checked
+            first and the refusal says what is missing. An archived plan starts nothing, so no button. */}
+        {run.pendingStart && run.archivedAt === undefined && onRestartCoordinator && (
+          <button
+            className="jobs-approve"
+            disabled={disabledReason !== undefined}
+            title={disabledReason ?? t('jobs.run.approveHint')}
+            onClick={(e) => {
+              e.stopPropagation()
+              onRestartCoordinator(run.id)
+            }}
+          >
+            {t('jobs.run.approve')}
+          </button>
+        )}
         {/* 상세 창으로 가는 입구. **제목 줄에 있는 이유는 접기 때문이다** — 아래 한 줄은
             접으면 사라지는데, 접기는 세로를 아끼는 장치이지 유일한 문을 잠그는 장치가 아니다
             (같은 판단을 Gate 줄이 이미 하고 있다). 그리고 Run 이 쌓여 접어 두게 될 때가

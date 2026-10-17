@@ -361,6 +361,16 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
     detail: 'It can start work again. A run that `jobs archive --kill-sessions` stopped stays paused until `runs resume`.',
     flags: [ID('<jobId>', 'the Job to bring back')]
   },
+  // W2-A planner stage (planner.ts)
+  'jobs-plan': {
+    summary: 'start a planner session for a Job that has not started',
+    detail:
+      "The planner is an agent session in the Job's folder, on the planner model, that reads the repository and writes the plan as the Job's Tasks (each with a prompt, acceptance criteria and affected paths). It cannot start work: every command that would is refused to it. Start the Job (`jobs run`, or \"Approve & execute\" in Astera) to approve the plan; that is refused while a Task lacks a prompt or a criterion, a dependency is not in the plan, or the dependencies form a cycle, and refused from inside an agent session. The plan is also written to plans/<jobId>/plan.md in the profile. Refused with 9 once the Job has started.",
+    flags: [
+      ID('<jobId>', 'the Job to plan'),
+      { name: 'account', value: '<id>', about: "the account the planner runs on (default: the Job's coordinator account)" }
+    ]
+  },
   'jobs-wait': {
     summary: "wait until this Job's latest run ends",
     detail:

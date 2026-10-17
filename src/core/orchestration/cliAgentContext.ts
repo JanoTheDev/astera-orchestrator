@@ -207,7 +207,15 @@ const SESSION = {
       { name: 'deps', value: '<json array>', about: 'the Task ids this one waits for' },
       { name: 'validate', value: '<configId,…>', about: 'run configurations that must pass' },
       { name: 'parent', value: '<taskId>', about: 'the Task this one was split out of' },
-      { name: 'review', about: 'have the result reviewed before it counts as done' }
+      { name: 'review', about: 'have the result reviewed before it counts as done' },
+      // W2-A planner stage (planner.ts): a planner session must pass --prompt and --criteria
+      { name: 'prompt', value: '<text|->', about: "the worker's prompt, in full (required from a planner)" },
+      { name: 'criteria', value: '<json array>', about: 'acceptance criteria, one or more (required from a planner)' },
+      { name: 'affected-paths', value: '<json array>', about: 'the files or folders the Task will change' },
+      { name: 'difficulty', value: '<light|standard|hard>', about: "picks the worker's model" },
+      { name: 'provider', value: '<claude|codex>', about: 'the provider the Task asks for' },
+      { name: 'model', value: '<id>', about: "the worker's model, ahead of --difficulty" },
+      { name: 'model-reason', value: '<text>', about: 'one line: why that difficulty, provider or model' }
     ]
   },
   'task-update': {
@@ -219,7 +227,18 @@ const SESSION = {
       { name: 'status', value: '<s>', about: 'the status to set' },
       { name: 'result', value: '<text|->', about: 'what the Task produced' },
       { name: 'reason', value: '<text>', about: 'why it was set by hand' },
-      { name: 'convergence', value: '<off>', about: 'stop repairing this Task (there is no on)' }
+      { name: 'convergence', value: '<off>', about: 'stop repairing this Task (there is no on)' },
+      // W2-A planner stage: without --status, these edit a plan's Task (one of a Job not run yet) instead
+      { name: 'title', value: '<text>', about: "without --status: a plan's Task's new name" },
+      { name: 'spec', value: '<text|->', about: "without --status: a plan's Task's new spec" },
+      { name: 'deps', value: '<json array>', about: 'without --status: its Tasks to wait for (inside the plan, no cycle)' },
+      { name: 'prompt', value: '<text|->', about: 'without --status: as task-create' },
+      { name: 'criteria', value: '<json array>', about: 'without --status: as task-create' },
+      { name: 'affected-paths', value: '<json array>', about: 'without --status: as task-create' },
+      { name: 'difficulty', value: '<light|standard|hard>', about: 'without --status: as task-create' },
+      { name: 'provider', value: '<claude|codex>', about: 'without --status: as task-create' },
+      { name: 'model', value: '<id>', about: 'without --status: as task-create' },
+      { name: 'model-reason', value: '<text>', about: 'without --status: as task-create' }
     ]
   },
   send: {

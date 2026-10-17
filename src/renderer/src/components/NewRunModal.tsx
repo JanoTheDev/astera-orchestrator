@@ -51,6 +51,8 @@ export function NewRunModal({
   /** 통과할 때까지 자동 수정(Plan 1 설계 D12). 기본 꺼짐 — 켜면 검사·검토 실패가 코디네이터가 아니라 앱의 손으로
    *  같은 워커에게 돌아간다. 이 폼은 켜기만 하고 숫자 셋은 CLI 플래그(--max-fix-attempts 등)에 남긴다. */
   const [convergence, setConvergence] = useState(false)
+  /** W2-A: start a planner session on the new Job (`jobs-plan`), which writes its Tasks for approval. */
+  const [plan, setPlan] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   /** The create may have gone through on a Runtime whose answer was lost: not sent again from this form. */
@@ -100,7 +102,19 @@ export function NewRunModal({
         if (f.lock) setLocked(true)
         return
       }
-      onCreated((reply.body as { id: string }).id)
+      const id = (reply.body as { id: string }).id
+      // W2-A: the planner runs on the coordinator account, on the planner model. The Job is made either way: a
+      // planner that does not start leaves it as a draft to plan by hand, and the form says why and stays open.
+      if (plan && !scheduled) {
+        const planned = await door.command('jobs-plan', { id })
+        if (planned.status >= 400) {
+          const why = (planned.body as { error?: unknown } | null)?.error
+          setError(`${t('jobs.new.plannerFailed')}${typeof why === 'string' ? `: ${why}` : ''}`)
+          setLocked(true)
+          return
+        }
+      }
+      onCreated(id)
     } catch {
       // orch.command 자체가 reject 하는 경우(IPC 실패) — 여기서 잡지 않으면 DevTools 에
       // Uncaught (in promise) 가 뜬다. status>=400 과 같은 문구로 접는다: 사용자에게는 둘 다
@@ -233,6 +247,16 @@ export function NewRunModal({
             {t('jobs.new.convergenceCliOnly')}
           </p>
         </div>
+        {/* W2-A: not for a schedule, whose Tasks are copied into every round and planned by hand */}
+        {!scheduled && (
+          <div className="field">
+            <label className="check-small">
+              <input type="checkbox" checked={plan} onChange={(e) => setPlan(e.target.checked)} />
+              {t('jobs.new.planner')}
+            </label>
+            <p className="modal-hint">{t('jobs.new.plannerHint')}</p>
+          </div>
+        )}
         {error && <p className="warn">{error}</p>}
         <div className="row right">
           <button onClick={onClose} disabled={busy}>

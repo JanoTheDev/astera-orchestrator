@@ -88,11 +88,16 @@ const TASK_HIDDEN = [
   // W1-A role models: not in the SDK's contract until the planner (W2-A) settles how they are written
   'difficulty',
   'model',
-  'provider'
+  'provider',
+  // W2-A planner stage: the planner's fields, held back with W1-A's until the SDK takes them on
+  'prompt',
+  'acceptanceCriteria',
+  'affectedPaths',
+  'modelReason'
 ] as const
 
 /** W1-A role models: a Job's per-role model override, held back from the SDK like the Task's three above. */
-const JOB_HIDDEN = ['models'] as const
+const JOB_HIDDEN = ['models', /* W2-A: the planner sessions, the app's own bookkeeping */ 'plannerSessionIds'] as const
 
 /** A followed event's message body (pages long) and the app's link from an event to a tab. */
 const FOLLOW_EVENT_HIDDEN = ['body', 'sessionId'] as const

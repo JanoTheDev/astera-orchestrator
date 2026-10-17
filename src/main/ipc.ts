@@ -4590,6 +4590,8 @@ export function registerIpc(
     'jobs-rename': 'id',
     'jobs-archive': 'id',
     'jobs-unarchive': 'id',
+    // W2-A planner stage: names its Job by `--id`
+    'jobs-plan': 'id',
     // Phase 10: the renderer names the Run as `runId`; a file of another project's Run is not read through this door.
     'runs-changed-files': 'runId',
     'runs-diff': 'runId'

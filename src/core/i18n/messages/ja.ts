@@ -1297,6 +1297,13 @@ export const ja: Catalog = {
   'jobs.run.mergeFailed': 'マージできませんでした: {reason}',
   'jobs.run.notStarted': '実行待ち',
   'jobs.run.notStartedHint': 'まだ実行していません — 詳細ウィンドウで実行を押すと開始します',
+  // W2-A planner stage
+  'jobs.new.planner': '先にプランナーで計画する',
+  'jobs.new.plannerHint': 'プランナーセッション(プランナーモデル)がリポジトリを読み、Task を書きます。各 Task にはプロンプトと完了条件が付きます。ファイルは変更せず、何も開始しません。「承認して実行」で計画を承認してください。',
+  'jobs.new.plannerFailed': 'ジョブは作成しましたが、プランナーを起動できませんでした',
+  'jobs.run.approve': '承認して実行',
+  'jobs.run.approveHint': 'この計画を承認してワーカーを開始します',
+  'jobs.run.planInvalid': '計画はまだ承認できません:',
   'jobs.run.deleteMerge': 'プロジェクトフォルダーへマージする',
   'jobs.run.deleteMergeHint': 'ワーカーがワークツリーにコミットした作業を今マージします（ワークツリー {count} 個）',
   'jobs.run.deleteHide': '履歴一覧から隠す',
