@@ -711,6 +711,8 @@ astera tasks   list   [--run <runId>] [--status <s>] [--ready] [--brief]
 astera tasks   add    [--job <jobId> | --run <runId>] --spec <text|-> --account <id,…> [--title <text>] [--deps <json array>] [--parent <taskId>] [--validate <configId,…>] [--review]
 astera tasks   dispatch --id <taskId>
 
+astera dispatches list [--run <runId>]
+
 astera accounts list  [--agent <claude|codex>]
 
 astera run-configs list --job <jobId>
@@ -783,6 +785,10 @@ an unknown Job, and `tasks list --run` with an unknown run. An empty list would 
 has no runs". `nextSteps` is the list that gives the missing kind of id, `astera jobs list` and
 `astera runs list` respectively. `runs list --job` given no value (`--job ""`, as a script whose id
 came back empty would send) is a 2, not the list of every run.
+
+**`dispatches list` lists every worker attempt** (a Dispatch: its task, session, account, model, folder, start and
+end), across every project, or only one run's with `--run`. It reads only. An unknown `--run` is a 4, like
+`tasks list --run`. Astera's workspace sidebar reads it to place each session under its plan.
 
 **The list filters are judged by the Host, never by the parser**, and a value a filter does not know
 is a 2 whose message lists the values it does. A filter given no value is a 2 as well, never the whole

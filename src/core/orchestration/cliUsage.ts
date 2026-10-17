@@ -426,6 +426,13 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       { name: 'brief', about: 'cut each spec to 160 characters' }
     ]
   },
+  // W3-C search and inbox
+  'dispatches-list': {
+    summary: 'the dispatches (worker attempts) of every run, or of one run',
+    detail:
+      'One row per attempt: its task, session, account, model, folder, when it started and how it ended. Read only. A run that is not there is not found (4).',
+    flags: [{ name: 'run', value: '<runId>', about: 'only the dispatches of this run' }]
+  },
   // **--job and --run are both listed as optional, and exactly one of them is required.** A flag in
   // this table is either required or not; there is no field for "one of these two". `browser js`
   // has the same shape with --script and --file, and as there the rule is carried by the prose.

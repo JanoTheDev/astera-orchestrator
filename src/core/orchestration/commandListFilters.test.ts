@@ -189,6 +189,45 @@ describe('questions list --run', () => {
   })
 })
 
+// W3-C: every Run's Dispatches in one read, for the workspace sidebar
+describe('dispatches list --run', () => {
+  const twoRuns = async (): Promise<{ deps: OrchServerDeps; runs: string[]; dispatches: string[] }> => {
+    const deps = makeDeps()
+    const runs: string[] = []
+    for (const o of ['a', 'b']) {
+      await call(deps, 'run-create', { objective: o, cwd: 'D:/p' })
+      const runId = deps.getState().runs.at(-1)!.id
+      await call(deps, 'task-create', { run: runId, title: 't', spec: 's', account: 'acc_x' })
+      runs.push(runId)
+    }
+    const s = deps.getState()
+    const dispatches = s.tasks.map((t, i) => ({
+      id: `dsp_${i}`, taskId: t.id, provider: 'codex' as const, accountId: 'acc_x', sessionId: `sess_${i}`, cwd: 'D:/p',
+      specPath: 'D:/p/spec.md', startedAt: NOW, workerState: 'ready' as const, retained: false
+    }))
+    await deps.setState({ ...s, dispatches })
+    return { deps, runs, dispatches: dispatches.map((d) => d.id) }
+  }
+
+  it('lists every Dispatch with no --run, across Runs', async () => {
+    const { deps, dispatches } = await twoRuns()
+    const r = await call(deps, 'dispatches-list')
+    expect(r.status).toBe(200)
+    expect(ids(r.body)).toEqual(dispatches)
+  })
+
+  it("keeps only that run's dispatches", async () => {
+    const { deps, runs, dispatches } = await twoRuns()
+    expect(ids((await call(deps, 'dispatches-list', { run: runs[1] })).body)).toEqual([dispatches[1]])
+  })
+
+  it('an unknown run is a 404 and a --run with no value a 400', async () => {
+    const { deps } = await twoRuns()
+    expect((await call(deps, 'dispatches-list', { run: 'run_nope' })).status).toBe(404)
+    expect((await call(deps, 'dispatches-list', { run: true })).status).toBe(400)
+  })
+})
+
 describe('sessions list --status and --provider', () => {
   const rows: HostSession[] = [
     { id: 's1', kind: 'terminal', title: 'a', accountId: 'acc_c', cwd: null, alive: true, state: 'working' },
