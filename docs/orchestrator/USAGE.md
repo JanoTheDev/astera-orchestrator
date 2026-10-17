@@ -1,5 +1,78 @@
 # Using the orchestrator
 
+The day-to-day guide. A **project** is a git folder, a **plan** is a Job, a **Task** is one unit of work, and each
+attempt at a Task is one real `claude` (or `codex`) terminal session, a **worker**. The background **Host** process
+owns every session and drives every plan, so closing the window stops nothing (LINUX.md, "Closing the window").
+
+## Before the first plan
+
+- Sign in an account (Accounts panel, "+").
+- Settings → Orchestration models: the model of each role. Defaults: planner and reviewer `opus`, coordinator `haiku`,
+  workers by Task difficulty (light → haiku, standard → sonnet, hard → opus). Empty means the CLI's default model.
+- Settings → "Max workers across all jobs": the app-wide cap. Empty means no limit. At the cap, plans with a higher
+  priority get the next free slot.
+- Settings → Agents → "Run agents without permission checks" is **off**. Planners, coordinators and workers then stop at
+  every Claude permission prompt until you answer it. They show up in the needs-input badge (below).
+- Set a git identity (`git config --global user.name …` / `user.email …`). Without one, merging a plan's branches
+  fails and its PR is not opened.
+
+## Plans
+
+1. **Create.** Jobs view → "+ New job" (pick the project and write the objective), or from a shell:
+   `astera jobs create --objective "…" --cwd <repo> --coordinator-account <id>`. Name it with Rename (pencil) or
+   `astera jobs rename --id <job> --title <name>`. The name is what the sidebar, search and the command bar use.
+2. **Plan.** `astera jobs plan --id <job>`, or "Plan …" in the command bar, starts the **planner**: a session on the
+   planner model that reads the repo and its CLAUDE.md and writes the plan as Tasks. Each Task gets a prompt,
+   acceptance criteria, affected paths, a difficulty and the reason for its model, plus its dependencies. The planner
+   cannot start work. The plan is also written to `plans/<job>/plan.md` in the profile.
+3. **Approve.** Read the Tasks (Jobs view → Details, or the Board), then press **Approve & execute** and confirm. Astera
+   refuses a plan in which a Task lacks a prompt or a criterion, a dependency is missing, or the dependencies form a
+   cycle, and lists what is wrong. From a shell, `astera jobs run --id <job>` does the same. An agent session can never
+   approve.
+4. **Run.** A coordinator session (coordinator model) starts and places workers. Every Task whose dependencies are done
+   gets a worker in its own worktree under `~/astera-worktrees/<repo>/`. Dependents start on their own when their
+   dependencies complete, never before. "Done" is the worker's explicit report plus any checks, not a quiet terminal.
+5. **Stop / resume.** Jobs view, or "pause <plan>" / "resume <plan>" in the command bar. Stop **closes** the plan's
+   workers and coordinator, after a confirmation. Resume starts the coordinator again, which places one new worker per
+   unfinished Task. A plan created without a coordinator does not pick up again after a stop (known issue).
+6. **Archive.** Jobs view → Archive, or `astera jobs archive --id <job>`. Archiving starts nothing new and leaves sessions
+   running unless you add `--kill-sessions`. Unarchive brings the plan back.
+
+One PR per plan, opened when the plan finishes, never merged automatically.
+
+## The workspace
+
+The sidebar's **Workspaces** tree is Project → Plan → Planner / Coordinator / Workers. Clicking a session shows its
+terminal. The header above it always says Project · Plan · Task · Model · Account · cwd · Branch · Status. Switching
+sessions or plans never restarts a process or changes its cwd. Scrollback survives switching and a restart of the app.
+
+- **Type into a worker**: click it in the tree and type. To send one line without switching, use the command bar:
+  `send "run the tests" to Gameful Worker 2`.
+- **Needs my input**: the number next to Workspaces counts sessions waiting for you (a permission prompt or a
+  question). Click it for the list. It only fills while the app is open, and it does not say whether a session waits
+  on a permission or a question.
+- **Search**: the box under Workspaces matches sessions, plans and Tasks across projects, also by initials:
+  `hw1` finds "Hold Worker 1". Each hit shows "project › plan · task".
+- **Board**: the Run window's board shows every Task, and for each one that is not running, why ("waits for A",
+  "App-wide limit full", "Its worker was stopped").
+
+## Activity feed
+
+The **Activity** panel under Workspaces is the feed of the open plan. "All plans" switches it to every plan. Each line
+says what happened ("completed", "failed", "cancelled", "worker stopped by you", "hit a limit on <account>, waiting for
+the reset", "plan ready for your approval", "plan done"), with the plan, the model and the account. "Last 15 min" groups
+the recent lines by outcome and lists each blocked Task with its reason. The Host keeps the feed in
+`<profile>/orch/activity.jsonl`, so it survives a restart of the app.
+
+## Notifications and the digest
+
+- Settings → Notifications → **Orchestration updates**: desktop notices for a failed Task, a finished plan, a question
+  and a plan awaiting approval. At most three a minute. The rest are counted in the next digest.
+- Settings → **Activity summary every (minutes)**: the digest, default 30, sent only when something happened. 0 turns
+  it off; held notices are then announced once a minute as "More orchestration updates".
+- Slack gets the same notices when the **Host** keeps Slack. When the app keeps Slack, activity notices skip Slack.
+- Desktop notices need the app open. The Host keeps the feed while the app is closed, and you read it when you return.
+
 ## Command bar and voice (W3-B)
 
 The command bar is a conversation with the **coordinator**. Open it with **Ctrl+Shift+K**
@@ -8,7 +81,7 @@ The command bar is a conversation with the **coordinator**. Open it with **Ctrl+
 Type a command and press Enter. The bar handles it in three steps:
 
 1. **Parse.** Simple phrasings are read without a model (`core/intents/fastPath.ts`). Anything else goes to the
-   `coordinator` role model (Settings → Orchestrator models, default `haiku`) in one read-only `claude -p` call. The
+   `coordinator` role model (Settings → Orchestration models, default `haiku`) in one read-only `claude -p` call. The
    planner model is never used for this. The call runs on your default signed-in Claude account (`defaultAccountIdOf`).
 2. **Resolve.** Names like "Gameful Trading", "worker three" or "the API worker" are matched to exact plan and
    session ids from the workspace sidebar's data. If a name matches more than one thing, or nothing, the bar asks
