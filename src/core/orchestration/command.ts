@@ -115,6 +115,22 @@ import { prForBranch } from '../github/prs'
 import { ISSUE_JOB_ASSOCIATIONS, readIssue } from '../github/issue'
 import { GITHUB_SOURCE_ID, issueContext } from '../github/issueSource'
 import { fillFromCommits, type CommitSummary } from '../github/fill'
+// W2-D GitHub links
+import {
+  createTaskIssue,
+  defaultBranchOf,
+  findExistingIssue,
+  hasIssueWorkflow,
+  issueLink,
+  mergeLinks,
+  planPrBody,
+  planPrTasksOf,
+  prNumberOf,
+  rangeCommits
+} from '../github/taskLinks'
+import { jobNameOf } from './jobName'
+import { isSamePath } from '../files/tree'
+import type { RunPr, TaskLinks } from './types'
 import type { PrCreateRequest, PrCreateResult } from '../github/prCreate'
 import type { SessionCheck } from '../workUnit/types'
 import { PTY_LOST_SIGHT_EXIT_CODE } from '../sessions/pty'
@@ -999,7 +1015,10 @@ const COORDINATOR_ONLY = new Set([
   // W1-C: a worker does not rename, archive or bring back the plan it works for
   'jobs-rename',
   'jobs-archive',
-  'jobs-unarchive'
+  'jobs-unarchive',
+  // W2-D: a worker reports its issue in worker_done (`--issue`); linking and the plan's PR are the coordinator's
+  'task-link-issue',
+  'run-open-pr'
 ])
 
 /** Session-task commands answer to the work-unit tracking toggle, not the orchestration one. They
@@ -1122,6 +1141,42 @@ export function githubTarget(
 export function ghRefusal(f: GhFailed): Reply {
   const status = f.kind === 'not-found' ? 404 : f.kind === 'not-installed' || f.kind === 'auth' ? 409 : 502
   return { status, body: { error: f.message } }
+}
+
+/** W2-D: what a worker's `worker_done` gives its Task's links (core/github/taskLinks.ts): the issue it reports
+ *  (`--issue <n>`, and `--issue-created` when the repository's workflow made it for this Task, so the plan's PR closes
+ *  it), its worktree's branch, and the commits the attempt added over its recorded base. Only where gh runs
+ *  (`deps.github`, the Host). Never throws: a link that cannot be read is logged and the report stands. */
+export async function linkReportedWork(
+  deps: OrchServerDeps,
+  taskId: string,
+  dispatchId: string,
+  args: Record<string, unknown>
+): Promise<void> {
+  const g = deps.github
+  if (!g) return
+  try {
+    const d = deps.getState().dispatches.find((x) => x.id === dispatchId)
+    if (!d) return
+    const patch: TaskLinks = {}
+    const branch = g.worktreeOf?.(d.cwd)?.branch
+    if (branch) patch.branch = branch
+    if (d.git?.base) {
+      const commits = await rangeCommits(d.cwd, d.git.base)
+      if (commits.length > 0) patch.commits = commits
+    }
+    const n = args.issue === undefined ? null : posInt(args.issue)
+    if (n !== null) {
+      const linked = await issueLink(g.run, d.cwd, n)
+      if (linked.ok) patch.issue = { ...linked.issue, ...(args.issueCreated === true ? { closes: true } : {}) }
+      else deps.log?.(`task ${taskId}: issue #${n} was not linked: ${linked.message}`)
+    } else if (args.issue !== undefined) deps.log?.(`task ${taskId}: --issue ${String(args.issue)} is not an issue number`)
+    if (Object.keys(patch).length === 0) return
+    const s = deps.getState()
+    await deps.setState({ ...s, tasks: s.tasks.map((t) => (t.id === taskId ? { ...t, links: mergeLinks(t.links, patch) } : t)) })
+  } catch (e) {
+    deps.log?.(`task ${taskId}: linking its GitHub work failed: ${String(e)}`)
+  }
 }
 
 const POLL_MS = 50
@@ -3842,6 +3897,9 @@ export async function handleCommand(
         if (!result.ok) return refused(result)
         await deps.setState(withLimit(result.state))
         if (result.value === 'accepted') dropRollingChain() // 위 검토 경로와 같은 이유·같은 조건
+        // W2-D: the issue, branch and commits this attempt reports go to its Task's links, after the commit and off the
+        // reply's path (gh is a network call)
+        if (result.value === 'accepted') void linkReportedWork(deps, taskId, dispatchId, args)
         // 커밋 뒤에 부른다 — 검증이 먼저 끝나면 아직 validating 이 아닌 Task 에 결과를 쓰게 된다.
         // result.value가 'alreadyReported'인 재전송은 상태를 바꾸지 않았다(첫 호출의 커밋을 그대로
         // 다시 읽을 뿐이다) — 걸러내지 않으면 재전송마다 검증이 다시 큐에 들어가고, 그 사이 Task가
@@ -4735,6 +4793,118 @@ export async function handleCommand(
       if (made.kind === 'rejected') return { status: 409, body: { error: 'The push was rejected', pushed: made.pushed } }
       const refused = ghRefusal({ ok: false, ...ghFailureSentence({ ok: false, stdout: '', stderr: made.detail, spawnError: made.spawnError }) })
       return { status: refused.status, body: { ...(refused.body as object), pushed: made.pushed } }
+    }
+    // W2-D GitHub links (core/github/taskLinks.ts). Ties a Task to its issue: exactly one of --number (an issue that is
+    // there), --find (looked up by the Task's marker, then its title) and --create. **Linking never creates**: the
+    // repository's CLAUDE.md workflow makes issues (SPEC §7), so --create is refused where one says how, and even then
+    // links an issue that is already there rather than opening a duplicate.
+    case 'task-link-issue': {
+      const id = str(args.id)
+      if (!id) return bad('--id is required: the Task to link')
+      const task = s.tasks.find((t) => t.id === id)
+      if (!task) return notFound(`unknown task: ${id}`)
+      if ([args.number !== undefined, args.find === true, args.create === true].filter(Boolean).length !== 1)
+        return bad('give exactly one of --number <n>, --find or --create')
+      if (!deps.github) return conflict('GitHub commands are answered by the Astera Host, and this caller is not one')
+      const taskRun = task.runId ? s.runs.find((r) => r.id === task.runId) : undefined
+      const job = taskRun ? jobOf(s, taskRun) : s.jobs.find((j) => j.id === task.jobId)
+      if (!job) return notFound(`no plan for task ${id}`)
+      const gh = deps.github.run
+      let issue: NonNullable<TaskLinks['issue']>
+      let created = false
+      if (args.number !== undefined) {
+        const n = posInt(args.number)
+        if (n === null) return bad('--number must be an issue number')
+        const linked = await issueLink(gh, job.cwd, n)
+        if (!linked.ok) return ghRefusal(linked)
+        issue = linked.issue
+      } else {
+        const found = await findExistingIssue(gh, job.cwd, { title: task.title, taskId: task.id })
+        if (!found.ok) return ghRefusal(found)
+        if (found.issue) issue = { number: found.issue.number, url: found.issue.url }
+        else if (args.find === true)
+          return notFound(`no issue found for task ${id}; the repository's own workflow creates issues, so link it with --number once it exists`)
+        else {
+          if (await hasIssueWorkflow(job.cwd))
+            return conflict("This repository's CLAUDE.md says how issues are made; follow it, then link the issue with --number")
+          const made = await createTaskIssue(gh, job.cwd, { title: task.title, body: task.spec, taskId: task.id })
+          if (!made.ok) return ghRefusal(made)
+          issue = { ...made.issue, closes: true }
+          created = true
+        }
+      }
+      const after = deps.getState()
+      await deps.setState({
+        ...after,
+        tasks: after.tasks.map((t) => (t.id === id ? { ...t, links: mergeLinks(t.links, { issue }), updatedAt: now } : t))
+      })
+      return okBody({ task: id, issue, created })
+    }
+    /**
+     * W2-D: **one pull request per plan** (the owner's decision of 2026-10-17). A completed Run's Task worktrees are folded
+     * into its integration worktree, that branch is pushed, and one PR is opened against the repository's default branch
+     * through `github-pr-create`: every Task, its acceptance criteria, its issue and the model and account that did it.
+     * Never merged here. The outcome is recorded on the Run (`JobRun.pr`), so the driving loop asks once; a failure is
+     * asked again only with --force. The local Merge (`run-merge`) stays for a person who wants it.
+     */
+    case 'run-open-pr': {
+      const id = str(args.run)
+      if (!id) return bad('--run is required')
+      const run = s.runs.find((r) => r.id === id)
+      if (!run) return notFound(`unknown run: ${id}`)
+      if (run.pr?.url) return okBody({ url: run.pr.url, number: run.pr.number ?? null, opened: false })
+      if (run.pr?.error !== undefined && args.force !== true)
+        return conflict(`Opening this Run's pull request failed before: ${run.pr.error}. --force tries again`)
+      if (runView(s, run).outcome !== 'completed') return conflict('This Run has not completed; its pull request opens once every task is done')
+      if (!deps.github) return conflict('GitHub commands are answered by the Astera Host, and this caller is not one')
+      const worktree = run.worktree
+      if (worktree === undefined) return conflict('This Run has no integration branch; use Merge to bring its work into the project folder')
+      const job = jobOf(s, run)
+      if (!job) return notFound(`no plan for run ${id}`)
+      const record = async (pr: RunPr, links?: TaskLinks): Promise<void> => {
+        const cur = deps.getState()
+        await deps.setState({
+          ...cur,
+          runs: cur.runs.map((r) => (r.id === id ? { ...r, pr } : r)),
+          tasks: links ? cur.tasks.map((t) => (t.runId === id ? { ...t, links: mergeLinks(t.links, links) } : t)) : cur.tasks
+        })
+      }
+      // The leaves' work is still in their own worktrees: only a dependent's start folds a worktree into the Run's.
+      const rest = runWorktrees(s, id).filter((p) => !isSamePath(p, worktree))
+      if (rest.length > 0) {
+        if (!deps.mergeWorktrees) return conflict('merging is not available in this build')
+        const merged = await deps.mergeWorktrees(worktree, rest)
+        if (!merged.ok) {
+          await record({ at: now, error: merged.reason })
+          return conflict(merged.reason)
+        }
+      }
+      const base = await defaultBranchOf(deps.github.run, worktree)
+      let accounts: OrchAccount[] = []
+      try {
+        accounts = await deps.listAccounts()
+      } catch {
+        // The PR names an account by its id then
+      }
+      const title = jobNameOf(job)
+      const body = planPrBody({ plan: title, tasks: planPrTasksOf(deps.getState(), id, (a) => accounts.find((x) => x.id === a)?.label) })
+      const made = await handleCommand(deps, caller, 'github-pr-create', { run: id, title, body, draft: false, ...(base ? { base } : {}) })
+      const answer = (made.body ?? {}) as { url?: unknown; error?: unknown }
+      const error = typeof answer.error === 'string' ? answer.error : `github-pr-create answered ${made.status}`
+      // gh's "already exists" ends with the existing pull request's URL: that one is the plan's
+      const url =
+        made.status === 200 && typeof answer.url === 'string'
+          ? answer.url
+          : made.status === 409
+            ? error.match(/https?:\/\/\S+\/pull\/\d+/)?.[0]
+            : undefined
+      if (url === undefined) {
+        await record({ at: now, error })
+        return made
+      }
+      const number = prNumberOf(url)
+      await record({ at: now, url, ...(number !== null ? { number } : {}) }, number !== null ? { prs: [{ number, url, state: 'open' }] } : undefined)
+      return okBody({ url, number, opened: made.status === 200 })
     }
     case 'github-ci-rerun': {
       if (args.run !== undefined) return bad('--run does not go with github-ci-rerun: give --project')
