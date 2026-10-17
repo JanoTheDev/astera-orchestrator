@@ -229,8 +229,9 @@ describe('snapshotFor', () => {
         id: 'job_r1', fireOrdinal: 1, foldedRunId: 'r1', objective: 'objective r1', outcome: 'running', done: 1, total: 2, eventCount: 3,
         concurrency: undefined, sharesProjectFolder: false,
         tasks: [
-          { id: 't1', title: 'task t1', status: 'completed', sessionId: undefined, gateQuestion: undefined, openGates: 0 },
-          { id: 't2', title: 'task t2', status: 'ready', sessionId: undefined, gateQuestion: undefined, openGates: 0 }
+          { id: 't1', title: 'task t1', status: 'completed', sessionId: undefined, gateQuestion: undefined, openGates: 0, board: { category: 'done' } },
+          // W2-C: a legacy Task has no account, so the board says that is why it waits
+          { id: 't2', title: 'task t2', status: 'ready', sessionId: undefined, gateQuestion: undefined, openGates: 0, board: { category: 'queued', reason: { kind: 'no-account' } } }
         ]
       }
     ])
@@ -1153,5 +1154,37 @@ describe('snapshotFor cost', () => {
     expect(r0.total).toBe(3)
     expect(r0.eventCount).toBeGreaterThan(0)
     expect(r0.tasks.find((t) => t.id === 't0_1')?.gate?.id).toBe('g0')
+  })
+})
+
+// W2-C plan board: the card's model, account, branch and attempts, and the board entry and app-wide cap from blocked.ts
+describe('snapshotFor — plan board fields', () => {
+  it("carries the latest attempt's model, account and worktree branch, and counts attempts without reviews", () => {
+    const s = withRuns([run('r1', absPath('p'))], [{ ...task('t1', 'r1', 'reviewing'), model: 'sonnet' }])
+    s.dispatches = [
+      { ...dispatch('d1', 't1', 's1', '2026-08-18T01:00:00.000Z'), outcome: 'failed', endedAt: '2026-08-18T01:10:00.000Z' },
+      { ...dispatch('d2', 't1', 's2', '2026-08-18T02:00:00.000Z'), accountId: 'acc_2', model: 'opus', cwd: absPath('wt'), outcome: 'succeeded', endedAt: '2026-08-18T02:10:00.000Z' },
+      { ...dispatch('d3', 't1', 's3', '2026-08-18T03:00:00.000Z'), accountId: 'acc_rev', model: 'haiku', review: true }
+    ]
+    const t = snapshotFor(s, absPath('p'), anySession, [wt(absPath('p'), absPath('wt'))], noFires, allExist).runs[0].tasks[0]
+    expect(t).toMatchObject({ model: 'opus', accountId: 'acc_2', branch: 'u/feature', attempts: 2, board: { category: 'awaiting-review' } })
+  })
+
+  it("falls back to the Task's own model, and carries nothing for a Task never dispatched", () => {
+    const s = withRuns([run('r1', absPath('p'))], [{ ...task('t1', 'r1', 'pending'), model: 'sonnet' }, task('t2', 'r1', 'pending')])
+    const [a, b] = snapshotFor(s, absPath('p'), anySession, noWorktrees, noFires, allExist).runs[0].tasks
+    expect(a.model).toBe('sonnet')
+    for (const k of ['accountId', 'branch', 'attempts'] as const) expect(a[k]).toBeUndefined()
+    expect(b.model).toBeUndefined()
+  })
+
+  it('passes the app-wide cap to the reasons', () => {
+    const s = withRuns([run('r1', absPath('p'))], [{ ...task('t1', 'r1', 'dispatched'), accountIds: ['acc'] }, { ...task('t2', 'r1', 'ready'), accountIds: ['acc'] }])
+    s.jobs = s.jobs.map((j) => ({ ...j, autoDispatch: true }))
+    s.dispatches = [dispatch('d1', 't1', 's1', '2026-08-18T01:00:00.000Z')]
+    const fold = (cap: number | null) =>
+      snapshotFor(s, absPath('p'), anySession, noWorktrees, noFires, allExist, 0, { maxConcurrentWorkers: cap }).runs[0].tasks[1].board
+    expect(fold(1)).toEqual({ category: 'queued', reason: { kind: 'global-cap', used: 1, limit: 1, priority: 0 } })
+    expect(fold(null)).toEqual({ category: 'queued', reason: { kind: 'next' } })
   })
 })
