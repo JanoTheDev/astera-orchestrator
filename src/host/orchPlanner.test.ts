@@ -73,6 +73,17 @@ describe('the Host refuses a planner session every command that starts work', ()
     expect(file.runs).toHaveLength(0)
   })
 
+  // W3-D: MCP lists `jobs-run` (run_job) as a control command; approving a plan is still the person's act.
+  it('an MCP client with control access cannot approve it through run_job', async () => {
+    const jobId = await seed()
+    await fs.writeFile(path.join(dir, 'app-settings.json'), JSON.stringify({ mcpAccess: 'control' }), 'utf8')
+    const r = await hostOrch().call({ cmd: 'jobs-run', args: { id: jobId }, sessionId: '', from: { role: 'mcp', toOthers: () => {} } })
+    expect(r.status).toBe(403)
+    expect(JSON.stringify(r.body)).toContain('approving a plan is for the person')
+    const file = JSON.parse(await fs.readFile(path.join(dir, 'orchestration.json'), 'utf8')) as { jobs: Array<{ pendingStart?: boolean }> }
+    expect(file.jobs[0].pendingStart).toBe(true)
+  })
+
   it('a person approves the same plan through the Host', async () => {
     const jobId = await seed()
     const r = await hostOrch().call({ cmd: 'run-start', args: { run: jobId }, sessionId: '' })

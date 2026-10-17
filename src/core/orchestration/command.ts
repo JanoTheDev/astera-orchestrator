@@ -2725,7 +2725,8 @@ export async function handleCommand(
       // W2-A: starting a planned Job is approving its plan. That is the person's act (the app, or their own
       // shell), not an agent's, and the plan must hold together first (validatePlan).
       if (job.pendingStart && job.plannerSessionIds !== undefined) {
-        if (fromAgentSession) return denied('approving a plan is for the person, in Astera or at their own shell')
+        // W3-D: an MCP client calls with an empty session id, but its call comes from an agent (sessions-send's fromMcp)
+        if (fromAgentSession || caller.role === 'mcp') return denied('approving a plan is for the person, in Astera or at their own shell')
         const problems = validatePlan(s, id)
         if (problems.length) return { status: 400, body: { error: `the plan cannot be approved yet: ${problems.join('; ')}`, problems } }
       }
