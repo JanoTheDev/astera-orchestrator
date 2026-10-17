@@ -1,4 +1,4 @@
-// The Jobs sidebar's one-shot actions (pause, resume, coordinator restart, delete), each through a door
+// The Jobs sidebar's one-shot actions (pause, resume, coordinator restart, approve, delete), each through a door
 // (lib/orchDoor.ts) so a paired Runtime's Job takes the same flow as this computer's (remote runtime design Phase 7).
 // The bodies are the App's own, moved: the same confirmations, counts, choices and failure sentences.
 import type { OrchSnapshot } from '../../../core/types'
@@ -51,14 +51,52 @@ export async function resumeRun(door: OrchDoor, runId: string, ui: ActionUi): Pr
 
 /** Puts a coordinator back on a Run that lost it: `run-start` again, whose meaning is "this Run has a manager" and
  *  which does nothing when it has one (command.ts). The row's id is a Job's or a round's; run-start takes both. */
-export async function restartCoordinator(door: OrchDoor, runId: string, ui: ActionUi): Promise<void> {
+export async function restartCoordinator(door: OrchDoor, runId: string, ui: ActionUi): Promise<boolean> {
   const reply = await send(door, 'run-start', { run: runId }, ui, ui.t('jobs.run.coordinatorRestartFailed'))
-  if (!reply || reply.status < 400) return
+  if (!reply) return false
+  if (reply.status < 400) return true
   // W2-A: the same command approves a planned Job ("Approve & execute"); a plan that does not hold together is
   // refused with what is wrong with it (`problems`, planner.ts's validatePlan), said as it is.
   const problems = (reply.body as { problems?: unknown } | null)?.problems
   if (Array.isArray(problems)) ui.error(`${ui.t('jobs.run.planInvalid')}\n${problems.map((p) => `• ${String(p)}`).join('\n')}`)
   else failure(reply, ui, ui.t('jobs.run.coordinatorRestartFailed'))
+  return false
+}
+
+// W3-B: the plan actions the command bar shares with the Jobs card. Each asks in the app's own dialog first, so a
+// typed or spoken command can name them but never run them alone (CONTEXT rule 6).
+
+/** Approves a plan: `run-start` on its Job (W2-A), after asking, because it starts workers and spends quota. The Jobs
+ *  card's "Approve & execute" and the command bar's approve both come here. A plan that does not hold is refused with
+ *  its `problems`, said as restartCoordinator says them. */
+export async function approvePlan(door: OrchDoor, jobId: string, name: string, ui: ActionUi): Promise<boolean> {
+  const ok = await ui.confirm({
+    title: ui.t('jobs.run.approve'),
+    body: ui.t('jobs.run.approveConfirmBody', { objective: name }),
+    confirmLabel: ui.t('jobs.run.approve')
+  })
+  return ok && restartCoordinator(door, jobId, ui)
+}
+
+/** Stops a running Run (`runs-stop`): its workers and coordinator close and it is paused. Asked first. The only way
+ *  to stop a plan that is not scheduled from launching more: no command holds dispatch with the workers left open. */
+export async function stopRun(door: OrchDoor, runId: string, name: string, ui: ActionUi): Promise<boolean> {
+  const ok = await ui.confirm({
+    title: ui.t('command.stop.title'),
+    body: ui.t('command.stop.body', { objective: name }),
+    confirmLabel: ui.t('command.stop.confirm')
+  })
+  if (!ok) return false
+  const reply = await send(door, 'runs-stop', { id: runId }, ui, ui.t('command.stop.failed'))
+  if (reply && reply.status >= 400) failure(reply, ui, ui.t('command.stop.failed'))
+  return reply !== null && reply.status < 400
+}
+
+/** Resumes a Run `runs-stop` paused. Asks nothing, like resumeRun: it starts work again, it closes nothing. */
+export async function resumeStoppedRun(door: OrchDoor, runId: string, ui: ActionUi): Promise<boolean> {
+  const reply = await send(door, 'runs-resume', { id: runId }, ui, ui.t('jobs.run.resumeFailed'))
+  if (reply && reply.status >= 400) failure(reply, ui, ui.t('jobs.run.resumeFailed'))
+  return reply !== null && reply.status < 400
 }
 
 /** Deletes a Run after a confirmation that counts what goes with it (a schedule's rounds too) and offers to merge

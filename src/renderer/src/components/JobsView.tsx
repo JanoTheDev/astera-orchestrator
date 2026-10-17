@@ -232,6 +232,7 @@ function RunCardImpl({
   onOpenRun,
   onDeleteRun,
   onRestartCoordinator,
+  onApprove,
   disabledReason,
   lifecycle
 }: {
@@ -250,6 +251,8 @@ function RunCardImpl({
   /** 관리자가 사라진 Run 에 코디네이터를 다시 붙인다 — run-start 를 다시 부른다(그 명령의 뜻이
    *  "이 Run 에 관리자가 있게 하라" 이고, 이미 있으면 아무것도 하지 않는다). */
   onRestartCoordinator?: (runId: string) => void
+  /** W3-B: "Approve & execute" (lib/jobActions approvePlan, which asks first). Absent: the button is not drawn. */
+  onApprove?: (runId: string) => void
   /** Why the controls are off (a read-only pairing, Phase 7): drawn disabled with this as their title. */
   disabledReason?: string
   /** W1-C: only on a top-level card */
@@ -346,14 +349,14 @@ function RunCardImpl({
         {/* W2-A: a Job not started yet is a plan waiting for its approval. Starting it (run-start, the same
             command as the ▶ above and the detail window's Run) approves it; a planned Job's plan is checked
             first and the refusal says what is missing. An archived plan starts nothing, so no button. */}
-        {run.pendingStart && run.archivedAt === undefined && onRestartCoordinator && (
+        {run.pendingStart && run.archivedAt === undefined && onApprove && (
           <button
             className="jobs-approve"
             disabled={disabledReason !== undefined}
             title={disabledReason ?? t('jobs.run.approveHint')}
             onClick={(e) => {
               e.stopPropagation()
-              onRestartCoordinator(run.id)
+              onApprove(run.id)
             }}
           >
             {t('jobs.run.approve')}
@@ -525,6 +528,7 @@ function ScheduleCard({
   onResumeRun,
   onDeleteRun,
   onRestartCoordinator,
+  onApprove,
   disabledReason,
   lifecycle
 }: {
@@ -541,6 +545,7 @@ function ScheduleCard({
   onResumeRun?: (runId: string) => void
   onDeleteRun?: (runId: string) => void
   onRestartCoordinator?: (runId: string) => void
+  onApprove?: (runId: string) => void
   /** Why the controls are off (a read-only pairing, Phase 7): drawn disabled with this as their title. */
   disabledReason?: string
   /** W1-C plan lifecycle: the plan's, never its rounds' */
@@ -660,6 +665,7 @@ function ScheduleCard({
                 onOpenRun={onOpenRun}
                 onDeleteRun={onDeleteRun}
                 onRestartCoordinator={onRestartCoordinator}
+                onApprove={onApprove}
                 disabledReason={disabledReason}
               />
             ))}
@@ -741,6 +747,7 @@ export function JobsView({
   onResumeRun,
   onDeleteRun,
   onRestartCoordinator,
+  onApprove,
   remote = false,
   disabledReason,
   onRenameJob,
@@ -794,6 +801,8 @@ export function JobsView({
    *  세어 보여 준다) 명령은 App 이 보낸다, onOpenRun 과 같은 갈래다. */
   onDeleteRun: (runId: string) => void
   onRestartCoordinator: (runId: string) => void
+  /** W3-B: approves a plan waiting for it (App → lib/jobActions approvePlan). Absent: no approve button. */
+  onApprove?: (runId: string) => void
   /** A paired Runtime's Jobs (remote runtime design Phase 6): its empty view says the Runtime has none here. */
   remote?: boolean
   /** Why the controls are off (a read-only pairing, Phase 7): every control is drawn disabled with this as its title.
@@ -801,7 +810,7 @@ export function JobsView({
   disabledReason?: string
 } & LifecycleActs): React.JSX.Element {
   const { t } = useI18n()
-  const acts = { onPauseRun, onResumeRun, onDeleteRun, onRestartCoordinator }
+  const acts = { onPauseRun, onResumeRun, onDeleteRun, onRestartCoordinator, onApprove }
   const lifecycle: LifecycleActs | undefined =
     onRenameJob || onArchiveJob || onUnarchiveJob ? { onRenameJob, onArchiveJob, onUnarchiveJob } : undefined
   // W1-C: archived plans are hidden until asked for. Not remembered: the list opens on the plans that work.
@@ -956,6 +965,7 @@ export function JobsView({
             onResumeRun={acts.onResumeRun}
             onDeleteRun={acts.onDeleteRun}
             onRestartCoordinator={acts.onRestartCoordinator}
+            onApprove={acts.onApprove}
             disabledReason={disabledReason}
             lifecycle={lifecycle}
           />
@@ -971,6 +981,7 @@ export function JobsView({
             onOpenRun={onOpenRun}
             onDeleteRun={acts.onDeleteRun}
             onRestartCoordinator={acts.onRestartCoordinator}
+            onApprove={acts.onApprove}
             disabledReason={disabledReason}
             lifecycle={lifecycle}
           />
