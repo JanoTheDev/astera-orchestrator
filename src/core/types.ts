@@ -29,6 +29,8 @@ import type { Provider } from './providers/meta'
 import type { TerminalFont } from './terminal/font'
 import type { GeneratorSettings } from './understanding/generatorSettings'
 import type { RoleModelSettings } from './orchestration/roleModels'
+import type { Transcript, VoiceSettings } from './intents/speech'
+import type { Parsed } from './intents/types'
 import type { DesktopNotifySettings } from './notify/settings'
 import type { ModelDescriptor, ModelListResult } from './models/types'
 import type {
@@ -1405,6 +1407,12 @@ export interface CoreApi {
     tokenHint(): Promise<string | null>
     newToken(): Promise<string>
   }
+  /** W3-B command bar: free text → one intent on the coordinator role model (a one-shot read-only CLI call on
+   *  `accountId`), and a push-to-talk WAV clip → text on the owner's local whisper.cpp. Both answer failures as values. */
+  command: {
+    parse(accountId: string, prompt: string): Promise<Parsed>
+    transcribe(wav: Uint8Array): Promise<Transcript>
+  }
   settings: {
     // App language. `stored: null` is System — the OS locale decides, and `resolved` is what it decided.
     getLang(): Promise<LangPreference>
@@ -1441,6 +1449,9 @@ export interface CoreApi {
     // Orchestrator W1-A: which model each orchestration role and task difficulty runs on, per provider.
     getRoleModels(): Promise<RoleModelSettings>
     setRoleModels(next: RoleModelSettings): Promise<void>
+    // W3-B voice: the owner's whisper.cpp binary and model (absolute paths; nothing is downloaded).
+    getVoice(): Promise<VoiceSettings>
+    setVoice(next: VoiceSettings): Promise<void>
     // The models that account can use, asked of the CLI itself. Never rejects: a failure comes back as
     // { models: [], error } so the settings screen can fall back to a free-text field and say why.
     // Cached for the life of the app; pass refresh to ask again.

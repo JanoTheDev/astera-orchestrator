@@ -184,6 +184,11 @@ const api = {
     tokenHint: invoke('mcpHttp.tokenHint'),
     newToken: invoke('mcpHttp.newToken')
   },
+  // W3-B command bar
+  command: {
+    parse: invoke('command.parse'),
+    transcribe: invoke('speech.transcribe')
+  },
   settings: {
     getLang: invoke('settings.getLang'),
     setLang: invoke('settings.setLang'),
@@ -203,6 +208,8 @@ const api = {
     setGenerator: invoke('settings.setGenerator'),
     getRoleModels: invoke('settings.getRoleModels'),
     setRoleModels: invoke('settings.setRoleModels'),
+    getVoice: invoke('settings.getVoice'),
+    setVoice: invoke('settings.setVoice'),
     listModels: invoke('settings.listModels'),
     getResumeStrategy: invoke('settings.getResumeStrategy'),
     setResumeStrategy: invoke('settings.setResumeStrategy'),

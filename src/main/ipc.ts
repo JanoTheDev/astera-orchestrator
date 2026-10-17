@@ -79,6 +79,9 @@ import { orchAccountsFor } from '../core/accounts/accountsFile'
 import { descriptorOf } from '../core/providers/descriptor'
 import { readGeneratorSettings } from '../core/understanding/generatorSettings'
 import { readRoleModelSettings } from '../core/orchestration/roleModels'
+import { readVoiceSettings } from '../core/intents/speech'
+import { transcribe } from '../core/intents/transcribe'
+import { parseWithCoordinator } from '../core/intents/parseRun'
 import type { ModelListResult } from '../core/models/types'
 import { attachmentNameOf } from '../core/files/attachmentName'
 import { installCommandFor } from '../core/install/cliInstall'
@@ -5970,6 +5973,24 @@ export function registerIpc(
     if (v === null || typeof v !== 'object' || Array.isArray(v)) throw new Error(`INVALID_ROLE_MODELS: ${String(v)}`)
     await core.appSettings.setRoleModels(readRoleModelSettings(v))
   })
+
+  // W3-B command bar. The parse runs on the coordinator role model, never the planner's, in an empty folder: it reads
+  // nothing of a project. The clip goes to the owner's whisper.cpp and stays on this machine.
+  ipcMain.handle('settings.getVoice', () => core.appSettings.getVoice())
+  ipcMain.handle('settings.setVoice', async (_e, v: unknown) => {
+    if (v === null || typeof v !== 'object' || Array.isArray(v)) throw new Error(`INVALID_VOICE_SETTINGS: ${String(v)}`)
+    await core.appSettings.setVoice(readVoiceSettings(v))
+  })
+  ipcMain.handle('command.parse', async (_e, accountId: unknown, prompt: unknown) => {
+    if (typeof accountId !== 'string' || typeof prompt !== 'string' || prompt.length > 64_000)
+      return { ok: false, reason: 'bad arguments' }
+    const account = core.accounts.list().find((a) => a.id === accountId)
+    if (!account) return { ok: false, reason: `unknown account: ${accountId}` }
+    return parseWithCoordinator({ account, descriptors: core.descriptors, roleModels: core.appSettings.getRoleModels(), cwd: os.tmpdir(), prompt })
+  })
+  ipcMain.handle('speech.transcribe', (_e, wav: unknown) =>
+    wav instanceof Uint8Array ? transcribe(core.appSettings.getVoice(), wav) : { ok: false, reason: 'not audio' }
+  )
 
   /** 그 계정이 쓸 수 있는 모델. **실패도 값으로 돌려준다** — 조회 실패는 정상 경로이고
    *  (미로그인, codex app-server 는 experimental), 그때 설정 화면은 드롭다운 대신 자유
