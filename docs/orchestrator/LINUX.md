@@ -220,6 +220,8 @@ default model) and the header shows `Model —`.
 - "Last 15 min" groups them ("5 failed · 7 blocked") and lists each blocked Task with its reason.
 - Throttle, measured with `dbus-monitor "interface='org.freedesktop.Notifications',member='Notify'"`: five Tasks
   failed within 5 s (22:27:35–39) and the desktop got **three** notices (f1, f2, f3); the rest wait for the digest.
+- Digest (default 30 min): at 22:54, 34 min after the app started, one "Activity summary" notice: "5 failed: f1, f2,
+  f3 and 2 more · 2 cancelled: k1, k2 · 2 more notice(s) held back".
 - Desktop notices on XFCE arrive through `org.freedesktop.Notifications` with app name `astera`.
 
 ### Search and command bar
@@ -242,5 +244,18 @@ default model) and the header shows `Model —`.
   it closed a VS Code window whose title contained "Astera". Use `wmctrl -l` and `wmctrl -i -c <id>`.
 - **D-Bus truncation.** `: > notify.log` on a file `dbus-monitor` is still writing leaves NUL bytes at the start;
   read it with `tr -d '\0'`.
+- **Window-manager close skips the quit dialog.** The "Close and quit Astera" dialog (with "End the kept sessions too")
+  belongs to the app's own title-bar X (`closeWindow` in `App.tsx`). Alt+F4 or `wmctrl -c` quits at once and keeps the
+  sessions, which is the safe default but offers no way to end them.
 - `MaxListenersExceededWarning: 11 session:pty-size listeners` appears in the dev log with 11 terminal tabs open: one
   listener per `TerminalView`, harmless.
+
+### Packaged AppImage (W4)
+
+- `npm run dist:linux`: 1 m 45 s; `astera-1.4.14-x86_64.AppImage` 131 MB and `astera-1.4.14-amd64.deb` 100 MB.
+- Started with no `--no-sandbox`; the Host runs as `/tmp/.mount_astera*/astera …/app.asar/out/main/host.js`.
+- Smoke on the packaged profile (`~/.config/astera`): one plan, one Task from the CLI. The worker started 7 s after
+  `jobs run` and completed 23 s later. The feed showed "p1: running / worker started / completed / worker exited" and
+  "Packaged: plan done". The desktop got a "Plan done" notice.
+- The in-app X opened "Close and quit Astera … 1 running session(s) keep running", with "End the 1 kept session(s) too".
+  Ticking that ended the Host, and the `/tmp/.mount_astera*` mount was released.
