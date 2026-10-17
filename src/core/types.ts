@@ -28,6 +28,7 @@ import type { ProjectUnderstanding } from './understanding/types'
 import type { Provider } from './providers/meta'
 import type { TerminalFont } from './terminal/font'
 import type { GeneratorSettings } from './understanding/generatorSettings'
+import type { RoleModelSettings } from './orchestration/roleModels'
 import type { DesktopNotifySettings } from './notify/settings'
 import type { ModelDescriptor, ModelListResult } from './models/types'
 import type {
@@ -121,6 +122,9 @@ export interface SessionInfo {
   kind?: SessionKind
   /** Chat only: the protocol's own thread id once known (Codex threadId). What resume needs. */
   threadId?: string
+  /** Terminal only (orchestrator W1-A): the `--model` / `-m` the session was started with. Rides
+   *  every roll's respawn and the note, like bypassPermissions. Absent: the CLI's default. */
+  model?: string
 }
 
 /** The stored settings the resume modal reads to seed its checkboxes.
@@ -1375,6 +1379,9 @@ export interface CoreApi {
     // chosen, and nothing is generated — the screen says so rather than staying silently blank.
     getGenerator(): Promise<GeneratorSettings>
     setGenerator(g: GeneratorSettings): Promise<void>
+    // Orchestrator W1-A: which model each orchestration role and task difficulty runs on, per provider.
+    getRoleModels(): Promise<RoleModelSettings>
+    setRoleModels(next: RoleModelSettings): Promise<void>
     // The models that account can use, asked of the CLI itself. Never rejects: a failure comes back as
     // { models: [], error } so the settings screen can fall back to a free-text field and say why.
     // Cached for the life of the app; pass refresh to ask again.

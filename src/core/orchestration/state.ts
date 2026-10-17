@@ -362,6 +362,10 @@ export function startJobRun(s: OrchState, jobId: string, now: string): Res<JobRu
     ...(t.validateConfigId !== undefined ? { validateConfigId: t.validateConfigId } : {}),
     ...(t.validateConfigIds?.length ? { validateConfigIds: [...t.validateConfigIds] } : {}),
     ...(t.reviewRequested ? { reviewRequested: true } : {}),
+    // W1-A role models: a run's Task runs on the model its definition asked for.
+    ...(t.difficulty !== undefined ? { difficulty: t.difficulty } : {}),
+    ...(t.model !== undefined ? { model: t.model } : {}),
+    ...(t.provider !== undefined ? { provider: t.provider } : {}),
     status: 'pending',
     consecutiveFailures: 0,
     createdAt: now,

@@ -47,7 +47,8 @@ export interface RollSpawnOpts {
   restoreExtra?: RollSpawnExtra
   /** The chain's kind (chat takeover): 'chat' goes to HostChats, anything else to the spawner. */
   kind?: SessionKind
-  /** Chat only, claude only: the model the chain carries (claudeCoordinator's chosenModelOf). */
+  /** The model the chain carries: a chat chain's pick (claudeCoordinator's chosenModelOf), or the model a
+   *  terminal session was started with (SessionInfo.model, orchestrator W1-A). */
   model?: string | null
   /** The toolchain bypass the chain was granted (design F5). */
   startWithBypass?: boolean

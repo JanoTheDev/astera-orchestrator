@@ -78,6 +78,7 @@ import { providerOf } from '../core/providers/meta'
 import { orchAccountsFor } from '../core/accounts/accountsFile'
 import { descriptorOf } from '../core/providers/descriptor'
 import { readGeneratorSettings } from '../core/understanding/generatorSettings'
+import { readRoleModelSettings } from '../core/orchestration/roleModels'
 import type { ModelListResult } from '../core/models/types'
 import { attachmentNameOf } from '../core/files/attachmentName'
 import { installCommandFor } from '../core/install/cliInstall'
@@ -2972,7 +2973,8 @@ export function registerIpc(
           // already exist on the app's spawnSession/core.sessions.spawn, this closure just has to
           // forward them instead of dropping them on the floor.
           resumeSessionId: o.resumeSessionId,
-          resumePrompt: o.resumePrompt
+          resumePrompt: o.resumePrompt,
+          model: o.model // W1-A role model, kept across rolls by the session (SessionInfo.model)
         } satisfies typeof o)
         try {
           send('session:created', info)
@@ -3255,6 +3257,9 @@ export function registerIpc(
             specsDir,
             preTrust: preTrustWorkspace,
             bypassPermissions: async () => core.appSettings.getAgentPermissionMode() === 'yolo',
+            getState: () => store.get(),
+            accounts: async () => core.accounts.list(),
+            roleModels: async () => core.appSettings.getRoleModels(),
             spawn: async (o) => {
               const info = await spawnSession(o)
               // **탭을 띄우는 것이 이 한 줄이다.** 공용 spawnSession 은 이 이벤트를 내지 않는다 — 사용자
@@ -3296,7 +3301,8 @@ export function registerIpc(
             loginStatus: (id) => core.accounts.loginStatus(id),
             coordinator,
             tails: orchTails,
-            log: orchLog
+            log: orchLog,
+            roleModels: async () => core.appSettings.getRoleModels()
           },
           a
         ),
@@ -5937,6 +5943,13 @@ export function registerIpc(
     if (g === null || typeof g !== 'object' || Array.isArray(g))
       throw new Error(`INVALID_GENERATOR_SETTINGS: ${String(g)}`)
     await core.appSettings.setGenerator(readGeneratorSettings(g))
+  })
+
+  // Orchestrator W1-A: the role models, written whole and narrowed by the store's setter.
+  ipcMain.handle('settings.getRoleModels', () => core.appSettings.getRoleModels())
+  ipcMain.handle('settings.setRoleModels', async (_e, v: unknown) => {
+    if (v === null || typeof v !== 'object' || Array.isArray(v)) throw new Error(`INVALID_ROLE_MODELS: ${String(v)}`)
+    await core.appSettings.setRoleModels(readRoleModelSettings(v))
   })
 
   /** 그 계정이 쓸 수 있는 모델. **실패도 값으로 돌려준다** — 조회 실패는 정상 경로이고

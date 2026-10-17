@@ -230,6 +230,9 @@ export class SessionManager {
      *  those always win (S6 R6). A rolling respawn carries `rolledFrom` and its chain's snapshot here, so
      *  a process that takes the session over before the rekey commits still knows what it is. */
     restoreExtra?: RollSpawnExtra
+    /** The model to start on (orchestrator W1-A). Kept on the info and the note, so a roll's respawn
+     *  and an adopted session start on it again. Absent or null: the CLI's default. */
+    model?: string | null
   }): SessionInfo {
     // The folder `prepare` just confirmed is not looked at again. The sync check is left only for a
     // caller that did not prepare (tests, and anything added later without it): it is the one that can
@@ -285,7 +288,8 @@ export class SessionManager {
       addDirs: this.sessionReadDirs,
       resumePrompt: opts.resumePrompt,
       initialPrompt: opts.initialPrompt,
-      developerInstructions
+      developerInstructions,
+      model: opts.model
     })
     // Windows only: CLAUDE_CODE_GIT_BASH_PATH exists for Git for Windows, and on other platforms the
     // agent's bash is the system one. The agent's hooks and statusLine need a real Git Bash when
@@ -366,7 +370,8 @@ export class SessionManager {
           ...(opts.rollAccountIds ? { rollAccountIds: opts.rollAccountIds } : {}),
           ...(opts.rollPrompt ? { rollPrompt: opts.rollPrompt } : {}),
           ...(opts.slackNotify !== undefined ? { slackNotify: opts.slackNotify } : {}),
-          ...(opts.bypassPermissions !== undefined ? { bypassPermissions: opts.bypassPermissions } : {})
+          ...(opts.bypassPermissions !== undefined ? { bypassPermissions: opts.bypassPermissions } : {}),
+          ...(opts.model ? { model: opts.model } : {})
         }
       }
     })
@@ -384,7 +389,8 @@ export class SessionManager {
       rollPrompt: opts.rollPrompt,
       slackNotify: opts.slackNotify,
       bypassPermissions: opts.bypassPermissions,
-      schedule: opts.schedule
+      schedule: opts.schedule,
+      ...(opts.model ? { model: opts.model } : {})
     }
     return this.track(info, pty)
   }

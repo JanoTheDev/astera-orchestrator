@@ -19,6 +19,13 @@ import type { OrchCoordinator } from './coordinator'
 import type { WorkerTails } from './tail'
 import { coordinatorBriefName } from './specFiles'
 import { dispatchLookup } from '../dispatchIndex'
+import { jobOf, jobOfRunId } from '../state'
+import {
+  resolveReviewerModel,
+  resolveRoleModel,
+  resolveWorkerModel,
+  type RoleModelSettings
+} from '../roleModels'
 
 export type StartWorkerArgs = Parameters<OrchServerDeps['startWorker']>[0]
 export type StartWorkerResult = Awaited<ReturnType<OrchServerDeps['startWorker']>>
@@ -29,6 +36,50 @@ export interface WorkerStartContext {
   coordinator: Pick<OrchCoordinator, 'startWorker'>
   tails: WorkerTails
   log(m: string): void
+  /** app-settings.json's `roleModels` (W1-A). Required, so a wiring cannot silently start every worker
+   *  on the CLI default; a read that throws is logged and treated as "not set" (built-in defaults). */
+  roleModels(): Promise<RoleModelSettings>
+}
+
+/** Reads the settings for a start. A broken settings file is not a reason to refuse a worker: the
+ *  permission read beside it already refuses on that (bypassFromSettings), and here the built-in
+ *  defaults are a safe answer. */
+async function settingsFor(ctx: { roleModels(): Promise<RoleModelSettings>; log(m: string): void }): Promise<RoleModelSettings> {
+  try {
+    return await ctx.roleModels()
+  } catch (e) {
+    ctx.log(`role models: settings unreadable, using the built-in defaults: ${String(e)}`)
+    return {}
+  }
+}
+
+/** The model this start runs on and why it differs from the ask (W1-A). A `--terminal` reuse types
+ *  into a session already running, so it reports that session's model; a review Dispatch takes the
+ *  reviewer's (kept off the implementer's model on a same-provider review); every other start, the
+ *  worker's (Task.model > difficulty > Job > app > CLI default). */
+async function modelForStart(
+  ctx: WorkerStartContext,
+  a: StartWorkerArgs,
+  s: OrchState
+): Promise<{ model?: string; note?: string }> {
+  if (a.terminal) {
+    const prev = s.dispatches.filter((d) => d.sessionId === a.terminal && d.id !== a.dispatchId).at(-1)
+    return prev?.model ? { model: prev.model } : {}
+  }
+  const task = s.tasks.find((t) => t.id === a.taskId)
+  const run = task?.runId ? s.runs.find((r) => r.id === task.runId) : undefined
+  const job = run ? jobOf(s, run) : undefined
+  const settings = await settingsFor(ctx)
+  if (s.dispatches.find((d) => d.id === a.dispatchId)?.review) {
+    const impl = s.dispatches
+      .filter((d) => d.taskId === a.taskId && !d.review)
+      .sort((x, y) => x.startedAt.localeCompare(y.startedAt))
+      .at(-1)
+    if (impl) return resolveReviewerModel({ settings, job, provider: a.provider, impl })
+    const model = resolveRoleModel(settings, job, 'reviewer', a.provider)
+    return model ? { model } : {}
+  }
+  return resolveWorkerModel({ settings, job, task, provider: a.provider, accounts: await ctx.accounts() })
 }
 
 /** The body of the app's old `startWorker` wrapper, unchanged: the rolling chain from Task.accountIds
@@ -111,7 +162,13 @@ export async function startWorkerWithChain(
       )
     }
   }
-  const started = await ctx.coordinator.startWorker({ ...a, rollAccountIds })
+  const chosen = await modelForStart(ctx, a, ctx.getState())
+  if (chosen.note) ctx.log(`worker-start: dispatch ${a.dispatchId}: ${chosen.note}`)
+  const started = await ctx.coordinator.startWorker({
+    ...a,
+    rollAccountIds,
+    ...(chosen.model ? { model: chosen.model } : {})
+  })
   // From this point on, that session's output belongs to this dispatch. On reuse (--terminal) the
   // previous dispatch's tail freezes where it is. Only a dispatch that has reached a terminal
   // state is eligible for eviction — a live worker's tail is not dropped even past the cap (see
@@ -126,7 +183,7 @@ export async function startWorkerWithChain(
     // Asked for every output chunk: through the index, not a scan of every attempt (audit H6).
     (id) => dispatchById(id)?.endedAt !== undefined
   )
-  return started
+  return { ...started, ...(chosen.model ? { model: chosen.model } : {}), ...(chosen.note ? { modelNote: chosen.note } : {}) }
 }
 
 export type StartCoordinatorArgs = Parameters<NonNullable<OrchServerDeps['startCoordinator']>>[0]
@@ -141,8 +198,15 @@ export interface CoordinatorStartContext {
     initialPrompt: string
     title: string
     rollAccountIds: string[]
+    /** The coordinator role's model (W1-A). Absent: the CLI's default. */
+    model?: string
   }): Promise<{ id: string }>
   log(m: string): void
+  /** W1-A: what the coordinator role's model is resolved from — the Run's Job override, the app's
+   *  `roleModels` setting, the account's provider. */
+  getState(): OrchState
+  accounts(): Promise<Account[]>
+  roleModels(): Promise<RoleModelSettings>
 }
 
 /** 이 Run 을 관리할 코디네이터 세션을 띄운다. **워커가 아니다** — Dispatch 도 spec 파일도
@@ -186,6 +250,11 @@ export async function startCoordinatorSession(
   // 처음 돌리는 사람에게는 여기가 첫 codex 세션이고, 멈추면 아무도 답할 사람이 없는 것은
   // 워커와 같다(preTrustWorkspace 의 주석).
   await ctx.preTrust(a.accountId, a.cwd)
+  // The lightweight model (W1-A, SPEC §4): status questions and scheduling never call the premium one.
+  const coordinatorAccount = (await ctx.accounts()).find((x) => x.id === a.accountId)
+  const model = coordinatorAccount
+    ? resolveRoleModel(await settingsFor(ctx), jobOfRunId(ctx.getState(), a.runId), 'coordinator', providerOf(coordinatorAccount))
+    : undefined
   // **워커와 같은 래퍼를 쓴다**(the caller's worker spawnSession) — 그 래퍼가 계정 객체를 찾고,
   // 롤링 코디네이터에 등록하고, orchEnv 를 실어 준다. core.sessions.spawn 을 직접 부르면 그 셋을
   // 여기서 다시 하게 되고, 그중 하나를 빠뜨리면 코디네이터는 한도에 걸린 채 멈춰 선다.
@@ -199,9 +268,10 @@ export async function startCoordinatorSession(
     title: `Coordinator · ${a.runId.slice(0, 12)}`,
     // **한 원소다.** 그래서 롤링은 계정을 갈아타지 않고 리셋까지 기다린 뒤 같은 세션에서
     // 이어간다 — 관리 중이던 Run 의 맥락을 잃지 않는 쪽을 골랐다(Run.coordinatorAccountId).
-    rollAccountIds: [a.accountId]
+    rollAccountIds: [a.accountId],
+    ...(model ? { model } : {})
   })
-  ctx.log(`coordinator started run=${a.runId} session=${info.id} account=${a.accountId}`)
+  ctx.log(`coordinator started run=${a.runId} session=${info.id} account=${a.accountId} model=${model ?? 'CLI default'}`)
   return { sessionId: info.id }
 }
 

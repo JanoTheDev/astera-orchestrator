@@ -12,6 +12,32 @@ const shim = (name: string): string | null => SHIMS[name] ?? null
 /** What every codex command opens with (the update check off; see `codex update check` below). */
 const NO_UPDATE = ['-c', 'check_for_update_on_startup=false']
 
+// Orchestrator W1-A: the role model flag, measured against the installed CLIs (`claude --help`: `--model
+// <model>`; codex `-m`, the pair understanding/agentArgs.ts already uses).
+describe('model', () => {
+  it('claude takes --model, ahead of the prompt fence', () => {
+    const { args } = buildClaudeCommand('linux')({ model: 'opus', initialPrompt: 'go' })
+    expect(args.slice(0, 2)).toEqual(['--model', 'opus'])
+    expect(args.slice(-2)).toEqual(['--', 'go'])
+  })
+  it('claude keeps it on a resume', () => {
+    expect(buildClaudeCommand('linux')({ model: 'sonnet', resumeSessionId: 'r1' }).args).toEqual(['--model', 'sonnet', '--resume', 'r1'])
+  })
+  it('codex takes -m ahead of resume, so a roll resume keeps it', () => {
+    expect(buildCodexCommand('linux')({ model: 'gpt-5.5', resumeSessionId: 'r1', resumePrompt: 'go' }).args).toEqual([
+      ...NO_UPDATE, '-m', 'gpt-5.5', 'resume', 'r1', 'go'
+    ])
+  })
+  it('never puts an id that is not a model id on the command line (a flag, cmd.exe syntax)', () => {
+    expect(buildClaudeCommand('linux')({ model: '--dangerously-skip-permissions' }).args).toEqual([])
+    expect(buildCodexCommand('linux')({ model: 'x&calc' }).args).toEqual(NO_UPDATE)
+  })
+  it('adds nothing without a model', () => {
+    expect(buildClaudeCommand('linux')({ model: null }).args).toEqual([])
+    expect(buildCodexCommand('linux')({}).args).toEqual(NO_UPDATE)
+  })
+})
+
 describe('initialPrompt', () => {
   it('claude: 마지막 위치 인자로 싣는다', () => {
     const { file, args } = buildClaudeCommand('linux')({ initialPrompt: 'C:/u/orch/specs/a.md 를 읽어라' })

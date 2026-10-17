@@ -91,7 +91,7 @@ function rig(o: RigOpts) {
   const logs: string[] = []
   let committed: boolean | undefined
   let specFileContent: string | undefined
-  const startWorker = vi.fn(async (a: StartArgs) => {
+  const startWorker = vi.fn(async (a: StartArgs): ReturnType<ReviewContext['startWorker']> => {
     committed = state.dispatches.some((x) => x.id === a.dispatchId)
     specFileContent = a.specFileContent
     if (o.startFails !== undefined) throw new Error(o.startFails)
@@ -140,11 +140,28 @@ describe('createReviewStarter', () => {
     expect(h.state().dispatches.find((d) => d.id === a.dispatchId)?.sessionId).toBe('s-review')
   })
 
-  it('with no logged-in account on another provider it opens a Gate and starts nobody', async () => {
-    const h = rig({ accounts: [claude('c1')], loggedIn: ['c1'] })
+  it('with an account on another provider that is not logged in it opens a Gate and starts nobody', async () => {
+    const h = rig({ accounts: [claude('c1'), codex('x1')], loggedIn: ['c1'] })
     await h.start({ taskId: h.taskId })
     expect(h.startWorker).not.toHaveBeenCalled()
     expect(h.task().status).toBe('blocked')
+  })
+
+  // W1-A (owner decision 2026-10-17): Claude accounts only — review on Claude instead of skipping review.
+  // Its model is kept off the implementer's by startWorkerWithChain (workerStart.test.ts).
+  it('with only the implementer\'s provider having accounts it reviews on that provider', async () => {
+    const h = rig({ accounts: [claude('c1')], loggedIn: ['c1'] })
+    await h.start({ taskId: h.taskId })
+    expect(h.startWorker).toHaveBeenCalledTimes(1)
+    expect(h.startWorker.mock.calls[0][0]).toMatchObject({ provider: 'claude', accountId: 'c1', worktree: 'current' })
+    expect(h.state().dispatches.filter((d) => d.review)).toHaveLength(1)
+  })
+
+  it('records the reviewer\'s model on the review Dispatch', async () => {
+    const h = rig({ accounts: [claude('c1')], loggedIn: ['c1'] })
+    h.startWorker.mockResolvedValueOnce({ sessionId: 's-review', cwd: h.implCwd, specPath: '/s.md', model: 'sonnet', modelNote: 'moved' })
+    await h.start({ taskId: h.taskId })
+    expect(h.state().dispatches.find((d) => d.review)).toMatchObject({ model: 'sonnet', modelNote: 'moved' })
   })
 
   // Finding 1, as behaviour (R28).

@@ -13,6 +13,7 @@ import type { LostAttempt, RecoveryDecision } from './types'
 import type { Provider } from '../providers/meta'
 import type { KnowledgeFiles } from '../knowledge/detect'
 import { buildSpecFile } from '../orchestration/exec/coordinator'
+import { dispatchModelFields } from '../orchestration/roleModels'
 
 export type ExecuteResult = { ok: true; newDispatchId?: string } | { ok: false; error: string }
 
@@ -190,7 +191,7 @@ async function startAttempt(a: ExecuteInput, deps: ExecuteDeps): Promise<Execute
     return { ok: false, error: goneBeforeStart }
   }
 
-  let started: { sessionId: string; cwd: string; specPath: string }
+  let started: { sessionId: string; cwd: string; specPath: string; model?: string; modelNote?: string }
   try {
     started = await deps.startWorker({
       dispatchId,
@@ -227,7 +228,7 @@ async function startAttempt(a: ExecuteInput, deps: ExecuteDeps): Promise<Execute
     ...latest,
     dispatches: latest.dispatches.map((d) =>
       d.id === dispatchId
-        ? { ...d, sessionId: started.sessionId, cwd: started.cwd, specPath: started.specPath }
+        ? { ...d, sessionId: started.sessionId, cwd: started.cwd, specPath: started.specPath, ...dispatchModelFields(started) }
         : d
     )
   })

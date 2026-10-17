@@ -11,6 +11,7 @@ import {
   writableGeneratorSettings,
   type GeneratorSettings
 } from '../core/understanding/generatorSettings'
+import { readRoleModelSettings, type RoleModelSettings } from '../core/orchestration/roleModels'
 import {
   DESKTOP_NOTIFY_DEFAULTS,
   readDesktopNotify,
@@ -113,6 +114,8 @@ export class AppSettingsStore {
   private githubPolling = true
   /** 설명을 누가·무엇으로 만드는가. 비어 있으면 생성하지 않는다 (설계 D2) */
   private generator: GeneratorSettings = {}
+  /** Orchestrator W1-A: per-provider role and difficulty models. Empty = the built-in defaults. */
+  private roleModels: RoleModelSettings = {}
   private resumeStrategy: ResumeStrategy = SKILL_SETTINGS_DEFAULTS.resumeStrategy
   /** 에이전트를 권한 확인 없이 띄우는가. **기본은 'yolo'** — 그 근거는 AgentPermissionMode 에 있다.
    *  githubPolling 과 같은 방향의 좁히기다: 기본이 켜짐인 값이라 파일에 명시된 'manual' 만 끈다.
@@ -192,6 +195,7 @@ export class AppSettingsStore {
       // these values become CLI arguments. Anything that does not survive reads as "not set", which
       // means the CLI default (or, for the account, no generation at all).
       this.generator = readGeneratorSettings((parsed as { generator?: unknown }).generator)
+      this.roleModels = readRoleModelSettings((parsed as { roleModels?: unknown }).roleModels)
       this.resumeStrategy = gates.resumeStrategy
       // Fork W0: only the explicit 'yolo' turns the bypass on; anything else the user-editable file holds
       // reads as 'manual'.
@@ -252,6 +256,7 @@ export class AppSettingsStore {
         this.githubPolling = true
         this.desktopNotify = { ...DESKTOP_NOTIFY_DEFAULTS }
         this.generator = {}
+        this.roleModels = {}
         this.resumeStrategy = SKILL_SETTINGS_DEFAULTS.resumeStrategy
         this.agentPermissionMode = 'manual'
         this.mcpAccess = 'control'
@@ -283,6 +288,7 @@ export class AppSettingsStore {
       this.githubPolling = true
       this.desktopNotify = { ...DESKTOP_NOTIFY_DEFAULTS }
       this.generator = {}
+      this.roleModels = {}
       this.resumeStrategy = SKILL_SETTINGS_DEFAULTS.resumeStrategy
       // **The narrower side, not the default** (I2). The file may have said 'manual', and the 'yolo'
       // default would turn the person's permission prompts off without their knowing: every worker
@@ -494,6 +500,16 @@ export class AppSettingsStore {
     await this.persist()
   }
 
+  getRoleModels(): RoleModelSettings {
+    return this.roleModels
+  }
+
+  /** Written whole, like setGenerator; narrowed by the same reader load uses (orchestrator W1-A). */
+  async setRoleModels(next: RoleModelSettings): Promise<void> {
+    this.roleModels = readRoleModelSettings(next)
+    await this.persist()
+  }
+
   getResumeStrategy(): ResumeStrategy {
     return this.resumeStrategy
   }
@@ -593,6 +609,7 @@ export class AppSettingsStore {
       githubPolling?: boolean
       desktopNotify?: DesktopNotifySettings
       generator?: GeneratorSettings
+      roleModels?: RoleModelSettings
       resumeStrategy?: ResumeStrategy
       agentPermissionMode?: AgentPermissionMode
       mcpAccess?: McpAccess
@@ -645,6 +662,7 @@ export class AppSettingsStore {
     // 비어 있으면 키 자체를 남기지 않는다 — 위 falsy 규칙 그대로다
     const generator = writableGeneratorSettings(this.generator)
     if (generator) data.generator = generator
+    if (Object.keys(this.roleModels).length > 0) data.roleModels = this.roleModels
     if (this.resumeStrategy === 'smart') data.resumeStrategy = 'smart'
     if (this.terminalFont.latin || this.terminalFont.hangul) data.terminalFont = this.terminalFont
     if (this.theme !== DEFAULT_THEME_ID) data.theme = this.theme

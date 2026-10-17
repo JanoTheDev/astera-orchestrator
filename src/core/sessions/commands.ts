@@ -1,5 +1,6 @@
 import { claudeLaunchArgs } from '../chat/claudeProtocol'
 import { resolveWindowsExecutable, windowsSpawn } from './windowsExecutable'
+import { MODEL_ID } from '../orchestration/roleModels'
 
 /** Where a CLI is on win32, by PATH alone — injected so a test can say where `claude` lives. The
  *  default asks this process's PATH (windowsExecutable.ts says why the working directory never takes
@@ -26,11 +27,16 @@ export type CommandBuilder = (opts: {
   /** codex only: what Astera tells the session at start, carried as `-c developer_instructions=…`
    *  (sessionContext.ts, codexDeveloperInstructions — Claude gets the same lines from a hook). */
   developerInstructions?: string
+  /** The model to start on (orchestrator W1-A, roleModels.ts): claude `--model <id>`, codex `-m <id>`.
+   *  Absent or null: no flag, the CLI's own default. */
+  model?: string | null
 }) => SpawnCommand
 
 export function buildClaudeCommand(platform: NodeJS.Platform, resolve: ResolveExecutable = resolveWindowsExecutable): CommandBuilder {
-  return ({ resumeSessionId, settingsFile, bypassPermissions, addDirs, initialPrompt }) => {
+  return ({ resumeSessionId, settingsFile, bypassPermissions, addDirs, initialPrompt, model }) => {
     const args: string[] = []
+    // Checked here too, for every source (a renderer spawn, a roll's note): see MODEL_ID.
+    if (model && MODEL_ID.test(model)) args.push('--model', model)
     // Injects a session-scoped statusLine via --settings (the global settings.json is left alone) — goes before resume
     if (settingsFile) args.push('--settings', settingsFile)
     // Read access to the app's screenshot folder, so the paths Design Mode puts in a prompt open
@@ -103,7 +109,7 @@ export function buildCodexCommand(
   resolve: ResolveExecutable = resolveWindowsExecutable,
   noDaemon: () => boolean = () => false
 ): CommandBuilder {
-  return ({ resumeSessionId, bypassPermissions, resumePrompt, initialPrompt, developerInstructions }) => {
+  return ({ resumeSessionId, bypassPermissions, resumePrompt, initialPrompt, developerInstructions, model }) => {
     // **No update check, ever.** With an update out, codex opens on "Update available … 1. Update now
     // 2. Skip" (measured 2026-10-07, 0.160.0 with 0.160.1 out), and a worker, a coordinator or a roll's
     // respawn has nobody in front of it to answer: the Job just stops. Settled for every session Astera
@@ -115,6 +121,8 @@ export function buildCodexCommand(
     // carried: it would break the launch itself, and a briefing is not worth a session that never starts.
     if (developerInstructions && !LAUNCH_FORBIDDEN.test(developerInstructions))
       args.push('-c', `developer_instructions=${developerInstructions}`)
+    // A root option, ahead of `resume` like the two above, so a roll's resume keeps the model.
+    if (model && MODEL_ID.test(model)) args.push('-m', model)
     if (resumeSessionId) {
       args.push('resume', resumeSessionId)
       const safe = resumePrompt ? sanitizeResumePrompt(resumePrompt) : ''

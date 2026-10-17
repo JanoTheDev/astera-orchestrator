@@ -130,6 +130,7 @@ import { JOB_SOURCE, SOURCE_COMMANDS, createFromContext, sourcesCommand, type Jo
 export { JOB_SOURCE } from './commandSources'
 import { pluginIdOfCheck, type CompletionCheckInput, type PluginCheckAnswer } from './pluginChecks'
 import { checkIdsOf, pluginCheckRefusal, tasksOfNextRun } from './commandChecks'
+import { dispatchModelFields } from './roleModels'
 
 /** One row of `listAccounts`. Named only because the declaration below is a union and repeating the
  *  shape on both sides invites the two halves to drift. */
@@ -277,7 +278,15 @@ export interface OrchServerDeps {
     /** Forwarded straight through to OrchCoordinator.startWorker, where the reason it exists is
      *  documented. Type-only pass-through here — this file adds no behaviour for it. */
     launchPhrase?: string
-  }): Promise<{ sessionId: string; cwd: string; specPath: string }>
+  }): Promise<{
+    sessionId: string
+    cwd: string
+    specPath: string
+    /** W1-A role models: the model the session started on and why it differs from the ask, recorded on
+     *  the Dispatch (dispatchModelFields, roleModels.ts). */
+    model?: string
+    modelNote?: string
+  }>
   releaseWorker(a: { dispatchId: string }): Promise<void>
   /** 그 세션의 롤링 체인을 버린다 — **세션은 죽이지 않는다**(releaseWorker 와 그 점이 다르다).
    *
@@ -3377,7 +3386,7 @@ export async function handleCommand(
       const dispatchId = opened.value.id
       const previousStatus = task.status // value to restore on rollback — the status before openDispatch moved it
 
-      let started: { sessionId: string; cwd: string; specPath: string }
+      let started: { sessionId: string; cwd: string; specPath: string; model?: string; modelNote?: string }
       try {
         started = await deps.startWorker({
           dispatchId,
@@ -3448,7 +3457,7 @@ export async function handleCommand(
         ...latest,
         dispatches: latest.dispatches.map((d) =>
           d.id === dispatchId
-            ? { ...d, sessionId: started.sessionId, cwd: started.cwd, specPath: started.specPath }
+            ? { ...d, sessionId: started.sessionId, cwd: started.cwd, specPath: started.specPath, ...dispatchModelFields(started) }
             : d
         )
       })
