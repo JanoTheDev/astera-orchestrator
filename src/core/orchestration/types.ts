@@ -3,6 +3,7 @@
 // providers/meta.ts).
 import type { Provider } from '../providers/meta'
 import type { ScheduleRule } from '../scheduler/rule'
+import type { PrState } from '../github/types'
 
 export type TaskStatus = 'pending' | 'ready' | 'dispatched' | 'validating' | 'reviewing' | 'completed' | 'failed' | 'blocked'
 export type Outcome = 'succeeded' | 'failed'
@@ -326,6 +327,10 @@ export interface JobRun {
    *  places only what fires from now on. Before the Job/Run split every fired Run carried the same
    *  flag (`spawnScheduledRun`), so this is the old shape back, for this one case. */
   autoDispatch?: boolean
+  // ── W2-D: the plan's one pull request (`run-open-pr`) ──
+  /** The pull request opened from this Run's integration branch when it completed, or why it could not be. Present:
+   *  the driving loop does not try again (`run-open-pr --force` does). */
+  pr?: RunPr
 }
 
 export interface Task {
@@ -425,6 +430,9 @@ export interface Task {
    *  worker runs on claude and the Dispatch says why (pickTaskProvider). The account list
    *  (`accountIds`) still decides what actually starts. */
   provider?: Provider
+  // ── W2-D GitHub links (core/github/taskLinks.ts) ──
+  /** This Task's issue, branch, commits and pull requests. GitHub is the tracker; this only points at it. */
+  links?: TaskLinks
 }
 
 /** 한 번의 정지와 그 재개. **이 배열이 없으면 "몇 번 이어졌는가" 를 되살릴 방법이 아예 없다** —
@@ -667,4 +675,23 @@ export function newId(prefix: string): string {
       .toString(16)
       .padStart(4, '0')
   return `${prefix}_${quarter()}${quarter()}${quarter()}${quarter()}`
+}
+
+// ── W2-D GitHub links ──
+/** Where a Task stands on GitHub (SPEC §7). Every field is a pointer: the issue, the branch its worker worked on, the
+ *  commits it added (oldest first) and the pull requests that carry them. */
+export interface TaskLinks {
+  /** `closes`: the repository's workflow created this issue for this plan, so the plan's PR says "Closes #n". */
+  issue?: { number: number; url: string; closes?: boolean }
+  branch?: string
+  prs?: { number: number; url: string; state: PrState }[]
+  commits?: string[]
+}
+
+/** The plan's pull request: its URL and number once opened, or the error that stopped it. */
+export interface RunPr {
+  at: string
+  url?: string
+  number?: number
+  error?: string
 }

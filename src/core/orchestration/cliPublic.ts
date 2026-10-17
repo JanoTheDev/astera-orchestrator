@@ -65,7 +65,9 @@ const RUN_HIDDEN = [
   'coordinatorStop',
   'coordinatorStartingAt',
   'coordinatorStopPending',
-  'externalCoordinatorSessionId'
+  'externalCoordinatorSessionId',
+  // W2-D: the plan's PR, read by the app's view; not in the SDK's contract yet (`run-open-pr` answers it)
+  'pr'
 ] as const
 
 /**
@@ -88,7 +90,9 @@ const TASK_HIDDEN = [
   // W1-A role models: not in the SDK's contract until the planner (W2-A) settles how they are written
   'difficulty',
   'model',
-  'provider'
+  'provider',
+  // W2-D GitHub links: read by the app's view; `task-link-issue` answers them. Not in the SDK's contract yet
+  'links'
 ] as const
 
 /** W1-A role models: a Job's per-role model override, held back from the SDK like the Task's three above. */
