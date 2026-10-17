@@ -1495,6 +1495,13 @@ export const en: Record<keyof typeof ko, string> = {
   'jobs.run.mergeFailed': 'Could not merge: {reason}',
   'jobs.run.notStarted': 'Not started',
   'jobs.run.notStartedHint': 'Not started yet — press Run in the detail window to start it',
+  // W2-A planner stage
+  'jobs.new.planner': 'Plan with planner first',
+  'jobs.new.plannerHint': 'A planner session (on the planner model) reads the repository and writes the Tasks, each with its prompt and acceptance criteria. It changes no files and starts nothing: you approve the plan with Approve & execute.',
+  'jobs.new.plannerFailed': 'The Job was made, but the planner did not start',
+  'jobs.run.approve': 'Approve & execute',
+  'jobs.run.approveHint': 'Approve this plan and start its workers',
+  'jobs.run.planInvalid': 'The plan is not ready to approve:',
   'jobs.run.deleteMerge': 'Merge into the project folder',
   'jobs.run.deleteMergeHint': 'Folds what the workers committed in their worktrees in now ({count} worktree(s))',
   'jobs.run.deleteHide': 'Hide from the history list',

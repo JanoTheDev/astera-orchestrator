@@ -53,7 +53,12 @@ export async function resumeRun(door: OrchDoor, runId: string, ui: ActionUi): Pr
  *  which does nothing when it has one (command.ts). The row's id is a Job's or a round's; run-start takes both. */
 export async function restartCoordinator(door: OrchDoor, runId: string, ui: ActionUi): Promise<void> {
   const reply = await send(door, 'run-start', { run: runId }, ui, ui.t('jobs.run.coordinatorRestartFailed'))
-  if (reply && reply.status >= 400) failure(reply, ui, ui.t('jobs.run.coordinatorRestartFailed'))
+  if (!reply || reply.status < 400) return
+  // W2-A: the same command approves a planned Job ("Approve & execute"); a plan that does not hold together is
+  // refused with what is wrong with it (`problems`, planner.ts's validatePlan), said as it is.
+  const problems = (reply.body as { problems?: unknown } | null)?.problems
+  if (Array.isArray(problems)) ui.error(`${ui.t('jobs.run.planInvalid')}\n${problems.map((p) => `• ${String(p)}`).join('\n')}`)
+  else failure(reply, ui, ui.t('jobs.run.coordinatorRestartFailed'))
 }
 
 /** Deletes a Run after a confirmation that counts what goes with it (a schedule's rounds too) and offers to merge
