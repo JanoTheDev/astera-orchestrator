@@ -79,7 +79,7 @@ export const camel = (flag: string): string =>
 /** Flags to interpret as numbers */
 const NUMERIC = new Set(['timeoutMs', 'limit'])
 /** Flags to interpret as JSON arrays. ask's --options is CSV, so it is not here */
-const JSON_ARRAY = new Set(['deps'])
+const JSON_ARRAY = new Set(['deps', /* W2-A planner stage */ 'criteria', 'affectedPaths'])
 /** Flags that may appear more than once and always arrive as an array. Everything else keeps the
  *  last value, which is what every existing caller expects. */
 const REPEATABLE = new Set(['check', 'set', 'unset'])
@@ -123,7 +123,9 @@ export const NOUNS = {
   // `create-from-source` (plugin Phase 4 J21) is answered before handleCommand's switch, with the `sources` commands.
   jobs: ['list', 'get', 'wait', 'run', 'create', 'create-from-source',
     // W1-C plan lifecycle (lifecycle.ts)
-    'rename', 'archive', 'unarchive'],
+    'rename', 'archive', 'unarchive',
+    // W2-A planner stage (planner.ts)
+    'plan'],
   runs: ['list', 'get', 'wait', 'follow', 'stop', 'resume', 'checks'],
   tasks: ['list', 'add', 'dispatch'],
   questions: ['list', 'get', 'answer'],

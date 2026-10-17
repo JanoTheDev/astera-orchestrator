@@ -372,6 +372,8 @@ export function startJobRun(s: OrchState, jobId: string, now: string): Res<JobRu
     ...(t.difficulty !== undefined ? { difficulty: t.difficulty } : {}),
     ...(t.model !== undefined ? { model: t.model } : {}),
     ...(t.provider !== undefined ? { provider: t.provider } : {}),
+    // W2-A planner stage: the planner's prompt, criteria and paths go with the Task into every run.
+    ...planFieldsOf(t),
     status: 'pending',
     consecutiveFailures: 0,
     createdAt: now,
@@ -535,6 +537,24 @@ export function setRunWorktree(s: OrchState, id: string, worktree: string): Res<
   return ok({ ...s, runs: s.runs.map((r) => (r.id === id ? next : r)) }, next)
 }
 
+/** W2-A planner stage: the Task fields a planner writes (task-create, task-update), with W1-A's model choice. */
+export type PlanFields = Partial<
+  Pick<Task, 'difficulty' | 'model' | 'provider' | 'prompt' | 'acceptanceCriteria' | 'affectedPaths' | 'modelReason'>
+>
+
+/** The plan fields `t` carries, copied; an absent or empty one is left out, as every optional field here is. */
+export function planFieldsOf(t: PlanFields): PlanFields {
+  return {
+    ...(t.difficulty !== undefined ? { difficulty: t.difficulty } : {}),
+    ...(t.model !== undefined ? { model: t.model } : {}),
+    ...(t.provider !== undefined ? { provider: t.provider } : {}),
+    ...(t.prompt ? { prompt: t.prompt } : {}),
+    ...(t.acceptanceCriteria?.length ? { acceptanceCriteria: [...t.acceptanceCriteria] } : {}),
+    ...(t.affectedPaths?.length ? { affectedPaths: [...t.affectedPaths] } : {}),
+    ...(t.modelReason ? { modelReason: t.modelReason } : {})
+  }
+}
+
 export function createTask(
   s: OrchState,
   a: {
@@ -559,7 +579,7 @@ export function createTask(
     validateConfigId?: string
     validateConfigIds?: string[]
     reviewRequested?: boolean
-  },
+  } & PlanFields,
   now: string
 ): Res<Task> {
   // **둘 중 하나여야 한다.** 둘 다 주면 어느 쪽이 소유자인지 코드마다 달라지고, 그 모호함이 이
@@ -590,6 +610,7 @@ export function createTask(
     ...(a.validateConfigId ? { validateConfigId: a.validateConfigId } : {}),
     ...(a.validateConfigIds?.length ? { validateConfigIds: a.validateConfigIds } : {}),
     ...(a.reviewRequested ? { reviewRequested: a.reviewRequested } : {}),
+    ...planFieldsOf(a),
     status: 'pending',
     consecutiveFailures: 0,
     createdAt: now,

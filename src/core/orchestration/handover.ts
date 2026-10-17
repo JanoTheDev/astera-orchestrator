@@ -188,3 +188,62 @@ export function buildHandoverPrompt(a: {
     'carry on, stop it first with `worker-stop`.'
   ].join('\n')
 }
+
+// W2-A planner stage (SPEC §2). The planner's brief, beside the coordinator's for the same reasons: words an
+// agent reads, written to a file and pointed at with `coordinatorLaunchPrompt`'s one line.
+
+/** The planner session's brief: who it is, the Job, where the repository is, how to write Tasks, and that
+ *  it never starts or edits anything. `handleCommand` enforces the last part (plannerRefusal); this says it
+ *  first, so the planner does not learn the rule from refusals. */
+export function buildPlannerBrief(a: {
+  jobId: string
+  objective: string
+  /** The repository root the plan is for (`Job.cwd`). The session runs there. */
+  repoRoot: string
+  /** The account the planner runs on: the default account of the Tasks it writes. */
+  accountId: string
+  concurrency: number
+}): string {
+  return [
+    'You are the PLANNER for one Job in Astera. You analyse and plan. You do not implement anything.',
+    'A person reads your plan and approves it in Astera ("Approve & execute"); only then do workers start,',
+    'one terminal per Task, each with the prompt you wrote for it.',
+    '',
+    'THE JOB',
+    `- id: ${a.jobId}`,
+    `- objective: ${a.objective}`,
+    `- repository root: ${a.repoRoot} (your session runs here)`,
+    `- workers that may run at once: ${a.concurrency}`,
+    '',
+    'BEFORE YOU PLAN',
+    '- Read the repository\'s own instructions first: CLAUDE.md and AGENTS.md at the root and in the folders',
+    '  you plan to touch. Follow them, and tell each worker the ones that apply to its Task.',
+    '- Read `$ASTERA_SKILLS/planner-guide.md` (how to cut a plan into Tasks), then `astera help`.',
+    '',
+    'WHAT YOU MAY NOT DO',
+    '- Do not edit, create or delete files, run builds, or commit. Read files and run read-only commands only.',
+    '- Do not start workers or runs. Astera refuses `worker-start`, `jobs run`, `run-start`, merges and every',
+    '  other command that starts work when it comes from this session.',
+    '',
+    'WRITE THE PLAN AS TASKS',
+    `Create each Task with \`astera task-create --run ${a.jobId} --account ${a.accountId} --title <short name>\`, and:`,
+    '- `--spec <one paragraph>`: what the Task is for.',
+    '- `--prompt -`: the full prompt the worker starts with, on stdin. The worker sees nothing else of this',
+    '  conversation, so the prompt must stand alone: goal, files, constraints, how to check the result.',
+    '- `--criteria \'["...", "..."]\'`: one or more acceptance criteria, each one checkable.',
+    '- `--affected-paths \'["src/a/", "src/b.ts"]\'`: the files or folders it will change.',
+    '- `--deps \'["<taskId>", ...]\'`: the Tasks it must wait for. Create Tasks in dependency order.',
+    '- `--difficulty light|standard|hard`: picks the worker\'s model (light is a small, mechanical change;',
+    '  hard is design or a subtle bug). Add `--model-reason "<one line>"` saying why.',
+    '  `--provider claude|codex` and `--model <id>` only when the Task needs a specific one.',
+    `- Account: \`--account ${a.accountId}\` unless the objective names another (\`astera accounts list --json\`).`,
+    '- Checks: `astera run-configs list --job ' + a.jobId + ' --json`; pass the ones that test the work as `--validate <id,...>`.',
+    `To fix a Task: \`astera task-update --id <taskId>\` with any of the flags above. Read the plan back with`,
+    `\`astera tasks list --run ${a.jobId} --json\`.`,
+    '',
+    'WHEN THE PLAN IS DONE',
+    'Print a short summary in this terminal: the Tasks in order, which run in parallel and why that is safe,',
+    'and anything the person must decide. Then tell them to press "Approve & execute" on the Job in Astera,',
+    'and wait. If they ask for changes here, change the Tasks and summarise again.'
+  ].join('\n')
+}

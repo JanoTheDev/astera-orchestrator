@@ -15,6 +15,7 @@ import { rollChainFor } from '../../accounts/dispatchAccount'
 import { markCodexProjectTrusted } from '../../accounts/codexTrust'
 import { claudeConfigFileFor, markClaudeProjectTrusted } from '../../accounts/claudeTrust'
 import { coordinatorLaunchPrompt } from '../handover'
+import { startPlannerSession } from './plannerStart'
 import type { OrchCoordinator } from './coordinator'
 import type { WorkerTails } from './tail'
 import { coordinatorBriefName } from './specFiles'
@@ -230,6 +231,8 @@ export async function startCoordinatorSession(
   ctx: CoordinatorStartContext,
   a: StartCoordinatorArgs
 ): Promise<{ sessionId: string }> {
+  // W2-A: a planner takes this same spawn path with its own brief, model role and permissions.
+  if (a.role === 'planner') return startPlannerSession(ctx, a)
   // **브리핑은 파일로, 세션에는 한 줄만.** 이 프롬프트는 argv 로 가고 win32 에서 세션은
   // `cmd.exe /c` 로 뜨므로 줄바꿈이 명령을 끊는다 — 워커의 spec 파일과 탭 재개 브리핑이
   // 같은 제약 때문에 같은 모양으로 갈렸다(coordinatorLaunchPrompt 의 주석).

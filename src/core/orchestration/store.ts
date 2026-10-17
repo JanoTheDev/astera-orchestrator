@@ -22,6 +22,7 @@ import {
 } from './state'
 import { latestImplDispatch } from './convergence'
 import { splitLegacyRuns, type LegacyRun } from './legacy'
+import { planFileOf, renderPlanMd } from './planner'
 
 /** Cutoff for discarding a finished Run. The same 30 days as SchedulerConfigStore's ENTRY_TTL_MS */
 export const RUN_TTL_MS = 30 * 24 * 60 * 60 * 1000
@@ -558,6 +559,30 @@ export class OrchestrationStore {
     } catch (err) {
       await fs.rm(tmp, { force: true }).catch(() => {})
       throw err
+    }
+    await this.writePlans(next)
+  }
+
+  // W2-A planner stage: the plan.md each planned Job keeps beside this file, for a person to read.
+  /** What each plan.md was last written with, so a commit that leaves a plan alone writes nothing. */
+  private plansWritten = new Map<string, string>()
+
+  /** Writes `<profile>/plans/<jobId>/plan.md` for every planned Job (`Job.plannerSessionIds`) whose plan
+   *  changed. Best effort: orchestration.json above is the record, and a plan.md that fails is retried by
+   *  the next commit. */
+  private async writePlans(next: OrchState): Promise<void> {
+    for (const job of next.jobs) {
+      if (job.plannerSessionIds === undefined) continue
+      const md = renderPlanMd(next, job)
+      if (this.plansWritten.get(job.id) === md) continue
+      const file = planFileOf(path.dirname(this.filePath), job.id)
+      try {
+        await fs.mkdir(path.dirname(file), { recursive: true })
+        await fs.writeFile(file, md, 'utf8')
+        this.plansWritten.set(job.id, md)
+      } catch {
+        // retried by the next commit (see above)
+      }
     }
   }
 }

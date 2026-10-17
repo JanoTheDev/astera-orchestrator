@@ -216,7 +216,10 @@ export interface Job {
   // W1-B: global scheduling.
   /** Where this Job stands when the app-wide `maxConcurrentWorkers` leaves fewer slots than ready
    *  Tasks: higher first (`slotsToFill`). Absent reads as 0. Any integer, negative included. */
-  priority?: number
+  priority?: number  // W2-A planner stage (planner.ts, exec/plannerStart.ts)
+  /** Every planner session `jobs plan` started for this Job, oldest first. **Never emptied**: a session
+   *  named here may only plan (plannerRefusal), for as long as it lives, also after the plan is approved. */
+  plannerSessionIds?: string[]
 }
 
 /** A job source's item a Job was made from: the source (a plugin's id, or `github`), the item's id there, how a person
@@ -424,7 +427,15 @@ export interface Task {
   /** The provider this Task asks for. Honoured only when that provider has an account; otherwise the
    *  worker runs on claude and the Dispatch says why (pickTaskProvider). The account list
    *  (`accountIds`) still decides what actually starts. */
-  provider?: Provider
+  provider?: Provider  // W2-A planner stage (planner.ts): what the planner hands each worker. `spec` stays the work's description.
+  /** The worker's explicit prompt. The worker spec file carries it under `spec` (workerSpecOf). */
+  prompt?: string
+  /** What must hold for this Task to count as done, one check per entry. */
+  acceptanceCriteria?: string[]
+  /** The files or modules this Task expects to touch, so parallel Tasks can be kept apart. */
+  affectedPaths?: string[]
+  /** Why the planner picked this Task's `difficulty`, `provider` or `model`: one line. */
+  modelReason?: string
 }
 
 /** 한 번의 정지와 그 재개. **이 배열이 없으면 "몇 번 이어졌는가" 를 되살릴 방법이 아예 없다** —

@@ -11,6 +11,7 @@
 // **electron·src/main·src/renderer 를 import 하지 않는다.** 두 프로세스가 서로 다른 것은 전부
 // ReviewContext 로 주입받는다: 상태의 문, 계정 목록과 로그인 조회, 경로 가드, spec 디렉터리, 그리고
 // 체인과 tail 을 붙이는 startWorker 래퍼.
+import { workerSpecOf } from '../planner'
 import path from 'node:path'
 import { randomBytes } from 'node:crypto'
 import type { Account } from '../../types'
@@ -130,7 +131,8 @@ export function createReviewStarter(c: ReviewContext): (a: { taskId: string }) =
       await c.setState(opened.state)
       const spec = buildReviewSpecFile({
         title: task.title,
-        spec: task.spec,
+        // W2-A: the reviewer judges against the planned Task's acceptance criteria too.
+        spec: workerSpecOf(task),
         taskId,
         dispatchId: opened.value.id,
         implReport: task.result,

@@ -2,6 +2,7 @@
 // 끝내면, 여기가 spec 파일을 쓰고 세션에 넣거나 새 워커를 띄우고 자리표시자를 채운다 — worker-start 의
 // 서버 분기가 하는 것과 같은 순서(커밋 → 부수 효과 → 패치 → 실패면 롤백)다. ipc.ts 에는 테스트가 닿지
 // 않으므로 그 순서가 여기 있다.
+import { workerSpecOf } from '../planner'
 import { isSamePath } from '../../files/tree'
 import { t, type Lang } from '../../i18n'
 import { latestImplDispatch, policyOf, repairCountOf } from '../convergence'
@@ -51,7 +52,8 @@ function repairSpec(s: OrchState, task: Task, d: Dispatch, run: { cwd: string },
   const repairs = repairCountOf(s, task.id)
   return buildSpecFile({
     title: task.title,
-    spec: task.spec,
+    // W2-A: the repair round keeps the planned Task's prompt, criteria and paths.
+    spec: workerSpecOf(task),
     taskId: task.id,
     dispatchId: d.id,
     // startWorker 가 cwd !== runCwd 로 같은 판정을 한다 — 여기서는 파일을 통째로 넘기므로 직접 정한다
