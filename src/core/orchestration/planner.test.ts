@@ -136,6 +136,72 @@ describe('a planner session cannot dispatch', () => {
     await planner(r)('task-create', goodTask(jobId))
     expect((await handleCommand(r.deps, { sessionId: 'ses-other' }, 'jobs-run', { id: jobId })).status).toBe(403)
   })
+
+  // W3-D: the gaps the cases above leave.
+  it('stays gated after the person approves: it still cannot start, send to or merge the run it planned', async () => {
+    const r = rig()
+    const jobId = await plannedJob(r)
+    await planner(r)('task-create', goodTask(jobId))
+    expect((await person(r)('run-start', { run: jobId })).status).toBe(200)
+    const s = r.deps.getState()
+    const runId = s.runs[0].id
+    const taskId = s.tasks.find((t) => t.runId === runId)!.id
+    for (const [cmd, args] of [
+      ['worker-start', { taskId, agent: 'claude', account: 'acc1' }],
+      ['tasks-dispatch', { id: taskId }],
+      ['run-start', { run: runId }],
+      ['jobs-run', { id: jobId }],
+      ['run-merge', { run: runId }],
+      ['sessions-send', { id: 'ses-coordinator', text: 'go' }]
+    ] as const) {
+      const reply = await planner(r)(cmd, args)
+      expect(reply.status, cmd).toBe(403)
+    }
+    expect(r.workerStarts).toEqual([])
+    expect(r.deps.getState().runs).toHaveLength(1)
+  })
+
+  it('a second jobs plan on the same Job adds a second planner, and both are gated', async () => {
+    const r = rig()
+    const jobId = await plannedJob(r)
+    r.deps.startCoordinator = async () => ({ sessionId: 'ses-planner-2' })
+    expect((await person(r)('jobs-plan', { id: jobId })).status).toBe(200)
+    expect(r.deps.getState().jobs[0].plannerSessionIds).toEqual([PLANNER, 'ses-planner-2'])
+    await planner(r)('task-create', goodTask(jobId))
+    for (const sessionId of [PLANNER, 'ses-planner-2']) {
+      for (const cmd of ['run-start', 'jobs-run'])
+        expect((await handleCommand(r.deps, { sessionId }, cmd, cmd === 'run-start' ? { run: jobId } : { id: jobId })).status, `${sessionId} ${cmd}`).toBe(403)
+    }
+    expect(r.deps.getState().jobs[0].pendingStart).toBe(true)
+  })
+
+  it('no agent session approves through jobs run while the planner is still starting', async () => {
+    const r = rig()
+    const made = await person(r)('run-create', { objective: 'o', cwd: 'D:/p', coordinatorAccount: 'acc1', auto: true })
+    const jobId = (made.body as { id: string }).id
+    await person(r)('task-create', { run: jobId, account: 'acc1', spec: 's', prompt: 'p', criteria: ['c'] })
+    let release: (v: { sessionId: string }) => void = () => {}
+    r.deps.startCoordinator = () => new Promise((resolve) => (release = resolve))
+    const planning = person(r)('jobs-plan', { id: jobId })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    // marked planned before the session exists: an agent's approval is refused in that window
+    expect(r.deps.getState().jobs[0].plannerSessionIds).toEqual([])
+    expect((await handleCommand(r.deps, { sessionId: 'ses-other' }, 'jobs-run', { id: jobId })).status).toBe(403)
+    release({ sessionId: PLANNER })
+    expect((await planning).status).toBe(200)
+    expect(r.deps.getState().jobs[0].pendingStart).toBe(true)
+    expect(r.deps.getState().runs).toHaveLength(0)
+  })
+
+  it('an MCP client cannot approve a plan through run_job (jobs run), though the person at a shell can', async () => {
+    const r = rig()
+    const jobId = await plannedJob(r)
+    await planner(r)('task-create', goodTask(jobId))
+    const mcp = await handleCommand(r.deps, { sessionId: '', role: 'mcp' }, 'jobs-run', { id: jobId })
+    expect(mcp.status).toBe(403)
+    expect(r.deps.getState().jobs[0].pendingStart).toBe(true)
+    expect((await handleCommand(r.deps, { sessionId: '', role: 'cli' }, 'jobs-run', { id: jobId })).status).toBe(200)
+  })
 })
 
 describe('a planner writes Tasks', () => {
