@@ -129,7 +129,8 @@ export function openSecretStore(a: {
    */
   const createDir = async (): Promise<void> => {
     const parent = path.dirname(dir)
-    await fs.mkdir(parent, { recursive: true })
+    // Owner-only: under a umask such as Ubuntu's 002 the default would leave the parents group writable, which check() refuses.
+    await fs.mkdir(parent, { recursive: true, mode: 0o700 })
     if (platform !== 'win32') {
       await fs.mkdir(dir, { mode: 0o700 }).catch((e: NodeJS.ErrnoException) => {
         if (e.code !== 'EEXIST') throw e

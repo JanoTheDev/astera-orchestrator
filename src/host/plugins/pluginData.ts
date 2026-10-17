@@ -138,7 +138,9 @@ export function pluginSecrets(profileDir: string, folder: string): PluginSecrets
 
 function openPluginSecrets(profileDir: string, folder: string): PluginSecrets {
   const dir = secretsDir(profileDir, folder)
-  const store = openSecretStore({ dir, profileDir })
+  // The walk stops at plugins/, not the profile: other Host code makes plugins/ with the default mode (group writable
+  // under a umask such as Ubuntu's 002), and it guards no more than the profile directory above it, which is not walked.
+  const store = openSecretStore({ dir, profileDir: pluginsRoot(profileDir) })
   const exists = (): Promise<boolean> => fs.stat(dir).then((s) => s.isDirectory(), () => false)
   const all = async (): Promise<string[]> => ((await exists()) ? store.withLock((tx) => tx.list()) : [])
   const space = (prefix: string): SecretSpace => {
