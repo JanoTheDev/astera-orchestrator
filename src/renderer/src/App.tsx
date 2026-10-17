@@ -110,6 +110,11 @@ import { announceSettingsRecovery } from './lib/settingsRecoveryNotice'
 import { confirmModal, confirmModalWithChoices, isConfirmOpen } from './lib/confirm'
 import { quitConfirmBody, updateConfirmBody } from './lib/quitConfirm'
 import { toggleSidebarView, type SidebarView } from '../../core/ui/sidebar'
+// W2-B workspace sidebar
+import { WorkspaceSidebar } from './components/workspace/WorkspaceSidebar'
+import { WorkspaceHeader } from './components/workspace/WorkspaceHeader'
+import { useWorkspaceData } from './components/workspace/useWorkspaceData'
+import { buildWorkspaceTree, findPlan, planSessions, scopeLayout } from './components/workspace/workspaceTree'
 import { terminalsWithCreated } from './lib/terminalTabs'
 import * as hiddenProjects from './lib/hiddenProjects'
 import { isCancelled as isWorktreeCancelled } from './lib/worktreeErrors'
@@ -3409,6 +3414,35 @@ export default function App(): React.JSX.Element {
       : hiwOpen
         ? 'understanding'
         : 'sessions'
+  // W2-B workspace: the selected plan, and the pane tree as its workspace shows it (scopeLayout). Read while the
+  // tree is on screen or a plan is open; the anchor is only the path the reads are sent through.
+  const [workspacePlanId, setWorkspacePlanId] = useState<string | null>(null)
+  const [workspaceArchived, setWorkspaceArchived] = useState(false)
+  const workspaceData = useWorkspaceData(
+    currentProject ?? sessions[0]?.cwd ?? null,
+    (sidebarOpen && sidebarPane === 'sessions') || workspacePlanId !== null
+  )
+  const workspaceTree = useMemo(
+    () => (workspaceData ? buildWorkspaceTree(workspaceData, { showArchived: workspaceArchived }) : []),
+    [workspaceData, workspaceArchived]
+  )
+  const workspacePlan = workspacePlanId ? findPlan(workspaceTree, workspacePlanId) : undefined
+  const workspaceSessions = workspacePlan ? planSessions(workspacePlan) : []
+  const workspaceKey = workspaceSessions.map((x) => x.sessionId).join('\n')
+  const shownLayout = useMemo(
+    () => (workspacePlan ? scopeLayout(layout, new Set(workspaceSessions.map((x) => x.sessionId))) : layout),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- workspaceKey stands for the plan's session ids
+    [layout, workspacePlan !== undefined, workspaceKey]
+  )
+  const workspaceActive = active ? workspaceSessions.find((x) => x.sessionId === active.id) : undefined
+  const canOpenSessionTab = (sessionId: string): boolean => !!layout && !!groupOfTab(layout, sessionTab(sessionId))
+  const openWorkspacePlan = (jobId: string | null): void => {
+    setWorkspacePlanId(jobId)
+    const plan = jobId ? findPlan(workspaceTree, jobId) : undefined
+    // Focus one of its sessions in the real tree too, so the active pane and tab are the plan's in both views
+    const first = plan ? planSessions(plan).find((x) => canOpenSessionTab(x.sessionId)) : undefined
+    if (first) selectWorkbenchTab(sessionTab(first.sessionId))
+  }
   /** 아래쪽 패널이 쓰는 경로. 프로젝트가 없으면 홈으로 떨어진다 — 셸을 직접 띄웠을 때와 같은 곳이고,
    *  그래야 탭이 하나도 없을 때도 터미널을 열 수 있다. 홈에서는 Run 탭이 없다(runAvailable):
    *  실행 구성은 프로젝트 단위이고, 홈의 파일 목록으로 시드를 감지하면 남의 홈 package.json 스크립트를
@@ -4574,6 +4608,16 @@ export default function App(): React.JSX.Element {
             ) : (
               <>
                 <AccountPanel accounts={accounts} />
+                <WorkspaceSidebar
+                  tree={workspaceTree}
+                  sessions={sessions}
+                  showArchived={workspaceArchived}
+                  onShowArchived={setWorkspaceArchived}
+                  selectedPlanId={workspacePlanId}
+                  onSelectPlan={openWorkspacePlan}
+                  canOpenSession={canOpenSessionTab}
+                  onOpenSession={(sessionId) => selectWorkbenchTab(sessionTab(sessionId))}
+                />
                 <WorktreePanel
                   onStartSession={(p) => {
                     setNewSessionCwd(p)
@@ -4643,6 +4687,9 @@ export default function App(): React.JSX.Element {
           <div className="surfaces">
             {/* 페인 격자. 이제 파일 탭과 세션 탭을 함께 담으므로 탐색기를 켜도 물러나지 않는다 —
                 에디터는 이 안의 페인 슬롯에 있다 */}
+            {workspaceActive && (
+              <WorkspaceHeader session={workspaceActive} info={active ?? undefined} accounts={accounts} />
+            )}
             <div className="session-view">
               <PaneGrid
                 remoteSessions={remoteSessions}
@@ -4652,7 +4699,7 @@ export default function App(): React.JSX.Element {
                 renamingTabId={renamingTabId}
                 onRenameStart={setRenamingTabId}
                 onRenameEnd={endTabRename}
-                layout={layout}
+                layout={shownLayout}
                 activePaneId={activePaneId}
                 sessions={sessions}
                 accounts={accounts}
