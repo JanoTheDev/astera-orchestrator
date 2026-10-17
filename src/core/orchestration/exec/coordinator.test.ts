@@ -157,7 +157,9 @@ describe('buildSpecFile', () => {
     expect(empty).toBe(base)
     // 위 비교만으로는 부족하다 — 두 호출이 같은 분기를 지나므로 삽입 지점에 줄바꿈이 **대칭으로**
     // 새면 양쪽이 똑같이 틀린 문자열을 내고 통과한다. 그래서 그 지점의 줄바꿈 수를 직접 고정한다.
-    expect(base).toContain('S\n\n---\n## Reporting obligation')
+    // W2-D: the GitHub issues section always sits between the spec and the reporting obligation
+    expect(base).toContain('S\n\n---\n## GitHub issues')
+    expect(base).toContain('for this task.\n\n---\n## Reporting obligation')
   })
 
   it('지식이 있으면 상대 경로를 목록으로 적는다', () => {

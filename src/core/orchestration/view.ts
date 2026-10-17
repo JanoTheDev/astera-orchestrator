@@ -212,6 +212,8 @@ function jobTaskOf(
         }
       : {}),
     ...(resume ? { resumeAt: resume.rest[0] ?? null } : {}),
+    // W2-D GitHub links
+    ...(task.links ? { links: task.links } : {}),
     // 예산과 진행은 정책 있는 Run 에만(U3)
     ...(policy
       ? {
@@ -413,6 +415,8 @@ export function snapshotFor(
       // W1-C: the plan's name and archive mark, on every row of the Job, as its source is
       ...(job.title !== undefined ? { title: job.title } : {}),
       ...(job.archivedAt !== undefined ? { archivedAt: job.archivedAt } : {}),
+      // W2-D: the plan's pull request, on the row of the Run that opened it
+      ...(run?.pr ? { pr: run.pr } : {}),
       ...(run === undefined && job.schedule && nextFireOf(job.id) !== null
         ? { nextFireAt: nextFireOf(job.id) as number }
         : {}),

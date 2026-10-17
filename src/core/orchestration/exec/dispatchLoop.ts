@@ -39,8 +39,8 @@ import { lostAttemptOf } from '../../recovery/candidates'
 import { slotsToFill, tasksMissingAccounts, type Slot } from '../schedule'
 import { coordinatorStarting, jobOf, type OrchState } from '../state'
 import { isJobActive } from '../lifecycle'
-import { DEFAULT_CONCURRENCY, FAILURE_LIMIT, type JobRun } from '../types'
-import { tasksOwnedBy } from '../running'
+import { DEFAULT_CONCURRENCY, FAILURE_LIMIT, type JobRun, type Task } from '../types'
+import { outcomeOfTasks, tasksOwnedBy } from '../running'
 import { outcomeOf } from '../view'
 import type { Integration } from './integrateGit'
 
@@ -439,6 +439,52 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     }
   }
 
+  /**
+   * W2-D: **a Run that completes opens its plan's one pull request** (`run-open-pr`, the owner's decision of
+   * 2026-10-17). Only a Run this process saw running: a Run that was already done when it started (every Run on disk
+   * from before this existed among them) gets no PR it never asked for; `run-open-pr` still opens one by hand. Not a
+   * scheduled Job's (a PR per fire is noise) and not one with no integration branch (that one is Merged). The command
+   * records the outcome on the Run, so each is asked once; a refusal the command did not record is not asked again
+   * by this process either. Driving process only, asked before each one; a failure is logged and never thrown.
+   */
+  const seenRunning = new Set<string>()
+  const prAsked = new Set<string>()
+  const openCompletedRunPrs = async (): Promise<void> => {
+    const s = c.getState()
+    // One sweep of the Tasks per pass, not one per Run: a month of history is many Runs (audit OR-1's reason)
+    const owned = new Map<string, Task[]>()
+    for (const t of s.tasks) {
+      if (t.runId === undefined) continue
+      const list = owned.get(t.runId)
+      if (list) list.push(t)
+      else owned.set(t.runId, [t])
+    }
+    for (const run of s.runs) {
+      if (run.pr !== undefined || prAsked.has(run.id)) continue
+      const outcome = outcomeOfTasks(owned.get(run.id) ?? [])
+      if (outcome === 'running') {
+        seenRunning.add(run.id)
+        continue
+      }
+      if (outcome !== 'completed' || !seenRunning.has(run.id) || run.worktree === undefined) continue
+      const job = jobOf(s, run)
+      if (!job || !isJobActive(job) || job.schedule !== undefined) continue
+      if (!c.mayStart()) return
+      prAsked.add(run.id)
+      try {
+        const r = await c.handle('run-open-pr', { run: run.id })
+        const body = r.body as { url?: unknown } | null
+        log(
+          r.status >= 400
+            ? `run=${run.id} completed, and its pull request was not opened: ${JSON.stringify(r.body)}`
+            : `run=${run.id} completed: its pull request is ${String(body?.url)}`
+        )
+      } catch (e) {
+        log(`run=${run.id} completed, and opening its pull request failed: ${String(e)}`)
+      }
+    }
+  }
+
   /** The coordinator housekeeping: the stale start marks (L2), then the stops due (U4, L1), then the
    *  finished Runs' idle workers. Run from the pass and from the timer's `nudge`, since the app runs the
    *  pass only on commits and a stop to retry, a mark to drop or a grace that ran out comes due with
@@ -451,6 +497,9 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     try {
       if (!c.mayStart()) return
       await clearStaleStartMarks()
+      if (!c.mayStart()) return
+      // W2-D: before the finished Run's workers are released, while its worktrees are all there
+      await openCompletedRunPrs()
       if (!c.mayStart()) return
       await stopFinishedCoordinators()
       if (!c.mayStart()) return

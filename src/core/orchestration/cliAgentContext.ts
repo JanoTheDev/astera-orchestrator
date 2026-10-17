@@ -147,6 +147,27 @@ const SESSION = {
     detail: 'It does not remove the worktrees afterwards.',
     flags: [RUN_ARG('<runId>', 'the run whose worktrees to merge')]
   },
+  // W2-D GitHub links (core/github/taskLinks.ts)
+  'task-link-issue': {
+    summary: 'link a Task to its GitHub issue',
+    detail:
+      "Exactly one of --number, --find and --create. Linking never creates an issue: --find looks for the Task's marker, then its title, open and closed. --create is refused when the repository's CLAUDE.md says how issues are made, and links an issue that already exists instead of opening a duplicate. Answered by the Host.",
+    flags: [
+      req('id', '<taskId>', 'the Task to link'),
+      { name: 'number', value: '<n>', about: 'link this issue' },
+      { name: 'find', about: 'link the issue the Task already has' },
+      { name: 'create', about: 'create the issue when none exists and the repository has no issue workflow' }
+    ]
+  },
+  'run-open-pr': {
+    summary: "open the plan's one pull request from a completed run",
+    detail:
+      "Folds the tasks' worktrees into the run's integration branch, pushes it and opens one pull request against the repository's default branch, listing every task, its acceptance criteria, issue, model and account. Never merges. The driving loop does this when a run completes; the result is kept on the run, and a failure is tried again only with --force. Answered by the Host.",
+    flags: [
+      RUN_ARG('<runId>', 'the completed run'),
+      { name: 'force', about: 'try again after a recorded failure' }
+    ]
+  },
   'runs-changed-files': {
     summary: 'the files a run, or one of its tasks, changed, from git',
     detail:
@@ -256,7 +277,10 @@ const SESSION = {
       { name: 'outcome', value: '<succeeded|failed>', about: 'how it went (required for worker_done)' },
       { name: 'subject', value: '<text>', about: 'one line' },
       { name: 'body', value: '<text|->', about: 'the body (a value of `-` reads it from stdin)' },
-      { name: 'files-modified', value: '<a,b,c>', about: 'the files this Task changed (worker_done only)' }
+      { name: 'files-modified', value: '<a,b,c>', about: 'the files this Task changed (worker_done only)' },
+      // W2-D GitHub links
+      { name: 'issue', value: '<n>', about: "this Task's GitHub issue number, linked to the Task (worker_done only)" },
+      { name: 'issue-created', about: "the repository's workflow created that issue for this Task, so the plan's PR closes it (worker_done only)" }
     ]
   },
   reply: {

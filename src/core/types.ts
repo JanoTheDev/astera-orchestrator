@@ -52,6 +52,7 @@ export type { ConvTurn } from './history/convTypes'
 // incidental. Either way the wrong fix for a genuinely missing import is "types": ["node"] — it hands
 // the renderer typecheck every Node global, which is the guard this note stands to protect.
 import type { CheckResult, GateKind, JobSourceRef, MessageType, Outcome, RepairReason, TaskStatus } from './orchestration/types'
+import type { RunPr, TaskLinks } from './orchestration/types'
 import type { CompletionDetail } from './orchestration/completion'
 import type { McpHttpState, WorkspaceEvent, WorkspaceSummary } from './host/protocol'
 export type { CompletionDetail, CompletionCheckDetail } from './orchestration/completion'
@@ -526,6 +527,8 @@ export interface JobTask {
    *  갖는다 — 검토만 걸린 Task 의 라운드를 그리기 위해서다. 없는 Run 에 실으면 의미 없는 3/2 가 모든 카드를
    *  따라다닌다. */
   convergence?: JobConvergence
+  // W2-D GitHub links: the Task's issue, branch, commits and pull requests (Task.links)
+  links?: TaskLinks
 }
 
 export type JobEventKind =
@@ -630,6 +633,8 @@ export interface JobRow {
   // W1-C plan lifecycle: the Job's own fields, on every row of the Job (lifecycle.ts)
   title?: string
   archivedAt?: string
+  // W2-D: the plan's one pull request (JobRun.pr), on the Run's own row and a Job row folded onto it
+  pr?: RunPr
   /** 관리자가 있어야 하는데 없다 — 코디네이터 계정이 지정돼 있지만 붙어 있는 세션이 없다.
    *  **사이드바가 다시 띄우는 버튼을 내보이는 근거다.** 계정 지정이 없는 Run(옛 Run·CLI Run)은
    *  애초에 관리자를 기대하지 않으므로 거짓이다.

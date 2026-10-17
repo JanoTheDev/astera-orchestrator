@@ -465,6 +465,11 @@ export const en: Record<keyof typeof ko, string> = {
   'github.state.open': 'Open',
   'github.state.merged': 'Merged',
   'github.state.closed': 'Closed',
+  // W2-D GitHub links (TaskLinkChips)
+  'github.link.issue': 'Issue',
+  'github.link.branch': 'Branch',
+  'github.link.runPr': "This plan's pull request",
+  'github.link.runPrFailed': 'Pull request not opened',
   // ---- notifications ----
   'settings.notifications.hint':
     'Desktop notifications. Sent when you are looking at another session, or at another window.',

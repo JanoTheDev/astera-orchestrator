@@ -1714,3 +1714,45 @@ describe('a worker revived through a recovery Gate', () => {
     expect(fresh).toEqual([expect.objectContaining({ taskId: 'tsk_1', retryOf: 'dsp_lost' })])
   })
 })
+
+// W2-D: a Run that completes opens its plan's one pull request (`run-open-pr`), once, and only a Run this process saw
+// running: the Runs already done on disk get no PR they never asked for.
+describe("a completed Run opens its plan's pull request (W2-D)", () => {
+  const withWorktree = (h: ReturnType<typeof rig>, runId: string): void => {
+    const s = h.state()
+    h.setState({ ...s, runs: s.runs.map((r) => (r.id === runId ? { ...r, worktree: '/wt-run' } : r)) })
+  }
+  const finish = (h: ReturnType<typeof rig>, runId: string): void => {
+    const s = h.state()
+    h.setState({ ...s, tasks: s.tasks.map((t) => (t.runId === runId ? { ...t, status: 'completed' as const } : t)) })
+  }
+  const fakePr = (h: ReturnType<typeof rig>): void => {
+    h.ctx.handle = async (cmd, args) => (cmd === 'run-open-pr' ? { status: 200, body: { url: 'https://github.com/o/r/pull/1' } } : h.real(cmd, args))
+  }
+  const asked = (h: ReturnType<typeof rig>): number => h.handled().filter((c) => c === 'run-open-pr').length
+
+  it('asks once when a Run it saw running completes', async () => {
+    const h = rig()
+    withWorktree(h, 'run_1')
+    fakePr(h)
+    await h.loop.run()
+    await h.settle()
+    expect(asked(h)).toBe(0)
+    finish(h, 'run_1')
+    await h.loop.run()
+    await h.settle()
+    await h.loop.run()
+    await h.settle()
+    expect(asked(h)).toBe(1)
+  })
+
+  it('does not ask for a Run that was already done when it started', async () => {
+    const h = rig()
+    withWorktree(h, 'run_1')
+    finish(h, 'run_1')
+    fakePr(h)
+    await h.loop.run()
+    await h.settle()
+    expect(asked(h)).toBe(0)
+  })
+})
