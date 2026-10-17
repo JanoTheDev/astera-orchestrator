@@ -1188,6 +1188,21 @@ EOF
 - **Then say what you made.** The person sees the Job in the Jobs sidebar, waiting to be run, and
   starts it there. `jobs run --id <jobId>` starts it from here, and is theirs to ask for.
 
+### 12.2.1 Having a planner write the plan: `jobs plan` (W2-A)
+
+`astera jobs plan --id <jobId>` starts a **planner** session on a Job that has not started: an agent on
+the planner model, in the Job's folder, that reads the repository (its `CLAUDE.md` and `AGENTS.md` first)
+and writes the Job's Tasks with `task-create`, each with `--prompt`, `--criteria` (acceptance criteria),
+`--affected-paths` and `--difficulty`. Its own rules are in `planner-guide.md` beside this guide.
+
+- **A planner never starts work.** Astera refuses it every command but reading and writing its own Job's
+  Tasks: no `worker-start`, `jobs run`, `run-start`, merge or session command.
+- **Approving the plan is starting the Job**, by the person: "Approve & execute" in the Jobs sidebar, or
+  `jobs run --id <jobId>` at their own shell. It is refused from inside an agent session, and refused while
+  a Task lacks a prompt or a criterion, depends on a Task outside the plan, or the dependencies form a cycle.
+- A planned Task's prompt, acceptance criteria and affected paths are added to its worker's spec file.
+- The plan is kept readable at `plans/<jobId>/plan.md` in the profile, beside `orchestration.json`.
+
 ### 12.3 Another session: `sessions list`, `sessions read`, `sessions send`
 
 ```bash
