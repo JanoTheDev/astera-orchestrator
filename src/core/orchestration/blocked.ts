@@ -39,10 +39,15 @@ function categoryOf(task: Task, open: Dispatch | undefined, latest: Dispatch | u
  *  shortcut: those two scan per Run; if a state with many ready app-placed Tasks makes the fold slow, index them. */
 export function taskBoardsOf(s: OrchState, limits: ScheduleLimits = {}): Map<string, TaskBoard> {
   const cap = limits.maxConcurrentWorkers ?? null
+  const push = <T>(m: Map<string, T[]>, k: string, v: T): void => {
+    const list = m.get(k)
+    if (list) list.push(v)
+    else m.set(k, [v])
+  }
   const byTask = new Map<string, Dispatch[]>()
-  for (const d of s.dispatches) byTask.set(d.taskId, [...(byTask.get(d.taskId) ?? []), d])
+  for (const d of s.dispatches) push(byTask, d.taskId, d)
   const gates = new Map<string, Gate[]>()
-  for (const g of s.gates) if (g.status === 'open') gates.set(g.taskId, [...(gates.get(g.taskId) ?? []), g])
+  for (const g of s.gates) if (g.status === 'open') push(gates, g.taskId, g)
   const taskById = new Map(s.tasks.map((t) => [t.id, t]))
   const runById = new Map(s.runs.map((r) => [r.id, r]))
   const jobById = new Map(s.jobs.map((j) => [j.id, j]))
