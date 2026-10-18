@@ -107,7 +107,7 @@ export function ProjectRow({
   const sessionsLenRef = useRef(0)
   sessionsLenRef.current = sessions.length
   // W9-I: what an ended tab did, read only while the project is open
-  const summaryDoor = useMemo(() => (expanded ? localDoor(window.api, project.projectPath) : null), [expanded, project.projectPath])
+  const summaryDoor = useMemo(() => (expanded && typeof window !== 'undefined' ? localDoor(window.api, project.projectPath) : null), [expanded, project.projectPath])
   const { bySession } = useSummaries(summaryDoor)
 
   const loadMore = (): void => {
