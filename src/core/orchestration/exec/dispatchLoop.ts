@@ -42,8 +42,11 @@ import { isJobActive } from '../lifecycle'
 import { DEFAULT_CONCURRENCY, FAILURE_LIMIT, type JobRun, type Task } from '../types'
 import { outcomeOfTasks, tasksOwnedBy } from '../running'
 import { outcomeOf } from '../view'
+import { completionSettled, replansDue } from '../replan'
 import type { Integration } from './integrateGit'
 
+/** W6-D: a replan whose start left no session after this long died with its process, and is ended. */
+export const REPLAN_START_WINDOW_MS = 5 * 60_000
 /** 15초 — 세션 스케줄러의 TICK_MS 와 같은 값이다 */
 export const ORCH_FIRE_TICK_MS = 15_000
 /** 코디네이터를 깨우기 전에 기다리는 시간.
@@ -304,6 +307,9 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       const pending = run.coordinatorStopPending !== undefined
       if (!pending) {
         if (outcomeOf(s, run.id) === 'running') continue
+        // W6-D: a Run this process watched finish keeps its coordinator until its final check settles
+        const runJob = jobOf(s, run)
+        if (runJob && seenRunning.has(run.id) && !completionSettled(s, runJob, run.id)) continue
         if (!graceOver(s, run, sessionId, c.nowMs())) continue
       }
       // **A session this process knows has ended is the stop confirmed** (L1): its exit was never heard
@@ -469,6 +475,8 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       if (outcome !== 'completed' || !seenRunning.has(run.id) || run.worktree === undefined) continue
       const job = jobOf(s, run)
       if (!job || !isJobActive(job) || job.schedule !== undefined) continue
+      // W6-D: the PR waits for the final check (replan.ts completionSettled)
+      if (!completionSettled(s, job, run.id)) continue
       if (!c.mayStart()) return
       prAsked.add(run.id)
       try {
@@ -485,6 +493,45 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     }
   }
 
+  /**
+   * W6-D: **a wave boundary replans.** When the last Task of a wave completes and a later wave has Tasks, or when every
+   * Task has completed (the final check), `jobs-replan` holds the Job and starts a fresh planner on what is left
+   * (`replansDue`, replan.ts). A replan whose planner session is gone without ending it, or whose start died before
+   * its session was recorded, is ended here (`jobs-replan-done --gone`): the end validates the plan and either lets
+   * the Job go or hands it to the person. Before the PR and the coordinator's stop, which wait for the final check.
+   * Driving process only, asked before each one; a failure is logged and never thrown.
+   */
+  const replanAtBoundaries = async (): Promise<void> => {
+    const s = c.getState()
+    for (const job of s.jobs) {
+      const r = job.replanning
+      if (!r) continue
+      const stale = r.sessionId === undefined && c.nowMs() - Date.parse(r.startedAt) > REPLAN_START_WINDOW_MS
+      if (!stale && (r.sessionId === undefined || c.sessionGone?.(r.sessionId) !== true)) continue
+      if (!c.mayStart()) return
+      try {
+        const end = await c.handle('jobs-replan-done', { id: job.id, gone: true })
+        log(`job=${job.id}: its replan planner is gone; the replan ended: ${JSON.stringify(end.body)}`)
+      } catch (e) {
+        log(`job=${job.id}: ending its replan failed: ${String(e)}`)
+      }
+    }
+    for (const due of replansDue(c.getState(), (id) => seenRunning.has(id))) {
+      if (!c.mayStart()) return
+      const job = jobOf(c.getState(), c.getState().runs.find((x) => x.id === due.runId)!)
+      try {
+        const r = await c.handle('jobs-replan', { id: job?.id, run: due.runId, mode: due.mode, wave: due.wave })
+        log(
+          r.status >= 400
+            ? `run=${due.runId}: the ${due.mode} replan before wave ${due.wave} did not start: ${JSON.stringify(r.body)}`
+            : `run=${due.runId}: ${due.mode} replan before wave ${due.wave} started`
+        )
+      } catch (e) {
+        log(`run=${due.runId}: starting its ${due.mode} replan failed: ${String(e)}`)
+      }
+    }
+  }
+
   /** The coordinator housekeeping: the stale start marks (L2), then the stops due (U4, L1), then the
    *  finished Runs' idle workers. Run from the pass and from the timer's `nudge`, since the app runs the
    *  pass only on commits and a stop to retry, a mark to drop or a grace that ran out comes due with
@@ -497,6 +544,9 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     try {
       if (!c.mayStart()) return
       await clearStaleStartMarks()
+      if (!c.mayStart()) return
+      // W6-D: before the PR, which waits for the final check
+      await replanAtBoundaries()
       if (!c.mayStart()) return
       // W2-D: before the finished Run's workers are released, while its worktrees are all there
       await openCompletedRunPrs()

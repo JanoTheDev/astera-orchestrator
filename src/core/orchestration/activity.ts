@@ -22,6 +22,7 @@ import type { TaskBlockedReason, TaskCategory } from '../types'
 import { taskBoardsOf } from './blocked'
 import { jobNameOf } from './jobName'
 import { outcomeOfTasks } from './running'
+import { completionSettled } from './replan'
 import type { ScheduleLimits } from './schedule'
 import { emptyState, type OrchState } from './state'
 import {
@@ -50,7 +51,12 @@ export const ACTIVITY_KINDS = [
   'plan.awaiting-approval',
   'plan.done',
   // W5-D (#42): a worker's session at a permission prompt or a question (waitingActivity)
-  'task.waiting'
+  'task.waiting',
+  // W6-D: a replan began / ended between waves or as the final check (replan.ts)
+  'plan.replanning',
+  'plan.replanned',
+  // W6-B owns this kind's notice and sound; W6-D raises it when a replan is handed to the person
+  'task.escalated'
 ] as const
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number]
 
@@ -85,6 +91,15 @@ export interface ActivityPayload {
   runOutcome?: 'completed' | 'failed'
   // task.waiting (W5-D, #42)
   waitingFor?: 'permission' | 'question'
+  // plan.replanning / plan.replanned (W6-D)
+  replanMode?: 'wave' | 'completion'
+  /** The wave about to start (a completion pass: the one after the last). */
+  wave?: number
+  /** plan.replanned: what the replan changed, one line. */
+  summary?: string
+  // task.escalated
+  /** Why it needs the person. */
+  reason?: string
 }
 
 /** One line before the log numbers and stamps it (the shape of publicEvents.ts's EventDraft). */
@@ -263,7 +278,31 @@ export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[
       const outcome = outcomeOfTasks(ts)
       if (outcome === 'running') continue
       const at = where(runId)
+      // W6-D: a completed plan is done once its final check settles; the replan's end says so (below)
+      if (outcome === 'completed' && at.job && !completionSettled(next, at.job, runId)) continue
       push('plan.done', at, { title: at.job ? jobNameOf(at.job) : runId, runOutcome: outcome })
+    }
+  }
+  // W6-D: a replan's start and end, from the Job's marks (replan.ts). A final check that added nothing is the plan done.
+  if (prev.jobs !== next.jobs) {
+    const before = byId(prev.jobs)
+    for (const j of next.jobs) {
+      const was = before.get(j.id)
+      if (was === undefined || was === j) continue
+      const title = jobNameOf(j)
+      if (j.replanning && !was.replanning)
+        push('plan.replanning', where(j.replanning.runId), { title, replanMode: j.replanning.mode, wave: j.replanning.wave })
+      const last = j.lastReplan
+      if (!last || last === was.lastReplan) continue
+      const at = where(last.runId)
+      if (last.escalated !== undefined) {
+        push('task.escalated', at, { title, reason: last.escalated })
+        continue
+      }
+      push('plan.replanned', at, { title, replanMode: last.mode, wave: last.wave, summary: last.summary })
+      const ts = next.tasks.filter((t) => t.runId === last.runId)
+      if (last.mode === 'completion' && outcomeOfTasks(ts) === 'completed' && completionSettled(next, j, last.runId))
+        push('plan.done', at, { title, runOutcome: 'completed' })
     }
   }
   return out
@@ -400,6 +439,9 @@ export function noticeOf(e: ActivityEvent): ActivityNotice | null {
       return { key: `gate:${e.payload.gateId}`, title: 'Needs your answer', body: `${e.payload.title}${inPlan(e)}: ${e.payload.question ?? ''}`.slice(0, 240) }
     case 'plan.awaiting-approval':
       return { key: `approve:${e.jobId}`, title: 'Plan ready for approval', body: e.payload.title }
+    // W6-D raises it on a replan the person must sort out; W6-B owns its wording and sound
+    case 'task.escalated':
+      return { key: `escalated:${e.id}`, title: 'Needs you', body: `${e.payload.title}: ${e.payload.reason ?? ''}`.slice(0, 240) }
     default:
       return null
   }
