@@ -44,6 +44,7 @@ import { outcomeOfTasks, tasksOwnedBy } from '../running'
 import { outcomeOf } from '../view'
 import type { Integration } from './integrateGit'
 import { usageChoice, usagePauseWhy, type UsageGuard } from '../usageGuard'
+import { deliveryOf } from '../delivery'
 
 /** 15초 — 세션 스케줄러의 TICK_MS 와 같은 값이다 */
 export const ORCH_FIRE_TICK_MS = 15_000
@@ -463,24 +464,31 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       else owned.set(t.runId, [t])
     }
     for (const run of s.runs) {
-      if (run.pr !== undefined || prAsked.has(run.id)) continue
+      // W6-H: a push delivery records its own result (`run.delivery`)
+      if (run.pr !== undefined || run.delivery !== undefined || prAsked.has(run.id)) continue
       const outcome = outcomeOfTasks(owned.get(run.id) ?? [])
       if (outcome === 'running') {
         seenRunning.add(run.id)
         continue
       }
-      if (outcome !== 'completed' || !seenRunning.has(run.id) || run.worktree === undefined) continue
+      if (outcome !== 'completed' || !seenRunning.has(run.id)) continue
       const job = jobOf(s, run)
       if (!job || !isJobActive(job) || job.schedule !== undefined) continue
+      // W6-H: a push merges the Run's worktrees into the project folder itself, so it needs no integration branch
+      const push = deliveryOf(s, job) === 'push'
+      if (!push && run.worktree === undefined) continue
       if (!c.mayStart()) return
       prAsked.add(run.id)
       try {
-        const r = await c.handle('run-open-pr', { run: run.id })
-        const body = r.body as { url?: unknown } | null
+        // W6-H: `run-deliver` is `run-open-pr` for a `pr` project, and the guarded push for a `push` one
+        const r = await c.handle('run-deliver', { run: run.id })
+        const body = r.body as { url?: unknown; sha?: unknown; branch?: unknown } | null
         log(
           r.status >= 400
-            ? `run=${run.id} completed, and its pull request was not opened: ${JSON.stringify(r.body)}`
-            : `run=${run.id} completed: its pull request is ${String(body?.url)}`
+            ? `run=${run.id} completed, and it was not delivered: ${JSON.stringify(r.body)}`
+            : push
+              ? `run=${run.id} completed: pushed ${String(body?.sha)} to ${String(body?.branch)}`
+              : `run=${run.id} completed: its pull request is ${String(body?.url)}`
         )
       } catch (e) {
         log(`run=${run.id} completed, and opening its pull request failed: ${String(e)}`)

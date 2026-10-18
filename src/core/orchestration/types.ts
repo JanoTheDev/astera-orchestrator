@@ -133,7 +133,16 @@ export interface Project {
    *  person can change it later without the name moving when a folder does. */
   name: string
   addedAt: string
+  // ── W6-H delivery (delivery.ts) ──
+  /** How a finished plan lands: `pr` opens one pull request (`run-open-pr`), `push` merges it into `deliveryBranch` and
+   *  pushes with no review by a person (`deliverByPush`). Absent reads as `'pr'`. A Job may override it. */
+  delivery?: DeliveryMode
+  /** The branch a `push` delivery lands on. Absent: the repository's default branch. */
+  deliveryBranch?: string
 }
+
+/** W6-H: how a finished plan lands (`deliveryOf`). */
+export type DeliveryMode = 'pr' | 'push'
 
 /** 계획. **무엇을 시킬 것인가이고, 그것이 실제로 돈 기록은 JobRun 이다**
  *  (docs/2026-09-21-job-run-split-and-projects-design.md §4).
@@ -236,6 +245,9 @@ export interface Job {
    *  slot from `slotsToFill`, `worker-start` and `tasks dispatch` refuse), and nothing is closed: running workers
    *  carry on, finish and report as before. `jobs-unhold` takes it away. */
   dispatchHold?: true
+  // W6-H delivery (delivery.ts)
+  /** This plan's own delivery, ahead of its project's (`deliveryOf`). Absent: the project's. */
+  delivery?: DeliveryMode
 }
 
 /** A job source's item a Job was made from: the source (a plugin's id, or `github`), the item's id there, how a person
@@ -349,6 +361,10 @@ export interface JobRun {
   /** The pull request opened from this Run's integration branch when it completed, or why it could not be. Present:
    *  the driving loop does not try again (`run-open-pr --force` does). */
   pr?: RunPr
+  // ── W6-H: a `push` delivery (`run-deliver`) ──
+  /** The pushed commit, or why the push stopped (escalated). Present: the driving loop does not try again
+   *  (`run-deliver --force` does). */
+  delivery?: RunDelivery
 }
 
 export interface Task {
@@ -732,6 +748,14 @@ export interface TaskLinks {
   branch?: string
   prs?: { number: number; url: string; state: PrState }[]
   commits?: string[]
+}
+
+/** W6-H: a Run's push delivery: the branch and the commit pushed, or the reason it stopped. */
+export interface RunDelivery {
+  at: string
+  branch?: string
+  sha?: string
+  error?: string
 }
 
 /** The plan's pull request: its URL and number once opened, or the error that stopped it. */

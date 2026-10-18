@@ -157,6 +157,19 @@ import { dispatchModelFields } from './roleModels'
 import { archiveJob, archivedTargetOf, isJobActive, renameJob, unarchiveJob } from './lifecycle'
 // W6-G
 import { usageChoice, usagePauseWhy, type UsageGuard } from './usageGuard'
+// W6-H delivery
+import {
+  deliveryChecksOf,
+  deliveryIssuesOf,
+  deliveryMessage,
+  deliveryOf,
+  parseDelivery,
+  projectOfJob,
+  recordDelivery,
+  setJobDelivery,
+  setProjectDelivery
+} from './delivery'
+import type { PushDelivery, PushResult } from './exec/integrateGit'
 
 /** One row of `listAccounts`. Named only because the declaration below is a union and repeating the
  *  shape on both sides invites the two halves to drift. */
@@ -351,7 +364,9 @@ export interface OrchServerDeps {
    *  돌려주면 아무것도 합치지 못했을 때도 성공을 알리게 된다. */
   mergeWorktrees?(
     runCwd: string,
-    paths: string[]
+    paths: string[],
+    /** W6-H: the message of each merge commit (a delivery's `Fixes #n`); absent, git's own. */
+    opts?: { message?: string }
   ): Promise<
     | {
         ok: true
@@ -707,6 +722,11 @@ export interface OrchServerDeps {
    *  the app's goes through the Host (`plugins-list`, `checks-plugin-run`). Absent, nothing is refused early and a
    *  plugin check is an `error` that says so. */
   completionChecks?: CompletionChecksDeps
+  // ── W6-H delivery ──
+  /** A `push` delivery (`run-deliver`): the guarded merge, validation and push of exec/integrateGit.ts's
+   *  `deliverByPush`, with `checks` (the run configurations) as the validation. **Only the Host injects it**; absent,
+   *  `run-deliver` on a push project answers 409. */
+  deliverPush?(a: PushDelivery & { checks: string[] }): Promise<PushResult>
 }
 
 /** A plugin as the early refusal reads it (plugin Phase 5 C7). */
@@ -1044,7 +1064,10 @@ const COORDINATOR_ONLY = new Set([
   'jobs-unarchive',
   // W2-D: a worker reports its issue in worker_done (`--issue`); linking and the plan's PR are the coordinator's
   'task-link-issue',
-  'run-open-pr'
+  'run-open-pr',
+  // W6-H: how the plan lands is the person's setting, and the landing is Astera's
+  'projects-set',
+  'run-deliver'
 ])
 
 /** Session-task commands answer to the work-unit tracking toggle, not the orchestration one. They
@@ -1812,6 +1835,9 @@ export async function handleCommand(
       // W1-B: Job.priority. Any integer; absent is 0.
       const priority = args.priority === undefined ? 0 : typeof args.priority === 'string' ? Number(args.priority) : args.priority
       if (typeof priority !== 'number' || !Number.isInteger(priority)) return bad('--priority must be an integer')
+      // W6-H: the plan's own delivery, ahead of its project's
+      const delivery = parseDelivery(args.delivery)
+      if (delivery === null) return bad('--delivery must be pr or push')
       // 완료 수렴(설계 D12). --convergence 만 주면 빈 정책(기본값). 숫자 셋은 --convergence 없이는
       // 거절한다 — 조용히 받으면 "정책을 줬는데 꺼져 있다" 가 된다.
       let convergence: ConvergencePolicy | undefined
@@ -1934,7 +1960,7 @@ export async function handleCommand(
       // 정규화됐으므로(resolveProjectRoot), 앱이 아는 저장소라면 여기서 맞는다.
       // 못 맞으면 칸이 비고, 그 Run 은 옛 Run 과 같은 경로 유도로 목록에 든다.
       const project = findProjectByPath(latest, cwd)
-      const created = createJob(
+      const made = createJob(
         latest,
           {
             objective,
@@ -1965,7 +1991,11 @@ export async function handleCommand(
           },
         now
       )
-      if (!created.ok) return commit(created)
+      if (!made.ok) return commit(made)
+      const created =
+        delivery === undefined
+          ? made
+          : (setJobDelivery(made.state, made.value.id, delivery) as typeof made)
       // **코디네이터에게는 곧바로 회차를 준다.** 계획만 만들고 끝내면 `--run` 에 넣을 id 가 없고,
       // 코디네이터는 Task 를 만들어 가며 일하므로 붙일 자리가 그 자리에 있어야 한다.
       //
@@ -2000,6 +2030,24 @@ export async function handleCommand(
       if (!p) return bad('--path is required')
       const project = findProjectContaining(s, p)
       return project ? okBody(project) : notFound(`no project registered for: ${p}`)
+    }
+    // W6-H: how a finished plan of this project lands. `push` lands it with no review by a person, so it is the
+    // person's choice: refused from an agent session and an MCP client.
+    case 'projects-set': {
+      const id = str(args.id)
+      if (!id) return bad('--id is required')
+      if (fromAgentSession || caller.role === 'mcp') return denied("a project's delivery is set by the person, in Astera or at their own shell")
+      const delivery = parseDelivery(args.delivery)
+      if (delivery === null) return bad('--delivery must be pr or push')
+      const branchArg = args.deliveryBranch
+      if (branchArg !== undefined && typeof branchArg !== 'string') return bad('--delivery-branch needs a value')
+      if (delivery === undefined && branchArg === undefined) return bad('nothing to set: give --delivery or --delivery-branch')
+      // An empty --delivery-branch drops it: the repository's default branch again
+      const set = setProjectDelivery(s, id, {
+        ...(delivery !== undefined ? { delivery } : {}),
+        ...(branchArg !== undefined ? { branch: branchArg.trim() === '' ? null : branchArg } : {})
+      })
+      return set.ok ? commit(set) : set.error.startsWith('unknown project') ? notFound(set.error) : bad(set.error)
     }
     // **회차를 낸다, 계획이 아니라.** `--job` 은 한 계획의 회차만 추린다. 번호순으로 내보내는
     // 것은 배열에 들어간 순서가 곧 시간순이 아니기 때문이다 — 예약은 발화마다 뒤에 붙지만
@@ -2608,6 +2656,14 @@ export async function handleCommand(
       if (!job) return notFound(`unknown job: ${id}`)
       if (!job.pendingStart) return conflict(`job ${id} has started: a planner plans a Job before it is approved`)
       if (!deps.startCoordinator) return conflict('starting a planner is not available in this build')
+      // W6-H: the plan's own delivery, set before its planner starts
+      const delivery = parseDelivery(args.delivery)
+      if (delivery === null) return bad('--delivery must be pr or push')
+      if (delivery !== undefined) {
+        const set = setJobDelivery(s, id, delivery)
+        if (!set.ok) return refused(set)
+        await deps.setState(set.state)
+      }
       const accountArg = str(args.account)
       const accountId = accountArg ?? job.coordinatorAccountId
       if (!accountId) return bad('--account is required: the Job names no coordinator account to plan on')
@@ -5138,6 +5194,48 @@ export async function handleCommand(
      * Never merged here. The outcome is recorded on the Run (`JobRun.pr`), so the driving loop asks once; a failure is
      * asked again only with --force. The local Merge (`run-merge`) stays for a person who wants it.
      */
+    // W6-H: the last step of a finished plan, asked by the driving loop once per Run. `pr` is `run-open-pr`; `push`
+    // merges into the delivery branch and pushes, behind every guard of `deliverByPush`. A stop is recorded on the Run
+    // and escalated (recordDelivery); after a push the merged worktrees go as `run-delete --remove-worktrees` takes
+    // them, and on any stop they stay.
+    case 'run-deliver': {
+      const id = str(args.run)
+      if (!id) return bad('--run is required')
+      const run = s.runs.find((r) => r.id === id)
+      if (!run) return notFound(`unknown run: ${id}`)
+      const job = jobOf(s, run)
+      if (!job) return notFound(`no plan for run ${id}`)
+      if (deliveryOf(s, job) === 'pr') return handleCommand(deps, caller, 'run-open-pr', { run: id, ...(args.force === true ? { force: true } : {}) })
+      if (fromAgentSession || caller.role === 'mcp') return denied('a push delivery is made by Astera itself, or by the person')
+      const done = run.delivery
+      if (done?.sha !== undefined) return okBody({ delivery: 'push', branch: done.branch ?? null, sha: done.sha, pushed: false })
+      if (done?.error !== undefined && args.force !== true)
+        return conflict(`Pushing this Run stopped before: ${done.error}. --force tries again`)
+      if (runView(s, run).outcome !== 'completed') return conflict('This Run has not completed; it is pushed once every task is done')
+      if (!deps.deliverPush) return conflict('Pushing a plan is done by the Astera Host, and this caller is not one')
+      const branch = projectOfJob(s, job)?.deliveryBranch
+      const r = await deps.deliverPush({
+        cwd: job.cwd,
+        ...(branch !== undefined ? { branch } : {}),
+        worktrees: runWorktrees(s, id),
+        message: deliveryMessage(jobNameOf(job), deliveryIssuesOf(s, run)),
+        checks: deliveryChecksOf(s, id)
+      })
+      const at = deps.now?.() ?? now
+      await deps.setState(
+        recordDelivery(deps.getState(), id, r.ok ? { at, branch: r.branch, sha: r.sha } : { at, ...(r.branch ? { branch: r.branch } : {}), error: r.reason })
+      )
+      if (!r.ok) return conflict(r.reason)
+      const removed = deps.removeWorktrees && r.merged.length > 0 ? await deps.removeWorktrees(r.merged) : null
+      return okBody({
+        delivery: 'push',
+        branch: r.branch,
+        sha: r.sha,
+        pushed: true,
+        validated: r.validated,
+        ...(removed && removed.failed.length > 0 ? { worktreesKept: removed.failed } : {})
+      })
+    }
     case 'run-open-pr': {
       const id = str(args.run)
       if (!id) return bad('--run is required')

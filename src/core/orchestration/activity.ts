@@ -61,7 +61,10 @@ export const ACTIVITY_KINDS = [
   'task.escalated',
   // W6-G: no new worker starts on an account near its usage limit, and then may again (usageActivity)
   'usage.paused',
-  'usage.resumed'
+  'usage.resumed',
+  // W6-H: a finished plan pushed to its delivery branch (a feed line and a notice, no chime). A push that stopped is an
+  // escalation instead (delivery.ts recordDelivery)
+  'plan.delivered'
 ] as const
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number]
 
@@ -105,6 +108,9 @@ export interface ActivityPayload {
   // usage.* (W6-G); also accountId and resetsAt
   usageWindow?: UsagePause['window']
   percent?: number
+  // plan.delivered (W6-H)
+  branch?: string
+  sha?: string
 }
 
 /** One line before the log numbers and stamps it (the shape of publicEvents.ts's EventDraft). */
@@ -271,6 +277,13 @@ export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[
       if (was === undefined || was === r || same(was.pr, r.pr)) continue
       const at = where(r.id)
       push('run.pr', at, { title: at.job ? jobNameOf(at.job) : r.id, ...(r.pr !== undefined ? { pr: r.pr } : {}) })
+    }
+    // W6-H: the push landed
+    for (const r of next.runs) {
+      const was = before.get(r.id)
+      if (r.delivery?.sha === undefined || was === undefined || was.delivery?.sha === r.delivery.sha) continue
+      const at = where(r.id)
+      push('plan.delivered', at, { title: at.job ? jobNameOf(at.job) : r.id, sha: r.delivery.sha, ...(r.delivery.branch !== undefined ? { branch: r.delivery.branch } : {}) })
     }
   }
 
@@ -518,6 +531,9 @@ export function noticeOf(e: ActivityEvent): ActivityNotice | null {
     }
     case 'usage.resumed':
       return { key: `usage-resumed:${e.id}`, title: 'New workers resumed', body: `${e.payload.title} is under the usage threshold again.` }
+    // W6-H: no chime, it needs nothing of the owner
+    case 'plan.delivered':
+      return { key: `delivered:${e.runId}`, title: `Plan pushed to ${e.payload.branch ?? 'its branch'}`, body: e.payload.title }
     default:
       return null
   }

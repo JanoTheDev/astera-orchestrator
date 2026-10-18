@@ -101,6 +101,7 @@ import { attachGatewayLink } from './gatewayLink'
 import { readRemoteSettings } from '../core/remote/settings'
 import { loadIdentity, type RuntimeIdentity } from '../core/remote/identity'
 import { readMcpHttp } from '../core/settings/mcpHttp'
+import { deliverByPush } from '../core/orchestration/exec/integrateGit'
 
 /** With no client for this long, there is nothing for the Host to be. Slice 2 adds "and no session is
  *  alive" to this, and slice 3 adds "and no Run is in progress" (design §8). */
@@ -778,6 +779,18 @@ async function main(): Promise<void> {
     jobSources: hostJobSources({ manager: plugins, runtime: pluginRuntime }),
     // The completion check plugins a Task's checks ask (plugin Phase 5 C8), through the same runtime
     completionChecks: hostCompletionChecks({ manager: plugins, runtime: pluginRuntime }),
+    // W6-H: a push delivery, through this Host's merge and its own validation runs. Only with a spawner: without one
+    // the worktree registry is never loaded and no checks run, so `run-deliver` on a push project answers 409.
+    ...(wiring
+      ? {
+          deliverPush: ({ checks, ...push }) =>
+            deliverByPush(push, {
+              mergeWorktrees: (into, paths, o) => worktrees.mergeWorktrees(into, paths, o),
+              validate: (cwd) => wiring.checks.validateTree(cwd, checks),
+              log: (m) => log.write(m)
+            })
+        }
+      : {}),
     now: () => new Date().toISOString(),
     // The handshake's own string, not a second one taken here: `requests show` answers with it so a
     // caller can tell "this Host never saw my request" from "it never arrived" (request receipts

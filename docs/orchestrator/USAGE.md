@@ -46,7 +46,17 @@ owns every session and drives every plan, so closing the window stops nothing (L
    model, or on the CLI's default model when none is set.
    `astera tasks list --run <job>` lists a Job's own Tasks before its first Run.
 
-One PR per plan, opened when the plan finishes, never merged automatically.
+**Delivery** (per project; Jobs view → "When a plan is done", or `astera projects set --id <project> --delivery pr|push
+[--delivery-branch <branch>]`; one plan can override it with `--delivery` on `jobs create` / `jobs plan`):
+- `pr` (the default): one PR per plan, opened when the plan finishes, never merged automatically.
+- `push`: when the last Task passed review (and the final check is done), Astera merges the plan's worktrees into the
+  project folder's delivery branch (the default branch unless set), runs the plan's validation checks once more on the
+  merged tree, and pushes it, **with no review by a person**. The merge commits say `Fixes #n` for the issues the plan
+  came from, so GitHub closes them. It stops and escalates (a sound and a notice) instead when the folder is on another
+  branch or has uncommitted changes, when the branch cannot fast-forward to origin, on a conflict, when validation fails
+  (its own merges are undone then), or when the push is rejected twice. It never stashes, resets your work or
+  force-pushes. After a push the plan's worktrees are removed; after a stop they stay. `astera run-deliver
+  --run <id> --force` tries a stopped push again.
 
 ## Starting from files, an audit, a problem list or GitHub issues (W6-A)
 
