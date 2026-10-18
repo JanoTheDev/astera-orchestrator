@@ -79,10 +79,11 @@ export const notStarted = (s: OrchState, t: Task): boolean =>
 
 const completedIn = (ts: readonly Task[]): number => ts.filter((t) => t.status === 'completed').length
 
-/** Whether a completed Task went as planned, from Host state only: it never failed, needed one review round at most,
+/** Whether a completed Task went as planned, from Host state only: no attempt of it failed (a retry resets its failure
+ *  count, so the Dispatches say), it needed one review round at most,
  *  was not let through by a person, and touched files only inside its affected paths (no paths: nothing to leave). */
 const wentAsPlanned = (s: OrchState, t: Task): boolean =>
-  t.consecutiveFailures === 0 &&
+  !s.dispatches.some((d) => d.taskId === t.id && !d.review && d.outcome === 'failed') &&
   t.completionOverride === undefined &&
   reviewRoundIn(s.dispatches.filter((d) => d.taskId === t.id)) <= 1 &&
   (t.filesModified ?? []).every((f) => !t.affectedPaths?.length || t.affectedPaths.some((p) => pathsOverlap(f, p)))

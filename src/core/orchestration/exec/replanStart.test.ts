@@ -4,7 +4,7 @@ import { describe, it, expect } from 'vitest'
 import { handleCommand, type OrchServerDeps } from '../command'
 import { emptyState, type OrchState } from '../state'
 import { deriveActivity, noticeOf, type ActivityEvent } from '../activity'
-import type { Task } from '../types'
+import type { Dispatch, Task } from '../types'
 import { replanOn, replansDue } from '../replan'
 
 const NOW = '2026-10-18T00:00:00.000Z'
@@ -77,13 +77,16 @@ const approved = async (r: Rig, job: Record<string, unknown> = {}, asPlanned = f
     ...s,
     tasks: s.tasks.map((t) =>
       t.runId === runId && t.title === 'A'
-        ? { ...t, status: 'completed' as const, result: 'built A in src/A.ts', filesModified: ['src/A.ts'], reviewRequested: true, reviewIssues: [], consecutiveFailures: asPlanned ? 0 : 1 }
+        ? { ...t, status: 'completed' as const, result: 'built A in src/A.ts', filesModified: ['src/A.ts'], reviewRequested: true, reviewIssues: [] }
         : t.runId === runId && t.title === 'B'
           ? { ...t, status: 'ready' as const }
           : t
     )
   })
   const id = (title: string) => r.state().tasks.find((t) => t.runId === runId && t.title === title)!.id
+  // A failed attempt, then success: the retry resets consecutiveFailures, so only the Dispatch history shows it
+  if (!asPlanned)
+    r.set({ ...r.state(), dispatches: [...r.state().dispatches, { id: 'dsp_failed', taskId: id('A'), outcome: 'failed', workerState: 'failed', sessionId: 'ses-dead', provider: 'claude', accountId: 'acc1', cwd: '/repo', specPath: '/s.md', startedAt: '2026-10-17T00:00:00.000Z', endedAt: '2026-10-17T00:01:00.000Z' } as Dispatch] })
   return { jobId, runId, id }
 }
 
@@ -138,7 +141,7 @@ describe('jobs-replan', () => {
     r.set({
       ...r.state(),
       tasks: r.state().tasks.map((t) =>
-        t.id === d.id ? { ...t, status: 'completed' as const, result: 'built D', filesModified: ['src/D.ts'], consecutiveFailures: 0 } : t.id === id('A') ? { ...t, filesModified: ['src/elsewhere.ts'] } : t
+        t.id === d.id ? { ...t, status: 'completed' as const, result: 'built D', filesModified: ['src/D.ts'] } : t.id === id('A') ? { ...t, filesModified: ['src/elsewhere.ts'] } : t
       )
     })
     expect(s.tasks.length).toBeLessThan(r.state().tasks.length)
