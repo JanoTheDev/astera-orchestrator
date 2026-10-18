@@ -52,7 +52,7 @@ starting the next wave. Each prompt owns its own files, which keeps conflicts to
 | 3 | 4 | `W3-A-activity-feed`, `W3-B-command-and-voice`, `W3-C-search-and-inbox`, `W3-D-routing-recovery-tests` | W2 merged |
 | 4 | 1 | `W4-final-linux-verification.md` | W3 merged |
 | 5 | 4 | `W5-A-worker-spawn-and-worktrees`, `W5-B-run-lifecycle-and-cli`, `W5-C-holds-and-command-bar`, `W5-D-feed-inbox-and-runtimes` (W4's issues #38–#53) | W4 merged |
-| 6 | 7 | `W6-A-intake-and-github`, `W6-B-autopilot-answers-and-sound`, `W6-C-scheduler-guards`, `W6-D-wave-replanning`, `W6-E-progress-view`, `W6-F-project-workspaces`, `W6-G-usage-guards` (Autopilot, see below) | W5 merged, **including PR #57** |
+| 6 | 8 | `W6-A-intake-and-github`, `W6-B-autopilot-answers-and-sound`, `W6-C-scheduler-guards`, `W6-D-wave-replanning`, `W6-E-progress-view`, `W6-F-project-workspaces`, `W6-G-usage-guards`, `W6-H-delivery-modes` (Autopilot, see below) | W5 merged, **including PR #57** |
 | 6V | 1 | `W6-V-autopilot-dogfood.md` | W6 merged |
 
 ### File ownership per wave (prevents tabs interfering)
@@ -81,6 +81,7 @@ starting the next wave. Each prompt owns its own files, which keeps conflicts to
 | W6-E | `components/plan/*`, `core/hooks/sessionState.ts` (`lastActionOf`) | `src/host/sessions.ts` (carry `lastAction`), `RunDetail.tsx` / workspace mount, `core/types.ts` (`SessionInfo.lastAction`) |
 | W6-F | `components/workspace/*` | `App.tsx` (project selection + per-project layout state), keybindings |
 | W6-G | new `core/sessions/subagentCap.ts` + its hook script, `core/sessions/statusline.ts` (hook entries), new `core/orchestration/usageGuard.ts`, new `components/usage/*` | `exec/dispatchLoop.ts` (guard call), `blocked.ts` (one reason), `activity.ts` (two kinds), app-settings type, plan view mount |
+| W6-H | new `core/orchestration/delivery.ts`, `exec/integrateGit.ts` (push path) | `types.ts` (`Project.delivery`, `deliveryBranch`, Run delivery result), `command.ts` (`projects-set`, `--delivery`), the Run completion path, project settings UI, `activity.ts` (`plan.delivered`) |
 | W5-D | `activity.ts`, `components/activity/*`, `sessionIndex.ts`, `components/search/*`, `src/main/activityNotices.ts`, `src/main/remote/orchRouter.ts` | `src/host/index.ts`, `src/host/sessions.ts`, `src/main/ipc.ts`, `types.ts` |
 
 ## Wave 6 — Autopilot (owner request 2026-10-18)
@@ -111,6 +112,8 @@ possible.
 - `SessionInfo.lastAction?: { tool: string; target?: string; at: number }`, from the last `PreToolUse` hook (W6-E).
 - `Task.basis: { state: 'missing' | 'partial' | 'broken'; evidence: string }`, required by `validatePlan` (W6-A).
   Activity kind `plan.nothing-to-do` (W6-A).
+- `Project.delivery?: 'pr' | 'push'` (missing = `'pr'`), `Project.deliveryBranch?`, Job override; activity kind
+  `plan.delivered` (W6-H).
 - App setting `alertSound: boolean`, default true (W6-B).
 - App settings `maxSubagentsPerSession` (default 10, 1–10) and `usagePauseAt` (percent, default 90) (W6-G).
 - Activity kinds `usage.paused` / `usage.resumed`: feed and notice, no chime. Owned by W6-G.
@@ -165,5 +168,7 @@ possible.
   - planner and reviewer: opus
   - coordinator: haiku
   All of these can be overridden.
-- Delivery: one PR per plan, never auto-merged.
+- Delivery: one PR per plan, never auto-merged. **Updated 2026-10-18:** chosen per project. gameful (unreleased)
+  pushes straight to `main` after review, the final check and validation pass. Other projects, and gameful after
+  release, use a PR. Missing setting = PR.
 - Voice: local whisper.cpp. Audio stays on the machine.

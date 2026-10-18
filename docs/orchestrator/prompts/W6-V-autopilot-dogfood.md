@@ -28,6 +28,8 @@ Use a throwaway git repo (`/tmp/astera-dogfood`, a small TypeScript project with
    - `--mode audit --scope src`
    - two GitHub issues on a scratch repo with `--assign-me`. Ask me before creating issues anywhere: that is
      outward-facing.
-5. File every failure as a GitHub issue (repro, expected, actual, file:line guess) labelled `wave-6`, and write the
+5. Set the dogfood project to `push` (a local bare repo as `origin`, never a real remote). Check that the plan lands
+   on `main` and is pushed. Then repeat with a dirty project folder and check that it escalates and touches nothing.
+6. File every failure as a GitHub issue (repro, expected, actual, file:line guess) labelled `wave-6`, and write the
    Wave 7 prompts the way `d5eb889a` wrote Wave 5's.
-6. Append measurements and the new day-to-day flow to `LINUX.md` and `USAGE.md`. Open a PR; do not merge.
+7. Append measurements and the new day-to-day flow to `LINUX.md` and `USAGE.md`. Open a PR; do not merge.
