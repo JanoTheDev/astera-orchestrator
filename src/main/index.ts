@@ -489,7 +489,9 @@ function refreshTrayMenu(): void {
 // directory, orphaning the first instance's watcher. This lock rules that out at the source. An
 // instance that loses the lock returns/quits before createCore, so the will-quit guard
 // (core === null) means it kills no sessions either.
-const gotSingleInstanceLock = app.requestSingleInstanceLock()
+// W9-K: the launch's own argv and folder ride along. The argv the second-instance event carries is Chromium's,
+// which moves switches ahead of plain arguments, so `--project <name>` arrives split apart there.
+const gotSingleInstanceLock = app.requestSingleInstanceLock({ argv: process.argv, cwd: process.cwd() })
 if (!gotSingleInstanceLock) app.quit()
 
 // Brings the last focused window to the front: restores it if minimized, shows and focuses it. Shared by the
@@ -511,7 +513,10 @@ function openFromArgv(argv: readonly string[], cwd: string): void {
   refreshTrayMenu()
 }
 
-app.on('second-instance', (_e, argv, cwd) => {
+app.on('second-instance', (_e, chromiumArgv, chromiumCwd, data) => {
+  const sent = (data ?? {}) as { argv?: unknown; cwd?: unknown }
+  const argv = Array.isArray(sent.argv) ? sent.argv.filter((a): a is string => typeof a === 'string') : chromiumArgv
+  const cwd = typeof sent.cwd === 'string' ? sent.cwd : chromiumCwd
   // Before the first window is up there is nothing to open into yet; the start-up path opens it.
   if (!core || windows.all().length === 0) return focusAppWindow()
   openFromArgv(argv, cwd)
