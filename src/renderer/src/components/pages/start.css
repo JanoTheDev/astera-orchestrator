@@ -53,6 +53,9 @@
 .start-mode-hint { color: var(--text-dim); font-size: 12px; }
 
 .start-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; align-items: end; }
+/* a long option label (Delivery) must not spill into the next cell */
+.start-options > * { min-width: 0; }
+.start-options select, .start-options input { width: 100%; min-width: 0; text-overflow: ellipsis; }
 
 .start-go { display: flex; align-items: center; gap: 12px; }
 .start-go-note { color: var(--text-dim); font-size: 12px; }
