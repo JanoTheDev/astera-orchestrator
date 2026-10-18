@@ -50,8 +50,9 @@ describe('usagePauseOf', () => {
     expect(usagePauseOf('a', reading(99, 10, PAST), 90, NOW)).toBeNull()
   })
 
-  it('still pauses when the reading has no reset time', () => {
-    expect(usagePauseOf('a', reading(95, 10, null), 90, NOW)).toMatchObject({ window: 'five_hour', resetsAt: null })
+  it('does not block on a window with no readable reset time: nothing would ever end that pause', () => {
+    expect(usagePauseOf('a', reading(95, 10, null), 90, NOW)).toBeNull()
+    expect(usagePauseOf('a', reading(95, 10, 'soon'), 90, NOW)).toBeNull()
   })
 })
 

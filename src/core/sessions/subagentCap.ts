@@ -14,8 +14,11 @@
 // The cap is read from app-settings.json beside the script at each call, so a change in Settings reaches running
 // tabs at their next subagent, which a value baked into the per-session `--settings` file would not.
 //
-// shortcut: a subagent call let through and then refused by a permission prompt or a failed launch keeps its +1
-// until SessionStart; if that shows up in practice, also count down on PostToolUseFailure for `Agent|Task`.
+// shortcut: a subagent call let through and then refused by a permission prompt or a failed launch (or a subagent
+// that ends without SubagentStop, if Claude Code ever does that) keeps its +1 until SessionStart; if that shows up in
+// practice, also count down on PostToolUseFailure for `Agent|Task`.
+// shortcut: the lock is a mkdir with a 5 s stale break and a 2 s give-up that runs unlocked; two hooks breaking one
+// stale lock at once can lose a count. Locks are held for milliseconds, so a stale one means a crashed hook.
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 

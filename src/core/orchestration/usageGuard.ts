@@ -24,7 +24,9 @@ export interface AccountReading {
 }
 
 /** Why no new worker may start on this account now, or null when one may. A window whose reset has passed no longer
- *  counts, whatever it read. With both windows over, the 7-day one is told: it is the one that resets last. */
+ *  counts, whatever it read. A window with no readable reset time does not block either: an idle account sends no
+ *  fresh reading, so such a pause could never end (unknown usage does not block). With both windows over, the 7-day
+ *  one is told: it is the one that resets last. */
 export function usagePauseOf(accountId: string, reading: AccountReading | null | undefined, pauseAt: number, nowMs: number): UsagePause | null {
   if (!reading) return null
   const windows: Array<[UsagePause['window'], RateLimitWindow | null]> = [
@@ -33,7 +35,8 @@ export function usagePauseOf(accountId: string, reading: AccountReading | null |
   ]
   for (const [window, w] of windows) {
     if (!w || w.usedPercent < pauseAt) continue
-    if (w.resetsAt !== null && Date.parse(w.resetsAt) <= nowMs) continue
+    const resets = w.resetsAt === null ? NaN : Date.parse(w.resetsAt)
+    if (!(resets > nowMs)) continue
     return { accountId, window, percent: w.usedPercent, resetsAt: w.resetsAt }
   }
   return null
