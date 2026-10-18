@@ -307,20 +307,22 @@ found. **W8-C (with W8-E, the 7V re-run's coordinator fixes) is the last wave ru
 From then on, each wave is one Astera plan, queued after the one before it. Run these from the packaged app's
 profile, never the dev profile:
 
-In the app: **Start → Run as written**. Attach every W8 and W9 prompt (W8-A, B, D, F, G and W9-A … K, F, G; W9-0 is done),
+In the app: **Start → Run as written**. Attach every W8, W9 and W10 prompt (W8-A, B, D, F, G, W9-A … K, F, G and W10-A; W9-0 is done),
 set delivery to PR, and press Start. The planner reads PLAN.md's wave table and builds the order:
 1. W8 (A, B, D, F, G in parallel).
 2. W9-A alone.
 3. W9-B, C, D, E, H, I, J, K in parallel.
 4. W9-F.
 5. W9-G.
+6. W10-A.
 
 The approval shows that order once. After that, one draft PR is updated after every wave and marked ready at the
 end. The same from the CLI:
 
 ```bash
 astera jobs create --project astera --mode prompts --delivery pr \
-  --attach docs/orchestrator/prompts/W8-{A,B,D,F,G}-*.md docs/orchestrator/prompts/W9-{A,B,C,D,E,H,I,J,K,F,G}-*.md
+  --attach docs/orchestrator/prompts/W8-{A,B,D,F,G}-*.md docs/orchestrator/prompts/W9-{A,B,C,D,E,H,I,J,K,F,G}-*.md \
+  docs/orchestrator/prompts/W10-A-*.md
 ```
 
 Separate queued plans per wave (`--after <job>`) still work, if the owner wants one PR per wave.
