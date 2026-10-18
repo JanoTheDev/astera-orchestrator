@@ -71,6 +71,9 @@ export function lineOf(e: ActivityEvent, accountLabel: (id: string) => string): 
       return p.round !== undefined && p.round > 0
         ? { text: `${p.title}: plan revised, ready for your approval${p.changes?.length ? `: ${p.changes.join('; ')}` : ''}`, tone: 'warn' }
         : { text: `${p.title}: plan ready for your approval`, tone: 'warn' }
+    // W8-F (#94)
+    case 'plan.incomplete':
+      return { text: `${p.title}: plan revised but not ready to approve: ${(p.problems ?? []).join('; ')}`, tone: 'bad' }
     // W7-A
     case 'plan.auto-started':
       return { text: `${p.title}: plan started automatically (${p.tasks ?? 0} tasks)`, tone: 'info' }

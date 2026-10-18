@@ -1690,3 +1690,12 @@ describe('run.ts — host commands hear --no-keepalive (stage 4 T6)', () => {
     expect(call).toMatch(/noKeepalive:\s*parsed\.noKeepalive/)
   })
 })
+
+describe('applyStdin: W8-F (#98) questions answer', () => {
+  it('trims the answer read from stdin, so "mark-failed\\n" is the option', () => {
+    expect(applyStdin({ cmd: 'questions-answer', args: { id: 'gat_1' }, keys: ['answer'], text: ' mark-failed\n' })).toEqual({ id: 'gat_1', answer: 'mark-failed' })
+  })
+  it('only that command\'s answer: another command keeps its text byte for byte', () => {
+    expect(applyStdin({ cmd: 'send', args: {}, keys: ['body'], text: 'x\n' })).toEqual({ body: 'x\n' })
+  })
+})

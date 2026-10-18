@@ -40,6 +40,17 @@ export function PlanTalk({ row, door, ui, name }: { row: JobRow; door: OrchDoor;
           </button>
         </div>
       )}
+      {/* W8-F (#94): what keeps Run from working, before it is pressed */}
+      {row.pendingStart === true && row.planProblems !== undefined && row.planProblems.length > 0 && (
+        <div className="plan-talk-problems" role="alert">
+          <p>{t('plan.talk.problems')}</p>
+          <ul>
+            {row.planProblems.map((p) => (
+              <li key={p}>{p}</li>
+            ))}
+          </ul>
+        </div>
+      )}
       {row.feedback && row.feedback.length > 0 && (
         <ul className="plan-talk-history">
           {row.feedback.map((f) => (

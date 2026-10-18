@@ -55,6 +55,27 @@ export function planReadyActivity(s: OrchState, sessionId: string, held: () => r
 }
 
 /**
+ * W8-F (#94): the planner's turn ended on a feedback round it reported done (`jobs-feedback-done`), and the plan still
+ * does not hold: a `plan.incomplete` line with what is missing, once per round. `planReadyActivity` says nothing then.
+ */
+export function planIncompleteActivity(s: OrchState, sessionId: string, held: () => readonly ActivityEvent[]): ActivityDraft | null {
+  const j = s.jobs.find((x) => x.plannerSessionIds?.includes(sessionId))
+  if (!j || !awaitsApproval(j)) return null
+  const rounds = (j.feedback ?? []).filter((f) => f.phase === 'plan')
+  if (rounds.length === 0 || rounds.at(-1)!.changes === undefined) return null
+  const problems = validatePlan(s, j.id)
+  if (problems.length === 0) return null
+  if (held().some((e) => e.type === 'plan.incomplete' && e.jobId === j.id && e.sessionId === sessionId && e.payload.round === rounds.length)) return null
+  return {
+    type: 'plan.incomplete',
+    ...(j.projectId !== undefined ? { projectId: j.projectId } : {}),
+    jobId: j.id,
+    sessionId,
+    payload: { title: jobNameOf(j), plan: jobNameOf(j), round: rounds.length, problems: problems.slice(0, 5) }
+  }
+}
+
+/**
  * W5-D: the activity lines a session's hook events make, which no commit does. Fed every hook event of the profile
  * (the rolling's hook tap) and every session event the Host records (sessionEvents.ts); records into the activity log.
  * - #48: a planner's turn ending (`Stop`) on a plan that holds is the plan ready for approval (planReadyActivity).
@@ -95,7 +116,8 @@ export function hostSessionActivity(a: {
               record(ready)
             })
           void a.autoStart(job.id).then((started) => (started ? undefined : fallBack()), fallBack)
-        } else record(ready)
+        } else if (ready) record(ready)
+        else record(planIncompleteActivity(a.state(), sessionId, () => activityOf(a.log)))
       }),
     onSessionEvents: (drafts) =>
       guard(() => {

@@ -44,7 +44,12 @@ owns every session and drives every plan, so closing the window stops nothing (L
 
 - **Request changes.** On a plan waiting for approval, type what to change in the "Request changes" box and send it. The
   text goes to the same planner session; if that session has ended, its conversation is resumed, or else a fresh planner
-  starts with plan.md, existing.md and the history. You approve again when it is done.
+  starts with plan.md, existing.md and the history. You approve again when it is done. The app's box and
+  `astera jobs feedback` do the same thing: the first message is typed into the live planner (`via: typed`), the next
+  one after it ended resumes its conversation (`via: resumed`, `claude --resume`). A Task the planner adds carries its
+  basis and evidence like the first plan's. If the revised plan still does not hold, the board lists what is missing above
+  Run, the activity feed says "plan revised but not ready to approve", and no "ready for approval" notice is sent; the
+  "not ready to approve" message after pressing Run closes on its own after 15 seconds.
 - **Reject.** The Reject button (asks first, with an optional reason) archives the plan and ends its planner.
   `astera jobs unarchive --id <job>` takes it back.
 - **While the plan runs.** The same box starts a replan at once. It changes only Tasks that have not started, and no new
@@ -168,10 +173,6 @@ The loop that works today, from source to merged work:
 
 Known gaps were issues #67–#84 (label `wave-6`), fixed by Wave 7's W7-C…W7-F. The re-run after Wave 7 found #92–#106
 (W8-E, W8-F, W8-G; #106 in W9-F). Until they merge:
-- **Talk to the planner from a shell** (`astera jobs feedback --job <job> --text -`): the app's box starts a fresh
-  planner each time (#93). If Run says a Task "has no basis", tell the planner (#94).
-- **A Gate from the coordinator** has no box on the card (#97): `astera questions list --status open`, then
-  `astera questions answer --id <id> --answer "<option>"` (pass the option as an argument, not on stdin, #98).
 - **No remote + `pr`**: merge the plan's branch (`git merge <branch>` in the folder) before the next plan (#101).
 - **`push` with a new bare origin**: set `--delivery-branch main` or run `git remote set-head origin -a` (#102).
 
@@ -386,6 +387,12 @@ Runtime, marked "on <runtime>".
   open question as the coordinator's would (its `ask` returns it within seconds), and the coordinator gets a copy in
   its inbox ("the owner answered"). If the worker no longer waits, the coordinator passes it on. The feed shows "answered
   by you", never a notice. Only you answer an escalation: an agent session that tries is refused.
+  A Gate the coordinator opened, and the convergence Gate (`retry-once` / `mark-failed`), get the same box on the Task's
+  card (options as buttons; a text box too, except on the two Gates that take only their options). `--answer -` drops the
+  trailing newline of stdin, and an option is matched without case or surrounding space. **When your answer narrows a
+  Task** ("skip the minus-sign change"), the coordinator updates the Task's acceptance criteria
+  (`task-update --id <tsk> --criteria ...`), and the reviewer's brief lists your answers on that Task, so work you scoped
+  down is not failed for what you dropped.
 - **Chime.** Settings → Notifications → "Chime when something needs you" (on by default): a short two-note chime with
   the notice for a permission prompt, a question, an escalation or a Gate, at most one every 5 s. The OS notice is then
   silent, so you hear one sound.

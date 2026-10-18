@@ -1751,6 +1751,7 @@ export const ko = {
   'plan.talk.placeholder': "플래너에게 바꿀 점을 알려주세요 (Ctrl+Enter로 전송)",
   'plan.talk.send': "보내기",
   'plan.talk.waiting': "플래너를 기다리는 중…",
+  'plan.talk.problems': "아직 승인할 수 없습니다:",
   'plan.talk.duringRun': "실행 중에 보냄",
   'plan.talk.autoStarted': "계획이 자동으로 시작되었습니다: 작업 {count}개",
   'plan.talk.stop': "중지",

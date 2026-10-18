@@ -239,6 +239,8 @@ export function buildPlannerBrief(a: {
     '  conversation, so the prompt must stand alone: goal, files, constraints, how to check the result.',
     '- `--criteria \'["...", "..."]\'`: one or more acceptance criteria, each one checkable.',
     '- `--affected-paths \'["src/a/", "src/b.ts"]\'`: the files or folders it will change.',
+    // W8-F (#94): a plan with a Task that has no basis is refused at approval
+    '- `--basis missing|partial|broken` and `--evidence "<file:line, #issue, PR or Job id>"`: what you found of it; a Task without them is refused.',
     '- `--deps \'["<taskId>", ...]\'`: the Tasks it must wait for. Create Tasks in dependency order.',
     '- `--difficulty light|standard|hard`: picks the worker\'s model (light is a small, mechanical change;',
     '  hard is design or a subtle bug). Add `--model-reason "<one line>"` saying why.',

@@ -22,6 +22,7 @@ import { isTerminal, outcomeOf, outcomeOfTasks, tasksOwnedBy } from './running'
 import { policyOfJob, repairCountIn, reviewRoundIn } from './convergence'
 import type { Dispatch, Gate, Job, JobRun, Task } from './types'
 import { taskBoardsOf } from './blocked'
+import { validatePlan } from './planner'
 import type { ScheduleLimits } from './schedule'
 
 /** 한 프로젝트에 속한 Run 들, 최신순.
@@ -395,6 +396,7 @@ export function snapshotFor(
     const rowId = asJob ? job.id : (run?.id ?? job.id)
     const ownedTasks = ix.owned.get(ownerId) ?? []
     const { done, total } = progressOfTasks(ownedTasks)
+    const planProblems = job.pendingStart && job.plannerSessionIds !== undefined ? validatePlan(state, job.id) : []
     const worktreesOf = (
       run ? runWorktreesFrom(run, ix.jobById.get(run.jobId)?.cwd, ix.dispatchesByRun.get(run.id) ?? []) : []
     ).filter(exists)
@@ -449,6 +451,8 @@ export function snapshotFor(
       ...(job.feedback && job.feedback.length > 0 ? { feedback: job.feedback } : {}),
       ...(job.autoStartedAt !== undefined ? { autoStartedAt: job.autoStartedAt } : {}),
       ...(job.rejected !== undefined ? { rejected: job.rejected } : {}),
+      // W8-F (#94): what keeps a plan waiting for approval from being approved, shown before Run is pressed
+      ...(planProblems.length > 0 ? { planProblems } : {}),
       // W5-C: the plan's "stop launching" (jobs-hold), on every row of the Job
       ...(job.dispatchHold ? { dispatchHold: true as const } : {}),
       // W8-D: the plan's overlaps with the other plans of its project, as lines

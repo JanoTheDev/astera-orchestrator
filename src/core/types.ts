@@ -738,6 +738,8 @@ export interface JobRow {
   feedback?: PlanFeedback[]
   autoStartedAt?: string
   rejected?: { at: string; reason?: string }
+  /** W8-F (#94): `validatePlan`'s problems for a plan waiting for approval; absent when it holds. */
+  planProblems?: string[]
   // W5-C: the plan is held from launching new workers (Job.dispatchHold)
   dispatchHold?: true
   /** W8-D: where this plan meets another plan of its project, one line each (overlap.ts overlapLines); the approve area

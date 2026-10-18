@@ -4,9 +4,11 @@ import { describe, it, expect } from 'vitest'
 import { handleCommand, type HostSession, type OrchServerDeps } from '../command'
 import { emptyState, type OrchState } from '../state'
 import { deriveActivity, noticeOf, type ActivityEvent } from '../activity'
-import { planReadyActivity } from '../../../host/activity'
+import { planIncompleteActivity, planReadyActivity } from '../../../host/activity'
+import { snapshotFor } from '../view'
+import { buildPlannerBrief } from '../handover'
 import type { Task } from '../types'
-import { autoApproveOf, feedbackLine } from './plannerFeedback'
+import { autoApproveOf, feedbackLine, freshFeedbackBrief, resumeBrief } from './plannerFeedback'
 
 const NOW = '2026-10-18T00:00:00.000Z'
 
@@ -240,5 +242,60 @@ describe('auto-approve', () => {
     expect((await r.person('jobs-plan', { id, autoApprove: 'maybe' })).status).toBe(400)
     expect((await r.person('jobs-plan', { id, autoApprove: 'on' })).status).toBe(200)
     expect(r.state().jobs[0].autoApprove).toBe(true)
+  })
+})
+
+// W8-F (#93): the app's box reaches the Host's command layer, which has the planner's session. The route is
+// main/remote/orchRouter.ts (HOST_ANSWERED, its test); here, the Host's answer to the same call, live and ended.
+describe('W8-F (#93) the app\'s call answers typed for a live planner and resumed for an ended one', () => {
+  const asApp = (r: Rig, args: Record<string, unknown>) => handleCommand(r.deps, { sessionId: '', role: 'app' }, 'jobs-feedback', args)
+
+  it('typed while the planner lives', async () => {
+    const r = rig()
+    const { jobId } = await planned(r)
+    expect((await asApp(r, { job: jobId, text: 'round one' })).body).toMatchObject({ via: 'typed', sessionId: 'ses-planner-1' })
+    expect(r.starts.filter((x) => x.role === 'planner')).toHaveLength(1)
+  })
+
+  it('resumed once it has ended', async () => {
+    const r = rig({ alive: false })
+    const { jobId } = await planned(r)
+    expect((await asApp(r, { job: jobId, text: 'round two' })).body).toMatchObject({ via: 'resumed' })
+    expect(r.starts.at(-1)).toMatchObject({ resume: 'claude-conv-1' })
+  })
+})
+
+describe('W8-F (#94) a plan the feedback left without a basis', () => {
+  it('every way the feedback reaches the planner asks for --basis and --evidence', async () => {
+    const r = rig()
+    const { jobId } = await planned(r)
+    const job = r.state().jobs[0]
+    for (const text of [feedbackLine(jobId, 'add P7'), resumeBrief(jobId, 'add P7'), freshFeedbackBrief(job, 'acc1', [{ at: NOW, text: 'add P7', phase: 'plan' }])]) {
+      expect(text).toContain('--basis missing|partial|broken')
+      expect(text).toContain('--evidence')
+    }
+    expect(buildPlannerBrief({ jobId, objective: 'o', repoRoot: '/repo', accountId: 'acc1', concurrency: 2 })).toContain('--basis')
+  })
+
+  it('says what is missing instead of "ready for approval", once per round, until the plan holds', async () => {
+    const r = rig()
+    const { jobId } = await planned(r)
+    await r.person('jobs-feedback', { job: jobId, text: 'add one more Task P7' })
+    const added = (await r.as('ses-planner-1')('task-create', { run: jobId, ...plan('P7', { basis: undefined, evidence: undefined }) })).body as Task
+    await r.as('ses-planner-1')('jobs-feedback-done', { id: jobId, changes: ['added P7'] })
+    expect(planReadyActivity(r.state(), 'ses-planner-1', () => [])).toBeNull()
+    const line = planIncompleteActivity(r.state(), 'ses-planner-1', () => [])!
+    expect(line.type).toBe('plan.incomplete')
+    expect(line.payload.problems?.join(' ')).toContain('has no basis')
+    // the Run window reads the same problems before Run is pressed
+    const row = snapshotFor(r.state(), '/repo', () => true, [], () => null, () => true).runs.find((x) => x.id === jobId)!
+    expect(row.planProblems?.join(' ')).toContain(`${added.id} (P7) has no basis`)
+    // once per round
+    expect(planIncompleteActivity(r.state(), 'ses-planner-1', () => [{ ...line, id: 'e', sequence: 1, occurredAt: NOW } as ActivityEvent])).toBeNull()
+    // the planner fixes it: no incomplete line, the ready line comes, and the row has no problems
+    await r.as('ses-planner-1')('task-update', { id: added.id, basis: 'missing', evidence: 'no P7 in src/' })
+    expect(planIncompleteActivity(r.state(), 'ses-planner-1', () => [])).toBeNull()
+    expect(planReadyActivity(r.state(), 'ses-planner-1', () => [])).not.toBeNull()
+    expect(snapshotFor(r.state(), '/repo', () => true, [], () => null, () => true).runs.find((x) => x.id === jobId)?.planProblems).toBeUndefined()
   })
 })

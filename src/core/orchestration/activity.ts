@@ -56,6 +56,8 @@ export const ACTIVITY_KINDS = [
   'task.links',
   'run.pr',
   'plan.awaiting-approval',
+  // W8-F (#94): the planner finished a feedback round but the plan does not hold (payload.problems); feed only
+  'plan.incomplete',
   'plan.done',
   // W5-D (#42): a worker's session at a permission prompt or a question (waitingActivity)
   'task.waiting',
@@ -135,6 +137,8 @@ export interface ActivityPayload {
   tasks?: number
   round?: number
   changes?: string[]
+  // plan.incomplete (W8-F)
+  problems?: string[]
   // plan.delivered (W6-H)
   branch?: string
   sha?: string

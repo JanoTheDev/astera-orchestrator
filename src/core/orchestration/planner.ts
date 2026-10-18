@@ -12,6 +12,7 @@ import { jobNameOf } from './jobName'
 import { DIFFICULTIES, MODEL_ID } from './roleModels'
 // W8-C prompts mode
 import { sha256Of } from './promptWaves'
+import { isTerminal } from './running'
 
 /** W8-C prompts mode: what a planner of a Run-as-written plan is told when it tries to change the owner's text. */
 export const VERBATIM_REFUSAL =
@@ -185,8 +186,15 @@ export function editPlanTask(
 ): Res<Task> {
   const task = s.tasks.find((t) => t.id === taskId)
   if (!task) return { ok: false, error: `unknown task: ${taskId}`, missing: true }
-  if (task.jobId === undefined || task.runId !== undefined)
-    return { ok: false, error: `${taskId} is in a run already: only a plan's own Tasks are edited` }
+  // W8-F (#100): a Task in a run that has not finished keeps one editable field: its acceptance criteria, which the
+  // coordinator narrows when the owner's answer does (the review judges the Task against them)
+  if (task.runId !== undefined) {
+    if (isTerminal(task) || patch.acceptanceCriteria === undefined || Object.keys(patch).some((k) => k !== 'acceptanceCriteria'))
+      return { ok: false, error: `${taskId} is in a run already: only a plan's own Tasks are edited (a Task that has not finished takes new --criteria only)` }
+    const next: Task = { ...task, acceptanceCriteria: patch.acceptanceCriteria, updatedAt: now }
+    return { ok: true, state: { ...s, tasks: s.tasks.map((t) => (t.id === taskId ? next : t)) }, value: next }
+  }
+  if (task.jobId === undefined) return { ok: false, error: `${taskId} is in a run already: only a plan's own Tasks are edited` }
   if (patch.deps) {
     const own = new Set(s.tasks.filter((t) => t.jobId === task.jobId && t.runId === undefined).map((t) => t.id))
     const outside = patch.deps.filter((d) => !own.has(d) || d === taskId)

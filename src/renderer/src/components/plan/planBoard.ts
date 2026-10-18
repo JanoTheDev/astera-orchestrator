@@ -199,6 +199,8 @@ export interface OpenQuestion {
   taskId: string
   question: string
   options?: string[]
+  /** W8-F (#97): false for a Gate that takes only its options (no text box). Absent: free text is taken. */
+  freeText?: false
 }
 
 /** The open asks/escalations of one Task, oldest first as the list holds them. Gates (no `source`) are not these. With
@@ -207,6 +209,15 @@ export interface OpenQuestion {
 export function questionsOfTask(rows: readonly OpenQuestion[], taskId: string): OpenQuestion[] {
   const mine = rows.filter((q) => q.source !== undefined && q.taskId === taskId)
   return mine.some((q) => q.source === 'escalation') ? mine.filter((q) => q.source === 'escalation') : mine
+}
+
+/** W8-F (#97): the Task's open Gate (`JobTask.gate`) as an answer box: a coordinator's `gate-create`, the convergence Gate
+ *  (`retry-once` / `mark-failed`) or a check that could not be made. The last takes its options only (GateAnswer's rule). */
+export function gateQuestionsOfTask(tk: JobTask): OpenQuestion[] {
+  const g = tk.gate
+  if (!g) return []
+  const fixed = g.kind === 'check-unavailable'
+  return [{ id: g.id, source: 'ask', taskId: tk.id, question: g.question, ...(g.options?.length ? { options: g.options } : {}), ...(fixed ? { freeText: false as const } : {}) }]
 }
 
 /** Every affected path of the plan with the Tasks that touch it, by path. More than one Task is an overlap. */

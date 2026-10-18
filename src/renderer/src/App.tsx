@@ -2701,7 +2701,7 @@ export default function App(): React.JSX.Element {
     t: (key, params) => (t as (k: string, p?: Record<string, string | number>) => string)(key, params),
     confirm: (o) => confirmModal(o),
     confirmChoices: (o) => confirmModalWithChoices(o),
-    error: (m) => void toast.error(m),
+    error: (m, o) => void toast.error(m, o),
     hide: (paths) => {
       for (const p of paths) hiddenProjects.hide(p)
     }

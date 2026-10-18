@@ -5064,7 +5064,11 @@ export async function handleCommand(
         const after = deps.getState().messages.find((m) => m.id === msg.id)
         return okBody(after ? messageQuestionOf(deps.getState(), after) : null)
       }
-      return handleCommand(deps, caller, 'gate-resolve', { id: args.id, resolution: answer })
+      // W8-F (#98): an option is matched trimmed and without case ("mark-failed\n" is `mark-failed`); anything else is free text
+      const typed = answer.trim()
+      if (!typed) return bad('--answer is required')
+      const option = s.gates.find((g) => g.id === str(args.id))?.options?.find((o) => o.toLowerCase() === typed.toLowerCase())
+      return handleCommand(deps, caller, 'gate-resolve', { id: args.id, resolution: option ?? typed })
     }
     case 'questions-get': {
       const id = str(args.id)

@@ -17,7 +17,7 @@ import { randomBytes } from 'node:crypto'
 import type { Account } from '../../types'
 import type { OrchServerDeps } from '../command'
 import { checkConfigIdsOf, policyOf } from '../convergence'
-import { pickReviewer } from '../reviewer'
+import { ownerAnswersOf, pickReviewer } from '../reviewer'
 import { openReviewDispatch, type OrchState } from '../state'
 import { buildReviewSpecFile, knowledgeIn, specFileName } from './coordinator'
 import { createReviewGate } from './reviewGate'
@@ -158,6 +158,8 @@ export function createReviewStarter(c: ReviewContext): (a: { taskId: string }) =
         previousIssues: task.reviewIssues,
         suspiciousFiles: freshTask.suspiciousFiles,
         policyChanged: freshTask.policyChanged === true,
+        // W8-F (#100): the owner's answers on this Task, read off the state the review starts from
+        ownerAnswers: ownerAnswersOf(fresh, taskId),
         // review.ts·state.ts 가 이미 기대하는 이름과 같은 규칙이다 — 이 Dispatch 의 spec 파일
         // 이름(coordinator.ts 의 specFileName, startWorker 가 실제로 쓰는 그 이름)에
         // `.review.json` 을 붙인 것. **리터럴을 다시 적지 않는다** — 여기서 조립하는 시점에는

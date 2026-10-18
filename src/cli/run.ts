@@ -256,6 +256,8 @@ export function applyStdin(a: {
   // that really ends in a blank line keeps it. Every other flag keeps its text byte for byte.
   if (a.cmd === 'sessions-send' && typeof next.text === 'string' && a.keys.includes('text'))
     next.text = next.text.replace(/\r?\n$/, '')
+  // W8-F (#98): `echo mark-failed | questions answer --answer -` is the answer `mark-failed`, not `mark-failed\n`
+  if (a.cmd === 'questions-answer' && typeof next.answer === 'string' && a.keys.includes('answer')) next.answer = next.answer.trim()
   return next
 }
 
