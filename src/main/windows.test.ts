@@ -190,3 +190,17 @@ describe('the restore list', () => {
     })
   })
 })
+
+describe('windows.json', () => {
+  it('round-trips through the file, and a missing file reads as nothing saved', async () => {
+    const { mkdtempSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const path = await import('node:path')
+    const { windowsFileStore } = await import('./windows')
+    const store = windowsFileStore(path.join(mkdtempSync(path.join(tmpdir(), 'w9k-')), 'windows.json'))
+    expect(store.read()).toEqual({ open: [], places: {} })
+    const s = { open: ['a', null], places: { a: { bounds: { x: 1, y: 2, width: 3, height: 4 }, maximized: false } } }
+    store.write(s)
+    expect(store.read()).toEqual(s)
+  })
+})

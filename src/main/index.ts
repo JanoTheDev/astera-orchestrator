@@ -16,7 +16,7 @@ import {
 import { clearUpdateHold, UPDATE_HOLD_MS, writeUpdateHold } from '../core/remote/updateHold'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { existsSync, readFileSync, writeFileSync, promises as fsp } from 'node:fs'
+import { existsSync, readFileSync, promises as fsp } from 'node:fs'
 import type { AppUpdater } from 'electron-updater'
 import iconAsset from '../../resources/icon.png?asset'
 import trayAsset from '../../resources/tray.png?asset'
@@ -38,9 +38,8 @@ import {
   projectArgOf,
   resolveProjectArg,
   restoreList,
-  savedWindowsOf,
+  windowsFileStore,
   type ProjectRef,
-  type SavedWindows,
   type WindowPlace,
   type WindowScope
 } from './windows'
@@ -191,18 +190,13 @@ let tray: Tray | null = null
 let quitting = false
 // W9-K: the app's windows, one per project or All (windows.ts). Replaces the single mainWindow: every push goes to all
 // of them, and each renderer filters by its project.
-const windowsFile = (): string => path.join(app.getPath('userData'), 'windows.json')
-function readSavedWindows(): SavedWindows {
-  try {
-    return savedWindowsOf(JSON.parse(readFileSync(windowsFile(), 'utf8')))
-  } catch {
-    return savedWindowsOf(undefined)
-  }
-}
+// The store is made on first use: userData is only final once the dev-profile setPath above has run.
+const windowsStore = (): ReturnType<typeof windowsFileStore> => windowsFileStore(path.join(app.getPath('userData'), 'windows.json'))
+const readSavedWindows = () => windowsStore().read()
 const windows = createWindowSet<BrowserWindow>({
   create: (_projectId, place) => createWindow(null, startTheme, place),
   read: readSavedWindows,
-  write: (st) => writeFileSync(windowsFile(), JSON.stringify(st))
+  write: (st) => windowsStore().write(st)
 })
 /** What registerIpc gets: the window set, plus each window as it comes. */
 const eachWindow: Array<(win: BrowserWindow) => void> = []

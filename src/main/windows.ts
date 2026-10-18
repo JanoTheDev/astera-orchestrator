@@ -2,6 +2,7 @@
 // Host: `app.requestSingleInstanceLock()` stays (index.ts says why), so "another instance" is another window here.
 // Electron-free so the rules are testable: index.ts hands in the real BrowserWindow factory and the file it saves to.
 import path from 'node:path'
+import { readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { isSamePath } from '../core/files/tree'
 
 /** The slice of a BrowserWindow the set uses. */
@@ -70,6 +71,23 @@ export function savedWindowsOf(raw: unknown): SavedWindows {
       if (isBounds(b)) places[k] = { bounds: b, maximized: (p as { maximized?: unknown }).maximized === true }
     }
   return { open, places }
+}
+
+/** windows.json on disk. A write goes through a temp file and a rename, so a crash mid-write leaves the old file. */
+export function windowsFileStore(file: string): { read: () => SavedWindows; write: (s: SavedWindows) => void } {
+  return {
+    read: () => {
+      try {
+        return savedWindowsOf(JSON.parse(readFileSync(file, 'utf8')))
+      } catch {
+        return savedWindowsOf(undefined)
+      }
+    },
+    write: (s) => {
+      writeFileSync(`${file}.tmp`, JSON.stringify(s))
+      renameSync(`${file}.tmp`, file)
+    }
+  }
 }
 
 /** The windows to open at launch: the saved ones whose project still exists, each project once, and an All window when
