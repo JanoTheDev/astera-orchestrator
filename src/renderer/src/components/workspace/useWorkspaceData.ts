@@ -43,19 +43,24 @@ export function useWorkspaceData(anchor: string | null, enabled: boolean): Works
     const refresh = async (): Promise<void> => {
       const projects = await read<Project[]>(anchor, 'projects-list')
       if (!projects || !alive) return
-      const [jobLists, runs, tasks, dispatches, gates] = await Promise.all([
+      const [jobLists, runs, tasks, dispatches, gates, worktrees] = await Promise.all([
         Promise.all(projects.map((p) => read<Job[]>(anchor, 'jobs-list', { project: p.path, archived: true }))),
         read<JobRun[]>(anchor, 'runs-list'),
         read<Task[]>(anchor, 'tasks-list', { brief: true }),
         read<Dispatch[]>(anchor, 'dispatches-list'),
-        read<Gate[]>(anchor, 'questions-list', { status: 'open' })
+        read<Gate[]>(anchor, 'questions-list', { status: 'open' }),
+        // W6-F: where each worktree is and which repo it came from; without them a worktree's tabs are "Other"
+        window.api.worktrees.list().then(
+          (ws) => ws.map((w) => ({ path: w.path, repoPath: w.repoPath })),
+          () => []
+        )
       ])
       if (!runs || !tasks || !dispatches || !gates || !alive) return
       const jobsByProject: Record<string, Job[]> = {}
       projects.forEach((p, i) => {
         jobsByProject[p.id] = jobLists[i] ?? []
       })
-      setData({ projects, jobsByProject, runs, tasks, dispatches, gates })
+      setData({ projects, jobsByProject, runs, tasks, dispatches, gates, worktrees })
     }
     void tick()
     const timer = setInterval(() => void tick(), POLL_MS)

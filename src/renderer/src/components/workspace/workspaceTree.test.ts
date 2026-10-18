@@ -3,6 +3,9 @@ import type { Dispatch, Job, JobRun, Project, Task } from '../../../../core/orch
 import { addTab, createGroup, leaves, splitAndMove, type PaneNode } from '../../../../core/panes/tree'
 import { appTab, fileTab, sessionTab } from '../../../../core/panes/tabId'
 import { buildWorkspaceTree, findPlan, planSessions, scopeLayout, type WorkspaceData } from './workspaceTree'
+import {
+  entryTab, OTHER_WORKSPACE, projectOfCwd, scopeIds, workspaceFolderOf, workspaceSessionIds, workspaceSummaries, type WorkspaceProject
+} from './workspaceTree'
 
 const project = (id: string, name: string): Project => ({ id, name, path: `/repos/${name}`, addedAt: '2026-10-01T00:00:00Z' })
 const job = (id: string, over: Partial<Job> = {}): Job => ({ id, objective: `objective of ${id}`, cwd: '/repos/x', createdAt: '2026-10-01T00:00:00Z', ...over })
@@ -155,5 +158,92 @@ describe('scopeLayout', () => {
     expect(scopeLayout(root, new Set())).toBeNull()
     expect(JSON.stringify(root)).toBe(before)
     expect(scopeLayout(null, new Set(['a']))).toBeNull()
+  })
+})
+
+// W6-F: one workspace per project
+describe('project workspaces', () => {
+  const plan = (jobId: string, projectId: string, workers: string[], over: Partial<WorkspaceProject['plans'][number]> = {}) => ({
+    jobId, projectId, name: jobId, archived: false, paused: false, planner: [], coordinator: [],
+    workers: workers.map((sessionId) => ({ sessionId, role: 'worker' as const, label: sessionId, projectName: projectId, planName: jobId })),
+    ...over
+  })
+  const tree: WorkspaceProject[] = [
+    {
+      id: 'g', name: 'gameful', path: '/repos/gameful',
+      plans: [
+        plan('trading', 'g', ['w1'], {
+          planner: [{ sessionId: 'pl', role: 'planner', label: 'pl', projectName: 'g', planName: 'trading' }],
+          coordinator: [{ sessionId: 'co', role: 'coordinator', label: 'co', projectName: 'g', planName: 'trading' }]
+        }),
+        plan('redis', 'g', ['w2'])
+      ]
+    },
+    { id: 'a', name: 'Astera', path: '/repos/astera', plans: [] },
+    { id: 'n', name: 'nested', path: '/repos/astera/packages/client', plans: [] }
+  ]
+  const worktrees = [{ path: '/home/me/astera-worktrees/gameful/fix-1', repoPath: '/repos/gameful' }]
+  const s = (id: string, cwd: string, status = 'running') => ({ id, cwd, status })
+  const sessions = [
+    s('w1', '/home/me/astera-worktrees/gameful/trading-1'), // a plan's worker, whatever its cwd
+    s('own', '/repos/gameful/src'), // a plain tab in the project folder
+    s('wt', '/home/me/astera-worktrees/gameful/fix-1/app'), // a plain tab in one of its worktrees
+    s('ast', '/repos/astera/'),
+    s('deep', '/repos/astera/packages/client/src'),
+    s('elsewhere', '/home/me'),
+    s('sibling', '/repos/gameful-old', 'exited')
+  ]
+  const ids = workspaceSessionIds(tree, sessions, worktrees)
+
+  it('a project holds its plans’ planner, coordinator and workers, and the tabs in its folder or worktrees', () => {
+    expect([...ids.get('g')!].sort()).toEqual(['co', 'own', 'pl', 'w1', 'w2', 'wt'])
+    expect([...ids.get('a')!]).toEqual(['ast'])
+    // the deepest project wins, and a folder that only starts with a project's name is not inside it
+    expect([...ids.get('n')!]).toEqual(['deep'])
+    expect([...ids.get(OTHER_WORKSPACE)!].sort()).toEqual(['elsewhere', 'sibling'])
+    expect(projectOfCwd('/repos/gameful', tree, [])).toBe('g')
+    expect(projectOfCwd('/tmp', tree, worktrees)).toBeNull()
+  })
+
+  it('a plan narrows its project, a project scopes to its sessions, nothing open scopes nothing', () => {
+    expect([...scopeIds(tree, ids, 'g', 'redis')!]).toEqual(['w2'])
+    expect([...scopeIds(tree, ids, 'a', null)!]).toEqual(['ast'])
+    expect(scopeIds(tree, ids, null, null)).toBeNull()
+    expect([...scopeIds(tree, ids, 'gone', null)!]).toEqual([])
+  })
+
+  it('switching back focuses the tab the workspace had, while it still shows it', () => {
+    let root: PaneNode = createGroup(sessionTab('own'))
+    root = addTab(root, root.id, sessionTab('ast'))
+    root = addTab(root, root.id, sessionTab('w1'))
+    root = addTab(root, root.id, fileTab('/repos/gameful/README.md'))
+    const g = ids.get('g')!
+    expect(entryTab(root, g, sessionTab('w1'))).toBe(sessionTab('w1'))
+    // a remembered file tab is still one of its tabs
+    expect(entryTab(root, g, fileTab('/repos/gameful/README.md'))).toBe(fileTab('/repos/gameful/README.md'))
+    // a remembered tab another workspace holds (or a closed one) falls back to its first session tab
+    expect(entryTab(root, g, sessionTab('ast'))).toBe(sessionTab('own'))
+    expect(entryTab(root, g, sessionTab('closed'))).toBe(sessionTab('own'))
+    expect(entryTab(root, new Set(['nobody']))).toBeUndefined()
+    expect(entryTab(root, null, sessionTab('ast'))).toBe(sessionTab('ast'))
+  })
+
+  it('a new tab in a project workspace starts in its folder', () => {
+    expect(workspaceFolderOf(tree, 'a')).toBe('/repos/astera')
+    expect(workspaceFolderOf(tree, OTHER_WORKSPACE)).toBeNull()
+    expect(workspaceFolderOf(tree, null)).toBeNull()
+  })
+
+  it('the switcher counts each workspace’s running tabs and marks one waiting for input', () => {
+    expect(workspaceSummaries(tree, ids, sessions, { own: 'waiting', ast: 'working', sibling: 'waiting' })).toEqual([
+      { id: 'g', name: 'gameful', running: 3, waiting: true }, // w1, own, wt: the rest have no open session
+      { id: 'a', name: 'Astera', running: 1, waiting: false },
+      { id: 'n', name: 'nested', running: 1, waiting: false },
+      // an exited tab is not running, and its stale wait is no dot
+      { id: OTHER_WORKSPACE, name: 'Other', running: 1, waiting: false }
+    ])
+    // "Other" is left out while it holds no tab
+    const none = workspaceSessionIds(tree, [], [])
+    expect(workspaceSummaries(tree, none, [], {}).map((r) => r.id)).toEqual(['g', 'a', 'n'])
   })
 })
