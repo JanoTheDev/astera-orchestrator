@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { readMaxConcurrentWorkers } from '../core/settings/maxConcurrentWorkers'
+import { readUsagePauseAt } from '../core/settings/usagePauseAt'
 import { AppSettingsStore, readSkillSettings } from './appSettingsStore'
 import { RepairNeeded } from '../core/settings/repairNeeded'
 import type { DesktopNotifySettings } from '../core/notify/settings'
@@ -423,6 +424,38 @@ describe('maxConcurrentWorkers', () => {
       await store.load()
       expect(store.getMaxConcurrentWorkers()).toBeNull()
     }
+  })
+})
+
+// W6-G
+describe('maxSubagentsPerSession and usagePauseAt', () => {
+  it('default to 10 and 90, and the Host reads the same threshold', async () => {
+    const store = new AppSettingsStore(file())
+    await store.load()
+    expect(store.getMaxSubagentsPerSession()).toBe(10)
+    expect(store.getUsagePauseAt()).toBe(90)
+    expect(await readUsagePauseAt(file())).toBe(90)
+  })
+
+  it('persist what the subagent hook and the Host then read', async () => {
+    const a = new AppSettingsStore(file())
+    await a.load()
+    await a.setMaxSubagentsPerSession(4)
+    await a.setUsagePauseAt(80)
+    const b = new AppSettingsStore(file())
+    await b.load()
+    expect(b.getMaxSubagentsPerSession()).toBe(4)
+    expect(b.getUsagePauseAt()).toBe(80)
+    expect(await readUsagePauseAt(file())).toBe(80)
+    expect(JSON.parse(await fs.readFile(file(), 'utf8')).maxSubagentsPerSession).toBe(4)
+  })
+
+  it('read anything out of range as the default', async () => {
+    await fs.writeFile(file(), JSON.stringify({ maxSubagentsPerSession: 11, usagePauseAt: 0 }), 'utf8')
+    const store = new AppSettingsStore(file())
+    await store.load()
+    expect(store.getMaxSubagentsPerSession()).toBe(10)
+    expect(store.getUsagePauseAt()).toBe(90)
   })
 })
 

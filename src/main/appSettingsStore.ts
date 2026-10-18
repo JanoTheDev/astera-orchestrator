@@ -23,6 +23,9 @@ import type { SkillSettings } from '../core/orchestration/skills'
 import { settingsObjectOf } from '../core/settings/settingsObject'
 import { agentPermissionModeOf } from '../core/settings/agentPermissionMode'
 import { maxConcurrentWorkersOf } from '../core/settings/maxConcurrentWorkers'
+// W6-G usage guards
+import { maxSubagentsPerSessionOf, SUBAGENT_CAP_DEFAULT } from '../core/sessions/subagentCap'
+import { usagePauseAtOf, USAGE_PAUSE_AT_DEFAULT } from '../core/orchestration/usageGuard'
 import { ACTIVITY_DIGEST_DEFAULT_MINUTES, activityDigestMinutesOf } from '../core/settings/activityDigest'
 import { mcpAccessOf } from '../core/settings/mcpAccess'
 import { mcpSessionsOf } from '../core/settings/mcpSessions'
@@ -118,6 +121,11 @@ export class AppSettingsStore {
   /** W1-B: how many Job workers may be open at once across every plan. null: no cap (the default, and
    *  the behaviour from before the setting). Written only when set. */
   private maxConcurrentWorkers: number | null = null
+  /** W6-G: subagents at once per Claude tab (1–10), and the usage percent at which no new worker starts on an
+   *  account. The subagent hook and the Host read the file themselves, narrowed by the same functions. Written only
+   *  when not the default. */
+  private maxSubagentsPerSession = SUBAGENT_CAP_DEFAULT
+  private usagePauseAt = USAGE_PAUSE_AT_DEFAULT
   /** W3-A: minutes between activity digests, 0 for none. Written only when it is not the default. */
   private activityDigestMinutes = ACTIVITY_DIGEST_DEFAULT_MINUTES
   /** 설명을 누가·무엇으로 만드는가. 비어 있으면 생성하지 않는다 (설계 D2) */
@@ -202,6 +210,8 @@ export class AppSettingsStore {
       this.maxConcurrentWorkers = maxConcurrentWorkersOf(
         (parsed as { maxConcurrentWorkers?: unknown }).maxConcurrentWorkers
       )
+      this.maxSubagentsPerSession = maxSubagentsPerSessionOf((parsed as { maxSubagentsPerSession?: unknown }).maxSubagentsPerSession)
+      this.usagePauseAt = usagePauseAtOf((parsed as { usagePauseAt?: unknown }).usagePauseAt)
       // The same function the Host's read uses (readActivityDigestMinutes)
       this.activityDigestMinutes = activityDigestMinutesOf(
         (parsed as { activityDigestMinutes?: unknown }).activityDigestMinutes
@@ -274,6 +284,8 @@ export class AppSettingsStore {
         this.jobContinuityEnabled = false
         this.githubPolling = true
         this.maxConcurrentWorkers = null
+        this.maxSubagentsPerSession = SUBAGENT_CAP_DEFAULT
+        this.usagePauseAt = USAGE_PAUSE_AT_DEFAULT
         this.activityDigestMinutes = ACTIVITY_DIGEST_DEFAULT_MINUTES
         this.desktopNotify = { ...DESKTOP_NOTIFY_DEFAULTS }
         this.generator = {}
@@ -309,6 +321,8 @@ export class AppSettingsStore {
       this.jobContinuityEnabled = false
       this.githubPolling = true
       this.maxConcurrentWorkers = null
+      this.maxSubagentsPerSession = SUBAGENT_CAP_DEFAULT
+      this.usagePauseAt = USAGE_PAUSE_AT_DEFAULT
       this.activityDigestMinutes = ACTIVITY_DIGEST_DEFAULT_MINUTES
       this.desktopNotify = { ...DESKTOP_NOTIFY_DEFAULTS }
       this.generator = {}
@@ -510,6 +524,26 @@ export class AppSettingsStore {
     await this.persist()
   }
 
+  getMaxSubagentsPerSession(): number {
+    return this.maxSubagentsPerSession
+  }
+
+  /** Narrowed like the file: the value arrives from the renderer. */
+  async setMaxSubagentsPerSession(n: number): Promise<void> {
+    this.maxSubagentsPerSession = maxSubagentsPerSessionOf(n)
+    await this.persist()
+  }
+
+  getUsagePauseAt(): number {
+    return this.usagePauseAt
+  }
+
+  /** Narrowed like the file: the value arrives from the renderer. */
+  async setUsagePauseAt(n: number): Promise<void> {
+    this.usagePauseAt = usagePauseAtOf(n)
+    await this.persist()
+  }
+
   getActivityDigestMinutes(): number {
     return this.activityDigestMinutes
   }
@@ -663,6 +697,8 @@ export class AppSettingsStore {
       jobContinuityEnabled?: boolean
       githubPolling?: boolean
       maxConcurrentWorkers?: number
+      maxSubagentsPerSession?: number
+      usagePauseAt?: number
       activityDigestMinutes?: number
       desktopNotify?: DesktopNotifySettings
       generator?: GeneratorSettings
@@ -701,6 +737,8 @@ export class AppSettingsStore {
     if (this.jobContinuityEnabled) data.jobContinuityEnabled = true
     if (this.githubPolling === false) data.githubPolling = false
     if (this.maxConcurrentWorkers !== null) data.maxConcurrentWorkers = this.maxConcurrentWorkers
+    if (this.maxSubagentsPerSession !== SUBAGENT_CAP_DEFAULT) data.maxSubagentsPerSession = this.maxSubagentsPerSession
+    if (this.usagePauseAt !== USAGE_PAUSE_AT_DEFAULT) data.usagePauseAt = this.usagePauseAt
     if (this.activityDigestMinutes !== ACTIVITY_DIGEST_DEFAULT_MINUTES) data.activityDigestMinutes = this.activityDigestMinutes
     // Written only while the question is still open, which is the same one-sided rule as the two
     // below — and here it carries the difference between a new install and an old one, so an absent

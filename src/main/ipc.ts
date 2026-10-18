@@ -284,6 +284,11 @@ import { decideStart } from '../core/run/instances'
 import { createGithubPrs } from './githubPrs'
 import { registerHiggsfieldIpc } from './higgsfield'
 import { createAccountUsage } from './accountUsage'
+// W6-G usage guards
+import { createUsageGuard } from '../core/orchestration/usageGuard'
+import { readAccountReadings } from '../core/usage/accountReadings'
+import { readSubagentCount, SUBAGENT_CAP_MAX } from '../core/sessions/subagentCap'
+import type { UsageGuardView } from '../core/types'
 import { createPullRequest, readCommits } from '../core/github/prCreate'
 import { fillFromCommits } from '../core/github/fill'
 
@@ -1490,6 +1495,23 @@ export function registerIpc(
   })
   // 주기적으로 알려진 경로 전부와 레지스트리의 워크트리를 다시 묻는다. 타이머는 프로세스를 붙잡지 않는다.
   worktreePresence.start(PRESENCE_SWEEP_MS, () => core.worktrees.list().map((w) => w.path))
+  // W6-G: this app's usage guard, over its own sessions' statusLine readings (the Host keeps its own, and records
+  // the feed lines). It answers the board's "paused: account at 93%" reason, the app's own worker-start and loop when
+  // the app drives, and the usage strip. Read again on a timer, so a pause ends on its own.
+  // The profile folder is the hook events folder's parent (hookEventsDirIn), where the statusline folder also is.
+  const usageGuard = createUsageGuard({
+    readings: () =>
+      readAccountReadings(
+        path.join(path.dirname(core.hookEventsDir), 'statusline'),
+        core.sessions.list().map((s) => ({ id: s.id, accountId: s.accountId }))
+      ),
+    pauseAt: async () => core.appSettings.getUsagePauseAt(),
+    nowMs: () => Date.now()
+  })
+  const usageTimer = setInterval(() => {
+    usageGuard.refresh().catch((err) => orchLog(`usage guard: could not read usage: ${String(err)}`))
+  }, 60_000)
+  usageTimer.unref?.()
   const orchSnapshotOf = (state: OrchState, projectPath: string): OrchSnapshot => {
     // The set is built once per fold rather than per Task — sessions.list() copies every SessionInfo.
     const known = new Set(core.sessions.list().map((s) => s.id))
@@ -1509,7 +1531,9 @@ export function registerIpc(
       (p) => worktreePresence.peek(p) !== 'missing',
       Date.now(),
       // W2-C plan board: the app-wide cap, so a Task held by it says so
-      { maxConcurrentWorkers: core.appSettings.getMaxConcurrentWorkers() }
+      { maxConcurrentWorkers: core.appSettings.getMaxConcurrentWorkers() },
+      // W6-G
+      (id) => usageGuard.pauseOf(id)
     )
   }
   // The push is a notification hung off the awaited setState (below). It folds later in the tick, so a fold that
@@ -3168,7 +3192,9 @@ export function registerIpc(
       // 슬롯마다 다시 묻으므로, 한 바퀴 도중에 그런 Host 가 붙으면 그 자리에서 멈춘다.
       mayStart: () => orch !== null && !hostDrives(),
       log: orchLog,
-      nowMs: () => Date.now()
+      nowMs: () => Date.now(),
+      // W6-G
+      usageGuard
     })
     orchLoop = loop
 
@@ -3417,6 +3443,8 @@ export function registerIpc(
       // 감시자 없는 기록 목록으로 같은 함수를 부른다(host/projectRoots.ts).
       // W1-B: worker-start holds new workers at the app-wide cap.
       maxConcurrentWorkers: () => core.appSettings.getMaxConcurrentWorkers(),
+      // W6-G: and none on a nearly spent account
+      usageGuard,
       resolveProjectRoot: async (cwd) =>
         resolveProjectRootFrom({
           cwd,
@@ -4258,6 +4286,30 @@ export function registerIpc(
     if (typeof n !== 'number' || !Number.isInteger(n) || n < 0 || n > ACTIVITY_DIGEST_MAX_MINUTES)
       throw new Error(`INVALID_ACTIVITY_DIGEST_MINUTES: ${String(n)}`)
     await core.appSettings.setActivityDigestMinutes(n)
+  })
+  // W6-G: the subagent cap per tab and the usage guard's threshold
+  ipcMain.handle('settings.getMaxSubagentsPerSession', () => core.appSettings.getMaxSubagentsPerSession())
+  ipcMain.handle('settings.setMaxSubagentsPerSession', async (_e, n: unknown) => {
+    if (typeof n !== 'number' || !Number.isInteger(n) || n < 1 || n > SUBAGENT_CAP_MAX)
+      throw new Error(`INVALID_MAX_SUBAGENTS_PER_SESSION: ${String(n)}`)
+    await core.appSettings.setMaxSubagentsPerSession(n)
+  })
+  ipcMain.handle('settings.getUsagePauseAt', () => core.appSettings.getUsagePauseAt())
+  ipcMain.handle('settings.setUsagePauseAt', async (_e, n: unknown) => {
+    if (typeof n !== 'number' || !Number.isInteger(n) || n < 1 || n > 100) throw new Error(`INVALID_USAGE_PAUSE_AT: ${String(n)}`)
+    await core.appSettings.setUsagePauseAt(n)
+  })
+  // W6-G: the plan view's usage strip. Read fresh on each ask; the strip asks on a timer.
+  ipcMain.handle('usage.guard', async (): Promise<UsageGuardView> => {
+    await usageGuard.refresh()
+    const live = core.sessions.list().filter((s) => s.status !== 'exited')
+    const counts = await Promise.all(live.map(async (s) => ({ sessionId: s.id, count: await readSubagentCount(core.hookEventsDir, s.id) })))
+    return {
+      pauseAt: usageGuard.pauseAt(),
+      maxSubagents: core.appSettings.getMaxSubagentsPerSession(),
+      accounts: usageGuard.view(),
+      subagents: counts.filter((c) => c.count > 0)
+    }
   })
   ipcMain.handle('settings.getMaxConcurrentWorkers', () => core.appSettings.getMaxConcurrentWorkers())
   ipcMain.handle('settings.setMaxConcurrentWorkers', async (_e, n: unknown) => {
