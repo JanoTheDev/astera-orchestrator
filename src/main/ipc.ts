@@ -315,6 +315,16 @@ import { fillFromCommits } from '../core/github/fill'
  *  선 뒤에만 존재한다는 점은 그대로다** — `orchRef` 가 null 인 경우의 탭 폴백은 index.ts 가 별도로
  *  받는 `tabResumeTextFor` 참조로 처리한다(fix wave 최종, F1 —
  *  `OrchWiring.onTabResumeReady`). */
+/** W9-K: the app's windows (windows.ts), one per project. Pushes go to every window; window chrome and dialogs act on
+ *  the window the call came from. */
+export interface AppWindows {
+  broadcast: (channel: string, payload: unknown) => void
+  ofSender: (sender: WebContents) => BrowserWindow | null
+  /** Runs for every window there is and for each one made later. */
+  each: (fn: (win: BrowserWindow) => void) => void
+  count: () => number
+}
+
 export interface OrchHandle {
   stop: () => void
   onRolled: (oldSessionId: string, newInfo: { id: string; accountId: string }) => void
@@ -834,7 +844,7 @@ export function conversationAttentionOf(attention: Pick<AttentionState, 'get'>, 
 
 export function registerIpc(
   core: Core,
-  win: BrowserWindow,
+  windows: AppWindows, // W9-K: was the one BrowserWindow
   /** The one attention verdict (core/sessions/attention.ts). Built in index.ts alongside `desktop` and handed
    *  the same instance — forgetting a session's verdict on exit, and pushing every change through
    *  `conversation:attention`, both read it. Required, not optional, and placed ahead of
@@ -896,9 +906,7 @@ export function registerIpc(
   // 재생 데이터는 렌더러가 귀를 열 때까지 게이트가 붙잡는다. `webContents.send` 는 들을 사람이
   // 없으면 그냥 버리고, 하필 그 순간이 부팅 직후다 — Host 에서 세션을 되찾아 ring buffer 를
   // 돌려받는 일이 앱이 켜진 지 130ms 만에 끝난다(rendererGate.ts 가 그 측정과 증상을 적어 둔다).
-  const gate = createRendererGate((channel, payload) => {
-    if (!win.isDestroyed()) win.webContents.send(channel, payload)
-  })
+  const gate = createRendererGate((channel, payload) => windows.broadcast(channel, payload))
   const send = (channel: string, payload: unknown): void => gate.send(channel, payload)
   // 렌더러가 `sessionBus.init()` 으로 채널에 리스너를 건 직후 보내 온다. 페이지 로드 이벤트가
   // 아니라 렌더러 자신의 신고인 것은, 붙잡은 것을 푸는 조건이 "문서가 다 떴다" 가 아니라
@@ -1015,17 +1023,19 @@ export function registerIpc(
   /** What the old document held that nobody will let go of (second pass M2-4: a reload never unsubscribed its GitHub and
    *  usage panels, and both polls ran on for the app's life). */
   const onNewDocument: Array<() => void> = []
-  win.webContents.on('did-start-navigation', (...args: unknown[]) => {
+  // W9-K: what it closes is shared by every window, so only the one window's reload lets go of it.
+  // shortcut: with several windows a reload keeps the old document's subscriptions; per-window ownership if that matters.
+  windows.each((win) => win.webContents.on('did-start-navigation', (...args: unknown[]) => {
     const first = typeof args[0] === 'object' && args[0] !== null ? (args[0] as Record<string, unknown>) : null
     const isMainFrame = typeof first?.isMainFrame === 'boolean' ? first.isMainFrame : args[3]
     const isSameDocument = typeof first?.isSameDocument === 'boolean' ? first.isSameDocument : args[2]
-    if (isMainFrame !== true || isSameDocument === true) return
+    if (isMainFrame !== true || isSameDocument === true || windows.count() > 1) return
     conversationSessions.closeAll()
     // The new document has no remote session tabs (Phase 9b review I2): their streams would keep the Runtime sending
     // output nobody shows, and a tab opened again would get its tail with no checkpoint before it.
     remoteStreams?.close()
     for (const forget of onNewDocument) forget()
-  })
+  }))
 
   // Session working/idle detection: decided from the window-title OSC in the output, and session:busy
   // is emitted only when the state changes.
@@ -8005,15 +8015,20 @@ export function registerIpc(
   // already validated by run.start and run.saveConfigs. Omitting it (undefined) behaves exactly as the
   // existing caller (NewSessionDialog) does — dialog.showOpenDialog uses the OS default location when
   // there is no defaultPath.
-  ipcMain.handle('system.pickFolder', async (_e, defaultPath?: string) => {
-    const r = await dialog.showOpenDialog(win, { properties: ['openDirectory'], defaultPath })
+  // W9-K: each dialog is a child of the window that asked
+  const dialogFor = (e: Electron.IpcMainInvokeEvent, opts: Electron.OpenDialogOptions) => {
+    const w = windows.ofSender(e.sender)
+    return w ? dialog.showOpenDialog(w, opts) : dialog.showOpenDialog(opts)
+  }
+  ipcMain.handle('system.pickFolder', async (e, defaultPath?: string) => {
+    const r = await dialogFor(e, { properties: ['openDirectory'], defaultPath })
     return r.canceled ? null : r.filePaths[0]
   })
   // Same spot and contract as pickFolder above, just 'openFile' instead of 'openDirectory'. Shared by
   // the run configuration file-path fields (node's file, python's file and interpreter, compose's
   // file, dockerfile's path, dotnet's project file).
-  ipcMain.handle('system.pickFile', async (_e, defaultPath?: string) => {
-    const r = await dialog.showOpenDialog(win, { properties: ['openFile'], defaultPath })
+  ipcMain.handle('system.pickFile', async (e, defaultPath?: string) => {
+    const r = await dialogFor(e, { properties: ['openFile'], defaultPath })
     return r.canceled ? null : r.filePaths[0]
   })
   ipcMain.handle('system.pathExists', async (_e, p: string) => {
@@ -8202,11 +8217,16 @@ export function registerIpc(
   })
 
   // window chrome (not core — Electron window control)
-  ipcMain.on('win.minimize', () => win.minimize())
-  ipcMain.on('win.maximizeToggle', () => (win.isMaximized() ? win.unmaximize() : win.maximize()))
+  // W9-K: each acts on the window that sent it
+  ipcMain.on('win.minimize', (e) => windows.ofSender(e.sender)?.minimize())
+  ipcMain.on('win.maximizeToggle', (e) => {
+    const win = windows.ofSender(e.sender)
+    if (win?.isMaximized()) win.unmaximize()
+    else win?.maximize()
+  })
   // win.on('close') decides what this means: hide to the tray on win32/macOS, quit for real on Linux
-  ipcMain.on('win.close', () => win.close())
-  ipcMain.handle('win.isMaximized', () => win.isMaximized())
+  ipcMain.on('win.close', (e) => windows.ofSender(e.sender)?.close())
+  ipcMain.handle('win.isMaximized', (e) => windows.ofSender(e.sender)?.isMaximized() ?? false)
   // 'Quit' in the forced-update gate. On win32/macOS win.close only minimises to the tray, so app.quit
   // is the only real exit — before-quit sets quitting=true, which lets it through the window close guard.
   ipcMain.on('app.quit', () => app.quit())
@@ -8224,8 +8244,10 @@ export function registerIpc(
       app.quit()
     })()
   })
-  win.on('maximize', () => send('win:maximized', true))
-  win.on('unmaximize', () => send('win:maximized', false))
+  windows.each((win) => {
+    win.on('maximize', () => win.webContents.send('win:maximized', true))
+    win.on('unmaximize', () => win.webContents.send('win:maximized', false))
+  })
 
   // A rolling dev hook — forces the relay chain without a real limit (for manual end-to-end checks). Development only.
   if (!app.isPackaged)

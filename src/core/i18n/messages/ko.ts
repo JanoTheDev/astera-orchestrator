@@ -542,6 +542,7 @@ export const ko = {
   // index.ts — system tray context menu
   'common.trayOpen': '열기',
   'common.trayQuit': '종료',
+  'common.trayNewWindow': '새 창', // W9-K
   'common.trayQuitEnding': '세션 모두 끝내고 종료',
   // App.tsx — rail, session spawn failure, placeholder, status bar usage
   'session.rail.toggleSidebar': '사이드바 접기/펼치기',
@@ -2514,5 +2515,6 @@ export const ko = {
   'settings.autoCloseTabs.hint': '플랜이 끝나거나 보관되면 끝난 세션 탭을 닫고, 다시 계획하면 이전 플래너 탭을 닫습니다. 기록은 History와 워크스페이스 트리에 남습니다. 플랜에 속하지 않은 세션의 탭은 직접 닫을 때까지 남습니다.',
   'settings.autoCloseTabs.saveFailed': '탭 자동 닫기 설정을 저장하지 못했습니다: {detail}',
   // W6-F
-  'shortcut.workspace.project': '프로젝트 작업 공간 {n} 열기'
+  'shortcut.workspace.project': '프로젝트 작업 공간 {n} 열기',
+  'shortcut.window.new': '새 창 열기' // W9-K
 } as const

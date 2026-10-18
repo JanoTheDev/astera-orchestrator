@@ -41,6 +41,8 @@ export type ActionId =
   | 'tabs.switcher'
   // W6-F: open the Nth project workspace
   | `workspace.project${WorkspaceSlot}`
+  // W9-K: a new window (DESIGN.md §1a)
+  | 'window.new'
 
 /** W6-F: the project workspaces with a key of their own, the first nine in the switcher. */
 export type WorkspaceSlot = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
@@ -255,7 +257,15 @@ export function makeActions(platform: string): readonly ActionSpec[] {
         descParams: { n },
         yieldsToTerminal: false
       })
-    )
+    ),
+    // W9-K: Ctrl+Shift+N opens a new window (DESIGN.md §1a). No readline or CLI key, and not yielded: it is the
+    // window's, as the switcher keys are.
+    {
+      id: 'window.new',
+      defaults: [`${M}+Shift+N`],
+      descKey: 'shortcut.window.new',
+      yieldsToTerminal: false
+    }
   ]
 }
 

@@ -513,7 +513,11 @@ const api = {
       const l = (_e: unknown, isMax: boolean): void => cb(isMax)
       ipcRenderer.on('win:maximized', l)
       return () => ipcRenderer.removeListener('win:maximized', l)
-    }
+    },
+    // W9-K
+    boundProject: () => ipcRenderer.invoke('win.boundProject'),
+    setScope: (scope) => ipcRenderer.send('win.setScope', scope),
+    openNew: (projectId) => ipcRenderer.send('win.openNew', projectId)
   },
   on<C extends CoreEventChannel>(channel: C, cb: (payload: CoreEvents[C]) => void): () => void {
     if (!EVENT_CHANNELS.includes(channel)) throw new Error(`unknown event channel: ${channel}`)

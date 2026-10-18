@@ -231,6 +231,7 @@ export function Sidebar(p: SidebarProps): React.JSX.Element {
                   onNew={() => setProjectDialog('new')}
                   onAdd={() => setProjectDialog('add')}
                   onSettings={(id) => setProjectDialog({ settings: id })}
+                  onOpenWindow={(id) => window.api.win.openNew(id)} // W9-K
                   toolsDisabledReason={projectAnchor ? undefined : 'Open a tab first'}
                 />
                 <AccountPanel accounts={accounts} />

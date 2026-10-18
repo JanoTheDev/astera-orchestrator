@@ -521,6 +521,7 @@ export const en: Record<keyof typeof ko, string> = {
     'Closing the window quits Astera. {kept} running session(s) keep running and come back the next time you open Astera; {ended} will be terminated. Continue?',
   'common.trayOpen': 'Open',
   'common.trayQuit': 'Quit',
+  'common.trayNewWindow': 'New window', // W9-K
   'common.trayQuitEnding': 'Quit and end sessions',
   'session.rail.toggleSidebar': 'Toggle sidebar',
   'session.rail.openSessions': 'Accounts and history',
@@ -2265,5 +2266,6 @@ export const en: Record<keyof typeof ko, string> = {
   'settings.autoCloseTabs.hint': "When a plan finishes or is archived its ended session tabs close, and a replan closes the planner tab before it. Their history stays in History and the workspace tree. A session that is part of no plan keeps its tab until you close it.",
   'settings.autoCloseTabs.saveFailed': 'Could not save the tab auto-close setting: {detail}',
   // W6-F
-  'shortcut.workspace.project': 'Open project workspace {n}'
+  'shortcut.workspace.project': 'Open project workspace {n}',
+  'shortcut.window.new': 'Open a new window' // W9-K
 }

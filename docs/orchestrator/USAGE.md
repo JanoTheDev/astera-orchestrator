@@ -321,6 +321,17 @@ sessions or plans never restarts a process or changes its cwd. Scrollback surviv
   under **Other**; **All tabs** shows everything. Clicking a plan narrows further, and clicking it again goes back to
   its project. Each workspace returns to the tab it had in focus when you left it, and a new tab opened in it starts
   in the project's folder. Tabs in other workspaces keep running, hidden.
+- **Several projects at once** (W9-K): each project can have a window of its own, side by side. Open one with ⧉
+  ("Open in new window") on a project in the switcher, with **Ctrl+Shift+N** (a new window; pick its project in its
+  switcher; rebind in Settings → Shortcuts), from the tray's project list (Windows and macOS), from the launcher's
+  "New Window" action, or by launching again with `astera --project <name|path>` (a name, or a folder in the project).
+  Opening a project that already has a window brings that window to the front. A window shows only its project's
+  tabs and is titled "<project> — Astera"; switching project in it moves the window to that project. All windows are
+  one app and one Host, so accounts, usage, rolling and the app-wide worker limit stay single and nothing is counted
+  twice. The same plan in two windows shows the same live state, and typing goes to the window in focus. A
+  notification opens its project's window, or the last one you used, switched to that project. Each project's window
+  remembers its size and place, and the windows open when you quit come back on the next launch. Closing a window
+  closes just it; closing the last one quits the app as before, and the Host keeps running the plans.
 - **Tabs.** An ended session's tab is struck through. When its plan is done or archived, every ended tab of the plan
   closes on its own, and a replan's planner tab closes once the plan has moved on, so replans leave no extra planner
   tabs. A closed worker opens its transcript from the plan's tree; every one stays in History. The ended tab of a plain session (not part of a plan) stays until

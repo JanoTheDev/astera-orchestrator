@@ -14,6 +14,7 @@ export function ProjectSwitcher({
   onNew,
   onAdd,
   onSettings,
+  onOpenWindow,
   toolsDisabledReason
 }: {
   tree: WorkspaceProject[]
@@ -26,6 +27,8 @@ export function ProjectSwitcher({
   onNew?: () => void
   onAdd?: () => void
   onSettings?: (id: string) => void
+  /** W9-K: opens the project in a window of its own (or focuses the one it has). */
+  onOpenWindow?: (id: string) => void
   /** Why the buttons are off (no tab open to anchor the commands), or undefined. */
   toolsDisabledReason?: string
 }): React.JSX.Element | null {
@@ -51,6 +54,17 @@ export function ProjectSwitcher({
               {r.running}
             </span>
           </button>
+          {/* W9-K */}
+          {onOpenWindow && r.id !== OTHER_WORKSPACE && (
+            <button
+              className="ws-switch ws-gear"
+              aria-label={`Open ${r.name} in new window`}
+              title="Open in new window"
+              onClick={() => onOpenWindow(r.id)}
+            >
+              ⧉
+            </button>
+          )}
           {/* W7-B: the project's settings page; "Other" is no project */}
           {onSettings && r.id !== OTHER_WORKSPACE && (
             <button

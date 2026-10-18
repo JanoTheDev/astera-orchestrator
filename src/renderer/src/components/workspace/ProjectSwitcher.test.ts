@@ -28,3 +28,13 @@ describe('ProjectSwitcher', () => {
     expect(html).toContain('All tabs')
   })
 })
+
+// W9-K: each project opens in a window of its own; "Other" is no project and gets none.
+describe('ProjectSwitcher: Open in new window', () => {
+  it('offers the item on every project row but Other', () => {
+    const html = renderToStaticMarkup(React.createElement(ProjectSwitcher, { tree, byWorkspace, sessions, selectedId: null, onSelect: () => {}, onOpenWindow: () => {} }))
+    expect(html).toContain('aria-label="Open gameful in new window"')
+    expect(html).toContain('aria-label="Open Astera in new window"')
+    expect(html).not.toContain('aria-label="Open Other in new window"')
+  })
+})
