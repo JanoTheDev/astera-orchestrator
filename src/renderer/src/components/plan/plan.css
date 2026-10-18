@@ -95,9 +95,9 @@
 .tasks-col { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .tasks-col-head { display: flex; align-items: center; gap: 6px; margin: 0 0 2px; font-size: 12px; font-weight: 600; color: var(--text-dim); }
 .tasks-col-count { font-weight: 400; color: var(--text-faint); font-variant-numeric: tabular-nums; }
-.tasks-card { display: flex; flex-direction: column; align-items: stretch; gap: 4px; width: 100%; text-align: left; font-size: 12px; }
+.tasks-card { display: flex; flex-direction: column; align-items: stretch; gap: 4px; width: 100%; min-width: 0; overflow: hidden; text-align: left; font-size: 12px; }
 .tasks-card-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .tasks-card-id { flex: none; font-family: var(--font-mono, monospace); font-size: 10px; color: var(--text-faint); }
-.tasks-card-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
-.tasks-card-line { font-size: 11px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tasks-card-title { min-width: 0; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.tasks-card-line { display: block; font-size: 11px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tasks-card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 11px; color: var(--text-faint); }

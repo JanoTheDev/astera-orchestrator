@@ -403,3 +403,12 @@ export function overlapTableOf(
   const shared = new Set(folders.filter((_, i) => table.filter((t) => t.cells[i] !== null && t.cells[i]?.kind !== 'done').length >= 2))
   return { folders, shared, rows: table }
 }
+
+/** A plan row's age, short: "<1m", "5m", "3h", "4d". */
+export function ageOf(fromIso: string, nowMs: number): string {
+  const min = Math.floor(Math.max(0, nowMs - Date.parse(fromIso)) / 60_000)
+  if (Number.isNaN(min) || min < 1) return '<1m'
+  if (min < 60) return `${min}m`
+  const h = Math.floor(min / 60)
+  return h < 24 ? `${h}h` : `${Math.floor(h / 24)}d`
+}

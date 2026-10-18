@@ -382,3 +382,14 @@ describe('areaGroupsOf / overlapTableOf (Plans views)', () => {
     expect(topFolderOf('README.md')).toBe('README.md')
   })
 })
+
+describe('ageOf (Plans list row)', () => {
+  it('says the age short', async () => {
+    const { ageOf } = await import('./planBoard')
+    const now = Date.parse('2026-10-18T12:00:00Z')
+    expect(ageOf('2026-10-18T11:59:30Z', now)).toBe('<1m')
+    expect(ageOf('2026-10-18T11:55:00Z', now)).toBe('5m')
+    expect(ageOf('2026-10-18T09:00:00Z', now)).toBe('3h')
+    expect(ageOf('2026-10-14T12:00:00Z', now)).toBe('4d')
+  })
+})

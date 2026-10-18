@@ -13,6 +13,7 @@ import { PauseIcon, PlayIcon, RunIcon, STATE_KEY, STATUS_COLOR, TaskGlyph, TaskI
 import type { RunIconKind } from './JobIcons'
 import { Archive, ArchiveRestore, ArrowUpRight, ChevronDown, ChevronRight, Hand, Pencil, PlayCircle } from 'lucide-react'
 import { SourceChip } from './SourceChip'
+import { ageOf } from './plan/planBoard' // W9-C
 import { jobName } from '../lib/jobName'
 
 /** Run 헤더 글리프의 툴팁. 끝난·실패·막힘은 줄의 글리프와 같은 모양이고 같은 뜻이라 같은 문구를 쓴다.
@@ -235,7 +236,7 @@ function PlanRowFacts({ run, nameOf, nowMs }: { run: JobRow; nameOf: (jobId: str
           {t('pages.plans.overlaps', { plan: nameOf(id) })}
         </span>
       ))}
-      {run.createdAt !== undefined && <span className="jobs-age">{t('pages.plans.age', { age: formatElapsed(run.createdAt, nowMs) })}</span>}
+      {run.createdAt !== undefined && <span className="jobs-age">{t('pages.plans.age', { age: ageOf(run.createdAt, nowMs) })}</span>}
     </>
   )
 }
