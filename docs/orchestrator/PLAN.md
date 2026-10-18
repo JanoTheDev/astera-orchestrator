@@ -51,6 +51,7 @@ starting the next wave. Each prompt owns its own files, which keeps conflicts to
 | 2 | 4 | `W2-A-planner-stage`, `W2-B-workspace-sidebar`, `W2-C-plan-board`, `W2-D-github-links` | W1 merged |
 | 3 | 4 | `W3-A-activity-feed`, `W3-B-command-and-voice`, `W3-C-search-and-inbox`, `W3-D-routing-recovery-tests` | W2 merged |
 | 4 | 1 | `W4-final-linux-verification.md` | W3 merged |
+| 5 | 4 | `W5-A-worker-spawn-and-worktrees`, `W5-B-run-lifecycle-and-cli`, `W5-C-holds-and-command-bar`, `W5-D-feed-inbox-and-runtimes` (W4's issues #38–#53) | W4 merged |
 
 ### File ownership per wave (prevents tabs interfering)
 
@@ -68,6 +69,10 @@ starting the next wave. Each prompt owns its own files, which keeps conflicts to
 | W3-B | new `src/core/intents/*`, new `components/command/*` | `App.tsx` (hotkey + mount, JobsView `onApprove`), keybindings, `lib/jobActions.ts`, `JobsView.tsx` (approve prop) |
 | W3-C | new `src/core/orchestration/sessionIndex.ts`, new `components/search/*` | workspace sidebar mount, `command.ts` (`dispatches-list`) |
 | W3-D | test files only (`*.test.ts`, e2e) + minimal bug fixes it finds, each fix described | — |
+| W5-A | `exec/workerStart.ts`, `exec/coordinator.ts`, `exec/specFiles.ts`, `exec/integrateGit.ts`, the fork call in `exec/dispatchLoop.ts` | `src/host/spawner.ts`, `runChecks.ts` |
+| W5-B | `command.ts` handlers `runs-resume` / `jobs-archive` / `run-start` / `tasks-list`, `lifecycle.ts`, `state.ts` run lookup, `cliArgs.ts`, `cliUsage.ts`, `blocked.ts` reasons | `planner.ts`, `exec/dispatchLoop.ts`, `exec/limitProbe.ts` |
+| W5-C | `components/command/*`, `core/intents/*`, `schedule.ts`, `RunDetail.tsx`, `lib/jobActions.ts` | `types.ts`, `command.ts` (hold commands), `exec/dispatchLoop.ts`, `JobsView.tsx`, `core/host/*Gate.ts` |
+| W5-D | `activity.ts`, `components/activity/*`, `sessionIndex.ts`, `components/search/*`, `src/main/activityNotices.ts`, `src/main/remote/orchRouter.ts` | `src/host/index.ts`, `src/host/sessions.ts`, `src/main/ipc.ts`, `types.ts` |
 
 ## Explicit non-goals / limits
 - No new terminal manager, account manager, or issue tracker.
