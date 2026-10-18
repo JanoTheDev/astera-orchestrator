@@ -104,7 +104,7 @@ starting the next wave. Each prompt owns its own files, which keeps conflicts to
 | W9-B | `components/shell/{TopBar,Pages,StatusBar,MoreMenu}.tsx`, `core/ui/pages.ts`, `components/workspace/*` (retired), `AccountPanel.tsx`, `AccountRow.tsx`, `AccountUsageMeter.tsx`, `HistoryBrowser.tsx`, `usage/*`, `core/ui/sidebar.ts`, `core/keys/binding.ts` (rail ids) | `App.tsx` (shell mount), `components/ui/*` (new variants only) |
 | W9-C | new `components/pages/{TasksPage,PlansPage,PlanPage}.tsx`, `RunDetail.tsx` (moved into `PlanPage`, then deleted), `components/plan/*` except W7-C's answer box, `JobsView.tsx` (becomes `PlansPage`'s list), `lib/jobActions.ts` | `App.tsx` (mount) |
 | W9-D | `activity/*`, `search/*`, `command/*`, `conversation/QuestionCard.tsx`, W7-C's answer box, new `components/inbox/*` | `App.tsx` (rail badge, hotkey), `core/intents/*` (open-plan intent) |
-| W9-E | new `components/settings/*` (one file per group), every dialog listed in DESIGN.md "Dialogs" moved onto `ui/Modal`, `NewSessionDialog.tsx` / `NewRunModal.tsx` / `intake/*` / `SourceJobModal.tsx` (one New flow), `components/projects/*` page | `App.tsx` (Settings block deleted, `<SettingsDialog/>` mounted) |
+| W9-E | new `components/pages/StartPage.tsx` (the composer: Plan it for me / Run as written), new `components/settings/*` (one file per group), every dialog listed in DESIGN.md "Dialogs" moved onto `ui/Modal`, `NewSessionDialog.tsx` / `NewRunModal.tsx` / `intake/*` / `SourceJobModal.tsx` (one New flow), `components/projects/*` page | `App.tsx` (Settings block deleted, `<SettingsDialog/>` mounted) |
 | W9-H | new `components/pages/AgentsPage.tsx`, `components/wall/*`, `PaneGrid.tsx` / `TerminalView.tsx` (tile mode: small font, read-only until opened, offscreen pause; the full-size console), `conversation/*` (stop offering it for new consoles), new `core/sessions/ownerHold.ts`, the `sessions-send` handler in `command.ts` and `src/host/orch.ts` (queue while held) | `src/host/sessions.ts` (owner-input timestamp), `App.tsx` (mount the pinned tab), `resources/skills/orchestration-guide.md` (one line: a queued send is not a failure) |
 | W9-I | new `core/sessions/summary.ts` (facts + prompt), new `src/host/hostSummaries.ts`, `components/wall/SummaryCard.tsx` | `core/understanding/*` (reuse the generator call), `src/host/sessions.ts` (end hook), `core/orchestration/delivery.ts` (PR body roll-up), `components/plan/*` card (one row, after W9-C: coordinate in the PR), `HistoryBrowser.tsx` (one row), app-settings type (`tabSummaries`) |
 | W9-J | `WorktreePanel.tsx` (becomes the Worktrees page list), new `components/pages/WorktreesPage.tsx` + `components/worktrees/*` (detail), new `core/worktrees/cleanup.ts` (ready-to-remove rule + auto-clean after delivery) | `core/worktrees/{list,remove}.ts` (read-only reuse; one export if needed), `core/orchestration/delivery.ts` (one call after delivery), app-settings type (`autoCleanWorktrees`) |
@@ -381,6 +381,8 @@ In short:
 
 - **Pages, not panels.** A 44px top bar with plain text tabs replaces upstream's icon rail and stacked sidebar, so
   the consoles get the full width. The pages are:
+  - **Start**: where a plan is dropped. Shown for an empty project, or from New. Two modes: "Plan it for me" or
+    "Run as written".
   - **Agents** (default): every console live, and a full-size console on click.
   - **Tasks**: a board of every Task across plans.
   - **Plans**: a list, then a plan page with Overview, Waves, Files, Changes and Journal.

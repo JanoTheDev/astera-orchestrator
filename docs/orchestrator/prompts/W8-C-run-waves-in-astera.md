@@ -18,6 +18,10 @@ merge, final check, delivery). Three things are missing.
    `cliUsage.ts`, `planner-guide.md`, the New flow's source picker):
    - Each attached `.md` becomes exactly one Task. Its text is the Task prompt **unchanged**: the planner may not
      rewrite, merge or split it.
+   - **One document instead of files:** with a single attachment (or pasted text) that has two or more `##` headings,
+     each `##` section becomes one Task in the same verbatim way. The heading is the Task title. This is the Start
+     page's "Run as written" (DESIGN.md §2).
+   - Approval defaults to auto in this mode, because the owner wrote the plan. `--approve ask` overrides it.
    - The planner fills `affectedPaths` from the prompt's "Ownership" / "Owns" lines and PLAN.md's ownership table,
      `deps` from PLAN.md's wave table ("Depends on", "run alone"), and the model from the difficulty.
    - `validatePlan` checks that there is one Task per file and that each prompt equals its file's text.
@@ -46,7 +50,8 @@ merge, final check, delivery). Three things are missing.
      Record the result in LINUX.md.
 
 ## Done means
-- Tests: one Task per prompt file, and a rewrite of a prompt is refused; `after` gating (delivered → starts; gave up
+- Tests: one Task per prompt file, one Task per `##` section of a single document, and a rewrite of a prompt is
+  refused; `after` gating (delivered → starts; gave up
   → waits and escalates once; cycle refused); the heavy lock is FIFO and released on crash or exit; the worker
   brief lines are present.
 - A real run in a scratch repo:

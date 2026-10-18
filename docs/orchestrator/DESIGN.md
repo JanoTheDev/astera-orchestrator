@@ -21,7 +21,7 @@ the mockup. Where they disagree, this file wins.
 - **A new product look.** If released, it must not look like upstream Astera.
 
 Rules every screen follows:
-- **The app opens on the Agents page.**
+- **The app opens on the Agents page**, or on **Start** when the project has nothing yet.
 - **Nothing pops up by itself.** No modal opens unless the owner clicks. Only Inbox items notify, with a sound.
   Auto-answers, merges, replans and clean-ups land in "Handled for you", silently.
 - **The owner never has to type into the coordinator.** They answer in the Inbox, or in the worker's own console.
@@ -115,6 +115,29 @@ home) goes away. Every page owns the full width below the top bar.
   full-size console keeps a live xterm. W9-H measures this.
 - The assistant-ui conversation pane (`conversation/*`) is **no longer offered for new consoles**. Existing
   conversation sessions still open, and can be removed later.
+
+### Start (empty project, or New → a plan; W9-E)
+- **Where the first plan goes.** A project with no plans and no consoles opens on Start instead of an empty
+  wall. New → "Plan it for me" or "Run as written", and Plans → "New plan", open the same page.
+- **Header:** "What should we build in <project>?" and one line saying what happens next.
+- **One composer:**
+  - A large text box (describe a goal, or paste a whole plan).
+  - Attached files as chips: `.md`, `.pdf`, `.txt` and images. **Dropping files anywhere on the window opens Start
+    with them attached.**
+  - Under the box: + Attach files · GitHub issues (W6-A picker) · Audit the repo (W6-A `--mode audit`).
+- **Two modes**, as two selectable cards:
+  - **Plan it for me** (default for typed text or rough notes). The planner (opus) reads the code, `existing.md`
+    and the issues, and writes the detailed plan: tasks, prompts, acceptance criteria, files, waves and models
+    (W2-A, W6-A). The plan lands in the Inbox to approve or talk to (W7-A), or runs at once with auto-approve.
+  - **Run as written** (default when prompt files are attached). Each attached `.md` file, or each `##` section of
+    a single document, becomes **one task with its text kept exactly** (W8-C `--mode prompts`). Only files, deps,
+    waves and models are filled in. `validatePlan` still checks it (missing files, same-file clashes, cycles).
+    Approval defaults to auto, because the owner wrote it; consoles start right away.
+- **Options row:** Consoles at once · Delivery · Start (right away / after <plan>) · Approval (ask me / auto). The
+  defaults come from the project's settings (W7-B).
+- **The primary button says what will happen:** "Start planning", or "Start 3 consoles" with "3 files → 3 tasks".
+- **"Or pick up":** GitHub issues assigned to you, unfixed audit findings, and "Just open a console".
+- After Start, the app goes to Agents. There, the planner's console, or the new task consoles, appear as tiles.
 
 ### Tasks (W9-C)
 - A board of **every Task in the project, across plans**, in five columns: Planned · Working · Needs you · In
@@ -218,14 +241,11 @@ home) goes away. Every page owns the full width below the top bar.
   - Nothing goes into git except the PR-body roll-up, which is part of a delivery the owner set up.
 
 ## 5. New
-
-- One `Modal`, from **New**, `Ctrl+N` or the box.
-- **Step 1** picks between:
-  - **Console**: a plain Claude Code or Codex console. Agent, account, folder, worktree.
-  - **Plan from a goal**: goal, workers at once, delivery, start after.
-  - **Plan from a source**: prompt files (W8-C `--mode prompts`: one Task per file, text kept as-is), GitHub issues,
-    files or PDF, audit, or problem list. Delivery and start after.
-- **Step 2** shows that form, with Back and the primary action.
+- A small `Modal`, from **New**, `Ctrl+N` or the box. It offers three choices:
+  - **Console**: a plain Claude Code or Codex console (agent, account, folder, worktree).
+  - **Plan it for me** → the Start page in that mode.
+  - **Run as written** → the Start page in that mode.
+- Plans are always created on the Start page (§2), so there is one place to drop a plan.
 
 ## 6. Search and command box
 - One overlay from the top bar pill or `Ctrl+Shift+K`.
@@ -262,8 +282,8 @@ The settings search filters rows by label and description and shows the group ea
 | Activity feed, digest (W3-A) | Inbox › Handled for you · Settings › Notifications |
 | Command bar, voice, search (W3-B, W3-C) | The box |
 | Needs-input inbox, escalations, answers (W3-C, W6-B, W7-C) | **Inbox** page |
-| Intake, sources, assign-me (W6-A, W7-D) | New › Plan from a source |
-| Prompt files, start after, heavy-job slot (W8-C) | New › Prompt files / Start after · Plans list "Queued" · Task live line "Waiting for the heavy-job slot" |
+| Intake, sources, assign-me (W6-A, W7-D) | **Start** page: composer, attach, GitHub issues, audit |
+| Prompt files, start after, heavy-job slot (W8-C) | Start › Run as written / Start after · Plans list "Queued" · Task live line "Waiting for the heavy-job slot" |
 | Same-file rule (W6-C) | Plan › Files · Task live line |
 | Replanning (W6-D) | Plan › Waves header · Journal |
 | Projects, per-project settings (W6-F, W7-B) | Project switcher · Settings › Projects |
