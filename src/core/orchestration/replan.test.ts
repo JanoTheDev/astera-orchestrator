@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest'
 import { emptyState, type OrchState } from './state'
 import type { Dispatch, Job, Task } from './types'
-import { cancelRemainingTask, completionSettled, editRemainingTask, replanOn, replansDue, waveOf, waveOpen } from './replan'
+import { cancelRemainingTask, completionSettled, editRemainingTask, notStarted, replanOn, replansDue, waveOf, waveOpen } from './replan'
 import { slotsToFill } from './schedule'
 
 const NOW = '2026-10-18T00:00:00.000Z'
@@ -159,5 +159,34 @@ describe('editRemainingTask / cancelRemainingTask', () => {
     expect(cancelRemainingTask(s, 'r').ok).toBe(false)
     const r = cancelRemainingTask(s, 'c')
     expect(r.ok && r.state.tasks.map((t) => t.id)).toEqual(['a', 'r', 'b'])
+  })
+})
+
+// W8-E (#95): the coordinator's Gate on a Task it never started does not keep the replan from changing it
+describe('a Task blocked by a Gate before it ran', () => {
+  const gated = state([task('a', { status: 'completed' }), task('p6', { deps: ['a'], status: 'blocked' }), task('ran', { status: 'blocked' })], {}, [
+    { ...open('ran'), outcome: 'failed', endedAt: NOW }
+  ])
+  const withGates: OrchState = {
+    ...gated,
+    gates: [
+      { id: 'g1', runId: 'run_1', taskId: 'p6', question: 'Release the hold?', status: 'open', createdAt: NOW },
+      { id: 'g2', runId: 'run_1', taskId: 'ran', question: 'Retry?', status: 'open', createdAt: NOW }
+    ]
+  }
+
+  it('counts as not started; one that had a worker does not', () => {
+    expect(notStarted(withGates, withGates.tasks[1])).toBe(true)
+    expect(notStarted(withGates, withGates.tasks[2])).toBe(false)
+  })
+
+  it('a replan edits it and it stays blocked for its Gate to unblock', () => {
+    const r = editRemainingTask(withGates, 'p6', { prompt: 'adjusted' }, NOW)
+    expect(r.ok && r.value).toMatchObject({ prompt: 'adjusted', status: 'blocked' })
+  })
+
+  it('a replan cancels it, and its open Gate goes with it', () => {
+    const r = cancelRemainingTask(withGates, 'p6')
+    expect(r.ok && r.state.gates.map((g) => g.id)).toEqual(['g2'])
   })
 })
