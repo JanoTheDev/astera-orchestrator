@@ -29,6 +29,9 @@ Status: Wave 0 merged (PR #25), Wave 1 merged (PRs #26–#29), 2026-10-17. See `
 | Wave 7 | W7-A-plan-feedback · W7-B-projects |
 | merge | MERGE |
 | Wave 7V | W6-V-autopilot-dogfood (alone; covers W6 + W7) |
+| Wave 8.0 | W8-C-run-waves-in-astera (alone, by hand: the last hand-run wave) |
+| merge | MERGE |
+| Wave 8 → 9.4 | run as queued Astera plans: PLAN.md "Running the waves in Astera" |
 | Wave 8 | W8-A-commit-attribution · W8-B-line-attribution |
 | merge | MERGE |
 | Wave 9.0 | W9-0-design-spec (alone; owner approves the mockup) |
