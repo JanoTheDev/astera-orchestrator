@@ -10,7 +10,12 @@
 //
 // **No second copy of a rule.** A Task's bucket (done, failed, cancelled, awaiting review) is `taskBoardsOf`'s
 // (blocked.ts), a Run's ending is `outcomeOfTasks`'s (running.ts), a plan awaiting approval is
-// `pendingStart && plannerSessionIds !== undefined` (W2-A), a plan's name is `jobNameOf`'s.
+// `pendingStart && plannerSessionIds !== undefined` (W2-A), a plan that holds is `validatePlan`'s, a plan's name is
+// `jobNameOf`'s.
+//
+// **Two lines no commit makes** (W5-D), recorded by the Host from its sessions' hook events instead: a plan ready for
+// approval (host/activity.ts `planReadyActivity`, at the planner's turn end: the commit that marks a plan pending comes when the planner
+// *starts*, #48) and a worker waiting at a permission prompt or a question (`waitingActivity`, #42).
 //
 // Pure: no clock (the log stamps each event), no files.
 import type { TaskBlockedReason, TaskCategory } from '../types'
@@ -43,7 +48,9 @@ export const ACTIVITY_KINDS = [
   'task.links',
   'run.pr',
   'plan.awaiting-approval',
-  'plan.done'
+  'plan.done',
+  // W5-D (#42): a worker's session at a permission prompt or a question (waitingActivity)
+  'task.waiting'
 ] as const
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number]
 
@@ -76,6 +83,8 @@ export interface ActivityPayload {
   pr?: RunPr
   // plan.done
   runOutcome?: 'completed' | 'failed'
+  // task.waiting (W5-D, #42)
+  waitingFor?: 'permission' | 'question'
 }
 
 /** One line before the log numbers and stamps it (the shape of publicEvents.ts's EventDraft). */
@@ -94,6 +103,8 @@ export interface ActivityEvent extends ActivityDraft {
   id: string
   sequence: number
   occurredAt: string
+  /** W5-D (#44): the paired Runtime whose Host keeps the line; absent for the local Host's (orchRouter.ts `everywhere`). */
+  runtimeId?: string
 }
 
 const byId = <T extends { id: string }>(xs: readonly T[]): Map<string, T> => new Map(xs.map((x) => [x.id, x]))
@@ -237,14 +248,6 @@ export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[
     }
   }
 
-  if (prev.jobs !== next.jobs) {
-    const before = byId(prev.jobs)
-    const awaiting = (j: Job | undefined): boolean => j?.pendingStart === true && j.plannerSessionIds !== undefined
-    for (const j of next.jobs)
-      if (awaiting(j) && !awaiting(before.get(j.id)))
-        out.push({ type: 'plan.awaiting-approval', ...(j.projectId !== undefined ? { projectId: j.projectId } : {}), jobId: j.id, payload: { title: jobNameOf(j), plan: jobNameOf(j) } })
-  }
-
   // Last, so a plan's ending follows the Task lines that ended it. Only a Run in both states that was running.
   if (prev.tasks !== next.tasks) {
     const group = (s: OrchState): Map<string, Task[]> => {
@@ -264,6 +267,34 @@ export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[
     }
   }
   return out
+}
+
+export const awaitsApproval = (j: Job | undefined): boolean => j?.pendingStart === true && j.plannerSessionIds !== undefined
+
+/** #42: the worker whose session `sessionId` turned to waiting on a person, as a `task.waiting` line: its open
+ *  Dispatch's Task, plan, model and account, and what it waits on. null for a session that is no open Dispatch's. */
+export function waitingActivity(s: OrchState, sessionId: string, waitingFor: 'permission' | 'question'): ActivityDraft | null {
+  const d = s.dispatches.find((x) => x.sessionId === sessionId && x.endedAt === undefined)
+  const t = d && s.tasks.find((x) => x.id === d.taskId)
+  if (!d || !t || t.runId === undefined) return null
+  const job = s.jobs.find((j) => j.id === s.runs.find((r) => r.id === t.runId)?.jobId)
+  const model = d.model ?? t.model
+  return {
+    type: 'task.waiting',
+    ...(job?.projectId !== undefined ? { projectId: job.projectId } : {}),
+    ...(job !== undefined ? { jobId: job.id } : {}),
+    runId: t.runId,
+    taskId: t.id,
+    sessionId,
+    payload: {
+      title: t.title,
+      ...(job !== undefined ? { plan: jobNameOf(job) } : {}),
+      ...(model !== undefined ? { model } : {}),
+      accountId: d.accountId,
+      ...(d.review ? { review: true } : {}),
+      waitingFor
+    }
+  }
 }
 
 // ── Summaries ────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -321,7 +352,7 @@ export function summarize(events: readonly ActivityEvent[], since: string, state
   for (const e of window) if (e.type === 'plan.awaiting-approval' && e.jobId !== undefined) approvals.set(e.jobId, e)
   for (const e of approvals.values()) {
     const j = jobs?.get(e.jobId!)
-    if (jobs === undefined || (j?.pendingStart === true && j.plannerSessionIds !== undefined)) s.awaitingReview.push(itemOf(e))
+    if (jobs === undefined || awaitsApproval(j)) s.awaitingReview.push(itemOf(e))
   }
   for (const e of window) if (e.type === 'plan.done' && e.payload.runOutcome) s.plansDone.push({ ...itemOf(e), outcome: e.payload.runOutcome })
   if (state) {
@@ -350,7 +381,7 @@ export interface ActivityNotice {
 const inPlan = (e: ActivityEvent): string => (e.payload.plan !== undefined && e.payload.plan !== e.payload.title ? ` (${e.payload.plan})` : '')
 
 /** The lines worth interrupting someone for: a Task failed, a plan ended, a question waits on a person, a plan waits
- *  on its approval. A worker waiting at a prompt is not here: the desktop's `inputNeeded` and Slack's own notice
+ *  on its approval. A worker waiting at a prompt (`task.waiting`) is a feed line and not a notice here: the desktop's `inputNeeded` and Slack's own notice
  *  already say it, from the session's attention (desktopNotifier.ts), and a second notice would be the flood. */
 export function noticeOf(e: ActivityEvent): ActivityNotice | null {
   const session = e.sessionId !== undefined ? { sessionId: e.sessionId } : {}

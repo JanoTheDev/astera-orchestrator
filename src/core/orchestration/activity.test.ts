@@ -1,6 +1,7 @@
 // W3-A: the activity feed's lines, summaries and notices (activity.ts).
 import { describe, expect, it } from 'vitest'
 import {
+  waitingActivity,
   createActivityNotices,
   createNoticeThrottle,
   deriveActivity,
@@ -120,12 +121,27 @@ describe('deriveActivity', () => {
     expect(pr).toMatchObject([{ type: 'run.pr', runId: 'r1', payload: { title: 'Plan A', pr: { number: 9 } } }])
   })
 
-  it('a plan awaiting approval: pendingStart with a planner, once', () => {
+  it('#48: a planner starting is no "plan ready" line: that comes at its turn end (host/activity.ts)', () => {
     const awaiting = job({ pendingStart: true, plannerSessionIds: ['ses_p'] })
-    expect(types(deriveActivity(state(), state({ jobs: [awaiting] })))).toEqual(['plan.awaiting-approval'])
+    expect(deriveActivity(state(), state({ jobs: [awaiting] }))).toEqual([])
     expect(deriveActivity(state({ jobs: [awaiting] }), state({ jobs: [{ ...awaiting, title: 'Renamed' }] }))).toEqual([])
-    // Not started yet, but no planner: an ordinary pending start
     expect(deriveActivity(state(), state({ jobs: [job({ pendingStart: true })] }))).toEqual([])
+  })
+
+  it('#42: waitingActivity names the open Dispatch\'s Task, plan, model and account, and why it waits', () => {
+    const s = state({ tasks: [task('a', { status: 'dispatched' })], dispatches: [dispatch('d1', 'a')] })
+    expect(waitingActivity(s, 'ses_d1', 'permission')).toEqual({
+      type: 'task.waiting',
+      projectId: 'p1',
+      jobId: 'j1',
+      runId: 'r1',
+      taskId: 'a',
+      sessionId: 'ses_d1',
+      payload: { title: 'title a', plan: 'Plan A', model: 'sonnet', accountId: 'acc_1', waitingFor: 'permission' }
+    })
+    // An ended Dispatch, or a session that is no Dispatch's (a planner, a plain terminal): no line
+    expect(waitingActivity({ ...s, dispatches: [dispatch('d1', 'a', { endedAt: T0 })] }, 'ses_d1', 'question')).toBeNull()
+    expect(waitingActivity(s, 'ses_other', 'question')).toBeNull()
   })
 
   it('a plan done follows the Task line that ended it; a failure with retries left ends nothing', () => {
