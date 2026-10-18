@@ -4328,6 +4328,12 @@ export function registerIpc(
     if (typeof on !== 'boolean') throw new Error(`INVALID_STALL_WATCH: ${String(on)}`)
     await core.appSettings.setStallWatch(on)
   })
+  // T21: Astera answers the questions it safely can (orchestration/exec/autoAnswer.ts), on by default
+  ipcMain.handle('settings.getAutoAnswer', () => core.appSettings.getAutoAnswer())
+  ipcMain.handle('settings.setAutoAnswer', async (_e, on: unknown) => {
+    if (typeof on !== 'boolean') throw new Error(`INVALID_AUTO_ANSWER: ${String(on)}`)
+    await core.appSettings.setAutoAnswer(on)
+  })
   // W6-G: the subagent cap per tab and the usage guard's threshold
   ipcMain.handle('settings.getMaxSubagentsPerSession', () => core.appSettings.getMaxSubagentsPerSession())
   ipcMain.handle('settings.setMaxSubagentsPerSession', async (_e, n: unknown) => {

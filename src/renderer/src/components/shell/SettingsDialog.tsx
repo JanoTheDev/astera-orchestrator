@@ -20,6 +20,7 @@ import { GithubSettings } from '../GithubSettings'
 import { MaxWorkersSetting } from '../MaxWorkersSetting'
 import { FreshCoordinatorSetting } from '../FreshCoordinatorSetting'
 import { StallWatchSetting } from '../StallWatchSetting'
+import { AutoAnswerSetting } from '../AutoAnswerSetting'
 import { UsageGuardSettings } from '../usage/UsageGuardSettings'
 import { CreativeHubSettings } from '../CreativeHubSettings'
 import { NotificationSettings } from '../NotificationSettings'
@@ -282,6 +283,7 @@ export function SettingsDialog(p: SettingsDialogProps): React.JSX.Element {
                     <MaxWorkersSetting />
                     <FreshCoordinatorSetting />
                     <StallWatchSetting />
+                    <AutoAnswerSetting />
                     {/* W6-G */}
                     <UsageGuardSettings />
                     {/* 작업 이어가기와 재개 전략 — 권한 모드 바로 아래에 둔다. 이어가기는 Job 이

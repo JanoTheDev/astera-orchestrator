@@ -29,6 +29,7 @@ import { usagePauseAtOf, USAGE_PAUSE_AT_DEFAULT } from '../core/orchestration/us
 import { ACTIVITY_DIGEST_DEFAULT_MINUTES, activityDigestMinutesOf } from '../core/settings/activityDigest'
 import { FRESH_COORDINATOR_DEFAULT_PCT, freshCoordinatorPctOf } from '../core/settings/freshCoordinator'
 import { stallWatchOnOf } from '../core/settings/stallWatch'
+import { autoAnswerOnOf } from '../core/orchestration/exec/autoAnswer'
 import { mcpAccessOf } from '../core/settings/mcpAccess'
 import { mcpSessionsOf } from '../core/settings/mcpSessions'
 import { mcpGithubWriteOf } from '../core/settings/mcpGithubWrite'
@@ -133,6 +134,8 @@ export class AppSettingsStore {
   private freshCoordinatorContextPct = FRESH_COORDINATOR_DEFAULT_PCT
   /** Stall watchdog (orchestration/exec/stallWatch.ts): on by default; only an explicit false turns it off. */
   private stallWatch = true
+  /** T21 (orchestration/exec/autoAnswer.ts): on by default; only an explicit false turns it off. */
+  private autoAnswer = true
   /** W6-B: the chime with a notice that needs the owner. On by default; only an explicit false (the file is
    *  user-editable) turns it off, as githubPolling. */
   private alertSound = true
@@ -230,6 +233,7 @@ export class AppSettingsStore {
         (parsed as { freshCoordinatorContextPct?: unknown }).freshCoordinatorContextPct
       )
       this.stallWatch = stallWatchOnOf((parsed as { stallWatch?: unknown }).stallWatch)
+      this.autoAnswer = autoAnswerOnOf((parsed as { autoAnswer?: unknown }).autoAnswer)
       this.alertSound = (parsed as { alertSound?: unknown }).alertSound !== false
       this.autoCloseEndedPlanTabs = (parsed as { autoCloseEndedPlanTabs?: unknown }).autoCloseEndedPlanTabs !== false // W7-F (#84)
       // Narrowed on read, like generator and terminalFont and for the same reason: the file is
@@ -305,6 +309,8 @@ export class AppSettingsStore {
         this.activityDigestMinutes = ACTIVITY_DIGEST_DEFAULT_MINUTES
         this.freshCoordinatorContextPct = FRESH_COORDINATOR_DEFAULT_PCT
         this.stallWatch = true
+      this.autoAnswer = true
+        this.autoAnswer = true
         this.alertSound = true
         this.autoCloseEndedPlanTabs = true
         this.desktopNotify = { ...DESKTOP_NOTIFY_DEFAULTS }
@@ -597,6 +603,15 @@ export class AppSettingsStore {
     await this.persist()
   }
 
+  getAutoAnswer(): boolean {
+    return this.autoAnswer
+  }
+
+  async setAutoAnswer(on: boolean): Promise<void> {
+    this.autoAnswer = on !== false
+    await this.persist()
+  }
+
   getAlertSound(): boolean {
     return this.alertSound
   }
@@ -764,6 +779,7 @@ export class AppSettingsStore {
       activityDigestMinutes?: number
       freshCoordinatorContextPct?: number
       stallWatch?: false
+      autoAnswer?: false
       alertSound?: false
       autoCloseEndedPlanTabs?: false
       desktopNotify?: DesktopNotifySettings
@@ -808,6 +824,7 @@ export class AppSettingsStore {
     if (this.activityDigestMinutes !== ACTIVITY_DIGEST_DEFAULT_MINUTES) data.activityDigestMinutes = this.activityDigestMinutes
     if (this.freshCoordinatorContextPct !== FRESH_COORDINATOR_DEFAULT_PCT) data.freshCoordinatorContextPct = this.freshCoordinatorContextPct
     if (!this.stallWatch) data.stallWatch = false
+    if (!this.autoAnswer) data.autoAnswer = false
     if (!this.alertSound) data.alertSound = false
     if (!this.autoCloseEndedPlanTabs) data.autoCloseEndedPlanTabs = false // W7-F (#84)
     // Written only while the question is still open, which is the same one-sided rule as the two

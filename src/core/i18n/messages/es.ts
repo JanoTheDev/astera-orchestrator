@@ -1719,5 +1719,8 @@ export const es: Catalog = {
   'plan.wave.coordinatorRefreshed': 'Coordinador renovado ({reason})',
   'settings.stallWatch.label': 'Vigilar planes detenidos',
   'settings.stallWatch.hint': 'Cada 30 segundos Astera revisa cada plan en marcha: una Task lista sin empezar durante 2 minutos con un hueco libre, un coordinador ocupado durante minutos sin empezar nada, una Task completada que no está en la rama del plan, un PR borrador que no se abrió tras una oleada. Avisa al coordinador o lo arregla él mismo, con una línea en el feed por acción. Nunca cancela trabajo ni fusiona en main.',
-  'settings.stallWatch.saveFailed': 'No se pudo guardar el ajuste de vigilancia de planes detenidos: {detail}'
+  'settings.stallWatch.saveFailed': 'No se pudo guardar el ajuste de vigilancia de planes detenidos: {detail}',
+  'settings.autoAnswer.label': 'Responder preguntas automáticamente',
+  'settings.autoAnswer.hint': 'Astera responde por sí mismo las preguntas de un plan cuando puede hacerlo con seguridad: con lo que sabe (si una Task se fusionó, si una oleada terminó) o con la recomendación de quien pregunta o la opción segura (esperar, retener, reintentar una vez, saltar la comprobación). Una línea en el feed por respuesta. Borrar trabajo, enviar o fusionar en la rama principal, dinero, credenciales y permisos siempre te llegan a ti.',
+  'settings.autoAnswer.saveFailed': 'No se pudo guardar el ajuste de respuestas automáticas: {detail}'
 }
