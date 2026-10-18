@@ -3,8 +3,9 @@ import type { ReactNode } from 'react'
 import { themeCssVars } from '../../../core/theme/apply'
 import {
   DEFAULT_THEME_ID,
-  isThemeId,
+  resolveThemeId,
   themeById,
+  themeIdOf,
   type Theme,
   type ThemeId
 } from '../../../core/theme/themes'
@@ -13,33 +14,47 @@ import {
  *  localStorage 는 동기라 그것이 없다 — cm.md.viewMode 와 같은 패턴. */
 const KEY = 'astera.theme'
 
+/** Old ids (upstream's seven palettes) map to night, `light` to day — themeIdOf. */
 function readMirror(): ThemeId {
-  const v = localStorage.getItem(KEY)
-  return isThemeId(v) ? v : DEFAULT_THEME_ID
+  return themeIdOf(localStorage.getItem(KEY))
+}
+
+const DARK_QUERY = '(prefers-color-scheme: dark)'
+
+function prefersDark(): boolean {
+  return window.matchMedia?.(DARK_QUERY).matches ?? true
+}
+
+/** The palette an id shows right now: `system` asks the OS. */
+function paletteOf(id: ThemeId): Theme {
+  return themeById(resolveThemeId(id, prefersDark()))
 }
 
 export function applyTheme(theme: Theme): void {
   const root = document.documentElement
   for (const [name, value] of Object.entries(themeCssVars(theme))) root.style.setProperty(name, value)
-  // 색을 바꾸지는 않는다. devtools 에서 현재 테마가 보이고, "이 테마만" 예외가 필요할 때의 탈출구다.
-  // 그 탈출구는 styles.css 의 '테마별 예외' 절이 쓴다 — 지금은 Sirius 의 입력칸 하나뿐이다.
-  // 변수 표로 낼 수 있는 것은 그쪽(core/theme/themes.ts)에 두고, 여기로 오는 것은 표로 말할 수
-  // 없는 것 — 한 테마에서만 규칙의 방향이 뒤집히는 경우 — 로 한정한다.
+  // data-theme names the palette on screen (never `system`), so a rule that must differ per palette can
+  // select on it; color-scheme makes native controls and scrollbars follow light or dark.
   root.dataset.theme = theme.id
+  root.style.colorScheme = theme.scheme
 }
 
 /** main.tsx 가 createRoot 전에 부른다. */
 export function bootTheme(): void {
-  applyTheme(themeById(readMirror()))
+  applyTheme(paletteOf(readMirror()))
 }
 
 interface ThemeValue {
+  /** The palette on screen. */
   theme: Theme
+  /** What the person picked — may be `system`. */
+  themeId: ThemeId
   setThemeId: (id: ThemeId) => void
 }
 
 const Ctx = createContext<ThemeValue>({
   theme: themeById(DEFAULT_THEME_ID),
+  themeId: DEFAULT_THEME_ID,
   setThemeId: () => {}
 })
 
@@ -51,23 +66,34 @@ export function ThemeProvider({ children }: { children: ReactNode }): ReactNode 
     void window.api.settings
       .getTheme()
       .then((stored) => {
-        const next = isThemeId(stored) ? stored : DEFAULT_THEME_ID
+        const next = themeIdOf(stored)
         setId(next)
         localStorage.setItem(KEY, next)
       })
       .catch(() => {}) // 실패하면 미러 값이 남는다 — 앱은 계속 쓸 수 있어야 한다
   }, [])
 
+  // Bumped when the OS flips light/dark, so `system` follows it live.
+  const [, setOsTick] = useState(0)
   useEffect(() => {
-    applyTheme(themeById(id))
+    if (id !== 'system' || !window.matchMedia) return
+    const mq = window.matchMedia(DARK_QUERY)
+    const onChange = (): void => setOsTick((n) => n + 1)
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
   }, [id])
+
+  const theme = paletteOf(id)
+  useEffect(() => {
+    applyTheme(theme)
+  }, [theme])
 
   const setThemeId = useCallback((next: ThemeId) => {
     setId(next) // 낙관적. 호출자가 실패를 알리고 되돌린다
     localStorage.setItem(KEY, next)
   }, [])
 
-  return <Ctx.Provider value={{ theme: themeById(id), setThemeId }}>{children}</Ctx.Provider>
+  return <Ctx.Provider value={{ theme, themeId: id, setThemeId }}>{children}</Ctx.Provider>
 }
 
 export function useTheme(): ThemeValue {

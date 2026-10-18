@@ -669,7 +669,8 @@ export const en: Record<keyof typeof ko, string> = {
   // ThemeSettings.tsx — the theme card grid
   'settings.theme.label': 'Theme',
   'settings.theme.hint':
-    'Changes colours, corners and typeface together. The terminal font is chosen separately below.',
+    'Night, Dusk and Day change colours only; System follows the OS (light → Day, dark → Night). The terminal font is chosen separately below.',
+  'settings.theme.system': 'System',
   'settings.theme.saveFailed': 'Could not save the theme: {detail}',
   // ResumeStrategySettings.tsx — the two-way resume strategy picker
   'settings.resumeStrategy.label': 'Session resume strategy',

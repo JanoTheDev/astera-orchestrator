@@ -722,7 +722,9 @@ export const ko = {
   'settings.history.deleteFailed': '{count}개는 지우지 못했습니다.',
   // ThemeSettings.tsx — the theme card grid
   'settings.theme.label': '테마',
-  'settings.theme.hint': '색과 모서리, 서체가 함께 바뀝니다. 터미널 폰트는 아래에서 따로 고릅니다.',
+  'settings.theme.hint':
+    'Night·Dusk·Day 는 색만 바뀝니다. 시스템은 OS 를 따릅니다(라이트 → Day, 다크 → Night). 터미널 폰트는 아래에서 따로 고릅니다.',
+  'settings.theme.system': '시스템',
   'settings.theme.saveFailed': '테마 저장 실패: {detail}',
   // ResumeStrategySettings.tsx — the two-way resume strategy picker
   'settings.resumeStrategy.label': '세션 재개 방식',

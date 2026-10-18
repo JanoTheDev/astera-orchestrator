@@ -464,7 +464,8 @@ export const es: Catalog = {
   // ThemeSettings.tsx — the theme card grid
   'settings.theme.label': 'Tema',
   'settings.theme.hint':
-    'Cambia colores, esquinas y tipografía a la vez. La fuente del terminal se elige aparte, más abajo.',
+    'Night, Dusk y Day solo cambian los colores; Sistema sigue al sistema operativo (claro → Day, oscuro → Night). La fuente del terminal se elige aparte, más abajo.',
+  'settings.theme.system': 'Sistema',
   'settings.theme.saveFailed': 'No se pudo guardar el tema: {detail}',
   // ResumeStrategySettings.tsx — the two-way resume strategy picker
   'settings.resumeStrategy.label': 'Estrategia de reanudación de sesión',

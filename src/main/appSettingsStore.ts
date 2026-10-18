@@ -3,7 +3,7 @@ import path from 'node:path'
 import { isLang, type Lang } from '../core/i18n'
 import { sanitizeFontFamily } from '../core/terminal/font'
 import type { TerminalFont } from '../core/terminal/font'
-import { DEFAULT_THEME_ID, isThemeId, type ThemeId } from '../core/theme/themes'
+import { DEFAULT_THEME_ID, isThemeId, themeIdOf, type ThemeId } from '../core/theme/themes'
 import type { AgentPermissionMode, McpAccess, ResumeStrategy, SessionKind } from '../core/types'
 import { applyContinuityToggle } from '../core/continuity/settings'
 import {
@@ -267,7 +267,7 @@ export class AppSettingsStore {
             }
           : { latin: null, hangul: null }
       const theme = (parsed as { theme?: unknown }).theme
-      this.theme = isThemeId(theme) ? theme : DEFAULT_THEME_ID
+      this.theme = themeIdOf(theme) // old ids → night, light → day (DESIGN.md §13)
       // Narrowed to === 'chat' — the file is user-editable, so anything else reads as the default
       // 'terminal', the same one-sided narrowing agentPermissionMode uses above. With the new key
       // absent the old one it replaced is read instead: its 'conversation' meant "open on the

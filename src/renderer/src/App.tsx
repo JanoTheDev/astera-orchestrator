@@ -3,7 +3,7 @@ import type { Account, CliInstallStatus, CliStatus, HistoryEntry, HostDriverRepo
 import type { UnattendedPermission } from '../../core/chat/types'
 import type { Lang, MessageKey } from '../../core/i18n'
 import { CATALOGS, LANGS } from '../../core/i18n'
-import logoUrl from './assets/logo.png'
+import logoUrl from './assets/mark.svg'
 import { AccountPanel } from './components/AccountPanel'
 import { AccountSettings } from './components/AccountSettings'
 import { HistorySettings } from './components/HistorySettings'

@@ -1,4 +1,4 @@
-import { DEFAULT_THEME_ID, isThemeId, themeById, type Theme } from '../core/theme/themes'
+import { DEFAULT_THEME_ID, themeById, themeIdOf, type Theme } from '../core/theme/themes'
 // The order the app starts in, pulled out of index.ts so it can be tested without Electron.
 //
 // On macOS and Linux the login-shell PATH probe (loginPath.ts: `$SHELL -ilc`, up to 5 s) used to run
@@ -80,7 +80,7 @@ export async function storedTheme(read: () => Promise<string>): Promise<Theme> {
   try {
     const parsed: unknown = JSON.parse(await read())
     const id = parsed !== null && typeof parsed === 'object' ? (parsed as { theme?: unknown }).theme : undefined
-    return themeById(isThemeId(id) ? id : DEFAULT_THEME_ID)
+    return themeById(themeIdOf(id))
   } catch {
     return themeById(DEFAULT_THEME_ID)
   }
@@ -97,7 +97,7 @@ export function startingPageUrl(text: string, theme: Theme = themeById(DEFAULT_T
   const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   const c = theme.colors
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>Astera</title><style>
-:root{color-scheme:dark;--bg:${c.bg};--fg:${c.text};--muted:${c.textDim};--ring:${c.line};--accent:${c.accent}}
+:root{color-scheme:${theme.scheme};--bg:${c.bg};--fg:${c.text};--muted:${c.textDim};--ring:${c.line};--accent:${c.accent}}
 html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font:13px system-ui,-apple-system,sans-serif}
 body{display:flex;align-items:center;justify-content:center;-webkit-app-region:drag}
 .box{display:flex;flex-direction:column;align-items:center;gap:12px}

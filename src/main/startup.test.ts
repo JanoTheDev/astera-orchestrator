@@ -119,13 +119,19 @@ describe('startingPageUrl', () => {
   // as the login shell took (up to six seconds), then the app came up dark — every theme the app has
   // is dark. The page now wears the app's theme, whatever the OS says.
   it('wears the theme it is given, and never switches to a light page with the OS', () => {
-    const orion = themeById('orion')
-    const html = decodeURIComponent(startingPageUrl('x', orion).slice('data:text/html;charset=utf-8,'.length))
-    expect(html).toContain(orion.colors.bg)
-    expect(html).toContain(orion.colors.text)
+    const dusk = themeById('dusk')
+    const html = decodeURIComponent(startingPageUrl('x', dusk).slice('data:text/html;charset=utf-8,'.length))
+    expect(html).toContain(dusk.colors.bg)
+    expect(html).toContain(dusk.colors.text)
     expect(html).not.toContain('prefers-color-scheme')
     expect(html).not.toContain('#ffffff')
     expect(html).toContain('color-scheme:dark')
+  })
+
+  it('a light theme gets a light page', () => {
+    const html = decodeURIComponent(startingPageUrl('x', themeById('day')).slice('data:text/html;charset=utf-8,'.length))
+    expect(html).toContain(themeById('day').colors.bg)
+    expect(html).toContain('color-scheme:light')
   })
 
   it('wears the default theme when given none', () => {
@@ -136,7 +142,7 @@ describe('startingPageUrl', () => {
 
 describe('storedTheme', () => {
   it('reads the theme app-settings.json names', async () => {
-    expect((await storedTheme(async () => JSON.stringify({ theme: 'orion' }))).id).toBe('orion')
+    expect((await storedTheme(async () => JSON.stringify({ theme: 'dusk' }))).id).toBe('dusk')
   })
   it('falls back to the default for a missing file, a damaged one or an unknown theme', async () => {
     for (const read of [

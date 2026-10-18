@@ -456,7 +456,9 @@ export const ja: Catalog = {
   'settings.history.deleteFailed': '{count} 件は削除できませんでした。',
   // ThemeSettings.tsx — the theme card grid
   'settings.theme.label': 'テーマ',
-  'settings.theme.hint': '色・角丸・書体がまとめて変わります。ターミナルのフォントは下で個別に選びます。',
+  'settings.theme.hint':
+    'Night・Dusk・Day は色だけが変わります。システムは OS に従います(ライト → Day、ダーク → Night)。ターミナルのフォントは下で個別に選びます。',
+  'settings.theme.system': 'システム',
   'settings.theme.saveFailed': 'テーマを保存できませんでした: {detail}',
   // ResumeStrategySettings.tsx — the two-way resume strategy picker
   'settings.resumeStrategy.label': 'セッション再開方法',

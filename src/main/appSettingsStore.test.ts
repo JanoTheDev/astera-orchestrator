@@ -218,7 +218,7 @@ describe('orchAlwaysOnMigration', () => {
     expect(JSON.parse(await fs.readFile(file(), 'utf8')).orchestrationEnabled).toBeUndefined()
 
     // 그 뒤의 평범한 저장도 다시 쓰지 않는다.
-    await first.setTheme('umbra')
+    await first.setTheme('night')
     const onDisk = JSON.parse(await fs.readFile(file(), 'utf8'))
     expect(onDisk.orchestrationEnabled).toBeUndefined()
     expect(onDisk.orchAlwaysOnMigrated).toBe(true)
@@ -236,7 +236,7 @@ describe('orchAlwaysOnMigration', () => {
     await fs.writeFile(file(), JSON.stringify({ orchestrationEnabled: true, lang: 'en' }), 'utf8')
     const first = new AppSettingsStore(file())
     await first.load()
-    await first.setTheme('umbra') // 마이그레이션에 닿지 못한 실행에서의 평범한 저장
+    await first.setTheme('night') // 마이그레이션에 닿지 못한 실행에서의 평범한 저장
     expect(JSON.parse(await fs.readFile(file(), 'utf8')).orchestrationEnabled).toBe(true)
 
     // 그래서 다음 실행도 여전히 "켜져 있었다" 를 읽는다 — 세우라고 답하지 않는다.
@@ -245,7 +245,7 @@ describe('orchAlwaysOnMigration', () => {
     expect(later.orchAlwaysOnMigration()).toEqual({ pause: false })
   })
 
-  // 여러 번 반복해도 쌓이는 것이 없다 — 같은 키 하나가 다시 쓰일 뿐이다. 'vega' 를 쓰는 것은
+  // 여러 번 반복해도 쌓이는 것이 없다 — 같은 키 하나가 다시 쓰일 뿐이다. 'dusk' 를 쓰는 것은
   // 기본 테마가 파일에 적히지 않기 때문이다: 기본값으로 저장하면 "상관없는 저장이 일어났다" 자체를
   // 이 테스트가 보여 주지 못한다.
   it('마이그레이션에 끝내 닿지 못해도 파일은 자라지 않는다', async () => {
@@ -253,12 +253,12 @@ describe('orchAlwaysOnMigration', () => {
     for (let i = 0; i < 3; i++) {
       const s = new AppSettingsStore(file())
       await s.load()
-      await s.setTheme('vega')
+      await s.setTheme('dusk')
     }
     expect(JSON.parse(await fs.readFile(file(), 'utf8'))).toEqual({
       lang: 'en',
       orchestrationEnabled: true,
-      theme: 'vega'
+      theme: 'dusk'
     })
   })
 
@@ -268,14 +268,14 @@ describe('orchAlwaysOnMigration', () => {
     await fs.writeFile(file(), JSON.stringify({ lang: 'en' }), 'utf8')
     const s = new AppSettingsStore(file())
     await s.load()
-    await s.setTheme('vega')
+    await s.setTheme('dusk')
     expect('orchestrationEnabled' in JSON.parse(await fs.readFile(file(), 'utf8'))).toBe(false)
   })
 
   it('설정 파일이 없던 프로필에도 만들어 넣지 않는다', async () => {
     const s = new AppSettingsStore(file())
     await s.load()
-    await s.setTheme('vega')
+    await s.setTheme('dusk')
     expect('orchestrationEnabled' in JSON.parse(await fs.readFile(file(), 'utf8'))).toBe(false)
   })
 
@@ -666,10 +666,10 @@ describe('terminalFont', () => {
 })
 
 describe('theme', () => {
-  it('아무것도 저장하지 않았으면 기본은 umbra', async () => {
+  it('아무것도 저장하지 않았으면 기본은 night', async () => {
     const store = new AppSettingsStore(file())
     await store.load()
-    expect(store.getTheme()).toBe('umbra')
+    expect(store.getTheme()).toBe('night')
   })
 
   // 기본값이 아닌 테마로 왕복시킨다 — 기본값을 쓰면 파일에 키가 없어도(생략 규칙) 통과해 버려서
@@ -678,11 +678,11 @@ describe('theme', () => {
     const filePath = file()
     const store = new AppSettingsStore(filePath)
     await store.load()
-    await store.setTheme('vega')
+    await store.setTheme('dusk')
 
     const again = new AppSettingsStore(filePath)
     await again.load()
-    expect(again.getTheme()).toBe('vega')
+    expect(again.getTheme()).toBe('dusk')
   })
 
   it('파일에 든 알 수 없는 테마 이름은 기본값으로 떨어진다', async () => {
@@ -691,14 +691,28 @@ describe('theme', () => {
     await fs.writeFile(filePath, JSON.stringify({ theme: 'darcula' }), 'utf8')
     const store = new AppSettingsStore(filePath)
     await store.load()
-    expect(store.getTheme()).toBe('umbra')
+    expect(store.getTheme()).toBe('night')
+  })
+
+  // DESIGN.md §13: upstream's seven palettes are gone. A file written before Wave 9 still names one.
+  it.each([
+    ['umbra', 'night'],
+    ['vega', 'night'],
+    ['sirius', 'night'],
+    ['light', 'day']
+  ])('maps the old theme id %s to %s on load', async (old, now) => {
+    const filePath = file()
+    await fs.writeFile(filePath, JSON.stringify({ theme: old }), 'utf8')
+    const store = new AppSettingsStore(filePath)
+    await store.load()
+    expect(store.getTheme()).toBe(now)
   })
 
   it('기본 테마는 파일에 쓰지 않는다 — 다른 필드의 falsy 생략 관례와 같다', async () => {
     const filePath = file()
     const store = new AppSettingsStore(filePath)
     await store.load()
-    await store.setTheme('umbra')
+    await store.setTheme('night')
     expect(JSON.parse(await fs.readFile(filePath, 'utf8'))).not.toHaveProperty('theme')
   })
 
@@ -708,12 +722,12 @@ describe('theme', () => {
     const store = new AppSettingsStore(filePath)
     await store.load()
     await store.setTerminalFont({ latin: 'Consolas', hangul: null })
-    await store.setTheme('quasar')
+    await store.setTheme('day')
 
     const again = new AppSettingsStore(filePath)
     await again.load()
     expect(again.getTerminalFont()).toEqual({ latin: 'Consolas', hangul: null })
-    expect(again.getTheme()).toBe('quasar')
+    expect(again.getTheme()).toBe('day')
   })
 })
 
@@ -931,7 +945,7 @@ describe('AppSettingsStore first-run question', () => {
   // The one that matters most: someone who has been using the app since before this question existed
   // has a settings file with no such key, and must not be interrupted by it.
   it('is treated as asked for a settings file written before it existed', async () => {
-    await fs.writeFile(file(), JSON.stringify({ lang: 'ko', theme: 'vega' }), 'utf8')
+    await fs.writeFile(file(), JSON.stringify({ lang: 'ko', theme: 'dusk' }), 'utf8')
     const store = new AppSettingsStore(file())
     await store.load()
     expect(store.getFirstRunAsked()).toBe(true)

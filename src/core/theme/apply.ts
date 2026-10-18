@@ -1,5 +1,5 @@
 import { withAlpha } from './color'
-import { DEFAULT_MONO, type Density, type Theme } from './themes'
+import { DEFAULT_MONO, SANS, type Density, type Theme } from './themes'
 
 interface DensityValues {
   rowPadY: string
@@ -16,51 +16,73 @@ export const DENSITY: Record<Density, DensityValues> = {
   roomy: { rowPadY: '6px', tabbarH: '38px', selH: '34px', modalPad: '24px' }
 }
 
+/** Shape is the same in every theme (DESIGN.md §9): flat buttons at radius 6, cards at 10, small marks at 4. */
+const SHAPE = { radius: '6px', radiusLg: '10px', radiusSm: '4px', markerW: '2px' }
+const SHADOW = {
+  dark: { sm: '0 1px 2px rgba(0,0,0,.35)', lg: '0 10px 28px rgba(0,0,0,.55)' },
+  light: { sm: '0 1px 2px rgba(22,24,29,.08)', lg: '0 10px 28px rgba(22,24,29,.16)' }
+}
+
 /** 테마를 CSS 변수 표로 펼친다. 프로바이더가 이 표를 documentElement 에 심는다.
- *  DOM 을 만지지 않으므로 여기 있다 — markdownView.ts 와 같은 분리. */
+ *  DOM 을 만지지 않으므로 여기 있다 — markdownView.ts 와 같은 분리.
+ *  The names before `--hover` are the stylesheet's older ones, kept so every rule still reads them;
+ *  each now derives from a §9 token. */
 export function themeCssVars(theme: Theme): Record<string, string> {
   const c = theme.colors
-  const d = DENSITY[theme.density]
+  const d = DENSITY.normal
+  const shadow = SHADOW[theme.scheme]
   return {
     '--bg': c.bg,
-    '--rail': c.rail,
+    '--rail': c.bg,
     '--panel': c.panel,
     '--elevated': c.elevated,
-    '--surface-hover': c.surfaceHover,
+    '--surface-hover': c.hover,
     '--term-bg': c.termBg,
     '--line': c.line,
-    '--line-soft': c.lineSoft,
+    '--line-soft': c.line,
     '--text': c.text,
     '--text-dim': c.textDim,
     '--text-faint': c.textFaint,
-    '--rail-icon': c.railIcon,
+    '--rail-icon': c.textDim,
     '--accent': c.accent,
     '--accent-ink': c.accentInk,
     '--ring': withAlpha(c.accent, 0.35),
-    '--status-bg': c.statusBg,
-    '--status-ink': c.statusInk,
-    // 프리뷰는 테마를 따라간다. Orion 에서 이 넷은 IntelliJ 실측값과 같아진다.
+    '--status-bg': c.panel,
+    '--status-ink': c.textDim,
+    // 프리뷰는 테마를 따라간다.
     '--md-bg': c.bg,
     '--md-text': c.text,
     '--md-code-bg': c.elevated,
     '--md-line': c.line,
-    '--md-link': c.mdLink,
+    '--md-link': c.accent,
     '--btn-bg': c.accent,
     '--btn-ink': c.accentInk,
     '--btn-border': 'transparent',
-    '--radius': theme.radius.base,
-    '--radius-lg': theme.radius.lg,
-    '--radius-sm': theme.radius.sm,
-    '--marker-w': theme.markerW,
-    '--shadow-sm': theme.shadow.sm,
-    '--shadow-lg': theme.shadow.lg,
+    '--hover': c.hover,
+    '--accent-soft': c.accentSoft,
+    '--ok': c.ok,
+    '--ok-soft': c.okSoft,
+    '--ok-bg': c.okSoft,
+    '--warn': c.warn,
+    '--warn-soft': c.warnSoft,
+    '--warn-bg': c.warnSoft,
+    '--warn-ink': c.warn,
+    '--danger': c.danger,
+    '--danger-soft': c.dangerSoft,
+    '--danger-bg': c.dangerSoft,
+    '--radius': SHAPE.radius,
+    '--radius-lg': SHAPE.radiusLg,
+    '--radius-sm': SHAPE.radiusSm,
+    '--marker-w': SHAPE.markerW,
+    '--shadow-sm': shadow.sm,
+    '--shadow-lg': shadow.lg,
     '--row-pad-y': d.rowPadY,
     '--pane-tabbar-h': d.tabbarH,
     '--sel-h': d.selH,
     '--modal-pad': d.modalPad,
-    '--sans': theme.font.sans,
-    '--mono': theme.font.mono ?? DEFAULT_MONO,
-    '--tracking': theme.font.tracking
+    '--sans': SANS,
+    '--mono': DEFAULT_MONO,
+    '--tracking': '0'
   }
 }
 

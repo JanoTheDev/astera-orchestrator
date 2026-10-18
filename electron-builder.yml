@@ -7,8 +7,6 @@ files:
   # The ?asset icons imported by main (resources/icon.png, resources/tray.png) are resolved at
   # runtime through __dirname/../../resources, so resources must ship inside the package.
   - resources/**
-  # logo-source.png is the input to scripts/gen-icon.ps1 and is never read at runtime.
-  - '!resources/logo-source.png'
   # The skills directory also ships through extraResources below, and that is the copy the app reads
   # (skillsPath = process.resourcesPath/skills when packaged). Keeping it out of the asar avoids
   # shipping the same document twice.
