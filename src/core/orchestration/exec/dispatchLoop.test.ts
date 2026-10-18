@@ -1846,7 +1846,7 @@ describe('wave replanning (W6-D)', () => {
     h.setState({
       ...s,
       jobs: s.jobs.map((j) => (j.id === 'job_1' ? { ...j, plannerSessionIds: ['ses-planner'], coordinatorAccountId: 'accA', concurrency: 2 } : j)),
-      tasks: s.tasks.map((t) => tasks({ ...t, prompt: 'p', acceptanceCriteria: ['c'], ...(t.id === 'tsk_2' ? { deps: ['tsk_1'] } : {}) }))
+      tasks: s.tasks.map((t) => tasks({ ...t, prompt: 'p', acceptanceCriteria: ['c'], basis: { state: 'missing', evidence: 'e' }, ...(t.id === 'tsk_2' ? { deps: ['tsk_1'] } : {}) }))
     })
   }
 
@@ -1868,7 +1868,7 @@ describe('wave replanning (W6-D)', () => {
     planned(h, (t) => t)
     const s = h.state()
     h.setState({ ...s, runs: s.runs.map((r) => ({ ...r, worktree: '/wt-run' })) })
-    h.ctx.handle = async (cmd, args) => (cmd === 'run-open-pr' ? { status: 200, body: { url: 'u' } } : h.real(cmd, args))
+    h.ctx.handle = async (cmd, args) => (cmd === 'run-deliver' ? { status: 200, body: { url: 'u' } } : h.real(cmd, args))
     h.startWorker.mockImplementation(async () => ({ sessionId: 'w', cwd: '/wt-run', specPath: 'x' }))
     await h.loop.run()
     await h.settle()
@@ -1882,7 +1882,7 @@ describe('wave replanning (W6-D)', () => {
     expect((await h.as(session, 'jobs-replan-done', { id: 'job_1', summary: 'meets the objective' })).status).toBe(200)
     await h.loop.run()
     await h.settle()
-    expect(h.handled().filter((c) => c === 'run-open-pr')).toHaveLength(1)
+    expect(h.handled().filter((c) => c === 'run-deliver')).toHaveLength(1)
   })
 
   it('ends a replan whose planner session is gone', async () => {

@@ -54,6 +54,9 @@ const plan = (title: string, extra: Record<string, unknown> = {}) => ({
   prompt: `Build ${title}.`,
   criteria: [`${title} works`],
   affectedPaths: [`src/${title}.ts`],
+  // W6-A: validatePlan asks every planned Task why it is needed
+  basis: 'missing',
+  evidence: `no ${title} in src/`,
   ...extra
 })
 
