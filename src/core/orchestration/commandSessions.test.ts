@@ -154,7 +154,7 @@ describe('sessions send --wait — the turn after the send', () => {
   const terminal: HostSession = { id: 't1', kind: 'terminal', title: 't', accountId: 'acc_c', cwd: 'D:/p', alive: true, state: 'waiting' }
   const codexTerminal: HostSession = { ...terminal, id: 't2', accountId: 'acc_x' }
   const chat: HostSession = { ...terminal, id: 'c1', kind: 'chat', state: 'unknown' }
-  type Turn = { alive: boolean; state: 'working' | 'waiting' | 'unknown'; prompt: 'permission' | 'question' | null }
+  type Turn = { alive: boolean; state: 'working' | 'waiting' | 'idle' | 'unknown'; prompt: 'permission' | 'question' | null }
   type ChatTurnState = { alive: boolean; status: 'idle' | 'working' | 'waiting'; error: string | null; prompt: unknown }
 
   const hostDeps = (a: { turns?: Turn[]; chatTurns?: Array<ChatTurnState | undefined> } = {}) => {
@@ -179,12 +179,12 @@ describe('sessions send --wait — the turn after the send', () => {
     handleCommand(deps, { sessionId: '' }, 'sessions-send', args)
   const turnOf = (r: { body: unknown }): Record<string, unknown> => (r.body as { turn: Record<string, unknown> }).turn
 
-  it('a terminal turn ends when its hook state reaches waiting with no prompt', async () => {
+  it('a terminal turn ends when its hook state reaches idle (W7-C #75: a finished turn is idle)', async () => {
     const h = hostDeps({
       turns: [
         { alive: true, state: 'unknown', prompt: null },
         { alive: true, state: 'working', prompt: null },
-        { alive: true, state: 'waiting', prompt: null }
+        { alive: true, state: 'idle', prompt: null }
       ]
     })
     const r = await send(h.deps, { id: 't1', text: 'run the tests', wait: true })

@@ -238,7 +238,7 @@ describe('Remote Runtime Phase 9a acceptance (remote sessions over the link)', {
     stop()
   })
 
-  it('a Codex terminal’s facts are unknown until a turn completes in its rollout, then waiting, with Slack off', async () => {
+  it('a Codex terminal’s facts are unknown until a turn completes in its rollout, then idle (W7-C #75), with Slack off', async () => {
     const rt = await runtime()
     const rollout = path.join(dir, 'rollout.jsonl')
     await fs.writeFile(rollout, '', 'utf8')
@@ -247,7 +247,7 @@ describe('Remote Runtime Phase 9a acceptance (remote sessions over the link)', {
     expect(body<{ status: string; prompt: string }>(await link.call('sessions-facts', { id: 'codex-1' }))).toMatchObject({ status: 'unknown', prompt: 'unknown' })
     appendFileSync(rollout, JSON.stringify({ timestamp: new Date().toISOString(), type: 'event_msg', payload: { type: 'task_started' } }) + NL)
     appendFileSync(rollout, JSON.stringify({ timestamp: new Date().toISOString(), type: 'event_msg', payload: { type: 'task_complete' } }) + NL)
-    await eventually(async () => expect(body<{ status: string }>(await link.call('sessions-facts', { id: 'codex-1' })).status).toBe('waiting'))
+    await eventually(async () => expect(body<{ status: string }>(await link.call('sessions-facts', { id: 'codex-1' })).status).toBe('idle'))
   })
 
   it('a session rolled while the controller was away is found by what it was rolled from', async () => {

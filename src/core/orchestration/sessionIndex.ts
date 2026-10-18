@@ -234,10 +234,10 @@ export function needsInput(input: SessionIndexInput, index: readonly IndexedSess
 }
 
 /** W6-B: an escalation still waits on the owner while its Run has work left and its Task (when it names one) has not
- *  ended. Nothing answers an escalation (`reply` takes only a question), so the owner's move is what ends it: they
- *  finish or cancel the Task, or the plan ends. */
+ *  ended, and (W7-C #72) until the owner answers it (`questions answer`, the card's answer box). */
 export function escalationOpen(m: Message, taskById: ReadonlyMap<string, Task>, runTasks: readonly Task[]): boolean {
-  if (m.type !== 'escalation' || outcomeOfTasks(runTasks) !== 'running') return false
+  // W7-C (#72): the owner answered it (answerEscalation)
+  if (m.type !== 'escalation' || m.answered || outcomeOfTasks(runTasks) !== 'running') return false
   const task = m.taskId === undefined ? undefined : taskById.get(m.taskId)
   return task === undefined || !isTerminal(task)
 }

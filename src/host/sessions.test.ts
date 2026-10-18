@@ -217,11 +217,11 @@ describe('registrySessions — state', () => {
     return { ...h, dir, event, stateOf }
   }
 
-  it('flips with the last event: Stop is waiting, a tool call is working, a permission prompt is waiting', async () => {
+  it('flips with the last event: Stop is idle (W7-C #75), a tool call is working, a permission prompt is waiting', async () => {
     const { event, stateOf } = withEvents()
     expect(await stateOf('ses-1')).toBe('unknown')
     event('ses-1', { hook_event_name: 'Stop', session_id: 'native-uuid' })
-    expect(await stateOf('ses-1')).toBe('waiting')
+    expect(await stateOf('ses-1')).toBe('idle')
     event('ses-1', { hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_use_id: 't1' })
     expect(await stateOf('ses-1')).toBe('working')
     event('ses-1', { hook_event_name: 'Notification', notification_type: 'permission_prompt', message: 'needs permission' })
@@ -239,7 +239,7 @@ describe('registrySessions — state', () => {
     event('ses-1', { hook_event_name: 'PreToolUse', tool_name: 'AskUserQuestion', tool_use_id: 'q1' })
     expect(await row()).toMatchObject({ state: 'waiting', prompt: 'question' })
     event('ses-1', { hook_event_name: 'Stop' })
-    expect(await row()).toMatchObject({ state: 'waiting' })
+    expect(await row()).toMatchObject({ state: 'idle' })
     expect((await row())?.prompt).toBeUndefined()
   })
 
@@ -271,7 +271,7 @@ describe('registrySessions — state', () => {
     clock.now = 999_000
     ptys.write('pty-a', 'x')
     event('ses-1', { hook_event_name: 'Stop' }, 1_000_000)
-    expect(await stateOf('ses-1')).toBe('waiting')
+    expect(await stateOf('ses-1')).toBe('idle')
   })
 
   // `sessions send` types through the same registry, so it counts as input like any other.
@@ -332,11 +332,11 @@ describe('registrySessions — state', () => {
 
   // UserPromptSubmit and StopFailure are async hooks, so their captures can land out of order. The
   // capture stamps when it started (`astera_at`), and the event that happened last decides.
-  it('an instant API error whose StopFailure landed before its own prompt reads waiting', async () => {
+  it('an instant API error whose StopFailure landed before its own prompt reads idle', async () => {
     const { event, stateOf } = withEvents()
     event('ses-1', { hook_event_name: 'StopFailure', error: 'server_error', astera_at: 1_000_005 })
     event('ses-1', { hook_event_name: 'UserPromptSubmit', prompt: 'go', astera_at: 1_000_000 })
-    expect(await stateOf('ses-1')).toBe('waiting')
+    expect(await stateOf('ses-1')).toBe('idle')
   })
 
   it("a prompt whose UserPromptSubmit landed before the previous turn's StopFailure reads working", async () => {
@@ -347,12 +347,12 @@ describe('registrySessions — state', () => {
   })
 
   // A wall clock set back 30 s after a tool call stamps the turn's Stop earlier than the call. That is
-  // far past any reordering, so the lines keep the order they landed in and the session is waiting.
-  it('a Stop stamped 30 s before the call it follows, after a clock step back, reads waiting', async () => {
+  // far past any reordering, so the lines keep the order they landed in and the session is idle.
+  it('a Stop stamped 30 s before the call it follows, after a clock step back, reads idle', async () => {
     const { event, stateOf } = withEvents()
     event('ses-1', { hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_use_id: 't1', astera_at: 1_000_000 })
     event('ses-1', { hook_event_name: 'Stop', astera_at: 1_000_000 - 29_900 })
-    expect(await stateOf('ses-1')).toBe('waiting')
+    expect(await stateOf('ses-1')).toBe('idle')
   })
 
   // An empty-stdin capture leaves a blank line. It must not push aside the pick before it.
@@ -757,10 +757,10 @@ describe('registrySessions — sessionTurn', () => {
     return { ...h, event }
   }
 
-  it('a turn that ended is waiting with no prompt; a permission prompt says so', async () => {
+  it('a turn that ended is idle with no prompt; a permission prompt says so', async () => {
     const h = withEvents()
     h.event({ hook_event_name: 'Stop' })
-    expect(await h.sessions.sessionTurn('ses-1')).toEqual({ alive: true, state: 'waiting', prompt: null })
+    expect(await h.sessions.sessionTurn('ses-1')).toEqual({ alive: true, state: 'idle', prompt: null })
     h.event({ hook_event_name: 'Notification', notification_type: 'permission_prompt' }, 1_000_100)
     expect(await h.sessions.sessionTurn('ses-1')).toEqual({ alive: true, state: 'waiting', prompt: 'permission' })
     h.event({ hook_event_name: 'PreToolUse', tool_name: 'AskUserQuestion' }, 1_000_200)
@@ -781,7 +781,7 @@ describe('registrySessions — sessionTurn', () => {
     h.event({ hook_event_name: 'Stop', astera_at: 999_000 }, 1_000_900)
     expect(await h.sessions.sessionTurn('ses-1', 1_000_000)).toMatchObject({ state: 'unknown' })
     h.event({ hook_event_name: 'Stop', astera_at: 1_000_950 }, 1_000_960)
-    expect(await h.sessions.sessionTurn('ses-1', 1_000_000)).toMatchObject({ state: 'waiting', prompt: null })
+    expect(await h.sessions.sessionTurn('ses-1', 1_000_000)).toMatchObject({ state: 'idle', prompt: null })
   })
 
   it('an ended session, and one this Host does not hold', async () => {

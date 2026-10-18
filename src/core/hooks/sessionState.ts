@@ -16,10 +16,13 @@
 // - PreToolUse / PostToolUse: a tool call inside a turn that has not stopped yet → `working`.
 //   Except AskUserQuestion's PreToolUse, which is the question going up on screen → `waiting` (the
 //   same moment core/sessions/pendingPrompt.ts draws it as a card). Its PostToolUse is the answer → `working`.
-// - Stop: the turn is over (the edge slack.ts posts its turn summary on) → `waiting` for the next one.
+// - Stop: the turn is over (the edge slack.ts posts its turn summary on) → `idle` until the next one.
 // - StopFailure: fired *instead of* Stop when an API error (a limit, an auth failure) ends the turn
-//   → `waiting`, for the same reason.
-// - Notification: only the types that say this session itself is waiting on a person → `waiting`.
+//   → `idle`, for the same reason.
+// - Notification: only the types that say this session itself is waiting on a person → `waiting`;
+//   `idle_prompt` ("Claude is waiting for your input", sent only after a turn ended) → `idle`.
+//   W7-C (#75): a finished turn used to read `waiting` too, so a done worker and one at a prompt looked
+//   alike to the inbox and the coordinator. `waiting` now always means a prompt or a question is up.
 //   A report of something finished, a background agent or teammate asking (those arrive while this
 //   session's own turn runs), a type never seen before and an untyped one say nothing about this
 //   session's turn → no verdict. The app's notifiers err toward notifying on an unknown type; a
@@ -41,7 +44,7 @@ import type { SessionInfo } from '../types'
 import type { NotificationPayload } from './notification'
 import { happenedBefore, hookEventAt } from './eventTime'
 
-export type SessionState = 'working' | 'waiting' | 'unknown'
+export type SessionState = 'working' | 'waiting' | 'idle' | 'unknown'
 
 /** The folder the capture appends to, under the profile — the one rule for where it is, shared by the
  *  app that points each session at its file (statusline.ts) and the Host that reads it back. */
@@ -58,13 +61,14 @@ export function hookEventsFileIn(dir: string, sessionId: string): string {
 /** The notification types that mean this session is showing a person something to answer, read off
  *  their emit sites in Claude Code 2.1.280: `permission_prompt` ("Claude needs your permission to
  *  use …", after the dialog has been up a few seconds), `elicitation_dialog` (an MCP server's
- *  question), `idle_prompt` ("Claude is waiting for your input", after a turn ended). Not here:
+ *  question). `idle_prompt` ("Claude is waiting for your input", after a turn ended) is a finished turn,
+ *  `idle`, not one of these (W7-C #75). Not here:
  *  `agent_needs_input` (a background agent's "… needs your input") and `worker_permission_prompt`
  *  (a teammate's permission request), which are about another agent and can arrive mid-turn. */
-const WAITING_TYPES = new Set(['permission_prompt', 'elicitation_dialog', 'idle_prompt'])
+const WAITING_TYPES = new Set(['permission_prompt', 'elicitation_dialog'])
 
 /** What one hook payload says the session is doing, or null when it says nothing about that. */
-export function hookEventState(payload: unknown): 'working' | 'waiting' | null {
+export function hookEventState(payload: unknown): 'working' | 'waiting' | 'idle' | null {
   if (typeof payload !== 'object' || payload === null) return null
   const p = payload as { hook_event_name?: unknown; tool_name?: unknown } & NotificationPayload
   switch (p.hook_event_name) {
@@ -75,8 +79,9 @@ export function hookEventState(payload: unknown): 'working' | 'waiting' | null {
       return p.tool_name === 'AskUserQuestion' ? 'waiting' : 'working'
     case 'Stop':
     case 'StopFailure':
-      return 'waiting'
+      return 'idle'
     case 'Notification':
+      if (p.notification_type === 'idle_prompt') return 'idle'
       return typeof p.notification_type === 'string' && WAITING_TYPES.has(p.notification_type) ? 'waiting' : null
     default:
       return null

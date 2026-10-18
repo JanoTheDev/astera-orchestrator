@@ -14,7 +14,7 @@ import {
   type ActivityNotice,
   type ActivitySummary
 } from './activity'
-import { applyReply, emptyState, type OrchState } from './state'
+import { answerEscalation, applyReply, emptyState, type OrchState } from './state'
 import { FAILURE_LIMIT, type Dispatch, type Gate, type Job, type JobRun, type Message, type Task } from './types'
 
 const T0 = '2026-10-17T00:00:00.000Z'
@@ -56,6 +56,12 @@ let seq = 0
 const stamp = (d: ActivityDraft, occurredAt: string): ActivityEvent => ({ ...d, id: `ev_000000000000_${++seq}`, sequence: seq, occurredAt })
 
 describe('deriveActivity', () => {
+  // Seen in the W7-C run: a state put back whole made every finished plan "replanned" and "done" again, with notices
+  it('says nothing for a whole state read back with the same replan marks (new objects, same values)', () => {
+    const s = state({ jobs: [job({ lastReplan: { runId: 'r1', mode: 'completion', wave: 1, done: 1, at: T0, summary: 'done' } })], tasks: [task('a', { status: 'completed' })] })
+    expect(deriveActivity(s, structuredClone(s))).toEqual([])
+  })
+
   it('says nothing for the same state, or for Tasks just created', () => {
     const s = state()
     expect(deriveActivity(s, s)).toEqual([])
@@ -348,6 +354,23 @@ describe('W6-B: auto-answers and escalations', () => {
     const n = noticeOf(stamp(lines[0], T0))
     expect(n).toMatchObject({ title: 'Needs your decision', alert: true, sessionId: 'ses_d1' })
     expect(n?.body).toContain('Drop the users table?')
+  })
+
+  // W7-C (#72): the owner's answer, to an ask or to an escalation, is a feed line "answered by you", never a notice
+  it("the owner's answer is question.auto-answered with answeredBy owner, and no notice", () => {
+    const prev = base([question()])
+    const r = applyReply(prev, { messageId: 'q1', body: 'EUR', by: 'owner' }, T0)
+    if (!r.ok) throw new Error(r.error)
+    const lines = deriveActivity(prev, r.state)
+    expect(lines).toMatchObject([{ type: 'question.auto-answered', taskId: 'a', payload: { question: 'Which port?', answer: 'EUR', answeredBy: 'owner' } }])
+    expect(noticeOf(stamp(lines[0], T0))).toBeNull()
+    const esc: Message = { id: 'e1', runId: 'r1', type: 'escalation', taskId: 'a', dispatchId: 'd1', subject: 'EUR or USD?', body: '', answered: false, createdAt: T0 }
+    const before = base([esc])
+    const answered = answerEscalation(before, { messageId: 'e1', body: 'USD' }, T0)
+    if (!answered.ok) throw new Error(answered.error)
+    expect(deriveActivity(before, answered.state)).toMatchObject([
+      { type: 'question.auto-answered', payload: { question: 'EUR or USD?', answer: 'USD', answeredBy: 'owner' } }
+    ])
   })
 
   it('a heartbeat or a status is no line', () => {

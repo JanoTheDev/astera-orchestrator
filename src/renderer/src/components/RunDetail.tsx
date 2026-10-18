@@ -953,6 +953,11 @@ export function RunDetail({
                 layers={detail?.layers ?? []}
                 events={events ?? []}
                 activity={live.activity}
+                questions={live.questions}
+                onAnswer={async (id, answer) => {
+                  const r = await door.command('questions-answer', { id, answer })
+                  return r.status === 200 ? null : replyNote(r, t as never, (r.body as { error?: string } | null)?.error ?? t('plan.question.failed'))
+                }}
                 sessions={live.sessions}
                 replanning={replanningOf(live.activity, runId)}
                 canOpenSession={canOpenSession}

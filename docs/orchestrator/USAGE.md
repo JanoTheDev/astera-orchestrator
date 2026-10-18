@@ -150,10 +150,10 @@ The loop that works today, from source to merged work:
 4. **Let it run.** Workers ask the coordinator, and you see "coordinator answered" in the feed and "N questions
    answered" on the card. You are called only for an owner decision, a give-up or a permission prompt: a desktop
    notice "Needs your decision" and a row in the needs-input list.
-5. **Answer a decision.** Until W7-C, type the answer into the plan's **coordinator** tab ("Owner decision: …").
-   If the coordinator is inside a long wait, the line queues; it is read when the wait ends.
+5. **Answer a decision.** Use the answer box on the Task's card (the needs-input row opens the plan), or
+   `astera questions answer --id <id> --answer -`. See "Questions and escalations" below.
 6. **Usage.** At `usagePauseAt` no new worker starts and the board says why. After raising it, or after the reset,
-   tell the coordinator "retry the worker starts" if nothing starts within a minute (W7-C makes this automatic).
+   held workers start on their own: the coordinator is told in its inbox, and plans the Host places get a pass at once.
 7. **Done.** Between waves the board shows "Replanning wave N…"; after the last one the final check runs. With
    delivery `pr` the plan's PR opens (a project needs a GitHub remote); with `push` the work lands on the delivery
    branch, or Astera stops and tells you why (dirty folder, wrong branch, conflict) and touches nothing.
@@ -258,7 +258,15 @@ Runtime, marked "on <runtime>".
   feed line, "coordinator answered", and never a notice. Only an owner decision is escalated: a product choice the
   plan leaves open, anything irreversible, data loss, security, money, or a question asked twice. An escalation, or a
   Gate opened because the attempts or review rounds ran out, is a desktop notice ("Needs your decision") and a row in
-  the needs-input list until its Task or plan ends.
+  the needs-input list until you answer it, or its Task or plan ends.
+- **How you answer (W7-C).** Each open escalation and each open `astera ask` question gets an answer box on its Task's
+  card in the plan's board: the question, its options as buttons, a text box and **Send answer**. Clicking the
+  "Needs your decision" row in the needs-input list opens that plan's board. From a shell: `astera questions list
+  --status open` lists Gates, asks (`source: ask`) and escalations (`source: escalation`) in one list; `astera questions
+  get --id <id>` shows one; `astera questions answer --id <id> --answer -` answers it. Your answer goes to the worker's
+  open question as the coordinator's would (its `ask` returns it within seconds), and the coordinator gets a copy in
+  its inbox ("the owner answered"). If the worker no longer waits, the coordinator passes it on. The feed shows "answered
+  by you", never a notice. Only you answer an escalation: an agent session that tries is refused.
 - **Chime.** Settings → Notifications → "Chime when something needs you" (on by default): a short two-note chime with
   the notice for a permission prompt, a question, an escalation or a Gate, at most one every 5 s. The OS notice is then
   silent, so you hear one sound.

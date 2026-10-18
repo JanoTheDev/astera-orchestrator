@@ -194,6 +194,27 @@ describe('nowOf', () => {
   })
 })
 
+describe('questionsOfTask', () => {
+  it('picks one Task\'s asks and escalations, never a Gate row', async () => {
+    const { questionsOfTask } = await import('./planBoard')
+    const rows = [
+      { id: 'msg_1', source: 'ask' as const, taskId: 't1', question: 'a' },
+      { id: 'msg_2', source: 'escalation' as const, taskId: 't2', question: 'b' },
+      { id: 'g1', taskId: 't1', question: 'gate' } as never
+    ]
+    expect(questionsOfTask(rows, 't1').map((q) => q.id)).toEqual(['msg_1'])
+  })
+
+  it('shows only the escalation when one is open beside the ask it is about', async () => {
+    const { questionsOfTask } = await import('./planBoard')
+    const rows = [
+      { id: 'msg_1', source: 'ask' as const, taskId: 't1', question: 'EUR or USD?' },
+      { id: 'msg_2', source: 'escalation' as const, taskId: 't1', question: 'EUR or USD? (owner decides)' }
+    ]
+    expect(questionsOfTask(rows, 't1').map((q) => q.id)).toEqual(['msg_2'])
+  })
+})
+
 describe('cardModelOf / answersKey (#76)', () => {
   const task = (o: object): JobTask => ({ id: 't', title: 'T', status: 'pending', openGates: 0, ...o }) as JobTask
   it('an undispatched light Task shows the difficulty model, a Job override beats the default', () => {

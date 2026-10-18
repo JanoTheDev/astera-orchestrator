@@ -95,7 +95,7 @@ export function createSessionFacts(d: SessionFactsDeps): { factsOf(id: string): 
     let status: SessionFacts['status'] = 'unknown'
     if (mark?.kind === 'started') status = 'working'
     // Written to since the turn ended: a turn may have begun, or only a few keys were typed. Unknown, not a guess.
-    else if (mark?.kind === 'complete') status = wrote !== null && Number.isFinite(mark.at) && wrote > mark.at ? 'unknown' : 'waiting'
+    else if (mark?.kind === 'complete') status = wrote !== null && Number.isFinite(mark.at) && wrote > mark.at ? 'unknown' : 'idle'
     const usage = sessionUsageOf(contextFromLines(tail.lines), limitStateFromLines(tail.lines, Date.now()))
     return { ...base, status: s.alive ? status : 'unknown', usage, model: extractCodexModel(tail.lines).model }
   }

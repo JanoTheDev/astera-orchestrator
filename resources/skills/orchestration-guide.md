@@ -220,8 +220,10 @@ astera worker-start --task tsk_1a2b3c4d --agent claude --account acc_main --work
 astera worker-start --task tsk_5e6f7a8b --agent codex --account acc_sub --worktree new --name add-tests --json
 
 # 5) Wait — blocks until worker_done, escalation, or question arrives (this can take tens of minutes).
-#    Pass --run: it names the inbox you read and records your session as the one driving it (4.4)
-astera check --run run_9f8e7d6c5b4a3210 --wait --json
+#    Pass --run: it names the inbox you read and records your session as the one driving it (4.4).
+#    Wait only with check --wait and a short --timeout-ms, then call it again (section 5). Never a shell
+#    sleep/poll loop: the person's typed messages queue until your shell command ends
+astera check --run run_9f8e7d6c5b4a3210 --wait --timeout-ms 60000 --json
 
 # 6) Ack only after handling every message in the batch (reply first if it was a question)
 astera reply --id msg_9f9f9f9f --body - --json <<'EOF'
@@ -252,10 +254,15 @@ You answer your workers' questions. The owner hears only what needs them.
   ```bash
   astera send --type escalation --task-id <tsk> --reason "<the decision, in one line>" --body - --json
   ```
-  Then reply to the worker that the owner is deciding, so it stops and reports instead of guessing.
+  **Do not reply to the worker's question.** Leave it open: the worker keeps waiting on it (`ask --resume`), and the
+  owner answers it from the app or `astera questions answer --id <escalation id> --answer -`. Their answer goes
+  straight to the worker's open question, and you get a copy in your inbox: a `status` message with the subject
+  `the owner answered`. If the worker no longer waits on a question (it stopped), that copy says so; pass the answer on
+  (`sessions send` to the worker, or a new worker start with it in the spec).
 - **Every answer you give is recorded.** It shows in the activity feed and on the Task as
   "coordinator answered", with the question. It never sends a notice. An escalation sends the owner a
-  desktop notice with a sound, and it stays in their "needs my input" list until the Task or the plan ends.
+  desktop notice with a sound, and it stays in their "needs my input" list until they answer it, or the Task or the
+  plan ends. An answer the owner gives shows as "answered by you".
 
 ## 4. CLI reference
 
@@ -793,6 +800,13 @@ A timeout you expected is `--resume`; an answer you lost is the key.
   minutes. Keep waiting — just call `check --wait` again — unless you receive `worker_done` or
   `escalation`, the session is gone (confirm with `worker-show`), or the user tells you to stop. A
   timeout response also exits `0` (4.8), so do not misread `$?` as failure.
+- **Wait with `check --wait --timeout-ms 60000`, never with a shell loop** (`for … sleep 5`, `until …; do
+  sleep …`). A message the person types to you is read only when your running shell command ends, so a
+  long loop leaves it unread for minutes. A short `check --wait` returns each minute and lets it in.
+- **A worker-start refused for a usage pause** (409, `usagePaused`): do not plan to retry at the window's
+  reset. When the pause ends, a `status` message with subject `usage resumed` arrives in your inbox and
+  names the held Tasks. Retry their `worker-start` right away. Waiting with `--types` that leaves out
+  `status` does not wake on it.
 
 ## 6. Worker obligations
 
@@ -1247,8 +1261,8 @@ astera sessions send --id <sessionId> --text "Please rebase on develop before yo
 ```
 
 `sessions list` gives each session's `id`, `kind` (`terminal` or `chat`), `title`, `accountId`,
-`cwd`, `alive` and `state`. `state` is `working`, `waiting` or `unknown`, and `waiting` only says
-that the session stopped at a prompt: it does not say which prompt.
+`cwd`, `alive` and `state`. `state` is `working`, `waiting`, `idle` or `unknown`. `idle` is a turn that ended: the session
+needs nobody. `waiting` only says that the session stopped at a prompt or a question: it does not say which.
 
 **`sessions send` types into whatever the other session is showing.** The text and the Enter answer
 the prompt on the screen, whatever it is. **Read the screen with `sessions read` right before every
@@ -1266,7 +1280,7 @@ send into a terminal session at a permission prompt or a question is refused wit
 anything is typed, and the message names the `sessions read` to run.
 
 **Keep what you send short.** Measured on the same Claude Code session: a one-line send is submitted,
-and `state` goes from `unknown` to `working` to `waiting` as that turn runs; text with a line break in
+and `state` goes from `unknown` to `working` to `idle` as that turn runs; text with a line break in
 it is submitted as one message, not split. A long text (about 2,000 characters) is submitted too, but
 Claude reads text typed that way as pasted content, and it hedged on an instruction inside it as
 something it had not been told directly. So when the other session needs a lot of context, write it

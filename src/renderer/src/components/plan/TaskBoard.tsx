@@ -19,8 +19,11 @@ import {
   reasonText,
   reasonTone,
   wavesOf,
-  type LiveSession
+  questionsOfTask,
+  type LiveSession,
+  type OpenQuestion
 } from './planBoard'
+import { QuestionAnswer } from './QuestionAnswer'
 import './plan.css'
 
 /** How often the "resumes in …" and "… ago" texts refresh. */
@@ -38,6 +41,8 @@ export function TaskBoard({
   activity = [],
   sessions = {},
   replanning = false,
+  questions = [],
+  onAnswer,
   canOpenSession,
   onOpenSession
 }: {
@@ -54,6 +59,10 @@ export function TaskBoard({
   /** W6-E: the Host's word on each session, by session id. */
   sessions?: Readonly<Record<string, LiveSession>>
   replanning?: boolean
+  /** W7-C (#72): open asks and escalations; a Task's get an answer box. */
+  questions?: readonly OpenQuestion[]
+  /** Sends the owner's answer (`questions-answer`); resolves to an error text, or null when it went through. */
+  onAnswer?: (id: string, answer: string) => Promise<string | null>
   canOpenSession?: (sessionId: string) => boolean
   onOpenSession?: (sessionId: string) => void
 }): React.JSX.Element {
@@ -111,6 +120,8 @@ export function TaskBoard({
                     model={cardModelOf(tk, roleModels, accounts ?? [])}
                     now={nowOf(tk, tk.sessionId ? sessions[tk.sessionId] : undefined, events, nowMs)}
                     answers={autoAnswersOf(activity, tk.id)}
+                    questions={onAnswer ? questionsOfTask(questions, tk.id) : []}
+                    onAnswer={onAnswer}
                     onSelect={onSelect}
                     onFocus={
                       tk.sessionId && categoryOf(tk) === 'running' && onOpenSession && canOpenSession?.(tk.sessionId)
@@ -135,6 +146,8 @@ function TaskCard({
   model,
   now,
   answers,
+  questions,
+  onAnswer,
   onSelect,
   onFocus
 }: {
@@ -145,6 +158,8 @@ function TaskCard({
   model: string | undefined
   now: ReturnType<typeof nowOf>
   answers: ReturnType<typeof autoAnswersOf>
+  questions: OpenQuestion[]
+  onAnswer?: (id: string, answer: string) => Promise<string | null>
   onSelect: (taskId: string) => void
   /** Present for a running Task whose tab is open: a click on the card goes there. */
   onFocus?: () => void
@@ -240,6 +255,7 @@ function TaskCard({
           )}
         </div>
       )}
+      {onAnswer && questions.map((q) => <QuestionAnswer key={q.id} q={q} onAnswer={onAnswer} />)}
       {tk.attempts !== undefined && <span className="plan-card-attempts">{t('plan.card.attempts', { n: tk.attempts })}</span>}
     </article>
   )

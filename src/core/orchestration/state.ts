@@ -2054,9 +2054,14 @@ export function createQuestion(
   return ok(state, message)
 }
 
+/** W7-C (#72): the subject of the status line an owner's answer leaves (`applyReply` with `by: 'owner'`, and
+ *  `answerEscalation`). The coordinator reads it in its inbox as the copy of the answer; the feed reads it as
+ *  "answered by you" (activity.ts). */
+export const OWNER_ANSWER_SUBJECT = 'the owner answered'
+
 export function applyReply(
   s: OrchState,
-  a: { messageId: string; body: string },
+  a: { messageId: string; body: string; by?: 'owner' },
   now: string
 ): Res<'accepted' | 'alreadyAnswered'> {
   const q = s.messages.find((m) => m.id === a.messageId)
@@ -2074,7 +2079,7 @@ export function applyReply(
       type: 'status',
       taskId: q.taskId,
       dispatchId: q.dispatchId,
-      subject: 'the question was answered',
+      subject: a.by === 'owner' ? OWNER_ANSWER_SUBJECT : 'the question was answered',
       body: a.body,
       replyTo: q.id,
       answered: true
@@ -2082,6 +2087,48 @@ export function applyReply(
     now
   ).state
   return ok(state, 'accepted')
+}
+
+/**
+ * W7-C (#72): the owner answers an escalation. The escalation is marked answered (so it leaves the needs-input list),
+ * and the answer goes the way a coordinator's does: to the worker's open question of the same dispatch (else the same
+ * Task), the newest, through `applyReply`, whose status line is the coordinator's copy. With no question still open
+ * (the worker stopped waiting), the coordinator gets the copy alone and passes it on.
+ */
+export function answerEscalation(
+  s: OrchState,
+  a: { messageId: string; body: string },
+  now: string
+): Res<{ answered: 'accepted' | 'alreadyAnswered'; questionId?: string }> {
+  const e = s.messages.find((m) => m.id === a.messageId)
+  if (!e) return gone(`unknown question: ${a.messageId}`)
+  if (e.type !== 'escalation') return err(`not an escalation: ${a.messageId}`)
+  if (e.answered) return ok(s, { answered: 'alreadyAnswered' })
+  let state: OrchState = { ...s, messages: replace(s.messages, { ...e, answered: true, answerBody: a.body }) }
+  const open = state.messages.filter((m) => m.type === 'question' && !m.answered && m.runId === e.runId)
+  const q =
+    (e.dispatchId !== undefined ? open.filter((m) => m.dispatchId === e.dispatchId).at(-1) : undefined) ??
+    (e.taskId !== undefined ? open.filter((m) => m.taskId === e.taskId).at(-1) : undefined)
+  if (q) {
+    const r = applyReply(state, { messageId: q.id, body: a.body, by: 'owner' }, now)
+    if (!r.ok) return r
+    return ok(r.state, { answered: 'accepted', questionId: q.id })
+  }
+  state = pushMessage(
+    state,
+    {
+      runId: e.runId,
+      type: 'status',
+      taskId: e.taskId,
+      dispatchId: e.dispatchId,
+      subject: OWNER_ANSWER_SUBJECT,
+      body: `${e.subject || e.body}\n\nAnswer: ${a.body}\n\nThe worker no longer waits on a question; pass this on.`,
+      replyTo: e.id,
+      answered: true
+    },
+    now
+  ).state
+  return ok(state, { answered: 'accepted' })
 }
 
 export function createGate(

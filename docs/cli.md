@@ -818,7 +818,7 @@ list. Filters on one command combine.
   `tasks list --run`, with `astera runs list` as its step.
 - **`questions list --status`** is `open` or `resolved`. Any other value is a 2, as for the other
   filters, never an empty list.
-- **`sessions list --status`** is `alive` or `ended`, which read `alive`, or `working`, `waiting` or
+- **`sessions list --status`** is `alive` or `ended`, which read `alive`, or `working`, `waiting`, `idle` or
   `unknown`, which read `state`. **`--provider claude|codex`** keeps the sessions whose account is on
   that vendor, as `accounts list` shows it. A session whose account has since been removed matches
   neither.
@@ -1037,7 +1037,7 @@ or Codex, and each chat session. A session's id is the one `ASTERA_SESSION` hold
 Ended sessions stay listed with `alive: false` until the Host stops. Plain shell tabs and run
 configurations are not agent sessions, and are not listed.
 
-**`state` says whether a session is `working`, `waiting` or `unknown`.** The Host reads it from the
+**`state` says whether a session is `working`, `waiting`, `idle` or `unknown`.** The Host reads it from the
 hook event file that the session's own Claude Code hooks append to, `hook-events/<sessionId>.jsonl`
 in the profile. The hooks run inside the agent, so the file keeps growing while the app is closed.
 The Host only reads the file. The event that happened last decides. Each line carries the time its
@@ -1050,8 +1050,9 @@ older Astera, and two lines with the same time are taken in the order they were 
 | a prompt went to the model (`UserPromptSubmit`) | `working` |
 | a tool call started or returned (`PreToolUse`, `PostToolUse`) | `working` |
 | Claude asked a question (`PreToolUse` of `AskUserQuestion`) | `waiting` |
-| the turn ended (`Stop`), or an API error such as a usage limit ended it (`StopFailure`) | `waiting`: the session waits for its next prompt |
-| a notification that this session is waiting on you: a permission prompt, an MCP server's question, or "waiting for your input" | `waiting` |
+| the turn ended (`Stop`), or an API error such as a usage limit ended it (`StopFailure`) | `idle`: nothing is asked of anyone; the session takes the next prompt |
+| Claude Code's "waiting for your input" (`idle_prompt`, sent only after a turn ended) | `idle` |
+| a notification that this session is waiting on you: a permission prompt or an MCP server's question | `waiting` |
 | any other notification: something finished, a background agent or a teammate asking for input or permission (these can arrive while the session's own turn runs), a type Astera does not know, or one with no type | `unknown` |
 
 Everything else is `unknown`:
@@ -1085,7 +1086,7 @@ Where the hooks cannot see, `state` can lag or be wrong:
   the old one in a new tab, to get the hooks.
 - A permission dialog reads `working` for its first few seconds. Claude Code sends the permission
   notification only once the dialog has been up that long.
-- A prompt queued while a turn is ending can read `waiting` for a moment, until its own
+- A prompt queued while a turn is ending can read `idle` for a moment, until its own
   `UserPromptSubmit` lands.
 - `UserPromptSubmit` and `StopFailure` are written by two separate background processes, so their
   order in the file is not guaranteed: a turn that fails almost as soon as it is submitted can write
@@ -1185,7 +1186,7 @@ rather than typed a second time.
 This is one turn of one session, not the end of a Job; for a Job use `runs wait`. The Host reads what
 it already knows about the session and starts nothing new to find out:
 
-- **A terminal session's turn ends when its hook events leave it `waiting`** with no prompt open: the
+- **A terminal session's turn ends when its hook events leave it `idle`**: the
   `Stop` or `StopFailure` of the turn, or Claude Code's "waiting for your input". It is the same
   reading `state` gives in `sessions list` (above), with one more rule: an event whose time is from
   before the send belongs to the turn before, however late it was written, so it cannot end this wait.

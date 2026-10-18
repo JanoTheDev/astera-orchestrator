@@ -24,13 +24,19 @@ describe('hookEventState', () => {
   })
 
   // Slack 이 턴 끝 요약을 보내는 바로 그 이벤트다. StopFailure 는 API 오류로 끝난 턴에 Stop 대신 난다.
-  it.each(['Stop', 'StopFailure'])('%s 는 waiting — 턴이 끝났고 다음 입력을 기다린다', (name) => {
-    expect(hookEventState({ hook_event_name: name })).toBe('waiting')
+  // W7-C (#75): a finished turn is idle, not waiting — waiting is only a prompt or a question on screen.
+  it.each(['Stop', 'StopFailure'])('%s is idle: the turn ended, nothing is asked of anyone', (name) => {
+    expect(hookEventState({ hook_event_name: name })).toBe('idle')
   })
 
   // 이 세션 자신이 사람을 기다리는 화면이다.
-  it.each(['permission_prompt', 'elicitation_dialog', 'idle_prompt'])('%s 알림은 waiting', (type) => {
+  it.each(['permission_prompt', 'elicitation_dialog'])('%s 알림은 waiting', (type) => {
     expect(hookEventState({ hook_event_name: 'Notification', notification_type: type })).toBe('waiting')
+  })
+
+  // "Claude is waiting for your input" comes only after a turn ended (W7-C #75).
+  it('idle_prompt is idle', () => {
+    expect(hookEventState({ hook_event_name: 'Notification', notification_type: 'idle_prompt' })).toBe('idle')
   })
 
   // 다른 에이전트(백그라운드 에이전트, 팀원 워커)의 일이라 이 세션의 턴이 돌고 있어도 난다.
@@ -63,7 +69,7 @@ describe('sessionStateOf', () => {
   const stop = JSON.stringify({ hook_event_name: 'Stop' })
 
   it('마지막 이벤트가 판정한다', () => {
-    expect(sessionStateOf({ lastLine: stop, eventAt: 1000, lastInputAt: null })).toBe('waiting')
+    expect(sessionStateOf({ lastLine: stop, eventAt: 1000, lastInputAt: null })).toBe('idle')
     expect(sessionStateOf({ lastLine: '{"hook_event_name":"PreToolUse"}', eventAt: 1000, lastInputAt: 500 })).toBe(
       'working'
     )

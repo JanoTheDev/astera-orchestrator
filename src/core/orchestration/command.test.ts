@@ -1136,6 +1136,62 @@ describe('handleCommand — inbox는 코디네이터 전용', () => {
     expect((r.body as Message[]).map((m) => [m.type, m.subject])).toEqual([['escalation', 'Drop the users table?']])
   })
 
+  // W7-C (#72): `questions list/get/answer` cover a worker's `astera ask` and an escalation, not only Gates
+  it('W7-C: questions list/get/answer cover asks; the owner answer reaches the worker, the coordinator gets a copy', async () => {
+    const deps = await seedTwoWorkers()
+    const d = deps.getState().dispatches.find((x) => x.sessionId === 'sess1')!
+    const asked = await call(deps, 'ask', { taskId: d.taskId, dispatchId: d.id, question: '-$1.50 or $-1.50?', timeoutMs: 1 }, 'sess1')
+    const qid = (asked.body as { questionId: string }).questionId
+    const list = await call(deps, 'questions-list', { status: 'open' }, '')
+    expect(list.body).toEqual([expect.objectContaining({ id: qid, source: 'ask', taskId: d.taskId, question: '-$1.50 or $-1.50?', status: 'open' })])
+    expect((await call(deps, 'questions-get', { id: qid }, '')).body).toMatchObject({ id: qid, source: 'ask' })
+    const r = await call(deps, 'questions-answer', { id: qid, answer: '-$1.50' }, '')
+    expect(r.body).toMatchObject({ id: qid, status: 'resolved', resolution: '-$1.50' })
+    // The worker's resumed wait gets the answer, and the coordinator's inbox has the owner's copy
+    expect((await call(deps, 'ask', { resume: qid, timeoutMs: 1 }, 'sess1')).body).toMatchObject({ answered: true, answer: '-$1.50' })
+    expect(deps.getState().messages.find((m) => m.type === 'status' && m.replyTo === qid)).toMatchObject({ subject: 'the owner answered', body: '-$1.50' })
+    expect((await call(deps, 'questions-list', { status: 'open' }, '')).body).toEqual([])
+  })
+
+  it('W7-C: the owner answers an escalation, which answers the open question behind it; an agent may not', async () => {
+    const deps = await seedTwoWorkers()
+    const d = deps.getState().dispatches.find((x) => x.sessionId === 'sess1')!
+    const asked = await call(deps, 'ask', { taskId: d.taskId, dispatchId: d.id, question: 'EUR or USD?', timeoutMs: 1 }, 'sess1')
+    const qid = (asked.body as { questionId: string }).questionId
+    await call(deps, 'send', { type: 'escalation', taskId: d.taskId, reason: 'EUR or USD?' })
+    const esc = deps.getState().messages.find((m) => m.type === 'escalation')!
+    const open = (await call(deps, 'questions-list', { status: 'open' }, '')).body as Array<{ id: string; source?: string }>
+    expect(open.map((q) => [q.id, q.source])).toEqual([[qid, 'ask'], [esc.id, 'escalation']])
+    expect((await call(deps, 'questions-answer', { id: esc.id, answer: 'USD' })).status).toBe(403)
+    const r = await call(deps, 'questions-answer', { id: esc.id, answer: 'USD' }, '')
+    expect(r.body).toMatchObject({ id: esc.id, source: 'escalation', status: 'resolved', resolution: 'USD' })
+    expect((await call(deps, 'ask', { resume: qid, timeoutMs: 1 }, 'sess1')).body).toMatchObject({ answered: true, answer: 'USD' })
+    expect((await call(deps, 'questions-list', { status: 'open' }, '')).body).toEqual([])
+  })
+
+  // Seen in the W7-C run: asks of workers long gone listed as open forever
+  it('W7-C: an ask whose Dispatch ended is no longer open', async () => {
+    const deps = await seedTwoWorkers()
+    const d = deps.getState().dispatches.find((x) => x.sessionId === 'sess1')!
+    await call(deps, 'ask', { taskId: d.taskId, dispatchId: d.id, question: 'Which port?', timeoutMs: 1 }, 'sess1')
+    const st = deps.getState()
+    await deps.setState({ ...st, dispatches: st.dispatches.map((x) => (x.id === d.id ? { ...x, endedAt: NOW } : x)) })
+    expect((await call(deps, 'questions-list', { status: 'open' }, '')).body).toEqual([])
+    expect((await call(deps, 'questions-list', { status: 'resolved' }, '')).body).toMatchObject([{ source: 'ask' }])
+  })
+
+  it('W7-C: an escalation with no question still open gives the coordinator the answer to pass on', async () => {
+    const deps = await seedTwoWorkers()
+    const d = deps.getState().dispatches.find((x) => x.sessionId === 'sess1')!
+    await call(deps, 'send', { type: 'escalation', taskId: d.taskId, reason: 'Drop the users table?' })
+    const esc = deps.getState().messages.find((m) => m.type === 'escalation')!
+    expect((await call(deps, 'questions-answer', { id: esc.id, answer: 'No' }, '')).status).toBe(200)
+    const copy = deps.getState().messages.find((m) => m.type === 'status' && m.replyTo === esc.id)!
+    expect(copy.subject).toBe('the owner answered')
+    expect(copy.body).toContain('Drop the users table?')
+    expect(copy.body).toContain('Answer: No')
+  })
+
   it('워커는 자기 dispatch의 send·ask는 계속 쓸 수 있다 — 막은 것은 inbox뿐이다', async () => {
     const deps = await seedTwoWorkers()
     const d = deps.getState().dispatches.find((x) => x.sessionId === 'sess1')!
