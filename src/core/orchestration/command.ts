@@ -145,6 +145,9 @@ import { leftNothingBehind } from '../host/orchProtocol'
 import { APP_CALLER, HOST_CALLER } from '../host/driver'
 import { UNREADABLE, recordDetail, recordSummary, recordsFor, type StoreShape } from '../understanding/read'
 import { JOB_SOURCE, SOURCE_COMMANDS, createFromContext, sourcesCommand, type JobSourcesDeps } from './commandSources'
+// W6-D wave replanning
+import { replanJobOf, waveOpen } from './replan'
+import { REPLAN_COMMANDS, replanCommand, replanRefusal } from './exec/replanStart'
 export { JOB_SOURCE } from './commandSources'
 import { pluginIdOfCheck, type CompletionCheckInput, type PluginCheckAnswer } from './pluginChecks'
 import { checkIdsOf, pluginCheckRefusal, tasksOfNextRun } from './commandChecks'
@@ -1332,8 +1335,13 @@ export async function handleCommand(
 ): Promise<Reply> {
   // W2-A: a planner session plans and never starts work (planner.ts). Asked first, so no path below acts for
   // one: the app and the Host both answer commands here.
-  const plannerNo = plannerRefusal(deps.getState(), caller.sessionId, cmd, args)
+  // W6-D: a replan session is a planner that edits what has not started in its Run (replan.ts); undefined: not one.
+  const replanNo = replanRefusal(deps.getState(), caller.sessionId, cmd, args)
+  if (typeof replanNo === 'string') return denied(replanNo)
+  const plannerNo = replanNo === null ? null : plannerRefusal(deps.getState(), caller.sessionId, cmd, args)
   if (plannerNo !== null) return denied(plannerNo)
+  if (REPLAN_COMMANDS.has(cmd) || (cmd === 'task-update' && replanJobOf(deps.getState(), caller.sessionId)))
+    return replanCommand(deps, caller, cmd, args, caller.sessionId !== '' && caller.sessionId !== APP_CALLER && caller.sessionId !== HOST_CALLER)
   // The job-source commands (plugin Phase 4), in a module of their own; jobs-create-from-source comes back here
   if (SOURCE_COMMANDS.has(cmd)) return sourcesCommand(deps, caller, cmd, args, handleCommand)
   if (cmd === 'browser-js') {
@@ -1775,6 +1783,8 @@ export async function handleCommand(
       // W1-B: Job.priority. Any integer; absent is 0.
       const priority = args.priority === undefined ? 0 : typeof args.priority === 'string' ? Number(args.priority) : args.priority
       if (typeof priority !== 'number' || !Number.isInteger(priority)) return bad('--priority must be an integer')
+      // W6-D: Job.replan, `waves` (the default) or `off`
+      if (args.replan !== undefined && args.replan !== 'waves' && args.replan !== 'off') return bad('--replan must be waves|off')
       // 완료 수렴(설계 D12). --convergence 만 주면 빈 정책(기본값). 숫자 셋은 --convergence 없이는
       // 거절한다 — 조용히 받으면 "정책을 줬는데 꺼져 있다" 가 된다.
       let convergence: ConvergencePolicy | undefined
@@ -1905,6 +1915,7 @@ export async function handleCommand(
             ...(project ? { projectId: project.id } : {}),
             ...(concurrency !== null ? { concurrency } : {}),
             ...(priority !== 0 ? { priority } : {}),
+            ...(args.replan === 'off' ? { replan: 'off' as const } : {}),
             ...(coordinatorAccountId ? { coordinatorAccountId } : {}),
             // `--auto` 는 값이 없는 플래그다(task-create --review 와 같은 모양). **예약이면 켜지
             // 않는다** — 템플릿 자신은 돌지 않기 때문이다.
@@ -2542,6 +2553,12 @@ export async function handleCommand(
       const job = s.jobs.find((j) => j.id === id)
       if (!job) return notFound(`unknown job: ${id}`)
       if (!job.pendingStart) return conflict(`job ${id} has started: a planner plans a Job before it is approved`)
+      // W6-D: `--replan waves|off` sets Job.replan as the plan starts
+      if (args.replan !== undefined && args.replan !== 'waves' && args.replan !== 'off') return bad('--replan must be waves|off')
+      if (args.replan !== undefined) {
+        const cur = deps.getState()
+        await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id ? { ...j, replan: args.replan as 'waves' | 'off' } : j)) })
+      }
       if (!deps.startCoordinator) return conflict('starting a planner is not available in this build')
       const accountArg = str(args.account)
       const accountId = accountArg ?? job.coordinatorAccountId
@@ -3527,6 +3544,9 @@ export async function handleCommand(
       // dispatch`, a coordinator, a person. `held` tells the loop this is a wait, not a reason for a Gate.
       if (runJob?.dispatchHold)
         return { status: 409, body: { error: `job ${runJob.id} is held from launching new workers; \`jobs-unhold\` lets it go again`, held: true } }
+      // W6-D: a Task of a later wave waits for the waves before it and for a replan under way (replan.ts waveOpen)
+      if (task.status === 'ready' && !waveOpen(task, s))
+        return { status: 409, body: { error: `task ${taskId} waits for the earlier waves of its plan to complete, or for its replan`, held: true } }
 
       // **동시 실행 한도.** 지금까지 이 값을 지키는 곳은 앱의 스케줄러뿐이었다(schedule.ts 의
       // slotsToFill) — 앱이 유일한 배치자였으므로 그것으로 충분했다. Run 을 코디네이터에게 넘기는

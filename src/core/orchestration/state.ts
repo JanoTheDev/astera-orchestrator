@@ -258,6 +258,8 @@ export function createJob(
     source?: JobSourceRef
     /** W1-B: Job.priority. The caller checks it is an integer. */
     priority?: number
+    /** W6-D: Job.replan. `'waves'` is the default and is not written. */
+    replan?: 'waves' | 'off'
   },
   now: string
 ): Res<Job> {
@@ -280,7 +282,8 @@ export function createJob(
     ...(a.convergence ? { convergence: a.convergence } : {}),
     ...(a.source ? { source: a.source } : {}),
     // 0 is the default, so it is not written — the same rule as autoDispatch above
-    ...(a.priority ? { priority: a.priority } : {})
+    ...(a.priority ? { priority: a.priority } : {}),
+    ...(a.replan === 'off' ? { replan: 'off' as const } : {})
   }
   return ok({ ...s, jobs: [...s.jobs, job] }, job)
 }
