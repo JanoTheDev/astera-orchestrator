@@ -64,6 +64,7 @@ import type { HostWorktrees } from './worktrees'
 import { readMaxConcurrentWorkers } from '../core/settings/maxConcurrentWorkers'
 // Coordinator rotation
 import { readFreshCoordinatorPct } from '../core/settings/freshCoordinator'
+import { readStallWatchOn } from '../core/settings/stallWatch'
 import { parseStatusLinePayload } from '../core/usage/statusline'
 
 export interface HostDriving {
@@ -153,6 +154,8 @@ export function createHostDriving(d: {
   readGate?(settingsPath: string): Promise<DispatchGate>
   /** W6-G: the Host's usage guard, for the loop's slots. Absent: no usage pause. */
   usageGuard?: DispatchLoopContext['usageGuard']
+  /** Stall watchdog: the Host's activity log, which its feed lines go into. Absent (test fakes): no watchdog. */
+  activity?: DispatchLoopContext['activity']
   /** Told every change of `report()` (limits pass L3), in the same turn as the change. A throw is
    *  logged and costs nothing else (constraint 14). */
   onReport?(r: HostDriverReport): void
@@ -422,6 +425,8 @@ export function createHostDriving(d: {
       return payload ? (parseStatusLinePayload(payload)?.context?.usedPercent ?? null) : null
     },
     freshCoordinatorPct: () => readFreshCoordinatorPct(settingsPath),
+    // Stall watchdog (exec/stallWatch.ts): only where its lines have a feed, the Host's activity log
+    ...(d.activity ? { stallWatch: () => readStallWatchOn(settingsPath), activity: d.activity } : {}),
     mayStart,
     log,
     nowMs: () => d.nowMs(),

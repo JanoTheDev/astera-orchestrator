@@ -1715,5 +1715,8 @@ export const es: Catalog = {
   'settings.freshCoordinator.label': 'Coordinador nuevo al llegar al contexto (%)',
   'settings.freshCoordinator.hint': 'Cuando el coordinador de un plan ha usado esta parte de su ventana de contexto, Astera lo sustituye por una sesión nueva (misma cuenta y modelo) informada con el estado del plan. También se sustituye en cada cambio de oleada. 0 desactiva la comprobación de contexto.',
   'settings.freshCoordinator.saveFailed': 'No se pudo guardar el ajuste del coordinador nuevo: {detail}',
-  'plan.wave.coordinatorRefreshed': 'Coordinador renovado ({reason})'
+  'plan.wave.coordinatorRefreshed': 'Coordinador renovado ({reason})',
+  'settings.stallWatch.label': 'Vigilar planes detenidos',
+  'settings.stallWatch.hint': 'Cada 30 segundos Astera revisa cada plan en marcha: una Task lista sin empezar durante 2 minutos con un hueco libre, un coordinador ocupado durante minutos sin empezar nada, una Task completada que no está en la rama del plan, un PR borrador que no se abrió tras una oleada. Avisa al coordinador o lo arregla él mismo, con una línea en el feed por acción. Nunca cancela trabajo ni fusiona en main.',
+  'settings.stallWatch.saveFailed': 'No se pudo guardar el ajuste de vigilancia de planes detenidos: {detail}'
 }

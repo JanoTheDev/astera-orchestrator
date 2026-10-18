@@ -82,7 +82,9 @@ export const ACTIVITY_KINDS = [
   // W8-D: a plan's Tasks newly meet another plan's of the same project (Job.overlaps): feed and notice, no chime
   'plan.overlap',
   // Coordinator rotation: a fresh coordinator took the Run's slot (JobRun.coordinatorRefreshes); feed only
-  'coordinator.refreshed'
+  'coordinator.refreshed',
+  // Stall watchdog (exec/stallWatch.ts): one line per action it took on a stalled plan (payload.reason); feed only
+  'watchdog'
 ] as const
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number]
 

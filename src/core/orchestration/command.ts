@@ -3932,6 +3932,18 @@ export async function handleCommand(
         })
         return okBody({ id, convergenceOff: true })
       }
+      // Stall watchdog: the app records a completed Task's merge into its plan branch (finishedSessions.ts
+      // mergedIntoPlan). Astera's own, so an agent session cannot mark one. updatedAt stays: a dependent's readiness
+      // moment (inbox.ts readyReminders) is read from it.
+      if (args.mergedIntoPlan === true) {
+        if (fromAgentSession || caller.role === 'mcp') return bad('--merged-into-plan is recorded by Astera itself')
+        const target = s.tasks.find((t) => t.id === id)
+        if (!target) return notFound(`unknown task: ${id}`)
+        if (target.status !== 'completed') return bad(`task ${id} is ${target.status}, not completed`)
+        if (target.mergedIntoPlanAt !== undefined) return okBody({ id, mergedIntoPlanAt: target.mergedIntoPlanAt })
+        await deps.setState({ ...s, tasks: s.tasks.map((t) => (t.id === id ? { ...t, mergedIntoPlanAt: now } : t)) })
+        return okBody({ id, mergedIntoPlanAt: now })
+      }
       // W2-A: editing a plan's Task (its title, spec, deps and plan fields) instead of moving its status.
       const PLAN_EDIT = ['title', 'spec', 'deps', 'prompt', 'criteria', 'affectedPaths', 'difficulty', 'provider', 'model', 'modelReason', /* W6-A */ 'basis', 'evidence']
       if (args.status === undefined && PLAN_EDIT.some((k) => args[k] !== undefined)) {

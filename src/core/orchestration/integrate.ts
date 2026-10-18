@@ -299,6 +299,10 @@ Four rules make the rest of the run work:
 - Do not delete or move the worktrees or their branches. The app owns their lifecycle.
 - Do not redo any of the tasks' work, and do not improve the code you are merging. This task is the
   merge and nothing else.
+
+Before you commit a resolved conflict, run the test files that cover the files you resolved, through
+\`astera heavy -- npx vitest run <files>\` (heavy jobs run one at a time on this machine). Never run the
+full suite outside \`astera heavy\`.
 `
 }
 

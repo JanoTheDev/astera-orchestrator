@@ -18,12 +18,15 @@ const samePlace = (a: string, b: string): boolean => {
   return norm(a) === norm(b)
 }
 
-/** A completed Task whose work is on the plan branch: every attempt worked in the Run's root (integrate.ts runRootOf),
- *  or a Task that depends on it has started (the loop merges a dependency's worktree into the root before it starts the
- *  dependent, and an integration Task does the same). shortcut: a worktree Task nothing depends on counts as merged only
- *  at the plan's end; upgrade when a merge is recorded on the Task. */
-export function mergedIntoPlan(s: DoneState, task: Pick<Task, 'id' | 'runId' | 'status'>): boolean {
+/** A completed Task whose work is on the plan branch: its merge is recorded (`mergedIntoPlanAt`, the wave merge and the
+ *  stall watchdog), its merge worker completed, every attempt worked in the Run's root (integrate.ts runRootOf), or a
+ *  Task that depends on it has started (the app's loop merges a dependency's worktree into the root before it starts
+ *  the dependent). */
+export function mergedIntoPlan(s: DoneState, task: Pick<Task, 'id' | 'runId' | 'status' | 'mergedIntoPlanAt'>): boolean {
   if (task.status !== 'completed') return false
+  if (task.mergedIntoPlanAt !== undefined) return true
+  // The app's merge Task (integrate.ts integrationTaskFor: `parentId`)
+  if (s.tasks.some((t) => t.parentId === task.id && t.status === 'completed')) return true
   const run = s.runs.find((r) => r.id === task.runId)
   if (!run) return false
   const root = run.worktree ?? jobOf(s as OrchState, run)?.cwd ?? ''

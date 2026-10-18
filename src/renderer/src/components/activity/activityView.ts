@@ -111,6 +111,9 @@ export function lineOf(e: ActivityEvent, accountLabel: (id: string) => string): 
     // Coordinator rotation
     case 'coordinator.refreshed':
       return { text: `${p.title}: Coordinator refreshed (${p.reason ?? 'on request'})`, tone: 'info' }
+    // Stall watchdog
+    case 'watchdog':
+      return { text: `${p.title}: Watchdog: ${p.reason ?? ''}`, tone: 'warn' }
   }
 }
 

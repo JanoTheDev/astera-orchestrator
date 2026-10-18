@@ -69,6 +69,7 @@ import { ResumeStrategySettings } from './components/ResumeStrategySettings'
 import { GithubSettings } from './components/GithubSettings'
 import { MaxWorkersSetting } from './components/MaxWorkersSetting'
 import { FreshCoordinatorSetting } from './components/FreshCoordinatorSetting'
+import { StallWatchSetting } from './components/StallWatchSetting'
 import { UsageGuardSettings } from './components/usage/UsageGuardSettings'
 import { CreativeHubSettings } from './components/CreativeHubSettings'
 import { NotificationSettings } from './components/NotificationSettings'
@@ -5343,6 +5344,7 @@ export default function App(): React.JSX.Element {
                     {/* W1-B: the app-wide Job worker cap. */}
                     <MaxWorkersSetting />
                     <FreshCoordinatorSetting />
+                    <StallWatchSetting />
                     {/* W6-G */}
                     <UsageGuardSettings />
                     {/* 작업 이어가기와 재개 전략 — 권한 모드 바로 아래에 둔다. 이어가기는 Job 이

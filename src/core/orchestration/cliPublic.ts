@@ -108,7 +108,9 @@ const TASK_HIDDEN = [
   // W6-A: the planner's basis, held back with its other fields
   'basis',
   // W8-C prompts mode: a Run-as-written Task's source, not in the SDK's contract yet
-  'verbatimOf'
+  'verbatimOf',
+  // Stall watchdog: the app's own merge record (finishedSessions.ts mergedIntoPlan)
+  'mergedIntoPlanAt'
 ] as const
 
 /** W1-A role models: a Job's per-role model override, held back from the SDK like the Task's three above. */

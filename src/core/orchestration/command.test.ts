@@ -5039,6 +5039,22 @@ describe('handleCommand — convergence', () => {
     expect(deps.getState().tasks[0].status).toBe('ready')
     expect((await call(deps, 'task-update', { id, convergence: 'on' })).status).toBe(400)
   })
+  // Stall watchdog: the app's record of a completed Task's merge into its plan branch (finishedSessions.ts)
+  it('task-update --merged-into-plan is recorded by Astera alone, on a completed Task, once, with updatedAt kept', async () => {
+    const deps = convDeps()
+    await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p' })
+    await call(deps, 'task-create', { spec: 's', account: 'accA' })
+    const id = deps.getState().tasks[0].id
+    expect((await call(deps, 'task-update', { id, mergedIntoPlan: true }, HOST_CALLER)).status).toBe(400) // ready, not completed
+    await call(deps, 'task-update', { id, status: 'completed' }, HOST_CALLER)
+    const before = deps.getState().tasks[0].updatedAt
+    expect((await call(deps, 'task-update', { id, mergedIntoPlan: true })).status).toBeGreaterThanOrEqual(400) // an agent session
+    expect((await call(deps, 'task-update', { id, mergedIntoPlan: true }, HOST_CALLER)).status).toBe(200)
+    const at = deps.getState().tasks[0].mergedIntoPlanAt
+    expect(at).toBeDefined()
+    expect(deps.getState().tasks[0].updatedAt).toBe(before)
+    expect((await call(deps, 'task-update', { id, mergedIntoPlan: true }, HOST_CALLER)).body).toMatchObject({ mergedIntoPlanAt: at })
+  })
 
   /** convergence Run 에서 검토 걸린 Task 를 reviewing + 검토 Dispatch 열림까지 */
   const reviewingRun = async (deps: ReturnType<typeof convDeps>, runExtra: Record<string, unknown> = {}) => {

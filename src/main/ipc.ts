@@ -4322,6 +4322,12 @@ export function registerIpc(
       throw new Error(`INVALID_FRESH_COORDINATOR_CONTEXT_PCT: ${String(n)}`)
     await core.appSettings.setFreshCoordinatorContextPct(n)
   })
+  // Stall watchdog (orchestration/exec/stallWatch.ts), on by default
+  ipcMain.handle('settings.getStallWatch', () => core.appSettings.getStallWatch())
+  ipcMain.handle('settings.setStallWatch', async (_e, on: unknown) => {
+    if (typeof on !== 'boolean') throw new Error(`INVALID_STALL_WATCH: ${String(on)}`)
+    await core.appSettings.setStallWatch(on)
+  })
   // W6-G: the subagent cap per tab and the usage guard's threshold
   ipcMain.handle('settings.getMaxSubagentsPerSession', () => core.appSettings.getMaxSubagentsPerSession())
   ipcMain.handle('settings.setMaxSubagentsPerSession', async (_e, n: unknown) => {

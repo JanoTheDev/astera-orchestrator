@@ -1522,6 +1522,9 @@ export interface CoreApi {
     /** Context use (%) at which a plan's coordinator is replaced by a fresh session; 0 turns the check off. */
     getFreshCoordinatorContextPct(): Promise<number>
     setFreshCoordinatorContextPct(n: number): Promise<void>
+    /** Stall watchdog (orchestration/exec/stallWatch.ts); default true. */
+    getStallWatch(): Promise<boolean>
+    setStallWatch(on: boolean): Promise<void>
     /** W6-B: the chime with a notice that needs the owner; default true. */
     getAlertSound(): Promise<boolean>
     setAlertSound(on: boolean): Promise<void>
