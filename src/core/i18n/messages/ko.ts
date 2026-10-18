@@ -1674,6 +1674,9 @@ export const ko = {
   'jobs.state.failed': '실패했다',
   'jobs.state.blocked': '사람을 기다린다',
   'jobs.run.running': '도는 중',
+  // W7-D (#67)
+  'runDetail.concurrency': '동시 워커 수',
+  'runDetail.concurrencyHint': '숫자를 낮추면 새 시작만 늦춰지고, 이미 도는 워커는 계속 돕니다.',
   // 얽힌 Run 의 줄에 붙는 글자와 그 툴팁. Gate 의 주황 `!` 를 빌리지 않는 이유는 뜻이
   // 다르기 때문이다 — 막힌 것이 아니라 나눠 쓰는 중이고, 기다리는 사람이 없다
   // Run 을 물러나게 하기. **자동 정리(store.ts 의 TTL)가 손대지 못하는 것을 위해 있다** — 그것은
@@ -1966,6 +1969,8 @@ export const ko = {
   'intake.assignMe': '고른 이슈를 나에게 할당',
   'intake.instructions': '추가 지시 (출처보다 우선)',
   'intake.create': '만들고 계획하기',
+  // W7-D (#67)
+  'intake.concurrency': '동시 워커 수 (1–10)',
   'jobs.source.open': '소스에서',
   // W6-H delivery
   'delivery.label': '계획이 끝나면:',

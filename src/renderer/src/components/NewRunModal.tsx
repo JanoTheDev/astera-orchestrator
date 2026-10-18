@@ -133,7 +133,7 @@ export function NewRunModal({
   }
 
   if (intake && cwd !== null)
-    return <NewPlanDialog door={door} cwd={cwd} accounts={accounts} onClose={onClose} onCreated={onCreated} />
+    return <NewPlanDialog door={door} cwd={cwd} accounts={accounts} onClose={onClose} onCreated={onCreated} concurrency={concurrency} />
 
   return (
     <div className="modal-backdrop" {...backdropProps(() => !busy && onClose())}>

@@ -1473,6 +1473,9 @@ export const en: Record<keyof typeof ko, string> = {
   'jobs.state.failed': 'Failed',
   'jobs.state.blocked': 'Waiting for a person',
   'jobs.run.running': 'in progress',
+  // W7-D (#67)
+  'runDetail.concurrency': 'Workers at once',
+  'runDetail.concurrencyHint': 'A lower number only holds back new starts; running workers carry on.',
   'jobs.run.start': 'Run',
   'jobs.run.starting': 'Starting…',
   'jobs.run.pause': 'Pause',
@@ -1738,6 +1741,8 @@ export const en: Record<keyof typeof ko, string> = {
   'intake.assignMe': 'Assign me to the picked issues',
   'intake.instructions': 'Extra instructions (they win over the source)',
   'intake.create': 'Create and plan',
+  // W7-D (#67)
+  'intake.concurrency': 'Workers at once (1–10)',
   'jobs.source.open': 'From a source',
   // W6-H delivery
   'delivery.label': 'When a plan is done:',
