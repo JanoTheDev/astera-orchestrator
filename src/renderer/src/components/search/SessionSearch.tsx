@@ -106,7 +106,8 @@ export function SessionSearch({
               item.kind === 'session' ? item.session.sessionId : item.kind === 'gate' ? item.gate.id : item.kind === 'escalation' ? item.message.id : `approve-${item.jobId}`
             return (
               <li key={key}>
-                <button className="ws-row ss-row" title={t.title} onClick={() => go(jobOf(item), sessionOf(item))}>
+                <button className="ws-row ss-row" title={t.title} // an escalation opens its plan, whose board card holds the answer box (W7-C #72)
+                onClick={() => go(jobOf(item), item.kind === 'escalation' ? undefined : sessionOf(item))}>
                   <span className="ws-dot ws-waiting" aria-hidden />
                   <span className="ss-main">
                     <span className="ws-name">{t.what}</span>

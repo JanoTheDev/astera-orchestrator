@@ -25,7 +25,7 @@ import { jobNameOf } from './jobName'
 import { outcomeOfTasks } from './running'
 import { completionSettled } from './replan'
 import type { ScheduleLimits } from './schedule'
-import { emptyState, type OrchState } from './state'
+import { emptyState, OWNER_ANSWER_SUBJECT, type OrchState } from './state'
 import {
   isPlaceholderSessionId,
   type Dispatch,
@@ -113,6 +113,8 @@ export interface ActivityPayload {
   summary?: string
   // question.auto-answered (W6-B; `question` above is the worker's question)
   answer?: string
+  /** W7-C (#72): the owner answered it (from the card, the inbox or `questions answer`), not the coordinator. */
+  answeredBy?: 'owner'
   // task.escalated (W6-B): the escalation's subject, else its body; a Gate's question; W6-D: why the replan escalated
   reason?: string
   // usage.* (W6-G); also accountId and resetsAt
@@ -324,8 +326,14 @@ export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[
         continue
       }
       const q = m.type === 'status' && m.replyTo !== undefined ? byMsg.get(m.replyTo) : undefined
+      // W7-C (#72): an owner's answer is a feed line too, "answered by you", never a notice
+      const byOwner = m.subject === OWNER_ANSWER_SUBJECT ? { answeredBy: 'owner' as const } : {}
+      if (q?.type === 'escalation' && 'answeredBy' in byOwner) {
+        push('question.auto-answered', at, { title, question: (q.subject || q.body).slice(0, 500), answer: (q.answerBody ?? '').slice(0, 500), ...byOwner }, sessionOfDispatch(next, q.dispatchId))
+        continue
+      }
       if (q?.type !== 'question' || (q.answerBody ?? '') === '') continue
-      push('question.auto-answered', at, { title, question: q.body.slice(0, 500), answer: q.answerBody!.slice(0, 500) }, sessionOfDispatch(next, q.dispatchId))
+      push('question.auto-answered', at, { title, question: q.body.slice(0, 500), answer: q.answerBody!.slice(0, 500), ...byOwner }, sessionOfDispatch(next, q.dispatchId))
     }
   }
 

@@ -183,6 +183,19 @@ export function autoAnswersOf(events: readonly ActivityEvent[], taskId: string):
     })
 }
 
+/** An open ask or escalation row of `questions-list` (command.ts messageQuestionOf); the renderer does not import command.ts. */
+export interface OpenQuestion {
+  id: string
+  source: 'ask' | 'escalation'
+  taskId: string
+  question: string
+  options?: string[]
+}
+
+/** The open asks/escalations of one Task, oldest first as the list holds them. Gates (no `source`) are not these. */
+export const questionsOfTask = (rows: readonly OpenQuestion[], taskId: string): OpenQuestion[] =>
+  rows.filter((q) => q.source !== undefined && q.taskId === taskId)
+
 /** Every affected path of the plan with the Tasks that touch it, by path. More than one Task is an overlap. */
 export function filesOf(tasks: readonly JobTask[]): { path: string; tasks: JobTask[] }[] {
   const byPath = new Map<string, JobTask[]>()

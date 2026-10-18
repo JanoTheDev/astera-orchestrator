@@ -5,16 +5,17 @@ import { useEffect, useState } from 'react'
 import type { ActivityEvent } from '../../../../core/orchestration/activity'
 import type { OrchDoor } from '../../lib/orchDoor'
 import { mergePage } from '../activity/activityView'
-import type { LiveSession } from './planBoard'
+import type { LiveSession, OpenQuestion } from './planBoard'
 
 /** As often as the activity feed and the workspace tree are read. */
 const POLL_MS = 5000
 /** A full page of the feed: a shorter one is its end. */
 const PAGE = 500
 
-export function usePlanLive(door: OrchDoor, enabled: boolean): { sessions: Record<string, LiveSession>; activity: ActivityEvent[] } {
+export function usePlanLive(door: OrchDoor, enabled: boolean): { sessions: Record<string, LiveSession>; activity: ActivityEvent[]; questions: OpenQuestion[] } {
   const [sessions, setSessions] = useState<Record<string, LiveSession>>({})
   const [activity, setActivity] = useState<ActivityEvent[]>([])
+  const [questions, setQuestions] = useState<OpenQuestion[]>([])
   useEffect(() => {
     if (!enabled) return
     let alive = true
@@ -31,6 +32,12 @@ export function usePlanLive(door: OrchDoor, enabled: boolean): { sessions: Recor
           for (const s of r.body as Array<{ id: string } & LiveSession>)
             next[s.id] = { ...(s.prompt ? { prompt: s.prompt } : {}), ...(s.lastAction ? { lastAction: s.lastAction } : {}) }
           setSessions((p) => (JSON.stringify(p) === JSON.stringify(next) ? p : next))
+        }
+        // W7-C (#72): the asks and escalations waiting on the owner (Gates have no `source`)
+        const q = await door.command('questions-list', { status: 'open' })
+        if (alive && q.status === 200) {
+          const next = (q.body as OpenQuestion[]).filter((x) => x.source !== undefined)
+          setQuestions((p) => (JSON.stringify(p) === JSON.stringify(next) ? p : next))
         }
         for (;;) {
           const a = await window.api.orch.activity(cursor)
@@ -53,5 +60,5 @@ export function usePlanLive(door: OrchDoor, enabled: boolean): { sessions: Recor
       clearInterval(timer)
     }
   }, [door, enabled])
-  return { sessions, activity }
+  return { sessions, activity, questions }
 }

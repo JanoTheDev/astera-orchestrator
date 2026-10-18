@@ -15,6 +15,7 @@ import { randomBytes } from 'node:crypto'
 import {
   ackDelivery,
   applyReply,
+  answerEscalation, // W7-C
   applyReviewResult,
   applyWorkerDone,
   blockForReview,
@@ -137,6 +138,8 @@ import {
 import { jobNameOf } from './jobName'
 import { isSamePath } from '../files/tree'
 import type { RunPr, TaskLinks } from './types'
+import { escalationOpen } from './sessionIndex' // W7-C
+import type { Gate, Message } from './types' // W7-C
 import type { PrCreateRequest, PrCreateResult } from '../github/prCreate'
 import type { SessionCheck } from '../workUnit/types'
 import { PTY_LOST_SIGHT_EXIT_CODE } from '../sessions/pty'
@@ -1120,6 +1123,32 @@ const JOB_STATES = ['pending', 'paused', 'scheduled', 'waiting', 'running', 'com
 const jobStateOf = (view: Parameters<typeof stateWord>[0]): string => {
   const word = stateWord(view).toLowerCase()
   return word === 'complete' ? 'completed' : word
+}
+
+/**
+ * W7-C (#72): a worker's `astera ask` question or a coordinator's escalation as `questions list/get` show it, beside the
+ * Gates and in their shape (`source` tells them apart). An ask is open until answered; an escalation while
+ * `escalationOpen` (sessionIndex.ts) holds. `resolution` is the answer given.
+ */
+function messageQuestionOf(s: OrchState, m: Message): (Pick<Gate, 'id' | 'runId' | 'taskId' | 'question' | 'options' | 'status' | 'resolution' | 'createdAt'> & { source: 'ask' | 'escalation' }) | null {
+  if (m.type !== 'question' && m.type !== 'escalation') return null
+  let open: boolean
+  if (m.type === 'question') open = !m.answered
+  else {
+    const taskById = new Map(s.tasks.map((t) => [t.id, t]))
+    open = escalationOpen(m, taskById, s.tasks.filter((t) => t.runId === m.runId))
+  }
+  return {
+    id: m.id,
+    source: m.type === 'question' ? 'ask' : 'escalation',
+    runId: m.runId,
+    taskId: m.taskId ?? '',
+    question: m.type === 'question' ? m.body : [m.subject, m.body].filter((x) => x !== '').join('\n\n'),
+    ...(m.options !== undefined ? { options: m.options } : {}),
+    status: open ? 'open' : 'resolved',
+    ...(m.answered && (m.answerBody ?? '') !== '' ? { resolution: m.answerBody } : {}),
+    createdAt: m.createdAt
+  }
 }
 
 /** The values `sessions list --status` takes. Two read `alive` (the ALIVE/ENDED column of `--human`)
@@ -4591,16 +4620,41 @@ export async function handleCommand(
     case 'questions-answer': {
       const answer = str(args.answer) ?? str(args.resolution)
       if (!answer) return bad('--answer is required')
+      // W7-C (#72): an `astera ask` question or an escalation is a message, answered the way a coordinator's reply is
+      const msg = s.messages.find((m) => m.id === str(args.id) && (m.type === 'question' || m.type === 'escalation'))
+      if (msg) {
+        const fromAgent = fromAgentSession || caller.role === 'mcp'
+        // An escalation is what only the owner decides: an agent answering it would undo the escalation
+        if (msg.type === 'escalation' && fromAgent) return denied('an escalation is answered by the owner, from the app or a shell')
+        if (msg.type === 'question') {
+          const r = applyReply(s, { messageId: msg.id, body: answer, ...(fromAgent ? {} : { by: 'owner' as const }) }, now)
+          if (!r.ok) return refused(r)
+          await deps.setState(r.state)
+        } else {
+          const r = answerEscalation(s, { messageId: msg.id, body: answer }, now)
+          if (!r.ok) return refused(r)
+          await deps.setState(r.state)
+        }
+        const after = deps.getState().messages.find((m) => m.id === msg.id)
+        return okBody(after ? messageQuestionOf(deps.getState(), after) : null)
+      }
       return handleCommand(deps, caller, 'gate-resolve', { id: args.id, resolution: answer })
     }
     case 'questions-get': {
       const id = str(args.id)
       if (!id) return bad('--id is required')
       const gate = s.gates.find((g) => g.id === id)
-      return gate ? okBody(gate) : notFound(`unknown question: ${id}`)
+      if (gate) return okBody(gate)
+      const msg = s.messages.find((m) => m.id === id)
+      const row = msg ? messageQuestionOf(s, msg) : null
+      return row ? okBody(row) : notFound(`unknown question: ${id}`)
     }
     case 'questions-list': {
-      let gates = s.gates
+      // W7-C (#72): the Gates, then the open and answered asks and escalations, one list
+      let gates: Array<Gate | NonNullable<ReturnType<typeof messageQuestionOf>>> = [
+        ...s.gates,
+        ...s.messages.flatMap((m) => messageQuestionOf(s, m) ?? [])
+      ]
       // `--run` (CLI spec §19): a named run that is not there is a 404, for the reason tasks-list gives.
       if (args.run !== undefined) {
         const run = str(args.run)

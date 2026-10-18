@@ -73,7 +73,7 @@ export function lineOf(e: ActivityEvent, accountLabel: (id: string) => string): 
       return { text: `${p.title}: waiting for ${p.waitingFor === 'question' ? 'your answer to a question' : 'your permission'}`, tone: 'warn' }
     // W6-B
     case 'question.auto-answered':
-      return { text: `${p.title}: coordinator answered "${p.question ?? ''}": ${p.answer ?? ''}`, tone: 'info' }
+      return { text: `${p.title}: ${p.answeredBy === 'owner' ? 'answered by you' : 'coordinator answered'} "${p.question ?? ''}": ${p.answer ?? ''}`, tone: 'info' }
     case 'task.escalated':
       return { text: `${p.title}: needs your decision: ${p.reason ?? ''}`, tone: 'bad' }
     // W6-G

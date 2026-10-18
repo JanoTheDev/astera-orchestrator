@@ -193,3 +193,15 @@ describe('nowOf', () => {
     expect(nowOf(done('c'), { prompt: 'permission' }, [], now)).toBeNull()
   })
 })
+
+describe('questionsOfTask', () => {
+  it('picks one Task\'s asks and escalations, never a Gate row', async () => {
+    const { questionsOfTask } = await import('./planBoard')
+    const rows = [
+      { id: 'msg_1', source: 'ask' as const, taskId: 't1', question: 'a' },
+      { id: 'msg_2', source: 'escalation' as const, taskId: 't2', question: 'b' },
+      { id: 'g1', taskId: 't1', question: 'gate' } as never
+    ]
+    expect(questionsOfTask(rows, 't1').map((q) => q.id)).toEqual(['msg_1'])
+  })
+})
