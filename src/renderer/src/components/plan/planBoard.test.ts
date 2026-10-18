@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import type { JobTask, TaskBlockedReason } from '../../../../core/types'
 import { ko } from '../../../../core/i18n/messages/ko'
-import { categoryOf, planProgressOf, reasonText } from './planBoard'
+import type { ActivityEvent } from '../../../../core/orchestration/activity'
+import type { JobEvent } from '../../../../core/types'
+import { autoAnswersOf, categoryOf, currentWaveOf, filesOf, nowOf, planProgressOf, reasonText, replanningOf, wavesOf } from './planBoard'
 
 const task = (id: string, over: Partial<JobTask> = {}): JobTask => ({ id, title: id, status: 'pending', openGates: 0, ...over })
 
@@ -98,5 +100,82 @@ describe('reasonText', () => {
       ]
     }
     expect(reasonText(r, now, label)).toEqual({ key: 'plan.reason.deps', params: { tasks: 'Build API, Write schema' } })
+  })
+})
+
+// W6-E progress view
+const act = (type: string, over: Partial<ActivityEvent> = {}): ActivityEvent =>
+  ({ id: type, sequence: 0, occurredAt: '2026-10-18T10:00:00Z', type, runId: 'r1', payload: { title: 't' }, ...over }) as ActivityEvent
+const done = (id: string, over: Partial<JobTask> = {}): JobTask => task(id, { status: 'completed', ...over })
+const running = (id: string, over: Partial<JobTask> = {}): JobTask => task(id, { status: 'dispatched', startedAt: '2026-10-18T09:00:00Z', ...over })
+
+describe('wavesOf / currentWaveOf', () => {
+  it('groups by the depth layers with per-wave done counts, and points at the first unfinished wave', () => {
+    const tasks = [done('a'), done('b'), running('c'), task('d')]
+    const waves = wavesOf(tasks, [['a', 'b'], ['c'], ['d']])
+    expect(waves.map((w) => [w.index, w.tasks.map((t) => t.id), w.done])).toEqual([
+      [0, ['a', 'b'], 2],
+      [1, ['c'], 0],
+      [2, ['d'], 0]
+    ])
+    expect(currentWaveOf(waves)).toBe(1)
+    expect(currentWaveOf(wavesOf([done('a')], [['a']]))).toBe(-1)
+  })
+  it('puts a Task the layers do not place (a cycle, a stale detail) in one wave after them', () => {
+    const waves = wavesOf([done('a'), task('x')], [['a', 'gone']])
+    expect(waves.map((w) => w.tasks.map((t) => t.id))).toEqual([['a'], ['x']])
+  })
+})
+
+describe('replanningOf', () => {
+  it("is on from this plan's plan.replanning until its plan.replanned", () => {
+    expect(replanningOf([], 'r1')).toBe(false)
+    expect(replanningOf([act('plan.replanning')], 'r1')).toBe(true)
+    expect(replanningOf([act('plan.replanning'), act('plan.replanned')], 'r1')).toBe(false)
+    expect(replanningOf([act('plan.replanning', { runId: undefined, jobId: 'r1' })], 'r1')).toBe(true)
+    expect(replanningOf([act('plan.replanning', { runId: 'other' })], 'r1')).toBe(false)
+  })
+})
+
+describe('autoAnswersOf', () => {
+  it("lists one Task's question.auto-answered lines with question and answer", () => {
+    const events = [
+      act('question.auto-answered', { taskId: 't1', payload: { title: 'T', question: 'Use v2?', answer: 'Yes' } as never }),
+      act('question.auto-answered', { taskId: 't2', payload: { title: 'T', question: 'other' } as never }),
+      act('task.status', { taskId: 't1' })
+    ]
+    expect(autoAnswersOf(events, 't1')).toEqual([{ question: 'Use v2?', answer: 'Yes', at: '2026-10-18T10:00:00Z' }])
+  })
+})
+
+describe('filesOf', () => {
+  it('lists every path with the Tasks that touch it, sorted, so overlap shows', () => {
+    const files = filesOf([task('a', { affectedPaths: ['src/x.ts', 'b.ts'] }), task('b', { affectedPaths: ['src/x.ts'] }), task('c')])
+    expect(files.map((f) => [f.path, f.tasks.map((t) => t.id)])).toEqual([
+      ['b.ts', ['a']],
+      ['src/x.ts', ['a', 'b']]
+    ])
+  })
+})
+
+describe('nowOf', () => {
+  const now = Date.parse('2026-10-18T10:00:12Z')
+  const at = Date.parse('2026-10-18T10:00:00Z')
+  const question = (answered: boolean): JobEvent =>
+    ({ at: '', kind: 'message', sourceId: 'm', taskId: 'c', messageType: 'question', summary: 'q', answered }) as JobEvent
+  it('says what a running worker is doing, the most pressing first', () => {
+    const c = running('c')
+    expect(nowOf(c, { lastAction: { tool: 'Edit', target: 'src/x.ts', at } }, [], now)).toEqual({
+      key: 'plan.now.editing',
+      params: { target: 'src/x.ts', ago: '0:12' }
+    })
+    expect(nowOf(c, { lastAction: { tool: 'Bash', target: 'npm test', at } }, [], now)?.key).toBe('plan.now.running')
+    expect(nowOf(c, { lastAction: { tool: 'Edit', at } }, [question(false)], now)?.key).toBe('plan.now.asked')
+    expect(nowOf(c, { lastAction: { tool: 'Edit', at } }, [question(true)], now)?.key).toBe('plan.now.editing')
+    expect(nowOf(c, { prompt: 'permission' }, [question(false)], now)?.key).toBe('plan.now.permission')
+    expect(nowOf(c, undefined, [], now)).toBeNull()
+  })
+  it('says nothing for a Task that is not running', () => {
+    expect(nowOf(done('c'), { prompt: 'permission' }, [], now)).toBeNull()
   })
 })
