@@ -2037,9 +2037,16 @@ describe('wave replanning (W6-D)', () => {
     })
   }
 
+  /** tsk_1 failed an attempt and then succeeded: the retry reset its count, so the Dispatch says it deviated. */
+  const failedOnce = (h: ReturnType<typeof rig>): void => {
+    const s = h.state()
+    h.setState({ ...s, dispatches: [...s.dispatches, { id: 'dsp_failed', taskId: 'tsk_1', outcome: 'failed', workerState: 'failed', sessionId: 'ses-dead', provider: 'claude', accountId: 'acc1', cwd: '/repo', specPath: '/s.md', startedAt: '2026-10-17T00:00:00.000Z', endedAt: '2026-10-17T00:01:00.000Z' } as Dispatch] })
+  }
+
   it('holds the Job and starts a replan when the last Task of a wave completes, and starts no worker of the next', async () => {
     const h = rig()
     planned(h, (t) => (t.id === 'tsk_1' ? { ...t, status: 'completed' } : t))
+    failedOnce(h)
     await h.loop.run()
     await h.settle()
     expect(h.handled()).toContain('jobs-replan')
@@ -2075,6 +2082,7 @@ describe('wave replanning (W6-D)', () => {
   it('ends a replan whose planner session is gone', async () => {
     const h = rig()
     planned(h, (t) => (t.id === 'tsk_1' ? { ...t, status: 'completed' } : t))
+    failedOnce(h)
     await h.loop.run()
     await h.settle()
     h.ctx.sessionGone = () => true
