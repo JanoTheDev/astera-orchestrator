@@ -27,11 +27,12 @@ export function afterStandOf(s: AfterState, jobId: string): AfterStand {
   if (job.nothingToDo !== undefined) return 'delivered'
   const run = latestRunOf(s, jobId)
   const pr = run?.pr
+  // W8-E (#99) delivers a failed Run's completed work in a PR too: that plan still gave up, so what waits on it stops
+  if (run && outcomeOfTasks(s.tasks.filter((t) => t.runId === run.id)) === 'failed') return 'stopped'
   if (run?.delivery?.sha !== undefined && run.delivery.error === undefined) return 'delivered'
   if (pr && pr.error === undefined && pr.draft === undefined && (pr.url !== undefined || pr.note !== undefined)) return 'delivered'
   if (!isJobActive(job)) return 'stopped'
   if (run?.delivery?.error !== undefined || pr?.error !== undefined) return 'stopped'
-  if (run && outcomeOfTasks(s.tasks.filter((t) => t.runId === run.id)) === 'failed') return 'stopped'
   return 'waiting'
 }
 

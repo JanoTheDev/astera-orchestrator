@@ -151,6 +151,8 @@ The loop that works today, from source to merged work:
 4. **Let it run.** Workers ask the coordinator, and you see "coordinator answered" in the feed and "N questions
    answered" on the card. You are called only for an owner decision, a give-up or a permission prompt: a desktop
    notice "Needs your decision" and a row in the needs-input list.
+   Two Tasks on the same files never run at once, whoever places them (the Host or the coordinator): the second
+   waits, and its card says "waiting for <title> · same files <path>" until the first ends (W8-E).
 5. **Answer a decision.** Use the answer box on the Task's card (the needs-input row opens the plan), or
    `astera questions answer --id <id> --answer -`. See "Questions and escalations" below.
 6. **Usage.** At `usagePauseAt` no new worker starts and the board says why. After raising it, or after the reset,
@@ -158,20 +160,18 @@ The loop that works today, from source to merged work:
 7. **Done.** Between waves the board shows "Replanning wave N…"; after the last one the final check runs. With
    delivery `pr` the plan's PR opens (a project needs a GitHub remote); with `push` the work lands on the delivery
    branch, or Astera stops and tells you why (dirty folder, wrong branch, conflict) and touches nothing.
+   **A plan that ends with a failed Task** (one you marked failed, or out of tries) ends too: "Plan finished with N
+   failed" with no chime, and no final check (the notice says it was skipped). With `pr` its completed Tasks' work
+   opens a draft PR (or, with no remote, the "on branch …" note); a `push` project pushes nothing (W8-E).
 8. **Tidy up.** Ended tabs of a finished or archived plan close on their own (see "The workspace"). Archive a plan
    with `--kill-sessions` to end all its sessions at once.
 
 Known gaps were issues #67–#84 (label `wave-6`), fixed by Wave 7's W7-C…W7-F. The re-run after Wave 7 found #92–#106
 (W8-E, W8-F, W8-G; #106 in W9-F). Until they merge:
-- **Same files.** A plan with a coordinator can run two Tasks on the same file at once (#92). Tell the planner
-  "chain Tasks that share a file" in the extra instructions.
 - **Talk to the planner from a shell** (`astera jobs feedback --job <job> --text -`): the app's box starts a fresh
   planner each time (#93). If Run says a Task "has no basis", tell the planner (#94).
 - **A Gate from the coordinator** has no box on the card (#97): `astera questions list --status open`, then
   `astera questions answer --id <id> --answer "<option>"` (pass the option as an argument, not on stdin, #98).
-- **After you answer**, the coordinator may wait up to 10 min to notice (#96): type "check your inbox" into its tab.
-  A Gate asking you to `jobs-unhold` during "Replanning wave N…" is false (#95): answer "the replan ended, go on".
-- **A plan with a failed Task** shows no end (#99): read its board, then archive it.
 - **No remote + `pr`**: merge the plan's branch (`git merge <branch>` in the folder) before the next plan (#101).
 - **`push` with a new bare origin**: set `--delivery-branch main` or run `git remote set-head origin -a` (#102).
 

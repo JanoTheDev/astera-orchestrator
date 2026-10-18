@@ -71,9 +71,10 @@ export function waveOpen(task: Task, s: OrchState): boolean {
   return runTasks(s, run.id).every((t) => t.status === 'completed' || waveOf(t, s.tasks) >= w)
 }
 
-/** Not started: waiting or ready, and never given a worker. Only these may a replan change. */
+/** Not started: waiting, ready, or blocked by a Gate before it ever ran (W8-E, #95: the coordinator's question about
+ *  it is no start), and never given a worker. Only these may a replan change. */
 export const notStarted = (s: OrchState, t: Task): boolean =>
-  (t.status === 'pending' || t.status === 'ready') && !s.dispatches.some((d) => d.taskId === t.id)
+  (t.status === 'pending' || t.status === 'ready' || t.status === 'blocked') && !s.dispatches.some((d) => d.taskId === t.id)
 
 const completedIn = (ts: readonly Task[]): number => ts.filter((t) => t.status === 'completed').length
 
@@ -149,7 +150,8 @@ export function editRemainingTask(
   }
   const merged: Task = { ...task, ...patch, updatedAt: now }
   const doneIds = new Set(own.filter((t) => t.status === 'completed').map((t) => t.id))
-  const next: Task = { ...merged, status: merged.deps.every((d) => doneIds.has(d)) ? 'ready' : 'pending' }
+  // A Task under an open Gate stays blocked: the Gate's answer unblocks it (resolveGate), and the deps then decide
+  const next: Task = { ...merged, status: task.status === 'blocked' ? 'blocked' : merged.deps.every((d) => doneIds.has(d)) ? 'ready' : 'pending' }
   const tasks = s.tasks.map((t) => (t.id === taskId ? next : t))
   if (layersOf({ ...s, tasks }, task.runId).cyclic.length) return { ok: false, error: `those deps would make ${taskId} wait on itself` }
   return { ok: true, state: { ...s, tasks }, value: next }
@@ -164,5 +166,6 @@ export function cancelRemainingTask(s: OrchState, taskId: string): Res<Task> {
     return { ok: false, error: `${taskId} has started or finished: only a Task that has not started is cancelled` }
   const waiting = runTasks(s, task.runId).filter((t) => t.status !== 'completed' && t.deps.includes(taskId))
   if (waiting.length) return { ok: false, error: `${waiting.map((t) => t.id).join(', ')} depend on ${taskId}: change their --deps first` }
-  return { ok: true, state: { ...s, tasks: s.tasks.filter((t) => t.id !== taskId) }, value: task }
+  // A blocked Task's open Gate goes with it (W8-E): nobody is left to answer it for
+  return { ok: true, state: { ...s, tasks: s.tasks.filter((t) => t.id !== taskId), gates: s.gates.filter((g) => g.taskId !== taskId) }, value: task }
 }

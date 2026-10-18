@@ -42,6 +42,8 @@ describe('afterStandOf', () => {
 
   it('stopped: gave up, a delivery stopped, archived (rejected too) or gone', () => {
     expect(stand({}, { status: 'failed', consecutiveFailures: 3 })).toBe('stopped')
+    // W8-E (#99) opens a PR for a failed Run's completed work: still gave up
+    expect(stand({ pr: { at: NOW, url: 'u' } }, { status: 'failed', consecutiveFailures: 3 })).toBe('stopped')
     expect(stand({ delivery: { at: NOW, error: 'not on main' } })).toBe('stopped')
     expect(stand({ pr: { at: NOW, error: 'no gh' } })).toBe('stopped')
     expect(stand({}, { status: 'ready' }, { archivedAt: NOW, rejected: { at: NOW } })).toBe('stopped')

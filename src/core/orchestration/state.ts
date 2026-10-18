@@ -1076,7 +1076,8 @@ export function answerCheckUnavailable(
   if (task.status !== 'blocked') return ok({ ...s, gates: replace(s.gates, resolved) }, { gate: resolved, revalidate: null })
   const { checkResume: _old, ...base } = task
   if (a.resolution === 'mark-failed') {
-    const failed: Task = { ...base, status: 'failed', updatedAt: now }
+    // W8-E (#99): given up is out of tries, so the Task is terminal and its Run can end (running.ts isTerminal)
+    const failed: Task = { ...base, status: 'failed', consecutiveFailures: Math.max(base.consecutiveFailures, FAILURE_LIMIT), updatedAt: now }
     return ok({ ...s, gates: replace(s.gates, resolved), tasks: replace(s.tasks, failed) }, { gate: resolved, revalidate: null })
   }
   const attempt = latestImplDispatch(s, task.id)

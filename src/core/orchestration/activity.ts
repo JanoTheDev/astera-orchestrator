@@ -106,6 +106,8 @@ export interface ActivityPayload {
   pr?: RunPr
   // plan.done
   runOutcome?: 'completed' | 'failed'
+  /** W8-E (#99): a failed plan's failed Tasks; its final check is skipped. */
+  failedTasks?: number
   // task.waiting (W5-D, #42)
   waitingFor?: 'permission' | 'question'
   // plan.replanning / plan.replanned (W6-D)
@@ -376,7 +378,9 @@ export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[
       const at = where(runId)
       // W6-D: a completed plan is done once its final check settles; the replan's end says so (below)
       if (outcome === 'completed' && at.job && !completionSettled(next, at.job, runId)) continue
-      push('plan.done', at, { title: at.job ? jobNameOf(at.job) : runId, runOutcome: outcome })
+      // W8-E (#99): a failed plan ends here, with no final check (replan.ts replansDue asks for an all-completed Run)
+      const failedTasks = outcome === 'failed' ? ts.filter((t) => t.status === 'failed').length : undefined
+      push('plan.done', at, { title: at.job ? jobNameOf(at.job) : runId, runOutcome: outcome, ...(failedTasks !== undefined ? { failedTasks } : {}) })
     }
   }
   // W6-D: a replan's start and end, from the Job's marks (replan.ts). A final check that added nothing is the plan done.
@@ -565,11 +569,14 @@ export function noticeOf(e: ActivityEvent): ActivityNotice | null {
         ? { key: `failed:${e.taskId}`, title: 'Task failed', body: `${e.payload.title}${inPlan(e)}`, ...session }
         : null
     case 'plan.done':
-      return {
-        key: `done:${e.runId}`,
-        title: e.payload.runOutcome === 'failed' ? 'Plan finished with failures' : 'Plan done',
-        body: e.payload.title
-      }
+      // W8-E (#99): no chime, nothing is asked; the failed Tasks are on the board
+      return e.payload.runOutcome === 'failed'
+        ? {
+            key: `done:${e.runId}`,
+            title: e.payload.failedTasks !== undefined ? `Plan finished with ${e.payload.failedTasks} failed` : 'Plan finished with failures',
+            body: `${e.payload.title}. The final check was skipped.`
+          }
+        : { key: `done:${e.runId}`, title: 'Plan done', body: e.payload.title }
     case 'gate.opened':
       return { key: `gate:${e.payload.gateId}`, title: 'Needs your answer', body: `${e.payload.title}${inPlan(e)}: ${e.payload.question ?? ''}`.slice(0, 240), alert: true }
     case 'plan.awaiting-approval':

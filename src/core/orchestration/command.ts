@@ -100,7 +100,7 @@ import {
   type Task,
   type TaskStatus
 } from './types'
-import { runWorktrees } from './integrate'
+import { runWorktrees, runWorktreesFrom } from './integrate'
 import { isPathWithin } from '../files/tree'
 import { buildHandoverPrompt, buildPlannerBrief } from './handover'
 // W2-A planner stage
@@ -113,7 +113,7 @@ import { parseCheckFlag } from '../workUnit/verification'
 import { isTerminal as taskFinished, outcomeOf, progressOf } from './view'
 import { runningRunCount } from './running'
 import { FINISHED_RUN_GRACE_MS } from './exec/dispatchLoop'
-import { appDriven, workerCapOf, workersAgainstCap } from './schedule'
+import { appDriven, editingByJob, sameFilesAs, workerCapOf, workersAgainstCap } from './schedule'
 import type { JobEvent, SessionInfo, WorktreeInfo } from '../types'
 import { ghFailureSentence, type GhFailed, type GhRunner } from '../github/gh'
 import { failedLogTail, readPrChecks, rerunFailed } from '../github/checks'
@@ -3989,11 +3989,30 @@ export async function handleCommand(
         return bad(`job ${run.jobId} is a schedule — it does not dispatch its own Tasks; its runs do`)
       // W5-C: a plan held from launching (`jobs-hold`) gets no new worker from any placer: the app's loop, `tasks
       // dispatch`, a coordinator, a person. `held` tells the loop this is a wait, not a reason for a Gate.
+      // W8-E (#95): a replan holds the plan too (dispatchHold), but it lifts by itself: the coordinator waits for
+      // `plan.replanned` instead of asking the owner to run `jobs-unhold`, which no agent may
+      if (runJob?.replanning)
+        return {
+          status: 409,
+          body: { error: `replanning wave ${runJob.replanning.wave}: this lifts by itself; wait for plan.replanned in your inbox`, held: true, replanning: true }
+        }
       if (runJob?.dispatchHold)
         return { status: 409, body: { error: `job ${runJob.id} is held from launching new workers; \`jobs-unhold\` lets it go again`, held: true } }
       // W6-D: a Task of a later wave waits for the waves before it and for a replan under way (replan.ts waveOpen)
       if (task.status === 'ready' && !waveOpen(task, s))
         return { status: 409, body: { error: `task ${taskId} waits for the earlier waves of its plan to complete, or for its replan`, held: true } }
+      // W8-E (#92): never two workers on the same files (W6-C), for every placer: a coordinator's Job has no
+      // autoDispatch, so `slotsToFill` never places for it and this is the only door its workers pass
+      const clash = sameFilesAs(task, editingByJob(s).get(run.jobId) ?? [])
+      if (clash)
+        return {
+          status: 409,
+          body: {
+            error: `waiting for ${clash.task.title}: same files ${clash.path}; start it when that Task ends`,
+            held: true,
+            sameFiles: { taskId: clash.task.id, path: clash.path }
+          }
+        }
 
       // **동시 실행 한도.** 지금까지 이 값을 지키는 곳은 앱의 스케줄러뿐이었다(schedule.ts 의
       // slotsToFill) — 앱이 유일한 배치자였으므로 그것으로 충분했다. Run 을 코디네이터에게 넘기는
@@ -4884,7 +4903,10 @@ export async function handleCommand(
         finalState = {
           ...finalState,
           tasks: finalState.tasks.map((t) =>
-            t.id === gate!.taskId ? { ...t, status: 'failed' as const, updatedAt: now } : t
+            // W8-E (#99): given up is out of tries, so the Task is terminal and its Run can end (running.ts isTerminal)
+            t.id === gate!.taskId
+              ? { ...t, status: 'failed' as const, consecutiveFailures: Math.max(t.consecutiveFailures, FAILURE_LIMIT), updatedAt: now }
+              : t
           )
         }
       }
@@ -5688,7 +5710,10 @@ export async function handleCommand(
       if (run.pr?.url && !draft) return okBody({ url: run.pr.url, number: run.pr.number ?? null, opened: false })
       if (run.pr?.error !== undefined && args.force !== true)
         return conflict(`Opening this Run's pull request failed before: ${run.pr.error}. --force tries again`)
-      if (runView(s, run).outcome !== 'completed') return conflict('This Run has not completed; its pull request opens once every task is done')
+      // W8-E (#99): a Run that ended with failed Tasks delivers its completed Tasks' work, in a draft
+      const outcome = runView(s, run).outcome
+      if (outcome !== 'completed' && outcome !== 'failed') return conflict('This Run has not completed; its pull request opens once every task is done')
+      const failed = outcome === 'failed'
       if (!deps.github) return conflict('GitHub commands are answered by the Astera Host, and this caller is not one')
       const worktree = run.worktree
       if (worktree === undefined) return conflict('This Run has no integration branch; use Merge to bring its work into the project folder')
@@ -5703,7 +5728,10 @@ export async function handleCommand(
         })
       }
       // The leaves' work is still in their own worktrees: only a dependent's start folds a worktree into the Run's.
-      const rest = runWorktrees(s, id).filter((p) => !isSamePath(p, worktree))
+      const completedIds = new Set(s.tasks.filter((t) => t.runId === id && t.status === 'completed').map((t) => t.id))
+      const rest = (
+        failed ? runWorktreesFrom(run, job.cwd, s.dispatches.filter((d) => completedIds.has(d.taskId))) : runWorktrees(s, id)
+      ).filter((p) => !isSamePath(p, worktree))
       if (rest.length > 0) {
         if (!deps.mergeWorktrees) return conflict('merging is not available in this build')
         const merged = await deps.mergeWorktrees(worktree, rest)
@@ -5739,15 +5767,16 @@ export async function handleCommand(
         if (!g.push) return conflict('pushing a branch is not available in this build')
         const pushed = await g.push(t.cwd, t.branch)
         if (!pushed.ok) return fail(pushed.kind === 'no-remote' ? noRemoteNote(t.branch) : `The push was rejected: ${pushed.detail.trim()}`)
-        for (const step of [['pr', 'edit', draft.url, '--body', body], ['pr', 'ready', draft.url]]) {
+        // W8-E (#99): a Run with failed Tasks delivers its completed work and stays a draft
+        for (const step of [['pr', 'edit', draft.url, '--body', body], ...(failed ? [] : [['pr', 'ready', draft.url]])]) {
           const r = await g.run(step, t.cwd)
           if (!r.ok) return fail(`gh ${step[0]} ${step[1]}: ${ghFailureSentence(r).message}`)
         }
         const { draft: _d, wavesDone: _w, error: _e, ...ready } = draft
-        await record({ ...ready, at: now })
-        return okBody({ url: draft.url, number: draft.number ?? null, opened: false, ready: true })
+        await record(failed ? { ...draft, at: now } : { ...ready, at: now })
+        return okBody({ url: draft.url, number: draft.number ?? null, opened: false, ready: !failed })
       }
-      const made = await handleCommand(deps, caller, 'github-pr-create', { run: id, title, body, draft: false, ...(base ? { base } : {}) })
+      const made = await handleCommand(deps, caller, 'github-pr-create', { run: id, title, body, draft: failed, ...(base ? { base } : {}) })
       const answer = (made.body ?? {}) as { url?: unknown; error?: unknown; noRemote?: unknown; branch?: unknown }
       // W7-E (#80): a project with no remote keeps the work on its branch; recorded as a note, not as a failed PR
       if (answer.noRemote === true && typeof answer.branch === 'string') {
