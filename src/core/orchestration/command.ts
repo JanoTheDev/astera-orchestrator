@@ -1505,6 +1505,13 @@ export async function handleCommand(
     return true
   }
 
+  /** W5-B (#46, #47): ends a Job's planner sessions. The ids stay on the Job: they still say the Job was planned
+   *  (`awaitsApproval`, the workspace tree). Best-effort, as every tidy-up through `stopCoordinator` is. */
+  const endPlanners = async (job: Job, reason: string): Promise<void> => {
+    for (const sessionId of job.plannerSessionIds ?? [])
+      await deps.stopCoordinator?.(sessionId, reason).catch((e) => deps.log?.(`planner ${sessionId} could not be stopped: ${String(e)}`))
+  }
+
   /** Drops a Run's `coordinatorStartingAt`, on the state as it is now (I1), **only when it is the
    *  mark this call wrote** (`stamp`, this command's `now`). A start that outlived the window may find
    *  a later ▶'s mark there, and erasing it would let a third start through beside that one. */
@@ -2493,6 +2500,23 @@ export async function handleCommand(
           const stopped = await handleCommand(deps, caller, 'runs-stop', { id: run.id })
           if (stopped.status !== 200) return stopped
         }
+        // W5-B (#46): **every** session of the plan, not only the open Dispatches `runs stop` closes. A worker waits after
+        // it reports (the guide's rule), a finished Run keeps its coordinator for the grace, and a planner is no
+        // Dispatch. Each closed Dispatch that is the latest of its session is released (releaseWorker skips a retained
+        // one, as worker-release does); a finished Run's coordinator gets `run-coordinator-stop`.
+        const stopped = deps.getState()
+        const runs = stopped.runs.filter((r) => r.jobId === id)
+        const mine = new Set(stopped.tasks.filter((t) => runs.some((r) => r.id === t.runId)).map((t) => t.id))
+        // Read off the state before the stops, so a Dispatch `runs stop` just closed is not released twice
+        const latestOfSession = new Map(s.dispatches.map((d) => [d.sessionId, d.id]))
+        for (const d of s.dispatches)
+          if (mine.has(d.taskId) && (d.outcome || d.endedAt) && latestOfSession.get(d.sessionId) === d.id && releases(d))
+            await deps.releaseWorker({ dispatchId: d.id })
+        for (const run of runs)
+          if (run.coordinatorSessionId !== undefined && run.coordinatorStopPending === undefined)
+            await handleCommand(deps, caller, 'run-coordinator-stop', { run: run.id })
+        const planned = stopped.jobs.find((j) => j.id === id)
+        if (planned) await endPlanners(planned, 'its plan was archived')
       }
       const after = deps.getState()
       const r = archiveJob(after, id, now)
@@ -2724,7 +2748,14 @@ export async function handleCommand(
       if (!job) return notFound(`unknown job: ${id}`)
       // W2-A: starting a planned Job is approving its plan. That is the person's act (the app, or their own
       // shell), not an agent's, and the plan must hold together first (validatePlan).
-      if (job.pendingStart && job.plannerSessionIds !== undefined) {
+      const approving = job.pendingStart === true && job.plannerSessionIds !== undefined
+      // W5-B (#47): an approved plan's planner has done its work (SPEC §2), so it ends with the approval. Left alive it
+      // idled for hours and got the limit reset's "Continue the work" on the planner model.
+      const approved = async (reply: Reply): Promise<Reply> => {
+        if (approving && reply.status >= 200 && reply.status < 300) await endPlanners(job, 'its plan was approved')
+        return reply
+      }
+      if (approving) {
         // W3-D: an MCP client calls with an empty session id, but its call comes from an agent (sessions-send's fromMcp)
         if (fromAgentSession || caller.role === 'mcp') return denied('approving a plan is for the person, in Astera or at their own shell')
         const problems = validatePlan(s, id)
@@ -2745,7 +2776,7 @@ export async function handleCommand(
         started = { ok: true, state: first.state, value: job }
         target = first.value
       }
-      if (target === undefined) return commit(started)
+      if (target === undefined) return approved(await commit(started))
       // **코디네이터를 띄울 수 있으면 띄우고, 이 Run 의 운전자를 그에게 넘긴다.** 넘기는 방식이
       // `autoDispatch` 를 끄는 것이다 — 한 Run 에 운전자는 하나이고, 켜 둔 채로 코디네이터를
       // 붙이면 둘이 같은 ready Task 를 두고 경합한다(Run.autoDispatch 의 주석).
@@ -2759,14 +2790,14 @@ export async function handleCommand(
       // **이미 관리자가 있으면 아무것도 하지 않는다.** 이 명령은 사이드바의 '실행' 과 코디네이터를
       // 다시 띄우는 버튼이 함께 쓴다 — 뜻은 "이 Run 에 관리자가 있게 하라" 이고, 두 번 눌러도 두
       // 세션이 뜨지 않아야 한다.
-      if (target.coordinatorSessionId) return commit(started)
+      if (target.coordinatorSessionId) return approved(await commit(started))
       // A Run that was already there and has finished: the same as its own row's ▶ (I3).
-      if (s.runs.some((r) => r.id === target.id) && outcomeOf(s, target.id) !== 'running') return commit(started)
+      if (s.runs.some((r) => r.id === target.id) && outcomeOf(s, target.id) !== 'running') return approved(await commit(started))
       const accountId = job.schedule ? undefined : job.coordinatorAccountId
-      if (!accountId || !deps.startCoordinator) return commit(started)
+      if (!accountId || !deps.startCoordinator) return approved(await commit(started))
       // Rebased when this call changes nothing on its own (no gate to release, no first Run): the ▶
       // on a Job row restarting its latest Run's coordinator (handToCoordinator's `rebase`).
-      return handToCoordinator(started.state, job, target, accountId, started.state === s)
+      return approved(await handToCoordinator(started.state, job, target, accountId, started.state === s))
     }
     case 'run-pause': {
       const id = str(args.run)

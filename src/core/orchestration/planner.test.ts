@@ -15,12 +15,15 @@ interface Rig {
   deps: OrchServerDeps
   coordinatorStarts: Array<Record<string, unknown>>
   workerStarts: Array<Record<string, unknown>>
+  /** The sessions `stopCoordinator` was asked to end, with the reason */
+  stopped: Array<[string, string | undefined]>
 }
 
 const rig = (): Rig => {
   let state: OrchState = emptyState()
   const coordinatorStarts: Array<Record<string, unknown>> = []
   const workerStarts: Array<Record<string, unknown>> = []
+  const stopped: Array<[string, string | undefined]> = []
   const deps = {
     getState: () => state,
     setState: async (next: OrchState) => {
@@ -34,12 +37,15 @@ const rig = (): Rig => {
       coordinatorStarts.push(a)
       return { sessionId: a.role === 'planner' ? PLANNER : 'ses-coordinator' }
     },
+    stopCoordinator: async (sessionId: string, reason?: string) => {
+      stopped.push([sessionId, reason])
+    },
     releaseWorker: async () => {},
     listAccounts: () => [{ id: 'acc1', label: 'a', provider: 'claude' }],
     readWorker: async () => '',
     now: () => NOW
   } as unknown as OrchServerDeps
-  return { deps, coordinatorStarts, workerStarts }
+  return { deps, coordinatorStarts, workerStarts, stopped }
 }
 
 /** A person at their own shell: no ASTERA_SESSION. */
@@ -332,6 +338,16 @@ describe('approval', () => {
     // execution is handed to the coordinator as before (W1 behaviour)
     expect(r.coordinatorStarts.map((x) => x.role ?? 'coordinator')).toEqual(['planner', 'coordinator'])
     expect(s.runs[0].coordinatorSessionId).toBe('ses-coordinator')
+    // W5-B (#47): the planner's work is done, so it ends with the approval, and only the planner
+    expect(r.stopped).toEqual([[PLANNER, 'its plan was approved']])
+  })
+
+  it('a refused approval leaves the planner running', async () => {
+    const r = rig()
+    const jobId = await plannedJob(r)
+    await person(r)('task-create', { run: jobId, account: 'acc1', title: 'by hand', spec: 's' })
+    expect((await person(r)('run-start', { run: jobId })).status).toBe(400)
+    expect(r.stopped).toEqual([])
   })
 
   it('a Job planned by hand (no planner) starts as before, unvalidated', async () => {

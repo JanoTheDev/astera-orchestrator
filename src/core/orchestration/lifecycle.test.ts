@@ -24,7 +24,8 @@ afterEach(async () => {
   await fs.rm(dir, { recursive: true, force: true })
 })
 
-const makeDeps = (): OrchServerDeps & { releaseWorker: ReturnType<typeof vi.fn> } => {
+type Deps = OrchServerDeps & { releaseWorker: ReturnType<typeof vi.fn>; stopCoordinator: ReturnType<typeof vi.fn> }
+const makeDeps = (): Deps => {
   const box = { state: emptyState() }
   return {
     getState: () => box.state,
@@ -33,10 +34,11 @@ const makeDeps = (): OrchServerDeps & { releaseWorker: ReturnType<typeof vi.fn> 
     },
     startWorker: async () => ({ sessionId: 'sess1', cwd: dir, specPath: path.join(dir, 'spec.md') }),
     releaseWorker: vi.fn(async () => {}),
+    stopCoordinator: vi.fn(async () => {}),
     listAccounts: () => [{ id: 'acc1', label: 'acc', provider: 'codex' }],
     readWorker: async () => 'output',
     now: () => NOW
-  } as unknown as OrchServerDeps & { releaseWorker: ReturnType<typeof vi.fn> }
+  } as unknown as Deps
 }
 
 const call = (deps: OrchServerDeps, cmd: string, args: Record<string, unknown> = {}): Promise<{ status: number; body: unknown }> =>
@@ -136,10 +138,34 @@ describe('archiving a Job', () => {
     const r = await call(deps, 'jobs-archive', { id: jobId, killSessions: true })
     expect(r.status).toBe(200)
     expect(deps.releaseWorker).toHaveBeenCalledWith({ dispatchId })
+    expect(deps.releaseWorker).toHaveBeenCalledTimes(1)
     const s = deps.getState()
     expect(s.dispatches.find((d) => d.id === dispatchId)).toMatchObject({ workerState: 'stopped', closedBy: 'stop' })
     expect(s.runs.find((x) => x.id === runId)?.paused).toBe(true)
     expect(isJobActive(s.jobs[0])).toBe(false)
+  })
+
+  // W5-B (#46): a worker waits after it reports, and a planner is no Dispatch; asked to, archiving ends them too.
+  it('with --kill-sessions also ends the reported workers and the planner, and without it neither', async () => {
+    const reported = async (): Promise<{ deps: Deps; jobId: string; dispatchId: string }> => {
+      const { deps, jobId, dispatchId } = await withWorker()
+      const s = deps.getState()
+      await deps.setState({
+        ...s,
+        jobs: s.jobs.map((j) => ({ ...j, plannerSessionIds: ['ses-planner'] })),
+        dispatches: s.dispatches.map((d) => (d.id === dispatchId ? { ...d, outcome: 'failed' as const, endedAt: NOW } : d))
+      })
+      return { deps, jobId, dispatchId }
+    }
+    const kept = await reported()
+    expect((await call(kept.deps, 'jobs-archive', { id: kept.jobId })).status).toBe(200)
+    expect(kept.deps.releaseWorker).not.toHaveBeenCalled()
+    expect(kept.deps.stopCoordinator).not.toHaveBeenCalled()
+    const killed = await reported()
+    expect((await call(killed.deps, 'jobs-archive', { id: killed.jobId, killSessions: true })).status).toBe(200)
+    expect(killed.deps.releaseWorker).toHaveBeenCalledWith({ dispatchId: killed.dispatchId })
+    expect(killed.deps.stopCoordinator).toHaveBeenCalledWith('ses-planner', 'its plan was archived')
+    expect(isJobActive(killed.deps.getState().jobs[0])).toBe(false)
   })
 
   it('with --kill-sessions refuses, archiving nothing, while a worker is held by worker-retain', async () => {
