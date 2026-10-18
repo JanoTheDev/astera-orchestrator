@@ -9,6 +9,11 @@ This prompt writes one doc and an artifact, no code. Branch `docs/w9-design` in 
 
 # W9-0 — Design spec and mockup (owner approves before any code)
 
+Drafted ahead on 2026-10-18: `docs/orchestrator/DESIGN.md` and the mockup
+(https://claude.ai/artifact/DhSiAPZxCigXD4xJBoFb9x) exist. If the owner has approved them (DESIGN.md "Status"),
+only step 1 (before-screenshots) is left. Otherwise, take step 1, then continue the review loop (step 4) on the
+existing files instead of starting over.
+
 1. **Walk the app as it is.** Run it once (CONTEXT rule 7: fresh CDP port, alone, nothing else heavy running) and
    screenshot every surface: sidebar sections, Jobs, RunDetail, the board, inbox, command bar, every dialog, every
    Settings tab. Stop the app when done. These are the "before" pictures.

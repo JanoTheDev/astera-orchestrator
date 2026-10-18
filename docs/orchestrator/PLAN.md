@@ -305,7 +305,11 @@ Waves 1–8 has one clear place, and the app looks like one product.
 - **The README and docs describe upstream Astera**, with fork status tables bolted on. The translations are
   upstream's and stale.
 
-### The new layout (the mockup in W9-0 makes this concrete; the owner approves it before any code)
+### The new layout
+
+The exact spec is [DESIGN.md](DESIGN.md), and the clickable mockup is
+https://claude.ai/artifact/DhSiAPZxCigXD4xJBoFb9x. Both were drafted 2026-10-18 while W7 ran, and are waiting for
+owner approval. The sketch below is the summary.
 
 ```
 ┌ Titlebar ── [◆ gameful ▾]  ────  [⌘K  Search or command…]  ──── [▶ run config]  [usage ▮▮▯] ┐
@@ -369,15 +373,15 @@ Waves 1–8 has one clear place, and the app looks like one product.
   - **Notifications**: notices, digest, sound.
   - **Advanced**: How It Works generator, worktree location, history, about and updates, host.
   - Settings has a search box that filters by label.
+  - Settings opens as a tab, not a modal, so it can sit beside a terminal and be deep-linked (DESIGN.md §2).
 
 ### Design system (W9-A builds it; every later prompt uses only it)
 - **Tokens:** `styles/tokens.css` is the only place colours, spacing, radius, type and shadows are defined. The
   existing ~75 `:root` names are kept where they fit, so `core/theme/contrast.test.ts` still applies. Light gets its
   own token set.
 - **Themes:** 3 dark themes and 1 light theme (owner, 2026-10-18).
-  - Keep `vega` (default), `umbra` and `aurora`, and add `light`. W9-0 may swap which dark themes stay; the mockup
-    shows each one.
-  - A saved theme that was removed maps to `vega`.
+  - Keep `umbra` (the default, as today), `vega` and `aurora`, and add `light`. The mockup shows each one.
+  - A saved theme that was removed maps to `umbra`.
   - `system` follows the OS light/dark setting.
   - Tailwind's `dark` variant follows the theme instead of being forced on.
 - **Primitives** in `components/ui/`: `Button` (primary, secondary, ghost, danger; sm/md), `Chip` (neutral, accent,
@@ -409,7 +413,7 @@ Waves 1–8 has one clear place, and the app looks like one product.
   updates the test's path or selector in the same commit. It never deletes the pin.
 
 ### Order and why
-- **9.0** is one tab and changes no code. It writes `DESIGN.md` and builds a clickable mockup artifact of the
+- **9.0** was drafted early (2026-10-18): DESIGN.md and the mockup exist, and the before-screenshots still need to be taken. It is one tab and changes no code. It writes `DESIGN.md` and builds a clickable mockup artifact of the
   layout, the Plan tab, the Inbox, New and Settings, in dark and light. The owner comments on it, and it is revised
   until approved. This is the only owner step in Wave 9.
 - **9.1 runs alone.** W9-A cuts `App.tsx` into `components/shell/*` and `state/*` hooks. It moves `styles.css`
