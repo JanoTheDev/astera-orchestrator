@@ -101,3 +101,12 @@ describe('heavyWaits', () => {
     expect(heavyWaits(path.join(dir, 'missing')).size).toBe(0)
   })
 })
+
+describe('orchestration-guide W8-C block', () => {
+  it('tells workers to use astera heavy, that hand tabs share the lock, and never to kill the orchestrator', () => {
+    const guide = readFileSync(path.resolve(__dirname, '../../../resources/skills/orchestration-guide.md'), 'utf8')
+    expect(guide).toContain('astera heavy -- nice -n 10 npx vitest run --maxWorkers=2')
+    expect(guide).toContain('flock /tmp/astera-fullsuite.lock <command>')
+    expect(guide).toContain('Never stop, restart or `pkill` the orchestrating Astera app or its Host')
+  })
+})
