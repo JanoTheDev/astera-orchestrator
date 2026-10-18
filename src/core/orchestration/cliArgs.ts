@@ -82,7 +82,7 @@ const NUMERIC = new Set(['timeoutMs', 'limit'])
 const JSON_ARRAY = new Set(['deps', /* W2-A planner stage */ 'criteria', 'affectedPaths'])
 /** Flags that may appear more than once and always arrive as an array. Everything else keeps the
  *  last value, which is what every existing caller expects. */
-const REPEATABLE = new Set(['check', 'set', 'unset'])
+const REPEATABLE = new Set(['check', 'set', 'unset', /* W6-A intake */ 'attach'])
 
 /** `astera browser <sub>`. Exported because cliUsage.ts prints usage for both of them, and a second
  *  copy of the list would drift from this one. */

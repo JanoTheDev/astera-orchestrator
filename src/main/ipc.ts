@@ -2983,7 +2983,8 @@ export function registerIpc(
           // forward them instead of dropping them on the floor.
           resumeSessionId: o.resumeSessionId,
           resumePrompt: o.resumePrompt,
-          model: o.model // W1-A role model, kept across rolls by the session (SessionInfo.model)
+          model: o.model, // W1-A role model, kept across rolls by the session (SessionInfo.model)
+          disallowedTools: o.disallowedTools // W6-B: a claude worker's (WORKER_DISALLOWED_TOOLS)
         } satisfies typeof o)
         try {
           send('session:created', info)
@@ -4258,6 +4259,12 @@ export function registerIpc(
     if (typeof n !== 'number' || !Number.isInteger(n) || n < 0 || n > ACTIVITY_DIGEST_MAX_MINUTES)
       throw new Error(`INVALID_ACTIVITY_DIGEST_MINUTES: ${String(n)}`)
     await core.appSettings.setActivityDigestMinutes(n)
+  })
+  // W6-B: the chime with a notice that needs the owner
+  ipcMain.handle('settings.getAlertSound', () => core.appSettings.getAlertSound())
+  ipcMain.handle('settings.setAlertSound', async (_e, on: unknown) => {
+    if (typeof on !== 'boolean') throw new Error(`INVALID_ALERT_SOUND: ${String(on)}`)
+    await core.appSettings.setAlertSound(on)
   })
   ipcMain.handle('settings.getMaxConcurrentWorkers', () => core.appSettings.getMaxConcurrentWorkers())
   ipcMain.handle('settings.setMaxConcurrentWorkers', async (_e, n: unknown) => {

@@ -31,6 +31,7 @@ import {
 } from '../core/orchestration/exec/workerStart'
 import { mergeDepsInto } from '../core/orchestration/exec/integrateGit'
 import { specsDirOf } from '../core/orchestration/exec/specFiles'
+import { plansDirOf } from '../core/orchestration/intakeFiles'
 import { readAccountEntries } from '../core/accounts/accountsFile'
 import { isLoggedIn } from '../core/accounts/loginCheck'
 import { readAgentPermissionMode, readRoleModelsSetting } from '../core/settings/agentPermissionMode'
@@ -334,7 +335,8 @@ export function createHostSpawner(d: HostSpawnerDeps): HostSpawner | null {
     homeDir,
     (id, account, o) => statusLine.spawnConfig(id, account, o),
     // W5-A (#52): workers, coordinators and planners read their spec or brief without a permission prompt.
-    [previewShotsDir(profileDir), specsDir],
+    // W6-A: <profile>/plans too, where a Job's attached files are (intakeFiles.ts)
+    [previewShotsDir(profileDir), specsDir, plansDirOf(profileDir)],
     // Read at each spawn, not once: the Host completes its PATH when a CLI is missing (windowsPath.ts)
     () => hostWorkerBaseEnv(d.env),
     // The Host's own log: a spawn that had to fall back to a sync check says so in host.log.
@@ -492,6 +494,7 @@ export function createHostSpawner(d: HostSpawnerDeps): HostSpawner | null {
       resumeSessionId: o.resumeSessionId,
       resumePrompt: o.resumePrompt,
       model: o.model, // the role model (orchestrator W1-A, roleModels.ts)
+      ...(o.disallowedTools ? { disallowedTools: o.disallowedTools } : {}), // W6-B: a claude worker's
       rollProviders,
       orchEnv: { cliPath, skillsPath: cli.skills, profileDir },
       // R6: a session this Host started is the Host's own, whichever process later holds its tab.

@@ -81,8 +81,24 @@ const TIMEOUT: UsageFlag = {
 
 /** What a Job is made with, beside its objective and its folder: `jobs create`'s flags, and `jobs create-from-source`'s
  *  after its own. */
+// W6-A intake (intake.ts): what the planner starts from, beside the objective. jobs-create-from-issue takes them too.
+const INTAKE_FLAGS: readonly UsageFlag[] = [
+  {
+    name: 'mode',
+    value: '<plan|audit|fixlist>',
+    about: 'plan (default); audit: the planner audits --scope, writes inputs/audit.md, then plans the fixes; fixlist: the objective is a problem list, one or more Tasks per problem'
+  },
+  { name: 'scope', value: '<path|all>', about: 'with --mode audit: what to audit (default all)' },
+  { name: 'instructions', value: '<text>', about: "the owner's extra instructions; they win over the source when the two conflict" },
+  {
+    name: 'attach',
+    value: '<path>',
+    about: "a file copied into the plan's inputs folder for the planner to read first (repeatable; a regular file of at most 30 MB)"
+  }
+]
+
 const JOB_MAKING_FLAGS: readonly UsageFlag[] = [
-  { name: 'concurrency', value: '<n>', about: 'how many workers this Job places at once' },
+  { name: 'concurrency', value: '<n>', about: 'how many workers this Job places at once (1-10; more reads as 10)' },
   { name: 'priority', value: '<n>', about: 'which Job gets a free slot first when the app-wide worker cap is reached (higher first, default 0)' },
   {
     name: 'coordinator-account',
@@ -272,7 +288,9 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       SOURCE,
       { name: 'query', value: '<text>', about: 'what to search for' },
       { name: 'cursor', value: '<cursor>', about: 'the nextCursor of the page before' },
-      SOURCE_PROJECT
+      SOURCE_PROJECT,
+      // W6-A
+      { name: 'assigned-to-me', about: 'GitHub issues: only those assigned to you (assignee:@me)' }
     ]
   },
   'sources-show': {
@@ -342,9 +360,10 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
     detail:
       'Returns the Job. Nothing runs until `jobs run`: add its tasks first with `tasks add --job`. Without --cwd the Job belongs to the directory this command was run from. With --coordinator-account a coordinator session starts on that account when the Job runs; without it the workers are placed for you. A Host that announces dispatch places them whether Astera is open or closed, and otherwise Astera does.',
     flags: [
-      { name: 'objective', value: '<text>', required: true, about: 'what this Job is for' },
+      { name: 'objective', value: '<text>', required: true, about: 'what this Job is for (may be left out with --mode audit or --attach)' },
       { name: 'cwd', value: '<path>', about: 'the repository root this Job belongs to (default: here)' },
-      ...JOB_MAKING_FLAGS
+      ...JOB_MAKING_FLAGS,
+      ...INTAKE_FLAGS
     ]
   },
   'jobs-create-from-source': {
@@ -382,6 +401,8 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
     flags: [
       ID('<jobId>', 'the Job to plan'),
       { name: 'account', value: '<id>', about: "the account the planner runs on (default: the Job's coordinator account)" },
+      // W6-C
+      { name: 'concurrency', value: '<n>', about: 'how many workers this Job places at once (1-10; more reads as 10)' },
       // W6-H delivery
       { name: 'delivery', value: '<pr|push>', about: "how this Job's finished plan lands, ahead of its project's: one pull request, or pushed to the delivery branch with no review by a person" }
     ]
@@ -490,7 +511,10 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
         value: '<light|standard|hard>',
         about: "picks the worker's model from Settings → Orchestration models (light → haiku, standard → sonnet, hard → opus by default)"
       },
-      { name: 'model', value: '<id>', about: 'the worker model itself, ahead of --difficulty (e.g. sonnet)' }
+      { name: 'model', value: '<id>', about: 'the worker model itself, ahead of --difficulty (e.g. sonnet)' },
+      // W6-A: a planned Job's Task needs one to be approved
+      { name: 'basis', value: '<missing|partial|broken>', about: "what exists of the item, checked before planning (with --evidence); a planned Job's Task needs it" },
+      { name: 'evidence', value: '<text>', about: 'with --basis: file:line, an issue or PR number, a Job id' }
     ]
   },
 

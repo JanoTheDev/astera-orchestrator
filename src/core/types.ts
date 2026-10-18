@@ -128,6 +128,9 @@ export interface SessionInfo {
   /** Terminal only (orchestrator W1-A): the `--model` / `-m` the session was started with. Rides
    *  every roll's respawn and the note, like bypassPermissions. Absent: the CLI's default. */
   model?: string
+  // W6-E progress view: the last tool call the session started, from its last `PreToolUse` hook
+  // (core/hooks/sessionState.ts `lastActionOf`): the tool, its file / command (first 80 chars) / pattern, epoch ms.
+  lastAction?: { tool: string; target?: string; at: number }
 }
 
 /** The stored settings the resume modal reads to seed its checkboxes.
@@ -543,6 +546,8 @@ export interface JobTask {
   branch?: string
   /** How many times a worker started on it: implementation and repair Dispatches, not reviews. Absent when 0. */
   attempts?: number
+  // W6-E progress view: the files the plan says the Task touches (Task.affectedPaths). Absent when none.
+  affectedPaths?: string[]
 }
 
 // W2-C plan board: declared here, as RunOutcome is, because the renderer reads them and blocked.ts is not in its build.
@@ -574,6 +579,8 @@ export type TaskBlockedReason =
   | { kind: 'coordinator' }
   | { kind: 'plan-cap'; used: number; limit: number }
   | { kind: 'global-cap'; used: number; limit: number; priority: number }
+  /** W6-C: another Task of the plan is at files this one would edit (`path`, the first of its own that collides). */
+  | { kind: 'same-files'; waitingOn: { id: string; title: string }; path: string }
   /** It has a slot: the dispatch loop starts it on its next pass. */
   | { kind: 'next' }
 
@@ -633,6 +640,8 @@ export interface JobEvent {
   /** 이 앱이 아직 아는 세션이면 그 id — 클릭하면 그 탭으로 간다. view.ts 의 jobTaskOf 와 같은
    *  판정이고 같은 이유로 주입받는다 */
   sessionId?: string
+  // W6-E progress view: a worker's question (`ask`) has its answer. Present only on a `question` message.
+  answered?: boolean
 }
 
 /** 상세 창이 한 번에 받는 것. 이벤트만 오던 것을 그래프까지 함께 주도록 넓혔고, 그래서 이름이
@@ -882,6 +891,8 @@ export interface CoreEvents {
   /** A desktop notification was clicked. Main has already raised the window; the renderer activates
    *  that session's tab, through the path the tab bar already uses (design doc §7). */
   'notify:activate': { sessionId: string }
+  /** W6-B: a notice that needs the owner was shown; the renderer chimes (lib/alertSound.ts). */
+  'notify:chime': Record<string, never>
   /** An install running on the screen shown when neither CLI is present. `start` carries the command
    *  as one line so the screen can show what it is about to run; `out` is a chunk of the installer's
    *  own output, stdout and stderr together, because an installer says most of what matters on the
@@ -1444,6 +1455,9 @@ export interface CoreApi {
     /** W3-A: minutes between activity digests; 0 is none. */
     getActivityDigestMinutes(): Promise<number>
     setActivityDigestMinutes(n: number): Promise<void>
+    /** W6-B: the chime with a notice that needs the owner; default true. */
+    getAlertSound(): Promise<boolean>
+    setAlertSound(on: boolean): Promise<void>
     // The four desktop-notification switches (design doc §6/§8). Read by the settings screen and by
     // DesktopNotifier itself (main), which is why the type lives in core/notify/settings rather than here.
     getDesktopNotify(): Promise<DesktopNotifySettings>

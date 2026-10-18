@@ -34,6 +34,14 @@ const state = (over: Parameters<typeof stateFromLegacy>[0] = {}): OrchState =>
   stateFromLegacy({ runs: [run()], tasks: [task()], ...over })
 const result = (configId: string, status: CheckResult['status']): CheckResult => ({ configId, name: configId, status })
 
+// W6-C: a reviewer gets five rounds unless the Job says otherwise
+describe('MAX_REVIEW_ROUNDS', () => {
+  it('is 5, and a Job with a policy that names no cap gets it', () => {
+    expect(MAX_REVIEW_ROUNDS).toBe(5)
+    expect(policyOf(state({ runs: [run({ convergence: {} })] }), task())?.maxReviewRounds).toBe(5)
+  })
+})
+
 describe('checkConfigIdsOf', () => {
   it('목록이 있으면 목록, 옛 단일 값만 있으면 그것 하나, 둘 다 없으면 빈 배열', () => {
     expect(checkConfigIdsOf({ validateConfigIds: ['a', 'b'], validateConfigId: 'z' })).toEqual(['a', 'b'])

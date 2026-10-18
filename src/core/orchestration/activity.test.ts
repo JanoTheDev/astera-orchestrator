@@ -13,8 +13,8 @@ import {
   type ActivityNotice,
   type ActivitySummary
 } from './activity'
-import { emptyState, type OrchState } from './state'
-import { FAILURE_LIMIT, type Dispatch, type Gate, type Job, type JobRun, type Task } from './types'
+import { applyReply, emptyState, type OrchState } from './state'
+import { FAILURE_LIMIT, type Dispatch, type Gate, type Job, type JobRun, type Message, type Task } from './types'
 
 const T0 = '2026-10-17T00:00:00.000Z'
 
@@ -263,5 +263,90 @@ describe('notices', () => {
     await n.tick()
     await n.tick()
     expect(sent.map((x) => x.title)).toEqual(['Needs your answer', 'Needs your answer', 'Needs your answer', 'More orchestration updates'])
+  })
+})
+
+// W6-A: a plan that ended before approval because everything it asks for is built
+describe('plan.nothing-to-do', () => {
+  const job = { id: 'job_1', objective: 'add login', cwd: '/p', createdAt: '2026-10-18T00:00:00.000Z', projectId: 'p1', pendingStart: true } as Job
+  it('is derived once, when the Job gains nothingToDo, and is a notice', () => {
+    const prev: OrchState = { ...emptyState(), jobs: [job] }
+    const next: OrchState = { ...prev, jobs: [{ ...job, nothingToDo: { at: 'now', summary: 'login | built | web/login.py:1' } }] }
+    const drafts = deriveActivity(prev, next)
+    expect(drafts).toEqual([
+      { type: 'plan.nothing-to-do', projectId: 'p1', jobId: 'job_1', payload: { plan: 'add login', title: 'add login', summary: 'login | built | web/login.py:1' } }
+    ])
+    expect(deriveActivity(next, { ...next, jobs: [...next.jobs] })).toEqual([])
+    const e = { ...drafts[0], id: 'e1', sequence: 1, occurredAt: 'now' } as ActivityEvent
+    expect(noticeOf(e)).toEqual({ key: 'nothing:job_1', title: 'Nothing to do: already built', body: 'add login' })
+  })
+})
+
+// W6-B: a coordinator's answer is a feed line and no notice; an escalation is a feed line, a notice and the chime
+describe('W6-B: auto-answers and escalations', () => {
+  const question = (over: Partial<Message> = {}): Message => ({
+    id: 'q1',
+    runId: 'r1',
+    type: 'question',
+    taskId: 'a',
+    dispatchId: 'd1',
+    subject: 'Which port?',
+    body: 'Which port?',
+    answered: false,
+    createdAt: T0,
+    ...over
+  })
+  const base = (messages: Message[]): OrchState => state({ dispatches: [dispatch('d1', 'a')], messages })
+
+  it('a reply is question.auto-answered on the Task, with the question and the answer', () => {
+    const prev = base([question()])
+    const r = applyReply(prev, { messageId: 'q1', body: 'Use 8080, as plan.md says.' }, T0)
+    if (!r.ok) throw new Error(r.error)
+    const lines = deriveActivity(prev, r.state)
+    expect(lines).toEqual([
+      {
+        type: 'question.auto-answered',
+        projectId: 'p1',
+        jobId: 'j1',
+        runId: 'r1',
+        taskId: 'a',
+        sessionId: 'ses_d1',
+        payload: { plan: 'Plan A', title: 'title a', question: 'Which port?', answer: 'Use 8080, as plan.md says.' }
+      }
+    ])
+    expect(noticeOf(stamp(lines[0], T0))).toBeNull()
+  })
+
+  it('the empty settlement of a question nobody answered is no answer; an ack alone is no line', () => {
+    const prev = base([question()])
+    const settled = base([{ ...question(), answered: true, answerBody: '' }, { id: 's1', runId: 'r1', type: 'status', subject: 'x', body: '', replyTo: 'q1', answered: true, createdAt: T0 }])
+    expect(deriveActivity(prev, settled)).toEqual([])
+    expect(deriveActivity(prev, base([{ ...question(), ackedAt: T0 }]))).toEqual([])
+  })
+
+  it('an escalation is task.escalated, a notice that chimes', () => {
+    const prev = base([])
+    const esc: Message = { id: 'e1', runId: 'r1', type: 'escalation', taskId: 'a', dispatchId: 'd1', subject: 'Drop the users table?', body: 'details', answered: false, createdAt: T0 }
+    const lines = deriveActivity(prev, base([esc]))
+    expect(lines).toMatchObject([{ type: 'task.escalated', taskId: 'a', sessionId: 'ses_d1', payload: { title: 'title a', reason: 'Drop the users table?' } }])
+    const n = noticeOf(stamp(lines[0], T0))
+    expect(n).toMatchObject({ title: 'Needs your decision', alert: true, sessionId: 'ses_d1' })
+    expect(n?.body).toContain('Drop the users table?')
+  })
+
+  it('a heartbeat or a status is no line', () => {
+    const hb: Message = { id: 'h1', runId: 'r1', type: 'heartbeat', subject: '', body: '', answered: false, createdAt: T0 }
+    expect(deriveActivity(base([]), base([hb, { ...hb, id: 'h2', type: 'status' }]))).toEqual([])
+  })
+
+  it('a Gate opened because the attempts ran out escalates too, under the Gate\'s notice key', () => {
+    const lines = deriveActivity(state(), state({ gates: [gate({ kind: 'convergence-exhausted' })] }))
+    expect(types(lines)).toEqual(['gate.opened', 'task.escalated'])
+    const [opened, escalated] = lines.map((l) => noticeOf(stamp(l, T0)))
+    expect(escalated?.key).toBe(opened?.key)
+    expect(opened?.alert).toBe(true)
+    // W6-C's review cap, by its reason; a plain Gate does not escalate
+    expect(types(deriveActivity(state(), state({ gates: [{ ...gate(), reason: 'review-rounds-exhausted' } as Gate] })))).toEqual(['gate.opened', 'task.escalated'])
+    expect(types(deriveActivity(state(), state({ gates: [gate()] })))).toEqual(['gate.opened'])
   })
 })

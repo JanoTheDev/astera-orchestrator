@@ -413,3 +413,13 @@ describe('parseArgs — the job-source commands', () => {
     expect(parseArgs(['sources'])).toEqual({ error: 'sources needs one of: list, items, show' })
   })
 })
+
+// W6-A intake: --attach may be given more than once
+describe('jobs create --attach', () => {
+  it('arrives as a list, repeated or not', () => {
+    const two = parseArgs(['jobs', 'create', '--objective', 'o', '--attach', 'a.pdf', '--attach', 'b.md'])
+    expect('error' in two ? two : two.args.attach).toEqual(['a.pdf', 'b.md'])
+    const one = parseArgs(['jobs', 'create', '--attach', 'a.pdf', '--mode', 'audit'])
+    expect('error' in one ? one : one.args).toMatchObject({ attach: ['a.pdf'], mode: 'audit' })
+  })
+})

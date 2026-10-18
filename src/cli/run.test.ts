@@ -281,6 +281,20 @@ describe('withDefaultProject — the global --project is a default for the list 
   })
 })
 
+// W6-A intake: the Host reads --attach files, so a relative one is resolved against the CLI cwd
+describe('argsForCall — --attach paths', () => {
+  const here = path.resolve('/work/repo')
+  it('resolves relative ones for jobs create and jobs-create-from-issue, and leaves absolute ones', () => {
+    const abs = path.resolve('/d/b.md')
+    expect(argsForCall({ cmd: 'jobs-create', args: { objective: 'o', attach: ['a.pdf', abs] }, cwd: here })).toEqual({
+      objective: 'o',
+      attach: [path.join(here, 'a.pdf'), abs],
+      cwd: here
+    })
+    expect(argsForCall({ cmd: 'jobs-create-from-issue', args: { attach: 'a.pdf' }, cwd: here })).toEqual({ attach: path.join(here, 'a.pdf') })
+  })
+})
+
 describe('argsForCall — a project path is resolved here, not by the Host', () => {
   const here = path.resolve('/work/repo/sub')
   it('a relative --project and projects find --path are resolved against the CLI cwd', () => {

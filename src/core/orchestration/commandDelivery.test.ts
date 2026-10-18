@@ -203,5 +203,9 @@ describe('delivery helpers (W6-H)', () => {
     expect(notice).not.toHaveProperty('alert')
     const stopped = recordDelivery(s, 'r1', { at: NOW, error: 'conflict' })
     expect(deriveActivity(s, stopped).filter((l) => l.type === 'plan.delivered')).toEqual([])
+    // W6-B turns the stop's escalation message into the owner's notice and chime
+    const esc = deriveActivity(s, stopped).filter((l) => l.type === 'task.escalated')
+    expect(esc).toEqual([expect.objectContaining({ runId: 'r1', payload: expect.objectContaining({ title: 'Fix auth', reason: 'Delivery stopped: conflict' }) })])
+    expect(noticeOf({ ...esc[0], id: 'e2', sequence: 2, occurredAt: NOW } as ActivityEvent)).toMatchObject({ alert: true })
   })
 })
