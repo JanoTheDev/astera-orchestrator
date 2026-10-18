@@ -283,3 +283,113 @@ describe('gateQuestionsOfTask (W8-F, #97)', () => {
     expect(gateQuestionsOfTask(t)[0].freeText).toBe(false)
   })
 })
+
+// W9-C Tasks page, Plans page, plan page
+import type { JobRow } from '../../../../core/types'
+import { areaGroupsOf, overlapTableOf, planListOrder, planSectionOf, taskClickOf, taskColumnOf, topFolderOf } from './planBoard'
+
+const row = (id: string, over: Partial<JobRow> = {}): JobRow => ({
+  id, objective: id, outcome: 'running', done: 0, total: 0, eventCount: 0, sharesProjectFolder: false, tasks: [], ...over
+})
+
+describe('taskColumnOf (W9-C Tasks page)', () => {
+  it('puts each Task in one of the five columns', () => {
+    expect(taskColumnOf(task('a', { board: { category: 'queued', reason: { kind: 'deps', waitingOn: [] } } }))).toBe('planned')
+    expect(taskColumnOf(task('b', { status: 'dispatched', startedAt: 'x', board: { category: 'running' } }))).toBe('working')
+    expect(taskColumnOf(task('c', { status: 'reviewing', board: { category: 'awaiting-review' } }))).toBe('review')
+    expect(taskColumnOf(task('d', { status: 'completed', board: { category: 'done' } }))).toBe('done')
+    expect(taskColumnOf(task('e', { board: { category: 'cancelled' } }))).toBe('done')
+  })
+  it('needs you: a fault, an open gate, an ask, a prompt in its console, or a reason only the owner clears', () => {
+    expect(taskColumnOf(task('a', { status: 'failed', board: { category: 'failed' } }))).toBe('needs-you')
+    expect(taskColumnOf(task('b', { status: 'blocked', gate: { id: 'g', question: '?' }, openGates: 1 }))).toBe('needs-you')
+    const running = task('c', { status: 'dispatched', startedAt: 'x', board: { category: 'running' } })
+    expect(taskColumnOf(running, { prompt: 'permission' })).toBe('needs-you')
+    expect(taskColumnOf(running, undefined, true)).toBe('needs-you')
+    expect(taskColumnOf(task('d', { board: { category: 'queued', reason: { kind: 'no-account' } } }))).toBe('needs-you')
+  })
+  it('a plan waiting for approval or queued after another is planned, not needs-you (the Inbox card asks)', () => {
+    expect(taskColumnOf(task('a', { board: { category: 'queued', reason: { kind: 'pending-start' } } }))).toBe('planned')
+    expect(taskColumnOf(task('b', { board: { category: 'queued', reason: { kind: 'pending-start', after: { id: 'j', title: 'L' } } } }))).toBe('planned')
+  })
+})
+
+describe('taskClickOf (W9-C click rules)', () => {
+  const open = (id: string): boolean => id === 's1'
+  it('working or in review → its console', () => {
+    expect(taskClickOf('working', task('a', { sessionId: 's1' }), 'j', open)).toEqual({ kind: 'console', sessionId: 's1' })
+    expect(taskClickOf('review', task('a', { sessionId: 's1' }), 'j', open)).toEqual({ kind: 'console', sessionId: 's1' })
+  })
+  it('a console that is gone → the plan Waves', () => {
+    expect(taskClickOf('working', task('a', { sessionId: 's2' }), 'j', open)).toEqual({ kind: 'plan', jobId: 'j', section: 'waves' })
+  })
+  it('needs you → its Inbox card; planned and done → its plan Waves', () => {
+    expect(taskClickOf('needs-you', task('a', { sessionId: 's1' }), 'j', open)).toEqual({ kind: 'inbox', filter: 'a' })
+    expect(taskClickOf('planned', task('a'), 'j', open)).toEqual({ kind: 'plan', jobId: 'j', section: 'waves' })
+    expect(taskClickOf('done', task('a'), 'j', open)).toEqual({ kind: 'plan', jobId: 'j', section: 'waves' })
+  })
+})
+
+describe('planSectionOf (openPlan sections)', () => {
+  it('keeps a known section, maps the old views, defaults to overview', () => {
+    for (const s of ['overview', 'waves', 'files', 'changes', 'journal']) expect(planSectionOf(s)).toBe(s)
+    expect(planSectionOf('board')).toBe('waves')
+    expect(planSectionOf('graph')).toBe('waves')
+    expect(planSectionOf('tasks')).toBe('waves')
+    expect(planSectionOf(undefined)).toBe('overview')
+    expect(planSectionOf('nope')).toBe('overview')
+  })
+})
+
+describe('planListOrder (Plans list)', () => {
+  it('running, awaiting approval, queued, then finished and archived; stable inside a rank', () => {
+    const rows = [
+      row('archived', { archivedAt: 'x' }),
+      row('done', { outcome: 'completed' }),
+      row('queued', { pendingStart: true, after: 'run1' }),
+      row('approve', { pendingStart: true }),
+      row('run1'),
+      row('run2')
+    ]
+    expect(planListOrder(rows).map((r) => r.id)).toEqual(['run1', 'run2', 'approve', 'queued', 'done', 'archived'])
+  })
+})
+
+describe('areaGroupsOf / overlapTableOf (Plans views)', () => {
+  const a = row('a', { areas: ['auth'], tasks: [task('t1', { title: 'T1', status: 'dispatched', startedAt: 'x', board: { category: 'running' }, affectedPaths: ['src/api/routes.ts'] })] })
+  const b = row('b', { areas: ['leaderboard'], tasks: [task('t2', { title: 'T2', affectedPaths: ['src/api/rank.ts', 'docs/x.md'] })] })
+  const c = row('c', { tasks: [task('t3', { status: 'completed', board: { category: 'done' }, affectedPaths: ['docs/y.md'] })] })
+  it('groups by area with their folders; no area last', () => {
+    expect(areaGroupsOf([c, b, a]).map((g) => [g.area, g.folders, g.rows.map((r) => r.id)])).toEqual([
+      ['auth', ['src/api'], ['a']],
+      ['leaderboard', ['docs', 'src/api'], ['b']],
+      ['', ['docs'], ['c']]
+    ])
+  })
+  it('says what each plan does per folder and marks the folders two plans still work in', () => {
+    const tbl = overlapTableOf([a, b, c])
+    expect(tbl.folders).toEqual(['docs', 'src/api'])
+    expect(tbl.rows.map((r) => [r.row.id, r.cells])).toEqual([
+      ['a', [null, { kind: 'editing', task: 'T1' }]],
+      ['b', [{ kind: 'planned' }, { kind: 'planned' }]],
+      ['c', [{ kind: 'done' }, null]]
+    ])
+    expect([...tbl.shared]).toEqual(['src/api'])
+  })
+  it('topFolderOf: two segments, or the folder of a shallow file', () => {
+    expect(topFolderOf('src/api/routes.ts')).toBe('src/api')
+    expect(topFolderOf('./docs/x.md')).toBe('docs')
+    expect(topFolderOf('README.md')).toBe('README.md')
+  })
+})
+
+describe('ageOf (Plans list row)', () => {
+  it('says the age short', async () => {
+    const { ageOf } = await import('./planBoard')
+    const now = Date.parse('2026-10-18T12:00:00Z')
+    expect(ageOf('2026-10-18T11:59:30Z', now)).toBe('<1m')
+    expect(ageOf('2026-10-18T11:55:00Z', now)).toBe('5m')
+    expect(ageOf('2026-10-18T09:00:00Z', now)).toBe('3h')
+    expect(ageOf('2026-10-14T12:00:00Z', now)).toBe('4d')
+  })
+})

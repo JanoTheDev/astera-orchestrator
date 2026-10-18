@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useState } from 'react'
+import { Fragment, memo, useCallback, useEffect, useState } from 'react'
 import { clockFor } from '../lib/runClock'
 import type { JobRow, JobTask, OrchHostGate, OrchSnapshot, Provider, TaskStatus } from '../../../core/types'
 import type { MessageKey, MessageParams } from '../../../core/i18n'
@@ -13,6 +13,7 @@ import { PauseIcon, PlayIcon, RunIcon, STATE_KEY, STATUS_COLOR, TaskGlyph, TaskI
 import type { RunIconKind } from './JobIcons'
 import { Archive, ArchiveRestore, ArrowUpRight, ChevronDown, ChevronRight, Hand, Pencil, PlayCircle } from 'lucide-react'
 import { SourceChip } from './SourceChip'
+import { ageOf } from './plan/planBoard' // W9-C
 import { jobName } from '../lib/jobName'
 
 /** Run 헤더 글리프의 툴팁. 끝난·실패·막힘은 줄의 글리프와 같은 모양이고 같은 뜻이라 같은 문구를 쓴다.
@@ -224,6 +225,22 @@ function LifecycleButtons({
   )
 }
 
+/** W9-C Plans page: the row's queue, overlaps and age (DESIGN.md §2 "List row"). */
+function PlanRowFacts({ run, nameOf, nowMs }: { run: JobRow; nameOf: (jobId: string) => string; nowMs: number }): React.JSX.Element {
+  const { t } = useI18n()
+  return (
+    <>
+      {run.after !== undefined && run.pendingStart && <span className="jobs-ordinal">{t('pages.plans.startsAfter', { plan: nameOf(run.after) })}</span>}
+      {(run.overlapPlans ?? []).map((id) => (
+        <span key={id} className="jobs-shared" title={(run.overlaps ?? []).join('\n')}>
+          {t('pages.plans.overlaps', { plan: nameOf(id) })}
+        </span>
+      ))}
+      {run.createdAt !== undefined && <span className="jobs-age">{t('pages.plans.age', { age: ageOf(run.createdAt, nowMs) })}</span>}
+    </>
+  )
+}
+
 /** An archived plan's chip in its head, beside the name. */
 const ArchivedChip = ({ run }: { run: JobRow }): React.JSX.Element | null => {
   const { t } = useI18n()
@@ -245,10 +262,13 @@ function RunCardImpl({
   onRestartCoordinator,
   onApprove,
   disabledReason,
-  lifecycle
+  lifecycle,
+  nameOf
 }: {
   run: JobRow
   open: boolean
+  /** W9-C: another plan's name by its id ("starts after X", "overlaps X"). Absent: those chips are not drawn. */
+  nameOf?: (jobId: string) => string
   /** With the card's own id, so the parent can hand the same function to every card (audit UI-11). */
   onToggle: (runId: string) => void
   /** 예약 회차라면 그 번호. 평범한 Run 에는 없다 */
@@ -307,6 +327,7 @@ function RunCardImpl({
         <ArchivedChip run={run} />
         {/* The ticket the Job was made from (plugin Phase 4 J18): a click opens it, and does not fold the card */}
         <SourceChip source={run.source} />
+        {nameOf && <PlanRowFacts run={run} nameOf={nameOf} nowMs={nowMs} />}
         {/* 이 Run 의 워커가 프로젝트 폴더를 다른 Run 과 나눠 쓰고 있다. **막힌 것이 아니라
             얽힌 것**이라 Gate 글리프(주황 `!`)를 빌리지 않는다 — 그것은 사람을 기다리는
             자리의 모양이고, 여기서는 기다리는 것이 없다. 경고 톤의 테두리(styles.css)와 이
@@ -776,9 +797,13 @@ export function JobsView({
   onArchiveJob,
   onUnarchiveJob,
   onHoldJob,
-  projectPath
+  projectPath,
+  groupsOf
 }: {
   snapshot: OrchSnapshot | null
+  /** W9-C Plans page "By area": the listed plans under heads, in the order given, and each card's queue, overlaps
+   *  and age. Absent: one list, as the sidebar draws it. */
+  groupsOf?: (rows: JobRow[]) => { key: string; head: React.ReactNode; rows: JobRow[] }[]
   /** Why there is nothing to draw, when the Host is the reason — null in the ordinary case.
    *
    *  **A prop of its own, not a field on the snapshot** (ruling F41). It is one fact about the app's
@@ -961,6 +986,14 @@ export function JobsView({
 
   const archivedCount = snapshot.runs.filter((r) => r.archivedAt !== undefined).length
   const listed = showArchived ? snapshot.runs : snapshot.runs.filter((r) => r.archivedAt === undefined)
+  // W9-C: another plan's name for the Plans page's chips
+  const nameOf = groupsOf
+    ? (id: string): string => {
+        const r = snapshot.runs.find((x) => x.id === id)
+        return r ? jobName(r) : id
+      }
+    : undefined
+  const groups = groupsOf ? groupsOf(listed) : [{ key: '', head: null, rows: listed }]
   return (
     <section className="jobs-view">
       {stallLine}
@@ -978,7 +1011,10 @@ export function JobsView({
       {/* **회차가 여럿이면 예약이 아니어도 펼치는 카드다.** 접히는 카드를 예약에만 쓰던 것은 회차가
           예약에서만 생겼기 때문이고, 이제는 끝난 Job 을 다시 돌려도 생긴다 — 조건을 `schedule` 로
           두면 그 회차들이 화면에서 통째로 사라진다(상태에는 있는데 그리는 곳이 없다). */}
-      {listed.map((run) =>
+      {groups.map((g) => (
+        <Fragment key={g.key}>
+      {g.head}
+      {g.rows.map((run) =>
         run.schedule || (run.children?.length ?? 0) > 0 ? (
           <ScheduleCard
             key={run.id}
@@ -1014,9 +1050,12 @@ export function JobsView({
             onApprove={acts.onApprove}
             disabledReason={disabledReason}
             lifecycle={lifecycle}
+            nameOf={nameOf}
           />
         )
       )}
+        </Fragment>
+      ))}
     </section>
   )
 }

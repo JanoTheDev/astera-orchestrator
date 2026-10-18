@@ -7,7 +7,6 @@
 /* 카드가 148×32 에서 176×52 로 커지고 층마다 띠가 붙었으므로 창도 함께 키운다. **폭 상한이 더
    중요하다** — 그래프는 한 층의 Task 가 늘 때 가로로 자라고, 1180px 에서는 한 층에 다섯 개까지만
    서던 것이 1440px 에서 일곱 개가 된다(옛 상자로 세던 수와 같다). 넘치면 그래프 칸이 스크롤된다 */
-.modal.run-detail { width: clamp(760px, 86vw, 1440px); height: min(90vh, 1160px); }
 /* Why a paired Runtime's controls are off (a read-only pairing, Phase 7): said once, above them. */
 .jobs-disabled-reason { margin: 4px 0 8px; font-size: 12px; color: var(--text-dim); }
 /* 머리말 없이 목표가 제목이고, 그 옆이 묶음 개수다. .jobs-count 를 사이드바에서 그대로 빌린다 —

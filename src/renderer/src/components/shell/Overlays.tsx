@@ -1,5 +1,4 @@
 // Moved out of App.tsx unchanged (W9-A): the JSX is App's, the values come from App's state hooks.
-import { RunDetail } from '../RunDetail'
 import { NewRunModal } from '../NewRunModal'
 import { SourceJobModal } from '../SourceJobModal'
 import { NewSessionDialog } from '../NewSessionDialog'
@@ -15,7 +14,6 @@ import { openPlan } from './navigation'
 import { ConfirmHost } from '../ConfirmHost'
 import { FirstRunDialog } from '../FirstRunDialog'
 import { findRun } from '../../../../core/orchestration/snapshot'
-import { parentDir, resolveRelative } from '../../../../core/files/paths'
 import { toast } from '../../lib/toast'
 import { NewProjectDialog } from '../projects/NewProjectDialog'
 import { AddProjectDialog } from '../projects/AddProjectDialog'
@@ -31,16 +29,16 @@ export type OverlaysProps = Pick<
   AppState,
   'accounts' | 'actionUi' | 'agentAppEnabled' | 'agentBrowserEnabled' | 'agentBusy' | 'agentYolo' | 'appVersion' |
   'autoCloseEndedPlanTabs' | 'browserTabsRef' | 'cli' | 'cliInstallStatus' | 'closeWorkbenchTab' | 'commandOpen' |
-  'currentProject' | 'defaultSessionKind' | 'detail' | 'detailDoor' | 'firstPlan' | 'firstRunAsked' | 'homeDir' |
+  'currentProject' | 'defaultSessionKind' | 'firstPlan' | 'firstRunAsked' | 'homeDir' |
   'hostHolding' | 'hostRestarting' | 'hostStatus' | 'installUpdate' | 'jobsRuntime' | 'keyOverrides' | 'layout' |
-  'layoutRef' | 'managerFor' | 'managerInitialSelectedId' | 'newRunOpen' | 'newSessionCwd' | 'openLinkedFolder' |
-  'openRemoteSession' | 'openRun' | 'openWorkspacePlan' | 'openWorkspaceProject' | 'orchSnapshot' | 'pairedRuntimes' |
+  'layoutRef' | 'managerFor' | 'managerInitialSelectedId' | 'newRunOpen' | 'newSessionCwd' |
+  'openRemoteSession' | 'openWorkspacePlan' | 'openWorkspaceProject' | 'orchSnapshot' | 'pairedRuntimes' |
   'pendingSplitRef' | 'projectAnchor' | 'projectDialog' | 'remoteAccounts' | 'remoteDialog' | 'remoteNewRunOpen' |
   'remoteProject' | 'remoteProjects' | 'remoteReadOnly' | 'remoteSessions' | 'remoteSnapshot' | 'remoteViewDoor' |
   'restartHost' | 'runManagerApply' | 'runningCount' | 'selectWorkbenchTab' | 'setActivePaneId' |
   'setAgentAppEnabled' | 'setAgentBrowserEnabled' | 'setAgentYolo' | 'setAutoCloseEndedPlanTabs' |
   'setCheckClickedAt' | 'setCli' | 'setCliInstallStatus' | 'setCliInstalled' | 'setCommandOpen' |
-  'setDefaultSessionKind' | 'setDetail' | 'setFirstPlan' | 'setFirstRunAsked' | 'setJournalPagesFor' |
+  'setDefaultSessionKind' | 'setDetail' | 'setFirstPlan' | 'setFirstRunAsked' |
   'setKeyOverrides' | 'setLang' | 'setLayout' | 'setManagerFor' | 'setManagerInitialSelectedId' | 'setNewRunOpen' |
   'setNewSessionCwd' | 'setOpenRun' | 'setPairedChanged' | 'setProjectDialog' | 'setProjectsRefresh' |
   'setRemoteDialog' | 'setRemoteNewRunOpen' | 'setRenamingTabId' | 'setSettingsTab' | 'setShowNew' |
@@ -55,15 +53,15 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
   const {
     accounts, actionUi, agentAppEnabled, agentBrowserEnabled, agentBusy, agentYolo, appVersion,
     autoCloseEndedPlanTabs, browserTabsRef, cli, cliInstallStatus, closeWorkbenchTab, commandOpen, currentProject,
-    defaultSessionKind, detail, detailDoor, firstPlan, firstRunAsked, homeDir, hostHolding, hostRestarting,
+    defaultSessionKind, firstPlan, firstRunAsked, homeDir, hostHolding, hostRestarting,
     hostStatus, installUpdate, jobsRuntime, keyOverrides, layout, layoutRef, managerFor, managerInitialSelectedId,
-    newRunOpen, newSessionCwd, openLinkedFolder, openRemoteSession, openRun, openWorkspacePlan, openWorkspaceProject,
+    newRunOpen, newSessionCwd, openRemoteSession, openWorkspacePlan, openWorkspaceProject,
     orchSnapshot, pairedRuntimes, pendingSplitRef, projectAnchor, projectDialog, remoteAccounts, remoteDialog,
     remoteNewRunOpen, remoteProject, remoteProjects, remoteReadOnly, remoteSessions, remoteSnapshot, remoteViewDoor,
     restartHost, runManagerApply, runningCount, selectWorkbenchTab, setActivePaneId, setAgentAppEnabled,
     setAgentBrowserEnabled, setAgentYolo, setAutoCloseEndedPlanTabs, setCheckClickedAt, setCli, setCliInstallStatus,
     setCliInstalled, setCommandOpen, setDefaultSessionKind, setDetail, setFirstPlan, setFirstRunAsked,
-    setJournalPagesFor, setKeyOverrides, setLang, setLayout, setManagerFor, setManagerInitialSelectedId,
+    setKeyOverrides, setLang, setLayout, setManagerFor, setManagerInitialSelectedId,
     setNewRunOpen, setNewSessionCwd, setOpenRun, setPairedChanged, setProjectDialog, setProjectsRefresh,
     setRemoteDialog, setRemoteNewRunOpen, setRenamingTabId, setSettingsTab, setShowNew, setShowSettings,
     setSourceJobOpen, setTabMenu, setWorkUnitTrackingEnabled, setWorkspaceScope, setWtRoot, settingsTab,
@@ -228,49 +226,7 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
           }}
         />
       )}
-      {openRun && detailDoor && (
-        <RunDetail
-          door={detailDoor}
-          // 그래프의 노드는 제목·상태·세션을 스냅샷에서 읽는다(detail 의 layers 는 id 뿐이다).
-          // 그 Run 이 스냅샷에서 사라졌으면(다른 프로젝트로 갔거나 지워졌다) undefined 다.
-          // findRun 인 이유는 위 두 효과와 같다 — 예약 회차는 children 안에 있다(snapshot.ts).
-          run={(() => {
-            const snap = openRun.runtimeId ? remoteSnapshot : orchSnapshot
-            return snap ? findRun(snap, openRun.runId) : undefined
-          })()}
-          runtimeId={openRun.runtimeId}
-          detail={detail}
-          // Task 짓기(task-create)와 검증 구성 조회(run.list)가 쓴다 — run 이 undefined 인 동안에도
-          // openRun 이 이 짝을 그대로 들고 있으므로 run?.id 를 대신 넘길 이유가 없다.
-          projectPath={openRun.projectPath}
-          runId={openRun.runId}
-          // Verbatim the pair JobsView is handed above, and for the reason its comment there records:
-          // the tab tree is the only place that knows whether the worker's tab is still open, so a
-          // sessions.some(...) check would keep saying yes after the user closed it and the ↗ would
-          // silently do nothing.
-          canOpenSession={(sessionId) => !!layout && !!groupOfTab(layout, sessionTab(sessionId))}
-          onOpenSession={(sessionId) => {
-            setOpenRun(null) // 탭으로 가면서 닫는다
-            selectWorkbenchTab(sessionTab(sessionId))
-          }}
-          onShowOlderJournal={() =>
-            setJournalPagesFor((prev) => ({
-              runId: openRun.runId,
-              pages: (prev?.runId === openRun.runId ? prev.pages : 1) + 1
-            }))
-          }
-          onClose={() => setOpenRun(null)}
-          // W6-E progress view: a plan's affected path, shown in the explorer (its folder, as a folder link is)
-          onOpenPath={
-            openRun.runtimeId
-              ? undefined
-              : (rel) => {
-                  setOpenRun(null)
-                  openLinkedFolder(parentDir(resolveRelative(`${openRun.projectPath}/.`, rel)))
-                }
-          }
-        />
-      )}
+      {/* W9-C: RunDetail's window is the plan page now (components/pages/PlanPage.tsx, mounted by PlansPage) */}
       {/* currentProject 가 있을 때만 그린다 — 없으면 run-create 에 넘길 cwd 가 없어 만들 자리가
           없다. **Jobs 사이드바 자체는 currentProject 없이도 열린다** — 프로젝트가 없으면
           orchSnapshot 이 `{ runs: [] }` 로 채워져(그 effect 의 `currentProject === null ? { runs: [] } : null`) 빈 상태가 그려진다. "프로젝트 없이

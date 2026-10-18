@@ -745,6 +745,14 @@ export interface JobRow {
   /** W8-D: where this plan meets another plan of its project, one line each (overlap.ts overlapLines); the approve area
    *  lists them until W9-D's card. Absent: none. */
   overlaps?: string[]
+  // W9-C Plans page (Job.overlaps, Job.areas, Job.after, Job.createdAt), on every row of the Job
+  /** The other plans this one overlaps (Job.overlaps' job ids, once each). Absent: none. */
+  overlapPlans?: string[]
+  areas?: string[]
+  /** The Job this one is queued after (W8-C). */
+  after?: string
+  /** When the Job was made: the row's age. Optional only for snapshots from an older Runtime. */
+  createdAt?: string
   // W2-D: the plan's one pull request (JobRun.pr), on the Run's own row and a Job row folded onto it
   pr?: RunPr
   /** 관리자가 있어야 하는데 없다 — 코디네이터 계정이 지정돼 있지만 붙어 있는 세션이 없다.
