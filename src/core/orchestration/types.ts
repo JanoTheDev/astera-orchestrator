@@ -311,6 +311,10 @@ export interface Job {
   autoStartedAt?: string
   /** The owner rejected the plan (`jobs-reject`): it is archived with this, and unarchiving keeps it as a record. */
   rejected?: { at: string; reason?: string }
+  // W8-C plan after plan (schedule.ts / blocked.ts / exec/dispatchLoop.ts)
+  /** The Job this one is queued after. **Present: it stays `pendingStart`** and its planner is not started until that
+   *  Job is delivered (`afterDelivered`); then the Host starts its planner and the project's approval setting decides. */
+  after?: string
 }
 
 /** W7-A: one message of the owner to a plan's planner. `plan`: before approval, to the planner session itself; `run`:
@@ -848,4 +852,7 @@ export interface RunPr {
   note?: string
   /** W7-E: with `note`, the branch that holds the plan's work. */
   branch?: string
+  /** W8-C: opened as a draft after a wave while later waves remain; cleared when it is marked ready after the final
+   *  check. **Present: the plan is not delivered yet.** */
+  draft?: true
 }
