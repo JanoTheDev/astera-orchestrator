@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Account, HistoryEntry, ProjectSummary, ScheduleConfig, SessionKind, TranscriptPreview } from '../../../core/types'
 import { ResumeDialog } from './ResumeDialog'
 import { TranscriptPreviewModal } from './TranscriptPreviewModal'
@@ -12,6 +12,10 @@ import { ContextMenu, type MenuItem } from './ContextMenu'
 import * as hiddenProjects from '../lib/hiddenProjects'
 import { ChevronDown, ChevronRight, RefreshCw } from 'lucide-react'
 import { usePanelOpen } from '../hooks/usePanelOpen'
+import { localDoor } from '../lib/orchDoor'
+import { useSummaries } from '../state/useSummaries' // W9-I
+import { summaryOneLine } from './wall/summaryText'
+import './wall/wall.css'
 
 const PAGE = 50
 const SEEN_KEY = 'cm.historySeen'
@@ -102,6 +106,9 @@ export function ProjectRow({
   const sentinelRef = useRef<HTMLLIElement>(null)
   const sessionsLenRef = useRef(0)
   sessionsLenRef.current = sessions.length
+  // W9-I: what an ended tab did, read only while the project is open
+  const summaryDoor = useMemo(() => (expanded ? localDoor(window.api, project.projectPath) : null), [expanded, project.projectPath])
+  const { bySession } = useSummaries(summaryDoor)
 
   const loadMore = (): void => {
     if (fetchingRef.current || sessions.length >= total) return
@@ -223,6 +230,8 @@ export function ProjectRow({
               >
                 <ResumeGlyph />
               </button>
+              {/* W9-I: what the tab did, on a line of its own under the row */}
+              {bySession.has(e.sessionId) && <span className="summary-line session-summary">{summaryOneLine(bySession.get(e.sessionId)!, t)}</span>}
             </li>
           ))}
           {!loaded && (

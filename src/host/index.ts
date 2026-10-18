@@ -4,6 +4,7 @@
 //
 // Everything it needs arrives in the environment, because it has no `app.getPath('userData')` to ask.
 import childProcess from 'node:child_process'
+import { createHostSummaries } from './hostSummaries'
 import { createPluginManager } from './plugins/manager'
 import { hostJobSources } from './jobSources'
 import { hostCompletionChecks } from './completionChecks'
@@ -41,14 +42,14 @@ import { nodeProcSpawn } from './nodeProc'
 import { HOST_FEATURE_ORCH, HOST_FEATURE_REQUESTS, HOST_PROTOCOL, HOST_YIELD_JOURNAL, HOST_YIELD_UNDERSTANDING, HOST_YIELD_WORK_UNITS, HOST_YIELD_WORKSPACE, HOST_YIELD_WORKTREES } from '../core/host/protocol'
 import { createHostJournal } from './hostJournal'
 import { createHostEventLog } from './eventLog'
-import { followActivity, hostSessionActivity } from './activity'
+import { activityOf, followActivity, hostSessionActivity } from './activity'
 import { ACTIVITY_KINDS, deriveActivity } from '../core/orchestration/activity'
 import { readActivityDigestMinutes } from '../core/settings/activityDigest'
 import { readMaxConcurrentWorkers } from '../core/settings/maxConcurrentWorkers'
 import { hostNotifier } from './pluginNotify'
 import { pickInitialLang } from '../core/i18n/locale'
 import { createHostSessionEvents, type HostSessionEvents } from './sessionEvents'
-import { createHostUnderstanding } from './hostUnderstanding'
+import { createHostUnderstanding, readUnderstandingSettings } from './hostUnderstanding'
 import { createHostWorkUnits, readWorkUnitTracking, wireSessionExits, workUnitSessionsOf, type HostWorkUnits } from './hostWorkUnits'
 import { readHostMerges, hostMergesPathIn } from '../core/git/hostMerges'
 import { readFileRetrying } from '../core/renameRetry'
@@ -76,7 +77,9 @@ import { createHostExits, ptyHeldBy, type HostExits } from './exits'
 import { registrySessions } from './sessions'
 import { hookEventsDirIn } from '../core/hooks/sessionState'
 import { readAccountEntries } from '../core/accounts/accountsFile'
-import { readAgentPermissionMode } from '../core/settings/agentPermissionMode'
+import { readAgentPermissionMode, readRoleModelsSetting } from '../core/settings/agentPermissionMode'
+import { readTabSummaries } from '../core/settings/tabSummaries'
+import { readWorkUnitsFile } from '../core/workUnit/store'
 import { announceChatProc, createHostSessionStarter } from './sessionCreate'
 import { previewShotsDir } from '../core/preview/shotsDir'
 import { hostCliPaths, hostWorkerBaseEnv, type HostCliPaths } from '../core/host/spawn'
@@ -783,6 +786,42 @@ async function main(): Promise<void> {
     })
   })
   const plugins = createPluginManager({ profileDir, hostVersion, runtime: pluginRuntime, log: (m) => log.write(m) })
+  // W9-I: tab summaries (hostSummaries.ts). A Task that ends leaves its worker tab's card (orch hands it every commit); a
+  // plain session leaves one when its pty exits or after it idled at a finished turn. `orch` is read at the call.
+  const summaries = createHostSummaries({
+    file: path.join(profileDir, 'summaries.json'),
+    enabled: () => readTabSummaries(path.join(profileDir, 'app-settings.json')),
+    state: () => (orch.loaded() ? orch.state() : null),
+    activity: () => activityOf(activityLog),
+    sessionInfo: async (id) => {
+      const x = (await hostSessions.listSessions()).find((r) => r.id === id)
+      return x ? { title: x.title ?? id, cwd: x.cwd, accountId: x.accountId } : null
+    },
+    diffOf: async (cwd, base, head) =>
+      (await readChanges(cwd, base, head))?.map((f) => ({ path: f.path, ...(f.additions !== undefined ? { added: f.additions, removed: f.deletions ?? 0 } : {}) })) ?? null,
+    commitsOf: async (cwd, base, head) => ((await readRange(cwd, base, head))?.subjects ?? []).reverse(),
+    unitOf: async (id) => {
+      const units = Object.values((await readWorkUnitsFile(path.join(profileDir, 'workUnits.json'))).projects).flatMap((p) => p.units)
+      const u = units.filter((x) => x.sessionId === id).at(-1)
+      return u ? { checks: u.checks, resultSummary: u.resultSummary, startHead: u.git.startHead } : undefined
+    },
+    tailOf: async (id) => {
+      const r = await hostSessions.readSession(id, 40)
+      return [...r.scrollback, ...r.screen].join('\n').trim()
+    },
+    agentSessionOf: (id) => hostSessions.agentSessionOf(id),
+    accounts: () => readAccountEntries(path.join(profileDir, 'accounts.json'), readFileRetrying),
+    descriptors: makeDescriptors(process.platform),
+    generatorAccountId: async () => (await readUnderstandingSettings(path.join(profileDir, 'app-settings.json'))).generator.accountId,
+    roleModels: () => readRoleModelsSetting(path.join(profileDir, 'app-settings.json')),
+    lang: async () => (await readUnderstandingSettings(path.join(profileDir, 'app-settings.json'))).lang,
+    log: (m) => log.write(m)
+  })
+  registry.onExit((ptyId) => {
+    const meta = registry.metaOf(ptyId)
+    if (meta?.kind === 'session' && registry.sessionPty(meta.id) === null) summaries.sessionExited(meta.id)
+  })
+  spawner?.onBusyChanged((sessionId, busy) => summaries.sessionBusy(sessionId, busy))
   const orch = createHostOrch({
     profileDir,
     usageGuard,
@@ -897,6 +936,9 @@ async function main(): Promise<void> {
     activity: activityLog,
     // How It Works (E1 §3): every Run a commit finishes, recorded here while this Host is the writer.
     understanding: hostUnderstanding,
+    // W9-I: tab summaries, fed every commit and read by `summaries` / `sessions-summary`.
+    summaries,
+    readSummaries: (jobId) => summaries.read(jobId),
     // Session work units (E2 §5): built below, after this orch, since their in-Run test reads its state;
     // asked per call. Null without a spawner, and then the session-task commands only forward.
     workUnits: () => hostWorkUnits,

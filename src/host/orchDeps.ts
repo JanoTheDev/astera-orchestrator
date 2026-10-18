@@ -454,6 +454,8 @@ const NOT_FORWARDED = [
   'journalTimeline',
   'github',
   'readUnderstanding',
+  // W9-I
+  'readSummaries',
   // W6-A intake
   'intakeInputs',
   // W8-C prompts mode
@@ -605,6 +607,8 @@ const EFFECTFUL: Record<Classified, boolean> = {
   // NOT_FORWARDED as well (MCP P2-C): a read of this Host's profile's understanding.json, never the
   // app's. It never writes the file and leaves nothing outside the call.
   readUnderstanding: false,
+  // NOT_FORWARDED as well (W9-I): a read of this Host's profile's summaries.json, never the app's.
+  readSummaries: false,
   // NOT_FORWARDED as well (W6-A intake): files copied into this Host's profile, never the app's. The Job it is for is
   // a commit of the same command.
   intakeInputs: true,
@@ -745,6 +749,8 @@ export function hostOrchDeps(a: {
   /** How It Works records (MCP P2-C): this Host's profile's understanding.json, read per call. Absent:
    *  the `understanding-*` commands answer 409, as a caller that is not the Host. */
   readUnderstanding?: OrchServerDeps['readUnderstanding']
+  /** W9-I: the tab summaries (hostSummaries.ts), read per call. Absent: `summaries` and `sessions-summary` answer 409. */
+  readSummaries?: OrchServerDeps['readSummaries']
   /** W6-A intake: attached files into this Host's profile. Absent: `jobs-create --attach` and audits answer 409. */
   intakeInputs?: OrchServerDeps['intakeInputs']
   /** W8-C prompts mode: Run-as-written prompt files and PLAN.md, read on this Host. Absent: `--mode prompts --attach` answers 409. */
@@ -1352,6 +1358,7 @@ export function hostOrchDeps(a: {
     ...(a.journalTimeline ? { journalTimeline: a.journalTimeline } : {}),
     ...(github ? { github } : {}),
     ...(a.readUnderstanding ? { readUnderstanding: a.readUnderstanding } : {}),
+    ...(a.readSummaries ? { readSummaries: a.readSummaries } : {}), // W9-I
     ...(a.intakeInputs ? { intakeInputs: a.intakeInputs } : {}),
     // W8-C prompts mode
     ...(a.readIntakeText ? { readIntakeText: a.readIntakeText } : {}),

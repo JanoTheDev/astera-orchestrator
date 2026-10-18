@@ -444,6 +444,17 @@ const SESSION = {
       req('id', '<recordId>', 'the record to read (from `understanding-list`)')
     ]
   },
+  summaries: {
+    summary: 'what each tab did: the cards tabs leave when they end, newest first (W9-I)',
+    detail:
+      'Each card is a SessionSummary: the session, its plan and Task, when it ended, the outcome (merged, gave-up, stopped, done), the duration, the facts (files with +/-, checks, review rounds and verdict, questions and who answered, commits, PR) and 2-3 sentences of prose written by the coordinator role\'s model (empty when the model could not be asked). Read only, from the Host\'s summaries.json. Off with the tabSummaries setting.',
+    flags: [{ name: 'job', value: '<jobId>', about: "only this plan's cards (from `jobs list`)" }]
+  },
+  'sessions-summary': {
+    summary: "one tab's summary card, by session id (W9-I)",
+    detail: 'The same card `summaries` lists. A tab that has none (still running, wrote nothing, or summaries are off): 404.',
+    flags: [req('id', '<sessionId>', 'the session whose card to read (from `sessions list`)')]
+  },
   'github-pr-create': {
     summary: "open a pull request from a finished Run's branch, through the Host's gh (the MCP server's create_pr)",
     detail:

@@ -1,0 +1,20 @@
+/* W9-I: the summary card (SummaryCard.tsx) and the plan roll-up. Colours are tokens only. */
+.summary-card { display: flex; flex-direction: column; gap: 6px; }
+.summary-card--compact { padding: 8px 10px; gap: 4px; }
+.summary-card__head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.summary-card__title { flex: 1 1 auto; min-width: 0; padding: 0; border: 0; background: none; color: var(--text); font: inherit; font-weight: 600; text-align: left; }
+button.summary-card__title { cursor: pointer; }
+button.summary-card__title:hover .summary-card__title-text { text-decoration: underline; }
+.summary-card__title-text { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.summary-card__role { color: var(--text-faint); font-size: 11px; }
+.summary-card__when { display: flex; gap: 8px; color: var(--text-dim); font-size: 11px; }
+.summary-card__text { margin: 0; color: var(--text); font-size: 12px; line-height: 1.45; }
+.summary-card__facts { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; color: var(--text-dim); font-size: 11px; }
+.summary-card__link { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; cursor: pointer; }
+.summary-card__link:hover { text-decoration: underline; }
+.summary-rollup { display: flex; flex-direction: column; gap: 6px; }
+/* The one line a board card or History row shows */
+.summary-line { display: block; overflow: hidden; color: var(--text-dim); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+/* A History row with a summary wraps it onto a second line (HistoryBrowser .session-row is a flex row) */
+.session-row:has(> .session-summary) { flex-wrap: wrap; }
+.session-summary { flex-basis: 100%; padding-left: 18px; }

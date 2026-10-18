@@ -26,6 +26,9 @@ import {
 } from './planBoard'
 import { QuestionAnswer } from './QuestionAnswer'
 import { TaskLines } from '../attribution/TaskLines' // W8-B
+import type { SessionSummary } from '../../../../core/sessions/summary'
+import { summaryOneLine } from '../wall/summaryText' // W9-I
+import '../wall/wall.css'
 import './plan.css'
 
 /** How often the "resumes in …" and "… ago" texts refresh. */
@@ -48,7 +51,8 @@ export function TaskBoard({
   onAnswer,
   canOpenSession,
   onOpenSession,
-  projectPath
+  projectPath,
+  summaries
 }: {
   tasks: readonly JobTask[]
   accounts: Account[] | null
@@ -73,6 +77,8 @@ export function TaskBoard({
   onOpenSession?: (sessionId: string) => void
   /** W8-B: present, each card shows its AI and human lines (components/attribution) */
   projectPath?: string
+  /** W9-I: the plan's tab summaries by Task; a card whose Task has one says what it did */
+  summaries?: ReadonlyMap<string, SessionSummary>
 }): React.JSX.Element {
   const { t } = useI18n()
   const [nowMs, setNowMs] = useState(() => Date.now())
@@ -137,6 +143,7 @@ export function TaskBoard({
                     onAnswer={onAnswer}
                     onSelect={onSelect}
                     projectPath={projectPath}
+                    summary={summaries?.get(tk.id)}
                     onFocus={
                       tk.sessionId && categoryOf(tk) === 'running' && onOpenSession && canOpenSession?.(tk.sessionId)
                         ? () => onOpenSession(tk.sessionId!)
@@ -164,7 +171,8 @@ function TaskCard({
   onAnswer,
   onSelect,
   onFocus,
-  projectPath
+  projectPath,
+  summary
 }: {
   task: JobTask
   selected: boolean
@@ -179,6 +187,7 @@ function TaskCard({
   /** Present for a running Task whose tab is open: a click on the card goes there. */
   onFocus?: () => void
   projectPath?: string // W8-B
+  summary?: SessionSummary // W9-I
 }): React.JSX.Element {
   const { t } = useI18n()
   const [allFiles, setAllFiles] = useState(false)
@@ -207,6 +216,7 @@ function TaskCard({
       </button>
       {now && <span className="plan-now">{t(now.key, now.params)}</span>}
       {reason && text && <span className={`plan-reason plan-reason-${reasonTone(reason)}`}>{t(text.key, text.params)}</span>}
+      {summary && <span className="summary-line" title={summary.text || undefined}>{summaryOneLine(summary, t)}</span>}
       <dl className="plan-card-meta">
         <dt>{t('plan.card.model')}</dt>
         <dd>{model ?? t('plan.card.cliDefault')}</dd>

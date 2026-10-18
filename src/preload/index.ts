@@ -221,6 +221,8 @@ const api = {
     setAlertSound: invoke('settings.setAlertSound'),
     getAutoCloseEndedPlanTabs: invoke('settings.getAutoCloseEndedPlanTabs'), // W7-F (#84)
     setAutoCloseEndedPlanTabs: invoke('settings.setAutoCloseEndedPlanTabs'),
+    getTabSummaries: invoke('settings.getTabSummaries'), // W9-I
+    setTabSummaries: invoke('settings.setTabSummaries'),
     setMaxConcurrentWorkers: invoke('settings.setMaxConcurrentWorkers'),
     // W6-G
     getMaxSubagentsPerSession: invoke('settings.getMaxSubagentsPerSession'),

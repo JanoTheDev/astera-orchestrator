@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { readMaxConcurrentWorkers } from '../core/settings/maxConcurrentWorkers'
 import { readUsagePauseAt } from '../core/settings/usagePauseAt'
+import { readTabSummaries } from '../core/settings/tabSummaries'
 import { AppSettingsStore, readSkillSettings } from './appSettingsStore'
 import { RepairNeeded } from '../core/settings/repairNeeded'
 import type { DesktopNotifySettings } from '../core/notify/settings'
@@ -419,6 +420,20 @@ describe('autoCloseEndedPlanTabs', () => {
     const b = new AppSettingsStore(file())
     await b.load()
     expect(b.getAutoCloseEndedPlanTabs()).toBe(false)
+  })
+})
+
+// W9-I
+describe('tabSummaries', () => {
+  it('defaults to on; an explicit false persists and the Host reads it', async () => {
+    const a = new AppSettingsStore(file())
+    await a.load()
+    expect(a.getTabSummaries()).toBe(true)
+    await a.setTabSummaries(false)
+    const b = new AppSettingsStore(file())
+    await b.load()
+    expect(b.getTabSummaries()).toBe(false)
+    expect(await readTabSummaries(file())).toBe(false)
   })
 })
 
