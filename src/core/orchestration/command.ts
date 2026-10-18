@@ -114,8 +114,10 @@ import type { JobEvent, WorktreeInfo } from '../types'
 import { ghFailureSentence, type GhFailed, type GhRunner } from '../github/gh'
 import { failedLogTail, readPrChecks, rerunFailed } from '../github/checks'
 import { prForBranch } from '../github/prs'
-import { ISSUE_JOB_ASSOCIATIONS, readIssue } from '../github/issue'
-import { GITHUB_SOURCE_ID, issueContext } from '../github/issueSource'
+import { ISSUE_JOB_ASSOCIATIONS, ISSUES_PER_CALL_MAX, assignIssueToMe, issueNumbersOf, readIssue, type GhIssue } from '../github/issue'
+import { GITHUB_SOURCE_ID, issuesContext } from '../github/issueSource'
+// W6-A intake
+import { intakeChanges, intakeObjective, intakeOf, needsInputs } from './intake'
 import { fillFromCommits, type CommitSummary } from '../github/fill'
 // W2-D GitHub links
 import {
@@ -683,6 +685,11 @@ export interface OrchServerDeps {
    *  never written (`readUnderstandingFile`). **Only the Host injects it**, over its profile's file: the
    *  app has the records in its own store and no caller asks it. Absent, `understanding-*` answer 409. */
   readUnderstanding?(): Promise<StoreShape>
+  // W6-A intake
+  /** Copies the files a person attached into the Job's inputs folder, beside its plan.md (`copyIntakeFiles`), and
+   *  answers the folder; throws the refusal's sentence. **Only the Host injects it**, over its profile; absent,
+   *  `jobs-create --attach` and `--mode audit` answer 409. */
+  intakeInputs?(jobId: string, files: string[]): Promise<{ dir: string; names: string[] }>
   /** The job-source plugins (plugin Phase 4 J10): which there are and a question to one. **Only the Host injects it**,
    *  from its plugin manager and runtime; absent, the sources are GitHub's alone. */
   jobSources?: JobSourcesDeps
@@ -1144,6 +1151,21 @@ export function githubTarget(
   if (id === null) return { error: bad('--project needs a value: a project id (from `projects list`)') }
   const project = findProject(s, id)
   return project ? { gh, cwd: project.path, project } : { error: notFound(`unknown project: ${id}`) }
+}
+
+/** W6-A: assigns each issue to the person gh is logged in as, in order; null when all were, else the refusal naming the
+ *  issue that failed and the ones already assigned. */
+async function assignAll(gh: GhRunner, cwd: string, numbers: readonly number[]): Promise<Reply | null> {
+  const assigned: number[] = []
+  for (const n of numbers) {
+    const r = await assignIssueToMe(gh, cwd, n)
+    if (!r.ok) {
+      const refusal = ghRefusal({ ...r, message: `assigning #${n}: ${r.message}` })
+      return { ...refusal, body: { ...(refusal.body as object), assigned } }
+    }
+    assigned.push(n)
+  }
+  return null
 }
 
 /** A failed gh call as a reply: not-found 404, something the person must fix (gh missing, not logged
@@ -2078,10 +2100,38 @@ export async function handleCommand(
      * 403 을 받는다 — `jobs run` 이 run-start 로 가며 받는 것과 같은 경계다. tasks-add 도 같다.
      */
     case 'jobs-create': {
-      const reply = await handleCommand(deps, caller, 'run-create', { ...args, auto: true })
+      // W6-A intake: --mode, --scope, --instructions and --attach shape the planner's objective (intake.ts).
+      const read = intakeOf(args)
+      if (!read.ok) return bad(read.error)
+      const intake = read.intake
+      const { mode: _mode, scope: _scope, instructions: _instructions, attach: _attach, ...plain } = args
+      const source = typeof args.objective === 'string' ? args.objective : ''
+      if (intake.attach.length > 0 && (fromAgentSession || caller.role === 'mcp' || caller.role === 'controller'))
+        return denied('--attach is for the person, in Astera or at their own shell: it copies files of this machine')
+      if (needsInputs(intake) && !deps.intakeInputs) return conflict('attachments and audits are kept by the Astera Host, and this caller is not one')
+      // An audit or a set of files is a source of its own: the objective may then be left out.
+      const placeholder = source.trim() === '' && needsInputs(intake) ? { objective: intake.mode === 'audit' ? 'Audit' : 'Attached files' } : {}
+      const reply = await handleCommand(deps, caller, 'run-create', { ...plain, ...placeholder, auto: true })
       if (reply.status < 200 || reply.status >= 300) return reply
+      const id = (reply.body as { id?: unknown }).id as string
+      if (intakeChanges(intake)) {
+        let inputs: { dir: string; names: string[] } | undefined
+        if (needsInputs(intake)) {
+          try {
+            inputs = await deps.intakeInputs!(id, intake.attach)
+          } catch (e) {
+            // Nothing has started on a Job made a moment ago (`--auto` waits for its start): it goes, so a refused
+            // file leaves no Job behind.
+            await deps.setState({ ...deps.getState(), jobs: deps.getState().jobs.filter((j) => j.id !== id) })
+            return bad(e instanceof Error ? e.message : String(e))
+          }
+        }
+        const objective = intakeObjective(intake, source, inputs)
+        const cur = deps.getState()
+        await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id ? { ...j, objective } : j)) })
+      }
       const after = deps.getState()
-      const created = after.jobs.find((j) => j.id === (reply.body as { id?: unknown }).id)
+      const created = after.jobs.find((j) => j.id === id)
       return created ? okBody(jobView(after, created, undefined)) : reply
     }
     /**
@@ -5125,28 +5175,53 @@ export async function handleCommand(
       if (args.cwd !== undefined) return bad("--cwd does not go with jobs-create-from-issue: the Job works in the project's folder")
       const t = githubTarget(deps, s, args)
       if ('error' in t) return t.error
-      const n = posInt(args.number)
-      if (n === null) return bad('--number is required: the issue number')
-      const read = await readIssue(t.gh, t.cwd, n)
-      if (!read.ok) return ghRefusal(read)
-      const issue = read.issue
-      if (issue.isPullRequest) return conflict(`#${n} is a pull request, not an issue`)
-      if (issue.state === 'closed') return conflict(`Issue #${n} is closed`)
-      if (!(ISSUE_JOB_ASSOCIATIONS as readonly string[]).includes(issue.authorAssociation))
-        return denied(
-          `Issue #${n} was written by a ${issue.authorAssociation} of the repository; only an owner, member or collaborator's issue becomes a Job`
-        )
-      const { project: _project, number: _number, ...rest } = args
+      // W6-A: --issue takes several (12,14,19) for one Job; --number is the one-issue spelling it always had.
+      if ((args.issue === undefined) === (args.number === undefined)) return bad('give one of --issue <n>[,<n>…] or --number <n>')
+      const numbers = issueNumbersOf(args.issue ?? args.number)
+      if (numbers === null) return bad('--issue takes issue numbers, comma-separated')
+      if (numbers.length > ISSUES_PER_CALL_MAX) return bad(`at most ${ISSUES_PER_CALL_MAX} issues make one Job`)
+      // Every issue is read and checked before anything is assigned or made: one refused issue refuses the whole call.
+      const issues: GhIssue[] = []
+      for (const n of numbers) {
+        const read = await readIssue(t.gh, t.cwd, n)
+        if (!read.ok) return ghRefusal({ ...read, message: `#${n}: ${read.message}` })
+        const issue = read.issue
+        if (issue.isPullRequest) return conflict(`#${n} is a pull request, not an issue`)
+        if (issue.state === 'closed') return conflict(`Issue #${n} is closed`)
+        if (!(ISSUE_JOB_ASSOCIATIONS as readonly string[]).includes(issue.authorAssociation))
+          return denied(
+            `Issue #${n} was written by a ${issue.authorAssociation} of the repository; only an owner, member or collaborator's issue becomes a Job`
+          )
+        issues.push(issue)
+      }
+      if (args.assignMe === true || args.assignMe === 'true') {
+        const assigned = await assignAll(t.gh, t.cwd, numbers)
+        if (assigned !== null) return assigned
+      }
+      const { project: _project, number: _number, issue: _issue, assignMe: _assignMe, ...rest } = args
       const reply = await createFromContext(deps, caller, handleCommand, {
         rest,
         cwd: t.cwd,
-        ctx: issueContext(issue),
+        ctx: issuesContext(issues),
         sourceId: GITHUB_SOURCE_ID,
         sourceName: 'GitHub',
-        itemId: String(issue.number)
+        itemId: numbers.join(',')
       })
       if (reply.status < 200 || reply.status >= 300) return reply
-      return okBody({ ...(reply.body as object), issue: { number: issue.number, url: issue.url } })
+      const ref = (i: GhIssue): { number: number; url: string } => ({ number: i.number, url: i.url })
+      // `issue` stays for one issue, as it always answered; `issues` lists them all.
+      return okBody({ ...(reply.body as object), ...(issues.length === 1 ? { issue: ref(issues[0]) } : {}), issues: issues.map(ref) })
+    }
+    // W6-A: assign issues to the person gh is logged in as (`gh issue edit --add-assignee @me`).
+    case 'github-issue-assign': {
+      if (args.run !== undefined) return bad('--run does not go with github-issue-assign: give --project')
+      if (args.me !== undefined && args.me !== true && args.me !== 'true') return bad('--me takes no value: issues are assigned to you')
+      const t = githubTarget(deps, s, args)
+      if ('error' in t) return t.error
+      const numbers = issueNumbersOf(args.issue)
+      if (numbers === null) return bad('--issue is required: issue numbers, comma-separated')
+      if (numbers.length > ISSUES_PER_CALL_MAX) return bad(`at most ${ISSUES_PER_CALL_MAX} issues a call`)
+      return (await assignAll(t.gh, t.cwd, numbers)) ?? okBody({ assigned: numbers })
     }
     case 'reset': {
       const open = s.dispatches.filter((d) => !d.endedAt)

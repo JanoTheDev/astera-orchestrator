@@ -268,6 +268,12 @@ export function argsForCall(a: {
   /** The CLI process's own process.cwd(). */
   cwd: string
 }): Record<string, unknown> {
+  // W6-A: the Host reads --attach files, so a relative path is resolved against the shell's folder, as --cwd is.
+  const attach = a.args.attach
+  if (attach !== undefined && (a.cmd === 'jobs-create' || a.cmd === 'jobs-create-from-issue')) {
+    const abs = (p: unknown): unknown => (typeof p === 'string' && p !== '' && !path.isAbsolute(p) ? path.resolve(a.cwd, p) : p)
+    a = { ...a, args: { ...a.args, attach: Array.isArray(attach) ? attach.map(abs) : abs(attach) } }
+  }
   // **A project path is resolved here too** (`--project`, `projects find --path`): the Host resolves a
   // relative path against its own working directory, which is not the shell's, so `--project .` would
   // name whatever folder the Host was started in.

@@ -425,8 +425,21 @@ const SESSION = {
       "The Job's objective is the issue, quoted as data, its folder is the project's, and it keeps the issue as its source. Refused for a pull request or a closed issue (409) and for an author who is not the repository's owner, a member or a collaborator (403). `jobs create-from-source --source github` makes the same Job, but answers 403 for a closed issue and 404 for a pull request where this command answers 409, as it always has. Takes `jobs create`'s other flags. MCP clients need the \"Let MCP clients act on GitHub\" setting.",
     flags: [
       req('project', '<projectId>', 'the project whose repository to read (from `projects list`)'),
-      req('number', '<n>', 'the issue number'),
+      { name: 'number', value: '<n>', about: 'the issue number (or --issue)' },
+      // W6-A: several issues make one Job
+      { name: 'issue', value: '<n>[,<n>…]', about: 'the issue numbers, comma-separated (at most 20); one refused issue refuses the call' },
+      { name: 'assign-me', about: 'assign each issue to you first (gh issue edit --add-assignee @me)' },
       ...(USAGE['jobs-create'].flags ?? []).filter((f) => f.name !== 'objective' && f.name !== 'cwd')
+    ]
+  },
+  // W6-A
+  'github-issue-assign': {
+    summary: "assign GitHub issues of a project to you, through the Host's gh (gh issue edit --add-assignee @me)",
+    detail: 'Assigns in the order given and stops at the first that fails, answering the ones already assigned.',
+    flags: [
+      req('project', '<projectId>', 'the project whose repository the issues are in (from `projects list`)'),
+      req('issue', '<n>[,<n>…]', 'the issue numbers, comma-separated (at most 20)'),
+      { name: 'me', about: 'assign to you (the only assignee this takes)' }
     ]
   },
   'runs-completion': {
