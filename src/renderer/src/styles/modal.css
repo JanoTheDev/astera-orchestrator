@@ -1,0 +1,129 @@
+/* ---------- modals ---------- */
+/* z-index: raises modals rendered inside the sidebar (AccountPanel) to group 7 so they are not covered by
+   .terminal-wrap (position:relative, group 6), which comes later in the DOM. Common to every modal. */
+.modal-backdrop { position: fixed; inset: 0; z-index: 100; background: var(--scrim); display: flex; align-items: center; justify-content: center; }
+.modal { background: var(--panel); border: 1px solid var(--line-soft); border-radius: var(--radius-lg); padding: var(--modal-pad); width: 460px; display: flex; flex-direction: column; gap: 12px; }
+/* In a modal wrapped in a form (add and import account) the form is the only child, so the modal gap does
+   not reach inside — the same vertical spacing is given to the form as well, keeping the input fields off
+   the button row */
+.modal form { display: flex; flex-direction: column; gap: 12px; }
+/* modal help text — small and muted, below the input */
+.modal-hint { color: var(--text-faint); font-size: 11.5px; }
+.modal h2 { font-size: 15px; font-weight: 600; color: var(--text); }
+/* The wait overlay for starting a new session — it reuses the spinner and text of the resume terminal
+   loading state (.loading-overlay) and only swaps the background for a modal tone. Unlike the terminal it
+   does not let clicks through (pointer-events): while the start is in progress it has to cover the form so
+   it cannot be touched or submitted again. position:relative is given to this modal only — putting it on
+   all of .modal would change the stacking context of every other modal too. */
+.modal.new-session { position: relative; }
+.modal .loading-overlay { background: var(--panel); border-radius: var(--radius-lg); pointer-events: auto; z-index: 1; }
+/* Worktree creation inside that overlay (WorktreeCreateStatus.tsx): the stage line, and while copying a
+   thin bar with a byte and file count under it, then Cancel. Same spinner, colours and type as the
+   plain one-line wait, so a start without a worktree looks exactly as it did. */
+.worktree-create-body { display: flex; flex-direction: column; gap: 6px; min-width: 220px; }
+.worktree-progress-bar { height: 4px; background: var(--line-soft); border-radius: 2px; overflow: hidden; }
+.worktree-progress-bar > div { height: 100%; background: var(--accent); transition: width .2s linear; }
+.worktree-progress-count { font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.worktree-create-status button { margin-left: 6px; }
+.field label { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; }
+.field input[type="text"], .field textarea { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--line-soft); padding: 6px; border-radius: var(--radius); }
+/* A field entered line by line, like environment variables — monospaced so the values line up visibly, and resizable in height by the user */
+.field textarea { font-family: var(--mono); font-size: 12px; resize: vertical; }
+/* The session-kind toggle (터미널/대화, Task 7) — two labelled buttons, not the icon pair
+   WorkbenchTabs's .session-view-toggle uses (that one flips which half of an already-open tab shows;
+   this one decides how the session is spawned at all, before anything exists to switch between). */
+/* Its own section at the head of the form, ruled off from the folder and account fields beneath it:
+   the same 12px gap the other fields keep between them made the three read as one run of fields. The
+   two buttons share the width, so the row reads as a mode switch rather than two small options. */
+.kind-field { padding-bottom: 12px; border-bottom: 1px solid var(--line-soft); }
+.kind-segmented { display: flex; gap: 6px; }
+.kind-segmented .segmented {
+  flex: 1; padding: 6px 12px; font-size: 12px; color: var(--text-dim); background: none;
+  border: 1px solid var(--line); border-radius: var(--radius-sm); cursor: pointer;
+}
+.kind-segmented .segmented.active { color: var(--text); border-color: var(--accent); background: var(--elevated); }
+.kind-segmented .segmented:disabled { opacity: 0.5; cursor: not-allowed; }
+/* The kind toggle's own hint and disabled-reason note. Scoped to its own class rather than written as
+   `.field > .check-note`: that shape also matched spans this branch never touched (ResumeDialog's
+   "로그인 상태 확인 중", RunConfigForm's four loading notes), restyling them as a side effect of adding
+   this one. */
+.kind-note { display: block; margin-top: 4px; font-size: 11px; color: var(--text-dim); opacity: 0.85; }
+/* NewRunModal's concurrency box. The palette rule above matches input[type="text"] only, so this one
+   field fell through to the browser default — a white box with a light-grey native spinner — next to a
+   text input and a Select that both follow the theme. The resting look is taken from .sel-trigger, the
+   control standard it sits directly under, rather than from .field input[type="text"]: the trigger is
+   what the eye compares it with in this modal. Width is not 100% because the value is one or two digits.
+   The native spin button goes because it cannot be themed: it takes no colour of its own, and Chromium
+   draws it from the light scheme no matter what — measured with color-scheme: dark set on the input and
+   then on the root, and it stayed a light-grey widget both times. Left in, it would have been the one
+   piece of this field still not following the theme, on the hover where it appears. The cost is
+   click-to-step; the arrow keys still step the value and the box is a digit or two wide to type in. */
+.jobs-concurrency {
+  width: 80px;
+  height: var(--sel-h);
+  padding: 0 8px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  font-family: var(--sans);
+  font-size: 12px;
+  transition: border-color var(--ease), box-shadow var(--ease);
+}
+.jobs-concurrency::-webkit-inner-spin-button { appearance: none; }
+/* Same ring-plus-brightened-border as .sel-trigger:focus-visible, on :focus rather than :focus-visible —
+   a text box is focused to be typed in, so there is no pointer-versus-keyboard distinction to make. */
+.jobs-concurrency:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--ring); }
+/* 예약 규칙 줄의 입력칸 셋. 위의 팔레트 규칙이 잡는 것은 `1,15`(일자) 하나뿐이다 — 이 줄에서 type 이
+   text 인 유일한 칸이라서다. 나머지 둘, 분 입력(number)과 시각 입력(time)은 브라우저 기본값으로
+   남아 흰 상자로 그려졌다. 셋 다 같은 줄에서 .sel-trigger 옆에 서므로 그 트리거의 값으로 맞춘다 —
+   같은 바탕·테두리·둥근 정도, 그리고 **같은 높이(--sel-h)**: 높이가 어긋나면 한 줄로 읽히지 않는다.
+   `.field input.` 로 적는 이유는 특이도다 — 위 팔레트 규칙이 (0,2,1)이라 `.sched-days` 만으로는
+   padding 을 이기지 못한다. 클래스만으로 쓰면 일자 칸의 글자 들여쓰기가 형제들과 2px 어긋난다.
+   **두 모달이 함께 바뀐다.** 이 칸들은 ScheduleRuleFields 하나에서 나오고 세션 예약 모달도 같은
+   컴포넌트를 쓴다 — 한 위젯이 두 자리에서 다르게 보이는 것이 더 나쁘다. */
+.field input.sched-minutes, .field input.sched-days, .field input.sched-time {
+  height: var(--sel-h);
+  padding: 0 8px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  font-family: var(--sans);
+  font-size: 12px;
+  transition: border-color var(--ease), box-shadow var(--ease);
+}
+.field input.sched-minutes:focus, .field input.sched-days:focus, .field input.sched-time:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--ring);
+}
+/* .jobs-concurrency 와 같은 이유로 스피너를 없앤다 — 색을 받지 않아 어떤 테마에서도 밝은 회색으로
+   남는 유일한 조각이 된다(그쪽 주석에 실측이 적혀 있다). */
+.field input.sched-minutes::-webkit-inner-spin-button { appearance: none; }
+/* 시각 칸의 네이티브 부분들 — 시계 아이콘과, 그 아이콘이 여는 **선택기 팝업**.
+   `color-scheme: dark` 가 이 둘에 닿는 **유일한 레버**다. 팝업은 페이지가 아니라 브라우저가 페이지
+   밖에 그리는 창이라 CSS 선택자로는 잡을 수 없다 — 배경도 글자색도 지정할 방법이 없고, 이 선언이
+   Chromium 에게 "어두운 쪽으로 그려라"라고 말하는 전부다.
+   아이콘도 이것으로 밝아진다(실측). 그래서 filter: invert 로 뒤집던 방식을 버렸다 — 둘을 함께 쓰면
+   이미 밝아진 아이콘을 다시 뒤집어 어두워진다.
+   일곱 테마가 모두 어두우므로(core/theme/themes.ts) dark 로 고정해도 테마와 어긋나지 않는다.
+   **주의**: 같은 선언이 number 스피너에는 듣지 않는다 — .jobs-concurrency 주석의 실측 그대로다.
+   위젯마다 다르다는 뜻이고, 그래서 스피너는 없애고 이쪽은 이 선언을 쓴다. */
+.field input.sched-time { color-scheme: dark; }
+.field input.sched-time::-webkit-calendar-picker-indicator { cursor: pointer; }
+/* 예약 실행이 켜졌을 때 규칙 칸들이 들어가는 자리. ScheduleRuleFields 는 .row 둘을 내놓을 뿐이라
+   묶어 줄 상자가 필요하다 — .sched-field 를 빌리지 않는 이유는 그것이 명령 칸까지 있는 세션 쪽
+   폼의 간격이라서다. */
+.jobs-sched { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.field .modal-hint { margin-top: 4px; display: block; }
+.row { display: flex; align-items: center; gap: 8px; }
+.row.right { justify-content: flex-end; }
+/* Truncates a path or conversation summary to one line. display:block is essential — left inline, a
+   <span> does not honour overflow/text-overflow (a non-replaced inline element), so only nowrap applies
+   and the text spills out of the modal. Inside a .row it is a flex child and becomes a block
+   automatically, but not when it is a direct child of .field.
+   flex:1 is there to fill the leftover width inside a .row, and overflow:hidden releases the automatic
+   flex minimum size to 0, so the ellipsis works in that context too. */
+.path { display: block; flex: 1; font-size: 12px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.warn { color: var(--warn); font-size: 13px; }

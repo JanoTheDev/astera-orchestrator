@@ -184,7 +184,7 @@ describe('MarkdownPreview — task list items', () => {
 describe('task list CSS', () => {
   it('hangs the checkbox in the padding and leaves the item where the text starts', async () => {
     const { readFileSync } = await import('node:fs')
-    const css = readFileSync(`${process.cwd()}/src/renderer/src/styles.css`, 'utf8')
+    const css = readFileSync(`${process.cwd()}/src/renderer/src/components/markdownPreview.css`, 'utf8')
     /** The declarations of the rule written exactly as `selector {`. */
     const rule = (selector: string): string => {
       const at = css.indexOf(`${selector} {`)

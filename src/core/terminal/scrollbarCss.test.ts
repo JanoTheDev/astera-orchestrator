@@ -27,13 +27,13 @@ describe('세션 터미널 스크롤바 은닉 ↔ xterm CSS', () => {
 
   it('styles.css가 .terminal-host 안의 DOM 스크롤바를 display:none으로 없앤다', () => {
     // display:none이어야 히트테스트에서도 빠진다 — 투명하게만 두면 우측 14px이 드래그 선택을 먹는다
-    expect(read('../../renderer/src/styles.css')).toMatch(
+    expect(read('../../renderer/src/components/terminal.css')).toMatch(
       /\.terminal-host\s+\.xterm-scrollable-element\s*>\s*\.scrollbar\s*\{[^}]*display:\s*none/
     )
   })
 
   it('네이티브 스크롤바 은닉 규칙도 함께 남아 있다', () => {
-    expect(read('../../renderer/src/styles.css')).toMatch(
+    expect(read('../../renderer/src/components/terminal.css')).toMatch(
       /\.terminal-host\s+\.xterm-viewport::-webkit-scrollbar\s*\{[^}]*width:\s*0/
     )
   })

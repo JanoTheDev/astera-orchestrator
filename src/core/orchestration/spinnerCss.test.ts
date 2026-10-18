@@ -22,7 +22,11 @@ import path from 'node:path'
  *    똑같이 그려져, 코드가 일부러 구별하는 두 상태가 화면에서 하나가 된다.
  */
 const here = path.dirname(fileURLToPath(import.meta.url))
-const css = readFileSync(path.join(here, '../../renderer/src/styles.css'), 'utf8')
+// styles.css is the ordered @import list; the rules are in the files it names, read here in that order
+const renderer = path.join(here, '../../renderer/src')
+const css = [...readFileSync(path.join(renderer, 'styles.css'), 'utf8').matchAll(/@import '\.\/([^']+)';/g)]
+  .map((m) => readFileSync(path.join(renderer, m[1]), 'utf8'))
+  .join('\n')
 
 /** `@media (prefers-reduced-motion: reduce)` 블록들의 본문.
  *

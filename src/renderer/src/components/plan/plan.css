@@ -39,7 +39,7 @@
 .plan-talk-phase { margin-left: 6px; font-size: 10px; color: var(--text-faint); }
 .plan-talk-changes { margin: 2px 0 0; padding-left: 16px; color: var(--text-dim); }
 .plan-talk-wait { margin: 2px 0 0; color: var(--text-faint); font-style: italic; }
-.plan-talk-problems { margin: 6px 0; color: var(--danger, #e5534b); }
+.plan-talk-problems { margin: 6px 0; color: var(--danger); }
 .plan-talk-problems p { margin: 0 0 2px; font-weight: 600; }
 .plan-talk-problems ul { margin: 0; padding-left: 18px; }
 .plan-talk-form, .plan-talk-reject { display: flex; gap: 6px; align-items: flex-start; }

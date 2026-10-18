@@ -1,0 +1,255 @@
+/* RunDetail — 한 Run 의 상세 창. 왼쪽이 의존 그래프, 오른쪽이 이벤트이고 **노드가 오른쪽의 필터다**.
+   Jobs 사이드바의 › 로 연다. */
+/* **높이를 정해 둔다(max-height 가 아니다).** 내용에 맡기면 노드를 눌러 필터 줄이 생기고 맨 아래
+   가려진 개수 줄이 붙을 때마다 창이 커졌다 작아졌다 한다 — 누를 때마다 창이 움직이면 다음에 무엇을
+   누를지 눈으로 좇을 수가 없다. min() 인 이유는 짧은 화면이다: clamp 의 최솟값은 뷰포트보다 큰 창을
+   만들 수 있고, 그러면 닫기 버튼이 화면 밖으로 나간다. */
+/* 카드가 148×32 에서 176×52 로 커지고 층마다 띠가 붙었으므로 창도 함께 키운다. **폭 상한이 더
+   중요하다** — 그래프는 한 층의 Task 가 늘 때 가로로 자라고, 1180px 에서는 한 층에 다섯 개까지만
+   서던 것이 1440px 에서 일곱 개가 된다(옛 상자로 세던 수와 같다). 넘치면 그래프 칸이 스크롤된다 */
+.modal.run-detail { width: clamp(760px, 86vw, 1440px); height: min(90vh, 1160px); }
+/* Why a paired Runtime's controls are off (a read-only pairing, Phase 7): said once, above them. */
+.jobs-disabled-reason { margin: 4px 0 8px; font-size: 12px; color: var(--text-dim); }
+/* 머리말 없이 목표가 제목이고, 그 옆이 묶음 개수다. .jobs-count 를 사이드바에서 그대로 빌린다 —
+   같은 아이콘과 같은 숫자가 화면마다 다르게 생기면 "아이콘으로 읽는다"는 규칙이 무너진다 */
+.detail-head { flex: none; display: flex; align-items: center; gap: 9px; }
+.detail-head h2 { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 창을 닫는 ✕. 아래 .detail-clear 와 같은 모양을 쓰지만 margin-left: auto 가 아니다 — 제목이
+   flex: 1 로 남는 자리를 다 가져가므로 개수 묶음과 이 버튼은 이미 오른쪽 끝에 붙어 있고, auto 를
+   또 주면 개수 묶음과 이 버튼 사이가 벌어진다. 글자를 --text-faint 로 두지 않는 이유는 사이드바에서
+   배운 것과 같다: 이 패널 위에서 그 색의 12px 글리프는 찾을 수 없다 */
+.detail-x { flex: none; background: none; border: 0; padding: 0 2px; color: var(--text-dim); font-size: 13px; line-height: 1; cursor: pointer; }
+.detail-x:hover { color: var(--accent); }
+/* 위아래로 **정확히 반반** 쌓는다 — 그래프는 층이 넓어질수록 가로로 자라는데, 옆에 이벤트를
+   세우면 그래프가 쓸 수 있는 폭이 창의 절반도 안 된다. 넷만 나란히 서도 잘려서 가로 스크롤이
+   생겼다. 위아래로 두면 그래프가 창의 온 폭을 쓰고, 이벤트는 어차피 세로로 읽는 것이라 폭이
+   줄어도 잃는 것이 없다.
+   minmax(0, 1fr) 인 이유: 그냥 1fr 은 자동 최솟값이 min-content 라 내용이 큰 칸이 반을 넘어간다.
+   0 으로 눌러야 두 칸이 언제나 정확히 반이다.
+   min-height: 0 이 없으면 스크롤이 아예 생기지 않는다 — 아이템의 기본 최솟값은 내용보다 작아지지
+   않으므로 두 칸이 줄지 않고, 높이가 정해진 모달 밖으로 내용이 넘쳐 닫기 버튼이 밀려난다.
+   .rcm-tree 가 같은 모양이다(.modal.rcm 안의 스크롤 목록). */
+.detail-body { flex: 1; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+/* 그래프 칸. **자리는 반이고 내용이 그것을 바꾸지 못한다** — 넘치면 상자를 줄이지 않고 안쪽의
+   .detail-scroll 이 스크롤한다(세로도 가로도). 줄이면 제목이 사라지고, 칸이 내용을 따라가면 Run
+   마다 창의 생김새가 달라져 어디를 봐야 하는지 매번 다시 찾게 된다.
+   스크롤하는 것이 이 칸이 아니라 안쪽인 이유는 범례다 — 범례는 이 칸의 왼쪽 아래에 붙박여 있어야
+   하고, 같이 스크롤되면 선의 색을 설명하는 유일한 글이 밀려 사라진다(선에는 툴팁을 달 곳이 없다) */
+.detail-graph { min-width: 0; min-height: 0; overflow: hidden; display: flex; flex-direction: column; padding-bottom: 14px; border-bottom: 1px solid var(--line-soft); }
+/* Task 짓기 시작 버튼의 줄. flex: none — 그래프를 그리는 .detail-scroll 이 flex: 1 로 남는 높이를
+   다 가져가야 하므로, 이 줄이 늘어나면 안 된다. 짓는 동안에는 이 줄 자체가 그려지지 않는다
+   (RunDetail.tsx) — .jobs-new 의 사이드바용 여백(margin: 10px 10px 4px)은 이 자리에 안 맞아
+   지운다: 이 줄의 margin-bottom 이 이미 그래프와 사이를 두고 있다 */
+/* gap 이 필요한 이유: 이 칸은 한 버튼짜리로 시작했고 그때는 붙을 상대가 없었다. 지금은 Task 짓기
+   옆에 실행·병합·일시 중지가 서므로, 없으면 서로 다른 일을 하는 버튼들이 한 덩어리로 읽힌다.
+   6px 은 .jobs-run-head 의 7px 보다 한 단 좁다 — 그쪽은 배지와 글자가 섞인 줄이고 여기는 버튼만 선다 */
+.detail-graph-head { flex: none; display: flex; justify-content: flex-end; gap: 6px; margin-bottom: 6px; }
+.detail-graph-head .jobs-new { margin: 0; }
+/* 실행 버튼이 회전을 담는 동안만 걸리는 셋. **`:has()` 로 그때만 거는 이유**: .jobs-new 를 통째로
+   inline-flex 로 바꾸면 옆 버튼의 `+ {Task 추가}` 가 두 텍스트 노드라 각각 flex 항목이 되어 gap 만큼
+   벌어진다 — 도는 동안만 필요한 규칙이 늘 서 있는 버튼의 생김새를 바꾸는 셈이다.
+   기본 button 은 inline-block 이라 flex 로 바꾸지 않으면 span 인 회전이 inline 으로 남아 width/height
+   가 먹지 않는다(button.ghost 가 inline-flex 인 덕에 워크트리 줄의 회전이 보이는 것과 같은 자리).
+   12px 인 이유도 .worktree-actions .ghost.removing 과 같다 — 공용 링은 14px 이고 이 줄의 글자는 12px
+   이라, 그대로 두면 도는 동안에만 버튼이 커져 줄 높이가 흔들린다.
+   opacity 를 되돌리는 것도 그 선례와 같은 이유다: 전역 button:disabled 의 .5 가 부모에 걸리면 자식인
+   회전이 그것을 되돌릴 수 없어 함께 흐려진다. 못 누른다는 것은 button.primary:disabled 의 색이 이미
+   말하고 있고, 이 버튼이 그 동안 하는 일은 잠긴 척이 아니라 상태를 말하는 것이다. */
+.detail-graph-head .jobs-new:has(.loading-spinner) { display: inline-flex; align-items: center; gap: 6px; }
+.detail-graph-head .jobs-new:has(.loading-spinner):disabled { opacity: 1; }
+.detail-graph-head .jobs-new .loading-spinner { width: 12px; height: 12px; }
+/* safe center — 그림이 칸보다 작으면 가운데에 놓이고, 커지면 왼쪽 위부터 놓인다. safe 가 없으면
+   넘칠 때도 가운데로 밀어붙여 **위쪽과 왼쪽이 스크롤로 닿지 않는 자리**로 잘려 나간다 */
+.detail-scroll { flex: 1; min-width: 0; min-height: 0; overflow: auto; display: grid; place-content: safe center; }
+/* 노드의 자리는 graphLayout.ts 가 px 로 정한다. 선(SVG)과 상자(HTML)가 같은 좌표계에 서야 하므로
+   상자는 이 칸 안에서 절대 위치다 — flex 로 늘어놓으면 자리를 JS 가 알 수 없어 선을 그을 수 없다 */
+/* 가운데 놓는 일은 .detail-scroll 의 place-content 가 한다 — 여기서 margin: auto 로 한 번 더
+   하면 두 장치가 같은 일을 두고 다투고, 넘칠 때의 동작(safe)이 어느 쪽 것인지 알 수 없어진다 */
+.detail-canvas { position: relative; }
+.detail-edges { position: absolute; left: 0; top: 0; pointer-events: none; }
+.detail-canvas .detail-node { position: absolute; }
+/* 노드. **크기는 여기 적지 않는다** — RunDetail.tsx 가 graphLayout.ts 의 상수를 그대로 style 로 주고,
+   선의 끝점도 같은 상수에서 나온다. 한 번 더 적으면 한쪽만 고쳐졌을 때 선이 상자에서 어긋난다 */
+/* 카드는 두 줄이다: 제목과 그 아래 부제. 글리프는 왼쪽에서 두 줄에 걸쳐 서고, 부제가 없는 Task 는
+   한 줄이 된다(align-content 가 그때도 가운데에 둔다).
+   **제목을 가운데 정렬하지 않는다.** archify 의 카드는 가운데 정렬이지만 그 카드에는 버튼이 없다.
+   176px 안에 글리프·제목·부제·버튼 셋을 넣으면서 제목을 가운데에 두면 제목에 남는 폭이 여덟 자
+   남짓이고, 게다가 버튼이 없는 카드(세션이 없는 completed 등)만 중심이 달라져 한 층에서 제목이
+   두 자리에 선다. 왼쪽 정렬이면 제목이 카드 폭을 다 쓰고 어느 카드에서도 같은 자리다 */
+.detail-node { box-sizing: border-box; position: relative; display: grid; grid-template-columns: auto 1fr; align-content: center; gap: 1px 7px; padding: 0 8px; border: 1.5px solid var(--line-soft); border-radius: var(--radius-sm); background: var(--elevated); font-size: 11.5px; cursor: pointer; }
+.detail-node:hover { box-shadow: inset 0 0 0 1px var(--ring); }
+/* 고른 노드 = 지금 오른쪽을 거르고 있는 것. **표시에 청록을 쓰지 않는다** — 한때 2px 청록 링이었는데
+   빨간(failed) 노드를 고르면 빨강 테두리 위에 파란 링이 겹쳐 두 색이 싸웠다. 지금은 그 노드 자신의
+   상태색으로 안쪽에 링을 하나 더 세운다(RunDetail 이 inline 으로 준다: 색이 STATUS_COLOR 에 있고
+   CSS 는 그 값을 읽을 수 없다). 배경을 함께 바꾸지 않는 이유는 그대로다 — --surface-hover 가 노드의
+   기본 배경 --elevated 보다 어두워서, 도는 것과 손이 필요한 것은 고르면 오히려 한 단 어두워진다 */
+/* 고른 Task 의 의존 사슬 밖. **지우지 않고 물러나게만 한다** — 그래프의 모양(몇 층이고 어디가
+   넓은지)은 무엇을 고르든 그대로 읽혀야 하고, 사라지게 하면 고른 것을 풀 때까지 그 Task 가 있었다는
+   사실 자체가 화면에서 없어진다. 선은 양 끝이 다 사슬 안일 때만 남는다(RunDetail 의 away) */
+.detail-node.away, .detail-edge-wait.away, .detail-edge-done.away { opacity: .24; }
+/* 아직 아무 일도 없었던 둘과 끝난 것은 물러난다. 점선이 pending 에만 붙는 것은 글리프와 같은
+   규칙이다 — 자기 힘으로 시작할 수 없는 쪽(의존이 막고 있다)이다 */
+.detail-node--pending { background: var(--bg); border-style: dashed; color: var(--text-faint); }
+.detail-node--ready { background: var(--bg); }
+.detail-node--completed { background: var(--bg); color: var(--text-faint); }
+/* 도는 셋과 손이 필요한 둘은 상태색을 옅게 깐다 — archify 가 kind 마다 하는 것을 여기서는 상태마다
+   한다. **바닥이 --panel 인 것은 뒤에 격자가 있기 때문이다**: 투명하게 두면 점선이 상자를 뚫고
+   제목 위로 지나간다(그래서 archify 도 색 사각형 아래에 불투명 사각형을 한 장 더 깐다). 테두리색은
+   RunDetail 의 borderOf 가 inline 으로 주므로 여기 적지 않는다 — 두 곳에 적으면 갈라진다 */
+.detail-node--dispatched { background: color-mix(in srgb, var(--accent) 12%, var(--panel)); }
+.detail-node--validating { background: color-mix(in srgb, var(--git-modified) 12%, var(--panel)); }
+.detail-node--reviewing { background: color-mix(in srgb, var(--fi-purple) 12%, var(--panel)); }
+.detail-node--failed { background: color-mix(in srgb, var(--git-deleted) 12%, var(--panel)); }
+.detail-node--blocked { background: color-mix(in srgb, var(--git-conflict) 12%, var(--panel)); }
+/* 글리프. 1 / -1 은 줄이 하나일 때도 둘일 때도 맞는 유일한 값이다 — 한 줄이면 그 줄, 두 줄이면
+   두 줄에 걸쳐 가운데 */
+.detail-node-sig { grid-row: 1 / -1; display: flex; align-self: center; opacity: .76; }
+.detail-node-title { grid-column: 2; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; line-height: 1.25; }
+/* 부제 — 열린 Gate 의 질문이나 provider. 긴 질문은 잘린다: 무엇인지(제목)가 먼저이므로 잘릴 쪽은
+   이 줄이다. 값이 없는 Task 는 이 요소 자체가 없다(RunDetail) */
+.detail-node-meta { grid-column: 2; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 9px; line-height: 1.3; color: var(--text-faint); }
+/* 검사 칩 줄 — 2열의 셋째 줄. NODE_H(52) 안에 제목(11.5px×1.25)·meta(9px×1.3)·이 줄(9.5px)이 든다; 요소가 없는
+   Task 는 지금 그대로 두 줄이다(RunDetail). 색은 노드 배경이 쓰는 같은 토큰 — 상세 창과 사이드바가 같은 색으로 같은
+   상태를 부른다. ~ 는 라운드 사이에 판정이 흔들린 검사(unstable) */
+/* min-width: 0 + overflow: hidden — 이 줄은 2열(1fr)을 .detail-node-title 과 나눠 쓰는데, flex: none 칩들의
+   nowrap 행이라 min-content 폭이 칩 전부를 늘어놓은 폭이다. 그 min-content 가 1fr 칼럼의 자동 최소값이 되어
+   검사가 여덟 개쯤을 넘으면 고정폭 NODE_W 카드를 뚫고 나간다 — 이 규칙이 없으면 .detail-node 에도
+   overflow: hidden 이 없어 칩 줄만이 아니라 같은 칼럼을 쓰는 제목까지 옆 노드 위로 흘러나온다 */
+.detail-checks { grid-column: 2; display: flex; gap: 5px; font-size: 9.5px; line-height: 1.2; min-width: 0; overflow: hidden; }
+.detail-check { flex: none; cursor: default; }
+.detail-check sub { font-size: 7px; color: var(--git-modified); vertical-align: baseline; }
+.detail-check--passed { color: var(--ok); }
+.detail-check--failed, .detail-check--timed-out { color: var(--git-deleted); }
+.detail-check--not-run { color: var(--text-faint); }
+/* A plugin check that could not be made (plugin Phase 5 C9): not the code's failure, so not its colour */
+.detail-check--error { color: var(--warn-ink); }
+.detail-check--retrying { color: var(--accent); }
+/* Task 짓기 중 고른 의존 표시. 필터의 고른 표시(노드 자신의 상태색 링)와 다른 채널이라 위치도
+   다르다 — 테두리가 아니라 제목 옆에 글리프를 하나 더 세운다. color 를 accent(청록)로 주는 것은
+   상태 팔레트(--ok 등)를 피하기 위해서다 — completed 상태의 글리프와 같은 색이면 텍스트 글리프(✓)를
+   쓴 것과 별개로 또 한 번 헷갈릴 자리를 만든다 */
+/* .detail-node-btn 은 띄우기·멈추기·물어보기·다시 띄우기 네 버튼이 쓴다 — ↗(세션 열기)와 같은
+   자리, 같은 존재감이어야 하므로 규칙을 나누지 않고 셀렉터에 더한다 */
+.detail-node-jump, .detail-node-btn { flex: none; background: none; border: 0; padding: 0 2px; color: var(--text-faint); font-size: 12px; cursor: pointer; }
+.detail-node-jump:hover, .detail-node-btn:hover { color: var(--accent); }
+/* 버튼들. 오른쪽 가장자리에 세로로 가운데 정렬한다 — 아래쪽에 두면 부제와 겹친다(부제는 가운데
+   정렬이라 폭이 글자 수에 따라 변해서, 어느 폭에서도 안 겹치는 자리가 없다) */
+.detail-node-acts { position: absolute; right: 5px; top: 50%; transform: translateY(-50%); display: flex; gap: 1px; }
+/* 버튼이 선 카드는 글자가 그만큼 좁아진다 — 없으면 긴 제목이 버튼 밑으로 들어가 잘리지도 않는다.
+   54px 은 한 카드에 서는 버튼이 최대 셋이기 때문이다(↗ + 잠그기 + 잠금 풀기 / 멈추기 / 다시 띄우기).
+   :has() 는 Chrome 105+ 이고 이 앱은 146 이다(label.check-small:has 와 같은 근거) */
+.detail-node:has(.detail-node-acts) { padding-right: 54px; }
+/* 층의 띠. --text 에서 섞어 쓰는 것은 테마마다 배경이 달라도 같은 세기로 보이게 하려는 것이다 —
+   고정 리터럴이면 테마를 바꿀 때 한쪽에서 사라지거나 튄다.
+   **archify 의 점 격자는 가져오지 않았다** — 40px 마다 1px 씩 찍히는 그림이라 이 크기의 캔버스에서는
+   격자로 읽히지 않고, 캔버스의 경계라는 역할은 띠가 이미 한다(띠가 가장 넓은 층보다 넓다) */
+.detail-lane { fill: color-mix(in srgb, var(--text) 2%, transparent); stroke: color-mix(in srgb, var(--text) 9%, transparent); }
+.detail-lane-label { fill: var(--text-faint); font-family: var(--mono); font-size: 10px; font-weight: 600; }
+/* 선의 색이 곧 뜻이다. **화살촉은 규칙이 따로 있다** — marker 는 자기를 참조한 path 의 stroke 를
+   물려받지 못하므로 색마다 marker 를 하나씩 두고 fill 을 여기서 준다 */
+.detail-edge-wait { stroke: var(--accent); }
+.detail-arrow-wait { fill: var(--accent); }
+/* 이미 풀린 의존. --line-soft 를 쓰지 않는 이유는 그것이 칸을 나누는 색이라 화살촉으로는 아예
+   읽히지 않기 때문이다(Umbra 에서 흰색 7%). 물러나 있으라는 뜻은 지키면서 보이기는 해야 한다 */
+.detail-edge-done { stroke: color-mix(in srgb, var(--text-faint) 45%, transparent); }
+.detail-arrow-done { fill: color-mix(in srgb, var(--text-faint) 45%, transparent); }
+/* 선 색의 뜻. 그래프에서 유일하게 글자로 적는 자리다 — 아이콘에는 툴팁을 달 수 있지만 선에는 달 곳이 없다 */
+.detail-legend { flex: none; display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 14px; color: var(--text-faint); font-size: 10.5px; }
+.detail-legend span { display: inline-flex; align-items: center; gap: 6px; }
+/* 견본은 이제 svg 다(선 + 화살촉) — border-top 으로는 방향을 그릴 수 없다 */
+.detail-line { flex: none; display: block; }
+/* 순환 묶음. Gate 와 같은 취급이다(경고 톤에 왼쪽 띠) — 사람이 손대야 풀리는 것이고, 순환은 명령으로는
+   만들 수 없다(createTask 는 존재하지 않는 dep 을 거절하고, 이미 만들어진 Task 의 deps 를 바꾸는
+   명령이 없다). 저장 파일(orchestration.json)이 프로세스 밖에서 손으로 고쳐졌을 때만 생기므로, 지금
+   이 화면 말고는 아무도 그것을 말해 주지 않는다 */
+.detail-cycle { margin-top: 16px; }
+.detail-cycle-note { padding: 6px 8px; margin-bottom: 8px; background: color-mix(in srgb, var(--git-conflict) 9%, transparent); border-left: 2px solid var(--git-conflict); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; color: var(--text-dim); font-size: 11.5px; }
+.detail-cycle-nodes { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.detail-events { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+/* 무엇으로 걸러져 있는지. 이 줄과 아래의 .detail-hidden 이 없으면 걸러 놓은 화면이 이벤트가 원래
+   적은 Run 과 똑같이 보인다 */
+.detail-filter { flex: none; display: flex; align-items: center; gap: 7px; padding: 0 2px 9px; margin-bottom: 6px; border-bottom: 1px solid var(--line-soft); color: var(--text-dim); font-size: 11.5px; }
+.detail-filter b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.detail-clear { margin-left: auto; background: none; border: 0; padding: 0 2px; color: var(--text-faint); font-size: 12px; cursor: pointer; }
+.detail-clear:hover { color: var(--accent); }
+.detail-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; }
+/* 더 오래된 저널 줄을 한 쪽 더 부르는 버튼(stage 3 T1) — 목록 맨 위, 줄 하나 크기의 조용한 링크 */
+.detail-journal-older { align-self: center; flex: none; margin: 4px 0; background: none; border: 0; padding: 2px 6px; color: var(--text-faint); font-size: 12px; cursor: pointer; }
+.detail-journal-older:hover { color: var(--text); }
+/* 행은 grid 다 — 시각과 표식이 줄마다 같은 x 에 서야 눈으로 훑을 수 있다. flex 로는 칸의 폭이
+   내용에 끌려다녀 그 정렬이 깨진다 */
+.detail-ev { display: grid; grid-template-columns: 56px 15px 1fr; gap: 9px; align-items: flex-start; padding: 5px 6px; border-radius: var(--radius-sm); }
+/* 본문이 있는 행만 눌린다 — 커서와 hover 를 둘 다 그 조건에 걸어, JobsView 의 .jobs-task.no-session
+   과 같은 규칙을 지킨다: 반응하지 않는 행은 반응할 것처럼 보이지 않는다 */
+.detail-ev.has-body { cursor: pointer; }
+.detail-ev.has-body:hover { background: var(--elevated); }
+.detail-at { color: var(--text-faint); font-size: 11px; padding-top: 1px; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.detail-mark { display: grid; place-items: center; padding-top: 3px; }
+/* 기록 한 줄일 뿐인 사건의 중립적인 표식. 여덟 글리프를 빌리지 않는 이유가 그것이다 — 그 여덟은
+   Task 의 상태를 뜻하고, 메시지 한 줄은 어떤 상태도 아니다 */
+.detail-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--fi-mute); }
+/* 워커가 뜬 줄. 열린 고리는 "여기서 무언가 시작했다"이고 돌지는 않는다 — 움직임은 지금 도는 것에만
+   붙는다(JobIcons.tsx), 그리고 이 줄은 이미 지나간 사건이다 */
+.detail-ring { width: 11px; height: 11px; box-sizing: border-box; border: 2px solid var(--accent); border-radius: 50%; }
+.detail-ev-main { min-width: 0; }
+.detail-eh { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; }
+.detail-chip { flex: none; font-size: 10px; padding: 1px 5px; border-radius: var(--radius-sm); background: var(--line-soft); color: var(--text-dim); }
+/* 고른 선행 Task. 칩을 그대로 빌리되 지우는 ✕ 를 안에 하나 둔다 — 고른 것을 되돌리는 자리가 고른
+   것 자신이어야 한다. 제목이 길 수 있어 줄바꿈을 허용한다(wrap): 사이드바처럼 한 줄에 밀어 넣고
+   자르면 어느 Task 를 골랐는지 못 읽는다 */
+.detail-dep-list { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.detail-chip.detail-dep { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; padding: 2px 4px 2px 7px; max-width: 100%; }
+.detail-chip.detail-dep > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.detail-chip.detail-dep button { flex: none; background: none; border: 0; padding: 0 1px; color: var(--text-faint); font-size: 10px; line-height: 1; cursor: pointer; }
+.detail-chip.detail-dep button:hover { background: none; color: var(--accent); }
+/* 새 Task 폼의 완료 검사 목록 — 고른 순서가 실행 순서라 번호를 앞에 세운다. 의존 칩(.detail-dep)과 달리 한 줄에
+   하나씩 세우는 이유는 ↑↓ 버튼이다: 줄바꿈되는 칩 사이에서는 "위"가 어디인지 읽을 수 없다 */
+.detail-check-list { list-style: none; margin: 0 0 6px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.detail-check-row { display: flex; align-items: center; gap: 6px; padding: 3px 4px 3px 6px; border-radius: var(--radius-sm); background: var(--line-soft); font-size: 11.5px; }
+.detail-check-no { flex: none; width: 16px; height: 16px; display: grid; place-items: center; border-radius: var(--radius-sm); background: var(--accent); color: var(--bg); font-size: 10px; font-variant-numeric: tabular-nums; }
+.detail-check-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.detail-check-row button { flex: none; background: none; border: 0; padding: 0 3px; color: var(--text-faint); font-size: 11px; line-height: 1; cursor: pointer; }
+.detail-check-row button:hover:not(:disabled) { background: none; color: var(--accent); }
+.detail-check-row button:disabled { opacity: .3; cursor: default; }
+/* 아직 고르지 않은 구성 — 점선 버튼. 누르면 목록 끝에 붙는다 */
+.detail-check-pick { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 6px; }
+.detail-check-add { background: none; border: 1px dashed var(--line-soft); border-radius: var(--radius-sm); padding: 2px 7px; color: var(--text-dim); font-size: 11px; cursor: pointer; }
+.detail-check-add:hover { border-color: var(--accent); color: var(--accent); }
+.detail-chip.provider { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
+.detail-chip.retry { color: var(--git-modified); }
+/* 검토 Dispatch 표시. 색은 JobIcons 의 STATUS_COLOR.reviewing 과 같은 --fi-purple 이다 — 같은 뜻이
+   화면에서 다른 색이면 안 된다 */
+.detail-chip.review { color: var(--fi-purple); }
+/* 수리 줄 — 재시도(retry)와 같은 계열이되 구분되게. 무엇이 다시 도는지가 아니라 왜 다시 도는지를 말한다 */
+.detail-chip.repair { color: var(--warn-ink); }
+/* worker_done 의 결과. 색은 STATUS_COLOR 가 completed/failed 에 쓰는 둘과 같다 */
+.detail-outcome { font-size: 11px; }
+.detail-outcome.o-succeeded { color: var(--ok); }
+.detail-outcome.o-failed { color: var(--git-deleted); }
+/* 어느 Task 의 일인가. 걸러 놓지 않았을 때만 나오고, 제목이 길어도 줄의 반을 넘지 않는다 */
+.detail-ev-task { min-width: 0; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-faint); font-size: 11px; }
+.detail-jump { margin-left: auto; background: none; border: 0; padding: 0 2px; color: var(--text-faint); font-size: 12px; cursor: pointer; }
+.detail-jump:hover { color: var(--accent); }
+.detail-summary { color: var(--text-dim); font-size: 11.5px; margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 펼친 본문. 모달의 --panel 보다 어두운 --bg 라 안으로 들어간 블록으로 읽힌다. 왼쪽 65px 은 시각
+   칸의 폭과 간격 — 본문이 표식 칸에 맞춰 들어가 어느 행에 딸린 것인지 보인다. */
+.detail-ev-body { margin: 2px 6px 6px 65px; padding: 6px 8px; background: var(--bg); border-radius: var(--radius-sm); color: var(--text-dim); font-family: var(--mono); font-size: 11.5px; white-space: pre-wrap; overflow-x: auto; max-height: 240px; overflow-y: auto; }
+/* 가려진 개수. margin-top: auto 로 칸의 맨 아래에 붙는다 */
+.detail-hidden { flex: none; margin-top: auto; padding-top: 10px; border-top: 1px solid var(--line-soft); color: var(--text-faint); font-size: 11px; font-variant-numeric: tabular-nums; }
+/* NewTaskModal.tsx — Task 짓는 동안 .detail-events 가 통째로 바뀌는 폼의 입력 칸들.
+   .detail-list 와 같은 이유로 flex: 1; min-height: 0; overflow-y: auto 다 — 필드가 늘어나도 이
+   칸 안에서만 스크롤되어야, 높이가 고정된 .modal.run-detail 밖으로 넘쳐 아래 버튼 줄을 밀어내지
+   않는다. gap 이 .field 하나만큼(10px) 큰 것은 이벤트 한 줄(.detail-list, gap: 1px)과 달리 이
+   칸의 자식은 입력 필드 하나하나라서다. */
+.detail-task-fields { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+/* 답할 Gate 의 질문. modal-hint 가 아닌 이유는 이것이 안내가 아니라 **읽어야 하는 글**이기 때문이다 —
+   답을 쓰는 사람이 그래프의 Gate 줄을 기억하고 있을 이유가 없다. Gate 줄과 같은 경고 톤을 쓰되
+   왼쪽 띠 없이: 여기서는 이 글이 화면의 주역이라 표식으로 가리킬 필요가 없다 */
+.detail-gate-question { color: var(--text); font-size: 12.5px; line-height: 1.5; white-space: pre-wrap; }
+/* 코디네이터가 준 선택지. 줄바꿈을 허용한다 — 문장이 선택지로 오는 경우가 있고, 한 줄에 밀어 넣고
+   자르면 무엇을 고르는지 읽을 수 없다 */
+.detail-gate-options { display: flex; flex-wrap: wrap; gap: 6px; }
+/* A choice that says what it does (a check that could not be made, plugin Phase 5 C9): its label, its line under it */
+.detail-gate-options > button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; }
+.detail-gate-option-hint { font-size: 11px; color: var(--text-dim); white-space: normal; }

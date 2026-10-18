@@ -1,0 +1,144 @@
+/* ---------- terminal ---------- */
+/* .terminal-slot is not terminal-only: it is how a pane's body claims its place in the grid, and the
+   editor slot PaneGrid draws for each pane uses the same class so both follow one placement rule */
+.terminal-slot { flex: 1; min-height: 0; }
+/* Task 10: the session slot's own two children — the terminal always mounted, the conversation pane
+   mounted only while it is showing (PaneGrid.tsx's own comment on the session slot has the reasoning
+   for that asymmetry). Both fill the slot exactly as TerminalView's own .terminal-wrap already does
+   on its own — min-width:0 matters here for the same reason it does on .terminal-slot itself (the
+   comment on .terminal-host below measures the sideways-shake bug that skipping it caused). Display
+   is set inline at the call site, not here, the same convention every other slot in this file uses.
+   Not named .session-view: that class already belongs to the div wrapping <PaneGrid> in App.tsx (its
+   own rule is above, near .surfaces), and a second rule under the same name silently merged into it
+   — the container holding the whole pane grid gained this rule's min-width:0, and these two children
+   gained that div's display:flex, invisibly, through nothing either rule's own text said. Fix round 1
+   caught it; this file already tells this exact story once, at .surfaces's own comment on why it is
+   not named .workbench. */
+.session-slot-view { flex: 1; min-width: 0; min-height: 0; flex-direction: column; }
+/* min-height:0 plus overflow:hidden — allows flex shrinking and confines the overflow to the slot, so
+   the xterm canvas (rows × cellHeight) cannot spill past it and encroach on the bottom status bar */
+.terminal-wrap { position: relative; flex: 1; display: flex; min-height: 0; overflow: hidden; }
+/* clip, not hidden: an overflow:hidden box is still a scroll container, so the browser is free to
+   scroll it programmatically to reveal a focused descendant — and xterm parks its focused helper
+   textarea at the cursor while an IME is composing. With the cursor at the right edge of a narrow
+   split pane, that scrolled this host sideways and snapped back on the next render, so typing Hangul
+   made the pane visibly shake. Measured in the app: scrollLeft reached 340px mid-composition.
+   `clip` is not a scroll container at all, so nothing can scroll it. It only works because both axes
+   are clipped here — pair it with `auto` on the other axis and it degrades to `hidden`. xterm's own
+   scrolling is unaffected: that lives in the child .xterm-viewport. */
+/* min-width:0 is what `clip` costs. Width is this item's main axis (.terminal-wrap is a row flex
+   container), and a flex item's automatic minimum size only collapses to 0 when the item is a scroll
+   container — `hidden` was one, `clip` is not. So under clip the host's floor became its content width,
+   i.e. .xterm-screen's cols × cellWidth: splitting a pane left the host at its old width, the
+   ResizeObserver saw no real change, fitTerminalToHost kept the same column count, and the old
+   terminal stayed full width and got clipped with the new pane drawn over it. Measured: a slot going
+   1000px → 500px leaves the host at 990px without this, 500px with it. */
+.terminal-host { flex: 1; background: var(--term-bg); min-width: 0; min-height: 0; overflow: clip; }
+/* No inner padding on the terminal — it has to sit flush against the sidebar's bottom line and the left
+   and right edges, or the session window looks like it is floating. Zero padding also prevents clipping:
+   FitAddon takes the parent's (host's) height as availableHeight verbatim and subtracts only the padding
+   of .xterm itself, so padding on the host is missing from that calculation, one row too many is
+   computed, and the last line was cut by up to 8px */
+/* The default .xterm-viewport background in xterm.css is #000 and the theme background (#141417) is not
+   applied there. The screen (rows × cellHeight) is smaller than the viewport by the cell grid remainder
+   (up to 15px), and that difference showed as a black band — letting the host background show through
+   makes the seam invisible */
+.terminal-host .xterm-viewport { background: transparent; }
+/* No room is reserved for a scrollbar — fitTerminalToHost fills the width to the cell grid, so a visible
+   track would cover the last column. Scrolling is by wheel and keyboard, and the thumb is not shown */
+.terminal-host .xterm-viewport::-webkit-scrollbar { width: 0; height: 0; }
+/* The scrollbar in xterm 6.0 is not native but a DOM overlay derived from VS Code, so the rule above does
+   not reach it. Its width is the overviewRuler.width default of 14px and the slider colour is 20% of the
+   foreground (#d0d0d6, i.e. grey), so the moment the scrollback exceeded the viewport a thick grey bar
+   appeared on the right — claude and codex sessions use the same TerminalView, and the only difference is
+   whether the TUI leaves scrollback behind.
+   It has to be display:none to drop out of hit testing as well (merely making it transparent lets the
+   right 14px eat drag selection).
+   Wheel and keyboard scrolling are still handled by the scrollable element. The selectors are verified
+   against the upstream xterm.css by core/terminal/scrollbarCss.test.ts */
+.terminal-host .xterm-scrollable-element > .scrollbar { display: none; }
+/* the resume loading overlay — shown in the centre of the terminal until the first output. No pointer-events, so terminal focus is unaffected */
+.loading-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--text-dim); font-size: 13px; background: var(--term-bg); pointer-events: none; }
+.loading-spinner { width: 14px; height: 14px; border: 2px solid var(--line-soft); border-top-color: var(--accent); border-radius: 50%; animation: cm-spin .8s linear infinite; }
+/* 힌트 줄 옆에 서는 작은 변형. 14px 링은 오버레이나 버튼의 크기라 11.5px 글자 옆에서는 글줄보다
+   커져 줄 높이를 밀어낸다 — 같은 링을 글자에 맞춰 줄인 것이고 색과 속도는 그대로 쓴다. */
+.loading-spinner.small { width: 10px; height: 10px; border-width: 1.5px; }
+/* 사유 한 줄. 스피너가 붙는 경우와 아닌 경우의 글머리가 같은 자리에서 시작하도록 flex 로 세운다 —
+   gap 만으로 맞추면 스피너 없는 줄이 왼쪽으로 튄다. */
+.modal-hint.start-blocked { display: flex; align-items: center; gap: 6px; }
+@keyframes cm-spin { to { transform: rotate(360deg); } }
+.exit-overlay { position: absolute; inset: 0; background: var(--scrim-strong); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--text); }
+.exit-overlay button { background: var(--btn-bg); border-color: var(--btn-bg); color: var(--btn-ink); font-weight: 600; }
+.exit-overlay button:hover { filter: brightness(.85); }
+/* A remote session tab's notes (Phase 9b): reconnecting, read-only, a size held by a viewer on that machine. */
+.remote-session-banners { position: absolute; left: 8px; right: 8px; bottom: 8px; display: flex; flex-direction: column; gap: 4px; pointer-events: none; z-index: 2; }
+.remote-session-banner { align-self: flex-start; padding: 4px 8px; border-radius: 4px; background: var(--elevated); color: var(--text-dim); font-size: 12px; }
+.remote-session-banner.is-error { background: var(--danger-bg); color: var(--danger); }
+/* The remote sessions dialog's list of sessions running on the Runtime (Phase 9b): one button per session. */
+.remote-session-list { list-style: none; margin: 0; padding: 0; max-height: 180px; overflow-y: auto; border: 1px solid var(--line-soft); border-radius: 6px; }
+.remote-session-list li + li { border-top: 1px solid var(--line-soft); }
+.remote-session-list button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; padding: 6px 10px; border: 0; border-radius: 0; background: transparent; text-align: left; }
+.remote-session-list button:hover { background: var(--elevated); }
+.remote-session-name { color: var(--text); }
+.remote-session-meta { font-size: 11px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.remote-sessions-new { margin: 14px 0 6px; padding-top: 12px; border-top: 1px solid var(--line-soft); font-size: 13px; font-weight: 600; color: var(--text); }
+.remote-chat-head { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid var(--line-soft); font-size: 12px; color: var(--text-dim); }
+.remote-chat-spacer { flex: 1; }
+.remote-chat-status.is-waiting { color: var(--warn); }
+.remote-chat-status.is-working { color: var(--accent); }
+.remote-chat-note { color: var(--text-faint); font-size: 12px; }
+.remote-chat-note.is-block { padding: 6px 12px; border-bottom: 1px solid var(--line-soft); }
+.remote-chat-button { font-size: 12px; padding: 2px 8px; }
+.remote-chat-button.is-danger { color: var(--danger); }
+/* the rolling progress banner — an overlay at the top of the terminal */
+.roll-banner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  padding: 4px 10px;
+  font-size: 12px;
+  background: var(--warn-bg);
+  color: var(--warn-ink);
+  border-bottom: 1px solid var(--warn-line);
+  pointer-events: none;
+}
+
+/* the schedule banner — the same shape as roll-banner. It has an off button, so pointer-events are allowed */
+.sched-banner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 10px;
+  font-size: 12px;
+  background: var(--info-bg);
+  color: var(--info);
+  border-bottom: 1px solid var(--info-line);
+}
+/* Sits below the rolling banner when both are shown — the measured height of .roll-banner is 24.7px (at
+   DPR 1.5: 12px font + normal line-height ≈ 16px + 4+4 padding + ≈0.67px border), and 16+8+1=25px at DPR 1.
+   25px keeps them from covering each other on either side (the previous 23px overlapped by 1.7px and hid
+   the bottom border) */
+.sched-banner.below-roll { top: 25px; }
+.sched-banner button { font-size: 11px; padding: 0 8px; }
+/* the scheduler form (NewSessionDialog) */
+.sched-field { display: flex; flex-direction: column; gap: 6px; } /* gap only applies on a flex container */
+.sched-minutes { width: 70px; }
+/* .field input[type="text"] (width:100%, specificity 0,2,1) beats the width of this class on its own
+   (0,1,0) — the workaround is flex-basis, the same idiom as .jdk-select and .run-config-cwd. Once
+   flex-basis is set, the flex layout algorithm does not use width, so the rendered width is 90px even
+   though width wins the cascade */
+.sched-days { flex: 0 0 90px; }
+.sched-weekdays { gap: 4px; }
+.sched-weekdays .weekday { padding: 2px 8px; font-size: 12px; }
+.sched-weekdays .weekday.on { background: var(--btn-bg); border-color: var(--btn-bg); color: var(--btn-ink); }
+/* The dimming style of .check-note requires a label.check-small ancestor, so it does not apply inside
+   this form (which is in a .row) — the existing rule is left alone and a new one is added for this form only */
+.sched-field .check-note { opacity: 0.6; }

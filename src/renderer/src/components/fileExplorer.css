@@ -1,0 +1,83 @@
+/* ---------- file viewer ---------- */
+.file-truncated { padding: 4px 12px; font-size: 12px; color: var(--warn); background: var(--warn-bg); flex: none; }
+.file-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--text-dim); font-size: 13px; background: var(--panel); z-index: 2; }
+/* 저장되지 않은 파일 표시. .tab-dot 과 같은 방식의 CSS 원이다 — ● 글리프였을 때는 크기가 테마
+   서체를 탔고, 그 자리에 lucide Circle 을 넣으면 6px 에서 외곽선이 뭉개진다. */
+.tab-dirty { flex: none; width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: 0.8; }
+.file-editor-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; }
+.file-conflict { flex: none; padding: 4px 12px; font-size: 12px; background: var(--warn-bg); color: var(--warn); display: flex; gap: 8px; align-items: center; }
+
+/* ---------- file explorer ---------- */
+.file-explorer { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+/* Shift-click range selection extends the browser's text selection across rows and lays down a blue
+   highlight — the tree is not a text selection target, so it is blocked */
+.fx-tree { flex: 1; min-height: 0; overflow: auto; font-size: 13px; user-select: none; }
+.fx-row { display: flex; align-items: center; gap: 4px; padding: 2px 8px; cursor: pointer; white-space: nowrap; transition: background var(--ease), box-shadow var(--ease); }
+.fx-row:hover { background: var(--wash); }
+.fx-caret { flex: none; width: 12px; color: var(--text-dim); }
+.fx-name { overflow: hidden; text-overflow: ellipsis; }
+/* git status — colour on the filename only. File type icon colours are left alone */
+.fx-name.git-new { color: var(--git-new); }
+.fx-name.git-modified { color: var(--git-modified); }
+.fx-name.git-deleted { color: var(--git-deleted); text-decoration: line-through; }
+.fx-name.git-conflict { color: var(--git-conflict); }
+.fx-git-mark {
+  flex: none; margin-left: auto; padding-left: 6px;
+  font-family: var(--mono); font-size: 11px; font-weight: 600;
+}
+.fx-git-mark.git-new { color: var(--git-new); }
+.fx-git-mark.git-modified { color: var(--git-modified); }
+.fx-git-mark.git-deleted { color: var(--git-deleted); }
+.fx-git-mark.git-conflict { color: var(--git-conflict); }
+.fx-git-count {
+  flex: none; margin-left: auto; padding-left: 6px;
+  font-family: var(--mono); font-size: 10.5px; color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.fx-note { padding: 2px 8px; font-size: 12px; color: var(--text-faint); white-space: nowrap; }
+/* Loading states (ExplorerLoading.tsx): the small shared spinner after a folder's name while its children
+   are read, and the "Reading folder…" line when the root's first read is slow */
+.fx-row-loading { flex-shrink: 0; margin-left: 4px; }
+/* The refresh icon turns while the root is read again (a refresh keeps the tree on screen, so nothing else moves) */
+.fx-refreshing { transform-origin: 50% 50%; animation: cm-spin .8s linear infinite; }
+.fx-reading { display: flex; align-items: center; gap: 6px; padding-left: 12px; }
+/* git status could not be checked — the kept badges are the last answer, so they are dimmed */
+.fx-git-stale { flex: none; overflow: hidden; text-overflow: ellipsis; }
+.fx-tree.git-stale .fx-git-mark,
+.fx-tree.git-stale .fx-git-count,
+.fx-tree.git-stale .fx-name[class*="git-"] { opacity: 0.55; }
+/* the header root row — scoped to the explorer so the shared .panel-header h2 is untouched */
+.file-explorer .panel-header h2 { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.file-explorer .panel-header h2 .fi { width: 12px; height: 12px; }
+.fx-root-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* tree selection and inline editing */
+/* Tree selection — a background alone overlaps :hover in luminance and multi-selection does not read.
+   It follows the convention of settings-nav-item.active (a left accent bar plus a line-soft background) */
+.fx-row.selected { background: var(--line-soft); box-shadow: inset var(--marker-w) 0 0 var(--accent); }
+.fx-tree:focus-within .fx-row.selected { background: var(--elevated); }
+/* items pending a cut — dimmed until they are pasted */
+.fx-row.cut { opacity: .45; }
+/* drag and drop — the same vocabulary as session tab reordering (.tab.dragging) */
+.fx-row.dragging { opacity: .4; }
+/* the drop target folder — outlined with a border so it is distinct from selection (a left accent bar) */
+.fx-row.drop-into { background: var(--elevated); box-shadow: inset 0 0 0 1px var(--accent); }
+.fx-tree:focus { outline: none; }
+.fx-edit-box { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.fx-edit-box input {
+  width: 100%;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  padding: 1px 4px;
+  font: inherit;
+  user-select: text; /* On top of .fx-tree's user-select:none, the rename input has to allow text selection
+                         (so the part before the extension can be preselected). Chromium excludes form
+                         controls from that inheritance, but stating it is safer. */
+}
+.fx-edit-box input.invalid { border-color: var(--danger); }
+.fx-edit-reason { font-size: 10.5px; color: var(--danger); }
+
+.project-row .project-open-explorer { flex: none; display: inline-flex; align-items: center; line-height: 0; opacity: 0.7; }
+.project-row .project-open-explorer:hover { opacity: 1; }

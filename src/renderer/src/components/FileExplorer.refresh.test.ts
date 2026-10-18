@@ -9,7 +9,7 @@ import path from 'node:path'
 const here = path.dirname(fileURLToPath(import.meta.url))
 const explorer = readFileSync(path.join(here, 'FileExplorer.tsx'), 'utf8')
 const hook = readFileSync(path.join(here, '..', 'hooks', 'useFileTree.ts'), 'utf8')
-const styles = readFileSync(path.join(here, '..', 'styles.css'), 'utf8')
+const styles = readFileSync(path.join(here, 'fileExplorer.css'), 'utf8')
 const body = (src: string, start: string, end: string): string => {
   const i = src.indexOf(start)
   expect(i).toBeGreaterThan(-1)
