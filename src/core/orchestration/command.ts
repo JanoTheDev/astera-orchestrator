@@ -121,6 +121,9 @@ import { GITHUB_SOURCE_ID, issuesContext, issuesTitleOf } from '../github/issueS
 // W6-A intake
 import { SOURCED_OBJECTIVE_MAX } from '../sources/objective'
 import { intakeChanges, intakeObjective, intakeOf, intakeTitle, needsInputs } from './intake'
+// W8-C prompts mode
+import path from 'node:path'
+import { promptPlanOf, sha256Of } from './promptWaves'
 import { fillFromCommits, type CommitSummary } from '../github/fill'
 // W2-D GitHub links
 import {
@@ -727,6 +730,11 @@ export interface OrchServerDeps {
    *  answers the folder; throws the refusal's sentence. **Only the Host injects it**, over its profile; absent,
    *  `jobs-create --attach` and `--mode audit` answer 409. */
   intakeInputs?(jobId: string, files: string[]): Promise<{ dir: string; names: string[] }>
+  // W8-C prompts mode
+  /** A text file of this machine, or null when it is not there: a Run-as-written plan's copied prompt files and its
+   *  project's docs/orchestrator/PLAN.md (`readTextIfAny`). **Only the Host injects it**; absent, `--mode prompts` with
+   *  files answers 409 and a pasted document is ordered without PLAN.md. */
+  readIntakeText?(file: string): Promise<string | null>
   /** The job-source plugins (plugin Phase 4 J10): which there are and a question to one. **Only the Host injects it**,
    *  from its plugin manager and runtime; absent, the sources are GitHub's alone. */
   jobSources?: JobSourcesDeps
@@ -1456,6 +1464,62 @@ function coordinatorWanted(deps: OrchServerDeps, s: OrchState, run: JobRun, job:
 
 /** The check ids of the Tasks `jobs run` or `run-start` is about to start (plugin Phase 5 C7), read from a state of
  *  their own: a Job's next Run's Tasks, or a Run's unfinished Tasks when a coordinator would be started for it. */
+// W8-C prompts mode
+/** Writes a Run-as-written plan's Tasks (`jobs-create --mode prompts`): one definition Task per prompt, its text the
+ *  prompt byte for byte, in the order docs/orchestrator/PLAN.md and the prompts' own sentences give (promptWaves.ts).
+ *  Their account is the plan's coordinator account, else the default one. Answers the `Job.verbatim` entries and the
+ *  lines the planner's objective lists, or the sentence to refuse with. */
+async function writePromptTasks(
+  deps: OrchServerDeps,
+  jobId: string,
+  pasted: string,
+  inputs: { dir: string; names: string[] } | undefined,
+  now: string
+): Promise<{ entries: NonNullable<Job['verbatim']>; lines: string[]; skippedLines: string[] } | { error: string }> {
+  const files: { name: string; text: string }[] = []
+  for (const name of inputs?.names ?? []) {
+    const text = await deps.readIntakeText!(path.join(inputs!.dir, name))
+    if (text === null) return { error: `${name}: could not be read after it was copied` }
+    if (text.trim() === '') return { error: `${name}: the prompt file is empty` }
+    files.push({ name, text })
+  }
+  const job = deps.getState().jobs.find((j) => j.id === jobId)!
+  const planMd = (await deps.readIntakeText?.(path.join(job.cwd, 'docs', 'orchestrator', 'PLAN.md'))) ?? undefined
+  const plan = promptPlanOf(files, pasted, planMd)
+  let account = job.coordinatorAccountId
+  if (account === undefined) {
+    const all = await deps.listAccounts(undefined, { withDefault: true })
+    account = (all.find((a) => a.default && a.provider === 'claude') ?? all.find((a) => a.default) ?? all[0])?.id
+  }
+  let st = deps.getState()
+  const idOf = new Map<string, string>()
+  for (const t of plan.tasks) {
+    const made = createTask(
+      st,
+      { jobId, title: t.title, spec: t.spec, deps: [], prompt: t.prompt, ...(account !== undefined ? { accountIds: [account] } : {}) },
+      now
+    )
+    if (!made.ok) return { error: made.error }
+    st = { ...made.state, tasks: made.state.tasks.map((x) => (x.id === made.value.id ? { ...x, verbatimOf: t.key } : x)) }
+    idOf.set(t.key, made.value.id)
+  }
+  for (const t of plan.tasks) {
+    if (t.deps.length === 0) continue
+    const edited = editPlanTask(st, idOf.get(t.key)!, { deps: t.deps.map((k) => idOf.get(k)!) }, now)
+    if (!edited.ok) return { error: edited.error }
+    st = edited.state
+  }
+  await deps.setState(st)
+  return {
+    entries: [
+      ...plan.tasks.map((t) => ({ title: t.title, source: t.key, sha256: sha256Of(t.prompt), taskId: idOf.get(t.key)! })),
+      ...plan.skipped.map((x) => ({ title: x.key.replace(/^doc#/, '').replace(/\.md$/i, ''), source: x.key, sha256: x.sha256, skipped: x.why }))
+    ],
+    lines: plan.tasks.map((t) => `${idOf.get(t.key)} ${t.title}: ${t.spec.split('\n')[0]}`),
+    skippedLines: plan.skipped.map((x) => `${x.key}: ${x.why}`)
+  }
+}
+
 function startingCheckIds(deps: OrchServerDeps, cmd: string, args: Record<string, unknown>): string[] {
   const s = deps.getState()
   const id = cmd === 'jobs-run' ? str(args.id) : str(args.run)
@@ -2304,11 +2368,16 @@ export async function handleCommand(
       const read = intakeOf(args)
       if (!read.ok) return bad(read.error)
       const intake = read.intake
-      const { mode: _mode, scope: _scope, instructions: _instructions, attach: _attach, ...plain } = args
+      const { mode: _mode, scope: _scope, instructions: _instructions, attach: _attach, approve: _approve, ...plain } = args
       const source = typeof args.objective === 'string' ? args.objective : ''
       if (intake.attach.length > 0 && (fromAgentSession || caller.role === 'mcp' || caller.role === 'controller'))
         return denied('--attach is for the person, in Astera or at their own shell: it copies files of this machine')
       if (needsInputs(intake) && !deps.intakeInputs) return conflict('attachments and audits are kept by the Astera Host, and this caller is not one')
+      // W8-C prompts mode: Astera reads the prompt files itself, so their text reaches the Tasks unchanged
+      if (intake.mode === 'prompts' && intake.attach.length > 0 && !deps.readIntakeText)
+        return conflict('Run as written reads its prompt files on the Astera Host, and this caller is not one')
+      if (intake.mode === 'prompts' && intake.attach.length === 0 && source.trim() === '')
+        return bad('--mode prompts needs .md prompt files (--attach) or the document as --objective')
       // An audit or a set of files is a source of its own: the objective may then be left out.
       const placeholder = source.trim() === '' && needsInputs(intake) ? { objective: intake.mode === 'audit' ? 'Audit' : 'Attached files' } : {}
       const reply = await handleCommand(deps, caller, 'run-create', { ...plain, ...placeholder, auto: true })
@@ -2326,14 +2395,30 @@ export async function handleCommand(
             return bad(e instanceof Error ? e.message : String(e))
           }
         }
-        const objective = intakeObjective(intake, source, inputs)
+        // W8-C prompts mode: Astera writes the Tasks, one per prompt, its text unchanged; the planner fills them in
+        const verbatim = intake.mode === 'prompts' ? await writePromptTasks(deps, id, source, inputs, now) : undefined
+        if (verbatim !== undefined && 'error' in verbatim) {
+          await deps.setState({ ...deps.getState(), jobs: deps.getState().jobs.filter((j) => j.id !== id) })
+          return bad(verbatim.error)
+        }
+        const objective = intakeObjective(intake, source, inputs, verbatim && { tasks: verbatim.lines, skipped: verbatim.skippedLines })
         // W7-D (#68): the plan's name, so its boilerplate objective is never what the plan is called. A title already
         // there is kept.
         const title = intakeTitle(intake, source, inputs?.names ?? [])
         const cur = deps.getState()
         await deps.setState({
           ...cur,
-          jobs: cur.jobs.map((j) => (j.id === id ? { ...j, objective, ...(title !== undefined && j.title === undefined ? { title } : {}) } : j))
+          jobs: cur.jobs.map((j) =>
+            j.id === id
+              ? {
+                  ...j,
+                  objective,
+                  ...(title !== undefined && j.title === undefined ? { title } : {}),
+                  // W8-C prompts mode: the owner wrote the plan, so it starts on its own unless `--approve ask`
+                  ...(verbatim !== undefined ? { verbatim: verbatim.entries, autoApprove: intake.approve !== 'ask' } : {})
+                }
+              : j
+          )
         })
       }
       // W7-E: `--no-review`: this plan's Tasks are not reviewed (`jobs plan` turns review on otherwise, Job.review)

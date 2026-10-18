@@ -315,6 +315,11 @@ export interface Job {
   /** The Job this one is queued after. **Present: it stays `pendingStart`** and its planner is not started until that
    *  Job is delivered (`afterDelivered`); then the Host starts its planner and the project's approval setting decides. */
   after?: string
+  // W8-C prompts mode (promptWaves.ts, `jobs-create --mode prompts`)
+  /** Run as written: the owner's prompts this plan was made from, one entry per prompt. `source` is the file name or
+   *  `doc#<heading>`, `sha256` its text's, `taskId` the Task Astera wrote for it, `skipped` why it got none ("already
+   *  done: …"). Present: the planner may not add, cancel or rewrite a Task, and `validatePlan` checks each prompt. */
+  verbatim?: { title: string; source: string; sha256: string; taskId?: string; skipped?: string }[]
 }
 
 /** W7-A: one message of the owner to a plan's planner. `plan`: before approval, to the planner session itself; `run`:
@@ -564,6 +569,9 @@ export interface Task {
   /** Why this Task is planned at all: what the planner found of its item before planning (inputs/existing.md).
    *  `validatePlan` refuses a plan Task without one, so no worker opens on unchecked work. */
   basis?: TaskBasis
+  // W8-C prompts mode
+  /** The `Job.verbatim` source this Task is, byte for byte (Run as written). */
+  verbatimOf?: string
 }
 
 /** W6-A: an item's state as the planner found it. `built` gets no Task, so it is not one of these. */

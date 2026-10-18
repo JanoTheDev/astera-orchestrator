@@ -33,3 +33,12 @@ export async function copyIntakeFiles(profileDir: string, jobId: string, files: 
   for (let k = 0; k < files.length; k++) await fs.copyFile(files[k], path.join(dir, names[k]))
   return { dir, names }
 }
+
+// W8-C prompts mode
+/** A text file's content, or null when it is not there (a project with no docs/orchestrator/PLAN.md). */
+export async function readTextIfAny(file: string): Promise<string | null> {
+  return fs.readFile(file, 'utf8').catch((e: NodeJS.ErrnoException) => {
+    if (e.code === 'ENOENT') return null
+    throw e
+  })
+}

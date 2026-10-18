@@ -90,7 +90,7 @@ import { connectCdp } from './workspace/cdp'
 import { freePort, killTree, processStartTimes } from './workspace/native'
 import { defaultGhRunner } from '../core/github/gh'
 import { readUnderstandingFile } from '../core/understanding/read'
-import { copyIntakeFiles } from '../core/orchestration/intakeFiles'
+import { copyIntakeFiles, readTextIfAny } from '../core/orchestration/intakeFiles'
 import { createPullRequest, readCommits } from '../core/github/prCreate'
 import { git as realGit, isCleanWorktree } from '../core/worktrees/git'
 import { createRunGitRecorder, type RunGitRecorder } from './runGitRecorder'
@@ -880,6 +880,8 @@ async function main(): Promise<void> {
     readUnderstanding: () => readUnderstandingFile(path.join(profileDir, 'understanding.json')),
     // W6-A intake: attached files go beside the Job's plan.md in this profile
     intakeInputs: (jobId, files) => copyIntakeFiles(profileDir, jobId, files),
+    // W8-C prompts mode: the copied prompt files and the project's PLAN.md, read on this machine
+    readIntakeText: (file) => readTextIfAny(file),
     // A Run's changed files and diffs (remote runtime design Phase 10), from this machine's git.
     changes: { read: (repo, base, head) => readChanges(repo, base, head), diff: (repo, base, head, f) => readFileDiff(repo, base, head, f) },
     local: spawner,

@@ -104,7 +104,9 @@ const TASK_HIDDEN = [
   // W2-D GitHub links: read by the app's view; `task-link-issue` answers them. Not in the SDK's contract yet
   'links',
   // W6-A: the planner's basis, held back with its other fields
-  'basis'
+  'basis',
+  // W8-C prompts mode: a Run-as-written Task's source, not in the SDK's contract yet
+  'verbatimOf'
 ] as const
 
 /** W1-A role models: a Job's per-role model override, held back from the SDK like the Task's three above. */
@@ -123,7 +125,8 @@ const JOB_HIDDEN = [
   /* W7-A: talking to the planner, rejecting a plan, auto-approve; not in the SDK's contract yet */ 'autoApprove',
   'feedback',
   'autoStartedAt',
-  'rejected'
+  'rejected',
+  /* W8-C prompts mode: the owner's prompts a Run-as-written plan was made from, not in the SDK's contract yet */ 'verbatim'
 ] as const
 
 /** A followed event's message body (pages long) and the app's link from an event to a tab. */

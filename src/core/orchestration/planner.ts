@@ -10,6 +10,12 @@ import type { OrchState, PlanFields, Res } from './state'
 import { layersOf } from './graph'
 import { jobNameOf } from './jobName'
 import { DIFFICULTIES, MODEL_ID } from './roleModels'
+// W8-C prompts mode
+import { sha256Of } from './promptWaves'
+
+/** W8-C prompts mode: what a planner of a Run-as-written plan is told when it tries to change the owner's text. */
+export const VERBATIM_REFUSAL =
+  "a Run-as-written prompt is the owner's text: set criteria, affected paths, difficulty, basis and deps only"
 
 /** What a planner session may call: reading, and writing its own Job's definition Tasks. **An allowlist**, so
  *  a command added later is refused to a planner until someone decides it plans rather than acts. */
@@ -51,6 +57,11 @@ export function plannerRefusal(s: OrchState, sessionId: string, cmd: string, arg
   if (!job) return null
   if (!PLANNER_COMMANDS.has(cmd))
     return `planner sessions only plan: ${cmd} is refused. The person approves the plan in Astera ("Approve & execute"), and that starts the work`
+  // W8-C prompts mode: Astera wrote one Task per prompt; the planner fills them in and never adds, drops or rewrites one
+  if (job.verbatim !== undefined) {
+    if (cmd === 'task-create' || cmd === 'task-cancel') return `${VERBATIM_REFUSAL} (no Task is added or cancelled)`
+    if (cmd === 'task-update' && (args.prompt !== undefined || args.title !== undefined)) return VERBATIM_REFUSAL
+  }
   if (cmd === 'task-create') {
     const target = args.runId ?? args.run
     if (target !== job.id) return `a planner adds Tasks to its own Job only: pass --run ${job.id}`
@@ -139,6 +150,22 @@ export function validatePlan(s: OrchState, jobId: string): string[] {
   }
   const { cyclic } = layersOf(s, jobId)
   if (cyclic.length) problems.push(`these Tasks wait on each other in a cycle: ${cyclic.join(', ')}`)
+  // W8-C prompts mode: one Task per prompt, its text the owner's, and no Task besides
+  const verbatim = s.jobs.find((j) => j.id === jobId)?.verbatim
+  if (verbatim !== undefined) {
+    for (const v of verbatim) {
+      if (v.skipped !== undefined) continue
+      const mine = tasks.filter((t) => t.verbatimOf === v.source)
+      if (mine.length !== 1) problems.push(`${v.source} has ${mine.length} Tasks: a Run-as-written prompt is exactly one Task`)
+      for (const t of mine)
+        if (sha256Of(t.prompt ?? '') !== v.sha256)
+          problems.push(`${v.title}'s prompt was changed: a Run-as-written prompt is the owner's text, unchanged`)
+    }
+    const sources = new Set(verbatim.filter((v) => v.skipped === undefined).map((v) => v.source))
+    for (const t of tasks)
+      if (t.verbatimOf === undefined || !sources.has(t.verbatimOf))
+        problems.push(`${t.id} (${t.title}) is not one of the owner's prompts: Run as written plans the attached prompts only`)
+  }
   return problems
 }
 
@@ -228,5 +255,8 @@ export function renderPlanMd(s: OrchState, job: Job): string {
   })
   if (cyclic.length) lines.push('', `## Cannot be ordered (dependency cycle)`, '', ...cyclic.map((id) => `- \`${id}\``))
   if (byId.size === 0) lines.push('', '_No Task yet._')
+  // W8-C prompts mode: the prompts Astera left out, so the owner sees them at approval
+  const skipped = (job.verbatim ?? []).filter((v) => v.skipped !== undefined)
+  if (skipped.length) lines.push('', '## Already done (skipped)', '', ...skipped.map((v) => `- ${v.source}: ${v.skipped}`))
   return lines.join('\n') + '\n'
 }

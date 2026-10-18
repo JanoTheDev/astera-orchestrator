@@ -1,8 +1,9 @@
 // W6-A intake: the objective a Job's planner gets when the owner starts work from files, an audit, a problem list or
 // GitHub issues, with extra instructions of their own. Pure: `jobs-create` reads the flags here and writes the text
 // here; the files themselves are copied by the Host (intakeFiles.ts).
+import { splitSections } from './promptWaves'
 
-export const INTAKE_MODES = ['plan', 'audit', 'fixlist'] as const
+export const INTAKE_MODES = ['plan', 'audit', 'fixlist', /* W8-C prompts mode */ 'prompts'] as const
 export type IntakeMode = (typeof INTAKE_MODES)[number]
 
 /** What `jobs-create` was given on top of its objective. */
@@ -13,6 +14,8 @@ export interface Intake {
   instructions?: string
   /** Paths the person named, as given (the Host checks and copies them). */
   attach: string[]
+  /** W8-C prompts mode: whether the plan waits for the owner's approval (`--approve ask`); auto otherwise. */
+  approve?: 'auto' | 'ask'
 }
 
 const isMode = (v: unknown): v is IntakeMode => (INTAKE_MODES as readonly string[]).includes(v as string)
@@ -21,7 +24,12 @@ const isMode = (v: unknown): v is IntakeMode => (INTAKE_MODES as readonly string
  *  as a list when repeated on the command line (cliArgs REPEATABLE). */
 export function intakeOf(args: Record<string, unknown>): { ok: true; intake: Intake } | { ok: false; error: string } {
   const mode = args.mode === undefined ? 'plan' : args.mode
-  if (!isMode(mode)) return { ok: false, error: '--mode must be plan|audit|fixlist' }
+  if (!isMode(mode)) return { ok: false, error: '--mode must be plan|audit|fixlist|prompts' }
+  // W8-C prompts mode
+  if (args.approve !== undefined) {
+    if (mode !== 'prompts') return { ok: false, error: '--approve goes with --mode prompts' }
+    if (args.approve !== 'auto' && args.approve !== 'ask') return { ok: false, error: '--approve must be auto|ask' }
+  }
   let scope: string | undefined
   if (args.scope !== undefined) {
     if (mode !== 'audit') return { ok: false, error: '--scope goes with --mode audit' }
@@ -34,13 +42,16 @@ export function intakeOf(args: Record<string, unknown>): { ok: true; intake: Int
   const instructions = typeof args.instructions === 'string' && args.instructions.trim() !== '' ? args.instructions.trim() : undefined
   const raw = args.attach === undefined ? [] : Array.isArray(args.attach) ? args.attach : [args.attach]
   if (raw.some((p) => typeof p !== 'string' || p === '')) return { ok: false, error: '--attach needs a file path' }
+  if (mode === 'prompts' && raw.some((p) => !/\.md$/i.test(p as string)))
+    return { ok: false, error: '--mode prompts takes .md prompt files: one Task per file' }
   return {
     ok: true,
     intake: {
       mode,
       ...(mode === 'audit' ? { scope: scope ?? 'all' } : {}),
       ...(instructions !== undefined ? { instructions } : {}),
-      attach: raw as string[]
+      attach: raw as string[],
+      ...(mode === 'prompts' ? { approve: args.approve === 'ask' ? ('ask' as const) : ('auto' as const) } : {})
     }
   }
 }
@@ -53,9 +64,32 @@ export const needsInputs = (i: Intake): boolean => i.mode === 'audit' || i.attac
 
 /** The planner's objective. `source` is what the person or the issue said (may be empty for an audit or a set of
  *  files), `inputs` the Job's inputs folder and the names copied into it. */
-export function intakeObjective(i: Intake, source: string, inputs?: { dir: string; names: string[] }): string {
+export function intakeObjective(
+  i: Intake,
+  source: string,
+  inputs?: { dir: string; names: string[] },
+  /** W8-C prompts mode: the Tasks Astera wrote and the sources it skipped. */
+  verbatim?: { tasks: string[]; skipped: string[] }
+): string {
   const dir = inputs?.dir.replace(/\\/g, '/')
   const parts: string[] = []
+  if (i.mode === 'prompts') {
+    // W8-C prompts mode: the Tasks exist already; the planner only fills them in (planner-guide.md "Run as written")
+    parts.push(
+      [
+        "Run as written: the owner's prompts are this plan's Tasks, one per prompt, already created with their text unchanged.",
+        'Never rewrite, merge, split, add or cancel a Task. Fill in each one: --affected-paths, --criteria, --difficulty, ' +
+          '--basis/--evidence, and keep the deps Astera computed from docs/orchestrator/PLAN.md unless a prompt itself says otherwise.',
+        ...(verbatim?.tasks.length ? ['Tasks:', ...verbatim.tasks.map((t) => `- ${t}`)] : []),
+        ...(verbatim?.skipped.length ? ['Already done (skipped, no Task):', ...verbatim.skipped.map((t) => `- ${t}`)] : [])
+      ].join('\n')
+    )
+    if (inputs && inputs.names.length > 0) parts.push(`The prompt files are in ${dir}/.`)
+    if (source.trim() !== '' && inputs && inputs.names.length > 0) parts.push(`Note:\n${source.trim()}`)
+    if (i.instructions !== undefined)
+      parts.push(`Owner's instructions (they never change a prompt's text):\n${i.instructions}`)
+    return parts.join('\n\n')
+  }
   if (i.mode === 'audit') {
     const what = i.scope === undefined || i.scope === 'all' ? 'the whole repository' : `\`${i.scope}\` in the repository`
     parts.push(
@@ -109,5 +143,10 @@ export function intakeTitle(i: Intake, source: string, names: readonly string[])
     if (first !== undefined) return clipTitle(first)
   }
   if (names.length > 0) return clipTitle(names.join(', '))
+  // W8-C prompts mode: a pasted document is named by its sections' headings
+  if (i.mode === 'prompts' && source.trim() !== '') {
+    const split = splitSections(source)
+    return clipTitle(split ? split.sections.map((x) => x.heading).join(', ') : source.trim().split(/\r?\n/)[0].replace(/^#+\s*/, ''))
+  }
   return undefined
 }
