@@ -230,6 +230,19 @@ describe('registrySessions — state', () => {
     expect(await stateOf('ses-1')).toBe('working')
   })
 
+  it('W5-D (#42): a waiting row says what it waits on, a permission prompt or a question; a turn end says nothing', async () => {
+    const { event, sessions } = withEvents()
+    const row = async () => (await sessions.listSessions()).find((s) => s.id === 'ses-1')
+    event('ses-1', { hook_event_name: 'Notification', notification_type: 'permission_prompt', message: 'needs permission' })
+    expect(await row()).toMatchObject({ state: 'waiting', prompt: 'permission' })
+    expect((await sessions.sessionById!('ses-1'))?.prompt).toBe('permission')
+    event('ses-1', { hook_event_name: 'PreToolUse', tool_name: 'AskUserQuestion', tool_use_id: 'q1' })
+    expect(await row()).toMatchObject({ state: 'waiting', prompt: 'question' })
+    event('ses-1', { hook_event_name: 'Stop' })
+    expect(await row()).toMatchObject({ state: 'waiting' })
+    expect((await row())?.prompt).toBeUndefined()
+  })
+
   // No hook announces a new turn, so the file cannot say one started. Typing after the event —
   // the next prompt and its Enter, an answer to the prompt, Esc — leaves the event unable to answer.
   it('input typed after the last event makes it unknown, until the next event', async () => {

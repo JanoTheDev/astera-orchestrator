@@ -5,6 +5,7 @@ import { planSessions, type WorkspaceData, type WorkspacePlan, type WorkspacePro
 import { useAttention } from './useAttention'
 import { buildSessionIndex, needsInput } from '../../../../core/orchestration/sessionIndex'
 import { SessionSearch } from '../search/SessionSearch'
+import { useHostWaiting } from '../search/useHostWaiting'
 import './workspace.css'
 
 /** The status word of a session row and header: exited when its process is gone, else its attention. */
@@ -55,6 +56,8 @@ export function WorkspaceSidebar({
   const attention = useAttention(tree.flatMap((p) => p.plans.flatMap((plan) => planSessions(plan).map((s) => s.sessionId))))
   // W3-C search and "needs my input" (core/orchestration/sessionIndex.ts)
   const [inboxOpen, setInboxOpen] = useState(false)
+  // W5-D (#42): and the Host's own waits, which it read with the app closed too
+  const hostWaiting = useHostWaiting(data?.projects[0]?.path ?? null)
   const { index, inbox } = useMemo(() => {
     const input = {
       tree,
@@ -62,11 +65,12 @@ export function WorkspaceSidebar({
       runs: data?.runs ?? [],
       tasks: data?.tasks ?? [],
       gates: data?.gates ?? [],
-      attention
+      attention,
+      hostWaiting
     }
     const index = buildSessionIndex(input)
     return { index, inbox: needsInput(input, index) }
-  }, [tree, data, attention])
+  }, [tree, data, attention, hostWaiting])
 
   const sessionRow = (plan: WorkspacePlan) => (s: WorkspaceSession): React.JSX.Element => {
     const status = sessionStatusOf(infoOf.get(s.sessionId), attention[s.sessionId])

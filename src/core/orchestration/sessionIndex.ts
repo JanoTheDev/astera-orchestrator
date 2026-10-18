@@ -47,6 +47,8 @@ export interface IndexedSession extends TreeSession {
   attention: Attention
   /** Open Gates on its Task. */
   openGates: number
+  /** W5-D (#42): what it waits on, as the Host reads it off the session's hook events (`hostWaiting`). */
+  waitingFor?: 'permission' | 'question'
 }
 
 export interface SessionIndexInput {
@@ -57,6 +59,10 @@ export interface SessionIndexInput {
   tasks: Task[]
   gates: Gate[]
   attention: Readonly<Record<string, Attention>>
+  /** W5-D (#42): the sessions the Host says wait at a permission prompt or a question (`sessions-list`'s `prompt`). The
+   *  Host reads the hook events whether or not the app was open, so these count even when main's attention has not
+   *  heard of the session yet, and they say why. */
+  hostWaiting?: Readonly<Record<string, 'permission' | 'question'>>
 }
 
 const sessionsOf = (plan: TreePlan): TreeSession[] => [...plan.planner, ...plan.coordinator, ...plan.workers]
@@ -70,12 +76,14 @@ export function buildSessionIndex(input: SessionIndexInput): IndexedSession[] {
     p.plans.flatMap((plan) =>
       sessionsOf(plan).map((s) => {
         const branch = s.taskId === undefined ? undefined : taskById.get(s.taskId)?.links?.branch
+        const waitingFor = input.hostWaiting?.[s.sessionId]
         return {
           ...s,
           jobId: plan.jobId,
           projectId: plan.projectId,
           ...(branch !== undefined ? { branch } : {}),
-          attention: input.attention[s.sessionId] ?? 'idle',
+          ...(waitingFor !== undefined ? { waitingFor } : {}),
+          attention: waitingFor !== undefined ? 'waiting' : (input.attention[s.sessionId] ?? 'idle'),
           openGates: s.taskId === undefined ? 0 : (gatesByTask.get(s.taskId) ?? 0)
         }
       })

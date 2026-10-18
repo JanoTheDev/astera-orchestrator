@@ -88,7 +88,9 @@ export function sourcesOf(kind: HostSession['kind'], provider: 'claude' | 'codex
     : { status: 'rollout', prompt: 'none', usage: 'rollout', conversation: 'rollout' }
 }
 
-const rowOf = (e: PtyEntry, kind: HostSession['kind'], state: SessionState, providers: ReadonlyMap<string, 'claude' | 'codex'>): HostSession => {
+type Prompt = 'permission' | 'question' | null
+
+const rowOf = (e: PtyEntry, kind: HostSession['kind'], state: SessionState, providers: ReadonlyMap<string, 'claude' | 'codex'>, prompt: Prompt = null): HostSession => {
   const restore = e.meta?.restore ?? {}
   const accountId = text(restore.accountId)
   const provider = accountId === null ? undefined : providers.get(accountId)
@@ -101,6 +103,8 @@ const rowOf = (e: PtyEntry, kind: HostSession['kind'], state: SessionState, prov
     cwd: text(restore.cwd),
     alive: e.alive,
     state,
+    // W5-D (#42): what a waiting session asks, for the inbox
+    ...(prompt !== null ? { prompt } : {}),
     // Phase 9a (N13, X1-06): what a controller needs to show and drive the row.
     ...(kind === 'terminal' ? { ptyId: e.id } : { procId: e.id }),
     ...(provider ? { provider } : {}),
@@ -212,10 +216,16 @@ export function registrySessions(a: {
   /** A live terminal session's state. Only a pty session has hooks at all — and only a Claude one:
    *  Codex runs without the settings file that installs them, so it never has a file. A chat session
    *  is a line process whose status is in its protocol, read by the app's adapter, not in a file. */
-  const stateOf = async (e: PtyEntry): Promise<SessionState> => {
-    if (!e.alive) return 'unknown'
+  const stateOf = async (e: PtyEntry): Promise<{ state: SessionState; prompt: Prompt }> => {
+    if (!e.alive) return { state: 'unknown', prompt: null }
     const last = await latestEvent(hookEventsFileIn(a.hookEventsDir, e.meta!.id))
-    return sessionStateOf({ lastLine: last?.line ?? null, eventAt: last?.at ?? null, lastInputAt: a.ptys.lastWrite(e.id) })
+    const state = sessionStateOf({ lastLine: last?.line ?? null, eventAt: last?.at ?? null, lastInputAt: a.ptys.lastWrite(e.id) })
+    if (state !== 'waiting' || !last) return { state, prompt: null }
+    try {
+      return { state, prompt: hookEventPrompt(JSON.parse(last.line)) }
+    } catch {
+      return { state, prompt: null }
+    }
   }
 
   return {
@@ -226,7 +236,7 @@ export function registrySessions(a: {
       if (terminals.length === 0 && chats.length === 0) return null
       const [states, accounts] = await Promise.all([Promise.all(terminals.map(stateOf)), a.accounts().catch(() => [] as Account[])])
       const providers = new Map(accounts.map((x) => [x.id, x.provider ?? 'claude'] as const))
-      const rows = [...terminals.map((e, i) => rowOf(e, 'terminal', states[i], providers)), ...chats.map((e) => rowOf(e, 'chat', 'unknown', providers))]
+      const rows = [...terminals.map((e, i) => rowOf(e, 'terminal', states[i].state, providers, states[i].prompt)), ...chats.map((e) => rowOf(e, 'chat', 'unknown', providers))]
       // The live one, as the list keeps it.
       return rows.find((r) => r.alive) ?? rows[0]
     },
@@ -236,7 +246,7 @@ export function registrySessions(a: {
       // An account with no provider field is a Claude account (core/types.ts Account.provider).
       const providers = new Map(accounts.map((x) => [x.id, x.provider ?? 'claude'] as const))
       const rows = [
-        ...terminals.map((e, i) => rowOf(e, 'terminal', states[i], providers)),
+        ...terminals.map((e, i) => rowOf(e, 'terminal', states[i].state, providers, states[i].prompt)),
         ...a.procs.list().filter((e) => e.meta?.kind === 'chat').map((e) => rowOf(e, 'chat', 'unknown', providers))
       ]
       // **One id, one row, and the live one.** `ChatManager.respawnWithBypass` spawns again under the

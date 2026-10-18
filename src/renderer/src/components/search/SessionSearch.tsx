@@ -6,11 +6,15 @@ import './search.css'
 const factsOf = (s: IndexedSession): string =>
   [s.taskTitle, s.model, s.accountId, s.branch, s.cwd].filter(Boolean).join(' · ')
 
+/** W5-D (#42): why a session waits, when the Host says. */
+export const waitingWords = (s: IndexedSession): string =>
+  s.waitingFor === 'permission' ? 'waits for your permission' : s.waitingFor === 'question' ? 'has a question for you' : 'is waiting'
+
 /** The words of an inbox row: what waits, and where. */
 function inboxText(item: InboxItem): { what: string; where: string; title: string } {
   switch (item.kind) {
     case 'session':
-      return { what: `${item.session.label} is waiting`, where: item.session.projectName, title: factsOf(item.session) }
+      return { what: `${item.session.label} ${waitingWords(item.session)}`, where: item.session.projectName, title: factsOf(item.session) }
     case 'gate':
       return {
         what: item.gate.question,

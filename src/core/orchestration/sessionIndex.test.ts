@@ -133,6 +133,14 @@ describe('needsInput', () => {
     expect(needsInput(shown)).toEqual([])
   })
 
+  it('W5-D (#42): a session the Host says waits counts with its reason, even when main has not heard of it', () => {
+    const items = needsInput(input({ attention: {}, hostWaiting: { w1: 'permission', w3: 'question' } }))
+    expect(items.map((i) => (i.kind === 'session' ? [i.session.sessionId, i.session.waitingFor] : i.kind))).toEqual([
+      ['w1', 'permission'],
+      ['w3', 'question']
+    ])
+  })
+
   it('an idle or working session is not waiting on anyone', () => {
     expect(needsInput(input({ attention: { w1: 'idle', w2: 'working' } }))).toEqual([])
   })
