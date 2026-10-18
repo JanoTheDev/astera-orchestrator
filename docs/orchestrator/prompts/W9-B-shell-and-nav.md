@@ -10,10 +10,10 @@ Worktree + branch: slug `w9-shell`, branch `feat/ui-shell-nav`.
 
 - **Titlebar:** project switcher (W6-F `ProjectSwitcher`) on the left; the search/command box in the centre is a
   button that opens W9-D's bar (call it through a prop; W9-D owns the bar); run config and one `Meter` on the right.
-- **Rail:** Home, Inbox (badge from `useAttention`), Files, How It Works, Settings. The Jobs entry is gone; its
+- **Rail:** Home, Inbox (badge from `useAttention`), Files, Worktrees (W9-J mounts its view), How It Works, Settings. The Jobs entry is gone; its
   key binding opens Home's Plans section.
 - **Home sidebar:** `Section`s Plans (the W2-B/W6-F tree, plan rows with progress and waiting dot, "+ New"),
-  Sessions, Worktrees, History. Accounts leave the stack.
+  Sessions, History. Accounts leave the stack (Worktrees become their own rail view, W9-J).
 - **Status bar:** running and waiting counts (waiting → `openInbox()`), active account + `Meter` → accounts
   popover (the W7-F sign-in/remove rows), branch, host health. Remove the other three usage renderings; every usage
   display is `ui/Meter`.

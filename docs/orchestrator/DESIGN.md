@@ -31,7 +31,7 @@ The window is 1440×900 in the mockup. The layout must hold down to 1024×640.
 | Region | Size | Contents |
 |---|---|---|
 | Titlebar | 40px high | Left: the project switcher, showing the project's name and a "N waiting" chip; it opens the W6-F switcher menu. Centre: the search/command box button, 460px wide, which opens the box overlay. Right: the run config button, and one `Meter` for the active account's 5-hour usage, which opens the accounts popover. |
-| Rail | 52px wide | Home, Inbox (badge = waiting count), Files, How It Works, then a spacer, then Settings. Icons are lucide at 20px, inside 40px buttons. The active button gets the `elevated` background. |
+| Rail | 52px wide | Home, Inbox (badge = waiting count), Files, Worktrees, How It Works, then a spacer, then Settings. Icons are lucide at 20px, inside 40px buttons. The active button gets the `elevated` background. |
 | Sidebar | 284px default, resizable 200–520px (`cm.sidebarWidth`) | Depends on the rail button; see §2. Pressing the active rail button collapses the sidebar (today's rule, `core/ui/sidebar.ts`). |
 | Tab strip | 34px high | Every tab: plan, session, file, record, browser, app, media, settings. The active tab has a 2px accent line on top. Ended tabs follow the W7-F auto-close rule. The "All tabs" menu sits on the right. The W7-F quick switcher is unchanged. |
 | Content | flex | The active tab. PaneGrid splitting works as today. |
@@ -49,7 +49,6 @@ The window is 1440×900 in the mockup. The layout must hold down to 1024×640.
     - Clicking a plan opens its Plan tab. Clicking a session focuses its tile on the Agents wall.
     - Archived plans sit in a "Done" sub-group, closed by default.
   - **Sessions**: tabs that belong to no plan.
-  - **Worktrees**: the W1/W5 worktree panel, with its PR and push badges.
   - **History**.
 - Accounts no longer have a sidebar section. They live in the popover and in Settings › Accounts & usage.
 - The search box and the "needs input" badge leave the Workspaces header. Search moves into the box (W9-D) and the
@@ -68,6 +67,25 @@ The window is 1440×900 in the mockup. The layout must hold down to 1024×640.
 - The desktop notice, the chime's notice click, the rail badge and the status-bar count all call `openInbox()`.
 
 **Files:** the existing explorer (`FileExplorer`), unchanged apart from tokens.
+
+**Worktrees** (W9-J):
+- The sidebar lists every worktree of the project, grouped:
+  - one group per running plan, for the Task worktrees in use;
+  - **Ready to clean up**, for merged Tasks with no session, a clean tree and nothing unpushed;
+  - **Yours**, for worktrees Astera did not create.
+- Each row shows the branch, ahead/behind, its agent, and dirty state.
+- "Clean up N" removes the ready ones in one click, using the existing `remove.ts` path and its checks.
+- Clicking a row opens its **Worktree tab** (`worktree:<path>`). The tab shows:
+  - Header: the branch, a state chip, base, ahead/behind, and the actions Show its agent (focuses the wall tile),
+    Open session here, Open in Files, and ⋯ (push, create PR, remove, copy path).
+  - Fact cards: agent and Task, folder, working tree, and PR (or "goes into the plan PR #N").
+  - **Changes vs base**: a file list with M/A/D and +/−. Clicking a file opens `DiffView` with the W8-B blame gutter.
+  - **Commits** since base, each with its author (agent and model, from W8, or "you").
+- **Hands-off:** worktrees of merged Tasks are removed automatically once the plan is delivered. Only those with a
+  clean tree, nothing unpushed and no session qualify; the rest wait under "Ready to clean up". A setting turns this
+  off, and it is on by default. **"Yours" is never removed automatically.** Every removal keeps the existing
+  dirty-tree confirmation and branch-preserved rules.
+- The wall's tile footer and the Plan board card show the worktree branch as a link to its Worktree tab.
 
 **How It Works:** the existing `UnderstandingView`, unchanged apart from tokens.
 
@@ -234,7 +252,7 @@ The settings search filters rows by label and description and shows the group ea
 | Attribution (W8) | Plan › Changes · blame gutter in file tabs · Settings › Projects row |
 | Explorer, editor, markdown, media (upstream) | Rail › Files · file tabs |
 | Run configs, bottom panel (upstream) | Titlebar run button · bottom panel |
-| Worktrees panel, PR/push badges (upstream) | Home › Worktrees |
+| Worktrees panel, PR/push badges (upstream) | **Rail › Worktrees** + Worktree tab (W9-J): changes, commits, agent, clean up |
 | History (upstream) | Home › History |
 | How It Works (upstream) | Rail › How It Works · record tabs |
 | Browser pane, agent browser (upstream) | Browser tabs · Settings › Agents |
@@ -344,6 +362,7 @@ SVGs in `App.tsx`) become lucide icons. `FileIcon` stays, because it uses file-t
 | `sidebarPane: 'sessions' \| 'jobs'` | `'home'` |
 | `sidebarPane: 'explorer'` | `'files'` |
 | `sidebarPane: 'understanding'` | `'hiw'` |
+| Worktree panel open state | dropped (the panel became the Worktrees rail view) |
 | theme `orion`, `antares`, `quasar`, `sirius` | `umbra` |
 | `cm.sidebarWidth`, `cm.runPanelHeight`, key overrides | unchanged |
 | Saved layout containing a `plan:<id>` tab whose Job is gone | the tab is dropped on load |

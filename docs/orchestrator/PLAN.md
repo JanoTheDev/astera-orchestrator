@@ -58,7 +58,7 @@ starting the next wave. Each prompt owns its own files, which keeps conflicts to
 | 8 | 2 | `W8-A-commit-attribution`, `W8-B-line-attribution` (Who wrote this, see below) | 7V done |
 | 9.0 | 1 | `W9-0-design-spec` (owner approves the mockup before any code) | W8 merged |
 | 9.1 | 1 | `W9-A-foundation` (alone: tokens, primitives, shell split) | 9.0 approved |
-| 9.2 | 6 | `W9-B-shell-and-nav`, `W9-C-plan-tab`, `W9-D-inbox-and-command`, `W9-E-settings-and-dialogs`, `W9-H-agents-wall`, `W9-I-tab-summaries` | 9.1 merged |
+| 9.2 | 7 | `W9-B-shell-and-nav`, `W9-C-plan-tab`, `W9-D-inbox-and-command`, `W9-E-settings-and-dialogs`, `W9-H-agents-wall`, `W9-I-tab-summaries`, `W9-J-worktree-viewer` | 9.1 merged |
 | 9.3 | 1 | `W9-F-polish-and-verify` | 9.2 merged |
 | 9.4 | 1 | `W9-G-readme-and-docs` | 9.3 merged |
 
@@ -99,12 +99,13 @@ starting the next wave. Each prompt owns its own files, which keeps conflicts to
 | W8-B | new `core/attribution/{lines,checkpoint,gitAi}.ts` + its hook script, new `components/attribution/*` | `core/sessions/statusline.ts` (hook entries), `core/attribution/stamp.ts` (one `lines` call), file viewer mount, plan view mount, project settings page (one row) |
 | W9-0 | new `docs/orchestrator/DESIGN.md`, the mockup artifact | — (no code) |
 | W9-A | new `src/renderer/src/styles/{tokens,base,primitives}.css`, new `components/ui/*` primitives (`Button`, `Chip`, `Card`, `Modal`, `Section`, `Tabs`, `Menu`, `Field`, `Meter`, `EmptyState`, `Icon`), new `components/shell/*`, new `renderer/src/state/*` hooks moved out of `App.tsx`, `core/theme/themes.ts`, `lib/theme.tsx`, `ThemeSettings.tsx`, `tailwind.css` token map | `App.tsx` (moves only, no new behaviour), `styles.css` (sections cut out as they move), source-regex tests that follow moved code |
-| W9-B | `components/shell/{Titlebar,Rail,Sidebar,StatusBar}.tsx`, `components/workspace/*`, `AccountPanel.tsx`, `AccountRow.tsx`, `AccountUsageMeter.tsx`, `WorktreePanel.tsx`, `HistoryBrowser.tsx`, `usage/*`, `core/ui/sidebar.ts`, `core/keys/binding.ts` (rail ids) | `App.tsx` (shell mount), `components/ui/*` (new variants only) |
+| W9-B | `components/shell/{Titlebar,Rail,Sidebar,StatusBar}.tsx`, `components/workspace/*`, `AccountPanel.tsx`, `AccountRow.tsx`, `AccountUsageMeter.tsx`, `HistoryBrowser.tsx`, `usage/*`, `core/ui/sidebar.ts`, `core/keys/binding.ts` (rail ids) | `App.tsx` (shell mount), `components/ui/*` (new variants only) |
 | W9-C | new `components/plan/PlanTab.tsx`, `RunDetail.tsx` (split into the tab, then deleted), `components/plan/*` except W7-C's answer box, `JobsView.tsx`, `lib/jobActions.ts`, `PaneGrid.tsx` (new `plan` pane kind) | `App.tsx` (`renderPlan`), `core/panes/tabId.ts` (`plan` TabKind) |
 | W9-D | `activity/*`, `search/*`, `command/*`, `conversation/QuestionCard.tsx`, W7-C's answer box, new `components/inbox/*` | `App.tsx` (rail badge, hotkey), `core/intents/*` (open-plan intent) |
 | W9-E | new `components/settings/*` (one file per group), every dialog listed in DESIGN.md "Dialogs" moved onto `ui/Modal`, `NewSessionDialog.tsx` / `NewRunModal.tsx` / `intake/*` / `SourceJobModal.tsx` (one New flow), `components/projects/*` page | `App.tsx` (Settings block deleted, `<SettingsDialog/>` mounted) |
 | W9-H | new `components/wall/*`, `PaneGrid.tsx` / `TerminalView.tsx` (tile mode: small font, read-only until focused, offscreen pause), `core/panes/tabId.ts` (`wall` TabKind), new `core/sessions/ownerHold.ts`, the `sessions-send` handler in `command.ts` and `src/host/orch.ts` (queue while held) | `src/host/sessions.ts` (owner-input timestamp), `App.tsx` (mount the pinned tab), `resources/skills/orchestration-guide.md` (one line: a queued send is not a failure) |
 | W9-I | new `core/sessions/summary.ts` (facts + prompt), new `src/host/hostSummaries.ts`, `components/wall/SummaryCard.tsx` | `core/understanding/*` (reuse the generator call), `src/host/sessions.ts` (end hook), `core/orchestration/delivery.ts` (PR body roll-up), `components/plan/*` card (one row, after W9-C: coordinate in the PR), `HistoryBrowser.tsx` (one row), app-settings type (`tabSummaries`) |
+| W9-J | `WorktreePanel.tsx` (becomes the Worktrees rail view), new `components/worktrees/*` (Worktree tab), `core/panes/tabId.ts` (`worktree` TabKind), new `core/worktrees/cleanup.ts` (ready-to-remove rule + auto-clean after delivery) | `core/worktrees/{list,remove}.ts` (read-only reuse; one export if needed), `core/orchestration/delivery.ts` (one call after delivery), `core/ui/sidebar.ts` (rail id `worktrees`), app-settings type (`autoCleanWorktrees`) |
 | W9-F | any renderer file, for fixes found by the walk-through; each fix listed in the PR | — |
 | W9-G | `README.md`, deleted `README.{ko,ja,es}.md`, `docs/*.md` outside `docs/orchestrator`, new `docs/dev/` (wave prompts move here), `assets/*` screenshots, `package.json` `description` / `homepage` | `docs/orchestrator/USAGE.md` (becomes `docs/guide.md`) |
 | W5-D | `activity.ts`, `components/activity/*`, `sessionIndex.ts`, `components/search/*`, `src/main/activityNotices.ts`, `src/main/remote/orchRouter.ts` | `src/host/index.ts`, `src/host/sessions.ts`, `src/main/ipc.ts`, `types.ts` |
@@ -340,7 +341,7 @@ https://claude.ai/artifact/DhSiAPZxCigXD4xJBoFb9x. Both were drafted and decided
 │ ⓘ  │      Coordinator     │ │                                                              │ │
 │    │      Worker 1 ✎      │ │  …or any terminal / file / browser tab, split as today       │ │
 │    │  ▸ Sessions          │ └──────────────────────────────────────────────────────────────┘ │
-│ ⚙  │  ▸ Worktrees         │ Bottom panel: run output / terminal (unchanged)                  │
+│ ⚙  │                      │ Bottom panel: run output / terminal (unchanged)                  │
 │    │  ▸ History           │                                                                  │
 ├────┴──────────────────────┴──────────────────────────────────────────────────────────────────┤
 │ Status: ● 2 running · 1 waits for you · account jip (5h 42%) · branch · host ok              │
@@ -354,6 +355,7 @@ https://claude.ai/artifact/DhSiAPZxCigXD4xJBoFb9x. Both were drafted and decided
   - **Home**: the project's plans and sessions.
   - **Inbox**: a badge with the number of things waiting for you.
   - **Files**: the explorer.
+  - **Worktrees**: every worktree, its agent, changes and commits; one-click clean up (W9-J).
   - **How It Works**.
   - **Settings**, pinned at the bottom.
   - "Jobs" disappears as a separate place. Its list becomes the Plans section of Home.
@@ -361,7 +363,6 @@ https://claude.ai/artifact/DhSiAPZxCigXD4xJBoFb9x. Both were drafted and decided
   - **Plans**: Project → Plan → planner, coordinator and workers. A plan row shows progress and a waiting dot.
     "+ New" opens the one New flow.
   - **Sessions**: plain tabs that belong to no plan.
-  - **Worktrees**.
   - **History**.
   - Accounts move out of the stack, into a status bar popover and Settings → Accounts.
 - **A plan is a tab.** Clicking a plan anywhere (tree, inbox, feed, command, notice) opens or focuses its **Plan
@@ -430,7 +431,7 @@ https://claude.ai/artifact/DhSiAPZxCigXD4xJBoFb9x. Both were drafted and decided
 - Tab kind `plan` and `planTab(jobId)` in `core/panes/tabId.ts` (W9-C). W9-B and W9-D open plans only through
   `openPlan(jobId)` from `components/shell/navigation.ts` (W9-A creates it as a stub that calls today's
   `RunDetail` open, and W9-C swaps the body).
-- Rail ids `home | inbox | files | hiw | settings` in `core/ui/sidebar.ts` (W9-A). The old `sessions` and `jobs`
+- Rail ids `home | inbox | files | worktrees | hiw | settings` in `core/ui/sidebar.ts` (W9-A). The old `sessions` and `jobs`
   ids map to `home`, and `explorer` maps to `files`, so saved layouts load.
 - `Section` persists to `localStorage` key `cm.section.<id>` (W9-A).
 - `openInbox(filter?)` and `openSettings(group, anchor?)` in `navigation.ts` (W9-A stubs; W9-D and W9-E fill them).
@@ -447,7 +448,7 @@ https://claude.ai/artifact/DhSiAPZxCigXD4xJBoFb9x. Both were drafted and decided
   conflicting on `App.tsx`. Behaviour does not change: the full suite passes unchanged except for path updates in
   pinned tests.
 - **9.2 runs as 6 parallel tabs on separate files:** shell and navigation (B), the Plan tab (C), Inbox and command
-  (D), Settings and dialogs (E), the Agents wall and owner hold (H), and tab summaries (I). They meet only through the `navigation.ts` contract.
+  (D), Settings and dialogs (E), the Agents wall and owner hold (H), tab summaries (I), and the worktree viewer (J). They meet only through the `navigation.ts` contract.
 - **9.3** is one tab. It walks every surface in all 4 themes at the default and the narrowest sidebar width. It
   fixes what it finds, checks keyboard paths, and takes the screenshots.
 - **9.4** is one tab. It rewrites the README and docs from the finished app, using 9.3's screenshots.
