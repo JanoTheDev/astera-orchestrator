@@ -540,6 +540,8 @@ export function createHostOrch(a: {
   /** How It Works records (MCP P2-C), passed through to `hostOrchDeps`. Absent: the `understanding-*`
    *  commands answer 409. */
   readUnderstanding?: OrchServerDeps['readUnderstanding']
+  /** W6-A intake, passed through to `hostOrchDeps`. */
+  intakeInputs?: OrchServerDeps['intakeInputs']
   /** A Run's changed files and diffs from this Host's git (remote runtime design Phase 10). */
   changes?: OrchServerDeps['changes']
   /** The Host's Job Journal (hostJournal.ts). Absent: nothing is journaled here, `journal-append` and
@@ -821,6 +823,7 @@ export function createHostOrch(a: {
       ...(a.createSession ? { createSession: a.createSession } : {}),
       ...(a.github ? { github: a.github } : {}),
       ...(a.readUnderstanding ? { readUnderstanding: a.readUnderstanding } : {}),
+      ...(a.intakeInputs ? { intakeInputs: a.intakeInputs } : {}),
       ...(a.changes ? { changes: a.changes } : {}),
       ...(a.jobSources ? { jobSources: a.jobSources } : {}),
       ...(a.completionChecks ? { completionChecks: a.completionChecks } : {}),

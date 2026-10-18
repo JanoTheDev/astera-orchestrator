@@ -109,7 +109,7 @@ describe('followActivity', () => {
 describe('hostSessionActivity (W5-D)', () => {
   const planned = (over: Partial<Task> = {}): Task => ({
     id: 'p1', jobId: 'j1', title: 'Plan task', spec: 's', deps: [], status: 'ready', accountIds: ['acc'], consecutiveFailures: 0, createdAt: T0, updatedAt: T0,
-    prompt: 'do it', acceptanceCriteria: ['it is done'], ...over
+    prompt: 'do it', acceptanceCriteria: ['it is done'], /* W6-A */ basis: { state: 'missing', evidence: 'none yet' }, ...over
   })
   const lines = (log: HostEventLog): Array<{ type: string; jobId?: string; sessionId?: string; payload: Record<string, unknown> }> => {
     const r = log.read({ limit: 100 })

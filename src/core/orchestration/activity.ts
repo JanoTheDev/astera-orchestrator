@@ -53,6 +53,8 @@ export const ACTIVITY_KINDS = [
   'plan.done',
   // W5-D (#42): a worker's session at a permission prompt or a question (waitingActivity)
   'task.waiting',
+  // W6-A: the planner found everything built (`plan-nothing-to-do`); feed and notice
+  'plan.nothing-to-do',
   // W6-B: a worker's question a coordinator answered (feed only), and something only the owner can decide (a notice and
   // the chime): a worker's or coordinator's `send --type escalation`, or a Gate opened because the attempts ran out
   'question.auto-answered',
@@ -94,6 +96,8 @@ export interface ActivityPayload {
   runOutcome?: 'completed' | 'failed'
   // task.waiting (W5-D, #42)
   waitingFor?: 'permission' | 'question'
+  // plan.nothing-to-do (W6-A): the planner's summary (inputs/existing.md)
+  summary?: string
   // question.auto-answered (W6-B; `question` above is the worker's question)
   answer?: string
   // task.escalated (W6-B): the escalation's subject, else its body; a Gate's question
@@ -270,6 +274,18 @@ export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[
     }
   }
 
+  // W6-A: a plan that ended before approval because everything it asks for is built
+  if (prev.jobs !== next.jobs) {
+    const was = byId(prev.jobs)
+    for (const j of next.jobs) {
+      if (j.nothingToDo === undefined || was.get(j.id)?.nothingToDo !== undefined) continue
+      push(
+        'plan.nothing-to-do',
+        { ...(j.projectId !== undefined ? { projectId: j.projectId } : {}), jobId: j.id, job: j },
+        { title: jobNameOf(j), summary: j.nothingToDo.summary.slice(0, 2000) }
+      )
+    }
+  }
   // W6-B: the messages this commit added. A reply adds its `status` line (applyReply, `replyTo` the question), so the
   // answer is read off that line; an empty answer is the cleanup settlePendingQuestions leaves, never a reply.
   if (newMessages) {
@@ -479,6 +495,8 @@ export function noticeOf(e: ActivityEvent): ActivityNotice | null {
       return { key: `gate:${e.payload.gateId}`, title: 'Needs your answer', body: `${e.payload.title}${inPlan(e)}: ${e.payload.question ?? ''}`.slice(0, 240), alert: true }
     case 'plan.awaiting-approval':
       return { key: `approve:${e.jobId}`, title: 'Plan ready for approval', body: e.payload.title }
+    case 'plan.nothing-to-do':
+      return { key: `nothing:${e.jobId}`, title: 'Nothing to do: already built', body: e.payload.title }
     // W6-B. A Gate's escalation shares its gate.opened key, so the throttle shows one of the two
     case 'task.escalated':
       return {

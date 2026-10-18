@@ -48,6 +48,30 @@ owns every session and drives every plan, so closing the window stops nothing (L
 
 One PR per plan, opened when the plan finishes, never merged automatically.
 
+## Starting from files, an audit, a problem list or GitHub issues (W6-A)
+
+"+ New job" → **New plan from files, an audit or GitHub issues…** opens the New plan dialog. Pick the project and a
+source, add **Extra instructions** if you like (they win over the source), pick the coordinator account, and press
+**Create and plan**: Astera makes one Job and starts its planner.
+
+- **Describe**: the objective. Tick "This is a list of problems" for one or more Tasks per problem.
+- **Files**: drop PDFs or other files (at most 30 MB each). They are copied to `plans/<job>/inputs/` in the profile,
+  and the planner reads them first (Claude reads PDFs itself, long ones in page ranges).
+- **Audit**: a path or `all`. The planner audits it for bugs, security holes and missing tests, writes
+  `inputs/audit.md`, then plans the fixes.
+- **GitHub**: search the open issues ("Assigned to me" narrows to yours), tick several, and optionally "Assign me".
+  One refused issue (closed, a pull request, or written by a non-member) refuses the whole plan.
+
+From a shell: `astera jobs create --objective "…" [--mode plan|audit|fixlist] [--scope <path|all>]
+[--instructions "…"] [--attach <file>]…`, `astera jobs-create-from-issue --project <id> --issue 12,14,19
+[--assign-me]`, `astera github-issue-assign --project <id> --issue 12,14 --me`.
+
+**Before planning, the planner checks what already exists**: the code, open and closed issues and PRs, and the
+project's other Jobs. It writes `inputs/existing.md` (each item `missing`, `partial`, `broken` or `built`), plans only
+what is missing or broken, and gives every Task a basis with evidence; approval is refused without one. If everything
+is built, the Job ends as "nothing to do" (archived, the summary kept, a feed line and a notice) and no tab opens.
+Writing `existing.md` and `audit.md` asks your permission once, as every planner edit does.
+
 ## The workspace
 
 The sidebar's **Workspaces** tree is Project → Plan → Planner / Coordinator / Workers. Clicking a session shows its
