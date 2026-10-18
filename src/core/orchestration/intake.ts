@@ -74,12 +74,10 @@ export function intakeObjective(
   const dir = inputs?.dir.replace(/\\/g, '/')
   const parts: string[] = []
   if (i.mode === 'prompts') {
-    // W8-C prompts mode: the Tasks exist already; the planner only fills them in (planner-guide.md "Run as written")
+    // W8-C prompts mode: the Tasks exist already. The planner's fill-in rules are in its brief (handover.ts), not here: the coordinator reads this too
     parts.push(
       [
         "Run as written: the owner's prompts are this plan's Tasks, one per prompt, already created with their text unchanged.",
-        'Never rewrite, merge, split, add or cancel a Task. Fill in each one: --affected-paths, --criteria, --difficulty, ' +
-          '--basis/--evidence, and keep the deps Astera computed from docs/orchestrator/PLAN.md unless a prompt itself says otherwise.',
         ...(verbatim?.tasks.length ? ['Tasks:', ...verbatim.tasks.map((t) => `- ${t}`)] : []),
         ...(verbatim?.skipped.length ? ['Already done (skipped, no Task):', ...verbatim.skipped.map((t) => `- ${t}`)] : [])
       ].join('\n')

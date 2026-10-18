@@ -70,6 +70,7 @@ export function freshFeedbackBrief(job: Job, accountId: string, history: readonl
       objective: job.objective,
       repoRoot: job.cwd,
       accountId,
+      promptsMode: job.verbatim !== undefined,
       concurrency: job.concurrency ?? DEFAULT_CONCURRENCY,
       ...(otherPlans ? { otherPlans } : {})
     }),

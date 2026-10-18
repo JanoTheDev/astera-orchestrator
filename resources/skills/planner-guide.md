@@ -124,7 +124,7 @@ session is ended either way.
 
 ## 6. Run as written (W8-C)
 
-When the objective starts with "Run as written", the owner wrote the plan (`jobs create --mode prompts`). The Tasks
+When your brief has a "RUN AS WRITTEN" section (the objective also starts with "Run as written"), the owner wrote the plan (`jobs create --mode prompts`). The Tasks
 already exist, one per prompt file (or one per `## ` section of one document), and each Task's prompt is the owner's
 text, unchanged. Section 0 still applies (write `existing.md`), but here it only feeds `--basis`.
 

@@ -6,6 +6,7 @@
 // brief differs: the objective, what every completed Task reported, its review and its changed files, and what is
 // left. Its end is #47's: the session is stopped once its work is recorded.
 // W8-D several plans in one repo
+import { PROMPTS_MODE_FILL_IN } from '../handover'
 import { otherPlansBrief } from '../overlap'
 import { collectChanges, rangesFor } from '../changedFiles'
 import type { OrchServerDeps } from '../command'
@@ -93,7 +94,7 @@ const oneLine = (s: string | undefined, max: number): string => (s ?? '').replac
 
 /** The replan planner's brief. `left`: the Tasks that have not started; `running`: started and not finished. */
 export function buildReplanBrief(a: {
-  job: Pick<Job, 'id' | 'objective' | 'cwd'>
+  job: Pick<Job, 'id' | 'objective' | 'cwd' | 'verbatim'>
   runId: string
   mode: ReplanMark['mode']
   wave: number
@@ -127,6 +128,7 @@ export function buildReplanBrief(a: {
     `- objective: ${a.job.objective}`,
     `- repository root: ${a.job.cwd}`,
     '',
+    ...(a.job.verbatim !== undefined ? [...PROMPTS_MODE_FILL_IN, ''] : []),
     'WHAT HAS BEEN DONE (completed Tasks)',
     ...(a.done.length
       ? a.done.flatMap(({ task: t, changed }) => [

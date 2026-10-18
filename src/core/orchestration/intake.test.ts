@@ -73,3 +73,13 @@ describe('intakeTitle', () => {
     expect(intakeTitle(read({ instructions: 'x' }), 'Add dark mode', [])).toBeUndefined()
   })
 })
+
+describe('intakeObjective in prompts mode', () => {
+  it('names the Tasks and holds no planner fill-in text', () => {
+    const o = intakeObjective(read({ mode: 'prompts', attach: ['a.md'] }), '', undefined, { tasks: ['tsk_1 (A)'], skipped: [] })
+    expect(o).toMatch(/^Run as written/)
+    expect(o).toContain('- tsk_1 (A)')
+    expect(o).not.toContain('Fill in each one')
+    expect(o).not.toContain('--affected-paths')
+  })
+})

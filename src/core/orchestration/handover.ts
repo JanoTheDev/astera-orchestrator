@@ -68,6 +68,8 @@ export function buildHandoverPrompt(a: {
   /** The account this coordinator runs on, the default account of the Tasks it plans. Only the
    *  planning section (no Tasks) names it. */
   accountId?: string
+  /** A prompts-mode Job (`Job.verbatim`): its Tasks are the owner's prompts, planned and approved already. */
+  promptsMode?: boolean
 }): string {
   const sequential = a.concurrency <= 1
   // A Job from MCP `create_job` or `jobs create` carries only its objective (e2e 2026-10-01, second
@@ -101,7 +103,8 @@ export function buildHandoverPrompt(a: {
         'you joined. Run them as they stand. Do not create Tasks, do not rewrite their specs, and do not',
         'reassign their accounts. If the plan looks wrong to you,',
         'or the Tasks plainly do not cover the objective (a coordinator before you may have been stopped',
-        'part-way through planning), open a Gate saying so instead of editing around it.'
+        'part-way through planning), open a Gate saying so instead of editing around it.',
+        ...(a.promptsMode ? ['The Tasks are already planned and approved; do not task-update them. Start the ready ones.'] : [])
       ]
   return [
     planning
@@ -192,6 +195,14 @@ export function buildHandoverPrompt(a: {
 // W2-A planner stage (SPEC §2). The planner's brief, beside the coordinator's for the same reasons: words an
 // agent reads, written to a file and pointed at with `coordinatorLaunchPrompt`'s one line.
 
+/** W8-C: what the planner of a prompts-mode Job is told. Only the planner's brief: the coordinator's must not carry it. */
+export const PROMPTS_MODE_FILL_IN = [
+  'RUN AS WRITTEN (planner-guide.md section 6)',
+  "The owner's prompts are this plan's Tasks, one per prompt, already created with their text unchanged.",
+  'Never rewrite, merge, split, add or cancel a Task. Fill in each one: --affected-paths, --criteria, --difficulty, ' +
+    '--basis/--evidence, and keep the deps Astera computed from docs/orchestrator/PLAN.md unless a prompt itself says otherwise.'
+]
+
 /** The planner session's brief: who it is, the Job, where the repository is, how to write Tasks, and that
  *  it never starts or edits anything. `handleCommand` enforces the last part (plannerRefusal); this says it
  *  first, so the planner does not learn the rule from refusals. */
@@ -208,6 +219,8 @@ export function buildPlannerBrief(a: {
   /** W8-G (#101): plan branches of this project that hold earlier work and are not merged, and the branch they would go into. */
   unmergedBranches?: string[]
   defaultBranch?: string
+  /** A prompts-mode Job (`Job.verbatim`): the Tasks exist, one per owner prompt; the planner only fills them in. */
+  promptsMode?: boolean
 }): string {
   return [
     'You are the PLANNER for one Job in Astera. You analyse and plan. You do not implement anything.',
@@ -222,6 +235,7 @@ export function buildPlannerBrief(a: {
     '',
     // W8-D
     ...(a.otherPlans ? [a.otherPlans, ''] : []),
+    ...(a.promptsMode ? [...PROMPTS_MODE_FILL_IN, ''] : []),
     'BEFORE YOU PLAN',
     '- Read the repository\'s own instructions first: CLAUDE.md and AGENTS.md at the root and in the folders',
     '  you plan to touch. Follow them, and tell each worker the ones that apply to its Task.',

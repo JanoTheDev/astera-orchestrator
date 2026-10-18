@@ -186,3 +186,19 @@ describe('buildPlannerBrief (W7-E #69)', () => {
     expect(b).not.toContain('Do not edit, create or delete files, run builds, or commit.')
   })
 })
+
+describe('prompts-mode Job (Run as written)', () => {
+  const START = 'The Tasks are already planned and approved; do not task-update them. Start the ready ones.'
+  it('coordinator brief has the start line and no fill-in text', () => {
+    const p = prompt({ promptsMode: true, objective: 'Run as written: the owner\'s prompts are this plan\'s Tasks.' })
+    expect(p).toContain(START)
+    expect(p).not.toContain('--affected-paths')
+    expect(p).not.toContain('Fill in each one')
+    expect(prompt()).not.toContain(START)
+  })
+  it('planner brief keeps the fill-in instruction only in prompts mode', () => {
+    const a = { jobId: 'j', objective: 'o', repoRoot: '/r', accountId: 'a', concurrency: 1 }
+    expect(buildPlannerBrief({ ...a, promptsMode: true })).toContain('Fill in each one: --affected-paths')
+    expect(buildPlannerBrief(a)).not.toContain('Fill in each one')
+  })
+})

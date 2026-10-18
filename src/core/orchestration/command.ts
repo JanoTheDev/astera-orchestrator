@@ -1969,7 +1969,8 @@ export async function handleCommand(
           // "정책 없음" 으로 읽힌다 — 코디네이터가 수렴 절 없는 브리핑을 받는다.
           convergence: policyOf(base, { runId: target.id }) !== null,
           jobId: job.id,
-          accountId
+          accountId,
+          promptsMode: job.verbatim !== undefined
         })
       })
       sessionId = spawned.sessionId
@@ -3129,6 +3130,7 @@ export async function handleCommand(
               repoRoot: job.cwd,
               ...(unmerged && unmerged.branches.length > 0 ? { unmergedBranches: unmerged.branches, defaultBranch: unmerged.into } : {}),
               accountId,
+              promptsMode: job.verbatim !== undefined,
               concurrency: concurrency ?? job.concurrency ?? DEFAULT_CONCURRENCY,
               // W8-D: the other plans of this repository, so it plans around them
               otherPlans: otherPlansBrief(deps.getState(), job)
