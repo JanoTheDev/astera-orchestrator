@@ -27,7 +27,6 @@
 /* ---------- first run ---------- */
 /* Two choices side by side, each naming itself and what it is. Neither is primary: there is no wrong
    answer, and making one look like the answer would invent a recommendation this screen does not have. */
-.modal.first-run { max-width: 440px; }
 .first-run-choices { display: flex; gap: 10px; }
 .first-run-choices button { flex: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 12px 14px; text-align: left; height: auto; }
 .first-run-name { font-weight: 600; }

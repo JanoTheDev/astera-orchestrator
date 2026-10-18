@@ -6,7 +6,7 @@ import { FAILURE_LIMIT, MAX_REVIEW_ROUNDS } from '../../../core/orchestration/ty
 import { useI18n } from '../i18n/I18nProvider'
 import { AccountSelect } from './AccountSelect'
 import { failureLine } from './pluginsText'
-import { backdropProps } from '../lib/backdrop'
+import { Modal } from './ui'
 import { createPause } from '../lib/pausedSearch'
 
 // The Jobs view's "+ 소스에서" (plugin Phase 4 J20, §3): pick a source, find a ticket, read it, and make a Job from it
@@ -169,9 +169,23 @@ export function SourceJobView(p: SourceJobViewProps): React.JSX.Element {
   const { t } = useI18n()
   const makeable = canMake({ item: p.detail, account: p.account, busy: p.busy, locked: p.locked })
   return (
-    <div className="modal-backdrop" {...backdropProps(() => !p.busy && p.onClose())}>
-      <div className="modal source-job" onClick={(e) => e.stopPropagation()}>
-        <h2>{t('jobs.source.title')}</h2>
+    <Modal
+      title={t('jobs.source.title')}
+      size="lg"
+      closeLabel={t('common.close')}
+      onClose={() => !p.busy && p.onClose()}
+      footer={
+        <>
+          <button onClick={p.onClose} disabled={p.busy}>
+            {t('common.cancel')}
+          </button>
+          <button className="primary" disabled={!makeable} onClick={p.onMake}>
+            {t('jobs.source.make')}
+          </button>
+        </>
+      }
+    >
+      <div className="dlg source-job">
         <p className="modal-hint">{t('jobs.new.gitRequired')}</p>
         {/* A native select, not the app's Select: a source that is not ready is a greyed option, which Select has no
             way to draw (§3.1). `field` gives the search the app's input look. */}
@@ -327,16 +341,8 @@ export function SourceJobView(p: SourceJobViewProps): React.JSX.Element {
           </p>
         </div>
         {p.error !== undefined && <p className="warn">{p.error}</p>}
-        <div className="row right">
-          <button onClick={p.onClose} disabled={p.busy}>
-            {t('common.cancel')}
-          </button>
-          <button className="primary" disabled={!makeable} onClick={p.onMake}>
-            {t('jobs.source.make')}
-          </button>
-        </div>
       </div>
-    </div>
+    </Modal>
   )
 }
 

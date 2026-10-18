@@ -1,6 +1,5 @@
 /* RunConfigManager — the two-pane run configuration dialog (list left, form right). The per-kind
    fields, drawn by RunConfigForm, live inside .rcm-form. */
-.modal.rcm { width: 860px; max-height: 80vh; }
 .rcm-panes { display: grid; grid-template-columns: 236px 1fr; gap: 14px; height: 420px; min-height: 0; }
 .rcm-list { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line-soft); padding-right: 14px; }
 .rcm-tools { display: flex; gap: 4px; padding-bottom: 8px; margin-bottom: 6px; border-bottom: 1px solid var(--line-soft); }
@@ -70,7 +69,6 @@
    type and spacing so a folder and a kind line up; only the icon and the rename affordance differ. */
 .rcm-group[title] { cursor: default; }
 .rcm-folder-name { width: 100%; box-sizing: border-box; margin: 6px 0 2px; background: var(--bg); color: var(--text); border: 1px solid var(--accent); border-radius: var(--radius); padding: 3px 6px; font-size: 11px; }
-.rcm-footer { display: flex; align-items: center; gap: 8px; }
 .rcm-footer-msg { flex: 1; min-width: 0; font-size: 12px; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rcm-footer-msg.error { color: var(--danger); }
 

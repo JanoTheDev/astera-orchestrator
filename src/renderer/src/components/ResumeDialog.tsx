@@ -7,7 +7,7 @@ import { useChatAvailability } from '../hooks/useChatAvailability'
 import { isGhostAccountId } from '../../../core/accounts/ghostId'
 import { AccountSelect } from './AccountSelect'
 import { ScheduleFields } from './ScheduleFields'
-import { backdropProps } from '../lib/backdrop'
+import { Button, Modal } from './ui'
 
 /** Modal for resuming a session from history. Only logged-in accounts appear as candidates and the
  *  original account is preselected. Picking a different account makes ipc copy the transcript into that
@@ -159,9 +159,20 @@ export function ResumeDialog({
   }
 
   return (
-    <div className="modal-backdrop" {...backdropProps(onCancel)}>
-      <div className="modal resume" onClick={(e) => e.stopPropagation()}>
-        <h2>{t('session.resume.title')}</h2>
+    <Modal
+      title={t('session.resume.title')}
+      onClose={onCancel}
+      closeLabel={t('common.close')}
+      footer={
+        <>
+          <Button onClick={onCancel}>{t('common.cancel')}</Button>
+          <Button variant="primary" disabled={!selectedId || (schedOn && !schedule)} onClick={confirm}>
+            {t('session.resume.confirm')}
+          </Button>
+        </>
+      }
+    >
+      <div className="dlg resume">
         {/* Heads the form as its own ruled-off section, as in NewSessionDialog: the way the resumed
             session runs is decided before the conversation, folder and account it applies to. */}
         <div className="field kind-field">
@@ -283,17 +294,7 @@ export function ResumeDialog({
           />
           {t('session.new.bypassPermissions')}
         </label>
-        <div className="row right">
-          <button onClick={onCancel}>{t('common.cancel')}</button>
-          <button
-            className="primary"
-            disabled={!selectedId || (schedOn && !schedule)}
-            onClick={confirm}
-          >
-            {t('session.resume.confirm')}
-          </button>
-        </div>
       </div>
-    </div>
+    </Modal>
   )
 }

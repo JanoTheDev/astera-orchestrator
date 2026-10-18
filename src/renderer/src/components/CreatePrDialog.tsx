@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { BranchRef, WorktreeListItem } from '../../../core/types'
 import { useI18n } from '../i18n/I18nProvider'
 import { Select } from './Select'
-import { backdropProps } from '../lib/backdrop'
+import { Button, Modal } from './ui'
 
 type Failure = { kind: string; detail: string; pushed: boolean; stage: 'push' | 'create' }
 
@@ -120,15 +120,28 @@ export function CreatePrDialog({
   if (!baseItems.some((i) => i.value === base)) baseItems.unshift({ value: base, label: base })
 
   return (
-    <div className="modal-backdrop" {...backdropProps(() => !busy && onCancel())}>
-      <div className="modal create-pr" onClick={(e) => e.stopPropagation()}>
+    <Modal
+      title={t('pr.create.title')}
+      onClose={() => !busy && onCancel()}
+      closeLabel={t('common.close')}
+      footer={
+        <>
+          <Button onClick={onCancel} disabled={busy}>
+            {t('common.cancel')}
+          </Button>
+          <Button variant="primary" onClick={() => void submit()} disabled={busy || title === ''}>
+            {busy ? t('pr.create.submitting') : willPush ? t('pr.create.submitWithPush') : t('pr.create.submit')}
+          </Button>
+        </>
+      }
+    >
+      <div className="dlg create-pr">
         {busy && (
           <div className="loading-overlay">
             <span className="loading-spinner" aria-hidden="true" />
             {t('pr.create.submitting')}
           </div>
         )}
-        <h2>{t('pr.create.title')}</h2>
         {/* The branch and its target sit above every field: a create action must never hide
             which branch it is acting on, and this app's own base mistake is why. */}
         <div className="pr-base-row">
@@ -197,20 +210,8 @@ export function CreatePrDialog({
             )}
           </div>
         )}
-        <div className="row right">
-          <button onClick={onCancel} disabled={busy}>
-            {t('common.cancel')}
-          </button>
-          <button className="primary" onClick={() => void submit()} disabled={busy || title === ''}>
-            {busy
-              ? t('pr.create.submitting')
-              : willPush
-                ? t('pr.create.submitWithPush')
-                : t('pr.create.submit')}
-          </button>
-        </div>
       </div>
-    </div>
+    </Modal>
   )
 }
 

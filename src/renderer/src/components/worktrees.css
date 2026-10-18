@@ -75,52 +75,50 @@
 .push-badge:disabled { cursor: default; }
 .push-badge:disabled:hover { color: var(--text-faint); background: none; }
 
-/* The create-PR dialog. Sized like .modal.new-session, which it is built from. */
+/* The create-PR dialog (ui/Modal, size md; its .dlg body anchors the busy overlay). */
 /* position:relative (like .modal.new-session) so the busy .loading-overlay covers this modal, not the viewport */
 /* Wider than the 460px default: this dialog carries a title line and a six-row body, and a PR
    description is prose that reads badly in a narrow column. No max-height/scroll, following
    .modal.new-session — both hold a loading overlay, and an overlay over a scrolling box is its
    own problem. position: relative is what that overlay is anchored to. */
-.modal.create-pr { width: 640px; position: relative; }
-.modal.create-pr .pr-base-row { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--line-soft); }
-.modal.create-pr .pr-base-row .mono { font-family: var(--mono); font-size: 11.5px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.create-pr .pr-base-row { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--line-soft); }
+.create-pr .pr-base-row .mono { font-family: var(--mono); font-size: 11.5px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* label.check-small declares inline-flex so it sits in the flow at its own width, but .modal is a
    flex column with the default align-items: stretch, which widens it to the whole dialog — and a
    label toggles its control wherever it is clicked, so the empty space beside the words toggles
    the draft box. align-self restores the width the class already asked for. The same is true of
    every check-small in every modal; fixing it there is its own change, not this feature's. */
-.modal.create-pr label.check-small { align-self: flex-start; }
+.create-pr label.check-small { align-self: flex-start; }
 
 /* The Jobs view's "+ From a source" window (plugin Phase 4 J20): the source and the search on one line, then the list
    beside the picked item, each scrolling on its own so the buttons stay in view. */
 /* Scrolls as a whole in a short app window, so the columns never run over the account field and the buttons (4c final review M11) */
-.modal.source-job { width: 820px; max-width: calc(100vw - 48px); max-height: calc(100vh - 48px); overflow: auto; }
-.modal.source-job .source-pick { display: flex; gap: 8px; }
-.modal.source-job .source-pick select { flex: 0 0 240px; background: var(--bg); color: var(--text); border: 1px solid var(--line-soft); padding: 6px; border-radius: var(--radius); color-scheme: dark; }
-.modal.source-job .source-pick input { flex: 1; }
-.modal.source-job .source-pick select:focus-visible, .modal.source-job .source-pick input:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--ring); }
-.modal.source-job .source-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; min-height: 0; }
-.modal.source-job .source-items, .modal.source-job .source-detail { max-height: 320px; overflow: auto; display: flex; flex-direction: column; gap: 6px; }
-.modal.source-job .source-items ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
-.modal.source-job .source-item { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; padding: 4px 6px; border-radius: var(--radius); cursor: pointer; font-size: 12.5px; }
-.modal.source-job .source-item:hover { background: var(--surface-hover); }
-.modal.source-job .source-item.picked { box-shadow: inset 2px 0 0 var(--accent); background: var(--surface-hover); }
-.modal.source-job .source-item.disabled { opacity: 0.55; }
+.source-job .source-pick { display: flex; gap: 8px; }
+.source-job .source-pick select { flex: 0 0 240px; background: var(--bg); color: var(--text); border: 1px solid var(--line-soft); padding: 6px; border-radius: var(--radius); color-scheme: dark; }
+.source-job .source-pick input { flex: 1; }
+.source-job .source-pick select:focus-visible, .source-job .source-pick input:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--ring); }
+.source-job .source-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; min-height: 0; }
+.source-job .source-items, .source-job .source-detail { max-height: 320px; overflow: auto; display: flex; flex-direction: column; gap: 6px; }
+.source-job .source-items ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.source-job .source-item { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; padding: 4px 6px; border-radius: var(--radius); cursor: pointer; font-size: 12.5px; }
+.source-job .source-item:hover { background: var(--surface-hover); }
+.source-job .source-item.picked { box-shadow: inset 2px 0 0 var(--accent); background: var(--surface-hover); }
+.source-job .source-item.disabled { opacity: 0.55; }
 /* A row takes the keyboard (4c final review M9): the app's focus ring, not the browser's outline */
-.modal.source-job .source-item:focus { outline: none; }
-.modal.source-job .source-item:focus-visible { box-shadow: inset 0 0 0 2px var(--ring); }
-.modal.source-job .source-id { font-family: var(--mono); font-size: 11.5px; color: var(--text-faint); }
-.modal.source-job .source-title { flex: 1; min-width: 0; color: var(--text); }
-.modal.source-job .source-status, .modal.source-job .source-reason { font-size: 11px; color: var(--text-faint); }
-.modal.source-job .source-exists { font-size: 11px; padding: 0 6px; }
-.modal.source-job .source-detail h3 { font-size: 13px; font-weight: 600; color: var(--text); margin: 0; }
-.modal.source-job .source-fields { font-size: 11.5px; border-collapse: collapse; align-self: flex-start; }
+.source-job .source-item:focus { outline: none; }
+.source-job .source-item:focus-visible { box-shadow: inset 0 0 0 2px var(--ring); }
+.source-job .source-id { font-family: var(--mono); font-size: 11.5px; color: var(--text-faint); }
+.source-job .source-title { flex: 1; min-width: 0; color: var(--text); }
+.source-job .source-status, .source-job .source-reason { font-size: 11px; color: var(--text-faint); }
+.source-job .source-exists { font-size: 11px; padding: 0 6px; }
+.source-job .source-detail h3 { font-size: 13px; font-weight: 600; color: var(--text); margin: 0; }
+.source-job .source-fields { font-size: 11.5px; border-collapse: collapse; align-self: flex-start; }
 /* The detail's and the list's own buttons keep their size rather than the column's width */
-.modal.source-job .source-detail > button, .modal.source-job .source-items > button, .modal.source-job .source-error > button { align-self: flex-start; }
-.modal.source-job .source-fields th { text-align: left; color: var(--text-faint); font-weight: 400; padding-right: 10px; vertical-align: top; }
+.source-job .source-detail > button, .source-job .source-items > button, .source-job .source-error > button { align-self: flex-start; }
+.source-job .source-fields th { text-align: left; color: var(--text-faint); font-weight: 400; padding-right: 10px; vertical-align: top; }
 /* The ticket's text as it is (§3.3): wrapped, never rendered */
-.modal.source-job .source-body { white-space: pre-wrap; word-break: break-word; font-family: var(--mono); font-size: 11.5px; margin: 0; padding: 8px; background: var(--bg); border-radius: var(--radius); }
-.modal.source-job .source-error { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.source-job .source-body { white-space: pre-wrap; word-break: break-word; font-family: var(--mono); font-size: 11.5px; margin: 0; padding: 8px; background: var(--bg); border-radius: var(--radius); }
+.source-job .source-error { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
 /* A Job's source (plugin Phase 4 J18): a small chip after its objective, on the card and in the detail's header */
 .source-chip { flex: 0 0 auto; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10.5px; line-height: 16px; padding: 0 6px; border: 1px solid var(--line-soft); border-radius: var(--radius-sm); background: none; color: var(--text-dim); }
 button.source-chip { cursor: pointer; }
@@ -128,7 +126,7 @@ button.source-chip:hover { color: var(--accent); border-color: var(--accent); }
 /* The palette, width and resize now come from `.field textarea`, which this dialog's fields sit in
    like every other modal's. Only the two things that differ stay here: a PR body is prose, not
    code, so it keeps the UI face rather than .field's mono, and it gets a little more side padding. */
-.modal.create-pr textarea { padding: 6px 8px; font-family: inherit; }
+.create-pr textarea { padding: 6px 8px; font-family: inherit; }
 /* Failure stays in the dialog rather than becoming a toast — it answers a button just pressed. */
 .pr-create-failure { border: 1px solid var(--danger); border-radius: var(--radius); padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
 .pr-create-failure p { margin: 0; font-size: 12px; color: var(--text); }

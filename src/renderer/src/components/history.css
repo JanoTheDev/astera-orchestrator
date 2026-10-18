@@ -40,22 +40,11 @@
    rows above and below it are denser than a project row, so the 14px padding of the outer list would
    open a gap the sublist has nowhere else. Alignment is the base rule's; only the padding differs. */
 .session-sublist .history-loading { padding: 8px 12px; }
-.modal.preview { width: 640px; max-height: 80vh; }
-.modal.detect { width: 520px; max-height: 80vh; }
 .detect-list { list-style: none; max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
 .detect-row { display: flex; align-items: flex-start; gap: 8px; padding: 4px 2px; border-bottom: 1px solid var(--line-soft); }
 .detect-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .detect-main input[type="text"] { background: var(--bg); color: var(--text); border: 1px solid var(--line-soft); padding: 4px 6px; border-radius: var(--radius); width: 100%; }
 .detect-path { font-size: 11px; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* the Local History modal — list-style modals follow the .detect-list convention (body plus metadata within a row) */
-.modal.local-history { width: 560px; max-height: 80vh; }
-/* BypassRetryDialog.tsx (session-failure-visibility design F5) — five labelled paragraphs plus the
-   CLI's own quoted stderr line, wider than the 460px default so that prose does not wrap into a
-   ladder, and scrollable for a stderr line long enough to push the buttons off a short window. */
-.modal.bypass-retry { width: 520px; max-height: 80vh; overflow-y: auto; }
-/* The resume modal — with rolling, schedule, Slack, and permission checkboxes plus the conditional
-   schedule inputs stacked up, it can overflow in a narrow window. The same convention as its sibling modals. */
-.modal.resume { max-height: 80vh; overflow-y: auto; }
 /* The JDK and Python interpreter pickers — paths are long, and .sel-value already ellipsises. This only
    claims the leftover width next to the "Browse…" button — a plain width:100% loses to the
    minimum size in a flex child, so flex:1 plus min-width:0 is stated explicitly */

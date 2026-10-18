@@ -1,7 +1,6 @@
-import { useEffect } from 'react'
 import type { SessionKind } from '../../../core/types'
 import { useI18n } from '../i18n/I18nProvider'
-import { backdropProps } from '../lib/backdrop'
+import { Modal } from './ui'
 
 /**
  * The one question a first run asks: what a new session is.
@@ -25,25 +24,12 @@ export function FirstRunDialog({
 }): React.JSX.Element {
   const { t } = useI18n()
 
-  // Escape settles it rather than leaving it open, the same as the backdrop — see the note above on
-  // asking once. Captured so it does not reach the terminal and explorer handlers underneath.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key !== 'Escape') return
-      e.stopPropagation()
-      onDismiss()
-    }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [onDismiss])
-
   return (
-    <div className="modal-backdrop" {...backdropProps(onDismiss)}>
-      <div className="modal first-run" onClick={(e) => e.stopPropagation()}>
-        <h2>{t('firstRun.title')}</h2>
+    <Modal title={t('firstRun.title')} onClose={onDismiss} size="sm" closeLabel={t('common.close')}>
+      <div className="dlg first-run">
         <p className="confirm-text confirm-body">{t('firstRun.body')}</p>
         <div className="first-run-choices">
-          <button type="button" autoFocus onClick={() => onPick('terminal')}>
+          <button type="button" onClick={() => onPick('terminal')}>
             <span className="first-run-name">{t('firstRun.terminal')}</span>
             <span className="first-run-what">{t('firstRun.terminalWhat')}</span>
           </button>
@@ -53,6 +39,6 @@ export function FirstRunDialog({
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   )
 }

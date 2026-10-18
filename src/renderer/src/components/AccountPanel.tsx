@@ -10,7 +10,7 @@ import { FolderGlyph } from './FolderGlyph'
 import { AccountRow } from './AccountRow'
 import { AccountSignInDialog } from './AccountSignIn'
 import { RemoveAccountDialog } from './AccountSettings'
-import { backdropProps } from '../lib/backdrop'
+import { Button, Modal } from './ui'
 
 interface DetectItem {
   configDir: string
@@ -273,10 +273,23 @@ export function AccountPanel({ accounts }: { accounts: Account[] }): React.JSX.E
         {accounts.length === 0 && <li className="empty">{t('account.panel.empty')}</li>}
       </ul>
       {addOpen && (
-        <div className="modal-backdrop" {...backdropProps(() => setAddOpen(false))}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2>{t('account.add.title')}</h2>
+        <Modal
+          title={t('account.add.title')}
+          onClose={() => setAddOpen(false)}
+          size="sm"
+          closeLabel={t('common.close')}
+          footer={
+            <>
+              <Button onClick={() => setAddOpen(false)}>{t('common.cancel')}</Button>
+              <Button variant="primary" type="submit" form="add-account-form" disabled={adding || !addLabel.trim()}>
+                {adding ? t('account.add.adding') : t('account.add.button')}
+              </Button>
+            </>
+          }
+        >
             <form
+              id="add-account-form"
+              className="dlg"
               onSubmit={(e) => {
                 e.preventDefault()
                 void submitAdd()
@@ -309,25 +322,29 @@ export function AccountPanel({ accounts }: { accounts: Account[] }): React.JSX.E
                   ? t('account.add.loginHintClaude')
                   : t('account.add.loginHintCodex')}
               </p>
-              <div className="row right">
-                <button type="button" onClick={() => setAddOpen(false)}>
-                  {t('common.cancel')}
-                </button>
-                <button className="primary" type="submit" disabled={adding || !addLabel.trim()}>
-                  {adding ? t('account.add.adding') : t('account.add.button')}
-                </button>
-              </div>
             </form>
-          </div>
-        </div>
+        </Modal>
       )}
       {signInTarget && <AccountSignInDialog account={signInTarget} onClose={() => setSignInTarget(null)} />}
       {removeTarget && <RemoveAccountDialog account={removeTarget} onClose={() => setRemoveTarget(null)} />}
       {importDir && (
-        <div className="modal-backdrop" {...backdropProps(() => setImportDir(null))}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2>{t('account.import.title')}</h2>
+        <Modal
+          title={t('account.import.title')}
+          onClose={() => setImportDir(null)}
+          size="sm"
+          closeLabel={t('common.close')}
+          footer={
+            <>
+              <Button onClick={() => setImportDir(null)}>{t('common.cancel')}</Button>
+              <Button variant="primary" type="submit" form="import-account-form" disabled={!importLabel.trim()}>
+                {t('account.import.button')}
+              </Button>
+            </>
+          }
+        >
             <form
+              id="import-account-form"
+              className="dlg"
               onSubmit={(e) => {
                 e.preventDefault()
                 void submitImport()
@@ -347,22 +364,34 @@ export function AccountPanel({ accounts }: { accounts: Account[] }): React.JSX.E
                   onChange={(e) => setImportLabel(e.target.value)}
                 />
               </div>
-              <div className="row right">
-                <button type="button" onClick={() => setImportDir(null)}>
-                  {t('common.cancel')}
-                </button>
-                <button className="primary" type="submit" disabled={!importLabel.trim()}>
-                  {t('account.import.button')}
-                </button>
-              </div>
             </form>
-          </div>
-        </div>
+        </Modal>
       )}
       {detectItems && (
-        <div className="modal-backdrop" {...backdropProps(() => setDetectItems(null))}>
-          <div className="modal detect" onClick={(e) => e.stopPropagation()}>
-            <h2>{t('account.detect.title')}</h2>
+        <Modal
+          title={t('account.detect.title')}
+          onClose={() => setDetectItems(null)}
+          closeLabel={t('common.close')}
+          footer={
+            <>
+              <Button onClick={() => setDetectItems(null)}>{t('common.cancel')}</Button>
+              {detectItems.length > 0 && (
+                <Button
+                  variant="primary"
+                  disabled={
+                    importBusy ||
+                    !detectItems.some((it) => it.selected) ||
+                    detectItems.some((it) => it.selected && !it.label.trim())
+                  }
+                  onClick={() => void importSelected()}
+                >
+                  {t('account.detect.importSelected')}
+                </Button>
+              )}
+            </>
+          }
+        >
+          <div className="dlg detect">
             {detectItems.length === 0 ? (
               <p className="empty">{t('account.detect.empty')}</p>
             ) : (
@@ -390,27 +419,8 @@ export function AccountPanel({ accounts }: { accounts: Account[] }): React.JSX.E
                 ))}
               </ul>
             )}
-            <div className="row right">
-              <button type="button" onClick={() => setDetectItems(null)}>
-                {t('common.cancel')}
-              </button>
-              {detectItems.length > 0 && (
-                <button
-                  className="primary"
-                  type="button"
-                  disabled={
-                    importBusy ||
-                    !detectItems.some((it) => it.selected) ||
-                    detectItems.some((it) => it.selected && !it.label.trim())
-                  }
-                  onClick={() => void importSelected()}
-                >
-                  {t('account.detect.importSelected')}
-                </button>
-              )}
-            </div>
           </div>
-        </div>
+        </Modal>
       )}
     </section>
   )

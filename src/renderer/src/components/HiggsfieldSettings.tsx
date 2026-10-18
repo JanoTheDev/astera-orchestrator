@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
 import { hfAccountTitle, hfWorkspaceLabel } from '../../../core/higgsfield/display'
-import { backdropProps } from '../lib/backdrop'
+import { Button, Modal } from './ui'
 
 type HfList = Awaited<ReturnType<typeof window.api.higgsfield.list>>
 type HfAccountRow = HfList['accounts'][number]
@@ -221,20 +221,22 @@ export function HiggsfieldSettings(): React.JSX.Element {
       </div>
       <span className="settings-hint">{t('higgsfield.importNote')}</span>
       {removeTarget && (
-        <div className="modal-backdrop" {...backdropProps(() => setRemoveTarget(null))}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2>{t('higgsfield.remove')}</h2>
-            <p className="confirm-text">{t('higgsfield.removeConfirm', { label: removeTarget.label })}</p>
-            <div className="row right">
-              <button type="button" onClick={() => setRemoveTarget(null)}>
-                {t('common.cancel')}
-              </button>
-              <button className="primary" type="button" onClick={() => void confirmRemove()}>
+        <Modal
+          title={t('higgsfield.remove')}
+          onClose={() => setRemoveTarget(null)}
+          size="sm"
+          closeLabel={t('common.close')}
+          footer={
+            <>
+              <Button onClick={() => setRemoveTarget(null)}>{t('common.cancel')}</Button>
+              <Button variant="primary" onClick={() => void confirmRemove()}>
                 {t('higgsfield.remove')}
-              </button>
-            </div>
-          </div>
-        </div>
+              </Button>
+            </>
+          }
+        >
+          <p className="confirm-text">{t('higgsfield.removeConfirm', { label: removeTarget.label })}</p>
+        </Modal>
       )}
     </div>
   )

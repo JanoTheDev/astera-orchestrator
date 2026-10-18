@@ -6,7 +6,7 @@ import { useI18n } from '../i18n/I18nProvider'
 import { formFailure, type OrchDoor } from '../lib/orchDoor'
 import { AccountSelect } from './AccountSelect'
 import { ScheduleRuleFields } from './ScheduleRuleFields'
-import { backdropProps } from '../lib/backdrop'
+import { Button, Modal } from './ui'
 // W6-A intake
 import { NewPlanDialog } from './intake/NewPlanDialog'
 
@@ -136,9 +136,30 @@ export function NewRunModal({
     return <NewPlanDialog door={door} cwd={cwd} accounts={accounts} onClose={onClose} onCreated={onCreated} concurrency={concurrency} />
 
   return (
-    <div className="modal-backdrop" {...backdropProps(() => !busy && onClose())}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h2>{t('jobs.new.title')}</h2>
+    <Modal
+      title={t('jobs.new.title')}
+      onClose={() => !busy && onClose()}
+      size="sm"
+      closeLabel={t('common.close')}
+      footer={
+        <>
+          <Button onClick={onClose} disabled={busy}>
+            {t('common.cancel')}
+          </Button>
+          <Button
+            variant="primary"
+            // 코디네이터 계정 없이는 만들 수 없다 — 이 폼은 관리자 있는 Run 만 만든다
+            disabled={
+              busy || locked || cwd === null || !objective.trim() || !coordinatorAccountId || (scheduled && schedule === null)
+            }
+            onClick={() => void create()}
+          >
+            {t('jobs.new.create')}
+          </Button>
+        </>
+      }
+    >
+      <div className="dlg">
         {/* 전제조건이라 폼보다 앞에 둔다. 워커는 언제나 워크트리에서 일하고 워크트리는 git 의
             것이므로, 저장소가 아닌 폴더에서는 이 작업을 만들 수는 있어도 시작하지 못한다 — 그
             사실을 '실행' 을 누른 뒤 Gate 에서 알게 되는 것이 늦다. 막지 않고 알리기만 하는 이유:
@@ -284,22 +305,7 @@ export function NewRunModal({
           </div>
         )}
         {error && <p className="warn">{error}</p>}
-        <div className="row right">
-          <button onClick={onClose} disabled={busy}>
-            {t('common.cancel')}
-          </button>
-          <button
-            className="primary"
-            // 코디네이터 계정 없이는 만들 수 없다 — 이 폼은 관리자 있는 Run 만 만든다
-            disabled={
-              busy || locked || cwd === null || !objective.trim() || !coordinatorAccountId || (scheduled && schedule === null)
-            }
-            onClick={() => void create()}
-          >
-            {t('jobs.new.create')}
-          </button>
-        </div>
       </div>
-    </div>
+    </Modal>
   )
 }
