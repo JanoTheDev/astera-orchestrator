@@ -46,22 +46,24 @@ starting the next wave. Each prompt owns its own files, which keeps conflicts to
 
 | Wave | Tabs | Prompts | Depends on |
 |---|---|---|---|
-| 0 | 1 | `W0-linux-baseline-and-security.md` | — |
-| 1 | 4 | `W1-A-role-models`, `W1-B-global-scheduling`, `W1-C-plan-lifecycle`, `W1-D-linux-background` | W0 merged |
-| 2 | 4 | `W2-A-planner-stage`, `W2-B-workspace-sidebar`, `W2-C-plan-board`, `W2-D-github-links` | W1 merged |
-| 3 | 4 | `W3-A-activity-feed`, `W3-B-command-and-voice`, `W3-C-search-and-inbox`, `W3-D-routing-recovery-tests` | W2 merged |
-| 4 | 1 | `W4-final-linux-verification.md` | W3 merged |
-| 5 | 4 | `W5-A-worker-spawn-and-worktrees`, `W5-B-run-lifecycle-and-cli`, `W5-C-holds-and-command-bar`, `W5-D-feed-inbox-and-runtimes` (W4's issues #38–#53) | W4 merged |
-| 6 | 8 | `W6-A-intake-and-github`, `W6-B-autopilot-answers-and-sound`, `W6-C-scheduler-guards`, `W6-D-wave-replanning`, `W6-E-progress-view`, `W6-F-project-workspaces`, `W6-G-usage-guards`, `W6-H-delivery-modes` (Autopilot, see below) | W5 merged, **including PR #57** |
-| 7 | 6 | `W7-A-plan-feedback`, `W7-B-projects`, `W7-C-owner-answers-and-coordinator`, `W7-D-intake-names-and-concurrency`, `W7-E-planner-review-and-final-check`, `W7-F-tabs-accounts-and-sidebar` (W7-C..F: W6-V's issues #67–#84) | W6 merged |
-| 7V | 1 | `W6-V-autopilot-dogfood.md`: the W6 half ran 2026-10-18 (LINUX.md "Autopilot dogfood (W6-V)"); the full re-run after W7 ran the same day (LINUX.md "Autopilot re-run (7V)", issues #92–#106) | W7 merged |
+| 0 (done) | 1 | `W0-linux-baseline-and-security.md` | — |
+| 1 (done) | 4 | `W1-A-role-models`, `W1-B-global-scheduling`, `W1-C-plan-lifecycle`, `W1-D-linux-background` | W0 merged |
+| 2 (done) | 4 | `W2-A-planner-stage`, `W2-B-workspace-sidebar`, `W2-C-plan-board`, `W2-D-github-links` | W1 merged |
+| 3 (done) | 4 | `W3-A-activity-feed`, `W3-B-command-and-voice`, `W3-C-search-and-inbox`, `W3-D-routing-recovery-tests` | W2 merged |
+| 4 (done) | 1 | `W4-final-linux-verification.md` | W3 merged |
+| 5 (done) | 4 | `W5-A-worker-spawn-and-worktrees`, `W5-B-run-lifecycle-and-cli`, `W5-C-holds-and-command-bar`, `W5-D-feed-inbox-and-runtimes` (W4's issues #38–#53) | W4 merged |
+| 6 (done) | 8 | `W6-A-intake-and-github`, `W6-B-autopilot-answers-and-sound`, `W6-C-scheduler-guards`, `W6-D-wave-replanning`, `W6-E-progress-view`, `W6-F-project-workspaces`, `W6-G-usage-guards`, `W6-H-delivery-modes` (Autopilot, see below) | W5 merged, **including PR #57** |
+| 7 (done) | 6 | `W7-A-plan-feedback`, `W7-B-projects`, `W7-C-owner-answers-and-coordinator`, `W7-D-intake-names-and-concurrency`, `W7-E-planner-review-and-final-check`, `W7-F-tabs-accounts-and-sidebar` (W7-C..F: W6-V's issues #67–#84) | W6 merged |
+| 7V (done) | 1 | `W6-V-autopilot-dogfood.md`: the W6 half ran 2026-10-18 (LINUX.md "Autopilot dogfood (W6-V)"); the full re-run after W7 ran the same day (LINUX.md "Autopilot re-run (7V)", issues #92–#106) | W7 merged |
 | 8.0 | 2 | `W8-C-run-waves-in-astera`, `W8-E-coordinator-guards` (7V's #92 #95 #96 #99: the W8 Astera plan needs them); tabs, the last wave run by hand | 7V done |
 | 8 | 5 | `W8-A-commit-attribution`, `W8-B-line-attribution` (Who wrote this, see below), `W8-D-plans-side-by-side` (no overlapping work across plans), `W8-F-owner-talk-and-answers`, `W8-G-projects-and-delivery` (7V's #93 #94 #97 #98 #100, #101–#105), **run as one Astera plan** | W8-C and W8-E merged |
-| 9.0 | 1 | `W9-0-design-spec` (owner approves the mockup before any code) | W8 merged |
+| 9.0 (done) | 1 | `W9-0-design-spec` (owner approves the mockup before any code) | W8 merged |
 | 9.1 | 1 | `W9-A-foundation` (alone: tokens, primitives, shell split) | 9.0 approved |
 | 9.2 | 8 | `W9-B-shell-and-nav`, `W9-C-plan-tab`, `W9-D-inbox-and-command`, `W9-E-settings-and-dialogs`, `W9-H-agents-wall`, `W9-I-tab-summaries`, `W9-J-worktree-viewer`, `W9-K-window-per-project` | 9.1 merged |
 | 9.3 | 1 | `W9-F-polish-and-verify` | 9.2 merged |
 | 9.4 | 1 | `W9-G-readme-and-docs` | 9.3 merged |
+
+`(done)` in the Wave cell means that wave is finished: "Run as written" (`astera jobs create --mode prompts`) skips the prompts of a done row and lists them in the approval as "already done".
 
 ### File ownership per wave (prevents tabs interfering)
 
