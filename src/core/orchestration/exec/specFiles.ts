@@ -1,6 +1,12 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 
+/** `<profile>/orch/specs`, where the workers' spec files and the coordinator's and planner's briefs are
+ *  written. Every Claude session may read it without a prompt (`--add-dir`, W5-A #52): a worker's first
+ *  step is reading its spec there, outside its worktree. Only this folder, never the profile, which holds
+ *  tokens. */
+export const specsDirOf = (profileDir: string): string => path.join(profileDir, 'orch', 'specs')
+
 /** The coordinator's brief, named for the Run it manages. It lives in the same directory as the
  *  workers' spec files, so the boot sweep has to be able to recognise one; `startCoordinator` writes
  *  it. The name is here, in one place, so those two cannot drift. */

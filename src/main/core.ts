@@ -38,6 +38,7 @@ import { AppSettingsStore } from './appSettingsStore'
 import { KeybindingsStore } from './keybindingsStore'
 import { pickInitialLang } from '../core/i18n/locale'
 import { previewShotsDir } from './preview/shots'
+import { specsDirOf } from '../core/orchestration/exec/specFiles'
 import { setPseudoLocalization } from '../core/i18n/pseudo'
 import type { Lang, Message } from '../core/i18n'
 import type { Account, DetectCandidate, Provider, SessionUsage } from '../core/types'
@@ -261,7 +262,8 @@ export async function createCore(userDataDir: string, osLocale: string): Promise
     (id, account, opts) => statusLine.spawnConfig(id, account, opts),
     // A Claude session may read the app's screenshot folder without a prompt — that is where Design
     // Mode writes the crops whose paths it sends. previewShotsDir is the same path capture.ts writes.
-    [previewShotsDir(userDataDir)],
+    // W5-A (#52): an orchestration session reads its spec or brief in <userData>/orch/specs without a prompt.
+    [previewShotsDir(userDataDir), specsDirOf(userDataDir)],
     process.env,
     defaultSpawnChecks(sessionsLog)
   )
