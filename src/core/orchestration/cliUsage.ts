@@ -1045,3 +1045,17 @@ export function unknownFlagError(cmd: string, argv: readonly string[]): string |
       : `its flags are ${own.map((n) => `--${n}`).join(', ')}`
   return `${spelledCommand(cmd)} does not take ${named}: ${takes}, plus the global ones (--json, --human, --quiet, --no-keepalive, --verbose, --request-id)`
 }
+
+// W8-C heavy
+/** `astera heavy` is answered in the CLI process before the parser (cli/run.ts): the tokens after `--` are the
+ *  command's, not ours. Not in `USAGE`, because it takes no flags and is not sent to the Host. */
+export const HEAVY_USAGE = [
+  'usage: astera heavy -- <command> [args…]',
+  '',
+  '  Runs a heavy job (the full test suite, `npm run dev` / Electron, `npm run dist:linux`) under the',
+  '  machine-wide lock /tmp/astera-fullsuite.lock: one at a time, first come first served. Hand-opened',
+  '  tabs that run `flock /tmp/astera-fullsuite.lock <command>` share the same slot. The lock is released',
+  '  when the command exits or crashes. Exits with the command\'s exit code (a signal is 128+n).',
+  '',
+  '  example: astera heavy -- nice -n 10 npx vitest run --maxWorkers=2'
+].join('\n')
