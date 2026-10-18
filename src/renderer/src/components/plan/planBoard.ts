@@ -244,7 +244,7 @@ export function nowOf(
   if (session?.prompt === 'question') return { key: 'plan.now.question' }
   const asked = events.filter((e) => e.taskId === task.id && e.kind === 'message' && e.messageType === 'question').at(-1)
   if (asked?.answered === false) return { key: 'plan.now.asked' }
-  if (session?.heavyWait) return { key: 'plan.now.heavyWait', params: { place: ordinal(session.heavyWait), n: session.heavyWait } }
+  if (session?.heavyWait) return { key: 'plan.now.heavyWait', params: { place: ordinal(session.heavyWait) } }
   const a = session?.lastAction
   if (!a) return null
   const ago = formatElapsed(new Date(a.at).toISOString(), nowMs)

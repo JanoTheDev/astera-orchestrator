@@ -195,7 +195,7 @@ describe('nowOf', () => {
     const c = running('c')
     expect(nowOf(c, { heavyWait: 2, lastAction: { tool: 'Bash', target: 'astera heavy -- npm test', at } }, [], now)).toEqual({
       key: 'plan.now.heavyWait',
-      params: { place: '2nd', n: 2 }
+      params: { place: '2nd' }
     })
     expect(nowOf(c, { heavyWait: 1, prompt: 'permission' }, [], now)?.key).toBe('plan.now.permission')
     expect([1, 2, 3, 4, 11, 12, 13, 21, 22, 101, 111].map(ordinal)).toEqual(['1st', '2nd', '3rd', '4th', '11th', '12th', '13th', '21st', '22nd', '101st', '111th'])
