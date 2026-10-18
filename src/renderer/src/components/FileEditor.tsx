@@ -23,6 +23,7 @@ import { languageForExt, sameDocument, type LangKey } from '../../../core/files/
 import type { EditorStateCache } from '../lib/editorStateCache'
 import { FileFindBar } from './FileFindBar'
 import { createEchoLedger, createEditCoalescer } from '../lib/editCoalescer'
+import { BlameToggle } from './attribution/BlameToggle' // W8-B
 
 function langExt(key: LangKey | null): Extension {
   switch (key) {
@@ -196,7 +197,8 @@ export function FileEditor({
   onViewChange,
   reveal,
   onRevealed,
-  onInteract
+  onInteract,
+  projectPath
 }: {
   path: string
   content: string
@@ -228,6 +230,8 @@ export function FileEditor({
   onRevealed?: () => void
   /** The user clicked in this editor — App drops any request still pending for this tab */
   onInteract?: () => void
+  /** W8-B: the project the file is in; present, the viewer offers the blame gutter (components/attribution) */
+  projectPath?: string
 }): React.JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
@@ -407,6 +411,7 @@ export function FileEditor({
   return (
     <div className="file-editor">
       <div className="file-editor-host" ref={hostRef} />
+      {projectPath && <BlameToggle view={viewRef.current} file={path} projectPath={projectPath} epoch={stateEpoch} />}
       {find && viewRef.current && (
         <FileFindBar
           view={viewRef.current}

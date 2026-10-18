@@ -24,6 +24,7 @@ import {
   type OpenQuestion
 } from './planBoard'
 import { QuestionAnswer } from './QuestionAnswer'
+import { TaskLines } from '../attribution/TaskLines' // W8-B
 import './plan.css'
 
 /** How often the "resumes in …" and "… ago" texts refresh. */
@@ -44,7 +45,8 @@ export function TaskBoard({
   questions = [],
   onAnswer,
   canOpenSession,
-  onOpenSession
+  onOpenSession,
+  projectPath
 }: {
   tasks: readonly JobTask[]
   accounts: Account[] | null
@@ -65,6 +67,8 @@ export function TaskBoard({
   onAnswer?: (id: string, answer: string) => Promise<string | null>
   canOpenSession?: (sessionId: string) => boolean
   onOpenSession?: (sessionId: string) => void
+  /** W8-B: present, each card shows its AI and human lines (components/attribution) */
+  projectPath?: string
 }): React.JSX.Element {
   const { t } = useI18n()
   const [nowMs, setNowMs] = useState(() => Date.now())
@@ -123,6 +127,7 @@ export function TaskBoard({
                     questions={onAnswer ? questionsOfTask(questions, tk.id) : []}
                     onAnswer={onAnswer}
                     onSelect={onSelect}
+                    projectPath={projectPath}
                     onFocus={
                       tk.sessionId && categoryOf(tk) === 'running' && onOpenSession && canOpenSession?.(tk.sessionId)
                         ? () => onOpenSession(tk.sessionId!)
@@ -149,7 +154,8 @@ function TaskCard({
   questions,
   onAnswer,
   onSelect,
-  onFocus
+  onFocus,
+  projectPath
 }: {
   task: JobTask
   selected: boolean
@@ -163,6 +169,7 @@ function TaskCard({
   onSelect: (taskId: string) => void
   /** Present for a running Task whose tab is open: a click on the card goes there. */
   onFocus?: () => void
+  projectPath?: string // W8-B
 }): React.JSX.Element {
   const { t } = useI18n()
   const [allFiles, setAllFiles] = useState(false)
@@ -206,6 +213,7 @@ function TaskCard({
             <dd title={tk.branch}>{tk.branch}</dd>
           </>
         )}
+        {projectPath && <TaskLines projectPath={projectPath} taskId={tk.id} />}
       </dl>
       {files.length > 0 && (
         <ul className="plan-card-files">

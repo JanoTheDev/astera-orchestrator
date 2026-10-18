@@ -962,6 +962,7 @@ export function RunDetail({
                 replanning={replanningOf(live.activity, runId)}
                 canOpenSession={canOpenSession}
                 onOpenSession={onOpenSession}
+                projectPath={projectPath}
               />
             ) : (
             <Graph

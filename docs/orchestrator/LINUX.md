@@ -421,3 +421,44 @@ queue dir and the Host sockets; leftover worktrees under `~/astera-worktrees/` s
 The board's "Waiting for the heavy-job slot (Nth in line)" comes from the `heavyWait` field on `sessions-list` rows. The
 public CLI view hides that field, so it was checked with unit tests (`sessions.test.ts`, `planBoard.test.ts`), not
 from the CLI.
+
+## git-ai spike (W8-B, measured 2026-10-18)
+
+git-ai v1.7.5 (`git-ai-linux-x64`, SHA-256 checked against the release's `SHA256SUMS`), installed with the release's
+`install.sh` and `GIT_AI_LOCAL_BINARY`, under `env -i HOME=<scratch dir>`. Afterwards the real `~/.claude/settings.json`,
+`~/.bashrc` and `~/.vscode/extensions` were unchanged and `~/.git-ai` did not exist. The installer wrote:
+- `~/.claude/settings.json`: synchronous `PreToolUse` and `PostToolUse` hooks, matcher `*`, `git-ai checkpoint claude
+  --hook-input stdin`;
+- `~/.gitconfig`: `trace2.eventTarget = af_unix:stream:/tmp/git-ai-d-<id>/trace.sock`. This is how it sees commits
+  without git hooks: every git command sends trace2 events to a background daemon (`git-ai bg run`), which the
+  installer starts;
+- VS Code and Copilot hooks, a VS Code extension, and `PATH` lines in the shell rc files;
+- its config defaults: telemetry on, daemon log upload on, auto-update on, `api_base_url https://usegitai.com`.
+
+| # | Check | Result |
+|---|---|---|
+| 1 | Its hooks coexist with the settings Astera spawns workers with | **Fail.** For the default account they do: `--settings` hooks merge with the global `settings.json`, and both run. But git-ai writes its hooks only into `~/.claude/settings.json`. Every Astera account other than the default one runs with its own `CLAUDE_CONFIG_DIR` (`core/accounts`), so those sessions never run git-ai's hooks, and their edits are recorded as human. Codex accounts have the same problem with `CODEX_HOME`. |
+| 2 | Attribution survives Astera's worktree, then the `integrateGit` merge, then delivery | **Pass.** A worker commit in a `git worktree` got a `refs/notes/ai` note. `git merge --no-edit` into main and a `cherry-pick` kept it (`git-ai blame` shows `claude` on the merged lines). `git push` to a bare remote pushed `refs/notes/ai` along with the branch. |
+| 3 | Its `refs/notes/ai` authorship log parses into the Wave 8 `lines` shape | **Pass.** Schema `authorship/3.0.0`: per file, `<session>::<trace> <ranges>` lines (`1-5`, `7`, `2-3,9`), then `---`, then JSON with `sessions[id].agent_id.{tool,id,model}`. `gitAi.ts` parses it (test fixture taken from this run). |
+| 4 | It adds no prompt to a worker's turn and no latency to a git command | **Pass, with a cost.** No prompt is added. One `checkpoint` hook process is about 2 to 4 ms, but it runs synchronously for every tool call, Read and Grep included (Astera keeps those out of its own matchers on purpose, `statusline.ts` `TOOL_MATCHER`). Every git command writes trace2 events to the daemon socket: `git commit` took 7 ms and `git push` to a local bare repo 24 ms. |
+
+**Also failed: the mixed commit.** An agent `Write` of lines 1–5 (Claude preset, Pre and PostToolUse payloads), then
+lines 6–8 appended by hand, then `git commit`. git-ai credited all 8 lines to `claude` (`ai_additions: 8`,
+`human_additions: 0`). Without its editor extension it cannot see a human edit that follows an agent edit, and that is
+exactly W8-B's case: the owner edits a worker's `runCwd` or works in an interactive tab.
+
+**Engine: native** (check 1 failed, and the mixed commit is wrong). `core/attribution/gitAi.ts` stays as a reader
+only: when `git-ai` is on `PATH` and a commit carries a `refs/notes/ai` note, its lines are read into the same shape.
+Astera never installs git-ai.
+
+Native engine on Linux:
+- The checkpoint hook (`astera-attribution-checkpoint.cjs` beside the profile's other hook scripts) runs `async` on
+  `PostToolUse` for `Edit|Write|MultiEdit|apply_patch`. It needs no git process: it finds the repo by walking up to
+  `.git`, and it resolves the path with `realpath`, so `/home` symlinks and worktree paths give the same log key in the
+  hook and at stamp time.
+- Logs live in `<profile>/attribution/<key>.jsonl`, outside every repo, and hold sha256 line hashes (16 hex digits) only.
+- Codex sessions run no hooks Astera installs (`core/types.ts`), so Codex `apply_patch` lines are counted only where a
+  Codex hook delivers the payload. Until then a Codex edit falls back to the busy-window rule.
+
+The spike's scratch `HOME`, its daemon (stopped with `kill`, since `git-ai bg shutdown` left it running) and its repos
+were all under the session scratch dir.

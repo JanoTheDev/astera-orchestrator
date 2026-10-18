@@ -3080,6 +3080,7 @@ export default function App(): React.JSX.Element {
         reveal={buf.loading || buf.error ? undefined : pendingReveal[f.id]}
         onRevealed={() => dropReveal(f.id)}
         onInteract={() => dropReveal(f.id)}
+        projectPath={currentProject ?? undefined} // W8-B: the blame gutter
       />
     )
     return (

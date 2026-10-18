@@ -3,6 +3,7 @@ import type { Account } from '../../../../core/types'
 import { MAX_CONCURRENT_WORKERS, PROJECT_DEFAULTS, type Project } from '../../../../core/orchestration/types'
 import { backdropProps } from '../../lib/backdrop'
 import { ProjectDelivery } from '../delivery/ProjectDelivery'
+import { ProjectAttribution } from '../attribution/ProjectAttribution' // W8-B
 import './projects.css'
 
 /** W7-B: every choice of one project. Each field saves on its own through `projects-set`; an empty number or choice
@@ -81,6 +82,7 @@ export function ProjectSettings({
         {project && (
           <>
             <ProjectDelivery projectPath={project.path} />
+            <ProjectAttribution anchor={anchor} projectId={projectId} />
             <label className="check-small">
               <input
                 type="checkbox"
