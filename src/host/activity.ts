@@ -16,6 +16,7 @@ import {
 import type { EventDraft } from '../core/orchestration/publicEvents'
 import { jobNameOf } from '../core/orchestration/jobName'
 import { validatePlan } from '../core/orchestration/planner'
+import { autoApproveOf } from '../core/orchestration/exec/plannerFeedback'
 import type { ScheduleLimits } from '../core/orchestration/schedule'
 import type { OrchState } from '../core/orchestration/state'
 import type { HostEventLog } from './eventLog'
@@ -39,13 +40,17 @@ type ActivityLog = Pick<HostEventLog, 'read' | 'tail' | 'next'>
 export function planReadyActivity(s: OrchState, sessionId: string, held: () => readonly ActivityEvent[]): ActivityDraft | null {
   const j = s.jobs.find((x) => x.plannerSessionIds?.includes(sessionId))
   if (!j || !awaitsApproval(j) || validatePlan(s, j.id).length > 0) return null
-  if (held().some((e) => e.type === 'plan.awaiting-approval' && e.jobId === j.id && e.sessionId === sessionId)) return null
+  // W7-A: each round of the owner's feedback makes the plan ready again, once, with what the planner changed for it
+  const rounds = (j.feedback ?? []).filter((f) => f.phase === 'plan')
+  const round = rounds.length
+  if (held().some((e) => e.type === 'plan.awaiting-approval' && e.jobId === j.id && e.sessionId === sessionId && (e.payload.round ?? 0) === round)) return null
+  const changes = rounds.at(-1)?.changes
   return {
     type: 'plan.awaiting-approval',
     ...(j.projectId !== undefined ? { projectId: j.projectId } : {}),
     jobId: j.id,
     sessionId,
-    payload: { title: jobNameOf(j), plan: jobNameOf(j) }
+    payload: { title: jobNameOf(j), plan: jobNameOf(j), ...(round > 0 ? { round, ...(changes ? { changes } : {}) } : {}) }
   }
 }
 
@@ -62,6 +67,8 @@ export function hostSessionActivity(a: {
   log: ActivityLog & Pick<HostEventLog, 'recorded'>
   state: () => OrchState
   report(message: string): void
+  /** W7-A: starts a plan that holds with no approval step (`jobs-auto-start`); resolves whether it started. */
+  autoStart?(jobId: string): Promise<boolean>
 }): { onHookEvent(sessionId: string, payload: unknown): void; onSessionEvents(drafts: readonly EventDraft[]): void } {
   const record = (draft: ActivityDraft | null): void => {
     if (draft) a.log.recorded([draft])
@@ -78,7 +85,17 @@ export function hostSessionActivity(a: {
       guard(() => {
         if ((payload as { hook_event_name?: unknown } | null)?.hook_event_name !== 'Stop') return
         // `held` is read only for a planner's turn end, not every session's
-        record(planReadyActivity(a.state(), sessionId, () => activityOf(a.log)))
+        const ready = planReadyActivity(a.state(), sessionId, () => activityOf(a.log))
+        const job = ready?.jobId === undefined ? undefined : a.state().jobs.find((j) => j.id === ready.jobId)
+        // W7-A: auto-approve replaces the approval step; a start that does not go through asks for approval after all
+        if (ready && job && a.autoStart && autoApproveOf(a.state(), job)) {
+          const fallBack = (why?: unknown): void =>
+            guard(() => {
+              if (why !== undefined) a.report(`activity: plan ${job.id} could not start on its own: ${String(why)}`)
+              record(ready)
+            })
+          void a.autoStart(job.id).then((started) => (started ? undefined : fallBack()), fallBack)
+        } else record(ready)
       }),
     onSessionEvents: (drafts) =>
       guard(() => {

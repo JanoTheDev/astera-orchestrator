@@ -139,6 +139,10 @@ export interface Project {
   delivery?: DeliveryMode
   /** The branch a `push` delivery lands on. Absent: the repository's default branch. */
   deliveryBranch?: string
+  // ── W7-A plan feedback (exec/plannerFeedback.ts) ──
+  /** A plan that holds starts as soon as its planner ends its turn, with no approval step (`autoApproveOf`). Absent
+   *  reads as false. A Job may override it. */
+  autoApprove?: boolean
 }
 
 /** W6-H: how a finished plan lands (`deliveryOf`). */
@@ -262,6 +266,8 @@ export interface Job {
     cancelled?: string[]
     /** The Run's Tasks when it began, id to `updatedAt`: what it added and changed is read against this. */
     before?: Record<string, string>
+    /** W7-A: the owner's feedback this replan was started for (`PlanFeedback.at`); its summary is that feedback's change. */
+    feedbackAt?: string
   }
   /** The last replan that ended, for this boundary (`replansDue` reads it so a boundary replans once). `escalated`:
    *  why it was handed to the person instead (the plan did not hold, or a 4th follow-up wave); the hold stays then. */
@@ -269,6 +275,24 @@ export interface Job {
   // W6-H delivery (delivery.ts)
   /** This plan's own delivery, ahead of its project's (`deliveryOf`). Absent: the project's. */
   delivery?: DeliveryMode
+  // W7-A plan feedback (exec/plannerFeedback.ts)
+  /** This plan's own auto-approve, ahead of its project's (`autoApproveOf`). Absent: the project's. */
+  autoApprove?: boolean
+  /** What the owner told the planner (`jobs-feedback`), oldest first, with what the planner changed for each. */
+  feedback?: PlanFeedback[]
+  /** When the plan started on its own, with no approval step (`jobs-auto-start`). */
+  autoStartedAt?: string
+  /** The owner rejected the plan (`jobs-reject`): it is archived with this, and unarchiving keeps it as a record. */
+  rejected?: { at: string; reason?: string }
+}
+
+/** W7-A: one message of the owner to a plan's planner. `plan`: before approval, to the planner session itself; `run`:
+ *  while it runs, through a W6-D replan. `changes`: one short line per change the planner made for it, once it ended. */
+export interface PlanFeedback {
+  at: string
+  text: string
+  phase: 'plan' | 'run'
+  changes?: string[]
 }
 
 /** W6-D: which boundary a replan is for. `wave` is the wave about to start; a completion pass stands after the last. */
