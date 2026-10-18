@@ -53,7 +53,8 @@ starting the next wave. Each prompt owns its own files, which keeps conflicts to
 | 4 | 1 | `W4-final-linux-verification.md` | W3 merged |
 | 5 | 4 | `W5-A-worker-spawn-and-worktrees`, `W5-B-run-lifecycle-and-cli`, `W5-C-holds-and-command-bar`, `W5-D-feed-inbox-and-runtimes` (W4's issues #38–#53) | W4 merged |
 | 6 | 8 | `W6-A-intake-and-github`, `W6-B-autopilot-answers-and-sound`, `W6-C-scheduler-guards`, `W6-D-wave-replanning`, `W6-E-progress-view`, `W6-F-project-workspaces`, `W6-G-usage-guards`, `W6-H-delivery-modes` (Autopilot, see below) | W5 merged, **including PR #57** |
-| 6V | 1 | `W6-V-autopilot-dogfood.md` | W6 merged |
+| 7 | 2 | `W7-A-plan-feedback`, `W7-B-projects` | W6 merged |
+| 7V | 1 | `W6-V-autopilot-dogfood.md` (covers W6 and W7) | W7 merged |
 
 ### File ownership per wave (prevents tabs interfering)
 
@@ -82,6 +83,8 @@ starting the next wave. Each prompt owns its own files, which keeps conflicts to
 | W6-F | `components/workspace/*` | `App.tsx` (project selection + per-project layout state), keybindings |
 | W6-G | new `core/sessions/subagentCap.ts` + its hook script, `core/sessions/statusline.ts` (hook entries), new `core/orchestration/usageGuard.ts`, new `components/usage/*` | `exec/dispatchLoop.ts` (guard call), `blocked.ts` (one reason), `activity.ts` (two kinds), app-settings type, plan view mount |
 | W6-H | new `core/orchestration/delivery.ts`, `exec/integrateGit.ts` (push path) | `types.ts` (`Project.delivery`, `deliveryBranch`, Run delivery result), `command.ts` (`projects-set`, `--delivery`), the Run completion path, project settings UI, `activity.ts` (`plan.delivered`) |
+| W7-A | `lib/jobActions.ts`, new `components/plan/PlanTalk.tsx`, new `exec/plannerFeedback.ts` | `exec/plannerStart.ts`, `exec/replanStart.ts` (owner feedback input), `command.ts` (`jobs-feedback`, `jobs-reject`), `core/intents/*`, `types.ts` (`Project.autoApprove`, feedback history on the Job) |
+| W7-B | new `core/projects/create.ts`, new `core/projects/detect.ts`, new `components/projects/*` | `types.ts` (Project fields), `command.ts` (`projects-create`, `projects-add`, `projects-set`), `core/worktrees/base.ts` (only if needed), W6-F switcher mount |
 | W5-D | `activity.ts`, `components/activity/*`, `sessionIndex.ts`, `components/search/*`, `src/main/activityNotices.ts`, `src/main/remote/orchRouter.ts` | `src/host/index.ts`, `src/host/sessions.ts`, `src/main/ipc.ts`, `types.ts` |
 
 ## Wave 6 — Autopilot (owner request 2026-10-18)
@@ -147,6 +150,32 @@ possible.
     rolling has a fresher account. Running work is never stopped.
   - **Coordinator model:** stays haiku, per the 2026-10-17 decision. If auto-answers are poor, switch the coordinator
     role to sonnet in Settings; no code change is needed.
+
+## Wave 7 — Talk to the plan, every project (owner request 2026-10-18)
+
+**Principle: automate as much as possible.** Astera waits for the owner only for:
+- plan approval, and only when the project has not turned on auto-approve
+- an owner decision, an escalation or a permission prompt
+- anything outward-facing that was not set up beforehand (creating a GitHub repo, pushing a project that is not set
+  to `push`)
+
+Everything else runs on its own.
+
+- **W7-A:**
+  - At approval, the owner can talk to the planner (the same Claude session is resumed) until the plan is right,
+    reject it with a reason, or set auto-approve per project.
+  - The same feedback box works mid-run through the W6-D replan.
+- **W7-B:**
+  - Astera works for new projects (create, `git init`, initial commit, optional GitHub repo) and for existing ones
+    (add, detect the test command).
+  - Each project gets one settings page: delivery, auto-approve, test command, concurrency, review rounds,
+    replan, account.
+
+Contracts:
+- `Project.autoApprove?: boolean` (W7-A)
+- commands `jobs-feedback` / `jobs-reject` (W7-A)
+- commands `projects-create` / `projects-add` / `projects-set` (W7-B)
+- W7-B's settings page mounts W7-A's toggle
 
 ## Explicit non-goals / limits
 - No new terminal manager, account manager, or issue tracker.

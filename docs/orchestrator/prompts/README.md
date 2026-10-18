@@ -26,6 +26,8 @@ Status: Wave 0 merged (PR #25), Wave 1 merged (PRs #26–#29), 2026-10-17. See `
 | merge | MERGE (PR #57 still open) |
 | Wave 6 | W6-A-intake-and-github · W6-B-autopilot-answers-and-sound · W6-C-scheduler-guards · W6-D-wave-replanning · W6-E-progress-view · W6-F-project-workspaces · W6-G-usage-guards · W6-H-delivery-modes |
 | merge | MERGE |
-| Wave 6V | W6-V-autopilot-dogfood (alone) |
+| Wave 7 | W7-A-plan-feedback · W7-B-projects |
+| merge | MERGE |
+| Wave 7V | W6-V-autopilot-dogfood (alone; covers W6 + W7) |
 
 Owner decisions baked in (2026-10-17): Claude-only accounts for now (Codex later), mixed models by task difficulty, one PR per plan, local whisper.cpp for voice.

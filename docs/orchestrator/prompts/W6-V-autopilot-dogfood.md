@@ -1,4 +1,4 @@
-Run in ONE Claude tab after Wave 6 is merged. Run alone: nothing else on the laptop (CONTEXT rule 7).
+Run in ONE Claude tab after Waves 6 and 7 are merged. Run alone: nothing else on the laptop (CONTEXT rule 7).
 
 You are in /home/jonx/Desktop/Astera (my private fork, repo JanoTheDev/astera-orchestrator). Read
 docs/orchestrator/CONTEXT.md, PLAN.md ("Wave 6 — Autopilot"), LINUX.md and USAGE.md first.
@@ -28,8 +28,11 @@ Use a throwaway git repo (`/tmp/astera-dogfood`, a small TypeScript project with
    - `--mode audit --scope src`
    - two GitHub issues on a scratch repo with `--assign-me`. Ask me before creating issues anywhere: that is
      outward-facing.
-5. Set the dogfood project to `push` (a local bare repo as `origin`, never a real remote). Check that the plan lands
+5. Make the dogfood repo with W7-B's "New project" (no `--github`). At approval, send two rounds of feedback
+   through the planner box and check that the plan changes and the session was resumed. Then reject one plan, and
+   run one with auto-approve on.
+5b. Set the dogfood project to `push` (a local bare repo as `origin`, never a real remote). Check that the plan lands
    on `main` and is pushed. Then repeat with a dirty project folder and check that it escalates and touches nothing.
 6. File every failure as a GitHub issue (repro, expected, actual, file:line guess) labelled `wave-6`, and write the
-   Wave 7 prompts the way `d5eb889a` wrote Wave 5's.
+   Wave 8 prompts the way `d5eb889a` wrote Wave 5's.
 7. Append measurements and the new day-to-day flow to `LINUX.md` and `USAGE.md`. Open a PR; do not merge.
