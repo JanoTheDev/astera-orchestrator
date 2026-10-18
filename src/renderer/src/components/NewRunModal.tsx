@@ -53,6 +53,8 @@ export function NewRunModal({
   const [convergence, setConvergence] = useState(false)
   /** W2-A: start a planner session on the new Job (`jobs-plan`), which writes its Tasks for approval. */
   const [plan, setPlan] = useState(false)
+  /** W6-D: Job.replan. On (`waves`) is the default and is not sent. */
+  const [replan, setReplan] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   /** The create may have gone through on a Runtime whose answer was lost: not sent again from this form. */
@@ -75,6 +77,7 @@ export function NewRunModal({
         // 거절한다(server.ts).
         concurrency,
         ...(priority !== 0 ? { priority } : {}),
+        ...(plan && !scheduled && !replan ? { replan: 'off' } : {}),
         // **언제나 보낸다** — 아래 버튼이 계정 없이는 눌리지 않는다
         coordinatorAccount: coordinatorAccountId,
         // **`auto` 는 예약에도 보낸다.** 뜻은 "앱이 이것을 돌린다" 이고, 예약도 앱이 돌린다 —
@@ -255,6 +258,16 @@ export function NewRunModal({
               {t('jobs.new.planner')}
             </label>
             <p className="modal-hint">{t('jobs.new.plannerHint')}</p>
+            {/* W6-D: only a planned Job replans */}
+            {plan && (
+              <>
+                <label className="check-small">
+                  <input type="checkbox" checked={replan} onChange={(e) => setReplan(e.target.checked)} />
+                  {t('jobs.new.replan')}
+                </label>
+                <p className="modal-hint">{t('jobs.new.replanHint')}</p>
+              </>
+            )}
           </div>
         )}
         {error && <p className="warn">{error}</p>}

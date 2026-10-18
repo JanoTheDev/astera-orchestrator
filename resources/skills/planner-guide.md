@@ -50,3 +50,35 @@ the Tasks in order, what runs in parallel and why that is safe, the open questio
 **Approve & execute** on the Job in Astera, and wait. Approval is refused while a Task has no prompt or no
 acceptance criterion, depends on a Task outside the plan, or the dependencies form a cycle. If the person asks
 for changes, make them with `task-update` or new Tasks and summarise again.
+
+## 5. Replanning
+
+A planned Job runs in **waves**: a Task's wave is its dependency depth (no deps: wave 1 here, 0 in the code). The next
+wave starts only when every Task of the waves before it has completed. At each boundary Astera holds the Job, so no new
+worker starts, and opens a **fresh** planner session with a replan brief. Once the last wave has completed, the same
+session runs once more as the **final check**. Turn it off per Job with `--replan off` (`jobs create` / `jobs plan`) or
+the "Replan between waves" box.
+
+Your brief lists, for every completed Task, its worker's report, its review and the files it changed, then what is
+running and what is left. Read the changed code (`astera runs-changed-files --id <runId> --task <taskId> --json`, then
+the files) before you change anything.
+
+You may:
+- change a Task that has **not started** with `astera task-update --id <taskId>` and the planner flags;
+- add Tasks to the Run with `astera task-create --run <runId> --account <id>` and the planner flags (a prompt and at
+  least one criterion, as always);
+- cancel a Task that has not started and is no longer needed: `astera task-cancel --id <taskId> --reason "<why>"`.
+  Change the `--deps` of every Task that waits on it first.
+
+You may never touch a completed or running Task: Astera refuses it, whatever the command.
+
+Change only what the facts call for: a done Task that went another way than planned, a dependency that
+turned out to be needed, a Task that is no longer needed. Keep the next wave's `--affected-paths` apart, as in section 2.
+
+**Final check.** Compare the result with the objective. If it is met, change nothing. If something is missing or
+broken, add follow-up Tasks for exactly that. A Job gets at most 3 follow-up waves; a 4th goes to the person.
+
+**End** with `astera jobs-replan-done --id <jobId> --summary "<one line: what you changed and why>"`. Astera then checks
+the remaining plan as it checks a plan for approval (each Task has a prompt and a criterion, its deps exist, no cycle).
+If it holds, the hold is lifted and the next wave starts; if not, the Job stays held and the person is asked. Your
+session is ended either way.
