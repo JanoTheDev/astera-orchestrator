@@ -57,3 +57,17 @@ describe('accountLoginHandlers (#82)', () => {
     expect(r.message).not.toContain('secret')
   })
 })
+
+describe('accountLoginHandlers, opened again right after a cancel (#82)', () => {
+  it('waits for the cancelled run to exit instead of answering BUSY', async () => {
+    const procs = [fakeProc(), fakeProc()]
+    let n = 0
+    const h = accountLoginHandlers({ account: () => account, run: () => procs[n++], loggedIn: async () => true })
+    const first = h.login('a1')
+    h.cancelLogin()
+    const second = h.login('a1')
+    await expect(first).resolves.toEqual({ ok: false, reason: 'cancelled' })
+    procs[1].exit(0)
+    await expect(second).resolves.toEqual({ ok: true })
+  })
+})

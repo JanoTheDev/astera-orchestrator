@@ -88,6 +88,7 @@ const api = {
     logout: invoke('accounts.logout'),
     syncSettings: invoke('accounts.syncSettings'),
     // W7-F (#82)
+    rename: invoke('accounts.rename'),
     login: invoke('accounts.login'),
     loginState: invoke('accounts.loginState'),
     loginCode: invoke('accounts.loginCode'),

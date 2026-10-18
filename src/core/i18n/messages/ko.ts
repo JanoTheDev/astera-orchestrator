@@ -1030,6 +1030,8 @@ export const ko = {
   'account.add.loginHintClaude': '추가하면 Astera가 이 계정의 로그인 링크를 띄웁니다.',
   'account.add.loginHintCodex': '추가하면 Astera가 이 계정의 codex 로그인 링크를 띄웁니다.',
   // W7-F (#82): sign an account in from the app
+  'account.rename.label': '계정 이름',
+  'account.rename.hint': '두 번 눌러 이름 바꾸기',
   'account.signIn.button': '로그인',
   'account.signIn.title': '{label} 로그인',
   'account.signIn.starting': '로그인을 시작하는 중…',

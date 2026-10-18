@@ -933,6 +933,8 @@ export const en: Record<keyof typeof ko, string> = {
   'account.add.loginHintClaude': 'Astera then opens the sign-in link for this account.',
   'account.add.loginHintCodex': 'Astera then opens the codex sign-in link for this account.',
   // W7-F (#82): sign an account in from the app
+  'account.rename.label': 'Account name',
+  'account.rename.hint': 'Double-click to rename',
   'account.signIn.button': 'Sign in',
   'account.signIn.title': 'Sign in {label}',
   'account.signIn.starting': 'Starting the sign-in…',

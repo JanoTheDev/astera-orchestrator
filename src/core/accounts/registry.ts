@@ -249,6 +249,19 @@ export class AccountRegistry {
     if (changed) await this.save()
   }
 
+  /** The owner's own name for an account. A label that no longer equals the folder's email also stops #77's relabel. */
+  async rename(id: string, labelRaw: unknown): Promise<Account> {
+    const label = typeof labelRaw === 'string' ? labelRaw.trim() : ''
+    if (label === '' || label.length > 200) throw new Error('INVALID: account label')
+    await this.ensureRead()
+    this.get(id) // verifies it exists
+    return this.changing(() => {
+      const account = this.get(id)
+      account.label = label
+      return { ...account }
+    })
+  }
+
   /** W7-F (#77): records the folder's email as read at a login check, relabelling the row when the folder now belongs
    *  to someone else (emailChange.ts). Answers whether it did switch, so the caller drops the old usage reading. */
   async noteEmail(id: string, email: string | null): Promise<boolean> {

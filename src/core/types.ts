@@ -1199,6 +1199,7 @@ export interface CoreApi {
     logout(id: string): Promise<{ ok: boolean; message?: Message }> // claude auth logout (removes the credentials)
     // W7-F (#82): the CLI's own sign-in for this account's folder (main/accountLogin.ts). login resolves when the CLI
     // exits; loginState is polled for the link it printed; loginCode answers its paste prompt.
+    rename(id: string, label: string): Promise<Account>
     login(id: string): Promise<{ ok: boolean; reason?: 'cancelled' | 'timeout'; message?: string }>
     loginState(): Promise<{ id: string; url: string | null; asksCode: boolean } | null>
     loginCode(code: string): Promise<void>

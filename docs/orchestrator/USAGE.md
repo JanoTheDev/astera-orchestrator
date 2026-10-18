@@ -11,10 +11,12 @@ owns every session and drives every plan, so closing the window stops nothing (L
   dialog with **Open in browser** and **Copy**. Sign in in the browser; if it shows a code, paste it into the dialog's
   code box. The dialog closes by itself once the account reads as logged in. A row that is not logged in has a
   **Sign in** button that does the same. Hover a row for **×** (Remove): the same unregister flow as Settings →
-  Accounts, with "Also log out". The link is held only in memory, never logged or stored.
+  Accounts, with "Also log out". Double-click an account's name to rename it (Enter saves, Escape cancels). The link
+  is held only in memory, never logged or stored.
 - If you re-log an account's folder as someone else (`claude /login` in `~/.claude`), the row follows at the next
   login check (when the window gets focus): its label becomes the new email, unless you renamed the account, and the
-  old person's usage reading is dropped.
+  old person's usage reading is dropped. A folder re-logged before this check existed is caught at its first check when
+  its label is still an email address.
 - Settings → Orchestration models: the model of each role. Defaults: planner and reviewer `opus`, coordinator `haiku`,
   workers by Task difficulty (light → haiku, standard → sonnet, hard → opus). Empty means the CLI's default model.
 - Settings → "Max workers across all jobs": the app-wide cap, at most 10. Empty means 10. At the cap, plans with a higher

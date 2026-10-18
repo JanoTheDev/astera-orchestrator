@@ -20,38 +20,43 @@ export function AccountSignInDialog({ account, onClose }: { account: Account; on
   }
 
   useEffect(() => {
+    // Per run of this effect, not the shared ref: under StrictMode the first run's login answers "cancelled" after the
+    // second run has started, and must not close the dialog the second run owns.
+    let alive = true
     closed.current = false
+    const finish = (): void => {
+      if (!alive || closed.current) return
+      closed.current = true
+      onClose()
+    }
     window.api.accounts.login(account.id).then(
       (r) => {
-        if (closed.current) return
+        if (!alive || closed.current) return
         if (r.ok) toast.success(t('account.signIn.done', { label: account.label }))
         else if (r.reason === 'timeout') toast.error(t('account.signIn.timeout'))
         else if (r.reason !== 'cancelled') toast.error(t('account.signIn.failed', { detail: r.message ?? '' }))
-        closed.current = true
-        onClose()
+        finish()
       },
       (err) => {
+        if (!alive || closed.current) return
         toast.error(t('account.signIn.failed', { detail: err instanceof Error ? err.message : String(err) }))
-        closed.current = true
-        onClose()
+        finish()
       }
     )
     // The link arrives a moment after the CLI starts; the probe settles it, also for a browser-side login the CLI
     // itself does not notice at once.
     const timer = setInterval(() => {
-      window.api.accounts.loginState().then((s) => { if (s && s.id === account.id) setState({ url: s.url, asksCode: s.asksCode }) }, () => {})
+      window.api.accounts.loginState().then((s) => { if (alive && s && s.id === account.id) setState({ url: s.url, asksCode: s.asksCode }) }, () => {})
       window.api.accounts.loginStatus(account.id).then((on) => {
-        if (!on || closed.current) return
+        if (!on || !alive || closed.current) return
         toast.success(t('account.signIn.done', { label: account.label }))
         close()
       }, () => {})
     }, 1000)
     return () => {
+      alive = false
       clearInterval(timer)
-      if (!closed.current) {
-        closed.current = true
-        void window.api.accounts.cancelLogin().catch(() => {})
-      }
+      void window.api.accounts.cancelLogin().catch(() => {})
     }
     // One login per open dialog.
     // eslint-disable-next-line react-hooks/exhaustive-deps

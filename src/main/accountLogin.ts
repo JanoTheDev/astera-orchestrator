@@ -43,6 +43,9 @@ export function accountLoginHandlers(deps: {
     async login(idRaw: unknown): Promise<AccountLoginResult> {
       if (typeof idRaw !== 'string') throw new Error('INVALID: account id')
       const account = deps.account(idRaw) // throws for an unknown id
+      // A cancelled run still exiting is waited for, not refused: a dialog closed and opened again at once (React
+      // StrictMode mounts effects twice) would otherwise get BUSY.
+      if (active?.why === 'cancel') await active.proc.exited.catch(() => 0)
       if (active) throw new Error('BUSY: another sign-in is running')
       const proc = deps.run(account)
       const me = { id: account.id, url: null as string | null, asksCode: false, proc, why: null as 'cancel' | 'timeout' | null }
