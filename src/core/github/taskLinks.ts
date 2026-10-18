@@ -179,6 +179,8 @@ export function planPrBody(a: {
   tasks: readonly PlanPrTask[]
   /** W8-C: the plan's waves before the Tasks (draftPr.ts wavesSection), and the last line in place of the usual one. */
   waves?: string
+  /** W9-I: "What each task did", after the Tasks (core/sessions/summary.ts rollupMarkdown); empty for none. */
+  did?: string
   footer?: string
 }): string {
   const lines = [`Plan: ${a.plan}`, '', ...(a.waves ? [a.waves, ''] : []), '## Tasks', '']
@@ -194,6 +196,7 @@ export function planPrBody(a: {
     }
     lines.push('')
   }
+  if (a.did) lines.push(a.did, '')
   lines.push(a.footer ?? 'Opened by Astera when every task of the plan was done. It is never merged automatically.')
   return lines.join('\n')
 }

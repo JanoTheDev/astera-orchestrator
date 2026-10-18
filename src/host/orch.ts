@@ -53,6 +53,7 @@ import type { HostJournal } from './hostJournal'
 import type { HostEventLog } from './eventLog'
 import { pollEvents } from './eventsPoll'
 import { ACTIVITY_COMMANDS, activityReply } from './activity'
+import type { HostSummaries } from './hostSummaries'
 import { NOT_WRITER, type HostUnderstanding } from './hostUnderstanding'
 import type { HostWorkUnits } from './hostWorkUnits'
 import { ensureProject, findProject, setProjectSettings } from '../core/orchestration/projects'
@@ -548,6 +549,10 @@ export function createHostOrch(a: {
   /** How It Works records (MCP P2-C), passed through to `hostOrchDeps`. Absent: the `understanding-*`
    *  commands answer 409. */
   readUnderstanding?: OrchServerDeps['readUnderstanding']
+  /** W9-I: the tab summaries (hostSummaries.ts): passed through to `hostOrchDeps` for `summaries` and `sessions-summary`. */
+  readSummaries?: OrchServerDeps['readSummaries']
+  /** W9-I: handed every commit's two states, so a Task that ends leaves its tab's card (hostSummaries.ts). */
+  summaries?: Pick<HostSummaries, 'committed'> | null
   /** W6-A intake, passed through to `hostOrchDeps`. */
   intakeInputs?: OrchServerDeps['intakeInputs']
   /** W8-C prompts mode, passed through to `hostOrchDeps`. */
@@ -621,6 +626,12 @@ export function createHostOrch(a: {
       a.activity?.committed(prev, next)
     } catch (err) {
       a.log(`activity: recording a commit failed on the Host: ${String(err)}`)
+    }
+    // W9-I: a Task that ended leaves its tab's card; hostSummaries never throws and never waits on its model.
+    try {
+      a.summaries?.committed(prev, next)
+    } catch (err) {
+      a.log(`summaries: a commit failed on the Host: ${String(err)}`)
     }
   }
 
@@ -839,6 +850,7 @@ export function createHostOrch(a: {
       ...(a.createSession ? { createSession: a.createSession } : {}),
       ...(a.github ? { github: a.github } : {}),
       ...(a.readUnderstanding ? { readUnderstanding: a.readUnderstanding } : {}),
+      ...(a.readSummaries ? { readSummaries: a.readSummaries } : {}), // W9-I
       ...(a.intakeInputs ? { intakeInputs: a.intakeInputs } : {}),
       // W8-C prompts mode
       ...(a.readIntakeText ? { readIntakeText: a.readIntakeText } : {}),

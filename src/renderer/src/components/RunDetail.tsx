@@ -48,6 +48,8 @@ import { SourceChip } from './SourceChip'
 import { jobName } from '../lib/jobName'
 // W2-C plan board
 import { PlanOverview } from './plan/PlanOverview'
+import { PlanSummaryRollup } from './wall/PlanSummaryRollup' // W9-I
+import { useSummaries } from '../state/useSummaries'
 import { PlanTalk } from './plan/PlanTalk'
 import { UsageStrip } from './usage/UsageStrip'
 import { TaskBoard } from './plan/TaskBoard'
@@ -412,6 +414,7 @@ export function RunDetail({
   // W6-E: the board (by wave) opens first, as the place a plan run is watched, and a files tab joins them
   const [view, setView] = useState<'graph' | 'board' | 'files'>('board')
   const live = usePlanLive(door, view === 'board')
+  const summaries = useSummaries(door, runId) // W9-I: the board's lines and "What happened so far"
   // 고른 Task 가 스냅샷에서 사라졌으면 필터도 없다 — 걸러 낸 목록이 영원히 비는 대신 전체를 그린다
   const selectedTask = tasks.find((tk) => tk.id === selected)
   const events = detail?.events ?? null
@@ -866,6 +869,7 @@ export function RunDetail({
                 ))}
               </div>
             </div>
+            <PlanSummaryRollup summaries={summaries.summaries} canOpenSession={canOpenSession} onOpenSession={onOpenSession} />
             {/* W6-G: per-account usage, live subagents per tab, and the threshold */}
             <UsageStrip accounts={accounts} tasks={tasks} />
             {/* W7-A: talk to the planner, reject, and the auto-start notice */}
@@ -964,6 +968,7 @@ export function RunDetail({
                 canOpenSession={canOpenSession}
                 onOpenSession={onOpenSession}
                 projectPath={projectPath}
+                summaries={summaries.byTask}
               />
             ) : (
             <Graph

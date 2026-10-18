@@ -167,6 +167,7 @@ import type { Lang } from '../i18n'
 import { isOverrideCompletion, policyOf } from './convergence'
 import { leftNothingBehind } from '../host/orchProtocol'
 import { APP_CALLER, HOST_CALLER } from '../host/driver'
+import { rollupMarkdown, type SessionSummary } from '../sessions/summary'
 import { UNREADABLE, recordDetail, recordSummary, recordsFor, type StoreShape } from '../understanding/read'
 import { JOB_SOURCE, SOURCE_COMMANDS, createFromContext, sourcesCommand, type JobSourcesDeps } from './commandSources'
 // W6-D wave replanning
@@ -748,6 +749,9 @@ export interface OrchServerDeps {
    *  never written (`readUnderstandingFile`). **Only the Host injects it**, over its profile's file: the
    *  app has the records in its own store and no caller asks it. Absent, `understanding-*` answer 409. */
   readUnderstanding?(): Promise<StoreShape>
+  /** W9-I: the tab summaries (host/hostSummaries.ts), newest first, read from the Host's summaries.json. **Only the Host
+   *  injects it.** Absent, `summaries` and `sessions-summary` answer 409. */
+  readSummaries?(jobId?: string): Promise<SessionSummary[]>
   // W6-A intake
   /** Copies the files a person attached into the Job's inputs folder, beside its plan.md (`copyIntakeFiles`), and
    *  answers the folder; throws the refusal's sentence. **Only the Host injects it**, over its profile; absent,
@@ -1439,6 +1443,19 @@ async function prAttribution(s: OrchState, runId: string, cwd: string): Promise<
     const tasks = s.tasks.filter((t) => t.runId === runId).map((t) => ({ id: t.id, title: t.title, commits: t.links?.commits ?? [] }))
     const block = await attributionBlock(cwd, run.jobId, tasks)
     return block === '' ? '' : `\n\n${block}`
+  } catch {
+    return ''
+  }
+}
+
+/** W9-I: a plan PR's "What each task did" block (core/sessions/summary.ts rollupMarkdown), from the cards of this Run's
+ *  Tasks; empty with no cards or on any failure, so the PR never waits on it. */
+async function prSummaries(deps: OrchServerDeps, s: OrchState, runId: string): Promise<string> {
+  const run = s.runs.find((r) => r.id === runId)
+  if (!run || !deps.readSummaries) return ''
+  try {
+    const own = new Set(s.tasks.filter((t) => t.runId === runId).map((t) => t.id))
+    return rollupMarkdown((await deps.readSummaries(run.jobId)).filter((c) => c.taskId !== undefined && own.has(c.taskId)))
   } catch {
     return ''
   }
@@ -5607,6 +5624,28 @@ export async function handleCommand(
       return read.ok ? okBody(read.issue) : ghRefusal(read)
     }
     /**
+     * W9-I: what a tab did (core/sessions/summary.ts), read only, answered by the Host only (`deps.readSummaries`).
+     * `summaries` lists the cards, a plan's with `--job`; `sessions-summary` is one session's card or a 404 (a tab
+     * that has none yet, or one that wrote nothing).
+     */
+    case 'summaries':
+    case 'sessions-summary': {
+      if (!deps.readSummaries) return conflict('tab summaries are answered by the Astera Host')
+      const id = cmd === 'sessions-summary' ? str(args.id) : null
+      if (cmd === 'sessions-summary' && id === null) return bad('--id is required: a session id (from `sessions list`)')
+      const job = args.job === undefined ? undefined : str(args.job)
+      if (job === null) return bad('--job needs a value: a plan id (from `jobs list`)')
+      let cards: SessionSummary[]
+      try {
+        cards = await deps.readSummaries(job)
+      } catch {
+        return { status: 500, body: { error: 'the tab summaries could not be read' } }
+      }
+      if (cmd === 'summaries') return okBody(cards)
+      const found = cards.find((c) => c.sessionId === id)
+      return found ? okBody(found) : notFound(`no summary for session: ${id}`)
+    }
+    /**
      * How It Works records (MCP P2-C), read only, answered by the Host only (`deps.readUnderstanding`).
      * `--project` is the project's id, as for `github-*`; its records are the understanding.json entry
      * whose key is the project's root (`recordsFor`). The file is read on every call, so a record the
@@ -5834,7 +5873,7 @@ export async function handleCommand(
       const title = jobNameOf(job)
       const tasks = planPrTasksOf(cur, id, (a) => accounts.find((x) => x.id === a)?.label)
       const body =
-        planPrBody({ plan: title, tasks, waves: wavesSection(waves), footer: DRAFT_PR_FOOTER }) + (await prAttribution(cur, id, t.cwd)) // W8-A
+        planPrBody({ plan: title, tasks, waves: wavesSection(waves), did: await prSummaries(deps, cur, id), footer: DRAFT_PR_FOOTER }) + (await prAttribution(cur, id, t.cwd)) // W8-A
       const at = deps.now?.() ?? now
       const record = async (pr: RunPr, links?: TaskLinks): Promise<void> => {
         const st = deps.getState()
@@ -5923,6 +5962,7 @@ export async function handleCommand(
         planPrBody({
           plan: title,
           tasks: planPrTasksOf(deps.getState(), id, (a) => accounts.find((x) => x.id === a)?.label),
+          did: await prSummaries(deps, deps.getState(), id), // W9-I
           // W8-C draft PR: the PR that followed the plan keeps its waves, all done now
           ...(draft ? { waves: wavesSection(runWaves(deps.getState(), id)) } : {})
         }) + (await prAttribution(deps.getState(), id, worktree)) // W8-A

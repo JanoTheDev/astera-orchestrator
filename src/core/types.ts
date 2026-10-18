@@ -1531,6 +1531,9 @@ export interface CoreApi {
     /** W7-F (#84): an ended plan's session tabs close on their own; default true. */
     getAutoCloseEndedPlanTabs(): Promise<boolean>
     setAutoCloseEndedPlanTabs(on: boolean): Promise<void>
+    /** W9-I: a short summary card when a tab ends (DESIGN §4); default true. */
+    getTabSummaries(): Promise<boolean>
+    setTabSummaries(on: boolean): Promise<void>
     // The four desktop-notification switches (design doc §6/§8). Read by the settings screen and by
     // DesktopNotifier itself (main), which is why the type lives in core/notify/settings rather than here.
     getDesktopNotify(): Promise<DesktopNotifySettings>

@@ -4364,6 +4364,12 @@ export function registerIpc(
     if (typeof on !== 'boolean') throw new Error(`INVALID_AUTO_CLOSE_TABS: ${String(on)}`)
     await core.appSettings.setAutoCloseEndedPlanTabs(on)
   })
+  // W9-I: a short summary card when a tab ends
+  ipcMain.handle('settings.getTabSummaries', () => core.appSettings.getTabSummaries())
+  ipcMain.handle('settings.setTabSummaries', async (_e, on: unknown) => {
+    if (typeof on !== 'boolean') throw new Error(`INVALID_TAB_SUMMARIES: ${String(on)}`)
+    await core.appSettings.setTabSummaries(on)
+  })
   ipcMain.handle('settings.getMaxConcurrentWorkers', () => core.appSettings.getMaxConcurrentWorkers())
   ipcMain.handle('settings.setMaxConcurrentWorkers', async (_e, n: unknown) => {
     if (n !== null && (typeof n !== 'number' || !Number.isInteger(n) || n < 1))

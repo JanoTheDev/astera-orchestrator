@@ -405,6 +405,26 @@ Runtime, marked "on <runtime>".
   silent, so you hear one sound.
 - Desktop notices need the app open. The Host keeps the feed while the app is closed, and you read it when you return.
 
+## What each tab did (W9-I)
+
+Every tab that ends leaves a short card, so you can see later what happened in it without opening it.
+
+- **When.** A Task's worker tab gets its card when the Task is merged or given up (or when a retry replaced the tab). A
+  plain session gets one when its terminal exits, or when it has sat idle at a finished turn for 10 minutes, and only if
+  it wrote something. Each tab gets one card, once. The Host writes it, so it happens with the Astera window closed.
+- **What it holds.** The title and the outcome (Merged, Merged · N rounds, Gave up, Stopped, Done), how long it ran, the
+  files it touched with +/−, the checks it ran and their result, the reviewer rounds and verdict, the questions it asked
+  and who answered (the coordinator or you), and the commits or PR. Under that, 2–3 sentences of what it did and what
+  is left open. The sentences are written by the coordinator role's model (haiku by default) from the facts, the
+  agent's own summary and the last lines of the tab. If the model cannot be asked, or does not answer within 90 s, the
+  card keeps the facts and has no sentences. It is never asked a second time.
+- **Where you see it.** The Agents page, under "Finished · what each console did"; one row on the Task's card; one row
+  in History; the plan's Overview, "What happened so far"; and the plan's pull request, under **What each task did**.
+- **From a shell.** `astera summaries [--job <planId>]` lists the cards, newest first. `astera sessions summary --id
+  <sessionId>` shows one, or 404 for a tab that has none.
+- **Off switch.** Settings → Notifications → "Write a summary when a tab ends" (on by default). Cards are stored in
+  `<profile>/summaries.json`: ids, facts and the sentences, nothing else from the session.
+
 ## Command bar and voice (W3-B)
 
 The command bar is a conversation with the **coordinator**. Open it with **Ctrl+Shift+K**
