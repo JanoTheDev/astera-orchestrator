@@ -63,6 +63,12 @@ sessions or plans never restarts a process or changes its cwd. Scrollback surviv
   `hw1` finds "Hold Worker 1". Each hit shows "project › plan · task".
 - **Board**: the Run window's board shows every Task, and for each one that is not running, why ("waits for A",
   "App-wide limit full", "Its worker was stopped").
+  The board opens first and groups the Tasks by wave ("Wave 1 · 3/4 done"), with the current wave highlighted and
+  "Replanning wave 3…" on it while the planner adjusts the rest of the plan. Each card lists its files (three, then
+  "+N more"), what its worker is doing now ("Editing src/x.ts · 0:12 ago", "Running npm test", "Waiting for your
+  permission", "Asked the coordinator") and the questions the coordinator answered for it. Clicking a running card
+  opens its tab. The **Files** tab lists every file of the plan with the Tasks that touch it; a file two Tasks share is
+  highlighted, and clicking a file shows its folder in the explorer.
 
 ## Usage guards (W6-G)
 

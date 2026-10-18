@@ -50,6 +50,10 @@ import { jobName } from '../lib/jobName'
 import { PlanOverview } from './plan/PlanOverview'
 import { UsageStrip } from './usage/UsageStrip'
 import { TaskBoard } from './plan/TaskBoard'
+// W6-E progress view
+import { PlanFiles } from './plan/PlanFiles'
+import { replanningOf } from './plan/planBoard'
+import { usePlanLive } from './plan/usePlanLive'
 
 /** 종류 배지의 문구. message 는 messageType 이 정한다.
  *  heartbeat 과 decision_gate 는 timeline.ts 의 SKIP 이 걸러 지금은 도달하지 않지만, 맵을
@@ -178,7 +182,8 @@ export function RunDetail({
   onShowOlderJournal,
   onClose,
   runtimeId,
-  door
+  door,
+  onOpenPath
 }: {
   /** 스냅샷에 있는 그 Run. 노드의 제목·상태·세션은 전부 여기서 온다(detail 은 id 만 준다).
    *  스냅샷과 detail 은 서로 다른 호출이라 어긋날 수 있으므로, 한쪽에만 있는 Task 는 그리지 않는다. */
@@ -200,6 +205,8 @@ export function RunDetail({
   runtimeId?: string
   /** Where this Run's commands, accounts and run configurations go: this computer or its Runtime (Phase 7). */
   door: OrchDoor
+  /** W6-E: show an affected path (relative to the project) in the file explorer. */
+  onOpenPath?: (path: string) => void
 }): React.JSX.Element {
   const { t } = useI18n()
   /** Why the controls are off: a read-only pairing (Phase 7). They are drawn disabled with it as their title, and it
@@ -400,8 +407,10 @@ export function RunDetail({
     })
 
   const tasks = run?.tasks ?? []
-  // W2-C plan board: the graph or the board in the upper half; the overview sits above either
-  const [view, setView] = useState<'graph' | 'board'>('graph')
+  // W2-C plan board: the graph or the board in the upper half; the overview sits above either.
+  // W6-E: the board (by wave) opens first, as the place a plan run is watched, and a files tab joins them
+  const [view, setView] = useState<'graph' | 'board' | 'files'>('board')
+  const live = usePlanLive(door, view === 'board')
   // 고른 Task 가 스냅샷에서 사라졌으면 필터도 없다 — 걸러 낸 목록이 영원히 비는 대신 전체를 그린다
   const selectedTask = tasks.find((tk) => tk.id === selected)
   const events = detail?.events ?? null
@@ -822,7 +831,7 @@ export function RunDetail({
             <div className="plan-head">
               <PlanOverview tasks={tasks} />
               <div className="plan-view-toggle" role="group">
-                {(['graph', 'board'] as const).map((v) => (
+                {(['graph', 'board', 'files'] as const).map((v) => (
                   <button key={v} type="button" aria-pressed={view === v} className={view === v ? 'active' : ''} onClick={() => setView(v)}>
                     {t(`plan.view.${v}`)}
                   </button>
@@ -891,8 +900,22 @@ export function RunDetail({
                 {run?.pr && <RunPrChip pr={run.pr} />}
               </div>
             )}
-            {view === 'board' ? (
-              <TaskBoard tasks={tasks} accounts={accounts} selected={selectedTask?.id} onSelect={onNodeClick} />
+            {view === 'files' ? (
+              <PlanFiles tasks={tasks} onOpenPath={onOpenPath} onSelect={onNodeClick} />
+            ) : view === 'board' ? (
+              <TaskBoard
+                tasks={tasks}
+                accounts={accounts}
+                selected={selectedTask?.id}
+                onSelect={onNodeClick}
+                layers={detail?.layers ?? []}
+                events={events ?? []}
+                activity={live.activity}
+                sessions={live.sessions}
+                replanning={replanningOf(live.activity, runId)}
+                canOpenSession={canOpenSession}
+                onOpenSession={onOpenSession}
+              />
             ) : (
             <Graph
               tasks={tasks}
