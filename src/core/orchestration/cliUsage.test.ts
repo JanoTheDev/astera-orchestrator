@@ -403,6 +403,12 @@ describe('unknownFlagError — 공개 명령은 모르는 플래그를 거절한
     expect(err).toContain('runs wait')
   })
 
+  // W7-D (#81, #67): tasks add takes the planner's --affected-paths; jobs set takes --concurrency
+  it('W7-D: tasks add --affected-paths and jobs set --concurrency are not refused', () => {
+    expect(check('tasks add --job j1 --spec - --account a1 --affected-paths ["src/a.ts"]')).toBeNull()
+    expect(check('jobs set --id j1 --concurrency 10')).toBeNull()
+  })
+
   it('감사가 실행으로 본 무시 사례가 전부 거절된다', () => {
     for (const line of [
       'tasks list --project p_x',

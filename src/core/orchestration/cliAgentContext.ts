@@ -222,7 +222,7 @@ const SESSION = {
   'task-create': {
     summary: 'add a Task to a run',
     detail:
-      "Pass --run every time. Without it the Task lands in whatever run was created last across the whole app, which may be someone else's.",
+      "Pass --run every time. Without it the Task lands in whatever run was created last across the whole app, which may be someone else's. A spec or prompt with quotes goes on stdin (`--spec -` or `--prompt -`, one of them per call, with a quoted heredoc `<<'EOF'`), never inside shell quotes.",
     flags: [
       req('spec', '<text|->', 'the work, in full (a value of `-` reads it from stdin)'),
       req('account', '<id,…>', 'the accounts a worker for this Task may run on'),

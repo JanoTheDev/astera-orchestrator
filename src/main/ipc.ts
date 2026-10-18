@@ -4666,6 +4666,8 @@ export function registerIpc(
     'run-delete': 'id',
     // W1-C plan lifecycle: each names its Job by `--id`
     'jobs-rename': 'id',
+    // W7-D: the Run window's worker count
+    'jobs-set': 'id',
     'jobs-archive': 'id',
     'jobs-unarchive': 'id',
     // W5-C holds: a plan of another project is not held through this door

@@ -116,10 +116,10 @@ import { ghFailureSentence, type GhFailed, type GhRunner } from '../github/gh'
 import { failedLogTail, readPrChecks, rerunFailed } from '../github/checks'
 import { prForBranch } from '../github/prs'
 import { ISSUE_JOB_ASSOCIATIONS, ISSUES_PER_CALL_MAX, assignIssueToMe, issueNumbersOf, readIssue, type GhIssue } from '../github/issue'
-import { GITHUB_SOURCE_ID, issuesContext } from '../github/issueSource'
+import { GITHUB_SOURCE_ID, issuesContext, issuesTitleOf } from '../github/issueSource'
 // W6-A intake
 import { SOURCED_OBJECTIVE_MAX } from '../sources/objective'
-import { intakeChanges, intakeObjective, intakeOf, needsInputs } from './intake'
+import { intakeChanges, intakeObjective, intakeOf, intakeTitle, needsInputs } from './intake'
 import { fillFromCommits, type CommitSummary } from '../github/fill'
 // W2-D GitHub links
 import {
@@ -1061,6 +1061,8 @@ const COORDINATOR_ONLY = new Set([
   'tasks-dispatch',
   // W1-C: a worker does not rename, archive or bring back the plan it works for
   'jobs-rename',
+  // W7-D: nor change how many workers it runs
+  'jobs-set',
   // W2-A: nor start a planner
   'jobs-plan',
   'jobs-archive',
@@ -1694,7 +1696,7 @@ export async function handleCommand(
       try {
         const created = await deps.makeRunWorktree({
           repoPath: job.cwd,
-          name: nameForRun({ id: job.id, objective: job.objective })
+          name: nameForRun({ id: job.id, objective: jobNameOf(job) }) // W7-D (#68): named as the plan is
         })
         const recorded = setRunWorktree(withWorktree, target.id, created)
         if (!recorded.ok) return bad(recorded.error)
@@ -2201,8 +2203,14 @@ export async function handleCommand(
           }
         }
         const objective = intakeObjective(intake, source, inputs)
+        // W7-D (#68): the plan's name, so its boilerplate objective is never what the plan is called. A title already
+        // there is kept.
+        const title = intakeTitle(intake, source, inputs?.names ?? [])
         const cur = deps.getState()
-        await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id ? { ...j, objective } : j)) })
+        await deps.setState({
+          ...cur,
+          jobs: cur.jobs.map((j) => (j.id === id ? { ...j, objective, ...(title !== undefined && j.title === undefined ? { title } : {}) } : j))
+        })
       }
       const after = deps.getState()
       const created = after.jobs.find((j) => j.id === id)
@@ -2650,6 +2658,25 @@ export async function handleCommand(
       if (!r.ok) return refused(r)
       await deps.setState(r.state)
       return okBody(jobView(r.state, r.value, latestRunOf(r.state, r.value)))
+    }
+    // W7-D (#67): how many workers a plan runs at once, changed until it finishes. A lower value only limits new starts
+    // (slotsToFill reads Job.concurrency each tick): a running worker is never stopped by it.
+    case 'jobs-set': {
+      if (fromAgentSession || caller.role === 'mcp') return denied('jobs-set is for the person, in Astera or at their own shell')
+      const id = str(args.id)
+      if (!id) return bad('--id is required')
+      if (args.concurrency === undefined) return bad('nothing to set: give --concurrency')
+      const concurrency = concurrencyArg(args.concurrency)
+      if (concurrency === null) return bad('--concurrency must be an integer >= 1')
+      // A Run's id names its Job, as `jobs get` reads it: the Run window holds either
+      const named = s.runs.find((r) => r.id === id)
+      const job = s.jobs.find((j) => j.id === id) ?? (named && jobOf(s, named))
+      if (!job) return notFound(`unknown job or run: ${id}`)
+      const run = latestRunOf(s, job)
+      if (run && outcomeOf(s, run.id) !== 'running') return conflict(`job ${job.id} has finished: there is nothing left to start`)
+      const next: Job = { ...job, concurrency }
+      await deps.setState({ ...s, jobs: s.jobs.map((j) => (j.id === job.id ? next : j)) })
+      return okBody(jobView(deps.getState(), next, run))
     }
     case 'jobs-unarchive': {
       const id = str(args.id)
@@ -5371,9 +5398,13 @@ export async function handleCommand(
         itemId: numbers.join(',')
       })
       if (reply.status < 200 || reply.status >= 300) return reply
+      // W7-D (#68): named by all its issues ("#1 unique() is O(n²) +1"), here and in its PR's title (jobNameOf)
+      const madeId = (reply.body as { id?: unknown }).id
+      const named = renameJob(deps.getState(), String(madeId), issuesTitleOf(issues))
+      if (named.ok) await deps.setState(named.state)
       const ref = (i: GhIssue): { number: number; url: string } => ({ number: i.number, url: i.url })
       // `issue` stays for one issue, as it always answered; `issues` lists them all.
-      return okBody({ ...(reply.body as object), ...(issues.length === 1 ? { issue: ref(issues[0]) } : {}), issues: issues.map(ref) })
+      return okBody({ ...(reply.body as object), ...(named.ok ? { title: named.value.title } : {}), ...(issues.length === 1 ? { issue: ref(issues[0]) } : {}), issues: issues.map(ref) })
     }
     /**
      * W6-A: the planner found every item of its Job already built (inputs/existing.md), so there is nothing to plan.

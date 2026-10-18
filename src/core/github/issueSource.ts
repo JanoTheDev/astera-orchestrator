@@ -160,6 +160,11 @@ export function issuesContext(issues: readonly GhIssue[]): SourceContext {
   return checked.ok ? checked.value : raw
 }
 
+/** W7-D (#68): the name of a Job made from `issues`: the first by number and title, and how many more ("#1 unique() is
+ *  O(n²) +1"). The PR of the plan carries the same name. */
+export const issuesTitleOf = (issues: readonly GhIssue[]): string =>
+  `#${issues[0].number} ${issues[0].title.trim()}${issues.length > 1 ? ` +${issues.length - 1}` : ''}`.trim()
+
 const parseJson = (s: string): unknown => {
   try {
     return JSON.parse(s)

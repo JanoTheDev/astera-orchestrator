@@ -23,6 +23,7 @@ import { accountToDispatchOn } from '../../accounts/dispatchAccount'
 import { providerOf } from '../../providers/meta'
 import type { Account } from '../../types'
 import { nameForRun, nameForTask } from '../../worktrees/naming'
+import { jobNameOf } from '../jobName'
 import { firesDue } from '../fire'
 import { NO_COORDINATOR_ANSWER, nudgeKey, planNudges, type NudgeMemo, unattendedQuestions, unreadUpwardMail } from '../inbox'
 import {
@@ -670,7 +671,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
         const runJob = jobOf(state, run)
         const created = await c.forkRunWorktree({
           repoPath: runJob?.cwd ?? '',
-          name: nameForRun({ id: run.jobId, objective: runJob?.objective ?? '' })
+          name: nameForRun({ id: run.jobId, objective: runJob ? jobNameOf(runJob) : '' }) // W7-D (#68): named as the plan is
         })
         const set = await c.handle('run-worktree-set', { run: run.id, worktree: created })
         if (set.status >= 400)

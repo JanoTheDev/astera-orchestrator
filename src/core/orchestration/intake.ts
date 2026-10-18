@@ -82,3 +82,32 @@ export function intakeObjective(i: Intake, source: string, inputs?: { dir: strin
     parts.push(`Owner's instructions (they win over the source when the two conflict):\n${i.instructions}`)
   return parts.join('\n\n')
 }
+
+// W7-D (#68): the plan's name. The objective of a fixlist, an audit or a set of files starts with Astera's own
+// boilerplate, which jobNameOf would show everywhere (sidebar, tabs, branches, notices, the PR).
+/** How long a name taken from free text may be before it is cut at a word. */
+export const INTAKE_TITLE_MAX = 80
+
+const clipTitle = (s: string): string => {
+  const one = s.replace(/\s+/g, ' ').trim()
+  if (one.length <= INTAKE_TITLE_MAX) return one
+  const cut = one.slice(0, INTAKE_TITLE_MAX - 1)
+  const space = cut.lastIndexOf(' ')
+  return `${(space > INTAKE_TITLE_MAX / 2 ? cut.slice(0, space) : cut).trimEnd()}…`
+}
+
+/** The name of a Job made from `i`, or undefined when its objective already reads as one (a plain description).
+ *  An audit is "Audit <scope>"; a fixlist the words of its first problem (a list marker dropped); a set of files their
+ *  names. `names` are the file names copied into the inputs folder. */
+export function intakeTitle(i: Intake, source: string, names: readonly string[]): string | undefined {
+  if (i.mode === 'audit') return clipTitle(`Audit ${i.scope === undefined || i.scope === 'all' ? 'the whole repository' : i.scope}`)
+  if (i.mode === 'fixlist') {
+    const first = source
+      .split(/\r?\n/)
+      .map((l) => l.replace(/^\s*(?:[-*•]|\d+[.)])\s+/, '').trim())
+      .find((l) => l !== '')
+    if (first !== undefined) return clipTitle(first)
+  }
+  if (names.length > 0) return clipTitle(names.join(', '))
+  return undefined
+}

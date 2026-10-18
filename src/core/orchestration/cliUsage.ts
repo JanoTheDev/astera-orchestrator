@@ -381,6 +381,13 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       'The name is one line, cut at 300 characters, and is what the app, `jobs list --human` and the notifications show. An empty --title drops it, and the Job is named by its objective again. The objective, which is what agents are given, does not change.',
     flags: [ID('<jobId>', 'the Job to name'), { name: 'title', value: '<text>', required: true, about: 'the new name' }]
   },
+  // W7-D (#67)
+  'jobs-set': {
+    summary: 'change how many workers a Job runs at once',
+    detail:
+      'Until the Job finishes; a finished one is refused (CONFLICT, exit 6). A lower number only holds back new starts: running workers carry on. At most 10. Refused from an agent session and an MCP client.',
+    flags: [ID('<jobId | runId>', 'the Job to change, or one of its runs'), { name: 'concurrency', value: '<n>', required: true, about: 'workers at once, 1–10' }]
+  },
   'jobs-archive': {
     summary: 'archive a Job: hide it and start nothing new for it',
     detail:
@@ -483,7 +490,7 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
   'tasks-add': {
     summary: 'add a task to a Job, or to one run of it',
     detail:
-      'Exactly one of --job or --run. A task added to a Job is copied into every run `jobs run` starts from then on; a task added to a run belongs to that run only. An id of the other kind is not found (4), never quietly the other thing. Returns the task.',
+      'Exactly one of --job or --run. A task added to a Job is copied into every run `jobs run` starts from then on; a task added to a run belongs to that run only. An id of the other kind is not found (4), never quietly the other thing. Returns the task. A spec with quotes or several lines goes on stdin: `--spec -` with a heredoc (`<<\'EOF\'`), so the shell changes nothing in it. --affected-paths lets the scheduler keep two tasks on the same files from running at once.',
     flags: [
       { name: 'job', value: '<jobId>', about: 'the Job to add it to (exactly one of --job or --run)' },
       { name: 'run', value: '<runId>', about: 'the run to add it to (exactly one of --job or --run)' },
@@ -501,6 +508,8 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       },
       { name: 'title', value: '<text>', about: "a short name (default: the spec's first line)" },
       { name: 'deps', value: '<json array>', about: 'the task ids this one waits for' },
+      // W7-D (#81): the planner's flag, so a task added here is kept off its files' other tasks (W6-C)
+      { name: 'affected-paths', value: '<json array>', about: 'the files or folders it will change, e.g. \'["src/a.ts","src/b/"]\'' },
       { name: 'parent', value: '<taskId>', about: 'the task this one was split out of' },
       {
         name: 'validate',

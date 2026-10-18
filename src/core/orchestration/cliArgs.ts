@@ -125,7 +125,9 @@ export const NOUNS = {
     // W1-C plan lifecycle (lifecycle.ts)
     'rename', 'archive', 'unarchive',
     // W2-A planner stage (planner.ts)
-    'plan'],
+    'plan',
+    // W7-D: a plan's worker count after it was made
+    'set'],
   runs: ['list', 'get', 'wait', 'follow', 'stop', 'resume', 'checks'],
   tasks: ['list', 'add', 'dispatch'],
   // W3-C search and inbox: every Run's Dispatches (command.ts `dispatches-list`), read only
