@@ -819,21 +819,23 @@ export function PlanPage({
 
   // W9-C: the plan's own actions in the header and its ⋯ menu (DESIGN.md §2 "Plan page"); each is lib/jobActions'.
   const off = lockedReason !== undefined
+  // W1-C/W5-C lifecycle (rename, start after, hold, archive) is this computer's Jobs only, as the Jobs list offers it
+  const local = runtimeId === undefined
   const otherPlans = plans.filter((p) => p.id !== runId && p.archivedAt === undefined)
   const menu: MenuItem[] = run
     ? [
-        { id: 'rename', label: t('jobs.lifecycle.rename'), icon: <Pencil size={14} />, disabled: off, onSelect: () => setRenaming(true) },
+        ...(local ? [{ id: 'rename', label: t('jobs.lifecycle.rename'), icon: <Pencil size={14} />, disabled: off, onSelect: () => setRenaming(true) }] : []),
         // W8-C: a plan not planned yet can wait for another to deliver
-        ...(run.pendingStart && !run.planned
+        ...(local && run.pendingStart && !run.planned
           ? [{ id: 'after', label: t('pages.plan.startAfter'), icon: <ListOrdered size={14} />, disabled: off, onSelect: () => void pickAfter() }]
           : []),
         ...(run.coordinatorMissing
           ? [{ id: 'coordinator', label: t('jobs.run.coordinatorRestart'), icon: <Play size={14} />, disabled: off, onSelect: () => void restartCoordinator(door, runId, ui) }]
           : []),
         { id: 'kill', label: t('pages.plan.kill'), icon: <Square size={14} />, danger: true, disabled: off || running === 0, onSelect: () => void stopRun(door, run.foldedRunId ?? runId, jobName(run), ui) },
-        run.archivedAt !== undefined
-          ? { id: 'unarchive', label: t('jobs.lifecycle.unarchive'), icon: <ArchiveRestore size={14} />, disabled: off, onSelect: () => void unarchiveJob(door, runId, ui) }
-          : { id: 'archive', label: t('jobs.lifecycle.archive'), icon: <Archive size={14} />, disabled: off, onSelect: () => void archiveJob(door, snapshot, runId, ui) },
+        ...(!local ? [] : run.archivedAt !== undefined
+          ? [{ id: 'unarchive', label: t('jobs.lifecycle.unarchive'), icon: <ArchiveRestore size={14} />, disabled: off, onSelect: () => void unarchiveJob(door, runId, ui) }]
+          : [{ id: 'archive', label: t('jobs.lifecycle.archive'), icon: <Archive size={14} />, disabled: off, onSelect: () => void archiveJob(door, snapshot, runId, ui) }]),
         { id: 'delete', label: t('jobs.run.delete'), icon: <Trash2 size={14} />, danger: true, disabled: off, onSelect: () => void deleteRun(door, snapshot, runId, ui) }
       ]
     : []
@@ -854,7 +856,7 @@ export function PlanPage({
       <Button size="sm" disabled={off} title={lockedReason} onClick={() => void (run.paused ? resumeRun(door, runId, ui) : pauseRun(door, runId, ui))}>
         {run.paused ? t('jobs.run.resume') : t('jobs.run.pause')}
       </Button>
-    ) : (
+    ) : !local ? null : (
       <Button size="sm" disabled={off} title={lockedReason} onClick={() => void holdJob(door, runId, !run.dispatchHold, ui)}>
         {run.dispatchHold ? t('jobs.hold.release') : t('jobs.hold.hold')}
       </Button>
@@ -865,7 +867,8 @@ export function PlanPage({
   return (
     <div className="plan-page run-detail">
       <nav className="plan-crumb" aria-label={t('pages.plans.title')}>
-        <button type="button" className="plan-crumb-link" onClick={onClose}>
+        {/* While a form is open or a command runs, leaving would drop it (the old window's ✕ hid then) */}
+        <button type="button" className="plan-crumb-link" disabled={formOpen} onClick={onClose}>
           {t('pages.plans.title')}
         </button>
         <span aria-hidden="true">›</span>
@@ -891,7 +894,7 @@ export function PlanPage({
               onBlur={() => setRenaming(false)}
             />
           ) : (
-            <h2 title={run?.objective} onDoubleClick={() => !off && setRenaming(true)}>
+            <h2 title={run?.objective} onDoubleClick={() => local && !off && setRenaming(true)}>
               {run ? jobName(run) : ''}
             </h2>
           )}
