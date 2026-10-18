@@ -112,7 +112,7 @@ export function WorkspaceSidebar({
         </button>
         <div className="panel-actions">
           {selectedPlanId && (
-            <button className="ws-link" title="Show every session again" onClick={() => onSelectPlan(null)}>
+            <button className="ws-link" title="Close the plan, back to its project’s workspace" onClick={() => onSelectPlan(null)}>
               All sessions
             </button>
           )}
@@ -151,7 +151,7 @@ export function WorkspaceSidebar({
                         </button>
                         <button
                           className="ws-name ws-plan-name"
-                          title={plan.jobId === selectedPlanId ? 'Show every session again' : 'Open this plan’s workspace'}
+                          title={plan.jobId === selectedPlanId ? 'Close the plan, back to its project’s workspace' : 'Open this plan’s workspace'}
                           onClick={() => onSelectPlan(plan.jobId === selectedPlanId ? null : plan.jobId)}
                         >
                           {plan.name}

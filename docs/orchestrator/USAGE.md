@@ -78,6 +78,13 @@ The sidebar's **Workspaces** tree is Project → Plan → Planner / Coordinator 
 terminal. The header above it always says Project · Plan · Task · Model · Account · cwd · Branch · Status. Switching
 sessions or plans never restarts a process or changes its cwd. Scrollback survives switching and a restart of the app.
 
+- **Project workspaces** (W6-F): the switcher at the top of the sidebar lists each project with its number of
+  running tabs, and a dot while one waits for you. Click a project, or press **Ctrl+Alt+1…9** for the first nine
+  (rebind in Settings → Shortcuts). The grid then shows only that project's tabs: its plans' planner, coordinator and
+  workers, plus every tab whose folder is in the project or in one of its worktrees. Tabs outside every project are
+  under **Other**; **All tabs** shows everything. Clicking a plan narrows further, and clicking it again goes back to
+  its project. Each workspace returns to the tab it had in focus when you left it, and a new tab opened in it starts
+  in the project's folder. Tabs in other workspaces keep running, hidden.
 - **Type into a worker**: click it in the tree and type. To send one line without switching, use the command bar:
   `send "run the tests" to Gameful Worker 2`.
 - **Needs my input**: the number next to Workspaces counts sessions waiting for you (a permission prompt or a

@@ -32,3 +32,13 @@
 }
 .ws-fact { min-width: 0; max-width: 40ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ws-fact-key { color: var(--text-faint); }
+
+/* W6-F project switcher, at the top of the sidebar */
+.ws-switcher { flex: none; display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.ws-switch {
+  display: flex; align-items: center; gap: 5px; max-width: 100%; min-width: 0; padding: 2px 8px;
+  border: 1px solid var(--line); border-radius: 4px; background: none; color: var(--text); font-size: 11.5px; cursor: pointer;
+}
+.ws-switch:hover { background: var(--elevated); }
+.ws-switch.selected { border-color: var(--accent); background: var(--elevated); }
+.ws-count { flex: none; font-size: 10.5px; color: var(--text-dim); }

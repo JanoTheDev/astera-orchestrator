@@ -2401,5 +2401,7 @@ export const ko = {
   'settings.voice.notAbsolute': '절대 경로를 쓰세요',
   'settings.voice.saveFailed': '음성 설정을 저장하지 못했다: {detail}',
   'shortcut.command.open': '명령 창 열기',
-  'shortcut.command.talk': '명령 창에 말하기 (눌러서 시작, 다시 눌러 보내기)'
+  'shortcut.command.talk': '명령 창에 말하기 (눌러서 시작, 다시 눌러 보내기)',
+  // W6-F
+  'shortcut.workspace.project': '프로젝트 작업 공간 {n} 열기'
 } as const
