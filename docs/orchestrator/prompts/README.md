@@ -37,7 +37,7 @@ Status: Wave 0 merged (PR #25), Wave 1 merged (PRs #26–#29), 2026-10-17. See `
 | Wave 9.0 | W9-0-design-spec (alone; owner approves the mockup) |
 | Wave 9.1 | W9-A-foundation (alone) |
 | merge | MERGE |
-| Wave 9.2 | W9-B-shell-and-nav · W9-C-plan-tab · W9-D-inbox-and-command · W9-E-settings-and-dialogs · W9-H-agents-wall · W9-I-tab-summaries · W9-J-worktree-viewer |
+| Wave 9.2 | W9-B-shell-and-nav · W9-C-plan-tab · W9-D-inbox-and-command · W9-E-settings-and-dialogs · W9-H-agents-wall · W9-I-tab-summaries · W9-J-worktree-viewer · W9-K-window-per-project |
 | merge | MERGE |
 | Wave 9.3 | W9-F-polish-and-verify (alone) |
 | merge | MERGE |

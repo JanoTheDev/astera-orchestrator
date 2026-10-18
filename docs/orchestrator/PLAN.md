@@ -59,7 +59,7 @@ starting the next wave. Each prompt owns its own files, which keeps conflicts to
 | 8 | 2 | `W8-A-commit-attribution`, `W8-B-line-attribution` (Who wrote this, see below), **run as one Astera plan** | W8-C merged |
 | 9.0 | 1 | `W9-0-design-spec` (owner approves the mockup before any code) | W8 merged |
 | 9.1 | 1 | `W9-A-foundation` (alone: tokens, primitives, shell split) | 9.0 approved |
-| 9.2 | 7 | `W9-B-shell-and-nav`, `W9-C-plan-tab`, `W9-D-inbox-and-command`, `W9-E-settings-and-dialogs`, `W9-H-agents-wall`, `W9-I-tab-summaries`, `W9-J-worktree-viewer` | 9.1 merged |
+| 9.2 | 8 | `W9-B-shell-and-nav`, `W9-C-plan-tab`, `W9-D-inbox-and-command`, `W9-E-settings-and-dialogs`, `W9-H-agents-wall`, `W9-I-tab-summaries`, `W9-J-worktree-viewer`, `W9-K-window-per-project` | 9.1 merged |
 | 9.3 | 1 | `W9-F-polish-and-verify` | 9.2 merged |
 | 9.4 | 1 | `W9-G-readme-and-docs` | 9.3 merged |
 
@@ -108,6 +108,7 @@ starting the next wave. Each prompt owns its own files, which keeps conflicts to
 | W9-H | new `components/wall/*`, `PaneGrid.tsx` / `TerminalView.tsx` (tile mode: small font, read-only until focused, offscreen pause), `core/panes/tabId.ts` (`wall` TabKind), new `core/sessions/ownerHold.ts`, the `sessions-send` handler in `command.ts` and `src/host/orch.ts` (queue while held) | `src/host/sessions.ts` (owner-input timestamp), `App.tsx` (mount the pinned tab), `resources/skills/orchestration-guide.md` (one line: a queued send is not a failure) |
 | W9-I | new `core/sessions/summary.ts` (facts + prompt), new `src/host/hostSummaries.ts`, `components/wall/SummaryCard.tsx` | `core/understanding/*` (reuse the generator call), `src/host/sessions.ts` (end hook), `core/orchestration/delivery.ts` (PR body roll-up), `components/plan/*` card (one row, after W9-C: coordinate in the PR), `HistoryBrowser.tsx` (one row), app-settings type (`tabSummaries`) |
 | W9-J | `WorktreePanel.tsx` (becomes the Worktrees rail view), new `components/worktrees/*` (Worktree tab), `core/panes/tabId.ts` (`worktree` TabKind), new `core/worktrees/cleanup.ts` (ready-to-remove rule + auto-clean after delivery) | `core/worktrees/{list,remove}.ts` (read-only reuse; one export if needed), `core/orchestration/delivery.ts` (one call after delivery), `core/ui/sidebar.ts` (rail id `worktrees`), app-settings type (`autoCleanWorktrees`) |
+| W9-K | new `src/main/windows.ts`, `src/main/index.ts` window lifecycle (`mainWindow` → window set, `second-instance` argv, tray project list) | IPC push sites that targeted `mainWindow` (send to all windows), `components/workspace/ProjectSwitcher.tsx` ("Open in new window" item), keybindings, desktop file action, USAGE.md |
 | W9-F | any renderer file, for fixes found by the walk-through; each fix listed in the PR | — |
 | W9-G | `README.md`, deleted `README.{ko,ja,es}.md`, `docs/*.md` outside `docs/orchestrator`, new `docs/dev/` (wave prompts move here), `assets/*` screenshots, `package.json` `description` / `homepage` | `docs/orchestrator/USAGE.md` (becomes `docs/guide.md`) |
 | W5-D | `activity.ts`, `components/activity/*`, `sessionIndex.ts`, `components/search/*`, `src/main/activityNotices.ts`, `src/main/remote/orchRouter.ts` | `src/host/index.ts`, `src/host/sessions.ts`, `src/main/ipc.ts`, `types.ts` |
@@ -305,7 +306,7 @@ astera jobs create --project astera --mode prompts --delivery pr \
   --attach docs/orchestrator/prompts/W8-A-commit-attribution.md docs/orchestrator/prompts/W8-B-line-attribution.md
 # Wave 9: one plan per sub-wave, each queued after the one before (9.0 is done; 9.1 alone first)
 astera jobs create --project astera --mode prompts --after <W8 job> --attach docs/orchestrator/prompts/W9-A-foundation.md
-astera jobs create --project astera --mode prompts --after <W9.1 job> --attach docs/orchestrator/prompts/W9-{B,C,D,E,H,I,J}-*.md
+astera jobs create --project astera --mode prompts --after <W9.1 job> --attach docs/orchestrator/prompts/W9-{B,C,D,E,H,I,J,K}-*.md
 astera jobs create --project astera --mode prompts --after <W9.2 job> --attach docs/orchestrator/prompts/W9-F-polish-and-verify.md
 astera jobs create --project astera --mode prompts --after <W9.3 job> --attach docs/orchestrator/prompts/W9-G-readme-and-docs.md
 ```
@@ -485,7 +486,7 @@ https://claude.ai/artifact/DhSiAPZxCigXD4xJBoFb9x. Both were drafted and decided
   conflicting on `App.tsx`. Behaviour does not change: the full suite passes unchanged except for path updates in
   pinned tests.
 - **9.2 runs as 6 parallel tabs on separate files:** shell and navigation (B), the Plan tab (C), Inbox and command
-  (D), Settings and dialogs (E), the Agents wall and owner hold (H), tab summaries (I), and the worktree viewer (J). They meet only through the `navigation.ts` contract.
+  (D), Settings and dialogs (E), the Agents wall and owner hold (H), tab summaries (I), the worktree viewer (J), and a window per project (K). They meet only through the `navigation.ts` contract.
 - **9.3** is one tab. It walks every surface in all 4 themes at the default and the narrowest sidebar width. It
   fixes what it finds, checks keyboard paths, and takes the screenshots.
 - **9.4** is one tab. It rewrites the README and docs from the finished app, using 9.3's screenshots.

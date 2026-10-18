@@ -38,6 +38,17 @@ The window is 1440×900 in the mockup. The layout must hold down to 1024×640.
 | Bottom panel | resizable (`cm.runPanelHeight`) | Run output and terminals. Unchanged apart from tokens. |
 | Status bar | 26px high | Running count · waiting count (opens the Inbox) · spacer · active account with its 5-hour and weekly usage (opens the accounts popover) · branch · host health (opens Settings › Advanced › Host when it is not ok). |
 
+## 1a. Windows (W9-K)
+- Each project can have its own window, so two or three projects can run side by side on separate monitors.
+- They are all windows of **one app process and one Host**. Accounts, usage, rolling and the app-wide worker cap
+  stay single, and nothing is counted twice.
+- Open a new window from the project switcher's "Open in new window", `Ctrl+Shift+N`, the tray, or by launching
+  again with `--project <name>`.
+- A window shows only its project (the W6-F scope). Its title is "<project> — Astera".
+- Notices open their project's window.
+- The windows open at quit come back on launch. Closing the last window keeps plans running in the background
+  (W1-D).
+
 ## 2. Rail views
 
 **Home:**
@@ -246,6 +257,7 @@ The settings search filters rows by label and description and shows the group ea
 | Scheduler guards, same-file rule (W6-C) | Plan › Files "Shared" · card live line |
 | Replanning (W6-D) | Board wave header · Journal · Plan › Overview talk |
 | Project workspaces (W6-F) | Titlebar switcher · `Ctrl+Alt+1…9` |
+| Several projects at once (W9-K) | One window per project: switcher "Open in new window" · `Ctrl+Shift+N` · tray · `--project` |
 | Delivery modes (W6-H) | Plan header chip · Settings › Projects |
 | Projects create/add (W7-B) | Settings › Projects · switcher "Add project" |
 | Tabs auto-close, switcher (W7-F) | Tab strip · "All tabs" menu |
