@@ -1691,7 +1691,7 @@ export const en: Record<keyof typeof ko, string> = {
   'jobs.new.priority': 'Priority',
   'jobs.new.priorityHint': 'When the app-wide worker limit is reached, higher goes first (default 0)',
   'settings.maxWorkers.label': 'Max workers across all jobs',
-  'settings.maxWorkers.hint': 'Leave empty for no limit. At the limit, higher-priority jobs get the next free slot; equal ones take turns.',
+  'settings.maxWorkers.hint': 'Up to 10; empty is 10. At the limit, higher-priority jobs get the next free slot; equal ones take turns.',
   'settings.maxWorkers.saveFailed': 'Could not save the worker limit: {detail}',
   'settings.activityDigest.label': 'Activity summary every (minutes)',
   'settings.activityDigest.hint': 'How often to send a summary of what finished, failed or is waiting, to the desktop and Slack. Sent only when something happened. 0 turns it off.',
@@ -2054,6 +2054,7 @@ export const en: Record<keyof typeof ko, string> = {
   'plan.reason.coordinator': 'Its coordinator starts it',
   'plan.reason.planCap': 'Plan limit full ({used} of {limit} workers)',
   'plan.reason.globalCap': 'App-wide limit full ({used} of {limit} workers, priority {priority})',
+  'plan.reason.sameFiles': 'Waiting for {task}, which edits the same files ({path})',
   'plan.reason.next': 'Starts on the next pass',
   // W6-E progress view (components/plan/)
   'plan.view.files': 'Files',

@@ -1,4 +1,13 @@
-import { DEFAULT_CONCURRENCY, FAILURE_LIMIT, type Dispatch, type Job, type JobRun } from './types'
+import {
+  DEFAULT_CONCURRENCY,
+  FAILURE_LIMIT,
+  MAX_CONCURRENT_WORKERS,
+  type Dispatch,
+  type Job,
+  type JobRun,
+  type Task,
+  type TaskStatus
+} from './types'
 import { jobOf, placedByApp, type OrchState } from './state'
 import { isJobActive } from './lifecycle'
 
@@ -77,9 +86,62 @@ export function workersAgainstCap(s: OrchState): number {
 }
 
 /** What `slotsToFill` takes besides the state: the app-wide cap from app settings. `null` or absent is
- *  no cap, the behaviour from before the setting existed. */
+ *  MAX_CONCURRENT_WORKERS (`workerCapOf`). */
 export interface ScheduleLimits {
   maxConcurrentWorkers?: number | null
+}
+
+// W6-C: the app-wide cap never passes MAX_CONCURRENT_WORKERS. Read here, not only when the setting is parsed, because
+// every caller that cannot read the settings file answers null.
+export const workerCapOf = (cap: number | null | undefined): number =>
+  cap === null || cap === undefined ? MAX_CONCURRENT_WORKERS : Math.min(cap, MAX_CONCURRENT_WORKERS)
+
+// W6-C: never two workers on the same files.
+
+/** The directory prefix a path names: the part before its first `*`, with `./` and trailing slashes dropped. */
+const prefixOf = (p: string): string => {
+  const posix = p.replace(/\\/g, '/')
+  const star = posix.indexOf('*')
+  return (star === -1 ? posix : posix.slice(0, star)).replace(/^(\.\/)+/, '').replace(/\/+$/, '')
+}
+
+/** Whether two affected paths can name the same file: equal, or one a directory prefix of the other (`src/a` and
+ *  `src/a/b.ts`, not `src/ab`). A glob counts as the directory before its first `*`, so `*` alone is the whole repo. */
+export function pathsOverlap(a: string, b: string): boolean {
+  const x = prefixOf(a)
+  const y = prefixOf(b)
+  return x === '' || y === '' || x === y || y.startsWith(`${x}/`) || x.startsWith(`${y}/`)
+}
+
+/** The first of `others` whose affected paths overlap `task`'s, with the first of `task`'s paths it collides on. A
+ *  Task with no affected paths overlaps nothing. */
+export function sameFilesAs(
+  task: Pick<Task, 'id' | 'affectedPaths'>,
+  others: readonly Task[]
+): { task: Task; path: string } | undefined {
+  for (const path of task.affectedPaths ?? [])
+    for (const other of others)
+      if (other.id !== task.id && (other.affectedPaths ?? []).some((q) => pathsOverlap(path, q))) return { task: other, path }
+  return undefined
+}
+
+/** Statuses in which a Task's worker, checks, review or repair is at its files. */
+const EDITING: ReadonlySet<TaskStatus> = new Set<TaskStatus>(['dispatched', 'validating', 'reviewing'])
+
+/** The Tasks at their files right now, by Job id: an editing status or an open Dispatch. */
+export function editingByJob(s: OrchState): Map<string, Task[]> {
+  const jobOfRun = new Map(s.runs.map((r) => [r.id, r.jobId]))
+  const open = new Set(s.dispatches.filter(isOpen).map((d) => d.taskId))
+  const out = new Map<string, Task[]>()
+  for (const t of s.tasks) {
+    if (!EDITING.has(t.status) && !open.has(t.id)) continue
+    const jobId = t.runId === undefined ? undefined : jobOfRun.get(t.runId)
+    if (jobId === undefined) continue
+    const list = out.get(jobId)
+    if (list) list.push(t)
+    else out.set(jobId, [t])
+  }
+  return out
 }
 
 /** 지금 띄워야 할 것들. **부수 효과가 없고 같은 입력에 같은 답을 준다** — 이 판정이 순수해야
@@ -107,8 +169,9 @@ export interface ScheduleLimits {
 export function slotsToFill(s: OrchState, limits: ScheduleLimits = {}): Slot[] {
   const open = s.dispatches.filter(isOpen)
   const runOf = new Map(s.tasks.map((t) => [t.id, t.runId]))
-  const cap = limits.maxConcurrentWorkers
-  let globalRoom = cap === null || cap === undefined ? Infinity : cap - workersAgainstCap(s)
+  let globalRoom = workerCapOf(limits.maxConcurrentWorkers) - workersAgainstCap(s)
+  // W6-C: what each Job's workers are editing, grown as this pass hands out slots
+  const editing = editingByJob(s)
   const queues = s.runs.flatMap((run, order) => {
     if (!appDriven(s, run)) return []
     const job = jobOf(s, run)
@@ -127,7 +190,9 @@ export function slotsToFill(s: OrchState, limits: ScheduleLimits = {}): Slot[] {
         (t.accountIds?.length ?? 0) > 0 &&
         // ready 인데 열린 Dispatch 가 있는 조합은 만들어질 수 없지만, 판정이 그 사실에 기대지
         // 않는다. 기대면 그 불변식이 깨지는 날 두 워커가 같은 Task 를 잡는다
-        !open.some((d) => d.taskId === t.id)
+        !open.some((d) => d.taskId === t.id) &&
+        // W6-C: not while another worker of this Job edits the same files
+        !sameFilesAs(t, editing.get(run.jobId) ?? [])
     )
     if (candidates.length === 0) return []
     const lastServed = Math.max(-Infinity, ...mine.map((d) => Date.parse(d.startedAt) || -Infinity))
@@ -156,6 +221,10 @@ export function slotsToFill(s: OrchState, limits: ScheduleLimits = {}): Slot[] {
     best.openHere++
     best.lastServed = Infinity
     globalRoom--
+    // W6-C: the Task just placed now holds its files, so another ready Task on them waits for the next pass
+    const jobId = best.run.jobId
+    editing.set(jobId, [...(editing.get(jobId) ?? []), t])
+    for (const q of queues) if (q.run.jobId === jobId) q.candidates = q.candidates.filter((c) => !sameFilesAs(c, [t]))
   }
   return slots
 }

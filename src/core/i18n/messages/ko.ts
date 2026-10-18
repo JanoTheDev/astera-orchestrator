@@ -1914,7 +1914,7 @@ export const ko = {
   'jobs.new.priority': '우선순위',
   'jobs.new.priorityHint': '앱 전체 워커 한도에 닿았을 때 높은 쪽이 먼저 빈자리를 받는다 (기본 0)',
   'settings.maxWorkers.label': '모든 작업을 합친 최대 워커 수',
-  'settings.maxWorkers.hint': '비워 두면 한도가 없다. 한도에 닿으면 우선순위가 높은 작업부터, 같으면 번갈아 빈자리를 받는다.',
+  'settings.maxWorkers.hint': '최대 10, 비워 두면 10. 한도에 닿으면 우선순위가 높은 작업부터, 같으면 번갈아 빈자리를 받는다.',
   'settings.maxWorkers.saveFailed': '워커 한도를 저장하지 못했습니다: {detail}',
   'settings.activityDigest.label': '활동 요약 주기(분)',
   'settings.activityDigest.hint': '끝났거나 실패했거나 기다리는 일의 요약을 데스크톱과 Slack 에 보내는 주기입니다. 일이 있었을 때만 보냅니다. 0 이면 보내지 않습니다.',
@@ -2301,6 +2301,7 @@ export const ko = {
   'plan.reason.coordinator': '코디네이터가 시작한다',
   'plan.reason.planCap': '계획 한도가 찼다 (워커 {used}/{limit})',
   'plan.reason.globalCap': '앱 전체 한도가 찼다 (워커 {used}/{limit}, 우선순위 {priority})',
+  'plan.reason.sameFiles': '{task} 을(를) 기다리는 중: 같은 파일을 고친다 ({path})',
   'plan.reason.next': '다음 배치 때 시작한다',
   // W6-E progress view (components/plan/)
   'plan.view.files': '파일',
