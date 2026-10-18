@@ -17,10 +17,14 @@ import type { Job, ReplanMark, Task } from './types'
 /** Follow-up waves the completion pass may add to one Job before it must hand the Job to the person. */
 export const REPLAN_FOLLOW_UPS_MAX = 3
 
+/** The account a Job's replans run on: its coordinator's, else the one its planner ran on (W7-E: a plan the Host
+ *  places with no coordinator still gets its replans and its final check). */
+export const replanAccountOf = (job: Job): string | undefined => job.coordinatorAccountId ?? job.plannerAccountId
+
 /** Whether a Job replans between its waves: not turned off, planned by a planner (an unplanned Job has no plan to
  *  fix and keeps its old scheduling), not a schedule (its Runs repeat one plan), and with an account to plan on. */
 export const replanOn = (job: Job): boolean =>
-  job.replan !== 'off' && job.plannerSessionIds !== undefined && job.schedule === undefined && job.coordinatorAccountId !== undefined
+  job.replan !== 'off' && job.plannerSessionIds !== undefined && job.schedule === undefined && replanAccountOf(job) !== undefined
 
 type Node = Pick<Task, 'id' | 'deps'>
 const waveMemo = new WeakMap<readonly Node[], { byId: Map<string, Node>; depth: Map<string, number> }>()

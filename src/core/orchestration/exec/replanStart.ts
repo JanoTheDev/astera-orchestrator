@@ -8,7 +8,7 @@
 import { collectChanges, rangesFor } from '../changedFiles'
 import type { OrchServerDeps } from '../command'
 import { PLANNER_COMMANDS, planFieldsFromArgs, validatePlan } from '../planner'
-import { REPLAN_FOLLOW_UPS_MAX, cancelRemainingTask, editRemainingTask, notStarted, replanJobOf, replanOn, runTasks } from '../replan'
+import { REPLAN_FOLLOW_UPS_MAX, cancelRemainingTask, editRemainingTask, notStarted, replanAccountOf, replanJobOf, replanOn, runTasks } from '../replan'
 import { isIntegrationTask } from '../integrate'
 import { jobNameOf } from '../jobName'
 import type { OrchState } from '../state'
@@ -243,7 +243,7 @@ export async function replanCommand(deps: OrchServerDeps, caller: Caller, cmd: s
   if (cmd === 'jobs-replan') {
     // The driving loop asks at a boundary; a person may too. Never another agent: a replan holds the whole Job.
     if (fromAgent || caller.role === 'mcp') return denied('a replan is started by Astera at a wave boundary, or by the person')
-    if (!replanOn(job)) return conflict(`job ${jobId} does not replan: it is not planned, is a schedule, has no coordinator account, or has replan off`)
+    if (!replanOn(job)) return conflict(`job ${jobId} does not replan: it is not planned, is a schedule, has no account to plan on, or has replan off`)
     if (job.replanning) return conflict(`job ${jobId} is replanning already`)
     if (!deps.startCoordinator) return conflict('starting a planner is not available in this build')
     const runId = str(args.run) ?? s.runs.filter((r) => r.jobId === jobId).at(-1)?.id
@@ -259,7 +259,7 @@ export async function replanCommand(deps: OrchServerDeps, caller: Caller, cmd: s
     // The hold and the mark in one commit: from here no Task of the Job starts (waveOpen, dispatchHold).
     const before = Object.fromEntries(own.map((t) => [t.id, t.updatedAt]))
     await setJob(jobId, (j) => ({ ...j, dispatchHold: true, replanning: { ...mark, startedAt: now, before, ...(j.dispatchHold ? { heldBefore: true as const } : {}) } }))
-    const accountId = job.coordinatorAccountId!
+    const accountId = replanAccountOf(job)!
     let sessionId: string
     try {
       const parts = await briefParts(deps, deps.getState(), runId)

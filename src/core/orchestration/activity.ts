@@ -359,7 +359,9 @@ export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[
       if (j.replanning && !was.replanning)
         push('plan.replanning', where(j.replanning.runId), { title, replanMode: j.replanning.mode, wave: j.replanning.wave })
       const last = j.lastReplan
-      if (!last || last === was.lastReplan) continue
+      // W7-E (#74): by value, as run.pr above: a state read back from disk or the socket is a new object, and the same
+      // final check was reported again (plan.replanned + plan.done twice for one pass)
+      if (!last || same(last, was.lastReplan)) continue
       const at = where(last.runId)
       if (last.escalated !== undefined) {
         push('task.escalated', at, { title, reason: last.escalated })
