@@ -135,12 +135,13 @@ is built, the Job ends as "nothing to do" (archived, the summary kept, a feed li
 Every planner writes `existing.md` (an audit also `audit.md`) in the Job's `inputs/` folder, and no other file.
 Writing them asks your permission once, as every planner edit does.
 
-## Day to day (checked by W6-V, 2026-10-18)
+## Day to day (checked by W6-V and its re-run after Wave 7, 2026-10-18)
 
 The loop that works today, from source to merged work:
 
-1. **Open the project.** The Jobs panel needs an open project: start a session in the repo once (or click a tab
-   that lives there). A tab started with `astera sessions create` in an empty window is the window's session at once.
+1. **Open the project.** "+ New project" makes a folder, `git init`, a CLAUDE.md with GitHub rules and the first
+   commit (it needs one open tab first, #104). The Jobs panel needs an open project: start a session in the repo once
+   (or click a tab that lives there). A tab started with `astera sessions create` in an empty window is the window's session at once.
 2. **Start the plan.** "+ New job" → **New plan from files, an audit or GitHub issues…**. Put one problem per line
    and tick "This is a list of problems" for a fixlist; add extra instructions; set "Workers at once" (up to 10);
    pick the coordinator account. `astera jobs set --id <job> --concurrency <n>` changes it later.
@@ -160,7 +161,19 @@ The loop that works today, from source to merged work:
 8. **Tidy up.** Ended tabs of a finished or archived plan close on their own (see "The workspace"). Archive a plan
    with `--kill-sessions` to end all its sessions at once.
 
-Known gaps were issues #67–#84 (label `wave-6`), fixed by Wave 7's W7-C…W7-F.
+Known gaps were issues #67–#84 (label `wave-6`), fixed by Wave 7's W7-C…W7-F. The re-run after Wave 7 found #92–#106
+(W8-E, W8-F, W8-G; #106 in W9-F). Until they merge:
+- **Same files.** A plan with a coordinator can run two Tasks on the same file at once (#92). Tell the planner
+  "chain Tasks that share a file" in the extra instructions.
+- **Talk to the planner from a shell** (`astera jobs feedback --job <job> --text -`): the app's box starts a fresh
+  planner each time (#93). If Run says a Task "has no basis", tell the planner (#94).
+- **A Gate from the coordinator** has no box on the card (#97): `astera questions list --status open`, then
+  `astera questions answer --id <id> --answer "<option>"` (pass the option as an argument, not on stdin, #98).
+- **After you answer**, the coordinator may wait up to 10 min to notice (#96): type "check your inbox" into its tab.
+  A Gate asking you to `jobs-unhold` during "Replanning wave N…" is false (#95): answer "the replan ended, go on".
+- **A plan with a failed Task** shows no end (#99): read its board, then archive it.
+- **No remote + `pr`**: merge the plan's branch (`git merge <branch>` in the folder) before the next plan (#101).
+- **`push` with a new bare origin**: set `--delivery-branch main` or run `git remote set-head origin -a` (#102).
 
 ## Projects (W7-B)
 

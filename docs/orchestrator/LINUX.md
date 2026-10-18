@@ -317,3 +317,61 @@ no build). One Claude account; settings left at their defaults (agents keep perm
 - A session started with `astera sessions create` is adopted as a tab but counts as open only after a click (#78).
 - `pkill -f "<pattern>"` from a shell whose own command line contains the pattern kills that shell (exit 144). Use
   `pgrep` first.
+
+## Autopilot re-run (7V, measured 2026-10-18, XFCE on X11)
+
+Same machine, `claude` 2.1.301, dev app from `main` at 238558af (Waves 0–7 merged). The project was made with W7-B's
+"New project" (`/tmp/astera-dogfood`), then given a small TypeScript library tested with `node --test`. One Claude
+account; agents kept permission checks (Claude's auto mode approved everything again, no permission prompt in seven
+plans). The app was driven over CDP (`--remoteDebuggingPort 9361`), notices read with `dbus-monitor`, the chime with a
+hook on `AudioContext.createOscillator` (one chime = two oscillator calls). Issues: #92–#106.
+
+### Runs
+
+| Plan | Started from | Planner | Tasks | Result |
+|---|---|---|---|---|
+| 6-problem fixlist + 1 extra instruction, workers 10 | New plan dialog | 2 m 19 s, then 3 feedback rounds (35 s, 26 s, CLI) | 7 / 2 waves (P7 added by feedback) | approved 16:56, done 17:08 (12.6 min; ~6 min lost to a false Gate and a coordinator that was not woken, #95 #96); one final check; "no remote, work on branch …" |
+| "Add clamp()" (already built) | CLI | 39 s | 0 | `plan.nothing-to-do`, `existing.md` marks it `built` |
+| 3-page PDF (`--attach`) | CLI | 55 s, read the PDF itself | 3 (two same-file items chained) | rejected from the Run window (step 5) |
+| `--mode audit --scope src`, project auto-approve on | CLI | 2 m 06 s, `audit.md` + `existing.md` | 3 | auto-started; held by `usagePauseAt` 10, resumed on its own; F3 failed after 3 repairs, then the Run never ended (#99, #100, #101) |
+| GitHub #4, #5 `--assign-me` (private scratch repo, issues made with the owner's OK) | `jobs-create-from-issue` | ~55 s | 2 | done in 1.5 min, final check ran, PR #6 opened |
+| `push`, bare local `origin` | CLI | 45 s | 1 | stopped "origin/HEAD is not set" (#102); after `--delivery-branch main` + `run-deliver --force`: merged and pushed |
+| same, uncommitted edit in the folder | CLI | 53 s | 1 | escalated "your folder … has 1 uncommitted change(s)", chime; HEAD, origin and the edit untouched |
+
+### Checks (W6 and W7)
+
+| Check | Result |
+|---|---|
+| New project (W7-B) | works, but only once a tab is open ("Open a tab first", #104); writes CLAUDE.md with GitHub rules, commits as `Astera` |
+| Plan name, worker count (#67 #68) | fixed: named by its first problem / "#4 … +1" / "Audit src" / the PDF's file name; "Workers at once" 10 |
+| `affectedPaths`, waves, basis, `existing.md` for a fixlist (#69) | yes on every planned Task; `existing.md` for fixlist and audit plans now |
+| Same-file guard | **failed** (#92): P1+P2 and P4+P7 ran at once. The coordinator's `worker-start` has no same-file check |
+| Feedback rounds (W7-A) | the plan changed each time, but the app's box started a fresh planner every round (two alive at once); only the CLI resumed (`--resume`, #93). A feedback planner's Task lacked a basis; approval said so only in a toast (#94) |
+| Reject, auto-approve (W7-A) | reject archives with the reason and ends the planner; auto-approve started the audit plan with no one asked |
+| Reviewer per Task (#70) | fixed: an opus review dispatch after every Task |
+| Worker question → coordinator | `question.auto-answered` (git identity, twice) |
+| Escalation (EUR or USD) (#71 #72) | one chime + "Needs your decision"; answered from the card's box, the worker had it at once. The coordinator also escalated a format detail it had been told to decide |
+| Coordinator Gates | no answer box on the card (#97); CLI only. `--answer -` kept the newline and missed the option (#98) |
+| Replan between waves | ran (51 s), but its hold made the coordinator open a false owner Gate with a chime, and the replan then skipped P6 (#95) |
+| Final check (#74) | exactly once on the fixlist, issue and push plans; never on a plan with a failed Task (#99) |
+| "Now" lines, project switching | "Running git branch … · 0:00 ago", "Asked the coordinator"; the switcher narrows to the project's tabs |
+| 12 subagents in a worker tab | 10 ran; #11 and #12: "Astera: 10 subagents already running in this tab (limit 10). Wait for one to finish." |
+| `usagePauseAt` 10 (5-hour at 18 %) | `usage.paused` after ~1 min; `worker-start` refused with the reset time; back to 90: `usage.resumed` in 20 s and workers started 8 s later with no nudge (#73 fixed) |
+| Ended tabs (W7-F) | all 15 sessions of the done plan ended (coordinator 10 min after) and their tabs closed |
+| Push (W6-H) | lands on `main` and pushes once the delivery branch is set; dirty folder stops and touches nothing |
+
+### Costs and load
+
+- Five-hour usage went from 17 % to 19 % across the seven plans (one 5-hour reset in between); weekly 5 %.
+- Up to 16 `claude` sessions were alive at once (6 workers, 6 reviewers, coordinator, planner, two plain tabs); the
+  app and Host stayed responsive. No test suite ran during the dogfood (rule 7).
+
+### Linux-specific notes from this run
+
+- **A Gate answer does not wake a coordinator.** It waits in a background `astera check --wait --timeout-ms 600000`
+  and ends its turn; Claude Code wakes it only when that shell ends, so an answer can wait up to 10 min (#96).
+- **`pkill -f` again.** `pkill -f "dbus-monitor …"` from a shell whose own command line held the pattern killed that
+  shell (exit 144). Kill by pid from `pgrep -af`.
+- `astera host stop` ends the dev Host cleanly once its sessions are gone.
+- A bare repo made with `git init --bare` and filled by `git push -u origin main` has no `origin/HEAD` in the clone;
+  `git remote set-head origin -a` sets it, or set the project's delivery branch.
