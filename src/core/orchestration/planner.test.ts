@@ -414,3 +414,27 @@ describe('plan.md', () => {
     }
   })
 })
+
+// W6-C: a Job runs up to 10 workers at once; more reads as 10
+describe('Job concurrency up to 10', () => {
+  const made = async (r: Rig, extra: Record<string, unknown> = {}): Promise<string> =>
+    ((await person(r)('run-create', { objective: 'wide', cwd: 'D:/p', coordinatorAccount: 'acc1', auto: true, ...extra })).body as { id: string }).id
+
+  it('jobs create takes 10 and clamps a larger --concurrency to 10', async () => {
+    const r = rig()
+    const ten = await made(r, { concurrency: '10' })
+    const fifty = await made(r, { concurrency: 50 })
+    const none = await made(r)
+    const of = (id: string) => r.deps.getState().jobs.find((j) => j.id === id)?.concurrency
+    expect([of(ten), of(fifty), of(none)]).toEqual([10, 10, undefined])
+  })
+
+  it('jobs plan --concurrency sets the width, clamped, and the planner brief says it', async () => {
+    const r = rig()
+    const jobId = await made(r)
+    expect((await person(r)('jobs-plan', { id: jobId, concurrency: '25' })).status).toBe(200)
+    expect(r.deps.getState().jobs[0].concurrency).toBe(10)
+    expect(String(r.coordinatorStarts[0].brief)).toContain('workers that may run at once: 10')
+    expect((await person(r)('jobs-plan', { id: jobId, concurrency: '0' })).status).toBe(400)
+  })
+})

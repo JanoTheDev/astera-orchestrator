@@ -82,7 +82,7 @@ const TIMEOUT: UsageFlag = {
 /** What a Job is made with, beside its objective and its folder: `jobs create`'s flags, and `jobs create-from-source`'s
  *  after its own. */
 const JOB_MAKING_FLAGS: readonly UsageFlag[] = [
-  { name: 'concurrency', value: '<n>', about: 'how many workers this Job places at once' },
+  { name: 'concurrency', value: '<n>', about: 'how many workers this Job places at once (1-10; more reads as 10)' },
   { name: 'priority', value: '<n>', about: 'which Job gets a free slot first when the app-wide worker cap is reached (higher first, default 0)' },
   {
     name: 'coordinator-account',
@@ -368,7 +368,9 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       "The planner is an agent session in the Job's folder, on the planner model, that reads the repository and writes the plan as the Job's Tasks (each with a prompt, acceptance criteria and affected paths). It cannot start work: every command that would is refused to it. Start the Job (`jobs run`, or \"Approve & execute\" in Astera) to approve the plan; that is refused while a Task lacks a prompt or a criterion, a dependency is not in the plan, or the dependencies form a cycle, and refused from inside an agent session. The plan is also written to plans/<jobId>/plan.md in the profile. Refused with 9 once the Job has started.",
     flags: [
       ID('<jobId>', 'the Job to plan'),
-      { name: 'account', value: '<id>', about: "the account the planner runs on (default: the Job's coordinator account)" }
+      { name: 'account', value: '<id>', about: "the account the planner runs on (default: the Job's coordinator account)" },
+      // W6-C
+      { name: 'concurrency', value: '<n>', about: 'how many workers this Job places at once (1-10; more reads as 10)' }
     ]
   },
   'jobs-wait': {
