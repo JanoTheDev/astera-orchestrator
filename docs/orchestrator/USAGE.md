@@ -52,6 +52,8 @@ owns every session and drives every plan, so closing the window stops nothing (L
    picks the worker's model as a planner's Task does. Without either, the worker runs on the Job's or the app's worker
    model, or on the CLI's default model when none is set.
    `astera tasks list --run <job>` lists a Job's own Tasks before its first Run.
+   `--affected-paths '["src/a.ts"]'` names the files a Task changes, so it never runs beside another Task on the same
+   files. A spec with quotes goes on stdin: `astera tasks add --job <job> --account <id> --spec - <<'EOF'` … `EOF`.
 
 **Delivery** (per project; Jobs view → "When a plan is done", or `astera projects set --id <project> --delivery pr|push
 [--delivery-branch <branch>]`; one plan can override it with `--delivery` on `jobs create` / `jobs plan`):
@@ -68,8 +70,17 @@ owns every session and drives every plan, so closing the window stops nothing (L
 ## Starting from files, an audit, a problem list or GitHub issues (W6-A)
 
 "+ New job" → **New plan from files, an audit or GitHub issues…** opens the New plan dialog. Pick the project and a
-source, add **Extra instructions** if you like (they win over the source), pick the coordinator account, and press
-**Create and plan**: Astera makes one Job and starts its planner.
+source, add **Extra instructions** if you like (they win over the source), set **Workers at once** (1–10, default 3,
+or what the "+ New job" form had), pick the coordinator account, and press **Create and plan**: Astera makes one Job
+and starts its planner.
+
+**The plan's name** comes from its source: a problem list is named by its first problem, files by their names, an
+audit "Audit <scope>", and issues by the first one and how many more ("#1 unique() is O(n²) +1"). The sidebar, tabs,
+search, notices, the run's worktree branch and the PR all use it. Rename it any time; Astera never renames a plan
+itself after that.
+
+**Changing the worker count later**: the number in the Run window's header, or `astera jobs set --id <job>
+--concurrency <n>`, until the plan finishes. A lower number only holds back new starts; running workers carry on.
 
 - **Describe**: the objective. Tick "This is a list of problems" for one or more Tasks per problem.
 - **Files**: drop PDFs or other files (at most 30 MB each). They are copied to `plans/<job>/inputs/` in the profile,
@@ -96,9 +107,8 @@ The loop that works today, from source to merged work:
 1. **Open the project.** The Jobs panel needs an open project: start a session in the repo once (or click a tab
    that lives there). A tab started with `astera sessions create` counts only after you click it.
 2. **Start the plan.** "+ New job" → **New plan from files, an audit or GitHub issues…**. Put one problem per line
-   and tick "This is a list of problems" for a fixlist; add extra instructions; pick the coordinator account. The
-   dialog has no worker count yet: a plan made there runs at most 3 workers at once. For more, make it from a shell
-   with `--concurrency 10` (`astera jobs create … --mode fixlist --concurrency 10` then `astera jobs plan --id <job>`).
+   and tick "This is a list of problems" for a fixlist; add extra instructions; set "Workers at once" (up to 10);
+   pick the coordinator account. `astera jobs set --id <job> --concurrency <n>` changes it later.
 3. **Read the plan.** The planner's last message in its tab sums up the Tasks, waves and what you must decide. The
    Run window's board shows each Task's files and wave. Approve with **Run** (the app asks once).
    If approval says a Task "has no basis", tell the planner in its tab; it fixes the plan.
