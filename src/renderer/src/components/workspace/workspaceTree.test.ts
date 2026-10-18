@@ -252,3 +252,17 @@ describe('project workspaces', () => {
     expect(workspaceSummaries(tree, none, [], {}).map((r) => r.id)).toEqual(['g', 'a', 'n'])
   })
 })
+
+// W8-C plan after plan
+describe('buildWorkspaceTree: a queued plan (W8-C)', () => {
+  it('says Queued after <plan>, stopped when that plan stopped, and nothing once it is planning', () => {
+    const tree = (prev: Partial<Job>, queued: Partial<Job> = {}) =>
+      buildWorkspaceTree(
+        data({ projects: [project('p1', 'G')], jobsByProject: { p1: [job('j1', { title: 'First', ...prev }), job('j2', { pendingStart: true, after: 'j1', ...queued })] } }),
+        { showArchived: true }
+      )[0].plans[1].queuedAfter
+    expect(tree({})).toEqual({ name: 'First', stopped: false })
+    expect(tree({ archivedAt: '2026-10-02T00:00:00Z' })).toEqual({ name: 'First', stopped: true })
+    expect(tree({}, { plannerSessionIds: ['pl'] })).toBeUndefined()
+  })
+})

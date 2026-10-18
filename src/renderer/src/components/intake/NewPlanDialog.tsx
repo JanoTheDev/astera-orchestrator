@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react'
 import type { Account } from '../../../../core/types'
 import { DEFAULT_CONCURRENCY, MAX_CONCURRENT_WORKERS, type Project } from '../../../../core/orchestration/types'
+// W8-C plan after plan
+import type { Job } from '../../../../core/orchestration/types'
+import { jobNameOf } from '../../../../core/orchestration/jobName'
 import { useI18n } from '../../i18n/I18nProvider'
 import { formFailure, type OrchDoor } from '../../lib/orchDoor'
 import { AccountSelect } from '../AccountSelect'
@@ -69,6 +72,16 @@ export function NewPlanDialog({
     })
   }, [door, cwd])
   const project = projects.find((p) => p.id === projectId) ?? null
+  // W8-C plan after plan: "Start after", among the project's plans that are not archived (`jobs-list` leaves those out)
+  const [after, setAfter] = useState('')
+  const [plans, setPlans] = useState<{ id: string; name: string }[]>([])
+  useEffect(() => {
+    setAfter('')
+    if (!projectId) return
+    void door.command('jobs-list', { project: projectId }).then((r) => {
+      if (r.status === 200 && Array.isArray(r.body)) setPlans((r.body as Job[]).map((j) => ({ id: j.id, name: jobNameOf(j) })))
+    })
+  }, [door, projectId])
 
   // The GitHub search, a moment after the last key: GitHub's search is rate limited.
   useEffect(() => {
@@ -119,7 +132,8 @@ export function NewPlanDialog({
       }
       const id = (reply.body as { id: string }).id
       // Every intake ends with its planner started; a planner that does not start leaves the Job as a draft.
-      const planned = await door.command('jobs-plan', { id })
+      // W8-C: or queued after another plan (`jobs-set --after`): the Host starts its planner once that one is delivered.
+      const planned = await door.command(after ? 'jobs-set' : 'jobs-plan', after ? { id, after } : { id })
       if (planned.status >= 400) {
         const why = (planned.body as { error?: unknown } | null)?.error
         setError(`${t('jobs.new.plannerFailed')}${typeof why === 'string' ? `: ${why}` : ''}`)
@@ -246,6 +260,18 @@ export function NewPlanDialog({
             <AccountSelect accounts={accounts} value={account} onChange={setAccount} allLabel={t('jobs.new.coordinatorPick')} />
           </div>
         )}
+        {/* W8-C plan after plan */}
+        <div className="field">
+          <label htmlFor="intake-after">{t('intake.after')}</label>
+          <select id="intake-after" value={after} onChange={(e) => setAfter(e.target.value)}>
+            <option value="">{t('intake.afterNone')}</option>
+            {plans.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        </div>
         {error && <p className="warn">{error}</p>}
         <div className="row right">
           <button onClick={onClose} disabled={busy}>

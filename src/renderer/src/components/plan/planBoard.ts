@@ -64,6 +64,8 @@ export function reasonText(
     case 'archived':
       return { key: 'plan.reason.archived' }
     case 'pending-start':
+      // W8-C plan after plan
+      if (reason.after) return { key: reason.after.stopped ? 'plan.reason.afterStopped' : 'plan.reason.queuedAfter', params: { plan: reason.after.title } }
       return { key: 'plan.reason.pendingStart' }
     case 'paused':
       return { key: 'plan.reason.paused' }
@@ -112,6 +114,8 @@ export function reasonText(
 
 /** The badge tone: something only a person can clear, a fault, or plain waiting. */
 export function reasonTone(reason: TaskBlockedReason): 'action' | 'fault' | 'wait' {
+  // W8-C plan after plan: queued after a plan still on its way starts by itself
+  if (reason.kind === 'pending-start' && reason.after && !reason.after.stopped) return 'wait'
   switch (reason.kind) {
     case 'gate':
     case 'no-account':

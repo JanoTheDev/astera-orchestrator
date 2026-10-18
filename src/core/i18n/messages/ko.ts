@@ -2348,6 +2348,11 @@ export const ko = {
   'plan.reason.switching': '사용 한도 · {account} 에서 다른 계정으로 넘어가는 중',
   'plan.reason.archived': '보관된 계획',
   'plan.reason.pendingStart': '계획이 아직 시작되지 않았다',
+  // W8-C plan after plan
+  'plan.reason.queuedAfter': '{plan} 다음 차례로 대기 중',
+  'plan.reason.afterStopped': '{plan} 을(를) 기다리는 중: 그 계획이 멈췄다',
+  'intake.after': '이 계획 다음에 시작',
+  'intake.afterNone': '없음: 지금 계획',
   'plan.reason.paused': '계획이 일시 중지됐다',
   'plan.reason.definition': '정의 Task · 회차마다 복사된다',
   'plan.reason.gate': '답을 기다린다: {question}',
