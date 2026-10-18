@@ -88,6 +88,13 @@ The sidebar's **Workspaces** tree is Project → Plan → Planner / Coordinator 
 terminal. The header above it always says Project · Plan · Task · Model · Account · cwd · Branch · Status. Switching
 sessions or plans never restarts a process or changes its cwd. Scrollback survives switching and a restart of the app.
 
+- **Project workspaces** (W6-F): the switcher at the top of the sidebar lists each project with its number of
+  running tabs, and a dot while one waits for you. Click a project, or press **Ctrl+Alt+1…9** for the first nine
+  (rebind in Settings → Shortcuts). The grid then shows only that project's tabs: its plans' planner, coordinator and
+  workers, plus every tab whose folder is in the project or in one of its worktrees. Tabs outside every project are
+  under **Other**; **All tabs** shows everything. Clicking a plan narrows further, and clicking it again goes back to
+  its project. Each workspace returns to the tab it had in focus when you left it, and a new tab opened in it starts
+  in the project's folder. Tabs in other workspaces keep running, hidden.
 - **Type into a worker**: click it in the tree and type. To send one line without switching, use the command bar:
   `send "run the tests" to Gameful Worker 2`.
 - **Needs my input**: the number next to Workspaces counts sessions waiting for you (a permission prompt or a
@@ -103,6 +110,24 @@ sessions or plans never restarts a process or changes its cwd. Scrollback surviv
   permission", "Asked the coordinator") and the questions the coordinator answered for it. Clicking a running card
   opens its tab. The **Files** tab lists every file of the plan with the Tasks that touch it; a file two Tasks share is
   highlighted, and clicking a file shows its folder in the explorer.
+
+## Usage guards (W6-G)
+
+- **Subagents per tab.** Every Claude tab Astera starts (workers, planners, coordinators and plain tabs) may run at most
+  Settings → "Max subagents per tab" subagents at once (1–10, default 10). A tab that asks for one more gets "Astera: N
+  subagents already running in this tab (limit N). Wait for one to finish." The count lives in
+  `<profile>/hook-events/<session>.subagents` and goes back to 0 when the tab starts or resumes. A change of the setting
+  reaches running tabs at their next subagent. A tab opened before this feature has none of these hooks until it is
+  reopened.
+- **Usage pause.** No new worker starts on an account whose latest statusLine reading is at Settings → "Pause new
+  workers at usage (%)" (default 90) of its 5-hour or 7-day limit. If another account of the Task (its rolling order)
+  is under the threshold, the worker starts there instead. Running workers are never stopped. With no reading yet,
+  nothing is held. The pause ends on its own when a fresh reading is under the threshold or the window resets. A
+  coordinator asking `worker-start` for a paused account is refused with the reason and, when there is one, the
+  account to use instead. The board says "Paused: <account> at 93% of its 5-hour limit, resumes ~14:20". The feed and a
+  desktop notice say when new workers pause and resume, without a sound: nothing is asked of you.
+- **The usage strip** above the plan's board shows each account's 5-hour and 7-day share with its reset time, which
+  accounts are paused, the threshold, and the live subagents per tab.
 
 ## Activity feed
 

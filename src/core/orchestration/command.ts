@@ -155,6 +155,8 @@ import { checkIdsOf, pluginCheckRefusal, tasksOfNextRun } from './commandChecks'
 import { dispatchModelFields } from './roleModels'
 // W1-C plan lifecycle
 import { archiveJob, archivedTargetOf, isJobActive, renameJob, unarchiveJob } from './lifecycle'
+// W6-G
+import { usageChoice, usagePauseWhy, type UsageGuard } from './usageGuard'
 // W6-H delivery
 import {
   deliveryChecksOf,
@@ -661,6 +663,9 @@ export interface OrchServerDeps {
    *  process reads its own copy of the file: the app its AppSettingsStore, the Host the file. Absent:
    *  no cap. */
   maxConcurrentWorkers?(): number | null | Promise<number | null>
+  /** W6-G: the usage guard (usageGuard.ts): `worker-start` refuses a nearly spent account, for every placer. Each
+   *  process keeps its own over its own sessions' statusLine readings. Absent: no usage pause. */
+  usageGuard?: Pick<UsageGuard, 'refresh' | 'pauseOf'>
   /** Starts an agent session for `sessions create` (CLI spec §14): a terminal one through the Host's
    *  spawner (the path its workers take), a chat one through the Host's chat manager (the path its rolls
    *  take). **Only the Host injects it.** Rejects with the reason when the start fails; answers the new
@@ -3682,6 +3687,25 @@ export async function handleCommand(
       const busy = workersAgainstCap(s)
       if (busy >= cap)
         return { status: 409, body: { error: `the app-wide worker cap is reached: ${busy} of ${cap} workers are open`, atCapacity: true } }
+      // W6-G: no new worker on an account at `usagePauseAt` of a usage window, for every placer (a coordinator's
+      // worker spends the same account). New work only, like the cap above. The answer names an account of the
+      // Task's chain that is under the threshold, when there is one; `usagePaused` tells the app's loop to wait.
+      if (deps.usageGuard) {
+        await deps.usageGuard.refresh()
+        const pause = deps.usageGuard.pauseOf(account)
+        if (pause) {
+          const alternative = usageChoice(task.accountIds ?? [], (id) => deps.usageGuard!.pauseOf(id))
+          const other = alternative.ok && alternative.accountId !== undefined ? alternative.accountId : undefined
+          return {
+            status: 409,
+            body: {
+              error: usagePauseWhy(pause) + (other !== undefined ? `; start it with --account ${other}` : ''),
+              usagePaused: pause,
+              ...(other !== undefined ? { alternative: other } : {})
+            }
+          }
+        }
+      }
 
 
       // **`--worktree` 를 생략한 호출은 "이 Run 이 일하는 자리" 를 뜻한다** — 그것은 Run 이

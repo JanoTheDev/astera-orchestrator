@@ -74,7 +74,11 @@ describe('reasonText', () => {
       { kind: 'coordinator' },
       { kind: 'plan-cap', used: 2, limit: 2 },
       { kind: 'global-cap', used: 4, limit: 4, priority: 1 },
-      { kind: 'next' }
+      { kind: 'next' },
+      // W6-G
+      { kind: 'usage-paused', accountId: 'a', window: 'five_hour', percent: 93, resetsAt: '2026-10-17T14:20:00.000Z' },
+      { kind: 'usage-paused', accountId: 'a', window: 'seven_day', percent: 95, resetsAt: '2026-10-20T14:20:00.000Z' },
+      { kind: 'usage-paused', accountId: 'a', window: 'five_hour', percent: 93, resetsAt: null }
     ]
     for (const r of all) {
       const { key, params } = reasonText(r, now, label)
@@ -89,6 +93,16 @@ describe('reasonText', () => {
       .toMatchObject({ key: 'plan.reason.rateLimited', params: { account: 'label:a' } })
     expect(reasonText({ kind: 'rate-limited', accountId: 'a', switching: false, resetsAt: '2026-10-16T00:00:00.000Z' }, now, label))
       .toEqual({ key: 'plan.reason.rateLimitedNoTime', params: { account: 'label:a' } })
+  })
+
+  // W6-G: "paused: account at 93% of its 5-hour limit, resumes ~14:20"
+  it('a usage pause names the account, the share, the window and when it resumes', () => {
+    const resetsAt = '2026-10-17T14:20:00.000Z'
+    const time = new Date(resetsAt).toLocaleString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false })
+    expect(reasonText({ kind: 'usage-paused', accountId: 'a', window: 'five_hour', percent: 93, resetsAt }, now, label)).toEqual({
+      key: 'plan.reason.usagePaused5h',
+      params: { account: 'label:a', percent: 93, time }
+    })
   })
 
   it('lists the deps it waits on by title', () => {

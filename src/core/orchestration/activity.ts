@@ -18,7 +18,8 @@
 // *starts*, #48) and a worker waiting at a permission prompt or a question (`waitingActivity`, #42).
 //
 // Pure: no clock (the log stamps each event), no files.
-import type { TaskBlockedReason, TaskCategory } from '../types'
+import type { TaskBlockedReason, TaskCategory, UsagePause } from '../types'
+import type { UsageChange } from './usageGuard'
 import { taskBoardsOf } from './blocked'
 import { jobNameOf } from './jobName'
 import { outcomeOfTasks } from './running'
@@ -58,6 +59,9 @@ export const ACTIVITY_KINDS = [
   // the chime): a worker's or coordinator's `send --type escalation`, or a Gate opened because the attempts ran out
   'question.auto-answered',
   'task.escalated',
+  // W6-G: no new worker starts on an account near its usage limit, and then may again (usageActivity)
+  'usage.paused',
+  'usage.resumed',
   // W6-H: a finished plan pushed to its delivery branch (a feed line and a notice, no chime). A push that stopped is an
   // escalation instead (delivery.ts recordDelivery)
   'plan.delivered'
@@ -101,6 +105,9 @@ export interface ActivityPayload {
   answer?: string
   // task.escalated (W6-B): the escalation's subject, else its body; a Gate's question
   reason?: string
+  // usage.* (W6-G); also accountId and resetsAt
+  usageWindow?: UsagePause['window']
+  percent?: number
   // plan.delivered (W6-H)
   branch?: string
   sha?: string
@@ -373,6 +380,22 @@ export function waitingActivity(s: OrchState, sessionId: string, waitingFor: 'pe
   }
 }
 
+/** W6-G: a usage guard's change (usageGuard.ts) as its feed line: a line no commit makes, recorded by the Host. The
+ *  title is the account id; the feed shows the account's name. */
+export function usageActivity(e: UsageChange): ActivityDraft {
+  const p = e.pause
+  return {
+    type: e.type,
+    payload: {
+      title: p.accountId,
+      accountId: p.accountId,
+      usageWindow: p.window,
+      percent: p.percent,
+      ...(p.resetsAt !== null ? { resetsAt: p.resetsAt } : {})
+    }
+  }
+}
+
 // ── Summaries ────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 export interface ActivityItem {
@@ -458,6 +481,13 @@ export interface ActivityNotice {
 
 const inPlan = (e: ActivityEvent): string => (e.payload.plan !== undefined && e.payload.plan !== e.payload.title ? ` (${e.payload.plan})` : '')
 
+/** W6-G: when a usage window resets, as this machine's clock reads it: "14:20", or "Mon 14:20" for the 7-day one. */
+export function resetClock(iso: string, weekly: boolean): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  return d.toLocaleString(undefined, { ...(weekly ? { weekday: 'short' as const } : {}), hour: '2-digit', minute: '2-digit', hour12: false })
+}
+
 /** The lines worth interrupting someone for: a Task failed, a plan ended, a question waits on a person, a plan waits
  *  on its approval, an escalation (W6-B). A coordinator's answer (`question.auto-answered`) never is. A worker waiting at a prompt (`task.waiting`) is a feed line and not a notice here: the desktop's `inputNeeded` and Slack's own notice
  *  already say it, from the session's attention (desktopNotifier.ts), and a second notice would be the flood. */
@@ -489,6 +519,18 @@ export function noticeOf(e: ActivityEvent): ActivityNotice | null {
         alert: true,
         ...session
       }
+    // W6-G: a notice but no chime (W6-B's chime is for what needs the owner): nothing is asked of anyone
+    case 'usage.paused': {
+      const weekly = e.payload.usageWindow === 'seven_day'
+      const resumes = e.payload.resetsAt ? `, resumes ~${resetClock(e.payload.resetsAt, weekly)}` : ''
+      return {
+        key: `usage:${e.payload.accountId}:${e.payload.usageWindow}:${e.payload.resetsAt ?? ''}`,
+        title: 'New workers paused',
+        body: `${e.payload.title} is at ${e.payload.percent}% of its ${weekly ? '7-day' : '5-hour'} limit${resumes}. Running workers carry on.`
+      }
+    }
+    case 'usage.resumed':
+      return { key: `usage-resumed:${e.id}`, title: 'New workers resumed', body: `${e.payload.title} is under the usage threshold again.` }
     // W6-H: no chime, it needs nothing of the owner
     case 'plan.delivered':
       return { key: `delivered:${e.runId}`, title: `Plan pushed to ${e.payload.branch ?? 'its branch'}`, body: e.payload.title }

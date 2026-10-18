@@ -1693,6 +1693,12 @@ export const en: Record<keyof typeof ko, string> = {
   'settings.maxWorkers.label': 'Max workers across all jobs',
   'settings.maxWorkers.hint': 'Up to 10; empty is 10. At the limit, higher-priority jobs get the next free slot; equal ones take turns.',
   'settings.maxWorkers.saveFailed': 'Could not save the worker limit: {detail}',
+  // W6-G
+  'settings.usageGuard.subagentsLabel': 'Max subagents per tab',
+  'settings.usageGuard.subagentsHint': 'From 1 to 10. A Claude tab that asks for more is told to wait until one finishes.',
+  'settings.usageGuard.pauseAtLabel': 'Pause new workers at usage (%)',
+  'settings.usageGuard.pauseAtHint': "No new worker starts on an account at this share of its 5-hour or 7-day limit, unless another of the task's accounts is under it. Running workers carry on.",
+  'settings.usageGuard.saveFailed': 'Could not save the usage setting: {detail}',
   'settings.activityDigest.label': 'Activity summary every (minutes)',
   'settings.activityDigest.hint': 'How often to send a summary of what finished, failed or is waiting, to the desktop and Slack. Sent only when something happened. 0 turns it off.',
   'settings.activityDigest.saveFailed': 'Could not save the summary interval: {detail}',
@@ -2085,6 +2091,19 @@ export const en: Record<keyof typeof ko, string> = {
   'plan.now.reading': 'Reading {target} · {ago} ago',
   'plan.now.searching': 'Searching {target} · {ago} ago',
   'plan.now.tool': '{tool} {target} · {ago} ago',
+  // W6-G
+  'plan.reason.usagePaused5h': 'Paused: {account} at {percent}% of its 5-hour limit, resumes ~{time}',
+  'plan.reason.usagePaused7d': 'Paused: {account} at {percent}% of its 7-day limit, resumes ~{time}',
+  'plan.reason.usagePausedNoTime': 'Paused: {account} at {percent}% of its usage limit',
+  'usage.strip.label': 'Usage',
+  'usage.strip.fiveHour': '5h',
+  'usage.strip.sevenDay': '7d',
+  'usage.strip.resets': 'resets ~{time}',
+  'usage.strip.paused': 'new workers paused',
+  'usage.strip.threshold': 'pauses new workers at {percent}%',
+  'usage.strip.subagents': 'subagents (limit {limit} per tab)',
+  'usage.strip.noSubagents': 'no subagents running',
+  'usage.strip.noReading': 'no usage reading yet',
   // W3-B command bar and voice
   'jobs.run.approveConfirmBody': 'Approve "{objective}" and start its workers? Each worker is a real session on your account and uses its quota.',
   'command.title': 'Command',
@@ -2162,5 +2181,7 @@ export const en: Record<keyof typeof ko, string> = {
   'settings.voice.notAbsolute': 'Use an absolute path',
   'settings.voice.saveFailed': 'Could not save the voice settings: {detail}',
   'shortcut.command.open': 'Open the command bar',
-  'shortcut.command.talk': 'Talk to the command bar (press to start, again to send)'
+  'shortcut.command.talk': 'Talk to the command bar (press to start, again to send)',
+  // W6-F
+  'shortcut.workspace.project': 'Open project workspace {n}'
 }

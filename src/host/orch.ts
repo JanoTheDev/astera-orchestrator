@@ -556,6 +556,8 @@ export function createHostOrch(a: {
   /** W3-A: the activity feed's log (host/activity.ts), fed with the public one and read by `activity-poll` and
    *  `activity-summary`. Absent: both answer 501. */
   activity?: Pick<HostEventLog, 'committed' | 'read' | 'tail' | 'next'> | null
+  /** W6-G: the Host's usage guard, for `worker-start` (OrchServerDeps.usageGuard). Absent: no usage pause. */
+  usageGuard?: OrchServerDeps['usageGuard']
   /** How It Works in the Host (hostUnderstanding.ts, E1 §3, §4): handed every Run a commit finishes, and
    *  the app's `understanding-unit` and the app's and MCP's `understanding-regenerate`. Absent: this Host
    *  records no Run, and both calls answer 501. */
@@ -802,6 +804,7 @@ export function createHostOrch(a: {
       // W1-B. A damaged file reads as no cap: the spawn behind worker-start refuses on that file anyway
       // (spawner.ts reads the permission mode from it), so nothing starts past the cap on a guess.
       maxConcurrentWorkers: () => readMaxConcurrentWorkers(path.join(a.profileDir, 'app-settings.json')).catch(() => null),
+      ...(a.usageGuard ? { usageGuard: a.usageGuard } : {}),
       act: a.act,
       hasApp: a.hasApp,
       log: a.log,

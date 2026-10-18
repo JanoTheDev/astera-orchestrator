@@ -341,6 +341,53 @@ describe('createDispatchLoop', () => {
     expect(h.state().tasks.every((t) => t.status === 'ready')).toBe(true)
   })
 
+  // W6-G: the usage guard. A paused account starts nothing and opens no Gate; the pass after its end starts it.
+  it('starts no worker on an account at usagePauseAt, opens no Gate, and starts once the pause ends', async () => {
+    const h = rig()
+    let paused = true
+    const pause = { accountId: 'accA', window: 'five_hour' as const, percent: 93, resetsAt: '2026-09-24T02:00:00.000Z' }
+    h.ctx.usageGuard = { refresh: async () => {}, pauseOf: (id) => (paused && id === 'accA' ? pause : null) }
+    await h.loop.run()
+    await h.settle()
+    expect(h.startWorker).not.toHaveBeenCalled()
+    expect(h.handled()).not.toContain('gate-create')
+    expect(h.state().tasks.every((t) => t.status === 'ready')).toBe(true)
+    expect(h.logs.join('\n')).not.toContain('Gate')
+    paused = false
+    await h.loop.run()
+    await h.settle()
+    expect(h.startWorker).toHaveBeenCalledTimes(1)
+  })
+
+  it('starts on the next account of the chain that is under usagePauseAt', async () => {
+    const h = rig()
+    h.setState({ ...h.state(), tasks: h.state().tasks.map((t) => ({ ...t, accountIds: ['accA', 'accB'] })) })
+    h.ctx.accounts = () => [claudeAccount('accA'), claudeAccount('accB')]
+    const pause = { accountId: 'accA', window: 'seven_day' as const, percent: 95, resetsAt: null }
+    h.ctx.usageGuard = { refresh: async () => {}, pauseOf: (id) => (id === 'accA' ? pause : null) }
+    const starts: unknown[] = []
+    h.ctx.handle = async (cmd, args) => {
+      if (cmd === 'worker-start') starts.push(args.account)
+      return h.real(cmd, args)
+    }
+    await h.loop.run()
+    await h.settle()
+    expect(starts[0]).toBe('accB')
+    expect(h.startWorker).toHaveBeenCalledTimes(1)
+  })
+
+  it('a worker-start refused for usage (usagePaused) opens no Gate', async () => {
+    const h = rig({ concurrency: 2 })
+    h.ctx.handle = async (cmd, args) =>
+      cmd === 'worker-start'
+        ? { status: 409, body: { error: 'account accA is at 93% of its 5-hour limit', usagePaused: { accountId: 'accA' } } }
+        : h.real(cmd, args)
+    await h.loop.run()
+    await h.settle()
+    expect(h.handled()).not.toContain('gate-create')
+    expect(h.state().tasks.every((t) => t.status === 'ready')).toBe(true)
+  })
+
   // Review Focus 1, R15.
   it('a retiring Host’s refusal stops the activation and gates nothing', async () => {
     const h = rig({ concurrency: 2 })
