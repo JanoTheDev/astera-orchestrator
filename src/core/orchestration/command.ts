@@ -773,6 +773,13 @@ export interface SessionCreate {
 
 type Reply = { status: number; body: unknown }
 const okBody = (body: unknown): Reply => ({ status: 200, body })
+/** W7-E (#80): what a plan whose project has no remote says instead of a pull request. */
+const noRemoteNote = (branch: string): string => `This project has no remote; the plan's work is on branch ${branch}`
+/** W7-E: whether the Job that owns `id` (a Job, or a Run of it) reviews its Tasks by default (Job.review). */
+const reviewDefaultOf = (s: OrchState, id: string): boolean => {
+  const run = s.runs.find((r) => r.id === id)
+  return (run ? jobOf(s, run) : s.jobs.find((j) => j.id === id))?.review === true
+}
 /** An optional integer flag within [min, max]; the error text when it is not. */
 const boundedInt = (v: unknown, name: string, min: number, max: number, fallback: number): number | string => {
   if (v === undefined) return fallback
@@ -2204,6 +2211,11 @@ export async function handleCommand(
         const cur = deps.getState()
         await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id ? { ...j, objective } : j)) })
       }
+      // W7-E: `--no-review`: this plan's Tasks are not reviewed (`jobs plan` turns review on otherwise, Job.review)
+      if (args.noReview === true) {
+        const cur = deps.getState()
+        await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id ? { ...j, review: false } : j)) })
+      }
       const after = deps.getState()
       const created = after.jobs.find((j) => j.id === id)
       return created ? okBody(jobView(after, created, undefined)) : reply
@@ -2692,6 +2704,19 @@ export async function handleCommand(
       if (concurrency !== null) {
         const current = deps.getState()
         await deps.setState({ ...current, jobs: current.jobs.map((j) => (j.id === id ? { ...j, concurrency } : j)) })
+      }
+      // W7-E: a planned Job's Tasks are reviewed, with the convergence defaults (up to MAX_REVIEW_ROUNDS rounds, then a
+      // Gate that escalates), unless `--no-review` here or at `jobs create` said not; and the planner's account is kept,
+      // so a plan with no coordinator still replans and gets its final check (replanAccountOf)
+      {
+        const review = args.noReview === true ? false : job.review !== false
+        const cur = deps.getState()
+        await deps.setState({
+          ...cur,
+          jobs: cur.jobs.map((j) =>
+            j.id === id ? { ...j, review, plannerAccountId: accountId, ...(review && !j.convergence ? { convergence: {} } : {}) } : j
+          )
+        })
       }
       // **Marked planned before the session exists** (an empty list): from here an agent cannot approve it
       // (run-start above), which covers the seconds before the new session's id is recorded below.
@@ -3339,7 +3364,10 @@ export async function handleCommand(
             ...(validateIds ? { validateConfigIds: validateIds } : {}),
             // `--review` 는 값이 없는 플래그다(task-list --ready 와 같은 모양). 어느 provider 가
             // 읽을지는 앱이 고른다 — 계정 풀을 아는 것은 앱이다.
-            reviewRequested: args.review === true ? true : undefined,
+            // W7-E: a Job with review on (Job.review, set by `jobs plan`) reviews every Task it gets, from its planner,
+            // its replans or its coordinator, so none can forget `--review`; `--no-review` opts one Task out
+            reviewRequested:
+              args.review === true || (args.noReview !== true && reviewDefaultOf(latest, runId)) ? true : undefined,
             ...plan.fields
           },
           now
@@ -5158,6 +5186,9 @@ export async function handleCommand(
       // remote. `exists` keeps gh's own words, which end with the existing pull request's URL.
       if (made.kind === 'exists') return { status: 409, body: { error: made.detail.trim(), pushed: made.pushed } }
       if (made.kind === 'rejected') return { status: 409, body: { error: 'The push was rejected', pushed: made.pushed } }
+      // W7-E (#80): nowhere to push to is the project's setup, not a failure of the plan
+      if (made.kind === 'no-remote')
+        return { status: 409, body: { error: noRemoteNote(t.branch), noRemote: true, branch: t.branch, pushed: false } }
       const refused = ghRefusal({ ok: false, ...ghFailureSentence({ ok: false, stdout: '', stderr: made.detail, spawnError: made.spawnError }) })
       return { status: refused.status, body: { ...(refused.body as object), pushed: made.pushed } }
     }
@@ -5298,7 +5329,13 @@ export async function handleCommand(
       const title = jobNameOf(job)
       const body = planPrBody({ plan: title, tasks: planPrTasksOf(deps.getState(), id, (a) => accounts.find((x) => x.id === a)?.label) })
       const made = await handleCommand(deps, caller, 'github-pr-create', { run: id, title, body, draft: false, ...(base ? { base } : {}) })
-      const answer = (made.body ?? {}) as { url?: unknown; error?: unknown }
+      const answer = (made.body ?? {}) as { url?: unknown; error?: unknown; noRemote?: unknown; branch?: unknown }
+      // W7-E (#80): a project with no remote keeps the work on its branch; recorded as a note, not as a failed PR
+      if (answer.noRemote === true && typeof answer.branch === 'string') {
+        const note = noRemoteNote(answer.branch)
+        await record({ at: now, note, branch: answer.branch })
+        return okBody({ noRemote: true, branch: answer.branch, message: note })
+      }
       const error = typeof answer.error === 'string' ? answer.error : `github-pr-create answered ${made.status}`
       // gh's "already exists" ends with the existing pull request's URL: that one is the plan's
       const url =
