@@ -6,7 +6,7 @@ W9-B, W9-C and W9-D run in parallel; meet them only through `components/shell/na
 
 Worktree + branch: slug `w9-settings`, branch `feat/ui-settings-dialogs`.
 
-# W9-E — Settings in 7 groups, every dialog on one Modal, one New flow
+# W9-E — Settings page in 7 groups, every dialog on one Modal, one New flow
 
 - **Settings:** `components/settings/` with one file per group (General, Accounts & usage, Agents, Projects,
   Integrations, Notifications, Advanced) per DESIGN.md's settings table. Move the inline JSX out of `App.tsx`

@@ -6,15 +6,15 @@ W9-B, W9-C and W9-E run in parallel; meet them only through `components/shell/na
 
 Worktree + branch: slug `w9-inbox`, branch `feat/ui-inbox-command`.
 
-# W9-D — Inbox and one search/command box
+# W9-D — Inbox page and one search/command box
 
-- **Inbox rail view** (`components/inbox/*`): "Needs you" — plan approvals, escalations, `astera ask` questions,
+- **Inbox page** (`components/inbox/*`, DESIGN.md §2 "Inbox"), in two columns. Left, "Needs you": plan approvals, escalations, `astera ask` questions,
   permission waits, give-ups — each answered inline with W7-C's answer box, oldest first; then "Activity", the W3-A
-  feed. Fill `openInbox(filter?)`. Desktop notices, the chime's notice click and the rail badge all lead here.
+  feed, titled "Handled for you". A permission wait only offers "Answer in its console" (`openConsole`). Fill
+  `openInbox(filter?)`. Desktop notices, the chime's notice click and the rail badge all lead here.
 - **One box:** merge the W3-B command bar and the W3-C session search into one overlay on one key (the command key;
   the search key becomes an alias). Typing searches sessions, plans and Tasks (initials too); a sentence runs as a
   command; results show "project › plan · task". Opening a plan goes through `openPlan`. Voice talk stays on its key.
-- Remove the search box and the badge from the Workspaces header (W9-B's tree no longer mounts them).
 
 ## Done means
 - Tests: inbox ordering and grouping, the merged box's mode choice (search vs command), filter routing. Dev-app

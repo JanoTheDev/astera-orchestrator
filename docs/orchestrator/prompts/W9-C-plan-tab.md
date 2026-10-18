@@ -6,20 +6,25 @@ W9-B, W9-D and W9-E run in parallel; meet them only through `components/shell/na
 
 Worktree + branch: slug `w9-plan-tab`, branch `feat/ui-plan-tab`.
 
-# W9-C — A plan is a tab
+# W9-C — Tasks page, Plans page, plan page
 
-- Add `plan` to `TabKind` and `planTab(jobId)` in `core/panes/tabId.ts` (tests beside the existing ones).
-  `PaneGrid` renders it through `renderPlan`. Saved layouts with a plan tab whose Job is gone drop it on load.
-- `components/plan/PlanTab.tsx` with sections Overview, Board, Files, Changes, Journal, holding everything
-  `RunDetail.tsx` holds today: objective/source, delivery, usage strip, approve and W7-A talk, gates, completion
-  checks, board/graph, files, diffs and PR, W8 attribution, journal, new task. Move code, don't rewrite it; the
-  pinned RunDetail tests move with it. Then delete `RunDetail.tsx` and its modal.
-- Fill `openPlan(jobId)`: open or focus the Plan tab and scope the grid to that plan (W6-F's plan scope).
-- `JobsView.tsx`: its list is now the Plans section (W9-B mounts it); keep its actions (rename, archive, hold,
-  priority) in a row `Menu`.
+Build DESIGN.md §2 "Tasks" and "Plans" exactly.
+- **Tasks page** (`components/pages/TasksPage.tsx`): every Task of the project across plans, in five columns
+  (Planned · Working · Needs you · In review · Done), with plan filter pills.
+  - Cards come from `JobTask`, `taskBoardsOf` (why it waits) and W6-E `lastAction`.
+  - Click rules: working or in review → `openConsole`; needs you → `openInbox`; planned → `openPlan(job, 'waves')`;
+    done → its summary (W9-I).
+- **Plans page:** the list from `JobsView` (state, source, progress bar, delivery, age; queued plans with "starts
+  after X", W8-C), and the plan page with Overview, Waves, Files, Changes and Journal.
+  - Move `RunDetail.tsx`'s content in; do not rewrite it. The pinned RunDetail tests move with it.
+  - Then delete `RunDetail.tsx` and its modal.
+  - "What happened so far" in Overview rolls up W9-I summaries (until W9-I merges:
+    `shortcut: wire W9-I roll-up after merge`).
+- Fill `openPlan(jobId, section?)`. Keep `JobsView`'s actions (rename, archive, hold, priority, workers, start after)
+  in the plan page's ⋯ menu.
 
 ## Done means
-- Every RunDetail control reachable in the Plan tab (list them in the PR, before → after). Tests for the tab kind,
-  the stale-tab drop and `openPlan`'s focus-or-open rule. Dev-app screenshots of each section.
+- Every RunDetail control reachable on the plan page (list them in the PR, before → after). Tests: Tasks column
+  assignment, the click rules, plan list ordering, and `openPlan` sections. Dev-app screenshots of each page.
 - Typecheck, your tests, full suite via the flock line, results in the PR. Only your ownership row changed. PR into
   `main`. Do not merge.

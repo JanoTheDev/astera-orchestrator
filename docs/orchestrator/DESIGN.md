@@ -1,146 +1,193 @@
 # Wave 9 design spec
 
-Mockup (clickable, all four themes): https://claude.ai/artifact/DhSiAPZxCigXD4xJBoFb9x. It opens on the Agents
-wall: click a tile to take it over, and use the filters to see Needs you and Finished. It has two artboards:
-- "Astera — clickable prototype": the shell, the Agents wall, Home, a Plan tab, the Inbox, the search/command
-  box, the New flow, Settings and the accounts popover. Its Tweaks switch the theme.
-- "Themes, tokens and primitives".
+Mockup (clickable): https://claude.ai/artifact/DhSiAPZxCigXD4xJBoFb9x.
+- **"Astera — clickable prototype"** opens on the Agents page. The top bar switches pages. Clicking a console opens
+  it full size. Tasks, Plans (then click Auth rework), Inbox, Worktrees and Settings are all live. Its Tweaks switch
+  the theme.
+- **"Themes, tokens and primitives"** shows Night, Dusk and Day.
 
-Status: **decided** (2026-10-18, §13). Silence before 9.1 = approved. Once approved, every Wave 9 prompt builds against this file and the
-mockup. Where they disagree, this file wins.
+Status: **decided** (2026-10-18, §14). Silence before 9.1 = approved. Every Wave 9 prompt builds against this file and
+the mockup. Where they disagree, this file wins.
 
-## 0. Hands-off first (owner, 2026-10-18)
+## 0. What the owner asked for (2026-10-18)
+- **Hands-off.** Astera runs plans by itself. The owner watches, steps in when needed, and reads afterwards what
+  happened.
+- **See every CLI console at once, and work in any of them without interrupting the coordinator.** This is the most
+  important view.
+- **A summary per console** when it finishes.
+- **Separate, clean pages**, including a Tasks board. Nothing is crammed into one place.
+- **Consoles look and behave exactly like the console.** The real Claude Code / Codex TUI, no custom chat UI. Slash
+  commands, permission prompts and plan mode all work, because it *is* the CLI.
+- **A new product look.** If released, it must not look like upstream Astera.
 
-Astera runs plans by itself. The UI exists so the owner can **watch everything at a glance, step in on any one agent
-without disturbing the rest, and later read what each tab did.** Rules every screen follows:
-- **The default view is the Agents wall (§3a).** It shows every CLI tab of the project, live, at once. Opening the
-  app or switching projects lands there.
-- **Nothing pops up by itself.** No modal opens unless the owner clicks. Only Inbox items (§2) notify, with sound.
-  Auto-answers, merges and replans go to the feed, silently.
-- **The owner never has to type into the coordinator.** They answer in the Inbox, or on a worker's tile. Typing into
-  any tile never pauses or redirects the coordinator or other workers (§3a "The wheel").
-- **Every finished tab leaves a summary (§3b).** Ended tabs close on their own (W7-F) and become summary cards. The
-  scrollback stays one click away.
-- **Defaults lean automatic:** auto-approve per project (W7-A) is offered on the first plan of each project, review
-  is on, and replan between waves is on.
+Rules every screen follows:
+- **The app opens on the Agents page.**
+- **Nothing pops up by itself.** No modal opens unless the owner clicks. Only Inbox items notify, with a sound.
+  Auto-answers, merges, replans and clean-ups land in "Handled for you", silently.
+- **The owner never has to type into the coordinator.** They answer in the Inbox, or in the worker's own console.
+- **Ended consoles close on their own** (W7-F) and leave a summary card (§4).
+- **Defaults lean automatic:** auto-approve per project is offered on a project's first plan; review and
+  replan-between-waves are on; worktrees of merged Tasks are cleaned up after delivery.
 
-## 1. Layout
+## 1. Shell
 
-The window is 1440×900 in the mockup. The layout must hold down to 1024×640.
+The window is 1440×900 in the mockup. The layout must hold down to 1024×640, where the page tabs collapse into a
+"Pages ▾" menu.
+
+**There is no icon rail and no persistent sidebar.** Upstream's IDE shell (rail, stacked sidebar panels, pane grid as
+home) goes away. Every page owns the full width below the top bar.
 
 | Region | Size | Contents |
 |---|---|---|
-| Titlebar | 40px high | Left: the project switcher, showing the project's name and a "N waiting" chip; it opens the W6-F switcher menu. Centre: the search/command box button, 460px wide, which opens the box overlay. Right: the run config button, and one `Meter` for the active account's 5-hour usage, which opens the accounts popover. |
-| Rail | 52px wide | Home, Inbox (badge = waiting count), Files, Worktrees, How It Works, then a spacer, then Settings. Icons are lucide at 20px, inside 40px buttons. The active button gets the `elevated` background. |
-| Sidebar | 284px default, resizable 200–520px (`cm.sidebarWidth`) | Depends on the rail button; see §2. Pressing the active rail button collapses the sidebar (today's rule, `core/ui/sidebar.ts`). |
-| Tab strip | 34px high | Every tab: plan, session, file, record, browser, app, media, settings. The active tab has a 2px accent line on top. Ended tabs follow the W7-F auto-close rule. The "All tabs" menu sits on the right. The W7-F quick switcher is unchanged. |
-| Content | flex | The active tab. PaneGrid splitting works as today. |
-| Bottom panel | resizable (`cm.runPanelHeight`) | Run output and terminals. Unchanged apart from tokens. |
-| Status bar | 26px high | Running count · waiting count (opens the Inbox) · spacer · active account with its 5-hour and weekly usage (opens the accounts popover) · branch · host health (opens Settings › Advanced › Host when it is not ok). |
+| Top bar | 44px, one line | From left: the brand mark and "Astera" `/` the project switcher (a plain text button with ⇅, W6-F menu); page tabs **Agents · Tasks · Plans · Inbox (count) · Worktrees · Files · More ▾** as plain text with a 2px `--accent` underline on the active one; a spacer; the search field (`⌃⇧K`, §6); **New** (the only filled button); a divider; the usage `Meter` (opens the accounts popover); Settings ⚙ as an icon button. |
+| Page | flex | One page at a time (§2). The page remembers its own scroll and selection. |
+| Status bar | 26px | Consoles count and working count (→ Agents) · waiting count (→ Inbox) · the next queued plan ("Next: X starts after Y delivers") · spacer · active account with 5-hour and weekly usage · host health. |
+
+- **More ▾** holds History, How It Works, Browser and Run configs: upstream features that stay but are rarely
+  needed.
+- The run-config output and bottom terminal panel open as a drawer from the run-config page or the box, not as
+  a permanent panel.
+- **Keys:**
+  - `Ctrl+1…6` switch pages (rebindable).
+  - `Ctrl+Alt+1…9` switch projects, as today.
+  - `Ctrl+Shift+K` opens the box.
+  - `Ctrl+N` opens New.
+  - `Ctrl+Shift+N` opens a new window (§1a).
 
 ## 1a. Windows (W9-K)
-- Each project can have its own window, so two or three projects can run side by side on separate monitors.
-- They are all windows of **one app process and one Host**. Accounts, usage, rolling and the app-wide worker cap
-  stay single, and nothing is counted twice.
-- Open a new window from the project switcher's "Open in new window", `Ctrl+Shift+N`, the tray, or by launching
-  again with `--project <name>`.
-- A window shows only its project (the W6-F scope). Its title is "<project> — Astera".
+- Each project can have its own window, so two or three projects can run side by side.
+- They are all windows of **one app process and one Host**. Accounts, usage, rolling and the app-wide worker cap stay
+  single, and nothing is counted twice.
+- Open a new window from the switcher's "Open in new window", `Ctrl+Shift+N`, the tray, or by launching again with
+  `--project <name>`.
+- A window shows only its project. Its title is "<project> — Astera".
 - Notices open their project's window.
-- The windows open at quit come back on launch. Closing the last window keeps plans running in the background
-  (W1-D).
+- The windows open at quit come back on launch. Closing the last window keeps plans running (W1-D).
 
-## 2. Rail views
+## 2. Pages
 
-**Home:**
-- Header: the project name, and a "New" primary button that opens the New flow.
-- Sections, each built on `Section` (collapsible, state kept in `cm.section.<id>`):
-  - **Plans**: open by default. The tree is Project → Plan → Planner / Coordinator / Workers (W2-B, W6-F).
-    - A plan row shows its progress (`5/9`) or its state (`approve`, `done`), plus a status dot.
-    - A worker row shows its Task and its live state (`editing`, `asks`, `permission`, `review`).
-    - Clicking a plan opens its Plan tab. Clicking a session focuses its tile on the Agents wall.
-    - Archived plans sit in a "Done" sub-group, closed by default.
-  - **Sessions**: tabs that belong to no plan.
-  - **History**.
-- Accounts no longer have a sidebar section. They live in the popover and in Settings › Accounts & usage.
-- The search box and the "needs input" badge leave the Workspaces header. Search moves into the box (W9-D) and the
-  badge moves onto the rail.
+### Agents (default; W9-H)
+- **Console strip** across the top: "All consoles", then one entry per live console (Coordinator, Worker 2 · T4,
+  Reviewer, Planner, plain consoles). A dot shows each console's state.
+- **Plan progress strip** (one row per active plan, at the top of the wall): title, wave, a stacked bar, and counts
+  "N done · N working · N need you · N remaining". Clicking a row opens the Tasks page filtered to that plan.
+- **The main console:** the coordinator is pinned as the first tile, twice as tall, labelled "main", with an accent
+  border. Its strip entry reads "Coordinator (main)".
+- **All consoles (the wall):**
+  - Scope: this plan / <project> / all projects.
+  - Filter: All / Needs you / Working / Finished.
+  - An auto grid of tiles: 1–4 consoles → 2 columns, 5–9 → 3, 10+ → 4. Needs-you tiles come first, with a warn
+    or danger border.
+  - Each tile has a header (name, Task, state chip) and a detail line, then **the console itself**: the session's
+    own xterm at 10.5–11px, showing its real bottom lines, input box and mode line.
+    - The detail line for a worker: wave, time running, files and commits.
+    - For the coordinator: answered and escalated counts.
+    - For the reviewer: round N of M.
+  - Clicking a tile opens that console full size.
+- **Below the tiles:** "Finished · what each console did", the summary cards (§4).
+- **One console full size** (from a tile, the strip, a Task card, an Inbox card, the box):
+  - A slim header: project › plan › name · Task, model, cwd, and "Back to all".
+  - **Left: nothing but the console.** The full xterm, the CLI's own input box, its own mode line, its own
+    permission prompts.
+  - **Right: a details panel** (330px, collapsible, `Ctrl+.`).
+    - **Worker:** the Task title and brief, running time, model and account, worktree, changes, and questions. Then
+      "Done when", the acceptance criteria ticked as the reviewer or checks confirm them. Then **all Tasks of the
+      plan**, with a state dot and who is on each (merged / Worker 2 · permission / Reviewer / wave 3). Clicking one
+      jumps to its console or to the plan's Waves.
+    - **Coordinator:** plan progress, wave, answered and escalated counts, then all Tasks and what each one is
+      doing.
+    - **Planner:** the planned Tasks.
+    - **Reviewer:** the round and the criteria being checked.
+    - All of this comes from data the Host already has (`JobTask`, `taskBoardsOf`, `lastAction`, review rounds,
+      `acceptanceCriteria`), with no new agent calls.
+  - **Typing goes straight into the PTY.** There is no Astera input box or chat UI.
+- **The owner hold:**
+  - A console the owner is looking at full size, or has typed into in the last 60 s, is held. While it is held, an
+    agent's `sessions-send` into it is queued in the Host, not typed, so a coordinator message never lands in the
+    middle of the owner's line.
+  - The sender gets `{ queued: true, reason: 'owner-typing', target }` at once, so the coordinator never blocks.
+    Queued messages are delivered in order on "Back to all" or after 60 s idle.
+  - The header says: "You have the keyboard here · the coordinator's messages to this console wait until you
+    leave". Nothing else pauses.
+- **Tiles render the real terminals.** Offscreen tiles pause rendering. If 12 live tiles cost more than 15% of one
+  core while idle on the owner's laptop, unfocused tiles fall back to a text tail of the same lines, and only the
+  full-size console keeps a live xterm. W9-H measures this.
+- The assistant-ui conversation pane (`conversation/*`) is **no longer offered for new consoles**. Existing
+  conversation sessions still open, and can be removed later.
 
-**Inbox:**
-- **Needs you**, oldest first. Each card shows a kind chip, the age, "project › plan › task", and the text. Answers
-  happen inline:
-  - Question (`astera ask`, escalation): quick-answer buttons when the asker offered options, a text box, and
-    "Send to <worker>" (the W7-C answer box).
-  - Plan approval: Review plan (opens the Plan tab) · Talk to planner (opens Overview) · Approve.
-  - Permission wait: "Open tab to answer". Permission prompts stay human and are answered in the terminal
-    (CONTEXT rule 6).
-  - Give-up or escalation after the review cap: Open plan · Retry task · Skip task.
-- **Activity**: the W3-A feed, newest first. Auto-answers appear here and never under "Needs you".
-- The desktop notice, the chime's notice click, the rail badge and the status-bar count all call `openInbox()`.
+### Tasks (W9-C)
+- A board of **every Task in the project, across plans**, in five columns: Planned · Working · Needs you · In
+  review · Done.
+- Plan filter pills (All plans / each plan).
+- Cards show: id, title, live line (W6-E `lastAction`, or why it waits: `taskBoardsOf`), plan chip, worker and
+  model. A card that needs you has the warn or danger border.
+- Clicking a card goes to the right place:
+  - working or in review → its console;
+  - needs you → its Inbox card;
+  - planned → its plan's Waves;
+  - done → its summary.
+- Done keeps the last 20 per plan; older ones are under the plan's page.
 
-**Files:** the existing explorer (`FileExplorer`), unchanged apart from tokens.
+### Plans (W9-C)
+- **List:** one row per plan, showing:
+  - state dot, title and state chip;
+  - source and wave line;
+  - progress bar (done/total);
+  - delivery;
+  - age.
+- Order: running, awaiting approval, queued (with "starts after X delivers", W8-C), then delivered and archived
+  (collapsed). "New plan" opens New at Plan from a source.
+- **Plan page** (click a row; breadcrumb "Plans › <name>"):
+  - **Header:** title (rename inline), state chips, and the actions Its consoles (→ Agents scoped to this plan),
+    Pause/Resume, Talk to planner, ⋯ (priority, workers at once, start after, hold, archive, kill consoles, open PR).
+  - Sections, segmented (the last one used is remembered per plan):
+    - **Overview**:
+      - objective, source and existing.md;
+      - **What happened so far**, rolled up from the console summaries;
+      - Talk to the planner (W7-A);
+      - the approve bar while awaiting approval;
+      - How it runs (models, workers, review, final check, delivery, usage);
+      - the final check result and gates.
+    - **Waves**:
+      - one column per wave with state and count; the current wave marked; "Replanning wave N…".
+      - Cards as on Tasks, plus their files; clicking a card follows the Tasks rules.
+      - A toggle shows the dependency graph.
+    - **Files**: the W6-E files table, with "Shared · one at a time".
+    - **Changes**: PR bar (number, state, checks, AI/human share from W8), then files with +/−, Task, model and AI
+      share. A file opens `DiffView` with the W8-B gutter.
+    - **Journal**: `RunDetailJournal`, in mono.
+- `RunDetail.tsx` and its modal are deleted. W9-C's PR lists every control's new home.
 
-**Worktrees** (W9-J):
-- The sidebar lists every worktree of the project, grouped:
-  - one group per running plan, for the Task worktrees in use;
-  - **Ready to clean up**, for merged Tasks with no session, a clean tree and nothing unpushed;
-  - **Yours**, for worktrees Astera did not create.
-- Each row shows the branch, ahead/behind, its agent, and dirty state.
-- "Clean up N" removes the ready ones in one click, using the existing `remove.ts` path and its checks.
-- Clicking a row opens its **Worktree tab** (`worktree:<path>`). The tab shows:
-  - Header: the branch, a state chip, base, ahead/behind, and the actions Show its agent (focuses the wall tile),
-    Open session here, Open in Files, and ⋯ (push, create PR, remove, copy path).
-  - Fact cards: agent and Task, folder, working tree, and PR (or "goes into the plan PR #N").
-  - **Changes vs base**: a file list with M/A/D and +/−. Clicking a file opens `DiffView` with the W8-B blame gutter.
-  - **Commits** since base, each with its author (agent and model, from W8, or "you").
-- **Hands-off:** worktrees of merged Tasks are removed automatically once the plan is delivered. Only those with a
-  clean tree, nothing unpushed and no session qualify; the rest wait under "Ready to clean up". A setting turns this
-  off, and it is on by default. **"Yours" is never removed automatically.** Every removal keeps the existing
-  dirty-tree confirmation and branch-preserved rules.
-- The wall's tile footer and the Plan board card show the worktree branch as a link to its Worktree tab.
+### Inbox (W9-D)
+- Two columns:
+  - **Needs you** (left, wide), oldest first:
+    - Question: quick answers when the asker offered options, a text field and Send, plus "Open its console".
+    - Plan approval: Review plan · Talk to planner · Approve.
+    - Permission wait: "Answer in its console" (permission prompts stay in the real CLI, CONTEXT rule 6).
+    - Give-up or escalation: Open plan · Retry · Skip.
+  - **Handled for you** (right): the activity feed. It covers auto-answers, merges, replans, clean-ups, deliveries
+    and usage pauses.
+- Desktop notices, the chime, the nav badge and the status-bar count all call `openInbox()`.
 
-**How It Works:** the existing `UnderstandingView`, unchanged apart from tokens.
+### Worktrees (W9-J)
+- **Left list:** grouped by running plan, "Ready to clean up", and "Yours". Each row shows the branch,
+  ahead/behind, its console and dirty state. "Clean up N" sits on top.
+- **Right detail:**
+  - Header: the branch, state, base and ahead/behind, with the actions Its console · Open console here · Open in
+    Files · ⋯ (push, create PR, remove, copy path).
+  - Fact cards.
+  - Changes vs base, which open `DiffView`.
+  - Commits, each with its W8 author.
+- After a plan is delivered, its ready worktrees are removed automatically. "Yours" never is. Every removal keeps
+  the existing safety checks.
 
-**Settings:**
-- The sidebar holds a search field and the 7 groups. The content area is a **Settings tab**, not a modal, so it can
-  sit beside a terminal and the box can deep-link into it (`openSettings(group, anchor)`).
-- One Settings tab exists at most; opening Settings again focuses it.
+### Files
+- The existing explorer and editor, full width: tree on the left, editor tabs on the right. Restyled only.
 
-## 3a. The Agents wall (the main view)
+### Settings
+- Groups on the left, with search; the group's rows on the right (§7). It is a page, not a modal.
 
-- A pinned first tab, **Agents · N**. N is the number of live CLI tabs in scope. The tab can't be closed.
-- **Toolbar:**
-  - Scope: This plan / <project> (default) / All projects.
-  - Filter: All / Needs you / Running / Finished.
-  - An autopilot line saying what the coordinator is doing for you.
-- **Tiles** in an auto grid: 1–4 tabs → 2 columns, 5–9 → 3, 10+ → 4. Every CLI tab in scope gets a tile: planner,
-  coordinator, workers, reviewers, and plain sessions. Order: needs you first, then running, then idle.
-  - **Header:** role, Task, and a state chip (Editing / Asks you / Permission / In review / Idle / Done). It also
-    shows a status dot, and a warn or danger border while the tab needs you.
-  - **Body: the real terminal**, live. Each tile is the session's own xterm, sized to fit at 11px font and read-only
-    until focused. Offscreen tiles stop rendering. If 12 live tiles cost too much CPU on the owner's laptop
-    (measure: no more than 15% of one core while idle), tiles fall back to the last 6 lines of text, and only the
-    focused tile keeps a live xterm. W9-H measures this and records the numbers in its PR.
-  - **Footer:** model and account, a "Send a line to <name>" box (sends one line without taking over), and Take
-    over.
-- **Take over** (click a tile, or ⤢): the tile grows and gets keyboard focus, so typing goes straight into that
-  session's PTY. A banner says "You are typing to Worker 3 · T5. The coordinator's messages to it wait until you
-  hand back."
-  - Esc or "Hand back" returns. "Open as tab" moves the tile into a full tab.
-  - Taking over never pauses the plan, the coordinator or any other tile.
-- **The wheel** (owner-input hold):
-  - While the owner holds a session, an agent's `sessions-send` into it is queued in the Host, not typed. This stops
-    a coordinator message from landing in the middle of the owner's line.
-  - The hold starts on the owner's first keystroke in that session, or on Take over. It ends on Hand back, or after
-    60 s with no owner input.
-  - The sender gets `{ queued: true, reason: 'owner-typing', target }` at once, so the coordinator never blocks on
-    it. Queued messages are delivered in order when the hold ends.
-  - Permission prompts are unaffected: the owner answers them by typing, as today.
-- **Finished row:** below the tiles. It holds the summary cards (§3b) of tabs that ended in scope, newest first, with
-  Scrollback (opens the read-only scrollback) and Changes.
-- Clicking a session in Home › Plans, in an Inbox card or in the box focuses its tile on the wall. "Open as tab"
-  stays available everywhere.
-
-## 3b. Tab summaries
+## 4. Console summaries
 
 - **When:** a CLI tab ends (process exit, Task merged or given up, or W7-F auto-close). A plain session also gets
   one when it has been idle at a finished turn for 10 min and wrote something. Turning this off is a setting; it is
@@ -159,10 +206,9 @@ The window is 1440×900 in the mockup. The layout must hold down to 1024×640.
     the facts, the agent's own `resultSummary`, and the session's last messages. It runs through the existing How It
     Works generator path (`core/understanding`), not a new agent runner.
 - **Where it shows:**
-  - The wall's Finished row.
-  - The Task's card on the board.
+  - The Agents page's Finished row.
+  - The Task's card on the Tasks page and the plan's Waves.
   - The session's History row.
-  - Hover on a finished tree row.
   - The plan's end: all of a plan's summaries roll up into the plan summary in Overview, and into the delivery PR
     body (W6-H) under "What each task did".
 - **Storage:** next to the session record in the Host's store, as
@@ -170,158 +216,114 @@ The window is 1440×900 in the mockup. The layout must hold down to 1024×640.
   - Only ids and facts are stored. There is no prompt text beyond what the session store already keeps.
   - Nothing goes into git except the PR-body roll-up, which is part of a delivery the owner set up.
 
-## 3. The Plan tab (`plan:<jobId>`)
+## 5. New
 
-- **Header:**
-  - The title, which can be renamed inline (W1-C).
-  - State chips: Running / Paused / Planning / Awaiting approval / Done, wave X of Y, done/total, delivery.
-  - Actions: Pause/Resume · Talk to planner · ⋯ (rename, priority, workers at once, hold, archive, kill sessions, open
-    PR).
-- **Sections** (a segmented control; the last one used is remembered per plan):
-  - **Overview**: objective, source chips, existing.md summary, "Talk to the planner" (W7-A thread, box and Send),
-    the approve bar while awaiting approval, "How it runs" (models, workers, review, final check, delivery), the
-    plan's usage (W6-G strip as `Meter`s), the final check result (W7-E), and gates (`GateAnswer`).
-  - **Board** (opens first while running): one column per wave, showing title, state chip and count. The current wave
-    is marked. "Replanning wave N…" appears on the next wave while the planner works.
-    - Cards show: id, title, status chip, live line (W6-E `lastAction`), files (two shown, then "+N more"), model and
-      worker, and the answered-questions count.
-    - A card that needs you gets the `warn`/`danger` border.
-    - Clicking a running card opens its tab. Clicking a card that asks opens the Inbox on it.
-    - A toggle swaps the board for the graph view.
-  - **Files**: the W6-E files table. A file shared by two Tasks is marked "Shared · runs one at a time".
-  - **Changes**:
-    - A PR bar: number, state, checks, and AI/human share from W8.
-    - A per-file list: +/−, Task, model, and AI share (W8 `attribution-stats`).
-    - Clicking a file opens `DiffView` in a file tab, with the W8-B blame gutter.
-  - **Journal**: `RunDetailJournal`, in mono.
-- `RunDetail.tsx` and its modal are deleted. Every one of its controls has a home above; W9-C's PR lists them.
-
-## 4. The New flow
-
-- One `Modal`.
+- One `Modal`, from **New**, `Ctrl+N` or the box.
 - **Step 1** picks between:
-  - **Session**: agent, account, folder and worktree. This is `NewSessionDialog`'s form.
-  - **Plan from a goal**: goal, workers at once, delivery and review, with defaults from the project page (W7-B).
-    This is `NewPlanDialog`.
-  - **Plan from a source**: GitHub issues, files or PDF, audit, or problem list, plus extra instructions. This is
-    `SourceJobModal` and W6-A intake.
-- **Step 2** shows the chosen form, with Back and a primary action ("Start planning" / "Open session").
-- Entry points: Home's "New" button, the box (`new plan …`), and `Ctrl+N` (rebindable).
+  - **Console**: a plain Claude Code or Codex console. Agent, account, folder, worktree.
+  - **Plan from a goal**: goal, workers at once, delivery, start after.
+  - **Plan from a source**: prompt files (W8-C `--mode prompts`: one Task per file, text kept as-is), GitHub issues,
+    files or PDF, audit, or problem list. Delivery and start after.
+- **Step 2** shows that form, with Back and the primary action.
 
-## 5. Search and command box
+## 6. Search and command box
+- One overlay from the top bar pill or `Ctrl+Shift+K`.
+- Results are grouped as Consoles, Tasks, Plans, Settings and Commands, and it matches initials too (W3-C, W3-B).
+  Destructive intents still confirm in the UI.
+- Holding `Ctrl+Shift+M` starts push-to-talk.
 
-- One overlay, 620px wide, 56px from the top.
-- Typing searches plans, Tasks and sessions across projects, including by initials (W3-C), grouped under Plans,
-  Tasks, Sessions and Settings.
-- When the text reads as a command, a "Commands" group shows the parsed intent (W3-B). Tab runs the text as a
-  command, and destructive intents still ask for confirmation in the UI (CONTEXT rule 6).
-- Holding `Ctrl+Shift+M` starts push-to-talk, as today.
-- One key opens the box: `Ctrl+Shift+K`. The old search key becomes an alias.
-
-## 6. Settings groups (every current setting → its group)
+## 7. Settings groups (every current setting → its group)
 
 | Group | Settings (current tab in brackets) |
 |---|---|
-| General | Language, default session kind (general) · Theme, density, terminal font (appearance) · Shortcuts (shortcuts) |
+| General | Language, default session kind (general) · Theme, density, console font (appearance) · Shortcuts (shortcuts) |
 | Accounts & usage | Accounts, sign in, remove, rolling (accounts) · Usage guard, subagents per tab (agent) |
 | Agents | Role models (agent › OrchestratorModels) · Permission mode, max workers, resume strategy (agent) · Voice (agent) · Agent browser, agent app (agent) |
 | Projects | One page per project (W7-B): delivery, auto-approve, test command, concurrency, review rounds, replan, account, line attribution (W8-B) · Add project |
 | Integrations | GitHub (github) · Slack (slack) · CLI, MCP (cli) · Remote runtimes (remote) · Plugins (plugins) · Creative hub (creativeHub) |
-| Notifications | Desktop notices, sound, digest (notifications) · Tab summaries on/off, summary model (new, W9-I) |
+| Notifications | Desktop notices, sound, digest (notifications) · Console summaries on/off, summary model (new, W9-I) |
 | Advanced | How It Works work unit and generator (hiw) · Worktree location (worktree) · History (history) · About, version, updates, host status (info) |
 
 The settings search filters rows by label and description and shows the group each hit belongs to.
 
-## 7. Feature map (one home per feature)
+## 8. Feature map (one home per feature)
 
 | Feature (wave) | New home |
 |---|---|
-| Every CLI tab at once, step in without disturbing the coordinator (W9-H) | **Agents wall** (§3a) · Take over · Send a line |
-| What each tab did (W9-I) | Tab summaries (§3b): wall Finished row · board card · History · plan Overview · PR body |
-| Sessions, PaneGrid, terminals (upstream) | Agents wall tiles · full tabs via "Open as tab" · Home › Sessions |
-| Accounts, rolling, usage meters (upstream, W6-G, W7-F) | Status bar popover · titlebar `Meter` · Settings › Accounts & usage |
-| Role models (W1-A) | Settings › Agents · Plan › Overview "How it runs" |
-| App-wide cap, priority (W1-B) | Settings › Agents · Plan ⋯ menu |
-| Plan rename, archive (W1-C) | Plan header · Plan ⋯ · Home › Plans "Done" |
-| Linux background, tray (W1-D) | Unchanged (system tray) |
-| Planner stage, approve (W2-A, W7-A) | Inbox approval card · Plan › Overview approve bar |
-| Workspace tree (W2-B, W6-F) | Home › Plans · titlebar project switcher |
-| Board, why waiting (W2-C, W6-E) | Plan › Board |
-| GitHub links, PR (W2-D) | Plan › Changes · card chips |
-| Activity feed, digest (W3-A) | Inbox › Activity · Settings › Notifications |
-| Command bar, voice (W3-B) | The search/command box |
-| Search, needs-input inbox (W3-C) | The box · Inbox › Needs you |
-| Holds (W5-C) | Plan ⋯ · card menu |
-| Intake, sources, GitHub assign (W6-A, W7-D) | New flow › Plan from a source |
-| Auto-answers, escalation, sound (W6-B, W7-C) | Inbox · Settings › Notifications |
-| Scheduler guards, same-file rule (W6-C) | Plan › Files "Shared" · card live line |
-| Replanning (W6-D) | Board wave header · Journal · Plan › Overview talk |
-| Project workspaces (W6-F) | Titlebar switcher · `Ctrl+Alt+1…9` |
-| Several projects at once (W9-K) | One window per project: switcher "Open in new window" · `Ctrl+Shift+N` · tray · `--project` |
+| Every console at once; step in without disturbing the coordinator (W9-H) | **Agents** page: wall, full-size console, owner hold |
+| What each console did (W9-I) | Summaries: Agents › Finished · Task cards · Plan › Overview · PR body · History |
+| Sessions, terminals, PaneGrid (upstream) | Agents page (the PaneGrid split view survives inside a full-size console: "Split" in its header) |
+| Task board, why waiting (W2-C, W6-E) | **Tasks** page · Plan › Waves |
+| Plans, lifecycle, priority, holds (W1-B, W1-C, W5-C) | **Plans** page and plan page header/⋯ |
+| Planner stage, approve, talk (W2-A, W7-A) | Inbox approval · Plan › Overview |
+| Workspace tree (W2-B, W6-F) | Replaced by pages and the project switcher; the console strip lists consoles |
+| GitHub links, PR (W2-D) | Plan › Changes · Task cards |
+| Activity feed, digest (W3-A) | Inbox › Handled for you · Settings › Notifications |
+| Command bar, voice, search (W3-B, W3-C) | The box |
+| Needs-input inbox, escalations, answers (W3-C, W6-B, W7-C) | **Inbox** page |
+| Intake, sources, assign-me (W6-A, W7-D) | New › Plan from a source |
+| Prompt files, start after, heavy-job slot (W8-C) | New › Prompt files / Start after · Plans list "Queued" · Task live line "Waiting for the heavy-job slot" |
+| Same-file rule (W6-C) | Plan › Files · Task live line |
+| Replanning (W6-D) | Plan › Waves header · Journal |
+| Projects, per-project settings (W6-F, W7-B) | Project switcher · Settings › Projects |
+| Several projects at once (W9-K) | A window per project |
 | Delivery modes (W6-H) | Plan header chip · Settings › Projects |
-| Projects create/add (W7-B) | Settings › Projects · switcher "Add project" |
-| Tabs auto-close, switcher (W7-F) | Tab strip · "All tabs" menu |
-| Attribution (W8) | Plan › Changes · blame gutter in file tabs · Settings › Projects row |
-| Explorer, editor, markdown, media (upstream) | Rail › Files · file tabs |
-| Run configs, bottom panel (upstream) | Titlebar run button · bottom panel |
-| Worktrees panel, PR/push badges (upstream) | **Rail › Worktrees** + Worktree tab (W9-J): changes, commits, agent, clean up |
-| History (upstream) | Home › History |
-| How It Works (upstream) | Rail › How It Works · record tabs |
-| Browser pane, agent browser (upstream) | Browser tabs · Settings › Agents |
-| Remote runtimes (upstream) | Settings › Integrations · runtime selector in the New flow |
-| Plugins, MCP, CLI (upstream) | Settings › Integrations |
-| Creative hub (upstream) | Settings › Integrations |
-| Slack (upstream) | Settings › Integrations |
-| Updates, host health (upstream, W0) | Status bar host · Settings › Advanced |
-| First run (upstream) | `FirstRunDialog` on `Modal` |
+| Accounts, rolling, usage (upstream, W6-G, W7-F) | Top-bar `Meter` → accounts popover · Settings › Accounts & usage |
+| Role models, caps (W1-A, W1-B) | Settings › Agents · Plan › Overview |
+| Tabs auto-close, switcher (W7-F) | Console strip (ended consoles close; summary stays) · the box |
+| Attribution (W8) | Plan › Changes · Worktrees commits · blame gutter in Files |
+| Worktrees panel (upstream) | **Worktrees** page (W9-J) |
+| Explorer, editor, media (upstream) | **Files** page |
+| History, How It Works, Browser, Run configs (upstream) | More ▾ |
+| Remote runtimes, Plugins, MCP, CLI, Slack, Creative hub (upstream) | Settings › Integrations |
+| Updates, host health (upstream, W0) | Status bar · Settings › Advanced |
+| Linux background, tray (W1-D) | Unchanged |
 
-## 8. Tokens
+## 9. Identity and tokens (new product look)
 
-`styles/tokens.css` holds every value. Themes override only the colour group.
+**Upstream's look is dropped entirely.** Its 7 theme palettes, Geist, the icon rail and the IDE sidebar all go.
 
-| Token | umbra (default) | vega | aurora | light |
-|---|---|---|---|---|
-| `--bg` | #0a0a0a | #17171a | #181b1a | #ffffff |
-| `--rail` | #0a0a0a | #101013 | #141716 | #f1f1ef |
-| `--panel` | #141414 | #1a1a1e | #1e2120 | #f6f6f4 |
-| `--elevated` | #262626 | #23232a | #272a29 | #e8e8e4 |
-| `--hover` (was `surfaceHover`) | #1f1f1f | #1f1f25 | #232726 | #eeeeea |
-| `--term-bg` | #000000 | #141417 | #141716 | #fbfbfa |
-| `--line` | #232323 | #0b0b0d | #252b2a | #dededa |
-| `--text` | #fafafa | #d0d0d6 | #eceeed | #1c1c1f |
-| `--text-dim` | #a1a1a1 | #93939e | #a1a5a4 | #55555e |
-| `--text-faint` | #7c7c7c | #767682 | #7f8483 | #6f6f79 |
-| `--accent` / `--accent-ink` | #4c7ef3 / #06122b | #37b0c4 / #0d2b30 | #7ccba0 / #14231a | #1f6feb / #ffffff |
-| `--accent-soft` (new) | #16213d | #12303a | #1d3328 | #e3edfd |
-| `--ok` / `--ok-soft` | #3fb950 / #12291a | #3fb950 / #14301f | #7ccba0 / #1d3328 | #1a7f37 / #e2f3e6 |
-| `--warn` / `--warn-soft` (new) | #d6a03a / #2e2410 | #d6a03a / #2e2410 | #e0b04f / #2f2712 | #8a5a00 / #fbf0d9 |
-| `--danger` / `--danger-bg` | #f0645b / #33181a | #e5534b / #3a1a18 | #ef6f66 / #361c1b | #cf222e / #fbe4e5 |
-| `--status-bg` / `--status-ink` | #141414 / #a1a1a1 | #0e6478 / #d4f2f8 | #20744a / #e8f5ee | #f1f1ef / #3f3f46 |
+| Token | night (default) | dusk | day |
+|---|---|---|---|
+| `--bg` | #0d0e12 | #141219 | #f7f7f2 |
+| `--panel` | #15171d | #1b1922 | #ffffff |
+| `--elevated` | #232631 | #2a2734 | #ebebe3 |
+| `--hover` | #1c1f28 | #221f2b | #f0f0ea |
+| `--term-bg` | #090a0d | #0f0d13 | #ffffff |
+| `--line` | #262a35 | #2e2a38 | #e0e0d6 |
+| `--text` / `--text-dim` / `--text-faint` | #eef0f5 / #a3a8b8 / #7d8396 | #f0edf6 / #aba5b9 / #868097 | #16181d / #535866 / #6b7080 |
+| `--accent` / `--accent-ink` / `--accent-soft` | #c4f25a / #121a00 / #252e10 (lime) | #b79cff / #1a0f33 / #2a2240 (lavender) | #3f6212 / #ffffff / #e7f0d6 (olive) |
+| `--ok` / `--ok-soft` | #5ad19a / #10291e | #5ad19a / #14291f | #15803d / #dcf2e3 |
+| `--warn` / `--warn-soft` | #f2b84b / #30240c | #f2b84b / #30240c | #8a5a00 / #fbefd5 |
+| `--danger` / `--danger-soft` | #ff6b6b / #351719 | #ff6b6b / #351719 | #c42b2b / #fbe3e3 |
 
-Rules for the tokens:
-- **Where the values come from.** The dark values are today's `themes.ts` values. `umbra`'s line changes from
-  `rgba(255,255,255,.07)` to the solid #232323, so no colour literal is needed outside `tokens.css`.
-- **What stays outside the themes.** The PR colours, `--agent-accent`, git colours and file-icon colours keep their
-  current values and stay outside the theme pipeline (see the comments in `styles.css`).
-- **Contrast.** `contrast.test.ts` must pass for every theme:
-  - `--text-dim` on `--elevated` ≥ 4.5.
-  - `--text-faint` on `--elevated` ≥ 3.
-  - `--accent-ink` on `--accent` ≥ 4.5.
-  - Chip text (`--ok`/`--warn`/`--danger`/`--accent`) on its `-soft` background ≥ 4.5.
-  - W9-A adjusts any value that fails, and lists it in its PR.
-- **Non-colour tokens:**
-  - Font: Geist 13/400 for the UI and Geist Mono for code. Both are already bundled.
-  - Type scale: 11 · 12 · 13 · 15 · 18.
-  - Spacing: steps of 4.
-  - Row height: 28.
-  - Radius: per theme (umbra 8, vega 6, aurora 8, light 8).
-  - Motion: 120–180ms with `--ease`, and none under reduced-motion.
+- **Type:** IBM Plex Sans for the UI and JetBrains Mono for consoles and code. Both are OFL-licensed and **bundled as
+  woff2 in the app**: no font is fetched at runtime (the mockup uses Google Fonts only to preview). Scale: 11 · 12 ·
+  13 · 15 · 18.
+- **Shape (quiet chrome, so the consoles get the space and the attention):**
+  - Page tabs are text with an underline, never filled pills.
+  - Buttons are flat (`--elevated` fill, no outline, radius 6). Only the primary action of a view is filled with
+    `--accent`.
+  - Icon-only controls are 30px ghost buttons.
+  - Cards have radius 10 and a 1px `--line` border.
+- **Console colours** follow the CLI's own ANSI output. The xterm theme takes only the background, foreground,
+  cursor and selection from the tokens (`--term-bg`, `--text`, `--accent`).
+- **Mark:** a rounded square in `--accent` holding a pulse line, beside the word "Astera". It replaces upstream's
+  logo and banner.
+- **Other tokens:**
+  - PR colours, `--agent-accent`, git and file-icon colours stay outside the themes.
+  - Spacing in steps of 4. Rows 28–30.
+  - Motion 120–180ms, and none under reduced-motion.
+- **Contrast:** `contrast.test.ts` covers every theme.
+  - dim on `--elevated` ≥ 4.5;
+  - faint ≥ 3;
+  - ink on accent ≥ 4.5;
+  - chip text on its soft background ≥ 4.5.
+  - W9-A adjusts any value that fails and lists it.
+- **Theme ids:** `night` (default), `dusk`, `day`, and `system` (light → `day`, dark → `night`). Every old id maps
+  to `night`, except `light`, which maps to `day`.
 
-**Theme ids:** `umbra` (default, as today), `vega`, `aurora`, `light`, and `system` (follows
-`prefers-color-scheme`: light → `light`, dark → `umbra`). A saved `orion`, `antares`, `quasar` or `sirius` maps to
-`umbra` on load.
-
-## 9. Primitives (`components/ui/`)
+## 10. Primitives (`components/ui/`)
 
 | Primitive | Variants | States / behaviour |
 |---|---|---|
@@ -330,7 +332,8 @@ Rules for the tokens:
 | `Card` | plain, focus (accent border), need (warn border), danger | clickable cards are `<button>` |
 | `Modal` | sm 440 / md 640 / lg 880 | backdrop, focus trap, Esc closes, `backdropProps` drag-safe close, returns focus |
 | `Section` | none | collapsible header with chevron, label, count and action slot · persisted `cm.section.<id>` |
-| `Tabs` | strip (tab strip), segmented (plan sections) | arrow-key navigation, `role="tablist"` |
+| `Nav` | top-bar text tabs with underline, optional count | `aria-current="page"`, arrow keys |
+| `Tabs` | strip (console strip), segmented (plan sections) | arrow-key navigation, `role="tablist"` |
 | `Menu` | none | keyboard navigation, the "⋯" row menus, the project switcher, "All tabs" |
 | `Field` | text, textarea, select, number, toggle | label, hint, error |
 | `Meter` | none | thresholds: under 75 accent, 75–89 warn, 90+ danger (usage guard) · optional label |
@@ -338,20 +341,20 @@ Rules for the tokens:
 | `Icon` | lucide names only | 14 / 16 / 20 |
 
 The hand-drawn glyphs (`JobIcons`, `FolderGlyph`, `BranchGlyph`, `ResumeGlyph`, `UnderstandingIcons`, and the rail
-SVGs in `App.tsx`) become lucide icons. `FileIcon` stays, because it uses file-type colours.
+SVGs in `App.tsx`, which go away with the rail) become lucide icons. `FileIcon` stays, because it uses file-type colours.
 
-## 10. Dialogs → replacements
+## 11. Dialogs → replacements
 
 | Dialog | Becomes |
 |---|---|
-| `NewSessionDialog`, `NewRunModal`/`NewPlanDialog`, `SourceJobModal` | The New flow (§4) |
-| `RunDetail` | The Plan tab (§3) |
-| Settings modal (inline in `App.tsx`) | The Settings tab (§2, §6) |
-| Pane grid as the landing view | The Agents wall tab (§3a); the pane grid remains for full tabs |
-| `NewTaskModal`, `CreatePrDialog`, `ResumeDialog`, `LocalHistoryDialog`, `RemoteSessionsDialog`, `RunConfigManager`, `BypassRetryDialog`, `FirstRunDialog`, `ConfirmHost`, account add/import (`AccountPanel`), `HiggsfieldSettings` dialog, `HistoryBrowser` dialog, `BrowserPane` dialog | `ui/Modal`, same content |
-| `CommandBar` | The search/command box (§5), also on `ui/Modal` (no backdrop dim) |
+| `NewSessionDialog`, `NewRunModal`/`NewPlanDialog`, `SourceJobModal` | New (§5) |
+| `RunDetail` | The plan page (§2) |
+| Settings modal (inline in `App.tsx`) | The Settings page |
+| Pane grid as the landing view, workspace sidebar | The Agents page |
+| `NewTaskModal`, `CreatePrDialog`, `ResumeDialog`, `LocalHistoryDialog`, `RemoteSessionsDialog`, `RunConfigManager`, `BypassRetryDialog`, `FirstRunDialog`, `ConfirmHost`, account add/import, `HiggsfieldSettings` dialog, `HistoryBrowser` dialog, `BrowserPane` dialog | `ui/Modal`, same content |
+| `CommandBar` | The box (§6) |
 
-## 11. Pinned tests (keep the invariant, move the path)
+## 12. Pinned tests (keep the invariant, move the path)
 
 | Test | Invariant | Moved by |
 |---|---|---|
@@ -359,7 +362,7 @@ SVGs in `App.tsx`) become lucide icons. `FileIcon` stays, because it uses file-t
 | `App.spawnUnattended.test.ts` | `spawn()` forwards the unattended policy | W9-A |
 | `lib/folderLink.wiring.test.ts` | folder links are wired in App, BottomPanel, ConversationPane, FileExplorer, PaneGrid, RunPanel, TerminalBody, TerminalView | W9-A |
 | `lib/openPath.test.ts`, `updateInstallPaths.test.ts`, `core/files/icons.test.ts` | they read `App.tsx` / `styles.css` text | W9-A |
-| `JobsView.title.test.ts`, `SourceChip.test.ts`, `jobActions.holds.test.ts` | they read `RunDetail.tsx` | W9-C (repoint to `PlanTab`) |
+| `JobsView.title.test.ts`, `SourceChip.test.ts`, `jobActions.holds.test.ts` | they read `RunDetail.tsx` | W9-C (repoint to `PlanPage`) |
 | `FileExplorer.refresh.test.ts` | it reads FileExplorer and `styles.css` | W9-A |
 | `core/orchestration/completionCss.test.ts` | `.detail-completion-*` max-height 160, overflow auto | W9-A (path), W9-C (selector) |
 | `spinnerCss.test.ts` | `.job-arc`, `cm-spin` keep spinning under reduced motion | W9-A |
@@ -367,26 +370,27 @@ SVGs in `App.tsx`) become lucide icons. `FileIcon` stays, because it uses file-t
 | `core/theme/contrast.test.ts` | contrast ratios | W9-A (extended to every theme) |
 | `styles.hiw.test.ts` | no colour literals in `.hiw-*`, and so on | W9-A (generalised to all renderer CSS) |
 
-## 12. Migration (saved state keeps working)
+## 13. Migration (saved state keeps working)
 
 | Saved | New |
 |---|---|
-| `sidebarPane: 'sessions' \| 'jobs'` | `'home'` |
-| `sidebarPane: 'explorer'` | `'files'` |
-| `sidebarPane: 'understanding'` | `'hiw'` |
-| Worktree panel open state | dropped (the panel became the Worktrees rail view) |
-| theme `orion`, `antares`, `quasar`, `sirius` | `umbra` |
-| `cm.sidebarWidth`, `cm.runPanelHeight`, key overrides | unchanged |
-| Saved layout containing a `plan:<id>` tab whose Job is gone | the tab is dropped on load |
+| `sidebarPane` (any) | page `agents` (`explorer` → `files`) |
+| Workspace/sidebar section state, `cm.sidebarWidth` | dropped |
+| theme `umbra`, `vega`, `aurora`, `orion`, `antares`, `quasar`, `sirius` | `night` · `light` → `day` |
+| `cm.runPanelHeight`, key overrides | kept (the drawer uses the height) |
+| Saved pane layouts | kept for full-size console splits; tabs whose session or Job is gone are dropped on load |
 
-## 13. Decisions (Claude's calls, 2026-10-18; the owner said to decide these, not ask)
-1. **Settings is a tab, not a modal.** It can sit beside a terminal, and the box can deep-link into it.
-2. **The Inbox stays a sidebar view.** Answering inline never hides the wall or the board. A desktop notice opens it.
-3. **The dark themes are Umbra (default), Vega and Aurora, plus Light and System.** They cover near-black, graphite
-   and green-grey, and each one is already a user-picked palette today.
-4. **The owner hold releases after 60 s with no owner input.** That is long enough to read a reply and type the next
-   line, and short enough that the coordinator is never held up for long. W9-H makes it a constant in `ownerHold.ts`,
-   not a setting.
-5. **The before-screenshots are taken when 9.1 starts** (W9-A step 0), when the app can run alone.
-6. **Approval gate:** the mockup is the reference. The owner can comment on it at any time before 9.1 starts. If they
-   say nothing, it counts as approved, so Wave 9 never waits on the owner.
+## 14. Decisions (Claude's calls, 2026-10-18; the owner said to decide, not ask)
+1. **Pages, not panels.** A top bar with page pills replaces the rail and sidebar (owner: "different pages, we don't
+   need to fit everything in the same place"). It is also the clearest break from upstream's IDE look.
+2. **Consoles are the real CLI**, never a custom chat. There is no "send a line" box: answers go through the Inbox,
+   or by typing in the console.
+3. **The Inbox is a page with two columns.** The answer has room, and "Handled for you" shows what was automated.
+4. **Themes:** Night (default), Dusk and Day, plus System. These are new palettes, not upstream's.
+5. **Fonts:** IBM Plex Sans and JetBrains Mono, bundled locally.
+6. **The owner hold** releases on "Back to all" or after 60 s idle. It is a constant, not a setting.
+7. **The name stays "Astera"** (owner, 2026-10-18). Upstream is also called Astera, so the name is now the main
+   thing the two products share. A rename only touches the wordmark, `productName` and the README, so it can
+   happen at any time.
+8. **The before-screenshots** are taken when 9.1 starts (W9-A step 0).
+9. **Approval:** the mockup is the reference. Silence before 9.1 counts as approved.
