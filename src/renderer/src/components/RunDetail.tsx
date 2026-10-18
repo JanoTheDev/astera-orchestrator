@@ -48,6 +48,7 @@ import { SourceChip } from './SourceChip'
 import { jobName } from '../lib/jobName'
 // W2-C plan board
 import { PlanOverview } from './plan/PlanOverview'
+import { PlanTalk } from './plan/PlanTalk'
 import { UsageStrip } from './usage/UsageStrip'
 import { TaskBoard } from './plan/TaskBoard'
 // W6-E progress view
@@ -840,6 +841,20 @@ export function RunDetail({
             </div>
             {/* W6-G: per-account usage, live subagents per tab, and the threshold */}
             <UsageStrip accounts={accounts} tasks={tasks} />
+            {/* W7-A: talk to the planner, reject, and the auto-start notice */}
+            {run && (
+              <PlanTalk
+                row={run}
+                door={door}
+                name={jobName(run)}
+                ui={{
+                  t: (key, params) => (t as (k: string, p?: Record<string, string | number>) => string)(key, params),
+                  confirm: (o) => confirmModal(o),
+                  confirmChoices: (o) => confirmModalWithChoices(o),
+                  error: (m) => void toast.error(m)
+                }}
+              />
+            )}
             {lockedReason !== undefined && <p className="jobs-disabled-reason">{lockedReason}</p>}
             {!authoringOpen && (
               <div className="detail-graph-head">
