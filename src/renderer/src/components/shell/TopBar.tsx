@@ -2,7 +2,7 @@
 // tabs, then search, New, the usage meter with its accounts popover, and Settings. Pages move only through
 // navigation.ts, so a page prompt that replaces its handler changes what these tabs do too.
 import { useEffect, useRef, useState } from 'react'
-import { ChevronDown, Search, Settings } from 'lucide-react'
+import { ChevronDown, Plus, Search, Settings } from 'lucide-react'
 import { KEYED_PAGES, type PageId } from '../../../../core/ui/pages'
 import { formatChord } from '../../../../core/keys/binding'
 import { AccountPanel } from '../AccountPanel'
@@ -91,10 +91,10 @@ export function TopBar(p: TopBarProps): React.JSX.Element {
       <span className="tb-spacer" />
       <button type="button" className="tb-search" onClick={p.onSearch}>
         <Search size={14} aria-hidden="true" />
-        <span>Search</span>
+        <span>Search or command</span>
         {searchChord && <kbd>{formatChord(searchChord)}</kbd>}
       </button>
-      <Button variant="primary" size="sm" disabled={p.newDisabled} onClick={p.onNew}>
+      <Button variant="primary" size="sm" icon={<Plus size={12} aria-hidden="true" />} disabled={p.newDisabled} onClick={p.onNew}>
         New
       </Button>
       <span className="tb-divider" aria-hidden="true" />
@@ -135,8 +135,11 @@ function UsageButton({ accounts, label, percent }: { accounts: AppState['account
         title={has ? `${label ?? ''} · 5-hour window ${Math.round(percent)}%` : 'Accounts and usage'}
         onClick={() => setOpen((v) => !v)}
       >
+        <span className="tb-usage-head">
+          <span>{label ? `${label} · 5h` : '5h'}</span>
+          <span>{has ? `${Math.round(percent)}%` : '–'}</span>
+        </span>
         <Meter value={has ? percent : 0} className="tb-meter" />
-        <span className="tb-usage-pct">{has ? `${Math.round(percent)}%` : '–'}</span>
       </button>
       {open && (
         <div className="tb-popover" role="dialog" aria-label="Accounts">

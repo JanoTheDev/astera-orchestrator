@@ -83,7 +83,7 @@ body.resizing-row { cursor: row-resize; user-select: none; }
 .tb-main { flex: 1; min-width: 0; height: 100%; display: flex; align-items: center; gap: 10px; padding: 0 8px 0 4px; }
 .tb-main > :not(.tb-spacer) { -webkit-app-region: no-drag; }
 .tb-spacer { flex: 1; min-width: 8px; align-self: stretch; -webkit-app-region: drag; }
-.tb-slash { color: var(--text-faint); }
+.tb-slash { color: var(--line); font-size: 18px; }
 .tb-switcher { font-weight: 600; }
 .tb-sw-row { display: flex; align-items: center; gap: 8px; min-width: 220px; }
 .tb-sw-selected .tb-sw-name { color: var(--accent); }
@@ -102,7 +102,7 @@ body.resizing-row { cursor: row-resize; user-select: none; }
   .tb-pages-narrow { display: inline-flex; }
 }
 .tb-search {
-  display: inline-flex; align-items: center; gap: 8px; height: 28px; width: 200px; padding: 0 10px;
+  display: inline-flex; align-items: center; gap: 8px; height: 28px; width: 240px; padding: 0 10px;
   border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); color: var(--text-faint);
   font: inherit; font-size: 12px; cursor: pointer;
 }
@@ -113,12 +113,13 @@ body.resizing-row { cursor: row-resize; user-select: none; }
 .tb-divider { width: 1px; height: 20px; background: var(--line); }
 .tb-usage { position: relative; display: flex; }
 .tb-usage-btn {
-  display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 6px; border: 0; border-radius: var(--radius);
+  display: flex; flex-direction: column; justify-content: center; gap: 3px; width: 96px; height: 34px; padding: 0 6px; border: 0; border-radius: var(--radius);
   background: none; color: var(--text-dim); font: inherit; font-size: 12px; font-variant-numeric: tabular-nums; cursor: pointer;
 }
 .tb-usage-btn:hover { background: var(--hover); color: var(--text); }
 .tb-usage-btn:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--ring); }
-.tb-meter { width: 44px; }
+.tb-usage-head { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-faint); white-space: nowrap; }
+.tb-meter { width: 100%; }
 .tb-popover {
   position: absolute; top: calc(100% + 6px); right: 0; z-index: 50; width: 360px; max-height: 70vh; overflow: auto;
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg);

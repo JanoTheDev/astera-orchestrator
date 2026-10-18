@@ -82,8 +82,7 @@ export function StatusBar(p: StatusBarProps): React.JSX.Element {
         )}
         {hostOk && (
           <span className="status-item status-host" title={hostStatus?.hostVersion ? `Host ${hostStatus.hostVersion}` : 'Host'}>
-            <span className="status-dot status-dot--ok" aria-hidden="true" />
-            Host
+            Host ok
           </span>
         )}
         {/* The Host outlived an update and still runs the previous build. It replaces itself the first
