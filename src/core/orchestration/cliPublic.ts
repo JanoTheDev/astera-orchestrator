@@ -119,7 +119,7 @@ type _project = NothingLeft<Unlisted<Project, typeof PROJECT_FIELDS, []>>
 type _job = NothingLeft<Unlisted<Job, typeof JOB_FIELDS, typeof JOB_HIDDEN>>
 type _run = NothingLeft<Unlisted<JobRun, typeof RUN_FIELDS, typeof RUN_HIDDEN>>
 type _task = NothingLeft<Unlisted<Task, typeof TASK_FIELDS, typeof TASK_HIDDEN>>
-type _question = NothingLeft<Unlisted<Gate, typeof QUESTION_FIELDS, []>>
+type _question = NothingLeft<Unlisted<Gate, typeof QUESTION_FIELDS, [/* W6-C: the app's notices read it */ 'reason']>>
 type _account = NothingLeft<Unlisted<OrchAccount, typeof ACCOUNT_FIELDS, []>>
 type _runConfig = NothingLeft<Unlisted<OrchRunConfig, typeof RUN_CONFIG_FIELDS, []>>
 /** The pty and process ids are the Host's own: a controller reads them from the raw reply to subscribe, and a

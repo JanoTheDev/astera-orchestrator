@@ -579,6 +579,8 @@ export type TaskBlockedReason =
   | { kind: 'coordinator' }
   | { kind: 'plan-cap'; used: number; limit: number }
   | { kind: 'global-cap'; used: number; limit: number; priority: number }
+  /** W6-C: another Task of the plan is at files this one would edit (`path`, the first of its own that collides). */
+  | { kind: 'same-files'; waitingOn: { id: string; title: string }; path: string }
   /** It has a slot: the dispatch loop starts it on its next pass. */
   | { kind: 'next' }
   /** W6-G: every account it may start on is at `usagePauseAt` of a usage window (usageGuard.ts). */

@@ -3445,7 +3445,8 @@ describe('applyReviewResult — convergence', () => {
   // maxFixAttempts(기본 3) 가 아니다. 한 번만 고친 뒤 두 번째 라운드에서 다시 막히면 "1" 이어야
   // 한다, "3" 이 아니다.
   it('review 라운드 소진은 실제로 연 repair 수를 말한다 — 한 번 고친 뒤라면 1 이다, 3 이 아니다', () => {
-    const { s, taskId, reviewId } = reviewing() // 기본 정책: maxReviewRounds 2, maxFixAttempts 3
+    // W6-C: the default is 5 rounds now, so this case pins the 2 it was written for
+    const { s, taskId, reviewId } = reviewing({}, { convergence: { maxReviewRounds: 2 } }) // maxFixAttempts 3
     // 1라운드: blocking, repair 하나를 연다
     const r1 = unwrap(applyReviewResult(s, { taskId, dispatchId: reviewId, outcome: 'failed', subject: 'r1', body: 'b', issues: [high], repair: SAME }, LATER) as never)
     const repair1 = r1.state.dispatches.find((d) => d.repair)!
@@ -3468,6 +3469,22 @@ describe('applyReviewResult — convergence', () => {
     expect(gate.kind).toBe('convergence-exhausted')
     expect(gate.options).toEqual(['retry-once', 'mark-failed'])
     expect(gate.question).toContain('after 1 repair(s)')
+  })
+
+  // W6-C: W6-B's escalation notice and sound pick this Gate up by its reason
+  it('the Gate the review-round cap opens carries reason review-rounds-exhausted', () => {
+    const { s, taskId, reviewId } = reviewing({}, { convergence: { maxReviewRounds: 1 } })
+    const r = unwrap(applyReviewResult(s, { taskId, dispatchId: reviewId, outcome: 'failed', subject: 'r1', body: 'b', issues: [high], repair: SAME }, LATER) as never)
+    const gate = r.state.gates.at(-1)!
+    expect(gate.kind).toBe('convergence-exhausted')
+    expect(gate.reason).toBe('review-rounds-exhausted')
+    expect(gate.options).toEqual(['retry-once', 'mark-failed'])
+  })
+
+  it('a review failure under the round cap opens a repair, not a Gate with that reason', () => {
+    const { s, taskId, reviewId } = reviewing()
+    const r = unwrap(applyReviewResult(s, { taskId, dispatchId: reviewId, outcome: 'failed', subject: 'r1', body: 'b', issues: [high], repair: SAME }, LATER) as never)
+    expect(r.state.gates.some((g) => g.reason === 'review-rounds-exhausted')).toBe(false)
   })
 
   // Minor 수정: 표(설계 §5.1)에서 멈춤이 소진보다 위다 — 라운드 상한에 닿았어도 convergenceOff 면

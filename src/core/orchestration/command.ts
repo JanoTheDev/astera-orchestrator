@@ -82,6 +82,7 @@ import {
   DEFAULT_CHECK_TIMEOUT_MS,
   DEFAULT_WAIT_TIMEOUT_MS,
   DEFAULT_CONCURRENCY,
+  MAX_CONCURRENT_WORKERS,
   FAILURE_LIMIT,
   canTransition,
   isPlaceholderSessionId,
@@ -109,7 +110,7 @@ import { parseCheckFlag } from '../workUnit/verification'
 import { isTerminal as taskFinished, outcomeOf, progressOf } from './view'
 import { runningRunCount } from './running'
 import { FINISHED_RUN_GRACE_MS } from './exec/dispatchLoop'
-import { appDriven, workersAgainstCap } from './schedule'
+import { appDriven, workerCapOf, workersAgainstCap } from './schedule'
 import type { JobEvent, SessionInfo, WorktreeInfo } from '../types'
 import { ghFailureSentence, type GhFailed, type GhRunner } from '../github/gh'
 import { failedLogTail, readPrChecks, rerunFailed } from '../github/checks'
@@ -1059,6 +1060,12 @@ const posInt = (v: unknown): number | null => {
   return Number.isInteger(n) && n >= 1 ? n : null
 }
 
+// W6-C: a Job's `--concurrency`, a whole number of 1 or more, clamped to MAX_CONCURRENT_WORKERS
+const concurrencyArg = (v: unknown): number | null => {
+  const n = posInt(v)
+  return n === null ? null : Math.min(n, MAX_CONCURRENT_WORKERS)
+}
+
 // TaskStatus 유니온에서 파생되지 않는 손수 쓴 목록이다 — 빠뜨려도 컴파일은 통과한다.
 // 유일한 증상은 `task-update --status <빠진 상태>` 가 "must be one of ..." 로 거절되는 것이다:
 // isTaskStatus 를 쓰는 자리는 그 명령 하나뿐이고(아래 task-update), task-list 는 --status 를
@@ -1799,7 +1806,7 @@ export async function handleCommand(
       // Task 가 섞일 수 있게 된 것이 이 변경의 목적이므로 옮길 자리도 없다.
       if (args.provider !== undefined)
         return bad('--provider is no longer accepted — the provider comes from task-create --account')
-      const concurrency = args.concurrency === undefined ? null : posInt(args.concurrency)
+      const concurrency = args.concurrency === undefined ? null : concurrencyArg(args.concurrency)
       if (args.concurrency !== undefined && concurrency === null)
         return bad('--concurrency must be an integer >= 1')
       // W1-B: Job.priority. Any integer; absent is 0.
@@ -2606,6 +2613,13 @@ export async function handleCommand(
       if (!accountId) return bad('--account is required: the Job names no coordinator account to plan on')
       if (accountArg !== null && !(await deps.listAccounts()).some((k) => k.id === accountArg))
         return notFound(`unknown account: ${accountArg}`)
+      // W6-C: how many workers the plan may run at once, set with the plan (up to MAX_CONCURRENT_WORKERS)
+      const concurrency = args.concurrency === undefined ? null : concurrencyArg(args.concurrency)
+      if (args.concurrency !== undefined && concurrency === null) return bad('--concurrency must be an integer >= 1')
+      if (concurrency !== null) {
+        const current = deps.getState()
+        await deps.setState({ ...current, jobs: current.jobs.map((j) => (j.id === id ? { ...j, concurrency } : j)) })
+      }
       // **Marked planned before the session exists** (an empty list): from here an agent cannot approve it
       // (run-start above), which covers the seconds before the new session's id is recorded below.
       const marked = job.plannerSessionIds === undefined
@@ -2623,7 +2637,7 @@ export async function handleCommand(
               objective: job.objective,
               repoRoot: job.cwd,
               accountId,
-              concurrency: job.concurrency ?? DEFAULT_CONCURRENCY
+              concurrency: concurrency ?? job.concurrency ?? DEFAULT_CONCURRENCY
             })
           })
         ).sessionId
@@ -3612,9 +3626,10 @@ export async function handleCommand(
       // are counted, never refused, so a Task half-way through its checks is not stranded.
       // `atCapacity` tells the app's loop this is a wait, not a reason for a Gate.
       // Awaited only when wired: an `await` on nothing would still yield, and move this command's commit a tick later.
-      const cap = deps.maxConcurrentWorkers ? ((await deps.maxConcurrentWorkers()) ?? null) : null
-      const busy = cap === null ? 0 : workersAgainstCap(s)
-      if (cap !== null && busy >= cap)
+      // W6-C: not set, or not wired, is MAX_CONCURRENT_WORKERS (workerCapOf)
+      const cap = workerCapOf(deps.maxConcurrentWorkers ? await deps.maxConcurrentWorkers() : null)
+      const busy = workersAgainstCap(s)
+      if (busy >= cap)
         return { status: 409, body: { error: `the app-wide worker cap is reached: ${busy} of ${cap} workers are open`, atCapacity: true } }
       // W6-G: no new worker on an account at `usagePauseAt` of a usage window, for every placer (a coordinator's
       // worker spends the same account). New work only, like the cap above. The answer names an account of the

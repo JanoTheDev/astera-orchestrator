@@ -9,7 +9,7 @@ owns every session and drives every plan, so closing the window stops nothing (L
 - Sign in an account (Accounts panel, "+").
 - Settings → Orchestration models: the model of each role. Defaults: planner and reviewer `opus`, coordinator `haiku`,
   workers by Task difficulty (light → haiku, standard → sonnet, hard → opus). Empty means the CLI's default model.
-- Settings → "Max workers across all jobs": the app-wide cap. Empty means no limit. At the cap, plans with a higher
+- Settings → "Max workers across all jobs": the app-wide cap, at most 10. Empty means 10. At the cap, plans with a higher
   priority get the next free slot.
 - Settings → Agents → "Run agents without permission checks" is **off**. Planners, coordinators and workers then stop at
   every Claude permission prompt until you answer it. They show up in the needs-input badge (below).
