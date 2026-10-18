@@ -79,6 +79,8 @@ describe('promptWaves', () => {
     const o = promptWaves(undefined, [src('W1-A-x', 'after W1-B merges'), src('W1-B-y', 'after W1-A merges')])
     expect(o.deps).toEqual({ 'W1-A-x.md': ['W1-B-y.md'], 'W1-B-y.md': [] })
     expect(afterIdsOf('Start **after W8-C and W8-E merge**.')).toEqual(['W8-C', 'W8-E'])
+    // a quoted code comment is a later edit, not an order (W8-B's prompt)
+    expect(afterIdsOf('Until W8-A merges, it is marked `shortcut: wire into stamp.ts after W8-A merge`.')).toEqual([])
   })
 })
 

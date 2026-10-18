@@ -84,7 +84,8 @@ const ID_LIST = String.raw`${ID}(?:(?:\s*,\s*|\s+and\s+|\s*,\s*and\s+)${ID})*`
 
 /** The prompt ids a prompt's own text says it waits for: "after X merges", "after X and Y merge", "X is merged". */
 export function afterIdsOf(text: string): string[] {
-  const plain = text.replace(/[*`_]/g, '')
+  // A quoted code comment ("`shortcut: wire into stamp.ts after W8-A merge`") names a later edit, not an order
+  const plain = text.replace(/shortcut:[^`\n]*/gi, '').replace(/[*`_]/g, '')
   const out = new Set<string>()
   for (const re of [new RegExp(`[Aa]fter (${ID_LIST}) merge`, 'g'), new RegExp(`(${ID_LIST}) (?:is|are) merged`, 'g')])
     for (const m of plain.matchAll(re)) for (const id of m[1].match(new RegExp(ID, 'g')) ?? []) out.add(id)
