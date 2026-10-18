@@ -336,7 +336,8 @@ export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[
         )
       // W8-D: overlaps this commit added, against the ones the plan had
       if (j.overlaps !== undefined && j.overlaps !== was.get(j.id)?.overlaps) {
-        const keyOf = (o: PlanOverlap): string => `${o.taskId}|${o.otherTaskId}`
+        // By the other plan and the spot, not the Task ids: starting a Run copies its Tasks under new ids
+        const keyOf = (o: PlanOverlap): string => `${o.jobId}|${o.by}|${o.path ?? o.issue}`
         const had = new Set((was.get(j.id)?.overlaps ?? []).map(keyOf))
         const added = j.overlaps.filter((o) => !had.has(keyOf(o)))
         if (added.length > 0)

@@ -219,6 +219,12 @@ describe('plan.overlap', () => {
     const notice = noticeOf({ ...drafts[1], id: 'e1', sequence: 1, occurredAt: T0 } satisfies ActivityEvent)
     expect(notice?.title).toBe('Plans overlap')
     expect(notice?.alert).toBeUndefined()
+    // a Run's start copies the Tasks under new ids: the same overlap says nothing again
+    const started: OrchState = { ...after, tasks: after.tasks.map((t) => (t.id === 't3' ? { ...t, id: 't3b' } : t)) }
+    expect(deriveActivity(after, refreshOverlaps(after, started)).filter((d) => d.type === 'plan.overlap')).toEqual([])
+    // a finished plan meets nothing
+    const finished: OrchState = { ...after, tasks: after.tasks.map((t) => ({ ...t, status: 'completed' as const })) }
+    expect(refreshOverlaps(after, finished).jobs.every((j) => j.overlaps === undefined)).toBe(true)
     // the same overlaps again say nothing
     expect(deriveActivity(after, refreshOverlaps(after, { ...after, tasks: [...after.tasks] })).filter((d) => d.type === 'plan.overlap')).toEqual([])
   })

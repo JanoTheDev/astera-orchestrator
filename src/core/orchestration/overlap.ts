@@ -52,14 +52,15 @@ export function overlapsOf(job: Job, s: OrchState): PlanOverlap[] {
   return out
 }
 
-/** `next` with every non-archived Job's `overlaps` recomputed, when this commit changed Jobs, Runs or Tasks (a Task of
+/** `next` with every active or queued Job's `overlaps` recomputed (others cleared), when this commit changed Jobs, Runs or Tasks (a Task of
  *  either plan changes the answer for both). The Host runs it on every commit (host/orch.ts), so the field never lags.
  *  Returns `next` itself when nothing moved. */
 export function refreshOverlaps(prev: OrchState, next: OrchState): OrchState {
   if (prev.tasks === next.tasks && prev.jobs === next.jobs && prev.runs === next.runs) return next
   let changed = false
   const jobs = next.jobs.map((j) => {
-    const found = isJobActive(j) ? overlapsOf(j, next) : []
+    // a finished or archived plan does no more work, so it meets nothing
+    const found = activeOrQueued(next, j) ? overlapsOf(j, next) : []
     if (JSON.stringify(found) === JSON.stringify(j.overlaps ?? [])) return j
     changed = true
     const { overlaps: _old, ...rest } = j
