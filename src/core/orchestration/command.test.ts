@@ -24,6 +24,7 @@ import { TaskValidator } from './exec/validator'
 import { TAIL_EMPTY, TAIL_UNTRACKED } from './exec/tail'
 import { FAILURE_LIMIT, type CheckResult, type JobRun, type Project, type Task } from './types'
 import { parseArgs } from './cliArgs'
+import { unknownFlagError } from './cliUsage'
 import { slotsToFill } from './schedule'
 import { stateWord } from './cliHuman'
 import { runningRunCount } from './running'
@@ -6820,6 +6821,28 @@ describe('없는 id 는 404 — 순수 층의 거절을 내보내던 자리들',
     const r = await call(deps, 'tasks-list', { run: jobId })
     expect(r.status).toBe(200)
     expect((r.body as Array<{ id: string }>).map((x) => x.id)).toEqual([(t.body as { id: string }).id])
+  })
+
+  // W5-B (#53): a Task added from a shell picks its worker's model too (resolveWorkerModel reads both fields).
+  it('tasks add takes --difficulty and --model, validated', async () => {
+    const deps = makeDeps()
+    const made = await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p', auto: true })
+    const jobId = (made.body as { id: string }).id
+    const add = async (extra: string): Promise<{ status: number; body: unknown }> => {
+      const argv = `tasks add --job ${jobId} --account acc1 --spec s ${extra}`.split(' ')
+      const parsed = parseArgs(argv)
+      if ('error' in parsed) throw new Error(parsed.error)
+      expect(unknownFlagError(parsed.cmd, argv)).toBeNull()
+      return call(deps, parsed.cmd, parsed.args)
+    }
+    const ok = await add('--difficulty hard --model sonnet')
+    expect(ok.status).toBe(200)
+    expect(deps.getState().tasks.find((t) => t.id === (ok.body as { id: string }).id)).toMatchObject({
+      difficulty: 'hard',
+      model: 'sonnet'
+    })
+    expect((await add('--difficulty extreme')).body).toEqual({ error: '--difficulty must be one of light|standard|hard' })
+    expect((await add('--model x;y')).status).toBe(400)
   })
 
   // ask 는 워커의 명령이라 워커가 남의 Dispatch 를 적으면 403 이 먼저다. 404 는 Dispatch 를 가진

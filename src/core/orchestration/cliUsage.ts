@@ -468,7 +468,14 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
         about:
           'run configurations that must pass before it counts as done (from `run-configs list`), or `plugin:<id>` for a completion check plugin (from `plugins list`)'
       },
-      { name: 'review', about: 'have the result reviewed before it counts as done' }
+      { name: 'review', about: 'have the result reviewed before it counts as done' },
+      // W5-B (#53): the model choice a planner's Task carries (Task.difficulty / Task.model, resolveWorkerModel)
+      {
+        name: 'difficulty',
+        value: '<light|standard|hard>',
+        about: "picks the worker's model from Settings → Orchestration models (light → haiku, standard → sonnet, hard → opus by default)"
+      },
+      { name: 'model', value: '<id>', about: 'the worker model itself, ahead of --difficulty (e.g. sonnet)' }
     ]
   },
 
