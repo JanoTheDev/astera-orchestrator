@@ -158,3 +158,17 @@ describe('액션 버튼', () => {
     expect(onDismiss).toHaveBeenCalledOnce()
   })
 })
+
+describe('toast ttlMs (W8-F, #94)', () => {
+  it('an error with a ttl closes on its own; one without stays until it is closed', () => {
+    const w = watch()
+    mod.toast.error('closes', { ttlMs: 15_000 })
+    mod.toast.error('stays')
+    vi.advanceTimersByTime(14_999)
+    expect(w.items.map((t) => t.message)).toEqual(['closes', 'stays'])
+    vi.advanceTimersByTime(1)
+    expect(w.items.map((t) => t.message)).toEqual(['stays'])
+    vi.advanceTimersByTime(3_600_000)
+    expect(w.items.map((t) => t.message)).toEqual(['stays'])
+  })
+})

@@ -255,3 +255,19 @@ describe('reasonText: a plan queued after another (W8-C)', () => {
     expect(reasonText({ kind: 'pending-start' }, 0, (x) => x)).toEqual({ key: 'plan.reason.pendingStart' })
   })
 })
+
+describe('gateQuestionsOfTask (W8-F, #97)', () => {
+  it('a coordinator Gate and the convergence Gate become answer boxes with their options; free text is taken', async () => {
+    const { gateQuestionsOfTask } = await import('./planBoard')
+    expect(gateQuestionsOfTask(task('t1'))).toEqual([])
+    const conv = task('t1', { gate: { id: 'gat_1', question: 'Out of tries', options: ['retry-once', 'mark-failed'], kind: 'convergence-exhausted' }, openGates: 1 })
+    expect(gateQuestionsOfTask(conv)).toEqual([{ id: 'gat_1', source: 'ask', taskId: 't1', question: 'Out of tries', options: ['retry-once', 'mark-failed'] }])
+    const asked = task('t2', { gate: { id: 'gat_2', question: 'Base on main?' }, openGates: 1 })
+    expect(gateQuestionsOfTask(asked)).toEqual([{ id: 'gat_2', source: 'ask', taskId: 't2', question: 'Base on main?' }])
+  })
+  it('a check that could not be made takes its options only', async () => {
+    const { gateQuestionsOfTask } = await import('./planBoard')
+    const t = task('t3', { gate: { id: 'gat_3', question: 'q', options: ['retry', 'skip-check', 'mark-failed'], kind: 'check-unavailable' }, openGates: 1 })
+    expect(gateQuestionsOfTask(t)[0].freeText).toBe(false)
+  })
+})

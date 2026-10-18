@@ -47,7 +47,9 @@ const oneLine = (t: string): string => t.replace(/\s+/g, ' ').trim()
 /** What to do with the feedback, said to the planner; the same words whichever way it reaches it. */
 const howToRevise = (jobId: string): string =>
   `Revise the plan for it: change Tasks with \`astera task-update --id <taskId>\`, add with \`astera task-create --run ${jobId}\`, ` +
-  `remove with \`astera task-cancel --id <taskId> --reason "<why>"\`. Then run \`astera jobs-feedback-done --id ${jobId} --changes '["<one short line per change>"]'\` ` +
+  `remove with \`astera task-cancel --id <taskId> --reason "<why>"\`. A Task you add carries what the first plan's Tasks carry: ` +
+  `\`--prompt -\`, \`--criteria\`, \`--affected-paths\`, and \`--basis missing|partial|broken\` with its \`--evidence "<file:line, #issue, PR or Job id>"\`; ` +
+  `\`astera tasks-list --job ${jobId}\` must show no Task without a basis. Then run \`astera jobs-feedback-done --id ${jobId} --changes '["<one short line per change>"]'\` ` +
   `(an empty list when nothing needed to change) and end your turn. Do not start any work.`
 
 /** The line typed into a live planner: one line, since a terminal's Enter would cut a longer one. */

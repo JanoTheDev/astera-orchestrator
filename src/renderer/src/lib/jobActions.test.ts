@@ -164,3 +164,16 @@ describe('plan lifecycle actions', () => {
     expect(refused.errors).toHaveLength(1)
   })
 })
+
+describe('approvePlan: W8-F (#94) the refusal toast', () => {
+  it('lists the problems and asks to be closed on its own', async () => {
+    const { approvePlan, PLAN_INVALID_TOAST_MS } = await import('./jobActions')
+    const calls: Array<{ m: string; o?: { ttlMs?: number } }> = []
+    const u: ActionUi = { ...ui(), error: (m, o) => void calls.push({ m, o }) }
+    const d = door({ status: 400, body: { error: 'x', problems: ['tsk_1 (P7) has no basis'] } })
+    expect(await approvePlan(d, 'job_1', 'plan', u)).toBe(false)
+    expect(calls).toHaveLength(1)
+    expect(calls[0].m).toContain('tsk_1 (P7) has no basis')
+    expect(calls[0].o).toEqual({ ttlMs: PLAN_INVALID_TOAST_MS })
+  })
+})

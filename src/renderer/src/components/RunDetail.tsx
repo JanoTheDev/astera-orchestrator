@@ -488,7 +488,7 @@ export function RunDetail({
         t: (key, params) => (t as (k: string, p?: Record<string, string | number>) => string)(key, params),
         confirm: (o) => confirmModal(o),
         confirmChoices: (o) => confirmModalWithChoices(o),
-        error: (m) => void toast.error(m)
+        error: (m, o) => void toast.error(m, o)
       }
       await approvePlan(door, runId, run ? jobName(run) : runId, ui)
     } catch {
@@ -878,7 +878,7 @@ export function RunDetail({
                   t: (key, params) => (t as (k: string, p?: Record<string, string | number>) => string)(key, params),
                   confirm: (o) => confirmModal(o),
                   confirmChoices: (o) => confirmModalWithChoices(o),
-                  error: (m) => void toast.error(m)
+                  error: (m, o) => void toast.error(m, o)
                 }}
               />
             )}

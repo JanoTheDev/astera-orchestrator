@@ -74,8 +74,8 @@ export function CommandBar({
   }
   const barUi: ActionUi = {
     ...ui,
-    error: (m) => {
-      ui.error(m)
+    error: (m, o) => {
+      ui.error(m, o)
       say('coordinator', [{ text: m }])
     }
   }

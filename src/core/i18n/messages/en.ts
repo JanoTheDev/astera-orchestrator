@@ -1541,6 +1541,7 @@ export const en: Record<keyof typeof ko, string> = {
   'plan.talk.placeholder': "Tell the planner what to change (Ctrl+Enter to send)",
   'plan.talk.send': "Send",
   'plan.talk.waiting': "waiting for the planner…",
+  'plan.talk.problems': "Not ready to approve:",
   'plan.talk.duringRun': "sent during the run",
   'plan.talk.autoStarted': "Plan started automatically: {count} tasks",
   'plan.talk.stop': "Stop",

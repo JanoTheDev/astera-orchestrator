@@ -263,6 +263,9 @@ You answer your workers' questions. The owner hears only what needs them.
   "coordinator answered", with the question. It never sends a notice. An escalation sends the owner a
   desktop notice with a sound, and it stays in their "needs my input" list until they answer it, or the Task or the
   plan ends. An answer the owner gives shows as "answered by you".
+- **When the owner's answer narrows a Task (W8-F)**, change what the Task must do before the review: `astera task-update
+  --id <tsk> --criteria '["..."]'` with the criteria as they now stand. The reviewer judges the Task against them and is
+  shown the owner's answers on it; criteria left as they were send the work back for what the owner dropped.
 
 ## 4. CLI reference
 

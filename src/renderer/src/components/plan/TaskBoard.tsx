@@ -19,6 +19,7 @@ import {
   reasonText,
   reasonTone,
   wavesOf,
+  gateQuestionsOfTask,
   questionsOfTask,
   type LiveSession,
   type OpenQuestion
@@ -120,7 +121,7 @@ export function TaskBoard({
                     model={cardModelOf(tk, roleModels, accounts ?? [])}
                     now={nowOf(tk, tk.sessionId ? sessions[tk.sessionId] : undefined, events, nowMs)}
                     answers={autoAnswersOf(activity, tk.id)}
-                    questions={onAnswer ? questionsOfTask(questions, tk.id) : []}
+                    questions={onAnswer ? [...questionsOfTask(questions, tk.id), ...gateQuestionsOfTask(tk)] : []}
                     onAnswer={onAnswer}
                     onSelect={onSelect}
                     onFocus={
