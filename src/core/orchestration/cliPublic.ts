@@ -104,7 +104,11 @@ const TASK_HIDDEN = [
 const JOB_HIDDEN = [
   'models',
   /* W2-A: the planner sessions, the app's own bookkeeping */ 'plannerSessionIds',
-  /* W5-C: the person's "stop launching" (jobs-hold), not in the SDK's contract yet */ 'dispatchHold'
+  /* W5-C: the person's "stop launching" (jobs-hold), not in the SDK's contract yet */ 'dispatchHold',
+  /* W6-D: wave replanning's setting and bookkeeping, not in the SDK's contract yet */ 'replan',
+  'replanFollowUps',
+  'replanning',
+  'lastReplan'
 ] as const
 
 /** A followed event's message body (pages long) and the app's link from an event to a tab. */
