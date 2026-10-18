@@ -92,4 +92,21 @@ describe('createOrchRouter (remote runtime design §2.7, D1.1, D1.6, D1.7)', () 
     expect(asked).toBe(0)
     expect(l.calls).toEqual([])
   })
+
+  it('W4: sends sessions-send for the local runtime to the Host, every other command to the local handlers', async () => {
+    const l = recordingLocal()
+    const host: Array<[string, string, Record<string, unknown>]> = []
+    const r = createOrchRouter({
+      local: l.local,
+      host: async (p, c, args) => (host.push([p, c, args]), { status: 200, body: { host: true } }),
+      remote: { client: async () => fakeClient() }
+    })
+    expect(await r.command('/p', 'sessions-send', { id: 's1', text: '4' })).toEqual({ status: 200, body: { host: true } })
+    expect(await r.command('/p', 'jobs-run', { id: 'j' }, 'local')).toEqual({ status: 200, body: { local: true } })
+    expect(host).toEqual([['/p', 'sessions-send', { id: 's1', text: '4' }]])
+    expect(l.calls.map((c) => c.name)).toEqual(['command'])
+    // A paired Runtime's send still goes to that Runtime, never to the local Host
+    expect(await r.command('/p', 'sessions-send', { id: 's1', text: '4' }, 'rt_a')).toEqual({ status: 200, body: { remote: true } })
+    expect(host).toHaveLength(1)
+  })
 })

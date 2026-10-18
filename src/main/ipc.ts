@@ -4764,6 +4764,16 @@ export function registerIpc(
       completion: (projectPath, runId, taskId) => orchLocalCompletion(projectPath, runId, taskId),
       command: (projectPath, cmd, args) => orchLocalCommand(projectPath, cmd, args)
     },
+    // W4: HOST_ANSWERED (sessions-send) to the Host that owns the sessions. A Host that cannot be asked is a 503, not a throw.
+    host: async (projectPath, cmd, args) => {
+      await assertAllowedPath(projectPath)
+      try {
+        const r = await orchCall({ cmd, args: args ?? {}, sessionId: '' })
+        return { status: r.status, body: r.body }
+      } catch (e) {
+        return { status: 503, body: { error: e instanceof Error ? e.message : String(e) } }
+      }
+    },
     remote: remoteRuntimes,
     log: orchLog
   })

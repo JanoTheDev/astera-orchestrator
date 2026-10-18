@@ -13,6 +13,7 @@ import { useTheme } from '../lib/theme'
 import { attachConsoleLinks } from '../terminalLinks'
 import { copyTextFor } from '../../../core/terminal/copy'
 import { SessionStateBanners } from './SessionStateBanners'
+import { terminalMayTakeFocus } from '../lib/terminalFocus'
 
 export function TerminalView({
   session,
@@ -131,7 +132,8 @@ export function TerminalView({
       pane.heard({ cols: e.cols, rows: e.rows }, e.owned)
       fitNow()
     })
-    term.focus() // so typing works immediately once the session opens
+    // so typing works immediately once the session opens, unless the person is typing elsewhere (W4: the command bar)
+    if (terminalMayTakeFocus(document.activeElement)) term.focus()
 
     // On macOS, terminal copy/paste is Cmd. Ctrl+C must always flow through as an interrupt — swallowing
     // it just because a selection is active is, to a mac user, simply a 'Ctrl+C doesn't work' bug.
@@ -301,7 +303,7 @@ export function TerminalView({
 
   // When this tab becomes active (including keyboard switching and a tab click), focus the terminal so typing works right away
   useEffect(() => {
-    if (active && session.status !== 'exited') termRef.current?.focus()
+    if (active && session.status !== 'exited' && terminalMayTakeFocus(document.activeElement)) termRef.current?.focus()
   }, [active, session.status])
 
   return (

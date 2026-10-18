@@ -169,3 +169,93 @@ ps -eo pid,ppid,args | grep '[c]laude --settings'   # note the pids; ppid is the
 # 4. Reopen the app. Expect: the same pids (no new worker), no task dispatched again, every worker tab shows its
 #    screen at once (prompt box drawn), without toggling the sidebar.
 ```
+
+## End-to-end check (W4, measured 2026-10-17, XFCE on X11)
+
+Same machine as above: Ubuntu 24.04, kernel 6.14, Node 24.22.0, `claude` 2.1.301 on one Claude Max account. Run against
+`main` at 5fc23484 (Waves 0–3 merged), in a scratch git repo with three files.
+
+### Build and tests
+
+| Step | Result |
+|---|---|
+| `npm ci` | 18 s. npm 11 prints `install-scripts … not yet covered by allowScripts` for electron, esbuild and node-pty, but the scripts run: `node-pty/build/Release/pty.node` and `electron/dist/electron` exist afterwards |
+| `npm run typecheck` | clean, 10 s |
+| `flock /tmp/astera-fullsuite.lock nice -n 10 npx vitest run --maxWorkers=2` | 873 files / 15 149 tests passed, 7 files / 70 tests skipped, 0 failed, 6 m 48 s |
+| `npm run build` | 10 s; needed before the `astera` CLI line in CONTEXT rule 7 |
+
+### SPEC §11 milestone, by hand
+
+| Milestone step | What was done | Result |
+|---|---|---|
+| 1. Create and persist a plan | `projects add`, `jobs create --coordinator-account`, `jobs rename --title Smoke` | the plan shows under Workspaces → w4-scratch |
+| 2. Separate premium planning session | `jobs plan --id <job>` | a `claude --model opus` session, child of `host.js`, header `Task Smoke Planner · Model opus`; done in 1 m 7 s |
+| 3. Structured tasks with deps | read back from `orchestration.json` | 3 Tasks, each with `prompt`, `acceptanceCriteria`, `affectedPaths`, `modelReason`, `difficulty: light`; C `deps` = [A, B] |
+| 4. Tasks appear in the UI | Jobs view, Workspaces tree, Board | yes; "Approve & execute" opens the app's confirmation dialog first |
+| 5. Eligible tasks launch as real sessions | approve | coordinator `claude --model haiku`, then A and B as two `--model haiku` sessions 1 s apart, each in its own worktree (`~/astera-worktrees/w4-scratch/<branch>`) |
+| 6. Next eligible task scheduled automatically | wait | C started 23 s after B completed (A 18:57:32, B 18:59:16, C 18:59:39 → 19:00:25); never before |
+| 7. Every session inspectable and typeable | sidebar click → type | header shows Project · Plan · Task · Model · Account · cwd · Branch · Status; typed input reached the worker |
+
+Permissions: with "Run agents without permission checks" off, each haiku worker's first action (reading its own spec
+file under `<profile>/orch/specs/`, outside its worktree) stopped at a Claude "Read outside the working directories"
+prompt. The needs-input badge showed **2**, the inbox listed "Smoke Worker 1/2 is waiting", and answering one dropped
+it to 1. CLI-made Tasks (`tasks add`) carry no difficulty, so their workers start with no `--model` flag (the CLI's
+default model) and the header shows `Model —`.
+
+### Stop / resume, restart, recovery
+
+| Check | Result |
+|---|---|
+| "pause Hold2" in the bar | bar shows "Pause (closes its sessions)", then the app's "Stop the plan" dialog; coordinator and both workers ended, Run `paused` |
+| "resume Hold2" | coordinator back, then exactly one new Dispatch per Task (2 workers); the old Dispatches stay closed with `closedBy: stop`. No duplicates |
+| Same on a plan **without** a coordinator ("Hold") | **stuck**: Tasks stay `dispatched` on stopped Dispatches and nothing re-places them; the board says "Its worker was stopped" |
+| Close the window, wait, reopen (`npx electron-vite dev`, new CDP port) | `appAttached:false` while closed; on reopen the same Host pid and the same 4 `claude` pids, no new spawn, Dispatch count unchanged (9), `orch/activity.jsonl` unchanged (43 lines) and the feed still shows the lines from before |
+| Usage limit hit mid-run (5 h window at 93 %) | the feed said "k1: hit a limit on <account>, waiting for the reset" (19:09) and "k1: resumed" (22:21); the workers continued after the reset |
+
+### Activity feed and notices
+
+- Lines carry plan, model and account: "A: add sub to math.js: completed · Smoke · haiku · <account>", "f1: failed",
+  "k1: cancelled", "k1: worker stopped by you", "Smoke: plan ready for your approval", "Smoke: plan done",
+  "Smoke: PR failed".
+- "Last 15 min" groups them ("5 failed · 7 blocked") and lists each blocked Task with its reason.
+- Throttle, measured with `dbus-monitor "interface='org.freedesktop.Notifications',member='Notify'"`: five Tasks
+  failed within 5 s (22:27:35–39) and the desktop got **three** notices (f1, f2, f3); the rest wait for the digest.
+- Digest (default 30 min): at 22:54, 34 min after the app started, one "Activity summary" notice: "5 failed: f1, f2,
+  f3 and 2 more · 2 cancelled: k1, k2 · 2 more notice(s) held back".
+- Desktop notices on XFCE arrive through `org.freedesktop.Notifications` with app name `astera`.
+
+### Search and command bar
+
+- Search: `hw1` → Hold Worker 1 and Hold2 Worker 1, `sw3` → Smoke Worker 3, each with "project › plan · task".
+- "show progress on Hold2" → "w4-scratch › Hold2: 0/2 done, 2 running". "show all sessions needing my input" →
+  "Nobody is waiting for you". "pause worker 2" → "No plan matches "worker 2". Pick one:" with the three plans (no
+  per-worker pause exists).
+- `send "<text>" to Hold2 Worker 1` → "Sent to Hold2 Worker 1", and the worker answered. Before this PR it was refused
+  ("sessions are answered by the Astera Host, and this caller is not one"): fixed here.
+- Before this PR, text typed into the open bar could land in a terminal: a worker tab that opened or came forward took
+  the keyboard, and the planner received "send "4" to Smoke Worker 2" as a prompt. Fixed here.
+
+### Linux-specific notes from this run
+
+- **Git identity.** On a machine with no global `user.email`, the Run's integration merge fails ("Committer identity
+  unknown") and the plan's PR step reports failure. Workers worked around it with a per-command author. Set
+  `git config --global user.name/user.email` before running plans.
+- **Driving the close dialog.** `wmctrl -c <title>` matches a title *substring* and closes the first match: in this run
+  it closed a VS Code window whose title contained "Astera". Use `wmctrl -l` and `wmctrl -i -c <id>`.
+- **D-Bus truncation.** `: > notify.log` on a file `dbus-monitor` is still writing leaves NUL bytes at the start;
+  read it with `tr -d '\0'`.
+- **Window-manager close skips the quit dialog.** The "Close and quit Astera" dialog (with "End the kept sessions too")
+  belongs to the app's own title-bar X (`closeWindow` in `App.tsx`). Alt+F4 or `wmctrl -c` quits at once and keeps the
+  sessions, which is the safe default but offers no way to end them.
+- `MaxListenersExceededWarning: 11 session:pty-size listeners` appears in the dev log with 11 terminal tabs open: one
+  listener per `TerminalView`, harmless.
+
+### Packaged AppImage (W4)
+
+- `npm run dist:linux`: 1 m 45 s; `astera-1.4.14-x86_64.AppImage` 131 MB and `astera-1.4.14-amd64.deb` 100 MB.
+- Started with no `--no-sandbox`; the Host runs as `/tmp/.mount_astera*/astera …/app.asar/out/main/host.js`.
+- Smoke on the packaged profile (`~/.config/astera`): one plan, one Task from the CLI. The worker started 7 s after
+  `jobs run` and completed 23 s later. The feed showed "p1: running / worker started / completed / worker exited" and
+  "Packaged: plan done". The desktop got a "Plan done" notice.
+- The in-app X opened "Close and quit Astera … 1 running session(s) keep running", with "End the 1 kept session(s) too".
+  Ticking that ended the Host, and the `/tmp/.mount_astera*` mount was released.
