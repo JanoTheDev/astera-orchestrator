@@ -122,6 +122,9 @@ import { WorkspaceHeader } from './components/workspace/WorkspaceHeader'
 import { ActivityPanel } from './components/activity/ActivityPanel' // W3-A
 import { useWorkspaceData } from './components/workspace/useWorkspaceData'
 import { buildWorkspaceTree, findPlan, planSessions, scopeLayout } from './components/workspace/workspaceTree'
+// W6-F: one workspace per project
+import { entryTab, OTHER_WORKSPACE, scopeIds as workspaceScopeOf, workspaceFolderOf, workspaceSessionIds } from './components/workspace/workspaceTree'
+import { ProjectSwitcher } from './components/workspace/ProjectSwitcher'
 import { terminalsWithCreated } from './lib/terminalTabs'
 import * as hiddenProjects from './lib/hiddenProjects'
 import { isCancelled as isWorktreeCancelled } from './lib/worktreeErrors'
@@ -1429,6 +1432,14 @@ export default function App(): React.JSX.Element {
       // bodies are all refs and setters, so a stale closure still acts on the latest state — the same
       // convention toggleExplorer and closeFileTab already rely on.
       // W3-B: the command bar opens (or closes) like a sidebar key; the talk key opens it and toggles recording.
+      // W6-F: Ctrl+Alt+N opens the Nth project workspace
+      if (action.startsWith('workspace.project')) {
+        e.preventDefault()
+        e.stopPropagation()
+        if (e.repeat) return
+        openWorkspaceSlotRef.current(Number(action.slice('workspace.project'.length)))
+        return
+      }
       if (action === 'command.open' || action === 'command.talk') {
         e.preventDefault()
         e.stopPropagation()
@@ -3442,12 +3453,14 @@ export default function App(): React.JSX.Element {
   // tree is on screen or a plan is open; the anchor is only the path the reads are sent through.
   const [workspacePlanId, setWorkspacePlanId] = useState<string | null>(null)
   const [workspaceArchived, setWorkspaceArchived] = useState(false)
+  // W6-F: the open project workspace (a project id or OTHER_WORKSPACE), null for every tab. An open plan narrows it.
+  const [workspaceProjectId, setWorkspaceProjectId] = useState<string | null>(null)
   // W3-B: the command bar resolves names against the same data, so it is read while the bar is open too
   const [commandOpen, setCommandOpen] = useState(false)
   const [talkSignal, setTalkSignal] = useState(0)
   const workspaceData = useWorkspaceData(
     currentProject ?? sessions[0]?.cwd ?? null,
-    (sidebarOpen && sidebarPane === 'sessions') || workspacePlanId !== null || commandOpen
+    (sidebarOpen && sidebarPane === 'sessions') || workspacePlanId !== null || workspaceProjectId !== null || commandOpen
   )
   const workspaceTree = useMemo(
     () => (workspaceData ? buildWorkspaceTree(workspaceData, { showArchived: workspaceArchived }) : []),
@@ -3455,28 +3468,59 @@ export default function App(): React.JSX.Element {
   )
   const workspacePlan = workspacePlanId ? findPlan(workspaceTree, workspacePlanId) : undefined
   const workspaceSessions = workspacePlan ? planSessions(workspacePlan) : []
-  const workspaceKey = workspaceSessions.map((x) => x.sessionId).join('\n')
+  // W6-F: every workspace's sessions, and the ones the open project's (or plan's) workspace shows. Paired Runtimes'
+  // tabs have no local cwd, so they are "Other"'s.
+  const workspaceIds = useMemo(() => {
+    const ids = workspaceSessionIds(workspaceTree, sessions, workspaceData?.worktrees ?? [])
+    for (const r of remoteSessions) ids.get(OTHER_WORKSPACE)!.add(r.key)
+    return ids
+  }, [workspaceTree, sessions, workspaceData?.worktrees, remoteSessions])
+  const scopeOf = (projectId: string | null, planId: string | null): Set<string> | null =>
+    workspaceScopeOf(workspaceTree, workspaceIds, projectId, planId)
+  const workspaceScope = scopeOf(workspaceProjectId, workspacePlanId)
+  const workspaceKey = workspaceScope ? [...workspaceScope].join('\n') : null
   const shownLayout = useMemo(
-    () => (workspacePlan ? scopeLayout(layout, new Set(workspaceSessions.map((x) => x.sessionId))) : layout),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- workspaceKey stands for the plan's session ids
-    [layout, workspacePlan !== undefined, workspaceKey]
+    () => (workspaceScope ? scopeLayout(layout, workspaceScope) : layout),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- workspaceKey stands for the scope's session ids
+    [layout, workspaceKey]
   )
   const workspaceActive = active ? workspaceSessions.find((x) => x.sessionId === active.id) : undefined
-  // A session of another plan focused from elsewhere (a notification, the Jobs view) leaves the workspace: the
-  // scoped view would hide the very tab the person just asked for.
+  // A session outside the open workspace focused from elsewhere (a notification, the Jobs view) leaves it for that
+  // session's own project workspace: the scoped view would hide the very tab the person just asked for.
   useEffect(() => {
-    if (workspacePlan && activeSessionId && !workspaceSessions.some((x) => x.sessionId === activeSessionId))
-      setWorkspacePlanId(null)
+    if (!workspaceScope || !activeSessionId || workspaceScope.has(activeSessionId)) return
+    setWorkspacePlanId(null)
+    setWorkspaceProjectId([...workspaceIds].find(([, ids]) => ids.has(activeSessionId))?.[0] ?? null)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only a focus change decides this, not a refresh
   }, [activeSessionId])
   const canOpenSessionTab = (sessionId: string): boolean => !!layout && !!groupOfTab(layout, sessionTab(sessionId))
-  const openWorkspacePlan = (jobId: string | null): void => {
-    setWorkspacePlanId(jobId)
-    const plan = jobId ? findPlan(workspaceTree, jobId) : undefined
-    // Focus one of its sessions in the real tree too, so the active pane and tab are the plan's in both views
-    const first = plan ? planSessions(plan).find((x) => canOpenSessionTab(x.sessionId)) : undefined
-    if (first) selectWorkbenchTab(sessionTab(first.sessionId))
+  // W6-F: each workspace's focused tab while it is away, keyed by plan id, project id, or '' for every tab. Renderer
+  // memory only: the pane tree it points into is not stored either.
+  const workspaceFocusRef = useRef(new Map<string, string>())
+  /** Opens a workspace without moving focus: the caller focuses a session of it. A plan opens inside its project. */
+  const setWorkspaceScope = (projectId: string | null, planId: string | null): void => {
+    if (activeTabId) workspaceFocusRef.current.set(workspacePlanId ?? workspaceProjectId ?? '', activeTabId)
+    const plan = planId ? findPlan(workspaceTree, planId) : undefined
+    setWorkspacePlanId(planId)
+    setWorkspaceProjectId(plan?.projectId ?? projectId)
   }
+  /** Opens a workspace and focuses the tab it had when it was left, else its first. */
+  const enterWorkspace = (projectId: string | null, planId: string | null): void => {
+    setWorkspaceScope(projectId, planId)
+    const tab = entryTab(layoutRef.current, scopeOf(projectId, planId), workspaceFocusRef.current.get(planId ?? projectId ?? ''))
+    if (tab) selectWorkbenchTab(tab)
+  }
+  // Closing a plan's workspace goes back to its project's
+  const openWorkspacePlan = (jobId: string | null): void => enterWorkspace(workspaceProjectId, jobId)
+  const openWorkspaceProject = (projectId: string | null): void => enterWorkspace(projectId, null)
+  // The workspace keys are handled by a listener that holds its first closure, so it reads this ref
+  const openWorkspaceSlotRef = useRef<(slot: number) => void>(() => {})
+  openWorkspaceSlotRef.current = (slot) => {
+    const p = workspaceTree[slot - 1]
+    if (p) openWorkspaceProject(p.id)
+  }
+  // A new tab opened in a project workspace starts in the project's folder
+  const workspaceCwd = workspaceFolderOf(workspaceTree, workspaceProjectId)
   /** 아래쪽 패널이 쓰는 경로. 프로젝트가 없으면 홈으로 떨어진다 — 셸을 직접 띄웠을 때와 같은 곳이고,
    *  그래야 탭이 하나도 없을 때도 터미널을 열 수 있다. 홈에서는 Run 탭이 없다(runAvailable):
    *  실행 구성은 프로젝트 단위이고, 홈의 파일 목록으로 시드를 감지하면 남의 홈 package.json 스크립트를
@@ -4651,6 +4695,13 @@ export default function App(): React.JSX.Element {
               />
             ) : (
               <>
+                <ProjectSwitcher
+                  tree={workspaceTree}
+                  byWorkspace={workspaceIds}
+                  sessions={sessions}
+                  selectedId={workspaceProjectId}
+                  onSelect={openWorkspaceProject}
+                />
                 <AccountPanel accounts={accounts} />
                 <WorkspaceSidebar
                   tree={workspaceTree}
@@ -4662,7 +4713,7 @@ export default function App(): React.JSX.Element {
                   onSelectPlan={openWorkspacePlan}
                   canOpenSession={canOpenSessionTab}
                   onOpenSession={(sessionId, jobId) => {
-                    setWorkspacePlanId(jobId)
+                    setWorkspaceScope(null, jobId)
                     selectWorkbenchTab(sessionTab(sessionId))
                   }}
                 />
@@ -4672,7 +4723,7 @@ export default function App(): React.JSX.Element {
                   accounts={accounts}
                   onOpenSession={(sessionId, jobId) => {
                     if (!canOpenSessionTab(sessionId)) return
-                    setWorkspacePlanId(jobId)
+                    setWorkspaceScope(null, jobId)
                     selectWorkbenchTab(sessionTab(sessionId))
                   }}
                 />
@@ -4996,7 +5047,7 @@ export default function App(): React.JSX.Element {
           accounts={accounts}
           defaultSessionKind={defaultSessionKind}
           runningCount={runningCount}
-          initialCwd={newSessionCwd}
+          initialCwd={newSessionCwd ?? workspaceCwd}
           // The promise is passed straight through — the dialog awaits it to show a start-pending state
           // (discarding it with void would make the wait look instantly over)
           onSpawn={spawn}
@@ -5724,7 +5775,7 @@ export default function App(): React.JSX.Element {
         ui={actionUi}
         talkSignal={talkSignal}
         onOpenSession={(sessionId, jobId) => {
-          if (jobId) setWorkspacePlanId(jobId)
+          if (jobId) setWorkspaceScope(null, jobId)
           selectWorkbenchTab(sessionTab(sessionId))
         }}
         deps={{
