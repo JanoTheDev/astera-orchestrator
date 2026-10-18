@@ -2110,5 +2110,7 @@ export const en: Record<keyof typeof ko, string> = {
   'settings.voice.notAbsolute': 'Use an absolute path',
   'settings.voice.saveFailed': 'Could not save the voice settings: {detail}',
   'shortcut.command.open': 'Open the command bar',
-  'shortcut.command.talk': 'Talk to the command bar (press to start, again to send)'
+  'shortcut.command.talk': 'Talk to the command bar (press to start, again to send)',
+  // W6-F
+  'shortcut.workspace.project': 'Open project workspace {n}'
 }

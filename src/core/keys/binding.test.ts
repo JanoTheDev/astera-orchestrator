@@ -285,3 +285,21 @@ describe('run shortcuts', () => {
     }
   })
 })
+
+// W6-F: Ctrl+Alt+1…9 opens the Nth project workspace
+describe('project workspace shortcuts', () => {
+  it.each(['linux', 'win32', 'darwin'])('Ctrl+Alt+N reaches workspace.projectN on %s, clear of every other key and the CLI', (platform) => {
+    const actions = makeActions(platform)
+    const bindings = resolveBindings({}, actions)
+    for (let n = 1; n <= 9; n++)
+      expect(findActionForEvent(bindings, ev({ code: `Digit${n}`, ctrlKey: true, altKey: true }), actions)).toBe(`workspace.project${n}`)
+    expect(findActionForEvent(bindings, ev({ code: 'Digit0', ctrlKey: true, altKey: true }), actions)).toBeNull()
+    expect(findConflicts(bindings, actions)).toEqual([])
+    expect(riskyReasonKey(parseChord('Ctrl+Alt+1')!)).toBeNull()
+  })
+
+  it('share one wording, numbered by its params', () => {
+    const a = makeActions('linux').find((x) => x.id === 'workspace.project4')!
+    expect([a.descKey, a.descParams, a.yieldsToTerminal]).toEqual(['shortcut.workspace.project', { n: 4 }, false])
+  })
+})

@@ -53,7 +53,7 @@ export function ShortcutSettings({
       )
       setCapturing(null)
       if (taken) {
-        toast.error(t('shortcut.conflictWith', { key, action: t(taken.descKey as MessageKey) }))
+        toast.error(t('shortcut.conflictWith', { key, action: t(taken.descKey as MessageKey, taken.descParams) }))
         return
       }
       const riskKey = riskyReasonKey(chord)
@@ -101,7 +101,7 @@ export function ShortcutSettings({
                 ))
               )}
             </span>
-            <span className="shortcut-desc">{t(action.descKey as MessageKey)}</span>
+            <span className="shortcut-desc">{t(action.descKey as MessageKey, action.descParams)}</span>
             {/* In a narrow modal a text button pushes the description to 3~4 lines (measured) — reduced to an icon plus a title */}
             <span className="shortcut-actions">
               <button
