@@ -708,7 +708,7 @@ astera runs    resume --id <runId>
 astera runs    checks --id <runId>
 
 astera tasks   list   [--run <runId|jobId>] [--status <s>] [--ready] [--brief]
-astera tasks   add    [--job <jobId> | --run <runId>] --spec <text|-> --account <id,…> [--title <text>] [--deps <json array>] [--parent <taskId>] [--validate <configId,…>] [--review] [--difficulty <light|standard|hard>] [--model <id>]
+astera tasks   add    [--job <jobId> | --run <runId>] --spec <text|-> --account <id,…> [--title <text>] [--deps <json array>] [--parent <taskId>] [--validate <configId,…>] [--review] [--difficulty <light|standard|hard>] [--model <id>] [--basis <missing|partial|broken>] [--evidence <text>]
 astera tasks   dispatch --id <taskId>
 
 astera dispatches list [--run <runId>]

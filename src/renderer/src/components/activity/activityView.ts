@@ -65,6 +65,9 @@ export function lineOf(e: ActivityEvent, accountLabel: (id: string) => string): 
         : { text: `${p.title}: PR ${p.pr?.number !== undefined ? `#${p.pr.number} ` : ''}opened`, tone: 'ok' }
     case 'plan.awaiting-approval':
       return { text: `${p.title}: plan ready for your approval`, tone: 'warn' }
+    // W6-A
+    case 'plan.nothing-to-do':
+      return { text: `${p.title}: nothing to do, already built${p.summary ? `: ${p.summary.split('\n')[0]}` : ''}`, tone: 'ok' }
     case 'task.waiting':
       return { text: `${p.title}: waiting for ${p.waitingFor === 'question' ? 'your answer to a question' : 'your permission'}`, tone: 'warn' }
     case 'plan.done':

@@ -117,6 +117,7 @@ import { prForBranch } from '../github/prs'
 import { ISSUE_JOB_ASSOCIATIONS, ISSUES_PER_CALL_MAX, assignIssueToMe, issueNumbersOf, readIssue, type GhIssue } from '../github/issue'
 import { GITHUB_SOURCE_ID, issuesContext } from '../github/issueSource'
 // W6-A intake
+import { SOURCED_OBJECTIVE_MAX } from '../sources/objective'
 import { intakeChanges, intakeObjective, intakeOf, needsInputs } from './intake'
 import { fillFromCommits, type CommitSummary } from '../github/fill'
 // W2-D GitHub links
@@ -3386,7 +3387,7 @@ export async function handleCommand(
         return okBody({ id, convergenceOff: true })
       }
       // W2-A: editing a plan's Task (its title, spec, deps and plan fields) instead of moving its status.
-      const PLAN_EDIT = ['title', 'spec', 'deps', 'prompt', 'criteria', 'affectedPaths', 'difficulty', 'provider', 'model', 'modelReason']
+      const PLAN_EDIT = ['title', 'spec', 'deps', 'prompt', 'criteria', 'affectedPaths', 'difficulty', 'provider', 'model', 'modelReason', /* W6-A */ 'basis', 'evidence']
       if (args.status === undefined && PLAN_EDIT.some((k) => args[k] !== undefined)) {
         const plan = planFieldsFromArgs(args)
         if (!plan.ok) return bad(plan.error)
@@ -5211,6 +5212,31 @@ export async function handleCommand(
       const ref = (i: GhIssue): { number: number; url: string } => ({ number: i.number, url: i.url })
       // `issue` stays for one issue, as it always answered; `issues` lists them all.
       return okBody({ ...(reply.body as object), ...(issues.length === 1 ? { issue: ref(issues[0]) } : {}), issues: issues.map(ref) })
+    }
+    /**
+     * W6-A: the planner found every item of its Job already built (inputs/existing.md), so there is nothing to plan.
+     * The Job keeps the summary, is archived (it starts nothing) and its planner ends: no tab stays open. The activity
+     * feed says so (`plan.nothing-to-do`). Its own planner, or the person; never another agent.
+     */
+    case 'plan-nothing-to-do': {
+      const id = str(args.job)
+      if (!id) return bad('--job is required')
+      const summary = typeof args.summary === 'string' ? args.summary.trim() : ''
+      if (summary === '') return bad('--summary is required: what was found, item by item (inputs/existing.md)')
+      const job = s.jobs.find((j) => j.id === id)
+      if (!job) return notFound(`unknown job: ${id}`)
+      if ((fromAgentSession && plannerJobOf(s, caller.sessionId)?.id !== id) || caller.role === 'mcp')
+        return denied("plan-nothing-to-do is for the Job's planner or the person")
+      if (!job.pendingStart) return conflict(`job ${id} has started: only a plan before its approval can end with nothing to do`)
+      if (s.tasks.some((t) => t.jobId === id && t.runId === undefined))
+        return conflict(`job ${id} has Tasks: a plan with work in it is approved, not ended`)
+      const archived = archiveJob(s, id, now)
+      if (!archived.ok) return refused(archived)
+      const marked = { at: now, summary: summary.slice(0, SOURCED_OBJECTIVE_MAX) }
+      await deps.setState({ ...archived.state, jobs: archived.state.jobs.map((j) => (j.id === id ? { ...j, nothingToDo: marked } : j)) })
+      // Not awaited: the caller is usually that planner, and its reply should reach it before its session ends.
+      void endPlanners(job, 'everything it was asked for is already built')
+      return okBody({ id, nothingToDo: true })
     }
     // W6-A: assign issues to the person gh is logged in as (`gh issue edit --add-assignee @me`).
     case 'github-issue-assign': {

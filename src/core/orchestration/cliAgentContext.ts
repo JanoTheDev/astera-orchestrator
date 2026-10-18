@@ -236,7 +236,10 @@ const SESSION = {
       { name: 'difficulty', value: '<light|standard|hard>', about: "picks the worker's model" },
       { name: 'provider', value: '<claude|codex>', about: 'the provider the Task asks for' },
       { name: 'model', value: '<id>', about: "the worker's model, ahead of --difficulty" },
-      { name: 'model-reason', value: '<text>', about: 'one line: why that difficulty, provider or model' }
+      { name: 'model-reason', value: '<text>', about: 'one line: why that difficulty, provider or model' },
+      // W6-A: what the planner found of the item; a plan Task without it cannot be approved
+      { name: 'basis', value: '<missing|partial|broken>', about: "the item's state as found before planning (with --evidence)" },
+      { name: 'evidence', value: '<text>', about: 'with --basis: file:line, an issue or PR number, a Job id' }
     ]
   },
   'task-update': {
@@ -259,7 +262,9 @@ const SESSION = {
       { name: 'difficulty', value: '<light|standard|hard>', about: 'without --status: as task-create' },
       { name: 'provider', value: '<claude|codex>', about: 'without --status: as task-create' },
       { name: 'model', value: '<id>', about: 'without --status: as task-create' },
-      { name: 'model-reason', value: '<text>', about: 'without --status: as task-create' }
+      { name: 'model-reason', value: '<text>', about: 'without --status: as task-create' },
+      { name: 'basis', value: '<missing|partial|broken>', about: 'without --status: as task-create (W6-A)' },
+      { name: 'evidence', value: '<text>', about: 'without --status: as task-create (W6-A)' }
     ]
   },
   send: {
@@ -430,6 +435,16 @@ const SESSION = {
       { name: 'issue', value: '<n>[,<n>…]', about: 'the issue numbers, comma-separated (at most 20); one refused issue refuses the call' },
       { name: 'assign-me', about: 'assign each issue to you first (gh issue edit --add-assignee @me)' },
       ...(USAGE['jobs-create'].flags ?? []).filter((f) => f.name !== 'objective' && f.name !== 'cwd')
+    ]
+  },
+  // W6-A
+  'plan-nothing-to-do': {
+    summary: "end a Job before approval because everything it asks for is already built (its planner, or the person)",
+    detail:
+      'Refused once the Job has started or while it has Tasks. The Job keeps the summary, is archived and its planner session ends; the activity feed says "nothing to do".',
+    flags: [
+      req('job', '<jobId>', 'the Job to end'),
+      req('summary', '<text|->', 'what was found, item by item (inputs/existing.md); - reads stdin')
     ]
   },
   // W6-A

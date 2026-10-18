@@ -50,7 +50,9 @@ export const ACTIVITY_KINDS = [
   'plan.awaiting-approval',
   'plan.done',
   // W5-D (#42): a worker's session at a permission prompt or a question (waitingActivity)
-  'task.waiting'
+  'task.waiting',
+  // W6-A: the planner found everything built (`plan-nothing-to-do`); feed and notice
+  'plan.nothing-to-do'
 ] as const
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number]
 
@@ -85,6 +87,8 @@ export interface ActivityPayload {
   runOutcome?: 'completed' | 'failed'
   // task.waiting (W5-D, #42)
   waitingFor?: 'permission' | 'question'
+  // plan.nothing-to-do (W6-A): the planner's summary (inputs/existing.md)
+  summary?: string
 }
 
 /** One line before the log numbers and stamps it (the shape of publicEvents.ts's EventDraft). */
@@ -248,6 +252,18 @@ export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[
     }
   }
 
+  // W6-A: a plan that ended before approval because everything it asks for is built
+  if (prev.jobs !== next.jobs) {
+    const was = byId(prev.jobs)
+    for (const j of next.jobs) {
+      if (j.nothingToDo === undefined || was.get(j.id)?.nothingToDo !== undefined) continue
+      push(
+        'plan.nothing-to-do',
+        { ...(j.projectId !== undefined ? { projectId: j.projectId } : {}), jobId: j.id, job: j },
+        { title: jobNameOf(j), summary: j.nothingToDo.summary.slice(0, 2000) }
+      )
+    }
+  }
   // Last, so a plan's ending follows the Task lines that ended it. Only a Run in both states that was running.
   if (prev.tasks !== next.tasks) {
     const group = (s: OrchState): Map<string, Task[]> => {
@@ -400,6 +416,8 @@ export function noticeOf(e: ActivityEvent): ActivityNotice | null {
       return { key: `gate:${e.payload.gateId}`, title: 'Needs your answer', body: `${e.payload.title}${inPlan(e)}: ${e.payload.question ?? ''}`.slice(0, 240) }
     case 'plan.awaiting-approval':
       return { key: `approve:${e.jobId}`, title: 'Plan ready for approval', body: e.payload.title }
+    case 'plan.nothing-to-do':
+      return { key: `nothing:${e.jobId}`, title: 'Nothing to do: already built', body: e.payload.title }
     default:
       return null
   }
