@@ -855,4 +855,7 @@ export interface RunPr {
   /** W8-C: opened as a draft after a wave while later waves remain; cleared when it is marked ready after the final
    *  check. **Present: the plan is not delivered yet.** */
   draft?: true
+  // W8-C draft PR
+  /** With `draft`: how many waves were done when the branch was last pushed and the body written (draftPr.ts). */
+  wavesDone?: number
 }
