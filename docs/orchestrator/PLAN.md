@@ -62,6 +62,7 @@ starting the next wave. Each prompt owns its own files, which keeps conflicts to
 | 9.2 | 8 | `W9-B-shell-and-nav`, `W9-C-plan-tab`, `W9-D-inbox-and-command`, `W9-E-settings-and-dialogs`, `W9-H-agents-wall`, `W9-I-tab-summaries`, `W9-J-worktree-viewer`, `W9-K-window-per-project` | 9.1 merged |
 | 9.3 | 1 | `W9-F-polish-and-verify` | 9.2 merged |
 | 9.4 | 1 | `W9-G-readme-and-docs` | 9.3 merged |
+| 10 | 1 | `W10-A-run-by-name` (Run as written from typed names, no attaching; "next waves"), one Astera plan | W9 merged |
 
 ### File ownership per wave (prevents tabs interfering)
 
@@ -115,6 +116,7 @@ starting the next wave. Each prompt owns its own files, which keeps conflicts to
 | W9-K | new `src/main/windows.ts`, `src/main/index.ts` window lifecycle (`mainWindow` → window set, `second-instance` argv, tray project list) | IPC push sites that targeted `mainWindow` (send to all windows), `components/workspace/ProjectSwitcher.tsx` ("Open in new window" item), keybindings, desktop file action, USAGE.md |
 | W9-F | any renderer file, for fixes found by the walk-through; each fix listed in the PR | — |
 | W9-G | `README.md`, deleted `README.{ko,ja,es}.md`, `docs/*.md` outside `docs/orchestrator`, new `docs/dev/` (wave prompts move here), `assets/*` screenshots, `package.json` `description` / `homepage` | `docs/orchestrator/USAGE.md` (becomes `docs/guide.md`) |
+| W10-A | `core/orchestration/intake.ts` (name resolution, prompts-folder detection), the Start page's source line and "Next waves" button | `types.ts` (project `promptsDir`), `command.ts` / `cliArgs.ts` / `cliUsage.ts` (`projects set --prompts-dir`), project settings page (one row), user guide |
 | W5-D | `activity.ts`, `components/activity/*`, `sessionIndex.ts`, `components/search/*`, `src/main/activityNotices.ts`, `src/main/remote/orchRouter.ts` | `src/host/index.ts`, `src/host/sessions.ts`, `src/main/ipc.ts`, `types.ts` |
 
 ## Wave 6 — Autopilot (owner request 2026-10-18)
@@ -323,7 +325,7 @@ astera jobs create --project astera --mode prompts --delivery pr \
 
 Separate queued plans per wave (`--after <job>`) still work, if the owner wants one PR per wave.
 
-**Later (owner request 2026-10-18, wave 10 or the next free wave): no attaching.** Today the owner attaches every
+**Later (owner request 2026-10-18; planned as `W10-A-run-by-name`): no attaching.** Today the owner attaches every
 prompt file and pastes the order (`RUN-W8-W9.md`) into Instructions. The owner wants to give only the text: "run W8-A,
 B, D, F, G, then W9 …". In Run as written, Astera then resolves each named prompt from the project's prompts folder
 (`docs/orchestrator/prompts/<id>-*.md`, or a folder set per project). Each resolved file becomes a Task verbatim, as if

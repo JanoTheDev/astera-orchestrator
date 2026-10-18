@@ -42,6 +42,7 @@ Status: Wave 0 merged (PR #25), Wave 1 merged (PRs #26–#29), 2026-10-17. See `
 | Wave 9.3 | W9-F-polish-and-verify (alone) |
 | merge | MERGE |
 | Wave 9.4 | W9-G-readme-and-docs |
+| Wave 10 | W10-A-run-by-name (one Astera plan) |
 | merge | MERGE |
 
 Owner decisions baked in (2026-10-17): Claude-only accounts for now (Codex later), mixed models by task difficulty, one PR per plan, local whisper.cpp for voice.
