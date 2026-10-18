@@ -1,9 +1,13 @@
 // W8-A: the stamp on a real temp repository, and the notes surviving amend, rebase (the repository config) and a
 // cherry-pick (Astera's copy).
 import { promises as fs } from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import type { GitRun } from '../git/range'
+import { git as realGit } from '../worktrees/git'
 import { gitSync, makeRepo } from '../worktrees/testRepo'
+import { attributionDirIn, lineHash, logFileOf, realRoot } from './checkpoint'
 import { copyNotes, forgetNotesConfig, readNote } from './note'
 import { busyWindowsOf, commitKind, stampCommits, WINDOW_SLACK_MS, type StampIdentity } from './stamp'
 
@@ -76,6 +80,54 @@ describe('stampCommits', () => {
     const again = await stampCommits({ cwd: repo, base, identity: { ...WHO, session: 'other', role: 'reviewer' }, windows: [{ start: 0, end: Infinity }] })
     expect(again).toEqual([])
     expect(await readNote(repo, ai)).toMatchObject({ session: 'sess_1', role: 'worker' })
+  })
+
+  it('a commit with checkpointed lines gets its session and AI line ranges in the note', async () => {
+    const repo = await makeRepo()
+    const profile = await fs.mkdtemp(path.join(os.tmpdir(), 'astera-stamp-profile-'))
+    try {
+      const base = gitSync(repo, ['rev-parse', 'HEAD'])
+      gitSync(repo, ['checkout', '-b', 'task'])
+      // The agent wrote `one` and `two`; the owner adds `mine` before the commit: a mixed commit
+      await fs.mkdir(attributionDirIn(profile), { recursive: true })
+      const entry = { at: T0 * 1000, session: 'sess_1', path: 'a.txt', addedLineHashes: [lineHash('one'), lineHash('two')] }
+      await fs.writeFile(logFileOf(profile, realRoot(repo)), `${JSON.stringify(entry)}\n`)
+      const ai = await commitAt(repo, 'a.txt', 'one\ntwo\nmine\n', T0)
+      const windows = busyWindowsOf([line('UserPromptSubmit', T0 * 1000 - 500), line('Stop', T0 * 1000 + 30_000)])
+
+      const stamped = await stampCommits({ cwd: repo, base, identity: WHO, windows, profileDir: profile })
+
+      expect(stamped).toEqual([{ sha: ai, kind: 'ai' }])
+      expect(await readNote(repo, ai)).toEqual({ v: 1, tool: 'astera', ...WHO, session: 'sess_1', lines: { 'a.txt': [[1, 2]] } })
+    } finally {
+      await fs.rm(profile, { recursive: true, force: true })
+    }
+  })
+
+  it('a linesForCommit failure is logged and the commit is still noted, without line data', async () => {
+    const repo = await makeRepo()
+    const profile = await fs.mkdtemp(path.join(os.tmpdir(), 'astera-stamp-profile-'))
+    try {
+      const base = gitSync(repo, ['rev-parse', 'HEAD'])
+      gitSync(repo, ['checkout', '-b', 'task'])
+      const ai = await commitAt(repo, 'a.txt', 'one\n', T0)
+      const windows = busyWindowsOf([line('UserPromptSubmit', T0 * 1000 - 500), line('Stop', T0 * 1000 + 30_000)])
+      // `git show` is what linesForCommit reads the commit with: failing it makes linesForCommit throw
+      const failShow: GitRun = async (args, o) => {
+        const r = await realGit(args, o)
+        return args.includes('show') ? { ...r, ok: false, stderr: 'boom' } : r
+      }
+      const logs: string[] = []
+
+      const stamped = await stampCommits({ cwd: repo, base, identity: WHO, windows, profileDir: profile, log: (m) => logs.push(m), run: failShow })
+
+      expect(stamped).toEqual([{ sha: ai, kind: 'ai' }])
+      expect(await readNote(repo, ai)).toEqual({ v: 1, tool: 'astera', ...WHO })
+      expect(logs).toHaveLength(1)
+      expect(logs[0]).toContain(ai)
+    } finally {
+      await fs.rm(profile, { recursive: true, force: true })
+    }
   })
 
   it('skips a dependency merged in: only the first-parent commits of the attempt are its own', async () => {

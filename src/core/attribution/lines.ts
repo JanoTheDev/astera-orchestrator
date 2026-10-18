@@ -128,9 +128,6 @@ export function attributeLines(
  * The line attribution of commit `sha` in the repository at `repo`, read from that repository's checkpoint log, which
  * it then clears for the committed paths. Call it right after the commit is made, before anything else writes the
  * files (the busy-window rule reads their mtime). A merge is read against its first parent.
- *
- * shortcut: wire into stamp.ts after W8-A merge. W8-A's stamp writes the note; it calls this once and spreads
- * `{ session, lines, human }` into it (the counts stay out of the note).
  */
 export async function linesForCommit(opts: {
   repo: string

@@ -781,6 +781,9 @@ export interface OrchServerDeps {
   /** The profile's hook-events folder (core/hooks/sessionState.ts `hookEventsDirIn`): the stamp reads a worker's busy
    *  windows there. Absent, the attempt's own lifetime stands in for them. */
   hookEventsDir?: string
+  /** The profile folder (`attribution/` holds the checkpoint logs the stamp's line data reads). **Only the Host injects
+   *  it**, as it does hookEventsDir; absent, the stamp notes commits without line data. */
+  profileDir?: string
 }
 
 /** A plugin as the early refusal reads it (plugin Phase 5 C7). */
@@ -1404,6 +1407,8 @@ export async function stampReportedWork(deps: OrchServerDeps, taskId: string, di
       cwd: d.cwd,
       base: d.git.base,
       windows,
+      profileDir: deps.profileDir,
+      log: deps.log,
       identity: {
         job,
         task: taskId,

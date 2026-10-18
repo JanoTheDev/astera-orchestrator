@@ -816,6 +816,8 @@ export function createHostOrch(a: {
       maxConcurrentWorkers: () => readMaxConcurrentWorkers(path.join(a.profileDir, 'app-settings.json')).catch(() => null),
       // W8-A: the stamp reads a worker's busy windows from its hook-events file
       hookEventsDir: hookEventsDirIn(a.profileDir),
+      // W8-A: the stamp's line data reads the checkpoint logs under the profile
+      profileDir: a.profileDir,
       ...(a.usageGuard ? { usageGuard: a.usageGuard } : {}),
       act: a.act,
       hasApp: a.hasApp,

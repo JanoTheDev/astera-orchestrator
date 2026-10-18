@@ -10,6 +10,7 @@ import type { GitRun } from '../git/range'
 import { hookEventAt } from '../hooks/eventTime'
 import { hookEventState } from '../hooks/sessionState'
 import { git as realGit, GIT_WRITE_TIMEOUT_MS } from '../worktrees/git'
+import { linesForCommit } from './lines'
 import { ensureNotesConfig, notesIndex, writeNote, type AttributionNote } from './note'
 
 /** One stretch in which the session was busy, epoch ms. */
@@ -70,9 +71,32 @@ export function commitKind(ms: number, author: string, windows: readonly BusyWin
 }
 
 /**
+ * The line data of one commit (lines.ts), spread into its note: `session`, `lines` and `human`, only those present.
+ * A failure is logged and answers nothing, so the note is written without line data.
+ */
+async function lineDataOf(
+  a: { cwd: string; profileDir?: string; windows: readonly BusyWindow[]; identity: StampIdentity; log?: (msg: string) => void; run: GitRun },
+  sha: string
+): Promise<Partial<Pick<AttributionNote, 'session' | 'lines' | 'human'>>> {
+  if (a.profileDir === undefined) return {}
+  try {
+    const busy = a.windows.map((w) => ({ session: a.identity.session, from: w.start, to: w.end }))
+    const r = await linesForCommit({ repo: a.cwd, sha, profileDir: a.profileDir, busy, run: a.run })
+    return {
+      ...(r.session !== undefined ? { session: r.session } : {}),
+      ...(r.lines !== undefined ? { lines: r.lines } : {}),
+      ...(r.human ? { human: true as const } : {})
+    }
+  } catch (e) {
+    a.log?.(`stamp ${sha}: line attribution failed, noted without line data: ${String(e)}`)
+    return {}
+  }
+}
+
+/**
  * Notes every commit the attempt added in `cwd` over `base`: its own commits only (first parent, merges skipped, so a
  * dependency's commits merged in at the start keep their own notes), and only those with no note yet. Answers what it noted, oldest first; empty when
- * git could not list the range. Never throws.
+ * git could not list the range. Never throws. With `profileDir`, each note also carries its commit's line data.
  */
 export async function stampCommits(a: {
   cwd: string
@@ -80,6 +104,8 @@ export async function stampCommits(a: {
   head?: string
   identity: StampIdentity
   windows: readonly BusyWindow[]
+  profileDir?: string
+  log?: (msg: string) => void
   run?: GitRun
 }): Promise<StampedCommit[]> {
   const run = a.run ?? realGit
@@ -103,7 +129,8 @@ export async function stampCommits(a: {
         v: 1,
         tool: 'astera',
         ...a.identity,
-        ...(kind === 'human' ? { human: true as const } : kind === 'unknown' ? { unknown: true as const } : {})
+        ...(kind === 'human' ? { human: true as const } : kind === 'unknown' ? { unknown: true as const } : {}),
+        ...(await lineDataOf({ ...a, run }, sha))
       }
       if (await writeNote(a.cwd, sha, note, run)) out.push({ sha, kind })
     }
