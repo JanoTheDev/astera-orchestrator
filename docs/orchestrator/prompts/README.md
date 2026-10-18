@@ -29,5 +29,7 @@ Status: Wave 0 merged (PR #25), Wave 1 merged (PRs #26–#29), 2026-10-17. See `
 | Wave 7 | W7-A-plan-feedback · W7-B-projects |
 | merge | MERGE |
 | Wave 7V | W6-V-autopilot-dogfood (alone; covers W6 + W7) |
+| Wave 8 | W8-A-commit-attribution · W8-B-line-attribution |
+| merge | MERGE |
 
 Owner decisions baked in (2026-10-17): Claude-only accounts for now (Codex later), mixed models by task difficulty, one PR per plan, local whisper.cpp for voice.

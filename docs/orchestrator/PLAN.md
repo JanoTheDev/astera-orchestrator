@@ -55,6 +55,7 @@ starting the next wave. Each prompt owns its own files, which keeps conflicts to
 | 6 | 8 | `W6-A-intake-and-github`, `W6-B-autopilot-answers-and-sound`, `W6-C-scheduler-guards`, `W6-D-wave-replanning`, `W6-E-progress-view`, `W6-F-project-workspaces`, `W6-G-usage-guards`, `W6-H-delivery-modes` (Autopilot, see below) | W5 merged, **including PR #57** |
 | 7 | 2 | `W7-A-plan-feedback`, `W7-B-projects` | W6 merged |
 | 7V | 1 | `W6-V-autopilot-dogfood.md` (covers W6 and W7) | W7 merged |
+| 8 | 2 | `W8-A-commit-attribution`, `W8-B-line-attribution` (Who wrote this, see below) | 7V done |
 
 ### File ownership per wave (prevents tabs interfering)
 
@@ -85,6 +86,8 @@ starting the next wave. Each prompt owns its own files, which keeps conflicts to
 | W6-H | new `core/orchestration/delivery.ts`, `exec/integrateGit.ts` (push path) | `types.ts` (`Project.delivery`, `deliveryBranch`, Run delivery result), `command.ts` (`projects-set`, `--delivery`), the Run completion path, project settings UI, `activity.ts` (`plan.delivered`) |
 | W7-A | `lib/jobActions.ts`, new `components/plan/PlanTalk.tsx`, new `exec/plannerFeedback.ts` | `exec/plannerStart.ts`, `exec/replanStart.ts` (owner feedback input), `command.ts` (`jobs-feedback`, `jobs-reject`), `core/intents/*`, `types.ts` (`Project.autoApprove`, feedback history on the Job) |
 | W7-B | new `core/projects/create.ts`, new `core/projects/detect.ts`, new `components/projects/*` | `types.ts` (Project fields), `command.ts` (`projects-create`, `projects-add`, `projects-set`), `core/worktrees/base.ts` (only if needed), W6-F switcher mount |
+| W8-A | new `core/attribution/{note,stamp,remap,blame,stats}.ts` | `exec/integrateGit.ts` (stamp before merge, copy notes), `core/orchestration/delivery.ts` (push the notes ref, PR body block), `src/main/githubPrs.ts` (squash remap), `command.ts` / `cliArgs.ts` / `cliUsage.ts` (`attribution-blame`, `attribution-stats`, `attribution-why`) |
+| W8-B | new `core/attribution/{lines,checkpoint,gitAi}.ts` + its hook script, new `components/attribution/*` | `core/sessions/statusline.ts` (hook entries), `core/attribution/stamp.ts` (one `lines` call), file viewer mount, plan view mount, project settings page (one row) |
 | W5-D | `activity.ts`, `components/activity/*`, `sessionIndex.ts`, `components/search/*`, `src/main/activityNotices.ts`, `src/main/remote/orchRouter.ts` | `src/host/index.ts`, `src/host/sessions.ts`, `src/main/ipc.ts`, `types.ts` |
 
 ## Wave 6 — Autopilot (owner request 2026-10-18)
@@ -177,11 +180,81 @@ Contracts:
 - commands `projects-create` / `projects-add` / `projects-set` (W7-B)
 - W7-B's settings page mounts W7-A's toggle
 
+## Wave 8 — Who wrote this (owner request 2026-10-18)
+
+Goal: many agents commit and merge in parallel, and the owner can still answer, for any line, commit, PR or plan:
+human or AI? Which agent, model and account? Which Job, Task and session, and what was it asked to do? The bar is
+[git-ai](https://github.com/git-ai-project/git-ai) (Apache-2.0), which does this for single agents through agent
+hooks, Git Notes, and rewrite tracking.
+
+**What Astera already has that git-ai has to reconstruct:**
+- Every worker runs in its own worktree, on its own branch, for one Task. It is spawned with a known session,
+  model and account (W5-A, `exec/workerStart.ts`). So each worker commit is already 100% one agent.
+- Astera makes its own merges and cherry-picks (`exec/integrateGit.ts`) and its own delivery (W6-H), so it
+  writes those commit messages itself.
+- EG §26 attribution windows (`core/workUnit/collector.ts`) already know when a session is busy and when Astera
+  itself moves HEAD.
+- `taskMarker` (`core/github/taskLinks.ts`) already ties Tasks to issues and PRs. The GitHub PR poll
+  (`src/main/githubPrs.ts`) already sees when a PR is merged.
+
+**What is missing:**
+- Nothing is written into git. When a worktree is removed, the link from a commit to its Task is lost.
+- There is no line-level split when a human and an agent edit the same commit. This happens on `runCwd`
+  and in interactive tabs.
+- Nothing survives a GitHub "Squash and merge".
+- There is no blame or stats view.
+
+**Split:**
+- **W8-A** writes commit-level attribution. It is native, always on, and has no dependency.
+- **W8-B** adds line-level attribution and the UI. It begins with a spike that decides whether to use git-ai or a
+  native engine.
+- Both prompts use the note contract below, so they can run in parallel.
+
+### Wave 8 contracts
+- Notes ref `refs/notes/astera`. It holds one JSON note per commit:
+  `{ v: 1, tool: 'astera', job, task, session, agent: 'claude' | 'codex', model, account, role: 'worker' | 'coordinator' | 'reviewer' | 'planner', human?: true, lines?: { [path]: [start, end][] } }`.
+  - `lines` missing means the whole commit is AI. W8-B fills `lines` only for mixed commits.
+  - `account` is the account id label. It is never an email or a token.
+  - Prompts never go into git. They stay in Astera's local store, which already keeps sessions. The note carries
+    ids only, so `attribution-why` can open the session.
+- Repo config, set by Astera on every project it manages, so git itself carries notes through amend and
+  rebase:
+  - `notes.rewriteRef=refs/notes/astera`
+  - `notes.rewrite.amend=true`
+  - `notes.rewrite.rebase=true`
+- Commit trailers on every commit Astera writes itself (integration merges, delivery commits, and squash bodies):
+  `Astera-Job:`, `Astera-Task:`, `AI-Agent: <agent>/<model>`. Trailers survive squash. Notes do not.
+- Stats JSON field names match git-ai's names: `human_additions`, `ai_additions`, `ai_accepted`,
+  `git_diff_added_lines`, `git_diff_deleted_lines`, `tool_model_breakdown`. Tooling can then read both.
+- Commands `attribution-blame <file>`, `attribution-stats [<range>] [--json]`, `attribution-why <sha | file:line>`
+  (W8-A). CLI: `astera blame`, `astera stats`, `astera why`.
+
+### Parity with git-ai (what "as good as" means here)
+| git-ai | Wave 8 |
+|---|---|
+| Agent reports its own lines (`git-ai checkpoint`) | W8-A: commit level from the spawn itself. W8-B: lines from Edit/Write hooks, or git-ai if the spike picks it |
+| Notes survive rebase, amend, stash, cherry-pick, merge, reset | Native `notes.rewriteRef` for amend and rebase. Astera copies notes itself on its own merges and cherry-picks |
+| Squash-merge on GitHub needs Teams or a CI action | No CI needed. On PR merge, Astera remaps notes onto the squash commit from its stored Task-to-commits map (W8-A) |
+| `push` / `fetch` sync notes | W6-H delivery pushes `refs/notes/astera`. Project add (W7-B) adds the fetch refspec |
+| `git ai blame`, `git ai stats` | `astera blame` / `stats` / `why`, plus a blame gutter in the file viewer (W8-B) |
+| Prompts kept local and redacted | Prompts are never in git. They stay in the existing session store |
+| Not covered: `git mv`, `filter-repo`, `replace` | Same limits. `git mv` lines are shown as unknown, never as human |
+
+### Claude's calls (the owner can override any)
+- **Native first.** Commit level needs no new tool, because Astera already knows the author. Line level reuses
+  git-ai only if the W8-B spike passes.
+- **Never install git-ai automatically.** Its installer is `curl | bash` and edits global agent hooks. If the
+  spike picks git-ai, Settings shows it as detected or not installed, plus the install command. The owner runs it.
+- **The notes ref is outward-facing.** It is pushed only as part of a delivery that the owner already set up
+  (W6-H). Notes carry no prompt text, emails or paths outside the repo.
+
 ## Explicit non-goals / limits
 - No new terminal manager, account manager, or issue tracker.
 - No combining of provider quotas. Account rolling stays exactly as the user configured it.
 - Voice: interface + push-to-talk + a pluggable provider. The speech engine choice (local Whisper vs
   cloud) is the owner's call when W3-B starts.
+- Attribution (Wave 8): no cloud dashboard, no prompt upload, no tracking through `git mv`, `filter-repo` or
+  `git replace`.
 - Upstream sync: manual (`git fetch upstream && git merge upstream/main`) whenever the owner wants it.
 
 ## Owner decisions (2026-10-17)
