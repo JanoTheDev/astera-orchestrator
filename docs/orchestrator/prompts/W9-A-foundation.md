@@ -23,7 +23,7 @@ Worktree + branch (rule 1 in CONTEXT.md): slug `w9-foundation`, branch `refactor
    and state into `state/*` hooks (layout, sessions, sidebar, settings, dialogs). Pure moves: same JSX, same
    behaviour. `App.layoutWriteThrough.test.ts` and the other App-source tests move with the code they pin.
    Target: `App.tsx` under 600 lines.
-5. **Navigation contract.** `components/shell/navigation.ts` with `openPlan`, `openInbox`, `openSettings`
+5. **Navigation contract.** `components/shell/navigation.ts` with `openPlan`, `openInbox`, `openSettings`, `focusTile`
    (stubs calling today's paths). Rail ids and the old-id mapping in `core/ui/sidebar.ts`.
 
 ## Done means

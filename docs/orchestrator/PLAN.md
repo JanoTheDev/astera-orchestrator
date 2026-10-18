@@ -58,7 +58,7 @@ starting the next wave. Each prompt owns its own files, which keeps conflicts to
 | 8 | 2 | `W8-A-commit-attribution`, `W8-B-line-attribution` (Who wrote this, see below) | 7V done |
 | 9.0 | 1 | `W9-0-design-spec` (owner approves the mockup before any code) | W8 merged |
 | 9.1 | 1 | `W9-A-foundation` (alone: tokens, primitives, shell split) | 9.0 approved |
-| 9.2 | 4 | `W9-B-shell-and-nav`, `W9-C-plan-tab`, `W9-D-inbox-and-command`, `W9-E-settings-and-dialogs` | 9.1 merged |
+| 9.2 | 6 | `W9-B-shell-and-nav`, `W9-C-plan-tab`, `W9-D-inbox-and-command`, `W9-E-settings-and-dialogs`, `W9-H-agents-wall`, `W9-I-tab-summaries` | 9.1 merged |
 | 9.3 | 1 | `W9-F-polish-and-verify` | 9.2 merged |
 | 9.4 | 1 | `W9-G-readme-and-docs` | 9.3 merged |
 
@@ -103,6 +103,8 @@ starting the next wave. Each prompt owns its own files, which keeps conflicts to
 | W9-C | new `components/plan/PlanTab.tsx`, `RunDetail.tsx` (split into the tab, then deleted), `components/plan/*` except W7-C's answer box, `JobsView.tsx`, `lib/jobActions.ts`, `PaneGrid.tsx` (new `plan` pane kind) | `App.tsx` (`renderPlan`), `core/panes/tabId.ts` (`plan` TabKind) |
 | W9-D | `activity/*`, `search/*`, `command/*`, `conversation/QuestionCard.tsx`, W7-C's answer box, new `components/inbox/*` | `App.tsx` (rail badge, hotkey), `core/intents/*` (open-plan intent) |
 | W9-E | new `components/settings/*` (one file per group), every dialog listed in DESIGN.md "Dialogs" moved onto `ui/Modal`, `NewSessionDialog.tsx` / `NewRunModal.tsx` / `intake/*` / `SourceJobModal.tsx` (one New flow), `components/projects/*` page | `App.tsx` (Settings block deleted, `<SettingsDialog/>` mounted) |
+| W9-H | new `components/wall/*`, `PaneGrid.tsx` / `TerminalView.tsx` (tile mode: small font, read-only until focused, offscreen pause), `core/panes/tabId.ts` (`wall` TabKind), new `core/sessions/ownerHold.ts`, the `sessions-send` handler in `command.ts` and `src/host/orch.ts` (queue while held) | `src/host/sessions.ts` (owner-input timestamp), `App.tsx` (mount the pinned tab), `resources/skills/orchestration-guide.md` (one line: a queued send is not a failure) |
+| W9-I | new `core/sessions/summary.ts` (facts + prompt), new `src/host/hostSummaries.ts`, `components/wall/SummaryCard.tsx` | `core/understanding/*` (reuse the generator call), `src/host/sessions.ts` (end hook), `core/orchestration/delivery.ts` (PR body roll-up), `components/plan/*` card (one row, after W9-C: coordinate in the PR), `HistoryBrowser.tsx` (one row), app-settings type (`tabSummaries`) |
 | W9-F | any renderer file, for fixes found by the walk-through; each fix listed in the PR | — |
 | W9-G | `README.md`, deleted `README.{ko,ja,es}.md`, `docs/*.md` outside `docs/orchestrator`, new `docs/dev/` (wave prompts move here), `assets/*` screenshots, `package.json` `description` / `homepage` | `docs/orchestrator/USAGE.md` (becomes `docs/guide.md`) |
 | W5-D | `activity.ts`, `components/activity/*`, `sessionIndex.ts`, `components/search/*`, `src/main/activityNotices.ts`, `src/main/remote/orchRouter.ts` | `src/host/index.ts`, `src/host/sessions.ts`, `src/main/ipc.ts`, `types.ts` |
@@ -305,6 +307,23 @@ Waves 1–8 has one clear place, and the app looks like one product.
 - **The README and docs describe upstream Astera**, with fork status tables bolted on. The translations are
   upstream's and stale.
 
+### Hands-off first (owner, 2026-10-18)
+
+The owner's words: "the goal is to have stuff as automated as possible … i want a way to see all cli tabs, this is
+the most important part, and interact with them as needed without interrupting the main claude tab that is working
+on all of them … each tab a small summary when done … very hands off".
+
+This puts three things at the centre of Wave 9:
+- **The Agents wall** (W9-H) is the default view. It shows every CLI tab of the project live, in one grid.
+  - Clicking a tile takes it over and types straight into it.
+  - A "Send a line" box answers without taking over.
+  - While the owner holds a tab, the coordinator's messages to that tab are queued in the Host. They are never typed
+    into the owner's line, and the coordinator is never blocked.
+- **Tab summaries** (W9-I): every tab that ends leaves a short card that says what it did, its files and checks, its
+  review, and its questions. A plan's cards roll up into its Overview and its PR body.
+- **Nothing interrupts the owner** except the Inbox: approvals that are not automatic, real questions, permission
+  waits and give-ups.
+
 ### The new layout
 
 The exact spec is [DESIGN.md](DESIGN.md), and the clickable mockup is
@@ -401,6 +420,13 @@ owner approval. The sketch below is the summary.
   contrast test covers the light theme too.
 
 ### Wave 9 contracts
+- Tab kind `wall` (one pinned tab, W9-H) and `plan`. Clicking a session anywhere calls `focusTile(sessionId)` in
+  `navigation.ts` (W9-A stub, W9-H fills it).
+- Owner hold: `ownerHold.ts` exports `isHeld(sessionId, now)`, with a 60 s idle timeout. `sessions-send` into a held
+  session answers `{ queued: true, reason: 'owner-typing', target }`, and the Host delivers queued messages in order
+  on release (W9-H).
+- `SessionSummary { sessionId, jobId?, taskId?, at, outcome, durationMs, facts, text, model }`, read through
+  `sessions-summary <id>` and the `summaries` list command. App setting `tabSummaries: boolean`, default true (W9-I).
 - Tab kind `plan` and `planTab(jobId)` in `core/panes/tabId.ts` (W9-C). W9-B and W9-D open plans only through
   `openPlan(jobId)` from `components/shell/navigation.ts` (W9-A creates it as a stub that calls today's
   `RunDetail` open, and W9-C swaps the body).
@@ -420,8 +446,8 @@ owner approval. The sketch below is the summary.
   into tokens, base and feature files, and adds the primitives. Running it alone keeps parallel tabs from
   conflicting on `App.tsx`. Behaviour does not change: the full suite passes unchanged except for path updates in
   pinned tests.
-- **9.2 runs as 4 parallel tabs on separate files:** shell and navigation (B), the Plan tab (C), Inbox and command
-  (D), Settings and dialogs (E). They meet only through the `navigation.ts` contract.
+- **9.2 runs as 6 parallel tabs on separate files:** shell and navigation (B), the Plan tab (C), Inbox and command
+  (D), Settings and dialogs (E), the Agents wall and owner hold (H), and tab summaries (I). They meet only through the `navigation.ts` contract.
 - **9.3** is one tab. It walks every surface in all 4 themes at the default and the narrowest sidebar width. It
   fixes what it finds, checks keyboard paths, and takes the screenshots.
 - **9.4** is one tab. It rewrites the README and docs from the finished app, using 9.3's screenshots.

@@ -1,12 +1,28 @@
 # Wave 9 design spec
 
-Mockup (clickable, all four themes): https://claude.ai/artifact/DhSiAPZxCigXD4xJBoFb9x. It has two artboards:
-- "Astera — clickable prototype": the shell, Home, a Plan tab, the Inbox, the search/command box, the New flow,
-  Settings and the accounts popover. Its Tweaks switch the theme.
+Mockup (clickable, all four themes): https://claude.ai/artifact/DhSiAPZxCigXD4xJBoFb9x. It opens on the Agents
+wall: click a tile to take it over, and use the filters to see Needs you and Finished. It has two artboards:
+- "Astera — clickable prototype": the shell, the Agents wall, Home, a Plan tab, the Inbox, the search/command
+  box, the New flow, Settings and the accounts popover. Its Tweaks switch the theme.
 - "Themes, tokens and primitives".
 
 Status: **draft, waiting for owner approval.** Once approved, every Wave 9 prompt builds against this file and the
 mockup. Where they disagree, this file wins.
+
+## 0. Hands-off first (owner, 2026-10-18)
+
+Astera runs plans by itself. The UI exists so the owner can **watch everything at a glance, step in on any one agent
+without disturbing the rest, and later read what each tab did.** Rules every screen follows:
+- **The default view is the Agents wall (§3a).** It shows every CLI tab of the project, live, at once. Opening the
+  app or switching projects lands there.
+- **Nothing pops up by itself.** No modal opens unless the owner clicks. Only Inbox items (§2) notify, with sound.
+  Auto-answers, merges and replans go to the feed, silently.
+- **The owner never has to type into the coordinator.** They answer in the Inbox, or on a worker's tile. Typing into
+  any tile never pauses or redirects the coordinator or other workers (§3a "The wheel").
+- **Every finished tab leaves a summary (§3b).** Ended tabs close on their own (W7-F) and become summary cards. The
+  scrollback stays one click away.
+- **Defaults lean automatic:** auto-approve per project (W7-A) is offered on the first plan of each project, review
+  is on, and replan between waves is on.
 
 ## 1. Layout
 
@@ -30,7 +46,7 @@ The window is 1440×900 in the mockup. The layout must hold down to 1024×640.
   - **Plans**: open by default. The tree is Project → Plan → Planner / Coordinator / Workers (W2-B, W6-F).
     - A plan row shows its progress (`5/9`) or its state (`approve`, `done`), plus a status dot.
     - A worker row shows its Task and its live state (`editing`, `asks`, `permission`, `review`).
-    - Clicking a plan opens its Plan tab. Clicking a session opens its tab.
+    - Clicking a plan opens its Plan tab. Clicking a session focuses its tile on the Agents wall.
     - Archived plans sit in a "Done" sub-group, closed by default.
   - **Sessions**: tabs that belong to no plan.
   - **Worktrees**: the W1/W5 worktree panel, with its PR and push badges.
@@ -59,6 +75,71 @@ The window is 1440×900 in the mockup. The layout must hold down to 1024×640.
 - The sidebar holds a search field and the 7 groups. The content area is a **Settings tab**, not a modal, so it can
   sit beside a terminal and the box can deep-link into it (`openSettings(group, anchor)`).
 - One Settings tab exists at most; opening Settings again focuses it.
+
+## 3a. The Agents wall (the main view)
+
+- A pinned first tab, **Agents · N**. N is the number of live CLI tabs in scope. The tab can't be closed.
+- **Toolbar:**
+  - Scope: This plan / <project> (default) / All projects.
+  - Filter: All / Needs you / Running / Finished.
+  - An autopilot line saying what the coordinator is doing for you.
+- **Tiles** in an auto grid: 1–4 tabs → 2 columns, 5–9 → 3, 10+ → 4. Every CLI tab in scope gets a tile: planner,
+  coordinator, workers, reviewers, and plain sessions. Order: needs you first, then running, then idle.
+  - **Header:** role, Task, and a state chip (Editing / Asks you / Permission / In review / Idle / Done). It also
+    shows a status dot, and a warn or danger border while the tab needs you.
+  - **Body: the real terminal**, live. Each tile is the session's own xterm, sized to fit at 11px font and read-only
+    until focused. Offscreen tiles stop rendering. If 12 live tiles cost too much CPU on the owner's laptop
+    (measure: no more than 15% of one core while idle), tiles fall back to the last 6 lines of text, and only the
+    focused tile keeps a live xterm. W9-H measures this and records the numbers in its PR.
+  - **Footer:** model and account, a "Send a line to <name>" box (sends one line without taking over), and Take
+    over.
+- **Take over** (click a tile, or ⤢): the tile grows and gets keyboard focus, so typing goes straight into that
+  session's PTY. A banner says "You are typing to Worker 3 · T5. The coordinator's messages to it wait until you
+  hand back."
+  - Esc or "Hand back" returns. "Open as tab" moves the tile into a full tab.
+  - Taking over never pauses the plan, the coordinator or any other tile.
+- **The wheel** (owner-input hold):
+  - While the owner holds a session, an agent's `sessions-send` into it is queued in the Host, not typed. This stops
+    a coordinator message from landing in the middle of the owner's line.
+  - The hold starts on the owner's first keystroke in that session, or on Take over. It ends on Hand back, or after
+    60 s with no owner input.
+  - The sender gets `{ queued: true, reason: 'owner-typing', target }` at once, so the coordinator never blocks on
+    it. Queued messages are delivered in order when the hold ends.
+  - Permission prompts are unaffected: the owner answers them by typing, as today.
+- **Finished row:** below the tiles. It holds the summary cards (§3b) of tabs that ended in scope, newest first, with
+  Scrollback (opens the read-only scrollback) and Changes.
+- Clicking a session in Home › Plans, in an Inbox card or in the box focuses its tile on the wall. "Open as tab"
+  stays available everywhere.
+
+## 3b. Tab summaries
+
+- **When:** a CLI tab ends (process exit, Task merged or given up, or W7-F auto-close). A plain session also gets
+  one when it has been idle at a finished turn for 10 min and wrote something. Turning this off is a setting; it is
+  on by default.
+- **What:** a short card made of facts Astera already has, plus 2–3 sentences written by a cheap model.
+  - Title: role and Task.
+  - Outcome: Merged / Merged · N rounds / Gave up / Stopped / Done.
+  - Duration and when it ended.
+  - Facts:
+    - Files touched with +/− (git diff, or W8 attribution).
+    - Checks the agent ran and their result (`SessionWorkUnit.checks`).
+    - Reviewer rounds and the verdict.
+    - Questions asked and who answered them.
+    - Commits or PR.
+  - Prose: what it did and anything left open. It is written by the coordinator role's model (haiku by default), from
+    the facts, the agent's own `resultSummary`, and the session's last messages. It runs through the existing How It
+    Works generator path (`core/understanding`), not a new agent runner.
+- **Where it shows:**
+  - The wall's Finished row.
+  - The Task's card on the board.
+  - The session's History row.
+  - Hover on a finished tree row.
+  - The plan's end: all of a plan's summaries roll up into the plan summary in Overview, and into the delivery PR
+    body (W6-H) under "What each task did".
+- **Storage:** next to the session record in the Host's store, as
+  `SessionSummary { sessionId, jobId?, taskId?, at, outcome, durationMs, facts, text, model }`.
+  - Only ids and facts are stored. There is no prompt text beyond what the session store already keeps.
+  - Nothing goes into git except the PR-body roll-up, which is part of a delivery the owner set up.
 
 ## 3. The Plan tab (`plan:<jobId>`)
 
@@ -117,7 +198,7 @@ The window is 1440×900 in the mockup. The layout must hold down to 1024×640.
 | Agents | Role models (agent › OrchestratorModels) · Permission mode, max workers, resume strategy (agent) · Voice (agent) · Agent browser, agent app (agent) |
 | Projects | One page per project (W7-B): delivery, auto-approve, test command, concurrency, review rounds, replan, account, line attribution (W8-B) · Add project |
 | Integrations | GitHub (github) · Slack (slack) · CLI, MCP (cli) · Remote runtimes (remote) · Plugins (plugins) · Creative hub (creativeHub) |
-| Notifications | Desktop notices, sound, digest (notifications) |
+| Notifications | Desktop notices, sound, digest (notifications) · Tab summaries on/off, summary model (new, W9-I) |
 | Advanced | How It Works work unit and generator (hiw) · Worktree location (worktree) · History (history) · About, version, updates, host status (info) |
 
 The settings search filters rows by label and description and shows the group each hit belongs to.
@@ -126,7 +207,9 @@ The settings search filters rows by label and description and shows the group ea
 
 | Feature (wave) | New home |
 |---|---|
-| Sessions, PaneGrid, terminals (upstream) | Tabs in the content area · Home › Sessions |
+| Every CLI tab at once, step in without disturbing the coordinator (W9-H) | **Agents wall** (§3a) · Take over · Send a line |
+| What each tab did (W9-I) | Tab summaries (§3b): wall Finished row · board card · History · plan Overview · PR body |
+| Sessions, PaneGrid, terminals (upstream) | Agents wall tiles · full tabs via "Open as tab" · Home › Sessions |
 | Accounts, rolling, usage meters (upstream, W6-G, W7-F) | Status bar popover · titlebar `Meter` · Settings › Accounts & usage |
 | Role models (W1-A) | Settings › Agents · Plan › Overview "How it runs" |
 | App-wide cap, priority (W1-B) | Settings › Agents · Plan ⋯ menu |
@@ -234,6 +317,7 @@ SVGs in `App.tsx`) become lucide icons. `FileIcon` stays, because it uses file-t
 | `NewSessionDialog`, `NewRunModal`/`NewPlanDialog`, `SourceJobModal` | The New flow (§4) |
 | `RunDetail` | The Plan tab (§3) |
 | Settings modal (inline in `App.tsx`) | The Settings tab (§2, §6) |
+| Pane grid as the landing view | The Agents wall tab (§3a); the pane grid remains for full tabs |
 | `NewTaskModal`, `CreatePrDialog`, `ResumeDialog`, `LocalHistoryDialog`, `RemoteSessionsDialog`, `RunConfigManager`, `BypassRetryDialog`, `FirstRunDialog`, `ConfirmHost`, account add/import (`AccountPanel`), `HiggsfieldSettings` dialog, `HistoryBrowser` dialog, `BrowserPane` dialog | `ui/Modal`, same content |
 | `CommandBar` | The search/command box (§5), also on `ui/Modal` (no backdrop dim) |
 
