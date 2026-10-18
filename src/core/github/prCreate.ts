@@ -69,8 +69,12 @@ export async function createPullRequest(
 
   if (req.needsPush) {
     const pushed = await runGit(['push', '-u', 'origin', req.branch], req.worktreePath)
-    if (!pushed.ok)
-      return { ok: false, stage: 'push', kind: 'rejected', detail: pushed.stderr, pushed: false }
+    if (!pushed.ok) {
+      // W7-E (#80): a repository with no `origin` has nowhere to push, which is no rejection. Asked of git rather than
+      // read off the push's stderr, which follows the locale.
+      const origin = await runGit(['remote', 'get-url', 'origin'], req.worktreePath)
+      return { ok: false, stage: 'push', kind: origin.ok ? 'rejected' : 'no-remote', detail: pushed.stderr, pushed: false }
+    }
   }
 
   const base = await normalize(req.repoPath, req.base)

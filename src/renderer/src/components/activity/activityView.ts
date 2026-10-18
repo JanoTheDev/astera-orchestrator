@@ -63,6 +63,8 @@ export function lineOf(e: ActivityEvent, accountLabel: (id: string) => string): 
     case 'run.pr':
       return p.pr?.error
         ? { text: `${p.title}: PR failed: ${p.pr.error}`, tone: 'bad' }
+        : p.pr?.note // W7-E (#80): no remote, no failure
+          ? { text: `${p.title}: ${p.pr.note}`, tone: 'info' }
         : { text: `${p.title}: PR ${p.pr?.number !== undefined ? `#${p.pr.number} ` : ''}opened`, tone: 'ok' }
     case 'plan.awaiting-approval':
       return { text: `${p.title}: plan ready for your approval`, tone: 'warn' }

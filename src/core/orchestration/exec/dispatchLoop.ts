@@ -490,11 +490,13 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       try {
         // W6-H: `run-deliver` is `run-open-pr` for a `pr` project, and the guarded push for a `push` one
         const r = await c.handle('run-deliver', { run: run.id })
-        const body = r.body as { url?: unknown; sha?: unknown; branch?: unknown } | null
+        const body = r.body as { url?: unknown; sha?: unknown; branch?: unknown; message?: unknown } | null
         log(
           r.status >= 400
             ? `run=${run.id} completed, and it was not delivered: ${JSON.stringify(r.body)}`
-            : push
+            : typeof body?.message === 'string' // W7-E (#80): no remote
+              ? `run=${run.id} completed: ${body.message}`
+              : push
               ? `run=${run.id} completed: pushed ${String(body?.sha)} to ${String(body?.branch)}`
               : `run=${run.id} completed: its pull request is ${String(body?.url)}`
         )

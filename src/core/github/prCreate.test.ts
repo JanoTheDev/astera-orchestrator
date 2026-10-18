@@ -55,7 +55,7 @@ describe('createPullRequest', () => {
     const r = await createPullRequest(req({ needsPush: true }), {
       runGit: async (a) => {
         calls.push(a)
-        return { ok: false, stdout: '', stderr: 'rejected: non-fast-forward' }
+        return a[0] === 'remote' ? { ok: true, stdout: 'git@github.com:o/r.git', stderr: '' } : { ok: false, stdout: '', stderr: 'rejected: non-fast-forward' }
       },
       runGh: async () => okGh,
       normalizeBase: async (_r, b) => b
@@ -67,8 +67,18 @@ describe('createPullRequest', () => {
       detail: 'rejected: non-fast-forward',
       pushed: false
     })
-    expect(calls).toHaveLength(1)
-    expect(calls[0].join(' ')).not.toContain('force')
+    expect(calls.filter((a) => a[0] === 'push')).toHaveLength(1)
+    expect(calls.map((a) => a.join(' ')).join('\n')).not.toContain('force')
+  })
+
+  // W7-E (#80): no `origin` is a project without a remote, not a rejected push
+  it('says no-remote when the push fails because there is no origin', async () => {
+    const r = await createPullRequest(req({ needsPush: true }), {
+      runGit: async () => ({ ok: false, stdout: '', stderr: "fatal: 'origin' does not appear to be a git repository" }),
+      runGh: async () => okGh,
+      normalizeBase: async (_r, b) => b
+    })
+    expect(r).toMatchObject({ ok: false, stage: 'push', kind: 'no-remote', pushed: false })
   })
 
   // Leaving this out invites someone to undo a push that was fine.
