@@ -105,7 +105,7 @@ import { AUTO_UPDATE } from '../../core/update/autoUpdate'
 import { installOutcomeNotice, readyToast } from '../../core/update/manualInstallNotice'
 import { applyEol, classifyExternalChange, detectEol, toLf, type Eol } from '../../core/files/edit'
 import { isSubPath, rebasePath } from '../../core/files/ops'
-import { foldPathCase, parentDir } from '../../core/files/paths'
+import { foldPathCase, parentDir, resolveRelative } from '../../core/files/paths'
 import { cycleViewMode, isMdViewMode, type MdViewMode } from '../../core/files/markdownView'
 import type { UndoEntry } from '../../core/files/undo'
 import * as sessionBus from './lib/sessionBus'
@@ -172,6 +172,7 @@ import { backdropProps } from './lib/backdrop'
 import { createTouched } from './lib/touched'
 import { SlackSettings } from './components/SlackSettings'
 import { needsUnderstanding } from './lib/understandingRead'
+import { playAlertChime } from './lib/alertSound' // W6-B
 
 sessionBus.init()
 
@@ -1188,6 +1189,8 @@ export default function App(): React.JSX.Element {
     const offNotifyActivate = window.api.on('notify:activate', ({ sessionId }) => {
       selectWorkbenchTabRef.current?.(sessionTab(sessionId))
     })
+    // W6-B: main showed a notice that needs the owner, silent, and the chime is ours (lib/alertSound.ts)
+    const offNotifyChime = window.api.on('notify:chime', () => void playAlertChime())
     const offExit = window.api.on('session:exit', ({ sessionId, exitCode }) => {
       setSessions((prev) =>
         prev.map((s) => (s.id === sessionId ? { ...s, status: 'exited', exitCode } : s))
@@ -1276,6 +1279,7 @@ export default function App(): React.JSX.Element {
       offAccounts()
       offGhosts()
       offNotifyActivate()
+      offNotifyChime()
       offExit()
       offCreated()
       offUpdate()
@@ -5689,6 +5693,15 @@ export default function App(): React.JSX.Element {
             }))
           }
           onClose={() => setOpenRun(null)}
+          // W6-E progress view: a plan's affected path, shown in the explorer (its folder, as a folder link is)
+          onOpenPath={
+            openRun.runtimeId
+              ? undefined
+              : (rel) => {
+                  setOpenRun(null)
+                  openLinkedFolder(parentDir(resolveRelative(`${openRun.projectPath}/.`, rel)))
+                }
+          }
         />
       )}
       {/* currentProject 가 있을 때만 그린다 — 없으면 run-create 에 넘길 cwd 가 없어 만들 자리가

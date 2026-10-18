@@ -67,6 +67,7 @@ const EVENT_CHANNELS = [
   'github:status',
   'usage:accounts-updated',
   'notify:activate',
+  'notify:chime', // W6-B
   'conversation:append',
   'conversation:attention',
   'conversation:pendingPrompt',
@@ -204,6 +205,8 @@ const api = {
     // W3-A
     getActivityDigestMinutes: invoke('settings.getActivityDigestMinutes'),
     setActivityDigestMinutes: invoke('settings.setActivityDigestMinutes'),
+    getAlertSound: invoke('settings.getAlertSound'), // W6-B
+    setAlertSound: invoke('settings.setAlertSound'),
     setMaxConcurrentWorkers: invoke('settings.setMaxConcurrentWorkers'),
     getDesktopNotify: invoke('settings.getDesktopNotify'),
     setDesktopNotify: invoke('settings.setDesktopNotify'),

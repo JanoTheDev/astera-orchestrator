@@ -250,7 +250,9 @@ function jobTaskOf(
     ...(model !== undefined ? { model } : {}),
     ...(latestAttempt ? { accountId: latestAttempt.accountId } : {}),
     ...(branch !== undefined ? { branch } : {}),
-    ...(attempts > 0 ? { attempts } : {})
+    ...(attempts > 0 ? { attempts } : {}),
+    // W6-E progress view
+    ...(task.affectedPaths?.length ? { affectedPaths: task.affectedPaths } : {})
   }
 }
 

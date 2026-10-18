@@ -1,8 +1,9 @@
 // W2-C plan board: the counts and words the overview and the board draw. Pure, so the node-only test suite reaches it;
 // the reasons themselves are core's (core/orchestration/blocked.ts), folded into the snapshot.
 import type { MessageKey, MessageParams } from '../../../../core/i18n'
-import type { JobTask, TaskBlockedReason, TaskCategory } from '../../../../core/types'
-import { formatRemaining } from '../../../../core/orchestration/elapsed'
+import type { ActivityEvent } from '../../../../core/orchestration/activity'
+import type { JobEvent, JobTask, SessionInfo, TaskBlockedReason, TaskCategory } from '../../../../core/types'
+import { formatElapsed, formatRemaining } from '../../../../core/orchestration/elapsed'
 
 /** The overview's buckets, in the order it lists them. */
 export const CATEGORIES: readonly TaskCategory[] = ['done', 'running', 'awaiting-review', 'queued', 'failed', 'cancelled']
@@ -113,4 +114,99 @@ export function reasonTone(reason: TaskBlockedReason): 'action' | 'fault' | 'wai
     default:
       return 'wait'
   }
+}
+
+// ── W6-E progress view ───────────────────────────────────────────────────────────────────────────────────────────────
+
+/** One wave of the plan: the Tasks at one dependency depth (Wave 6 contract: 0 with no deps, else 1 + the deepest dep). */
+export interface PlanWave {
+  index: number
+  tasks: JobTask[]
+  done: number
+}
+
+/** The plan's waves, from the depth layers core already computes for the graph (RunDetail `layers`, graph.ts
+ *  `layersOf`): the same depth as the contract's `waveOf`, so no second copy of the rule lives here. A Task the layers
+ *  do not place (a dependency cycle, or a detail that has not caught up with the snapshot) goes in one wave after them. */
+export function wavesOf(tasks: readonly JobTask[], layers: readonly string[][]): PlanWave[] {
+  const byId = new Map(tasks.map((t) => [t.id, t]))
+  const placed = new Set<string>()
+  const groups = layers.map((ids) =>
+    ids.flatMap((id) => {
+      const t = byId.get(id)
+      if (!t) return []
+      placed.add(id)
+      return [t]
+    })
+  )
+  groups.push(tasks.filter((t) => !placed.has(t.id)))
+  return groups
+    .filter((g) => g.length > 0)
+    .map((g, index) => ({ index, tasks: g, done: g.filter((t) => categoryOf(t) === 'done').length }))
+}
+
+/** The wave being worked on: the first one not all done. -1 when every wave is done. */
+export const currentWaveOf = (waves: readonly PlanWave[]): number => waves.find((w) => w.done < w.tasks.length)?.index ?? -1
+
+/** Whether this plan's planner is adjusting the rest of the plan right now (W6-D's `plan.replanning`, not yet followed
+ *  by its `plan.replanned`). `planId` is matched against a line's run and its Job, as a plan's own Run shares its id. */
+export function replanningOf(events: readonly ActivityEvent[], planId: string): boolean {
+  let on = false
+  for (const e of events) {
+    if (e.runId !== planId && e.jobId !== planId) continue
+    // W6-D's kinds; compared as text until its ActivityKind union lands on main
+    const kind = e.type as string
+    if (kind === 'plan.replanning') on = true
+    else if (kind === 'plan.replanned') on = false
+  }
+  return on
+}
+
+/** The coordinator's answers to one Task's questions (W6-B's `question.auto-answered`), oldest first. */
+export function autoAnswersOf(events: readonly ActivityEvent[], taskId: string): { question: string; answer: string; at: string }[] {
+  return events
+    .filter((e) => (e.type as string) === 'question.auto-answered' && e.taskId === taskId)
+    .map((e) => {
+      const p = e.payload as typeof e.payload & { answer?: string }
+      return { question: p.question ?? p.title, answer: p.answer ?? p.resolution ?? '', at: e.occurredAt }
+    })
+}
+
+/** Every affected path of the plan with the Tasks that touch it, by path. More than one Task is an overlap. */
+export function filesOf(tasks: readonly JobTask[]): { path: string; tasks: JobTask[] }[] {
+  const byPath = new Map<string, JobTask[]>()
+  for (const t of tasks) for (const p of new Set(t.affectedPaths ?? [])) byPath.set(p, [...(byPath.get(p) ?? []), t])
+  return [...byPath].sort(([a], [b]) => a.localeCompare(b)).map(([path, ts]) => ({ path, tasks: ts }))
+}
+
+/** What the Host says of a worker's session (a `sessions-list` row): what it waits on, and its last tool call. */
+export interface LiveSession {
+  prompt?: 'permission' | 'question'
+  lastAction?: SessionInfo['lastAction']
+}
+
+const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
+
+/** A running Task's one-line "now", most pressing first: a prompt only a person can answer, a question to the
+ *  coordinator still unanswered, then the last tool call. null for a Task that is not running or says nothing yet. */
+export function nowOf(
+  task: JobTask,
+  session: LiveSession | undefined,
+  events: readonly JobEvent[],
+  nowMs: number
+): { key: MessageKey; params?: MessageParams } | null {
+  if (categoryOf(task) !== 'running') return null
+  if (session?.prompt === 'permission') return { key: 'plan.now.permission' }
+  if (session?.prompt === 'question') return { key: 'plan.now.question' }
+  const asked = events.filter((e) => e.taskId === task.id && e.kind === 'message' && e.messageType === 'question').at(-1)
+  if (asked?.answered === false) return { key: 'plan.now.asked' }
+  const a = session?.lastAction
+  if (!a) return null
+  const ago = formatElapsed(new Date(a.at).toISOString(), nowMs)
+  const target = a.target ?? ''
+  if (EDIT_TOOLS.has(a.tool)) return { key: 'plan.now.editing', params: { target, ago } }
+  if (a.tool === 'Bash') return { key: 'plan.now.running', params: { target, ago } }
+  if (a.tool === 'Read') return { key: 'plan.now.reading', params: { target, ago } }
+  if (a.tool === 'Grep' || a.tool === 'Glob') return { key: 'plan.now.searching', params: { target, ago } }
+  return { key: 'plan.now.tool', params: { tool: a.tool, target, ago } }
 }

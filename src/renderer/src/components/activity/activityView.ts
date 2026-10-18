@@ -67,6 +67,11 @@ export function lineOf(e: ActivityEvent, accountLabel: (id: string) => string): 
       return { text: `${p.title}: plan ready for your approval`, tone: 'warn' }
     case 'task.waiting':
       return { text: `${p.title}: waiting for ${p.waitingFor === 'question' ? 'your answer to a question' : 'your permission'}`, tone: 'warn' }
+    // W6-B
+    case 'question.auto-answered':
+      return { text: `${p.title}: coordinator answered "${p.question ?? ''}": ${p.answer ?? ''}`, tone: 'info' }
+    case 'task.escalated':
+      return { text: `${p.title}: needs your decision: ${p.reason ?? ''}`, tone: 'bad' }
     case 'plan.done':
       return p.runOutcome === 'failed' ? { text: `${p.title}: plan finished with failures`, tone: 'bad' } : { text: `${p.title}: plan done`, tone: 'ok' }
   }

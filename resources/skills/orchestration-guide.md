@@ -234,6 +234,29 @@ astera worker-start --task tsk_next --agent claude --account acc_main --terminal
 astera worker-release --dispatch dsp_c3c3c3c3 --json
 ```
 
+### 3.1 Answering workers' questions
+
+You answer your workers' questions. The owner hears only what needs them.
+
+- **Answer every question yourself**, from the plan (`plans/<job>/plan.md` in Astera's profile), the spec files, `inputs/`
+  and the repo. Read them before you answer. A short, direct answer is best: the worker is stopped until it
+  comes. Answer with `astera reply --id <msgId> --body -`.
+- **Escalate only an owner decision**:
+  - a product or UX choice the plan does not settle;
+  - anything irreversible;
+  - data loss;
+  - security;
+  - money;
+  - the same question asked twice with no progress in between.
+
+  ```bash
+  astera send --type escalation --task-id <tsk> --reason "<the decision, in one line>" --body - --json
+  ```
+  Then reply to the worker that the owner is deciding, so it stops and reports instead of guessing.
+- **Every answer you give is recorded.** It shows in the activity feed and on the Task as
+  "coordinator answered", with the question. It never sends a notice. An escalation sends the owner a
+  desktop notice with a sound, and it stays in their "needs my input" list until the Task or the plan ends.
+
 ## 4. CLI reference
 
 Arguments like `--spec`, `--body`, `--question`, and `--result` **read from stdin** when given the
@@ -456,8 +479,9 @@ accounts [--agent <claude|codex>] [--json]
 send --type <status|worker_done|escalation|heartbeat>
      --subject <s> [--body <s|->] [--task-id <tsk>] [--dispatch-id <dsp>]
      [--outcome <succeeded|failed>] [--files-modified <p,…>] [--json]
+     (--reason <s> is the same as --subject, for an escalation: section 3.1)
 check [--wait] [--types <t,…>] [--ack <deliveryId>] [--timeout-ms <n>] [--run <run>] [--json]
-inbox [--limit <n>] [--json]
+inbox [--limit <n>] [--type <t>] [--json]
 reply --id <msgId> --body <s|-> [--json]
 ask --question <s|-> --task-id <tsk> [--dispatch-id <dsp>] [--options <csv>] [--timeout-ms <n>] [--json]
 ask --resume <questionId> [--json]
@@ -792,6 +816,9 @@ server blocks `check` and `inbox` as coordinator-only (403).
   read the requirement, the implementer's report, and the changed files, then judge; do not fix
   anything you find wrong. It still reports exactly once, `worker_done --outcome succeeded` or
   `--outcome failed`, under **its own** dispatch id — not the implementation Dispatch's.
+- **Ask with `astera ask`; you will get an answer.** Your coordinator answers it. A Claude worker is
+  started without Claude's own question tool (`AskUserQuestion`): nobody sits at your tab to answer it.
+  Permission prompts are not questions; they still go to the owner as before.
 - **When stuck, `ask` (blocking).** If a judgement call, missing information, or a permissions problem
   is preventing progress, ask instead of guessing:
   ```bash
