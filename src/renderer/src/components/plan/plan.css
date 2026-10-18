@@ -30,3 +30,19 @@
 .plan-file-tasks { margin-left: auto; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; min-width: 0; }
 .plan-file-task { display: inline-flex; align-items: center; gap: 4px; max-width: 180px; padding: 0 6px; border: 1px solid var(--line-soft); border-left: 3px solid var(--plan-cat); border-radius: 3px; background: none; color: inherit; font-size: 11px; cursor: pointer; }
 .plan-file-task > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* W7-A talk to the planner: history, the message box, reject, and the auto-start notice. */
+.plan-talk { display: flex; flex-direction: column; gap: 6px; margin: 6px 0; padding: 6px 8px; border: 1px solid var(--line-soft); border-radius: 6px; font-size: 12px; }
+.plan-talk-head { margin: 0; font-size: 12px; font-weight: 600; }
+.plan-talk-history { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.plan-talk-msg { white-space: pre-wrap; }
+.plan-talk-phase { margin-left: 6px; font-size: 10px; color: var(--text-faint); }
+.plan-talk-changes { margin: 2px 0 0; padding-left: 16px; color: var(--text-dim); }
+.plan-talk-wait { margin: 2px 0 0; color: var(--text-faint); font-style: italic; }
+.plan-talk-form, .plan-talk-reject { display: flex; gap: 6px; align-items: flex-start; }
+.plan-talk-form textarea, .plan-talk-reject input { flex: 1; min-width: 0; font: inherit; }
+.plan-talk-form textarea { min-height: 44px; resize: vertical; }
+.plan-talk-auto { display: flex; align-items: center; gap: 8px; padding: 3px 8px; border-radius: 4px; background: var(--info-bg); border: 1px solid var(--info-line); color: var(--text-dim); }
+.plan-autoapprove { display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
+.plan-autoapprove label { display: flex; align-items: center; gap: 6px; }
+.plan-autoapprove small { margin-left: 22px; color: var(--text-dim); }

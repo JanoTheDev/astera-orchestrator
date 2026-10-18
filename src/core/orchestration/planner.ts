@@ -32,7 +32,10 @@ export const PLANNER_COMMANDS: ReadonlySet<string> = new Set([
   'status',
   'version',
   // W6-A: the planner ends a Job whose items are all built
-  'plan-nothing-to-do'
+  'plan-nothing-to-do',
+  // W7-A: after the owner's feedback, a planner removes a Task of its plan and reports what it changed
+  'task-cancel',
+  'jobs-feedback-done'
 ])
 
 /** The Job whose planner `sessionId` is, if it is one. An empty id (a shell, an MCP client) is never one. */
@@ -54,6 +57,12 @@ export function plannerRefusal(s: OrchState, sessionId: string, cmd: string, arg
   }
   // W6-A: only its own Job
   if (cmd === 'plan-nothing-to-do' && args.job !== job.id) return `a planner ends its own Job only: pass --job ${job.id}`
+  // W7-A: only its own Job, and only a Task of its plan (a replan's cancel is replanRefusal's)
+  if (cmd === 'jobs-feedback-done' && args.id !== job.id) return `a planner reports on its own Job only: pass --id ${job.id}`
+  if (cmd === 'task-cancel') {
+    const task = s.tasks.find((t) => t.id === args.id)
+    if (!task || task.jobId !== job.id || task.runId !== undefined) return `a planner cancels the Tasks of its own plan (${job.id}) only`
+  }
   if (cmd === 'task-update') {
     const task = s.tasks.find((t) => t.id === args.id)
     if (!task || task.jobId !== job.id) return `a planner edits the Tasks of its own Job (${job.id}) only`
@@ -156,6 +165,18 @@ export function editPlanTask(
     return { ok: false, error: `those deps would make ${taskId} wait on itself` }
   const settled = recomputeReady(tasks)
   return { ok: true, state: { ...s, tasks: settled }, value: settled.find((t) => t.id === taskId)! }
+}
+
+/** W7-A: removes a Task from a plan before approval (`task-cancel` from its planner). Refused while another Task of the
+ *  plan depends on it: the planner changes that Task's deps first, as a replan's cancel asks (cancelRemainingTask). */
+export function cancelPlanTask(s: OrchState, taskId: string): Res<Task> {
+  const task = s.tasks.find((t) => t.id === taskId)
+  if (!task) return { ok: false, error: `unknown task: ${taskId}`, missing: true }
+  if (task.jobId === undefined || task.runId !== undefined)
+    return { ok: false, error: `${taskId} is in a run already: only a plan's own Tasks are cancelled before approval` }
+  const waiting = s.tasks.filter((t) => t.jobId === task.jobId && t.runId === undefined && t.deps.includes(taskId))
+  if (waiting.length) return { ok: false, error: `${waiting.map((t) => t.id).join(', ')} depend on ${taskId}: change their --deps first` }
+  return { ok: true, state: { ...s, tasks: s.tasks.filter((t) => t.id !== taskId) }, value: task }
 }
 
 /** The body a worker's spec file carries (OrchCoordinator.startWorker wraps it). A Task with no plan fields

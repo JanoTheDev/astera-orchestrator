@@ -79,7 +79,7 @@ export const camel = (flag: string): string =>
 /** Flags to interpret as numbers */
 const NUMERIC = new Set(['timeoutMs', 'limit'])
 /** Flags to interpret as JSON arrays. ask's --options is CSV, so it is not here */
-const JSON_ARRAY = new Set(['deps', /* W2-A planner stage */ 'criteria', 'affectedPaths'])
+const JSON_ARRAY = new Set(['deps', /* W2-A planner stage */ 'criteria', 'affectedPaths', /* W7-A */ 'changes'])
 /** Flags that may appear more than once and always arrive as an array. Everything else keeps the
  *  last value, which is what every existing caller expects. */
 const REPEATABLE = new Set(['check', 'set', 'unset', /* W6-A intake */ 'attach'])
@@ -127,7 +127,9 @@ export const NOUNS = {
     // W2-A planner stage (planner.ts)
     'plan',
     // W7-D: a plan's worker count after it was made
-    'set'],
+    'set',
+    // W7-A talk to the planner (exec/plannerFeedback.ts)
+    'feedback', 'reject'],
   runs: ['list', 'get', 'wait', 'follow', 'stop', 'resume', 'checks'],
   tasks: ['list', 'add', 'dispatch'],
   // W3-C search and inbox: every Run's Dispatches (command.ts `dispatches-list`), read only

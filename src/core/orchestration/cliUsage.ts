@@ -320,7 +320,9 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
     flags: [
       ID('<projectId>', 'the project to set'),
       { name: 'delivery', value: '<pr|push>', about: 'how its finished plans land' },
-      { name: 'delivery-branch', value: '<branch>', about: 'the branch a push lands on (default: the repository default branch)' }
+      { name: 'delivery-branch', value: '<branch>', about: 'the branch a push lands on (default: the repository default branch)' },
+      // W7-A
+      { name: 'auto-approve', value: '<on|off>', about: 'approve this project\'s plans as soon as their planner finishes, with no one asked (default off)' }
     ]
   },
   'projects-find': {
@@ -419,7 +421,28 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       // W6-D wave replanning
       { name: 'replan', value: '<waves|off>', about: 'replan the rest of the plan between waves and check it once more at the end (default waves)' },
       // W7-E: a planned Job's Tasks are reviewed by a fresh reviewer, up to 5 rounds, then escalated
-      { name: 'no-review', about: "do not review this plan's Tasks (default: every Task is reviewed before it counts as done)" }
+      { name: 'no-review', about: "do not review this plan's Tasks (default: every Task is reviewed before it counts as done)" },
+      // W7-A
+      { name: 'auto-approve', value: '<on|off>', about: "approve this plan as soon as its planner finishes, ahead of its project's setting" }
+    ]
+  },
+  // W7-A talk to the planner (exec/plannerFeedback.ts)
+  'jobs-feedback': {
+    summary: "send the owner's feedback on a plan to its planner",
+    detail:
+      'Before approval the text goes to the same planner session: typed in while it runs, its conversation resumed when it has ended, else a fresh planner is started with plan.md, existing.md and the history. While the plan runs it starts a replan at once that changes only Tasks not started, and holds new workers meanwhile. Refused from an agent session.',
+    flags: [
+      { name: 'job', value: '<jobId>', required: true, about: 'the Job whose plan to change' },
+      { name: 'text', value: '<text|->', required: true, about: 'what to change; - reads stdin' }
+    ]
+  },
+  'jobs-reject': {
+    summary: 'reject a plan waiting for approval',
+    detail:
+      'The plan is archived with the reason and its planner ends. `jobs unarchive` undoes it. Refused from an agent session.',
+    flags: [
+      { name: 'job', value: '<jobId>', required: true, about: 'the Job whose plan to reject' },
+      { name: 'reason', value: '<text>', about: 'why, kept on the archived Job' }
     ]
   },
   'jobs-wait': {

@@ -37,6 +37,8 @@ export function parsePrompt(text: string, dir: Directory, status: readonly Statu
     '- {"kind":"summarize","minutes":N?,"target":T?} progress, optionally of the last N minutes',
     '- {"kind":"waiting","target":T?} sessions waiting for the person',
     '- {"kind":"archive","target":T} / {"kind":"delete","target":T} / {"kind":"merge","target":T}',
+    '- {"kind":"plan-feedback","text":"...","target":T?} ask the planner to change a plan ("change the plan: ...", "tell the planner ...")',
+    '- {"kind":"plan-reject","reason":"..."?,"target":T?} reject a plan waiting for approval',
     '- {"kind":"reply","text":"..."} anything else: answer briefly from the status below, or ask what they mean',
     'T is a plan or project name exactly as the person said it; leave "target" out for "this plan" or none.',
     'S is a session name as said ("worker three", "the API worker"). Never invent names that are not in the text.',

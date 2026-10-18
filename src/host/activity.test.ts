@@ -150,6 +150,23 @@ describe('hostSessionActivity (W5-D)', () => {
     expect(lines(log)).toHaveLength(2)
   })
 
+  it('W7-A: auto-approve starts the plan instead of the ready line; a start that fails asks for approval after all', async () => {
+    const log = open(BOOT_A)
+    await log.load()
+    const s: OrchState = { ...emptyState(), jobs: [{ ...job, pendingStart: true, plannerSessionIds: ['ses_plan'], autoApprove: true }], tasks: [planned()] }
+    const asked: string[] = []
+    let answer = true
+    const acts = hostSessionActivity({ log, state: () => s, report: () => {}, autoStart: async (id) => (asked.push(id), answer) })
+    acts.onHookEvent('ses_plan', stop)
+    await new Promise((r) => setTimeout(r, 0))
+    expect(asked).toEqual(['j1'])
+    expect(lines(log)).toEqual([])
+    answer = false
+    acts.onHookEvent('ses_plan', stop)
+    await new Promise((r) => setTimeout(r, 0))
+    expect(lines(log)).toMatchObject([{ type: 'plan.awaiting-approval', jobId: 'j1' }])
+  })
+
   it('#42: a worker turning to waiting at a permission prompt or a question is a task.waiting line with the reason', async () => {
     const log = open(BOOT_A)
     await log.load()

@@ -397,7 +397,13 @@ async function main(): Promise<void> {
   await activityLog.load()
   // W5-D (#48, #42): the activity lines a session's hook events make (a plan ready, a worker waiting). `orch` is read
   // at the call; an event before it exists is reported and dropped.
-  const sessionActivity = hostSessionActivity({ log: activityLog, state: () => orch.state(), report: (m) => log.write(m) })
+  const sessionActivity = hostSessionActivity({
+    log: activityLog,
+    state: () => orch.state(),
+    report: (m) => log.write(m),
+    // W7-A: auto-approve, as the Host itself (an agent can never approve)
+    autoStart: async (jobId) => (await orch.handle('jobs-auto-start', { id: jobId })).status < 300
+  })
   // W6-G: the usage guard over this Host's own sessions' statusLine readings. `worker-start` and the dispatch loop
   // ask it before a start; the timer below lets a pause end on its own. Its changes are feed lines (and notices).
   const usageGuard = createUsageGuard({

@@ -152,6 +152,7 @@ import { JOB_SOURCE, SOURCE_COMMANDS, createFromContext, sourcesCommand, type Jo
 // W6-D wave replanning
 import { replanJobOf, waveOpen } from './replan'
 import { REPLAN_COMMANDS, replanCommand, replanRefusal } from './exec/replanStart'
+import { feedbackCommand, isFeedbackCommand } from './exec/plannerFeedback'
 export { JOB_SOURCE } from './commandSources'
 import { pluginIdOfCheck, type CompletionCheckInput, type PluginCheckAnswer } from './pluginChecks'
 import { checkIdsOf, pluginCheckRefusal, tasksOfNextRun } from './commandChecks'
@@ -428,6 +429,9 @@ export interface OrchServerDeps {
     /** W2-A: `'planner'` starts the Job's planner instead (exec/plannerStart.ts), and `runId` is then the
      *  Job's id: a planner works before its Job has a Run. */
     role?: 'planner'
+    /** W7-A: a planner only. The agent CLI's own conversation id (`agentSessionOf`) to resume instead of starting a
+     *  new conversation; the brief is then the next prompt in that conversation. */
+    resume?: string
   }): Promise<{ sessionId: string }>
   /** Stops a coordinator session `startCoordinator` opened, when the hand-over finds another one
    *  already in the Run's slot (Task 1 fix round 1, I2). Optional: without it that session is left
@@ -637,6 +641,9 @@ export interface OrchServerDeps {
    *  `enter` (ptyDriver's convention), one delivery at a time per session. A write to one that has
    *  ended is dropped by the registry, as every write is. */
   sendSession?(id: string, text: string, enter: boolean): Promise<void>
+  /** W7-A: the agent CLI's own conversation id of a terminal session, by the app's session id, read off its hook events
+   *  (`session_id`): what `claude --resume` takes. null when none was recorded. Answered after the session ended too. */
+  agentSessionOf?(id: string): Promise<string | null>
   /** A chat session's last `turns` turns, oldest first, from the transcript or rollout file its agent
    *  CLI writes (core/sessions/chatRead.ts). Host-injected, beside the three above. */
   readChat?(id: string, turns: number): Promise<ChatTurn[]>
@@ -1088,6 +1095,9 @@ const COORDINATOR_ONLY = new Set([
 const SESSION_TASK_CMDS = new Set(['session-task-start', 'session-task-complete', 'session-task-cancel'])
 
 const str = (v: unknown): string | null => (typeof v === 'string' && v.length > 0 ? v : null)
+/** W7-A: an on/off flag (`--auto-approve on`); true/false too. null for anything else. */
+const onOff = (v: unknown): boolean | null =>
+  v === 'on' || v === true || v === 'true' ? true : v === 'off' || v === false || v === 'false' ? false : null
 
 /** 1 이상의 정수만 통과. CLI 는 숫자를 문자열로 넘길 수도 있으므로 둘 다 받는다. */
 const posInt = (v: unknown): number | null => {
@@ -1409,6 +1419,9 @@ export async function handleCommand(
   if (typeof replanNo === 'string') return denied(replanNo)
   const plannerNo = replanNo === null ? null : plannerRefusal(deps.getState(), caller.sessionId, cmd, args)
   if (plannerNo !== null) return denied(plannerNo)
+  // W7-A: talking to the planner, rejecting a plan, auto-approve; and a planner's cancel of a Task of its plan
+  if (isFeedbackCommand(deps.getState(), caller.sessionId, cmd))
+    return feedbackCommand(deps, caller, cmd, args, caller.sessionId !== '' && caller.sessionId !== APP_CALLER && caller.sessionId !== HOST_CALLER, handleCommand)
   if (REPLAN_COMMANDS.has(cmd) || (cmd === 'task-update' && replanJobOf(deps.getState(), caller.sessionId)))
     return replanCommand(deps, caller, cmd, args, caller.sessionId !== '' && caller.sessionId !== APP_CALLER && caller.sessionId !== HOST_CALLER)
   // The job-source commands (plugin Phase 4), in a module of their own; jobs-create-from-source comes back here
@@ -2061,13 +2074,22 @@ export async function handleCommand(
       if (delivery === null) return bad('--delivery must be pr or push')
       const branchArg = args.deliveryBranch
       if (branchArg !== undefined && typeof branchArg !== 'string') return bad('--delivery-branch needs a value')
-      if (delivery === undefined && branchArg === undefined) return bad('nothing to set: give --delivery or --delivery-branch')
+      // W7-A: `--auto-approve on|off`, alone or with the delivery
+      const auto = args.autoApprove === undefined ? undefined : onOff(args.autoApprove)
+      if (auto === null) return bad('--auto-approve must be on or off')
+      if (auto !== undefined) {
+        if (!s.projects.some((p) => p.id === id)) return notFound(`unknown project: ${id}`)
+        if (delivery === undefined && branchArg === undefined)
+          return commit({ ok: true, state: { ...s, projects: s.projects.map((p) => (p.id === id ? { ...p, autoApprove: auto } : p)) }, value: { ...s.projects.find((p) => p.id === id)!, autoApprove: auto } })
+      }
+      if (delivery === undefined && branchArg === undefined) return bad('nothing to set: give --delivery, --delivery-branch or --auto-approve')
       // An empty --delivery-branch drops it: the repository's default branch again
       const set = setProjectDelivery(s, id, {
         ...(delivery !== undefined ? { delivery } : {}),
         ...(branchArg !== undefined ? { branch: branchArg.trim() === '' ? null : branchArg } : {})
       })
-      return set.ok ? commit(set) : set.error.startsWith('unknown project') ? notFound(set.error) : bad(set.error)
+      const withAuto = set.ok && auto !== undefined ? { ...set, state: { ...set.state, projects: set.state.projects.map((p) => (p.id === id ? { ...p, autoApprove: auto } : p)) } } : set
+      return withAuto.ok ? commit(withAuto) : withAuto.error.startsWith('unknown project') ? notFound(withAuto.error) : bad(withAuto.error)
     }
     // **회차를 낸다, 계획이 아니라.** `--job` 은 한 계획의 회차만 추린다. 번호순으로 내보내는
     // 것은 배열에 들어간 순서가 곧 시간순이 아니기 때문이다 — 예약은 발화마다 뒤에 붙지만
@@ -2710,6 +2732,13 @@ export async function handleCommand(
       if (args.replan !== undefined) {
         const cur = deps.getState()
         await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id ? { ...j, replan: args.replan as 'waves' | 'off' } : j)) })
+      }
+      // W7-A: `--auto-approve on|off`, this plan's own, ahead of its project's
+      if (args.autoApprove !== undefined) {
+        const auto = onOff(args.autoApprove)
+        if (auto === null) return bad('--auto-approve must be on or off')
+        const cur = deps.getState()
+        await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id ? { ...j, autoApprove: auto } : j)) })
       }
       if (!deps.startCoordinator) return conflict('starting a planner is not available in this build')
       // W6-H: the plan's own delivery, set before its planner starts

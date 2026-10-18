@@ -290,7 +290,7 @@ const LOCAL_FILE: Record<(typeof LOCAL_WHEN_ABSENT)[number], string> = {
  *
  * Never refused, so never `onAppRequired`: nothing here needs the app.
  */
-const HOST_SESSIONS = ['listSessions', 'readSession', 'sendSession', 'readChat', 'sessionTurn'] as const
+const HOST_SESSIONS = ['listSessions', 'readSession', 'sendSession', 'readChat', 'sessionTurn', /* W7-A */ 'agentSessionOf'] as const
 
 /**
  * **Forwarded when the app is attached, and done by the Host itself when none is** (CLI phase D4).
@@ -564,6 +564,7 @@ const EFFECTFUL: Record<Classified, boolean> = {
   sendSession: true,
   readChat: false,
   sessionTurn: false,
+  agentSessionOf: false,
   // HOST_WHEN_ABSENT — a turn, on either route.
   chatSend: true,
   // HOST_CHATS: a list is a read; an answer lets a tool run or refuses it, on either route.
@@ -1310,6 +1311,7 @@ export function hostOrchDeps(a: {
     sendSession: own('sendSession'),
     readChat: own('readChat'),
     ...(a.sessions.sessionTurn ? { sessionTurn: own('sessionTurn') } : {}),
+    ...(a.sessions.agentSessionOf ? { agentSessionOf: own('agentSessionOf') } : {}),
     discardRunWorktree,
     stopCoordinator,
     ...(a.dispatchTask ? { dispatchTask } : {}),

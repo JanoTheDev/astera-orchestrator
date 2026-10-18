@@ -224,3 +224,29 @@ export async function unarchiveJob(door: OrchDoor, jobId: string, ui: ActionUi):
   const reply = await send(door, 'jobs-unarchive', { id: jobId }, ui, ui.t('jobs.lifecycle.unarchiveFailed'))
   if (reply && reply.status >= 400) failure(reply, ui, ui.t('jobs.lifecycle.unarchiveFailed'))
 }
+
+// W7-A talk to the planner (core/orchestration/exec/plannerFeedback.ts). The Jobs card's talk box and the command bar
+// both come here.
+
+/** Sends the owner's feedback on a plan (`jobs-feedback`): to its planner before approval, through a replan while it
+ *  runs. Asks nothing: it starts no worker, and a replan changes only Tasks that have not started. */
+export async function sendPlanFeedback(door: OrchDoor, jobId: string, text: string, ui: ActionUi): Promise<boolean> {
+  const reply = await send(door, 'jobs-feedback', { job: jobId, text }, ui, ui.t('plan.talk.failed'))
+  if (reply && reply.status >= 400) failure(reply, ui, ui.t('plan.talk.failed'))
+  return reply !== null && reply.status < 400
+}
+
+/** Rejects a plan waiting for approval (`jobs-reject`) after asking: it is archived with the reason, and its planner
+ *  ends. Unarchive takes it back. */
+export async function rejectPlan(door: OrchDoor, jobId: string, name: string, reason: string, ui: ActionUi): Promise<boolean> {
+  const ok = await ui.confirm({
+    title: ui.t('plan.talk.reject'),
+    body: ui.t('plan.talk.rejectBody', { objective: name }),
+    confirmLabel: ui.t('plan.talk.reject')
+  })
+  if (!ok) return false
+  const clean = reason.trim()
+  const reply = await send(door, 'jobs-reject', { job: jobId, ...(clean ? { reason: clean } : {}) }, ui, ui.t('plan.talk.rejectFailed'))
+  if (reply && reply.status >= 400) failure(reply, ui, ui.t('plan.talk.rejectFailed'))
+  return reply !== null && reply.status < 400
+}

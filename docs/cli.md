@@ -687,7 +687,7 @@ astera projects list
 astera projects get   --id <projectId>
 astera projects find  --path <path>
 astera projects add   --path <path>
-astera projects set   --id <projectId> [--delivery <pr|push>] [--delivery-branch <branch>]
+astera projects set   --id <projectId> [--delivery <pr|push>] [--delivery-branch <branch>] [--auto-approve <on|off>]
 
 astera jobs    list   [--status <pending|paused|scheduled|waiting|running|completed|failed>] [--project <path>] [--archived]
 astera jobs    get    --id <jobId | runId>
@@ -697,7 +697,9 @@ astera jobs    rename --id <jobId> --title <text>
 astera jobs    set    --id <jobId | runId> --concurrency <n>
 astera jobs    archive --id <jobId> [--kill-sessions]
 astera jobs    unarchive --id <jobId>
-astera jobs    plan --id <jobId> [--account <id>] [--replan <waves|off>] [--concurrency <n>] [--delivery <pr|push>] [--no-review]
+astera jobs    plan --id <jobId> [--account <id>] [--replan <waves|off>] [--concurrency <n>] [--delivery <pr|push>] [--no-review] [--auto-approve <on|off>]
+astera jobs    feedback --job <jobId> --text <text|->
+astera jobs    reject --job <jobId> [--reason <text>]
 astera jobs    create --objective <text> [--cwd <path>] [--concurrency <n>] [--priority <n>] [--replan <waves|off>] [--coordinator-account <accountId>] [--coordinator-provider <claude|codex>] [--convergence [--max-fix-attempts <n>] [--max-review-rounds <n>] [--blocking-severity <high|medium>] [--max-total-minutes <n>]] [--mode <plan|audit|fixlist>] [--scope <path|all>] [--instructions <text>] [--attach <path>] [--delivery <pr|push>] [--no-review]
 astera jobs    create-from-source --source <sourceId> --item <itemId> --project <projectId> [--concurrency <n>] [--priority <n>] [--replan <waves|off>] [--coordinator-account <accountId>] [--coordinator-provider <claude|codex>] [--convergence [--max-fix-attempts <n>] [--max-review-rounds <n>] [--blocking-severity <high|medium>] [--max-total-minutes <n>]] [--delivery <pr|push>]
 

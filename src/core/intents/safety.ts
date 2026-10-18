@@ -26,6 +26,9 @@ export const SAFETY: Record<IntentKind, Safety> = {
   'stop-launching': 'act',
   // Closes the plan's workers and coordinator (runs-stop, or run-pause for a schedule).
   stop: 'confirm',
+  // W7-A: feedback starts a planner or a replan, cheap to undo; rejecting archives a plan and asks first (rejectPlan)
+  'plan-feedback': 'act',
+  'plan-reject': 'confirm',
   archive: 'confirm',
   delete: 'confirm',
   merge: 'confirm'

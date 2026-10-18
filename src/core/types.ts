@@ -1,3 +1,4 @@
+import type { PlanFeedback } from './orchestration/types'
 import type { SlashCommand } from './commands/slashCommands'
 import type { RunConfig, RunStatus, SaveConfigsResult } from './run/config'
 import type { EmulationMetrics } from './preview/viewports'
@@ -717,6 +718,12 @@ export interface JobRow {
   // W1-C plan lifecycle: the Job's own fields, on every row of the Job (lifecycle.ts)
   title?: string
   archivedAt?: string
+  // W7-A plan feedback (Job.feedback, autoStartedAt, rejected): the talk box reads these
+  /** The Job was planned by a planner session (`plannerSessionIds` is set): only such a plan can be talked to. */
+  planned?: true
+  feedback?: PlanFeedback[]
+  autoStartedAt?: string
+  rejected?: { at: string; reason?: string }
   // W5-C: the plan is held from launching new workers (Job.dispatchHold)
   dispatchHold?: true
   // W2-D: the plan's one pull request (JobRun.pr), on the Run's own row and a Job row folded onto it
