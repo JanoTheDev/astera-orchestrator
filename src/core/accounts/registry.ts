@@ -8,6 +8,7 @@ import { makeDescriptors, type ProviderDescriptor } from '../providers/descripto
 import { DEFAULT_ACCOUNT_PLACEHOLDER_LABEL } from './detect'
 import { nextAccountColor } from './colors'
 import { isLoggedIn } from './loginCheck'
+import { emailChangeOf } from './emailChange'
 import { keepDamaged, readStoreFile, StoreUnread } from '../storeFile'
 import { renameRetrying } from '../renameRetry'
 
@@ -246,6 +247,22 @@ export class AccountRegistry {
       }
     }
     if (changed) await this.save()
+  }
+
+  /** W7-F (#77): records the folder's email as read at a login check, relabelling the row when the folder now belongs
+   *  to someone else (emailChange.ts). Answers whether it did switch, so the caller drops the old usage reading. */
+  async noteEmail(id: string, email: string | null): Promise<boolean> {
+    if (!emailChangeOf(this.get(id), email)) return false
+    await this.ensureRead()
+    return this.changing(() => {
+      const account = this.accounts.find((a) => a.id === id)
+      // Asked again inside the queue: a second login check in flight has already written it.
+      const next = account ? emailChangeOf(account, email) : null
+      if (!account || !next) return false
+      account.label = next.label
+      account.email = next.email
+      return next.switched
+    })
   }
 
   async loginStatus(id: string): Promise<boolean> {

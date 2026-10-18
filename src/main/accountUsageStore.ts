@@ -128,6 +128,12 @@ export class AccountUsageStore {
     await this.persist().catch(() => {})
   }
 
+  /** W7-F (#77): drops this folder's reading, for a folder re-logged as another person. */
+  async forget(configDir: string): Promise<void> {
+    if (!this.entries.delete(configDir)) return
+    await this.persist().catch(() => {})
+  }
+
   /** Entries `get` would already refuse are not written back — a rolled window has no reader left,
    *  and leaving it in the file would only make the next load read and drop it again. */
   private async persist(): Promise<void> {
