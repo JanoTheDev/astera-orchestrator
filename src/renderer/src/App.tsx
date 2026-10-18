@@ -126,6 +126,7 @@ import { buildWorkspaceTree, findPlan, planSessions, scopeLayout } from './compo
 // W6-F: one workspace per project
 import { entryTab, OTHER_WORKSPACE, scopeIds as workspaceScopeOf, workspaceFolderOf, workspaceSessionIds } from './components/workspace/workspaceTree'
 import { NewProjectDialog } from './components/projects/NewProjectDialog'
+import { projectAnchorOf } from './components/projects/projectAnchor' // W8-G
 import { AddProjectDialog } from './components/projects/AddProjectDialog'
 import { ProjectSettings } from './components/projects/ProjectSettings'
 import { NewPlanDialog } from './components/intake/NewPlanDialog'
@@ -3512,7 +3513,7 @@ export default function App(): React.JSX.Element {
       switcherOpen || autoCloseWanted, // W7-F (#84)
     projectsRefresh // W7-B
   )
-  const projectAnchor = currentProject ?? sessions[0]?.cwd ?? null // W7-B: same anchor as useWorkspaceData
+  const projectAnchor = projectAnchorOf(currentProject, sessions[0]?.cwd, homeDir) // W7-B; W8-G (#104): home when no tab is open
   const workspaceTree = useMemo(
     () => (workspaceData ? buildWorkspaceTree(workspaceData, { showArchived: workspaceArchived }) : []),
     [workspaceData, workspaceArchived]

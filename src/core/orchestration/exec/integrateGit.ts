@@ -746,6 +746,8 @@ export function worktreeDeps(ctx: {
 export interface PushDelivery {
   cwd: string
   branch?: string
+  /** W8-G: the project's recorded default branch, used when `branch` is absent and origin has no HEAD ref. */
+  defaultBranch?: string
   worktrees: string[]
   message: string
 }
@@ -786,9 +788,9 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
   let branch = a.branch
   if (branch === undefined) {
     const head = await run(['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'], { cwd })
-    if (!head.ok || !head.stdout.startsWith('origin/'))
-      return { ok: false, reason: `could not tell the repository's default branch (origin/HEAD is not set): set the project's delivery branch` }
-    branch = head.stdout.slice('origin/'.length)
+    if (head.ok && head.stdout.startsWith('origin/')) branch = head.stdout.slice('origin/'.length)
+    else if (a.defaultBranch) branch = a.defaultBranch
+    else return { ok: false, reason: `could not tell the repository's default branch (origin/HEAD is not set): set the project's delivery branch` }
   }
   const fail = (reason: string): PushResult => ({ ok: false, reason, branch })
 

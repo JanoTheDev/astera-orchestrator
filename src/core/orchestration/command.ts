@@ -103,6 +103,7 @@ import {
 import { runWorktrees, runWorktreesFrom } from './integrate'
 import { isPathWithin } from '../files/tree'
 import { buildHandoverPrompt, buildPlannerBrief } from './handover'
+import { noRemoteNote, unmergedPlanBranches } from './unmergedBranches' // W8-G (#101)
 // W2-A planner stage
 import { editPlanTask, planFieldsFromArgs, plannerJobOf, plannerRefusal, validatePlan, workerSpecOf } from './planner'
 import { parseReviewFile, type ReviewIssueInput } from './review'
@@ -823,8 +824,6 @@ export interface SessionCreate {
 
 type Reply = { status: number; body: unknown }
 const okBody = (body: unknown): Reply => ({ status: 200, body })
-/** W7-E (#80): what a plan whose project has no remote says instead of a pull request. */
-const noRemoteNote = (branch: string): string => `This project has no remote; the plan's work is on branch ${branch}`
 /** W7-E: whether the Job that owns `id` (a Job, or a Run of it) reviews its Tasks by default (Job.review). */
 const reviewDefaultOf = (s: OrchState, id: string): boolean => {
   const run = s.runs.find((r) => r.id === id)
@@ -3114,6 +3113,9 @@ export async function handleCommand(
       const marked = job.plannerSessionIds === undefined
       if (marked) await setJobPlanners(id, (ids) => ids)
       let sessionId: string
+      // W8-G (#101): earlier plans' work that sits on an unmerged branch, which the workers of this plan will not have
+      const projectOfPlan = projectOfJob(deps.getState(), job)
+      const unmerged = projectOfPlan ? await unmergedPlanBranches(deps.getState(), projectOfPlan) : null
       try {
         sessionId = (
           await deps.startCoordinator({
@@ -3125,6 +3127,7 @@ export async function handleCommand(
               jobId: id,
               objective: job.objective,
               repoRoot: job.cwd,
+              ...(unmerged && unmerged.branches.length > 0 ? { unmergedBranches: unmerged.branches, defaultBranch: unmerged.into } : {}),
               accountId,
               concurrency: concurrency ?? job.concurrency ?? DEFAULT_CONCURRENCY,
               // W8-D: the other plans of this repository, so it plans around them
@@ -5646,7 +5649,7 @@ export async function handleCommand(
       if (made.kind === 'rejected') return { status: 409, body: { error: 'The push was rejected', pushed: made.pushed } }
       // W7-E (#80): nowhere to push to is the project's setup, not a failure of the plan
       if (made.kind === 'no-remote')
-        return { status: 409, body: { error: noRemoteNote(t.branch), noRemote: true, branch: t.branch, pushed: false } }
+        return { status: 409, body: { error: noRemoteNote(t.branch, t.repoPath), noRemote: true, branch: t.branch, pushed: false } }
       const refused = ghRefusal({ ok: false, ...ghFailureSentence({ ok: false, stdout: '', stderr: made.detail, spawnError: made.spawnError }) })
       return { status: refused.status, body: { ...(refused.body as object), pushed: made.pushed } }
     }
@@ -5722,10 +5725,13 @@ export async function handleCommand(
         return conflict(`Pushing this Run stopped before: ${done.error}. --force tries again`)
       if (runView(s, run).outcome !== 'completed') return conflict('This Run has not completed; it is pushed once every task is done')
       if (!deps.deliverPush) return conflict('Pushing a plan is done by the Astera Host, and this caller is not one')
-      const branch = projectOfJob(s, job)?.deliveryBranch
+      const proj = projectOfJob(s, job)
+      const branch = proj?.deliveryBranch
       const r = await deps.deliverPush({
         cwd: job.cwd,
         ...(branch !== undefined ? { branch } : {}),
+        ...(proj?.defaultBranch ? { defaultBranch: proj.defaultBranch } : {}), // W8-G
+
         worktrees: runWorktrees(s, id),
         message: deliveryMessage(jobNameOf(job), deliveryIssuesOf(s, run)),
         checks: deliveryChecksOf(s, id)
@@ -5799,7 +5805,7 @@ export async function handleCommand(
         const pushed = await g.push(t.cwd, t.branch)
         if (!pushed.ok)
           return pushed.kind === 'no-remote'
-            ? okBody({ noRemote: true, branch: t.branch, message: noRemoteNote(t.branch) })
+            ? okBody({ noRemote: true, branch: t.branch, message: noRemoteNote(t.branch, t.repoPath) })
             : conflict(`The push was rejected: ${pushed.detail.trim()}`)
         await pushNotes(t.cwd) // W8-A: the notes ref goes with the PR branch
         const edited = await g.run(['pr', 'edit', open.url, '--body', body], t.cwd)
@@ -5810,7 +5816,7 @@ export async function handleCommand(
       const base = (await defaultBranchOf(g.run, t.cwd)) ?? t.baseRef
       const made = await g.createPr({ worktreePath: t.cwd, repoPath: t.repoPath, branch: t.branch, base, title, body, draft: true, needsPush: true })
       if (!made.ok) {
-        if (made.kind === 'no-remote') return okBody({ noRemote: true, branch: t.branch, message: noRemoteNote(t.branch) })
+        if (made.kind === 'no-remote') return okBody({ noRemote: true, branch: t.branch, message: noRemoteNote(t.branch, t.repoPath) })
         return conflict(`The draft pull request was not opened (${made.stage}, ${made.kind}): ${made.detail.trim()}`)
       }
       await pushNotes(t.cwd) // W8-A: the notes ref goes with the PR branch
@@ -5888,7 +5894,7 @@ export async function handleCommand(
         }
         if (!g.push) return conflict('pushing a branch is not available in this build')
         const pushed = await g.push(t.cwd, t.branch)
-        if (!pushed.ok) return fail(pushed.kind === 'no-remote' ? noRemoteNote(t.branch) : `The push was rejected: ${pushed.detail.trim()}`)
+        if (!pushed.ok) return fail(pushed.kind === 'no-remote' ? noRemoteNote(t.branch, t.repoPath) : `The push was rejected: ${pushed.detail.trim()}`)
         await pushNotes(t.cwd) // W8-A: the notes ref goes with the PR branch
         // W8-E (#99): a Run with failed Tasks delivers its completed work and stays a draft
         for (const step of [['pr', 'edit', draft.url, '--body', body], ...(failed ? [] : [['pr', 'ready', draft.url]])]) {
@@ -5903,7 +5909,7 @@ export async function handleCommand(
       const answer = (made.body ?? {}) as { url?: unknown; error?: unknown; noRemote?: unknown; branch?: unknown }
       // W7-E (#80): a project with no remote keeps the work on its branch; recorded as a note, not as a failed PR
       if (answer.noRemote === true && typeof answer.branch === 'string') {
-        const note = noRemoteNote(answer.branch)
+        const note = noRemoteNote(answer.branch, job.cwd)
         await record({ at: now, note, branch: answer.branch })
         return okBody({ noRemote: true, branch: answer.branch, message: note })
       }
