@@ -70,7 +70,7 @@ export interface HostWorktrees {
   /** Once, at Host start: the one read that may heal a damaged file (R10). */
   load(): Promise<void>
   /** OrchCoordinator's createWorktree and makeRunWorktree's body: forkWorktree over the Host's registry. */
-  fork(a: { repoPath: string; name?: string }): Promise<string>
+  fork(a: { repoPath: string; name?: string; baseOf?: string }): Promise<string>
   makeRunWorktree: NonNullable<OrchServerDeps['makeRunWorktree']>
   mergeWorktrees: NonNullable<OrchServerDeps['mergeWorktrees']>
   removeWorktrees: NonNullable<OrchServerDeps['removeWorktrees']>
@@ -326,7 +326,7 @@ export function createHostWorktrees(d: HostWorktreesDeps): HostWorktrees {
     git: d.git
   })
 
-  const fork = async (a: { repoPath: string; name?: string }): Promise<string> => {
+  const fork = async (a: { repoPath: string; name?: string; baseOf?: string }): Promise<string> => {
     await fresh()
     return forkWorktree(a, { registry, log: d.log })
   }

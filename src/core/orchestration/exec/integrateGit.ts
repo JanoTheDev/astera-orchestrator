@@ -50,7 +50,13 @@ import { defaultGateProbe, type Probe } from '../../sessions/pathProbe'
  *  조각도 그것과 다르다. 그 판단의 전문은 이 헬퍼를 뽑아 온 자리(git.ts 의 fetchBaseRef 주석)에
  *  있다. */
 export async function forkWorktree(
-  a: { repoPath: string; name?: string },
+  a: {
+    repoPath: string
+    name?: string
+    /** The folder whose checked-out branch to fork from, when it is not repoPath's own (W5-A, #50): a
+     *  dependent Task forks from its Run's worktree, where its finished deps were merged. Default repoPath. */
+    baseOf?: string
+  },
   ctx: {
     registry: WorktreeStore
     log(m: string): void
@@ -69,12 +75,13 @@ export async function forkWorktree(
   if (at === 'timeout') throw new Error(`REPO_UNREACHABLE: folder not reachable: ${a.repoPath}`)
   if (at === 'absent')
     throw new Error(workerBaseFailure({ repoPath: a.repoPath, repoReachable: false, onBranch: false, stderr: 'the folder is not there' }) ?? '')
-  const gitDirProbe = await realGit(['rev-parse', '--git-dir'], { cwd: a.repoPath })
+  const baseDir = a.baseOf ?? a.repoPath
+  const gitDirProbe = await realGit(['rev-parse', '--git-dir'], { cwd: baseDir })
   const head = gitDirProbe.ok
-    ? await realGit(['symbolic-ref', '--quiet', '--short', 'HEAD'], { cwd: a.repoPath })
+    ? await realGit(['symbolic-ref', '--quiet', '--short', 'HEAD'], { cwd: baseDir })
     : { ok: false, stdout: '', stderr: '' }
   const baseFailure = workerBaseFailure({
-    repoPath: a.repoPath,
+    repoPath: baseDir,
     repoReachable: gitDirProbe.ok,
     onBranch: head.ok,
     stderr: gitDirProbe.stderr || gitDirProbe.stdout
@@ -92,6 +99,52 @@ export async function forkWorktree(
   // 흔적이다. 키만 남긴다: 번역은 렌더러의 일이고 여기에는 언어가 없다.
   for (const w of r.warnings) ctx.log(`worktree warning ${w.key} ${JSON.stringify(w.params ?? {})}`)
   return r.info.path
+}
+
+/** The identity a merge commit falls back to when git has none here (W5-A, #51). */
+export const FALLBACK_GIT_IDENTITY = { name: 'Astera', email: 'astera@localhost' } as const
+
+/** `-c` arguments that give a merge commit an identity when git has none in `cwd` (W5-A, #51): on a machine
+ *  with no `user.name`/`user.email` the merge failed with "Committer identity unknown" and the plan's PR was
+ *  never opened. Only the missing key is supplied, so a person's own name or email always wins, and only
+ *  for this one command: no git config is written, global or local. Empty when git already has one. */
+export async function mergeIdentityArgs(cwd: string, run: typeof realGit = realGit): Promise<string[]> {
+  if ((await run(['var', 'GIT_COMMITTER_IDENT'], { cwd })).ok) return []
+  const out: string[] = []
+  if (!(await run(['config', 'user.name'], { cwd })).stdout) out.push('-c', `user.name=${FALLBACK_GIT_IDENTITY.name}`)
+  if (!(await run(['config', 'user.email'], { cwd })).stdout) out.push('-c', `user.email=${FALLBACK_GIT_IDENTITY.email}`)
+  return out
+}
+
+/** Merges each dependency's worktree branch into a worktree just forked for its dependent Task (W5-A, #50),
+ *  in deps order, so the worker starts with its dependencies' commits. A coordinator places Tasks itself and
+ *  nothing merges its deps into the Run's worktree first; the app's scheduler does (integrateWorktrees), and
+ *  then the dep folder may already be reaped: its commits are in the base the fork came from, so a folder
+ *  git cannot read is skipped. A failed merge is aborted and thrown, so the start fails and the caller
+ *  removes the fresh fork (the Host's discardFork); nothing of the user's checkout is touched here. */
+export async function mergeDepsInto(
+  worktree: string,
+  from: string[],
+  ctx: { log(m: string): void; git?: typeof realGit }
+): Promise<void> {
+  const run = ctx.git ?? realGit
+  const ident = from.length > 0 ? await mergeIdentityArgs(worktree, run) : []
+  for (const dep of from) {
+    const sha = await run(['rev-parse', '--verify', 'HEAD'], { cwd: dep })
+    if (!sha.ok) {
+      ctx.log(`worker-start: dependency worktree ${dep} is not readable, so not merged (its work is in the base, or gone)`)
+      continue
+    }
+    // The branch name, when there is one, makes the merge commit say which Task it brought in.
+    const branch = await run(['symbolic-ref', '--quiet', 'HEAD'], { cwd: dep })
+    const ref = branch.ok && branch.stdout !== '' ? branch.stdout : sha.stdout
+    const merged = await run([...ident, 'merge', '--no-edit', ref], { cwd: worktree, timeoutMs: GIT_WRITE_TIMEOUT_MS })
+    if (!merged.ok) {
+      await run(['merge', '--abort'], { cwd: worktree, timeoutMs: GIT_WRITE_TIMEOUT_MS })
+      throw new Error(`DEP_MERGE: could not merge the dependency worktree ${dep} into ${worktree}: ${merged.stderr || merged.stdout}`)
+    }
+    ctx.log(`worker-start: merged ${ref} from ${dep} into ${worktree}`)
+  }
 }
 
 /** 통합의 결과. 셋뿐이다 — 합쳤다, 사람에게 가야 한다, 에이전트에게 넘겨야 한다. */
@@ -345,6 +398,8 @@ export async function integrateWorktrees(
   // **읽지 못한 status 는 0 이 아니다.** 실패·시간 초과·출력 한도로 답이 없으면 그 워크트리를
   // `unchecked` 에 담아 "확인하지 못했다"로 올린다. 병합은 막지 않는다 — 원본 워크트리의 변경은
   // 원래도 병합을 막지 않았고(경고만 한다), 막는 것은 합칠 폴더(위 2)뿐이다.
+  // W5-A (#51): asked once; empty unless git has no identity in this folder.
+  const ident = await mergeIdentityArgs(mergeInto, ctx.git ?? realGit)
   let uncommitted = 0
   const unchecked: string[] = []
   const dirtyPaths: string[] = []
@@ -402,7 +457,7 @@ export async function integrateWorktrees(
     // an app that opens or attaches while the merge runs finds it there.
     const mergeOpId = await ctx.gitOp.begin('job-merge', mergeInto)
     try {
-      const merged = await (ctx.git ?? realGit)(['merge', '--no-edit', ref], {
+      const merged = await (ctx.git ?? realGit)([...ident, 'merge', '--no-edit', ref], {
         cwd: mergeInto,
         timeoutMs: GIT_WRITE_TIMEOUT_MS
       })
