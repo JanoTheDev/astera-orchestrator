@@ -254,3 +254,13 @@ export async function rejectPlan(door: OrchDoor, jobId: string, name: string, re
   if (reply && reply.status >= 400) failure(reply, ui, ui.t('plan.talk.rejectFailed'))
   return reply !== null && reply.status < 400
 }
+
+// W9-C plan page ⋯ menu
+/** Queues a plan not yet planned after another (`jobs-set --after <job|none>`, W8-C): it starts when that one delivers.
+ *  Asks nothing: it closes nothing and starts nothing. */
+export async function setJobAfter(door: OrchDoor, jobId: string, afterId: string | 'none', ui: ActionUi): Promise<boolean> {
+  const fallback = ui.t('pages.plan.startAfterFailed')
+  const reply = await send(door, 'jobs-set', { id: jobId, after: afterId }, ui, fallback)
+  if (reply && reply.status >= 400) failure(reply, ui, fallback)
+  return reply !== null && reply.status < 400
+}

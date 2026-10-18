@@ -45,7 +45,7 @@ describe('approvePlan', () => {
   })
 
   it("is the Run window's Run button too (#40): it sends no run-start of its own", () => {
-    const src = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../components/RunDetail.tsx'), 'utf8')
+    const src = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../components/pages/PlanPage.tsx'), 'utf8')
     const start = src.slice(src.indexOf('const startRunNow'), src.indexOf('const mergeRunNow'))
     expect(start).toContain('approvePlan(')
     expect(start).not.toContain("'run-start'")

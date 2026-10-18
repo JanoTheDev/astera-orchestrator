@@ -5,6 +5,7 @@ import type {
   JobRow,
   JobTask,
   MessageType,
+  OrchSnapshot,
   Provider,
   RunDetail as RunDetailData,
   TaskStatus
@@ -24,7 +25,20 @@ import { runIdToMerge } from '../../../../core/orchestration/snapshot'
 import { useI18n } from '../../i18n/I18nProvider'
 import { replyNote, type CheckPluginRow, type OrchDoor } from '../../lib/orchDoor'
 import { confirmModal, confirmModalWithChoices } from '../../lib/confirm'
-import { approvePlan, type ActionUi } from '../../lib/jobActions'
+import {
+  approvePlan,
+  archiveJob,
+  deleteRun,
+  holdJob,
+  pauseRun,
+  renameJob,
+  restartCoordinator,
+  resumeRun,
+  setJobAfter,
+  stopRun,
+  unarchiveJob,
+  type ActionUi
+} from '../../lib/jobActions'
 import { ChangedFilesBlock } from '../ChangedFilesBlock'
 import { CompletionBlock } from '../CompletionBlock'
 import { GateAnswer } from '../GateAnswer'
@@ -42,8 +56,10 @@ import {
 } from '../JobIcons'
 import { NewTaskModal } from '../NewTaskModal'
 import { JournalBusy, JournalOlder } from '../RunDetailJournal'
-import { ArrowUpRight, Play, Square, WrenchOff, X } from 'lucide-react'
-import { backdropProps } from '../../lib/backdrop'
+import { Archive, ArchiveRestore, ArrowUpRight, ListOrdered, MoreHorizontal, Pencil, Play, Square, Trash2, WrenchOff, X } from 'lucide-react'
+// W9-C plan page
+import { Button, Chip, Menu, Tabs, type MenuItem } from '../ui'
+import { PLAN_SECTIONS, type PlanSection } from '../plan/planBoard'
 import { SourceChip } from '../SourceChip'
 import { jobName } from '../../lib/jobName'
 // W2-C plan board
@@ -173,7 +189,7 @@ const RUN_START = 'run:start'
 /** 병합 버튼의 busy 센티넬. RUN_START 와 같은 이유로 Task id 와 겹칠 수 없는 값이다 */
 const RUN_MERGE = 'run:merge'
 
-export function RunDetail({
+export function PlanPage({
   run,
   detail,
   projectPath,
@@ -184,7 +200,12 @@ export function RunDetail({
   onClose,
   runtimeId,
   door,
-  onOpenPath
+  onOpenPath,
+  section,
+  onSection,
+  plans,
+  snapshot,
+  onOpenConsoles
 }: {
   /** 스냅샷에 있는 그 Run. 노드의 제목·상태·세션은 전부 여기서 온다(detail 은 id 만 준다).
    *  스냅샷과 detail 은 서로 다른 호출이라 어긋날 수 있으므로, 한쪽에만 있는 Task 는 그리지 않는다. */
@@ -208,11 +229,29 @@ export function RunDetail({
   door: OrchDoor
   /** W6-E: show an affected path (relative to the project) in the file explorer. */
   onOpenPath?: (path: string) => void
+  // W9-C plan page
+  /** The segmented section shown (`openPlan(jobId, section?)`, else the one last used for this plan). */
+  section: PlanSection
+  onSection: (section: PlanSection) => void
+  /** The project's other plans: the ⋯ menu's "Start after". */
+  plans: readonly JobRow[]
+  /** The snapshot the plan is in: archive and delete count what goes with it (lib/jobActions). */
+  snapshot: OrchSnapshot | null
+  /** "Its consoles": Agents, scoped to this plan. */
+  onOpenConsoles: () => void
 }): React.JSX.Element {
   const { t } = useI18n()
   /** Why the controls are off: a read-only pairing (Phase 7). They are drawn disabled with it as their title, and it
    *  is said under the head, so the reason is on screen rather than a button that does nothing. */
   const lockedReason = door.readOnlyReason ?? undefined
+  // W9-C: the ⋯ menu's actions (lib/jobActions), the same confirmations the Jobs card uses
+  const ui: ActionUi = {
+    t: (key, params) => (t as (k: string, p?: Record<string, string | number>) => string)(key, params),
+    confirm: (o) => confirmModal(o),
+    confirmChoices: (o) => confirmModalWithChoices(o),
+    error: (m, o) => void toast.error(m, o)
+  }
+  const [renaming, setRenaming] = useState(false)
   /** 고른 노드 = 아래 이벤트의 필터. 같은 노드를 다시 누르면 풀린다 */
   const [selected, setSelected] = useState<string | null>(null)
   const [open, setOpen] = useState<Set<string>>(new Set())
@@ -410,8 +449,9 @@ export function RunDetail({
   const tasks = run?.tasks ?? []
   // W2-C plan board: the graph or the board in the upper half; the overview sits above either.
   // W6-E: the board (by wave) opens first, as the place a plan run is watched, and a files tab joins them
-  const [view, setView] = useState<'graph' | 'board' | 'files'>('board')
-  const live = usePlanLive(door, view === 'board')
+  // W9-C: the board and the graph are the Waves section; files is its own section
+  const [view, setView] = useState<'graph' | 'board'>('board')
+  const live = usePlanLive(door, section === 'waves')
   // 고른 Task 가 스냅샷에서 사라졌으면 필터도 없다 — 걸러 낸 목록이 영원히 비는 대신 전체를 그린다
   const selectedTask = tasks.find((tk) => tk.id === selected)
   const events = detail?.events ?? null
@@ -484,12 +524,6 @@ export function RunDetail({
     try {
       // W5-C (#40): the Jobs view's "Approve & execute" path: asked first (workers spend quota), and a plan that does
       // not hold is refused with its `problems`
-      const ui: ActionUi = {
-        t: (key, params) => (t as (k: string, p?: Record<string, string | number>) => string)(key, params),
-        confirm: (o) => confirmModal(o),
-        confirmChoices: (o) => confirmModalWithChoices(o),
-        error: (m, o) => void toast.error(m, o)
-      }
       await approvePlan(door, runId, run ? jobName(run) : runId, ui)
     } catch {
       toast.error(t('jobs.run.startFailed'))
@@ -783,12 +817,87 @@ export function RunDetail({
     setAnswer('')
   }
 
+  // W9-C: the plan's own actions in the header and its ⋯ menu (DESIGN.md §2 "Plan page"); each is lib/jobActions'.
+  const off = lockedReason !== undefined
+  const otherPlans = plans.filter((p) => p.id !== runId && p.archivedAt === undefined)
+  const menu: MenuItem[] = run
+    ? [
+        { id: 'rename', label: t('jobs.lifecycle.rename'), icon: <Pencil size={14} />, disabled: off, onSelect: () => setRenaming(true) },
+        // W8-C: a plan not planned yet can wait for another to deliver
+        ...(run.pendingStart && !run.planned
+          ? [{ id: 'after', label: t('pages.plan.startAfter'), icon: <ListOrdered size={14} />, disabled: off, onSelect: () => void pickAfter() }]
+          : []),
+        ...(run.coordinatorMissing
+          ? [{ id: 'coordinator', label: t('jobs.run.coordinatorRestart'), icon: <Play size={14} />, disabled: off, onSelect: () => void restartCoordinator(door, runId, ui) }]
+          : []),
+        { id: 'kill', label: t('pages.plan.kill'), icon: <Square size={14} />, danger: true, disabled: off || running === 0, onSelect: () => void stopRun(door, run.foldedRunId ?? runId, jobName(run), ui) },
+        run.archivedAt !== undefined
+          ? { id: 'unarchive', label: t('jobs.lifecycle.unarchive'), icon: <ArchiveRestore size={14} />, disabled: off, onSelect: () => void unarchiveJob(door, runId, ui) }
+          : { id: 'archive', label: t('jobs.lifecycle.archive'), icon: <Archive size={14} />, disabled: off, onSelect: () => void archiveJob(door, snapshot, runId, ui) },
+        { id: 'delete', label: t('jobs.run.delete'), icon: <Trash2 size={14} />, danger: true, disabled: off, onSelect: () => void deleteRun(door, snapshot, runId, ui) }
+      ]
+    : []
+  /** "Start after…": the plans this one can wait for, one to tick; none ticked starts it right away. */
+  const pickAfter = async (): Promise<void> => {
+    if (!run) return
+    const answer = await ui.confirmChoices({
+      title: t('pages.plan.startAfter'),
+      body: t('pages.plan.startAfterBody', { plan: jobName(run) }),
+      confirmLabel: t('common.confirm'),
+      choices: otherPlans.map((p) => ({ id: p.id, label: jobName(p) }))
+    })
+    if (answer.ok) await setJobAfter(door, runId, answer.checked[0] ?? 'none', ui)
+  }
+  // W5-C: a plan pauses by holding its new starts (jobs-hold); a schedule pauses as a whole (run-pause)
+  const pauseButton =
+    run === undefined || run.archivedAt !== undefined || run.pendingStart ? null : run.schedule ? (
+      <Button size="sm" disabled={off} title={lockedReason} onClick={() => void (run.paused ? resumeRun(door, runId, ui) : pauseRun(door, runId, ui))}>
+        {run.paused ? t('jobs.run.resume') : t('jobs.run.pause')}
+      </Button>
+    ) : (
+      <Button size="sm" disabled={off} title={lockedReason} onClick={() => void holdJob(door, runId, !run.dispatchHold, ui)}>
+        {run.dispatchHold ? t('jobs.hold.release') : t('jobs.hold.hold')}
+      </Button>
+    )
+  /** Shows the moved events pane: always on Journal; on Waves while a form is open or a Task is picked. */
+  const eventsShown = section === 'journal' || (section === 'waves' && (authoringOpen || selectedTask !== undefined))
+
   return (
-    <div className="modal-backdrop" {...backdropProps(() => !formOpen && onClose())}>
-      <div className="modal run-detail" onClick={(e) => e.stopPropagation()}>
+    <div className="plan-page run-detail">
+      <nav className="plan-crumb" aria-label={t('pages.plans.title')}>
+        <button type="button" className="plan-crumb-link" onClick={onClose}>
+          {t('pages.plans.title')}
+        </button>
+        <span aria-hidden="true">›</span>
+        <span>{run ? jobName(run) : ''}</span>
+      </nav>
         {/* 머리말이 없다 — Job 의 이름(jobName: 티켓에서 만든 Job 은 티켓 제목, 아니면 목표)이 제목이고, 그 옆의 아이콘과 숫자가 상태를 말한다 */}
         <div className="detail-head">
-          <h2 title={run?.objective}>{run ? jobName(run) : ''}</h2>
+          {/* W9-C: rename inline (Enter keeps, Escape or leaving drops), as the Jobs card's head does */}
+          {renaming && run ? (
+            <input
+              className="jobs-title-input"
+              autoFocus
+              defaultValue={jobName(run)}
+              placeholder={t('jobs.lifecycle.titlePlaceholder')}
+              aria-label={t('jobs.lifecycle.rename')}
+              onKeyDown={(e) => {
+                if (e.nativeEvent.isComposing) return
+                if (e.key === 'Enter') {
+                  void renameJob(door, runId, e.currentTarget.value, ui)
+                  setRenaming(false)
+                } else if (e.key === 'Escape') setRenaming(false)
+              }}
+              onBlur={() => setRenaming(false)}
+            />
+          ) : (
+            <h2 title={run?.objective} onDoubleClick={() => !off && setRenaming(true)}>
+              {run ? jobName(run) : ''}
+            </h2>
+          )}
+          {run?.archivedAt !== undefined && <Chip>{t('jobs.lifecycle.archived')}</Chip>}
+          {run?.dispatchHold && <Chip tone="warn">{t('jobs.hold.held')}</Chip>}
+          {run?.pendingStart && <Chip tone="info">{t('jobs.run.notStarted')}</Chip>}
           <SourceChip source={run?.source} />
           {/* W7-D (#67): workers at once, changeable while the Job runs; a lower number only holds back new starts */}
           {run && run.outcome === 'running' && (
@@ -836,20 +945,33 @@ export function RunDetail({
               한때 이 자리가 왼쪽 아래의 `닫기` 버튼이었고 formOpen 이면 disabled 였다. 죽은 버튼이
               폼의 취소·추가 옆에 서서 세 버튼처럼 읽혔고, 무엇에 쓰는 것이냐는 질문을 받았다 —
               같은 가드를 이 파일이 세 자리에서 이미 "숨긴다"로 쓰고 있었는데 이 자리만 달랐다. */}
-          {!formOpen && (
-            <button
-              className="detail-x"
-              title={t('jobs.timeline.close')}
-              aria-label={t('jobs.timeline.close')}
-              onClick={onClose}
-            >
-              <X size={13} />
-            </button>
-          )}
+          {/* W9-C: the ✕ of the old window is "Plans" in the breadcrumb; the plan's actions stand here instead */}
+          <span className="plan-head-actions">
+            <Button size="sm" onClick={onOpenConsoles}>
+              {t('pages.plan.consoles')}
+            </Button>
+            {pauseButton}
+            {run?.planned && (
+              <Button size="sm" onClick={() => onSection('overview')}>
+                {t('pages.plan.talk')}
+              </Button>
+            )}
+            {menu.length > 0 && (
+              <Menu label={t('pages.plan.more')} align="end" items={menu} trigger={{ variant: 'ghost', size: 'sm', children: <MoreHorizontal size={14} /> }} />
+            )}
+          </span>
         </div>
+        <Tabs
+          variant="segmented"
+          label={t('pages.plan.sections')}
+          value={section}
+          onChange={onSection}
+          items={PLAN_SECTIONS.map((id) => ({ id, label: t(`pages.plan.section.${id}`) }))}
+        />
+        {run === undefined && <p className="jobs-disabled-reason">{t('pages.plan.gone')}</p>}
         {/* flex: 1; min-height: 0 이 styles.css 에 있다 — 없으면 아래의 두 칸이 줄지 않아 모달 밖으로
             넘치고 닫기 버튼이 밀려난다. 이 저장소가 실제로 그 결함을 냈던 자리다 */}
-        <div className="detail-body">
+        <div className="detail-body" data-section={section}>
           <div className="detail-graph">
             {/* 짓는 동안(또는 질문을 쓰는 동안)에는 치운다 — 질문을 쓰는 중에 누르면 아래 칸이
                 통째로 NewTaskModal 로 바뀌어 아직 안 보낸 질문을 잃고, Task 를 짓는 중에 누르면
@@ -857,19 +979,29 @@ export function RunDetail({
                 (.detail-events)의 두 번째 모습이다: 그래프는 그대로 보이고 아래만 바뀐다. */}
             {/* W2-C plan board: progress, the buckets, and the graph/board switch */}
             <div className="plan-head">
-              <PlanOverview tasks={tasks} />
+              {section === 'overview' && <PlanOverview tasks={tasks} />}
+              {section === 'waves' && (
               <div className="plan-view-toggle" role="group">
-                {(['graph', 'board', 'files'] as const).map((v) => (
+                {(['graph', 'board'] as const).map((v) => (
                   <button key={v} type="button" aria-pressed={view === v} className={view === v ? 'active' : ''} onClick={() => setView(v)}>
                     {t(`plan.view.${v}`)}
                   </button>
                 ))}
               </div>
+              )}
             </div>
             {/* W6-G: per-account usage, live subagents per tab, and the threshold */}
-            <UsageStrip accounts={accounts} tasks={tasks} />
+            {section === 'overview' && <UsageStrip accounts={accounts} tasks={tasks} />}
+            {/* W9-C: what each console did, rolled up (DESIGN.md §4).
+                shortcut: wire W9-I roll-up after merge (its SessionSummary cards of this plan go here) */}
+            {section === 'overview' && (
+              <section className="plan-sofar">
+                <h3>{t('pages.plan.soFar')}</h3>
+                <p className="modal-hint">{t('pages.plan.soFarEmpty')}</p>
+              </section>
+            )}
             {/* W7-A: talk to the planner, reject, and the auto-start notice */}
-            {run && (
+            {section === 'overview' && run && (
               <PlanTalk
                 row={run}
                 door={door}
@@ -883,11 +1015,12 @@ export function RunDetail({
               />
             )}
             {lockedReason !== undefined && <p className="jobs-disabled-reason">{lockedReason}</p>}
-            {!authoringOpen && (
+            {!authoringOpen && (section === 'overview' || section === 'waves' || section === 'changes') && (
               <div className="detail-graph-head">
                 {/* 명령이 도는 동안 이 줄은 남지만(authoringOpen 의 주석), 그 동안 Task 를 짓기
                     시작하면 폼이 열리며 줄이 사라지고 도는 명령의 결과를 아무도 보지 못한다 —
                     실행·병합이 busy 를 잠그는 것과 같은 이유다. */}
+                {section === 'waves' && (
                 <button
                   className="jobs-new"
                   disabled={lockedReason !== undefined || busy !== null}
@@ -896,11 +1029,12 @@ export function RunDetail({
                 >
                   + {t('jobs.task.new')}
                 </button>
+                )}
                 {/* Task 를 다 짜고 누르는 버튼. **Task 가 없으면 잠근다** — 빈 Run 을 시작하면
                     pendingStart 만 걷히고 아무 일도 일어나지 않아, 눌렀는데 아무 반응이 없는
                     자리가 된다. 누르면 게이트가 걷히고 이 버튼도 사라진다(run.pendingStart 가
                     조건이다). */}
-                {run?.pendingStart && (
+                {section === 'overview' && run?.pendingStart && (
                   <button
                     className="jobs-new primary"
                     disabled={lockedReason !== undefined || busy === RUN_START || tasks.length === 0}
@@ -926,7 +1060,8 @@ export function RunDetail({
                 {/* 워커의 일을 프로젝트 폴더로 가져오는 자리. **예약 템플릿에는 없다** — 템플릿은
                     돌지 않으므로 합칠 것이 없다(회차의 워크트리는 완료되면 앱이 걷는다). 워크트리를
                     쓰지 않은 Run 에도 없다 — 삭제 모달의 병합 체크박스와 같은 근거를 쓴다. */}
-                {run !== undefined &&
+                {section !== 'waves' &&
+                  run !== undefined &&
                   run.schedule === undefined &&
                   (run.worktrees ?? []).length > 0 && (
                     <button
@@ -939,12 +1074,14 @@ export function RunDetail({
                     </button>
                   )}
                 {/* W2-D: the plan's one pull request, beside the local Merge, which stays */}
-                {run?.pr && <RunPrChip pr={run.pr} />}
+                {section !== 'waves' && run?.pr && <RunPrChip pr={run.pr} />}
               </div>
             )}
-            {view === 'files' ? (
+            {/* W9-C Changes: what the whole plan changed, from git where it runs (Phase 10) */}
+            {section === 'changes' && <ChangedFilesBlock door={door} runId={runId} />}
+            {section === 'files' ? (
               <PlanFiles tasks={tasks} onOpenPath={onOpenPath} onSelect={onNodeClick} />
-            ) : view === 'board' ? (
+            ) : section !== 'waves' ? null : view === 'board' ? (
               <TaskBoard
                 tasks={tasks}
                 accounts={accounts}
@@ -995,6 +1132,7 @@ export function RunDetail({
             />
             )}
           </div>
+          {eventsShown && (
           <div className="detail-events">
             {authoring ? (
               // **계정을 provider 로 걸러 보내지 않는다** — 이 폼에서 고른 첫 계정이 provider 를
@@ -1112,7 +1250,8 @@ export function RunDetail({
                 )}
                 {/* What the Task, or with none chosen the whole Run, changed (Phase 10): from git where the Run lives,
                     beside what its workers reported. */}
-                <ChangedFilesBlock door={door} runId={runId} {...(selectedTask ? { taskId: selectedTask.id } : {})} />
+                {/* W9-C: the whole plan's changes are the Changes section; the picked Task's stay here */}
+                {selectedTask && <ChangedFilesBlock door={door} runId={runId} taskId={selectedTask.id} />}
                 <JournalBusy journal={detail?.journal} />
                 <div className="detail-list">
                   {/* 목록은 오래된 것이 위다 — 더 오래된 저널 줄을 부르는 자리도 맨 위다 */}
@@ -1228,8 +1367,8 @@ export function RunDetail({
               </>
             )}
           </div>
+          )}
         </div>
-      </div>
     </div>
   )
 }

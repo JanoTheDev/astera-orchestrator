@@ -5,27 +5,31 @@ import type { PageId } from '../../../core/ui/pages'
 import { sessionTab } from '../../../core/panes/tabId'
 import { registerNavigation } from '../components/shell/navigation'
 import type { AppState } from './appState'
+import { planSectionOf } from '../components/plan/planBoard'
 
 type NavigationDeps = Pick<
   AppState,
   | 'sidebarOpen' | 'sidebarPane' | 'toggleSidebar' | 'showExplorer' | 'setShowSettings' | 'setSettingsTab' | 'setRunPanelOpen'
   | 'canOpenSessionTab' | 'setWorkspaceScope' | 'selectWorkbenchTab' | 'workspaceTree' | 'enterWorkspace' | 'setJobsOpen'
-  | 'setPendingRun'
+  | 'setPendingRun' | 'setPlanPage'
 >
 
 export function useNavigation(app: NavigationDeps): void {
   useEffect(() => {
     const {
       sidebarOpen, sidebarPane, toggleSidebar, showExplorer, setShowSettings, setSettingsTab, setRunPanelOpen,
-      canOpenSessionTab, setWorkspaceScope, selectWorkbenchTab, workspaceTree, enterWorkspace, setJobsOpen, setPendingRun
+      canOpenSessionTab, setWorkspaceScope, selectWorkbenchTab, workspaceTree, enterWorkspace, setJobsOpen, setPendingRun,
+      setPlanPage
     } = app
     // Shows a sidebar view; the rail's toggle would fold the sidebar when that view is already showing.
     const showView = (view: 'jobs' | 'understanding' | 'sessions'): void => {
       if (!(sidebarOpen && sidebarPane === view)) toggleSidebar(view)
     }
     const openPage = (id: PageId): void => {
+      // W9-C: Tasks and Plans are pages; any other page leaves them (settings is still a modal over them)
+      if (id === 'plans' || id === 'tasks') return setPlanPage({ page: id })
+      if (id !== 'settings') setPlanPage(null)
       if (id === 'files') showExplorer()
-      else if (id === 'plans' || id === 'tasks') showView('jobs')
       else if (id === 'more:hiw') showView('understanding')
       else if (id === 'settings') setShowSettings(true)
       else if (id === 'more:runs') setRunPanelOpen(true)
@@ -38,15 +42,17 @@ export function useNavigation(app: NavigationDeps): void {
       // the same path the workspace tree's session rows take
       openConsole: (sessionId) => {
         if (!canOpenSessionTab(sessionId)) return
+        setPlanPage(null) // W9-C
         setWorkspaceScope(null, null)
         selectWorkbenchTab(sessionTab(sessionId))
       },
-      // the same path the workspace tree's escalation row takes (W7-C); `section` has no target yet
-      openPlan: (jobId) => {
+      // the same path the workspace tree's escalation row takes (W7-C), onto the plan page (W9-C) at `section`
+      openPlan: (jobId, section) => {
         const project = workspaceTree.find((p) => p.plans.some((plan) => plan.jobId === jobId))
         if (!project) return
         enterWorkspace(project.id, jobId)
         setJobsOpen(true)
+        setPlanPage({ page: 'plans', ...(section !== undefined ? { section: planSectionOf(section) } : {}) })
         setPendingRun({ projectPath: project.path, runId: jobId })
       },
       // needs-input shows as escalation rows in the session list's workspace tree; no filter yet

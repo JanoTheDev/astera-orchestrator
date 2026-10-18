@@ -22,6 +22,9 @@ import { Content } from './components/shell/Content'
 import { StatusBar } from './components/shell/StatusBar'
 import { Overlays } from './components/shell/Overlays'
 import { Titlebar } from './components/shell/Titlebar'
+// W9-C Tasks and Plans pages
+import { PlansPage, usePlanPages } from './components/pages/PlansPage'
+import { TasksPage } from './components/pages/TasksPage'
 
 sessionBus.init()
 
@@ -39,6 +42,7 @@ export default function App(): React.JSX.Element {
   })
   const fromRunPanel = useRunPanel()
   const fromJobs = useJobs({ ...fromLayout, ...fromHost, ...fromWorkbenchState, ...fromWorkbench, ...fromRunPanel })
+  const fromPlanPages = usePlanPages(fromJobs) // W9-C
   const fromViews = useViews({
     ...fromLayout, ...fromSidebar, ...fromSettings, ...fromWorkbenchState, ...fromWorkbench, ...fromRunPanel,
     ...fromJobs
@@ -49,7 +53,7 @@ export default function App(): React.JSX.Element {
   })
   const fromLiveData = useLiveData({
     ...fromLayout, ...fromSidebar, ...fromWorkbenchState, ...fromWorkbench, ...fromRunPanel, ...fromJobs,
-    ...fromViews, ...fromWorkspace
+    ...fromViews, ...fromWorkspace, ...fromPlanPages
   })
   const fromRunActions = useRunActions({
     ...fromLayout, ...fromWorkbenchState, ...fromWorkbench, ...fromRunPanel, ...fromJobs, ...fromWorkspace
@@ -57,7 +61,7 @@ export default function App(): React.JSX.Element {
   const app = {
     ...fromLayout, ...fromHost, ...fromSidebar, ...fromSettings, ...fromWorkbenchState, ...fromDialogs,
     ...fromWorkbench, ...fromRunPanel, ...fromJobs, ...fromViews, ...fromWorkspace, ...fromLiveData,
-    ...fromRunActions
+    ...fromRunActions, ...fromPlanPages
   }
   const {
     activeRuns, applyRunSelection, campaign, cliInstalled, currentProject, installUpdate, isMax, openRunManager,
@@ -154,6 +158,9 @@ export default function App(): React.JSX.Element {
         <Rail {...app} />
         <Sidebar {...app} />
         <Content {...app} />
+        {/* W9-C: the Tasks and Plans pages cover Content (plan.css) and leave it mounted, until W9-B's page switch */}
+        {app.planPage?.page === 'plans' && <PlansPage {...app} />}
+        {app.planPage?.page === 'tasks' && <TasksPage {...app} />}
       </div>
       <StatusBar {...app} />
       <Overlays {...app} />

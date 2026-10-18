@@ -21,6 +21,7 @@ import type { useViews } from './useViews'
 import type { useJobs } from './useJobs'
 import type { useWorkbenchState } from './useWorkbenchState'
 import type { useSidebar } from './useSidebar'
+import type { usePlanPages } from '../components/pages/PlansPage' // W9-C
 /** How often a paired Runtime's Jobs are asked again while its view is open: it pushes nothing to this app yet. */
 const REMOTE_JOBS_POLL_MS = 5_000
 /** Where a Runtime that has not yet answered starts: its Jobs in folders that are no project (review I3). */
@@ -49,9 +50,12 @@ export type LiveDataDeps = Pick<ReturnType<typeof useLayout>,
     'setAgentPointer' | 'setOpenTasks' | 'setSessionTasksSeq' | 'setUnderstanding' | 'setUnderstandingSeq' |
     'understandingSeq'> &
   Pick<ReturnType<typeof useSidebar>,
-    'sidebarOpen' | 'sidebarOpenRef'>
+    'sidebarOpen' | 'sidebarOpenRef'> &
+  // W9-C: the Tasks and Plans pages read the same snapshot
+  Pick<ReturnType<typeof usePlanPages>, 'planPage'>
 
 export function useLiveData(deps: LiveDataDeps) {
+  const { planPage } = deps
   const {
     activeTab, applyRunSelection, bottomRoot, closeAgentTabRef, completeOpenTask, currentProject, currentProjectRef,
     hiwOpen, hostDriver, jobsOpen, jobsOpenRef, jobsRuntime, jobsRuntimeRef, mirrorsRef, openAgentTabRef,
@@ -241,7 +245,8 @@ export function useLiveData(deps: LiveDataDeps) {
     // and main goes on folding a snapshot on every orchestration write — inside the awaited setState,
     // i.e. in the CLI request's critical path — and pushing it to a component that is not mounted.
     // The third teardown trigger, after unmount and orch.unwatch.
-    if (!jobsOpen || !sidebarOpen || !currentProject) return
+    // W9-C: or a Tasks/Plans page shows it
+    if (!((jobsOpen && sidebarOpen) || planPage) || !currentProject) return
     let cancelled = false
     void window.api.orch.list(currentProject).then((snapshot) => {
       if (cancelled) return
@@ -256,7 +261,7 @@ export function useLiveData(deps: LiveDataDeps) {
       off()
       void window.api.orch.unwatch()
     }
-  }, [jobsOpen, sidebarOpen, currentProject])
+  }, [jobsOpen, sidebarOpen, currentProject, !!planPage])
 
   // **The paired Runtimes, read each time the Jobs view opens** (Phase 6): Settings may have paired or removed one.
   useEffect(() => {

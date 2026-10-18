@@ -2,7 +2,7 @@
 // the reasons themselves are core's (core/orchestration/blocked.ts), folded into the snapshot.
 import type { MessageKey, MessageParams } from '../../../../core/i18n'
 import type { ActivityEvent } from '../../../../core/orchestration/activity'
-import type { JobEvent, JobTask, SessionInfo, TaskBlockedReason, TaskCategory } from '../../../../core/types'
+import type { JobEvent, JobRow, JobTask, SessionInfo, TaskBlockedReason, TaskCategory } from '../../../../core/types'
 import { formatElapsed, formatRemaining } from '../../../../core/orchestration/elapsed'
 import { pickTaskProvider, resolveWorkerModel, type RoleModelSettings } from '../../../../core/orchestration/roleModels'
 import type { Account } from '../../../../core/types'
@@ -294,3 +294,112 @@ export function cardModelOf(tk: JobTask, settings: RoleModelSettings, accounts: 
 
 /** The i18n key for "N questions answered": singular for 1. */
 export const answersKey = (n: number): 'plan.card.answers' | 'plan.card.answers.one' => (n === 1 ? 'plan.card.answers.one' : 'plan.card.answers')
+
+// ── W9-C Tasks page, Plans page, plan page ──────────────────────────────────────────────────────────────────────────────
+
+/** The Tasks page's five columns, in the order they stand (DESIGN.md §2 "Tasks"). */
+export const TASK_COLUMNS = ['planned', 'working', 'needs-you', 'review', 'done'] as const
+export type TaskColumn = (typeof TASK_COLUMNS)[number]
+
+/** Reasons only the owner can clear. A plan waiting for approval is not here: its Tasks are planned, and the approval
+ *  itself is the Inbox's card (W9-D). */
+const NEEDS_YOU_REASONS: ReadonlySet<TaskBlockedReason['kind']> = new Set(['gate', 'no-account', 'stopped', 'failure-limit', 'failed-retry'])
+
+/** The column of one Task. `session` is the Host's word on its worker (a permission or question prompt needs the owner);
+ *  `asked` says an ask or escalation of it waits on the owner (questions-list). */
+export function taskColumnOf(task: JobTask, session?: LiveSession, asked = false): TaskColumn {
+  const c = categoryOf(task)
+  if (c === 'done' || c === 'cancelled') return 'done'
+  if (c === 'failed' || asked || session?.prompt !== undefined || task.gate !== undefined) return 'needs-you'
+  if (task.board?.reason && NEEDS_YOU_REASONS.has(task.board.reason.kind)) return 'needs-you'
+  if (c === 'awaiting-review') return 'review'
+  if (c === 'running') return 'working'
+  return 'planned'
+}
+
+/** The plan page's sections, in their segmented order (DESIGN.md §2 "Plan page"). */
+export const PLAN_SECTIONS = ['overview', 'waves', 'files', 'changes', 'journal'] as const
+export type PlanSection = (typeof PLAN_SECTIONS)[number]
+
+/** A section named by `openPlan(jobId, section?)` or read back from storage; anything else is the default. Old names
+ *  from before W9-C (the RunDetail views and the navigation test's `tasks`) map onto their new home. */
+export function planSectionOf(v: unknown): PlanSection {
+  if (typeof v !== 'string') return 'overview'
+  if ((PLAN_SECTIONS as readonly string[]).includes(v)) return v as PlanSection
+  if (v === 'board' || v === 'graph' || v === 'tasks') return 'waves'
+  return 'overview'
+}
+
+/** Where a Task card goes on a click (DESIGN.md §2 "Tasks"). */
+export type TaskClick =
+  | { kind: 'console'; sessionId: string }
+  | { kind: 'inbox'; filter: string }
+  | { kind: 'plan'; jobId: string; section: PlanSection }
+
+/** Working or in review → its console; needs you → its Inbox card; planned → its plan's Waves; done → its summary.
+ *  A Task whose console is gone falls back to its plan's Waves, where the card still is. */
+export function taskClickOf(column: TaskColumn, task: JobTask, jobId: string, canOpenSession: (id: string) => boolean): TaskClick {
+  if ((column === 'working' || column === 'review') && task.sessionId && canOpenSession(task.sessionId))
+    return { kind: 'console', sessionId: task.sessionId }
+  if (column === 'needs-you') return { kind: 'inbox', filter: task.id }
+  // shortcut: done opens the plan's Waves card until W9-I's summary card has its own place; wire W9-I after merge
+  return { kind: 'plan', jobId, section: 'waves' }
+}
+
+/** Done keeps the last this-many per plan on the Tasks page; older ones are under the plan's page. */
+export const DONE_PER_PLAN = 20
+
+/** A plan's place in the Plans list (DESIGN.md §2): running, awaiting approval, queued, then delivered and archived. */
+export function planRankOf(row: JobRow): number {
+  if (row.archivedAt !== undefined) return 4
+  if (row.pendingStart) return row.after !== undefined ? 2 : 1
+  return row.outcome === 'running' ? 0 : 3
+}
+
+/** The Plans list in that order; within a rank the snapshot's own order (newest first) stays (stable sort). */
+export const planListOrder = (rows: readonly JobRow[]): JobRow[] => [...rows].sort((a, b) => planRankOf(a) - planRankOf(b))
+
+/** A path's top folder for the area heads and the Overlap table: its first two segments (`src/api`), or the file. */
+export function topFolderOf(path: string): string {
+  const parts = path.replace(/^\.?\//, '').split('/').filter(Boolean)
+  return parts.length <= 2 ? parts.slice(0, -1).join('/') || parts.join('/') : parts.slice(0, 2).join('/')
+}
+
+const foldersOf = (row: JobRow): string[] =>
+  [...new Set(row.tasks.flatMap((t) => (t.affectedPaths ?? []).map(topFolderOf)))].sort((a, b) => a.localeCompare(b))
+
+/** "By area": plans grouped under their areas (Job.areas), each group with its folders. A plan in two areas is under
+ *  both; one with none is in the `''` group, last. Groups are sorted by name and keep the list order inside. */
+export function areaGroupsOf(rows: readonly JobRow[]): { area: string; folders: string[]; rows: JobRow[] }[] {
+  const by = new Map<string, JobRow[]>()
+  for (const r of planListOrder(rows)) for (const a of r.areas?.length ? r.areas : ['']) by.set(a, [...(by.get(a) ?? []), r])
+  return [...by]
+    .sort(([a], [b]) => (a === '' ? 1 : b === '' ? -1 : a.localeCompare(b)))
+    .map(([area, rs]) => ({ area, folders: [...new Set(rs.flatMap(foldersOf))].sort((a, b) => a.localeCompare(b)), rows: rs }))
+}
+
+/** One cell of the Overlap table: what the plan does in that folder. */
+export type OverlapCell = { kind: 'editing'; task: string } | { kind: 'planned' } | { kind: 'done' } | null
+
+/** "Overlap": plans × top folders. A cell is the plan's busiest state there: a Task working ("T6 editing"), else one
+ *  still to come, else done. `shared` are the folders two or more plans still have work in. Archived plans are left
+ *  out; folders are the `maxFolders` most touched. */
+export function overlapTableOf(
+  rows: readonly JobRow[],
+  maxFolders = 12
+): { folders: string[]; shared: Set<string>; rows: { row: JobRow; cells: OverlapCell[] }[] } {
+  const live = planListOrder(rows).filter((r) => r.archivedAt === undefined)
+  const touch = new Map<string, number>()
+  for (const r of live) for (const f of foldersOf(r)) touch.set(f, (touch.get(f) ?? 0) + 1)
+  const folders = [...touch].sort(([a, n], [b, m]) => m - n || a.localeCompare(b)).slice(0, maxFolders).map(([f]) => f).sort((a, b) => a.localeCompare(b))
+  const cellOf = (r: JobRow, folder: string): OverlapCell => {
+    const here = r.tasks.filter((t) => (t.affectedPaths ?? []).some((p) => topFolderOf(p) === folder))
+    if (here.length === 0) return null
+    const working = here.find((t) => categoryOf(t) === 'running')
+    if (working) return { kind: 'editing', task: working.title }
+    return here.every((t) => categoryOf(t) === 'done' || categoryOf(t) === 'cancelled') ? { kind: 'done' } : { kind: 'planned' }
+  }
+  const table = live.map((row) => ({ row, cells: folders.map((f) => cellOf(row, f)) }))
+  const shared = new Set(folders.filter((_, i) => table.filter((t) => t.cells[i] !== null && t.cells[i]?.kind !== 'done').length >= 2))
+  return { folders, shared, rows: table }
+}

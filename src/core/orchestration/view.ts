@@ -457,6 +457,11 @@ export function snapshotFor(
       ...(job.dispatchHold ? { dispatchHold: true as const } : {}),
       // W8-D: the plan's overlaps with the other plans of its project, as lines
       ...(job.overlaps?.length ? { overlaps: overlapLines(state, job) } : {}),
+      // W9-C Plans page: "By area", "overlaps <plan>", "starts after X" and the row's age
+      ...(job.overlaps?.length ? { overlapPlans: [...new Set(job.overlaps.map((o) => o.jobId))] } : {}),
+      ...(job.areas?.length ? { areas: job.areas } : {}),
+      ...(job.after !== undefined ? { after: job.after } : {}),
+      createdAt: job.createdAt,
       // W2-D: the plan's pull request, on the row of the Run that opened it
       ...(run?.pr ? { pr: run.pr } : {}),
       ...(run === undefined && job.schedule && nextFireOf(job.id) !== null

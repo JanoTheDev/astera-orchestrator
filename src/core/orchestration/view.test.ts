@@ -228,6 +228,8 @@ describe('snapshotFor', () => {
         // 줄의 id 는 계획의 것이고, fireOrdinal 은 그 줄이 보여 주는 회차의 번호다
         id: 'job_r1', fireOrdinal: 1, foldedRunId: 'r1', objective: 'objective r1', outcome: 'running', done: 1, total: 2, eventCount: 3,
         concurrency: undefined, sharesProjectFolder: false,
+        // W9-C: the Job's age, on its row
+        createdAt: '2026-08-18T00:00:00.000Z',
         tasks: [
           { id: 't1', title: 'task t1', status: 'completed', sessionId: undefined, gateQuestion: undefined, openGates: 0, board: { category: 'done' } },
           // W2-C: a legacy Task has no account, so the board says that is why it waits

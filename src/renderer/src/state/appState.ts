@@ -12,6 +12,7 @@ import type { useViews } from './useViews'
 import type { useWorkspace } from './useWorkspace'
 import type { useLiveData } from './useLiveData'
 import type { useRunActions } from './useRunActions'
+import type { usePlanPages } from '../components/pages/PlansPage' // W9-C
 
 export type AppState = ReturnType<typeof useLayout> &
   ReturnType<typeof useHost> &
@@ -25,4 +26,5 @@ export type AppState = ReturnType<typeof useLayout> &
   ReturnType<typeof useViews> &
   ReturnType<typeof useWorkspace> &
   ReturnType<typeof useLiveData> &
-  ReturnType<typeof useRunActions>
+  ReturnType<typeof useRunActions> &
+  ReturnType<typeof usePlanPages>
