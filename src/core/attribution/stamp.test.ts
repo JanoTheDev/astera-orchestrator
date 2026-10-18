@@ -130,6 +130,29 @@ describe('stampCommits', () => {
     }
   })
 
+  it('with no checkpoint data, an in-window AI commit (a deletion-only one too) keeps exactly today\'s note', async () => {
+    const repo = await makeRepo()
+    const profile = await fs.mkdtemp(path.join(os.tmpdir(), 'astera-stamp-profile-'))
+    try {
+      const base = gitSync(repo, ['rev-parse', 'HEAD'])
+      gitSync(repo, ['checkout', '-b', 'task'])
+      const added = await commitAt(repo, 'a.txt', 'one\ntwo\n', T0)
+      const deleted = await commitAt(repo, 'a.txt', 'one\n', T0 + 1)
+      const windows = busyWindowsOf([line('UserPromptSubmit', T0 * 1000 - 500), line('Stop', T0 * 1000 + 30_000)])
+
+      const stamped = await stampCommits({ cwd: repo, base, identity: WHO, windows, profileDir: profile })
+
+      expect(stamped).toEqual([
+        { sha: added, kind: 'ai' },
+        { sha: deleted, kind: 'ai' }
+      ])
+      expect(await readNote(repo, added)).toEqual({ v: 1, tool: 'astera', ...WHO })
+      expect(await readNote(repo, deleted)).toEqual({ v: 1, tool: 'astera', ...WHO })
+    } finally {
+      await fs.rm(profile, { recursive: true, force: true })
+    }
+  })
+
   it('skips a dependency merged in: only the first-parent commits of the attempt are its own', async () => {
     const repo = await makeRepo()
     const base = gitSync(repo, ['rev-parse', 'HEAD'])

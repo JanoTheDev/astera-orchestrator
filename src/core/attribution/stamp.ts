@@ -71,21 +71,22 @@ export function commitKind(ms: number, author: string, windows: readonly BusyWin
 }
 
 /**
- * The line data of one commit (lines.ts), spread into its note: `session`, `lines` and `human`, only those present.
- * A failure is logged and answers nothing, so the note is written without line data.
+ * The line data of one commit (lines.ts), spread into its note: `session` and `lines`, only those present. `human` is not
+ * taken from it: linesForCommit answers human for any commit with no AI line (a deletion, or no checkpoint at all), which
+ * would overrule the stamp's own classification (`commitKind`). A failure is logged and answers nothing, so the note is
+ * written without line data.
  */
 async function lineDataOf(
   a: { cwd: string; profileDir?: string; windows: readonly BusyWindow[]; identity: StampIdentity; log?: (msg: string) => void; run: GitRun },
   sha: string
-): Promise<Partial<Pick<AttributionNote, 'session' | 'lines' | 'human'>>> {
+): Promise<Partial<Pick<AttributionNote, 'session' | 'lines'>>> {
   if (a.profileDir === undefined) return {}
   try {
     const busy = a.windows.map((w) => ({ session: a.identity.session, from: w.start, to: w.end }))
     const r = await linesForCommit({ repo: a.cwd, sha, profileDir: a.profileDir, busy, run: a.run })
     return {
       ...(r.session !== undefined ? { session: r.session } : {}),
-      ...(r.lines !== undefined ? { lines: r.lines } : {}),
-      ...(r.human ? { human: true as const } : {})
+      ...(r.lines !== undefined ? { lines: r.lines } : {})
     }
   } catch (e) {
     a.log?.(`stamp ${sha}: line attribution failed, noted without line data: ${String(e)}`)
