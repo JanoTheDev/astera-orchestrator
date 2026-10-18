@@ -98,6 +98,12 @@ worker starts, and opens a **fresh** planner session with a replan brief. Once t
 session runs once more as the **final check**. Turn it off per Job with `--replan off` (`jobs create` / `jobs plan`) or
 the "Replan between waves" box.
 
+Astera starts a wave replan only when the wave did not go as planned: a Task failed, needed more than one review round,
+changed files outside its affected paths, was let through by a person, or the owner sent feedback. Otherwise it skips you
+and the next wave starts. When you are started, your brief is **focused**: it lists only the Tasks that deviated and the
+not-started Tasks they can affect (by dependency or shared paths). Read those, not the whole plan. The final check and
+owner feedback always get the full brief.
+
 Your brief lists, for every completed Task, its worker's report, its review and the files it changed, then what is
 running and what is left. Read the changed code (`astera runs-changed-files --id <runId> --task <taskId> --json`, then
 the files) before you change anything.

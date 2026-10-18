@@ -9,8 +9,9 @@
 //
 // Pure: no clock, no files, and renderer-safe (tsconfig.web.json lists it): what needs the planner's rules
 // (`replanRefusal`, `replanProblems`, `replanSummary`) is in exec/replanStart.ts.
+import { reviewRoundIn } from './convergence'
 import { layersOf } from './graph'
-import { jobActive } from './schedule'
+import { jobActive, pathsOverlap } from './schedule'
 import { jobOf, type OrchState, type PlanFields, type Res } from './state'
 import type { Job, ReplanMark, Task } from './types'
 
@@ -77,6 +78,43 @@ export const notStarted = (s: OrchState, t: Task): boolean =>
   (t.status === 'pending' || t.status === 'ready' || t.status === 'blocked') && !s.dispatches.some((d) => d.taskId === t.id)
 
 const completedIn = (ts: readonly Task[]): number => ts.filter((t) => t.status === 'completed').length
+
+/** Whether a completed Task went as planned, from Host state only: it never failed, needed one review round at most,
+ *  was not let through by a person, and touched files only inside its affected paths (no paths: nothing to leave). */
+const wentAsPlanned = (s: OrchState, t: Task): boolean =>
+  t.consecutiveFailures === 0 &&
+  t.completionOverride === undefined &&
+  reviewRoundIn(s.dispatches.filter((d) => d.taskId === t.id)) <= 1 &&
+  (t.filesModified ?? []).every((f) => !t.affectedPaths?.length || t.affectedPaths.some((p) => pathsOverlap(f, p)))
+
+/** The Tasks a wave replan has to look at: those of a lower wave, finished since this Run's last replan, that did not go
+ *  as planned. Owner feedback not yet answered by a replan counts as a deviation of the whole plan (all done Tasks). */
+export function deviatingTasks(s: OrchState, job: Job, mark: ReplanMark): Task[] {
+  const since = job.lastReplan?.runId === mark.runId ? job.lastReplan.at : ''
+  const done = runTasks(s, mark.runId).filter((t) => t.status === 'completed' && waveOf(t, s.tasks) < mark.wave)
+  if ((job.feedback ?? []).some((f) => f.phase === 'run' && f.changes === undefined)) return done
+  return done.filter((t) => t.updatedAt > since && !wentAsPlanned(s, t))
+}
+
+/** The not-started Tasks `deviating` can affect: waiting on one of them (or on a Task so affected), or sharing paths
+ *  with what one planned or changed. */
+export function affectedLeft(deviating: readonly Task[], left: readonly Task[]): Task[] {
+  const paths = deviating.flatMap((t) => [...(t.affectedPaths ?? []), ...(t.filesModified ?? [])])
+  const hit = new Set<string>(deviating.map((t) => t.id))
+  const out = new Set<string>()
+  for (let grew = true; grew; ) {
+    grew = false
+    for (const t of left) {
+      if (out.has(t.id)) continue
+      if (t.deps.some((d) => hit.has(d)) || (t.affectedPaths ?? []).some((p) => paths.some((q) => pathsOverlap(p, q)))) {
+        out.add(t.id)
+        hit.add(t.id)
+        grew = true
+      }
+    }
+  }
+  return left.filter((t) => out.has(t.id))
+}
 
 /**
  * The replans the driving loop should start now, one per Run at most:

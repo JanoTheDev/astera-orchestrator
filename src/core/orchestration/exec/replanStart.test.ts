@@ -62,7 +62,7 @@ const plan = (title: string, extra: Record<string, unknown> = {}) => ({
 })
 
 /** A planned Job with A ← B ← C, approved, its Run running; A has completed with a report and a passed review. */
-const approved = async (r: Rig, job: Record<string, unknown> = {}) => {
+const approved = async (r: Rig, job: Record<string, unknown> = {}, asPlanned = false) => {
   const made = await r.person('run-create', { objective: 'ship the feature', cwd: '/repo', coordinatorAccount: 'acc1', auto: true, ...job })
   const jobId = (made.body as { id: string }).id
   expect((await r.person('jobs-plan', { id: jobId })).status).toBe(200)
@@ -77,7 +77,7 @@ const approved = async (r: Rig, job: Record<string, unknown> = {}) => {
     ...s,
     tasks: s.tasks.map((t) =>
       t.runId === runId && t.title === 'A'
-        ? { ...t, status: 'completed' as const, result: 'built A in src/A.ts', filesModified: ['src/A.ts'], reviewRequested: true, reviewIssues: [] }
+        ? { ...t, status: 'completed' as const, result: 'built A in src/A.ts', filesModified: ['src/A.ts'], reviewRequested: true, reviewIssues: [], consecutiveFailures: asPlanned ? 0 : 1 }
         : t.runId === runId && t.title === 'B'
           ? { ...t, status: 'ready' as const }
           : t
@@ -109,6 +109,55 @@ describe('jobs-replan', () => {
     expect(brief).toContain(`${id('B')} (B)`)
     expect(brief).toContain(`--run ${runId}`)
     expect(deriveActivity(before, r.state()).map((e) => e.type)).toContain('plan.replanning')
+  })
+
+  it('skips the planner when the wave went as planned, and says so in the feed', async () => {
+    const r = rig()
+    const { jobId, runId } = await approved(r, {}, true)
+    const before = r.state()
+    const res = await r.person('jobs-replan', { id: jobId, run: runId, mode: 'wave', wave: 1 })
+    expect(res.body).toMatchObject({ skipped: true })
+    expect(r.starts.filter((s) => s.role === 'planner')).toHaveLength(1)
+    expect(job(r).replanning).toBeUndefined()
+    expect(job(r).dispatchHold).toBeUndefined()
+    expect(job(r).lastReplan).toMatchObject({ runId, mode: 'wave', wave: 1, summary: 'Replan skipped: wave 1 went as planned' })
+    const feed = deriveActivity(before, r.state())
+    expect(feed.map((e) => e.type)).not.toContain('plan.replanning')
+    expect(JSON.stringify(feed)).toContain('Replan skipped: wave 1 went as planned')
+    expect(replansDue(r.state(), () => true)).toEqual([])
+  })
+
+  it('briefs only the deviating Task and what it can affect', async () => {
+    const r = rig()
+    const { jobId, runId, id } = await approved(r, {}, true)
+    const s = r.state()
+    // a second wave-0 Task D (completed, as planned) with its own path, and an unrelated not-started E
+    const planner = r.as('ses-planner-1')
+    const d = (await planner('task-create', { run: jobId, ...plan('D') })).body as Task
+    const e = (await planner('task-create', { run: jobId, ...plan('E') })).body as Task
+    r.set({
+      ...r.state(),
+      tasks: r.state().tasks.map((t) =>
+        t.id === d.id ? { ...t, status: 'completed' as const, result: 'built D', filesModified: ['src/D.ts'], consecutiveFailures: 0 } : t.id === id('A') ? { ...t, filesModified: ['src/elsewhere.ts'] } : t
+      )
+    })
+    expect(s.tasks.length).toBeLessThan(r.state().tasks.length)
+    await r.person('jobs-replan', { id: jobId, run: runId, mode: 'wave', wave: 1 })
+    const brief = r.starts.at(-1)!.brief as string
+    expect(brief).toContain(`${id('A')} (A)`)
+    expect(brief).not.toContain(`${d.id} (D)`)
+    expect(brief).toContain(`${id('B')} (B)`)
+    expect(brief).toContain(`${id('C')} (C)`)
+    expect(brief).not.toContain(`${e.id} (E)`)
+  })
+
+  it('still replans for owner feedback, with the wave as planned', async () => {
+    const r = rig()
+    const { jobId, runId } = await approved(r, {}, true)
+    const res = await r.person('jobs-replan', { id: jobId, run: runId, mode: 'wave', wave: 1, feedback: 'also add X' })
+    expect(res.status).toBe(200)
+    expect(res.body).not.toHaveProperty('skipped')
+    expect(job(r).replanning).toBeDefined()
   })
 
   it('is refused to an agent session, while one runs, and with replanning off', async () => {

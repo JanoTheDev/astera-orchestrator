@@ -2039,7 +2039,7 @@ describe('wave replanning (W6-D)', () => {
 
   it('holds the Job and starts a replan when the last Task of a wave completes, and starts no worker of the next', async () => {
     const h = rig()
-    planned(h, (t) => (t.id === 'tsk_1' ? { ...t, status: 'completed' } : t))
+    planned(h, (t) => (t.id === 'tsk_1' ? { ...t, status: 'completed', consecutiveFailures: 1 } : t))
     await h.loop.run()
     await h.settle()
     expect(h.handled()).toContain('jobs-replan')
@@ -2074,7 +2074,7 @@ describe('wave replanning (W6-D)', () => {
 
   it('ends a replan whose planner session is gone', async () => {
     const h = rig()
-    planned(h, (t) => (t.id === 'tsk_1' ? { ...t, status: 'completed' } : t))
+    planned(h, (t) => (t.id === 'tsk_1' ? { ...t, status: 'completed', consecutiveFailures: 1 } : t))
     await h.loop.run()
     await h.settle()
     h.ctx.sessionGone = () => true

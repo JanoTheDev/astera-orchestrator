@@ -11,7 +11,7 @@ import { otherPlansBrief } from '../overlap'
 import { collectChanges, rangesFor } from '../changedFiles'
 import type { OrchServerDeps } from '../command'
 import { PLANNER_COMMANDS, planFieldsFromArgs, validatePlan } from '../planner'
-import { REPLAN_FOLLOW_UPS_MAX, cancelRemainingTask, editRemainingTask, notStarted, replanAccountOf, replanJobOf, replanOn, runTasks } from '../replan'
+import { REPLAN_FOLLOW_UPS_MAX, affectedLeft, cancelRemainingTask, deviatingTasks, editRemainingTask, notStarted, replanAccountOf, replanJobOf, replanOn, runTasks } from '../replan'
 import { isIntegrationTask } from '../integrate'
 import { jobNameOf } from '../jobName'
 import type { OrchState } from '../state'
@@ -107,6 +107,8 @@ export function buildReplanBrief(a: {
   feedback?: string
   /** W8-D: the other plans of this repository and how far they got (overlap.ts `otherPlansBrief`). */
   otherPlans?: string
+  /** A wave replan that looks at the deviating Tasks only: `done` and `left` are already narrowed to them. */
+  focused?: true
 }): string {
   const reviewOf = (t: DoneTask['task']): string => {
     if (!t.reviewRequested) return 'not reviewed'
@@ -129,7 +131,7 @@ export function buildReplanBrief(a: {
     `- repository root: ${a.job.cwd}`,
     '',
     ...(a.job.verbatim !== undefined ? [...PROMPTS_MODE_FILL_IN, ''] : []),
-    'WHAT HAS BEEN DONE (completed Tasks)',
+    a.focused ? 'WHAT DEVIATED (completed Tasks that did not go as planned; every other completed Task did)' : 'WHAT HAS BEEN DONE (completed Tasks)',
     ...(a.done.length
       ? a.done.flatMap(({ task: t, changed }) => [
           `- ${t.id} (${t.title})`,
@@ -140,7 +142,7 @@ export function buildReplanBrief(a: {
       : ['- (none)']),
     ...(a.running.length ? ['', 'RUNNING NOW (leave these alone)', ...a.running.map((t) => `- ${t.id} (${t.title})`)] : []),
     '',
-    'WHAT IS LEFT (not started; these you may change)',
+    a.focused ? 'WHAT IS LEFT THAT THESE CAN AFFECT (not started; these you may change)' : 'WHAT IS LEFT (not started; these you may change)',
     ...(a.left.length
       ? a.left.map((t) => `- ${t.id} (${t.title})${t.deps.length ? ` waits for ${t.deps.join(', ')}` : ''}${t.affectedPaths?.length ? `; paths ${t.affectedPaths.join(', ')}` : ''}`)
       : ['- (nothing)']),
@@ -159,6 +161,7 @@ export function buildReplanBrief(a: {
       : []),
     'BEFORE YOU DECIDE',
     '- Read `$ASTERA_SKILLS/planner-guide.md`, section "Replanning". Read the code the done Tasks changed:',
+    ...(a.focused ? ['  Read only the Tasks listed here, not the whole plan; the rest is unchanged.'] : []),
     `  \`astera runs-changed-files --id ${a.runId} --task <taskId> --json\`, and the files themselves.`,
     '',
     'WHAT YOU MAY DO',
@@ -184,10 +187,10 @@ export function buildReplanBrief(a: {
 }
 
 /** The Job's Run and its Tasks split for the brief, with each completed Task's changed files read from git. */
-async function briefParts(deps: OrchServerDeps, s: OrchState, runId: string): Promise<Pick<Parameters<typeof buildReplanBrief>[0], 'done' | 'running' | 'left'>> {
+async function briefParts(deps: OrchServerDeps, s: OrchState, runId: string, only?: readonly Task[]): Promise<Pick<Parameters<typeof buildReplanBrief>[0], 'done' | 'running' | 'left'>> {
   const own = s.tasks.filter((t) => t.runId === runId && !isIntegrationTask(t))
   const done: DoneTask[] = []
-  for (const t of own.filter((x) => x.status === 'completed')) {
+  for (const t of own.filter((x) => x.status === 'completed' && (!only || only.some((o) => o.id === x.id)))) {
     let changed: string[] | null = null
     const found = deps.changes ? rangesFor(s, runId, t.id) : null
     if (deps.changes && found && found.parts.length > 0) {
@@ -196,10 +199,11 @@ async function briefParts(deps: OrchServerDeps, s: OrchState, runId: string): Pr
     }
     done.push({ task: t, changed })
   }
+  const left = own.filter((t) => notStarted(s, t))
   return {
     done,
     running: own.filter((t) => t.status !== 'completed' && !notStarted(s, t)),
-    left: own.filter((t) => notStarted(s, t))
+    left: only ? affectedLeft(only, left) : left
   }
 }
 
@@ -286,6 +290,15 @@ export async function replanCommand(deps: OrchServerDeps, caller: Caller, cmd: s
       wave: last?.wave ?? (typeof args.wave === 'number' ? args.wave : 0),
       done: last?.done ?? own.filter((t) => t.status === 'completed').length
     }
+    // A wave that went as planned needs no planner: record the boundary as replanned (which opens the wave) and move on.
+    // Feedback, the final check and a person's own ask (no wave given) always plan.
+    const deviating = feedback === undefined && mode === 'wave' && typeof args.wave === 'number' ? deviatingTasks(s, job, mark) : undefined
+    if (deviating?.length === 0) {
+      const summary = `Replan skipped: wave ${mark.wave} went as planned`
+      await setJob(jobId, (j) => ({ ...j, lastReplan: { ...mark, at: now, summary } }))
+      deps.log?.(`replan skipped job=${jobId} run=${runId} wave=${mark.wave}`)
+      return ok({ jobId, runId, mode, wave: mark.wave, skipped: true, summary })
+    }
     // The hold and the mark in one commit: from here no Task of the Job starts (waveOpen, dispatchHold).
     const before = Object.fromEntries(own.map((t) => [t.id, t.updatedAt]))
     await setJob(jobId, (j) => ({
@@ -296,7 +309,7 @@ export async function replanCommand(deps: OrchServerDeps, caller: Caller, cmd: s
     const accountId = replanAccountOf(job)!
     let sessionId: string
     try {
-      const parts = await briefParts(deps, deps.getState(), runId)
+      const parts = await briefParts(deps, deps.getState(), runId, deviating)
       sessionId = (
         await deps.startCoordinator({
           runId: jobId,
@@ -311,6 +324,7 @@ export async function replanCommand(deps: OrchServerDeps, caller: Caller, cmd: s
             accountId,
             followUps: job.replanFollowUps ?? 0,
             ...parts,
+            ...(deviating ? { focused: true as const } : {}),
             ...(feedback !== undefined ? { feedback } : {}),
             otherPlans: otherPlansBrief(deps.getState(), job)
           })
