@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { intakeChanges, intakeObjective, intakeOf, needsInputs, type Intake } from './intake'
+import { intakeChanges, intakeObjective, intakeOf, intakeTitle, needsInputs, type Intake } from './intake'
 
 const read = (args: Record<string, unknown>): Intake => {
   const r = intakeOf(args)
@@ -49,5 +49,27 @@ describe('intakeObjective', () => {
   it("puts the owner's instructions last, saying they win over the source", () => {
     const o = intakeObjective(read({ instructions: ' no new deps ' }), 'Do X')
     expect(o).toBe("Do X\n\nOwner's instructions (they win over the source when the two conflict):\nno new deps")
+  })
+})
+
+// W7-D (#68): a plan made from a source is named by it, never by the objective's boilerplate
+describe('intakeTitle', () => {
+  it("a fixlist is named by its first problem's words, its list marker dropped", () => {
+    expect(intakeTitle(read({ mode: 'fixlist' }), '\n1. login fails on Safari\n2. slow search', [])).toBe('login fails on Safari')
+    expect(intakeTitle(read({ mode: 'fixlist' }), '- price rounds wrong', [])).toBe('price rounds wrong')
+  })
+  it('a long first problem is cut at a word, under 80 characters', () => {
+    const t = intakeTitle(read({ mode: 'fixlist' }), `${'word '.repeat(40)}end`, [])!
+    expect(t.length).toBeLessThanOrEqual(80)
+    expect(t.endsWith('word…')).toBe(true)
+  })
+  it('an audit is "Audit <scope>"; files are named by their names', () => {
+    expect(intakeTitle(read({ mode: 'audit', scope: 'src/core' }), '', [])).toBe('Audit src/core')
+    expect(intakeTitle(read({ mode: 'audit' }), '', [])).toBe('Audit the whole repository')
+    expect(intakeTitle(read({ attach: ['/d/spec.pdf', '/d/notes.md'] }), '', ['spec.pdf', 'notes.md'])).toBe('spec.pdf, notes.md')
+    expect(intakeTitle(read({ mode: 'fixlist', attach: ['/d/bugs.pdf'] }), '', ['bugs.pdf'])).toBe('bugs.pdf')
+  })
+  it('a plain description needs no name: its objective is its own words', () => {
+    expect(intakeTitle(read({ instructions: 'x' }), 'Add dark mode', [])).toBeUndefined()
   })
 })
