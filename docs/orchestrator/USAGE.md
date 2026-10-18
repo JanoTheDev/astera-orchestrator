@@ -236,19 +236,20 @@ exit frees the slot.
   "Two Hosts on two profiles").
 - A worker never stops, restarts or `pkill`s the orchestrating app or its Host. Every worker's brief says so.
 
-**Wave 8 and Wave 9 as one plan.** In a terminal tab of the packaged Astera (its `astera` talks to that profile's
+**Waves 8, 9 and 10 as one plan.** In a terminal tab of the packaged Astera (its `astera` talks to that profile's
 Host), from `~/Desktop/Astera`:
 
 ```bash
 A=$(astera accounts list | jq -r '.data.accounts[0].id')
 J=$(astera jobs create --mode prompts --delivery pr --coordinator-account "$A" --concurrency 8 \
   $(printf -- '--attach %s ' docs/orchestrator/prompts/W8-{A,B,D,F,G}-*.md) \
-  $(printf -- '--attach %s ' docs/orchestrator/prompts/W9-{A,B,C,D,E,H,I,J,K,F,G}-*.md) | jq -r .data.id)
+  $(printf -- '--attach %s ' docs/orchestrator/prompts/W9-{A,B,C,D,E,H,I,J,K,F,G}-*.md) \
+  $(printf -- '--attach %s ' docs/orchestrator/prompts/W10-A-*.md) | jq -r .data.id)
 astera jobs plan --id "$J"
 ```
 
-W9-0 is marked done, so it needs no attachment. The order the planner gets is W8 (A, B, D, F, G in parallel), then
-W9-A alone, then W9-B, C, D, E, H, I, J, K in parallel, then W9-F, then W9-G. The plan starts without asking you, and
+W8-C, W8-E (wave 8.0) and W9-0 are marked done, so they need no attachment. The order the planner gets is W8 (A, B,
+D, F, G in parallel), then W9-A alone, then W9-B, C, D, E, H, I, J, K in parallel, then W9-F, then W9-G, then W10-A. The plan starts without asking you, and
 one draft PR follows it.
 
 **One plan per wave instead** (one PR per wave):

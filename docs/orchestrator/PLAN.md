@@ -55,13 +55,14 @@ starting the next wave. Each prompt owns its own files, which keeps conflicts to
 | 6 (done) | 8 | `W6-A-intake-and-github`, `W6-B-autopilot-answers-and-sound`, `W6-C-scheduler-guards`, `W6-D-wave-replanning`, `W6-E-progress-view`, `W6-F-project-workspaces`, `W6-G-usage-guards`, `W6-H-delivery-modes` (Autopilot, see below) | W5 merged, **including PR #57** |
 | 7 (done) | 6 | `W7-A-plan-feedback`, `W7-B-projects`, `W7-C-owner-answers-and-coordinator`, `W7-D-intake-names-and-concurrency`, `W7-E-planner-review-and-final-check`, `W7-F-tabs-accounts-and-sidebar` (W7-C..F: W6-V's issues #67–#84) | W6 merged |
 | 7V (done) | 1 | `W6-V-autopilot-dogfood.md`: the W6 half ran 2026-10-18 (LINUX.md "Autopilot dogfood (W6-V)"); the full re-run after W7 ran the same day (LINUX.md "Autopilot re-run (7V)", issues #92–#106) | W7 merged |
-| 8.0 | 2 | `W8-C-run-waves-in-astera`, `W8-E-coordinator-guards` (7V's #92 #95 #96 #99: the W8 Astera plan needs them); tabs, the last wave run by hand | 7V done |
+| 8.0 (done) | 2 | `W8-C-run-waves-in-astera`, `W8-E-coordinator-guards` (7V's #92 #95 #96 #99: the W8 Astera plan needs them); tabs, the last wave run by hand | 7V done |
 | 8 | 5 | `W8-A-commit-attribution`, `W8-B-line-attribution` (Who wrote this, see below), `W8-D-plans-side-by-side` (no overlapping work across plans), `W8-F-owner-talk-and-answers`, `W8-G-projects-and-delivery` (7V's #93 #94 #97 #98 #100, #101–#105), **run as one Astera plan** | W8-C and W8-E merged |
 | 9.0 (done) | 1 | `W9-0-design-spec` (owner approves the mockup before any code) | W8 merged |
 | 9.1 | 1 | `W9-A-foundation` (alone: tokens, primitives, shell split) | 9.0 approved |
 | 9.2 | 8 | `W9-B-shell-and-nav`, `W9-C-plan-tab`, `W9-D-inbox-and-command`, `W9-E-settings-and-dialogs`, `W9-H-agents-wall`, `W9-I-tab-summaries`, `W9-J-worktree-viewer`, `W9-K-window-per-project` | 9.1 merged |
 | 9.3 | 1 | `W9-F-polish-and-verify` | 9.2 merged |
 | 9.4 | 1 | `W9-G-readme-and-docs` | 9.3 merged |
+| 10 | 1 | `W10-A-run-by-name` (Run as written from typed names, no attaching; "next waves"), one Astera plan | W9 merged |
 
 `(done)` in the Wave cell means that wave is finished: "Run as written" (`astera jobs create --mode prompts`) skips the prompts of a done row and lists them in the approval as "already done".
 
@@ -117,6 +118,7 @@ starting the next wave. Each prompt owns its own files, which keeps conflicts to
 | W9-K | new `src/main/windows.ts`, `src/main/index.ts` window lifecycle (`mainWindow` → window set, `second-instance` argv, tray project list) | IPC push sites that targeted `mainWindow` (send to all windows), `components/workspace/ProjectSwitcher.tsx` ("Open in new window" item), keybindings, desktop file action, USAGE.md |
 | W9-F | any renderer file, for fixes found by the walk-through; each fix listed in the PR | — |
 | W9-G | `README.md`, deleted `README.{ko,ja,es}.md`, `docs/*.md` outside `docs/orchestrator`, new `docs/dev/` (wave prompts move here), `assets/*` screenshots, `package.json` `description` / `homepage` | `docs/orchestrator/USAGE.md` (becomes `docs/guide.md`) |
+| W10-A | `core/orchestration/intake.ts` (name resolution, prompts-folder detection), the Start page's source line and "Next waves" button | `types.ts` (project `promptsDir`), `command.ts` / `cliArgs.ts` / `cliUsage.ts` (`projects set --prompts-dir`), project settings page (one row), user guide |
 | W5-D | `activity.ts`, `components/activity/*`, `sessionIndex.ts`, `components/search/*`, `src/main/activityNotices.ts`, `src/main/remote/orchRouter.ts` | `src/host/index.ts`, `src/host/sessions.ts`, `src/main/ipc.ts`, `types.ts` |
 
 ## Wave 6 — Autopilot (owner request 2026-10-18)
@@ -307,13 +309,14 @@ found. **W8-C (with W8-E, the 7V re-run's coordinator fixes) is the last wave ru
 From then on, each wave is one Astera plan, queued after the one before it. Run these from the packaged app's
 profile, never the dev profile:
 
-In the app: **Start → Run as written**. Attach every W8 and W9 prompt (W8-A, B, D, F, G and W9-A … K, F, G; W9-0 is done),
+In the app: **Start → Run as written**. Attach every W8, W9 and W10 prompt (W8-A, B, D, F, G, W9-A … K, F, G and W10-A; W9-0 is done),
 set delivery to PR, and press Start. The planner reads PLAN.md's wave table and builds the order:
 1. W8 (A, B, D, F, G in parallel).
 2. W9-A alone.
 3. W9-B, C, D, E, H, I, J, K in parallel.
 4. W9-F.
 5. W9-G.
+6. W10-A.
 
 The approval shows that order once. After that, one draft PR is updated after every wave and marked ready at the
 end. The same from the CLI:
@@ -321,13 +324,22 @@ end. The same from the CLI:
 ```bash
 J=$(astera jobs create --mode prompts --delivery pr --coordinator-account "$A" --concurrency 8 \
   $(printf -- '--attach %s ' docs/orchestrator/prompts/W8-{A,B,D,F,G}-*.md) \
-  $(printf -- '--attach %s ' docs/orchestrator/prompts/W9-{A,B,C,D,E,H,I,J,K,F,G}-*.md) | jq -r .data.id)
+  $(printf -- '--attach %s ' docs/orchestrator/prompts/W9-{A,B,C,D,E,H,I,J,K,F,G}-*.md) \
+  $(printf -- '--attach %s ' docs/orchestrator/prompts/W10-A-*.md) | jq -r .data.id)
 astera jobs plan --id "$J"
 ```
 
 (USAGE.md "Running the waves in Astera" has the full commands, `$A` included.)
 
 Separate queued plans per wave (`--after <job>`) still work, if the owner wants one PR per wave.
+
+**Later (owner request 2026-10-18; planned as `W10-A-run-by-name`): no attaching.** Today the owner attaches every
+prompt file and pastes the order (`RUN-W8-W9.md`) into Instructions. The owner wants to give only the text: "run W8-A,
+B, D, F, G, then W9 …". In Run as written, Astera then resolves each named prompt from the project's prompts folder
+(`docs/orchestrator/prompts/<id>-*.md`, or a folder set per project). Each resolved file becomes a Task verbatim, as if
+attached, and the approval lists the file each name resolved to. A name that matches no file, or more than one, is
+refused before planning, saying which. Later still: "run the next waves" reads PLAN.md's wave table and picks every
+prompt not yet done.
 
 The owner's part:
 - Answer what lands in the Inbox: real questions, plan approvals unless the project auto-approves, and permission
