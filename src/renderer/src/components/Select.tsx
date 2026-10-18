@@ -185,6 +185,7 @@ export function Select({
     }
     if (e.key === 'Escape') {
       e.preventDefault()
+      e.stopPropagation() // closes only the list, not the Modal around it
       setOpen(false)
     } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault()

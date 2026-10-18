@@ -6,17 +6,17 @@
 /* In a modal wrapped in a form (add and import account) the form is the only child, so the modal gap does
    not reach inside — the same vertical spacing is given to the form as well, keeping the input fields off
    the button row */
-.modal form { display: flex; flex-direction: column; gap: 12px; }
+.modal form, .dlg form { display: flex; flex-direction: column; gap: 12px; }
+/* The content column inside a ui/Modal body: what .modal's own flex gap gave the old hand-rolled dialogs. */
+.dlg { display: flex; flex-direction: column; gap: 12px; position: relative; }
 /* modal help text — small and muted, below the input */
 .modal-hint { color: var(--text-faint); font-size: 11.5px; }
 .modal h2 { font-size: 15px; font-weight: 600; color: var(--text); }
 /* The wait overlay for starting a new session — it reuses the spinner and text of the resume terminal
    loading state (.loading-overlay) and only swaps the background for a modal tone. Unlike the terminal it
    does not let clicks through (pointer-events): while the start is in progress it has to cover the form so
-   it cannot be touched or submitted again. position:relative is given to this modal only — putting it on
-   all of .modal would change the stacking context of every other modal too. */
-.modal.new-session { position: relative; }
-.modal .loading-overlay { background: var(--panel); border-radius: var(--radius-lg); pointer-events: auto; z-index: 1; }
+   it cannot be touched or submitted again. Its anchor is the .dlg body of the ui/Modal that holds it. */
+.modal .loading-overlay, .dlg .loading-overlay { background: var(--panel); border-radius: var(--radius-lg); pointer-events: auto; z-index: 1; }
 /* Worktree creation inside that overlay (WorktreeCreateStatus.tsx): the stage line, and while copying a
    thin bar with a byte and file count under it, then Cancel. Same spinner, colours and type as the
    plain one-line wait, so a start without a worktree looks exactly as it did. */

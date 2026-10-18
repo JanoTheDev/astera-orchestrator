@@ -20,7 +20,7 @@ describe('ConfirmView', () => {
     const at = (s: string): number => html.indexOf(s)
     expect(at('BODY-TEXT')).toBeLessThan(at('CHOICE-LABEL'))
     expect(at('CHOICE-LABEL')).toBeLessThan(at('FOOTER-TEXT'))
-    expect(at('FOOTER-TEXT')).toBeLessThan(at('<button'))
+    expect(at('FOOTER-TEXT')).toBeLessThan(at('common.cancel'))
   })
 
   it('draws no footer when there is none', () => {

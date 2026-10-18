@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { Account } from '../../../core/types'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
-import { backdropProps } from '../lib/backdrop'
+import { Button, Modal } from './ui'
 
 /** W7-F (#82): signs one account in. Astera runs the CLI's own login for the account's folder (main/accountLogin.ts)
  *  and shows the link it prints, with "Open in browser", "Copy" and a box for the code the CLI may ask for. Closes by
@@ -82,9 +82,14 @@ export function AccountSignInDialog({ account, onClose }: { account: Account; on
   }
 
   return (
-    <div className="modal-backdrop" {...backdropProps(close)}>
-      <div className="modal account-signin" onClick={(e) => e.stopPropagation()}>
-        <h2>{t('account.signIn.title', { label: account.label })}</h2>
+    <Modal
+      title={t('account.signIn.title', { label: account.label })}
+      onClose={close}
+      size="sm"
+      closeLabel={t('common.close')}
+      footer={<Button onClick={close}>{t('common.cancel')}</Button>}
+    >
+      <div className="dlg account-signin">
         {state.url === null ? (
           <p className="modal-hint">{t('account.signIn.starting')}</p>
         ) : (
@@ -127,12 +132,7 @@ export function AccountSignInDialog({ account, onClose }: { account: Account; on
             </div>
           </form>
         )}
-        <div className="row right">
-          <button type="button" onClick={close}>
-            {t('common.cancel')}
-          </button>
-        </div>
       </div>
-    </div>
+    </Modal>
   )
 }

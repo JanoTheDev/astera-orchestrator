@@ -32,7 +32,7 @@ import { Select, type SelectOption } from './Select'
 import { ScheduleFields } from './ScheduleFields'
 import { StartingOverlay } from './WorktreeCreateStatus'
 import { X } from 'lucide-react'
-import { backdropProps } from '../lib/backdrop'
+import { Button, Modal } from './ui'
 
 const SOFT_LIMIT = 12
 const MAX_ROLL_ACCOUNTS = 3
@@ -461,8 +461,22 @@ export function NewSessionDialog({
     // While starting, an outside click does not close this — the worktree creation and spawn already
     // under way are not cancelled, so if only the modal disappears the user mistakes it for a cancel.
     // Cancelling a worktree creation is the overlay's own Cancel button.
-    <div className="modal-backdrop" {...backdropProps(() => !starting && onCancel())}>
-      <div className="modal new-session" onClick={(e) => e.stopPropagation()}>
+    <Modal
+      title={t('session.new.title')}
+      onClose={() => !starting && onCancel()}
+      closeLabel={t('common.close')}
+      footer={
+        <>
+          <Button onClick={onCancel} disabled={starting}>
+            {t('common.cancel')}
+          </Button>
+          <Button variant="primary" disabled={starting || blocked !== null} onClick={() => void start()}>
+            {t('session.new.start')}
+          </Button>
+        </>
+      }
+    >
+      <div className="dlg new-session">
         {starting && (
           <StartingOverlay
             withWorktree={withWorktree}
@@ -472,7 +486,6 @@ export function NewSessionDialog({
             onCancel={cancelWorktree}
           />
         )}
-        <h2>{t('session.new.title')}</h2>
         {runtimes.length > 0 && onRemote && (
           <div className="field">
             <label>{t('remote.sessions.runtime')}</label>
@@ -758,14 +771,6 @@ export function NewSessionDialog({
               : t('session.new.cliFailsHereUnknown', { cli: CLI_LABEL[primaryProvider] })}
           </p>
         )}
-        <div className="row right">
-          <button onClick={onCancel} disabled={starting}>
-            {t('common.cancel')}
-          </button>
-          <button className="primary" disabled={starting || blocked !== null} onClick={() => void start()}>
-            {t('session.new.start')}
-          </button>
-        </div>
         {/* 왜 못 누르는지 말한다. 다섯 조건 중 둘은 비동기로 늦게 풀려서, 다 골라 놓고도 버튼이 죽어
             있다가 갑자기 살아나는 것처럼 보였다(설계 D4) */}
         {blocked !== null && (
@@ -785,6 +790,6 @@ export function NewSessionDialog({
           </p>
         )}
       </div>
-    </div>
+    </Modal>
   )
 }

@@ -39,21 +39,7 @@
   border-radius: var(--radius-sm); padding: 1px 6px; white-space: nowrap;
 }
 
-/* the two-column restructuring of the settings modal */
-/* Proportional to the window with a floor and ceiling (clamp) so it does not become oversized on a large monitor. The body is flex and fills the remaining height. */
-/* Widened once the General tab grew past what the old ceiling could hold: the 200px nav is fixed, so
-   every setting added takes its space out of the pane beside it, and the hint paragraphs under each
-   toggle are what wrapped first. The floors move with the ceilings — a floor that stays put only
-   defers the same crowding to a small window. */
-.modal.settings { width: clamp(720px, 68vw, 1180px); height: clamp(520px, 80vh, 960px); padding: 0; gap: 0; overflow: hidden; }
-.settings-header { display: flex; align-items: center; justify-content: space-between; padding: 18px 26px; border-bottom: 1px solid var(--line); }
-.settings-close { background: none; border: none; color: var(--text-dim); font-size: 14px; line-height: 1; cursor: pointer; padding: 6px 10px; border-radius: var(--radius); }
-.settings-close:hover { color: var(--text); background: var(--line-soft); }
-.settings-body { display: flex; flex: 1; min-height: 0; }
-/* overflow-y: 탭이 열둘이 되면서 여유가 사라졌다 — 모달 높이가 바닥값(clamp 의 520px)일 때 nav 가
-   쓸 수 있는 높이와 필요한 높이가 둘 다 463px 로 정확히 같다(실측). 지금은 맞지만 탭이 하나만 더
-   늘거나 어느 번역 라벨이 두 줄로 접히면 잘려서 안 보인다. auto 라서 넘칠 때만 스크롤이 생긴다. */
-.settings-nav { display: flex; flex-direction: column; gap: 2px; width: 200px; flex-shrink: 0; padding: 16px 12px; border-right: 1px solid var(--line); overflow-y: auto; }
+/* W9-E: the modal frame (.modal.settings, header, close, body, nav) went with the modal; the page's frame is settings/settingsPage.css. */
 .settings-nav-item { text-align: left; background: none; border: none; color: var(--text-dim); font-size: 13.5px; padding: 8px 12px; border-radius: var(--radius); cursor: pointer; }
 .settings-nav-item:hover { background: var(--line-soft); color: var(--text); }
 .settings-nav-item.active { background: var(--line-soft); color: var(--text); box-shadow: inset var(--marker-w) 0 0 var(--accent); }

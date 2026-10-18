@@ -1,0 +1,86 @@
+// W9-E Start page rules (DESIGN §2 "Start"). Pure, so the node tests cover them; StartPage.tsx keeps the state.
+import type { IntakeTab } from '../intake/intakeRequest'
+
+/** The two mode cards: the planner writes the plan, or each prompt runs as written (W8-C `--mode prompts`). */
+export type StartMode = 'plan' | 'prompts'
+
+/** What Start opens with: from New, a window drop, or a new project's first plan. */
+export interface StartRequest {
+  mode?: StartMode
+  files?: string[]
+  text?: string
+  /** The project folder; the current project when absent. */
+  cwd?: string
+}
+
+/** The attachments a composer chip shows: prompt and note files, PDFs and images (DESIGN §2). */
+const ATTACHABLE = /\.(md|markdown|txt|pdf|png|jpe?g|gif|webp|svg)$/i
+const PROMPT_FILE = /\.(md|markdown)$/i
+
+/** Prompt files attached ⇒ Run as written; typed text or rough notes ⇒ Plan it for me. The owner's pick wins. */
+export function defaultMode({ files, chosen }: { files: string[]; text?: string; chosen?: StartMode }): StartMode {
+  if (chosen) return chosen
+  // A PDF or a screenshot is material for the planner, not a prompt to run as written
+  return files.some((f) => PROMPT_FILE.test(f)) ? 'prompts' : 'plan'
+}
+
+/** The one W6-A intake tab Start's composer amounts to. */
+export function intakeTab({ mode, files, audit, issues }: { mode: StartMode; files: string[]; audit: boolean; issues: string[] }): IntakeTab {
+  if (mode === 'prompts') return 'prompts'
+  if (audit) return 'audit'
+  if (issues.length > 0) return 'github'
+  return files.length > 0 ? 'files' : 'describe'
+}
+
+/** How many Tasks Run as written makes: one per prompt file, else one per `##` section of the pasted document. */
+export function promptCount(files: string[], text: string): number {
+  const md = files.filter((f) => PROMPT_FILE.test(f)).length
+  if (files.length > 0) return md
+  return text.split('\n').filter((l) => /^##\s/.test(l)).length || (text.trim() ? 1 : 0)
+}
+
+type T = (key: string, params?: Record<string, string | number>) => string
+
+/** The primary button says what will happen: "Start planning", or "Start 3 consoles" with "3 files → 3 tasks". */
+export function primaryLabel(
+  { mode, files, text, after }: { mode: StartMode; files: string[]; text: string; after?: string },
+  t: T
+): { label: string; note?: string } {
+  if (after) return { label: t('start.go.queue', { plan: after }) }
+  if (mode === 'plan') return { label: t('start.go.plan') }
+  const n = promptCount(files, text)
+  return {
+    label: t('start.go.consoles', { n }),
+    note: n === 0 ? undefined : t(files.length > 0 ? 'start.go.filesNote' : 'start.go.sectionsNote', { n })
+  }
+}
+
+/** A project with no plans and no consoles lands on Start instead of an empty wall. */
+export const shouldLandOnStart = ({ plans, consoles }: { plans: number; consoles: number }): boolean => plans === 0 && consoles === 0
+
+const norm = (p: string, fold: boolean): string => {
+  const s = p.replace(/\\/g, '/').replace(/\/+$/, '')
+  return fold ? s.toLowerCase() : s
+}
+
+/** The consoles working in the project's folder or below it. */
+export function consolesIn(sessions: { cwd: string }[], root: string, foldCase = false): number {
+  const r = norm(root, foldCase)
+  return sessions.filter((s) => {
+    const c = norm(s.cwd, foldCase)
+    return c === r || c.startsWith(`${r}/`)
+  }).length
+}
+
+/** The paths of the dropped files Start can attach. */
+export function filesFromDrop(list: ArrayLike<{ name: string }> | null | undefined, pathFor: (f: never) => string): string[] {
+  if (!list) return []
+  return Array.from(list)
+    .filter((f) => ATTACHABLE.test(f.name))
+    .map((f) => pathFor(f as never))
+    .filter((p) => p !== '')
+}
+
+/** A window drop opens Start only when it carries files Start takes and no other handler took it first (terminals,
+ *  the explorer, the editor and open dialogs handle their own drops). */
+export const dropOpensStart = (e: { defaultPrevented: boolean; files: string[] }): boolean => !e.defaultPrevented && e.files.length > 0

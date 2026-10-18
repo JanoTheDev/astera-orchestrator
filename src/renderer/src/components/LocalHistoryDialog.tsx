@@ -3,7 +3,7 @@ import type { LocalHistoryEntry } from '../../../core/types'
 import { errText } from '../hooks/useFileOps'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
-import { backdropProps } from '../lib/backdrop'
+import { Button, Modal } from './ui'
 
 /** Byte size in human-readable units. This repo has no shared size formatter (checked by grep), so it
  *  stays a local helper used only in this file — extracting it into a pure module and registering that
@@ -72,21 +72,6 @@ export function LocalHistoryDialog({
     }
   }, [projectPath])
 
-  // Through a ref for the same reason as ContextMenu.tsx: onClose is an inline function FileExplorer
-  // recreates on every render, so putting it straight into the dependency array would register and
-  // unregister the listener on each of those renders.
-  const onCloseRef = useRef(onClose)
-  onCloseRef.current = onClose
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key !== 'Escape') return
-      e.stopPropagation() // keeps it from leaking to the explorer tree's Escape (clear the clipboard)
-      onCloseRef.current()
-    }
-    document.addEventListener('keydown', onKey, true)
-    return () => document.removeEventListener('keydown', onKey, true)
-  }, [])
-
   const doRestore = async (): Promise<void> => {
     if (!selectedId || restoring) return
     setRestoring(true)
@@ -108,9 +93,20 @@ export function LocalHistoryDialog({
   }
 
   return (
-    <div className="modal-backdrop" {...backdropProps(onClose)}>
-      <div className="modal local-history" onClick={(e) => e.stopPropagation()}>
-        <h2>Local History</h2>
+    <Modal
+      title="Local History"
+      onClose={onClose}
+      closeLabel={t('common.close')}
+      footer={
+        <>
+          <Button onClick={onClose}>{t('common.cancel')}</Button>
+          <Button variant="primary" disabled={!selectedId || restoring} onClick={() => void doRestore()}>
+            {restoring ? t('localHistory.restoring') : t('localHistory.restore')}
+          </Button>
+        </>
+      }
+    >
+      <div className="dlg local-history">
         {entries === null ? (
           <p className="empty">{t('localHistory.loading')}</p>
         ) : entries.length === 0 ? (
@@ -139,20 +135,7 @@ export function LocalHistoryDialog({
             })}
           </ul>
         )}
-        <div className="row right">
-          <button type="button" onClick={onClose}>
-            {t('common.cancel')}
-          </button>
-          <button
-            className="primary"
-            type="button"
-            disabled={!selectedId || restoring}
-            onClick={() => void doRestore()}
-          >
-            {restoring ? t('localHistory.restoring') : t('localHistory.restore')}
-          </button>
-        </div>
       </div>
-    </div>
+    </Modal>
   )
 }

@@ -17,7 +17,8 @@ import { toast } from '../../lib/toast'
 import { NewProjectDialog } from '../projects/NewProjectDialog'
 import { AddProjectDialog } from '../projects/AddProjectDialog'
 import { ProjectSettings } from '../projects/ProjectSettings'
-import { NewPlanDialog } from '../intake/NewPlanDialog'
+import { StartPage, useDropToStart, useStartLanding } from '../pages/StartPage'
+import { NewModal } from '../NewModal'
 import { MAX_PANES, countLeaves, groupOfTab, splitAndMove, type PaneDir } from '../../../../core/panes/tree'
 import { parseTab, sessionTab } from '../../../../core/panes/tabId'
 import { ContextMenu, type MenuItem } from '../ContextMenu'
@@ -40,12 +41,13 @@ export type OverlaysProps = Pick<
   'setDefaultSessionKind' | 'setDetail' | 'setFirstPlan' | 'setFirstRunAsked' |
   'setKeyOverrides' | 'setLang' | 'setLayout' | 'setManagerFor' | 'setManagerInitialSelectedId' | 'setNewRunOpen' |
   'setNewSessionCwd' | 'setOpenRun' | 'setPairedChanged' | 'setProjectDialog' | 'setProjectsRefresh' |
-  'setRemoteDialog' | 'setRemoteNewRunOpen' | 'setRenamingTabId' | 'setSettingsTab' | 'setShowNew' |
+  'setRemoteDialog' | 'setRemoteNewRunOpen' | 'setRenamingTabId' | 'setSettingsTab' | 'setShowNew' | 'settingsAnchor' | 'setSettingsAnchor' |
   'setShowSettings' | 'setSourceJobOpen' | 'setTabMenu' | 'setWorkUnitTrackingEnabled' | 'setWorkspaceScope' |
   'setWtRoot' | 'settingsTab' | 'settingsTouched' | 'showNew' | 'showSettings' | 'sourceJobOpen' | 'spawn' |
   'stopRemoteSession' | 'storedLang' | 'systemLang' | 't' | 'tabMenu' | 'talkSignal' | 'unsplitPane' | 'update' |
   'updateChecking' | 'workUnitTrackingEnabled' | 'workspaceCwd' | 'workspaceData' | 'workspacePlanId' |
-  'workspaceTree' | 'wtRoot'
+  'workspaceTree' | 'wtRoot' |
+  /* W9-E */ 'start' | 'openStart' | 'newOpen' | 'setNewOpen' | 'sessions'
 >
 
 export function Overlays(p: OverlaysProps): React.JSX.Element {
@@ -66,8 +68,12 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
     setSourceJobOpen, setTabMenu, setWorkUnitTrackingEnabled, setWorkspaceScope, setWtRoot, settingsTab,
     settingsTouched, showNew, showSettings, sourceJobOpen, spawn, stopRemoteSession, storedLang, systemLang, t,
     tabMenu, talkSignal, unsplitPane, update, updateChecking, workUnitTrackingEnabled, workspaceCwd, workspaceData,
-    workspacePlanId, workspaceTree, wtRoot
+    workspacePlanId, workspaceTree, wtRoot, start, openStart, newOpen, setNewOpen, sessions
   } = p
+  // W9-E: an empty project lands on Start; files dropped on the window open it
+  useStartLanding(currentProject, sessions, openStart)
+  useDropToStart(openStart)
+  const startShown = firstPlan ? { req: { text: firstPlan.objective }, cwd: firstPlan.path } : start && currentProject ? { req: start, cwd: start.cwd ?? currentProject } : null
   return (
     <>
       {showNew && (
@@ -273,14 +279,32 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
       {projectAnchor && projectDialog !== null && typeof projectDialog === 'object' && (
         <ProjectSettings anchor={projectAnchor} projectId={projectDialog.settings} accounts={accounts} onClose={() => setProjectDialog(null)} />
       )}
-      {firstPlan && (
-        <NewPlanDialog
-          door={localDoor(window.api, firstPlan.path)}
-          cwd={firstPlan.path}
+      {/* W9-E: a new project's first plan, New's two plan modes and a window drop all open the Start page */}
+      {startShown && (
+        <StartPage
+          key={startShown.cwd}
+          req={startShown.req}
+          cwd={startShown.cwd}
           accounts={accounts}
-          initialText={firstPlan.objective}
-          onClose={() => setFirstPlan(null)}
-          onCreated={() => setFirstPlan(null)}
+          onClose={() => {
+            setFirstPlan(null)
+            openStart(null)
+          }}
+          onOpenConsole={() => setShowNew(true)}
+          onOtherSources={() => setSourceJobOpen(startShown.cwd)}
+        />
+      )}
+      {newOpen && (
+        <NewModal
+          onClose={() => setNewOpen(false)}
+          onConsole={() => {
+            setNewOpen(false)
+            setShowNew(true)
+          }}
+          onStart={(mode) => {
+            setNewOpen(false)
+            openStart({ mode })
+          }}
         />
       )}
       {/* W3-B command bar (W9-D: and the session search, one box): names resolve against the workspace tree; changes go through this computer's doors */}

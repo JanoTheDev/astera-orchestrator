@@ -664,7 +664,7 @@ export function BrowserPane({
       // The same rule App's global shortcuts follow: a modal, a menu or a text field owns Escape
       // first. The address bar of this very pane reverts on Escape and says it is isolated from the
       // app's shortcuts; without this, that Escape also stopped the script.
-      const keyOwnedElsewhere = Boolean(menuRef.current || sendMenuRef.current) || editable || document.querySelector('.modal-backdrop') !== null
+      const keyOwnedElsewhere = Boolean(menuRef.current || sendMenuRef.current) || editable || document.querySelector('.modal-backdrop, .ui-modal-backdrop') !== null
       if (!escStopsAgent(e, agentRunning, agentTabFocused, keyOwnedElsewhere)) return
       void window.api.preview.agentStop(sid).then((stopped) => {
         if (stopped) toast.info(t('preview.agent.stopped'))

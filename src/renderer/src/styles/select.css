@@ -138,11 +138,13 @@ label.check-small {
   align-items: center;
   gap: 6px;
 }
-.modal label.check-small {
+.modal label.check-small,
+.dlg label.check-small {
   font-size: 11px;
   opacity: 0.85;
 }
-.modal label.check-small .check-note {
+.modal label.check-small .check-note,
+.dlg label.check-small .check-note {
   margin-left: 4px;
   opacity: 0.6;
 }

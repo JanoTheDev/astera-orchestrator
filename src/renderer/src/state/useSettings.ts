@@ -3,29 +3,16 @@ import { useRef, useState } from 'react'
 import type { CliInstallStatus, SessionKind } from '../../../core/types'
 import { createSessionSizeReporters } from '../lib/workspaceMirror'
 import { createTouched } from '../lib/touched'
+import type { SettingsGroupId } from '../components/settings/settingsIndex'
 
 export function useSettings() {
   const [showSettings, setShowSettings] = useState(false)
   // The CLI tab's install status, as CliSettings last read it, for McpSettings beside it.
   const [cliInstallStatus, setCliInstallStatus] = useState<CliInstallStatus | null>(null)
-  const [settingsTab, setSettingsTab] = useState<
-    | 'general'
-    | 'appearance'
-    | 'accounts'
-    | 'creativeHub'
-    | 'agent'
-    | 'cli'
-    | 'hiw'
-    | 'info'
-    | 'shortcuts'
-    | 'slack'
-    | 'notifications'
-    | 'github'
-    | 'remote'
-    | 'plugins'
-    | 'worktree'
-    | 'history'
-  >('general') // the settings sidebar, with general and accounts added
+  // W9-E: the Settings page's group (DESIGN §7); an old tab name maps through groupOfOldTab (settingsIndex.ts)
+  const [settingsTab, setSettingsTab] = useState<SettingsGroupId>('general')
+  // W9-E: the row openSettings(group, anchor) scrolls to; the page clears it once it has.
+  const [settingsAnchor, setSettingsAnchor] = useState<string | null>(null)
   /** Settings fields changed since the modal opened (audit UI-7). */
   const settingsTouched = useRef(createTouched())
   const [wtRoot, setWtRoot] = useState('') // the worktree root in the settings modal
@@ -48,7 +35,7 @@ export function useSettings() {
    *  (main/appSettingsStore.ts's firstRunAsked carries the whole rule). */
   const [firstRunAsked, setFirstRunAsked] = useState<boolean | null>(null)
   return {
-    showSettings, setShowSettings, cliInstallStatus, setCliInstallStatus, settingsTab, setSettingsTab,
+    showSettings, setShowSettings, cliInstallStatus, setCliInstallStatus, settingsTab, setSettingsTab, settingsAnchor, setSettingsAnchor,
     settingsTouched, wtRoot, setWtRoot, agentYolo, setAgentYolo, workUnitTrackingEnabled, setWorkUnitTrackingEnabled,
     agentBrowserEnabled, setAgentBrowserEnabled, agentAppEnabled, setAgentAppEnabled, mirrorSizes,
     defaultSessionKind, setDefaultSessionKind, firstRunAsked, setFirstRunAsked

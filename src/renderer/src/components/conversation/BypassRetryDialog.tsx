@@ -3,7 +3,7 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { useI18n } from "../../i18n/I18nProvider";
 import type { MessageKey } from "../../../../core/i18n";
-import { backdropProps } from '../../lib/backdrop'
+import { Button, Modal } from '../ui'
 
 /** design §4 F5's confirmation — the one deliberate exception to this branch's one-or-two-line rule
  *  (S1). Pressing the exit banner's button never retries anything by itself; it opens this, because
@@ -21,7 +21,7 @@ import { backdropProps } from '../../lib/backdrop'
  *  Built as its own small modal rather than through `lib/confirm.ts` (ConfirmHost.tsx): that store's
  *  `body` is one plain string rendered in one `<p>`, with no room for five labelled sections or the
  *  bold a person needs to tell "what it costs" apart from "how long it lasts" at a glance. Styled with
- *  the same `.modal`/`.modal-backdrop` classes every other confirmation in the app uses (ConfirmHost,
+ *  the same `ui/Modal` every other confirmation in the app uses (ConfirmHost,
  *  ResumeDialog, …) so it reads as the same kind of dialog, not a one-off. */
 export function BypassRetryDialog({
   line,
@@ -46,19 +46,10 @@ export function BypassRetryDialog({
 }): ReactNode {
   const { t } = useI18n();
 
-  // Same convention as the other small modals in this app (LocalHistoryDialog.tsx, …): registered
-  // once at mount, reading the latest callback through a ref so the effect never has to re-run.
-  const onCancelRef = useRef(onCancel);
-  onCancelRef.current = onCancel;
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key !== "Escape") return;
-      e.stopPropagation(); // keeps Escape from also reaching whatever this pane's own handler does with it
-      onCancelRef.current();
-    };
-    document.addEventListener("keydown", onKey, true);
-    return () => document.removeEventListener("keydown", onKey, true);
-  }, []);
+  // Modal focuses the dialog; the confirm button (in the footer) is what had focus before, so Enter still confirms.
+  // This effect runs after Modal's, since this component is its parent.
+  const confirmRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => confirmRef.current?.focus(), []);
 
   const section = (labelKey: MessageKey, bodyKey: MessageKey, suffix?: string): ReactNode => (
     <p className="confirm-text">
@@ -78,36 +69,27 @@ export function BypassRetryDialog({
   const lineSuffix = line.trim() === "" ? undefined : `: ${line}`;
 
   return (
-    <div className="modal-backdrop" {...backdropProps(onCancel)}>
-      {/* Announced as a dialog, not as an unlabelled box of paragraphs. This one earns the attributes
-          more than most: it is a consent prompt whose whole point is that the person read what they
-          are giving up before pressing, and a screen reader that walks past it as plain text buries
-          exactly that. `aria-modal` tells the reader the rest of the page is inert while it is up,
-          which matches what the backdrop already does visually and what Escape does on the keyboard.
-          `aria-labelledby` points at the question itself, so the announcement is the question.
-          UpdateGate.tsx is the app's only other marked-up dialog (`role="alertdialog"`, for a thing
-          that interrupts); this one is a choice, not an alert, so it takes the plain `dialog` role. */}
-      <div
-        className="modal bypass-retry"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="bypass-retry-title"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 id="bypass-retry-title">{t("conversation.exited.bypassConfirm.title")}</h2>
+    <Modal
+      title={t("conversation.exited.bypassConfirm.title")}
+      onClose={onCancel}
+      closeLabel={t("common.close")}
+      footer={
+        <>
+          <Button onClick={onCancel}>{t("common.cancel")}</Button>
+          <Button ref={confirmRef} variant="primary" onClick={onConfirm}>
+            {t("conversation.exited.bypassConfirm.confirm")}
+          </Button>
+        </>
+      }
+    >
+      {/* Modal announces itself as role="dialog" aria-modal and labels itself by the title, so a screen reader hears
+          the question first. This one is a consent prompt: the person must read what they give up before pressing. */}
+      <div className="dlg bypass-retry">
         {section("conversation.exited.bypassConfirm.whatBlockedLabel", whatBlockedKey, lineSuffix)}
         {section("conversation.exited.bypassConfirm.ifSkippedLabel", "conversation.exited.bypassConfirm.ifSkipped")}
         {section("conversation.exited.bypassConfirm.givesUpLabel", "conversation.exited.bypassConfirm.givesUp")}
         {section("conversation.exited.bypassConfirm.properFixLabel", "conversation.exited.bypassConfirm.properFix")}
-        <div className="row right">
-          <button type="button" onClick={onCancel}>
-            {t("common.cancel")}
-          </button>
-          <button type="button" className="primary" autoFocus onClick={onConfirm}>
-            {t("conversation.exited.bypassConfirm.confirm")}
-          </button>
-        </div>
       </div>
-    </div>
+    </Modal>
   );
 }
