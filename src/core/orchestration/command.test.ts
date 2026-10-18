@@ -24,6 +24,7 @@ import { TaskValidator } from './exec/validator'
 import { TAIL_EMPTY, TAIL_UNTRACKED } from './exec/tail'
 import { FAILURE_LIMIT, type CheckResult, type JobRun, type Project, type Task } from './types'
 import { parseArgs } from './cliArgs'
+import { slotsToFill } from './schedule'
 import { stateWord } from './cliHuman'
 import { runningRunCount } from './running'
 import { isQueueableReport } from './pendingReports'
@@ -5691,6 +5692,39 @@ describe('runs stop', () => {
     expect((await call(deps, 'runs-wait', { id: runId, timeoutMs: 120 })).body).toMatchObject({
       state: 'timeout'
     })
+  })
+
+  // W5-B (#45): a Run the app places itself has nobody to re-place a Task whose attempt `runs stop` closed — the loop
+  // starts only `ready` Tasks and lostAttemptOf skips `closedBy`. The resume puts them back, each placed once.
+  it('runs resume puts the stopped Tasks of a Run with no coordinator back to ready, each placed once', async () => {
+    const deps = makeDeps()
+    await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p' })
+    const runId = deps.getState().runs[0].id
+    const ids: string[] = []
+    for (const title of ['a', 'b']) {
+      const t = await call(deps, 'task-create', { run: runId, title, spec: 's', account: 'acc1' })
+      ids.push((t.body as { id: string }).id)
+      await call(deps, 'worker-start', { task: ids.at(-1), agent: 'codex', account: 'acc1' })
+    }
+    const cur = deps.getState()
+    await deps.setState({ ...cur, jobs: cur.jobs.map((j) => ({ ...j, autoDispatch: true })) })
+    await call(deps, 'runs-stop', { id: runId })
+    expect(slotsToFill(deps.getState())).toEqual([])
+    expect((await call(deps, 'runs-resume', { id: runId })).status).toBe(200)
+    const after = deps.getState()
+    expect(after.tasks.filter((t) => ids.includes(t.id)).map((t) => t.status)).toEqual(['ready', 'ready'])
+    expect(slotsToFill(after).map((x) => x.taskId).sort()).toEqual([...ids].sort())
+    // A second resume of a Run no longer paused moves nothing
+    expect((await call(deps, 'runs-resume', { id: runId })).status).toBe(200)
+    expect(deps.getState().tasks).toEqual(after.tasks)
+  })
+
+  // A coordinator's Run is left to its new coordinator, which starts one worker per unfinished Task.
+  it('runs resume leaves the stopped Tasks of a coordinator-placed Run dispatched', async () => {
+    const { deps, runId } = await withWorker()
+    await call(deps, 'runs-stop', { id: runId })
+    await call(deps, 'runs-resume', { id: runId })
+    expect(deps.getState().tasks.map((t) => t.status)).toEqual(['dispatched'])
   })
 
   it('세우지 않은 것을 풀어도 말이 없다', async () => {

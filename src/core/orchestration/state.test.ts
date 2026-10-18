@@ -3688,7 +3688,7 @@ describe('없는 id 의 거절은 missing 을 싣는다 (R4)', () => {
 
   it('resumeRun·setRunWorktree: 없는 회차는 missing, 이미 있는 worktree 는 아니다', () => {
     const { s, runId } = seed()
-    expect(refusal(resumeRun(s, 'run_nope'))).toEqual({ ok: false, error: 'unknown run: run_nope', missing: true })
+    expect(refusal(resumeRun(s, 'run_nope', NOW))).toEqual({ ok: false, error: 'unknown run: run_nope', missing: true })
     expect(refusal(setRunWorktree(s, 'run_nope', 'D:/w'))).toEqual({ ok: false, error: 'unknown run: run_nope', missing: true })
     const once = unwrap(setRunWorktree(s, runId, 'D:/w') as never)
     expect(refusal(setRunWorktree(once.state, runId, 'D:/w2')).missing).toBeUndefined()

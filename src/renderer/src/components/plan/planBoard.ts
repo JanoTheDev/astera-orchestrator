@@ -70,7 +70,10 @@ export function reasonText(
     case 'failure-limit':
       return { key: 'plan.reason.failureLimit', params: { failures: reason.failures } }
     case 'failed-retry':
-      return { key: 'plan.reason.failedRetry', params: { failures: reason.failures, limit: reason.limit } }
+      return {
+        key: reason.noCoordinator ? 'plan.reason.failedRetryByYou' : 'plan.reason.failedRetry',
+        params: { failures: reason.failures, limit: reason.limit }
+      }
     case 'awaiting-review':
       return { key: 'plan.reason.awaitingReview' }
     case 'stopped':

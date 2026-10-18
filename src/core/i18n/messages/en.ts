@@ -2024,6 +2024,7 @@ export const en: Record<keyof typeof ko, string> = {
   'plan.reason.gate': 'Waiting for an answer: {question}',
   'plan.reason.failureLimit': 'Failed {failures} times in a row · nothing restarts it on its own',
   'plan.reason.failedRetry': 'Failed ({failures} of {limit}) · its coordinator decides on a retry',
+  'plan.reason.failedRetryByYou': 'Failed ({failures} of {limit}) · no coordinator: start it again to retry',
   'plan.reason.awaitingReview': 'Waiting for the reviewer to start',
   'plan.reason.stopped': 'Its worker was stopped',
   'plan.reason.deps': 'Waiting on {tasks}',

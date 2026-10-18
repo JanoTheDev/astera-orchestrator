@@ -2259,7 +2259,7 @@ export async function handleCommand(
         base = deps.getState()
       }
       // Answered with the view `runs get` gives (derived fields included); refusals are commit's.
-      const resumed = resumeRun(base, id)
+      const resumed = resumeRun(base, id, now)
       const reply = await commit(resumed)
       if (!resumed.ok || reply.status !== 200) return reply
       // **A Run `runs stop` paused gets its coordinator back** (the user's decision, 2026-10-01): the

@@ -100,7 +100,12 @@ export function taskBoardsOf(s: OrchState, limits: ScheduleLimits = {}): Map<str
     if (task.consecutiveFailures >= FAILURE_LIMIT)
       return { kind: 'failure-limit', failures: task.consecutiveFailures, limit: FAILURE_LIMIT }
     if (task.status === 'failed')
-      return { kind: 'failed-retry', failures: task.consecutiveFailures, limit: FAILURE_LIMIT }
+      return {
+        kind: 'failed-retry',
+        failures: task.consecutiveFailures,
+        limit: FAILURE_LIMIT,
+        ...(run.coordinatorSessionId === undefined ? { noCoordinator: true as const } : {})
+      }
     if (task.status === 'reviewing') return { kind: 'awaiting-review' }
     if (task.status === 'dispatched') return { kind: 'stopped' }
     if (task.status === 'pending') {

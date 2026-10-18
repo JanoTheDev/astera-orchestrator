@@ -492,12 +492,31 @@ export function resumeSchedule(s: OrchState, jobId: string): Res<Job> {
  * 다시 돌리는 것은 그 코디네이터를 되찾는 일이다. Task 가 없는 회차는 다시 돌려도 시작할 것이 없어
  * "다시 움직인다" 로 표시가 걷히지 않았고, 약 30초 뒤의 재시도가 사람이 되찾은 코디네이터를 멈췄다.
  */
-export function resumeRun(s: OrchState, runId: string): Res<JobRun> {
+export function resumeRun(s: OrchState, runId: string, now: string): Res<JobRun> {
   const run = s.runs.find((r) => r.id === runId)
   if (!run) return gone(`unknown run: ${runId}`)
   if (!run.paused) return ok(s, run)
   const { paused: _drop, coordinatorStopPending: _stop, ...resumed } = run
-  return ok({ ...s, runs: s.runs.map((r) => (r.id === runId ? resumed : r)) }, resumed)
+  return ok({ ...s, runs: s.runs.map((r) => (r.id === runId ? resumed : r)), tasks: requeueStopped(s, run, now) }, resumed)
+}
+
+/**
+ * W5-B (#45): the Tasks `runs stop` left `dispatched` on a closed attempt go back to `ready`, **in a Run the app
+ * places itself** (placedByApp). Nobody else would place them: the loop only starts `ready` Tasks, and a Task whose
+ * last attempt a person closed is not lost (`lostAttemptOf` skips `closedBy`), so no Gate opens either. A coordinator's
+ * Run is left to its new coordinator, which starts one worker per unfinished Task (TAKE STOCK).
+ *
+ * `dispatched → ready` is outside ALLOWED on purpose, as the lost-worker Gate's `blocked → pending → ready` is the
+ * long way to the same place: openDispatch let this Task start only with every dep completed, and a completed dep
+ * never moves again, so `ready` is what recomputeReady would answer. Only a Task with no open attempt moves.
+ */
+function requeueStopped(s: OrchState, run: JobRun, now: string): Task[] {
+  if (!placedByApp(jobOf(s, run), run)) return s.tasks
+  return s.tasks.map((t) => {
+    if (t.runId !== run.id || t.status !== 'dispatched') return t
+    const last = latestImplDispatch(s, t.id)
+    return last?.closedBy === 'stop' && last.endedAt !== undefined ? { ...t, status: 'ready' as const, updatedAt: now } : t
+  })
 }
 
 /** The range with `patch` applied: a base is kept once set, a head replaces. Null when nothing changes. */
