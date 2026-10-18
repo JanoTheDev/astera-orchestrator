@@ -1992,6 +1992,11 @@ export const ko = {
   'intake.tab.files': '파일',
   'intake.tab.audit': '감사',
   'intake.tab.github': 'GitHub',
+  // W8-C prompts mode
+  'intake.tab.prompts': '적힌 그대로 실행',
+  'intake.promptsHint': '.md 프롬프트 파일을 놓거나(파일마다 Task 하나) 문서 하나를 붙여 넣으세요(## 섹션마다 Task 하나). 글은 고쳐지지 않고, 순서는 docs/orchestrator/PLAN.md 에서 옵니다.',
+  'intake.promptsPaste': '또는 ## 섹션이 있는 문서 하나를 붙여 넣기',
+  'intake.promptsAsk': '계획을 먼저 승인받기',
   'intake.describe': '무엇을 만들거나 고칠까요?',
   'intake.fixlist': '문제 목록이다: 문제마다 Task 하나 이상',
   'intake.drop': 'PDF 나 다른 파일을 여기에 놓으세요 (각 30 MB 이하)',
@@ -2348,6 +2353,11 @@ export const ko = {
   'plan.reason.switching': '사용 한도 · {account} 에서 다른 계정으로 넘어가는 중',
   'plan.reason.archived': '보관된 계획',
   'plan.reason.pendingStart': '계획이 아직 시작되지 않았다',
+  // W8-C plan after plan
+  'plan.reason.queuedAfter': '{plan} 다음 차례로 대기 중',
+  'plan.reason.afterStopped': '{plan} 을(를) 기다리는 중: 그 계획이 멈췄다',
+  'intake.after': '이 계획 다음에 시작',
+  'intake.afterNone': '없음: 지금 계획',
   'plan.reason.paused': '계획이 일시 중지됐다',
   'plan.reason.definition': '정의 Task · 회차마다 복사된다',
   'plan.reason.gate': '답을 기다린다: {question}',
@@ -2385,6 +2395,7 @@ export const ko = {
   'plan.now.reading': '{target} 읽는 중 · {ago} 전',
   'plan.now.searching': '{target} 검색 중 · {ago} 전',
   'plan.now.tool': '{tool} {target} · {ago} 전',
+  'plan.now.heavyWait': '무거운 작업 슬롯 대기 중 (대기 순서 {place})',
   // W6-G
   'plan.reason.usagePaused5h': '일시 정지: {account} 5시간 한도의 {percent}% · ~{time} 재개',
   'plan.reason.usagePaused7d': '일시 정지: {account} 7일 한도의 {percent}% · ~{time} 재개',

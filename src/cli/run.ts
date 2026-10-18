@@ -12,6 +12,9 @@ import os, { homedir } from 'node:os'
 import { leadingGlobals, parseArgs } from '../core/orchestration/cliArgs'
 import { publicFor } from '../core/orchestration/cliPublic'
 import { spelledCommand, unknownFlagError, usageFor } from '../core/orchestration/cliUsage'
+// W8-C heavy
+import { HEAVY_USAGE } from '../core/orchestration/cliUsage'
+import { runHeavy } from '../core/orchestration/heavyLock'
 import { humanFor, jsonSafe, quietFor, terminalSafe } from '../core/orchestration/cliHuman'
 import { answerFromFile, fileAnswerable, readStateFile } from '../core/orchestration/stateFile'
 import { connectHost, type ConnectFailure, type HostConnection } from '../core/host/connect'
@@ -1056,6 +1059,12 @@ export async function main(): Promise<void> {
   if (argv[0] === 'hf-proxy') {
     const code = await hfProxy({ args: argv.slice(1), env: process.env, platform: process.platform, home: homedir() })
     await new Promise((r) => process.stdout.write('', () => r(undefined)))
+    process.exit(code)
+  }
+  // W8-C heavy: `astera heavy -- <cmd…>` answers before usage and the parser, like hf-proxy: the tokens after `--`
+  // are the command's. Local, no Host: the command's stdio is the caller's terminal (core/orchestration/heavyLock.ts).
+  if (argv[0] === 'heavy') {
+    const code = await runHeavy({ argv: argv.slice(1), env: process.env, cwd: process.cwd(), sessionId: process.env.ASTERA_SESSION, usage: HEAVY_USAGE })
     process.exit(code)
   }
   const help = usageFor(argv, sessionUsage)

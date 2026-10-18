@@ -104,7 +104,9 @@ const TASK_HIDDEN = [
   // W2-D GitHub links: read by the app's view; `task-link-issue` answers them. Not in the SDK's contract yet
   'links',
   // W6-A: the planner's basis, held back with its other fields
-  'basis'
+  'basis',
+  // W8-C prompts mode: a Run-as-written Task's source, not in the SDK's contract yet
+  'verbatimOf'
 ] as const
 
 /** W1-A role models: a Job's per-role model override, held back from the SDK like the Task's three above. */
@@ -123,7 +125,10 @@ const JOB_HIDDEN = [
   /* W7-A: talking to the planner, rejecting a plan, auto-approve; not in the SDK's contract yet */ 'autoApprove',
   'feedback',
   'autoStartedAt',
-  'rejected'
+  'rejected',
+  /* W8-C prompts mode: the owner's prompts a Run-as-written plan was made from, not in the SDK's contract yet */ 'verbatim',
+  /* W8-C plan after plan: the queue and its escalation mark, not in the SDK's contract yet */ 'after',
+  'afterStopNotified'
 ] as const
 
 /** A followed event's message body (pages long) and the app's link from an event to a tab. */
@@ -140,7 +145,7 @@ type _account = NothingLeft<Unlisted<OrchAccount, typeof ACCOUNT_FIELDS, []>>
 type _runConfig = NothingLeft<Unlisted<OrchRunConfig, typeof RUN_CONFIG_FIELDS, []>>
 /** The pty and process ids are the Host's own: a controller reads them from the raw reply to subscribe, and a
  *  printed list leaves them out. */
-type _session = NothingLeft<Unlisted<HostSession, typeof SESSION_FIELDS, ['ptyId', 'procId', /* W5-D: the app's inbox reason */ 'prompt', /* W6-E: the plan view's "now" line */ 'lastAction']>>
+type _session = NothingLeft<Unlisted<HostSession, typeof SESSION_FIELDS, ['ptyId', 'procId', /* W5-D: the app's inbox reason */ 'prompt', /* W6-E: the plan view's "now" line */ 'lastAction', /* W8-C heavy: the plan view's queue line */ 'heavyWait']>>
 type _chatTurn = NothingLeft<Unlisted<ChatTurn, typeof CHAT_TURN_FIELDS, []>>
 type _chatPending = NothingLeft<Unlisted<ChatPending, typeof CHAT_PENDING_FIELDS, []>>
 type _chatPrompt = NothingLeft<Unlisted<ChatPrompt, typeof CHAT_PROMPT_FIELDS, []>>

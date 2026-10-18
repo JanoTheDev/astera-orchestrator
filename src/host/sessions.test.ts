@@ -791,3 +791,25 @@ describe('registrySessions — sessionTurn', () => {
     expect(await h.sessions.sessionTurn('ses-nope')).toBeNull()
   })
 })
+
+// W8-C heavy: a session that waits for the heavy-job slot carries its place in line; the one running does not.
+describe('registrySessions — heavy-job queue', () => {
+  it('attaches heavyWait from the queue dir, and nothing when the dir is missing', async () => {
+    const { ptys, procs } = harness()
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'astera-heavyq-'))
+    try {
+      const t = (n: number, sessionId: string): void =>
+        writeFileSync(path.join(dir, `${String(n).padStart(20, '0')}.json`), JSON.stringify({ pid: process.pid, cmd: 'x', cwd: '/', sessionId, at: n }))
+      t(1, 'other-running')
+      t(2, 'ses-1')
+      const s = registrySessions({ ptys, procs, hookEventsDir: NO_HOOK_DIR, accounts: async () => [], heavyQueueDir: dir })
+      expect((await s.listSessions()).find((r) => r.id === 'ses-1')?.heavyWait).toBe(1)
+      expect((await s.sessionById!('ses-1'))?.heavyWait).toBe(1)
+      expect((await s.listSessions()).find((r) => r.id === 'chat-1')?.heavyWait).toBeUndefined()
+      const none = registrySessions({ ptys, procs, hookEventsDir: NO_HOOK_DIR, accounts: async () => [], heavyQueueDir: path.join(dir, 'missing') })
+      expect((await none.listSessions()).find((r) => r.id === 'ses-1')?.heavyWait).toBeUndefined()
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})

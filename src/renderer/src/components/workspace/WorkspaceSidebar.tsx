@@ -183,6 +183,12 @@ export function WorkspaceSidebar({
                         </button>
                         {plan.paused && <span className="ws-tag">paused</span>}
                         {plan.archived && <span className="ws-tag">archived</span>}
+                        {/* W8-C plan after plan */}
+                        {plan.queuedAfter && (
+                          <span className="ws-tag">
+                            {plan.queuedAfter.stopped ? `Waiting on ${plan.queuedAfter.name}, which stopped` : `Queued after ${plan.queuedAfter.name}`}
+                          </span>
+                        )}
                       </div>
                       {!folded.has(plan.jobId) && (
                         <ul className="ws-groups">

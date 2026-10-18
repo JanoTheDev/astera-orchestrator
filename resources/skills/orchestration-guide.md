@@ -884,6 +884,26 @@ server blocks `check` and `inbox` as coordinator-only (403).
 - After reporting, end your turn and wait at the agent prompt. Do not close the terminal yourself — if
   the orchestrator reuses it, new instructions arrive as input.
 
+<!-- W8-C: heavy jobs and self-hosting -->
+### Heavy jobs and the orchestrating app (W8-C)
+
+- **Run heavy jobs through `astera heavy`.** The full test suite, `npm run dev` / Electron launches and
+  `npm run dist:linux` run one at a time on this machine, first come first served:
+  ```bash
+  astera heavy -- nice -n 10 npx vitest run --maxWorkers=2
+  astera heavy -- npm run dist:linux
+  ```
+  It waits for the slot, runs the command in your terminal, and exits with the command's exit code. While
+  you wait, the plan board shows "Waiting for the heavy-job slot (2nd in line)". The slot is the lock file
+  `/tmp/astera-fullsuite.lock`: hand-opened tabs that run `flock /tmp/astera-fullsuite.lock <command>`
+  share it. The lock is released when the command exits or crashes. Your own test files
+  (`npx vitest run --maxWorkers=2 <files>`) and the typecheck are not heavy jobs.
+- **Manual checks run the dev app on the dev profile** (`ASTERA_PROFILE_DIR=~/.config/astera-dev`), with
+  its own Host, never on the profile the orchestrating Astera runs on.
+- **Never stop, restart or `pkill` the orchestrating Astera app or its Host**, and never kill processes
+  you did not start. The plan you are part of runs inside it.
+<!-- /W8-C -->
+
 ## 7. The four `worker-show` states and what to do
 
 ```

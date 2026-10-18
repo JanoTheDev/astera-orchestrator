@@ -375,3 +375,49 @@ hook on `AudioContext.createOscillator` (one chime = two oscillator calls). Issu
 - `astera host stop` ends the dev Host cleanly once its sessions are gone.
 - A bare repo made with `git init --bare` and filled by `git push -u origin main` has no `origin/HEAD` in the clone;
   `git remote set-head origin -a` sets it, or set the project's delivery branch.
+
+## Self-hosting checks (W8-C, measured 2026-10-18, XFCE on X11)
+
+Built `out/` from `feat/orch-run-waves` and ran headless Hosts (`astera host start`) on scratch profiles, so neither the
+packaged profile (`~/.config/astera`) nor the dev profile was touched. One Claude account, permission checks on
+(Claude's auto mode approved everything, as in 7V).
+
+### Two Hosts on two profiles
+
+- Host 1 on profile A (a plan running: planner and coordinator live), then Host 2 on profile B.
+- They listened on separate sockets: `/tmp/astera-host-3fd9d70974a5-v4/sock` and `/tmp/astera-host-33db12ca170b-v4/sock`
+  (the address is a hash of the profile folder, `hostAddress`).
+- `sessions list` on Host 2 showed 0 sessions while Host 1 held 2: no adoption across profiles. `retireOlderHosts`
+  only asks addresses of its own profile, so one Host never retires the other.
+- `host stop` on Host 2 left Host 1 running with its sessions (`status`: running, `sessionsRunning` 1).
+- So the packaged Astera that runs a plan and the dev app a worker uses for manual checks (`~/.config/astera-dev`)
+  each keep their own Host.
+
+### Plan after plan, Run as written, one heavy slot
+
+Scratch repo with no remote (delivery `pr`, so delivered means "work on branch …"). Plan 1 and plan 2 were each made from
+two tiny prompt files with `jobs create --mode prompts --coordinator-account <id> --concurrency 2`. Plan 2 also had
+`--after <plan 1>`. Plan 1's prompts each ran
+`{ echo "start $(date +%T.%N)"; astera heavy -- sleep 5; echo "end $(date +%T.%N)"; }`.
+
+| Time | Event |
+|---|---|
+| 19:14:08 | `jobs plan` plan 1; `jobs plan` plan 2 refused 409 "queued after p1-a.md, p1-b.md: it starts by itself once that plan is delivered" |
+| 19:14:49 | plan 1's planner done (41 s), approved by itself (prompts mode), 2 Tasks ready |
+| 19:15:39 | both workers running |
+| 19:15:51.47 | worker a: `astera heavy` starts `sleep 5` |
+| 19:15:54.91 | worker b asks for the slot; its ticket waits second in `/tmp/astera-heavy-queue/` |
+| 19:15:56.81 | worker a ends; worker b's `sleep 5` starts |
+| 19:16:01.98 | worker b ends (7.1 s after asking: about 1.9 s waiting, then 5 s running) |
+| 19:16:19 | both Tasks completed; final check |
+| 19:16:36.8 | plan 1 delivered: "This project has no remote; the plan's work is on branch p1-a.md-p1-b.md" |
+| ≤19:16:39 | plan 2's planner started by itself |
+| 19:18 | plan 2 approved by itself; its workers wrote `p2-a.txt` |
+
+The laptop then crashed (about 19:25) and the run was not watched to plan 2's delivery. No full suite, build or dev app
+was running at that point, only the scratch Host and its `claude` sessions. Reboot clears `/tmp`, which removes the
+queue dir and the Host sockets; leftover worktrees under `~/astera-worktrees/` stay.
+
+The board's "Waiting for the heavy-job slot (Nth in line)" comes from the `heavyWait` field on `sessions-list` rows. The
+public CLI view hides that field, so it was checked with unit tests (`sessions.test.ts`, `planBoard.test.ts`), not
+from the CLI.

@@ -10,6 +10,8 @@
 // command layer run in both places.
 import { FOLLOW_WINDOW_MS, type AnsweredQuestion, type StopResult, type WaitEnding, type WaitTimeout } from '../publicContract'
 import { briefTask, jobView, latestRunOf, runView } from './publicViews'
+// W8-C plan after plan
+import { afterNameOf, afterRefusal, afterSweep, jobDelivered } from './after'
 import { lastByState } from './stateMemo'
 import { randomBytes } from 'node:crypto'
 import {
@@ -121,6 +123,9 @@ import { GITHUB_SOURCE_ID, issuesContext, issuesTitleOf } from '../github/issueS
 // W6-A intake
 import { SOURCED_OBJECTIVE_MAX } from '../sources/objective'
 import { intakeChanges, intakeObjective, intakeOf, intakeTitle, needsInputs } from './intake'
+// W8-C prompts mode
+import path from 'node:path'
+import { promptPlanOf, sha256Of } from './promptWaves'
 import { fillFromCommits, type CommitSummary } from '../github/fill'
 // W2-D GitHub links
 import {
@@ -140,7 +145,9 @@ import { isSamePath } from '../files/tree'
 import type { RunPr, TaskLinks } from './types'
 import { escalationOpen } from './sessionIndex' // W7-C
 import type { Gate, Message } from './types' // W7-C
-import type { PrCreateRequest, PrCreateResult } from '../github/prCreate'
+import type { BranchPushResult, PrCreateRequest, PrCreateResult } from '../github/prCreate'
+// W8-C draft PR
+import { completedWorktrees, draftPrDue, DRAFT_PR_FOOTER, runWaves, wavesDoneOf, wavesSection } from './draftPr'
 import type { SessionCheck } from '../workUnit/types'
 import { PTY_LOST_SIGHT_EXIT_CODE } from '../sessions/pty'
 import { LAUNCH_FORBIDDEN } from '../sessions/commands'
@@ -236,6 +243,9 @@ export interface HostSession {
   sources?: SessionSources
   // W6-E progress view: the last tool call the session started (SessionInfo.lastAction, host/sessions.ts)
   lastAction?: SessionInfo['lastAction']
+  // W8-C heavy: its place in line for the heavy-job slot (core/orchestration/heavyLock.ts heavyWaits), 1-based;
+  // absent when it is not waiting
+  heavyWait?: number
 }
 
 /** The Host's source for each fact of a session, by provider and kind (remote runtime design Phase 9, X1-06). */
@@ -717,6 +727,10 @@ export interface OrchServerDeps {
     createPr(req: PrCreateRequest): Promise<PrCreateResult>
     readCommits(worktree: string, base: string): Promise<CommitSummary[]>
     isClean(worktree: string): Promise<{ changedCount: number }>
+    // W8-C draft PR
+    /** `git push -u origin <branch>` from the worktree, never forced (prCreate.ts pushBranch): the draft PR's push after
+     *  each wave and before it is marked ready. Absent, `run-draft-pr` answers 409. */
+    push?(worktree: string, branch: string): Promise<BranchPushResult>
   }
   /** How It Works records (MCP P2-C): understanding.json as it is on disk now, read on every call and
    *  never written (`readUnderstandingFile`). **Only the Host injects it**, over its profile's file: the
@@ -727,6 +741,11 @@ export interface OrchServerDeps {
    *  answers the folder; throws the refusal's sentence. **Only the Host injects it**, over its profile; absent,
    *  `jobs-create --attach` and `--mode audit` answer 409. */
   intakeInputs?(jobId: string, files: string[]): Promise<{ dir: string; names: string[] }>
+  // W8-C prompts mode
+  /** A text file of this machine, or null when it is not there: a Run-as-written plan's copied prompt files and its
+   *  project's docs/orchestrator/PLAN.md (`readTextIfAny`). **Only the Host injects it**; absent, `--mode prompts` with
+   *  files answers 409 and a pasted document is ordered without PLAN.md. */
+  readIntakeText?(file: string): Promise<string | null>
   /** The job-source plugins (plugin Phase 4 J10): which there are and a question to one. **Only the Host injects it**,
    *  from its plugin manager and runtime; absent, the sources are GitHub's alone. */
   jobSources?: JobSourcesDeps
@@ -1097,7 +1116,9 @@ const COORDINATOR_ONLY = new Set([
   'run-open-pr',
   // W6-H: how the plan lands is the person's setting, and the landing is Astera's
   'projects-set',
-  'run-deliver'
+  'run-deliver',
+  // W8-C draft PR
+  'run-draft-pr'
 ])
 
 /** Session-task commands answer to the work-unit tracking toggle, not the orchestration one. They
@@ -1456,6 +1477,62 @@ function coordinatorWanted(deps: OrchServerDeps, s: OrchState, run: JobRun, job:
 
 /** The check ids of the Tasks `jobs run` or `run-start` is about to start (plugin Phase 5 C7), read from a state of
  *  their own: a Job's next Run's Tasks, or a Run's unfinished Tasks when a coordinator would be started for it. */
+// W8-C prompts mode
+/** Writes a Run-as-written plan's Tasks (`jobs-create --mode prompts`): one definition Task per prompt, its text the
+ *  prompt byte for byte, in the order docs/orchestrator/PLAN.md and the prompts' own sentences give (promptWaves.ts).
+ *  Their account is the plan's coordinator account, else the default one. Answers the `Job.verbatim` entries and the
+ *  lines the planner's objective lists, or the sentence to refuse with. */
+async function writePromptTasks(
+  deps: OrchServerDeps,
+  jobId: string,
+  pasted: string,
+  inputs: { dir: string; names: string[] } | undefined,
+  now: string
+): Promise<{ entries: NonNullable<Job['verbatim']>; lines: string[]; skippedLines: string[] } | { error: string }> {
+  const files: { name: string; text: string }[] = []
+  for (const name of inputs?.names ?? []) {
+    const text = await deps.readIntakeText!(path.join(inputs!.dir, name))
+    if (text === null) return { error: `${name}: could not be read after it was copied` }
+    if (text.trim() === '') return { error: `${name}: the prompt file is empty` }
+    files.push({ name, text })
+  }
+  const job = deps.getState().jobs.find((j) => j.id === jobId)!
+  const planMd = (await deps.readIntakeText?.(path.join(job.cwd, 'docs', 'orchestrator', 'PLAN.md'))) ?? undefined
+  const plan = promptPlanOf(files, pasted, planMd)
+  let account = job.coordinatorAccountId
+  if (account === undefined) {
+    const all = await deps.listAccounts(undefined, { withDefault: true })
+    account = (all.find((a) => a.default && a.provider === 'claude') ?? all.find((a) => a.default) ?? all[0])?.id
+  }
+  let st = deps.getState()
+  const idOf = new Map<string, string>()
+  for (const t of plan.tasks) {
+    const made = createTask(
+      st,
+      { jobId, title: t.title, spec: t.spec, deps: [], prompt: t.prompt, ...(account !== undefined ? { accountIds: [account] } : {}) },
+      now
+    )
+    if (!made.ok) return { error: made.error }
+    st = { ...made.state, tasks: made.state.tasks.map((x) => (x.id === made.value.id ? { ...x, verbatimOf: t.key } : x)) }
+    idOf.set(t.key, made.value.id)
+  }
+  for (const t of plan.tasks) {
+    if (t.deps.length === 0) continue
+    const edited = editPlanTask(st, idOf.get(t.key)!, { deps: t.deps.map((k) => idOf.get(k)!) }, now)
+    if (!edited.ok) return { error: edited.error }
+    st = edited.state
+  }
+  await deps.setState(st)
+  return {
+    entries: [
+      ...plan.tasks.map((t) => ({ title: t.title, source: t.key, sha256: sha256Of(t.prompt), taskId: idOf.get(t.key)! })),
+      ...plan.skipped.map((x) => ({ title: x.key.replace(/^doc#/, '').replace(/\.md$/i, ''), source: x.key, sha256: x.sha256, skipped: x.why }))
+    ],
+    lines: plan.tasks.map((t) => `${idOf.get(t.key)} ${t.title}: ${t.spec.split('\n')[0]}`),
+    skippedLines: plan.skipped.map((x) => `${x.key}: ${x.why}`)
+  }
+}
+
 function startingCheckIds(deps: OrchServerDeps, cmd: string, args: Record<string, unknown>): string[] {
   const s = deps.getState()
   const id = cmd === 'jobs-run' ? str(args.id) : str(args.run)
@@ -1572,12 +1649,12 @@ export async function handleCommand(
   // itself; `run-start-marks-clear` is the loop's sweep. Refused from inside any agent session, as
   // `chats answer` is: taken from the app (APP_CALLER), the Host (HOST_CALLER) and a shell (no session).
   if (
-    (cmd === 'run-start-marks-clear' || (cmd === 'run-coordinator-stop' && args.gone !== undefined)) &&
+    (cmd === 'run-start-marks-clear' || cmd === 'jobs-after-sweep' || (cmd === 'run-coordinator-stop' && args.gone !== undefined)) &&
     caller.sessionId !== '' &&
     caller.sessionId !== APP_CALLER &&
     caller.sessionId !== HOST_CALLER
   )
-    return denied(`${cmd === 'run-start-marks-clear' ? cmd : 'run-coordinator-stop --gone'} is sent by the app or the Host, not from inside an agent session`)
+    return denied(`${cmd === 'run-coordinator-stop' ? 'run-coordinator-stop --gone' : cmd} is sent by the app or the Host, not from inside an agent session`)
   // isRunCoordinator: this session is coordinating a Run that is **still running**. Kept separate
   // from isWorker rather than folded into one flag — they answer different questions (dispatch
   // ownership vs. Run coordination) for different reasons elsewhere in this file (isWorker also
@@ -2304,11 +2381,22 @@ export async function handleCommand(
       const read = intakeOf(args)
       if (!read.ok) return bad(read.error)
       const intake = read.intake
-      const { mode: _mode, scope: _scope, instructions: _instructions, attach: _attach, ...plain } = args
+      const { mode: _mode, scope: _scope, instructions: _instructions, attach: _attach, approve: _approve, after: _after, ...plain } = args
+      // W8-C plan after plan: `--after <job>`, the plan this one is queued after
+      const afterId = args.after === undefined ? null : str(args.after)
+      if (args.after !== undefined && (afterId === null || afterId === 'none')) return bad('--after needs a job id')
+      if (afterId !== null && !s.jobs.some((j) => j.id === afterId)) return notFound(`unknown job: ${afterId}`)
+      if (afterId !== null && str(args.coordinatorAccount) === null && args.coordinatorProvider === undefined)
+        return bad('--after needs --coordinator-account (or --coordinator-provider): the queued plan\'s planner starts on it')
       const source = typeof args.objective === 'string' ? args.objective : ''
       if (intake.attach.length > 0 && (fromAgentSession || caller.role === 'mcp' || caller.role === 'controller'))
         return denied('--attach is for the person, in Astera or at their own shell: it copies files of this machine')
       if (needsInputs(intake) && !deps.intakeInputs) return conflict('attachments and audits are kept by the Astera Host, and this caller is not one')
+      // W8-C prompts mode: Astera reads the prompt files itself, so their text reaches the Tasks unchanged
+      if (intake.mode === 'prompts' && intake.attach.length > 0 && !deps.readIntakeText)
+        return conflict('Run as written reads its prompt files on the Astera Host, and this caller is not one')
+      if (intake.mode === 'prompts' && intake.attach.length === 0 && source.trim() === '')
+        return bad('--mode prompts needs .md prompt files (--attach) or the document as --objective')
       // An audit or a set of files is a source of its own: the objective may then be left out.
       const placeholder = source.trim() === '' && needsInputs(intake) ? { objective: intake.mode === 'audit' ? 'Audit' : 'Attached files' } : {}
       const reply = await handleCommand(deps, caller, 'run-create', { ...plain, ...placeholder, auto: true })
@@ -2326,20 +2414,41 @@ export async function handleCommand(
             return bad(e instanceof Error ? e.message : String(e))
           }
         }
-        const objective = intakeObjective(intake, source, inputs)
+        // W8-C prompts mode: Astera writes the Tasks, one per prompt, its text unchanged; the planner fills them in
+        const verbatim = intake.mode === 'prompts' ? await writePromptTasks(deps, id, source, inputs, now) : undefined
+        if (verbatim !== undefined && 'error' in verbatim) {
+          await deps.setState({ ...deps.getState(), jobs: deps.getState().jobs.filter((j) => j.id !== id) })
+          return bad(verbatim.error)
+        }
+        const objective = intakeObjective(intake, source, inputs, verbatim && { tasks: verbatim.lines, skipped: verbatim.skippedLines })
         // W7-D (#68): the plan's name, so its boilerplate objective is never what the plan is called. A title already
         // there is kept.
         const title = intakeTitle(intake, source, inputs?.names ?? [])
         const cur = deps.getState()
         await deps.setState({
           ...cur,
-          jobs: cur.jobs.map((j) => (j.id === id ? { ...j, objective, ...(title !== undefined && j.title === undefined ? { title } : {}) } : j))
+          jobs: cur.jobs.map((j) =>
+            j.id === id
+              ? {
+                  ...j,
+                  objective,
+                  ...(title !== undefined && j.title === undefined ? { title } : {}),
+                  // W8-C prompts mode: the owner wrote the plan, so it starts on its own unless `--approve ask`
+                  ...(verbatim !== undefined ? { verbatim: verbatim.entries, autoApprove: intake.approve !== 'ask' } : {})
+                }
+              : j
+          )
         })
       }
       // W7-E: `--no-review`: this plan's Tasks are not reviewed (`jobs plan` turns review on otherwise, Job.review)
       if (args.noReview === true) {
         const cur = deps.getState()
         await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id ? { ...j, review: false } : j)) })
+      }
+      // W8-C plan after plan
+      if (afterId !== null) {
+        const cur = deps.getState()
+        await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id ? { ...j, after: afterId } : j)) })
       }
       const after = deps.getState()
       const created = after.jobs.find((j) => j.id === id)
@@ -2794,7 +2903,27 @@ export async function handleCommand(
       if (fromAgentSession || caller.role === 'mcp') return denied('jobs-set is for the person, in Astera or at their own shell')
       const id = str(args.id)
       if (!id) return bad('--id is required')
-      if (args.concurrency === undefined) return bad('nothing to set: give --concurrency')
+      if (args.concurrency === undefined && args.after === undefined) return bad('nothing to set: give --concurrency or --after')
+      // W8-C plan after plan: `--after <job|none>`, only alone (it is set before the plan starts, concurrency after)
+      if (args.after !== undefined) {
+        if (args.concurrency !== undefined) return bad('--after is set on its own, not with --concurrency')
+        const target = str(args.after)
+        if (target === null) return bad('--after needs a job id, or none')
+        const job = s.jobs.find((j) => j.id === id)
+        if (!job) return notFound(`unknown job: ${id}`)
+        if (target !== 'none') {
+          const refusal = afterRefusal(s, id, target)
+          if (refusal) return refusal.missing ? notFound(refusal.error) : bad(refusal.error)
+        }
+        if (!job.pendingStart || job.plannerSessionIds !== undefined)
+          return conflict(`job ${id} has started planning: it can no longer wait on another plan`)
+        if (target !== 'none' && job.coordinatorAccountId === undefined)
+          return bad(`job ${id} names no coordinator account: a queued plan's planner starts on it`)
+        const { after: _old, afterStopNotified: _mark, ...rest } = job
+        const next: Job = target === 'none' ? rest : { ...rest, after: target }
+        await deps.setState({ ...s, jobs: s.jobs.map((j) => (j.id === id ? next : j)) })
+        return okBody(jobView(deps.getState(), next, undefined))
+      }
       const concurrency = concurrencyArg(args.concurrency)
       if (concurrency === null) return bad('--concurrency must be an integer >= 1')
       // A Run's id names its Job, as `jobs get` reads it: the Run window holds either
@@ -2822,6 +2951,9 @@ export async function handleCommand(
       const job = s.jobs.find((j) => j.id === id)
       if (!job) return notFound(`unknown job: ${id}`)
       if (!job.pendingStart) return conflict(`job ${id} has started: a planner plans a Job before it is approved`)
+      // W8-C plan after plan: a queued plan's planner is the Host's to start, once the plan it waits on is delivered
+      if (job.after !== undefined && job.plannerSessionIds === undefined && !jobDelivered(s, job.after))
+        return conflict(`queued after ${afterNameOf(s, job.after)}: it starts by itself once that plan is delivered`)
       // W6-D: `--replan waves|off` sets Job.replan as the plan starts
       if (args.replan !== undefined && args.replan !== 'waves' && args.replan !== 'off') return bad('--replan must be waves|off')
       if (args.replan !== undefined) {
@@ -3422,6 +3554,14 @@ export async function handleCommand(
      * computed while it was fresh keeps showing no ▶ until some unrelated commit. A mark inside its
      * window is left alone: that start may still be under way. Answers the Runs it cleared.
      */
+    // W8-C plan after plan: the driving loop's sweep, which marks each queued Job whose predecessor stopped (the
+    // escalation, once) and clears the mark when it no longer is (after.ts afterSweep). Answers the Jobs it marked.
+    case 'jobs-after-sweep': {
+      const next = afterSweep(s, now)
+      if (next === s) return okBody({ marked: [] })
+      await deps.setState(next)
+      return okBody({ marked: next.jobs.filter((j) => j.afterStopNotified === now).map((j) => j.id) })
+    }
     case 'run-start-marks-clear': {
       const nowMs = Date.parse(now)
       const stale = new Set(
@@ -5487,12 +5627,87 @@ export async function handleCommand(
         ...(removed && removed.failed.length > 0 ? { worktreesKept: removed.failed } : {})
       })
     }
+    // W8-C draft PR: a long `pr` plan is followed from GitHub. After a wave, while later waves remain (draftPr.ts
+    // draftPrDue), the completed Tasks' worktrees are folded into the Run's integration branch, it is pushed, and the
+    // plan's PR is opened as a draft, or its body rewritten with the done and remaining waves. Recorded as
+    // `run.pr = { url, number, draft, wavesDone }`; `run-open-pr` marks it ready after the final check. A failure is
+    // not recorded (a recorded error would stop the final delivery) and no remote is no failure: nothing is opened.
+    // Never merged. Astera's own step: refused from an agent session and an MCP client.
+    case 'run-draft-pr': {
+      const id = str(args.run)
+      if (!id) return bad('--run is required')
+      if (fromAgentSession || caller.role === 'mcp') return denied("a plan's draft pull request is kept by Astera itself")
+      const run = s.runs.find((r) => r.id === id)
+      if (!run) return notFound(`unknown run: ${id}`)
+      const job = jobOf(s, run)
+      if (!job) return notFound(`no plan for run ${id}`)
+      if (draftPrDue(s, run) === null)
+        return conflict('No draft update is due: a pull request plan updates its draft once per finished wave while later waves remain')
+      const t = githubTarget(deps, s, { run: id })
+      if ('error' in t) return t.error
+      if (!('branch' in t)) return conflict('This Run has no branch of its own')
+      const g = deps.github!
+      if (!g.push) return conflict('pushing a branch is not available in this build')
+      const fold = completedWorktrees(s, run)
+      if (fold.length > 0) {
+        if (!deps.mergeWorktrees) return conflict('merging is not available in this build')
+        const merged = await deps.mergeWorktrees(t.cwd, fold)
+        if (!merged.ok) return conflict(merged.reason)
+      }
+      let accounts: OrchAccount[] = []
+      try {
+        accounts = await deps.listAccounts()
+      } catch {
+        // The PR names an account by its id then
+      }
+      const cur = deps.getState()
+      const waves = runWaves(cur, id)
+      const done = wavesDoneOf(waves)
+      const title = jobNameOf(job)
+      const tasks = planPrTasksOf(cur, id, (a) => accounts.find((x) => x.id === a)?.label)
+      const body = planPrBody({ plan: title, tasks, waves: wavesSection(waves), footer: DRAFT_PR_FOOTER })
+      const at = deps.now?.() ?? now
+      const record = async (pr: RunPr, links?: TaskLinks): Promise<void> => {
+        const st = deps.getState()
+        await deps.setState({
+          ...st,
+          runs: st.runs.map((r) => (r.id === id ? { ...r, pr } : r)),
+          tasks: links ? st.tasks.map((x) => (x.runId === id ? { ...x, links: mergeLinks(x.links, links) } : x)) : st.tasks
+        })
+      }
+      const open = run.pr
+      if (open?.url !== undefined) {
+        const pushed = await g.push(t.cwd, t.branch)
+        if (!pushed.ok)
+          return pushed.kind === 'no-remote'
+            ? okBody({ noRemote: true, branch: t.branch, message: noRemoteNote(t.branch) })
+            : conflict(`The push was rejected: ${pushed.detail.trim()}`)
+        const edited = await g.run(['pr', 'edit', open.url, '--body', body], t.cwd)
+        if (!edited.ok) return ghRefusal({ ok: false, ...ghFailureSentence(edited) })
+        await record({ ...open, at, draft: true, wavesDone: done })
+        return okBody({ url: open.url, number: open.number ?? null, draft: true, wavesDone: done, opened: false })
+      }
+      const base = (await defaultBranchOf(g.run, t.cwd)) ?? t.baseRef
+      const made = await g.createPr({ worktreePath: t.cwd, repoPath: t.repoPath, branch: t.branch, base, title, body, draft: true, needsPush: true })
+      if (!made.ok) {
+        if (made.kind === 'no-remote') return okBody({ noRemote: true, branch: t.branch, message: noRemoteNote(t.branch) })
+        return conflict(`The draft pull request was not opened (${made.stage}, ${made.kind}): ${made.detail.trim()}`)
+      }
+      const number = prNumberOf(made.url)
+      await record(
+        { at, url: made.url, ...(number !== null ? { number } : {}), draft: true, wavesDone: done },
+        number !== null ? { prs: [{ number, url: made.url, state: 'open' }] } : undefined
+      )
+      return okBody({ url: made.url, number, draft: true, wavesDone: done, opened: true })
+    }
     case 'run-open-pr': {
       const id = str(args.run)
       if (!id) return bad('--run is required')
       const run = s.runs.find((r) => r.id === id)
       if (!run) return notFound(`unknown run: ${id}`)
-      if (run.pr?.url) return okBody({ url: run.pr.url, number: run.pr.number ?? null, opened: false })
+      // W8-C draft PR: a draft opened between waves is finished below, not answered as done
+      const draft = run.pr?.draft === true ? run.pr : undefined
+      if (run.pr?.url && !draft) return okBody({ url: run.pr.url, number: run.pr.number ?? null, opened: false })
       if (run.pr?.error !== undefined && args.force !== true)
         return conflict(`Opening this Run's pull request failed before: ${run.pr.error}. --force tries again`)
       // W8-E (#99): a Run that ended with failed Tasks delivers its completed Tasks' work, in a draft
@@ -5533,7 +5748,34 @@ export async function handleCommand(
         // The PR names an account by its id then
       }
       const title = jobNameOf(job)
-      const body = planPrBody({ plan: title, tasks: planPrTasksOf(deps.getState(), id, (a) => accounts.find((x) => x.id === a)?.label) })
+      const body = planPrBody({
+        plan: title,
+        tasks: planPrTasksOf(deps.getState(), id, (a) => accounts.find((x) => x.id === a)?.label),
+        // W8-C draft PR: the PR that followed the plan keeps its waves, all done now
+        ...(draft ? { waves: wavesSection(runWaves(deps.getState(), id)) } : {})
+      })
+      // W8-C draft PR: push the final branch, write the final body and mark the draft ready; `draft` is cleared
+      if (draft?.url !== undefined) {
+        const t = githubTarget(deps, s, { run: id })
+        if ('error' in t) return t.error
+        if (!('branch' in t)) return conflict('This Run has no branch of its own')
+        const g = deps.github
+        const fail = async (error: string): Promise<Reply> => {
+          await record({ ...draft, at: now, error })
+          return conflict(error)
+        }
+        if (!g.push) return conflict('pushing a branch is not available in this build')
+        const pushed = await g.push(t.cwd, t.branch)
+        if (!pushed.ok) return fail(pushed.kind === 'no-remote' ? noRemoteNote(t.branch) : `The push was rejected: ${pushed.detail.trim()}`)
+        // W8-E (#99): a Run with failed Tasks delivers its completed work and stays a draft
+        for (const step of [['pr', 'edit', draft.url, '--body', body], ...(failed ? [] : [['pr', 'ready', draft.url]])]) {
+          const r = await g.run(step, t.cwd)
+          if (!r.ok) return fail(`gh ${step[0]} ${step[1]}: ${ghFailureSentence(r).message}`)
+        }
+        const { draft: _d, wavesDone: _w, error: _e, ...ready } = draft
+        await record(failed ? { ...draft, at: now } : { ...ready, at: now })
+        return okBody({ url: draft.url, number: draft.number ?? null, opened: false, ready: !failed })
+      }
       const made = await handleCommand(deps, caller, 'github-pr-create', { run: id, title, body, draft: failed, ...(base ? { base } : {}) })
       const answer = (made.body ?? {}) as { url?: unknown; error?: unknown; noRemote?: unknown; branch?: unknown }
       // W7-E (#80): a project with no remote keeps the work on its branch; recorded as a note, not as a failed PR

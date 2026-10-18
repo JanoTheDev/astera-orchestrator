@@ -55,8 +55,10 @@ Many code comments are Korean — read them, they carry the invariants.
    pure function and state transition. Run before pushing:
    ```bash
    npm run typecheck && npx vitest run --maxWorkers=2 <your test files>
-   flock /tmp/astera-fullsuite.lock nice -n 10 npx vitest run --maxWorkers=2   # the full suite
+   astera heavy -- nice -n 10 npx vitest run --maxWorkers=2                   # the full suite, in an Astera worker
+   flock /tmp/astera-fullsuite.lock nice -n 10 npx vitest run --maxWorkers=2   # the full suite, in a hand-opened tab
    ```
+   Both lines take the same lock (`/tmp/astera-fullsuite.lock`), so workers and hand tabs share one slot (W8-C).
    **Never run bare `npm test`.** Four tabs running it at default workers, alongside Electron, crashed the
    owner's laptop in Wave 0. The `flock` line queues full runs across tabs, so only one runs at a time. While
    `npm run dev`, `npm run dist:linux` or another tab's full suite is running, run only your own test files.

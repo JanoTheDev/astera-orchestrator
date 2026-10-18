@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react'
 import type { Account } from '../../../../core/types'
 import { DEFAULT_CONCURRENCY, MAX_CONCURRENT_WORKERS, type Project } from '../../../../core/orchestration/types'
+// W8-C plan after plan
+import type { Job } from '../../../../core/orchestration/types'
+import { jobNameOf } from '../../../../core/orchestration/jobName'
 import { useI18n } from '../../i18n/I18nProvider'
 import { formFailure, type OrchDoor } from '../../lib/orchDoor'
 import { AccountSelect } from '../AccountSelect'
@@ -15,7 +18,7 @@ interface IssueRow {
   reason?: string
 }
 
-const TABS: IntakeTab[] = ['describe', 'files', 'audit', 'github']
+const TABS: IntakeTab[] = ['describe', 'files', /* W8-C prompts mode */ 'prompts', 'audit', 'github']
 
 /** W6-A "New plan": a Job from a description, files, an audit or GitHub issues, with the owner's extra instructions.
  *  It makes the Job (`jobs-create` / `jobs-create-from-issue`, intakeRequest.ts) and starts its planner (`jobs-plan`);
@@ -46,6 +49,7 @@ export function NewPlanDialog({
   const [projectId, setProjectId] = useState('')
   const [text, setText] = useState(initialText ?? '')
   const [fixlist, setFixlist] = useState(false)
+  const [approveAsk, setApproveAsk] = useState(false)
   const [files, setFiles] = useState<string[]>([])
   const [scope, setScope] = useState('')
   const [query, setQuery] = useState('')
@@ -69,6 +73,16 @@ export function NewPlanDialog({
     })
   }, [door, cwd])
   const project = projects.find((p) => p.id === projectId) ?? null
+  // W8-C plan after plan: "Start after", among the project's plans that are not archived (`jobs-list` leaves those out)
+  const [after, setAfter] = useState('')
+  const [plans, setPlans] = useState<{ id: string; name: string }[]>([])
+  useEffect(() => {
+    setAfter('')
+    if (!projectId) return
+    void door.command('jobs-list', { project: projectId }).then((r) => {
+      if (r.status === 200 && Array.isArray(r.body)) setPlans((r.body as Job[]).map((j) => ({ id: j.id, name: jobNameOf(j) })))
+    })
+  }, [door, projectId])
 
   // The GitHub search, a moment after the last key: GitHub's search is rate limited.
   useEffect(() => {
@@ -98,7 +112,8 @@ export function NewPlanDialog({
     instructions,
     project: project && { id: project.id, path: project.path },
     coordinatorAccount: account,
-    concurrency
+    concurrency,
+    approveAsk
   })
 
   const addFiles = (list: FileList | null): void => {
@@ -119,7 +134,8 @@ export function NewPlanDialog({
       }
       const id = (reply.body as { id: string }).id
       // Every intake ends with its planner started; a planner that does not start leaves the Job as a draft.
-      const planned = await door.command('jobs-plan', { id })
+      // W8-C: or queued after another plan (`jobs-set --after`): the Host starts its planner once that one is delivered.
+      const planned = await door.command(after ? 'jobs-set' : 'jobs-plan', after ? { id, after } : { id })
       if (planned.status >= 400) {
         const why = (planned.body as { error?: unknown } | null)?.error
         setError(`${t('jobs.new.plannerFailed')}${typeof why === 'string' ? `: ${why}` : ''}`)
@@ -163,8 +179,9 @@ export function NewPlanDialog({
             </label>
           </div>
         )}
-        {tab === 'files' && (
+        {(tab === 'files' || tab === 'prompts') && (
           <div className="field">
+            {tab === 'prompts' && <p className="modal-hint">{t('intake.promptsHint')}</p>}
             <div
               className="intake-drop"
               style={{ border: '1px dashed currentColor', padding: 16, textAlign: 'center' }}
@@ -175,7 +192,13 @@ export function NewPlanDialog({
               }}
             >
               {t('intake.drop')}
-              <input type="file" multiple aria-label={t('intake.drop')} onChange={(e) => addFiles(e.target.files)} />
+              <input
+                type="file"
+                multiple
+                {...(tab === 'prompts' ? { accept: '.md' } : {})}
+                aria-label={t('intake.drop')}
+                onChange={(e) => addFiles(e.target.files)}
+              />
             </div>
             {files.map((f) => (
               <div key={f} className="row">
@@ -185,7 +208,16 @@ export function NewPlanDialog({
                 </button>
               </div>
             ))}
-            <input type="text" value={text} onChange={(e) => setText(e.target.value)} placeholder={t('intake.note')} />
+            {tab === 'files' && <input type="text" value={text} onChange={(e) => setText(e.target.value)} placeholder={t('intake.note')} />}
+            {tab === 'prompts' && files.length === 0 && (
+              <textarea rows={6} value={text} onChange={(e) => setText(e.target.value)} placeholder={t('intake.promptsPaste')} />
+            )}
+            {tab === 'prompts' && (
+              <label className="check-small">
+                <input type="checkbox" checked={approveAsk} onChange={(e) => setApproveAsk(e.target.checked)} />
+                {t('intake.promptsAsk')}
+              </label>
+            )}
           </div>
         )}
         {tab === 'audit' && (
@@ -246,6 +278,18 @@ export function NewPlanDialog({
             <AccountSelect accounts={accounts} value={account} onChange={setAccount} allLabel={t('jobs.new.coordinatorPick')} />
           </div>
         )}
+        {/* W8-C plan after plan */}
+        <div className="field">
+          <label htmlFor="intake-after">{t('intake.after')}</label>
+          <select id="intake-after" value={after} onChange={(e) => setAfter(e.target.value)}>
+            <option value="">{t('intake.afterNone')}</option>
+            {plans.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        </div>
         {error && <p className="warn">{error}</p>}
         <div className="row right">
           <button onClick={onClose} disabled={busy}>

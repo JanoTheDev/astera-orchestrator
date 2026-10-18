@@ -44,9 +44,13 @@ import { DEFAULT_CONCURRENCY, FAILURE_LIMIT, type JobRun, type Task } from '../t
 import { outcomeOfTasks, tasksOwnedBy } from '../running'
 import { outcomeOf } from '../view'
 import { completionSettled, replansDue } from '../replan'
+// W8-C draft PR
+import { draftPrDue } from '../draftPr'
 import type { Integration } from './integrateGit'
 import { usageChoice, usagePauseWhy, type UsageGuard } from '../usageGuard'
 import { deliveryOf } from '../delivery'
+// W8-C plan after plan
+import { afterStartsDue, afterSweep } from '../after'
 
 /** W6-D: a replan whose start left no session after this long died with its process, and is ended. */
 export const REPLAN_START_WINDOW_MS = 5 * 60_000
@@ -476,7 +480,8 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     }
     for (const run of s.runs) {
       // W6-H: a push delivery records its own result (`run.delivery`)
-      if (run.pr !== undefined || run.delivery !== undefined || prAsked.has(run.id)) continue
+      // W8-C: a draft opened between waves is finished here (`run-open-pr` marks it ready); any other PR is the end
+      if ((run.pr !== undefined && run.pr.draft !== true) || run.delivery !== undefined || prAsked.has(run.id)) continue
       const outcome = outcomeOfTasks(owned.get(run.id) ?? [])
       if (outcome === 'running') {
         seenRunning.add(run.id)
@@ -552,6 +557,74 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     }
   }
 
+  // W8-C draft PR
+  /**
+   * W8-C: **a long `pr` plan is followed from GitHub.** After each wave while later waves remain (draftPr.ts
+   * draftPrDue), `run-draft-pr` pushes the integration branch and opens the plan's PR as a draft, or rewrites its body.
+   * Asked once per Run and done count in this process (a refusal is not recorded on the Run, so this set is what stops
+   * a repeat each pass). After the replans, so a wave's replan has its say first. Driving process only, asked before
+   * each one; a failure is logged and never thrown.
+   */
+  const draftAsked = new Set<string>()
+  const updateDraftPrs = async (): Promise<void> => {
+    for (const run of c.getState().runs) {
+      const done = draftPrDue(c.getState(), run)
+      if (done === null || draftAsked.has(`${run.id}:${done}`)) continue
+      if (!c.mayStart()) return
+      draftAsked.add(`${run.id}:${done}`)
+      try {
+        const r = await c.handle('run-draft-pr', { run: run.id })
+        const body = r.body as { url?: unknown; message?: unknown; opened?: unknown } | null
+        log(
+          r.status >= 400
+            ? `run=${run.id}: its draft pull request after wave ${done} was not updated: ${JSON.stringify(r.body)}`
+            : typeof body?.message === 'string'
+              ? `run=${run.id}: no draft pull request: ${body.message}`
+              : `run=${run.id}: draft pull request ${body?.opened === true ? 'opened' : 'updated'} after wave ${done}: ${String(body?.url)}`
+        )
+      } catch (e) {
+        log(`run=${run.id}: updating its draft pull request failed: ${String(e)}`)
+      }
+    }
+  }
+
+  /**
+   * W8-C plan after plan: **a queued plan starts by itself** once the plan it waits on is delivered (`afterStartsDue`,
+   * after.ts): its planner is started with `jobs-plan`, on its coordinator account (`--after` requires one); the
+   * project's approval setting decides the rest. A queued plan whose predecessor stopped is escalated once
+   * (`jobs-after-sweep`, sent only when the sweep would change something). Each start is asked once by this process.
+   * Driving process only, asked before each one; a failure is logged and never thrown.
+   */
+  const afterAsked = new Set<string>()
+  const startQueuedPlans = async (): Promise<void> => {
+    if (afterSweep(c.getState(), new Date(c.nowMs()).toISOString()) !== c.getState()) {
+      if (!c.mayStart()) return
+      try {
+        const r = await c.handle('jobs-after-sweep', {})
+        const marked = (r.body as { marked?: unknown } | null)?.marked
+        if (r.status >= 400 || (Array.isArray(marked) && marked.length > 0))
+          log(`queued plans whose earlier plan stopped: ${JSON.stringify(r.body)}`)
+      } catch (e) {
+        log(`marking the queued plans whose earlier plan stopped failed: ${String(e)}`)
+      }
+    }
+    for (const job of afterStartsDue(c.getState())) {
+      if (afterAsked.has(job.id)) continue
+      if (!c.mayStart()) return
+      afterAsked.add(job.id)
+      try {
+        const r = await c.handle('jobs-plan', { id: job.id })
+        log(
+          r.status >= 400
+            ? `job=${job.id}: the plan it was queued after is delivered, and its planner did not start: ${JSON.stringify(r.body)}`
+            : `job=${job.id}: the plan it was queued after is delivered; its planner started`
+        )
+      } catch (e) {
+        log(`job=${job.id}: starting its planner after the plan it was queued after failed: ${String(e)}`)
+      }
+    }
+  }
+
   /** The coordinator housekeeping: the stale start marks (L2), then the stops due (U4, L1), then the
    *  finished Runs' idle workers. Run from the pass and from the timer's `nudge`, since the app runs the
    *  pass only on commits and a stop to retry, a mark to drop or a grace that ran out comes due with
@@ -568,8 +641,14 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       // W6-D: before the PR, which waits for the final check
       await replanAtBoundaries()
       if (!c.mayStart()) return
+      // W8-C draft PR: after a wave's replan, before the completed Run's delivery
+      await updateDraftPrs()
+      if (!c.mayStart()) return
       // W2-D: before the finished Run's workers are released, while its worktrees are all there
       await openCompletedRunPrs()
+      if (!c.mayStart()) return
+      // W8-C: after the delivery, so a plan queued after one delivered in this pass starts in it too
+      await startQueuedPlans()
       if (!c.mayStart()) return
       await stopFinishedCoordinators()
       if (!c.mayStart()) return

@@ -64,6 +64,8 @@ export function reasonText(
     case 'archived':
       return { key: 'plan.reason.archived' }
     case 'pending-start':
+      // W8-C plan after plan
+      if (reason.after) return { key: reason.after.stopped ? 'plan.reason.afterStopped' : 'plan.reason.queuedAfter', params: { plan: reason.after.title } }
       return { key: 'plan.reason.pendingStart' }
     case 'paused':
       return { key: 'plan.reason.paused' }
@@ -112,6 +114,8 @@ export function reasonText(
 
 /** The badge tone: something only a person can clear, a fault, or plain waiting. */
 export function reasonTone(reason: TaskBlockedReason): 'action' | 'fault' | 'wait' {
+  // W8-C plan after plan: queued after a plan still on its way starts by itself
+  if (reason.kind === 'pending-start' && reason.after && !reason.after.stopped) return 'wait'
   switch (reason.kind) {
     case 'gate':
     case 'no-account':
@@ -213,6 +217,16 @@ export function filesOf(tasks: readonly JobTask[]): { path: string; tasks: JobTa
 export interface LiveSession {
   prompt?: 'permission' | 'question'
   lastAction?: SessionInfo['lastAction']
+  // W8-C heavy: its place in line for the heavy-job slot (`astera heavy`), 1-based; absent when not waiting
+  heavyWait?: number
+}
+
+// W8-C heavy
+/** 1st, 2nd, 3rd, 4th, 11th, 12th, 13th, 21st … */
+export function ordinal(n: number): string {
+  const teen = n % 100 >= 11 && n % 100 <= 13
+  const suffix = teen ? 'th' : (['th', 'st', 'nd', 'rd'][n % 10] ?? 'th')
+  return `${n}${suffix}`
 }
 
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
@@ -230,6 +244,7 @@ export function nowOf(
   if (session?.prompt === 'question') return { key: 'plan.now.question' }
   const asked = events.filter((e) => e.taskId === task.id && e.kind === 'message' && e.messageType === 'question').at(-1)
   if (asked?.answered === false) return { key: 'plan.now.asked' }
+  if (session?.heavyWait) return { key: 'plan.now.heavyWait', params: { place: ordinal(session.heavyWait) } }
   const a = session?.lastAction
   if (!a) return null
   const ago = formatElapsed(new Date(a.at).toISOString(), nowMs)

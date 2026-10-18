@@ -10,6 +10,7 @@ import type { Dispatch, JobRun, Task } from './types'
 import type { GhResult } from '../github/gh'
 import type { PrCreateRequest } from '../github/prCreate'
 import { taskMarker } from '../github/taskLinks'
+import { APP_CALLER } from '../host/driver'
 
 const NOW = '2026-10-17T00:00:00.000Z'
 const WT = '/wt/run'
@@ -265,5 +266,92 @@ describe('run-open-pr: one pull request per plan', () => {
     })
     expect((await call('run-open-pr', { run: 'r1' })).body).toMatchObject({ number: 11, opened: false })
     expect(state().runs[0].pr?.url).toBe('https://github.com/o/r/pull/11')
+  })
+})
+
+// W8-C: a long `pr` plan opens its PR as a draft after its first wave, rewrites the body after every wave, and is marked
+// ready after the final check. Nothing is merged: the only gh writes are `pr create --draft`, `pr edit` and `pr ready`.
+describe('run-draft-pr: a long plan followed from GitHub (W8-C)', () => {
+  const PR = 'https://github.com/o/r/pull/13'
+  const ghOk = (a: string[]): Partial<GhResult> | undefined =>
+    a[0] === 'repo' && a[1] === 'view' ? { stdout: 'main\n' } : a[0] === 'pr' && (a[1] === 'edit' || a[1] === 'ready') ? {} : undefined
+  // Three waves: t1 -> t2 -> t3
+  const plan = (s1: Task['status'], s2: Task['status'], s3: Task['status']): Task[] => [
+    task({ status: s1 }),
+    task({ id: 't2', title: 'Add logout', deps: ['t1'], status: s2 }),
+    task({ id: 't3', title: 'Add audit log', deps: ['t2'], status: s3 })
+  ]
+  const ended = (id: string, taskId: string, cwd: string): Dispatch =>
+    ({ id, taskId, cwd, accountId: 'acc1', endedAt: NOW, outcome: 'succeeded' }) as Dispatch
+  const rig = (tasks: Task[], dispatches: Dispatch[] = [ended('d1', 't1', '/wt/t1')]) => {
+    const h = setup({ gh: ghOk, tasks, dispatches })
+    const pushes: [string, string][] = []
+    h.deps.github!.push = async (wt: string, branch: string) => {
+      pushes.push([wt, branch])
+      return { ok: true as const }
+    }
+    const app = (cmd: string, args: Record<string, unknown>) => handleCommand(h.deps, { sessionId: APP_CALLER }, cmd, args)
+    const set = (next: Task[]): void => {
+      void h.deps.setState({ ...h.state(), tasks: next })
+    }
+    return { ...h, pushes, app, set }
+  }
+
+  it('opens a draft after the first wave, folds the done work in, and lists done and remaining waves', async () => {
+    const h = rig(plan('completed', 'ready', 'pending'))
+    const r = await h.app('run-draft-pr', { run: 'r1' })
+    expect(r).toEqual({ status: 200, body: { url: PR, number: 13, draft: true, wavesDone: 1, opened: true } })
+    expect(h.merges).toEqual([[WT, ['/wt/t1']]])
+    expect(h.prs[0]).toMatchObject({ draft: true, needsPush: true, branch: 'astera/run', base: 'main' })
+    const body = h.prs[0].body
+    expect(body).toContain('Done:\n- Wave 1: Add login')
+    expect(body).toContain('Remaining:\n- Wave 2: Add logout\n- Wave 3: Add audit log')
+    expect(body).toContain('A draft: Astera pushes')
+    expect(h.state().runs[0].pr).toEqual({ at: NOW, url: PR, number: 13, draft: true, wavesDone: 1 })
+    // Asked again for the same wave: nothing due
+    expect((await h.app('run-draft-pr', { run: 'r1' })).status).toBe(409)
+  })
+
+  it('after the next wave pushes again and rewrites the body; marked ready at the end, draft cleared, nothing merged', async () => {
+    const h = rig(plan('completed', 'ready', 'pending'))
+    await h.app('run-draft-pr', { run: 'r1' })
+    h.set(plan('completed', 'completed', 'ready'))
+    const r = await h.app('run-draft-pr', { run: 'r1' })
+    expect(r.body).toMatchObject({ url: PR, wavesDone: 2, opened: false })
+    expect(h.pushes).toEqual([[WT, 'astera/run']])
+    const edit = h.ghCalls.find((a) => a[0] === 'pr' && a[1] === 'edit')!
+    expect(edit.slice(0, 4)).toEqual(['pr', 'edit', PR, '--body'])
+    expect(edit[4]).toContain('Done:\n- Wave 1: Add login\n- Wave 2: Add logout')
+    expect(edit[4]).toContain('Remaining:\n- Wave 3: Add audit log')
+    expect(h.state().runs[0].pr).toMatchObject({ draft: true, wavesDone: 2 })
+    expect(h.prs).toHaveLength(1)
+
+    h.set(plan('completed', 'completed', 'completed'))
+    const done = await h.app('run-open-pr', { run: 'r1' })
+    expect(done).toEqual({ status: 200, body: { url: PR, number: 13, opened: false, ready: true } })
+    expect(h.ghCalls.filter((a) => a[0] === 'pr').map((a) => a[1])).toEqual(['edit', 'edit', 'ready'])
+    expect(h.ghCalls.filter((a) => a[0] === 'pr').at(-2)![4]).not.toContain('Remaining:')
+    expect(h.state().runs[0].pr).toEqual({ at: NOW, url: PR, number: 13 })
+    expect(h.prs).toHaveLength(1)
+    expect(h.ghCalls.some((a) => a.includes('merge'))).toBe(false)
+  })
+
+  it('no draft for a one-wave plan, a push delivery, a non-draft PR, or an agent session', async () => {
+    expect((await rig([task(), task({ id: 't2', title: 'b', status: 'ready' })]).app('run-draft-pr', { run: 'r1' })).status).toBe(409)
+    const push = rig(plan('completed', 'ready', 'pending'))
+    void push.deps.setState({ ...push.state(), jobs: push.state().jobs.map((j) => ({ ...j, delivery: 'push' as const })) })
+    expect((await push.app('run-draft-pr', { run: 'r1' })).status).toBe(409)
+    const opened = rig(plan('completed', 'ready', 'pending'))
+    void opened.deps.setState({ ...opened.state(), runs: opened.state().runs.map((r) => ({ ...r, pr: { at: NOW, url: PR } })) })
+    expect((await opened.app('run-draft-pr', { run: 'r1' })).status).toBe(409)
+    expect((await rig(plan('completed', 'ready', 'pending')).call('run-draft-pr', { run: 'r1' })).status).toBe(403)
+  })
+
+  it('a project with no remote opens nothing and records nothing', async () => {
+    const h = rig(plan('completed', 'ready', 'pending'))
+    h.deps.github!.createPr = async () => ({ ok: false, stage: 'push', kind: 'no-remote', detail: '', pushed: false })
+    const r = await h.app('run-draft-pr', { run: 'r1' })
+    expect(r.body).toMatchObject({ noRemote: true })
+    expect(h.state().runs[0].pr).toBeUndefined()
   })
 })

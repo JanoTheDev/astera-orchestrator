@@ -1763,6 +1763,11 @@ export const en: Record<keyof typeof ko, string> = {
   'intake.tab.files': 'Files',
   'intake.tab.audit': 'Audit',
   'intake.tab.github': 'GitHub',
+  // W8-C prompts mode
+  'intake.tab.prompts': 'Run as written',
+  'intake.promptsHint': 'Drop .md prompt files (one Task each) or paste one document (one Task per ## section). Your text is never rewritten; the order comes from docs/orchestrator/PLAN.md.',
+  'intake.promptsPaste': 'Or paste one document with ## sections',
+  'intake.promptsAsk': 'Ask me to approve the plan first',
   'intake.describe': 'What should be built or fixed?',
   'intake.fixlist': 'This is a list of problems: one or more Tasks per problem',
   'intake.drop': 'Drop PDFs or other files here (at most 30 MB each)',
@@ -2100,6 +2105,11 @@ export const en: Record<keyof typeof ko, string> = {
   'plan.reason.switching': 'Usage limit · moving off {account}',
   'plan.reason.archived': 'Plan archived',
   'plan.reason.pendingStart': 'Plan not started yet',
+  // W8-C plan after plan
+  'plan.reason.queuedAfter': 'Queued after {plan}',
+  'plan.reason.afterStopped': 'Waiting on {plan}, which stopped',
+  'intake.after': 'Start after',
+  'intake.afterNone': 'None: plan now',
   'plan.reason.paused': 'Plan paused',
   'plan.reason.definition': 'Definition · copied into each run',
   'plan.reason.gate': 'Waiting for an answer: {question}',
@@ -2137,6 +2147,7 @@ export const en: Record<keyof typeof ko, string> = {
   'plan.now.reading': 'Reading {target} · {ago} ago',
   'plan.now.searching': 'Searching {target} · {ago} ago',
   'plan.now.tool': '{tool} {target} · {ago} ago',
+  'plan.now.heavyWait': 'Waiting for the heavy-job slot ({place} in line)',
   // W6-G
   'plan.reason.usagePaused5h': 'Paused: {account} at {percent}% of its 5-hour limit, resumes ~{time}',
   'plan.reason.usagePaused7d': 'Paused: {account} at {percent}% of its 7-day limit, resumes ~{time}',

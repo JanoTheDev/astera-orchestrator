@@ -114,3 +114,26 @@ broken, add follow-up Tasks for exactly that. A Job gets at most 3 follow-up wav
 the remaining plan as it checks a plan for approval (each Task has a prompt and a criterion, its deps exist, no cycle).
 If it holds, the hold is lifted and the next wave starts; if not, the Job stays held and the person is asked. Your
 session is ended either way.
+
+## 6. Run as written (W8-C)
+
+When the objective starts with "Run as written", the owner wrote the plan (`jobs create --mode prompts`). The Tasks
+already exist, one per prompt file (or one per `## ` section of one document), and each Task's prompt is the owner's
+text, unchanged. Section 0 still applies (write `existing.md`), but here it only feeds `--basis`.
+
+- **Never rewrite, merge, split, add or cancel a Task.** Astera refuses `task-create`, `task-cancel`, and
+  `task-update` with `--prompt` or `--title`, and approval is refused if a prompt differs from its file by one byte.
+- Fill in every Task with `astera task-update --id <taskId>`:
+  - `--affected-paths` from the prompt's "Ownership" / "Owns" lines and the "File ownership per wave" table in
+    `docs/orchestrator/PLAN.md`;
+  - `--criteria` from the prompt's "Done means";
+  - `--difficulty` from how hard the prompt is (the model follows it), with `--model-reason`;
+  - `--basis` and `--evidence`, as in section 0.
+- **Keep the deps Astera computed.** They come from PLAN.md's wave table (each row waits for the rows before it; a
+  prompt that says "run alone" is a wave of its own) and the prompts' "after X merges" sentences. Each Task's spec says
+  where it sits and why. Change `--deps` only when a prompt's own sentence demands another order.
+- Prompts of a wave PLAN.md marks `(done)` got no Task; the objective lists them as already done.
+- A prompt's own steps to make a worktree, a branch, push or open a PR are superseded: Astera gives each worker a
+  worktree and delivers the plan.
+- **Hand over** (section 4): the summary lists the waves in order and why each Task sits there, and the "already done"
+  prompts.

@@ -142,6 +142,13 @@ const SESSION = {
       'A mark inside its window is left alone. The app or the Host sends it when it sees a stale mark, so the restart button comes back.',
     flags: []
   },
+  // W8-C plan after plan
+  'jobs-after-sweep': {
+    summary: 'escalate, once, each queued Job whose earlier plan stopped',
+    detail:
+      'A Job queued with --after waits; when the plan it waits on gave up or was archived it is marked and escalated once, and the mark is cleared when that plan no longer is stopped. The app or the Host sends it from its loop.',
+    flags: []
+  },
   'run-merge': {
     summary: "merge this run's worktrees back into the project",
     detail: 'It does not remove the worktrees afterwards.',
@@ -167,6 +174,13 @@ const SESSION = {
       RUN_ARG('<runId>', 'the completed run'),
       { name: 'force', about: 'try again after a recorded failure' }
     ]
+  },
+  // W8-C draft PR
+  'run-draft-pr': {
+    summary: "push a pull-request plan's branch after a wave and open or update its draft pull request",
+    detail:
+      "While later waves remain, folds the completed tasks' worktrees into the run's integration branch, pushes it, and opens the plan's pull request as a draft or rewrites its body with the done and remaining waves. run-open-pr marks it ready after the final check. Never merges. The driving loop does this once per finished wave; refused from an agent session and an MCP client. Answered by the Host.",
+    flags: [RUN_ARG('<runId>', 'the run between waves')]
   },
   // W6-H delivery
   'run-deliver': {

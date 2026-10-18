@@ -311,6 +311,19 @@ export interface Job {
   autoStartedAt?: string
   /** The owner rejected the plan (`jobs-reject`): it is archived with this, and unarchiving keeps it as a record. */
   rejected?: { at: string; reason?: string }
+  // W8-C plan after plan (schedule.ts / blocked.ts / exec/dispatchLoop.ts)
+  /** The Job this one is queued after. **Present: it stays `pendingStart`** and its planner is not started until that
+   *  Job is delivered (`afterDelivered`); then the Host starts its planner and the project's approval setting decides. */
+  after?: string
+  // W8-C prompts mode (promptWaves.ts, `jobs-create --mode prompts`)
+  /** Run as written: the owner's prompts this plan was made from, one entry per prompt. `source` is the file name or
+   *  `doc#<heading>`, `sha256` its text's, `taskId` the Task Astera wrote for it, `skipped` why it got none ("already
+   *  done: …"). Present: the planner may not add, cancel or rewrite a Task, and `validatePlan` checks each prompt. */
+  verbatim?: { title: string; source: string; sha256: string; taskId?: string; skipped?: string }[]
+  // W8-C plan after plan
+  /** When the Host escalated that the Job named by `after` stopped (gave up or archived) while this one waits on it
+   *  (`afterSweep`, after.ts). Once per stop: cleared when that Job is no longer stopped. */
+  afterStopNotified?: string
 }
 
 /** W7-A: one message of the owner to a plan's planner. `plan`: before approval, to the planner session itself; `run`:
@@ -560,6 +573,9 @@ export interface Task {
   /** Why this Task is planned at all: what the planner found of its item before planning (inputs/existing.md).
    *  `validatePlan` refuses a plan Task without one, so no worker opens on unchecked work. */
   basis?: TaskBasis
+  // W8-C prompts mode
+  /** The `Job.verbatim` source this Task is, byte for byte (Run as written). */
+  verbatimOf?: string
 }
 
 /** W6-A: an item's state as the planner found it. `built` gets no Task, so it is not one of these. */
@@ -848,4 +864,10 @@ export interface RunPr {
   note?: string
   /** W7-E: with `note`, the branch that holds the plan's work. */
   branch?: string
+  /** W8-C: opened as a draft after a wave while later waves remain; cleared when it is marked ready after the final
+   *  check. **Present: the plan is not delivered yet.** */
+  draft?: true
+  // W8-C draft PR
+  /** With `draft`: how many waves were done when the branch was last pushed and the body written (draftPr.ts). */
+  wavesDone?: number
 }
