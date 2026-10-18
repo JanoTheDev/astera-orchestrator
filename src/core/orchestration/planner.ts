@@ -5,7 +5,7 @@
 // It never starts work: `plannerRefusal` is the gate `handleCommand` asks first, in the app and in the Host
 // alike, and a person approves the plan with the Job's start (`run-start`), which `validatePlan` guards.
 import path from 'node:path'
-import { recomputeReady, type Job, type Task } from './types'
+import { BASIS_STATES, recomputeReady, type Job, type Task } from './types'
 import type { OrchState, PlanFields, Res } from './state'
 import { layersOf } from './graph'
 import { jobNameOf } from './jobName'
@@ -30,7 +30,9 @@ export const PLANNER_COMMANDS: ReadonlySet<string> = new Set([
   'understanding-list',
   'understanding-get',
   'status',
-  'version'
+  'version',
+  // W6-A: the planner ends a Job whose items are all built
+  'plan-nothing-to-do'
 ])
 
 /** The Job whose planner `sessionId` is, if it is one. An empty id (a shell, an MCP client) is never one. */
@@ -50,6 +52,8 @@ export function plannerRefusal(s: OrchState, sessionId: string, cmd: string, arg
     const target = args.runId ?? args.run
     if (target !== job.id) return `a planner adds Tasks to its own Job only: pass --run ${job.id}`
   }
+  // W6-A: only its own Job
+  if (cmd === 'plan-nothing-to-do' && args.job !== job.id) return `a planner ends its own Job only: pass --job ${job.id}`
   if (cmd === 'task-update') {
     const task = s.tasks.find((t) => t.id === args.id)
     if (!task || task.jobId !== job.id) return `a planner edits the Tasks of its own Job (${job.id}) only`
@@ -97,6 +101,13 @@ export function planFieldsFromArgs(args: Record<string, unknown>): { ok: true; f
       return { ok: false, error: '--model-reason is one line' }
     fields.modelReason = args.modelReason as string
   }
+  // W6-A: what the planner found of the item (`--basis` and `--evidence` go together)
+  if (args.basis !== undefined || args.evidence !== undefined) {
+    if (!(BASIS_STATES as readonly unknown[]).includes(args.basis))
+      return { ok: false, error: `--basis must be one of ${BASIS_STATES.join('|')} (an item already built gets no Task)` }
+    if (!text(args.evidence)) return { ok: false, error: '--evidence is required with --basis: file:line, an issue or PR number, a Job id' }
+    fields.basis = { state: args.basis as (typeof BASIS_STATES)[number], evidence: (args.evidence as string).trim() }
+  }
   return { ok: true, fields }
 }
 
@@ -112,6 +123,8 @@ export function validatePlan(s: OrchState, jobId: string): string[] {
     const name = `${t.id} (${t.title})`
     if (!t.prompt?.trim()) problems.push(`${name} has no prompt`)
     if (!t.acceptanceCriteria?.length) problems.push(`${name} has no acceptance criterion`)
+    // W6-A: no worker opens on unchecked work
+    if (!t.basis?.evidence.trim()) problems.push(`${name} has no basis: give --basis missing|partial|broken and its --evidence`)
     const unknown = t.deps.filter((d) => !own.has(d))
     if (unknown.length) problems.push(`${name} depends on ${unknown.join(', ')}, which is not a Task of this plan`)
   }

@@ -266,6 +266,22 @@ describe('notices', () => {
   })
 })
 
+// W6-A: a plan that ended before approval because everything it asks for is built
+describe('plan.nothing-to-do', () => {
+  const job = { id: 'job_1', objective: 'add login', cwd: '/p', createdAt: '2026-10-18T00:00:00.000Z', projectId: 'p1', pendingStart: true } as Job
+  it('is derived once, when the Job gains nothingToDo, and is a notice', () => {
+    const prev: OrchState = { ...emptyState(), jobs: [job] }
+    const next: OrchState = { ...prev, jobs: [{ ...job, nothingToDo: { at: 'now', summary: 'login | built | web/login.py:1' } }] }
+    const drafts = deriveActivity(prev, next)
+    expect(drafts).toEqual([
+      { type: 'plan.nothing-to-do', projectId: 'p1', jobId: 'job_1', payload: { plan: 'add login', title: 'add login', summary: 'login | built | web/login.py:1' } }
+    ])
+    expect(deriveActivity(next, { ...next, jobs: [...next.jobs] })).toEqual([])
+    const e = { ...drafts[0], id: 'e1', sequence: 1, occurredAt: 'now' } as ActivityEvent
+    expect(noticeOf(e)).toEqual({ key: 'nothing:job_1', title: 'Nothing to do: already built', body: 'add login' })
+  })
+})
+
 // W6-B: a coordinator's answer is a feed line and no notice; an escalation is a feed line, a notice and the chime
 describe('W6-B: auto-answers and escalations', () => {
   const question = (over: Partial<Message> = {}): Message => ({

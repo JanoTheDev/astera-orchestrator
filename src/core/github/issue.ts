@@ -77,6 +77,23 @@ export async function readIssue(
   return { ok: true, issue }
 }
 
+/** Most issues one call takes (W6-A): one Job's objective quotes each body, and a source answer carries at most
+ *  SOURCE_EVIDENCE_MAX of them. */
+export const ISSUES_PER_CALL_MAX = 20
+
+/** `--issue 12,14,19` (or one number) as distinct issue numbers in the order given; null when any entry is not one. */
+export function issueNumbersOf(v: unknown): number[] | null {
+  const parts = typeof v === 'number' ? [String(v)] : typeof v === 'string' ? v.split(',').map((x) => x.trim()) : null
+  if (parts === null || !parts.every((p) => /^[1-9][0-9]{0,9}$/.test(p))) return null
+  return [...new Set(parts.map(Number))]
+}
+
+/** Assigns issue `n` of the repository at `cwd` to the person gh is logged in as (W6-A `github-issue-assign`). */
+export async function assignIssueToMe(run: GhRunner, cwd: string, n: number): Promise<{ ok: true } | GhFailed> {
+  const r = await run(['issue', 'edit', String(n), '--add-assignee', '@me'], cwd)
+  return r.ok ? { ok: true } : { ok: false, ...ghFailureSentence(r) }
+}
+
 /** owner/repo from an issue's or pull request's html_url; empty when the URL has no such path. */
 export function repoOf(url: string): string {
   const m = url.match(/^https?:\/\/[^/]+\/([^/]+\/[^/]+)/)
