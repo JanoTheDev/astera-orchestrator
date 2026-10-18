@@ -323,6 +323,14 @@ astera jobs create --project astera --mode prompts --delivery pr \
 
 Separate queued plans per wave (`--after <job>`) still work, if the owner wants one PR per wave.
 
+**Later (owner request 2026-10-18, wave 10 or the next free wave): no attaching.** Today the owner attaches every
+prompt file and pastes the order (`RUN-W8-W9.md`) into Instructions. The owner wants to give only the text: "run W8-A,
+B, D, F, G, then W9 …". In Run as written, Astera then resolves each named prompt from the project's prompts folder
+(`docs/orchestrator/prompts/<id>-*.md`, or a folder set per project). Each resolved file becomes a Task verbatim, as if
+attached, and the approval lists the file each name resolved to. A name that matches no file, or more than one, is
+refused before planning, saying which. Later still: "run the next waves" reads PLAN.md's wave table and picks every
+prompt not yet done.
+
 The owner's part:
 - Answer what lands in the Inbox: real questions, plan approvals unless the project auto-approves, and permission
   waits.
