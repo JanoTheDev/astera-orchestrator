@@ -1,28 +1,18 @@
-import { useEffect, useState } from 'react'
 import type { Account } from '../../../../core/types'
-import { DEFAULT_CONCURRENCY, MAX_CONCURRENT_WORKERS, type Project } from '../../../../core/orchestration/types'
-// W8-C plan after plan
-import type { Job } from '../../../../core/orchestration/types'
-import { jobNameOf } from '../../../../core/orchestration/jobName'
+import { MAX_CONCURRENT_WORKERS } from '../../../../core/orchestration/types'
 import { useI18n } from '../../i18n/I18nProvider'
-import { formFailure, type OrchDoor } from '../../lib/orchDoor'
+import type { OrchDoor } from '../../lib/orchDoor'
 import { AccountSelect } from '../AccountSelect'
-import { backdropProps } from '../../lib/backdrop'
-import { intakeRequest, type IntakeTab } from './intakeRequest'
-
-/** A GitHub issue as `sources-items` answers it. */
-interface IssueRow {
-  id: string
-  title: string
-  selectable?: boolean
-  reason?: string
-}
+import { Button, Modal } from '../ui'
+import type { IntakeTab } from './intakeRequest'
+import { useIntake } from './useIntake'
 
 const TABS: IntakeTab[] = ['describe', 'files', /* W8-C prompts mode */ 'prompts', 'audit', 'github']
 
 /** W6-A "New plan": a Job from a description, files, an audit or GitHub issues, with the owner's extra instructions.
  *  It makes the Job (`jobs-create` / `jobs-create-from-issue`, intakeRequest.ts) and starts its planner (`jobs-plan`);
- *  the Host checks and copies everything. This computer's projects only: attached paths are this computer's. */
+ *  the Host checks and copies everything. This computer's projects only: attached paths are this computer's.
+ *  W9-E: the state and calls are useIntake's, shared with the Start page; this is the dialog frame NewRunModal opens. */
 export function NewPlanDialog({
   door,
   cwd,
@@ -44,262 +34,167 @@ export function NewPlanDialog({
   initialText?: string
 }): React.JSX.Element {
   const { t } = useI18n()
-  const [tab, setTab] = useState<IntakeTab>('describe')
-  const [projects, setProjects] = useState<Project[]>([])
-  const [projectId, setProjectId] = useState('')
-  const [text, setText] = useState(initialText ?? '')
-  const [fixlist, setFixlist] = useState(false)
-  const [approveAsk, setApproveAsk] = useState(false)
-  const [files, setFiles] = useState<string[]>([])
-  const [scope, setScope] = useState('')
-  const [query, setQuery] = useState('')
-  const [mine, setMine] = useState(false)
-  const [issues, setIssues] = useState<IssueRow[]>([])
-  const [picked, setPicked] = useState<string[]>([])
-  const [assignMe, setAssignMe] = useState(false)
-  const [instructions, setInstructions] = useState('')
-  const [account, setAccount] = useState('')
-  // shortcut: DEFAULT_CONCURRENCY until W7-B's per-project concurrency (`projects-set`) lands; then default from it
-  const [concurrency, setConcurrency] = useState(Math.min(initialConcurrency ?? DEFAULT_CONCURRENCY, MAX_CONCURRENT_WORKERS))
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    void door.command('projects-list', {}).then((r) => {
-      if (r.status !== 200 || !Array.isArray(r.body)) return
-      const list = r.body as Project[]
-      setProjects(list)
-      setProjectId((cur) => cur || (list.find((p) => p.path === cwd) ?? list[0])?.id || '')
-    })
-  }, [door, cwd])
-  const project = projects.find((p) => p.id === projectId) ?? null
-  // W8-C plan after plan: "Start after", among the project's plans that are not archived (`jobs-list` leaves those out)
-  const [after, setAfter] = useState('')
-  const [plans, setPlans] = useState<{ id: string; name: string }[]>([])
-  useEffect(() => {
-    setAfter('')
-    if (!projectId) return
-    void door.command('jobs-list', { project: projectId }).then((r) => {
-      if (r.status === 200 && Array.isArray(r.body)) setPlans((r.body as Job[]).map((j) => ({ id: j.id, name: jobNameOf(j) })))
-    })
-  }, [door, projectId])
-
-  // The GitHub search, a moment after the last key: GitHub's search is rate limited.
-  useEffect(() => {
-    if (tab !== 'github' || project === null) return
-    const timer = setTimeout(() => {
-      void door
-        .command('sources-items', { source: 'github', project: project.id, ...(query.trim() ? { query: query.trim() } : {}), ...(mine ? { assignedToMe: true } : {}) })
-        .then((r) => {
-          const body = r.body as { items?: IssueRow[]; error?: string } | null
-          if (r.status === 200 && Array.isArray(body?.items)) {
-            setIssues(body.items)
-            setError(null)
-          } else setError(typeof body?.error === 'string' ? body.error : t('jobs.new.failed'))
-        })
-    }, 300)
-    return () => clearTimeout(timer)
-  }, [tab, project, query, mine, door, t])
-
-  const request = intakeRequest({
-    tab,
-    text,
-    fixlist,
-    files,
-    scope,
-    issues: picked,
-    assignMe,
-    instructions,
-    project: project && { id: project.id, path: project.path },
-    coordinatorAccount: account,
-    concurrency,
-    approveAsk
-  })
-
-  const addFiles = (list: FileList | null): void => {
-    if (!list) return
-    const paths = Array.from(list, (f) => window.api.files.pathForFile(f)).filter((p) => p !== '')
-    setFiles((cur) => [...cur, ...paths.filter((p) => !cur.includes(p))])
-  }
-
-  const create = async (): Promise<void> => {
-    if (request === null || busy) return
-    setBusy(true)
-    setError(null)
-    try {
-      const reply = await door.command(request.cmd, request.args)
-      if (reply.status >= 400) {
-        setError(formFailure(reply, t as never, 'jobs.new.failed').message)
-        return
-      }
-      const id = (reply.body as { id: string }).id
-      // Every intake ends with its planner started; a planner that does not start leaves the Job as a draft.
-      // W8-C: or queued after another plan (`jobs-set --after`): the Host starts its planner once that one is delivered.
-      const planned = await door.command(after ? 'jobs-set' : 'jobs-plan', after ? { id, after } : { id })
-      if (planned.status >= 400) {
-        const why = (planned.body as { error?: unknown } | null)?.error
-        setError(`${t('jobs.new.plannerFailed')}${typeof why === 'string' ? `: ${why}` : ''}`)
-        return
-      }
-      onCreated(id)
-    } catch {
-      setError(t('jobs.new.failed'))
-    } finally {
-      setBusy(false)
-    }
-  }
+  const {
+    tab, setTab, projects, projectId, setProjectId, text, setText, fixlist, setFixlist, approveAsk, setApproveAsk, files,
+    setFiles, addFiles, scope, setScope, query, setQuery, mine, setMine, issues, picked, setPicked, assignMe, setAssignMe,
+    instructions, setInstructions, account, setAccount, concurrency, setConcurrency, after, setAfter, plans, busy, error,
+    request, create
+  } = useIntake({ door, cwd, onCreated, concurrency: initialConcurrency, initialText })
 
   return (
-    <div className="modal-backdrop" {...backdropProps(() => !busy && onClose())}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h2>{t('intake.title')}</h2>
-        <div className="field">
-          <label>{t('intake.project')}</label>
-          <select value={projectId} onChange={(e) => setProjectId(e.target.value)}>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="row" role="tablist">
-          {TABS.map((k) => (
-            <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? 'primary' : ''} onClick={() => setTab(k)}>
-              {t(`intake.tab.${k}` as const)}
-            </button>
-          ))}
-        </div>
-        {tab === 'describe' && (
-          <div className="field">
-            <textarea rows={6} value={text} onChange={(e) => setText(e.target.value)} placeholder={t('intake.describe')} autoFocus />
-            <label className="check-small">
-              <input type="checkbox" checked={fixlist} onChange={(e) => setFixlist(e.target.checked)} />
-              {t('intake.fixlist')}
-            </label>
-          </div>
-        )}
-        {(tab === 'files' || tab === 'prompts') && (
-          <div className="field">
-            {tab === 'prompts' && <p className="modal-hint">{t('intake.promptsHint')}</p>}
-            <div
-              className="intake-drop"
-              style={{ border: '1px dashed currentColor', padding: 16, textAlign: 'center' }}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => {
-                e.preventDefault()
-                addFiles(e.dataTransfer.files)
-              }}
-            >
-              {t('intake.drop')}
-              <input
-                type="file"
-                multiple
-                {...(tab === 'prompts' ? { accept: '.md' } : {})}
-                aria-label={t('intake.drop')}
-                onChange={(e) => addFiles(e.target.files)}
-              />
-            </div>
-            {files.map((f) => (
-              <div key={f} className="row">
-                <span>{f}</span>
-                <button aria-label={t('common.cancel')} onClick={() => setFiles((cur) => cur.filter((x) => x !== f))}>
-                  ×
-                </button>
-              </div>
-            ))}
-            {tab === 'files' && <input type="text" value={text} onChange={(e) => setText(e.target.value)} placeholder={t('intake.note')} />}
-            {tab === 'prompts' && files.length === 0 && (
-              <textarea rows={6} value={text} onChange={(e) => setText(e.target.value)} placeholder={t('intake.promptsPaste')} />
-            )}
-            {tab === 'prompts' && (
-              <label className="check-small">
-                <input type="checkbox" checked={approveAsk} onChange={(e) => setApproveAsk(e.target.checked)} />
-                {t('intake.promptsAsk')}
-              </label>
-            )}
-          </div>
-        )}
-        {tab === 'audit' && (
-          <div className="field">
-            <label>{t('intake.scope')}</label>
-            <input type="text" value={scope} onChange={(e) => setScope(e.target.value)} placeholder="all" />
-            <p className="modal-hint">{t('intake.auditHint')}</p>
-          </div>
-        )}
-        {tab === 'github' && (
-          <div className="field">
-            <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t('intake.search')} />
-            <label className="check-small">
-              <input type="checkbox" checked={mine} onChange={(e) => setMine(e.target.checked)} />
-              {t('intake.mine')}
-            </label>
-            <div style={{ maxHeight: 220, overflowY: 'auto' }}>
-              {issues.map((i) => (
-                <label key={i.id} className="check-small" title={i.reason}>
-                  <input
-                    type="checkbox"
-                    disabled={i.selectable === false}
-                    checked={picked.includes(i.id)}
-                    onChange={(e) => setPicked((cur) => (e.target.checked ? [...cur, i.id] : cur.filter((x) => x !== i.id)))}
-                  />
-                  #{i.id} {i.title}
-                </label>
-              ))}
-            </div>
-            <label className="check-small">
-              <input type="checkbox" checked={assignMe} onChange={(e) => setAssignMe(e.target.checked)} />
-              {t('intake.assignMe')}
-            </label>
-          </div>
-        )}
-        <div className="field">
-          <label>{t('intake.instructions')}</label>
-          <textarea rows={3} value={instructions} onChange={(e) => setInstructions(e.target.value)} />
-        </div>
-        <div className="field">
-          <label htmlFor="intake-concurrency">{t('intake.concurrency')}</label>
-          <input
-            id="intake-concurrency"
-            type="number"
-            className="jobs-concurrency"
-            min={1}
-            max={MAX_CONCURRENT_WORKERS}
-            value={concurrency}
-            onChange={(e) => {
-              const n = e.target.valueAsNumber
-              setConcurrency(Number.isFinite(n) ? Math.min(Math.max(Math.trunc(n), 1), MAX_CONCURRENT_WORKERS) : 1)
-            }}
-          />
-        </div>
-        {accounts !== null && (
-          <div className="field">
-            <label>{t('jobs.new.coordinator')}</label>
-            <AccountSelect accounts={accounts} value={account} onChange={setAccount} allLabel={t('jobs.new.coordinatorPick')} />
-          </div>
-        )}
-        {/* W8-C plan after plan */}
-        <div className="field">
-          <label htmlFor="intake-after">{t('intake.after')}</label>
-          <select id="intake-after" value={after} onChange={(e) => setAfter(e.target.value)}>
-            <option value="">{t('intake.afterNone')}</option>
-            {plans.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        {error && <p className="warn">{error}</p>}
-        <div className="row right">
-          <button onClick={onClose} disabled={busy}>
+    <Modal
+      title={t('intake.title')}
+      closeLabel={t('common.cancel')}
+      onClose={() => !busy && onClose()}
+      footer={
+        <>
+          <Button onClick={onClose} disabled={busy}>
             {t('common.cancel')}
-          </button>
-          <button className="primary" disabled={busy || request === null} onClick={() => void create()}>
+          </Button>
+          <Button variant="primary" loading={busy} disabled={busy || request === null} onClick={() => void create()}>
             {t('intake.create')}
-          </button>
-        </div>
+          </Button>
+        </>
+      }
+    >
+      <div className="field">
+        <label>{t('intake.project')}</label>
+        <select value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+          {projects.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </select>
       </div>
-    </div>
+      <div className="row" role="tablist">
+        {TABS.map((k) => (
+          <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? 'primary' : ''} onClick={() => setTab(k)}>
+            {t(`intake.tab.${k}` as const)}
+          </button>
+        ))}
+      </div>
+      {tab === 'describe' && (
+        <div className="field">
+          <textarea rows={6} value={text} onChange={(e) => setText(e.target.value)} placeholder={t('intake.describe')} autoFocus />
+          <label className="check-small">
+            <input type="checkbox" checked={fixlist} onChange={(e) => setFixlist(e.target.checked)} />
+            {t('intake.fixlist')}
+          </label>
+        </div>
+      )}
+      {(tab === 'files' || tab === 'prompts') && (
+        <div className="field">
+          {tab === 'prompts' && <p className="modal-hint">{t('intake.promptsHint')}</p>}
+          <div
+            className="intake-drop"
+            style={{ border: '1px dashed currentColor', padding: 16, textAlign: 'center' }}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => {
+              e.preventDefault()
+              addFiles(e.dataTransfer.files)
+            }}
+          >
+            {t('intake.drop')}
+            <input
+              type="file"
+              multiple
+              {...(tab === 'prompts' ? { accept: '.md' } : {})}
+              aria-label={t('intake.drop')}
+              onChange={(e) => addFiles(e.target.files)}
+            />
+          </div>
+          {files.map((f) => (
+            <div key={f} className="row">
+              <span>{f}</span>
+              <button aria-label={t('common.cancel')} onClick={() => setFiles((cur) => cur.filter((x) => x !== f))}>
+                ×
+              </button>
+            </div>
+          ))}
+          {tab === 'files' && <input type="text" value={text} onChange={(e) => setText(e.target.value)} placeholder={t('intake.note')} />}
+          {tab === 'prompts' && files.length === 0 && (
+            <textarea rows={6} value={text} onChange={(e) => setText(e.target.value)} placeholder={t('intake.promptsPaste')} />
+          )}
+          {tab === 'prompts' && (
+            <label className="check-small">
+              <input type="checkbox" checked={approveAsk} onChange={(e) => setApproveAsk(e.target.checked)} />
+              {t('intake.promptsAsk')}
+            </label>
+          )}
+        </div>
+      )}
+      {tab === 'audit' && (
+        <div className="field">
+          <label>{t('intake.scope')}</label>
+          <input type="text" value={scope} onChange={(e) => setScope(e.target.value)} placeholder="all" />
+          <p className="modal-hint">{t('intake.auditHint')}</p>
+        </div>
+      )}
+      {tab === 'github' && (
+        <div className="field">
+          <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t('intake.search')} />
+          <label className="check-small">
+            <input type="checkbox" checked={mine} onChange={(e) => setMine(e.target.checked)} />
+            {t('intake.mine')}
+          </label>
+          <div style={{ maxHeight: 220, overflowY: 'auto' }}>
+            {issues.map((i) => (
+              <label key={i.id} className="check-small" title={i.reason}>
+                <input
+                  type="checkbox"
+                  disabled={i.selectable === false}
+                  checked={picked.includes(i.id)}
+                  onChange={(e) => setPicked((cur) => (e.target.checked ? [...cur, i.id] : cur.filter((x) => x !== i.id)))}
+                />
+                #{i.id} {i.title}
+              </label>
+            ))}
+          </div>
+          <label className="check-small">
+            <input type="checkbox" checked={assignMe} onChange={(e) => setAssignMe(e.target.checked)} />
+            {t('intake.assignMe')}
+          </label>
+        </div>
+      )}
+      <div className="field">
+        <label>{t('intake.instructions')}</label>
+        <textarea rows={3} value={instructions} onChange={(e) => setInstructions(e.target.value)} />
+      </div>
+      <div className="field">
+        <label htmlFor="intake-concurrency">{t('intake.concurrency')}</label>
+        <input
+          id="intake-concurrency"
+          type="number"
+          className="jobs-concurrency"
+          min={1}
+          max={MAX_CONCURRENT_WORKERS}
+          value={concurrency}
+          onChange={(e) => {
+            const n = e.target.valueAsNumber
+            setConcurrency(Number.isFinite(n) ? Math.min(Math.max(Math.trunc(n), 1), MAX_CONCURRENT_WORKERS) : 1)
+          }}
+        />
+      </div>
+      {accounts !== null && (
+        <div className="field">
+          <label>{t('jobs.new.coordinator')}</label>
+          <AccountSelect accounts={accounts} value={account} onChange={setAccount} allLabel={t('jobs.new.coordinatorPick')} />
+        </div>
+      )}
+      {/* W8-C plan after plan */}
+      <div className="field">
+        <label htmlFor="intake-after">{t('intake.after')}</label>
+        <select id="intake-after" value={after} onChange={(e) => setAfter(e.target.value)}>
+          <option value="">{t('intake.afterNone')}</option>
+          {plans.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      {error && <p className="warn">{error}</p>}
+    </Modal>
   )
 }

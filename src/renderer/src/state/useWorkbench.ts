@@ -67,7 +67,7 @@ export type WorkbenchDeps = Pick<ReturnType<typeof useWorkbenchState>,
     'setAgentAppEnabled' | 'setAgentBrowserEnabled' | 'setAgentYolo' | 'setDefaultSessionKind' | 'setFirstRunAsked' |
     'setWorkUnitTrackingEnabled' | 'setWtRoot' | 'settingsTouched' | 'showSettings'> &
   Pick<ReturnType<typeof useDialogs>,
-    'setCommandOpen' | 'setRunMenuOpen' | 'setSwitcherOpen' | 'setTalkSignal'>
+    'setCommandOpen' | 'setRunMenuOpen' | 'setSwitcherOpen' | 'setTalkSignal' | /* W9-E */ 'setNewOpen'>
 
 export function useWorkbench(deps: WorkbenchDeps) {
   const {
@@ -84,7 +84,7 @@ export function useWorkbench(deps: WorkbenchDeps) {
     setKeyOverrides, setLayout, setMdMode, setMdModes, setMediaNonces, setNewSessionCwd, setPendingReveal,
     setRecordTabs, setRemoteSessions, setRemoteStatus, setRollStates, setRunMenuOpen, setSchedStates, setScopedNode,
     setSessions, setShowNew, setSidebarOpen, setSwitcherOpen, setTalkSignal, setUpdate, setWorkUnitTrackingEnabled,
-    setWtRoot, settingsTouched, showSettings, sidebarOpenRef, t, tRef, update
+    setWtRoot, settingsTouched, showSettings, sidebarOpenRef, t, tRef, update, setNewOpen
   } = deps
   // W9-A: declared here, ahead of where App's body had them, because effects and handlers in this hook
   // (or an earlier one) read them; they are state and refs, so moving them up changes nothing that runs.
@@ -442,6 +442,14 @@ export function useWorkbench(deps: WorkbenchDeps) {
         e.stopPropagation()
         if (e.repeat) return
         setSwitcherOpen((v) => !v)
+        return
+      }
+      // W9-E: the New modal opens (or closes) like the switcher
+      if (action === 'new.open') {
+        e.preventDefault()
+        e.stopPropagation()
+        if (e.repeat) return
+        setNewOpen((v) => !v)
         return
       }
       if (action === 'command.open' || action === 'command.talk') {

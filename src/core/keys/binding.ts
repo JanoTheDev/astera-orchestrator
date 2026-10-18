@@ -39,6 +39,8 @@ export type ActionId =
   | 'command.talk'
   // W7-F (#84): the quick tab switcher
   | 'tabs.switcher'
+  // W9-E: the New modal (DESIGN §5)
+  | 'new.open'
   // W6-F: open the Nth project workspace
   | `workspace.project${WorkspaceSlot}`
 
@@ -244,6 +246,14 @@ export function makeActions(platform: string): readonly ActionSpec[] {
       defaults: [`${M}+Shift+P`],
       descKey: 'shortcut.tabs.switcher',
       yieldsToTerminal: false
+    },
+    {
+      // W9-E: the New modal (DESIGN §1 keys). Ctrl+N is readline's next-history, so a focused console keeps it on
+      // win32/linux (as Ctrl+W does); Cmd+N has no competitor on mac.
+      id: 'new.open',
+      defaults: [`${M}+N`],
+      descKey: 'shortcut.new.open',
+      yieldsToTerminal: !mac
     },
     // W6-F: Ctrl+Alt+1…9 opens the Nth project workspace. Ctrl, not `${M}`, everywhere, as the owner asked; Ctrl+Alt
     // with a digit is no readline or CLI key (riskyReasonKey) and no app shortcut, so it is not yielded either.
