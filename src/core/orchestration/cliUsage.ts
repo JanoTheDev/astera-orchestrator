@@ -420,7 +420,11 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
   'tasks-list': {
     summary: 'the tasks of a run',
     flags: [
-      { name: 'run', value: '<runId>', about: 'only the tasks of this run' },
+      {
+        name: 'run',
+        value: '<runId|jobId>',
+        about: "only the tasks of this run; a Job's id gives the Job's own tasks (the ones `tasks add --job` adds)"
+      },
       { name: 'status', value: '<s>', about: 'only tasks in this status' },
       { name: 'ready', about: 'only tasks that are ready to be picked up' },
       { name: 'brief', about: 'cut each spec to 160 characters' }

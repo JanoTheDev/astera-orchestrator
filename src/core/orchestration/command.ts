@@ -3299,8 +3299,11 @@ export async function handleCommand(
       // A named Run that is not there is a 404, not an empty list — the list would read as "that
       // Run has no Tasks", which is a different fact.
       const run = str(args.run)
-      if (run && !s.runs.some((r) => r.id === run)) return notFound(`unknown run: ${run}`)
-      if (run) tasks = tasks.filter((t) => t.runId === run)
+      // W5-B (#49): a Job's id names its own Tasks, as `task-create --run <jobId>` writes them (Task.jobId), so a
+      // planner reads back the plan it wrote before the Job has a Run
+      const byJob = run !== null && s.jobs.some((j) => j.id === run)
+      if (run && !byJob && !s.runs.some((r) => r.id === run)) return notFound(`unknown run: ${run}`)
+      if (run) tasks = tasks.filter((t) => (byJob ? t.jobId === run : t.runId === run))
       if (str(args.status)) tasks = tasks.filter((t) => t.status === args.status)
       if (args.ready === true) tasks = tasks.filter((t) => t.status === 'ready')
       if (args.brief === true) return okBody(tasks.map(briefTask))

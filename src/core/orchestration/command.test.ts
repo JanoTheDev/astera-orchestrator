@@ -6809,6 +6809,19 @@ describe('없는 id 는 404 — 순수 층의 거절을 내보내던 자리들',
     expect(await call(deps, 'tasks-list', { run: runId })).toEqual({ status: 200, body: [] })
   })
 
+  // W5-B (#49): task-create takes a Job's id before the Job has a Run, so tasks list reads them back by it.
+  it('tasks list --run takes a Job id: the Job\'s own Tasks, before its first Run', async () => {
+    const deps = makeDeps()
+    const made = await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p', auto: true })
+    const jobId = (made.body as { id: string }).id
+    expect(deps.getState().runs).toEqual([])
+    const t = await call(deps, 'task-create', { run: jobId, title: 't', spec: 's', account: 'acc1' })
+    expect(t.status).toBe(200)
+    const r = await call(deps, 'tasks-list', { run: jobId })
+    expect(r.status).toBe(200)
+    expect((r.body as Array<{ id: string }>).map((x) => x.id)).toEqual([(t.body as { id: string }).id])
+  })
+
   // ask 는 워커의 명령이라 워커가 남의 Dispatch 를 적으면 403 이 먼저다. 404 는 Dispatch 를 가진
   // 적이 없는 세션이 적은 id 가 없을 때, 그리고 그 Dispatch 의 Task 가 사라졌을 때다.
   it('ask 가 적은 Dispatch 나 Task 가 없으면 404 다', async () => {
