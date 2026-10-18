@@ -142,6 +142,13 @@ const SESSION = {
       'A mark inside its window is left alone. The app or the Host sends it when it sees a stale mark, so the restart button comes back.',
     flags: []
   },
+  // W8-C plan after plan
+  'jobs-after-sweep': {
+    summary: 'escalate, once, each queued Job whose earlier plan stopped',
+    detail:
+      'A Job queued with --after waits; when the plan it waits on gave up or was archived it is marked and escalated once, and the mark is cleared when that plan no longer is stopped. The app or the Host sends it from its loop.',
+    flags: []
+  },
   'run-merge': {
     summary: "merge this run's worktrees back into the project",
     detail: 'It does not remove the worktrees afterwards.',

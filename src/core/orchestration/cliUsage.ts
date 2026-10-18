@@ -390,7 +390,9 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       ...JOB_MAKING_FLAGS,
       ...INTAKE_FLAGS,
       // W7-E
-      { name: 'no-review', about: 'do not review this plan\'s Tasks (`jobs plan` turns a review of every Task on otherwise)' }
+      { name: 'no-review', about: 'do not review this plan\'s Tasks (`jobs plan` turns a review of every Task on otherwise)' },
+      // W8-C plan after plan
+      { name: 'after', value: '<jobId>', about: 'queue it after that Job (needs --coordinator-account): its planner starts by itself once that Job is delivered' }
     ]
   },
   'jobs-create-from-source': {
@@ -408,10 +410,17 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
   },
   // W7-D (#67)
   'jobs-set': {
-    summary: 'change how many workers a Job runs at once',
+    summary: 'change how many workers a Job runs at once, or which plan it is queued after',
     detail:
-      'Until the Job finishes; a finished one is refused (CONFLICT, exit 6). A lower number only holds back new starts: running workers carry on. At most 10. Refused from an agent session and an MCP client.',
-    flags: [ID('<jobId | runId>', 'the Job to change, or one of its runs'), { name: 'concurrency', value: '<n>', required: true, about: 'workers at once, 1–10' }]
+      'Until the Job finishes; a finished one is refused (CONFLICT, exit 6). A lower number only holds back new starts: running workers carry on. At most 10. Refused from an agent session and an MCP client. ' +
+      // W8-C plan after plan
+      '--after queues a Job that has not started planning after another (none clears it): its planner starts by itself once that Job is delivered (pushed, its pull request opened and not a draft, or ended with nothing to do). If that Job gives up or is archived, the queued one waits and escalates once. A chain that would wait on itself is refused (exit 2); a Job already planning is refused (CONFLICT, exit 6).',
+    flags: [
+      ID('<jobId | runId>', 'the Job to change, or one of its runs'),
+      { name: 'concurrency', value: '<n>', about: 'workers at once, 1–10' },
+      // W8-C plan after plan
+      { name: 'after', value: '<jobId|none>', about: 'the Job this one is queued after; none clears it' }
+    ]
   },
   'jobs-archive': {
     summary: 'archive a Job: hide it and start nothing new for it',
