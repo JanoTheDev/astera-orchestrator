@@ -69,8 +69,9 @@ home) goes away. Every page owns the full width below the top bar.
 ### Agents (default; W9-H)
 - **Console strip** across the top: "All consoles", then one entry per live console (Coordinator, Worker 2 · T4,
   Reviewer, Planner, plain consoles). A dot shows each console's state.
-- **Plan progress strip** (one row per active plan, at the top of the wall): title, wave, a stacked bar, and counts
-  "N done · N working · N need you · N remaining". Clicking a row opens the Tasks page filtered to that plan.
+- **Plan progress** sits inline in the wall's toolbar (right side), with no rows of its own. It is one compact item per
+  active plan: the name, a 56px stacked bar, and a short count ("4/9 · 2 need you", or "approve"). Hovering shows the
+  full counts. Clicking an item opens Tasks filtered to that plan.
 - **The main console:** the coordinator is pinned as the first tile, twice as tall, labelled "main", with an accent
   border. Its strip entry reads "Coordinator (main)".
 - **All consoles (the wall):**
