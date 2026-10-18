@@ -18,6 +18,8 @@ import { registerDockable } from './wall/consoleDock'
 
 /** W9-H: a wall tile's font (DESIGN §2: the session's own xterm at 10.5–11px). */
 export const TILE_FONT = 11
+/** What a full-size console leaves of the Agents page for the terminal: the details panel, the strip and the header. */
+const TILE_PAGE_RESERVE = { width: 330, height: 80 }
 
 export function TerminalView({
   session,
@@ -107,7 +109,30 @@ export function TerminalView({
     /** A tile shows the pty at the pty's own size in the tile font, bottom rows in view (wall.css), and sends no
      *  resize: the tile is a window on the console, and the pane or the full-size console owns its size. */
     const fitTile = (): void => {
-      const pty = pane.pty ?? lastSent
+      let pty = pane.pty ?? lastSent
+      // A console never shown in a pane has sent no size and heard none, so the TUI paints at its spawn size, which
+      // this xterm does not know. It gets the size its full-size console would ask for (the Agents page less the header
+      // and the details panel), sent once, as opening it would.
+      const page = tiled?.closest('.agents-page')
+      if (!pty && page) {
+        const area = { clientWidth: page.clientWidth - TILE_PAGE_RESERVE.width, clientHeight: page.clientHeight - TILE_PAGE_RESERVE.height }
+        const d = wantedOf(term, area as HTMLElement)
+        if (d) {
+          // The first send goes a row short and the real size follows, as fitNow's does (repaintNudge), so a TUI
+          // reattached after a reload repaints instead of staying blank.
+          const nudge = repaintNudge(d)
+          if (nudge) {
+            pane.sent(nudge)
+            window.api.sessions.resize(session.id, nudge.cols, nudge.rows)
+            nudgeTimer = setTimeout(() => {
+              if (lastSent) window.api.sessions.resize(session.id, lastSent.cols, lastSent.rows)
+            }, REPAINT_NUDGE_MS)
+          } else window.api.sessions.resize(session.id, d.cols, d.rows)
+          pane.sent(d)
+          lastSent = d
+          pty = d
+        }
+      }
       if (term.options.fontSize !== TILE_FONT) term.options.fontSize = TILE_FONT
       if (pty && (term.cols !== pty.cols || term.rows !== pty.rows)) term.resize(pty.cols, pty.rows)
     }

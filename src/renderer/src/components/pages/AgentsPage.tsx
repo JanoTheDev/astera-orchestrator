@@ -99,11 +99,14 @@ export function AgentsPage({ sessions, accounts, currentProject, homeDir, active
   }
 
   // Any other way to a tab (the sidebar tree, a notice, a file opened from the explorer) leaves the wall for it: a
-  // session tab opens that console full size, anything else gives the window to that page.
+  // session tab opens that console full size, anything else gives the window to that page. The first tab (the saved
+  // layout restored at start) is not such a move: the app opens on the wall.
   const lastTab = useRef(activeTabId)
   useEffect(() => {
     if (lastTab.current === activeTabId) return
+    const first = lastTab.current === null
     lastTab.current = activeTabId
+    if (first) return
     const ref = activeTabId ? parseTab(activeTabId) : null
     if (ref?.kind === 'session') setWallView({ kind: 'console', sessionId: ref.id })
     else if (activeTabId) setWallView({ kind: 'away' })
