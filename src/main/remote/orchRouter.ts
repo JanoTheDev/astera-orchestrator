@@ -132,13 +132,14 @@ export function createOrchRouter(a: {
     } catch (e) {
       log(`the paired Runtimes could not be listed: ${e instanceof Error ? e.message : String(e)}`)
     }
-    if (runtimes.length === 0) return local(args)
     const cursors = cmd === 'activity-poll' ? splitCursor(args.after) : {}
     const argsFor = (runtimeId: string): Record<string, unknown> => {
       if (cmd !== 'activity-poll') return args
       const { after: _after, ...rest } = args
       return cursors[runtimeId] !== undefined ? { ...rest, after: cursors[runtimeId] } : rest
     }
+    // The local Host's own cursor, also from a merged one made while a Runtime was still paired
+    if (runtimes.length === 0) return local(argsFor(LOCAL_RUNTIME))
     const failed: Reply = { status: 503, body: null }
     const [mine, ...theirs] = await Promise.all([
       local(argsFor(LOCAL_RUNTIME)),

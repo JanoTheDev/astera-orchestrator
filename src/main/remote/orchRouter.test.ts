@@ -179,6 +179,10 @@ describe('merged reads across Runtimes (W5-D, #44)', () => {
     expect(a.seen[1].args).toEqual({ limit: 500, after: 'c_a1' })
     // A plain cursor (from before any Runtime was paired) is the local Host's
     expect(splitCursor('c_old')).toEqual({ local: 'c_old' })
+    // And a merged one, once the last Runtime is gone, gives the local Host only its own
+    const { r: alone } = router({}, [])
+    await alone.everywhere('activity-poll', { limit: 500, after: cursor }, local)
+    expect(localArgs[2]).toEqual({ limit: 500, after: 'c_l1' })
   })
 
   it('a Runtime that fails or never answers is left out, its cursor kept; a local failure is the answer', async () => {

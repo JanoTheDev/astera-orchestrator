@@ -36,10 +36,10 @@ type ActivityLog = Pick<HostEventLog, 'read' | 'tail' | 'next'>
  * null otherwise, and null when `held` already has the line for this planner session: one line per plan, however many
  * turns its planner ends. A new planner (`jobs plan` again) is a new plan and gets its own line.
  */
-export function planReadyActivity(s: OrchState, sessionId: string, held: readonly ActivityEvent[]): ActivityDraft | null {
+export function planReadyActivity(s: OrchState, sessionId: string, held: () => readonly ActivityEvent[]): ActivityDraft | null {
   const j = s.jobs.find((x) => x.plannerSessionIds?.includes(sessionId))
   if (!j || !awaitsApproval(j) || validatePlan(s, j.id).length > 0) return null
-  if (held.some((e) => e.type === 'plan.awaiting-approval' && e.jobId === j.id && e.sessionId === sessionId)) return null
+  if (held().some((e) => e.type === 'plan.awaiting-approval' && e.jobId === j.id && e.sessionId === sessionId)) return null
   return {
     type: 'plan.awaiting-approval',
     ...(j.projectId !== undefined ? { projectId: j.projectId } : {}),
@@ -77,7 +77,8 @@ export function hostSessionActivity(a: {
     onHookEvent: (sessionId, payload) =>
       guard(() => {
         if ((payload as { hook_event_name?: unknown } | null)?.hook_event_name !== 'Stop') return
-        record(planReadyActivity(a.state(), sessionId, activityOf(a.log)))
+        // `held` is read only for a planner's turn end, not every session's
+        record(planReadyActivity(a.state(), sessionId, () => activityOf(a.log)))
       }),
     onSessionEvents: (drafts) =>
       guard(() => {
