@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useState } from 'react'
 import type { BranchPushState, WorktreeListItem } from '../../../core/types'
+import { groupWorktrees, type WorktreeRow } from '../../../core/worktrees/cleanup'
 import type { MessageKey } from '../../../core/i18n'
 import type { RepoPrSnapshot } from '../../../core/github/types'
 import { confirmModal } from '../lib/confirm'
@@ -13,7 +14,8 @@ import { CreatePrDialog } from './CreatePrDialog'
 import { PrBadge } from './PrBadge'
 import { PushBadge } from './PushBadge'
 import { rowSlot } from './rowSlot'
-import { ChevronDown, ChevronRight, RefreshCw } from 'lucide-react'
+import { RefreshCw } from 'lucide-react'
+import { Button, Chip } from './ui'
 
 /** 상태 라벨. **'폴더 없음' 은 없다** — 폴더가 사라졌다고 확인된 항목은 listWithStatus 가 목록을
  *  만들면서 레지스트리에서 걷으므로 이 자리에 도달하지 않는다. 그 줄은 눌러도 할 일이 없는 정보였고,
@@ -27,15 +29,31 @@ const STATUS_LABEL: Record<WorktreeListItem['status'], MessageKey | null> = {
   'git-unchecked': 'worktree.status.gitUnchecked'
 }
 
-/** Sidebar worktree list — only the worktrees this app created (per the registry) */
-export function WorktreePanel({
-  onStartSession
-}: {
-  onStartSession: (path: string) => void
-}): React.JSX.Element | null {
+/** What the Worktrees page can ask of the list (W9-J): the actions its detail header shares with the rows. */
+export interface WorktreeListHandle {
+  remove(w: WorktreeListItem): Promise<void>
+  createPr(w: WorktreeListItem): void
+  refresh(): Promise<void>
+  pushStateOf(w: WorktreeListItem): BranchPushState | undefined
+}
+
+/** The Worktrees page's left list (W9-J): the worktrees this app created (per the registry), grouped per plan, "Ready
+ *  to clean up" and "Yours". The refresh, the PR/push badges and the remove flow with its confirmations are the
+ *  sidebar panel's, unchanged. */
+export const WorktreePanel = forwardRef<
+  WorktreeListHandle,
+  {
+    selected: string | null
+    onSelect: (path: string) => void
+    onStartSession: (path: string) => void
+    /** The rows as last read, for the detail beside the list. */
+    onRows?: (rows: WorktreeRow[]) => void
+  }
+>(function WorktreePanel({ selected, onSelect, onStartSession, onRows }, handle): React.JSX.Element | null {
   const { t } = useI18n()
-  const [items, setItems] = useState<WorktreeListItem[]>([])
-  const [open, setOpen] = useState(true)
+  const [rows, setRows] = useState<WorktreeRow[]>([])
+  const items = rows.map((r) => r.item)
+  const [cleaning, setCleaning] = useState(false)
   const [prs, setPrs] = useState<Record<string, RepoPrSnapshot>>({})
   // PR link menu — one at a time, held here rather than per row (the FileExplorer/HistoryBrowser shape)
   const [prMenu, setPrMenu] = useState<{ x: number; y: number; url: string } | null>(null)
@@ -54,7 +72,6 @@ export function WorktreePanel({
   // PR snapshots: pull once, then ride the push events. Subscribed only while this panel is
   // mounted AND expanded — the zero-subscriber signal is what lets main stop polling (§4).
   useEffect(() => {
-    if (!open) return
     window.api.github.subscribe()
     void window.api.github.prs().then(setPrs)
     // status() answers from the cached probe and never runs gh, so asking here costs nothing
@@ -72,12 +89,14 @@ export function WorktreePanel({
       offStatus()
       window.api.github.unsubscribe()
     }
-  }, [open])
+  }, [])
 
   const refresh = useCallback(async (): Promise<void> => {
     try {
-      const list = await window.api.worktrees.list()
-      setItems(list)
+      const overview = await window.api.worktrees.overview()
+      setRows(overview)
+      onRows?.(overview)
+      const list = overview.map((r) => r.item)
       // The same triggers that re-query worktrees re-query their PRs: mount, expand, manual ⟳,
       // and the created event. This is the whole manual path when polling is off.
       void window.api.github.refresh({ force: true })
@@ -94,7 +113,7 @@ export function WorktreePanel({
       const m = worktreeErrorMessage(err instanceof Error ? err.message : String(err))
       toast.error(t(m.key, m.params))
     }
-  }, [t])
+  }, [t, onRows])
 
   useEffect(() => {
     void refresh()
@@ -181,135 +200,166 @@ export function WorktreePanel({
     }
   }
 
-  if (items.length === 0) return null // with no worktrees, hide the whole section
+  useImperativeHandle(handle, () => ({
+    remove,
+    createPr: (w) => setCreating(w),
+    refresh,
+    pushStateOf: (w) => pushState[w.repoPath]?.[w.baseRef]?.[w.branch]
+  }))
 
-  const byRepo = new Map<string, WorktreeListItem[]>()
-  for (const w of items) byRepo.set(w.repoPath, [...(byRepo.get(w.repoPath) ?? []), w])
+  const groups = groupWorktrees(rows)
+
+  const cleanUp = async (): Promise<void> => {
+    const ok = await confirmModal({
+      title: t('worktrees.cleanup.title', { count: groups.ready.length }),
+      body: t('worktrees.cleanup.body', { names: groups.ready.map((r) => r.item.branch).join('\n') }),
+      confirmLabel: t('worktrees.cleanup.confirm', { count: groups.ready.length })
+    })
+    if (!ok) return
+    setCleaning(true)
+    try {
+      const r = await window.api.worktrees.cleanup()
+      if (r.kept.length > 0) toast.info(t('worktrees.cleanup.kept', { done: r.removed.length, kept: r.kept.length }))
+      else toast.success(t('worktrees.cleanup.done', { count: r.removed.length }))
+    } catch (err) {
+      const m = worktreeErrorMessage(err instanceof Error ? err.message : String(err))
+      toast.error(t(m.key, m.params))
+    } finally {
+      setCleaning(false)
+      await refresh()
+    }
+  }
 
   const creatingPush = creating
     ? pushState[creating.repoPath]?.[creating.baseRef]?.[creating.branch]
     : undefined
 
-  // Re-query only on expand — collapsing just changes the display state and needs no refresh
-  const toggleOpen = (): void => {
-    setOpen((v) => {
-      const next = !v
-      if (next) void refresh()
-      return next
-    })
+  const renderRow = (r: WorktreeRow): React.JSX.Element => {
+    const w = r.item
+    return (
+                <div
+          key={w.id}
+          className={`worktree-row${selected === w.path ? ' is-selected' : ''}`}
+          onClick={() => onSelect(w.path)}
+          title={`${w.path}\n${w.branch}`}
+          onContextMenu={(ev) => {
+            ev.preventDefault() // Electron's own menu would cover ours
+            setRowMenu({ x: ev.clientX, y: ev.clientY, w })
+          }}
+        >
+          <span className="worktree-name">
+            <span className="worktree-branch">{w.branch}</span>
+            {r.owner && r.owner.taskTitles.length > 0 && <span className="worktree-task"> · {r.owner.taskTitles.join(', ')}</span>}
+            {(r.ahead ?? 0) + (r.behind ?? 0) > 0 && (
+              <span className="worktree-aheadbehind"> ↑{r.ahead ?? '?'} ↓{r.behind ?? '?'}</span>
+            )}
+            {r.dirty ? <Chip tone="warn" className="worktree-dirty">{t('worktrees.dirty', { count: r.dirty })}</Chip> : null}
+            {/* While removing, the progress state wins — there is no reason to report 'Git registration lost' on a row that is being deleted */}
+            {removingId === w.id ? (
+              <em className="worktree-status"> ({t('worktree.remove.removing')})</em>
+            ) : (
+              STATUS_LABEL[w.status] && (
+                <em className="worktree-status"> ({t(STATUS_LABEL[w.status]!)})</em>
+              )
+            )}
+          </span>
+          {(() => {
+            const snap = prs[w.repoPath]
+            const slot = rowSlot(snap?.byBranch[w.branch], pushState[w.repoPath]?.[w.baseRef]?.[w.branch])
+            if (slot === null) return null
+            if (slot.kind === 'pr')
+              return (
+                <PrBadge
+                  pr={slot.pr}
+                  stale={snap!.stale}
+                  onOpenMenu={(e) =>
+                    setPrMenu({ x: e.clientX, y: e.clientY, url: slot.pr.url })
+                  }
+                />
+              )
+            return (
+              <PushBadge
+                ahead={slot.ahead}
+                base={w.baseRef}
+                disabled={busy || !ghConnected}
+                onCreate={() => setCreating(w)}
+              />
+            )
+          })()}
+          {/* Drawn icons rather than text glyphs, the same as the history session rows this list
+              is laid out to match: both hold 12px marks in a .ghost button, so the two lists'
+              rows come out the same height. .icon-btn (28×28, 16px glyph) is for the panel
+              header toolbar and was far too big inside a row.
+              PlayIcon and TrashIcon come from JobIcons rather than being redrawn here — that
+              file's own rule, that one meaning must not grow a second shape. */}
+          <span className="worktree-actions" onClick={(ev) => ev.stopPropagation()}>
+            {removingId === w.id ? (
+              // A session must not be started on a worktree that is being removed, so the start
+              // button is taken away, and for delete the button box stays while only the icon
+              // becomes a spinner. The spinner is sized down to the 12px the icons are (see
+              // .worktree-actions .ghost.removing .loading-spinner) — at its shared 14px this
+              // row alone would grow while the delete runs and the list would jump
+              <button className="ghost danger removing" disabled aria-label={t('worktree.remove.removing')}>
+                <span className="loading-spinner" aria-hidden="true" />
+              </button>
+            ) : (
+              <>
+                {w.status === 'ok' && (
+                  <button
+                    className="ghost"
+                    title={t('worktree.action.startSession')}
+                    aria-label={t('worktree.action.startSession')}
+                    disabled={busy}
+                    onClick={() => onStartSession(w.path)}
+                  >
+                    <PlayIcon />
+                  </button>
+                )}
+                <button
+                  className="ghost danger"
+                  title={t('files.action.delete')}
+                  aria-label={t('files.action.delete')}
+                  disabled={busy}
+                  onClick={() => void remove(w)}
+                >
+                  <TrashIcon />
+                </button>
+              </>
+            )}
+          </span>
+        </div>
+    )
   }
+
+  const section = (key: string, title: string, list: WorktreeRow[], hint?: string): React.JSX.Element | null =>
+    list.length === 0 ? null : (
+      <div key={key} className="worktree-group">
+        <div className="worktree-repo" title={hint}>
+          {title} <span className="worktree-count">{list.length}</span>
+        </div>
+        <div className="worktree-list">{list.map(renderRow)}</div>
+      </div>
+    )
 
   return (
     <section className="worktree-panel">
       <header className="panel-header">
-        <button className="panel-toggle" onClick={toggleOpen}>
-          {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />} Worktrees
-        </button>
+        <h2 className="panel-title">{t('worktrees.title')}</h2>
         <div className="panel-actions">
-          <button className="icon-btn" title={t('worktree.refresh')} aria-label={t('worktree.refresh')} disabled={busy} onClick={() => void refresh()}>
+          {groups.ready.length > 0 && (
+            <Button size="sm" variant="primary" loading={cleaning} disabled={busy} onClick={() => void cleanUp()}>
+              {t('worktrees.cleanup.button', { count: groups.ready.length })}
+            </Button>
+          )}
+          <button className="icon-btn" title={t('worktree.refresh')} aria-label={t('worktree.refresh')} disabled={busy || cleaning} onClick={() => void refresh()}>
             <RefreshCw size={14} />
           </button>
         </div>
       </header>
-      {open &&
-        [...byRepo.entries()].map(([repoPath, list]) => (
-          <div key={repoPath} className="worktree-group">
-            <div className="worktree-repo" title={repoPath}>
-              {repoPath.split(/[\\/]/).pop()}
-            </div>
-            {/* Same indentation and left rail as the history .session-sublist — it has to wrap the
-                whole list so the rail runs continuously instead of breaking at every row */}
-            <div className="worktree-list">
-              {list.map((w) => (
-                <div
-                  key={w.id}
-                  className="worktree-row"
-                  title={`${w.path}\n${w.branch}`}
-                  onContextMenu={(ev) => {
-                    ev.preventDefault() // Electron's own menu would cover ours
-                    setRowMenu({ x: ev.clientX, y: ev.clientY, w })
-                  }}
-                >
-                  <span className="worktree-name">
-                    {w.name}
-                    {/* While removing, the progress state wins — there is no reason to report 'Git registration lost' on a row that is being deleted */}
-                    {removingId === w.id ? (
-                      <em className="worktree-status"> ({t('worktree.remove.removing')})</em>
-                    ) : (
-                      STATUS_LABEL[w.status] && (
-                        <em className="worktree-status"> ({t(STATUS_LABEL[w.status]!)})</em>
-                      )
-                    )}
-                  </span>
-                  {(() => {
-                    const snap = prs[w.repoPath]
-                    const slot = rowSlot(snap?.byBranch[w.branch], pushState[w.repoPath]?.[w.baseRef]?.[w.branch])
-                    if (slot === null) return null
-                    if (slot.kind === 'pr')
-                      return (
-                        <PrBadge
-                          pr={slot.pr}
-                          stale={snap!.stale}
-                          onOpenMenu={(e) =>
-                            setPrMenu({ x: e.clientX, y: e.clientY, url: slot.pr.url })
-                          }
-                        />
-                      )
-                    return (
-                      <PushBadge
-                        ahead={slot.ahead}
-                        base={w.baseRef}
-                        disabled={busy || !ghConnected}
-                        onCreate={() => setCreating(w)}
-                      />
-                    )
-                  })()}
-                  {/* Drawn icons rather than text glyphs, the same as the history session rows this list
-                      is laid out to match: both hold 12px marks in a .ghost button, so the two lists'
-                      rows come out the same height. .icon-btn (28×28, 16px glyph) is for the panel
-                      header toolbar and was far too big inside a row.
-                      PlayIcon and TrashIcon come from JobIcons rather than being redrawn here — that
-                      file's own rule, that one meaning must not grow a second shape. */}
-                  <span className="worktree-actions">
-                    {removingId === w.id ? (
-                      // A session must not be started on a worktree that is being removed, so the start
-                      // button is taken away, and for delete the button box stays while only the icon
-                      // becomes a spinner. The spinner is sized down to the 12px the icons are (see
-                      // .worktree-actions .ghost.removing .loading-spinner) — at its shared 14px this
-                      // row alone would grow while the delete runs and the list would jump
-                      <button className="ghost danger removing" disabled aria-label={t('worktree.remove.removing')}>
-                        <span className="loading-spinner" aria-hidden="true" />
-                      </button>
-                    ) : (
-                      <>
-                        {w.status === 'ok' && (
-                          <button
-                            className="ghost"
-                            title={t('worktree.action.startSession')}
-                            aria-label={t('worktree.action.startSession')}
-                            disabled={busy}
-                            onClick={() => onStartSession(w.path)}
-                          >
-                            <PlayIcon />
-                          </button>
-                        )}
-                        <button
-                          className="ghost danger"
-                          title={t('files.action.delete')}
-                          aria-label={t('files.action.delete')}
-                          disabled={busy}
-                          onClick={() => void remove(w)}
-                        >
-                          <TrashIcon />
-                        </button>
-                      </>
-                    )}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        ))}
+      {items.length === 0 && <p className="modal-hint worktree-empty">{t('worktrees.empty')}</p>}
+      {groups.plans.map((p) => section(p.jobId, p.plan, p.rows))}
+      {section('ready', t('worktrees.group.ready'), groups.ready, t('worktrees.group.readyHint'))}
+      {section('yours', t('worktrees.group.yours'), groups.yours, t('worktrees.group.yoursHint'))}
       {prMenu && (
         <ContextMenu
           x={prMenu.x}
@@ -392,4 +442,4 @@ export function WorktreePanel({
       )}
     </section>
   )
-}
+})

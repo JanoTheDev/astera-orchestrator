@@ -1,4 +1,5 @@
 import type { PlanFeedback } from './orchestration/types'
+import type { WorktreeDetail, WorktreeRow } from './worktrees/cleanup'
 import type { SlashCommand } from './commands/slashCommands'
 import type { RunConfig, RunStatus, SaveConfigsResult } from './run/config'
 import type { EmulationMetrics } from './preview/viewports'
@@ -1305,6 +1306,15 @@ export interface CoreApi {
       repoPath: string,
       bases: string[]
     ): Promise<Record<string, Record<string, BranchPushState>>>
+    // W9-J: the Worktrees page
+    /** Every worktree with its owning plan, git facts and whether it is ready to clean up. */
+    overview(): Promise<WorktreeRow[]>
+    /** Removes every worktree the ready rule holds for, unforced; the verdict is read again in main. */
+    cleanup(): Promise<{ removed: string[]; kept: { path: string; reason: string }[] }>
+    /** Changed files and commits since the base, by registry id. Null: not a worktree of this app. */
+    detail(id: string): Promise<WorktreeDetail | null>
+    /** One file's diff by the id `detail` listed. */
+    fileDiff(id: string, fileId: string): Promise<{ diff: string; truncated: boolean } | null>
   }
   pr: {
     /** Everything the create dialog needs to open: the seeded title and body, and whether the
@@ -1525,6 +1535,9 @@ export interface CoreApi {
     /** Stall watchdog (orchestration/exec/stallWatch.ts); default true. */
     getStallWatch(): Promise<boolean>
     setStallWatch(on: boolean): Promise<void>
+    /** W9-J: remove a delivered plan's ready worktrees; default true. */
+    getAutoCleanWorktrees(): Promise<boolean>
+    setAutoCleanWorktrees(on: boolean): Promise<void>
     /** W6-B: the chime with a notice that needs the owner; default true. */
     getAlertSound(): Promise<boolean>
     setAlertSound(on: boolean): Promise<void>

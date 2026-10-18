@@ -5,7 +5,7 @@ import { FileExplorer } from '../FileExplorer'
 import { JobsView } from '../JobsView'
 import { jobsStall } from '../../../../core/orchestration/jobsView'
 import { UnderstandingView } from '../UnderstandingView'
-import { WorktreePanel } from '../WorktreePanel'
+import { openPage } from './navigation'
 import { RuntimeSelector } from '../RuntimeSelector'
 import { controlReason, isRemoteRuntime, offlineNote } from '../../lib/remoteJobs'
 import { localDoor } from '../../lib/orchDoor'
@@ -268,12 +268,10 @@ export function Sidebar(p: SidebarProps): React.JSX.Element {
                     selectWorkbenchTab(sessionTab(sessionId))
                   }}
                 />
-                <WorktreePanel
-                  onStartSession={(p) => {
-                    setNewSessionCwd(p)
-                    setShowNew(true)
-                  }}
-                />
+                {/* W9-J: the list moved to the Worktrees page */}
+                <button type="button" className="panel-toggle" onClick={() => openPage('worktrees')}>
+                  {t('worktrees.title')}
+                </button>
                 <HistoryBrowser
                   accounts={accounts}
                   ghostAccounts={ghostAccounts}

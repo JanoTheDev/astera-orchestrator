@@ -32,6 +32,8 @@ import {
 } from '../core/orchestration/exec/integrateGit'
 import { WorktreeRegistry, defaultWorktreeRoot, isRegistryFile } from '../core/worktrees/registry'
 import { git as realGit } from '../core/worktrees/git'
+import { cleanRun, type CleanResult } from '../core/worktrees/cleanupRun'
+import { listWithStatus } from '../core/worktrees/list'
 import { isPathWithin, isSamePath } from '../core/files/tree'
 import { hostMergesPathIn } from '../core/git/hostMerges'
 import { createMergeRecorder } from './mergeRecords'
@@ -95,6 +97,8 @@ export interface HostWorktrees {
   list(): WorktreeInfo[]
   /** R8, the app's tags. */
   isPathInUse(p: string): string | null
+  /** W9-J: removes a delivered Run's ready worktrees (core/worktrees/cleanup.ts), unforced. Never throws. */
+  cleanRun(runId: string): Promise<CleanResult>
   /** The four internal orch-calls, app only (R1). */
   call(cmd: string, args: Record<string, unknown>, from: OrchCaller | undefined): Promise<{ status: number; body: unknown }>
 }
@@ -401,6 +405,23 @@ export function createHostWorktrees(d: HostWorktreesDeps): HostWorktrees {
     repoPaths: () => registry.list().map((w) => w.repoPath),
     list: () => registry.list(),
     isPathInUse,
+    cleanRun: async (runId) => {
+      try {
+        await fresh()
+        // As removeWorktrees: with the app detached, what it runs is invisible to this Host, so nothing is removed
+        if (detachedApp()) return { removed: [], kept: [] }
+      } catch (e) {
+        d.log(`worktree clean-up of run ${runId} skipped: ${message(e)}`)
+        return { removed: [], kept: [] }
+      }
+      return cleanRun(runId, {
+        registry,
+        list: () => listWithStatus(registry),
+        state: () => d.getState(),
+        isPathInUse,
+        log: d.log
+      })
+    },
     call: async (cmd, args, from) => {
       const handle = calls[cmd]
       if (!handle) return { status: 501, body: { error: `unknown command: ${cmd}` } }

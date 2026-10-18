@@ -124,7 +124,12 @@ const api = {
     isGitRepo: invoke('worktrees.isGitRepo'),
     getRoot: invoke('worktrees.getRoot'),
     setRoot: invoke('worktrees.setRoot'),
-    pushState: invoke('worktrees.pushState')
+    pushState: invoke('worktrees.pushState'),
+    // W9-J
+    overview: invoke('worktrees.overview'),
+    cleanup: invoke('worktrees.cleanup'),
+    detail: invoke('worktrees.detail'),
+    fileDiff: invoke('worktrees.fileDiff')
   },
   pr: {
     draftFor: invoke('pr.draftFor'),
@@ -217,6 +222,8 @@ const api = {
     setFreshCoordinatorContextPct: invoke('settings.setFreshCoordinatorContextPct'),
     getStallWatch: invoke('settings.getStallWatch'),
     setStallWatch: invoke('settings.setStallWatch'),
+    getAutoCleanWorktrees: invoke('settings.getAutoCleanWorktrees'),
+    setAutoCleanWorktrees: invoke('settings.setAutoCleanWorktrees'),
     getAlertSound: invoke('settings.getAlertSound'), // W6-B
     setAlertSound: invoke('settings.setAlertSound'),
     getAutoCloseEndedPlanTabs: invoke('settings.getAutoCloseEndedPlanTabs'), // W7-F (#84)

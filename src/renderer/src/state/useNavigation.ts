@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 import type { PageId } from '../../../core/ui/pages'
 import { sessionTab } from '../../../core/panes/tabId'
 import { registerNavigation } from '../components/shell/navigation'
+import { showWorktrees } from '../components/worktrees/worktreeView'
 import type { AppState } from './appState'
 
 type NavigationDeps = Pick<
@@ -29,8 +30,9 @@ export function useNavigation(app: NavigationDeps): void {
       else if (id === 'more:hiw') showView('understanding')
       else if (id === 'settings') setShowSettings(true)
       else if (id === 'more:runs') setRunPanelOpen(true)
+      else if (id === 'worktrees') showWorktrees() // W9-J
       else if (id === 'more:browser') console.warn('navigation.openPage: no browser page yet; a browser tab opens from a link')
-      // agents, inbox (escalation rows), worktrees (WorktreePanel), more:history (HistoryBrowser): the session list
+      // agents, inbox (escalation rows), more:history (HistoryBrowser): the session list
       else showView('sessions')
     }
     return registerNavigation({
@@ -51,8 +53,8 @@ export function useNavigation(app: NavigationDeps): void {
       },
       // needs-input shows as escalation rows in the session list's workspace tree; no filter yet
       openInbox: () => openPage('inbox'),
-      // the WorktreePanel lives in the session list; it has no per-path view yet
-      openWorktree: () => openPage('worktrees'),
+      // W9-J: the Worktrees page, on that worktree
+      openWorktree: (path) => showWorktrees(path),
       // the settings modal has no anchors yet
       openSettings: (group) => {
         setSettingsTab(group)

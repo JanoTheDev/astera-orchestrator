@@ -6,7 +6,7 @@ import { handleCommand, type OrchServerDeps } from './command'
 import { emptyState, type OrchState } from './state'
 import type { JobRun, Project, Task } from './types'
 import { HOST_CALLER } from '../host/driver'
-import { deliveryChecksOf, deliveryIssuesOf, deliveryMessage, deliveryOf, recordDelivery, setProjectDelivery } from './delivery'
+import { cleanAfterDelivery, deliveryChecksOf, deliveryIssuesOf, deliveryMessage, deliveryOf, recordDelivery, setProjectDelivery } from './delivery'
 import { deriveActivity, noticeOf, type ActivityEvent } from './activity'
 import type { PushDelivery, PushResult } from './exec/integrateGit'
 
@@ -17,7 +17,7 @@ const task = (over: Partial<Task> = {}): Task =>
   ({ id: 't1', runId: 'r1', title: 'Fix login', spec: 's', deps: [], status: 'completed', consecutiveFailures: 0, createdAt: NOW, updatedAt: NOW, ...over }) as Task
 const project = (over: Partial<Project> = {}): Project => ({ id: 'p1', path: REPO, name: 'gameful', addedAt: NOW, ...over })
 
-const setup = (o: { project?: Partial<Project>; tasks?: Task[]; run?: Partial<JobRun>; push?: PushResult; noPush?: boolean } = {}) => {
+const setup = (o: { project?: Partial<Project>; tasks?: Task[]; run?: Partial<JobRun>; push?: PushResult; noPush?: boolean; cleanThrows?: boolean } = {}) => {
   const box: { state: OrchState } = {
     state: {
       ...emptyState(),
@@ -31,6 +31,7 @@ const setup = (o: { project?: Partial<Project>; tasks?: Task[]; run?: Partial<Jo
   const pushes: (PushDelivery & { checks: string[] })[] = []
   const removed: string[][] = []
   const opened: string[] = []
+  const cleaned: string[] = []
   const deps = {
     getState: () => box.state,
     setState: async (next: OrchState) => {
@@ -50,12 +51,17 @@ const setup = (o: { project?: Partial<Project>; tasks?: Task[]; run?: Partial<Jo
             return o.push ?? { ok: true, branch: 'main', sha: 'abc1234def', merged: a.worktrees, validated: a.checks.length }
           }
         }),
+    // W9-J
+    cleanWorktrees: async (runId: string) => {
+      cleaned.push(runId)
+      if (o.cleanThrows) throw new Error('boom')
+    },
     // run-open-pr's own refusal when there is no GitHub: enough to see that `pr` went there
     github: undefined
   } as unknown as OrchServerDeps
   const call = (cmd: string, args: Record<string, unknown>, sessionId = HOST_CALLER, role?: 'mcp') =>
     handleCommand(deps, { sessionId, ...(role ? { role } : {}) }, cmd, args)
-  return { call, pushes, removed, opened, state: () => box.state }
+  return { call, pushes, removed, opened, cleaned, state: () => box.state }
 }
 
 describe('run-deliver (W6-H)', () => {
@@ -207,5 +213,30 @@ describe('delivery helpers (W6-H)', () => {
     const esc = deriveActivity(s, stopped).filter((l) => l.type === 'task.escalated')
     expect(esc).toEqual([expect.objectContaining({ runId: 'r1', payload: expect.objectContaining({ title: 'Fix auth', reason: 'Delivery stopped: conflict' }) })])
     expect(noticeOf({ ...esc[0], id: 'e2', sequence: 2, occurredAt: NOW } as ActivityEvent)).toMatchObject({ alert: true })
+  })
+})
+
+describe('worktrees are cleaned once a plan is delivered (W9-J)', () => {
+  it('a pushed plan asks for its Run’s ready worktrees to be removed', async () => {
+    const h = setup({ project: { delivery: 'push', deliveryBranch: 'main' } })
+    await h.call('run-deliver', { run: 'r1' })
+    expect(h.cleaned).toEqual(['r1'])
+  })
+  it('a push that stopped cleans nothing', async () => {
+    const h = setup({ project: { delivery: 'push' }, push: { ok: false, reason: 'checks failed' } as PushResult })
+    await h.call('run-deliver', { run: 'r1' })
+    expect(h.cleaned).toEqual([])
+  })
+  it('a pull request that could not be opened cleans nothing', async () => {
+    const h = setup()
+    expect((await h.call('run-deliver', { run: 'r1' })).status).toBe(409)
+    expect(h.cleaned).toEqual([])
+  })
+  it('a clean-up that throws is logged by cleanAfterDelivery and never fails the delivery', async () => {
+    const h = setup({ project: { delivery: 'push', deliveryBranch: 'main' }, cleanThrows: true })
+    expect((await h.call('run-deliver', { run: 'r1' })).status).toBe(200)
+  })
+  it('cleanAfterDelivery without the dep (an app caller) does nothing', async () => {
+    await expect(cleanAfterDelivery({}, 'r1')).resolves.toBeUndefined()
   })
 })

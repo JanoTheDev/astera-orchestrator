@@ -462,7 +462,9 @@ const NOT_FORWARDED = [
   'jobSources',
   'completionChecks',
   // W6-H
-  'deliverPush'
+  'deliverPush',
+  // W9-J
+  'cleanWorktrees'
 ] as const
 
 /** Every name the groups above classify between them. Nothing is unsupplied any more: the four
@@ -621,7 +623,9 @@ const EFFECTFUL: Record<Classified, boolean> = {
   completionChecks: false,
   // NOT_FORWARDED as well (W6-H): this Host's git merges and pushes a finished plan, never the app's. It acts: marked
   // where `hostOrchDeps` passes it on.
-  deliverPush: true
+  deliverPush: true,
+  // NOT_FORWARDED as well (W9-J): this Host removes a delivered plan's ready worktrees, never the app's. It acts.
+  cleanWorktrees: true
 }
 
 /** The names an action really travels under, narrowed to the effectful ones — the NESTED groups
@@ -756,6 +760,8 @@ export function hostOrchDeps(a: {
   completionChecks?: OrchServerDeps['completionChecks']
   /** W6-H: a push delivery through this Host's git. Absent: `run-deliver` on a push project answers 409. */
   deliverPush?: OrchServerDeps['deliverPush']
+  /** W9-J: removes a delivered Run's ready worktrees. Absent: nothing is cleaned after a delivery. */
+  cleanWorktrees?: OrchServerDeps['cleanWorktrees']
   /** The Host's own session work units (HOST_TRACKS, E2 §5), asked whether it is their writer at every
    *  call. Null or absent (no spawner): `trackingEnabled` and `sessionTasks.*` only forward, as before. */
   workUnits?: (Pick<HostWorkUnits, 'isWriter' | 'trackingEnabled'> & {
@@ -1364,6 +1370,15 @@ export function hostOrchDeps(a: {
           deliverPush: (d: Parameters<NonNullable<OrchServerDeps['deliverPush']>>[0]) => {
             a.onEffect?.()
             return a.deliverPush!(d)
+          }
+        }
+      : {}),
+    // W9-J: removing folders is an effect, marked before the call like a push
+    ...(a.cleanWorktrees
+      ? {
+          cleanWorktrees: (runId: string) => {
+            a.onEffect?.()
+            return a.cleanWorktrees!(runId)
           }
         }
       : {}),
