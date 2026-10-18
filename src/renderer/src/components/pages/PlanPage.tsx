@@ -8,29 +8,29 @@ import type {
   Provider,
   RunDetail as RunDetailData,
   TaskStatus
-} from '../../../core/types'
-import type { MessageKey } from '../../../core/i18n'
+} from '../../../../core/types'
+import type { MessageKey } from '../../../../core/i18n'
 // W2-D GitHub links
-import { RunPrChip, TaskLinkChips } from './TaskLinkChips'
-import { accountToDispatchOn } from '../../../core/accounts/dispatchAccount'
-import { providerOf } from '../../../core/providers/meta'
-import { chainOf } from '../../../core/orchestration/graph'
-import type { GraphBox } from '../../../core/orchestration/graphLayout'
-import { edgePath, layoutRows, NODE_H, NODE_W } from '../../../core/orchestration/graphLayout'
-import { canStopConvergence, nodeMetaOf, retryingCheckOf } from '../../../core/orchestration/nodeMeta'
-import { DEFAULT_CONCURRENCY, MAX_CONCURRENT_WORKERS, type Dispatch } from '../../../core/orchestration/types'
-import { runningCount } from '../../../core/orchestration/running'
-import { runIdToMerge } from '../../../core/orchestration/snapshot'
-import { useI18n } from '../i18n/I18nProvider'
-import { replyNote, type CheckPluginRow, type OrchDoor } from '../lib/orchDoor'
-import { confirmModal, confirmModalWithChoices } from '../lib/confirm'
-import { approvePlan, type ActionUi } from '../lib/jobActions'
-import { ChangedFilesBlock } from './ChangedFilesBlock'
-import { CompletionBlock } from './CompletionBlock'
-import { GateAnswer } from './GateAnswer'
-import { GLYPH, checkChoicesOf, checkTooltip, nodeMetaText, type GlyphKind } from './checkText'
-import { toast } from '../lib/toast'
-import { errText } from '../hooks/useFileOps'
+import { RunPrChip, TaskLinkChips } from '../TaskLinkChips'
+import { accountToDispatchOn } from '../../../../core/accounts/dispatchAccount'
+import { providerOf } from '../../../../core/providers/meta'
+import { chainOf } from '../../../../core/orchestration/graph'
+import type { GraphBox } from '../../../../core/orchestration/graphLayout'
+import { edgePath, layoutRows, NODE_H, NODE_W } from '../../../../core/orchestration/graphLayout'
+import { canStopConvergence, nodeMetaOf, retryingCheckOf } from '../../../../core/orchestration/nodeMeta'
+import { DEFAULT_CONCURRENCY, MAX_CONCURRENT_WORKERS, type Dispatch } from '../../../../core/orchestration/types'
+import { runningCount } from '../../../../core/orchestration/running'
+import { runIdToMerge } from '../../../../core/orchestration/snapshot'
+import { useI18n } from '../../i18n/I18nProvider'
+import { replyNote, type CheckPluginRow, type OrchDoor } from '../../lib/orchDoor'
+import { confirmModal, confirmModalWithChoices } from '../../lib/confirm'
+import { approvePlan, type ActionUi } from '../../lib/jobActions'
+import { ChangedFilesBlock } from '../ChangedFilesBlock'
+import { CompletionBlock } from '../CompletionBlock'
+import { GateAnswer } from '../GateAnswer'
+import { GLYPH, checkChoicesOf, checkTooltip, nodeMetaText, type GlyphKind } from '../checkText'
+import { toast } from '../../lib/toast'
+import { errText } from '../../hooks/useFileOps'
 import {
   LockIcon,
   RunIcon,
@@ -39,22 +39,22 @@ import {
   TaskGlyph,
   TaskIcon,
   UnlockIcon
-} from './JobIcons'
-import { NewTaskModal } from './NewTaskModal'
-import { JournalBusy, JournalOlder } from './RunDetailJournal'
+} from '../JobIcons'
+import { NewTaskModal } from '../NewTaskModal'
+import { JournalBusy, JournalOlder } from '../RunDetailJournal'
 import { ArrowUpRight, Play, Square, WrenchOff, X } from 'lucide-react'
-import { backdropProps } from '../lib/backdrop'
-import { SourceChip } from './SourceChip'
-import { jobName } from '../lib/jobName'
+import { backdropProps } from '../../lib/backdrop'
+import { SourceChip } from '../SourceChip'
+import { jobName } from '../../lib/jobName'
 // W2-C plan board
-import { PlanOverview } from './plan/PlanOverview'
-import { PlanTalk } from './plan/PlanTalk'
-import { UsageStrip } from './usage/UsageStrip'
-import { TaskBoard } from './plan/TaskBoard'
+import { PlanOverview } from '../plan/PlanOverview'
+import { PlanTalk } from '../plan/PlanTalk'
+import { UsageStrip } from '../usage/UsageStrip'
+import { TaskBoard } from '../plan/TaskBoard'
 // W6-E progress view
-import { PlanFiles } from './plan/PlanFiles'
-import { coordinatorRefreshOf, replanningOf } from './plan/planBoard'
-import { usePlanLive } from './plan/usePlanLive'
+import { PlanFiles } from '../plan/PlanFiles'
+import { coordinatorRefreshOf, replanningOf } from '../plan/planBoard'
+import { usePlanLive } from '../plan/usePlanLive'
 
 /** 종류 배지의 문구. message 는 messageType 이 정한다.
  *  heartbeat 과 decision_gate 는 timeline.ts 의 SKIP 이 걸러 지금은 도달하지 않지만, 맵을
