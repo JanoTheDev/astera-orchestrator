@@ -429,3 +429,22 @@ describe('AccountRegistry, final review', () => {
     await fs.rm(dir, { recursive: true, force: true })
   })
 })
+
+describe('AccountRegistry rename and email (W7-F)', () => {
+  it('renames, persists, refuses an empty label, and a renamed account keeps its name after a re-login (#77)', async () => {
+    const a = await registry.create({ label: 'a@x.com' })
+    await registry.noteEmail(a.id, 'a@x.com')
+    await registry.rename(a.id, '  Work  ')
+    await expect(registry.rename(a.id, '   ')).rejects.toThrow(/INVALID/)
+    expect(await registry.noteEmail(a.id, 'b@x.com')).toBe(true)
+    const again = new AccountRegistry(path.join(tmp, 'accounts.json'), path.join(tmp, 'accounts-root'))
+    await again.load()
+    expect(again.get(a.id)).toMatchObject({ label: 'Work', email: 'b@x.com' })
+  })
+  it('relabels a row still named after its email when the folder is re-logged (#77)', async () => {
+    const a = await registry.create({ label: 'a@x.com' })
+    expect(await registry.noteEmail(a.id, 'a@x.com')).toBe(false)
+    expect(await registry.noteEmail(a.id, 'b@x.com')).toBe(true)
+    expect(registry.get(a.id).label).toBe('b@x.com')
+  })
+})

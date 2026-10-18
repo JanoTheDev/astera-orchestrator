@@ -9,6 +9,7 @@ import { useI18n } from '../../i18n/I18nProvider'
 import { reasonText } from '../plan/planBoard'
 import { feedOf, lineOf, mergePage, summaryOf, whoOf } from './activityView'
 import './activity.css'
+import { usePanelOpen } from '../../hooks/usePanelOpen'
 
 /** How often the feed reads what is new, and the summary is read again. */
 const POLL_MS = 5000
@@ -28,7 +29,7 @@ export function ActivityPanel({
   onOpenSession?: (sessionId: string, jobId: string) => void
 }): React.JSX.Element {
   const { t } = useI18n()
-  const [open, setOpen] = useState(true)
+  const [open, setOpen] = usePanelOpen('activity') // W7-F (#83): remembered, like History
   const [all, setAll] = useState(false)
   const [events, setEvents] = useState<ActivityEvent[]>([])
   const [summary, setSummary] = useState<ActivitySummary | null>(null)

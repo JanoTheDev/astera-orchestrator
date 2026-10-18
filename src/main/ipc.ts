@@ -284,6 +284,7 @@ import { planFileRun } from './run/runFile'
 import { decideStart } from '../core/run/instances'
 import { createGithubPrs } from './githubPrs'
 import { registerHiggsfieldIpc } from './higgsfield'
+import { registerAccountLoginIpc } from './accountLogin'
 import { createAccountUsage } from './accountUsage'
 // W6-G usage guards
 import { createUsageGuard } from '../core/orchestration/usageGuard'
@@ -1972,12 +1973,20 @@ export function registerIpc(
     return { ok: true as const, titles: [] as string[] }
   })
   ipcMain.handle('accounts.loginStatus', (_e, id) => core.accounts.loginStatus(id))
+  ipcMain.handle('accounts.rename', (_e, id, label) => core.accounts.rename(id, label)) // W7-F
   ipcMain.handle('accounts.detect', () => core.detectAccounts())
   ipcMain.handle('accounts.ghosts', () => core.ghostAccounts())
   ipcMain.handle('accounts.email', (_e, id) => core.accountEmail(id))
   ipcMain.handle('accounts.emailOfDir', (_e, dir, provider) => core.accountEmailOfDir(dir, provider))
   ipcMain.handle('accounts.logout', (_e, id) => core.accountLogout(id))
   ipcMain.handle('accounts.syncSettings', (_e, id) => core.accountSyncSettings(id))
+  // W7-F (#82): sign an account in from the app (the CLI's own login, its link shown in a dialog).
+  registerAccountLoginIpc(ipcMain, {
+    account: (id) => core.accounts.get(id),
+    descriptors: core.descriptors,
+    homeDir: os.homedir(),
+    loggedIn: (id) => core.accounts.loginStatus(id)
+  })
 
   // sessions (resolving accountId to an Account is a plain lookup)
 
@@ -4326,6 +4335,12 @@ export function registerIpc(
     if (typeof on !== 'boolean') throw new Error(`INVALID_ALERT_SOUND: ${String(on)}`)
     await core.appSettings.setAlertSound(on)
   })
+  // W7-F (#84): an ended plan's session tabs close on their own
+  ipcMain.handle('settings.getAutoCloseEndedPlanTabs', () => core.appSettings.getAutoCloseEndedPlanTabs())
+  ipcMain.handle('settings.setAutoCloseEndedPlanTabs', async (_e, on: unknown) => {
+    if (typeof on !== 'boolean') throw new Error(`INVALID_AUTO_CLOSE_TABS: ${String(on)}`)
+    await core.appSettings.setAutoCloseEndedPlanTabs(on)
+  })
   ipcMain.handle('settings.getMaxConcurrentWorkers', () => core.appSettings.getMaxConcurrentWorkers())
   ipcMain.handle('settings.setMaxConcurrentWorkers', async (_e, n: unknown) => {
     if (n !== null && (typeof n !== 'number' || !Number.isInteger(n) || n < 1))
@@ -4766,8 +4781,16 @@ export function registerIpc(
   // Dispatch id 가 **그 projectPath 의 것인지**는 별개의 질문이고, 여기까지는 그것을 아무도 묻지
   // 않았다. orch.runDetail(위)은 정확히 같은 질문을 runId 에 대해 이미 묻고 있고("소유 판정을
   // 복제하지 않는다"는 그 주석), 그 판정을 orchOwnerMismatch 가 그대로 재사용한다.
+  // W7-F (#78): an orchestration command's anchor path. The workspace tree reads with no session open (anchored on the
+  // home folder) and for a registered project with no session yet; both are named exactly. Anything else goes through
+  // the file explorer's check.
+  const assertOrchPath = async (projectPath: string): Promise<void> => {
+    if (isSamePath(projectPath, app.getPath('home'))) return
+    if ((orch?.deps.getState().projects ?? []).some((p) => isSamePath(p.path, projectPath))) return
+    await assertAllowedPath(projectPath)
+  }
   const orchLocalCommand = async (projectPath: string, cmd: string, args: Record<string, unknown>): Promise<{ status: number; body: unknown }> => {
-      await assertAllowedPath(projectPath)
+      await assertOrchPath(projectPath)
       // The server is not up — a boot that failed, or one still in flight. Not 'orchestration is
       // off': there is no such state any more, and a person told that would go looking for a switch.
       if (!orch) return { status: 409, body: { error: 'orchestration is not running yet' } }
@@ -4845,7 +4868,7 @@ export function registerIpc(
     },
     // W4: HOST_ANSWERED (sessions-send) to the Host that owns the sessions. A Host that cannot be asked is a 503, not a throw.
     host: async (projectPath, cmd, args) => {
-      await assertAllowedPath(projectPath)
+      await assertOrchPath(projectPath)
       try {
         const r = await orchCall({ cmd, args: args ?? {}, sessionId: '' })
         return { status: r.status, body: r.body }

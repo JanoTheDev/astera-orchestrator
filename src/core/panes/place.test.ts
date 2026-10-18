@@ -129,10 +129,10 @@ describe('placeTab — background (오케스트레이션 워커)', () => {
     expect(g!.id).toBe(ids[1]) // 활성 그룹에 들어간다
   })
 
-  it('레이아웃이 비어 있으면 그룹을 만들되 활성 패널로 세우지 않는다', () => {
+  it('레이아웃이 비어 있으면 그룹을 만들고 활성 패널로 세운다 — 뺏을 포커스가 없다 (#78)', () => {
     const res = placeTab(null, 'sWorker', { background: true })
     expect(leaves(res.root)[0].tabIds).toEqual(['sWorker'])
-    expect(res.paneId).toBeNull()
+    expect(res.paneId).toBe(leaves(res.root)[0].id)
     assertInvariants(res.root, ['sWorker'])
   })
 

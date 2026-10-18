@@ -39,6 +39,11 @@ describe('buildWorkspaceTree', () => {
     expect(tree[0].plans[1].runId).toBeUndefined()
   })
 
+  it('lists registered projects that have no plans at all (#78)', () => {
+    const tree = buildWorkspaceTree(data({ projects: [project('p1', 'Bare')] }), { showArchived: false })
+    expect(tree.map((p) => [p.name, p.plans.length])).toEqual([['Bare', 0]])
+  })
+
   it('hides archived plans unless asked, and marks them', () => {
     const d = data({ projects: [project('p1', 'G')], jobsByProject: { p1: [job('j1'), job('j2', { archivedAt: '2026-10-02T00:00:00Z' })] } })
     expect(buildWorkspaceTree(d, { showArchived: false })[0].plans.map((p) => p.jobId)).toEqual(['j1'])

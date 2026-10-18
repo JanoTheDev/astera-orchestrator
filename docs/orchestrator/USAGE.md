@@ -6,7 +6,17 @@ owns every session and drives every plan, so closing the window stops nothing (L
 
 ## Before the first plan
 
-- Sign in an account (Accounts panel, "+").
+- Sign in an account: Accounts panel → **+** → pick Claude or Codex and a name → **Add account**. Astera runs the CLI's
+  own login for the new account's folder (`claude auth login` / `codex login`) and shows the sign-in link in a small
+  dialog with **Open in browser** and **Copy**. Sign in in the browser; if it shows a code, paste it into the dialog's
+  code box. The dialog closes by itself once the account reads as logged in. A row that is not logged in has a
+  **Sign in** button that does the same. Hover a row for **×** (Remove): the same unregister flow as Settings →
+  Accounts, with "Also log out". Double-click an account's name to rename it (Enter saves, Escape cancels). The link
+  is held only in memory, never logged or stored.
+- If you re-log an account's folder as someone else (`claude /login` in `~/.claude`), the row follows at the next
+  login check (when the window gets focus): its label becomes the new email, unless you renamed the account, and the
+  old person's usage reading is dropped. A folder re-logged before this check existed is caught at its first check when
+  its label is still an email address.
 - Settings → Orchestration models: the model of each role. Defaults: planner and reviewer `opus`, coordinator `haiku`,
   workers by Task difficulty (light → haiku, standard → sonnet, hard → opus). Empty means the CLI's default model.
 - Settings → "Max workers across all jobs": the app-wide cap, at most 10. Empty means 10. At the cap, plans with a higher
@@ -130,7 +140,7 @@ Writing them asks your permission once, as every planner edit does.
 The loop that works today, from source to merged work:
 
 1. **Open the project.** The Jobs panel needs an open project: start a session in the repo once (or click a tab
-   that lives there). A tab started with `astera sessions create` counts only after you click it.
+   that lives there). A tab started with `astera sessions create` in an empty window is the window's session at once.
 2. **Start the plan.** "+ New job" → **New plan from files, an audit or GitHub issues…**. Put one problem per line
    and tick "This is a list of problems" for a fixlist; add extra instructions; set "Workers at once" (up to 10);
    pick the coordinator account. `astera jobs set --id <job> --concurrency <n>` changes it later.
@@ -147,10 +157,10 @@ The loop that works today, from source to merged work:
 7. **Done.** Between waves the board shows "Replanning wave N…"; after the last one the final check runs. With
    delivery `pr` the plan's PR opens (a project needs a GitHub remote); with `push` the work lands on the delivery
    branch, or Astera stops and tells you why (dirty folder, wrong branch, conflict) and touches nothing.
-8. **Tidy up.** Ended tabs stay struck through until you close them (W7-F closes them on their own). Archive a plan
+8. **Tidy up.** Ended tabs of a finished or archived plan close on their own (see "The workspace"). Archive a plan
    with `--kill-sessions` to end all its sessions at once.
 
-Known gaps are issues #67–#84 (label `wave-6`), fixed by Wave 7's W7-C…W7-F.
+Known gaps were issues #67–#84 (label `wave-6`), fixed by Wave 7's W7-C…W7-F.
 
 ## Projects (W7-B)
 
@@ -184,6 +194,14 @@ sessions or plans never restarts a process or changes its cwd. Scrollback surviv
   under **Other**; **All tabs** shows everything. Clicking a plan narrows further, and clicking it again goes back to
   its project. Each workspace returns to the tab it had in focus when you left it, and a new tab opened in it starts
   in the project's folder. Tabs in other workspaces keep running, hidden.
+- **Tabs.** An ended session's tab is struck through. When its plan is done or archived, every ended tab of the plan
+  closes on its own, and a replan's planner tab closes once the plan has moved on, so replans leave no extra planner
+  tabs. A closed worker opens its transcript from the plan's tree; every one stays in History. The ended tab of a plain session (not part of a plan) stays until
+  you close it. Settings → General → "Close an ended plan's tabs on their own" turns this off.
+- **Many tabs.** The chevron at the end of a pane's tab strip lists every tab of the workspace; click one to go there.
+  **Ctrl+Shift+P** opens the quick switcher (rebind in Settings → Shortcuts): type to filter tabs by name, plan or
+  Task, the same way search matches (`hw1` finds "Hold Worker 1"), then arrow keys and Enter.
+- Each sidebar section (Workspaces, Activity, History) folds with its chevron, and stays folded across restarts.
 - **Type into a worker**: click it in the tree and type. To send one line without switching, use the command bar:
   `send "run the tests" to Gameful Worker 2`.
 - **Needs my input**: the number next to Workspaces counts sessions waiting for you (a permission prompt or a

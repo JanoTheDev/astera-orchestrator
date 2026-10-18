@@ -86,7 +86,13 @@ const api = {
     email: invoke('accounts.email'),
     emailOfDir: invoke('accounts.emailOfDir'),
     logout: invoke('accounts.logout'),
-    syncSettings: invoke('accounts.syncSettings')
+    syncSettings: invoke('accounts.syncSettings'),
+    // W7-F (#82)
+    rename: invoke('accounts.rename'),
+    login: invoke('accounts.login'),
+    loginState: invoke('accounts.loginState'),
+    loginCode: invoke('accounts.loginCode'),
+    cancelLogin: invoke('accounts.cancelLogin')
   },
   sessions: {
     spawn: invoke('sessions.spawn'),
@@ -209,6 +215,8 @@ const api = {
     setActivityDigestMinutes: invoke('settings.setActivityDigestMinutes'),
     getAlertSound: invoke('settings.getAlertSound'), // W6-B
     setAlertSound: invoke('settings.setAlertSound'),
+    getAutoCloseEndedPlanTabs: invoke('settings.getAutoCloseEndedPlanTabs'), // W7-F (#84)
+    setAutoCloseEndedPlanTabs: invoke('settings.setAutoCloseEndedPlanTabs'),
     setMaxConcurrentWorkers: invoke('settings.setMaxConcurrentWorkers'),
     // W6-G
     getMaxSubagentsPerSession: invoke('settings.getMaxSubagentsPerSession'),

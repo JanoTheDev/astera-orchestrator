@@ -46,3 +46,6 @@
 .plan-autoapprove { display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
 .plan-autoapprove label { display: flex; align-items: center; gap: 6px; }
 .plan-autoapprove small { margin-left: 22px; color: var(--text-dim); }
+/* #76: the waves grow with their content; the whole graph half scrolls (not each wave in a tiny nested box) */
+.plan-board.plan-waves { flex: none; overflow: visible; min-height: auto; }
+.detail-graph:has(.plan-waves) { overflow: auto; }
