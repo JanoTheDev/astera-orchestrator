@@ -2427,7 +2427,11 @@ export const ko = {
   // W3-B command bar and voice
   'jobs.run.approveConfirmBody': '"{objective}" 를 승인하고 워커를 시작할까요? 워커마다 계정의 실제 세션이고 사용량을 씁니다.',
   'command.title': '명령',
-  'command.placeholder': '코디네이터에게 묻거나 시키세요… (예: "워커들이 무엇을 기다리나?")',
+  'command.placeholder': '세션·계획·Task를 찾거나 코디네이터에게 시키세요… (예: "워커들이 무엇을 기다리나?")',
+  'command.noMatch': '일치하는 것이 없습니다. 문장은 명령으로 실행됩니다.',
+  'command.group.sessions': '세션',
+  'command.group.plans': '계획',
+  'command.group.tasks': 'Task',
   'command.run': '실행',
   'command.confirm': '확인…',
   'command.cancel': '취소',
@@ -2504,6 +2508,7 @@ export const ko = {
   'settings.voice.notAbsolute': '절대 경로를 쓰세요',
   'settings.voice.saveFailed': '음성 설정을 저장하지 못했다: {detail}',
   'shortcut.command.open': '명령 창 열기',
+  'shortcut.search.open': '세션·계획·Task 검색 (명령 창과 같은 창)',
   'shortcut.command.talk': '명령 창에 말하기 (눌러서 시작, 다시 눌러 보내기)',
   // W7-F (#84)
   'shortcut.tabs.switcher': '탭 빠르게 전환',

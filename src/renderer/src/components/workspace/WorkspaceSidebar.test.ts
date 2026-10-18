@@ -48,9 +48,9 @@ describe('WorkspaceSidebar', () => {
   })
 
   // W3-C
-  it('shows the search box and counts what needs input in the header badge', () => {
+  it('counts what needs input in the header badge (the search is the command box, W9-D)', () => {
     expect(render(null)).toMatch(/class="ss-badge"[^>]*>0</)
-    expect(render(null)).toContain('Search sessions across projects')
+    expect(render(null)).not.toContain('Search sessions across projects')
     const awaiting: WorkspaceData = {
       projects: [], runs: [], tasks: [], dispatches: [], gates: [],
       jobsByProject: { p1: [{ id: 'j1', objective: 'o', cwd: '/x', createdAt: '', pendingStart: true, plannerSessionIds: [] }] }

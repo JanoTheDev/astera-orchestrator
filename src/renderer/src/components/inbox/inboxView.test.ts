@@ -1,0 +1,184 @@
+// W9-D: the Inbox's ordering, grouping and filter routing (inboxView.ts).
+import { describe, expect, it } from 'vitest'
+import type { ActivityEvent } from '../../../../core/orchestration/activity'
+import type { InboxItem, IndexedSession } from '../../../../core/orchestration/sessionIndex'
+import type { Job } from '../../../../core/orchestration/types'
+import { ageOf, filterNeeds, handledOf, needsOf, orderNeeds, parseFilter, whereOf, type InboxInput, type NeedCard, type QuestionRow } from './inboxView'
+
+const card = (key: string, at: string | null, over: Partial<NeedCard> = {}): NeedCard => ({
+  key,
+  kind: 'question',
+  at,
+  jobId: 'j1',
+  projectName: 'gameful',
+  planName: 'L4',
+  ...over
+})
+
+const ev = (n: number, over: Partial<ActivityEvent> = {}): ActivityEvent => ({
+  id: `ev_${n}`,
+  sequence: n,
+  occurredAt: `2026-10-18T10:0${n}:00.000Z`,
+  type: 'plan.awaiting-approval',
+  jobId: 'j1',
+  payload: { title: 'L4', plan: 'L4' },
+  ...over
+})
+
+const q = (id: string, over: Partial<QuestionRow> = {}): QuestionRow => ({
+  id,
+  runId: 'r1',
+  taskId: 't1',
+  question: 'Which db?',
+  source: 'ask',
+  createdAt: '2026-10-18T09:00:00.000Z',
+  ...over
+})
+
+const session = (over: Partial<IndexedSession> = {}): IndexedSession => ({
+  sessionId: 's1',
+  role: 'worker',
+  label: 'L4 Worker 1',
+  projectName: 'gameful',
+  planName: 'L4',
+  jobId: 'j1',
+  projectId: 'p1',
+  attention: 'waiting',
+  openGates: 0,
+  taskId: 't1',
+  taskTitle: 'T1',
+  ...over
+})
+
+const input = (over: Partial<InboxInput> = {}): InboxInput => ({
+  items: [],
+  questions: [],
+  jobs: [],
+  plans: new Map([
+    ['j1', { projectName: 'gameful', planName: 'L4' }],
+    ['j2', { projectName: 'gameful', planName: 'Auth rework' }]
+  ]),
+  jobOfRun: new Map([
+    ['r1', 'j1'],
+    ['r2', 'j2']
+  ]),
+  taskTitles: new Map([
+    ['t1', 'T1'],
+    ['t6', 'T6']
+  ]),
+  events: [],
+  ...over
+})
+
+describe('orderNeeds', () => {
+  it('oldest first, a card with no time last, ties keep their order', () => {
+    const out = orderNeeds([card('c', null), card('b', '2026-10-18T10:00:00Z'), card('a', '2026-10-18T09:00:00Z'), card('d', null)])
+    expect(out.map((c) => c.key)).toEqual(['a', 'b', 'c', 'd'])
+  })
+})
+
+describe('needsOf', () => {
+  it('lists questions, approvals and permission waits together, oldest first, each as its own kind', () => {
+    const items: InboxItem[] = [
+      { kind: 'approval', jobId: 'j2', projectName: 'gameful', planName: 'Auth rework', sessionId: 'pl1' },
+      { kind: 'session', session: session({ sessionId: 's9', waitingFor: 'permission', taskId: 't6', taskTitle: 'T6' }) }
+    ]
+    const events = [ev(1, { jobId: 'j2' }), ev(2, { type: 'task.waiting', sessionId: 's9' })]
+    const cards = needsOf(
+      input({
+        items,
+        events,
+        questions: [q('q1', { createdAt: '2026-10-18T10:05:00.000Z' }), q('g1', { source: undefined, taskId: 't6', runId: 'r2', createdAt: '2026-10-18T08:00:00.000Z' })]
+      })
+    )
+    expect(cards.map((c) => [c.key, c.kind])).toEqual([
+      ['q:g1', 'gate'],
+      ['a:j2', 'approval'],
+      ['s:s9', 'permission'],
+      ['q:q1', 'question']
+    ])
+  })
+
+  it('an escalation takes the place of the worker’s ask for the same Task', () => {
+    const cards = needsOf(input({ questions: [q('ask1'), q('esc1', { source: 'escalation', createdAt: '2026-10-18T09:30:00.000Z' })] }))
+    expect(cards.map((c) => c.key)).toEqual(['q:esc1'])
+  })
+
+  it('a question wait is not listed again beside the ask that explains it; a permission wait always is', () => {
+    const items: InboxItem[] = [
+      { kind: 'session', session: session({ waitingFor: 'question' }) },
+      { kind: 'session', session: session({ sessionId: 's2', waitingFor: 'permission' }) }
+    ]
+    const cards = needsOf(input({ items, questions: [q('q1')] }))
+    expect(cards.map((c) => c.key).sort()).toEqual(['q:q1', 's:s2'])
+  })
+
+  it('a question for a plan the tree no longer shows is dropped', () => {
+    expect(needsOf(input({ questions: [q('q1', { runId: 'gone' })] }))).toEqual([])
+  })
+
+  it('an approval carries its overlaps and the plan it already waits for', () => {
+    const job = {
+      id: 'j1',
+      createdAt: '2026-10-18T07:00:00.000Z',
+      after: 'j2',
+      overlaps: [{ taskId: 't1', jobId: 'j2', otherTaskId: 't6', by: 'path', path: 'src/api/routes.ts' }]
+    } as unknown as Job
+    const [c] = needsOf(input({ jobs: [job], items: [{ kind: 'approval', jobId: 'j1', projectName: 'gameful', planName: 'L4' }] }))
+    expect(c.waitsOn).toBe('Auth rework')
+    expect(c.overlaps).toEqual([
+      { taskId: 't1', taskTitle: 'T1', otherJobId: 'j2', otherPlanName: 'Auth rework', otherTaskTitle: 'T6', line: "T1 and Auth rework's T6 both edit src/api/routes.ts" }
+    ])
+    expect(c.at).toBe('2026-10-18T07:00:00.000Z') // no feed line yet: the plan's own time
+  })
+})
+
+describe('filter routing', () => {
+  const cards = [
+    card('q', '1', { kind: 'question' }),
+    card('e', '2', { kind: 'escalation' }),
+    card('g', '3', { kind: 'gate', jobId: 'j2' }),
+    card('a', '4', { kind: 'approval' }),
+    card('p', '5', { kind: 'permission' }),
+    card('w', '6', { kind: 'waiting', jobId: 'j2' })
+  ]
+  it('parses the strings openInbox takes', () => {
+    expect(parseFilter(undefined)).toEqual({ group: 'all' })
+    expect(parseFilter('approvals')).toEqual({ group: 'approvals' })
+    expect(parseFilter('plan:j2')).toEqual({ group: 'all', planId: 'j2' })
+    expect(parseFilter('nonsense')).toEqual({ group: 'all' })
+    expect(parseFilter('plan:')).toEqual({ group: 'all' })
+  })
+  it('each group keeps its kinds; handled keeps no card', () => {
+    const keys = (raw: string | undefined): string[] => filterNeeds(cards, parseFilter(raw)).map((c) => c.key)
+    expect(keys(undefined)).toEqual(['q', 'e', 'g', 'a', 'p', 'w'])
+    expect(keys('approvals')).toEqual(['a'])
+    expect(keys('questions')).toEqual(['q', 'e', 'g'])
+    expect(keys('permissions')).toEqual(['p', 'w'])
+    expect(keys('handled')).toEqual([])
+    expect(keys('plan:j2')).toEqual(['g', 'w'])
+  })
+})
+
+describe('handledOf', () => {
+  it('newest first, one plan’s lines under a plan filter', () => {
+    const events = [ev(1), ev(2, { jobId: 'j2' }), ev(3)]
+    expect(handledOf(events, { group: 'all' }, (id) => id).map((l) => l.id)).toEqual(['ev_3', 'ev_2', 'ev_1'])
+    expect(handledOf(events, { group: 'all', planId: 'j2' }, (id) => id).map((l) => l.id)).toEqual(['ev_2'])
+  })
+})
+
+describe('ageOf / whereOf', () => {
+  const now = Date.parse('2026-10-18T12:00:00Z')
+  it('says how long a card has waited', () => {
+    expect(ageOf(null, now)).toBe('')
+    expect(ageOf('2026-10-18T11:59:50Z', now)).toBe('just now')
+    expect(ageOf('2026-10-18T11:48:00Z', now)).toBe('12 min')
+    expect(ageOf('2026-10-18T09:00:00Z', now)).toBe('3 h')
+    expect(ageOf('2026-10-15T12:00:00Z', now)).toBe('3 d')
+  })
+  it('writes the place as project › plan · task', () => {
+    expect(whereOf('gameful', 'L4', 'T1')).toBe('gameful › L4 · T1')
+    expect(whereOf('gameful', 'L4')).toBe('gameful › L4')
+  })
+})

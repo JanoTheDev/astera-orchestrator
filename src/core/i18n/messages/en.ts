@@ -2178,7 +2178,11 @@ export const en: Record<keyof typeof ko, string> = {
   // W3-B command bar and voice
   'jobs.run.approveConfirmBody': 'Approve "{objective}" and start its workers? Each worker is a real session on your account and uses its quota.',
   'command.title': 'Command',
-  'command.placeholder': 'Ask or tell the coordinator… (e.g. "what are workers waiting for?")',
+  'command.placeholder': 'Search sessions, plans and Tasks, or tell the coordinator… (e.g. "what are workers waiting for?")',
+  'command.noMatch': 'No match. A sentence runs as a command.',
+  'command.group.sessions': 'Sessions',
+  'command.group.plans': 'Plans',
+  'command.group.tasks': 'Tasks',
   'command.run': 'Run',
   'command.confirm': 'Confirm…',
   'command.cancel': 'Cancel',
@@ -2255,6 +2259,7 @@ export const en: Record<keyof typeof ko, string> = {
   'settings.voice.notAbsolute': 'Use an absolute path',
   'settings.voice.saveFailed': 'Could not save the voice settings: {detail}',
   'shortcut.command.open': 'Open the command bar',
+  'shortcut.search.open': 'Search sessions, plans and Tasks (the same box as the command bar)',
   'shortcut.command.talk': 'Talk to the command bar (press to start, again to send)',
   // W7-F (#84)
   'shortcut.tabs.switcher': 'Quick switch between tabs',

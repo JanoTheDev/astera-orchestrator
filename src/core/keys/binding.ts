@@ -37,6 +37,8 @@ export type ActionId =
   // W3-B command bar
   | 'command.open'
   | 'command.talk'
+  // W9-D: the search key, an alias of command.open (one box)
+  | 'search.open'
   // W7-F (#84): the quick tab switcher
   | 'tabs.switcher'
   // W6-F: open the Nth project workspace
@@ -229,6 +231,12 @@ export function makeActions(platform: string): readonly ActionSpec[] {
       id: 'command.open',
       defaults: [`${M}+Shift+K`],
       descKey: 'shortcut.command.open',
+      yieldsToTerminal: false
+    },
+    {
+      id: 'search.open',
+      defaults: [`${M}+Shift+F`],
+      descKey: 'shortcut.search.open',
       yieldsToTerminal: false
     },
     {

@@ -10,6 +10,8 @@ import { remoteNewJobFolder } from '../../lib/remoteJobs'
 import { localDoor } from '../../lib/orchDoor'
 import { defaultAccountIdOf } from '../../../../core/accounts/defaultAccount'
 import { CommandBar } from '../command/CommandBar'
+import { InboxHost } from '../inbox/InboxHost'
+import { openPlan } from './navigation'
 import { ConfirmHost } from '../ConfirmHost'
 import { FirstRunDialog } from '../FirstRunDialog'
 import { findRun } from '../../../../core/orchestration/snapshot'
@@ -326,7 +328,8 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
           onCreated={() => setFirstPlan(null)}
         />
       )}
-      {/* W3-B command bar: names resolve against the workspace tree; changes go through this computer's doors */}
+      <InboxHost tree={workspaceTree} data={workspaceData} accounts={accounts} ui={actionUi} />
+      {/* W3-B command bar (W9-D: and the session search, one box): names resolve against the workspace tree; changes go through this computer's doors */}
       <CommandBar
         open={commandOpen}
         onClose={() => setCommandOpen(false)}
@@ -343,7 +346,7 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
         deps={{
           door: (projectPath) => localDoor(window.api, projectPath),
           attention: (sessionId) => window.api.conversation.attention(sessionId),
-          openPlan: openWorkspacePlan,
+          openPlan: (jobId) => openPlan(jobId),
           openRun: (projectPath, runId) => {
             setDetail(null)
             setOpenRun({ projectPath, runId })

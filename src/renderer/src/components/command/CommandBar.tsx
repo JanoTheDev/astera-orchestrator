@@ -1,3 +1,5 @@
+// W9-D: this is also the session search (W3-C): text that finds a session, plan or Task is a search, a sentence is a
+// command (boxMode.ts). One box, one key.
 // W3-B command bar: a conversation with the coordinator (SPEC §8, §4). Typed or spoken text becomes one intent (the
 // fast path, else the coordinator role model), the intent's names become exact ids or a question, and only then does
 // anything run: `read` at once, `act` on Run, `confirm` through a dialog (core/intents/safety.ts).
@@ -10,10 +12,15 @@ import { fastParse } from '../../../../core/intents/fastPath'
 import { mayStart, SAFETY, type Trigger } from '../../../../core/intents/safety'
 import { parsePrompt } from '../../../../core/intents/prompt'
 import { planStatus } from '../../../../core/intents/summary'
-import type { WorkspaceData, WorkspaceProject } from '../workspace/workspaceTree'
+import { planSessions, type WorkspaceData, type WorkspaceProject } from '../workspace/workspaceTree'
+import { useAttention } from '../workspace/useAttention'
+import { openConsole, openPlan } from '../shell/navigation'
 import type { ActionUi } from '../../lib/jobActions'
 import { isConfirmOpen } from '../../lib/confirm'
 import { armBarClose } from './barClose'
+import { boxHits, type BoxHit } from './boxHits'
+import { boxModeOf } from './boxMode'
+import { boxSourceOf } from './boxSource'
 import { directoryOf } from './directory'
 import { execute, resolveIntent, type ExecDeps, type Line, type Resolution } from './execute'
 import { whisperSpeech } from './speech'
@@ -68,6 +75,18 @@ export function CommandBar({
   closeRef.current = onClose
   const speech = useMemo(() => whisperSpeech((wav) => window.api.command.transcribe(wav)), [])
   const dir = useMemo(() => directoryOf(tree, data, currentProject, currentPlanId), [tree, data, currentProject, currentPlanId])
+  // W9-D: the search half. Attention is read only while the box is open.
+  const attention = useAttention(open ? tree.flatMap((p) => p.plans.flatMap((pl) => planSessions(pl).map((s) => s.sessionId))) : [])
+  const source = useMemo(() => (open ? boxSourceOf(tree, data, attention) : null), [open, tree, data, attention])
+  const hits = useMemo(() => (source ? boxHits(source, input.trim()) : []), [source, input])
+  const mode = boxModeOf(input, hits.length)
+  const [sel, setSel] = useState(0)
+  useEffect(() => setSel(0), [input])
+  const pick = (h: BoxHit): void => {
+    onClose()
+    if (h.kind === 'session') openConsole(h.sessionId)
+    else openPlan(h.jobId, h.kind === 'task' ? 'tasks' : undefined)
+  }
 
   const say = (who: Entry['who'], lines: Line[]): void => {
     if (lines.length > 0) setEntries((e) => [...e.slice(-49), { who, lines }])
@@ -204,7 +223,7 @@ export function CommandBar({
       <button
         key={i}
         className="command-line command-link"
-        onClick={() => (l.sessionId !== undefined ? onOpenSession(l.sessionId, l.jobId) : deps.openPlan(l.jobId!))}
+        onClick={() => (l.sessionId !== undefined ? onOpenSession(l.sessionId, l.jobId) : openPlan(l.jobId!))}
       >
         {l.text}
       </button>
@@ -252,6 +271,23 @@ export function CommandBar({
           </div>
         )}
       </div>
+      {input.trim() !== '' && mode === 'search' && (
+        <ul className="command-hits" role="listbox" aria-label={tr('command.title')}>
+          {hits.length === 0 && <li className="command-nohit">{tr('command.noMatch')}</li>}
+          {hits.map((h, i) => (
+            <li key={h.key} role="option" aria-selected={i === sel}>
+              <button className={`command-hit${i === sel ? ' selected' : ''}`} onMouseEnter={() => setSel(i)} onClick={() => pick(h)}>
+                <span className="command-hit-kind">{tr(`command.group.${h.kind}s`)}</span>
+                <span className="command-hit-main">
+                  <span className="command-hit-title">{h.title}</span>
+                  <span className="command-hit-where">{h.where}</span>
+                </span>
+                {h.kind === 'session' && h.waiting && <span className="command-hit-wait">waiting</span>}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
       <div className="command-input-row">
         <input
           ref={inputRef}
@@ -261,8 +297,19 @@ export function CommandBar({
           placeholder={recording ? tr('command.voice.listening') : tr('command.placeholder')}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key !== 'Enter' || e.nativeEvent.isComposing) return
+            if (e.nativeEvent.isComposing) return
+            if (mode === 'search' && hits.length > 0 && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+              e.preventDefault()
+              setSel((i) => (i + (e.key === 'ArrowDown' ? 1 : hits.length - 1)) % hits.length)
+              return
+            }
+            if (e.key !== 'Enter') return
             e.preventDefault()
+            // A search opens the chosen hit; a sentence falls through to the command below
+            if (input.trim() !== '' && mode === 'search') {
+              if (hits[sel]) pick(hits[sel])
+              return
+            }
             // Enter on an empty line runs an `act` preview; a `confirm` still opens its dialog first
             if (input.trim() === '' && pending?.res.ok) void evaluate(pending.intent, pending.pins, 'submit')
             else void submit(input)

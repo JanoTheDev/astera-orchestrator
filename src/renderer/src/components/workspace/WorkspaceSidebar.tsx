@@ -4,7 +4,7 @@ import type { Attention, SessionInfo } from '../../../../core/types'
 import { planSessions, type WorkspaceData, type WorkspacePlan, type WorkspaceProject, type WorkspaceSession } from './workspaceTree'
 import { useAttention } from './useAttention'
 import { buildSessionIndex, needsInput } from '../../../../core/orchestration/sessionIndex'
-import { SessionSearch } from '../search/SessionSearch'
+import { openInbox } from '../shell/navigation'
 import { useHostWaiting } from '../search/useHostWaiting'
 import './workspace.css'
 import { usePanelOpen } from '../../hooks/usePanelOpen'
@@ -61,11 +61,10 @@ export function WorkspaceSidebar({
     })
   const infoOf = new Map(sessions.map((s) => [s.id, s]))
   const attention = useAttention(tree.flatMap((p) => p.plans.flatMap((plan) => planSessions(plan).map((s) => s.sessionId))))
-  // W3-C search and "needs my input" (core/orchestration/sessionIndex.ts)
-  const [inboxOpen, setInboxOpen] = useState(false)
+  // W3-C "needs my input" count (core/orchestration/sessionIndex.ts); W9-D: the list is the Inbox page, the search is the box
   // W5-D (#42): and the Host's own waits, which it read with the app closed too
   const hostWaiting = useHostWaiting(data?.projects[0]?.path ?? null)
-  const { index, inbox } = useMemo(() => {
+  const inbox = useMemo(() => {
     const input = {
       tree,
       jobs: Object.values(data?.jobsByProject ?? {}).flat(),
@@ -76,8 +75,7 @@ export function WorkspaceSidebar({
       attention,
       hostWaiting
     }
-    const index = buildSessionIndex(input)
-    return { index, inbox: needsInput(input, index) }
+    return needsInput(input, buildSessionIndex(input))
   }, [tree, data, attention, hostWaiting])
   // W7-F (#84): a row whose tab is closed (an ended plan's tabs close on their own) previews its transcript instead
   const [preview, setPreview] = useState<TranscriptPreview | null>(null)
@@ -126,11 +124,7 @@ export function WorkspaceSidebar({
           className={`ss-badge${inbox.length > 0 ? ' ss-due' : ''}`}
           title="Needs my input: sessions at a prompt, open questions, escalations, plans awaiting approval"
           aria-label={`${inbox.length} need your input`}
-          aria-pressed={inboxOpen}
-          onClick={() => {
-            setOpen(() => true)
-            setInboxOpen((v) => !v)
-          }}
+          onClick={() => openInbox()}
         >
           {inbox.length}
         </button>
@@ -145,17 +139,6 @@ export function WorkspaceSidebar({
           </label>
         </div>
       </header>
-      {open && (
-        <SessionSearch
-          index={index}
-          inbox={inbox}
-          showInbox={inboxOpen}
-          canOpenSession={canOpenSession}
-          onOpenSession={onOpenSession}
-          onSelectPlan={onSelectPlan}
-          onOpenRun={onOpenRun}
-        />
-      )}
       {open && (
         <ul className="ws-tree">
           {tree.length === 0 && <li className="ws-empty">No projects yet</li>}

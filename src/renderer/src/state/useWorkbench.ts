@@ -42,6 +42,7 @@ import type { useHost } from './useHost'
 import type { useSettings } from './useSettings'
 import type { useDialogs } from './useDialogs'
 import { scopeKey } from './appConstants'
+import { openInbox } from '../components/shell/navigation'
 
 export type WorkbenchDeps = Pick<ReturnType<typeof useWorkbenchState>,
     'activeFileIdRef' | 'cliRef' | 'closableTabIdRef' | 'closeWorkbenchTabRef' | 'defaultMdMode' | 'dropReveal' |
@@ -181,8 +182,9 @@ export function useWorkbench(deps: WorkbenchDeps) {
     // session's tab, through the same path a click on the tab bar takes. A session with no tab (one
     // that was closed while the notification sat in the tray) finds no group and is a silent no-op —
     // the window is raised either way, which is the useful half.
-    const offNotifyActivate = window.api.on('notify:activate', ({ sessionId }) => {
-      selectWorkbenchTabRef.current?.(sessionTab(sessionId))
+    const offNotifyActivate = window.api.on('notify:activate', () => {
+      // W9-D: a desktop notice (and the chime's) leads to the Inbox, where the card has "Answer in its console"
+      openInbox()
     })
     // W6-B: main showed a notice that needs the owner, silent, and the chime is ours (lib/alertSound.ts)
     const offNotifyChime = window.api.on('notify:chime', () => void playAlertChime())
@@ -444,11 +446,11 @@ export function useWorkbench(deps: WorkbenchDeps) {
         setSwitcherOpen((v) => !v)
         return
       }
-      if (action === 'command.open' || action === 'command.talk') {
+      if (action === 'command.open' || action === 'search.open' || action === 'command.talk') {
         e.preventDefault()
         e.stopPropagation()
         if (e.repeat) return
-        if (action === 'command.open') setCommandOpen((v) => !v)
+        if (action !== 'command.talk') setCommandOpen((v) => !v)
         else {
           setCommandOpen(true)
           setTalkSignal((n) => n + 1)

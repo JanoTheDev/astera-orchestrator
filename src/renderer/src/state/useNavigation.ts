@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 import type { PageId } from '../../../core/ui/pages'
 import { sessionTab } from '../../../core/panes/tabId'
 import { registerNavigation } from '../components/shell/navigation'
+import { requestInbox } from '../components/inbox/inboxNav'
 import type { AppState } from './appState'
 
 type NavigationDeps = Pick<
@@ -27,6 +28,7 @@ export function useNavigation(app: NavigationDeps): void {
       if (id === 'files') showExplorer()
       else if (id === 'plans' || id === 'tasks') showView('jobs')
       else if (id === 'more:hiw') showView('understanding')
+      else if (id === 'inbox') requestInbox()
       else if (id === 'settings') setShowSettings(true)
       else if (id === 'more:runs') setRunPanelOpen(true)
       else if (id === 'more:browser') console.warn('navigation.openPage: no browser page yet; a browser tab opens from a link')
@@ -49,8 +51,8 @@ export function useNavigation(app: NavigationDeps): void {
         setJobsOpen(true)
         setPendingRun({ projectPath: project.path, runId: jobId })
       },
-      // needs-input shows as escalation rows in the session list's workspace tree; no filter yet
-      openInbox: () => openPage('inbox'),
+      // W9-D: the Inbox page, with the filter the caller names (inbox/inboxView.ts parseFilter)
+      openInbox: (filter) => requestInbox(filter),
       // the WorktreePanel lives in the session list; it has no per-path view yet
       openWorktree: () => openPage('worktrees'),
       // the settings modal has no anchors yet
