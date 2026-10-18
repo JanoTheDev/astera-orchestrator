@@ -15,7 +15,8 @@ describe('the Host wires its session events', () => {
     expect(at).toBeGreaterThan(0)
     const call = src.slice(at, at + 800)
     expect(call).toMatch(/\? createHostSessionEvents\(\{/)
-    expect(call).toMatch(/record: \(drafts\) => eventLog\.recorded\(drafts\)/)
+    // W5-D (#42): and the activity feed's task.waiting lines from the same drafts
+    expect(call).toMatch(/record: \(drafts\) => \{\s*eventLog\.recorded\(drafts\)\s*sessionActivity\.onSessionEvents\(drafts\)\s*\}/)
     expect(call).toMatch(/sessionById: async \(id\) => \(await hostSessions\.sessionById\?\.\(id\)\) \?\? null/)
     expect(call).toMatch(/chats: rollingWiring\.chats/)
     expect(call).toMatch(/rolling: rollingWiring\.rolling/)
@@ -25,7 +26,9 @@ describe('the Host wires its session events', () => {
 
   it('hears every hook event and the rolling’s roll states beside the Slack', () => {
     const rolling = src.slice(src.indexOf('composeHostRolling('))
-    expect(rolling).toMatch(/hookTap: \(sid, p\) => \{\s*slackWiring\?\.onHookEvent\(sid, p\)\s*sessionEvents\?\.onHookEvent\(sid, p\)\s*\}/)
+    expect(rolling).toMatch(
+      /hookTap: \(sid, p\) => \{\s*slackWiring\?\.onHookEvent\(sid, p\)\s*sessionEvents\?\.onHookEvent\(sid, p\)\s*sessionActivity\.onHookEvent\(sid, p\)\s*\}/
+    )
     expect(rolling).toMatch(/slackWiring\?\.onRollEvent\(e\)\s*if \(e\.t === 'roll-state'\) sessionEvents\?\.onRollState\(e\.event\)/)
   })
 

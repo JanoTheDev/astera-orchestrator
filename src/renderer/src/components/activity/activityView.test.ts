@@ -37,6 +37,12 @@ describe('activityView', () => {
     expect(whoOf(ev(1), label)).toBe('Plan A · opus · Work')
   })
 
+  it('W5-D: a waiting worker says what it waits on; a paired Runtime\'s line says where it ran', () => {
+    expect(lineOf(ev(1, { type: 'task.waiting', payload: { title: 'T', waitingFor: 'permission' } }), label)).toEqual({ text: 'T: waiting for your permission', tone: 'warn' })
+    expect(lineOf(ev(1, { type: 'task.waiting', payload: { title: 'T', waitingFor: 'question' } }), label).text).toBe('T: waiting for your answer to a question')
+    expect(whoOf(ev(1, { runtimeId: 'rt_a' }), label)).toBe('Plan A · opus · Work · on rt_a')
+  })
+
   it('the summary for one plan', () => {
     const s = {
       since: T0,

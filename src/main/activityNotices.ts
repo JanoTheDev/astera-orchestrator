@@ -2,6 +2,10 @@
 // posts its Slack notices itself (host/activity.ts); the desktop is this process's, so it follows the feed over the
 // Host connection (`activity-poll`, long polled) from the moment the app starts, and asks `activity-summary` for each
 // digest. Nothing from before the start is announced: the feed itself shows it.
+//
+// W5-D (#43): and the app's Slack, while the app keeps Slack (slackOwnership.ts owner 'app'). Then the Host's Slack
+// holds no socket and posts nothing (host/index.ts posts only while `slack.active()`), so each notice reaches Slack
+// from one process. Both sinks share this one throttle and digest.
 import { createActivityNotices, type ActivityEvent, type ActivityNotice, type ActivitySummary } from '../core/orchestration/activity'
 
 type Call = (cmd: string, args: Record<string, unknown>, timeoutMs?: number) => Promise<{ status: number; body: unknown }>
@@ -14,7 +18,10 @@ export const ACTIVITY_TICK_MS = 60_000
 
 export function startActivityNotices(a: {
   call: Call
-  send(n: ActivityNotice): void
+  /** The desktop; absent without one. */
+  send?(n: ActivityNotice): void
+  /** W5-D (#43): the app's Slack. `keeps()` is read per notice, so a hand-over between app and Host takes effect at once. */
+  slack?: { keeps(): boolean; post(text: string): void }
   digestMinutes(): number
   log(m: string): void
   nowMs?: () => number
@@ -22,7 +29,10 @@ export function startActivityNotices(a: {
 }): () => void {
   const sleep = a.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms).unref?.()))
   const notices = createActivityNotices({
-    send: a.send,
+    send: (n) => {
+      a.send?.(n)
+      if (a.slack?.keeps()) a.slack.post(`*${n.title}*\n${n.body}`)
+    },
     summary: async (since) => {
       const r = await a.call('activity-summary', { since })
       return r.status === 200 ? (r.body as ActivitySummary) : null

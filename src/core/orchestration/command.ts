@@ -194,6 +194,9 @@ export interface HostSession {
    *  `unknown` when there is no signal to read — a Codex or chat session, an ended one, no event yet,
    *  or input typed after the last event. */
   state: SessionState
+  /** W5-D (#42): while `waiting`, what it waits on: a permission prompt or a question (core/hooks/sessionState.ts
+   *  `hookEventPrompt`). Absent for a turn that just ended and for every other state. */
+  prompt?: 'permission' | 'question'
   /** The pty behind a terminal session (remote runtime Phase 9a): what a controller subscribes to. */
   ptyId?: string
   /** The line process behind a chat session. */

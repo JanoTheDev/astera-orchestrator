@@ -65,6 +65,8 @@ export function lineOf(e: ActivityEvent, accountLabel: (id: string) => string): 
         : { text: `${p.title}: PR ${p.pr?.number !== undefined ? `#${p.pr.number} ` : ''}opened`, tone: 'ok' }
     case 'plan.awaiting-approval':
       return { text: `${p.title}: plan ready for your approval`, tone: 'warn' }
+    case 'task.waiting':
+      return { text: `${p.title}: waiting for ${p.waitingFor === 'question' ? 'your answer to a question' : 'your permission'}`, tone: 'warn' }
     case 'plan.done':
       return p.runOutcome === 'failed' ? { text: `${p.title}: plan finished with failures`, tone: 'bad' } : { text: `${p.title}: plan done`, tone: 'ok' }
   }
@@ -72,7 +74,13 @@ export function lineOf(e: ActivityEvent, accountLabel: (id: string) => string): 
 
 /** Who did it: the model and the account, as the line's second row. */
 export const whoOf = (e: ActivityEvent, accountLabel: (id: string) => string): string =>
-  [e.payload.plan !== e.payload.title ? e.payload.plan : undefined, e.payload.model, e.payload.accountId && accountLabel(e.payload.accountId)]
+  [
+    e.payload.plan !== e.payload.title ? e.payload.plan : undefined,
+    e.payload.model,
+    e.payload.accountId && accountLabel(e.payload.accountId),
+    // W5-D (#44): a paired Runtime's line says where it ran
+    e.runtimeId && `on ${e.runtimeId}`
+  ]
     .filter(Boolean)
     .join(' · ')
 

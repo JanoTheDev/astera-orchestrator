@@ -4,10 +4,10 @@ import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync } from 'n
 import os from 'node:os'
 import path from 'node:path'
 import { createHostEventLog, type HostEventLog } from './eventLog'
-import { activityReply, followActivity } from './activity'
+import { activityReply, followActivity, hostSessionActivity } from './activity'
 import { ACTIVITY_KINDS, deriveActivity, type ActivityNotice, type ActivitySummary } from '../core/orchestration/activity'
 import { emptyState, type OrchState } from '../core/orchestration/state'
-import type { Job, JobRun, Task } from '../core/orchestration/types'
+import type { Dispatch, Job, JobRun, Task } from '../core/orchestration/types'
 
 const T0 = '2026-10-17T00:00:00.000Z'
 const BOOT_A = '0123456789abcdef0123456789abcdef'
@@ -103,5 +103,82 @@ describe('followActivity', () => {
     await new Promise((r) => setTimeout(r, 50))
     stop()
     expect(sent.map((n) => [n.title, n.body])).toEqual([['Task failed', 'Task B (Plan A)']])
+  })
+})
+
+describe('hostSessionActivity (W5-D)', () => {
+  const planned = (over: Partial<Task> = {}): Task => ({
+    id: 'p1', jobId: 'j1', title: 'Plan task', spec: 's', deps: [], status: 'ready', accountIds: ['acc'], consecutiveFailures: 0, createdAt: T0, updatedAt: T0,
+    prompt: 'do it', acceptanceCriteria: ['it is done'], ...over
+  })
+  const lines = (log: HostEventLog): Array<{ type: string; jobId?: string; sessionId?: string; payload: Record<string, unknown> }> => {
+    const r = log.read({ limit: 100 })
+    if ('error' in r) throw new Error(r.error)
+    return r.events as never
+  }
+  const stop = { hook_event_name: 'Stop' }
+
+  it('#48: "plan ready" comes when the planner ends its turn on a plan that holds, once per planner', async () => {
+    const log = open(BOOT_A)
+    await log.load()
+    const awaiting: Job = { ...job, pendingStart: true, plannerSessionIds: ['ses_plan'] }
+    let s: OrchState = { ...emptyState(), jobs: [awaiting] }
+    // The commit that marks the plan pending (the planner starting) makes no line
+    log.committed(emptyState(), s)
+    const acts = hostSessionActivity({ log, state: () => s, report: () => {} })
+    // A turn ending with no Task yet, or with one that lacks its criterion: not ready
+    acts.onHookEvent('ses_plan', stop)
+    s = { ...s, tasks: [planned({ acceptanceCriteria: [] })] }
+    acts.onHookEvent('ses_plan', stop)
+    expect(lines(log)).toEqual([])
+    // A tool call mid-turn on a plan that holds is not the turn's end
+    s = { ...s, tasks: [planned()] }
+    acts.onHookEvent('ses_plan', { hook_event_name: 'PostToolUse' })
+    expect(lines(log)).toEqual([])
+    acts.onHookEvent('ses_plan', stop)
+    acts.onHookEvent('ses_plan', stop)
+    // Another session's turn end is not the planner's
+    acts.onHookEvent('ses_other', stop)
+    expect(lines(log)).toMatchObject([{ type: 'plan.awaiting-approval', jobId: 'j1', sessionId: 'ses_plan', payload: { title: 'Plan A' } }])
+    // A new planner (`jobs plan` again) is a new plan
+    s = { ...s, jobs: [{ ...awaiting, plannerSessionIds: ['ses_plan', 'ses_plan2'] }] }
+    acts.onHookEvent('ses_plan2', stop)
+    expect(lines(log).map((e) => e.sessionId)).toEqual(['ses_plan', 'ses_plan2'])
+    // Approved: no longer pending, no line
+    s = { ...s, jobs: [{ ...awaiting, pendingStart: false, plannerSessionIds: ['ses_plan3'] }] }
+    acts.onHookEvent('ses_plan3', stop)
+    expect(lines(log)).toHaveLength(2)
+  })
+
+  it('#42: a worker turning to waiting at a permission prompt or a question is a task.waiting line with the reason', async () => {
+    const log = open(BOOT_A)
+    await log.load()
+    const d: Dispatch = {
+      id: 'd1', taskId: 'a', provider: 'claude', accountId: 'acc', sessionId: 'ses_w', cwd: '/p', specPath: '/spec', startedAt: T0, workerState: 'ready', retained: false, model: 'haiku'
+    }
+    const s: OrchState = { ...at(task('dispatched')), dispatches: [d] }
+    const acts = hostSessionActivity({ log, state: () => s, report: () => {} })
+    acts.onSessionEvents([
+      { type: 'session.input_needed', sessionId: 'ses_w', payload: { session: { id: 'ses_w' }, prompt: 'permission' } },
+      // A turn that just ended is no line; nor another session event, nor a session that is no worker's
+      { type: 'session.input_needed', sessionId: 'ses_w', payload: { prompt: null } },
+      { type: 'session.limit_waiting', sessionId: 'ses_w', payload: {} },
+      { type: 'session.input_needed', sessionId: 'ses_x', payload: { prompt: 'question' } },
+      { type: 'session.input_needed', sessionId: 'ses_w', payload: { prompt: 'question' } }
+    ])
+    expect(lines(log)).toMatchObject([
+      { type: 'task.waiting', sessionId: 'ses_w', payload: { title: 'Task A', plan: 'Plan A', model: 'haiku', accountId: 'acc', waitingFor: 'permission' } },
+      { type: 'task.waiting', payload: { waitingFor: 'question' } }
+    ])
+  })
+
+  it('a state that cannot be read yet (the Host still starting) is reported, never thrown', async () => {
+    const log = open(BOOT_A)
+    await log.load()
+    const reports: string[] = []
+    const acts = hostSessionActivity({ log, state: () => { throw new Error('not yet') }, report: (m) => reports.push(m) })
+    acts.onHookEvent('ses_plan', stop)
+    acts.onSessionEvents([{ type: 'session.input_needed', sessionId: 'ses_w', payload: { prompt: 'permission' } }])
+    expect(reports).toHaveLength(2)
   })
 })

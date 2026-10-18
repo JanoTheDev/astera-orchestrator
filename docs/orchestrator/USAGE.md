@@ -52,8 +52,8 @@ sessions or plans never restarts a process or changes its cwd. Scrollback surviv
 - **Type into a worker**: click it in the tree and type. To send one line without switching, use the command bar:
   `send "run the tests" to Gameful Worker 2`.
 - **Needs my input**: the number next to Workspaces counts sessions waiting for you (a permission prompt or a
-  question). Click it for the list. It only fills while the app is open, and it does not say whether a session waits
-  on a permission or a question.
+  question). Click it for the list. The Host reads each session's hook events, so a wait that began while the app was
+  closed is listed too, with what it waits on ("waits for your permission", "has a question for you").
 - **Search**: the box under Workspaces matches sessions, plans and Tasks across projects, also by initials:
   `hw1` finds "Hold Worker 1". Each hit shows "project › plan · task".
 - **Board**: the Run window's board shows every Task, and for each one that is not running, why ("waits for A",
@@ -63,9 +63,11 @@ sessions or plans never restarts a process or changes its cwd. Scrollback surviv
 
 The **Activity** panel under Workspaces is the feed of the open plan. "All plans" switches it to every plan. Each line
 says what happened ("completed", "failed", "cancelled", "worker stopped by you", "hit a limit on <account>, waiting for
-the reset", "plan ready for your approval", "plan done"), with the plan, the model and the account. "Last 15 min" groups
+the reset", "waiting for your permission", "plan ready for your approval", "plan done"), with the plan, the model and the account. "Last 15 min" groups
 the recent lines by outcome and lists each blocked Task with its reason. The Host keeps the feed in
-`<profile>/orch/activity.jsonl`, so it survives a restart of the app.
+`<profile>/orch/activity.jsonl`, so it survives a restart of the app. "Plan ready for your approval" comes when the
+planner ends its turn on a plan that holds, once per plan. The feed and its summary also show the lines of every paired
+Runtime, marked "on <runtime>".
 
 ## Notifications and the digest
 
@@ -73,7 +75,7 @@ the recent lines by outcome and lists each blocked Task with its reason. The Hos
   and a plan awaiting approval. At most three a minute. The rest are counted in the next digest.
 - Settings → **Activity summary every (minutes)**: the digest, default 30, sent only when something happened. 0 turns
   it off; held notices are then announced once a minute as "More orchestration updates".
-- Slack gets the same notices when the **Host** keeps Slack. When the app keeps Slack, activity notices skip Slack.
+- Slack gets the same notices, from whichever process keeps Slack (the Host, or the app), never from both.
 - Desktop notices need the app open. The Host keeps the feed while the app is closed, and you read it when you return.
 
 ## Command bar and voice (W3-B)
