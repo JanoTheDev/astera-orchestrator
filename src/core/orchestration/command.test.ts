@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { handleCommand, handleExit, PENDING_START_WINDOW_MS, type HostSession, type OrchServerDeps, type SessionScreen } from './command'
+import { jobNameOf } from './jobName'
 import { SPAWN_DEADLINE_MS } from '../host/unresponsive'
 import { APP_CALLER, HOST_CALLER } from '../host/driver'
 import { ensureProject } from './projects'
@@ -3589,6 +3590,16 @@ describe('run-start — 코디네이터 인계', () => {
     expect(job).not.toHaveProperty('pendingStart')
   })
 
+  // W7-D (#68): the Run's worktree branch is the plan's name, not its objective's boilerplate
+  it('W7-D: the run worktree is named by the plan title', async () => {
+    const deps = coordDeps()
+    const runId = await mkRun(deps, { coordinatorAccount: 'cl1', objective: 'The source below is a list of problems' })
+    await call(deps, 'jobs-rename', { id: runId, title: 'login fails' })
+    await call(deps, 'run-start', { run: runId })
+    expect(deps.made).toHaveLength(1)
+    expect(deps.made[0]).toMatch(/^login-fails/)
+  })
+
   it('인수 프롬프트에 그 Run 의 한도와 Task 수가 실린다', async () => {
     const deps = coordDeps()
     const runId = await mkRun(deps, { coordinatorAccount: 'cl1', concurrency: 2 })
@@ -6150,6 +6161,19 @@ describe('jobs create / tasks add / accounts list', () => {
       expect(asked).toEqual([])
     })
 
+    // W7-D (#68): a plan from a source is named by it, so two fixlists never both read "The source below is…"
+    it('W7-D: a fixlist, an audit and a set of files each get a title; a plain jobs create gets none', async () => {
+      const { deps } = withInputs()
+      await shell(deps, 'jobs-create', { objective: '1. login fails\n2. slow search', cwd: 'D:/p', mode: 'fixlist' })
+      await shell(deps, 'jobs-create', { objective: '- price rounds wrong', cwd: 'D:/p', mode: 'fixlist' })
+      await shell(deps, 'jobs-create', { cwd: 'D:/p', mode: 'audit', scope: 'src/core' })
+      const files = await shell(deps, 'jobs-create', { cwd: 'D:/p', attach: ['/d/spec.pdf'], mode: 'fixlist' })
+      await shell(deps, 'jobs-create', { objective: 'plain', cwd: 'D:/p' })
+      expect(deps.getState().jobs.map((j) => j.title)).toEqual(['login fails', 'price rounds wrong', 'Audit src/core', 'spec.pdf', undefined])
+      expect(files.body).toMatchObject({ title: 'spec.pdf' })
+      expect(deps.getState().jobs.map((j) => jobNameOf(j))).toEqual(['login fails', 'price rounds wrong', 'Audit src/core', 'spec.pdf', 'plain'])
+    })
+
     it('a refused file answers 400 with its sentence and leaves no Job', async () => {
       const { deps } = withInputs('/d/x: not a regular file')
       expect(await shell(deps, 'jobs-create', { objective: 'o', cwd: 'D:/p', attach: '/d/x' })).toEqual({
@@ -6189,6 +6213,42 @@ describe('jobs create / tasks add / accounts list', () => {
     expect(ok.status).toBe(200)
     expect(ok.body).toMatchObject({ coordinatorAccountId: 'acc1', convergence: { maxFixAttempts: 2 } })
     expect(deps.getState().runs).toHaveLength(0)
+  })
+
+  // W7-D (#81): the planner's --affected-paths, so a CLI Task is kept off a planned Task's files (W6-C)
+  it('W7-D: tasks add carries --affected-paths onto the Task, and refuses a list that is not paths', async () => {
+    const deps = makeDeps()
+    const jobId = await jobOf(deps)
+    const r = await shell(deps, 'tasks-add', { job: jobId, spec: 's', account: 'acc1', affectedPaths: ['src/math.ts'] })
+    expect(r.status).toBe(200)
+    expect(deps.getState().tasks.find((t) => t.id === (r.body as { id: string }).id)?.affectedPaths).toEqual(['src/math.ts'])
+    expect((await shell(deps, 'tasks-add', { job: jobId, spec: 's', account: 'acc1', affectedPaths: 'src/math.ts' })).status).toBe(400)
+    expect((await shell(deps, 'tasks-add', { job: jobId, spec: 's', account: 'acc1', affectedPaths: [''] })).status).toBe(400)
+  })
+
+  // W7-D (#67): a plan's worker count changes until it finishes
+  it('W7-D: jobs set --concurrency changes a not-finished Job, clamped to 10; refuses agents, bad values and a finished Job', async () => {
+    const deps = makeDeps()
+    const jobId = await jobOf(deps)
+    const r = await shell(deps, 'jobs-set', { id: jobId, concurrency: '7' })
+    expect(r.status).toBe(200)
+    expect(r.body).toMatchObject({ id: jobId, concurrency: 7 })
+    expect((await shell(deps, 'jobs-set', { id: jobId, concurrency: 40 })).status).toBe(200)
+    expect(deps.getState().jobs[0].concurrency).toBe(10)
+    expect((await shell(deps, 'jobs-set', { id: jobId, concurrency: 0 })).status).toBe(400)
+    expect((await shell(deps, 'jobs-set', { id: jobId })).status).toBe(400)
+    expect((await shell(deps, 'jobs-set', { id: 'nope', concurrency: 2 })).status).toBe(404)
+    expect((await call(deps, 'jobs-set', { id: jobId, concurrency: 2 }, 'coordinator')).status).toBe(403)
+    expect((await handleCommand(deps, { sessionId: '', role: 'mcp' }, 'jobs-set', { id: jobId, concurrency: 2 })).status).toBe(403)
+    expect(deps.getState().jobs[0].concurrency).toBe(10)
+    // A finished Run: every Task terminal
+    const run = await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p' })
+    const runId = (run.body as { id: string }).id
+    const t = await call(deps, 'task-create', { account: 'acc1', runId, spec: 'a' })
+    await call(deps, 'task-update', { id: (t.body as { id: string }).id, status: 'completed' })
+    const finished = deps.getState().runs.find((x) => x.id === runId)!.jobId
+    expect((await shell(deps, 'jobs-set', { id: finished, concurrency: 2 })).status).toBe(409)
+    expect((await shell(deps, 'jobs-set', { id: runId, concurrency: 2 })).status).toBe(409)
   })
 
   it('tasks add --job 은 정의 Task 를 만든다', async () => {
@@ -9078,6 +9138,18 @@ describe('handleCommand — github-pr, github-ci and github-issue', () => {
       const job = deps.getState().jobs.find((j) => j.id === body.id)!
       for (const n of [5, 7, 9]) expect(job.objective).toContain(`#${n} T${n}`)
       expect(job.source).toMatchObject({ id: 'github', itemId: '5,7,9', label: 'GitHub issues #5, #7, #9 in o/r', title: '#5 T5' })
+    })
+
+    // W7-D (#68): the plan, and so its PR, is named by all its issues
+    it('W7-D: jobs-create-from-issue names the Job "#5 T5 +2" for three issues and "#5 Broken" for one', async () => {
+      const many = issuesSetup()
+      const r = await call(many.deps, 'jobs-create-from-issue', { project: many.projectId, issue: '5,7,9', mode: 'fixlist' }, '')
+      const job = many.deps.getState().jobs.find((j) => j.id === (r.body as { id: string }).id)!
+      expect(job.title).toBe('#5 T5 +2')
+      expect(r.body).toMatchObject({ title: '#5 T5 +2' })
+      const one = issueSetup()
+      const r1 = await call(one.deps, 'jobs-create-from-issue', { project: one.projectId, number: 5 }, '')
+      expect(one.deps.getState().jobs.find((j) => j.id === (r1.body as { id: string }).id)!.title).toBe('#5 Broken')
     })
 
     it('jobs-create-from-issue refuses the whole call for one non-member issue, naming it, and assigns and makes nothing', async () => {
