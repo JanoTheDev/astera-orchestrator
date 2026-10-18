@@ -12,7 +12,9 @@ Worktree + branch: slug `w9-verify`, branch `fix/ui-redesign-polish`.
    (rail, sections, inbox answer, box, dialogs, Plan tab sections) and the visible focus ring.
 2. Fix what is off: layout, overflow, contrast, missing states (empty, loading, error). Move the hard-coded English
    of the orchestration panels into i18n. List each fix in the PR. Behaviour bugs unrelated to the redesign get a
-   GitHub issue instead.
+   GitHub issue instead. Also close #106 (from the 7V re-run): the plan board squeezed under the planner box, the
+   plan view closing when a new tab opens, one-letter tab labels at 16 tabs, and no feed line for a rejected plan.
+   Check each in the new Plan tab and tab strip and say in the PR which W9 prompt already fixed it.
 3. Run one tiny real plan end to end in a scratch repo (CONTEXT rule 7 cleanup afterwards) and check approve →
    Plan tab → inbox question → delivery reads right.
 4. Save screenshots to `assets/` for W9-G: hero (Home + Plan tab, dark), light variant, Plan board, Inbox, New flow.

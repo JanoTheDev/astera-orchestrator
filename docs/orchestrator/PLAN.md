@@ -54,9 +54,9 @@ starting the next wave. Each prompt owns its own files, which keeps conflicts to
 | 5 | 4 | `W5-A-worker-spawn-and-worktrees`, `W5-B-run-lifecycle-and-cli`, `W5-C-holds-and-command-bar`, `W5-D-feed-inbox-and-runtimes` (W4's issues #38–#53) | W4 merged |
 | 6 | 8 | `W6-A-intake-and-github`, `W6-B-autopilot-answers-and-sound`, `W6-C-scheduler-guards`, `W6-D-wave-replanning`, `W6-E-progress-view`, `W6-F-project-workspaces`, `W6-G-usage-guards`, `W6-H-delivery-modes` (Autopilot, see below) | W5 merged, **including PR #57** |
 | 7 | 6 | `W7-A-plan-feedback`, `W7-B-projects`, `W7-C-owner-answers-and-coordinator`, `W7-D-intake-names-and-concurrency`, `W7-E-planner-review-and-final-check`, `W7-F-tabs-accounts-and-sidebar` (W7-C..F: W6-V's issues #67–#84) | W6 merged |
-| 7V | 1 | `W6-V-autopilot-dogfood.md`: the W6 half ran 2026-10-18 (LINUX.md "Autopilot dogfood (W6-V)"); re-run its W7 steps (5, 5b) and the failed W6 checks | W7 merged |
-| 8.0 | 1 | `W8-C-run-waves-in-astera` (alone; tabs, the last wave run by hand) | 7V done |
-| 8 | 3 | `W8-A-commit-attribution`, `W8-B-line-attribution` (Who wrote this, see below), `W8-D-plans-side-by-side` (no overlapping work across plans), **run as one Astera plan** | W8-C merged |
+| 7V | 1 | `W6-V-autopilot-dogfood.md`: the W6 half ran 2026-10-18 (LINUX.md "Autopilot dogfood (W6-V)"); the full re-run after W7 ran the same day (LINUX.md "Autopilot re-run (7V)", issues #92–#106) | W7 merged |
+| 8.0 | 2 | `W8-C-run-waves-in-astera`, `W8-E-coordinator-guards` (7V's #92 #95 #96 #99: the W8 Astera plan needs them); tabs, the last wave run by hand | 7V done |
+| 8 | 5 | `W8-A-commit-attribution`, `W8-B-line-attribution` (Who wrote this, see below), `W8-D-plans-side-by-side` (no overlapping work across plans), `W8-F-owner-talk-and-answers`, `W8-G-projects-and-delivery` (7V's #93 #94 #97 #98 #100, #101–#105), **run as one Astera plan** | W8-C and W8-E merged |
 | 9.0 | 1 | `W9-0-design-spec` (owner approves the mockup before any code) | W8 merged |
 | 9.1 | 1 | `W9-A-foundation` (alone: tokens, primitives, shell split) | 9.0 approved |
 | 9.2 | 8 | `W9-B-shell-and-nav`, `W9-C-plan-tab`, `W9-D-inbox-and-command`, `W9-E-settings-and-dialogs`, `W9-H-agents-wall`, `W9-I-tab-summaries`, `W9-J-worktree-viewer`, `W9-K-window-per-project` | 9.1 merged |
@@ -97,6 +97,9 @@ starting the next wave. Each prompt owns its own files, which keeps conflicts to
 | W7-E | `handover.ts` (planner brief), `resources/skills/planner-guide.md`, `replan.ts`, `exec/replanStart.ts`, `reviewer.ts`, `exec/reviewGate.ts` | `exec/plannerStart.ts`, `exec/dispatchLoop.ts`, `types.ts` (Job review default), `command.ts` (`jobs-plan` / `jobs-create` flag), `src/core/github/*` (no-remote message) |
 | W7-F | tab strip + its `styles.css`, sidebar account panel, `HistoryBrowser.tsx`, `JobsView.tsx` layout, `components/plan/planBoard.ts` / `TaskBoard` | `App.tsx` (tabs, active session, auto-close), keybindings, `AccountSettings.tsx` (export unregister), `core/accounts` (email check, login URL), `components/workspace/workspaceTree.ts` |
 | W8-C | `core/orchestration/intake.ts` (`--mode prompts`), `cliArgs.ts`, `cliUsage.ts`, `resources/skills/planner-guide.md`, `resources/skills/orchestration-guide.md` (worker brief lines, `astera heavy`), new `core/orchestration/heavyLock.ts` | `types.ts` (`Job.after`), `schedule.ts` / `blocked.ts` (one gate, one reason), `planner.ts` (`validatePlan` verbatim check), `command.ts` (`--after`, `heavy`), New flow source picker, USAGE.md, LINUX.md |
+| W8-E | `command.ts` handler `worker-start` (and its hold refusal), `inbox.ts`, `activity.ts` (plan.done block) | `replan.ts` (`notStarted`), `exec/dispatchLoop.ts`, `src/main/activityNotices.ts`, `resources/skills/orchestration-guide.md` (one block marked W8-E) |
+| W8-F | `exec/plannerFeedback.ts`, `components/plan/QuestionAnswer.tsx` + its `TaskBoard.tsx` mount, the approval toast, `command.ts` handler `questions-answer`, `reviewer.ts`, `exec/reviewGate.ts` | `src/main/ipc.ts` (route), `cliArgs.ts` / `src/cli/run.ts` (trim), `handover.ts`, `orchestration-guide.md` (one line), `components/plan/PlanTalk.tsx` |
+| W8-G | `exec/integrateGit.ts` (default-branch fallback only), `src/core/github/taskLinks.ts`, `components/projects/*`, the project auto-registration site | `handover.ts`, `intake.ts` (one block marked W8-G), `App.tsx` (`projectAnchor`), `delivery.ts` (no-remote notice) |
 | W8-D | new `core/orchestration/overlap.ts`, `schedule.ts` (cross-plan `editing` by project), `blocked.ts` (reason) | `types.ts` (`Job.overlaps`, `Job.areas`), `planner.ts` / `resources/skills/planner-guide.md` (other plans' Tasks in the brief), `replan.ts` (reads other plans), `command.ts` / `cliArgs.ts` / `cliUsage.ts` (`jobs overlaps`, `--areas`, `--area`), `activity.ts` (`plan.overlap`), JobsView approve area (one line per overlap) |
 | W8-A | new `core/attribution/{note,stamp,remap,blame,stats}.ts` | `exec/integrateGit.ts` (stamp before merge, copy notes), `core/orchestration/delivery.ts` (push the notes ref, PR body block), `src/main/githubPrs.ts` (squash remap), `command.ts` / `cliArgs.ts` / `cliUsage.ts` (`attribution-blame`, `attribution-stats`, `attribution-why`) |
 | W8-B | new `core/attribution/{lines,checkpoint,gitAi}.ts` + its hook script, new `components/attribution/*` | `core/sessions/statusline.ts` (hook entries), `core/attribution/stamp.ts` (one `lines` call), file viewer mount, plan view mount, project settings page (one row) |
@@ -294,7 +297,7 @@ showed that Astera already does each step of that for one plan:
 - Astera merges the Tasks itself and delivers.
 
 The W7 fixes (#70 reviewer, #72/#73 answering and the blocking coordinator, #74 one final check) close the gaps it
-found. **W8-C is the last wave run by hand.** It adds three things:
+found. **W8-C (with W8-E, the 7V re-run's coordinator fixes) is the last wave run by hand.** It adds three things:
 - prompt files become Tasks verbatim;
 - a plan can wait for another plan;
 - heavy jobs (full suite, dev app, AppImage build) take one machine-wide slot.
@@ -302,9 +305,9 @@ found. **W8-C is the last wave run by hand.** It adds three things:
 From then on, each wave is one Astera plan, queued after the one before it. Run these from the packaged app's
 profile, never the dev profile:
 
-In the app: **Start → Run as written**. Attach every W8 and W9 prompt (W8-A, B, D and W9-A … K, F, G; W9-0 is done),
+In the app: **Start → Run as written**. Attach every W8 and W9 prompt (W8-A, B, D, F, G and W9-A … K, F, G; W9-0 is done),
 set delivery to PR, and press Start. The planner reads PLAN.md's wave table and builds the order:
-1. W8 (A, B, D in parallel).
+1. W8 (A, B, D, F, G in parallel).
 2. W9-A alone.
 3. W9-B, C, D, E, H, I, J, K in parallel.
 4. W9-F.
@@ -315,7 +318,7 @@ end. The same from the CLI:
 
 ```bash
 astera jobs create --project astera --mode prompts --delivery pr \
-  --attach docs/orchestrator/prompts/W8-{A,B,D}-*.md docs/orchestrator/prompts/W9-{A,B,C,D,E,H,I,J,K,F,G}-*.md
+  --attach docs/orchestrator/prompts/W8-{A,B,D,F,G}-*.md docs/orchestrator/prompts/W9-{A,B,C,D,E,H,I,J,K,F,G}-*.md
 ```
 
 Separate queued plans per wave (`--after <job>`) still work, if the owner wants one PR per wave.
