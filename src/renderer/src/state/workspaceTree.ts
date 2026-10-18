@@ -3,13 +3,13 @@
 // **Everything here is derived, nothing is stored.** The pane tree is in memory only, but orchestration.json
 // survives a restart, so a tree built from its Projects, Jobs, Runs, Tasks and Dispatches is the same tree after
 // one. Pure, so it is tested in vitest's node environment like the rest of the renderer's judgements.
-import type { Dispatch, Gate, Job, JobRun, Message, Project, Task } from '../../../../core/orchestration/types'
-import { jobNameOf } from '../../../../core/orchestration/jobName'
-import { isJobActive } from '../../../../core/orchestration/lifecycle'
+import type { Dispatch, Gate, Job, JobRun, Message, Project, Task } from '../../../core/orchestration/types'
+import { jobNameOf } from '../../../core/orchestration/jobName'
+import { isJobActive } from '../../../core/orchestration/lifecycle'
 // W8-C plan after plan
-import { afterNameOf, afterQueued, afterStandOf } from '../../../../core/orchestration/after'
-import { leaves, removeTab, type PaneNode } from '../../../../core/panes/tree'
-import { parseTab } from '../../../../core/panes/tabId'
+import { afterNameOf, afterQueued, afterStandOf } from '../../../core/orchestration/after'
+import { leaves, removeTab, type PaneNode } from '../../../core/panes/tree'
+import { parseTab } from '../../../core/panes/tabId'
 
 /** What the reads return (useWorkspaceData). Jobs come per project because the Host matches a Job to its project
  *  (`jobs-list --project`, jobInProject), which the renderer cannot (node:path). */

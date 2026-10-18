@@ -2507,6 +2507,13 @@ export const ko = {
   'shortcut.command.talk': '명령 창에 말하기 (눌러서 시작, 다시 눌러 보내기)',
   // W7-F (#84)
   'shortcut.tabs.switcher': '탭 빠르게 전환',
+  // W9-B: Ctrl+1…6 open the top bar's pages
+  'shortcut.page.agents': '에이전트 페이지 열기',
+  'shortcut.page.tasks': '작업 페이지 열기',
+  'shortcut.page.plans': '계획 페이지 열기',
+  'shortcut.page.inbox': '받은 편지함 열기',
+  'shortcut.page.worktrees': '워크트리 페이지 열기',
+  'shortcut.page.files': '파일 페이지 열기',
   'tabs.switcher.placeholder': '탭, 플랜, 작업 이름으로 찾기',
   'tabs.switcher.empty': '맞는 탭이 없습니다',
   'tabs.overflow.title': '이 워크스페이스의 모든 탭',

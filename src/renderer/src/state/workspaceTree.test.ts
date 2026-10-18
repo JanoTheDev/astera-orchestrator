@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import type { Dispatch, Job, JobRun, Project, Task } from '../../../../core/orchestration/types'
-import { addTab, createGroup, leaves, splitAndMove, type PaneNode } from '../../../../core/panes/tree'
-import { appTab, fileTab, sessionTab } from '../../../../core/panes/tabId'
+import type { Dispatch, Job, JobRun, Project, Task } from '../../../core/orchestration/types'
+import { addTab, createGroup, leaves, splitAndMove, type PaneNode } from '../../../core/panes/tree'
+import { appTab, fileTab, sessionTab } from '../../../core/panes/tabId'
 import { buildWorkspaceTree, findPlan, planSessions, scopeLayout, type WorkspaceData } from './workspaceTree'
 import {
   entryTab, OTHER_WORKSPACE, projectOfCwd, scopeIds, workspaceFolderOf, workspaceSessionIds, workspaceSummaries, type WorkspaceProject

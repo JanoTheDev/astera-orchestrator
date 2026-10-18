@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { AccountUsage } from '../../../core/types'
-import { AccountUsageMeter, AccountUsageDetail, usageLevel } from './AccountUsageMeter'
+import { AccountUsageMeter, AccountUsageDetail } from './AccountUsageMeter'
 
 vi.mock('../i18n/I18nProvider', () => ({
   useI18n: () => ({
@@ -24,34 +24,22 @@ const usage = (over: Partial<AccountUsage> = {}): AccountUsage => ({
 const render = (u: AccountUsage | undefined): string =>
   renderToStaticMarkup(React.createElement(AccountUsageMeter, { usage: u }))
 
-describe('usageLevel', () => {
-  // The status bar uses these exact figures; two places showing usage on two scales would be a defect.
-  it('is the existing threshold set, at its boundaries', () => {
-    expect(usageLevel(0)).toBe('ok')
-    expect(usageLevel(69)).toBe('ok')
-    expect(usageLevel(70)).toBe('warn')
-    expect(usageLevel(84)).toBe('warn')
-    expect(usageLevel(85)).toBe('crit')
-    expect(usageLevel(100)).toBe('crit')
-  })
-})
-
+// W9-B: every usage display is the house Meter (components/ui/Meter), on its usage-guard thresholds.
 describe('AccountUsageMeter', () => {
-  it('draws two tracks — the 5-hour window first, weekly second', () => {
+  const fills = (html: string): string[] => [...html.matchAll(/ui-meter__fill" style="width:([^%]+)%/g)].map((m) => m[1])
+
+  it('draws two Meters — the 5-hour window first, weekly second', () => {
     const html = render(usage())
     expect(html).toContain('acct-meter')
-    expect(html).toContain('width:12%')
-    expect(html).toContain('width:41%')
-    expect(html.indexOf('width:12%')).toBeLessThan(html.indexOf('width:41%'))
-    expect(html.match(/<span><\/span>/g)).toBeNull()
+    expect(fills(html)).toEqual(['12', '41'])
   })
 
   it('colours each window on its own figure, not on the higher of the two', () => {
     const html = render(
       usage({ session: { usedPercent: 96, resetsAt: null }, weekly: { usedPercent: 30, resetsAt: null } })
     )
-    expect(html).toContain('class="crit"')
-    expect(html).toContain('class="ok"')
+    expect(html).toContain('ui-meter--danger')
+    expect(html).toContain('ui-meter--accent')
   })
 
   // The same convention a stale PR badge uses (.pr-badge.stale), reused rather than invented.
@@ -71,19 +59,15 @@ describe('AccountUsageMeter', () => {
   })
 
   it('one window present still draws both tracks, the missing one empty', () => {
-    const html = render(usage({ weekly: null }))
-    expect(html).toContain('width:12%')
-    expect(html).not.toContain('width:41%')
-    // Both tracks stay in the markup so the meter keeps its 8px height and the row does not shift.
-    expect(html.match(/<span><\/span>/g)).toHaveLength(1)
+    // Both tracks stay in the markup so the meter keeps its height and the row does not shift.
+    expect(fills(render(usage({ weekly: null })))).toEqual(['12', '0'])
   })
 
   it('a percentage outside 0-100 is clamped to the track', () => {
     const html = render(
       usage({ session: { usedPercent: 140, resetsAt: null }, weekly: { usedPercent: -5, resetsAt: null } })
     )
-    expect(html).toContain('width:100%')
-    expect(html).toContain('width:0%')
+    expect(fills(html)).toEqual(['100', '0'])
   })
 })
 
@@ -117,8 +101,8 @@ describe('AccountUsageDetail', () => {
 
   it('each line carries its own bar at its own threshold colour', () => {
     const html = detail(both())
-    expect(html).toContain('class="warn"') // 78
-    expect(html).toContain('class="ok"') // 36
+    expect(html).toContain('ui-meter--warn') // 78
+    expect(html).toContain('ui-meter--accent') // 36
   })
 
   it('names when each window rolls, in that window\'s own units', () => {

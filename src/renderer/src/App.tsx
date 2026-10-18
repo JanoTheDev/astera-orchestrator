@@ -1,4 +1,3 @@
-import { RunToolbar } from './components/RunToolbar'
 import { UpdateGate } from './components/UpdateGate'
 import { CliMissingScreen } from './components/CliMissingScreen'
 import * as sessionBus from './lib/sessionBus'
@@ -16,9 +15,10 @@ import { useWorkspace } from './state/useWorkspace'
 import { useLiveData } from './state/useLiveData'
 import { useRunActions } from './state/useRunActions'
 import { useNavigation } from './state/useNavigation'
-import { Rail } from './components/shell/Rail'
-import { Sidebar } from './components/shell/Sidebar'
-import { Content } from './components/shell/Content'
+import { Pages } from './components/shell/Pages'
+import { RunDrawer } from './components/shell/Content'
+import { TopBar } from './components/shell/TopBar'
+import { useShell } from './components/shell/useShell'
 import { StatusBar } from './components/shell/StatusBar'
 import { Overlays } from './components/shell/Overlays'
 import { Titlebar } from './components/shell/Titlebar'
@@ -60,11 +60,11 @@ export default function App(): React.JSX.Element {
     ...fromRunActions
   }
   const {
-    activeRuns, applyRunSelection, campaign, cliInstalled, currentProject, installUpdate, isMax, openRunManager,
-    runConfigs, runJump, runMenuOpen, runSelectConfigShortcut, runSelectedId, runStart, runStop, runningCount, runs,
-    setCli, setCliInstalled, setRunMenuOpen, update
+    campaign, canStart, cliInstalled, installUpdate, isMax, runningCount, setCli, setCliInstalled, setCommandOpen,
+    setShowNew, update
   } = app
   useNavigation(app)
+  const shell = useShell(app) // W9-B
 
   // Only when neither CLI is present is there nothing to launch. With one of the two installed the app
   // opens as usual, and the new-session dialog blocks the accounts whose CLI is missing.
@@ -101,46 +101,18 @@ export default function App(): React.JSX.Element {
 
   return (
     <div className="app">
-      {/* 실행 구성은 타이틀바 줄에 놓인다(IntelliJ와 같은 자리). 별도의 띠를 두면 탐색기를 여닫을
-          때마다 그 띠가 생겼다 사라지며 아래 페인이 위아래로 튄다. 프로젝트가 정해졌을 때만 그리므로
-          Ctrl/Cmd+Shift+E 와는 무관하다 */}
-      <Titlebar
-        isMax={isMax}
-        update={update}
-        runningCount={runningCount}
-        onInstall={() => void installUpdate()}
-        runSlot={
-          currentProject ? (
-            // The title bar toggles maximize on a double-click, and that is a React handler, so it
-            // reaches anything inside it. `-webkit-app-region: no-drag` on .tb-run does not help —
-            // that only stops the window being dragged by this widget, which is a different gesture.
-            // Double-clicking a configuration name or ▶ has to leave the window where it is, so the
-            // event stops here, the same way .tb-controls stops it for the window buttons.
-            <div className="tb-run" onDoubleClick={(e) => e.stopPropagation()}>
-              <RunToolbar
-                configs={runConfigs}
-                selectedId={runSelectedId}
-                onSelect={(id) => applyRunSelection(currentProject, id)}
-                runs={runs}
-                onRun={() => runStart()}
-                onRunConfig={(id) => {
-                  applyRunSelection(currentProject, id)
-                  runStart(id)
-                }}
-                onStop={runStop}
-                onOpenManager={() => openRunManager()}
-                onEditConfig={(id) => openRunManager(id)}
-                activeRuns={activeRuns}
-                onJump={runJump}
-                onStopRun={runStop}
-                menuOpen={runMenuOpen}
-                onMenuOpenChange={setRunMenuOpen}
-                shortcut={runSelectConfigShortcut}
-              />
-            </div>
-          ) : null
-        }
-      />
+      {/* W9-B: the title bar is the 44px top bar. Run configs moved behind More ▾ (DESIGN.md §1). */}
+      <Titlebar isMax={isMax} update={update} runningCount={runningCount} onInstall={() => void installUpdate()}>
+        <TopBar
+          {...app}
+          {...shell}
+          onSearch={() => setCommandOpen(true)}
+          onNew={() => {
+            if (canStart()) setShowNew(true)
+          }}
+          newDisabled={!canStart()}
+        />
+      </Titlebar>
       {/* Only a block-mode campaign covers the workbench. notify is announced with a toast */}
       {campaign?.mode === 'block' && (
         <UpdateGate
@@ -151,11 +123,10 @@ export default function App(): React.JSX.Element {
         />
       )}
       <div className="workbench">
-        <Rail {...app} />
-        <Sidebar {...app} />
-        <Content {...app} />
+        <Pages {...app} {...shell} />
+        <RunDrawer {...app} />
       </div>
-      <StatusBar {...app} />
+      <StatusBar {...app} {...shell} />
       <Overlays {...app} />
     </div>
   )

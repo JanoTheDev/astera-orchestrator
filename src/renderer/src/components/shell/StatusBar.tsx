@@ -1,14 +1,18 @@
-// Moved out of App.tsx unchanged (W9-A): the JSX is App's, the values come from App's state hooks.
+// The status bar (DESIGN.md §1, W9-B): consoles and working (→ Agents) · waiting for you (→ the Inbox) · the next
+// queued plan · the shown account's 5-hour and weekly usage · host health. Usage is the house Meter, as everywhere.
 import { HostRuntimeNotice } from '../HostRuntimeNotice'
+import { Meter } from '../ui'
+import { openInbox, openPage } from './navigation'
 import type { AppState } from '../../state/appState'
+import type { ShellState } from './useShell'
 
 /** Time left until the reset, as a relative countdown: '47m', '3h 54m', '2d 3h', '5d'.
  *  (Minutes round up; null once it has passed.) */
-function formatResetHud(resetsAt: string | null | undefined): string | null {
+export function formatResetHud(resetsAt: string | null | undefined, nowMs = Date.now()): string | null {
   if (!resetsAt) return null
   const t = new Date(resetsAt).getTime()
   if (Number.isNaN(t)) return null
-  const ms = t - Date.now()
+  const ms = t - nowMs
   if (ms <= 0) return null
   const diffMins = Math.ceil(ms / 60_000)
   if (diffMins < 60) return `${diffMins}m`
@@ -22,31 +26,15 @@ function formatResetHud(resetsAt: string | null | undefined): string | null {
   return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`
 }
 
-/** The status bar usage chip — a mini progress bar plus n%. Colours: green below 70, yellow 70–84,
- *  red at 85 and above. With no value, an empty bar and '–'. Given resetsAt, a dim '(resets in N)'
- *  sits next to it. */
-function UsageChip({
-  label,
-  percent,
-  resetsAt,
-  title
-}: {
-  label: string
-  percent?: number
-  resetsAt?: string | null
-  title?: string
-}): React.JSX.Element {
+/** One usage window: label, Meter, n%, and the reset countdown. No reading draws an empty meter and '–'. */
+function UsageWindow({ label, percent, resetsAt, title }: { label: string; percent?: number; resetsAt?: string | null; title: string }): React.JSX.Element {
   const has = typeof percent === 'number'
-  const pct = has ? Math.max(0, Math.min(100, percent as number)) : 0
-  const level = !has ? 'na' : pct >= 85 ? 'crit' : pct >= 70 ? 'warn' : 'ok'
   const reset = has ? formatResetHud(resetsAt) : null
   return (
     <span className="status-metric" title={title}>
       <span className="metric-label">{label}</span>
-      <span className="usage-bar" aria-hidden="true">
-        <span className={`usage-bar-fill ${level}`} style={{ width: `${pct}%` }} />
-      </span>
-      <span className="metric-pct">{has ? `${percent}%` : '–'}</span>
+      <Meter value={has ? percent : 0} className="status-meter" />
+      <span className="metric-pct">{has ? `${Math.round(percent)}%` : '–'}</span>
       {reset && <span className="metric-reset">({reset})</span>}
     </span>
   )
@@ -54,71 +42,49 @@ function UsageChip({
 
 export type StatusBarProps = Pick<
   AppState,
-  'accounts' | 'active' | 'activeRemote' | 'appVersion' | 'hostRestarting' | 'hostRuntime' | 'hostRuntimeNow' |
-  'hostStatus' | 'remoteStatus' | 'restartHost' | 'runtimeName' | 'sessions' | 't' | 'usage'
->
+  'appVersion' | 'hostRestarting' | 'hostRuntime' | 'hostRuntimeNow' | 'hostStatus' | 'restartHost' | 't'
+> &
+  Pick<ShellState, 'counts' | 'nextQueued' | 'shellAccount' | 'shellUsage'>
 
 export function StatusBar(p: StatusBarProps): React.JSX.Element {
-  const {
-    accounts, active, activeRemote, appVersion, hostRestarting, hostRuntime, hostRuntimeNow, hostStatus,
-    remoteStatus, restartHost, runtimeName, sessions, t, usage
-  } = p
+  const { appVersion, counts, hostRestarting, hostRuntime, hostRuntimeNow, hostStatus, nextQueued, restartHost, shellAccount, shellUsage, t } = p
+  const hostOk = !!hostStatus?.connected && !hostStatus.outdated && !hostStatus.unresponsive
   return (
     <>
       <div className="statusbar">
-        {activeRemote ? (
-          <>
-            <span className="status-item">{activeRemote.title ?? activeRemote.sessionId}</span>
-            <span className="status-item">{runtimeName(activeRemote.runtimeId)}</span>
-            <span className="status-item status-path">{activeRemote.cwd}</span>
-            <span className="status-item">{t(`remote.session.status.${remoteStatus[activeRemote.key] ?? 'unknown'}` as never)}</span>
-          </>
-        ) : active ? (
-          <>
-            <span className="status-account">
-              <span
-                className="status-dot"
-                style={{ background: accounts.find((a) => a.id === active.accountId)?.color ?? '#888' }}
-              />
-              {accounts.find((a) => a.id === active.accountId)?.label}
-            </span>
-            <span className="status-item">{active.title}</span>
-            <span className="status-item status-path">{active.cwd}</span>
-            <span className="status-metrics">
-              <UsageChip
-                label="Context"
-                percent={usage?.context?.usedPercent}
-                title={
-                  usage?.context
-                    ? usage.context.usedTokens != null && usage.context.windowSize != null
-                      ? t('session.usage.contextTitleWithTokens', {
-                          used: usage.context.usedTokens.toLocaleString(),
-                          window: usage.context.windowSize.toLocaleString()
-                        })
-                      : t('session.usage.contextTitle')
-                    : t('session.usage.contextEmpty')
-                }
-              />
-              <UsageChip
-                label={t('session.usage.fiveHourLabel')}
-                percent={usage?.session?.usedPercent}
-                resetsAt={usage?.session?.resetsAt}
-                title={t('session.usage.fiveHourTitle')}
-              />
-              <UsageChip
-                label={t('session.usage.weekly')}
-                percent={usage?.weekly?.usedPercent}
-                resetsAt={usage?.weekly?.resetsAt}
-                title={t('session.usage.weekly')}
-              />
-            </span>
-            <span className="sp">{t('session.statusbar.count', { count: sessions.length })}</span>
-          </>
-        ) : (
-          <>
-            <span>{t('session.statusbar.none')}</span>
-            <span className="sp">{t('session.statusbar.accountCount', { count: accounts.length })}</span>
-          </>
+        <button type="button" className="status-link" onClick={() => openPage('agents')}>
+          <span className={counts.working > 0 ? 'status-dot status-dot--ok' : 'status-dot'} aria-hidden="true" />
+          {counts.consoles} {counts.consoles === 1 ? 'console' : 'consoles'} · {counts.working} working
+        </button>
+        <button type="button" className={counts.waiting > 0 ? 'status-link status-link--warn' : 'status-link'} onClick={() => openInbox()}>
+          <span className={counts.waiting > 0 ? 'status-dot status-dot--warn' : 'status-dot'} aria-hidden="true" />
+          {counts.waiting} waiting for you
+        </button>
+        {nextQueued && <span className="status-item status-next">{nextQueued}</span>}
+        <span className="sp" />
+        {shellAccount && (
+          <span className="status-account">
+            <span className="status-dot" style={{ background: shellAccount.color }} aria-hidden="true" />
+            {shellAccount.label}
+            <UsageWindow
+              label={t('session.usage.fiveHourLabel')}
+              percent={shellUsage?.session?.usedPercent}
+              resetsAt={shellUsage?.session?.resetsAt}
+              title={t('session.usage.fiveHourTitle')}
+            />
+            <UsageWindow
+              label={t('session.usage.weekly')}
+              percent={shellUsage?.weekly?.usedPercent}
+              resetsAt={shellUsage?.weekly?.resetsAt}
+              title={t('session.usage.weekly')}
+            />
+          </span>
+        )}
+        {hostOk && (
+          <span className="status-item status-host" title={hostStatus?.hostVersion ? `Host ${hostStatus.hostVersion}` : 'Host'}>
+            <span className="status-dot status-dot--ok" aria-hidden="true" />
+            Host
+          </span>
         )}
         {/* The Host outlived an update and still runs the previous build. It replaces itself the first
             moment it holds nothing (host-replacement design §4), which for someone who keeps sessions

@@ -8,18 +8,18 @@
 import { describe, it, expect, vi } from 'vitest'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import type { SessionInfo } from '../../../../core/types'
-import { addTab, createGroup, type PaneNode } from '../../../../core/panes/tree'
-import { sessionTab } from '../../../../core/panes/tabId'
+import type { SessionInfo } from '../../../core/types'
+import { addTab, createGroup, type PaneNode } from '../../../core/panes/tree'
+import { sessionTab } from '../../../core/panes/tabId'
 
-vi.mock('../../i18n/I18nProvider', () => ({ useI18n: () => ({ lang: 'en', t: (key: string) => key }) }))
+vi.mock('../i18n/I18nProvider', () => ({ useI18n: () => ({ lang: 'en', t: (key: string) => key }) }))
 // The real TerminalView needs a DOM (xterm). The stand-in prints what a mount depends on.
-vi.mock('../TerminalView', () => ({
+vi.mock('../components/TerminalView', () => ({
   TerminalView: ({ session, active }: { session: SessionInfo; active: boolean }) =>
     React.createElement('div', { 'data-term': session.id, 'data-cwd': session.cwd, 'data-active': String(active) })
 }))
 
-const { PaneGrid } = await import('../PaneGrid')
+const { PaneGrid } = await import('../components/PaneGrid')
 const { scopeLayout, scopeIds, workspaceSessionIds } = await import('./workspaceTree')
 
 const session = (id: string, cwd: string): SessionInfo => ({ id, accountId: 'acc1', cwd, status: 'running', title: id }) as SessionInfo

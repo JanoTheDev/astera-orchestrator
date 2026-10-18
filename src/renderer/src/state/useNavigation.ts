@@ -1,58 +1,51 @@
-// W9-A: App's handlers behind components/shell/navigation.ts — today's paths, until the 9.2 pages
-// replace them. Re-registered after every render so a handler always reads the latest state.
+// App's handlers behind components/shell/navigation.ts. W9-B: pages are real now (state/useSidebar.ts `page`, shown
+// by components/shell/Pages.tsx); the page prompts (W9-C/D/E/H/J) replace their own handler, not the callers.
+// Re-registered after every render so a handler always reads the latest state.
 import { useEffect } from 'react'
-import type { PageId } from '../../../core/ui/pages'
 import { sessionTab } from '../../../core/panes/tabId'
 import { registerNavigation } from '../components/shell/navigation'
 import type { AppState } from './appState'
 
 type NavigationDeps = Pick<
   AppState,
-  | 'sidebarOpen' | 'sidebarPane' | 'toggleSidebar' | 'showExplorer' | 'setShowSettings' | 'setSettingsTab' | 'setRunPanelOpen'
-  | 'canOpenSessionTab' | 'setWorkspaceScope' | 'selectWorkbenchTab' | 'workspaceTree' | 'enterWorkspace' | 'setJobsOpen'
-  | 'setPendingRun'
+  | 'goPage' | 'setShowSettings' | 'setSettingsTab' | 'setRunPanelOpen'
+  | 'canOpenSessionTab' | 'setWorkspaceScope' | 'selectWorkbenchTab' | 'workspaceTree' | 'enterWorkspace' | 'setPendingRun'
 >
 
 export function useNavigation(app: NavigationDeps): void {
   useEffect(() => {
     const {
-      sidebarOpen, sidebarPane, toggleSidebar, showExplorer, setShowSettings, setSettingsTab, setRunPanelOpen,
-      canOpenSessionTab, setWorkspaceScope, selectWorkbenchTab, workspaceTree, enterWorkspace, setJobsOpen, setPendingRun
+      goPage, setShowSettings, setSettingsTab, setRunPanelOpen, canOpenSessionTab, setWorkspaceScope, selectWorkbenchTab,
+      workspaceTree, enterWorkspace, setPendingRun
     } = app
-    // Shows a sidebar view; the rail's toggle would fold the sidebar when that view is already showing.
-    const showView = (view: 'jobs' | 'understanding' | 'sessions'): void => {
-      if (!(sidebarOpen && sidebarPane === view)) toggleSidebar(view)
-    }
-    const openPage = (id: PageId): void => {
-      if (id === 'files') showExplorer()
-      else if (id === 'plans' || id === 'tasks') showView('jobs')
-      else if (id === 'more:hiw') showView('understanding')
-      else if (id === 'settings') setShowSettings(true)
-      else if (id === 'more:runs') setRunPanelOpen(true)
-      else if (id === 'more:browser') console.warn('navigation.openPage: no browser page yet; a browser tab opens from a link')
-      // agents, inbox (escalation rows), worktrees (WorktreePanel), more:history (HistoryBrowser): the session list
-      else showView('sessions')
-    }
     return registerNavigation({
-      openPage,
-      // the same path the workspace tree's session rows take
+      openPage: (id) => {
+        // Settings is still the modal until W9-E's page lands
+        if (id === 'settings') return setShowSettings(true)
+        // Run configs come with their output drawer (DESIGN.md §1)
+        if (id === 'more:runs') setRunPanelOpen(true)
+        goPage(id)
+      },
+      // the same path the workspace tree's session rows took, on the Agents page
       openConsole: (sessionId) => {
         if (!canOpenSessionTab(sessionId)) return
+        goPage('agents')
         setWorkspaceScope(null, null)
         selectWorkbenchTab(sessionTab(sessionId))
       },
-      // the same path the workspace tree's escalation row takes (W7-C); `section` has no target yet
+      // the same path the workspace tree's escalation row took (W7-C): the plan's window over the Plans page, which
+      // loads the snapshot it reads; `section` has no target until W9-C's plan page
       openPlan: (jobId) => {
         const project = workspaceTree.find((p) => p.plans.some((plan) => plan.jobId === jobId))
         if (!project) return
         enterWorkspace(project.id, jobId)
-        setJobsOpen(true)
+        goPage('plans')
         setPendingRun({ projectPath: project.path, runId: jobId })
       },
-      // needs-input shows as escalation rows in the session list's workspace tree; no filter yet
-      openInbox: () => openPage('inbox'),
-      // the WorktreePanel lives in the session list; it has no per-path view yet
-      openWorktree: () => openPage('worktrees'),
+      // no filter until W9-D's Inbox
+      openInbox: () => goPage('inbox'),
+      // no per-path view until W9-J's Worktrees page
+      openWorktree: () => goPage('worktrees'),
       // the settings modal has no anchors yet
       openSettings: (group) => {
         setSettingsTab(group)

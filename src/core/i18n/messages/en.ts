@@ -2258,6 +2258,13 @@ export const en: Record<keyof typeof ko, string> = {
   'shortcut.command.talk': 'Talk to the command bar (press to start, again to send)',
   // W7-F (#84)
   'shortcut.tabs.switcher': 'Quick switch between tabs',
+  // W9-B: Ctrl+1…6 open the top bar's pages
+  'shortcut.page.agents': 'Open the Agents page',
+  'shortcut.page.tasks': 'Open the Tasks page',
+  'shortcut.page.plans': 'Open the Plans page',
+  'shortcut.page.inbox': 'Open the Inbox',
+  'shortcut.page.worktrees': 'Open the Worktrees page',
+  'shortcut.page.files': 'Open the Files page',
   'tabs.switcher.placeholder': 'Find a tab by name, plan or Task',
   'tabs.switcher.empty': 'No tab matches',
   'tabs.overflow.title': 'Every tab of this workspace',

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { Attention } from '../../../../core/types'
+import type { Attention } from '../../../core/types'
 
 /** Each session's attention verdict (core/sessions/attention.ts): read once, then followed on
  *  'conversation:attention', which fires on a change only. Main keeps it for every session, terminal or chat. */
