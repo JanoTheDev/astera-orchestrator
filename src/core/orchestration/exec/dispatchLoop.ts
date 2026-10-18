@@ -17,6 +17,7 @@
 // **electron·src/main·src/renderer 를 import 하지 않는다.** 두 프로세스가 서로 다른 것은 전부
 // DispatchLoopContext 로 주입받고, 모듈은 `c.*` 를 **부를 때마다** 읽는다 — 짓는 순간의 사본을 쥐지
 // 않는다(C5): 앱과 테스트가 지은 뒤에 칸을 갈아 끼운다.
+import { ENTER_DELAY_MS } from '../../sessions/sessionDriver'
 import type { Lang } from '../../i18n'
 import { t } from '../../i18n'
 import { accountToDispatchOn } from '../../accounts/dispatchAccount'
@@ -1402,6 +1403,9 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
         `Your Run has ${m.messageIds.length} unread message(s). Run \`astera check --json\`, ` +
           'handle them, ack the batch, then end your turn: the next message wakes you.'
       )
+      // Enter in the same burst as the text is read as part of the paste and only adds a line (2026-10-19:
+      // six nudges piled up unsent in a coordinator's input box); the paste-then-Enter gap every other typist uses
+      await new Promise((r) => setTimeout(r, ENTER_DELAY_MS))
       c.typeInto(m.sessionId, '\r')
       log(`coordinator nudged run=${m.runId} session=${m.sessionId} unread=${m.messageIds.length}`)
     }
