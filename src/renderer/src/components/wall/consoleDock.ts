@@ -10,6 +10,8 @@ export interface Dockable {
   show(anchor: HTMLElement): void
   /** Puts it back in its pane at its own size. */
   home(): void
+  /** Gives it the keyboard (the full-size console), unless a tile has it. */
+  focus(): void
 }
 
 const dockables = new Map<string, Dockable>()
@@ -24,6 +26,9 @@ export function registerDockable(sessionId: string, d: Dockable): () => void {
     if (dockables.get(sessionId) === d) dockables.delete(sessionId)
   }
 }
+
+/** The full-size console's side: the keys go to this session's terminal. */
+export const focusTerminal = (sessionId: string): void => dockables.get(sessionId)?.focus()
 
 /** The tile's side: shows the session's terminal in `anchor` until the returned release is called. */
 export function claimTerminal(sessionId: string, anchor: HTMLElement): () => void {

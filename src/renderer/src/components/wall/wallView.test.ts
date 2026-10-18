@@ -19,7 +19,7 @@ describe('Agents is the default page', () => {
 describe('consoleDock: a tile borrows the one xterm a session has', () => {
   const anchor = (): HTMLElement => ({}) as HTMLElement
   it('shows into the tile, and home on release; a claim before the terminal mounts is honoured when it does', () => {
-    const d = { show: vi.fn(), home: vi.fn() }
+    const d = { show: vi.fn(), home: vi.fn(), focus: vi.fn() }
     const a = anchor()
     const release = claimTerminal('x1', a)
     const off = registerDockable('x1', d)
@@ -29,7 +29,7 @@ describe('consoleDock: a tile borrows the one xterm a session has', () => {
     off()
   })
   it("a later claim takes it over, and the earlier one's release then does nothing", () => {
-    const d = { show: vi.fn(), home: vi.fn() }
+    const d = { show: vi.fn(), home: vi.fn(), focus: vi.fn() }
     const off = registerDockable('x2', d)
     const first = claimTerminal('x2', anchor())
     const second = claimTerminal('x2', anchor())

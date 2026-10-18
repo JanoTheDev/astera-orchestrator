@@ -17,6 +17,7 @@ import { usePlanLive } from '../plan/usePlanLive'
 import { localDoor } from '../../lib/orchDoor'
 import { openConsole, openPlan } from '../shell/navigation'
 import { setWallView, useWallView } from '../wall/wallView'
+import { focusTerminal } from '../wall/consoleDock'
 import { useJobRows } from '../wall/useJobRows'
 import {
   ALL_PLANS, NO_PLAN, consolesOf, detailLineOf, detailsOf, filterConsoles, gridColumns, orderWall, planPills,
@@ -122,6 +123,19 @@ export function AgentsPage({ sessions, accounts, currentProject, homeDir, active
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the hold follows the open console, not the anchor
   }, [heldId])
 
+  // The keyboard follows the view: the full-size console takes it (keys go to that PTY only), and the wall takes it
+  // away from the hidden pane grid, so nothing typed on the wall reaches a console behind it.
+  const consoleRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (heldId) {
+      const frame = requestAnimationFrame(() => focusTerminal(heldId))
+      return () => cancelAnimationFrame(frame)
+    }
+    const el = document.activeElement
+    if (view.kind === 'wall' && el instanceof HTMLElement && consoleRef.current?.contains(el)) el.blur()
+    return undefined
+  }, [heldId, view.kind])
+
   // Ctrl+. folds the details panel of the open console.
   useEffect(() => {
     if (view.kind !== 'console') return
@@ -190,7 +204,9 @@ export function AgentsPage({ sessions, accounts, currentProject, homeDir, active
         <ConsoleHeader c={opened} projectName={projectName} detailsOpen={detailsOpen} onToggleDetails={() => setDetailsOpen((o) => !o)} onBack={back} />
       )}
       <div className="agents-page__body" style={view.kind === 'wall' ? { display: 'none' } : undefined}>
-        <div className="agents-page__console">{children}</div>
+        <div className="agents-page__console" ref={consoleRef}>
+          {children}
+        </div>
         {view.kind === 'console' && opened && detailsOpen && (
           <DetailsPanel d={detailsFor(opened)} accounts={accounts} nowMs={nowMs} onOpenConsole={open} onOpenPlan={(jobId) => openPlan(jobId, 'waves')} />
         )}

@@ -165,6 +165,9 @@ export function TerminalView({
         host.appendChild(el)
         term.options.disableStdin = false
         fitNow()
+      },
+      focus: () => {
+        if (!tiled) term.focus()
       }
     })
     const offSize = window.api.on('session:pty-size', (e) => {
