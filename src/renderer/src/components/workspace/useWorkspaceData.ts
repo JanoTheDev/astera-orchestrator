@@ -25,7 +25,7 @@ const read = async <T>(projectPath: string, cmd: string, args: Record<string, un
  * projects' sessions went stale.) An account roll rekeys a Dispatch to its new session without moving the Task, and
  * this read sees that too.
  */
-export function useWorkspaceData(anchor: string | null, enabled: boolean): WorkspaceData | null {
+export function useWorkspaceData(anchor: string | null, enabled: boolean, refreshKey = 0): WorkspaceData | null {
   const [data, setData] = useState<WorkspaceData | null>(null)
   useEffect(() => {
     if (!enabled || !anchor) return
@@ -69,6 +69,6 @@ export function useWorkspaceData(anchor: string | null, enabled: boolean): Works
       alive = false
       clearInterval(timer)
     }
-  }, [anchor, enabled])
+  }, [anchor, enabled, refreshKey])
   return data
 }

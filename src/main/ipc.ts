@@ -4410,6 +4410,9 @@ export function registerIpc(
     const projects = await core.history.knownProjectPaths()
     const projectRoot = projects.find((r) => isPathWithin(r, p))
     if (projectRoot) return projectRoot
+    // W7-B: a project the person created or added (projects-create / projects-add) before any tab opened in it
+    const registered = orch?.deps.getState().projects.find((r) => isPathWithin(r.path, p))
+    if (registered) return registered.path
     throw new Error(t(core.lang, 'files.error.pathNotAllowed'))
   }
 

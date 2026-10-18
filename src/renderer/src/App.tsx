@@ -125,6 +125,10 @@ import { useWorkspaceData } from './components/workspace/useWorkspaceData'
 import { buildWorkspaceTree, findPlan, planSessions, scopeLayout } from './components/workspace/workspaceTree'
 // W6-F: one workspace per project
 import { entryTab, OTHER_WORKSPACE, scopeIds as workspaceScopeOf, workspaceFolderOf, workspaceSessionIds } from './components/workspace/workspaceTree'
+import { NewProjectDialog } from './components/projects/NewProjectDialog'
+import { AddProjectDialog } from './components/projects/AddProjectDialog'
+import { ProjectSettings } from './components/projects/ProjectSettings'
+import { NewPlanDialog } from './components/intake/NewPlanDialog'
 import { ProjectSwitcher } from './components/workspace/ProjectSwitcher'
 import { terminalsWithCreated } from './lib/terminalTabs'
 import * as hiddenProjects from './lib/hiddenProjects'
@@ -3463,10 +3467,16 @@ export default function App(): React.JSX.Element {
   // W3-B: the command bar resolves names against the same data, so it is read while the bar is open too
   const [commandOpen, setCommandOpen] = useState(false)
   const [talkSignal, setTalkSignal] = useState(0)
+  // W7-B: the new / add / settings dialogs of the project switcher, and a bump that makes the switcher read again
+  const [projectDialog, setProjectDialog] = useState<'new' | 'add' | { settings: string } | null>(null)
+  const [projectsRefresh, setProjectsRefresh] = useState(0)
+  const [firstPlan, setFirstPlan] = useState<{ path: string; objective: string } | null>(null)
   const workspaceData = useWorkspaceData(
     currentProject ?? sessions[0]?.cwd ?? null,
-    (sidebarOpen && sidebarPane === 'sessions') || workspacePlanId !== null || workspaceProjectId !== null || commandOpen
+    (sidebarOpen && sidebarPane === 'sessions') || workspacePlanId !== null || workspaceProjectId !== null || commandOpen,
+    projectsRefresh // W7-B
   )
+  const projectAnchor = currentProject ?? sessions[0]?.cwd ?? null // W7-B: same anchor as useWorkspaceData
   const workspaceTree = useMemo(
     () => (workspaceData ? buildWorkspaceTree(workspaceData, { showArchived: workspaceArchived }) : []),
     [workspaceData, workspaceArchived]
@@ -4708,6 +4718,11 @@ export default function App(): React.JSX.Element {
                   sessions={sessions}
                   selectedId={workspaceProjectId}
                   onSelect={openWorkspaceProject}
+                  // W7-B
+                  onNew={() => setProjectDialog('new')}
+                  onAdd={() => setProjectDialog('add')}
+                  onSettings={(id) => setProjectDialog({ settings: id })}
+                  toolsDisabledReason={projectAnchor ? undefined : 'Open a tab first'}
                 />
                 <AccountPanel accounts={accounts} />
                 <WorkspaceSidebar
@@ -5780,6 +5795,41 @@ export default function App(): React.JSX.Element {
             setRemoteNewRunOpen(false)
             if (remoteProject) setOpenRun({ projectPath: remoteProject, runId, runtimeId: jobsRuntime })
           }}
+        />
+      )}
+      {/* W7-B project dialogs */}
+      {projectAnchor && projectDialog === 'new' && (
+        <NewProjectDialog
+          anchor={projectAnchor}
+          onClose={() => setProjectDialog(null)}
+          onCreated={(id) => {
+            setProjectsRefresh((n) => n + 1)
+            openWorkspaceProject(id)
+          }}
+          onStartPlan={(path, objective) => setFirstPlan({ path, objective })}
+        />
+      )}
+      {projectAnchor && projectDialog === 'add' && (
+        <AddProjectDialog
+          anchor={projectAnchor}
+          onClose={() => setProjectDialog(null)}
+          onAdded={(id) => {
+            setProjectsRefresh((n) => n + 1)
+            openWorkspaceProject(id)
+          }}
+        />
+      )}
+      {projectAnchor && projectDialog !== null && typeof projectDialog === 'object' && (
+        <ProjectSettings anchor={projectAnchor} projectId={projectDialog.settings} accounts={accounts} onClose={() => setProjectDialog(null)} />
+      )}
+      {firstPlan && (
+        <NewPlanDialog
+          door={localDoor(window.api, firstPlan.path)}
+          cwd={firstPlan.path}
+          accounts={accounts}
+          initialText={firstPlan.objective}
+          onClose={() => setFirstPlan(null)}
+          onCreated={() => setFirstPlan(null)}
         />
       )}
       {/* W3-B command bar: names resolve against the workspace tree; changes go through this computer's doors */}

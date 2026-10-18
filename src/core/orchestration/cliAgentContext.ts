@@ -646,6 +646,7 @@ const NOT_SWITCHED = [
   // Remote runtime: `projects add` is Host-answered beside `pair-create` (src/host/orch.ts), and the runtime commands
   // answer in the CLI process (src/cli/runtime/commands.ts).
   'projects-add',
+  'projects-create', // W7-B
   'runtime-start',
   'runtime-stop',
   'runtime-status',

@@ -117,6 +117,25 @@ The loop that works today, from source to merged work:
 
 Known gaps are issues #67–#84 (label `wave-6`), fixed by Wave 7's W7-C…W7-F.
 
+## Projects (W7-B)
+
+**New project.** "+ New project" asks for a name, a parent folder, an optional description and GitHub
+private, public or none. It makes the folder, runs `git init`, commits and registers it. From a shell:
+`astera projects create --name app --parent ~/code --github private`.
+
+**Add an existing project.** `astera projects add --path <folder>`. The folder must be a git repository. With no
+commit it is refused (409 needsInitialCommit); add `--initial-commit` to make the first one. The answer proposes
+a test command, and the default branch is recorded.
+
+**Settings.** Each project has a settings page; `astera projects set --id <projectId> …` does the same:
+`--delivery pr|push`, `--delivery-branch`, `--auto-approve true|false`, `--test-command <cmd>` (saved as a run
+configuration), `--test-config <id>`, `--concurrency 1-10`, `--review-rounds <n>`, `--replan waves|off`,
+`--account <id>`. An empty value clears a setting to its default. Agent sessions and MCP cannot set these.
+
+**Defaults.** Delivery pr, auto-approve off, concurrency 3, review rounds 5, replan waves. A new Task with no
+`--validate` is validated with the project's test command. A new Job copies the project's concurrency, replan
+and review rounds when it sets none.
+
 ## The workspace
 
 The sidebar's **Workspaces** tree is Project → Plan → Planner / Coordinator / Workers. Clicking a session shows its
