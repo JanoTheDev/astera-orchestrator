@@ -537,6 +537,8 @@ export function createHostOrch(a: {
    *  (host/completionChecks.ts): the command layer's early refusals and checks read them, and the app asks through
    *  `checks-plugin-run`. */
   completionChecks?: OrchServerDeps['completionChecks']
+  /** W6-H: a push delivery through this Host's git (`deliverByPush`). Absent: `run-deliver` on a push project answers 409. */
+  deliverPush?: OrchServerDeps['deliverPush']
   /** How It Works records (MCP P2-C), passed through to `hostOrchDeps`. Absent: the `understanding-*`
    *  commands answer 409. */
   readUnderstanding?: OrchServerDeps['readUnderstanding']
@@ -821,6 +823,7 @@ export function createHostOrch(a: {
       ...(a.changes ? { changes: a.changes } : {}),
       ...(a.jobSources ? { jobSources: a.jobSources } : {}),
       ...(a.completionChecks ? { completionChecks: a.completionChecks } : {}),
+      ...(a.deliverPush ? { deliverPush: a.deliverPush } : {}),
       workUnits: a.workUnits?.() ?? null,
       ...(a.journal ? { journalTimeline: (runId: string, st: OrchState) => a.journal!.timeline(runId, st) } : {}),
       onEffect: () => {

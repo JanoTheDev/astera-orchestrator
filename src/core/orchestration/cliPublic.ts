@@ -67,8 +67,13 @@ const RUN_HIDDEN = [
   'coordinatorStopPending',
   'externalCoordinatorSessionId',
   // W2-D: the plan's PR, read by the app's view; not in the SDK's contract yet (`run-open-pr` answers it)
-  'pr'
+  'pr',
+  // W6-H: a push delivery's result, answered by `run-deliver`; not in the SDK's contract yet
+  'delivery'
 ] as const
+
+/** W6-H: how a project's plans land, set by `projects-set`; not in the SDK's contract yet. */
+const PROJECT_HIDDEN = ['delivery', 'deliveryBranch'] as const
 
 /**
  * A Task's fields kept back on purpose: all of them **the ledger the app keeps to drive convergence**. The guide
@@ -104,7 +109,8 @@ const TASK_HIDDEN = [
 const JOB_HIDDEN = [
   'models',
   /* W2-A: the planner sessions, the app's own bookkeeping */ 'plannerSessionIds',
-  /* W5-C: the person's "stop launching" (jobs-hold), not in the SDK's contract yet */ 'dispatchHold'
+  /* W5-C: the person's "stop launching" (jobs-hold), not in the SDK's contract yet */ 'dispatchHold',
+  /* W6-H: the plan's own delivery (jobs-create/jobs-plan --delivery), not in the SDK's contract yet */ 'delivery'
 ] as const
 
 /** A followed event's message body (pages long) and the app's link from an event to a tab. */
@@ -112,7 +118,7 @@ const FOLLOW_EVENT_HIDDEN = ['body', 'sessionId'] as const
 
 // A Job's and a Run's derived fields (the package's DERIVED_FIELDS: outcome, progress, questionsOpen) are not fields
 // of the objects, so they are on neither side of these checks.
-type _project = NothingLeft<Unlisted<Project, typeof PROJECT_FIELDS, []>>
+type _project = NothingLeft<Unlisted<Project, typeof PROJECT_FIELDS, typeof PROJECT_HIDDEN>>
 type _job = NothingLeft<Unlisted<Job, typeof JOB_FIELDS, typeof JOB_HIDDEN>>
 type _run = NothingLeft<Unlisted<JobRun, typeof RUN_FIELDS, typeof RUN_HIDDEN>>
 type _task = NothingLeft<Unlisted<Task, typeof TASK_FIELDS, typeof TASK_HIDDEN>>

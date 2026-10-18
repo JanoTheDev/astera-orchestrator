@@ -168,6 +168,13 @@ const SESSION = {
       { name: 'force', about: 'try again after a recorded failure' }
     ]
   },
+  // W6-H delivery
+  'run-deliver': {
+    summary: "land a completed run the way its project says: its pull request, or a push to the delivery branch",
+    detail:
+      "pr is `run-open-pr`. push merges the run's worktrees into the project folder's delivery branch, validates the merged tree and pushes it, never forced; every guard that stops it is recorded on the run and escalated, and the worktrees are removed only after a push. The driving loop does this when a run completes; a recorded stop is tried again only with --force. A push is refused from an agent session and an MCP client. Answered by the Host.",
+    flags: [RUN_ARG('<runId>', 'the completed run'), { name: 'force', about: 'try again after a recorded stop' }]
+  },
   'runs-changed-files': {
     summary: 'the files a run, or one of its tasks, changed, from git',
     detail:

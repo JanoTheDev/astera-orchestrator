@@ -453,7 +453,9 @@ const NOT_FORWARDED = [
   'readUnderstanding',
   'changes',
   'jobSources',
-  'completionChecks'
+  'completionChecks',
+  // W6-H
+  'deliverPush'
 ] as const
 
 /** Every name the groups above classify between them. Nothing is unsupplied any more: the four
@@ -598,7 +600,10 @@ const EFFECTFUL: Record<Classified, boolean> = {
   jobSources: false,
   // NOT_FORWARDED as well (plugin Phase 5 C7, C8): this Host's completion check plugins, listed and asked to check,
   // never the app's. A check reads the work; its verdict is committed by the checks that asked.
-  completionChecks: false
+  completionChecks: false,
+  // NOT_FORWARDED as well (W6-H): this Host's git merges and pushes a finished plan, never the app's. It acts: marked
+  // where `hostOrchDeps` passes it on.
+  deliverPush: true
 }
 
 /** The names an action really travels under, narrowed to the effectful ones — the NESTED groups
@@ -721,6 +726,8 @@ export function hostOrchDeps(a: {
   /** This Host's job-source plugins (plugin Phase 4 J10). Absent: the sources are GitHub's alone. */
   jobSources?: OrchServerDeps['jobSources']
   completionChecks?: OrchServerDeps['completionChecks']
+  /** W6-H: a push delivery through this Host's git. Absent: `run-deliver` on a push project answers 409. */
+  deliverPush?: OrchServerDeps['deliverPush']
   /** The Host's own session work units (HOST_TRACKS, E2 §5), asked whether it is their writer at every
    *  call. Null or absent (no spawner): `trackingEnabled` and `sessionTasks.*` only forward, as before. */
   workUnits?: (Pick<HostWorkUnits, 'isWriter' | 'trackingEnabled'> & {
@@ -1300,6 +1307,15 @@ export function hostOrchDeps(a: {
     ...(a.changes ? { changes: a.changes } : {}),
     ...(a.jobSources ? { jobSources: a.jobSources } : {}),
     ...(a.completionChecks ? { completionChecks: a.completionChecks } : {}),
+    // W6-H: a push lands on GitHub and commits nothing, so it is marked before the call, as `github.createPr` is
+    ...(a.deliverPush
+      ? {
+          deliverPush: (d: Parameters<NonNullable<OrchServerDeps['deliverPush']>>[0]) => {
+            a.onEffect?.()
+            return a.deliverPush!(d)
+          }
+        }
+      : {}),
     ...(a.checkWaits
       ? {
           enterCheckWait: (runId: string, sessionId: string) => a.checkWaits!.enter(runId, sessionId),

@@ -1727,9 +1727,10 @@ describe("a completed Run opens its plan's pull request (W2-D)", () => {
     h.setState({ ...s, tasks: s.tasks.map((t) => (t.runId === runId ? { ...t, status: 'completed' as const } : t)) })
   }
   const fakePr = (h: ReturnType<typeof rig>): void => {
-    h.ctx.handle = async (cmd, args) => (cmd === 'run-open-pr' ? { status: 200, body: { url: 'https://github.com/o/r/pull/1' } } : h.real(cmd, args))
+    // W6-H: the loop asks `run-deliver`, which is `run-open-pr` for a `pr` project
+    h.ctx.handle = async (cmd, args) => (cmd === 'run-deliver' ? { status: 200, body: { url: 'https://github.com/o/r/pull/1' } } : h.real(cmd, args))
   }
-  const asked = (h: ReturnType<typeof rig>): number => h.handled().filter((c) => c === 'run-open-pr').length
+  const asked = (h: ReturnType<typeof rig>): number => h.handled().filter((c) => c === 'run-deliver').length
 
   it('asks once when a Run it saw running completes', async () => {
     const h = rig()
@@ -1751,6 +1752,39 @@ describe("a completed Run opens its plan's pull request (W2-D)", () => {
     withWorktree(h, 'run_1')
     finish(h, 'run_1')
     fakePr(h)
+    await h.loop.run()
+    await h.settle()
+    expect(asked(h)).toBe(0)
+  })
+  // W6-H: a push merges the worktrees into the project folder itself, so a Run with no integration branch is asked too
+  it('asks a push Job with no integration branch once', async () => {
+    const h = rig({ runWithoutWorktree: true })
+    const s = h.state()
+    h.setState({ ...s, jobs: s.jobs.map((j) => ({ ...j, delivery: 'push' as const })) })
+    fakePr(h)
+    await h.loop.run()
+    await h.settle()
+    // finished before any worker forked a Run worktree: the Run still has no integration branch
+    const t = h.state()
+    h.setState({ ...t, runs: t.runs.map(({ worktree: _w, ...r }) => r) })
+    finish(h, 'run_1')
+    await h.loop.run()
+    await h.settle()
+    await h.loop.run()
+    await h.settle()
+    expect(h.state().runs[0].worktree).toBeUndefined()
+    expect(asked(h)).toBe(1)
+  })
+
+  it('does not ask again once the Run records a delivery', async () => {
+    const h = rig()
+    withWorktree(h, 'run_1')
+    fakePr(h)
+    await h.loop.run()
+    await h.settle()
+    const s = h.state()
+    h.setState({ ...s, runs: s.runs.map((r) => ({ ...r, delivery: { at: 'x', error: 'stopped' } })) })
+    finish(h, 'run_1')
     await h.loop.run()
     await h.settle()
     expect(asked(h)).toBe(0)

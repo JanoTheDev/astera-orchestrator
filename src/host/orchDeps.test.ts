@@ -889,7 +889,7 @@ describe('HOST_DRIVES (R8)', () => {
     repairTargetFor: vi.fn(() => ({ kind: 'fresh' } as never)),
     repairOnce: vi.fn(async () => ({ ok: true as const })), lang: vi.fn(async () => 'ko' as const),
     stopValidation: vi.fn(() => false), stopForeignValidations: vi.fn(async () => 0), checking: vi.fn(() => false), resumeSweep: vi.fn(), langNow: vi.fn(() => 'ko' as const),
-    accounts: vi.fn(async () => []), loginStatus: vi.fn(async () => true)
+    accounts: vi.fn(async () => []), loginStatus: vi.fn(async () => true), validateTree: vi.fn(async () => ({ ok: true as const, ran: 0 }))
   })
   it('answers all six from the Host while it drives, and forwards nothing', async () => {
     const c = checks()
