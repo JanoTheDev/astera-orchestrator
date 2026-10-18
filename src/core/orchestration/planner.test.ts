@@ -442,9 +442,9 @@ describe('Task.basis', () => {
     const r = rig()
     const jobId = await plannedJob(r)
     const t = (await planner(r)('task-create', goodTask(jobId, { basis: undefined, evidence: undefined }))).body as { id: string }
-    const edited = await planner(r)('task-update', { id: t.id, basis: 'broken', evidence: 'src/login.tsx:12 throws on submit' })
+    const edited = await planner(r)('task-update', { id: t.id, basis: 'broken', evidence: 'web/login.py:12 throws on submit' })
     expect(edited.status).toBe(200)
-    expect(edited.body).toMatchObject({ basis: { state: 'broken', evidence: 'src/login.tsx:12 throws on submit' } })
+    expect(edited.body).toMatchObject({ basis: { state: 'broken', evidence: 'web/login.py:12 throws on submit' } })
     expect(validatePlan(r.deps.getState(), jobId)).toEqual([])
   })
 })
@@ -453,10 +453,10 @@ describe('plan-nothing-to-do', () => {
   it("its planner ends a Job with no Tasks: summary kept, archived, the planner's session ended", async () => {
     const r = rig()
     const jobId = await plannedJob(r)
-    const reply = await planner(r)('plan-nothing-to-do', { job: jobId, summary: '| login page | built | src/login.tsx:1 |' })
+    const reply = await planner(r)('plan-nothing-to-do', { job: jobId, summary: '| login page | built | web/login.py:1 |' })
     expect(reply).toEqual({ status: 200, body: { id: jobId, nothingToDo: true } })
     const job = r.deps.getState().jobs[0]
-    expect(job.nothingToDo).toEqual({ at: NOW, summary: '| login page | built | src/login.tsx:1 |' })
+    expect(job.nothingToDo).toEqual({ at: NOW, summary: '| login page | built | web/login.py:1 |' })
     expect(job.archivedAt).toBe(NOW)
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(r.stopped.map(([id]) => id)).toEqual([PLANNER])
