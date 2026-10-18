@@ -101,6 +101,8 @@ describe('answering a check that could not be made', () => {
     const r = await call(deps, 'gate-resolve', { id: gateId, resolution: 'mark-failed' })
     expect(r.status).toBe(200)
     expect(taskOf(deps, taskId).status).toBe('failed')
+    // W8-E (#99): out of tries, so its Run can end
+    expect(taskOf(deps, taskId).consecutiveFailures).toBe(3)
     expect(deps.validations).toEqual([])
   })
 

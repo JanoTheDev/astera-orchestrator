@@ -156,6 +156,7 @@ describe('deriveActivity', () => {
     const out = deriveActivity(state(), state({ tasks: [task('a', { status: 'failed', consecutiveFailures: FAILURE_LIMIT })] }))
     expect(types(out)).toEqual(['task.status', 'plan.done'])
     expect(out[1].payload.runOutcome).toBe('failed')
+    expect(out[1].payload.failedTasks).toBe(1)
     const done = deriveActivity(state(), state({ tasks: [task('a', { status: 'completed' })] }))
     expect(done.at(-1)).toMatchObject({ type: 'plan.done', payload: { runOutcome: 'completed', title: 'Plan A' } })
   })
@@ -211,6 +212,10 @@ describe('notices', () => {
     expect(noticeOf(ev({ type: 'task.status', taskId: 'a', payload: { title: 'A', status: 'failed', from: 'dispatched', category: 'failed' } }))?.title).toBe('Task failed')
     expect(noticeOf(ev({ type: 'task.status', taskId: 'a', payload: { title: 'A', status: 'completed', category: 'done' } }))).toBeNull()
     expect(noticeOf(ev({ type: 'plan.done', runId: 'r1', payload: { title: 'P', runOutcome: 'completed' } }))?.title).toBe('Plan done')
+    // W8-E (#99): a failed plan says how many failed and that its final check was skipped, with no chime
+    const failed = noticeOf(ev({ type: 'plan.done', runId: 'r1', payload: { title: 'P', runOutcome: 'failed', failedTasks: 2 } }))
+    expect(failed).toMatchObject({ title: 'Plan finished with 2 failed', body: 'P. The final check was skipped.' })
+    expect(failed?.alert).toBeUndefined()
     expect(noticeOf(ev({ type: 'gate.opened', payload: { title: 'A', gateId: 'g', question: 'Q?' } }))?.body).toContain('Q?')
     expect(noticeOf(ev({ type: 'plan.awaiting-approval', jobId: 'j1', payload: { title: 'P' } }))?.key).toBe('approve:j1')
     expect(noticeOf(ev({ type: 'dispatch.started', payload: { title: 'A' } }))).toBeNull()

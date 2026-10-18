@@ -25,7 +25,7 @@ import type { Account } from '../../types'
 import { nameForRun, nameForTask } from '../../worktrees/naming'
 import { jobNameOf } from '../jobName'
 import { firesDue } from '../fire'
-import { NO_COORDINATOR_ANSWER, nudgeKey, planNudges, type NudgeMemo, unattendedQuestions, unreadUpwardMail } from '../inbox'
+import { NO_COORDINATOR_ANSWER, gateAnswersToTell, gateAnsweredSubject, nudgeKey, planNudges, type NudgeMemo, unattendedQuestions, unreadUpwardMail } from '../inbox'
 import {
   buildIntegrationSpec,
   integrationTaskFor,
@@ -482,13 +482,15 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
         seenRunning.add(run.id)
         continue
       }
-      if (outcome !== 'completed' || !seenRunning.has(run.id)) continue
+      if (!seenRunning.has(run.id)) continue
       const job = jobOf(s, run)
       if (!job || !isJobActive(job) || job.schedule !== undefined) continue
-      // W6-D: the PR waits for the final check (replan.ts completionSettled)
-      if (!completionSettled(s, job, run.id)) continue
+      // W6-D: the PR waits for the final check (replan.ts completionSettled). W8-E (#99): a failed plan has none
+      if (outcome === 'completed' && !completionSettled(s, job, run.id)) continue
       // W6-H: a push merges the Run's worktrees into the project folder itself, so it needs no integration branch
       const push = deliveryOf(s, job) === 'push'
+      // W8-E (#99): a failed plan's completed work goes into a draft PR (or its branch note), never pushed
+      if (outcome === 'failed' && push) continue
       if (!push && run.worktree === undefined) continue
       if (!c.mayStart()) return
       prAsked.add(run.id)
@@ -1211,6 +1213,8 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     // 표시는 이 틱이 맡는다. tidyCoordinators 는 던지지 않는다.
     await tidyCoordinators()
     if (!c.mayStart()) return
+    await tellGateAnswers()
+    if (!c.mayStart()) return
     const before = nudgeMemo
     const planned = planNudges(unreadUpwardMail(c.getState(), { nowMs: c.nowMs(), staleMs: COORDINATOR_NUDGE_MS }), before, c.nowMs())
     nudgeMemo = planned.memo
@@ -1240,6 +1244,30 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       )
       c.typeInto(m.sessionId, '\r')
       log(`coordinator nudged run=${m.runId} session=${m.sessionId} unread=${m.messageIds.length}`)
+    }
+  }
+
+  // W8-E (#96): an answered Gate is a message in its Run's inbox, which ends the coordinator's `check --wait` within a
+  // tick; unread, it is nudged about as any other mail is (below). Told once (inbox.ts gateAnswersToTell).
+  const tellGateAnswers = async (): Promise<void> => {
+    const s = c.getState()
+    for (const g of gateAnswersToTell(s, c.nowMs())) {
+      const task = s.tasks.find((t) => t.id === g.taskId)
+      // `send` posts into its Task's Run, and a Task that is gone has none
+      if (!task) continue
+      try {
+        const r = await c.handle('send', {
+          type: 'status',
+          taskId: g.taskId,
+          subject: gateAnsweredSubject(g.id),
+          body:
+            `The owner answered the question on task ${g.taskId}: "${g.question.split('\n')[0].slice(0, 200)}"\n\n` +
+            `Answer: ${g.resolution ?? ''}\n\nThe task is ${task.status} now; carry on (start it if it is ready).`
+        })
+        if (r.status >= 400) log(`run=${g.runId}: the gate-answered message was refused: ${JSON.stringify(r.body)}`)
+      } catch (e) {
+        log(`run=${g.runId}: the gate-answered message failed: ${String(e)}`)
+      }
     }
   }
 

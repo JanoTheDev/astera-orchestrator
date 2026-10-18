@@ -19,6 +19,7 @@ import { handleCommand, type OrchServerDeps } from '../command'
 import { APP_CALLER } from '../../host/driver'
 import { COORDINATOR_START_WINDOW_MS, emptyState, type OrchState } from '../state'
 import type { Dispatch, Job, Message, Task } from '../types'
+import { FAILURE_LIMIT } from '../types'
 import type { Account } from '../../types'
 
 const NOW = '2026-09-24T00:00:00.000Z'
@@ -410,6 +411,34 @@ describe('createDispatchLoop', () => {
     expect(told[0].body).toContain('tsk_1, tsk_2')
     const checked = await h.as('coord-1', 'check', { run: 'run_1', wait: true, timeoutMs: 1000 })
     expect((checked.body as { messages: Message[] }).messages.map((m) => m.subject)).toContain('usage resumed')
+  })
+
+  // W8-E (#96): the owner's answer to a Gate wakes the coordinator's check --wait, once, within one tick
+  it('a resolved Gate ends a pending check --wait within one tick, and is told once', async () => {
+    const h = rig()
+    const s0 = h.state()
+    h.setState({ ...s0, jobs: s0.jobs.map((j) => ({ ...j, autoDispatch: false })), runs: s0.runs.map((r) => ({ ...r, coordinatorSessionId: 'coord-1' })) })
+    const opened = await h.real('gate-create', { task: 'tsk_1', question: 'EUR or USD?\nPick one.' })
+    expect(opened.status).toBe(200)
+    const gateId = (opened.body as { id: string }).id
+    const first = await h.as('coord-1', 'check', { run: 'run_1' })
+    await h.as('coord-1', 'check', { run: 'run_1', ack: (first.body as { deliveryId: string }).deliveryId })
+    let returned = false
+    const waiting = h.as('coord-1', 'check', { run: 'run_1', wait: true, timeoutMs: 5000 }).then((r) => {
+      returned = true
+      return r
+    })
+    expect((await h.real('questions-answer', { id: gateId, answer: 'EUR' })).status).toBe(200)
+    await new Promise((r) => setTimeout(r, 120))
+    expect(returned).toBe(false) // the answer alone is no inbox message
+    await h.loop.nudge()
+    const checked = await waiting
+    const msgs = (checked.body as { messages: Message[] }).messages
+    expect(msgs.map((m) => m.subject)).toEqual([`gate ${gateId} answered`])
+    expect(msgs[0].body).toContain('EUR or USD?')
+    expect(msgs[0].body).toContain('Answer: EUR')
+    await h.loop.nudge()
+    expect(h.state().messages.filter((m) => m.subject === `gate ${gateId} answered`)).toHaveLength(1)
   })
 
   it('usage resumed tells nothing while this process may not start work', async () => {
@@ -1863,6 +1892,39 @@ describe("a completed Run opens its plan's pull request (W2-D)", () => {
     const s = h.state()
     h.setState({ ...s, runs: s.runs.map((r) => ({ ...r, delivery: { at: 'x', error: 'stopped' } })) })
     finish(h, 'run_1')
+    await h.loop.run()
+    await h.settle()
+    expect(asked(h)).toBe(0)
+  })
+
+  // W8-E (#99): a plan that ended with a failed Task still delivers its completed Tasks' work, never by a push
+  const failOne = (h: ReturnType<typeof rig>): void => {
+    const s = h.state()
+    h.setState({
+      ...s,
+      tasks: s.tasks.map((t, i) => (i === 0 ? { ...t, status: 'failed' as const, consecutiveFailures: FAILURE_LIMIT } : { ...t, status: 'completed' as const }))
+    })
+  }
+  it('asks once for a pr Run that ended with a failed Task', async () => {
+    const h = rig()
+    withWorktree(h, 'run_1')
+    fakePr(h)
+    await h.loop.run()
+    await h.settle()
+    failOne(h)
+    await h.loop.run()
+    await h.settle()
+    expect(asked(h)).toBe(1)
+  })
+  it('never pushes a Run that ended with a failed Task', async () => {
+    const h = rig()
+    const s = h.state()
+    h.setState({ ...s, jobs: s.jobs.map((j) => ({ ...j, delivery: 'push' as const })) })
+    withWorktree(h, 'run_1')
+    fakePr(h)
+    await h.loop.run()
+    await h.settle()
+    failOne(h)
     await h.loop.run()
     await h.settle()
     expect(asked(h)).toBe(0)

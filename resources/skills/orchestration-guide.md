@@ -807,6 +807,15 @@ A timeout you expected is `--resume`; an answer you lost is the key.
   reset. When the pause ends, a `status` message with subject `usage resumed` arrives in your inbox and
   names the held Tasks. Retry their `worker-start` right away. Waiting with `--types` that leaves out
   `status` does not wake on it.
+<!-- W8-E: coordinator guards -->
+- **A worker-start refused for the same files** (409, `sameFiles`: "waiting for <title>: same files <path>"): two
+  workers never edit the same files at once. Start it when that Task ends; do not open a Gate about it.
+- **A worker-start refused for a replan** (409, `replanning`: "replanning wave N: this lifts by itself"): the plan
+  is being adjusted. Wait for `plan.replanned` in your inbox, then start what is ready. Never ask the owner to
+  release it: `jobs-unhold` is not yours to run, and the hold is not the owner's to lift.
+- **An answered Gate arrives in your inbox**: a `status` message with subject `gate <id> answered` carries the
+  owner's answer and ends your `check --wait`. Act on it at once.
+<!-- /W8-E -->
 
 ## 6. Worker obligations
 

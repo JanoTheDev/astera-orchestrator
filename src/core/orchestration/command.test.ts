@@ -5275,6 +5275,31 @@ describe('handleCommand — convergence', () => {
     expect(deps2.getState().tasks[0].status).toBe('failed')
     expect(deps2.onces).toEqual([])
   })
+  // W8-E (#99): given up is out of tries, so the Run ends failed and its plan.done is said
+  it('mark-failed on an exhausted Gate ends the Run: the Task is terminal and plan.done failed follows', async () => {
+    const { deriveActivity } = await import('./activity')
+    const { outcomeOf } = await import('./running')
+    const deps = convDeps()
+    await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p', convergence: true })
+    await call(deps, 'task-create', { spec: 's', account: 'accA', validate: 'c1' })
+    await call(deps, 'task-create', { spec: 's2', account: 'accA' })
+    const [a, b] = deps.getState().tasks
+    const s = deps.getState()
+    const g = createGate(
+      { ...s, tasks: s.tasks.map((t) => (t.id === a.id ? { ...t, status: 'validating' as const, consecutiveFailures: 1 } : { ...t, status: 'completed' as const })) },
+      { taskId: a.id, question: 'q', kind: 'convergence-exhausted', options: ['retry-once', 'mark-failed'] },
+      NOW
+    )
+    if (!g.ok) throw new Error(g.error)
+    await deps.setState(g.state)
+    const before = deps.getState()
+    await call(deps, 'gate-resolve', { id: g.value.id, resolution: 'mark-failed' })
+    const after = deps.getState()
+    expect(after.tasks.find((t) => t.id === a.id)).toMatchObject({ status: 'failed', consecutiveFailures: FAILURE_LIMIT })
+    expect(after.tasks.find((t) => t.id === b.id)?.status).toBe('completed')
+    expect(outcomeOf(after, after.runs[0].id)).toBe('failed')
+    expect(deriveActivity(before, after).find((e) => e.type === 'plan.done')?.payload).toMatchObject({ runOutcome: 'failed', failedTasks: 1 })
+  })
   // 전체 브랜치 리뷰, Finding 5 — 이 Gate 를 retry-once 로 풀어도, 같은 Task 를 막는 두 번째 Gate가
   // 여전히 열려 있으면(resolveGate 의 stillBlocked) repairOnce 의 openDispatch 는 "task is blocked
   // by an open gate" 로 거절된다. 그 답이 조용히 사라지지 않고 200 응답에 남는다.
@@ -9487,5 +9512,62 @@ describe('the external coordinator: run-create and check record the driving sess
     await call(deps, 'check', { run, ack: first.deliveryId }, 'sess-b')
     expect(deps.getState().deliveries[0].ackedAt).toBeDefined()
     expect(deps.getState().runs[0].externalCoordinatorSessionId).toBe('sess-b')
+  })
+})
+
+// W8-E (#92, #95): the coordinator's worker-start keeps the rules the Host's own placing keeps
+describe('worker-start — the coordinator path (W8-E)', () => {
+  const planWith = async (paths: string[][]): Promise<{ deps: OrchServerDeps & { state: OrchState }; ids: string[]; runId: string }> => {
+    const deps = makeDeps()
+    const run = await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p', concurrency: 5 })
+    const runId = (run.body as { id: string }).id
+    const ids: string[] = []
+    for (const [i, affectedPaths] of paths.entries()) {
+      const t = await call(deps, 'task-create', { account: 'acc1', runId, title: `P${i + 1}`, spec: 's', affectedPaths })
+      ids.push((t.body as { id: string }).id)
+    }
+    return { deps, ids, runId }
+  }
+  const start = (deps: OrchServerDeps, task: string) => call(deps, 'worker-start', { task, agent: 'codex', account: 'acc1', worktree: 'current' })
+
+  it('#92: refuses a second worker on the same files until the first Task ends, and the board says why', async () => {
+    const { deps, ids } = await planWith([['src/strings.ts'], ['src/strings.ts'], ['src/other.ts']])
+    const p1 = await start(deps, ids[0])
+    expect(p1.status).toBe(200)
+    const p2 = await start(deps, ids[1])
+    expect(p2.status).toBe(409)
+    expect(p2.body).toMatchObject({ error: 'waiting for P1: same files src/strings.ts; start it when that Task ends', held: true, sameFiles: { taskId: ids[0], path: 'src/strings.ts' } })
+    // A Task on other files is not held
+    expect((await start(deps, ids[2])).status).toBe(200)
+    const d1 = deps.getState().dispatches.find((d) => d.taskId === ids[0])!
+    const done = await call(deps, 'send', { type: 'worker_done', taskId: ids[0], dispatchId: d1.id, outcome: 'succeeded', subject: 'a', body: 'b' }, 'sess1')
+    expect(done.status).toBe(200)
+    expect(deps.getState().tasks.find((t) => t.id === ids[0])?.status).toBe('completed')
+    expect((await start(deps, ids[1])).status).toBe(200)
+  })
+
+  it('#92: the board shows "same files" for a coordinator-placed Task that waits', async () => {
+    const { deps, ids } = await planWith([['src/a.ts'], ['src/a.ts']])
+    expect((await start(deps, ids[0])).status).toBe(200)
+    const s = deps.getState()
+    const { taskBoardsOf } = await import('./blocked')
+    // Not app-placed: as a coordinator's Run is (no autoDispatch)
+    const st: OrchState = { ...s, jobs: s.jobs.map((j) => ({ ...j, autoDispatch: false })) }
+    expect(taskBoardsOf(st).get(ids[1])?.reason).toMatchObject({ kind: 'same-files', waitingOn: { id: ids[0], title: 'P1' }, path: 'src/a.ts' })
+  })
+
+  it('#95: a replan under way answers that it lifts by itself, not `jobs-unhold`', async () => {
+    const { deps, ids, runId } = await planWith([['src/a.ts']])
+    const s = deps.getState()
+    await deps.setState({
+      ...s,
+      jobs: s.jobs.map((j) => ({ ...j, dispatchHold: true, replanning: { runId, mode: 'wave' as const, wave: 1, done: 1, startedAt: NOW } }))
+    })
+    const r = await start(deps, ids[0])
+    expect(r.status).toBe(409)
+    const err = String((r.body as { error: string }).error)
+    expect(err).toBe('replanning wave 1: this lifts by itself; wait for plan.replanned in your inbox')
+    expect(err).not.toContain('jobs-unhold')
+    expect(r.body).toMatchObject({ held: true, replanning: true })
   })
 })
