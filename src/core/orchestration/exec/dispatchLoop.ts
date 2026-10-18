@@ -55,6 +55,7 @@ import { deliveryOf } from '../delivery'
 import { afterStartsDue, afterSweep } from '../after'
 // Coordinator rotation and finished tabs
 import { createCoordinatorRotation, refreshRunCoordinator } from './coordinatorRotate'
+import { autoAnswerLine, autoAnswersDue, type OpenQuestion } from './autoAnswer'
 import { STALL_WATCH_MS, stallRemedies, startNotice, watchdogActivity, type StallEntry, type StallRemedy } from './stallWatch'
 import type { ActivityDraft } from '../activity'
 
@@ -173,6 +174,9 @@ export interface DispatchLoopContext {
   /** Stall watchdog (stallWatch.ts): the "Watch for stalled plans" setting. Optional: without it there is no watchdog
    *  (the Host wires it; the app's own loop has none). */
   stallWatch?(): boolean | Promise<boolean>
+  /** T21: the "Answer questions automatically" setting (autoAnswer.ts). Optional: without it nothing is auto-answered
+   *  (the Host wires it beside the watchdog; the app's own loop has none). */
+  autoAnswer?(): boolean | Promise<boolean>
   /** A feed line no commit makes (the watchdog's), recorded by the Host's activity log. Optional: without it a log line. */
   activity?(d: ActivityDraft): void
   /** Asked on entry and again before each slot (§4.3). */
@@ -1352,6 +1356,9 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     // 표시는 이 틱이 맡는다. tidyCoordinators 는 던지지 않는다.
     await tidyCoordinators()
     if (!c.mayStart()) return
+    // Before telling Gate answers, so the coordinator hears an auto-answer in this same tick
+    await autoAnswer()
+    if (!c.mayStart()) return
     await tellGateAnswers()
     if (!c.mayStart()) return
     await mergeWaves()
@@ -1421,6 +1428,38 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       } catch (e) {
         log(`run=${g.runId}: the gate-answered message failed: ${String(e)}`)
       }
+    }
+  }
+
+  // T21: the open questions Astera answers itself (autoAnswer.ts), each through `questions-answer` with one feed line.
+  // A question tried once is not tried again in this process: a refusal is the owner's to see, not to repeat.
+  const autoTried = new Set<string>()
+  const autoAnswer = async (): Promise<void> => {
+    if (c.autoAnswer === undefined) return
+    try {
+      if (!(await c.autoAnswer())) return
+      const listed = await c.handle('questions-list', { status: 'open' })
+      if (listed.status >= 400 || !Array.isArray(listed.body)) return
+      const open = (listed.body as OpenQuestion[]).filter((q) => !autoTried.has(q.id))
+      for (const a of autoAnswersDue(c.getState(), open, c.nowMs())) {
+        if (!c.mayStart()) return
+        autoTried.add(a.id)
+        const q = open.find((x) => x.id === a.id)!
+        const r = await c.handle('questions-answer', { id: a.id, answer: a.answer })
+        if (r.status >= 400) {
+          log(`run=${q.runId}: auto-answer of ${a.id} was refused: ${JSON.stringify(r.body)}`)
+          continue
+        }
+        const line = autoAnswerLine(c.getState(), q, a)
+        log(`run=${q.runId}: ${line}`)
+        try {
+          c.activity?.({ ...watchdogActivity(c.getState(), q.runId, line, q.taskId || undefined), type: 'question.auto-answered' })
+        } catch (e) {
+          log(`run=${q.runId}: the auto-answer feed line could not be recorded: ${String(e)}`)
+        }
+      }
+    } catch (e) {
+      log(`auto-answer: the pass failed: ${String(e)}`)
     }
   }
 

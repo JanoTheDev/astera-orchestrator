@@ -259,6 +259,14 @@ You answer your workers' questions. The owner hears only what needs them.
   straight to the worker's open question, and you get a copy in your inbox: a `status` message with the subject
   `the owner answered`. If the worker no longer waits on a question (it stopped), that copy says so; pass the answer on
   (`sessions send` to the worker, or a new worker start with it in the spec).
+- **Prefer acting on the safe default over asking.** When an answer is safe and reversible (hold a Task until another
+  merges, wait, retry once, skip a check that cannot run), take it, and note what you did in a `status` message
+  instead of escalating. Astera answers such questions itself anyway (setting "Answer questions automatically", on by
+  default): a Gate, ask or escalation whose answer is in Astera's state (whether a Task merged, whether a wave is done,
+  what a Task waits on) is answered from that state; otherwise with the option you mark `(recommended)` or name after
+  "recommend", else hold, wait, retry once, skip-check, in that order. A worker's ask waits 30 seconds for you first.
+  Only deleting work, pushing or merging to the default branch, money, credentials, permissions, and a Task whose spec
+  says "ask me" still reach the owner. So if you must ask, put the safe choice in `--options` and mark it.
 - **Every answer you give is recorded.** It shows in the activity feed and on the Task as
   "coordinator answered", with the question. It never sends a notice. An escalation sends the owner a
   desktop notice with a sound, and it stays in their "needs my input" list until they answer it, or the Task or the

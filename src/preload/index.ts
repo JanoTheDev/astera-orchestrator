@@ -217,6 +217,8 @@ const api = {
     setFreshCoordinatorContextPct: invoke('settings.setFreshCoordinatorContextPct'),
     getStallWatch: invoke('settings.getStallWatch'),
     setStallWatch: invoke('settings.setStallWatch'),
+    getAutoAnswer: invoke('settings.getAutoAnswer'), // T21
+    setAutoAnswer: invoke('settings.setAutoAnswer'),
     getAlertSound: invoke('settings.getAlertSound'), // W6-B
     setAlertSound: invoke('settings.setAlertSound'),
     getAutoCloseEndedPlanTabs: invoke('settings.getAutoCloseEndedPlanTabs'), // W7-F (#84)

@@ -65,6 +65,7 @@ import { readMaxConcurrentWorkers } from '../core/settings/maxConcurrentWorkers'
 // Coordinator rotation
 import { readFreshCoordinatorPct } from '../core/settings/freshCoordinator'
 import { readStallWatchOn } from '../core/settings/stallWatch'
+import { readAutoAnswerOn } from '../core/orchestration/exec/autoAnswer'
 import { parseStatusLinePayload } from '../core/usage/statusline'
 
 export interface HostDriving {
@@ -426,7 +427,9 @@ export function createHostDriving(d: {
     },
     freshCoordinatorPct: () => readFreshCoordinatorPct(settingsPath),
     // Stall watchdog (exec/stallWatch.ts): only where its lines have a feed, the Host's activity log
-    ...(d.activity ? { stallWatch: () => readStallWatchOn(settingsPath), activity: d.activity } : {}),
+    ...(d.activity
+      ? { stallWatch: () => readStallWatchOn(settingsPath), autoAnswer: () => readAutoAnswerOn(settingsPath), activity: d.activity }
+      : {}),
     mayStart,
     log,
     nowMs: () => d.nowMs(),

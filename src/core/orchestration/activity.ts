@@ -84,7 +84,9 @@ export const ACTIVITY_KINDS = [
   // Coordinator rotation: a fresh coordinator took the Run's slot (JobRun.coordinatorRefreshes); feed only
   'coordinator.refreshed',
   // Stall watchdog (exec/stallWatch.ts): one line per action it took on a stalled plan (payload.reason); feed only
-  'watchdog'
+  'watchdog',
+  // T21 (exec/autoAnswer.ts): one line per question Astera answered itself (payload.reason); feed only
+  'question.auto-answered'
 ] as const
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number]
 

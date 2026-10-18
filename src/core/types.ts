@@ -1525,6 +1525,9 @@ export interface CoreApi {
     /** Stall watchdog (orchestration/exec/stallWatch.ts); default true. */
     getStallWatch(): Promise<boolean>
     setStallWatch(on: boolean): Promise<void>
+    /** T21: Astera answers the questions it safely can (orchestration/exec/autoAnswer.ts); default true. */
+    getAutoAnswer(): Promise<boolean>
+    setAutoAnswer(on: boolean): Promise<void>
     /** W6-B: the chime with a notice that needs the owner; default true. */
     getAlertSound(): Promise<boolean>
     setAlertSound(on: boolean): Promise<void>

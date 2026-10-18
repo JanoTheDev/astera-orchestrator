@@ -114,6 +114,9 @@ export function lineOf(e: ActivityEvent, accountLabel: (id: string) => string): 
     // Stall watchdog
     case 'watchdog':
       return { text: `${p.title}: Watchdog: ${p.reason ?? ''}`, tone: 'warn' }
+    // T21 (exec/autoAnswer.ts)
+    case 'question.auto-answered':
+      return { text: `${p.title}: ${p.reason ?? ''}`, tone: 'info' }
   }
 }
 

@@ -1694,5 +1694,8 @@ export const ja: Catalog = {
   'plan.wave.coordinatorRefreshed': 'コーディネーターを新しくしました ({reason})',
   'settings.stallWatch.label': '止まったプランを見張る',
   'settings.stallWatch.hint': '30 秒ごとに実行中の各プランを確認します。空きがあるのに 2 分以上始まらない準備済みの Task、何も始めずに忙しいままのコーディネーター、プランブランチに入っていない完了 Task、ウェーブ後に開かれていないドラフト PR を見つけると、コーディネーターに伝えるか自分で直します。対応ごとにフィードへ 1 行残し、作業の取り消しや main へのマージは行いません。',
-  'settings.stallWatch.saveFailed': '止まったプランの見張り設定を保存できませんでした: {detail}'
+  'settings.stallWatch.saveFailed': '止まったプランの見張り設定を保存できませんでした: {detail}',
+  'settings.autoAnswer.label': '質問に自動で答える',
+  'settings.autoAnswer.hint': '安全に答えられるプランの質問には Astera が自分で答えます。知っている事実(Task がマージされたか、ウェーブが終わったか)を優先し、なければ質問者の推奨か安全な既定(保留、待機、1 回だけ再試行、チェックを飛ばす)で答えます。回答ごとにフィードへ 1 行残します。作業の削除、既定ブランチへのプッシュやマージ、お金、認証情報、権限は必ずあなたに回ります。',
+  'settings.autoAnswer.saveFailed': '自動回答の設定を保存できませんでした: {detail}'
 }
