@@ -315,6 +315,10 @@ export interface Job {
   /** The Job this one is queued after. **Present: it stays `pendingStart`** and its planner is not started until that
    *  Job is delivered (`afterDelivered`); then the Host starts its planner and the project's approval setting decides. */
   after?: string
+  // W8-C plan after plan
+  /** When the Host escalated that the Job named by `after` stopped (gave up or archived) while this one waits on it
+   *  (`afterSweep`, after.ts). Once per stop: cleared when that Job is no longer stopped. */
+  afterStopNotified?: string
 }
 
 /** W7-A: one message of the owner to a plan's planner. `plan`: before approval, to the planner session itself; `run`:

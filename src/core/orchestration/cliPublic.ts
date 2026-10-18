@@ -123,7 +123,9 @@ const JOB_HIDDEN = [
   /* W7-A: talking to the planner, rejecting a plan, auto-approve; not in the SDK's contract yet */ 'autoApprove',
   'feedback',
   'autoStartedAt',
-  'rejected'
+  'rejected',
+  /* W8-C plan after plan: the queue and its escalation mark, not in the SDK's contract yet */ 'after',
+  'afterStopNotified'
 ] as const
 
 /** A followed event's message body (pages long) and the app's link from an event to a tab. */
