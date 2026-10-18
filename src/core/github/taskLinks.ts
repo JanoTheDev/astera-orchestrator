@@ -173,8 +173,14 @@ export interface PlanPrTask {
 /** The body of a plan's one pull request: every Task, its acceptance criteria, its issue, and the model and account
  *  that did it. "Closes #n" only for an issue the repository's workflow created for this plan (`closes`); an issue
  *  that was already there is referenced, so merging does not close someone else's tracking. */
-export function planPrBody(a: { plan: string; tasks: readonly PlanPrTask[] }): string {
-  const lines = [`Plan: ${a.plan}`, '', '## Tasks', '']
+export function planPrBody(a: {
+  plan: string
+  tasks: readonly PlanPrTask[]
+  /** W8-C: the plan's waves before the Tasks (draftPr.ts wavesSection), and the last line in place of the usual one. */
+  waves?: string
+  footer?: string
+}): string {
+  const lines = [`Plan: ${a.plan}`, '', ...(a.waves ? [a.waves, ''] : []), '## Tasks', '']
   for (const t of a.tasks) {
     lines.push(`### ${t.title}`, '')
     const who = [t.model && `model \`${t.model}\``, t.account && `account \`${t.account}\``].filter(Boolean).join(', ')
@@ -187,7 +193,7 @@ export function planPrBody(a: { plan: string; tasks: readonly PlanPrTask[] }): s
     }
     lines.push('')
   }
-  lines.push('Opened by Astera when every task of the plan was done. It is never merged automatically.')
+  lines.push(a.footer ?? 'Opened by Astera when every task of the plan was done. It is never merged automatically.')
   return lines.join('\n')
 }
 

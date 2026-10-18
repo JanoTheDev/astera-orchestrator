@@ -56,6 +56,23 @@ export interface PrCreateDeps {
   normalizeBase?: (repo: string, base: string) => Promise<string>
 }
 
+export type BranchPushResult = { ok: true } | { ok: false; kind: 'rejected' | 'no-remote'; detail: string }
+
+/** `git push -u origin <branch>`, never forced. W8-C: also the draft PR's push after each wave. */
+export async function pushBranch(
+  worktreePath: string,
+  branch: string,
+  deps: Pick<PrCreateDeps, 'runGit'> = {}
+): Promise<BranchPushResult> {
+  const runGit = deps.runGit ?? ((a: string[], cwd: string) => git(a, { cwd, timeoutMs: PUSH_TIMEOUT_MS }))
+  const pushed = await runGit(['push', '-u', 'origin', branch], worktreePath)
+  if (pushed.ok) return { ok: true }
+  // W7-E (#80): a repository with no `origin` has nowhere to push, which is no rejection. Asked of git rather than
+  // read off the push's stderr, which follows the locale.
+  const origin = await runGit(['remote', 'get-url', 'origin'], worktreePath)
+  return { ok: false, kind: origin.ok ? 'rejected' : 'no-remote', detail: pushed.stderr }
+}
+
 /** Pushes when asked, then creates the pull request. Two steps behind one submit, in that order,
  *  and never a force push — a rejection is the person's call to make, not the app's. */
 export async function createPullRequest(
@@ -68,13 +85,8 @@ export async function createPullRequest(
   const normalize = deps.normalizeBase ?? normalizeBaseForGh
 
   if (req.needsPush) {
-    const pushed = await runGit(['push', '-u', 'origin', req.branch], req.worktreePath)
-    if (!pushed.ok) {
-      // W7-E (#80): a repository with no `origin` has nowhere to push, which is no rejection. Asked of git rather than
-      // read off the push's stderr, which follows the locale.
-      const origin = await runGit(['remote', 'get-url', 'origin'], req.worktreePath)
-      return { ok: false, stage: 'push', kind: origin.ok ? 'rejected' : 'no-remote', detail: pushed.stderr, pushed: false }
-    }
+    const pushed = await pushBranch(req.worktreePath, req.branch, { runGit })
+    if (!pushed.ok) return { ok: false, stage: 'push', kind: pushed.kind, detail: pushed.detail, pushed: false }
   }
 
   const base = await normalize(req.repoPath, req.base)
