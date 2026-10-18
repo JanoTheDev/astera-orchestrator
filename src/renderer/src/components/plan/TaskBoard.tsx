@@ -5,11 +5,14 @@
 import { useEffect, useState } from 'react'
 import type { ActivityEvent } from '../../../../core/orchestration/activity'
 import type { Account, JobEvent, JobTask } from '../../../../core/types'
+import { type RoleModelSettings } from '../../../../core/orchestration/roleModels'
 import { useI18n } from '../../i18n/I18nProvider'
 import { TaskGlyph } from '../JobIcons'
 import {
   CATEGORIES,
+  answersKey,
   autoAnswersOf,
+  cardModelOf,
   categoryOf,
   currentWaveOf,
   nowOf,
@@ -60,6 +63,10 @@ export function TaskBoard({
     const id = setInterval(() => setNowMs(Date.now()), TICK_MS)
     return () => clearInterval(id)
   }, [])
+  const [roleModels, setRoleModels] = useState<RoleModelSettings>({})
+  useEffect(() => {
+    void window.api?.settings?.getRoleModels?.().then(setRoleModels).catch(() => {})
+  }, [])
   const label = (id: string): string => accounts?.find((a) => a.id === id)?.label ?? id
   const waves = wavesOf(tasks, layers)
   const current = currentWaveOf(waves)
@@ -101,6 +108,7 @@ export function TaskBoard({
                     selected={selected === tk.id}
                     nowMs={nowMs}
                     label={label}
+                    model={cardModelOf(tk, roleModels, accounts ?? [])}
                     now={nowOf(tk, tk.sessionId ? sessions[tk.sessionId] : undefined, events, nowMs)}
                     answers={autoAnswersOf(activity, tk.id)}
                     onSelect={onSelect}
@@ -124,6 +132,7 @@ function TaskCard({
   selected,
   nowMs,
   label,
+  model,
   now,
   answers,
   onSelect,
@@ -133,6 +142,7 @@ function TaskCard({
   selected: boolean
   nowMs: number
   label: (id: string) => string
+  model: string | undefined
   now: ReturnType<typeof nowOf>
   answers: ReturnType<typeof autoAnswersOf>
   onSelect: (taskId: string) => void
@@ -168,7 +178,7 @@ function TaskCard({
       {reason && text && <span className={`plan-reason plan-reason-${reasonTone(reason)}`}>{t(text.key, text.params)}</span>}
       <dl className="plan-card-meta">
         <dt>{t('plan.card.model')}</dt>
-        <dd>{tk.model ?? t('plan.card.cliDefault')}</dd>
+        <dd>{model ?? t('plan.card.cliDefault')}</dd>
         {account !== undefined && (
           <>
             <dt>{t('plan.card.account')}</dt>
@@ -216,7 +226,7 @@ function TaskCard({
               setShowAnswers((v) => !v)
             }}
           >
-            {t('plan.card.answers', { n: answers.length })}
+            {t(answersKey(answers.length), { n: answers.length })}
           </button>
           {showAnswers && (
             <ol className="plan-answers-list">

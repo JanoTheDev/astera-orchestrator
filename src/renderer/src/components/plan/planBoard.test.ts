@@ -3,7 +3,7 @@ import type { JobTask, TaskBlockedReason } from '../../../../core/types'
 import { ko } from '../../../../core/i18n/messages/ko'
 import type { ActivityEvent } from '../../../../core/orchestration/activity'
 import type { JobEvent } from '../../../../core/types'
-import { autoAnswersOf, categoryOf, currentWaveOf, filesOf, nowOf, planProgressOf, reasonText, replanningOf, wavesOf } from './planBoard'
+import { answersKey, autoAnswersOf, cardModelOf, categoryOf, currentWaveOf, filesOf, nowOf, planProgressOf, reasonText, replanningOf, wavesOf } from './planBoard'
 
 const task = (id: string, over: Partial<JobTask> = {}): JobTask => ({ id, title: id, status: 'pending', openGates: 0, ...over })
 
@@ -191,5 +191,22 @@ describe('nowOf', () => {
   })
   it('says nothing for a Task that is not running', () => {
     expect(nowOf(done('c'), { prompt: 'permission' }, [], now)).toBeNull()
+  })
+})
+
+describe('cardModelOf / answersKey (#76)', () => {
+  const task = (o: object): JobTask => ({ id: 't', title: 'T', status: 'pending', openGates: 0, ...o }) as JobTask
+  it('an undispatched light Task shows the difficulty model, a Job override beats the default', () => {
+    expect(cardModelOf(task({ difficulty: 'light' }), {}, [])).toBe('haiku')
+    expect(cardModelOf(task({}), {}, [])).toBeUndefined()
+    expect(cardModelOf(task({ jobModels: { worker: 'opus' } }), {}, [])).toBe('opus')
+  })
+  it('a dispatched Task keeps its attempt model', () => {
+    expect(cardModelOf(task({ difficulty: 'light', attempts: 1 }), {}, [])).toBeUndefined()
+    expect(cardModelOf(task({ difficulty: 'light', model: 'opus', attempts: 1 }), {}, [])).toBe('opus')
+  })
+  it('singular for one answer', () => {
+    expect(answersKey(1)).toBe('plan.card.answers.one')
+    expect(answersKey(2)).toBe('plan.card.answers')
   })
 })

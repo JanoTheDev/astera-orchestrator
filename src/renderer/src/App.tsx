@@ -125,6 +125,10 @@ import { useWorkspaceData } from './components/workspace/useWorkspaceData'
 import { buildWorkspaceTree, findPlan, planSessions, scopeLayout } from './components/workspace/workspaceTree'
 // W6-F: one workspace per project
 import { entryTab, OTHER_WORKSPACE, scopeIds as workspaceScopeOf, workspaceFolderOf, workspaceSessionIds } from './components/workspace/workspaceTree'
+// W7-F (#84): ended plan tabs close on their own; the quick tab switcher
+import { tabsToAutoClose } from './lib/tabAutoClose'
+import { AutoCloseTabsSetting } from './components/AutoCloseTabsSetting'
+import type { SwitcherTab } from './lib/tabSwitcher'
 import { ProjectSwitcher } from './components/workspace/ProjectSwitcher'
 import { terminalsWithCreated } from './lib/terminalTabs'
 import * as hiddenProjects from './lib/hiddenProjects'
@@ -1443,6 +1447,14 @@ export default function App(): React.JSX.Element {
         e.stopPropagation()
         if (e.repeat) return
         openWorkspaceSlotRef.current(Number(action.slice('workspace.project'.length)))
+        return
+      }
+      // W7-F (#84): the quick tab switcher opens (or closes) like the command bar
+      if (action === 'tabs.switcher') {
+        e.preventDefault()
+        e.stopPropagation()
+        if (e.repeat) return
+        setSwitcherOpen((v) => !v)
         return
       }
       if (action === 'command.open' || action === 'command.talk') {
@@ -2957,7 +2969,13 @@ export default function App(): React.JSX.Element {
   useEffect(() => {
     if (!openRun) return
     const snap = openRun.runtimeId ? remoteSnapshot : orchSnapshot
-    if ((!openRun.runtimeId && openRun.projectPath !== currentProject) || snap === null) return
+    // #76: a local detail opened for another project than the current one has no Run in this snapshot and its detail is
+    // never fetched (guard above): it sat open as an empty "No Tasks yet" window. Close it.
+    if (!openRun.runtimeId && openRun.projectPath !== currentProject) {
+      setOpenRun(null)
+      return
+    }
+    if (snap === null) return
     // 위와 같은 이유로 findRun 이다 — `runs.some` 이면 회차의 상세 창이 열린 다음 프레임에 닫힌다.
     const found = findRun(snap, openRun.runId) !== undefined
     if (found) openRunSeen.current = true
@@ -3463,9 +3481,18 @@ export default function App(): React.JSX.Element {
   // W3-B: the command bar resolves names against the same data, so it is read while the bar is open too
   const [commandOpen, setCommandOpen] = useState(false)
   const [talkSignal, setTalkSignal] = useState(0)
+  // W7-F (#84): the tab auto-close setting (default on) and the quick tab switcher (`tabs.switcher`). The plan data is
+  // read while one of them needs it: the switcher's plan and Task names, or an ended tab that may be a plan's to close.
+  const [autoCloseEndedPlanTabs, setAutoCloseEndedPlanTabs] = useState(true)
+  const [switcherOpen, setSwitcherOpen] = useState(false)
+  useEffect(() => {
+    void window.api.settings.getAutoCloseEndedPlanTabs().then(setAutoCloseEndedPlanTabs, () => {})
+  }, [])
+  const autoCloseWanted = autoCloseEndedPlanTabs && sessions.some((s) => s.status === 'exited')
   const workspaceData = useWorkspaceData(
     currentProject ?? sessions[0]?.cwd ?? null,
-    (sidebarOpen && sidebarPane === 'sessions') || workspacePlanId !== null || workspaceProjectId !== null || commandOpen
+    (sidebarOpen && sidebarPane === 'sessions') || workspacePlanId !== null || workspaceProjectId !== null || commandOpen ||
+      switcherOpen || autoCloseWanted // W7-F (#84)
   )
   const workspaceTree = useMemo(
     () => (workspaceData ? buildWorkspaceTree(workspaceData, { showArchived: workspaceArchived }) : []),
@@ -3499,6 +3526,36 @@ export default function App(): React.JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only a focus change decides this, not a refresh
   }, [activeSessionId])
   const canOpenSessionTab = (sessionId: string): boolean => !!layout && !!groupOfTab(layout, sessionTab(sessionId))
+  // W7-F (#84): an ended plan's ended tabs, and a replan's stale planner tab, close on their own (tabsToAutoClose),
+  // through the tab strip's own close: closeWorkbenchTab → closeSession. The session has already exited, so the kill
+  // that sends is a no-op on the Host (its registry skips an ended pty) and nothing is forgotten: the scrollback stays in
+  // the Host's ended entry, the transcript on disk (History), and the workspace tree, built from orchestration data,
+  // still lists the session. A plain session's ended tab is left alone.
+  useEffect(() => {
+    if (!workspaceData || !layout) return
+    const open = leaves(layout)
+      .flatMap((l) => l.tabIds.map(parseTab))
+      .flatMap((r) => (r?.kind === 'session' ? [r.id] : []))
+    const ids = tabsToAutoClose({
+      sessions,
+      jobs: Object.values(workspaceData.jobsByProject).flat(),
+      runs: workspaceData.runs,
+      tasks: workspaceData.tasks,
+      dispatches: workspaceData.dispatches,
+      openTabSessionIds: open,
+      enabled: autoCloseEndedPlanTabs
+    })
+    for (const id of ids) closeWorkbenchTabRef.current(sessionTab(id))
+  }, [workspaceData, sessions, layout, autoCloseEndedPlanTabs])
+  // W7-F (#84): what the switcher filters a plan session's tab by, besides its title
+  const switcherMeta = useMemo(() => {
+    const m = new Map<string, Omit<SwitcherTab, 'tabId' | 'title'>>()
+    for (const p of workspaceTree)
+      for (const plan of p.plans)
+        for (const x of planSessions(plan))
+          m.set(x.sessionId, { label: x.label, planName: x.planName, projectName: x.projectName, ...(x.taskTitle ? { taskTitle: x.taskTitle } : {}) })
+    return m
+  }, [workspaceTree])
   // W6-F: each workspace's focused tab while it is away, keyed by plan id, project id, or '' for every tab. Renderer
   // memory only: the pane tree it points into is not stored either.
   const workspaceFocusRef = useRef(new Map<string, string>())
@@ -4817,6 +4874,9 @@ export default function App(): React.JSX.Element {
                 onRenameEnd={endTabRename}
                 layout={shownLayout}
                 activePaneId={activePaneId}
+                switcherOpen={switcherOpen} // W7-F (#84)
+                onSwitcherClose={() => setSwitcherOpen(false)}
+                switcherMeta={switcherMeta}
                 sessions={sessions}
                 accounts={accounts}
                 fileTabs={fileTabs}
@@ -5200,6 +5260,8 @@ export default function App(): React.JSX.Element {
                       />
                     </div>
                     <p className="settings-hint">{t('settings.defaultKind.hint')}</p>
+                    {/* W7-F (#84): an ended plan's tabs close on their own */}
+                    <AutoCloseTabsSetting on={autoCloseEndedPlanTabs} onChange={setAutoCloseEndedPlanTabs} />
                   </div>
                 )}
                 {settingsTab === 'cli' && (

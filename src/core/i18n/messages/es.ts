@@ -746,9 +746,6 @@ export const es: Catalog = {
   'account.add.adding': 'Agregando…',
   'account.add.labelPlaceholder': 'Ej.: Cuenta del trabajo',
   'account.add.copySettingsLabel': 'Importar la configuración de la cuenta predeterminada',
-  'account.add.loginHintClaude': 'Inicie sesión desde el terminal de la sesión con /login.',
-  'account.add.loginHintCodex':
-    'Inicie sesión desde el terminal de la sesión siguiendo las indicaciones de codex.',
   'account.add.syncFailed': 'La cuenta se agregó, pero falló la importación de la configuración: {detail}',
   'account.import.title': 'Importar cuenta',
   'account.import.button': 'Importar',

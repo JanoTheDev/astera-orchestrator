@@ -283,6 +283,7 @@ import { planFileRun } from './run/runFile'
 import { decideStart } from '../core/run/instances'
 import { createGithubPrs } from './githubPrs'
 import { registerHiggsfieldIpc } from './higgsfield'
+import { registerAccountLoginIpc } from './accountLogin'
 import { createAccountUsage } from './accountUsage'
 // W6-G usage guards
 import { createUsageGuard } from '../core/orchestration/usageGuard'
@@ -1977,6 +1978,13 @@ export function registerIpc(
   ipcMain.handle('accounts.emailOfDir', (_e, dir, provider) => core.accountEmailOfDir(dir, provider))
   ipcMain.handle('accounts.logout', (_e, id) => core.accountLogout(id))
   ipcMain.handle('accounts.syncSettings', (_e, id) => core.accountSyncSettings(id))
+  // W7-F (#82): sign an account in from the app (the CLI's own login, its link shown in a dialog).
+  registerAccountLoginIpc(ipcMain, {
+    account: (id) => core.accounts.get(id),
+    descriptors: core.descriptors,
+    homeDir: os.homedir(),
+    loggedIn: (id) => core.accounts.loginStatus(id)
+  })
 
   // sessions (resolving accountId to an Account is a plain lookup)
 
@@ -4317,6 +4325,12 @@ export function registerIpc(
   ipcMain.handle('settings.setAlertSound', async (_e, on: unknown) => {
     if (typeof on !== 'boolean') throw new Error(`INVALID_ALERT_SOUND: ${String(on)}`)
     await core.appSettings.setAlertSound(on)
+  })
+  // W7-F (#84): an ended plan's session tabs close on their own
+  ipcMain.handle('settings.getAutoCloseEndedPlanTabs', () => core.appSettings.getAutoCloseEndedPlanTabs())
+  ipcMain.handle('settings.setAutoCloseEndedPlanTabs', async (_e, on: unknown) => {
+    if (typeof on !== 'boolean') throw new Error(`INVALID_AUTO_CLOSE_TABS: ${String(on)}`)
+    await core.appSettings.setAutoCloseEndedPlanTabs(on)
   })
   ipcMain.handle('settings.getMaxConcurrentWorkers', () => core.appSettings.getMaxConcurrentWorkers())
   ipcMain.handle('settings.setMaxConcurrentWorkers', async (_e, n: unknown) => {

@@ -409,6 +409,19 @@ describe('alertSound', () => {
   })
 })
 
+// W7-F (#84)
+describe('autoCloseEndedPlanTabs', () => {
+  it('defaults to on; only an explicit false turns it off, and it persists', async () => {
+    const a = new AppSettingsStore(file())
+    await a.load()
+    expect(a.getAutoCloseEndedPlanTabs()).toBe(true)
+    await a.setAutoCloseEndedPlanTabs(false)
+    const b = new AppSettingsStore(file())
+    await b.load()
+    expect(b.getAutoCloseEndedPlanTabs()).toBe(false)
+  })
+})
+
 // W1-B
 describe('maxConcurrentWorkers', () => {
   it('defaults to no cap, and the Host reads the same', async () => {

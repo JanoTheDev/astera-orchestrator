@@ -25,10 +25,10 @@ const read = async <T>(projectPath: string, cmd: string, args: Record<string, un
  * projects' sessions went stale.) An account roll rekeys a Dispatch to its new session without moving the Task, and
  * this read sees that too.
  */
-export function useWorkspaceData(anchor: string | null, enabled: boolean): WorkspaceData | null {
+export function useWorkspaceData(anchorProp: string | null, enabled: boolean): WorkspaceData | null {
   const [data, setData] = useState<WorkspaceData | null>(null)
   useEffect(() => {
-    if (!enabled || !anchor) return
+    if (!enabled) return
     let alive = true
     let running = false // a slow Host must not stack reads up behind each other
     const tick = async (): Promise<void> => {
@@ -41,6 +41,10 @@ export function useWorkspaceData(anchor: string | null, enabled: boolean): Works
       }
     }
     const refresh = async (): Promise<void> => {
+      // W7-F (#78): with no open project or session there is no anchor, which left the tree empty ("No projects yet")
+      // although projects are registered. The home folder is a path the app may name, so it opens the same door.
+      const anchor = anchorProp ?? (await window.api.system.homeDir().catch(() => null))
+      if (!anchor) return
       const projects = await read<Project[]>(anchor, 'projects-list')
       if (!projects || !alive) return
       const [jobLists, runs, tasks, dispatches, gates, escalations, worktrees] = await Promise.all([
@@ -69,6 +73,6 @@ export function useWorkspaceData(anchor: string | null, enabled: boolean): Works
       alive = false
       clearInterval(timer)
     }
-  }, [anchor, enabled])
+  }, [anchorProp, enabled])
   return data
 }

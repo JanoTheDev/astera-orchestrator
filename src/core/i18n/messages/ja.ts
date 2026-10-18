@@ -737,9 +737,6 @@ export const ja: Catalog = {
   'account.add.adding': '追加中…',
   'account.add.labelPlaceholder': '例: 会社アカウント',
   'account.add.copySettingsLabel': '既定のアカウントから設定を取り込む',
-  'account.add.loginHintClaude': 'ログインはセッションのターミナルで /login から行います。',
-  'account.add.loginHintCodex':
-    'ログインはセッションのターミナルで codex のログイン案内に従って行います。',
   'account.add.syncFailed': 'アカウントは追加されましたが、設定の取り込みに失敗しました: {detail}',
   'account.import.title': 'アカウントの取り込み',
   'account.import.button': '取り込む',

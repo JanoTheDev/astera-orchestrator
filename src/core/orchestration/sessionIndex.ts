@@ -116,12 +116,18 @@ const fieldsOf = (s: IndexedSession): string[] =>
  * asks for nothing: the tree already shows everything.
  */
 export function searchSessions(index: readonly IndexedSession[], query: string, limit = 20): IndexedSession[] {
+  return rankByFields(index, query, fieldsOf, limit)
+}
+
+/** W7-F (#84): searchSessions' ranking over any list, so the tab switcher matches tabs the way search matches sessions
+ *  (`hw1` finds "Hold Worker 1"). `fieldsOf` gives lower-cased fields, most telling first. Empty query: nothing. */
+export function rankByFields<T>(items: readonly T[], query: string, fieldsOf: (x: T) => string[], limit = 20): T[] {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean)
   if (words.length === 0) return []
-  const FIELDS = 4
-  const scored: Array<{ s: IndexedSession; score: number; i: number }> = []
-  index.forEach((s, i) => {
+  const scored: Array<{ s: T; score: number; i: number }> = []
+  items.forEach((s, i) => {
     const fields = fieldsOf(s)
+    const FIELDS = fields.length
     let score = 0
     for (const w of words) {
       let best: number | null = null

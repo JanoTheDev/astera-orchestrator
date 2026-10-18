@@ -552,6 +552,13 @@ button.primary:disabled { background: var(--elevated); border-color: var(--line-
 .account-row[tabindex] { cursor: pointer; }
 .account-row.expanded { background: var(--elevated); border-left-color: var(--accent); }
 .account-row-actions { display: inline-flex; align-items: center; gap: 8px; }
+/* W7-F (#82): the sidebar row's Sign in and Remove. Remove shows on hover or focus, so the list stays quiet. */
+.account-panel .account-row-actions { gap: 4px; }
+.account-panel .account-row-actions .ghost { padding: 0 4px; font-size: 11px; }
+.account-panel .account-row-actions .ghost.danger { opacity: 0; }
+.account-panel .account-row:hover .account-row-actions .ghost.danger,
+.account-panel .account-row:focus-within .account-row-actions .ghost.danger { opacity: 1; }
+.account-signin-url { display: block; margin: 8px 0; font-family: var(--mono); font-size: 11px; word-break: break-all; max-height: 4.5em; overflow: auto; }
 /* A line under an account row (the Higgsfield login hint): the row wraps, so it takes a line of its own. */
 .account-row-hint { flex-basis: 100%; }
 /* A problem with the whole tab (the Higgsfield CLI program is missing), above everything else in it. */
@@ -783,6 +790,26 @@ button.source-chip:hover { color: var(--accent); border-color: var(--accent); }
    table (UnderstandingIcons' RECORD_GLYPH_COLOR) so the three places (here, .hiw-g, .hiw-st) do not
    drift apart. */
 .tab-glyph { flex: none; font-size: 11px; line-height: 1; }
+/* W7-F (#84): the tab strip's overflow menu — every tab of the workspace shown — and the quick tab switcher.
+   The menu is fixed, not inside .tabs: .tabs scrolls and clips. The scrim under it closes it on a click elsewhere. */
+.tab-overflow { flex: none; align-self: stretch; background: none; border: none; border-left: 1px solid var(--line); color: var(--text-dim); padding: 0 8px; cursor: pointer; display: flex; align-items: center; }
+.tab-overflow:hover, .tab-overflow[aria-expanded="true"] { background: var(--elevated); color: var(--text); }
+.tab-overflow-scrim { position: fixed; inset: 0; z-index: 90; }
+.tab-overflow-menu { position: fixed; z-index: 91; margin: 0; padding: 4px; list-style: none; min-width: 220px; max-width: 420px; max-height: 60vh; overflow-y: auto; background: var(--panel); border: 1px solid var(--line-soft); border-radius: var(--radius); box-shadow: 0 6px 24px rgba(0,0,0,.35); }
+.tab-overflow-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; background: none; border: none; border-radius: var(--radius); color: var(--text-dim); font-size: 11.5px; text-align: left; cursor: pointer; white-space: nowrap; }
+.tab-overflow-item .tab-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.tab-overflow-item:hover, .tab-overflow-item:focus-visible { background: var(--elevated); color: var(--text); outline: none; }
+.tab-overflow-item.active { color: var(--text); font-weight: 600; }
+.tab-overflow-item.exited .tab-title { text-decoration: line-through; color: var(--text-faint); }
+.modal.tab-switcher { width: 560px; max-width: calc(100vw - 48px); align-self: flex-start; margin-top: 12vh; gap: 8px; }
+.modal.tab-switcher input { width: 100%; box-sizing: border-box; }
+.tab-switcher-list { margin: 0; padding: 0; list-style: none; max-height: 50vh; overflow-y: auto; }
+.tab-switcher-row { display: flex; align-items: baseline; gap: 10px; padding: 6px 8px; border-radius: var(--radius); cursor: pointer; font-size: 12px; color: var(--text-dim); }
+.tab-switcher-row.selected { background: var(--elevated); color: var(--text); }
+.tab-switcher-row.active .tab-switcher-title { font-weight: 600; }
+.tab-switcher-title { flex: none; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tab-switcher-meta { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--text-faint); }
+.tab-switcher-empty { padding: 6px 8px; font-size: 12px; color: var(--text-faint); }
 
 /* ---------- terminal ---------- */
 /* .terminal-slot is not terminal-only: it is how a pane's body claims its place in the grid, and the
@@ -1509,6 +1536,7 @@ input[type="checkbox"]:not(.md-task input):focus-visible {
 
 /* ---------- history ---------- */
 .history-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.history-panel.collapsed { flex: 0 0 auto; } /* W7-F (#83): folded, it gives its room back */
 .history-list { list-style: none; padding: 0; overflow-y: auto; flex: 1; }
 .unread-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); flex-shrink: 0; }
 .entry-title { flex: 1; min-width: 0; font-size: 11.5px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -2442,6 +2470,12 @@ input[type="checkbox"]:not(.md-task input):focus-visible {
 .jobs-archived-toggle:hover { color: var(--text); }
 .jobs-empty { margin: auto; text-align: center; padding: 0 24px; color: var(--text-faint); font-size: 13px; }
 .jobs-empty-hint { margin-top: 6px; font-size: 11.5px; }
+/* #79: the Jobs panel at the 284px default sidebar: buttons, hints and the delivery select wrap instead of clipping */
+.jobs-view, .jobs-empty { min-width: 0; overflow-wrap: anywhere; }
+.jobs-view > .jobs-new, .jobs-empty > .jobs-new { max-width: calc(100% - 20px); white-space: normal; text-align: center; box-sizing: border-box; }
+.jobs-delivery { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; margin: 4px 10px; font-size: 12px; }
+.jobs-delivery label { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 0; max-width: 100%; }
+.jobs-delivery select, .jobs-delivery input { min-width: 0; max-width: 100%; }
 /* 아무것도 움직이지 않는 까닭(한도 L3). 경고 색 한 줄 — 사람이 할 일이 있을 수도 있다는 뜻이지 실패가 아니다 */
 .jobs-stall { margin: 10px 10px 4px; padding: 6px 10px; border: 1px solid var(--warn); border-radius: var(--radius-sm); color: var(--warn); font-size: 12px; text-align: left; }
 /* A paired Runtime above the Jobs view (remote runtime design Phase 6): its selectors and its notes. Offline takes

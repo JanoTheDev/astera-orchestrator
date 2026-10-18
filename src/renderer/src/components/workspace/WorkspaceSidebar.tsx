@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import type { Attention, SessionInfo } from '../../../../core/types'
 import { planSessions, type WorkspaceData, type WorkspacePlan, type WorkspaceProject, type WorkspaceSession } from './workspaceTree'
@@ -7,6 +7,10 @@ import { buildSessionIndex, needsInput } from '../../../../core/orchestration/se
 import { SessionSearch } from '../search/SessionSearch'
 import { useHostWaiting } from '../search/useHostWaiting'
 import './workspace.css'
+import { usePanelOpen } from '../../hooks/usePanelOpen'
+import type { TranscriptPreview } from '../../../../core/types'
+import { TranscriptPreviewModal } from '../TranscriptPreviewModal'
+import { previewEntryIdOf } from './sessionPreview'
 
 /** The status word of a session row and header: exited when its process is gone, else its attention. */
 export const sessionStatusOf = (info: SessionInfo | undefined, attention: Attention | undefined): string =>
@@ -43,7 +47,7 @@ export function WorkspaceSidebar({
   /** Focuses the session in its plan's workspace. */
   onOpenSession: (sessionId: string, jobId: string) => void
 }): React.JSX.Element {
-  const [open, setOpen] = useState(true)
+  const [open, setOpen] = usePanelOpen('workspaces') // W7-F (#83): remembered, like History
   // Collapsed rather than expanded, so a plan made while the app is open shows up unfolded
   const [folded, setFolded] = useState<Set<string>>(new Set())
   const toggle = (id: string): void =>
@@ -72,17 +76,34 @@ export function WorkspaceSidebar({
     const index = buildSessionIndex(input)
     return { index, inbox: needsInput(input, index) }
   }, [tree, data, attention, hostWaiting])
+  // W7-F (#84): a row whose tab is closed (an ended plan's tabs close on their own) previews its transcript instead
+  const [preview, setPreview] = useState<TranscriptPreview | null>(null)
+  const previewReq = useRef<string | null>(null)
+  const openPreview = (entryId: string): void => {
+    previewReq.current = entryId
+    window.api.history.preview(entryId).then(
+      (p) => {
+        if (previewReq.current === entryId) setPreview(p)
+      },
+      (e) => console.warn(`transcript preview failed ${entryId}: ${String(e)}`) // shortcut: silent to the person, add a toast if it shows up
+    )
+  }
+  const closePreview = (): void => {
+    previewReq.current = null
+    setPreview(null)
+  }
 
   const sessionRow = (plan: WorkspacePlan) => (s: WorkspaceSession): React.JSX.Element => {
     const status = sessionStatusOf(infoOf.get(s.sessionId), attention[s.sessionId])
     const openable = canOpenSession(s.sessionId)
+    const entryId = openable ? null : previewEntryIdOf(s.sessionId, data?.dispatches ?? [])
     return (
       <li key={s.sessionId}>
         <button
           className="ws-row ws-session"
-          disabled={!openable}
-          title={[s.taskTitle, s.model, s.cwd].filter(Boolean).join(' · ')}
-          onClick={() => onOpenSession(s.sessionId, plan.jobId)}
+          disabled={!openable && !entryId}
+          title={[s.taskTitle, s.model, s.cwd, entryId && 'Tab closed: opens its transcript'].filter(Boolean).join(' · ')}
+          onClick={() => (entryId ? openPreview(entryId) : onOpenSession(s.sessionId, plan.jobId))}
         >
           <span className={`ws-dot ws-${status.replace(' ', '-')}`} aria-label={status} />
           <span className="ws-name">{s.label}</span>
@@ -104,7 +125,7 @@ export function WorkspaceSidebar({
           aria-label={`${inbox.length} need your input`}
           aria-pressed={inboxOpen}
           onClick={() => {
-            setOpen(true)
+            setOpen(() => true)
             setInboxOpen((v) => !v)
           }}
         >
@@ -178,6 +199,7 @@ export function WorkspaceSidebar({
           ))}
         </ul>
       )}
+      {preview && <TranscriptPreviewModal preview={preview} onClose={closePreview} />}
     </section>
   )
 }

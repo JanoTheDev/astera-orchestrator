@@ -30,3 +30,6 @@
 .plan-file-tasks { margin-left: auto; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; min-width: 0; }
 .plan-file-task { display: inline-flex; align-items: center; gap: 4px; max-width: 180px; padding: 0 6px; border: 1px solid var(--line-soft); border-left: 3px solid var(--plan-cat); border-radius: 3px; background: none; color: inherit; font-size: 11px; cursor: pointer; }
 .plan-file-task > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* #76: the waves grow with their content; the whole graph half scrolls (not each wave in a tiny nested box) */
+.plan-board.plan-waves { flex: none; overflow: visible; min-height: auto; }
+.detail-graph:has(.plan-waves) { overflow: auto; }

@@ -4,6 +4,8 @@ import type { MessageKey, MessageParams } from '../../../../core/i18n'
 import type { ActivityEvent } from '../../../../core/orchestration/activity'
 import type { JobEvent, JobTask, SessionInfo, TaskBlockedReason, TaskCategory } from '../../../../core/types'
 import { formatElapsed, formatRemaining } from '../../../../core/orchestration/elapsed'
+import { pickTaskProvider, resolveWorkerModel, type RoleModelSettings } from '../../../../core/orchestration/roleModels'
+import type { Account } from '../../../../core/types'
 import { resetClock } from '../../../../core/orchestration/activity'
 
 /** The overview's buckets, in the order it lists them. */
@@ -221,3 +223,20 @@ export function nowOf(
   if (a.tool === 'Grep' || a.tool === 'Glob') return { key: 'plan.now.searching', params: { target, ago } }
   return { key: 'plan.now.tool', params: { tool: a.tool, target, ago } }
 }
+
+/** The model a card shows. A dispatched Task shows what its attempt used (`model`); one not yet dispatched shows what
+ *  resolveWorkerModel will pick (difficulty, Job override, app settings). undefined: the CLI's default. */
+export function cardModelOf(tk: JobTask, settings: RoleModelSettings, accounts: readonly Account[]): string | undefined {
+  if (tk.model !== undefined || tk.attempts !== undefined || tk.accountId !== undefined) return tk.model
+  const { provider } = pickTaskProvider({ accountIds: tk.accountIds }, accounts)
+  return resolveWorkerModel({
+    settings,
+    job: tk.jobModels ? { models: tk.jobModels } : undefined,
+    task: { difficulty: tk.difficulty, accountIds: tk.accountIds },
+    provider,
+    accounts
+  }).model
+}
+
+/** The i18n key for "N questions answered": singular for 1. */
+export const answersKey = (n: number): 'plan.card.answers' | 'plan.card.answers.one' => (n === 1 ? 'plan.card.answers.one' : 'plan.card.answers')

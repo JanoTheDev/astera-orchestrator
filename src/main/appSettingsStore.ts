@@ -131,6 +131,8 @@ export class AppSettingsStore {
   /** W6-B: the chime with a notice that needs the owner. On by default; only an explicit false (the file is
    *  user-editable) turns it off, as githubPolling. */
   private alertSound = true
+  /** W7-F (#84): an ended plan's session tabs close on their own. On by default; only an explicit false turns it off. */
+  private autoCloseEndedPlanTabs = true
   /** 설명을 누가·무엇으로 만드는가. 비어 있으면 생성하지 않는다 (설계 D2) */
   private generator: GeneratorSettings = {}
   /** Orchestrator W1-A: per-provider role and difficulty models. Empty = the built-in defaults. */
@@ -220,6 +222,7 @@ export class AppSettingsStore {
         (parsed as { activityDigestMinutes?: unknown }).activityDigestMinutes
       )
       this.alertSound = (parsed as { alertSound?: unknown }).alertSound !== false
+      this.autoCloseEndedPlanTabs = (parsed as { autoCloseEndedPlanTabs?: unknown }).autoCloseEndedPlanTabs !== false // W7-F (#84)
       // Narrowed on read, like generator and terminalFont and for the same reason: the file is
       // user-editable, and the narrowing is per flag's own default (see readDesktopNotify).
       this.desktopNotify = readDesktopNotify((parsed as { desktopNotify?: unknown }).desktopNotify)
@@ -292,6 +295,7 @@ export class AppSettingsStore {
         this.usagePauseAt = USAGE_PAUSE_AT_DEFAULT
         this.activityDigestMinutes = ACTIVITY_DIGEST_DEFAULT_MINUTES
         this.alertSound = true
+        this.autoCloseEndedPlanTabs = true
         this.desktopNotify = { ...DESKTOP_NOTIFY_DEFAULTS }
         this.generator = {}
         this.roleModels = {}
@@ -330,6 +334,7 @@ export class AppSettingsStore {
       this.usagePauseAt = USAGE_PAUSE_AT_DEFAULT
       this.activityDigestMinutes = ACTIVITY_DIGEST_DEFAULT_MINUTES
       this.alertSound = true
+      this.autoCloseEndedPlanTabs = true
       this.desktopNotify = { ...DESKTOP_NOTIFY_DEFAULTS }
       this.generator = {}
       this.roleModels = {}
@@ -569,6 +574,16 @@ export class AppSettingsStore {
     await this.persist()
   }
 
+  // W7-F (#84)
+  getAutoCloseEndedPlanTabs(): boolean {
+    return this.autoCloseEndedPlanTabs
+  }
+
+  async setAutoCloseEndedPlanTabs(on: boolean): Promise<void> {
+    this.autoCloseEndedPlanTabs = on !== false
+    await this.persist()
+  }
+
   getDesktopNotify(): DesktopNotifySettings {
     return { ...this.desktopNotify }
   }
@@ -716,6 +731,7 @@ export class AppSettingsStore {
       usagePauseAt?: number
       activityDigestMinutes?: number
       alertSound?: false
+      autoCloseEndedPlanTabs?: false
       desktopNotify?: DesktopNotifySettings
       generator?: GeneratorSettings
       roleModels?: RoleModelSettings
@@ -757,6 +773,7 @@ export class AppSettingsStore {
     if (this.usagePauseAt !== USAGE_PAUSE_AT_DEFAULT) data.usagePauseAt = this.usagePauseAt
     if (this.activityDigestMinutes !== ACTIVITY_DIGEST_DEFAULT_MINUTES) data.activityDigestMinutes = this.activityDigestMinutes
     if (!this.alertSound) data.alertSound = false
+    if (!this.autoCloseEndedPlanTabs) data.autoCloseEndedPlanTabs = false // W7-F (#84)
     // Written only while the question is still open, which is the same one-sided rule as the two
     // below — and here it carries the difference between a new install and an old one, so an absent
     // key has to keep meaning "asked". See the field's own note.

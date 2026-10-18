@@ -164,7 +164,8 @@ function jobTaskOf(
   const done = entries.filter((e) => e.resumedAt !== undefined).length
   // 수렴 판정은 policyOf 다 — `convergence !== undefined` 가 아니다(Plan 1 설계 §18): 손으로 null 을 적어 둔 Run 이
   // "켜진 것" 으로 읽히면 안 된다. 기본값이 채워진 정책이라 화면이 3/2 를 지어내지 않는다.
-  const policy = policyOfJob(task.runId === undefined ? undefined : ix.jobOfRun(task.runId))
+  const jobOfTask = task.runId === undefined ? undefined : ix.jobOfRun(task.runId)
+  const policy = policyOfJob(jobOfTask)
   // W2-C plan board: what the board card says beside the reason. The model and account are the latest attempt's
   // (a review runs on another model and account, so it is not the attempt)
   const model = latestAttempt?.model ?? task.model
@@ -248,6 +249,8 @@ function jobTaskOf(
     // W2-C plan board
     ...(board ? { board } : {}),
     ...(model !== undefined ? { model } : {}),
+    ...(task.difficulty ? { difficulty: task.difficulty } : {}),
+    ...(jobOfTask?.models ? { jobModels: jobOfTask.models } : {}),
     ...(latestAttempt ? { accountId: latestAttempt.accountId } : {}),
     ...(branch !== undefined ? { branch } : {}),
     ...(attempts > 0 ? { attempts } : {}),

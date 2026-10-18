@@ -28,6 +28,9 @@ import { ConversationPane } from './conversation/ConversationPane'
 import { RemoteTerminalView } from './RemoteTerminalView'
 import { RemoteConversationPane } from './conversation/RemoteConversationPane'
 import type { RemoteFacts, RemoteSessionRef } from '../lib/remoteSessions'
+// W7-F (#84)
+import { QuickSwitcher } from './QuickSwitcher'
+import type { SwitcherTab } from '../lib/tabSwitcher'
 import { RECORD_GLYPH, RECORD_GLYPH_COLOR } from './UnderstandingIcons'
 import {
   WorkbenchTabs,
@@ -93,8 +96,16 @@ export function PaneGrid({
   remoteSessions = [],
   remoteStatus = {},
   remoteReadOnly = () => false,
-  runtimeName = (id) => id
+  runtimeName = (id) => id,
+  switcherOpen = false,
+  onSwitcherClose,
+  switcherMeta
 }: {
+  /** W7-F (#84): the quick tab switcher is open; it lists this grid's tabs (the workspace shown). */
+  switcherOpen?: boolean
+  onSwitcherClose?: () => void
+  /** W7-F (#84): a plan session's tree label, plan, Task and project by session id, for the switcher's filter. */
+  switcherMeta?: ReadonlyMap<string, Omit<SwitcherTab, 'tabId' | 'title'>>
   /** Sessions on paired Runtimes (Phase 9b), each in the tab `sessionTab(ref.key)`. */
   remoteSessions?: RemoteSessionRef[]
   /** A remote session's status by key, from its Runtime's facts; absent is unknown. */
@@ -265,6 +276,104 @@ export function PaneGrid({
     if (full) return 'center'
     return dropZoneOf((e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height)
   }
+
+  // A tab id resolved to what it needs to draw; null when its session or file tab is gone. W7-F (#84): hoisted out of
+  // the per-pane loop so the overflow menu can list every pane's tabs with the same labels.
+  const resolveTab = (tabId: string): WorkbenchTab | null => {
+    const ref = parseTab(tabId)
+    if (ref?.kind === 'session') {
+      const s = sessionOf.get(ref.id)
+      const r = s ? undefined : remoteOf.get(ref.id)
+      if (r)
+        return {
+          tabId,
+          kind: 'session',
+          sessionId: r.key,
+          title: `${r.title ?? r.sessionId} · ${runtimeName(r.runtimeId)}`,
+          color: REMOTE_TAB_COLOR,
+          busy: remoteStatus[r.key] === 'working',
+          exited: !r.alive,
+          rollTooltip: null,
+          remote: true
+        }
+      if (!s) return null
+      return {
+        tabId,
+        kind: 'session',
+        sessionId: s.id,
+        title: s.title,
+        color: colorOf(s.accountId),
+        busy: busy[s.id] === true,
+        exited: s.status === 'exited',
+        rollTooltip:
+          s.rollAccountIds && s.rollAccountIds.length > 0
+            ? t('session.tab.rollTooltip', {
+                chain: s.rollAccountIds
+                  .map((id) => accounts.find((a) => a.id === id)?.label ?? id.slice(0, 6))
+                  .join(' → ')
+              })
+            : null
+      }
+    }
+    if (ref?.kind === 'record') {
+      const rec = recordTabOf.get(tabId)
+      if (!rec) return null
+      // 상태는 살아 있는 값이라 기록에 담지 않는다. 다른 프로젝트의 탭이면 그 값이 없고,
+      // 그때는 글리프 없이 이름만 그린다 — 탭이 사라지는 것보다 낫다
+      const status = recordStatuses[tabId]
+      return {
+        tabId,
+        kind: 'record',
+        recordId: rec.recordId,
+        title: rec.title,
+        glyph: status ? RECORD_GLYPH[status] : null,
+        // Spins on the tab bar too — leaving a record's tab open while waiting is a common
+        // place to be. The one place that decides this is UnderstandingIcons' RECORD_GLYPH,
+        // by whether the status is `generating`.
+        glyphSpins: status === 'generating',
+        // The colour comes from the same table too — picking it by a "needs review" set
+        // would leave `failed`, which is not in that set, drawn green
+        // (UnderstandingIcons' RECORD_GLYPH_COLOR)
+        glyphColor: status ? RECORD_GLYPH_COLOR[status] : null
+      }
+    }
+    if (ref?.kind === 'media') {
+      const title = ref.id.split(/[\\/]/).pop() || t('media.tab.untitled')
+      return { tabId, kind: 'media', path: ref.id, title, video: mediaKindOf(ref.id) === 'video' }
+    }
+    if (ref?.kind === 'app') {
+      const info = appTabInfo(ref.id)
+      if (!info) return null
+      return { tabId, kind: 'app', sessionId: ref.id, title: info.title, running: info.running, open: info.open }
+    }
+    if (ref?.kind === 'browser') {
+      const b = browserTabOf.get(tabId)
+      if (!b) return null
+      // Passed on its own as well as folded into `loading`: an agent tab loading a page
+      // ordinarily is also `loading`, and the spinner's tooltip says the agent is driving.
+      const agentRunning = b.agentSessionId !== undefined && agentBusy[b.agentSessionId] === true
+      return {
+        tabId,
+        kind: 'browser',
+        url: b.url,
+        title: b.title || displayHostOf(b.url) || t('preview.tab.untitled'),
+        loading: browserLoading[tabId] === true || agentRunning,
+        agentRunning,
+        agentSessionId: b.agentSessionId
+      }
+    }
+    const f = ref?.kind === 'file' ? fileTabOf.get(tabId) : undefined
+    if (!f) return null
+    return {
+      tabId,
+      kind: 'file',
+      path: f.path,
+      title: labels.get(f.path)?.name ?? f.title,
+      hint: labels.get(f.path)?.hint ?? null,
+      dirty: dirtyFileIds.has(f.id)
+    }
+  }
+  const allTabs = paneLeaves.flatMap((l) => l.tabIds.map(resolveTab).filter((x): x is WorkbenchTab => x != null))
 
   return (
     <div className="panes pane-grid" ref={hostRef}>
@@ -583,102 +692,7 @@ export function PaneGrid({
         if (!rect) return null
         // A pane's tab ids in order, each resolved to what it needs to draw. An id whose session or file
         // tab is gone is skipped rather than drawn empty
-        const tabs = l.tabIds
-          .map((tabId): WorkbenchTab | null => {
-            const ref = parseTab(tabId)
-            if (ref?.kind === 'session') {
-              const s = sessionOf.get(ref.id)
-              const r = s ? undefined : remoteOf.get(ref.id)
-              if (r)
-                return {
-                  tabId,
-                  kind: 'session',
-                  sessionId: r.key,
-                  title: `${r.title ?? r.sessionId} · ${runtimeName(r.runtimeId)}`,
-                  color: REMOTE_TAB_COLOR,
-                  busy: remoteStatus[r.key] === 'working',
-                  exited: !r.alive,
-                  rollTooltip: null,
-                  remote: true
-                }
-              if (!s) return null
-              return {
-                tabId,
-                kind: 'session',
-                sessionId: s.id,
-                title: s.title,
-                color: colorOf(s.accountId),
-                busy: busy[s.id] === true,
-                exited: s.status === 'exited',
-                rollTooltip:
-                  s.rollAccountIds && s.rollAccountIds.length > 0
-                    ? t('session.tab.rollTooltip', {
-                        chain: s.rollAccountIds
-                          .map((id) => accounts.find((a) => a.id === id)?.label ?? id.slice(0, 6))
-                          .join(' → ')
-                      })
-                    : null
-              }
-            }
-            if (ref?.kind === 'record') {
-              const rec = recordTabOf.get(tabId)
-              if (!rec) return null
-              // 상태는 살아 있는 값이라 기록에 담지 않는다. 다른 프로젝트의 탭이면 그 값이 없고,
-              // 그때는 글리프 없이 이름만 그린다 — 탭이 사라지는 것보다 낫다
-              const status = recordStatuses[tabId]
-              return {
-                tabId,
-                kind: 'record',
-                recordId: rec.recordId,
-                title: rec.title,
-                glyph: status ? RECORD_GLYPH[status] : null,
-                // Spins on the tab bar too — leaving a record's tab open while waiting is a common
-                // place to be. The one place that decides this is UnderstandingIcons' RECORD_GLYPH,
-                // by whether the status is `generating`.
-                glyphSpins: status === 'generating',
-                // The colour comes from the same table too — picking it by a "needs review" set
-                // would leave `failed`, which is not in that set, drawn green
-                // (UnderstandingIcons' RECORD_GLYPH_COLOR)
-                glyphColor: status ? RECORD_GLYPH_COLOR[status] : null
-              }
-            }
-            if (ref?.kind === 'media') {
-              const title = ref.id.split(/[\\/]/).pop() || t('media.tab.untitled')
-              return { tabId, kind: 'media', path: ref.id, title, video: mediaKindOf(ref.id) === 'video' }
-            }
-            if (ref?.kind === 'app') {
-              const info = appTabInfo(ref.id)
-              if (!info) return null
-              return { tabId, kind: 'app', sessionId: ref.id, title: info.title, running: info.running, open: info.open }
-            }
-            if (ref?.kind === 'browser') {
-              const b = browserTabOf.get(tabId)
-              if (!b) return null
-              // Passed on its own as well as folded into `loading`: an agent tab loading a page
-              // ordinarily is also `loading`, and the spinner's tooltip says the agent is driving.
-              const agentRunning = b.agentSessionId !== undefined && agentBusy[b.agentSessionId] === true
-              return {
-                tabId,
-                kind: 'browser',
-                url: b.url,
-                title: b.title || displayHostOf(b.url) || t('preview.tab.untitled'),
-                loading: browserLoading[tabId] === true || agentRunning,
-                agentRunning,
-                agentSessionId: b.agentSessionId
-              }
-            }
-            const f = ref?.kind === 'file' ? fileTabOf.get(tabId) : undefined
-            if (!f) return null
-            return {
-              tabId,
-              kind: 'file',
-              path: f.path,
-              title: labels.get(f.path)?.name ?? f.title,
-              hint: labels.get(f.path)?.hint ?? null,
-              dirty: dirtyFileIds.has(f.id)
-            }
-          })
-          .filter((x): x is WorkbenchTab => x != null)
+        const tabs = l.tabIds.map(resolveTab).filter((x): x is WorkbenchTab => x != null)
         // The kind badge's own data — present only when this pane's active tab is a session, which is
         // what keeps it off a file, browser, or record tab. Computed here rather than left for
         // WorkbenchTabs to work out because parseTab is this component's own — WorkbenchTabs only
@@ -712,6 +726,7 @@ export function PaneGrid({
               onRenameStart={onRenameStart}
               onRenameEnd={onRenameEnd}
               activeSession={activeSession}
+              allTabs={allTabs}
             />
           </div>
         )
@@ -779,6 +794,18 @@ export function PaneGrid({
             }}
           />
         ))}
+      {switcherOpen && onSwitcherClose && (
+        <QuickSwitcher
+          tabs={allTabs.map((tab) => ({
+            tabId: tab.tabId,
+            title: tab.title,
+            ...(tab.kind === 'session' ? switcherMeta?.get(tab.sessionId) : undefined)
+          }))}
+          activeTabId={paneLeaves.find((l) => l.id === activePaneId)?.activeTabId ?? null}
+          onSelect={onSelectTab}
+          onClose={onSwitcherClose}
+        />
+      )}
     </div>
   )
 }

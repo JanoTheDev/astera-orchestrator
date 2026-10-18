@@ -118,9 +118,10 @@ export function placeTab(
     }
   if (!root) {
     const g = createGroup(tabId)
-    // Background placement does not set the active pane either. It is the only tab so it is visible,
-    // but it does not take focus; it becomes the active pane when the user clicks it
-    return { root: g, paneId: opts.background ? null : g.id, splitFellBack: false }
+    // W7-F (#78): an empty layout has no tab to steal focus from, so even a background tab (a CLI-made or
+    // worker session) is the active pane. Else it is shown but is not the window's session ("No sessions",
+    // "No project is open") until clicked, since activeSessionId derives from the active pane's tab.
+    return { root: g, paneId: g.id, splitFellBack: false }
   }
   // Checked before the split — the worker path never passes splitDir (a worker is specified as "a
   // new tab in the active group"), and if both arrive we pick the option that preserves focus
