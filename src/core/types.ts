@@ -576,6 +576,30 @@ export type TaskBlockedReason =
   | { kind: 'global-cap'; used: number; limit: number; priority: number }
   /** It has a slot: the dispatch loop starts it on its next pass. */
   | { kind: 'next' }
+  /** W6-G: every account it may start on is at `usagePauseAt` of a usage window (usageGuard.ts). */
+  | ({ kind: 'usage-paused' } & UsagePause)
+
+// W6-G usage guards: declared here because the renderer reads them (the plan board, the usage strip).
+/** An account no new worker starts on: a usage window at or over `usagePauseAt`, until it resets. */
+export interface UsagePause {
+  accountId: string
+  window: 'five_hour' | 'seven_day'
+  percent: number
+  /** ISO 8601, null when the reading did not say. */
+  resetsAt: string | null
+}
+
+/** The plan view's usage strip (components/usage/UsageStrip.tsx), from main's `usage.guard`. */
+export interface UsageGuardView {
+  /** The `usagePauseAt` setting, in percent. */
+  pauseAt: number
+  /** The `maxSubagentsPerSession` setting. */
+  maxSubagents: number
+  /** Every account with a statusLine reading: its latest 5-hour and 7-day windows, and its pause, if any. */
+  accounts: Array<{ accountId: string; session: RateLimitWindow | null; weekly: RateLimitWindow | null; paused: UsagePause | null }>
+  /** Claude tabs with at least one live subagent. */
+  subagents: Array<{ sessionId: string; count: number }>
+}
 
 export interface TaskBoard {
   category: TaskCategory
@@ -1332,6 +1356,8 @@ export interface CoreApi {
   usage: {
     session(sessionId: string): Promise<SessionUsage | null> // context, 5-hour, and weekly % for an active session (claude: statusLine capture, codex: rollout tail)
     accounts(): Promise<Record<string, AccountUsage>> // last-known usage per account, for the account rows (design doc §4)
+    /** W6-G: the usage guard's view, for the plan view's usage strip. */
+    guard(): Promise<UsageGuardView>
     subscribe(): void
     unsubscribe(): void
   }
@@ -1441,6 +1467,11 @@ export interface CoreApi {
     /** W1-B: the app-wide Job worker cap; null is no cap. */
     getMaxConcurrentWorkers(): Promise<number | null>
     setMaxConcurrentWorkers(n: number | null): Promise<void>
+    /** W6-G: subagents at once per Claude tab (1–10), and the usage percent at which no new worker starts. */
+    getMaxSubagentsPerSession(): Promise<number>
+    setMaxSubagentsPerSession(n: number): Promise<void>
+    getUsagePauseAt(): Promise<number>
+    setUsagePauseAt(n: number): Promise<void>
     /** W3-A: minutes between activity digests; 0 is none. */
     getActivityDigestMinutes(): Promise<number>
     setActivityDigestMinutes(n: number): Promise<void>

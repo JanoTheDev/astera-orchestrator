@@ -263,3 +263,20 @@ describe('taskBoardsOf — categories', () => {
     expect(boardOf(s, 'a')).toEqual({ category: 'running', reason: { kind: 'rate-limited', accountId: 'acc_1', switching: false } })
   })
 })
+
+// W6-G: a ready Task whose every account is nearly spent says so, with the window and when it resets.
+describe('taskBoardsOf — usage pause', () => {
+  const pause = { accountId: 'acc_1', window: 'five_hour' as const, percent: 93, resetsAt: '2026-10-17T14:20:00.000Z' }
+  const pauseOf = (id: string) => (id === 'acc_1' ? { ...pause, accountId: id } : null)
+
+  it('paused when every account of its chain is at the threshold', () => {
+    const s = one([task('a', 'r1')])
+    expect(taskBoardsOf(s, {}, pauseOf).get('a')?.reason).toEqual({ kind: 'usage-paused', ...pause })
+  })
+
+  it('not paused when its chain has an account under the threshold, or with no guard', () => {
+    const s = one([task('a', 'r1', { accountIds: ['acc_1', 'acc_2'] })])
+    expect(taskBoardsOf(s, {}, pauseOf).get('a')?.reason).toEqual({ kind: 'next' })
+    expect(taskBoardsOf(one([task('a', 'r1')])).get('a')?.reason).toEqual({ kind: 'next' })
+  })
+})

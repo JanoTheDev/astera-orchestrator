@@ -7,6 +7,7 @@ import {
   deriveActivity,
   digestText,
   noticeOf,
+  usageActivity,
   summarize,
   type ActivityDraft,
   type ActivityEvent,
@@ -207,6 +208,21 @@ describe('notices', () => {
     expect(noticeOf(ev({ type: 'gate.opened', payload: { title: 'A', gateId: 'g', question: 'Q?' } }))?.body).toContain('Q?')
     expect(noticeOf(ev({ type: 'plan.awaiting-approval', jobId: 'j1', payload: { title: 'P' } }))?.key).toBe('approve:j1')
     expect(noticeOf(ev({ type: 'dispatch.started', payload: { title: 'A' } }))).toBeNull()
+  })
+
+  // W6-G: a usage pause and its end are feed lines and notices; nothing in them asks the owner for anything.
+  it('a usage pause and its end each give a notice', () => {
+    const pause = { accountId: 'acc_1', window: 'five_hour' as const, percent: 93, resetsAt: '2026-10-17T14:20:00.000Z' }
+    const paused = usageActivity({ type: 'usage.paused', pause })
+    expect(paused).toEqual({
+      type: 'usage.paused',
+      payload: { title: 'acc_1', accountId: 'acc_1', usageWindow: 'five_hour', percent: 93, resetsAt: pause.resetsAt }
+    })
+    const n = noticeOf(ev(paused))
+    expect(n?.title).toBe('New workers paused')
+    expect(n?.body).toContain('93% of its 5-hour limit, resumes ~')
+    expect(n?.body).toContain('Running workers carry on')
+    expect(noticeOf(ev(usageActivity({ type: 'usage.resumed', pause })))?.title).toBe('New workers resumed')
   })
 
   it('the throttle: a key once a window, at most max a minute, the rest counted', () => {

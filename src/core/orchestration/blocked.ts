@@ -4,11 +4,12 @@
 // owns it: `jobActive` / `isJobActive` (a plan paused, not started, archived), `placedByApp` (who drives the Run),
 // `slotsToFill` and `workersAgainstCap` (the plan's own and the app-wide caps, `Job.priority`), FAILURE_LIMIT (the
 // circuit breaker). If one of those rules changes, the reason changes with it.
-import type { TaskBlockedReason, TaskBoard, TaskCategory } from '../types'
+import type { TaskBlockedReason, TaskBoard, TaskCategory, UsagePause } from '../types'
 import { DEFAULT_CONCURRENCY, FAILURE_LIMIT, type Dispatch, type Gate, type Task } from './types'
 import { placedByApp, type OrchState } from './state'
 import { isJobActive } from './lifecycle'
 import { jobActive, slotsToFill, workersAgainstCap, type ScheduleLimits } from './schedule'
+import { usageChoice } from './usageGuard'
 
 const isOpen = (d: Dispatch): boolean => !d.outcome && !d.endedAt
 
@@ -37,7 +38,12 @@ function categoryOf(task: Task, open: Dispatch | undefined, latest: Dispatch | u
  *  number of times (view.ts, performance audit M1): `slotsToFill` and `workersAgainstCap` run at most once, and only
  *  when a ready Task the app places needs their answer.
  *  shortcut: those two scan per Run; if a state with many ready app-placed Tasks makes the fold slow, index them. */
-export function taskBoardsOf(s: OrchState, limits: ScheduleLimits = {}): Map<string, TaskBoard> {
+export function taskBoardsOf(
+  s: OrchState,
+  limits: ScheduleLimits = {},
+  /** W6-G: an account no new worker starts on (usageGuard.ts `UsageGuard.pauseOf`). Absent: no usage pause. */
+  usagePauseOf?: (accountId: string) => UsagePause | null
+): Map<string, TaskBoard> {
   const cap = limits.maxConcurrentWorkers ?? null
   const push = <T>(m: Map<string, T[]>, k: string, v: T): void => {
     const list = m.get(k)
@@ -120,6 +126,11 @@ export function taskBoardsOf(s: OrchState, limits: ScheduleLimits = {}): Map<str
     }
     if (task.status !== 'ready') return undefined
     if ((task.accountIds?.length ?? 0) === 0) return { kind: 'no-account' }
+    // W6-G: every account of its chain is nearly spent, whoever places it (the guard holds in worker-start)
+    if (usagePauseOf) {
+      const usage = usageChoice(task.accountIds as string[], usagePauseOf)
+      if (!usage.ok) return { kind: 'usage-paused', ...usage.pause }
+    }
     if (!placedByApp(job, run)) return { kind: 'coordinator' }
     const p = placed()
     if (p.slotted.has(task.id)) return { kind: 'next' }

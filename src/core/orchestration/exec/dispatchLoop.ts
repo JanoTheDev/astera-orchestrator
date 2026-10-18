@@ -43,6 +43,7 @@ import { DEFAULT_CONCURRENCY, FAILURE_LIMIT, type JobRun, type Task } from '../t
 import { outcomeOfTasks, tasksOwnedBy } from '../running'
 import { outcomeOf } from '../view'
 import type { Integration } from './integrateGit'
+import { usageChoice, usagePauseWhy, type UsageGuard } from '../usageGuard'
 
 /** 15초 — 세션 스케줄러의 TICK_MS 와 같은 값이다 */
 export const ORCH_FIRE_TICK_MS = 15_000
@@ -151,6 +152,8 @@ export interface DispatchLoopContext {
   lastPersonInputAt?(sessionId: string): number | null
   /** Asked on entry and again before each slot (§4.3). */
   mayStart(): boolean
+  /** W6-G: the usage guard (usageGuard.ts), refreshed before each slot. Optional: without it no usage pause. */
+  usageGuard?: Pick<UsageGuard, 'refresh' | 'pauseOf'>
   log(m: string): void
   nowMs(): number
 }
@@ -560,7 +563,16 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
             : `no ${slotProvider} account is logged in to run task ${slot.taskId} on`
       }
     }
-    const accountId = picked.accountId
+    let accountId = picked.accountId
+    // W6-G: no new worker on a nearly spent account. Another account of the chain under the threshold takes it,
+    // in rolling's order; with none, the slot waits (no Gate: nothing for a person to do) and a later pass retries.
+    if (c.usageGuard) {
+      const guard = c.usageGuard
+      await guard.refresh()
+      const usage = usageChoice(picked.chain, (id) => guard.pauseOf(id))
+      if (!usage.ok) return { kind: 'wait', why: usagePauseWhy(usage.pause) }
+      if (usage.accountId !== undefined) accountId = usage.accountId
+    }
     // **한 Run 은 두 방식 중 하나로만 돈다.** 섞지 않는 이유는 병합 대상이다 — 병합은
     // 깨끗한 작업 트리에만 적용되고, 워커 하나를 합칠 자리에 띄우면 그 폴더에 커밋 안 된
     // 변경이 남아 나머지 워크트리를 합칠 자리가 없어진다. 그래서 동시 실행 손잡이 하나가
@@ -806,6 +818,9 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     // W5-C: the plan was held from launching between slotsToFill and here. A person's choice, so no Gate.
     if (reply.status === 409 && (reply.body as { held?: unknown })?.held === true)
       return { kind: 'wait', why: 'the plan is held from launching new workers' }
+    // W6-G: the account crossed `usagePauseAt` between the check above and here. It resumes on its own.
+    if (reply.status === 409 && (reply.body as { usagePaused?: unknown })?.usagePaused !== undefined)
+      return { kind: 'wait', why: String((reply.body as { error?: unknown }).error) }
     return reply.status >= 400 ? { kind: 'refused', reply } : { kind: 'started', reply }
   }
 

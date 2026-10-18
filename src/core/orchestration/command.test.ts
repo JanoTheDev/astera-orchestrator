@@ -3356,6 +3356,51 @@ describe('worker-start — 인계된 Run 의 워크트리', () => {
   })
 })
 
+// W6-G: no new worker on a nearly spent account, for every placer, a coordinator included.
+describe('worker-start — usage guard', () => {
+  const pause = { accountId: 'acc1', window: 'five_hour' as const, percent: 93, resetsAt: '2026-10-17T14:20:00.000Z' }
+  const setup = async (paused: Record<string, typeof pause>) => {
+    const deps = makeDeps()
+    let refreshed = 0
+    deps.usageGuard = {
+      refresh: async () => {
+        refreshed++
+      },
+      pauseOf: (id) => paused[id] ?? null
+    }
+    const run = await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p', concurrency: 5 })
+    const runId = (run.body as { id: string }).id
+    const task = ((await call(deps, 'task-create', { account: 'acc1', runId, spec: 's' })).body as { id: string }).id
+    return { deps, task, refreshed: () => refreshed }
+  }
+  const start = (deps: OrchServerDeps, task: string, account = 'acc1') =>
+    call(deps, 'worker-start', { task, agent: 'codex', account, worktree: 'current' })
+
+  it('refuses a paused account with usagePaused and why, after reading usage again', async () => {
+    const { deps, task, refreshed } = await setup({ acc1: pause })
+    const r = await start(deps, task)
+    expect(r.status).toBe(409)
+    expect(r.body).toMatchObject({ usagePaused: pause })
+    expect(String((r.body as { error?: string }).error)).toContain('93% of its 5-hour limit')
+    expect(refreshed()).toBe(1)
+    expect(deps.getState().dispatches).toHaveLength(0)
+  })
+
+  it("names an account of the Task's chain that is under the threshold", async () => {
+    const { deps, task } = await setup({ acc1: pause })
+    const now = deps.getState()
+    await deps.setState({ ...now, tasks: now.tasks.map((t) => (t.id === task ? { ...t, accountIds: ['acc1', 'acc2'] } : t)) })
+    const r = await start(deps, task)
+    expect(r.body).toMatchObject({ alternative: 'acc2' })
+    expect(String((r.body as { error?: string }).error)).toContain('--account acc2')
+  })
+
+  it('an account under the threshold, or no reading, starts as before', async () => {
+    const { deps, task } = await setup({})
+    expect((await start(deps, task)).status).toBe(200)
+  })
+})
+
 // W1-B: the app-wide cap holds every placer, a coordinator included, across Jobs.
 describe('worker-start — app-wide worker cap', () => {
   const twoJobs = async (cap: number | null): Promise<{ deps: OrchServerDeps & { state: OrchState }; a: string[]; b: string[] }> => {
