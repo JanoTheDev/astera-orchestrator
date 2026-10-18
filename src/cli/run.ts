@@ -277,7 +277,8 @@ export function argsForCall(a: {
   // **A project path is resolved here too** (`--project`, `projects find --path`): the Host resolves a
   // relative path against its own working directory, which is not the shell's, so `--project .` would
   // name whatever folder the Host was started in.
-  const pathKey = a.cmd === 'projects-find' ? 'path' : PROJECT_COMMANDS.has(a.cmd) ? 'project' : null
+  // W7-B: `projects add --path` and `projects create --parent` are folders too.
+  const pathKey = a.cmd === 'projects-find' || a.cmd === 'projects-add' ? 'path' : a.cmd === 'projects-create' ? 'parent' : PROJECT_COMMANDS.has(a.cmd) ? 'project' : null
   if (pathKey !== null) {
     const p = a.args[pathKey]
     return typeof p === 'string' && p.length > 0 && !path.isAbsolute(p)

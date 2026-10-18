@@ -26,7 +26,8 @@ export function NewPlanDialog({
   accounts,
   onClose,
   onCreated,
-  concurrency: initialConcurrency
+  concurrency: initialConcurrency,
+  initialText
 }: {
   door: OrchDoor
   /** The open project's folder: picked first. */
@@ -36,12 +37,14 @@ export function NewPlanDialog({
   onCreated: (jobId: string) => void
   /** W7-D (#67): the worker count typed in the form this dialog was opened from, kept across the switch. */
   concurrency?: number
+  /** W7-B: the description the dialog opens with (the first plan of a new project). */
+  initialText?: string
 }): React.JSX.Element {
   const { t } = useI18n()
   const [tab, setTab] = useState<IntakeTab>('describe')
   const [projects, setProjects] = useState<Project[]>([])
   const [projectId, setProjectId] = useState('')
-  const [text, setText] = useState('')
+  const [text, setText] = useState(initialText ?? '')
   const [fixlist, setFixlist] = useState(false)
   const [files, setFiles] = useState<string[]>([])
   const [scope, setScope] = useState('')

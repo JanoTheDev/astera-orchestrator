@@ -32,7 +32,10 @@ export const HOST_ANSWERED: ReadonlySet<string> = new Set([
   'jobs-create',
   'jobs-create-from-issue',
   'github-issue-assign',
-  'sources-items'
+  'sources-items',
+  // W7-B: the project dialogs' git and gh work is the Host's (src/host/orch.ts)
+  'projects-add',
+  'projects-create'
 ])
 
 /** W5-D (#44): the reads that are one list across every Host. A call with no `runtimeId` asks the local Host and every

@@ -129,6 +129,7 @@ const NOT_SWITCHED = [
   'app-js',
   'handoff',
   'requests-show',
+  'projects-create',
   'skills-list',
   'skills-install',
   'higgsfield-list',

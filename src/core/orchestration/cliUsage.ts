@@ -305,8 +305,23 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
   'projects-add': {
     summary: 'register a folder of this machine as a project',
     detail:
-      'For the person at this machine, or a script on it: a remote controller cannot, nor an agent session (ASTERA_SESSION is set; refused with 5). The path must be an absolute path to an existing folder that is not a worktree. Adding a folder already registered answers that project.',
-    flags: [{ name: 'path', value: '<path>', required: true, about: 'the folder to register' }]
+      'For the person at this machine, or a script on it: a remote controller cannot, nor an agent session (ASTERA_SESSION is set; refused with 5). The path is an existing git repository folder that is not a worktree (a relative path is taken from the shell folder). A repository with no commit is refused (409 needsInitialCommit) unless --initial-commit makes one. The answer carries the proposed test command and records the default branch. Adding a folder already registered answers that project.',
+    flags: [
+      { name: 'path', value: '<path>', required: true, about: 'the folder to register' },
+      { name: 'initial-commit', about: 'make the first commit when the repository has none' }
+    ]
+  },
+  // W7-B
+  'projects-create': {
+    summary: 'create a new project: a folder with a git repository, optionally a GitHub repository',
+    detail:
+      'For the person at this machine, or a script on it: a remote controller cannot, nor an agent session (refused with 5). Makes <parent>/<name>, runs git init, makes the first commit and registers it as a project. With --github the repository is created on GitHub and pushed (needs the gh CLI signed in). --describe is the repository description.',
+    flags: [
+      { name: 'name', value: '<name>', required: true, about: 'the folder and project name' },
+      { name: 'parent', value: '<path>', required: true, about: 'the folder to create it in (relative: from the shell folder)' },
+      { name: 'describe', value: '<text>', about: 'a one-line description' },
+      { name: 'github', value: '<private|public>', about: 'also create a GitHub repository' }
+    ]
   },
   'projects-get': {
     summary: 'one registered project',
@@ -314,15 +329,21 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
   },
   // W6-H delivery (delivery.ts)
   'projects-set': {
-    summary: "set how a project's finished plans land: one pull request, or a push to a branch",
+    summary: "set a project's delivery, auto-approve, test command, concurrency, review rounds, replan and account",
     detail:
-      'pr (the default) opens one pull request per plan and never merges it. push merges a finished plan into the delivery branch (the default branch unless --delivery-branch) and pushes it, with no review by a person, after the reviews, the final check and the validation pass; it stops and escalates when the folder is not on that branch, has uncommitted changes, cannot fast-forward, conflicts, fails validation or is rejected, and never force-pushes. A Job may override it (`jobs create --delivery`). An empty --delivery-branch drops it. Refused from an agent session and an MCP client.',
+      'pr (the default) opens one pull request per plan and never merges it. push merges a finished plan into the delivery branch (the default branch unless --delivery-branch) and pushes it, with no review by a person, after the reviews, the final check and the validation pass; it stops and escalates when the folder is not on that branch, has uncommitted changes, cannot fast-forward, conflicts, fails validation or is rejected, and never force-pushes. A Job may override it (`jobs create --delivery`). Defaults: delivery pr, auto-approve off, concurrency 3, review rounds 5, replan waves. --auto-approve on starts a plan without waiting for approval. --test-command is saved as a run configuration and validates every new Task that has no --validate (--test-config picks an existing one). A new Job copies the concurrency, replan and review rounds when it sets none. An empty value clears a setting back to its default. Refused from an agent session and an MCP client.',
     flags: [
       ID('<projectId>', 'the project to set'),
       { name: 'delivery', value: '<pr|push>', about: 'how its finished plans land' },
       { name: 'delivery-branch', value: '<branch>', about: 'the branch a push lands on (default: the repository default branch)' },
-      // W7-A
-      { name: 'auto-approve', value: '<on|off>', about: 'approve this project\'s plans as soon as their planner finishes, with no one asked (default off)' }
+      // W7-A, W7-B
+      { name: 'auto-approve', value: '<on|off>', about: 'approve this project\'s plans as soon as their planner finishes, with no one asked (default off)' },
+      { name: 'test-command', value: '<cmd>', about: 'the command that validates a Task (saved as a run configuration)' },
+      { name: 'test-config', value: '<id>', about: 'an existing run configuration to validate with' },
+      { name: 'concurrency', value: '<1-10>', about: 'workers at once for a new Job (default: 3)' },
+      { name: 'review-rounds', value: '<n>', about: 'review rounds for a new Job (default: 5)' },
+      { name: 'replan', value: '<waves|off>', about: 'replan between waves (default: waves)' },
+      { name: 'account', value: '<id>', about: 'the account the project uses' }
     ]
   },
   'projects-find': {

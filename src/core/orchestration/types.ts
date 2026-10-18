@@ -139,11 +139,30 @@ export interface Project {
   delivery?: DeliveryMode
   /** The branch a `push` delivery lands on. Absent: the repository's default branch. */
   deliveryBranch?: string
-  // ── W7-A plan feedback (exec/plannerFeedback.ts) ──
-  /** A plan that holds starts as soon as its planner ends its turn, with no approval step (`autoApproveOf`). Absent
-   *  reads as false. A Job may override it. */
+  // ── W7-B project settings (projects.ts `setProjectSettings`); each absent field reads as its PROJECT_DEFAULTS entry ──
+  /** W7-A: a plan of this project starts on its own once it holds, with no approval by the owner. */
   autoApprove?: boolean
+  /** The run configuration (run-configs.json) that is this project's test command: the check a new Task of the
+   *  project is validated with when it names none (`createTask`). */
+  testConfigId?: string
+  /** Workers at once for a new plan of this project (`Job.concurrency`), 1–MAX_CONCURRENT_WORKERS. */
+  concurrency?: number
+  /** Review rounds for a new plan of this project (`ConvergencePolicy.maxReviewRounds`). */
+  reviewRounds?: number
+  /** W6-D: `Job.replan` for a new plan of this project. */
+  replan?: 'waves' | 'off'
+  /** The default branch found when the project was added or created; shown, never used to pick a base. */
+  defaultBranch?: string
 }
+
+/** W7-B: what a project nobody set up reads as. */
+export const PROJECT_DEFAULTS = {
+  delivery: 'pr',
+  autoApprove: false,
+  concurrency: DEFAULT_CONCURRENCY,
+  reviewRounds: MAX_REVIEW_ROUNDS,
+  replan: 'waves'
+} as const
 
 /** W6-H: how a finished plan lands (`deliveryOf`). */
 export type DeliveryMode = 'pr' | 'push'

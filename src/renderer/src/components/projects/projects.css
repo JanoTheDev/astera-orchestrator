@@ -1,0 +1,7 @@
+/* W7-B: new / add / settings dialogs; the modal, field and button classes come from styles.css */
+.proj-row { display: flex; gap: 6px; align-items: center; }
+.proj-row > input { flex: 1; min-width: 0; }
+.proj-ok { color: var(--accent); font-size: 12px; }
+.modal.proj-settings { max-height: 85vh; overflow-y: auto; }
+.ws-tools { display: flex; gap: 4px; flex-basis: 100%; }
+.ws-gear { padding: 0 4px; }

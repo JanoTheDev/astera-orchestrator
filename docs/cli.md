@@ -686,8 +686,9 @@ astera sources show  --source <sourceId> --item <itemId> [--project <projectId>]
 astera projects list
 astera projects get   --id <projectId>
 astera projects find  --path <path>
-astera projects add   --path <path>
-astera projects set   --id <projectId> [--delivery <pr|push>] [--delivery-branch <branch>] [--auto-approve <on|off>]
+astera projects add   --path <path> [--initial-commit]
+astera projects create --name <name> --parent <path> [--describe <text>] [--github <private|public>]
+astera projects set   --id <projectId> [--delivery <pr|push>] [--delivery-branch <branch>] [--auto-approve <on|off>] [--test-command <cmd>] [--test-config <id>] [--concurrency <1-10>] [--review-rounds <n>] [--replan <waves|off>] [--account <id>]
 
 astera jobs    list   [--status <pending|paused|scheduled|waiting|running|completed|failed>] [--project <path>] [--archived]
 astera jobs    get    --id <jobId | runId>
