@@ -456,6 +456,8 @@ const NOT_FORWARDED = [
   'readUnderstanding',
   // W6-A intake
   'intakeInputs',
+  // W8-C prompts mode
+  'readIntakeText',
   'changes',
   'jobSources',
   'completionChecks',
@@ -604,6 +606,8 @@ const EFFECTFUL: Record<Classified, boolean> = {
   // NOT_FORWARDED as well (W6-A intake): files copied into this Host's profile, never the app's. The Job it is for is
   // a commit of the same command.
   intakeInputs: true,
+  // NOT_FORWARDED as well (W8-C prompts mode): a read of this Host's machine's files; it leaves nothing outside the call.
+  readIntakeText: false,
   // NOT_FORWARDED as well (remote runtime design Phase 10): git reads on this Host's machine, never the app's. It
   // runs `git diff` and leaves nothing outside the call.
   changes: false,
@@ -737,6 +741,8 @@ export function hostOrchDeps(a: {
   readUnderstanding?: OrchServerDeps['readUnderstanding']
   /** W6-A intake: attached files into this Host's profile. Absent: `jobs-create --attach` and audits answer 409. */
   intakeInputs?: OrchServerDeps['intakeInputs']
+  /** W8-C prompts mode: Run-as-written prompt files and PLAN.md, read on this Host. Absent: `--mode prompts --attach` answers 409. */
+  readIntakeText?: OrchServerDeps['readIntakeText']
   /** A Run's changed files and diffs from this Host's git (Phase 10). Absent: the two commands answer 409. */
   changes?: OrchServerDeps['changes']
   /** This Host's job-source plugins (plugin Phase 4 J10). Absent: the sources are GitHub's alone. */
@@ -1339,6 +1345,8 @@ export function hostOrchDeps(a: {
     ...(github ? { github } : {}),
     ...(a.readUnderstanding ? { readUnderstanding: a.readUnderstanding } : {}),
     ...(a.intakeInputs ? { intakeInputs: a.intakeInputs } : {}),
+    // W8-C prompts mode
+    ...(a.readIntakeText ? { readIntakeText: a.readIntakeText } : {}),
     ...(a.changes ? { changes: a.changes } : {}),
     ...(a.jobSources ? { jobSources: a.jobSources } : {}),
     ...(a.completionChecks ? { completionChecks: a.completionChecks } : {}),

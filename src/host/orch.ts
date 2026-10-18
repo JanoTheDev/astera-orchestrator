@@ -547,6 +547,8 @@ export function createHostOrch(a: {
   readUnderstanding?: OrchServerDeps['readUnderstanding']
   /** W6-A intake, passed through to `hostOrchDeps`. */
   intakeInputs?: OrchServerDeps['intakeInputs']
+  /** W8-C prompts mode, passed through to `hostOrchDeps`. */
+  readIntakeText?: OrchServerDeps['readIntakeText']
   /** A Run's changed files and diffs from this Host's git (remote runtime design Phase 10). */
   changes?: OrchServerDeps['changes']
   /** The Host's Job Journal (hostJournal.ts). Absent: nothing is journaled here, `journal-append` and
@@ -829,6 +831,8 @@ export function createHostOrch(a: {
       ...(a.github ? { github: a.github } : {}),
       ...(a.readUnderstanding ? { readUnderstanding: a.readUnderstanding } : {}),
       ...(a.intakeInputs ? { intakeInputs: a.intakeInputs } : {}),
+      // W8-C prompts mode
+      ...(a.readIntakeText ? { readIntakeText: a.readIntakeText } : {}),
       ...(a.changes ? { changes: a.changes } : {}),
       ...(a.jobSources ? { jobSources: a.jobSources } : {}),
       ...(a.completionChecks ? { completionChecks: a.completionChecks } : {}),

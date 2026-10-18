@@ -85,8 +85,8 @@ const TIMEOUT: UsageFlag = {
 const INTAKE_FLAGS: readonly UsageFlag[] = [
   {
     name: 'mode',
-    value: '<plan|audit|fixlist>',
-    about: 'plan (default); audit: the planner audits --scope, writes inputs/audit.md, then plans the fixes; fixlist: the objective is a problem list, one or more Tasks per problem'
+    value: '<plan|audit|fixlist|prompts>',
+    about: 'plan (default); audit: the planner audits --scope, writes inputs/audit.md, then plans the fixes; fixlist: the objective is a problem list, one or more Tasks per problem; prompts: Run as written (below)'
   },
   { name: 'scope', value: '<path|all>', about: 'with --mode audit: what to audit (default all)' },
   { name: 'instructions', value: '<text>', about: "the owner's extra instructions; they win over the source when the two conflict" },
@@ -94,6 +94,13 @@ const INTAKE_FLAGS: readonly UsageFlag[] = [
     name: 'attach',
     value: '<path>',
     about: "a file copied into the plan's inputs folder for the planner to read first (repeatable; a regular file of at most 30 MB)"
+  },
+  // W8-C prompts mode
+  {
+    name: 'approve',
+    value: '<auto|ask>',
+    about:
+      "with --mode prompts (Run as written: each attached .md file, or each `## ` section of one document, is one Task with its text unchanged, ordered by docs/orchestrator/PLAN.md's wave table): auto (default) starts the plan without an approval step; ask waits for it"
   }
 ]
 
