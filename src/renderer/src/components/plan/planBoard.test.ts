@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { JobTask, TaskBlockedReason } from '../../../../core/types'
 import { ko } from '../../../../core/i18n/messages/ko'
+import { t } from '../../../../core/i18n'
 import type { ActivityEvent } from '../../../../core/orchestration/activity'
 import type { JobEvent } from '../../../../core/types'
 import { answersKey, autoAnswersOf, cardModelOf, categoryOf, currentWaveOf, filesOf, nowOf, ordinal, planProgressOf, reasonText, replanningOf, wavesOf } from './planBoard'
@@ -80,7 +81,10 @@ describe('reasonText', () => {
       // W6-G
       { kind: 'usage-paused', accountId: 'a', window: 'five_hour', percent: 93, resetsAt: '2026-10-17T14:20:00.000Z' },
       { kind: 'usage-paused', accountId: 'a', window: 'seven_day', percent: 95, resetsAt: '2026-10-20T14:20:00.000Z' },
-      { kind: 'usage-paused', accountId: 'a', window: 'five_hour', percent: 93, resetsAt: null }
+      { kind: 'usage-paused', accountId: 'a', window: 'five_hour', percent: 93, resetsAt: null },
+      // W8-D
+      { kind: 'same-files', waitingOn: { id: 't6', title: 'T6' }, path: 'src/a.ts' },
+      { kind: 'same-files', waitingOn: { id: 't6', title: 'T6' }, path: 'src/a.ts', plan: { id: 'jA', title: 'Auth rework' } }
     ]
     for (const r of all) {
       const { key, params } = reasonText(r, now, label)
@@ -253,5 +257,13 @@ describe('reasonText: a plan queued after another (W8-C)', () => {
     expect(reasonText(stopped, 0, (x) => x)).toEqual({ key: 'plan.reason.afterStopped', params: { plan: 'Plan A' } })
     expect(reasonTone(stopped)).toBe('action')
     expect(reasonText({ kind: 'pending-start' }, 0, (x) => x)).toEqual({ key: 'plan.reason.pendingStart' })
+  })
+})
+
+// W8-D: a Task held by another plan's worker on the same files says which plan and Task
+describe('reasonText — same files of another plan', () => {
+  it('reads "Waits for <plan> · <task> (same files: <path>)"', () => {
+    const { key, params } = reasonText({ kind: 'same-files', waitingOn: { id: 't6', title: 'T6' }, path: 'src/api/routes.ts', plan: { id: 'jA', title: 'Auth rework' } }, 0, (id) => id)
+    expect(t('en', key, params)).toBe('Waits for Auth rework · T6 (same files: src/api/routes.ts)')
   })
 })

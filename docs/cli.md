@@ -690,12 +690,13 @@ astera projects add   --path <path> [--initial-commit]
 astera projects create --name <name> --parent <path> [--describe <text>] [--github <private|public>]
 astera projects set   --id <projectId> [--delivery <pr|push>] [--delivery-branch <branch>] [--auto-approve <on|off>] [--test-command <cmd>] [--test-config <id>] [--concurrency <1-10>] [--review-rounds <n>] [--replan <waves|off>] [--account <id>]
 
-astera jobs    list   [--status <pending|paused|scheduled|waiting|running|completed|failed>] [--project <path>] [--archived]
+astera jobs    list   [--status <pending|paused|scheduled|waiting|running|completed|failed>] [--project <path>] [--archived] [--area <word>]
 astera jobs    get    --id <jobId | runId>
 astera jobs    run    --id <jobId>
 astera jobs    wait   --id <jobId>  [--timeout-ms <n>]
 astera jobs    rename --id <jobId> --title <text>
-astera jobs    set    --id <jobId | runId> [--concurrency <n>] [--after <jobId|none>]
+astera jobs    set    --id <jobId | runId> [--concurrency <n>] [--after <jobId|none>] [--areas <a,b,c|none>]
+astera jobs    overlaps --id <jobId>
 astera jobs    archive --id <jobId> [--kill-sessions]
 astera jobs    unarchive --id <jobId>
 astera jobs    plan --id <jobId> [--account <id>] [--replan <waves|off>] [--concurrency <n>] [--delivery <pr|push>] [--no-review] [--auto-approve <on|off>]

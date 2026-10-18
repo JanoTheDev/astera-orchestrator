@@ -11,6 +11,8 @@ import { stat } from 'node:fs/promises'
 import { jobsViewOf, runsTimelineOf, type RuntimeFacts } from './remoteReads'
 import { createPresence } from './presence'
 import { handleCommand, handleExit, type OrchServerDeps } from '../core/orchestration/command'
+// W8-D several plans in one repo
+import { refreshOverlaps } from '../core/orchestration/overlap'
 import type { CompletionCheckInput } from '../core/orchestration/pluginChecks'
 import { OrchestrationStore, isValidState, type OrchLoadResult } from '../core/orchestration/store'
 import { applyPendingReports, readPendingReports, type QueuedReport } from '../core/orchestration/pendingDrain'
@@ -772,9 +774,11 @@ export function createHostOrch(a: {
     hostOrchDeps({
       checkWaits,
       getState: () => store.get(),
-      setState: async (next, how) => {
+      setState: async (given, how) => {
         // The diff base, read before the save moves memory: each commit is journaled once, from here.
         const prev = store.get()
+        // W8-D: every plan's `overlaps` follows the Tasks of this commit (overlap.ts), whichever command moved them
+        const next = refreshOverlaps(prev, given)
         // Reserved before the write, for `reserveVersion`'s reason and for one that is this path's
         // own: a `state-put` arriving while this commit is still writing would otherwise read the
         // pre-commit number, pass the check, and land a whole state that does not contain this

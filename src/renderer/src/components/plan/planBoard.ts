@@ -96,7 +96,10 @@ export function reasonText(
       return { key: 'plan.reason.globalCap', params: { used: reason.used, limit: reason.limit, priority: reason.priority } }
     // W6-C
     case 'same-files':
-      return { key: 'plan.reason.sameFiles', params: { task: reason.waitingOn.title, path: reason.path } }
+      // W8-D: "Waits for Auth rework · T6 (same files: src/api/routes.ts)" when it is another plan's
+      return reason.plan
+        ? { key: 'plan.reason.sameFilesPlan', params: { plan: reason.plan.title, task: reason.waitingOn.title, path: reason.path } }
+        : { key: 'plan.reason.sameFiles', params: { task: reason.waitingOn.title, path: reason.path } }
     case 'next':
       return { key: 'plan.reason.next' }
     // W6-G: "Paused: Max at 93% of its 5-hour limit, resumes ~14:20"

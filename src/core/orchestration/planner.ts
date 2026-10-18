@@ -41,7 +41,10 @@ export const PLANNER_COMMANDS: ReadonlySet<string> = new Set([
   'plan-nothing-to-do',
   // W7-A: after the owner's feedback, a planner removes a Task of its plan and reports what it changed
   'task-cancel',
-  'jobs-feedback-done'
+  'jobs-feedback-done',
+  // W8-D several plans in one repo: read where the plan meets another, and name its areas (`jobs-set --areas` only)
+  'jobs-overlaps',
+  'jobs-set'
 ])
 
 /** The Job whose planner `sessionId` is, if it is one. An empty id (a shell, an MCP client) is never one. */
@@ -66,6 +69,9 @@ export function plannerRefusal(s: OrchState, sessionId: string, cmd: string, arg
     const target = args.runId ?? args.run
     if (target !== job.id) return `a planner adds Tasks to its own Job only: pass --run ${job.id}`
   }
+  // W8-D: areas only, and only its own Job
+  if (cmd === 'jobs-set' && (args.id !== job.id || args.areas === undefined || args.concurrency !== undefined || args.after !== undefined))
+    return `a planner sets its own Job's areas only: jobs-set --id ${job.id} --areas <a,b>`
   // W6-A: only its own Job
   if (cmd === 'plan-nothing-to-do' && args.job !== job.id) return `a planner ends its own Job only: pass --job ${job.id}`
   // W7-A: only its own Job, and only a Task of its plan (a replan's cancel is replanRefusal's)

@@ -1526,6 +1526,9 @@ export const en: Record<keyof typeof ko, string> = {
   // W6-D
   'jobs.new.replan': 'Replan between waves',
   'jobs.new.replanHint': 'Before each next wave, and once at the end, a fresh planner adjusts the Tasks that have not started to what really happened. New workers wait while it does.',
+  // W8-D
+  'jobs.run.overlaps': 'Overlaps another plan',
+  'jobs.run.overlapsHint': "The other plan's Task holds these files or this issue. Approving is safe: this Task waits while that one edits them.",
   'jobs.run.approve': 'Approve & execute',
   'jobs.run.approveHint': 'Approve this plan and start its workers',
   'jobs.run.planInvalid': 'The plan is not ready to approve:',
@@ -2124,6 +2127,8 @@ export const en: Record<keyof typeof ko, string> = {
   'plan.reason.planCap': 'Plan limit full ({used} of {limit} workers)',
   'plan.reason.globalCap': 'App-wide limit full ({used} of {limit} workers, priority {priority})',
   'plan.reason.sameFiles': 'Waiting for {task}, which edits the same files ({path})',
+  // W8-D: the Task waited on is another plan's
+  'plan.reason.sameFilesPlan': 'Waits for {plan} · {task} (same files: {path})',
   'plan.reason.next': 'Starts on the next pass',
   // W6-E progress view (components/plan/)
   'plan.view.files': 'Files',

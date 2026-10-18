@@ -203,6 +203,8 @@ export function buildPlannerBrief(a: {
   /** The account the planner runs on: the default account of the Tasks it writes. */
   accountId: string
   concurrency: number
+  /** W8-D: the other plans of this repository and their Tasks (overlap.ts `otherPlansBrief`). Empty or absent: none. */
+  otherPlans?: string
 }): string {
   return [
     'You are the PLANNER for one Job in Astera. You analyse and plan. You do not implement anything.',
@@ -215,6 +217,8 @@ export function buildPlannerBrief(a: {
     `- repository root: ${a.repoRoot} (your session runs here)`,
     `- workers that may run at once: ${a.concurrency}`,
     '',
+    // W8-D
+    ...(a.otherPlans ? [a.otherPlans, ''] : []),
     'BEFORE YOU PLAN',
     '- Read the repository\'s own instructions first: CLAUDE.md and AGENTS.md at the root and in the folders',
     '  you plan to touch. Follow them, and tell each worker the ones that apply to its Task.',
@@ -241,6 +245,9 @@ export function buildPlannerBrief(a: {
     '  `--provider claude|codex` and `--model <id>` only when the Task needs a specific one.',
     `- Account: \`--account ${a.accountId}\` unless the objective names another (\`astera accounts list --json\`).`,
     '- Checks: `astera run-configs list --job ' + a.jobId + ' --json`; pass the ones that test the work as `--validate <id,...>`.',
+    // W8-D plan areas
+    `- Areas: name where the plan works in 1 to 3 short words from its Tasks' paths (auth, api, ui):`,
+    `  \`astera jobs-set --id ${a.jobId} --areas <a,b>\`.`,
     `To fix a Task: \`astera task-update --id <taskId>\` with any of the flags above. Read the plan back with`,
     `\`astera tasks list --run ${a.jobId} --json\`.`,
     '',

@@ -5,6 +5,8 @@
 // planner's spawn whole (exec/plannerStart.ts: the planner model, no permission bypass, the planner gate). Only its
 // brief differs: the objective, what every completed Task reported, its review and its changed files, and what is
 // left. Its end is #47's: the session is stopped once its work is recorded.
+// W8-D several plans in one repo
+import { otherPlansBrief } from '../overlap'
 import { collectChanges, rangesFor } from '../changedFiles'
 import type { OrchServerDeps } from '../command'
 import { PLANNER_COMMANDS, planFieldsFromArgs, validatePlan } from '../planner'
@@ -102,6 +104,8 @@ export function buildReplanBrief(a: {
   left: Pick<Task, 'id' | 'title' | 'deps' | 'affectedPaths'>[]
   /** W7-A: the owner's feedback this replan was started for, at once rather than at a wave boundary. */
   feedback?: string
+  /** W8-D: the other plans of this repository and how far they got (overlap.ts `otherPlansBrief`). */
+  otherPlans?: string
 }): string {
   const reviewOf = (t: DoneTask['task']): string => {
     if (!t.reviewRequested) return 'not reviewed'
@@ -139,6 +143,8 @@ export function buildReplanBrief(a: {
       ? a.left.map((t) => `- ${t.id} (${t.title})${t.deps.length ? ` waits for ${t.deps.join(', ')}` : ''}${t.affectedPaths?.length ? `; paths ${t.affectedPaths.join(', ')}` : ''}`)
       : ['- (nothing)']),
     '',
+    // W8-D: what another plan finished meanwhile is not planned again
+    ...(a.otherPlans ? [a.otherPlans, 'Before a later wave, drop or shrink a Task here that another plan has completed meanwhile.', ''] : []),
     // W7-A
     ...(a.feedback !== undefined
       ? [
@@ -295,7 +301,17 @@ export async function replanCommand(deps: OrchServerDeps, caller: Caller, cmd: s
           cwd: job.cwd,
           accountId,
           role: 'planner',
-          brief: buildReplanBrief({ job, runId, mode, wave: mark.wave, accountId, followUps: job.replanFollowUps ?? 0, ...parts, ...(feedback !== undefined ? { feedback } : {}) })
+          brief: buildReplanBrief({
+            job,
+            runId,
+            mode,
+            wave: mark.wave,
+            accountId,
+            followUps: job.replanFollowUps ?? 0,
+            ...parts,
+            ...(feedback !== undefined ? { feedback } : {}),
+            otherPlans: otherPlansBrief(deps.getState(), job)
+          })
         })
       ).sessionId
     } catch (e) {

@@ -2453,6 +2453,8 @@ input[type="checkbox"]:not(.md-task input):focus-visible {
 /* W2-A: "Approve & execute" on a Job not started yet */
 .jobs-approve { flex: none; padding: 1px 8px; border-radius: var(--radius-sm); font-size: 11px; line-height: 1.4; color: var(--accent); border-color: var(--accent); }
 .jobs-approve:hover:not(:disabled) { background: var(--accent); color: var(--bg, #fff); }
+/* W8-D: one line per overlap with another plan, in the approve area */
+.jobs-overlaps { margin: 2px 0 4px; padding: 0 0 0 14px; font-size: 11px; color: var(--warn-ink); list-style: disc; }
 /* Run 을 지우는 휴지통. **아래 한 줄의 오른쪽 끝**이다 — 제목 줄의 `›`(상세 창) 옆에 두면 되돌릴 수
    없는 동작과 그냥 열어 보는 동작이 나란한 작은 표적 둘이 된다.
    칩이 아니라 유령 버튼인 이유: 이 줄은 개수를 적는 조용한 자리(--text-faint, 11px)이고, 여기에

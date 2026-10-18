@@ -397,6 +397,17 @@ function RunCardImpl({
           (`jobs.state.*`) 제목 뒤에 이어 붙으면 길고 어색하다. 이 칸이 답해야 하는 질문은
           "이게 어느 Task 인가" 하나이고, 어떤 일인지는 칸의 색이 말한다 — 이 화면의 규칙
           그대로다. 상태를 말로 읽어야 하는 자리에는 글리프가 자기 툴팁을 갖고 있다 */}
+      {/* W8-D: before approval, one line per overlap with another plan of this project. It never blocks the approve
+          button: two workers of one project never edit the same files at once (W9-D brings the card) */}
+      {run.pendingStart && run.overlaps && run.overlaps.length > 0 && (
+        <ul className="jobs-overlaps" aria-label={t('jobs.run.overlaps')}>
+          {run.overlaps.map((line) => (
+            <li key={line} title={t('jobs.run.overlapsHint')}>
+              {t('jobs.run.overlaps')}: {line}
+            </li>
+          ))}
+        </ul>
+      )}
       <div className="jobs-bar">
         {run.tasks.map((task) => (
           <span

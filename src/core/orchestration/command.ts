@@ -113,7 +113,7 @@ import { parseCheckFlag } from '../workUnit/verification'
 import { isTerminal as taskFinished, outcomeOf, progressOf } from './view'
 import { runningRunCount } from './running'
 import { FINISHED_RUN_GRACE_MS } from './exec/dispatchLoop'
-import { appDriven, editingByJob, sameFilesAs, workerCapOf, workersAgainstCap } from './schedule'
+import { appDriven, editingByProject, projectKeyOf, sameFilesAs, workerCapOf, workersAgainstCap } from './schedule'
 import type { JobEvent, SessionInfo, WorktreeInfo } from '../types'
 import { ghFailureSentence, type GhFailed, type GhRunner } from '../github/gh'
 import { failedLogTail, readPrChecks, rerunFailed } from '../github/checks'
@@ -141,6 +141,8 @@ import {
   rangeCommits
 } from '../github/taskLinks'
 import { jobNameOf } from './jobName'
+// W8-D several plans in one repo
+import { areasArg, otherPlansBrief, overlapLines } from './overlap'
 import { isSamePath } from '../files/tree'
 import type { RunPr, TaskLinks } from './types'
 import { escalationOpen } from './sessionIndex' // W7-C
@@ -2873,6 +2875,12 @@ export async function handleCommand(
         const project = inProject.project
         jobs = jobs.filter((j) => jobInProject(s, j, project))
       }
+      // W8-D plan areas: `--area <word>` keeps the plans that name it (Job.areas)
+      if (args.area !== undefined) {
+        const area = str(args.area)?.trim().toLowerCase()
+        if (!area) return bad('--area needs a value: one area word (e.g. auth)')
+        jobs = jobs.filter((j) => j.areas?.includes(area) === true)
+      }
       const views = jobs.map((j) => jobView(s, j, latestRunOf(s, j)))
       return okBody(status.value === undefined ? views : views.filter((v) => jobStateOf(v) === status.value))
     }
@@ -2963,10 +2971,25 @@ export async function handleCommand(
     // W7-D (#67): how many workers a plan runs at once, changed until it finishes. A lower value only limits new starts
     // (slotsToFill reads Job.concurrency each tick): a running worker is never stopped by it.
     case 'jobs-set': {
-      if (fromAgentSession || caller.role === 'mcp') return denied('jobs-set is for the person, in Astera or at their own shell')
       const id = str(args.id)
+      // W8-D plan areas: `--areas`, alone, from the person or the Job's own planner (plannerRefusal holds the rest)
+      if (args.areas !== undefined) {
+        if (caller.role === 'mcp' || (fromAgentSession && (id === null || plannerJobOf(s, caller.sessionId)?.id !== id)))
+          return denied("jobs-set --areas is for the Job's planner or the person")
+        if (!id) return bad('--id is required')
+        if (args.concurrency !== undefined || args.after !== undefined) return bad('--areas is set on its own')
+        const job = s.jobs.find((j) => j.id === id)
+        if (!job) return notFound(`unknown job: ${id}`)
+        const areas = areasArg(args.areas)
+        if (!Array.isArray(areas)) return bad(areas.error)
+        const { areas: _old, ...rest } = job
+        const next: Job = areas.length > 0 ? { ...rest, areas } : rest
+        await deps.setState({ ...s, jobs: s.jobs.map((j) => (j.id === id ? next : j)) })
+        return okBody(jobView(deps.getState(), next, latestRunOf(deps.getState(), next)))
+      }
+      if (fromAgentSession || caller.role === 'mcp') return denied('jobs-set is for the person, in Astera or at their own shell')
       if (!id) return bad('--id is required')
-      if (args.concurrency === undefined && args.after === undefined) return bad('nothing to set: give --concurrency or --after')
+      if (args.concurrency === undefined && args.after === undefined) return bad('nothing to set: give --concurrency, --after or --areas')
       // W8-C plan after plan: `--after <job|none>`, only alone (it is set before the plan starts, concurrency after)
       if (args.after !== undefined) {
         if (args.concurrency !== undefined) return bad('--after is set on its own, not with --concurrency')
@@ -2998,6 +3021,28 @@ export async function handleCommand(
       const next: Job = { ...job, concurrency }
       await deps.setState({ ...s, jobs: s.jobs.map((j) => (j.id === job.id ? next : j)) })
       return okBody(jobView(deps.getState(), next, run))
+    }
+    // W8-D several plans in one repo: where this plan's Tasks meet the other active or queued plans of its project
+    // (Job.overlaps, overlap.ts). Read only; an overlap never blocks approval.
+    case 'jobs-overlaps': {
+      const id = str(args.id)
+      if (!id) return bad('--id is required')
+      const job = s.jobs.find((j) => j.id === id)
+      if (!job) return notFound(`unknown job: ${id}`)
+      const task = new Map(s.tasks.map((t) => [t.id, t]))
+      const plan = new Map(s.jobs.map((j) => [j.id, j]))
+      const lines = overlapLines(s, job)
+      return okBody({
+        jobId: id,
+        overlaps: (job.overlaps ?? []).map((o, i) => ({
+          ...o,
+          taskTitle: task.get(o.taskId)?.title,
+          plan: plan.has(o.jobId) ? jobNameOf(plan.get(o.jobId)!) : undefined,
+          otherTaskTitle: task.get(o.otherTaskId)?.title,
+          otherTaskStatus: task.get(o.otherTaskId)?.status,
+          line: lines[i]
+        }))
+      })
     }
     case 'jobs-unarchive': {
       const id = str(args.id)
@@ -3081,7 +3126,9 @@ export async function handleCommand(
               objective: job.objective,
               repoRoot: job.cwd,
               accountId,
-              concurrency: concurrency ?? job.concurrency ?? DEFAULT_CONCURRENCY
+              concurrency: concurrency ?? job.concurrency ?? DEFAULT_CONCURRENCY,
+              // W8-D: the other plans of this repository, so it plans around them
+              otherPlans: otherPlansBrief(deps.getState(), job)
             })
           })
         ).sessionId
@@ -4066,12 +4113,14 @@ export async function handleCommand(
         return { status: 409, body: { error: `task ${taskId} waits for the earlier waves of its plan to complete, or for its replan`, held: true } }
       // W8-E (#92): never two workers on the same files (W6-C), for every placer: a coordinator's Job has no
       // autoDispatch, so `slotsToFill` never places for it and this is the only door its workers pass
-      const clash = sameFilesAs(task, editingByJob(s).get(run.jobId) ?? [])
+      // W8-D: of any plan of the same project
+      const clash = runJob ? sameFilesAs(task, editingByProject(s).get(projectKeyOf(runJob)) ?? []) : undefined
+      const clashJob = clash && s.jobs.find((j) => j.id === s.runs.find((r) => r.id === clash.task.runId)?.jobId)
       if (clash)
         return {
           status: 409,
           body: {
-            error: `waiting for ${clash.task.title}: same files ${clash.path}; start it when that Task ends`,
+            error: `waiting for ${clashJob && clashJob.id !== runJob?.id ? `${jobNameOf(clashJob)} · ` : ''}${clash.task.title}: same files ${clash.path}; start it when that Task ends`,
             held: true,
             sameFiles: { taskId: clash.task.id, path: clash.path }
           }

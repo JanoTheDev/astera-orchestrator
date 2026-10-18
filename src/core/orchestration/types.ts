@@ -324,6 +324,25 @@ export interface Job {
   /** When the Host escalated that the Job named by `after` stopped (gave up or archived) while this one waits on it
    *  (`afterSweep`, after.ts). Once per stop: cleared when that Job is no longer stopped. */
   afterStopNotified?: string
+  // W8-D several plans in one repo (overlap.ts)
+  /** Where this plan's Tasks meet another active or queued plan's of the same project (`overlapsOf`): the Host
+   *  refreshes it on every commit that changes either plan's Tasks (`refreshOverlaps`). Absent: none. It never blocks
+   *  approval; the cross-plan file guard (schedule.ts `editingByProject`) keeps the two apart at run time. */
+  overlaps?: PlanOverlap[]
+  /** One to three short words for where this plan works (`auth`, `api`, `ui`), set by its planner or `jobs-set --areas`;
+   *  `jobs-list --area` filters by them. */
+  areas?: string[]
+}
+
+/** W8-D: one Task of a plan (`taskId`) meeting one of another plan's (`jobId`, `otherTaskId`), by an overlapping affected
+ *  path (`path`, the first of this Task's that collides) or by the same linked issue (`issue`). */
+export interface PlanOverlap {
+  taskId: string
+  jobId: string
+  otherTaskId: string
+  by: 'path' | 'issue'
+  path?: string
+  issue?: number
 }
 
 /** W7-A: one message of the owner to a plan's planner. `plan`: before approval, to the planner session itself; `run`:

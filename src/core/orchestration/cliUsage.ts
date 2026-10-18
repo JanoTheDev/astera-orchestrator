@@ -372,7 +372,9 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       },
       { name: 'project', value: '<path>', about: 'only the Jobs of the project at this folder (from `projects list`)' },
       // W1-C plan lifecycle
-      { name: 'archived', about: 'include archived Jobs, which are left out otherwise' }
+      { name: 'archived', about: 'include archived Jobs, which are left out otherwise' },
+      // W8-D plan areas
+      { name: 'area', value: '<word>', about: 'only the Jobs whose areas name it (`jobs set --areas`)' }
     ]
   },
   'jobs-get': {
@@ -417,17 +419,28 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
   },
   // W7-D (#67)
   'jobs-set': {
-    summary: 'change how many workers a Job runs at once, or which plan it is queued after',
+    summary: 'change how many workers a Job runs at once, which plan it is queued after, or its areas',
     detail:
       'Until the Job finishes; a finished one is refused (CONFLICT, exit 6). A lower number only holds back new starts: running workers carry on. At most 10. Refused from an agent session and an MCP client. ' +
       // W8-C plan after plan
-      '--after queues a Job that has not started planning after another (none clears it): its planner starts by itself once that Job is delivered (pushed, its pull request opened and not a draft, or ended with nothing to do). If that Job gives up or is archived, the queued one waits and escalates once. A chain that would wait on itself is refused (exit 2); a Job already planning is refused (CONFLICT, exit 6).',
+      '--after queues a Job that has not started planning after another (none clears it): its planner starts by itself once that Job is delivered (pushed, its pull request opened and not a draft, or ended with nothing to do). If that Job gives up or is archived, the queued one waits and escalates once. A chain that would wait on itself is refused (exit 2); a Job already planning is refused (CONFLICT, exit 6). ' +
+      // W8-D plan areas
+      '--areas names where the plan works, 1 to 3 short words (none clears them); `jobs list --area` filters by them. It is set on its own, and the Job\'s own planner may set it too.',
     flags: [
       ID('<jobId | runId>', 'the Job to change, or one of its runs'),
       { name: 'concurrency', value: '<n>', about: 'workers at once, 1–10' },
       // W8-C plan after plan
-      { name: 'after', value: '<jobId|none>', about: 'the Job this one is queued after; none clears it' }
+      { name: 'after', value: '<jobId|none>', about: 'the Job this one is queued after; none clears it' },
+      // W8-D plan areas
+      { name: 'areas', value: '<a,b,c|none>', about: "1–3 short words for where the plan works (auth, api, ui); alone; its planner may set it too" }
     ]
+  },
+  // W8-D several plans in one repo (overlap.ts)
+  'jobs-overlaps': {
+    summary: "where a Job's Tasks meet another active or queued plan's of the same project",
+    detail:
+      'One entry per pair of Tasks that touch overlapping affected paths or link the same issue, each with a line such as "T3 · Auth rework · T6 (same files: src/api/routes.ts)". Refreshed whenever either plan\'s Tasks change. An overlap never blocks approval: two workers of one project never run on the same files at once, so the later one waits.',
+    flags: [ID('<jobId>', 'the Job to check')]
   },
   'jobs-archive': {
     summary: 'archive a Job: hide it and start nothing new for it',

@@ -14,7 +14,10 @@ Every plan starts here, whatever its source. Nothing is built twice.
    - search the code (`git grep`, reading files);
    - search open and closed GitHub issues and pull requests (`gh issue list --state all --search "<words>"`,
      `gh pr list --state all --search "<words>"`);
-   - list this project's other Jobs (`astera jobs list --project <projectId> --json`).
+   - list this project's other Jobs (`astera jobs list --project <projectId> --json`). Your brief's "OTHER PLANS IN
+     THIS REPOSITORY" lists their Tasks, state and paths (W8-D). A Task another plan already holds is never planned
+     again: link it as you would an issue, and name that plan and Task in `existing.md`. Plan around their files
+     where you can; an overlap left in the plan only waits (two workers never edit the same files at once).
 3. **Write `existing.md`** in this Job's inputs folder, `$ASTERA_PROFILE_DIR/plans/<jobId>/inputs/existing.md`
    (the objective names the folder when it has one). One row per requested item: its state, `missing`,
    `partial`, `broken` or `built`, and its evidence (file:line, issue or PR number, Job id). Every plan writes
@@ -27,6 +30,7 @@ Every plan starts here, whatever its source. Nothing is built twice.
      the audit finds problems the item is `broken`; otherwise report it as done.
    - `broken`: fix Tasks, each naming the evidence.
    - An open issue, PR or Job that already covers an item is linked (`task-link-issue`), never duplicated.
+     `astera jobs overlaps --id <jobId>` shows where your Tasks still meet another plan's (same files or issue).
    Every Task carries `--basis missing|partial|broken` and `--evidence "<file:line, #issue, PR or Job id>"`.
    Approval is refused for a Task without them.
 5. **Nothing left to do?** Create no Task. End the Job with
@@ -54,6 +58,9 @@ Every plan starts here, whatever its source. Nothing is built twice.
   Tasks just to be careful; every needless link makes the plan slower.
 - **Keep it small.** Plan what the objective asks for and nothing more. Prefer a few solid Tasks to many thin
   ones; do not plan "polish" or "docs" Tasks nobody asked for.
+
+- **Name the plan's areas** (W8-D): 1 to 3 short words for where its Tasks work, read off their paths
+  (`auth`, `api`, `ui`): `astera jobs-set --id <jobId> --areas auth,api`. The Plans page groups plans by them.
 
 ## 3. Write each Task
 

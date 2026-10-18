@@ -10,6 +10,8 @@
 import type { OrchServerDeps } from '../command'
 import { projectOfJob } from '../delivery'
 import { buildPlannerBrief } from '../handover'
+// W8-D several plans in one repo
+import { otherPlansBrief } from '../overlap'
 import { archiveJob, isJobActive } from '../lifecycle'
 import { cancelPlanTask, plannerJobOf, validatePlan } from '../planner'
 import { replanJobOf } from '../replan'
@@ -59,9 +61,16 @@ export const resumeBrief = (jobId: string, text: string): string =>
 
 /** The brief for a fresh planner, when the old conversation cannot be resumed: the planner's own brief, where the plan
  *  so far is, and every feedback round with what was changed for it. */
-export function freshFeedbackBrief(job: Job, accountId: string, history: readonly PlanFeedback[]): string {
+export function freshFeedbackBrief(job: Job, accountId: string, history: readonly PlanFeedback[], otherPlans?: string): string {
   return [
-    buildPlannerBrief({ jobId: job.id, objective: job.objective, repoRoot: job.cwd, accountId, concurrency: job.concurrency ?? DEFAULT_CONCURRENCY }),
+    buildPlannerBrief({
+      jobId: job.id,
+      objective: job.objective,
+      repoRoot: job.cwd,
+      accountId,
+      concurrency: job.concurrency ?? DEFAULT_CONCURRENCY,
+      ...(otherPlans ? { otherPlans } : {})
+    }),
     '',
     'THE PLAN SO FAR',
     `This Job has a plan already, written by an earlier planner session. Read it before you change anything:`,
@@ -205,7 +214,7 @@ export async function feedbackCommand(deps: OrchServerDeps, caller: Caller, cmd:
   if (!sessionId) {
     via = 'fresh'
     try {
-      sessionId = await start(freshFeedbackBrief(job, accountId, [...(job.feedback ?? []), entry('plan')]))
+      sessionId = await start(freshFeedbackBrief(job, accountId, [...(job.feedback ?? []), entry('plan')], otherPlansBrief(deps.getState(), job)))
     } catch (e) {
       return { status: 502, body: { error: `the planner could not start: ${String(e)}` } }
     }
