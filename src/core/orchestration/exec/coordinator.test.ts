@@ -98,6 +98,13 @@ describe('launchPrompt', () => {
 })
 
 describe('buildSpecFile', () => {
+  it('W8-C heavy: every worker brief carries the self-hosting and heavy-job rules', () => {
+    const out = buildSpecFile({ title: 'T', spec: 'S', taskId: 'tsk_1', dispatchId: 'dsp_1' })
+    expect(out).toContain("Ignore the prompt's worktree, branch, push and PR steps; Astera gives you a worktree and delivers the plan.")
+    expect(out).toContain('Never stop, restart or pkill the orchestrating Astera app or its Host, and never kill processes you did not start.')
+    expect(out).toContain('as `astera heavy -- <cmd>`: one at a time on this machine.')
+    expect(out).toContain('`ASTERA_PROFILE_DIR=~/.config/astera-dev`')
+  })
   it('task 제목과 spec 전문을 담는다', () => {
     const out = buildSpecFile({ title: 'T', spec: 'S', taskId: 'tsk_1', dispatchId: 'dsp_1' })
     expect(out).toContain('# T')
@@ -159,7 +166,9 @@ describe('buildSpecFile', () => {
     // 새면 양쪽이 똑같이 틀린 문자열을 내고 통과한다. 그래서 그 지점의 줄바꿈 수를 직접 고정한다.
     // W2-D: the GitHub issues section always sits between the spec and the reporting obligation
     expect(base).toContain('S\n\n---\n## GitHub issues')
-    expect(base).toContain('for this task.\n\n---\n## Reporting obligation')
+    // W8-C heavy: then the machine rules
+    expect(base).toContain('for this task.\n\n---\n## Machine rules')
+    expect(base).toContain('Astera runs on.\n\n---\n## Reporting obligation')
   })
 
   it('지식이 있으면 상대 경로를 목록으로 적는다', () => {

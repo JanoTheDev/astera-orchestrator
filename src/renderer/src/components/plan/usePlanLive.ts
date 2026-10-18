@@ -30,7 +30,7 @@ export function usePlanLive(door: OrchDoor, enabled: boolean): { sessions: Recor
           const next: Record<string, LiveSession> = {}
           // A `sessions-list` row (command.ts HostSession); the renderer does not import command.ts
           for (const s of r.body as Array<{ id: string } & LiveSession>)
-            next[s.id] = { ...(s.prompt ? { prompt: s.prompt } : {}), ...(s.lastAction ? { lastAction: s.lastAction } : {}) }
+            next[s.id] = { ...(s.prompt ? { prompt: s.prompt } : {}), ...(s.lastAction ? { lastAction: s.lastAction } : {}), ...(s.heavyWait ? { heavyWait: s.heavyWait } : {}) }
           setSessions((p) => (JSON.stringify(p) === JSON.stringify(next) ? p : next))
         }
         // W7-C (#72): the asks and escalations waiting on the owner (Gates have no `source`)

@@ -556,6 +556,8 @@ describe('문서가 보여 주는 명령 줄은 전부 파서와 플래그 검�
       const argv = shellLine(line)
       // `astera <noun> <verb> --help` 처럼 명령 자리부터 자리표시자인 줄은 명령이 아니라 모양이다.
       if (argv.length === 0 || argv[0].startsWith('-') || argv[0] === 'X') continue
+      // W8-C heavy: `astera heavy -- <cmd>` is answered before the parser (run.ts); the words after `--` are the command's.
+      if (argv[0] === 'heavy') continue
       // run.ts 가 하듯 세션 전용 명령의 표를 넘긴다.
       if (usageFor(argv) !== null) {
         expect(usageFor(argv, sessionUsage), `${file}: astera ${line}`).not.toHaveProperty('error')

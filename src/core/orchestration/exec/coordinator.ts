@@ -363,6 +363,18 @@ export async function knowledgeIn(
   }
 }
 
+// W8-C heavy: rules every worker gets, because Astera may be running its own waves on this machine (self-hosting) and
+// the owner's laptop crashed from parallel heavy jobs. A prompt written for a hand-opened tab tells the worker to open
+// a worktree, push and open a PR; Astera does those itself.
+export const WORKER_MACHINE_RULES = `
+---
+## Machine rules (assembled by the app — do not delete)
+
+- Ignore the prompt's worktree, branch, push and PR steps; Astera gives you a worktree and delivers the plan.
+- Never stop, restart or pkill the orchestrating Astera app or its Host, and never kill processes you did not start.
+- Run heavy jobs (the full test suite, \`npm run dev\` / Electron, \`npm run dist:linux\`) as \`astera heavy -- <cmd>\`: one at a time on this machine. Manual checks run the dev app on the dev profile (\`ASTERA_PROFILE_DIR=~/.config/astera-dev\`), never the profile Astera runs on.
+`
+
 export function buildSpecFile(a: {
   title: string
   spec: string
@@ -457,7 +469,7 @@ If this task has an issue, add \`--issue <number>\` to the worker_done report be
   return `# ${a.title}
 
 ${a.spec}
-${knowledgeSection}${commitObligation}${issueSection}${a.repair ? repairSection(a.repair) : ''}
+${knowledgeSection}${commitObligation}${issueSection}${WORKER_MACHINE_RULES}${a.repair ? repairSection(a.repair) : ''}
 ---
 ## Reporting obligation (assembled by the app — do not delete)
 
