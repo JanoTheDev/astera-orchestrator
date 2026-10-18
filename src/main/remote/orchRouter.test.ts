@@ -93,6 +93,21 @@ describe('createOrchRouter (remote runtime design §2.7, D1.1, D1.6, D1.7)', () 
     expect(l.calls).toEqual([])
   })
 
+  // W6-A: the New plan dialog's commands need the Host's gh and profile
+  it('W6-A: sends the intake commands to the local Host', async () => {
+    const l = recordingLocal()
+    const host: string[] = []
+    const r = createOrchRouter({
+      local: l.local,
+      host: async (_p, c) => (host.push(c), { status: 200, body: { host: true } }),
+      remote: { client: async () => fakeClient() }
+    })
+    for (const cmd of ['jobs-create', 'jobs-create-from-issue', 'github-issue-assign', 'sources-items'])
+      expect(await r.command('/p', cmd, {}), cmd).toEqual({ status: 200, body: { host: true } })
+    expect(host).toEqual(['jobs-create', 'jobs-create-from-issue', 'github-issue-assign', 'sources-items'])
+    expect(l.calls).toEqual([])
+  })
+
   it('W4: sends sessions-send for the local runtime to the Host, every other command to the local handlers', async () => {
     const l = recordingLocal()
     const host: Array<[string, string, Record<string, unknown>]> = []

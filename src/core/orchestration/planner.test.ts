@@ -71,6 +71,9 @@ const goodTask = (jobId: string, extra: Record<string, unknown> = {}) => ({
   affectedPaths: ['src/login.tsx'],
   difficulty: 'standard',
   modelReason: 'an ordinary component',
+  // W6-A: what the planner found of the item
+  basis: 'missing',
+  evidence: 'no login form under src/',
   ...extra
 })
 
@@ -313,7 +316,8 @@ describe('approval', () => {
     await person(r)('task-create', { run: jobId, account: 'acc1', title: 'by hand', spec: 's' })
     const reply = await person(r)('run-start', { run: jobId })
     expect(reply.status).toBe(400)
-    expect((reply.body as { problems: string[] }).problems).toHaveLength(2)
+    // the hand-made Task has no prompt, no criterion and no basis (W6-A)
+    expect((reply.body as { problems: string[] }).problems).toHaveLength(3)
     expect(r.deps.getState().jobs[0].pendingStart).toBe(true)
     expect(r.deps.getState().runs).toHaveLength(0)
   })
@@ -436,5 +440,60 @@ describe('Job concurrency up to 10', () => {
     expect(r.deps.getState().jobs[0].concurrency).toBe(10)
     expect(String(r.coordinatorStarts[0].brief)).toContain('workers that may run at once: 10')
     expect((await person(r)('jobs-plan', { id: jobId, concurrency: '0' })).status).toBe(400)
+  })
+})
+
+// W6-A: check what exists before planning
+describe('Task.basis', () => {
+  it('validatePlan refuses a Task without a basis, so it cannot be approved', async () => {
+    const r = rig()
+    const jobId = await plannedJob(r)
+    const t = (await planner(r)('task-create', goodTask(jobId, { basis: undefined, evidence: undefined }))).body as { id: string }
+    expect(validatePlan(r.deps.getState(), jobId)).toEqual([`${t.id} (form) has no basis: give --basis missing|partial|broken and its --evidence`])
+    const approve = await person(r)('run-start', { run: jobId })
+    expect(approve.status).toBe(400)
+    expect((approve.body as { problems: string[] }).problems).toHaveLength(1)
+  })
+
+  it('task-create refuses a basis that is not missing|partial|broken, and one without evidence', async () => {
+    const r = rig()
+    const jobId = await plannedJob(r)
+    for (const extra of [{ basis: 'built' }, { basis: 'missing', evidence: ' ' }, { basis: undefined, evidence: 'x' }])
+      expect((await planner(r)('task-create', goodTask(jobId, extra))).status, JSON.stringify(extra)).toBe(400)
+  })
+
+  it('task-update sets the basis (PLAN_EDIT), which then holds the plan', async () => {
+    const r = rig()
+    const jobId = await plannedJob(r)
+    const t = (await planner(r)('task-create', goodTask(jobId, { basis: undefined, evidence: undefined }))).body as { id: string }
+    const edited = await planner(r)('task-update', { id: t.id, basis: 'broken', evidence: 'web/login.py:12 throws on submit' })
+    expect(edited.status).toBe(200)
+    expect(edited.body).toMatchObject({ basis: { state: 'broken', evidence: 'web/login.py:12 throws on submit' } })
+    expect(validatePlan(r.deps.getState(), jobId)).toEqual([])
+  })
+})
+
+describe('plan-nothing-to-do', () => {
+  it("its planner ends a Job with no Tasks: summary kept, archived, the planner's session ended", async () => {
+    const r = rig()
+    const jobId = await plannedJob(r)
+    const reply = await planner(r)('plan-nothing-to-do', { job: jobId, summary: '| login page | built | web/login.py:1 |' })
+    expect(reply).toEqual({ status: 200, body: { id: jobId, nothingToDo: true } })
+    const job = r.deps.getState().jobs[0]
+    expect(job.nothingToDo).toEqual({ at: NOW, summary: '| login page | built | web/login.py:1 |' })
+    expect(job.archivedAt).toBe(NOW)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(r.stopped.map(([id]) => id)).toEqual([PLANNER])
+  })
+
+  it('is refused with Tasks in the plan, without a summary, for another Job, and to another agent', async () => {
+    const r = rig()
+    const jobId = await plannedJob(r)
+    expect((await planner(r)('plan-nothing-to-do', { job: jobId })).status).toBe(400)
+    expect((await planner(r)('plan-nothing-to-do', { job: 'job_other', summary: 's' })).status).toBe(403)
+    expect((await handleCommand(r.deps, { sessionId: 'ses-coordinator' }, 'plan-nothing-to-do', { job: jobId, summary: 's' })).status).toBe(403)
+    await planner(r)('task-create', goodTask(jobId))
+    expect((await person(r)('plan-nothing-to-do', { job: jobId, summary: 's' })).status).toBe(409)
+    expect(r.deps.getState().jobs[0].nothingToDo).toBeUndefined()
   })
 })

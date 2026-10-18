@@ -220,6 +220,9 @@ export interface Job {
   /** When the plan was archived (`jobs archive`). **Present: it starts no new work** (isJobActive) and default lists
    *  hide it; its running sessions are left alone unless the archive asked to close them. */
   archivedAt?: string
+  // W6-A: the planner found everything asked for already built (`plan-nothing-to-do`). The Job is archived with it.
+  /** When, and the planner's summary (its inputs/existing.md). */
+  nothingToDo?: { at: string; summary: string }
   // W1-B: global scheduling.
   /** Where this Job stands when the app-wide `maxConcurrentWorkers` leaves fewer slots than ready
    *  Tasks: higher first (`slotsToFill`). Absent reads as 0. Any integer, negative included. */
@@ -457,6 +460,18 @@ export interface Task {
   // ── W2-D GitHub links (core/github/taskLinks.ts) ──
   /** This Task's issue, branch, commits and pull requests. GitHub is the tracker; this only points at it. */
   links?: TaskLinks
+  // ── W6-A check what exists (planner.ts) ──
+  /** Why this Task is planned at all: what the planner found of its item before planning (inputs/existing.md).
+   *  `validatePlan` refuses a plan Task without one, so no worker opens on unchecked work. */
+  basis?: TaskBasis
+}
+
+/** W6-A: an item's state as the planner found it. `built` gets no Task, so it is not one of these. */
+export const BASIS_STATES = ['missing', 'partial', 'broken'] as const
+export interface TaskBasis {
+  state: (typeof BASIS_STATES)[number]
+  /** file:line, an issue or PR number, a Job id. */
+  evidence: string
 }
 
 /** 한 번의 정지와 그 재개. **이 배열이 없으면 "몇 번 이어졌는가" 를 되살릴 방법이 아예 없다** —

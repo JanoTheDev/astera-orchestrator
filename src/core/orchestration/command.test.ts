@@ -6060,6 +6060,71 @@ describe('jobs create / tasks add / accounts list', () => {
     expect(r.body).not.toHaveProperty('ordinal')
   })
 
+  // W6-A intake: the planner's objective from a mode, the owner's instructions and attached files
+  describe('W6-A intake', () => {
+    const withInputs = (fail?: string) => {
+      const deps = makeDeps()
+      const asked: [string, string[]][] = []
+      deps.intakeInputs = async (jobId, files) => {
+        asked.push([jobId, files])
+        if (fail) throw new Error(fail)
+        return { dir: `/prof/plans/${jobId}/inputs`, names: files.map((f) => f.split('/').pop()!) }
+      }
+      return { deps, asked }
+    }
+
+    it('--attach copies the files through the Host and lists them first in the objective, with the instructions last', async () => {
+      const { deps, asked } = withInputs()
+      const r = await shell(deps, 'jobs-create', { objective: 'Build it', cwd: 'D:/p', attach: ['/d/spec.pdf'], instructions: 'Use pnpm' })
+      expect(r.status).toBe(200)
+      const job = deps.getState().jobs[0]
+      expect(asked).toEqual([[job.id, ['/d/spec.pdf']]])
+      expect(job.objective).toBe(
+        `Read every file in /prof/plans/${job.id}/inputs/ first (PDFs over 20 pages in page ranges):\n- /prof/plans/${job.id}/inputs/spec.pdf\n\n` +
+          "Source:\nBuild it\n\nOwner's instructions (they win over the source when the two conflict):\nUse pnpm"
+      )
+      expect(r.body).toMatchObject({ objective: job.objective })
+    })
+
+    it('--mode audit needs no objective: the planner audits the scope into inputs/audit.md first', async () => {
+      const { deps, asked } = withInputs()
+      const r = await shell(deps, 'jobs-create', { cwd: 'D:/p', mode: 'audit', scope: 'src/core' })
+      expect(r.status).toBe(200)
+      const job = deps.getState().jobs[0]
+      expect(asked).toEqual([[job.id, []]])
+      expect(job.objective).toMatch(/^Audit `src\/core` in the repository/)
+      expect(job.objective).toContain(`/prof/plans/${job.id}/inputs/audit.md`)
+    })
+
+    it('--mode fixlist plans per problem; a plain jobs create keeps its objective as typed and asks the Host nothing', async () => {
+      const { deps, asked } = withInputs()
+      await shell(deps, 'jobs-create', { objective: '1. a\n2. b', cwd: 'D:/p', mode: 'fixlist' })
+      expect(deps.getState().jobs[0].objective).toContain('Plan one or more Tasks per problem')
+      await shell(deps, 'jobs-create', { objective: 'plain', cwd: 'D:/p' })
+      expect(deps.getState().jobs[1].objective).toBe('plain')
+      expect(asked).toEqual([])
+    })
+
+    it('a refused file answers 400 with its sentence and leaves no Job', async () => {
+      const { deps } = withInputs('/d/x: not a regular file')
+      expect(await shell(deps, 'jobs-create', { objective: 'o', cwd: 'D:/p', attach: '/d/x' })).toEqual({
+        status: 400,
+        body: { error: '/d/x: not a regular file' }
+      })
+      expect(deps.getState().jobs).toHaveLength(0)
+    })
+
+    it('--attach is refused from an agent session and MCP, and without a Host; a bad mode is 400', async () => {
+      const { deps } = withInputs()
+      const args = { objective: 'o', cwd: 'D:/p', attach: '/d/spec.pdf' }
+      expect((await call(deps, 'jobs-create', args, 'coordinator')).status).toBe(403)
+      expect((await handleCommand(deps, { sessionId: '', role: 'mcp' }, 'jobs-create', args)).status).toBe(403)
+      expect((await shell(makeDeps(), 'jobs-create', args)).status).toBe(409)
+      expect((await shell(deps, 'jobs-create', { objective: 'o', cwd: 'D:/p', mode: 'nope' })).status).toBe(400)
+      expect(deps.getState().jobs).toHaveLength(0)
+    })
+  })
+
   it('jobs create 는 run-create 의 검증을 그대로 쓴다', async () => {
     const deps = makeDeps()
     expect((await shell(deps, 'jobs-create', { cwd: 'D:/p' })).status).toBe(400)
@@ -8941,6 +9006,78 @@ describe('handleCommand — github-pr, github-ci and github-issue', () => {
       ])
         expect((await call(deps, 'jobs-create-from-issue', args, '')).status, JSON.stringify(args)).toBe(400)
       expect(gh.calls).toEqual([])
+    })
+
+    // W6-A: several issues make one Job, optionally assigned to the person first
+    const issuesSetup = (over: Record<number, Record<string, unknown>> = {}, extra: Record<string, Partial<GhResult>> = {}) =>
+      setup({
+        ...Object.fromEntries(
+          [5, 7, 9].map((n) => [
+            `api repos/{owner}/{repo}/issues/${n}`,
+            { stdout: JSON.stringify({ ...issueJson, number: n, title: `T${n}`, html_url: `https://github.com/o/r/issues/${n}`, ...over[n] }) }
+          ])
+        ),
+        ...extra
+      })
+    const ASSIGN = (n: number) => `issue edit ${n} --add-assignee @me`
+
+    it('jobs-create-from-issue --issue 5,7,9 makes one Job whose objective quotes every issue, its source all three', async () => {
+      const { deps, projectId } = issuesSetup()
+      const before = deps.getState().jobs.length
+      const r = await call(deps, 'jobs-create-from-issue', { project: projectId, issue: '5,7,9' }, '')
+      expect(r.status).toBe(200)
+      expect(deps.getState().jobs).toHaveLength(before + 1)
+      const body = r.body as { id: string; issues: unknown[]; issue?: unknown }
+      expect(body.issues).toEqual([5, 7, 9].map((n) => ({ number: n, url: `https://github.com/o/r/issues/${n}` })))
+      expect(body.issue).toBeUndefined()
+      const job = deps.getState().jobs.find((j) => j.id === body.id)!
+      for (const n of [5, 7, 9]) expect(job.objective).toContain(`#${n} T${n}`)
+      expect(job.source).toMatchObject({ id: 'github', itemId: '5,7,9', label: 'GitHub issues #5, #7, #9 in o/r', title: '#5 T5' })
+    })
+
+    it('jobs-create-from-issue refuses the whole call for one non-member issue, naming it, and assigns and makes nothing', async () => {
+      const { deps, gh, projectId } = issuesSetup({ 7: { author_association: 'NONE' } })
+      const before = deps.getState().jobs.length
+      expect(await call(deps, 'jobs-create-from-issue', { project: projectId, issue: '5,7,9', assignMe: true }, '')).toEqual({
+        status: 403,
+        body: { error: "Issue #7 was written by a NONE of the repository; only an owner, member or collaborator's issue becomes a Job" }
+      })
+      expect(deps.getState().jobs).toHaveLength(before)
+      expect(gh.calls.some((c) => c.args[0] === 'issue')).toBe(false)
+    })
+
+    it('jobs-create-from-issue --assign-me assigns every issue before making the Job; a failed assign makes none', async () => {
+      const ok = issuesSetup({}, { [ASSIGN(5)]: {}, [ASSIGN(7)]: {} })
+      expect((await call(ok.deps, 'jobs-create-from-issue', { project: ok.projectId, issue: '5,7', assignMe: true }, '')).status).toBe(200)
+      expect(ok.gh.calls.filter((c) => c.args[0] === 'issue').map((c) => c.args.join(' '))).toEqual([ASSIGN(5), ASSIGN(7)])
+      const no = issuesSetup({}, { [ASSIGN(5)]: {} })
+      const before = no.deps.getState().jobs.length
+      const r = await call(no.deps, 'jobs-create-from-issue', { project: no.projectId, issue: '5,7', assignMe: true }, '')
+      expect(r.status).toBe(502)
+      expect(r.body).toMatchObject({ error: expect.stringMatching(/^assigning #7: /), assigned: [5] })
+      expect(no.deps.getState().jobs).toHaveLength(before)
+    })
+
+    it('jobs-create-from-issue refuses both --issue and --number, a bad list and more than 20 issues (400)', async () => {
+      const { deps, gh, projectId } = issuesSetup()
+      for (const args of [
+        { project: projectId, issue: '5', number: 5 },
+        { project: projectId, issue: '5,x' },
+        { project: projectId, issue: Array.from({ length: 21 }, (_, i) => i + 1).join(',') }
+      ])
+        expect((await call(deps, 'jobs-create-from-issue', args, '')).status, JSON.stringify(args)).toBe(400)
+      expect(gh.calls).toEqual([])
+    })
+
+    it('github-issue-assign assigns each issue to @me in the project folder', async () => {
+      const { deps, gh, projectId, projectPath } = issuesSetup({}, { [ASSIGN(5)]: {}, [ASSIGN(9)]: {} })
+      expect(await call(deps, 'github-issue-assign', { project: projectId, issue: '5,9', me: true }, '')).toEqual({
+        status: 200,
+        body: { assigned: [5, 9] }
+      })
+      expect(gh.calls.map((c) => [c.args.join(' '), c.cwd])).toEqual([[ASSIGN(5), projectPath], [ASSIGN(9), projectPath]])
+      for (const args of [{ project: projectId }, { project: projectId, issue: '5', me: 'bob' }, { run: 'r1', issue: '5' }])
+        expect((await call(deps, 'github-issue-assign', args, '')).status, JSON.stringify(args)).toBe(400)
     })
 
     it('jobs-create-from-issue: a gh failure is ghRefusal, and no Job', async () => {

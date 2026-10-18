@@ -23,7 +23,7 @@ const seed = async (): Promise<string> => {
   const job = createJob(emptyState(), { objective: 'plan me', cwd: path.join(dir, 'repo'), pendingStart: true }, NOW)
   if (!job.ok) throw new Error(job.error)
   const planned = { ...job.state, jobs: job.state.jobs.map((j) => ({ ...j, plannerSessionIds: [PLANNER] })) }
-  const task = createTask(planned, { jobId: job.value.id, title: 't', spec: 's', deps: [], prompt: 'do it', acceptanceCriteria: ['done'] }, NOW)
+  const task = createTask(planned, { jobId: job.value.id, title: 't', spec: 's', deps: [], prompt: 'do it', acceptanceCriteria: ['done'], /* W6-A */ basis: { state: 'missing', evidence: 'none yet' } }, NOW)
   if (!task.ok) throw new Error(task.error)
   await fs.writeFile(path.join(dir, 'orchestration.json'), JSON.stringify(task.state), 'utf8')
   return job.value.id
