@@ -8,6 +8,7 @@ import { dirIdentity } from '../files/watchedDir'
 import { HOOK_EVENT_AT } from '../hooks/eventTime'
 import { renameRetrying } from '../renameRetry'
 import { SESSION_CONTEXT_SCRIPT } from './sessionContext'
+import { SUBAGENT_CAP_SCRIPT } from './subagentCap'
 
 /** The statusLine injection info handed to SessionManager when a session is spawned. */
 export interface StatusLineSpawn {
@@ -211,6 +212,9 @@ const ASK_MATCHER = 'AskUserQuestion'
  *  so the capture and the invalidation cannot cover different sets — see the PostToolUse comment in ensureFiles(). */
 const TOOL_MATCHER = `${ASK_MATCHER}|Bash|PowerShell|Write|Edit|NotebookEdit`
 
+/** W6-G: the subagent tool (`Agent`; `Task` is its older name), whose calls the subagent cap counts. */
+const SUBAGENT_MATCHER = 'Agent|Task'
+
 export class StatusLineManager {
   private readonly capturePath: string
   private readonly settingsFile: string
@@ -218,6 +222,7 @@ export class StatusLineManager {
   private readonly hookCapturePath: string
   private readonly hooksSettingsFile: string
   private readonly sessionContextPath: string
+  private readonly subagentCapPath: string // W6-G
   readonly hookEventsDir: string // Watched by index.ts's HookEventWatcher
 
   constructor(
@@ -234,6 +239,8 @@ export class StatusLineManager {
     this.hookCapturePath = path.join(userDataDir, 'astera-hook-capture.cjs')
     this.hooksSettingsFile = path.join(userDataDir, 'astera-hooks-settings.json')
     this.sessionContextPath = path.join(userDataDir, 'astera-session-context.cjs')
+    // W6-G: beside app-settings.json, which it reads the cap from (subagentCap.ts)
+    this.subagentCapPath = path.join(userDataDir, 'astera-subagent-cap.cjs')
     // The Host reads these files back for `sessions list` (host/sessions.ts), so where they are is one
     // rule in core rather than a path spelled out twice.
     this.hookEventsDir = hookEventsDirIn(userDataDir)
@@ -264,8 +271,13 @@ export class StatusLineManager {
     await writeScript(this.capturePath, CAPTURE_SCRIPT)
     await writeScript(this.hookCapturePath, HOOK_CAPTURE_SCRIPT)
     await writeScript(this.sessionContextPath, SESSION_CONTEXT_SCRIPT)
+    await writeScript(this.subagentCapPath, SUBAGENT_CAP_SCRIPT)
     const hookCmd = captureCommand(this.nodePath, this.hookCapturePath)
     const contextCmd = captureCommand(this.nodePath, this.sessionContextPath)
+    // W6-G: the subagent cap (subagentCap.ts). **Synchronous**, unlike the capture hooks: its PreToolUse answer is
+    // the deny, so Claude Code must wait for it. One node process per subagent call, stop and session start.
+    const capCmd = captureCommand(this.nodePath, this.subagentCapPath)
+    const subagentCapHook = { matcher: SUBAGENT_MATCHER, hooks: [{ type: 'command', command: capCmd }] }
     // Hooks from --settings merge with the account's global settings.json hooks and both run
     // (measured). The global settings stay untouched.
     //
@@ -290,15 +302,21 @@ export class StatusLineManager {
       // the text has to be in the conversation before the first turn, so unlike the capture hooks it
       // is not `async`. It is not the capture script — it prints the hook JSON on stdout — and it runs
       // once per session start.
-      SessionStart: [{ hooks: [{ type: 'command', command: contextCmd }] }],
+      SessionStart: [
+        { hooks: [{ type: 'command', command: contextCmd }] },
+        // W6-G: a (re)started tab has no subagents running, whatever a crashed life left counted
+        { matcher: 'startup|resume', hooks: [{ type: 'command', command: capCmd }] }
+      ],
       Notification: [{ hooks: [{ type: 'command', command: hookCmd }] }],
       Stop: [{ hooks: [{ type: 'command', command: hookCmd }] }],
       // The question capture. Every session: the conversation view draws AskUserQuestion as a form from
       // this hook's tool_input, and nothing else carries it (the transcript is silent while the CLI
       // waits). Matcher-limited to the one tool so ordinary tool calls pay nothing; the write/execute
       // family stays in the gated file below for the reasons given there.
-      PreToolUse: [{ matcher: ASK_MATCHER, hooks: [{ type: 'command', command: hookCmd }] }],
+      PreToolUse: [{ matcher: ASK_MATCHER, hooks: [{ type: 'command', command: hookCmd }] }, subagentCapHook],
       PostToolUse: [{ matcher: ASK_MATCHER, hooks: [{ type: 'command', command: hookCmd }] }],
+      // W6-G: a subagent finished, so its tab has room for one more
+      SubagentStop: [{ hooks: [{ type: 'command', command: capCmd }] }],
       // A turn starting and a turn ended by an API error (a limit, an auth failure) — StopFailure fires
       // *instead of* Stop then. The Host reads both for `astera sessions list`: it tells working from
       // waiting off the event that happened last (core/hooks/sessionState.ts). In the app, attention,
@@ -360,7 +378,7 @@ export class StatusLineManager {
         // The cost: a user who configured the read tools to require approval gets only the text in that notification.
         // Hardcoding tool names here is a limitation too — a new tool will be missing from this list. Either way the
         // notification only falls back to the previous behaviour (a one-line message), so it is not a silent failure.
-        PreToolUse: [{ matcher: TOOL_MATCHER, hooks: [{ type: 'command', command: hookCmd }] }],
+        PreToolUse: [{ matcher: TOOL_MATCHER, hooks: [{ type: 'command', command: hookCmd }] }, subagentCapHook],
         // The pair that ends the capture: PostToolUse fires once the tool has actually run, and its
         // tool_use_id lets SlackNotifier drop the capture for certain. Without it a subagent's tool call
         // stays "waiting" until Stop — its tool_use is written only to the subagent's own transcript, so the
@@ -441,6 +459,17 @@ export class StatusLineManager {
       if (!name.endsWith('.json')) continue
       if (keep.has(name.slice(0, -'.json'.length))) continue
       await fs.rm(path.join(this.outDir, name), { force: true }).catch(() => {})
+    }
+    // W6-G: the subagent counts (subagentCap.ts) of the same forgotten sessions, beside their hook events
+    let counts: string[] = []
+    try {
+      counts = (await fs.readdir(this.hookEventsDir)).filter((n) => n.endsWith('.subagents'))
+    } catch {
+      return
+    }
+    for (const name of counts) {
+      if (keep.has(name.slice(0, -'.subagents'.length))) continue
+      await fs.rm(path.join(this.hookEventsDir, name), { force: true }).catch(() => {})
     }
   }
 

@@ -368,9 +368,9 @@ export function createHostWorktrees(d: HostWorktreesDeps): HostWorktrees {
     makeRunWorktree: (a) => fork(a),
     // No re-read: a merge never reads the registry (rule 5 asks git for the branches), so a damaged
     // worktrees.json must not stop one. Only what reads or writes the registry re-reads it.
-    mergeWorktrees: async (runCwd, paths) => {
+    mergeWorktrees: async (runCwd, paths, opts) => {
       await checkGit()
-      return deps.mergeWorktrees(runCwd, paths)
+      return deps.mergeWorktrees(runCwd, paths, opts)
     },
     removeWorktrees: async (paths) => {
       await fresh()

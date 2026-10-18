@@ -93,6 +93,13 @@ describe('integrateWorktrees — the rules of the one automatic writer into a re
     expect(ops).toEqual([`begin job-merge ${repo}`, 'end op1', `begin job-merge ${repo}`, 'end op3'])
     expect(reaped).toEqual([a, b])
   })
+  // W6-H: a delivery's merges carry its message (`Fixes #n`), also where git would have fast-forwarded
+  it('makes a merge commit with the message a delivery gives, never a fast-forward', async () => {
+    const a = await worked('a')
+    expect((await integrateWorktrees(repo, [a], { reap: false, message: 'Deliver plan: P\n\nFixes #7' }, ctx())).kind).toBe('merged')
+    expect(gitSync(repo, ['log', '-1', '--format=%B']).trim()).toBe('Deliver plan: P\n\nFixes #7')
+    expect(gitSync(repo, ['rev-list', '--parents', '-n', '1', 'HEAD']).trim().split(' ')).toHaveLength(3)
+  })
   it('does not reap when told not to (run-merge, run-delete --merge)', async () => {
     const a = await worked('a')
     expect((await integrateWorktrees(repo, [a], { reap: false }, ctx())).kind).toBe('merged')

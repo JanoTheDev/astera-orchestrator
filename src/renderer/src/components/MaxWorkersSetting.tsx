@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
 
-/** The app-wide Job worker cap (orchestrator W1-B). Empty is no cap. Saved on blur, so typing "12" does not save "1" on
+/** The app-wide Job worker cap (orchestrator W1-B). Empty is the most, 10 (W6-C). Saved on blur, so typing "12" does not save "1" on
  *  the way; a value that is not a whole number of 1 or more goes back to what was saved. */
 export function MaxWorkersSetting(): React.JSX.Element {
   const { t } = useI18n()
@@ -38,6 +38,7 @@ export function MaxWorkersSetting(): React.JSX.Element {
         <input
           type="number"
           min={1}
+          max={10}
           value={draft}
           aria-label={t('settings.maxWorkers.label')}
           onChange={(e) => setDraft(e.target.value)}

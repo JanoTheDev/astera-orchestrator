@@ -20,6 +20,8 @@ export type MessageType =
 
 /** 한 Run 이 동시에 열어 둘 Dispatch 수의 기본값. 사람이 Run 을 만들 때 바꾼다. */
 export const DEFAULT_CONCURRENCY = 3
+// W6-C: the most workers that run at once, app-wide (`maxConcurrentWorkers`) and in one Job (`Job.concurrency`)
+export const MAX_CONCURRENT_WORKERS = 10
 
 /** Run 수준 완료 수렴 정책. **있으면 켜진 것이다** — 빈 객체도 켜진 것이고, 비운 칸은 아래 상수를 쓴다
  *  (core/orchestration/convergence.ts 의 policyOf). 없는 Run 은 지금까지의 동작이다: 검증·검토 실패가
@@ -41,7 +43,8 @@ export interface ConvergencePolicy {
    *  말라는 것이고, 돌고 있는 워커를 끊으면 그 시도의 결과를 잃는다. */
   maxTotalMinutes?: number
 }
-export const MAX_REVIEW_ROUNDS = 2
+// W6-C: raised from 2. A Job's `convergence.maxReviewRounds` still overrides it.
+export const MAX_REVIEW_ROUNDS = 5
 /** check 하나의 타임아웃. RunConfig 에 타임아웃 칸이 없어 P0 는 상수다 (설계 §7). 이름이 비슷한
  *  DEFAULT_CHECK_TIMEOUT_MS(아래) 와는 다른 값이다 — 그것은 `check --wait` 롱폴의 5분 마감이고,
  *  이것은 완료 수렴 check 하나가 돌 수 있는 30분 상한이다. */
@@ -104,6 +107,9 @@ export type RepairReason = 'check-failure' | 'review-failure'
 /** 앱이 특별히 다루는 Gate. exhausted 의 해소는 retry-once / mark-failed 로 갈라지고(server.ts 의
  *  gate-resolve), blocked 는 보통 Gate 처럼 풀린다 — 질문이 왜 막혔는지 말한다 */
 export type GateKind = 'convergence-exhausted' | 'convergence-blocked' | 'check-unavailable'
+// W6-C: why a Gate opened, when that is something the notices act on. `review-rounds-exhausted`: the reviewer rejected
+// the work `maxReviewRounds` times (W6-B escalates it with a sound).
+export type GateReason = 'review-rounds-exhausted'
 
 /** worker-start 가 세션을 띄우기 전에 Dispatch 에 적어 두는 자리표시자와 같은 모양(server.ts 의
  *  pendingSessionId). 순수 층은 node:crypto 를 못 쓰므로 newId 의 hex 를 빌린다 — 어떤 세션도 가리키지
@@ -127,7 +133,16 @@ export interface Project {
    *  person can change it later without the name moving when a folder does. */
   name: string
   addedAt: string
+  // ── W6-H delivery (delivery.ts) ──
+  /** How a finished plan lands: `pr` opens one pull request (`run-open-pr`), `push` merges it into `deliveryBranch` and
+   *  pushes with no review by a person (`deliverByPush`). Absent reads as `'pr'`. A Job may override it. */
+  delivery?: DeliveryMode
+  /** The branch a `push` delivery lands on. Absent: the repository's default branch. */
+  deliveryBranch?: string
 }
+
+/** W6-H: how a finished plan lands (`deliveryOf`). */
+export type DeliveryMode = 'pr' | 'push'
 
 /** 계획. **무엇을 시킬 것인가이고, 그것이 실제로 돈 기록은 JobRun 이다**
  *  (docs/2026-09-21-job-run-split-and-projects-design.md §4).
@@ -214,6 +229,9 @@ export interface Job {
   /** When the plan was archived (`jobs archive`). **Present: it starts no new work** (isJobActive) and default lists
    *  hide it; its running sessions are left alone unless the archive asked to close them. */
   archivedAt?: string
+  // W6-A: the planner found everything asked for already built (`plan-nothing-to-do`). The Job is archived with it.
+  /** When, and the planner's summary (its inputs/existing.md). */
+  nothingToDo?: { at: string; summary: string }
   // W1-B: global scheduling.
   /** Where this Job stands when the app-wide `maxConcurrentWorkers` leaves fewer slots than ready
    *  Tasks: higher first (`slotsToFill`). Absent reads as 0. Any integer, negative included. */
@@ -248,6 +266,9 @@ export interface Job {
   /** The last replan that ended, for this boundary (`replansDue` reads it so a boundary replans once). `escalated`:
    *  why it was handed to the person instead (the plan did not hold, or a 4th follow-up wave); the hold stays then. */
   lastReplan?: ReplanMark & { at: string; summary: string; escalated?: string }
+  // W6-H delivery (delivery.ts)
+  /** This plan's own delivery, ahead of its project's (`deliveryOf`). Absent: the project's. */
+  delivery?: DeliveryMode
 }
 
 /** W6-D: which boundary a replan is for. `wave` is the wave about to start; a completion pass stands after the last. */
@@ -369,6 +390,10 @@ export interface JobRun {
   /** The pull request opened from this Run's integration branch when it completed, or why it could not be. Present:
    *  the driving loop does not try again (`run-open-pr --force` does). */
   pr?: RunPr
+  // ── W6-H: a `push` delivery (`run-deliver`) ──
+  /** The pushed commit, or why the push stopped (escalated). Present: the driving loop does not try again
+   *  (`run-deliver --force` does). */
+  delivery?: RunDelivery
 }
 
 export interface Task {
@@ -480,6 +505,18 @@ export interface Task {
   // ── W2-D GitHub links (core/github/taskLinks.ts) ──
   /** This Task's issue, branch, commits and pull requests. GitHub is the tracker; this only points at it. */
   links?: TaskLinks
+  // ── W6-A check what exists (planner.ts) ──
+  /** Why this Task is planned at all: what the planner found of its item before planning (inputs/existing.md).
+   *  `validatePlan` refuses a plan Task without one, so no worker opens on unchecked work. */
+  basis?: TaskBasis
+}
+
+/** W6-A: an item's state as the planner found it. `built` gets no Task, so it is not one of these. */
+export const BASIS_STATES = ['missing', 'partial', 'broken'] as const
+export interface TaskBasis {
+  state: (typeof BASIS_STATES)[number]
+  /** file:line, an issue or PR number, a Job id. */
+  evidence: string
 }
 
 /** 한 번의 정지와 그 재개. **이 배열이 없으면 "몇 번 이어졌는가" 를 되살릴 방법이 아예 없다** —
@@ -636,6 +673,8 @@ export interface Gate {
   question: string
   options?: string[]
   kind?: GateKind
+  // W6-C
+  reason?: GateReason
   status: 'open' | 'resolved'
   resolution?: string
   createdAt: string
@@ -738,6 +777,14 @@ export interface TaskLinks {
   branch?: string
   prs?: { number: number; url: string; state: PrState }[]
   commits?: string[]
+}
+
+/** W6-H: a Run's push delivery: the branch and the commit pushed, or the reason it stopped. */
+export interface RunDelivery {
+  at: string
+  branch?: string
+  sha?: string
+  error?: string
 }
 
 /** The plan's pull request: its URL and number once opened, or the error that stopped it. */

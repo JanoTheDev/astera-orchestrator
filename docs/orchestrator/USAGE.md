@@ -9,7 +9,7 @@ owns every session and drives every plan, so closing the window stops nothing (L
 - Sign in an account (Accounts panel, "+").
 - Settings → Orchestration models: the model of each role. Defaults: planner and reviewer `opus`, coordinator `haiku`,
   workers by Task difficulty (light → haiku, standard → sonnet, hard → opus). Empty means the CLI's default model.
-- Settings → "Max workers across all jobs": the app-wide cap. Empty means no limit. At the cap, plans with a higher
+- Settings → "Max workers across all jobs": the app-wide cap, at most 10. Empty means 10. At the cap, plans with a higher
   priority get the next free slot.
 - Settings → Agents → "Run agents without permission checks" is **off**. Planners, coordinators and workers then stop at
   every Claude permission prompt until you answer it. They show up in the needs-input badge (below).
@@ -53,7 +53,41 @@ owns every session and drives every plan, so closing the window stops nothing (L
    model, or on the CLI's default model when none is set.
    `astera tasks list --run <job>` lists a Job's own Tasks before its first Run.
 
-One PR per plan, opened when the plan finishes, never merged automatically.
+**Delivery** (per project; Jobs view → "When a plan is done", or `astera projects set --id <project> --delivery pr|push
+[--delivery-branch <branch>]`; one plan can override it with `--delivery` on `jobs create` / `jobs plan`):
+- `pr` (the default): one PR per plan, opened when the plan finishes, never merged automatically.
+- `push`: when the last Task passed review (and the final check is done), Astera merges the plan's worktrees into the
+  project folder's delivery branch (the default branch unless set), runs the plan's validation checks once more on the
+  merged tree, and pushes it, **with no review by a person**. The merge commits say `Fixes #n` for the issues the plan
+  came from, so GitHub closes them. It stops and escalates (a sound and a notice) instead when the folder is on another
+  branch or has uncommitted changes, when the branch cannot fast-forward to origin, on a conflict, when validation fails
+  (its own merges are undone then), or when the push is rejected twice. It never stashes, resets your work or
+  force-pushes. After a push the plan's worktrees are removed; after a stop they stay. `astera run-deliver
+  --run <id> --force` tries a stopped push again.
+
+## Starting from files, an audit, a problem list or GitHub issues (W6-A)
+
+"+ New job" → **New plan from files, an audit or GitHub issues…** opens the New plan dialog. Pick the project and a
+source, add **Extra instructions** if you like (they win over the source), pick the coordinator account, and press
+**Create and plan**: Astera makes one Job and starts its planner.
+
+- **Describe**: the objective. Tick "This is a list of problems" for one or more Tasks per problem.
+- **Files**: drop PDFs or other files (at most 30 MB each). They are copied to `plans/<job>/inputs/` in the profile,
+  and the planner reads them first (Claude reads PDFs itself, long ones in page ranges).
+- **Audit**: a path or `all`. The planner audits it for bugs, security holes and missing tests, writes
+  `inputs/audit.md`, then plans the fixes.
+- **GitHub**: search the open issues ("Assigned to me" narrows to yours), tick several, and optionally "Assign me".
+  One refused issue (closed, a pull request, or written by a non-member) refuses the whole plan.
+
+From a shell: `astera jobs create --objective "…" [--mode plan|audit|fixlist] [--scope <path|all>]
+[--instructions "…"] [--attach <file>]…`, `astera jobs-create-from-issue --project <id> --issue 12,14,19
+[--assign-me]`, `astera github-issue-assign --project <id> --issue 12,14 --me`.
+
+**Before planning, the planner checks what already exists**: the code, open and closed issues and PRs, and the
+project's other Jobs. It writes `inputs/existing.md` (each item `missing`, `partial`, `broken` or `built`), plans only
+what is missing or broken, and gives every Task a basis with evidence; approval is refused without one. If everything
+is built, the Job ends as "nothing to do" (archived, the summary kept, a feed line and a notice) and no tab opens.
+Writing `existing.md` and `audit.md` asks your permission once, as every planner edit does.
 
 ## The workspace
 
@@ -61,6 +95,13 @@ The sidebar's **Workspaces** tree is Project → Plan → Planner / Coordinator 
 terminal. The header above it always says Project · Plan · Task · Model · Account · cwd · Branch · Status. Switching
 sessions or plans never restarts a process or changes its cwd. Scrollback survives switching and a restart of the app.
 
+- **Project workspaces** (W6-F): the switcher at the top of the sidebar lists each project with its number of
+  running tabs, and a dot while one waits for you. Click a project, or press **Ctrl+Alt+1…9** for the first nine
+  (rebind in Settings → Shortcuts). The grid then shows only that project's tabs: its plans' planner, coordinator and
+  workers, plus every tab whose folder is in the project or in one of its worktrees. Tabs outside every project are
+  under **Other**; **All tabs** shows everything. Clicking a plan narrows further, and clicking it again goes back to
+  its project. Each workspace returns to the tab it had in focus when you left it, and a new tab opened in it starts
+  in the project's folder. Tabs in other workspaces keep running, hidden.
 - **Type into a worker**: click it in the tree and type. To send one line without switching, use the command bar:
   `send "run the tests" to Gameful Worker 2`.
 - **Needs my input**: the number next to Workspaces counts sessions waiting for you (a permission prompt or a
@@ -70,6 +111,30 @@ sessions or plans never restarts a process or changes its cwd. Scrollback surviv
   `hw1` finds "Hold Worker 1". Each hit shows "project › plan · task".
 - **Board**: the Run window's board shows every Task, and for each one that is not running, why ("waits for A",
   "App-wide limit full", "Its worker was stopped").
+  The board opens first and groups the Tasks by wave ("Wave 1 · 3/4 done"), with the current wave highlighted and
+  "Replanning wave 3…" on it while the planner adjusts the rest of the plan. Each card lists its files (three, then
+  "+N more"), what its worker is doing now ("Editing src/x.ts · 0:12 ago", "Running npm test", "Waiting for your
+  permission", "Asked the coordinator") and the questions the coordinator answered for it. Clicking a running card
+  opens its tab. The **Files** tab lists every file of the plan with the Tasks that touch it; a file two Tasks share is
+  highlighted, and clicking a file shows its folder in the explorer.
+
+## Usage guards (W6-G)
+
+- **Subagents per tab.** Every Claude tab Astera starts (workers, planners, coordinators and plain tabs) may run at most
+  Settings → "Max subagents per tab" subagents at once (1–10, default 10). A tab that asks for one more gets "Astera: N
+  subagents already running in this tab (limit N). Wait for one to finish." The count lives in
+  `<profile>/hook-events/<session>.subagents` and goes back to 0 when the tab starts or resumes. A change of the setting
+  reaches running tabs at their next subagent. A tab opened before this feature has none of these hooks until it is
+  reopened.
+- **Usage pause.** No new worker starts on an account whose latest statusLine reading is at Settings → "Pause new
+  workers at usage (%)" (default 90) of its 5-hour or 7-day limit. If another account of the Task (its rolling order)
+  is under the threshold, the worker starts there instead. Running workers are never stopped. With no reading yet,
+  nothing is held. The pause ends on its own when a fresh reading is under the threshold or the window resets. A
+  coordinator asking `worker-start` for a paused account is refused with the reason and, when there is one, the
+  account to use instead. The board says "Paused: <account> at 93% of its 5-hour limit, resumes ~14:20". The feed and a
+  desktop notice say when new workers pause and resume, without a sound: nothing is asked of you.
+- **The usage strip** above the plan's board shows each account's 5-hour and 7-day share with its reset time, which
+  accounts are paused, the threshold, and the live subagents per tab.
 
 ## Activity feed
 

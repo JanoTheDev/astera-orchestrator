@@ -130,7 +130,9 @@ export async function sourcesCommand(deps: OrchServerDeps, caller: Caller, cmd: 
     if (source.kind === 'github') {
       const at = githubFolder()
       if (isReply(at)) return at
-      const r = await listIssueItems(at.gh, at.cwd, { ...(query ? { query } : {}), ...(cursor ? { cursor } : {}) })
+      // W6-A: --assigned-to-me keeps the issues assigned to the person gh is logged in as
+      const mine = args.assignedToMe === true || args.assignedToMe === 'true'
+      const r = await listIssueItems(at.gh, at.cwd, { ...(query ? { query } : {}), ...(cursor ? { cursor } : {}), ...(mine ? { mine } : {}) })
       if (!r.ok) return ghReply(r)
       const jobs = jobsOfItems(s, GITHUB_SOURCE_ID, named)
       return ok({ items: r.items.map((i) => ({ ...i, jobs: jobs(i) })), ...(r.nextCursor ? { nextCursor: r.nextCursor } : {}) })

@@ -209,7 +209,7 @@ describe('공개 표면 — 두 낱말 명령', () => {
   })
 
   it('동사가 없으면 무엇을 칠 수 있는지 말한다', () => {
-    expect(parseArgs(['projects'])).toEqual({ error: 'projects needs one of: list, get, find, add' })
+    expect(parseArgs(['projects'])).toEqual({ error: 'projects needs one of: list, get, find, add, set' })
     expect(parseArgs(['jobs'])).toEqual({ error: 'jobs needs one of: list, get, wait, run, create, create-from-source, rename, archive, unarchive, plan' })
   })
 
@@ -411,5 +411,15 @@ describe('parseArgs — the job-source commands', () => {
       args: { source: 'github', item: '12', project: 'proj_1', coordinatorAccount: 'acc_1' }
     })
     expect(parseArgs(['sources'])).toEqual({ error: 'sources needs one of: list, items, show' })
+  })
+})
+
+// W6-A intake: --attach may be given more than once
+describe('jobs create --attach', () => {
+  it('arrives as a list, repeated or not', () => {
+    const two = parseArgs(['jobs', 'create', '--objective', 'o', '--attach', 'a.pdf', '--attach', 'b.md'])
+    expect('error' in two ? two : two.args.attach).toEqual(['a.pdf', 'b.md'])
+    const one = parseArgs(['jobs', 'create', '--attach', 'a.pdf', '--mode', 'audit'])
+    expect('error' in one ? one : one.args).toMatchObject({ attach: ['a.pdf'], mode: 'audit' })
   })
 })

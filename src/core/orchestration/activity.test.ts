@@ -7,6 +7,7 @@ import {
   deriveActivity,
   digestText,
   noticeOf,
+  usageActivity,
   summarize,
   type ActivityDraft,
   type ActivityEvent,
@@ -209,6 +210,21 @@ describe('notices', () => {
     expect(noticeOf(ev({ type: 'dispatch.started', payload: { title: 'A' } }))).toBeNull()
   })
 
+  // W6-G: a usage pause and its end are feed lines and notices; nothing in them asks the owner for anything.
+  it('a usage pause and its end each give a notice', () => {
+    const pause = { accountId: 'acc_1', window: 'five_hour' as const, percent: 93, resetsAt: '2026-10-17T14:20:00.000Z' }
+    const paused = usageActivity({ type: 'usage.paused', pause })
+    expect(paused).toEqual({
+      type: 'usage.paused',
+      payload: { title: 'acc_1', accountId: 'acc_1', usageWindow: 'five_hour', percent: 93, resetsAt: pause.resetsAt }
+    })
+    const n = noticeOf(ev(paused))
+    expect(n?.title).toBe('New workers paused')
+    expect(n?.body).toContain('93% of its 5-hour limit, resumes ~')
+    expect(n?.body).toContain('Running workers carry on')
+    expect(noticeOf(ev(usageActivity({ type: 'usage.resumed', pause })))?.title).toBe('New workers resumed')
+  })
+
   it('the throttle: a key once a window, at most max a minute, the rest counted', () => {
     const th = createNoticeThrottle({ dedupMs: 1000, windowMs: 100, max: 2 })
     expect(th.admit('a', 0)).toBe(true)
@@ -263,6 +279,22 @@ describe('notices', () => {
     await n.tick()
     await n.tick()
     expect(sent.map((x) => x.title)).toEqual(['Needs your answer', 'Needs your answer', 'Needs your answer', 'More orchestration updates'])
+  })
+})
+
+// W6-A: a plan that ended before approval because everything it asks for is built
+describe('plan.nothing-to-do', () => {
+  const job = { id: 'job_1', objective: 'add login', cwd: '/p', createdAt: '2026-10-18T00:00:00.000Z', projectId: 'p1', pendingStart: true } as Job
+  it('is derived once, when the Job gains nothingToDo, and is a notice', () => {
+    const prev: OrchState = { ...emptyState(), jobs: [job] }
+    const next: OrchState = { ...prev, jobs: [{ ...job, nothingToDo: { at: 'now', summary: 'login | built | web/login.py:1' } }] }
+    const drafts = deriveActivity(prev, next)
+    expect(drafts).toEqual([
+      { type: 'plan.nothing-to-do', projectId: 'p1', jobId: 'job_1', payload: { plan: 'add login', title: 'add login', summary: 'login | built | web/login.py:1' } }
+    ])
+    expect(deriveActivity(next, { ...next, jobs: [...next.jobs] })).toEqual([])
+    const e = { ...drafts[0], id: 'e1', sequence: 1, occurredAt: 'now' } as ActivityEvent
+    expect(noticeOf(e)).toEqual({ key: 'nothing:job_1', title: 'Nothing to do: already built', body: 'add login' })
   })
 })
 

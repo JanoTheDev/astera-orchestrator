@@ -44,6 +44,8 @@ import { outcomeOfTasks, tasksOwnedBy } from '../running'
 import { outcomeOf } from '../view'
 import { completionSettled, replansDue } from '../replan'
 import type { Integration } from './integrateGit'
+import { usageChoice, usagePauseWhy, type UsageGuard } from '../usageGuard'
+import { deliveryOf } from '../delivery'
 
 /** W6-D: a replan whose start left no session after this long died with its process, and is ended. */
 export const REPLAN_START_WINDOW_MS = 5 * 60_000
@@ -154,6 +156,8 @@ export interface DispatchLoopContext {
   lastPersonInputAt?(sessionId: string): number | null
   /** Asked on entry and again before each slot (§4.3). */
   mayStart(): boolean
+  /** W6-G: the usage guard (usageGuard.ts), refreshed before each slot. Optional: without it no usage pause. */
+  usageGuard?: Pick<UsageGuard, 'refresh' | 'pauseOf'>
   log(m: string): void
   nowMs(): number
 }
@@ -466,26 +470,33 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       else owned.set(t.runId, [t])
     }
     for (const run of s.runs) {
-      if (run.pr !== undefined || prAsked.has(run.id)) continue
+      // W6-H: a push delivery records its own result (`run.delivery`)
+      if (run.pr !== undefined || run.delivery !== undefined || prAsked.has(run.id)) continue
       const outcome = outcomeOfTasks(owned.get(run.id) ?? [])
       if (outcome === 'running') {
         seenRunning.add(run.id)
         continue
       }
-      if (outcome !== 'completed' || !seenRunning.has(run.id) || run.worktree === undefined) continue
+      if (outcome !== 'completed' || !seenRunning.has(run.id)) continue
       const job = jobOf(s, run)
       if (!job || !isJobActive(job) || job.schedule !== undefined) continue
       // W6-D: the PR waits for the final check (replan.ts completionSettled)
       if (!completionSettled(s, job, run.id)) continue
+      // W6-H: a push merges the Run's worktrees into the project folder itself, so it needs no integration branch
+      const push = deliveryOf(s, job) === 'push'
+      if (!push && run.worktree === undefined) continue
       if (!c.mayStart()) return
       prAsked.add(run.id)
       try {
-        const r = await c.handle('run-open-pr', { run: run.id })
-        const body = r.body as { url?: unknown } | null
+        // W6-H: `run-deliver` is `run-open-pr` for a `pr` project, and the guarded push for a `push` one
+        const r = await c.handle('run-deliver', { run: run.id })
+        const body = r.body as { url?: unknown; sha?: unknown; branch?: unknown } | null
         log(
           r.status >= 400
-            ? `run=${run.id} completed, and its pull request was not opened: ${JSON.stringify(r.body)}`
-            : `run=${run.id} completed: its pull request is ${String(body?.url)}`
+            ? `run=${run.id} completed, and it was not delivered: ${JSON.stringify(r.body)}`
+            : push
+              ? `run=${run.id} completed: pushed ${String(body?.sha)} to ${String(body?.branch)}`
+              : `run=${run.id} completed: its pull request is ${String(body?.url)}`
         )
       } catch (e) {
         log(`run=${run.id} completed, and opening its pull request failed: ${String(e)}`)
@@ -610,7 +621,16 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
             : `no ${slotProvider} account is logged in to run task ${slot.taskId} on`
       }
     }
-    const accountId = picked.accountId
+    let accountId = picked.accountId
+    // W6-G: no new worker on a nearly spent account. Another account of the chain under the threshold takes it,
+    // in rolling's order; with none, the slot waits (no Gate: nothing for a person to do) and a later pass retries.
+    if (c.usageGuard) {
+      const guard = c.usageGuard
+      await guard.refresh()
+      const usage = usageChoice(picked.chain, (id) => guard.pauseOf(id))
+      if (!usage.ok) return { kind: 'wait', why: usagePauseWhy(usage.pause) }
+      if (usage.accountId !== undefined) accountId = usage.accountId
+    }
     // **한 Run 은 두 방식 중 하나로만 돈다.** 섞지 않는 이유는 병합 대상이다 — 병합은
     // 깨끗한 작업 트리에만 적용되고, 워커 하나를 합칠 자리에 띄우면 그 폴더에 커밋 안 된
     // 변경이 남아 나머지 워크트리를 합칠 자리가 없어진다. 그래서 동시 실행 손잡이 하나가
@@ -856,6 +876,9 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     // W5-C: the plan was held from launching between slotsToFill and here. A person's choice, so no Gate.
     if (reply.status === 409 && (reply.body as { held?: unknown })?.held === true)
       return { kind: 'wait', why: 'the plan is held from launching new workers' }
+    // W6-G: the account crossed `usagePauseAt` between the check above and here. It resumes on its own.
+    if (reply.status === 409 && (reply.body as { usagePaused?: unknown })?.usagePaused !== undefined)
+      return { kind: 'wait', why: String((reply.body as { error?: unknown }).error) }
     return reply.status >= 400 ? { kind: 'refused', reply } : { kind: 'started', reply }
   }
 

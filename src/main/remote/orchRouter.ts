@@ -26,7 +26,13 @@ const NOT_A_RUNTIME = { code: 'RUNTIME_NOT_FOUND', message: 'a runtime id is a s
 export const HOST_ANSWERED: ReadonlySet<string> = new Set([
   'sessions-send',
   // W5-D (#42): the inbox's waits, with their reason, read off the hook events by the Host (host/sessions.ts)
-  'sessions-list'
+  'sessions-list',
+  // W6-A intake: the New plan dialog's commands need the Host's gh and profile (attached files), which main's copy of the
+  // command layer does not have
+  'jobs-create',
+  'jobs-create-from-issue',
+  'github-issue-assign',
+  'sources-items'
 ])
 
 /** W5-D (#44): the reads that are one list across every Host. A call with no `runtimeId` asks the local Host and every

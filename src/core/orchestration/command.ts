@@ -82,6 +82,7 @@ import {
   DEFAULT_CHECK_TIMEOUT_MS,
   DEFAULT_WAIT_TIMEOUT_MS,
   DEFAULT_CONCURRENCY,
+  MAX_CONCURRENT_WORKERS,
   FAILURE_LIMIT,
   canTransition,
   isPlaceholderSessionId,
@@ -109,13 +110,16 @@ import { parseCheckFlag } from '../workUnit/verification'
 import { isTerminal as taskFinished, outcomeOf, progressOf } from './view'
 import { runningRunCount } from './running'
 import { FINISHED_RUN_GRACE_MS } from './exec/dispatchLoop'
-import { appDriven, workersAgainstCap } from './schedule'
-import type { JobEvent, WorktreeInfo } from '../types'
+import { appDriven, workerCapOf, workersAgainstCap } from './schedule'
+import type { JobEvent, SessionInfo, WorktreeInfo } from '../types'
 import { ghFailureSentence, type GhFailed, type GhRunner } from '../github/gh'
 import { failedLogTail, readPrChecks, rerunFailed } from '../github/checks'
 import { prForBranch } from '../github/prs'
-import { ISSUE_JOB_ASSOCIATIONS, readIssue } from '../github/issue'
-import { GITHUB_SOURCE_ID, issueContext } from '../github/issueSource'
+import { ISSUE_JOB_ASSOCIATIONS, ISSUES_PER_CALL_MAX, assignIssueToMe, issueNumbersOf, readIssue, type GhIssue } from '../github/issue'
+import { GITHUB_SOURCE_ID, issuesContext } from '../github/issueSource'
+// W6-A intake
+import { SOURCED_OBJECTIVE_MAX } from '../sources/objective'
+import { intakeChanges, intakeObjective, intakeOf, needsInputs } from './intake'
 import { fillFromCommits, type CommitSummary } from '../github/fill'
 // W2-D GitHub links
 import {
@@ -154,6 +158,21 @@ import { checkIdsOf, pluginCheckRefusal, tasksOfNextRun } from './commandChecks'
 import { dispatchModelFields } from './roleModels'
 // W1-C plan lifecycle
 import { archiveJob, archivedTargetOf, isJobActive, renameJob, unarchiveJob } from './lifecycle'
+// W6-G
+import { usageChoice, usagePauseWhy, type UsageGuard } from './usageGuard'
+// W6-H delivery
+import {
+  deliveryChecksOf,
+  deliveryIssuesOf,
+  deliveryMessage,
+  deliveryOf,
+  parseDelivery,
+  projectOfJob,
+  recordDelivery,
+  setJobDelivery,
+  setProjectDelivery
+} from './delivery'
+import type { PushDelivery, PushResult } from './exec/integrateGit'
 
 /** One row of `listAccounts`. Named only because the declaration below is a union and repeating the
  *  shape on both sides invites the two halves to drift. */
@@ -211,6 +230,8 @@ export interface HostSession {
   /** Where the Host reads each fact of this session from (X1-06); `none` means the Host cannot say, and the fact is
    *  shown as unknown, never as idle. */
   sources?: SessionSources
+  // W6-E progress view: the last tool call the session started (SessionInfo.lastAction, host/sessions.ts)
+  lastAction?: SessionInfo['lastAction']
 }
 
 /** The Host's source for each fact of a session, by provider and kind (remote runtime design Phase 9, X1-06). */
@@ -346,7 +367,9 @@ export interface OrchServerDeps {
    *  돌려주면 아무것도 합치지 못했을 때도 성공을 알리게 된다. */
   mergeWorktrees?(
     runCwd: string,
-    paths: string[]
+    paths: string[],
+    /** W6-H: the message of each merge commit (a delivery's `Fixes #n`); absent, git's own. */
+    opts?: { message?: string }
   ): Promise<
     | {
         ok: true
@@ -643,6 +666,9 @@ export interface OrchServerDeps {
    *  process reads its own copy of the file: the app its AppSettingsStore, the Host the file. Absent:
    *  no cap. */
   maxConcurrentWorkers?(): number | null | Promise<number | null>
+  /** W6-G: the usage guard (usageGuard.ts): `worker-start` refuses a nearly spent account, for every placer. Each
+   *  process keeps its own over its own sessions' statusLine readings. Absent: no usage pause. */
+  usageGuard?: Pick<UsageGuard, 'refresh' | 'pauseOf'>
   /** Starts an agent session for `sessions create` (CLI spec §14): a terminal one through the Host's
    *  spawner (the path its workers take), a chat one through the Host's chat manager (the path its rolls
    *  take). **Only the Host injects it.** Rejects with the reason when the start fails; answers the new
@@ -686,6 +712,11 @@ export interface OrchServerDeps {
    *  never written (`readUnderstandingFile`). **Only the Host injects it**, over its profile's file: the
    *  app has the records in its own store and no caller asks it. Absent, `understanding-*` answer 409. */
   readUnderstanding?(): Promise<StoreShape>
+  // W6-A intake
+  /** Copies the files a person attached into the Job's inputs folder, beside its plan.md (`copyIntakeFiles`), and
+   *  answers the folder; throws the refusal's sentence. **Only the Host injects it**, over its profile; absent,
+   *  `jobs-create --attach` and `--mode audit` answer 409. */
+  intakeInputs?(jobId: string, files: string[]): Promise<{ dir: string; names: string[] }>
   /** The job-source plugins (plugin Phase 4 J10): which there are and a question to one. **Only the Host injects it**,
    *  from its plugin manager and runtime; absent, the sources are GitHub's alone. */
   jobSources?: JobSourcesDeps
@@ -694,6 +725,11 @@ export interface OrchServerDeps {
    *  the app's goes through the Host (`plugins-list`, `checks-plugin-run`). Absent, nothing is refused early and a
    *  plugin check is an `error` that says so. */
   completionChecks?: CompletionChecksDeps
+  // ── W6-H delivery ──
+  /** A `push` delivery (`run-deliver`): the guarded merge, validation and push of exec/integrateGit.ts's
+   *  `deliverByPush`, with `checks` (the run configurations) as the validation. **Only the Host injects it**; absent,
+   *  `run-deliver` on a push project answers 409. */
+  deliverPush?(a: PushDelivery & { checks: string[] }): Promise<PushResult>
 }
 
 /** A plugin as the early refusal reads it (plugin Phase 5 C7). */
@@ -1031,7 +1067,10 @@ const COORDINATOR_ONLY = new Set([
   'jobs-unarchive',
   // W2-D: a worker reports its issue in worker_done (`--issue`); linking and the plan's PR are the coordinator's
   'task-link-issue',
-  'run-open-pr'
+  'run-open-pr',
+  // W6-H: how the plan lands is the person's setting, and the landing is Astera's
+  'projects-set',
+  'run-deliver'
 ])
 
 /** Session-task commands answer to the work-unit tracking toggle, not the orchestration one. They
@@ -1045,6 +1084,12 @@ const str = (v: unknown): string | null => (typeof v === 'string' && v.length > 
 const posInt = (v: unknown): number | null => {
   const n = typeof v === 'string' ? Number(v) : typeof v === 'number' ? v : NaN
   return Number.isInteger(n) && n >= 1 ? n : null
+}
+
+// W6-C: a Job's `--concurrency`, a whole number of 1 or more, clamped to MAX_CONCURRENT_WORKERS
+const concurrencyArg = (v: unknown): number | null => {
+  const n = posInt(v)
+  return n === null ? null : Math.min(n, MAX_CONCURRENT_WORKERS)
 }
 
 // TaskStatus 유니온에서 파생되지 않는 손수 쓴 목록이다 — 빠뜨려도 컴파일은 통과한다.
@@ -1147,6 +1192,21 @@ export function githubTarget(
   if (id === null) return { error: bad('--project needs a value: a project id (from `projects list`)') }
   const project = findProject(s, id)
   return project ? { gh, cwd: project.path, project } : { error: notFound(`unknown project: ${id}`) }
+}
+
+/** W6-A: assigns each issue to the person gh is logged in as, in order; null when all were, else the refusal naming the
+ *  issue that failed and the ones already assigned. */
+async function assignAll(gh: GhRunner, cwd: string, numbers: readonly number[]): Promise<Reply | null> {
+  const assigned: number[] = []
+  for (const n of numbers) {
+    const r = await assignIssueToMe(gh, cwd, n)
+    if (!r.ok) {
+      const refusal = ghRefusal({ ...r, message: `assigning #${n}: ${r.message}` })
+      return { ...refusal, body: { ...(refusal.body as object), assigned } }
+    }
+    assigned.push(n)
+  }
+  return null
 }
 
 /** A failed gh call as a reply: not-found 404, something the person must fix (gh missing, not logged
@@ -1777,7 +1837,7 @@ export async function handleCommand(
       // Task 가 섞일 수 있게 된 것이 이 변경의 목적이므로 옮길 자리도 없다.
       if (args.provider !== undefined)
         return bad('--provider is no longer accepted — the provider comes from task-create --account')
-      const concurrency = args.concurrency === undefined ? null : posInt(args.concurrency)
+      const concurrency = args.concurrency === undefined ? null : concurrencyArg(args.concurrency)
       if (args.concurrency !== undefined && concurrency === null)
         return bad('--concurrency must be an integer >= 1')
       // W1-B: Job.priority. Any integer; absent is 0.
@@ -1785,6 +1845,9 @@ export async function handleCommand(
       if (typeof priority !== 'number' || !Number.isInteger(priority)) return bad('--priority must be an integer')
       // W6-D: Job.replan, `waves` (the default) or `off`
       if (args.replan !== undefined && args.replan !== 'waves' && args.replan !== 'off') return bad('--replan must be waves|off')
+      // W6-H: the plan's own delivery, ahead of its project's
+      const delivery = parseDelivery(args.delivery)
+      if (delivery === null) return bad('--delivery must be pr or push')
       // 완료 수렴(설계 D12). --convergence 만 주면 빈 정책(기본값). 숫자 셋은 --convergence 없이는
       // 거절한다 — 조용히 받으면 "정책을 줬는데 꺼져 있다" 가 된다.
       let convergence: ConvergencePolicy | undefined
@@ -1907,7 +1970,7 @@ export async function handleCommand(
       // 정규화됐으므로(resolveProjectRoot), 앱이 아는 저장소라면 여기서 맞는다.
       // 못 맞으면 칸이 비고, 그 Run 은 옛 Run 과 같은 경로 유도로 목록에 든다.
       const project = findProjectByPath(latest, cwd)
-      const created = createJob(
+      const made = createJob(
         latest,
           {
             objective,
@@ -1939,7 +2002,11 @@ export async function handleCommand(
           },
         now
       )
-      if (!created.ok) return commit(created)
+      if (!made.ok) return commit(made)
+      const created =
+        delivery === undefined
+          ? made
+          : (setJobDelivery(made.state, made.value.id, delivery) as typeof made)
       // **코디네이터에게는 곧바로 회차를 준다.** 계획만 만들고 끝내면 `--run` 에 넣을 id 가 없고,
       // 코디네이터는 Task 를 만들어 가며 일하므로 붙일 자리가 그 자리에 있어야 한다.
       //
@@ -1974,6 +2041,24 @@ export async function handleCommand(
       if (!p) return bad('--path is required')
       const project = findProjectContaining(s, p)
       return project ? okBody(project) : notFound(`no project registered for: ${p}`)
+    }
+    // W6-H: how a finished plan of this project lands. `push` lands it with no review by a person, so it is the
+    // person's choice: refused from an agent session and an MCP client.
+    case 'projects-set': {
+      const id = str(args.id)
+      if (!id) return bad('--id is required')
+      if (fromAgentSession || caller.role === 'mcp') return denied("a project's delivery is set by the person, in Astera or at their own shell")
+      const delivery = parseDelivery(args.delivery)
+      if (delivery === null) return bad('--delivery must be pr or push')
+      const branchArg = args.deliveryBranch
+      if (branchArg !== undefined && typeof branchArg !== 'string') return bad('--delivery-branch needs a value')
+      if (delivery === undefined && branchArg === undefined) return bad('nothing to set: give --delivery or --delivery-branch')
+      // An empty --delivery-branch drops it: the repository's default branch again
+      const set = setProjectDelivery(s, id, {
+        ...(delivery !== undefined ? { delivery } : {}),
+        ...(branchArg !== undefined ? { branch: branchArg.trim() === '' ? null : branchArg } : {})
+      })
+      return set.ok ? commit(set) : set.error.startsWith('unknown project') ? notFound(set.error) : bad(set.error)
     }
     // **회차를 낸다, 계획이 아니라.** `--job` 은 한 계획의 회차만 추린다. 번호순으로 내보내는
     // 것은 배열에 들어간 순서가 곧 시간순이 아니기 때문이다 — 예약은 발화마다 뒤에 붙지만
@@ -2089,10 +2174,38 @@ export async function handleCommand(
      * 403 을 받는다 — `jobs run` 이 run-start 로 가며 받는 것과 같은 경계다. tasks-add 도 같다.
      */
     case 'jobs-create': {
-      const reply = await handleCommand(deps, caller, 'run-create', { ...args, auto: true })
+      // W6-A intake: --mode, --scope, --instructions and --attach shape the planner's objective (intake.ts).
+      const read = intakeOf(args)
+      if (!read.ok) return bad(read.error)
+      const intake = read.intake
+      const { mode: _mode, scope: _scope, instructions: _instructions, attach: _attach, ...plain } = args
+      const source = typeof args.objective === 'string' ? args.objective : ''
+      if (intake.attach.length > 0 && (fromAgentSession || caller.role === 'mcp' || caller.role === 'controller'))
+        return denied('--attach is for the person, in Astera or at their own shell: it copies files of this machine')
+      if (needsInputs(intake) && !deps.intakeInputs) return conflict('attachments and audits are kept by the Astera Host, and this caller is not one')
+      // An audit or a set of files is a source of its own: the objective may then be left out.
+      const placeholder = source.trim() === '' && needsInputs(intake) ? { objective: intake.mode === 'audit' ? 'Audit' : 'Attached files' } : {}
+      const reply = await handleCommand(deps, caller, 'run-create', { ...plain, ...placeholder, auto: true })
       if (reply.status < 200 || reply.status >= 300) return reply
+      const id = (reply.body as { id?: unknown }).id as string
+      if (intakeChanges(intake)) {
+        let inputs: { dir: string; names: string[] } | undefined
+        if (needsInputs(intake)) {
+          try {
+            inputs = await deps.intakeInputs!(id, intake.attach)
+          } catch (e) {
+            // Nothing has started on a Job made a moment ago (`--auto` waits for its start): it goes, so a refused
+            // file leaves no Job behind.
+            await deps.setState({ ...deps.getState(), jobs: deps.getState().jobs.filter((j) => j.id !== id) })
+            return bad(e instanceof Error ? e.message : String(e))
+          }
+        }
+        const objective = intakeObjective(intake, source, inputs)
+        const cur = deps.getState()
+        await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id ? { ...j, objective } : j)) })
+      }
       const after = deps.getState()
-      const created = after.jobs.find((j) => j.id === (reply.body as { id?: unknown }).id)
+      const created = after.jobs.find((j) => j.id === id)
       return created ? okBody(jobView(after, created, undefined)) : reply
     }
     /**
@@ -2560,11 +2673,26 @@ export async function handleCommand(
         await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id ? { ...j, replan: args.replan as 'waves' | 'off' } : j)) })
       }
       if (!deps.startCoordinator) return conflict('starting a planner is not available in this build')
+      // W6-H: the plan's own delivery, set before its planner starts
+      const delivery = parseDelivery(args.delivery)
+      if (delivery === null) return bad('--delivery must be pr or push')
+      if (delivery !== undefined) {
+        const set = setJobDelivery(s, id, delivery)
+        if (!set.ok) return refused(set)
+        await deps.setState(set.state)
+      }
       const accountArg = str(args.account)
       const accountId = accountArg ?? job.coordinatorAccountId
       if (!accountId) return bad('--account is required: the Job names no coordinator account to plan on')
       if (accountArg !== null && !(await deps.listAccounts()).some((k) => k.id === accountArg))
         return notFound(`unknown account: ${accountArg}`)
+      // W6-C: how many workers the plan may run at once, set with the plan (up to MAX_CONCURRENT_WORKERS)
+      const concurrency = args.concurrency === undefined ? null : concurrencyArg(args.concurrency)
+      if (args.concurrency !== undefined && concurrency === null) return bad('--concurrency must be an integer >= 1')
+      if (concurrency !== null) {
+        const current = deps.getState()
+        await deps.setState({ ...current, jobs: current.jobs.map((j) => (j.id === id ? { ...j, concurrency } : j)) })
+      }
       // **Marked planned before the session exists** (an empty list): from here an agent cannot approve it
       // (run-start above), which covers the seconds before the new session's id is recorded below.
       const marked = job.plannerSessionIds === undefined
@@ -2582,7 +2710,7 @@ export async function handleCommand(
               objective: job.objective,
               repoRoot: job.cwd,
               accountId,
-              concurrency: job.concurrency ?? DEFAULT_CONCURRENCY
+              concurrency: concurrency ?? job.concurrency ?? DEFAULT_CONCURRENCY
             })
           })
         ).sessionId
@@ -3353,7 +3481,7 @@ export async function handleCommand(
         return okBody({ id, convergenceOff: true })
       }
       // W2-A: editing a plan's Task (its title, spec, deps and plan fields) instead of moving its status.
-      const PLAN_EDIT = ['title', 'spec', 'deps', 'prompt', 'criteria', 'affectedPaths', 'difficulty', 'provider', 'model', 'modelReason']
+      const PLAN_EDIT = ['title', 'spec', 'deps', 'prompt', 'criteria', 'affectedPaths', 'difficulty', 'provider', 'model', 'modelReason', /* W6-A */ 'basis', 'evidence']
       if (args.status === undefined && PLAN_EDIT.some((k) => args[k] !== undefined)) {
         const plan = planFieldsFromArgs(args)
         if (!plan.ok) return bad(plan.error)
@@ -3574,10 +3702,30 @@ export async function handleCommand(
       // are counted, never refused, so a Task half-way through its checks is not stranded.
       // `atCapacity` tells the app's loop this is a wait, not a reason for a Gate.
       // Awaited only when wired: an `await` on nothing would still yield, and move this command's commit a tick later.
-      const cap = deps.maxConcurrentWorkers ? ((await deps.maxConcurrentWorkers()) ?? null) : null
-      const busy = cap === null ? 0 : workersAgainstCap(s)
-      if (cap !== null && busy >= cap)
+      // W6-C: not set, or not wired, is MAX_CONCURRENT_WORKERS (workerCapOf)
+      const cap = workerCapOf(deps.maxConcurrentWorkers ? await deps.maxConcurrentWorkers() : null)
+      const busy = workersAgainstCap(s)
+      if (busy >= cap)
         return { status: 409, body: { error: `the app-wide worker cap is reached: ${busy} of ${cap} workers are open`, atCapacity: true } }
+      // W6-G: no new worker on an account at `usagePauseAt` of a usage window, for every placer (a coordinator's
+      // worker spends the same account). New work only, like the cap above. The answer names an account of the
+      // Task's chain that is under the threshold, when there is one; `usagePaused` tells the app's loop to wait.
+      if (deps.usageGuard) {
+        await deps.usageGuard.refresh()
+        const pause = deps.usageGuard.pauseOf(account)
+        if (pause) {
+          const alternative = usageChoice(task.accountIds ?? [], (id) => deps.usageGuard!.pauseOf(id))
+          const other = alternative.ok && alternative.accountId !== undefined ? alternative.accountId : undefined
+          return {
+            status: 409,
+            body: {
+              error: usagePauseWhy(pause) + (other !== undefined ? `; start it with --account ${other}` : ''),
+              usagePaused: pause,
+              ...(other !== undefined ? { alternative: other } : {})
+            }
+          }
+        }
+      }
 
 
       // **`--worktree` 를 생략한 호출은 "이 Run 이 일하는 자리" 를 뜻한다** — 그것은 Run 이
@@ -5066,6 +5214,48 @@ export async function handleCommand(
      * Never merged here. The outcome is recorded on the Run (`JobRun.pr`), so the driving loop asks once; a failure is
      * asked again only with --force. The local Merge (`run-merge`) stays for a person who wants it.
      */
+    // W6-H: the last step of a finished plan, asked by the driving loop once per Run. `pr` is `run-open-pr`; `push`
+    // merges into the delivery branch and pushes, behind every guard of `deliverByPush`. A stop is recorded on the Run
+    // and escalated (recordDelivery); after a push the merged worktrees go as `run-delete --remove-worktrees` takes
+    // them, and on any stop they stay.
+    case 'run-deliver': {
+      const id = str(args.run)
+      if (!id) return bad('--run is required')
+      const run = s.runs.find((r) => r.id === id)
+      if (!run) return notFound(`unknown run: ${id}`)
+      const job = jobOf(s, run)
+      if (!job) return notFound(`no plan for run ${id}`)
+      if (deliveryOf(s, job) === 'pr') return handleCommand(deps, caller, 'run-open-pr', { run: id, ...(args.force === true ? { force: true } : {}) })
+      if (fromAgentSession || caller.role === 'mcp') return denied('a push delivery is made by Astera itself, or by the person')
+      const done = run.delivery
+      if (done?.sha !== undefined) return okBody({ delivery: 'push', branch: done.branch ?? null, sha: done.sha, pushed: false })
+      if (done?.error !== undefined && args.force !== true)
+        return conflict(`Pushing this Run stopped before: ${done.error}. --force tries again`)
+      if (runView(s, run).outcome !== 'completed') return conflict('This Run has not completed; it is pushed once every task is done')
+      if (!deps.deliverPush) return conflict('Pushing a plan is done by the Astera Host, and this caller is not one')
+      const branch = projectOfJob(s, job)?.deliveryBranch
+      const r = await deps.deliverPush({
+        cwd: job.cwd,
+        ...(branch !== undefined ? { branch } : {}),
+        worktrees: runWorktrees(s, id),
+        message: deliveryMessage(jobNameOf(job), deliveryIssuesOf(s, run)),
+        checks: deliveryChecksOf(s, id)
+      })
+      const at = deps.now?.() ?? now
+      await deps.setState(
+        recordDelivery(deps.getState(), id, r.ok ? { at, branch: r.branch, sha: r.sha } : { at, ...(r.branch ? { branch: r.branch } : {}), error: r.reason })
+      )
+      if (!r.ok) return conflict(r.reason)
+      const removed = deps.removeWorktrees && r.merged.length > 0 ? await deps.removeWorktrees(r.merged) : null
+      return okBody({
+        delivery: 'push',
+        branch: r.branch,
+        sha: r.sha,
+        pushed: true,
+        validated: r.validated,
+        ...(removed && removed.failed.length > 0 ? { worktreesKept: removed.failed } : {})
+      })
+    }
     case 'run-open-pr': {
       const id = str(args.run)
       if (!id) return bad('--run is required')
@@ -5148,28 +5338,78 @@ export async function handleCommand(
       if (args.cwd !== undefined) return bad("--cwd does not go with jobs-create-from-issue: the Job works in the project's folder")
       const t = githubTarget(deps, s, args)
       if ('error' in t) return t.error
-      const n = posInt(args.number)
-      if (n === null) return bad('--number is required: the issue number')
-      const read = await readIssue(t.gh, t.cwd, n)
-      if (!read.ok) return ghRefusal(read)
-      const issue = read.issue
-      if (issue.isPullRequest) return conflict(`#${n} is a pull request, not an issue`)
-      if (issue.state === 'closed') return conflict(`Issue #${n} is closed`)
-      if (!(ISSUE_JOB_ASSOCIATIONS as readonly string[]).includes(issue.authorAssociation))
-        return denied(
-          `Issue #${n} was written by a ${issue.authorAssociation} of the repository; only an owner, member or collaborator's issue becomes a Job`
-        )
-      const { project: _project, number: _number, ...rest } = args
+      // W6-A: --issue takes several (12,14,19) for one Job; --number is the one-issue spelling it always had.
+      if ((args.issue === undefined) === (args.number === undefined)) return bad('give one of --issue <n>[,<n>…] or --number <n>')
+      const numbers = issueNumbersOf(args.issue ?? args.number)
+      if (numbers === null) return bad('--issue takes issue numbers, comma-separated')
+      if (numbers.length > ISSUES_PER_CALL_MAX) return bad(`at most ${ISSUES_PER_CALL_MAX} issues make one Job`)
+      // Every issue is read and checked before anything is assigned or made: one refused issue refuses the whole call.
+      const issues: GhIssue[] = []
+      for (const n of numbers) {
+        const read = await readIssue(t.gh, t.cwd, n)
+        if (!read.ok) return ghRefusal({ ...read, message: `#${n}: ${read.message}` })
+        const issue = read.issue
+        if (issue.isPullRequest) return conflict(`#${n} is a pull request, not an issue`)
+        if (issue.state === 'closed') return conflict(`Issue #${n} is closed`)
+        if (!(ISSUE_JOB_ASSOCIATIONS as readonly string[]).includes(issue.authorAssociation))
+          return denied(
+            `Issue #${n} was written by a ${issue.authorAssociation} of the repository; only an owner, member or collaborator's issue becomes a Job`
+          )
+        issues.push(issue)
+      }
+      if (args.assignMe === true || args.assignMe === 'true') {
+        const assigned = await assignAll(t.gh, t.cwd, numbers)
+        if (assigned !== null) return assigned
+      }
+      const { project: _project, number: _number, issue: _issue, assignMe: _assignMe, ...rest } = args
       const reply = await createFromContext(deps, caller, handleCommand, {
         rest,
         cwd: t.cwd,
-        ctx: issueContext(issue),
+        ctx: issuesContext(issues),
         sourceId: GITHUB_SOURCE_ID,
         sourceName: 'GitHub',
-        itemId: String(issue.number)
+        itemId: numbers.join(',')
       })
       if (reply.status < 200 || reply.status >= 300) return reply
-      return okBody({ ...(reply.body as object), issue: { number: issue.number, url: issue.url } })
+      const ref = (i: GhIssue): { number: number; url: string } => ({ number: i.number, url: i.url })
+      // `issue` stays for one issue, as it always answered; `issues` lists them all.
+      return okBody({ ...(reply.body as object), ...(issues.length === 1 ? { issue: ref(issues[0]) } : {}), issues: issues.map(ref) })
+    }
+    /**
+     * W6-A: the planner found every item of its Job already built (inputs/existing.md), so there is nothing to plan.
+     * The Job keeps the summary, is archived (it starts nothing) and its planner ends: no tab stays open. The activity
+     * feed says so (`plan.nothing-to-do`). Its own planner, or the person; never another agent.
+     */
+    case 'plan-nothing-to-do': {
+      const id = str(args.job)
+      if (!id) return bad('--job is required')
+      const summary = typeof args.summary === 'string' ? args.summary.trim() : ''
+      if (summary === '') return bad('--summary is required: what was found, item by item (inputs/existing.md)')
+      const job = s.jobs.find((j) => j.id === id)
+      if (!job) return notFound(`unknown job: ${id}`)
+      if ((fromAgentSession && plannerJobOf(s, caller.sessionId)?.id !== id) || caller.role === 'mcp')
+        return denied("plan-nothing-to-do is for the Job's planner or the person")
+      if (!job.pendingStart) return conflict(`job ${id} has started: only a plan before its approval can end with nothing to do`)
+      if (s.tasks.some((t) => t.jobId === id && t.runId === undefined))
+        return conflict(`job ${id} has Tasks: a plan with work in it is approved, not ended`)
+      const archived = archiveJob(s, id, now)
+      if (!archived.ok) return refused(archived)
+      const marked = { at: now, summary: summary.slice(0, SOURCED_OBJECTIVE_MAX) }
+      await deps.setState({ ...archived.state, jobs: archived.state.jobs.map((j) => (j.id === id ? { ...j, nothingToDo: marked } : j)) })
+      // Not awaited: the caller is usually that planner, and its reply should reach it before its session ends.
+      void endPlanners(job, 'everything it was asked for is already built')
+      return okBody({ id, nothingToDo: true })
+    }
+    // W6-A: assign issues to the person gh is logged in as (`gh issue edit --add-assignee @me`).
+    case 'github-issue-assign': {
+      if (args.run !== undefined) return bad('--run does not go with github-issue-assign: give --project')
+      if (args.me !== undefined && args.me !== true && args.me !== 'true') return bad('--me takes no value: issues are assigned to you')
+      const t = githubTarget(deps, s, args)
+      if ('error' in t) return t.error
+      const numbers = issueNumbersOf(args.issue)
+      if (numbers === null) return bad('--issue is required: issue numbers, comma-separated')
+      if (numbers.length > ISSUES_PER_CALL_MAX) return bad(`at most ${ISSUES_PER_CALL_MAX} issues a call`)
+      return (await assignAll(t.gh, t.cwd, numbers)) ?? okBody({ assigned: numbers })
     }
     case 'reset': {
       const open = s.dispatches.filter((d) => !d.endedAt)

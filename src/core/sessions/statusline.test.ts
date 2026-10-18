@@ -56,6 +56,20 @@ describe('StatusLineManager 훅 주입', () => {
     expect(await fs.readFile(path.join(dir, 'astera-session-context.cjs'), 'utf8')).toContain('SessionStart')
   })
 
+  // W6-G: every session, both files, gets the cap's three hooks, synchronous so its deny is waited for.
+  it('both settings files carry the subagent cap hooks: PreToolUse Agent|Task, SubagentStop, SessionStart', async () => {
+    for (const f of ['astera-statusline-settings.json', 'astera-hooks-settings.json']) {
+      const settings = JSON.parse(await fs.readFile(path.join(dir, f), 'utf8'))
+      const pre = settings.hooks.PreToolUse.find((h: { matcher: string }) => h.matcher === 'Agent|Task')
+      expect(pre.hooks[0].command).toContain('astera-subagent-cap.cjs')
+      expect(pre.hooks[0].async).toBeUndefined()
+      expect(settings.hooks.SubagentStop[0].hooks[0].command).toContain('astera-subagent-cap.cjs')
+      const start = settings.hooks.SessionStart.find((h: { matcher?: string }) => h.matcher === 'startup|resume')
+      expect(start.hooks[0].command).toContain('astera-subagent-cap.cjs')
+    }
+    expect(await fs.readFile(path.join(dir, 'astera-subagent-cap.cjs'), 'utf8')).toContain('permissionDecision')
+  })
+
   it('spawnConfig: toolHooks=true면 도구 캡처까지 든 설정 파일', () => {
     const c = mgr.spawnConfig('sess-1', account, { toolHooks: true })
     expect(c.settingsFile).toContain('astera-hooks-settings.json')
@@ -84,7 +98,8 @@ describe('StatusLineManager 훅 주입', () => {
   // 도구(Bash·Write·Edit…)는 호출마다 프로세스를 띄우므로 여전히 Slack·롤링 세션의 파일에만 있다.
   it('기본 설정 파일의 도구 훅 짝은 AskUserQuestion 만 본다', async () => {
     const settings = JSON.parse(await fs.readFile(path.join(dir, 'astera-statusline-settings.json'), 'utf8'))
-    expect(settings.hooks.PreToolUse).toHaveLength(1)
+    // W6-G: the second entry is the subagent cap's Agent|Task hook (its own test below)
+    expect(settings.hooks.PreToolUse).toHaveLength(2)
     expect(settings.hooks.PreToolUse[0].matcher).toBe('AskUserQuestion')
     expect(settings.hooks.PreToolUse[0].hooks[0].command).toContain('astera-hook-capture.cjs')
     expect(settings.hooks.PostToolUse[0].matcher).toBe('AskUserQuestion')
@@ -307,6 +322,15 @@ describe('StatusLineManager statusline payloads', () => {
     await mgr.pruneExcept(new Set(['alive']))
     expect(await mgr.read('alive')).not.toBeNull()
     expect(await mgr.read('gone')).toBeNull()
+  })
+
+  // W6-G
+  it('pruneExcept drops the subagent counts of sessions that are gone and keeps the rest', async () => {
+    await fs.writeFile(path.join(mgr.hookEventsDir, 'alive.subagents'), '2')
+    await fs.writeFile(path.join(mgr.hookEventsDir, 'gone.subagents'), '1')
+    await mgr.pruneExcept(new Set(['alive']))
+    expect(existsSync(path.join(mgr.hookEventsDir, 'alive.subagents'))).toBe(true)
+    expect(existsSync(path.join(mgr.hookEventsDir, 'gone.subagents'))).toBe(false)
   })
 
   it('pruneExcept leaves anything that is not a payload alone', async () => {

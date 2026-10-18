@@ -128,6 +128,9 @@ export interface SessionInfo {
   /** Terminal only (orchestrator W1-A): the `--model` / `-m` the session was started with. Rides
    *  every roll's respawn and the note, like bypassPermissions. Absent: the CLI's default. */
   model?: string
+  // W6-E progress view: the last tool call the session started, from its last `PreToolUse` hook
+  // (core/hooks/sessionState.ts `lastActionOf`): the tool, its file / command (first 80 chars) / pattern, epoch ms.
+  lastAction?: { tool: string; target?: string; at: number }
 }
 
 /** The stored settings the resume modal reads to seed its checkboxes.
@@ -543,6 +546,8 @@ export interface JobTask {
   branch?: string
   /** How many times a worker started on it: implementation and repair Dispatches, not reviews. Absent when 0. */
   attempts?: number
+  // W6-E progress view: the files the plan says the Task touches (Task.affectedPaths). Absent when none.
+  affectedPaths?: string[]
 }
 
 // W2-C plan board: declared here, as RunOutcome is, because the renderer reads them and blocked.ts is not in its build.
@@ -574,8 +579,34 @@ export type TaskBlockedReason =
   | { kind: 'coordinator' }
   | { kind: 'plan-cap'; used: number; limit: number }
   | { kind: 'global-cap'; used: number; limit: number; priority: number }
+  /** W6-C: another Task of the plan is at files this one would edit (`path`, the first of its own that collides). */
+  | { kind: 'same-files'; waitingOn: { id: string; title: string }; path: string }
   /** It has a slot: the dispatch loop starts it on its next pass. */
   | { kind: 'next' }
+  /** W6-G: every account it may start on is at `usagePauseAt` of a usage window (usageGuard.ts). */
+  | ({ kind: 'usage-paused' } & UsagePause)
+
+// W6-G usage guards: declared here because the renderer reads them (the plan board, the usage strip).
+/** An account no new worker starts on: a usage window at or over `usagePauseAt`, until it resets. */
+export interface UsagePause {
+  accountId: string
+  window: 'five_hour' | 'seven_day'
+  percent: number
+  /** ISO 8601, null when the reading did not say. */
+  resetsAt: string | null
+}
+
+/** The plan view's usage strip (components/usage/UsageStrip.tsx), from main's `usage.guard`. */
+export interface UsageGuardView {
+  /** The `usagePauseAt` setting, in percent. */
+  pauseAt: number
+  /** The `maxSubagentsPerSession` setting. */
+  maxSubagents: number
+  /** Every account with a statusLine reading: its latest 5-hour and 7-day windows, and its pause, if any. */
+  accounts: Array<{ accountId: string; session: RateLimitWindow | null; weekly: RateLimitWindow | null; paused: UsagePause | null }>
+  /** Claude tabs with at least one live subagent. */
+  subagents: Array<{ sessionId: string; count: number }>
+}
 
 export interface TaskBoard {
   category: TaskCategory
@@ -633,6 +664,8 @@ export interface JobEvent {
   /** 이 앱이 아직 아는 세션이면 그 id — 클릭하면 그 탭으로 간다. view.ts 의 jobTaskOf 와 같은
    *  판정이고 같은 이유로 주입받는다 */
   sessionId?: string
+  // W6-E progress view: a worker's question (`ask`) has its answer. Present only on a `question` message.
+  answered?: boolean
 }
 
 /** 상세 창이 한 번에 받는 것. 이벤트만 오던 것을 그래프까지 함께 주도록 넓혔고, 그래서 이름이
@@ -1334,6 +1367,8 @@ export interface CoreApi {
   usage: {
     session(sessionId: string): Promise<SessionUsage | null> // context, 5-hour, and weekly % for an active session (claude: statusLine capture, codex: rollout tail)
     accounts(): Promise<Record<string, AccountUsage>> // last-known usage per account, for the account rows (design doc §4)
+    /** W6-G: the usage guard's view, for the plan view's usage strip. */
+    guard(): Promise<UsageGuardView>
     subscribe(): void
     unsubscribe(): void
   }
@@ -1443,6 +1478,11 @@ export interface CoreApi {
     /** W1-B: the app-wide Job worker cap; null is no cap. */
     getMaxConcurrentWorkers(): Promise<number | null>
     setMaxConcurrentWorkers(n: number | null): Promise<void>
+    /** W6-G: subagents at once per Claude tab (1–10), and the usage percent at which no new worker starts. */
+    getMaxSubagentsPerSession(): Promise<number>
+    setMaxSubagentsPerSession(n: number): Promise<void>
+    getUsagePauseAt(): Promise<number>
+    setUsagePauseAt(n: number): Promise<void>
     /** W3-A: minutes between activity digests; 0 is none. */
     getActivityDigestMinutes(): Promise<number>
     setActivityDigestMinutes(n: number): Promise<void>

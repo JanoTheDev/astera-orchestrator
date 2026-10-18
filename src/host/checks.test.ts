@@ -302,6 +302,30 @@ describe('createHostChecks', () => {
     await vi.waitFor(() => expect(h.task().status).toBe('completed'))
   })
 
+  // W6-H: a push delivery's one validation of the merged folder
+  it('validateTree runs each check once in the folder and stops at the first that does not exit 0', async () => {
+    const h = await rig()
+    const ok = h.checks.validateTree(h.cwd, ['seed:npm:test'])
+    await vi.waitFor(() => expect(h.opened()).toHaveLength(1))
+    expect(h.opened()[0].meta).toMatchObject({ kind: 'run', restore: { validation: true } })
+    h.exitLast(0)
+    expect(await ok).toEqual({ ok: true, ran: 1 })
+    const bad = h.checks.validateTree(h.cwd, ['seed:npm:test', 'seed:npm:test'])
+    await vi.waitFor(() => expect(h.opened()).toHaveLength(2))
+    h.exitLast(1)
+    expect(await bad).toMatchObject({ ok: false, reason: expect.stringContaining('exited 1') })
+    expect(h.opened()).toHaveLength(2)
+    expect(await h.checks.validateTree(h.cwd, ['nope'])).toMatchObject({ ok: false, reason: expect.stringContaining('could not run') })
+    expect(await h.checks.validateTree(h.cwd, [])).toEqual({ ok: true, ran: 0 })
+    // The Task the rig validates is untouched: these runs are no Task's
+    expect(h.task().status).toBe('validating')
+  })
+
+  it('validateTree settles a check whose exit lands right after it starts', async () => {
+    const h = await rig({ exitEarly: 0 })
+    expect(await h.checks.validateTree(h.cwd, ['seed:npm:test'])).toEqual({ ok: true, ran: 1 })
+  })
+
   it('lang comes from app-settings.json, else from the OS locale through pickInitialLang, else en for a damaged file (R13)', async () => {
     const h = await rig({ settings: { lang: 'ko' } })
     expect(await h.checks.lang()).toBe('ko')

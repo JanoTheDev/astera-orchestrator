@@ -53,12 +53,13 @@ const repoNames = new WeakMap<GhRunner, Map<string, { slug: string; at: number }
 export async function listIssueItems(
   gh: GhRunner,
   cwd: string,
-  q: { query?: string; cursor?: string },
+  /** `mine` (W6-A): only the issues assigned to the person gh is logged in as (`assignee:@me`). */
+  q: { query?: string; cursor?: string; mine?: boolean },
   now: () => number = Date.now
 ): Promise<{ ok: true; items: IssueItem[]; nextCursor?: string } | GhFailed> {
   const page = q.cursor === undefined || q.cursor === '' ? 1 : /^[1-9][0-9]{0,3}$/.test(q.cursor) ? Number(q.cursor) : NaN
   if (!Number.isFinite(page)) return failed(`the cursor ${q.cursor} is not a page number`)
-  const query = (q.query ?? '').replace(LEAVING, ' ').replace(/\s+/g, ' ').trim()
+  const query = `${(q.query ?? '').replace(LEAVING, ' ')}${q.mine === true ? ' assignee:@me' : ''}`.replace(/\s+/g, ' ').trim()
   let raw: unknown[]
   /** The repository a search was kept to, in GitHub's case-blind form; null for the list, which is the repository's. */
   let searched: string | null = null
@@ -141,6 +142,20 @@ export function issueContext(issue: GhIssue): SourceContext {
     ...(issue.labels.length > 0 ? { metadata: { labels: issue.labels.join(', ') } } : {})
   }
   // Always the shape: the objective and the label are never blank
+  const checked = jobContext(raw)
+  return checked.ok ? checked.value : raw
+}
+
+/** W6-A: what one Job made from several issues is to do. One issue is `issueContext`'s; several are listed by number
+ *  and title (the first is the Job's name), each body as its own evidence, so the one objective writer
+ *  (sources/objective.ts) quotes them all as data. */
+export function issuesContext(issues: readonly GhIssue[]): SourceContext {
+  if (issues.length === 1) return issueContext(issues[0])
+  const raw: SourceContext = {
+    objective: issues.map((i) => `#${i.number} ${i.title}`).join('\n'),
+    sourceLabel: `GitHub issues ${issues.map((i) => `#${i.number}`).join(', ')} in ${repoOf(issues[0].url)}`,
+    evidence: issues.map((i) => ({ label: `Issue #${i.number} (${i.url})${i.labels.length > 0 ? `, labels ${i.labels.join(', ')}` : ''}`, content: i.body !== '' ? i.body : '(no body)' }))
+  }
   const checked = jobContext(raw)
   return checked.ok ? checked.value : raw
 }
