@@ -18,7 +18,7 @@ const NO_UPDATE = ['-c', 'check_for_update_on_startup=false']
 describe('disallowedTools', () => {
   it('claude takes --disallowedTools, one comma-joined value, ahead of the prompt fence', () => {
     const { args } = buildClaudeCommand('linux')({ disallowedTools: ['AskUserQuestion'], addDirs: ['/shots'], initialPrompt: 'go' })
-    expect(args).toEqual(['--add-dir', '/shots', '--disallowedTools', 'AskUserQuestion', '--', 'go'])
+    expect(args).toEqual(['--disallowedTools', 'AskUserQuestion', '--add-dir', '/shots', '--', 'go'])
   })
   it('adds nothing without it', () => {
     expect(buildClaudeCommand('linux')({ initialPrompt: 'go' }).args).toEqual(['--', 'go'])

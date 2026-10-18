@@ -40,6 +40,8 @@ export function buildClaudeCommand(platform: NodeJS.Platform, resolve: ResolveEx
     const args: string[] = []
     // Checked here too, for every source (a renderer spawn, a roll's note): see MODEL_ID.
     if (model && MODEL_ID.test(model)) args.push('--model', model)
+    // W6-B. Variadic, so one comma-joined value, and ahead of --add-dir so that list still runs up to the `--` fence
+    if (disallowedTools && disallowedTools.length > 0) args.push('--disallowedTools', disallowedTools.join(','))
     // Injects a session-scoped statusLine via --settings (the global settings.json is left alone) — goes before resume
     if (settingsFile) args.push('--settings', settingsFile)
     // Read access to the app's screenshot folder, so the paths Design Mode puts in a prompt open
@@ -48,8 +50,6 @@ export function buildClaudeCommand(platform: NodeJS.Platform, resolve: ResolveEx
     if (resumeSessionId) args.push('--resume', resumeSessionId)
     // Starts without permission prompts
     if (bypassPermissions) args.push('--dangerously-skip-permissions')
-    // Variadic like --add-dir, so one comma-joined value, and the `--` below fences the prompt off it
-    if (disallowedTools && disallowedTools.length > 0) args.push('--disallowedTools', disallowedTools.join(','))
     // **`--` first, always.** The prompt is a positional argument and `--add-dir` above is variadic,
     // so with nothing between them the CLI reads the prompt as one more directory to grant — an
     // unreadable one, silently ignored — and the session comes up at an empty REPL having been told
