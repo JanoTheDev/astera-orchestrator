@@ -28,7 +28,7 @@ owns every session and drives every plan, so closing the window stops nothing (L
 3. **Approve.** Read the Tasks (Jobs view → Details, or the Board), then press **Approve & execute** and confirm. Astera
    refuses a plan in which a Task lacks a prompt or a criterion, a dependency is missing, or the dependencies form a
    cycle, and lists what is wrong. From a shell, `astera jobs run --id <job>` does the same. An agent session can never
-   approve.
+   approve. Approval ends the planner session: its work is done.
 4. **Run.** A coordinator session (coordinator model) starts and places workers. Every Task whose dependencies are done
    gets a worker in its own worktree under `~/astera-worktrees/<repo>/`. Dependents start on their own when their
    dependencies complete, never before. "Done" is the worker's explicit report plus any checks, not a quiet terminal.
@@ -37,9 +37,14 @@ owns every session and drives every plan, so closing the window stops nothing (L
    asked. The play button or "resume <plan>" lets it launch again. "pause worker 2" pauses one worker after a
    confirmation: its session stays open and keeps its slot, and no agent types into it until "resume worker 2".
    "stop <plan>" in the command bar (or `astera runs stop`) **closes** the plan's workers and coordinator, after a confirmation. Resume starts the coordinator again, which places one new worker per
-   unfinished Task. A plan created without a coordinator does not pick up again after a stop (known issue).
+   unfinished Task. A plan without a coordinator puts its stopped Tasks back to ready, and the Host places each once.
 6. **Archive.** Jobs view → Archive, or `astera jobs archive --id <job>`. Archiving starts nothing new and leaves sessions
-   running unless you add `--kill-sessions`. Unarchive brings the plan back.
+   running unless you add `--kill-sessions`, which ends every session of the plan: its planner, its coordinators and
+   its workers, also those that already reported. Unarchive brings the plan back.
+7. **Tasks from a shell.** `astera tasks add --job <job> … --difficulty <light|standard|hard>` (or `--model <id>`)
+   picks the worker's model as a planner's Task does. Without either, the worker runs on the Job's or the app's worker
+   model, or on the CLI's default model when none is set.
+   `astera tasks list --run <job>` lists a Job's own Tasks before its first Run.
 
 One PR per plan, opened when the plan finishes, never merged automatically.
 

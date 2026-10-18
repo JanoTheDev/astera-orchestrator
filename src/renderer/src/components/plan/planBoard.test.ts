@@ -64,6 +64,7 @@ describe('reasonText', () => {
       { kind: 'gate', gateId: 'g', question: 'q?' },
       { kind: 'failure-limit', failures: 3, limit: 3 },
       { kind: 'failed-retry', failures: 1, limit: 3 },
+      { kind: 'failed-retry', failures: 1, limit: 3, noCoordinator: true },
       { kind: 'awaiting-review' },
       { kind: 'stopped' },
       { kind: 'deps', waitingOn: [{ id: 'x', title: 'X', status: 'ready' }] },

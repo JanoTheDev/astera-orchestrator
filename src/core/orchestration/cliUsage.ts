@@ -420,7 +420,11 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
   'tasks-list': {
     summary: 'the tasks of a run',
     flags: [
-      { name: 'run', value: '<runId>', about: 'only the tasks of this run' },
+      {
+        name: 'run',
+        value: '<runId|jobId>',
+        about: "only the tasks of this run; a Job's id gives the Job's own tasks (the ones `tasks add --job` adds)"
+      },
       { name: 'status', value: '<s>', about: 'only tasks in this status' },
       { name: 'ready', about: 'only tasks that are ready to be picked up' },
       { name: 'brief', about: 'cut each spec to 160 characters' }
@@ -464,7 +468,14 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
         about:
           'run configurations that must pass before it counts as done (from `run-configs list`), or `plugin:<id>` for a completion check plugin (from `plugins list`)'
       },
-      { name: 'review', about: 'have the result reviewed before it counts as done' }
+      { name: 'review', about: 'have the result reviewed before it counts as done' },
+      // W5-B (#53): the model choice a planner's Task carries (Task.difficulty / Task.model, resolveWorkerModel)
+      {
+        name: 'difficulty',
+        value: '<light|standard|hard>',
+        about: "picks the worker's model from Settings → Orchestration models (light → haiku, standard → sonnet, hard → opus by default)"
+      },
+      { name: 'model', value: '<id>', about: 'the worker model itself, ahead of --difficulty (e.g. sonnet)' }
     ]
   },
 

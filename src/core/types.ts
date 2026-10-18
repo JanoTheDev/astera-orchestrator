@@ -561,8 +561,9 @@ export type TaskBlockedReason =
   | { kind: 'gate'; gateId: string; question: string; gateKind?: GateKind }
   /** FAILURE_LIMIT consecutive failures: nothing restarts it on its own. */
   | { kind: 'failure-limit'; failures: number; limit: number }
-  /** Failed with retries left: its coordinator (or a person) decides whether to retry. */
-  | { kind: 'failed-retry'; failures: number; limit: number }
+  /** Failed with retries left: its coordinator (or a person) decides whether to retry. `noCoordinator` (W5-B, #45): the
+   *  Run has no coordinator slot, so only a person can (the app's loop starts `ready` Tasks, never a failed one). */
+  | { kind: 'failed-retry'; failures: number; limit: number; noCoordinator?: true }
   /** The reviewer has not started yet, or was stopped. */
   | { kind: 'awaiting-review' }
   /** `dispatched` with no worker: a person stopped it, or its worker was lost. */

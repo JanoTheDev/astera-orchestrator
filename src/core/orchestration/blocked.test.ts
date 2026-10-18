@@ -145,11 +145,14 @@ describe('taskBoardsOf — reasons', () => {
   })
 
   it('failed with retries left', () => {
-    expect(reasonOf(one([task('a', 'r1', { status: 'failed', consecutiveFailures: 1 })]), 'a')).toEqual({
+    const failed = [task('a', 'r1', { status: 'failed', consecutiveFailures: 1 })]
+    expect(reasonOf(one(failed, { autoDispatch: false }, { coordinatorSessionId: 'coord' }), 'a')).toEqual({
       kind: 'failed-retry',
       failures: 1,
       limit: FAILURE_LIMIT
     })
+    // W5-B (#45): no coordinator to decide on the retry, so the board does not name one
+    expect(reasonOf(one(failed), 'a')).toEqual({ kind: 'failed-retry', failures: 1, limit: FAILURE_LIMIT, noCoordinator: true })
   })
 
   it('gate open names the oldest open gate', () => {

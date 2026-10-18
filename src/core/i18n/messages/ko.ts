@@ -2271,6 +2271,7 @@ export const ko = {
   'plan.reason.gate': '답을 기다린다: {question}',
   'plan.reason.failureLimit': '{failures}번 연속 실패 · 저절로 다시 시작하지 않는다',
   'plan.reason.failedRetry': '실패 ({failures}/{limit}) · 재시도는 코디네이터가 정한다',
+  'plan.reason.failedRetryByYou': '실패 ({failures}/{limit}) · 코디네이터가 없다: 다시 띄워야 재시도된다',
   'plan.reason.awaitingReview': '검토자가 시작되기를 기다린다',
   'plan.reason.stopped': '워커가 멈췄다',
   'plan.reason.deps': '기다리는 중: {tasks}',

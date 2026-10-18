@@ -707,8 +707,8 @@ astera runs    stop   --id <runId>
 astera runs    resume --id <runId>
 astera runs    checks --id <runId>
 
-astera tasks   list   [--run <runId>] [--status <s>] [--ready] [--brief]
-astera tasks   add    [--job <jobId> | --run <runId>] --spec <text|-> --account <id,…> [--title <text>] [--deps <json array>] [--parent <taskId>] [--validate <configId,…>] [--review]
+astera tasks   list   [--run <runId|jobId>] [--status <s>] [--ready] [--brief]
+astera tasks   add    [--job <jobId> | --run <runId>] --spec <text|-> --account <id,…> [--title <text>] [--deps <json array>] [--parent <taskId>] [--validate <configId,…>] [--review] [--difficulty <light|standard|hard>] [--model <id>]
 astera tasks   dispatch --id <taskId>
 
 astera dispatches list [--run <runId>]
@@ -784,7 +784,8 @@ once never need the `runs` commands.
 an unknown Job, and `tasks list --run` with an unknown run. An empty list would read as "that Job
 has no runs". `nextSteps` is the list that gives the missing kind of id, `astera jobs list` and
 `astera runs list` respectively. `runs list --job` given no value (`--job ""`, as a script whose id
-came back empty would send) is a 2, not the list of every run.
+came back empty would send) is a 2, not the list of every run. `tasks list --run` also takes a Job's id: it
+lists the Job's own tasks (the ones `tasks add --job` adds), so a plan reads back before its first run.
 
 **`dispatches list` lists every worker attempt** (a Dispatch: its task, session, account, model, folder, start and
 end), across every project, or only one run's with `--run`. It reads only. An unknown `--run` is a 4, like

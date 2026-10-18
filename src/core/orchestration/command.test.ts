@@ -24,6 +24,8 @@ import { TaskValidator } from './exec/validator'
 import { TAIL_EMPTY, TAIL_UNTRACKED } from './exec/tail'
 import { FAILURE_LIMIT, type CheckResult, type JobRun, type Project, type Task } from './types'
 import { parseArgs } from './cliArgs'
+import { unknownFlagError } from './cliUsage'
+import { slotsToFill } from './schedule'
 import { stateWord } from './cliHuman'
 import { runningRunCount } from './running'
 import { isQueueableReport } from './pendingReports'
@@ -5693,6 +5695,39 @@ describe('runs stop', () => {
     })
   })
 
+  // W5-B (#45): a Run the app places itself has nobody to re-place a Task whose attempt `runs stop` closed — the loop
+  // starts only `ready` Tasks and lostAttemptOf skips `closedBy`. The resume puts them back, each placed once.
+  it('runs resume puts the stopped Tasks of a Run with no coordinator back to ready, each placed once', async () => {
+    const deps = makeDeps()
+    await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p' })
+    const runId = deps.getState().runs[0].id
+    const ids: string[] = []
+    for (const title of ['a', 'b']) {
+      const t = await call(deps, 'task-create', { run: runId, title, spec: 's', account: 'acc1' })
+      ids.push((t.body as { id: string }).id)
+      await call(deps, 'worker-start', { task: ids.at(-1), agent: 'codex', account: 'acc1' })
+    }
+    const cur = deps.getState()
+    await deps.setState({ ...cur, jobs: cur.jobs.map((j) => ({ ...j, autoDispatch: true })) })
+    await call(deps, 'runs-stop', { id: runId })
+    expect(slotsToFill(deps.getState())).toEqual([])
+    expect((await call(deps, 'runs-resume', { id: runId })).status).toBe(200)
+    const after = deps.getState()
+    expect(after.tasks.filter((t) => ids.includes(t.id)).map((t) => t.status)).toEqual(['ready', 'ready'])
+    expect(slotsToFill(after).map((x) => x.taskId).sort()).toEqual([...ids].sort())
+    // A second resume of a Run no longer paused moves nothing
+    expect((await call(deps, 'runs-resume', { id: runId })).status).toBe(200)
+    expect(deps.getState().tasks).toEqual(after.tasks)
+  })
+
+  // A coordinator's Run is left to its new coordinator, which starts one worker per unfinished Task.
+  it('runs resume leaves the stopped Tasks of a coordinator-placed Run dispatched', async () => {
+    const { deps, runId } = await withWorker()
+    await call(deps, 'runs-stop', { id: runId })
+    await call(deps, 'runs-resume', { id: runId })
+    expect(deps.getState().tasks.map((t) => t.status)).toEqual(['dispatched'])
+  })
+
   it('세우지 않은 것을 풀어도 말이 없다', async () => {
     const { deps, runId } = await withWorker()
     expect((await call(deps, 'runs-resume', { id: runId })).status).toBe(200)
@@ -6773,6 +6808,41 @@ describe('없는 id 는 404 — 순수 층의 거절을 내보내던 자리들',
     expect(r).toEqual({ status: 404, body: { error: 'unknown run: run_nope' } })
     const runId = deps.getState().runs[0].id
     expect(await call(deps, 'tasks-list', { run: runId })).toEqual({ status: 200, body: [] })
+  })
+
+  // W5-B (#49): task-create takes a Job's id before the Job has a Run, so tasks list reads them back by it.
+  it('tasks list --run takes a Job id: the Job\'s own Tasks, before its first Run', async () => {
+    const deps = makeDeps()
+    const made = await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p', auto: true })
+    const jobId = (made.body as { id: string }).id
+    expect(deps.getState().runs).toEqual([])
+    const t = await call(deps, 'task-create', { run: jobId, title: 't', spec: 's', account: 'acc1' })
+    expect(t.status).toBe(200)
+    const r = await call(deps, 'tasks-list', { run: jobId })
+    expect(r.status).toBe(200)
+    expect((r.body as Array<{ id: string }>).map((x) => x.id)).toEqual([(t.body as { id: string }).id])
+  })
+
+  // W5-B (#53): a Task added from a shell picks its worker's model too (resolveWorkerModel reads both fields).
+  it('tasks add takes --difficulty and --model, validated', async () => {
+    const deps = makeDeps()
+    const made = await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p', auto: true })
+    const jobId = (made.body as { id: string }).id
+    const add = async (extra: string): Promise<{ status: number; body: unknown }> => {
+      const argv = `tasks add --job ${jobId} --account acc1 --spec s ${extra}`.split(' ')
+      const parsed = parseArgs(argv)
+      if ('error' in parsed) throw new Error(parsed.error)
+      expect(unknownFlagError(parsed.cmd, argv)).toBeNull()
+      return call(deps, parsed.cmd, parsed.args)
+    }
+    const ok = await add('--difficulty hard --model sonnet')
+    expect(ok.status).toBe(200)
+    expect(deps.getState().tasks.find((t) => t.id === (ok.body as { id: string }).id)).toMatchObject({
+      difficulty: 'hard',
+      model: 'sonnet'
+    })
+    expect((await add('--difficulty extreme')).body).toEqual({ error: '--difficulty must be one of light|standard|hard' })
+    expect((await add('--model x;y')).status).toBe(400)
   })
 
   // ask 는 워커의 명령이라 워커가 남의 Dispatch 를 적으면 403 이 먼저다. 404 는 Dispatch 를 가진
