@@ -37,6 +37,7 @@
 // Host keeps when each pty was last typed into (host/registry.ts); the reports the app's terminal
 // writes by itself (focus changes, replies to the TUI's queries) do not count (core/terminal/reports.ts).
 import path from 'node:path'
+import type { SessionInfo } from '../types'
 import type { NotificationPayload } from './notification'
 import { happenedBefore, hookEventAt } from './eventTime'
 
@@ -147,4 +148,35 @@ export function sessionStateOf(a: {
     return 'unknown'
   }
   return hookEventState(payload) ?? 'unknown'
+}
+
+/** W6-E: how much of a Bash command `lastActionOf` keeps. */
+const COMMAND_MAX = 80
+
+/**
+ * W6-E: the last tool call a session started, for the plan view's "now" line (`SessionInfo.lastAction`): the latest
+ * `PreToolUse` among a file's last lines, with its file, its command's first 80 characters, or its search pattern.
+ * `at` is the capture's stamp, else `fallbackAt` (the file's mtime). Not `latestEventLine`'s pick: a PostToolUse or a
+ * Stop after the call leaves the call as the last thing the session did. null when the lines hold no tool call.
+ */
+export function lastActionOf(lines: readonly string[], fallbackAt: number): NonNullable<SessionInfo['lastAction']> | null {
+  let best: NonNullable<SessionInfo['lastAction']> | null = null
+  for (const line of lines) {
+    let p: { hook_event_name?: unknown; tool_name?: unknown; tool_input?: Record<string, unknown> }
+    try {
+      p = JSON.parse(line)
+    } catch {
+      continue
+    }
+    if (p?.hook_event_name !== 'PreToolUse' || typeof p.tool_name !== 'string') continue
+    const at = hookEventAt(p) ?? fallbackAt
+    // Append order wins a tie and an unstamped line, as latestEventLine's rule does
+    if (best !== null && at < best.at) continue
+    const input = typeof p.tool_input === 'object' && p.tool_input !== null ? p.tool_input : {}
+    const str = (k: string): string | undefined => (typeof input[k] === 'string' && input[k] !== '' ? (input[k] as string) : undefined)
+    const command = str('command')
+    const target = str('file_path') ?? (command !== undefined ? command.slice(0, COMMAND_MAX) : undefined) ?? str('pattern')
+    best = { tool: p.tool_name, ...(target !== undefined ? { target } : {}), at }
+  }
+  return best
 }

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import path from 'node:path'
-import { hookEventState, sessionStateOf, hookEventsDirIn, hookEventsFileIn, latestEventLine, hookEventPrompt } from './sessionState'
+import { hookEventState, sessionStateOf, hookEventsDirIn, hookEventsFileIn, latestEventLine, hookEventPrompt, lastActionOf } from './sessionState'
 
 describe('hookEventState', () => {
   // 턴 안에서만 나는 이벤트다 — 도구 호출이 있었다는 것은 아직 Stop 이 오지 않은 턴이 돈다는 뜻이다.
@@ -192,5 +192,35 @@ describe('hookEventPrompt — is the session asking a person something', () => {
       'x'
     ])
       expect(hookEventPrompt(p), JSON.stringify(p)).toBeNull()
+  })
+})
+
+describe('lastActionOf — the last tool call a session started (W6-E)', () => {
+  const line = (p: Record<string, unknown>): string => JSON.stringify(p)
+  it('takes the latest PreToolUse, past a PostToolUse and a Stop after it', () => {
+    const lines = [
+      line({ hook_event_name: 'PreToolUse', tool_name: 'Read', tool_input: { file_path: 'a.ts' }, astera_at: 10 }),
+      line({ hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: 'src/x.ts' }, astera_at: 20 }),
+      line({ hook_event_name: 'PostToolUse', tool_name: 'Edit', astera_at: 21 }),
+      line({ hook_event_name: 'Stop', astera_at: 22 })
+    ]
+    expect(lastActionOf(lines, 99)).toEqual({ tool: 'Edit', target: 'src/x.ts', at: 20 })
+  })
+  it("keeps a command's first 80 characters, or a search pattern", () => {
+    const long = 'npm test -- ' + 'x'.repeat(100)
+    expect(lastActionOf([line({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: long } })], 5)).toEqual({
+      tool: 'Bash',
+      target: long.slice(0, 80),
+      at: 5
+    })
+    expect(lastActionOf([line({ hook_event_name: 'PreToolUse', tool_name: 'Grep', tool_input: { pattern: 'TODO' } })], 5)?.target).toBe('TODO')
+  })
+  it('orders by the stamp, and is null without a tool call', () => {
+    const lines = [
+      line({ hook_event_name: 'PreToolUse', tool_name: 'Write', astera_at: 30 }),
+      line({ hook_event_name: 'PreToolUse', tool_name: 'Read', astera_at: 25 })
+    ]
+    expect(lastActionOf(lines, 0)).toEqual({ tool: 'Write', at: 30 })
+    expect(lastActionOf([line({ hook_event_name: 'Stop' }), 'garbage', ''], 0)).toBeNull()
   })
 })
