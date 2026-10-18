@@ -1,14 +1,14 @@
 import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
-import path from 'node:path'
+import { shellSource } from './shellSource'
 
 // App.tsx is a component that cannot run without a full React + Electron harness, so its wiring is pinned by its text
 // (App.spawnUnattended.test.ts does the same). The tab tree and the active pane are written only through the
 // write-through setters (lib/writeThrough.ts): the burst of session:created after the 1.4.11 update lost two claude
 // tabs because each placement read a ref that moved only on render. Mutation: put `layoutRef.current = layout` back,
 // or call React's own setter anywhere, and this fails.
-const src = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'App.tsx'), 'utf8')
+// W9-A: App's body now lives in state/* and components/shell/*; the setters are built in useLayout.ts, and the
+// counts below hold across App.tsx and every file it was cut into.
+const src = shellSource()
 const count = (re: RegExp): number => src.match(re)?.length ?? 0
 
 describe('App.tsx writes the tab tree and the active pane through writeThrough', () => {
