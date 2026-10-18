@@ -305,8 +305,23 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
   'projects-add': {
     summary: 'register a folder of this machine as a project',
     detail:
-      'For the person at this machine, or a script on it: a remote controller cannot, nor an agent session (ASTERA_SESSION is set; refused with 5). The path must be an absolute path to an existing folder that is not a worktree. Adding a folder already registered answers that project.',
-    flags: [{ name: 'path', value: '<path>', required: true, about: 'the folder to register' }]
+      'For the person at this machine, or a script on it: a remote controller cannot, nor an agent session (ASTERA_SESSION is set; refused with 5). The path is an existing git repository folder that is not a worktree (a relative path is taken from the shell folder). A repository with no commit is refused (409 needsInitialCommit) unless --initial-commit makes one. The answer carries the proposed test command and records the default branch. Adding a folder already registered answers that project.',
+    flags: [
+      { name: 'path', value: '<path>', required: true, about: 'the folder to register' },
+      { name: 'initial-commit', about: 'make the first commit when the repository has none' }
+    ]
+  },
+  // W7-B
+  'projects-create': {
+    summary: 'create a new project: a folder with a git repository, optionally a GitHub repository',
+    detail:
+      'For the person at this machine, or a script on it: a remote controller cannot, nor an agent session (refused with 5). Makes <parent>/<name>, runs git init, makes the first commit and registers it as a project. With --github the repository is created on GitHub and pushed (needs the gh CLI signed in). --describe is the repository description.',
+    flags: [
+      { name: 'name', value: '<name>', required: true, about: 'the folder and project name' },
+      { name: 'parent', value: '<path>', required: true, about: 'the folder to create it in (relative: from the shell folder)' },
+      { name: 'describe', value: '<text>', about: 'a one-line description' },
+      { name: 'github', value: '<private|public>', about: 'also create a GitHub repository' }
+    ]
   },
   'projects-get': {
     summary: 'one registered project',
@@ -314,13 +329,21 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
   },
   // W6-H delivery (delivery.ts)
   'projects-set': {
-    summary: "set how a project's finished plans land: one pull request, or a push to a branch",
+    summary: "set a project's delivery, auto-approve, test command, concurrency, review rounds, replan and account",
     detail:
-      'pr (the default) opens one pull request per plan and never merges it. push merges a finished plan into the delivery branch (the default branch unless --delivery-branch) and pushes it, with no review by a person, after the reviews, the final check and the validation pass; it stops and escalates when the folder is not on that branch, has uncommitted changes, cannot fast-forward, conflicts, fails validation or is rejected, and never force-pushes. A Job may override it (`jobs create --delivery`). An empty --delivery-branch drops it. Refused from an agent session and an MCP client.',
+      'pr (the default) opens one pull request per plan and never merges it. push merges a finished plan into the delivery branch (the default branch unless --delivery-branch) and pushes it, with no review by a person, after the reviews, the final check and the validation pass; it stops and escalates when the folder is not on that branch, has uncommitted changes, cannot fast-forward, conflicts, fails validation or is rejected, and never force-pushes. A Job may override it (`jobs create --delivery`). Defaults: delivery pr, auto-approve off, concurrency 3, review rounds 5, replan waves. --auto-approve on starts a plan without waiting for approval. --test-command is saved as a run configuration and validates every new Task that has no --validate (--test-config picks an existing one). A new Job copies the concurrency, replan and review rounds when it sets none. An empty value clears a setting back to its default. Refused from an agent session and an MCP client.',
     flags: [
       ID('<projectId>', 'the project to set'),
       { name: 'delivery', value: '<pr|push>', about: 'how its finished plans land' },
-      { name: 'delivery-branch', value: '<branch>', about: 'the branch a push lands on (default: the repository default branch)' }
+      { name: 'delivery-branch', value: '<branch>', about: 'the branch a push lands on (default: the repository default branch)' },
+      // W7-A, W7-B
+      { name: 'auto-approve', value: '<on|off>', about: 'approve this project\'s plans as soon as their planner finishes, with no one asked (default off)' },
+      { name: 'test-command', value: '<cmd>', about: 'the command that validates a Task (saved as a run configuration)' },
+      { name: 'test-config', value: '<id>', about: 'an existing run configuration to validate with' },
+      { name: 'concurrency', value: '<1-10>', about: 'workers at once for a new Job (default: 3)' },
+      { name: 'review-rounds', value: '<n>', about: 'review rounds for a new Job (default: 5)' },
+      { name: 'replan', value: '<waves|off>', about: 'replan between waves (default: waves)' },
+      { name: 'account', value: '<id>', about: 'the account the project uses' }
     ]
   },
   'projects-find': {
@@ -365,7 +388,9 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       { name: 'objective', value: '<text>', required: true, about: 'what this Job is for (may be left out with --mode audit or --attach)' },
       { name: 'cwd', value: '<path>', about: 'the repository root this Job belongs to (default: here)' },
       ...JOB_MAKING_FLAGS,
-      ...INTAKE_FLAGS
+      ...INTAKE_FLAGS,
+      // W7-E
+      { name: 'no-review', about: 'do not review this plan\'s Tasks (`jobs plan` turns a review of every Task on otherwise)' }
     ]
   },
   'jobs-create-from-source': {
@@ -380,6 +405,13 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
     detail:
       'The name is one line, cut at 300 characters, and is what the app, `jobs list --human` and the notifications show. An empty --title drops it, and the Job is named by its objective again. The objective, which is what agents are given, does not change.',
     flags: [ID('<jobId>', 'the Job to name'), { name: 'title', value: '<text>', required: true, about: 'the new name' }]
+  },
+  // W7-D (#67)
+  'jobs-set': {
+    summary: 'change how many workers a Job runs at once',
+    detail:
+      'Until the Job finishes; a finished one is refused (CONFLICT, exit 6). A lower number only holds back new starts: running workers carry on. At most 10. Refused from an agent session and an MCP client.',
+    flags: [ID('<jobId | runId>', 'the Job to change, or one of its runs'), { name: 'concurrency', value: '<n>', required: true, about: 'workers at once, 1–10' }]
   },
   'jobs-archive': {
     summary: 'archive a Job: hide it and start nothing new for it',
@@ -408,7 +440,30 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       // W6-H delivery
       { name: 'delivery', value: '<pr|push>', about: "how this Job's finished plan lands, ahead of its project's: one pull request, or pushed to the delivery branch with no review by a person" },
       // W6-D wave replanning
-      { name: 'replan', value: '<waves|off>', about: 'replan the rest of the plan between waves and check it once more at the end (default waves)' }
+      { name: 'replan', value: '<waves|off>', about: 'replan the rest of the plan between waves and check it once more at the end (default waves)' },
+      // W7-E: a planned Job's Tasks are reviewed by a fresh reviewer, up to 5 rounds, then escalated
+      { name: 'no-review', about: "do not review this plan's Tasks (default: every Task is reviewed before it counts as done)" },
+      // W7-A
+      { name: 'auto-approve', value: '<on|off>', about: "approve this plan as soon as its planner finishes, ahead of its project's setting" }
+    ]
+  },
+  // W7-A talk to the planner (exec/plannerFeedback.ts)
+  'jobs-feedback': {
+    summary: "send the owner's feedback on a plan to its planner",
+    detail:
+      'Before approval the text goes to the same planner session: typed in while it runs, its conversation resumed when it has ended, else a fresh planner is started with plan.md, existing.md and the history. While the plan runs it starts a replan at once that changes only Tasks not started, and holds new workers meanwhile. Refused from an agent session.',
+    flags: [
+      { name: 'job', value: '<jobId>', required: true, about: 'the Job whose plan to change' },
+      { name: 'text', value: '<text|->', required: true, about: 'what to change; - reads stdin' }
+    ]
+  },
+  'jobs-reject': {
+    summary: 'reject a plan waiting for approval',
+    detail:
+      'The plan is archived with the reason and its planner ends. `jobs unarchive` undoes it. Refused from an agent session.',
+    flags: [
+      { name: 'job', value: '<jobId>', required: true, about: 'the Job whose plan to reject' },
+      { name: 'reason', value: '<text>', about: 'why, kept on the archived Job' }
     ]
   },
   'jobs-wait': {
@@ -483,7 +538,7 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
   'tasks-add': {
     summary: 'add a task to a Job, or to one run of it',
     detail:
-      'Exactly one of --job or --run. A task added to a Job is copied into every run `jobs run` starts from then on; a task added to a run belongs to that run only. An id of the other kind is not found (4), never quietly the other thing. Returns the task.',
+      'Exactly one of --job or --run. A task added to a Job is copied into every run `jobs run` starts from then on; a task added to a run belongs to that run only. An id of the other kind is not found (4), never quietly the other thing. Returns the task. A spec with quotes or several lines goes on stdin: `--spec -` with a heredoc (`<<\'EOF\'`), so the shell changes nothing in it. --affected-paths lets the scheduler keep two tasks on the same files from running at once.',
     flags: [
       { name: 'job', value: '<jobId>', about: 'the Job to add it to (exactly one of --job or --run)' },
       { name: 'run', value: '<runId>', about: 'the run to add it to (exactly one of --job or --run)' },
@@ -501,6 +556,8 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       },
       { name: 'title', value: '<text>', about: "a short name (default: the spec's first line)" },
       { name: 'deps', value: '<json array>', about: 'the task ids this one waits for' },
+      // W7-D (#81): the planner's flag, so a task added here is kept off its files' other tasks (W6-C)
+      { name: 'affected-paths', value: '<json array>', about: 'the files or folders it will change, e.g. \'["src/a.ts","src/b/"]\'' },
       { name: 'parent', value: '<taskId>', about: 'the task this one was split out of' },
       {
         name: 'validate',
@@ -509,6 +566,8 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
           'run configurations that must pass before it counts as done (from `run-configs list`), or `plugin:<id>` for a completion check plugin (from `plugins list`)'
       },
       { name: 'review', about: 'have the result reviewed before it counts as done' },
+      // W7-E: opts one Task out of its Job's review default (Job.review)
+      { name: 'no-review', about: "do not review this Task, though its Job reviews its Tasks" },
       // W5-B (#53): the model choice a planner's Task carries (Task.difficulty / Task.model, resolveWorkerModel)
       {
         name: 'difficulty',

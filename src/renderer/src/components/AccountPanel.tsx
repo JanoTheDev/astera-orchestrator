@@ -8,6 +8,8 @@ import { useAccountUsage } from '../hooks/useAccountUsage'
 import { ProviderBadge } from './ProviderBadge'
 import { FolderGlyph } from './FolderGlyph'
 import { AccountRow } from './AccountRow'
+import { AccountSignInDialog } from './AccountSignIn'
+import { RemoveAccountDialog } from './AccountSettings'
 import { backdropProps } from '../lib/backdrop'
 
 interface DetectItem {
@@ -64,6 +66,9 @@ export function AccountPanel({ accounts }: { accounts: Account[] }): React.JSX.E
   const importing = useRef(false)
   const [importBusy, setImportBusy] = useState(false)
   const autoDetectDone = useRef(false)
+  // W7-F (#82): the account being signed in, and the one whose removal is being confirmed.
+  const [signInTarget, setSignInTarget] = useState<Account | null>(null)
+  const [removeTarget, setRemoveTarget] = useState<Account | null>(null)
 
   useEffect(() => {
     // "Loading finished" is not inferred from how many times the accounts prop's effect has run — under
@@ -155,6 +160,8 @@ export function AccountPanel({ accounts }: { accounts: Account[] }): React.JSX.E
         if (!r.ok) toast.error(t('account.add.syncFailed', { detail: tm(r.message ?? null) ?? '' }))
       }
       setAddOpen(false)
+      // W7-F (#82): straight on to the sign-in link — an added account with no login was taken for a broken "+".
+      setSignInTarget(account)
     } catch (err) {
       // Said, and the dialog stays for another try (audit UI-10).
       toast.error(err instanceof Error ? err.message : String(err))
@@ -242,7 +249,26 @@ export function AccountPanel({ accounts }: { accounts: Account[] }): React.JSX.E
             usage={usage[a.configDir]}
             expanded={expandedId === a.id}
             onToggle={() => setExpandedId((cur) => (cur === a.id ? null : a.id))}
-          />
+          >
+            {/* W7-F (#82): sign in and remove from the row itself. `false`, not undefined: no button before the
+                login check has answered. */}
+            {loginMap[a.id] === false && (
+              <button className="ghost account-signin-btn" title={t('account.signIn.button')} onClick={() => setSignInTarget(a)}>
+                {t('account.signIn.button')}
+              </button>
+            )}
+            <button
+              className="ghost danger"
+              aria-label={t('account.remove.button')}
+              title={t('account.remove.button')}
+              onClick={() => setRemoveTarget(a)}
+            >
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                <line x1="4" y1="4" x2="12" y2="12" />
+                <line x1="12" y1="4" x2="4" y2="12" />
+              </svg>
+            </button>
+          </AccountRow>
         ))}
         {accounts.length === 0 && <li className="empty">{t('account.panel.empty')}</li>}
       </ul>
@@ -295,6 +321,8 @@ export function AccountPanel({ accounts }: { accounts: Account[] }): React.JSX.E
           </div>
         </div>
       )}
+      {signInTarget && <AccountSignInDialog account={signInTarget} onClose={() => setSignInTarget(null)} />}
+      {removeTarget && <RemoveAccountDialog account={removeTarget} onClose={() => setRemoveTarget(null)} />}
       {importDir && (
         <div className="modal-backdrop" {...backdropProps(() => setImportDir(null))}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>

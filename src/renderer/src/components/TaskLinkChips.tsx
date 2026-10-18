@@ -39,6 +39,8 @@ export function RunPrChip({ pr }: { pr?: RunPr }): React.JSX.Element | null {
         <GitPullRequest size={12} /> {pr.number !== undefined ? `#${pr.number}` : t('github.link.runPr')}
       </button>
     )
+  // W7-E (#80): the project has no remote; the chip names the branch that holds the work
+  if (pr.note) return <span className="detail-chip" title={pr.note}>{pr.branch ?? pr.note}</span>
   return (
     <span className="detail-chip" title={pr.error}>
       {t('github.link.runPrFailed')}

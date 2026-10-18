@@ -1,7 +1,10 @@
 import type { Account, AccountUsage } from '../../../core/types'
 import { AccountUsageMeter, AccountUsageDetail, hasUsage } from './AccountUsageMeter'
 import { ProviderBadge } from './ProviderBadge'
+import { useRef, useState } from 'react'
 import { useI18n } from '../i18n/I18nProvider'
+import { toast } from '../lib/toast'
+import { endRenameOnce } from '../lib/renameOnce'
 
 /** Account row UI. Shared by the sidebar and the settings Accounts tab.
  *  The action buttons come in as children — the row does not need to know "who gets which button".
@@ -38,6 +41,19 @@ export function AccountRow({
   // to open: a logged-out account and one never read both draw nothing, and a row that cannot open
   // must not look or behave as if it could. Provider plays no part — claude and codex rows both carry
   // a reading when their account has one.
+  // Renaming the account in place. One rename ends once (audit UI-2), as a tab's does.
+  const [renaming, setRenaming] = useState(false)
+  const renameEnd = useRef({ ended: null as string | null })
+  const saveName = async (raw: string): Promise<void> => {
+    setRenaming(false)
+    const label = raw.trim()
+    if (label === '' || label === account.label) return
+    try {
+      await window.api.accounts.rename(account.id, label)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err))
+    }
+  }
   const openable = Boolean(loggedIn) && hasUsage(usage)
   const toggle = openable && onToggle ? onToggle : undefined
 
@@ -63,7 +79,41 @@ export function AccountRow({
     >
       <span className="color-dot" style={{ background: account.color }} />
       <ProviderBadge provider={account.provider} />
-      <span className="account-label">{account.label}</span>
+      {/* Double-click the name to rename the account (Enter saves, Escape cancels). */}
+      {renaming ? (
+        <input
+          className="account-label-edit"
+          autoFocus
+          defaultValue={account.label}
+          aria-label={t('account.rename.label')}
+          onClick={(e) => e.stopPropagation()}
+          onFocus={(e) => {
+            renameEnd.current.ended = null
+            e.currentTarget.select()
+          }}
+          onKeyDown={(e) => {
+            e.stopPropagation()
+            const v = e.currentTarget.value
+            if (e.key === 'Enter') endRenameOnce(renameEnd.current, account.id, () => void saveName(v))
+            else if (e.key === 'Escape') endRenameOnce(renameEnd.current, account.id, () => setRenaming(false))
+          }}
+          onBlur={(e) => {
+            const v = e.currentTarget.value
+            endRenameOnce(renameEnd.current, account.id, () => void saveName(v))
+          }}
+        />
+      ) : (
+        <span
+          className="account-label"
+          title={t('account.rename.hint')}
+          onDoubleClick={(e) => {
+            e.stopPropagation()
+            setRenaming(true)
+          }}
+        >
+          {account.label}
+        </span>
+      )}
       {/* Not translated, matching ProviderBadge's 'Claude'/'Codex' — these are short identifiers rather
           than prose, and the row is narrow */}
       {isDefault && <span className="badge">default</span>}

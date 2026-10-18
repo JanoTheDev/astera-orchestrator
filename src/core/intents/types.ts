@@ -21,6 +21,10 @@ export type Intent =
   | { kind: 'archive'; target?: string }
   | { kind: 'delete'; target?: string }
   | { kind: 'merge'; target?: string }
+  /** W7-A: change a plan through its planner (`jobs-feedback`); `text` is what to change. */
+  | { kind: 'plan-feedback'; text: string; target?: string }
+  /** W7-A: reject a plan waiting for approval (`jobs-reject`), with an optional reason. */
+  | { kind: 'plan-reject'; reason?: string; target?: string }
   /** The coordinator's own answer to a question no other intent covers. */
   | { kind: 'reply'; text: string }
 
@@ -44,6 +48,8 @@ export const INTENT_KINDS = [
   'archive',
   'delete',
   'merge',
+  'plan-feedback',
+  'plan-reject',
   'reply'
 ] as const satisfies readonly IntentKind[]
 
@@ -75,6 +81,14 @@ export function readIntent(v: unknown): Intent | null {
     case 'plan': {
       const objective = text(v.objective, MAX_TEXT)
       return objective === undefined ? null : { kind, objective, ...t }
+    }
+    case 'plan-feedback': {
+      const body = text(v.text, MAX_TEXT)
+      return body === undefined ? null : { kind, text: body, ...t }
+    }
+    case 'plan-reject': {
+      const reason = text(v.reason, MAX_TEXT)
+      return { kind, ...(reason === undefined ? {} : { reason }), ...t }
     }
     case 'send': {
       const session = text(v.session, MAX_NAME)

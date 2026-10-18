@@ -19,6 +19,8 @@ export interface IntakeForm {
   instructions: string
   project: { id: string; path: string } | null
   coordinatorAccount: string
+  /** W7-D (#67): how many workers the plan runs at once, 1–10 (the Host clamps to MAX_CONCURRENT_WORKERS). */
+  concurrency: number
 }
 
 /** The one command that makes the Job, or null while the form cannot make one. */
@@ -27,6 +29,7 @@ export function intakeRequest(f: IntakeForm): { cmd: string; args: Record<string
   const text = f.text.trim()
   const common = {
     coordinatorAccount: f.coordinatorAccount,
+    concurrency: f.concurrency,
     ...(f.instructions.trim() !== '' ? { instructions: f.instructions.trim() } : {})
   }
   const job = { cwd: f.project.path, ...common, ...(text !== '' ? { objective: text } : {}) }

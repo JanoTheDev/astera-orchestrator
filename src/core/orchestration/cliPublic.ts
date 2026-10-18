@@ -73,7 +73,7 @@ const RUN_HIDDEN = [
 ] as const
 
 /** W6-H: how a project's plans land, set by `projects-set`; not in the SDK's contract yet. */
-const PROJECT_HIDDEN = ['delivery', 'deliveryBranch'] as const
+const PROJECT_HIDDEN = ['delivery', 'deliveryBranch', /* W7-B: project settings, not in the SDK's contract yet */ 'autoApprove', 'testConfigId', 'concurrency', 'reviewRounds', 'replan', 'defaultBranch'] as const
 
 /**
  * A Task's fields kept back on purpose: all of them **the ledger the app keeps to drive convergence**. The guide
@@ -117,7 +117,13 @@ const JOB_HIDDEN = [
   'replanning',
   'lastReplan',
   /* W6-A: a plan ended with nothing to do, not in the SDK's contract yet */ 'nothingToDo',
-  /* W6-H: the plan's own delivery (jobs-create/jobs-plan --delivery), not in the SDK's contract yet */ 'delivery'
+  /* W6-H: the plan's own delivery (jobs-create/jobs-plan --delivery), not in the SDK's contract yet */ 'delivery',
+  /* W7-E: the review default and the planner's account, not in the SDK's contract yet */ 'review',
+  'plannerAccountId',
+  /* W7-A: talking to the planner, rejecting a plan, auto-approve; not in the SDK's contract yet */ 'autoApprove',
+  'feedback',
+  'autoStartedAt',
+  'rejected'
 ] as const
 
 /** A followed event's message body (pages long) and the app's link from an event to a tab. */

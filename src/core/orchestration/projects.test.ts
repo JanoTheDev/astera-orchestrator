@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import path from 'node:path'
-import { emptyState } from './state'
-import { ensureProject, findProject, findProjectByPath, nameFromPath, renameProject } from './projects'
+import { createJob, createTask, emptyState, startJobRun } from './state'
+import { ensureProject, findProject, findProjectByPath, nameFromPath, renameProject, setProjectSettings } from './projects'
 import { foldsCaseHere } from '../testPaths'
 
 /** An absolute path this platform actually produces, so the case and separator rules under test are
@@ -74,5 +74,94 @@ describe('renameProject', () => {
     const { state, project } = ensureProject(emptyState(), { path: abs('work', 'astera'), now: 'T0' })
     expect(renameProject(state, project.id, '   ').ok).toBe(false)
     expect(renameProject(state, 'proj_nope', 'x').ok).toBe(false)
+  })
+})
+
+// W7-B: the per-project settings `projects-set` writes, and what a new Job and Task of the project take from them.
+describe('setProjectSettings (W7-B)', () => {
+  const registered = () => ensureProject(emptyState(), { path: abs('work', 'shop'), now: 'T0' })
+
+  it('sets each field, keeps what is left out, and clears what is null', () => {
+    const { state, project } = registered()
+    const set = setProjectSettings(state, project.id, { autoApprove: true, testConfigId: 'astera:test', concurrency: 10, reviewRounds: 2, replan: 'off', defaultBranch: 'main' })
+    if (!set.ok) throw new Error(set.error)
+    expect(set.value).toMatchObject({ autoApprove: true, testConfigId: 'astera:test', concurrency: 10, reviewRounds: 2, replan: 'off', defaultBranch: 'main' })
+    expect(set.state.projects).toEqual([set.value])
+    const cleared = setProjectSettings(set.state, project.id, { concurrency: null, replan: null, testConfigId: null })
+    if (!cleared.ok) throw new Error(cleared.error)
+    expect(cleared.value).not.toHaveProperty('concurrency')
+    expect(cleared.value).not.toHaveProperty('replan')
+    expect(cleared.value).not.toHaveProperty('testConfigId')
+    expect(cleared.value).toMatchObject({ autoApprove: true, reviewRounds: 2, defaultBranch: 'main', name: 'shop' })
+  })
+
+  it('refuses an out-of-range concurrency, zero review rounds, a bad replan and an unknown project', () => {
+    const { state, project } = registered()
+    for (const patch of [{ concurrency: 0 }, { concurrency: 11 }, { concurrency: 2.5 }, { reviewRounds: 0 }, { replan: 'later' as never }]) {
+      const r = setProjectSettings(state, project.id, patch)
+      expect(r.ok).toBe(false)
+    }
+    expect(setProjectSettings(state, 'proj_nope', { concurrency: 2 })).toEqual({ ok: false, error: 'unknown project: proj_nope' })
+  })
+})
+
+describe('a new Job and Task take their project settings (W7-B)', () => {
+  const withSettings = (patch: Parameters<typeof setProjectSettings>[2]) => {
+    const { state, project } = ensureProject(emptyState(), { path: abs('work', 'shop'), now: 'T0' })
+    const set = setProjectSettings(state, project.id, patch)
+    if (!set.ok) throw new Error(set.error)
+    return { state: set.state, projectId: project.id }
+  }
+  const job = (s: ReturnType<typeof withSettings>, over: Partial<Parameters<typeof createJob>[1]> = {}) => {
+    const r = createJob(s.state, { objective: 'Ship', cwd: abs('work', 'shop'), projectId: s.projectId, ...over }, 'T1')
+    if (!r.ok) throw new Error(r.error)
+    return r
+  }
+
+  it("fills the Job's concurrency, replan and review rounds from the project", () => {
+    const s = withSettings({ concurrency: 7, replan: 'off', reviewRounds: 2 })
+    expect(job(s, { convergence: { maxFixAttempts: 3 } }).value).toMatchObject({ concurrency: 7, replan: 'off', convergence: { maxFixAttempts: 3, maxReviewRounds: 2 } })
+  })
+
+  it('keeps what the Job gives itself, and adds no convergence the Job did not ask for', () => {
+    const s = withSettings({ concurrency: 7, replan: 'off', reviewRounds: 2 })
+    const own = job(s, { concurrency: 1, replan: 'waves', convergence: { maxReviewRounds: 4 } }).value
+    expect(own.concurrency).toBe(1)
+    expect(own.replan).toBeUndefined()
+    expect(own.convergence).toEqual({ maxReviewRounds: 4 })
+    expect(job(s).value).not.toHaveProperty('convergence')
+  })
+
+  it('writes nothing for a project with no settings: the defaults stay unwritten', () => {
+    const v = job(withSettings({}), { convergence: {} }).value
+    expect(v).not.toHaveProperty('concurrency')
+    expect(v).not.toHaveProperty('replan')
+    expect(v.convergence).toEqual({})
+  })
+
+  it("validates a Task that names no check with the project's test configuration", () => {
+    const s = withSettings({ testConfigId: 'astera:test' })
+    const j = job(s)
+    const def = createTask(j.state, { jobId: j.value.id, title: 'a', spec: 's', deps: [] }, 'T2')
+    if (!def.ok) throw new Error(def.error)
+    expect(def.value.validateConfigIds).toEqual(['astera:test'])
+    const run = startJobRun(def.state, j.value.id, 'T3')
+    if (!run.ok) throw new Error(run.error)
+    const inst = createTask(run.state, { runId: run.value.id, title: 'b', spec: 's', deps: [] }, 'T4')
+    if (!inst.ok) throw new Error(inst.error)
+    expect(inst.value.validateConfigIds).toEqual(['astera:test'])
+    const named = createTask(run.state, { runId: run.value.id, title: 'c', spec: 's', deps: [], validateConfigIds: ['lint'] }, 'T4')
+    if (!named.ok) throw new Error(named.error)
+    expect(named.value.validateConfigIds).toEqual(['lint'])
+    const single = createTask(run.state, { runId: run.value.id, title: 'd', spec: 's', deps: [], validateConfigId: 'lint' }, 'T4')
+    if (!single.ok) throw new Error(single.error)
+    expect(single.value.validateConfigIds ?? []).not.toContain('astera:test')
+  })
+
+  it('gives no check when the project has no test configuration', () => {
+    const j = job(withSettings({}))
+    const t = createTask(j.state, { jobId: j.value.id, title: 'a', spec: 's', deps: [] }, 'T2')
+    if (!t.ok) throw new Error(t.error)
+    expect(t.value.validateConfigIds).toBeUndefined()
   })
 })

@@ -69,7 +69,9 @@ export const ACTIVITY_KINDS = [
   'usage.resumed',
   // W6-H: a finished plan pushed to its delivery branch (a feed line and a notice, no chime). A push that stopped is an
   // escalation instead (delivery.ts recordDelivery)
-  'plan.delivered'
+  'plan.delivered',
+  // W7-A: a plan started with no approval step (autoApprove)
+  'plan.auto-started'
 ] as const
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number]
 
@@ -120,6 +122,10 @@ export interface ActivityPayload {
   // usage.* (W6-G); also accountId and resetsAt
   usageWindow?: UsagePause['window']
   percent?: number
+  // plan.auto-started / plan.awaiting-approval (W7-A)
+  tasks?: number
+  round?: number
+  changes?: string[]
   // plan.delivered (W6-H)
   branch?: string
   sha?: string
@@ -303,6 +309,13 @@ export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[
   if (prev.jobs !== next.jobs) {
     const was = byId(prev.jobs)
     for (const j of next.jobs) {
+      // W7-A: started with no approval step (jobs-auto-start)
+      if (j.autoStartedAt !== undefined && was.get(j.id)?.autoStartedAt === undefined)
+        push(
+          'plan.auto-started',
+          { ...(j.projectId !== undefined ? { projectId: j.projectId } : {}), jobId: j.id, job: j },
+          { title: jobNameOf(j), tasks: next.runs.filter((r) => r.jobId === j.id).reduce((n, r) => n + next.tasks.filter((t) => t.runId === r.id).length, 0) }
+        )
       if (j.nothingToDo === undefined || was.get(j.id)?.nothingToDo !== undefined) continue
       push(
         'plan.nothing-to-do',
@@ -367,10 +380,9 @@ export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[
       if (j.replanning && !was.replanning)
         push('plan.replanning', where(j.replanning.runId), { title, replanMode: j.replanning.mode, wave: j.replanning.wave })
       const last = j.lastReplan
-      // By value, not by reference (W7-C): a whole state put back (`state-put`) carries new objects for every Job, and
-      // each finished plan's replan read as new, so the feed said "replanned" and "plan done" again, with notices
-      const lastWas = was.lastReplan
-      if (!last || (lastWas !== undefined && last.at === lastWas.at && last.runId === lastWas.runId && last.mode === lastWas.mode && last.wave === lastWas.wave)) continue
+      // W7-E (#74): by value, as run.pr above: a state read back from disk or the socket is a new object, and the same
+      // final check was reported again (plan.replanned + plan.done twice for one pass)
+      if (!last || same(last, was.lastReplan)) continue
       const at = where(last.runId)
       if (last.escalated !== undefined) {
         push('task.escalated', at, { title, reason: last.escalated })
@@ -552,7 +564,18 @@ export function noticeOf(e: ActivityEvent): ActivityNotice | null {
     case 'gate.opened':
       return { key: `gate:${e.payload.gateId}`, title: 'Needs your answer', body: `${e.payload.title}${inPlan(e)}: ${e.payload.question ?? ''}`.slice(0, 240), alert: true }
     case 'plan.awaiting-approval':
-      return { key: `approve:${e.jobId}`, title: 'Plan ready for approval', body: e.payload.title }
+      // W7-A: a plan revised for the owner's feedback is a new notice, with the chime: the owner asked for it
+      return e.payload.round
+        ? {
+            key: `approve:${e.jobId}:${e.payload.round}`,
+            title: 'Plan revised: ready for approval',
+            body: `${e.payload.title}${e.payload.changes?.length ? `: ${e.payload.changes.join('; ')}` : ''}`.slice(0, 240),
+            alert: true
+          }
+        : { key: `approve:${e.jobId}`, title: 'Plan ready for approval', body: e.payload.title }
+    // W7-A: no chime, nothing is asked; the plan view has its Stop
+    case 'plan.auto-started':
+      return { key: `auto-started:${e.jobId}`, title: `Plan started: ${e.payload.tasks ?? 0} tasks`, body: `${e.payload.title} (auto-approve). Stop it from its plan view.` }
     case 'plan.nothing-to-do':
       return { key: `nothing:${e.jobId}`, title: 'Nothing to do: already built', body: e.payload.title }
     // W6-B. A Gate's escalation shares its gate.opened key, so the throttle shows one of the two

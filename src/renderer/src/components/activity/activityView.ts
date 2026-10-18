@@ -63,9 +63,17 @@ export function lineOf(e: ActivityEvent, accountLabel: (id: string) => string): 
     case 'run.pr':
       return p.pr?.error
         ? { text: `${p.title}: PR failed: ${p.pr.error}`, tone: 'bad' }
+        : p.pr?.note // W7-E (#80): no remote, no failure
+          ? { text: `${p.title}: ${p.pr.note}`, tone: 'info' }
         : { text: `${p.title}: PR ${p.pr?.number !== undefined ? `#${p.pr.number} ` : ''}opened`, tone: 'ok' }
     case 'plan.awaiting-approval':
-      return { text: `${p.title}: plan ready for your approval`, tone: 'warn' }
+      // W7-A: round > 0 is a plan the planner revised after the owner's feedback
+      return p.round !== undefined && p.round > 0
+        ? { text: `${p.title}: plan revised, ready for your approval${p.changes?.length ? `: ${p.changes.join('; ')}` : ''}`, tone: 'warn' }
+        : { text: `${p.title}: plan ready for your approval`, tone: 'warn' }
+    // W7-A
+    case 'plan.auto-started':
+      return { text: `${p.title}: plan started automatically (${p.tasks ?? 0} tasks)`, tone: 'info' }
     // W6-A
     case 'plan.nothing-to-do':
       return { text: `${p.title}: nothing to do, already built${p.summary ? `: ${p.summary.split('\n')[0]}` : ''}`, tone: 'ok' }

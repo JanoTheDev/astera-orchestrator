@@ -80,6 +80,11 @@ export class CodexUsageFetcher {
     return this.cache.get(configDir, maxAgeMs, (dir) => this.fetch(dir))
   }
 
+  /** W7-F (#77): see UsageCache.forget. */
+  forget(configDir: string): void {
+    this.cache.forget(configDir)
+  }
+
   private async fetch(configDir: string): Promise<UsageAttempt> {
     const token = await readCodexAccessToken(configDir)
     if (!token) return { result: ERROR_USAGE('unavailable') }

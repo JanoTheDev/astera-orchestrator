@@ -42,7 +42,9 @@ export async function startPlannerSession(ctx: CoordinatorStartContext, a: Start
     title: `Planner · ${job ? jobNameOf(job).slice(0, 40) : a.runId.slice(0, 12)}`,
     // One account: a limit waits for its reset in the same session, keeping the plan's context.
     rollAccountIds: [a.accountId],
-    ...(model ? { model } : {})
+    ...(model ? { model } : {}),
+    // W7-A: the owner's feedback goes on in the same conversation, which keeps everything the planner read
+    ...(a.resume ? { resumeSessionId: a.resume } : {})
   })
   ctx.log(`planner started job=${a.runId} session=${info.id} account=${a.accountId} model=${model ?? 'CLI default'}`)
   return { sessionId: info.id }

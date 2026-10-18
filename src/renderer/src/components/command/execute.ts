@@ -25,6 +25,8 @@ import {
   deleteRun,
   holdJob,
   holdWorker,
+  rejectPlan,
+  sendPlanFeedback,
   pauseRun,
   resumeRun,
   resumeStoppedRun,
@@ -161,6 +163,12 @@ export async function execute(r: Ready, d: ExecDeps): Promise<Line[]> {
     case 'approve':
       if (!plan.pendingStart) return [{ text: t('command.refused.started', { plan: name }) }]
       return (await approvePlan(door, plan.jobId, name, d.ui)) ? [{ text: t('command.done.approved', { plan: name }) }] : []
+    // W7-A: talk to the planner. Feedback works before approval and while the plan runs (a replan); reject only before.
+    case 'plan-feedback':
+      return (await sendPlanFeedback(door, plan.jobId, intent.text, d.ui)) ? [{ text: t('command.done.feedback', { plan: name }), jobId: plan.jobId }] : []
+    case 'plan-reject':
+      if (!plan.pendingStart) return [{ text: t('command.refused.started', { plan: name }) }]
+      return (await rejectPlan(door, plan.jobId, name, intent.reason ?? '', d.ui)) ? [{ text: t('command.done.rejected', { plan: name }) }] : []
     case 'pause':
     case 'stop-launching': {
       // W5-C: one worker is held (asked first); a plain plan stops launching and nothing closes (#38, #39)

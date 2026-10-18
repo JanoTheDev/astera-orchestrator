@@ -55,7 +55,13 @@ starting the next wave. Each prompt owns its own files, which keeps conflicts to
 | 6 | 8 | `W6-A-intake-and-github`, `W6-B-autopilot-answers-and-sound`, `W6-C-scheduler-guards`, `W6-D-wave-replanning`, `W6-E-progress-view`, `W6-F-project-workspaces`, `W6-G-usage-guards`, `W6-H-delivery-modes` (Autopilot, see below) | W5 merged, **including PR #57** |
 | 7 | 6 | `W7-A-plan-feedback`, `W7-B-projects`, `W7-C-owner-answers-and-coordinator`, `W7-D-intake-names-and-concurrency`, `W7-E-planner-review-and-final-check`, `W7-F-tabs-accounts-and-sidebar` (W7-C..F: W6-V's issues #67–#84) | W6 merged |
 | 7V | 1 | `W6-V-autopilot-dogfood.md`: the W6 half ran 2026-10-18 (LINUX.md "Autopilot dogfood (W6-V)"); re-run its W7 steps (5, 5b) and the failed W6 checks | W7 merged |
-| 8 | 2 | `W8-A-commit-attribution`, `W8-B-line-attribution` (Who wrote this, see below) | 7V done |
+| 8.0 | 1 | `W8-C-run-waves-in-astera` (alone; tabs, the last wave run by hand) | 7V done |
+| 8 | 2 | `W8-A-commit-attribution`, `W8-B-line-attribution` (Who wrote this, see below), **run as one Astera plan** | W8-C merged |
+| 9.0 | 1 | `W9-0-design-spec` (owner approves the mockup before any code) | W8 merged |
+| 9.1 | 1 | `W9-A-foundation` (alone: tokens, primitives, shell split) | 9.0 approved |
+| 9.2 | 8 | `W9-B-shell-and-nav`, `W9-C-plan-tab`, `W9-D-inbox-and-command`, `W9-E-settings-and-dialogs`, `W9-H-agents-wall`, `W9-I-tab-summaries`, `W9-J-worktree-viewer`, `W9-K-window-per-project` | 9.1 merged |
+| 9.3 | 1 | `W9-F-polish-and-verify` | 9.2 merged |
+| 9.4 | 1 | `W9-G-readme-and-docs` | 9.3 merged |
 
 ### File ownership per wave (prevents tabs interfering)
 
@@ -90,8 +96,21 @@ starting the next wave. Each prompt owns its own files, which keeps conflicts to
 | W7-D | `core/orchestration/intake.ts`, `components/intake/*`, `command.ts` handlers `jobs-create` / `jobs-create-from-issue` / `jobs-set` / `tasks-add`, `cliArgs.ts`, `cliUsage.ts`, `cliAgentContext.ts` | `RunDetail.tsx` (header control), `lifecycle.ts` (`jobNameOf`), `src/core/github/*` (PR title) |
 | W7-E | `handover.ts` (planner brief), `resources/skills/planner-guide.md`, `replan.ts`, `exec/replanStart.ts`, `reviewer.ts`, `exec/reviewGate.ts` | `exec/plannerStart.ts`, `exec/dispatchLoop.ts`, `types.ts` (Job review default), `command.ts` (`jobs-plan` / `jobs-create` flag), `src/core/github/*` (no-remote message) |
 | W7-F | tab strip + its `styles.css`, sidebar account panel, `HistoryBrowser.tsx`, `JobsView.tsx` layout, `components/plan/planBoard.ts` / `TaskBoard` | `App.tsx` (tabs, active session, auto-close), keybindings, `AccountSettings.tsx` (export unregister), `core/accounts` (email check, login URL), `components/workspace/workspaceTree.ts` |
+| W8-C | `core/orchestration/intake.ts` (`--mode prompts`), `cliArgs.ts`, `cliUsage.ts`, `resources/skills/planner-guide.md`, `resources/skills/orchestration-guide.md` (worker brief lines, `astera heavy`), new `core/orchestration/heavyLock.ts` | `types.ts` (`Job.after`), `schedule.ts` / `blocked.ts` (one gate, one reason), `planner.ts` (`validatePlan` verbatim check), `command.ts` (`--after`, `heavy`), New flow source picker, USAGE.md, LINUX.md |
 | W8-A | new `core/attribution/{note,stamp,remap,blame,stats}.ts` | `exec/integrateGit.ts` (stamp before merge, copy notes), `core/orchestration/delivery.ts` (push the notes ref, PR body block), `src/main/githubPrs.ts` (squash remap), `command.ts` / `cliArgs.ts` / `cliUsage.ts` (`attribution-blame`, `attribution-stats`, `attribution-why`) |
 | W8-B | new `core/attribution/{lines,checkpoint,gitAi}.ts` + its hook script, new `components/attribution/*` | `core/sessions/statusline.ts` (hook entries), `core/attribution/stamp.ts` (one `lines` call), file viewer mount, plan view mount, project settings page (one row) |
+| W9-0 | new `docs/orchestrator/DESIGN.md`, the mockup artifact | — (no code) |
+| W9-A | new `src/renderer/src/styles/{tokens,base,primitives}.css`, bundled fonts under `src/renderer/src/assets/fonts/` (IBM Plex Sans, JetBrains Mono), the new mark in `assets/` and `build/` icons, new `components/ui/*` primitives (`Button`, `Chip`, `Card`, `Modal`, `Nav`, `Tabs`, `Menu`, `Field`, `Meter`, `EmptyState`, `Icon`), new `components/shell/*`, new `renderer/src/state/*` hooks moved out of `App.tsx`, `core/theme/themes.ts`, `lib/theme.tsx`, `ThemeSettings.tsx`, `tailwind.css` token map | `App.tsx` (moves only, no new behaviour), `styles.css` (sections cut out as they move), source-regex tests that follow moved code |
+| W9-B | `components/shell/{TopBar,Pages,StatusBar,MoreMenu}.tsx`, `core/ui/pages.ts`, `components/workspace/*` (retired), `AccountPanel.tsx`, `AccountRow.tsx`, `AccountUsageMeter.tsx`, `HistoryBrowser.tsx`, `usage/*`, `core/ui/sidebar.ts`, `core/keys/binding.ts` (rail ids) | `App.tsx` (shell mount), `components/ui/*` (new variants only) |
+| W9-C | new `components/pages/{TasksPage,PlansPage,PlanPage}.tsx`, `RunDetail.tsx` (moved into `PlanPage`, then deleted), `components/plan/*` except W7-C's answer box, `JobsView.tsx` (becomes `PlansPage`'s list), `lib/jobActions.ts` | `App.tsx` (mount) |
+| W9-D | `activity/*`, `search/*`, `command/*`, `conversation/QuestionCard.tsx`, W7-C's answer box, new `components/inbox/*` | `App.tsx` (rail badge, hotkey), `core/intents/*` (open-plan intent) |
+| W9-E | new `components/settings/*` (one file per group), every dialog listed in DESIGN.md "Dialogs" moved onto `ui/Modal`, `NewSessionDialog.tsx` / `NewRunModal.tsx` / `intake/*` / `SourceJobModal.tsx` (one New flow), `components/projects/*` page | `App.tsx` (Settings block deleted, `<SettingsDialog/>` mounted) |
+| W9-H | new `components/pages/AgentsPage.tsx`, `components/wall/*`, `PaneGrid.tsx` / `TerminalView.tsx` (tile mode: small font, read-only until opened, offscreen pause; the full-size console), `conversation/*` (stop offering it for new consoles), new `core/sessions/ownerHold.ts`, the `sessions-send` handler in `command.ts` and `src/host/orch.ts` (queue while held) | `src/host/sessions.ts` (owner-input timestamp), `App.tsx` (mount the pinned tab), `resources/skills/orchestration-guide.md` (one line: a queued send is not a failure) |
+| W9-I | new `core/sessions/summary.ts` (facts + prompt), new `src/host/hostSummaries.ts`, `components/wall/SummaryCard.tsx` | `core/understanding/*` (reuse the generator call), `src/host/sessions.ts` (end hook), `core/orchestration/delivery.ts` (PR body roll-up), `components/plan/*` card (one row, after W9-C: coordinate in the PR), `HistoryBrowser.tsx` (one row), app-settings type (`tabSummaries`) |
+| W9-J | `WorktreePanel.tsx` (becomes the Worktrees page list), new `components/pages/WorktreesPage.tsx` + `components/worktrees/*` (detail), new `core/worktrees/cleanup.ts` (ready-to-remove rule + auto-clean after delivery) | `core/worktrees/{list,remove}.ts` (read-only reuse; one export if needed), `core/orchestration/delivery.ts` (one call after delivery), app-settings type (`autoCleanWorktrees`) |
+| W9-K | new `src/main/windows.ts`, `src/main/index.ts` window lifecycle (`mainWindow` → window set, `second-instance` argv, tray project list) | IPC push sites that targeted `mainWindow` (send to all windows), `components/workspace/ProjectSwitcher.tsx` ("Open in new window" item), keybindings, desktop file action, USAGE.md |
+| W9-F | any renderer file, for fixes found by the walk-through; each fix listed in the PR | — |
+| W9-G | `README.md`, deleted `README.{ko,ja,es}.md`, `docs/*.md` outside `docs/orchestrator`, new `docs/dev/` (wave prompts move here), `assets/*` screenshots, `package.json` `description` / `homepage` | `docs/orchestrator/USAGE.md` (becomes `docs/guide.md`) |
 | W5-D | `activity.ts`, `components/activity/*`, `sessionIndex.ts`, `components/search/*`, `src/main/activityNotices.ts`, `src/main/remote/orchRouter.ts` | `src/host/index.ts`, `src/host/sessions.ts`, `src/main/ipc.ts`, `types.ts` |
 
 ## Wave 6 — Autopilot (owner request 2026-10-18)
@@ -264,6 +283,162 @@ hooks, Git Notes, and rewrite tracking.
 - **The notes ref is outward-facing.** It is pushed only as part of a delivery that the owner already set up
   (W6-H). Notes carry no prompt text, emails or paths outside the repo.
 
+## Running the waves in Astera (from Wave 8 on)
+
+Up to Wave 7, every wave ran by hand: one Claude tab per prompt, then `MERGE.md` in one more tab. The W6-V dogfood
+showed that Astera already does each step of that for one plan:
+- the planner splits the work, and workers run in parallel worktrees;
+- two Tasks never run at once on the same files;
+- a reviewer checks each Task, and a final check runs at the end;
+- Astera merges the Tasks itself and delivers.
+
+The W7 fixes (#70 reviewer, #72/#73 answering and the blocking coordinator, #74 one final check) close the gaps it
+found. **W8-C is the last wave run by hand.** It adds three things:
+- prompt files become Tasks verbatim;
+- a plan can wait for another plan;
+- heavy jobs (full suite, dev app, AppImage build) take one machine-wide slot.
+
+From then on, each wave is one Astera plan, queued after the one before it. Run these from the packaged app's
+profile, never the dev profile:
+
+```bash
+astera jobs create --project astera --mode prompts --delivery pr \
+  --attach docs/orchestrator/prompts/W8-A-commit-attribution.md docs/orchestrator/prompts/W8-B-line-attribution.md
+# Wave 9: one plan per sub-wave, each queued after the one before (9.0 is done; 9.1 alone first)
+astera jobs create --project astera --mode prompts --after <W8 job> --attach docs/orchestrator/prompts/W9-A-foundation.md
+astera jobs create --project astera --mode prompts --after <W9.1 job> --attach docs/orchestrator/prompts/W9-{B,C,D,E,H,I,J,K}-*.md
+astera jobs create --project astera --mode prompts --after <W9.2 job> --attach docs/orchestrator/prompts/W9-F-polish-and-verify.md
+astera jobs create --project astera --mode prompts --after <W9.3 job> --attach docs/orchestrator/prompts/W9-G-readme-and-docs.md
+```
+
+The owner's part:
+- Answer what lands in the Inbox: real questions, plan approvals unless the project auto-approves, and permission
+  waits.
+- Review each wave's PR. W8-C keeps delivery as a PR for this repo; switch the project to `push` once the waves are
+  trusted.
+- `MERGE.md` is no longer needed for these waves, because Astera's integration merge does that job.
+
+## Wave 9 — Redesign (owner request 2026-10-18)
+
+Goal: Astera is no longer "many terminals plus Jobs". It is an orchestrator: projects, plans, workers, questions,
+review and delivery. The UI and the docs still show the old product. Wave 9 redesigns both, so every feature from
+Waves 1–8 has one clear place, and the app looks like one product.
+
+### What is wrong today (survey of `src/renderer`, 2026-10-18)
+- **One plan, two meanings.** From the Jobs sidebar a plan opens `RunDetail`, a modal. From the Workspaces tree it
+  filters the pane grid. The richest view in the app (board, graph, files, journal, diffs, gates) is a modal that
+  cannot sit beside the terminals.
+- **The urgent thing is the smallest.** Questions, escalations and permission waits are a number badge in the
+  Workspaces header. The feed is a separate panel.
+- **The sidebar is a stack of six panels:** switcher, accounts, workspaces with search, activity, worktrees and
+  history. Collapse state is not kept. History and Accounts cannot collapse at all.
+- **Usage is drawn four ways:** status bar chips, account rows, the Run strip and the settings.
+- **Settings has 16 flat tabs.** Several are inline JSX in `App.tsx`. Voice, worker cap, usage guard, models and the
+  agent browser all sit under "Agent".
+- **Three "new" flows:** `NewSessionDialog`, `NewRunModal`/`NewPlanDialog`, and `SourceJobModal`.
+- **No design system.**
+  - `App.tsx` is 5,882 lines, with about 110 `useState` calls.
+  - `styles.css` is 3,291 lines, with 136 hard-coded colours.
+  - There are 16+ badge/chip classes and 5 separate card styles.
+  - About 20 dialogs each hand-roll `.modal-backdrop`. `components/ui` is used only by the vendored assistant-ui.
+  - Icons mix lucide with hand-drawn SVGs. Tailwind leaks into app components.
+  - All 7 themes are dark, and there is no light mode.
+- **The README and docs describe upstream Astera**, with fork status tables bolted on. The translations are
+  upstream's and stale.
+
+### Hands-off first (owner, 2026-10-18)
+
+The owner's words: "the goal is to have stuff as automated as possible … i want a way to see all cli tabs, this is
+the most important part, and interact with them as needed without interrupting the main claude tab that is working
+on all of them … each tab a small summary when done … very hands off".
+
+This puts three things at the centre of Wave 9:
+- **The Agents wall** (W9-H) is the default view. It shows every CLI tab of the project live, in one grid.
+  - Clicking a tile takes it over and types straight into it.
+  - A "Send a line" box answers without taking over.
+  - While the owner holds a tab, the coordinator's messages to that tab are queued in the Host. They are never typed
+    into the owner's line, and the coordinator is never blocked.
+- **Tab summaries** (W9-I): every tab that ends leaves a short card that says what it did, its files and checks, its
+  review, and its questions. A plan's cards roll up into its Overview and its PR body.
+- **Nothing interrupts the owner** except the Inbox: approvals that are not automatic, real questions, permission
+  waits and give-ups.
+
+### The new layout and look
+
+[DESIGN.md](DESIGN.md) is the spec, and the clickable mockup is https://claude.ai/artifact/DhSiAPZxCigXD4xJBoFb9x.
+In short:
+
+```
+┌ ◆ Astera / gameful ⇅   Agents  Tasks  Plans  Inbox 2  Worktrees  Files     [Search ⌃⇧K] [+ New] │ ▮▮▯ ⚙ ┐
+│ ─────── (underline on the active page)                                                                │
+│ All consoles │ Coordinator │ Worker 2 · T4 │ Worker 3 · T5 │ Reviewer │ Planner                        │
+│ ┌ Worker 2 · T4 ── Permission ┐ ┌ Worker 3 · T5 ── Asks you ┐ ┌ Coordinator ── Watching ┐               │
+│ │ real Claude Code console    │ │ real console              │ │ real console             │  …          │
+│ └─────────────────────────────┘ └───────────────────────────┘ └──────────────────────────┘               │
+│ Finished · what each console did: [summary] [summary] [summary]                                       │
+├ ● 6 consoles · 4 working   ● 2 waiting for you   Next: Redesign 9.1 after Leaderboard API   jip 42%  ┤
+```
+
+- **Pages, not panels.** A 44px top bar with plain text tabs replaces upstream's icon rail and stacked sidebar, so
+  the consoles get the full width. The pages are:
+  - **Agents** (default): every console live, and a full-size console on click.
+  - **Tasks**: a board of every Task across plans.
+  - **Plans**: a list, then a plan page with Overview, Waves, Files, Changes and Journal.
+  - **Inbox**: Needs you, and Handled for you.
+  - **Worktrees**.
+  - **Files**.
+  - **Settings**.
+  - **More ▾**: History, How It Works, Browser, Run configs.
+- **Consoles are the real CLI** (the xterm itself), never a custom chat or input box. Slash commands, permission
+  prompts and plan mode just work. The owner types in the console. The coordinator's messages to a console the
+  owner holds are queued until they leave it.
+- **A new product look**, not upstream's:
+  - Themes Night (lime), Dusk (lavender) and Day (olive).
+  - IBM Plex Sans and JetBrains Mono, bundled.
+  - A new mark.
+  - Quiet, flat chrome.
+
+### Wave 9 contracts
+- Navigation goes only through `navigation.ts` (W9-A stubs): `openPage(id)`, `openConsole(sessionId)` (W9-H),
+  `openPlan(jobId, section?)` (W9-C), `openInbox(filter?)` (W9-D), `openWorktree(path)` (W9-J), and
+  `openSettings(group, anchor?)` (W9-E).
+- Owner hold: `ownerHold.ts` exports `isHeld(sessionId, now)`, with a 60 s idle timeout. `sessions-send` into a held
+  session answers `{ queued: true, reason: 'owner-typing', target }`, and the Host delivers queued messages in order
+  on release (W9-H).
+- `SessionSummary { sessionId, jobId?, taskId?, at, outcome, durationMs, facts, text, model }`, read through
+  `sessions-summary <id>` and the `summaries` list command. App setting `tabSummaries: boolean`, default true (W9-I).
+- Page ids `agents | tasks | plans | inbox | worktrees | files | settings` (+ `more:history|hiw|browser|runs`) in
+  `core/ui/pages.ts` (W9-A; replaces `core/ui/sidebar.ts`). Every saved `sidebarPane` maps to `agents`, except
+  `explorer`, which maps to `files`.
+- The source-regex tests listed in DESIGN.md "Pinned tests" keep their invariant. A prompt that moves pinned code
+  updates the test's path or selector in the same commit. It never deletes the pin.
+
+### Order and why
+- **9.0** was drafted early (2026-10-18): DESIGN.md and the mockup exist, and the before-screenshots still need to be taken. It is one tab and changes no code. It writes `DESIGN.md` and builds a clickable mockup artifact of the
+  layout, the Plan tab, the Inbox, New and Settings, in dark and light. The owner may comment on it; silence counts as approval, so
+  Wave 9 never waits on the owner.
+- **9.1 runs alone.** W9-A cuts `App.tsx` into `components/shell/*` and `state/*` hooks. It moves `styles.css`
+  into tokens, base and feature files, and adds the primitives. Running it alone keeps parallel tabs from
+  conflicting on `App.tsx`. Behaviour does not change: the full suite passes unchanged except for path updates in
+  pinned tests.
+- **9.2 runs as 6 parallel tabs on separate files:** shell and navigation (B), the Plan tab (C), Inbox and command
+  (D), Settings page, dialogs and New (E), the Agents page and owner hold (H), console summaries (I), the Worktrees page
+  (J), and a window per project (K). They meet only through the `navigation.ts` contract.
+- **9.3** is one tab. It walks every surface in all 4 themes at the default and the narrowest sidebar width. It
+  fixes what it finds, checks keyboard paths, and takes the screenshots.
+- **9.4** is one tab. It rewrites the README and docs from the finished app, using 9.3's screenshots.
+
+### Claude's calls (the owner can override any)
+- **Diverge from upstream** (owner, 2026-10-18). Wave 9 restructures upstream files freely. Upstream fixes are
+  cherry-picked by hand after this, and no longer merged.
+- **Behaviour stays.** Wave 9 changes where things are and how they look, not what they do. Bugs found on the way
+  get an issue and go into the next wave, unless they block the redesign.
+- **No new UI framework.** React, the existing CSS and lucide stay. shadcn primitives under `components/ui` are
+  reused where they fit. Tailwind is not spread further.
+- **The terminal engine is untouched:** xterm, the PTYs and PaneGrid splitting. Only the chrome around consoles
+  changes, and consoles show the CLI exactly as it is.
+- **README is English only** (owner, 2026-10-18). `README.{ko,ja,es}.md` are deleted. The app's i18n stays.
+
 ## Explicit non-goals / limits
 - No new terminal manager, account manager, or issue tracker.
 - No combining of provider quotas. Account rolling stays exactly as the user configured it.
@@ -271,7 +446,9 @@ hooks, Git Notes, and rewrite tracking.
   cloud) is the owner's call when W3-B starts.
 - Attribution (Wave 8): no cloud dashboard, no prompt upload, no tracking through `git mv`, `filter-repo` or
   `git replace`.
-- Upstream sync: manual (`git fetch upstream && git merge upstream/main`) whenever the owner wants it.
+- Upstream sync: until Wave 9, manual (`git fetch upstream && git merge upstream/main`). From Wave 9 on, the fork
+  diverges (owner, 2026-10-18): upstream fixes are cherry-picked by hand, never merged wholesale.
+- Redesign (Wave 9): no new UI framework, no change to the terminal engine or pane splitting, no behaviour change.
 
 ## Owner decisions (2026-10-17)
 - Flow: talk to a coordinator, which creates a planner terminal (Claude, premium). The planner produces

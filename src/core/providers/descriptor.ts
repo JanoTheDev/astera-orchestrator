@@ -33,6 +33,8 @@ export interface ProviderDescriptor extends ProviderMeta {
   /** The executable used for spawn and logout */
   cliFile: string
   logoutArgs: string[]
+  /** W7-F (#82): the CLI's own sign-in, run with this provider's config-dir env (main/accountLogin.ts). */
+  loginArgs: string[]
   /** The name of the isolation environment variable */
   configDirEnv: string
   /** The name of the home default (ambient) config dir */
@@ -120,6 +122,7 @@ export function makeDescriptors(
       ...PROVIDER_META.claude,
       cliFile: 'claude',
       logoutArgs: ['auth', 'logout'],
+      loginArgs: ['auth', 'login'],
       configDirEnv: 'CLAUDE_CONFIG_DIR',
       ambientDirName: '.claude',
       isLoggedIn: claudeIsLoggedIn,
@@ -136,6 +139,7 @@ export function makeDescriptors(
       ...PROVIDER_META.codex,
       cliFile: 'codex',
       logoutArgs: ['logout'],
+      loginArgs: ['login'],
       configDirEnv: 'CODEX_HOME',
       ambientDirName: '.codex',
       isLoggedIn: fileMarkerProbe('auth.json'),

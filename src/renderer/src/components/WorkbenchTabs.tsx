@@ -3,7 +3,7 @@ import type { SessionKind } from '../../../core/types'
 import { resolveFileIcon } from '../../../core/files/icons'
 import { useI18n } from '../i18n/I18nProvider'
 import { FileIcon } from './FileIcon'
-import { Film, Globe, Image as ImageIcon, MessageSquare, Monitor, Repeat, Terminal } from 'lucide-react'
+import { ChevronDown, Film, Globe, Image as ImageIcon, MessageSquare, Monitor, Repeat, Terminal } from 'lucide-react'
 import { endRenameOnce } from '../lib/renameOnce'
 
 /** File viewer tab. Renderer-only — unlike sessions, main is not involved. id = `file:${path}`.
@@ -148,7 +148,8 @@ export function WorkbenchTabs({
   renamingTabId,
   onRenameStart,
   onRenameEnd,
-  activeSession
+  activeSession,
+  allTabs
 }: {
   tabs: WorkbenchTab[]
   activeTabId: string | null
@@ -177,6 +178,8 @@ export function WorkbenchTabs({
    *  which is what keeps the badge off screen there. PaneGrid computes it (parseTab is its own);
    *  this component only draws what it is handed. */
   activeSession: { kind: SessionKind } | null
+  /** W7-F (#84): every tab of the workspace shown (all panes), for the overflow menu. Absent: no menu. */
+  allTabs?: WorkbenchTab[]
 }): React.JSX.Element {
   const { t } = useI18n()
   // 드래그 중인 탭과 드롭 표시 위치(insertBefore ∈ [0, n]) — 드래그하는 동안만 쓰는 상태
@@ -184,6 +187,8 @@ export function WorkbenchTabs({
   /** Which rename already ended (audit UI-2), cleared when a rename begins. */
   const renameEnd = useRef({ ended: null as string | null })
   const [dropAt, setDropAt] = useState<number | null>(null)
+  // W7-F (#84): the overflow menu's place on screen while open. Fixed, not inside .tabs, which scrolls and clips.
+  const [overflowAt, setOverflowAt] = useState<{ right: number; top: number } | null>(null)
 
   const endDrag = (): void => {
     setDragId(null)
@@ -386,6 +391,50 @@ export function WorkbenchTabs({
         +
       </button>
     </div>
+    {/* W7-F (#84): every tab of this workspace in one list, for when the strip has more than it can show */}
+    {allTabs && allTabs.length > 0 && (
+      <button
+        className="tab-overflow"
+        aria-label={t('tabs.overflow.title')}
+        title={t('tabs.overflow.title')}
+        aria-expanded={overflowAt !== null}
+        onClick={(e) => {
+          const r = e.currentTarget.getBoundingClientRect()
+          setOverflowAt((v) => (v ? null : { right: window.innerWidth - r.right, top: r.bottom }))
+        }}
+      >
+        <ChevronDown size={13} aria-hidden="true" />
+      </button>
+    )}
+    {allTabs && overflowAt && (
+      <>
+        <div className="tab-overflow-scrim" onMouseDown={() => setOverflowAt(null)} />
+        <ul
+          className="tab-overflow-menu"
+          role="menu"
+          style={{ right: overflowAt.right, top: overflowAt.top }}
+          onKeyDown={(e) => e.key === 'Escape' && setOverflowAt(null)}
+        >
+          {allTabs.map((tab, i) => (
+            <li key={tab.tabId} role="none">
+              <button
+                role="menuitem"
+                autoFocus={i === 0}
+                className={`tab-overflow-item${tab.tabId === activeTabId ? ' active' : ''}${tab.kind === 'session' && tab.exited ? ' exited' : ''}`}
+                title={tab.kind === 'file' || tab.kind === 'media' ? tab.path : tab.kind === 'browser' ? tab.url : tab.title}
+                onClick={() => {
+                  setOverflowAt(null)
+                  onSelect(tab.tabId)
+                }}
+              >
+                {tab.kind === 'session' && <span className="tab-dot" style={{ background: tab.color }} />}
+                <span className="tab-title">{tab.title}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </>
+    )}
     {/* What kind of session the active tab is. A sibling of .tabs, not a child of it: .tabs scrolls
         and clips (overflow-x: auto) once there are enough tabs to need it, and this has to stay
         readable regardless, the same reason .new-tab above is pinned with position: sticky rather

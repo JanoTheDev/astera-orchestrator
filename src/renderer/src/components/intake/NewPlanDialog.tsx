@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { Account } from '../../../../core/types'
-import type { Project } from '../../../../core/orchestration/types'
+import { DEFAULT_CONCURRENCY, MAX_CONCURRENT_WORKERS, type Project } from '../../../../core/orchestration/types'
 import { useI18n } from '../../i18n/I18nProvider'
 import { formFailure, type OrchDoor } from '../../lib/orchDoor'
 import { AccountSelect } from '../AccountSelect'
@@ -25,7 +25,9 @@ export function NewPlanDialog({
   cwd,
   accounts,
   onClose,
-  onCreated
+  onCreated,
+  concurrency: initialConcurrency,
+  initialText
 }: {
   door: OrchDoor
   /** The open project's folder: picked first. */
@@ -33,12 +35,16 @@ export function NewPlanDialog({
   accounts: Account[] | null
   onClose: () => void
   onCreated: (jobId: string) => void
+  /** W7-D (#67): the worker count typed in the form this dialog was opened from, kept across the switch. */
+  concurrency?: number
+  /** W7-B: the description the dialog opens with (the first plan of a new project). */
+  initialText?: string
 }): React.JSX.Element {
   const { t } = useI18n()
   const [tab, setTab] = useState<IntakeTab>('describe')
   const [projects, setProjects] = useState<Project[]>([])
   const [projectId, setProjectId] = useState('')
-  const [text, setText] = useState('')
+  const [text, setText] = useState(initialText ?? '')
   const [fixlist, setFixlist] = useState(false)
   const [files, setFiles] = useState<string[]>([])
   const [scope, setScope] = useState('')
@@ -49,6 +55,8 @@ export function NewPlanDialog({
   const [assignMe, setAssignMe] = useState(false)
   const [instructions, setInstructions] = useState('')
   const [account, setAccount] = useState('')
+  // shortcut: DEFAULT_CONCURRENCY until W7-B's per-project concurrency (`projects-set`) lands; then default from it
+  const [concurrency, setConcurrency] = useState(Math.min(initialConcurrency ?? DEFAULT_CONCURRENCY, MAX_CONCURRENT_WORKERS))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -89,7 +97,8 @@ export function NewPlanDialog({
     assignMe,
     instructions,
     project: project && { id: project.id, path: project.path },
-    coordinatorAccount: account
+    coordinatorAccount: account,
+    concurrency
   })
 
   const addFiles = (list: FileList | null): void => {
@@ -215,6 +224,21 @@ export function NewPlanDialog({
         <div className="field">
           <label>{t('intake.instructions')}</label>
           <textarea rows={3} value={instructions} onChange={(e) => setInstructions(e.target.value)} />
+        </div>
+        <div className="field">
+          <label htmlFor="intake-concurrency">{t('intake.concurrency')}</label>
+          <input
+            id="intake-concurrency"
+            type="number"
+            className="jobs-concurrency"
+            min={1}
+            max={MAX_CONCURRENT_WORKERS}
+            value={concurrency}
+            onChange={(e) => {
+              const n = e.target.valueAsNumber
+              setConcurrency(Number.isFinite(n) ? Math.min(Math.max(Math.trunc(n), 1), MAX_CONCURRENT_WORKERS) : 1)
+            }}
+          />
         </div>
         {accounts !== null && (
           <div className="field">

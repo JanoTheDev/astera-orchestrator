@@ -67,6 +67,8 @@ export interface HostSessions {
    *  the turn before, however late it landed, and reads `unknown`. null for a session this Host does not
    *  hold. Optional so a Host double that never waits need not have it. */
   sessionTurn?(id: string, since?: number): Promise<SessionTurn | null>
+  /** W7-A: the agent CLI's own conversation id (`session_id` of its last hook event), also after it ended; null for none. */
+  agentSessionOf?(id: string): Promise<string | null>
 }
 
 /** One terminal session's turn, as `sessionTurn` reads it. */
@@ -175,7 +177,7 @@ export function registrySessions(a: {
   accounts(): Promise<Account[]>
   /** The JSON-RPC id of a Codex turn the Host writes. Test injection; the wiring leaves it out. */
   mintId?: () => string
-}): HostSessions & Required<Pick<HostSessions, 'sessionTurn'>> {
+}): HostSessions & Required<Pick<HostSessions, 'sessionTurn' | 'agentSessionOf'>> {
   const mintId = a.mintId ?? (() => `astera-host-${randomUUID()}`)
   /** The pty behind an agent session's id — only an agent session's, so a shell tab's id is nobody. */
   /** The session's pty: the live one, else the one opened last. A roll keeps the session id and opens a new pty,
@@ -291,6 +293,15 @@ export function registrySessions(a: {
       const at = hookEventAt(payload)
       if (since !== undefined && at !== null && at < since) state = 'unknown'
       return { alive: true, state, prompt: state === 'waiting' ? hookEventPrompt(payload) : null }
+    },
+    agentSessionOf: async (id) => {
+      const last = await latestEvent(hookEventsFileIn(a.hookEventsDir, id))
+      try {
+        const sid = (JSON.parse(last?.line ?? '') as { session_id?: unknown }).session_id
+        return typeof sid === 'string' && sid !== '' ? sid : null
+      } catch {
+        return null
+      }
     },
     readChat: async (id, turns) => {
       const e = chatOf(id)

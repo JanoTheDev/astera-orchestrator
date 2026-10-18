@@ -18,7 +18,7 @@ import { chainOf } from '../../../core/orchestration/graph'
 import type { GraphBox } from '../../../core/orchestration/graphLayout'
 import { edgePath, layoutRows, NODE_H, NODE_W } from '../../../core/orchestration/graphLayout'
 import { canStopConvergence, nodeMetaOf, retryingCheckOf } from '../../../core/orchestration/nodeMeta'
-import { DEFAULT_CONCURRENCY, type Dispatch } from '../../../core/orchestration/types'
+import { DEFAULT_CONCURRENCY, MAX_CONCURRENT_WORKERS, type Dispatch } from '../../../core/orchestration/types'
 import { runningCount } from '../../../core/orchestration/running'
 import { runIdToMerge } from '../../../core/orchestration/snapshot'
 import { useI18n } from '../i18n/I18nProvider'
@@ -48,6 +48,7 @@ import { SourceChip } from './SourceChip'
 import { jobName } from '../lib/jobName'
 // W2-C plan board
 import { PlanOverview } from './plan/PlanOverview'
+import { PlanTalk } from './plan/PlanTalk'
 import { UsageStrip } from './usage/UsageStrip'
 import { TaskBoard } from './plan/TaskBoard'
 // W6-E progress view
@@ -789,6 +790,33 @@ export function RunDetail({
         <div className="detail-head">
           <h2 title={run?.objective}>{run ? jobName(run) : ''}</h2>
           <SourceChip source={run?.source} />
+          {/* W7-D (#67): workers at once, changeable while the Job runs; a lower number only holds back new starts */}
+          {run && run.outcome === 'running' && (
+            <label className="jobs-count" title={t('runDetail.concurrencyHint')}>
+              <span>{t('runDetail.concurrency')}</span>
+              <input
+                type="number"
+                min={1}
+                max={MAX_CONCURRENT_WORKERS}
+                key={run.concurrency ?? DEFAULT_CONCURRENCY}
+                defaultValue={run.concurrency ?? DEFAULT_CONCURRENCY}
+                disabled={lockedReason !== undefined}
+                aria-label={t('runDetail.concurrencyHint')}
+                style={{ width: '3.5em' }}
+                onBlur={(e) => {
+                  const n = Math.min(MAX_CONCURRENT_WORKERS, Math.max(1, Math.round(Number(e.target.value)) || 1))
+                  e.target.value = String(n)
+                  if (n === (run.concurrency ?? DEFAULT_CONCURRENCY)) return
+                  door
+                    .command('jobs-set', { id: runId, concurrency: n })
+                    .then((reply) => {
+                      if (reply.status >= 400) toast.error(replyNote(reply, t as never, t('jobs.node.failed')))
+                    })
+                    .catch(() => toast.error(t('jobs.node.failed')))
+                }}
+              />
+            </label>
+          )}
           {running > 0 && (
             <span className="jobs-count">
               <RunIcon kind="running" label={t('jobs.run.running')} />
@@ -840,6 +868,20 @@ export function RunDetail({
             </div>
             {/* W6-G: per-account usage, live subagents per tab, and the threshold */}
             <UsageStrip accounts={accounts} tasks={tasks} />
+            {/* W7-A: talk to the planner, reject, and the auto-start notice */}
+            {run && (
+              <PlanTalk
+                row={run}
+                door={door}
+                name={jobName(run)}
+                ui={{
+                  t: (key, params) => (t as (k: string, p?: Record<string, string | number>) => string)(key, params),
+                  confirm: (o) => confirmModal(o),
+                  confirmChoices: (o) => confirmModalWithChoices(o),
+                  error: (m) => void toast.error(m)
+                }}
+              />
+            )}
             {lockedReason !== undefined && <p className="jobs-disabled-reason">{lockedReason}</p>}
             {!authoringOpen && (
               <div className="detail-graph-head">

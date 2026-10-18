@@ -367,9 +367,17 @@ export async function createCore(userDataDir: string, osLocale: string): Promise
     ghostCache = ghostAccounts(await detectFor(accounts.list().map((a) => a.configDir)))
   }
   const ghostAccountList = (): Account[] => ghostCache
-  const accountEmail = (id: string): Promise<string | null> => {
+  // The renderer asks this at every login check (useAccountStatus, on focus). W7-F (#77): a folder re-logged as
+  // someone else relabels its row and loses the old person's usage reading here.
+  const accountEmail = async (id: string): Promise<string | null> => {
     const account = accounts.get(id)
-    return descriptorOf(descriptors, account).readEmail(account.configDir, os.homedir())
+    const email = await descriptorOf(descriptors, account).readEmail(account.configDir, os.homedir())
+    if (await accounts.noteEmail(id, email).catch(() => false)) {
+      usageFetcher.forget(account.configDir)
+      codexUsageFetcher.forget(account.configDir)
+      await accountUsage.forget(account.configDir)
+    }
+    return email
   }
   const accountEmailOfDir = (configDir: string, provider?: Provider): Promise<string | null> =>
     descriptorOf(descriptors, { provider }).readEmail(configDir, os.homedir())

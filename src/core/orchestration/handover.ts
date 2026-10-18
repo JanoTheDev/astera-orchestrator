@@ -221,7 +221,10 @@ export function buildPlannerBrief(a: {
     '- Read `$ASTERA_SKILLS/planner-guide.md` (how to cut a plan into Tasks), then `astera help`.',
     '',
     'WHAT YOU MAY NOT DO',
-    '- Do not edit, create or delete files, run builds, or commit. Read files and run read-only commands only.',
+    // W7-E (#69): the planner guide's existing.md (and an audit's audit.md) live in this one folder; nothing else is written
+    `- Write files only in this Job's inputs folder, \`$ASTERA_PROFILE_DIR/plans/${a.jobId}/inputs/\` (create it if it is`,
+    '  missing): `existing.md` always, and `audit.md` when the objective asks for an audit. Every other file stays',
+    '  read-only: do not edit, create or delete it, run builds, or commit. Run read-only commands only.',
     '- Do not start workers or runs. Astera refuses `worker-start`, `jobs run`, `run-start`, merges and every',
     '  other command that starts work when it comes from this session.',
     '',

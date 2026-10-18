@@ -216,6 +216,8 @@ export interface CoordinatorStartContext {
     rollAccountIds: string[]
     /** The coordinator role's model (W1-A). Absent: the CLI's default. */
     model?: string
+    /** W7-A: a planner resumed in its own conversation (`StartCoordinatorArgs.resume`). */
+    resumeSessionId?: string
   }): Promise<{ id: string }>
   log(m: string): void
   /** W1-A: what the coordinator role's model is resolved from — the Run's Job override, the app's

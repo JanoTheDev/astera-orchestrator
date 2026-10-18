@@ -8,7 +8,7 @@
 import { collectChanges, rangesFor } from '../changedFiles'
 import type { OrchServerDeps } from '../command'
 import { PLANNER_COMMANDS, planFieldsFromArgs, validatePlan } from '../planner'
-import { REPLAN_FOLLOW_UPS_MAX, cancelRemainingTask, editRemainingTask, notStarted, replanJobOf, replanOn, runTasks } from '../replan'
+import { REPLAN_FOLLOW_UPS_MAX, cancelRemainingTask, editRemainingTask, notStarted, replanAccountOf, replanJobOf, replanOn, runTasks } from '../replan'
 import { isIntegrationTask } from '../integrate'
 import { jobNameOf } from '../jobName'
 import type { OrchState } from '../state'
@@ -100,6 +100,8 @@ export function buildReplanBrief(a: {
   done: DoneTask[]
   running: Pick<Task, 'id' | 'title'>[]
   left: Pick<Task, 'id' | 'title' | 'deps' | 'affectedPaths'>[]
+  /** W7-A: the owner's feedback this replan was started for, at once rather than at a wave boundary. */
+  feedback?: string
 }): string {
   const reviewOf = (t: DoneTask['task']): string => {
     if (!t.reviewRequested) return 'not reviewed'
@@ -108,7 +110,9 @@ export function buildReplanBrief(a: {
   }
   const completion = a.mode === 'completion'
   return [
-    completion
+    a.feedback !== undefined
+      ? 'You are the PLANNER for one Job in Astera, REPLANNING NOW because the owner sent feedback while the plan runs.'
+      : completion
       ? 'You are the PLANNER for one Job in Astera, doing its FINAL CHECK. Every Task has completed.'
       : `You are the PLANNER for one Job in Astera, REPLANNING before wave ${a.wave + 1} starts.`,
     'You analyse and adjust the plan. You do not implement anything. No Task starts until you finish.',
@@ -135,6 +139,16 @@ export function buildReplanBrief(a: {
       ? a.left.map((t) => `- ${t.id} (${t.title})${t.deps.length ? ` waits for ${t.deps.join(', ')}` : ''}${t.affectedPaths?.length ? `; paths ${t.affectedPaths.join(', ')}` : ''}`)
       : ['- (nothing)']),
     '',
+    // W7-A
+    ...(a.feedback !== undefined
+      ? [
+          'OWNER FEEDBACK',
+          a.feedback.trim(),
+          'Apply it to the Tasks that have not started. If it is about a running or completed Task, change nothing',
+          'there: say so in your summary, so the owner can stop that Task from its card.',
+          ''
+        ]
+      : []),
     'BEFORE YOU DECIDE',
     '- Read `$ASTERA_SKILLS/planner-guide.md`, section "Replanning". Read the code the done Tasks changed:',
     `  \`astera runs-changed-files --id ${a.runId} --task <taskId> --json\`, and the files themselves.`,
@@ -243,23 +257,35 @@ export async function replanCommand(deps: OrchServerDeps, caller: Caller, cmd: s
   if (cmd === 'jobs-replan') {
     // The driving loop asks at a boundary; a person may too. Never another agent: a replan holds the whole Job.
     if (fromAgent || caller.role === 'mcp') return denied('a replan is started by Astera at a wave boundary, or by the person')
-    if (!replanOn(job)) return conflict(`job ${jobId} does not replan: it is not planned, is a schedule, has no coordinator account, or has replan off`)
+    // W7-A: the owner's feedback replans a planned Job at once, also with waves replanning off
+    const feedback = str(args.feedback) ?? undefined
+    const feedbackAt = feedback !== undefined ? (str(args.feedbackAt) ?? now) : undefined
+    const plannedRun = job.plannerSessionIds !== undefined && job.schedule === undefined && replanAccountOf(job) !== undefined
+    if (feedback !== undefined ? !plannedRun : !replanOn(job))
+      return conflict(`job ${jobId} does not replan: it is not planned, is a schedule, has no account to plan on, or has replan off`)
     if (job.replanning) return conflict(`job ${jobId} is replanning already`)
     if (!deps.startCoordinator) return conflict('starting a planner is not available in this build')
     const runId = str(args.run) ?? s.runs.filter((r) => r.jobId === jobId).at(-1)?.id
     if (!runId || !s.runs.some((r) => r.id === runId && r.jobId === jobId)) return notFound(`no run of job ${jobId}${runId ? `: ${runId}` : ''}`)
-    const mode = args.mode === 'completion' ? 'completion' : 'wave'
     const own = s.tasks.filter((t) => t.runId === runId)
+    // W7-A: a feedback replan is at no boundary of its own: it re-records the Run's last boundary, so the waves open and
+    // replan as they would have (waveOpen, replansDue)
+    const last = feedback !== undefined && job.lastReplan?.runId === runId ? job.lastReplan : undefined
+    const mode = last?.mode ?? (args.mode === 'completion' ? 'completion' : 'wave')
     const mark: ReplanMark = {
       runId,
       mode,
-      wave: typeof args.wave === 'number' ? args.wave : 0,
-      done: own.filter((t) => t.status === 'completed').length
+      wave: last?.wave ?? (typeof args.wave === 'number' ? args.wave : 0),
+      done: last?.done ?? own.filter((t) => t.status === 'completed').length
     }
     // The hold and the mark in one commit: from here no Task of the Job starts (waveOpen, dispatchHold).
     const before = Object.fromEntries(own.map((t) => [t.id, t.updatedAt]))
-    await setJob(jobId, (j) => ({ ...j, dispatchHold: true, replanning: { ...mark, startedAt: now, before, ...(j.dispatchHold ? { heldBefore: true as const } : {}) } }))
-    const accountId = job.coordinatorAccountId!
+    await setJob(jobId, (j) => ({
+      ...j,
+      dispatchHold: true,
+      replanning: { ...mark, startedAt: now, before, ...(j.dispatchHold ? { heldBefore: true as const } : {}), ...(feedbackAt !== undefined ? { feedbackAt } : {}) }
+    }))
+    const accountId = replanAccountOf(job)!
     let sessionId: string
     try {
       const parts = await briefParts(deps, deps.getState(), runId)
@@ -269,7 +295,7 @@ export async function replanCommand(deps: OrchServerDeps, caller: Caller, cmd: s
           cwd: job.cwd,
           accountId,
           role: 'planner',
-          brief: buildReplanBrief({ job, runId, mode, wave: mark.wave, accountId, followUps: job.replanFollowUps ?? 0, ...parts })
+          brief: buildReplanBrief({ job, runId, mode, wave: mark.wave, accountId, followUps: job.replanFollowUps ?? 0, ...parts, ...(feedback !== undefined ? { feedback } : {}) })
         })
       ).sessionId
     } catch (e) {
@@ -302,9 +328,13 @@ export async function replanCommand(deps: OrchServerDeps, caller: Caller, cmd: s
     : followUps > REPLAN_FOLLOW_UPS_MAX
       ? `the final check wants a follow-up wave beyond ${REPLAN_FOLLOW_UPS_MAX}: ${line}`
       : undefined
-  const { startedAt: _s, sessionId, heldBefore, cancelled: _c, before: _b, ...mark } = r
+  const { startedAt: _s, sessionId, heldBefore, cancelled: _c, before: _b, feedbackAt, ...mark } = r
   await setJob(jobId, ({ replanning: _r, dispatchHold: _h, ...j }) => ({
     ...j,
+    // W7-A: the summary is what the planner changed for the owner's feedback
+    ...(feedbackAt !== undefined && j.feedback
+      ? { feedback: j.feedback.map((f) => (f.at === feedbackAt && f.phase === 'run' && f.changes === undefined ? { ...f, changes: [escalated ?? line] } : f)) }
+      : {}),
     ...(escalated || heldBefore ? { dispatchHold: true as const } : {}),
     ...(followUps > 0 ? { replanFollowUps: followUps } : {}),
     lastReplan: { ...mark, at: now, summary: line, ...(escalated ? { escalated } : {}) }

@@ -265,6 +265,18 @@ export function createJob(
   now: string
 ): Res<Job> {
   if (!a.objective.trim()) return err('objective is required')
+  // W7-B: what the Job leaves unset, its project's settings fill (types.ts `Project`); PROJECT_DEFAULTS stay unwritten
+  const project = a.projectId ? s.projects.find((p) => p.id === a.projectId) : undefined
+  if (project) {
+    a = {
+      ...a,
+      concurrency: a.concurrency ?? project.concurrency,
+      replan: a.replan ?? project.replan,
+      ...(a.convergence && a.convergence.maxReviewRounds === undefined && project.reviewRounds !== undefined
+        ? { convergence: { ...a.convergence, maxReviewRounds: project.reviewRounds } }
+        : {})
+    }
+  }
   const job: Job = {
     id: newId('job'),
     objective: a.objective,
@@ -620,6 +632,13 @@ export function createTask(
   const missing = a.deps.filter((d) => !known.has(d))
   if (missing.length) return gone(`unknown deps: ${missing.join(',')}`)
   if (a.parentId && !known.has(a.parentId)) return gone(`unknown parent: ${a.parentId}`)
+  // W7-B: a Task that names no check is validated with its project's test command, when the project has one
+  if (!a.validateConfigId && !a.validateConfigIds?.length) {
+    const jobId = a.jobId ?? s.runs.find((r) => r.id === a.runId)?.jobId
+    const projectId = s.jobs.find((j) => j.id === jobId)?.projectId
+    const test = projectId ? s.projects.find((p) => p.id === projectId)?.testConfigId : undefined
+    if (test) a = { ...a, validateConfigIds: [test] }
+  }
   const task: Task = {
     id: newId('tsk'),
     // 없는 칸은 싣지 않는다 — 소유가 둘 중 하나라는 것이 값으로도 보여야 한다

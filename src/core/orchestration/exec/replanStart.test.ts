@@ -5,6 +5,7 @@ import { handleCommand, type OrchServerDeps } from '../command'
 import { emptyState, type OrchState } from '../state'
 import { deriveActivity, noticeOf, type ActivityEvent } from '../activity'
 import type { Task } from '../types'
+import { replanOn, replansDue } from '../replan'
 
 const NOW = '2026-10-18T00:00:00.000Z'
 const LATER = '2026-10-18T01:00:00.000Z'
@@ -278,5 +279,65 @@ describe('--replan', () => {
     expect((await r.person('jobs-plan', { id: jobId, replan: 'off' })).status).toBe(200)
     expect(job(r).replan).toBe('off')
     expect((await r.person('run-create', { objective: 'o', cwd: '/repo', replan: 'sometimes' })).status).toBe(400)
+  })
+})
+
+describe('W7-E', () => {
+  it('#70: a planned Job reviews every Task, from its planner and its coordinator, unless a Task opts out', async () => {
+    const r = rig()
+    const made = await r.person('run-create', { objective: 'ship', cwd: '/repo', coordinatorAccount: 'acc1', auto: true })
+    const jobId = (made.body as { id: string }).id
+    await r.person('jobs-plan', { id: jobId })
+    expect(job(r)).toMatchObject({ review: true, convergence: {}, plannerAccountId: 'acc1' })
+    const planner = r.as('ses-planner-1')
+    expect(((await planner('task-create', { run: jobId, ...plan('A') })).body as Task).reviewRequested).toBe(true)
+    expect(((await planner('task-create', { run: jobId, ...plan('B', { noReview: true }) })).body as Task).reviewRequested).toBeUndefined()
+    await r.person('run-start', { run: jobId })
+    const runId = r.state().runs[0].id
+    expect(r.state().tasks.filter((t) => t.runId === runId && t.title === 'A').every((t) => t.reviewRequested === true)).toBe(true)
+    const added = await r.as('ses-coordinator')('task-create', { run: runId, account: 'acc1', spec: 'x' })
+    expect((added.body as Task).reviewRequested).toBe(true)
+  })
+
+  it('#70: --no-review at jobs-plan or jobs-create leaves review off', async () => {
+    const r = rig()
+    const made = await r.person('run-create', { objective: 'ship', cwd: '/repo', coordinatorAccount: 'acc1', auto: true })
+    const jobId = (made.body as { id: string }).id
+    await r.person('jobs-plan', { id: jobId, noReview: true })
+    expect(job(r).review).toBe(false)
+    const t = (await r.as('ses-planner-1')('task-create', { run: jobId, ...plan('A') })).body as Task
+    expect(t.reviewRequested).toBeUndefined()
+    const r2 = rig()
+    const c = await r2.person('jobs-create', { objective: 'ship', cwd: '/repo', coordinatorAccount: 'acc1', noReview: true })
+    expect(c.status).toBe(200)
+    await r2.person('jobs-plan', { id: (c.body as { id: string }).id })
+    expect(r2.state().jobs[0].review).toBe(false)
+  })
+
+  it('#74: a plan with no coordinator replans and gets its final check on the planner account', async () => {
+    const r = rig()
+    const made = await r.person('run-create', { objective: 'ship', cwd: '/repo', auto: true })
+    const jobId = (made.body as { id: string }).id
+    expect((await r.person('jobs-plan', { id: jobId, account: 'acc1' })).status).toBe(200)
+    await r.as('ses-planner-1')('task-create', { run: jobId, ...plan('A') })
+    expect((await r.person('run-start', { run: jobId })).status).toBe(200)
+    const runId = r.state().runs[0].id
+    expect(replanOn(job(r))).toBe(true)
+    const s = r.state()
+    r.set({ ...s, tasks: s.tasks.map((t) => (t.runId === runId ? { ...t, status: 'completed' as const } : t)) })
+    expect(replansDue(r.state(), () => true)).toMatchObject([{ runId, mode: 'completion' }])
+    expect((await r.person('jobs-replan', { id: jobId, run: runId, mode: 'completion', wave: 1 })).status).toBe(200)
+    expect(r.starts.at(-1)!.accountId).toBe('acc1')
+  })
+
+  it('#74: a state read back from disk does not report the same final check twice', async () => {
+    const r = rig()
+    const { jobId, runId } = await approved(r)
+    const s = r.state()
+    r.set({ ...s, tasks: s.tasks.map((t) => (t.runId === runId ? { ...t, status: 'completed' as const } : t)) })
+    await r.person('jobs-replan', { id: jobId, run: runId, mode: 'completion', wave: 3 })
+    await r.as('ses-planner-2')('jobs-replan-done', { id: jobId, summary: 'meets the objective' })
+    const after = r.state()
+    expect(deriveActivity(after, JSON.parse(JSON.stringify(after)))).toEqual([])
   })
 })

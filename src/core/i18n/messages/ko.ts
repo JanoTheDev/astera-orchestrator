@@ -1027,8 +1027,23 @@ export const ko = {
   'account.add.adding': '추가 중…',
   'account.add.labelPlaceholder': '예: 회사 계정',
   'account.add.copySettingsLabel': '기본 계정에서 설정 가져오기',
-  'account.add.loginHintClaude': '로그인은 세션 터미널에서 /login으로 진행합니다.',
-  'account.add.loginHintCodex': '로그인은 세션 터미널에서 codex 로그인 안내에 따라 진행합니다.',
+  'account.add.loginHintClaude': '추가하면 Astera가 이 계정의 로그인 링크를 띄웁니다.',
+  'account.add.loginHintCodex': '추가하면 Astera가 이 계정의 codex 로그인 링크를 띄웁니다.',
+  // W7-F (#82): sign an account in from the app
+  'account.rename.label': '계정 이름',
+  'account.rename.hint': '두 번 눌러 이름 바꾸기',
+  'account.signIn.button': '로그인',
+  'account.signIn.title': '{label} 로그인',
+  'account.signIn.starting': '로그인을 시작하는 중…',
+  'account.signIn.body': '이 링크를 열어 로그인하세요. 로그인되면 이 창은 저절로 닫힙니다.',
+  'account.signIn.open': '브라우저에서 열기',
+  'account.signIn.copy': '복사',
+  'account.signIn.copied': '로그인 링크를 복사했습니다.',
+  'account.signIn.codeLabel': '브라우저에 나온 코드 (나올 때만)',
+  'account.signIn.codeSubmit': '코드 보내기',
+  'account.signIn.done': '{label} 로그인됨.',
+  'account.signIn.failed': '로그인 실패: {detail}',
+  'account.signIn.timeout': '로그인 시간이 지났습니다. 다시 로그인을 누르세요.',
   'account.add.syncFailed': '계정은 추가됐지만 설정 가져오기에 실패했습니다: {detail}',
   'account.import.title': '계정 가져오기',
   'account.import.button': '가져오기',
@@ -1674,6 +1689,9 @@ export const ko = {
   'jobs.state.failed': '실패했다',
   'jobs.state.blocked': '사람을 기다린다',
   'jobs.run.running': '도는 중',
+  // W7-D (#67)
+  'runDetail.concurrency': '동시 워커 수',
+  'runDetail.concurrencyHint': '숫자를 낮추면 새 시작만 늦춰지고, 이미 도는 워커는 계속 돕니다.',
   // 얽힌 Run 의 줄에 붙는 글자와 그 툴팁. Gate 의 주황 `!` 를 빌리지 않는 이유는 뜻이
   // 다르기 때문이다 — 막힌 것이 아니라 나눠 쓰는 중이고, 기다리는 사람이 없다
   // Run 을 물러나게 하기. **자동 정리(store.ts 의 TTL)가 손대지 못하는 것을 위해 있다** — 그것은
@@ -1724,6 +1742,25 @@ export const ko = {
   'jobs.run.deleteWorktrees': '워크트리 폴더 삭제 ({count}개)',
   'jobs.run.deleteWorktreesHint': '병합하지 않고 지우면 합치지 않은 커밋이 함께 사라집니다',
   'jobs.run.delete': '작업 지우기',
+  // W7-A plan feedback
+  'plan.talk.title': "플래너와 대화",
+  'plan.talk.input': "플래너에게 보낼 메시지",
+  'plan.talk.placeholder': "플래너에게 바꿀 점을 알려주세요 (Ctrl+Enter로 전송)",
+  'plan.talk.send': "보내기",
+  'plan.talk.waiting': "플래너를 기다리는 중…",
+  'plan.talk.duringRun': "실행 중에 보냄",
+  'plan.talk.autoStarted': "계획이 자동으로 시작되었습니다: 작업 {count}개",
+  'plan.talk.stop': "중지",
+  'plan.talk.reject': "거절",
+  'plan.talk.reason': "거절 사유",
+  'plan.talk.reasonPlaceholder': "사유 (선택)",
+  'plan.talk.cancel': "취소",
+  'plan.talk.failed': "플래너에게 보내지 못했습니다",
+  'plan.talk.rejectBody': "\"{objective}\" 계획을 거절할까요? 사유와 함께 보관되고 플래너는 종료됩니다. 보관 해제로 되돌릴 수 있습니다.",
+  'plan.talk.rejectFailed': "계획을 거절하지 못했습니다",
+  'plan.autoApprove.label': "묻지 않고 계획 시작 (자동 승인)",
+  'plan.autoApprove.hint': "성립하는 계획은 승인 단계 없이 바로 시작됩니다.",
+  'plan.autoApprove.failed': "자동 승인을 바꾸지 못했습니다",
   // W1-C plan lifecycle
   'jobs.lifecycle.rename': '이름 바꾸기',
   'jobs.lifecycle.renameFailed': '이름을 바꾸지 못했습니다',
@@ -1966,6 +2003,8 @@ export const ko = {
   'intake.assignMe': '고른 이슈를 나에게 할당',
   'intake.instructions': '추가 지시 (출처보다 우선)',
   'intake.create': '만들고 계획하기',
+  // W7-D (#67)
+  'intake.concurrency': '동시 워커 수 (1–10)',
   'jobs.source.open': '소스에서',
   // W6-H delivery
   'delivery.label': '계획이 끝나면:',
@@ -2333,6 +2372,7 @@ export const ko = {
   'plan.card.moreFiles': '+{n}개 더',
   'plan.card.fewerFiles': '접기',
   'plan.card.answers': '질문 {n}개에 답함',
+  'plan.card.answers.one': '질문 {n}개에 답함',
   'plan.card.focus': '탭 열기',
   'plan.files.empty': '건드리는 파일을 적은 Task 가 없습니다',
   'plan.files.overlap': 'Task {n}개',
@@ -2395,6 +2435,9 @@ export const ko = {
   'command.done.planned': '{project} 에 계획을 만들고 플래너를 시작했다',
   'command.done.switched': '{plan} 을 열었다',
   'command.done.approved': '{plan} 을 승인했다',
+  // W7-A
+  'command.done.feedback': '{plan} 의 수정 요청을 플래너에 보냈다',
+  'command.done.rejected': '{plan} 을 거절했다',
   'command.done.stopped': '{plan} 을 멈췄다',
   'command.done.resumed': '{plan} 을 다시 시작했다',
   'command.done.sent': '{session} 에 보냈다',
@@ -2436,6 +2479,14 @@ export const ko = {
   'settings.voice.saveFailed': '음성 설정을 저장하지 못했다: {detail}',
   'shortcut.command.open': '명령 창 열기',
   'shortcut.command.talk': '명령 창에 말하기 (눌러서 시작, 다시 눌러 보내기)',
+  // W7-F (#84)
+  'shortcut.tabs.switcher': '탭 빠르게 전환',
+  'tabs.switcher.placeholder': '탭, 플랜, 작업 이름으로 찾기',
+  'tabs.switcher.empty': '맞는 탭이 없습니다',
+  'tabs.overflow.title': '이 워크스페이스의 모든 탭',
+  'settings.autoCloseTabs.label': '끝난 플랜의 탭 자동으로 닫기',
+  'settings.autoCloseTabs.hint': '플랜이 끝나거나 보관되면 끝난 세션 탭을 닫고, 다시 계획하면 이전 플래너 탭을 닫습니다. 기록은 History와 워크스페이스 트리에 남습니다. 플랜에 속하지 않은 세션의 탭은 직접 닫을 때까지 남습니다.',
+  'settings.autoCloseTabs.saveFailed': '탭 자동 닫기 설정을 저장하지 못했습니다: {detail}',
   // W6-F
   'shortcut.workspace.project': '프로젝트 작업 공간 {n} 열기'
 } as const

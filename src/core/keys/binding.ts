@@ -37,6 +37,8 @@ export type ActionId =
   // W3-B command bar
   | 'command.open'
   | 'command.talk'
+  // W7-F (#84): the quick tab switcher
+  | 'tabs.switcher'
   // W6-F: open the Nth project workspace
   | `workspace.project${WorkspaceSlot}`
 
@@ -233,6 +235,14 @@ export function makeActions(platform: string): readonly ActionSpec[] {
       id: 'command.talk',
       defaults: [`${M}+Shift+M`],
       descKey: 'shortcut.command.talk',
+      yieldsToTerminal: false
+    },
+    // W7-F (#84): the quick tab switcher. P for the "go to anything" habit; Ctrl+Shift+P is no readline key, no DevTools
+    // accelerator and no other default here. Not yielded: it is how a person leaves a terminal for another tab.
+    {
+      id: 'tabs.switcher',
+      defaults: [`${M}+Shift+P`],
+      descKey: 'shortcut.tabs.switcher',
       yieldsToTerminal: false
     },
     // W6-F: Ctrl+Alt+1…9 opens the Nth project workspace. Ctrl, not `${M}`, everywhere, as the owner asked; Ctrl+Alt

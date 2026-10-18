@@ -59,7 +59,7 @@ import { CLI_PROTOCOL } from './cliOutput'
 import { collectChanges, rangesFor } from './changedFiles'
 import type { ChangedFile } from '../git/changes'
 import type { SwitchedCommand } from './cliAgentContext'
-import { findProject, findProjectByPath, findProjectContaining, jobInProject } from './projects'
+import { findProject, findProjectByPath, findProjectContaining, jobInProject, setProjectSettings, type ProjectSettingsPatch } from './projects'
 import { stateWord } from './cliHuman'
 import { checksForRun } from './runChecks'
 import { completionForRun } from './runCompletion'
@@ -117,10 +117,10 @@ import { ghFailureSentence, type GhFailed, type GhRunner } from '../github/gh'
 import { failedLogTail, readPrChecks, rerunFailed } from '../github/checks'
 import { prForBranch } from '../github/prs'
 import { ISSUE_JOB_ASSOCIATIONS, ISSUES_PER_CALL_MAX, assignIssueToMe, issueNumbersOf, readIssue, type GhIssue } from '../github/issue'
-import { GITHUB_SOURCE_ID, issuesContext } from '../github/issueSource'
+import { GITHUB_SOURCE_ID, issuesContext, issuesTitleOf } from '../github/issueSource'
 // W6-A intake
 import { SOURCED_OBJECTIVE_MAX } from '../sources/objective'
-import { intakeChanges, intakeObjective, intakeOf, needsInputs } from './intake'
+import { intakeChanges, intakeObjective, intakeOf, intakeTitle, needsInputs } from './intake'
 import { fillFromCommits, type CommitSummary } from '../github/fill'
 // W2-D GitHub links
 import {
@@ -155,6 +155,7 @@ import { JOB_SOURCE, SOURCE_COMMANDS, createFromContext, sourcesCommand, type Jo
 // W6-D wave replanning
 import { replanJobOf, waveOpen } from './replan'
 import { REPLAN_COMMANDS, replanCommand, replanRefusal } from './exec/replanStart'
+import { feedbackCommand, isFeedbackCommand } from './exec/plannerFeedback'
 export { JOB_SOURCE } from './commandSources'
 import { pluginIdOfCheck, type CompletionCheckInput, type PluginCheckAnswer } from './pluginChecks'
 import { checkIdsOf, pluginCheckRefusal, tasksOfNextRun } from './commandChecks'
@@ -431,6 +432,9 @@ export interface OrchServerDeps {
     /** W2-A: `'planner'` starts the Job's planner instead (exec/plannerStart.ts), and `runId` is then the
      *  Job's id: a planner works before its Job has a Run. */
     role?: 'planner'
+    /** W7-A: a planner only. The agent CLI's own conversation id (`agentSessionOf`) to resume instead of starting a
+     *  new conversation; the brief is then the next prompt in that conversation. */
+    resume?: string
   }): Promise<{ sessionId: string }>
   /** Stops a coordinator session `startCoordinator` opened, when the hand-over finds another one
    *  already in the Run's slot (Task 1 fix round 1, I2). Optional: without it that session is left
@@ -640,6 +644,9 @@ export interface OrchServerDeps {
    *  `enter` (ptyDriver's convention), one delivery at a time per session. A write to one that has
    *  ended is dropped by the registry, as every write is. */
   sendSession?(id: string, text: string, enter: boolean): Promise<void>
+  /** W7-A: the agent CLI's own conversation id of a terminal session, by the app's session id, read off its hook events
+   *  (`session_id`): what `claude --resume` takes. null when none was recorded. Answered after the session ended too. */
+  agentSessionOf?(id: string): Promise<string | null>
   /** A chat session's last `turns` turns, oldest first, from the transcript or rollout file its agent
    *  CLI writes (core/sessions/chatRead.ts). Host-injected, beside the three above. */
   readChat?(id: string, turns: number): Promise<ChatTurn[]>
@@ -733,6 +740,14 @@ export interface OrchServerDeps {
    *  `deliverByPush`, with `checks` (the run configurations) as the validation. **Only the Host injects it**; absent,
    *  `run-deliver` on a push project answers 409. */
   deliverPush?(a: PushDelivery & { checks: string[] }): Promise<PushResult>
+  // ── W7-B project settings kept in the app's own files ──
+  /** Saves `command` as the project's test run configuration in run-configs.json and answers its id; null removes it
+   *  and answers null. **Only the app injects it** (it is that file's one writer); the Host forwards it to an attached
+   *  app, and without one `projects-set --test-command` answers 409. */
+  saveTestCommand?(projectPath: string, command: string | null): Promise<string | null>
+  /** Sets the folder's default account (core/projects/settings.ts, the New Session dialog's preselection); null clears
+   *  it. Only the app injects it, like saveTestCommand. */
+  setProjectAccount?(projectPath: string, accountId: string | null): Promise<void>
 }
 
 /** A plugin as the early refusal reads it (plugin Phase 5 C7). */
@@ -776,6 +791,13 @@ export interface SessionCreate {
 
 type Reply = { status: number; body: unknown }
 const okBody = (body: unknown): Reply => ({ status: 200, body })
+/** W7-E (#80): what a plan whose project has no remote says instead of a pull request. */
+const noRemoteNote = (branch: string): string => `This project has no remote; the plan's work is on branch ${branch}`
+/** W7-E: whether the Job that owns `id` (a Job, or a Run of it) reviews its Tasks by default (Job.review). */
+const reviewDefaultOf = (s: OrchState, id: string): boolean => {
+  const run = s.runs.find((r) => r.id === id)
+  return (run ? jobOf(s, run) : s.jobs.find((j) => j.id === id))?.review === true
+}
 /** An optional integer flag within [min, max]; the error text when it is not. */
 const boundedInt = (v: unknown, name: string, min: number, max: number, fallback: number): number | string => {
   if (v === undefined) return fallback
@@ -1064,6 +1086,8 @@ const COORDINATOR_ONLY = new Set([
   'tasks-dispatch',
   // W1-C: a worker does not rename, archive or bring back the plan it works for
   'jobs-rename',
+  // W7-D: nor change how many workers it runs
+  'jobs-set',
   // W2-A: nor start a planner
   'jobs-plan',
   'jobs-archive',
@@ -1082,11 +1106,56 @@ const COORDINATOR_ONLY = new Set([
 const SESSION_TASK_CMDS = new Set(['session-task-start', 'session-task-complete', 'session-task-cancel'])
 
 const str = (v: unknown): string | null => (typeof v === 'string' && v.length > 0 ? v : null)
+/** W7-A: an on/off flag (`--auto-approve on`); true/false too. null for anything else. */
+const onOff = (v: unknown): boolean | null =>
+  v === 'on' || v === true || v === 'true' ? true : v === 'off' || v === false || v === 'false' ? false : null
 
 /** 1 이상의 정수만 통과. CLI 는 숫자를 문자열로 넘길 수도 있으므로 둘 다 받는다. */
 const posInt = (v: unknown): number | null => {
   const n = typeof v === 'string' ? Number(v) : typeof v === 'number' ? v : NaN
   return Number.isInteger(n) && n >= 1 ? n : null
+}
+
+/** W7-B: `projects-set`'s settings flags, read into a patch (an empty value is null: cleared) plus the two the app keeps
+ *  in its own files. `--test-config` names an existing run configuration; `--test-command` saves one. */
+function projectSettingsArgs(
+  args: Record<string, unknown>
+): { patch: ProjectSettingsPatch; testCommand?: string; account?: string } | { error: string } {
+  const patch: ProjectSettingsPatch = {}
+  const cleared = (v: unknown): boolean => v === '' || v === null
+  const flag = (v: unknown): boolean | null | undefined =>
+    v === undefined ? undefined : v === true || v === 'true' || v === 'on' ? true : v === false || v === 'false' || v === 'off' ? false : null
+  const autoApprove = flag(args.autoApprove)
+  if (autoApprove === null) return { error: '--auto-approve must be on or off' }
+  if (autoApprove !== undefined) patch.autoApprove = autoApprove ? true : null
+  for (const [key, name] of [['concurrency', '--concurrency'], ['reviewRounds', '--review-rounds']] as const) {
+    const v = args[key]
+    if (v === undefined) continue
+    if (cleared(v)) {
+      patch[key] = null
+      continue
+    }
+    const n = posInt(v)
+    if (n === null) return { error: `${name} must be an integer >= 1` }
+    patch[key] = n
+  }
+  if (args.replan !== undefined) {
+    if (cleared(args.replan)) patch.replan = null
+    else if (args.replan === 'waves' || args.replan === 'off') patch.replan = args.replan
+    else return { error: '--replan must be waves or off' }
+  }
+  if (args.testConfig !== undefined) {
+    if (typeof args.testConfig !== 'string') return { error: '--test-config needs a run configuration id' }
+    patch.testConfigId = args.testConfig.trim() || null
+  }
+  for (const key of ['testCommand', 'account'] as const)
+    if (args[key] !== undefined && typeof args[key] !== 'string') return { error: `--${key === 'testCommand' ? 'test-command' : 'account'} needs a value` }
+  if (args.testCommand !== undefined && args.testConfig !== undefined) return { error: 'give --test-command or --test-config, not both' }
+  return {
+    patch,
+    ...(args.testCommand !== undefined ? { testCommand: (args.testCommand as string).trim() } : {}),
+    ...(args.account !== undefined ? { account: (args.account as string).trim() } : {})
+  }
 }
 
 // W6-C: a Job's `--concurrency`, a whole number of 1 or more, clamped to MAX_CONCURRENT_WORKERS
@@ -1430,6 +1499,9 @@ export async function handleCommand(
   if (typeof replanNo === 'string') return denied(replanNo)
   const plannerNo = replanNo === null ? null : plannerRefusal(deps.getState(), caller.sessionId, cmd, args)
   if (plannerNo !== null) return denied(plannerNo)
+  // W7-A: talking to the planner, rejecting a plan, auto-approve; and a planner's cancel of a Task of its plan
+  if (isFeedbackCommand(deps.getState(), caller.sessionId, cmd))
+    return feedbackCommand(deps, caller, cmd, args, caller.sessionId !== '' && caller.sessionId !== APP_CALLER && caller.sessionId !== HOST_CALLER, handleCommand)
   if (REPLAN_COMMANDS.has(cmd) || (cmd === 'task-update' && replanJobOf(deps.getState(), caller.sessionId)))
     return replanCommand(deps, caller, cmd, args, caller.sessionId !== '' && caller.sessionId !== APP_CALLER && caller.sessionId !== HOST_CALLER)
   // The job-source commands (plugin Phase 4), in a module of their own; jobs-create-from-source comes back here
@@ -1724,7 +1796,7 @@ export async function handleCommand(
       try {
         const created = await deps.makeRunWorktree({
           repoPath: job.cwd,
-          name: nameForRun({ id: job.id, objective: job.objective })
+          name: nameForRun({ id: job.id, objective: jobNameOf(job) }) // W7-D (#68): named as the plan is
         })
         const recorded = setRunWorktree(withWorktree, target.id, created)
         if (!recorded.ok) return bad(recorded.error)
@@ -2077,18 +2149,42 @@ export async function handleCommand(
     case 'projects-set': {
       const id = str(args.id)
       if (!id) return bad('--id is required')
-      if (fromAgentSession || caller.role === 'mcp') return denied("a project's delivery is set by the person, in Astera or at their own shell")
+      if (fromAgentSession || caller.role === 'mcp') return denied("a project's settings are set by the person, in Astera or at their own shell")
       const delivery = parseDelivery(args.delivery)
       if (delivery === null) return bad('--delivery must be pr or push')
       const branchArg = args.deliveryBranch
       if (branchArg !== undefined && typeof branchArg !== 'string') return bad('--delivery-branch needs a value')
-      if (delivery === undefined && branchArg === undefined) return bad('nothing to set: give --delivery or --delivery-branch')
+      // W7-B: the rest of the project's settings. An empty value clears one, back to PROJECT_DEFAULTS
+      const settings = projectSettingsArgs(args)
+      if ('error' in settings) return bad(settings.error)
+      const { testCommand, account } = settings
+      if (delivery === undefined && branchArg === undefined && Object.keys(settings.patch).length === 0 && testCommand === undefined && account === undefined)
+        return bad('nothing to set: give --delivery, --delivery-branch, --auto-approve, --test-command, --test-config, --concurrency, --review-rounds, --replan or --account')
+      const project = findProject(s, id)
+      if (!project) return notFound(`unknown project: ${id}`)
+      if (testCommand !== undefined && !deps.saveTestCommand) return conflict("a project's test command is kept by the Astera app; open it and try again")
+      if (account !== undefined && !deps.setProjectAccount) return conflict("a project's default account is kept by the Astera app; open it and try again")
+      if (account) {
+        const known = await deps.listAccounts()
+        if (!known.some((k) => k.id === account)) return notFound(`unknown account: ${account}`)
+      }
       // An empty --delivery-branch drops it: the repository's default branch again
-      const set = setProjectDelivery(s, id, {
-        ...(delivery !== undefined ? { delivery } : {}),
-        ...(branchArg !== undefined ? { branch: branchArg.trim() === '' ? null : branchArg } : {})
-      })
-      return set.ok ? commit(set) : set.error.startsWith('unknown project') ? notFound(set.error) : bad(set.error)
+      let set: Res<Project> = { ok: true, state: s, value: project }
+      if (delivery !== undefined || branchArg !== undefined)
+        set = setProjectDelivery(s, id, {
+          ...(delivery !== undefined ? { delivery } : {}),
+          ...(branchArg !== undefined ? { branch: branchArg.trim() === '' ? null : branchArg } : {})
+        })
+      if (set.ok && Object.keys(settings.patch).length > 0) set = setProjectSettings(set.state, id, settings.patch)
+      if (!set.ok) return bad(set.error)
+      // The app's two files go last, once everything above holds; the test configuration's id lands in the project
+      if (account !== undefined) await deps.setProjectAccount!(project.path, account || null)
+      if (testCommand !== undefined) {
+        const configId = await deps.saveTestCommand!(project.path, testCommand || null)
+        set = setProjectSettings(set.state, id, { testConfigId: configId })
+        if (!set.ok) return bad(set.error)
+      }
+      return commit(set)
     }
     // **회차를 낸다, 계획이 아니라.** `--job` 은 한 계획의 회차만 추린다. 번호순으로 내보내는
     // 것은 배열에 들어간 순서가 곧 시간순이 아니기 때문이다 — 예약은 발화마다 뒤에 붙지만
@@ -2231,8 +2327,19 @@ export async function handleCommand(
           }
         }
         const objective = intakeObjective(intake, source, inputs)
+        // W7-D (#68): the plan's name, so its boilerplate objective is never what the plan is called. A title already
+        // there is kept.
+        const title = intakeTitle(intake, source, inputs?.names ?? [])
         const cur = deps.getState()
-        await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id ? { ...j, objective } : j)) })
+        await deps.setState({
+          ...cur,
+          jobs: cur.jobs.map((j) => (j.id === id ? { ...j, objective, ...(title !== undefined && j.title === undefined ? { title } : {}) } : j))
+        })
+      }
+      // W7-E: `--no-review`: this plan's Tasks are not reviewed (`jobs plan` turns review on otherwise, Job.review)
+      if (args.noReview === true) {
+        const cur = deps.getState()
+        await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id ? { ...j, review: false } : j)) })
       }
       const after = deps.getState()
       const created = after.jobs.find((j) => j.id === id)
@@ -2681,6 +2788,25 @@ export async function handleCommand(
       await deps.setState(r.state)
       return okBody(jobView(r.state, r.value, latestRunOf(r.state, r.value)))
     }
+    // W7-D (#67): how many workers a plan runs at once, changed until it finishes. A lower value only limits new starts
+    // (slotsToFill reads Job.concurrency each tick): a running worker is never stopped by it.
+    case 'jobs-set': {
+      if (fromAgentSession || caller.role === 'mcp') return denied('jobs-set is for the person, in Astera or at their own shell')
+      const id = str(args.id)
+      if (!id) return bad('--id is required')
+      if (args.concurrency === undefined) return bad('nothing to set: give --concurrency')
+      const concurrency = concurrencyArg(args.concurrency)
+      if (concurrency === null) return bad('--concurrency must be an integer >= 1')
+      // A Run's id names its Job, as `jobs get` reads it: the Run window holds either
+      const named = s.runs.find((r) => r.id === id)
+      const job = s.jobs.find((j) => j.id === id) ?? (named && jobOf(s, named))
+      if (!job) return notFound(`unknown job or run: ${id}`)
+      const run = latestRunOf(s, job)
+      if (run && outcomeOf(s, run.id) !== 'running') return conflict(`job ${job.id} has finished: there is nothing left to start`)
+      const next: Job = { ...job, concurrency }
+      await deps.setState({ ...s, jobs: s.jobs.map((j) => (j.id === job.id ? next : j)) })
+      return okBody(jobView(deps.getState(), next, run))
+    }
     case 'jobs-unarchive': {
       const id = str(args.id)
       if (!id) return bad('--id is required')
@@ -2702,6 +2828,13 @@ export async function handleCommand(
         const cur = deps.getState()
         await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id ? { ...j, replan: args.replan as 'waves' | 'off' } : j)) })
       }
+      // W7-A: `--auto-approve on|off`, this plan's own, ahead of its project's
+      if (args.autoApprove !== undefined) {
+        const auto = onOff(args.autoApprove)
+        if (auto === null) return bad('--auto-approve must be on or off')
+        const cur = deps.getState()
+        await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id ? { ...j, autoApprove: auto } : j)) })
+      }
       if (!deps.startCoordinator) return conflict('starting a planner is not available in this build')
       // W6-H: the plan's own delivery, set before its planner starts
       const delivery = parseDelivery(args.delivery)
@@ -2722,6 +2855,19 @@ export async function handleCommand(
       if (concurrency !== null) {
         const current = deps.getState()
         await deps.setState({ ...current, jobs: current.jobs.map((j) => (j.id === id ? { ...j, concurrency } : j)) })
+      }
+      // W7-E: a planned Job's Tasks are reviewed, with the convergence defaults (up to MAX_REVIEW_ROUNDS rounds, then a
+      // Gate that escalates), unless `--no-review` here or at `jobs create` said not; and the planner's account is kept,
+      // so a plan with no coordinator still replans and gets its final check (replanAccountOf)
+      {
+        const review = args.noReview === true ? false : job.review !== false
+        const cur = deps.getState()
+        await deps.setState({
+          ...cur,
+          jobs: cur.jobs.map((j) =>
+            j.id === id ? { ...j, review, plannerAccountId: accountId, ...(review && !j.convergence ? { convergence: {} } : {}) } : j
+          )
+        })
       }
       // **Marked planned before the session exists** (an empty list): from here an agent cannot approve it
       // (run-start above), which covers the seconds before the new session's id is recorded below.
@@ -3369,7 +3515,10 @@ export async function handleCommand(
             ...(validateIds ? { validateConfigIds: validateIds } : {}),
             // `--review` 는 값이 없는 플래그다(task-list --ready 와 같은 모양). 어느 provider 가
             // 읽을지는 앱이 고른다 — 계정 풀을 아는 것은 앱이다.
-            reviewRequested: args.review === true ? true : undefined,
+            // W7-E: a Job with review on (Job.review, set by `jobs plan`) reviews every Task it gets, from its planner,
+            // its replans or its coordinator, so none can forget `--review`; `--no-review` opts one Task out
+            reviewRequested:
+              args.review === true || (args.noReview !== true && reviewDefaultOf(latest, runId)) ? true : undefined,
             ...plan.fields
           },
           now
@@ -5215,6 +5364,9 @@ export async function handleCommand(
       // remote. `exists` keeps gh's own words, which end with the existing pull request's URL.
       if (made.kind === 'exists') return { status: 409, body: { error: made.detail.trim(), pushed: made.pushed } }
       if (made.kind === 'rejected') return { status: 409, body: { error: 'The push was rejected', pushed: made.pushed } }
+      // W7-E (#80): nowhere to push to is the project's setup, not a failure of the plan
+      if (made.kind === 'no-remote')
+        return { status: 409, body: { error: noRemoteNote(t.branch), noRemote: true, branch: t.branch, pushed: false } }
       const refused = ghRefusal({ ok: false, ...ghFailureSentence({ ok: false, stdout: '', stderr: made.detail, spawnError: made.spawnError }) })
       return { status: refused.status, body: { ...(refused.body as object), pushed: made.pushed } }
     }
@@ -5355,7 +5507,13 @@ export async function handleCommand(
       const title = jobNameOf(job)
       const body = planPrBody({ plan: title, tasks: planPrTasksOf(deps.getState(), id, (a) => accounts.find((x) => x.id === a)?.label) })
       const made = await handleCommand(deps, caller, 'github-pr-create', { run: id, title, body, draft: false, ...(base ? { base } : {}) })
-      const answer = (made.body ?? {}) as { url?: unknown; error?: unknown }
+      const answer = (made.body ?? {}) as { url?: unknown; error?: unknown; noRemote?: unknown; branch?: unknown }
+      // W7-E (#80): a project with no remote keeps the work on its branch; recorded as a note, not as a failed PR
+      if (answer.noRemote === true && typeof answer.branch === 'string') {
+        const note = noRemoteNote(answer.branch)
+        await record({ at: now, note, branch: answer.branch })
+        return okBody({ noRemote: true, branch: answer.branch, message: note })
+      }
       const error = typeof answer.error === 'string' ? answer.error : `github-pr-create answered ${made.status}`
       // gh's "already exists" ends with the existing pull request's URL: that one is the plan's
       const url =
@@ -5428,9 +5586,13 @@ export async function handleCommand(
         itemId: numbers.join(',')
       })
       if (reply.status < 200 || reply.status >= 300) return reply
+      // W7-D (#68): named by all its issues ("#1 unique() is O(n²) +1"), here and in its PR's title (jobNameOf)
+      const madeId = (reply.body as { id?: unknown }).id
+      const named = renameJob(deps.getState(), String(madeId), issuesTitleOf(issues))
+      if (named.ok) await deps.setState(named.state)
       const ref = (i: GhIssue): { number: number; url: string } => ({ number: i.number, url: i.url })
       // `issue` stays for one issue, as it always answered; `issues` lists them all.
-      return okBody({ ...(reply.body as object), ...(issues.length === 1 ? { issue: ref(issues[0]) } : {}), issues: issues.map(ref) })
+      return okBody({ ...(reply.body as object), ...(named.ok ? { title: named.value.title } : {}), ...(issues.length === 1 ? { issue: ref(issues[0]) } : {}), issues: issues.map(ref) })
     }
     /**
      * W6-A: the planner found every item of its Job already built (inputs/existing.md), so there is nothing to plan.

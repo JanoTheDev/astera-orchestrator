@@ -47,6 +47,12 @@ export function fastParse(input: string): Intent | null {
   if ((m = s.match(/^resume (.+)$/i))) return withTarget({ kind: 'resume' }, m[1])
   // "Approve the plan", "Start executing the approved plan", "approve Console". Not "start the next eligible X
   // tasks" (left to the model: run-start starts a plan, it does not pick tasks).
+  // W7-A: "change the plan: …", "tell the planner …", "plan feedback: …" talk to the planner; "reject the plan [because …]"
+  if ((m = s.match(/^(?:change the plan|plan feedback|tell the planner|feedback)(?::| to| that)? (.+)$/i))) return { kind: 'plan-feedback', text: m[1] }
+  if ((m = s.match(/^reject(?: (.+?))?(?: (?:because|since|reason:?) (.+))?$/i))) {
+    const reason = m[2]?.replace(/[.!]+$/, '')
+    return { ...withTarget({ kind: 'plan-reject' as const }, m[1]), ...(reason ? { reason } : {}) }
+  }
   if ((m = s.match(/^(?:approve|start executing|execute)(?: (.+))?$/i))) return withTarget({ kind: 'approve' }, m[1])
   if ((m = s.match(/^plan (.+)$/i))) return { kind: 'plan', objective: m[1].replace(/[.!]+$/, '') }
   // `send "text" to X` / `send text to X`: the last " to " splits, so the text may hold "to" itself.

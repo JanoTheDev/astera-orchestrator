@@ -222,7 +222,7 @@ const SESSION = {
   'task-create': {
     summary: 'add a Task to a run',
     detail:
-      "Pass --run every time. Without it the Task lands in whatever run was created last across the whole app, which may be someone else's.",
+      "Pass --run every time. Without it the Task lands in whatever run was created last across the whole app, which may be someone else's. A spec or prompt with quotes goes on stdin (`--spec -` or `--prompt -`, one of them per call, with a quoted heredoc `<<'EOF'`), never inside shell quotes.",
     flags: [
       req('spec', '<text|->', 'the work, in full (a value of `-` reads it from stdin)'),
       req('account', '<id,…>', 'the accounts a worker for this Task may run on'),
@@ -454,6 +454,20 @@ const SESSION = {
       req('summary', '<text|->', 'what was found, item by item (inputs/existing.md); - reads stdin')
     ]
   },
+  // W7-A
+  'jobs-feedback-done': {
+    summary: 'report that the requested changes to the plan are made (planner only)',
+    detail: 'Refused unless --id is this planner\'s own Job.',
+    flags: [
+      req('id', '<jobId>', 'this planner\'s Job'),
+      req('changes', '<json array>', 'what changed, one string per change, e.g. \'["split T3","dropped T5"]\'')
+    ]
+  },
+  'task-cancel': {
+    summary: 'drop a Task that has not started (planner or replan session)',
+    detail: 'Refused while an unfinished Task still depends on it.',
+    flags: [req('id', '<taskId>', 'the Task to drop'), req('reason', '<text>', 'why')]
+  },
   // W6-A
   'github-issue-assign': {
     summary: "assign GitHub issues of a project to you, through the Host's gh (gh issue edit --add-assignee @me)",
@@ -646,6 +660,7 @@ const NOT_SWITCHED = [
   // Remote runtime: `projects add` is Host-answered beside `pair-create` (src/host/orch.ts), and the runtime commands
   // answer in the CLI process (src/cli/runtime/commands.ts).
   'projects-add',
+  'projects-create', // W7-B
   'runtime-start',
   'runtime-stop',
   'runtime-status',
@@ -672,7 +687,12 @@ const NOT_SWITCHED = [
   'sources-list',
   'sources-items',
   'sources-show',
-  'jobs-create-from-source'
+  'jobs-create-from-source',
+  // W7-A: answered before the switch by exec/plannerFeedback.ts (task-cancel: also exec/replanStart.ts)
+  'jobs-feedback',
+  'jobs-feedback-done',
+  'jobs-reject',
+  'task-cancel'
 ] as const satisfies readonly AgentCommand[]
 
 /**

@@ -46,7 +46,9 @@ const PROPAGATES = [
   // "not now" — which is the truth, and better than telling a person the feature is off when it is
   // their app that is missing. (`lang` is the fourth of this shape and is *not* here: see HOST_DRIVES.
   // `trackingEnabled` was the third until E2: see HOST_TRACKS.)
-  'browserEnabled', 'handoffEnabled'
+  'browserEnabled', 'handoffEnabled',
+  // W7-B: the project settings kept in the app's own files (run-configs.json, projects.json), which only it writes
+  'saveTestCommand', 'setProjectAccount'
 ] as const
 
 /**
@@ -290,7 +292,7 @@ const LOCAL_FILE: Record<(typeof LOCAL_WHEN_ABSENT)[number], string> = {
  *
  * Never refused, so never `onAppRequired`: nothing here needs the app.
  */
-const HOST_SESSIONS = ['listSessions', 'readSession', 'sendSession', 'readChat', 'sessionTurn'] as const
+const HOST_SESSIONS = ['listSessions', 'readSession', 'sendSession', 'readChat', 'sessionTurn', /* W7-A */ 'agentSessionOf'] as const
 
 /**
  * **Forwarded when the app is attached, and done by the Host itself when none is** (CLI phase D4).
@@ -526,6 +528,8 @@ const EFFECTFUL: Record<Classified, boolean> = {
   browserRun: true,
   browserEnabled: false,
   handoffEnabled: false,
+  saveTestCommand: true,
+  setProjectAccount: true,
   // HOST_TRACKS: a toggle, on either route (it was PROPAGATES before E2).
   trackingEnabled: false,
   // HOST_RESOLVES — a question about what is already there, on either route.
@@ -564,6 +568,7 @@ const EFFECTFUL: Record<Classified, boolean> = {
   sendSession: true,
   readChat: false,
   sessionTurn: false,
+  agentSessionOf: false,
   // HOST_WHEN_ABSENT — a turn, on either route.
   chatSend: true,
   // HOST_CHATS: a list is a read; an answer lets a tool run or refuses it, on either route.
@@ -1310,6 +1315,7 @@ export function hostOrchDeps(a: {
     sendSession: own('sendSession'),
     readChat: own('readChat'),
     ...(a.sessions.sessionTurn ? { sessionTurn: own('sessionTurn') } : {}),
+    ...(a.sessions.agentSessionOf ? { agentSessionOf: own('agentSessionOf') } : {}),
     discardRunWorktree,
     stopCoordinator,
     ...(a.dispatchTask ? { dispatchTask } : {}),

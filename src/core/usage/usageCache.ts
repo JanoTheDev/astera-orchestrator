@@ -93,6 +93,11 @@ export class UsageCache {
     return p
   }
 
+  /** W7-F (#77): the next ask fetches again, for a folder whose login changed. */
+  forget(configDir: string): void {
+    this.cache.delete(configDir)
+  }
+
   private async fetchAndCache(
     configDir: string,
     attempt: (configDir: string) => Promise<UsageAttempt>

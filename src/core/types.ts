@@ -1,3 +1,4 @@
+import type { PlanFeedback } from './orchestration/types'
 import type { SlashCommand } from './commands/slashCommands'
 import type { RunConfig, RunStatus, SaveConfigsResult } from './run/config'
 import type { EmulationMetrics } from './preview/viewports'
@@ -85,6 +86,8 @@ export interface Account {
   // There is no isDefault field. Which account is the default is derived per provider from this list plus
   // the login state (accounts/defaultAccount.ts), so it cannot be decided one account at a time.
   provider?: Provider // which CLI — absent means 'claude' (kept for compatibility with existing accounts.json)
+  // W7-F (#77): the folder's email at the last login check; a different one later means the folder was re-logged.
+  email?: string
 }
 
 export interface DetectCandidate {
@@ -540,6 +543,10 @@ export interface JobTask {
   board?: TaskBoard
   /** The model of its latest attempt (Dispatch.model), else the Task's own (Task.model). Absent: the CLI's default. */
   model?: string
+  /** The planner's difficulty for the Task and the Job's role-model overrides: what the board needs to say, before dispatch,
+   *  which model resolveWorkerModel will pick. */
+  difficulty?: 'light' | 'standard' | 'hard'
+  jobModels?: Partial<Record<'coordinator' | 'planner' | 'worker' | 'reviewer', string>>
   /** The account its latest attempt ran on. Absent until it is dispatched; `accountIds` says what it will use. */
   accountId?: string
   /** The branch of the worktree its latest attempt worked in, when the worktree registry knows it. */
@@ -717,6 +724,12 @@ export interface JobRow {
   // W1-C plan lifecycle: the Job's own fields, on every row of the Job (lifecycle.ts)
   title?: string
   archivedAt?: string
+  // W7-A plan feedback (Job.feedback, autoStartedAt, rejected): the talk box reads these
+  /** The Job was planned by a planner session (`plannerSessionIds` is set): only such a plan can be talked to. */
+  planned?: true
+  feedback?: PlanFeedback[]
+  autoStartedAt?: string
+  rejected?: { at: string; reason?: string }
   // W5-C: the plan is held from launching new workers (Job.dispatchHold)
   dispatchHold?: true
   // W2-D: the plan's one pull request (JobRun.pr), on the Run's own row and a Job row folded onto it
@@ -1191,6 +1204,13 @@ export interface CoreApi {
     email(id: string): Promise<string | null> // the login email of a registered account (for the list)
     emailOfDir(configDir: string, provider?: Provider): Promise<string | null> // the email of an unregistered folder (to prefill the import dialog)
     logout(id: string): Promise<{ ok: boolean; message?: Message }> // claude auth logout (removes the credentials)
+    // W7-F (#82): the CLI's own sign-in for this account's folder (main/accountLogin.ts). login resolves when the CLI
+    // exits; loginState is polled for the link it printed; loginCode answers its paste prompt.
+    rename(id: string, label: string): Promise<Account>
+    login(id: string): Promise<{ ok: boolean; reason?: 'cancelled' | 'timeout'; message?: string }>
+    loginState(): Promise<{ id: string; url: string | null; asksCode: boolean } | null>
+    loginCode(code: string): Promise<void>
+    cancelLogin(): Promise<void>
     syncSettings(id: string): Promise<{ ok: boolean; message?: Message }> // import the default account's settings and MCP servers
   }
   sessions: {
@@ -1489,6 +1509,9 @@ export interface CoreApi {
     /** W6-B: the chime with a notice that needs the owner; default true. */
     getAlertSound(): Promise<boolean>
     setAlertSound(on: boolean): Promise<void>
+    /** W7-F (#84): an ended plan's session tabs close on their own; default true. */
+    getAutoCloseEndedPlanTabs(): Promise<boolean>
+    setAutoCloseEndedPlanTabs(on: boolean): Promise<void>
     // The four desktop-notification switches (design doc §6/§8). Read by the settings screen and by
     // DesktopNotifier itself (main), which is why the type lives in core/notify/settings rather than here.
     getDesktopNotify(): Promise<DesktopNotifySettings>

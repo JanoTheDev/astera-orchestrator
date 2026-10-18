@@ -139,7 +139,30 @@ export interface Project {
   delivery?: DeliveryMode
   /** The branch a `push` delivery lands on. Absent: the repository's default branch. */
   deliveryBranch?: string
+  // ── W7-B project settings (projects.ts `setProjectSettings`); each absent field reads as its PROJECT_DEFAULTS entry ──
+  /** W7-A: a plan of this project starts on its own once it holds, with no approval by the owner. */
+  autoApprove?: boolean
+  /** The run configuration (run-configs.json) that is this project's test command: the check a new Task of the
+   *  project is validated with when it names none (`createTask`). */
+  testConfigId?: string
+  /** Workers at once for a new plan of this project (`Job.concurrency`), 1–MAX_CONCURRENT_WORKERS. */
+  concurrency?: number
+  /** Review rounds for a new plan of this project (`ConvergencePolicy.maxReviewRounds`). */
+  reviewRounds?: number
+  /** W6-D: `Job.replan` for a new plan of this project. */
+  replan?: 'waves' | 'off'
+  /** The default branch found when the project was added or created; shown, never used to pick a base. */
+  defaultBranch?: string
 }
+
+/** W7-B: what a project nobody set up reads as. */
+export const PROJECT_DEFAULTS = {
+  delivery: 'pr',
+  autoApprove: false,
+  concurrency: DEFAULT_CONCURRENCY,
+  reviewRounds: MAX_REVIEW_ROUNDS,
+  replan: 'waves'
+} as const
 
 /** W6-H: how a finished plan lands (`deliveryOf`). */
 export type DeliveryMode = 'pr' | 'push'
@@ -262,6 +285,8 @@ export interface Job {
     cancelled?: string[]
     /** The Run's Tasks when it began, id to `updatedAt`: what it added and changed is read against this. */
     before?: Record<string, string>
+    /** W7-A: the owner's feedback this replan was started for (`PlanFeedback.at`); its summary is that feedback's change. */
+    feedbackAt?: string
   }
   /** The last replan that ended, for this boundary (`replansDue` reads it so a boundary replans once). `escalated`:
    *  why it was handed to the person instead (the plan did not hold, or a 4th follow-up wave); the hold stays then. */
@@ -269,6 +294,32 @@ export interface Job {
   // W6-H delivery (delivery.ts)
   /** This plan's own delivery, ahead of its project's (`deliveryOf`). Absent: the project's. */
   delivery?: DeliveryMode
+  // W7-E planner review and final check
+  /** Whether this plan's Tasks are reviewed by a fresh reviewer before they count as done. `jobs plan` sets it to
+   *  true unless `--no-review` (there or at `jobs create`) set false; `task-create` then marks each new Task of the
+   *  Job `reviewRequested`. Absent: no default, each Task's own `--review` decides. */
+  review?: boolean
+  /** The account `jobs plan` last ran this Job's planner on. A plan with no coordinator account replans on it
+   *  (`replanAccountOf`, replan.ts). */
+  plannerAccountId?: string
+  // W7-A plan feedback (exec/plannerFeedback.ts)
+  /** This plan's own auto-approve, ahead of its project's (`autoApproveOf`). Absent: the project's. */
+  autoApprove?: boolean
+  /** What the owner told the planner (`jobs-feedback`), oldest first, with what the planner changed for each. */
+  feedback?: PlanFeedback[]
+  /** When the plan started on its own, with no approval step (`jobs-auto-start`). */
+  autoStartedAt?: string
+  /** The owner rejected the plan (`jobs-reject`): it is archived with this, and unarchiving keeps it as a record. */
+  rejected?: { at: string; reason?: string }
+}
+
+/** W7-A: one message of the owner to a plan's planner. `plan`: before approval, to the planner session itself; `run`:
+ *  while it runs, through a W6-D replan. `changes`: one short line per change the planner made for it, once it ended. */
+export interface PlanFeedback {
+  at: string
+  text: string
+  phase: 'plan' | 'run'
+  changes?: string[]
 }
 
 /** W6-D: which boundary a replan is for. `wave` is the wave about to start; a completion pass stands after the last. */
@@ -793,4 +844,8 @@ export interface RunPr {
   url?: string
   number?: number
   error?: string
+  /** W7-E: no PR was opened and that is no failure: the project has no remote. Says where the work is. */
+  note?: string
+  /** W7-E: with `note`, the branch that holds the plan's work. */
+  branch?: string
 }

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Account, HistoryEntry, ProjectSummary, ScheduleConfig, SessionKind, TranscriptPreview } from '../../../core/types'
 import { ResumeDialog } from './ResumeDialog'
+import { TranscriptPreviewModal } from './TranscriptPreviewModal'
 import { AccountSelect } from './AccountSelect'
 import { ProviderBadge } from './ProviderBadge'
 import { ResumeGlyph } from './ResumeGlyph'
@@ -10,7 +11,7 @@ import { useI18n } from '../i18n/I18nProvider'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import * as hiddenProjects from '../lib/hiddenProjects'
 import { ChevronDown, ChevronRight, RefreshCw } from 'lucide-react'
-import { backdropProps } from '../lib/backdrop'
+import { usePanelOpen } from '../hooks/usePanelOpen'
 
 const PAGE = 50
 const SEEN_KEY = 'cm.historySeen'
@@ -279,6 +280,8 @@ export function HistoryBrowser({
   // list with a spinner would be a step backwards.
   const [loaded, setLoaded] = useState(false)
   const [accountFilter, setAccountFilter] = useState<string>('')
+  // W7-F (#83): the same chevron header as Workspaces and Activity, remembered.
+  const [open, setOpen] = usePanelOpen('history')
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [preview, setPreview] = useState<TranscriptPreview | null>(null)
   const [resumingId, setResumingId] = useState<string | null>(null)
@@ -469,10 +472,12 @@ export function HistoryBrowser({
   ]
 
   return (
-    <section className="history-panel">
+    <section className={open ? 'history-panel' : 'history-panel collapsed'}>
       <header className="panel-header">
-        <h2>{t('history.panel.title')}</h2>
-        <div className="panel-actions">
+        <button className="panel-toggle" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+          {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />} {t('history.panel.title')}
+        </button>
+        {open && <div className="panel-actions">
           <AccountSelect
             className="history-account-filter"
             // Ghosts are filterable too — their sessions are in the list, so the filter has to be able to
@@ -490,9 +495,10 @@ export function HistoryBrowser({
           <button title={t('history.refresh.tooltip')} onClick={() => void window.api.history.refresh()}>
             <RefreshCw size={14} />
           </button>
-        </div>
+        </div>}
       </header>
-      <ul className="history-list" ref={listRef}>
+      {/* Hidden, not unmounted: the list's scroll root and paging sentinel stay attached while it is folded. */}
+      <ul className="history-list" ref={listRef} hidden={!open}>
         <ScanStatus scan={scan} />
         {projects.map((p) => (
           <ProjectRow
@@ -536,25 +542,7 @@ export function HistoryBrowser({
           onClose={() => setMenu(null)}
         />
       )}
-      {preview && (
-        <div className="modal-backdrop" {...backdropProps(closePreview)}>
-          <div className="modal preview" onClick={(e) => e.stopPropagation()}>
-            <h2>
-              {t('history.entry.preview')} {preview.truncated && t('history.preview.truncated')}
-            </h2>
-            <div className="preview-scroll">
-              {preview.messages.map((m, i) => (
-                <p key={i} className={`msg ${m.role}`}>
-                  <b>{m.role === 'user' ? t('history.preview.me') : 'Claude'}</b> {m.text}
-                </p>
-              ))}
-            </div>
-            <div className="row right">
-              <button onClick={closePreview}>{t('common.close')}</button>
-            </div>
-          </div>
-        </div>
-      )}
+      {preview && <TranscriptPreviewModal preview={preview} onClose={closePreview} />}
       {pendingResume && (
         <ResumeDialog
           entry={pendingResume.entry}

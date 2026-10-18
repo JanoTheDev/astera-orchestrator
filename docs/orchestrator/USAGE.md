@@ -6,7 +6,17 @@ owns every session and drives every plan, so closing the window stops nothing (L
 
 ## Before the first plan
 
-- Sign in an account (Accounts panel, "+").
+- Sign in an account: Accounts panel → **+** → pick Claude or Codex and a name → **Add account**. Astera runs the CLI's
+  own login for the new account's folder (`claude auth login` / `codex login`) and shows the sign-in link in a small
+  dialog with **Open in browser** and **Copy**. Sign in in the browser; if it shows a code, paste it into the dialog's
+  code box. The dialog closes by itself once the account reads as logged in. A row that is not logged in has a
+  **Sign in** button that does the same. Hover a row for **×** (Remove): the same unregister flow as Settings →
+  Accounts, with "Also log out". Double-click an account's name to rename it (Enter saves, Escape cancels). The link
+  is held only in memory, never logged or stored.
+- If you re-log an account's folder as someone else (`claude /login` in `~/.claude`), the row follows at the next
+  login check (when the window gets focus): its label becomes the new email, unless you renamed the account, and the
+  old person's usage reading is dropped. A folder re-logged before this check existed is caught at its first check when
+  its label is still an email address.
 - Settings → Orchestration models: the model of each role. Defaults: planner and reviewer `opus`, coordinator `haiku`,
   workers by Task difficulty (light → haiku, standard → sonnet, hard → opus). Empty means the CLI's default model.
 - Settings → "Max workers across all jobs": the app-wide cap, at most 10. Empty means 10. At the cap, plans with a higher
@@ -29,6 +39,24 @@ owns every session and drives every plan, so closing the window stops nothing (L
    refuses a plan in which a Task lacks a prompt or a criterion, a dependency is missing, or the dependencies form a
    cycle, and lists what is wrong. From a shell, `astera jobs run --id <job>` does the same. An agent session can never
    approve. Approval ends the planner session: its work is done.
+
+### Talk to the planner (W7-A)
+
+- **Request changes.** On a plan waiting for approval, type what to change in the "Request changes" box and send it. The
+  text goes to the same planner session; if that session has ended, its conversation is resumed, or else a fresh planner
+  starts with plan.md, existing.md and the history. You approve again when it is done.
+- **Reject.** The Reject button (asks first, with an optional reason) archives the plan and ends its planner.
+  `astera jobs unarchive --id <job>` takes it back.
+- **While the plan runs.** The same box starts a replan at once. It changes only Tasks that have not started, and no new
+  worker starts until it is done.
+- **Auto-approve.** `astera projects set --id <project> --auto-approve on` approves a project's plans as soon as their
+  planner finishes, with no one asked. One plan overrides it: `astera jobs plan --id <job> --auto-approve on|off`.
+  Default off.
+- **Command bar.** `change the plan: split the API task`, `tell the planner to add a migration step`,
+  `plan feedback: …` (act: press Run); `reject the plan`, `reject Console because it is too wide` (confirm: asks in the
+  app's dialog).
+- **CLI.** `astera jobs feedback --job <job> --text <text|->` (`-` reads stdin) and
+  `astera jobs reject --job <job> [--reason <text>]`. Both are refused from an agent session.
 4. **Run.** A coordinator session (coordinator model) starts and places workers. Every Task whose dependencies are done
    gets a worker in its own worktree under `~/astera-worktrees/<repo>/`. Dependents start on their own when their
    dependencies complete, never before. "Done" is the worker's explicit report plus any checks, not a quiet terminal.
@@ -39,6 +67,11 @@ owns every session and drives every plan, so closing the window stops nothing (L
    may add up to 3 follow-up waves. The feed shows "replanning" and "replanned: <what changed>". If the plan no longer
    holds together, or a 4th follow-up is wanted, the plan stays held and you are asked ("needs you"). Turn it off
    with the "Replan between waves" box or `--replan off` (`jobs create`, `jobs plan`).
+   **Review** (a planned Job, on by default, W7-E): every Task, from the planner, a replan or the coordinator, is
+   checked by a fresh reviewer before it counts as done ("Awaiting review" on the board). A blocking finding goes
+   back to the worker, up to 5 rounds, then the Task escalates. Turn it off with `--no-review` (`jobs create`,
+   `jobs plan`), or for one Task with `tasks add --no-review`. A plan with no coordinator replans and gets its final
+   check on the account its planner ran on.
 5. **Hold / stop / resume.** Jobs view → the hand button, or "pause <plan>" / "stop launching for <plan>" in the
    command bar, **holds** a plan: no new worker starts, running workers carry on and nothing is closed, so nothing is
    asked. The play button or "resume <plan>" lets it launch again. "pause worker 2" pauses one worker after a
@@ -52,10 +85,13 @@ owns every session and drives every plan, so closing the window stops nothing (L
    picks the worker's model as a planner's Task does. Without either, the worker runs on the Job's or the app's worker
    model, or on the CLI's default model when none is set.
    `astera tasks list --run <job>` lists a Job's own Tasks before its first Run.
+   `--affected-paths '["src/a.ts"]'` names the files a Task changes, so it never runs beside another Task on the same
+   files. A spec with quotes goes on stdin: `astera tasks add --job <job> --account <id> --spec - <<'EOF'` … `EOF`.
 
 **Delivery** (per project; Jobs view → "When a plan is done", or `astera projects set --id <project> --delivery pr|push
 [--delivery-branch <branch>]`; one plan can override it with `--delivery` on `jobs create` / `jobs plan`):
-- `pr` (the default): one PR per plan, opened when the plan finishes, never merged automatically.
+- `pr` (the default): one PR per plan, opened when the plan finishes, never merged automatically. A project with no
+  remote gets no PR and no failure: the feed says "This project has no remote; the plan's work is on branch <name>".
 - `push`: when the last Task passed review (and the final check is done), Astera merges the plan's worktrees into the
   project folder's delivery branch (the default branch unless set), runs the plan's validation checks once more on the
   merged tree, and pushes it, **with no review by a person**. The merge commits say `Fixes #n` for the issues the plan
@@ -68,8 +104,17 @@ owns every session and drives every plan, so closing the window stops nothing (L
 ## Starting from files, an audit, a problem list or GitHub issues (W6-A)
 
 "+ New job" → **New plan from files, an audit or GitHub issues…** opens the New plan dialog. Pick the project and a
-source, add **Extra instructions** if you like (they win over the source), pick the coordinator account, and press
-**Create and plan**: Astera makes one Job and starts its planner.
+source, add **Extra instructions** if you like (they win over the source), set **Workers at once** (1–10, default 3,
+or what the "+ New job" form had), pick the coordinator account, and press **Create and plan**: Astera makes one Job
+and starts its planner.
+
+**The plan's name** comes from its source: a problem list is named by its first problem, files by their names, an
+audit "Audit <scope>", and issues by the first one and how many more ("#1 unique() is O(n²) +1"). The sidebar, tabs,
+search, notices, the run's worktree branch and the PR all use it. Rename it any time; Astera never renames a plan
+itself after that.
+
+**Changing the worker count later**: the number in the Run window's header, or `astera jobs set --id <job>
+--concurrency <n>`, until the plan finishes. A lower number only holds back new starts; running workers carry on.
 
 - **Describe**: the objective. Tick "This is a list of problems" for one or more Tasks per problem.
 - **Files**: drop PDFs or other files (at most 30 MB each). They are copied to `plans/<job>/inputs/` in the profile,
@@ -87,18 +132,18 @@ From a shell: `astera jobs create --objective "…" [--mode plan|audit|fixlist] 
 project's other Jobs. It writes `inputs/existing.md` (each item `missing`, `partial`, `broken` or `built`), plans only
 what is missing or broken, and gives every Task a basis with evidence; approval is refused without one. If everything
 is built, the Job ends as "nothing to do" (archived, the summary kept, a feed line and a notice) and no tab opens.
-Writing `existing.md` and `audit.md` asks your permission once, as every planner edit does.
+Every planner writes `existing.md` (an audit also `audit.md`) in the Job's `inputs/` folder, and no other file.
+Writing them asks your permission once, as every planner edit does.
 
 ## Day to day (checked by W6-V, 2026-10-18)
 
 The loop that works today, from source to merged work:
 
 1. **Open the project.** The Jobs panel needs an open project: start a session in the repo once (or click a tab
-   that lives there). A tab started with `astera sessions create` counts only after you click it.
+   that lives there). A tab started with `astera sessions create` in an empty window is the window's session at once.
 2. **Start the plan.** "+ New job" → **New plan from files, an audit or GitHub issues…**. Put one problem per line
-   and tick "This is a list of problems" for a fixlist; add extra instructions; pick the coordinator account. The
-   dialog has no worker count yet: a plan made there runs at most 3 workers at once. For more, make it from a shell
-   with `--concurrency 10` (`astera jobs create … --mode fixlist --concurrency 10` then `astera jobs plan --id <job>`).
+   and tick "This is a list of problems" for a fixlist; add extra instructions; set "Workers at once" (up to 10);
+   pick the coordinator account. `astera jobs set --id <job> --concurrency <n>` changes it later.
 3. **Read the plan.** The planner's last message in its tab sums up the Tasks, waves and what you must decide. The
    Run window's board shows each Task's files and wave. Approve with **Run** (the app asks once).
    If approval says a Task "has no basis", tell the planner in its tab; it fixes the plan.
@@ -112,10 +157,29 @@ The loop that works today, from source to merged work:
 7. **Done.** Between waves the board shows "Replanning wave N…"; after the last one the final check runs. With
    delivery `pr` the plan's PR opens (a project needs a GitHub remote); with `push` the work lands on the delivery
    branch, or Astera stops and tells you why (dirty folder, wrong branch, conflict) and touches nothing.
-8. **Tidy up.** Ended tabs stay struck through until you close them (W7-F closes them on their own). Archive a plan
+8. **Tidy up.** Ended tabs of a finished or archived plan close on their own (see "The workspace"). Archive a plan
    with `--kill-sessions` to end all its sessions at once.
 
-Known gaps are issues #67–#84 (label `wave-6`), fixed by Wave 7's W7-C…W7-F.
+Known gaps were issues #67–#84 (label `wave-6`), fixed by Wave 7's W7-C…W7-F.
+
+## Projects (W7-B)
+
+**New project.** "+ New project" asks for a name, a parent folder, an optional description and GitHub
+private, public or none. It makes the folder, runs `git init`, commits and registers it. From a shell:
+`astera projects create --name app --parent ~/code --github private`.
+
+**Add an existing project.** `astera projects add --path <folder>`. The folder must be a git repository. With no
+commit it is refused (409 needsInitialCommit); add `--initial-commit` to make the first one. The answer proposes
+a test command, and the default branch is recorded.
+
+**Settings.** Each project has a settings page; `astera projects set --id <projectId> …` does the same:
+`--delivery pr|push`, `--delivery-branch`, `--auto-approve on|off`, `--test-command <cmd>` (saved as a run
+configuration), `--test-config <id>`, `--concurrency 1-10`, `--review-rounds <n>`, `--replan waves|off`,
+`--account <id>`. An empty value clears a setting to its default. Agent sessions and MCP cannot set these.
+
+**Defaults.** Delivery pr, auto-approve off, concurrency 3, review rounds 5, replan waves. A new Task with no
+`--validate` is validated with the project's test command. A new Job copies the project's concurrency, replan
+and review rounds when it sets none.
 
 ## The workspace
 
@@ -130,6 +194,14 @@ sessions or plans never restarts a process or changes its cwd. Scrollback surviv
   under **Other**; **All tabs** shows everything. Clicking a plan narrows further, and clicking it again goes back to
   its project. Each workspace returns to the tab it had in focus when you left it, and a new tab opened in it starts
   in the project's folder. Tabs in other workspaces keep running, hidden.
+- **Tabs.** An ended session's tab is struck through. When its plan is done or archived, every ended tab of the plan
+  closes on its own, and a replan's planner tab closes once the plan has moved on, so replans leave no extra planner
+  tabs. A closed worker opens its transcript from the plan's tree; every one stays in History. The ended tab of a plain session (not part of a plan) stays until
+  you close it. Settings → General → "Close an ended plan's tabs on their own" turns this off.
+- **Many tabs.** The chevron at the end of a pane's tab strip lists every tab of the workspace; click one to go there.
+  **Ctrl+Shift+P** opens the quick switcher (rebind in Settings → Shortcuts): type to filter tabs by name, plan or
+  Task, the same way search matches (`hw1` finds "Hold Worker 1"), then arrow keys and Enter.
+- Each sidebar section (Workspaces, Activity, History) folds with its chevron, and stays folded across restarts.
 - **Type into a worker**: click it in the tree and type. To send one line without switching, use the command bar:
   `send "run the tests" to Gameful Worker 2`.
 - **Needs my input**: the number next to Workspaces counts sessions waiting for you (a permission prompt or a
@@ -218,8 +290,8 @@ Type a command and press Enter. The bar handles it in three steps:
 | Kind | Commands | Runs |
 |---|---|---|
 | read | switch to a plan, show its sessions, summarize, list who is waiting, a plain answer | at once |
-| act | plan X, send text to a session, resume, pause / stop launching (a hold: nothing closes) | after you press **Run** (or Enter on an empty line); pausing one worker also asks in the app's dialog |
-| confirm | approve and start, stop, archive, delete, merge | only after a click in the app's confirmation dialog |
+| act | plan X, send text to a session, change the plan / tell the planner (W7-A), resume, pause / stop launching (a hold: nothing closes) | after you press **Run** (or Enter on an empty line); pausing one worker also asks in the app's dialog |
+| confirm | approve and start, reject the plan, stop, archive, delete, merge | only after a click in the app's confirmation dialog |
 
 Voice and typed text never run a confirm-class command on their own.
 

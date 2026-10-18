@@ -52,6 +52,7 @@ import { createHostUnderstanding, NOT_WRITER, type HostUnderstanding } from './h
 import { runRecordInputOf } from '../core/orchestration/runRecord'
 import { createControllerRegistry } from './controllers'
 import { createPluginManager } from './plugins/manager'
+import { git } from '../core/worktrees/git'
 
 const NOW = '2026-09-22T00:00:00.000Z'
 /** 이 Host 가 선 시각. `now` 보다 **앞**이어야 하는 값이다 — `requests show` 가 이것을 실어 주는
@@ -936,11 +937,23 @@ describe('state for a controller (remote runtime design §3.6)', () => {
   })
 })
 
+const gitIn = async (cwd: string, args: string[]): Promise<void> => {
+  const r = await git(args, { cwd })
+  if (!r.ok) throw new Error(`git ${args.join(' ')}: ${r.stderr}`)
+}
+/** A git repository with one commit, under `dir`. */
+const committedRepo = async (): Promise<string> => {
+  const folder = path.join(dir, 'repo')
+  await fs.mkdir(folder)
+  await gitIn(folder, ['init', '-b', 'main'])
+  await gitIn(folder, ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '--allow-empty', '-m', 'one'])
+  return folder
+}
+
 describe('projects-add (remote runtime N5)', () => {
   const cli = { role: 'cli' as const, toOthers: () => {} }
   it('registers an existing folder once, and answers the same project the second time', async () => {
-    const folder = path.join(dir, 'repo')
-    await fs.mkdir(folder)
+    const folder = await committedRepo()
     const orch = orchOver()
     const first = await orch.call({ cmd: 'projects-add', args: { path: folder }, sessionId: '', from: cli })
     const second = await orch.call({ cmd: 'projects-add', args: { path: folder }, sessionId: '', from: cli })
@@ -956,9 +969,90 @@ describe('projects-add (remote runtime N5)', () => {
     expect((await orch.call({ cmd: 'projects-add', args: { path: 'relative/dir' }, sessionId: '', from: cli })).status).toBe(400)
     expect((await orch.call({ cmd: 'projects-add', args: { path: wt }, sessionId: '', from: cli })).status).toBe(400)
   })
+  // W7-B: a git repository only, registered by its top level; one with no commit is committed only when asked
+  it('refuses a folder that is not a git repository with 400', async () => {
+    const folder = path.join(dir, 'plain')
+    await fs.mkdir(folder)
+    const orch = orchOver()
+    const r = await orch.call({ cmd: 'projects-add', args: { path: folder }, sessionId: '', from: cli })
+    expect(r.status).toBe(400)
+    expect(JSON.stringify(r.body)).toContain('not a git repository')
+    expect(orch.state().projects).toEqual([])
+  })
+  it('answers 409 needsInitialCommit for a repository with no commit, committing and registering nothing', async () => {
+    const folder = path.join(dir, 'fresh')
+    await fs.mkdir(folder)
+    await gitIn(folder, ['init', '-b', 'main'])
+    await fs.writeFile(path.join(folder, 'a.txt'), 'mine')
+    const orch = orchOver()
+    const r = await orch.call({ cmd: 'projects-add', args: { path: folder }, sessionId: '', from: cli })
+    expect(r.status).toBe(409)
+    expect(r.body).toMatchObject({ needsInitialCommit: true })
+    expect(orch.state().projects).toEqual([])
+    expect((await git(['rev-parse', '--verify', '--quiet', 'HEAD'], { cwd: folder })).ok).toBe(false)
+  })
+  it('with --initial-commit commits what is there and registers it with its branch and a proposed test', async () => {
+    const folder = path.join(dir, 'fresh')
+    await fs.mkdir(folder)
+    await gitIn(folder, ['init', '-b', 'main'])
+    await fs.writeFile(path.join(folder, 'Cargo.toml'), '[package]\n')
+    const orch = orchOver()
+    const r = await orch.call({ cmd: 'projects-add', args: { path: folder, initialCommit: true }, sessionId: '', from: cli })
+    expect(r.status).toBe(200)
+    expect(r.body).toMatchObject({ defaultBranch: 'main', proposedTest: 'cargo test' })
+    expect((await git(['ls-files'], { cwd: folder })).stdout).toBe('Cargo.toml')
+    expect(orch.state().projects).toMatchObject([{ defaultBranch: 'main' }])
+  })
   it('is refused to a controller', async () => {
     const r = await orchOver().call({ cmd: 'projects-add', args: { path: dir }, sessionId: '', from: { role: 'controller', principal: { clientId: 'cli_x', name: 'x', permission: 'full-control' }, toOthers: () => {} } })
     expect(r.status).toBe(403)
+  })
+})
+
+// W7-B: a brand-new project: the folder, its repository and initial commit, registered; GitHub only when asked.
+describe('projects-create (W7-B)', () => {
+  const cli = { role: 'cli' as const, toOthers: () => {} }
+  const ghSpy = () => {
+    const calls: { args: string[]; cwd: string }[] = []
+    return {
+      calls,
+      dep: { run: async (args: string[], cwd: string) => (calls.push({ args, cwd }), { ok: true, stdout: 'https://github.com/me/shop\n', stderr: '' }) } as never
+    }
+  }
+
+  it('makes the folder, commits, registers it on main, and never calls gh unless --github is given', async () => {
+    const gh = ghSpy()
+    const orch = orchOver({ github: gh.dep })
+    const r = await orch.call({ cmd: 'projects-create', args: { name: 'shop', parent: dir, describe: 'a node app' }, sessionId: '', from: cli })
+    expect(r.status).toBe(200)
+    const root = path.join(dir, 'shop')
+    expect(r.body).toMatchObject({ path: root, name: 'shop', defaultBranch: 'main' })
+    expect(r.body).not.toHaveProperty('github')
+    expect(gh.calls).toEqual([])
+    expect((await git(['rev-list', '--count', 'HEAD'], { cwd: root })).stdout).toBe('1')
+    expect(orch.state().projects).toHaveLength(1)
+  })
+
+  it('creates the GitHub repository with --github and answers its URL', async () => {
+    const gh = ghSpy()
+    const orch = orchOver({ github: gh.dep })
+    const r = await orch.call({ cmd: 'projects-create', args: { name: 'shop', parent: dir, github: 'private' }, sessionId: '', from: cli })
+    expect(r.status).toBe(200)
+    expect(r.body).toMatchObject({ github: { url: 'https://github.com/me/shop' } })
+    expect(gh.calls).toEqual([{ args: ['repo', 'create', 'shop', '--private', '--source', '.', '--push'], cwd: path.join(dir, 'shop') }])
+  })
+
+  it('refuses a folder that exists, a bad --github and --github on a Host with no gh, before making anything', async () => {
+    await fs.mkdir(path.join(dir, 'taken'))
+    const gh = ghSpy()
+    const orch = orchOver({ github: gh.dep })
+    expect((await orch.call({ cmd: 'projects-create', args: { name: 'taken', parent: dir }, sessionId: '', from: cli })).status).toBe(400)
+    expect((await orch.call({ cmd: 'projects-create', args: { name: 'x', parent: dir, github: 'yes' }, sessionId: '', from: cli })).status).toBe(400)
+    expect((await orchOver().call({ cmd: 'projects-create', args: { name: 'x', parent: dir, github: 'public' }, sessionId: '', from: cli })).status).toBe(409)
+    expect((await orch.call({ cmd: 'projects-create', args: { name: 'x', parent: dir }, sessionId: 'sess-agent', from: cli })).status).toBe(403)
+    expect(gh.calls).toEqual([])
+    expect(await fs.readdir(dir)).not.toContain('x')
+    expect(orch.state().projects).toEqual([])
   })
 })
 
