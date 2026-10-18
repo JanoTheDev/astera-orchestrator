@@ -14,6 +14,10 @@ import { attachConsoleLinks } from '../terminalLinks'
 import { copyTextFor } from '../../../core/terminal/copy'
 import { SessionStateBanners } from './SessionStateBanners'
 import { terminalMayTakeFocus } from '../lib/terminalFocus'
+import { registerDockable } from './wall/consoleDock'
+
+/** W9-H: a wall tile's font (DESIGN §2: the session's own xterm at 10.5–11px). */
+export const TILE_FONT = 11
 
 export function TerminalView({
   session,
@@ -55,6 +59,8 @@ export function TerminalView({
   const [sizedRemote, setSizedRemote] = useState(false)
   // A resumed session has a delay while claude reads and replays the whole conversation, so show a loading indicator until the first output
   const [loading, setLoading] = useState(Boolean(session.resumeSessionId))
+  /** W9-H: a wall tile has borrowed this terminal (components/wall/consoleDock.ts); the pane does not focus it then. */
+  const tiledRef = useRef(false)
 
   useEffect(() => {
     const host = hostRef.current!
@@ -96,9 +102,19 @@ export function TerminalView({
     // The size follows the side that typed last (the Host's registry `sizeOwner`): while a controller on another
     // computer owns it, this tab shows the pty whole at a smaller font instead of cutting rows off, and says so.
     const pane = new PaneSize()
+    /** W9-H tile mode: where a wall tile has put this terminal, or null while it is in its pane. */
+    let tiled: HTMLElement | null = null
+    /** A tile shows the pty at the pty's own size in the tile font, bottom rows in view (wall.css), and sends no
+     *  resize: the tile is a window on the console, and the pane or the full-size console owns its size. */
+    const fitTile = (): void => {
+      const pty = pane.pty ?? lastSent
+      if (term.options.fontSize !== TILE_FONT) term.options.fontSize = TILE_FONT
+      if (pty && (term.cols !== pty.cols || term.rows !== pty.rows)) term.resize(pty.cols, pty.rows)
+    }
     /** Asks the pty for the grid this pane holds at the base font (the cell grid directly, not FitAddon, which always
      *  subtracts 15px for a scrollbar), and draws its own grid or the pty's size, whichever it owns. */
     const fitNow = (): void => {
+      if (tiled) return fitTile()
       const wanted = wantedOf(term, host)
       if (!wanted) return
       const d = nextResize(lastSent, wanted.cols, wanted.rows)
@@ -126,6 +142,31 @@ export function TerminalView({
     }
     fitRef.current = fitNow
     fitNow()
+    // W9-H: the wall borrows this very xterm for a tile. It is never a second terminal and never a re-attach: the
+    // element moves, the bus keeps writing into the same buffer. Offscreen, xterm's own IntersectionObserver
+    // (RenderService) pauses drawing while the output is still parsed, so a tile scrolled away costs no paint.
+    const offDock = registerDockable(sessionId, {
+      show: (anchor) => {
+        const el = term.element
+        if (!el) return
+        tiled = anchor
+        tiledRef.current = true
+        anchor.appendChild(el)
+        term.options.disableStdin = true // read-only until opened: a click on the tile opens the console
+        term.blur()
+        fitTile()
+        term.scrollToBottom()
+      },
+      home: () => {
+        const el = term.element
+        if (!el) return
+        tiled = null
+        tiledRef.current = false
+        host.appendChild(el)
+        term.options.disableStdin = false
+        fitNow()
+      }
+    })
     const offSize = window.api.on('session:pty-size', (e) => {
       if (e.sessionId !== session.id) return
       // The Host's word on who owns the size, beside the size (final review I7).
@@ -259,6 +300,9 @@ export function TerminalView({
     observer.observe(host)
 
     return () => {
+      offDock()
+      // A tile holding the terminal when the session's view goes: take it back so dispose removes it from the page.
+      if (tiled && term.element) host.appendChild(term.element)
       disposeLinks()
       selectionLatch.dispose()
       detach()
@@ -303,7 +347,7 @@ export function TerminalView({
 
   // When this tab becomes active (including keyboard switching and a tab click), focus the terminal so typing works right away
   useEffect(() => {
-    if (active && session.status !== 'exited' && terminalMayTakeFocus(document.activeElement)) termRef.current?.focus()
+    if (active && !tiledRef.current && session.status !== 'exited' && terminalMayTakeFocus(document.activeElement)) termRef.current?.focus()
   }, [active, session.status])
 
   return (

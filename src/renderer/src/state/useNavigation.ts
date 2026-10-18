@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 import type { PageId } from '../../../core/ui/pages'
 import { sessionTab } from '../../../core/panes/tabId'
 import { registerNavigation } from '../components/shell/navigation'
+import { setWallView } from '../components/wall/wallView' // W9-H
 import type { AppState } from './appState'
 
 type NavigationDeps = Pick<
@@ -24,22 +25,26 @@ export function useNavigation(app: NavigationDeps): void {
       if (!(sidebarOpen && sidebarPane === view)) toggleSidebar(view)
     }
     const openPage = (id: PageId): void => {
+      // W9-H: Agents is the wall; every other page takes the window from it
+      setWallView(id === 'agents' ? { kind: 'wall' } : { kind: 'away' })
+      if (id === 'agents') return
       if (id === 'files') showExplorer()
       else if (id === 'plans' || id === 'tasks') showView('jobs')
       else if (id === 'more:hiw') showView('understanding')
       else if (id === 'settings') setShowSettings(true)
       else if (id === 'more:runs') setRunPanelOpen(true)
       else if (id === 'more:browser') console.warn('navigation.openPage: no browser page yet; a browser tab opens from a link')
-      // agents, inbox (escalation rows), worktrees (WorktreePanel), more:history (HistoryBrowser): the session list
+      // inbox (escalation rows), worktrees (WorktreePanel), more:history (HistoryBrowser): the session list
       else showView('sessions')
     }
     return registerNavigation({
       openPage,
-      // the same path the workspace tree's session rows take
+      // the same path the workspace tree's session rows take; W9-H: shown full size on the Agents page
       openConsole: (sessionId) => {
         if (!canOpenSessionTab(sessionId)) return
         setWorkspaceScope(null, null)
         selectWorkbenchTab(sessionTab(sessionId))
+        setWallView({ kind: 'console', sessionId })
       },
       // the same path the workspace tree's escalation row takes (W7-C); `section` has no target yet
       openPlan: (jobId) => {

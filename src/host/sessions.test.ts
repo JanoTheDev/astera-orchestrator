@@ -107,6 +107,19 @@ const harness = (size: { cols: number; rows: number } = { cols: 80, rows: 24 }, 
 
 // Performance audit H4: a remote keystroke, resize, stop or facts read names one session; finding it must not build
 // every session's row (each reads its hook file).
+// W9-H: the owner hold reads when the owner last typed into a session's console, by the session's id.
+describe('registrySessions — ownerInputAt', () => {
+  it('is the last window keystroke in the session’s ptys, and null for a shell tab or none', () => {
+    const { ptys, sessions } = harness()
+    expect(sessions.ownerInputAt('ses-1')).toBe(null)
+    clock.now = 5000
+    ptys.write('pty-a', 'x', { person: true, side: 'local' })
+    ptys.write('pty-b', 'y', { person: true, side: 'local' })
+    expect(sessions.ownerInputAt('ses-1')).toBe(5000)
+    expect(sessions.ownerInputAt('trm-1')).toBe(null)
+  })
+})
+
 describe('registrySessions — one by id', () => {
   it('answers the same row the list has, and none for an id it does not hold', async () => {
     const { sessions, agent, procsMade, openChat } = harness()

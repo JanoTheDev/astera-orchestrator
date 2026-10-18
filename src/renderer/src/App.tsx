@@ -22,6 +22,7 @@ import { Content } from './components/shell/Content'
 import { StatusBar } from './components/shell/StatusBar'
 import { Overlays } from './components/shell/Overlays'
 import { Titlebar } from './components/shell/Titlebar'
+import { AgentsPage } from './components/pages/AgentsPage' // W9-H
 
 sessionBus.init()
 
@@ -153,7 +154,10 @@ export default function App(): React.JSX.Element {
       <div className="workbench">
         <Rail {...app} />
         <Sidebar {...app} />
-        <Content {...app} />
+        {/* W9-H: the Agents page wraps the pane grid, which stays mounted for every session's life (AgentsPage) */}
+        <AgentsPage {...app}>
+          <Content {...app} />
+        </AgentsPage>
       </div>
       <StatusBar {...app} />
       <Overlays {...app} />

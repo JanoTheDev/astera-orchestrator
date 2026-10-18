@@ -123,6 +123,10 @@ interface Entry {
    *  reply), never the Host's own (a nudge, a spawn's or a roll's prompt). A finished Run's sessions end
    *  once nobody has typed into them for a while (dispatchLoop.ts, FINISHED_RUN_GRACE_MS). */
   lastPersonWriteAt: number | null
+  /** The part of `lastPersonWriteAt` typed in a window (a write with `by.side`: the app's `pty-write` with
+   *  `typed`, a remote controller), not a Slack reply. A console typed into in the last minute is held from
+   *  agents' `sessions send` (core/sessions/ownerHold.ts, W9-H). */
+  lastTypedAt: number | null
   /** How the pty ended, or null while it is alive. Kept after the ring is cleared, because the
    *  Host's exit handling asks for it after the fact (`sessionExitCode`). */
   exitCode: number | null
@@ -310,6 +314,7 @@ export class PtyRegistry {
       rows: a.opts.rows,
       lastWriteAt: null,
       lastPersonWriteAt: null,
+      lastTypedAt: null,
       exitCode: null,
       killSent: false,
       treeKillSent: false,
@@ -537,6 +542,7 @@ export class PtyRegistry {
     const at = (this.deps.now ?? Date.now)()
     e.lastWriteAt = at
     if (by?.person) e.lastPersonWriteAt = at
+    if (by?.side !== undefined) e.lastTypedAt = at
   }
 
   /** When `write` last reached this pty, or null for one never written to or never here. */
@@ -547,6 +553,11 @@ export class PtyRegistry {
   /** When a write marked `person` last reached this pty, or null for none or one never here. */
   lastPersonWrite(id: string): number | null {
     return this.entries.get(id)?.lastPersonWriteAt ?? null
+  }
+
+  /** When a person last typed into this pty in a window (`by.side` set), or null for none or one never here. */
+  lastTyped(id: string): number | null {
+    return this.entries.get(id)?.lastTypedAt ?? null
   }
 
   resize(id: string, cols: number, rows: number): void {
