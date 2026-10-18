@@ -4162,7 +4162,8 @@ export async function handleCommand(
             type,
             taskId: str(args.taskId) ?? undefined,
             dispatchId: dispatchId ?? undefined,
-            subject: str(args.subject) ?? '',
+            // W6-B: `send --type escalation --reason …` is the coordinator guide's spelling of the subject
+            subject: str(args.subject) ?? str(args.reason) ?? '',
             body: str(args.body) ?? '',
             answered: false,
             createdAt: now
@@ -4264,7 +4265,9 @@ export async function handleCommand(
     }
     case 'inbox': {
       const limit = typeof args.limit === 'number' ? args.limit : 50
-      return okBody(s.messages.slice(-limit))
+      // W6-B: `--type escalation` is what the app's "needs my input" list reads
+      const type = str(args.type)
+      return okBody((type ? s.messages.filter((m) => m.type === type) : s.messages).slice(-limit))
     }
     case 'ask': {
       const timeoutMs =

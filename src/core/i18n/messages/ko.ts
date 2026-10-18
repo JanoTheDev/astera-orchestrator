@@ -1922,6 +1922,9 @@ export const ko = {
   'settings.activityDigest.label': '활동 요약 주기(분)',
   'settings.activityDigest.hint': '끝났거나 실패했거나 기다리는 일의 요약을 데스크톱과 Slack 에 보내는 주기입니다. 일이 있었을 때만 보냅니다. 0 이면 보내지 않습니다.',
   'settings.activityDigest.saveFailed': '요약 주기를 저장하지 못했습니다: {detail}',
+  'settings.alertSound.label': '내가 필요할 때 알림음',
+  'settings.alertSound.hint': '권한 요청, 질문, 에스컬레이션, 열린 게이트 알림과 함께 짧은 알림음을 냅니다. 5초에 한 번까지입니다.',
+  'settings.alertSound.saveFailed': '알림음 설정을 저장하지 못했습니다: {detail}',
   'jobs.new.schedule': '예약 실행',
   'jobs.new.scheduleHint': '정한 시각마다 이 작업의 회차를 하나 만들어 돌린다',
   // 겹침을 막지 않기로 한 결정을 사람에게 알리는 자리 — 도는 워커 수가 상한을 넘을 수 있다

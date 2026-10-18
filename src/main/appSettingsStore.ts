@@ -120,6 +120,9 @@ export class AppSettingsStore {
   private maxConcurrentWorkers: number | null = null
   /** W3-A: minutes between activity digests, 0 for none. Written only when it is not the default. */
   private activityDigestMinutes = ACTIVITY_DIGEST_DEFAULT_MINUTES
+  /** W6-B: the chime with a notice that needs the owner. On by default; only an explicit false (the file is
+   *  user-editable) turns it off, as githubPolling. */
+  private alertSound = true
   /** 설명을 누가·무엇으로 만드는가. 비어 있으면 생성하지 않는다 (설계 D2) */
   private generator: GeneratorSettings = {}
   /** Orchestrator W1-A: per-provider role and difficulty models. Empty = the built-in defaults. */
@@ -206,6 +209,7 @@ export class AppSettingsStore {
       this.activityDigestMinutes = activityDigestMinutesOf(
         (parsed as { activityDigestMinutes?: unknown }).activityDigestMinutes
       )
+      this.alertSound = (parsed as { alertSound?: unknown }).alertSound !== false
       // Narrowed on read, like generator and terminalFont and for the same reason: the file is
       // user-editable, and the narrowing is per flag's own default (see readDesktopNotify).
       this.desktopNotify = readDesktopNotify((parsed as { desktopNotify?: unknown }).desktopNotify)
@@ -275,6 +279,7 @@ export class AppSettingsStore {
         this.githubPolling = true
         this.maxConcurrentWorkers = null
         this.activityDigestMinutes = ACTIVITY_DIGEST_DEFAULT_MINUTES
+        this.alertSound = true
         this.desktopNotify = { ...DESKTOP_NOTIFY_DEFAULTS }
         this.generator = {}
         this.roleModels = {}
@@ -310,6 +315,7 @@ export class AppSettingsStore {
       this.githubPolling = true
       this.maxConcurrentWorkers = null
       this.activityDigestMinutes = ACTIVITY_DIGEST_DEFAULT_MINUTES
+      this.alertSound = true
       this.desktopNotify = { ...DESKTOP_NOTIFY_DEFAULTS }
       this.generator = {}
       this.roleModels = {}
@@ -520,6 +526,15 @@ export class AppSettingsStore {
     await this.persist()
   }
 
+  getAlertSound(): boolean {
+    return this.alertSound
+  }
+
+  async setAlertSound(on: boolean): Promise<void> {
+    this.alertSound = on !== false
+    await this.persist()
+  }
+
   getDesktopNotify(): DesktopNotifySettings {
     return { ...this.desktopNotify }
   }
@@ -664,6 +679,7 @@ export class AppSettingsStore {
       githubPolling?: boolean
       maxConcurrentWorkers?: number
       activityDigestMinutes?: number
+      alertSound?: false
       desktopNotify?: DesktopNotifySettings
       generator?: GeneratorSettings
       roleModels?: RoleModelSettings
@@ -702,6 +718,7 @@ export class AppSettingsStore {
     if (this.githubPolling === false) data.githubPolling = false
     if (this.maxConcurrentWorkers !== null) data.maxConcurrentWorkers = this.maxConcurrentWorkers
     if (this.activityDigestMinutes !== ACTIVITY_DIGEST_DEFAULT_MINUTES) data.activityDigestMinutes = this.activityDigestMinutes
+    if (!this.alertSound) data.alertSound = false
     // Written only while the question is still open, which is the same one-sided rule as the two
     // below — and here it carries the difference between a new install and an old one, so an absent
     // key has to keep meaning "asked". See the field's own note.

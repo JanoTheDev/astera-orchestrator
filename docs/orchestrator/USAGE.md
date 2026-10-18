@@ -88,6 +88,15 @@ Runtime, marked "on <runtime>".
 - Settings → **Activity summary every (minutes)**: the digest, default 30, sent only when something happened. 0 turns
   it off; held notices are then announced once a minute as "More orchestration updates".
 - Slack gets the same notices, from whichever process keeps Slack (the Host, or the app), never from both.
+- **Questions and escalations (W6-B).** A worker asks its coordinator with `astera ask` (Claude workers start without
+  Claude's own question tool), and the coordinator answers from the plan, the spec files and the repo. Each answer is a
+  feed line, "coordinator answered", and never a notice. Only an owner decision is escalated: a product choice the
+  plan leaves open, anything irreversible, data loss, security, money, or a question asked twice. An escalation, or a
+  Gate opened because the attempts or review rounds ran out, is a desktop notice ("Needs your decision") and a row in
+  the needs-input list until its Task or plan ends.
+- **Chime.** Settings → Notifications → "Chime when something needs you" (on by default): a short two-note chime with
+  the notice for a permission prompt, a question, an escalation or a Gate, at most one every 5 s. The OS notice is then
+  silent, so you hear one sound.
 - Desktop notices need the app open. The Host keeps the feed while the app is closed, and you read it when you return.
 
 ## Command bar and voice (W3-B)

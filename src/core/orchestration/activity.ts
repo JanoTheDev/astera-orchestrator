@@ -28,6 +28,7 @@ import { emptyState, type OrchState } from './state'
 import {
   isPlaceholderSessionId,
   type Dispatch,
+  type Gate,
   type GateKind,
   type Job,
   type Outcome,
@@ -55,7 +56,10 @@ export const ACTIVITY_KINDS = [
   // W6-D: a replan began / ended between waves or as the final check (replan.ts)
   'plan.replanning',
   'plan.replanned',
-  // W6-B owns this kind's notice and sound; W6-D raises it when a replan is handed to the person
+  // W6-B: a worker's question a coordinator answered (feed only), and something only the owner can decide (a notice and
+  // the chime): a worker's or coordinator's `send --type escalation`, or a Gate opened because the attempts ran out.
+  // W6-D raises it too, when a replan is handed to the person
+  'question.auto-answered',
   'task.escalated'
 ] as const
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number]
@@ -97,8 +101,9 @@ export interface ActivityPayload {
   wave?: number
   /** plan.replanned: what the replan changed, one line. */
   summary?: string
-  // task.escalated
-  /** Why it needs the person. */
+  // question.auto-answered (W6-B; `question` above is the worker's question)
+  answer?: string
+  // task.escalated (W6-B): the escalation's subject, else its body; a Gate's question; W6-D: why the replan escalated
   reason?: string
 }
 
@@ -138,8 +143,10 @@ const dispatchOf = (ds: readonly Dispatch[]): Dispatch | undefined => {
 
 export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[] {
   if (prev === next) return []
-  // Most commits move only messages and deliveries (a heartbeat): nothing to read then
-  if (prev.tasks === next.tasks && prev.dispatches === next.dispatches && prev.gates === next.gates && prev.runs === next.runs && prev.jobs === next.jobs)
+  // Most commits move only messages and deliveries (a heartbeat): nothing to read then. W6-B reads a message that was
+  // added (an escalation, a reply's status line); acks and deliveries change messages without adding one.
+  const newMessages = prev.messages.length !== next.messages.length
+  if (!newMessages && prev.tasks === next.tasks && prev.dispatches === next.dispatches && prev.gates === next.gates && prev.runs === next.runs && prev.jobs === next.jobs)
     return []
   const out: ActivityDraft[] = []
   const runs = byId(next.runs)
@@ -247,7 +254,11 @@ export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[
       if (was === g) continue
       const title = tasks.get(g.taskId)?.title ?? g.taskId
       const gate = { gateId: g.id, question: g.question, ...(g.kind ? { gateKind: g.kind } : {}) }
-      if (was === undefined && g.status === 'open') push('gate.opened', where(g.runId, g.taskId), { title, ...gate })
+      if (was === undefined && g.status === 'open') {
+        push('gate.opened', where(g.runId, g.taskId), { title, ...gate })
+        // W6-B: the attempts ran out (W6-C's review cap too), so only the owner can move it on
+        if (gateEscalates(g)) push('task.escalated', where(g.runId, g.taskId), { title, gateId: g.id, reason: g.question })
+      }
       if (g.status === 'resolved' && was?.status !== 'resolved')
         push('gate.resolved', where(g.runId, g.taskId), { title, ...gate, ...(g.resolution !== undefined ? { resolution: g.resolution } : {}) })
     }
@@ -260,6 +271,26 @@ export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[
       if (was === undefined || was === r || same(was.pr, r.pr)) continue
       const at = where(r.id)
       push('run.pr', at, { title: at.job ? jobNameOf(at.job) : r.id, ...(r.pr !== undefined ? { pr: r.pr } : {}) })
+    }
+  }
+
+  // W6-B: the messages this commit added. A reply adds its `status` line (applyReply, `replyTo` the question), so the
+  // answer is read off that line; an empty answer is the cleanup settlePendingQuestions leaves, never a reply.
+  if (newMessages) {
+    const was = new Set(prev.messages.map((m) => m.id))
+    const byMsg = byId(next.messages)
+    for (const m of next.messages) {
+      if (was.has(m.id)) continue
+      const taskTitle = m.taskId !== undefined ? tasks.get(m.taskId)?.title : undefined
+      const at = where(m.runId, m.taskId)
+      const title = taskTitle ?? (at.job ? jobNameOf(at.job) : m.runId)
+      if (m.type === 'escalation') {
+        push('task.escalated', at, { title, reason: (m.subject || m.body).slice(0, 500) }, sessionOfDispatch(next, m.dispatchId))
+        continue
+      }
+      const q = m.type === 'status' && m.replyTo !== undefined ? byMsg.get(m.replyTo) : undefined
+      if (q?.type !== 'question' || (q.answerBody ?? '') === '') continue
+      push('question.auto-answered', at, { title, question: q.body.slice(0, 500), answer: q.answerBody!.slice(0, 500) }, sessionOfDispatch(next, q.dispatchId))
     }
   }
 
@@ -306,6 +337,18 @@ export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[
     }
   }
   return out
+}
+
+/** W6-B: a Gate that only the owner can move on, which escalates: the convergence attempts ran out, or W6-C's review
+ *  cap (`reason: 'review-rounds-exhausted'`). */
+export const gateEscalates = (g: Gate): boolean =>
+  g.kind === 'convergence-exhausted' ||
+  // shortcut: Gate.reason is W6-C's field, read untyped until W6 merges; type it then
+  (g as Gate & { reason?: string }).reason === 'review-rounds-exhausted'
+
+const sessionOfDispatch = (s: OrchState, dispatchId: string | undefined): string | undefined => {
+  const id = dispatchId === undefined ? undefined : s.dispatches.find((d) => d.id === dispatchId)?.sessionId
+  return id !== undefined && !isPlaceholderSessionId(id) ? id : undefined
 }
 
 export const awaitsApproval = (j: Job | undefined): boolean => j?.pendingStart === true && j.plannerSessionIds !== undefined
@@ -415,12 +458,14 @@ export interface ActivityNotice {
   title: string
   body: string
   sessionId?: string
+  /** W6-B: it needs the owner (an escalation, a Gate), so the app chimes with it (renderer lib/alertSound.ts). */
+  alert?: true
 }
 
 const inPlan = (e: ActivityEvent): string => (e.payload.plan !== undefined && e.payload.plan !== e.payload.title ? ` (${e.payload.plan})` : '')
 
 /** The lines worth interrupting someone for: a Task failed, a plan ended, a question waits on a person, a plan waits
- *  on its approval. A worker waiting at a prompt (`task.waiting`) is a feed line and not a notice here: the desktop's `inputNeeded` and Slack's own notice
+ *  on its approval, an escalation (W6-B). A coordinator's answer (`question.auto-answered`) never is. A worker waiting at a prompt (`task.waiting`) is a feed line and not a notice here: the desktop's `inputNeeded` and Slack's own notice
  *  already say it, from the session's attention (desktopNotifier.ts), and a second notice would be the flood. */
 export function noticeOf(e: ActivityEvent): ActivityNotice | null {
   const session = e.sessionId !== undefined ? { sessionId: e.sessionId } : {}
@@ -436,12 +481,18 @@ export function noticeOf(e: ActivityEvent): ActivityNotice | null {
         body: e.payload.title
       }
     case 'gate.opened':
-      return { key: `gate:${e.payload.gateId}`, title: 'Needs your answer', body: `${e.payload.title}${inPlan(e)}: ${e.payload.question ?? ''}`.slice(0, 240) }
+      return { key: `gate:${e.payload.gateId}`, title: 'Needs your answer', body: `${e.payload.title}${inPlan(e)}: ${e.payload.question ?? ''}`.slice(0, 240), alert: true }
     case 'plan.awaiting-approval':
       return { key: `approve:${e.jobId}`, title: 'Plan ready for approval', body: e.payload.title }
-    // W6-D raises it on a replan the person must sort out; W6-B owns its wording and sound
+    // W6-B. A Gate's escalation shares its gate.opened key, so the throttle shows one of the two
     case 'task.escalated':
-      return { key: `escalated:${e.id}`, title: 'Needs you', body: `${e.payload.title}: ${e.payload.reason ?? ''}`.slice(0, 240) }
+      return {
+        key: e.payload.gateId !== undefined ? `gate:${e.payload.gateId}` : `escalated:${e.id}`,
+        title: 'Needs your decision',
+        body: `${e.payload.title}${inPlan(e)}: ${e.payload.reason ?? ''}`.slice(0, 240),
+        alert: true,
+        ...session
+      }
     default:
       return null
   }
