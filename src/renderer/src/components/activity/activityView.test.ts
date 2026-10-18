@@ -27,6 +27,20 @@ describe('activityView', () => {
     expect(feedOf(lines, null)).toHaveLength(2)
   })
 
+  // W6-G: an account's usage pause holds every plan, so it is in each plan's feed, named by the account.
+  it('a usage pause is a line in every plan’s feed, naming the account and when it resumes', () => {
+    const paused = ev(3, {
+      type: 'usage.paused',
+      jobId: undefined,
+      payload: { title: 'acc_1', accountId: 'acc_1', usageWindow: 'five_hour', percent: 93, resetsAt: '2026-10-17T14:20:00.000Z' }
+    })
+    expect(feedOf([ev(1), paused], 'j1').map((e) => e.sequence)).toEqual([1, 3])
+    const line = lineOf(paused, label)
+    expect(line.tone).toBe('warn')
+    expect(line.text).toMatch(/^Work: new workers paused, at 93% of its 5-hour limit, resumes ~/)
+    expect(lineOf({ ...paused, type: 'usage.resumed' }, label).text).toBe('Work: new workers resumed, under the usage threshold again')
+  })
+
   it('says completed, failed, cancelled and awaiting review apart, and who did it', () => {
     expect(lineOf(ev(1), label)).toEqual({ text: 'Task A: cancelled', tone: 'warn' })
     expect(lineOf(ev(1, { payload: { title: 'T', category: 'awaiting-review' } }), label).text).toBe('T: awaiting review')

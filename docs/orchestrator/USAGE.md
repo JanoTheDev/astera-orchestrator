@@ -64,6 +64,24 @@ sessions or plans never restarts a process or changes its cwd. Scrollback surviv
 - **Board**: the Run window's board shows every Task, and for each one that is not running, why ("waits for A",
   "App-wide limit full", "Its worker was stopped").
 
+## Usage guards (W6-G)
+
+- **Subagents per tab.** Every Claude tab Astera starts (workers, planners, coordinators and plain tabs) may run at most
+  Settings → "Max subagents per tab" subagents at once (1–10, default 10). A tab that asks for one more gets "Astera: N
+  subagents already running in this tab (limit N). Wait for one to finish." The count lives in
+  `<profile>/hook-events/<session>.subagents` and goes back to 0 when the tab starts or resumes. A change of the setting
+  reaches running tabs at their next subagent. A tab opened before this feature has none of these hooks until it is
+  reopened.
+- **Usage pause.** No new worker starts on an account whose latest statusLine reading is at Settings → "Pause new
+  workers at usage (%)" (default 90) of its 5-hour or 7-day limit. If another account of the Task (its rolling order)
+  is under the threshold, the worker starts there instead. Running workers are never stopped. With no reading yet,
+  nothing is held. The pause ends on its own when a fresh reading is under the threshold or the window resets. A
+  coordinator asking `worker-start` for a paused account is refused with the reason and, when there is one, the
+  account to use instead. The board says "Paused: <account> at 93% of its 5-hour limit, resumes ~14:20". The feed and a
+  desktop notice say when new workers pause and resume, without a sound: nothing is asked of you.
+- **The usage strip** above the plan's board shows each account's 5-hour and 7-day share with its reset time, which
+  accounts are paused, the threshold, and the live subagents per tab.
+
 ## Activity feed
 
 The **Activity** panel under Workspaces is the feed of the open plan. "All plans" switches it to every plan. Each line

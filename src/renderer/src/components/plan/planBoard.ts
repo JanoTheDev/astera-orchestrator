@@ -3,6 +3,7 @@
 import type { MessageKey, MessageParams } from '../../../../core/i18n'
 import type { JobTask, TaskBlockedReason, TaskCategory } from '../../../../core/types'
 import { formatRemaining } from '../../../../core/orchestration/elapsed'
+import { resetClock } from '../../../../core/orchestration/activity'
 
 /** The overview's buckets, in the order it lists them. */
 export const CATEGORIES: readonly TaskCategory[] = ['done', 'running', 'awaiting-review', 'queued', 'failed', 'cancelled']
@@ -90,6 +91,16 @@ export function reasonText(
       return { key: 'plan.reason.globalCap', params: { used: reason.used, limit: reason.limit, priority: reason.priority } }
     case 'next':
       return { key: 'plan.reason.next' }
+    // W6-G: "Paused: Max at 93% of its 5-hour limit, resumes ~14:20"
+    case 'usage-paused': {
+      const account = accountLabel(reason.accountId)
+      const weekly = reason.window === 'seven_day'
+      if (reason.resetsAt === null) return { key: 'plan.reason.usagePausedNoTime', params: { account, percent: reason.percent } }
+      return {
+        key: weekly ? 'plan.reason.usagePaused7d' : 'plan.reason.usagePaused5h',
+        params: { account, percent: reason.percent, time: resetClock(reason.resetsAt, weekly) }
+      }
+    }
   }
 }
 
