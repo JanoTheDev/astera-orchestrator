@@ -152,6 +152,29 @@ describe("the plan's pull request", () => {
     ])
   })
 
+  it('shows an account label, or its short id when the label is an email (#105)', () => {
+    const t = { id: 't1', runId: 'r1', title: 'A', spec: '', deps: [], status: 'completed', consecutiveFailures: 0, createdAt: '', updatedAt: '' } as Task
+    const s = { ...emptyState(), tasks: [t], dispatches: [{ id: 'd1', taskId: 't1', accountId: 'acc_1234567890' } as Dispatch] }
+    expect(planPrTasksOf(s, 'r1', () => 'jip.claude0@gmail.com')[0].account).toBe('acc_1234')
+    expect(planPrTasksOf(s, 'r1', () => undefined)[0].account).toBe('acc_1234')
+    expect(planPrTasksOf(s, 'r1', () => 'Work')[0].account).toBe('Work')
+  })
+
+  it('closes the issues the plan was made from and only references the others (#105)', () => {
+    const t = (id: string, n: number) =>
+      ({ id, runId: 'r1', title: id, spec: '', deps: [], status: 'completed', consecutiveFailures: 0, createdAt: '', updatedAt: '', links: { issue: { number: n, url: 'u' } } }) as Task
+    const s = {
+      ...emptyState(),
+      jobs: [{ id: 'j1', source: { id: 'github', itemId: '4,5' } } as never],
+      runs: [{ id: 'r1', jobId: 'j1' } as never],
+      tasks: [t('a', 4), t('b', 5), t('c', 9)]
+    }
+    const body = planPrBody({ plan: 'P', tasks: planPrTasksOf(s, 'r1') })
+    expect(body).toContain('Closes #4')
+    expect(body).toContain('Closes #5')
+    expect(body).toContain('Refs #9')
+  })
+
   it('reads a PR number off its URL', () => {
     expect(prNumberOf('https://github.com/o/r/pull/13')).toBe(13)
     expect(prNumberOf('https://github.com/o/r/issues/13')).toBeNull()

@@ -203,6 +203,9 @@ export function buildPlannerBrief(a: {
   /** The account the planner runs on: the default account of the Tasks it writes. */
   accountId: string
   concurrency: number
+  /** W8-G (#101): plan branches of this project that hold earlier work and are not merged, and the branch they would go into. */
+  unmergedBranches?: string[]
+  defaultBranch?: string
 }): string {
   return [
     'You are the PLANNER for one Job in Astera. You analyse and plan. You do not implement anything.',
@@ -220,6 +223,17 @@ export function buildPlannerBrief(a: {
     '  you plan to touch. Follow them, and tell each worker the ones that apply to its Task.',
     '- Read `$ASTERA_SKILLS/planner-guide.md` (how to cut a plan into Tasks), then `astera help`.',
     '',
+    ...(a.unmergedBranches && a.unmergedBranches.length > 0
+      ? [
+          'UNMERGED PLAN BRANCHES (W8-G)',
+          ...a.unmergedBranches.map((b) => `- ${b}`),
+          `Earlier plans left their work on these branches and nobody has merged them into ${a.defaultBranch ?? 'the default branch'}.`,
+          `Plan the work on the default branch (${a.defaultBranch ?? 'the default branch'}); this branch is not merged. Workers start from it, so`,
+          'they will not have the code on those branches: never base a Task on them or on one of their commits.',
+          'List the branches in `existing.md`, and say what each holds that your plan would otherwise rely on.',
+          ''
+        ]
+      : []),
     'WHAT YOU MAY NOT DO',
     // W7-E (#69): the planner guide's existing.md (and an audit's audit.md) live in this one folder; nothing else is written
     `- Write files only in this Job's inputs folder, \`$ASTERA_PROFILE_DIR/plans/${a.jobId}/inputs/\` (create it if it is`,

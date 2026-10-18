@@ -91,9 +91,15 @@ owns every session and drives every plan, so closing the window stops nothing (L
 **Delivery** (per project; Jobs view → "When a plan is done", or `astera projects set --id <project> --delivery pr|push
 [--delivery-branch <branch>]`; one plan can override it with `--delivery` on `jobs create` / `jobs plan`):
 - `pr` (the default): one PR per plan, opened when the plan finishes, never merged automatically. A project with no
-  remote gets no PR and no failure: the feed says "This project has no remote; the plan's work is on branch <name>".
+  remote gets no PR and no failure: the feed says "This project has no remote; the plan's work is on branch <name>.
+  To merge it, run `git merge <name>` in <folder>". Until you do, the next plan's planner is told that branch is
+  unmerged (it plans on the default branch and lists the branch in `existing.md`; workers start from the default
+  branch too), so merge it first when the next plan needs that work (W8-G #101). The PR names each Task's account by
+  its label (a short id when the label is an email address), and says `Closes #n` for the issues the plan was made
+  from (`jobs create-from-issue`), `Refs #n` for any other (#105).
 - `push`: when the last Task passed review (and the final check is done), Astera merges the plan's worktrees into the
-  project folder's delivery branch (the default branch unless set), runs the plan's validation checks once more on the
+  project folder's delivery branch (the default branch unless set; with no `origin/HEAD`, the default branch the
+  project recorded, #102), runs the plan's validation checks once more on the
   merged tree, and pushes it, **with no review by a person**. The merge commits say `Fixes #n` for the issues the plan
   came from, so GitHub closes them. It stops and escalates (a sound and a notice) instead when the folder is on another
   branch or has uncommitted changes, when the branch cannot fast-forward to origin, on a conflict, when validation fails
@@ -172,14 +178,15 @@ Known gaps were issues #67–#84 (label `wave-6`), fixed by Wave 7's W7-C…W7-F
   planner each time (#93). If Run says a Task "has no basis", tell the planner (#94).
 - **A Gate from the coordinator** has no box on the card (#97): `astera questions list --status open`, then
   `astera questions answer --id <id> --answer "<option>"` (pass the option as an argument, not on stdin, #98).
-- **No remote + `pr`**: merge the plan's branch (`git merge <branch>` in the folder) before the next plan (#101).
-- **`push` with a new bare origin**: set `--delivery-branch main` or run `git remote set-head origin -a` (#102).
 
 ## Projects (W7-B)
 
 **New project.** "+ New project" asks for a name, a parent folder, an optional description and GitHub
 private, public or none. It makes the folder, runs `git init`, commits and registers it. From a shell:
 `astera projects create --name app --parent ~/code --github private`.
+
+**First run.** "+ New project" and "Add project" work in a window with no tab open. A plain tab in a folder that is not a
+git repository is not a project (#103, #104).
 
 **Add an existing project.** `astera projects add --path <folder>`. The folder must be a git repository. With no
 commit it is refused (409 needsInitialCommit); add `--initial-commit` to make the first one. The answer proposes

@@ -94,6 +94,22 @@ export function ensureProject(
   return { state: { ...s, projects: [...s.projects, project] }, project }
 }
 
+/** W8-G (#103): `ensureProject` for a folder a tab happens to stand in. Only a git folder becomes a project, as with
+ *  `projects add`; any other tab folder is left unregistered. `isGit` is the caller's check (inspectFolder). */
+export async function ensureGitProject(s: OrchState, a: { path: string; now: string }, isGit: (dir: string) => Promise<boolean>): Promise<OrchState> {
+  if (findProjectByPath(s, a.path) || !(await isGit(a.path))) return s
+  return ensureProject(s, a).state
+}
+
+/** W8-G (#103): drops the projects an older build registered from a tab's non-git folder. One that holds a plan stays:
+ *  it is the person's work, not a stray tab. */
+export async function dropNonGitProjects(s: OrchState, isGit: (dir: string) => Promise<boolean>): Promise<OrchState> {
+  const strays: string[] = []
+  for (const p of s.projects)
+    if (!s.jobs.some((j) => jobInProject(s, j, p)) && !(await isGit(p.path))) strays.push(p.id)
+  return strays.length === 0 ? s : { ...s, projects: s.projects.filter((p) => !strays.includes(p.id)) }
+}
+
 /** Renames one. Nothing in P0 calls it — the CLI spec §13 does not require project write commands —
  *  but the field exists to be changed and a rename that has to go through a raw state edit is how a
  *  second writer gets invented. */

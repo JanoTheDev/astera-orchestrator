@@ -252,7 +252,7 @@ describe('run-open-pr: one pull request per plan', () => {
     deps.github!.createPr = async () => ({ ok: false, stage: 'push', kind: 'no-remote', detail: '', pushed: false })
     const r = await call('run-open-pr', { run: 'r1' })
     expect(r.status).toBe(200)
-    expect(r.body).toMatchObject({ noRemote: true, message: "This project has no remote; the plan's work is on branch astera/run" })
+    expect(r.body).toMatchObject({ noRemote: true, message: expect.stringMatching(/^This project has no remote; the plan's work is on branch astera\/run\. To merge it, run `git merge astera\/run` in /) })
     const pr = state().runs[0].pr!
     expect(pr.note).toBeTruthy()
     expect(pr.error).toBeUndefined()

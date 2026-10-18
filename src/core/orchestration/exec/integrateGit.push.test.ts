@@ -1,6 +1,10 @@
 // W6-H: every guard of a push delivery (deliverByPush), over a fake git runner. A git that answers nothing in a test
 // is a stop: an unexpected argv fails the push instead of passing it by accident.
 import { describe, it, expect } from 'vitest'
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync, writeFileSync } from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import type { GitResult } from '../../worktrees/git'
 import { deliverByPush, type PushContext } from './integrateGit'
 
@@ -65,8 +69,11 @@ function setup(over: Record<string, Reply | Reply[]> = {}, o: { merge?: 'ok' | '
       return o.validate === 'fail' ? { ok: false, reason: 'npm test exited 1' } : { ok: true, ran: 1 }
     }
   }
-  const go = (branch?: string) =>
-    deliverByPush({ cwd: '/repo', worktrees: ['/wt-a', '/wt-b'], message: 'Deliver plan: P\n\nFixes #7', ...(branch ? { branch } : {}) }, ctx)
+  const go = (branch?: string, defaultBranch?: string) =>
+    deliverByPush(
+      { cwd: '/repo', worktrees: ['/wt-a', '/wt-b'], message: 'Deliver plan: P\n\nFixes #7', ...(branch ? { branch } : {}), ...(defaultBranch ? { defaultBranch } : {}) },
+      ctx
+    )
   return { ...g, merges, validated, logs, go }
 }
 
@@ -167,5 +174,34 @@ describe('deliverByPush (W6-H)', () => {
     const h = setup({ 'symbolic-ref --quiet --short refs/remotes/origin/HEAD': { ok: false } })
     const r = await h.go()
     expect(r).toMatchObject({ ok: false, reason: expect.stringContaining('delivery branch') })
+  })
+
+  it("falls back to the project's recorded default branch when origin/HEAD is not set (#102)", async () => {
+    const h = setup({ 'symbolic-ref --quiet --short refs/remotes/origin/HEAD': { ok: false } })
+    const r = await h.go(undefined, 'main')
+    expect(r).toMatchObject({ ok: true, branch: 'main' })
+  })
+})
+
+describe('deliverByPush with a real bare origin that has no HEAD ref (W8-G #102)', () => {
+  it('pushes to the project default branch', async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'push-'))
+    const sh = (cwd: string, ...a: string[]): string => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { cwd, encoding: 'utf8' }).trim()
+    const origin = path.join(dir, 'origin.git')
+    const work = path.join(dir, 'work')
+    sh(dir, 'init', '--bare', '-b', 'trunk', origin)
+    sh(dir, 'init', '-b', 'main', work)
+    writeFileSync(path.join(work, 'a.txt'), 'a')
+    sh(work, 'add', '-A')
+    sh(work, 'commit', '-m', 'init')
+    sh(work, 'remote', 'add', 'origin', origin)
+    sh(work, 'push', '-u', 'origin', 'main')
+    expect(() => sh(work, 'symbolic-ref', 'refs/remotes/origin/HEAD')).toThrow() // the case: origin/HEAD is not set
+    const r = await deliverByPush(
+      { cwd: work, defaultBranch: 'main', worktrees: [], message: 'm' },
+      { mergeWorktrees: async (_into, paths) => ({ ok: true, merged: paths, uncommitted: 0 }), validate: async () => ({ ok: true, ran: 0 }), log: () => {} }
+    )
+    expect(r).toMatchObject({ ok: true, branch: 'main' })
+    expect(sh(origin, 'rev-parse', 'main')).toBe(sh(work, 'rev-parse', 'HEAD'))
   })
 })

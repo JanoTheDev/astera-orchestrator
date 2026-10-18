@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import path from 'node:path'
 import { createJob, createTask, emptyState, startJobRun } from './state'
-import { ensureProject, findProject, findProjectByPath, nameFromPath, renameProject, setProjectSettings } from './projects'
+import { dropNonGitProjects, ensureGitProject, ensureProject, findProject, findProjectByPath, nameFromPath, renameProject, setProjectSettings } from './projects'
 import { foldsCaseHere } from '../testPaths'
 
 /** An absolute path this platform actually produces, so the case and separator rules under test are
@@ -163,5 +163,24 @@ describe('a new Job and Task take their project settings (W7-B)', () => {
     const t = createTask(j.state, { jobId: j.value.id, title: 'a', spec: 's', deps: [] }, 'T2')
     if (!t.ok) throw new Error(t.error)
     expect(t.value.validateConfigIds).toBeUndefined()
+  })
+})
+
+describe('non-git tab folders (W8-G #103)', () => {
+  const now = '2026-10-18T00:00:00Z'
+  it('registers a tab folder only when it is a git folder', async () => {
+    const s = emptyState()
+    expect((await ensureGitProject(s, { path: abs('tmp', 'x'), now }, async () => false)).projects).toEqual([])
+    expect((await ensureGitProject(s, { path: abs('tmp', 'repo'), now }, async () => true)).projects).toHaveLength(1)
+  })
+
+  it('drops non-git projects that hold no plan, and keeps git ones and ones with a plan', async () => {
+    let s = emptyState()
+    for (const n of ['stray', 'repo', 'planned']) s = ensureProject(s, { path: abs('tmp', n), now }).state
+    const made = createJob(s, { cwd: abs('tmp', 'planned'), objective: 'o' }, now)
+    if (!made.ok) throw new Error(made.error)
+    s = made.state
+    const kept = await dropNonGitProjects(s, async (d) => d.endsWith('repo'))
+    expect(kept.projects.map((p) => p.name)).toEqual(['repo', 'planned'])
   })
 })

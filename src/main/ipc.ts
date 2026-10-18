@@ -164,7 +164,8 @@ import { isPermissionMode, isUnattendedPermission } from '../core/chat/types'
 import { performRepair, repairOnce, repairTargetFor, type RepairDeps } from '../core/orchestration/exec/repair'
 import { snapshotFor, jobsForProject, outcomeOf } from '../core/orchestration/view'
 import { createOrchPush } from './orchPush'
-import { ensureProject } from '../core/orchestration/projects'
+import { dropNonGitProjects, ensureGitProject } from '../core/orchestration/projects'
+import { inspectFolder } from '../core/projects/detect'
 import { resolveRunId } from '../core/orchestration/state'
 import { runRecordInputOf } from '../core/orchestration/runRecord'
 import type { CliInstallStatus, WorktreeInfo } from '../core/types'
@@ -1481,6 +1482,7 @@ export function registerIpc(
    *  renderer has turned off (and nothing turns it off again), and two overlapping list calls can
    *  settle in the wrong order, leaving main pushing project A to a renderer showing B. */
   let orchRequest = 0
+  let strayProjectsDropped = false // W8-G (#103): the one-time drop of non-git projects, on the first list
   /** 워크트리 폴더가 아직 있는가 — 비동기로 묻고, 시간 제한이 있고, 캐시된다(core/worktrees/presence.ts).
    *  **푸시 경로는 캐시만 읽는다.** 동기 existsSync 였을 때는 네트워크 공유·OneDrive·`\\wsl$` 위의
    *  워크트리 하나가 모든 setState 마다 메인 스레드를 20~60초씩 세웠다. 답이 아직 없으면 unknown 이고
@@ -4602,7 +4604,10 @@ export function registerIpc(
     // 이 줄이 배열 조회 하나로 끝난다.
     if (orch) {
       const before = orch.deps.getState()
-      const { state } = ensureProject(before, { path: project, now: new Date().toISOString() })
+      // W8-G (#103): a tab in a non-git folder is not a project; entries an older build made from one go on first load.
+      const isGit = async (dir: string): Promise<boolean> => (await inspectFolder(dir)) !== null
+      const state = await ensureGitProject(strayProjectsDropped ? before : await dropNonGitProjects(before, isGit), { path: project, now: new Date().toISOString() }, isGit)
+      strayProjectsDropped = true
       if (state !== before) await orch.deps.setState(state)
     }
     const snapshot: OrchSnapshot = orch
