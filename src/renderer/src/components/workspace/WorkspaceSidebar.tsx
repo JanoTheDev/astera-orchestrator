@@ -29,7 +29,8 @@ export function WorkspaceSidebar({
   selectedPlanId,
   onSelectPlan,
   canOpenSession,
-  onOpenSession
+  onOpenSession,
+  onOpenRun
 }: {
   tree: WorkspaceProject[]
   /** W3-C: what the tree was built from, for search and the "needs my input" list. */
@@ -42,6 +43,8 @@ export function WorkspaceSidebar({
   canOpenSession: (sessionId: string) => boolean
   /** Focuses the session in its plan's workspace. */
   onOpenSession: (sessionId: string, jobId: string) => void
+  /** W7-C (#72): an escalation row opens its Run's board. */
+  onOpenRun?: (runId: string, jobId: string) => void
 }): React.JSX.Element {
   const [open, setOpen] = useState(true)
   // Collapsed rather than expanded, so a plan made while the app is open shows up unfolded
@@ -129,6 +132,7 @@ export function WorkspaceSidebar({
           canOpenSession={canOpenSession}
           onOpenSession={onOpenSession}
           onSelectPlan={onSelectPlan}
+          onOpenRun={onOpenRun}
         />
       )}
       {open && (

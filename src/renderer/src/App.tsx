@@ -2949,6 +2949,14 @@ export default function App(): React.JSX.Element {
   // 두는 이유는 openRun·orchSnapshot 선언보다 아래여야 하기 때문이다 — 위로 옮기면 TDZ
   // ReferenceError 로 죽는다(타입체크는 못 잡는다). 여기서도 orchSnapshot === null 은 "없다"가
   // 아니다 — 아직 첫 조회가 오지 않았을 뿐이면 닫지 않는다.
+  // W7-C (#72): a Run asked to open from the needs-input list, opened once its project is the current one. After the
+  // close-on-project-change effect above, so the switch that brings the project does not close it again.
+  const [pendingRun, setPendingRun] = useState<{ projectPath: string; runId: string } | null>(null)
+  useEffect(() => {
+    if (!pendingRun || currentProject !== pendingRun.projectPath) return
+    setOpenRun(pendingRun)
+    setPendingRun(null)
+  }, [pendingRun, currentProject])
   // Whether the open detail's Run has been in its list since it opened (detailRunGone).
   const openRunSeen = useRef(false)
   useEffect(() => {
@@ -4722,6 +4730,16 @@ export default function App(): React.JSX.Element {
                   onOpenSession={(sessionId, jobId) => {
                     setWorkspaceScope(null, jobId)
                     selectWorkbenchTab(sessionTab(sessionId))
+                  }}
+                  // W7-C (#72): an escalation row opens the Run's window, its board holds the answer box
+                  onOpenRun={(_runId, jobId) => {
+                    const project = workspaceTree.find((p) => p.plans.some((plan) => plan.jobId === jobId))
+                    if (!project) return
+                    // The Run's window reads the current project's snapshot, so its project's tab comes first
+                    enterWorkspace(project.id, jobId)
+                    setJobsOpen(true) // the Run's window reads the snapshot the Jobs panel loads
+                    // The Jobs list keys a plan's window by its Job (`foldedRunId` is the Run inside), as JobsView opens it
+                    setPendingRun({ projectPath: project.path, runId: jobId })
                   }}
                 />
                 {/* W3-A: the activity feed, the open plan's (its workspace) or every plan's */}

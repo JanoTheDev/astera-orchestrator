@@ -367,7 +367,10 @@ export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[
       if (j.replanning && !was.replanning)
         push('plan.replanning', where(j.replanning.runId), { title, replanMode: j.replanning.mode, wave: j.replanning.wave })
       const last = j.lastReplan
-      if (!last || last === was.lastReplan) continue
+      // By value, not by reference (W7-C): a whole state put back (`state-put`) carries new objects for every Job, and
+      // each finished plan's replan read as new, so the feed said "replanned" and "plan done" again, with notices
+      const lastWas = was.lastReplan
+      if (!last || (lastWas !== undefined && last.at === lastWas.at && last.runId === lastWas.runId && last.mode === lastWas.mode && last.wave === lastWas.wave)) continue
       const at = where(last.runId)
       if (last.escalated !== undefined) {
         push('task.escalated', at, { title, reason: last.escalated })

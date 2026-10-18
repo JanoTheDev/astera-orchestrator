@@ -48,7 +48,8 @@ export function SessionSearch({
   showInbox,
   canOpenSession,
   onOpenSession,
-  onSelectPlan
+  onSelectPlan,
+  onOpenRun
 }: {
   index: IndexedSession[]
   inbox: InboxItem[]
@@ -56,6 +57,8 @@ export function SessionSearch({
   canOpenSession: (sessionId: string) => boolean
   onOpenSession: (sessionId: string, jobId: string) => void
   onSelectPlan: (jobId: string) => void
+  /** W7-C (#72): opens a Run's window (its board, where the Task card holds the answer box). */
+  onOpenRun?: (runId: string, jobId: string) => void
 }): React.JSX.Element {
   const [query, setQuery] = useState('')
   const results = useMemo(() => searchSessions(index, query), [index, query])
@@ -106,8 +109,12 @@ export function SessionSearch({
               item.kind === 'session' ? item.session.sessionId : item.kind === 'gate' ? item.gate.id : item.kind === 'escalation' ? item.message.id : `approve-${item.jobId}`
             return (
               <li key={key}>
-                <button className="ws-row ss-row" title={t.title} // an escalation opens its plan, whose board card holds the answer box (W7-C #72)
-                onClick={() => go(jobOf(item), item.kind === 'escalation' ? undefined : sessionOf(item))}>
+                <button
+                  className="ws-row ss-row"
+                  title={t.title}
+                  // W7-C (#72): an escalation opens its Run's board, whose Task card holds the answer box
+                  onClick={() => (item.kind === 'escalation' && onOpenRun ? onOpenRun(item.message.runId, item.jobId) : go(jobOf(item), sessionOf(item)))}
+                >
                   <span className="ws-dot ws-waiting" aria-hidden />
                   <span className="ss-main">
                     <span className="ws-name">{t.what}</span>

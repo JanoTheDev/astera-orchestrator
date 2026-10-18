@@ -1133,7 +1133,8 @@ const jobStateOf = (view: Parameters<typeof stateWord>[0]): string => {
 function messageQuestionOf(s: OrchState, m: Message): (Pick<Gate, 'id' | 'runId' | 'taskId' | 'question' | 'options' | 'status' | 'resolution' | 'createdAt'> & { source: 'ask' | 'escalation' }) | null {
   if (m.type !== 'question' && m.type !== 'escalation') return null
   let open: boolean
-  if (m.type === 'question') open = !m.answered
+  // An ask nobody can hear any more (its worker's Dispatch ended) is not waiting on anyone
+  if (m.type === 'question') open = !m.answered && s.dispatches.some((d) => d.id === m.dispatchId && !d.outcome && !d.endedAt)
   else {
     const taskById = new Map(s.tasks.map((t) => [t.id, t]))
     open = escalationOpen(m, taskById, s.tasks.filter((t) => t.runId === m.runId))

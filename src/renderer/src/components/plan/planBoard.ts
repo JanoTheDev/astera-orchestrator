@@ -192,9 +192,13 @@ export interface OpenQuestion {
   options?: string[]
 }
 
-/** The open asks/escalations of one Task, oldest first as the list holds them. Gates (no `source`) are not these. */
-export const questionsOfTask = (rows: readonly OpenQuestion[], taskId: string): OpenQuestion[] =>
-  rows.filter((q) => q.source !== undefined && q.taskId === taskId)
+/** The open asks/escalations of one Task, oldest first as the list holds them. Gates (no `source`) are not these. With
+ *  an escalation open, only the escalations: answering one also answers the worker's ask (state.ts answerEscalation),
+ *  so a second box for the same question would be one too many. */
+export function questionsOfTask(rows: readonly OpenQuestion[], taskId: string): OpenQuestion[] {
+  const mine = rows.filter((q) => q.source !== undefined && q.taskId === taskId)
+  return mine.some((q) => q.source === 'escalation') ? mine.filter((q) => q.source === 'escalation') : mine
+}
 
 /** Every affected path of the plan with the Tasks that touch it, by path. More than one Task is an overlap. */
 export function filesOf(tasks: readonly JobTask[]): { path: string; tasks: JobTask[] }[] {

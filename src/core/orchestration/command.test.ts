@@ -1168,6 +1168,17 @@ describe('handleCommand — inbox는 코디네이터 전용', () => {
     expect((await call(deps, 'questions-list', { status: 'open' }, '')).body).toEqual([])
   })
 
+  // Seen in the W7-C run: asks of workers long gone listed as open forever
+  it('W7-C: an ask whose Dispatch ended is no longer open', async () => {
+    const deps = await seedTwoWorkers()
+    const d = deps.getState().dispatches.find((x) => x.sessionId === 'sess1')!
+    await call(deps, 'ask', { taskId: d.taskId, dispatchId: d.id, question: 'Which port?', timeoutMs: 1 }, 'sess1')
+    const st = deps.getState()
+    await deps.setState({ ...st, dispatches: st.dispatches.map((x) => (x.id === d.id ? { ...x, endedAt: NOW } : x)) })
+    expect((await call(deps, 'questions-list', { status: 'open' }, '')).body).toEqual([])
+    expect((await call(deps, 'questions-list', { status: 'resolved' }, '')).body).toMatchObject([{ source: 'ask' }])
+  })
+
   it('W7-C: an escalation with no question still open gives the coordinator the answer to pass on', async () => {
     const deps = await seedTwoWorkers()
     const d = deps.getState().dispatches.find((x) => x.sessionId === 'sess1')!

@@ -85,6 +85,8 @@ export const QUESTION_FIELDS = Object.freeze([
   'question',
   'options',
   'kind',
+  // W7-C (#72): `ask` or `escalation` for a question that is a message, absent for a Gate
+  'source',
   'status',
   'resolution',
   'createdAt',

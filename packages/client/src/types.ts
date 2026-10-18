@@ -206,6 +206,8 @@ export interface Question {
   readonly question: string
   readonly options?: readonly string[]
   readonly kind?: GateKind
+  /** W7-C: a worker's `astera ask` question or a coordinator's escalation; absent for a Gate. */
+  readonly source?: 'ask' | 'escalation'
   readonly status: 'open' | 'resolved'
   readonly resolution?: string
   readonly createdAt: string

@@ -56,6 +56,12 @@ let seq = 0
 const stamp = (d: ActivityDraft, occurredAt: string): ActivityEvent => ({ ...d, id: `ev_000000000000_${++seq}`, sequence: seq, occurredAt })
 
 describe('deriveActivity', () => {
+  // Seen in the W7-C run: a state put back whole made every finished plan "replanned" and "done" again, with notices
+  it('says nothing for a whole state read back with the same replan marks (new objects, same values)', () => {
+    const s = state({ jobs: [job({ lastReplan: { runId: 'r1', mode: 'completion', wave: 1, done: 1, at: T0, summary: 'done' } })], tasks: [task('a', { status: 'completed' })] })
+    expect(deriveActivity(s, structuredClone(s))).toEqual([])
+  })
+
   it('says nothing for the same state, or for Tasks just created', () => {
     const s = state()
     expect(deriveActivity(s, s)).toEqual([])

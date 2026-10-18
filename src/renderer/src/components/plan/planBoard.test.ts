@@ -204,4 +204,13 @@ describe('questionsOfTask', () => {
     ]
     expect(questionsOfTask(rows, 't1').map((q) => q.id)).toEqual(['msg_1'])
   })
+
+  it('shows only the escalation when one is open beside the ask it is about', async () => {
+    const { questionsOfTask } = await import('./planBoard')
+    const rows = [
+      { id: 'msg_1', source: 'ask' as const, taskId: 't1', question: 'EUR or USD?' },
+      { id: 'msg_2', source: 'escalation' as const, taskId: 't1', question: 'EUR or USD? (owner decides)' }
+    ]
+    expect(questionsOfTask(rows, 't1').map((q) => q.id)).toEqual(['msg_2'])
+  })
 })
