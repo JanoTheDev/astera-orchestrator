@@ -128,7 +128,9 @@ const JOB_HIDDEN = [
   'rejected',
   /* W8-C prompts mode: the owner's prompts a Run-as-written plan was made from, not in the SDK's contract yet */ 'verbatim',
   /* W8-C plan after plan: the queue and its escalation mark, not in the SDK's contract yet */ 'after',
-  'afterStopNotified'
+  'afterStopNotified',
+  /* W8-D several plans in one repo: overlaps and areas, not in the SDK's contract yet */ 'overlaps',
+  'areas'
 ] as const
 
 /** A followed event's message body (pages long) and the app's link from an event to a tab. */

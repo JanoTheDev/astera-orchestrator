@@ -194,6 +194,32 @@ configuration), `--test-config <id>`, `--concurrency 1-10`, `--review-rounds <n>
 `--validate` is validated with the project's test command. A new Job copies the project's concurrency, replan
 and review rounds when it sets none.
 
+## Several plans in one repo (W8-D)
+
+You can drop several plans on one large project at once. Astera keeps them from doing the same work twice and
+from editing the same files at the same time.
+
+**At run time.** No two workers of one project edit overlapping files at once, whichever plan they belong to (the
+same rule as inside one plan, by `--affected-paths`). The later Task waits, and its card says why:
+"Waits for Auth rework · T6 (same files: src/api/routes.ts)". It starts by itself once that Task is done. Plans in
+different projects never wait for each other.
+
+**Before approval.** The planner's brief lists the other plans of the repository, with their Tasks, state and
+paths. The planner plans around them, and names in `existing.md` what another plan already holds instead of
+planning it again. What still overlaps (overlapping paths, or the same linked issue) is stored on the plan and
+shown under its Approve button, one line per overlap. It is refreshed whenever either plan's Tasks change.
+An overlap never blocks approval: the run-time rule above makes it safe. A new overlap is a feed line and an
+Inbox notice ("Plans overlap"), with no chime.
+
+```bash
+astera jobs overlaps --id <jobId>          # one line each: "T3 · Auth rework · T6 (same files: src/api/routes.ts)"
+astera jobs set --id <jobId> --areas auth,api   # 1-3 short words; the planner sets them too; none clears
+astera jobs list --area api                # only the plans that work there
+```
+
+**Between waves.** The replan also reads the other plans' progress, so a later wave does not redo what another
+plan finished in the meantime.
+
 ## Running the waves in Astera (W8-C)
 
 From Wave 8 on, each wave of this repo is an Astera plan instead of hand-opened tabs and a MERGE tab.

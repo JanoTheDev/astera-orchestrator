@@ -9,6 +9,8 @@
 // Adding this file to the web tsconfig to make an import resolve is the wrong fix; it
 // either fails (files/tree.ts's node:path import has no declarations there) or "succeeds" by adding
 // "types": ["node"], which loosens the guard that keeps Node globals out of the renderer typecheck.
+// W8-D several plans in one repo
+import { overlapLines } from './overlap'
 import { isSamePath } from '../files/tree'
 import { findProjectByPath } from './projects'
 import { runsWorkingIn, runWorktreesFrom } from './integrate'
@@ -449,6 +451,8 @@ export function snapshotFor(
       ...(job.rejected !== undefined ? { rejected: job.rejected } : {}),
       // W5-C: the plan's "stop launching" (jobs-hold), on every row of the Job
       ...(job.dispatchHold ? { dispatchHold: true as const } : {}),
+      // W8-D: the plan's overlaps with the other plans of its project, as lines
+      ...(job.overlaps?.length ? { overlaps: overlapLines(state, job) } : {}),
       // W2-D: the plan's pull request, on the row of the Run that opened it
       ...(run?.pr ? { pr: run.pr } : {}),
       ...(run === undefined && job.schedule && nextFireOf(job.id) !== null

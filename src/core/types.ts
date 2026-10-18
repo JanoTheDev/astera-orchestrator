@@ -589,7 +589,13 @@ export type TaskBlockedReason =
   | { kind: 'plan-cap'; used: number; limit: number }
   | { kind: 'global-cap'; used: number; limit: number; priority: number }
   /** W6-C: another Task of the plan is at files this one would edit (`path`, the first of its own that collides). */
-  | { kind: 'same-files'; waitingOn: { id: string; title: string }; path: string }
+  | {
+      kind: 'same-files'
+      waitingOn: { id: string; title: string }
+      path: string
+      /** W8-D: the Task waited on is another plan's of the same project (its id and `jobNameOf` name). */
+      plan?: { id: string; title: string }
+    }
   /** It has a slot: the dispatch loop starts it on its next pass. */
   | { kind: 'next' }
   /** W6-G: every account it may start on is at `usagePauseAt` of a usage window (usageGuard.ts). */
@@ -734,6 +740,9 @@ export interface JobRow {
   rejected?: { at: string; reason?: string }
   // W5-C: the plan is held from launching new workers (Job.dispatchHold)
   dispatchHold?: true
+  /** W8-D: where this plan meets another plan of its project, one line each (overlap.ts overlapLines); the approve area
+   *  lists them until W9-D's card. Absent: none. */
+  overlaps?: string[]
   // W2-D: the plan's one pull request (JobRun.pr), on the Run's own row and a Job row folded onto it
   pr?: RunPr
   /** 관리자가 있어야 하는데 없다 — 코디네이터 계정이 지정돼 있지만 붙어 있는 세션이 없다.

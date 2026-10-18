@@ -1733,6 +1733,9 @@ export const ko = {
   // W6-D
   'jobs.new.replan': '웨이브 사이에 다시 계획하기',
   'jobs.new.replanHint': '다음 웨이브 전마다, 그리고 끝에 한 번, 새 플래너가 아직 시작하지 않은 Task 를 실제 결과에 맞게 고칩니다. 그동안 새 워커는 기다립니다.',
+  // W8-D
+  'jobs.run.overlaps': '다른 계획과 겹침',
+  'jobs.run.overlapsHint': "다른 계획의 Task 가 이 파일이나 이슈를 쥐고 있다. 승인해도 안전하다: 그 Task 가 고치는 동안 이 Task 는 기다린다.",
   'jobs.run.approve': '승인 후 실행',
   'jobs.run.approveHint': '이 계획을 승인하고 워커를 시작합니다',
   'jobs.run.planInvalid': '계획을 아직 승인할 수 없습니다:',
@@ -2372,6 +2375,8 @@ export const ko = {
   'plan.reason.planCap': '계획 한도가 찼다 (워커 {used}/{limit})',
   'plan.reason.globalCap': '앱 전체 한도가 찼다 (워커 {used}/{limit}, 우선순위 {priority})',
   'plan.reason.sameFiles': '{task} 을(를) 기다리는 중: 같은 파일을 고친다 ({path})',
+  // W8-D: 기다리는 Task 가 다른 계획의 것이다
+  'plan.reason.sameFilesPlan': '{plan} · {task} 을(를) 기다리는 중 (같은 파일: {path})',
   'plan.reason.next': '다음 배치 때 시작한다',
   // W6-E progress view (components/plan/)
   'plan.view.files': '파일',

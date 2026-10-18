@@ -129,7 +129,9 @@ export const NOUNS = {
     // W7-D: a plan's worker count after it was made
     'set',
     // W7-A talk to the planner (exec/plannerFeedback.ts)
-    'feedback', 'reject'],
+    'feedback', 'reject',
+    // W8-D several plans in one repo (overlap.ts)
+    'overlaps'],
   runs: ['list', 'get', 'wait', 'follow', 'stop', 'resume', 'checks'],
   tasks: ['list', 'add', 'dispatch'],
   // W3-C search and inbox: every Run's Dispatches (command.ts `dispatches-list`), read only
