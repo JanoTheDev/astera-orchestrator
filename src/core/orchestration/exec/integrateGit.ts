@@ -211,7 +211,7 @@ export interface IntegrateContext {
 export async function integrateWorktrees(
   mergeInto: string,
   paths: string[],
-  opts: { reap?: boolean },
+  opts: { reap?: boolean; message?: string },
   ctx: IntegrateContext
 ): Promise<Integration> {
   const reap = opts.reap ?? true
@@ -457,7 +457,9 @@ export async function integrateWorktrees(
     // an app that opens or attaches while the merge runs finds it there.
     const mergeOpId = await ctx.gitOp.begin('job-merge', mergeInto)
     try {
-      const merged = await (ctx.git ?? realGit)([...ident, 'merge', '--no-edit', ref], {
+      // W6-H: a delivery names its merges (`Fixes #n`), and a fast-forward would carry no message, so it gets a commit
+      const how = opts.message !== undefined ? ['--no-ff', '-m', opts.message] : ['--no-edit']
+      const merged = await (ctx.git ?? realGit)([...ident, 'merge', ...how, ref], {
         cwd: mergeInto,
         timeoutMs: GIT_WRITE_TIMEOUT_MS
       })
@@ -593,7 +595,7 @@ export async function reapWorktree(worktreePath: string, ctx: ReapContext): Prom
 
 /** The two OrchServerDeps bodies that merge and remove a Run's worktrees, over one context. */
 export function worktreeDeps(ctx: {
-  integrate(into: string, paths: string[], opts: { reap?: boolean }): Promise<Integration>
+  integrate(into: string, paths: string[], opts: { reap?: boolean; message?: string }): Promise<Integration>
   reap(p: string): Promise<boolean>
   log(m: string): void
   /** Whether a folder is there, asked asynchronously with a time limit. Test seam; defaults to the
@@ -638,7 +640,7 @@ export function worktreeDeps(ctx: {
     // 하나뿐이다: 폴더 자체가 사라진 경우(통합 병합이 이미 걷어 갔거나 예약 회차가 걷혔다) —
     // 그것만 거른다. 닿지 않는 폴더는 합치지 않고 notMerged 로 올린다: 그 폴더의 커밋되지 않은
     // 변경을 셀 수 없고, `run-delete --merge --remove-worktrees` 는 그 폴더를 남긴다.
-    mergeWorktrees: async (runCwd, paths) => {
+    mergeWorktrees: async (runCwd, paths, opts) => {
       const { alive, gone, unknown } = await sort(paths)
       if (gone.length > 0)
         ctx.log(`merge: skipping ${gone.length} removed worktree(s): ${gone.join(', ')}`)
@@ -649,7 +651,7 @@ export function worktreeDeps(ctx: {
       // 남은 것이 없으면 성공이다 — 합칠 것이 없는 것은 실패가 아니고, 여기서 실패로 내면 사람이
       // 손쓸 수 없는 이유로 병합 버튼과 삭제가 막힌다.
       if (alive.length === 0) return { ok: true, merged: [], uncommitted: 0, ...unreached }
-      const r = await ctx.integrate(runCwd, alive, { reap: false })
+      const r = await ctx.integrate(runCwd, alive, { reap: false, ...(opts?.message !== undefined ? { message: opts.message } : {}) })
       if (r.kind !== 'merged') return { ok: false, reason: r.reason }
       return {
         ok: true,
@@ -715,4 +717,117 @@ export function worktreeDeps(ctx: {
       }
     }
   }
+}
+
+// ── W6-H: a `push` delivery ─────────────────────────────────────────────────────────────────────────────────────────
+
+/** What `deliverByPush` needs: the project folder, the branch to land on (absent: origin's default), the Run's
+ *  worktrees and the message of each merge commit (`deliveryMessage`, with its `Fixes #n`). */
+export interface PushDelivery {
+  cwd: string
+  branch?: string
+  worktrees: string[]
+  message: string
+}
+
+export interface PushContext {
+  /** The merge `run-merge` makes, with the delivery's message (worktreeDeps' `mergeWorktrees`). */
+  mergeWorktrees: NonNullable<OrchServerDeps['mergeWorktrees']>
+  /** The project's validation, once, in the merged folder. `ran`: how many checks ran (0: none configured). */
+  validate(cwd: string): Promise<{ ok: true; ran: number } | { ok: false; reason: string }>
+  log(m: string): void
+  /** Test seam; defaults to the real git. */
+  git?: typeof realGit
+}
+
+export type PushResult =
+  | { ok: true; branch: string; sha: string; merged: string[]; validated: number }
+  | { ok: false; reason: string; branch?: string }
+
+/**
+ * **Lands a finished plan on a branch and pushes it, with no person reviewing** (W6-H). Every guard stops the push and
+ * answers why, for the caller to escalate; nothing here stashes, resets or overwrites the owner's own work:
+ * 1. the branch is `branch`, else origin's default (`refs/remotes/origin/HEAD`); neither is a stop;
+ * 2. the folder stands on that branch with nothing uncommitted (untracked files count: they are the owner's too);
+ * 3. `fetch`, then `merge --ff-only` from origin; a local branch that cannot fast-forward is a stop;
+ * 4. the Run's worktrees merge (`mergeWorktrees`); a conflict leaves the folder as that merge left it;
+ * 5. the validation runs on the merged folder; a failure resets to the commit recorded before 4, which undoes only
+ *    Astera's merges (the folder was clean at 2);
+ * 6. `push origin <branch>`, **never forced**; a rejected push fetches and pushes once more only when origin's branch
+ *    is still an ancestor of ours, i.e. the push would be a fast-forward.
+ */
+export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<PushResult> {
+  const run = ctx.git ?? realGit
+  const cwd = a.cwd
+  const w = { cwd, timeoutMs: GIT_WRITE_TIMEOUT_MS }
+  const why = (r: { stderr: string; stdout: string }): string => (r.stderr || r.stdout).trim()
+
+  // 1.
+  let branch = a.branch
+  if (branch === undefined) {
+    const head = await run(['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'], { cwd })
+    if (!head.ok || !head.stdout.startsWith('origin/'))
+      return { ok: false, reason: `could not tell the repository's default branch (origin/HEAD is not set): set the project's delivery branch` }
+    branch = head.stdout.slice('origin/'.length)
+  }
+  const fail = (reason: string): PushResult => ({ ok: false, reason, branch })
+
+  // 2.
+  const on = await run(['symbolic-ref', '--quiet', '--short', 'HEAD'], { cwd })
+  if (!on.ok) return fail(`your folder ${cwd} is not on a branch (detached HEAD); put it on ${branch}`)
+  if (on.stdout !== branch) return fail(`your folder ${cwd} is on branch ${on.stdout}, not ${branch}`)
+  const status = await run(['status', '--porcelain'], { cwd })
+  if (!status.ok) return fail(`could not read git status in ${cwd}: ${why(status)}`)
+  if (status.stdout !== '') return fail(`your folder ${cwd} has ${status.stdout.split('\n').length} uncommitted change(s)`)
+
+  // 3.
+  const fetched = await run(['fetch', 'origin', branch], w)
+  if (!fetched.ok) return fail(`git fetch origin ${branch} failed: ${why(fetched)}`)
+  const ff = await run(['merge', '--ff-only', `origin/${branch}`], w)
+  if (!ff.ok) return fail(`your ${branch} cannot fast-forward to origin/${branch} (it has commits origin does not): ${why(ff)}`)
+
+  // 4.
+  const before = await run(['rev-parse', 'HEAD'], { cwd })
+  if (!before.ok) return fail(`could not read HEAD in ${cwd}: ${why(before)}`)
+  const base = before.stdout
+  const merged = await ctx.mergeWorktrees(cwd, a.worktrees, { message: a.message })
+  if (!merged.ok) {
+    const now = await run(['rev-parse', 'HEAD'], { cwd })
+    const moved = now.ok && now.stdout !== base
+    return fail(
+      `merging the plan's worktrees failed: ${merged.reason}` +
+        (moved ? ` The merges before it are on your ${branch}, not pushed; git reset --hard ${base} undoes them.` : '')
+    )
+  }
+  /** Undoes Astera's merges: back to `base`, the clean commit recorded before them. */
+  const undo = async (reason: string): Promise<PushResult> => {
+    const reset = await run(['reset', '--hard', base], w)
+    const back = await run(['rev-parse', 'HEAD'], { cwd })
+    if (!reset.ok || !back.ok || back.stdout !== base)
+      return fail(`${reason} Astera could not undo its merges (git reset --hard ${base}: ${why(reset)}); check ${cwd} by hand.`)
+    ctx.log(`delivery: undid Astera's merges in ${cwd}, back at ${base}`)
+    return fail(`${reason} Astera's merges were undone; ${branch} is back at ${base}.`)
+  }
+  const left = [...(merged.dirty ?? []), ...(merged.unchecked ?? []), ...(merged.notMerged ?? [])]
+  if (left.length > 0) return undo(`these worktrees hold work that was not merged (uncommitted, or not reachable): ${left.join(', ')}.`)
+
+  // 5.
+  const checked = await ctx.validate(cwd)
+  if (!checked.ok) return undo(`the validation failed on the merged ${branch}: ${checked.reason}`)
+
+  // 6.
+  let pushed = await run(['push', 'origin', branch], w)
+  if (!pushed.ok) {
+    ctx.log(`delivery: push of ${branch} was rejected (${why(pushed)}), fetching once`)
+    const again = await run(['fetch', 'origin', branch], w)
+    const ahead = again.ok && (await run(['merge-base', '--is-ancestor', `origin/${branch}`, 'HEAD'], { cwd })).ok
+    if (ahead) pushed = await run(['push', 'origin', branch], w)
+    if (!ahead || !pushed.ok)
+      return fail(
+        `git push origin ${branch} was rejected: ${why(pushed)}. The merged and validated commits are on your ${branch}, ` +
+          `not pushed; git reset --hard ${base} undoes them.`
+      )
+  }
+  const sha = await run(['rev-parse', 'HEAD'], { cwd })
+  return { ok: true, branch, sha: sha.ok ? sha.stdout : '', merged: merged.merged, validated: checked.ran }
 }
