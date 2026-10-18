@@ -194,6 +194,85 @@ configuration), `--test-config <id>`, `--concurrency 1-10`, `--review-rounds <n>
 `--validate` is validated with the project's test command. A new Job copies the project's concurrency, replan
 and review rounds when it sets none.
 
+## Running the waves in Astera (W8-C)
+
+From Wave 8 on, each wave of this repo is an Astera plan instead of hand-opened tabs and a MERGE tab.
+
+**Run as written** (`--mode prompts`, or New plan → **Run as written**):
+- Each attached `.md` file becomes exactly one Task, and its text is the Task's prompt, unchanged. A single file or
+  pasted text with two or more `##` headings becomes one Task per `##` section, titled by the heading.
+- Astera writes these Tasks itself. The planner fills only the affected paths (from each prompt's "Ownership" / "Owns"
+  lines and PLAN.md's ownership table), the criteria, the difficulty (which picks the model) and the basis. It cannot
+  add, cancel, merge, split or rewrite a Task, and approval refuses a prompt that differs from its file.
+- **Order.** Astera reads `docs/orchestrator/PLAN.md`'s wave table. Each row waits for the row before it. A row marked
+  `(done)` in its Wave cell is skipped and listed as "Already done" in `plan.md`. A prompt's own "run alone" makes it a
+  wave of its own. "after X merges" or "X is merged" makes it wait for X, which then means merged into this plan's
+  branch. Each Task's first line says why it sits where it does ("W9-A: wave 9.1, runs alone after wave 8").
+- **Approval** is automatic in this mode, because you wrote the prompts. Add `--approve ask` (or tick "Ask me to approve
+  the plan first") to approve it yourself.
+- A prompt's own worktree, branch, push and PR steps are ignored: Astera gives each worker a worktree, merges the
+  Tasks itself and delivers the plan.
+- **Following it on GitHub.** With delivery `pr`, the PR opens as a draft after the first wave, and Astera pushes the
+  plan's branch and rewrites the body (done and remaining waves) after every wave. It is marked ready after the final
+  check. Astera never merges it.
+
+**Plan after plan.** `astera jobs create … --after <job>` (or "Start after" in New plan) queues a plan behind another.
+It stays unstarted until that plan is delivered (a PR opened and marked ready, a push, or work left on a branch with no
+remote), then its planner starts by itself and the project's approval setting decides the rest. If the earlier plan
+gives up or is archived, the queued one waits and you get one notice: "Waiting on <plan>, which stopped". The Home tree
+and the board say "Queued after <plan>". `astera jobs set --id <job> --after <job|none>` changes it; a loop is refused.
+`--after` needs `--coordinator-account`, since the queued planner starts on it.
+
+**One heavy job at a time.** `astera heavy -- <cmd…>` runs a command under one machine-wide slot, first come first
+served: the full suite (`astera heavy -- nice -n 10 npx vitest run --maxWorkers=2`), `npm run dev` / Electron and
+`npm run dist:linux`. The board's live line shows "Waiting for the heavy-job slot (2nd in line)" while a worker waits.
+It uses the same lock as hand-opened tabs (`flock /tmp/astera-fullsuite.lock …`), so both share one queue. A crash or
+exit frees the slot.
+
+**Self-hosting safety:**
+- Run the plan from the packaged app (the AppImage, profile `~/.config/astera`), never from the dev profile.
+- Workers make their manual checks in the dev app on the dev profile (`ASTERA_PROFILE_DIR=~/.config/astera-dev`), which
+  has its own Host. Two profiles' Hosts listen on separate sockets and never adopt each other's sessions (LINUX.md,
+  "Two Hosts on two profiles").
+- A worker never stops, restarts or `pkill`s the orchestrating app or its Host. Every worker's brief says so.
+
+**Wave 8 and Wave 9 as one plan.** In a terminal tab of the packaged Astera (its `astera` talks to that profile's
+Host), from `~/Desktop/Astera`:
+
+```bash
+A=$(astera accounts list | jq -r '.data.accounts[0].id')
+J=$(astera jobs create --mode prompts --delivery pr --coordinator-account "$A" --concurrency 8 \
+  $(printf -- '--attach %s ' docs/orchestrator/prompts/W8-{A,B,D,F,G}-*.md) \
+  $(printf -- '--attach %s ' docs/orchestrator/prompts/W9-{A,B,C,D,E,H,I,J,K,F,G}-*.md) | jq -r .data.id)
+astera jobs plan --id "$J"
+```
+
+W9-0 is marked done, so it needs no attachment. The order the planner gets is W8 (A, B, D, F, G in parallel), then
+W9-A alone, then W9-B, C, D, E, H, I, J, K in parallel, then W9-F, then W9-G. The plan starts without asking you, and
+one draft PR follows it.
+
+**One plan per wave instead** (one PR per wave):
+
+```bash
+J8=$(astera jobs create --mode prompts --delivery pr --coordinator-account "$A" \
+  $(printf -- '--attach %s ' docs/orchestrator/prompts/W8-{A,B,D,F,G}-*.md) | jq -r .data.id)
+astera jobs plan --id "$J8"
+J91=$(astera jobs create --mode prompts --delivery pr --coordinator-account "$A" --after "$J8" \
+  $(printf -- '--attach %s ' docs/orchestrator/prompts/W9-A-*.md) | jq -r .data.id)
+J92=$(astera jobs create --mode prompts --delivery pr --coordinator-account "$A" --after "$J91" \
+  $(printf -- '--attach %s ' docs/orchestrator/prompts/W9-{B,C,D,E,H,I,J,K}-*.md) | jq -r .data.id)
+J93=$(astera jobs create --mode prompts --delivery pr --coordinator-account "$A" --after "$J92" \
+  $(printf -- '--attach %s ' docs/orchestrator/prompts/W9-F-*.md) | jq -r .data.id)
+astera jobs create --mode prompts --delivery pr --coordinator-account "$A" --after "$J93" \
+  $(printf -- '--attach %s ' docs/orchestrator/prompts/W9-G-*.md)
+```
+
+Each queued plan starts once the one before it is delivered, which here means its PR is opened and ready. Merge each
+wave's PR before the next plan's workers branch off `main`, or the next plan builds without it.
+
+Your part: answer the Inbox (real questions, permission waits, and approvals only with `--approve ask`), and review the
+PRs. `MERGE.md` is no longer needed for these waves.
+
 ## The workspace
 
 The sidebar's **Workspaces** tree is Project → Plan → Planner / Coordinator / Workers. Clicking a session shows its

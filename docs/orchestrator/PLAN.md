@@ -319,9 +319,13 @@ The approval shows that order once. After that, one draft PR is updated after ev
 end. The same from the CLI:
 
 ```bash
-astera jobs create --project astera --mode prompts --delivery pr \
-  --attach docs/orchestrator/prompts/W8-{A,B,D,F,G}-*.md docs/orchestrator/prompts/W9-{A,B,C,D,E,H,I,J,K,F,G}-*.md
+J=$(astera jobs create --mode prompts --delivery pr --coordinator-account "$A" --concurrency 8 \
+  $(printf -- '--attach %s ' docs/orchestrator/prompts/W8-{A,B,D,F,G}-*.md) \
+  $(printf -- '--attach %s ' docs/orchestrator/prompts/W9-{A,B,C,D,E,H,I,J,K,F,G}-*.md) | jq -r .data.id)
+astera jobs plan --id "$J"
 ```
+
+(USAGE.md "Running the waves in Astera" has the full commands, `$A` included.)
 
 Separate queued plans per wave (`--after <job>`) still work, if the owner wants one PR per wave.
 
