@@ -8,12 +8,12 @@ Worktree + branch: slug `w9-settings`, branch `feat/ui-settings-dialogs`.
 
 # W9-E — Settings page in 7 groups, every dialog on one Modal, one New flow
 
-- **Settings:** `components/settings/` with one file per group (General, Accounts & usage, Agents, Projects,
+- **Settings page** (not a modal): `components/settings/` with one file per group (General, Accounts & usage, Agents, Projects,
   Integrations, Notifications, Advanced) per DESIGN.md's settings table. Move the inline JSX out of `App.tsx`
   (worktree, info and others). A search field filters settings by label. Fill `openSettings(group, anchor?)`. The
   Projects group lists projects and opens W7-B's per-project page.
 - **Dialogs:** every dialog in DESIGN.md "Dialogs" uses `ui/Modal`; delete the hand-rolled backdrops.
-- **One New flow:** "New…" picks session / plan from a description / plan from a source, then shows the existing
+- **One New flow:** "New" (top bar, `Ctrl+N`) picks console / plan from a goal / plan from a source (incl. W8-C prompt files and "Start after"), then shows the existing
   form (`NewSessionDialog`, `NewPlanDialog`, `SourceJobModal` content) in the same Modal. Keep each form's logic
   and tests; only the frame and the entry change.
 
