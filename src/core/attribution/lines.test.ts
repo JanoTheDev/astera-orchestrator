@@ -4,7 +4,7 @@ import path from 'node:path'
 import os from 'node:os'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { CHECKPOINT_SCRIPT, lineHash, readCheckpoints } from './checkpoint'
-import { addedLinesOfDiff, attributeLines, lineKindOf, linesForCommit, rangesOf } from './lines'
+import { addedLinesOfDiff, attributeLines, linesForCommit, rangesOf } from './lines'
 
 let tmp: string
 let profile: string
@@ -110,12 +110,5 @@ describe('helpers', () => {
   })
   it('rangesOf folds runs', () => {
     expect(rangesOf([5, 1, 2, 3, 9, 3])).toEqual([[1, 3], [5, 5], [9, 9]])
-  })
-  it('lineKindOf: no note unknown, human note human, no lines all AI, else by range', () => {
-    expect(lineKindOf(null, 'a', 1)).toBe('unknown')
-    expect(lineKindOf({ human: true }, 'a', 1)).toBe('human')
-    expect(lineKindOf({}, 'a', 1)).toBe('ai')
-    expect(lineKindOf({ lines: { a: [[1, 5]] } }, 'a', 6)).toBe('human')
-    expect(lineKindOf({ lines: { a: [[1, 5]] } }, 'a', 5)).toBe('ai')
   })
 })

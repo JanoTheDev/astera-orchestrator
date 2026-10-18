@@ -155,17 +155,3 @@ export async function linesForCommit(opts: {
     attributeLines(added, entries, opts.busy ?? [], (p) => mtimes.get(p) ?? null)
   )
 }
-
-/** What a note says about one line of a file in the note's commit: `ai` when the note has no `lines` or the line is
- *  in its ranges, `human` when the note says so or the line is outside them, `unknown` with no note. The blame
- *  gutter's rule for a line `git blame` traced to that commit. */
-export function lineKindOf(
-  note: { human?: boolean; lines?: NoteLines } | null | undefined,
-  file: string,
-  line: number
-): 'ai' | 'human' | 'unknown' {
-  if (!note) return 'unknown'
-  if (note.human === true) return 'human'
-  if (note.lines === undefined) return 'ai'
-  return (note.lines[file] ?? []).some(([a, b]) => a <= line && line <= b) ? 'ai' : 'human'
-}
