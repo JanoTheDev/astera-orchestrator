@@ -70,6 +70,8 @@ export function themeCssVars(theme: Theme): Record<string, string> {
     '--danger': c.danger,
     '--danger-soft': c.dangerSoft,
     '--danger-bg': c.dangerSoft,
+    '--info': c.info,
+    '--info-soft': c.infoSoft,
     '--radius': SHAPE.radius,
     '--radius-lg': SHAPE.radiusLg,
     '--radius-sm': SHAPE.radiusSm,

@@ -32,6 +32,9 @@ export interface ThemeColors {
   warnSoft: string
   danger: string
   dangerSoft: string
+  /** Not in DESIGN.md §9's table; added for the info Chip (§10) so it follows light and dark. */
+  info: string
+  infoSoft: string
 }
 
 export interface Theme {
@@ -53,7 +56,8 @@ export const THEMES: readonly Theme[] = [
       line: '#262a35', text: '#eef0f5', textDim: '#a3a8b8', textFaint: '#7d8396',
       accent: '#c4f25a', accentInk: '#121a00', accentSoft: '#252e10',
       ok: '#5ad19a', okSoft: '#10291e', warn: '#f2b84b', warnSoft: '#30240c',
-      danger: '#ff6b6b', dangerSoft: '#351719'
+      danger: '#ff6b6b', dangerSoft: '#351719',
+      info: '#7cc4ff', infoSoft: '#10243a'
     }
   },
   {
@@ -65,7 +69,8 @@ export const THEMES: readonly Theme[] = [
       line: '#2e2a38', text: '#f0edf6', textDim: '#aba5b9', textFaint: '#868097',
       accent: '#b79cff', accentInk: '#1a0f33', accentSoft: '#2a2240',
       ok: '#5ad19a', okSoft: '#14291f', warn: '#f2b84b', warnSoft: '#30240c',
-      danger: '#ff6b6b', dangerSoft: '#351719'
+      danger: '#ff6b6b', dangerSoft: '#351719',
+      info: '#7cc4ff', infoSoft: '#14223a'
     }
   },
   {
@@ -78,7 +83,8 @@ export const THEMES: readonly Theme[] = [
       accent: '#3f6212', accentInk: '#ffffff', accentSoft: '#e7f0d6',
       // DESIGN.md §9 had #15803d: 4.26:1 on --ok-soft, under the chip floor of 4.5. Darkened to 4.61.
       ok: '#147a3a', okSoft: '#dcf2e3', warn: '#8a5a00', warnSoft: '#fbefd5',
-      danger: '#c42b2b', dangerSoft: '#fbe3e3'
+      danger: '#c42b2b', dangerSoft: '#fbe3e3',
+      info: '#1d5fa8', infoSoft: '#dde9f7'
     }
   }
 ]

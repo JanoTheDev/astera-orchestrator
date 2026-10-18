@@ -40,6 +40,7 @@ const CHECKS: { label: string; fg: keyof ThemeColors; bg: keyof ThemeColors; min
   { label: 'ok on ok-soft (chip)', fg: 'ok', bg: 'okSoft', min: 4.5 },
   { label: 'warn on warn-soft (chip)', fg: 'warn', bg: 'warnSoft', min: 4.5 },
   { label: 'danger on danger-soft (chip)', fg: 'danger', bg: 'dangerSoft', min: 4.5 },
+  { label: 'info on info-soft (chip)', fg: 'info', bg: 'infoSoft', min: 4.5 },
   { label: 'ok on panel', fg: 'ok', bg: 'panel', min: 3 },
   { label: 'warn on panel', fg: 'warn', bg: 'panel', min: 3 },
   { label: 'danger on panel', fg: 'danger', bg: 'panel', min: 3 }

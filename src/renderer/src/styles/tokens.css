@@ -154,7 +154,8 @@
   /* 채워진 확정 액션 버튼(흰 글자 위) */
   --confirm: #2f9e6e;
   --confirm-hover: #37b07b;
-  --info: #5ac8e8;
+  --info: #7cc4ff;
+  --info-soft: #10243a;
   /* 브랜드·역할색은 테마가 바꾸지 않는다 — Claude 의 색이고 발화자 구분이다 */
   --brand-claude: #d97757;
   --brand-codex: #fff;

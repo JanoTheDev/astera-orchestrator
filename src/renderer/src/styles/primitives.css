@@ -52,7 +52,7 @@
   color: var(--text-dim);
 }
 .ui-chip__dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-.ui-chip--info { background: color-mix(in srgb, var(--info, var(--accent)) 16%, var(--panel)); color: var(--info, var(--accent)); }
+.ui-chip--info { background: var(--info-soft); color: var(--info); }
 .ui-chip--ok { background: var(--ok-soft); color: var(--ok); }
 .ui-chip--warn { background: var(--warn-soft); color: var(--warn); }
 .ui-chip--danger { background: var(--danger-soft); color: var(--danger); }
