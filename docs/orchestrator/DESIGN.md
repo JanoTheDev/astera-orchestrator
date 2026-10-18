@@ -6,7 +6,7 @@ wall: click a tile to take it over, and use the filters to see Needs you and Fin
   box, the New flow, Settings and the accounts popover. Its Tweaks switch the theme.
 - "Themes, tokens and primitives".
 
-Status: **draft, waiting for owner approval.** Once approved, every Wave 9 prompt builds against this file and the
+Status: **decided** (2026-10-18, §13). Silence before 9.1 = approved. Once approved, every Wave 9 prompt builds against this file and the
 mockup. Where they disagree, this file wins.
 
 ## 0. Hands-off first (owner, 2026-10-18)
@@ -348,11 +348,14 @@ SVGs in `App.tsx`) become lucide icons. `FileIcon` stays, because it uses file-t
 | `cm.sidebarWidth`, `cm.runPanelHeight`, key overrides | unchanged |
 | Saved layout containing a `plan:<id>` tab whose Job is gone | the tab is dropped on load |
 
-## 13. Open questions for the owner (answer on the mockup or here)
-1. Is Settings as a tab right, rather than a modal? (Claude's call: a tab, so it can sit beside a terminal and be
-   deep-linked.)
-2. Should the Inbox stay a sidebar view (284px, answers inline), or open as a full tab? (Claude's call: the sidebar,
-   so answering never hides the board.)
-3. Are the three dark themes right (umbra, vega, aurora)?
-4. Should the "before" screenshots from W9-0 step 1 be taken when Wave 9 starts? They were skipped now, because W7
-   tabs are running and the app must run alone.
+## 13. Decisions (Claude's calls, 2026-10-18; the owner said to decide these, not ask)
+1. **Settings is a tab, not a modal.** It can sit beside a terminal, and the box can deep-link into it.
+2. **The Inbox stays a sidebar view.** Answering inline never hides the wall or the board. A desktop notice opens it.
+3. **The dark themes are Umbra (default), Vega and Aurora, plus Light and System.** They cover near-black, graphite
+   and green-grey, and each one is already a user-picked palette today.
+4. **The owner hold releases after 60 s with no owner input.** That is long enough to read a reply and type the next
+   line, and short enough that the coordinator is never held up for long. W9-H makes it a constant in `ownerHold.ts`,
+   not a setting.
+5. **The before-screenshots are taken when 9.1 starts** (W9-A step 0), when the app can run alone.
+6. **Approval gate:** the mockup is the reference. The owner can comment on it at any time before 9.1 starts. If they
+   say nothing, it counts as approved, so Wave 9 never waits on the owner.

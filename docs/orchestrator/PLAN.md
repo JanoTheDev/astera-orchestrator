@@ -327,8 +327,8 @@ This puts three things at the centre of Wave 9:
 ### The new layout
 
 The exact spec is [DESIGN.md](DESIGN.md), and the clickable mockup is
-https://claude.ai/artifact/DhSiAPZxCigXD4xJBoFb9x. Both were drafted 2026-10-18 while W7 ran, and are waiting for
-owner approval. The sketch below is the summary.
+https://claude.ai/artifact/DhSiAPZxCigXD4xJBoFb9x. Both were drafted and decided 2026-10-18, while W7 ran (DESIGN.md §13). The owner can comment on the mockup until
+9.1 starts; silence counts as approval. The sketch below is the summary.
 
 ```
 ┌ Titlebar ── [◆ gameful ▾]  ────  [⌘K  Search or command…]  ──── [▶ run config]  [usage ▮▮▯] ┐
@@ -440,8 +440,8 @@ owner approval. The sketch below is the summary.
 
 ### Order and why
 - **9.0** was drafted early (2026-10-18): DESIGN.md and the mockup exist, and the before-screenshots still need to be taken. It is one tab and changes no code. It writes `DESIGN.md` and builds a clickable mockup artifact of the
-  layout, the Plan tab, the Inbox, New and Settings, in dark and light. The owner comments on it, and it is revised
-  until approved. This is the only owner step in Wave 9.
+  layout, the Plan tab, the Inbox, New and Settings, in dark and light. The owner may comment on it; silence counts as approval, so
+  Wave 9 never waits on the owner.
 - **9.1 runs alone.** W9-A cuts `App.tsx` into `components/shell/*` and `state/*` hooks. It moves `styles.css`
   into tokens, base and feature files, and adds the primitives. Running it alone keeps parallel tabs from
   conflicting on `App.tsx`. Behaviour does not change: the full suite passes unchanged except for path updates in

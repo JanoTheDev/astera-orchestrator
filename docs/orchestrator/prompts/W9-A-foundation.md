@@ -8,6 +8,8 @@ Worktree + branch (rule 1 in CONTEXT.md): slug `w9-foundation`, branch `refactor
 
 # W9-A — Tokens, primitives, shell split (no visible behaviour change except theming)
 
+0. **Before-screenshots** (moved here from W9-0): run the app alone once and screenshot every current surface for
+   the PR, then stop it.
 1. **Tokens and themes.** `styles/tokens.css` per DESIGN.md. `core/theme/themes.ts` keeps `vega`, `umbra`,
    `aurora`, adds `light` and `system`; removed ids map to `vega` on load (test it). `lib/theme.tsx` sets
    `data-theme` and `color-scheme`; `tailwind.css` stops forcing `dark`. Extend `contrast.test.ts` to every
