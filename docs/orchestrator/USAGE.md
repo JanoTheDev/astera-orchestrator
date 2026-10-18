@@ -89,6 +89,34 @@ what is missing or broken, and gives every Task a basis with evidence; approval 
 is built, the Job ends as "nothing to do" (archived, the summary kept, a feed line and a notice) and no tab opens.
 Writing `existing.md` and `audit.md` asks your permission once, as every planner edit does.
 
+## Day to day (checked by W6-V, 2026-10-18)
+
+The loop that works today, from source to merged work:
+
+1. **Open the project.** The Jobs panel needs an open project: start a session in the repo once (or click a tab
+   that lives there). A tab started with `astera sessions create` counts only after you click it.
+2. **Start the plan.** "+ New job" → **New plan from files, an audit or GitHub issues…**. Put one problem per line
+   and tick "This is a list of problems" for a fixlist; add extra instructions; pick the coordinator account. The
+   dialog has no worker count yet: a plan made there runs at most 3 workers at once. For more, make it from a shell
+   with `--concurrency 10` (`astera jobs create … --mode fixlist --concurrency 10` then `astera jobs plan --id <job>`).
+3. **Read the plan.** The planner's last message in its tab sums up the Tasks, waves and what you must decide. The
+   Run window's board shows each Task's files and wave. Approve with **Run** (the app asks once).
+   If approval says a Task "has no basis", tell the planner in its tab; it fixes the plan.
+4. **Let it run.** Workers ask the coordinator, and you see "coordinator answered" in the feed and "N questions
+   answered" on the card. You are called only for an owner decision, a give-up or a permission prompt: a desktop
+   notice "Needs your decision" and a row in the needs-input list.
+5. **Answer a decision.** Until W7-C, type the answer into the plan's **coordinator** tab ("Owner decision: …").
+   If the coordinator is inside a long wait, the line queues; it is read when the wait ends.
+6. **Usage.** At `usagePauseAt` no new worker starts and the board says why. After raising it, or after the reset,
+   tell the coordinator "retry the worker starts" if nothing starts within a minute (W7-C makes this automatic).
+7. **Done.** Between waves the board shows "Replanning wave N…"; after the last one the final check runs. With
+   delivery `pr` the plan's PR opens (a project needs a GitHub remote); with `push` the work lands on the delivery
+   branch, or Astera stops and tells you why (dirty folder, wrong branch, conflict) and touches nothing.
+8. **Tidy up.** Ended tabs stay struck through until you close them (W7-F closes them on their own). Archive a plan
+   with `--kill-sessions` to end all its sessions at once.
+
+Known gaps are issues #67–#84 (label `wave-6`), fixed by Wave 7's W7-C…W7-F.
+
 ## The workspace
 
 The sidebar's **Workspaces** tree is Project → Plan → Planner / Coordinator / Workers. Clicking a session shows its
