@@ -683,6 +683,8 @@ export interface JobRow {
   // W1-C plan lifecycle: the Job's own fields, on every row of the Job (lifecycle.ts)
   title?: string
   archivedAt?: string
+  // W5-C: the plan is held from launching new workers (Job.dispatchHold)
+  dispatchHold?: true
   // W2-D: the plan's one pull request (JobRun.pr), on the Run's own row and a Job row folded onto it
   pr?: RunPr
   /** 관리자가 있어야 하는데 없다 — 코디네이터 계정이 지정돼 있지만 붙어 있는 세션이 없다.
@@ -1901,6 +1903,10 @@ export interface OrchApi {
   /** `runtimeId` (remote runtime design §2.7, D1.1): a paired Runtime instead of this machine's Host, `'local'` or
    *  absent for this one. The same on `runDetail`, `completion` and `command`. */
   list(projectPath: string, runtimeId?: string): Promise<OrchSnapshot>
+  /** W5-C: this machine's snapshot of a project, read once. **Not a subscription**: `list` re-points the 'orch:state'
+   *  pushes at the project it names, so the command bar reading another project's plans through it would hand the
+   *  Jobs view that project's pushes. */
+  peek(projectPath: string): Promise<OrchSnapshot>
   /** Why the Jobs sidebar has nothing to draw, when the Host is the reason — null in the ordinary
    *  case. **Its own call rather than a field on `list`** (ruling F41): `list` names a project and is
    *  only ever made with one open, while this is one fact about the app's Host — and the window with

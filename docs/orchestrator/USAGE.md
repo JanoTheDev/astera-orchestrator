@@ -32,8 +32,11 @@ owns every session and drives every plan, so closing the window stops nothing (L
 4. **Run.** A coordinator session (coordinator model) starts and places workers. Every Task whose dependencies are done
    gets a worker in its own worktree under `~/astera-worktrees/<repo>/`. Dependents start on their own when their
    dependencies complete, never before. "Done" is the worker's explicit report plus any checks, not a quiet terminal.
-5. **Stop / resume.** Jobs view, or "pause <plan>" / "resume <plan>" in the command bar. Stop **closes** the plan's
-   workers and coordinator, after a confirmation. Resume starts the coordinator again, which places one new worker per
+5. **Hold / stop / resume.** Jobs view → the hand button, or "pause <plan>" / "stop launching for <plan>" in the
+   command bar, **holds** a plan: no new worker starts, running workers carry on and nothing is closed, so nothing is
+   asked. The play button or "resume <plan>" lets it launch again. "pause worker 2" pauses one worker after a
+   confirmation: its session stays open and keeps its slot, and no agent types into it until "resume worker 2".
+   "stop <plan>" in the command bar (or `astera runs stop`) **closes** the plan's workers and coordinator, after a confirmation. Resume starts the coordinator again, which places one new worker per
    unfinished Task. A plan created without a coordinator does not pick up again after a stop (known issue).
 6. **Archive.** Jobs view → Archive, or `astera jobs archive --id <job>`. Archiving starts nothing new and leaves sessions
    running unless you add `--kill-sessions`. Unarchive brings the plan back.
@@ -91,8 +94,8 @@ Type a command and press Enter. The bar handles it in three steps:
 | Kind | Commands | Runs |
 |---|---|---|
 | read | switch to a plan, show its sessions, summarize, list who is waiting, a plain answer | at once |
-| act | plan X, send text to a session, resume | after you press **Run** (or Enter on an empty line) |
-| confirm | approve and start, pause / stop launching, archive, delete, merge | only after a click in the app's confirmation dialog |
+| act | plan X, send text to a session, resume, pause / stop launching (a hold: nothing closes) | after you press **Run** (or Enter on an empty line); pausing one worker also asks in the app's dialog |
+| confirm | approve and start, stop, archive, delete, merge | only after a click in the app's confirmation dialog |
 
 Voice and typed text never run a confirm-class command on their own.
 
@@ -109,10 +112,13 @@ Examples:
 
 Limits:
 
-- **Pause and stop-launching close sessions.** No command holds dispatch while leaving the workers open. A scheduled
-  plan pauses with `run-pause`. Any other plan stops with `runs-stop`. Both close the plan's workers and coordinator,
-  which is why they ask first. There is no per-worker pause: "pause worker three" asks which plan you mean.
-- **Archive and delete** use the Jobs view's counts, so they only act on plans of the project the Jobs view has open.
+- **Pause and stop-launching hold; stop closes.** On a plain plan, pause and stop-launching hold it (`jobs-hold`):
+  no new worker, nothing closed. A **scheduled** plan still pauses as a whole with `run-pause`, which closes its
+  sessions and asks first, because a hold does not stop its schedule firing new rounds. "stop <plan>" is `runs-stop`.
+- **Pausing a worker** (`worker-hold`) does not interrupt a turn already running, and rolling's resume prompt after a
+  usage-limit reset still reaches it. It only keeps agents (the coordinator, an MCP client) from typing into it.
+- **Archive and delete** read the plan's counts when asked, for a plan of any project.
+- The bar closes with its X button, Escape from anywhere, or a click outside it (not while its confirmation is up).
 - **Merge** opens the Run window, where the merge button and its own confirmation are.
 - **Summaries** come from task states. W3-A's activity feed is not used here.
 

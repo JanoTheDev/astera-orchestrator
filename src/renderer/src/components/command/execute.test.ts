@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import type { OrchSnapshot } from '../../../../core/types'
 import type { Directory, DirPlan } from '../../../../core/intents/resolve'
 import type { Intent } from '../../../../core/intents/types'
 import type { OrchDoor } from '../../lib/orchDoor'
@@ -16,7 +17,10 @@ const plan = (o: Partial<DirPlan> & Pick<DirPlan, 'jobId' | 'name'>): DirPlan =>
 })
 
 const DIR: Directory = {
-  projects: [{ id: 'g', name: 'Gameful', path: '/p/g' }],
+  projects: [
+    { id: 'g', name: 'Gameful', path: '/p/g' },
+    { id: 'c', name: 'Console', path: '/p/c' }
+  ],
   plans: [
     plan({ jobId: 'j-draft', name: 'Draft', pendingStart: true }),
     plan({
@@ -28,10 +32,20 @@ const DIR: Directory = {
         { sessionId: 'sess-ui-9a1', role: 'worker', label: 'Trading Worker 2', taskTitle: 'UI' }
       ]
     }),
-    plan({ jobId: 'j-sched', name: 'Nightly', scheduled: true, runId: 'r-sched' })
+    plan({ jobId: 'j-sched', name: 'Nightly', scheduled: true, runId: 'r-sched' }),
+    plan({ jobId: 'j-held', name: 'Held', runId: 'r-held', held: true }),
+    // Another project's plan: not the one the Jobs view has open (#41)
+    plan({ jobId: 'j-other', name: 'Legacy', projectId: 'c', projectName: 'Console', projectPath: '/p/c', runId: 'r-other' })
   ],
   currentProjectPath: '/p/g',
   currentPlanId: null
+}
+
+const SNAPSHOTS: Record<string, OrchSnapshot> = {
+  '/p/c': {
+    projectFolderBusy: false,
+    runs: [{ id: 'j-other', objective: 'Legacy', outcome: 'running', done: 0, total: 2, eventCount: 3, sharesProjectFolder: false, tasks: [] } as never]
+  }
 }
 
 function harness(confirm: boolean): { deps: ExecDeps; sent: Array<{ path: string; cmd: string; args: Record<string, unknown> }>; asked: string[] } {
@@ -52,7 +66,10 @@ function harness(confirm: boolean): { deps: ExecDeps; sent: Array<{ path: string
       asked.push(o.title)
       return confirm
     },
-    confirmChoices: async () => ({ ok: confirm, checked: [] }),
+    confirmChoices: async (o) => {
+      asked.push(o.title)
+      return { ok: confirm, checked: [] }
+    },
     error: () => {}
   }
   return {
@@ -62,11 +79,15 @@ function harness(confirm: boolean): { deps: ExecDeps; sent: Array<{ path: string
       door,
       ui,
       tasks: [],
+      dispatches: [
+        { id: 'd-api', sessionId: 'sess-api-7f3' },
+        { id: 'd-ui', sessionId: 'sess-ui-9a1', held: true }
+      ],
       nowMs: 0,
       attention: async () => 'idle',
       openPlan: () => {},
       openRun: () => {},
-      snapshotFor: () => null,
+      snapshotFor: async (path) => SNAPSHOTS[path] ?? null,
       coordinatorAccount: async () => 'acc-1'
     }
   }
@@ -81,8 +102,9 @@ const ready = (intent: Intent): Ready => {
 describe('confirm-class intents run only through a confirmation', () => {
   it.each<[Intent, string]>([
     [{ kind: 'approve', target: 'Draft' }, 'run-start'],
-    [{ kind: 'pause', target: 'Trading' }, 'runs-stop'],
-    [{ kind: 'stop-launching', target: 'Nightly' }, 'run-pause']
+    [{ kind: 'stop', target: 'Trading' }, 'runs-stop'],
+    [{ kind: 'stop-launching', target: 'Nightly' }, 'run-pause'],
+    [{ kind: 'pause', target: 'worker 1' }, 'worker-hold']
   ])('%j sends nothing when the dialog is declined', async (intent) => {
     const h = harness(false)
     await execute(ready(intent), h.deps)
@@ -92,8 +114,10 @@ describe('confirm-class intents run only through a confirmation', () => {
 
   it.each<[Intent, string, Record<string, unknown>]>([
     [{ kind: 'approve', target: 'Draft' }, 'run-start', { run: 'j-draft' }],
-    [{ kind: 'pause', target: 'Trading' }, 'runs-stop', { id: 'r-run' }],
-    [{ kind: 'stop-launching', target: 'Nightly' }, 'run-pause', { run: 'j-sched' }]
+    [{ kind: 'stop', target: 'Trading' }, 'runs-stop', { id: 'r-run' }],
+    [{ kind: 'stop-launching', target: 'Nightly' }, 'run-pause', { run: 'j-sched' }],
+    // #38: "pause worker 1" pauses that worker's open Dispatch, behind the confirmation
+    [{ kind: 'pause', target: 'worker 1' }, 'worker-hold', { dispatch: 'd-api' }]
   ])('%j sends %s with the exact id once confirmed', async (intent, cmd, args) => {
     const h = harness(true)
     await execute(ready(intent), h.deps)
@@ -142,10 +166,62 @@ describe('intent → command', () => {
     expect(picked).toMatchObject({ ok: true, session: { session: { sessionId: 'sess-ui-9a1' } } })
   })
 
-  it('archive and delete act only with the Jobs view snapshot of that project', async () => {
+  it('archive and delete read the counts of a plan of any project when asked (#41)', async () => {
+    const h = harness(true)
+    await execute(ready({ kind: 'archive', target: 'Legacy' }), h.deps)
+    await execute(ready({ kind: 'delete', target: 'Legacy' }), h.deps)
+    expect(h.sent.map((s) => [s.path, s.cmd, s.args])).toEqual([
+      ['/p/c', 'jobs-archive', { id: 'j-other' }],
+      ['/p/c', 'run-delete', { id: 'j-other' }]
+    ])
+    // Declined: nothing is sent
+    const no = harness(false)
+    await execute(ready({ kind: 'archive', target: 'Legacy' }), no.deps)
+    expect(no.asked).toHaveLength(1)
+    expect(no.sent).toEqual([])
+  })
+
+  it('archive of a plan whose snapshot cannot be read sends nothing', async () => {
     const h = harness(true)
     const lines = await execute(ready({ kind: 'delete', target: 'Trading' }), h.deps)
     expect(h.sent).toEqual([])
-    expect(lines[0].text).toBe('command.refused.openProject')
+    expect(lines[0].text).toBe('command.refused.unreadable')
+  })
+})
+
+describe('holds (#38, #39)', () => {
+  it('pause and stop-launching of a plain plan hold its launching, asking nothing and closing nothing', async () => {
+    for (const kind of ['pause', 'stop-launching'] as const) {
+      const h = harness(false)
+      await execute(ready({ kind, target: 'Trading' }), h.deps)
+      expect(h.asked).toEqual([])
+      expect(h.sent).toEqual([{ path: '/p/g', cmd: 'jobs-hold', args: { id: 'j-run' } }])
+    }
+  })
+
+  it('resume lets a held plan launch again, and a paused worker take input again', async () => {
+    const h = harness(true)
+    await execute(ready({ kind: 'resume', target: 'Held' }), h.deps)
+    await execute(ready({ kind: 'resume', target: 'Trading worker 2' }), h.deps)
+    expect(h.sent.map((s) => [s.cmd, s.args])).toEqual([
+      ['jobs-unhold', { id: 'j-held' }],
+      ['worker-unhold', { dispatch: 'd-ui' }]
+    ])
+    expect(h.asked).toEqual([])
+  })
+
+  it('"pause worker 2" resolves to that worker, not to a question about plans', () => {
+    expect(resolveIntent({ kind: 'pause', target: 'worker 2' }, DIR)).toMatchObject({
+      ok: true,
+      session: { session: { sessionId: 'sess-ui-9a1' } }
+    })
+    // A picked worker stays that worker, though the pin names its plan too
+    const picked = resolveIntent({ kind: 'pause', target: 'worker' }, DIR, { sessionId: 'sess-api-7f3', planId: 'j-run' })
+    expect(picked).toMatchObject({ ok: true, session: { session: { sessionId: 'sess-api-7f3' } } })
+    // An ambiguous worker is a question about sessions
+    expect(resolveIntent({ kind: 'pause', target: 'worker' }, DIR)).toMatchObject({ ok: false, miss: { what: 'session', why: 'ambiguous' } })
+    // A plan name is still the plan
+    expect(resolveIntent({ kind: 'pause', target: 'Trading' }, DIR)).toMatchObject({ ok: true, plan: { jobId: 'j-run' } })
+    expect(resolveIntent({ kind: 'pause', target: 'Trading' }, DIR)).not.toHaveProperty('session')
   })
 })

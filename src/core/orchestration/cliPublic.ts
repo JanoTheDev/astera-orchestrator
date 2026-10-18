@@ -101,7 +101,11 @@ const TASK_HIDDEN = [
 ] as const
 
 /** W1-A role models: a Job's per-role model override, held back from the SDK like the Task's three above. */
-const JOB_HIDDEN = ['models', /* W2-A: the planner sessions, the app's own bookkeeping */ 'plannerSessionIds'] as const
+const JOB_HIDDEN = [
+  'models',
+  /* W2-A: the planner sessions, the app's own bookkeeping */ 'plannerSessionIds',
+  /* W5-C: the person's "stop launching" (jobs-hold), not in the SDK's contract yet */ 'dispatchHold'
+] as const
 
 /** A followed event's message body (pages long) and the app's link from an event to a tab. */
 const FOLLOW_EVENT_HIDDEN = ['body', 'sessionId'] as const

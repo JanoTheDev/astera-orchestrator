@@ -15,6 +15,8 @@ describe('fastParse — SPEC §8 phrasings read without a model', () => {
     ['Show every session needing my input', { kind: 'waiting' }],
     ['What are workers waiting for?', { kind: 'waiting' }],
     ['Stop launching new tasks for this plan', { kind: 'stop-launching' }],
+    ['Stop launching new tasks for Console', { kind: 'stop-launching', target: 'Console' }],
+    ['Stop the Console plan', { kind: 'stop', target: 'Console' }],
     ['Start executing the approved plan', { kind: 'approve' }],
     ['approve Console', { kind: 'approve', target: 'Console' }],
     ['Plan the next Gameful refactor', { kind: 'plan', objective: 'the next Gameful refactor' }],

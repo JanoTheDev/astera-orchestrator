@@ -2,7 +2,7 @@
 // fast path, else the coordinator role model), the intent's names become exact ids or a question, and only then does
 // anything run: `read` at once, `act` on Run, `confirm` through a dialog (core/intents/safety.ts).
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { MicIcon } from 'lucide-react'
+import { MicIcon, X } from 'lucide-react'
 import { useI18n } from '../../i18n/I18nProvider'
 import type { Intent } from '../../../../core/intents/types'
 import type { Pins } from '../../../../core/intents/resolve'
@@ -12,6 +12,8 @@ import { parsePrompt } from '../../../../core/intents/prompt'
 import { planStatus } from '../../../../core/intents/summary'
 import type { WorkspaceData, WorkspaceProject } from '../workspace/workspaceTree'
 import type { ActionUi } from '../../lib/jobActions'
+import { isConfirmOpen } from '../../lib/confirm'
+import { armBarClose } from './barClose'
 import { directoryOf } from './directory'
 import { execute, resolveIntent, type ExecDeps, type Line, type Resolution } from './execute'
 import { whisperSpeech } from './speech'
@@ -46,7 +48,7 @@ export function CommandBar({
   data: WorkspaceData | null
   currentProject: string | null
   currentPlanId: string | null
-  deps: Omit<ExecDeps, 'tasks' | 'nowMs' | 'ui'>
+  deps: Omit<ExecDeps, 'tasks' | 'dispatches' | 'nowMs' | 'ui'>
   /** The app's Job action ui (confirm dialogs, toasts); its errors are also said in the conversation. */
   ui: ActionUi
   /** Bumped by the voice shortcut: starts recording, or stops and sends what was said. */
@@ -61,6 +63,9 @@ export function CommandBar({
   const [busy, setBusy] = useState(false)
   const [recording, setRecording] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const barRef = useRef<HTMLDivElement>(null)
+  const closeRef = useRef(onClose)
+  closeRef.current = onClose
   const speech = useMemo(() => whisperSpeech((wav) => window.api.command.transcribe(wav)), [])
   const dir = useMemo(() => directoryOf(tree, data, currentProject, currentPlanId), [tree, data, currentProject, currentPlanId])
 
@@ -84,7 +89,10 @@ export function CommandBar({
     setPending(null)
     setBusy(true)
     try {
-      say('coordinator', await execute(res, { ...deps, ui: barUi, tasks: data?.tasks ?? [], nowMs: Date.now() }))
+      say(
+        'coordinator',
+        await execute(res, { ...deps, ui: barUi, tasks: data?.tasks ?? [], dispatches: data?.dispatches ?? [], nowMs: Date.now() })
+      )
     } catch (e) {
       say('coordinator', [{ text: e instanceof Error ? e.message : String(e) }])
     } finally {
@@ -164,6 +172,17 @@ export function CommandBar({
     if (!open) setRecording(false)
   }, [open, speech])
 
+  // W5-C: a click away from the bar or Escape from anywhere closes it (not while the app's dialog is up). Closing goes
+  // through onClose, so the effect above still stops the microphone mid-recording.
+  useEffect(() => {
+    if (!open) return
+    return armBarClose(window, {
+      inside: (n) => n instanceof Node && barRef.current?.contains(n) === true,
+      confirmOpen: isConfirmOpen,
+      close: () => closeRef.current()
+    })
+  }, [open])
+
   if (!open) return null
   const describe = (p: Pending): string => {
     if (!p.res.ok) return ''
@@ -196,7 +215,7 @@ export function CommandBar({
     )
 
   return (
-    <div className="command-bar" role="dialog" aria-label={tr('command.title')} onKeyDown={(e) => e.key === 'Escape' && onClose()}>
+    <div ref={barRef} className="command-bar" role="dialog" aria-label={tr('command.title')}>
       <div className="command-log">
         {entries.map((en, i) => (
           <div key={i} className={`command-entry command-${en.who}`}>
@@ -260,6 +279,9 @@ export function CommandBar({
           onPointerLeave={() => void stopTalk()}
         >
           <MicIcon className="size-4" />
+        </button>
+        <button className="command-close" title={tr('command.close')} aria-label={tr('command.close')} onClick={onClose}>
+          <X className="size-4" />
         </button>
       </div>
     </div>

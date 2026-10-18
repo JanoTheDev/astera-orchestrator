@@ -23,7 +23,8 @@ import { runningCount } from '../../../core/orchestration/running'
 import { runIdToMerge } from '../../../core/orchestration/snapshot'
 import { useI18n } from '../i18n/I18nProvider'
 import { replyNote, type CheckPluginRow, type OrchDoor } from '../lib/orchDoor'
-import { confirmModal } from '../lib/confirm'
+import { confirmModal, confirmModalWithChoices } from '../lib/confirm'
+import { approvePlan, type ActionUi } from '../lib/jobActions'
 import { ChangedFilesBlock } from './ChangedFilesBlock'
 import { CompletionBlock } from './CompletionBlock'
 import { GateAnswer } from './GateAnswer'
@@ -470,8 +471,15 @@ export function RunDetail({
   const startRunNow = async (): Promise<void> => {
     setBusy(RUN_START)
     try {
-      const reply = await door.command('run-start', { run: runId })
-      if (reply.status >= 400) toast.error(replyNote(reply, t as never, t('jobs.run.startFailed')))
+      // W5-C (#40): the Jobs view's "Approve & execute" path: asked first (workers spend quota), and a plan that does
+      // not hold is refused with its `problems`
+      const ui: ActionUi = {
+        t: (key, params) => (t as (k: string, p?: Record<string, string | number>) => string)(key, params),
+        confirm: (o) => confirmModal(o),
+        confirmChoices: (o) => confirmModalWithChoices(o),
+        error: (m) => void toast.error(m)
+      }
+      await approvePlan(door, runId, run ? jobName(run) : runId, ui)
     } catch {
       toast.error(t('jobs.run.startFailed'))
     } finally {

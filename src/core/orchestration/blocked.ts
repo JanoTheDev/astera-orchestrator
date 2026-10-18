@@ -94,6 +94,8 @@ export function taskBoardsOf(s: OrchState, limits: ScheduleLimits = {}): Map<str
     }
     if (!run) return { kind: 'definition' }
     if (run.paused) return { kind: 'paused' }
+    // W5-C: held from launching (Job.dispatchHold): nothing new is placed, so the board says paused, not "next"
+    if (job.dispatchHold) return { kind: 'paused' }
     const gate = [...(gates.get(task.id) ?? [])].sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0]
     if (gate)
       return { kind: 'gate', gateId: gate.id, question: gate.question, ...(gate.kind ? { gateKind: gate.kind } : {}) }

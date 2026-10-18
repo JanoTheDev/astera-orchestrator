@@ -25,6 +25,7 @@ export function directoryOf(
             projectPath: p.path,
             scheduled: job?.schedule !== undefined,
             pendingStart: job?.pendingStart === true,
+            ...(job?.dispatchHold ? { held: true } : {}),
             ...(pl.runId !== undefined ? { runId: pl.runId } : {}),
             sessions: planSessions(pl).map((x) => ({
               sessionId: x.sessionId,

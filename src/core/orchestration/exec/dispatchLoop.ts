@@ -803,6 +803,9 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     // Nothing for a person to fix, so no Gate: the next pass after a worker ends places it.
     if (reply.status === 409 && (reply.body as { atCapacity?: unknown })?.atCapacity === true)
       return { kind: 'wait', why: 'the app-wide worker cap is reached' }
+    // W5-C: the plan was held from launching between slotsToFill and here. A person's choice, so no Gate.
+    if (reply.status === 409 && (reply.body as { held?: unknown })?.held === true)
+      return { kind: 'wait', why: 'the plan is held from launching new workers' }
     return reply.status >= 400 ? { kind: 'refused', reply } : { kind: 'started', reply }
   }
 
@@ -1012,6 +1015,8 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       if (run.coordinatorSessionId !== undefined || coordinatorStarting(run, c.nowMs()))
         return refuse(`run ${run.id} is driven by its coordinator, which places its tasks`)
       if (run.paused === true || job?.paused === true) return refuse(`run ${run.id} is paused`)
+      // W5-C: held from launching meanwhile (jobs-hold)
+      if (job?.dispatchHold) return refuse(`job ${job.id} is held from launching new workers`)
       // W1-C: archived meanwhile (lifecycle.ts)
       if (job !== undefined && !isJobActive(job)) return refuse(`job ${job.id} is archived`)
       if (job?.pendingStart === true || outcomeOf(s, run.id) !== 'running')

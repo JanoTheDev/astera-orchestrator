@@ -10,7 +10,7 @@ import { convergenceChipOf, type ConvergenceChip } from '../../../core/orchestra
 import { useI18n } from '../i18n/I18nProvider'
 import { PauseIcon, PlayIcon, RunIcon, STATE_KEY, STATUS_COLOR, TaskGlyph, TaskIcon, TrashIcon } from './JobIcons'
 import type { RunIconKind } from './JobIcons'
-import { Archive, ArchiveRestore, ArrowUpRight, ChevronDown, ChevronRight, Pencil } from 'lucide-react'
+import { Archive, ArchiveRestore, ArrowUpRight, ChevronDown, ChevronRight, Hand, Pencil, PlayCircle } from 'lucide-react'
 import { SourceChip } from './SourceChip'
 import { jobName } from '../lib/jobName'
 
@@ -139,6 +139,8 @@ interface LifecycleActs {
   onRenameJob?: (jobId: string, title: string) => void
   onArchiveJob?: (jobId: string) => void
   onUnarchiveJob?: (jobId: string) => void
+  /** W5-C (#39): stop a plan launching new workers, or let it again (jobs-hold). Running workers carry on. */
+  onHoldJob?: (jobId: string, hold: boolean) => void
 }
 
 /** The head's name, or a field while it is renamed: Enter keeps it, Escape and leaving the field drop it. An empty
@@ -205,8 +207,14 @@ function LifecycleButtons({
       {icon}
     </button>
   )
+  // W5-C: a schedule pauses as a whole (its ⏸), and a plan not started has nothing to launch yet
+  const holdable = acts.onHoldJob !== undefined && run.archivedAt === undefined && !run.schedule && !run.pendingStart
   return (
     <>
+      {holdable &&
+        (run.dispatchHold
+          ? button(t('jobs.hold.release'), <PlayCircle size={11} />, () => acts.onHoldJob?.(run.id, false))
+          : button(t('jobs.hold.hold'), <Hand size={11} />, () => acts.onHoldJob?.(run.id, true)))}
       {acts.onRenameJob && button(t('jobs.lifecycle.rename'), <Pencil size={11} />, onStartRename)}
       {run.archivedAt !== undefined
         ? acts.onUnarchiveJob && button(t('jobs.lifecycle.unarchive'), <ArchiveRestore size={11} />, () => acts.onUnarchiveJob?.(run.id))
@@ -218,7 +226,9 @@ function LifecycleButtons({
 /** An archived plan's chip in its head, beside the name. */
 const ArchivedChip = ({ run }: { run: JobRow }): React.JSX.Element | null => {
   const { t } = useI18n()
-  return run.archivedAt !== undefined ? <span className="jobs-tmpl-badge">{t('jobs.lifecycle.archived')}</span> : null
+  if (run.archivedAt !== undefined) return <span className="jobs-tmpl-badge">{t('jobs.lifecycle.archived')}</span>
+  // W5-C: a held plan says so beside its name
+  return run.dispatchHold ? <span className="jobs-tmpl-badge">{t('jobs.hold.held')}</span> : null
 }
 
 function RunCardImpl({
@@ -752,7 +762,8 @@ export function JobsView({
   disabledReason,
   onRenameJob,
   onArchiveJob,
-  onUnarchiveJob
+  onUnarchiveJob,
+  onHoldJob
 }: {
   snapshot: OrchSnapshot | null
   /** Why there is nothing to draw, when the Host is the reason — null in the ordinary case.
@@ -812,7 +823,7 @@ export function JobsView({
   const { t } = useI18n()
   const acts = { onPauseRun, onResumeRun, onDeleteRun, onRestartCoordinator, onApprove }
   const lifecycle: LifecycleActs | undefined =
-    onRenameJob || onArchiveJob || onUnarchiveJob ? { onRenameJob, onArchiveJob, onUnarchiveJob } : undefined
+    onRenameJob || onArchiveJob || onUnarchiveJob || onHoldJob ? { onRenameJob, onArchiveJob, onUnarchiveJob, onHoldJob } : undefined
   // W1-C: archived plans are hidden until asked for. Not remembered: the list opens on the plans that work.
   const [showArchived, setShowArchived] = useState(false)
   // "+ From a source" (plugin Phase 4 J20) under "+ New job", in both places it stands: this machine's projects only
