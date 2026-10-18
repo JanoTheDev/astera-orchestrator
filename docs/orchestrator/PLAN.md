@@ -56,7 +56,7 @@ starting the next wave. Each prompt owns its own files, which keeps conflicts to
 | 7 | 6 | `W7-A-plan-feedback`, `W7-B-projects`, `W7-C-owner-answers-and-coordinator`, `W7-D-intake-names-and-concurrency`, `W7-E-planner-review-and-final-check`, `W7-F-tabs-accounts-and-sidebar` (W7-C..F: W6-V's issues #67–#84) | W6 merged |
 | 7V | 1 | `W6-V-autopilot-dogfood.md`: the W6 half ran 2026-10-18 (LINUX.md "Autopilot dogfood (W6-V)"); re-run its W7 steps (5, 5b) and the failed W6 checks | W7 merged |
 | 8.0 | 1 | `W8-C-run-waves-in-astera` (alone; tabs, the last wave run by hand) | 7V done |
-| 8 | 2 | `W8-A-commit-attribution`, `W8-B-line-attribution` (Who wrote this, see below), **run as one Astera plan** | W8-C merged |
+| 8 | 3 | `W8-A-commit-attribution`, `W8-B-line-attribution` (Who wrote this, see below), `W8-D-plans-side-by-side` (no overlapping work across plans), **run as one Astera plan** | W8-C merged |
 | 9.0 | 1 | `W9-0-design-spec` (owner approves the mockup before any code) | W8 merged |
 | 9.1 | 1 | `W9-A-foundation` (alone: tokens, primitives, shell split) | 9.0 approved |
 | 9.2 | 8 | `W9-B-shell-and-nav`, `W9-C-plan-tab`, `W9-D-inbox-and-command`, `W9-E-settings-and-dialogs`, `W9-H-agents-wall`, `W9-I-tab-summaries`, `W9-J-worktree-viewer`, `W9-K-window-per-project` | 9.1 merged |
@@ -97,6 +97,7 @@ starting the next wave. Each prompt owns its own files, which keeps conflicts to
 | W7-E | `handover.ts` (planner brief), `resources/skills/planner-guide.md`, `replan.ts`, `exec/replanStart.ts`, `reviewer.ts`, `exec/reviewGate.ts` | `exec/plannerStart.ts`, `exec/dispatchLoop.ts`, `types.ts` (Job review default), `command.ts` (`jobs-plan` / `jobs-create` flag), `src/core/github/*` (no-remote message) |
 | W7-F | tab strip + its `styles.css`, sidebar account panel, `HistoryBrowser.tsx`, `JobsView.tsx` layout, `components/plan/planBoard.ts` / `TaskBoard` | `App.tsx` (tabs, active session, auto-close), keybindings, `AccountSettings.tsx` (export unregister), `core/accounts` (email check, login URL), `components/workspace/workspaceTree.ts` |
 | W8-C | `core/orchestration/intake.ts` (`--mode prompts`), `cliArgs.ts`, `cliUsage.ts`, `resources/skills/planner-guide.md`, `resources/skills/orchestration-guide.md` (worker brief lines, `astera heavy`), new `core/orchestration/heavyLock.ts` | `types.ts` (`Job.after`), `schedule.ts` / `blocked.ts` (one gate, one reason), `planner.ts` (`validatePlan` verbatim check), `command.ts` (`--after`, `heavy`), New flow source picker, USAGE.md, LINUX.md |
+| W8-D | new `core/orchestration/overlap.ts`, `schedule.ts` (cross-plan `editing` by project), `blocked.ts` (reason) | `types.ts` (`Job.overlaps`, `Job.areas`), `planner.ts` / `resources/skills/planner-guide.md` (other plans' Tasks in the brief), `replan.ts` (reads other plans), `command.ts` / `cliArgs.ts` / `cliUsage.ts` (`jobs overlaps`, `--areas`, `--area`), `activity.ts` (`plan.overlap`), JobsView approve area (one line per overlap) |
 | W8-A | new `core/attribution/{note,stamp,remap,blame,stats}.ts` | `exec/integrateGit.ts` (stamp before merge, copy notes), `core/orchestration/delivery.ts` (push the notes ref, PR body block), `src/main/githubPrs.ts` (squash remap), `command.ts` / `cliArgs.ts` / `cliUsage.ts` (`attribution-blame`, `attribution-stats`, `attribution-why`) |
 | W8-B | new `core/attribution/{lines,checkpoint,gitAi}.ts` + its hook script, new `components/attribution/*` | `core/sessions/statusline.ts` (hook entries), `core/attribution/stamp.ts` (one `lines` call), file viewer mount, plan view mount, project settings page (one row) |
 | W9-0 | new `docs/orchestrator/DESIGN.md`, the mockup artifact | — (no code) |
@@ -303,7 +304,8 @@ profile, never the dev profile:
 
 ```bash
 astera jobs create --project astera --mode prompts --delivery pr \
-  --attach docs/orchestrator/prompts/W8-A-commit-attribution.md docs/orchestrator/prompts/W8-B-line-attribution.md
+  --attach docs/orchestrator/prompts/W8-A-commit-attribution.md docs/orchestrator/prompts/W8-B-line-attribution.md \
+           docs/orchestrator/prompts/W8-D-plans-side-by-side.md
 # Wave 9: one plan per sub-wave, each queued after the one before (9.0 is done; 9.1 alone first)
 astera jobs create --project astera --mode prompts --after <W8 job> --attach docs/orchestrator/prompts/W9-A-foundation.md
 astera jobs create --project astera --mode prompts --after <W9.1 job> --attach docs/orchestrator/prompts/W9-{B,C,D,E,H,I,J,K}-*.md
@@ -394,6 +396,11 @@ In short:
 - **Consoles are the real CLI** (the xterm itself), never a custom chat or input box. Slash commands, permission
   prompts and plan mode just work. The owner types in the console. The coordinator's messages to a console the
   owner holds are queued until they leave it.
+- **Plans side by side** (W8-D data, W9 UI):
+  - The Agents page filters consoles by plan, using the plan pills in its toolbar. Each plan's coordinator is
+    pinned first.
+  - The Plans page groups plans by area and has an **Overlap** view showing which plan works where.
+  - The Inbox approval card warns about overlaps, with "Start after" and "Move into".
 - **A new product look**, not upstream's:
   - Themes Night (lime), Dusk (lavender) and Day (olive).
   - IBM Plex Sans and JetBrains Mono, bundled.

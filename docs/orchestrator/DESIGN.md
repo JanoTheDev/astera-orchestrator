@@ -69,11 +69,16 @@ home) goes away. Every page owns the full width below the top bar.
 ### Agents (default; W9-H)
 - **Console strip** across the top: "All consoles", then one entry per live console (Coordinator, Worker 2 · T4,
   Reviewer, Planner, plain consoles). A dot shows each console's state.
-- **Plan progress** sits inline in the wall's toolbar (right side), with no rows of its own. It is one compact item per
-  active plan: the name, a 56px stacked bar, and a short count ("4/9 · 2 need you", or "approve"). Hovering shows the
-  full counts. Clicking an item opens Tasks filtered to that plan.
-- **The main console:** the coordinator is pinned as the first tile, twice as tall, labelled "main", with an accent
-  border. Its strip entry reads "Coordinator (main)".
+- **Plan filter** (the wall's toolbar): pills for **All plans**, then one per active or queued plan, then **No
+  plan** (plain consoles). A plan pill shows the name, a 40px stacked progress bar and a short count ("4/9 · 2 need
+  you", or "approve"). Hovering shows the full counts.
+  - Picking a plan filters the tiles **and** the console strip.
+  - With many plans, the pills become a searchable dropdown grouped by area.
+  - The filter is remembered per window. "Its consoles" on a plan page opens Agents filtered to that plan.
+- **The main console:** each plan has its own coordinator.
+  - Filtered to one plan, that plan's coordinator is the first tile: twice as tall, labelled "main", with an accent
+    border. Its strip entry reads "Coordinator (main)".
+  - On All plans, every plan's coordinator is pinned first, in plan order.
 - **All consoles (the wall):**
   - Scope: this plan / <project> / all projects.
   - Filter: All / Needs you / Working / Finished.
@@ -153,7 +158,13 @@ home) goes away. Every page owns the full width below the top bar.
 - Done keeps the last 20 per plan; older ones are under the plan's page.
 
 ### Plans (W9-C)
-- **List:** one row per plan, showing:
+- **Two views**, "By area" and "Overlap":
+  - **By area** (default): plans grouped under their areas (W8-D `Job.areas`, such as Auth or Leaderboard), each
+    group headed by its folders. A row whose plan overlaps another shows an "overlaps <plan>" chip.
+  - **Overlap**: a table of plans × top folders. Each cell says what the plan does there ("editing", "T6 editing",
+    "planned", "done"). A folder two plans both touch is highlighted, so it is clear at a glance who works where.
+    Two plans never edit the same files at once: the later Task waits (W8-D guard).
+- **List row:** one row per plan, showing:
   - state dot, title and state chip;
   - source and wave line;
   - progress bar (done/total);
@@ -186,7 +197,10 @@ home) goes away. Every page owns the full width below the top bar.
 - Two columns:
   - **Needs you** (left, wide), oldest first:
     - Question: quick answers when the asker offered options, a text field and Send, plus "Open its console".
-    - Plan approval: Review plan · Talk to planner · Approve.
+    - Plan approval: Review plan · Talk to planner · Approve. When the plan overlaps another (W8-D `Job.overlaps`),
+      the card shows a warn box naming the Tasks and files ("L4 and Auth rework's T6 both edit
+      src/api/routes.ts"), with **Start after <plan>** and **Move <task> into <plan>**. Approve then reads
+      "Approve (L4 waits)".
     - Permission wait: "Answer in its console" (permission prompts stay in the real CLI, CONTEXT rule 6).
     - Give-up or escalation: Open plan · Retry · Skip.
   - **Handled for you** (right): the activity feed. It covers auto-answers, merges, replans, clean-ups, deliveries
@@ -284,7 +298,8 @@ The settings search filters rows by label and description and shows the group ea
 | Needs-input inbox, escalations, answers (W3-C, W6-B, W7-C) | **Inbox** page |
 | Intake, sources, assign-me (W6-A, W7-D) | **Start** page: composer, attach, GitHub issues, audit |
 | Prompt files, start after, heavy-job slot (W8-C) | Start › Run as written / Start after · Plans list "Queued" · Task live line "Waiting for the heavy-job slot" |
-| Same-file rule (W6-C) | Plan › Files · Task live line |
+| Same-file rule (W6-C), across plans (W8-D) | Plan › Files · Task live line "Waits for <plan> · <task>" · Plans › Overlap |
+| Plan areas, overlaps (W8-D) | Plans › By area / Overlap · Inbox approval card · Agents plan filter |
 | Replanning (W6-D) | Plan › Waves header · Journal |
 | Projects, per-project settings (W6-F, W7-B) | Project switcher · Settings › Projects |
 | Several projects at once (W9-K) | A window per project |

@@ -15,7 +15,8 @@ exactly.
 
 1. **Agents page** (`components/pages/AgentsPage.tsx`):
    - The console strip.
-   - The plan progress strip.
+   - The **plan filter** pills (All plans / each plan with progress / No plan) that filter the tiles and the strip
+     (DESIGN.md §2). Each plan's coordinator is pinned first; filtered to one plan, it is the double-height main tile.
    - The wall: the coordinator pinned as the double-height "main" tile, then tiles ordered needs-you, working, idle,
      with scope and filter.
    - The Finished row.
