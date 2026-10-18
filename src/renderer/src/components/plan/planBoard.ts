@@ -88,6 +88,9 @@ export function reasonText(
       return { key: 'plan.reason.planCap', params: { used: reason.used, limit: reason.limit } }
     case 'global-cap':
       return { key: 'plan.reason.globalCap', params: { used: reason.used, limit: reason.limit, priority: reason.priority } }
+    // W6-C
+    case 'same-files':
+      return { key: 'plan.reason.sameFiles', params: { task: reason.waitingOn.title, path: reason.path } }
     case 'next':
       return { key: 'plan.reason.next' }
   }

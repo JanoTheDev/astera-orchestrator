@@ -2,13 +2,21 @@
 //
 // **Read off the state, never stored, and never a second copy of a rule.** Each reason asks the helper that already
 // owns it: `jobActive` / `isJobActive` (a plan paused, not started, archived), `placedByApp` (who drives the Run),
-// `slotsToFill` and `workersAgainstCap` (the plan's own and the app-wide caps, `Job.priority`), FAILURE_LIMIT (the
-// circuit breaker). If one of those rules changes, the reason changes with it.
+// `slotsToFill` and `workersAgainstCap` (the plan's own and the app-wide caps, `Job.priority`), `sameFilesAs` (W6-C: two
+// workers on the same files), FAILURE_LIMIT (the circuit breaker). If one of those rules changes, the reason changes with it.
 import type { TaskBlockedReason, TaskBoard, TaskCategory } from '../types'
 import { DEFAULT_CONCURRENCY, FAILURE_LIMIT, type Dispatch, type Gate, type Task } from './types'
 import { placedByApp, type OrchState } from './state'
 import { isJobActive } from './lifecycle'
-import { jobActive, slotsToFill, workersAgainstCap, type ScheduleLimits } from './schedule'
+import {
+  editingByJob,
+  jobActive,
+  sameFilesAs,
+  slotsToFill,
+  workerCapOf,
+  workersAgainstCap,
+  type ScheduleLimits
+} from './schedule'
 
 const isOpen = (d: Dispatch): boolean => !d.outcome && !d.endedAt
 
@@ -38,7 +46,7 @@ function categoryOf(task: Task, open: Dispatch | undefined, latest: Dispatch | u
  *  when a ready Task the app places needs their answer.
  *  shortcut: those two scan per Run; if a state with many ready app-placed Tasks makes the fold slow, index them. */
 export function taskBoardsOf(s: OrchState, limits: ScheduleLimits = {}): Map<string, TaskBoard> {
-  const cap = limits.maxConcurrentWorkers ?? null
+  const cap = workerCapOf(limits.maxConcurrentWorkers)
   const push = <T>(m: Map<string, T[]>, k: string, v: T): void => {
     const list = m.get(k)
     if (list) list.push(v)
@@ -51,14 +59,22 @@ export function taskBoardsOf(s: OrchState, limits: ScheduleLimits = {}): Map<str
   const taskById = new Map(s.tasks.map((t) => [t.id, t]))
   const runById = new Map(s.runs.map((r) => [r.id, r]))
   const jobById = new Map(s.jobs.map((j) => [j.id, j]))
-  let placement: { count: number; slotted: Set<string>; byRun: Map<string, number>; used: number } | undefined
+  let placement:
+    | { count: number; slotted: Set<string>; byRun: Map<string, number>; used: number; editing: Map<string, Task[]> }
+    | undefined
   const placed = (): NonNullable<typeof placement> => {
     if (placement) return placement
     const slots = slotsToFill(s, limits)
     const byRun = new Map<string, number>()
     for (const x of slots) byRun.set(x.runId, (byRun.get(x.runId) ?? 0) + 1)
-    const used = cap === null ? 0 : workersAgainstCap(s)
-    placement = { count: slots.length, slotted: new Set(slots.map((x) => x.taskId)), byRun, used }
+    // W6-C: the Tasks at their files, and those this pass places (they hold their files from the next write)
+    const editing = editingByJob(s)
+    for (const x of slots) {
+      const t = taskById.get(x.taskId)
+      const jobId = runById.get(x.runId)?.jobId
+      if (t && jobId !== undefined) editing.set(jobId, [...(editing.get(jobId) ?? []), t])
+    }
+    placement = { count: slots.length, slotted: new Set(slots.map((x) => x.taskId)), byRun, used: workersAgainstCap(s), editing }
     return placement
   }
   const openByRun = new Map<string, number>()
@@ -123,10 +139,12 @@ export function taskBoardsOf(s: OrchState, limits: ScheduleLimits = {}): Map<str
     if (!placedByApp(job, run)) return { kind: 'coordinator' }
     const p = placed()
     if (p.slotted.has(task.id)) return { kind: 'next' }
+    const clash = sameFilesAs(task, p.editing.get(job.id) ?? [])
+    if (clash) return { kind: 'same-files', waitingOn: { id: clash.task.id, title: clash.task.title }, path: clash.path }
     const openHere = openByRun.get(run.id) ?? 0
     const limit = job.concurrency ?? DEFAULT_CONCURRENCY
     if (openHere + (p.byRun.get(run.id) ?? 0) >= limit) return { kind: 'plan-cap', used: openHere, limit }
-    if (cap !== null && p.used + p.count >= cap)
+    if (p.used + p.count >= cap)
       return { kind: 'global-cap', used: p.used, limit: cap, priority: job.priority ?? 0 }
     return { kind: 'next' }
   }
