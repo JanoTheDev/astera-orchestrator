@@ -7,10 +7,12 @@ Worktree + branch: slug `w9-docs`, branch `docs/readme-rewrite`. No `npm ci` nee
 
 # W9-G — README and docs for the product it is now
 
-The README still describes upstream Astera with fork status tables bolted on. Rewrite for someone who has never
-seen either.
+The README was rewritten for the product on 2026-10-18 (before W8). Bring it up to date with the redesign, for
+someone who has never seen Astera: new screenshots, the new page names (Start, Agents, Tasks, Plans, Inbox,
+Worktrees), W8's run-as-written plans and plans side by side, its "Where it is going" section trimmed to what is
+still ahead, and its links moved with the docs below. Keep its structure and voice.
 
-- **`README.md`** (English only):
+- **`README.md`** (English only), as it must read when done:
   - What Astera is in two sentences: you give it a goal or a source, a planner splits it, workers run it in
     parallel on the right model, a reviewer checks each Task, it delivers a PR or a push, and asks you only when it
     must.
