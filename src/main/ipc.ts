@@ -4857,15 +4857,22 @@ export function registerIpc(
     const r = await orchCall({ cmd, args, sessionId: '', ...(timeoutMs !== undefined ? { timeoutMs } : {}) })
     return { status: r.status, body: r.body }
   }
+  // W5-D (#44): the feed and its summary across the local Host and every paired Runtime (orchRouter.ts `everywhere`)
+  const activityLocal = (cmd: string) => (args: Record<string, unknown>) => activityCall(cmd, args)
   ipcMain.handle('orch.activity', (_e, after: unknown) =>
-    activityCall('activity-poll', { limit: 500, ...(typeof after === 'string' && after !== '' ? { after } : {}) })
+    orchRouter.everywhere('activity-poll', { limit: 500, ...(typeof after === 'string' && after !== '' ? { after } : {}) }, activityLocal('activity-poll'))
   )
-  ipcMain.handle('orch.activitySummary', (_e, since: unknown) => activityCall('activity-summary', typeof since === 'string' ? { since } : {}))
-  // And the desktop's notices from it, from now on (activityNotices.ts)
-  if (desktop)
+  ipcMain.handle('orch.activitySummary', (_e, since: unknown) =>
+    orchRouter.everywhere('activity-summary', typeof since === 'string' ? { since } : {}, activityLocal('activity-summary'))
+  )
+  // And the desktop's notices from it, from now on (activityNotices.ts), and W5-D (#43) the app's Slack while it keeps it
+  if (desktop || slack)
     startActivityNotices({
       call: activityCall,
-      send: (n) => desktop.activity(n),
+      ...(desktop ? { send: (n: Parameters<typeof desktop.activity>[0]) => desktop.activity(n) } : {}),
+      ...(slack
+        ? { slack: { keeps: () => slack.ownership.owner() === 'app', post: (text: string) => void slack.notifier.postNotice(text) } }
+        : {}),
       digestMinutes: () => core.appSettings.getActivityDigestMinutes(),
       log: orchLog
     })

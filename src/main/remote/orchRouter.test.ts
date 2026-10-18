@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { createOrchRouter, type OrchHandlers } from './orchRouter'
+import { createOrchRouter, splitCursor, type OrchHandlers } from './orchRouter'
 import type { RemoteRuntimeClient } from './runtimeClient'
 
 /** Local handlers that record each call: what today's ipc.ts bodies are, with their guards inside. */
@@ -108,5 +108,95 @@ describe('createOrchRouter (remote runtime design §2.7, D1.1, D1.6, D1.7)', () 
     // A paired Runtime's send still goes to that Runtime, never to the local Host
     expect(await r.command('/p', 'sessions-send', { id: 's1', text: '4' }, 'rt_a')).toEqual({ status: 200, body: { remote: true } })
     expect(host).toHaveLength(1)
+  })
+
+  it('W5-D (#42): sessions-list goes to the Host too, which reads the hook events and their prompt', async () => {
+    const l = recordingLocal()
+    const host: unknown[] = []
+    const r = createOrchRouter({
+      local: l.local,
+      host: async (...args) => (host.push(args), { status: 200, body: [] }),
+      remote: { client: async () => fakeClient() }
+    })
+    expect(await r.command('/p', 'sessions-list', { status: 'waiting' })).toEqual({ status: 200, body: [] })
+    expect(host).toEqual([['/p', 'sessions-list', { status: 'waiting' }]])
+    expect(l.calls).toEqual([])
+  })
+})
+
+describe('merged reads across Runtimes (W5-D, #44)', () => {
+  const ev = (id: string, occurredAt: string) => ({ id, type: 'task.status', sequence: 1, occurredAt, payload: { title: id } })
+  /** A Runtime answering each merged read with its own page; `seen` keeps the args it was asked with. */
+  const runtime = (runtimeId: string, answers: Record<string, unknown>, status = 200) => {
+    const seen: Array<{ cmd: string; args: Record<string, unknown> }> = []
+    const c = { ...fakeClient(), runtimeId, command: async (cmd: string, args: Record<string, unknown>) => (seen.push({ cmd, args }), { status, body: answers[cmd] }) }
+    return { c, seen }
+  }
+  const router = (local: Record<string, unknown>, rts: Array<ReturnType<typeof runtime>>, o: { mergedTimeoutMs?: number } = {}) => {
+    const localSeen: Array<{ cmd: string; args: Record<string, unknown> }> = []
+    const l = recordingLocal()
+    const r = createOrchRouter({
+      local: { ...l.local, command: async (_p, cmd, args) => (localSeen.push({ cmd, args }), { status: 200, body: local[cmd] }) },
+      remote: {
+        client: async (id) => rts.find((x) => x.c.runtimeId === id)?.c ?? { code: 'RUNTIME_NOT_FOUND', message: 'gone' },
+        list: async () => rts.map((x) => ({ runtimeId: x.c.runtimeId }))
+      },
+      ...o
+    })
+    return { r, localSeen }
+  }
+
+  it('dispatches-list: the local Host and every Runtime, each remote Dispatch tagged with its runtime', async () => {
+    const a = runtime('rt_a', { 'dispatches-list': [{ id: 'd2' }] })
+    const { r } = router({ 'dispatches-list': [{ id: 'd1' }] }, [a])
+    expect(await r.command('/p', 'dispatches-list', {})).toEqual({ status: 200, body: [{ id: 'd1' }, { id: 'd2', runtimeId: 'rt_a' }] })
+    // 'local' or one Runtime's id still asks only that one
+    expect(await r.command('/p', 'dispatches-list', {}, 'local')).toEqual({ status: 200, body: [{ id: 'd1' }] })
+    expect(await r.command('/p', 'dispatches-list', {}, 'rt_a')).toEqual({ status: 200, body: [{ id: 'd2' }] })
+  })
+
+  it('with no Runtime paired, the local answer is the answer, its cursor untouched', async () => {
+    const { r } = router({ 'activity-poll': { events: [ev('e1', 'T1')], cursor: 'c_local', gap: false } }, [])
+    expect(await r.everywhere('activity-poll', { after: 'c0' }, async (args) => ({ status: 200, body: { args } }))).toEqual({
+      status: 200,
+      body: { args: { after: 'c0' } }
+    })
+  })
+
+  it('activity-poll: lines in time order, each Host read on from its own cursor, a gap if any had one', async () => {
+    const a = runtime('rt_a', { 'activity-poll': { events: [ev('e2', 'T2')], cursor: 'c_a1', gap: true } })
+    const { r } = router({}, [a])
+    const localArgs: unknown[] = []
+    const local = async (args: Record<string, unknown>) => (
+      localArgs.push(args), { status: 200, body: { events: [ev('e1', 'T1'), ev('e3', 'T3')], cursor: 'c_l1', gap: false } }
+    )
+    const first = await r.everywhere('activity-poll', { limit: 500 }, local)
+    expect(first.body).toMatchObject({ events: [{ id: 'e1' }, { id: 'e2', runtimeId: 'rt_a' }, { id: 'e3' }], gap: true })
+    const cursor = (first.body as { cursor: string }).cursor
+    expect(splitCursor(cursor)).toEqual({ local: 'c_l1', rt_a: 'c_a1' })
+    await r.everywhere('activity-poll', { limit: 500, after: cursor }, local)
+    expect(localArgs[1]).toEqual({ limit: 500, after: 'c_l1' })
+    expect(a.seen[1].args).toEqual({ limit: 500, after: 'c_a1' })
+    // A plain cursor (from before any Runtime was paired) is the local Host's
+    expect(splitCursor('c_old')).toEqual({ local: 'c_old' })
+  })
+
+  it('a Runtime that fails or never answers is left out, its cursor kept; a local failure is the answer', async () => {
+    const down = runtime('rt_down', {}, 503)
+    const slow = { c: { ...fakeClient(), runtimeId: 'rt_slow', command: () => new Promise<never>(() => {}) }, seen: [] }
+    const { r } = router({}, [down, slow], { mergedTimeoutMs: 20 })
+    const ok = async () => ({ status: 200, body: { events: [ev('e1', 'T1')], cursor: 'c_l2', gap: false } })
+    const page = await r.everywhere('activity-poll', { after: JSON.stringify({ local: 'c_l1', rt_down: 'c_d', rt_slow: 'c_s' }) }, ok)
+    expect(page.status).toBe(200)
+    expect(splitCursor((page.body as { cursor: string }).cursor)).toEqual({ local: 'c_l2', rt_down: 'c_d', rt_slow: 'c_s' })
+    expect(await r.everywhere('activity-poll', {}, async () => ({ status: 501, body: { error: 'old Host' } }))).toEqual({ status: 501, body: { error: 'old Host' } })
+  })
+
+  it('activity-summary: every bucket from every Host, remote items tagged', async () => {
+    const empty = { completed: [], failed: [], cancelled: [], awaitingReview: [], plansDone: [], blocked: [] }
+    const a = runtime('rt_a', { 'activity-summary': { ...empty, since: 'S', failed: [{ title: 'remote f' }] } })
+    const { r } = router({}, [a])
+    const page = await r.everywhere('activity-summary', { since: 'S' }, async () => ({ status: 200, body: { ...empty, since: 'S', failed: [{ title: 'local f' }] } }))
+    expect(page.body).toEqual({ ...empty, since: 'S', failed: [{ title: 'local f' }, { title: 'remote f', runtimeId: 'rt_a' }] })
   })
 })

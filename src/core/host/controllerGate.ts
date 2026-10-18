@@ -16,6 +16,9 @@ export const CONTROLLER_READ_COMMANDS = [
   'dispatch-show',
   // W3-C: every Run's Dispatches, read only
   'dispatches-list',
+  // W5-D (#44): the activity feed and its summary, read only, for a controller's merged feed (orchRouter.ts)
+  'activity-poll',
+  'activity-summary',
   'runs-completion',
   'runs-checks',
   'tasks-check-output',
