@@ -1,0 +1,1 @@
+{"v":1,"tool":"astera","job":"job_315708343a01d3a3","task":"tsk_b9daea0b440a6027","session":"368295cc-5638-4bea-a202-cf262c65b753","agent":"claude","model":"opus","account":"71b8fb23-5c26-4782-a9d1-2f7ba1ff753e","role":"worker","lines":{"src/main/index.ts":[[19,19],[41,41],[193,195],[199,199]],"src/main/windows.test.ts":[[194,206]],"src/main/windows.ts":[[5,5],[76,92]]}}
