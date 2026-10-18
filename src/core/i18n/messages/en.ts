@@ -1763,6 +1763,11 @@ export const en: Record<keyof typeof ko, string> = {
   'intake.tab.files': 'Files',
   'intake.tab.audit': 'Audit',
   'intake.tab.github': 'GitHub',
+  // W8-C prompts mode
+  'intake.tab.prompts': 'Run as written',
+  'intake.promptsHint': 'Drop .md prompt files (one Task each) or paste one document (one Task per ## section). Your text is never rewritten; the order comes from docs/orchestrator/PLAN.md.',
+  'intake.promptsPaste': 'Or paste one document with ## sections',
+  'intake.promptsAsk': 'Ask me to approve the plan first',
   'intake.describe': 'What should be built or fixed?',
   'intake.fixlist': 'This is a list of problems: one or more Tasks per problem',
   'intake.drop': 'Drop PDFs or other files here (at most 30 MB each)',

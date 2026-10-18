@@ -15,7 +15,7 @@ interface IssueRow {
   reason?: string
 }
 
-const TABS: IntakeTab[] = ['describe', 'files', 'audit', 'github']
+const TABS: IntakeTab[] = ['describe', 'files', /* W8-C prompts mode */ 'prompts', 'audit', 'github']
 
 /** W6-A "New plan": a Job from a description, files, an audit or GitHub issues, with the owner's extra instructions.
  *  It makes the Job (`jobs-create` / `jobs-create-from-issue`, intakeRequest.ts) and starts its planner (`jobs-plan`);
@@ -46,6 +46,7 @@ export function NewPlanDialog({
   const [projectId, setProjectId] = useState('')
   const [text, setText] = useState(initialText ?? '')
   const [fixlist, setFixlist] = useState(false)
+  const [approveAsk, setApproveAsk] = useState(false)
   const [files, setFiles] = useState<string[]>([])
   const [scope, setScope] = useState('')
   const [query, setQuery] = useState('')
@@ -98,7 +99,8 @@ export function NewPlanDialog({
     instructions,
     project: project && { id: project.id, path: project.path },
     coordinatorAccount: account,
-    concurrency
+    concurrency,
+    approveAsk
   })
 
   const addFiles = (list: FileList | null): void => {
@@ -163,8 +165,9 @@ export function NewPlanDialog({
             </label>
           </div>
         )}
-        {tab === 'files' && (
+        {(tab === 'files' || tab === 'prompts') && (
           <div className="field">
+            {tab === 'prompts' && <p className="modal-hint">{t('intake.promptsHint')}</p>}
             <div
               className="intake-drop"
               style={{ border: '1px dashed currentColor', padding: 16, textAlign: 'center' }}
@@ -175,7 +178,13 @@ export function NewPlanDialog({
               }}
             >
               {t('intake.drop')}
-              <input type="file" multiple aria-label={t('intake.drop')} onChange={(e) => addFiles(e.target.files)} />
+              <input
+                type="file"
+                multiple
+                {...(tab === 'prompts' ? { accept: '.md' } : {})}
+                aria-label={t('intake.drop')}
+                onChange={(e) => addFiles(e.target.files)}
+              />
             </div>
             {files.map((f) => (
               <div key={f} className="row">
@@ -185,7 +194,16 @@ export function NewPlanDialog({
                 </button>
               </div>
             ))}
-            <input type="text" value={text} onChange={(e) => setText(e.target.value)} placeholder={t('intake.note')} />
+            {tab === 'files' && <input type="text" value={text} onChange={(e) => setText(e.target.value)} placeholder={t('intake.note')} />}
+            {tab === 'prompts' && files.length === 0 && (
+              <textarea rows={6} value={text} onChange={(e) => setText(e.target.value)} placeholder={t('intake.promptsPaste')} />
+            )}
+            {tab === 'prompts' && (
+              <label className="check-small">
+                <input type="checkbox" checked={approveAsk} onChange={(e) => setApproveAsk(e.target.checked)} />
+                {t('intake.promptsAsk')}
+              </label>
+            )}
           </div>
         )}
         {tab === 'audit' && (
