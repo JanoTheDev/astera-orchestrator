@@ -39,6 +39,9 @@ export function appDriven(s: OrchState, run: JobRun): boolean {
   // **세워 둔 회차도 배치하지 않는다.** 일시 중지가 도는 워커를 닫아도, 그 자리에 그 회차의 다음
   // ready Task 가 곧바로 뜨면 "일시 중지" 가 "지금 도는 Task 하나만 멈춤" 이 된다.
   if (run.paused) return false
+  // W5-C: "stop launching" holds placement only. Not in `jobActive`: the held plan's open workers still run, so they
+  // still count against the app-wide cap (`workersAgainstCap`).
+  if (job.dispatchHold) return false
   return true
 }
 

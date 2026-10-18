@@ -3205,6 +3205,8 @@ export async function handleCommand(
         )
       if (run.paused === true || job?.paused === true)
         return conflict(`run ${run.id} is paused; \`runs resume --id ${run.id}\` lets it go again, and then its tasks can be placed`)
+      // W5-C: held from launching (jobs-hold)
+      if (job?.dispatchHold) return conflict(`job ${job.id} is held from launching new workers; \`jobs-unhold\` lets it go again`)
       if (job?.pendingStart === true)
         return conflict(`run ${run.id} is not running: its Job has not been started; start it with \`jobs run --id ${job.id}\``)
       if (job?.schedule !== undefined && run.ordinal === 0)
@@ -3484,6 +3486,10 @@ export async function handleCommand(
       // 회차를 찾지 못한다. 그래도 남겨 둔다: orchestration.json 은 손으로 고쳐진다.
       if (runJob?.schedule && run.ordinal === 0)
         return bad(`job ${run.jobId} is a schedule — it does not dispatch its own Tasks; its runs do`)
+      // W5-C: a plan held from launching (`jobs-hold`) gets no new worker from any placer: the app's loop, `tasks
+      // dispatch`, a coordinator, a person. `held` tells the loop this is a wait, not a reason for a Gate.
+      if (runJob?.dispatchHold)
+        return { status: 409, body: { error: `job ${runJob.id} is held from launching new workers; \`jobs-unhold\` lets it go again`, held: true } }
 
       // **동시 실행 한도.** 지금까지 이 값을 지키는 곳은 앱의 스케줄러뿐이었다(schedule.ts 의
       // slotsToFill) — 앱이 유일한 배치자였으므로 그것으로 충분했다. Run 을 코디네이터에게 넘기는
@@ -3807,6 +3813,42 @@ export async function handleCommand(
       // 약속한 "아무것도 하지 않는다" 와 어긋난다. 이미 죽은 세션이면 무해한 no-op 이다.
       deps.unregisterRolling?.(d.sessionId)
       return okBody({ abandoned: d.id, note: 'resources may still be live' })
+    }
+    // ── W5-C holds (SPEC §6 "pause one worker", §8 "stop launching new tasks for this plan") ──
+    // A person's controls: refused from any agent session and from an MCP client, as approving a plan is (run-start).
+    // Neither closes anything, so neither asks; the app asks before pausing a worker all the same.
+    case 'worker-hold':
+    case 'worker-unhold': {
+      if (fromAgentSession || caller.role === 'mcp') return denied(`${cmd} is for the person, in Astera or at their own shell`)
+      const id = str(args.dispatch)
+      if (!id) return bad('--dispatch is required')
+      const d = s.dispatches.find((x) => x.id === id)
+      if (!d) return notFound(`unknown dispatch: ${id}`)
+      const hold = cmd === 'worker-hold'
+      // Only an open worker is paused: a closed one has no session to keep, and its slot is already free.
+      if (hold && (d.outcome || d.endedAt)) return conflict(`dispatch ${d.id} has ended; there is no worker to pause`)
+      await deps.setState({
+        ...s,
+        dispatches: s.dispatches.map((x) => {
+          if (x.id !== d.id) return x
+          const { held: _held, ...rest } = x
+          return hold ? { ...rest, held: true as const } : rest
+        })
+      })
+      return okBody(hold ? { held: d.id } : { unheld: d.id })
+    }
+    case 'jobs-hold':
+    case 'jobs-unhold': {
+      if (fromAgentSession || caller.role === 'mcp') return denied(`${cmd} is for the person, in Astera or at their own shell`)
+      const id = str(args.id)
+      if (!id) return bad('--id is required')
+      const job = s.jobs.find((j) => j.id === id)
+      if (!job) return notFound(`unknown job: ${id}`)
+      const hold = cmd === 'jobs-hold'
+      const { dispatchHold: _hold, ...rest } = job
+      const next: Job = hold ? { ...rest, dispatchHold: true } : rest
+      await deps.setState({ ...s, jobs: s.jobs.map((j) => (j.id === id ? next : j)) })
+      return okBody(next)
     }
     case 'run-use': {
       // Run binding. For now this assumes real use has exactly one Run and is left as a no-op
@@ -4536,6 +4578,9 @@ export async function handleCommand(
       const fromMcp = caller.role === 'mcp'
       const fromAgent =
         (caller.sessionId !== '' && caller.sessionId !== APP_CALLER && caller.sessionId !== HOST_CALLER) || fromMcp
+      // W5-C: a worker a person paused (worker-hold) is sent nothing by an agent. The person still types into it.
+      if (fromAgent && s.dispatches.some((d) => d.sessionId === id && d.held && !d.outcome && !d.endedAt))
+        return conflict(`${id} is a worker the person paused; nothing was sent. It takes input again after \`worker-unhold\``)
       if (session.kind === 'terminal' && fromAgent && !resuming && deps.sessionTurn) {
         const now = await deps.sessionTurn(id)
         if (now !== null && now.alive && now.state === 'waiting' && now.prompt !== null)

@@ -222,6 +222,11 @@ export interface Job {
   /** Every planner session `jobs plan` started for this Job, oldest first. **Never emptied**: a session
    *  named here may only plan (plannerRefusal), for as long as it lives, also after the plan is approved. */
   plannerSessionIds?: string[]
+  // W5-C holds (schedule.ts appDriven, command.ts jobs-hold)
+  /** A person said "stop launching new tasks for this plan" (`jobs-hold`). **Present: no new worker is placed** (no
+   *  slot from `slotsToFill`, `worker-start` and `tasks dispatch` refuse), and nothing is closed: running workers
+   *  carry on, finish and report as before. `jobs-unhold` takes it away. */
+  dispatchHold?: true
 }
 
 /** A job source's item a Job was made from: the source (a plugin's id, or `github`), the item's id there, how a person
@@ -560,6 +565,11 @@ export interface Dispatch {
   /** Why the model or provider is not what the Task asked for (a provider with no account, a
    *  same-provider review moved off the implementer's model). Absent when nothing was overridden. */
   modelNote?: string
+  // W5-C holds (command.ts worker-hold)
+  /** A person paused this worker (`worker-hold`). The session stays open and the Dispatch stays open, so its slot
+   *  stays taken (`slotsToFill` counts every open Dispatch); nothing is typed into it from an agent session
+   *  (`sessions-send` refuses). `worker-unhold` takes it away. */
+  held?: true
 }
 
 export interface Message {
