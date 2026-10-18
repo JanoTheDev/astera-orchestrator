@@ -22,5 +22,10 @@ Status: Wave 0 merged (PR #25), Wave 1 merged (PRs #26–#29), 2026-10-17. See `
 | Wave 3 | W3-A-activity-feed · W3-B-command-and-voice · W3-C-search-and-inbox · W3-D-routing-recovery-tests |
 | merge | MERGE |
 | Wave 4 | W4-final-linux-verification |
+| Wave 5 | W5-A · W5-B · W5-C · W5-D |
+| merge | MERGE (PR #57 still open) |
+| Wave 6 | W6-A-intake-and-github · W6-B-autopilot-answers-and-sound · W6-C-scheduler-guards · W6-D-wave-replanning · W6-E-progress-view · W6-F-project-workspaces · W6-G-usage-guards |
+| merge | MERGE |
+| Wave 6V | W6-V-autopilot-dogfood (alone) |
 
 Owner decisions baked in (2026-10-17): Claude-only accounts for now (Codex later), mixed models by task difficulty, one PR per plan, local whisper.cpp for voice.

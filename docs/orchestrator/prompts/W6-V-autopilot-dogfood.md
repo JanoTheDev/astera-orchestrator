@@ -1,0 +1,31 @@
+Run in ONE Claude tab after Wave 6 is merged. Run alone: nothing else on the laptop (CONTEXT rule 7).
+
+You are in /home/jonx/Desktop/Astera (my private fork, repo JanoTheDev/astera-orchestrator). Read
+docs/orchestrator/CONTEXT.md, PLAN.md ("Wave 6 — Autopilot"), LINUX.md and USAGE.md first.
+
+# W6-V — Dogfood the autopilot end to end
+
+Use a throwaway git repo (`/tmp/astera-dogfood`, a small TypeScript project with a test script) as the Project.
+
+1. In the running app, start a plan with the "New plan" dialog:
+   - Fixlist mode, 6 small problems, 2 of which touch the same file.
+   - One extra instruction.
+   - Worker concurrency 10.
+2. Watch, and record in a log:
+   - The planner makes waves and fills `affectedPaths`.
+   - The two same-file tasks never run at once; their "waiting for … same files" reason shows.
+   - A worker question is answered by the coordinator, and the answer appears on the task card.
+   - Force one escalation: a problem that needs an owner decision. The chime plays once and a desktop notice shows.
+   - The replan banner appears between waves, and the final check runs.
+   - The plan view shows each tab's "now" line, and project switching shows only this project's tabs.
+   - In one worker tab, ask for 12 parallel subagents: the 11th and 12th are refused with Astera's message. Set
+     `usagePauseAt` below the account's current 5-hour percentage: no new worker starts, the reason shows, and it
+     resumes when you raise it again.
+3. Repeat the start with:
+   - a 3-page PDF (`--attach`)
+   - `--mode audit --scope src`
+   - two GitHub issues on a scratch repo with `--assign-me`. Ask me before creating issues anywhere: that is
+     outward-facing.
+4. File every failure as a GitHub issue (repro, expected, actual, file:line guess) labelled `wave-6`, and write the
+   Wave 7 prompts the way `d5eb889a` wrote Wave 5's.
+5. Append measurements and the new day-to-day flow to `LINUX.md` and `USAGE.md`. Open a PR; do not merge.

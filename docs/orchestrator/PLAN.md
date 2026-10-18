@@ -52,6 +52,8 @@ starting the next wave. Each prompt owns its own files, which keeps conflicts to
 | 3 | 4 | `W3-A-activity-feed`, `W3-B-command-and-voice`, `W3-C-search-and-inbox`, `W3-D-routing-recovery-tests` | W2 merged |
 | 4 | 1 | `W4-final-linux-verification.md` | W3 merged |
 | 5 | 4 | `W5-A-worker-spawn-and-worktrees`, `W5-B-run-lifecycle-and-cli`, `W5-C-holds-and-command-bar`, `W5-D-feed-inbox-and-runtimes` (W4's issues #38–#53) | W4 merged |
+| 6 | 7 | `W6-A-intake-and-github`, `W6-B-autopilot-answers-and-sound`, `W6-C-scheduler-guards`, `W6-D-wave-replanning`, `W6-E-progress-view`, `W6-F-project-workspaces`, `W6-G-usage-guards` (Autopilot, see below) | W5 merged, **including PR #57** |
+| 6V | 1 | `W6-V-autopilot-dogfood.md` | W6 merged |
 
 ### File ownership per wave (prevents tabs interfering)
 
@@ -72,7 +74,72 @@ starting the next wave. Each prompt owns its own files, which keeps conflicts to
 | W5-A | `exec/workerStart.ts`, `exec/coordinator.ts`, `exec/specFiles.ts`, `exec/integrateGit.ts`, the fork call in `exec/dispatchLoop.ts` | `src/host/spawner.ts`, `runChecks.ts` |
 | W5-B | `command.ts` handlers `runs-resume` / `jobs-archive` / `run-start` / `tasks-list`, `lifecycle.ts`, `state.ts` run lookup, `cliArgs.ts`, `cliUsage.ts`, `blocked.ts` reasons | `planner.ts`, `exec/dispatchLoop.ts`, `exec/limitProbe.ts` |
 | W5-C | `components/command/*`, `core/intents/*`, `schedule.ts`, `RunDetail.tsx`, `lib/jobActions.ts` | `types.ts`, `command.ts` (hold commands), `exec/dispatchLoop.ts`, `JobsView.tsx`, `core/host/*Gate.ts` |
+| W6-A | `core/sources/objective.ts`, `core/github/issue.ts`, `core/github/issueSource.ts`, new `core/orchestration/intake.ts`, new `components/intake/*` | `command.ts` (`jobs-create` / `jobs-create-from-issue` args, `github-issue-assign`), `cliUsage.ts`, `cliArgs.ts`, `NewRunModal.tsx` / `JobsView.tsx` (mount) |
+| W6-B | `inbox.ts`, `resources/skills/orchestration-guide.md`, `src/main/desktopNotifier.ts`, `activity.ts` (new kinds), new `renderer/src/lib/alertSound.ts`, sound setting UI | `exec/workerStart.ts` (worker spawn args), `command.ts` (the `send --type escalation` branch), app-settings type |
+| W6-C | `schedule.ts`, `blocked.ts`, `settings/maxConcurrentWorkers.ts`, `convergence.ts` | `types.ts` (`MAX_REVIEW_ROUNDS`), `exec/reviewGate.ts` |
+| W6-D | new `core/orchestration/replan.ts`, new `exec/replanStart.ts`, `exec/plannerStart.ts`, `resources/skills/planner-guide.md` | `types.ts` (`Job.replan`), `schedule.ts` (one `waveOpen` filter call), `exec/dispatchLoop.ts` (boundary trigger), `activity.ts` (two kinds) |
+| W6-E | `components/plan/*`, `core/hooks/sessionState.ts` (`lastActionOf`) | `src/host/sessions.ts` (carry `lastAction`), `RunDetail.tsx` / workspace mount, `core/types.ts` (`SessionInfo.lastAction`) |
+| W6-F | `components/workspace/*` | `App.tsx` (project selection + per-project layout state), keybindings |
+| W6-G | new `core/sessions/subagentCap.ts` + its hook script, `core/sessions/statusline.ts` (hook entries), new `core/orchestration/usageGuard.ts`, new `components/usage/*` | `exec/dispatchLoop.ts` (guard call), `blocked.ts` (one reason), `activity.ts` (two kinds), app-settings type, plan view mount |
 | W5-D | `activity.ts`, `components/activity/*`, `sessionIndex.ts`, `components/search/*`, `src/main/activityNotices.ts`, `src/main/remote/orchRouter.ts` | `src/host/index.ts`, `src/host/sessions.ts`, `src/main/ipc.ts`, `types.ts` |
+
+## Wave 6 — Autopilot (owner request 2026-10-18)
+
+Goal: give Astera a plan source and extra instructions, and it runs the plan to done with as little babysitting as
+possible.
+- **Sources:** a PDF, "audit X", a pasted problem list, or GitHub issues.
+- **The flow:**
+  1. The planner makes the plan deeper: tasks, affected files and waves.
+  2. Up to 10 worker tabs open, but never two tabs on the same files at once.
+  3. The coordinator answers the workers' questions.
+  4. A fresh reviewer checks each finished task.
+  5. Before each next wave, the planner is asked again to adjust the rest of the plan to what really happened.
+  6. A final check runs before the plan is called done.
+- **When the owner hears from it:** only for a real owner decision, a permission prompt, or a give-up. Each one
+  comes with a sound and a desktop notice.
+- **What the owner sees:** a plan view showing the waves, each task's files, and what each tab is doing right now.
+  Projects such as gameful each open as their own workspace with their own tabs.
+
+### Wave 6 contracts (shared names; every tab uses them exactly)
+- Activity kinds:
+  - `question.auto-answered`: feed only, no notice. Owned by W6-B.
+  - `task.escalated`: notice and sound. Owned by W6-B.
+  - `plan.replanning` / `plan.replanned`: feed. Owned by W6-D.
+- Wave of a Task: its dependency depth, `waveOf(task, tasks)` in `replan.ts` (W6-D). It is 0 for a Task with no
+  deps, else 1 + the max of its deps' waves. W6-E imports it. Until W6-D merges, W6-E carries an identical local copy
+  marked `shortcut: replace with replan.waveOf after W6 merge`.
+- `SessionInfo.lastAction?: { tool: string; target?: string; at: number }`, from the last `PreToolUse` hook (W6-E).
+- App setting `alertSound: boolean`, default true (W6-B).
+- App settings `maxSubagentsPerSession` (default 10, 1–10) and `usagePauseAt` (percent, default 90) (W6-G).
+- Activity kinds `usage.paused` / `usage.resumed`: feed and notice, no chime. Owned by W6-G.
+- Job field `replan?: 'waves' | 'off'`, default `'waves'` (W6-D).
+
+### Owner decisions and Claude's calls (2026-10-18)
+- Owner:
+  - Up to 10 tabs.
+  - The orchestrator answers questions; the owner is called only when it is unsure, with a sound.
+  - Same-file tasks never run in parallel.
+  - A reviewer checks each task.
+  - Replan between waves.
+  - Plan and progress view.
+  - Per-project workspaces.
+  - GitHub assign-me plus issues into a plan.
+  - Usage limits: at most 10 subagents per tab.
+- Claude's calls (the owner can override any):
+  - **PDF:** no parser. The PDF is copied into the plan's spec folder, and the planner reads it with Claude's own
+    file reader, which reads PDFs. A PDF over 20 pages is read in page ranges.
+  - **Review rounds:** default raised from 2 to 5. After the cap, the Task escalates with a sound instead of waiting
+    silently on a Gate.
+  - **Auto-answers:** the coordinator's answers are visible in the feed and on the task. They never notify.
+  - **Permission prompts stay human.** The security rule in `sessions-send` stays. Workers are spawned so their
+    *questions* go through `astera ask` (Claude's `AskUserQuestion` tool is disallowed for workers), which the
+    coordinator can answer.
+  - **Final check:** after the last wave, one completion pass compares the result with the objective. It may add at
+    most 3 follow-up waves before it must escalate.
+  - **Usage pause:** no new worker starts on an account at 90% or more of its 5-hour or 7-day limit, unless
+    rolling has a fresher account. Running work is never stopped.
+  - **Coordinator model:** stays haiku, per the 2026-10-17 decision. If auto-answers are poor, switch the coordinator
+    role to sonnet in Settings; no code change is needed.
 
 ## Explicit non-goals / limits
 - No new terminal manager, account manager, or issue tracker.
