@@ -303,3 +303,22 @@ describe('project workspace shortcuts', () => {
     expect([a.descKey, a.descParams, a.yieldsToTerminal]).toEqual(['shortcut.workspace.project', { n: 4 }, false])
   })
 })
+
+// W9-B: Ctrl+1…6 switch pages (DESIGN.md §1)
+describe('page shortcuts', () => {
+  it.each(['linux', 'win32'])('Ctrl+1…6 reach the top bar’s pages in order on %s, clear of every other key', (platform) => {
+    const actions = makeActions(platform)
+    const bindings = resolveBindings({}, actions)
+    const pages = ['agents', 'tasks', 'plans', 'inbox', 'worktrees', 'files']
+    pages.forEach((page, i) =>
+      expect(findActionForEvent(bindings, ev({ code: `Digit${i + 1}`, ctrlKey: true }), actions)).toBe(`page.${page}`)
+    )
+    expect(findActionForEvent(bindings, ev({ code: 'Digit7', ctrlKey: true }), actions)).toBeNull()
+    expect(findConflicts(bindings, actions)).toEqual([])
+  })
+
+  it('is Cmd on macOS', () => {
+    const actions = makeActions('darwin')
+    expect(findActionForEvent(resolveBindings({}, actions), ev({ code: 'Digit2', metaKey: true }), actions)).toBe('page.tasks')
+  })
+})

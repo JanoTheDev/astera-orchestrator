@@ -1,13 +1,14 @@
 .app { display: flex; flex-direction: column; height: 100%; }
-.workbench { display: flex; flex: 1; min-height: 0; }
+/* W9-B: one page at a time under the top bar, the run drawer under it (DESIGN.md §1) */
+.workbench { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 
 /* ---------- title bar ---------- */
 .titlebar {
-  height: 34px;
+  height: 44px;
   flex: none;
   display: flex;
   align-items: center;
-  background: var(--rail);
+  background: var(--panel);
   border-bottom: 1px solid var(--line);
   -webkit-app-region: drag;
   user-select: none;
@@ -19,7 +20,7 @@
 /* flex:1 로 남는 폭을 브랜드가 먹는다 — 그래야 뒤따르는 것들(실행 위젯, 업데이트 알림, 창 버튼)이
    오른쪽에 차례로 붙는다. 그 요소들이 각자 갖고 있는 margin-left:auto 는 남는 폭이 없어져 0이 되므로
    서로 밀어내지 않는다. min-width:0 은 창이 좁아질 때 이름이 아니라 브랜드 칸이 먼저 줄게 한다 */
-.tb-brand { display: flex; align-items: center; gap: 8px; padding-left: 10px; flex: 1; min-width: 0; }
+.tb-brand { display: flex; align-items: center; gap: 8px; padding-left: 12px; flex: none; }
 .tb-logo {
   width: 20px;
   height: 20px;
@@ -31,21 +32,6 @@
   -webkit-user-drag: none;
 }
 .tb-name { font-size: 12.5px; font-weight: 600; color: var(--text); }
-/* 실행 구성 위젯. 타이틀바 전체가 -webkit-app-region: drag 이므로 여기서 no-drag 로 되돌리지 않으면
-   클릭이 창 이동으로 먹힌다(.tb-controls·.tb-update 와 같은 처리). 툴바가 원래 갖고 있던 테두리와
-   배경은 없어진 상단 띠의 크롬이었으므로 여기서는 지운다. min-width:0 은 창이 좁아질 때 select 가
-   줄어들 수 있게 한다 — 없으면 창 컨트롤을 밀어낸다 */
-.tb-run { display: flex; align-items: center; margin-left: 12px; margin-right: 4px; min-width: 0; padding: 1px 2px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); -webkit-app-region: no-drag; }
-.tb-run .run-toolbar { border: 0; background: transparent; padding: 0; gap: 2px; min-width: 0; }
-/* 타이틀바는 앱에서 가장 어두운 면(--rail)이라, 본문을 기준으로 잡힌 --text-dim 이 여기서는 거의
-   읽히지 않는다. 쉬는 상태의 색을 본문 색까지 올리고, 위젯 전체에 한 단계 밝은 면과 테두리를 줘서
-   타이틀바에서 떠 보이게 한다 — IntelliJ의 run 위젯이 같은 방식으로 묶여 있다.
-   버튼을 24px로 줄인 것은 34px 타이틀바 안에서 패딩과 테두리까지 넣으면 28px이 꽉 차기 때문이다 */
-.tb-run .run-btn { width: 24px; height: 24px; color: var(--text); font-size: 14px; }
-.tb-run .run-btn.play { color: var(--run-hover); }
-.tb-run .run-btn.stop { color: var(--danger-hover); }
-.tb-run .run-btn.play:disabled { color: var(--text-faint); }
-.tb-run .run-btn:hover { background: var(--elevated); }
 .tb-controls { margin-left: auto; display: flex; -webkit-app-region: no-drag; }
 .tb-update { margin-left: auto; padding: 0 12px; font-size: 12px; color: var(--text-dim); white-space: nowrap; align-self: center; -webkit-app-region: no-drag; }
 .tb-update-err { color: var(--danger); cursor: default; }
@@ -61,7 +47,7 @@
 .update-note.update-err { color: var(--danger); }
 .tb-btn {
   width: 46px;
-  height: 34px;
+  height: 44px;
   display: grid;
   place-items: center;
   border: 0;
@@ -77,59 +63,85 @@
 .tb-btn:hover { background: color-mix(in srgb, var(--text) 8%, transparent); color: var(--text); }
 .tb-btn.close:hover { background: var(--danger); color: var(--ink-white); }
 
-/* ---------- activity rail ---------- */
-.rail {
-  width: 46px;
-  flex: none;
-  background: var(--rail);
-  border-right: 1px solid var(--line);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding-top: 10px;
-}
-.rail-btn {
-  width: 30px;
-  height: 30px;
-  border-radius: var(--radius);
-  display: grid;
-  place-items: center;
-  background: none;
-  border: none;
-  color: var(--rail-icon);
-  font-size: 16px;
-  cursor: pointer;
-  padding: 0;
-  margin: 0;
-}
-/* 배경까지 함께 바뀌어야 눌리는 것이라는 게 읽힌다 — 색만 밝아지는 변화는 어두운 면 위에서 잘 보이지 않는다 */
-.rail-btn:hover { color: var(--text); background: var(--elevated); }
-.rail-btn.on { color: var(--text); background: var(--elevated); box-shadow: inset var(--marker-w) 0 0 var(--accent); }
-/* box-shadow does not composite across rules — one declaration wins outright. Without this, tabbing to
-   the active rail button would show the .on marker OR the button:focus-visible ring, never both, because
-   whichever rule matched last (or matched more specifically) would replace the other's box-shadow
-   entirely. Restating both explicitly, marker first then ring, is the only way to keep both visible. */
-.rail-btn.on:focus-visible { box-shadow: inset var(--marker-w) 0 0 var(--accent), 0 0 0 2px var(--ring); }
-/* The wrapper that pins the terminal and ⚙ (settings) to the bottom together. The auto margin has to
-   live on this one wrapper — giving it to each .rail-btn (two auto siblings) distributes the free space
-   evenly and pushes the buttons apart. */
-.rail-bottom { margin-top: auto; display: flex; flex-direction: column; align-items: center; gap: 4px; }
-.rail-settings { margin-bottom: 10px; }
-
-/* ---------- sidebar / main ---------- */
-.sidebar { width: 280px; flex: none; background: var(--panel); border-right: 1px solid var(--line); overflow-y: auto; display: flex; flex-direction: column; }
-.resizer { width: 5px; flex: none; cursor: col-resize; background: transparent; }
-.resizer:hover, .resizer:active { background: var(--accent); }
-body.resizing { cursor: col-resize; user-select: none; }
 body.resizing-row { cursor: row-resize; user-select: none; }
 .run-resizer { flex: none; height: 6px; background: transparent; cursor: row-resize; position: relative; }
 .run-resizer::after { content: ''; position: absolute; left: 0; right: 0; top: 2px; height: 2px; background: var(--accent); opacity: 0; transition: opacity .12s; }
 .run-resizer:hover::after, .run-resizer:active::after { opacity: .8; }
 .content { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+/* W9-B: off the console pages the grid is hidden, never unmounted (Pages.tsx) */
+.content--hidden { display: none; }
 /* The common parent of the session and editor screens. Both being siblings means the JSX position
    does not change when the session is shown in editor mode, so xterm never remounts.
    Not named .workbench: that class already belongs to the app shell above (rail | sidebar | content),
    and a second rule under the same name overrode the shell's row direction and stacked it. */
 .surfaces { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .placeholder { margin: auto; color: var(--text-faint); font-size: 13px; }
+
+/* ---------- W9-B top bar (DESIGN.md §1) ---------- */
+/* The bar's working half. Everything in it is clickable, so the window drag stops here; the brand and the spacer
+   still drag. */
+.tb-main { flex: 1; min-width: 0; height: 100%; display: flex; align-items: center; gap: 10px; padding: 0 8px 0 4px; }
+.tb-main > :not(.tb-spacer) { -webkit-app-region: no-drag; }
+.tb-spacer { flex: 1; min-width: 8px; align-self: stretch; -webkit-app-region: drag; }
+.tb-slash { color: var(--line); font-size: 18px; }
+.tb-switcher { font-weight: 600; }
+.tb-sw-row { display: flex; align-items: center; gap: 8px; min-width: 220px; }
+.tb-sw-selected .tb-sw-name { color: var(--accent); }
+.tb-sw-name { flex: 1; }
+.tb-sw-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--line); flex: none; }
+.tb-sw-waiting { background: var(--warn); }
+.tb-sw-count { color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.tb-sw-key, .tb-search kbd { font-family: var(--mono); font-size: 11px; color: var(--text-faint); }
+.tb-pages { display: flex; align-items: stretch; align-self: stretch; gap: 16px; margin-left: 8px; }
+.tb-pages .ui-nav__count { color: var(--warn); }
+.tb-more { display: flex; align-items: center; border-bottom: 2px solid transparent; }
+.tb-more--active { border-bottom-color: var(--accent); }
+.tb-pages-narrow { display: none; }
+@media (max-width: 1023px) {
+  .tb-pages { display: none; }
+  .tb-pages-narrow { display: inline-flex; }
+}
+.tb-search {
+  display: inline-flex; align-items: center; gap: 8px; height: 28px; width: 240px; padding: 0 10px;
+  border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); color: var(--text-faint);
+  font: inherit; font-size: 12px; cursor: pointer;
+}
+.tb-search span { flex: 1; text-align: left; }
+.tb-search:hover { color: var(--text-dim); border-color: var(--text-faint); }
+.tb-search:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--ring); }
+@media (max-width: 1180px) { .tb-search { width: auto; } .tb-search span { display: none; } }
+.tb-divider { width: 1px; height: 20px; background: var(--line); }
+.tb-usage { position: relative; display: flex; }
+.tb-usage-btn {
+  display: flex; flex-direction: column; justify-content: center; gap: 3px; width: 96px; height: 34px; padding: 0 6px; overflow: hidden; border: 0; border-radius: var(--radius);
+  background: none; color: var(--text-dim); font: inherit; font-size: 12px; font-variant-numeric: tabular-nums; cursor: pointer;
+}
+.tb-usage-btn:hover { background: var(--hover); color: var(--text); }
+.tb-usage-btn:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--ring); }
+.tb-usage-head { display: flex; justify-content: space-between; gap: 4px; min-width: 0; font-size: 11px; color: var(--text-faint); white-space: nowrap; }
+.tb-usage-head > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.tb-usage-head > span:last-child { flex: none; }
+.tb-meter { width: 100%; }
+.tb-popover {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 50; width: 360px; max-height: 70vh; overflow: auto;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg);
+}
+
+/* ---------- W9-B pages (DESIGN.md §2) ---------- */
+.pages { flex: 1; min-height: 0; display: flex; }
+/* The list column of a page that also shows the consoles (Files, How It Works) */
+.page-side { width: 300px; flex: none; display: flex; flex-direction: column; min-height: 0; overflow-y: auto; background: var(--panel); border-right: 1px solid var(--line); }
+/* A full-width page */
+.page { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; background: var(--bg); }
+.page-title { margin: 0; padding: 12px 16px 8px; font-size: 15px; font-weight: 600; color: var(--text); }
+.page-note { margin: 0; color: var(--text-dim); font-size: 13px; }
+.page-jobs { flex: 1; min-height: 0; display: flex; flex-direction: column; max-width: 960px; width: 100%; margin: 0 auto; }
+.page-inbox { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
+.page-inbox-needs, .page-inbox-handled { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
+.page-inbox-handled { border-left: 1px solid var(--line); background: var(--panel); }
+.page-runs { display: flex; flex-direction: column; gap: 12px; padding: 0 16px 16px; }
+.page-runs .page-title { padding-left: 0; }
+.page > .history-panel, .page > .worktree-panel { max-width: 960px; width: 100%; margin: 0 auto; }
+.page-browser-form { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 0 16px 16px; }
+.page-browser-form .ui-field { align-self: stretch; }
+.page-actions { display: flex; gap: 8px; }

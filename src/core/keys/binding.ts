@@ -13,6 +13,8 @@
  * On macOS the primary modifier is Cmd (see makeActions). The stored notation is still `Cmd+W`-shaped.
  */
 
+import { KEYED_PAGES } from '../ui/pages'
+
 export type Chord = { ctrl: boolean; shift: boolean; alt: boolean; meta: boolean; code: string }
 
 export type ActionId =
@@ -43,10 +45,15 @@ export type ActionId =
   | 'tabs.switcher'
   // W6-F: open the Nth project workspace
   | `workspace.project${WorkspaceSlot}`
+  // W9-B: Ctrl+1…6 open the top bar's pages
+  | `page.${KeyedPage}`
 
 /** W6-F: the project workspaces with a key of their own, the first nine in the switcher. */
 export type WorkspaceSlot = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
 export const WORKSPACE_SLOTS: readonly WorkspaceSlot[] = [1, 2, 3, 4, 5, 6, 7, 8, 9]
+
+/** W9-B: the pages with a key of their own (core/ui/pages.ts KEYED_PAGES). */
+export type KeyedPage = (typeof KEYED_PAGES)[number]
 
 export type ActionSpec = {
   id: ActionId
@@ -261,6 +268,15 @@ export function makeActions(platform: string): readonly ActionSpec[] {
         defaults: [`Ctrl+Alt+${n}`],
         descKey: 'shortcut.workspace.project',
         descParams: { n },
+        yieldsToTerminal: false
+      })
+    ),
+    // W9-B: `${M}+1…6`, as the top bar orders the pages. Over a console too: no CLI reads Ctrl+digit.
+    ...KEYED_PAGES.map(
+      (page, i): ActionSpec => ({
+        id: `page.${page}`,
+        defaults: [`${M}+${i + 1}`],
+        descKey: `shortcut.page.${page}`,
         yieldsToTerminal: false
       })
     )

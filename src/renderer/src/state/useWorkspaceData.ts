@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { Dispatch, Gate, Job, JobRun, Message, Project, Task } from '../../../../core/orchestration/types'
+import type { Dispatch, Gate, Job, JobRun, Message, Project, Task } from '../../../core/orchestration/types'
 import type { WorkspaceData } from './workspaceTree'
 
 /** How often the tree is read again while it is wanted. No push carries every project's state: `orch:state` is the

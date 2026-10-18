@@ -1,26 +1,16 @@
 import type { AccountUsage, RateLimitWindow } from '../../../core/types'
 import { coarseDuration } from '../../../core/usage/relativeTime'
 import { useI18n } from '../i18n/I18nProvider'
-
-/** The existing usage thresholds: green under 70, yellow 70–84, red at 85 and over. The status bar's
- *  UsageChip (App.tsx) uses these exact figures — two places showing usage on two scales would be a
- *  defect, so this is the same set applied per window rather than to one blended number. */
-export const usageLevel = (percent: number): 'ok' | 'warn' | 'crit' =>
-  percent >= 85 ? 'crit' : percent >= 70 ? 'warn' : 'ok'
-
-/** A percentage is a CSS width here, and the API's figure is not this module's to trust. */
-export const clampPercent = (n: number): number => Math.max(0, Math.min(100, n))
+import { Meter } from './ui'
 
 /** Is there anything to draw? Shared so the meter, the detail and the row that decides whether it
  *  is clickable at all cannot drift apart about what "empty" means. */
 export const hasUsage = (u: AccountUsage | undefined): u is AccountUsage =>
   !!u && !!(u.session || u.weekly)
 
-const track = (w: RateLimitWindow | null): React.JSX.Element => (
-  <span>
-    {w && <i className={usageLevel(w.usedPercent)} style={{ width: `${clampPercent(w.usedPercent)}%` }} />}
-  </span>
-)
+// W9-B: every usage display is the house Meter (components/ui), on its usage-guard thresholds (75 warn, 90 danger).
+// A missing window is an empty track, so the pair keeps its height and the row does not shift.
+const track = (w: RateLimitWindow | null): React.JSX.Element => <Meter value={w?.usedPercent ?? 0} />
 
 /**
  * The account row's two-track usage meter (design doc §5).
@@ -86,9 +76,7 @@ export function AccountUsageDetail({
       <span className="dline" key={label}>
         <span className="k">{label}</span>
         <span className="v">{`${Math.round(w.usedPercent)}%`}</span>
-        <span className="t">
-          <i className={usageLevel(w.usedPercent)} style={{ width: `${clampPercent(w.usedPercent)}%` }} />
-        </span>
+        <Meter value={w.usedPercent} className="t" />
         <span className="r">{resets}</span>
       </span>
     )

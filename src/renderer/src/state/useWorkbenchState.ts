@@ -218,16 +218,7 @@ export function useWorkbenchState(deps: WorkbenchStateDeps) {
       return changed ? next : prev
     })
   }, [layout])
-  const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
-    // 500 rather than the original 280. Account rows carry a provider badge, the label, the `default`
-    // badge and a login dot, and the history and worktree panels below them hold paths, so the default
-    // opens wide enough to read all three without dragging. It sits just under the 520 clamp — the user
-    // can only narrow it from here, which is the cheap direction.
-    // Only applies with no stored width; a width the user dragged is theirs and is never overridden.
-    const v = Number(localStorage.getItem('cm.sidebarWidth'))
-    return v >= 160 && v <= 520 ? v : 500
-  })
-  const sidebarRef = useRef<HTMLElement>(null)
+  // W9-B: the sidebar's width (cm.sidebarWidth) went with the sidebar (DESIGN.md §13)
 
   // A reference to the latest value for keyboard tab switching — the global listener registers once and reads without going stale
   // (sessionsRef is declared with its state above: it moves with every write, not here at render)
@@ -426,7 +417,7 @@ export function useWorkbenchState(deps: WorkbenchStateDeps) {
     setMediaNonces, browserTabs, setBrowserTabs, browserTabsRef, browserLoading, setBrowserLoading, agentBusy,
     setAgentBusy, agentPointer, setAgentPointer, browserNonce, setBrowserNonce, scopedNode, setScopedNode,
     fileBuffers, setFileBuffers, pendingReveal, setPendingReveal, requestReveal, dropReveal, mdModes, setMdModes,
-    mdModesRef, mdViews, setMdViews, sidebarWidth, setSidebarWidth, sidebarRef, activeFileIdRef, defaultMdMode,
+    mdModesRef, mdViews, setMdViews, activeFileIdRef, defaultMdMode,
     setMdMode, modalOpenRef, fileTabsRef, selectWorkbenchTabRef, closableTabIdRef, closeWorkbenchTabRef, runStartRef,
     runStopSelectionRef, runRerunSelectedRef, fileBuffersRef, editorCacheRef, tRef, cliRef, runningCountRef,
     installUpdate, pendingSplitRef, explorerTreesRef, explorerClipboardRef, explorerUndoRef

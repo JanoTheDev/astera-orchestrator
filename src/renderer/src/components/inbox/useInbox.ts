@@ -6,8 +6,8 @@ import type { ActivityEvent } from '../../../../core/orchestration/activity'
 import { buildSessionIndex, needsInput } from '../../../../core/orchestration/sessionIndex'
 import { useActivityFeed } from '../activity/useActivityFeed'
 import { useHostWaiting } from '../search/useHostWaiting'
-import { useAttention } from '../workspace/useAttention'
-import { planSessions, type WorkspaceData, type WorkspaceProject } from '../workspace/workspaceTree'
+import { useAttention } from '../../state/useAttention'
+import { planSessions, type WorkspaceData, type WorkspaceProject } from '../../state/workspaceTree'
 import { needsOf, type NeedCard, type QuestionRow } from './inboxView'
 
 export interface InboxState {

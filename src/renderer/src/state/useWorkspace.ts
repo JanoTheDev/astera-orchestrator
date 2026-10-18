@@ -1,9 +1,9 @@
 // Moved out of App.tsx unchanged (W9-A): App calls this hook and passes its result on.
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useWorkspaceData } from '../components/workspace/useWorkspaceData'
-import { buildWorkspaceTree, findPlan, planSessions, scopeLayout } from '../components/workspace/workspaceTree'
+import { useWorkspaceData } from './useWorkspaceData'
+import { buildWorkspaceTree, findPlan, planSessions, scopeLayout } from './workspaceTree'
 // W6-F: one workspace per project
-import { entryTab, OTHER_WORKSPACE, scopeIds as workspaceScopeOf, workspaceFolderOf, workspaceSessionIds } from '../components/workspace/workspaceTree'
+import { entryTab, OTHER_WORKSPACE, scopeIds as workspaceScopeOf, workspaceFolderOf, workspaceSessionIds } from './workspaceTree'
 import { projectAnchorOf } from '../components/projects/projectAnchor' // W8-G
 // W7-F (#84): ended plan tabs close on their own; the quick tab switcher
 import { tabsToAutoClose } from '../lib/tabAutoClose'
@@ -13,31 +13,21 @@ import { parseTab, sessionTab } from '../../../core/panes/tabId'
 import type { useWorkbench } from './useWorkbench'
 import type { useLayout } from './useLayout'
 import type { useWorkbenchState } from './useWorkbenchState'
-import type { useDialogs } from './useDialogs'
 import type { useJobs } from './useJobs'
-import type { useSidebar } from './useSidebar'
-import type { useViews } from './useViews'
 
 export type WorkspaceDeps = Pick<ReturnType<typeof useWorkbench>,
-    'active' | 'bottomRootRef' | 'bottomTab' | 'openWorkspaceSlotRef' | 'selectWorkbenchTab' | 'terminals'> &
+    'bottomRootRef' | 'bottomTab' | 'openWorkspaceSlotRef' | 'selectWorkbenchTab' | 'terminals'> &
   Pick<ReturnType<typeof useLayout>,
     'activeSessionId' | 'activeTabId' | 'layout' | 'layoutRef' | 'remoteSessions' | 'sessions'> &
   Pick<ReturnType<typeof useWorkbenchState>,
     'closeWorkbenchTabRef'> &
-  Pick<ReturnType<typeof useDialogs>,
-    'commandOpen' | 'switcherOpen'> &
   Pick<ReturnType<typeof useJobs>,
-    'currentProject' | 'homeDir'> &
-  Pick<ReturnType<typeof useSidebar>,
-    'sidebarOpen'> &
-  Pick<ReturnType<typeof useViews>,
-    'sidebarPane'>
+    'currentProject' | 'homeDir'>
 
 export function useWorkspace(deps: WorkspaceDeps) {
   const {
-    active, activeSessionId, activeTabId, bottomRootRef, bottomTab, closeWorkbenchTabRef, commandOpen,
-    currentProject, homeDir, layout, layoutRef, openWorkspaceSlotRef, remoteSessions, selectWorkbenchTab, sessions,
-    sidebarOpen, sidebarPane, switcherOpen, terminals
+    activeSessionId, activeTabId, bottomRootRef, bottomTab, closeWorkbenchTabRef,
+    currentProject, homeDir, layout, layoutRef, openWorkspaceSlotRef, remoteSessions, selectWorkbenchTab, sessions, terminals
   } = deps
   // W2-B workspace: the selected plan, and the pane tree as its workspace shows it (scopeLayout). Read while the
   // tree is on screen or a plan is open; the anchor is only the path the reads are sent through.
@@ -58,8 +48,8 @@ export function useWorkspace(deps: WorkspaceDeps) {
   const autoCloseWanted = autoCloseEndedPlanTabs && sessions.some((s) => s.status === 'exited')
   const workspaceData = useWorkspaceData(
     currentProject ?? sessions[0]?.cwd ?? null,
-    (sidebarOpen && sidebarPane === 'sessions') || workspacePlanId !== null || workspaceProjectId !== null || commandOpen ||
-      switcherOpen || autoCloseWanted, // W7-F (#84)
+    // W9-B: always — the top bar's switcher and Inbox count and the status bar read it on every page
+    true,
     projectsRefresh // W7-B
   )
   const projectAnchor = projectAnchorOf(currentProject, sessions[0]?.cwd, homeDir) // W7-B; W8-G (#104): home when no tab is open
@@ -67,8 +57,6 @@ export function useWorkspace(deps: WorkspaceDeps) {
     () => (workspaceData ? buildWorkspaceTree(workspaceData, { showArchived: workspaceArchived }) : []),
     [workspaceData, workspaceArchived]
   )
-  const workspacePlan = workspacePlanId ? findPlan(workspaceTree, workspacePlanId) : undefined
-  const workspaceSessions = workspacePlan ? planSessions(workspacePlan) : []
   // W6-F: every workspace's sessions, and the ones the open project's (or plan's) workspace shows. Paired Runtimes'
   // tabs have no local cwd, so they are "Other"'s.
   const workspaceIds = useMemo(() => {
@@ -85,7 +73,6 @@ export function useWorkspace(deps: WorkspaceDeps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- workspaceKey stands for the scope's session ids
     [layout, workspaceKey]
   )
-  const workspaceActive = active ? workspaceSessions.find((x) => x.sessionId === active.id) : undefined
   // A session outside the open workspace focused from elsewhere (a notification, the Jobs view) leaves it for that
   // session's own project workspace: the scoped view would hide the very tab the person just asked for.
   useEffect(() => {
@@ -170,7 +157,7 @@ export function useWorkspace(deps: WorkspaceDeps) {
   return {
     workspacePlanId, workspaceArchived, setWorkspaceArchived, workspaceProjectId, projectDialog, setProjectDialog,
     setProjectsRefresh, firstPlan, setFirstPlan, autoCloseEndedPlanTabs, setAutoCloseEndedPlanTabs, workspaceData,
-    projectAnchor, workspaceTree, workspaceIds, shownLayout, workspaceActive, canOpenSessionTab, switcherMeta,
+    projectAnchor, workspaceTree, workspaceIds, shownLayout, canOpenSessionTab, switcherMeta,
     setWorkspaceScope, enterWorkspace, openWorkspacePlan, openWorkspaceProject, workspaceCwd, bottomRoot,
     runAvailable, bottomTabShown
   }

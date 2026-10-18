@@ -20,7 +20,7 @@ import { dismiss, toast } from '../lib/toast'
 import { spawnNotice } from '../lib/spawnNotice'
 import { announceSettingsRecovery } from '../lib/settingsRecoveryNotice'
 import { confirmModal, isConfirmOpen } from '../lib/confirm'
-import { toggleSidebarView, type SidebarView } from '../../../core/ui/sidebar'
+import { PAGE_STORAGE_KEY, togglePage, viewFlagsOf, type PageId } from '../../../core/ui/pages'
 import { terminalsWithCreated } from '../lib/terminalTabs'
 import { isCancelled as isWorktreeCancelled } from '../lib/worktreeErrors'
 import { spawnErrorMessage } from '../lib/spawnErrors'
@@ -59,7 +59,8 @@ export type WorkbenchDeps = Pick<ReturnType<typeof useWorkbenchState>,
     'setAccounts' | 'setActivePaneId' | 'setGhostAccounts' | 'setLayout' | 'setRemoteSessions' | 'setRemoteStatus' |
     'setSessions' | 't'> &
   Pick<ReturnType<typeof useSidebar>,
-    'bindingsRef' | 'explorerOpenRef' | 'setExplorerOpen' | 'setKeyOverrides' | 'setSidebarOpen' | 'sidebarOpenRef'> &
+    'bindingsRef' | 'explorerOpenRef' | 'setExplorerOpen' | 'setKeyOverrides' | 'setSidebarOpen' | 'sidebarOpenRef' |
+    'setPage' | 'pageRef'> &
   Pick<ReturnType<typeof useHost>,
     'campaignRef' | 'checkClickedAt' | 'cliInstalled' | 'notifiedUpdateRef' | 'readyToastRef' | 'setAppVersion' |
     'setCampaign' | 'setCheckClickedAt' | 'setCli' | 'setCliInstalled' | 'setHostHolding' | 'setHostStatus' |
@@ -85,7 +86,7 @@ export function useWorkbench(deps: WorkbenchDeps) {
     setKeyOverrides, setLayout, setMdMode, setMdModes, setMediaNonces, setNewSessionCwd, setPendingReveal,
     setRecordTabs, setRemoteSessions, setRemoteStatus, setRollStates, setRunMenuOpen, setSchedStates, setScopedNode,
     setSessions, setShowNew, setSidebarOpen, setSwitcherOpen, setTalkSignal, setUpdate, setWorkUnitTrackingEnabled,
-    setWtRoot, settingsTouched, showSettings, sidebarOpenRef, t, tRef, update
+    setWtRoot, settingsTouched, showSettings, sidebarOpenRef, t, tRef, update, setPage, pageRef
   } = deps
   // W9-A: declared here, ahead of where App's body had them, because effects and handlers in this hook
   // (or an earlier one) read them; they are state and refs, so moving them up changes nothing that runs.
@@ -464,6 +465,13 @@ export function useWorkbench(deps: WorkbenchDeps) {
         if (action === 'sidebar.home') toggleSessions()
         else if (action === 'sidebar.jobs') toggleJobs()
         else toggleHiw()
+        return
+      }
+      // W9-B: Ctrl+1…6 open a page. A page is not a toggle: pressing the one on screen leaves it there.
+      if (action.startsWith('page.')) {
+        e.preventDefault()
+        e.stopPropagation()
+        if (!e.repeat) goPage(action.slice('page.'.length) as PageId)
         return
       }
       // Closing a file tab, same as closing a browser tab. When dirty, closeFileTab raises a
@@ -1261,7 +1269,7 @@ export function useWorkbench(deps: WorkbenchDeps) {
       }))
     )
       return
-    setExplorerOpen(false)
+    goPage('agents') // W9-B: the Files page closes back to Agents
     // 트리에 들어 있는 파일 탭도 함께 뺀다 — 남겨 두면 파일이 없는데 탭만 남는다. 하나씩 빼는 것은
     // removeTab이 빈 그룹 정리와 다음 활성 탭 선택까지 맡고 있기 때문이다
     let nextLayout = layoutRef.current
@@ -1294,39 +1302,30 @@ export function useWorkbench(deps: WorkbenchDeps) {
    *
    *  사이드바의 표시 여부는 sidebarOpen 하나가 정한다. 예전에는 sidebarOpen || explorerOpen 이라
    *  탐색기가 켜져 있는 동안 사이드바 토글이 아무 반응도 없었다 — OR 가 언제나 참이었기 때문이다. */
-  /** The rail's three view toggles, all one rule now (core/ui/sidebar.ts). Pressing the view that is
-   *  showing collapses the sidebar with it; pressing any other shows that one instead, unfolding the
-   *  sidebar if it was collapsed.
-   *
-   *  **Why the flags are read from refs, not from the render values.** These run from the keydown
-   *  listener, which is registered once and closes over the first render — reading `explorerOpen`
-   *  there would compute the next state from a value frozen at mount, so a shortcut would only ever
-   *  open a view and never close it.
-   *
-   *  The next state is computed once, outside every updater: a setState updater can be invoked twice
-   *  under StrictMode, and this file's rule is that no updater calls another setState. */
-  const toggleSidebar = (view: SidebarView): void => {
-    const next = toggleSidebarView(
-      {
-        open: sidebarOpenRef.current,
-        explorer: explorerOpenRef.current,
-        jobs: jobsOpenRef.current,
-        understanding: hiwOpenRef.current
-      },
-      view
-    )
-    setSidebarOpen(next.open)
-    setExplorerOpen(next.explorer)
-    setJobsOpen(next.jobs)
-    setHiwOpen(next.understanding)
-  }
-  /** Shows the explorer whatever the sidebar showed: a folder link's reveal needs it open, never toggled shut. */
-  const showExplorer = (): void => {
+  /** W9-B: shows a page (core/ui/pages.ts). The rail and its sidebar are gone; the flags the app's effects read
+   *  (explorerOpen, jobsOpen, hiwOpen) follow the page that shows their view, and the page is kept for the next
+   *  launch. Runs from the keydown listener too, which closes over the first render: hence pageRef. */
+  const goPage = (id: PageId): void => {
+    const flags = viewFlagsOf(id)
+    pageRef.current = id
+    setPage(id)
     setSidebarOpen(true)
-    setExplorerOpen(true)
-    setJobsOpen(false)
-    setHiwOpen(false)
+    setExplorerOpen(flags.explorer)
+    setJobsOpen(flags.jobs)
+    setHiwOpen(flags.understanding)
+    try {
+      localStorage.setItem(PAGE_STORAGE_KEY, id)
+    } catch {
+      // storage refused (private profile): the page still opens, it is only not remembered
+    }
   }
+  /** The old sidebar views' keys: open the view's page, or go back to Agents from it (togglePage). */
+  const toggleSidebar = (view: 'explorer' | 'jobs' | 'understanding' | 'sessions'): void => {
+    const target: PageId = view === 'explorer' ? 'files' : view === 'jobs' ? 'plans' : view === 'understanding' ? 'more:hiw' : 'agents'
+    goPage(togglePage(pageRef.current, target))
+  }
+  /** Shows the explorer whatever was showing: a folder link's reveal needs it open, never toggled shut. */
+  const showExplorer = (): void => goPage('files')
   const toggleSessions = (): void => toggleSidebar('sessions')
   const toggleExplorer = (): void => toggleSidebar('explorer')
   const toggleJobs = (): void => toggleSidebar('jobs')
@@ -1538,7 +1537,7 @@ export function useWorkbench(deps: WorkbenchDeps) {
     isMarkdownPath, openWorkspaceSlotRef, closeAgentTabRef, currentProjectRef, spawn, openFile, openLinkedPath,
     openProjectFile, retireEditorState, setBufferContent, saveFile, reloadBufferFromDisk, dropTabFromTree,
     openRemoteSession, selectWorkbenchTab, closeWorkbenchTab, handlePathRenamed, handlePathDeleted, closeExplorer,
-    toggleSidebar, showExplorer, toggleSessions, toggleExplorer, toggleJobs, toggleHiw, dropOnPane, canStart,
+    goPage, toggleSidebar, showExplorer, toggleSessions, toggleExplorer, toggleJobs, toggleHiw, dropOnPane, canStart,
     newInGroup, dropTabInGroup, unsplitPane, restart, resumeFromHistory, active, runningCount, updateChecking,
     dirtyIds
   }

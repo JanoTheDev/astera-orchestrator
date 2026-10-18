@@ -9,7 +9,6 @@ import { remoteNewJobFolder } from '../../lib/remoteJobs'
 import { localDoor } from '../../lib/orchDoor'
 import { defaultAccountIdOf } from '../../../../core/accounts/defaultAccount'
 import { CommandBar } from '../command/CommandBar'
-import { InboxHost } from '../inbox/InboxHost'
 import { openPlan } from './navigation'
 import { ConfirmHost } from '../ConfirmHost'
 import { FirstRunDialog } from '../FirstRunDialog'
@@ -284,7 +283,6 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
           onCreated={() => setFirstPlan(null)}
         />
       )}
-      <InboxHost tree={workspaceTree} data={workspaceData} accounts={accounts} ui={actionUi} />
       {/* W3-B command bar (W9-D: and the session search, one box): names resolve against the workspace tree; changes go through this computer's doors */}
       <CommandBar
         open={commandOpen}

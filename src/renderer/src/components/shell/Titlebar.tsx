@@ -1,4 +1,5 @@
-// Moved out of App.tsx unchanged (W9-A).
+// The window's title bar (W9-A moved it out of App.tsx). W9-B: it is the 44px top bar now (DESIGN.md §1): the mark
+// and "Astera", then whatever App puts inside (TopBar), the update notice, and the window buttons.
 import type { UpdateStatus } from '../../../../core/types'
 import logoUrl from '../../assets/mark.svg'
 import { confirmModalWithChoices } from '../../lib/confirm'
@@ -55,7 +56,7 @@ export function Titlebar({
   update,
   runningCount,
   onInstall,
-  runSlot
+  children
 }: {
   isMax: boolean
   update: UpdateStatus | null
@@ -63,9 +64,8 @@ export function Titlebar({
   runningCount: number
   /** Passed straight through to UpdateIndicator's restart button — see the prop there. */
   onInstall: () => void
-  /** 타이틀바 줄에 함께 놓이는 것 — 지금은 실행 구성 툴바다. 프롭 열넷을 내려보내는 대신 슬롯으로
-   *  받아, 타이틀바는 무엇이 들어오는지 모른 채 자리만 내준다 */
-  runSlot?: React.ReactNode
+  /** What shares the bar — the TopBar. A slot, so the title bar does not know what it holds. */
+  children?: React.ReactNode
 }): React.JSX.Element {
   const { t } = useI18n()
   // On macOS, window controls are handled by the OS traffic-light buttons. Drawing our own controls
@@ -113,7 +113,7 @@ export function Titlebar({
         <img className="tb-logo" src={logoUrl} alt="" />
         <span className="tb-name">Astera</span>
       </div>
-      {runSlot}
+      {children ?? <span className="tb-spacer" />}
       <UpdateIndicator update={update} onInstall={onInstall} />
       {!isMac && (
         <div className="tb-controls" onDoubleClick={(e) => e.stopPropagation()}>

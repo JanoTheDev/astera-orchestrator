@@ -7,3 +7,4 @@
 .usage-strip-flag { padding: 0 5px; border-radius: 3px; background: var(--warn-bg); color: var(--warn-ink); }
 .usage-strip-dim { opacity: 0.75; }
 .usage-strip-tab { margin-right: 8px; }
+.usage-strip-meter { display: inline-grid; width: 44px; vertical-align: middle; } /* W9-B: the house Meter */

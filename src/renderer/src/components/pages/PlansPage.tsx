@@ -3,6 +3,7 @@
 // cards, with their actions; the order, the groups and the table are planBoard.ts's.
 import { useEffect, useState } from 'react'
 import type { JobRow } from '../../../../core/types'
+import type { PageId } from '../../../../core/ui/pages'
 import { findRun } from '../../../../core/orchestration/snapshot'
 import { groupOfTab } from '../../../../core/panes/tree'
 import { sessionTab } from '../../../../core/panes/tabId'
@@ -12,26 +13,38 @@ import { localDoor } from '../../lib/orchDoor'
 import { archiveJob, deleteRun, holdJob, renameJob, unarchiveJob } from '../../lib/jobActions'
 import { jobName } from '../../lib/jobName'
 import { JobsView } from '../JobsView'
+import { jobsStall } from '../../../../core/orchestration/jobsView'
 import { Tabs } from '../ui'
 import { openPage } from '../shell/navigation'
 import { areaGroupsOf, overlapTableOf, planListOrder, planSectionOf, type OverlapCell, type PlanSection } from '../plan/planBoard'
 import { PlanPage } from './PlanPage'
 import '../plan/plan.css'
 
-/** Which of W9-C's pages shows, until W9-B's page switch mounts them (App.tsx, state/useNavigation.ts). `section` is
- *  the plan section asked for by `openPlan(jobId, section)`; absent, the one last used for that plan. */
+/** Which of W9-C's pages shows: W9-B's page (state/useSidebar.ts `page`) when it is one of them. `section` is the
+ *  plan section asked for by `openPlan(jobId, section)`; absent, the one last used for that plan. */
 export type PlanPages = { page: 'tasks' | 'plans'; section?: PlanSection } | null
 
-/** The page state, and the plans page coming up whenever a plan is opened from anywhere (`openRun`). */
-export function usePlanPages({ openRun }: { openRun: { runId: string; runtimeId?: string } | null }): {
+/** The page state over W9-B's page switch, and the plans page coming up whenever a plan is opened from anywhere
+ *  (`openRun`). Setting null leaves for Agents (the consoles the plan page's tab links go to). */
+export function usePlanPages({ openRun, page, goPage }: {
+  openRun: { runId: string; runtimeId?: string } | null
+  page: PageId
+  goPage: (id: PageId) => void
+}): {
   planPage: PlanPages
-  setPlanPage: React.Dispatch<React.SetStateAction<PlanPages>>
+  setPlanPage: (next: PlanPages) => void
 } {
-  const [planPage, setPlanPage] = useState<PlanPages>(null)
+  const [section, setSection] = useState<PlanSection | undefined>(undefined)
+  const planPage: PlanPages =
+    page === 'plans' || page === 'tasks' ? { page, ...(section !== undefined ? { section } : {}) } : null
+  const setPlanPage = (next: PlanPages): void => {
+    setSection(next?.section)
+    goPage(next ? next.page : 'agents')
+  }
   const opened = openRun ? `${openRun.runtimeId ?? ''}:${openRun.runId}` : null
   useEffect(() => {
-    if (opened) setPlanPage((p) => (p?.page === 'plans' ? p : { page: 'plans' }))
-  }, [opened])
+    if (opened) goPage('plans')
+  }, [opened]) // eslint-disable-line react-hooks/exhaustive-deps
   return { planPage, setPlanPage }
 }
 
@@ -58,14 +71,14 @@ type View = 'area' | 'overlap'
 
 export type PlansPageProps = Pick<
   AppState,
-  | 'actionUi' | 'approve' | 'pauseScheduleRun' | 'restartCoordinator' | 'resumeScheduleRun' | 'currentProject' | 'detail' | 'detailDoor' | 'layout' | 'openLinkedFolder' | 'openRun' | 'orchSnapshot'
+  | 'actionUi' | 'approve' | 'hostDriver' | 'hostStatus' | 'orchHostGate' | 'parkedSinceMs' | 'pauseScheduleRun' | 'restartCoordinator' | 'resumeScheduleRun' | 'currentProject' | 'detail' | 'detailDoor' | 'layout' | 'openLinkedFolder' | 'openRun' | 'orchSnapshot'
   | 'remoteSnapshot' | 'selectWorkbenchTab' | 'setDetail' | 'setJournalPagesFor' | 'setNewRunOpen' | 'setOpenRun'
   | 'setSourceJobOpen' | 't'
 > & ReturnType<typeof usePlanPages>
 
 export function PlansPage(p: PlansPageProps): React.JSX.Element {
   const {
-    actionUi, approve, pauseScheduleRun, restartCoordinator, resumeScheduleRun, currentProject, detail, detailDoor, layout, openLinkedFolder, openRun, orchSnapshot, remoteSnapshot,
+    actionUi, approve, hostDriver, hostStatus, orchHostGate, parkedSinceMs, pauseScheduleRun, restartCoordinator, resumeScheduleRun, currentProject, detail, detailDoor, layout, openLinkedFolder, openRun, orchSnapshot, remoteSnapshot,
     selectWorkbenchTab, setDetail, setJournalPagesFor, setNewRunOpen, setOpenRun, setSourceJobOpen, t, planPage,
     setPlanPage
   } = p
@@ -144,12 +157,13 @@ export function PlansPage(p: PlansPageProps): React.JSX.Element {
       {view === 'overlap' ? (
         <OverlapTable rows={orchSnapshot?.runs ?? []} t={t} onOpen={(id) => currentProject && setOpenRun({ projectPath: currentProject, runId: id })} />
       ) : (
-        // The local list the Jobs sidebar draws (Sidebar.tsx), its handlers moved with it.
-        // shortcut: a paired Runtime's plans stay in the Jobs sidebar until W9-B retires it; then add its runtime selector here
+        // The local list the Jobs sidebar drew (Sidebar.tsx), its handlers moved with it; a paired Runtime's plans and
+        // its selector are W9-B's Pages.tsx, beside this page
         <JobsView
           snapshot={snapshot}
-          hostGate={null}
-          stall={null}
+          hostGate={orchHostGate}
+          // why nothing moves (limit L3): a held Host, a Host that does not answer
+          stall={jobsStall({ hostStatus, driver: hostDriver, parkedSinceMs, nowMs: Date.now() })}
           hasProject={!!currentProject}
           projectPath={currentProject ?? undefined}
           canOpenSession={canOpenSession}

@@ -257,7 +257,8 @@ export function HistoryBrowser({
   accounts,
   ghostAccounts,
   defaultSessionKind,
-  onResume
+  onResume,
+  asPage = false
 }: {
   accounts: Account[]
   /** Unregistered sources, for display only. Kept apart from `accounts` so nothing here can be picked as
@@ -277,6 +278,8 @@ export function HistoryBrowser({
       schedule?: ScheduleConfig
     }
   ) => void
+  /** W9-B: History is a page now (More ▾), always open; the fold belonged to the sidebar section. */
+  asPage?: boolean
 }): React.JSX.Element {
   const { t } = useI18n()
   const [projects, setProjects] = useState<ProjectSummary[]>([])
@@ -290,7 +293,8 @@ export function HistoryBrowser({
   const [loaded, setLoaded] = useState(false)
   const [accountFilter, setAccountFilter] = useState<string>('')
   // W7-F (#83): the same chevron header as Workspaces and Activity, remembered.
-  const [open, setOpen] = usePanelOpen('history')
+  const [openState, setOpen] = usePanelOpen('history')
+  const open = asPage || openState
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [preview, setPreview] = useState<TranscriptPreview | null>(null)
   const [resumingId, setResumingId] = useState<string | null>(null)
@@ -483,9 +487,13 @@ export function HistoryBrowser({
   return (
     <section className={open ? 'history-panel' : 'history-panel collapsed'}>
       <header className="panel-header">
-        <button className="panel-toggle" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
-          {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />} {t('history.panel.title')}
-        </button>
+        {asPage ? (
+          <h2 className="page-title">{t('history.panel.title')}</h2>
+        ) : (
+          <button className="panel-toggle" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+            {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />} {t('history.panel.title')}
+          </button>
+        )}
         {open && <div className="panel-actions">
           <AccountSelect
             className="history-account-filter"

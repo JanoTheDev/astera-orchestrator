@@ -8,7 +8,7 @@
      lifts the terminal off the status bar, so it stays */
   margin-top: 10px;
   border-top: 1px solid var(--line);
-  height: 32px;
+  height: 26px; /* DESIGN.md §1 */
   background: var(--status-bg);
   color: var(--status-ink);
   display: flex;
@@ -57,10 +57,21 @@
 .status-metrics { display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
 .status-metric { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .metric-label { opacity: .9; }
-.usage-bar { width: 44px; height: 6px; border-radius: var(--radius-sm); background: var(--track); overflow: hidden; flex: none; }
-.usage-bar-fill { display: block; height: 100%; border-radius: var(--radius-sm); background: var(--ok); transition: width .3s ease; }
-.usage-bar-fill.warn { background: var(--warn); } /* 70~84% */
-.usage-bar-fill.crit { background: var(--danger); } /* ≥85% */
-.usage-bar-fill.na { background: transparent; } /* no value */
+/* W9-B: usage is the house Meter (components/ui); here it is one 44px track on the bar's line */
+.status-meter { width: 44px; flex: none; }
 .metric-pct { font-weight: 600; min-width: 2.6ch; text-align: right; }
 .metric-reset { opacity: .7; }
+/* W9-B: the counts open their page */
+.status-link {
+  display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; padding: 0; border: 0; background: none;
+  font: inherit; color: inherit; cursor: pointer; white-space: nowrap;
+}
+.status-link:hover { color: var(--text); }
+.status-link--warn { color: var(--warn); }
+.status-link:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--ring); border-radius: var(--radius-sm); }
+.status-dot { background: var(--text-faint); }
+.status-dot--ok { background: var(--ok); }
+.status-dot--warn { background: var(--warn); }
+.status-next { color: var(--text-dim); min-width: 0; flex: 0 1 auto; }
+.status-account .status-metric { margin-left: 8px; }
+.status-host { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; color: var(--text-dim); }

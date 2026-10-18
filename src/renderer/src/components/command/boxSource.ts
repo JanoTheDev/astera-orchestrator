@@ -1,7 +1,7 @@
 // W9-D: the workspace tree and its data, as the three lists the box searches (boxHits.ts).
 import { buildSessionIndex, type IndexedSession } from '../../../../core/orchestration/sessionIndex'
 import type { Attention } from '../../../../core/types'
-import type { WorkspaceData, WorkspaceProject } from '../workspace/workspaceTree'
+import type { WorkspaceData, WorkspaceProject } from '../../state/workspaceTree'
 import type { PlanRef, TaskRef } from './boxHits'
 
 export interface BoxSource {

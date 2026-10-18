@@ -1,7 +1,7 @@
 // W3-B: the resolver's view of orchestration data (core/intents/resolve.ts), folded from the workspace sidebar's own
 // tree (W2-B) so a "worker three" here is the "Worker 3" the sidebar shows.
 import type { Directory } from '../../../../core/intents/resolve'
-import { planSessions, type WorkspaceData, type WorkspaceProject } from '../workspace/workspaceTree'
+import { planSessions, type WorkspaceData, type WorkspaceProject } from '../../state/workspaceTree'
 
 export function directoryOf(
   tree: readonly WorkspaceProject[],

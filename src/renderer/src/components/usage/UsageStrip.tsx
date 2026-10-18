@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import type { Account, JobTask, UsageGuardView } from '../../../../core/types'
 import { useI18n } from '../../i18n/I18nProvider'
 import { stripRows, USAGE_STRIP_POLL_MS, type StripWindow } from './usageView'
+import { Meter } from '../ui'
 import './usage.css'
 
 export function UsageStrip({ accounts, tasks }: { accounts: readonly Account[] | null; tasks: readonly JobTask[] }): React.JSX.Element | null {
@@ -33,7 +34,7 @@ export function UsageStrip({ accounts, tasks }: { accounts: readonly Account[] |
   const win = (name: string, w: StripWindow | null): React.JSX.Element | null =>
     w === null ? null : (
       <span className={`usage-strip-window${w.over ? ' usage-strip-over' : ''}`}>
-        {name} {w.percent}%{w.resets !== null && <span className="usage-strip-dim"> · {t('usage.strip.resets', { time: w.resets })}</span>}
+        {name} <Meter value={w.percent} className="usage-strip-meter" /> {w.percent}%{w.resets !== null && <span className="usage-strip-dim"> · {t('usage.strip.resets', { time: w.resets })}</span>}
       </span>
     )
   return (
