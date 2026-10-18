@@ -13,6 +13,8 @@ export type Intent =
   | { kind: 'pause'; target?: string }
   | { kind: 'resume'; target?: string }
   | { kind: 'stop-launching'; target?: string }
+  /** W5-C: stop a plan for real, closing its workers and coordinator (runs-stop / run-pause). `pause` holds instead. */
+  | { kind: 'stop'; target?: string }
   | { kind: 'send'; session: string; text: string; target?: string }
   | { kind: 'summarize'; minutes?: number; target?: string }
   | { kind: 'waiting'; target?: string }
@@ -35,6 +37,7 @@ export const INTENT_KINDS = [
   'pause',
   'resume',
   'stop-launching',
+  'stop',
   'send',
   'summarize',
   'waiting',

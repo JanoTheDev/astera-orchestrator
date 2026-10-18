@@ -4492,8 +4492,9 @@ export function registerIpc(
   // renderer only asks for with a project open cannot carry it (ruling F41). `orch.hostGate` answers
   // it instead, and is answered whether or not anything here has ever run.
   ipcMain.handle('orch.hostGate', () => orchHostGate)
-  const orchLocalList = async (projectPath: string): Promise<OrchSnapshot> => {
-    const request = ++orchRequest
+  const orchLocalList = async (projectPath: string, watch = true): Promise<OrchSnapshot> => {
+    // W5-C orch.peek: a read that subscribes to nothing, and so supersedes no list in flight
+    const request = watch ? ++orchRequest : orchRequest
     // The guard runs on the path as sent — it decides what the renderer is allowed to name, and the
     // mapping below must not be able to widen that. The mapped value never reaches the filesystem;
     // it only picks which Runs are folded.
@@ -4522,7 +4523,7 @@ export function registerIpc(
     // Superseded while awaiting — by an unwatch, or by a later list for another project. The caller
     // still gets the project it asked for; what it does not get is the subscription, because
     // something more recent already decided what that should be.
-    if (request !== orchRequest) return snapshot
+    if (!watch || request !== orchRequest) return snapshot
     // Recorded as what the renderer now holds — the return value is exactly that, so the dedupe stays
     // correct across a project switch instead of comparing against the previous project's fold.
     orchPushes.watch(project, snapshot)
@@ -4605,6 +4606,9 @@ export function registerIpc(
     'jobs-rename': 'id',
     'jobs-archive': 'id',
     'jobs-unarchive': 'id',
+    // W5-C holds: a plan of another project is not held through this door
+    'jobs-hold': 'id',
+    'jobs-unhold': 'id',
     // W2-A planner stage: names its Job by `--id`
     'jobs-plan': 'id',
     // Phase 10: the renderer names the Run as `runId`; a file of another project's Run is not read through this door.
@@ -4617,7 +4621,7 @@ export function registerIpc(
     'gate-create': ['task'],
     'worker-start': ['taskId', 'task']
   }
-  const DISPATCH_ID_ARG: Record<string, string> = { 'worker-stop': 'dispatch' }
+  const DISPATCH_ID_ARG: Record<string, string> = { 'worker-stop': 'dispatch', 'worker-hold': 'dispatch', 'worker-unhold': 'dispatch' }
   /** orch.command 가 받은 명령의 args 가 project 가 아닌 다른 프로젝트의 Run·Task·Dispatch 를
    *  가리키면 그 이유를 문자열로, 아니면 null 을 돌려준다.
    *
@@ -4778,6 +4782,7 @@ export function registerIpc(
     log: orchLog
   })
   ipcMain.handle('orch.list', (_e, projectPath: string, runtimeId?: string) => orchRouter.list(projectPath, runtimeId))
+  ipcMain.handle('orch.peek', (_e, projectPath: string) => orchLocalList(projectPath, false))
   // Settings › Plugins (plugin runtime design slice 2d): the Host's plugins commands as the app, one a method. The Host
   // checks every argument; a value of the wrong type is its refusal to give.
   const plugins = createPluginsRoute({ call: (m) => orchCall(m) })

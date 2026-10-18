@@ -78,8 +78,41 @@ export async function approvePlan(door: OrchDoor, jobId: string, name: string, u
   return ok && restartCoordinator(door, jobId, ui)
 }
 
-/** Stops a running Run (`runs-stop`): its workers and coordinator close and it is paused. Asked first. The only way
- *  to stop a plan that is not scheduled from launching more: no command holds dispatch with the workers left open. */
+// W5-C holds: neither closes anything. Holding a plan asks nothing; pausing a worker asks first all the same (SPEC §8:
+// a spoken "pause worker three" names one session, and the person sees which before it happens).
+
+/** Holds a plan from launching new workers (`jobs-hold`), or lets it go again (`jobs-unhold`). Running workers carry
+ *  on, so nothing is asked. */
+export async function holdJob(door: OrchDoor, jobId: string, hold: boolean, ui: ActionUi): Promise<boolean> {
+  const fallback = ui.t(hold ? 'jobs.hold.failed' : 'jobs.hold.releaseFailed')
+  const reply = await send(door, hold ? 'jobs-hold' : 'jobs-unhold', { id: jobId }, ui, fallback)
+  if (reply && reply.status >= 400) failure(reply, ui, fallback)
+  return reply !== null && reply.status < 400
+}
+
+/** Pauses one worker (`worker-hold`) after asking: its session stays open and keeps its slot, and no agent types into
+ *  it until it is resumed. */
+export async function holdWorker(door: OrchDoor, dispatchId: string, label: string, ui: ActionUi): Promise<boolean> {
+  const ok = await ui.confirm({
+    title: ui.t('command.holdWorker.title'),
+    body: ui.t('command.holdWorker.body', { session: label }),
+    confirmLabel: ui.t('command.holdWorker.confirm')
+  })
+  if (!ok) return false
+  const reply = await send(door, 'worker-hold', { dispatch: dispatchId }, ui, ui.t('command.holdWorker.failed'))
+  if (reply && reply.status >= 400) failure(reply, ui, ui.t('command.holdWorker.failed'))
+  return reply !== null && reply.status < 400
+}
+
+/** Resumes a paused worker (`worker-unhold`). Asks nothing: it closes nothing and starts nothing new. */
+export async function unholdWorker(door: OrchDoor, dispatchId: string, ui: ActionUi): Promise<boolean> {
+  const reply = await send(door, 'worker-unhold', { dispatch: dispatchId }, ui, ui.t('command.holdWorker.releaseFailed'))
+  if (reply && reply.status >= 400) failure(reply, ui, ui.t('command.holdWorker.releaseFailed'))
+  return reply !== null && reply.status < 400
+}
+
+/** Stops a running Run (`runs-stop`): its workers and coordinator close and it is paused. Asked first. To stop a plan
+ *  launching more while its workers carry on, hold it instead (holdJob). */
 export async function stopRun(door: OrchDoor, runId: string, name: string, ui: ActionUi): Promise<boolean> {
   const ok = await ui.confirm({
     title: ui.t('command.stop.title'),

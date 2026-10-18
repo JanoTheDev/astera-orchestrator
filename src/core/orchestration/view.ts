@@ -435,6 +435,8 @@ export function snapshotFor(
       // W1-C: the plan's name and archive mark, on every row of the Job, as its source is
       ...(job.title !== undefined ? { title: job.title } : {}),
       ...(job.archivedAt !== undefined ? { archivedAt: job.archivedAt } : {}),
+      // W5-C: the plan's "stop launching" (jobs-hold), on every row of the Job
+      ...(job.dispatchHold ? { dispatchHold: true as const } : {}),
       // W2-D: the plan's pull request, on the row of the Run that opened it
       ...(run?.pr ? { pr: run.pr } : {}),
       ...(run === undefined && job.schedule && nextFireOf(job.id) !== null

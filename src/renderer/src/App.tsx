@@ -58,7 +58,7 @@ import { forgetDrafts } from './components/conversation/drafts'
 import { localDoor, remoteDoor, type OrchDoor } from './lib/orchDoor'
 import { deleteRun, pauseRun, restartCoordinator as restartRunCoordinator, resumeRun, type ActionUi } from './lib/jobActions'
 // W1-C plan lifecycle
-import { archiveJob, renameJob, unarchiveJob } from './lib/jobActions'
+import { archiveJob, holdJob, renameJob, unarchiveJob } from './lib/jobActions'
 // W3-B command bar and voice
 import { approvePlan } from './lib/jobActions'
 import { jobName } from './lib/jobName'
@@ -4620,6 +4620,10 @@ export default function App(): React.JSX.Element {
                 onUnarchiveJob={(jobId) => {
                   if (currentProject) void unarchiveJob(localDoor(window.api, currentProject), jobId, actionUi)
                 }}
+                // W5-C (#39): stop launching new workers; nothing is closed, so nothing is asked
+                onHoldJob={(jobId, hold) => {
+                  if (currentProject) void holdJob(localDoor(window.api, currentProject), jobId, hold, actionUi)
+                }}
               />
               )}
               </>
@@ -5731,7 +5735,8 @@ export default function App(): React.JSX.Element {
             setDetail(null)
             setOpenRun({ projectPath, runId })
           },
-          snapshotFor: (projectPath) => (projectPath === currentProject ? orchSnapshot : null),
+          // W5-C (#41): read when asked, for a plan of any project, not the Jobs view's current snapshot
+          snapshotFor: (projectPath) => window.api.orch.peek(projectPath),
           coordinatorAccount: async () => {
             const signedIn = await localDoor(window.api, currentProject ?? homeDir ?? '').signedInIds(accounts)
             return defaultAccountIdOf('claude', accounts, signedIn)
