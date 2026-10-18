@@ -6351,6 +6351,38 @@ describe('jobs create / tasks add / accounts list', () => {
     expect(r.body).not.toHaveProperty('jobId')
   })
 
+  // 2026-10-18 live run: a Task added to a planned run with no criterion held the next replan's check
+  it('tasks add --run on a planned run needs --criteria; without --prompt the spec is the prompt', async () => {
+    const deps = makeDeps()
+    await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p' })
+    const run = deps.getState().runs[0]
+    await deps.setState({ ...deps.getState(), jobs: deps.getState().jobs.map((j) => (j.id === run.jobId ? { ...j, plannerSessionIds: ['pl1'] } : j)) })
+    const no = await shell(deps, 'tasks-add', { run: run.id, spec: 'do x', account: 'acc1' })
+    expect(no.status).toBe(400)
+    expect((no.body as { error: string }).error).toContain('--criteria')
+    const yes = await shell(deps, 'tasks-add', { run: run.id, spec: 'do x', account: 'acc1', criteria: ['x works'] })
+    expect(yes.status).toBe(200)
+    expect(yes.body).toMatchObject({ prompt: 'do x', acceptanceCriteria: ['x works'] })
+    const own = await shell(deps, 'tasks-add', { run: run.id, spec: 'do y', account: 'acc1', criteria: ['y'], prompt: 'p' })
+    expect(own.body).toMatchObject({ prompt: 'p' })
+  })
+
+  it('task-update: the owner changes a run Task that has not started; an agent cannot, and a started Task stays locked', async () => {
+    const deps = makeDeps()
+    await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p' })
+    const runId = deps.getState().runs[0].id
+    const t = (await shell(deps, 'tasks-add', { run: runId, spec: 's', account: 'acc1' })).body as { id: string }
+    const ok = await shell(deps, 'task-update', { id: t.id, prompt: 'new', criteria: ['c'] })
+    expect(ok.status).toBe(200)
+    expect(deps.getState().tasks.find((x) => x.id === t.id)).toMatchObject({ prompt: 'new', acceptanceCriteria: ['c'] })
+    expect((await call(deps, 'task-update', { id: t.id, prompt: 'agent' }, 'sess_agent')).status).toBe(400)
+    expect((await handleCommand(deps, { sessionId: '', role: 'mcp' }, 'task-update', { id: t.id, prompt: 'mcp' })).status).toBe(400)
+    await deps.setState({ ...deps.getState(), tasks: deps.getState().tasks.map((x) => (x.id === t.id ? { ...x, status: 'dispatched' as const } : x)) })
+    const locked = await shell(deps, 'task-update', { id: t.id, prompt: 'late' })
+    expect(locked.status).toBe(400)
+    expect(deps.getState().tasks.find((x) => x.id === t.id)?.prompt).toBe('new')
+  })
+
   // **최신 회차로 기본값을 두지 않는다** — task-create 의 기본값은 남의 회차에 떨어질 수 있다.
   it('--job 과 --run 은 정확히 하나다', async () => {
     const deps = makeDeps()

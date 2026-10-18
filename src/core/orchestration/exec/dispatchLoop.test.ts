@@ -441,6 +441,98 @@ describe('createDispatchLoop', () => {
     expect(h.state().messages.filter((m) => m.subject === `gate ${gateId} answered`)).toHaveLength(1)
   })
 
+  // Push, not poll (owner 2026-10-18): the coordinator ends its turn; a report is told to it with the next action.
+  const driven = (h: ReturnType<typeof rig>, over: Partial<OrchState> = {}): void => {
+    const s0 = h.state()
+    h.setState({
+      ...s0,
+      jobs: s0.jobs.map((j) => ({ ...j, autoDispatch: false, concurrency: 2 })),
+      runs: s0.runs.map((r) => ({ ...r, coordinatorSessionId: 'coord-1' })),
+      ...over
+    })
+  }
+  it("a worker's done report is told to the idle coordinator at the next tick, naming the Task it readied", async () => {
+    const h = rig()
+    driven(h, {
+      tasks: [task({ id: 'tsk_1', status: 'dispatched' }), task({ id: 'tsk_3', status: 'pending', deps: ['tsk_1'] })],
+      dispatches: [{ id: 'dsp_1', taskId: 'tsk_1', provider: 'claude', accountId: 'accA', sessionId: 'w-1', cwd: '/wt1', specPath: '', startedAt: NOW } as Dispatch]
+    })
+    const done = await h.as('w-1', 'send', { type: 'worker_done', taskId: 'tsk_1', dispatchId: 'dsp_1', outcome: 'succeeded', subject: 'a', body: 'b' })
+    expect(done.status).toBe(200)
+    await h.loop.nudge()
+    const told = h.state().messages.filter((m) => m.subject === 'task tsk_1 completed')
+    expect(told).toHaveLength(1)
+    expect(told[0].body).toContain('tsk_3 (tsk_3) is ready and has no worker: worker-start it.')
+    // typed at once: an idle coordinator waits in no `check --wait`, so there is no 90 s grace
+    expect(h.typed.some((t) => t.includes('unread message'))).toBe(true)
+    await h.loop.nudge()
+    expect(h.state().messages.filter((m) => m.subject === 'task tsk_1 completed')).toHaveLength(1)
+  })
+  it('a ready Task with no worker for a minute while the coordinator is idle gets one reminder', async () => {
+    const h = rig()
+    driven(h, { tasks: [task({ id: 'tsk_1' })] })
+    await h.loop.nudge()
+    expect(h.state().messages.some((m) => m.subject.startsWith('task tsk_1 still ready'))).toBe(false)
+    h.clock = NOW_MS + 61_000
+    h.ctx.sessionBusy = () => true
+    await h.loop.nudge()
+    expect(h.state().messages.some((m) => m.subject.startsWith('task tsk_1 still ready'))).toBe(false)
+    h.ctx.sessionBusy = () => false
+    await h.loop.nudge()
+    await h.loop.nudge()
+    expect(h.state().messages.filter((m) => m.subject.startsWith('task tsk_1 still ready'))).toHaveLength(1)
+  })
+  // Part 2: a finished Task's branch that conflicts with the plan branch gets a merge worker; only its failure is the owner's.
+  it('an integration conflict starts a merge worker, and its failure opens a Gate', async () => {
+    const h = rig()
+    driven(h, {
+      tasks: [task({ id: 'tsk_1', status: 'completed' })],
+      dispatches: [
+        { id: 'dsp_1', taskId: 'tsk_1', provider: 'claude', accountId: 'accA', sessionId: 'w-1', cwd: '/wt-child', specPath: '', startedAt: NOW, endedAt: NOW, outcome: 'succeeded' } as Dispatch
+      ]
+    })
+    const merges: string[][] = []
+    h.ctx.integrate = async (_root, paths) => {
+      merges.push(paths)
+      return { kind: 'agent', reason: 'git merge-tree says a does not merge cleanly', worktrees: [{ path: '/wt-child', branch: 'a' }] }
+    }
+    await h.loop.nudge()
+    expect(merges).toEqual([['/wt-child']])
+    const merge = h.state().tasks.find((t) => t.parentId === 'tsk_1')!
+    expect(merge.spec).toContain('git merge --no-edit refs/heads/a')
+    expect(h.startWorker).toHaveBeenCalledTimes(1)
+    expect(h.state().tasks.find((t) => t.id === merge.id)!.status).toBe('dispatched')
+    expect(h.state().messages.some((m) => m.subject === `merge worker ${merge.id} started`)).toBe(true)
+    await h.loop.nudge()
+    expect(merges).toHaveLength(1) // the merge worker has it; not merged again, not a second worker
+    expect(h.startWorker).toHaveBeenCalledTimes(1)
+    const d = h.state().dispatches.find((x) => x.taskId === merge.id)!
+    const failed = await h.as(d.sessionId, 'send', { type: 'worker_done', taskId: merge.id, dispatchId: d.id, outcome: 'failed', subject: 'x', body: 'y' })
+    expect(failed.status).toBe(200)
+    await h.loop.nudge()
+    expect(h.state().gates.filter((g) => g.taskId === merge.id && g.status === 'open')).toHaveLength(1)
+    expect(h.state().tasks.find((t) => t.id === merge.id)!.status).toBe('blocked')
+    await h.loop.nudge()
+    expect(h.state().gates.filter((g) => g.taskId === merge.id)).toHaveLength(1)
+  })
+  it("a clean wave merge tells the coordinator, once, and the next ready Task", async () => {
+    const h = rig()
+    driven(h, {
+      tasks: [task({ id: 'tsk_1', status: 'completed' }), task({ id: 'tsk_3', deps: ['tsk_1'] })],
+      dispatches: [
+        { id: 'dsp_1', taskId: 'tsk_1', provider: 'claude', accountId: 'accA', sessionId: 'w-1', cwd: '/wt-child', specPath: '', startedAt: NOW, endedAt: NOW, outcome: 'succeeded' } as Dispatch
+      ]
+    })
+    let n = 0
+    h.ctx.integrate = async () => (n++, { kind: 'merged', uncommitted: 0 })
+    await h.loop.nudge()
+    await h.loop.nudge()
+    expect(n).toBe(1)
+    const told = h.state().messages.filter((m) => m.subject === 'task tsk_1 merged into the plan')
+    expect(told).toHaveLength(1)
+    expect(told[0].body).toContain('tsk_3 (tsk_3) is ready and has no worker')
+  })
+
   it('usage resumed tells nothing while this process may not start work', async () => {
     const h = rig({ coordinatorMail: true })
     h.ctx.mayStart = () => false
@@ -1280,8 +1372,10 @@ describe('a finished Run’s idle workers are released after the grace', () => {
     expect(h.handled()).not.toContain('worker-release')
   })
 
-  it('leaves the workers of a Run that has not finished alone, however long', async () => {
-    const h = finishedWithWorker()
+  // 2026-10-18: a running Run's worker whose Task is completed and merged is released (coordinatorRotate.test.ts);
+  // one whose worktree is not merged yet is still left alone
+  it('leaves the unmerged workers of a Run that has not finished alone, however long', async () => {
+    const h = finishedWithWorker({ cwd: '/wt-own' })
     const s = h.state()
     h.setState({ ...s, tasks: s.tasks.map((t) => (t.id === 'tsk_2' ? { ...t, status: 'pending' as const } : t)) })
     h.clock = NOW_MS + 60 * MIN

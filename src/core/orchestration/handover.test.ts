@@ -121,10 +121,12 @@ describe('buildHandoverPrompt', () => {
     }
   })
 
-  it('네가 받은편지함이고, 턴을 끝내면 아무것도 안 온다고 말한다', () => {
+  // Push, not poll (owner 2026-10-18): the coordinator ends its turn and Astera messages it; no `--wait` loop.
+  it('네가 받은편지함이고, 턴을 끝내면 Astera 가 소식을 보낸다고 말한다 — --wait 은 없다', () => {
     const p = prompt()
-    expect(p).toContain('check --wait')
-    expect(p).toContain('If you end your turn, nothing reaches you')
+    expect(p).not.toContain('--wait')
+    expect(p).toContain('end your turn')
+    expect(p).toContain('check --json')
     expect(p).toContain('reply --id')
   })
 

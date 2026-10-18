@@ -182,6 +182,14 @@ export function replanningOf(events: readonly ActivityEvent[], planId: string): 
   return on
 }
 
+/** Coordinator rotation: why this plan's coordinator was last refreshed ("wave 3", "context 72%"), or null for never. */
+export function coordinatorRefreshOf(events: readonly ActivityEvent[], planId: string): string | null {
+  let reason: string | null = null
+  for (const e of events)
+    if ((e.runId === planId || e.jobId === planId) && (e.type as string) === 'coordinator.refreshed') reason = e.payload.reason ?? null
+  return reason
+}
+
 /** The coordinator's answers to one Task's questions (W6-B's `question.auto-answered`), oldest first. */
 export function autoAnswersOf(events: readonly ActivityEvent[], taskId: string): { question: string; answer: string; at: string }[] {
   return events

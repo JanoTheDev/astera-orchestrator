@@ -69,7 +69,9 @@ const RUN_HIDDEN = [
   // W2-D: the plan's PR, read by the app's view; not in the SDK's contract yet (`run-open-pr` answers it)
   'pr',
   // W6-H: a push delivery's result, answered by `run-deliver`; not in the SDK's contract yet
-  'delivery'
+  'delivery',
+  // Coordinator rotation: the app's own record of fresh coordinators, not in the SDK's contract yet
+  'coordinatorRefreshes'
 ] as const
 
 /** W6-H: how a project's plans land, set by `projects-set`; not in the SDK's contract yet. */

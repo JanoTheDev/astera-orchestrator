@@ -1519,6 +1519,9 @@ export interface CoreApi {
     /** W3-A: minutes between activity digests; 0 is none. */
     getActivityDigestMinutes(): Promise<number>
     setActivityDigestMinutes(n: number): Promise<void>
+    /** Context use (%) at which a plan's coordinator is replaced by a fresh session; 0 turns the check off. */
+    getFreshCoordinatorContextPct(): Promise<number>
+    setFreshCoordinatorContextPct(n: number): Promise<void>
     /** W6-B: the chime with a notice that needs the owner; default true. */
     getAlertSound(): Promise<boolean>
     setAlertSound(on: boolean): Promise<void>

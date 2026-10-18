@@ -68,6 +68,7 @@ import { VoiceSettings } from './components/command/VoiceSettings'
 import { ResumeStrategySettings } from './components/ResumeStrategySettings'
 import { GithubSettings } from './components/GithubSettings'
 import { MaxWorkersSetting } from './components/MaxWorkersSetting'
+import { FreshCoordinatorSetting } from './components/FreshCoordinatorSetting'
 import { UsageGuardSettings } from './components/usage/UsageGuardSettings'
 import { CreativeHubSettings } from './components/CreativeHubSettings'
 import { NotificationSettings } from './components/NotificationSettings'
@@ -3562,6 +3563,8 @@ export default function App(): React.JSX.Element {
       runs: workspaceData.runs,
       tasks: workspaceData.tasks,
       dispatches: workspaceData.dispatches,
+      // 2026-10-18: a running plan's finished workers and reviewers close too, unless their Task has an open Gate
+      gates: workspaceData.gates,
       openTabSessionIds: open,
       enabled: autoCloseEndedPlanTabs
     })
@@ -5339,6 +5342,7 @@ export default function App(): React.JSX.Element {
                     </div>
                     {/* W1-B: the app-wide Job worker cap. */}
                     <MaxWorkersSetting />
+                    <FreshCoordinatorSetting />
                     {/* W6-G */}
                     <UsageGuardSettings />
                     {/* 작업 이어가기와 재개 전략 — 권한 모드 바로 아래에 둔다. 이어가기는 Job 이

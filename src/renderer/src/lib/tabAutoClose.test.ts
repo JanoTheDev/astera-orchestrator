@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import type { Job, JobRun } from '../../../core/orchestration/types'
+import type { Dispatch, Gate, Job, JobRun, Task } from '../../../core/orchestration/types'
 import { tabsToAutoClose, type TabAutoCloseInput } from './tabAutoClose'
 
 const job = (id: string, extra: Partial<Job> = {}): Job => ({ id, ...extra }) as Job
@@ -75,5 +75,49 @@ describe('tabsToAutoClose', () => {
 
   it('setting off: nothing closes', () => {
     expect(tabsToAutoClose({ ...plan('completed'), enabled: false })).toEqual([])
+  })
+})
+
+// 2026-10-18: a running plan closes what it is done with (finishedSessions.ts sessionsDoneWith)
+describe('tabsToAutoClose while the plan runs', () => {
+  const NOW = '2026-10-18T00:00:00.000Z'
+  const full = (id: string, status: Task['status'], deps: string[] = []): Task =>
+    ({ id, runId: 'r1', title: id, spec: '', deps, status, consecutiveFailures: 0, createdAt: NOW, updatedAt: NOW }) as Task
+  const dsp = (id: string, taskId: string, sessionId: string, over: Partial<Dispatch> = {}): Dispatch =>
+    ({ id, taskId, sessionId, cwd: '/wt', provider: 'claude', accountId: 'a', specPath: '', startedAt: NOW, endedAt: NOW, outcome: 'succeeded', workerState: 'stopped', ...over }) as Dispatch
+  const running = (over: Partial<TabAutoCloseInput> = {}): TabAutoCloseInput =>
+    base({
+      sessions: ['wDone', 'wFail', 'wGate', 'rev', 'coordOld', 'wLive'].map((id) => ({ id, status: id === 'wLive' ? 'running' : 'exited' })),
+      jobs: [job('j1', { cwd: '/p' } as Partial<Job>)],
+      runs: [run('r1', 'j1', { worktree: '/wt', coordinatorSessionId: 'coordNew', coordinatorRefreshes: [{ at: NOW, reason: 'wave 2', from: 'coordOld', to: 'coordNew' }] })],
+      tasks: [full('tDone', 'completed'), full('tFail', 'failed'), full('tGate', 'completed'), full('tRev', 'reviewing'), full('tLive', 'dispatched')],
+      dispatches: [
+        dsp('d1', 'tDone', 'wDone'),
+        dsp('d2', 'tFail', 'wFail', { outcome: 'failed' }),
+        dsp('d3', 'tGate', 'wGate'),
+        dsp('d4', 'tRev', 'rev', { review: true }),
+        dsp('d5', 'tLive', 'wLive', { endedAt: undefined, outcome: undefined, workerState: 'ready' })
+      ],
+      gates: [{ id: 'g1', runId: 'r1', taskId: 'tGate', question: 'q', status: 'open', createdAt: NOW }] as Gate[],
+      openTabSessionIds: ['wDone', 'wFail', 'wGate', 'rev', 'coordOld', 'wLive', 'coordNew'],
+      ...over
+    })
+
+  it("closes a merged worker's, a reviewer's with its verdict, and a replaced coordinator's tab", () => {
+    expect(tabsToAutoClose(running()).sort()).toEqual(['coordOld', 'rev', 'wDone'])
+  })
+
+  it("keeps a failed Task's, an open Gate's and a live session's tab", () => {
+    const closed = tabsToAutoClose(running())
+    for (const id of ['wFail', 'wGate', 'wLive', 'coordNew']) expect(closed).not.toContain(id)
+  })
+
+  it("closes the replan planner's tab once the replan ended", () => {
+    const during = running({ jobs: [job('j1', { cwd: '/p', plannerSessionIds: ['p1'], replanning: { sessionId: 'p1' } } as Partial<Job>)] })
+    during.sessions = [...during.sessions, { id: 'p1', status: 'exited' }]
+    during.openTabSessionIds = ['p1']
+    expect(tabsToAutoClose(during)).toEqual([])
+    const ended = { ...during, jobs: [job('j1', { cwd: '/p', plannerSessionIds: ['p1'], lastReplan: { runId: 'r1', mode: 'wave', wave: 2, done: 1, at: NOW, summary: 'ok' } } as Partial<Job>)] }
+    expect(tabsToAutoClose(ended)).toEqual(['p1'])
   })
 })

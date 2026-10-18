@@ -9,6 +9,7 @@ import { HOOK_EVENT_AT } from '../hooks/eventTime'
 import { renameRetrying } from '../renameRetry'
 import { SESSION_CONTEXT_SCRIPT } from './sessionContext'
 import { SUBAGENT_CAP_SCRIPT } from './subagentCap'
+import { DELIVERY_GUARD_IFS, DELIVERY_GUARD_SCRIPT } from './deliveryGuard'
 import { CHECKPOINT_SCRIPT } from '../attribution/checkpoint'
 
 /** The statusLine injection info handed to SessionManager when a session is spawned. */
@@ -228,6 +229,7 @@ export class StatusLineManager {
   private readonly sessionContextPath: string
   private readonly subagentCapPath: string // W6-G
   private readonly checkpointPath: string // W8-B
+  private readonly deliveryGuardPath: string // workers never deliver (deliveryGuard.ts)
   readonly hookEventsDir: string // Watched by index.ts's HookEventWatcher
 
   constructor(
@@ -248,6 +250,8 @@ export class StatusLineManager {
     this.subagentCapPath = path.join(userDataDir, 'astera-subagent-cap.cjs')
     // W8-B: beside the profile's `attribution/` folder, which it appends to (checkpoint.ts)
     this.checkpointPath = path.join(userDataDir, 'astera-attribution-checkpoint.cjs')
+    // beside orchestration.json, which it reads to tell a worker (deliveryGuard.ts)
+    this.deliveryGuardPath = path.join(userDataDir, 'astera-delivery-guard.cjs')
     // The Host reads these files back for `sessions list` (host/sessions.ts), so where they are is one
     // rule in core rather than a path spelled out twice.
     this.hookEventsDir = hookEventsDirIn(userDataDir)
@@ -280,12 +284,17 @@ export class StatusLineManager {
     await writeScript(this.sessionContextPath, SESSION_CONTEXT_SCRIPT)
     await writeScript(this.subagentCapPath, SUBAGENT_CAP_SCRIPT)
     await writeScript(this.checkpointPath, CHECKPOINT_SCRIPT) // W8-B
+    await writeScript(this.deliveryGuardPath, DELIVERY_GUARD_SCRIPT)
     const hookCmd = captureCommand(this.nodePath, this.hookCapturePath)
     const contextCmd = captureCommand(this.nodePath, this.sessionContextPath)
     // W6-G: the subagent cap (subagentCap.ts). **Synchronous**, unlike the capture hooks: its PreToolUse answer is
     // the deny, so Claude Code must wait for it. One node process per subagent call, stop and session start.
     const capCmd = captureCommand(this.nodePath, this.subagentCapPath)
     const subagentCapHook = { matcher: SUBAGENT_MATCHER, hooks: [{ type: 'command', command: capCmd }] }
+    // Workers never deliver (deliveryGuard.ts). Synchronous (its answer is the deny), and `if`-filtered, so only a
+    // `git push` or `gh pr create` line spawns its node.
+    const guardCmd = captureCommand(this.nodePath, this.deliveryGuardPath)
+    const deliveryGuardHook = { matcher: 'Bash', hooks: DELIVERY_GUARD_IFS.map((f) => ({ type: 'command', if: f, command: guardCmd })) }
     // W8-B: the line checkpoint (core/attribution/checkpoint.ts), every session: the owner's interactive tabs are where a
     // human and an agent share a commit. `async`, so an edit never waits on it; one node process per edit call.
     const checkpointHook = {
@@ -327,7 +336,7 @@ export class StatusLineManager {
       // this hook's tool_input, and nothing else carries it (the transcript is silent while the CLI
       // waits). Matcher-limited to the one tool so ordinary tool calls pay nothing; the write/execute
       // family stays in the gated file below for the reasons given there.
-      PreToolUse: [{ matcher: ASK_MATCHER, hooks: [{ type: 'command', command: hookCmd }] }, subagentCapHook],
+      PreToolUse: [{ matcher: ASK_MATCHER, hooks: [{ type: 'command', command: hookCmd }] }, subagentCapHook, deliveryGuardHook],
       PostToolUse: [{ matcher: ASK_MATCHER, hooks: [{ type: 'command', command: hookCmd }] }, checkpointHook],
       // W6-G: a subagent finished, so its tab has room for one more
       SubagentStop: [{ hooks: [{ type: 'command', command: capCmd }] }],
@@ -392,7 +401,7 @@ export class StatusLineManager {
         // The cost: a user who configured the read tools to require approval gets only the text in that notification.
         // Hardcoding tool names here is a limitation too — a new tool will be missing from this list. Either way the
         // notification only falls back to the previous behaviour (a one-line message), so it is not a silent failure.
-        PreToolUse: [{ matcher: TOOL_MATCHER, hooks: [{ type: 'command', command: hookCmd }] }, subagentCapHook],
+        PreToolUse: [{ matcher: TOOL_MATCHER, hooks: [{ type: 'command', command: hookCmd }] }, subagentCapHook, deliveryGuardHook],
         // The pair that ends the capture: PostToolUse fires once the tool has actually run, and its
         // tool_use_id lets SlackNotifier drop the capture for certain. Without it a subagent's tool call
         // stays "waiting" until Stop — its tool_use is written only to the subagent's own transcript, so the

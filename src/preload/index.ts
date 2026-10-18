@@ -213,6 +213,8 @@ const api = {
     // W3-A
     getActivityDigestMinutes: invoke('settings.getActivityDigestMinutes'),
     setActivityDigestMinutes: invoke('settings.setActivityDigestMinutes'),
+    getFreshCoordinatorContextPct: invoke('settings.getFreshCoordinatorContextPct'),
+    setFreshCoordinatorContextPct: invoke('settings.setFreshCoordinatorContextPct'),
     getAlertSound: invoke('settings.getAlertSound'), // W6-B
     setAlertSound: invoke('settings.setAlertSound'),
     getAutoCloseEndedPlanTabs: invoke('settings.getAutoCloseEndedPlanTabs'), // W7-F (#84)

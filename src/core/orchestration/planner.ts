@@ -182,10 +182,25 @@ export function editPlanTask(
   s: OrchState,
   taskId: string,
   patch: PlanFields & { title?: string; spec?: string; deps?: string[] },
-  now: string
+  now: string,
+  /** The owner (never an agent session) may also change a run Task that has not started: pending/ready, no dispatch */
+  byOwner = false
 ): Res<Task> {
   const task = s.tasks.find((t) => t.id === taskId)
   if (!task) return { ok: false, error: `unknown task: ${taskId}`, missing: true }
+  // a started Task falls through to the rule below: it takes new --criteria only
+  if (byOwner && task.runId !== undefined && (task.status === 'pending' || task.status === 'ready') && !s.dispatches.some((d) => d.taskId === taskId)) {
+    if (patch.deps) {
+      const outside = patch.deps.filter((d) => d === taskId || !s.tasks.some((t) => t.id === d && t.runId === task.runId))
+      if (outside.length) return { ok: false, error: `deps must be other Tasks of the same run: ${outside.join(', ')}` }
+    }
+    const next: Task = { ...task, ...patch, updatedAt: now }
+    const tasks = s.tasks.map((t) => (t.id === taskId ? next : t))
+    if (layersOf({ ...s, tasks }, task.runId).cyclic.length)
+      return { ok: false, error: `those deps would make ${taskId} wait on itself` }
+    const settled = recomputeReady(tasks)
+    return { ok: true, state: { ...s, tasks: settled }, value: settled.find((t) => t.id === taskId)! }
+  }
   // W8-F (#100): a Task in a run that has not finished keeps one editable field: its acceptance criteria, which the
   // coordinator narrows when the owner's answer does (the review judges the Task against them)
   if (task.runId !== undefined) {

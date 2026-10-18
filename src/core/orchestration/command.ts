@@ -172,6 +172,8 @@ import { JOB_SOURCE, SOURCE_COMMANDS, createFromContext, sourcesCommand, type Jo
 // W6-D wave replanning
 import { replanJobOf, waveOpen } from './replan'
 import { REPLAN_COMMANDS, replanCommand, replanRefusal } from './exec/replanStart'
+// Coordinator rotation
+import { refreshCoordinator } from './exec/coordinatorRotate'
 import { feedbackCommand, isFeedbackCommand } from './exec/plannerFeedback'
 export { JOB_SOURCE } from './commandSources'
 import { pluginIdOfCheck, type CompletionCheckInput, type PluginCheckAnswer } from './pluginChecks'
@@ -1095,6 +1097,7 @@ const COORDINATOR_ONLY = new Set([
   'run-spawn',
   'run-coordinator-stop',
   'run-start-marks-clear',
+  'run-coordinator-refresh',
   'run-start',
   'run-worktree-set',
   'run-pause',
@@ -1713,7 +1716,7 @@ export async function handleCommand(
   // itself; `run-start-marks-clear` is the loop's sweep. Refused from inside any agent session, as
   // `chats answer` is: taken from the app (APP_CALLER), the Host (HOST_CALLER) and a shell (no session).
   if (
-    (cmd === 'run-start-marks-clear' || cmd === 'jobs-after-sweep' || (cmd === 'run-coordinator-stop' && args.gone !== undefined)) &&
+    (cmd === 'run-start-marks-clear' || cmd === 'jobs-after-sweep' || cmd === 'run-coordinator-refresh' || (cmd === 'run-coordinator-stop' && args.gone !== undefined)) &&
     caller.sessionId !== '' &&
     caller.sessionId !== APP_CALLER &&
     caller.sessionId !== HOST_CALLER
@@ -2569,6 +2572,13 @@ export async function handleCommand(
           }
       }
       const { job: _job, ...rest } = args
+      // A Task added to a planned run (its Job has a planner) is judged by its criteria at the next replan's check: with none
+      // the check holds the whole plan. So it needs `--criteria`; without `--prompt` its spec is the prompt.
+      if (run !== null && jobOf(s, s.runs.find((r) => r.id === run)!)?.plannerSessionIds !== undefined) {
+        if (args.criteria === undefined)
+          return bad("a Task added to a planned run needs --criteria (a JSON array of one or more acceptance criteria): the plan's check judges it by them")
+        if (args.prompt === undefined) rest.prompt = args.spec
+      }
       return handleCommand(deps, caller, 'task-create', { ...rest, run: job ?? run })
     }
     case 'jobs-wait':
@@ -3677,6 +3687,14 @@ export async function handleCommand(
       await deps.setState(next)
       return okBody({ marked: next.jobs.filter((j) => j.afterStopNotified === now).map((j) => j.id) })
     }
+    // Coordinator rotation: a fresh coordinator in the Run's slot, then the old one stopped (exec/coordinatorRotate.ts)
+    case 'run-coordinator-refresh': {
+      const id = str(args.run)
+      if (!id) return bad('--run is required')
+      const wave = typeof args.wave === 'number' && Number.isInteger(args.wave) ? args.wave : undefined
+      const contextPct = typeof args.contextPct === 'number' && Number.isFinite(args.contextPct) ? args.contextPct : undefined
+      return refreshCoordinator(deps, { runId: id, wave, contextPct, reason: str(args.reason) ?? undefined, now })
+    }
     case 'run-start-marks-clear': {
       const nowMs = Date.parse(now)
       const stale = new Set(
@@ -3921,6 +3939,10 @@ export async function handleCommand(
         if (!plan.ok) return bad(plan.error)
         if (args.deps !== undefined && !(Array.isArray(args.deps) && args.deps.every((d) => typeof d === 'string')))
           return bad('--deps must be a JSON array of Task ids')
+        // 사람만(에이전트 세션·MCP 아님) 아직 시작하지 않은 run Task 도 고칠 수 있다 — 도는 계획에서 replan 만이 바꾸던 자리
+        const runTask = s.tasks.find((t) => t.id === id)
+        const byOwner =
+          !fromAgentSession && caller.role !== 'mcp' && runTask?.runId !== undefined && outcomeOf(s, runTask.runId) === 'running'
         return commit(
           editPlanTask(
             s,
@@ -3931,7 +3953,8 @@ export async function handleCommand(
               ...(str(args.spec) ? { spec: str(args.spec)! } : {}),
               ...(args.deps !== undefined ? { deps: args.deps as string[] } : {})
             },
-            now
+            now,
+            byOwner
           )
         )
       }
@@ -4400,6 +4423,8 @@ export async function handleCommand(
         const task = s.tasks.find((t) => t.id === d.taskId)
         const run = task && s.runs.find((r) => r.id === task.runId)
         const converging =
+          // A reviewer's session is never the one a repair reuses: its verdict is recorded, so it may go
+          !d.review &&
           !!(run && jobOf(s, run)?.convergence) &&
           !!task &&
           (task.status === 'validating' ||

@@ -6,6 +6,7 @@
 //
 // This module must stay importable by the Host: no electron, nothing from src/main.
 
+import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { OrchServerDeps } from '../command'
 import { isSamePath } from '../../files/tree'
@@ -162,6 +163,48 @@ async function attributedMergeArgs(cwd: string, ref: string, message: string | u
   if (trailers.length === 0) return ['--no-edit', ref]
   const name = ref.startsWith('refs/heads/') ? `branch '${ref.slice('refs/heads/'.length)}'` : `commit '${ref}'`
   return ['--no-edit', '-m', withTrailers(`Merge ${name}`, trailers), ref]
+}
+
+/** One untracked file set aside so a merge can run (`setAsideUntracked`). */
+interface Aside {
+  path: string
+  aside: string
+  link: boolean
+}
+
+/** The untracked files a merge's refusal names ("would be overwritten by merge"), moved aside, when each is one git
+ *  ignores or a symlink named node_modules; null when there are none, or one is anything else (that one is the
+ *  owner's, and the merge's refusal stands). */
+export async function setAsideUntracked(cwd: string, stderr: string, run: typeof realGit = realGit): Promise<Aside[] | null> {
+  const m = /untracked working tree files would be overwritten by merge:\n([\s\S]*?)\n(?:Please|Aborting)/.exec(stderr)
+  if (!m) return null
+  const files = m[1].split('\n').map((l) => l.trim()).filter((l) => l !== '')
+  if (files.length === 0) return null
+  const out: Aside[] = []
+  for (const f of files) {
+    const abs = path.join(cwd, f)
+    const link = await fs.lstat(abs).then((st) => st.isSymbolicLink(), () => false)
+    const ignored = (await run(['check-ignore', '-q', '--', f], { cwd })).ok
+    if (!ignored && !(link && path.basename(f) === 'node_modules')) return null
+    out.push({ path: abs, aside: `${abs}.astera-aside-${process.pid}-${Date.now()}`, link })
+  }
+  for (const a of out) await fs.rename(a.path, a.aside)
+  return out
+}
+
+/** Puts set-aside files back. One the merge brought in its place stays the merge's: a link set aside is dropped (it
+ *  held nothing), any other file is kept beside it under its aside name and logged, so nothing is lost. */
+async function restoreAside(aside: Aside[], log: (m: string) => void): Promise<void> {
+  for (const a of aside) {
+    try {
+      const taken = await fs.lstat(a.path).then(() => true, () => false)
+      if (!taken) await fs.rename(a.aside, a.path)
+      else if (a.link) await fs.unlink(a.aside)
+      else log(`merge: the merge brought ${a.path}; the untracked file that was there is kept at ${a.aside}`)
+    } catch (e) {
+      log(`merge: could not put ${a.path} back from ${a.aside}: ${String(e)}`)
+    }
+  }
 }
 
 /** 통합의 결과. 셋뿐이다 — 합쳤다, 사람에게 가야 한다, 에이전트에게 넘겨야 한다. */
@@ -426,7 +469,8 @@ export async function integrateWorktrees(
       unchecked.push(target.path)
       ctx.log(`merge: could not check uncommitted changes in ${target.path} — git status failed: ${dirty.stderr}`)
     }
-    const n = dirty.ok && dirty.stdout !== '' ? dirty.stdout.split('\n').length : 0
+    // An untracked node_modules (the worktree's link to the project's) is no work of the worker's
+    const n = dirty.ok ? dirty.stdout.split('\n').filter((l) => l !== '' && !/^\?\? "?node_modules\/?"?$/.test(l)).length : 0
     if (n > 0) {
       ctx.log(`merge: ${target.path} has ${n} uncommitted change(s) — not merged`)
       dirtyPaths.push(target.path)
@@ -479,10 +523,13 @@ export async function integrateWorktrees(
     const mergeOpId = await ctx.gitOp.begin('job-merge', mergeInto)
     try {
       // W6-H: a delivery names its merges (`Fixes #n`), and a fast-forward would carry no message, so it gets a commit
-      const merged = await (ctx.git ?? realGit)([...ident, 'merge', ...how], {
-        cwd: mergeInto,
-        timeoutMs: GIT_WRITE_TIMEOUT_MS
-      })
+      const mergeOnce = (): ReturnType<typeof realGit> =>
+        (ctx.git ?? realGit)([...ident, 'merge', ...how], { cwd: mergeInto, timeoutMs: GIT_WRITE_TIMEOUT_MS })
+      let merged = await mergeOnce()
+      // Owner spec 2026-10-18, part 2: untracked files git ignores, or a node_modules symlink, never block the merge.
+      // git refused before it began, so they are set aside and the merge runs once more.
+      const aside = merged.ok ? null : await setAsideUntracked(mergeInto, merged.stderr, ctx.git ?? realGit)
+      if (aside) merged = await mergeOnce()
       if (!merged.ok) {
         // 미리 검사가 통과했는데도 실패했다면 충돌이 아닌 이유다(추적되지 않는 파일과의 겹침,
         // index.lock, 훅, 서명). 되돌린 뒤 사람에게 간다 — 에이전트에게 넘기지 않는 이유는 이것이
@@ -491,6 +538,7 @@ export async function integrateWorktrees(
         await (ctx.git ?? realGit)(['merge', '--abort'], { cwd: mergeInto, timeoutMs: GIT_WRITE_TIMEOUT_MS })
         // **되돌아갔는지 확인해서 그 사실을 문장에 넣는다.** 앱이 저장소를 어떤 상태로 두었는지를
         // 사용자가 짐작하게 두지 않는다 — 이 경로가 있는 이유가 그것이다.
+        if (aside) await restoreAside(aside, ctx.log)
         const after = await (ctx.git ?? realGit)(['status', '--porcelain', '--untracked-files=no'], { cwd: mergeInto })
         const left =
           after.ok && after.stdout === ''
@@ -501,6 +549,7 @@ export async function integrateWorktrees(
           reason: `${target.branch} 브랜치를 합칠 폴더에 합치지 못했습니다: ${merged.stderr || merged.stdout}. ${left}`
         }
       }
+      if (aside) await restoreAside(aside, ctx.log)
     } finally {
       // A rejecting end is logged, not thrown: from a finally it would replace the merge's result.
       await Promise.resolve()

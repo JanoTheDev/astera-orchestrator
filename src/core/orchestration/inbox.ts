@@ -1,8 +1,10 @@
 // 앱이 스스로 돌리는 Run 의 받은편지함 판정. 순수하고 부수 효과가 없다 — schedule.ts 의
 // slotsToFill 과 같은 이유로 그렇다(이 슬라이스에서 기계가 검사할 수 있는 유일한 부분이고,
 // 매다는 자리는 main 의 배선이라 테스트가 없다).
-import type { OrchState } from './state'
-import type { Gate } from './types'
+import { jobOf, type OrchState } from './state'
+import type { Gate, Task } from './types'
+import { isIntegrationTask } from './integrate'
+import { jobActive } from './schedule'
 
 /** 코디네이터가 없는 Run 에서 워커의 `ask` 에 돌려주는 답. **고정 문구다.**
  *
@@ -188,4 +190,103 @@ export function gateAnswersToTell(s: OrchState, nowMs: number): Gate[] {
       Date.parse(g.resolvedAt) >= nowMs - GATE_ANSWER_TELL_MS &&
       !told.has(`${g.runId}\u0000${gateAnsweredSubject(g.id)}`)
   )
+}
+
+// Push, not poll (owner 2026-10-18: "instead of a waiting loop everytime one is done send a message to the
+// coordinator"). The coordinator ends its turn and waits; the Host posts a `status` message into its Run's inbox the
+// moment something needs it, and the nudge (exec/dispatchLoop.ts nudgePass) types into the idle session. Each notice is
+// told once: its subject is the mark, as gateAnsweredSubject's is, so a restart does not tell it again.
+
+/** One message the Host sends a coordinator: what happened and the next action. */
+export interface CoordinatorNotice {
+  runId: string
+  /** `send` posts into this Task's Run */
+  taskId: string
+  subject: string
+  body: string
+}
+
+/** How long a ready Task waits for a worker, with its coordinator idle, before the coordinator is reminded. */
+export const READY_REMINDER_MS = 60_000
+
+/** The Runs a live coordinator drives, keyed by id: what every notice is for. A Run stopped at its limit is not told. */
+const drivenRuns = (s: OrchState): Map<string, string> =>
+  new Map(
+    s.runs
+      .filter((r) => r.coordinatorSessionId !== undefined && !r.coordinatorStop)
+      .map((r) => [r.id, r.coordinatorSessionId as string])
+  )
+
+/** The `status` subjects already in each Run's inbox, as `runId\0subject`: the told marks. */
+const toldMarks = (s: OrchState): Set<string> =>
+  new Set(s.messages.filter((m) => m.type === 'status').map((m) => `${m.runId}\u0000${m.subject}`))
+
+/** A Run's Tasks that are ready with no worker: ready, no open Dispatch, not the app's own merge Task. */
+export function readyWithoutWorker(s: OrchState, runId: string): Task[] {
+  const open = new Set(s.dispatches.filter((d) => !d.outcome && !d.endedAt).map((d) => d.taskId))
+  return s.tasks.filter((t) => t.runId === runId && t.status === 'ready' && !open.has(t.id) && !isIntegrationTask(t))
+}
+
+/** The next-action lines for a Run: each ready Task to start, or that there is nothing to start. */
+export function nextActionOf(s: OrchState, runId: string): string {
+  const ready = readyWithoutWorker(s, runId)
+  if (ready.length === 0) return 'Nothing is ready to start now. End your turn; the next message wakes you.'
+  return ready.map((t) => `${t.id} (${t.title}) is ready and has no worker: worker-start it.`).join('\n')
+}
+
+/** The subject that tells a coordinator a Task finished, and marks it told. */
+export const taskOutcomeSubject = (taskId: string, status: string): string => `task ${taskId} ${status}`
+
+/** Tasks of a driven Run that completed or failed in the last `GATE_ANSWER_TELL_MS` (so a restart does not replay a
+ *  Run's history), not yet told. Each names the next action: the ready Tasks with no worker. A failed merge Task (the
+ *  app's, `parentId`) is the owner's: the merge pass (exec/dispatchLoop.ts) opens its Gate. */
+export function taskOutcomesToTell(s: OrchState, nowMs: number): CoordinatorNotice[] {
+  const driven = drivenRuns(s)
+  const told = toldMarks(s)
+  const out: CoordinatorNotice[] = []
+  for (const t of s.tasks) {
+    const runId = t.runId
+    if ((t.status !== 'completed' && t.status !== 'failed') || runId === undefined || !driven.has(runId)) continue
+    if (Date.parse(t.updatedAt) < nowMs - GATE_ANSWER_TELL_MS) continue
+    const subject = taskOutcomeSubject(t.id, t.status)
+    if (told.has(`${runId}\u0000${subject}`)) continue
+    const what =
+      t.status === 'completed'
+        ? `Task ${t.id} (${t.title}) completed.`
+        : isIntegrationTask(t)
+          ? `Merge worker ${t.id} failed; Astera opened a Gate for the owner on it. Leave it to them.`
+          : `Task ${t.id} (${t.title}) failed. Read its report (\`astera check --json\`), then restart it, change its spec, ` +
+          'or open a Gate if a person must decide.'
+    out.push({ runId, taskId: t.id, subject, body: `${what}\n\n${nextActionOf(s, runId)}` })
+  }
+  return out
+}
+
+/** Ready Tasks of a driven, placing Run left without a worker for `READY_REMINDER_MS` while its coordinator is idle.
+ *  Ready since the later of its own last change and its deps' (a dep finishing is what readies it, and recomputeReady
+ *  stamps nothing). Told once per readiness: that moment is in the subject. */
+export function readyReminders(s: OrchState, nowMs: number, idle: (sessionId: string) => boolean): CoordinatorNotice[] {
+  const driven = drivenRuns(s)
+  const told = toldMarks(s)
+  const at = new Map(s.tasks.map((t) => [t.id, Date.parse(t.updatedAt)]))
+  const out: CoordinatorNotice[] = []
+  for (const run of s.runs) {
+    const sessionId = driven.get(run.id)
+    if (sessionId === undefined || run.paused) continue
+    const job = jobOf(s, run)
+    if (!job || !jobActive(job) || job.dispatchHold) continue
+    for (const t of readyWithoutWorker(s, run.id)) {
+      const since = Math.max(at.get(t.id) ?? 0, ...t.deps.map((d) => at.get(d) ?? 0))
+      if (nowMs - since < READY_REMINDER_MS || !idle(sessionId)) continue
+      const subject = `task ${t.id} still ready since ${new Date(since).toISOString()}`
+      if (told.has(`${run.id}\u0000${subject}`)) continue
+      out.push({
+        runId: run.id,
+        taskId: t.id,
+        subject,
+        body: `${t.id} (${t.title}) has been ready for over a minute and has no worker: worker-start it.`
+      })
+    }
+  }
+  return out
 }

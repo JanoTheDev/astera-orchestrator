@@ -3201,6 +3201,9 @@ export function registerIpc(
       sessionBusy: (id) => busyState.get(id) ?? null,
       typeInto: (id, text) => core.sessions.write(id, text),
       lastPersonInputAt: (id) => personInputAt.get(id) ?? null,
+      // Coordinator rotation: a claude coordinator's statusLine context reading, and the setting
+      sessionContextPct: async (id) => (await core.usageSession(id).catch(() => null))?.context?.usedPercent ?? null,
+      freshCoordinatorPct: () => core.appSettings.getFreshCoordinatorContextPct(),
       // 앱에서 "운전해도 되는가" 는 서버가 서 있고, dispatch 를 알리는 Host 가 몰지 않는가다(§4.2, N8).
       // 슬롯마다 다시 묻으므로, 한 바퀴 도중에 그런 Host 가 붙으면 그 자리에서 멈춘다.
       mayStart: () => orch !== null && !hostDrives(),
@@ -4311,6 +4314,13 @@ export function registerIpc(
     if (typeof n !== 'number' || !Number.isInteger(n) || n < 0 || n > ACTIVITY_DIGEST_MAX_MINUTES)
       throw new Error(`INVALID_ACTIVITY_DIGEST_MINUTES: ${String(n)}`)
     await core.appSettings.setActivityDigestMinutes(n)
+  })
+  // Coordinator rotation: the context use (%) that replaces a plan's coordinator, 0 for off
+  ipcMain.handle('settings.getFreshCoordinatorContextPct', () => core.appSettings.getFreshCoordinatorContextPct())
+  ipcMain.handle('settings.setFreshCoordinatorContextPct', async (_e, n: unknown) => {
+    if (typeof n !== 'number' || !Number.isInteger(n) || n < 0 || n > 100)
+      throw new Error(`INVALID_FRESH_COORDINATOR_CONTEXT_PCT: ${String(n)}`)
+    await core.appSettings.setFreshCoordinatorContextPct(n)
   })
   // W6-G: the subagent cap per tab and the usage guard's threshold
   ipcMain.handle('settings.getMaxSubagentsPerSession', () => core.appSettings.getMaxSubagentsPerSession())

@@ -175,7 +175,9 @@ export function composeHostDriving(a: {
       sessionBusy: (id) => a.spawner.sessionBusy(id),
       typeInto: (id, text) => a.spawner.typeInto(id, text),
       inFlight: () => a.spawner.inFlight(),
-      isRetiring: () => disposed || a.spawner.isRetiring()
+      isRetiring: () => disposed || a.spawner.isRetiring(),
+      // Coordinator rotation: the context reading of a claude coordinator's statusLine
+      statusLinePayload: (id) => a.spawner.statusLinePayload(id)
     },
     worktrees: a.worktrees,
     checks,

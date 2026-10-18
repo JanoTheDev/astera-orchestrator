@@ -80,7 +80,9 @@ export const ACTIVITY_KINDS = [
   // W7-A: a plan started with no approval step (autoApprove)
   'plan.auto-started',
   // W8-D: a plan's Tasks newly meet another plan's of the same project (Job.overlaps): feed and notice, no chime
-  'plan.overlap'
+  'plan.overlap',
+  // Coordinator rotation: a fresh coordinator took the Run's slot (JobRun.coordinatorRefreshes); feed only
+  'coordinator.refreshed'
 ] as const
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number]
 
@@ -317,6 +319,15 @@ export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[
       if (r.delivery?.sha === undefined || was === undefined || was.delivery?.sha === r.delivery.sha) continue
       const at = where(r.id)
       push('plan.delivered', at, { title: at.job ? jobNameOf(at.job) : r.id, sha: r.delivery.sha, ...(r.delivery.branch !== undefined ? { branch: r.delivery.branch } : {}) })
+    }
+    // Coordinator rotation: each refresh added since the last commit, by its new session
+    for (const r of next.runs) {
+      const was = before.get(r.id)
+      if (was === undefined || was.coordinatorRefreshes === r.coordinatorRefreshes) continue
+      const seen = new Set((was.coordinatorRefreshes ?? []).map((x) => x.to))
+      const at = where(r.id)
+      for (const x of r.coordinatorRefreshes ?? [])
+        if (!seen.has(x.to)) push('coordinator.refreshed', at, { title: at.job ? jobNameOf(at.job) : r.id, reason: x.reason }, x.to)
     }
   }
 

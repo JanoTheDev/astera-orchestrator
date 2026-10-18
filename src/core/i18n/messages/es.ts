@@ -1711,5 +1711,9 @@ export const es: Catalog = {
   'pluginNotify.limitWaitingAt': 'Detenido por un límite de uso; se reintentará a las {time}.',
   'pluginNotify.limitWaiting': 'Detenido por un límite de uso.',
   'pluginNotify.runCompleted': 'El Run {ordinal} terminó.',
-  'pluginNotify.accountSwitched': 'Continuando con la cuenta {label}.'
+  'pluginNotify.accountSwitched': 'Continuando con la cuenta {label}.',
+  'settings.freshCoordinator.label': 'Coordinador nuevo al llegar al contexto (%)',
+  'settings.freshCoordinator.hint': 'Cuando el coordinador de un plan ha usado esta parte de su ventana de contexto, Astera lo sustituye por una sesión nueva (misma cuenta y modelo) informada con el estado del plan. También se sustituye en cada cambio de oleada. 0 desactiva la comprobación de contexto.',
+  'settings.freshCoordinator.saveFailed': 'No se pudo guardar el ajuste del coordinador nuevo: {detail}',
+  'plan.wave.coordinatorRefreshed': 'Coordinador renovado ({reason})'
 }

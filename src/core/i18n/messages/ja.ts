@@ -1685,5 +1685,9 @@ export const ja: Catalog = {
   'pluginNotify.limitWaitingAt': '使用上限で止まりました。{time} に再試行します。',
   'pluginNotify.limitWaiting': '使用上限で止まりました。',
   'pluginNotify.runCompleted': 'Run {ordinal} が終わりました。',
-  'pluginNotify.accountSwitched': '{label} アカウントで続けます。'
+  'pluginNotify.accountSwitched': '{label} アカウントで続けます。',
+  'settings.freshCoordinator.label': 'コンテキスト使用率でコーディネーターを交代(%)',
+  'settings.freshCoordinator.hint': 'プランのコーディネーターがコンテキストウィンドウをこの割合まで使うと、Astera は同じアカウントとモデルの新しいセッションに入れ替え、プランの状態を伝えます。ウェーブの切り替わりごとにも交代します。0 にするとコンテキストの確認を行いません。',
+  'settings.freshCoordinator.saveFailed': '新しいコーディネーターの設定を保存できませんでした: {detail}',
+  'plan.wave.coordinatorRefreshed': 'コーディネーターを新しくしました ({reason})'
 }

@@ -477,6 +477,11 @@ export interface JobRun {
   /** The pushed commit, or why the push stopped (escalated). Present: the driving loop does not try again
    *  (`run-deliver --force` does). */
   delivery?: RunDelivery
+  // Coordinator rotation (exec/coordinatorRotate.ts)
+  /** The fresh coordinators this Run was given (`run-coordinator-refresh`), oldest first, the last 20: why (`wave 3`,
+   *  `context 72%`), the session it replaced and the one it started. The feed says "Coordinator refreshed (…)" for each,
+   *  and the renderer closes a replaced session's ended tab. */
+  coordinatorRefreshes?: { at: string; reason: string; from: string; to: string; wave?: number; contextPct?: number }[]
 }
 
 export interface Task {

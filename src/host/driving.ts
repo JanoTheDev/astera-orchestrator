@@ -62,6 +62,9 @@ import type { ProcRegistry } from './procRegistry'
 import type { HostSpawner } from './spawner'
 import type { HostWorktrees } from './worktrees'
 import { readMaxConcurrentWorkers } from '../core/settings/maxConcurrentWorkers'
+// Coordinator rotation
+import { readFreshCoordinatorPct } from '../core/settings/freshCoordinator'
+import { parseStatusLinePayload } from '../core/usage/statusline'
 
 export interface HostDriving {
   /** Computes now, reading the settings file (used by mayDrain, N2). */
@@ -118,7 +121,7 @@ export function createHostDriving(d: {
   /** `lastAppPid` (leftovers Task 1): the pid the last app gave in its hello, the default `appPid`'s
    *  fallback when app.pid names no live app. Optional for the test fakes. */
   server: { hasApp(): boolean; appsKeep(duty: string): boolean; lastAppPid?(): number | null }
-  spawner: Pick<HostSpawner, 'sessionBusy' | 'typeInto' | 'isRetiring' | 'inFlight'>
+  spawner: Pick<HostSpawner, 'sessionBusy' | 'typeInto' | 'isRetiring' | 'inFlight'> & Partial<Pick<HostSpawner, 'statusLinePayload'>>
   worktrees: Pick<HostWorktrees, 'fork' | 'integrate' | 'reap' | 'isRegistered'>
   /** B3: the loop's accounts, login and sync lang come from the checks. */
   checks: Pick<HostChecks, 'resumeSweep' | 'stopForeignValidations' | 'checking' | 'accounts' | 'loginStatus' | 'langNow' | 'lang'>
@@ -413,6 +416,12 @@ export function createHostDriving(d: {
       const p = d.registry.sessionPty(id)
       return p === null ? null : (d.registry.lastPersonWrite?.(p) ?? null)
     },
+    // Coordinator rotation: a claude coordinator's context reading (a codex one has no statusLine: wave boundaries only)
+    sessionContextPct: async (id) => {
+      const payload = await d.spawner.statusLinePayload?.(id).catch(() => null)
+      return payload ? (parseStatusLinePayload(payload)?.context?.usedPercent ?? null) : null
+    },
+    freshCoordinatorPct: () => readFreshCoordinatorPct(settingsPath),
     mayStart,
     log,
     nowMs: () => d.nowMs(),
