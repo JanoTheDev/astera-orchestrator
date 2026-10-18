@@ -1,6 +1,7 @@
 // W3-A activity feed: the words and the list the panel draws. Pure, so the node-only test suite reaches it; the lines
 // themselves are the Host's (core/orchestration/activity.ts).
 import type { ActivityEvent, ActivityItem, ActivitySummary } from '../../../../core/orchestration/activity'
+import { resetClock } from '../../../../core/orchestration/activity'
 import type { TaskBlockedReason } from '../../../../core/types'
 
 /** Lines the panel holds; older ones fall off (the Host keeps more, and `activity-summary` reads those). */
@@ -15,9 +16,9 @@ export function mergePage(held: readonly ActivityEvent[], page: readonly Activit
   return out.length > max ? out.slice(out.length - max) : out
 }
 
-/** One plan's lines, or every line. */
+/** One plan's lines, or every line. W6-G: an account's usage pause holds every plan's new workers, so it is in each. */
 export const feedOf = (events: readonly ActivityEvent[], jobId: string | null): ActivityEvent[] =>
-  jobId === null ? [...events] : events.filter((e) => e.jobId === jobId)
+  jobId === null ? [...events] : events.filter((e) => e.jobId === jobId || e.type === 'usage.paused' || e.type === 'usage.resumed')
 
 const CATEGORY_WORD: Record<string, [string, Tone]> = {
   done: ['completed', 'ok'],
@@ -65,10 +66,34 @@ export function lineOf(e: ActivityEvent, accountLabel: (id: string) => string): 
         : { text: `${p.title}: PR ${p.pr?.number !== undefined ? `#${p.pr.number} ` : ''}opened`, tone: 'ok' }
     case 'plan.awaiting-approval':
       return { text: `${p.title}: plan ready for your approval`, tone: 'warn' }
+    // W6-A
+    case 'plan.nothing-to-do':
+      return { text: `${p.title}: nothing to do, already built${p.summary ? `: ${p.summary.split('\n')[0]}` : ''}`, tone: 'ok' }
     case 'task.waiting':
       return { text: `${p.title}: waiting for ${p.waitingFor === 'question' ? 'your answer to a question' : 'your permission'}`, tone: 'warn' }
+    // W6-B
+    case 'question.auto-answered':
+      return { text: `${p.title}: coordinator answered "${p.question ?? ''}": ${p.answer ?? ''}`, tone: 'info' }
+    case 'task.escalated':
+      return { text: `${p.title}: needs your decision: ${p.reason ?? ''}`, tone: 'bad' }
+    // W6-G
+    case 'usage.paused': {
+      const weekly = p.usageWindow === 'seven_day'
+      const resumes = p.resetsAt ? `, resumes ~${resetClock(p.resetsAt, weekly)}` : ''
+      return { text: `${accountLabel(p.title)}: new workers paused, at ${p.percent}% of its ${weekly ? '7-day' : '5-hour'} limit${resumes}`, tone: 'warn' }
+    }
+    case 'usage.resumed':
+      return { text: `${accountLabel(p.title)}: new workers resumed, under the usage threshold again`, tone: 'info' }
     case 'plan.done':
       return p.runOutcome === 'failed' ? { text: `${p.title}: plan finished with failures`, tone: 'bad' } : { text: `${p.title}: plan done`, tone: 'ok' }
+    // W6-D
+    case 'plan.replanning':
+      return { text: `${p.title}: ${p.replanMode === 'completion' ? 'final check against the objective' : `replanning before wave ${(p.wave ?? 0) + 1}`}`, tone: 'info' }
+    case 'plan.replanned':
+      return { text: `${p.title}: ${p.replanMode === 'completion' ? 'final check' : 'replanned'}: ${p.summary ?? ''}`, tone: 'info' }
+    // W6-H
+    case 'plan.delivered':
+      return { text: `${p.title}: pushed to ${p.branch ?? 'its branch'} (${(p.sha ?? '').slice(0, 7)})`, tone: 'ok' }
   }
 }
 

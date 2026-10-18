@@ -242,6 +242,13 @@ describe('SessionManager', () => {
     expect(spawned[0].opts.meta?.restore).toMatchObject({ model: 'opus' })
   })
 
+  // W6-B: a Job worker's --disallowedTools reaches the argv
+  it('disallowedTools 를 주면 --disallowedTools 로 띄운다', () => {
+    const { manager, spawned } = setup()
+    manager.spawn({ account, cwd: process.cwd(), disallowedTools: ['AskUserQuestion'] })
+    expect(argsText(spawned[0].args)).toContain('--disallowedTools AskUserQuestion')
+  })
+
   it('model 이 없으면 --model 을 붙이지 않는다 (CLI 기본값)', () => {
     const { manager, spawned } = setup()
     const info = manager.spawn({ account, cwd: process.cwd() })

@@ -37,6 +37,12 @@ export type ActionId =
   // W3-B command bar
   | 'command.open'
   | 'command.talk'
+  // W6-F: open the Nth project workspace
+  | `workspace.project${WorkspaceSlot}`
+
+/** W6-F: the project workspaces with a key of their own, the first nine in the switcher. */
+export type WorkspaceSlot = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
+export const WORKSPACE_SLOTS: readonly WorkspaceSlot[] = [1, 2, 3, 4, 5, 6, 7, 8, 9]
 
 export type ActionSpec = {
   id: ActionId
@@ -44,6 +50,8 @@ export type ActionSpec = {
   defaults: string[]
   /** The settings-screen wording (an i18n key) */
   descKey: string
+  /** W6-F: the wording's params, for actions that share one key (the workspace slots) */
+  descParams?: Record<string, number>
   /**
    * Does this action yield while xterm has focus. It differs per action — closing a file tab (Ctrl+W) yields
    * because the terminal's 'delete previous word' takes priority, while the mode toggle is intercepted even
@@ -226,7 +234,18 @@ export function makeActions(platform: string): readonly ActionSpec[] {
       defaults: [`${M}+Shift+M`],
       descKey: 'shortcut.command.talk',
       yieldsToTerminal: false
-    }
+    },
+    // W6-F: Ctrl+Alt+1…9 opens the Nth project workspace. Ctrl, not `${M}`, everywhere, as the owner asked; Ctrl+Alt
+    // with a digit is no readline or CLI key (riskyReasonKey) and no app shortcut, so it is not yielded either.
+    ...WORKSPACE_SLOTS.map(
+      (n): ActionSpec => ({
+        id: `workspace.project${n}`,
+        defaults: [`Ctrl+Alt+${n}`],
+        descKey: 'shortcut.workspace.project',
+        descParams: { n },
+        yieldsToTerminal: false
+      })
+    )
   ]
 }
 

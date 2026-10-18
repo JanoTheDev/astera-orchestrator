@@ -13,6 +13,7 @@ import { SessionManager } from '../core/sessions/manager'
 import { StatusLineManager } from '../core/sessions/statusline'
 import { makeDescriptors } from '../core/providers/descriptor'
 import { previewShotsDir } from '../core/preview/shotsDir'
+import { plansDirOf } from '../core/orchestration/intakeFiles'
 import { specsDirOf } from '../core/orchestration/exec/specFiles'
 import type { PromptWriteEvent } from '../core/orchestration/exec/coordinator'
 
@@ -274,10 +275,10 @@ describe('createHostSpawner', () => {
     const app: Array<{ file: string; args: string[] | string; env: Record<string, string | undefined>; meta: unknown }> = []
     const sl = new StatusLineManager(profile)
     const m = new SessionManager((file, args, opts) => { app.push({ file, args, env: opts.env, meta: opts.meta }); return { pid: 1, onData() {}, onExit() {}, write() {}, resize() {}, kill() {}, pause() {}, resume() {} } },
-      makeDescriptors(process.platform), undefined, undefined, path.join(dir, 'home'), (id, a, o) => sl.spawnConfig(id, a, o), [previewShotsDir(profile), specsDirOf(profile)], hostEnv())
+      makeDescriptors(process.platform), undefined, undefined, path.join(dir, 'home'), (id, a, o) => sl.spawnConfig(id, a, o), [previewShotsDir(profile), specsDirOf(profile), /* W6-A */ plansDirOf(profile)], hostEnv())
     const account = JSON.parse(await fs.readFile(path.join(profile, 'accounts.json'), 'utf8')).accounts[0]
     const initialPrompt = (h.spawned[0].args as string[]).at(-1)
-    const info = m.spawn({ account, cwd: repo, bypassPermissions: false, initialPrompt, title: 'Write hello', rollAccountIds: ['acc1'],
+    const info = m.spawn({ account, cwd: repo, bypassPermissions: false, initialPrompt, title: 'Write hello', rollAccountIds: ['acc1'], disallowedTools: ['AskUserQuestion'],
       rollPrompt: (h.registry.list()[0].meta!.restore as { rollPrompt: string }).rollPrompt, rollProviders: ['claude'],
       orchEnv: { cliPath: path.join(profile, 'orch', process.platform === 'win32' ? 'astera.cmd' : 'astera'), skillsPath: path.join(dir, 'skills'), profileDir: profile },
       // S6 R6: the one key the Host's note adds, that the Host started it; everything else stays equal.

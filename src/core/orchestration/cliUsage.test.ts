@@ -642,3 +642,11 @@ describe('cliUsage — completion check plugins', () => {
     expect(guide).toContain('`options: ["retry", "skip-check", "mark-failed"]`')
   })
 })
+
+// W6-A intake
+describe('jobs create intake flags and sources items --assigned-to-me', () => {
+  it('are flags the commands take', () => {
+    expect(unknownFlagError('jobs-create', ['jobs', 'create', '--mode', 'audit', '--scope', 'all', '--instructions', 'x', '--attach', 'a'])).toBeNull()
+    expect(unknownFlagError('sources-items', ['sources', 'items', '--source', 'github', '--assigned-to-me'])).toBeNull()
+  })
+})

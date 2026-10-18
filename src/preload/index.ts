@@ -67,6 +67,7 @@ const EVENT_CHANNELS = [
   'github:status',
   'usage:accounts-updated',
   'notify:activate',
+  'notify:chime', // W6-B
   'conversation:append',
   'conversation:attention',
   'conversation:pendingPrompt',
@@ -148,6 +149,8 @@ const api = {
     // I am looking at") and this one ("which account should the next run go on") are different, and
     // the status-bar path needs no credentials at all (design doc §2/§4).
     accounts: invoke('usage.accounts'),
+    // W6-G
+    guard: invoke('usage.guard'),
     subscribe: fire('usage.subscribe'),
     unsubscribe: fire('usage.unsubscribe')
   },
@@ -204,7 +207,14 @@ const api = {
     // W3-A
     getActivityDigestMinutes: invoke('settings.getActivityDigestMinutes'),
     setActivityDigestMinutes: invoke('settings.setActivityDigestMinutes'),
+    getAlertSound: invoke('settings.getAlertSound'), // W6-B
+    setAlertSound: invoke('settings.setAlertSound'),
     setMaxConcurrentWorkers: invoke('settings.setMaxConcurrentWorkers'),
+    // W6-G
+    getMaxSubagentsPerSession: invoke('settings.getMaxSubagentsPerSession'),
+    setMaxSubagentsPerSession: invoke('settings.setMaxSubagentsPerSession'),
+    getUsagePauseAt: invoke('settings.getUsagePauseAt'),
+    setUsagePauseAt: invoke('settings.setUsagePauseAt'),
     getDesktopNotify: invoke('settings.getDesktopNotify'),
     setDesktopNotify: invoke('settings.setDesktopNotify'),
     getGenerator: invoke('settings.getGenerator'),

@@ -3,7 +3,7 @@
 // **Everything here is derived, nothing is stored.** The pane tree is in memory only, but orchestration.json
 // survives a restart, so a tree built from its Projects, Jobs, Runs, Tasks and Dispatches is the same tree after
 // one. Pure, so it is tested in vitest's node environment like the rest of the renderer's judgements.
-import type { Dispatch, Gate, Job, JobRun, Project, Task } from '../../../../core/orchestration/types'
+import type { Dispatch, Gate, Job, JobRun, Message, Project, Task } from '../../../../core/orchestration/types'
 import { jobNameOf } from '../../../../core/orchestration/jobName'
 import { isJobActive } from '../../../../core/orchestration/lifecycle'
 import { leaves, removeTab, type PaneNode } from '../../../../core/panes/tree'
@@ -19,6 +19,10 @@ export interface WorkspaceData {
   dispatches: Dispatch[]
   /** W3-C: the open Gates of every project (`questions-list --status open`), for the "needs my input" list. */
   gates: Gate[]
+  /** W6-B: every `escalation` message (`inbox --type escalation`), for the same list. */
+  escalations?: Message[]
+  /** W6-F: the app's worktrees (worktrees.list), so a tab in one belongs to its repo's project workspace. */
+  worktrees?: WorktreeRef[]
 }
 
 export type SessionRole = 'planner' | 'coordinator' | 'worker'
@@ -158,4 +162,110 @@ export function scopeLayout(layout: PaneNode | null, keep: ReadonlySet<string>):
       if (out && (ref?.kind === 'session' || ref?.kind === 'app') && !keep.has(ref.id)) out = removeTab(out, tabId)
     }
   return out
+}
+
+// ── W6-F: one workspace per project ────────────────────────────────────────────────────────────────────────────
+// A project's workspace is every session of it: its plans' planner, coordinator and worker sessions, plus the plain
+// tabs whose cwd is in the project folder or in one of its worktrees. Tabs outside every project are OTHER_WORKSPACE.
+// Like a plan's workspace it is only a scopeLayout view of the one pane tree, so every terminal stays mounted.
+
+/** The workspace of the tabs that belong to no project. Not a project id (those are UUIDs). */
+export const OTHER_WORKSPACE = 'other'
+
+/** A worktree as worktrees.list reports it (WorktreeInfo): where it is and which repo it was made from. */
+export type WorktreeRef = { path: string; repoPath: string }
+
+const trimPath = (p: string): string => p.replace(/\\/g, '/').replace(/\/+$/, '')
+/** `p` is `root` or inside it. Plain string work: the renderer has no node:path. */
+const isUnder = (p: string, root: string): boolean => {
+  const a = trimPath(p)
+  const r = trimPath(root)
+  return a === r || a.startsWith(`${r}/`)
+}
+const deepest = <T extends { path: string }>(xs: readonly T[], p: string): T | undefined =>
+  xs.filter((x) => isUnder(p, x.path)).sort((a, b) => b.path.length - a.path.length)[0]
+
+/** The project a folder belongs to: the deepest project holding it, directly or through a worktree of it. */
+export function projectOfCwd(
+  cwd: string,
+  projects: readonly { id: string; path: string }[],
+  worktrees: readonly WorktreeRef[]
+): string | null {
+  const folder = deepest(worktrees, cwd)?.repoPath ?? cwd
+  return deepest(projects, folder)?.id ?? null
+}
+
+/** Every workspace's session ids, keyed by project id, plus OTHER_WORKSPACE for the open tabs of no project. A plan's
+ *  session belongs to its plan's project wherever its cwd is. */
+export function workspaceSessionIds(
+  tree: readonly WorkspaceProject[],
+  sessions: readonly { id: string; cwd: string }[],
+  worktrees: readonly WorktreeRef[]
+): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>(
+    tree.map((p) => [p.id, new Set(p.plans.flatMap((plan) => planSessions(plan).map((s) => s.sessionId)))])
+  )
+  const claimed = new Set([...out.values()].flatMap((ids) => [...ids]))
+  out.set(OTHER_WORKSPACE, new Set())
+  for (const s of sessions) {
+    if (claimed.has(s.id)) continue
+    out.get(projectOfCwd(s.cwd, tree, worktrees) ?? OTHER_WORKSPACE)!.add(s.id)
+  }
+  return out
+}
+
+/** The session ids the pane grid shows: the open plan's, else the open project's, else null for every tab. */
+export function scopeIds(
+  tree: readonly WorkspaceProject[],
+  byWorkspace: ReadonlyMap<string, ReadonlySet<string>>,
+  projectId: string | null,
+  planId: string | null
+): Set<string> | null {
+  const plan = planId ? findPlan([...tree], planId) : undefined
+  if (plan) return new Set(planSessions(plan).map((s) => s.sessionId))
+  return projectId ? new Set(byWorkspace.get(projectId) ?? []) : null
+}
+
+/** The tab to focus on entering a workspace: the one it had when it was left, while still shown there, else its first
+ *  session tab shown. Undefined when it shows none. `keep` null is the unscoped view. */
+export function entryTab(layout: PaneNode | null, keep: ReadonlySet<string> | null, remembered?: string): string | undefined {
+  const shown = keep ? scopeLayout(layout, keep) : layout
+  if (!shown) return undefined
+  const tabs = leaves(shown).flatMap((l) => l.tabIds)
+  if (remembered && tabs.includes(remembered)) return remembered
+  return tabs.find((t) => {
+    const ref = parseTab(t)
+    return ref?.kind === 'session' && (!keep || keep.has(ref.id))
+  })
+}
+
+/** Where a new tab opened in a workspace starts: its project's folder. Null for "Other" and every tab (the dialog's own
+ *  default). */
+export const workspaceFolderOf = (tree: readonly WorkspaceProject[], projectId: string | null): string | null =>
+  tree.find((p) => p.id === projectId)?.path ?? null
+
+export interface WorkspaceSummary {
+  /** A project id or OTHER_WORKSPACE. */
+  id: string
+  name: string
+  /** Its sessions whose process is running. */
+  running: number
+  /** One of them waits for the owner (attention 'waiting'). */
+  waiting: boolean
+}
+
+/** The project switcher's rows: every project in tree order, then "Other" while it holds a tab. */
+export function workspaceSummaries(
+  tree: readonly WorkspaceProject[],
+  byWorkspace: ReadonlyMap<string, ReadonlySet<string>>,
+  sessions: readonly { id: string; status: string }[],
+  attention: Readonly<Record<string, string>>
+): WorkspaceSummary[] {
+  const running = new Set(sessions.filter((s) => s.status === 'running').map((s) => s.id))
+  const row = (id: string, name: string): WorkspaceSummary => {
+    const ids = [...(byWorkspace.get(id) ?? [])].filter((s) => running.has(s))
+    return { id, name, running: ids.length, waiting: ids.some((s) => attention[s] === 'waiting') }
+  }
+  const rows = tree.map((p) => row(p.id, p.name))
+  return (byWorkspace.get(OTHER_WORKSPACE)?.size ?? 0) > 0 ? [...rows, row(OTHER_WORKSPACE, 'Other')] : rows
 }

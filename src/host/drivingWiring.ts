@@ -32,6 +32,7 @@ import type { PtyRegistry } from './registry'
 import type { ProcRegistry } from './procRegistry'
 import type { HostSpawner } from './spawner'
 import type { HostWorktrees } from './worktrees'
+import type { DispatchLoopContext } from '../core/orchestration/exec/dispatchLoop'
 
 export interface HostDrivingWiring {
   checks: HostChecks
@@ -83,6 +84,8 @@ export function composeHostDriving(a: {
   readGate?(settingsPath: string): Promise<DispatchGate>
   /** Test seam, passed through to createHostChecks: the tree kill of a foreign validation run. */
   killRunner?: (cmd: { file: string; args: string[] }) => void
+  /** W6-G: the Host's usage guard, for the dispatch loop. Absent: no usage pause. */
+  usageGuard?: DispatchLoopContext['usageGuard']
 }): HostDrivingWiring {
   const specsDir = path.join(a.profileDir, 'orch', 'specs')
   /** A log line never throws (constraint 14). */
@@ -185,6 +188,7 @@ export function composeHostDriving(a: {
     ...(a.every ? { every: a.every } : {}),
     ...(a.after ? { after: a.after } : {}),
     ...(a.readGate ? { readGate: a.readGate } : {}),
+    ...(a.usageGuard ? { usageGuard: a.usageGuard } : {}),
     // Limits L3: every change of the driver or its gate goes to the apps that yield dispatch, the
     // ones whose Jobs wait on this Host. An app that keeps dispatch drives itself and has nothing to
     // wait for, and a CLI reads no push. A throw here is the driving's to log (constraint 14).

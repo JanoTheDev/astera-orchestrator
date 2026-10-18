@@ -557,7 +557,9 @@ app.whenReady().then(async () => {
         return
       }
       try {
-        const n = new Notification({ title: req.title, body: req.body })
+        // W6-B: the renderer chimes (lib/alertSound.ts), so the OS notice is silent then: one sound, not two
+        const n = new Notification({ title: req.title, body: req.body, ...(req.chime ? { silent: true } : {}) })
+        if (req.chime && !win.isDestroyed()) win.webContents.send('notify:chime', {})
         // Held from before show() until it is clicked, closed or failed, the newest few only
         // (heldNotifications.ts).
         liveNotifications.hold(n)

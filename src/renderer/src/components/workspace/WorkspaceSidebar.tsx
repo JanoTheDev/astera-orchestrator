@@ -65,6 +65,7 @@ export function WorkspaceSidebar({
       runs: data?.runs ?? [],
       tasks: data?.tasks ?? [],
       gates: data?.gates ?? [],
+      escalations: data?.escalations ?? [], // W6-B
       attention,
       hostWaiting
     }
@@ -99,7 +100,7 @@ export function WorkspaceSidebar({
         </button>
         <button
           className={`ss-badge${inbox.length > 0 ? ' ss-due' : ''}`}
-          title="Needs my input: sessions at a prompt, open questions, plans awaiting approval"
+          title="Needs my input: sessions at a prompt, open questions, escalations, plans awaiting approval"
           aria-label={`${inbox.length} need your input`}
           aria-pressed={inboxOpen}
           onClick={() => {
@@ -111,7 +112,7 @@ export function WorkspaceSidebar({
         </button>
         <div className="panel-actions">
           {selectedPlanId && (
-            <button className="ws-link" title="Show every session again" onClick={() => onSelectPlan(null)}>
+            <button className="ws-link" title="Close the plan, back to its project’s workspace" onClick={() => onSelectPlan(null)}>
               All sessions
             </button>
           )}
@@ -150,7 +151,7 @@ export function WorkspaceSidebar({
                         </button>
                         <button
                           className="ws-name ws-plan-name"
-                          title={plan.jobId === selectedPlanId ? 'Show every session again' : 'Open this plan’s workspace'}
+                          title={plan.jobId === selectedPlanId ? 'Close the plan, back to its project’s workspace' : 'Open this plan’s workspace'}
                           onClick={() => onSelectPlan(plan.jobId === selectedPlanId ? null : plan.jobId)}
                         >
                           {plan.name}

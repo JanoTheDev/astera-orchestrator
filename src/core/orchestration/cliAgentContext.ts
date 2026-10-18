@@ -168,6 +168,13 @@ const SESSION = {
       { name: 'force', about: 'try again after a recorded failure' }
     ]
   },
+  // W6-H delivery
+  'run-deliver': {
+    summary: "land a completed run the way its project says: its pull request, or a push to the delivery branch",
+    detail:
+      "pr is `run-open-pr`. push merges the run's worktrees into the project folder's delivery branch, validates the merged tree and pushes it, never forced; every guard that stops it is recorded on the run and escalated, and the worktrees are removed only after a push. The driving loop does this when a run completes; a recorded stop is tried again only with --force. A push is refused from an agent session and an MCP client. Answered by the Host.",
+    flags: [RUN_ARG('<runId>', 'the completed run'), { name: 'force', about: 'try again after a recorded stop' }]
+  },
   'runs-changed-files': {
     summary: 'the files a run, or one of its tasks, changed, from git',
     detail:
@@ -236,7 +243,10 @@ const SESSION = {
       { name: 'difficulty', value: '<light|standard|hard>', about: "picks the worker's model" },
       { name: 'provider', value: '<claude|codex>', about: 'the provider the Task asks for' },
       { name: 'model', value: '<id>', about: "the worker's model, ahead of --difficulty" },
-      { name: 'model-reason', value: '<text>', about: 'one line: why that difficulty, provider or model' }
+      { name: 'model-reason', value: '<text>', about: 'one line: why that difficulty, provider or model' },
+      // W6-A: what the planner found of the item; a plan Task without it cannot be approved
+      { name: 'basis', value: '<missing|partial|broken>', about: "the item's state as found before planning (with --evidence)" },
+      { name: 'evidence', value: '<text>', about: 'with --basis: file:line, an issue or PR number, a Job id' }
     ]
   },
   'task-update': {
@@ -259,7 +269,9 @@ const SESSION = {
       { name: 'difficulty', value: '<light|standard|hard>', about: 'without --status: as task-create' },
       { name: 'provider', value: '<claude|codex>', about: 'without --status: as task-create' },
       { name: 'model', value: '<id>', about: 'without --status: as task-create' },
-      { name: 'model-reason', value: '<text>', about: 'without --status: as task-create' }
+      { name: 'model-reason', value: '<text>', about: 'without --status: as task-create' },
+      { name: 'basis', value: '<missing|partial|broken>', about: 'without --status: as task-create (W6-A)' },
+      { name: 'evidence', value: '<text>', about: 'without --status: as task-create (W6-A)' }
     ]
   },
   send: {
@@ -425,8 +437,31 @@ const SESSION = {
       "The Job's objective is the issue, quoted as data, its folder is the project's, and it keeps the issue as its source. Refused for a pull request or a closed issue (409) and for an author who is not the repository's owner, a member or a collaborator (403). `jobs create-from-source --source github` makes the same Job, but answers 403 for a closed issue and 404 for a pull request where this command answers 409, as it always has. Takes `jobs create`'s other flags. MCP clients need the \"Let MCP clients act on GitHub\" setting.",
     flags: [
       req('project', '<projectId>', 'the project whose repository to read (from `projects list`)'),
-      req('number', '<n>', 'the issue number'),
+      { name: 'number', value: '<n>', about: 'the issue number (or --issue)' },
+      // W6-A: several issues make one Job
+      { name: 'issue', value: '<n>[,<n>…]', about: 'the issue numbers, comma-separated (at most 20); one refused issue refuses the call' },
+      { name: 'assign-me', about: 'assign each issue to you first (gh issue edit --add-assignee @me)' },
       ...(USAGE['jobs-create'].flags ?? []).filter((f) => f.name !== 'objective' && f.name !== 'cwd')
+    ]
+  },
+  // W6-A
+  'plan-nothing-to-do': {
+    summary: "end a Job before approval because everything it asks for is already built (its planner, or the person)",
+    detail:
+      'Refused once the Job has started or while it has Tasks. The Job keeps the summary, is archived and its planner session ends; the activity feed says "nothing to do".',
+    flags: [
+      req('job', '<jobId>', 'the Job to end'),
+      req('summary', '<text|->', 'what was found, item by item (inputs/existing.md); - reads stdin')
+    ]
+  },
+  // W6-A
+  'github-issue-assign': {
+    summary: "assign GitHub issues of a project to you, through the Host's gh (gh issue edit --add-assignee @me)",
+    detail: 'Assigns in the order given and stops at the first that fails, answering the ones already assigned.',
+    flags: [
+      req('project', '<projectId>', 'the project whose repository the issues are in (from `projects list`)'),
+      req('issue', '<n>[,<n>…]', 'the issue numbers, comma-separated (at most 20)'),
+      { name: 'me', about: 'assign to you (the only assignee this takes)' }
     ]
   },
   'runs-completion': {

@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   ISSUE_JOB_ASSOCIATIONS,
+  assignIssueToMe,
+  issueNumbersOf,
   parseIssue,
   readIssue,
   repoOf,
@@ -99,5 +101,30 @@ describe('constants and repoOf', () => {
   it('repoOf reads owner/repo off the html_url', () => {
     expect(repoOf('https://github.com/parsingk/Astera/issues/7')).toBe('parsingk/Astera')
     expect(repoOf('https://ghe.corp.example/team/app/pull/3')).toBe('team/app')
+  })
+})
+
+// W6-A
+describe('issueNumbersOf', () => {
+  it('reads one number or a comma list, distinct, in order', () => {
+    expect(issueNumbersOf(5)).toEqual([5])
+    expect(issueNumbersOf('12, 14,19,12')).toEqual([12, 14, 19])
+  })
+  it('is null for anything that is not issue numbers', () => {
+    for (const v of [undefined, '', '12,', 'a', '0', '-3', 1.5, true]) expect(issueNumbersOf(v), String(v)).toBeNull()
+  })
+})
+
+describe('assignIssueToMe', () => {
+  it('runs gh issue edit --add-assignee @me in the folder, and says what gh said when it fails', async () => {
+    const calls: [string[], string][] = []
+    const ok: GhRunner = async (args, cwd) => {
+      calls.push([args, cwd])
+      return { ok: true, stdout: '', stderr: '' } as GhResult
+    }
+    expect(await assignIssueToMe(ok, '/repo', 12)).toEqual({ ok: true })
+    expect(calls).toEqual([[['issue', 'edit', '12', '--add-assignee', '@me'], '/repo']])
+    const no: GhRunner = async () => ({ ok: false, stdout: '', stderr: 'HTTP 404: Not Found', exitCode: 1 }) as GhResult
+    expect(await assignIssueToMe(no, '/repo', 12)).toMatchObject({ ok: false })
   })
 })

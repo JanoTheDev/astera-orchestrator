@@ -141,6 +141,17 @@ describe('timelineFor', () => {
     expect(ids).toEqual(['d1'])
   })
 
+  it('W6-E: a question carries whether it has its answer; other messages carry nothing', () => {
+    const s = state({
+      runs: [run('r1')],
+      messages: [message('m1', 'r1', 'question'), { ...message('m2', 'r1', 'question'), answered: true }, message('m3', 'r1', 'status')]
+    })
+    const byId = new Map(timelineFor(s, 'r1', anySession).map((e) => [e.sourceId, e]))
+    expect(byId.get('m1')?.answered).toBe(false)
+    expect(byId.get('m2')?.answered).toBe(true)
+    expect(byId.get('m3') && 'answered' in byId.get('m3')!).toBe(false)
+  })
+
   it('메시지가 종류와 본문을 싣고 이벤트가 된다', () => {
     const s = state({ runs: [run('r1')], messages: [message('m1', 'r1', 'worker_done')] })
     const e = timelineFor(s, 'r1', anySession).find((x) => x.kind === 'message')

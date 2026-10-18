@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import type { Gate, Job, JobRun, Task } from './types'
+import type { Gate, Job, JobRun, Message, Task } from './types'
 import {
   buildSessionIndex,
   needsInput,
@@ -143,5 +143,27 @@ describe('needsInput', () => {
 
   it('an idle or working session is not waiting on anyone', () => {
     expect(needsInput(input({ attention: { w1: 'idle', w2: 'working' } }))).toEqual([])
+  })
+})
+
+// W6-B: an escalation waits on the owner like a Gate, until its Task or its plan ends
+describe('needsInput — escalations', () => {
+  const esc = (id: string, over: Partial<Message> = {}): Message => ({
+    id, runId: 'r1', type: 'escalation', taskId: 't2', subject: `decide ${id}`, body: '', answered: false, createdAt: at, ...over
+  })
+
+  it('lists an open one after the Gates, at its Task\'s worker, or else the coordinator', () => {
+    const items = needsInput(input({ gates: [gate('g1', 't1')], escalations: [esc('e1'), esc('e2', { taskId: undefined })] }))
+    expect(items.map((x) => x.kind)).toEqual(['gate', 'escalation', 'escalation'])
+    expect(items[1]).toMatchObject({ kind: 'escalation', jobId: 'j1', projectName: 'Gameful', planName: 'Trading', taskTitle: 'task t2', sessionId: 'w2' })
+    expect(items[2]).toMatchObject({ kind: 'escalation', sessionId: 'co' })
+  })
+
+  it('is gone once its Task completed, or its plan ended', () => {
+    expect(needsInput(input({ tasks: [task('t1'), task('t2', { status: 'completed' })], escalations: [esc('e1')] }))).toEqual([])
+    const allDone = [task('t1', { status: 'completed' }), task('t2', { status: 'completed' })]
+    expect(needsInput(input({ tasks: allDone, escalations: [esc('e1', { taskId: undefined })] }))).toEqual([])
+    // A failed Task with retries left still waits on the owner
+    expect(needsInput(input({ tasks: [task('t1'), task('t2', { status: 'failed', consecutiveFailures: 1 })], escalations: [esc('e1')] }))).toHaveLength(1)
   })
 })

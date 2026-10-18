@@ -7,6 +7,8 @@ import { formFailure, type OrchDoor } from '../lib/orchDoor'
 import { AccountSelect } from './AccountSelect'
 import { ScheduleRuleFields } from './ScheduleRuleFields'
 import { backdropProps } from '../lib/backdrop'
+// W6-A intake
+import { NewPlanDialog } from './intake/NewPlanDialog'
 
 /** 사이드바의 '+ 새 작업'이 여는 폼. 여기서 만든 Run 은 앱이 스스로 돌린다 — 워커를 붙이고
  *  검증·병합까지 미는 스케줄러는 이미 있고(Task 1~6), 이 컴포넌트는 그 스케줄러가 볼 첫 Run 하나를
@@ -53,10 +55,14 @@ export function NewRunModal({
   const [convergence, setConvergence] = useState(false)
   /** W2-A: start a planner session on the new Job (`jobs-plan`), which writes its Tasks for approval. */
   const [plan, setPlan] = useState(false)
+  /** W6-D: Job.replan. On (`waves`) is the default and is not sent. */
+  const [replan, setReplan] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   /** The create may have gone through on a Runtime whose answer was lost: not sent again from this form. */
   const [locked, setLocked] = useState(false)
+  // W6-A intake: the New plan dialog in place of this form (this computer's projects only: attachments are its files)
+  const [intake, setIntake] = useState(false)
 
   const create = async (): Promise<void> => {
     const trimmed = objective.trim()
@@ -75,6 +81,7 @@ export function NewRunModal({
         // 거절한다(server.ts).
         concurrency,
         ...(priority !== 0 ? { priority } : {}),
+        ...(plan && !scheduled && !replan ? { replan: 'off' } : {}),
         // **언제나 보낸다** — 아래 버튼이 계정 없이는 눌리지 않는다
         coordinatorAccount: coordinatorAccountId,
         // **`auto` 는 예약에도 보낸다.** 뜻은 "앱이 이것을 돌린다" 이고, 예약도 앱이 돌린다 —
@@ -125,6 +132,9 @@ export function NewRunModal({
     }
   }
 
+  if (intake && cwd !== null)
+    return <NewPlanDialog door={door} cwd={cwd} accounts={accounts} onClose={onClose} onCreated={onCreated} />
+
   return (
     <div className="modal-backdrop" {...backdropProps(() => !busy && onClose())}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -135,6 +145,12 @@ export function NewRunModal({
             저장소인지 확인하려면 main 에 물어야 하고, 그 왕복을 모달을 여는 길에 넣는 것은 이
             한 줄이 사는 값보다 크다(docs/jobs.md 에 같은 사실이 적혀 있다). */}
         <p className="modal-hint">{t('jobs.new.gitRequired')}</p>
+        {/* W6-A intake */}
+        {!door.runtimeId && cwd !== null && (
+          <button className="link" onClick={() => setIntake(true)}>
+            {t('intake.open')}
+          </button>
+        )}
         {/* A paired Runtime's "Unregistered folders" has no folder to make a Job in (Phase 7). */}
         {cwd === null && <p className="warn-text">{t('jobs.runtime.noFolder')}</p>}
         <div className="field">
@@ -255,6 +271,16 @@ export function NewRunModal({
               {t('jobs.new.planner')}
             </label>
             <p className="modal-hint">{t('jobs.new.plannerHint')}</p>
+            {/* W6-D: only a planned Job replans */}
+            {plan && (
+              <>
+                <label className="check-small">
+                  <input type="checkbox" checked={replan} onChange={(e) => setReplan(e.target.checked)} />
+                  {t('jobs.new.replan')}
+                </label>
+                <p className="modal-hint">{t('jobs.new.replanHint')}</p>
+              </>
+            )}
           </div>
         )}
         {error && <p className="warn">{error}</p>}

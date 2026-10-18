@@ -2,7 +2,7 @@
 // gh; pull requests left out; an issue a non-member wrote listed but not selectable; the query kept to this repository.
 import { describe, it, expect } from 'vitest'
 import type { GhResult, GhRunner } from './gh'
-import { issueContext, issueDetail, listIssueItems, REPO_NAME_TTL_MS } from './issueSource'
+import { issueContext, issueDetail, issuesContext, listIssueItems, REPO_NAME_TTL_MS } from './issueSource'
 import { parseIssue } from './issue'
 
 const issue = (n: number, o: Record<string, unknown> = {}) => ({
@@ -91,6 +91,19 @@ describe('listIssueItems (J12)', () => {
     expect(calls.at(-1)?.[5]).toBe('q=repo:o/r is:issue is:open bug')
   })
 
+  // W6-A: "assigned to me" is a search qualifier of the person's own gh login
+  it('mine searches assignee:@me, alone or with a query, and still drops the qualifiers that would leave the repository', async () => {
+    const { gh, calls } = fakeGh([
+      [/^repos\/\{owner\}\/\{repo\}$/, 'o/r'],
+      [/^search\/issues$/, { items: [issue(7)] }]
+    ])
+    const r = await listIssueItems(gh, 'D:/p', { mine: true })
+    expect(calls.at(-1)?.[5]).toBe('q=repo:o/r is:issue is:open assignee:@me')
+    expect(r.ok && r.items.map((i) => i.id)).toEqual(['7'])
+    await listIssueItems(gh, 'D:/p', { query: 'crash repo:x/y org:z user:u is:closed', mine: true })
+    expect(calls.at(-1)?.[5]).toBe('q=repo:o/r is:issue is:open crash assignee:@me')
+  })
+
   it('says what gh said when it fails, and refuses a cursor that is no page number', async () => {
     const { gh } = fakeGh([])
     const r = await listIssueItems(gh, 'D:/p', {})
@@ -129,5 +142,22 @@ describe('issueDetail and issueContext (J12)', () => {
       evidence: [{ label: 'Body', content: 'It breaks' }],
       metadata: { labels: 'bug' }
     })
+  })
+})
+
+// W6-A: several issues, one Job
+describe('issuesContext', () => {
+  const p = (n: number, o: Record<string, unknown> = {}) => parseIssue(JSON.stringify(issue(n, o)))!
+  it('is issueContext for one issue', () => {
+    expect(issuesContext([p(3)])).toEqual(issueContext(p(3)))
+  })
+  it('lists every issue by number and title, each body its own evidence', () => {
+    const ctx = issuesContext([p(12), p(14, { body: '' })])
+    expect(ctx.objective).toBe('#12 Issue 12\n#14 Issue 14')
+    expect(ctx.sourceLabel).toBe('GitHub issues #12, #14 in o/r')
+    expect(ctx.evidence).toEqual([
+      { label: 'Issue #12 (https://github.com/o/r/issues/12), labels bug', content: 'Body 12' },
+      { label: 'Issue #14 (https://github.com/o/r/issues/14), labels bug', content: '(no body)' }
+    ])
   })
 })

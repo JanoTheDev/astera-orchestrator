@@ -14,6 +14,7 @@ import {
   type Dispatch,
   type Gate,
   type GateKind,
+  type GateReason,
   type GitRange,
   type Message,
   type MessageType,
@@ -258,6 +259,8 @@ export function createJob(
     source?: JobSourceRef
     /** W1-B: Job.priority. The caller checks it is an integer. */
     priority?: number
+    /** W6-D: Job.replan. `'waves'` is the default and is not written. */
+    replan?: 'waves' | 'off'
   },
   now: string
 ): Res<Job> {
@@ -280,7 +283,8 @@ export function createJob(
     ...(a.convergence ? { convergence: a.convergence } : {}),
     ...(a.source ? { source: a.source } : {}),
     // 0 is the default, so it is not written — the same rule as autoDispatch above
-    ...(a.priority ? { priority: a.priority } : {})
+    ...(a.priority ? { priority: a.priority } : {}),
+    ...(a.replan === 'off' ? { replan: 'off' as const } : {})
   }
   return ok({ ...s, jobs: [...s.jobs, job] }, job)
 }
@@ -558,7 +562,7 @@ export function setRunWorktree(s: OrchState, id: string, worktree: string): Res<
 
 /** W2-A planner stage: the Task fields a planner writes (task-create, task-update), with W1-A's model choice. */
 export type PlanFields = Partial<
-  Pick<Task, 'difficulty' | 'model' | 'provider' | 'prompt' | 'acceptanceCriteria' | 'affectedPaths' | 'modelReason'>
+  Pick<Task, 'difficulty' | 'model' | 'provider' | 'prompt' | 'acceptanceCriteria' | 'affectedPaths' | 'modelReason' | /* W6-A */ 'basis'>
 >
 
 /** The plan fields `t` carries, copied; an absent or empty one is left out, as every optional field here is. */
@@ -570,7 +574,9 @@ export function planFieldsOf(t: PlanFields): PlanFields {
     ...(t.prompt ? { prompt: t.prompt } : {}),
     ...(t.acceptanceCriteria?.length ? { acceptanceCriteria: [...t.acceptanceCriteria] } : {}),
     ...(t.affectedPaths?.length ? { affectedPaths: [...t.affectedPaths] } : {}),
-    ...(t.modelReason ? { modelReason: t.modelReason } : {})
+    ...(t.modelReason ? { modelReason: t.modelReason } : {}),
+    // W6-A
+    ...(t.basis ? { basis: { ...t.basis } } : {})
   }
 }
 
@@ -1130,7 +1136,7 @@ function failureSummary(task: Task): string {
  *  판별식 유니언으로 가른다: 쓰는 쪽이 엉뚱한 파라미터를 건네면 여기서 타입 오류가 난다. */
 function gateOnFailure(
   s: OrchState,
-  a: { task: Task; kind: GateKind; lang: Lang } & (
+  a: { task: Task; kind: GateKind; lang: Lang; gateReason?: GateReason } & (
     | {
         key: 'jobs.convergence.gate.exhausted' | 'jobs.convergence.gate.stopped' | 'jobs.convergence.gate.paused'
         repairs: number
@@ -1150,7 +1156,13 @@ function gateOnFailure(
   const withTask: OrchState = { ...s, tasks: replace(s.tasks, a.task) }
   const g = createGate(
     withTask,
-    { taskId: a.task.id, question, kind: a.kind, ...(a.kind === 'convergence-exhausted' ? { options: ['retry-once', 'mark-failed'] } : {}) },
+    {
+      taskId: a.task.id,
+      question,
+      kind: a.kind,
+      ...(a.kind === 'convergence-exhausted' ? { options: ['retry-once', 'mark-failed'] } : {}),
+      ...(a.gateReason ? { reason: a.gateReason } : {})
+    },
     now
   )
   if (!g.ok) return err(g.error)
@@ -1476,7 +1488,7 @@ export function applyReviewResult(
   // 여기서 소진 Gate 를 내지 않고 routeFailure 에 넘긴다 — routeFailure 가 그 표의 나머지를 그대로
   // 본다(convergenceOff -> stopped, run.paused -> paused, 그다음에야 maxFixAttempts 소진).
   if (!failed.convergenceOff && !pausedForTask(s, task) && reviewRoundOf(closed, task.id) >= policy.maxReviewRounds) {
-    const g = gateOnFailure(closed, { task: failed, kind: 'convergence-exhausted', key: 'jobs.convergence.gate.exhausted', repairs: repairCountOf(closed, task.id), lang }, now)
+    const g = gateOnFailure(closed, { task: failed, kind: 'convergence-exhausted', key: 'jobs.convergence.gate.exhausted', repairs: repairCountOf(closed, task.id), lang, gateReason: 'review-rounds-exhausted' }, now)
     if (!g.ok) return err(g.error)
     return ok(g.state, 'accepted')
   }
@@ -2055,7 +2067,7 @@ export function applyReply(
 
 export function createGate(
   s: OrchState,
-  a: { taskId: string; question: string; options?: string[]; kind?: GateKind },
+  a: { taskId: string; question: string; options?: string[]; kind?: GateKind; reason?: GateReason },
   now: string
 ): Res<Gate> {
   const task = s.tasks.find((t) => t.id === a.taskId)
@@ -2073,6 +2085,7 @@ export function createGate(
     question: a.question,
     options: a.options,
     ...(a.kind ? { kind: a.kind } : {}),
+    ...(a.reason ? { reason: a.reason } : {}),
     status: 'open',
     createdAt: now
   }

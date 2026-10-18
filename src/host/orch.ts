@@ -537,9 +537,13 @@ export function createHostOrch(a: {
    *  (host/completionChecks.ts): the command layer's early refusals and checks read them, and the app asks through
    *  `checks-plugin-run`. */
   completionChecks?: OrchServerDeps['completionChecks']
+  /** W6-H: a push delivery through this Host's git (`deliverByPush`). Absent: `run-deliver` on a push project answers 409. */
+  deliverPush?: OrchServerDeps['deliverPush']
   /** How It Works records (MCP P2-C), passed through to `hostOrchDeps`. Absent: the `understanding-*`
    *  commands answer 409. */
   readUnderstanding?: OrchServerDeps['readUnderstanding']
+  /** W6-A intake, passed through to `hostOrchDeps`. */
+  intakeInputs?: OrchServerDeps['intakeInputs']
   /** A Run's changed files and diffs from this Host's git (remote runtime design Phase 10). */
   changes?: OrchServerDeps['changes']
   /** The Host's Job Journal (hostJournal.ts). Absent: nothing is journaled here, `journal-append` and
@@ -552,6 +556,8 @@ export function createHostOrch(a: {
   /** W3-A: the activity feed's log (host/activity.ts), fed with the public one and read by `activity-poll` and
    *  `activity-summary`. Absent: both answer 501. */
   activity?: Pick<HostEventLog, 'committed' | 'read' | 'tail' | 'next'> | null
+  /** W6-G: the Host's usage guard, for `worker-start` (OrchServerDeps.usageGuard). Absent: no usage pause. */
+  usageGuard?: OrchServerDeps['usageGuard']
   /** How It Works in the Host (hostUnderstanding.ts, E1 §3, §4): handed every Run a commit finishes, and
    *  the app's `understanding-unit` and the app's and MCP's `understanding-regenerate`. Absent: this Host
    *  records no Run, and both calls answer 501. */
@@ -798,6 +804,7 @@ export function createHostOrch(a: {
       // W1-B. A damaged file reads as no cap: the spawn behind worker-start refuses on that file anyway
       // (spawner.ts reads the permission mode from it), so nothing starts past the cap on a guess.
       maxConcurrentWorkers: () => readMaxConcurrentWorkers(path.join(a.profileDir, 'app-settings.json')).catch(() => null),
+      ...(a.usageGuard ? { usageGuard: a.usageGuard } : {}),
       act: a.act,
       hasApp: a.hasApp,
       log: a.log,
@@ -818,9 +825,11 @@ export function createHostOrch(a: {
       ...(a.createSession ? { createSession: a.createSession } : {}),
       ...(a.github ? { github: a.github } : {}),
       ...(a.readUnderstanding ? { readUnderstanding: a.readUnderstanding } : {}),
+      ...(a.intakeInputs ? { intakeInputs: a.intakeInputs } : {}),
       ...(a.changes ? { changes: a.changes } : {}),
       ...(a.jobSources ? { jobSources: a.jobSources } : {}),
       ...(a.completionChecks ? { completionChecks: a.completionChecks } : {}),
+      ...(a.deliverPush ? { deliverPush: a.deliverPush } : {}),
       workUnits: a.workUnits?.() ?? null,
       ...(a.journal ? { journalTimeline: (runId: string, st: OrchState) => a.journal!.timeline(runId, st) } : {}),
       onEffect: () => {

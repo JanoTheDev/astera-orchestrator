@@ -67,8 +67,13 @@ const RUN_HIDDEN = [
   'coordinatorStopPending',
   'externalCoordinatorSessionId',
   // W2-D: the plan's PR, read by the app's view; not in the SDK's contract yet (`run-open-pr` answers it)
-  'pr'
+  'pr',
+  // W6-H: a push delivery's result, answered by `run-deliver`; not in the SDK's contract yet
+  'delivery'
 ] as const
+
+/** W6-H: how a project's plans land, set by `projects-set`; not in the SDK's contract yet. */
+const PROJECT_HIDDEN = ['delivery', 'deliveryBranch'] as const
 
 /**
  * A Task's fields kept back on purpose: all of them **the ledger the app keeps to drive convergence**. The guide
@@ -97,31 +102,39 @@ const TASK_HIDDEN = [
   'affectedPaths',
   'modelReason',
   // W2-D GitHub links: read by the app's view; `task-link-issue` answers them. Not in the SDK's contract yet
-  'links'
+  'links',
+  // W6-A: the planner's basis, held back with its other fields
+  'basis'
 ] as const
 
 /** W1-A role models: a Job's per-role model override, held back from the SDK like the Task's three above. */
 const JOB_HIDDEN = [
   'models',
   /* W2-A: the planner sessions, the app's own bookkeeping */ 'plannerSessionIds',
-  /* W5-C: the person's "stop launching" (jobs-hold), not in the SDK's contract yet */ 'dispatchHold'
+  /* W5-C: the person's "stop launching" (jobs-hold), not in the SDK's contract yet */ 'dispatchHold',
+  /* W6-D: wave replanning's setting and bookkeeping, not in the SDK's contract yet */ 'replan',
+  'replanFollowUps',
+  'replanning',
+  'lastReplan',
+  /* W6-A: a plan ended with nothing to do, not in the SDK's contract yet */ 'nothingToDo',
+  /* W6-H: the plan's own delivery (jobs-create/jobs-plan --delivery), not in the SDK's contract yet */ 'delivery'
 ] as const
 
 /** A followed event's message body (pages long) and the app's link from an event to a tab. */
-const FOLLOW_EVENT_HIDDEN = ['body', 'sessionId'] as const
+const FOLLOW_EVENT_HIDDEN = ['body', 'sessionId', /* W6-E: the plan view's "Asked the coordinator" */ 'answered'] as const
 
 // A Job's and a Run's derived fields (the package's DERIVED_FIELDS: outcome, progress, questionsOpen) are not fields
 // of the objects, so they are on neither side of these checks.
-type _project = NothingLeft<Unlisted<Project, typeof PROJECT_FIELDS, []>>
+type _project = NothingLeft<Unlisted<Project, typeof PROJECT_FIELDS, typeof PROJECT_HIDDEN>>
 type _job = NothingLeft<Unlisted<Job, typeof JOB_FIELDS, typeof JOB_HIDDEN>>
 type _run = NothingLeft<Unlisted<JobRun, typeof RUN_FIELDS, typeof RUN_HIDDEN>>
 type _task = NothingLeft<Unlisted<Task, typeof TASK_FIELDS, typeof TASK_HIDDEN>>
-type _question = NothingLeft<Unlisted<Gate, typeof QUESTION_FIELDS, []>>
+type _question = NothingLeft<Unlisted<Gate, typeof QUESTION_FIELDS, [/* W6-C: the app's notices read it */ 'reason']>>
 type _account = NothingLeft<Unlisted<OrchAccount, typeof ACCOUNT_FIELDS, []>>
 type _runConfig = NothingLeft<Unlisted<OrchRunConfig, typeof RUN_CONFIG_FIELDS, []>>
 /** The pty and process ids are the Host's own: a controller reads them from the raw reply to subscribe, and a
  *  printed list leaves them out. */
-type _session = NothingLeft<Unlisted<HostSession, typeof SESSION_FIELDS, ['ptyId', 'procId', /* W5-D: the app's inbox reason */ 'prompt']>>
+type _session = NothingLeft<Unlisted<HostSession, typeof SESSION_FIELDS, ['ptyId', 'procId', /* W5-D: the app's inbox reason */ 'prompt', /* W6-E: the plan view's "now" line */ 'lastAction']>>
 type _chatTurn = NothingLeft<Unlisted<ChatTurn, typeof CHAT_TURN_FIELDS, []>>
 type _chatPending = NothingLeft<Unlisted<ChatPending, typeof CHAT_PENDING_FIELDS, []>>
 type _chatPrompt = NothingLeft<Unlisted<ChatPrompt, typeof CHAT_PROMPT_FIELDS, []>>

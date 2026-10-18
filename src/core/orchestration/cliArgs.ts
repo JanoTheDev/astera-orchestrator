@@ -82,7 +82,7 @@ const NUMERIC = new Set(['timeoutMs', 'limit'])
 const JSON_ARRAY = new Set(['deps', /* W2-A planner stage */ 'criteria', 'affectedPaths'])
 /** Flags that may appear more than once and always arrive as an array. Everything else keeps the
  *  last value, which is what every existing caller expects. */
-const REPEATABLE = new Set(['check', 'set', 'unset'])
+const REPEATABLE = new Set(['check', 'set', 'unset', /* W6-A intake */ 'attach'])
 
 /** `astera browser <sub>`. Exported because cliUsage.ts prints usage for both of them, and a second
  *  copy of the list would drift from this one. */
@@ -117,7 +117,7 @@ const APP_SUBCOMMANDS = new Set<string>(APP_VERBS)
 export const NOUNS = {
   host: ['start', 'status', 'stop'],
   // `add` registers a folder of this machine (remote runtime N5): the Host answers it for local callers only.
-  projects: ['list', 'get', 'find', 'add'],
+  projects: ['list', 'get', 'find', 'add', /* W6-H */ 'set'],
   // `jobs create` 와 `tasks add` 는 phase C 다 — 앞의 것은 run-create 를 `--auto` 로, 뒤의 것은
   // task-create 를 부른다(command.ts). 코디네이터가 쓰는 두 이름은 그대로 남는다.
   // `create-from-source` (plugin Phase 4 J21) is answered before handleCommand's switch, with the `sources` commands.

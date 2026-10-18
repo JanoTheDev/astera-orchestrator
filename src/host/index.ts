@@ -57,6 +57,14 @@ import { makeDescriptors } from '../core/providers/descriptor'
 import { readRange } from '../core/git/range'
 import { createHostOrch } from './orch'
 import { composeHostDriving } from './drivingWiring'
+// W6-G
+import { createUsageGuard } from '../core/orchestration/usageGuard'
+import { usageActivity } from '../core/orchestration/activity'
+import { readAccountReadings } from '../core/usage/accountReadings'
+import { readUsagePauseAt } from '../core/settings/usagePauseAt'
+
+/** W6-G: how often the Host reads usage again with nothing starting, so a pause ends on its own. */
+const USAGE_GUARD_TICK_MS = 60_000
 import { composeHostRolling } from './rollingWiring'
 import { hostFeatures } from './features'
 import { loadSlackSdk } from './slackSdk'
@@ -82,6 +90,7 @@ import { connectCdp } from './workspace/cdp'
 import { freePort, killTree, processStartTimes } from './workspace/native'
 import { defaultGhRunner } from '../core/github/gh'
 import { readUnderstandingFile } from '../core/understanding/read'
+import { copyIntakeFiles } from '../core/orchestration/intakeFiles'
 import { createPullRequest, readCommits } from '../core/github/prCreate'
 import { git as realGit, isCleanWorktree } from '../core/worktrees/git'
 import { createRunGitRecorder, type RunGitRecorder } from './runGitRecorder'
@@ -92,6 +101,7 @@ import { attachGatewayLink } from './gatewayLink'
 import { readRemoteSettings } from '../core/remote/settings'
 import { loadIdentity, type RuntimeIdentity } from '../core/remote/identity'
 import { readMcpHttp } from '../core/settings/mcpHttp'
+import { deliverByPush } from '../core/orchestration/exec/integrateGit'
 
 /** With no client for this long, there is nothing for the Host to be. Slice 2 adds "and no session is
  *  alive" to this, and slice 3 adds "and no Run is in progress" (design §8). */
@@ -388,6 +398,32 @@ async function main(): Promise<void> {
   // W5-D (#48, #42): the activity lines a session's hook events make (a plan ready, a worker waiting). `orch` is read
   // at the call; an event before it exists is reported and dropped.
   const sessionActivity = hostSessionActivity({ log: activityLog, state: () => orch.state(), report: (m) => log.write(m) })
+  // W6-G: the usage guard over this Host's own sessions' statusLine readings. `worker-start` and the dispatch loop
+  // ask it before a start; the timer below lets a pause end on its own. Its changes are feed lines (and notices).
+  const usageGuard = createUsageGuard({
+    readings: () =>
+      readAccountReadings(
+        path.join(profileDir, 'statusline'),
+        registry.list().flatMap((e) =>
+          e.meta?.kind === 'session'
+            ? [{ id: e.meta.id, accountId: typeof e.meta.restore.accountId === 'string' ? e.meta.restore.accountId : null }]
+            : []
+        )
+      ),
+    pauseAt: () => readUsagePauseAt(path.join(profileDir, 'app-settings.json')),
+    nowMs: () => Date.now(),
+    onChange: (e) => {
+      try {
+        activityLog.recorded([usageActivity(e)])
+      } catch (err) {
+        log.write(`usage guard: the ${e.type} line could not be recorded: ${String(err)}`)
+      }
+    }
+  })
+  const usageTimer = setInterval(() => {
+    usageGuard.refresh().catch((err) => log.write(`usage guard: could not read usage: ${String(err)}`))
+  }, USAGE_GUARD_TICK_MS)
+  usageTimer.unref?.()
 
   // How It Works (E1 §2, §3): this Host writes understanding.json while every attached app yields it, or
   // none is attached, read per write. Loaded at start whether or not it writes now, so a record a dead
@@ -458,6 +494,7 @@ async function main(): Promise<void> {
   const wiring = spawner
     ? composeHostDriving({
         profileDir,
+        usageGuard,
         platform: process.platform,
         env: process.env,
         registry,
@@ -734,6 +771,7 @@ async function main(): Promise<void> {
   const plugins = createPluginManager({ profileDir, hostVersion, runtime: pluginRuntime, log: (m) => log.write(m) })
   const orch = createHostOrch({
     profileDir,
+    usageGuard,
     version: hostVersion,
     controllers,
     plugins,
@@ -741,6 +779,18 @@ async function main(): Promise<void> {
     jobSources: hostJobSources({ manager: plugins, runtime: pluginRuntime }),
     // The completion check plugins a Task's checks ask (plugin Phase 5 C8), through the same runtime
     completionChecks: hostCompletionChecks({ manager: plugins, runtime: pluginRuntime }),
+    // W6-H: a push delivery, through this Host's merge and its own validation runs. Only with a spawner: without one
+    // the worktree registry is never loaded and no checks run, so `run-deliver` on a push project answers 409.
+    ...(wiring
+      ? {
+          deliverPush: ({ checks, ...push }) =>
+            deliverByPush(push, {
+              mergeWorktrees: (into, paths, o) => worktrees.mergeWorktrees(into, paths, o),
+              validate: (cwd) => wiring.checks.validateTree(cwd, checks),
+              log: (m) => log.write(m)
+            })
+        }
+      : {}),
     now: () => new Date().toISOString(),
     // The handshake's own string, not a second one taken here: `requests show` answers with it so a
     // caller can tell "this Host never saw my request" from "it never arrived" (request receipts
@@ -816,6 +866,8 @@ async function main(): Promise<void> {
     // How It Works records (MCP P2-C): the app's understanding.json in this profile, read on every
     // call and never written, so a record the app wrote is there while the app is closed.
     readUnderstanding: () => readUnderstandingFile(path.join(profileDir, 'understanding.json')),
+    // W6-A intake: attached files go beside the Job's plan.md in this profile
+    intakeInputs: (jobId, files) => copyIntakeFiles(profileDir, jobId, files),
     // A Run's changed files and diffs (remote runtime design Phase 10), from this machine's git.
     changes: { read: (repo, base, head) => readChanges(repo, base, head), diff: (repo, base, head, f) => readFileDiff(repo, base, head, f) },
     local: spawner,

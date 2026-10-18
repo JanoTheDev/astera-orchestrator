@@ -18,15 +18,18 @@
 // *starts*, #48) and a worker waiting at a permission prompt or a question (`waitingActivity`, #42).
 //
 // Pure: no clock (the log stamps each event), no files.
-import type { TaskBlockedReason, TaskCategory } from '../types'
+import type { TaskBlockedReason, TaskCategory, UsagePause } from '../types'
+import type { UsageChange } from './usageGuard'
 import { taskBoardsOf } from './blocked'
 import { jobNameOf } from './jobName'
 import { outcomeOfTasks } from './running'
+import { completionSettled } from './replan'
 import type { ScheduleLimits } from './schedule'
 import { emptyState, type OrchState } from './state'
 import {
   isPlaceholderSessionId,
   type Dispatch,
+  type Gate,
   type GateKind,
   type Job,
   type Outcome,
@@ -50,7 +53,23 @@ export const ACTIVITY_KINDS = [
   'plan.awaiting-approval',
   'plan.done',
   // W5-D (#42): a worker's session at a permission prompt or a question (waitingActivity)
-  'task.waiting'
+  'task.waiting',
+  // W6-D: a replan began / ended between waves or as the final check (replan.ts)
+  'plan.replanning',
+  'plan.replanned',
+  // W6-A: the planner found everything built (`plan-nothing-to-do`); feed and notice
+  'plan.nothing-to-do',
+  // W6-B: a worker's question a coordinator answered (feed only), and something only the owner can decide (a notice and
+  // the chime): a worker's or coordinator's `send --type escalation`, or a Gate opened because the attempts ran out.
+  // W6-D raises it too, when a replan is handed to the person
+  'question.auto-answered',
+  'task.escalated',
+  // W6-G: no new worker starts on an account near its usage limit, and then may again (usageActivity)
+  'usage.paused',
+  'usage.resumed',
+  // W6-H: a finished plan pushed to its delivery branch (a feed line and a notice, no chime). A push that stopped is an
+  // escalation instead (delivery.ts recordDelivery)
+  'plan.delivered'
 ] as const
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number]
 
@@ -85,6 +104,23 @@ export interface ActivityPayload {
   runOutcome?: 'completed' | 'failed'
   // task.waiting (W5-D, #42)
   waitingFor?: 'permission' | 'question'
+  // plan.replanning / plan.replanned (W6-D)
+  replanMode?: 'wave' | 'completion'
+  /** The wave about to start (a completion pass: the one after the last). */
+  wave?: number
+  /** plan.replanned: what the replan changed, one line. */
+  // plan.nothing-to-do (W6-A): the planner's summary (inputs/existing.md)
+  summary?: string
+  // question.auto-answered (W6-B; `question` above is the worker's question)
+  answer?: string
+  // task.escalated (W6-B): the escalation's subject, else its body; a Gate's question; W6-D: why the replan escalated
+  reason?: string
+  // usage.* (W6-G); also accountId and resetsAt
+  usageWindow?: UsagePause['window']
+  percent?: number
+  // plan.delivered (W6-H)
+  branch?: string
+  sha?: string
 }
 
 /** One line before the log numbers and stamps it (the shape of publicEvents.ts's EventDraft). */
@@ -123,8 +159,10 @@ const dispatchOf = (ds: readonly Dispatch[]): Dispatch | undefined => {
 
 export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[] {
   if (prev === next) return []
-  // Most commits move only messages and deliveries (a heartbeat): nothing to read then
-  if (prev.tasks === next.tasks && prev.dispatches === next.dispatches && prev.gates === next.gates && prev.runs === next.runs && prev.jobs === next.jobs)
+  // Most commits move only messages and deliveries (a heartbeat): nothing to read then. W6-B reads a message that was
+  // added (an escalation, a reply's status line); acks and deliveries change messages without adding one.
+  const newMessages = prev.messages.length !== next.messages.length
+  if (!newMessages && prev.tasks === next.tasks && prev.dispatches === next.dispatches && prev.gates === next.gates && prev.runs === next.runs && prev.jobs === next.jobs)
     return []
   const out: ActivityDraft[] = []
   const runs = byId(next.runs)
@@ -232,7 +270,11 @@ export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[
       if (was === g) continue
       const title = tasks.get(g.taskId)?.title ?? g.taskId
       const gate = { gateId: g.id, question: g.question, ...(g.kind ? { gateKind: g.kind } : {}) }
-      if (was === undefined && g.status === 'open') push('gate.opened', where(g.runId, g.taskId), { title, ...gate })
+      if (was === undefined && g.status === 'open') {
+        push('gate.opened', where(g.runId, g.taskId), { title, ...gate })
+        // W6-B: the attempts ran out (W6-C's review cap too), so only the owner can move it on
+        if (gateEscalates(g)) push('task.escalated', where(g.runId, g.taskId), { title, gateId: g.id, reason: g.question })
+      }
       if (g.status === 'resolved' && was?.status !== 'resolved')
         push('gate.resolved', where(g.runId, g.taskId), { title, ...gate, ...(g.resolution !== undefined ? { resolution: g.resolution } : {}) })
     }
@@ -245,6 +287,45 @@ export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[
       if (was === undefined || was === r || same(was.pr, r.pr)) continue
       const at = where(r.id)
       push('run.pr', at, { title: at.job ? jobNameOf(at.job) : r.id, ...(r.pr !== undefined ? { pr: r.pr } : {}) })
+    }
+    // W6-H: the push landed
+    for (const r of next.runs) {
+      const was = before.get(r.id)
+      if (r.delivery?.sha === undefined || was === undefined || was.delivery?.sha === r.delivery.sha) continue
+      const at = where(r.id)
+      push('plan.delivered', at, { title: at.job ? jobNameOf(at.job) : r.id, sha: r.delivery.sha, ...(r.delivery.branch !== undefined ? { branch: r.delivery.branch } : {}) })
+    }
+  }
+
+  // W6-A: a plan that ended before approval because everything it asks for is built
+  if (prev.jobs !== next.jobs) {
+    const was = byId(prev.jobs)
+    for (const j of next.jobs) {
+      if (j.nothingToDo === undefined || was.get(j.id)?.nothingToDo !== undefined) continue
+      push(
+        'plan.nothing-to-do',
+        { ...(j.projectId !== undefined ? { projectId: j.projectId } : {}), jobId: j.id, job: j },
+        { title: jobNameOf(j), summary: j.nothingToDo.summary.slice(0, 2000) }
+      )
+    }
+  }
+  // W6-B: the messages this commit added. A reply adds its `status` line (applyReply, `replyTo` the question), so the
+  // answer is read off that line; an empty answer is the cleanup settlePendingQuestions leaves, never a reply.
+  if (newMessages) {
+    const was = new Set(prev.messages.map((m) => m.id))
+    const byMsg = byId(next.messages)
+    for (const m of next.messages) {
+      if (was.has(m.id)) continue
+      const taskTitle = m.taskId !== undefined ? tasks.get(m.taskId)?.title : undefined
+      const at = where(m.runId, m.taskId)
+      const title = taskTitle ?? (at.job ? jobNameOf(at.job) : m.runId)
+      if (m.type === 'escalation') {
+        push('task.escalated', at, { title, reason: (m.subject || m.body).slice(0, 500) }, sessionOfDispatch(next, m.dispatchId))
+        continue
+      }
+      const q = m.type === 'status' && m.replyTo !== undefined ? byMsg.get(m.replyTo) : undefined
+      if (q?.type !== 'question' || (q.answerBody ?? '') === '') continue
+      push('question.auto-answered', at, { title, question: q.body.slice(0, 500), answer: q.answerBody!.slice(0, 500) }, sessionOfDispatch(next, q.dispatchId))
     }
   }
 
@@ -263,10 +344,46 @@ export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[
       const outcome = outcomeOfTasks(ts)
       if (outcome === 'running') continue
       const at = where(runId)
+      // W6-D: a completed plan is done once its final check settles; the replan's end says so (below)
+      if (outcome === 'completed' && at.job && !completionSettled(next, at.job, runId)) continue
       push('plan.done', at, { title: at.job ? jobNameOf(at.job) : runId, runOutcome: outcome })
     }
   }
+  // W6-D: a replan's start and end, from the Job's marks (replan.ts). A final check that added nothing is the plan done.
+  if (prev.jobs !== next.jobs) {
+    const before = byId(prev.jobs)
+    for (const j of next.jobs) {
+      const was = before.get(j.id)
+      if (was === undefined || was === j) continue
+      const title = jobNameOf(j)
+      if (j.replanning && !was.replanning)
+        push('plan.replanning', where(j.replanning.runId), { title, replanMode: j.replanning.mode, wave: j.replanning.wave })
+      const last = j.lastReplan
+      if (!last || last === was.lastReplan) continue
+      const at = where(last.runId)
+      if (last.escalated !== undefined) {
+        push('task.escalated', at, { title, reason: last.escalated })
+        continue
+      }
+      push('plan.replanned', at, { title, replanMode: last.mode, wave: last.wave, summary: last.summary })
+      const ts = next.tasks.filter((t) => t.runId === last.runId)
+      if (last.mode === 'completion' && outcomeOfTasks(ts) === 'completed' && completionSettled(next, j, last.runId))
+        push('plan.done', at, { title, runOutcome: 'completed' })
+    }
+  }
   return out
+}
+
+/** W6-B: a Gate that only the owner can move on, which escalates: the convergence attempts ran out, or W6-C's review
+ *  cap (`reason: 'review-rounds-exhausted'`). */
+export const gateEscalates = (g: Gate): boolean =>
+  g.kind === 'convergence-exhausted' ||
+  // shortcut: Gate.reason is W6-C's field, read untyped until W6 merges; type it then
+  (g as Gate & { reason?: string }).reason === 'review-rounds-exhausted'
+
+const sessionOfDispatch = (s: OrchState, dispatchId: string | undefined): string | undefined => {
+  const id = dispatchId === undefined ? undefined : s.dispatches.find((d) => d.id === dispatchId)?.sessionId
+  return id !== undefined && !isPlaceholderSessionId(id) ? id : undefined
 }
 
 export const awaitsApproval = (j: Job | undefined): boolean => j?.pendingStart === true && j.plannerSessionIds !== undefined
@@ -293,6 +410,22 @@ export function waitingActivity(s: OrchState, sessionId: string, waitingFor: 'pe
       accountId: d.accountId,
       ...(d.review ? { review: true } : {}),
       waitingFor
+    }
+  }
+}
+
+/** W6-G: a usage guard's change (usageGuard.ts) as its feed line: a line no commit makes, recorded by the Host. The
+ *  title is the account id; the feed shows the account's name. */
+export function usageActivity(e: UsageChange): ActivityDraft {
+  const p = e.pause
+  return {
+    type: e.type,
+    payload: {
+      title: p.accountId,
+      accountId: p.accountId,
+      usageWindow: p.window,
+      percent: p.percent,
+      ...(p.resetsAt !== null ? { resetsAt: p.resetsAt } : {})
     }
   }
 }
@@ -376,12 +509,21 @@ export interface ActivityNotice {
   title: string
   body: string
   sessionId?: string
+  /** W6-B: it needs the owner (an escalation, a Gate), so the app chimes with it (renderer lib/alertSound.ts). */
+  alert?: true
 }
 
 const inPlan = (e: ActivityEvent): string => (e.payload.plan !== undefined && e.payload.plan !== e.payload.title ? ` (${e.payload.plan})` : '')
 
+/** W6-G: when a usage window resets, as this machine's clock reads it: "14:20", or "Mon 14:20" for the 7-day one. */
+export function resetClock(iso: string, weekly: boolean): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  return d.toLocaleString(undefined, { ...(weekly ? { weekday: 'short' as const } : {}), hour: '2-digit', minute: '2-digit', hour12: false })
+}
+
 /** The lines worth interrupting someone for: a Task failed, a plan ended, a question waits on a person, a plan waits
- *  on its approval. A worker waiting at a prompt (`task.waiting`) is a feed line and not a notice here: the desktop's `inputNeeded` and Slack's own notice
+ *  on its approval, an escalation (W6-B). A coordinator's answer (`question.auto-answered`) never is. A worker waiting at a prompt (`task.waiting`) is a feed line and not a notice here: the desktop's `inputNeeded` and Slack's own notice
  *  already say it, from the session's attention (desktopNotifier.ts), and a second notice would be the flood. */
 export function noticeOf(e: ActivityEvent): ActivityNotice | null {
   const session = e.sessionId !== undefined ? { sessionId: e.sessionId } : {}
@@ -397,9 +539,35 @@ export function noticeOf(e: ActivityEvent): ActivityNotice | null {
         body: e.payload.title
       }
     case 'gate.opened':
-      return { key: `gate:${e.payload.gateId}`, title: 'Needs your answer', body: `${e.payload.title}${inPlan(e)}: ${e.payload.question ?? ''}`.slice(0, 240) }
+      return { key: `gate:${e.payload.gateId}`, title: 'Needs your answer', body: `${e.payload.title}${inPlan(e)}: ${e.payload.question ?? ''}`.slice(0, 240), alert: true }
     case 'plan.awaiting-approval':
       return { key: `approve:${e.jobId}`, title: 'Plan ready for approval', body: e.payload.title }
+    case 'plan.nothing-to-do':
+      return { key: `nothing:${e.jobId}`, title: 'Nothing to do: already built', body: e.payload.title }
+    // W6-B. A Gate's escalation shares its gate.opened key, so the throttle shows one of the two
+    case 'task.escalated':
+      return {
+        key: e.payload.gateId !== undefined ? `gate:${e.payload.gateId}` : `escalated:${e.id}`,
+        title: 'Needs your decision',
+        body: `${e.payload.title}${inPlan(e)}: ${e.payload.reason ?? ''}`.slice(0, 240),
+        alert: true,
+        ...session
+      }
+    // W6-G: a notice but no chime (W6-B's chime is for what needs the owner): nothing is asked of anyone
+    case 'usage.paused': {
+      const weekly = e.payload.usageWindow === 'seven_day'
+      const resumes = e.payload.resetsAt ? `, resumes ~${resetClock(e.payload.resetsAt, weekly)}` : ''
+      return {
+        key: `usage:${e.payload.accountId}:${e.payload.usageWindow}:${e.payload.resetsAt ?? ''}`,
+        title: 'New workers paused',
+        body: `${e.payload.title} is at ${e.payload.percent}% of its ${weekly ? '7-day' : '5-hour'} limit${resumes}. Running workers carry on.`
+      }
+    }
+    case 'usage.resumed':
+      return { key: `usage-resumed:${e.id}`, title: 'New workers resumed', body: `${e.payload.title} is under the usage threshold again.` }
+    // W6-H: no chime, it needs nothing of the owner
+    case 'plan.delivered':
+      return { key: `delivered:${e.runId}`, title: `Plan pushed to ${e.payload.branch ?? 'its branch'}`, body: e.payload.title }
     default:
       return null
   }

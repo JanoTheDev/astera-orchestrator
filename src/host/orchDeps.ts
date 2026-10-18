@@ -31,7 +31,8 @@ import { chatPendingOf, type ChatPrompt, type ChatPromptList } from '../core/ses
 // `resumeStopWaitMs` is a number, not a call: the Host leaves it unset (RESUME_STOP_WAIT_MS) and only
 // tests set it, so it is never forwarded.
 // `maxConcurrentWorkers` (W1-B): the Host reads app-settings.json itself, as it does for the permission mode.
-const OWNED = ['getState', 'setState', 'now', 'log', 'runningSessions', 'appVersion', 'backup', 'resumeStopWaitMs', 'maxConcurrentWorkers'] as const
+// `usageGuard` (W6-G): the Host keeps its own, over its own sessions' statusLine readings.
+const OWNED = ['getState', 'setState', 'now', 'log', 'runningSessions', 'appVersion', 'backup', 'resumeStopWaitMs', 'maxConcurrentWorkers', 'usageGuard'] as const
 
 /**
  * **Forwarded, and a refusal reaches the caller.** `handleCommand` either awaits these and lets the
@@ -451,9 +452,13 @@ const NOT_FORWARDED = [
   'journalTimeline',
   'github',
   'readUnderstanding',
+  // W6-A intake
+  'intakeInputs',
   'changes',
   'jobSources',
-  'completionChecks'
+  'completionChecks',
+  // W6-H
+  'deliverPush'
 ] as const
 
 /** Every name the groups above classify between them. Nothing is unsupplied any more: the four
@@ -505,6 +510,7 @@ const EFFECTFUL: Record<Classified, boolean> = {
   backup: true,
   resumeStopWaitMs: false,
   maxConcurrentWorkers: false,
+  usageGuard: false,
   // HOST_LOCAL — the same values these names had in PROPAGATES and SWALLOWED before S2 (the six), and
   // in PROPAGATES before S3 (the three worktree names).
   startWorker: true,
@@ -590,6 +596,9 @@ const EFFECTFUL: Record<Classified, boolean> = {
   // NOT_FORWARDED as well (MCP P2-C): a read of this Host's profile's understanding.json, never the
   // app's. It never writes the file and leaves nothing outside the call.
   readUnderstanding: false,
+  // NOT_FORWARDED as well (W6-A intake): files copied into this Host's profile, never the app's. The Job it is for is
+  // a commit of the same command.
+  intakeInputs: true,
   // NOT_FORWARDED as well (remote runtime design Phase 10): git reads on this Host's machine, never the app's. It
   // runs `git diff` and leaves nothing outside the call.
   changes: false,
@@ -598,7 +607,10 @@ const EFFECTFUL: Record<Classified, boolean> = {
   jobSources: false,
   // NOT_FORWARDED as well (plugin Phase 5 C7, C8): this Host's completion check plugins, listed and asked to check,
   // never the app's. A check reads the work; its verdict is committed by the checks that asked.
-  completionChecks: false
+  completionChecks: false,
+  // NOT_FORWARDED as well (W6-H): this Host's git merges and pushes a finished plan, never the app's. It acts: marked
+  // where `hostOrchDeps` passes it on.
+  deliverPush: true
 }
 
 /** The names an action really travels under, narrowed to the effectful ones — the NESTED groups
@@ -634,6 +646,8 @@ export function hostOrchDeps(a: {
   backup(): Promise<void>
   /** W1-B: the app-wide worker cap, read from app-settings.json by the Host itself (OWNED). */
   maxConcurrentWorkers?(): Promise<number | null>
+  /** W6-G: the Host's usage guard (OWNED). */
+  usageGuard?: OrchServerDeps['usageGuard']
   act(name: string, args: unknown[]): Promise<unknown>
   hasApp(): boolean
   /** The `check --wait` long-polls this Host serves, one tracker for the Host's life (final round 2,
@@ -716,11 +730,15 @@ export function hostOrchDeps(a: {
   /** How It Works records (MCP P2-C): this Host's profile's understanding.json, read per call. Absent:
    *  the `understanding-*` commands answer 409, as a caller that is not the Host. */
   readUnderstanding?: OrchServerDeps['readUnderstanding']
+  /** W6-A intake: attached files into this Host's profile. Absent: `jobs-create --attach` and audits answer 409. */
+  intakeInputs?: OrchServerDeps['intakeInputs']
   /** A Run's changed files and diffs from this Host's git (Phase 10). Absent: the two commands answer 409. */
   changes?: OrchServerDeps['changes']
   /** This Host's job-source plugins (plugin Phase 4 J10). Absent: the sources are GitHub's alone. */
   jobSources?: OrchServerDeps['jobSources']
   completionChecks?: OrchServerDeps['completionChecks']
+  /** W6-H: a push delivery through this Host's git. Absent: `run-deliver` on a push project answers 409. */
+  deliverPush?: OrchServerDeps['deliverPush']
   /** The Host's own session work units (HOST_TRACKS, E2 §5), asked whether it is their writer at every
    *  call. Null or absent (no spawner): `trackingEnabled` and `sessionTasks.*` only forward, as before. */
   workUnits?: (Pick<HostWorkUnits, 'isWriter' | 'trackingEnabled'> & {
@@ -1137,7 +1155,8 @@ export function hostOrchDeps(a: {
   const github = a.github && {
     ...a.github,
     run: (args: string[], cwd: string) => {
-      if (args[0] === 'run' && args[1] === 'rerun') a.onEffect?.()
+      // W6-A: `issue edit` assigns an issue (github-issue-assign, --assign-me)
+      if ((args[0] === 'run' && args[1] === 'rerun') || (args[0] === 'issue' && args[1] === 'edit')) a.onEffect?.()
       return a.github!.run(args, cwd)
     },
     createPr: (req: Parameters<NonNullable<OrchServerDeps['github']>['createPr']>[0]) => {
@@ -1285,6 +1304,7 @@ export function hostOrchDeps(a: {
     appVersion: a.appVersion,
     backup: a.backup,
     ...(a.maxConcurrentWorkers ? { maxConcurrentWorkers: a.maxConcurrentWorkers } : {}),
+    ...(a.usageGuard ? { usageGuard: a.usageGuard } : {}),
     listSessions: own('listSessions'),
     readSession: own('readSession'),
     sendSession: own('sendSession'),
@@ -1297,9 +1317,19 @@ export function hostOrchDeps(a: {
     ...(a.journalTimeline ? { journalTimeline: a.journalTimeline } : {}),
     ...(github ? { github } : {}),
     ...(a.readUnderstanding ? { readUnderstanding: a.readUnderstanding } : {}),
+    ...(a.intakeInputs ? { intakeInputs: a.intakeInputs } : {}),
     ...(a.changes ? { changes: a.changes } : {}),
     ...(a.jobSources ? { jobSources: a.jobSources } : {}),
     ...(a.completionChecks ? { completionChecks: a.completionChecks } : {}),
+    // W6-H: a push lands on GitHub and commits nothing, so it is marked before the call, as `github.createPr` is
+    ...(a.deliverPush
+      ? {
+          deliverPush: (d: Parameters<NonNullable<OrchServerDeps['deliverPush']>>[0]) => {
+            a.onEffect?.()
+            return a.deliverPush!(d)
+          }
+        }
+      : {}),
     ...(a.checkWaits
       ? {
           enterCheckWait: (runId: string, sessionId: string) => a.checkWaits!.enter(runId, sessionId),

@@ -341,6 +341,53 @@ describe('createDispatchLoop', () => {
     expect(h.state().tasks.every((t) => t.status === 'ready')).toBe(true)
   })
 
+  // W6-G: the usage guard. A paused account starts nothing and opens no Gate; the pass after its end starts it.
+  it('starts no worker on an account at usagePauseAt, opens no Gate, and starts once the pause ends', async () => {
+    const h = rig()
+    let paused = true
+    const pause = { accountId: 'accA', window: 'five_hour' as const, percent: 93, resetsAt: '2026-09-24T02:00:00.000Z' }
+    h.ctx.usageGuard = { refresh: async () => {}, pauseOf: (id) => (paused && id === 'accA' ? pause : null) }
+    await h.loop.run()
+    await h.settle()
+    expect(h.startWorker).not.toHaveBeenCalled()
+    expect(h.handled()).not.toContain('gate-create')
+    expect(h.state().tasks.every((t) => t.status === 'ready')).toBe(true)
+    expect(h.logs.join('\n')).not.toContain('Gate')
+    paused = false
+    await h.loop.run()
+    await h.settle()
+    expect(h.startWorker).toHaveBeenCalledTimes(1)
+  })
+
+  it('starts on the next account of the chain that is under usagePauseAt', async () => {
+    const h = rig()
+    h.setState({ ...h.state(), tasks: h.state().tasks.map((t) => ({ ...t, accountIds: ['accA', 'accB'] })) })
+    h.ctx.accounts = () => [claudeAccount('accA'), claudeAccount('accB')]
+    const pause = { accountId: 'accA', window: 'seven_day' as const, percent: 95, resetsAt: null }
+    h.ctx.usageGuard = { refresh: async () => {}, pauseOf: (id) => (id === 'accA' ? pause : null) }
+    const starts: unknown[] = []
+    h.ctx.handle = async (cmd, args) => {
+      if (cmd === 'worker-start') starts.push(args.account)
+      return h.real(cmd, args)
+    }
+    await h.loop.run()
+    await h.settle()
+    expect(starts[0]).toBe('accB')
+    expect(h.startWorker).toHaveBeenCalledTimes(1)
+  })
+
+  it('a worker-start refused for usage (usagePaused) opens no Gate', async () => {
+    const h = rig({ concurrency: 2 })
+    h.ctx.handle = async (cmd, args) =>
+      cmd === 'worker-start'
+        ? { status: 409, body: { error: 'account accA is at 93% of its 5-hour limit', usagePaused: { accountId: 'accA' } } }
+        : h.real(cmd, args)
+    await h.loop.run()
+    await h.settle()
+    expect(h.handled()).not.toContain('gate-create')
+    expect(h.state().tasks.every((t) => t.status === 'ready')).toBe(true)
+  })
+
   // Review Focus 1, R15.
   it('a retiring Host’s refusal stops the activation and gates nothing', async () => {
     const h = rig({ concurrency: 2 })
@@ -1727,9 +1774,10 @@ describe("a completed Run opens its plan's pull request (W2-D)", () => {
     h.setState({ ...s, tasks: s.tasks.map((t) => (t.runId === runId ? { ...t, status: 'completed' as const } : t)) })
   }
   const fakePr = (h: ReturnType<typeof rig>): void => {
-    h.ctx.handle = async (cmd, args) => (cmd === 'run-open-pr' ? { status: 200, body: { url: 'https://github.com/o/r/pull/1' } } : h.real(cmd, args))
+    // W6-H: the loop asks `run-deliver`, which is `run-open-pr` for a `pr` project
+    h.ctx.handle = async (cmd, args) => (cmd === 'run-deliver' ? { status: 200, body: { url: 'https://github.com/o/r/pull/1' } } : h.real(cmd, args))
   }
-  const asked = (h: ReturnType<typeof rig>): number => h.handled().filter((c) => c === 'run-open-pr').length
+  const asked = (h: ReturnType<typeof rig>): number => h.handled().filter((c) => c === 'run-deliver').length
 
   it('asks once when a Run it saw running completes', async () => {
     const h = rig()
@@ -1754,5 +1802,100 @@ describe("a completed Run opens its plan's pull request (W2-D)", () => {
     await h.loop.run()
     await h.settle()
     expect(asked(h)).toBe(0)
+  })
+  // W6-H: a push merges the worktrees into the project folder itself, so a Run with no integration branch is asked too
+  it('asks a push Job with no integration branch once', async () => {
+    const h = rig({ runWithoutWorktree: true })
+    const s = h.state()
+    h.setState({ ...s, jobs: s.jobs.map((j) => ({ ...j, delivery: 'push' as const })) })
+    fakePr(h)
+    await h.loop.run()
+    await h.settle()
+    // finished before any worker forked a Run worktree: the Run still has no integration branch
+    const t = h.state()
+    h.setState({ ...t, runs: t.runs.map(({ worktree: _w, ...r }) => r) })
+    finish(h, 'run_1')
+    await h.loop.run()
+    await h.settle()
+    await h.loop.run()
+    await h.settle()
+    expect(h.state().runs[0].worktree).toBeUndefined()
+    expect(asked(h)).toBe(1)
+  })
+
+  it('does not ask again once the Run records a delivery', async () => {
+    const h = rig()
+    withWorktree(h, 'run_1')
+    fakePr(h)
+    await h.loop.run()
+    await h.settle()
+    const s = h.state()
+    h.setState({ ...s, runs: s.runs.map((r) => ({ ...r, delivery: { at: 'x', error: 'stopped' } })) })
+    finish(h, 'run_1')
+    await h.loop.run()
+    await h.settle()
+    expect(asked(h)).toBe(0)
+  })
+})
+
+// W6-D: a wave boundary replans before the next wave, and a completed Run gets its final check before its PR.
+describe('wave replanning (W6-D)', () => {
+  /** job_1 planned (so it replans), tsk_2 waiting on tsk_1. */
+  const planned = (h: ReturnType<typeof rig>, tasks: (t: Task) => Task): void => {
+    const s = h.state()
+    h.setState({
+      ...s,
+      jobs: s.jobs.map((j) => (j.id === 'job_1' ? { ...j, plannerSessionIds: ['ses-planner'], coordinatorAccountId: 'accA', concurrency: 2 } : j)),
+      tasks: s.tasks.map((t) => tasks({ ...t, prompt: 'p', acceptanceCriteria: ['c'], basis: { state: 'missing', evidence: 'e' }, ...(t.id === 'tsk_2' ? { deps: ['tsk_1'] } : {}) }))
+    })
+  }
+
+  it('holds the Job and starts a replan when the last Task of a wave completes, and starts no worker of the next', async () => {
+    const h = rig()
+    planned(h, (t) => (t.id === 'tsk_1' ? { ...t, status: 'completed' } : t))
+    await h.loop.run()
+    await h.settle()
+    expect(h.handled()).toContain('jobs-replan')
+    const job = h.state().jobs.find((j) => j.id === 'job_1')!
+    expect(job.dispatchHold).toBe(true)
+    expect(job.replanning).toMatchObject({ runId: 'run_1', mode: 'wave', wave: 1 })
+    expect(h.startCoordinator).toHaveBeenCalledWith(expect.objectContaining({ role: 'planner', runId: 'job_1' }))
+    expect(h.startWorker).not.toHaveBeenCalled()
+  })
+
+  it('runs the final check before the PR, and opens the PR once it settles', async () => {
+    const h = rig()
+    planned(h, (t) => t)
+    const s = h.state()
+    h.setState({ ...s, runs: s.runs.map((r) => ({ ...r, worktree: '/wt-run' })) })
+    h.ctx.handle = async (cmd, args) => (cmd === 'run-deliver' ? { status: 200, body: { url: 'u' } } : h.real(cmd, args))
+    h.startWorker.mockImplementation(async () => ({ sessionId: 'w', cwd: '/wt-run', specPath: 'x' }))
+    await h.loop.run()
+    await h.settle()
+    const now = h.state()
+    h.setState({ ...now, tasks: now.tasks.map((t) => ({ ...t, status: 'completed' as const })), dispatches: [] })
+    await h.loop.run()
+    await h.settle()
+    expect(h.state().jobs[0].replanning).toMatchObject({ mode: 'completion' })
+    expect(h.handled()).not.toContain('run-open-pr')
+    const session = h.state().jobs[0].replanning!.sessionId!
+    expect((await h.as(session, 'jobs-replan-done', { id: 'job_1', summary: 'meets the objective' })).status).toBe(200)
+    await h.loop.run()
+    await h.settle()
+    expect(h.handled().filter((c) => c === 'run-deliver')).toHaveLength(1)
+  })
+
+  it('ends a replan whose planner session is gone', async () => {
+    const h = rig()
+    planned(h, (t) => (t.id === 'tsk_1' ? { ...t, status: 'completed' } : t))
+    await h.loop.run()
+    await h.settle()
+    h.ctx.sessionGone = () => true
+    await h.loop.nudge()
+    await h.settle()
+    const job = h.state().jobs[0]
+    expect(job.replanning).toBeUndefined()
+    expect(job.dispatchHold).toBeUndefined()
+    expect(job.lastReplan?.summary).toContain('its planner session ended')
   })
 })

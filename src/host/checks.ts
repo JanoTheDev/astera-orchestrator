@@ -47,6 +47,10 @@ import { settingsObjectOf } from '../core/settings/settingsObject'
 import type { Account } from '../core/types'
 import type { PtyRegistry } from './registry'
 import { hostPtyFactory } from './spawner'
+// W6-H delivery
+import { prepareRun } from '../core/run/prepare'
+import { CHECK_TIMEOUT_MS } from '../core/orchestration/types'
+import { stripAnsi } from '../core/rolling/detect'
 
 export interface HostChecks {
   startValidation(a: { taskId: string; cwd: string }): void
@@ -80,6 +84,9 @@ export interface HostChecks {
    *  false. */
   checking(taskId: string): boolean
   resumeSweep(why: string): void
+  /** W6-H: runs these run configurations once, in order, in `cwd` (a push delivery's merged folder), and stops at the
+   *  first that does not exit 0. A check past CHECK_TIMEOUT_MS is stopped and fails. `ran`: how many ran. */
+  validateTree(cwd: string, configIds: string[]): Promise<{ ok: true; ran: number } | { ok: false; reason: string }>
 }
 
 /** How long stopForeignValidations waits for a killed run to exit. taskkill is asynchronous, and a
@@ -407,8 +414,57 @@ export function createHostChecksForTest(d: HostChecksDeps): HostChecks & { _vali
     log
   })
 
+  /** W6-H: who waits for which run to end (validateTree), by the run's id. */
+  const treeWaiters = new Map<string, (code: number) => void>()
+  registry.onExit((ptyId, exitCode) => {
+    const meta = registry.metaOf(ptyId)
+    const done = meta?.kind === 'run' ? treeWaiters.get(meta.id) : undefined
+    if (!done || !meta) return
+    treeWaiters.delete(meta.id)
+    done(exitCode ?? 1)
+  })
+  const validateTree: HostChecks['validateTree'] = async (cwd, configIds) => {
+    let ran = 0
+    for (const configId of configIds) {
+      let name = configId
+      try {
+        await assertAllowedPath(cwd)
+        const prepared = await prepareRun({
+          projectPath: cwd,
+          configId,
+          stored: await readStoredRunConfigs(runConfigsPath, cwd),
+          ignoreConfigCwd: true,
+          assertAllowedPath,
+          t: (key, params) => t(langNow(), key as never, params)
+        })
+        name = prepared.config.name
+        const started = runs.start({ projectPath: cwd, projectName: prepared.projectName, config: prepared.config, command: prepared.command, validation: true })
+        const code = await new Promise<number | 'timeout'>((resolve) => {
+          const timer = setTimeout(() => {
+            treeWaiters.delete(started.runId)
+            runs.stop(started.runId)
+            resolve('timeout')
+          }, CHECK_TIMEOUT_MS)
+          treeWaiters.set(started.runId, (c) => {
+            clearTimeout(timer)
+            resolve(c)
+          })
+        })
+        ran++
+        if (code !== 0) {
+          const tail = stripAnsi(runs.recentOutput(started.runId)).trim().slice(-1500)
+          return { ok: false, reason: `${name} ${code === 'timeout' ? 'timed out' : `exited ${code}`}${tail ? `:\n${tail}` : ''}` }
+        }
+      } catch (e) {
+        return { ok: false, reason: `${name} could not run: ${String(e)}` }
+      }
+    }
+    return { ok: true, ran }
+  }
+
   return {
     _validator: validation.validator,
+    validateTree,
     startValidation: (a) => validation.startValidation(a),
     startReview,
     startRepair: (a) => {

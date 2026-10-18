@@ -20,7 +20,7 @@ vi.mock('../TerminalView', () => ({
 }))
 
 const { PaneGrid } = await import('../PaneGrid')
-const { scopeLayout } = await import('./workspaceTree')
+const { scopeLayout, scopeIds, workspaceSessionIds } = await import('./workspaceTree')
 
 const session = (id: string, cwd: string): SessionInfo => ({ id, accountId: 'acc1', cwd, status: 'running', title: id }) as SessionInfo
 // Two plans' sessions: Trading's a1, a2 and Redis's b1.
@@ -74,5 +74,30 @@ describe('switching plans', () => {
     const none = slots(render(scopeLayout(root, new Set(['gone'])), paneId))
     expect(none.map(([id]) => id)).toEqual(['a1', 'b1', 'a2'])
     expect(none.some(([, , shown, active]) => shown || active)).toBe(false)
+  })
+})
+
+// W6-F: a project workspace is the same kind of view, so switching projects leaves every tab running in the background.
+describe('switching project workspaces', () => {
+  const tree = [
+    { id: 'g', name: 'gameful', path: '/repos/gameful', plans: [{ jobId: 'j', projectId: 'g', name: 'Trading', archived: false, paused: false, planner: [], coordinator: [],
+      workers: [{ sessionId: 'a1', role: 'worker' as const, label: 'w', projectName: 'gameful', planName: 'Trading' }] }] },
+    { id: 'x', name: 'Astera', path: '/wt/b1', plans: [] }
+  ]
+  // a2's tab is a plain one in Gameful's worktree; b1 is in Astera's folder
+  const byWorkspace = workspaceSessionIds(tree, sessions, [{ path: '/wt/a2', repoPath: '/repos/gameful' }])
+  let root: PaneNode = createGroup(sessionTab('a1'))
+  root = addTab(root, root.id, sessionTab('b1'))
+  root = addTab(root, root.id, sessionTab('a2'))
+
+  it('keeps every terminal mounted with its cwd and shows only the open project’s, there and back', () => {
+    const view = (projectId: string) => slots(render(scopeLayout(root, scopeIds(tree, byWorkspace, projectId, null)!), root.id))
+    const gameful = view('g')
+    const astera = view('x')
+    const back = view('g')
+    for (const v of [gameful, astera, back]) expect(v.map(([id, cwd]) => `${id}@${cwd}`)).toEqual(['a1@/wt/a1', 'b1@/wt/b1', 'a2@/wt/a2'])
+    expect(astera.map(([id, , shown, active]) => [id, shown, active])).toEqual([['a1', false, false], ['b1', true, true], ['a2', false, false]])
+    expect(back).toEqual(gameful)
+    expect(gameful.filter(([, , shown]) => shown).map(([id]) => id)).toEqual(['a2'])
   })
 })

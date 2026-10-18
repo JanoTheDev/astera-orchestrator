@@ -243,6 +243,17 @@ describe('registrySessions — state', () => {
     expect((await row())?.prompt).toBeUndefined()
   })
 
+  it('W6-E: a row carries the last tool call it started, which a later PostToolUse or Stop leaves standing', async () => {
+    const { event, sessions } = withEvents()
+    const row = async () => (await sessions.listSessions()).find((s) => s.id === 'ses-1')
+    expect((await row())?.lastAction).toBeUndefined()
+    event('ses-1', { hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: 'src/x.ts' } }, 1_000_000)
+    event('ses-1', { hook_event_name: 'PostToolUse', tool_name: 'Edit' }, 1_002_000)
+    event('ses-1', { hook_event_name: 'Stop' }, 1_003_000)
+    expect((await row())?.lastAction).toEqual({ tool: 'Edit', target: 'src/x.ts', at: 1_003_000 })
+    expect((await sessions.sessionById!('ses-1'))?.lastAction?.tool).toBe('Edit')
+  })
+
   // No hook announces a new turn, so the file cannot say one started. Typing after the event —
   // the next prompt and its Enter, an answer to the prompt, Esc — leaves the event unable to answer.
   it('input typed after the last event makes it unknown, until the next event', async () => {
