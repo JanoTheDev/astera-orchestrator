@@ -22,12 +22,25 @@ merge, final check, delivery). Three things are missing.
      each `##` section becomes one Task in the same verbatim way. The heading is the Task title. This is the Start
      page's "Run as written" (DESIGN.md §2).
    - Approval defaults to auto in this mode, because the owner wrote the plan. `--approve ask` overrides it.
+   - **Many waves in one plan.** The owner may attach every prompt of several waves at once, for example all of W8
+     and W9. The planner then builds the order from `docs/orchestrator/PLAN.md`:
+     - its wave table ("Depends on", and "alone" means a wave of one Task);
+     - the "Order and why" lines;
+     - each prompt's own "run alone" and "after X merges" sentences.
+     A prompt saying "X is merged" then means merged into this plan's branch, and the dependency enforces it. A
+     prompt whose wave PLAN.md marks done (for example W9-0) is skipped and listed in the approval as "already
+     done".
+   - The approval shows the computed waves and why each Task sits where it does ("W9-A: 9.1 runs alone after W8"),
+     so the owner checks the order once.
    - The planner fills `affectedPaths` from the prompt's "Ownership" / "Owns" lines and PLAN.md's ownership table,
      `deps` from PLAN.md's wave table ("Depends on", "run alone"), and the model from the difficulty.
    - `validatePlan` checks that there is one Task per file and that each prompt equals its file's text.
    - A prompt's own instructions to open a PR and stop are superseded by the plan's integration and delivery. Add
      one line to the worker brief: "Ignore the prompt's worktree, branch, push and PR steps; Astera gives you a
      worktree and delivers the plan."
+1b. **Follow a long plan from GitHub:** a plan delivered as a PR opens it as a **draft after its first wave**, and
+   updates it after every wave (push the plan branch; the body lists the done and remaining waves). The PR is marked
+   ready after the final check. Nothing is merged without the owner.
 2. **Plan after plan** (`Job.after?: string`, a job id, in `types.ts`, `schedule.ts`/`jobActive`, `blocked.ts`):
    - A queued plan stays `pendingStart` until the plan it names is **delivered**. Its planner then starts by itself,
      and the rest follows the project's approval setting (W7-A auto-approve).
@@ -50,7 +63,8 @@ merge, final check, delivery). Three things are missing.
      Record the result in LINUX.md.
 
 ## Done means
-- Tests: one Task per prompt file, one Task per `##` section of a single document, and a rewrite of a prompt is
+- Tests: wave order built from a PLAN.md-style wave table (alone, parallel, after), and a done wave skipped; the draft PR
+  updated per wave; one Task per prompt file, one Task per `##` section of a single document, and a rewrite of a prompt is
   refused; `after` gating (delivered → starts; gave up
   → waits and escalates once; cycle refused); the heavy lock is FIFO and released on crash or exit; the worker
   brief lines are present.

@@ -302,16 +302,23 @@ found. **W8-C is the last wave run by hand.** It adds three things:
 From then on, each wave is one Astera plan, queued after the one before it. Run these from the packaged app's
 profile, never the dev profile:
 
+In the app: **Start → Run as written**. Attach every W8 and W9 prompt (W8-A, B, D and W9-A … K, F, G; W9-0 is done),
+set delivery to PR, and press Start. The planner reads PLAN.md's wave table and builds the order:
+1. W8 (A, B, D in parallel).
+2. W9-A alone.
+3. W9-B, C, D, E, H, I, J, K in parallel.
+4. W9-F.
+5. W9-G.
+
+The approval shows that order once. After that, one draft PR is updated after every wave and marked ready at the
+end. The same from the CLI:
+
 ```bash
 astera jobs create --project astera --mode prompts --delivery pr \
-  --attach docs/orchestrator/prompts/W8-A-commit-attribution.md docs/orchestrator/prompts/W8-B-line-attribution.md \
-           docs/orchestrator/prompts/W8-D-plans-side-by-side.md
-# Wave 9: one plan per sub-wave, each queued after the one before (9.0 is done; 9.1 alone first)
-astera jobs create --project astera --mode prompts --after <W8 job> --attach docs/orchestrator/prompts/W9-A-foundation.md
-astera jobs create --project astera --mode prompts --after <W9.1 job> --attach docs/orchestrator/prompts/W9-{B,C,D,E,H,I,J,K}-*.md
-astera jobs create --project astera --mode prompts --after <W9.2 job> --attach docs/orchestrator/prompts/W9-F-polish-and-verify.md
-astera jobs create --project astera --mode prompts --after <W9.3 job> --attach docs/orchestrator/prompts/W9-G-readme-and-docs.md
+  --attach docs/orchestrator/prompts/W8-{A,B,D}-*.md docs/orchestrator/prompts/W9-{A,B,C,D,E,H,I,J,K,F,G}-*.md
 ```
+
+Separate queued plans per wave (`--after <job>`) still work, if the owner wants one PR per wave.
 
 The owner's part:
 - Answer what lands in the Inbox: real questions, plan approvals unless the project auto-approves, and permission
