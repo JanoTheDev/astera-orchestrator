@@ -19,6 +19,11 @@ describe('fastParse — SPEC §8 phrasings read without a model', () => {
     ['Stop the Console plan', { kind: 'stop', target: 'Console' }],
     ['Start executing the approved plan', { kind: 'approve' }],
     ['approve Console', { kind: 'approve', target: 'Console' }],
+    ['change the plan: split the API task', { kind: 'plan-feedback', text: 'split the API task' }],
+    ['Tell the planner to add a migration step', { kind: 'plan-feedback', text: 'add a migration step' }],
+    ['plan feedback: drop the UI task', { kind: 'plan-feedback', text: 'drop the UI task' }],
+    ['reject the plan', { kind: 'plan-reject' }],
+    ['reject Console because it is too wide.', { kind: 'plan-reject', target: 'Console', reason: 'it is too wide' }],
     ['Plan the next Gameful refactor', { kind: 'plan', objective: 'the next Gameful refactor' }],
     ['send "run the tests" to the API worker', { kind: 'send', text: 'run the tests', session: 'API worker' }],
     ['send add a note to the readme to worker 2', { kind: 'send', text: 'add a note to the readme', session: 'worker 2' }]

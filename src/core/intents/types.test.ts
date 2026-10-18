@@ -11,6 +11,8 @@ describe('readIntent — the coordinator model answer is a trust boundary', () =
       target: 'Trading'
     })
     expect(readIntent({ kind: 'summarize', minutes: 15 })).toEqual({ kind: 'summarize', minutes: 15 })
+    expect(readIntent({ kind: 'plan-feedback', text: ' split it ', target: 'Console' })).toEqual({ kind: 'plan-feedback', text: 'split it', target: 'Console' })
+    expect(readIntent({ kind: 'plan-reject' })).toEqual({ kind: 'plan-reject' })
   })
 
   it.each([
@@ -18,6 +20,7 @@ describe('readIntent — the coordinator model answer is a trust boundary', () =
     'pause',
     { kind: 'rm -rf' },
     { kind: 'send', session: 'w' },
+    { kind: 'plan-feedback' },
     { kind: 'plan', objective: '   ' },
     { kind: 'summarize', minutes: -5 },
     { kind: 'summarize', minutes: 1.5 },
@@ -33,13 +36,13 @@ describe('safety', () => {
   })
 
   it('never starts a destructive or quota-spending intent from a parse alone (a voice transcript lands as auto)', () => {
-    for (const k of ['approve', 'stop', 'archive', 'delete', 'merge'] as const) {
+    for (const k of ['approve', 'stop', 'archive', 'delete', 'merge', 'plan-reject'] as const) {
       expect(SAFETY[k]).toBe('confirm')
       expect(mayStart(k, 'auto')).toBe(false)
     }
     // W5-C: pause and stop-launching close nothing now (a hold), but still wait for Enter or Run; pausing one worker
     // asks in the app's dialog on top of that (holdWorker)
-    for (const k of ['plan', 'send', 'resume', 'pause', 'stop-launching'] as const) expect(mayStart(k, 'auto')).toBe(false)
+    for (const k of ['plan', 'send', 'resume', 'pause', 'stop-launching', 'plan-feedback'] as const) expect(mayStart(k, 'auto')).toBe(false)
   })
 
   it('answers status questions at once', () => {

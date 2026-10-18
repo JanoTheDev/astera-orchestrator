@@ -29,6 +29,24 @@ owns every session and drives every plan, so closing the window stops nothing (L
    refuses a plan in which a Task lacks a prompt or a criterion, a dependency is missing, or the dependencies form a
    cycle, and lists what is wrong. From a shell, `astera jobs run --id <job>` does the same. An agent session can never
    approve. Approval ends the planner session: its work is done.
+
+### Talk to the planner (W7-A)
+
+- **Request changes.** On a plan waiting for approval, type what to change in the "Request changes" box and send it. The
+  text goes to the same planner session; if that session has ended, its conversation is resumed, or else a fresh planner
+  starts with plan.md, existing.md and the history. You approve again when it is done.
+- **Reject.** The Reject button (asks first, with an optional reason) archives the plan and ends its planner.
+  `astera jobs unarchive --id <job>` takes it back.
+- **While the plan runs.** The same box starts a replan at once. It changes only Tasks that have not started, and no new
+  worker starts until it is done.
+- **Auto-approve.** `astera projects set --id <project> --auto-approve on` approves a project's plans as soon as their
+  planner finishes, with no one asked. One plan overrides it: `astera jobs plan --id <job> --auto-approve on|off`.
+  Default off.
+- **Command bar.** `change the plan: split the API task`, `tell the planner to add a migration step`,
+  `plan feedback: …` (act: press Run); `reject the plan`, `reject Console because it is too wide` (confirm: asks in the
+  app's dialog).
+- **CLI.** `astera jobs feedback --job <job> --text <text|->` (`-` reads stdin) and
+  `astera jobs reject --job <job> [--reason <text>]`. Both are refused from an agent session.
 4. **Run.** A coordinator session (coordinator model) starts and places workers. Every Task whose dependencies are done
    gets a worker in its own worktree under `~/astera-worktrees/<repo>/`. Dependents start on their own when their
    dependencies complete, never before. "Done" is the worker's explicit report plus any checks, not a quiet terminal.
@@ -210,8 +228,8 @@ Type a command and press Enter. The bar handles it in three steps:
 | Kind | Commands | Runs |
 |---|---|---|
 | read | switch to a plan, show its sessions, summarize, list who is waiting, a plain answer | at once |
-| act | plan X, send text to a session, resume, pause / stop launching (a hold: nothing closes) | after you press **Run** (or Enter on an empty line); pausing one worker also asks in the app's dialog |
-| confirm | approve and start, stop, archive, delete, merge | only after a click in the app's confirmation dialog |
+| act | plan X, send text to a session, change the plan / tell the planner (W7-A), resume, pause / stop launching (a hold: nothing closes) | after you press **Run** (or Enter on an empty line); pausing one worker also asks in the app's dialog |
+| confirm | approve and start, reject the plan, stop, archive, delete, merge | only after a click in the app's confirmation dialog |
 
 Voice and typed text never run a confirm-class command on their own.
 
