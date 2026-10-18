@@ -479,6 +479,27 @@ const SESSION = {
     detail: 'It touches no process and no folder — the session may still be running.',
     flags: [DISPATCH('the dispatch to let go of')]
   },
+  // W5-C holds: the person's, refused from agent sessions and MCP clients
+  'worker-hold': {
+    summary: 'pause a worker: its session stays open and keeps its slot, and no agent sends it anything',
+    detail: 'Refused from an agent session and an MCP client. Nothing is closed. `worker-unhold` takes it back.',
+    flags: [DISPATCH('the open dispatch to pause')]
+  },
+  'worker-unhold': {
+    summary: 'take back a worker-hold',
+    detail: 'Refused from an agent session and an MCP client.',
+    flags: [DISPATCH('the dispatch to let go again')]
+  },
+  'jobs-hold': {
+    summary: 'stop launching new workers for a Job; running ones carry on',
+    detail: 'Refused from an agent session and an MCP client. Nothing is closed. `jobs-unhold` takes it back.',
+    flags: [req('id', '<jobId>', 'the Job to hold')]
+  },
+  'jobs-unhold': {
+    summary: 'let a held Job launch workers again',
+    detail: 'Refused from an agent session and an MCP client.',
+    flags: [req('id', '<jobId>', 'the Job to let go again')]
+  },
   accounts: {
     summary: 'the agent accounts the app holds',
     flags: [{ name: 'agent', value: '<claude|codex>', about: 'only this vendor' }]

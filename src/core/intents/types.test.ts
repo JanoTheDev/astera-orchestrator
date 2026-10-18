@@ -33,11 +33,13 @@ describe('safety', () => {
   })
 
   it('never starts a destructive or quota-spending intent from a parse alone (a voice transcript lands as auto)', () => {
-    for (const k of ['approve', 'pause', 'stop-launching', 'archive', 'delete', 'merge'] as const) {
+    for (const k of ['approve', 'stop', 'archive', 'delete', 'merge'] as const) {
       expect(SAFETY[k]).toBe('confirm')
       expect(mayStart(k, 'auto')).toBe(false)
     }
-    for (const k of ['plan', 'send', 'resume'] as const) expect(mayStart(k, 'auto')).toBe(false)
+    // W5-C: pause and stop-launching close nothing now (a hold), but still wait for Enter or Run; pausing one worker
+    // asks in the app's dialog on top of that (holdWorker)
+    for (const k of ['plan', 'send', 'resume', 'pause', 'stop-launching'] as const) expect(mayStart(k, 'auto')).toBe(false)
   })
 
   it('answers status questions at once', () => {

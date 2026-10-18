@@ -41,7 +41,7 @@ import { nodeProcSpawn } from './nodeProc'
 import { HOST_FEATURE_ORCH, HOST_FEATURE_REQUESTS, HOST_PROTOCOL, HOST_YIELD_JOURNAL, HOST_YIELD_UNDERSTANDING, HOST_YIELD_WORK_UNITS, HOST_YIELD_WORKSPACE, HOST_YIELD_WORKTREES } from '../core/host/protocol'
 import { createHostJournal } from './hostJournal'
 import { createHostEventLog } from './eventLog'
-import { followActivity } from './activity'
+import { followActivity, hostSessionActivity } from './activity'
 import { ACTIVITY_KINDS, deriveActivity } from '../core/orchestration/activity'
 import { readActivityDigestMinutes } from '../core/settings/activityDigest'
 import { readMaxConcurrentWorkers } from '../core/settings/maxConcurrentWorkers'
@@ -385,6 +385,9 @@ async function main(): Promise<void> {
     derive: deriveActivity
   })
   await activityLog.load()
+  // W5-D (#48, #42): the activity lines a session's hook events make (a plan ready, a worker waiting). `orch` is read
+  // at the call; an event before it exists is reported and dropped.
+  const sessionActivity = hostSessionActivity({ log: activityLog, state: () => orch.state(), report: (m) => log.write(m) })
 
   // How It Works (E1 §2, §3): this Host writes understanding.json while every attached app yields it, or
   // none is attached, read per write. Loaded at start whether or not it writes now, so a record a dead
@@ -512,6 +515,7 @@ async function main(): Promise<void> {
           hookTap: (sid, p) => {
             slackWiring?.onHookEvent(sid, p)
             sessionEvents?.onHookEvent(sid, p)
+            sessionActivity.onHookEvent(sid, p)
           }
         })
       : null
@@ -558,7 +562,10 @@ async function main(): Promise<void> {
   // the public event log. Only with the rolling: without a spawner there is no hook tap and no chain to hear.
   sessionEvents = rollingWiring
     ? createHostSessionEvents({
-        record: (drafts) => eventLog.recorded(drafts),
+        record: (drafts) => {
+          eventLog.recorded(drafts)
+          sessionActivity.onSessionEvents(drafts)
+        },
         sessionById: async (id) => (await hostSessions.sessionById?.(id)) ?? null,
         registry,
         procs,

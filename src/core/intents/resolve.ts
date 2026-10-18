@@ -21,6 +21,8 @@ export interface DirPlan {
   scheduled: boolean
   /** Not started: a plan waiting for its approval (or a draft). */
   pendingStart: boolean
+  /** W5-C: held from launching new workers (Job.dispatchHold). Absent: not held. */
+  held?: boolean
   /** The latest Run, absent before the plan has run. */
   runId?: string
   sessions: DirSession[]

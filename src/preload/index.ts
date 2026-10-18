@@ -361,6 +361,8 @@ const api = {
   },
   orch: {
     list: invoke('orch.list'),
+    // W5-C: a project's snapshot without taking over the Jobs view's subscription
+    peek: invoke('orch.peek'),
     /** The Host gate, read once at mount. **Its own door rather than a field on the snapshot** —
      *  the list call is only ever made with a project open, and the state that needs this most is the one
      *  with none (ruling F41). Changes arrive on the 'orch:host' event. */

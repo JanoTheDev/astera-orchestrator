@@ -21,6 +21,7 @@ import type { WorkerTails } from './tail'
 import { coordinatorBriefName } from './specFiles'
 import { dispatchLookup } from '../dispatchIndex'
 import { jobOf, jobOfRunId } from '../state'
+import { pendingMerges, runRootOf } from '../integrate'
 import {
   resolveReviewerModel,
   resolveRoleModel,
@@ -165,10 +166,12 @@ export async function startWorkerWithChain(
   }
   const chosen = await modelForStart(ctx, a, ctx.getState())
   if (chosen.note) ctx.log(`worker-start: dispatch ${a.dispatchId}: ${chosen.note}`)
+  const fork = forkForDeps(ctx.getState(), a)
   const started = await ctx.coordinator.startWorker({
     ...a,
     rollAccountIds,
-    ...(chosen.model ? { model: chosen.model } : {})
+    ...(chosen.model ? { model: chosen.model } : {}),
+    ...(fork ? { fork } : {})
   })
   // From this point on, that session's output belongs to this dispatch. On reuse (--terminal) the
   // previous dispatch's tail freezes where it is. Only a dispatch that has reached a terminal
@@ -185,6 +188,18 @@ export async function startWorkerWithChain(
     (id) => dispatchById(id)?.endedAt !== undefined
   )
   return { ...started, ...(chosen.model ? { model: chosen.model } : {}), ...(chosen.note ? { modelNote: chosen.note } : {}) }
+}
+
+/** W5-A (#50): a `--worktree new` worker for a Task with deps forks from its Run's worktree, not the
+ *  project's checkout, and gets its finished deps' worktrees merged in. The scheduler has merged those deps
+ *  into the Run's worktree already (and may have reaped them); a coordinator places Tasks itself and nothing
+ *  has, so the merge is what brings their commits. Undefined: fork as before. */
+export function forkForDeps(s: OrchState, a: StartWorkerArgs): { base: string; merge: string[] } | undefined {
+  if (a.terminal || a.worktree !== 'new') return undefined
+  const task = s.tasks.find((t) => t.id === a.taskId)
+  const run = task ? s.runs.find((r) => r.id === task.runId) : undefined
+  if (!task || !run || task.deps.length === 0) return undefined
+  return { base: runRootOf(run, jobOf(s, run)), merge: pendingMerges(s, task.id) }
 }
 
 export type StartCoordinatorArgs = Parameters<NonNullable<OrchServerDeps['startCoordinator']>>[0]

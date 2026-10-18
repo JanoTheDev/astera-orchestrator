@@ -98,7 +98,11 @@ export interface CoordinatorDeps {
    *  does not hold (main/orchestration/stopWorker.ts). `releaseWorker` waits for it, so a refusal
    *  reaches worker-stop before it marks anything stopped. */
   killSession(sessionId: string): void | Promise<void>
-  createWorktree(a: { repoPath: string; name: string }): Promise<{ path: string }>
+  createWorktree(a: { repoPath: string; name: string; baseOf?: string }): Promise<{ path: string }>
+  /** W5-A (#50): merges the dependency worktrees into a fork made for their dependent Task
+   *  (integrateGit.ts mergeDepsInto). Called after createWorktree returns, so a throw here is a failed
+   *  start whose fork the wiring removes like any other. Absent: deps are not merged into the fork. */
+  mergeIntoWorktree?(worktree: string, from: string[]): Promise<void>
   accountProvider(accountId: string): Provider | null
   /** Directory to write spec files into (absolute path). It has to be outside the user's repository
    *  — the spec body carries the work instructions the orchestrator wrote, and inside the repository
@@ -767,6 +771,10 @@ export class OrchCoordinator {
      *  LAUNCH_FORBIDDEN 검사보다 먼저 끝나 있어야 한다: 그 검사는 실제로 보내는 문자열을 봐야
      *  한다. */
     launchPhrase?: string
+    /** W5-A (#50): where a `--worktree new` fork for a Task with deps comes from — `base` is the folder
+     *  whose branch it forks from (the Run's worktree), `merge` the dep worktrees merged into it before
+     *  the worker starts. Set by startWorkerWithChain, which reads the state this class does not. */
+    fork?: { base: string; merge: string[] }
   }): Promise<{ sessionId: string; cwd: string; specPath: string }> {
     const actual = this.deps.accountProvider(a.accountId)
     if (actual === null) throw new Error(`unknown account: ${a.accountId}`)
@@ -839,7 +847,17 @@ export class OrchCoordinator {
       if (!a.name) throw new Error('--name is required for --worktree new')
       // The name is free text the coordinator agent wrote; it becomes a folder and a branch, so it is
       // bounded like a Run's or a Task's (naming.ts MAX_NAME_LENGTH)
-      cwd = (await this.deps.createWorktree({ repoPath: a.runCwd, name: boundedSlug(a.name) })).path
+      cwd = (
+        await this.deps.createWorktree({
+          repoPath: a.runCwd,
+          name: boundedSlug(a.name),
+          ...(a.fork ? { baseOf: a.fork.base } : {})
+        })
+      ).path
+      if (a.fork && a.fork.merge.length > 0) {
+        if (this.deps.mergeIntoWorktree) await this.deps.mergeIntoWorktree(cwd, a.fork.merge)
+        else this.deps.log(`orch: dispatch ${a.dispatchId}: this build cannot merge the deps into ${cwd}`)
+      }
     } else if (a.worktree === 'current') {
       cwd = a.runCwd
     } else {

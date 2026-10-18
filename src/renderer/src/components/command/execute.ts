@@ -2,7 +2,7 @@
 // goes through an `orch.command` door, and the plan actions through lib/jobActions.ts, the Jobs view's own functions.
 // Everything `confirm`-class (core/intents/safety.ts) is one of those functions, and each asks first.
 import type { Attention, OrchSnapshot } from '../../../../core/types'
-import type { Task } from '../../../../core/orchestration/types'
+import type { Dispatch, Task } from '../../../../core/orchestration/types'
 import { findRun } from '../../../../core/orchestration/snapshot'
 import type { Intent } from '../../../../core/intents/types'
 import {
@@ -19,7 +19,19 @@ import {
 } from '../../../../core/intents/resolve'
 import { summarize } from '../../../../core/intents/summary'
 import type { OrchDoor } from '../../lib/orchDoor'
-import { approvePlan, archiveJob, deleteRun, pauseRun, resumeRun, resumeStoppedRun, stopRun, type ActionUi } from '../../lib/jobActions'
+import {
+  approvePlan,
+  archiveJob,
+  deleteRun,
+  holdJob,
+  holdWorker,
+  pauseRun,
+  resumeRun,
+  resumeStoppedRun,
+  stopRun,
+  unholdWorker,
+  type ActionUi
+} from '../../lib/jobActions'
 
 export type Ready = { ok: true; intent: Intent; plan?: DirPlan; plans?: DirPlan[]; project?: DirProject; session?: FoundSession }
 export type Resolution = Ready | { ok: false; miss: Miss }
@@ -48,6 +60,20 @@ export function resolveIntent(intent: Intent, dir: Directory, pins: Pins = {}): 
       const r = resolveSession(dir, intent.session, plan, pins)
       return r.ok ? { ok: true, intent, plan: r.value.plan, session: r.value } : fail(r)
     }
+    case 'pause':
+    case 'resume': {
+      // W5-C: "pause worker three" is that worker (worker-hold), "pause Console" the plan. Only workers can be held,
+      // so only workers are matched; a picked session wins, then a plan, then a worker by name.
+      const workers: Directory = { ...dir, plans: dir.plans.map((p) => ({ ...p, sessions: p.sessions.filter((s) => s.role === 'worker') })) }
+      const asWorker = (): Resolution | null => {
+        const w = resolveSession(workers, intent.target ?? '', undefined, pins)
+        return w.ok ? { ok: true, intent, plan: w.value.plan, session: w.value } : w.why === 'ambiguous' ? fail(w) : null
+      }
+      if (pins.sessionId !== undefined) return asWorker() ?? fail({ ok: false, what: 'session', why: 'not-found', candidates: [] })
+      const p = resolvePlan(dir, intent.target, pins)
+      if (p.ok) return { ok: true, intent, plan: p.value }
+      return (intent.target !== undefined ? asWorker() : null) ?? fail(p)
+    }
     default: {
       const r = resolvePlan(dir, intent.target, pins)
       return r.ok ? { ok: true, intent, plan: r.value } : fail(r)
@@ -63,18 +89,21 @@ export interface Line {
 }
 
 type TaskLike = Pick<Task, 'runId' | 'title' | 'status' | 'updatedAt'>
+type DispatchLike = Pick<Dispatch, 'id' | 'sessionId' | 'outcome' | 'endedAt' | 'held'>
 
 export interface ExecDeps {
   door(projectPath: string): OrchDoor
   ui: ActionUi
   tasks: readonly TaskLike[]
+  /** W5-C: every Dispatch (WorkspaceData), so a worker named by its session is held by its open Dispatch. */
+  dispatches: readonly DispatchLike[]
   nowMs: number
   attention(sessionId: string): Promise<Attention | null>
   openPlan(jobId: string): void
   openRun(projectPath: string, runId: string): void
-  /** The Jobs view's snapshot of that project, or null when it watches another one: archive and delete count what
-   *  goes with a plan from it (jobActions), so they act only on the open project's plans. */
-  snapshotFor(projectPath: string): OrchSnapshot | null
+  /** That project's Jobs snapshot, read when asked (W5-C, #41): archive and delete count what goes with a plan from it
+   *  (jobActions), for a plan of any project. Null when it cannot be read. */
+  snapshotFor(projectPath: string): Promise<OrchSnapshot | null>
   /** The account a new plan's coordinator and planner run on (defaultAccountIdOf), or null when none is signed in. */
   coordinatorAccount(): Promise<string | null>
 }
@@ -133,7 +162,25 @@ export async function execute(r: Ready, d: ExecDeps): Promise<Line[]> {
       if (!plan.pendingStart) return [{ text: t('command.refused.started', { plan: name }) }]
       return (await approvePlan(door, plan.jobId, name, d.ui)) ? [{ text: t('command.done.approved', { plan: name }) }] : []
     case 'pause':
-    case 'stop-launching':
+    case 'stop-launching': {
+      // W5-C: one worker is held (asked first); a plain plan stops launching and nothing closes (#38, #39)
+      if (r.session !== undefined) {
+        const s = r.session.session
+        const open = d.dispatches.find((x) => x.sessionId === s.sessionId && !x.outcome && !x.endedAt)
+        if (!open) return [{ text: t('command.refused.noWorker', { session: s.label }) }]
+        return (await holdWorker(door, open.id, s.label, d.ui))
+          ? [{ text: t('command.done.workerHeld', { session: s.label }), sessionId: s.sessionId, jobId: plan.jobId }]
+          : []
+      }
+      // A schedule fires new rounds with their own coordinators, which a hold does not stop: it pauses as a whole,
+      // closing its sessions, after asking (pauseRun).
+      if (plan.scheduled) {
+        await pauseRun(door, plan.jobId, d.ui)
+        return []
+      }
+      return (await holdJob(door, plan.jobId, true, d.ui)) ? [{ text: t('command.done.held', { plan: name }) }] : []
+    }
+    case 'stop':
       // A schedule pauses as a whole; a plain plan's Run stops (both close its sessions, and both ask first).
       if (plan.scheduled) {
         await pauseRun(door, plan.jobId, d.ui)
@@ -142,6 +189,15 @@ export async function execute(r: Ready, d: ExecDeps): Promise<Line[]> {
       if (plan.runId === undefined) return [{ text: t('command.refused.notRunning', { plan: name }) }]
       return (await stopRun(door, plan.runId, name, d.ui)) ? [{ text: t('command.done.stopped', { plan: name }) }] : []
     case 'resume':
+      if (r.session !== undefined) {
+        const s = r.session.session
+        const held = d.dispatches.find((x) => x.sessionId === s.sessionId && x.held && !x.outcome && !x.endedAt)
+        if (!held) return [{ text: t('command.refused.notHeld', { session: s.label }) }]
+        return (await unholdWorker(door, held.id, d.ui))
+          ? [{ text: t('command.done.workerResumed', { session: s.label }), sessionId: s.sessionId, jobId: plan.jobId }]
+          : []
+      }
+      if (plan.held) return (await holdJob(door, plan.jobId, false, d.ui)) ? [{ text: t('command.done.resumed', { plan: name }) }] : []
       if (plan.scheduled) {
         await resumeRun(door, plan.jobId, d.ui)
         return []
@@ -157,8 +213,8 @@ export async function execute(r: Ready, d: ExecDeps): Promise<Line[]> {
     }
     case 'archive':
     case 'delete': {
-      const snap = d.snapshotFor(plan.projectPath)
-      if (!snap || !findRun(snap, plan.jobId)) return [{ text: t('command.refused.openProject', { project: plan.projectName }) }]
+      const snap = await d.snapshotFor(plan.projectPath).catch(() => null)
+      if (!snap || !findRun(snap, plan.jobId)) return [{ text: t('command.refused.unreadable', { plan: name }) }]
       if (intent.kind === 'archive') await archiveJob(door, snap, plan.jobId, d.ui)
       else await deleteRun(door, snap, plan.jobId, d.ui)
       return []

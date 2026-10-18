@@ -101,7 +101,11 @@ const TASK_HIDDEN = [
 ] as const
 
 /** W1-A role models: a Job's per-role model override, held back from the SDK like the Task's three above. */
-const JOB_HIDDEN = ['models', /* W2-A: the planner sessions, the app's own bookkeeping */ 'plannerSessionIds'] as const
+const JOB_HIDDEN = [
+  'models',
+  /* W2-A: the planner sessions, the app's own bookkeeping */ 'plannerSessionIds',
+  /* W5-C: the person's "stop launching" (jobs-hold), not in the SDK's contract yet */ 'dispatchHold'
+] as const
 
 /** A followed event's message body (pages long) and the app's link from an event to a tab. */
 const FOLLOW_EVENT_HIDDEN = ['body', 'sessionId'] as const
@@ -117,7 +121,7 @@ type _account = NothingLeft<Unlisted<OrchAccount, typeof ACCOUNT_FIELDS, []>>
 type _runConfig = NothingLeft<Unlisted<OrchRunConfig, typeof RUN_CONFIG_FIELDS, []>>
 /** The pty and process ids are the Host's own: a controller reads them from the raw reply to subscribe, and a
  *  printed list leaves them out. */
-type _session = NothingLeft<Unlisted<HostSession, typeof SESSION_FIELDS, ['ptyId', 'procId']>>
+type _session = NothingLeft<Unlisted<HostSession, typeof SESSION_FIELDS, ['ptyId', 'procId', /* W5-D: the app's inbox reason */ 'prompt']>>
 type _chatTurn = NothingLeft<Unlisted<ChatTurn, typeof CHAT_TURN_FIELDS, []>>
 type _chatPending = NothingLeft<Unlisted<ChatPending, typeof CHAT_PENDING_FIELDS, []>>
 type _chatPrompt = NothingLeft<Unlisted<ChatPrompt, typeof CHAT_PROMPT_FIELDS, []>>

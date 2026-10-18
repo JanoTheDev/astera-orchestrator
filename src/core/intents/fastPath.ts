@@ -42,6 +42,8 @@ export function fastParse(input: string): Intent | null {
   if ((m = s.match(/^summari[sz]e (.+)$/i))) return withTarget({ kind: 'summarize' }, m[1].replace(/^active /i, ''))
   if ((m = s.match(/^stop launching(?: new)?(?: tasks)?(?: (?:for|in|on) (.+))?$/i))) return withTarget({ kind: 'stop-launching' }, m[1])
   if ((m = s.match(/^pause (.+)$/i))) return withTarget({ kind: 'pause' }, m[1])
+  // After "stop launching" above: "stop Console" closes the plan's sessions (confirm-class)
+  if ((m = s.match(/^stop (.+)$/i))) return withTarget({ kind: 'stop' }, m[1])
   if ((m = s.match(/^resume (.+)$/i))) return withTarget({ kind: 'resume' }, m[1])
   // "Approve the plan", "Start executing the approved plan", "approve Console". Not "start the next eligible X
   // tasks" (left to the model: run-start starts a plan, it does not pick tasks).

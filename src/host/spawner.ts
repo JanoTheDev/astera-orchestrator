@@ -29,6 +29,8 @@ import {
   startCoordinatorSession,
   startWorkerWithChain
 } from '../core/orchestration/exec/workerStart'
+import { mergeDepsInto } from '../core/orchestration/exec/integrateGit'
+import { specsDirOf } from '../core/orchestration/exec/specFiles'
 import { readAccountEntries } from '../core/accounts/accountsFile'
 import { isLoggedIn } from '../core/accounts/loginCheck'
 import { readAgentPermissionMode, readRoleModelsSetting } from '../core/settings/agentPermissionMode'
@@ -275,7 +277,7 @@ export function createHostSpawner(d: HostSpawnerDeps): HostSpawner | null {
     orchEnvReady = { cliPath: p, skillsPath: cli.skills, profileDir }
     return p
   })
-  const specsDir = path.join(profileDir, 'orch', 'specs')
+  const specsDir = specsDirOf(profileDir)
   const settingsPath = path.join(profileDir, 'app-settings.json')
   const accountsPath = path.join(profileDir, 'accounts.json')
   const tails = new WorkerTails()
@@ -331,7 +333,8 @@ export function createHostSpawner(d: HostSpawnerDeps): HostSpawner | null {
     0,
     homeDir,
     (id, account, o) => statusLine.spawnConfig(id, account, o),
-    [previewShotsDir(profileDir)],
+    // W5-A (#52): workers, coordinators and planners read their spec or brief without a permission prompt.
+    [previewShotsDir(profileDir), specsDir],
     // Read at each spawn, not once: the Host completes its PATH when a CLI is missing (windowsPath.ts)
     () => hostWorkerBaseEnv(d.env),
     // The Host's own log: a spawn that had to fall back to a sync check says so in host.log.
@@ -582,6 +585,8 @@ export function createHostSpawner(d: HostSpawnerDeps): HostSpawner | null {
         if (trace) trace.forked = forked
         return { path: forked }
       },
+      // W5-A (#50): a dependent Task's fork gets its deps merged in; a throw fails the start and discardFork removes the fork.
+      mergeIntoWorktree: (worktree, from) => mergeDepsInto(worktree, from, { log }),
       accountProvider: (id) => {
         const a = accounts.find((x) => x.id === id)
         return a ? providerOf(a) : null

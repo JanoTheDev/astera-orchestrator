@@ -13,6 +13,7 @@ import { SessionManager } from '../core/sessions/manager'
 import { StatusLineManager } from '../core/sessions/statusline'
 import { makeDescriptors } from '../core/providers/descriptor'
 import { previewShotsDir } from '../core/preview/shotsDir'
+import { specsDirOf } from '../core/orchestration/exec/specFiles'
 import type { PromptWriteEvent } from '../core/orchestration/exec/coordinator'
 
 const NOW = '2026-09-24T00:00:00.000Z'
@@ -235,6 +236,24 @@ describe('createHostSpawner', () => {
     expect(h.spawned).toHaveLength(0)
   })
 
+  // W5-A (#52): a worker's first step is reading its spec in <profile>/orch/specs, outside its worktree. That
+  // folder, and never the profile itself (it holds tokens), is a --add-dir of every worker and coordinator.
+  it('lets a worker and a coordinator read the spec folder without a prompt, and nothing else of the profile', async () => {
+    const { s, taskId, dispatchId } = seeded()
+    const h = rig({ state: () => s })
+    const w = await h.spawner!.startWorker(startArgs(taskId, dispatchId))
+    await h.spawner!.startCoordinator({ runId: 'run_abcdefghijklmn', cwd: repo, accountId: 'acc1', brief: 'the brief' })
+    const specs = path.join(profile, 'orch', 'specs')
+    expect(path.dirname(w.specPath)).toBe(specs)
+    for (const sp of h.spawned) {
+      const args = sp.args as string[]
+      const dirs = args.slice(args.indexOf('--add-dir') + 1, args.indexOf('--'))
+      expect(dirs).toContain(specs)
+      expect(dirs).not.toContain(profile)
+      expect(dirs.every((d) => d.startsWith(profile + path.sep))).toBe(true)
+    }
+  })
+
   it('starts a coordinator in its own registry with its brief file and one-account chain', async () => {
     const h = rig()
     const r = await h.spawner!.startCoordinator({ runId: 'run_abcdefghijklmn', cwd: repo, accountId: 'acc1', brief: 'the brief' })
@@ -255,7 +274,7 @@ describe('createHostSpawner', () => {
     const app: Array<{ file: string; args: string[] | string; env: Record<string, string | undefined>; meta: unknown }> = []
     const sl = new StatusLineManager(profile)
     const m = new SessionManager((file, args, opts) => { app.push({ file, args, env: opts.env, meta: opts.meta }); return { pid: 1, onData() {}, onExit() {}, write() {}, resize() {}, kill() {}, pause() {}, resume() {} } },
-      makeDescriptors(process.platform), undefined, undefined, path.join(dir, 'home'), (id, a, o) => sl.spawnConfig(id, a, o), [previewShotsDir(profile)], hostEnv())
+      makeDescriptors(process.platform), undefined, undefined, path.join(dir, 'home'), (id, a, o) => sl.spawnConfig(id, a, o), [previewShotsDir(profile), specsDirOf(profile)], hostEnv())
     const account = JSON.parse(await fs.readFile(path.join(profile, 'accounts.json'), 'utf8')).accounts[0]
     const initialPrompt = (h.spawned[0].args as string[]).at(-1)
     const info = m.spawn({ account, cwd: repo, bypassPermissions: false, initialPrompt, title: 'Write hello', rollAccountIds: ['acc1'],

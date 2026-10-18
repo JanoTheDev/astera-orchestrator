@@ -20,10 +20,12 @@ export const SAFETY: Record<IntentKind, Safety> = {
   resume: 'act',
   // Approving starts workers, which spends quota: the same click as a destructive command (W3-B prompt).
   approve: 'confirm',
-  // Both close the plan's sessions today: there is no "hold dispatch" that leaves workers running (runs-stop,
-  // run-pause in command.ts).
-  pause: 'confirm',
-  'stop-launching': 'confirm',
+  // W5-C: pause and stop-launching close nothing. On a plan they hold its launching (jobs-hold) and ask nothing; on a
+  // worker, pause holds that worker (worker-hold), which its executor asks about first in the app's dialog.
+  pause: 'act',
+  'stop-launching': 'act',
+  // Closes the plan's workers and coordinator (runs-stop, or run-pause for a schedule).
+  stop: 'confirm',
   archive: 'confirm',
   delete: 'confirm',
   merge: 'confirm'
