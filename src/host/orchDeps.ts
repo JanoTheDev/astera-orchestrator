@@ -46,7 +46,9 @@ const PROPAGATES = [
   // "not now" — which is the truth, and better than telling a person the feature is off when it is
   // their app that is missing. (`lang` is the fourth of this shape and is *not* here: see HOST_DRIVES.
   // `trackingEnabled` was the third until E2: see HOST_TRACKS.)
-  'browserEnabled', 'handoffEnabled'
+  'browserEnabled', 'handoffEnabled',
+  // W7-B: the project settings kept in the app's own files (run-configs.json, projects.json), which only it writes
+  'saveTestCommand', 'setProjectAccount'
 ] as const
 
 /**
@@ -526,6 +528,8 @@ const EFFECTFUL: Record<Classified, boolean> = {
   browserRun: true,
   browserEnabled: false,
   handoffEnabled: false,
+  saveTestCommand: true,
+  setProjectAccount: true,
   // HOST_TRACKS: a toggle, on either route (it was PROPAGATES before E2).
   trackingEnabled: false,
   // HOST_RESOLVES — a question about what is already there, on either route.

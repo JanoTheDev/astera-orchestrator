@@ -6,7 +6,7 @@
 // The state operations that need a path live here instead; `OrchState.projects` is still just an
 // array on the state those functions return.
 import { comparablePath, isPathWithin, isSamePath } from '../files/tree'
-import { newId, type Job, type Project } from './types'
+import { MAX_CONCURRENT_WORKERS, newId, type Job, type Project } from './types'
 import type { OrchState, Res } from './state'
 
 /** The last segment of a path, whatever separator it arrived with. Not `path.basename`: that reads
@@ -108,4 +108,34 @@ export function renameProject(s: OrchState, id: string, name: string): Res<Proje
     state: { ...s, projects: s.projects.map((p) => (p.id === id ? next : p)) },
     value: next
   }
+}
+
+/** W7-B: the per-project choices `projects-set` writes besides delivery (delivery.ts `setProjectDelivery`). A field
+ *  given as null is cleared, so the project reads PROJECT_DEFAULTS for it again; one left out is kept. */
+export type ProjectSettingsPatch = {
+  autoApprove?: boolean | null
+  testConfigId?: string | null
+  concurrency?: number | null
+  reviewRounds?: number | null
+  replan?: 'waves' | 'off' | null
+  defaultBranch?: string | null
+}
+
+export function setProjectSettings(s: OrchState, id: string, patch: ProjectSettingsPatch): Res<Project> {
+  const found = findProject(s, id)
+  if (!found) return { ok: false, error: `unknown project: ${id}` }
+  const { concurrency, reviewRounds, replan } = patch
+  if (concurrency != null && !(Number.isInteger(concurrency) && concurrency >= 1 && concurrency <= MAX_CONCURRENT_WORKERS))
+    return { ok: false, error: `concurrency must be an integer from 1 to ${MAX_CONCURRENT_WORKERS}` }
+  if (reviewRounds != null && !(Number.isInteger(reviewRounds) && reviewRounds >= 1))
+    return { ok: false, error: 'review rounds must be an integer >= 1' }
+  if (replan != null && replan !== 'waves' && replan !== 'off') return { ok: false, error: 'replan must be waves or off' }
+  const next: Record<string, unknown> = { ...found }
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === undefined) continue
+    if (v === null) delete next[k]
+    else next[k] = v
+  }
+  const project = next as unknown as Project
+  return { ok: true, state: { ...s, projects: s.projects.map((p) => (p.id === id ? project : p)) }, value: project }
 }

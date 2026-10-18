@@ -73,7 +73,7 @@ const RUN_HIDDEN = [
 ] as const
 
 /** W6-H: how a project's plans land, set by `projects-set`; not in the SDK's contract yet. */
-const PROJECT_HIDDEN = ['delivery', 'deliveryBranch'] as const
+const PROJECT_HIDDEN = ['delivery', 'deliveryBranch', /* W7-B: project settings, not in the SDK's contract yet */ 'autoApprove', 'testConfigId', 'concurrency', 'reviewRounds', 'replan', 'defaultBranch'] as const
 
 /**
  * A Task's fields kept back on purpose: all of them **the ledger the app keeps to drive convergence**. The guide

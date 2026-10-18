@@ -58,7 +58,7 @@ import { CLI_PROTOCOL } from './cliOutput'
 import { collectChanges, rangesFor } from './changedFiles'
 import type { ChangedFile } from '../git/changes'
 import type { SwitchedCommand } from './cliAgentContext'
-import { findProject, findProjectByPath, findProjectContaining, jobInProject } from './projects'
+import { findProject, findProjectByPath, findProjectContaining, jobInProject, setProjectSettings, type ProjectSettingsPatch } from './projects'
 import { stateWord } from './cliHuman'
 import { checksForRun } from './runChecks'
 import { completionForRun } from './runCompletion'
@@ -730,6 +730,14 @@ export interface OrchServerDeps {
    *  `deliverByPush`, with `checks` (the run configurations) as the validation. **Only the Host injects it**; absent,
    *  `run-deliver` on a push project answers 409. */
   deliverPush?(a: PushDelivery & { checks: string[] }): Promise<PushResult>
+  // ── W7-B project settings kept in the app's own files ──
+  /** Saves `command` as the project's test run configuration in run-configs.json and answers its id; null removes it
+   *  and answers null. **Only the app injects it** (it is that file's one writer); the Host forwards it to an attached
+   *  app, and without one `projects-set --test-command` answers 409. */
+  saveTestCommand?(projectPath: string, command: string | null): Promise<string | null>
+  /** Sets the folder's default account (core/projects/settings.ts, the New Session dialog's preselection); null clears
+   *  it. Only the app injects it, like saveTestCommand. */
+  setProjectAccount?(projectPath: string, accountId: string | null): Promise<void>
 }
 
 /** A plugin as the early refusal reads it (plugin Phase 5 C7). */
@@ -1084,6 +1092,48 @@ const str = (v: unknown): string | null => (typeof v === 'string' && v.length > 
 const posInt = (v: unknown): number | null => {
   const n = typeof v === 'string' ? Number(v) : typeof v === 'number' ? v : NaN
   return Number.isInteger(n) && n >= 1 ? n : null
+}
+
+/** W7-B: `projects-set`'s settings flags, read into a patch (an empty value is null: cleared) plus the two the app keeps
+ *  in its own files. `--test-config` names an existing run configuration; `--test-command` saves one. */
+function projectSettingsArgs(
+  args: Record<string, unknown>
+): { patch: ProjectSettingsPatch; testCommand?: string; account?: string } | { error: string } {
+  const patch: ProjectSettingsPatch = {}
+  const cleared = (v: unknown): boolean => v === '' || v === null
+  const flag = (v: unknown): boolean | null | undefined =>
+    v === undefined ? undefined : v === true || v === 'true' || v === 'on' ? true : v === false || v === 'false' || v === 'off' ? false : null
+  const autoApprove = flag(args.autoApprove)
+  if (autoApprove === null) return { error: '--auto-approve must be true or false' }
+  if (autoApprove !== undefined) patch.autoApprove = autoApprove ? true : null
+  for (const [key, name] of [['concurrency', '--concurrency'], ['reviewRounds', '--review-rounds']] as const) {
+    const v = args[key]
+    if (v === undefined) continue
+    if (cleared(v)) {
+      patch[key] = null
+      continue
+    }
+    const n = posInt(v)
+    if (n === null) return { error: `${name} must be an integer >= 1` }
+    patch[key] = n
+  }
+  if (args.replan !== undefined) {
+    if (cleared(args.replan)) patch.replan = null
+    else if (args.replan === 'waves' || args.replan === 'off') patch.replan = args.replan
+    else return { error: '--replan must be waves or off' }
+  }
+  if (args.testConfig !== undefined) {
+    if (typeof args.testConfig !== 'string') return { error: '--test-config needs a run configuration id' }
+    patch.testConfigId = args.testConfig.trim() || null
+  }
+  for (const key of ['testCommand', 'account'] as const)
+    if (args[key] !== undefined && typeof args[key] !== 'string') return { error: `--${key === 'testCommand' ? 'test-command' : 'account'} needs a value` }
+  if (args.testCommand !== undefined && args.testConfig !== undefined) return { error: 'give --test-command or --test-config, not both' }
+  return {
+    patch,
+    ...(args.testCommand !== undefined ? { testCommand: (args.testCommand as string).trim() } : {}),
+    ...(args.account !== undefined ? { account: (args.account as string).trim() } : {})
+  }
 }
 
 // W6-C: a Job's `--concurrency`, a whole number of 1 or more, clamped to MAX_CONCURRENT_WORKERS
@@ -2047,18 +2097,42 @@ export async function handleCommand(
     case 'projects-set': {
       const id = str(args.id)
       if (!id) return bad('--id is required')
-      if (fromAgentSession || caller.role === 'mcp') return denied("a project's delivery is set by the person, in Astera or at their own shell")
+      if (fromAgentSession || caller.role === 'mcp') return denied("a project's settings are set by the person, in Astera or at their own shell")
       const delivery = parseDelivery(args.delivery)
       if (delivery === null) return bad('--delivery must be pr or push')
       const branchArg = args.deliveryBranch
       if (branchArg !== undefined && typeof branchArg !== 'string') return bad('--delivery-branch needs a value')
-      if (delivery === undefined && branchArg === undefined) return bad('nothing to set: give --delivery or --delivery-branch')
+      // W7-B: the rest of the project's settings. An empty value clears one, back to PROJECT_DEFAULTS
+      const settings = projectSettingsArgs(args)
+      if ('error' in settings) return bad(settings.error)
+      const { testCommand, account } = settings
+      if (delivery === undefined && branchArg === undefined && Object.keys(settings.patch).length === 0 && testCommand === undefined && account === undefined)
+        return bad('nothing to set: give --delivery, --delivery-branch, --auto-approve, --test-command, --test-config, --concurrency, --review-rounds, --replan or --account')
+      const project = findProject(s, id)
+      if (!project) return notFound(`unknown project: ${id}`)
+      if (testCommand !== undefined && !deps.saveTestCommand) return conflict("a project's test command is kept by the Astera app; open it and try again")
+      if (account !== undefined && !deps.setProjectAccount) return conflict("a project's default account is kept by the Astera app; open it and try again")
+      if (account) {
+        const known = await deps.listAccounts()
+        if (!known.some((k) => k.id === account)) return notFound(`unknown account: ${account}`)
+      }
       // An empty --delivery-branch drops it: the repository's default branch again
-      const set = setProjectDelivery(s, id, {
-        ...(delivery !== undefined ? { delivery } : {}),
-        ...(branchArg !== undefined ? { branch: branchArg.trim() === '' ? null : branchArg } : {})
-      })
-      return set.ok ? commit(set) : set.error.startsWith('unknown project') ? notFound(set.error) : bad(set.error)
+      let set: Res<Project> = { ok: true, state: s, value: project }
+      if (delivery !== undefined || branchArg !== undefined)
+        set = setProjectDelivery(s, id, {
+          ...(delivery !== undefined ? { delivery } : {}),
+          ...(branchArg !== undefined ? { branch: branchArg.trim() === '' ? null : branchArg } : {})
+        })
+      if (set.ok && Object.keys(settings.patch).length > 0) set = setProjectSettings(set.state, id, settings.patch)
+      if (!set.ok) return bad(set.error)
+      // The app's two files go last, once everything above holds; the test configuration's id lands in the project
+      if (account !== undefined) await deps.setProjectAccount!(project.path, account || null)
+      if (testCommand !== undefined) {
+        const configId = await deps.saveTestCommand!(project.path, testCommand || null)
+        set = setProjectSettings(set.state, id, { testConfigId: configId })
+        if (!set.ok) return bad(set.error)
+      }
+      return commit(set)
     }
     // **회차를 낸다, 계획이 아니라.** `--job` 은 한 계획의 회차만 추린다. 번호순으로 내보내는
     // 것은 배열에 들어간 순서가 곧 시간순이 아니기 때문이다 — 예약은 발화마다 뒤에 붙지만

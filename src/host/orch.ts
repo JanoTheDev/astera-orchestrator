@@ -52,7 +52,10 @@ import { pollEvents } from './eventsPoll'
 import { ACTIVITY_COMMANDS, activityReply } from './activity'
 import { NOT_WRITER, type HostUnderstanding } from './hostUnderstanding'
 import type { HostWorkUnits } from './hostWorkUnits'
-import { ensureProject, findProject } from '../core/orchestration/projects'
+import { ensureProject, findProject, setProjectSettings } from '../core/orchestration/projects'
+import type { Project } from '../core/orchestration/types'
+import { createProjectFolder, githubCreate, initialCommit, type GithubVisibility } from '../core/projects/create'
+import { inspectFolder } from '../core/projects/detect'
 import type { SessionWorkUnit } from '../core/workUnit/types'
 import { justFinished, runRecordInputOf } from '../core/orchestration/runRecord'
 import type { WorkspaceManager } from './workspace/manager'
@@ -1305,6 +1308,24 @@ export function createHostOrch(a: {
    * command answered, error envelope included, because a caller that lost that answer wants the
    * answer it lost.
    */
+  /** W7-B: registers a folder (`ensureProject`, idempotent) and records the default branch it was found on. */
+  const registerProject = async (
+    root: string,
+    defaultBranch: string | null,
+    sessionId: string,
+    role: OrchCaller['role'] | undefined,
+    marks: CallMarks
+  ): Promise<Project> => {
+    await ready()
+    const before = store.get()
+    let { state, project } = ensureProject(before, { path: root, now: a.now() })
+    if (defaultBranch !== null && project.defaultBranch !== defaultBranch) {
+      const set = setProjectSettings(state, project.id, { defaultBranch })
+      if (set.ok) ({ state, value: project } = set)
+    }
+    if (state !== before) await depsFor(marks, actorOf({ sessionId, role, state: before })).setState(state)
+    return project
+  }
   const settleRequest = (claim: { key: string; fp: string }, cmd: string, marks: CallMarks, reply: Reply): Reply => {
     // Deleted first even when a receipt follows: `Map.set` leaves an existing key where it was, and
     // the sweep reads insertion order as "how recently this was written". A receipt that kept its
@@ -1993,13 +2014,66 @@ export function createHostOrch(a: {
             const refused = { status: 400, body: { error: refusal } }
             return claimed === null ? refused : settleRequest(claimed, cmd, marks, refused)
           }
-          await ready()
-          const before = store.get()
-          const { state, project } = ensureProject(before, { path: p as string, now: a.now() })
-          if (state !== before)
-            await depsFor(marks, actorOf({ sessionId, role: from?.role, state: before })).setState(state)
-          const added = { status: 200, body: project }
-          return claimed === null ? added : settleRequest(claimed, cmd, marks, added)
+          // W7-B: a git repository, registered by its top level. One with no commit yet is not committed for the person
+          // unless they asked (`--initial-commit`): it is their files. Answered with what was found, and a test command
+          // to propose, which the person confirms with `projects-set --test-command`.
+          const folder = await inspectFolder(p as string)
+          const repoRefusal =
+            folder === null
+              ? { status: 400, body: { error: `not a git repository: ${p}; run \`git init\` there first, or create a new project` } }
+              : !folder.hasCommit && args.initialCommit !== true
+                ? { status: 409, body: { error: `${folder.root} has no commit yet, so worktrees cannot fork from it; add it with --initial-commit to commit what is there`, needsInitialCommit: true } }
+                : null
+          if (repoRefusal !== null) return claimed === null ? repoRefusal : settleRequest(claimed, cmd, marks, repoRefusal)
+          if (!folder!.hasCommit) {
+            marks.effects += 1
+            try {
+              await initialCommit(folder!.root)
+            } catch (e) {
+              const failed = { status: 500, body: { error: e instanceof Error ? e.message : String(e) } }
+              return claimed === null ? failed : settleRequest(claimed, cmd, marks, failed)
+            }
+          }
+          const added = await registerProject(folder!.root, folder!.defaultBranch, sessionId, from?.role, marks)
+          const body = { status: 200, body: { ...added, proposedTest: folder!.proposedTest } }
+          return claimed === null ? body : settleRequest(claimed, cmd, marks, body)
+        }
+        // W7-B: a brand-new project: the folder, `git init`, a .gitignore and CLAUDE.md, the initial commit, registered;
+        // and only when asked, its GitHub repository (outward-facing). For the same callers as `projects-add`.
+        if (cmd === 'projects-create') {
+          const refusal =
+            from?.role !== 'app' && from?.role !== 'cli'
+              ? { status: 403, body: { error: 'projects-create is for this machine’s app and CLI only' } }
+              : agentShell(from, sessionId)
+                ? { status: 403, body: { error: AGENT_REFUSAL(cmd) } }
+                : typeof args.name !== 'string' || typeof args.parent !== 'string'
+                  ? { status: 400, body: { error: 'projects-create needs --name and --parent' } }
+                  : args.describe !== undefined && typeof args.describe !== 'string'
+                    ? { status: 400, body: { error: '--describe needs a value' } }
+                    : args.github !== undefined && args.github !== 'private' && args.github !== 'public'
+                      ? { status: 400, body: { error: '--github must be private or public' } }
+                      : args.github !== undefined && !a.github
+                        ? { status: 409, body: { error: 'GitHub repositories are made through the Astera Host’s gh, and this Host has none' } }
+                        : null
+          if (refusal !== null) return claimed === null ? refusal : settleRequest(claimed, cmd, marks, refusal)
+          let root: string
+          marks.effects += 1
+          try {
+            root = await createProjectFolder({ name: args.name as string, parent: args.parent as string, ...(typeof args.describe === 'string' ? { describe: args.describe } : {}) })
+          } catch (e) {
+            const failed = { status: 400, body: { error: e instanceof Error ? e.message : String(e) } }
+            return claimed === null ? failed : settleRequest(claimed, cmd, marks, failed)
+          }
+          const created = await registerProject(root, 'main', sessionId, from?.role, marks)
+          // The folder and its commit stand whatever GitHub answers: a failed repo create is reported, not undone
+          let github: { url: string } | { error: string } | undefined
+          if (args.github !== undefined)
+            github = await githubCreate(a.github!.run, root, path.basename(root), args.github as GithubVisibility).then(
+              (url) => ({ url }),
+              (e: unknown) => ({ error: e instanceof Error ? e.message : String(e) })
+            )
+          const body = { status: 200, body: { ...created, ...(github ? { github } : {}) } }
+          return claimed === null ? body : settleRequest(claimed, cmd, marks, body)
         }
         // **Plugins, for this machine's app and CLI** (plugin runtime design P5): the Host's plugin manager answers them,
         // beside `projects-add` and for its reason: below the receipt line, so a lost answer to an install is retried with

@@ -272,6 +272,7 @@ import { hasPythonProject } from '../core/run/python'
 import { listComposeServices } from './composeScanner'
 import { listDotnetProjects } from './dotnetScanner'
 import { loadRunConfigs, prepareLaunch } from '../core/run/prepare'
+import { withTestCommand } from '../core/projects/detect' // W7-B
 import { allowingJobCwds, orchRunConfigOf } from '../core/run/runConfigsFile'
 import { executeLaunch } from './run/launch'
 import { agentDirOf, folderToOpen, resolveConsolePath, resolveExistingPath } from './run/resolveLink'
@@ -3393,6 +3394,13 @@ export function registerIpc(
       // Same reasoning again, for `handoff` — read on every request so switching Smart Resume off
       // rejects the command from then on.
       handoffEnabled: () => core.appSettings.getResumeStrategy() === 'smart',
+      // W7-B: `projects-set --test-command` / `--account`, into the app's own files
+      saveTestCommand: async (projectPath, command) => {
+        const next = withTestCommand(core.runConfig.get(projectPath), command)
+        await core.runConfig.save(projectPath, next.configs)
+        return next.id
+      },
+      setProjectAccount: (projectPath, accountId) => core.projects.setDefaultAccount(projectPath, accountId),
       handoffs: {
         save: async (sessionId, body) => {
           const sessions = core.sessions.list()
