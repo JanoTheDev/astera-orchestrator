@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { startActivityNotices } from './activityNotices'
 import type { ActivityEvent, ActivityNotice } from '../core/orchestration/activity'
+import { DesktopNotifier, type DesktopShowRequest } from './desktopNotifier'
+import { DESKTOP_NOTIFY_DEFAULTS } from '../core/notify/settings'
+import { createAttentionState } from '../core/sessions/attention'
 
 const failed = (taskId: string): ActivityEvent => ({
   id: `ev_000000000000_${taskId}`,
@@ -58,5 +61,41 @@ describe('startActivityNotices (W5-D, #43)', () => {
     stop()
     host.release()
     expect(slack).toEqual([])
+  })
+})
+
+// W7-C (#71): the dogfood saw the "Needs your decision" notice with no chime. The whole way from a polled escalation to
+// the desktop's show(), with the real notifier: it must ask for the chime.
+describe('startActivityNotices → DesktopNotifier (W7-C, #71)', () => {
+  it('a polled task.escalated reaches show() with chime true, and with alertSound off with chime false', async () => {
+    const escalated: ActivityEvent = {
+      id: 'ev_000000000001_esc',
+      sequence: 2,
+      occurredAt: '2026-10-18T00:00:00.000Z',
+      type: 'task.escalated',
+      runId: 'r1',
+      taskId: 'a',
+      sessionId: 'ses_w',
+      payload: { title: 'Price task', reason: 'EUR or USD?' }
+    }
+    for (const alertSound of [true, false]) {
+      const host = hostWith([escalated])
+      const shown: DesktopShowRequest[] = []
+      const desktop = new DesktopNotifier({
+        settings: { getDesktopNotify: () => ({ ...DESKTOP_NOTIFY_DEFAULTS }), getAlertSound: () => alertSound },
+        isFocused: () => false,
+        getSession: () => null,
+        lang: () => 'en',
+        show: (req) => shown.push(req),
+        attention: createAttentionState()
+      })
+      const stop = startActivityNotices({ call: host.call, send: (n) => desktop.activity(n), digestMinutes: () => 30, log: () => {} })
+      await settle(() => host.polls() >= 3)
+      stop()
+      host.release()
+      expect(shown).toEqual([
+        { event: 'orchestration', sessionId: 'ses_w', title: 'Needs your decision', body: 'Price task: EUR or USD?', chime: alertSound }
+      ])
+    }
   })
 })
