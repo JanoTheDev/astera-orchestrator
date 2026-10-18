@@ -136,6 +136,18 @@ const SESSION = {
       }
     ]
   },
+  // Coordinator rotation (exec/coordinatorRotate.ts)
+  'run-coordinator-refresh': {
+    summary: "replace a run's coordinator with a fresh session briefed from the run's state",
+    detail:
+      'The fresh session starts on the same account and model, takes the slot, and only then is the old one stopped. Refused (409) while a coordinator or worker start is in flight, a stop is pending, or the run is not running. The app or the Host sends it at every wave boundary and past the "Fresh coordinator at context (%)" setting.',
+    flags: [
+      RUN_ARG('<runId>', 'the run whose coordinator to refresh'),
+      { name: 'wave', value: '<n>', about: 'the wave about to start, for the record' },
+      { name: 'contextPct', value: '<pct>', about: "the old coordinator's context reading, for the record" },
+      { name: 'reason', value: '<text>', about: 'why, when it is neither of those' }
+    ]
+  },
   'run-start-marks-clear': {
     summary: 'drop the coordinator start marks that are past their window',
     detail:

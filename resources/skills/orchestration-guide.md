@@ -219,11 +219,11 @@ EOF
 astera worker-start --task tsk_1a2b3c4d --agent claude --account acc_main --worktree new --name types-cleanup --json
 astera worker-start --task tsk_5e6f7a8b --agent codex --account acc_sub --worktree new --name add-tests --json
 
-# 5) Wait — blocks until worker_done, escalation, or question arrives (this can take tens of minutes).
+# 5) End your turn. Do not wait in a loop: Astera sends you a message the moment a worker reports done or
+#    failed, a Task becomes ready, a merge into the plan branch succeeds or fails, or a Gate is answered,
+#    and each message names the next action (section 5). When it arrives, read the mail:
 #    Pass --run: it names the inbox you read and records your session as the one driving it (4.4).
-#    Wait only with check --wait and a short --timeout-ms, then call it again (section 5). Never a shell
-#    sleep/poll loop: the person's typed messages queue until your shell command ends
-astera check --run run_9f8e7d6c5b4a3210 --wait --timeout-ms 60000 --json
+astera check --run run_9f8e7d6c5b4a3210 --json
 
 # 6) Ack only after handling every message in the batch (reply first if it was a question)
 astera reply --id msg_9f9f9f9f --body - --json <<'EOF'
@@ -798,14 +798,15 @@ A timeout you expected is `--resume`; an answer you lost is the key.
   every undelivered message. And **if an unacknowledged batch already exists, it is returned as-is
   regardless of `--types`** — you have to work through the backlog before the next `--types` filter
   means anything.
-- A timeout from `check --wait` (`data` = `{count:0, messages:[], timedOut:true}`) or an immediate
-  `{count:0, messages:[]}` is **a checkpoint, not a worker failure.** Real coding work takes 15–60
-  minutes. Keep waiting — just call `check --wait` again — unless you receive `worker_done` or
-  `escalation`, the session is gone (confirm with `worker-show`), or the user tells you to stop. A
-  timeout response also exits `0` (4.8), so do not misread `$?` as failure.
-- **Wait with `check --wait --timeout-ms 60000`, never with a shell loop** (`for … sleep 5`, `until …; do
-  sleep …`). A message the person types to you is read only when your running shell command ends, so a
-  long loop leaves it unread for minutes. A short `check --wait` returns each minute and lets it in.
+- **Push, not poll. Do not wait in a loop** — no `check --wait` loop, no shell loop (`for … sleep 5`,
+  `until …; do sleep …`). When you have handled everything in front of you, end your turn. Astera sends
+  you a `status` message, and types a nudge into your idle session, the moment a worker reports done or
+  failed (subject `task <id> completed|failed`, naming the Tasks now ready), a Task has been ready for a
+  minute with no worker (`task <id> still ready since …`), a finished Task's branch merges into the plan
+  branch or a merge worker is started for it (`task <id> merged into the plan`, `merge worker <id>
+  started`), or a Gate is answered. Each message says the next action, e.g. "tsk_x is ready and has no
+  worker: worker-start it". `astera check --json` (no `--wait`) is the quick look at any time.
+- An empty `{count:0, messages:[]}` is **not a worker failure.** Real coding work takes 15–60 minutes.
 - **A worker-start refused for a usage pause** (409, `usagePaused`): do not plan to retry at the window's
   reset. When the pause ends, a `status` message with subject `usage resumed` arrives in your inbox and
   names the held Tasks. Retry their `worker-start` right away. Waiting with `--types` that leaves out
@@ -817,7 +818,10 @@ A timeout you expected is `--resume`; an answer you lost is the key.
   is being adjusted. Wait for `plan.replanned` in your inbox, then start what is ready. Never ask the owner to
   release it: `jobs-unhold` is not yours to run, and the hold is not the owner's to lift.
 - **An answered Gate arrives in your inbox**: a `status` message with subject `gate <id> answered` carries the
-  owner's answer and ends your `check --wait`. Act on it at once.
+  owner's answer, and Astera wakes you with it. Act on it at once.
+- **A merge into the plan branch is Astera's.** When a finished Task's branch does not merge cleanly, Astera starts
+  a merge worker itself (a `워크트리 병합:` Task, worker-started in the plan worktree); do not start workers that work
+  in the plan branch until it reports. Only when that merge worker fails does a Gate go to the owner.
 <!-- /W8-E -->
 
 ## 6. Worker obligations
@@ -915,12 +919,12 @@ worker-show --dispatch <dsp> --json
 
 | `workerState` | Meaning | What the orchestrator does |
 |---|---|---|
-| `ready` | Alive and working | Keep waiting (`check --wait`), or read output sparingly with `worker-read` |
+| `ready` | Alive and working | End your turn and wait for its report, or read output sparingly with `worker-read` |
 | `failed` | Proven dead (abnormal exit or `outcome:failed`) | Retry with `worker-start --task <t> --retry-of <dsp> --agent … --account … --worktree …` — **unless this is a repair Dispatch** (`dispatch-show --task <tsk>` shows `repair` on it). A dead repair Dispatch, on a convergence Run, is the app's own recovery reconciler's to restart, not yours — that is the whole point of the app driving the loop (section 11). Retrying it yourself races the reconciler for the same worktree |
 | `stopped` | Exited normally (code 0) or was halted by `worker-stop` | Retry the same way if needed, otherwise `worker-release` |
 | `outcome_unknown` | Unprovable (the session died along with an app restart, or `worker-abandon`) | Run `worker-stop` and look again, or accept "resources may still be alive" with `worker-abandon` |
 
-**Heartbeats, terminal activity, a `check --wait` timeout, and an idle TUI are not failure signals.**
+**Heartbeats, terminal activity, an empty `check`, and an idle TUI are not failure signals.**
 Do not kill a worker over them — the only basis for the table above is the `workerState` that
 `worker-show` reports.
 
@@ -966,7 +970,7 @@ worker-start --task <t> --retry-of <dsp> --agent <same runtime> --account <same 
 - **No** `limitResetsAt` means either it was not a limit or the app could not tell. The two are not
   distinguished, so treat it as an ordinary failure.
 - **Silence matters more here than anywhere else in this guide.** The rule directly above — heartbeats,
-  terminal activity, a `check --wait` timeout, and an idle TUI are not failure signals — is now
+  terminal activity, an empty `check`, and an idle TUI are not failure signals — is now
   load-bearing: a chain riding out a reset can go quiet for hours, and that quiet is exactly what
   waiting looks like from outside.
 - **`worker-stop` cancels the app's own wait, too.** Stop a worker that is riding one out and the
@@ -1031,7 +1035,8 @@ meaningless and repeats the same failure indefinitely.
 
 ## 9. Do not — summary
 
-- Do not conclude a worker failed from a `check --wait` timeout or `data.count === 0` (section 5).
+- Do not conclude a worker failed from an empty `check` (`data.count === 0`) (section 5).
+- Do not wait in a `check --wait` or shell loop: end your turn; Astera messages you (section 5).
 - Do not kill a worker over heartbeats, terminal activity, or an idle TUI (section 7).
 - Do not try to move state by hand after `worker_done` (section 8).
 - If `ask` times out, do not re-ask — run the line the answer hands you in `data.nextSteps`, which is

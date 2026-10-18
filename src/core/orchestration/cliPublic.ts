@@ -69,7 +69,9 @@ const RUN_HIDDEN = [
   // W2-D: the plan's PR, read by the app's view; not in the SDK's contract yet (`run-open-pr` answers it)
   'pr',
   // W6-H: a push delivery's result, answered by `run-deliver`; not in the SDK's contract yet
-  'delivery'
+  'delivery',
+  // Coordinator rotation: the app's own record of fresh coordinators, not in the SDK's contract yet
+  'coordinatorRefreshes'
 ] as const
 
 /** W6-H: how a project's plans land, set by `projects-set`; not in the SDK's contract yet. */
@@ -106,7 +108,9 @@ const TASK_HIDDEN = [
   // W6-A: the planner's basis, held back with its other fields
   'basis',
   // W8-C prompts mode: a Run-as-written Task's source, not in the SDK's contract yet
-  'verbatimOf'
+  'verbatimOf',
+  // Stall watchdog: the app's own merge record (finishedSessions.ts mergedIntoPlan)
+  'mergedIntoPlanAt'
 ] as const
 
 /** W1-A role models: a Job's per-role model override, held back from the SDK like the Task's three above. */

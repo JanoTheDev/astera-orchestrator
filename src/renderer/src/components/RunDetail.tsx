@@ -53,7 +53,7 @@ import { UsageStrip } from './usage/UsageStrip'
 import { TaskBoard } from './plan/TaskBoard'
 // W6-E progress view
 import { PlanFiles } from './plan/PlanFiles'
-import { replanningOf } from './plan/planBoard'
+import { coordinatorRefreshOf, replanningOf } from './plan/planBoard'
 import { usePlanLive } from './plan/usePlanLive'
 
 /** 종류 배지의 문구. message 는 messageType 이 정한다.
@@ -960,6 +960,7 @@ export function RunDetail({
                 }}
                 sessions={live.sessions}
                 replanning={replanningOf(live.activity, runId)}
+                refreshed={coordinatorRefreshOf(live.activity, runId)}
                 canOpenSession={canOpenSession}
                 onOpenSession={onOpenSession}
                 projectPath={projectPath}

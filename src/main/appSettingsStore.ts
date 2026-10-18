@@ -27,6 +27,8 @@ import { maxConcurrentWorkersOf } from '../core/settings/maxConcurrentWorkers'
 import { maxSubagentsPerSessionOf, SUBAGENT_CAP_DEFAULT } from '../core/sessions/subagentCap'
 import { usagePauseAtOf, USAGE_PAUSE_AT_DEFAULT } from '../core/orchestration/usageGuard'
 import { ACTIVITY_DIGEST_DEFAULT_MINUTES, activityDigestMinutesOf } from '../core/settings/activityDigest'
+import { FRESH_COORDINATOR_DEFAULT_PCT, freshCoordinatorPctOf } from '../core/settings/freshCoordinator'
+import { stallWatchOnOf } from '../core/settings/stallWatch'
 import { mcpAccessOf } from '../core/settings/mcpAccess'
 import { mcpSessionsOf } from '../core/settings/mcpSessions'
 import { mcpGithubWriteOf } from '../core/settings/mcpGithubWrite'
@@ -128,6 +130,9 @@ export class AppSettingsStore {
   private usagePauseAt = USAGE_PAUSE_AT_DEFAULT
   /** W3-A: minutes between activity digests, 0 for none. Written only when it is not the default. */
   private activityDigestMinutes = ACTIVITY_DIGEST_DEFAULT_MINUTES
+  private freshCoordinatorContextPct = FRESH_COORDINATOR_DEFAULT_PCT
+  /** Stall watchdog (orchestration/exec/stallWatch.ts): on by default; only an explicit false turns it off. */
+  private stallWatch = true
   /** W6-B: the chime with a notice that needs the owner. On by default; only an explicit false (the file is
    *  user-editable) turns it off, as githubPolling. */
   private alertSound = true
@@ -221,6 +226,10 @@ export class AppSettingsStore {
       this.activityDigestMinutes = activityDigestMinutesOf(
         (parsed as { activityDigestMinutes?: unknown }).activityDigestMinutes
       )
+      this.freshCoordinatorContextPct = freshCoordinatorPctOf(
+        (parsed as { freshCoordinatorContextPct?: unknown }).freshCoordinatorContextPct
+      )
+      this.stallWatch = stallWatchOnOf((parsed as { stallWatch?: unknown }).stallWatch)
       this.alertSound = (parsed as { alertSound?: unknown }).alertSound !== false
       this.autoCloseEndedPlanTabs = (parsed as { autoCloseEndedPlanTabs?: unknown }).autoCloseEndedPlanTabs !== false // W7-F (#84)
       // Narrowed on read, like generator and terminalFont and for the same reason: the file is
@@ -294,6 +303,8 @@ export class AppSettingsStore {
         this.maxSubagentsPerSession = SUBAGENT_CAP_DEFAULT
         this.usagePauseAt = USAGE_PAUSE_AT_DEFAULT
         this.activityDigestMinutes = ACTIVITY_DIGEST_DEFAULT_MINUTES
+        this.freshCoordinatorContextPct = FRESH_COORDINATOR_DEFAULT_PCT
+        this.stallWatch = true
         this.alertSound = true
         this.autoCloseEndedPlanTabs = true
         this.desktopNotify = { ...DESKTOP_NOTIFY_DEFAULTS }
@@ -333,6 +344,8 @@ export class AppSettingsStore {
       this.maxSubagentsPerSession = SUBAGENT_CAP_DEFAULT
       this.usagePauseAt = USAGE_PAUSE_AT_DEFAULT
       this.activityDigestMinutes = ACTIVITY_DIGEST_DEFAULT_MINUTES
+      this.freshCoordinatorContextPct = FRESH_COORDINATOR_DEFAULT_PCT
+      this.stallWatch = true
       this.alertSound = true
       this.autoCloseEndedPlanTabs = true
       this.desktopNotify = { ...DESKTOP_NOTIFY_DEFAULTS }
@@ -565,6 +578,25 @@ export class AppSettingsStore {
     await this.persist()
   }
 
+  getFreshCoordinatorContextPct(): number {
+    return this.freshCoordinatorContextPct
+  }
+
+  /** Narrowed like the file: the value arrives from the renderer. */
+  async setFreshCoordinatorContextPct(n: number): Promise<void> {
+    this.freshCoordinatorContextPct = freshCoordinatorPctOf(n)
+    await this.persist()
+  }
+
+  getStallWatch(): boolean {
+    return this.stallWatch
+  }
+
+  async setStallWatch(on: boolean): Promise<void> {
+    this.stallWatch = on !== false
+    await this.persist()
+  }
+
   getAlertSound(): boolean {
     return this.alertSound
   }
@@ -730,6 +762,8 @@ export class AppSettingsStore {
       maxSubagentsPerSession?: number
       usagePauseAt?: number
       activityDigestMinutes?: number
+      freshCoordinatorContextPct?: number
+      stallWatch?: false
       alertSound?: false
       autoCloseEndedPlanTabs?: false
       desktopNotify?: DesktopNotifySettings
@@ -772,6 +806,8 @@ export class AppSettingsStore {
     if (this.maxSubagentsPerSession !== SUBAGENT_CAP_DEFAULT) data.maxSubagentsPerSession = this.maxSubagentsPerSession
     if (this.usagePauseAt !== USAGE_PAUSE_AT_DEFAULT) data.usagePauseAt = this.usagePauseAt
     if (this.activityDigestMinutes !== ACTIVITY_DIGEST_DEFAULT_MINUTES) data.activityDigestMinutes = this.activityDigestMinutes
+    if (this.freshCoordinatorContextPct !== FRESH_COORDINATOR_DEFAULT_PCT) data.freshCoordinatorContextPct = this.freshCoordinatorContextPct
+    if (!this.stallWatch) data.stallWatch = false
     if (!this.alertSound) data.alertSound = false
     if (!this.autoCloseEndedPlanTabs) data.autoCloseEndedPlanTabs = false // W7-F (#84)
     // Written only while the question is still open, which is the same one-sided rule as the two

@@ -128,6 +128,15 @@ describe('deriveActivity', () => {
     expect(pr).toMatchObject([{ type: 'run.pr', runId: 'r1', payload: { title: 'Plan A', pr: { number: 9 } } }])
   })
 
+  it('a fresh coordinator: "Coordinator refreshed (wave 3)", once per refresh', () => {
+    const first = { at: T0, reason: 'wave 3', from: 'c1', to: 'c2', wave: 3 }
+    const lines = deriveActivity(state(), state({ runs: [run({ coordinatorRefreshes: [first] })] }))
+    expect(lines).toMatchObject([{ type: 'coordinator.refreshed', runId: 'r1', sessionId: 'c2', payload: { title: 'Plan A', reason: 'wave 3' } }])
+    const second = { at: T0, reason: 'context 72%', from: 'c2', to: 'c3', contextPct: 72 }
+    const next = deriveActivity(state({ runs: [run({ coordinatorRefreshes: [first] })] }), state({ runs: [run({ coordinatorRefreshes: [first, second] })] }))
+    expect(next).toMatchObject([{ type: 'coordinator.refreshed', payload: { reason: 'context 72%' } }])
+  })
+
   it('#48: a planner starting is no "plan ready" line: that comes at its turn end (host/activity.ts)', () => {
     const awaiting = job({ pendingStart: true, plannerSessionIds: ['ses_p'] })
     expect(deriveActivity(state(), state({ jobs: [awaiting] }))).toEqual([])

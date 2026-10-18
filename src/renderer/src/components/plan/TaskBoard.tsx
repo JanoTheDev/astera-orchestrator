@@ -43,6 +43,7 @@ export function TaskBoard({
   activity = [],
   sessions = {},
   replanning = false,
+  refreshed = null,
   questions = [],
   onAnswer,
   canOpenSession,
@@ -62,6 +63,8 @@ export function TaskBoard({
   /** W6-E: the Host's word on each session, by session id. */
   sessions?: Readonly<Record<string, LiveSession>>
   replanning?: boolean
+  /** Coordinator rotation: why the plan's coordinator was last refreshed (planBoard coordinatorRefreshOf). */
+  refreshed?: string | null
   /** W7-C (#72): open asks and escalations; a Task's get an answer box. */
   questions?: readonly OpenQuestion[]
   /** Sends the owner's answer (`questions-answer`); resolves to an error text, or null when it went through. */
@@ -107,6 +110,11 @@ export function TaskBoard({
               </span>
               {isCurrent && <span className="plan-wave-now">{t('plan.wave.current')}</span>}
             </h3>
+            {isCurrent && refreshed !== null && (
+              <div className="plan-wave-banner" role="status">
+                {t('plan.wave.coordinatorRefreshed', { reason: refreshed })}
+              </div>
+            )}
             {isCurrent && replanning && (
               <div className="plan-wave-banner" role="status">
                 {t('plan.wave.replanning', { n: w.index + 1 })}

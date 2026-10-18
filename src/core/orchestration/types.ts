@@ -477,6 +477,11 @@ export interface JobRun {
   /** The pushed commit, or why the push stopped (escalated). Present: the driving loop does not try again
    *  (`run-deliver --force` does). */
   delivery?: RunDelivery
+  // Coordinator rotation (exec/coordinatorRotate.ts)
+  /** The fresh coordinators this Run was given (`run-coordinator-refresh`), oldest first, the last 20: why (`wave 3`,
+   *  `context 72%`), the session it replaced and the one it started. The feed says "Coordinator refreshed (…)" for each,
+   *  and the renderer closes a replaced session's ended tab. */
+  coordinatorRefreshes?: { at: string; reason: string; from: string; to: string; wave?: number; contextPct?: number }[]
 }
 
 export interface Task {
@@ -556,6 +561,9 @@ export interface Task {
   /** 사람이 이 Task 의 자동 수정을 멈췼다(task-update --convergence off). 도는 repair 는 끝까지 가고 그
    *  판정은 Gate 다(설계 §5.1) */
   convergenceOff?: true
+  /** When the app merged this completed Task's worktree into its plan branch (the Run's worktree): the wave merge and
+   *  the stall watchdog record it (`task-update --merged-into-plan`). What finishedSessions.ts mergedIntoPlan reads. */
+  mergedIntoPlanAt?: string
   /** 이 attempt 가 check 의 동작을 바꾸는 파일을 건드렸다(설계 §8.3). 실패 사유가 아니라 표시다 */
   suspiciousFiles?: string[]
   /** 이 Task 를 **다른 provider** 가 읽어 "요구가 충족됐는가"를 판정할지. task-create --review 가

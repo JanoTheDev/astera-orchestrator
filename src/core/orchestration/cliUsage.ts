@@ -584,6 +584,8 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
         about: 'the accounts a worker may run on, in failover order (from `accounts list`)'
       },
       { name: 'title', value: '<text>', about: "a short name (default: the spec's first line)" },
+      { name: 'prompt', value: '<text|->', about: "the worker's prompt (default: the spec)" },
+      { name: 'criteria', value: '<json array>', about: 'acceptance criteria, e.g. \'["tests pass"]\'; a task added to a planned run needs them' },
       { name: 'deps', value: '<json array>', about: 'the task ids this one waits for' },
       // W7-D (#81): the planner's flag, so a task added here is kept off its files' other tasks (W6-C)
       { name: 'affected-paths', value: '<json array>', about: 'the files or folders it will change, e.g. \'["src/a.ts","src/b/"]\'' },

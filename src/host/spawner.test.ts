@@ -158,7 +158,7 @@ describe('createHostSpawner', () => {
     const r = await h.spawner!.startWorker(startArgs(taskId, dispatchId))
     expect(h.spawned).toHaveLength(1)
     const entry = h.registry.list()[0]
-    expect(entry.meta).toMatchObject({ kind: 'session', id: r.sessionId, restore: { accountId: 'acc1', cwd: repo, title: 'Write hello', rollAccountIds: ['acc1'], bypassPermissions: false } })
+    expect(entry.meta).toMatchObject({ kind: 'session', id: r.sessionId, restore: { accountId: 'acc1', cwd: repo, title: 'T1 · Write hello', rollAccountIds: ['acc1'], bypassPermissions: false } })
     expect(h.sent).toEqual([{ t: 'pty-opened', entry }])
     expect(r.specPath.startsWith(path.join(profile, 'orch', 'specs'))).toBe(true)
   })
@@ -278,7 +278,7 @@ describe('createHostSpawner', () => {
       makeDescriptors(process.platform), undefined, undefined, path.join(dir, 'home'), (id, a, o) => sl.spawnConfig(id, a, o), [previewShotsDir(profile), specsDirOf(profile), /* W6-A */ plansDirOf(profile)], hostEnv())
     const account = JSON.parse(await fs.readFile(path.join(profile, 'accounts.json'), 'utf8')).accounts[0]
     const initialPrompt = (h.spawned[0].args as string[]).at(-1)
-    const info = m.spawn({ account, cwd: repo, bypassPermissions: false, initialPrompt, title: 'Write hello', rollAccountIds: ['acc1'], disallowedTools: ['AskUserQuestion'],
+    const info = m.spawn({ account, cwd: repo, bypassPermissions: false, initialPrompt, title: 'T1 · Write hello', rollAccountIds: ['acc1'], disallowedTools: ['AskUserQuestion'],
       rollPrompt: (h.registry.list()[0].meta!.restore as { rollPrompt: string }).rollPrompt, rollProviders: ['claude'],
       orchEnv: { cliPath: path.join(profile, 'orch', process.platform === 'win32' ? 'astera.cmd' : 'astera'), skillsPath: path.join(dir, 'skills'), profileDir: profile },
       // S6 R6: the one key the Host's note adds, that the Host started it; everything else stays equal.

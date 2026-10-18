@@ -519,7 +519,9 @@ async function main(): Promise<void> {
         now: () => new Date().toISOString(),
         nowMs: () => Date.now(),
         // Host-owned recovery (remote runtime design §2.6) reads and writes the journal this Host writes.
-        journal: hostJournal
+        journal: hostJournal,
+        // Stall watchdog: its lines are the feed's, as the usage guard's are
+        activity: (draft) => activityLog.recorded([draft])
       })
     : null
 

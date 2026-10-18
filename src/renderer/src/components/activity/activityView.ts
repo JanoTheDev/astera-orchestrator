@@ -108,6 +108,12 @@ export function lineOf(e: ActivityEvent, accountLabel: (id: string) => string): 
     // W8-D
     case 'plan.overlap':
       return { text: `${p.title}: overlaps another plan: ${(p.overlaps ?? []).join('; ')}`, tone: 'warn' }
+    // Coordinator rotation
+    case 'coordinator.refreshed':
+      return { text: `${p.title}: Coordinator refreshed (${p.reason ?? 'on request'})`, tone: 'info' }
+    // Stall watchdog
+    case 'watchdog':
+      return { text: `${p.title}: Watchdog: ${p.reason ?? ''}`, tone: 'warn' }
   }
 }
 

@@ -93,6 +93,28 @@ describe('integrateWorktrees — the rules of the one automatic writer into a re
     expect(ops).toEqual([`begin job-merge ${repo}`, 'end op1', `begin job-merge ${repo}`, 'end op3'])
     expect(reaped).toEqual([a, b])
   })
+  // Owner spec 2026-10-18, part 2: a worker committed its node_modules link (a `node_modules/` rule does not match a
+  // symlink), and the folder merged into has its own untracked one. git refuses that merge; it must go through.
+  it('an untracked node_modules symlink in the folder does not block the merge', async () => {
+    const target = await tempDir('astera-integrate-nm-')
+    const a = await forkWorktree({ repoPath: repo, name: 'a' }, { registry, log: logTo() })
+    await fs.symlink(target, path.join(a, 'node_modules'))
+    await fs.writeFile(path.join(a, 'a.txt'), 'a')
+    gitSync(a, ['add', 'a.txt', 'node_modules']); gitSync(a, ['commit', '-m', 'a with its link'])
+    await fs.symlink(target, path.join(repo, 'node_modules'))
+    const r = await integrateWorktrees(repo, [a], {}, ctx())
+    expect(r.kind).toBe('merged')
+    await expect(fs.stat(path.join(repo, 'a.txt'))).resolves.toBeTruthy()
+    expect((await fs.lstat(path.join(repo, 'node_modules'))).isSymbolicLink()).toBe(true)
+    expect((await fs.readdir(repo)).filter((n) => n.includes('astera-aside'))).toEqual([])
+  })
+  it('an untracked file git does not ignore still stops the merge, and stays where it was', async () => {
+    const a = await worked('a', 'mine.txt', 'theirs')
+    await fs.writeFile(path.join(repo, 'mine.txt'), 'the owner\'s')
+    const r = await integrateWorktrees(repo, [a], {}, ctx())
+    expect(r.kind).toBe('human')
+    expect(await fs.readFile(path.join(repo, 'mine.txt'), 'utf8')).toBe("the owner's")
+  })
   // W6-H: a delivery's merges carry its message (`Fixes #n`), also where git would have fast-forwarded
   it('makes a merge commit with the message a delivery gives, never a fast-forward', async () => {
     const a = await worked('a')

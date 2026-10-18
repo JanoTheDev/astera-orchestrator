@@ -98,8 +98,11 @@ describe('StatusLineManager 훅 주입', () => {
   // 도구(Bash·Write·Edit…)는 호출마다 프로세스를 띄우므로 여전히 Slack·롤링 세션의 파일에만 있다.
   it('기본 설정 파일의 도구 훅 짝은 AskUserQuestion 만 본다', async () => {
     const settings = JSON.parse(await fs.readFile(path.join(dir, 'astera-statusline-settings.json'), 'utf8'))
-    // W6-G: the second entry is the subagent cap's Agent|Task hook (its own test below)
-    expect(settings.hooks.PreToolUse).toHaveLength(2)
+    // W6-G: the second entry is the subagent cap's Agent|Task hook (its own test below); the third the delivery
+    // guard's Bash hook, `if`-filtered so an ordinary Bash call spawns nothing (deliveryGuard.test.ts)
+    expect(settings.hooks.PreToolUse).toHaveLength(3)
+    expect(settings.hooks.PreToolUse[2].matcher).toBe('Bash')
+    for (const h of settings.hooks.PreToolUse[2].hooks) expect(h.if).toMatch(/^Bash\(/)
     expect(settings.hooks.PreToolUse[0].matcher).toBe('AskUserQuestion')
     expect(settings.hooks.PreToolUse[0].hooks[0].command).toContain('astera-hook-capture.cjs')
     expect(settings.hooks.PostToolUse[0].matcher).toBe('AskUserQuestion')

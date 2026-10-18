@@ -86,6 +86,8 @@ export function composeHostDriving(a: {
   killRunner?: (cmd: { file: string; args: string[] }) => void
   /** W6-G: the Host's usage guard, for the dispatch loop. Absent: no usage pause. */
   usageGuard?: DispatchLoopContext['usageGuard']
+  /** Stall watchdog: its feed lines, into the Host's activity log. Absent (test rigs): no watchdog. */
+  activity?: DispatchLoopContext['activity']
 }): HostDrivingWiring {
   const specsDir = path.join(a.profileDir, 'orch', 'specs')
   /** A log line never throws (constraint 14). */
@@ -175,7 +177,9 @@ export function composeHostDriving(a: {
       sessionBusy: (id) => a.spawner.sessionBusy(id),
       typeInto: (id, text) => a.spawner.typeInto(id, text),
       inFlight: () => a.spawner.inFlight(),
-      isRetiring: () => disposed || a.spawner.isRetiring()
+      isRetiring: () => disposed || a.spawner.isRetiring(),
+      // Coordinator rotation: the context reading of a claude coordinator's statusLine
+      statusLinePayload: (id) => a.spawner.statusLinePayload(id)
     },
     worktrees: a.worktrees,
     checks,
@@ -189,6 +193,7 @@ export function composeHostDriving(a: {
     ...(a.after ? { after: a.after } : {}),
     ...(a.readGate ? { readGate: a.readGate } : {}),
     ...(a.usageGuard ? { usageGuard: a.usageGuard } : {}),
+    ...(a.activity ? { activity: a.activity } : {}),
     // Limits L3: every change of the driver or its gate goes to the apps that yield dispatch, the
     // ones whose Jobs wait on this Host. An app that keeps dispatch drives itself and has nothing to
     // wait for, and a CLI reads no push. A throw here is the driving's to log (constraint 14).
