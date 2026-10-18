@@ -140,7 +140,9 @@ import { isSamePath } from '../files/tree'
 import type { RunPr, TaskLinks } from './types'
 import { escalationOpen } from './sessionIndex' // W7-C
 import type { Gate, Message } from './types' // W7-C
-import type { PrCreateRequest, PrCreateResult } from '../github/prCreate'
+import type { BranchPushResult, PrCreateRequest, PrCreateResult } from '../github/prCreate'
+// W8-C draft PR
+import { completedWorktrees, draftPrDue, DRAFT_PR_FOOTER, runWaves, wavesDoneOf, wavesSection } from './draftPr'
 import type { SessionCheck } from '../workUnit/types'
 import { PTY_LOST_SIGHT_EXIT_CODE } from '../sessions/pty'
 import { LAUNCH_FORBIDDEN } from '../sessions/commands'
@@ -717,6 +719,10 @@ export interface OrchServerDeps {
     createPr(req: PrCreateRequest): Promise<PrCreateResult>
     readCommits(worktree: string, base: string): Promise<CommitSummary[]>
     isClean(worktree: string): Promise<{ changedCount: number }>
+    // W8-C draft PR
+    /** `git push -u origin <branch>` from the worktree, never forced (prCreate.ts pushBranch): the draft PR's push after
+     *  each wave and before it is marked ready. Absent, `run-draft-pr` answers 409. */
+    push?(worktree: string, branch: string): Promise<BranchPushResult>
   }
   /** How It Works records (MCP P2-C): understanding.json as it is on disk now, read on every call and
    *  never written (`readUnderstandingFile`). **Only the Host injects it**, over its profile's file: the
@@ -1097,7 +1103,9 @@ const COORDINATOR_ONLY = new Set([
   'run-open-pr',
   // W6-H: how the plan lands is the person's setting, and the landing is Astera's
   'projects-set',
-  'run-deliver'
+  'run-deliver',
+  // W8-C draft PR
+  'run-draft-pr'
 ])
 
 /** Session-task commands answer to the work-unit tracking toggle, not the orchestration one. They
@@ -5465,12 +5473,87 @@ export async function handleCommand(
         ...(removed && removed.failed.length > 0 ? { worktreesKept: removed.failed } : {})
       })
     }
+    // W8-C draft PR: a long `pr` plan is followed from GitHub. After a wave, while later waves remain (draftPr.ts
+    // draftPrDue), the completed Tasks' worktrees are folded into the Run's integration branch, it is pushed, and the
+    // plan's PR is opened as a draft, or its body rewritten with the done and remaining waves. Recorded as
+    // `run.pr = { url, number, draft, wavesDone }`; `run-open-pr` marks it ready after the final check. A failure is
+    // not recorded (a recorded error would stop the final delivery) and no remote is no failure: nothing is opened.
+    // Never merged. Astera's own step: refused from an agent session and an MCP client.
+    case 'run-draft-pr': {
+      const id = str(args.run)
+      if (!id) return bad('--run is required')
+      if (fromAgentSession || caller.role === 'mcp') return denied("a plan's draft pull request is kept by Astera itself")
+      const run = s.runs.find((r) => r.id === id)
+      if (!run) return notFound(`unknown run: ${id}`)
+      const job = jobOf(s, run)
+      if (!job) return notFound(`no plan for run ${id}`)
+      if (draftPrDue(s, run) === null)
+        return conflict('No draft update is due: a pull request plan updates its draft once per finished wave while later waves remain')
+      const t = githubTarget(deps, s, { run: id })
+      if ('error' in t) return t.error
+      if (!('branch' in t)) return conflict('This Run has no branch of its own')
+      const g = deps.github!
+      if (!g.push) return conflict('pushing a branch is not available in this build')
+      const fold = completedWorktrees(s, run)
+      if (fold.length > 0) {
+        if (!deps.mergeWorktrees) return conflict('merging is not available in this build')
+        const merged = await deps.mergeWorktrees(t.cwd, fold)
+        if (!merged.ok) return conflict(merged.reason)
+      }
+      let accounts: OrchAccount[] = []
+      try {
+        accounts = await deps.listAccounts()
+      } catch {
+        // The PR names an account by its id then
+      }
+      const cur = deps.getState()
+      const waves = runWaves(cur, id)
+      const done = wavesDoneOf(waves)
+      const title = jobNameOf(job)
+      const tasks = planPrTasksOf(cur, id, (a) => accounts.find((x) => x.id === a)?.label)
+      const body = planPrBody({ plan: title, tasks, waves: wavesSection(waves), footer: DRAFT_PR_FOOTER })
+      const at = deps.now?.() ?? now
+      const record = async (pr: RunPr, links?: TaskLinks): Promise<void> => {
+        const st = deps.getState()
+        await deps.setState({
+          ...st,
+          runs: st.runs.map((r) => (r.id === id ? { ...r, pr } : r)),
+          tasks: links ? st.tasks.map((x) => (x.runId === id ? { ...x, links: mergeLinks(x.links, links) } : x)) : st.tasks
+        })
+      }
+      const open = run.pr
+      if (open?.url !== undefined) {
+        const pushed = await g.push(t.cwd, t.branch)
+        if (!pushed.ok)
+          return pushed.kind === 'no-remote'
+            ? okBody({ noRemote: true, branch: t.branch, message: noRemoteNote(t.branch) })
+            : conflict(`The push was rejected: ${pushed.detail.trim()}`)
+        const edited = await g.run(['pr', 'edit', open.url, '--body', body], t.cwd)
+        if (!edited.ok) return ghRefusal({ ok: false, ...ghFailureSentence(edited) })
+        await record({ ...open, at, draft: true, wavesDone: done })
+        return okBody({ url: open.url, number: open.number ?? null, draft: true, wavesDone: done, opened: false })
+      }
+      const base = (await defaultBranchOf(g.run, t.cwd)) ?? t.baseRef
+      const made = await g.createPr({ worktreePath: t.cwd, repoPath: t.repoPath, branch: t.branch, base, title, body, draft: true, needsPush: true })
+      if (!made.ok) {
+        if (made.kind === 'no-remote') return okBody({ noRemote: true, branch: t.branch, message: noRemoteNote(t.branch) })
+        return conflict(`The draft pull request was not opened (${made.stage}, ${made.kind}): ${made.detail.trim()}`)
+      }
+      const number = prNumberOf(made.url)
+      await record(
+        { at, url: made.url, ...(number !== null ? { number } : {}), draft: true, wavesDone: done },
+        number !== null ? { prs: [{ number, url: made.url, state: 'open' }] } : undefined
+      )
+      return okBody({ url: made.url, number, draft: true, wavesDone: done, opened: true })
+    }
     case 'run-open-pr': {
       const id = str(args.run)
       if (!id) return bad('--run is required')
       const run = s.runs.find((r) => r.id === id)
       if (!run) return notFound(`unknown run: ${id}`)
-      if (run.pr?.url) return okBody({ url: run.pr.url, number: run.pr.number ?? null, opened: false })
+      // W8-C draft PR: a draft opened between waves is finished below, not answered as done
+      const draft = run.pr?.draft === true ? run.pr : undefined
+      if (run.pr?.url && !draft) return okBody({ url: run.pr.url, number: run.pr.number ?? null, opened: false })
       if (run.pr?.error !== undefined && args.force !== true)
         return conflict(`Opening this Run's pull request failed before: ${run.pr.error}. --force tries again`)
       if (runView(s, run).outcome !== 'completed') return conflict('This Run has not completed; its pull request opens once every task is done')
@@ -5505,7 +5588,33 @@ export async function handleCommand(
         // The PR names an account by its id then
       }
       const title = jobNameOf(job)
-      const body = planPrBody({ plan: title, tasks: planPrTasksOf(deps.getState(), id, (a) => accounts.find((x) => x.id === a)?.label) })
+      const body = planPrBody({
+        plan: title,
+        tasks: planPrTasksOf(deps.getState(), id, (a) => accounts.find((x) => x.id === a)?.label),
+        // W8-C draft PR: the PR that followed the plan keeps its waves, all done now
+        ...(draft ? { waves: wavesSection(runWaves(deps.getState(), id)) } : {})
+      })
+      // W8-C draft PR: push the final branch, write the final body and mark the draft ready; `draft` is cleared
+      if (draft?.url !== undefined) {
+        const t = githubTarget(deps, s, { run: id })
+        if ('error' in t) return t.error
+        if (!('branch' in t)) return conflict('This Run has no branch of its own')
+        const g = deps.github
+        const fail = async (error: string): Promise<Reply> => {
+          await record({ ...draft, at: now, error })
+          return conflict(error)
+        }
+        if (!g.push) return conflict('pushing a branch is not available in this build')
+        const pushed = await g.push(t.cwd, t.branch)
+        if (!pushed.ok) return fail(pushed.kind === 'no-remote' ? noRemoteNote(t.branch) : `The push was rejected: ${pushed.detail.trim()}`)
+        for (const step of [['pr', 'edit', draft.url, '--body', body], ['pr', 'ready', draft.url]]) {
+          const r = await g.run(step, t.cwd)
+          if (!r.ok) return fail(`gh ${step[0]} ${step[1]}: ${ghFailureSentence(r).message}`)
+        }
+        const { draft: _d, wavesDone: _w, error: _e, ...ready } = draft
+        await record({ ...ready, at: now })
+        return okBody({ url: draft.url, number: draft.number ?? null, opened: false, ready: true })
+      }
       const made = await handleCommand(deps, caller, 'github-pr-create', { run: id, title, body, draft: false, ...(base ? { base } : {}) })
       const answer = (made.body ?? {}) as { url?: unknown; error?: unknown; noRemote?: unknown; branch?: unknown }
       // W7-E (#80): a project with no remote keeps the work on its branch; recorded as a note, not as a failed PR

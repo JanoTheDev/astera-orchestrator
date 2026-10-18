@@ -1161,13 +1161,28 @@ export function hostOrchDeps(a: {
     ...a.github,
     run: (args: string[], cwd: string) => {
       // W6-A: `issue edit` assigns an issue (github-issue-assign, --assign-me)
-      if ((args[0] === 'run' && args[1] === 'rerun') || (args[0] === 'issue' && args[1] === 'edit')) a.onEffect?.()
+      // W8-C: `pr edit` / `pr ready` rewrite and ready a plan's draft PR
+      if (
+        (args[0] === 'run' && args[1] === 'rerun') ||
+        (args[0] === 'issue' && args[1] === 'edit') ||
+        (args[0] === 'pr' && (args[1] === 'edit' || args[1] === 'ready'))
+      )
+        a.onEffect?.()
       return a.github!.run(args, cwd)
     },
     createPr: (req: Parameters<NonNullable<OrchServerDeps['github']>['createPr']>[0]) => {
       a.onEffect?.()
       return a.github!.createPr(req)
-    }
+    },
+    // W8-C draft PR
+    ...(a.github.push
+      ? {
+          push: (wt: string, branch: string) => {
+            a.onEffect?.()
+            return a.github!.push!(wt, branch)
+          }
+        }
+      : {})
   }
 
   /** HOST_RESOLVES: the Host's own resolver when no app is attached or the Host drives, else the app,

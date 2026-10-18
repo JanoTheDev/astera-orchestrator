@@ -168,6 +168,13 @@ const SESSION = {
       { name: 'force', about: 'try again after a recorded failure' }
     ]
   },
+  // W8-C draft PR
+  'run-draft-pr': {
+    summary: "push a pull-request plan's branch after a wave and open or update its draft pull request",
+    detail:
+      "While later waves remain, folds the completed tasks' worktrees into the run's integration branch, pushes it, and opens the plan's pull request as a draft or rewrites its body with the done and remaining waves. run-open-pr marks it ready after the final check. Never merges. The driving loop does this once per finished wave; refused from an agent session and an MCP client. Answered by the Host.",
+    flags: [RUN_ARG('<runId>', 'the run between waves')]
+  },
   // W6-H delivery
   'run-deliver': {
     summary: "land a completed run the way its project says: its pull request, or a push to the delivery branch",

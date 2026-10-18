@@ -91,7 +91,7 @@ import { freePort, killTree, processStartTimes } from './workspace/native'
 import { defaultGhRunner } from '../core/github/gh'
 import { readUnderstandingFile } from '../core/understanding/read'
 import { copyIntakeFiles } from '../core/orchestration/intakeFiles'
-import { createPullRequest, readCommits } from '../core/github/prCreate'
+import { createPullRequest, pushBranch, readCommits } from '../core/github/prCreate'
 import { git as realGit, isCleanWorktree } from '../core/worktrees/git'
 import { createRunGitRecorder, type RunGitRecorder } from './runGitRecorder'
 import { readChanges, readFileDiff } from '../core/git/changes'
@@ -873,7 +873,9 @@ async function main(): Promise<void> {
       // github-pr-create: the app's own create PR path (push, then gh pr create), over the Run's worktree.
       createPr: (req) => createPullRequest(req),
       readCommits: (wt, base) => readCommits(wt, base),
-      isClean: (wt) => isCleanWorktree(wt)
+      isClean: (wt) => isCleanWorktree(wt),
+      // W8-C draft PR: the push after each wave
+      push: (wt, branch) => pushBranch(wt, branch)
     },
     // How It Works records (MCP P2-C): the app's understanding.json in this profile, read on every
     // call and never written, so a record the app wrote is there while the app is closed.
