@@ -31,5 +31,14 @@ Status: Wave 0 merged (PR #25), Wave 1 merged (PRs #26–#29), 2026-10-17. See `
 | Wave 7V | W6-V-autopilot-dogfood (alone; covers W6 + W7) |
 | Wave 8 | W8-A-commit-attribution · W8-B-line-attribution |
 | merge | MERGE |
+| Wave 9.0 | W9-0-design-spec (alone; owner approves the mockup) |
+| Wave 9.1 | W9-A-foundation (alone) |
+| merge | MERGE |
+| Wave 9.2 | W9-B-shell-and-nav · W9-C-plan-tab · W9-D-inbox-and-command · W9-E-settings-and-dialogs |
+| merge | MERGE |
+| Wave 9.3 | W9-F-polish-and-verify (alone) |
+| merge | MERGE |
+| Wave 9.4 | W9-G-readme-and-docs |
+| merge | MERGE |
 
 Owner decisions baked in (2026-10-17): Claude-only accounts for now (Codex later), mixed models by task difficulty, one PR per plan, local whisper.cpp for voice.
