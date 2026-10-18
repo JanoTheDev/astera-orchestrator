@@ -4,11 +4,12 @@ import { useEffect } from 'react'
 import type { PageId } from '../../../core/ui/pages'
 import { sessionTab } from '../../../core/panes/tabId'
 import { registerNavigation } from '../components/shell/navigation'
+import { settingsTarget } from '../components/settings/settingsIndex'
 import type { AppState } from './appState'
 
 type NavigationDeps = Pick<
   AppState,
-  | 'sidebarOpen' | 'sidebarPane' | 'toggleSidebar' | 'showExplorer' | 'setShowSettings' | 'setSettingsTab' | 'setRunPanelOpen'
+  | 'sidebarOpen' | 'sidebarPane' | 'toggleSidebar' | 'showExplorer' | 'setShowSettings' | 'setSettingsTab' | 'setSettingsAnchor' | 'setRunPanelOpen'
   | 'canOpenSessionTab' | 'setWorkspaceScope' | 'selectWorkbenchTab' | 'workspaceTree' | 'enterWorkspace' | 'setJobsOpen'
   | 'setPendingRun'
 >
@@ -16,7 +17,7 @@ type NavigationDeps = Pick<
 export function useNavigation(app: NavigationDeps): void {
   useEffect(() => {
     const {
-      sidebarOpen, sidebarPane, toggleSidebar, showExplorer, setShowSettings, setSettingsTab, setRunPanelOpen,
+      sidebarOpen, sidebarPane, toggleSidebar, showExplorer, setShowSettings, setSettingsTab, setSettingsAnchor, setRunPanelOpen,
       canOpenSessionTab, setWorkspaceScope, selectWorkbenchTab, workspaceTree, enterWorkspace, setJobsOpen, setPendingRun
     } = app
     // Shows a sidebar view; the rail's toggle would fold the sidebar when that view is already showing.
@@ -53,9 +54,11 @@ export function useNavigation(app: NavigationDeps): void {
       openInbox: () => openPage('inbox'),
       // the WorktreePanel lives in the session list; it has no per-path view yet
       openWorktree: () => openPage('worktrees'),
-      // the settings modal has no anchors yet
-      openSettings: (group) => {
-        setSettingsTab(group)
+      // W9-E: the Settings page scrolls to the anchor's row and clears it
+      openSettings: (group, anchor) => {
+        const target = settingsTarget(group, anchor)
+        setSettingsTab(target.group)
+        setSettingsAnchor(target.anchor)
         setShowSettings(true)
       }
     })

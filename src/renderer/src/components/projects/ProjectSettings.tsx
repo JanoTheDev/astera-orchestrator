@@ -1,13 +1,13 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Account } from '../../../../core/types'
 import { MAX_CONCURRENT_WORKERS, PROJECT_DEFAULTS, type Project } from '../../../../core/orchestration/types'
-import { backdropProps } from '../../lib/backdrop'
+import { Button, Modal } from '../ui'
 import { ProjectDelivery } from '../delivery/ProjectDelivery'
 import { ProjectAttribution } from '../attribution/ProjectAttribution' // W8-B
 import './projects.css'
 
-/** W7-B: every choice of one project. Each field saves on its own through `projects-set`; an empty number or choice
- *  clears it back to the default shown as the placeholder. */
+/** W7-B: one project's settings as a dialog (the project switcher's gear). The body is the Settings page's Projects
+ *  group too (W9-E). */
 export function ProjectSettings({
   anchor,
   projectId,
@@ -19,6 +19,29 @@ export function ProjectSettings({
   accounts: Account[]
   onClose: () => void
 }): React.JSX.Element {
+  const [name, setName] = useState<string | null>(null)
+  return (
+    <Modal title={`${name ?? 'Project'} settings`} onClose={onClose} footer={<Button onClick={onClose}>Close</Button>}>
+      <ProjectSettingsBody anchor={anchor} projectId={projectId} accounts={accounts} onLoaded={(p) => setName(p.name)} />
+    </Modal>
+  )
+}
+
+/** W7-B: every choice of one project. Each field saves on its own through `projects-set`; an empty number or choice
+ *  clears it back to the default shown as the placeholder. */
+export function ProjectSettingsBody({
+  anchor,
+  projectId,
+  accounts,
+  onLoaded
+}: {
+  anchor: string
+  projectId: string
+  accounts: Account[]
+  onLoaded?: (project: Project) => void
+}): React.JSX.Element {
+  const loaded = useRef(onLoaded)
+  loaded.current = onLoaded
   const [project, setProject] = useState<Project | null>(null)
   const [test, setTest] = useState('')
   const [concurrency, setConcurrency] = useState('')
@@ -35,6 +58,7 @@ export function ProjectSettings({
       const p = list.status === 200 ? (list.body as Project[]).find((x) => x.id === projectId) : undefined
       if (!p) return
       setProject(p)
+      loaded.current?.(p)
       if (!fields) return
       setConcurrency(p.concurrency?.toString() ?? '')
       setRounds(p.reviewRounds?.toString() ?? '')
@@ -76,80 +100,74 @@ export function ProjectSettings({
   const num = (s: string): number | '' => (s.trim() === '' ? '' : Number(s))
 
   return (
-    <div className="modal-backdrop" {...backdropProps(onClose)}>
-      <div className="modal proj-settings" onClick={(e) => e.stopPropagation()}>
-        <h3>{project?.name ?? 'Project'} settings</h3>
-        {project && (
-          <>
-            <ProjectDelivery projectPath={project.path} />
-            <ProjectAttribution anchor={anchor} projectId={projectId} />
-            <label className="check-small">
-              <input
-                type="checkbox"
-                checked={project.autoApprove ?? PROJECT_DEFAULTS.autoApprove}
-                onChange={(e) => void save({ autoApprove: e.target.checked })}
-              />
-              Approve plans automatically
-            </label>
-            <div className="field">
-              <label>Test command</label>
-              <input
-                type="text"
-                value={test}
-                placeholder="none"
-                onChange={(e) => setTest(e.target.value)}
-                onBlur={() => saveText('test', test, initial.test, { testCommand: test.trim() })}
-              />
-            </div>
-            <div className="field">
-              <label>Workers at once (1-{MAX_CONCURRENT_WORKERS})</label>
-              <input
-                type="number"
-                min={1}
-                max={MAX_CONCURRENT_WORKERS}
-                value={concurrency}
-                placeholder={String(PROJECT_DEFAULTS.concurrency)}
-                onChange={(e) => setConcurrency(e.target.value)}
-                onBlur={() => saveText('concurrency', concurrency, initial.concurrency, { concurrency: num(concurrency) })}
-              />
-            </div>
-            <div className="field">
-              <label>Review rounds</label>
-              <input
-                type="number"
-                min={1}
-                value={rounds}
-                placeholder={String(PROJECT_DEFAULTS.reviewRounds)}
-                onChange={(e) => setRounds(e.target.value)}
-                onBlur={() => saveText('rounds', rounds, initial.rounds, { reviewRounds: num(rounds) })}
-              />
-            </div>
-            <div className="field">
-              <label>Replan between waves</label>
-              <select value={project.replan ?? ''} onChange={(e) => void save({ replan: e.target.value })}>
-                <option value="">Default ({PROJECT_DEFAULTS.replan})</option>
-                <option value="waves">Waves</option>
-                <option value="off">Off</option>
-              </select>
-            </div>
-            <div className="field">
-              <label>Default account</label>
-              <select value={account} onChange={(e) => void save({ account: e.target.value })}>
-                <option value="">None</option>
-                {accounts.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </>
-        )}
-        {error && <p className="warn">{error}</p>}
-        <div className="row right">
-          <button onClick={onClose}>Close</button>
-        </div>
-      </div>
+    <div className="proj-settings">
+      {project && (
+        <>
+          <ProjectDelivery projectPath={project.path} />
+          <ProjectAttribution anchor={anchor} projectId={projectId} />
+          <label className="check-small">
+            <input
+              type="checkbox"
+              checked={project.autoApprove ?? PROJECT_DEFAULTS.autoApprove}
+              onChange={(e) => void save({ autoApprove: e.target.checked })}
+            />
+            Approve plans automatically
+          </label>
+          <div className="field">
+            <label>Test command</label>
+            <input
+              type="text"
+              value={test}
+              placeholder="none"
+              onChange={(e) => setTest(e.target.value)}
+              onBlur={() => saveText('test', test, initial.test, { testCommand: test.trim() })}
+            />
+          </div>
+          <div className="field">
+            <label>Workers at once (1-{MAX_CONCURRENT_WORKERS})</label>
+            <input
+              type="number"
+              min={1}
+              max={MAX_CONCURRENT_WORKERS}
+              value={concurrency}
+              placeholder={String(PROJECT_DEFAULTS.concurrency)}
+              onChange={(e) => setConcurrency(e.target.value)}
+              onBlur={() => saveText('concurrency', concurrency, initial.concurrency, { concurrency: num(concurrency) })}
+            />
+          </div>
+          <div className="field">
+            <label>Review rounds</label>
+            <input
+              type="number"
+              min={1}
+              value={rounds}
+              placeholder={String(PROJECT_DEFAULTS.reviewRounds)}
+              onChange={(e) => setRounds(e.target.value)}
+              onBlur={() => saveText('rounds', rounds, initial.rounds, { reviewRounds: num(rounds) })}
+            />
+          </div>
+          <div className="field">
+            <label>Replan between waves</label>
+            <select value={project.replan ?? ''} onChange={(e) => void save({ replan: e.target.value })}>
+              <option value="">Default ({PROJECT_DEFAULTS.replan})</option>
+              <option value="waves">Waves</option>
+              <option value="off">Off</option>
+            </select>
+          </div>
+          <div className="field">
+            <label>Default account</label>
+            <select value={account} onChange={(e) => void save({ account: e.target.value })}>
+              <option value="">None</option>
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </>
+      )}
+      {error && <p className="warn">{error}</p>}
     </div>
   )
 }

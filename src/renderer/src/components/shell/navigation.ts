@@ -4,8 +4,9 @@
 // not the callers.
 import type { PageId } from '../../../../core/ui/pages'
 import type { useSettings } from '../../state/useSettings'
+import type { OldSettingsTab } from '../settings/settingsIndex'
 
-/** A settings tab as the settings modal names it today. */
+/** A Settings page group (DESIGN §7, W9-E). */
 export type SettingsGroup = ReturnType<typeof useSettings>['settingsTab']
 
 export interface NavigationHandlers {
@@ -14,7 +15,8 @@ export interface NavigationHandlers {
   openPlan: (jobId: string, section?: string) => void
   openInbox: (filter?: string) => void
   openWorktree: (path: string) => void
-  openSettings: (group: SettingsGroup, anchor?: string) => void
+  /** An old tab name still lands right: it maps to its group and row (settingsTarget). */
+  openSettings: (group: SettingsGroup | OldSettingsTab, anchor?: string) => void
 }
 
 let current: NavigationHandlers | null = null
@@ -40,4 +42,4 @@ export const openConsole = (sessionId: string): void => forward('openConsole', s
 export const openPlan = (jobId: string, section?: string): void => forward('openPlan', jobId, section)
 export const openInbox = (filter?: string): void => forward('openInbox', filter)
 export const openWorktree = (path: string): void => forward('openWorktree', path)
-export const openSettings = (group: SettingsGroup, anchor?: string): void => forward('openSettings', group, anchor)
+export const openSettings = (group: SettingsGroup | OldSettingsTab, anchor?: string): void => forward('openSettings', group, anchor)

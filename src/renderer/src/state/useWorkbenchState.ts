@@ -25,6 +25,7 @@ import { leaves, type PaneDir } from '../../../core/panes/tree'
 import type { useLayout } from './useLayout'
 import type { useHost } from './useHost'
 import type { useSettings } from './useSettings'
+import { openSettings } from '../components/shell/navigation'
 
 /** Whether this renderer has shown the astera command offer (see where it is used). Module scope,
  *  not a ref: StrictMode's dev-only remount would reset a ref and show a second toast. */
@@ -51,12 +52,12 @@ export type WorkbenchStateDeps = Pick<ReturnType<typeof useLayout>,
   Pick<ReturnType<typeof useHost>,
     'cli' | 'showNew'> &
   Pick<ReturnType<typeof useSettings>,
-    'setSettingsTab' | 'setShowSettings' | 'showSettings'>
+    'showSettings'>
 
 export function useWorkbenchState(deps: WorkbenchStateDeps) {
   const {
     accounts, activeFileId, activeTab, activeTabId, cli, layout, remoteSessions, sessions, setRemoteStatus,
-    setSettingsTab, setShowSettings, showNew, showSettings, t
+    showNew, showSettings, t
   } = deps
   // Whether the Jobs sidebar view is showing — same convention as explorerOpen (toggleJobs mirrors
   // toggleExplorer below), just for the read-only orchestration view instead of the file tree.
@@ -308,8 +309,7 @@ export function useWorkbenchState(deps: WorkbenchStateDeps) {
             onClick: () => {
               settle()
               dismiss(id)
-              setSettingsTab('cli')
-              setShowSettings(true)
+              openSettings('integrations', 'cli') // W9-E: the CLI row of Integrations
             }
           }
         })
@@ -332,8 +332,7 @@ export function useWorkbenchState(deps: WorkbenchStateDeps) {
             label: tRef.current('settings.cli.offer.open'),
             onClick: () => {
               dismiss(id)
-              setSettingsTab('cli')
-              setShowSettings(true)
+              openSettings('integrations', 'cli') // W9-E: the CLI row of Integrations
             }
           }
         })
