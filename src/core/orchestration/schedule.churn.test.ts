@@ -227,7 +227,7 @@ describe('failure, retry, circuit break, cancel and review never release a depen
     report(box, openOf(box.state, 'ok').id, 'succeeded', 1)
     const first = openOf(box.state, 'up').id
     report(box, first, 'failed', 2)
-    expect(taskBoardsOf(box.state).get('up')).toEqual({ category: 'failed', reason: { kind: 'failed-retry', failures: 1, limit: FAILURE_LIMIT } })
+    expect(taskBoardsOf(box.state).get('up')).toEqual({ category: 'failed', reason: { kind: 'failed-retry', failures: 1, limit: FAILURE_LIMIT, noCoordinator: true } })
     expect(box.state.tasks.find((t) => t.id === 'join')?.status).toBe('pending')
     const retry = openDispatch(
       box.state,
