@@ -55,7 +55,8 @@ starting the next wave. Each prompt owns its own files, which keeps conflicts to
 | 6 | 8 | `W6-A-intake-and-github`, `W6-B-autopilot-answers-and-sound`, `W6-C-scheduler-guards`, `W6-D-wave-replanning`, `W6-E-progress-view`, `W6-F-project-workspaces`, `W6-G-usage-guards`, `W6-H-delivery-modes` (Autopilot, see below) | W5 merged, **including PR #57** |
 | 7 | 6 | `W7-A-plan-feedback`, `W7-B-projects`, `W7-C-owner-answers-and-coordinator`, `W7-D-intake-names-and-concurrency`, `W7-E-planner-review-and-final-check`, `W7-F-tabs-accounts-and-sidebar` (W7-C..F: W6-V's issues #67–#84) | W6 merged |
 | 7V | 1 | `W6-V-autopilot-dogfood.md`: the W6 half ran 2026-10-18 (LINUX.md "Autopilot dogfood (W6-V)"); re-run its W7 steps (5, 5b) and the failed W6 checks | W7 merged |
-| 8 | 2 | `W8-A-commit-attribution`, `W8-B-line-attribution` (Who wrote this, see below) | 7V done |
+| 8.0 | 1 | `W8-C-run-waves-in-astera` (alone; tabs, the last wave run by hand) | 7V done |
+| 8 | 2 | `W8-A-commit-attribution`, `W8-B-line-attribution` (Who wrote this, see below), **run as one Astera plan** | W8-C merged |
 | 9.0 | 1 | `W9-0-design-spec` (owner approves the mockup before any code) | W8 merged |
 | 9.1 | 1 | `W9-A-foundation` (alone: tokens, primitives, shell split) | 9.0 approved |
 | 9.2 | 7 | `W9-B-shell-and-nav`, `W9-C-plan-tab`, `W9-D-inbox-and-command`, `W9-E-settings-and-dialogs`, `W9-H-agents-wall`, `W9-I-tab-summaries`, `W9-J-worktree-viewer` | 9.1 merged |
@@ -95,6 +96,7 @@ starting the next wave. Each prompt owns its own files, which keeps conflicts to
 | W7-D | `core/orchestration/intake.ts`, `components/intake/*`, `command.ts` handlers `jobs-create` / `jobs-create-from-issue` / `jobs-set` / `tasks-add`, `cliArgs.ts`, `cliUsage.ts`, `cliAgentContext.ts` | `RunDetail.tsx` (header control), `lifecycle.ts` (`jobNameOf`), `src/core/github/*` (PR title) |
 | W7-E | `handover.ts` (planner brief), `resources/skills/planner-guide.md`, `replan.ts`, `exec/replanStart.ts`, `reviewer.ts`, `exec/reviewGate.ts` | `exec/plannerStart.ts`, `exec/dispatchLoop.ts`, `types.ts` (Job review default), `command.ts` (`jobs-plan` / `jobs-create` flag), `src/core/github/*` (no-remote message) |
 | W7-F | tab strip + its `styles.css`, sidebar account panel, `HistoryBrowser.tsx`, `JobsView.tsx` layout, `components/plan/planBoard.ts` / `TaskBoard` | `App.tsx` (tabs, active session, auto-close), keybindings, `AccountSettings.tsx` (export unregister), `core/accounts` (email check, login URL), `components/workspace/workspaceTree.ts` |
+| W8-C | `core/orchestration/intake.ts` (`--mode prompts`), `cliArgs.ts`, `cliUsage.ts`, `resources/skills/planner-guide.md`, `resources/skills/orchestration-guide.md` (worker brief lines, `astera heavy`), new `core/orchestration/heavyLock.ts` | `types.ts` (`Job.after`), `schedule.ts` / `blocked.ts` (one gate, one reason), `planner.ts` (`validatePlan` verbatim check), `command.ts` (`--after`, `heavy`), New flow source picker, USAGE.md, LINUX.md |
 | W8-A | new `core/attribution/{note,stamp,remap,blame,stats}.ts` | `exec/integrateGit.ts` (stamp before merge, copy notes), `core/orchestration/delivery.ts` (push the notes ref, PR body block), `src/main/githubPrs.ts` (squash remap), `command.ts` / `cliArgs.ts` / `cliUsage.ts` (`attribution-blame`, `attribution-stats`, `attribution-why`) |
 | W8-B | new `core/attribution/{lines,checkpoint,gitAi}.ts` + its hook script, new `components/attribution/*` | `core/sessions/statusline.ts` (hook entries), `core/attribution/stamp.ts` (one `lines` call), file viewer mount, plan view mount, project settings page (one row) |
 | W9-0 | new `docs/orchestrator/DESIGN.md`, the mockup artifact | — (no code) |
@@ -279,6 +281,41 @@ hooks, Git Notes, and rewrite tracking.
   spike picks git-ai, Settings shows it as detected or not installed, plus the install command. The owner runs it.
 - **The notes ref is outward-facing.** It is pushed only as part of a delivery that the owner already set up
   (W6-H). Notes carry no prompt text, emails or paths outside the repo.
+
+## Running the waves in Astera (from Wave 8 on)
+
+Up to Wave 7, every wave ran by hand: one Claude tab per prompt, then `MERGE.md` in one more tab. The W6-V dogfood
+showed that Astera already does each step of that for one plan:
+- the planner splits the work, and workers run in parallel worktrees;
+- two Tasks never run at once on the same files;
+- a reviewer checks each Task, and a final check runs at the end;
+- Astera merges the Tasks itself and delivers.
+
+The W7 fixes (#70 reviewer, #72/#73 answering and the blocking coordinator, #74 one final check) close the gaps it
+found. **W8-C is the last wave run by hand.** It adds three things:
+- prompt files become Tasks verbatim;
+- a plan can wait for another plan;
+- heavy jobs (full suite, dev app, AppImage build) take one machine-wide slot.
+
+From then on, each wave is one Astera plan, queued after the one before it. Run these from the packaged app's
+profile, never the dev profile:
+
+```bash
+astera jobs create --project astera --mode prompts --delivery pr \
+  --attach docs/orchestrator/prompts/W8-A-commit-attribution.md docs/orchestrator/prompts/W8-B-line-attribution.md
+# Wave 9: one plan per sub-wave, each queued after the one before (9.0 is done; 9.1 alone first)
+astera jobs create --project astera --mode prompts --after <W8 job> --attach docs/orchestrator/prompts/W9-A-foundation.md
+astera jobs create --project astera --mode prompts --after <W9.1 job> --attach docs/orchestrator/prompts/W9-{B,C,D,E,H,I,J}-*.md
+astera jobs create --project astera --mode prompts --after <W9.2 job> --attach docs/orchestrator/prompts/W9-F-polish-and-verify.md
+astera jobs create --project astera --mode prompts --after <W9.3 job> --attach docs/orchestrator/prompts/W9-G-readme-and-docs.md
+```
+
+The owner's part:
+- Answer what lands in the Inbox: real questions, plan approvals unless the project auto-approves, and permission
+  waits.
+- Review each wave's PR. W8-C keeps delivery as a PR for this repo; switch the project to `push` once the waves are
+  trusted.
+- `MERGE.md` is no longer needed for these waves, because Astera's integration merge does that job.
 
 ## Wave 9 — Redesign (owner request 2026-10-18)
 
