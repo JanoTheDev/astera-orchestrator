@@ -21,11 +21,13 @@ Use a throwaway git repo (`/tmp/astera-dogfood`, a small TypeScript project with
    - In one worker tab, ask for 12 parallel subagents: the 11th and 12th are refused with Astera's message. Set
      `usagePauseAt` below the account's current 5-hour percentage: no new worker starts, the reason shows, and it
      resumes when you raise it again.
-3. Repeat the start with:
+3. Start a plan for something the dogfood repo already has. Check that `existing.md` marks it, that no build Task
+   is made, and that it ends either as "nothing to do" or with fix Tasks only.
+4. Repeat the start with:
    - a 3-page PDF (`--attach`)
    - `--mode audit --scope src`
    - two GitHub issues on a scratch repo with `--assign-me`. Ask me before creating issues anywhere: that is
      outward-facing.
-4. File every failure as a GitHub issue (repro, expected, actual, file:line guess) labelled `wave-6`, and write the
+5. File every failure as a GitHub issue (repro, expected, actual, file:line guess) labelled `wave-6`, and write the
    Wave 7 prompts the way `d5eb889a` wrote Wave 5's.
-5. Append measurements and the new day-to-day flow to `LINUX.md` and `USAGE.md`. Open a PR; do not merge.
+6. Append measurements and the new day-to-day flow to `LINUX.md` and `USAGE.md`. Open a PR; do not merge.

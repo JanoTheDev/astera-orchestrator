@@ -43,6 +43,34 @@ whose planner gets the source and the owner's extra instructions.
    - the project picker
    It calls the commands above. Nothing else.
 
+6. **Check what already exists before planning** (saves usage: nothing is built twice). Every intake, whatever its
+   mode, starts the planner with this step. Write it as a "Before you plan" section in
+   `resources/skills/planner-guide.md` (additive; W6-D owns the file).
+   1. Follow the repository's own rules first. The guide already has the planner read `CLAUDE.md` / `AGENTS.md`;
+      add `CONTRIBUTING.md` and `.github/` templates. Its GitHub workflow decides issues, branches and PR
+      linking; `core/github/taskLinks.ts` already defers to it.
+   2. Look for the work already done or under way:
+      - search the code for each requested item
+      - search open and closed GitHub issues and PRs (`gh issue list --search`, `gh pr list --search`)
+      - list this project's other open Jobs (`jobs-list --project`)
+   3. Write `inputs/existing.md`: one row per requested item with a state (`missing` / `partial` / `broken` /
+      `built`) and its evidence (file:line, issue or PR number, Job id).
+   4. Plan by state:
+      - `missing`: build Tasks.
+      - `partial`: Tasks for the missing part only.
+      - `built`: no build Task. Run a short audit of that code (bugs, missing tests, edge cases against the
+        request). If issues turn up, the item becomes `broken`; otherwise it is reported as done.
+      - `broken`: fix Tasks, each naming the evidence.
+      - An open issue, PR or Job that already covers an item is linked (`task-link-issue`), never duplicated.
+   5. Nothing left to do: the planner ends with no Tasks. The Job ends as "nothing to do" with `existing.md` as
+      its summary, and no tabs open. Emit `plan.nothing-to-do`, a feed line plus notice.
+   6. Enforce this in code, not only in the guide:
+      - Add `Task.basis: { state: 'missing' | 'partial' | 'broken'; evidence: string }` to `types.ts` (additive)
+        and to `PLAN_EDIT` in `task-update`.
+      - `validatePlan` (`planner.ts`, additive) refuses a Task without a `basis` or with empty evidence, so `run-start`
+        cannot open tabs for unchecked work.
+      - The plan view (W6-E) may show `basis` as a small tag.
+
 Ownership: see the W6-A row of PLAN.md.
 
 ## Done means

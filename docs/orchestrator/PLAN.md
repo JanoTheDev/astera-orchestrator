@@ -74,7 +74,7 @@ starting the next wave. Each prompt owns its own files, which keeps conflicts to
 | W5-A | `exec/workerStart.ts`, `exec/coordinator.ts`, `exec/specFiles.ts`, `exec/integrateGit.ts`, the fork call in `exec/dispatchLoop.ts` | `src/host/spawner.ts`, `runChecks.ts` |
 | W5-B | `command.ts` handlers `runs-resume` / `jobs-archive` / `run-start` / `tasks-list`, `lifecycle.ts`, `state.ts` run lookup, `cliArgs.ts`, `cliUsage.ts`, `blocked.ts` reasons | `planner.ts`, `exec/dispatchLoop.ts`, `exec/limitProbe.ts` |
 | W5-C | `components/command/*`, `core/intents/*`, `schedule.ts`, `RunDetail.tsx`, `lib/jobActions.ts` | `types.ts`, `command.ts` (hold commands), `exec/dispatchLoop.ts`, `JobsView.tsx`, `core/host/*Gate.ts` |
-| W6-A | `core/sources/objective.ts`, `core/github/issue.ts`, `core/github/issueSource.ts`, new `core/orchestration/intake.ts`, new `components/intake/*` | `command.ts` (`jobs-create` / `jobs-create-from-issue` args, `github-issue-assign`), `cliUsage.ts`, `cliArgs.ts`, `NewRunModal.tsx` / `JobsView.tsx` (mount) |
+| W6-A | `core/sources/objective.ts`, `core/github/issue.ts`, `core/github/issueSource.ts`, new `core/orchestration/intake.ts`, new `components/intake/*` | `command.ts` (`jobs-create` / `jobs-create-from-issue` args, `github-issue-assign`), `cliUsage.ts`, `cliArgs.ts`, `NewRunModal.tsx` / `JobsView.tsx` (mount), `planner.ts` (`validatePlan` basis check), `types.ts` (`Task.basis`), `planner-guide.md` ("Before you plan" section) |
 | W6-B | `inbox.ts`, `resources/skills/orchestration-guide.md`, `src/main/desktopNotifier.ts`, `activity.ts` (new kinds), new `renderer/src/lib/alertSound.ts`, sound setting UI | `exec/workerStart.ts` (worker spawn args), `command.ts` (the `send --type escalation` branch), app-settings type |
 | W6-C | `schedule.ts`, `blocked.ts`, `settings/maxConcurrentWorkers.ts`, `convergence.ts` | `types.ts` (`MAX_REVIEW_ROUNDS`), `exec/reviewGate.ts` |
 | W6-D | new `core/orchestration/replan.ts`, new `exec/replanStart.ts`, `exec/plannerStart.ts`, `resources/skills/planner-guide.md` | `types.ts` (`Job.replan`), `schedule.ts` (one `waveOpen` filter call), `exec/dispatchLoop.ts` (boundary trigger), `activity.ts` (two kinds) |
@@ -109,6 +109,8 @@ possible.
   deps, else 1 + the max of its deps' waves. W6-E imports it. Until W6-D merges, W6-E carries an identical local copy
   marked `shortcut: replace with replan.waveOf after W6 merge`.
 - `SessionInfo.lastAction?: { tool: string; target?: string; at: number }`, from the last `PreToolUse` hook (W6-E).
+- `Task.basis: { state: 'missing' | 'partial' | 'broken'; evidence: string }`, required by `validatePlan` (W6-A).
+  Activity kind `plan.nothing-to-do` (W6-A).
 - App setting `alertSound: boolean`, default true (W6-B).
 - App settings `maxSubagentsPerSession` (default 10, 1–10) and `usagePauseAt` (percent, default 90) (W6-G).
 - Activity kinds `usage.paused` / `usage.resumed`: feed and notice, no chime. Owned by W6-G.
@@ -125,6 +127,8 @@ possible.
   - Per-project workspaces.
   - GitHub assign-me plus issues into a plan.
   - Usage limits: at most 10 subagents per tab.
+  - Before planning, check what is already built (code, GitHub issues and PRs, other Jobs) and follow the repo's
+    GitHub rules. Already built means: look for issues and plan fixes; nothing is built twice.
 - Claude's calls (the owner can override any):
   - **PDF:** no parser. The PDF is copied into the plan's spec folder, and the planner reads it with Claude's own
     file reader, which reads PDFs. A PDF over 20 pages is read in page ranges.
