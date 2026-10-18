@@ -269,6 +269,14 @@ export interface Job {
   // W6-H delivery (delivery.ts)
   /** This plan's own delivery, ahead of its project's (`deliveryOf`). Absent: the project's. */
   delivery?: DeliveryMode
+  // W7-E planner review and final check
+  /** Whether this plan's Tasks are reviewed by a fresh reviewer before they count as done. `jobs plan` sets it to
+   *  true unless `--no-review` (there or at `jobs create`) set false; `task-create` then marks each new Task of the
+   *  Job `reviewRequested`. Absent: no default, each Task's own `--review` decides. */
+  review?: boolean
+  /** The account `jobs plan` last ran this Job's planner on. A plan with no coordinator account replans on it
+   *  (`replanAccountOf`, replan.ts). */
+  plannerAccountId?: string
 }
 
 /** W6-D: which boundary a replan is for. `wave` is the wave about to start; a completion pass stands after the last. */
@@ -793,4 +801,8 @@ export interface RunPr {
   url?: string
   number?: number
   error?: string
+  /** W7-E: no PR was opened and that is no failure: the project has no remote. Says where the work is. */
+  note?: string
+  /** W7-E: with `note`, the branch that holds the plan's work. */
+  branch?: string
 }

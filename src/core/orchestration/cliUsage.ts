@@ -365,7 +365,9 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       { name: 'objective', value: '<text>', required: true, about: 'what this Job is for (may be left out with --mode audit or --attach)' },
       { name: 'cwd', value: '<path>', about: 'the repository root this Job belongs to (default: here)' },
       ...JOB_MAKING_FLAGS,
-      ...INTAKE_FLAGS
+      ...INTAKE_FLAGS,
+      // W7-E
+      { name: 'no-review', about: 'do not review this plan\'s Tasks (`jobs plan` turns a review of every Task on otherwise)' }
     ]
   },
   'jobs-create-from-source': {
@@ -408,7 +410,9 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       // W6-H delivery
       { name: 'delivery', value: '<pr|push>', about: "how this Job's finished plan lands, ahead of its project's: one pull request, or pushed to the delivery branch with no review by a person" },
       // W6-D wave replanning
-      { name: 'replan', value: '<waves|off>', about: 'replan the rest of the plan between waves and check it once more at the end (default waves)' }
+      { name: 'replan', value: '<waves|off>', about: 'replan the rest of the plan between waves and check it once more at the end (default waves)' },
+      // W7-E: a planned Job's Tasks are reviewed by a fresh reviewer, up to 5 rounds, then escalated
+      { name: 'no-review', about: "do not review this plan's Tasks (default: every Task is reviewed before it counts as done)" }
     ]
   },
   'jobs-wait': {
@@ -509,6 +513,8 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
           'run configurations that must pass before it counts as done (from `run-configs list`), or `plugin:<id>` for a completion check plugin (from `plugins list`)'
       },
       { name: 'review', about: 'have the result reviewed before it counts as done' },
+      // W7-E: opts one Task out of its Job's review default (Job.review)
+      { name: 'no-review', about: "do not review this Task, though its Job reviews its Tasks" },
       // W5-B (#53): the model choice a planner's Task carries (Task.difficulty / Task.model, resolveWorkerModel)
       {
         name: 'difficulty',
