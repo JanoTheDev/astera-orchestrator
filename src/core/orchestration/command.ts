@@ -236,6 +236,9 @@ export interface HostSession {
   sources?: SessionSources
   // W6-E progress view: the last tool call the session started (SessionInfo.lastAction, host/sessions.ts)
   lastAction?: SessionInfo['lastAction']
+  // W8-C heavy: its place in line for the heavy-job slot (core/orchestration/heavyLock.ts heavyWaits), 1-based;
+  // absent when it is not waiting
+  heavyWait?: number
 }
 
 /** The Host's source for each fact of a session, by provider and kind (remote runtime design Phase 9, X1-06). */

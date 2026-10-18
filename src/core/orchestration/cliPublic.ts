@@ -140,7 +140,7 @@ type _account = NothingLeft<Unlisted<OrchAccount, typeof ACCOUNT_FIELDS, []>>
 type _runConfig = NothingLeft<Unlisted<OrchRunConfig, typeof RUN_CONFIG_FIELDS, []>>
 /** The pty and process ids are the Host's own: a controller reads them from the raw reply to subscribe, and a
  *  printed list leaves them out. */
-type _session = NothingLeft<Unlisted<HostSession, typeof SESSION_FIELDS, ['ptyId', 'procId', /* W5-D: the app's inbox reason */ 'prompt', /* W6-E: the plan view's "now" line */ 'lastAction']>>
+type _session = NothingLeft<Unlisted<HostSession, typeof SESSION_FIELDS, ['ptyId', 'procId', /* W5-D: the app's inbox reason */ 'prompt', /* W6-E: the plan view's "now" line */ 'lastAction', /* W8-C heavy: the plan view's queue line */ 'heavyWait']>>
 type _chatTurn = NothingLeft<Unlisted<ChatTurn, typeof CHAT_TURN_FIELDS, []>>
 type _chatPending = NothingLeft<Unlisted<ChatPending, typeof CHAT_PENDING_FIELDS, []>>
 type _chatPrompt = NothingLeft<Unlisted<ChatPrompt, typeof CHAT_PROMPT_FIELDS, []>>

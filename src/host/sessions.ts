@@ -40,6 +40,7 @@ import { encodeUserTurn } from '../core/chat/claudeProtocol'
 import { encodeRequest, turnStartParams } from '../core/chat/codexProtocol'
 import type { PtyRegistry } from './registry'
 import type { ProcRegistry } from './procRegistry'
+import { heavyWaits } from '../core/orchestration/heavyLock'
 
 /** What the command layer is handed, and what orchDeps builds `chatSend` from. `Required`, because
  *  the Host always has them. */
@@ -177,6 +178,8 @@ export function registrySessions(a: {
   accounts(): Promise<Account[]>
   /** The JSON-RPC id of a Codex turn the Host writes. Test injection; the wiring leaves it out. */
   mintId?: () => string
+  /** W8-C heavy: the `astera heavy` queue dir (core/orchestration/heavyLock.ts). Test injection; the wiring leaves it out. */
+  heavyQueueDir?: string
 }): HostSessions & Required<Pick<HostSessions, 'sessionTurn' | 'agentSessionOf'>> {
   const mintId = a.mintId ?? (() => `astera-host-${randomUUID()}`)
   /** The pty behind an agent session's id — only an agent session's, so a shell tab's id is nobody. */
@@ -234,6 +237,12 @@ export function registrySessions(a: {
     }
   }
 
+  /** W8-C heavy: each session's place in the heavy-job line, read from the queue dir (sync, small; missing = none). */
+  const withHeavyWait = (rows: HostSession[]): HostSession[] => {
+    const waits = heavyWaits(a.heavyQueueDir)
+    return waits.size === 0 ? rows : rows.map((r) => (waits.has(r.id) ? { ...r, heavyWait: waits.get(r.id) } : r))
+  }
+
   return {
     // One session's row, building nothing for the others (performance audit H4: a remote keystroke names one).
     sessionById: async (id) => {
@@ -242,7 +251,7 @@ export function registrySessions(a: {
       if (terminals.length === 0 && chats.length === 0) return null
       const [states, accounts] = await Promise.all([Promise.all(terminals.map(stateOf)), a.accounts().catch(() => [] as Account[])])
       const providers = new Map(accounts.map((x) => [x.id, x.provider ?? 'claude'] as const))
-      const rows = [...terminals.map((e, i) => rowOf(e, 'terminal', states[i].state, providers, states[i].prompt, states[i].lastAction)), ...chats.map((e) => rowOf(e, 'chat', 'unknown', providers))]
+      const rows = withHeavyWait([...terminals.map((e, i) => rowOf(e, 'terminal', states[i].state, providers, states[i].prompt, states[i].lastAction)), ...chats.map((e) => rowOf(e, 'chat', 'unknown', providers))])
       // The live one, as the list keeps it.
       return rows.find((r) => r.alive) ?? rows[0]
     },
@@ -251,10 +260,10 @@ export function registrySessions(a: {
       const [states, accounts] = await Promise.all([Promise.all(terminals.map(stateOf)), a.accounts().catch(() => [] as Account[])])
       // An account with no provider field is a Claude account (core/types.ts Account.provider).
       const providers = new Map(accounts.map((x) => [x.id, x.provider ?? 'claude'] as const))
-      const rows = [
+      const rows = withHeavyWait([
         ...terminals.map((e, i) => rowOf(e, 'terminal', states[i].state, providers, states[i].prompt, states[i].lastAction)),
         ...a.procs.list().filter((e) => e.meta?.kind === 'chat').map((e) => rowOf(e, 'chat', 'unknown', providers))
-      ]
+      ])
       // **One id, one row, and the live one.** `ChatManager.respawnWithBypass` spawns again under the
       // same note, so an ended process and its replacement can share an id.
       const byId = new Map<string, HostSession>()

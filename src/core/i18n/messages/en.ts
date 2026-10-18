@@ -2137,6 +2137,7 @@ export const en: Record<keyof typeof ko, string> = {
   'plan.now.reading': 'Reading {target} · {ago} ago',
   'plan.now.searching': 'Searching {target} · {ago} ago',
   'plan.now.tool': '{tool} {target} · {ago} ago',
+  'plan.now.heavyWait': 'Waiting for the heavy-job slot ({place} in line)',
   // W6-G
   'plan.reason.usagePaused5h': 'Paused: {account} at {percent}% of its 5-hour limit, resumes ~{time}',
   'plan.reason.usagePaused7d': 'Paused: {account} at {percent}% of its 7-day limit, resumes ~{time}',

@@ -2385,6 +2385,7 @@ export const ko = {
   'plan.now.reading': '{target} 읽는 중 · {ago} 전',
   'plan.now.searching': '{target} 검색 중 · {ago} 전',
   'plan.now.tool': '{tool} {target} · {ago} 전',
+  'plan.now.heavyWait': '무거운 작업 슬롯 대기 중 ({n}번째)',
   // W6-G
   'plan.reason.usagePaused5h': '일시 정지: {account} 5시간 한도의 {percent}% · ~{time} 재개',
   'plan.reason.usagePaused7d': '일시 정지: {account} 7일 한도의 {percent}% · ~{time} 재개',

@@ -3,7 +3,7 @@ import type { JobTask, TaskBlockedReason } from '../../../../core/types'
 import { ko } from '../../../../core/i18n/messages/ko'
 import type { ActivityEvent } from '../../../../core/orchestration/activity'
 import type { JobEvent } from '../../../../core/types'
-import { answersKey, autoAnswersOf, cardModelOf, categoryOf, currentWaveOf, filesOf, nowOf, planProgressOf, reasonText, replanningOf, wavesOf } from './planBoard'
+import { answersKey, autoAnswersOf, cardModelOf, categoryOf, currentWaveOf, filesOf, nowOf, ordinal, planProgressOf, reasonText, replanningOf, wavesOf } from './planBoard'
 
 const task = (id: string, over: Partial<JobTask> = {}): JobTask => ({ id, title: id, status: 'pending', openGates: 0, ...over })
 
@@ -188,6 +188,15 @@ describe('nowOf', () => {
     expect(nowOf(c, { lastAction: { tool: 'Edit', at } }, [question(true)], now)?.key).toBe('plan.now.editing')
     expect(nowOf(c, { prompt: 'permission' }, [question(false)], now)?.key).toBe('plan.now.permission')
     expect(nowOf(c, undefined, [], now)).toBeNull()
+  })
+  it('W8-C heavy: says its place in the heavy-job line instead of the last tool call', () => {
+    const c = running('c')
+    expect(nowOf(c, { heavyWait: 2, lastAction: { tool: 'Bash', target: 'astera heavy -- npm test', at } }, [], now)).toEqual({
+      key: 'plan.now.heavyWait',
+      params: { place: '2nd', n: 2 }
+    })
+    expect(nowOf(c, { heavyWait: 1, prompt: 'permission' }, [], now)?.key).toBe('plan.now.permission')
+    expect([1, 2, 3, 4, 11, 12, 13, 21, 22, 101, 111].map(ordinal)).toEqual(['1st', '2nd', '3rd', '4th', '11th', '12th', '13th', '21st', '22nd', '101st', '111th'])
   })
   it('says nothing for a Task that is not running', () => {
     expect(nowOf(done('c'), { prompt: 'permission' }, [], now)).toBeNull()
