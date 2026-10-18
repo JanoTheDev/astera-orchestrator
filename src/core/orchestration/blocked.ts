@@ -147,7 +147,11 @@ export function taskBoardsOf(
       const usage = usageChoice(task.accountIds as string[], usagePauseOf)
       if (!usage.ok) return { kind: 'usage-paused', ...usage.pause }
     }
-    if (!placedByApp(job, run)) return { kind: 'coordinator' }
+    if (!placedByApp(job, run)) {
+      // W8-E (#92): the coordinator's `worker-start` holds a same-file Task too, so the board says why
+      const clash = sameFilesAs(task, placed().editing.get(job.id) ?? [])
+      return clash ? { kind: 'same-files', waitingOn: { id: clash.task.id, title: clash.task.title }, path: clash.path } : { kind: 'coordinator' }
+    }
     const p = placed()
     if (p.slotted.has(task.id)) return { kind: 'next' }
     const clash = sameFilesAs(task, p.editing.get(job.id) ?? [])
