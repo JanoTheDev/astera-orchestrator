@@ -8,6 +8,7 @@ import { jobsViewScreen, type JobsStall } from '../../../core/orchestration/jobs
 import { schedRuleSummary } from '../../../core/scheduler/summary'
 import { convergenceChipOf, type ConvergenceChip } from '../../../core/orchestration/nodeMeta'
 import { useI18n } from '../i18n/I18nProvider'
+import { ProjectDelivery } from './delivery/ProjectDelivery'
 import { PauseIcon, PlayIcon, RunIcon, STATE_KEY, STATUS_COLOR, TaskGlyph, TaskIcon, TrashIcon } from './JobIcons'
 import type { RunIconKind } from './JobIcons'
 import { Archive, ArchiveRestore, ArrowUpRight, ChevronDown, ChevronRight, Hand, Pencil, PlayCircle } from 'lucide-react'
@@ -763,7 +764,8 @@ export function JobsView({
   onRenameJob,
   onArchiveJob,
   onUnarchiveJob,
-  onHoldJob
+  onHoldJob,
+  projectPath
 }: {
   snapshot: OrchSnapshot | null
   /** Why there is nothing to draw, when the Host is the reason — null in the ordinary case.
@@ -819,6 +821,8 @@ export function JobsView({
   /** Why the controls are off (a read-only pairing, Phase 7): every control is drawn disabled with this as its title.
    *  The sentence itself is said once, by the runtime selector above the list. Absent: the controls act. */
   disabledReason?: string
+  /** W6-H: the open project's folder, for its delivery setting. Absent (a paired Runtime's view, no project): none. */
+  projectPath?: string
 } & LifecycleActs): React.JSX.Element {
   const { t } = useI18n()
   const acts = { onPauseRun, onResumeRun, onDeleteRun, onRestartCoordinator, onApprove }
@@ -827,6 +831,8 @@ export function JobsView({
   // W1-C: archived plans are hidden until asked for. Not remembered: the list opens on the plans that work.
   const [showArchived, setShowArchived] = useState(false)
   // "+ From a source" (plugin Phase 4 J20) under "+ New job", in both places it stands: this machine's projects only
+  // W6-H: how this project's finished plans land, beside "+ New job" in both places it stands
+  const delivery = projectPath !== undefined && !remote ? <ProjectDelivery projectPath={projectPath} disabledReason={disabledReason} /> : null
   const newFromSource =
     onNewFromSource !== undefined && !remote ? (
       <button className="jobs-new jobs-new-source" disabled={disabledReason !== undefined} title={disabledReason} onClick={onNewFromSource}>
@@ -937,6 +943,7 @@ export function JobsView({
           </button>
         )}
         {hasProject && newFromSource}
+        {hasProject && delivery}
       </div>
     )
   }
@@ -951,6 +958,7 @@ export function JobsView({
         + {t('jobs.new.open')}
       </button>
       {newFromSource}
+      {delivery}
       {archivedCount > 0 && (
         <button className="jobs-archived-toggle" aria-pressed={showArchived} onClick={() => setShowArchived((v) => !v)}>
           {showArchived ? t('jobs.lifecycle.hideArchived') : t('jobs.lifecycle.showArchived', { count: archivedCount })}

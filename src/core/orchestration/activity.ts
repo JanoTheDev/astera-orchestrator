@@ -50,7 +50,10 @@ export const ACTIVITY_KINDS = [
   'plan.awaiting-approval',
   'plan.done',
   // W5-D (#42): a worker's session at a permission prompt or a question (waitingActivity)
-  'task.waiting'
+  'task.waiting',
+  // W6-H: a finished plan pushed to its delivery branch (a feed line and a notice, no chime). A push that stopped is an
+  // escalation instead (delivery.ts recordDelivery)
+  'plan.delivered'
 ] as const
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number]
 
@@ -85,6 +88,9 @@ export interface ActivityPayload {
   runOutcome?: 'completed' | 'failed'
   // task.waiting (W5-D, #42)
   waitingFor?: 'permission' | 'question'
+  // plan.delivered (W6-H)
+  branch?: string
+  sha?: string
 }
 
 /** One line before the log numbers and stamps it (the shape of publicEvents.ts's EventDraft). */
@@ -246,6 +252,13 @@ export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[
       const at = where(r.id)
       push('run.pr', at, { title: at.job ? jobNameOf(at.job) : r.id, ...(r.pr !== undefined ? { pr: r.pr } : {}) })
     }
+    // W6-H: the push landed
+    for (const r of next.runs) {
+      const was = before.get(r.id)
+      if (r.delivery?.sha === undefined || was === undefined || was.delivery?.sha === r.delivery.sha) continue
+      const at = where(r.id)
+      push('plan.delivered', at, { title: at.job ? jobNameOf(at.job) : r.id, sha: r.delivery.sha, ...(r.delivery.branch !== undefined ? { branch: r.delivery.branch } : {}) })
+    }
   }
 
   // Last, so a plan's ending follows the Task lines that ended it. Only a Run in both states that was running.
@@ -400,6 +413,9 @@ export function noticeOf(e: ActivityEvent): ActivityNotice | null {
       return { key: `gate:${e.payload.gateId}`, title: 'Needs your answer', body: `${e.payload.title}${inPlan(e)}: ${e.payload.question ?? ''}`.slice(0, 240) }
     case 'plan.awaiting-approval':
       return { key: `approve:${e.jobId}`, title: 'Plan ready for approval', body: e.payload.title }
+    // W6-H: no chime, it needs nothing of the owner
+    case 'plan.delivered':
+      return { key: `delivered:${e.runId}`, title: `Plan pushed to ${e.payload.branch ?? 'its branch'}`, body: e.payload.title }
     default:
       return null
   }

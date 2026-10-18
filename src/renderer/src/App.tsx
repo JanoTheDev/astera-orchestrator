@@ -4572,6 +4572,8 @@ export default function App(): React.JSX.Element {
                 // hasProject 주석). onNewRun 의 가드(아래)와 함께 newRunOpen 이 프로젝트 없이
                 // true 가 되는 두 갈래를 모두 막는다.
                 hasProject={!!currentProject}
+                // W6-H: the project's delivery setting
+                projectPath={currentProject ?? undefined}
                 // JobTask.sessionId only says main still has the session record, and main never drops
                 // one — SessionManager.kill flips the status and list() keeps exited sessions on
                 // purpose. closeSession, on the other hand, takes the tab out of this tree. So after a
