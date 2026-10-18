@@ -21,7 +21,7 @@ the mockup. Where they disagree, this file wins.
 - **A new product look.** If released, it must not look like upstream Astera.
 
 Rules every screen follows:
-- **The app opens on the Agents page.**
+- **The app opens on the Agents page**, or on **Start** when the project has nothing yet.
 - **Nothing pops up by itself.** No modal opens unless the owner clicks. Only Inbox items notify, with a sound.
   Auto-answers, merges, replans and clean-ups land in "Handled for you", silently.
 - **The owner never has to type into the coordinator.** They answer in the Inbox, or in the worker's own console.
@@ -69,10 +69,16 @@ home) goes away. Every page owns the full width below the top bar.
 ### Agents (default; W9-H)
 - **Console strip** across the top: "All consoles", then one entry per live console (Coordinator, Worker 2 · T4,
   Reviewer, Planner, plain consoles). A dot shows each console's state.
-- **Plan progress strip** (one row per active plan, at the top of the wall): title, wave, a stacked bar, and counts
-  "N done · N working · N need you · N remaining". Clicking a row opens the Tasks page filtered to that plan.
-- **The main console:** the coordinator is pinned as the first tile, twice as tall, labelled "main", with an accent
-  border. Its strip entry reads "Coordinator (main)".
+- **Plan filter** (the wall's toolbar): pills for **All plans**, then one per active or queued plan, then **No
+  plan** (plain consoles). A plan pill shows the name, a 40px stacked progress bar and a short count ("4/9 · 2 need
+  you", or "approve"). Hovering shows the full counts.
+  - Picking a plan filters the tiles **and** the console strip.
+  - With many plans, the pills become a searchable dropdown grouped by area.
+  - The filter is remembered per window. "Its consoles" on a plan page opens Agents filtered to that plan.
+- **The main console:** each plan has its own coordinator.
+  - Filtered to one plan, that plan's coordinator is the first tile: twice as tall, labelled "main", with an accent
+    border. Its strip entry reads "Coordinator (main)".
+  - On All plans, every plan's coordinator is pinned first, in plan order.
 - **All consoles (the wall):**
   - Scope: this plan / <project> / all projects.
   - Filter: All / Needs you / Working / Finished.
@@ -115,6 +121,29 @@ home) goes away. Every page owns the full width below the top bar.
 - The assistant-ui conversation pane (`conversation/*`) is **no longer offered for new consoles**. Existing
   conversation sessions still open, and can be removed later.
 
+### Start (empty project, or New → a plan; W9-E)
+- **Where the first plan goes.** A project with no plans and no consoles opens on Start instead of an empty
+  wall. New → "Plan it for me" or "Run as written", and Plans → "New plan", open the same page.
+- **Header:** "What should we build in <project>?" and one line saying what happens next.
+- **One composer:**
+  - A large text box (describe a goal, or paste a whole plan).
+  - Attached files as chips: `.md`, `.pdf`, `.txt` and images. **Dropping files anywhere on the window opens Start
+    with them attached.**
+  - Under the box: + Attach files · GitHub issues (W6-A picker) · Audit the repo (W6-A `--mode audit`).
+- **Two modes**, as two selectable cards:
+  - **Plan it for me** (default for typed text or rough notes). The planner (opus) reads the code, `existing.md`
+    and the issues, and writes the detailed plan: tasks, prompts, acceptance criteria, files, waves and models
+    (W2-A, W6-A). The plan lands in the Inbox to approve or talk to (W7-A), or runs at once with auto-approve.
+  - **Run as written** (default when prompt files are attached). Each attached `.md` file, or each `##` section of
+    a single document, becomes **one task with its text kept exactly** (W8-C `--mode prompts`). Only files, deps,
+    waves and models are filled in. `validatePlan` still checks it (missing files, same-file clashes, cycles).
+    Approval defaults to auto, because the owner wrote it; consoles start right away.
+- **Options row:** Consoles at once · Delivery · Start (right away / after <plan>) · Approval (ask me / auto). The
+  defaults come from the project's settings (W7-B).
+- **The primary button says what will happen:** "Start planning", or "Start 3 consoles" with "3 files → 3 tasks".
+- **"Or pick up":** GitHub issues assigned to you, unfixed audit findings, and "Just open a console".
+- After Start, the app goes to Agents. There, the planner's console, or the new task consoles, appear as tiles.
+
 ### Tasks (W9-C)
 - A board of **every Task in the project, across plans**, in five columns: Planned · Working · Needs you · In
   review · Done.
@@ -129,7 +158,13 @@ home) goes away. Every page owns the full width below the top bar.
 - Done keeps the last 20 per plan; older ones are under the plan's page.
 
 ### Plans (W9-C)
-- **List:** one row per plan, showing:
+- **Two views**, "By area" and "Overlap":
+  - **By area** (default): plans grouped under their areas (W8-D `Job.areas`, such as Auth or Leaderboard), each
+    group headed by its folders. A row whose plan overlaps another shows an "overlaps <plan>" chip.
+  - **Overlap**: a table of plans × top folders. Each cell says what the plan does there ("editing", "T6 editing",
+    "planned", "done"). A folder two plans both touch is highlighted, so it is clear at a glance who works where.
+    Two plans never edit the same files at once: the later Task waits (W8-D guard).
+- **List row:** one row per plan, showing:
   - state dot, title and state chip;
   - source and wave line;
   - progress bar (done/total);
@@ -162,7 +197,10 @@ home) goes away. Every page owns the full width below the top bar.
 - Two columns:
   - **Needs you** (left, wide), oldest first:
     - Question: quick answers when the asker offered options, a text field and Send, plus "Open its console".
-    - Plan approval: Review plan · Talk to planner · Approve.
+    - Plan approval: Review plan · Talk to planner · Approve. When the plan overlaps another (W8-D `Job.overlaps`),
+      the card shows a warn box naming the Tasks and files ("L4 and Auth rework's T6 both edit
+      src/api/routes.ts"), with **Start after <plan>** and **Move <task> into <plan>**. Approve then reads
+      "Approve (L4 waits)".
     - Permission wait: "Answer in its console" (permission prompts stay in the real CLI, CONTEXT rule 6).
     - Give-up or escalation: Open plan · Retry · Skip.
   - **Handled for you** (right): the activity feed. It covers auto-answers, merges, replans, clean-ups, deliveries
@@ -217,14 +255,11 @@ home) goes away. Every page owns the full width below the top bar.
   - Nothing goes into git except the PR-body roll-up, which is part of a delivery the owner set up.
 
 ## 5. New
-
-- One `Modal`, from **New**, `Ctrl+N` or the box.
-- **Step 1** picks between:
-  - **Console**: a plain Claude Code or Codex console. Agent, account, folder, worktree.
-  - **Plan from a goal**: goal, workers at once, delivery, start after.
-  - **Plan from a source**: prompt files (W8-C `--mode prompts`: one Task per file, text kept as-is), GitHub issues,
-    files or PDF, audit, or problem list. Delivery and start after.
-- **Step 2** shows that form, with Back and the primary action.
+- A small `Modal`, from **New**, `Ctrl+N` or the box. It offers three choices:
+  - **Console**: a plain Claude Code or Codex console (agent, account, folder, worktree).
+  - **Plan it for me** → the Start page in that mode.
+  - **Run as written** → the Start page in that mode.
+- Plans are always created on the Start page (§2), so there is one place to drop a plan.
 
 ## 6. Search and command box
 - One overlay from the top bar pill or `Ctrl+Shift+K`.
@@ -261,9 +296,10 @@ The settings search filters rows by label and description and shows the group ea
 | Activity feed, digest (W3-A) | Inbox › Handled for you · Settings › Notifications |
 | Command bar, voice, search (W3-B, W3-C) | The box |
 | Needs-input inbox, escalations, answers (W3-C, W6-B, W7-C) | **Inbox** page |
-| Intake, sources, assign-me (W6-A, W7-D) | New › Plan from a source |
-| Prompt files, start after, heavy-job slot (W8-C) | New › Prompt files / Start after · Plans list "Queued" · Task live line "Waiting for the heavy-job slot" |
-| Same-file rule (W6-C) | Plan › Files · Task live line |
+| Intake, sources, assign-me (W6-A, W7-D) | **Start** page: composer, attach, GitHub issues, audit |
+| Prompt files, start after, heavy-job slot (W8-C) | Start › Run as written / Start after · Plans list "Queued" · Task live line "Waiting for the heavy-job slot" |
+| Same-file rule (W6-C), across plans (W8-D) | Plan › Files · Task live line "Waits for <plan> · <task>" · Plans › Overlap |
+| Plan areas, overlaps (W8-D) | Plans › By area / Overlap · Inbox approval card · Agents plan filter |
 | Replanning (W6-D) | Plan › Waves header · Journal |
 | Projects, per-project settings (W6-F, W7-B) | Project switcher · Settings › Projects |
 | Several projects at once (W9-K) | A window per project |

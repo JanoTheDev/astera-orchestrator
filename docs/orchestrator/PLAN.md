@@ -56,7 +56,7 @@ starting the next wave. Each prompt owns its own files, which keeps conflicts to
 | 7 | 6 | `W7-A-plan-feedback`, `W7-B-projects`, `W7-C-owner-answers-and-coordinator`, `W7-D-intake-names-and-concurrency`, `W7-E-planner-review-and-final-check`, `W7-F-tabs-accounts-and-sidebar` (W7-C..F: W6-V's issues #67–#84) | W6 merged |
 | 7V | 1 | `W6-V-autopilot-dogfood.md`: the W6 half ran 2026-10-18 (LINUX.md "Autopilot dogfood (W6-V)"); re-run its W7 steps (5, 5b) and the failed W6 checks | W7 merged |
 | 8.0 | 1 | `W8-C-run-waves-in-astera` (alone; tabs, the last wave run by hand) | 7V done |
-| 8 | 2 | `W8-A-commit-attribution`, `W8-B-line-attribution` (Who wrote this, see below), **run as one Astera plan** | W8-C merged |
+| 8 | 3 | `W8-A-commit-attribution`, `W8-B-line-attribution` (Who wrote this, see below), `W8-D-plans-side-by-side` (no overlapping work across plans), **run as one Astera plan** | W8-C merged |
 | 9.0 | 1 | `W9-0-design-spec` (owner approves the mockup before any code) | W8 merged |
 | 9.1 | 1 | `W9-A-foundation` (alone: tokens, primitives, shell split) | 9.0 approved |
 | 9.2 | 8 | `W9-B-shell-and-nav`, `W9-C-plan-tab`, `W9-D-inbox-and-command`, `W9-E-settings-and-dialogs`, `W9-H-agents-wall`, `W9-I-tab-summaries`, `W9-J-worktree-viewer`, `W9-K-window-per-project` | 9.1 merged |
@@ -97,6 +97,7 @@ starting the next wave. Each prompt owns its own files, which keeps conflicts to
 | W7-E | `handover.ts` (planner brief), `resources/skills/planner-guide.md`, `replan.ts`, `exec/replanStart.ts`, `reviewer.ts`, `exec/reviewGate.ts` | `exec/plannerStart.ts`, `exec/dispatchLoop.ts`, `types.ts` (Job review default), `command.ts` (`jobs-plan` / `jobs-create` flag), `src/core/github/*` (no-remote message) |
 | W7-F | tab strip + its `styles.css`, sidebar account panel, `HistoryBrowser.tsx`, `JobsView.tsx` layout, `components/plan/planBoard.ts` / `TaskBoard` | `App.tsx` (tabs, active session, auto-close), keybindings, `AccountSettings.tsx` (export unregister), `core/accounts` (email check, login URL), `components/workspace/workspaceTree.ts` |
 | W8-C | `core/orchestration/intake.ts` (`--mode prompts`), `cliArgs.ts`, `cliUsage.ts`, `resources/skills/planner-guide.md`, `resources/skills/orchestration-guide.md` (worker brief lines, `astera heavy`), new `core/orchestration/heavyLock.ts` | `types.ts` (`Job.after`), `schedule.ts` / `blocked.ts` (one gate, one reason), `planner.ts` (`validatePlan` verbatim check), `command.ts` (`--after`, `heavy`), New flow source picker, USAGE.md, LINUX.md |
+| W8-D | new `core/orchestration/overlap.ts`, `schedule.ts` (cross-plan `editing` by project), `blocked.ts` (reason) | `types.ts` (`Job.overlaps`, `Job.areas`), `planner.ts` / `resources/skills/planner-guide.md` (other plans' Tasks in the brief), `replan.ts` (reads other plans), `command.ts` / `cliArgs.ts` / `cliUsage.ts` (`jobs overlaps`, `--areas`, `--area`), `activity.ts` (`plan.overlap`), JobsView approve area (one line per overlap) |
 | W8-A | new `core/attribution/{note,stamp,remap,blame,stats}.ts` | `exec/integrateGit.ts` (stamp before merge, copy notes), `core/orchestration/delivery.ts` (push the notes ref, PR body block), `src/main/githubPrs.ts` (squash remap), `command.ts` / `cliArgs.ts` / `cliUsage.ts` (`attribution-blame`, `attribution-stats`, `attribution-why`) |
 | W8-B | new `core/attribution/{lines,checkpoint,gitAi}.ts` + its hook script, new `components/attribution/*` | `core/sessions/statusline.ts` (hook entries), `core/attribution/stamp.ts` (one `lines` call), file viewer mount, plan view mount, project settings page (one row) |
 | W9-0 | new `docs/orchestrator/DESIGN.md`, the mockup artifact | — (no code) |
@@ -104,7 +105,7 @@ starting the next wave. Each prompt owns its own files, which keeps conflicts to
 | W9-B | `components/shell/{TopBar,Pages,StatusBar,MoreMenu}.tsx`, `core/ui/pages.ts`, `components/workspace/*` (retired), `AccountPanel.tsx`, `AccountRow.tsx`, `AccountUsageMeter.tsx`, `HistoryBrowser.tsx`, `usage/*`, `core/ui/sidebar.ts`, `core/keys/binding.ts` (rail ids) | `App.tsx` (shell mount), `components/ui/*` (new variants only) |
 | W9-C | new `components/pages/{TasksPage,PlansPage,PlanPage}.tsx`, `RunDetail.tsx` (moved into `PlanPage`, then deleted), `components/plan/*` except W7-C's answer box, `JobsView.tsx` (becomes `PlansPage`'s list), `lib/jobActions.ts` | `App.tsx` (mount) |
 | W9-D | `activity/*`, `search/*`, `command/*`, `conversation/QuestionCard.tsx`, W7-C's answer box, new `components/inbox/*` | `App.tsx` (rail badge, hotkey), `core/intents/*` (open-plan intent) |
-| W9-E | new `components/settings/*` (one file per group), every dialog listed in DESIGN.md "Dialogs" moved onto `ui/Modal`, `NewSessionDialog.tsx` / `NewRunModal.tsx` / `intake/*` / `SourceJobModal.tsx` (one New flow), `components/projects/*` page | `App.tsx` (Settings block deleted, `<SettingsDialog/>` mounted) |
+| W9-E | new `components/pages/StartPage.tsx` (the composer: Plan it for me / Run as written), new `components/settings/*` (one file per group), every dialog listed in DESIGN.md "Dialogs" moved onto `ui/Modal`, `NewSessionDialog.tsx` / `NewRunModal.tsx` / `intake/*` / `SourceJobModal.tsx` (one New flow), `components/projects/*` page | `App.tsx` (Settings block deleted, `<SettingsDialog/>` mounted) |
 | W9-H | new `components/pages/AgentsPage.tsx`, `components/wall/*`, `PaneGrid.tsx` / `TerminalView.tsx` (tile mode: small font, read-only until opened, offscreen pause; the full-size console), `conversation/*` (stop offering it for new consoles), new `core/sessions/ownerHold.ts`, the `sessions-send` handler in `command.ts` and `src/host/orch.ts` (queue while held) | `src/host/sessions.ts` (owner-input timestamp), `App.tsx` (mount the pinned tab), `resources/skills/orchestration-guide.md` (one line: a queued send is not a failure) |
 | W9-I | new `core/sessions/summary.ts` (facts + prompt), new `src/host/hostSummaries.ts`, `components/wall/SummaryCard.tsx` | `core/understanding/*` (reuse the generator call), `src/host/sessions.ts` (end hook), `core/orchestration/delivery.ts` (PR body roll-up), `components/plan/*` card (one row, after W9-C: coordinate in the PR), `HistoryBrowser.tsx` (one row), app-settings type (`tabSummaries`) |
 | W9-J | `WorktreePanel.tsx` (becomes the Worktrees page list), new `components/pages/WorktreesPage.tsx` + `components/worktrees/*` (detail), new `core/worktrees/cleanup.ts` (ready-to-remove rule + auto-clean after delivery) | `core/worktrees/{list,remove}.ts` (read-only reuse; one export if needed), `core/orchestration/delivery.ts` (one call after delivery), app-settings type (`autoCleanWorktrees`) |
@@ -301,15 +302,23 @@ found. **W8-C is the last wave run by hand.** It adds three things:
 From then on, each wave is one Astera plan, queued after the one before it. Run these from the packaged app's
 profile, never the dev profile:
 
+In the app: **Start → Run as written**. Attach every W8 and W9 prompt (W8-A, B, D and W9-A … K, F, G; W9-0 is done),
+set delivery to PR, and press Start. The planner reads PLAN.md's wave table and builds the order:
+1. W8 (A, B, D in parallel).
+2. W9-A alone.
+3. W9-B, C, D, E, H, I, J, K in parallel.
+4. W9-F.
+5. W9-G.
+
+The approval shows that order once. After that, one draft PR is updated after every wave and marked ready at the
+end. The same from the CLI:
+
 ```bash
 astera jobs create --project astera --mode prompts --delivery pr \
-  --attach docs/orchestrator/prompts/W8-A-commit-attribution.md docs/orchestrator/prompts/W8-B-line-attribution.md
-# Wave 9: one plan per sub-wave, each queued after the one before (9.0 is done; 9.1 alone first)
-astera jobs create --project astera --mode prompts --after <W8 job> --attach docs/orchestrator/prompts/W9-A-foundation.md
-astera jobs create --project astera --mode prompts --after <W9.1 job> --attach docs/orchestrator/prompts/W9-{B,C,D,E,H,I,J,K}-*.md
-astera jobs create --project astera --mode prompts --after <W9.2 job> --attach docs/orchestrator/prompts/W9-F-polish-and-verify.md
-astera jobs create --project astera --mode prompts --after <W9.3 job> --attach docs/orchestrator/prompts/W9-G-readme-and-docs.md
+  --attach docs/orchestrator/prompts/W8-{A,B,D}-*.md docs/orchestrator/prompts/W9-{A,B,C,D,E,H,I,J,K,F,G}-*.md
 ```
+
+Separate queued plans per wave (`--after <job>`) still work, if the owner wants one PR per wave.
 
 The owner's part:
 - Answer what lands in the Inbox: real questions, plan approvals unless the project auto-approves, and permission
@@ -381,6 +390,8 @@ In short:
 
 - **Pages, not panels.** A 44px top bar with plain text tabs replaces upstream's icon rail and stacked sidebar, so
   the consoles get the full width. The pages are:
+  - **Start**: where a plan is dropped. Shown for an empty project, or from New. Two modes: "Plan it for me" or
+    "Run as written".
   - **Agents** (default): every console live, and a full-size console on click.
   - **Tasks**: a board of every Task across plans.
   - **Plans**: a list, then a plan page with Overview, Waves, Files, Changes and Journal.
@@ -392,6 +403,11 @@ In short:
 - **Consoles are the real CLI** (the xterm itself), never a custom chat or input box. Slash commands, permission
   prompts and plan mode just work. The owner types in the console. The coordinator's messages to a console the
   owner holds are queued until they leave it.
+- **Plans side by side** (W8-D data, W9 UI):
+  - The Agents page filters consoles by plan, using the plan pills in its toolbar. Each plan's coordinator is
+    pinned first.
+  - The Plans page groups plans by area and has an **Overlap** view showing which plan works where.
+  - The Inbox approval card warns about overlaps, with "Start after" and "Move into".
 - **A new product look**, not upstream's:
   - Themes Night (lime), Dusk (lavender) and Day (olive).
   - IBM Plex Sans and JetBrains Mono, bundled.

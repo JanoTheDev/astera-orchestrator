@@ -10,8 +10,8 @@ Worktree + branch: slug `w9-inbox`, branch `feat/ui-inbox-command`.
 
 - **Inbox page** (`components/inbox/*`, DESIGN.md §2 "Inbox"), in two columns. Left, "Needs you": plan approvals, escalations, `astera ask` questions,
   permission waits, give-ups — each answered inline with W7-C's answer box, oldest first; then "Activity", the W3-A
-  feed, titled "Handled for you". A permission wait only offers "Answer in its console" (`openConsole`). Fill
-  `openInbox(filter?)`. Desktop notices, the chime's notice click and the rail badge all lead here.
+  feed, titled "Handled for you". A permission wait only offers "Answer in its console" (`openConsole`). Plan approval cards show W8-D overlaps
+  with "Start after <plan>" (`jobs-set --after`) and "Move <task> into <plan>". Fill `openInbox(filter?)`. Desktop notices, the chime's notice click and the rail badge all lead here.
 - **One box:** merge the W3-B command bar and the W3-C session search into one overlay on one key (the command key;
   the search key becomes an alias). Typing searches sessions, plans and Tasks (initials too); a sentence runs as a
   command; results show "project › plan · task". Opening a plan goes through `openPlan`. Voice talk stays on its key.

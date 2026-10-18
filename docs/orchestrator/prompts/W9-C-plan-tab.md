@@ -14,7 +14,8 @@ Build DESIGN.md §2 "Tasks" and "Plans" exactly.
   - Cards come from `JobTask`, `taskBoardsOf` (why it waits) and W6-E `lastAction`.
   - Click rules: working or in review → `openConsole`; needs you → `openInbox`; planned → `openPlan(job, 'waves')`;
     done → its summary (W9-I).
-- **Plans page:** the list from `JobsView` (state, source, progress bar, delivery, age; queued plans with "starts
+- **Plans page:** two views. "By area" groups plans by W8-D `Job.areas`, with an "overlaps <plan>" chip; "Overlap" is
+  the plans × folders table from `Job.overlaps` and `affectedPaths`. The rows come from `JobsView` (state, source, progress bar, delivery, age; queued plans with "starts
   after X", W8-C), and the plan page with Overview, Waves, Files, Changes and Journal.
   - Move `RunDetail.tsx`'s content in; do not rewrite it. The pinned RunDetail tests move with it.
   - Then delete `RunDetail.tsx` and its modal.
