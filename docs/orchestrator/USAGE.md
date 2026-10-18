@@ -32,6 +32,13 @@ owns every session and drives every plan, so closing the window stops nothing (L
 4. **Run.** A coordinator session (coordinator model) starts and places workers. Every Task whose dependencies are done
    gets a worker in its own worktree under `~/astera-worktrees/<repo>/`. Dependents start on their own when their
    dependencies complete, never before. "Done" is the worker's explicit report plus any checks, not a quiet terminal.
+   **Waves and replanning** (a planned Job, on by default): a Task's wave is its dependency depth, and a wave starts
+   only when every earlier one has completed. At each boundary the plan is held and a fresh planner adjusts the Tasks
+   that have not started to what the done ones reported, reviewed and changed. It may add or cancel Tasks, never
+   touch a running or completed one. After the last wave the same planner checks the result against the objective and
+   may add up to 3 follow-up waves. The feed shows "replanning" and "replanned: <what changed>". If the plan no longer
+   holds together, or a 4th follow-up is wanted, the plan stays held and you are asked ("needs you"). Turn it off
+   with the "Replan between waves" box or `--replan off` (`jobs create`, `jobs plan`).
 5. **Hold / stop / resume.** Jobs view → the hand button, or "pause <plan>" / "stop launching for <plan>" in the
    command bar, **holds** a plan: no new worker starts, running workers carry on and nothing is closed, so nothing is
    asked. The play button or "resume <plan>" lets it launch again. "pause worker 2" pauses one worker after a

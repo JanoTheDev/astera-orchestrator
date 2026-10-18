@@ -86,6 +86,11 @@ export function lineOf(e: ActivityEvent, accountLabel: (id: string) => string): 
       return { text: `${accountLabel(p.title)}: new workers resumed, under the usage threshold again`, tone: 'info' }
     case 'plan.done':
       return p.runOutcome === 'failed' ? { text: `${p.title}: plan finished with failures`, tone: 'bad' } : { text: `${p.title}: plan done`, tone: 'ok' }
+    // W6-D
+    case 'plan.replanning':
+      return { text: `${p.title}: ${p.replanMode === 'completion' ? 'final check against the objective' : `replanning before wave ${(p.wave ?? 0) + 1}`}`, tone: 'info' }
+    case 'plan.replanned':
+      return { text: `${p.title}: ${p.replanMode === 'completion' ? 'final check' : 'replanned'}: ${p.summary ?? ''}`, tone: 'info' }
     // W6-H
     case 'plan.delivered':
       return { text: `${p.title}: pushed to ${p.branch ?? 'its branch'} (${(p.sha ?? '').slice(0, 7)})`, tone: 'ok' }

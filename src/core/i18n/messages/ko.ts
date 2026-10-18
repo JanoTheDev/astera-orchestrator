@@ -1712,6 +1712,9 @@ export const ko = {
   'jobs.new.planner': '먼저 플래너로 계획하기',
   'jobs.new.plannerHint': '플래너 세션(플래너 모델)이 저장소를 읽고 Task 를 씁니다 — Task 마다 프롬프트와 완료 기준이 붙습니다. 파일을 바꾸지 않고 아무것도 시작하지 않습니다: 승인 후 실행으로 계획을 승인하세요.',
   'jobs.new.plannerFailed': '작업은 만들었지만 플래너를 띄우지 못했습니다',
+  // W6-D
+  'jobs.new.replan': '웨이브 사이에 다시 계획하기',
+  'jobs.new.replanHint': '다음 웨이브 전마다, 그리고 끝에 한 번, 새 플래너가 아직 시작하지 않은 Task 를 실제 결과에 맞게 고칩니다. 그동안 새 워커는 기다립니다.',
   'jobs.run.approve': '승인 후 실행',
   'jobs.run.approveHint': '이 계획을 승인하고 워커를 시작합니다',
   'jobs.run.planInvalid': '계획을 아직 승인할 수 없습니다:',

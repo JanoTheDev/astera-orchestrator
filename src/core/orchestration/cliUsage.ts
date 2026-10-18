@@ -100,6 +100,8 @@ const INTAKE_FLAGS: readonly UsageFlag[] = [
 const JOB_MAKING_FLAGS: readonly UsageFlag[] = [
   { name: 'concurrency', value: '<n>', about: 'how many workers this Job places at once (1-10; more reads as 10)' },
   { name: 'priority', value: '<n>', about: 'which Job gets a free slot first when the app-wide worker cap is reached (higher first, default 0)' },
+  // W6-D wave replanning
+  { name: 'replan', value: '<waves|off>', about: 'whether a planned Job is replanned between waves and checked once more at the end (default waves)' },
   {
     name: 'coordinator-account',
     value: '<accountId>',
@@ -404,7 +406,9 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       // W6-C
       { name: 'concurrency', value: '<n>', about: 'how many workers this Job places at once (1-10; more reads as 10)' },
       // W6-H delivery
-      { name: 'delivery', value: '<pr|push>', about: "how this Job's finished plan lands, ahead of its project's: one pull request, or pushed to the delivery branch with no review by a person" }
+      { name: 'delivery', value: '<pr|push>', about: "how this Job's finished plan lands, ahead of its project's: one pull request, or pushed to the delivery branch with no review by a person" },
+      // W6-D wave replanning
+      { name: 'replan', value: '<waves|off>', about: 'replan the rest of the plan between waves and check it once more at the end (default waves)' }
     ]
   },
   'jobs-wait': {

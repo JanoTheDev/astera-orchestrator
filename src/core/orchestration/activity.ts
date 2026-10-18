@@ -23,6 +23,7 @@ import type { UsageChange } from './usageGuard'
 import { taskBoardsOf } from './blocked'
 import { jobNameOf } from './jobName'
 import { outcomeOfTasks } from './running'
+import { completionSettled } from './replan'
 import type { ScheduleLimits } from './schedule'
 import { emptyState, type OrchState } from './state'
 import {
@@ -53,10 +54,14 @@ export const ACTIVITY_KINDS = [
   'plan.done',
   // W5-D (#42): a worker's session at a permission prompt or a question (waitingActivity)
   'task.waiting',
+  // W6-D: a replan began / ended between waves or as the final check (replan.ts)
+  'plan.replanning',
+  'plan.replanned',
   // W6-A: the planner found everything built (`plan-nothing-to-do`); feed and notice
   'plan.nothing-to-do',
   // W6-B: a worker's question a coordinator answered (feed only), and something only the owner can decide (a notice and
-  // the chime): a worker's or coordinator's `send --type escalation`, or a Gate opened because the attempts ran out
+  // the chime): a worker's or coordinator's `send --type escalation`, or a Gate opened because the attempts ran out.
+  // W6-D raises it too, when a replan is handed to the person
   'question.auto-answered',
   'task.escalated',
   // W6-G: no new worker starts on an account near its usage limit, and then may again (usageActivity)
@@ -99,11 +104,16 @@ export interface ActivityPayload {
   runOutcome?: 'completed' | 'failed'
   // task.waiting (W5-D, #42)
   waitingFor?: 'permission' | 'question'
+  // plan.replanning / plan.replanned (W6-D)
+  replanMode?: 'wave' | 'completion'
+  /** The wave about to start (a completion pass: the one after the last). */
+  wave?: number
+  /** plan.replanned: what the replan changed, one line. */
   // plan.nothing-to-do (W6-A): the planner's summary (inputs/existing.md)
   summary?: string
   // question.auto-answered (W6-B; `question` above is the worker's question)
   answer?: string
-  // task.escalated (W6-B): the escalation's subject, else its body; a Gate's question
+  // task.escalated (W6-B): the escalation's subject, else its body; a Gate's question; W6-D: why the replan escalated
   reason?: string
   // usage.* (W6-G); also accountId and resetsAt
   usageWindow?: UsagePause['window']
@@ -334,7 +344,31 @@ export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[
       const outcome = outcomeOfTasks(ts)
       if (outcome === 'running') continue
       const at = where(runId)
+      // W6-D: a completed plan is done once its final check settles; the replan's end says so (below)
+      if (outcome === 'completed' && at.job && !completionSettled(next, at.job, runId)) continue
       push('plan.done', at, { title: at.job ? jobNameOf(at.job) : runId, runOutcome: outcome })
+    }
+  }
+  // W6-D: a replan's start and end, from the Job's marks (replan.ts). A final check that added nothing is the plan done.
+  if (prev.jobs !== next.jobs) {
+    const before = byId(prev.jobs)
+    for (const j of next.jobs) {
+      const was = before.get(j.id)
+      if (was === undefined || was === j) continue
+      const title = jobNameOf(j)
+      if (j.replanning && !was.replanning)
+        push('plan.replanning', where(j.replanning.runId), { title, replanMode: j.replanning.mode, wave: j.replanning.wave })
+      const last = j.lastReplan
+      if (!last || last === was.lastReplan) continue
+      const at = where(last.runId)
+      if (last.escalated !== undefined) {
+        push('task.escalated', at, { title, reason: last.escalated })
+        continue
+      }
+      push('plan.replanned', at, { title, replanMode: last.mode, wave: last.wave, summary: last.summary })
+      const ts = next.tasks.filter((t) => t.runId === last.runId)
+      if (last.mode === 'completion' && outcomeOfTasks(ts) === 'completed' && completionSettled(next, j, last.runId))
+        push('plan.done', at, { title, runOutcome: 'completed' })
     }
   }
   return out

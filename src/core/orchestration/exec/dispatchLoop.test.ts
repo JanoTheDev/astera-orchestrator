@@ -1837,3 +1837,65 @@ describe("a completed Run opens its plan's pull request (W2-D)", () => {
     expect(asked(h)).toBe(0)
   })
 })
+
+// W6-D: a wave boundary replans before the next wave, and a completed Run gets its final check before its PR.
+describe('wave replanning (W6-D)', () => {
+  /** job_1 planned (so it replans), tsk_2 waiting on tsk_1. */
+  const planned = (h: ReturnType<typeof rig>, tasks: (t: Task) => Task): void => {
+    const s = h.state()
+    h.setState({
+      ...s,
+      jobs: s.jobs.map((j) => (j.id === 'job_1' ? { ...j, plannerSessionIds: ['ses-planner'], coordinatorAccountId: 'accA', concurrency: 2 } : j)),
+      tasks: s.tasks.map((t) => tasks({ ...t, prompt: 'p', acceptanceCriteria: ['c'], basis: { state: 'missing', evidence: 'e' }, ...(t.id === 'tsk_2' ? { deps: ['tsk_1'] } : {}) }))
+    })
+  }
+
+  it('holds the Job and starts a replan when the last Task of a wave completes, and starts no worker of the next', async () => {
+    const h = rig()
+    planned(h, (t) => (t.id === 'tsk_1' ? { ...t, status: 'completed' } : t))
+    await h.loop.run()
+    await h.settle()
+    expect(h.handled()).toContain('jobs-replan')
+    const job = h.state().jobs.find((j) => j.id === 'job_1')!
+    expect(job.dispatchHold).toBe(true)
+    expect(job.replanning).toMatchObject({ runId: 'run_1', mode: 'wave', wave: 1 })
+    expect(h.startCoordinator).toHaveBeenCalledWith(expect.objectContaining({ role: 'planner', runId: 'job_1' }))
+    expect(h.startWorker).not.toHaveBeenCalled()
+  })
+
+  it('runs the final check before the PR, and opens the PR once it settles', async () => {
+    const h = rig()
+    planned(h, (t) => t)
+    const s = h.state()
+    h.setState({ ...s, runs: s.runs.map((r) => ({ ...r, worktree: '/wt-run' })) })
+    h.ctx.handle = async (cmd, args) => (cmd === 'run-deliver' ? { status: 200, body: { url: 'u' } } : h.real(cmd, args))
+    h.startWorker.mockImplementation(async () => ({ sessionId: 'w', cwd: '/wt-run', specPath: 'x' }))
+    await h.loop.run()
+    await h.settle()
+    const now = h.state()
+    h.setState({ ...now, tasks: now.tasks.map((t) => ({ ...t, status: 'completed' as const })), dispatches: [] })
+    await h.loop.run()
+    await h.settle()
+    expect(h.state().jobs[0].replanning).toMatchObject({ mode: 'completion' })
+    expect(h.handled()).not.toContain('run-open-pr')
+    const session = h.state().jobs[0].replanning!.sessionId!
+    expect((await h.as(session, 'jobs-replan-done', { id: 'job_1', summary: 'meets the objective' })).status).toBe(200)
+    await h.loop.run()
+    await h.settle()
+    expect(h.handled().filter((c) => c === 'run-deliver')).toHaveLength(1)
+  })
+
+  it('ends a replan whose planner session is gone', async () => {
+    const h = rig()
+    planned(h, (t) => (t.id === 'tsk_1' ? { ...t, status: 'completed' } : t))
+    await h.loop.run()
+    await h.settle()
+    h.ctx.sessionGone = () => true
+    await h.loop.nudge()
+    await h.settle()
+    const job = h.state().jobs[0]
+    expect(job.replanning).toBeUndefined()
+    expect(job.dispatchHold).toBeUndefined()
+    expect(job.lastReplan?.summary).toContain('its planner session ended')
+  })
+})

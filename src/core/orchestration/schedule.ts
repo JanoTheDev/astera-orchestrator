@@ -10,6 +10,7 @@ import {
 } from './types'
 import { jobOf, placedByApp, type OrchState } from './state'
 import { isJobActive } from './lifecycle'
+import { waveOpen } from './replan'
 
 /** 지금 워커를 띄워야 할 자리 하나.
  *
@@ -191,6 +192,8 @@ export function slotsToFill(s: OrchState, limits: ScheduleLimits = {}): Slot[] {
         // ready 인데 열린 Dispatch 가 있는 조합은 만들어질 수 없지만, 판정이 그 사실에 기대지
         // 않는다. 기대면 그 불변식이 깨지는 날 두 워커가 같은 Task 를 잡는다
         !open.some((d) => d.taskId === t.id) &&
+        // W6-D: a later wave waits for the earlier ones and for a replan under way
+        waveOpen(t, s) &&
         // W6-C: not while another worker of this Job edits the same files
         !sameFilesAs(t, editing.get(run.jobId) ?? [])
     )

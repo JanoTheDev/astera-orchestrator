@@ -245,9 +245,38 @@ export interface Job {
    *  slot from `slotsToFill`, `worker-start` and `tasks dispatch` refuse), and nothing is closed: running workers
    *  carry on, finish and report as before. `jobs-unhold` takes it away. */
   dispatchHold?: true
+  // W6-D wave replanning (replan.ts, exec/replanStart.ts)
+  /** Whether a planner looks at the rest of the plan between waves and once more when the last wave is done.
+   *  Absent reads as `'waves'`; only a planned Job replans (`replanOn`). */
+  replan?: 'waves' | 'off'
+  /** How many follow-up waves the completion pass has added to this Job; the 4th escalates (REPLAN_FOLLOW_UPS_MAX). */
+  replanFollowUps?: number
+  /** The replan under way: its Run, its kind, the wave it stands before, how many Tasks were completed when it began
+   *  (`done`), and its planner session once started. **Present: no Task of that Job starts** (`waveOpen`). */
+  replanning?: ReplanMark & {
+    startedAt: string
+    sessionId?: string
+    /** The Job was held (`dispatchHold`) before the replan began, so its end leaves the hold. */
+    heldBefore?: true
+    /** The Tasks it cancelled, as "title: reason". */
+    cancelled?: string[]
+    /** The Run's Tasks when it began, id to `updatedAt`: what it added and changed is read against this. */
+    before?: Record<string, string>
+  }
+  /** The last replan that ended, for this boundary (`replansDue` reads it so a boundary replans once). `escalated`:
+   *  why it was handed to the person instead (the plan did not hold, or a 4th follow-up wave); the hold stays then. */
+  lastReplan?: ReplanMark & { at: string; summary: string; escalated?: string }
   // W6-H delivery (delivery.ts)
   /** This plan's own delivery, ahead of its project's (`deliveryOf`). Absent: the project's. */
   delivery?: DeliveryMode
+}
+
+/** W6-D: which boundary a replan is for. `wave` is the wave about to start; a completion pass stands after the last. */
+export interface ReplanMark {
+  runId: string
+  mode: 'wave' | 'completion'
+  wave: number
+  done: number
 }
 
 /** A job source's item a Job was made from: the source (a plugin's id, or `github`), the item's id there, how a person
