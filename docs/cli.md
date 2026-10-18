@@ -695,7 +695,7 @@ astera jobs    wait   --id <jobId>  [--timeout-ms <n>]
 astera jobs    rename --id <jobId> --title <text>
 astera jobs    archive --id <jobId> [--kill-sessions]
 astera jobs    unarchive --id <jobId>
-astera jobs    plan --id <jobId> [--account <id>]
+astera jobs    plan --id <jobId> [--account <id>] [--concurrency <n>]
 astera jobs    create --objective <text> [--cwd <path>] [--concurrency <n>] [--priority <n>] [--coordinator-account <accountId>] [--coordinator-provider <claude|codex>] [--convergence [--max-fix-attempts <n>] [--max-review-rounds <n>] [--blocking-severity <high|medium>] [--max-total-minutes <n>]]
 astera jobs    create-from-source --source <sourceId> --item <itemId> --project <projectId> [--concurrency <n>] [--priority <n>] [--coordinator-account <accountId>] [--coordinator-provider <claude|codex>] [--convergence [--max-fix-attempts <n>] [--max-review-rounds <n>] [--blocking-severity <high|medium>] [--max-total-minutes <n>]]
 
