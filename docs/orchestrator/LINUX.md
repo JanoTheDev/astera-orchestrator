@@ -199,7 +199,8 @@ Same machine as above: Ubuntu 24.04, kernel 6.14, Node 24.22.0, `claude` 2.1.301
 Permissions: with "Run agents without permission checks" off, each haiku worker's first action (reading its own spec
 file under `<profile>/orch/specs/`, outside its worktree) stopped at a Claude "Read outside the working directories"
 prompt. The needs-input badge showed **2**, the inbox listed "Smoke Worker 1/2 is waiting", and answering one dropped
-it to 1. CLI-made Tasks (`tasks add`) carry no difficulty, so their workers start with no `--model` flag (the CLI's
+it to 1. (Fixed in W5-A, #52: `<profile>/orch/specs` is now an `--add-dir` of every session the Host or app spawns, so
+reading the spec asks nothing.) CLI-made Tasks (`tasks add`) carry no difficulty, so their workers start with no `--model` flag (the CLI's
 default model) and the header shows `Model —`.
 
 ### Stop / resume, restart, recovery
@@ -238,8 +239,9 @@ default model) and the header shows `Model —`.
 ### Linux-specific notes from this run
 
 - **Git identity.** On a machine with no global `user.email`, the Run's integration merge fails ("Committer identity
-  unknown") and the plan's PR step reports failure. Workers worked around it with a per-command author. Set
-  `git config --global user.name/user.email` before running plans.
+  unknown") and the plan's PR step reports failure. Workers worked around it with a per-command author. Fixed in
+  W5-A (#51): a merge Astera runs gets `-c user.name=Astera -c user.email=astera@localhost` for whichever key git lacks
+  (`mergeIdentityArgs`); nothing is written to git config. Set your own identity to have merges carry your name.
 - **Driving the close dialog.** `wmctrl -c <title>` matches a title *substring* and closes the first match: in this run
   it closed a VS Code window whose title contained "Astera". Use `wmctrl -l` and `wmctrl -i -c <id>`.
 - **D-Bus truncation.** `: > notify.log` on a file `dbus-monitor` is still writing leaves NUL bytes at the start;

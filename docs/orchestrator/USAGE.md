@@ -13,8 +13,8 @@ owns every session and drives every plan, so closing the window stops nothing (L
   priority get the next free slot.
 - Settings → Agents → "Run agents without permission checks" is **off**. Planners, coordinators and workers then stop at
   every Claude permission prompt until you answer it. They show up in the needs-input badge (below).
-- Set a git identity (`git config --global user.name …` / `user.email …`). Without one, merging a plan's branches
-  fails and its PR is not opened.
+- Set a git identity (`git config --global user.name …` / `user.email …`). Without one, the merges Astera makes for a
+  plan are committed as `Astera <astera@localhost>`.
 
 ## Plans
 

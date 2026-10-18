@@ -206,6 +206,7 @@ import {
 } from '../core/orchestration/exec/workerStart'
 import {
   forkWorktree,
+  mergeDepsInto,
   integrateWorktrees,
   reapWorktree as reapWorktreeIn,
   worktreeDeps,
@@ -3027,6 +3028,8 @@ export function registerIpc(
       createWorktree: async (a) => ({
         path: await forkWorktree(a, { registry: core.worktrees, log: orchLog })
       }),
+      // W5-A (#50): a dependent Task's fork gets its deps merged in (integrateGit.ts).
+      mergeIntoWorktree: (worktree, from) => mergeDepsInto(worktree, from, { log: orchLog }),
       accountProvider: (id) => {
         try {
           return providerOf(core.accounts.get(id))
