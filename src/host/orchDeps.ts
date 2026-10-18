@@ -31,7 +31,8 @@ import { chatPendingOf, type ChatPrompt, type ChatPromptList } from '../core/ses
 // `resumeStopWaitMs` is a number, not a call: the Host leaves it unset (RESUME_STOP_WAIT_MS) and only
 // tests set it, so it is never forwarded.
 // `maxConcurrentWorkers` (W1-B): the Host reads app-settings.json itself, as it does for the permission mode.
-const OWNED = ['getState', 'setState', 'now', 'log', 'runningSessions', 'appVersion', 'backup', 'resumeStopWaitMs', 'maxConcurrentWorkers'] as const
+// `usageGuard` (W6-G): the Host keeps its own, over its own sessions' statusLine readings.
+const OWNED = ['getState', 'setState', 'now', 'log', 'runningSessions', 'appVersion', 'backup', 'resumeStopWaitMs', 'maxConcurrentWorkers', 'usageGuard'] as const
 
 /**
  * **Forwarded, and a refusal reaches the caller.** `handleCommand` either awaits these and lets the
@@ -507,6 +508,7 @@ const EFFECTFUL: Record<Classified, boolean> = {
   backup: true,
   resumeStopWaitMs: false,
   maxConcurrentWorkers: false,
+  usageGuard: false,
   // HOST_LOCAL — the same values these names had in PROPAGATES and SWALLOWED before S2 (the six), and
   // in PROPAGATES before S3 (the three worktree names).
   startWorker: true,
@@ -639,6 +641,8 @@ export function hostOrchDeps(a: {
   backup(): Promise<void>
   /** W1-B: the app-wide worker cap, read from app-settings.json by the Host itself (OWNED). */
   maxConcurrentWorkers?(): Promise<number | null>
+  /** W6-G: the Host's usage guard (OWNED). */
+  usageGuard?: OrchServerDeps['usageGuard']
   act(name: string, args: unknown[]): Promise<unknown>
   hasApp(): boolean
   /** The `check --wait` long-polls this Host serves, one tracker for the Host's life (final round 2,
@@ -1293,6 +1297,7 @@ export function hostOrchDeps(a: {
     appVersion: a.appVersion,
     backup: a.backup,
     ...(a.maxConcurrentWorkers ? { maxConcurrentWorkers: a.maxConcurrentWorkers } : {}),
+    ...(a.usageGuard ? { usageGuard: a.usageGuard } : {}),
     listSessions: own('listSessions'),
     readSession: own('readSession'),
     sendSession: own('sendSession'),

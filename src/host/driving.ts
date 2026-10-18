@@ -45,7 +45,7 @@ import path from 'node:path'
 import { t } from '../core/i18n'
 import { HOST_YIELD_DISPATCH, HOST_YIELD_RECOVERY } from '../core/host/protocol'
 import { driverOf, readDispatchGate, type DispatchGate, type Driver } from '../core/host/driver'
-import { createDispatchLoop, ORCH_FIRE_TICK_MS } from '../core/orchestration/exec/dispatchLoop'
+import { createDispatchLoop, ORCH_FIRE_TICK_MS, type DispatchLoopContext } from '../core/orchestration/exec/dispatchLoop'
 import { sweepStaleSpecFiles } from '../core/orchestration/exec/specFiles'
 import { lostWithNobody } from '../core/orchestration/lostGate'
 import { createLostGateGuard, type LostGateGuard } from './lostGateGuard'
@@ -145,6 +145,8 @@ export function createHostDriving(d: {
   guard?: LostGateGuard
   /** Test seam (B6); defaults to readDispatchGate. */
   readGate?(settingsPath: string): Promise<DispatchGate>
+  /** W6-G: the Host's usage guard, for the loop's slots. Absent: no usage pause. */
+  usageGuard?: DispatchLoopContext['usageGuard']
   /** Told every change of `report()` (limits pass L3), in the same turn as the change. A throw is
    *  logged and costs nothing else (constraint 14). */
   onReport?(r: HostDriverReport): void
@@ -410,7 +412,8 @@ export function createHostDriving(d: {
     },
     mayStart,
     log,
-    nowMs: () => d.nowMs()
+    nowMs: () => d.nowMs(),
+    ...(d.usageGuard ? { usageGuard: d.usageGuard } : {})
   })
 
   const guard = d.guard ?? createLostGateGuard()

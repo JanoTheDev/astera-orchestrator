@@ -12,7 +12,7 @@
 import { isSamePath } from '../files/tree'
 import { findProjectByPath } from './projects'
 import { runsWorkingIn, runWorktreesFrom } from './integrate'
-import type { JobRow, JobTask, OrchSnapshot, TaskBoard, WorktreeInfo } from '../types'
+import type { JobRow, JobTask, OrchSnapshot, TaskBoard, WorktreeInfo, UsagePause } from '../types'
 import { repoPathOf } from '../worktrees/repo'
 import { coordinatorStarting, type OrchState } from './state'
 import { eventCountsOf } from './timeline'
@@ -364,13 +364,15 @@ export function snapshotFor(
    *  (`coordinatorStarting`, Task 1 fix round 1 I1). Defaults to the clock; tests pass one. */
   nowMs: number = Date.now(),
   /** W2-C plan board: the app-wide worker cap, for the "why is it waiting" reasons (taskBoardsOf). Absent: no cap. */
-  limits: ScheduleLimits = {}
+  limits: ScheduleLimits = {},
+  /** W6-G: an account no new worker starts on (usageGuard.ts), for the "paused: account at 93%" reason. */
+  usagePauseOf?: (accountId: string) => UsagePause | null
 ): OrchSnapshot {
   // 폴더 사실을 **한 번만** 센다 — Run 마다 다시 세면 같은 순회가 Run 수만큼 돌고, 그보다 나쁜
   // 것은 두 값(폴더 수준과 Run 수준)이 다른 순간의 상태를 볼 수 있다는 것이다.
   const workingHere = runsWorkingIn(state, projectPath)
   const ix = foldIndex(state)
-  const boards = taskBoardsOf(state, limits)
+  const boards = taskBoardsOf(state, limits, usagePauseOf)
   const branchOf = (p: string): string | undefined => worktrees.find((w) => isSamePath(w.path, p))?.branch
 
   /**

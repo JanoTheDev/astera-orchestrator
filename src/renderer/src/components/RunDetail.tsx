@@ -48,6 +48,7 @@ import { SourceChip } from './SourceChip'
 import { jobName } from '../lib/jobName'
 // W2-C plan board
 import { PlanOverview } from './plan/PlanOverview'
+import { UsageStrip } from './usage/UsageStrip'
 import { TaskBoard } from './plan/TaskBoard'
 // W6-E progress view
 import { PlanFiles } from './plan/PlanFiles'
@@ -837,6 +838,8 @@ export function RunDetail({
                 ))}
               </div>
             </div>
+            {/* W6-G: per-account usage, live subagents per tab, and the threshold */}
+            <UsageStrip accounts={accounts} tasks={tasks} />
             {lockedReason !== undefined && <p className="jobs-disabled-reason">{lockedReason}</p>}
             {!authoringOpen && (
               <div className="detail-graph-head">
