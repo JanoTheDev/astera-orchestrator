@@ -1178,6 +1178,13 @@ describe('snapshotFor — plan board fields', () => {
     expect(b.model).toBeUndefined()
   })
 
+  it('W6-E: carries the files the plan says a Task touches, and nothing for none', () => {
+    const s = withRuns([run('r1', absPath('p'))], [{ ...task('t1', 'r1', 'pending'), affectedPaths: ['src/x.ts'] }, { ...task('t2', 'r1', 'pending'), affectedPaths: [] }])
+    const [a, b] = snapshotFor(s, absPath('p'), anySession, noWorktrees, noFires, allExist).runs[0].tasks
+    expect(a.affectedPaths).toEqual(['src/x.ts'])
+    expect(b.affectedPaths).toBeUndefined()
+  })
+
   it('passes the app-wide cap to the reasons', () => {
     const s = withRuns([run('r1', absPath('p'))], [{ ...task('t1', 'r1', 'dispatched'), accountIds: ['acc'] }, { ...task('t2', 'r1', 'ready'), accountIds: ['acc'] }])
     s.jobs = s.jobs.map((j) => ({ ...j, autoDispatch: true }))
