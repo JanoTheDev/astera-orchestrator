@@ -2,6 +2,7 @@
 // §5, §6). This is what replaces the wire slice's `version`-only stub — `server.ts` calls
 // `OrchCall.call` and did not change when it did.
 import { REMOTE_SESSION_CHANGES, REMOTE_SESSION_READS, type RemoteSessions } from './remoteSessions'
+import { hookEventsDirIn } from '../core/hooks/sessionState' // W8-A
 import { PLUGIN_COMMANDS, pluginsCommand } from './plugins/commands'
 import type { PluginManager } from './plugins/manager'
 import { createHash } from 'node:crypto'
@@ -809,6 +810,8 @@ export function createHostOrch(a: {
       // W1-B. A damaged file reads as no cap: the spawn behind worker-start refuses on that file anyway
       // (spawner.ts reads the permission mode from it), so nothing starts past the cap on a guess.
       maxConcurrentWorkers: () => readMaxConcurrentWorkers(path.join(a.profileDir, 'app-settings.json')).catch(() => null),
+      // W8-A: the stamp reads a worker's busy windows from its hook-events file
+      hookEventsDir: hookEventsDirIn(a.profileDir),
       ...(a.usageGuard ? { usageGuard: a.usageGuard } : {}),
       act: a.act,
       hasApp: a.hasApp,

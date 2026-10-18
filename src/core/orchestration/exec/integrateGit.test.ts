@@ -580,3 +580,29 @@ describe.runIf(process.platform === 'win32')('run-delete removal of a worktree h
     expect(await fs.readFile(path.join(outside, 'keep.txt'), 'utf8')).toBe('precious')
   })
 })
+
+// W8-A commit attribution
+describe('integrateWorktrees writes the attribution into its merge commits (W8-A)', () => {
+  const NOTE = { v: 1, tool: 'astera', job: 'job_1', task: 'tsk_1', session: 's', agent: 'claude', model: 'opus', account: 'a', role: 'worker' } as const
+  const note = (wt: string): void => {
+    gitSync(wt, ['notes', '--ref', 'refs/notes/astera', 'add', '-f', '-m', JSON.stringify(NOTE), 'HEAD'])
+  }
+
+  it('a delivery merge carries the Wave 8 trailers and the repository gets the notes config', async () => {
+    const a = await worked('a')
+    note(a)
+    const r = await integrateWorktrees(repo, [a], { message: 'Deliver plan: P' }, ctx())
+    expect(r.kind).toBe('merged')
+    expect(gitSync(repo, ['log', '-1', '--format=%B'])).toBe('Deliver plan: P\n\nAstera-Job: job_1\nAstera-Task: tsk_1\nAI-Agent: claude/opus')
+    expect(gitSync(repo, ['config', 'notes.rewrite.rebase'])).toBe('true')
+  })
+
+  it('a merge with no message that writes a commit carries them too; an unnoted branch keeps git’s own message', async () => {
+    const a = await worked('a'); const b = await worked('b')
+    note(b)
+    await integrateWorktrees(repo, [a, b], {}, ctx())
+    const last = gitSync(repo, ['log', '-1', '--format=%B'])
+    expect(last).toMatch(/^Merge branch '.+'\n\nAstera-Job: job_1\nAstera-Task: tsk_1\nAI-Agent: claude\/opus$/)
+    expect(gitSync(repo, ['log', '--format=%s', '-3'])).not.toContain('Astera-Job')
+  })
+})

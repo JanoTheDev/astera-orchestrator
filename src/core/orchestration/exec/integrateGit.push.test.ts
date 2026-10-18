@@ -169,3 +169,38 @@ describe('deliverByPush (W6-H)', () => {
     expect(r).toMatchObject({ ok: false, reason: expect.stringContaining('delivery branch') })
   })
 })
+
+// W8-A commit attribution
+describe('deliverByPush pushes the attribution notes (W8-A)', () => {
+  const notes = {
+    'show-ref --verify --quiet refs/notes/astera': {},
+    'show-ref --verify --quiet refs/notes/remotes/origin/astera': { ok: false }
+  }
+  const NOTES_PUSH = 'push origin refs/notes/astera:refs/notes/astera'
+
+  it('pushes refs/notes/astera after the branch, never forced', async () => {
+    const h = setup({ ...notes, [NOTES_PUSH]: {} })
+    expect((await h.go()).ok).toBe(true)
+    const order = h.calls.map((a) => a.join(' '))
+    expect(order.indexOf(NOTES_PUSH)).toBeGreaterThan(order.indexOf('push origin main'))
+    expect(h.calls.filter((a) => a[0] === 'push').some((a) => a.some((x) => x.startsWith('+') || x === '--force'))).toBe(false)
+  })
+
+  it('pushes no notes when the delivery stops before its push', async () => {
+    const h = setup({ ...notes, [NOTES_PUSH]: {} }, { validate: 'fail' })
+    expect((await h.go()).ok).toBe(false)
+    expect(h.calls.some((a) => a.join(' ') === NOTES_PUSH)).toBe(false)
+  })
+
+  it('a rejected notes push is logged and costs the delivery nothing', async () => {
+    const h = setup({ ...notes, [NOTES_PUSH]: { ok: false, stderr: 'rejected' }, 'fetch origin +refs/notes/astera:refs/notes/remotes/origin/astera': { ok: false } })
+    expect((await h.go()).ok).toBe(true)
+    expect(h.logs.some((l) => l.includes('refs/notes/astera') && l.includes('not pushed'))).toBe(true)
+  })
+
+  it('a repository with no notes pushes none', async () => {
+    const h = setup({ 'show-ref --verify --quiet refs/notes/astera': { ok: false } })
+    expect((await h.go()).ok).toBe(true)
+    expect(h.calls.some((a) => a[0] === 'push' && a.includes('refs/notes/astera:refs/notes/astera'))).toBe(false)
+  })
+})

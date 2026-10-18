@@ -16,6 +16,8 @@ import { removeWorktree } from '../../worktrees/remove'
 import { askUntilAnswered, defaultActionPresenceCheck, type CheckResult, type PresenceCheck } from '../../worktrees/presence'
 import type { WorktreeStore } from '../../worktrees/registry'
 import { defaultGateProbe, type Probe } from '../../sessions/pathProbe'
+// W8-A commit attribution
+import { ensureNotesConfig, pushNotes, trailersOfRef, withTrailers } from '../../attribution/note'
 
 /** 프로젝트 폴더가 **서 있는 브랜치**에서 워크트리를 하나 만들고 그 경로를 낸다.
  *
@@ -138,13 +140,28 @@ export async function mergeDepsInto(
     // The branch name, when there is one, makes the merge commit say which Task it brought in.
     const branch = await run(['symbolic-ref', '--quiet', 'HEAD'], { cwd: dep })
     const ref = branch.ok && branch.stdout !== '' ? branch.stdout : sha.stdout
-    const merged = await run([...ident, 'merge', '--no-edit', ref], { cwd: worktree, timeoutMs: GIT_WRITE_TIMEOUT_MS })
+    // W8-A: a merge commit Astera writes carries the Wave 8 trailers of the work it brings in
+    const merged = await run([...ident, 'merge', ...(await attributedMergeArgs(worktree, ref, undefined, run))], {
+      cwd: worktree,
+      timeoutMs: GIT_WRITE_TIMEOUT_MS
+    })
     if (!merged.ok) {
       await run(['merge', '--abort'], { cwd: worktree, timeoutMs: GIT_WRITE_TIMEOUT_MS })
       throw new Error(`DEP_MERGE: could not merge the dependency worktree ${dep} into ${worktree}: ${merged.stderr || merged.stdout}`)
     }
     ctx.log(`worker-start: merged ${ref} from ${dep} into ${worktree}`)
   }
+}
+
+/** W8-A: the arguments after `merge` for merging `ref` (the ref last): `message` with the Wave 8 trailers of the work
+ *  `ref` brings in (`trailersOfRef`), with `--no-ff` so a delivery always writes its commit; without a message, git's
+ *  own merge message, plus the trailers when there are any. */
+async function attributedMergeArgs(cwd: string, ref: string, message: string | undefined, run: typeof realGit): Promise<string[]> {
+  const trailers = await trailersOfRef(cwd, ref, run)
+  if (message !== undefined) return ['--no-ff', '-m', withTrailers(message, trailers), ref]
+  if (trailers.length === 0) return ['--no-edit', ref]
+  const name = ref.startsWith('refs/heads/') ? `branch '${ref.slice('refs/heads/'.length)}'` : `commit '${ref}'`
+  return ['--no-edit', '-m', withTrailers(`Merge ${name}`, trailers), ref]
 }
 
 /** 통합의 결과. 셋뿐이다 — 합쳤다, 사람에게 가야 한다, 에이전트에게 넘겨야 한다. */
@@ -455,11 +472,14 @@ export async function integrateWorktrees(
     // 등록이 영원히 "진행 중"으로 남고, 그날부터 이 프로젝트의 모든 외부 변경이 조용히 삼켜진다.
     // Awaited (R24): in the Host, begin first writes the HEAD before the merge to host/merges.json, so
     // an app that opens or attaches while the merge runs finds it there.
+    // W8-A: the merge commit carries the Wave 8 trailers, and the repository the notes config. Asked before the merge is
+    // announced, so the announcement stays right before the merge.
+    await ensureNotesConfig(mergeInto, ctx.git ?? realGit)
+    const how = await attributedMergeArgs(mergeInto, ref, opts.message, ctx.git ?? realGit)
     const mergeOpId = await ctx.gitOp.begin('job-merge', mergeInto)
     try {
       // W6-H: a delivery names its merges (`Fixes #n`), and a fast-forward would carry no message, so it gets a commit
-      const how = opts.message !== undefined ? ['--no-ff', '-m', opts.message] : ['--no-edit']
-      const merged = await (ctx.git ?? realGit)([...ident, 'merge', ...how, ref], {
+      const merged = await (ctx.git ?? realGit)([...ident, 'merge', ...how], {
         cwd: mergeInto,
         timeoutMs: GIT_WRITE_TIMEOUT_MS
       })
@@ -828,6 +848,8 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
           `not pushed; git reset --hard ${base} undoes them.`
       )
   }
+  // W8-A: the notes ref goes next to the branch; a rejected notes push costs the delivery nothing
+  if ((await pushNotes(cwd, run)) === 'rejected') ctx.log(`delivery: the attribution notes (refs/notes/astera) were not pushed`)
   const sha = await run(['rev-parse', 'HEAD'], { cwd })
   return { ok: true, branch, sha: sha.ok ? sha.stdout : '', merged: merged.merged, validated: checked.ran }
 }

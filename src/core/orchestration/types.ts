@@ -870,4 +870,7 @@ export interface RunPr {
   // W8-C draft PR
   /** With `draft`: how many waves were done when the branch was last pushed and the body written (draftPr.ts). */
   wavesDone?: number
+  // W8-A commit attribution
+  /** The merge commit whose notes the squash remap wrote (`attribution-remap`): set, the remap is done. */
+  attributed?: string
 }

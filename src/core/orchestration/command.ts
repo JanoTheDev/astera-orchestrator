@@ -146,6 +146,13 @@ import type { RunPr, TaskLinks } from './types'
 import { escalationOpen } from './sessionIndex' // W7-C
 import type { Gate, Message } from './types' // W7-C
 import type { BranchPushResult, PrCreateRequest, PrCreateResult } from '../github/prCreate'
+// W8-A commit attribution
+import { NOTES_FETCH_REFSPEC, pushNotes, syncNotes } from '../attribution/note'
+import { readBusyWindows, stampCommits, WINDOW_SLACK_MS } from '../attribution/stamp'
+import { remapMerged } from '../attribution/remap'
+import { attributionBlock } from '../attribution/stats'
+import { hookEventsFileIn } from '../hooks/sessionState'
+import { git as attributionGit } from '../worktrees/git'
 // W8-C draft PR
 import { completedWorktrees, draftPrDue, DRAFT_PR_FOOTER, runWaves, wavesDoneOf, wavesSection } from './draftPr'
 import type { SessionCheck } from '../workUnit/types'
@@ -767,6 +774,10 @@ export interface OrchServerDeps {
   /** Sets the folder's default account (core/projects/settings.ts, the New Session dialog's preselection); null clears
    *  it. Only the app injects it, like saveTestCommand. */
   setProjectAccount?(projectPath: string, accountId: string | null): Promise<void>
+  // ── W8-A commit attribution ──
+  /** The profile's hook-events folder (core/hooks/sessionState.ts `hookEventsDirIn`): the stamp reads a worker's busy
+   *  windows there. Absent, the attempt's own lifetime stands in for them. */
+  hookEventsDir?: string
 }
 
 /** A plugin as the early refusal reads it (plugin Phase 5 C7). */
@@ -1118,7 +1129,9 @@ const COORDINATOR_ONLY = new Set([
   'projects-set',
   'run-deliver',
   // W8-C draft PR
-  'run-draft-pr'
+  'run-draft-pr',
+  // W8-A: the squash remap is Astera's, asked when the PR poll sees the plan's PR merged
+  'attribution-remap'
 ])
 
 /** Session-task commands answer to the work-unit tracking toggle, not the orchestration one. They
@@ -1369,6 +1382,56 @@ export async function linkReportedWork(
     await deps.setState({ ...s, tasks: s.tasks.map((t) => (t.id === taskId ? { ...t, links: mergeLinks(t.links, patch) } : t)) })
   } catch (e) {
     deps.log?.(`task ${taskId}: linking its GitHub work failed: ${String(e)}`)
+  }
+}
+
+/** W8-A: the stamp of a worker's `worker_done` (core/attribution/stamp.ts): every commit the attempt added over its
+ *  recorded base gets the Wave 8 note naming the attempt, and the Task's links keep those commits, the map the squash
+ *  remap reads (`attribution-remap`). The busy windows come from the session's hook-events file; with none, the
+ *  attempt's own lifetime stands in. Before any merge of that worktree: the merges come after the report. Never throws. */
+export async function stampReportedWork(deps: OrchServerDeps, taskId: string, dispatchId: string): Promise<void> {
+  try {
+    const s = deps.getState()
+    const d = s.dispatches.find((x) => x.id === dispatchId)
+    const task = s.tasks.find((t) => t.id === taskId)
+    const job = task?.jobId ?? s.runs.find((r) => r.id === task?.runId)?.jobId
+    if (!d?.git?.base || !task || !job) return
+    const read = deps.hookEventsDir ? await readBusyWindows(hookEventsFileIn(deps.hookEventsDir, d.sessionId)) : null
+    const windows =
+      read && read.length > 0 ? read : [{ start: Date.parse(d.startedAt) - WINDOW_SLACK_MS, end: Date.now() + WINDOW_SLACK_MS }]
+    const stamped = await stampCommits({
+      cwd: d.cwd,
+      base: d.git.base,
+      windows,
+      identity: {
+        job,
+        task: taskId,
+        session: d.sessionId,
+        agent: d.provider,
+        model: d.model ?? 'default',
+        account: d.accountId,
+        role: d.review ? 'reviewer' : 'worker'
+      }
+    })
+    if (stamped.length === 0) return
+    const cur = deps.getState()
+    const patch: TaskLinks = { commits: stamped.map((c) => c.sha) }
+    await deps.setState({ ...cur, tasks: cur.tasks.map((t) => (t.id === taskId ? { ...t, links: mergeLinks(t.links, patch) } : t)) })
+  } catch (e) {
+    deps.log?.(`task ${taskId}: stamping its commits failed: ${String(e)}`)
+  }
+}
+
+/** W8-A: a plan PR's "AI attribution" block (core/attribution/stats.ts), appended to its body; empty on any failure. */
+async function prAttribution(s: OrchState, runId: string, cwd: string): Promise<string> {
+  const run = s.runs.find((r) => r.id === runId)
+  if (!run) return ''
+  try {
+    const tasks = s.tasks.filter((t) => t.runId === runId).map((t) => ({ id: t.id, title: t.title, commits: t.links?.commits ?? [] }))
+    const block = await attributionBlock(cwd, run.jobId, tasks)
+    return block === '' ? '' : `\n\n${block}`
+  } catch {
+    return ''
   }
 }
 
@@ -4598,7 +4661,9 @@ export async function handleCommand(
         if (result.value === 'accepted') dropRollingChain() // 위 검토 경로와 같은 이유·같은 조건
         // W2-D: the issue, branch and commits this attempt reports go to its Task's links, after the commit and off the
         // reply's path (gh is a network call)
-        if (result.value === 'accepted') void linkReportedWork(deps, taskId, dispatchId, args)
+        // W8-A: the stamp first, so the two writes to the Task's links do not race
+        if (result.value === 'accepted')
+          void stampReportedWork(deps, taskId, dispatchId).then(() => linkReportedWork(deps, taskId, dispatchId, args))
         // 커밋 뒤에 부른다 — 검증이 먼저 끝나면 아직 validating 이 아닌 Task 에 결과를 쓰게 된다.
         // result.value가 'alreadyReported'인 재전송은 상태를 바꾸지 않았다(첫 호출의 커밋을 그대로
         // 다시 읽을 뿐이다) — 걸러내지 않으면 재전송마다 검증이 다시 큐에 들어가고, 그 사이 Task가
@@ -5665,7 +5730,8 @@ export async function handleCommand(
       const done = wavesDoneOf(waves)
       const title = jobNameOf(job)
       const tasks = planPrTasksOf(cur, id, (a) => accounts.find((x) => x.id === a)?.label)
-      const body = planPrBody({ plan: title, tasks, waves: wavesSection(waves), footer: DRAFT_PR_FOOTER })
+      const body =
+        planPrBody({ plan: title, tasks, waves: wavesSection(waves), footer: DRAFT_PR_FOOTER }) + (await prAttribution(cur, id, t.cwd)) // W8-A
       const at = deps.now?.() ?? now
       const record = async (pr: RunPr, links?: TaskLinks): Promise<void> => {
         const st = deps.getState()
@@ -5682,6 +5748,7 @@ export async function handleCommand(
           return pushed.kind === 'no-remote'
             ? okBody({ noRemote: true, branch: t.branch, message: noRemoteNote(t.branch) })
             : conflict(`The push was rejected: ${pushed.detail.trim()}`)
+        await pushNotes(t.cwd) // W8-A: the notes ref goes with the PR branch
         const edited = await g.run(['pr', 'edit', open.url, '--body', body], t.cwd)
         if (!edited.ok) return ghRefusal({ ok: false, ...ghFailureSentence(edited) })
         await record({ ...open, at, draft: true, wavesDone: done })
@@ -5693,6 +5760,7 @@ export async function handleCommand(
         if (made.kind === 'no-remote') return okBody({ noRemote: true, branch: t.branch, message: noRemoteNote(t.branch) })
         return conflict(`The draft pull request was not opened (${made.stage}, ${made.kind}): ${made.detail.trim()}`)
       }
+      await pushNotes(t.cwd) // W8-A: the notes ref goes with the PR branch
       const number = prNumberOf(made.url)
       await record(
         { at, url: made.url, ...(number !== null ? { number } : {}), draft: true, wavesDone: done },
@@ -5748,12 +5816,13 @@ export async function handleCommand(
         // The PR names an account by its id then
       }
       const title = jobNameOf(job)
-      const body = planPrBody({
-        plan: title,
-        tasks: planPrTasksOf(deps.getState(), id, (a) => accounts.find((x) => x.id === a)?.label),
-        // W8-C draft PR: the PR that followed the plan keeps its waves, all done now
-        ...(draft ? { waves: wavesSection(runWaves(deps.getState(), id)) } : {})
-      })
+      const body =
+        planPrBody({
+          plan: title,
+          tasks: planPrTasksOf(deps.getState(), id, (a) => accounts.find((x) => x.id === a)?.label),
+          // W8-C draft PR: the PR that followed the plan keeps its waves, all done now
+          ...(draft ? { waves: wavesSection(runWaves(deps.getState(), id)) } : {})
+        }) + (await prAttribution(deps.getState(), id, worktree)) // W8-A
       // W8-C draft PR: push the final branch, write the final body and mark the draft ready; `draft` is cleared
       if (draft?.url !== undefined) {
         const t = githubTarget(deps, s, { run: id })
@@ -5767,6 +5836,7 @@ export async function handleCommand(
         if (!g.push) return conflict('pushing a branch is not available in this build')
         const pushed = await g.push(t.cwd, t.branch)
         if (!pushed.ok) return fail(pushed.kind === 'no-remote' ? noRemoteNote(t.branch) : `The push was rejected: ${pushed.detail.trim()}`)
+        await pushNotes(t.cwd) // W8-A: the notes ref goes with the PR branch
         // W8-E (#99): a Run with failed Tasks delivers its completed work and stays a draft
         for (const step of [['pr', 'edit', draft.url, '--body', body], ...(failed ? [] : [['pr', 'ready', draft.url]])]) {
           const r = await g.run(step, t.cwd)
@@ -5798,7 +5868,47 @@ export async function handleCommand(
       }
       const number = prNumberOf(url)
       await record({ at: now, url, ...(number !== null ? { number } : {}) }, number !== null ? { prs: [{ number, url, state: 'open' }] } : undefined)
+      await pushNotes(worktree) // W8-A: the notes ref goes with the PR branch
       return okBody({ url, number, opened: made.status === 200 })
+    }
+    /**
+     * W8-A: the squash remap (core/attribution/remap.ts). The app's PR poll (src/main/githubPrs.ts) asks it for each
+     * merged PR it sees; one that is not a plan's PR is no error. Fetches the base branch, notes the commits GitHub's
+     * squash or rebase wrote from the Tasks' stored commits (`Task.links.commits`), and pushes the notes as part of the
+     * same delivery. Once per merge commit (`run.pr.attributed`). Astera's own step: refused from an agent and MCP.
+     */
+    case 'attribution-remap': {
+      if (fromAgentSession || caller.role === 'mcp') return denied("the squash remap is Astera's own step")
+      const url = str(args.pr)
+      if (!url) return bad('--pr is required: the pull request URL')
+      const run = s.runs.find((r) => r.pr?.url === url)
+      if (!run) return okBody({ remapped: false, reason: 'not the pull request of a plan' })
+      const job = jobOf(s, run)
+      if (!job) return notFound(`no plan for run ${run.id}`)
+      if (!deps.github) return conflict('GitHub commands are answered by the Astera Host, and this caller is not one')
+      const view = await deps.github.run(['pr', 'view', url, '--json', 'state,mergeCommit,baseRefName'], job.cwd)
+      if (!view.ok) return ghRefusal({ ok: false, ...ghFailureSentence(view) })
+      let pr: { state?: unknown; mergeCommit?: { oid?: unknown } | null; baseRefName?: unknown }
+      try {
+        pr = JSON.parse(view.stdout) as typeof pr
+      } catch {
+        return conflict('gh pr view did not answer JSON')
+      }
+      const sha = pr.mergeCommit?.oid
+      if (pr.state !== 'MERGED' || typeof sha !== 'string' || typeof pr.baseRefName !== 'string')
+        return conflict('This pull request is not merged')
+      if (run.pr?.attributed === sha) return okBody({ remapped: false, sha })
+      const w = { cwd: job.cwd, timeoutMs: 10 * 60 * 1000 }
+      const fetched = await attributionGit(['fetch', 'origin', pr.baseRefName], w)
+      if (!fetched.ok) return conflict(`git fetch origin ${pr.baseRefName} failed: ${(fetched.stderr || fetched.stdout).trim()}`)
+      // origin may have no notes yet: that fetch failing is no stop
+      if ((await attributionGit(['fetch', 'origin', NOTES_FETCH_REFSPEC], w)).ok) await syncNotes(job.cwd)
+      const originals = s.tasks.filter((t) => t.runId === run.id).flatMap((t) => t.links?.commits ?? [])
+      const r = await remapMerged({ cwd: job.cwd, mergeCommit: sha, originals })
+      const pushed = r.noted.length > 0 ? await pushNotes(job.cwd) : 'none'
+      const cur = deps.getState()
+      await deps.setState({ ...cur, runs: cur.runs.map((x) => (x.id === run.id && x.pr ? { ...x, pr: { ...x.pr, attributed: sha } } : x)) })
+      return okBody({ remapped: true, kind: r.kind, noted: r.noted, sha, notesPushed: pushed === 'pushed' })
     }
     case 'github-ci-rerun': {
       if (args.run !== undefined) return bad('--run does not go with github-ci-rerun: give --project')

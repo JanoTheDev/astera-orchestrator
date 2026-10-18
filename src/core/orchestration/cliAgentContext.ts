@@ -182,6 +182,13 @@ const SESSION = {
       "While later waves remain, folds the completed tasks' worktrees into the run's integration branch, pushes it, and opens the plan's pull request as a draft or rewrites its body with the done and remaining waves. run-open-pr marks it ready after the final check. Never merges. The driving loop does this once per finished wave; refused from an agent session and an MCP client. Answered by the Host.",
     flags: [RUN_ARG('<runId>', 'the run between waves')]
   },
+  // W8-A commit attribution
+  'attribution-remap': {
+    summary: "write the attribution notes onto the commits GitHub's squash or rebase merge of a plan's pull request made",
+    detail:
+      "Fetches the base branch, finds the merged pull request's new commit(s) and notes them from the tasks' stored commits: a squash commit gets one note with the lines merged by path. Pushes the notes ref after. Done once per merge commit. The app's pull request poll asks it; refused from an agent session and an MCP client. Answered by the Host.",
+    flags: [{ name: 'pr', value: '<url>', required: true, about: "the plan's merged pull request" }]
+  },
   // W6-H delivery
   'run-deliver': {
     summary: "land a completed run the way its project says: its pull request, or a push to the delivery branch",

@@ -15,6 +15,8 @@ import { spelledCommand, unknownFlagError, usageFor } from '../core/orchestratio
 // W8-C heavy
 import { HEAVY_USAGE } from '../core/orchestration/cliUsage'
 import { runHeavy } from '../core/orchestration/heavyLock'
+// W8-A commit attribution
+import { ATTRIBUTION_COMMANDS, runAttribution } from '../core/attribution/cli'
 import { humanFor, jsonSafe, quietFor, terminalSafe } from '../core/orchestration/cliHuman'
 import { answerFromFile, fileAnswerable, readStateFile } from '../core/orchestration/stateFile'
 import { connectHost, type ConnectFailure, type HostConnection } from '../core/host/connect'
@@ -1065,6 +1067,12 @@ export async function main(): Promise<void> {
   // are the command's. Local, no Host: the command's stdio is the caller's terminal (core/orchestration/heavyLock.ts).
   if (argv[0] === 'heavy') {
     const code = await runHeavy({ argv: argv.slice(1), env: process.env, cwd: process.cwd(), sessionId: process.env.ASTERA_SESSION, usage: HEAVY_USAGE })
+    process.exit(code)
+  }
+  // W8-A: `astera blame|stats|why` answer before usage and the parser, like heavy: read-only git in this folder, no Host
+  if (argv[0] !== undefined && Object.hasOwn(ATTRIBUTION_COMMANDS, argv[0])) {
+    const code = await runAttribution(argv, { cwd: process.cwd(), out })
+    await new Promise((r) => process.stdout.write('', () => r(undefined)))
     process.exit(code)
   }
   const help = usageFor(argv, sessionUsage)

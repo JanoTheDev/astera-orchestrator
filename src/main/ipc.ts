@@ -4265,7 +4265,12 @@ export function registerIpc(
   const githubPrs = createGithubPrs({
     registry: core.worktrees,
     settings: core.appSettings,
-    send
+    send,
+    // W8-A: a merged plan PR's squash remap is the Host's (`attribution-remap`); a PR that is not a plan's is its no-op
+    onMerged: (_repo, pr) =>
+      void orchCall({ cmd: 'attribution-remap', args: { pr: pr.url }, sessionId: '' }).catch((e: unknown) =>
+        console.error(`[github] attribution-remap for ${pr.url} failed: ${String(e)}`)
+      )
   })
   void githubPrs.start()
   onNewDocument.push(() => githubPrs.stop())

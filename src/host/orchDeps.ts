@@ -32,7 +32,7 @@ import { chatPendingOf, type ChatPrompt, type ChatPromptList } from '../core/ses
 // tests set it, so it is never forwarded.
 // `maxConcurrentWorkers` (W1-B): the Host reads app-settings.json itself, as it does for the permission mode.
 // `usageGuard` (W6-G): the Host keeps its own, over its own sessions' statusLine readings.
-const OWNED = ['getState', 'setState', 'now', 'log', 'runningSessions', 'appVersion', 'backup', 'resumeStopWaitMs', 'maxConcurrentWorkers', 'usageGuard'] as const
+const OWNED = ['getState', 'setState', 'now', 'log', 'runningSessions', 'appVersion', 'backup', 'resumeStopWaitMs', 'maxConcurrentWorkers', 'usageGuard', /* W8-A */ 'hookEventsDir'] as const
 
 /**
  * **Forwarded, and a refusal reaches the caller.** `handleCommand` either awaits these and lets the
@@ -515,6 +515,7 @@ const EFFECTFUL: Record<Classified, boolean> = {
   resumeStopWaitMs: false,
   maxConcurrentWorkers: false,
   usageGuard: false,
+  hookEventsDir: false, // W8-A
   // HOST_LOCAL — the same values these names had in PROPAGATES and SWALLOWED before S2 (the six), and
   // in PROPAGATES before S3 (the three worktree names).
   startWorker: true,
@@ -643,6 +644,8 @@ type NothingLeft<T extends never> = T
 type _everyDependencyIsClassified = NothingLeft<Unlisted<OrchServerDeps, Classified>>
 
 export function hostOrchDeps(a: {
+  /** W8-A: the profile's hook-events folder, for the stamp. */
+  hookEventsDir?: string
   getState: OrchServerDeps['getState']
   setState: OrchServerDeps['setState']
   now(): string
@@ -1328,6 +1331,7 @@ export function hostOrchDeps(a: {
     log: a.log,
     runningSessions: a.runningSessions,
     appVersion: a.appVersion,
+    ...(a.hookEventsDir !== undefined ? { hookEventsDir: a.hookEventsDir } : {}), // W8-A
     backup: a.backup,
     ...(a.maxConcurrentWorkers ? { maxConcurrentWorkers: a.maxConcurrentWorkers } : {}),
     ...(a.usageGuard ? { usageGuard: a.usageGuard } : {}),
