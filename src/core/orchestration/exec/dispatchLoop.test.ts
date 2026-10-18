@@ -1930,3 +1930,62 @@ describe('wave replanning (W6-D)', () => {
     expect(job.lastReplan?.summary).toContain('its planner session ended')
   })
 })
+
+// W8-C: a long `pr` plan's draft PR is asked once per finished wave while later waves remain, and the completed Run's
+// delivery still comes for a Run whose PR is that draft.
+describe('a long plan keeps a draft PR (W8-C)', () => {
+  const twoWaves = (h: ReturnType<typeof rig>, first: Task['status'], second: Task['status']): void => {
+    const s = h.state()
+    h.setState({
+      ...s,
+      tasks: s.tasks.map((t) => (t.id === 'tsk_1' ? { ...t, status: first } : { ...t, deps: ['tsk_1'], status: second }))
+    })
+  }
+  const fake = (h: ReturnType<typeof rig>): void => {
+    h.ctx.handle = async (cmd, args) => {
+      if (cmd === 'run-draft-pr') {
+        const s = h.state()
+        h.setState({ ...s, runs: s.runs.map((r) => ({ ...r, pr: { at: NOW, url: 'u', draft: true as const, wavesDone: 1 } })) })
+        return { status: 200, body: { url: 'u', opened: true } }
+      }
+      if (cmd === 'run-deliver') return { status: 200, body: { url: 'u' } }
+      return h.real(cmd, args)
+    }
+  }
+  const count = (h: ReturnType<typeof rig>, cmd: string): number => h.handled().filter((c) => c === cmd).length
+
+  it('asks once after the first wave, then delivers the draft Run at completion', async () => {
+    const h = rig()
+    fake(h)
+    twoWaves(h, 'completed', 'pending')
+    await h.loop.run()
+    await h.settle()
+    await h.loop.run()
+    await h.settle()
+    expect(count(h, 'run-draft-pr')).toBe(1)
+    expect(count(h, 'run-deliver')).toBe(0)
+    twoWaves(h, 'completed', 'completed')
+    await h.loop.run()
+    await h.settle()
+    expect(count(h, 'run-draft-pr')).toBe(1)
+    expect(count(h, 'run-deliver')).toBe(1)
+  })
+
+  it('asks nothing for a one-wave plan or a push delivery', async () => {
+    const one = rig()
+    fake(one)
+    const s = one.state()
+    one.setState({ ...s, tasks: s.tasks.map((t) => (t.id === 'tsk_1' ? { ...t, status: 'completed' as const } : t)) })
+    await one.loop.run()
+    await one.settle()
+    expect(count(one, 'run-draft-pr')).toBe(0)
+    const push = rig()
+    fake(push)
+    const p = push.state()
+    push.setState({ ...p, jobs: p.jobs.map((j) => ({ ...j, delivery: 'push' as const })) })
+    twoWaves(push, 'completed', 'pending')
+    await push.loop.run()
+    await push.settle()
+    expect(count(push, 'run-draft-pr')).toBe(0)
+  })
+})
