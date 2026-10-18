@@ -2105,6 +2105,11 @@ export const en: Record<keyof typeof ko, string> = {
   'plan.reason.switching': 'Usage limit · moving off {account}',
   'plan.reason.archived': 'Plan archived',
   'plan.reason.pendingStart': 'Plan not started yet',
+  // W8-C plan after plan
+  'plan.reason.queuedAfter': 'Queued after {plan}',
+  'plan.reason.afterStopped': 'Waiting on {plan}, which stopped',
+  'intake.after': 'Start after',
+  'intake.afterNone': 'None: plan now',
   'plan.reason.paused': 'Plan paused',
   'plan.reason.definition': 'Definition · copied into each run',
   'plan.reason.gate': 'Waiting for an answer: {question}',

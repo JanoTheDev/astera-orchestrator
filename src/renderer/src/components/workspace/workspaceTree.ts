@@ -6,6 +6,8 @@
 import type { Dispatch, Gate, Job, JobRun, Message, Project, Task } from '../../../../core/orchestration/types'
 import { jobNameOf } from '../../../../core/orchestration/jobName'
 import { isJobActive } from '../../../../core/orchestration/lifecycle'
+// W8-C plan after plan
+import { afterNameOf, afterQueued, afterStandOf } from '../../../../core/orchestration/after'
 import { leaves, removeTab, type PaneNode } from '../../../../core/panes/tree'
 import { parseTab } from '../../../../core/panes/tabId'
 
@@ -54,6 +56,9 @@ export interface WorkspacePlan {
   planner: WorkspaceSession[]
   coordinator: WorkspaceSession[]
   workers: WorkspaceSession[]
+  // W8-C plan after plan
+  /** "Queued after <plan>": it waits for that plan to be delivered (after.ts); `stopped` when that plan stopped. */
+  queuedAfter?: { name: string; stopped: boolean }
 }
 
 export interface WorkspaceProject {
@@ -121,8 +126,16 @@ function planOf(d: WorkspaceData, project: Project, job: Job): WorkspacePlan {
     ...(run ? { runId: run.id } : {}),
     planner,
     coordinator,
-    workers: run ? workersOf(run, d.tasks, d.dispatches, project.name, name) : []
+    workers: run ? workersOf(run, d.tasks, d.dispatches, project.name, name) : [],
+    ...queuedAfterOf(d, job)
   }
+}
+
+// W8-C plan after plan
+function queuedAfterOf(d: WorkspaceData, job: Job): Pick<WorkspacePlan, 'queuedAfter'> {
+  if (!afterQueued(job)) return {}
+  const s = { jobs: Object.values(d.jobsByProject).flat(), runs: d.runs, tasks: d.tasks }
+  return { queuedAfter: { name: afterNameOf(s, job.after!), stopped: afterStandOf(s, job.after!) === 'stopped' } }
 }
 
 /** The sidebar's tree. Archived plans are left out unless `showArchived`. */

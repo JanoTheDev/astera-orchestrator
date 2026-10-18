@@ -1989,3 +1989,68 @@ describe('a long plan keeps a draft PR (W8-C)', () => {
     expect(count(push, 'run-draft-pr')).toBe(0)
   })
 })
+
+// W8-C plan after plan: a queued plan's planner starts by itself once the plan it waits on is delivered; one that
+// stopped leaves it waiting, escalated once (`jobs-after-sweep`, Job.afterStopNotified).
+describe('a plan queued after another (W8-C)', () => {
+  const queue = (h: ReturnType<typeof rig>, prev: Partial<Job>, run?: Record<string, unknown>, taskStatus?: Task['status']): void => {
+    const s = h.state()
+    h.setState({
+      ...s,
+      jobs: [
+        ...s.jobs,
+        { id: 'job_prev', objective: 'first', cwd: '/p', createdAt: NOW, ...prev },
+        { id: 'job_q', objective: 'second', cwd: '/p', createdAt: NOW, pendingStart: true, coordinatorAccountId: 'accA', after: 'job_prev' }
+      ],
+      runs: run ? [...s.runs, { id: 'run_prev', jobId: 'job_prev', ordinal: 1, createdAt: NOW, ...run }] : s.runs,
+      tasks: taskStatus
+        ? [...s.tasks, task({ id: 'tsk_prev', runId: 'run_prev', status: taskStatus, consecutiveFailures: taskStatus === 'failed' ? 3 : 0 })]
+        : s.tasks
+    })
+  }
+  const pass = async (h: ReturnType<typeof rig>): Promise<void> => {
+    await h.loop.run()
+    await h.settle()
+  }
+  const planned = (h: ReturnType<typeof rig>): number => h.startCoordinator.mock.calls.filter(([a]) => a.runId === 'job_q').length
+
+  it('starts the planner once the plan it waits on is delivered (a pull request opened), once', async () => {
+    const h = rig()
+    queue(h, {}, { pr: { at: NOW, url: 'https://github.com/o/r/pull/1' } }, 'completed')
+    await pass(h)
+    await pass(h)
+    expect(planned(h)).toBe(1)
+    expect(h.state().jobs.find((j) => j.id === 'job_q')?.plannerSessionIds).toEqual(['coord-job_q'])
+  })
+
+  it('waits while the plan it waits on is not delivered, a draft pull request included', async () => {
+    const h = rig()
+    queue(h, {}, { pr: { at: NOW, url: 'u', draft: true } }, 'completed')
+    await pass(h)
+    expect(planned(h)).toBe(0)
+    expect(h.handled()).not.toContain('jobs-plan')
+    expect(h.handled()).not.toContain('jobs-after-sweep')
+  })
+
+  it('waits and escalates exactly once when the plan it waits on gave up', async () => {
+    const h = rig()
+    queue(h, {}, {}, 'failed')
+    await pass(h)
+    await pass(h)
+    expect(planned(h)).toBe(0)
+    expect(h.state().jobs.find((j) => j.id === 'job_q')?.afterStopNotified).toBeDefined()
+    expect(h.handled().filter((c) => c === 'jobs-after-sweep')).toHaveLength(1)
+  })
+
+  it('waits and escalates when the plan it waits on is archived; starts once it is delivered after all', async () => {
+    const h = rig()
+    queue(h, { archivedAt: NOW })
+    await pass(h)
+    expect(h.state().jobs.find((j) => j.id === 'job_q')?.afterStopNotified).toBeDefined()
+    expect(planned(h)).toBe(0)
+    const s = h.state()
+    h.setState({ ...s, jobs: s.jobs.map((j) => (j.id === 'job_prev' ? { ...j, nothingToDo: { at: NOW, summary: 'built' } } : j)) })
+    await pass(h)
+    expect(planned(h)).toBe(1)
+  })
+})

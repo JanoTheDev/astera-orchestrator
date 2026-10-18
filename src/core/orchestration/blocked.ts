@@ -18,6 +18,8 @@ import {
   type ScheduleLimits
 } from './schedule'
 import { usageChoice } from './usageGuard'
+// W8-C plan after plan
+import { afterNameOf, afterQueued, afterStandOf } from './after'
 
 const isOpen = (d: Dispatch): boolean => !d.outcome && !d.endedAt
 
@@ -111,7 +113,12 @@ export function taskBoardsOf(
     if (!job) return undefined
     if (!jobActive(job)) {
       if (!isJobActive(job)) return { kind: 'archived' }
-      if (job.pendingStart) return { kind: 'pending-start' }
+      if (job.pendingStart) {
+        // W8-C plan after plan: queued after another plan (after.ts)
+        if (!afterQueued(job)) return { kind: 'pending-start' }
+        const stopped = afterStandOf(s, job.after!) === 'stopped'
+        return { kind: 'pending-start', after: { id: job.after!, title: afterNameOf(s, job.after!), ...(stopped ? { stopped: true as const } : {}) } }
+      }
       return { kind: 'paused' }
     }
     if (!run) return { kind: 'definition' }

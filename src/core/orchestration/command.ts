@@ -10,6 +10,8 @@
 // command layer run in both places.
 import { FOLLOW_WINDOW_MS, type AnsweredQuestion, type StopResult, type WaitEnding, type WaitTimeout } from '../publicContract'
 import { briefTask, jobView, latestRunOf, runView } from './publicViews'
+// W8-C plan after plan
+import { afterNameOf, afterRefusal, afterSweep, jobDelivered } from './after'
 import { lastByState } from './stateMemo'
 import { randomBytes } from 'node:crypto'
 import {
@@ -1647,12 +1649,12 @@ export async function handleCommand(
   // itself; `run-start-marks-clear` is the loop's sweep. Refused from inside any agent session, as
   // `chats answer` is: taken from the app (APP_CALLER), the Host (HOST_CALLER) and a shell (no session).
   if (
-    (cmd === 'run-start-marks-clear' || (cmd === 'run-coordinator-stop' && args.gone !== undefined)) &&
+    (cmd === 'run-start-marks-clear' || cmd === 'jobs-after-sweep' || (cmd === 'run-coordinator-stop' && args.gone !== undefined)) &&
     caller.sessionId !== '' &&
     caller.sessionId !== APP_CALLER &&
     caller.sessionId !== HOST_CALLER
   )
-    return denied(`${cmd === 'run-start-marks-clear' ? cmd : 'run-coordinator-stop --gone'} is sent by the app or the Host, not from inside an agent session`)
+    return denied(`${cmd === 'run-coordinator-stop' ? 'run-coordinator-stop --gone' : cmd} is sent by the app or the Host, not from inside an agent session`)
   // isRunCoordinator: this session is coordinating a Run that is **still running**. Kept separate
   // from isWorker rather than folded into one flag — they answer different questions (dispatch
   // ownership vs. Run coordination) for different reasons elsewhere in this file (isWorker also
@@ -2379,7 +2381,13 @@ export async function handleCommand(
       const read = intakeOf(args)
       if (!read.ok) return bad(read.error)
       const intake = read.intake
-      const { mode: _mode, scope: _scope, instructions: _instructions, attach: _attach, approve: _approve, ...plain } = args
+      const { mode: _mode, scope: _scope, instructions: _instructions, attach: _attach, approve: _approve, after: _after, ...plain } = args
+      // W8-C plan after plan: `--after <job>`, the plan this one is queued after
+      const afterId = args.after === undefined ? null : str(args.after)
+      if (args.after !== undefined && (afterId === null || afterId === 'none')) return bad('--after needs a job id')
+      if (afterId !== null && !s.jobs.some((j) => j.id === afterId)) return notFound(`unknown job: ${afterId}`)
+      if (afterId !== null && str(args.coordinatorAccount) === null && args.coordinatorProvider === undefined)
+        return bad('--after needs --coordinator-account (or --coordinator-provider): the queued plan\'s planner starts on it')
       const source = typeof args.objective === 'string' ? args.objective : ''
       if (intake.attach.length > 0 && (fromAgentSession || caller.role === 'mcp' || caller.role === 'controller'))
         return denied('--attach is for the person, in Astera or at their own shell: it copies files of this machine')
@@ -2436,6 +2444,11 @@ export async function handleCommand(
       if (args.noReview === true) {
         const cur = deps.getState()
         await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id ? { ...j, review: false } : j)) })
+      }
+      // W8-C plan after plan
+      if (afterId !== null) {
+        const cur = deps.getState()
+        await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id ? { ...j, after: afterId } : j)) })
       }
       const after = deps.getState()
       const created = after.jobs.find((j) => j.id === id)
@@ -2890,7 +2903,27 @@ export async function handleCommand(
       if (fromAgentSession || caller.role === 'mcp') return denied('jobs-set is for the person, in Astera or at their own shell')
       const id = str(args.id)
       if (!id) return bad('--id is required')
-      if (args.concurrency === undefined) return bad('nothing to set: give --concurrency')
+      if (args.concurrency === undefined && args.after === undefined) return bad('nothing to set: give --concurrency or --after')
+      // W8-C plan after plan: `--after <job|none>`, only alone (it is set before the plan starts, concurrency after)
+      if (args.after !== undefined) {
+        if (args.concurrency !== undefined) return bad('--after is set on its own, not with --concurrency')
+        const target = str(args.after)
+        if (target === null) return bad('--after needs a job id, or none')
+        const job = s.jobs.find((j) => j.id === id)
+        if (!job) return notFound(`unknown job: ${id}`)
+        if (target !== 'none') {
+          const refusal = afterRefusal(s, id, target)
+          if (refusal) return refusal.missing ? notFound(refusal.error) : bad(refusal.error)
+        }
+        if (!job.pendingStart || job.plannerSessionIds !== undefined)
+          return conflict(`job ${id} has started planning: it can no longer wait on another plan`)
+        if (target !== 'none' && job.coordinatorAccountId === undefined)
+          return bad(`job ${id} names no coordinator account: a queued plan's planner starts on it`)
+        const { after: _old, afterStopNotified: _mark, ...rest } = job
+        const next: Job = target === 'none' ? rest : { ...rest, after: target }
+        await deps.setState({ ...s, jobs: s.jobs.map((j) => (j.id === id ? next : j)) })
+        return okBody(jobView(deps.getState(), next, undefined))
+      }
       const concurrency = concurrencyArg(args.concurrency)
       if (concurrency === null) return bad('--concurrency must be an integer >= 1')
       // A Run's id names its Job, as `jobs get` reads it: the Run window holds either
@@ -2918,6 +2951,9 @@ export async function handleCommand(
       const job = s.jobs.find((j) => j.id === id)
       if (!job) return notFound(`unknown job: ${id}`)
       if (!job.pendingStart) return conflict(`job ${id} has started: a planner plans a Job before it is approved`)
+      // W8-C plan after plan: a queued plan's planner is the Host's to start, once the plan it waits on is delivered
+      if (job.after !== undefined && job.plannerSessionIds === undefined && !jobDelivered(s, job.after))
+        return conflict(`queued after ${afterNameOf(s, job.after)}: it starts by itself once that plan is delivered`)
       // W6-D: `--replan waves|off` sets Job.replan as the plan starts
       if (args.replan !== undefined && args.replan !== 'waves' && args.replan !== 'off') return bad('--replan must be waves|off')
       if (args.replan !== undefined) {
@@ -3518,6 +3554,14 @@ export async function handleCommand(
      * computed while it was fresh keeps showing no ▶ until some unrelated commit. A mark inside its
      * window is left alone: that start may still be under way. Answers the Runs it cleared.
      */
+    // W8-C plan after plan: the driving loop's sweep, which marks each queued Job whose predecessor stopped (the
+    // escalation, once) and clears the mark when it no longer is (after.ts afterSweep). Answers the Jobs it marked.
+    case 'jobs-after-sweep': {
+      const next = afterSweep(s, now)
+      if (next === s) return okBody({ marked: [] })
+      await deps.setState(next)
+      return okBody({ marked: next.jobs.filter((j) => j.afterStopNotified === now).map((j) => j.id) })
+    }
     case 'run-start-marks-clear': {
       const nowMs = Date.parse(now)
       const stale = new Set(

@@ -24,6 +24,8 @@ import { taskBoardsOf } from './blocked'
 import { jobNameOf } from './jobName'
 import { outcomeOfTasks } from './running'
 import { completionSettled } from './replan'
+// W8-C plan after plan
+import { afterStoppedText } from './after'
 import type { ScheduleLimits } from './schedule'
 import { emptyState, OWNER_ANSWER_SUBJECT, type OrchState } from './state'
 import {
@@ -315,6 +317,13 @@ export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[
           'plan.auto-started',
           { ...(j.projectId !== undefined ? { projectId: j.projectId } : {}), jobId: j.id, job: j },
           { title: jobNameOf(j), tasks: next.runs.filter((r) => r.jobId === j.id).reduce((n, r) => n + next.tasks.filter((t) => t.runId === r.id).length, 0) }
+        )
+      // W8-C plan after plan: the plan it is queued after stopped (after.ts afterSweep), escalated once per stop
+      if (j.afterStopNotified !== undefined && was.get(j.id)?.afterStopNotified === undefined)
+        push(
+          'task.escalated',
+          { ...(j.projectId !== undefined ? { projectId: j.projectId } : {}), jobId: j.id, job: j },
+          { title: jobNameOf(j), reason: afterStoppedText(next, j) }
         )
       if (j.nothingToDo === undefined || was.get(j.id)?.nothingToDo !== undefined) continue
       push(

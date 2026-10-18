@@ -320,6 +320,10 @@ export interface Job {
    *  `doc#<heading>`, `sha256` its text's, `taskId` the Task Astera wrote for it, `skipped` why it got none ("already
    *  done: …"). Present: the planner may not add, cancel or rewrite a Task, and `validatePlan` checks each prompt. */
   verbatim?: { title: string; source: string; sha256: string; taskId?: string; skipped?: string }[]
+  // W8-C plan after plan
+  /** When the Host escalated that the Job named by `after` stopped (gave up or archived) while this one waits on it
+   *  (`afterSweep`, after.ts). Once per stop: cleared when that Job is no longer stopped. */
+  afterStopNotified?: string
 }
 
 /** W7-A: one message of the owner to a plan's planner. `plan`: before approval, to the planner session itself; `run`:

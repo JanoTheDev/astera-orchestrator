@@ -566,7 +566,9 @@ export type TaskBlockedReason =
   /** Its worker stopped at a usage limit: waiting for the reset, or moving to the next account. */
   | { kind: 'rate-limited'; accountId: string; switching: boolean; resetsAt?: string }
   | { kind: 'archived' }
-  | { kind: 'pending-start' }
+  /** W8-C `after`: the plan is queued after another (Job.after), which has not delivered yet, or `stopped` (gave up or
+   *  was archived) so this one waits on a person. */
+  | { kind: 'pending-start'; after?: { id: string; title: string; stopped?: true } }
   | { kind: 'paused' }
   /** A definition Task: copied into each Run, never placed itself. */
   | { kind: 'definition' }

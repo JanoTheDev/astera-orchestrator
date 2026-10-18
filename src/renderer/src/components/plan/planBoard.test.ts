@@ -4,6 +4,8 @@ import { ko } from '../../../../core/i18n/messages/ko'
 import type { ActivityEvent } from '../../../../core/orchestration/activity'
 import type { JobEvent } from '../../../../core/types'
 import { answersKey, autoAnswersOf, cardModelOf, categoryOf, currentWaveOf, filesOf, nowOf, ordinal, planProgressOf, reasonText, replanningOf, wavesOf } from './planBoard'
+// W8-C plan after plan
+import { reasonTone } from './planBoard'
 
 const task = (id: string, over: Partial<JobTask> = {}): JobTask => ({ id, title: id, status: 'pending', openGates: 0, ...over })
 
@@ -238,5 +240,18 @@ describe('cardModelOf / answersKey (#76)', () => {
   it('singular for one answer', () => {
     expect(answersKey(1)).toBe('plan.card.answers.one')
     expect(answersKey(2)).toBe('plan.card.answers')
+  })
+})
+
+// W8-C plan after plan
+describe('reasonText: a plan queued after another (W8-C)', () => {
+  it('says Queued after <plan>, a wait; and Waiting on <plan>, which stopped, for a person', () => {
+    const queued = { kind: 'pending-start' as const, after: { id: 'j1', title: 'Plan A' } }
+    const stopped = { kind: 'pending-start' as const, after: { id: 'j1', title: 'Plan A', stopped: true as const } }
+    expect(reasonText(queued, 0, (x) => x)).toEqual({ key: 'plan.reason.queuedAfter', params: { plan: 'Plan A' } })
+    expect(reasonTone(queued)).toBe('wait')
+    expect(reasonText(stopped, 0, (x) => x)).toEqual({ key: 'plan.reason.afterStopped', params: { plan: 'Plan A' } })
+    expect(reasonTone(stopped)).toBe('action')
+    expect(reasonText({ kind: 'pending-start' }, 0, (x) => x)).toEqual({ key: 'plan.reason.pendingStart' })
   })
 })
