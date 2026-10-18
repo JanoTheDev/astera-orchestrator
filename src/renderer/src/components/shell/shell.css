@@ -113,12 +113,14 @@ body.resizing-row { cursor: row-resize; user-select: none; }
 .tb-divider { width: 1px; height: 20px; background: var(--line); }
 .tb-usage { position: relative; display: flex; }
 .tb-usage-btn {
-  display: flex; flex-direction: column; justify-content: center; gap: 3px; width: 96px; height: 34px; padding: 0 6px; border: 0; border-radius: var(--radius);
+  display: flex; flex-direction: column; justify-content: center; gap: 3px; width: 96px; height: 34px; padding: 0 6px; overflow: hidden; border: 0; border-radius: var(--radius);
   background: none; color: var(--text-dim); font: inherit; font-size: 12px; font-variant-numeric: tabular-nums; cursor: pointer;
 }
 .tb-usage-btn:hover { background: var(--hover); color: var(--text); }
 .tb-usage-btn:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--ring); }
-.tb-usage-head { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-faint); white-space: nowrap; }
+.tb-usage-head { display: flex; justify-content: space-between; gap: 4px; min-width: 0; font-size: 11px; color: var(--text-faint); white-space: nowrap; }
+.tb-usage-head > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.tb-usage-head > span:last-child { flex: none; }
 .tb-meter { width: 100%; }
 .tb-popover {
   position: absolute; top: calc(100% + 6px); right: 0; z-index: 50; width: 360px; max-height: 70vh; overflow: auto;
