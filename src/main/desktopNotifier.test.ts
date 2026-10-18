@@ -29,7 +29,7 @@ interface Harness {
   focused: { value: boolean }
 }
 
-function harness(flags: Partial<DesktopNotifySettings> = {}, sessions = ['s1', 's2']): Harness {
+function harness(flags: Partial<DesktopNotifySettings> = {}, sessions = ['s1', 's2'], alertSound = true): Harness {
   const shown: DesktopShowRequest[] = []
   const focused = { value: false }
   // The real state (core/sessions/attention.ts), not a stub. `DesktopNotifier` subscribes to it in its own
@@ -39,7 +39,7 @@ function harness(flags: Partial<DesktopNotifySettings> = {}, sessions = ['s1', '
   // number of Notification payloads.
   const attention = createAttentionState()
   const real = new DesktopNotifier({
-    settings: { getDesktopNotify: () => ({ ...DESKTOP_NOTIFY_DEFAULTS, ...flags }) },
+    settings: { getDesktopNotify: () => ({ ...DESKTOP_NOTIFY_DEFAULTS, ...flags }), getAlertSound: () => alertSound },
     isFocused: () => focused.value,
     getSession: (id) => (sessions.includes(id) ? session(id) : null),
     lang: () => 'en',
@@ -381,7 +381,7 @@ describe('DesktopNotifier — the restored wait and the offline notice (S6 Task 
     h.notifier.setActiveSession('s1')
     h.notifier.announceOffline(3, 's1')
     expect(h.shown).toEqual([
-      { event: 'limitWaiting', sessionId: 's1', title: 'Astera', body: 'While Astera was away from the Host, 3 session(s) hit a usage limit' }
+      { event: 'limitWaiting', sessionId: 's1', title: 'Astera', body: 'While Astera was away from the Host, 3 session(s) hit a usage limit', chime: false }
     ])
   })
 
@@ -404,7 +404,7 @@ describe('DesktopNotifier — a remote session waiting', () => {
   it('fires input needed under the remote tab key, with the title given', () => {
     const h = harness()
     h.notifier.remoteInputNeeded('rt_1:s9', 'fix the build · Office')
-    expect(h.shown).toEqual([{ event: 'inputNeeded', sessionId: 'rt_1:s9', title: 'fix the build · Office', body: expect.any(String) }])
+    expect(h.shown).toEqual([{ event: 'inputNeeded', sessionId: 'rt_1:s9', title: 'fix the build · Office', body: expect.any(String), chime: true }])
   })
   it('is off with input needed off, and quiet while that tab is on screen in a focused window', () => {
     const off = harness({ inputNeeded: false })
@@ -426,7 +426,7 @@ describe('DesktopNotifier — W3-A orchestration notices', () => {
   it('shows the notice as it is worded, on its own switch', () => {
     const on = harness()
     on.notifier.activity(notice)
-    expect(on.shown).toEqual([{ event: 'orchestration', sessionId: 's1', title: 'Task failed', body: 'Task A (Plan A)' }])
+    expect(on.shown).toEqual([{ event: 'orchestration', sessionId: 's1', title: 'Task failed', body: 'Task A (Plan A)', chime: false }])
     const off = harness({ orchestration: false })
     off.notifier.activity(notice)
     expect(off.shown).toEqual([])
@@ -439,5 +439,31 @@ describe('DesktopNotifier — W3-A orchestration notices', () => {
     h.notifier.activity(notice)
     h.notifier.activity({ key: 'done:r1', title: 'Plan done', body: 'Plan A' })
     expect(h.shown.map((r) => r.title)).toEqual(['Plan done'])
+  })
+})
+
+// W6-B: the app chimes (renderer lib/alertSound.ts) with a notice that needs the owner, and the OS notice is then silent
+describe('DesktopNotifier — W6-B chime', () => {
+  it('chimes with a session waiting, an escalation and a Gate, not with other notices', () => {
+    const h = harness()
+    h.notifier.onHookEvent('s1', { hook_event_name: 'Notification' })
+    h.notifier.activity({ key: 'escalated:e1', title: 'Needs your decision', body: 'Task A: which DB?', alert: true })
+    h.notifier.activity({ key: 'gate:g1', title: 'Needs your answer', body: 'Task A: retry?', alert: true })
+    h.notifier.activity({ key: 'done:r1', title: 'Plan done', body: 'Plan A' })
+    h.notifier.onRollState(roll())
+    expect(h.shown.map((r) => [r.title === 'Plan done' ? 'done' : r.event, r.chime])).toEqual([
+      ['inputNeeded', true],
+      ['orchestration', true],
+      ['orchestration', true],
+      ['done', false],
+      ['limitWaiting', false]
+    ])
+  })
+
+  it('never chimes with alertSound off', () => {
+    const h = harness({}, ['s1', 's2'], false)
+    h.notifier.onHookEvent('s1', { hook_event_name: 'Notification' })
+    h.notifier.activity({ key: 'escalated:e1', title: 'Needs your decision', body: 'x', alert: true })
+    expect(h.shown.map((r) => r.chime)).toEqual([false, false])
   })
 })

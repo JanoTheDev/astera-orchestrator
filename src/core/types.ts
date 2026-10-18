@@ -906,6 +906,8 @@ export interface CoreEvents {
   /** A desktop notification was clicked. Main has already raised the window; the renderer activates
    *  that session's tab, through the path the tab bar already uses (design doc §7). */
   'notify:activate': { sessionId: string }
+  /** W6-B: a notice that needs the owner was shown; the renderer chimes (lib/alertSound.ts). */
+  'notify:chime': Record<string, never>
   /** An install running on the screen shown when neither CLI is present. `start` carries the command
    *  as one line so the screen can show what it is about to run; `out` is a chunk of the installer's
    *  own output, stdout and stderr together, because an installer says most of what matters on the
@@ -1475,6 +1477,9 @@ export interface CoreApi {
     /** W3-A: minutes between activity digests; 0 is none. */
     getActivityDigestMinutes(): Promise<number>
     setActivityDigestMinutes(n: number): Promise<void>
+    /** W6-B: the chime with a notice that needs the owner; default true. */
+    getAlertSound(): Promise<boolean>
+    setAlertSound(on: boolean): Promise<void>
     // The four desktop-notification switches (design doc §6/§8). Read by the settings screen and by
     // DesktopNotifier itself (main), which is why the type lives in core/notify/settings rather than here.
     getDesktopNotify(): Promise<DesktopNotifySettings>

@@ -22,7 +22,7 @@ import {
 } from './state'
 import { TaskValidator } from './exec/validator'
 import { TAIL_EMPTY, TAIL_UNTRACKED } from './exec/tail'
-import { FAILURE_LIMIT, type CheckResult, type JobRun, type Project, type Task } from './types'
+import { FAILURE_LIMIT, type CheckResult, type JobRun, type Message, type Project, type Task } from './types'
 import { parseArgs } from './cliArgs'
 import { unknownFlagError } from './cliUsage'
 import { slotsToFill } from './schedule'
@@ -1123,6 +1123,16 @@ describe('handleCommand — inbox는 코디네이터 전용', () => {
     const r = await call(deps, 'inbox', {})
     expect(r.status).toBe(200)
     expect(Array.isArray(r.body)).toBe(true)
+  })
+
+  // W6-B: the app's "needs my input" list reads `inbox --type escalation`; the coordinator escalates with `--reason`
+  it('W6-B: send --type escalation --reason is the subject, and inbox --type lists only that type', async () => {
+    const deps = await seedTwoWorkers()
+    const d = deps.getState().dispatches.find((x) => x.sessionId === 'sess1')!
+    expect((await call(deps, 'send', { type: 'escalation', taskId: d.taskId, reason: 'Drop the users table?' })).status).toBe(200)
+    expect((await call(deps, 'send', { type: 'status', taskId: d.taskId, subject: 's' })).status).toBe(200)
+    const r = await call(deps, 'inbox', { type: 'escalation' })
+    expect((r.body as Message[]).map((m) => [m.type, m.subject])).toEqual([['escalation', 'Drop the users table?']])
   })
 
   it('워커는 자기 dispatch의 send·ask는 계속 쓸 수 있다 — 막은 것은 inbox뿐이다', async () => {

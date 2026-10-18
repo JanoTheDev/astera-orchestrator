@@ -30,13 +30,18 @@ export type CommandBuilder = (opts: {
   /** The model to start on (orchestrator W1-A, roleModels.ts): claude `--model <id>`, codex `-m <id>`.
    *  Absent or null: no flag, the CLI's own default. */
   model?: string | null
+  /** claude only (W6-B): tools the session may not use, `--disallowedTools`. Job workers lose `AskUserQuestion`, so
+   *  their questions go through `astera ask`, which the coordinator answers. */
+  disallowedTools?: string[]
 }) => SpawnCommand
 
 export function buildClaudeCommand(platform: NodeJS.Platform, resolve: ResolveExecutable = resolveWindowsExecutable): CommandBuilder {
-  return ({ resumeSessionId, settingsFile, bypassPermissions, addDirs, initialPrompt, model }) => {
+  return ({ resumeSessionId, settingsFile, bypassPermissions, addDirs, initialPrompt, model, disallowedTools }) => {
     const args: string[] = []
     // Checked here too, for every source (a renderer spawn, a roll's note): see MODEL_ID.
     if (model && MODEL_ID.test(model)) args.push('--model', model)
+    // W6-B. Variadic, so one comma-joined value, and ahead of --add-dir so that list still runs up to the `--` fence
+    if (disallowedTools && disallowedTools.length > 0) args.push('--disallowedTools', disallowedTools.join(','))
     // Injects a session-scoped statusLine via --settings (the global settings.json is left alone) — goes before resume
     if (settingsFile) args.push('--settings', settingsFile)
     // Read access to the app's screenshot folder, so the paths Design Mode puts in a prompt open

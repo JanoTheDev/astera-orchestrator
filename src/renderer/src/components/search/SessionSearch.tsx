@@ -21,6 +21,14 @@ function inboxText(item: InboxItem): { what: string; where: string; title: strin
         where: `${item.projectName} › ${item.planName}${item.taskTitle ? ` · ${item.taskTitle}` : ''}`,
         title: item.gate.question
       }
+    case 'escalation': {
+      const reason = item.message.subject || item.message.body
+      return {
+        what: `Needs your decision: ${reason}`,
+        where: `${item.projectName} › ${item.planName}${item.taskTitle ? ` · ${item.taskTitle}` : ''}`,
+        title: item.message.body || reason
+      }
+    }
     case 'approval':
       return { what: 'Plan awaits approval', where: `${item.projectName} › ${item.planName}`, title: 'Open the plan to approve it' }
   }
@@ -94,7 +102,8 @@ export function SessionSearch({
           {inbox.length === 0 && <li className="ws-empty">Nothing needs your input</li>}
           {inbox.map((item) => {
             const t = inboxText(item)
-            const key = item.kind === 'session' ? item.session.sessionId : item.kind === 'gate' ? item.gate.id : `approve-${item.jobId}`
+            const key =
+              item.kind === 'session' ? item.session.sessionId : item.kind === 'gate' ? item.gate.id : item.kind === 'escalation' ? item.message.id : `approve-${item.jobId}`
             return (
               <li key={key}>
                 <button className="ws-row ss-row" title={t.title} onClick={() => go(jobOf(item), sessionOf(item))}>

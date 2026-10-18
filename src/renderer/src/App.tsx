@@ -173,6 +173,7 @@ import { backdropProps } from './lib/backdrop'
 import { createTouched } from './lib/touched'
 import { SlackSettings } from './components/SlackSettings'
 import { needsUnderstanding } from './lib/understandingRead'
+import { playAlertChime } from './lib/alertSound' // W6-B
 
 sessionBus.init()
 
@@ -1189,6 +1190,8 @@ export default function App(): React.JSX.Element {
     const offNotifyActivate = window.api.on('notify:activate', ({ sessionId }) => {
       selectWorkbenchTabRef.current?.(sessionTab(sessionId))
     })
+    // W6-B: main showed a notice that needs the owner, silent, and the chime is ours (lib/alertSound.ts)
+    const offNotifyChime = window.api.on('notify:chime', () => void playAlertChime())
     const offExit = window.api.on('session:exit', ({ sessionId, exitCode }) => {
       setSessions((prev) =>
         prev.map((s) => (s.id === sessionId ? { ...s, status: 'exited', exitCode } : s))
@@ -1277,6 +1280,7 @@ export default function App(): React.JSX.Element {
       offAccounts()
       offGhosts()
       offNotifyActivate()
+      offNotifyChime()
       offExit()
       offCreated()
       offUpdate()

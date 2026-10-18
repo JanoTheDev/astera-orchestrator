@@ -25,10 +25,13 @@ export interface DesktopShowRequest {
   sessionId: string
   title: string
   body: string
+  /** W6-B: the app chimes with this notice (alertSound), so the OS notice itself stays silent: one sound, not two.
+   *  A session waiting at a prompt or a question, an escalation and a Gate chime, when the setting is on. */
+  chime: boolean
 }
 
 export interface DesktopNotifierDeps {
-  settings: { getDesktopNotify(): DesktopNotifySettings }
+  settings: { getDesktopNotify(): DesktopNotifySettings; getAlertSound(): boolean }
   /** Read at the moment a notification would fire rather than subscribed to: main already holds the
    *  BrowserWindow, so win.isFocused() is the whole of it and no listener is needed (§7). */
   isFocused: () => boolean
@@ -131,7 +134,8 @@ export class DesktopNotifier {
       event: 'limitWaiting',
       sessionId: sessionId ?? '',
       title: t(lang, 'notify.fallbackTitle'),
-      body: t(lang, 'notify.offlineRolls', { n: count })
+      body: t(lang, 'notify.offlineRolls', { n: count }),
+      chime: false
     })
   }
 
@@ -147,7 +151,7 @@ export class DesktopNotifier {
   activity(n: ActivityNotice): void {
     if (!this.deps.settings.getDesktopNotify().orchestration) return
     if (n.sessionId !== undefined && this.deps.isFocused() && this.activeSessionId === n.sessionId) return
-    this.deps.show({ event: 'orchestration', sessionId: n.sessionId ?? '', title: n.title, body: n.body })
+    this.deps.show({ event: 'orchestration', sessionId: n.sessionId ?? '', title: n.title, body: n.body, chime: n.alert === true && this.deps.settings.getAlertSound() })
   }
 
   private fire(event: SessionNotifyEvent, sessionId: string, accountLabel?: string, title?: string | null): void {
@@ -163,7 +167,8 @@ export class DesktopNotifier {
       body:
         event === 'accountSwitched'
           ? t(lang, BODY_KEY[event], { label: accountLabel ?? '' })
-          : t(lang, BODY_KEY[event])
+          : t(lang, BODY_KEY[event]),
+      chime: event === 'inputNeeded' && this.deps.settings.getAlertSound()
     })
   }
 }

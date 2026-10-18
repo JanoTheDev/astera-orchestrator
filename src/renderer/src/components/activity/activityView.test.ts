@@ -41,6 +41,14 @@ describe('activityView', () => {
     expect(lineOf({ ...paused, type: 'usage.resumed' }, label).text).toBe('Work: new workers resumed, under the usage threshold again')
   })
 
+  it('W6-B: an auto-answer and an escalation', () => {
+    expect(lineOf(ev(1, { type: 'question.auto-answered', payload: { title: 'T', question: 'Port?', answer: '8080' } }), label)).toEqual({
+      text: 'T: coordinator answered "Port?": 8080',
+      tone: 'info'
+    })
+    expect(lineOf(ev(1, { type: 'task.escalated', payload: { title: 'T', reason: 'Drop it?' } }), label)).toEqual({ text: 'T: needs your decision: Drop it?', tone: 'bad' })
+  })
+
   it('says completed, failed, cancelled and awaiting review apart, and who did it', () => {
     expect(lineOf(ev(1), label)).toEqual({ text: 'Task A: cancelled', tone: 'warn' })
     expect(lineOf(ev(1, { payload: { title: 'T', category: 'awaiting-review' } }), label).text).toBe('T: awaiting review')

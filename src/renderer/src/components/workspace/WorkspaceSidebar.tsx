@@ -65,6 +65,7 @@ export function WorkspaceSidebar({
       runs: data?.runs ?? [],
       tasks: data?.tasks ?? [],
       gates: data?.gates ?? [],
+      escalations: data?.escalations ?? [], // W6-B
       attention,
       hostWaiting
     }
@@ -99,7 +100,7 @@ export function WorkspaceSidebar({
         </button>
         <button
           className={`ss-badge${inbox.length > 0 ? ' ss-due' : ''}`}
-          title="Needs my input: sessions at a prompt, open questions, plans awaiting approval"
+          title="Needs my input: sessions at a prompt, open questions, escalations, plans awaiting approval"
           aria-label={`${inbox.length} need your input`}
           aria-pressed={inboxOpen}
           onClick={() => {
