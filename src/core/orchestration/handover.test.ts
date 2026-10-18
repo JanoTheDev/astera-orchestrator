@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildHandoverPrompt, coordinatorLaunchPrompt } from './handover'
+import { buildHandoverPrompt, buildPlannerBrief, coordinatorLaunchPrompt } from './handover'
 
 const prompt = (over: Partial<Parameters<typeof buildHandoverPrompt>[0]> = {}): string =>
   buildHandoverPrompt({
@@ -174,5 +174,15 @@ describe('coordinatorLaunchPrompt', () => {
       buildHandoverPrompt({ runId: 'run_1', objective: 'o', concurrency: 1, taskCount: 1 }).split('\n')
         .length
     ).toBeGreaterThan(10)
+  })
+})
+
+describe('buildPlannerBrief (W7-E #69)', () => {
+  it('lets the planner write its inputs folder, and nothing else', () => {
+    const b = buildPlannerBrief({ jobId: 'job_x', objective: 'o', repoRoot: '/repo', accountId: 'acc1', concurrency: 2 })
+    expect(b).toContain('$ASTERA_PROFILE_DIR/plans/job_x/inputs/')
+    expect(b).toContain('existing.md')
+    expect(b).toContain('audit.md')
+    expect(b).not.toContain('Do not edit, create or delete files, run builds, or commit.')
   })
 })
