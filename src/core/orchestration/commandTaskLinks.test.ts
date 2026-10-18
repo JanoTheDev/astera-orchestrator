@@ -246,6 +246,17 @@ describe('run-open-pr: one pull request per plan', () => {
     expect((await call('run-open-pr', { run: 'r1', force: true })).body).toMatchObject({ number: 14, opened: true })
   })
 
+  it('a project with no remote answers with a note, not a failed PR (W7-E #80)', async () => {
+    const { call, deps, state } = setup({ gh: ghForPr })
+    deps.github!.createPr = async () => ({ ok: false, stage: 'push', kind: 'no-remote', detail: '', pushed: false })
+    const r = await call('run-open-pr', { run: 'r1' })
+    expect(r.status).toBe(200)
+    expect(r.body).toMatchObject({ noRemote: true, message: "This project has no remote; the plan's work is on branch astera/run" })
+    const pr = state().runs[0].pr!
+    expect(pr.note).toBeTruthy()
+    expect(pr.error).toBeUndefined()
+  })
+
   it("an existing PR for the branch (gh's \"already exists\") is linked as the plan's", async () => {
     const { call, deps, state } = setup({ gh: ghForPr })
     deps.github!.createPr = async () => ({

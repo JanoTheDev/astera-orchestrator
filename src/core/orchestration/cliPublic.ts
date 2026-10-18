@@ -117,7 +117,9 @@ const JOB_HIDDEN = [
   'replanning',
   'lastReplan',
   /* W6-A: a plan ended with nothing to do, not in the SDK's contract yet */ 'nothingToDo',
-  /* W6-H: the plan's own delivery (jobs-create/jobs-plan --delivery), not in the SDK's contract yet */ 'delivery'
+  /* W6-H: the plan's own delivery (jobs-create/jobs-plan --delivery), not in the SDK's contract yet */ 'delivery',
+  /* W7-E: the review default and the planner's account, not in the SDK's contract yet */ 'review',
+  'plannerAccountId'
 ] as const
 
 /** A followed event's message body (pages long) and the app's link from an event to a tab. */

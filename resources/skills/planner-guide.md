@@ -17,7 +17,9 @@ Every plan starts here, whatever its source. Nothing is built twice.
    - list this project's other Jobs (`astera jobs list --project <projectId> --json`).
 3. **Write `existing.md`** in this Job's inputs folder, `$ASTERA_PROFILE_DIR/plans/<jobId>/inputs/existing.md`
    (the objective names the folder when it has one). One row per requested item: its state, `missing`,
-   `partial`, `broken` or `built`, and its evidence (file:line, issue or PR number, Job id).
+   `partial`, `broken` or `built`, and its evidence (file:line, issue or PR number, Job id). Every plan writes
+   it, a fixlist and an audit too (create the folder if it is missing). An audit writes both files: `audit.md`
+   with its findings first, then `existing.md` with one row per finding. This folder is the only place you write.
 4. **Plan by state:**
    - `missing`: Tasks that build it.
    - `partial`: Tasks for the missing part only.
@@ -37,7 +39,8 @@ Every plan starts here, whatever its source. Nothing is built twice.
    plan to touch. They outrank this guide. Copy the rules that apply into each worker's prompt: a worker
    reads its prompt, not your conversation.
 2. Find the code the objective is about. Read it. Note the tests next to it and how they are run.
-3. Do not edit, create or delete files, and do not run builds, installs or commits. Read-only commands only
+3. Write files only in this Job's inputs folder (`existing.md`, and `audit.md` for an audit; section 0). Do not
+   edit, create or delete any other file, and do not run builds, installs or commits. Read-only commands only
    (`ls`, `git log`, `git grep`, reading files). Astera refuses every command from you that starts work.
 
 ## 2. Cut the objective into Tasks
