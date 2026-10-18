@@ -145,6 +145,14 @@ describe('publicFor', () => {
       turn: { state: 'ended' }
     })
   })
+  // W9-H: a send into a console the owner holds is queued, and says so.
+  it('sessions send keeps the owner-hold queued answer', () => {
+    expect(publicFor('sessions-send', { queued: true, reason: 'owner-typing', target: 's1', secret: 1 })).toEqual({
+      queued: true,
+      reason: 'owner-typing',
+      target: 's1'
+    })
+  })
 
   // `sessions create` answers the new session as `sessions list` shows it, and nothing of its note.
   it('sessions create 는 sessions list 의 한 줄과 같은 칸만 낸다', () => {
