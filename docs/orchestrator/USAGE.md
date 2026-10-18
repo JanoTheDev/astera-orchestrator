@@ -39,6 +39,11 @@ owns every session and drives every plan, so closing the window stops nothing (L
    may add up to 3 follow-up waves. The feed shows "replanning" and "replanned: <what changed>". If the plan no longer
    holds together, or a 4th follow-up is wanted, the plan stays held and you are asked ("needs you"). Turn it off
    with the "Replan between waves" box or `--replan off` (`jobs create`, `jobs plan`).
+   **Review** (a planned Job, on by default, W7-E): every Task, from the planner, a replan or the coordinator, is
+   checked by a fresh reviewer before it counts as done ("Awaiting review" on the board). A blocking finding goes
+   back to the worker, up to 5 rounds, then the Task escalates. Turn it off with `--no-review` (`jobs create`,
+   `jobs plan`), or for one Task with `tasks add --no-review`. A plan with no coordinator replans and gets its final
+   check on the account its planner ran on.
 5. **Hold / stop / resume.** Jobs view → the hand button, or "pause <plan>" / "stop launching for <plan>" in the
    command bar, **holds** a plan: no new worker starts, running workers carry on and nothing is closed, so nothing is
    asked. The play button or "resume <plan>" lets it launch again. "pause worker 2" pauses one worker after a
@@ -55,7 +60,8 @@ owns every session and drives every plan, so closing the window stops nothing (L
 
 **Delivery** (per project; Jobs view → "When a plan is done", or `astera projects set --id <project> --delivery pr|push
 [--delivery-branch <branch>]`; one plan can override it with `--delivery` on `jobs create` / `jobs plan`):
-- `pr` (the default): one PR per plan, opened when the plan finishes, never merged automatically.
+- `pr` (the default): one PR per plan, opened when the plan finishes, never merged automatically. A project with no
+  remote gets no PR and no failure: the feed says "This project has no remote; the plan's work is on branch <name>".
 - `push`: when the last Task passed review (and the final check is done), Astera merges the plan's worktrees into the
   project folder's delivery branch (the default branch unless set), runs the plan's validation checks once more on the
   merged tree, and pushes it, **with no review by a person**. The merge commits say `Fixes #n` for the issues the plan
@@ -87,7 +93,8 @@ From a shell: `astera jobs create --objective "…" [--mode plan|audit|fixlist] 
 project's other Jobs. It writes `inputs/existing.md` (each item `missing`, `partial`, `broken` or `built`), plans only
 what is missing or broken, and gives every Task a basis with evidence; approval is refused without one. If everything
 is built, the Job ends as "nothing to do" (archived, the summary kept, a feed line and a notice) and no tab opens.
-Writing `existing.md` and `audit.md` asks your permission once, as every planner edit does.
+Every planner writes `existing.md` (an audit also `audit.md`) in the Job's `inputs/` folder, and no other file.
+Writing them asks your permission once, as every planner edit does.
 
 ## Day to day (checked by W6-V, 2026-10-18)
 
