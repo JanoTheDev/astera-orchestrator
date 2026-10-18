@@ -2,6 +2,7 @@
 // slotsToFill 과 같은 이유로 그렇다(이 슬라이스에서 기계가 검사할 수 있는 유일한 부분이고,
 // 매다는 자리는 main 의 배선이라 테스트가 없다).
 import type { OrchState } from './state'
+import type { Gate } from './types'
 
 /** 코디네이터가 없는 Run 에서 워커의 `ask` 에 돌려주는 답. **고정 문구다.**
  *
@@ -164,3 +165,27 @@ export function planNudges<T extends { runId: string; sessionId: string; message
 
 /** A nudge's memory is per Run and session (final review M4): one session named by two Runs kept overwriting one. */
 export const nudgeKey = (m: { runId: string; sessionId: string }): string => `${m.runId}\u0000${m.sessionId}`
+
+// W8-E (#96): the owner's answer to a Gate wakes the coordinator. It waits in `check --wait`, which returns only on a
+// message in its Run's inbox, so a resolved Gate posts one (as `usage.resumed` does, exec/dispatchLoop.ts).
+
+/** How long after its answer a Gate is still told: a restart or an upgrade does not replay a Run's old answers. */
+export const GATE_ANSWER_TELL_MS = 10 * 60_000
+
+/** The subject of the inbox message that tells a coordinator a Gate was answered; it also marks the Gate as told. */
+export const gateAnsweredSubject = (gateId: string): string => `gate ${gateId} answered`
+
+/** Gates answered in the last `GATE_ANSWER_TELL_MS` on a Run a coordinator drives, whose answer is not yet in that
+ *  Run's inbox. Told once: the message itself is the mark, so a restart does not tell it again. */
+export function gateAnswersToTell(s: OrchState, nowMs: number): Gate[] {
+  const driven = new Set(s.runs.filter((r) => r.coordinatorSessionId !== undefined).map((r) => r.id))
+  const told = new Set(s.messages.filter((m) => m.type === 'status').map((m) => `${m.runId}\u0000${m.subject}`))
+  return s.gates.filter(
+    (g) =>
+      g.status === 'resolved' &&
+      driven.has(g.runId) &&
+      g.resolvedAt !== undefined &&
+      Date.parse(g.resolvedAt) >= nowMs - GATE_ANSWER_TELL_MS &&
+      !told.has(`${g.runId}\u0000${gateAnsweredSubject(g.id)}`)
+  )
+}
