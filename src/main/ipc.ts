@@ -1,5 +1,6 @@
 import { ipcMain, dialog, app, shell, session, webContents, type BrowserWindow, type WebContents } from 'electron'
 import { killProcessTree } from '../core/run/kill'
+import { applyAutostart, realAutostartDeps } from './autostart'
 import { cachedByStamp } from '../core/stampCache'
 import fsSync, { promises as fs, existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
@@ -1459,6 +1460,15 @@ export function registerIpc(
           profileDir: orch.profileDir
         }
       : undefined
+  /** T23: the login entry follows the setting; a dev build (not packaged) writes none — its CLI lives in a worktree. */
+  const syncAutostart = async (): Promise<void> => {
+    const env = orchEnvOf()
+    if (!env || !app.isPackaged) return
+    await applyAutostart(
+      { enabled: core.appSettings.getStartAtLogin(), cli: env.cliPath, profileDir: env.profileDir, log: orchLog },
+      realAutostartDeps(process.env, os.homedir())
+    )
+  }
   /** The project the Jobs sidebar is folded for. main is not otherwise told what the renderer has
    *  open, and the snapshot is per project, so orch.list doubles as the subscription: the last path
    *  it was asked about is the one 'orch:state' is pushed for. That is the shape files.watch and
@@ -3769,6 +3779,7 @@ export function registerIpc(
     const replayed = exitsBeforeTap.drainInto(orchRollTap)
     if (replayed > 0) orchLog(`replayed ${replayed} session exit(s) that arrived before orchestration started`)
     orchLog(`started — cli=${cliPath} skills=${skillsPath}`)
+    void syncAutostart()
     // The other half of the queue read at the top of this function: the reports workers wrote down
     // while there was no server to take them.
     //
@@ -4327,6 +4338,13 @@ export function registerIpc(
   ipcMain.handle('settings.setStallWatch', async (_e, on: unknown) => {
     if (typeof on !== 'boolean') throw new Error(`INVALID_STALL_WATCH: ${String(on)}`)
     await core.appSettings.setStallWatch(on)
+  })
+  // T23: start the Host at login, on by default
+  ipcMain.handle('settings.getStartAtLogin', () => core.appSettings.getStartAtLogin())
+  ipcMain.handle('settings.setStartAtLogin', async (_e, on: unknown) => {
+    if (typeof on !== 'boolean') throw new Error(`INVALID_START_AT_LOGIN: ${String(on)}`)
+    await core.appSettings.setStartAtLogin(on)
+    void syncAutostart()
   })
   // T21: Astera answers the questions it safely can (orchestration/exec/autoAnswer.ts), on by default
   ipcMain.handle('settings.getAutoAnswer', () => core.appSettings.getAutoAnswer())

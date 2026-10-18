@@ -174,7 +174,7 @@ import { JOB_SOURCE, SOURCE_COMMANDS, createFromContext, sourcesCommand, type Jo
 import { replanJobOf, waveOpen } from './replan'
 import { REPLAN_COMMANDS, replanCommand, replanRefusal } from './exec/replanStart'
 // Coordinator rotation
-import { refreshCoordinator } from './exec/coordinatorRotate'
+import { coordinatorHandoff, refreshCoordinator } from './exec/coordinatorRotate'
 import { feedbackCommand, isFeedbackCommand } from './exec/plannerFeedback'
 export { JOB_SOURCE } from './commandSources'
 import { pluginIdOfCheck, type CompletionCheckInput, type PluginCheckAnswer } from './pluginChecks'
@@ -1996,7 +1996,10 @@ export async function handleCommand(
           jobId: job.id,
           accountId,
           promptsMode: job.verbatim !== undefined
-        })
+        }) +
+          // T23: a coordinator restarted for a stated reason (`run-start --reason`, the crash resume) replaces one whose
+          // conversation is gone, so it gets the fresh-coordinator hand-off read from the state.
+          (cmd === 'run-start' && str(args.reason) ? `\n\n${coordinatorHandoff(base, target.id, str(args.reason)!)}` : '')
       })
       sessionId = spawned.sessionId
     } catch (e) {

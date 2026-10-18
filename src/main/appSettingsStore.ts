@@ -30,6 +30,7 @@ import { ACTIVITY_DIGEST_DEFAULT_MINUTES, activityDigestMinutesOf } from '../cor
 import { tabSummariesOf } from '../core/settings/tabSummaries'
 import { FRESH_COORDINATOR_DEFAULT_PCT, freshCoordinatorPctOf } from '../core/settings/freshCoordinator'
 import { stallWatchOnOf } from '../core/settings/stallWatch'
+import { startAtLoginOf } from '../core/settings/startAtLogin'
 import { autoAnswerOnOf } from '../core/orchestration/exec/autoAnswer'
 import { mcpAccessOf } from '../core/settings/mcpAccess'
 import { mcpSessionsOf } from '../core/settings/mcpSessions'
@@ -135,6 +136,8 @@ export class AppSettingsStore {
   private freshCoordinatorContextPct = FRESH_COORDINATOR_DEFAULT_PCT
   /** Stall watchdog (orchestration/exec/stallWatch.ts): on by default; only an explicit false turns it off. */
   private stallWatch = true
+  /** T23 (main/autostart.ts): on by default; only an explicit false turns it off. */
+  private startAtLogin = true
   /** T21 (orchestration/exec/autoAnswer.ts): on by default; only an explicit false turns it off. */
   private autoAnswer = true
   /** W6-B: the chime with a notice that needs the owner. On by default; only an explicit false (the file is
@@ -236,6 +239,7 @@ export class AppSettingsStore {
         (parsed as { freshCoordinatorContextPct?: unknown }).freshCoordinatorContextPct
       )
       this.stallWatch = stallWatchOnOf((parsed as { stallWatch?: unknown }).stallWatch)
+      this.startAtLogin = startAtLoginOf((parsed as { startAtLogin?: unknown }).startAtLogin)
       this.autoAnswer = autoAnswerOnOf((parsed as { autoAnswer?: unknown }).autoAnswer)
       this.alertSound = (parsed as { alertSound?: unknown }).alertSound !== false
       this.autoCloseEndedPlanTabs = (parsed as { autoCloseEndedPlanTabs?: unknown }).autoCloseEndedPlanTabs !== false // W7-F (#84)
@@ -313,6 +317,7 @@ export class AppSettingsStore {
         this.activityDigestMinutes = ACTIVITY_DIGEST_DEFAULT_MINUTES
         this.freshCoordinatorContextPct = FRESH_COORDINATOR_DEFAULT_PCT
         this.stallWatch = true
+        this.startAtLogin = true
       this.autoAnswer = true
         this.autoAnswer = true
         this.alertSound = true
@@ -357,6 +362,7 @@ export class AppSettingsStore {
       this.activityDigestMinutes = ACTIVITY_DIGEST_DEFAULT_MINUTES
       this.freshCoordinatorContextPct = FRESH_COORDINATOR_DEFAULT_PCT
       this.stallWatch = true
+      this.startAtLogin = true
       this.alertSound = true
       this.autoCloseEndedPlanTabs = true
       this.tabSummaries = true
@@ -609,6 +615,15 @@ export class AppSettingsStore {
     await this.persist()
   }
 
+  getStartAtLogin(): boolean {
+    return this.startAtLogin
+  }
+
+  async setStartAtLogin(on: boolean): Promise<void> {
+    this.startAtLogin = on !== false
+    await this.persist()
+  }
+
   getAutoAnswer(): boolean {
     return this.autoAnswer
   }
@@ -795,6 +810,7 @@ export class AppSettingsStore {
       activityDigestMinutes?: number
       freshCoordinatorContextPct?: number
       stallWatch?: false
+      startAtLogin?: false
       autoAnswer?: false
       alertSound?: false
       autoCloseEndedPlanTabs?: false
@@ -841,6 +857,7 @@ export class AppSettingsStore {
     if (this.activityDigestMinutes !== ACTIVITY_DIGEST_DEFAULT_MINUTES) data.activityDigestMinutes = this.activityDigestMinutes
     if (this.freshCoordinatorContextPct !== FRESH_COORDINATOR_DEFAULT_PCT) data.freshCoordinatorContextPct = this.freshCoordinatorContextPct
     if (!this.stallWatch) data.stallWatch = false
+    if (!this.startAtLogin) data.startAtLogin = false
     if (!this.autoAnswer) data.autoAnswer = false
     if (!this.alertSound) data.alertSound = false
     if (!this.autoCloseEndedPlanTabs) data.autoCloseEndedPlanTabs = false // W7-F (#84)

@@ -61,6 +61,8 @@ import { composeHostDriving } from './drivingWiring'
 // W6-G
 import { createUsageGuard } from '../core/orchestration/usageGuard'
 import { usageActivity } from '../core/orchestration/activity'
+import { resumeAfterCrash } from '../core/orchestration/exec/crashResume'
+import { readStateFile } from '../core/orchestration/stateFile'
 import { readAccountReadings } from '../core/usage/accountReadings'
 import { readUsagePauseAt } from '../core/settings/usagePauseAt'
 
@@ -601,7 +603,8 @@ async function main(): Promise<void> {
   // process's restart recovery on it. The first call that needs the state loads it, and once the app
   // has pushed its state there is nothing left to load — see `createHostOrch`. That is still true now
   // that the Host can start sessions itself: a spawn happens only inside a command, and every command
-  // waits on `ready()` first.
+  // waits on `ready()` first. The one exception is a file with work in flight when the last Host died: the crash resume
+  // below loads it as soon as the server listens (T23), since nobody else may ever ask.
   //
   // `server` is assigned a few lines down; every one of these closures runs long after that, because
   // nothing can call them before a client has connected.
@@ -1163,6 +1166,21 @@ async function main(): Promise<void> {
     writeHostPidFile(profileDir, { pid: process.pid, startedAt: server.startedAt, exe: process.execPath })
   } catch (err) {
     log.write(`could not record which process this Host is: ${String(err)}`)
+  }
+
+  // T23: work the file says was in flight when the last Host died is picked up now, not when an app first asks — a Host
+  // started at login has no app (core/orchestration/exec/crashResume.ts). Only a Host that starts sessions itself.
+  if (wiring) {
+    const recovery = wiring.orchHooks.recovery
+    void resumeAfterCrash({
+      readFile: () => readStateFile(path.join(profileDir, 'orchestration.json')),
+      ready: () => orch.ready(),
+      state: () => orch.state(),
+      handle: (cmd, args) => orch.handle(cmd, args),
+      settle: () => recovery.catchUp(),
+      activity: (draft) => activityLog.recorded([draft]),
+      log: (m) => log.write(m)
+    })
   }
 
   // The Host's Slack starts once the server exists: who keeps Slack is the server's to say.

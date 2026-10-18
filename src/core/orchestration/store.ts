@@ -9,8 +9,7 @@
 // differs from SchedulerConfigStore, which recovers per entry.
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import { randomUUID } from 'node:crypto'
-import { renameRetrying } from '../renameRetry'
+import { readLastGood, writeDurably } from '../recovery/plan'
 import {
   deleteRuns,
   detachCoordinator,
@@ -275,14 +274,18 @@ export class OrchestrationStore {
         this.state = emptyState()
         return { recovered: false, unknownOutcomes: 0, pruned: 0, staleValidations: 0, staleReviews: 0, stuckInterruptions: 0, coordinatorsLost: 0, before: null, revalidate: [], rereview: [] }
       }
-      await fs.copyFile(this.filePath, this.filePath + '.bak').catch(() => {})
-      this.state = emptyState()
-      return { recovered: true, unknownOutcomes: 0, pruned: 0, staleValidations: 0, staleReviews: 0, stuckInterruptions: 0, coordinatorsLost: 0, before: null, revalidate: [], rereview: [] }
+      parsed = null
     }
     if (!isValidState(parsed)) {
       await fs.copyFile(this.filePath, this.filePath + '.bak').catch(() => {})
-      this.state = emptyState()
-      return { recovered: true, unknownOutcomes: 0, pruned: 0, staleValidations: 0, staleReviews: 0, stuckInterruptions: 0, coordinatorsLost: 0, before: null, revalidate: [], rereview: [] }
+      // T23: the copy before the last write (core/recovery/plan.ts) before starting empty — a crash costs at most the
+      // last commit, not every plan.
+      const lastGood = await readLastGood(this.filePath)
+      if (!isValidState(lastGood)) {
+        this.state = emptyState()
+        return { recovered: true, unknownOutcomes: 0, pruned: 0, staleValidations: 0, staleReviews: 0, stuckInterruptions: 0, coordinatorsLost: 0, before: null, revalidate: [], rereview: [] }
+      }
+      parsed = lastGood
     }
 
     // isValidState only checks that the arrays exist, so the elements of parsed's arrays are
@@ -549,17 +552,9 @@ export class OrchestrationStore {
    *  which reads the indented files earlier versions wrote just the same. A person who hand-edits the
    *  file formats it in the editor first; the loader does not care which shape comes back. */
   private async writeNow(next: OrchState): Promise<void> {
-    await fs.mkdir(path.dirname(this.filePath), { recursive: true })
-    const tmp = `${this.filePath}.${randomUUID()}.tmp`
-    await fs.writeFile(tmp, JSON.stringify(next), 'utf8')
-    // Retried, and the temp file removed when it still fails (second pass C2-4): on Windows a rename over a file another
-    // process holds open for a moment is refused, and each failure left the whole state behind in a temp file.
-    try {
-      await renameRetrying(tmp, this.filePath)
-    } catch (err) {
-      await fs.rm(tmp, { force: true }).catch(() => {})
-      throw err
-    }
+    // T23: flushed before the rename and the last good copy kept (core/recovery/plan.ts), so a crash mid-write leaves a
+    // whole file. The temp file is removed when the rename still fails (second pass C2-4).
+    await writeDurably(this.filePath, JSON.stringify(next))
     await this.writePlans(next)
   }
 

@@ -20,6 +20,7 @@ import { GithubSettings } from '../GithubSettings'
 import { MaxWorkersSetting } from '../MaxWorkersSetting'
 import { FreshCoordinatorSetting } from '../FreshCoordinatorSetting'
 import { StallWatchSetting } from '../StallWatchSetting'
+import { StartAtLoginSetting } from '../StartAtLoginSetting'
 import { AutoAnswerSetting } from '../AutoAnswerSetting'
 import { UsageGuardSettings } from '../usage/UsageGuardSettings'
 import { CreativeHubSettings } from '../CreativeHubSettings'
@@ -283,6 +284,7 @@ export function SettingsDialog(p: SettingsDialogProps): React.JSX.Element {
                     <MaxWorkersSetting />
                     <FreshCoordinatorSetting />
                     <StallWatchSetting />
+                    <StartAtLoginSetting />
                     <AutoAnswerSetting />
                     {/* W6-G */}
                     <UsageGuardSettings />

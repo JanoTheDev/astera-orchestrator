@@ -117,6 +117,9 @@ export function lineOf(e: ActivityEvent, accountLabel: (id: string) => string): 
     // T21 (exec/autoAnswer.ts)
     case 'question.auto-answered':
       return { text: `${p.title}: ${p.reason ?? ''}`, tone: 'info' }
+    // T23 (exec/crashResume.ts)
+    case 'host.recovered':
+      return { text: p.reason ?? '', tone: 'info' }
   }
 }
 

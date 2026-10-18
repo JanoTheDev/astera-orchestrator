@@ -217,6 +217,8 @@ const api = {
     setFreshCoordinatorContextPct: invoke('settings.setFreshCoordinatorContextPct'),
     getStallWatch: invoke('settings.getStallWatch'),
     setStallWatch: invoke('settings.setStallWatch'),
+    getStartAtLogin: invoke('settings.getStartAtLogin'),
+    setStartAtLogin: invoke('settings.setStartAtLogin'),
     getAutoAnswer: invoke('settings.getAutoAnswer'), // T21
     setAutoAnswer: invoke('settings.setAutoAnswer'),
     getAlertSound: invoke('settings.getAlertSound'), // W6-B

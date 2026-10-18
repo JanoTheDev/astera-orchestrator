@@ -1525,6 +1525,9 @@ export interface CoreApi {
     /** Stall watchdog (orchestration/exec/stallWatch.ts); default true. */
     getStallWatch(): Promise<boolean>
     setStallWatch(on: boolean): Promise<void>
+    /** T23: start Astera's Host at login (main/autostart.ts); default true. */
+    getStartAtLogin(): Promise<boolean>
+    setStartAtLogin(on: boolean): Promise<void>
     /** T21: Astera answers the questions it safely can (orchestration/exec/autoAnswer.ts); default true. */
     getAutoAnswer(): Promise<boolean>
     setAutoAnswer(on: boolean): Promise<void>

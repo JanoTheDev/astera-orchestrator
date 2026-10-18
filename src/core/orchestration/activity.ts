@@ -86,7 +86,9 @@ export const ACTIVITY_KINDS = [
   // Stall watchdog (exec/stallWatch.ts): one line per action it took on a stalled plan (payload.reason); feed only
   'watchdog',
   // T21 (exec/autoAnswer.ts): one line per question Astera answered itself (payload.reason); feed only
-  'question.auto-answered'
+  'question.auto-answered',
+  // T23 (exec/crashResume.ts): what the Host's start picked up after a crash (payload.reason); feed only
+  'host.recovered'
 ] as const
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number]
 
