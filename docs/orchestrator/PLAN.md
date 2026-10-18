@@ -53,8 +53,8 @@ starting the next wave. Each prompt owns its own files, which keeps conflicts to
 | 4 | 1 | `W4-final-linux-verification.md` | W3 merged |
 | 5 | 4 | `W5-A-worker-spawn-and-worktrees`, `W5-B-run-lifecycle-and-cli`, `W5-C-holds-and-command-bar`, `W5-D-feed-inbox-and-runtimes` (W4's issues #38–#53) | W4 merged |
 | 6 | 8 | `W6-A-intake-and-github`, `W6-B-autopilot-answers-and-sound`, `W6-C-scheduler-guards`, `W6-D-wave-replanning`, `W6-E-progress-view`, `W6-F-project-workspaces`, `W6-G-usage-guards`, `W6-H-delivery-modes` (Autopilot, see below) | W5 merged, **including PR #57** |
-| 7 | 2 | `W7-A-plan-feedback`, `W7-B-projects` | W6 merged |
-| 7V | 1 | `W6-V-autopilot-dogfood.md` (covers W6 and W7) | W7 merged |
+| 7 | 6 | `W7-A-plan-feedback`, `W7-B-projects`, `W7-C-owner-answers-and-coordinator`, `W7-D-intake-names-and-concurrency`, `W7-E-planner-review-and-final-check`, `W7-F-tabs-accounts-and-sidebar` (W7-C..F: W6-V's issues #67–#84) | W6 merged |
+| 7V | 1 | `W6-V-autopilot-dogfood.md`: the W6 half ran 2026-10-18 (LINUX.md "Autopilot dogfood (W6-V)"); re-run its W7 steps (5, 5b) and the failed W6 checks | W7 merged |
 | 8 | 2 | `W8-A-commit-attribution`, `W8-B-line-attribution` (Who wrote this, see below) | 7V done |
 
 ### File ownership per wave (prevents tabs interfering)
@@ -86,6 +86,10 @@ starting the next wave. Each prompt owns its own files, which keeps conflicts to
 | W6-H | new `core/orchestration/delivery.ts`, `exec/integrateGit.ts` (push path) | `types.ts` (`Project.delivery`, `deliveryBranch`, Run delivery result), `command.ts` (`projects-set`, `--delivery`), the Run completion path, project settings UI, `activity.ts` (`plan.delivered`) |
 | W7-A | `lib/jobActions.ts`, new `components/plan/PlanTalk.tsx`, new `exec/plannerFeedback.ts` | `exec/plannerStart.ts`, `exec/replanStart.ts` (owner feedback input), `command.ts` (`jobs-feedback`, `jobs-reject`), `core/intents/*`, `types.ts` (`Project.autoApprove`, feedback history on the Job) |
 | W7-B | new `core/projects/create.ts`, new `core/projects/detect.ts`, new `components/projects/*` | `types.ts` (Project fields), `command.ts` (`projects-create`, `projects-add`, `projects-set`), `core/worktrees/base.ts` (only if needed), W6-F switcher mount |
+| W7-C | `inbox.ts`, `command.ts` handlers `ask` / `questions-*`, `resources/skills/orchestration-guide.md`, `src/main/desktopNotifier.ts`, `src/main/activityNotices.ts`, `core/sessions/attention.ts`, the answer box in `components/plan/*` (not `PlanTalk.tsx`) | `usageGuard.ts` (change listener), `exec/dispatchLoop.ts`, `components/workspace/*` (inbox row click), `src/main/index.ts` (`show`) |
+| W7-D | `core/orchestration/intake.ts`, `components/intake/*`, `command.ts` handlers `jobs-create` / `jobs-create-from-issue` / `jobs-set` / `tasks-add`, `cliArgs.ts`, `cliUsage.ts`, `cliAgentContext.ts` | `RunDetail.tsx` (header control), `lifecycle.ts` (`jobNameOf`), `src/core/github/*` (PR title) |
+| W7-E | `handover.ts` (planner brief), `resources/skills/planner-guide.md`, `replan.ts`, `exec/replanStart.ts`, `reviewer.ts`, `exec/reviewGate.ts` | `exec/plannerStart.ts`, `exec/dispatchLoop.ts`, `types.ts` (Job review default), `command.ts` (`jobs-plan` / `jobs-create` flag), `src/core/github/*` (no-remote message) |
+| W7-F | tab strip + its `styles.css`, sidebar account panel, `HistoryBrowser.tsx`, `JobsView.tsx` layout, `components/plan/planBoard.ts` / `TaskBoard` | `App.tsx` (tabs, active session, auto-close), keybindings, `AccountSettings.tsx` (export unregister), `core/accounts` (email check, login URL), `components/workspace/workspaceTree.ts` |
 | W8-A | new `core/attribution/{note,stamp,remap,blame,stats}.ts` | `exec/integrateGit.ts` (stamp before merge, copy notes), `core/orchestration/delivery.ts` (push the notes ref, PR body block), `src/main/githubPrs.ts` (squash remap), `command.ts` / `cliArgs.ts` / `cliUsage.ts` (`attribution-blame`, `attribution-stats`, `attribution-why`) |
 | W8-B | new `core/attribution/{lines,checkpoint,gitAi}.ts` + its hook script, new `components/attribution/*` | `core/sessions/statusline.ts` (hook entries), `core/attribution/stamp.ts` (one `lines` call), file viewer mount, plan view mount, project settings page (one row) |
 | W5-D | `activity.ts`, `components/activity/*`, `sessionIndex.ts`, `components/search/*`, `src/main/activityNotices.ts`, `src/main/remote/orchRouter.ts` | `src/host/index.ts`, `src/host/sessions.ts`, `src/main/ipc.ts`, `types.ts` |
@@ -179,6 +183,18 @@ Contracts:
 - commands `jobs-feedback` / `jobs-reject` (W7-A)
 - commands `projects-create` / `projects-add` / `projects-set` (W7-B)
 - W7-B's settings page mounts W7-A's toggle
+
+W6-V fixes (issues #67–#84, filed by the dogfood on 2026-10-18), in the same wave:
+- **W7-C:** the owner answers escalations and `astera ask` questions from the card, the inbox and the CLI; the
+  coordinator stops blocking in sleep loops and hears `usage.resumed`; the escalation chime; finished turns read idle.
+- **W7-D:** plans from a source get a real name; the New plan dialog has a worker count and `jobs-set` changes it
+  later; `tasks add --affected-paths`.
+- **W7-E:** a reviewer for every planned Task; exactly one final check per plan; fixlist and audit planners write
+  `existing.md`; no-remote PR message.
+- **W7-F:** ended plan tabs close on their own, a tab overflow menu and quick switcher; add an account with a login
+  link, remove it from the sidebar; collapsible History; account relabel after a re-login; sidebar and board fixes.
+- W7-D's dialog field reads W7-B's per-project concurrency default once both are merged. W7-C's answer box and
+  W7-A's `PlanTalk.tsx` both live in `components/plan/`: separate files.
 
 ## Wave 8 — Who wrote this (owner request 2026-10-18)
 

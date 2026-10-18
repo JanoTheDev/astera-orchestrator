@@ -261,3 +261,59 @@ default model) and the header shows `Model —`.
   "Packaged: plan done". The desktop got a "Plan done" notice.
 - The in-app X opened "Close and quit Astera … 1 running session(s) keep running", with "End the 1 kept session(s) too".
   Ticking that ended the Host, and the `/tmp/.mount_astera*` mount was released.
+
+## Autopilot dogfood (W6-V, measured 2026-10-18, XFCE on X11)
+
+Same machine, `claude` 2.1.301, dev app from `main` at 9467f5c3 (Waves 0–6 merged; Wave 7 not yet). Scratch repo
+`/tmp/astera-dogfood`: a small TypeScript project tested with `node --test test/*.test.ts` (Node 24 strips the types,
+no build). One Claude account; settings left at their defaults (agents keep permission checks, `usagePauseAt` 90,
+`maxSubagentsPerSession` 10). The app was driven over CDP (`--remoteDebuggingPort 9351`), desktop notices read with
+`dbus-monitor`, the chime with a hook on `AudioContext.createOscillator` in the renderer. Issues: #67–#84.
+
+### Runs
+
+| Plan | Started from | Planner | Tasks / waves | Result |
+|---|---|---|---|---|
+| 6-problem fixlist + 1 extra instruction | New plan dialog | 1 m 32 s, opus, $1.62 | 5 / 1 (problems 1+2 merged: same file) | done 12 min after approval (7 of them waiting on the owner's answer); final check "nothing to add"; PR step "push was rejected" (no remote, #80) |
+| 3-page PDF (`--attach`), "one Task per item" | CLI | 51 s, $0.67, read the PDF itself | 3 / 2 (the two `src/strings.ts` items chained by a dep) | replan between waves "no change", isBlank after reverse |
+| `--mode audit --scope src` | CLI | 73 s; wrote `inputs/audit.md` (8 findings) | 4 / 1 | 4 haiku/sonnet workers at once, done in 24 s, final check "F1–F8 all fixed, 23/23 tests" |
+| GitHub issues #1, #2 (private scratch repo) `--assign-me` | `jobs-create-from-issue` | 45 s | 2 / 1 | both issues assigned to the owner; PR #3 opened in the scratch repo; no final check (#74) |
+| "Add clamp()" (already in `src/math.ts`) | CLI | 22 s; `existing.md` marked it `built` | 0 | `plan.nothing-to-do`, no tab opened |
+| `push` delivery, local bare `origin` | CLI | 35 s | 1 / 1 | `Deliver plan: Push check` merged on `main` and pushed; folder clean; worktrees removed |
+| same, with an uncommitted edit in the folder | CLI | 29 s | 1 / 1 | escalated "Delivery stopped: your folder … has 1 uncommitted change(s)"; HEAD, origin and the edit untouched |
+
+### Wave 6 checks
+
+| Check | Result |
+|---|---|
+| Planner fills `affectedPaths`, basis and waves | yes on every Task. Planners merge or chain same-file work themselves, so W6-C's "waiting for … same files" reason never showed in the app (two Tasks on one file never ran at once) |
+| Worker question answered by the coordinator | `question.auto-answered` 26 s after the price worker started ("-$1.50 or $-1.50?"); card "1 questions answered" |
+| Escalation (EUR or USD) | `task.escalated`, desktop notice "Needs your decision", needs-input badge 1. **No chime** (#71). No way to answer it but typing into the coordinator, which then queued the answer for 7 min behind its own `sleep 5` loop (#72, #73) |
+| Replan banner between waves, final check | "Replanning wave 2…" on the board for 20 s, `plan.replanned` "no change"; final check on 4 of 5 planned plans (missing on the issue plan, twice on the first, #74) |
+| "Now" line per tab | "Running cat src/price.ts …", "Running git add -A && git commit …", "Asked the coordinator", with "· 0:01 ago" |
+| Project switching (W6-F) | the switcher lists projects with tab counts; astera-dogfood-gh showed only its 3 tabs, astera-dogfood its 21 |
+| 12 parallel subagents in one worker tab | 10 ran; #11 and #12 refused: "Astera: 10 subagents already running in this tab (limit 10). Wait for one to finish." `<profile>/hook-events/<session>.subagents` went 10 → 0 |
+| `usagePauseAt` 1 (5-hour reading 1 %) | `usage.paused` at once; `worker-start` refused "until 14:50 UTC"; board "Paused: <account> at 1% of its 5-hour limit, resumes ~17:50". Raised to 90: `usage.resumed` after 15 s, but no worker started until the coordinator was told (#73) |
+| Reviewer per Task | none ran: validating → completed in about 1 s (#70) |
+| `existing.md` | written for plan-mode and issue plans; not for fixlist or audit plans (brief forbids files, #69) |
+
+### Costs and load
+
+- Five-hour usage on the account went from 1 % to 2 % across all seven plans. Haiku workers cost $0.01–0.12 each
+  (the 12-subagent test was $0.12); planners $0.43–1.62 on opus.
+- Up to 7 `claude` sessions ran at once (audit + issue plans) with no load problem; the app, Host and 21 tabs stayed
+  responsive. No full test suite was run during the dogfood (rule 7).
+
+### Linux-specific notes from this run
+
+- **Claude's auto mode.** Planners, coordinators and workers started with permission checks on still ran in Claude
+  Code 2.1's "auto mode" (status line `⏵⏵ auto mode on`), which approved their reads, edits and commits: not one
+  permission prompt in seven plans. The needs-input list only ever held the escalation.
+- **One account, re-logged.** Running `claude /login` as another account in `~/.claude` keeps Astera's row label and
+  its old usage until a fresh statusLine reading arrives (#77). The 7-day reading went from 96 % to 0 % only after the
+  first session on the new login.
+- **`dbus-monitor` and silent notices.** Electron on Linux sends no `suppress-sound` hint here even when the app meant
+  the notice to be silent, so the hint cannot prove whether `chime` was set; hook the renderer instead.
+- A session started with `astera sessions create` is adopted as a tab but counts as open only after a click (#78).
+- `pkill -f "<pattern>"` from a shell whose own command line contains the pattern kills that shell (exit 144). Use
+  `pgrep` first.
