@@ -36,7 +36,7 @@ import {
 } from '../integrate'
 import { reapableChildRuns } from '../reap'
 import { lostAttemptOf } from '../../recovery/candidates'
-import { slotsToFill, tasksMissingAccounts, type Slot } from '../schedule'
+import { jobActive, slotsToFill, tasksMissingAccounts, type Slot } from '../schedule'
 import { coordinatorStarting, jobOf, type OrchState } from '../state'
 import { isJobActive } from '../lifecycle'
 import { DEFAULT_CONCURRENCY, FAILURE_LIMIT, type JobRun, type Task } from '../types'
@@ -186,6 +186,10 @@ export interface DispatchLoop {
   dispatchOne(taskId: string): Promise<{ status: number; body: unknown }>
   fireTick(): Promise<void>
   nudge(): Promise<void>
+  /** W7-C (#73): a usage pause ended (`usage.resumed`, usageGuard.ts). Each live coordinator-driven Run with ready
+   *  Tasks gets a `status` message in its inbox, which wakes its `check --wait`, so it retries its held worker-starts
+   *  now rather than at the window's reset. App-placed Runs need nothing: the loop's next pass places them itself. */
+  usageResumed(accountId: string): Promise<void>
   /** Drops the schedule arming, so the next fireTick only arms (D2, R17). */
   forgetArming(): void
   /** firesDue's arm half only: re-arms every template and fires nothing (N3). The app calls it on its
@@ -1236,11 +1240,40 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     }
   }
 
+  // W7-C (#73): see DispatchLoop.usageResumed. Ready Tasks of a Run a coordinator places are the ones its refused
+  // worker-starts held; the message names them. A Run paused, held or not active places nothing, so is not told.
+  const usageResumed = async (accountId: string): Promise<void> => {
+    if (!c.mayStart()) return
+    const s = c.getState()
+    const open = new Set(s.dispatches.filter((d) => !d.outcome && !d.endedAt).map((d) => d.taskId))
+    for (const run of s.runs) {
+      if (run.coordinatorSessionId === undefined || run.paused) continue
+      const job = jobOf(s, run)
+      if (!job || !jobActive(job) || job.dispatchHold) continue
+      const held = s.tasks.filter((t) => t.runId === run.id && t.status === 'ready' && !open.has(t.id)).map((t) => t.id)
+      if (held.length === 0) continue
+      try {
+        const r = await c.handle('send', {
+          type: 'status',
+          taskId: held[0],
+          subject: 'usage resumed',
+          body:
+            `Account ${accountId} is under the usage pause threshold again. ` +
+            `Retry the worker-start of the ready task(s) now: ${held.join(', ')}.`
+        })
+        if (r.status >= 400) log(`run=${run.id}: the usage-resumed message was refused: ${JSON.stringify(r.body)}`)
+      } catch (e) {
+        log(`run=${run.id}: the usage-resumed message failed: ${String(e)}`)
+      }
+    }
+  }
+
   return {
     run: runScheduler,
     dispatchOne,
     fireTick: orchFireTick,
     nudge: nudgeSleepingCoordinators,
+    usageResumed,
     /** 운전하지 않는 동안에는 **무장을 들고 있지 않고 버린다.** 들고 있으면 서 있지 않던 동안 지나간
      *  시각이 그대로 남아, 다시 서는 순간 그 시각들이 한꺼번에 발화한다 — 09:00 예약이 15:00 에 도는
      *  것이고, 아무도 그 시각을 잡지 않았다. 놓친 발화는 버리는 것이 이 기능의 결정이므로(설계 2·5절)

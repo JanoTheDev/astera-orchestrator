@@ -388,6 +388,37 @@ describe('createDispatchLoop', () => {
     expect(h.state().tasks.every((t) => t.status === 'ready')).toBe(true)
   })
 
+  // W7-C (#73): a coordinator's held starts are retried on usage.resumed, with nobody typing a nudge.
+  it('usage resumed: a coordinator-driven Run with held Tasks gets a status message its check --wait returns', async () => {
+    const h = rig()
+    const s0 = h.state()
+    h.setState({
+      ...s0,
+      jobs: s0.jobs.map((j) => ({ ...j, autoDispatch: false })),
+      runs: [
+        ...s0.runs.map((r) => ({ ...r, coordinatorSessionId: 'coord-1' })),
+        // a paused Run is not told: it places nothing
+        { id: 'run_p', jobId: 'job_1', ordinal: 2, createdAt: NOW, coordinatorSessionId: 'coord-2', paused: true }
+      ],
+      tasks: [...s0.tasks, task({ id: 'tsk_p', runId: 'run_p' })]
+    })
+    await h.loop.usageResumed('accA')
+    await h.settle()
+    expect(h.startWorker).not.toHaveBeenCalled() // the coordinator places its own Tasks
+    const told = h.state().messages.filter((m) => m.subject === 'usage resumed')
+    expect(told.map((m) => m.runId)).toEqual(['run_1'])
+    expect(told[0].body).toContain('tsk_1, tsk_2')
+    const checked = await h.as('coord-1', 'check', { run: 'run_1', wait: true, timeoutMs: 1000 })
+    expect((checked.body as { messages: Message[] }).messages.map((m) => m.subject)).toContain('usage resumed')
+  })
+
+  it('usage resumed tells nothing while this process may not start work', async () => {
+    const h = rig({ coordinatorMail: true })
+    h.ctx.mayStart = () => false
+    await h.loop.usageResumed('accA')
+    expect(h.handled()).toEqual([])
+  })
+
   // Review Focus 1, R15.
   it('a retiring Host’s refusal stops the activation and gates nothing', async () => {
     const h = rig({ concurrency: 2 })

@@ -83,6 +83,9 @@ export interface HostDriving {
   dispatchOne(taskId: string): Promise<{ status: number; body: unknown }>
   /** When a scheduled Job's template fires next (epoch ms), or null: the loop's own arming, for `jobs-view`. */
   nextFireOf(runId: string): number | null
+  /** W7-C (#73): the usage guard's `usage.resumed` (index.ts): coordinators are told to retry their held starts
+   *  (DispatchLoop.usageResumed), then a pass places the held Tasks of app-placed Runs now, not a tick later. */
+  usageResumed(accountId: string): void
   dispose(): void
 }
 
@@ -654,6 +657,12 @@ export function createHostDriving(d: {
       return loop.dispatchOne(taskId)
     },
     nextFireOf: (runId) => loop.nextFireOf(runId),
+    usageResumed: (accountId) => {
+      void loop
+        .usageResumed(accountId)
+        .catch((err) => log(`the usage-resumed messages failed: ${String(err)}`))
+        .finally(() => kick('usage resumed'))
+    },
     dispose: () => {
       stop()
       grace.dispose()

@@ -418,6 +418,12 @@ async function main(): Promise<void> {
       } catch (err) {
         log.write(`usage guard: the ${e.type} line could not be recorded: ${String(err)}`)
       }
+      // W7-C (#73): held starts go again now. `wiring` is assigned below; the guard's first read comes long after.
+      try {
+        if (e.type === 'usage.resumed') wiring?.driving.usageResumed(e.pause.accountId)
+      } catch (err) {
+        log.write(`usage guard: held starts could not be retried: ${String(err)}`)
+      }
     }
   })
   const usageTimer = setInterval(() => {
