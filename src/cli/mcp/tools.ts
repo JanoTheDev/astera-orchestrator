@@ -437,7 +437,7 @@ const LISTED_TOOLS: ToolDef[] = [
     cmd: 'sessions-list',
     description: `The terminal and chat sessions Astera holds, live ones first: the person's own terminals included, and every worker and coordinator. Filter by status (alive, ended, or a terminal's working, waiting or unknown), by the provider of the session's account, and by project. ${SESSIONS_READ}`,
     inputSchema: {
-      status: z.enum(['alive', 'ended', 'working', 'waiting', 'unknown']).optional(),
+      status: z.enum(['alive', 'ended', 'working', 'waiting', 'idle', 'unknown']).optional(),
       provider: z.enum(['claude', 'codex']).optional(),
       projectId: id.optional().describe('Only the sessions in this project, from list_projects: its folder, or started by a Run of its Jobs.'),
       limit,

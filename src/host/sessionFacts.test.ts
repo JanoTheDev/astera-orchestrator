@@ -51,13 +51,13 @@ describe('createSessionFacts', () => {
     expect(await f.factsOf('x1')).toMatchObject({ status: 'unknown', prompt: 'unknown' })
   })
 
-  it('a Codex terminal is waiting after a completed turn, unknown after input since, working once a turn started', async () => {
+  it('a Codex terminal is idle after a completed turn, unknown after input since, working once a turn started', async () => {
     const s = row({ id: 'x1', kind: 'terminal', provider: 'codex', ptyId: 'p2' })
     const done = '2026-10-08T01:00:00.000Z'
     const lines = [ev('task_started', '2026-10-08T00:59:00.000Z'), ev('task_complete', done)]
     let wrote: number | null = null
     const f = createSessionFacts(deps({ sessionById: async (id) => (id === s.id ? s : null), rolloutOf: () => 'D:/r.jsonl', readTail: async () => ({ lines, mtimeMs: Date.parse(done) }), lastWrite: () => wrote }))
-    expect((await f.factsOf('x1'))?.status).toBe('waiting')
+    expect((await f.factsOf('x1'))?.status).toBe('idle')
     // Input since may be a turn or a few keys and nothing more: the rollout has not said, so the Host does not guess.
     wrote = Date.parse(done) + 5_000
     expect((await f.factsOf('x1'))?.status).toBe('unknown')
@@ -116,13 +116,13 @@ describe('createSessionFacts', () => {
   })
 
   // Phase 9a review I1: an interrupted turn ends the turn; a write with no turn mark after it says nothing certain.
-  it('a Codex turn interrupted (turn_aborted) is waiting; a write after the last turn mark is unknown, not working', async () => {
+  it('a Codex turn interrupted (turn_aborted) is idle; a write after the last turn mark is unknown, not working', async () => {
     const s = row({ id: 'x1', kind: 'terminal', provider: 'codex', ptyId: 'p2' })
     const aborted = '2026-10-08T01:00:00.000Z'
     const lines = [ev('task_started', '2026-10-08T00:59:00.000Z'), ev('turn_aborted', aborted)]
     let wrote: number | null = null
     const f = createSessionFacts(deps({ sessionById: async (id) => (id === s.id ? s : null), rolloutOf: () => 'D:/r.jsonl', readTail: async () => ({ lines, mtimeMs: 0 }), lastWrite: () => wrote }))
-    expect((await f.factsOf('x1'))?.status).toBe('waiting')
+    expect((await f.factsOf('x1'))?.status).toBe('idle')
     wrote = Date.parse(aborted) + 1_000
     expect((await f.factsOf('x1'))?.status).toBe('unknown')
     lines.length = 0

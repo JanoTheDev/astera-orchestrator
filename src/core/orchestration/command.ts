@@ -211,7 +211,7 @@ export interface HostSession {
   accountId: string | null
   cwd: string | null
   alive: boolean
-  /** Whether a turn is running (`working`) or the session is waiting on a person (`waiting`), read
+  /** Whether a turn is running (`working`), the session is waiting on a person (`waiting`) or its turn ended (`idle`), read
    *  off the hook event file the capture script appends for it (core/hooks/sessionState.ts);
    *  `unknown` when there is no signal to read — a Codex or chat session, an ended one, no event yet,
    *  or input typed after the last event. */
@@ -1124,7 +1124,7 @@ const jobStateOf = (view: Parameters<typeof stateWord>[0]): string => {
 
 /** The values `sessions list --status` takes. Two read `alive` (the ALIVE/ENDED column of `--human`)
  *  and three read `state`, so each value names one field a script can see. */
-const SESSION_STATUSES = ['alive', 'ended', 'working', 'waiting', 'unknown'] as const
+const SESSION_STATUSES = ['alive', 'ended', 'working', 'waiting', 'idle', 'unknown'] as const
 
 /** A filter's value, or why it is refused. `undefined` when the flag was not given. A bare flag
  *  (`--status` with nothing after it arrives as `true`) and an empty value are refused rather than read
@@ -4824,6 +4824,8 @@ export async function handleCommand(
           waitFor = async () => {
             const t = await turnOf(id, resuming ? undefined : since)
             if (t === null || !t.alive) return { state: 'exited' }
+            // W7-C (#75): a finished turn reads `idle`; `waiting` is a prompt that came up instead
+            if (t.state === 'idle') return { state: 'ended' }
             if (t.state !== 'waiting') return null
             return t.prompt === null ? { state: 'ended' } : { state: 'prompt', prompt: { kind: t.prompt } }
           }

@@ -1247,8 +1247,8 @@ astera sessions send --id <sessionId> --text "Please rebase on develop before yo
 ```
 
 `sessions list` gives each session's `id`, `kind` (`terminal` or `chat`), `title`, `accountId`,
-`cwd`, `alive` and `state`. `state` is `working`, `waiting` or `unknown`, and `waiting` only says
-that the session stopped at a prompt: it does not say which prompt.
+`cwd`, `alive` and `state`. `state` is `working`, `waiting`, `idle` or `unknown`. `idle` is a turn that ended: the session
+needs nobody. `waiting` only says that the session stopped at a prompt or a question: it does not say which.
 
 **`sessions send` types into whatever the other session is showing.** The text and the Enter answer
 the prompt on the screen, whatever it is. **Read the screen with `sessions read` right before every
@@ -1266,7 +1266,7 @@ send into a terminal session at a permission prompt or a question is refused wit
 anything is typed, and the message names the `sessions read` to run.
 
 **Keep what you send short.** Measured on the same Claude Code session: a one-line send is submitted,
-and `state` goes from `unknown` to `working` to `waiting` as that turn runs; text with a line break in
+and `state` goes from `unknown` to `working` to `idle` as that turn runs; text with a line break in
 it is submitted as one message, not split. A long text (about 2,000 characters) is submitted too, but
 Claude reads text typed that way as pasted content, and it hedged on an instruction inside it as
 something it had not been told directly. So when the other session needs a lot of context, write it

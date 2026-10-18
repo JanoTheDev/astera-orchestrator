@@ -179,12 +179,12 @@ describe('sessions send --wait — the turn after the send', () => {
     handleCommand(deps, { sessionId: '' }, 'sessions-send', args)
   const turnOf = (r: { body: unknown }): Record<string, unknown> => (r.body as { turn: Record<string, unknown> }).turn
 
-  it('a terminal turn ends when its hook state reaches waiting with no prompt', async () => {
+  it('a terminal turn ends when its hook state reaches idle (W7-C #75: a finished turn is idle)', async () => {
     const h = hostDeps({
       turns: [
         { alive: true, state: 'unknown', prompt: null },
         { alive: true, state: 'working', prompt: null },
-        { alive: true, state: 'waiting', prompt: null }
+        { alive: true, state: 'idle', prompt: null }
       ]
     })
     const r = await send(h.deps, { id: 't1', text: 'run the tests', wait: true })
