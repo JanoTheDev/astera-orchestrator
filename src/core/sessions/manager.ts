@@ -233,6 +233,8 @@ export class SessionManager {
     /** The model to start on (orchestrator W1-A). Kept on the info and the note, so a roll's respawn
      *  and an adopted session start on it again. Absent or null: the CLI's default. */
     model?: string | null
+    /** claude only (W6-B): `--disallowedTools` (commands.ts). */
+    disallowedTools?: string[]
   }): SessionInfo {
     // The folder `prepare` just confirmed is not looked at again. The sync check is left only for a
     // caller that did not prepare (tests, and anything added later without it): it is the one that can
@@ -289,7 +291,8 @@ export class SessionManager {
       resumePrompt: opts.resumePrompt,
       initialPrompt: opts.initialPrompt,
       developerInstructions,
-      model: opts.model
+      model: opts.model,
+      ...(opts.disallowedTools ? { disallowedTools: opts.disallowedTools } : {})
     })
     // Windows only: CLAUDE_CODE_GIT_BASH_PATH exists for Git for Windows, and on other platforms the
     // agent's bash is the system one. The agent's hooks and statusLine need a real Git Bash when

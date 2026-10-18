@@ -30,10 +30,13 @@ export type CommandBuilder = (opts: {
   /** The model to start on (orchestrator W1-A, roleModels.ts): claude `--model <id>`, codex `-m <id>`.
    *  Absent or null: no flag, the CLI's own default. */
   model?: string | null
+  /** claude only (W6-B): tools the session may not use, `--disallowedTools`. Job workers lose `AskUserQuestion`, so
+   *  their questions go through `astera ask`, which the coordinator answers. */
+  disallowedTools?: string[]
 }) => SpawnCommand
 
 export function buildClaudeCommand(platform: NodeJS.Platform, resolve: ResolveExecutable = resolveWindowsExecutable): CommandBuilder {
-  return ({ resumeSessionId, settingsFile, bypassPermissions, addDirs, initialPrompt, model }) => {
+  return ({ resumeSessionId, settingsFile, bypassPermissions, addDirs, initialPrompt, model, disallowedTools }) => {
     const args: string[] = []
     // Checked here too, for every source (a renderer spawn, a roll's note): see MODEL_ID.
     if (model && MODEL_ID.test(model)) args.push('--model', model)
@@ -45,6 +48,8 @@ export function buildClaudeCommand(platform: NodeJS.Platform, resolve: ResolveEx
     if (resumeSessionId) args.push('--resume', resumeSessionId)
     // Starts without permission prompts
     if (bypassPermissions) args.push('--dangerously-skip-permissions')
+    // Variadic like --add-dir, so one comma-joined value, and the `--` below fences the prompt off it
+    if (disallowedTools && disallowedTools.length > 0) args.push('--disallowedTools', disallowedTools.join(','))
     // **`--` first, always.** The prompt is a positional argument and `--add-dir` above is variadic,
     // so with nothing between them the CLI reads the prompt as one more directory to grant — an
     // unreadable one, silently ignored — and the session comes up at an empty REPL having been told

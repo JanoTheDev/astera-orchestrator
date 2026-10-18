@@ -14,6 +14,17 @@ const NO_UPDATE = ['-c', 'check_for_update_on_startup=false']
 
 // Orchestrator W1-A: the role model flag, measured against the installed CLIs (`claude --help`: `--model
 // <model>`; codex `-m`, the pair understanding/agentArgs.ts already uses).
+// W6-B: a Job worker is started without Claude's own question tool (`claude --help`: `--disallowedTools <tools...>`)
+describe('disallowedTools', () => {
+  it('claude takes --disallowedTools, one comma-joined value, ahead of the prompt fence', () => {
+    const { args } = buildClaudeCommand('linux')({ disallowedTools: ['AskUserQuestion'], addDirs: ['/shots'], initialPrompt: 'go' })
+    expect(args).toEqual(['--add-dir', '/shots', '--disallowedTools', 'AskUserQuestion', '--', 'go'])
+  })
+  it('adds nothing without it', () => {
+    expect(buildClaudeCommand('linux')({ initialPrompt: 'go' }).args).toEqual(['--', 'go'])
+  })
+})
+
 describe('model', () => {
   it('claude takes --model, ahead of the prompt fence', () => {
     const { args } = buildClaudeCommand('linux')({ model: 'opus', initialPrompt: 'go' })

@@ -36,6 +36,12 @@ export interface PromptWriteEvent {
   specPath: string
 }
 
+/** W6-B: what a claude Job worker is started without. `AskUserQuestion` waits on a person at the tab; a worker's
+ *  question goes through `astera ask` instead, which its coordinator answers (orchestration-guide.md, section 6).
+ *  shortcut: kept on the first spawn only; a roll onto another account respawns without it. Carry it on SessionInfo,
+ *  as `model` is, if rolled workers are seen using the tool. */
+export const WORKER_DISALLOWED_TOOLS = ['AskUserQuestion']
+
 export interface CoordinatorDeps {
   spawnSession(o: {
     accountId: string
@@ -82,6 +88,8 @@ export interface CoordinatorDeps {
     /** The role model to start on (orchestrator W1-A, roleModels.ts) — `--model` / `-m`. Absent: the
      *  CLI's default. The wiring hands it to the session spawn, which keeps it across rolls. */
     model?: string
+    /** claude only (W6-B): tools the session may not use (WORKER_DISALLOWED_TOOLS). */
+    disallowedTools?: string[]
   }): Promise<{ id: string }>
   writeToSession(sessionId: string, data: string): void
   /** Is that session working. **null = it cannot be decided for this provider** (codex — a
@@ -966,6 +974,9 @@ export class OrchCoordinator {
         // 다시 띄워야 했다.
         rollAccountIds: a.rollAccountIds,
         ...(a.model ? { model: a.model } : {}),
+        // W6-B: a claude worker asks with `astera ask`, which the coordinator answers, never Claude's own question tool,
+        // which only a person at the tab can answer. Permission prompts are untouched.
+        ...(a.provider === 'claude' ? { disallowedTools: WORKER_DISALLOWED_TOOLS } : {}),
         // 재개 문구도 워커의 것을 준다. 넘기지 않으면 롤링은 앱의 UI 언어 문구를 타이핑하는데,
         // 그것은 워커에게 두 가지로 틀리다: 영어로 지시받은 워커가 다른 언어로 재개되고, 문구가
         // "계속하라" 여서 끝내고 보고하라는 의무(buildSpecFile 의 Reporting obligation)를 상기시키지

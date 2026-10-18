@@ -409,6 +409,17 @@ describe('OrchCoordinator.startWorker', () => {
     await co.startWorker({ ...baseArgs(), runCwd: dir })
     expect((deps.spawned[0] as { title: string }).title).toBe('인증 리팩터')
   })
+  // W6-B: a claude worker asks with `astera ask`, so it is started without Claude's own question tool; codex has none
+  it('W6-B: a claude worker is spawned without AskUserQuestion, a codex worker without the field', async () => {
+    const deps = makeDeps()
+    let provider: 'claude' | 'codex' = 'claude'
+    const co = new OrchCoordinator({ ...deps, accountProvider: () => provider })
+    await co.startWorker({ ...baseArgs(), provider: 'claude', runCwd: dir })
+    provider = 'codex'
+    await co.startWorker({ ...baseArgs('dsp_2', 'tsk_2'), runCwd: dir })
+    expect((deps.spawned[0] as { disallowedTools?: string[] }).disallowedTools).toEqual(['AskUserQuestion'])
+    expect(deps.spawned[1]).not.toHaveProperty('disallowedTools')
+  })
   // 한도에 걸린 워커가 스스로 이어지게 하려면 spawnSession이 롤링 코디네이터에 등록할 체인을
   // 받아야 한다. 코디네이터는 그 체인을 **정하지 않고 순서대로 그대로 넘긴다** — 무엇이 그 목록이
   // 되는지는 배선이 정한다(Task.accountIds 를 읽는 startWorkerWithChain, workerStart.test.ts).
