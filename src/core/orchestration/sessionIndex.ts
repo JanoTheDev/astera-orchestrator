@@ -6,7 +6,8 @@
 // its open Gates and each session's attention. The tree is declared here by its shape, because workspaceTree.ts is
 // the renderer's and core does not import from it. Pure, derived, stored nowhere.
 import type { Attention } from '../types'
-import type { Gate, Job, JobRun, Task } from './types'
+import { isTerminal, outcomeOfTasks } from './running'
+import type { Gate, Job, JobRun, Message, Task } from './types'
 
 /** One session as workspaceTree.ts lists it (WorkspaceSession). */
 export interface TreeSession {
@@ -63,6 +64,8 @@ export interface SessionIndexInput {
    *  Host reads the hook events whether or not the app was open, so these count even when main's attention has not
    *  heard of the session yet, and they say why. */
   hostWaiting?: Readonly<Record<string, 'permission' | 'question'>>
+  /** W6-B: the `escalation` messages (`inbox --type escalation`); the open ones are listed (escalationOpen). */
+  escalations?: Message[]
 }
 
 const sessionsOf = (plan: TreePlan): TreeSession[] => [...plan.planner, ...plan.coordinator, ...plan.workers]
@@ -145,6 +148,8 @@ export type InboxItem =
   | { kind: 'gate'; gate: Gate; jobId: string; projectName: string; planName: string; taskTitle?: string; sessionId?: string }
   /** A plan its planner finished that waits for "Approve & execute" (W2-A). `sessionId` is its latest planner. */
   | { kind: 'approval'; jobId: string; projectName: string; planName: string; sessionId?: string }
+  /** W6-B: a worker or the coordinator escalated to the owner. `sessionId` is its Task's worker, else the coordinator. */
+  | { kind: 'escalation'; message: Message; jobId: string; projectName: string; planName: string; taskTitle?: string; sessionId?: string }
 
 /** A plan awaiting approval: the W2-A rule (CONTEXT rule 10), the one place the inbox reads it. */
 export const awaitsApproval = (job: Job): boolean => job.pendingStart === true && job.plannerSessionIds !== undefined
@@ -195,5 +200,38 @@ export function needsInput(input: SessionIndexInput, index: readonly IndexedSess
       }
     ]
   })
-  return [...sessions, ...gates, ...approvals]
+  // W6-B: escalations, as Gates are: each open one of a plan in the tree, oldest first
+  const tasksOfRun = new Map<string, Task[]>()
+  for (const t of input.tasks) if (t.runId !== undefined) tasksOfRun.set(t.runId, [...(tasksOfRun.get(t.runId) ?? []), t])
+  const escalations: InboxItem[] = (input.escalations ?? [])
+    .filter((m) => escalationOpen(m, taskById, tasksOfRun.get(m.runId) ?? []))
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+    .flatMap((message) => {
+      const jobId = jobOfRun.get(message.runId)
+      const at = jobId === undefined ? undefined : plans.get(jobId)
+      if (!at) return []
+      const taskTitle = message.taskId === undefined ? undefined : taskById.get(message.taskId)?.title
+      const sessionId = (message.taskId === undefined ? undefined : workerOf.get(message.taskId)) ?? at.plan.coordinator.at(-1)?.sessionId
+      return [
+        {
+          kind: 'escalation' as const,
+          message,
+          jobId: at.plan.jobId,
+          projectName: at.project.name,
+          planName: at.plan.name,
+          ...(taskTitle !== undefined ? { taskTitle } : {}),
+          ...(sessionId !== undefined ? { sessionId } : {})
+        }
+      ]
+    })
+  return [...sessions, ...gates, ...escalations, ...approvals]
+}
+
+/** W6-B: an escalation still waits on the owner while its Run has work left and its Task (when it names one) has not
+ *  ended. Nothing answers an escalation (`reply` takes only a question), so the owner's move is what ends it: they
+ *  finish or cancel the Task, or the plan ends. */
+export function escalationOpen(m: Message, taskById: ReadonlyMap<string, Task>, runTasks: readonly Task[]): boolean {
+  if (m.type !== 'escalation' || outcomeOfTasks(runTasks) !== 'running') return false
+  const task = m.taskId === undefined ? undefined : taskById.get(m.taskId)
+  return task === undefined || !isTerminal(task)
 }

@@ -1,0 +1,32 @@
+/* W6-E progress view: the board by wave and the files tab. Builds on the W2-C plan rules in styles.css (.plan-card,
+   .plan-progress, the .plan-cat-* colours) and the app's tokens; nothing here restyles them. */
+.plan-waves { display: flex; flex-direction: column; gap: 10px; }
+.plan-wave { display: flex; flex-direction: column; gap: 6px; padding: 6px 8px 8px; border: 1px solid var(--line-soft); border-radius: 6px; }
+.plan-wave-current { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+.plan-wave-head { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 12px; font-weight: 600; }
+.plan-wave-count { font-weight: 400; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.plan-wave-bar { display: block; width: 72px; height: 4px; }
+.plan-wave-bar .plan-progress-fill { display: block; }
+.plan-wave-now { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--accent); }
+.plan-wave-banner { font-size: 11px; padding: 3px 8px; border-radius: 4px; background: var(--info-bg); border: 1px solid var(--info-line); color: var(--text-dim); }
+.plan-wave-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 6px; align-items: start; }
+.plan-waves .plan-card { min-width: 0; }
+.plan-waves .plan-card-title { padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.plan-now { font-size: 11px; color: var(--plan-cat); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plan-card-files { margin: 0; padding: 0; list-style: none; font-size: 11px; font-family: var(--font-mono, monospace); color: var(--text-dim); }
+.plan-card-files li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plan-link { padding: 0; border: 0; background: none; font-size: 11px; color: var(--accent); cursor: pointer; }
+.plan-answers-list { margin: 2px 0 0; padding-left: 16px; font-size: 11px; display: flex; flex-direction: column; gap: 3px; }
+.plan-answer-q { display: block; color: var(--text-dim); }
+.plan-answer-a { display: block; color: var(--text); }
+
+.plan-files { flex: 1; min-height: 0; overflow: auto; margin: 0; padding: 0; list-style: none; font-size: 12px; }
+.plan-files-empty { padding: 8px; color: var(--text-faint); }
+.plan-file { display: flex; align-items: center; gap: 8px; padding: 3px 6px; border-bottom: 1px solid var(--line-soft); min-width: 0; }
+.plan-file-overlap { background: var(--warn-bg); }
+.plan-file-path { flex: 0 1 auto; min-width: 0; padding: 0; border: 0; background: none; color: var(--text); font-family: var(--font-mono, monospace); font-size: 11px; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.plan-file-path:hover:not(:disabled) { color: var(--accent); text-decoration: underline; }
+.plan-file-n { flex: none; font-size: 10px; padding: 0 5px; border-radius: 3px; color: var(--warn-ink); border: 1px solid var(--warn-line); }
+.plan-file-tasks { margin-left: auto; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; min-width: 0; }
+.plan-file-task { display: inline-flex; align-items: center; gap: 4px; max-width: 180px; padding: 0 6px; border: 1px solid var(--line-soft); border-left: 3px solid var(--plan-cat); border-radius: 3px; background: none; color: inherit; font-size: 11px; cursor: pointer; }
+.plan-file-task > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

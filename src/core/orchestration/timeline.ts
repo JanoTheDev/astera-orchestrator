@@ -126,6 +126,8 @@ function collect(
       summary: m.subject,
       ...(m.body ? { body: m.body } : {}),
       ...(m.outcome ? { outcome: m.outcome } : {}),
+      // W6-E progress view: "Asked the coordinator" lasts until the question is answered
+      ...(m.type === 'question' ? { answered: m.answered } : {}),
       ...(d && isKnownSession(d.sessionId) ? { sessionId: d.sessionId } : {})
     })
   }

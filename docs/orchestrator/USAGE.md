@@ -70,6 +70,12 @@ sessions or plans never restarts a process or changes its cwd. Scrollback surviv
   `hw1` finds "Hold Worker 1". Each hit shows "project › plan · task".
 - **Board**: the Run window's board shows every Task, and for each one that is not running, why ("waits for A",
   "App-wide limit full", "Its worker was stopped").
+  The board opens first and groups the Tasks by wave ("Wave 1 · 3/4 done"), with the current wave highlighted and
+  "Replanning wave 3…" on it while the planner adjusts the rest of the plan. Each card lists its files (three, then
+  "+N more"), what its worker is doing now ("Editing src/x.ts · 0:12 ago", "Running npm test", "Waiting for your
+  permission", "Asked the coordinator") and the questions the coordinator answered for it. Clicking a running card
+  opens its tab. The **Files** tab lists every file of the plan with the Tasks that touch it; a file two Tasks share is
+  highlighted, and clicking a file shows its folder in the explorer.
 
 ## Activity feed
 
@@ -88,6 +94,15 @@ Runtime, marked "on <runtime>".
 - Settings → **Activity summary every (minutes)**: the digest, default 30, sent only when something happened. 0 turns
   it off; held notices are then announced once a minute as "More orchestration updates".
 - Slack gets the same notices, from whichever process keeps Slack (the Host, or the app), never from both.
+- **Questions and escalations (W6-B).** A worker asks its coordinator with `astera ask` (Claude workers start without
+  Claude's own question tool), and the coordinator answers from the plan, the spec files and the repo. Each answer is a
+  feed line, "coordinator answered", and never a notice. Only an owner decision is escalated: a product choice the
+  plan leaves open, anything irreversible, data loss, security, money, or a question asked twice. An escalation, or a
+  Gate opened because the attempts or review rounds ran out, is a desktop notice ("Needs your decision") and a row in
+  the needs-input list until its Task or plan ends.
+- **Chime.** Settings → Notifications → "Chime when something needs you" (on by default): a short two-note chime with
+  the notice for a permission prompt, a question, an escalation or a Gate, at most one every 5 s. The OS notice is then
+  silent, so you hear one sound.
 - Desktop notices need the app open. The Host keeps the feed while the app is closed, and you read it when you return.
 
 ## Command bar and voice (W3-B)

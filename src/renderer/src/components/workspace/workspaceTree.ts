@@ -3,7 +3,7 @@
 // **Everything here is derived, nothing is stored.** The pane tree is in memory only, but orchestration.json
 // survives a restart, so a tree built from its Projects, Jobs, Runs, Tasks and Dispatches is the same tree after
 // one. Pure, so it is tested in vitest's node environment like the rest of the renderer's judgements.
-import type { Dispatch, Gate, Job, JobRun, Project, Task } from '../../../../core/orchestration/types'
+import type { Dispatch, Gate, Job, JobRun, Message, Project, Task } from '../../../../core/orchestration/types'
 import { jobNameOf } from '../../../../core/orchestration/jobName'
 import { isJobActive } from '../../../../core/orchestration/lifecycle'
 import { leaves, removeTab, type PaneNode } from '../../../../core/panes/tree'
@@ -19,6 +19,8 @@ export interface WorkspaceData {
   dispatches: Dispatch[]
   /** W3-C: the open Gates of every project (`questions-list --status open`), for the "needs my input" list. */
   gates: Gate[]
+  /** W6-B: every `escalation` message (`inbox --type escalation`), for the same list. */
+  escalations?: Message[]
   /** W6-F: the app's worktrees (worktrees.list), so a tab in one belongs to its repo's project workspace. */
   worktrees?: WorktreeRef[]
 }

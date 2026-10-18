@@ -110,7 +110,7 @@ import { isTerminal as taskFinished, outcomeOf, progressOf } from './view'
 import { runningRunCount } from './running'
 import { FINISHED_RUN_GRACE_MS } from './exec/dispatchLoop'
 import { appDriven, workersAgainstCap } from './schedule'
-import type { JobEvent, WorktreeInfo } from '../types'
+import type { JobEvent, SessionInfo, WorktreeInfo } from '../types'
 import { ghFailureSentence, type GhFailed, type GhRunner } from '../github/gh'
 import { failedLogTail, readPrChecks, rerunFailed } from '../github/checks'
 import { prForBranch } from '../github/prs'
@@ -208,6 +208,8 @@ export interface HostSession {
   /** Where the Host reads each fact of this session from (X1-06); `none` means the Host cannot say, and the fact is
    *  shown as unknown, never as idle. */
   sources?: SessionSources
+  // W6-E progress view: the last tool call the session started (SessionInfo.lastAction, host/sessions.ts)
+  lastAction?: SessionInfo['lastAction']
 }
 
 /** The Host's source for each fact of a session, by provider and kind (remote runtime design Phase 9, X1-06). */
@@ -4142,7 +4144,8 @@ export async function handleCommand(
             type,
             taskId: str(args.taskId) ?? undefined,
             dispatchId: dispatchId ?? undefined,
-            subject: str(args.subject) ?? '',
+            // W6-B: `send --type escalation --reason …` is the coordinator guide's spelling of the subject
+            subject: str(args.subject) ?? str(args.reason) ?? '',
             body: str(args.body) ?? '',
             answered: false,
             createdAt: now
@@ -4244,7 +4247,9 @@ export async function handleCommand(
     }
     case 'inbox': {
       const limit = typeof args.limit === 'number' ? args.limit : 50
-      return okBody(s.messages.slice(-limit))
+      // W6-B: `--type escalation` is what the app's "needs my input" list reads
+      const type = str(args.type)
+      return okBody((type ? s.messages.filter((m) => m.type === type) : s.messages).slice(-limit))
     }
     case 'ask': {
       const timeoutMs =
