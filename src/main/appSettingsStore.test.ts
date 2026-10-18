@@ -395,6 +395,19 @@ describe('githubPolling', () => {
   })
 })
 
+// W6-B
+describe('alertSound', () => {
+  it('defaults to on; only an explicit false turns it off, and it persists', async () => {
+    const a = new AppSettingsStore(file())
+    await a.load()
+    expect(a.getAlertSound()).toBe(true)
+    await a.setAlertSound(false)
+    const b = new AppSettingsStore(file())
+    await b.load()
+    expect(b.getAlertSound()).toBe(false)
+  })
+})
+
 // W1-B
 describe('maxConcurrentWorkers', () => {
   it('defaults to no cap, and the Host reads the same', async () => {

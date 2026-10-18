@@ -4,6 +4,7 @@ import type { MessageKey } from '../../../core/i18n'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
 import { ActivityDigestSetting } from './activity/ActivityDigestSetting'
+import { AlertSoundSetting } from './activity/AlertSoundSetting'
 
 /** The three events, in the order §6's table lists them: the two that mean *the work has stopped*
  *  first, then the one that means *it is proceeding*. That order is the explanation — a person
@@ -83,6 +84,7 @@ export function NotificationSettings(): React.JSX.Element {
           <span className="settings-hint">{t(hint)}</span>
         </div>
       ))}
+      <AlertSoundSetting />
       <ActivityDigestSetting />
     </>
   )

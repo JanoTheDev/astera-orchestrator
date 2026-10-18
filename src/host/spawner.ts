@@ -494,6 +494,7 @@ export function createHostSpawner(d: HostSpawnerDeps): HostSpawner | null {
       resumeSessionId: o.resumeSessionId,
       resumePrompt: o.resumePrompt,
       model: o.model, // the role model (orchestrator W1-A, roleModels.ts)
+      ...(o.disallowedTools ? { disallowedTools: o.disallowedTools } : {}), // W6-B: a claude worker's
       rollProviders,
       orchEnv: { cliPath, skillsPath: cli.skills, profileDir },
       // R6: a session this Host started is the Host's own, whichever process later holds its tab.
