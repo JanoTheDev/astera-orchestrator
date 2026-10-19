@@ -147,7 +147,7 @@ for (const theme of themes) {
     for (const [i, [name, go]] of PAGES.entries()) {
       await escape()
       await escape()
-      await click('.start-page button[aria-label]', 'close') // Start is a page-sized overlay that stays up until closed
+      await click('.start-page .start-head button', 'back|close|뒤로') // Start is a page-sized overlay that stays up until closed
       await evaluate('document.activeElement?.blur()') // no stale focus ring from the previous step
       await sleep(200)
       const ok = await go()

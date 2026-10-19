@@ -136,7 +136,7 @@ export function NewRunModal({
       closeLabel={t('common.close')}
       footer={
         <>
-          <Button onClick={onClose} disabled={busy}>
+          <Button variant="ghost" onClick={onClose} disabled={busy}>
             {t('common.cancel')}
           </Button>
           <Button

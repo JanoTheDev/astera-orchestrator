@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { ActivityEvent } from '../../../../core/orchestration/activity'
 import { needsInput, type InboxItem, type IndexedSession } from '../../../../core/orchestration/sessionIndex'
 import type { Job, Task } from '../../../../core/orchestration/types'
-import { ageOf, filterNeeds, handledOf, needsOf, orderNeeds, parseFilter, whereOf, type InboxInput, type NeedCard, type QuestionRow } from './inboxView'
+import { ageOf, byDay, filterNeeds, handledOf, needsOf, orderNeeds, parseFilter, whereOf, type InboxInput, type NeedCard, type QuestionRow } from './inboxView'
 import { t } from '../../../../core/i18n'
 
 const en = (k: Parameters<typeof t>[1], p?: Parameters<typeof t>[2]): string => t('en', k, p)
@@ -181,6 +181,22 @@ describe('handledOf', () => {
     const events = [ev(1), ev(2, { jobId: 'j2' }), ev(3)]
     expect(handledOf(events, { group: 'all' }, (id) => id).map((l) => l.id)).toEqual(['ev_3', 'ev_2', 'ev_1'])
     expect(handledOf(events, { group: 'all', planId: 'j2' }, (id) => id).map((l) => l.id)).toEqual(['ev_2'])
+  })
+
+  it('names the plan of every line and the Task of a Task line', () => {
+    const [task, plan] = handledOf([ev(1), ev(2, { taskId: 't1', payload: { title: 'Fix login', plan: 'L4' } })], { group: 'all' }, (id) => id)
+    expect([task.plan, task.task]).toEqual(['L4', 'Fix login'])
+    expect([plan.plan, plan.task]).toEqual(['L4', undefined])
+  })
+})
+
+describe('byDay', () => {
+  it('groups newest-first lines under today, yesterday and the date', () => {
+    const now = new Date(2026, 9, 18, 15, 0).getTime()
+    const at = (d: number, h: number): string => new Date(2026, 9, d, h).toISOString()
+    const tr = ((k: string) => k) as never
+    const groups = byDay([{ at: at(18, 9) }, { at: at(18, 8) }, { at: at(17, 23) }, { at: at(12, 10) }], now, tr, 'en-US')
+    expect(groups.map((g) => [g.label, g.lines.length])).toEqual([['inbox.day.today', 2], ['inbox.day.yesterday', 1], ['Oct 12', 1]])
   })
 })
 

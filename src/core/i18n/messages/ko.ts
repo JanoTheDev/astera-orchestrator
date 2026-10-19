@@ -2851,6 +2851,9 @@ export const ko = {
   'start.pickup.none': 'GitHub에서 나에게 배정된 것이 없습니다',
   'start.pickup.console': '콘솔만 열기',
   'start.close': '닫기',
+  'start.back': '뒤로',
+  'start.options': '옵션',
+  'start.needText': '먼저 만들 내용을 적어 주세요',
   'shortcut.window.new': '새 창 열기', // W9-K
   // W9-F: orchestration panels (shell, attribution, inbox …)
   'shell.page.agents': '에이전트',
@@ -2940,6 +2943,11 @@ export const ko = {
   'inbox.nothingNeeds': '지금은 처리할 일이 없습니다.',
   'inbox.handled': '대신 처리됨',
   'inbox.handledEmpty': '아직 처리된 항목이 없습니다.',
+  'inbox.needsCount': '{n}건 확인 필요',
+  'inbox.empty.title': '아직 아무것도 없습니다',
+  'inbox.empty.text': '결정이 필요한 계획과 Astera가 대신 처리한 일이 여기에 표시됩니다.',
+  'inbox.day.today': '오늘',
+  'inbox.day.yesterday': '어제',
   'inbox.openConsole': '콘솔 열기',
   'inbox.openPlan': '플랜 열기',
   'inbox.kind.approval': '플랜 준비됨',

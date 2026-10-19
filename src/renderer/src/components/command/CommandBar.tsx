@@ -4,7 +4,8 @@
 // fast path, else the coordinator role model), the intent's names become exact ids or a question, and only then does
 // anything run: `read` at once, `act` on Run, `confirm` through a dialog (core/intents/safety.ts).
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { MicIcon, X } from 'lucide-react'
+import { MicIcon, Search, X } from 'lucide-react'
+import { Button, Chip, IconButton } from '../ui'
 import { useI18n } from '../../i18n/I18nProvider'
 import type { Intent } from '../../../../core/intents/types'
 import type { Pins } from '../../../../core/intents/resolve'
@@ -248,9 +249,9 @@ export function CommandBar({
             </div>
             <div className="command-choices">
               {pending.res.miss.candidates.map((c, i) => (
-                <button key={i} className="command-choice" onClick={() => void evaluate(pending.intent, { ...pending.pins, ...c.pin }, 'auto')}>
+                <Button key={i} size="sm" onClick={() => void evaluate(pending.intent, { ...pending.pins, ...c.pin }, 'auto')}>
                   {c.label}
-                </button>
+                </Button>
               ))}
             </div>
           </div>
@@ -261,12 +262,12 @@ export function CommandBar({
             {pending.intent.kind === 'send' && <div className="command-line command-quote">“{pending.intent.text}”</div>}
             <div className="command-choices">
               {/* `confirm` runs a function that asks in the app's dialog (jobActions); this click only opens it */}
-              <button className="command-run" disabled={busy} onClick={() => void evaluate(pending.intent, pending.pins, 'submit')}>
+              <Button size="sm" variant="primary" disabled={busy} onClick={() => void evaluate(pending.intent, pending.pins, 'submit')}>
                 {SAFETY[pending.intent.kind] === 'confirm' ? tr('command.confirm') : tr('command.run')}
-              </button>
-              <button className="command-choice" onClick={() => setPending(null)}>
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setPending(null)}>
                 {tr('command.cancel')}
-              </button>
+              </Button>
             </div>
           </div>
         )}
@@ -282,13 +283,18 @@ export function CommandBar({
                   <span className="command-hit-title">{h.title}</span>
                   <span className="command-hit-where">{h.where}</span>
                 </span>
-                {h.kind === 'session' && h.waiting && <span className="command-hit-wait">waiting</span>}
+                {h.kind === 'session' && h.waiting && (
+                  <Chip tone="warn" dot>
+                    {tr('inbox.kind.waiting')}
+                  </Chip>
+                )}
               </button>
             </li>
           ))}
         </ul>
       )}
       <div className="command-input-row">
+        <Search size={16} className="command-input-icon" aria-hidden="true" />
         <input
           ref={inputRef}
           className="command-input"
@@ -315,21 +321,18 @@ export function CommandBar({
             else void submit(input)
           }}
         />
-        <button
+        <IconButton
           className={`command-mic${recording ? ' recording' : ''}`}
-          title={tr('command.voice.hold')}
-          aria-label={tr('command.voice.hold')}
+          icon={<MicIcon size={16} />}
+          label={tr('command.voice.hold')}
+          active={recording}
           aria-pressed={recording}
           disabled={busy && !recording}
           onPointerDown={() => void startTalk()}
           onPointerUp={() => void stopTalk()}
           onPointerLeave={() => void stopTalk()}
-        >
-          <MicIcon className="size-4" />
-        </button>
-        <button className="command-close" title={tr('command.close')} aria-label={tr('command.close')} onClick={onClose}>
-          <X className="size-4" />
-        </button>
+        />
+        <IconButton icon={<X size={16} />} label={tr('command.close')} onClick={onClose} />
       </div>
     </div>
   )

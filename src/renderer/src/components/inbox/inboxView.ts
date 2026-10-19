@@ -193,6 +193,9 @@ export interface HandledLine {
   text: string
   who: string
   tone: Tone
+  /** The plan the line belongs to; the Task's title when the line is about a Task (W11 Inbox). */
+  plan?: string
+  task?: string
   sessionId?: string
   jobId?: string
 }
@@ -210,9 +213,31 @@ export function handledOf(events: readonly ActivityEvent[], f: InboxFilter, acco
         text,
         who: whoOf(e, accountLabel),
         tone,
+        ...(e.payload.plan !== undefined ? { plan: e.payload.plan } : {}),
+        ...(e.taskId !== undefined && e.payload.title !== e.payload.plan ? { task: e.payload.title } : {}),
         ...(e.sessionId !== undefined && e.jobId !== undefined ? { sessionId: e.sessionId, jobId: e.jobId } : {})
       }
     })
+}
+
+/** W11: the handled lines by local day, newest day first, each labelled today / yesterday / the date. */
+export function byDay<L extends { at: string }>(lines: readonly L[], nowMs: number, t: Translate, locale?: string): Array<{ day: string; label: string; lines: L[] }> {
+  const dayOf = (ms: number): string => new Date(ms).toDateString()
+  const today = dayOf(nowMs)
+  const yesterday = dayOf(nowMs - 86_400_000)
+  const out: Array<{ day: string; label: string; lines: L[] }> = []
+  for (const l of lines) {
+    const ms = Date.parse(l.at)
+    const day = dayOf(ms)
+    let g = out.find((x) => x.day === day)
+    if (!g) {
+      const label = day === today ? t('inbox.day.today') : day === yesterday ? t('inbox.day.yesterday') : new Date(ms).toLocaleDateString(locale, { month: 'short', day: 'numeric' })
+      g = { day, label, lines: [] }
+      out.push(g)
+    }
+    g.lines.push(l)
+  }
+  return out
 }
 
 /** The Inbox's own count: what the nav badge and the status bar show. */

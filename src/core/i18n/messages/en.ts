@@ -2604,6 +2604,9 @@ export const en: Record<keyof typeof ko, string> = {
   'start.pickup.none': 'Nothing on GitHub is assigned to you',
   'start.pickup.console': 'Just open a console',
   'start.close': 'Close',
+  'start.back': 'Back',
+  'start.options': 'Options',
+  'start.needText': 'Describe what to build first',
   'shortcut.window.new': 'Open a new window', // W9-K
   // W9-F: orchestration panels (shell, attribution, inbox …)
   'shell.page.agents': 'Agents',
@@ -2693,6 +2696,11 @@ export const en: Record<keyof typeof ko, string> = {
   'inbox.nothingNeeds': 'Nothing needs you right now.',
   'inbox.handled': 'Handled for you',
   'inbox.handledEmpty': 'Nothing handled yet.',
+  'inbox.needsCount': '{n} need you',
+  'inbox.empty.title': 'Nothing here yet',
+  'inbox.empty.text': 'Plans that need a decision, and what Astera handled for you, show up here.',
+  'inbox.day.today': 'Today',
+  'inbox.day.yesterday': 'Yesterday',
   'inbox.openConsole': 'Open its console',
   'inbox.openPlan': 'Open plan',
   'inbox.kind.approval': 'Plan ready',

@@ -6,7 +6,7 @@ import { FAILURE_LIMIT, MAX_REVIEW_ROUNDS } from '../../../core/orchestration/ty
 import { useI18n } from '../i18n/I18nProvider'
 import { AccountSelect } from './AccountSelect'
 import { failureLine } from './pluginsText'
-import { Modal } from './ui'
+import { Button, Modal } from './ui'
 import { createPause } from '../lib/pausedSearch'
 
 // The Jobs view's "+ 소스에서" (plugin Phase 4 J20, §3): pick a source, find a ticket, read it, and make a Job from it
@@ -176,12 +176,12 @@ export function SourceJobView(p: SourceJobViewProps): React.JSX.Element {
       onClose={() => !p.busy && p.onClose()}
       footer={
         <>
-          <button onClick={p.onClose} disabled={p.busy}>
+          <Button variant="ghost" onClick={p.onClose} disabled={p.busy}>
             {t('common.cancel')}
-          </button>
-          <button className="primary" disabled={!makeable} onClick={p.onMake}>
+          </Button>
+          <Button variant="primary" disabled={!makeable} onClick={p.onMake}>
             {t('jobs.source.make')}
-          </button>
+          </Button>
         </>
       }
     >
@@ -194,7 +194,7 @@ export function SourceJobView(p: SourceJobViewProps): React.JSX.Element {
             p.sourcesError !== undefined ? (
               <div className="source-error">
                 <p className="warn-text">{p.sourcesError}</p>
-                <button onClick={p.onRetrySources}>{t('jobs.source.retry')}</button>
+                <Button size="sm" variant="ghost" onClick={p.onRetrySources}>{t('jobs.source.retry')}</Button>
               </div>
             ) : (
               <p className="modal-hint">{t('jobs.source.sourcesLoading')}</p>
@@ -230,7 +230,7 @@ export function SourceJobView(p: SourceJobViewProps): React.JSX.Element {
                 // A source's error takes the list's place, with a way to ask again (§3)
                 <div className="source-error">
                   <p className="warn-text">{p.list.error}</p>
-                  <button onClick={p.onRetry}>{t('jobs.source.retry')}</button>
+                  <Button size="sm" variant="ghost" onClick={p.onRetry}>{t('jobs.source.retry')}</Button>
                 </div>
               ) : p.list.items.length === 0 ? (
                 <p className="modal-hint">{p.list.loading ? t('jobs.source.loading') : t('jobs.source.empty')}</p>
@@ -257,8 +257,10 @@ export function SourceJobView(p: SourceJobViewProps): React.JSX.Element {
                         <span className="source-title">{i.title}</span>
                         {i.status !== undefined && <span className="source-status">{i.status}</span>}
                         {(i.jobs?.length ?? 0) > 0 && (
-                          <button
+                          <Button
                             type="button"
+                            size="sm"
+                            variant="ghost"
                             className="source-exists"
                             onClick={(e) => {
                               e.stopPropagation()
@@ -267,7 +269,7 @@ export function SourceJobView(p: SourceJobViewProps): React.JSX.Element {
                             onKeyDown={(e) => e.stopPropagation()}
                           >
                             {t('jobs.source.exists')}
-                          </button>
+                          </Button>
                         )}
                         {cannot && <span className="source-reason">{t('jobs.source.cannotPick', { reason: i.reason ?? '' })}</span>}
                       </li>
@@ -277,9 +279,9 @@ export function SourceJobView(p: SourceJobViewProps): React.JSX.Element {
               )}
               {p.list.cut === true && <p className="modal-hint">{t('jobs.source.cut')}</p>}
               {p.list.nextCursor !== undefined && p.list.error === undefined && (
-                <button disabled={p.list.loading} onClick={p.onMore}>
+                <Button size="sm" variant="ghost" disabled={p.list.loading} onClick={p.onMore}>
                   {t('jobs.source.more')}
-                </button>
+                </Button>
               )}
             </div>
             <div className="source-detail">
@@ -305,9 +307,9 @@ export function SourceJobView(p: SourceJobViewProps): React.JSX.Element {
                     </table>
                   )}
                   {p.detail.url !== undefined && (
-                    <button type="button" onClick={() => p.onOpenLink(p.detail!.url!)}>
+                    <Button type="button" size="sm" variant="ghost" onClick={() => p.onOpenLink(p.detail!.url!)}>
                       {t('jobs.source.openLink')}
-                    </button>
+                    </Button>
                   )}
                   <p className="modal-hint">{t('jobs.source.dataHint')}</p>
                   {/* Someone else wrote it: shown as the text it is, never as Markdown or HTML (§3.3) */}

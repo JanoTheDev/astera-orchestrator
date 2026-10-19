@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  addScopePath, consolesIn, defaultMode, dropOpensStart, filesFromDrop, handsOffSaveArgs, intakeTab, lookupArgs, optionsSummary, primaryLabel, promptCount,
+  addScopePath, blockedReason, consolesIn, defaultMode, dropOpensStart, filesFromDrop, handsOffSaveArgs, intakeTab, lookupArgs, optionsSummary, primaryLabel, promptCount,
   livePlans, shouldLandOnStart, type PlanRow
 } from './startLogic'
 
@@ -113,7 +113,16 @@ describe('sticky hands-off and More options', () => {
     expect(optionsSummary({ concurrency: 1, delivery: 'push', approval: 'auto', priority: 2 }, t)).toBe(
       'start.more.consoles:{"n":1} · start.more.push · start.more.auto · start.more.priority:{"n":2}'
     )
+    expect(optionsSummary({ concurrency: 1, delivery: 'pr', approval: 'auto', priority: 0, handsOff: true, after: 'L4' }, t)).toBe(
+      'start.opt.handsOff · start.opt.after:{"plan":"L4"} · start.more.consoles:{"n":1} · start.more.pr · start.more.auto'
+    )
   })
+  it('says why Create is off: the project first, then the text', () => {
+    expect(blockedReason({ project: false, request: false }, t)).toBe('start.project.required')
+    expect(blockedReason({ project: true, request: false }, t)).toBe('start.needText')
+    expect(blockedReason({ project: true, request: true }, t)).toBeNull()
+  })
+
   it('adds a typed scope path once, tidied', () => {
     expect(addScopePath([], ' ./src/core/ ')).toEqual(['src/core'])
     expect(addScopePath(['src/core'], 'src/core')).toEqual(['src/core'])

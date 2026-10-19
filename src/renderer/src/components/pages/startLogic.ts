@@ -116,18 +116,35 @@ export function lookupArgs({ mode, files, text, cwd }: { mode: StartMode; files:
 /** Switching Hands-off on Start saves it as the project's default (`projects-set --hands-off`), so it sticks. */
 export const handsOffSaveArgs = (projectId: string, on: boolean): Record<string, unknown> => ({ id: projectId, handsOff: on ? 'on' : 'off' })
 
-/** The closed More options line: "3 consoles · PR · ask · Work" (the account part only once one is picked). */
+/** The closed Options line: "Hands-off · After L4 · 3 consoles · PR · ask · Work" (hands-off, the plan it starts after
+ *  and the account only when set). */
 export function optionsSummary(
-  { concurrency, delivery, approval, account, priority }: { concurrency: number; delivery: 'pr' | 'push'; approval: 'ask' | 'auto'; account?: string; priority: number },
+  {
+    concurrency,
+    delivery,
+    approval,
+    account,
+    priority,
+    handsOff = false,
+    after
+  }: { concurrency: number; delivery: 'pr' | 'push'; approval: 'ask' | 'auto'; account?: string; priority: number; handsOff?: boolean; after?: string },
   t: T
 ): string {
   return [
+    ...(handsOff ? [t('start.opt.handsOff')] : []),
+    ...(after ? [t('start.opt.after', { plan: after })] : []),
     t('start.more.consoles', { n: concurrency }),
     t(delivery === 'pr' ? 'start.more.pr' : 'start.more.push'),
     t(approval === 'ask' ? 'start.more.ask' : 'start.more.auto'),
     ...(account ? [account] : []),
     ...(priority !== 0 ? [t('start.more.priority', { n: priority })] : [])
   ].join(' · ')
+}
+
+/** Why Create is off, as the one line beside it: no project, nothing to build yet. Null when it can go. */
+export function blockedReason({ project, request }: { project: boolean; request: boolean }, t: T): string | null {
+  if (!project) return t('start.project.required')
+  return request ? null : t('start.needText')
 }
 
 /** The audit scope picker's chips: a typed path added once, trimmed, without a leading ./ or a trailing slash. */

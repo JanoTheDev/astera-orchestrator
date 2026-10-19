@@ -1,8 +1,8 @@
-// W9-E Start (DESIGN §2 "Start"): where a plan begins, the one place one is made (T2). One composer, three modes, the
-// options the project defaults (the rarer ones folded under More options), and the W6-A intake's own state and calls
-// (intake/useIntake.ts).
+// W9-E Start (DESIGN-W11 §9 "Start"): where a plan begins, the one place one is made (T2). One create-job flow:
+// Project (required) → what to build → mode → Options (folded) → one Create in a sticky footer. The W6-A intake keeps
+// its own state and calls (intake/useIntake.ts).
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, ChevronRight, CircleDot, FileText, ListOrdered, Paperclip, Plus, ShieldCheck, Sparkles, SquareTerminal, X } from 'lucide-react'
+import { ArrowLeft, ChevronDown, ChevronRight, CircleDot, FileText, ListOrdered, Paperclip, Plus, ShieldCheck, Sparkles, SquareTerminal, X } from 'lucide-react'
 import type { Account, OrchSnapshot } from '../../../../core/types'
 import { MAX_CONCURRENT_WORKERS, PROJECT_DEFAULTS, type DeliveryMode } from '../../../../core/orchestration/types'
 import { defaultAccountIdOf } from '../../../../core/accounts/defaultAccount'
@@ -12,12 +12,12 @@ import { localDoor } from '../../lib/orchDoor'
 import { pollFileIndex } from '../../lib/fileIndexPoll'
 import { AccountSelect } from '../AccountSelect'
 import { openPage } from '../shell/navigation'
-import { Button, Card, Chip, Field, Icon } from '../ui'
+import { Button, Card, Chip, Field, Icon, IconButton, Input, Tabs } from '../ui'
 import { IssuePicker } from '../intake/IssuePicker'
 import { AUDIT_FOCUSES } from '../intake/intakeRequest'
 import { useIntake, type IssueRow } from '../intake/useIntake'
 import {
-  addScopePath, consolesIn, defaultMode, dropOpensStart, filesFromDrop, handsOffSaveArgs, intakeTab, lookupArgs, optionsSummary, primaryLabel,
+  addScopePath, blockedReason, consolesIn, defaultMode, dropOpensStart, filesFromDrop, handsOffSaveArgs, intakeTab, lookupArgs, optionsSummary, primaryLabel,
   shouldLandOnStart, type NameLookup, type StartMode, type StartRequest
 } from './startLogic'
 import './start.css'
@@ -55,7 +55,7 @@ export function StartPage({
   const [cwd, setCwd] = useState(defaultProject ?? '')
   const door = useMemo(() => localDoor(window.api, cwd || baseCwd), [cwd, baseCwd])
   const [chosen, setChosen] = useState<StartMode | undefined>(req.mode)
-  const [moreOpen, setMoreOpen] = useState(false)
+  const [optsOpen, setOptsOpen] = useState(false)
   const [handsOffError, setHandsOffError] = useState<string | null>(null)
   const [issuesOpen, setIssuesOpen] = useState(false)
   const [approvalChoice, setApprovalChoice] = useState<'ask' | 'auto'>()
@@ -180,11 +180,29 @@ export function StartPage({
   const afterName = intake.plans.find((p) => p.id === intake.after)?.name
   const go = primaryLabel({ mode, files, text, after: afterName, named: names && !namesRefused ? names.picked?.length : undefined, scope: intake.scope }, t as never)
   const summary = optionsSummary(
-    { concurrency: intake.concurrency, delivery, approval, account: accounts.find((a) => a.id === intake.account)?.label, priority: intake.priority },
+    {
+      concurrency: intake.concurrency,
+      delivery,
+      approval,
+      account: accounts.find((a) => a.id === intake.account)?.label,
+      priority: intake.priority,
+      handsOff,
+      after: afterName
+    },
     t as never
   )
   const pick = (id: string, on: boolean): void => intake.setPicked((cur) => (on ? (cur.includes(id) ? cur : [...cur, id]) : cur.filter((x) => x !== id)))
   const name = project?.name ?? ''
+
+  const blocked = blockedReason({ project: project !== null, request: intake.request !== null }, t as never)
+  const removeChip = (name: string, onRemove: () => void): React.JSX.Element => (
+    <IconButton size="sm" icon={<X size={14} />} label={t('start.remove', { name })} onClick={onRemove} />
+  )
+  const MODES = [
+    ['plan', Sparkles, 'start.mode.plan', 'start.mode.planHint'],
+    ['audit', ShieldCheck, 'start.mode.audit', 'start.mode.auditHint'],
+    ['prompts', FileText, 'start.mode.prompts', 'start.mode.promptsHint']
+  ] as const
 
   return (
     <div
@@ -196,9 +214,13 @@ export function StartPage({
         intake.addPaths(filesFromDrop(e.dataTransfer.files, window.api.files.pathForFile))
       }}
     >
-      <div className="start-inner">
-        <header className="start-head">
-          <div>
+      <div className="start-scroll">
+        <div className="start-inner">
+          {/* 1. Project, top-left and required */}
+          <header className="start-head">
+            <Button variant="ghost" icon={<ArrowLeft size={16} aria-hidden="true" />} onClick={onClose} disabled={intake.busy}>
+              {t('start.back')}
+            </Button>
             <Field
               kind="select"
               className="start-project"
@@ -206,322 +228,329 @@ export function StartPage({
               value={project?.path ?? ''}
               onChange={(e) => setCwd(e.target.value)}
               disabled={intake.busy}
+              required
+              error={project === null && text.trim() !== '' ? t('start.project.required') : undefined}
               options={[{ value: '', label: t('start.project.choose') }, ...intake.projects.map((p) => ({ value: p.path, label: p.name }))]}
             />
-            <h1>{project ? t('start.title', { project: name }) : t('start.titleNoProject')}</h1>
-            <p>{t(`start.next.${mode}` as const)}</p>
-          </div>
-          <Button variant="ghost" icon={<X size={16} aria-hidden="true" />} aria-label={t('start.close')} onClick={onClose} disabled={intake.busy} />
-        </header>
+          </header>
 
-        <Card className="start-composer">
-          <textarea
-            className="start-text"
-            rows={8}
-            value={text}
-            onChange={(e) => intake.setText(e.target.value)}
-            placeholder={t('start.placeholder')}
-            aria-label={t('start.placeholder')}
-            autoFocus
-          />
-          {(files.length > 0 || picked.length > 0) && (
-            <div className="start-chips">
-              {files.map((f) => (
-                <span key={f} className="start-chip" title={f}>
-                  <Chip>{baseName(f)}</Chip>
-                  <button type="button" aria-label={t('start.remove', { name: baseName(f) })} onClick={() => intake.setFiles((cur) => cur.filter((x) => x !== f))}>
-                    <X size={12} aria-hidden="true" />
-                  </button>
-                </span>
-              ))}
-              {picked.map((id) => (
-                <span key={`#${id}`} className="start-chip">
-                  <Chip tone="info">#{id}</Chip>
-                  <button type="button" aria-label={t('start.remove', { name: `#${id}` })} onClick={() => pick(id, false)}>
-                    <X size={12} aria-hidden="true" />
-                  </button>
-                </span>
-              ))}
-            </div>
-          )}
-          <div className="start-attach">
-            <Button size="sm" variant="ghost" icon={<Paperclip size={14} aria-hidden="true" />} onClick={() => fileInput.current?.click()}>
-              {t('start.attach')}
-            </Button>
-            <input
-              ref={fileInput}
-              type="file"
-              multiple
-              hidden
-              onChange={(e) => {
-                intake.addFiles(e.target.files)
-                e.target.value = ''
-              }}
+          {/* 2. What to build */}
+          <h1 className="start-title">{project ? t('start.title', { project: name }) : t('start.titleNoProject')}</h1>
+          <Card className="start-composer">
+            <textarea
+              className="start-text"
+              rows={8}
+              value={text}
+              onChange={(e) => intake.setText(e.target.value)}
+              placeholder={t('start.placeholder')}
+              aria-label={t('start.placeholder')}
+              autoFocus
             />
-            <Button size="sm" variant="ghost" icon={<CircleDot size={14} aria-hidden="true" />} aria-expanded={issuesOpen} onClick={() => setIssuesOpen((v) => !v)}>
-              {t('start.issues')}
-            </Button>
-            <Button size="sm" variant="ghost" onClick={onOtherSources}>
-              {t('start.otherSources')}
-            </Button>
-            {project?.promptsDir !== undefined && (
-              <Button
-                size="sm"
-                variant="ghost"
-                icon={<ListOrdered size={14} aria-hidden="true" />}
-                onClick={() => {
-                  intake.setText('next waves')
-                  setChosen('prompts')
-                }}
-              >
-                {t('start.names.next')}
-              </Button>
-            )}
-          </div>
-          {mode === 'prompts' && lookup !== null && files.length > 0 && (
-            <p className="start-names-note">{t('start.names.ignored', { n: files.filter((f) => /\.md$/i.test(f)).length })}</p>
-          )}
-          {names && (
-            <div className="start-names" aria-live="polite">
-              {names.dir != null && (
-                <div className="start-names-dir">
-                  {dirEdit === null ? (
-                    <>
-                      <span>{t('start.names.from', { dir: names.dir })}</span>
-                      <Button size="sm" variant="ghost" onClick={() => setDirEdit(names.dir ?? '')}>
-                        {t('start.names.change')}
-                      </Button>
-                    </>
-                  ) : (
-                    <>
-                      <input type="text" value={dirEdit} onChange={(e) => setDirEdit(e.target.value)} aria-label={t('start.names.change')} autoFocus />
-                      <Button size="sm" onClick={() => void saveDir()}>
-                        {t('start.names.save')}
-                      </Button>
-                    </>
-                  )}
-                </div>
-              )}
-              {dirError && <p className="warn">{dirError}</p>}
-              {names.why?.map((w) => <p key={w} className="start-names-why">{w}</p>)}
-              {(names.picked?.length ?? 0) > 0 && (
-                <ul className="start-names-list">
-                  {names.picked!.map((p) => (
-                    <li key={p.id}>
-                      <code>{p.id}</code> → <code>{p.path}</code>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {names.skipped?.map((x) => <p key={x.id} className="start-names-why">{t('start.names.skipped', { id: x.id, why: x.why })}</p>)}
-              {names.problems?.map((p) => <p key={p} className="warn">{p}</p>)}
-            </div>
-          )}
-          {issuesOpen && (
-            <IssuePicker
-              intake={intake}
-              onAutoPick={() => void intake.create(planArgs, { handsOff: planArgs.handsOff as 'on' | 'off' | undefined })}
-            />
-          )}
-        </Card>
-
-        <div className="start-modes" role="radiogroup" aria-label={t('start.mode.label')}>
-          {(
-            [
-              ['plan', Sparkles, 'start.mode.plan', 'start.mode.planHint'],
-              ['audit', ShieldCheck, 'start.mode.audit', 'start.mode.auditHint'],
-              ['prompts', FileText, 'start.mode.prompts', 'start.mode.promptsHint']
-            ] as const
-          ).map(([m, glyph, label, hint]) => (
-            <Card key={m} tone={mode === m ? 'focus' : 'plain'} role="radio" aria-checked={mode === m} onClick={() => setChosen(m)}>
-              <span className="start-mode-title">
-                <Icon icon={glyph} />
-                {t(label)}
-              </span>
-              <span className="start-mode-hint">{t(hint)}</span>
-            </Card>
-          ))}
-        </div>
-
-        {mode === 'audit' && (
-          <Card className="start-audit">
-            <div className="start-audit-scope">
-              <span className="ui-field__label" id="start-scope-label">{t('start.audit.scope')}</span>
-              <div className="start-chips" aria-labelledby="start-scope-label">
-                {intake.scope.length === 0 && <Chip>{t('start.audit.all')}</Chip>}
-                {intake.scope.map((p) => (
-                  <span key={p} className="start-chip">
-                    <Chip tone="info">{p}</Chip>
-                    <button type="button" aria-label={t('start.remove', { name: p })} onClick={() => intake.setScope((cur) => cur.filter((x) => x !== p))}>
-                      <X size={12} aria-hidden="true" />
-                    </button>
-                  </span>
+            {(files.length > 0 || picked.length > 0) && (
+              <div className="start-chips">
+                {files.map((f) => (
+                  <Chip key={f} className="start-chip">
+                    <span title={f}>{baseName(f)}</span>
+                    {removeChip(baseName(f), () => intake.setFiles((cur) => cur.filter((x) => x !== f)))}
+                  </Chip>
+                ))}
+                {picked.map((id) => (
+                  <Chip key={`#${id}`} tone="info" className="start-chip">
+                    #{id}
+                    {removeChip(`#${id}`, () => pick(id, false))}
+                  </Chip>
                 ))}
               </div>
-              <div className="start-audit-add">
+            )}
+            <div className="start-attach">
+              <Button size="sm" variant="ghost" icon={<Paperclip size={14} aria-hidden="true" />} onClick={() => fileInput.current?.click()}>
+                {t('start.attach')}
+              </Button>
+              <input
+                ref={fileInput}
+                type="file"
+                multiple
+                hidden
+                onChange={(e) => {
+                  intake.addFiles(e.target.files)
+                  e.target.value = ''
+                }}
+              />
+              <Button size="sm" variant="ghost" icon={<CircleDot size={14} aria-hidden="true" />} aria-expanded={issuesOpen} onClick={() => setIssuesOpen((v) => !v)}>
+                {t('start.issues')}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={onOtherSources}>
+                {t('start.otherSources')}
+              </Button>
+              {project?.promptsDir !== undefined && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  icon={<ListOrdered size={14} aria-hidden="true" />}
+                  onClick={() => {
+                    intake.setText('next waves')
+                    setChosen('prompts')
+                  }}
+                >
+                  {t('start.names.next')}
+                </Button>
+              )}
+            </div>
+            {mode === 'prompts' && lookup !== null && files.length > 0 && (
+              <p className="start-names-note">{t('start.names.ignored', { n: files.filter((f) => /\.md$/i.test(f)).length })}</p>
+            )}
+            {names && (
+              <div className="start-names" aria-live="polite">
+                {names.dir != null && (
+                  <div className="start-names-dir">
+                    {dirEdit === null ? (
+                      <>
+                        <span>{t('start.names.from', { dir: names.dir })}</span>
+                        <Button size="sm" variant="ghost" onClick={() => setDirEdit(names.dir ?? '')}>
+                          {t('start.names.change')}
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <Input value={dirEdit} onChange={(e) => setDirEdit(e.target.value)} aria-label={t('start.names.change')} autoFocus />
+                        <Button size="sm" onClick={() => void saveDir()}>
+                          {t('start.names.save')}
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                )}
+                {dirError && <p className="warn">{dirError}</p>}
+                {names.why?.map((w) => <p key={w} className="start-names-why">{w}</p>)}
+                {(names.picked?.length ?? 0) > 0 && (
+                  <ul className="start-names-list">
+                    {names.picked!.map((p) => (
+                      <li key={p.id}>
+                        <code>{p.id}</code> → <code>{p.path}</code>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {names.skipped?.map((x) => <p key={x.id} className="start-names-why">{t('start.names.skipped', { id: x.id, why: x.why })}</p>)}
+                {names.problems?.map((p) => <p key={p} className="warn">{p}</p>)}
+              </div>
+            )}
+            {issuesOpen && (
+              <IssuePicker
+                intake={intake}
+                onAutoPick={() => void intake.create(planArgs, { handsOff: planArgs.handsOff as 'on' | 'off' | undefined })}
+              />
+            )}
+          </Card>
+
+          {/* 3. Mode: one segmented choice and one line on what it does */}
+          <section className="start-mode">
+            <Tabs
+              variant="segmented"
+              label={t('start.mode.label')}
+              value={mode}
+              onChange={(m) => setChosen(m)}
+              items={MODES.map(([m, glyph, label]) => ({
+                id: m,
+                label: (
+                  <span className="start-mode-tab">
+                    <Icon icon={glyph} size={14} />
+                    {t(label)}
+                  </span>
+                )
+              }))}
+            />
+            <p className="start-mode-hint">{t(MODES.find(([m]) => m === mode)![3])}</p>
+          </section>
+
+          {mode === 'audit' && (
+            <Card className="start-audit">
+              <div className="start-audit-scope">
+                <span className="ui-field__label" id="start-scope-label">{t('start.audit.scope')}</span>
+                <div className="start-chips" aria-labelledby="start-scope-label">
+                  {intake.scope.length === 0 && <Chip>{t('start.audit.all')}</Chip>}
+                  {intake.scope.map((p) => (
+                    <Chip key={p} tone="info" className="start-chip">
+                      {p}
+                      {removeChip(p, () => intake.setScope((cur) => cur.filter((x) => x !== p)))}
+                    </Chip>
+                  ))}
+                </div>
+                <div className="start-audit-add">
+                  <Field
+                    label={t('start.audit.add')}
+                    hint={t('start.audit.scopeHint')}
+                    value={scopeQuery}
+                    list="start-scope-hints"
+                    placeholder="src/core"
+                    onChange={(e) => setScopeQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key !== 'Enter') return
+                      e.preventDefault()
+                      addScope(scopeQuery)
+                    }}
+                  />
+                  <Button icon={<Plus size={16} aria-hidden="true" />} disabled={scopeQuery.trim() === ''} onClick={() => addScope(scopeQuery)}>
+                    {t('start.audit.addButton')}
+                  </Button>
+                  <datalist id="start-scope-hints">
+                    {scopeHints.map((h) => (
+                      <option key={h} value={h} />
+                    ))}
+                  </datalist>
+                </div>
+              </div>
+              <fieldset className="start-audit-focus">
+                <legend className="ui-field__label">{t('start.audit.focus')}</legend>
+                {AUDIT_FOCUSES.map((f) => (
+                  <label key={f}>
+                    <input
+                      type="checkbox"
+                      checked={intake.focus.includes(f)}
+                      onChange={(e) => intake.setFocus((cur) => AUDIT_FOCUSES.filter((x) => (x === f ? e.target.checked : cur.includes(x))))}
+                    />
+                    {t(`start.audit.focus.${f}` as const)}
+                  </label>
+                ))}
+              </fieldset>
+            </Card>
+          )}
+
+          {/* 4. Options, folded: one line says what they are set to */}
+          <section className="start-opts">
+            <div className="start-more">
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={optsOpen ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}
+                aria-expanded={optsOpen}
+                aria-controls="start-options"
+                onClick={() => setOptsOpen((v) => !v)}
+              >
+                {t('start.options')}
+              </Button>
+              {!optsOpen && <span className="start-more-summary">{summary}</span>}
+            </div>
+            {optsOpen && (
+              <div className="start-options" id="start-options">
+                {/* #117: apart from bypass permissions (an app setting): this one also decides the plan's questions itself.
+                    T2: first, and it sticks as the project's default */}
                 <Field
-                  label={t('start.audit.add')}
-                  hint={t('start.audit.scopeHint')}
-                  value={scopeQuery}
-                  list="start-scope-hints"
-                  placeholder="src/core"
-                  onChange={(e) => setScopeQuery(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key !== 'Enter') return
-                    e.preventDefault()
-                    addScope(scopeQuery)
+                  kind="toggle"
+                  className="start-handsoff"
+                  label={t('start.opt.handsOff')}
+                  hint={t('start.opt.handsOffHint')}
+                  error={handsOffError}
+                  checked={handsOff}
+                  // a queued plan's hands-off goes through `jobs-set --after`, with its approval and delivery
+                  onChange={(on) => void saveHandsOff(on)}
+                />
+                <Field
+                  kind="select"
+                  label={t('start.opt.start')}
+                  value={intake.after}
+                  onChange={(e) => intake.setAfter(e.target.value)}
+                  options={[
+                    { value: '', label: t('start.opt.now') },
+                    ...intake.plans.map((p) => ({ value: p.id, label: `${t('start.opt.after', { plan: p.name })} · ${t(`start.opt.state.${p.state}` as const)}` }))
+                  ]}
+                />
+                {/* W1-B Job.priority: 0 is the default and is not sent */}
+                <Field
+                  kind="number"
+                  label={t('start.opt.priority')}
+                  step={1}
+                  value={intake.priority}
+                  onChange={(e) => {
+                    const n = e.target.valueAsNumber
+                    intake.setPriority(Number.isFinite(n) ? Math.trunc(n) : 0)
                   }}
                 />
-                <Button size="sm" icon={<Plus size={14} aria-hidden="true" />} disabled={scopeQuery.trim() === ''} onClick={() => addScope(scopeQuery)}>
-                  {t('start.audit.addButton')}
-                </Button>
-                <datalist id="start-scope-hints">
-                  {scopeHints.map((h) => (
-                    <option key={h} value={h} />
-                  ))}
-                </datalist>
+                <div className="ui-field">
+                  <label className="ui-field__label">{t('jobs.new.coordinator')}</label>
+                  <AccountSelect accounts={accounts} value={intake.account} onChange={intake.setAccount} allLabel={t('jobs.new.coordinatorPick')} />
+                </div>
+                <Field
+                  kind="number"
+                  label={t('start.opt.consoles')}
+                  min={1}
+                  max={MAX_CONCURRENT_WORKERS}
+                  value={intake.concurrency}
+                  onChange={(e) => {
+                    const n = e.target.valueAsNumber
+                    intake.setConcurrency(Number.isFinite(n) ? Math.min(Math.max(Math.trunc(n), 1), MAX_CONCURRENT_WORKERS) : 1)
+                  }}
+                />
+                <Field
+                  kind="select"
+                  label={t('start.opt.delivery')}
+                  value={delivery}
+                  // a queued plan starts through `jobs-set --after`, which takes no delivery: it keeps the project's
+                  disabled={intake.after !== ''}
+                  onChange={(e) => setDeliveryChoice(e.target.value as DeliveryMode)}
+                  options={[
+                    { value: 'pr', label: t('delivery.pr') },
+                    { value: 'push', label: t('delivery.push', { branch: project?.deliveryBranch ?? t('delivery.defaultBranch') }) }
+                  ]}
+                />
+                <Field
+                  kind="select"
+                  label={t('start.opt.approval')}
+                  value={approval}
+                  // as delivery: a planned mode sets approval as its planner starts, which a queued plan does later
+                  disabled={handsOff || (mode !== 'prompts' && intake.after !== '')}
+                  onChange={(e) => setApprovalChoice(e.target.value as 'ask' | 'auto')}
+                  options={[
+                    { value: 'ask', label: t('start.opt.ask') },
+                    { value: 'auto', label: t('start.opt.auto') }
+                  ]}
+                />
+                <div className="start-more-schedule">
+                  <Button variant="ghost" size="sm" onClick={onSchedule}>
+                    {t('start.more.schedule')}
+                  </Button>
+                </div>
               </div>
-            </div>
-            <fieldset className="start-audit-focus">
-              <legend className="ui-field__label">{t('start.audit.focus')}</legend>
-              {AUDIT_FOCUSES.map((f) => (
-                <label key={f}>
-                  <input
-                    type="checkbox"
-                    checked={intake.focus.includes(f)}
-                    onChange={(e) => intake.setFocus((cur) => AUDIT_FOCUSES.filter((x) => (x === f ? e.target.checked : cur.includes(x))))}
-                  />
-                  {t(`start.audit.focus.${f}` as const)}
-                </label>
-              ))}
-            </fieldset>
-          </Card>
-        )}
+            )}
+          </section>
 
-        <div className="start-options">
-          {/* #117: apart from bypass permissions (an app setting): this one also decides the plan's questions itself.
-              T2: first, and it sticks as the project's default */}
-          <Field
-            kind="toggle"
-            label={t('start.opt.handsOff')}
-            hint={t('start.opt.handsOffHint')}
-            error={handsOffError}
-            checked={handsOff}
-            // a queued plan's hands-off goes through `jobs-set --after`, with its approval and delivery
-            onChange={(on) => void saveHandsOff(on)}
-          />
-          <Field
-            kind="select"
-            label={t('start.opt.start')}
-            value={intake.after}
-            onChange={(e) => intake.setAfter(e.target.value)}
-            options={[
-              { value: '', label: t('start.opt.now') },
-              ...intake.plans.map((p) => ({ value: p.id, label: `${t('start.opt.after', { plan: p.name })} · ${t(`start.opt.state.${p.state}` as const)}` }))
-            ]}
-          />
+          <section className="start-pickup">
+            <h2>{t('start.pickup')}</h2>
+            {assigned !== null && (
+              <div className="start-pickup-group">
+                <span className="start-pickup-label">{t('start.pickup.issues')}</span>
+                {assigned.length === 0 && <span className="start-pickup-none">{t('start.pickup.none')}</span>}
+                {assigned.map((i) => (
+                  <Card key={i.id} onClick={() => pick(i.id, true)} disabled={i.selectable === false} title={i.reason}>
+                    #{i.id} {i.title}
+                  </Card>
+                ))}
+              </div>
+            )}
+            <Button variant="ghost" icon={<SquareTerminal size={16} aria-hidden="true" />} onClick={onOpenConsole}>
+              {t('start.pickup.console')}
+            </Button>
+          </section>
         </div>
+      </div>
 
-        <div className="start-more">
-          <Button
-            variant="ghost"
-            size="sm"
-            icon={moreOpen ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}
-            aria-expanded={moreOpen}
-            aria-controls="start-more-options"
-            onClick={() => setMoreOpen((v) => !v)}
-          >
-            {t('start.more')}
-          </Button>
-          <span className="start-more-summary">{summary}</span>
-        </div>
-        {moreOpen && (
-          <div className="start-options" id="start-more-options">
-            <Field
-              kind="number"
-              label={t('start.opt.consoles')}
-              min={1}
-              max={MAX_CONCURRENT_WORKERS}
-              value={intake.concurrency}
-              onChange={(e) => {
-                const n = e.target.valueAsNumber
-                intake.setConcurrency(Number.isFinite(n) ? Math.min(Math.max(Math.trunc(n), 1), MAX_CONCURRENT_WORKERS) : 1)
-              }}
-            />
-            <Field
-              kind="select"
-              label={t('start.opt.delivery')}
-              value={delivery}
-              // a queued plan starts through `jobs-set --after`, which takes no delivery: it keeps the project's
-              disabled={intake.after !== ''}
-              onChange={(e) => setDeliveryChoice(e.target.value as DeliveryMode)}
-              options={[
-                { value: 'pr', label: t('delivery.pr') },
-                { value: 'push', label: t('delivery.push', { branch: project?.deliveryBranch ?? t('delivery.defaultBranch') }) }
-              ]}
-            />
-            <Field
-              kind="select"
-              label={t('start.opt.approval')}
-              value={approval}
-              // as delivery: a planned mode sets approval as its planner starts, which a queued plan does later
-              disabled={handsOff || (mode !== 'prompts' && intake.after !== '')}
-              onChange={(e) => setApprovalChoice(e.target.value as 'ask' | 'auto')}
-              options={[
-                { value: 'ask', label: t('start.opt.ask') },
-                { value: 'auto', label: t('start.opt.auto') }
-              ]}
-            />
-            <div className="ui-field">
-              <label className="ui-field__label">{t('jobs.new.coordinator')}</label>
-              <AccountSelect accounts={accounts} value={intake.account} onChange={intake.setAccount} allLabel={t('jobs.new.coordinatorPick')} />
-            </div>
-            {/* W1-B Job.priority: 0 is the default and is not sent */}
-            <Field
-              kind="number"
-              label={t('start.opt.priority')}
-              step={1}
-              value={intake.priority}
-              onChange={(e) => {
-                const n = e.target.valueAsNumber
-                intake.setPriority(Number.isFinite(n) ? Math.trunc(n) : 0)
-              }}
-            />
-            <div className="start-more-schedule">
-              <button type="button" className="link" onClick={onSchedule}>
-                {t('start.more.schedule')}
-              </button>
-            </div>
+      {/* 5. One Create, always in view */}
+      <footer className="start-foot">
+        <div className="start-foot-inner">
+          <div className="start-foot-notes" aria-live="polite">
+            {intake.error ? <p className="warn">{intake.error}</p> : blocked ? <span>{blocked}</span> : go.note && <span>{go.note}</span>}
           </div>
-        )}
-
-        {intake.error && <p className="warn">{intake.error}</p>}
-        <div className="start-go">
-          <Button variant="primary" loading={intake.busy} disabled={intake.busy || project === null || intake.request === null || namesRefused} onClick={() => void intake.create(planArgs)}>
+          <Button
+            variant="primary"
+            size="lg"
+            loading={intake.busy}
+            disabled={intake.busy || blocked !== null || namesRefused}
+            onClick={() => void intake.create(planArgs)}
+          >
             {go.label}
           </Button>
-          {project === null && <span className="start-go-note">{t('start.project.required')}</span>}
-          {go.note && <span className="start-go-note">{go.note}</span>}
         </div>
-
-        <section className="start-pickup">
-          <h2>{t('start.pickup')}</h2>
-          {assigned !== null && (
-            <div className="start-pickup-group">
-              <span className="start-pickup-label">{t('start.pickup.issues')}</span>
-              {assigned.length === 0 && <span className="start-pickup-none">{t('start.pickup.none')}</span>}
-              {assigned.map((i) => (
-                <Card key={i.id} onClick={() => pick(i.id, true)} disabled={i.selectable === false} title={i.reason}>
-                  #{i.id} {i.title}
-                </Card>
-              ))}
-            </div>
-          )}
-          <Button icon={<SquareTerminal size={16} aria-hidden="true" />} onClick={onOpenConsole}>
-            {t('start.pickup.console')}
-          </Button>
-        </section>
-      </div>
+      </footer>
     </div>
   )
 }
