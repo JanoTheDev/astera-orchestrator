@@ -1,0 +1,64 @@
+/* W11 Plans list page (DESIGN-W11 §7, §9 "Plans / Plan"). Tokens only. */
+.plan-pages:has(> .plans-page) { padding: 0; gap: 0; }
+.plans-page { width: 100%; max-width: var(--page-max); margin: 0 auto; display: flex; flex-direction: column; min-height: 0; }
+.plans-body { display: flex; flex-direction: column; gap: var(--sp-4); padding: 0 var(--page-pad) var(--sp-6); }
+.plans-body .ui-empty { margin-top: var(--sp-10); }
+.plans-empty-line { display: block; margin-top: var(--sp-1); }
+
+.plans-stall { margin: 0; padding: var(--sp-2) var(--sp-3); border-radius: var(--radius); background: var(--warn-soft); color: var(--warn); font-size: var(--fs-12); }
+
+/* View options: a small popover under its icon button, holding "When a plan is done" */
+.plans-options { position: relative; margin-left: auto; }
+.plans-options-pop {
+  position: absolute; right: 0; top: calc(100% + var(--sp-1)); z-index: 20; min-width: 320px;
+  padding: var(--sp-3); border-radius: var(--radius-lg); background: var(--elevated); box-shadow: var(--shadow-pop);
+  font-size: var(--fs-13); color: var(--text);
+}
+.plans-options-pop .jobs-delivery { display: flex; flex-direction: column; gap: var(--sp-2); }
+.plans-options-pop select, .plans-options-pop input { margin-top: var(--sp-1); width: 100%; height: var(--h-md); }
+
+/* Coordinator strip: the live plans side by side */
+.plans-strip { display: flex; gap: var(--sp-3); overflow-x: auto; padding-bottom: var(--sp-1); }
+.plans-strip-item { flex: none; width: 260px; display: flex; }
+.plans-coord { flex: 1; display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-1); text-align: left; padding: var(--sp-3); min-width: 0; }
+.plans-coord-name { max-width: 100%; font-size: var(--fs-13); font-weight: var(--fw-semi); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plans-coord-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); font-size: var(--fs-11); color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.plans-coord-wait { max-width: 100%; font-size: var(--fs-11); color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plans-coord-decide { color: var(--warn); }
+
+/* Area groups and rows */
+.plans-group { display: flex; flex-direction: column; }
+.plans-group-head { display: flex; align-items: baseline; gap: var(--sp-2); margin: 0 0 var(--sp-1); padding: 0 var(--sp-2); font-size: var(--fs-11); font-weight: var(--fw-medium); letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-dim); }
+.plans-group-folders { font-family: var(--mono); text-transform: none; letter-spacing: 0; color: var(--text-faint); }
+.plans-item { border-radius: var(--radius); }
+.plans-item:hover { background: var(--hover); }
+.plans-item.is-archived { opacity: 0.7; }
+.plans-item.is-round { margin-left: var(--sp-6); }
+.plans-row { display: flex; align-items: center; gap: var(--sp-2); height: 36px; padding: 0 var(--sp-2); }
+.plans-row-main {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: var(--sp-2); height: 100%; padding: 0;
+  border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; overflow: hidden;
+}
+.plans-row-main:focus-visible { box-shadow: var(--focus-ring); outline: none; border-radius: var(--radius-sm); }
+.plans-row-main .ui-chip { flex: none; }
+.plans-row-name { min-width: 0; flex: 0 1 auto; font-size: var(--fs-13); font-weight: var(--fw-medium); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plans-row-name.is-done { color: var(--text-dim); }
+.plans-row-meta { flex: none; display: flex; gap: var(--sp-3); font-size: var(--fs-11); color: var(--text-faint); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.plans-rename { flex: 1; min-width: 0; height: var(--h-sm); padding: 0 var(--sp-2); border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--panel); color: var(--text); font: inherit; font-size: var(--fs-13); }
+.plans-line {
+  display: block; margin: 0; padding: 0 var(--sp-2) var(--sp-1) calc(var(--sp-2) + 22px); font-size: var(--fs-12); color: var(--text-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.plans-line--gate { color: var(--warn); }
+button.plans-worker { border: 0; background: none; font: inherit; font-size: var(--fs-12); text-align: left; cursor: pointer; width: 100%; color: var(--text-dim); }
+button.plans-worker:hover { color: var(--text); }
+.plans-rounds { display: flex; flex-direction: column; padding-bottom: var(--sp-1); }
+
+/* Overlap table, restyled */
+.plans-overlap { overflow: auto; }
+.plans-overlap table { border-collapse: collapse; font-size: var(--fs-12); }
+.plans-overlap th, .plans-overlap td { padding: var(--sp-1) var(--sp-3); border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+.plans-overlap thead th { font-family: var(--mono); font-weight: var(--fw-medium); color: var(--text-dim); }
+.plans-overlap th.shared, .plans-overlap td.shared { background: var(--warn-soft); color: var(--warn); }
+.plans-overlap td.editing { color: var(--accent); }
+.plans-overlap td.done { color: var(--text-faint); }

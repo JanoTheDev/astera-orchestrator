@@ -1,0 +1,16 @@
+/* W11 plan page (DESIGN-W11 §3, §4, §7, §9): the Waves bar and the house buttons that replaced the hand-rolled ones.
+   The page's older layout classes (.detail-*, .plan-head, .plan-crumb) stay in runDetail.css, planBoard.css and plan.css. */
+
+/* "Wave 2 of 3 · Wave 3 opens when A, B finish" on the left, + Task and the Board / Graph switch on the right. */
+.plan-waves-bar { flex: none; display: flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-2); min-width: 0; }
+.plan-waves-status { flex: 1; min-width: 0; margin: 0; display: flex; align-items: baseline; gap: var(--sp-2); font-size: var(--fs-13); color: var(--text-dim); }
+.plan-waves-status b { flex: none; font-size: var(--fs-14); font-weight: var(--fw-semi); color: var(--text); font-variant-numeric: tabular-nums; }
+.plan-waves-status span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* The action row of Overview and Changes: house buttons, no extra margins. */
+.plan-page .detail-graph-head { align-items: center; gap: var(--sp-2); }
+
+/* The filter line's clear and an event's "open console": pushed to the row's end, as .detail-clear/.detail-jump were. */
+.plan-clear, .plan-jump { margin-left: auto; flex: none; }
+
+.plan-page .plan-crumb { gap: var(--sp-1); color: var(--text-faint); }

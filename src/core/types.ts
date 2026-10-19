@@ -479,6 +479,8 @@ export interface JobTask {
   id: string
   title: string
   status: TaskStatus
+  /** The Task's wave, 0-based (replan.ts `waveOf`: 1 + its deepest dep). Absent: wave 0. */
+  wave?: number
   /** The worker session this Task was dispatched to, when this app process still has that session —
    *  so it is present for a worker that has exited as well as a running one, because the tab is still
    *  there either way. Absent means there is no tab to open and the Jobs view draws the row as

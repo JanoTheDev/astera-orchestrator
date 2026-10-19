@@ -8,9 +8,7 @@ import type { JobRow, JobTask } from '../../../../core/types'
 vi.mock('../../i18n/I18nProvider', () => ({ useI18n: () => ({ lang: 'en', t: (key: string) => key }) }))
 
 const { TasksPage } = await import('./TasksPage')
-const { JobsView } = await import('../JobsView')
-const { storedSection } = await import('./PlansPage')
-const { planListOrder } = await import('../plan/planBoard')
+const { PlansList, storedSection } = await import('./PlansPage')
 
 const task = (id: string, over: Partial<JobTask> = {}): JobTask => ({ id, title: `title ${id}`, status: 'pending', openGates: 0, ...over })
 const row = (id: string, over: Partial<JobRow> = {}): JobRow => ({
@@ -62,25 +60,66 @@ describe('TasksPage', () => {
 })
 
 describe('Plans list', () => {
+  const noop = (): void => {}
+  const acts = {
+    hostGate: null, stall: null, projectPath: '/p',
+    canOpenSession: () => false, onOpenSession: noop, onOpenRun: noop, onNewRun: noop, onNewFromSource: noop,
+    onPauseRun: noop, onResumeRun: noop, onDeleteRun: noop, onRestartCoordinator: noop, onApprove: noop,
+    onRenameJob: noop, onArchiveJob: noop, onUnarchiveJob: noop, onHoldJob: noop
+  }
+  const render = (runs: JobRow[], over: Record<string, unknown> = {}): string =>
+    renderToStaticMarkup(React.createElement(PlansList, { ...acts, snapshot: { runs, projectFolderBusy: false }, ...over }))
+
   it('draws the rows in the Plans order, under their area heads, with queue and overlap chips', () => {
-    const runs = planListOrder([
+    const html = render([
       row('q', { pendingStart: true, after: 'r', areas: ['auth'] }),
       row('r', { areas: ['auth'], overlapPlans: ['q'], createdAt: new Date(Date.now() - 120_000).toISOString() })
     ])
-    const html = renderToStaticMarkup(
-      React.createElement(JobsView, {
-        snapshot: { runs, projectFolderBusy: false },
-        hostGate: null, stall: null, hasProject: true,
-        canOpenSession: () => false, onOpenSession: () => {}, onOpenRun: () => {}, onNewRun: () => {},
-        onPauseRun: () => {}, onResumeRun: () => {}, onDeleteRun: () => {}, onRestartCoordinator: () => {},
-        groupsOf: (rows) => [{ key: 'auth', head: React.createElement('h2', { className: 'plans-area' }, 'auth'), rows }]
-      })
-    )
-    expect(html.indexOf('plans-area')).toBeLessThan(html.indexOf('plan r'))
-    expect(html.indexOf('plan r')).toBeLessThan(html.indexOf('plan q'))
+    expect(html.indexOf('plans-group-head')).toBeLessThan(html.lastIndexOf('plan r'))
+    expect(html.lastIndexOf('plan r')).toBeLessThan(html.lastIndexOf('plan q'))
     expect(html).toContain('pages.plans.startsAfter')
     expect(html).toContain('pages.plans.overlaps')
     expect(html).toContain('pages.plans.age')
+  })
+
+  it('has the header actions, the coordinator strip of live plans, approve, row menus and the archived toggle', () => {
+    const html = render([
+      row('live', { tasks: [task('w', { status: 'dispatched', startedAt: 'x', provider: 'claude', wave: 1 }), task('d', { status: 'completed' })] }),
+      row('wait', { pendingStart: true }),
+      row('done', { outcome: 'completed' }),
+      row('old', { archivedAt: 'x' }),
+      row('sched', { schedule: { kind: 'interval', everyMs: 60_000 } as never, paused: true })
+    ])
+    expect(html).toContain('ui-page-header')
+    expect(html).toContain('jobs.new.open')
+    expect(html).toContain('jobs.source.open')
+    expect(html).toContain('pages.plans.viewOptions')
+    expect(html).toContain('pages.plans.viewHint')
+    // the strip: live and waiting only, with state, wave and workers
+    const strip = html.slice(html.indexOf('plans-strip'), html.indexOf('plans-group'))
+    expect(strip).toContain('plan live')
+    expect(strip).toContain('plan wait')
+    expect(strip).not.toContain('plan done')
+    expect(strip).not.toContain('plan sched')
+    expect(strip).toContain('pages.plans.state.running')
+    expect(strip).toContain('pages.plans.state.approval')
+    expect(strip).toContain('pages.plans.wave')
+    expect(strip).toContain('pages.plans.working')
+    expect(html).toContain('jobs.run.approve')
+    expect(html).toContain('pages.plans.more')
+    expect(html).toContain('jobs.run.resume')
+    expect(html).toContain('jobs.lifecycle.showArchived')
+    expect(html).not.toContain('plan old')
+    // the delivery setting is not above the list any more
+    expect(html).not.toContain('delivery.label')
+  })
+
+  it('has one empty state, with New job, and none of the strip', () => {
+    const html = render([])
+    expect(html.match(/ui-empty"/g)).toHaveLength(1)
+    expect(html).toContain('jobs.empty')
+    expect(html).not.toContain('plans-strip')
+    expect(render([], { projectPath: undefined })).toContain('jobs.noProject')
   })
 })
 

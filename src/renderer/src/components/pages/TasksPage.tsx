@@ -1,6 +1,7 @@
-// W9-C Tasks page (DESIGN.md §2 "Tasks"): every Task of the project across plans, in five columns, with plan filter
-// pills. A card's column, its live line and where a click goes are planBoard.ts's (taskColumnOf, nowOf, reasonText,
-// taskClickOf); the "why it waits" is core's taskBoardsOf, carried on JobTask.board.
+// W9-C Tasks page, W11 look (DESIGN-W11 §9 "Tasks"): every Task of the project across plans, in five columns, with a
+// plan filter; plans still being planned come first, and a waiting card names what it waits on.
+// A card's column, its live line and where a click goes are planBoard.ts's (taskColumnOf, nowOf, reasonText, taskClickOf);
+// the "why it waits" is core's taskBoardsOf, carried on JobTask.board.
 import { useEffect, useMemo, useState } from 'react'
 import type { JobRow, JobTask } from '../../../../core/types'
 import { groupOfTab } from '../../../../core/panes/tree'
@@ -9,7 +10,8 @@ import type { AppState } from '../../state/appState'
 import { localDoor } from '../../lib/orchDoor'
 import { jobName } from '../../lib/jobName'
 import { openConsole, openInbox, openPlan } from '../shell/navigation'
-import { Card, Chip } from '../ui'
+import { ListTodo, Plus, SquareTerminal } from 'lucide-react'
+import { Button, Card, Chip, EmptyState, PageHeader, Select, type ChipTone } from '../ui'
 import {
   DONE_PER_PLAN,
   TASK_COLUMNS,
@@ -21,7 +23,7 @@ import {
   type LiveSession,
   type TaskColumn
 } from '../plan/planBoard'
-import { planningEntriesOf, stageText } from './tasksPlanning'
+import { planningEntriesOf, stageText, waitKindOf, type WaitKind } from './tasksPlanning'
 import { usePlanLive } from '../plan/usePlanLive'
 import { TaskGlyph } from '../JobIcons'
 import '../plan/plan.css'
@@ -39,9 +41,9 @@ const TICK_MS = 5_000
 
 type Placed = { task: JobTask; plan: JobRow; column: TaskColumn }
 
-export type TasksPageProps = Pick<AppState, 'accounts' | 'currentProject' | 'layout' | 'orchSnapshot' | 't'>
+export type TasksPageProps = Pick<AppState, 'accounts' | 'currentProject' | 'layout' | 'openStart' | 'orchSnapshot' | 't'>
 
-export function TasksPage({ accounts, currentProject, layout, orchSnapshot, t }: TasksPageProps): React.JSX.Element {
+export function TasksPage({ accounts, currentProject, layout, openStart, orchSnapshot, t }: TasksPageProps): React.JSX.Element {
   const [planFilter, setPlanFilter] = useState<string | null>(null)
   const [nowMs, setNowMs] = useState(() => Date.now())
   useEffect(() => {
@@ -89,101 +91,153 @@ export function TasksPage({ accounts, currentProject, layout, orchSnapshot, t }:
     else openPlan(click.jobId, click.section)
   }
 
+  const cardCount = TASK_COLUMNS.reduce((n, c) => n + (columns.get(c)?.length ?? 0), 0)
+  const newTask = (): void => {
+    if (currentProject) openStart({})
+  }
   return (
     <div className="plan-pages tasks-page">
-      <header className="plans-head">
-        <h1>{t('pages.tasks.title')}</h1>
-        <div className="tasks-pills" role="group" aria-label={t('pages.tasks.allPlans')}>
-          <button type="button" className="tasks-pill" aria-pressed={planFilter === null} onClick={() => setPlanFilter(null)}>
-            {t('pages.tasks.allPlans')}
-          </button>
-          {plans.map((r) => (
-            <button key={r.id} type="button" className="tasks-pill" aria-pressed={planFilter === r.id} onClick={() => setPlanFilter(r.id)}>
-              {jobName(r)}
-              {planningIds.has(r.id) ? (
-                <Chip>{t('pages.tasks.planning.badge')}</Chip>
-              ) : (
-                <span className="tasks-pill-count">
-                  {r.done}/{r.total}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
-      </header>
+      <PageHeader
+        title={t('pages.tasks.title')}
+        subtitle={cardCount > 0 ? t('pages.tasks.count', { count: cardCount }) : undefined}
+        actions={
+          <Button variant="primary" icon={<Plus size={16} />} disabled={!currentProject} onClick={newTask}>
+            {t('pages.tasks.new')}
+          </Button>
+        }
+        filters={
+          plans.length > 0 && (
+            <Select
+              className="tasks-plan-filter"
+              aria-label={t('pages.tasks.allPlans')}
+              value={planFilter ?? ''}
+              onChange={(e) => setPlanFilter(e.target.value === '' ? null : e.target.value)}
+            >
+              <option value="">{t('pages.tasks.allPlans')}</option>
+              {plans.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {jobName(r)} · {planningIds.has(r.id) ? t('pages.tasks.planning.badge') : `${r.done}/${r.total}`}
+                </option>
+              ))}
+            </Select>
+          )
+        }
+      />
       {planning.length > 0 && (
         <section className="tasks-planning" aria-label={t('pages.tasks.planning.title')}>
-          <h2 className="tasks-col-head">
+          <h2 className="tasks-section-head">
             {t('pages.tasks.planning.title')}
             <span className="tasks-col-count">{planning.length}</span>
           </h2>
-          {planning.map((e) => {
-            const stage = stageText(e)
-            return (
-              <Card key={e.plan.id} className="tasks-card tasks-planning-row" onClick={() => openPlan(e.plan.id)}>
-                <span className="tasks-card-title" title={jobName(e.plan)}>
-                  {jobName(e.plan)}
-                </span>
-                <span className="tasks-card-line">{t(stage.key, stage.params)}</span>
-                <span className="tasks-card-meta">
-                  <span>{t('pages.tasks.planning.written', { count: e.plan.total })}</span>
-                  {e.plan.plannerSessionId && (
-                    <button
-                      type="button"
-                      className="tasks-pill"
-                      onClick={(ev) => {
-                        ev.stopPropagation()
-                        openConsole(e.plan.plannerSessionId as string)
-                      }}
-                    >
-                      {t('pages.tasks.planning.console')}
-                    </button>
-                  )}
-                </span>
-              </Card>
-            )
-          })}
+          <div className="tasks-planning-row">
+            {planning.map((e) => {
+              const stage = stageText(e)
+              return (
+                <Card key={e.plan.id} tone={e.stage === 'ready' ? 'need' : 'plain'} className="tasks-card tasks-planning-card" onClick={() => openPlan(e.plan.id)}>
+                  <span className="tasks-card-title" title={jobName(e.plan)}>
+                    {jobName(e.plan)}
+                  </span>
+                  <span className="tasks-card-line">
+                    <Chip tone={e.stage === 'ready' ? 'warn' : 'info'} dot>
+                      {t(stage.key, stage.params)}
+                    </Chip>
+                  </span>
+                  <span className="tasks-card-meta">
+                    <span>{t('pages.tasks.planning.written', { count: e.plan.total })}</span>
+                    {e.plan.plannerSessionId && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        icon={<SquareTerminal size={14} />}
+                        onClick={(ev) => {
+                          ev.stopPropagation()
+                          openConsole(e.plan.plannerSessionId as string)
+                        }}
+                      >
+                        {t('pages.tasks.planning.console')}
+                      </Button>
+                    )}
+                  </span>
+                </Card>
+              )
+            })}
+          </div>
         </section>
       )}
-      <div className="tasks-board">
-        {TASK_COLUMNS.map((c) => {
-          const cards = columns.get(c) ?? []
-          return (
-            <section key={c} className={`tasks-col tasks-col--${c}`} aria-label={t(COLUMN_KEY[c])}>
-              <h2 className="tasks-col-head">
-                {t(COLUMN_KEY[c])}
-                <span className="tasks-col-count">{cards.length}</span>
-              </h2>
-              {cards.length === 0 && <p className="modal-hint">{t('pages.tasks.empty')}</p>}
-              {cards.map((p) => {
-                const line = liveLine(p)
-                const tone = c !== 'needs-you' ? 'plain' : p.task.status === 'failed' ? 'danger' : 'need'
-                return (
-                  <Card key={`${p.plan.id}:${p.task.id}`} tone={tone} className="tasks-card" onClick={() => go(p)}>
-                    <span className="tasks-card-head">
-                      <TaskGlyph task={p.task} />
-                      <span className="tasks-card-id">{p.task.id.slice(-6)}</span>
-                      <span className="tasks-card-title" title={p.task.title}>
-                        {p.task.title}
-                      </span>
-                    </span>
-                    {line && <span className="tasks-card-line">{line}</span>}
-                    <span className="tasks-card-meta">
-                      {planFilter === null && <Chip>{jobName(p.plan)}</Chip>}
-                      {p.task.provider && <span>{p.task.provider}</span>}
-                      {p.task.model && <span>{p.task.model}</span>}
-                    </span>
-                  </Card>
-                )
-              })}
-              {c === 'done' && olderDone > 0 && <p className="modal-hint">{t('pages.tasks.olderDone', { count: olderDone })}</p>}
-            </section>
-          )
-        })}
-      </div>
+      {cardCount === 0 && planning.length === 0 ? (
+        <EmptyState
+          icon={ListTodo}
+          title={t('pages.tasks.emptyTitle')}
+          action={
+            <Button variant="primary" icon={<Plus size={16} />} disabled={!currentProject} onClick={newTask}>
+              {t('pages.tasks.new')}
+            </Button>
+          }
+        >
+          {t('pages.tasks.emptyText')}
+        </EmptyState>
+      ) : (
+        <div className="tasks-board">
+          {TASK_COLUMNS.map((c) => {
+            const cards = columns.get(c) ?? []
+            return (
+              <section key={c} className={`tasks-col tasks-col--${c}`} aria-label={t(COLUMN_KEY[c])}>
+                <h2 className="tasks-col-head">
+                  {t(COLUMN_KEY[c])}
+                  <span className="tasks-col-count">{cards.length}</span>
+                </h2>
+                <div className="tasks-col-cards">
+                  {cards.map((p) => {
+                    const line = liveLine(p)
+                    const wait = c === 'planned' ? waitKindOf(p.task.board?.reason) : null
+                    const tone = c !== 'needs-you' ? 'plain' : p.task.status === 'failed' ? 'danger' : 'need'
+                    return (
+                      <Card key={`${p.plan.id}:${p.task.id}`} tone={tone} className="tasks-card" onClick={() => go(p)}>
+                        <span className="tasks-card-head">
+                          <TaskGlyph task={p.task} />
+                          <span className="tasks-card-title" title={p.task.title}>
+                            {p.task.title}
+                          </span>
+                          <span className="tasks-card-id">{p.task.id.slice(-6)}</span>
+                        </span>
+                        {(wait || line) && (
+                          <span className="tasks-card-why">
+                            {wait && <Chip tone={WAIT_TONE[wait]}>{t(WAIT_KEY[wait])}</Chip>}
+                            {line && (
+                              <span className="tasks-card-line" title={line}>
+                                {line}
+                              </span>
+                            )}
+                          </span>
+                        )}
+                        <span className="tasks-card-meta">
+                          {planFilter === null && <span className="tasks-card-plan">{jobName(p.plan)}</span>}
+                          {p.task.provider && <span>{p.task.provider}</span>}
+                          {p.task.model && <span>{p.task.model}</span>}
+                        </span>
+                      </Card>
+                    )
+                  })}
+                  {c === 'done' && olderDone > 0 && <p className="tasks-col-note">{t('pages.tasks.olderDone', { count: olderDone })}</p>}
+                </div>
+              </section>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
+
+/** The tag before a waiting card's reason: what kind of thing it waits on (tasksPlanning.ts waitKindOf). */
+const WAIT_KEY = {
+  lease: 'pages.tasks.wait.lease',
+  queue: 'pages.tasks.wait.queue',
+  deps: 'pages.tasks.wait.deps',
+  files: 'pages.tasks.wait.files',
+  capacity: 'pages.tasks.wait.capacity'
+} as const satisfies Record<WaitKind, string>
+const WAIT_TONE: Record<WaitKind, ChipTone> = { lease: 'warn', queue: 'info', deps: 'neutral', files: 'neutral', capacity: 'neutral' }
 
 /** usePlanLive's door while no project is open: never polled (enabled is false). */
 const NO_DOOR = { command: async () => ({ status: 503, body: null }) } as unknown as Parameters<typeof usePlanLive>[0]

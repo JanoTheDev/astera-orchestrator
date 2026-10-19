@@ -23,6 +23,7 @@ import { policyOfJob, repairCountIn, reviewRoundIn } from './convergence'
 import type { Dispatch, Gate, Job, JobRun, Task } from './types'
 import { taskBoardsOf } from './blocked'
 import { validatePlan } from './planner'
+import { waveOf } from './replan'
 import { autoApproveOf, handsOffOf, planApprovable } from './exec/plannerFeedback'
 import type { ScheduleLimits } from './schedule'
 
@@ -485,7 +486,11 @@ export function snapshotFor(
       // the dependency chain reads in. Task.deps is not a total order, so it cannot sort this.
       tasks: [...((run ? ix.tasksByRun.get(run.id) : ix.tasksByJob.get(job.id)) ?? [])]
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-        .map((t) => jobTaskOf(ix, t, isKnownSession, boards.get(t.id), branchOf))
+        .map((t, _, all) => {
+          // the Plans page's coordinator strip says "wave n/m"; only deps know the wave, and the renderer has no deps
+          const wave = waveOf(t, all)
+          return { ...jobTaskOf(ix, t, isKnownSession, boards.get(t.id), branchOf), ...(wave > 0 ? { wave } : {}) }
+        })
     }
   }
 

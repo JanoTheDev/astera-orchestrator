@@ -311,6 +311,15 @@ describe('snapshotFor', () => {
     expect(snapshotFor(s, absPath('p'), anySession, noWorktrees, noFires, allExist).runs[0].tasks.map((t) => t.id)).toEqual(['t2', 't1'])
   })
 
+  // The Plans page's coordinator strip: "wave n/m" needs each Task's wave, and the renderer has no deps
+  it('carries each Task its wave (1 + its deepest dep), absent for wave 0', () => {
+    const a = task('a', 'r1', 'completed')
+    const b = { ...task('b', 'r1', 'ready'), deps: ['a'], createdAt: '2026-08-18T01:00:00.000Z' }
+    const c = { ...task('c', 'r1', 'pending'), deps: ['a', 'b'], createdAt: '2026-08-18T02:00:00.000Z' }
+    const s = withRuns([run('r1', absPath('p'))], [a, b, c])
+    expect(snapshotFor(s, absPath('p'), anySession, noWorktrees, noFires, allExist).runs[0].tasks.map((t) => t.wave)).toEqual([undefined, 1, 2])
+  })
+
   // 재시도는 같은 Task 에 새 Dispatch 를 연다 — 행이 가리켜야 하는 것은 마지막 워커의 세션이다
   it('sessionId 는 가장 최근 Dispatch 의 것이다', () => {
     const s: OrchState = {

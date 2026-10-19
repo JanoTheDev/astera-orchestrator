@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { JobRow } from '../../../../core/types'
-import { planningEntriesOf, planningStageOf, stageText } from './tasksPlanning'
+import { planningEntriesOf, planningStageOf, stageText, waitKindOf } from './tasksPlanning'
 
 const row = (o: Partial<JobRow>): JobRow => ({ id: 'j', objective: 'o', tasks: [], ...o }) as JobRow
 
@@ -29,5 +29,21 @@ describe('planningEntriesOf / stageText', () => {
   it('counts the replanned wave from 1', () => {
     const [e] = planningEntriesOf([row({ replanWave: 1 })])
     expect(stageText(e).params).toEqual({ n: 2 })
+  })
+})
+
+describe('waitKindOf', () => {
+  it('names what a waiting Task waits on', () => {
+    const t = { id: 't1', title: 'T1' }
+    expect(waitKindOf({ kind: 'same-files', waitingOn: t, path: 'a.ts', plan: { id: 'p', title: 'P' } })).toBe('lease')
+    expect(waitKindOf({ kind: 'same-files', waitingOn: t, path: 'a.ts' })).toBe('files')
+    expect(waitKindOf({ kind: 'pending-start', after: { id: 'p', title: 'P' } })).toBe('queue')
+    expect(waitKindOf({ kind: 'deps', waitingOn: [{ ...t, status: 'ready' }] })).toBe('deps')
+    expect(waitKindOf({ kind: 'plan-cap', used: 2, limit: 2 })).toBe('capacity')
+  })
+  it('is null without a reason or for one that needs no tag', () => {
+    expect(waitKindOf(undefined)).toBeNull()
+    expect(waitKindOf({ kind: 'pending-start' })).toBeNull()
+    expect(waitKindOf({ kind: 'next' })).toBeNull()
   })
 })

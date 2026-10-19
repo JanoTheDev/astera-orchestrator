@@ -1,7 +1,7 @@
 // The Tasks page's Planning section: plans that have no Tasks to show yet because they are still being planned,
 // replanned, waiting for approval or queued behind another plan. Pure, so the node-only test suite reaches it.
 import type { MessageKey, MessageParams } from '../../../../core/i18n'
-import type { JobRow } from '../../../../core/types'
+import type { JobRow, TaskBlockedReason } from '../../../../core/types'
 import { jobName } from '../../lib/jobName'
 
 export type PlanningStage = 'writing' | 'replanning' | 'ready' | 'queued'
@@ -48,5 +48,29 @@ export function stageText(e: PlanningEntry): { key: MessageKey; params?: Message
       return { key: 'pages.tasks.planning.queued', params: { plan: e.afterName ?? e.plan.after ?? '' } }
     default:
       return { key: 'pages.tasks.planning.writing' }
+  }
+}
+
+/** What a waiting Task waits on, in one word for its card (DESIGN-W11: status needs a word, not colour alone):
+ *  `lease` another plan holds its files, `queue` its plan is queued after another, `deps` earlier Tasks (its wave),
+ *  `files` a Task of its own plan holds its files, `capacity` a slot or account limit. Null: no wait worth a tag. */
+export type WaitKind = 'lease' | 'queue' | 'deps' | 'files' | 'capacity'
+
+export function waitKindOf(reason: TaskBlockedReason | undefined): WaitKind | null {
+  switch (reason?.kind) {
+    case 'same-files':
+      return reason.plan ? 'lease' : 'files'
+    case 'pending-start':
+      return reason.after ? 'queue' : null
+    case 'deps':
+      return 'deps'
+    case 'plan-cap':
+    case 'global-cap':
+    case 'rate-limited':
+    case 'usage-paused':
+    case 'no-account':
+      return 'capacity'
+    default:
+      return null
   }
 }

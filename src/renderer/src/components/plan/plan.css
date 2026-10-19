@@ -87,22 +87,34 @@
 .plan-page .detail-body[data-section='changes'] > .detail-graph { overflow: auto; }
 .plan-sofar h3 { margin: 8px 0 4px; font-size: 13px; }
 
-/* Tasks page */
-.tasks-pills { display: flex; flex-wrap: wrap; gap: 6px; }
-.tasks-pill { max-width: 100%; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; border: 1px solid var(--line); border-radius: 12px; background: none; color: var(--text-dim); font: inherit; font-size: 12px; cursor: pointer; }
-.tasks-pill[aria-pressed='true'] { border-color: var(--accent); color: var(--text); background: var(--accent-soft); }
-.tasks-pill-count { font-variant-numeric: tabular-nums; color: var(--text-faint); }
-.tasks-planning { display: flex; flex-direction: column; gap: 6px; }
-.tasks-board { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(5, minmax(180px, 1fr)); gap: 10px; overflow: auto; }
-.tasks-col { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
-.tasks-col-head { display: flex; align-items: center; gap: 6px; margin: 0 0 2px; font-size: 12px; font-weight: 600; color: var(--text-dim); }
-.tasks-col-count { font-weight: 400; color: var(--text-faint); font-variant-numeric: tabular-nums; }
-.tasks-card { display: flex; flex-direction: column; align-items: stretch; gap: 4px; width: 100%; min-width: 0; overflow: hidden; text-align: left; font-size: 12px; }
+/* Tasks page (DESIGN-W11 §9 "Tasks"): PageHeader, the Planning row, then the board; full width, columns scroll
+   sideways under 1100px */
+.plan-pages.tasks-page { padding: 0; gap: 0; }
+.tasks-plan-filter { max-width: 320px; }
+.tasks-section-head { display: flex; align-items: center; gap: 6px; margin: 0 0 var(--sp-2); font-size: var(--fs-12); font-weight: 600; color: var(--text-dim); }
+.tasks-planning { padding: 0 var(--page-pad) var(--sp-4); }
+.tasks-planning-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: var(--sp-2); }
+.tasks-board { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(5, minmax(200px, 1fr)); gap: var(--sp-3); padding: 0 var(--page-pad) var(--sp-4); overflow: auto; }
+.tasks-col { min-width: 0; min-height: 0; display: flex; flex-direction: column; padding: var(--sp-2); border-radius: var(--radius-lg); background: var(--panel); }
+:root[data-theme='day'] .tasks-col { border: 1px solid var(--line); }
+.tasks-col-head { display: flex; align-items: center; gap: 6px; margin: 0; padding: var(--sp-1) var(--sp-1) var(--sp-2); font-size: var(--fs-12); font-weight: 600; color: var(--text-dim); }
+.tasks-col-count { font-size: var(--fs-11); font-weight: 500; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.tasks-col-cards { display: flex; flex-direction: column; gap: var(--sp-2); min-height: 0; overflow-y: auto; }
+.tasks-col-note { margin: var(--sp-1); font-size: var(--fs-11); color: var(--text-faint); }
+.tasks-card { display: flex; flex-direction: column; align-items: stretch; gap: 6px; width: 100%; min-width: 0; padding: 10px; overflow: hidden; text-align: left; font-size: var(--fs-12); }
+.tasks-col .tasks-card { background: var(--bg); }
+:root[data-theme='day'] .tasks-col .tasks-card { background: var(--panel); }
+.tasks-col .tasks-card:hover { background: var(--hover); }
 .tasks-card-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.tasks-card-id { flex: none; font-family: var(--font-mono, monospace); font-size: 10px; color: var(--text-faint); }
-.tasks-card-title { min-width: 0; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
-.tasks-card-line { display: block; font-size: 11px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tasks-card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 11px; color: var(--text-faint); }
+.tasks-card-id { flex: none; margin-left: auto; font-family: var(--font-mono, monospace); font-size: var(--fs-11); color: var(--text-faint); }
+.tasks-card-title { min-width: 0; font-size: var(--fs-13); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.tasks-card-why { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.tasks-card-why .ui-chip { flex: none; }
+.tasks-card-line { display: block; min-width: 0; font-size: var(--fs-12); color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tasks-card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; font-size: var(--fs-11); color: var(--text-faint); }
+.tasks-card-plan { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tasks-planning-card .tasks-card-meta { justify-content: space-between; }
+@media (max-width: 1100px) { .tasks-board { grid-template-columns: repeat(5, 240px); } }
 
 /* The answer form (QuestionAnswer, in the Inbox card and on a Waves card): a full-width box and a Send under it, flat
    like every other field (W9-F: it was the browser's default textarea, 180px wide). */
