@@ -3,6 +3,7 @@ import { useTheme } from '../lib/theme'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
 import { useRef } from 'react'
+import { Check } from 'lucide-react'
 import { createLatest } from '../lib/latest'
 
 /** 테마는 색을 보고 고르는 것이라 드롭다운이 아니라 카드다. 각 카드가 자기 팔레트로 작은 미리보기를
@@ -20,15 +21,18 @@ export function ThemeSettings(): React.JSX.Element {
       // Put back only when no later pick came (audit UI-14): reverting an older pick undid the newer one on screen.
       if (latest.current.isCurrent(ticket)) setThemeId(prev)
       toast.error(
-        t('settings.theme.saveFailed', { detail: err instanceof Error ? err.message : String(err) })
+        t('settings.theme.saveFailed', {
+          detail: err instanceof Error ? err.message : String(err)
+        })
       )
     })
   }
 
   return (
     <div className="settings-theme">
-      <div className="settings-row">
-        <span>{t('settings.theme.label')}</span>
+      <div className="settings-theme-head">
+        <span className="settings-card-title">{t('settings.theme.label')}</span>
+        <span className="settings-hint">{t('settings.theme.hint')}</span>
       </div>
       <div className="theme-grid">
         {THEME_IDS.map((id) => {
@@ -47,7 +51,7 @@ export function ThemeSettings(): React.JSX.Element {
                 // 카드는 자기 테마의 값으로 그린다 — 앱 테마를 따라가면 미리보기가 아니다
                 background:
                   id === 'system' ? `linear-gradient(90deg, ${th.colors.bg} 50%, ${day.colors.bg} 50%)` : th.colors.bg,
-                borderColor: on ? th.colors.accent : th.colors.line,
+                borderColor: th.colors.line,
                 color: th.colors.text
               }}
             >
@@ -57,12 +61,14 @@ export function ThemeSettings(): React.JSX.Element {
                 <i style={{ background: th.colors.accent }} />
                 {id === 'system' && <i style={{ background: day.colors.accent }} />}
               </span>
-              <span className="theme-card-name">{id === 'system' ? t('settings.theme.system') : th.name}</span>
+              <span className="theme-card-name">
+                {id === 'system' ? t('settings.theme.system') : th.name}
+                {on && <Check size={14} aria-hidden="true" />}
+              </span>
             </button>
           )
         })}
       </div>
-      <span className="settings-hint">{t('settings.theme.hint')}</span>
     </div>
   )
 }

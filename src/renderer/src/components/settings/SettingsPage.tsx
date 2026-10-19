@@ -1,9 +1,20 @@
 // W9-E: the Settings page (DESIGN §2 "Settings", §7): groups on the left with a search field, the group's rows on the
-// right. A search shows every matching row under its group's label. openSettings(group, anchor) scrolls to the row
+// right. W11 (DESIGN-W11 §9): PageHeader with Back as leading, a 200px icon nav, the content at 720px in cards. A search shows every matching row under its group's label. openSettings(group, anchor) scrolls to the row
 // and briefly highlights it.
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, Search } from 'lucide-react'
-import { Button, EmptyState } from '../ui'
+import {
+  ArrowLeft,
+  Bell,
+  Bot,
+  FolderKanban,
+  Plug,
+  Search,
+  SlidersHorizontal,
+  Users,
+  Wrench,
+  type LucideIcon
+} from 'lucide-react'
+import { Button, EmptyState, PageHeader } from '../ui'
 import type { SettingsDialogProps } from '../shell/SettingsDialog'
 import { GROUP_LABEL, SETTINGS_GROUPS, SETTINGS_ROWS, filterSettings, type SettingsGroupId } from './settingsIndex'
 import type { GroupProps } from './SettingRow'
@@ -24,6 +35,16 @@ const GROUP_VIEW: Record<SettingsGroupId, (p: GroupProps) => React.JSX.Element |
   integrations: IntegrationsSettings,
   notifications: NotificationsSettings,
   advanced: AdvancedSettings
+}
+
+const GROUP_ICON: Record<SettingsGroupId, LucideIcon> = {
+  general: SlidersHorizontal,
+  accounts: Users,
+  agents: Bot,
+  projects: FolderKanban,
+  integrations: Plug,
+  notifications: Bell,
+  advanced: Wrench
 }
 
 /** How long a row openSettings landed on stays highlighted. */
@@ -75,13 +96,23 @@ export function SettingsPage(p: SettingsDialogProps & { onClose: () => void }): 
   }
 
   return (
-    <div ref={root} className="settings-page" role="region" aria-label={t('settings.title')} tabIndex={-1} onKeyDown={onKeyDown}>
-      <header className="settings-page__head">
-        <Button variant="ghost" size="sm" icon={<ArrowLeft size={14} aria-hidden="true" />} onClick={onClose}>
-          {t('settings.back')}
-        </Button>
-        <h2 className="settings-page__title">{t('settings.title')}</h2>
-      </header>
+    <div
+      ref={root}
+      className="settings-page"
+      role="region"
+      aria-label={t('settings.title')}
+      tabIndex={-1}
+      onKeyDown={onKeyDown}
+    >
+      <PageHeader
+        className="settings-page__head"
+        title={t('settings.title')}
+        leading={
+          <Button variant="ghost" size="sm" icon={<ArrowLeft size={14} aria-hidden="true" />} onClick={onClose}>
+            {t('settings.back')}
+          </Button>
+        }
+      />
       <div className="settings-page__body">
         <nav className="settings-page__nav" aria-label={t('settings.title')}>
           <label className="settings-page__search">
@@ -94,30 +125,36 @@ export function SettingsPage(p: SettingsDialogProps & { onClose: () => void }): 
               onChange={(e) => setQuery(e.target.value)}
             />
           </label>
-          {SETTINGS_GROUPS.map((g) => (
-            <button
-              key={g}
-              type="button"
-              className={`settings-nav-item ${!hits && settingsTab === g ? 'active' : ''} ${hits && !hitGroups.has(g) ? 'settings-nav-item--none' : ''}`}
-              aria-current={!hits && settingsTab === g ? 'page' : undefined}
-              onClick={() => {
-                setQuery('')
-                setSettingsTab(g)
-              }}
-            >
-              {t(GROUP_LABEL[g])}
-            </button>
-          ))}
+          {SETTINGS_GROUPS.map((g) => {
+            const GroupIcon = GROUP_ICON[g]
+            return (
+              <button
+                key={g}
+                type="button"
+                className={`settings-nav-item ${!hits && settingsTab === g ? 'active' : ''} ${hits && !hitGroups.has(g) ? 'settings-nav-item--none' : ''}`}
+                aria-current={!hits && settingsTab === g ? 'page' : undefined}
+                onClick={() => {
+                  setQuery('')
+                  setSettingsTab(g)
+                }}
+              >
+                <GroupIcon size={16} aria-hidden="true" />
+                <span>{t(GROUP_LABEL[g])}</span>
+              </button>
+            )
+          })}
         </nav>
         <div ref={content} className="settings-content settings-page__content">
-          {hits && hits.length === 0 && <EmptyState icon={Search}>{t('settings.search.empty', { query: query.trim() })}</EmptyState>}
+          {hits && hits.length === 0 && (
+            <EmptyState icon={Search}>{t('settings.search.empty', { query: query.trim() })}</EmptyState>
+          )}
           {/* Every group keeps its place in the tree, shown or not, so Integrations' Slack row is never remounted. */}
           {SETTINGS_GROUPS.map((g) => {
             const shown = hits ? hitGroups.has(g) : settingsTab === g
             const View = GROUP_VIEW[g]
             return (
               <section key={g} className="settings-page__group" hidden={!shown}>
-                {hits && shown && <h3 className="settings-page__group-label">{t(GROUP_LABEL[g])}</h3>}
+                {shown && <h2 className="settings-page__group-label">{t(GROUP_LABEL[g])}</h2>}
                 <View {...p} shown={shown} only={only} />
               </section>
             )

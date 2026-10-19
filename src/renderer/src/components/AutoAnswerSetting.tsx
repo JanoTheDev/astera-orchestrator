@@ -23,7 +23,7 @@ export function AutoAnswerSetting(): React.JSX.Element {
     <div className="settings-group">
       <label className="settings-row">
         <span>{t('settings.autoAnswer.label')}</span>
-        <input type="checkbox" checked={on ?? true} disabled={on === null} onChange={(e) => toggle(e.target.checked)} />
+        <input type="checkbox" role="switch" className="ui-toggle" checked={on ?? true} disabled={on === null} onChange={(e) => toggle(e.target.checked)} />
       </label>
       <span className="settings-hint">{t('settings.autoAnswer.hint')}</span>
     </div>

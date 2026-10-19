@@ -1,6 +1,6 @@
 // W9-J: the right side of the Worktrees page: what one worktree is, what it changed against its base, and its commits.
 import { useEffect, useState } from 'react'
-import { FolderOpen, MoreHorizontal, SquareTerminal, Terminal } from 'lucide-react'
+import { ArrowDown, ArrowUp, FolderOpen, MoreHorizontal, SquareTerminal, Terminal, Trash2 } from 'lucide-react'
 import type { ChangedFile } from '../../../../core/git/changedFile'
 import type { WorktreeDetail as Detail, WorktreeRow } from '../../../../core/worktrees/cleanup'
 import { useI18n } from '../../i18n/I18nProvider'
@@ -18,6 +18,19 @@ export function stateOf(r: WorktreeRow): { key: 'ready' | 'running' | 'waiting' 
   if (r.ready) return { key: 'ready', tone: 'ok' }
   if (!r.owner) return { key: 'yours', tone: 'neutral' }
   return r.owner.running ? { key: 'running', tone: 'info' } : { key: 'waiting', tone: 'warn' }
+}
+
+/** Commits ahead of / behind the base, as lucide arrows and counts; nothing when both are zero or unknown. */
+export function AheadBehind({ ahead, behind, className }: { ahead: number | null; behind: number | null; className?: string }): React.JSX.Element | null {
+  if ((ahead ?? 0) + (behind ?? 0) === 0) return null
+  return (
+    <span className={`worktree-aheadbehind${className ? ` ${className}` : ''}`}>
+      <ArrowUp size={12} aria-hidden="true" />
+      {ahead ?? '?'}
+      <ArrowDown size={12} aria-hidden="true" />
+      {behind ?? '?'}
+    </span>
+  )
 }
 
 export function WorktreeDetail({
@@ -72,10 +85,8 @@ export function WorktreeDetail({
           <Chip tone={st.tone} dot>
             {t(`worktrees.detail.state.${st.key}` as never)}
           </Chip>
-          <span className="worktree-detail__base">
-            {t('worktrees.detail.base', { base: w.baseRef })}
-            {(row.ahead !== null || row.behind !== null) && ` · ↑${row.ahead ?? '?'} ↓${row.behind ?? '?'}`}
-          </span>
+          <span className="worktree-detail__base">{t('worktrees.detail.base', { base: w.baseRef })}</span>
+          <AheadBehind ahead={row.ahead} behind={row.behind} />
         </div>
         <div className="worktree-detail__actions">
           {row.owner?.sessionId && (
@@ -107,10 +118,13 @@ export function WorktreeDetail({
                   window.api.clipboard.writeText(w.path)
                   toast.success(t('worktrees.detail.pathCopied'))
                 }
-              },
-              { id: 'remove', label: t('files.action.delete'), danger: true, onSelect: () => void list.current?.remove(w) }
+              }
             ]}
           />
+          {/* remove() confirms first (and a second time before a forced removal). */}
+          <Button size="sm" variant="danger" icon={<Trash2 size={14} />} className="worktree-detail__delete" onClick={() => void list.current?.remove(w)}>
+            {t('files.action.delete')}
+          </Button>
         </div>
       </header>
 

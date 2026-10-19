@@ -5,6 +5,7 @@ import { slackMode } from '../../../core/slack/ready'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
 import { createTouched } from '../lib/touched'
+import { Button, Card, Chip, Field, type ChipTone } from './ui'
 
 export function SlackSettings(): React.JSX.Element {
   const { t } = useI18n()
@@ -45,12 +46,32 @@ export function SlackSettings(): React.JSX.Element {
     }
   }, [])
 
+  // Which transport the current input adds up to. The verdict is slackMode() from core: it has to be the same function
+  // that applyConfig (in main) and the notification checkbox gating use, so one side cannot drift from the other.
+  const mode = slackMode({
+    webhookUrl: slackUrl.trim() || null,
+    botToken: slackBotToken.trim() || null,
+    channelId: slackChannelId.trim() || null
+  })
+  const status: Record<typeof mode, { tone: ChipTone; label: 'settings.slack.status.bot' | 'settings.slack.status.webhook' | 'settings.slack.status.off' }> = {
+    bot: { tone: 'ok', label: 'settings.slack.status.bot' },
+    webhook: { tone: 'info', label: 'settings.slack.status.webhook' },
+    off: { tone: 'neutral', label: 'settings.slack.status.off' }
+  }
+
+  // W11 (DESIGN-W11 §9): a Card — title and status, what it does, the fields, then Save.
   return (
-      <div className="settings-slack">
-        <label className="settings-field-label">Slack Webhook URL</label>
-        <input
-          type="text"
-          className="slack-url-input"
+    <Card className="settings-integration">
+      <div className="settings-card-head">
+        <h3 className="settings-card-title">{t('settings.row.slack')}</h3>
+        <Chip tone={status[mode].tone} dot>
+          {t(status[mode].label)}
+        </Chip>
+      </div>
+      <p className="settings-card-desc">{t('settings.slack.hint')}</p>
+      <div className="settings-integration-fields">
+        <Field
+          label="Slack Webhook URL"
           value={slackUrl}
           placeholder="https://hooks.slack.com/services/…"
           onChange={(e) => {
@@ -59,14 +80,12 @@ export function SlackSettings(): React.JSX.Element {
             setSlackSaved(false)
           }}
         />
-        {/* Bot configuration. Tokens are password inputs — it reduces exposure over a shared
-            screen or a shoulder. Once filled, a password shows only ●●●, so every field needs
-            a label to say what it is */}
-        <label className="settings-field-label">{t('settings.slack.botSection')}</label>
-        <label className="settings-field-label">Bot Token</label>
-        <input
+        {/* Bot configuration. Tokens are password inputs — it reduces exposure over a shared screen or a shoulder. Once
+            filled, a password shows only ●●●, so every field needs a label to say what it is */}
+        <h4 className="settings-integration-sub">{t('settings.slack.botSection')}</h4>
+        <Field
+          label="Bot Token"
           type="password"
-          className="slack-url-input"
           value={slackBotToken}
           placeholder="xoxb-…"
           onChange={(e) => {
@@ -75,10 +94,9 @@ export function SlackSettings(): React.JSX.Element {
             setSlackSaved(false)
           }}
         />
-        <label className="settings-field-label">Channel ID</label>
-        <input
-          type="text"
-          className="slack-url-input"
+        <Field
+          label="Channel ID"
+          hint={t('settings.slack.channelIdHint')}
           value={slackChannelId}
           placeholder="C0123456789"
           onChange={(e) => {
@@ -87,11 +105,10 @@ export function SlackSettings(): React.JSX.Element {
             setSlackSaved(false)
           }}
         />
-        <span className="settings-hint">{t('settings.slack.channelIdHint')}</span>
-        <label className="settings-field-label">App Token</label>
-        <input
+        <Field
+          label="App Token"
           type="password"
-          className="slack-url-input"
+          hint={t('settings.slack.appTokenHint')}
           value={slackAppToken}
           placeholder="xapp-…"
           onChange={(e) => {
@@ -100,15 +117,16 @@ export function SlackSettings(): React.JSX.Element {
             setSlackSaved(false)
           }}
         />
-        <span className="settings-hint">{t('settings.slack.appTokenHint')}</span>
-        {/* The one member allowed to reply into sessions. The channel alone is not a
-            permission boundary — anyone invited there could push input into a session — so
-            replies are matched against this ID. Left empty, every reply is blocked rather
-            than allowed (core/slack/inbound.ts), which is why the warning below is loud. */}
-        <label className="settings-field-label">Member ID</label>
-        <input
-          type="text"
-          className="slack-url-input"
+        {/* The one member allowed to reply into sessions. The channel alone is not a permission boundary — anyone
+            invited there could push input into a session — so replies are matched against this ID. Left empty, every
+            reply is blocked rather than allowed (core/slack/inbound.ts), which is why the warning is loud. It is gated
+            on bot mode, not on the full intake condition (which also needs the app token): slackMode() is the verdict
+            core already owns. In bot mode without an app token there is no intake at all, and the warning still
+            reads true there. */}
+        <Field
+          label="Member ID"
+          hint={t('settings.slack.memberIdHint')}
+          error={mode === 'bot' && slackMemberId.trim() === '' ? t('settings.slack.memberIdRequired') : undefined}
           value={slackMemberId}
           placeholder="U0123456789"
           onChange={(e) => {
@@ -117,74 +135,49 @@ export function SlackSettings(): React.JSX.Element {
             setSlackSaved(false)
           }}
         />
-        <span className="settings-hint">{t('settings.slack.memberIdHint')}</span>
-        {/* Gated on bot mode, not on the full intake condition (which also needs the app
-            token): slackMode() is the verdict core already owns, so no third place gets to
-            judge "is the bot on" and drift from it. In bot mode without an app token there
-            is no intake at all, and the warning still reads true there. */}
-        {slackMode({
-          webhookUrl: slackUrl.trim() || null,
-          botToken: slackBotToken.trim() || null,
-          channelId: slackChannelId.trim() || null
-        }) === 'bot' &&
-          slackMemberId.trim() === '' && (
-            <span className="update-note update-err">
-              {t('settings.slack.memberIdRequired')}
-            </span>
-          )}
-        <div className="slack-cell">
-          <button
-            disabled={!slackLoaded}
-            onClick={() =>
-              void window.api.slack
-                .setConfig({
-                  webhookUrl: slackUrl.trim() || null,
-                  botToken: slackBotToken.trim() || null,
-                  channelId: slackChannelId.trim() || null,
-                  appToken: slackAppToken.trim() || null,
-                  memberId: slackMemberId.trim() || null
-                })
-                .then(() => setSlackSaved(true))
-                // A rejection means the store refused to overwrite values it could not read —
-                // the settings on disk survived. Saying so beats a silently dead button, since
-                // "Saved" never appears either way.
-                .catch((err) =>
-                  toast.error(
-                    t('settings.slack.saveFailed', {
-                      detail: err instanceof Error ? err.message : String(err)
-                    })
-                  )
-                )
-            }
-          >
-            {t('settings.slack.save')}
-          </button>
-          {slackSaved && <span className="update-note">{t('settings.slack.saved')}</span>}
-        </div>
-        {/* Shows immediately which transport the current input adds up to — filling in a bot
-            token but leaving out the channel ID falls back to the Webhook silently, so that
-            has to be visible. The verdict uses slackMode() from core: it has to be the same
-            function that applyConfig (in main) and the notification checkbox gating use, so
-            one side cannot drift from the other */}
-        <span className="settings-hint">
-          {t(
-            (
-              {
-                bot: 'settings.slack.modeBot',
-                webhook: 'settings.slack.modeWebhook',
-                off: 'settings.slack.modeOff'
-              } as const
-            )[
-              slackMode({
+      </div>
+      <div className="settings-integration-actions">
+        <Button
+          disabled={!slackLoaded}
+          onClick={() =>
+            void window.api.slack
+              .setConfig({
                 webhookUrl: slackUrl.trim() || null,
                 botToken: slackBotToken.trim() || null,
-                channelId: slackChannelId.trim() || null
+                channelId: slackChannelId.trim() || null,
+                appToken: slackAppToken.trim() || null,
+                memberId: slackMemberId.trim() || null
               })
-            ]
-          )}
-        </span>
-        <span className="settings-hint">{t('settings.slack.hint')}</span>
-        <span className="settings-hint">{t('settings.slack.setupGuide')}</span>
+              .then(() => setSlackSaved(true))
+              // A rejection means the store refused to overwrite values it could not read — the settings on disk
+              // survived. Saying so beats a silently dead button, since "Saved" never appears either way.
+              .catch((err) =>
+                toast.error(
+                  t('settings.slack.saveFailed', {
+                    detail: err instanceof Error ? err.message : String(err)
+                  })
+                )
+              )
+          }
+        >
+          {t('settings.slack.save')}
+        </Button>
+        {slackSaved && <span className="update-note">{t('settings.slack.saved')}</span>}
       </div>
+      {/* Shows immediately which transport the current input adds up to — filling in a bot token but leaving out the
+          channel ID falls back to the Webhook silently, so that has to be visible. */}
+      <p className="settings-card-desc">
+        {t(
+          (
+            {
+              bot: 'settings.slack.modeBot',
+              webhook: 'settings.slack.modeWebhook',
+              off: 'settings.slack.modeOff'
+            } as const
+          )[mode]
+        )}
+      </p>
+      <p className="settings-card-desc">{t('settings.slack.setupGuide')}</p>
+    </Card>
   )
 }

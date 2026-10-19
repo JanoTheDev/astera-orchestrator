@@ -24,7 +24,7 @@ export function AlertSoundSetting(): React.JSX.Element {
     <div>
       <label className="settings-row">
         <span>{t('settings.alertSound.label')}</span>
-        <input type="checkbox" checked={on ?? false} disabled={on === null} onChange={(e) => toggle(e.target.checked)} />
+        <input type="checkbox" role="switch" className="ui-toggle" checked={on ?? false} disabled={on === null} onChange={(e) => toggle(e.target.checked)} />
       </label>
       <span className="settings-hint">{t('settings.alertSound.hint')}</span>
     </div>

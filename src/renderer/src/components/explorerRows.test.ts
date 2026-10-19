@@ -179,7 +179,8 @@ describe('revealScrollTop — 드러낼 행이 보이도록 하는 가장 가까
 
   it('위에 있는 행은 윗변을 맞추고, 이미 보이는 행은 스크롤을 건드리지 않는다', () => {
     expect(revealScrollTop(offsets, 10, 5000, viewport)).toBe(10 * ROW_H)
-    expect(revealScrollTop(offsets, 230, 5000, viewport)).toBe(5000)
+    // a row a couple below the viewport's top edge, whatever ROW_H is
+    expect(revealScrollTop(offsets, Math.floor(5000 / ROW_H) + 2, 5000, viewport)).toBe(5000)
   })
 
   it('목록에 없는 경로는 -1 이다', () => {
