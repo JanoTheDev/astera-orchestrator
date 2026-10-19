@@ -28,7 +28,8 @@ const baseName = (p: string): string => p.split(/[\\/]/).pop() ?? p
 
 export function StartPage({
   req,
-  cwd,
+  cwd: baseCwd,
+  defaultProject,
   accounts,
   onClose,
   onOpenConsole,
@@ -36,8 +37,10 @@ export function StartPage({
   onSchedule
 }: {
   req: StartRequest
-  /** The project folder the plan is made in. */
+  /** A folder the Host can be asked through while no project is chosen. */
   cwd: string
+  /** The project folder preselected in the picker (the window's current project); none: the picker starts empty. */
+  defaultProject?: string
   accounts: Account[]
   onClose: () => void
   /** "Just open a console": the console form (NewSessionDialog). */
@@ -48,7 +51,9 @@ export function StartPage({
   onSchedule: () => void
 }): React.JSX.Element {
   const { t } = useI18n()
-  const door = useMemo(() => localDoor(window.api, cwd), [cwd])
+  // The Project picker: the plan is made in the chosen project's folder, '' until one is chosen
+  const [cwd, setCwd] = useState(defaultProject ?? '')
+  const door = useMemo(() => localDoor(window.api, cwd || baseCwd), [cwd, baseCwd])
   const [chosen, setChosen] = useState<StartMode | undefined>(req.mode)
   const [moreOpen, setMoreOpen] = useState(false)
   const [handsOffError, setHandsOffError] = useState<string | null>(null)
@@ -179,7 +184,7 @@ export function StartPage({
     t as never
   )
   const pick = (id: string, on: boolean): void => intake.setPicked((cur) => (on ? (cur.includes(id) ? cur : [...cur, id]) : cur.filter((x) => x !== id)))
-  const name = project?.name ?? baseName(cwd)
+  const name = project?.name ?? ''
 
   return (
     <div
@@ -194,7 +199,16 @@ export function StartPage({
       <div className="start-inner">
         <header className="start-head">
           <div>
-            <h1>{t('start.title', { project: name })}</h1>
+            <Field
+              kind="select"
+              className="start-project"
+              label={t('start.project')}
+              value={project?.path ?? ''}
+              onChange={(e) => setCwd(e.target.value)}
+              disabled={intake.busy}
+              options={[{ value: '', label: t('start.project.choose') }, ...intake.projects.map((p) => ({ value: p.path, label: p.name }))]}
+            />
+            <h1>{project ? t('start.title', { project: name }) : t('start.titleNoProject')}</h1>
             <p>{t(`start.next.${mode}` as const)}</p>
           </div>
           <Button variant="ghost" icon={<X size={16} aria-hidden="true" />} aria-label={t('start.close')} onClick={onClose} disabled={intake.busy} />
@@ -401,7 +415,10 @@ export function StartPage({
             label={t('start.opt.start')}
             value={intake.after}
             onChange={(e) => intake.setAfter(e.target.value)}
-            options={[{ value: '', label: t('start.opt.now') }, ...intake.plans.map((p) => ({ value: p.id, label: t('start.opt.after', { plan: p.name }) }))]}
+            options={[
+              { value: '', label: t('start.opt.now') },
+              ...intake.plans.map((p) => ({ value: p.id, label: `${t('start.opt.after', { plan: p.name })} · ${t(`start.opt.state.${p.state}` as const)}` }))
+            ]}
           />
         </div>
 
@@ -480,9 +497,10 @@ export function StartPage({
 
         {intake.error && <p className="warn">{intake.error}</p>}
         <div className="start-go">
-          <Button variant="primary" loading={intake.busy} disabled={intake.busy || intake.request === null || namesRefused} onClick={() => void intake.create(planArgs)}>
+          <Button variant="primary" loading={intake.busy} disabled={intake.busy || project === null || intake.request === null || namesRefused} onClick={() => void intake.create(planArgs)}>
             {go.label}
           </Button>
+          {project === null && <span className="start-go-note">{t('start.project.required')}</span>}
           {go.note && <span className="start-go-note">{go.note}</span>}
         </div>
 

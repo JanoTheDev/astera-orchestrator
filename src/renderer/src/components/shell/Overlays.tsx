@@ -73,7 +73,7 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
   // W9-E: an empty project lands on Start; files dropped on the window open it
   useStartLanding(currentProject, sessions, openStart)
   useDropToStart(openStart)
-  const startShown = firstPlan ? { req: { text: firstPlan.objective }, cwd: firstPlan.path } : start && currentProject ? { req: start, cwd: start.cwd ?? currentProject } : null
+  const startShown = firstPlan ? { req: { text: firstPlan.objective }, cwd: firstPlan.path, project: firstPlan.path as string | undefined } : start ? { req: start, cwd: start.cwd ?? currentProject ?? homeDir ?? '', project: start.cwd ?? currentProject ?? undefined } : null
   return (
     <>
       {showNew && (
@@ -285,6 +285,7 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
           key={startShown.cwd}
           req={startShown.req}
           cwd={startShown.cwd}
+          defaultProject={startShown.project}
           accounts={accounts}
           onClose={() => {
             setFirstPlan(null)
