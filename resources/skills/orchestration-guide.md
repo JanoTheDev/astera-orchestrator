@@ -236,6 +236,10 @@ astera worker-start --task tsk_next --agent claude --account acc_main --terminal
 astera worker-release --dispatch dsp_c3c3c3c3 --json
 ```
 
+**Subagents (coordinator).** You may use subagents (the Agent/Task tool in Claude Code, parallel sub-tasks in Codex
+where available) to read reports, changed files and plan text in parallel. Never let one edit code, write a Task or
+send a reply: those stay with you, and you verify what they return before you act on it.
+
 ### 3.1 Answering workers' questions
 
 You answer your workers' questions. The owner hears only what needs them.
