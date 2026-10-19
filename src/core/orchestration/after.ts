@@ -48,10 +48,19 @@ export const afterNameOf = (s: Pick<OrchState, 'jobs'>, id: string): string => {
   return job ? jobNameOf(job) : id
 }
 
-/** Why `jobId` may not wait on `target`, or null: unknown (`missing`), itself, or a chain that comes back to it. */
-export function afterRefusal(s: Pick<OrchState, 'jobs'>, jobId: string, target: string): { error: string; missing?: true } | null {
+/** Finished: archived, delivered, stopped, or its latest Run's Tasks all ended (completed or failed). Nothing more
+ *  will come of it, so a plan queued behind it would wait for nothing. */
+const jobFinished = (s: AfterState, jobId: string): boolean => {
+  if (afterStandOf(s, jobId) !== 'waiting') return true
+  const run = latestRunOf(s, jobId)
+  return run !== undefined && outcomeOfTasks(s.tasks.filter((t) => t.runId === run.id)) !== 'running'
+}
+
+/** Why `jobId` may not wait on `target`, or null: unknown (`missing`), itself, finished already, or a chain that comes back. */
+export function afterRefusal(s: AfterState, jobId: string, target: string): { error: string; missing?: true } | null {
   if (target === jobId) return { error: `job ${jobId} cannot wait on itself` }
   if (!s.jobs.some((j) => j.id === target)) return { error: `unknown job: ${target}`, missing: true }
+  if (jobFinished(s, target)) return { error: `job ${target} has already finished (completed, failed, stopped or archived): a plan cannot wait on it` }
   const seen = new Set<string>()
   for (let at: string | undefined = target; at !== undefined && !seen.has(at); at = s.jobs.find((j) => j.id === at)?.after) {
     if (at === jobId) return { error: `job ${target} already waits on job ${jobId}: the chain would wait on itself` }

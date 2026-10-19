@@ -1,5 +1,7 @@
 // W9-E Start page rules (DESIGN §2 "Start"). Pure, so the node tests cover them; StartPage.tsx keeps the state.
 import type { IntakeTab } from '../intake/intakeRequest'
+import type { Job } from '../../../../core/orchestration/types'
+import { jobNameOf } from '../../../../core/orchestration/jobName'
 
 /** The three mode cards: the planner writes the plan, audits paths of the repository first (T2, `--mode audit`), or
  *  each prompt runs as written (W8-C `--mode prompts`). */
@@ -132,4 +134,29 @@ export function optionsSummary(
 export function addScopePath(scope: string[], typed: string): string[] {
   const p = typed.trim().replace(/^\.\//, '').replace(/[\\/]+$/, '')
   return p === '' || scope.includes(p) ? scope : [...scope, p]
+}
+
+// T2 Start after: only plans that have not finished
+/** A `jobs-list` row: the Job with the fields `jobView` derives. */
+export type PlanRow = Job & { outcome?: string; questionsOpen?: number; paused?: boolean }
+
+export type LivePlanState = 'queued' | 'planning' | 'waiting' | 'running' | 'held'
+
+/** The plans a new plan may start after, each with its state: queued, planning, waiting for approval, running or held.
+ *  Completed, failed, scheduled and archived plans are left out (`jobs-list` already drops archived ones). */
+export function livePlans(rows: PlanRow[]): { id: string; name: string; state: LivePlanState }[] {
+  const out: { id: string; name: string; state: LivePlanState }[] = []
+  for (const r of rows) {
+    const state = liveStateOf(r)
+    if (state) out.push({ id: r.id, name: jobNameOf(r), state })
+  }
+  return out
+}
+
+function liveStateOf(r: PlanRow): LivePlanState | null {
+  if (r.archivedAt !== undefined || r.schedule !== undefined) return null
+  if (r.paused === true || r.outcome === 'paused') return 'held'
+  if (r.pendingStart === true) return r.after !== undefined ? 'queued' : 'planning'
+  if ((r.questionsOpen ?? 0) > 0) return 'waiting'
+  return r.outcome === 'running' ? 'running' : null
 }

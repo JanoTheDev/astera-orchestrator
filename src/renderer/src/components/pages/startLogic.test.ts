@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   addScopePath, consolesIn, defaultMode, dropOpensStart, filesFromDrop, handsOffSaveArgs, intakeTab, lookupArgs, optionsSummary, primaryLabel, promptCount,
-  shouldLandOnStart
+  livePlans, shouldLandOnStart, type PlanRow
 } from './startLogic'
 
 const t = (key: string, params?: Record<string, string | number>): string => (params ? `${key}:${JSON.stringify(params)}` : key)
@@ -118,5 +118,23 @@ describe('sticky hands-off and More options', () => {
     expect(addScopePath([], ' ./src/core/ ')).toEqual(['src/core'])
     expect(addScopePath(['src/core'], 'src/core')).toEqual(['src/core'])
     expect(addScopePath(['a'], '  ')).toEqual(['a'])
+  })
+})
+
+describe('Start after', () => {
+  const row = (id: string, over: Partial<PlanRow>): PlanRow => ({ id, objective: id, cwd: '/r', createdAt: 'x', ...over })
+  it('lists queued, planning, waiting, running and held plans with their state', () => {
+    const rows = [
+      row('q', { pendingStart: true, after: 'r', outcome: 'pending' }),
+      row('p', { pendingStart: true, outcome: 'pending' }),
+      row('w', { outcome: 'running', questionsOpen: 1 }),
+      row('r', { outcome: 'running' }),
+      row('h', { outcome: 'paused' })
+    ]
+    expect(livePlans(rows).map((p) => [p.id, p.state])).toEqual([['q', 'queued'], ['p', 'planning'], ['w', 'waiting'], ['r', 'running'], ['h', 'held']])
+  })
+  it('leaves out completed, failed, scheduled and archived plans', () => {
+    const rows = [row('c', { outcome: 'completed' }), row('f', { outcome: 'failed' }), row('a', { outcome: 'running', archivedAt: 'x' }), row('s', { outcome: 'running', schedule: {} as never })]
+    expect(livePlans(rows)).toEqual([])
   })
 })

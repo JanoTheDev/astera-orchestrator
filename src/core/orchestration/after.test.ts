@@ -61,6 +61,17 @@ describe('afterRefusal and afterSweep', () => {
     expect(afterRefusal(s, 'a', 'c')).toBeNull()
   })
 
+  it('refuses a target that already finished: completed, failed, stopped or archived', () => {
+    const refuse = (o: { runs?: JobRun[]; tasks?: Task[]; target?: Partial<Job> }): string | undefined =>
+      afterRefusal(state({ jobs: [job({ id: 'job_a', ...o.target }), job({ id: 'job_b' })], runs: o.runs, tasks: o.tasks }), 'job_b', 'job_a')?.error
+    expect(refuse({ runs: [run()], tasks: [task()] })).toContain('already finished')
+    expect(refuse({ runs: [run()], tasks: [task({ status: 'failed', consecutiveFailures: 3 })] })).toContain('already finished')
+    expect(refuse({ target: { archivedAt: NOW } })).toContain('already finished')
+    expect(refuse({ runs: [run({ delivery: { at: NOW, error: 'not on main' } })], tasks: [task({ status: 'ready' })] })).toContain('already finished')
+    expect(refuse({ runs: [run()], tasks: [task({ status: 'ready' })] })).toBeUndefined()
+    expect(refuse({ target: { pendingStart: true } })).toBeUndefined()
+  })
+
   it('marks once while the predecessor is stopped and clears the mark when it is not', () => {
     const s = state({ jobs: [job({ id: 'job_a', archivedAt: NOW }), job({ id: 'job_b', pendingStart: true, after: 'job_a' })] })
     const marked = afterSweep(s, NOW)
