@@ -4,7 +4,9 @@
 import { BottomPanel } from '../BottomPanel'
 import { setRatio } from '../../../../core/panes/tree'
 import { previewTargetOf } from '../../../../core/preview/url'
+import { sessionTab } from '../../../../core/panes/tabId'
 import { PaneGrid } from '../PaneGrid'
+import { useWallView } from '../wall/wallView'
 import type { AppState } from '../../state/appState'
 
 export type ContentProps = Pick<
@@ -36,6 +38,9 @@ export function Content(p: ContentProps): React.JSX.Element {
     setShowNew, setSwitcherOpen, setTabMenu, shownLayout,
     switcherMeta, switcherOpen, t, hidden
   } = p
+  // Console view on the Agents page shows the opened session alone (not the whole grid); anywhere else the grid is whole.
+  const wallView = useWallView()
+  const soloTabId = !hidden && wallView.kind === 'console' ? sessionTab(wallView.sessionId) : undefined
   return (
     <>
         <main className={hidden ? 'content content--hidden' : 'content'}>
@@ -56,6 +61,7 @@ export function Content(p: ContentProps): React.JSX.Element {
                 onRenameStart={setRenamingTabId}
                 onRenameEnd={endTabRename}
                 layout={shownLayout}
+                soloTabId={soloTabId}
                 activePaneId={activePaneId}
                 switcherOpen={switcherOpen} // W7-F (#84)
                 onSwitcherClose={() => setSwitcherOpen(false)}
