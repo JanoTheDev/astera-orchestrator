@@ -39,7 +39,7 @@ kbd.shortcut-conflict { color: var(--fi-red); border-color: var(--fi-red); }
 /* The forced update gate. It covers everything below the title bar (34px), leaving window moving and
    minimising available.
    Its z-index is above modals (100) and toasts (200) — nothing comes in front while the gate is up. */
-.update-gate { position: fixed; inset: 34px 0 0 0; z-index: 500; background: var(--bg); display: flex; align-items: center; justify-content: center; padding: 24px; }
+.update-gate { position: fixed; inset: 44px 0 0 0; z-index: 500; background: var(--bg); display: flex; align-items: center; justify-content: center; padding: 24px; }
 .update-gate-card { width: min(440px, 100%); display: flex; flex-direction: column; gap: 12px; background: var(--panel); border: 1px solid var(--line-soft); border-radius: var(--radius-lg); padding: 24px; }
 .update-gate-card h2 { font-size: 15px; font-weight: 600; color: var(--text); }
 .update-gate-body { font-size: 13px; line-height: 1.6; color: var(--text); }

@@ -8,7 +8,7 @@
 .plan-progress-text { font-variant-numeric: tabular-nums; }
 .plan-counts { display: flex; flex-wrap: wrap; gap: 4px 10px; margin: 0; padding: 0; list-style: none; }
 .plan-count-n { font-variant-numeric: tabular-nums; font-weight: 600; }
-.plan-count-zero { opacity: .5; }
+.plan-count-zero { opacity: .7; }
 .plan-cat-done { --plan-cat: var(--ok); }
 .plan-cat-running { --plan-cat: var(--accent); }
 .plan-cat-awaiting-review { --plan-cat: var(--fi-purple); }

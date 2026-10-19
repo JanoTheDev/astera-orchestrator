@@ -40,6 +40,11 @@
 /* Chip */
 .ui-chip {
   display: inline-flex;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   align-items: center;
   gap: 4px;
   height: 20px;

@@ -90,7 +90,8 @@ export function AgentsPage({ sessions, accounts, currentProject, homeDir, active
     [sessions, tree, data, attention, live.sessions, rows]
   )
   const projectId = currentProject ? (tree.find((p) => p.path === currentProject)?.id ?? null) : null
-  const projectName = tree.find((p) => p.id === projectId)?.name ?? null
+  // a project made a moment ago has no tab yet, so the tree lacks it: name it by its folder
+  const projectName = tree.find((p) => p.id === projectId)?.name ?? currentProject?.split(/[\\/]/).filter(Boolean).pop() ?? null
   // A plan that is gone (archived, another project) falls back to every plan.
   const pills = planPills(tree, rows, consoles, projectId, scope)
   const planShown = plan === ALL_PLANS || plan === NO_PLAN || tree.some((p) => p.plans.some((x) => x.jobId === plan)) ? plan : ALL_PLANS

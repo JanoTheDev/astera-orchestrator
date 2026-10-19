@@ -855,13 +855,13 @@ export function PlanPage({
   }
   // W5-C: a plan pauses by holding its new starts (jobs-hold); a schedule pauses as a whole (run-pause)
   const pauseButton =
-    run === undefined || run.archivedAt !== undefined || run.pendingStart ? null : run.schedule ? (
+    run === undefined || run.archivedAt !== undefined || run.pendingStart || run.outcome === 'completed' ? null : run.schedule ? (
       <Button size="sm" disabled={off} title={lockedReason} onClick={() => void (run.paused ? resumeRun(door, runId, ui) : pauseRun(door, runId, ui))}>
         {run.paused ? t('jobs.run.resume') : t('jobs.run.pause')}
       </Button>
     ) : !local ? null : (
-      <Button size="sm" disabled={off} title={lockedReason} onClick={() => void holdJob(door, runId, !run.dispatchHold, ui)}>
-        {run.dispatchHold ? t('jobs.hold.release') : t('jobs.hold.hold')}
+      <Button size="sm" disabled={off} title={lockedReason ?? (run.dispatchHold ? t('jobs.hold.release') : t('jobs.hold.hold'))} onClick={() => void holdJob(door, runId, !run.dispatchHold, ui)}>
+        {run.dispatchHold ? t('jobs.run.resume') : t('jobs.run.pause')}
       </Button>
     )
   /** Shows the moved events pane: always on Journal; on Waves while a form is open or a Task is picked. */
@@ -875,7 +875,7 @@ export function PlanPage({
           {t('pages.plans.title')}
         </button>
         <span aria-hidden="true">›</span>
-        <span>{run ? jobName(run) : ''}</span>
+        <span className="plan-crumb-cur">{run ? jobName(run) : ''}</span>
       </nav>
         {/* 머리말이 없다 — Job 의 이름(jobName: 티켓에서 만든 Job 은 티켓 제목, 아니면 목표)이 제목이고, 그 옆의 아이콘과 숫자가 상태를 말한다 */}
         <div className="detail-head">

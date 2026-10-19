@@ -133,7 +133,6 @@ button.source-chip:hover { color: var(--accent); border-color: var(--accent); }
 .pr-create-detail { margin: 0; max-height: 120px; overflow: auto; font-family: var(--mono); font-size: 10.5px; color: var(--text-dim); white-space: pre-wrap; }
 
 /* ---------- W9-J: the Worktrees page ---------- */
-.worktrees-overlay { position: fixed; inset: 34px 0 0 0; z-index: 40; background: var(--bg); display: flex; }
 .worktrees-page { display: grid; grid-template-columns: minmax(280px, 380px) 1fr; flex: 1; min-height: 0; width: 100%; }
 .worktrees-page__list { border-right: 1px solid var(--line); overflow-y: auto; display: flex; flex-direction: column; background: var(--panel); }
 .worktrees-page__list .worktree-panel { border-top: 0; flex: 1; }

@@ -24,8 +24,6 @@ import { parseTab, sessionTab } from '../../../../core/panes/tabId'
 import { ContextMenu, type MenuItem } from '../ContextMenu'
 import type { AppState } from '../../state/appState'
 import { SettingsDialog } from './SettingsDialog'
-import { WorktreesPage } from '../pages/WorktreesPage'
-import { closeWorktrees, useWorktreeView } from '../worktrees/worktreeView'
 
 export type OverlaysProps = Pick<
   AppState,
@@ -53,7 +51,6 @@ export type OverlaysProps = Pick<
 >
 
 export function Overlays(p: OverlaysProps): React.JSX.Element {
-  const worktreeView = useWorktreeView()
   const {
     accounts, actionUi, agentAppEnabled, agentBrowserEnabled, agentBusy, agentYolo, appVersion,
     autoCloseEndedPlanTabs, browserTabsRef, cli, cliInstallStatus, closeWorkbenchTab, commandOpen, currentProject,
@@ -376,22 +373,6 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
             setOpenRun({ projectPath: project, runId: jobId })
           }}
         />
-      )}
-      {/* W9-J: the Worktrees page, as a layer until the shell has a page tab for it (W9-B) */}
-      {worktreeView.open && (
-        <div className="worktrees-overlay">
-          <WorktreesPage
-            onStartSession={(p) => {
-              setNewSessionCwd(p)
-              setShowNew(true)
-            }}
-            onOpenFiles={(p) => {
-              closeWorktrees()
-              openLinkedFolder(p)
-            }}
-            onClose={closeWorktrees}
-          />
-        </div>
       )}
       <ConfirmHost />
       {/* The first-run question. Two things gate it, and the second was measured rather than guessed:

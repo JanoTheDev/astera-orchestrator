@@ -64,7 +64,7 @@ export default function App(): React.JSX.Element {
   }
   const {
     campaign, canStart, cliInstalled, installUpdate, isMax, runningCount, setCli, setCliInstalled, setCommandOpen,
-    setShowNew, update
+    setNewOpen, update
   } = app
   useNavigation(app)
   const shell = useShell(app) // W9-B
@@ -111,7 +111,7 @@ export default function App(): React.JSX.Element {
           {...shell}
           onSearch={() => setCommandOpen(true)}
           onNew={() => {
-            if (canStart()) setShowNew(true)
+            if (canStart()) setNewOpen(true) // the three-choice New (DESIGN §5), as Ctrl+N
           }}
           newDisabled={!canStart()}
         />

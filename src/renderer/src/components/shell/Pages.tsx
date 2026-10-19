@@ -14,6 +14,8 @@ import { deleteRun, pauseRun, restartCoordinator as restartRunCoordinator, resum
 import { PlansPage, type PlansPageProps } from '../pages/PlansPage' // W9-C
 import { TasksPage, type TasksPageProps } from '../pages/TasksPage' // W9-C
 import { InboxPage } from '../inbox/InboxPage' // W9-D
+import { WorktreesPage } from '../pages/WorktreesPage' // W9-J
+import { openPage } from './navigation'
 import { AgentsPage, type AgentsPageProps } from '../pages/AgentsPage' // W9-H
 import { getWallView, setWallView } from '../wall/wallView' // W9-H
 import type { PageId } from '../../../../core/ui/pages'
@@ -178,7 +180,16 @@ export function Pages(p: PagesProps): React.JSX.Element {
           {page === 'tasks' && <TasksPage {...p} />}
           {/* W9-D: the Inbox page */}
           {page === 'inbox' && <InboxPage tree={workspaceTree} data={workspaceData} accounts={accounts} ui={actionUi} />}
-          {/* W9-J: the Worktrees page is the WorktreesPage layer (Overlays.tsx), opened by navigation's openPage */}
+          {page === 'worktrees' && (
+            <WorktreesPage
+              onStartSession={(path) => {
+                setNewSessionCwd(path)
+                setShowNew(true)
+              }}
+              onOpenFiles={(path) => p.openLinkedFolder(path)}
+              onClose={() => openPage('agents')}
+            />
+          )}
           {page === 'more:history' && (
             <HistoryBrowser
               asPage

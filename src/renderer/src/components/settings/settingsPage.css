@@ -1,7 +1,7 @@
 /* W9-E: the Settings page. A full-width layer under the title bar (34px, .titlebar in shell/shell.css), below the
    modals (z 100) so a dialog it opens (Add project, a confirm) comes in front. Until W9-B's page router mounts it. */
 .settings-page {
-  position: fixed; inset: 34px 0 0 0; z-index: 90;
+  position: fixed; inset: 44px 0 26px 0; z-index: 90;
   display: flex; flex-direction: column;
   background: var(--bg); color: var(--text);
   outline: none;
