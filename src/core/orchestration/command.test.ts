@@ -9619,3 +9619,57 @@ describe('worker-start — the coordinator path (W8-E)', () => {
     expect(r.body).toMatchObject({ held: true, replanning: true })
   })
 })
+
+describe('#116 approve only once the plan is ready', () => {
+  const rig = () => {
+    let planners = 0
+    const deps = {
+      ...makeDeps(),
+      startCoordinator: async () => ({ sessionId: `ses-planner-${++planners}` })
+    } as unknown as OrchServerDeps
+    const person = (cmd: string, args: Record<string, unknown>) => handleCommand(deps, { sessionId: APP_CALLER }, cmd, args)
+    const made = async (): Promise<string> =>
+      ((await person('run-create', { objective: 'o', cwd: 'D:/p', coordinatorAccount: 'acc1', auto: true })).body as { id: string }).id
+    return { deps, person, made }
+  }
+
+  it('jobs-plan --auto-approve on --delivery push keeps the auto-approve it wrote', async () => {
+    const r = rig()
+    const id = await r.made()
+    expect((await r.person('jobs-plan', { id, autoApprove: 'on', delivery: 'push', replan: 'waves' })).status).toBe(200)
+    expect(r.deps.getState().jobs[0]).toMatchObject({ autoApprove: true, delivery: 'push', replan: 'waves' })
+  })
+
+  it('jobs-set --after keeps Start\'s approval and delivery for the planner the Host starts later', async () => {
+    const r = rig()
+    const first = await r.made()
+    const queued = await r.made()
+    expect((await r.person('jobs-set', { id: queued, after: first, autoApprove: 'maybe' })).status).toBe(400)
+    expect((await r.person('jobs-set', { id: queued, after: first, autoApprove: 'on', delivery: 'push' })).status).toBe(200)
+    expect(r.deps.getState().jobs.find((j) => j.id === queued)).toMatchObject({ after: first, autoApprove: true, delivery: 'push' })
+  })
+
+  it('jobs-plan-ready marks a plan that holds; a new planner round clears the mark', async () => {
+    const r = rig()
+    const id = await r.made()
+    expect((await r.person('jobs-plan', { id })).status).toBe(200)
+    // No Task yet: the plan does not hold, nothing is marked
+    expect((await r.person('jobs-plan-ready', { id })).status).toBe(400)
+    const planner = (cmd: string, args: Record<string, unknown>) => handleCommand(r.deps, { sessionId: 'ses-planner-1' }, cmd, args)
+    const t = await planner('task-create', {
+      run: id, account: 'acc1', title: 'A', spec: 's', prompt: 'Build A.', criteria: ['A works'], basis: 'missing', evidence: 'no A'
+    })
+    expect(t.status).toBe(200)
+    // An agent cannot mark it
+    expect((await planner('jobs-plan-ready', { id })).status).toBe(403)
+    expect((await r.person('jobs-plan-ready', { id })).status).toBe(200)
+    expect(r.deps.getState().jobs[0].planReadyAt).toBe(NOW)
+    // `jobs plan` again: a new planner, planning again
+    expect((await r.person('jobs-plan', { id })).status).toBe(200)
+    expect(r.deps.getState().jobs[0].planReadyAt).toBeUndefined()
+    // Approved: the mark goes with pendingStart
+    await r.person('jobs-plan-ready', { id })
+    expect((await r.person('run-start', { run: id })).status).toBeLessThan(300)
+    expect(r.deps.getState().jobs[0]).not.toHaveProperty('planReadyAt')
+  })
+})

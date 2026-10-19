@@ -167,6 +167,32 @@ describe('hostSessionActivity (W5-D)', () => {
     expect(lines(log)).toMatchObject([{ type: 'plan.awaiting-approval', jobId: 'j1' }])
   })
 
+  it('#116: the plan is marked ready (Job.planReadyAt) where its ready line is recorded; a plan that starts by itself is not', async () => {
+    const log = open(BOOT_A)
+    await log.load()
+    let s: OrchState = { ...emptyState(), jobs: [{ ...job, pendingStart: true, plannerSessionIds: ['ses_plan'] }] }
+    const marked: string[] = []
+    let answer = true
+    const acts = hostSessionActivity({ log, state: () => s, report: () => {}, autoStart: async () => answer, markReady: async (id) => void marked.push(id) })
+    // Still planning: no Task yet, nothing to mark
+    acts.onHookEvent('ses_plan', stop)
+    expect(marked).toEqual([])
+    s = { ...s, tasks: [planned()] }
+    acts.onHookEvent('ses_plan', stop)
+    expect(marked).toEqual(['j1'])
+    expect(lines(log)).toMatchObject([{ type: 'plan.awaiting-approval', jobId: 'j1' }])
+    // Auto-approve: a start that goes through marks nothing; one that does not asks for approval, marked
+    s = { ...s, jobs: [{ ...s.jobs[0], plannerSessionIds: ['ses_plan', 'ses_plan2'], autoApprove: true }] }
+    acts.onHookEvent('ses_plan2', stop)
+    await new Promise((r) => setTimeout(r, 0))
+    expect(marked).toEqual(['j1'])
+    answer = false
+    s = { ...s, jobs: [{ ...s.jobs[0], plannerSessionIds: ['ses_plan', 'ses_plan2', 'ses_plan3'] }] }
+    acts.onHookEvent('ses_plan3', stop)
+    await new Promise((r) => setTimeout(r, 0))
+    expect(marked).toEqual(['j1', 'j1'])
+  })
+
   it('#42: a worker turning to waiting at a permission prompt or a question is a task.waiting line with the reason', async () => {
     const log = open(BOOT_A)
     await log.load()

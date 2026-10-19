@@ -47,7 +47,7 @@ const rows: Record<string, JobRow> = {
     task('t4', { status: 'completed', board: { category: 'done' } }),
     task('t5', { status: 'pending', board: { category: 'queued' }, gate: { id: 'g1', question: 'Which DB?' }, openGates: 1 })
   ]),
-  j2: row('j2', [task('t3', { board: { category: 'running' } })], { pendingStart: true, planned: true })
+  j2: row('j2', [task('t3', { board: { category: 'running' } })], { pendingStart: true, planned: true, planReady: true })
 }
 
 const attention: Record<string, Attention> = { c1: 'working', w1: 'working', w2: 'idle', w3: 'waiting', c2: 'idle', s9: 'working' }
@@ -145,6 +145,12 @@ describe('planPills', () => {
     expect(pills[1].approve).toBe(true)
     expect(pills[1].needs).toBe(1)
     expect(pillCount(pills[1], words)).toBe('approve')
+  })
+  it('#116: no approve while the planner plans, nor for a plan that starts by itself', () => {
+    const pill = (over: Partial<JobRow>) => planPills(tree, { ...rows, j2: { ...rows.j2, planReady: undefined, ...over } }, cs, 'p1', 'project')[1]
+    expect(pill({}).approve).toBe(false)
+    expect(pill({ autoApprove: true }).approve).toBe(false)
+    expect(pill({ planReady: true, autoApprove: true }).approve).toBe(true)
   })
   it('the stacked bar has one segment per category present, sharing the whole', () => {
     const segs = progressSegments(pills[0].progress)

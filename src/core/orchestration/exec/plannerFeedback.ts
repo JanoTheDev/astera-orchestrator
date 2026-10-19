@@ -24,7 +24,7 @@ type Reply = { status: number; body: unknown }
 type Caller = { sessionId: string; role?: 'app' | 'cli' | 'mcp' | 'controller' | 'plugin' }
 type Handle = (deps: OrchServerDeps, caller: Caller, cmd: string, args: Record<string, unknown>) => Promise<Reply>
 
-export const FEEDBACK_COMMANDS: ReadonlySet<string> = new Set(['jobs-feedback', 'jobs-reject', 'jobs-feedback-done', 'jobs-auto-start'])
+export const FEEDBACK_COMMANDS: ReadonlySet<string> = new Set(['jobs-feedback', 'jobs-reject', 'jobs-feedback-done', 'jobs-auto-start', 'jobs-plan-ready'])
 /** The longest feedback or reason kept. */
 export const FEEDBACK_TEXT_MAX = 4000
 /** At most this many change lines per feedback round, each at most CHANGE_LINE_MAX characters. */
@@ -43,6 +43,12 @@ export const autoApproveOf = (s: OrchState, job: Job): boolean => job.autoApprov
 
 /** A plan waiting for its approval (W2-A): not started, and planned. */
 const awaitsApproval = (job: Job): boolean => job.pendingStart === true && job.plannerSessionIds !== undefined
+
+/** #116: a plan the owner can approve now, the rule every Approve on screen follows: it awaits approval, its planner
+ *  ended a turn on it (Job.planReadyAt: never set on an auto-approve plan whose own start went through), and it still
+ *  holds. `awaitsApproval` stays the Host's own guard (run-start, jobs-reject). */
+export const planApprovable = (s: OrchState, job: Job): boolean =>
+  awaitsApproval(job) && job.planReadyAt !== undefined && validatePlan(s, job.id).length === 0
 
 const oneLine = (t: string): string => t.replace(/\s+/g, ' ').trim()
 
@@ -154,6 +160,16 @@ export async function feedbackCommand(deps: OrchServerDeps, caller: Caller, cmd:
     return ok({ id: jobId, rejected })
   }
 
+  // #116: the Host's mark that the planner ended a turn on a plan that holds and the plan now waits on the owner
+  // (host/activity.ts, on the planner's Stop hook). Only from then on does the app offer Approve.
+  if (cmd === 'jobs-plan-ready') {
+    if (!awaitsApproval(job) || !isJobActive(job)) return conflict(`job ${jobId} is not a plan waiting for approval`)
+    const problems = validatePlan(s, jobId)
+    if (problems.length) return { status: 400, body: { error: `the plan does not hold: ${problems.join('; ')}`, problems } }
+    await setJob(jobId, (j) => ({ ...j, planReadyAt: now }))
+    return ok({ jobId, planReadyAt: now })
+  }
+
   if (cmd === 'jobs-auto-start') {
     if (!awaitsApproval(job) || !isJobActive(job)) return conflict(`job ${jobId} is not a plan waiting for approval`)
     if (!autoApproveOf(s, job)) return conflict(`job ${jobId} is not set to auto-approve`)
@@ -172,7 +188,9 @@ export async function feedbackCommand(deps: OrchServerDeps, caller: Caller, cmd:
   if (text.length > FEEDBACK_TEXT_MAX) return bad(`--text is at most ${FEEDBACK_TEXT_MAX} characters`)
   if (!isJobActive(job)) return conflict(`job ${jobId} is archived: unarchive it first`)
   const entry = (phase: PlanFeedback['phase']): PlanFeedback => ({ at: now, text, phase })
-  const record = (f: PlanFeedback): Promise<void> => setJob(jobId, (j) => ({ ...j, feedback: [...(j.feedback ?? []), f] }))
+  // #116: a feedback round on the plan is a new planning round: not ready again until the planner ends its turn
+  const record = (f: PlanFeedback): Promise<void> =>
+    setJob(jobId, ({ planReadyAt, ...j }) => ({ ...j, ...(f.phase === 'run' && planReadyAt ? { planReadyAt } : {}), feedback: [...(j.feedback ?? []), f] }))
 
   if (!awaitsApproval(job)) {
     if (job.plannerSessionIds === undefined) return conflict(`job ${jobId} was not planned: there is no planner to talk to`)

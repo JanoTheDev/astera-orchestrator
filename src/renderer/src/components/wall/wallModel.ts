@@ -6,6 +6,7 @@ import type { MessageKey } from '../../../../core/i18n'
 import type { Attention, JobRow, JobTask, SessionInfo, TaskCategory } from '../../../../core/types'
 import type { Dispatch, Task } from '../../../../core/orchestration/types'
 import { categoryOf, planProgressOf, type LiveSession, type PlanProgress } from '../plan/planBoard'
+import { approveSlot } from '../plan/planTalk'
 import { planSessions, projectOfCwd, type WorkspaceData, type WorkspacePlan, type WorkspaceProject, type WorkspaceSession } from '../../state/workspaceTree'
 
 export type ConsoleRole = 'coordinator' | 'planner' | 'worker' | 'reviewer' | 'console'
@@ -198,7 +199,8 @@ export function planPills(tree: readonly WorkspaceProject[], rows: WallInput['ro
         done: row?.done ?? 0,
         total: row?.total ?? tasks.length,
         needs: tasks.filter((t) => t.gate !== undefined).length + waiting,
-        approve: row?.pendingStart === true && row.planned === true
+        // #116: only once the planner is done, never while it plans or for a plan that starts by itself
+        approve: row?.planned === true && approveSlot(row) === 'approve'
       })
     }
   }

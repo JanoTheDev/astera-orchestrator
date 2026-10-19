@@ -315,7 +315,7 @@ export function releaseJob(s: OrchState, jobId: string): Res<Job> {
   if (!job.pendingStart) return ok(s, job)
   // pendingStart 를 **지운다** — false 로 두면 JSON 비교에서 "없음" 과 다른 값이 되고, 이 코드베이스는
   // 해당 없는 칸을 아예 두지 않는 관례다
-  const { pendingStart: _drop, ...released } = job
+  const { pendingStart: _drop, planReadyAt: _ready, ...released } = job
   return ok({ ...s, jobs: s.jobs.map((j) => (j.id === jobId ? released : j)) }, released)
 }
 

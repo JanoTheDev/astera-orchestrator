@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { JobRow } from '../../../../core/types'
-import { planTalkView } from './planTalk'
+import { approveSlot, planTalkView } from './planTalk'
 
 const row = (o: Partial<JobRow>): JobRow => ({ id: 'j', tasks: [{}, {}], ...o }) as unknown as JobRow
 
@@ -12,5 +12,19 @@ describe('planTalkView', () => {
   it('reject only while pending; auto notice counts tasks', () => {
     expect(planTalkView(row({ planned: true, pendingStart: true }))).toMatchObject({ show: true, canReject: true, autoStarted: null })
     expect(planTalkView(row({ planned: true, autoStartedAt: 't' }))).toMatchObject({ canReject: false, autoStarted: 2 })
+  })
+})
+
+describe('approveSlot (#116)', () => {
+  it('Approve only once the planner is done; Planning… or Starts by itself before', () => {
+    expect(approveSlot(row({}))).toBeNull()
+    expect(approveSlot(row({ pendingStart: true, archivedAt: 'x' }))).toBeNull()
+    // A Run built by hand keeps its Start
+    expect(approveSlot(row({ pendingStart: true }))).toBe('approve')
+    expect(approveSlot(row({ pendingStart: true, planned: true }))).toBe('planning')
+    expect(approveSlot(row({ pendingStart: true, planned: true, autoApprove: true }))).toBe('auto')
+    expect(approveSlot(row({ pendingStart: true, planned: true, planReady: true }))).toBe('approve')
+    // Ready on an auto-approve plan: its own start did not go through
+    expect(approveSlot(row({ pendingStart: true, planned: true, planReady: true, autoApprove: true }))).toBe('approve')
   })
 })

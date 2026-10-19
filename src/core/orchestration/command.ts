@@ -1899,7 +1899,8 @@ export async function handleCommand(
     const current = deps.getState()
     const job = current.jobs.find((j) => j.id === jobId)
     if (!job) return false
-    const { plannerSessionIds: was, ...rest } = job
+    // #116: a planner session added or removed is a new planning round: the plan is not ready until it ends a turn
+    const { plannerSessionIds: was, planReadyAt: _ready, ...rest } = job
     const ids = f(was ?? [])
     await deps.setState({ ...current, jobs: current.jobs.map((j) => (j.id === jobId ? (ids ? { ...rest, plannerSessionIds: ids } : rest) : j)) })
     return true
@@ -3146,10 +3147,23 @@ export async function handleCommand(
           return conflict(`job ${id} has started planning: it can no longer wait on another plan`)
         if (target !== 'none' && job.coordinatorAccountId === undefined)
           return bad(`job ${id} names no coordinator account: a queued plan's planner starts on it`)
+        // #116: a queued plan's `jobs-plan` choices (Start's approval and delivery), kept on the Job for the planner the
+        // Host starts later, which passes none
+        const auto = args.autoApprove === undefined ? undefined : onOff(args.autoApprove)
+        if (auto === null) return bad('--auto-approve must be on or off')
+        const delivery = parseDelivery(args.delivery)
+        if (delivery === null) return bad('--delivery must be pr or push')
         const { after: _old, afterStopNotified: _mark, ...rest } = job
-        const next: Job = target === 'none' ? rest : { ...rest, after: target }
-        await deps.setState({ ...s, jobs: s.jobs.map((j) => (j.id === id ? next : j)) })
-        return okBody(jobView(deps.getState(), next, undefined))
+        const queued: Job = target === 'none' ? rest : { ...rest, after: target }
+        const next: Job = auto === undefined ? queued : { ...queued, autoApprove: auto }
+        let state: OrchState = { ...s, jobs: s.jobs.map((j) => (j.id === id ? next : j)) }
+        if (delivery !== undefined) {
+          const set = setJobDelivery(state, id, delivery)
+          if (!set.ok) return refused(set)
+          state = set.state
+        }
+        await deps.setState(state)
+        return okBody(jobView(deps.getState(), state.jobs.find((j) => j.id === id) ?? next, undefined))
       }
       const concurrency = concurrencyArg(args.concurrency)
       if (concurrency === null) return bad('--concurrency must be an integer >= 1')
@@ -3221,7 +3235,8 @@ export async function handleCommand(
       const delivery = parseDelivery(args.delivery)
       if (delivery === null) return bad('--delivery must be pr or push')
       if (delivery !== undefined) {
-        const set = setJobDelivery(s, id, delivery)
+        // #116: from the current state, not `s`: the --replan / --auto-approve written above would be lost
+        const set = setJobDelivery(deps.getState(), id, delivery)
         if (!set.ok) return refused(set)
         await deps.setState(set.state)
       }

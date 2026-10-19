@@ -132,7 +132,8 @@ export function useIntake(o: IntakeOptions) {
       const id = (reply.body as { id: string }).id
       // Every intake ends with its planner started; a planner that does not start leaves the Job as a draft.
       // W8-C: or queued after another plan (`jobs-set --after`): the Host starts its planner once that one is delivered.
-      const planned = await door.command(after ? 'jobs-set' : 'jobs-plan', after ? { id, after } : { id, ...planArgs })
+      // #116: the queued plan keeps Start's approval and delivery too, for that later planner
+      const planned = await door.command(after ? 'jobs-set' : 'jobs-plan', after ? { id, after, ...planArgs } : { id, ...planArgs })
       if (planned.status >= 400) {
         const why = (planned.body as { error?: unknown } | null)?.error
         setError(`${t('jobs.new.plannerFailed')}${typeof why === 'string' ? `: ${why}` : ''}`)
