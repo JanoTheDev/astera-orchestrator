@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { allSelected, autoPickRequest, intakeRequest, issueSearchArgs, toggleAll, type IntakeForm } from './intakeRequest'
+import { AUDIT_FOCUSES, allSelected, autoPickRequest, intakeRequest, issueSearchArgs, toggleAll, type IntakeForm } from './intakeRequest'
 
 const form = (o: Partial<IntakeForm> = {}): IntakeForm => ({
   tab: 'describe',
   text: '',
   fixlist: false,
   files: [],
-  scope: '',
+  scope: [],
   issues: [],
   assignMe: false,
   instructions: '',
@@ -30,7 +30,28 @@ describe('intakeRequest', () => {
       args: { cwd: '/repo', coordinatorAccount: 'acc1', concurrency: 3, attach: ['/d/a.pdf'] }
     })
     expect(intakeRequest(form({ tab: 'audit' }))?.args).toMatchObject({ mode: 'audit', scope: 'all' })
-    expect(intakeRequest(form({ tab: 'audit', scope: 'src/core' }))?.args).toMatchObject({ scope: 'src/core' })
+    expect(intakeRequest(form({ tab: 'audit', scope: ['src/core'] }))?.args).toMatchObject({ scope: 'src/core' })
+  })
+  // T2 Audit mode
+  it('Audit joins several paths and sends focus only when it differs from the default', () => {
+    expect(intakeRequest(form({ tab: 'audit', scope: ['src/core', 'src/main'], text: ' the IPC ' }))).toEqual({
+      cmd: 'jobs-create',
+      args: { cwd: '/repo', coordinatorAccount: 'acc1', concurrency: 3, objective: 'the IPC', mode: 'audit', scope: 'src/core,src/main' }
+    })
+    expect(intakeRequest(form({ tab: 'audit', focus: ['tests', 'bugs', 'security'] }))?.args).not.toHaveProperty('focus')
+    expect(intakeRequest(form({ tab: 'audit', focus: [] }))?.args).not.toHaveProperty('focus')
+    expect(intakeRequest(form({ tab: 'audit', focus: ['performance', 'simplify'] }))?.args).toMatchObject({ focus: 'performance,simplify' })
+    expect(intakeRequest(form({ tab: 'audit', focus: ['bugs', 'security'] }))?.args).toMatchObject({ focus: 'bugs,security' })
+  })
+  it('offers the focus values jobs-create takes', async () => {
+    // a variable path: the web typecheck cannot follow intake.ts's node-only imports, vitest can
+    const intake = '../../../../core/orchestration/intake'
+    expect([...AUDIT_FOCUSES]).toEqual((await import(intake)).INTAKE_FOCUSES)
+  })
+  it('sends priority to jobs-create only when it is not 0', () => {
+    expect(intakeRequest(form({ text: 'x', priority: 0 }))?.args).not.toHaveProperty('priority')
+    expect(intakeRequest(form({ text: 'x', priority: 2 }))?.args).toMatchObject({ priority: 2 })
+    expect(intakeRequest(form({ tab: 'prompts', files: ['/a.md'], priority: -1 }))?.args).toMatchObject({ priority: -1 })
   })
   // W8-C prompts mode
   it('Run as written sends --mode prompts with the .md files, else the pasted document; ask only when ticked', () => {

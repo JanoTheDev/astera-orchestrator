@@ -291,7 +291,8 @@ const api = {
     countEntries: invoke('files.countEntries'),
     resolveLink: invoke('files.resolveLink'),
     openFolder: invoke('files.openFolder'),
-    admitMedia: invoke('files.admitMedia')
+    admitMedia: invoke('files.admitMedia'),
+    index: invoke('files.index')
   },
   media: {
     stat: invoke('media.stat'),

@@ -54,21 +54,30 @@ General → Shortcuts).
 
 **New** (or `Ctrl+N`) offers three choices: **Console** (a plain Claude Code or Codex console: agent, account, folder,
 worktree), **Plan it for me** and **Run as written**. The last two open the **Start** page, which is the one place
-plans are made. Dropping files anywhere on the window opens Start with them attached.
+plans are made; the Plans page's **+ New job** opens it too. Dropping files anywhere on the window opens Start with
+them attached.
 
 Start has one composer: a text box (a goal, rough notes, or a whole pasted plan), attached files, and under it
-**+ Attach files**, **GitHub issues** and **Audit the repo**. Two modes:
+**+ Attach files** and **GitHub issues**. Three mode cards:
 
 - **Plan it for me** (the default for typed text). The planner reads the code, the issues and the project's other
-  plans, and writes the Tasks. Sub-modes: *plan* (default), *audit* (a path or `all` is audited for bugs, security holes
-  and missing tests first, then the fixes are planned) and *fixlist* (every line is a problem and gets one or more
-  Tasks). Start picks the sub-mode from what you gave it.
+  plans, and writes the Tasks. A typed problem list is planned as a *fixlist* (every line is a problem and gets one or
+  more Tasks).
+- **Audit**: pick what to audit (add files or folders by typing; suggestions come from the project's file index, the
+  same one as the `@` menu; none means the whole repository) and what to look for: bugs, security holes, performance,
+  missing tests, what to simplify (default: bugs, security holes and missing tests). The text box is an optional note.
+  The planner writes `inputs/audit.md`, then plans the fixes.
 - **Run as written** (the default when `.md` prompt files are attached). See [Run as written](#run-as-written).
 
-Options row: **Consoles at once** (1–10, default 3), **Delivery**, **Start** (right away, or after another plan) and
-**Approval** (ask me, or automatic). The defaults come from the project's settings. The primary button says what will
-happen: "Start planning", or "Start 3 consoles" with "3 files → 3 tasks". Under **Or pick up** are GitHub issues
-assigned to you and a plain console. After Start the app goes to Agents, where the planner's console appears.
+Below the cards: **Hands-off** first (Astera approves the plan and decides its questions itself, and tells you once at
+the end). Switching it saves it as the project's default, so the next plan opens the same way; while it is on,
+Approval is automatic. Then **Start** (right away, or after another plan). **More options** is closed by default and
+shows its values on one line ("3 consoles · PR · ask · Work"): **Consoles at once** (1–10, default 3), **Delivery**,
+**Approval** (ask me, or automatic), **Coordinator** account and **Priority** (0 is the default). It also holds
+**Repeat on a schedule…**, which opens the schedule form. The defaults come from the project's settings. The primary
+button says what will happen: "Start planning", "Audit 2 paths", or "Start 3 consoles" with "3 files → 3 tasks".
+Under **Or pick up** are GitHub issues assigned to you and a plain console. After Start the app goes to Agents, where
+the planner's console appears.
 
 **Sources**
 - **Describe**: the goal. Tick "This is a list of problems" for a fixlist.

@@ -7922,6 +7922,11 @@ export function registerIpc(
       ...unavailable
     }
   })
+  // T2 Start's audit scope picker: the same cached walk as `@`, keyed by the project folder rather than a session
+  ipcMain.handle('files.index', async (_e, root: string, query: string) => {
+    await assertAllowedPath(root)
+    return fileIndex.lookup(root, query, CONVERSATION_FILE_MATCHES)
+  })
   ipcMain.handle('conversation.commands', async (_e, sessionId: string) => {
     const session = allSessions().find((s) => s.id === sessionId)
     if (!session) return []

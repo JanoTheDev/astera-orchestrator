@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { consolesIn, defaultMode, dropOpensStart, filesFromDrop, intakeTab, lookupArgs, primaryLabel, promptCount, shouldLandOnStart } from './startLogic'
+import {
+  addScopePath, consolesIn, defaultMode, dropOpensStart, filesFromDrop, handsOffSaveArgs, intakeTab, lookupArgs, optionsSummary, primaryLabel, promptCount,
+  shouldLandOnStart
+} from './startLogic'
 
 const t = (key: string, params?: Record<string, string | number>): string => (params ? `${key}:${JSON.stringify(params)}` : key)
 
@@ -16,16 +19,17 @@ describe('Start mode default', () => {
   it("the owner's pick wins", () => {
     expect(defaultMode({ files: ['/p/a.md'], text: '', chosen: 'plan' })).toBe('plan')
     expect(defaultMode({ files: [], text: 'x', chosen: 'prompts' })).toBe('prompts')
+    expect(defaultMode({ files: ['/p/a.md'], text: '', chosen: 'audit' })).toBe('audit')
   })
 })
 
 describe('intakeTab', () => {
   it('maps the composer onto one W6-A intake tab', () => {
-    expect(intakeTab({ mode: 'prompts', files: [], audit: true, issues: ['1'] })).toBe('prompts')
-    expect(intakeTab({ mode: 'plan', files: ['/a.md'], audit: true, issues: ['1'] })).toBe('audit')
-    expect(intakeTab({ mode: 'plan', files: ['/a.md'], audit: false, issues: ['1'] })).toBe('github')
-    expect(intakeTab({ mode: 'plan', files: ['/a.pdf'], audit: false, issues: [] })).toBe('files')
-    expect(intakeTab({ mode: 'plan', files: [], audit: false, issues: [] })).toBe('describe')
+    expect(intakeTab({ mode: 'prompts', files: [], issues: ['1'] })).toBe('prompts')
+    expect(intakeTab({ mode: 'audit', files: ['/a.md'], issues: ['1'] })).toBe('audit')
+    expect(intakeTab({ mode: 'plan', files: ['/a.md'], issues: ['1'] })).toBe('github')
+    expect(intakeTab({ mode: 'plan', files: ['/a.pdf'], issues: [] })).toBe('files')
+    expect(intakeTab({ mode: 'plan', files: [], issues: [] })).toBe('describe')
   })
 })
 
@@ -38,6 +42,8 @@ describe('primaryLabel', () => {
     })
     expect(primaryLabel({ mode: 'prompts', files: [], text: '## one\nx\n## two\n' }, t).note).toBe('start.go.sectionsNote:{"n":2}')
     expect(primaryLabel({ mode: 'plan', files: [], text: 'x', after: 'Auth' }, t)).toEqual({ label: 'start.go.queue:{"plan":"Auth"}' })
+    expect(primaryLabel({ mode: 'audit', files: [], text: '' }, t)).toEqual({ label: 'start.go.audit' })
+    expect(primaryLabel({ mode: 'audit', files: [], text: '', scope: ['src', 'docs'] }, t)).toEqual({ label: 'start.go.auditPaths:{"n":2}' })
   })
   it('counts prompts', () => {
     expect(promptCount(['/a.md', '/b.pdf'], '')).toBe(1)
@@ -91,5 +97,26 @@ describe('Run as written by name', () => {
       dryRun: true,
       attach: ['/x/a.md']
     })
+  })
+})
+
+// T2
+describe('sticky hands-off and More options', () => {
+  it('saves Hands-off as the project default', () => {
+    expect(handsOffSaveArgs('p1', true)).toEqual({ id: 'p1', handsOff: 'on' })
+    expect(handsOffSaveArgs('p1', false)).toEqual({ id: 'p1', handsOff: 'off' })
+  })
+  it('sums up the folded options on one line', () => {
+    expect(optionsSummary({ concurrency: 3, delivery: 'pr', approval: 'ask', account: 'Work', priority: 0 }, t)).toBe(
+      'start.more.consoles:{"n":3} · start.more.pr · start.more.ask · Work'
+    )
+    expect(optionsSummary({ concurrency: 1, delivery: 'push', approval: 'auto', priority: 2 }, t)).toBe(
+      'start.more.consoles:{"n":1} · start.more.push · start.more.auto · start.more.priority:{"n":2}'
+    )
+  })
+  it('adds a typed scope path once, tidied', () => {
+    expect(addScopePath([], ' ./src/core/ ')).toEqual(['src/core'])
+    expect(addScopePath(['src/core'], 'src/core')).toEqual(['src/core'])
+    expect(addScopePath(['a'], '  ')).toEqual(['a'])
   })
 })

@@ -1691,6 +1691,8 @@ export interface CoreApi {
     openFolder(path: string): Promise<void>
     /** An image or a video in a project, admitted for the media viewer (main/media/admit.ts); null for anything else. */
     admitMedia(path: string): Promise<{ path: string } | null>
+    /** T2: the project's file index (the `@` menu's walk) filtered by `query`, for Start's audit scope picker. */
+    index(root: string, query: string): Promise<{ paths: string[]; indexing: boolean; unavailable?: boolean }>
   }
   /** The media viewer tab (components/MediaViewer.tsx). Every call accepts only a media file that
    *  files.resolveLink answered in this run of the app (main/media/allowlist.ts). */

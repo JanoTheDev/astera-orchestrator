@@ -72,14 +72,14 @@ type View = 'area' | 'overlap'
 export type PlansPageProps = Pick<
   AppState,
   | 'actionUi' | 'approve' | 'hostDriver' | 'hostStatus' | 'orchHostGate' | 'parkedSinceMs' | 'pauseScheduleRun' | 'restartCoordinator' | 'resumeScheduleRun' | 'currentProject' | 'detail' | 'detailDoor' | 'layout' | 'openLinkedFolder' | 'openRun' | 'orchSnapshot'
-  | 'remoteSnapshot' | 'selectWorkbenchTab' | 'setDetail' | 'setJournalPagesFor' | 'setNewRunOpen' | 'setOpenRun'
+  | 'remoteSnapshot' | 'selectWorkbenchTab' | 'setDetail' | 'setJournalPagesFor' | 'openStart' | 'setOpenRun'
   | 'setSourceJobOpen' | 't'
 > & ReturnType<typeof usePlanPages>
 
 export function PlansPage(p: PlansPageProps): React.JSX.Element {
   const {
     actionUi, approve, hostDriver, hostStatus, orchHostGate, parkedSinceMs, pauseScheduleRun, restartCoordinator, resumeScheduleRun, currentProject, detail, detailDoor, layout, openLinkedFolder, openRun, orchSnapshot, remoteSnapshot,
-    selectWorkbenchTab, setDetail, setJournalPagesFor, setNewRunOpen, setOpenRun, setSourceJobOpen, t, planPage,
+    selectWorkbenchTab, setDetail, setJournalPagesFor, openStart, setOpenRun, setSourceJobOpen, t, planPage,
     setPlanPage
   } = p
   const [view, setView] = useState<View>('area')
@@ -176,7 +176,8 @@ export function PlansPage(p: PlansPageProps): React.JSX.Element {
             if (currentProject) setOpenRun({ projectPath: currentProject, runId })
           }}
           onNewRun={() => {
-            if (currentProject) setNewRunOpen(true)
+            // T2: one create page — + New job opens Start, as New / Ctrl+N does
+            if (currentProject) openStart({})
           }}
           onNewFromSource={() => {
             if (currentProject) setSourceJobOpen(currentProject)
