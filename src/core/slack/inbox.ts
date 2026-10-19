@@ -12,23 +12,13 @@
 // Lives in core since Slack in the Host (Task 1), so the Host runs the same notifier the app does.
 import { classifyInbound, type InboundMessage } from './inbound'
 import { MAX_INJECT_CHARS } from '../connections/input'
+import { reconnectDelayMs } from '../connections/backoff'
 import { RecentIds, ReplyRouter, type ReplyRouterDeps } from '../connections/replies'
 import { botErrorReason } from './transport'
 import { t } from '../i18n'
 
 const PROCESSED_TS_LIMIT = 500 // suppresses redelivery from a failed ack — capped so it cannot grow forever
 
-/** The first reconnect waits this long, and each failure after it doubles the wait (final review C1). A
- *  healthy socket is recycled by Slack every few hours ("disconnect" with a refresh reason), so the first
- *  wait stays short. */
-export const RECONNECT_BASE_MS = 1_000
-/** The longest wait between two reconnects: an outage of an hour costs at most five minutes of intake after
- *  it ends, and a Host left running for days never gives up. */
-export const RECONNECT_CAP_MS = 5 * 60_000
-/** The wait before the reconnect that follows `attempt` consecutive failures (0 for the first). */
-export function reconnectDelayMs(attempt: number): number {
-  return Math.min(RECONNECT_CAP_MS, RECONNECT_BASE_MS * 2 ** Math.min(Math.max(0, attempt), 30))
-}
 /** The options of the WebClient inside every socket-mode client, which only calls apps.connections.open
  *  (reconnect e2e). Left alone, the SDK gives it `{ retries: 100, factor: 1.3 }` with no ceiling and no
  *  timeout, so an HTTP error or a network error was retried inside start() with waits that grow past an hour:
