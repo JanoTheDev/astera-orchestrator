@@ -59,7 +59,7 @@ import { ACTIVITY_COMMANDS, activityReply } from './activity'
 import type { HostSummaries } from './hostSummaries'
 import { NOT_WRITER, type HostUnderstanding } from './hostUnderstanding'
 import type { HostWorkUnits } from './hostWorkUnits'
-import { ensureProject, findProject, setProjectSettings } from '../core/orchestration/projects'
+import { addSubProject, ensureProject, findProject, setProjectSettings } from '../core/orchestration/projects'
 import type { Project } from '../core/orchestration/types'
 import { createProjectFolder, githubCreate, initialCommit, type GithubVisibility } from '../core/projects/create'
 import { inspectFolder } from '../core/projects/detect'
@@ -2077,6 +2077,20 @@ export function createHostOrch(a: {
           if (agentShell(from, sessionId)) {
             const refused = { status: 403, body: { error: AGENT_REFUSAL(cmd) } }
             return claimed === null ? refused : settleRequest(claimed, cmd, marks, refused)
+          }
+          // T3 workspaces: `--parent <projectId> --name <n> [--focus a,b]` adds a sub-project of a registered workspace, the
+          // same repository under its own name (projects.ts `addSubProject`); no folder is read
+          if (args.parent !== undefined) {
+            await ready()
+            const before = store.get()
+            const focus = typeof args.focus === 'string' ? args.focus.split(',') : undefined
+            const added =
+              typeof args.parent === 'string' && typeof args.name === 'string' && args.path === undefined
+                ? addSubProject(before, { parentId: args.parent, name: args.name, ...(focus ? { focus } : {}), now: a.now() })
+                : ({ ok: false, error: 'projects-add --parent <projectId> needs --name <name>, and no --path' } as const)
+            if (added.ok && added.state !== before) await depsFor(marks, actorOf({ sessionId, role: from?.role, state: before })).setState(added.state)
+            const reply = added.ok ? { status: 200, body: added.value } : { status: 'missing' in added ? 404 : 400, body: { error: added.error } }
+            return claimed === null ? reply : settleRequest(claimed, cmd, marks, reply)
           }
           const p = args.path
           const isDir = typeof p === 'string' && path.isAbsolute(p) && (await stat(p).then((st) => st.isDirectory(), () => false))

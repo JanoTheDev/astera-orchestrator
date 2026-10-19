@@ -46,6 +46,8 @@ export interface Project {
   readonly path: string
   readonly name: string
   readonly addedAt: string
+  /** T3 workspaces: the workspace (root project) this sub-project belongs to; absent on a root. */
+  readonly parentId?: string
 }
 
 /** A job source's item a Job was made from: the source (a plugin's id, or `github` for GitHub issues), the item's id

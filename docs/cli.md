@@ -702,16 +702,17 @@ astera sources show  --source <sourceId> --item <itemId> [--project <projectId>]
 astera projects list
 astera projects get   --id <projectId>
 astera projects find  --path <path>
-astera projects add   --path <path> [--initial-commit]
+astera projects add   [--path <path>] [--initial-commit] [--parent <projectId>] [--name <name>] [--focus <a,b>]
+astera projects remove --id <projectId>
 astera projects create --name <name> --parent <path> [--describe <text>] [--github <private|public>]
-astera projects set   --id <projectId> [--delivery <pr|push>] [--delivery-branch <branch>] [--auto-approve <on|off>] [--hands-off <on|off>] [--test-command <cmd>] [--test-config <id>] [--concurrency <1-10>] [--review-rounds <n>] [--replan <waves|off>] [--account <id>] [--prompts-dir <path|none>]
+astera projects set   --id <projectId> [--delivery <pr|push>] [--delivery-branch <branch>] [--auto-approve <on|off>] [--hands-off <on|off>] [--test-command <cmd>] [--test-config <id>] [--concurrency <1-10>] [--review-rounds <n>] [--replan <waves|off>] [--account <id>] [--prompts-dir <path|none>] [--auto-projects <on|off>]
 
 astera jobs    list   [--status <pending|paused|scheduled|waiting|running|completed|failed>] [--project <path>] [--archived] [--area <word>]
 astera jobs    get    --id <jobId | runId>
 astera jobs    run    --id <jobId>
 astera jobs    wait   --id <jobId>  [--timeout-ms <n>]
 astera jobs    rename --id <jobId> --title <text>
-astera jobs    set    --id <jobId | runId> [--concurrency <n>] [--after <jobId|none>] [--areas <a,b,c|none>] [--planning <chat|auto>] [--priority <n>]
+astera jobs    set    --id <jobId | runId> [--concurrency <n>] [--after <jobId|none>] [--areas <a,b,c|none>] [--planning <chat|auto>] [--priority <n>] [--project <projectId>]
 astera jobs    overlaps --id <jobId>
 astera jobs    archive --id <jobId> [--kill-sessions]
 astera jobs    unarchive --id <jobId>
@@ -881,6 +882,22 @@ folder is that path or holds it. When registered projects nest, as a package reg
 registered monorepo, the one with the longest folder wins. A folder that only shares a prefix with a
 project (`proj2` beside `proj`) is not inside it. win32 and macOS ignore case. A folder no project
 holds is a 4 with `astera projects list` as its step.
+
+**Workspaces: several projects in one repository.** A project with sub-projects is a workspace. `projects add
+--parent <projectId> --name <name> [--focus <a,b>]` adds a sub-project: the same repository under its own name (its
+`parentId` in `projects list`), with the folders it usually works in as `focus`. Every plan of a workspace, whichever
+sub-project it is filed under, shares one file guard, one set of leases and one overlap check: two plans that touch the
+same files wait for each other, and plans on different files run side by side. A sub-project reads every setting it
+leaves unset (delivery, auto-approve, hands-off, test command, concurrency…) from its workspace. Astera makes
+sub-projects by itself from the work: `jobs set --areas` (the planner names a plan's areas) files the plan under the
+sub-project named after its first area, created when the workspace has none by that name; `projects set --auto-projects
+off` on the workspace stops that. `jobs set --project <projectId>` moves a plan that has not started to another project
+of the same workspace. `projects remove --id <projectId>` unregisters a project and touches no folder or plan; it is
+refused (6) while the project has a plan that is not archived, and for a workspace that still has sub-projects.
+
+Only repositories you open become projects: a tab standing in a subfolder of a registered project, or in a linked
+worktree such as `.claude/worktrees/<name>`, registers nothing new, and `projects add` with such a folder registers the
+repository itself.
 
 **`jobs run` refuses a Job that is already running** and names the run that is going. It returns the
 run it started, which is the id to pass to `runs wait`.

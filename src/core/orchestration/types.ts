@@ -160,6 +160,16 @@ export interface Project {
   /** The folder, repository-relative, whose `<id>-*.md` files the prompt ids typed in Run as written name. Absent: the
    *  first such plan detects it (`detectPromptsDir`) and saves it here. */
   promptsDir?: string
+  // ── T3 workspaces (projects.ts) ──
+  /** A sub-project of the workspace (root project) with this id: the same repository (`path` is the parent's) under its
+   *  own name. A project with sub-projects is a workspace; every plan of a workspace shares one file guard, lease and
+   *  overlap scope (schedule.ts `projectKeyOf`). One level only: a parent is always a root. */
+  parentId?: string
+  /** Repository-relative folders a sub-project usually works in; shown, never enforced. */
+  focus?: string[]
+  /** A root's: `jobs-set --areas` files a plan under the sub-project named after its first area, creating it
+   *  (`autoProjectFor`). Absent reads as true. */
+  autoProjects?: boolean
 }
 
 /** W7-B: what a project nobody set up reads as. */

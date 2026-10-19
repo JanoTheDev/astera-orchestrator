@@ -9965,3 +9965,71 @@ describe('#117 hands-off', () => {
     })
   })
 })
+
+// ── T3 workspaces: sub-projects made from the work, moved and removed ──
+describe('T3 workspaces', () => {
+  const repo = absPath('astera')
+  /** A workspace and `n` plans of it, created from the person's shell (not started: pendingStart). */
+  const seed = async (n: number, over: Partial<Project> = {}) => {
+    const reg = ensureProject(emptyState(), { path: repo, now: NOW })
+    const deps = makeDeps({ ...reg.state, projects: reg.state.projects.map((p) => ({ ...p, ...over })) })
+    const ids: string[] = []
+    for (let i = 0; i < n; i++) {
+      const r = await call(deps, 'jobs-create', { objective: `o${i}`, cwd: repo }, '')
+      expect(r.status).toBe(200)
+      ids.push(deps.getState().jobs.at(-1)!.id)
+    }
+    return { deps, rootId: reg.project.id, ids }
+  }
+  const children = (deps: OrchServerDeps, rootId: string) => deps.getState().projects.filter((p) => p.parentId === rootId)
+  const jobOfId = (deps: OrchServerDeps, id: string) => deps.getState().jobs.find((j) => j.id === id)!
+
+  it('jobs-set --areas files plans under an auto-created child per first area', async () => {
+    const { deps, rootId, ids } = await seed(3)
+    expect((await call(deps, 'jobs-set', { id: ids[0], areas: 'ui,api' }, '')).status).toBe(200)
+    const [ui] = children(deps, rootId)
+    expect(ui).toMatchObject({ name: 'ui', path: repo, parentId: rootId })
+    expect(jobOfId(deps, ids[0]).projectId).toBe(ui.id)
+    expect((await call(deps, 'jobs-set', { id: ids[1], areas: 'ui' }, '')).status).toBe(200)
+    expect(children(deps, rootId)).toHaveLength(1)
+    expect(jobOfId(deps, ids[1]).projectId).toBe(ui.id)
+    expect((await call(deps, 'jobs-set', { id: ids[2], areas: 'orch' }, '')).status).toBe(200)
+    expect(children(deps, rootId).map((p) => p.name)).toEqual(['ui', 'orch'])
+    // projects-list carries the workspace on each child
+    const listed = (await call(deps, 'projects-list', {}, '')).body as Project[]
+    expect(listed.filter((p) => p.parentId === rootId)).toHaveLength(2)
+  })
+
+  it('creates nothing when the workspace set autoProjects off', async () => {
+    const { deps, rootId, ids } = await seed(1)
+    expect((await call(deps, 'projects-set', { id: rootId, autoProjects: 'off' }, '')).status).toBe(200)
+    expect(deps.getState().projects[0].autoProjects).toBe(false)
+    expect((await call(deps, 'jobs-set', { id: ids[0], areas: 'ui' }, '')).status).toBe(200)
+    expect(children(deps, rootId)).toEqual([])
+    expect(jobOfId(deps, ids[0]).projectId).toBe(rootId)
+  })
+
+  it('jobs-set --project moves a plan not started inside its workspace, alone', async () => {
+    const { deps, rootId, ids } = await seed(1)
+    await call(deps, 'jobs-set', { id: ids[0], areas: 'ui' }, '')
+    expect((await call(deps, 'jobs-set', { id: ids[0], project: rootId, concurrency: 2 }, '')).status).toBe(400)
+    expect((await call(deps, 'jobs-set', { id: ids[0], project: 'nope' }, '')).status).toBe(404)
+    expect((await call(deps, 'jobs-set', { id: ids[0], project: rootId }, '')).status).toBe(200)
+    expect(jobOfId(deps, ids[0]).projectId).toBe(rootId)
+    expect((await call(deps, 'jobs-set', { id: ids[0], project: rootId }, 'ses-agent')).status).toBe(403)
+  })
+
+  it('projects-remove refuses a workspace with children or a project with active plans', async () => {
+    const { deps, rootId, ids } = await seed(1)
+    await call(deps, 'jobs-set', { id: ids[0], areas: 'ui' }, '')
+    const [ui] = children(deps, rootId)
+    expect((await call(deps, 'projects-remove', { id: rootId }, '')).status).toBe(409)
+    expect((await call(deps, 'projects-remove', { id: ui.id }, '')).status).toBe(409)
+    expect((await call(deps, 'projects-remove', { id: 'nope' }, '')).status).toBe(404)
+    await deps.setState({ ...deps.getState(), jobs: deps.getState().jobs.map((j) => ({ ...j, archivedAt: NOW })) })
+    expect((await call(deps, 'projects-remove', { id: ui.id }, 'ses-agent')).status).toBe(403)
+    expect((await call(deps, 'projects-remove', { id: ui.id }, '')).status).toBe(200)
+    expect((await call(deps, 'projects-remove', { id: rootId }, '')).status).toBe(200)
+    expect(deps.getState().projects).toEqual([])
+  })
+})

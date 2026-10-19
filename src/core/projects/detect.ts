@@ -45,11 +45,22 @@ export interface FolderReport {
   proposedTest: string | null
 }
 
-/** Reads a folder for `projects-add`. Null when it is not inside a git repository. */
-export async function inspectFolder(dir: string, run: typeof git = git): Promise<FolderReport | null> {
+/** T3: the repository a folder belongs to, as a project is registered: the main worktree's top level, so a subfolder
+ *  and a linked worktree (`git worktree add`, `.claude/worktrees/<x>`) both answer the repository itself. Null when the
+ *  folder is not in a git repository. A submodule or a bare repository's worktree keeps its own top level: its common
+ *  directory is not a `.git` folder beside a checkout. */
+export async function mainRepoRoot(dir: string, run: typeof git = git): Promise<string | null> {
   const top = await run(['rev-parse', '--show-toplevel'], { cwd: dir })
   if (!top.ok || top.stdout === '') return null
-  const root = path.resolve(top.stdout)
+  const common = await run(['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd: dir })
+  if (common.ok && path.basename(common.stdout) === '.git') return path.dirname(path.resolve(common.stdout))
+  return path.resolve(top.stdout)
+}
+
+/** Reads a folder for `projects-add`. Null when it is not inside a git repository. */
+export async function inspectFolder(dir: string, run: typeof git = git): Promise<FolderReport | null> {
+  const root = await mainRepoRoot(dir, run)
+  if (root === null) return null
   const hasCommit = (await run(['rev-parse', '--verify', '--quiet', 'HEAD^{commit}'], { cwd: root })).ok
   const base = hasCommit ? await detectBaseRef(root) : null
   const head = await run(['symbolic-ref', '--quiet', '--short', 'HEAD'], { cwd: root })
