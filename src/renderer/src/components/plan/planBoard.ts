@@ -170,6 +170,11 @@ export function wavesOf(tasks: readonly JobTask[], layers: readonly string[][]):
 /** The wave being worked on: the first one not all done. -1 when every wave is done. */
 export const currentWaveOf = (waves: readonly PlanWave[]): number => waves.find((w) => w.done < w.tasks.length)?.index ?? -1
 
+/** T4: the waves that fold to one line — every finished wave (all its Tasks done). The current wave and later ones stay
+ *  open, so old done Tasks are out of the way when more are added to the plan. */
+export const collapsedWavesOf = (waves: readonly PlanWave[]): ReadonlySet<number> =>
+  new Set(waves.filter((w) => w.done === w.tasks.length).map((w) => w.index))
+
 /** Whether this plan's planner is adjusting the rest of the plan right now (W6-D's `plan.replanning`, not yet followed
  *  by its `plan.replanned`). `planId` is matched against a line's run and its Job, as a plan's own Run shares its id. */
 export function replanningOf(events: readonly ActivityEvent[], planId: string): boolean {
