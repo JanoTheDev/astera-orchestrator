@@ -299,7 +299,9 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       { name: 'cursor', value: '<cursor>', about: 'the nextCursor of the page before' },
       SOURCE_PROJECT,
       // W6-A
-      { name: 'assigned-to-me', about: 'GitHub issues: only those assigned to you (assignee:@me)' }
+      { name: 'assigned-to-me', about: 'GitHub issues: only those assigned to you (assignee:@me); the same as --assignee me' },
+      // #119
+      { name: 'assignee', value: 'all|none|me|others', about: 'GitHub issues: by assignment, default all (none: no assignee; me: assigned to you; others: assigned, but not to you)' }
     ]
   },
   'sources-show': {

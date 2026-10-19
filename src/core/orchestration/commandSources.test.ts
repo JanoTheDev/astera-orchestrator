@@ -6,7 +6,7 @@ import { emptyState, type OrchState } from './state'
 import { ensureProject } from './projects'
 import { absPath } from '../testPaths'
 import { sourcedObjective } from '../sources/objective'
-import { JOB_SOURCE, type JobSourcesDeps } from './commandSources'
+import { JOB_SOURCE, jobsOfItems, plansHoldingIssue, type JobSourcesDeps } from './commandSources'
 import type { GhResult, GhRunner } from '../github/gh'
 import { REPO_NAME_TTL_MS } from '../github/issueSource'
 
@@ -270,6 +270,24 @@ describe('sources-items and sources-show (J10, J16)', () => {
     }
     expect(await jobsOf(projectId)).toEqual([[made], [made]])
     expect(await jobsOf(other.project.id)).toEqual([[], []])
+  })
+
+  // #119: a multi-issue plan has itemId "5,7" and no url; it holds each issue of its project
+  it('a multi-issue plan with no url holds each of its issues, in the project asked in', async () => {
+    const { deps, projectId } = setup()
+    await call(deps, 'jobs-create-from-source', { source: 'github', item: '12', project: projectId })
+    const single = deps.getState().jobs[0]
+    const multi = { ...single, id: 'job_multi', source: { id: 'github', itemId: '5,7', label: '#5 +1' } }
+    const s = { ...deps.getState(), jobs: [...deps.getState().jobs, multi] }
+    const project = s.projects.find((p) => p.id === projectId)!
+    const of = jobsOfItems(s, 'github', project)
+    expect(of({ id: '5' })).toEqual(['job_multi'])
+    expect(of({ id: '7', url: 'https://github.com/o/r/issues/7' })).toEqual(['job_multi'])
+    expect(of({ id: '12', url: 'https://github.com/o/r/issues/12' })).toEqual([single.id])
+    expect(of({ id: '6' })).toEqual([])
+    expect(plansHoldingIssue(s, project, 7)).toEqual(['job_multi'])
+    // With no project the repository is unknown, so such a plan holds nothing
+    expect(jobsOfItems(s, 'github')({ id: '5' })).toEqual([])
   })
 
   // The 4a review's M6, then 5e: a folder's repository is remembered a minute, so a remote changed under the Host is

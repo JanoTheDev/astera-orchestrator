@@ -680,7 +680,7 @@ astera plugins settings  --id <pluginId>
 astera plugins configure --id <pluginId> [--set <key=value>] [--unset <key>] [--stdin <key>]
 
 astera sources list
-astera sources items --source <sourceId> [--query <text>] [--cursor <cursor>] [--project <projectId>] [--assigned-to-me]
+astera sources items --source <sourceId> [--query <text>] [--cursor <cursor>] [--project <projectId>] [--assigned-to-me] [--assignee <all|none|me|others>]
 astera sources show  --source <sourceId> --item <itemId> [--project <projectId>]
 
 astera projects list

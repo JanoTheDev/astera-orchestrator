@@ -15,6 +15,8 @@ export interface GhIssue {
   url: string
   /** The issues endpoint answers a pull request's number too. */
   isPullRequest: boolean
+  /** #119: the logins the issue is assigned to; empty when no one. */
+  assignees: string[]
 }
 
 /** The authors whose issues may become a Job: people the repository already trusts with its code. */
@@ -50,6 +52,9 @@ export function issueFrom(raw: unknown): GhIssue | null {
   const labels = Array.isArray(r.labels)
     ? r.labels.flatMap((l) => (typeof (l as { name?: unknown } | null)?.name === 'string' ? [l.name as string] : []))
     : []
+  const assignees = Array.isArray(r.assignees)
+    ? r.assignees.flatMap((a) => (typeof (a as { login?: unknown } | null)?.login === 'string' ? [(a as { login: string }).login] : []))
+    : []
   return {
     number: r.number,
     title: r.title,
@@ -59,7 +64,8 @@ export function issueFrom(raw: unknown): GhIssue | null {
     author: user.login,
     authorAssociation: r.author_association,
     url: r.html_url,
-    isPullRequest: r.pull_request !== undefined && r.pull_request !== null
+    isPullRequest: r.pull_request !== undefined && r.pull_request !== null,
+    assignees
   }
 }
 

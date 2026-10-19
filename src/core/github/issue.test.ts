@@ -32,6 +32,7 @@ const issue = (over: Partial<GhIssue> = {}): GhIssue => ({
   authorAssociation: 'MEMBER',
   url: 'https://github.com/o/r/issues/12',
   isPullRequest: false,
+  assignees: [],
   ...over
 })
 
@@ -47,8 +48,15 @@ describe('parseIssue', () => {
       author: 'parsingk',
       authorAssociation: 'OWNER',
       url: 'https://github.com/parsingk/Astera/issues/7',
-      isPullRequest: false
+      isPullRequest: false,
+      assignees: []
     })
+  })
+
+  it('reads the assignees’ logins', () => {
+    const raw = JSON.parse(ISSUE)
+    const i = parseIssue(JSON.stringify({ ...raw, assignees: [{ login: 'ann' }, { login: 'bo' }, null] }))!
+    expect(i.assignees).toEqual(['ann', 'bo'])
   })
 
   it('a pull request number reads as isPullRequest', () => {

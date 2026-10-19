@@ -11,7 +11,7 @@ import type { Project } from './types'
 import type { OrchState } from './state'
 import { SOURCE_ERROR_MAX, clip, isItemId, itemDetail, itemsPage, jobContext, type SourceContext } from '../sources/answers'
 import { sourceTitleOf, sourcedObjective } from '../sources/objective'
-import { GITHUB_SOURCE_ID, issueContext, issueDetail, listIssueItems } from '../github/issueSource'
+import { ASSIGNEE_FILTERS, GITHUB_SOURCE_ID, issueContext, issueDetail, listIssueItems, type AssigneeFilter } from '../github/issueSource'
 import { repoOf } from '../github/issue'
 import type { GhFailed } from '../github/gh'
 
@@ -52,21 +52,33 @@ const askFailed = (e: unknown, name: string, what: string): Reply => {
 /** The Jobs made from each item of source `id` (J16), read once per call: a plugin's item by its id, a GitHub issue by
  *  its repository too, since every repository has an issue #12 (4a final review I2). Asked in a `project`, the Jobs of
  *  that project alone: the app's window opens the one it names there (4c final review I2). */
-function jobsOfItems(s: OrchState, id: string, project?: Project): (item: { id: string; url?: string }) => string[] {
+export function jobsOfItems(s: OrchState, id: string, project?: Project): (item: { id: string; url?: string }) => string[] {
   const key = (itemId: string, url: string | undefined): string | null =>
     id !== GITHUB_SOURCE_ID ? itemId : url === undefined || repoOf(url) === '' ? null : `${repoOf(url).toLowerCase()}#${itemId}`
   const by = new Map<string, string[]>()
+  /** #119: a multi-issue Job has itemId "5,7,9" and no url, so its repository is its project's: its issues are held by
+   *  number, and only in a call that names that project. */
+  const byNumber = new Map<string, string[]>()
+  const push = (m: Map<string, string[]>, k: string, jobId: string): void => void m.set(k, [...(m.get(k) ?? []), jobId])
   for (const j of s.jobs) {
     if (j.source?.id !== id) continue
     if (project !== undefined && j.projectId !== project.id && !isSamePath(j.cwd, project.path)) continue
+    if (id === GITHUB_SOURCE_ID && j.source.url === undefined) {
+      if (project !== undefined) for (const n of j.source.itemId.split(',')) push(byNumber, n.trim(), j.id)
+      continue
+    }
     const k = key(j.source.itemId, j.source.url)
-    if (k !== null) by.set(k, [...(by.get(k) ?? []), j.id])
+    if (k !== null) push(by, k, j.id)
   }
   return (item) => {
     const k = key(item.id, item.url)
-    return k === null ? [] : (by.get(k) ?? [])
+    return [...(k === null ? [] : (by.get(k) ?? [])), ...(byNumber.get(item.id) ?? [])]
   }
 }
+
+/** #119: the plans of `project` that hold GitHub issue `n`, alone or among several. */
+export const plansHoldingIssue = (s: OrchState, project: Project, n: number): string[] =>
+  jobsOfItems(s, GITHUB_SOURCE_ID, project)({ id: String(n) })
 
 /** A source a call names: GitHub, or a plugin the Host has, ready or with why not. */
 type Source = { kind: 'github'; name: string } | { kind: 'plugin'; id: string; name: string; ready: boolean; reason?: string }
@@ -132,7 +144,14 @@ export async function sourcesCommand(deps: OrchServerDeps, caller: Caller, cmd: 
       if (isReply(at)) return at
       // W6-A: --assigned-to-me keeps the issues assigned to the person gh is logged in as
       const mine = args.assignedToMe === true || args.assignedToMe === 'true'
-      const r = await listIssueItems(at.gh, at.cwd, { ...(query ? { query } : {}), ...(cursor ? { cursor } : {}), ...(mine ? { mine } : {}) })
+      // #119: --assignee all|none|me|others; --assigned-to-me stays as an alias for `me`
+      const assignee = str(args.assignee)
+      if (assignee !== null && !(ASSIGNEE_FILTERS as readonly string[]).includes(assignee)) return bad('--assignee is one of: all, none, me, others')
+      const r = await listIssueItems(at.gh, at.cwd, {
+        ...(query ? { query } : {}),
+        ...(cursor ? { cursor } : {}),
+        ...(assignee !== null ? { assignee: assignee as AssigneeFilter } : mine ? { mine } : {})
+      })
       if (!r.ok) return ghReply(r)
       const jobs = jobsOfItems(s, GITHUB_SOURCE_ID, named)
       return ok({ items: r.items.map((i) => ({ ...i, jobs: jobs(i) })), ...(r.nextCursor ? { nextCursor: r.nextCursor } : {}) })
