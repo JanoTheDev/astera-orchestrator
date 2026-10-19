@@ -124,6 +124,45 @@ describe('replansDue', () => {
   })
 })
 
+describe('a failed Task of a lower wave', () => {
+  const seen = () => true
+  // f failed in wave 0; c completed. b waits on c only, d waits on f, e waits on d (so on f too), g waits on b.
+  const tasks = [
+    task('f', { status: 'failed' }),
+    task('c', { status: 'completed' }),
+    task('b', { deps: ['c'] }),
+    task('d', { deps: ['f'], status: 'pending' }),
+    task('e', { deps: ['d'], status: 'pending' }),
+    task('g', { deps: ['b'], status: 'pending' })
+  ]
+  const at = (wave: number) => ({ lastReplan: { runId: 'run_1', mode: 'wave' as const, wave, done: 1, at: NOW, summary: 'no change' } })
+  const byId = (s: OrchState, id: string) => s.tasks.find((t) => t.id === id)!
+
+  it('does not stop the boundary: wave 1 is replanned', () => {
+    expect(replansDue(state(tasks), seen)).toEqual([{ runId: 'run_1', mode: 'wave', wave: 1, done: 1 }])
+  })
+
+  it('lets a later-wave Task that does not depend on it start, and keeps one that does waiting', () => {
+    const s = state(tasks, at(1))
+    expect(waveOpen(byId(s, 'b'), s)).toBe(true)
+    expect(waveOpen(byId(s, 'd'), s)).toBe(false)
+    expect(slotsToFill(s).map((x) => x.taskId)).toEqual(['b'])
+  })
+
+  it('does not let a Task waiting on it hold the next boundary or the next wave', () => {
+    const next = tasks.map((t) => (t.id === 'b' ? { ...t, status: 'completed' as const } : t.id === 'g' ? { ...t, status: 'ready' as const } : t))
+    expect(replansDue(state(next, at(1)), seen)).toEqual([{ runId: 'run_1', mode: 'wave', wave: 2, done: 2 }])
+    const s = state(next, at(2))
+    expect(waveOpen(byId(s, 'g'), s)).toBe(true)
+    expect(waveOpen(byId(s, 'e'), s)).toBe(false)
+  })
+
+  it('asks for no final check while the plan has a failed Task', () => {
+    const rest = [task('f', { status: 'failed' }), task('c', { status: 'completed' }), task('b', { deps: ['c'], status: 'completed' })]
+    expect(replansDue(state(rest, at(1)), seen)).toEqual([])
+  })
+})
+
 describe('completionSettled', () => {
   const tasks = [task('a', { status: 'completed' })]
   it('waits for a final check over these completed Tasks, and for a person who holds an escalated one', () => {
