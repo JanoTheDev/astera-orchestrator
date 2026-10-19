@@ -211,9 +211,13 @@ export function createWindowSet<W extends ProjectWindow>(deps: WindowSetDeps<W>)
     setScope: (win, scope) => {
       if (!entries.has(win) || win.isDestroyed()) return
       const was = entries.get(win)!.projectId
-      entries.set(win, scope)
-      win.setTitle(scope.projectId !== null && scope.name ? `${scope.name} — Astera` : 'Astera')
-      if (was !== scope.projectId) saveOpen()
+      // "All projects" is a view, not a binding: the window stays bound to its last project, so a reload or the next
+      // launch comes back to it instead of to All.
+      const kept = scope.projectId === null && was !== null
+      entries.set(win, kept ? { ...scope, projectId: was, ...(entries.get(win)!.name ? { name: entries.get(win)!.name } : {}) } : scope)
+      const shown = entries.get(win)!
+      win.setTitle(shown.projectId !== null && shown.name ? `${shown.name} — Astera` : 'Astera')
+      if (was !== shown.projectId) saveOpen()
     },
     noteFocus: (win) => {
       focusOrder = [win, ...focusOrder.filter((w) => w !== win)]

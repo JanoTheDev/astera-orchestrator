@@ -10,11 +10,12 @@ import { setWallView } from '../components/wall/wallView' // W9-H
 import { showWorktrees } from '../components/worktrees/worktreeView'
 import type { AppState } from './appState'
 import { planSectionOf } from '../components/plan/planBoard'
+import { ownerOf, scopeFor } from './projectScope'
 
 type NavigationDeps = Pick<
   AppState,
   | 'goPage' | 'setShowSettings' | 'setSettingsTab' | 'setSettingsAnchor' | 'setRunPanelOpen'
-  | 'canOpenSessionTab' | 'setWorkspaceScope' | 'selectWorkbenchTab' | 'workspaceTree' | 'enterWorkspace' | 'setPendingRun'
+  | 'canOpenSessionTab' | 'setWorkspaceScope' | 'workspaceIds' | 'workspaceProjectId' | 'selectWorkbenchTab' | 'workspaceTree' | 'enterWorkspace' | 'setPendingRun'
   | 'setPlanPage'
 >
 
@@ -22,7 +23,7 @@ export function useNavigation(app: NavigationDeps): void {
   useEffect(() => {
     const {
       goPage, setShowSettings, setSettingsTab, setSettingsAnchor, setRunPanelOpen, canOpenSessionTab, setWorkspaceScope,
-      selectWorkbenchTab, workspaceTree, enterWorkspace, setPendingRun, setPlanPage
+      selectWorkbenchTab, workspaceTree, enterWorkspace, setPendingRun, setPlanPage, workspaceIds, workspaceProjectId
     } = app
     return registerNavigation({
       openPage: (id, plan) => {
@@ -39,7 +40,8 @@ export function useNavigation(app: NavigationDeps): void {
       openConsole: (sessionId) => {
         if (!canOpenSessionTab(sessionId)) return
         goPage('agents')
-        setWorkspaceScope(null, null)
+        // the selected project stays; a console of another project switches to that project, never to All
+        setWorkspaceScope(scopeFor(workspaceProjectId, ownerOf(workspaceIds, sessionId)), null)
         selectWorkbenchTab(sessionTab(sessionId))
         setWallView({ kind: 'console', sessionId })
       },

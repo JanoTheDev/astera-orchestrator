@@ -3,6 +3,8 @@
 import { ArrowUpDown } from 'lucide-react'
 import type { Attention, SessionInfo } from '../../../../core/types'
 import { OTHER_WORKSPACE, workspaceSummaries, type WorkspaceProject } from '../../state/workspaceTree'
+import { switcherName } from '../../state/projectScope'
+import * as sticky from '../../lib/stickyProject'
 import { Menu, type MenuItem } from '../ui'
 import type { Translate } from '../checkText'
 
@@ -63,7 +65,8 @@ export function switcherItems(p: SwitcherProps): MenuItem[] {
 
 export function ProjectSwitcher(p: SwitcherProps): React.JSX.Element {
   const { t } = p
-  const name = p.selectedId === null ? t('wall.scope.all') : p.selectedId === OTHER_WORKSPACE ? t('shell.switcher.other') : (p.tree.find((x) => x.id === p.selectedId)?.name ?? t('wall.scope.all'))
+  const label = switcherName(p.selectedId, p.tree, p.selectedId ? sticky.readName(p.selectedId) : null)
+  const name = label.kind === 'all' ? t('wall.scope.all') : label.kind === 'other' ? t('shell.switcher.other') : label.kind === 'name' ? label.name : t('shell.switcher.label')
   const waiting = workspaceSummaries(p.tree, p.byWorkspace, p.sessions, p.attention).some((r) => r.waiting)
   return (
     <Menu

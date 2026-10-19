@@ -130,8 +130,23 @@ describe('the window set', () => {
     expect(set.projectOf(w)).toBe('g')
     expect(file().open).toEqual(['g'])
     expect(set.open('g')).toBe(w)
+    // viewing All projects does not unbind the window: a reload and the next launch come back to the project
     set.setScope(w, { projectId: null, sessionIds: null })
+    expect(w.title).toBe('gameful — Astera')
+    expect(set.projectOf(w)).toBe('g')
+    expect(file().open).toEqual(['g'])
+    set.setScope(w, { projectId: 'a', name: 'Astera', sessionIds: null })
+    expect(set.projectOf(w)).toBe('a')
+    expect(file().open).toEqual(['a'])
+  })
+
+  it('a window that never had a project stays an All window', () => {
+    const { set, file } = setup()
+    const w = set.open(null)
+    set.setScope(w, { projectId: null, sessionIds: null })
+    expect(set.projectOf(w)).toBeNull()
     expect(w.title).toBe('Astera')
+    expect(file().open).toEqual([null])
   })
 
   it("a notice opens the window showing its session, else an All window, else the last focused", () => {
