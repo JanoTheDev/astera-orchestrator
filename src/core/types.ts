@@ -736,6 +736,10 @@ export interface JobRow {
   // W7-A plan feedback (Job.feedback, autoStartedAt, rejected): the talk box reads these
   /** The Job was planned by a planner session (`plannerSessionIds` is set): only such a plan can be talked to. */
   planned?: true
+  /** The planner session still alive (the Job's newest `plannerSessionIds`, if this process knows it): the Tasks page's "open console". */
+  plannerSessionId?: string
+  /** A replan is under way (Job.replanning): the 0-based wave it stands before. */
+  replanWave?: number
   feedback?: PlanFeedback[]
   autoStartedAt?: string
   rejected?: { at: string; reason?: string }

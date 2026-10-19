@@ -21,6 +21,7 @@ import {
   type LiveSession,
   type TaskColumn
 } from '../plan/planBoard'
+import { planningEntriesOf, stageText } from './tasksPlanning'
 import { usePlanLive } from '../plan/usePlanLive'
 import { TaskGlyph } from '../JobIcons'
 import '../plan/plan.css'
@@ -54,6 +55,8 @@ export function TasksPage({ accounts, currentProject, layout, orchSnapshot, t }:
   const label = (id: string): string => accounts.find((a) => a.id === id)?.label ?? id
 
   const plans = (orchSnapshot?.runs ?? []).filter((r) => r.archivedAt === undefined && !r.schedule)
+  const planning = planningEntriesOf(plans)
+  const planningIds = new Set(planning.map((e) => e.plan.id))
   const shown = planFilter === null ? plans : plans.filter((r) => r.id === planFilter)
   const columns = new Map<TaskColumn, Placed[]>(TASK_COLUMNS.map((c) => [c, []]))
   let olderDone = 0
@@ -97,13 +100,51 @@ export function TasksPage({ accounts, currentProject, layout, orchSnapshot, t }:
           {plans.map((r) => (
             <button key={r.id} type="button" className="tasks-pill" aria-pressed={planFilter === r.id} onClick={() => setPlanFilter(r.id)}>
               {jobName(r)}
-              <span className="tasks-pill-count">
-                {r.done}/{r.total}
-              </span>
+              {planningIds.has(r.id) ? (
+                <Chip>{t('pages.tasks.planning.badge')}</Chip>
+              ) : (
+                <span className="tasks-pill-count">
+                  {r.done}/{r.total}
+                </span>
+              )}
             </button>
           ))}
         </div>
       </header>
+      {planning.length > 0 && (
+        <section className="tasks-planning" aria-label={t('pages.tasks.planning.title')}>
+          <h2 className="tasks-col-head">
+            {t('pages.tasks.planning.title')}
+            <span className="tasks-col-count">{planning.length}</span>
+          </h2>
+          {planning.map((e) => {
+            const stage = stageText(e)
+            return (
+              <Card key={e.plan.id} className="tasks-card tasks-planning-row" onClick={() => openPlan(e.plan.id)}>
+                <span className="tasks-card-title" title={jobName(e.plan)}>
+                  {jobName(e.plan)}
+                </span>
+                <span className="tasks-card-line">{t(stage.key, stage.params)}</span>
+                <span className="tasks-card-meta">
+                  <span>{t('pages.tasks.planning.written', { count: e.plan.total })}</span>
+                  {e.plan.plannerSessionId && (
+                    <button
+                      type="button"
+                      className="tasks-pill"
+                      onClick={(ev) => {
+                        ev.stopPropagation()
+                        openConsole(e.plan.plannerSessionId as string)
+                      }}
+                    >
+                      {t('pages.tasks.planning.console')}
+                    </button>
+                  )}
+                </span>
+              </Card>
+            )
+          })}
+        </section>
+      )}
       <div className="tasks-board">
         {TASK_COLUMNS.map((c) => {
           const cards = columns.get(c) ?? []
