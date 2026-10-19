@@ -150,9 +150,12 @@ describe('overlapsOf', () => {
 describe('the briefs list the other plans of the repository', () => {
   const s: OrchState = {
     ...emptyState(),
-    jobs: [job('jA', { title: 'Auth rework', areas: ['auth'] }), job('jB', { pendingStart: true }), job('jC', { projectId: 'prj_2', title: 'Elsewhere' })],
-    runs: [run('r1', 'jA')],
-    tasks: [task('t6', { runId: 'r1' }, { title: 'T6', status: 'completed', affectedPaths: ['src/api/routes.ts'] })]
+    jobs: [job('jA', { title: 'Auth rework', areas: ['auth'] }), job('jB', { pendingStart: true }), job('jC', { projectId: 'prj_2', title: 'Elsewhere' }), job('jD', { title: 'Live plan' })],
+    runs: [run('r1', 'jA'), run('r4', 'jD')],
+    tasks: [
+      task('t6', { runId: 'r1' }, { title: 'T6', status: 'completed', affectedPaths: ['src/api/routes.ts'] }),
+      task('t9', { runId: 'r4' }, { title: 'T9', status: 'in_progress', affectedPaths: ['src/ui/'] })
+    ]
   }
 
   it("in the planner's brief: their Tasks, state and paths", () => {
@@ -161,6 +164,9 @@ describe('the briefs list the other plans of the repository', () => {
     // T1: a finished plan is one line, with no Task lines
     expect(other).toContain('1 Tasks done (astera tasks list --run jA --json)')
     expect(other).not.toContain('T6 [completed]')
+    // an active plan keeps its Task lines
+    expect(other).toContain('Live plan (job jD')
+    expect(other).toContain('  - T9 [in_progress]: src/ui/')
     expect(other).not.toContain('Elsewhere')
     const brief = buildPlannerBrief({ jobId: 'jB', objective: 'o', repoRoot: '/repo', accountId: 'acc_1', concurrency: 2, otherPlans: other })
     expect(brief).toContain('OTHER PLANS IN THIS REPOSITORY')

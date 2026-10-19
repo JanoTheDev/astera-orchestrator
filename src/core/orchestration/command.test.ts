@@ -9890,6 +9890,20 @@ describe('#117 hands-off', () => {
     return deps
   }
 
+  it('T1: jobs-plan --planning sets Job.planning, refuses a bad value, and the planner brief follows it', async () => {
+    const briefs: string[] = []
+    const deps = { ...makeDeps(), startCoordinator: async (a: { brief: string }) => (briefs.push(a.brief), { sessionId: 'ses-planner' }) } as unknown as OrchServerDeps
+    const made = await person(deps, 'jobs-create', { objective: 'o', cwd: 'D:/p', coordinatorAccount: 'acc1' })
+    const id = (made.body as { id: string }).id
+    expect((await person(deps, 'jobs-plan', { id, planning: 'maybe' })).status).toBe(400)
+    expect(deps.getState().jobs.find((j) => j.id === id)?.planning).toBeUndefined()
+    expect((await person(deps, 'jobs-plan', { id, planning: 'auto' })).status).toBe(200)
+    expect(deps.getState().jobs.find((j) => j.id === id)?.planning).toBe('auto')
+    expect(briefs[0]).toContain('do not wait for the person')
+    expect((await person(deps, 'jobs-plan', { id, planning: 'chat' })).status).toBe(200)
+    expect(briefs[1]).toContain('superpowers:brainstorming')
+  })
+
   it('jobs-create --hands-off and jobs-plan --hands-off on|off set the Job; an agent session is refused', async () => {
     const deps = rig()
     const made = await person(deps, 'jobs-create', { objective: 'o', cwd: 'D:/p', coordinatorAccount: 'acc1', handsOff: true })
