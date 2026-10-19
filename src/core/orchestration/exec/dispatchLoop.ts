@@ -43,16 +43,16 @@ import { lostAttemptOf } from '../../recovery/candidates'
 import { jobActive, slotsToFill, tasksMissingAccounts, type Slot } from '../schedule'
 import { coordinatorStarting, jobOf, type OrchState } from '../state'
 import { isJobActive } from '../lifecycle'
-import { DEFAULT_CONCURRENCY, FAILURE_LIMIT, type Decision, type JobRun, type Task } from '../types'
+import { DEFAULT_CONCURRENCY, FAILURE_LIMIT, type Decision, type Job, type JobRun, type Task } from '../types'
 import { outcomeOfTasks, tasksOwnedBy } from '../running'
 import { outcomeOf } from '../view'
 import { completionSettled, replansDue } from '../replan'
 import { REPLAN_LIFT_HOLD } from './replanStart'
 // W8-C draft PR
 import { draftPrDue } from '../draftPr'
-import type { Integration } from './integrateGit'
+import { refreshOnto, type Integration, type Refresh } from './integrateGit'
 import { usageChoice, usagePauseWhy, type UsageGuard } from '../usageGuard'
-import { deliveryOf, handsOffOf } from '../delivery'
+import { deliveryOf, handsOffOf, projectOfJob } from '../delivery'
 // W8-C plan after plan
 import { afterStartsDue, afterSweep } from '../after'
 // Coordinator rotation and finished tabs
@@ -155,6 +155,9 @@ export interface DispatchLoopContext {
   lang(): Lang
   forkRunWorktree(a: { repoPath: string; name: string }): Promise<string>
   integrate(runRoot: string, merges: string[]): Promise<Integration>
+  /** T11: merges another plan's delivered commit into a running plan's Run worktree (integrateGit.ts refreshOnto).
+   *  Optional: defaults to that function over the real git. */
+  refreshOnto?(worktree: string, base: string, message: string, fetchBranch?: string): Promise<Refresh>
   reap(worktreePath: string): Promise<boolean>
   isRegisteredWorktree(p: string): boolean
   sessionAlive(sessionId: string): boolean
@@ -505,6 +508,128 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
    * records the outcome on the Run, so each is asked once; a refusal the command did not record is not asked again
    * by this process either. Driving process only, asked before each one; a failure is logged and never thrown.
    */
+  // ── T11: deliveries across plans never collide ──
+  /** The project a plan delivers into: its registered project, else its folder. */
+  const projectKeyOf = (s: OrchState, job: Job): string => projectOfJob(s, job)?.id ?? job.cwd
+  /** The pushes other plans of `run`'s project landed, and their pull requests the PR poll saw merged
+   *  (`attribution-remap`), since `run` began, oldest first. Derived from the state, so a restarted Host finds the same
+   *  ones (`refreshedTo` only spares the git of asking twice). */
+  const deliveriesBefore = (s: OrchState, run: JobRun, job: Job): { job: Job; sha: string; branch?: string }[] => {
+    const key = projectKeyOf(s, job)
+    const since = Date.parse(run.createdAt)
+    const out: { job: Job; sha: string; branch?: string; at: number }[] = []
+    for (const o of s.runs) {
+      const p = o.pr
+      const d =
+        o.delivery?.sha !== undefined
+          ? o.delivery
+          : p?.attributed !== undefined && p.attributedAt !== undefined
+            ? { sha: p.attributed, at: p.attributedAt, ...(p.baseRefName ? { branch: p.baseRefName } : {}) }
+            : undefined
+      if (o.jobId === run.jobId || d?.sha === undefined || !(Date.parse(d.at) >= since)) continue
+      const other = jobOf(s, o)
+      if (other && projectKeyOf(s, other) === key) out.push({ job: other, sha: d.sha, at: Date.parse(d.at), ...(d.branch ? { branch: d.branch } : {}) })
+    }
+    return out.sort((a, b) => a.at - b.at)
+  }
+  /** The delivered commits each Run worktree already holds, by Run id. In memory: a restart asks git once more. */
+  const refreshedTo = new Map<string, Set<string>>()
+  // A feed line of the existing `watchdog` kind (payload.reason): a kind of its own would need the feed's renderer too
+  const planActivity = (runId: string, reason: string): void => c.activity?.(watchdogActivity(c.getState(), runId, reason))
+  /** The Task a refresh's integration Task hangs off: the Run's last Task that is not one itself. */
+  const anchorOf = (s: OrchState, runId: string): Task | undefined => {
+    const own = s.tasks.filter((t) => t.runId === runId)
+    return own.filter((t) => !isIntegrationTask(t)).at(-1) ?? own.at(-1)
+  }
+
+  /**
+   * **T11: a running plan is refreshed onto every other plan of its project that delivered since it began**, before its
+   * next Task starts: the delivered commit is merged into its Run worktree (a merge, never a rebase) when it merges
+   * cleanly. A conflict goes to an integration Task in this plan, as an in-plan conflict does (`startMergeWorker`, hung
+   * off `anchorId`), and the plan waits for it; only when that Task fails is the owner asked. `ready`: nothing (more) to
+   * merge. A worker in the Run worktree is never merged under: the refresh waits for it.
+   */
+  const refreshRun = async (runId: string, anchorId: string): Promise<{ kind: 'ready' } | { kind: 'wait'; why: string } | { kind: 'gate'; reason: string }> => {
+    const s = c.getState()
+    const run = s.runs.find((r) => r.id === runId)
+    const job = run && jobOf(s, run)
+    // A Run with no worktree of its own works in the owner's folder, which is never merged into here
+    if (!run || !job || run.worktree === undefined) return { kind: 'ready' }
+    const worktree = run.worktree
+    const done = refreshedTo.get(runId) ?? new Set<string>()
+    const due = deliveriesBefore(s, run, job).filter((d) => !done.has(d.sha))
+    if (due.length === 0) return { kind: 'ready' }
+    const mine = jobNameOf(job)
+    if (workingInRunRoot(s, runId))
+      return { kind: 'wait', why: `plan ${mine} is refreshed onto plan ${jobNameOf(due[0].job)}'s delivery first, and a worker is still working in ${worktree}` }
+    for (const d of due) {
+      const plan = jobNameOf(d.job)
+      let r: Refresh
+      try {
+        r = await (c.refreshOnto ?? ((w, b, m, f) => refreshOnto(w, b, m, { log, ...(f ? { fetchBranch: f } : {}) })))(
+          worktree,
+          d.sha,
+          `Refresh onto plan ${plan}'s delivery`,
+          d.branch
+        )
+      } catch (e) {
+        r = { kind: 'human', reason: String(e) }
+      }
+      if (r.kind === 'current' || r.kind === 'merged') {
+        refreshedTo.set(runId, done.add(d.sha))
+        if (r.kind === 'merged') {
+          log(`run=${runId}: refreshed onto ${d.sha} (plan ${plan}'s delivery)`)
+          planActivity(runId, `Plan ${mine} refreshed onto plan ${plan}'s delivery (${d.sha.slice(0, 7)})`)
+        }
+        continue
+      }
+      if (r.kind === 'human') return { kind: 'gate', reason: `Plan ${mine} could not be refreshed onto plan ${plan}'s delivery: ${r.reason}` }
+      // The integration Task of this delivery: its spec names the delivered commit
+      const ofThis = (st: OrchState): Task | undefined => st.tasks.find((t) => t.runId === runId && isIntegrationTask(t) && t.spec.includes(d.sha))
+      const existing = ofThis(s)
+      if (existing?.status === 'completed')
+        return { kind: 'gate', reason: `Plan ${mine} still conflicts with plan ${plan}'s delivery although integration task ${existing.id} finished: ${r.reason}` }
+      await startMergeWorker({
+        runId,
+        taskId: existing?.parentId ?? anchorId,
+        key: d.sha,
+        reason: `plan ${plan} delivered ${d.sha} to ${d.branch ?? 'its branch'}, and it conflicts with this plan's branch: ${r.reason}`,
+        worktrees: [{ path: d.job.cwd, branch: d.branch ?? null }]
+      })
+      const made = existing ? undefined : ofThis(c.getState())
+      if (made) {
+        log(`run=${runId}: integration task=${made.id} created for the conflict with plan ${plan}'s delivery ${d.sha}`)
+        planActivity(runId, `Integration Task created in plan ${mine} for its conflict with plan ${plan}'s delivery (${d.sha.slice(0, 7)})`)
+      }
+      return { kind: 'wait', why: `plan ${mine} conflicts with plan ${plan}'s delivery, and an integration task resolves that first` }
+    }
+    return { kind: 'ready' }
+  }
+
+  /** T11: after a delivery, every running plan of a project is refreshed at once, not only at its next app-placed Task:
+   *  a coordinator places its own workers. A wait is asked again next pass; a Gate is left to the Task's own start. */
+  const refreshRunningPlans = async (): Promise<void> => {
+    const s = c.getState()
+    for (const run of s.runs) {
+      const job = jobOf(s, run)
+      if (!job || run.worktree === undefined || !isJobActive(job) || job.schedule !== undefined) continue
+      if (deliveriesBefore(s, run, job).every((d) => refreshedTo.get(run.id)?.has(d.sha))) continue
+      if (outcomeOfTasks(tasksOwnedBy(s, run.id)) !== 'running') continue
+      const anchor = anchorOf(s, run.id)
+      if (!anchor || !c.mayStart()) continue
+      try {
+        const r = await refreshRun(run.id, anchor.id)
+        if (r.kind !== 'ready') log(`run=${run.id}: not refreshed yet: ${r.kind === 'wait' ? r.why : r.reason}`)
+      } catch (e) {
+        log(`run=${run.id}: refreshing onto other plans' deliveries failed: ${String(e)}`)
+      }
+    }
+  }
+
+  /** T11: the projects with a delivery in flight. At most one delivery per project runs at a time; plans of different
+   *  projects deliver side by side. In memory: a delivery never outlives its process, and what it landed is in the state. */
+  const delivering = new Set<string>()
+
   const seenRunning = new Set<string>()
   const prAsked = new Set<string>()
   const openCompletedRunPrs = async (): Promise<void> => {
@@ -517,6 +642,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       if (list) list.push(t)
       else owned.set(t.runId, [t])
     }
+    const due = new Map<string, { run: JobRun; push: boolean }[]>()
     for (const run of s.runs) {
       // W6-H: a push delivery records its own result (`run.delivery`)
       // W8-C: a draft opened between waves is finished here (`run-open-pr` marks it ready); any other PR is the end
@@ -536,24 +662,58 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       // W8-E (#99): a failed plan's completed work goes into a draft PR (or its branch note), never pushed
       if (outcome === 'failed' && push) continue
       if (!push && run.worktree === undefined) continue
-      if (!c.mayStart()) return
-      prAsked.add(run.id)
+      const key = projectKeyOf(s, job)
+      const list = due.get(key)
+      if (list) list.push({ run, push })
+      else due.set(key, [{ run, push }])
+    }
+    // T11: one delivery per project at a time, projects side by side
+    await Promise.all(
+      [...due].map(async ([key, list]) => {
+        if (delivering.has(key)) return
+        delivering.add(key)
+        try {
+          for (const x of list) await deliverOne(x.run, x.push)
+        } finally {
+          delivering.delete(key)
+        }
+      })
+    )
+  }
+
+  /** One completed Run's delivery (`openCompletedRunPrs`), under its project's lock. */
+  const deliverOne = async (run: JobRun, push: boolean): Promise<void> => {
+    if (!c.mayStart()) return
+    // T11: a push first takes in what other plans of the project delivered meanwhile. A conflict became an integration
+    // Task (the Run is running again, and comes back here once it is done); a Gate is the push's own guards' to say
+    const anchor = anchorOf(c.getState(), run.id)
+    if (push && anchor) {
       try {
-        // W6-H: `run-deliver` is `run-open-pr` for a `pr` project, and the guarded push for a `push` one
-        const r = await c.handle('run-deliver', { run: run.id })
-        const body = r.body as { url?: unknown; sha?: unknown; branch?: unknown; message?: unknown } | null
-        log(
-          r.status >= 400
-            ? `run=${run.id} completed, and it was not delivered: ${JSON.stringify(r.body)}`
-            : typeof body?.message === 'string' // W7-E (#80): no remote
-              ? `run=${run.id} completed: ${body.message}`
-              : push
-              ? `run=${run.id} completed: pushed ${String(body?.sha)} to ${String(body?.branch)}`
-              : `run=${run.id} completed: its pull request is ${String(body?.url)}`
-        )
+        const fresh = await refreshRun(run.id, anchor.id)
+        if (fresh.kind === 'wait') {
+          log(`run=${run.id} completed, and is not delivered yet: ${fresh.why}`)
+          return
+        }
       } catch (e) {
-        log(`run=${run.id} completed, and opening its pull request failed: ${String(e)}`)
+        log(`run=${run.id}: refreshing onto other plans' deliveries failed, delivering as it is: ${String(e)}`)
       }
+    }
+    prAsked.add(run.id)
+    try {
+      // W6-H: `run-deliver` is `run-open-pr` for a `pr` project, and the guarded push for a `push` one
+      const r = await c.handle('run-deliver', { run: run.id })
+      const body = r.body as { url?: unknown; sha?: unknown; branch?: unknown; message?: unknown } | null
+      log(
+        r.status >= 400
+          ? `run=${run.id} completed, and it was not delivered: ${JSON.stringify(r.body)}`
+          : typeof body?.message === 'string' // W7-E (#80): no remote
+            ? `run=${run.id} completed: ${body.message}`
+            : push
+            ? `run=${run.id} completed: pushed ${String(body?.sha)} to ${String(body?.branch)}`
+            : `run=${run.id} completed: its pull request is ${String(body?.url)}`
+      )
+    } catch (e) {
+      log(`run=${run.id} completed, and opening its pull request failed: ${String(e)}`)
     }
   }
 
@@ -777,6 +937,9 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       // W2-D: before the finished Run's workers are released, while its worktrees are all there
       await openCompletedRunPrs()
       if (!c.mayStart()) return
+      // T11: after the deliveries, so the other plans of a project that just delivered take it in within this pass
+      await refreshRunningPlans()
+      if (!c.mayStart()) return
       // W8-C: after the delivery, so a plan queued after one delivered in this pass starts in it too
       await startQueuedPlans()
       if (!c.mayStart()) return
@@ -950,6 +1113,14 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     // 통합 Task 자신은 이 단계를 지나지 않는다. 지나면 그 Task 의 deps(= 그 워크트리 Task
     // 들)를 보고 통합 Task 를 위한 통합 Task 를 만들고, 그것이 끝없이 이어진다 — 새 Task 는
     // 매번 새 id 라서 아래의 attempted 가 막지 못한다(integrate.ts 에 자세히 적었다).
+    // T11: first onto what other plans of the project delivered since this one began. An integration Task does the
+    // merging itself, so it starts as it is
+    if (!isIntegrationTask(task)) {
+      const fresh = await refreshRun(slot.runId, slot.taskId)
+      if (fresh.kind === 'wait') return fresh
+      if (fresh.kind === 'gate') return { kind: 'gate', reason: fresh.reason, why: fresh.reason }
+      state = c.getState()
+    }
     const merges = isIntegrationTask(task) ? [] : pendingMerges(state, slot.taskId)
     if (merges.length > 0) {
       // **이미 통합 Task 가 있으면 새로 만들지 않는다.** 아직 끝나지 않았으면 그것을
@@ -1696,13 +1867,17 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     taskId: string
     reason: string
     worktrees: { path: string; branch: string | null }[]
+    /** T11: the merge Task is the one under `taskId` whose spec holds this (a delivered commit), not any merge Task. */
+    key?: string
   }): Promise<void> => {
     let s = c.getState()
     const run = s.runs.find((r) => r.id === a.runId)
     const forTask = s.tasks.find((t) => t.id === a.taskId)
     if (!run || !forTask) return
     const runRoot = runRootOf(run, jobOf(s, run))
-    let merge = integrationTaskFor(s, a.taskId)
+    const mergeOf = (st: OrchState): Task | undefined =>
+      a.key === undefined ? integrationTaskFor(st, a.taskId) : st.tasks.find((t) => t.parentId === a.taskId && t.spec.includes(a.key!))
+    let merge = mergeOf(s)
     if (merge?.status === 'failed') {
       // The merge worker could not do it: now it is the owner's. The Gate goes on the failed merge Task (failed ->
       // blocked), so it is opened once; the owner's answer readies the Task and the next tick starts it again.
@@ -1725,7 +1900,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
         return
       }
       s = c.getState()
-      merge = integrationTaskFor(s, a.taskId)
+      merge = mergeOf(s)
       if (!merge) return
     }
     if (s.dispatches.some((d) => d.taskId === merge!.id && !d.outcome && !d.endedAt)) return

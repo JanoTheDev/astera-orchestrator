@@ -2387,3 +2387,140 @@ describe('a hands-off plan decides for the owner (#117)', () => {
     expect(inbox(state.jobs.map((j) => ({ ...j, handsOff: false }))).map((i) => i.kind)).toEqual(['escalation'])
   })
 })
+
+// T11: deliveries across plans of one project never collide
+describe('plans of one project: one delivery at a time, the others refreshed onto it (T11)', () => {
+  const LATER = new Date(NOW_MS + 1000).toISOString()
+  /** Plan B is the rig's job_1 (its Run in /wt1); plan A, of the same project folder, delivered `shaA` after B began. */
+  const withDeliveredA = (h: ReturnType<typeof rig>): void => {
+    const s = h.state()
+    h.setState({
+      ...s,
+      jobs: [...s.jobs.map((j) => ({ ...j, title: 'B' })), { id: 'job_A', title: 'A', objective: 'a', cwd: '/p', createdAt: NOW }],
+      runs: [...s.runs, { id: 'run_A', jobId: 'job_A', ordinal: 1, createdAt: NOW, worktree: '/wtA', delivery: { at: LATER, sha: 'shaA', branch: 'main' } }],
+      tasks: [...s.tasks, task({ id: 'tsk_A', runId: 'run_A', jobId: 'job_A', status: 'completed' })]
+    })
+  }
+  const lines = (h: ReturnType<typeof rig>): string[] => {
+    const out: string[] = []
+    h.ctx.activity = (d) => void out.push(String(d.payload.reason))
+    return out
+  }
+
+  it("merges plan A's delivery into plan B's Run worktree before B's next Task starts, once", async () => {
+    const h = rig()
+    withDeliveredA(h)
+    const feed = lines(h)
+    const refresh = vi.fn(async () => ({ kind: 'merged' as const }))
+    h.ctx.refreshOnto = refresh
+    await h.loop.run()
+    await h.settle()
+    expect(refresh).toHaveBeenCalledWith('/wt1', 'shaA', "Refresh onto plan A's delivery", 'main')
+    expect(h.startWorker).toHaveBeenCalled()
+    expect(refresh.mock.invocationCallOrder[0]).toBeLessThan(h.startWorker.mock.invocationCallOrder[0])
+    expect(feed.filter((l) => l.startsWith("Plan B refreshed onto plan A's delivery"))).toHaveLength(1)
+    await h.loop.run()
+    await h.settle()
+    expect(refresh).toHaveBeenCalledTimes(1)
+  })
+
+  it('a refresh that conflicts creates an integration Task in plan B instead of stopping', async () => {
+    const h = rig()
+    withDeliveredA(h)
+    const feed = lines(h)
+    h.ctx.refreshOnto = async () => ({ kind: 'conflict', reason: 'shaA does not merge cleanly into /wt1' })
+    await h.loop.run()
+    await h.settle()
+    const merge = h.state().tasks.find((t) => t.runId === 'run_1' && t.spec.includes('shaA'))
+    expect(merge).toBeDefined()
+    expect(h.state().gates.filter((g) => g.status === 'open')).toEqual([])
+    // Plan B's own Tasks wait for it: the one worker is the integration Task's
+    expect(h.state().tasks.filter((t) => t.id === 'tsk_1' || t.id === 'tsk_2').map((t) => t.status)).toEqual(['ready', 'ready'])
+    expect(feed.some((l) => l.startsWith("Integration Task created in plan B for its conflict with plan A's delivery"))).toBe(true)
+    await h.loop.run()
+    await h.settle()
+    expect(h.state().tasks.filter((t) => t.runId === 'run_1' && t.spec.includes('shaA'))).toHaveLength(1)
+  })
+
+  /** Plan A's pull request, which the PR poll saw merged (`attribution-remap`) after plan B began. */
+  const withMergedPrA = (h: ReturnType<typeof rig>): void => {
+    withDeliveredA(h)
+    const s = h.state()
+    h.setState({
+      ...s,
+      runs: s.runs.map(({ delivery: _d, ...r }) =>
+        r.id === 'run_A' ? { ...r, pr: { at: NOW, url: 'u', attributed: 'mergeA', attributedAt: LATER, baseRefName: 'main' } } : r
+      )
+    })
+  }
+
+  it("a merged pull request of plan A refreshes plan B too, fetching origin's branch", async () => {
+    const h = rig()
+    withMergedPrA(h)
+    const feed = lines(h)
+    const refresh = vi.fn(async () => ({ kind: 'merged' as const }))
+    h.ctx.refreshOnto = refresh
+    await h.loop.run()
+    await h.settle()
+    expect(refresh).toHaveBeenCalledWith('/wt1', 'mergeA', "Refresh onto plan A's delivery", 'main')
+    expect(refresh.mock.invocationCallOrder[0]).toBeLessThan(h.startWorker.mock.invocationCallOrder[0])
+    expect(feed.some((l) => l.startsWith("Plan B refreshed onto plan A's delivery"))).toBe(true)
+  })
+
+  it('a merged pull request of plan A that conflicts creates an integration Task in plan B', async () => {
+    const h = rig()
+    withMergedPrA(h)
+    const feed = lines(h)
+    h.ctx.refreshOnto = async () => ({ kind: 'conflict', reason: 'mergeA does not merge cleanly into /wt1' })
+    await h.loop.run()
+    await h.settle()
+    expect(h.state().tasks.filter((t) => t.runId === 'run_1' && t.spec.includes('mergeA'))).toHaveLength(1)
+    expect(feed.some((l) => l.startsWith("Integration Task created in plan B for its conflict with plan A's delivery"))).toBe(true)
+  })
+
+  it('a pull request merged before plan B began, or not merged, refreshes nothing', async () => {
+    const h = rig()
+    withMergedPrA(h)
+    const s = h.state()
+    h.setState({ ...s, runs: s.runs.map((r) => (r.id === 'run_A' ? { ...r, pr: { at: NOW, url: 'u', attributed: 'mergeA', attributedAt: new Date(NOW_MS - 1000).toISOString() } } : r)) })
+    const refresh = vi.fn(async () => ({ kind: 'merged' as const }))
+    h.ctx.refreshOnto = refresh
+    await h.loop.run()
+    await h.settle()
+    expect(refresh).not.toHaveBeenCalled()
+  })
+
+  it('delivers at most one plan of a project at a time', async () => {
+    const h = rig()
+    const s = h.state()
+    h.setState({
+      ...s,
+      jobs: [
+        ...s.jobs.map((j) => ({ ...j, delivery: 'push' as const })),
+        { id: 'job_2', objective: 'second', cwd: '/p', createdAt: NOW, concurrency: 1, autoDispatch: true, delivery: 'push' as const }
+      ],
+      runs: [...s.runs, { id: 'run_2', jobId: 'job_2', ordinal: 1, createdAt: NOW, worktree: '/wt2' }],
+      tasks: [...s.tasks, task({ id: 'tsk_3', runId: 'run_2', jobId: 'job_2' })]
+    })
+    let inFlight = 0
+    let most = 0
+    const delivered: string[] = []
+    h.ctx.handle = async (cmd, args) => {
+      if (cmd !== 'run-deliver') return h.real(cmd, args)
+      most = Math.max(most, ++inFlight)
+      await new Promise<void>((r) => setTimeout(r, 5))
+      inFlight--
+      delivered.push(String(args.run))
+      return { status: 200, body: { sha: 'x', branch: 'main' } }
+    }
+    await h.loop.run()
+    await h.settle()
+    const t = h.state()
+    h.setState({ ...t, tasks: t.tasks.map((x) => ({ ...x, status: 'completed' as const })) })
+    // Two passes at once, as two ticks would
+    await Promise.all([h.loop.run(), h.loop.run()])
+    await h.settle()
+    expect(delivered.sort()).toEqual(['run_1', 'run_2'])
+    expect(most).toBe(1)
+  })
+})

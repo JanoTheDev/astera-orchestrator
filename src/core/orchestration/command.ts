@@ -6254,7 +6254,7 @@ export async function handleCommand(
       const r = await remapMerged({ cwd: job.cwd, mergeCommit: sha, originals })
       const pushed = r.noted.length > 0 ? await pushNotes(job.cwd) : 'none'
       const cur = deps.getState()
-      await deps.setState({ ...cur, runs: cur.runs.map((x) => (x.id === run.id && x.pr ? { ...x, pr: { ...x.pr, attributed: sha } } : x)) })
+      await deps.setState({ ...cur, runs: cur.runs.map((x) => (x.id === run.id && x.pr ? { ...x, pr: { ...x.pr, attributed: sha, attributedAt: deps.now?.() ?? new Date().toISOString(), baseRefName: pr.baseRefName as string } } : x)) })
       return okBody({ remapped: true, kind: r.kind, noted: r.noted, sha, notesPushed: pushed === 'pushed' })
     }
     case 'github-ci-rerun': {

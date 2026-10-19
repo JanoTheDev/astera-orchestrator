@@ -47,17 +47,18 @@ const happy = (): Record<string, Reply | Reply[]> => ({
   'merge-base --is-ancestor origin/main HEAD': {}
 })
 
-function setup(over: Record<string, Reply | Reply[]> = {}, o: { merge?: 'ok' | 'conflict' | 'dirty'; validate?: 'ok' | 'fail' } = {}) {
+function setup(over: Record<string, Reply | Reply[]> = {}, o: { merge?: 'ok' | 'conflict' | 'conflict-once' | 'dirty'; validate?: 'ok' | 'fail' } = {}) {
   const g = fakeGit({ ...happy(), ...over })
   const merges: { into: string; paths: string[]; message?: string }[] = []
   const validated: string[] = []
   const logs: string[] = []
   const ctx: PushContext = {
     git: g.git,
+    gitAtLeast: async () => true,
     log: (m) => logs.push(m),
     mergeWorktrees: async (into, paths, opts) => {
       merges.push({ into, paths, ...(opts?.message !== undefined ? { message: opts.message } : {}) })
-      if (o.merge === 'conflict') {
+      if (o.merge === 'conflict' || (o.merge === 'conflict-once' && merges.length === 1)) {
         g.setHead('merged-1')
         return { ok: false, reason: 'git merge-tree says wt-b does not merge cleanly' }
       }
@@ -121,13 +122,55 @@ describe('deliverByPush (W6-H)', () => {
     expect(h.merges).toEqual([])
   })
 
-  it('stops on a conflict and leaves the folder as the merge left it', async () => {
+  // T11: a conflict is first another plan landing on the branch; the plan is refreshed onto it and merged once more
+  it('a conflict goes back to the commit before the merges, refreshes the plan and stops when that cannot help', async () => {
     const h = setup({}, { merge: 'conflict' })
     const r = await h.go()
     expect(r).toMatchObject({ ok: false, reason: expect.stringContaining('does not merge cleanly') })
-    expect(!r.ok && r.reason).toContain('git reset --hard base undoes them')
-    expect(h.calls.some((a) => a[0] === 'reset' || a[0] === 'push')).toBe(false)
+    expect(!r.ok && r.reason).toContain('refreshing onto base did not help')
+    expect(h.calls.filter((a) => a[0] === 'reset')).toEqual([['reset', '--hard', 'base']])
+    expect(h.head()).toBe('base')
+    expect(h.calls.some((a) => a[0] === 'push')).toBe(false)
+    expect(forced(h.calls)).toBe(false)
     expect(h.validated).toEqual([])
+  })
+
+  /** A Run worktree `refreshOnto` merges `base` into cleanly (the fake ignores which worktree asks). */
+  const refreshable = (): Record<string, Reply | Reply[]> => ({
+    'merge-base --is-ancestor base HEAD': { ok: false },
+    'cat-file -e base^{commit}': {},
+    'symbolic-ref --quiet HEAD': { stdout: 'refs/heads/astera/b' },
+    'status --porcelain --untracked-files=no': { stdout: '' },
+    'merge-tree --write-tree HEAD base': { stdout: 'tree' },
+    'var GIT_COMMITTER_IDENT': {},
+    'merge --no-ff -m Refresh onto main before delivery base': {}
+  })
+
+  it('a cross-plan conflict is retried once after refreshing the plan onto the new base, then pushed', async () => {
+    const h = setup(refreshable(), { merge: 'conflict-once' })
+    const r = await h.go()
+    expect(r).toMatchObject({ ok: true, branch: 'main', sha: 'merged' })
+    expect(h.merges).toHaveLength(2)
+    expect(h.calls.map((a) => a.join(' '))).toContain('merge --no-ff -m Refresh onto main before delivery base')
+    expect(h.calls.some((a) => a.join(' ') === 'push origin main')).toBe(true)
+    expect(forced(h.calls)).toBe(false)
+    expect(h.logs.some((m) => m.includes('trying once more'))).toBe(true)
+  })
+
+  it('retries only once: a second failed merge stops the delivery', async () => {
+    const h = setup(refreshable(), { merge: 'conflict' })
+    const r = await h.go()
+    expect(r).toMatchObject({ ok: false, reason: expect.stringContaining('after refreshing onto base') })
+    expect(h.merges).toHaveLength(2)
+    expect(h.calls.some((a) => a[0] === 'push')).toBe(false)
+  })
+
+  it('a refresh that conflicts stops without a second merge', async () => {
+    const h = setup({ ...refreshable(), 'merge-tree --write-tree HEAD base': { ok: false, stderr: '' } }, { merge: 'conflict' })
+    const r = await h.go()
+    expect(r).toMatchObject({ ok: false, reason: expect.stringContaining('does not merge cleanly into') })
+    expect(h.merges).toHaveLength(1)
+    expect(h.calls.some((a) => a[0] === 'push')).toBe(false)
   })
 
   it('undoes only its own merges when the validation fails: back to the commit before them, nothing pushed', async () => {
