@@ -2873,7 +2873,7 @@ export const ko = {
   'shell.switcher.running': '{n}개 실행 중',
   'shell.switcher.openWindow': '{name} 새 창에서 열기',
   'shell.switcher.settings': '{name} 설정…',
-  'shell.switcher.new': '+ 새 프로젝트',
+  'shell.switcher.new': '새 프로젝트',
   'shell.switcher.other': '기타',
   'shell.status.hostTitle': 'Host {version}',
   'shell.switcher.search': '프로젝트 찾기',

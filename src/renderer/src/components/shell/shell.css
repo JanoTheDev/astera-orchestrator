@@ -141,12 +141,13 @@ body.resizing-row { cursor: row-resize; user-select: none; }
 
 /* right group: search, usage, New, settings */
 .tb-search {
-  display: inline-flex; align-items: center; gap: 8px; height: 28px; width: 220px; padding: 0 6px 0 10px;
+  display: inline-flex; align-items: center; gap: 8px; height: 28px; width: 220px; min-width: 0; padding: 0 6px 0 10px;
   border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); color: var(--text-faint);
   font: inherit; font-size: var(--fs-12); white-space: nowrap; cursor: pointer; transition: border-color var(--dur-fast) var(--ease-out);
 }
-.tb-search > svg { flex: none; }
-.tb-search span:not(.ui-kbd) { flex: 1; text-align: left; }
+/* the field gives up width before its Kbd does: the label truncates, the caps keep their size */
+.tb-search > svg, .tb-search .ui-kbd { flex: none; }
+.tb-search span:not(.ui-kbd) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; text-align: left; }
 .tb-search:hover { color: var(--text-dim); border-color: var(--line-strong); }
 .tb-search:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 @media (max-width: 1240px) { .tb-search { width: auto; } .tb-search span:not(.ui-kbd) { display: none; } }

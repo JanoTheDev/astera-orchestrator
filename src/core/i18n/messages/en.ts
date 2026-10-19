@@ -2626,7 +2626,7 @@ export const en: Record<keyof typeof ko, string> = {
   'shell.switcher.running': '{n} running',
   'shell.switcher.openWindow': 'Open {name} in new window',
   'shell.switcher.settings': '{name} settings…',
-  'shell.switcher.new': '+ New project',
+  'shell.switcher.new': 'New project',
   'shell.switcher.other': 'Other',
   'shell.status.hostTitle': 'Host {version}',
   'shell.switcher.search': 'Find a project',
