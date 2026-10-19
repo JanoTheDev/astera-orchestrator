@@ -202,6 +202,8 @@ body.resizing-row { cursor: row-resize; user-select: none; }
 .page-title { margin: 0; padding: 12px 16px 8px; font-size: 15px; font-weight: 600; color: var(--text); }
 .page-note { margin: 0; color: var(--text-dim); font-size: 13px; }
 .page-jobs { flex: 1; min-height: 0; display: flex; flex-direction: column; max-width: 960px; width: 100%; margin: 0 auto; }
+/* the Plans list page runs full width like the other pages (its rows stay readable-width); a plan's own page stays centred */
+.page-jobs:has(> .plans-page) { max-width: none; }
 .page-inbox { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
 .page-inbox-needs, .page-inbox-handled { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
 .page-inbox-handled { border-left: 1px solid var(--line); background: var(--panel); }

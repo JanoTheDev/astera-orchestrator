@@ -22,6 +22,13 @@ export const MIN_FONT = 6
  *  4px padding), kept clear of rows while the note shows (final review I8). */
 export const NOTE_RESERVE_PX = 32
 
+/** Smallest on-screen font (px) a wall tile's text is drawn at; a wider pty clips at the tile edge instead. */
+export const TILE_MIN_READABLE_PX = 9.5
+
+/** The scale a tile draws its terminal at: fit the tile, but never below TILE_MIN_READABLE_PX of `font`. */
+export const tileScale = (avail: number, width: number, font: number): number =>
+  Math.min(1, Math.max(avail / width, TILE_MIN_READABLE_PX / font))
+
 type WithRenderService = {
   _core?: { _renderService?: { dimensions?: { css?: { cell?: { width: number; height: number } } } } }
 }

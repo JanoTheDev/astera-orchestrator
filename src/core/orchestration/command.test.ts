@@ -9812,7 +9812,7 @@ describe('#116 approve only once the plan is ready', () => {
     const queue = (after: string) => r.person('jobs-create', { objective: 'next', cwd: 'D:/p', coordinatorAccount: 'acc1', after })
     const refused = await queue(done)
     expect(refused.status).toBe(400)
-    expect(JSON.stringify(refused.body)).toContain(`job ${done} is finished`)
+    expect(JSON.stringify(refused.body)).toContain(`job ${done} has already finished`)
     expect((await queue('job_nope')).status).toBe(404)
     expect((await queue(live)).status).toBe(200)
   })

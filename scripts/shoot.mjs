@@ -110,7 +110,7 @@ const PAGES = [
   ],
   ['tasks', digit(2)],
   ['plans', digit(3)],
-  ['plan', async () => (await digit(3)(), await sleep(400), click('main a, main button, main [role=button], main li, main tr', '.')) && (await sleep(500), true)],
+  ['plan', async () => (await digit(3)(), await sleep(400), click('.plans-row__name, main a, main button, main [role=button], main li, main tr', '.')) && (await sleep(500), true)],
   ['inbox', digit(4)],
   ['worktrees', digit(5)],
   ['files', digit(6)],
@@ -148,6 +148,7 @@ for (const theme of themes) {
       await escape()
       await escape()
       await click('.start-page .start-head button', 'back|close|뒤로') // Start is a page-sized overlay that stays up until closed
+      await click('.plan-pages button', '^\\s*Plans\\s*$') // a plan page stays up (its textarea keeps Ctrl+digit from navigating) until its Plans back button
       await evaluate('document.activeElement?.blur()') // no stale focus ring from the previous step
       await sleep(200)
       const ok = await go()

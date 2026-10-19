@@ -33,7 +33,7 @@ import { Select, type SelectOption } from './Select'
 import { ScheduleFields } from './ScheduleFields'
 import { StartingOverlay } from './WorktreeCreateStatus'
 import { X } from 'lucide-react'
-import { Button, IconButton, Modal } from './ui'
+import { Button, IconButton, Modal, Tabs } from './ui'
 
 const SOFT_LIMIT = 12
 const MAX_ROLL_ACCOUNTS = 3
@@ -711,22 +711,16 @@ export function NewSessionDialog({
         {kind === 'chat' && !bypassPermissions && (
           <div className="field">
             <label>{t('chat.unattended.heading')}</label>
-            <div className="kind-segmented">
-              <Button
-                type="button"
-                variant={unattended === 'hold' ? 'secondary' : 'ghost'}
-                onClick={() => setUnattended('hold')}
-              >
-                {t('chat.unattended.hold')}
-              </Button>
-              <Button
-                type="button"
-                variant={unattended === 'deny-after-60s' ? 'secondary' : 'ghost'}
-                onClick={() => setUnattended('deny-after-60s')}
-              >
-                {t('chat.unattended.deny60')}
-              </Button>
-            </div>
+            <Tabs
+              variant="segmented"
+              label={t('chat.unattended.heading')}
+              value={unattended}
+              onChange={setUnattended}
+              items={[
+                { id: 'hold', label: t('chat.unattended.hold') },
+                { id: 'deny-after-60s', label: t('chat.unattended.deny60') }
+              ]}
+            />
           </div>
         )}
         {/* checkCli now runs in the chosen folder, not the app's own cwd, so a toolchain manager that
