@@ -26,7 +26,7 @@ Board squeezed under planner box → fixed by W9-C (Waves is a full-width sectio
 Start (Plan it for me) → planner → Inbox "Plan ready" → Review plan → Approve & execute confirm → worker, reviewer, final check → plan completed, delivery line "no remote… git merge <branch>" in the feed. A second plan raised a real Inbox question (answered from the card), then waited on the heavy-job slot my own dev app held. Plans archived with `--kill-sessions`, worktrees and repos removed.
 
 ## Issues filed
-#111 rejected plan has no feed line · #112 `runGitRecorder.test.ts` fails (host index has two `orch.ready()`) · #113 plan title is the whole prompt.
+#111 rejected plan has no feed line · #112 `runGitRecorder.test.ts` fails (host index has two `orch.ready()`, from crash-resume commit 9adbb6fe, not the redesign) · #113 plan title is the whole prompt.
 
 ## Tests
 `npm run typecheck` clean. Full suite via `astera heavy`: 1 failed | 15976 passed | 69 skipped (955/963 files). The failure is `src/host/runGitRecorder.test.ts:294`, in untouched `src/host` (pre-existing, #112).
