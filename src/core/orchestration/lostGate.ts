@@ -20,3 +20,9 @@ export function lostWithNobody(s: OrchState): LostAttemptSeed[] {
     return run !== undefined && !run.coordinatorSessionId
   })
 }
+
+/** The other half: lost-worker Tasks in a Run with a coordinator, which is to start them again (`--retry-of`). The stall
+ *  watchdog (exec/stallWatch.ts) retries the ones it leaves. */
+export function lostWithCoordinator(s: OrchState): LostAttemptSeed[] {
+  return candidates(s).filter((seed) => s.runs.some((r) => r.id === seed.runId && !!r.coordinatorSessionId))
+}

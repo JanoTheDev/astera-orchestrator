@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { lostWithNobody } from './lostGate'
+import { lostWithCoordinator, lostWithNobody } from './lostGate'
 import { emptyState, type OrchState } from './state'
 import type { Dispatch } from './types'
 
@@ -31,5 +31,13 @@ describe('lostWithNobody (R16)', () => {
   })
   it('leaves a person-closed Dispatch alone (closedBy), as candidates() does', () => {
     expect(lostWithNobody(stateWithLostDispatch({ closedBy: 'stop' }))).toEqual([])
+  })
+})
+
+describe('lostWithCoordinator', () => {
+  it('names a lost worker’s Task in a Run with a coordinator: the half lostWithNobody leaves', () => {
+    expect(lostWithCoordinator(stateWithLostDispatch({ coordinatorSessionId: 'coord-1' })).map((x) => x.taskId)).toEqual(['tsk_1'])
+    expect(lostWithCoordinator(stateWithLostDispatch({}))).toEqual([])
+    expect(lostWithCoordinator(stateWithLostDispatch({ coordinatorSessionId: 'coord-1', closedBy: 'stop' }))).toEqual([])
   })
 })

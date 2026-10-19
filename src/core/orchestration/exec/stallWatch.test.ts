@@ -1,7 +1,7 @@
 // Stall watchdog (owner 2026-10-18): each stall detected from Host state alone and remedied once, a healthy plan left
 // alone, and nothing at all with the setting off.
 import { describe, expect, it } from 'vitest'
-import { BUSY_REFRESH_MS, BUSY_TELL_MS, DRAFT_STALL_MS, MERGE_STALL_MS, READY_STALL_MS, STALL_WATCH_MS, stallRemedies, type StallEntry, type StallProbe } from './stallWatch'
+import { BACKOFF_MS, BUSY_REFRESH_MS, BUSY_TELL_MS, DEAD_COORDINATOR_MS, DRAFT_STALL_MS, IDLE_NUDGE, IDLE_STALL_MS, LOST_STALL_MS, MERGE_STALL_MS, READY_STALL_MS, STALL_WATCH_MS, TRIES, createStallWatch, stallRemedies, type StallEntry, type StallProbe, type StallRemedy } from './stallWatch'
 import { createDispatchLoop, type DispatchLoopContext } from './dispatchLoop'
 import { emptyState, type OrchState } from '../state'
 import type { ActivityDraft } from '../activity'
@@ -42,6 +42,9 @@ function plan(over: Partial<OrchState> = {}, job: Partial<Job> = {}): OrchState 
 
 const idle: StallProbe = { busy: () => false, isRegistered: (p) => p === '/wt-child' }
 
+const label = (d: StallRemedy): string | number =>
+  'task' in d ? d.task.id : 'sessionId' in d ? d.sessionId : 'done' in d ? d.done : 'taskId' in d ? d.taskId : d.runId
+
 /** Runs the pure check at each time, carrying the memo, and lists every remedy by kind and Task (or session). */
 function watch(s: OrchState, times: number[], probe: StallProbe = idle): string[] {
   let memo = new Map<string, StallEntry>()
@@ -49,7 +52,7 @@ function watch(s: OrchState, times: number[], probe: StallProbe = idle): string[
   for (const t of times) {
     const r = stallRemedies(s, t, memo, probe)
     memo = r.memo
-    for (const d of r.due) out.push(`${d.kind}:${'task' in d ? d.task.id : 'sessionId' in d ? d.sessionId : d.done}`)
+    for (const d of r.due) out.push(`${d.kind}:${label(d)}`)
   }
   return out
 }
@@ -57,8 +60,157 @@ const every30s = (to: number): number[] => Array.from({ length: Math.floor(to / 
 
 describe('stallRemedies', () => {
   it('a ready Task with a free slot and no worker: told at 2 min, started 2 min later, then nothing', () => {
-    expect(watch(plan(), every30s(20 * MIN))).toEqual(['tell-start:tsk_1', 'place:tsk_1'])
+    expect(watch(plan(), every30s(5 * MIN))).toEqual(['tell-start:tsk_1', 'place:tsk_1'])
     expect(watch(plan(), [T0 + READY_STALL_MS - 1])).toEqual([])
+  })
+
+  it('a ready Task whose start keeps being refused is started again after a growing wait, then raised to the owner once', () => {
+    const got: [string, number][] = []
+    let memo = new Map<string, StallEntry>()
+    for (const t of every30s(120 * MIN)) {
+      const r = stallRemedies(plan(), t, memo, idle)
+      memo = r.memo
+      for (const d of r.due) got.push([`${d.kind}:${label(d)}`, (t - T0) / MIN])
+    }
+    // told at 2, placed 2, 5, 10 and 20 min after each try, raised 20 min after the last
+    expect(got).toEqual([
+      ['tell-start:tsk_1', 2], ['place:tsk_1', 4], ['place:tsk_1', 9], ['place:tsk_1', 19], ['place:tsk_1', 39], ['escalate:tsk_1', 59]
+    ])
+    expect(TRIES).toBe(4)
+    expect(BACKOFF_MS).toEqual([2 * MIN, 5 * MIN, 10 * MIN, 20 * MIN])
+    // Raised already (its message is in the inbox): not again, after a restart (an empty memo) either
+    let subject = ''
+    memo = new Map()
+    for (const t of every30s(60 * MIN)) {
+      const r = stallRemedies(plan(), t, memo, idle)
+      memo = r.memo
+      for (const d of r.due) if (d.kind === 'escalate') subject = d.subject
+    }
+    expect(subject).toBe(`watchdog: task tsk_1 ready since ${NOW} has no worker`)
+    const marked = plan({ messages: [{ id: 'm', runId: 'run_1', type: 'escalation', subject, body: '', answered: false, createdAt: NOW }] })
+    expect(watch(marked, every30s(60 * MIN)).filter((x) => x.startsWith('escalate'))).toEqual([])
+  })
+
+  it('a ready Task held by a blocker that clears is a new stall: told and started again, not dropped', () => {
+    // started-and-refused once, then held by another worker on the same files, then free again
+    const free = plan({ tasks: [task({ id: 'tsk_1', affectedPaths: ['src/a.ts'] })] })
+    const held = plan(
+      {
+        tasks: [task({ id: 'tsk_1', affectedPaths: ['src/a.ts'] }), task({ id: 'tsk_2', status: 'dispatched', affectedPaths: ['src/a.ts'] })],
+        dispatches: [{ ...ended('tsk_2', '/wt1'), endedAt: undefined, outcome: undefined } as Dispatch]
+      },
+      { concurrency: 3 }
+    )
+    const busyWorker: StallProbe = { ...idle, busy: (id) => id === 'w-tsk_2' }
+    let memo = new Map<string, StallEntry>()
+    const got: [string, number][] = []
+    for (const t of every30s(40 * MIN)) {
+      const m = (t - T0) / MIN
+      const s = m < 5 ? free : m < 30 ? held : free
+      const r = stallRemedies(s, t, memo, busyWorker)
+      memo = r.memo
+      for (const d of r.due) got.push([`${d.kind}:${label(d)}`, m])
+    }
+    expect(got).toEqual([['tell-start:tsk_1', 2], ['place:tsk_1', 4], ['tell-start:tsk_1', 32], ['place:tsk_1', 34], ['place:tsk_1', 39]])
+  })
+
+  it('free slots are spent only on Tasks that can start now, under the plan cap and the app-wide cap', () => {
+    // three slots, one worker on src/a.ts: tsk_1 waits for it and takes no slot, so tsk_2 and tsk_3 are both told
+    const s = plan(
+      {
+        tasks: [
+          task({ id: 'tsk_1', affectedPaths: ['src/a.ts'] }),
+          task({ id: 'tsk_2', affectedPaths: ['src/b.ts'] }),
+          task({ id: 'tsk_3', affectedPaths: ['src/c.ts'] }),
+          task({ id: 'tsk_r', status: 'dispatched', affectedPaths: ['src/a.ts'] })
+        ],
+        dispatches: [{ ...ended('tsk_r', '/wt1'), endedAt: undefined, outcome: undefined } as Dispatch]
+      },
+      { concurrency: 3 }
+    )
+    const probe: StallProbe = { ...idle, busy: (id) => id === 'w-tsk_r' }
+    expect(watch(s, every30s(3 * MIN), probe)).toEqual(['tell-start:tsk_2', 'tell-start:tsk_3'])
+    // The app-wide cap of 2 has one slot left (the running worker holds the other): one Task told
+    expect(watch(s, every30s(3 * MIN), { ...probe, cap: 2 })).toEqual(['tell-start:tsk_2'])
+    expect(watch(s, every30s(3 * MIN), { ...probe, cap: 1 })).toEqual([])
+  })
+
+  it('a Task whose wave is not open is no stall: never told or started', () => {
+    const s = plan(
+      { tasks: [task({ id: 'tsk_0', status: 'completed' }), task({ id: 'tsk_1', deps: ['tsk_0'] })], dispatches: [ended('tsk_0', '/wt1')] },
+      { plannerSessionIds: ['pl'], coordinatorAccountId: 'accA' }
+    )
+    expect(watch(s, every30s(60 * MIN)).filter((x) => !x.startsWith('draft-pr'))).toEqual([])
+  })
+
+  it('a Run with a coordinator account and no coordinator, with ready work: restarted after 2 min, with backoff, then raised', () => {
+    const dead = plan({ runs: [{ id: 'run_1', jobId: 'job_1', ordinal: 1, createdAt: NOW, worktree: '/wt1' }] }, { coordinatorAccountId: 'accA' })
+    let memo = new Map<string, StallEntry>()
+    const got: [string, number][] = []
+    for (const t of every30s(80 * MIN)) {
+      const r = stallRemedies(dead, t, memo, idle)
+      memo = r.memo
+      for (const d of r.due) got.push([`${d.kind}:${label(d)}`, (t - T0) / MIN])
+    }
+    expect(got).toEqual([['restart:run_1', 2], ['restart:run_1', 4], ['restart:run_1', 9], ['restart:run_1', 19], ['escalate:tsk_1', 39]])
+    expect(DEAD_COORDINATOR_MS).toBe(2 * MIN)
+    // No coordinator account (the app places it), no work, or a live external coordinator: nothing
+    const appPlaced = plan({ runs: dead.runs })
+    expect(watch(appPlaced, every30s(30 * MIN))).toEqual([])
+    expect(watch({ ...dead, tasks: [task({ id: 'tsk_1', status: 'completed' })] }, every30s(30 * MIN)).filter((x) => x.startsWith('restart'))).toEqual([])
+    const external = { ...dead, runs: [{ ...dead.runs[0], externalCoordinatorSessionId: 'ext' }] }
+    expect(watch(external, every30s(30 * MIN), { ...idle, alive: () => true })).toEqual([])
+    expect(watch(external, every30s(3 * MIN), { ...idle, alive: () => false })).toEqual(['restart:run_1'])
+  })
+
+  it('a dispatched Task whose worker ended unreported: retried after 2 min with backoff, then raised; at its retry limit raised at once', () => {
+    const lost = (prior = 0): OrchState =>
+      plan({
+        tasks: [task({ id: 'tsk_1', status: 'dispatched' })],
+        dispatches: [
+          ...Array.from({ length: prior }, (_, i) => ({ ...ended('tsk_1', '/wt1'), id: `dsp_old${i}`, outcome: undefined, startedAt: '2026-10-17T00:00:00.000Z' }) as Dispatch),
+          { ...ended('tsk_1', '/wt1'), outcome: undefined } as Dispatch
+        ]
+      })
+    let memo = new Map<string, StallEntry>()
+    const got: [string, number][] = []
+    for (const t of every30s(80 * MIN)) {
+      const r = stallRemedies(lost(), t, memo, idle)
+      memo = r.memo
+      for (const d of r.due) got.push([`${d.kind}:${label(d)}`, (t - T0) / MIN])
+    }
+    expect(got).toEqual([['retry-lost:tsk_1', 2], ['retry-lost:tsk_1', 4], ['retry-lost:tsk_1', 9], ['retry-lost:tsk_1', 19], ['escalate:tsk_1', 39]])
+    expect(LOST_STALL_MS).toBe(2 * MIN)
+    // lost FAILURE_LIMIT times: no more retries, the owner
+    expect(watch(lost(2), every30s(30 * MIN))).toEqual(['escalate:tsk_1'])
+    // A Run with no coordinator has the lost-worker Gate (lostGate.ts), not this
+    expect(watch({ ...lost(), runs: [{ ...lost().runs[0], coordinatorSessionId: undefined }] }, every30s(30 * MIN))).toEqual([])
+  })
+
+  it.each(['claude', 'codex'] as const)('an idle %s worker without worker-done: nudged at 10 min, the coordinator told, then raised', (provider) => {
+    const s = plan({
+      tasks: [task({ id: 'tsk_1', status: 'dispatched' })],
+      dispatches: [{ ...ended('tsk_1', '/wt1'), provider, endedAt: undefined, outcome: undefined } as Dispatch]
+    })
+    let memo = new Map<string, StallEntry>()
+    const got: [string, number][] = []
+    for (const t of every30s(60 * MIN)) {
+      const r = stallRemedies(s, t, memo, idle)
+      memo = r.memo
+      for (const d of r.due) got.push([`${d.kind}:${label(d)}`, (t - T0) / MIN])
+    }
+    expect(got).toEqual([['nudge-worker:tsk_1', 10], ['tell-idle:tsk_1', 12], ['escalate:tsk_1', 17]])
+    expect(IDLE_STALL_MS).toBe(10 * MIN)
+    // Working again before 10 min: the clock starts over
+    const flicker = (t: number): StallProbe => ({ ...idle, busy: () => (t - T0) / MIN === 8 })
+    memo = new Map()
+    const kinds: string[] = []
+    for (const t of every30s(15 * MIN)) {
+      const r = stallRemedies(s, t, memo, flicker(t))
+      memo = r.memo
+      kinds.push(...r.due.map((d) => d.kind))
+    }
+    expect(kinds).toEqual([])
   })
 
   it('a ready Task without a free slot, held, paused or on a paused account is no stall', () => {
@@ -66,7 +218,7 @@ describe('stallRemedies', () => {
       tasks: [task({ id: 'tsk_1' }), task({ id: 'tsk_2', status: 'dispatched' })],
       dispatches: [{ ...ended('tsk_2', '/wt1'), endedAt: undefined, outcome: undefined } as Dispatch]
     }, { concurrency: 1 })
-    expect(watch(full, every30s(20 * MIN))).toEqual([])
+    expect(watch(full, every30s(20 * MIN), { ...idle, busy: (id) => id === 'w-tsk_2' })).toEqual([])
     expect(watch(plan({}, { dispatchHold: true } as Partial<Job>), every30s(20 * MIN))).toEqual([])
     expect(watch(plan({}, { paused: true }), every30s(20 * MIN))).toEqual([])
     expect(watch(plan(), every30s(20 * MIN), { ...idle, paused: () => true })).toEqual([])
@@ -255,5 +407,76 @@ describe('watchStalls', () => {
     for (let t = 0; t <= 30 * MIN; t += STALL_WATCH_MS) await h.at(t)
     expect(h.cmds).toEqual([])
     expect(h.lines).toEqual([])
+  })
+})
+
+// The Host's applier for the remedies the loop does not apply: each through the existing command, one feed line each.
+function watchRig(s0: OrchState, busy: (id: string) => boolean | null = () => false) {
+  let state = s0
+  let clock = T0
+  const cmds: { cmd: string; args: Record<string, unknown> }[] = []
+  const typed: string[] = []
+  const told: string[] = []
+  const lines: string[] = []
+  const w = createStallWatch({
+    handle: async (cmd, args) => {
+      cmds.push({ cmd, args })
+      if (cmd === 'send')
+        state = {
+          ...state,
+          messages: [...state.messages, { id: `m${cmds.length}`, runId: 'run_1', type: args.type as 'escalation', subject: String(args.subject), body: String(args.body), answered: false, createdAt: NOW }]
+        }
+      return { status: 200, body: {} }
+    },
+    getState: () => state,
+    on: () => true,
+    cap: () => null,
+    busy,
+    alive: () => false,
+    isRegistered: () => false,
+    typeInto: (id, text) => typed.push(`${id}:${text}`),
+    tell: async (n) => (told.push(n.subject), true),
+    activity: (d) => lines.push(String(d.payload.reason)),
+    mayStart: () => true,
+    log: () => {},
+    nowMs: () => clock,
+    wait: async () => {}
+  })
+  return {
+    cmds, typed, told, lines,
+    run: async (to: number) => {
+      for (let t = 0; t <= to; t += STALL_WATCH_MS) {
+        clock = T0 + t
+        await w.watch()
+      }
+    }
+  }
+}
+
+describe('createStallWatch', () => {
+  it('restarts a dead coordinator through run-start (the Jobs list restart), with a feed line', async () => {
+    const h = watchRig(plan({ runs: [{ id: 'run_1', jobId: 'job_1', ordinal: 1, createdAt: NOW, worktree: '/wt1' }] }, { coordinatorAccountId: 'accA' }))
+    await h.run(3 * MIN)
+    expect(h.cmds).toEqual([{ cmd: 'run-start', args: { run: 'run_1' } }])
+    expect(h.lines).toEqual(['Restarted the coordinator: it was gone 2 min with work waiting (try 1 of 4)'])
+  })
+
+  it('retries a lost worker with --retry-of on its account and agent, and leaves the ready-Task remedies to the loop', async () => {
+    const h = watchRig(plan({ tasks: [task({ id: 'tsk_1', status: 'dispatched' }), task({ id: 'tsk_2' })], dispatches: [{ ...ended('tsk_1', '/wt1'), provider: 'codex', outcome: undefined } as Dispatch] }))
+    await h.run(3 * MIN)
+    expect(h.cmds).toEqual([{ cmd: 'worker-start', args: { task: 'tsk_1', agent: 'codex', account: 'accA', retryOf: 'dsp_tsk_1' } }])
+    expect(h.told).toEqual([])
+    expect(h.lines).toEqual(['Started TSK_1 again: its worker ended without a report (try 1 of 4)'])
+  })
+
+  it('an idle worker: typed the nudge and Enter, then the coordinator told, then one escalation in the Inbox', async () => {
+    const h = watchRig(plan({ tasks: [task({ id: 'tsk_1', status: 'dispatched' })], dispatches: [{ ...ended('tsk_1', '/wt1'), endedAt: undefined, outcome: undefined } as Dispatch] }))
+    await h.run(40 * MIN)
+    expect(h.typed).toEqual([`w-tsk_1:${IDLE_NUDGE}`, 'w-tsk_1:\r'])
+    expect(h.told).toEqual([`watchdog: worker dsp_tsk_1 idle since ${new Date(T0).toISOString()}`])
+    const escalations = h.cmds.filter((c) => c.cmd === 'send' && c.args.type === 'escalation')
+    expect(escalations).toHaveLength(1)
+    expect(escalations[0].args).toMatchObject({ taskId: 'tsk_1', dispatchId: 'dsp_tsk_1' })
+    expect(h.lines.map((l) => l.split(':')[0])).toEqual(['Nudged the worker of TSK_1', 'Told the coordinator the worker of TSK_1 is idle 12 min without reporting', 'Raised it to you'])
   })
 })
