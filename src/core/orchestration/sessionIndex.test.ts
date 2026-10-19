@@ -184,3 +184,22 @@ describe('needsInput — escalations', () => {
     expect(needsInput(input({ tasks: [task('t1'), task('t2', { status: 'failed', consecutiveFailures: 1 })], escalations: [esc('e1')] }))).toHaveLength(1)
   })
 })
+
+// #117: a hands-off plan decides its Gates, escalations and approval itself
+describe('needsInput — hands-off plans', () => {
+  const esc: Message = { id: 'e1', runId: 'r1', type: 'escalation', taskId: 't2', subject: 'decide', body: '', answered: false, createdAt: at }
+  const waiting = { attention: {}, gates: [gate('g1', 't2')], escalations: [esc], tasks: [...input().tasks, planTask('j2')] }
+  const ready = job('j2', { pendingStart: true, plannerSessionIds: ['pl'], planReadyAt: at })
+
+  it('lists no Gate, escalation or approval of a plan that runs hands-off, by its own setting or its project\'s', () => {
+    expect(needsInput(input({ ...waiting, jobs: [job('j1'), ready] })).map((i) => i.kind)).toEqual(['gate', 'escalation', 'approval'])
+    expect(needsInput(input({ ...waiting, jobs: [job('j1', { handsOff: true }), { ...ready, handsOff: true }] }))).toEqual([])
+    expect(needsInput(input({ ...waiting, jobs: [job('j1'), ready], projects: [{ id: 'p1', handsOff: true }, { id: 'p2', handsOff: true }] }))).toEqual([])
+    // The plan's own "off" wins over its project's "on"
+    expect(needsInput(input({ ...waiting, jobs: [job('j1', { handsOff: false }), ready], projects: [{ id: 'p1', handsOff: true }] })).map((i) => i.kind)).toEqual(['gate', 'escalation', 'approval'])
+  })
+
+  it('still lists its sessions at a prompt', () => {
+    expect(needsInput(input({ attention: { w1: 'waiting' }, jobs: [job('j1', { handsOff: true }), job('j2')] })).map((i) => i.kind)).toEqual(['session'])
+  })
+})

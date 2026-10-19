@@ -21,6 +21,7 @@ import {
   type Outcome,
   type RepairReason,
   type Project,
+  type Decision,
   type Job,
   type JobRun,
   type Task
@@ -108,6 +109,13 @@ export function pausedForTask(s: OrchState, task: Pick<Task, 'runId'>): boolean 
 
 export const jobOf = (s: OrchState, run: JobRun): Job | undefined =>
   s.jobs.find((j) => j.id === run.jobId)
+
+/** #117: one call a hands-off plan made in the owner's place, appended to its Job (Job.decisions). The feed's
+ *  plan.decided / plan.refused line is derived from it (activity.ts). An unknown Job is no change. */
+export function addDecision(s: OrchState, jobId: string, d: Decision): OrchState {
+  if (!s.jobs.some((j) => j.id === jobId)) return s
+  return { ...s, jobs: s.jobs.map((j) => (j.id === jobId ? { ...j, decisions: [...(j.decisions ?? []), d] } : j)) }
+}
 
 /**
  * **이 Task 의 회차에 앱이 지금 일을 새로 얹어도 되는가 — 아니면 `true`.**

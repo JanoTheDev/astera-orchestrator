@@ -8,7 +8,7 @@
 // (host/activity.ts `planReadyActivity`, once per feedback round). **While the plan runs** the feedback starts a W6-D
 // replan at once (`jobs-replan --feedback`), with W6-D's rules: only Tasks that have not started change.
 import type { OrchServerDeps } from '../command'
-import { projectOfJob } from '../delivery'
+import { handsOffOf, projectOfJob } from '../delivery'
 import { buildPlannerBrief } from '../handover'
 // W8-D several plans in one repo
 import { otherPlansBrief } from '../overlap'
@@ -17,7 +17,7 @@ import { cancelPlanTask, plannerJobOf, validatePlan } from '../planner'
 import { replanJobOf } from '../replan'
 import { outcomeOfTasks } from '../running'
 import type { OrchState } from '../state'
-import { DEFAULT_CONCURRENCY, type Job, type PlanFeedback } from '../types'
+import { DEFAULT_CONCURRENCY, type Decision, type Job, type PlanFeedback } from '../types'
 import { replanCommand } from './replanStart'
 
 type Reply = { status: number; body: unknown }
@@ -38,8 +38,8 @@ const notFound = (error: string): Reply => ({ status: 404, body: { error } })
 const conflict = (error: string): Reply => ({ status: 409, body: { error } })
 const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() !== '' ? v.trim() : null)
 
-/** #117: whether a plan runs hands-off: the Job's own setting, else its project's, else no. */
-export const handsOffOf = (s: OrchState, job: Job): boolean => job.handsOff ?? projectOfJob(s, job)?.handsOff ?? false
+// #117: beside deliveryOf, so the pure delivery and state code reads it too
+export { handsOffOf }
 
 /** Whether a plan starts on its own once it holds: the Job's own setting, else its project's, else no. A hands-off
  *  plan always does (#117). */
@@ -195,7 +195,9 @@ export async function feedbackCommand(deps: OrchServerDeps, caller: Caller, cmd:
     const tasks = s.tasks.filter((t) => t.jobId === jobId && t.runId === undefined).length
     const reply = await handle(deps, caller, 'run-start', { run: jobId })
     if (reply.status >= 300) return reply
-    await setJob(jobId, (j) => ({ ...j, autoStartedAt: now }))
+    // #117: a hands-off plan's start is the first decision it makes for the owner
+    const approval: Decision = { at: now, kind: 'approval', question: 'Start the plan?', choice: 'started', why: `the plan holds (${tasks} tasks) and runs hands-off` }
+    await setJob(jobId, (j) => ({ ...j, autoStartedAt: now, ...(handsOffOf(s, j) ? { decisions: [...(j.decisions ?? []), approval] } : {}) }))
     return ok({ jobId, tasks })
   }
 

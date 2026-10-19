@@ -21,6 +21,7 @@ export function useShell({ accounts, active, sessions, t, workspaceData, workspa
       tasks: workspaceData?.tasks ?? [],
       gates: workspaceData?.gates ?? [],
       escalations: workspaceData?.escalations ?? [], // W6-B
+      projects: workspaceData?.projects ?? [], // #117
       attention,
       hostWaiting
     }

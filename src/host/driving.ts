@@ -50,7 +50,7 @@ import { sweepStaleSpecFiles } from '../core/orchestration/exec/specFiles'
 import { lostWithNobody } from '../core/orchestration/lostGate'
 import { createLostGateGuard, type LostGateGuard } from './lostGateGuard'
 import { policyOf } from '../core/orchestration/convergence'
-import { interruptStalledTask, type OrchState } from '../core/orchestration/state'
+import { addDecision, interruptStalledTask, type OrchState } from '../core/orchestration/state'
 import { liveAppPid } from '../core/host/pidFile'
 import { APP_LEFT_GRACE_MS, createAppLeftGrace } from './appGone'
 import { PTY_LOST_SIGHT_EXIT_CODE } from '../core/sessions/pty'
@@ -426,6 +426,8 @@ export function createHostDriving(d: {
       return payload ? (parseStatusLinePayload(payload)?.context?.usedPercent ?? null) : null
     },
     freshCoordinatorPct: () => readFreshCoordinatorPct(settingsPath),
+    // #117: a hands-off plan's decision, appended to its Job (the feed derives its line from the commit)
+    recordDecision: (jobId, decision) => d.orch.internalDeps().setState(addDecision(d.orch.state(), jobId, decision)),
     // Stall watchdog (exec/stallWatch.ts): only where its lines have a feed, the Host's activity log
     ...(d.activity
       ? { stallWatch: () => readStallWatchOn(settingsPath), autoAnswer: () => readAutoAnswerOn(settingsPath), activity: d.activity }

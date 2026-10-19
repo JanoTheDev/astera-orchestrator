@@ -55,9 +55,9 @@ export function buildClaudeCommand(platform: NodeJS.Platform, resolve: ResolveEx
     // unreadable one, silently ignored — and the session comes up at an empty REPL having been told
     // nothing (measured on claude 2.1.268: `-p --add-dir <dir> "say PONG"` answers "Input must be
     // provided…", the same call with `--` answers PONG). Every launch that carries a prompt but no
-    // permission bypass and no resume took that shape: the Job coordinator (main/ipc.ts's
-    // startCoordinator withholds `bypassPermissions` on purpose) and the worker beside it, so a Job
-    // sat at `ready` with a live session that had never been asked for anything.
+    // permission bypass and no resume took that shape: the Job coordinator (startCoordinator
+    // withholds `bypassPermissions` unless the plan runs hands-off, #117) and the worker beside it,
+    // so a Job sat at `ready` with a live session that had never been asked for anything.
     // Unconditional rather than only when addDirs is set: the fence costs one token and states the
     // rule once, where a condition would have to be revisited by whoever adds the next option.
     if (initialPrompt) args.push('--', initialPrompt)

@@ -450,6 +450,15 @@ describe('OrchCoordinator.startWorker', () => {
     expect((deps.spawned[0] as { model?: string }).model).toBe('sonnet')
     expect(deps.spawned[1]).not.toHaveProperty('model')
   })
+  // #117: a hands-off plan's worker starts with permissions bypassed, whatever the app-wide setting; others carry none
+  it("a hands-off worker's bypassPermissions reaches spawnSession, and only when set", async () => {
+    const deps = makeDeps()
+    const co = new OrchCoordinator(deps)
+    await co.startWorker({ ...baseArgs(), bypassPermissions: true, runCwd: dir })
+    await co.startWorker({ ...baseArgs(), dispatchId: 'dsp_2', runCwd: dir })
+    expect((deps.spawned[0] as { bypassPermissions?: boolean }).bypassPermissions).toBe(true)
+    expect(deps.spawned[1]).not.toHaveProperty('bypassPermissions')
+  })
   // 재개 문구. 넘기지 않으면 롤링이 앱의 **UI 언어** 기본값을 타이핑한다 — 영어로 지시받은 워커가
   // 다른 언어로 재개되고, 그 문구는 "계속하라"라서 보고 의무를 상기시키지 않는다.
   it('워커 세션에 워커용 재개 문구를 넘긴다 — 보고 명령과 식별자를 담는다', async () => {
