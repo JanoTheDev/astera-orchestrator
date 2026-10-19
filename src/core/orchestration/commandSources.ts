@@ -7,13 +7,13 @@
 import type { OrchServerDeps } from './command'
 import { findProject } from './projects'
 import { isSamePath } from '../files/tree'
-import type { Project } from './types'
+import type { IssuePick, Project } from './types'
 import type { OrchState } from './state'
 import { SOURCE_ERROR_MAX, clip, isItemId, itemDetail, itemsPage, jobContext, type SourceContext } from '../sources/answers'
 import { sourceTitleOf, sourcedObjective } from '../sources/objective'
 import { ASSIGNEE_FILTERS, GITHUB_SOURCE_ID, issueContext, issueDetail, listIssueItems, type AssigneeFilter } from '../github/issueSource'
-import { repoOf } from '../github/issue'
-import type { GhFailed } from '../github/gh'
+import { ISSUE_JOB_ASSOCIATIONS, issueFrom, repoOf, type GhIssue } from '../github/issue'
+import { ghFailureSentence, type GhFailed, type GhRunner } from '../github/gh'
 
 type Reply = { status: number; body: unknown }
 type Caller = { sessionId: string; role?: 'app' | 'cli' | 'mcp' | 'controller' | 'plugin' }
@@ -255,4 +255,98 @@ export function createFromContext(
       ...(a.ctx.sourceUrl ? { url: a.ctx.sourceUrl } : {})
     }
   })
+}
+
+// #119 Let Astera pick
+/** Pages read at most: 100 issues a page, as far as GitHub's own search reaches (1000). */
+const OPEN_ISSUE_PAGES_MAX = 10
+
+/** #119: every open issue of the repository at `cwd`, pull requests included (the list API answers both), as GhIssue so
+ *  the picked ones need no second read. Not `listAllIssueItems`: its items drop the pull requests, which are skipped
+ *  with a reason here, and carry no labels or bodies. */
+export async function openIssuesOf(gh: GhRunner, cwd: string): Promise<{ ok: true; issues: GhIssue[] } | GhFailed> {
+  const issues: GhIssue[] = []
+  for (let page = 1; page <= OPEN_ISSUE_PAGES_MAX; page++) {
+    const r = await gh(['api', `repos/{owner}/{repo}/issues?state=open&per_page=100&page=${page}`], cwd)
+    if (!r.ok) return { ok: false, ...ghFailureSentence(r) }
+    let raw: unknown
+    try {
+      raw = JSON.parse(r.stdout)
+    } catch {
+      raw = null
+    }
+    if (!Array.isArray(raw)) return { ok: false, kind: 'other', message: 'gh api answered with something that is not a list of issues' }
+    for (const v of raw) {
+      const issue = issueFrom(v)
+      if (issue !== null) issues.push(issue)
+    }
+    if (raw.length < 100) break
+  }
+  return { ok: true, issues }
+}
+
+/** The sentence a non-member's issue is refused or skipped with. */
+export const nonMemberWhy = (i: GhIssue): string =>
+  `written by a ${i.authorAssociation} of the repository; only an owner, member or collaborator's issue becomes a Job`
+
+const isBug = (i: GhIssue): boolean => i.labels.some((l) => l.toLowerCase() === 'bug')
+const labelKey = (i: GhIssue): string => [...i.labels].map((l) => l.toLowerCase()).sort().join(',')
+
+/**
+ * #119: which open issues Astera picks, and why each other one is skipped. Skipped: pull requests, non-members' issues,
+ * issues another plan of the project holds (`held`), issues assigned to someone but `me`, then those without `label`
+ * and those past `max`. Picked: `bug`-labelled first, then oldest (lowest number) first; cut into groups of at most
+ * `perGroup`, issues with the same labels side by side so related ones share a plan. Deterministic.
+ */
+export function pickIssues(
+  issues: readonly GhIssue[],
+  o: { held: (n: number) => string[]; me: string | null; label?: string; max?: number; perGroup: number }
+): { groups: { issues: GhIssue[]; picked: IssuePick[] }[]; skipped: IssuePick[] } {
+  const skipped: IssuePick[] = []
+  const skip = (i: GhIssue, why: string): void => void skipped.push({ number: i.number, title: i.title, why })
+  const open: GhIssue[] = []
+  for (const i of [...issues].sort((a, b) => a.number - b.number)) {
+    const held = o.held(i.number)
+    if (i.isPullRequest) skip(i, 'a pull request, not an issue')
+    else if (i.state !== 'open') skip(i, 'closed')
+    else if (!(ISSUE_JOB_ASSOCIATIONS as readonly string[]).includes(i.authorAssociation)) skip(i, nonMemberWhy(i))
+    else if (held.length > 0) skip(i, `already in plan ${held.join(', ')}`)
+    else if (i.assignees.length > 0 && (o.me === null || !i.assignees.includes(o.me))) skip(i, `assigned to ${i.assignees.join(', ')}`)
+    else if (o.label !== undefined && !i.labels.some((l) => l.toLowerCase() === o.label!.toLowerCase())) skip(i, `not labelled ${o.label}`)
+    else open.push(i)
+  }
+  // Bugs first, then the oldest; --max cuts that order
+  const ranked = [...open.filter(isBug), ...open.filter((i) => !isBug(i))]
+  const kept = o.max === undefined ? ranked : ranked.slice(0, o.max)
+  for (const i of ranked.slice(kept.length)) skip(i, `past --max ${o.max}`)
+  // Within each tier, issues of one label set together, the sets in the order of their oldest issue
+  const together = (tier: GhIssue[]): GhIssue[] => {
+    const sets = new Map<string, GhIssue[]>()
+    for (const i of tier) sets.set(labelKey(i), [...(sets.get(labelKey(i)) ?? []), i])
+    return [...sets.values()].flat()
+  }
+  const ordered = [...together(kept.filter(isBug)), ...together(kept.filter((i) => !isBug(i)))]
+  const why = (i: GhIssue): string =>
+    `${isBug(i) ? 'labelled bug, so picked first' : 'open and free, oldest first'}${i.labels.length > 0 ? `; beside the other issues labelled ${i.labels.join(', ')}` : ''}`
+  const groups: { issues: GhIssue[]; picked: IssuePick[] }[] = []
+  for (let k = 0; k < ordered.length; k += o.perGroup) {
+    const group = ordered.slice(k, k + o.perGroup)
+    groups.push({ issues: group, picked: group.map((i) => ({ number: i.number, title: i.title, why: why(i) })) })
+  }
+  return { groups, skipped: skipped.sort((a, b) => a.number - b.number) }
+}
+
+/** #119: `inputs/pick.md`, the planner's and the person's record of what Astera picked for this plan and why. */
+export function pickMarkdown(picked: readonly IssuePick[], skipped: readonly IssuePick[]): string {
+  const line = (p: IssuePick): string => `- #${p.number} ${p.title.replace(/\s+/g, ' ').trim()}: ${p.why}`
+  return [
+    '# Picked by Astera',
+    '',
+    'These issues were picked for this plan ("Let Astera pick"). Check each against the code as usual (existing.md):',
+    'one that is already built is reported as done, not planned again.',
+    '',
+    ...picked.map(line),
+    ...(skipped.length > 0 ? ['', '## Skipped', '', ...skipped.map(line)] : []),
+    ''
+  ].join('\n')
 }

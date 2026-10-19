@@ -9288,15 +9288,131 @@ describe('handleCommand — github-pr, github-ci and github-issue', () => {
       expect(one.deps.getState().jobs.find((j) => j.id === (r1.body as { id: string }).id)!.title).toBe('#5 Broken')
     })
 
-    it('jobs-create-from-issue refuses the whole call for one non-member issue, naming it, and assigns and makes nothing', async () => {
-      const { deps, gh, projectId } = issuesSetup({ 7: { author_association: 'NONE' } })
+    it('#119: jobs-create-from-issue skips and lists a non-member issue, and makes and assigns the Job of the rest', async () => {
+      const { deps, gh, projectId } = issuesSetup({ 7: { author_association: 'NONE' } }, { [ASSIGN(5)]: {}, [ASSIGN(9)]: {} })
+      const r = await call(deps, 'jobs-create-from-issue', { project: projectId, issue: '5,7,9', assignMe: true }, '')
+      expect(r.status).toBe(200)
+      expect(r.body).toMatchObject({
+        issues: [5, 9].map((n) => ({ number: n, url: `https://github.com/o/r/issues/${n}` })),
+        skipped: [{ number: 7, why: "written by a NONE of the repository; only an owner, member or collaborator's issue becomes a Job" }]
+      })
+      expect(deps.getState().jobs.find((j) => j.id === (r.body as { id: string }).id)?.source?.itemId).toBe('5,9')
+      expect(gh.calls.filter((c) => c.args[0] === 'issue').map((c) => c.args.join(' '))).toEqual([ASSIGN(5), ASSIGN(9)])
+    })
+
+    it('#119: jobs-create-from-issue refuses the call when every issue is skipped, listing them, and makes nothing', async () => {
+      const { deps, projectId } = issuesSetup({ 5: { state: 'closed' }, 7: { author_association: 'NONE' }, 9: { pull_request: {} } })
       const before = deps.getState().jobs.length
-      expect(await call(deps, 'jobs-create-from-issue', { project: projectId, issue: '5,7,9', assignMe: true }, '')).toEqual({
-        status: 403,
-        body: { error: "Issue #7 was written by a NONE of the repository; only an owner, member or collaborator's issue becomes a Job" }
+      expect(await call(deps, 'jobs-create-from-issue', { project: projectId, issue: '5,7,9' }, '')).toEqual({
+        status: 409,
+        body: {
+          error: 'none of the issues can become a Job',
+          skipped: [
+            { number: 5, why: 'closed' },
+            { number: 7, why: "written by a NONE of the repository; only an owner, member or collaborator's issue becomes a Job" },
+            { number: 9, why: 'a pull request, not an issue' }
+          ]
+        }
       })
       expect(deps.getState().jobs).toHaveLength(before)
-      expect(gh.calls.some((c) => c.args[0] === 'issue')).toBe(false)
+    })
+
+    describe('#119 Let Astera pick: jobs-create-from-issue --auto', () => {
+      const OPEN = 'api repos/{owner}/{repo}/issues?state=open&per_page=100&page=1'
+      const ME = 'api user --jq .login'
+      /** 45 open items: #3 and #4 pull requests, #6 a non-member's, #8 held by another plan, #10 assigned to someone
+       *  else, #12 assigned to the person gh is logged in as, #30 and #40 bugs, #20-#24 labelled docs. */
+      const fortyFive = () =>
+        Array.from({ length: 45 }, (_, k) => {
+          const n = k + 1
+          return {
+            ...issueJson,
+            number: n,
+            title: `T${n}`,
+            html_url: `https://github.com/o/r/issues/${n}`,
+            labels: n === 30 || n === 40 ? [{ name: 'bug' }] : n >= 20 && n <= 24 ? [{ name: 'docs' }] : [],
+            ...(n === 3 || n === 4 ? { pull_request: { url: 'x' } } : {}),
+            ...(n === 6 ? { author_association: 'NONE' } : {}),
+            assignees: n === 10 ? [{ login: 'someone' }] : n === 12 ? [{ login: 'pk' }] : []
+          }
+        })
+      const autoSetup = () => {
+        const base = setup({ [OPEN]: { stdout: JSON.stringify(fortyFive()) }, [ME]: { stdout: 'pk\n' } })
+        const cur = base.deps.getState()
+        base.deps.setState({
+          ...cur,
+          jobs: [...cur.jobs, { id: 'job_held', objective: 'o', cwd: base.projectPath, projectId: base.projectId, createdAt: NOW, source: { id: 'github', itemId: '8,99', label: 'GitHub issues #8, #99 in o/r' } }]
+        })
+        const written: { jobId: string; name: string; text: string }[] = []
+        base.deps.writeIntakeText = async (jobId, name, text) => {
+          written.push({ jobId, name, text })
+          return `/profile/plans/${jobId}/inputs/${name}`
+        }
+        return { ...base, written }
+      }
+      type AutoBody = { jobs: { id: string; issues: number[] }[]; skipped: { number: number; why: string }[] }
+
+      it('skips pull requests, non-members, held and assigned-elsewhere issues, and chains plans of at most 20, bugs first', async () => {
+        const { deps, projectId, written } = autoSetup()
+        const r = await call(deps, 'jobs-create-from-issue', { project: projectId, auto: true, coordinatorAccount: 'acc1', handsOff: true }, '')
+        expect(r.status).toBe(200)
+        const body = r.body as AutoBody
+        expect(body.skipped).toEqual([
+          { number: 3, why: 'a pull request, not an issue' },
+          { number: 4, why: 'a pull request, not an issue' },
+          { number: 6, why: "written by a NONE of the repository; only an owner, member or collaborator's issue becomes a Job" },
+          { number: 8, why: 'already in plan job_held' },
+          { number: 10, why: 'assigned to someone' }
+        ])
+        expect(body.jobs.map((j) => j.issues.length)).toEqual([20, 20])
+        expect(body.jobs[0].issues.slice(0, 2)).toEqual([30, 40])
+        // Related issues together: the docs ones side by side
+        const all = body.jobs.flatMap((j) => j.issues)
+        expect(all.indexOf(21) - all.indexOf(20)).toBe(1)
+        expect(all).toContain(12)
+        const [first, second] = body.jobs.map((j) => deps.getState().jobs.find((x) => x.id === j.id)!)
+        expect(first.after).toBeUndefined()
+        expect(second.after).toBe(first.id)
+        for (const j of [first, second]) {
+          expect(j.handsOff).toBe(true)
+          expect(j.coordinatorAccountId).toBe('acc1')
+          expect(j.pick?.picked.map((p) => p.number)).toEqual(body.jobs.find((x) => x.id === j.id)!.issues)
+          expect(j.objective).toContain(`/profile/plans/${j.id}/inputs/pick.md`)
+        }
+        expect(first.pick?.picked[0]).toMatchObject({ number: 30, why: expect.stringMatching(/bug/) })
+        expect(first.pick?.skipped.map((p) => p.number)).toEqual([3, 4, 6, 8, 10])
+        expect(second.pick?.skipped).toEqual([])
+        expect(written.map((w) => [w.jobId, w.name])).toEqual([[first.id, 'pick.md'], [second.id, 'pick.md']])
+        expect(written[0].text).toMatch(/#30 T30: labelled bug/)
+        expect(written[0].text).toMatch(/## Skipped[\s\S]*#10 T10: assigned to someone/)
+      })
+
+      it('--max 5 makes one Job of 5, the bugs first, and lists the rest as past --max; --label keeps that label alone', async () => {
+        const a = autoSetup()
+        const r = await call(a.deps, 'jobs-create-from-issue', { project: a.projectId, auto: true, max: '5' }, '')
+        expect(r.status).toBe(200)
+        const body = r.body as AutoBody
+        expect(body.jobs.map((j) => j.issues)).toEqual([[30, 40, 1, 2, 5]])
+        expect(body.skipped).toContainEqual({ number: 7, why: 'past --max 5' })
+        const b = autoSetup()
+        const l = (await call(b.deps, 'jobs-create-from-issue', { project: b.projectId, auto: true, label: 'docs' }, '')).body as AutoBody
+        expect(l.jobs.map((j) => j.issues)).toEqual([[20, 21, 22, 23, 24]])
+        expect(l.skipped).toContainEqual({ number: 1, why: 'not labelled docs' })
+      })
+
+      it('refuses chained plans with no coordinator account, numbers beside --auto, and --max/--label without it; makes nothing', async () => {
+        const { deps, projectId } = autoSetup()
+        const before = deps.getState().jobs.length
+        for (const args of [
+          { project: projectId, auto: true },
+          { project: projectId, auto: true, issue: '5' },
+          { project: projectId, auto: true, max: 0 },
+          { project: projectId, number: 5, max: 3 },
+          { project: projectId, number: 5, label: 'bug' }
+        ])
+          expect((await call(deps, 'jobs-create-from-issue', args, '')).status, JSON.stringify(args)).toBe(400)
+        expect(deps.getState().jobs).toHaveLength(before)
+      })
     })
 
     it('jobs-create-from-issue --assign-me assigns every issue before making the Job; a failed assign makes none', async () => {
