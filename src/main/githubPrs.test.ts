@@ -70,6 +70,29 @@ describe('createGithubPrs', () => {
     g.stop()
   })
 
+  // W8-A: the squash remap hears of each merged PR once
+  it('tells onMerged of a merged PR once, and of an open one never', async () => {
+    const merged = JSON.stringify([{ ...JSON.parse(openPr)[0], state: 'MERGED' }])
+    let body = openPr
+    const told: string[] = []
+    const h = harness({
+      fetchPrList: async (): Promise<GhResult> => ({ ok: true, stdout: body, stderr: '' }),
+      onMerged: (repo, pr) => told.push(`${repo} ${pr.url}`)
+    })
+    const g = createGithubPrs(h.deps)
+    await g.start()
+    g.subscribe()
+    await g.tick()
+    expect(told).toEqual([])
+    body = merged
+    for (let i = 0; i < 2; i++) {
+      h.advance(MIN_SPACING_MS * 10)
+      await g.tick()
+    }
+    expect(told).toEqual(['C:/repo https://github.com/o/r/pull/12'])
+    g.stop()
+  })
+
   it('no subscribers means a tick fetches nothing', async () => {
     const h = harness()
     const g = createGithubPrs(h.deps)

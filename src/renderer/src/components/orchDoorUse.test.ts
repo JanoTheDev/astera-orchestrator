@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs'
 const src = (f: string): string => readFileSync(new URL(`./${f}`, import.meta.url), 'utf8')
 
 describe('Job forms reach a Runtime only through the door', () => {
-  it.each(['NewRunModal.tsx', 'NewTaskModal.tsx', 'RunDetail.tsx', 'CompletionBlock.tsx'])('%s calls no orchestration API directly', (f) => {
+  it.each(['NewRunModal.tsx', 'NewTaskModal.tsx', 'pages/PlanPage.tsx', 'pages/PlansPage.tsx', 'pages/TasksPage.tsx', 'CompletionBlock.tsx'])('%s calls no orchestration API directly', (f) => {
     expect(src(f)).not.toMatch(/window\.api\.(orch\.command|accounts\.list|accounts\.loginStatus|run\.list)\(/)
   })
 })

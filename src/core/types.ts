@@ -1,4 +1,5 @@
 import type { PlanFeedback } from './orchestration/types'
+import type { WorktreeDetail, WorktreeRow } from './worktrees/cleanup'
 import type { SlashCommand } from './commands/slashCommands'
 import type { RunConfig, RunStatus, SaveConfigsResult } from './run/config'
 import type { EmulationMetrics } from './preview/viewports'
@@ -589,7 +590,13 @@ export type TaskBlockedReason =
   | { kind: 'plan-cap'; used: number; limit: number }
   | { kind: 'global-cap'; used: number; limit: number; priority: number }
   /** W6-C: another Task of the plan is at files this one would edit (`path`, the first of its own that collides). */
-  | { kind: 'same-files'; waitingOn: { id: string; title: string }; path: string }
+  | {
+      kind: 'same-files'
+      waitingOn: { id: string; title: string }
+      path: string
+      /** W8-D: the Task waited on is another plan's of the same project (its id and `jobNameOf` name). */
+      plan?: { id: string; title: string }
+    }
   /** It has a slot: the dispatch loop starts it on its next pass. */
   | { kind: 'next' }
   /** W6-G: every account it may start on is at `usagePauseAt` of a usage window (usageGuard.ts). */
@@ -732,8 +739,21 @@ export interface JobRow {
   feedback?: PlanFeedback[]
   autoStartedAt?: string
   rejected?: { at: string; reason?: string }
+  /** W8-F (#94): `validatePlan`'s problems for a plan waiting for approval; absent when it holds. */
+  planProblems?: string[]
   // W5-C: the plan is held from launching new workers (Job.dispatchHold)
   dispatchHold?: true
+  /** W8-D: where this plan meets another plan of its project, one line each (overlap.ts overlapLines); the approve area
+   *  lists them until W9-D's card. Absent: none. */
+  overlaps?: string[]
+  // W9-C Plans page (Job.overlaps, Job.areas, Job.after, Job.createdAt), on every row of the Job
+  /** The other plans this one overlaps (Job.overlaps' job ids, once each). Absent: none. */
+  overlapPlans?: string[]
+  areas?: string[]
+  /** The Job this one is queued after (W8-C). */
+  after?: string
+  /** When the Job was made: the row's age. Optional only for snapshots from an older Runtime. */
+  createdAt?: string
   // W2-D: the plan's one pull request (JobRun.pr), on the Run's own row and a Job row folded onto it
   pr?: RunPr
   /** 관리자가 있어야 하는데 없다 — 코디네이터 계정이 지정돼 있지만 붙어 있는 세션이 없다.
@@ -1063,7 +1083,7 @@ export type ResumeStrategy = 'smart' | 'original'
  *  두고 그 기본값이 곧 우회 플래그다(`DEFAULT_TUI_AGENT_ARGS = YOLO_TUI_AGENT_ARGS`).
  *
  *  Fork (orchestrator W0): the default here is 'manual' — the bypass is never on until the person picks 'yolo'
- *  (docs/orchestrator/SECURITY-AUDIT.md item 2). */
+ *  (docs/dev/SECURITY-AUDIT.md item 2). */
 export type AgentPermissionMode = 'yolo' | 'manual'
 
 /** What an MCP client may do through the Host (MCP design M5). Default 'control' (M6). */
@@ -1294,6 +1314,15 @@ export interface CoreApi {
       repoPath: string,
       bases: string[]
     ): Promise<Record<string, Record<string, BranchPushState>>>
+    // W9-J: the Worktrees page
+    /** Every worktree with its owning plan, git facts and whether it is ready to clean up. */
+    overview(): Promise<WorktreeRow[]>
+    /** Removes every worktree the ready rule holds for, unforced; the verdict is read again in main. */
+    cleanup(): Promise<{ removed: string[]; kept: { path: string; reason: string }[] }>
+    /** Changed files and commits since the base, by registry id. Null: not a worktree of this app. */
+    detail(id: string): Promise<WorktreeDetail | null>
+    /** One file's diff by the id `detail` listed. */
+    fileDiff(id: string, fileId: string): Promise<{ diff: string; truncated: boolean } | null>
   }
   pr: {
     /** Everything the create dialog needs to open: the seeded title and body, and whether the
@@ -1508,12 +1537,30 @@ export interface CoreApi {
     /** W3-A: minutes between activity digests; 0 is none. */
     getActivityDigestMinutes(): Promise<number>
     setActivityDigestMinutes(n: number): Promise<void>
+    /** Context use (%) at which a plan's coordinator is replaced by a fresh session; 0 turns the check off. */
+    getFreshCoordinatorContextPct(): Promise<number>
+    setFreshCoordinatorContextPct(n: number): Promise<void>
+    /** Stall watchdog (orchestration/exec/stallWatch.ts); default true. */
+    getStallWatch(): Promise<boolean>
+    setStallWatch(on: boolean): Promise<void>
+    /** T23: start Astera's Host at login (main/autostart.ts); default true. */
+    getStartAtLogin(): Promise<boolean>
+    setStartAtLogin(on: boolean): Promise<void>
+    /** T21: Astera answers the questions it safely can (orchestration/exec/autoAnswer.ts); default true. */
+    getAutoAnswer(): Promise<boolean>
+    setAutoAnswer(on: boolean): Promise<void>
+    /** W9-J: remove a delivered plan's ready worktrees; default true. */
+    getAutoCleanWorktrees(): Promise<boolean>
+    setAutoCleanWorktrees(on: boolean): Promise<void>
     /** W6-B: the chime with a notice that needs the owner; default true. */
     getAlertSound(): Promise<boolean>
     setAlertSound(on: boolean): Promise<void>
     /** W7-F (#84): an ended plan's session tabs close on their own; default true. */
     getAutoCloseEndedPlanTabs(): Promise<boolean>
     setAutoCloseEndedPlanTabs(on: boolean): Promise<void>
+    /** W9-I: a short summary card when a tab ends (DESIGN §4); default true. */
+    getTabSummaries(): Promise<boolean>
+    setTabSummaries(on: boolean): Promise<void>
     // The four desktop-notification switches (design doc §6/§8). Read by the settings screen and by
     // DesktopNotifier itself (main), which is why the type lives in core/notify/settings rather than here.
     getDesktopNotify(): Promise<DesktopNotifySettings>
@@ -1919,6 +1966,13 @@ export interface WindowApi {
   close(): void
   isMaximized(): Promise<boolean>
   onMaximizeChange(cb: (isMax: boolean) => void): () => void
+  // ── W9-K: one window per project (src/main/windows.ts) ──
+  /** The project this window is bound to, null for an All window. Read once at mount. */
+  boundProject(): Promise<string | null>
+  /** What this window shows: its project, the name for its title, and its session ids (null = every session). */
+  setScope(scope: { projectId: string | null; name?: string; sessionIds: string[] | null }): void
+  /** Opens a project's window, or focuses it if it has one; null opens a new All window. */
+  openNew(projectId: string | null): void
 }
 
 /**

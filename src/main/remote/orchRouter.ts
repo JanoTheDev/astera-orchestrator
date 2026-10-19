@@ -35,7 +35,14 @@ export const HOST_ANSWERED: ReadonlySet<string> = new Set([
   'sources-items',
   // W7-B: the project dialogs' git and gh work is the Host's (src/host/orch.ts)
   'projects-add',
-  'projects-create'
+  'projects-create',
+  // W8-F (#93): the planner's session is the Host's. Main has no listSessions / sendSession / agentSessionOf, so the box
+  // always fell through to a fresh planner
+  'jobs-feedback',
+  // W9-H: the app tells the Host which console the owner views full size, so agents' sends into it wait (orch.ts)
+  'owner-hold',
+  // W9-H: the Agents page reads each project's JobRow snapshot; main's copy of the command layer has no such command
+  'jobs-view'
 ])
 
 /** W5-D (#44): the reads that are one list across every Host. A call with no `runtimeId` asks the local Host and every

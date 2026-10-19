@@ -79,8 +79,9 @@ describe('IconTone ↔ CSS', () => {
   })
 
   it('모든 톤에 .fi--<tone> 규칙과 --fi-<tone> 커스텀 프로퍼티가 styles.css에 있다', () => {
-    const cssPath = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../renderer/src/styles.css')
-    const css = readFileSync(cssPath, 'utf8')
+    const renderer = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../renderer/src')
+    // the tone rules sit beside the icons, the tone values in the tokens
+    const css = ['components/fileIcons.css', 'styles/tokens.css'].map((f) => readFileSync(path.join(renderer, f), 'utf8')).join('\n')
     for (const tone of TONES) {
       expect(css).toMatch(new RegExp(`\\.fi--${tone}\\s*\\{[^}]*color:\\s*var\\(--fi-${tone}\\)`))
       expect(css).toMatch(new RegExp(`--fi-${tone}\\s*:`))

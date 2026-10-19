@@ -1,0 +1,77 @@
+/* ---------- status bar ---------- */
+.statusbar {
+  flex: none;
+  /* Padding outside the terminal area (i.e. on .app column) — dark-on-dark makes the padding hard to see, so
+     a border comes with it. It was thought at the time that "xterm overflow covers terminal-host padding
+     and voids it", but the real cause was that the padding was missing from the fit calculation and xterm
+     drew over it — that was fixed by moving the padding onto .xterm. This margin is a separate one that
+     lifts the terminal off the status bar, so it stays */
+  margin-top: 10px;
+  border-top: 1px solid var(--line);
+  height: 26px; /* DESIGN.md §1 */
+  background: var(--status-bg);
+  color: var(--status-ink);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 14px;
+  font-size: 11.5px;
+  font-family: var(--mono);
+  overflow: hidden;
+}
+.statusbar .sp { margin-left: auto; flex-shrink: 0; }
+/* The Host-needs-replacing notice. It sits after .sp, so the session count keeps the right edge it has
+   always had and this lands beyond it rather than shoving it left when it appears.
+   Amber, not red: nothing is broken. The Host is waiting for a quiet moment to replace itself, and for
+   someone who never opens a 대화 session it costs nothing at all. --warn-ink is the same colour the
+   usage chips and the pending banner warn in, so the bar has one colour for "worth a look". */
+.statusbar .status-host-outdated {
+  flex: none; margin-left: 12px; display: inline-flex; align-items: center;
+  padding: 2px 8px; font: inherit; line-height: 1.4;
+  color: var(--warn-ink); background: none; border: 1px solid var(--warn-ink); border-radius: 999px;
+  cursor: pointer; transition: background 120ms;
+}
+.statusbar .status-host-outdated:hover { background: var(--warn-bg); }
+.statusbar .status-host-outdated:disabled { cursor: default; opacity: 0.6; }
+/* The Host runtime being put in place (stage 3 task 2). Plain text and the shared spinner while it
+   works — nothing is wrong, it is only slow — and the same amber outline as the notices above if it
+   failed, because that is the same kind of fact: worth a look, not broken. */
+.statusbar .status-host-runtime {
+  flex: none; margin-left: 12px; display: inline-flex; align-items: center; gap: 6px;
+  color: var(--text-dim); white-space: nowrap;
+}
+.statusbar .status-host-runtime.failed {
+  padding: 2px 8px; line-height: 1.4; color: var(--warn-ink);
+  border: 1px solid var(--warn-ink); border-radius: 999px; cursor: default;
+}
+/* The Host row's three facts, stacked. Right-aligned so their ragged left edges do not read as three
+   unrelated things, and so the restart button beside them keeps one place whatever they say. */
+.host-row-detail { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; text-align: right; }
+.host-row-outdated { color: var(--warn-ink); }
+.status-account { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.status-item { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* No flex growth (0 1 auto) — keeps the path from eating the leftover width and pushing the usage chips to the far right. It shrinks with an ellipsis when narrow */
+.status-path { opacity: .85; min-width: 0; flex: 0 1 auto; }
+/* the usage chip group — to the left, next to the folder name. Each chip is a mini progress bar plus n% */
+.status-metrics { display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
+.status-metric { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.metric-label { opacity: .9; }
+/* W9-B: usage is the house Meter (components/ui); here it is one 44px track on the bar's line */
+.status-meter { width: 44px; flex: none; }
+.metric-pct { font-weight: 600; min-width: 2.6ch; text-align: right; }
+.metric-reset { opacity: .7; }
+/* W9-B: the counts open their page */
+.status-link {
+  display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; padding: 0; border: 0; background: none;
+  font: inherit; color: inherit; cursor: pointer; white-space: nowrap;
+}
+.status-link:hover { color: var(--text); }
+.status-link--warn { color: var(--warn); }
+.status-link:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--ring); border-radius: var(--radius-sm); }
+.status-dot { background: var(--text-faint); }
+.status-dot--ok { background: var(--ok); }
+.status-dot--warn { background: var(--warn); }
+.status-next { color: var(--text-dim); min-width: 0; flex: 0 1 auto; }
+.status-account .status-metric { margin-left: 8px; }
+.status-host { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; color: var(--text-dim); }

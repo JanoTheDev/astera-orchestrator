@@ -57,7 +57,7 @@ export default {
 }
 ```
 
-With the Astera app running and the `astera` command installed ([from Settings → CLI](cli.md#install)), install it
+With the Astera app running and the `astera` command installed ([from Settings → Integrations → CLI](cli.md#install)), install it
 from a terminal of your own (on Windows, macOS and Linux alike) and read its log:
 
 ```sh
@@ -74,7 +74,7 @@ it, what it wrote, and that it is running:
 2026-10-13T09:12:01.405Z [host] running
 ```
 
-`astera plugins list` shows it as `running`. The app's Settings → Plugins does the same: install from a folder,
+`astera plugins list` shows it as `running`. The app's Settings → Integrations → Plugins does the same: install from a folder,
 approve, and open its log there. Run these commands in a terminal of your own: inside an Astera session
 (`ASTERA_SESSION` is set) changing plugins is refused with exit 5, so an agent cannot install one on its own.
 
@@ -473,7 +473,7 @@ display name.
 ## Logs
 
 `astera plugins logs --id <id>` prints the last lines of the plugin's log (`--lines <n>` for more), and the app opens it
-from Settings → Plugins. It is a file, `<profile>/plugins/logs/<folder>.log`: `<profile>` is Astera's data folder,
+from Settings → Integrations → Plugins. It is a file, `<profile>/plugins/logs/<folder>.log`: `<profile>` is Astera's data folder,
 which `astera host status` names, and the folder is the id with a scope's `/` written as `+`. It is kept to 2 MiB,
 with one older file beside it. Each line has its time, and holds:
 

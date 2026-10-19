@@ -26,6 +26,8 @@ import { outcomeOfTasks } from './running'
 import { completionSettled } from './replan'
 // W8-C plan after plan
 import { afterStoppedText } from './after'
+// W8-D several plans in one repo
+import { overlapLines } from './overlap'
 import type { ScheduleLimits } from './schedule'
 import { emptyState, OWNER_ANSWER_SUBJECT, type OrchState } from './state'
 import {
@@ -35,6 +37,7 @@ import {
   type GateKind,
   type Job,
   type Outcome,
+  type PlanOverlap,
   type RunPr,
   type Task,
   type TaskLinks,
@@ -53,6 +56,8 @@ export const ACTIVITY_KINDS = [
   'task.links',
   'run.pr',
   'plan.awaiting-approval',
+  // W8-F (#94): the planner finished a feedback round but the plan does not hold (payload.problems); feed only
+  'plan.incomplete',
   'plan.done',
   // W5-D (#42): a worker's session at a permission prompt or a question (waitingActivity)
   'task.waiting',
@@ -73,7 +78,17 @@ export const ACTIVITY_KINDS = [
   // escalation instead (delivery.ts recordDelivery)
   'plan.delivered',
   // W7-A: a plan started with no approval step (autoApprove)
-  'plan.auto-started'
+  'plan.auto-started',
+  // W8-D: a plan's Tasks newly meet another plan's of the same project (Job.overlaps): feed and notice, no chime
+  'plan.overlap',
+  // Coordinator rotation: a fresh coordinator took the Run's slot (JobRun.coordinatorRefreshes); feed only
+  'coordinator.refreshed',
+  // Stall watchdog (exec/stallWatch.ts): one line per action it took on a stalled plan (payload.reason); feed only
+  'watchdog',
+  // T21 (exec/autoAnswer.ts): one line per question Astera answered itself (payload.reason); feed only
+  'question.auto-answered',
+  // T23 (exec/crashResume.ts): what the Host's start picked up after a crash (payload.reason); feed only
+  'host.recovered'
 ] as const
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number]
 
@@ -130,9 +145,13 @@ export interface ActivityPayload {
   tasks?: number
   round?: number
   changes?: string[]
+  // plan.incomplete (W8-F)
+  problems?: string[]
   // plan.delivered (W6-H)
   branch?: string
   sha?: string
+  // plan.overlap (W8-D): the new overlaps, one line each (overlapLines)
+  overlaps?: string[]
 }
 
 /** One line before the log numbers and stamps it (the shape of publicEvents.ts's EventDraft). */
@@ -307,6 +326,15 @@ export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[
       const at = where(r.id)
       push('plan.delivered', at, { title: at.job ? jobNameOf(at.job) : r.id, sha: r.delivery.sha, ...(r.delivery.branch !== undefined ? { branch: r.delivery.branch } : {}) })
     }
+    // Coordinator rotation: each refresh added since the last commit, by its new session
+    for (const r of next.runs) {
+      const was = before.get(r.id)
+      if (was === undefined || was.coordinatorRefreshes === r.coordinatorRefreshes) continue
+      const seen = new Set((was.coordinatorRefreshes ?? []).map((x) => x.to))
+      const at = where(r.id)
+      for (const x of r.coordinatorRefreshes ?? [])
+        if (!seen.has(x.to)) push('coordinator.refreshed', at, { title: at.job ? jobNameOf(at.job) : r.id, reason: x.reason }, x.to)
+    }
   }
 
   // W6-A: a plan that ended before approval because everything it asks for is built
@@ -327,6 +355,19 @@ export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[
           { ...(j.projectId !== undefined ? { projectId: j.projectId } : {}), jobId: j.id, job: j },
           { title: jobNameOf(j), reason: afterStoppedText(next, j) }
         )
+      // W8-D: overlaps this commit added, against the ones the plan had
+      if (j.overlaps !== undefined && j.overlaps !== was.get(j.id)?.overlaps) {
+        // By the other plan and the spot, not the Task ids: starting a Run copies its Tasks under new ids
+        const keyOf = (o: PlanOverlap): string => `${o.jobId}|${o.by}|${o.path ?? o.issue}`
+        const had = new Set((was.get(j.id)?.overlaps ?? []).map(keyOf))
+        const added = j.overlaps.filter((o) => !had.has(keyOf(o)))
+        if (added.length > 0)
+          push(
+            'plan.overlap',
+            { ...(j.projectId !== undefined ? { projectId: j.projectId } : {}), jobId: j.id, job: j },
+            { title: jobNameOf(j), overlaps: overlapLines(next, { ...j, overlaps: added }) }
+          )
+      }
       if (j.nothingToDo === undefined || was.get(j.id)?.nothingToDo !== undefined) continue
       push(
         'plan.nothing-to-do',
@@ -618,6 +659,13 @@ export function noticeOf(e: ActivityEvent): ActivityNotice | null {
     // W6-H: no chime, it needs nothing of the owner
     case 'plan.delivered':
       return { key: `delivered:${e.runId}`, title: `Plan pushed to ${e.payload.branch ?? 'its branch'}`, body: e.payload.title }
+    // W8-D: no chime, nothing is blocked (the file guard keeps the plans apart); the approve area lists them
+    case 'plan.overlap':
+      return {
+        key: `overlap:${e.jobId}:${(e.payload.overlaps ?? []).join('|')}`,
+        title: 'Plans overlap',
+        body: `${e.payload.title}: ${(e.payload.overlaps ?? []).join('; ')}`.slice(0, 240)
+      }
     default:
       return null
   }

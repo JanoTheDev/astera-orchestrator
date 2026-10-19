@@ -688,14 +688,15 @@ astera projects get   --id <projectId>
 astera projects find  --path <path>
 astera projects add   --path <path> [--initial-commit]
 astera projects create --name <name> --parent <path> [--describe <text>] [--github <private|public>]
-astera projects set   --id <projectId> [--delivery <pr|push>] [--delivery-branch <branch>] [--auto-approve <on|off>] [--test-command <cmd>] [--test-config <id>] [--concurrency <1-10>] [--review-rounds <n>] [--replan <waves|off>] [--account <id>]
+astera projects set   --id <projectId> [--delivery <pr|push>] [--delivery-branch <branch>] [--auto-approve <on|off>] [--test-command <cmd>] [--test-config <id>] [--concurrency <1-10>] [--review-rounds <n>] [--replan <waves|off>] [--account <id>] [--prompts-dir <path|none>]
 
-astera jobs    list   [--status <pending|paused|scheduled|waiting|running|completed|failed>] [--project <path>] [--archived]
+astera jobs    list   [--status <pending|paused|scheduled|waiting|running|completed|failed>] [--project <path>] [--archived] [--area <word>]
 astera jobs    get    --id <jobId | runId>
 astera jobs    run    --id <jobId>
 astera jobs    wait   --id <jobId>  [--timeout-ms <n>]
 astera jobs    rename --id <jobId> --title <text>
-astera jobs    set    --id <jobId | runId> [--concurrency <n>] [--after <jobId|none>]
+astera jobs    set    --id <jobId | runId> [--concurrency <n>] [--after <jobId|none>] [--areas <a,b,c|none>]
+astera jobs    overlaps --id <jobId>
 astera jobs    archive --id <jobId> [--kill-sessions]
 astera jobs    unarchive --id <jobId>
 astera jobs    plan --id <jobId> [--account <id>] [--replan <waves|off>] [--concurrency <n>] [--delivery <pr|push>] [--no-review] [--auto-approve <on|off>]
@@ -713,7 +714,7 @@ astera runs    resume --id <runId>
 astera runs    checks --id <runId>
 
 astera tasks   list   [--run <runId|jobId>] [--status <s>] [--ready] [--brief]
-astera tasks   add    [--job <jobId> | --run <runId>] --spec <text|-> --account <id,…> [--title <text>] [--deps <json array>] [--affected-paths <json array>] [--parent <taskId>] [--validate <configId,…>] [--review] [--no-review] [--difficulty <light|standard|hard>] [--model <id>] [--basis <missing|partial|broken>] [--evidence <text>]
+astera tasks   add    [--job <jobId> | --run <runId>] --spec <text|-> --account <id,…> [--title <text>] [--prompt <text|->] [--criteria <json array>] [--deps <json array>] [--affected-paths <json array>] [--parent <taskId>] [--validate <configId,…>] [--review] [--no-review] [--difficulty <light|standard|hard>] [--model <id>] [--basis <missing|partial|broken>] [--evidence <text>]
 astera tasks   dispatch --id <taskId>
 
 astera dispatches list [--run <runId>]
@@ -883,6 +884,20 @@ account of that provider logged in it is a 2 that names the provider. When both 
 `--coordinator-account` wins.
 A Host that announces `dispatch` places them whether Astera is open or closed, and otherwise Astera
 does (see "Jobs run with Astera closed").
+
+**`jobs create --mode`** picks how the planner starts. `plan` (the default) plans the objective.
+`audit` has the planner audit `--scope <path|all>` (default `all`), write `inputs/audit.md`, then plan
+the fixes. `fixlist` reads the objective as a problem list and makes one or more Tasks per problem.
+`prompts` runs the text as written: each `--attach`ed `.md` file, or each `## ` section of one
+document, is one Task with its text unchanged; `--approve auto` (default) starts it without an
+approval step and `--approve ask` waits for one. With nothing attached, prompt ids in the objective
+(`"run W8-A, B then all of W9"`, `"next waves"`) are found in the project's prompts folder
+(`projects set --prompts-dir`, else detected) and attached; a name with no file or two files is
+`INVALID_ARGUMENT` before any plan exists. The plan's approval lists the file each name resolved to.
+`--instructions <text>` adds the owner's extra
+instructions, which win over a source when the two conflict, and `--attach <path>` (repeatable, a
+regular file of at most 30 MB) copies a file into the plan's inputs for the planner to read first.
+The objective may be left out with `--mode audit` or `--attach`.
 
 **`tasks add` takes exactly one of `--job` or `--run`**, and there is no default. `--job` adds a task
 to the plan, and `jobs run` copies it, with its `--deps` pointing at the copies, into every run it

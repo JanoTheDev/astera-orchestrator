@@ -299,5 +299,40 @@ Four rules make the rest of the run work:
 - Do not delete or move the worktrees or their branches. The app owns their lifecycle.
 - Do not redo any of the tasks' work, and do not improve the code you are merging. This task is the
   merge and nothing else.
+
+Before you commit a resolved conflict, run the test files that cover the files you resolved, through
+\`astera heavy -- npx vitest run <files>\` (heavy jobs run one at a time on this machine). Never run the
+full suite outside \`astera heavy\`.
 `
+}
+
+/** The subject of the inbox message that says a Task's branch is merged into its plan branch; it marks it merged. */
+export const planMergedSubject = (taskId: string): string => `task ${taskId} merged into the plan`
+
+/** Wave merges of a coordinator-driven Run (owner spec 2026-10-18, part 2): each completed Task that worked in its own
+ *  worktree, merged into the Run's worktree (the plan branch) as soon as it finishes, so a dependent forks from the plan
+ *  branch with its deps already in it (forkForDeps' merges are then no-ops) and siblings are never merged into each
+ *  other. The app's scheduler merges its own Runs' deps in its slot (pendingMerges); a coordinator's Run has no slot.
+ *
+ *  Only a Run with its own worktree: merging into the project folder is a person's. Only a folder still registered
+ *  (`isRegistered`): a merged one is reaped, and one gone has nothing left to merge. Not one marked merged
+ *  (`planMergedSubject`), and not one that already has its merge Task (`integrationTaskFor`). */
+export function wavesToMerge(
+  s: OrchState,
+  isRegistered: (p: string) => boolean
+): { runId: string; taskId: string; runRoot: string; worktree: string }[] {
+  const merged = new Set(s.messages.filter((m) => m.type === 'status').map((m) => `${m.runId}\u0000${m.subject}`))
+  const out: { runId: string; taskId: string; runRoot: string; worktree: string }[] = []
+  for (const run of s.runs) {
+    if (run.coordinatorSessionId === undefined || run.worktree === undefined || run.paused) continue
+    const runRoot = runRootOf(run, jobOf(s, run))
+    for (const t of s.tasks) {
+      if (t.runId !== run.id || t.status !== 'completed' || isIntegrationTask(t)) continue
+      if (merged.has(`${run.id}\u0000${planMergedSubject(t.id)}`) || integrationTaskFor(s, t.id)) continue
+      const last = [...s.dispatches].reverse().find((d) => d.taskId === t.id && (d.outcome || d.endedAt))
+      if (!last || isSamePath(last.cwd, runRoot) || !isRegistered(last.cwd)) continue
+      out.push({ runId: run.id, taskId: t.id, runRoot, worktree: last.cwd })
+    }
+  }
+  return out
 }

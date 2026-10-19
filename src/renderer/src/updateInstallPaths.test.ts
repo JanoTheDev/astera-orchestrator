@@ -17,7 +17,8 @@ import path from 'node:path'
 // one call in the renderer, in App.tsx, and it is the one `installUpdate` makes after the person has
 // answered. A fourth button added later has to go through it or turn this red. If `installUpdate`
 // ever moves out of App.tsx, this fails and the fix is to name its new home here, deliberately,
-// rather than to widen the rule.
+// rather than to widen the rule. W9-A moved it, unchanged, into state/useWorkbenchState.ts.
+const HOME = path.join('state', 'useWorkbenchState.ts')
 
 const RENDERER_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)))
 const EXTS = /\.tsx?$/
@@ -42,14 +43,12 @@ describe('every update install path asks first', () => {
 
   it('installs the update from one place only', () => {
     const occurrences = hits.flatMap((h) => h.src.split(CALL).slice(1).map(() => h.file))
-    expect(occurrences, 'every other button must call installUpdate, which confirms first').toEqual([
-      'App.tsx'
-    ])
+    expect(occurrences, 'every other button must call installUpdate, which confirms first').toEqual([HOME])
   })
 
   it('that one place is installUpdate, after the confirmation', () => {
-    const app = hits.find((h) => h.file === 'App.tsx')
-    expect(app, 'App.tsx should hold the single install call').toBeDefined()
+    const app = hits.find((h) => h.file === HOME)
+    expect(app, `${HOME} should hold the single install call`).toBeDefined()
     const src = app?.src ?? ''
     const call = src.indexOf(CALL)
     const declaration = src.indexOf('const installUpdate =')

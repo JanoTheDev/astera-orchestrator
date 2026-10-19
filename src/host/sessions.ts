@@ -70,6 +70,9 @@ export interface HostSessions {
   sessionTurn?(id: string, since?: number): Promise<SessionTurn | null>
   /** W7-A: the agent CLI's own conversation id (`session_id` of its last hook event), also after it ended; null for none. */
   agentSessionOf?(id: string): Promise<string | null>
+  /** W9-H: when a person last typed into this session's console in a window (registry.ts `lastTyped`), epoch ms;
+   *  null for never. The owner hold (core/sessions/ownerHold.ts) queues agents' sends for a minute after it. */
+  ownerInputAt?(id: string): number | null
 }
 
 /** One terminal session's turn, as `sessionTurn` reads it. */
@@ -169,7 +172,7 @@ function emptyScreen(size: { cols: number; rows: number }): SessionScreen {
 }
 
 export function registrySessions(a: {
-  ptys: Pick<PtyRegistry, 'list' | 'buffer' | 'write' | 'size' | 'lastWrite' | 'readScreen'>
+  ptys: Pick<PtyRegistry, 'list' | 'buffer' | 'write' | 'size' | 'lastWrite' | 'lastTyped' | 'readScreen'>
   procs: Pick<ProcRegistry, 'list' | 'write'>
   /** The profile's hook-events folder (core/hooks/sessionState.ts `hookEventsDirIn`). */
   hookEventsDir: string
@@ -180,7 +183,7 @@ export function registrySessions(a: {
   mintId?: () => string
   /** W8-C heavy: the `astera heavy` queue dir (core/orchestration/heavyLock.ts). Test injection; the wiring leaves it out. */
   heavyQueueDir?: string
-}): HostSessions & Required<Pick<HostSessions, 'sessionTurn' | 'agentSessionOf'>> {
+}): HostSessions & Required<Pick<HostSessions, 'sessionTurn' | 'agentSessionOf' | 'ownerInputAt'>> {
   const mintId = a.mintId ?? (() => `astera-host-${randomUUID()}`)
   /** The pty behind an agent session's id — only an agent session's, so a shell tab's id is nobody. */
   /** The session's pty: the live one, else the one opened last. A roll keeps the session id and opens a new pty,
@@ -302,6 +305,16 @@ export function registrySessions(a: {
       const at = hookEventAt(payload)
       if (since !== undefined && at !== null && at < since) state = 'unknown'
       return { alive: true, state, prompt: state === 'waiting' ? hookEventPrompt(payload) : null }
+    },
+    // Every pty the session had: a roll opens a new one under the same id, and typing in the old one still counts.
+    ownerInputAt: (id) => {
+      let at: number | null = null
+      for (const e of a.ptys.list()) {
+        if (e.meta?.kind !== 'session' || e.meta.id !== id) continue
+        const t = a.ptys.lastTyped(e.id)
+        if (t !== null && (at === null || t > at)) at = t
+      }
+      return at
     },
     agentSessionOf: async (id) => {
       const last = await latestEvent(hookEventsFileIn(a.hookEventsDir, id))

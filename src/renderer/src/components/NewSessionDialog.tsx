@@ -32,7 +32,7 @@ import { Select, type SelectOption } from './Select'
 import { ScheduleFields } from './ScheduleFields'
 import { StartingOverlay } from './WorktreeCreateStatus'
 import { X } from 'lucide-react'
-import { backdropProps } from '../lib/backdrop'
+import { Button, Modal } from './ui'
 
 const SOFT_LIMIT = 12
 const MAX_ROLL_ACCOUNTS = 3
@@ -92,7 +92,9 @@ export function NewSessionDialog({
   // from the Settings default and forced back to 'terminal' below whenever chat is not available, so
   // the toggle never sticks on a choice the person cannot actually start. Changing it here is this
   // session's business — it is not written back to the setting.
-  const [kind, setKind] = useState<SessionKind>(defaultSessionKind)
+  // W9-H: a new console is always the CLI itself (DESIGN.md §0: no custom chat UI); the assistant-ui conversation pane
+  // is no longer offered here. Existing chat sessions still open, resume and roll as they did.
+  const [kind, setKind] = useState<SessionKind>('terminal')
   const [rollMode, setRollMode] = useState(false) // auto-resume toggle for a single account
   const [rollPrompt, setRollPrompt] = useState('') // text to send on a rolling resume (empty means the default)
   const [slackNotify, setSlackNotify] = useState(false) // Slack progress notifications
@@ -461,8 +463,22 @@ export function NewSessionDialog({
     // While starting, an outside click does not close this — the worktree creation and spawn already
     // under way are not cancelled, so if only the modal disappears the user mistakes it for a cancel.
     // Cancelling a worktree creation is the overlay's own Cancel button.
-    <div className="modal-backdrop" {...backdropProps(() => !starting && onCancel())}>
-      <div className="modal new-session" onClick={(e) => e.stopPropagation()}>
+    <Modal
+      title={t('session.new.title')}
+      onClose={() => !starting && onCancel()}
+      closeLabel={t('common.close')}
+      footer={
+        <>
+          <Button onClick={onCancel} disabled={starting}>
+            {t('common.cancel')}
+          </Button>
+          <Button variant="primary" disabled={starting || blocked !== null} onClick={() => void start()}>
+            {t('session.new.start')}
+          </Button>
+        </>
+      }
+    >
+      <div className="dlg new-session">
         {starting && (
           <StartingOverlay
             withWorktree={withWorktree}
@@ -472,7 +488,6 @@ export function NewSessionDialog({
             onCancel={cancelWorktree}
           />
         )}
-        <h2>{t('session.new.title')}</h2>
         {runtimes.length > 0 && onRemote && (
           <div className="field">
             <label>{t('remote.sessions.runtime')}</label>
@@ -510,37 +525,6 @@ export function NewSessionDialog({
             {t('session.new.cliMissingPost')}
           </p>
         )}
-        {/* The kind is the first decision — how the session runs at all — so it heads the form as its
-            own section, ruled off from the folder and account it applies to. Placed between those two
-            it read as one more field of the same run, and where the kind ended and the account began
-            could not be told apart (reported from a hand check of the dialog). */}
-        <div className="field kind-field">
-          <label>{t('session.new.kindLabel')}</label>
-          <div className="kind-segmented">
-            <button
-              type="button"
-              className={`segmented${kind === 'terminal' ? ' active' : ''}`}
-              onClick={() => {
-                setKind('terminal')
-              }}
-            >
-              {t('session.kind.terminal')}
-            </button>
-            <button
-              type="button"
-              className={`segmented${kind === 'chat' ? ' active' : ''}`}
-              disabled={!chatEnabled}
-              onClick={() => {
-                setKind('chat')
-              }}
-            >
-              {t('session.kind.chat')}
-            </button>
-          </div>
-          {!chatEnabled && !chatChecking && (
-            <span className="kind-note">{t('session.new.kindHostOld')}</span>
-          )}
-        </div>
         <div className="field">
           <label>{t('session.field.projectFolder')}</label>
           <div className="row">
@@ -758,14 +742,6 @@ export function NewSessionDialog({
               : t('session.new.cliFailsHereUnknown', { cli: CLI_LABEL[primaryProvider] })}
           </p>
         )}
-        <div className="row right">
-          <button onClick={onCancel} disabled={starting}>
-            {t('common.cancel')}
-          </button>
-          <button className="primary" disabled={starting || blocked !== null} onClick={() => void start()}>
-            {t('session.new.start')}
-          </button>
-        </div>
         {/* 왜 못 누르는지 말한다. 다섯 조건 중 둘은 비동기로 늦게 풀려서, 다 골라 놓고도 버튼이 죽어
             있다가 갑자기 살아나는 것처럼 보였다(설계 D4) */}
         {blocked !== null && (
@@ -785,6 +761,6 @@ export function NewSessionDialog({
           </p>
         )}
       </div>
-    </div>
+    </Modal>
   )
 }

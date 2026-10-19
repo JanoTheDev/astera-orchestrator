@@ -288,11 +288,13 @@ describe('the Host wires the recorder', () => {
     const index = read('index.ts')
     // Each on its own (review M4): a driver pass that throws does not cost the recorder the loaded state.
     expect(index).toMatch(/onLoaded: \(\) => \{\s*try \{\s*wiring\?\.orchHooks\?\.onLoaded\?\.\(\)\s*\} catch[\s\S]{0,160}?\}\s*runGit\?\.onState\(orch\.state\(\)\)/)
-    // The load stays lazy (createHostOrch): index.ts never asks for it at its start. Its one `orch.ready()` is the
-    // notification wording's (plugin 3c final review M3), a call that needs the state as a command does, made only when
-    // a notification plugin is sent a Job's notification.
-    expect(index.match(/orch\.ready\(\)/g) ?? []).toHaveLength(1)
+    // The load stays lazy (createHostOrch): index.ts asks for it at its start only in one place. Its two `orch.ready()`
+    // calls are the notification wording's (plugin 3c final review M3), made only when a notification plugin is sent a
+    // Job's notification, and the crash-resume call (T23), which loads a file with work in flight as soon as the server
+    // listens, since a Host started at login has no app to ask for it.
+    expect(index.match(/orch\.ready\(\)/g) ?? []).toHaveLength(2)
     expect(index).toMatch(/notify: hostNotifier\(\{[\s\S]{0,400}?orch: \{ ready: \(\) => orch\.ready\(\)/)
+    expect(index).toMatch(/resumeAfterCrash\(\{[\s\S]{0,200}?ready: \(\) => orch\.ready\(\)/)
   })
   it('the one merge path tells it before and after', () => {
     const wt = read('worktrees.ts')

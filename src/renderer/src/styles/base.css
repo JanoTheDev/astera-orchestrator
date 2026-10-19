@@ -1,0 +1,16 @@
+/* The margin half of this reset lives in tailwind.css's @layer base, not here: an unlayered rule
+   beats every layered one whatever its specificity, so keeping `margin: 0` here silently zeroed
+   every margin utility the vendored conversation markup relies on. box-sizing collides with
+   nothing and stays. */
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; }
+body { font-family: var(--sans); letter-spacing: var(--tracking); background: var(--bg); color: var(--text); }
+
+/* ---------- scrollbars ---------- */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--elevated); border-radius: var(--radius); border: 2px solid transparent; background-clip: padding-box; }
+/* 쉬는 상태가 --elevated, hover 는 그보다 한 단계 밝은 값 — color-mix 로 계산한다(고정 리터럴이면 테마마다
+   --elevated 보다 어두워질 수 있다). button:hover 와 같은 이유, 같은 식이다 */
+::-webkit-scrollbar-thumb:hover { background: var(--elevated-hover); background-clip: padding-box; }
+::-webkit-scrollbar-corner { background: transparent; }

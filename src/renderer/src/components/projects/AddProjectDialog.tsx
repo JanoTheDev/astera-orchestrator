@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { backdropProps } from '../../lib/backdrop'
+import { Button, Modal } from '../ui'
 import './projects.css'
 
 /** W7-B: an existing git folder becomes a project. A repository with no commit is only committed after the owner
@@ -71,10 +71,34 @@ export function AddProjectDialog({
     }
   }
 
+  const footer = added ? (
+    <>
+      <Button disabled={busy} onClick={onClose}>
+        Skip
+      </Button>
+      <Button variant="primary" disabled={busy || !test.trim()} onClick={() => void saveTest()}>
+        Use this test command
+      </Button>
+    </>
+  ) : (
+    <>
+      <Button disabled={busy} onClick={onClose}>
+        Cancel
+      </Button>
+      {needsCommit && (
+        <Button disabled={busy} onClick={() => void add(true)}>
+          Make the initial commit
+        </Button>
+      )}
+      <Button variant="primary" disabled={busy || !path.trim()} onClick={() => void add(false)}>
+        Add
+      </Button>
+    </>
+  )
+
   return (
-    <div className="modal-backdrop" {...backdropProps(() => !busy && onClose())}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h3>Add project</h3>
+    <Modal title="Add project" onClose={() => !busy && onClose()} size="sm" footer={footer}>
+      <div className="dlg">
         {added ? (
           <>
             <p className="proj-ok">Project added.</p>
@@ -84,14 +108,6 @@ export function AddProjectDialog({
               <p className="modal-hint">New tasks are checked with this. Leave it empty to skip.</p>
             </div>
             {error && <p className="warn">{error}</p>}
-            <div className="row right">
-              <button disabled={busy} onClick={onClose}>
-                Skip
-              </button>
-              <button className="primary" disabled={busy || !test.trim()} onClick={() => void saveTest()}>
-                Use this test command
-              </button>
-            </div>
           </>
         ) : (
           <>
@@ -103,22 +119,9 @@ export function AddProjectDialog({
               </div>
             </div>
             {error && <p className="warn">{error}</p>}
-            <div className="row right">
-              <button disabled={busy} onClick={onClose}>
-                Cancel
-              </button>
-              {needsCommit && (
-                <button disabled={busy} onClick={() => void add(true)}>
-                  Make the initial commit
-                </button>
-              )}
-              <button className="primary" disabled={busy || !path.trim()} onClick={() => void add(false)}>
-                Add
-              </button>
-            </div>
           </>
         )}
       </div>
-    </div>
+    </Modal>
   )
 }

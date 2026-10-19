@@ -1,0 +1,15 @@
+// The house primitives (DESIGN §10). PascalCase files; the lowercase ones beside them are vendored shadcn for assistant-ui.
+// Button lives in UiButton.tsx: Button.tsx would be the same file as shadcn's button.tsx on macOS/Windows (case-insensitive).
+export { Button, type ButtonProps, type ButtonVariant, type ButtonSize } from './UiButton'
+export { Chip, type ChipTone } from './Chip'
+export { Card, type CardProps, type CardTone } from './Card'
+export { Modal, type ModalProps, type ModalSize } from './Modal'
+export { Section, type SectionProps } from './Section'
+export { Nav, type NavItem } from './Nav'
+export { Tabs, type TabItem } from './Tabs'
+export { Menu, type MenuItem } from './Menu'
+export { Field, type FieldProps } from './Field'
+export { Meter } from './Meter'
+export { EmptyState } from './EmptyState'
+export { Icon, type IconSize } from './Icon'
+export * from './logic'

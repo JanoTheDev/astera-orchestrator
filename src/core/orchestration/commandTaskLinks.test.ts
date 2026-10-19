@@ -10,6 +10,7 @@ import type { Dispatch, JobRun, Task } from './types'
 import type { GhResult } from '../github/gh'
 import type { PrCreateRequest } from '../github/prCreate'
 import { taskMarker } from '../github/taskLinks'
+import { summaryFactsOf, type SessionSummary } from '../sessions/summary'
 import { APP_CALLER } from '../host/driver'
 
 const NOW = '2026-10-17T00:00:00.000Z'
@@ -33,7 +34,7 @@ const task = (over: Partial<Task> = {}): Task =>
 
 /** A plan with one Run and its Tasks, a fake gh answering by argv (a function of it, for searches) and fakes for the
  *  github dep's writes. */
-const setup = (o: { gh?: (args: string[]) => Partial<GhResult> | undefined; tasks?: Task[]; run?: Partial<JobRun>; dispatches?: Dispatch[] } = {}) => {
+const setup = (o: { gh?: (args: string[]) => Partial<GhResult> | undefined; tasks?: Task[]; run?: Partial<JobRun>; dispatches?: Dispatch[]; summaries?: SessionSummary[] } = {}) => {
   const box: { state: OrchState } = {
     state: {
       ...emptyState(),
@@ -56,6 +57,7 @@ const setup = (o: { gh?: (args: string[]) => Partial<GhResult> | undefined; task
     listAccounts: () => [{ id: 'acc1', label: 'Work', provider: 'claude' }],
     readWorker: async () => '',
     now: () => NOW,
+    ...(o.summaries ? { readSummaries: async (job?: string) => o.summaries!.filter((c) => job === undefined || c.jobId === job) } : {}),
     mergeWorktrees: async (into: string, paths: string[]) => {
       merges.push([into, paths])
       return { ok: true as const, merged: paths, uncommitted: 0 }
@@ -252,7 +254,7 @@ describe('run-open-pr: one pull request per plan', () => {
     deps.github!.createPr = async () => ({ ok: false, stage: 'push', kind: 'no-remote', detail: '', pushed: false })
     const r = await call('run-open-pr', { run: 'r1' })
     expect(r.status).toBe(200)
-    expect(r.body).toMatchObject({ noRemote: true, message: "This project has no remote; the plan's work is on branch astera/run" })
+    expect(r.body).toMatchObject({ noRemote: true, message: expect.stringMatching(/^This project has no remote; the plan's work is on branch astera\/run\. To merge it, run `git merge astera\/run` in /) })
     const pr = state().runs[0].pr!
     expect(pr.note).toBeTruthy()
     expect(pr.error).toBeUndefined()
@@ -353,5 +355,43 @@ describe('run-draft-pr: a long plan followed from GitHub (W8-C)', () => {
     const r = await h.app('run-draft-pr', { run: 'r1' })
     expect(r.body).toMatchObject({ noRemote: true })
     expect(h.state().runs[0].pr).toBeUndefined()
+  })
+})
+
+describe('W9-I: what each tab did', () => {
+  const card = (taskId: string, title: string, text: string, jobId = 'job_1'): SessionSummary => ({
+    sessionId: `s-${taskId}`,
+    jobId,
+    taskId,
+    text,
+    at: NOW,
+    ...summaryFactsOf({ session: { id: `s-${taskId}`, title }, endedAt: NOW, task: task({ id: taskId, title }), diff: [{ path: 'a.ts' }] })
+  })
+  const cards = [card('t1', 'Add login', 'Added the login form.'), card('t9', 'Elsewhere', 'Other plan.', 'job_2')]
+
+  it("the plan's PR body has a 'What each task did' block from this plan's cards only", async () => {
+    const { call, prs } = setup({ gh: (a) => (a[0] === 'repo' && a[1] === 'view' ? { stdout: 'main\n' } : undefined), summaries: cards, dispatches: [{ id: 'd1', taskId: 't1', cwd: WT, accountId: 'acc1' } as Dispatch] })
+    await call('run-open-pr', { run: 'r1' })
+    expect(prs[0].body).toContain('## What each task did\n\n- **Add login** — Merged. 1 file. Added the login form.')
+    expect(prs[0].body).not.toContain('Elsewhere')
+  })
+
+  it('a PR without cards has no block', async () => {
+    const { call, prs } = setup({ gh: (a) => (a[0] === 'repo' && a[1] === 'view' ? { stdout: 'main\n' } : undefined), dispatches: [{ id: 'd1', taskId: 't1', cwd: WT, accountId: 'acc1' } as Dispatch] })
+    await call('run-open-pr', { run: 'r1' })
+    expect(prs[0].body).not.toContain('What each task did')
+  })
+
+  it('summaries lists, per plan with --job; sessions-summary reads one or answers 404', async () => {
+    const { call } = setup({ summaries: cards })
+    expect(((await call('summaries', {})).body as unknown[]).length).toBe(2)
+    expect(((await call('summaries', { job: 'job_1' })).body as unknown[]).length).toBe(1)
+    expect((await call('sessions-summary', { id: 's-t1' })).body).toMatchObject({ taskId: 't1', text: 'Added the login form.' })
+    expect((await call('sessions-summary', { id: 'nope' })).status).toBe(404)
+    expect((await call('sessions-summary', {})).status).toBe(400)
+  })
+
+  it('a caller that is not the Host answers 409', async () => {
+    expect((await setup().call('summaries', {})).status).toBe(409)
   })
 })

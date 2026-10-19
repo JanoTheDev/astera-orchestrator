@@ -13,6 +13,8 @@
  * On macOS the primary modifier is Cmd (see makeActions). The stored notation is still `Cmd+W`-shaped.
  */
 
+import { KEYED_PAGES } from '../ui/pages'
+
 export type Chord = { ctrl: boolean; shift: boolean; alt: boolean; meta: boolean; code: string }
 
 export type ActionId =
@@ -37,14 +39,25 @@ export type ActionId =
   // W3-B command bar
   | 'command.open'
   | 'command.talk'
+  // W9-D: the search key, an alias of command.open (one box)
+  | 'search.open'
   // W7-F (#84): the quick tab switcher
   | 'tabs.switcher'
+  // W9-E: the New modal (DESIGN §5)
+  | 'new.open'
   // W6-F: open the Nth project workspace
   | `workspace.project${WorkspaceSlot}`
+  // W9-B: Ctrl+1…6 open the top bar's pages
+  | `page.${KeyedPage}`
+  // W9-K: a new window (DESIGN.md §1a)
+  | 'window.new'
 
 /** W6-F: the project workspaces with a key of their own, the first nine in the switcher. */
 export type WorkspaceSlot = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
 export const WORKSPACE_SLOTS: readonly WorkspaceSlot[] = [1, 2, 3, 4, 5, 6, 7, 8, 9]
+
+/** W9-B: the pages with a key of their own (core/ui/pages.ts KEYED_PAGES). */
+export type KeyedPage = (typeof KEYED_PAGES)[number]
 
 export type ActionSpec = {
   id: ActionId
@@ -232,6 +245,12 @@ export function makeActions(platform: string): readonly ActionSpec[] {
       yieldsToTerminal: false
     },
     {
+      id: 'search.open',
+      defaults: [`${M}+Shift+F`],
+      descKey: 'shortcut.search.open',
+      yieldsToTerminal: false
+    },
+    {
       id: 'command.talk',
       defaults: [`${M}+Shift+M`],
       descKey: 'shortcut.command.talk',
@@ -245,6 +264,14 @@ export function makeActions(platform: string): readonly ActionSpec[] {
       descKey: 'shortcut.tabs.switcher',
       yieldsToTerminal: false
     },
+    {
+      // W9-E: the New modal (DESIGN §1 keys). Ctrl+N is readline's next-history, so a focused console keeps it on
+      // win32/linux (as Ctrl+W does); Cmd+N has no competitor on mac.
+      id: 'new.open',
+      defaults: [`${M}+N`],
+      descKey: 'shortcut.new.open',
+      yieldsToTerminal: !mac
+    },
     // W6-F: Ctrl+Alt+1…9 opens the Nth project workspace. Ctrl, not `${M}`, everywhere, as the owner asked; Ctrl+Alt
     // with a digit is no readline or CLI key (riskyReasonKey) and no app shortcut, so it is not yielded either.
     ...WORKSPACE_SLOTS.map(
@@ -255,7 +282,24 @@ export function makeActions(platform: string): readonly ActionSpec[] {
         descParams: { n },
         yieldsToTerminal: false
       })
-    )
+    ),
+    // W9-B: `${M}+1…6`, as the top bar orders the pages. Over a console too: no CLI reads Ctrl+digit.
+    ...KEYED_PAGES.map(
+      (page, i): ActionSpec => ({
+        id: `page.${page}`,
+        defaults: [`${M}+${i + 1}`],
+        descKey: `shortcut.page.${page}`,
+        yieldsToTerminal: false
+      })
+    ),
+    // W9-K: Ctrl+Shift+N opens a new window (DESIGN.md §1a). No readline or CLI key, and not yielded: it is the
+    // window's, as the switcher keys are.
+    {
+      id: 'window.new',
+      defaults: [`${M}+Shift+N`],
+      descKey: 'shortcut.window.new',
+      yieldsToTerminal: false
+    }
   ]
 }
 

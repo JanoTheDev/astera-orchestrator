@@ -9,7 +9,7 @@ running when the MCP client disconnects. An application rather than an agent use
 
 ## What you need
 
-- The `astera` command, installed from **Settings, CLI tab** (see [cli.md](cli.md#install)).
+- The `astera` command, installed from **Settings, Integrations, CLI** (see [cli.md](cli.md#install)).
 - Nothing else for the Job and session tools. `astera mcp serve` connects to the Host of this profile
   and starts one when none answers. It never opens the desktop window.
 - For the six [GitHub tools](#github) only: the GitHub CLI (`gh`) installed on the machine that runs
@@ -24,7 +24,7 @@ agent on another device, the Host can also serve the same tools over HTTP: see
 
 Each client launches the same command: `astera mcp serve`.
 
-**Settings, CLI tab** shows the line for Claude Code, Codex and Cursor under MCP access, already in
+**Settings, Integrations, CLI** shows the line for Claude Code, Codex and Cursor under MCP access, already in
 the form for your operating system, each with a copy button. The lines appear once the command line
 tool is installed; before that the tab says to install it first.
 

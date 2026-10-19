@@ -3,11 +3,11 @@
 .plan-waves { display: flex; flex-direction: column; gap: 10px; }
 .plan-wave { display: flex; flex-direction: column; gap: 6px; padding: 6px 8px 8px; border: 1px solid var(--line-soft); border-radius: 6px; }
 .plan-wave-current { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
-.plan-wave-head { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 12px; font-weight: 600; }
+.plan-wave-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 0; font-size: 12px; font-weight: 600; }
 .plan-wave-count { font-weight: 400; color: var(--text-dim); font-variant-numeric: tabular-nums; }
 .plan-wave-bar { display: block; width: 72px; height: 4px; }
 .plan-wave-bar .plan-progress-fill { display: block; }
-.plan-wave-now { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--accent); }
+.plan-wave-now { flex: none; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--accent); }
 .plan-wave-banner { font-size: 11px; padding: 3px 8px; border-radius: 4px; background: var(--info-bg); border: 1px solid var(--info-line); color: var(--text-dim); }
 .plan-wave-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 6px; align-items: start; }
 .plan-waves .plan-card { min-width: 0; }
@@ -39,6 +39,9 @@
 .plan-talk-phase { margin-left: 6px; font-size: 10px; color: var(--text-faint); }
 .plan-talk-changes { margin: 2px 0 0; padding-left: 16px; color: var(--text-dim); }
 .plan-talk-wait { margin: 2px 0 0; color: var(--text-faint); font-style: italic; }
+.plan-talk-problems { margin: 6px 0; color: var(--danger); }
+.plan-talk-problems p { margin: 0 0 2px; font-weight: 600; }
+.plan-talk-problems ul { margin: 0; padding-left: 18px; }
 .plan-talk-form, .plan-talk-reject { display: flex; gap: 6px; align-items: flex-start; }
 .plan-talk-form textarea, .plan-talk-reject input { flex: 1; min-width: 0; font: inherit; }
 .plan-talk-form textarea { min-height: 44px; resize: vertical; }
@@ -49,3 +52,63 @@
 /* #76: the waves grow with their content; the whole graph half scrolls (not each wave in a tiny nested box) */
 .plan-board.plan-waves { flex: none; overflow: visible; min-height: auto; }
 .detail-graph:has(.plan-waves) { overflow: auto; }
+
+/* ── W9-C Tasks page, Plans page, plan page (DESIGN.md §2) ─────────────────────────────────────────────────────────── */
+/* The pages cover Content and leave it mounted (its terminals keep their state), until W9-B's page switch */
+.workbench:has(> .plan-pages) > .content { display: none; }
+.plan-pages { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 12px; padding: 16px 20px; overflow: auto; background: var(--bg); }
+.plans-head { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.plans-head h1 { margin: 0; font-size: 18px; font-weight: 600; }
+.plans-area { display: flex; align-items: baseline; gap: 10px; margin: 14px 0 4px; font-size: 13px; font-weight: 600; text-transform: capitalize; }
+.plans-area-folders { font-size: 11px; font-weight: 400; text-transform: none; color: var(--text-faint); font-family: var(--font-mono, monospace); }
+.jobs-age { flex: none; font-size: 11px; color: var(--text-faint); }
+
+.plans-overlap { overflow: auto; }
+.plans-overlap table { border-collapse: collapse; font-size: 12px; }
+.plans-overlap th, .plans-overlap td { padding: 5px 10px; border: 1px solid var(--line); text-align: left; white-space: nowrap; }
+.plans-overlap thead th { font-family: var(--font-mono, monospace); font-weight: 500; color: var(--text-dim); }
+.plans-overlap th.shared, .plans-overlap td.shared { background: var(--warn-soft); color: var(--warn); }
+.plans-overlap td.editing { color: var(--accent); }
+.plans-overlap td.done { color: var(--text-faint); }
+
+/* Plan page: the old window's body, full size */
+.plan-page { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+.plan-crumb { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 12px; color: var(--text-dim); }
+.plan-crumb-cur { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plan-crumb-link { padding: 0; border: 0; background: none; color: var(--text-dim); font: inherit; cursor: pointer; }
+.plan-crumb-link:hover { color: var(--accent); }
+.plan-head-actions { flex: none; display: flex; align-items: center; gap: 6px; }
+.plan-page .detail-head h2 { font-size: 18px; margin: 0; }
+.plan-page .detail-body:not(:has(> .detail-events)) { grid-template-rows: minmax(0, 1fr); }
+.plan-page .detail-body:not(:has(> .detail-events)) > .detail-graph { border-bottom: 0; }
+.plan-page .detail-body[data-section='journal'] { grid-template-rows: minmax(0, 1fr); }
+.plan-page .detail-body[data-section='journal'] > .detail-graph { display: none; }
+.plan-page .detail-body[data-section='overview'] > .detail-graph,
+.plan-page .detail-body[data-section='changes'] > .detail-graph { overflow: auto; }
+.plan-sofar h3 { margin: 8px 0 4px; font-size: 13px; }
+
+/* Tasks page */
+.tasks-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.tasks-pill { max-width: 100%; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; border: 1px solid var(--line); border-radius: 12px; background: none; color: var(--text-dim); font: inherit; font-size: 12px; cursor: pointer; }
+.tasks-pill[aria-pressed='true'] { border-color: var(--accent); color: var(--text); background: var(--accent-soft); }
+.tasks-pill-count { font-variant-numeric: tabular-nums; color: var(--text-faint); }
+.tasks-board { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(5, minmax(180px, 1fr)); gap: 10px; overflow: auto; }
+.tasks-col { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.tasks-col-head { display: flex; align-items: center; gap: 6px; margin: 0 0 2px; font-size: 12px; font-weight: 600; color: var(--text-dim); }
+.tasks-col-count { font-weight: 400; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.tasks-card { display: flex; flex-direction: column; align-items: stretch; gap: 4px; width: 100%; min-width: 0; overflow: hidden; text-align: left; font-size: 12px; }
+.tasks-card-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.tasks-card-id { flex: none; font-family: var(--font-mono, monospace); font-size: 10px; color: var(--text-faint); }
+.tasks-card-title { min-width: 0; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.tasks-card-line { display: block; font-size: 11px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tasks-card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 11px; color: var(--text-faint); }
+
+/* The answer form (QuestionAnswer, in the Inbox card and on a Waves card): a full-width box and a Send under it, flat
+   like every other field (W9-F: it was the browser's default textarea, 180px wide). */
+.plan-question { display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
+.plan-question textarea { width: 100%; box-sizing: border-box; resize: vertical; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); color: var(--text); font: inherit; font-size: 12px; }
+.plan-question textarea::placeholder { color: var(--text-faint); }
+.plan-question textarea:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--ring); }
+.plan-question button.primary { align-self: flex-start; padding: 4px 12px; border: 0; border-radius: var(--radius); background: var(--accent); color: var(--accent-ink); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+.plan-question button.primary:disabled { opacity: 0.5; cursor: default; }
+.plan-question button.primary:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--ring); }

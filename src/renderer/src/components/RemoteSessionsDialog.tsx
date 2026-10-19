@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react'
 import { createSessionArgs, refOf, remoteCall, type RemoteSessionRef, type RemoteSessionRow } from '../lib/remoteSessions'
 import { useI18n } from '../i18n/I18nProvider'
 import { Select } from './Select'
-import { backdropProps } from '../lib/backdrop'
+import { Button, Modal } from './ui'
 
 interface RemoteAccount {
   id: string
@@ -111,9 +111,22 @@ export function RemoteSessionsDialog({
   const canStart = !readOnly && !starting && accountId !== '' && cwd !== ''
 
   return (
-    <div className="modal-backdrop" {...backdropProps(() => !starting && onCancel())}>
-      <div className="modal new-session remote-sessions" onClick={(e) => e.stopPropagation()}>
-        <h2>{t('remote.sessions.title')}</h2>
+    <Modal
+      title={t('remote.sessions.title')}
+      onClose={() => !starting && onCancel()}
+      closeLabel={t('common.close')}
+      footer={
+        <>
+          <Button onClick={onCancel} disabled={starting}>
+            {t('common.cancel')}
+          </Button>
+          <Button variant="primary" disabled={!canStart} onClick={() => void start()}>
+            {starting ? t('remote.sessions.starting') : t('remote.sessions.start')}
+          </Button>
+        </>
+      }
+    >
+      <div className="dlg remote-sessions">
         <div className="field">
           <label>{t('remote.sessions.runtime')}</label>
           <Select
@@ -206,15 +219,7 @@ export function RemoteSessionsDialog({
           <textarea value={prompt} disabled={readOnly} rows={3} onChange={(e) => setPrompt(e.target.value)} />
         </div>
         {startError !== null && <p className="warn">{t('remote.session.failed', { message: startError })}</p>}
-        <div className="row right">
-          <button onClick={onCancel} disabled={starting}>
-            {t('common.cancel')}
-          </button>
-          <button className="primary" disabled={!canStart} onClick={() => void start()}>
-            {starting ? t('remote.sessions.starting') : t('remote.sessions.start')}
-          </button>
-        </div>
       </div>
-    </div>
+    </Modal>
   )
 }

@@ -17,6 +17,7 @@
 // **electron·src/main·src/renderer 를 import 하지 않는다.** 두 프로세스가 서로 다른 것은 전부
 // DispatchLoopContext 로 주입받고, 모듈은 `c.*` 를 **부를 때마다** 읽는다 — 짓는 순간의 사본을 쥐지
 // 않는다(C5): 앱과 테스트가 지은 뒤에 칸을 갈아 끼운다.
+import { ENTER_DELAY_MS } from '../../sessions/sessionDriver'
 import type { Lang } from '../../i18n'
 import { t } from '../../i18n'
 import { accountToDispatchOn } from '../../accounts/dispatchAccount'
@@ -25,13 +26,15 @@ import type { Account } from '../../types'
 import { nameForRun, nameForTask } from '../../worktrees/naming'
 import { jobNameOf } from '../jobName'
 import { firesDue } from '../fire'
-import { NO_COORDINATOR_ANSWER, gateAnswersToTell, gateAnsweredSubject, nudgeKey, planNudges, type NudgeMemo, unattendedQuestions, unreadUpwardMail } from '../inbox'
+import { NO_COORDINATOR_ANSWER, gateAnswersToTell, gateAnsweredSubject, nextActionOf, nudgeKey, planNudges, readyReminders, readyWithoutWorker, taskOutcomesToTell, type CoordinatorNotice, type NudgeMemo, unattendedQuestions, unreadUpwardMail } from '../inbox'
 import {
   buildIntegrationSpec,
   integrationTaskFor,
   isIntegrationTask,
   pendingMerges,
+  planMergedSubject,
   runRootOf,
+  wavesToMerge,
   workingInRunRoot,
   worktreeDepsOf
 } from '../integrate'
@@ -51,6 +54,11 @@ import { usageChoice, usagePauseWhy, type UsageGuard } from '../usageGuard'
 import { deliveryOf } from '../delivery'
 // W8-C plan after plan
 import { afterStartsDue, afterSweep } from '../after'
+// Coordinator rotation and finished tabs
+import { createCoordinatorRotation, refreshRunCoordinator } from './coordinatorRotate'
+import { autoAnswerLine, autoAnswersDue, type OpenQuestion } from './autoAnswer'
+import { STALL_WATCH_MS, stallRemedies, startNotice, watchdogActivity, type StallEntry, type StallRemedy } from './stallWatch'
+import type { ActivityDraft } from '../activity'
 
 /** W6-D: a replan whose start left no session after this long died with its process, and is ended. */
 export const REPLAN_START_WINDOW_MS = 5 * 60_000
@@ -159,6 +167,19 @@ export interface DispatchLoopContext {
    *  prompt a spawn or a roll types, or a terminal's own reports. In memory, so a restart forgets it.
    *  Optional: without it the grace counts from the Run's finish alone. */
   lastPersonInputAt?(sessionId: string): number | null
+  /** Coordinator rotation: a session's statusLine context reading, 0-100, or null when it has none. Optional: without
+   *  it a coordinator is refreshed at wave boundaries only. */
+  sessionContextPct?(sessionId: string): number | null | Promise<number | null>
+  /** Coordinator rotation: the "Fresh coordinator at context (%)" setting, 0 for off. */
+  freshCoordinatorPct?(): number | Promise<number>
+  /** Stall watchdog (stallWatch.ts): the "Watch for stalled plans" setting. Optional: without it there is no watchdog
+   *  (the Host wires it; the app's own loop has none). */
+  stallWatch?(): boolean | Promise<boolean>
+  /** T21: the "Answer questions automatically" setting (autoAnswer.ts). Optional: without it nothing is auto-answered
+   *  (the Host wires it beside the watchdog; the app's own loop has none). */
+  autoAnswer?(): boolean | Promise<boolean>
+  /** A feed line no commit makes (the watchdog's), recorded by the Host's activity log. Optional: without it a log line. */
+  activity?(d: ActivityDraft): void
   /** Asked on entry and again before each slot (§4.3). */
   mayStart(): boolean
   /** W6-G: the usage guard (usageGuard.ts), refreshed before each slot. Optional: without it no usage pause. */
@@ -188,13 +209,23 @@ export interface DispatchLoop {
    * answer, 409 with the reason, and the person decides. The caller (the command layer) has already
    * refused a Run that is paused, not running or coordinator-driven.
    */
-  dispatchOne(taskId: string): Promise<{ status: number; body: unknown }>
+  dispatchOne(taskId: string, opts?: { overCoordinator?: boolean }): Promise<{ status: number; body: unknown }>
   fireTick(): Promise<void>
   nudge(): Promise<void>
   /** W7-C (#73): a usage pause ended (`usage.resumed`, usageGuard.ts). Each live coordinator-driven Run with ready
    *  Tasks gets a `status` message in its inbox, which wakes its `check --wait`, so it retries its held worker-starts
    *  now rather than at the window's reset. App-placed Runs need nothing: the loop's next pass places them itself. */
   usageResumed(accountId: string): Promise<void>
+  /** Push, not poll: posts one message into a coordinator's Run inbox (a `status` with the notice's subject, its mark),
+   *  which the next nudge types into the idle session. Never throws; false when the send was refused or failed. */
+  tell(n: CoordinatorNotice): Promise<boolean>
+  /** Part 2 of the owner's 2026-10-18 spec: a merge worker for a finished Task whose branch did not merge into its plan
+   *  branch. Makes the merge Task (task-create, `parent` = that Task) once and starts it with `worker-start` in the
+   *  Run's worktree; a merge Task that failed opens a Gate for the owner instead. For a stall watchdog too. */
+  startMergeWorker(a: { runId: string; taskId: string; reason: string; worktrees: { path: string; branch: string | null }[] }): Promise<void>
+  /** Stall watchdog (stallWatch.ts): at most once per `STALL_WATCH_MS`, the remedies due, each with its feed line. Run
+   *  from the nudge tick; never throws. */
+  watchStalls(): Promise<void>
   /** Drops the schedule arming, so the next fireTick only arms (D2, R17). */
   forgetArming(): void
   /** firesDue's arm half only: re-arms every template and fires nothing (N3). The app calls it on its
@@ -572,19 +603,23 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       if (done === null || draftAsked.has(`${run.id}:${done}`)) continue
       if (!c.mayStart()) return
       draftAsked.add(`${run.id}:${done}`)
-      try {
-        const r = await c.handle('run-draft-pr', { run: run.id })
-        const body = r.body as { url?: unknown; message?: unknown; opened?: unknown } | null
-        log(
-          r.status >= 400
-            ? `run=${run.id}: its draft pull request after wave ${done} was not updated: ${JSON.stringify(r.body)}`
-            : typeof body?.message === 'string'
-              ? `run=${run.id}: no draft pull request: ${body.message}`
-              : `run=${run.id}: draft pull request ${body?.opened === true ? 'opened' : 'updated'} after wave ${done}: ${String(body?.url)}`
-        )
-      } catch (e) {
-        log(`run=${run.id}: updating its draft pull request failed: ${String(e)}`)
+      log((await askDraftPr(run.id, done)).line)
+    }
+  }
+  /** One `run-draft-pr`, as its log line; `ok` when it opened or updated the draft. Never throws. */
+  const askDraftPr = async (runId: string, done: number): Promise<{ ok: boolean; line: string }> => {
+    try {
+      const r = await c.handle('run-draft-pr', { run: runId })
+      const body = r.body as { url?: unknown; message?: unknown; opened?: unknown } | null
+      if (r.status >= 400)
+        return { ok: false, line: `run=${runId}: its draft pull request after wave ${done} was not updated: ${JSON.stringify(r.body)}` }
+      if (typeof body?.message === 'string') return { ok: false, line: `run=${runId}: no draft pull request: ${body.message}` }
+      return {
+        ok: true,
+        line: `run=${runId}: draft pull request ${body?.opened === true ? 'opened' : 'updated'} after wave ${done}: ${String(body?.url)}`
       }
+    } catch (e) {
+      return { ok: false, line: `run=${runId}: updating its draft pull request failed: ${String(e)}` }
     }
   }
 
@@ -630,6 +665,18 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
    *  pass only on commits and a stop to retry, a mark to drop or a grace that ran out comes due with
    *  nothing committed. One at a time: a second call while one is under way does nothing, and the backoff
    *  keeps the next one from repeating a stop just sent. */
+  // Coordinator rotation and finished tabs (coordinatorRotate.ts): reads `c` at each call, as this module does
+  const rotation = createCoordinatorRotation({
+    handle: (cmd, args) => c.handle(cmd, args),
+    getState: () => c.getState(),
+    sessionAlive: (id) => c.sessionAlive(id),
+    lastPersonInputAt: (id) => c.lastPersonInputAt?.(id) ?? null,
+    sessionContextPct: (id) => c.sessionContextPct?.(id) ?? null,
+    freshCoordinatorPct: () => c.freshCoordinatorPct?.() ?? 0,
+    mayStart: () => c.mayStart(),
+    log,
+    nowMs: () => c.nowMs()
+  })
   let tidying = false
   const tidyCoordinators = async (): Promise<void> => {
     if (tidying) return
@@ -652,7 +699,14 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       if (!c.mayStart()) return
       await stopFinishedCoordinators()
       if (!c.mayStart()) return
+      // A running plan's finished workers and reviewers. Before the finished Runs' release, so a Run that finishes
+      // inside this pass is that one's alone, under its grace, and no session is released twice in one pass
+      await rotation.releaseFinished()
+      if (!c.mayStart()) return
       await releaseIdleWorkers()
+      if (!c.mayStart()) return
+      // The coordinator's refresh, after the replans above
+      await rotation.rotate()
     } finally {
       tidying = false
     }
@@ -820,6 +874,13 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       // 하나씩 늘리게 되고 그것은 경계가 없다. 보이는 정지가 조용한 쌓임보다 낫다(실패한
       // Task 는 그래프에 그대로 남고, 거기서 다시 띄우는 것이 사람의 길이다).
       const existing = integrationTaskFor(state, slot.taskId)
+      // Only when the merge worker itself failed is it the owner's (owner spec 2026-10-18, part 2).
+      if (existing?.status === 'failed')
+        return {
+          kind: 'gate',
+          reason: `통합 Task(${existing.id})가 실패해 워크트리를 합치지 못했습니다.`,
+          why: `its integration task ${existing.id} failed, so the worktrees it depends on are not merged`
+        }
       if (existing && existing.status !== 'completed') {
         log(
           `scheduler: task=${slot.taskId} waits for integration task=${existing.id} (${existing.status})`
@@ -864,6 +925,9 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
           // 두 번 만들지 않는다(integrate.ts 의 integrationTaskFor).
           parent: slot.taskId,
           deps: worktreeDepsOf(state, slot.taskId),
+          // task-create requires an account; the merge runs on the waiting Task's, and is not reviewed
+          account: (task.accountIds ?? []).join(','),
+          noReview: true,
           // 제목은 그래프에 뜨므로 사람의 말(한국어)이고 — 같은 파일의 Gate 질문이
           // 그렇다 — spec 본문은 에이전트가 읽으므로 영어다(buildSpecFile 의 의무 절과
           // 같은 이유). 둘 다 i18n 카탈로그에 넣지 않는다: 그 카탈로그는 렌더러의 문구를
@@ -1148,7 +1212,8 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     }
   }
 
-  const dispatchOne = async (taskId: string): Promise<{ status: number; body: unknown }> => {
+  // `overCoordinator`: the stall watchdog's start of a ready Task its coordinator left unstarted after being told
+  const dispatchOne = async (taskId: string, opts?: { overCoordinator?: boolean }): Promise<{ status: number; body: unknown }> => {
     const refuse = (error: string): { status: number; body: unknown } => ({ status: 409, body: { error } })
     while (scheduling) await new Promise<void>((resolve) => idleWaiters.push(resolve))
     scheduling = true
@@ -1173,7 +1238,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       const run = s.runs.find((r) => r.id === task.runId)
       const job = run ? jobOf(s, run) : undefined
       if (!run) return refuse(`task ${taskId} names a run that is gone`)
-      if (run.coordinatorSessionId !== undefined || coordinatorStarting(run, c.nowMs()))
+      if ((run.coordinatorSessionId !== undefined && opts?.overCoordinator !== true) || coordinatorStarting(run, c.nowMs()))
         return refuse(`run ${run.id} is driven by its coordinator, which places its tasks`)
       if (run.paused === true || job?.paused === true) return refuse(`run ${run.id} is paused`)
       // W5-C: held from launching meanwhile (jobs-hold)
@@ -1292,10 +1357,27 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     // 표시는 이 틱이 맡는다. tidyCoordinators 는 던지지 않는다.
     await tidyCoordinators()
     if (!c.mayStart()) return
+    // Before telling Gate answers, so the coordinator hears an auto-answer in this same tick
+    await autoAnswer()
+    if (!c.mayStart()) return
     await tellGateAnswers()
     if (!c.mayStart()) return
+    await mergeWaves()
+    if (!c.mayStart()) return
+    await tellNotices()
+    if (!c.mayStart()) return
+    // Before the nudges, so what the watchdog tells is typed in this tick
+    await watchStalls()
+    if (!c.mayStart()) return
     const before = nudgeMemo
-    const planned = planNudges(unreadUpwardMail(c.getState(), { nowMs: c.nowMs(), staleMs: COORDINATOR_NUDGE_MS }), before, c.nowMs())
+    // Push, not poll (2026-10-18): a coordinator at its prompt (idle) waits for no `check --wait`, so its new mail is
+    // typed at the next tick. COORDINATOR_NUDGE_MS is kept only for a session whose state cannot be told.
+    const s = c.getState()
+    const mail = [
+      ...unreadUpwardMail(s, { nowMs: c.nowMs(), staleMs: 0 }).filter((m) => c.sessionBusy(m.sessionId) === false),
+      ...unreadUpwardMail(s, { nowMs: c.nowMs(), staleMs: COORDINATOR_NUDGE_MS }).filter((m) => c.sessionBusy(m.sessionId) === null)
+    ]
+    const planned = planNudges(mail, before, c.nowMs())
     nudgeMemo = planned.memo
     // A nudge not typed is not remembered as one: the next tick may type it.
     const notTyped = (m: { runId: string; sessionId: string }): void => {
@@ -1319,8 +1401,11 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       c.typeInto(
         m.sessionId,
         `Your Run has ${m.messageIds.length} unread message(s). Run \`astera check --json\`, ` +
-          'handle them, ack the batch, then go back to `astera check --wait`.'
+          'handle them, ack the batch, then end your turn: the next message wakes you.'
       )
+      // Enter in the same burst as the text is read as part of the paste and only adds a line (2026-10-19:
+      // six nudges piled up unsent in a coordinator's input box); the paste-then-Enter gap every other typist uses
+      await new Promise((r) => setTimeout(r, ENTER_DELAY_MS))
       c.typeInto(m.sessionId, '\r')
       log(`coordinator nudged run=${m.runId} session=${m.sessionId} unread=${m.messageIds.length}`)
     }
@@ -1348,6 +1433,181 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
         log(`run=${g.runId}: the gate-answered message failed: ${String(e)}`)
       }
     }
+  }
+
+  // T21: the open questions Astera answers itself (autoAnswer.ts), each through `questions-answer` with one feed line.
+  // A question tried once is not tried again in this process: a refusal is the owner's to see, not to repeat.
+  const autoTried = new Set<string>()
+  const autoAnswer = async (): Promise<void> => {
+    if (c.autoAnswer === undefined) return
+    try {
+      if (!(await c.autoAnswer())) return
+      const listed = await c.handle('questions-list', { status: 'open' })
+      if (listed.status >= 400 || !Array.isArray(listed.body)) return
+      const open = (listed.body as OpenQuestion[]).filter((q) => !autoTried.has(q.id))
+      for (const a of autoAnswersDue(c.getState(), open, c.nowMs())) {
+        if (!c.mayStart()) return
+        autoTried.add(a.id)
+        const q = open.find((x) => x.id === a.id)!
+        const r = await c.handle('questions-answer', { id: a.id, answer: a.answer })
+        if (r.status >= 400) {
+          log(`run=${q.runId}: auto-answer of ${a.id} was refused: ${JSON.stringify(r.body)}`)
+          continue
+        }
+        const line = autoAnswerLine(c.getState(), q, a)
+        log(`run=${q.runId}: ${line}`)
+        try {
+          c.activity?.({ ...watchdogActivity(c.getState(), q.runId, line, q.taskId || undefined), type: 'question.auto-answered' })
+        } catch (e) {
+          log(`run=${q.runId}: the auto-answer feed line could not be recorded: ${String(e)}`)
+        }
+      }
+    } catch (e) {
+      log(`auto-answer: the pass failed: ${String(e)}`)
+    }
+  }
+
+  // DispatchLoop.tell
+  const tell = async (n: CoordinatorNotice): Promise<boolean> => {
+    try {
+      const r = await c.handle('send', { type: 'status', taskId: n.taskId, subject: n.subject, body: n.body })
+      if (r.status < 400) return true
+      log(`run=${n.runId}: the "${n.subject}" message was refused: ${JSON.stringify(r.body)}`)
+    } catch (e) {
+      log(`run=${n.runId}: the "${n.subject}" message failed: ${String(e)}`)
+    }
+    return false
+  }
+
+  // Push, not poll: a finished Task (with the next ready ones named), then a ready Task left without a worker for a
+  // minute while its coordinator is idle. Each told once (inbox.ts).
+  const tellNotices = async (): Promise<void> => {
+    for (const n of taskOutcomesToTell(c.getState(), c.nowMs())) await tell(n)
+    const s = c.getState()
+    for (const n of readyReminders(s, c.nowMs(), (id) => c.sessionBusy(id) === false)) await tell(n)
+  }
+
+  // Part 2: a coordinator-driven Run's finished worktree Tasks go into its plan branch (integrate.ts wavesToMerge). One
+  // merge at a time per Run root, never under a worker working there (workingInRunRoot, as the slot's merge).
+  const mergeWaves = async (): Promise<void> => {
+    // A merge Task left ready (its start was refused) is started again; one that failed goes to the owner.
+    const pre = c.getState()
+    for (const m of pre.tasks) {
+      const run = pre.runs.find((r) => r.id === m.runId)
+      if (!m.parentId || !run || run.coordinatorSessionId === undefined || (m.status !== 'ready' && m.status !== 'failed')) continue
+      if (!c.mayStart()) return
+      await startMergeWorker({ runId: run.id, taskId: m.parentId, reason: 'the merge worker failed', worktrees: [] })
+    }
+    for (const w of wavesToMerge(c.getState(), (p) => c.isRegisteredWorktree(p))) {
+      if (!c.mayStart()) return
+      if (workingInRunRoot(c.getState(), w.runId)) continue
+      await mergeIntoPlan(w)
+    }
+  }
+
+  /** One completed Task's worktree into its plan branch: merged, it is recorded on the Task (`mergedIntoPlanAt`) and
+   *  told; not, a merge worker takes it. The integration's answer, or what stopped it. Never throws. */
+  const mergeIntoPlan = async (w: { runId: string; taskId: string; runRoot: string; worktree: string }): Promise<Integration> => {
+    let result: Integration
+    try {
+      result = await c.integrate(w.runRoot, [w.worktree])
+    } catch (e) {
+      result = { kind: 'human', reason: String(e) }
+    }
+    if (result.kind === 'merged') {
+      try {
+        const r = await c.handle('task-update', { id: w.taskId, mergedIntoPlan: true })
+        if (r.status >= 400) log(`run=${w.runId}: task=${w.taskId}'s merge was not recorded: ${JSON.stringify(r.body)}`)
+      } catch (e) {
+        log(`run=${w.runId}: recording task=${w.taskId}'s merge failed: ${String(e)}`)
+      }
+      await tell({
+        runId: w.runId,
+        taskId: w.taskId,
+        subject: planMergedSubject(w.taskId),
+        body: `${w.taskId}'s branch is merged into the plan branch (${w.runRoot}).\n\n${nextActionOf(c.getState(), w.runId)}`
+      })
+      return result
+    }
+    log(`run=${w.runId}: task=${w.taskId} did not merge into ${w.runRoot}: ${result.reason}`)
+    try {
+      await startMergeWorker({
+        runId: w.runId,
+        taskId: w.taskId,
+        reason: result.reason,
+        worktrees: result.kind === 'agent' ? result.worktrees : [{ path: w.worktree, branch: null }]
+      })
+    } catch (e) {
+      log(`run=${w.runId}: the merge worker for task=${w.taskId} failed to start: ${String(e)}`)
+    }
+    return result
+  }
+
+  // DispatchLoop.startMergeWorker. The merge Task is told to the coordinator as it starts and as it fails; it is a
+  // normal worker (worker-start), in the Run's worktree, on the merged Task's first account.
+  const startMergeWorker = async (a: {
+    runId: string
+    taskId: string
+    reason: string
+    worktrees: { path: string; branch: string | null }[]
+  }): Promise<void> => {
+    let s = c.getState()
+    const run = s.runs.find((r) => r.id === a.runId)
+    const forTask = s.tasks.find((t) => t.id === a.taskId)
+    if (!run || !forTask) return
+    const runRoot = runRootOf(run, jobOf(s, run))
+    let merge = integrationTaskFor(s, a.taskId)
+    if (merge?.status === 'failed') {
+      // The merge worker could not do it: now it is the owner's. The Gate goes on the failed merge Task (failed ->
+      // blocked), so it is opened once; the owner's answer readies the Task and the next tick starts it again.
+      await gateSlot(merge.id, `${a.taskId} 의 브랜치를 계획 브랜치(${runRoot})에 합치지 못했고, 병합 워커도 실패했습니다: ${a.reason}`)
+      return
+    }
+    if (merge && merge.status !== 'ready') return
+    if (!merge) {
+      const created = await c.handle('task-create', {
+        runId: a.runId,
+        parent: a.taskId,
+        deps: [],
+        account: (forTask.accountIds ?? []).join(','),
+        noReview: true,
+        title: `워크트리 병합: ${forTask.title}`.slice(0, 80),
+        spec: buildIntegrationSpec({ mergeInto: runRoot, reason: a.reason, worktrees: a.worktrees })
+      })
+      if (created.status >= 400) {
+        log(`run=${a.runId}: the merge task for task=${a.taskId} could not be made: ${JSON.stringify(created.body)}`)
+        return
+      }
+      s = c.getState()
+      merge = integrationTaskFor(s, a.taskId)
+      if (!merge) return
+    }
+    if (s.dispatches.some((d) => d.taskId === merge!.id && !d.outcome && !d.endedAt)) return
+    const account = (await c.accounts()).find((x) => x.id === merge!.accountIds?.[0])
+    if (!account) {
+      await gateSlot(merge.id, t(c.lang(), 'jobs.gate.assignedAccountUnusable'))
+      return
+    }
+    const reply = await c.handle('worker-start', {
+      task: merge.id,
+      agent: providerOf(account),
+      account: account.id,
+      worktree: runRoot
+    })
+    // Refused (the Run's cap, a pause): the merge Task stays ready and the next tick starts it again.
+    if (reply.status >= 400) {
+      log(`run=${a.runId}: the merge worker for task=${a.taskId} did not start: ${JSON.stringify(reply.body)}`)
+      return
+    }
+    await tell({
+      runId: a.runId,
+      taskId: merge.id,
+      subject: `merge worker ${merge.id} started`,
+      body:
+        `${a.taskId}'s branch did not merge into the plan branch (${runRoot}): ${a.reason}\n\n` +
+        `Astera started merge worker ${merge.id} to resolve it. Do not start workers that work in the plan branch until it ` +
+        'reports; the next message says how it ended.'
+    })
   }
 
   // W7-C (#73): see DispatchLoop.usageResumed. Ready Tasks of a Run a coordinator places are the ones its refused
@@ -1378,12 +1638,153 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     }
   }
 
+  // DispatchLoop.watchStalls (stallWatch.ts): the detection is pure; here each remedy is applied and gets one feed line
+  let stallMemo: Map<string, StallEntry> = new Map()
+  let stallAt = -Infinity
+  let watching = false
+  const watchStalls = async (): Promise<void> => {
+    if (c.stallWatch === undefined || watching || c.nowMs() - stallAt < STALL_WATCH_MS) return
+    watching = true
+    stallAt = c.nowMs()
+    try {
+      if (!(await c.stallWatch())) {
+        stallMemo = new Map()
+        return
+      }
+      const planned = stallRemedies(c.getState(), c.nowMs(), stallMemo, {
+        busy: (id) => c.sessionBusy(id),
+        isRegistered: (p) => c.isRegisteredWorktree(p),
+        paused: (id) => (c.usageGuard?.pauseOf(id) ?? null) !== null
+      })
+      stallMemo = planned.memo
+      for (const r of planned.due) {
+        if (!c.mayStart()) return
+        try {
+          await applyRemedy(r)
+        } catch (e) {
+          log(`run=${r.runId}: watchdog: ${r.kind} failed: ${String(e)}`)
+        }
+      }
+    } catch (e) {
+      log(`watchdog: the check failed: ${String(e)}`)
+    } finally {
+      watching = false
+    }
+  }
+  /** The feed line (and its log line) of one watchdog action. */
+  const watchdogLine = (runId: string, reason: string, taskId?: string): void => {
+    log(`run=${runId}: watchdog: ${reason}`)
+    try {
+      c.activity?.(watchdogActivity(c.getState(), runId, `${reason[0].toUpperCase()}${reason.slice(1)}`, taskId))
+    } catch (e) {
+      log(`run=${runId}: watchdog: the feed line could not be recorded: ${String(e)}`)
+    }
+  }
+  const mins = (ms: number): number => Math.max(1, Math.round(ms / 60_000))
+  const applyRemedy = async (r: StallRemedy): Promise<void> => {
+    switch (r.kind) {
+      case 'tell-start': {
+        const account = (await c.accounts()).find((a) => a.id === r.task.accountIds?.[0])
+        const ok = await tell(startNotice(r.runId, r.task, r.since, account ? providerOf(account) : 'claude'))
+        watchdogLine(
+          r.runId,
+          ok
+            ? `told the coordinator to start ${r.task.title}: ready ${mins(c.nowMs() - r.since)} min with a free slot and no worker`
+            : `${r.task.title} is ready ${mins(c.nowMs() - r.since)} min with no worker, and the coordinator could not be told`,
+          r.task.id
+        )
+        return
+      }
+      case 'place': {
+        const reply = await dispatchOne(r.task.id, { overCoordinator: true })
+        if (reply.status >= 400) {
+          const why = (reply.body as { error?: unknown } | null)?.error
+          watchdogLine(r.runId, `could not start ${r.task.title}: ${typeof why === 'string' ? why : JSON.stringify(reply.body)}`, r.task.id)
+          return
+        }
+        watchdogLine(r.runId, `started ${r.task.title}, the coordinator had not in ${mins(c.nowMs() - r.since)} min`, r.task.id)
+        await tell({
+          runId: r.runId,
+          taskId: r.task.id,
+          subject: `watchdog: task ${r.task.id} started by Astera`,
+          body:
+            `${r.task.id} (${r.task.title}) stayed ready with a free slot after you were told, so Astera started its worker. ` +
+            `Do not start it again; its report comes to you as usual.\n\n${nextActionOf(c.getState(), r.runId)}`
+        })
+        return
+      }
+      case 'tell-busy': {
+        const ok = await tell({
+          runId: r.runId,
+          taskId: readyWithoutWorker(c.getState(), r.runId)[0]?.id ?? '',
+          subject: `watchdog: coordinator busy since ${new Date(r.since).toISOString()}`,
+          body:
+            `You have been busy for ${mins(c.nowMs() - r.since)} minutes without starting a worker, opening a Gate or sending ` +
+            `a message, and there is work waiting:\n\n${nextActionOf(c.getState(), r.runId)}\n\n` +
+            'Start it, or end your turn: the next message wakes you. A coordinator still stuck in 5 minutes is replaced.'
+        })
+        watchdogLine(
+          r.runId,
+          ok
+            ? `the coordinator was busy ${mins(c.nowMs() - r.since)} min with nothing started; told it what is ready`
+            : `the coordinator is busy ${mins(c.nowMs() - r.since)} min with nothing started, and could not be told`
+        )
+        return
+      }
+      case 'refresh': {
+        // A refresh is its own feed line (activity.ts coordinator.refreshed, with this reason): only a failure adds one
+        const reply = await refreshRunCoordinator(c, r.runId, `watchdog: busy ${mins(c.nowMs() - r.since)} min, nothing started`)
+        if (reply.status >= 400)
+          watchdogLine(r.runId, `the coordinator is stuck ${mins(c.nowMs() - r.since)} min and could not be replaced: ${JSON.stringify(reply.body)}`)
+        else log(`run=${r.runId}: watchdog: replaced the coordinator ${r.sessionId}, busy ${mins(c.nowMs() - r.since)} min with nothing started`)
+        return
+      }
+      case 'merge': {
+        // Not under a worker working in the plan branch: forgotten, so a later check tries again
+        if (workingInRunRoot(c.getState(), r.runId)) {
+          stallMemo.delete(r.key)
+          return
+        }
+        const result = await mergeIntoPlan({ runId: r.runId, taskId: r.task.id, runRoot: r.runRoot, worktree: r.worktree })
+        if (result.kind === 'merged') {
+          watchdogLine(r.runId, `merged ${r.task.title} into the plan branch; it had waited since it completed`, r.task.id)
+          return
+        }
+        const merge = integrationTaskFor(c.getState(), r.task.id)
+        const s = c.getState()
+        const started = merge !== undefined && s.dispatches.some((d) => d.taskId === merge.id && !d.outcome && !d.endedAt)
+        watchdogLine(
+          r.runId,
+          started
+            ? `${r.task.title} did not merge into the plan branch (${result.reason}); started merge worker ${merge.id}`
+            : `could not merge ${r.task.title} into the plan branch, and no merge worker started: ${result.reason}`,
+          r.task.id
+        )
+        return
+      }
+      case 'draft-pr': {
+        const { ok, line } = await askDraftPr(r.runId, r.done)
+        log(line)
+        watchdogLine(
+          r.runId,
+          ok
+            ? `the draft PR after wave ${r.done} had not been opened or updated; it is now`
+            : `the draft PR after wave ${r.done} is still not opened or updated: ${line.replace(/^run=\S+: /, '')}`
+        )
+        return
+      }
+    }
+  }
+
   return {
     run: runScheduler,
     dispatchOne,
     fireTick: orchFireTick,
     nudge: nudgeSleepingCoordinators,
     usageResumed,
+    tell,
+    startMergeWorker,
+    watchStalls,
     /** 운전하지 않는 동안에는 **무장을 들고 있지 않고 버린다.** 들고 있으면 서 있지 않던 동안 지나간
      *  시각이 그대로 남아, 다시 서는 순간 그 시각들이 한꺼번에 발화한다 — 09:00 예약이 15:00 에 도는
      *  것이고, 아무도 그 시각을 잡지 않았다. 놓친 발화는 버리는 것이 이 기능의 결정이므로(설계 2·5절)

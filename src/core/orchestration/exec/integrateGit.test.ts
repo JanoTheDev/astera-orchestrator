@@ -93,6 +93,28 @@ describe('integrateWorktrees — the rules of the one automatic writer into a re
     expect(ops).toEqual([`begin job-merge ${repo}`, 'end op1', `begin job-merge ${repo}`, 'end op3'])
     expect(reaped).toEqual([a, b])
   })
+  // Owner spec 2026-10-18, part 2: a worker committed its node_modules link (a `node_modules/` rule does not match a
+  // symlink), and the folder merged into has its own untracked one. git refuses that merge; it must go through.
+  it('an untracked node_modules symlink in the folder does not block the merge', async () => {
+    const target = await tempDir('astera-integrate-nm-')
+    const a = await forkWorktree({ repoPath: repo, name: 'a' }, { registry, log: logTo() })
+    await fs.symlink(target, path.join(a, 'node_modules'))
+    await fs.writeFile(path.join(a, 'a.txt'), 'a')
+    gitSync(a, ['add', 'a.txt', 'node_modules']); gitSync(a, ['commit', '-m', 'a with its link'])
+    await fs.symlink(target, path.join(repo, 'node_modules'))
+    const r = await integrateWorktrees(repo, [a], {}, ctx())
+    expect(r.kind).toBe('merged')
+    await expect(fs.stat(path.join(repo, 'a.txt'))).resolves.toBeTruthy()
+    expect((await fs.lstat(path.join(repo, 'node_modules'))).isSymbolicLink()).toBe(true)
+    expect((await fs.readdir(repo)).filter((n) => n.includes('astera-aside'))).toEqual([])
+  })
+  it('an untracked file git does not ignore still stops the merge, and stays where it was', async () => {
+    const a = await worked('a', 'mine.txt', 'theirs')
+    await fs.writeFile(path.join(repo, 'mine.txt'), 'the owner\'s')
+    const r = await integrateWorktrees(repo, [a], {}, ctx())
+    expect(r.kind).toBe('human')
+    expect(await fs.readFile(path.join(repo, 'mine.txt'), 'utf8')).toBe("the owner's")
+  })
   // W6-H: a delivery's merges carry its message (`Fixes #n`), also where git would have fast-forwarded
   it('makes a merge commit with the message a delivery gives, never a fast-forward', async () => {
     const a = await worked('a')
@@ -578,5 +600,31 @@ describe.runIf(process.platform === 'win32')('run-delete removal of a worktree h
     expect(await d.removeWorktrees([a])).toEqual({ failed: [], uncommitted: 0 })
     await expect(fs.stat(a)).rejects.toThrow()
     expect(await fs.readFile(path.join(outside, 'keep.txt'), 'utf8')).toBe('precious')
+  })
+})
+
+// W8-A commit attribution
+describe('integrateWorktrees writes the attribution into its merge commits (W8-A)', () => {
+  const NOTE = { v: 1, tool: 'astera', job: 'job_1', task: 'tsk_1', session: 's', agent: 'claude', model: 'opus', account: 'a', role: 'worker' } as const
+  const note = (wt: string): void => {
+    gitSync(wt, ['notes', '--ref', 'refs/notes/astera', 'add', '-f', '-m', JSON.stringify(NOTE), 'HEAD'])
+  }
+
+  it('a delivery merge carries the Wave 8 trailers and the repository gets the notes config', async () => {
+    const a = await worked('a')
+    note(a)
+    const r = await integrateWorktrees(repo, [a], { message: 'Deliver plan: P' }, ctx())
+    expect(r.kind).toBe('merged')
+    expect(gitSync(repo, ['log', '-1', '--format=%B'])).toBe('Deliver plan: P\n\nAstera-Job: job_1\nAstera-Task: tsk_1\nAI-Agent: claude/opus')
+    expect(gitSync(repo, ['config', 'notes.rewrite.rebase'])).toBe('true')
+  })
+
+  it('a merge with no message that writes a commit carries them too; an unnoted branch keeps git’s own message', async () => {
+    const a = await worked('a'); const b = await worked('b')
+    note(b)
+    await integrateWorktrees(repo, [a, b], {}, ctx())
+    const last = gitSync(repo, ['log', '-1', '--format=%B'])
+    expect(last).toMatch(/^Merge branch '.+'\n\nAstera-Job: job_1\nAstera-Task: tsk_1\nAI-Agent: claude\/opus$/)
+    expect(gitSync(repo, ['log', '--format=%s', '-3'])).not.toContain('Astera-Job')
   })
 })

@@ -1,0 +1,85 @@
+/* ---------- explorer / editor mode ---------- */
+.session-view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+/* flex: none, not 1 — the editor moved into the panes, so all that is left in here is the Run console,
+   whose height is its own. Left at 1 it would split the surface with .session-view and halve the grid */
+/* Run 콘솔과 그 리사이저의 자리. 탐색기 전용이던 시절의 이름(.explorer-view)을 버렸다 — 콘솔은
+   탐색기가 아니라 프로젝트의 것이고, Jobs 페인에서도 같은 자리에 붙는다. */
+.run-host { flex: none; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+
+/* ---------- project Run/Stop — RunToolbar and workbench wiring ---------- */
+/* The body of whatever a pane's workbench slot holds — the editor, and now the How It Works record
+   detail too (RecordDetailHost wraps itself in this class for the same reason). It lives inside a
+   pane's slot rather than under the run console's host, and the rule is unchanged because the slot is
+   a column flex box just as that host is */
+.workbench-body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.run-toolbar { flex: none; display: flex; align-items: center; gap: 6px; padding: 0 8px; border-left: 1px solid var(--line); background: var(--panel); position: relative; }
+/* The toolbar's configuration pill and its menu. The menu's group headings and rows deliberately
+   match .rtp-group / .rtp-item — the kind picker, the reference picker and this are the same kind of
+   list seen in three places, and they should not each drift to their own size. */
+.rcmenu { position: relative; flex: 0 1 220px; min-width: 150px; }
+.rcmenu-pill { display: flex; align-items: center; gap: 6px; width: 100%; box-sizing: border-box; background: var(--bg); border: 1px solid var(--line-soft); border-radius: var(--radius); color: var(--text); font-size: 12px; padding: 4px 6px; cursor: pointer; }
+.rcmenu-pill:hover { background: var(--elevated); }
+.rcmenu-pill .fi { flex: none; }
+.rcmenu-pill-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.rcmenu-live { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--ok); }
+.rcmenu-count { flex: none; font-size: 11px; color: var(--text-dim); }
+.rcmenu-menu { position: absolute; top: calc(100% + 5px); left: 0; z-index: 20; min-width: 260px; width: max-content; max-width: 380px; max-height: 60vh; overflow-y: auto; background: var(--panel); border: 1px solid var(--line-soft); border-radius: var(--radius-lg); padding: 6px; box-shadow: var(--shadow-lg); display: flex; flex-direction: column; gap: 1px; }
+.rcmenu-group { flex: none; font-size: 10.5px; color: var(--text-faint); padding: 6px 6px 2px; text-transform: uppercase; letter-spacing: .05em; }
+.rcmenu-row { flex: none; display: flex; align-items: center; gap: 2px; border-radius: var(--radius); }
+.rcmenu-row:hover { background: var(--elevated); }
+.rcmenu-row.on { background: var(--elevated); }
+/* The keyboard cursor is not the selection — one says "you are pointing at this", the other "this is
+   what the pill shows" — so it gets a mark of its own rather than reusing .on's fill. */
+.rcmenu-row.cursor { box-shadow: inset 2px 0 0 var(--accent); }
+.rcmenu-pick { flex: 1; min-width: 0; display: flex; align-items: center; gap: 7px; background: transparent; border: 0; border-radius: var(--radius); padding: 4px 8px; font-size: 12px; color: var(--text); text-align: left; cursor: pointer; }
+.rcmenu-pick .fi { flex: none; }
+.rcmenu-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rcmenu-tag { flex: none; font-size: 10px; color: var(--text-faint); border: 1px solid var(--line-soft); border-radius: var(--radius-sm); padding: 0 4px; white-space: nowrap; }
+.rcmenu-status { flex: none; margin-left: auto; padding-left: 8px; font-size: 11px; color: var(--text-faint); white-space: nowrap; }
+.rcmenu-status.live { color: var(--ok); }
+/* Same colour .run-tab-exit.fail uses — the same fact (a non-zero exit) must not read differently in
+   the tab strip and the menu. */
+.rcmenu-status.fail { color: var(--danger); }
+.rcmenu-run { flex: none; width: 22px; height: 22px; display: grid; place-items: center; background: transparent; border: 0; border-radius: var(--radius); color: var(--text-faint); padding: 0; cursor: pointer; }
+.rcmenu-run:hover { background: var(--surface-hover); color: var(--text); }
+.rcmenu-sep { flex: none; height: 1px; background: var(--line-soft); margin: 4px 0; }
+.rcmenu-foot { flex: none; display: flex; align-items: center; gap: 12px; width: 100%; box-sizing: border-box; background: transparent; border: 0; border-radius: var(--radius); padding: 4px 8px; font-size: 12px; color: var(--text); text-align: left; cursor: pointer; }
+.rcmenu-foot:hover { background: var(--elevated); }
+.run-btn { width: 28px; height: 28px; display: grid; place-items: center; background: transparent; border: 0; border-radius: var(--radius); color: var(--text-dim); font-size: 15px; padding: 0; cursor: pointer; }
+.run-btn:hover { background: var(--elevated); color: var(--text); }
+/* Same ring as .sel-trigger below — no border to brighten on a ghost button, so only the ring shows. */
+.run-btn:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--ring); }
+.run-btn.play { color: var(--run); }
+.run-btn.play:disabled { color: var(--text-faint); background: transparent; cursor: default; }
+.run-btn.stop { color: var(--danger); }
+/* 구성 관리 메뉴(⋮). 타이틀바에 상시로 놓이는 툴바라 자주 쓰지 않는 동작은 접어 둔다.
+   위치와 생김새는 아래 .run-global-menu 와 같은 규칙을 따른다 — 같은 툴바에서 두 메뉴가 다르게
+   생기면 그게 더 눈에 띈다 */
+.run-more { position: relative; }
+.run-more-menu { position: absolute; top: calc(100% + 5px); right: 0; z-index: 20; min-width: 170px; background: var(--panel); border: 1px solid var(--line-soft); border-radius: var(--radius-lg); padding: 4px; box-shadow: var(--shadow-lg); display: flex; flex-direction: column; gap: 1px; }
+.run-more-item { text-align: left; white-space: nowrap; padding: 5px 8px; border: 0; border-radius: var(--radius); background: transparent; color: var(--text); font-size: 12.5px; cursor: pointer; }
+.run-more-item:hover { background: var(--elevated); }
+.run-global { position: relative; }
+.run-global-badge { display: inline-flex; align-items: center; gap: 4px; background: var(--elevated); border: 1px solid var(--line-soft); color: var(--text-dim); border-radius: var(--radius-sm); font-size: 11px; padding: 2px 7px; cursor: pointer; font-variant-numeric: tabular-nums; }
+.run-global-badge:hover { border-color: var(--text-faint); }
+.run-global-badge .tri { color: var(--run); }
+.run-global-badge .n { color: var(--ok); font-weight: 600; }
+.run-global-menu { position: absolute; top: calc(100% + 5px); right: 0; z-index: 20; min-width: 240px; background: var(--panel); border: 1px solid var(--line-soft); border-radius: var(--radius-lg); padding: 4px; box-shadow: var(--shadow-lg); display: flex; flex-direction: column; gap: 1px; }
+.run-global-row { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: var(--radius); transition: background var(--ease); }
+.run-global-row:hover { background: var(--elevated); }
+.run-global-live { width: 7px; height: 7px; border-radius: 50%; background: var(--run); flex: none; box-shadow: 0 0 0 2px color-mix(in srgb, var(--run) 18%, transparent); }
+.run-global-live.stopping { background: var(--warn); box-shadow: none; }
+/* 검증 실행 라벨. 실행 툴바와 전역 목록 두 곳이 같은 배지를 쓴다 — 사용자가 시작하지 않은 실행이
+   자기 실행처럼 보이면 정지시켜 오케스트레이션 Task 를 실패시킨다(RunStatus.validation) */
+/* 이 태그는 장식이 아니라 설명이다 — 사용자가 아무것도 시작하지 않았는데 ▶ 가 ⏹ 로 바뀐 이유를
+   말해 주고, 그것을 누르면 오케스트레이션 작업에 영향이 간다는 신호다. 그래서 옆의
+   .run-global-badge 와 같은 11px 를 쓰고 글자는 --text-dim 이 아니라 --text 다: 10px/dim 으로는
+   읽히지 않아서 설명하려던 것을 설명하지 못한다. 배경과 테두리는 그 badge 의 관례를 그대로 따른다. */
+.run-tag { flex: none; background: var(--elevated); border: 1px solid var(--line-soft); color: var(--text); border-radius: var(--radius-sm); font-size: 11px; line-height: 1.4; padding: 2px 6px; white-space: nowrap; }
+.run-global-jump { flex: 1; min-width: 0; text-align: left; background: none; border: none; color: var(--text); font-size: 12px; padding: 0; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.run-global-stop { width: 20px; height: 20px; display: grid; place-items: center; background: transparent; border: 0; border-radius: var(--radius); color: var(--text-faint); font-size: 11px; padding: 0; cursor: pointer; }
+.run-global-stop:hover { background: var(--bg); color: var(--danger); }
+/* .run-add-form (a popover hanging off the toolbar) was replaced by a modal and deleted — today that
+   modal is RunConfigManager (.modal.rcm, below). Its right anchor and its vertical stack with a fixed
+   width went with it: the modal achieves what those were for (keeping the form visible and uncut), so
+   this is a replacement rather than a revert. */

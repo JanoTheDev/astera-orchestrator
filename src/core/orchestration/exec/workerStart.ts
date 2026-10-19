@@ -16,6 +16,7 @@ import { markCodexProjectTrusted } from '../../accounts/codexTrust'
 import { claudeConfigFileFor, markClaudeProjectTrusted } from '../../accounts/claudeTrust'
 import { coordinatorLaunchPrompt } from '../handover'
 import { startPlannerSession } from './plannerStart'
+import { workerTabTitle } from './coordinatorRotate'
 import type { OrchCoordinator } from './coordinator'
 import type { WorkerTails } from './tail'
 import { coordinatorBriefName } from './specFiles'
@@ -169,6 +170,8 @@ export async function startWorkerWithChain(
   const fork = forkForDeps(ctx.getState(), a)
   const started = await ctx.coordinator.startWorker({
     ...a,
+    // Coordinator rotation: the Task ref first, so no worker or reviewer tab reads as the coordinator's
+    title: workerTabTitle(stateHere, a.taskId, a.title),
     rollAccountIds,
     ...(chosen.model ? { model: chosen.model } : {}),
     ...(fork ? { fork } : {})

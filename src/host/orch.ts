@@ -2,6 +2,7 @@
 // §5, §6). This is what replaces the wire slice's `version`-only stub — `server.ts` calls
 // `OrchCall.call` and did not change when it did.
 import { REMOTE_SESSION_CHANGES, REMOTE_SESSION_READS, type RemoteSessions } from './remoteSessions'
+import { hookEventsDirIn } from '../core/hooks/sessionState' // W8-A
 import { PLUGIN_COMMANDS, pluginsCommand } from './plugins/commands'
 import type { PluginManager } from './plugins/manager'
 import { createHash } from 'node:crypto'
@@ -10,6 +11,8 @@ import { stat } from 'node:fs/promises'
 import { jobsViewOf, runsTimelineOf, type RuntimeFacts } from './remoteReads'
 import { createPresence } from './presence'
 import { handleCommand, handleExit, type OrchServerDeps } from '../core/orchestration/command'
+// W8-D several plans in one repo
+import { refreshOverlaps } from '../core/orchestration/overlap'
 import type { CompletionCheckInput } from '../core/orchestration/pluginChecks'
 import { OrchestrationStore, isValidState, type OrchLoadResult } from '../core/orchestration/store'
 import { applyPendingReports, readPendingReports, type QueuedReport } from '../core/orchestration/pendingDrain'
@@ -29,7 +32,8 @@ import type { ControllerRegistry } from './controllers'
 import { readMcpAccess } from '../core/settings/mcpAccess'
 import { readMcpSessions } from '../core/settings/mcpSessions'
 import { readMcpGithubWrite } from '../core/settings/mcpGithubWrite'
-import { HOST_CALLER, type Driver } from '../core/host/driver'
+import { APP_CALLER, HOST_CALLER, type Driver } from '../core/host/driver'
+import { createHeldQueue, createOwnerHold } from '../core/sessions/ownerHold'
 import { hostOrchDeps } from './orchDeps'
 import { createCheckWaits } from '../core/orchestration/checkWaits'
 import { readAccountsFile } from '../core/accounts/accountsFile'
@@ -37,6 +41,8 @@ import { isLoggedIn } from '../core/accounts/loginCheck'
 import { makeDescriptors } from '../core/providers/descriptor'
 import type { Account } from '../core/types'
 import { readRunConfigsFile } from '../core/run/runConfigsFile'
+// W10-A Run as written by name
+import { listMdFiles } from '../core/orchestration/intakeFiles'
 import type { HostChecks } from './checks'
 import type { HostSessions } from './sessions'
 import type { HostLocal } from './spawner'
@@ -50,6 +56,7 @@ import type { HostJournal } from './hostJournal'
 import type { HostEventLog } from './eventLog'
 import { pollEvents } from './eventsPoll'
 import { ACTIVITY_COMMANDS, activityReply } from './activity'
+import type { HostSummaries } from './hostSummaries'
 import { NOT_WRITER, type HostUnderstanding } from './hostUnderstanding'
 import type { HostWorkUnits } from './hostWorkUnits'
 import { ensureProject, findProject, setProjectSettings } from '../core/orchestration/projects'
@@ -542,9 +549,15 @@ export function createHostOrch(a: {
   completionChecks?: OrchServerDeps['completionChecks']
   /** W6-H: a push delivery through this Host's git (`deliverByPush`). Absent: `run-deliver` on a push project answers 409. */
   deliverPush?: OrchServerDeps['deliverPush']
+  /** W9-J: removes a delivered Run's ready worktrees. Absent: nothing is cleaned after a delivery. */
+  cleanWorktrees?: OrchServerDeps['cleanWorktrees']
   /** How It Works records (MCP P2-C), passed through to `hostOrchDeps`. Absent: the `understanding-*`
    *  commands answer 409. */
   readUnderstanding?: OrchServerDeps['readUnderstanding']
+  /** W9-I: the tab summaries (hostSummaries.ts): passed through to `hostOrchDeps` for `summaries` and `sessions-summary`. */
+  readSummaries?: OrchServerDeps['readSummaries']
+  /** W9-I: handed every commit's two states, so a Task that ends leaves its tab's card (hostSummaries.ts). */
+  summaries?: Pick<HostSummaries, 'committed'> | null
   /** W6-A intake, passed through to `hostOrchDeps`. */
   intakeInputs?: OrchServerDeps['intakeInputs']
   /** W8-C prompts mode, passed through to `hostOrchDeps`. */
@@ -618,6 +631,12 @@ export function createHostOrch(a: {
       a.activity?.committed(prev, next)
     } catch (err) {
       a.log(`activity: recording a commit failed on the Host: ${String(err)}`)
+    }
+    // W9-I: a Task that ended leaves its tab's card; hostSummaries never throws and never waits on its model.
+    try {
+      a.summaries?.committed(prev, next)
+    } catch (err) {
+      a.log(`summaries: a commit failed on the Host: ${String(err)}`)
     }
   }
 
@@ -771,9 +790,11 @@ export function createHostOrch(a: {
     hostOrchDeps({
       checkWaits,
       getState: () => store.get(),
-      setState: async (next, how) => {
+      setState: async (given, how) => {
         // The diff base, read before the save moves memory: each commit is journaled once, from here.
         const prev = store.get()
+        // W8-D: every plan's `overlaps` follows the Tasks of this commit (overlap.ts), whichever command moved them
+        const next = refreshOverlaps(prev, given)
         // Reserved before the write, for `reserveVersion`'s reason and for one that is this path's
         // own: a `state-put` arriving while this commit is still writing would otherwise read the
         // pre-commit number, pass the check, and land a whole state that does not contain this
@@ -809,6 +830,10 @@ export function createHostOrch(a: {
       // W1-B. A damaged file reads as no cap: the spawn behind worker-start refuses on that file anyway
       // (spawner.ts reads the permission mode from it), so nothing starts past the cap on a guess.
       maxConcurrentWorkers: () => readMaxConcurrentWorkers(path.join(a.profileDir, 'app-settings.json')).catch(() => null),
+      // W8-A: the stamp reads a worker's busy windows from its hook-events file
+      hookEventsDir: hookEventsDirIn(a.profileDir),
+      // W8-A: the stamp's line data reads the checkpoint logs under the profile
+      profileDir: a.profileDir,
       ...(a.usageGuard ? { usageGuard: a.usageGuard } : {}),
       act: a.act,
       hasApp: a.hasApp,
@@ -830,13 +855,17 @@ export function createHostOrch(a: {
       ...(a.createSession ? { createSession: a.createSession } : {}),
       ...(a.github ? { github: a.github } : {}),
       ...(a.readUnderstanding ? { readUnderstanding: a.readUnderstanding } : {}),
+      ...(a.readSummaries ? { readSummaries: a.readSummaries } : {}), // W9-I
       ...(a.intakeInputs ? { intakeInputs: a.intakeInputs } : {}),
       // W8-C prompts mode
       ...(a.readIntakeText ? { readIntakeText: a.readIntakeText } : {}),
+      // W10-A Run as written by name: the Host that reads the prompt files also lists their folder
+      ...(a.readIntakeText ? { listPromptFiles: (dir: string, depth: number) => listMdFiles(dir, depth) } : {}),
       ...(a.changes ? { changes: a.changes } : {}),
       ...(a.jobSources ? { jobSources: a.jobSources } : {}),
       ...(a.completionChecks ? { completionChecks: a.completionChecks } : {}),
       ...(a.deliverPush ? { deliverPush: a.deliverPush } : {}),
+      ...(a.cleanWorktrees ? { cleanWorktrees: a.cleanWorktrees } : {}),
       workUnits: a.workUnits?.() ?? null,
       ...(a.journal ? { journalTimeline: (runId: string, st: OrchState) => a.journal!.timeline(runId, st) } : {}),
       onEffect: () => {
@@ -899,6 +928,34 @@ export function createHostOrch(a: {
     const message = err instanceof Error ? err.message : String(err)
     return { status: marks.appRefused ? 409 : 500, body: withRepair({ error: message }, marks) }
   }
+
+  /**
+   * **The owner hold** (W9-H, DESIGN §2; core/sessions/ownerHold.ts). A console the owner views full size in the app
+   * (`owner-hold`), or typed into in the last minute, takes no agent's `sessions send`: the send is queued here and
+   * answered `queued` at once. On release each queued send is run through `handleCommand` as its sender, so every
+   * check (a permission prompt, a paused worker, an ended session) is judged at delivery, not at queueing.
+   */
+  const ownerHold = createOwnerHold({ typedAt: (id) => a.sessions.ownerInputAt?.(id) ?? null, viewerPresent: () => a.hasApp() })
+  type HeldSend = { sessionId: string; role: OrchCaller['role'] | undefined; args: Record<string, unknown> }
+  const heldSends = createHeldQueue<HeldSend>({
+    hold: ownerHold,
+    now: Date.now,
+    setTimer: (run, ms) => {
+      const t = setTimeout(run, ms)
+      t.unref?.()
+      return t
+    },
+    clearTimer: (t) => clearTimeout(t as ReturnType<typeof setTimeout>),
+    deliver: async (h) => {
+      await ready()
+      const target = String(h.args.id)
+      const r = await handleCommand(depsFor(throwaway(), actorOf({ sessionId: h.sessionId, role: h.role, state: store.get() })), { sessionId: h.sessionId, role: h.role }, 'sessions-send', h.args)
+      // Never the text: it is the sender's, and the log is read by whoever reads the log.
+      const why = r.status === 200 ? '' : ` — ${String((r.body as { error?: unknown } | null)?.error ?? JSON.stringify(r.body))}`
+      a.log(`owner hold — a queued send to ${target} from ${h.sessionId || h.role} was delivered: ${r.status}${why}`)
+    },
+    onError: (target, err) => a.log(`owner hold — a queued send to ${target} failed: ${err instanceof Error ? err.message : String(err)}`)
+  })
 
   /**
    * **The pending-report drain, the app's own, run by the Host** (R4). The same `applyPendingReports`
@@ -1693,6 +1750,7 @@ export function createHostOrch(a: {
             cmd === 'understanding-unit' ||
             WORK_UNITS_CALLS.has(cmd) ||
             cmd === 'coordinator-idle' ||
+            cmd === 'owner-hold' ||
             cmd === 'workspace-list' ||
             cmd === 'workspace-stop' ||
             cmd === 'workspace-close' ||
@@ -1800,6 +1858,17 @@ export function createHostOrch(a: {
           if (typeof runId !== 'string' || runId === '' || typeof idleSession !== 'string' || idleSession === '')
             return { status: 400, body: { error: 'coordinator-idle needs a runId and a sessionId' } }
           return { status: 200, body: { idle: checkWaits.parked(runId, idleSession) } }
+        }
+        // **Beside coordinator-idle, for its reason (W9-H).** The app says the owner opened or left a console full size.
+        // Memory only, never a receipt. Leaving re-checks at once, so what was queued for it goes now unless typing holds it.
+        if (cmd === 'owner-hold') {
+          if (from?.role !== 'app') return { status: 403, body: { error: 'owner-hold is the app’s to send' } }
+          const target = args.sessionId
+          if (typeof target !== 'string' || target === '' || typeof args.viewing !== 'boolean')
+            return { status: 400, body: { error: 'owner-hold needs a sessionId and viewing: true or false' } }
+          ownerHold.setViewing(target, args.viewing)
+          void heldSends.poke(target)
+          return { status: 200, body: { held: ownerHold.isHeld(target, Date.now()) } }
         }
         // **Beside roll-state, for its reason (S6 limits D5).** The app reads what the Host journaled while
         // no app was attached, once after its adoption sweep, and acks it. `ack` prunes the entries up to
@@ -2098,6 +2167,25 @@ export function createHostOrch(a: {
         // P5: judged on the state the call found, so a worker's report that closes its own Dispatch is
         // still the agent's.
         const actor = actorOf({ sessionId, role: from?.role, client: from?.client, remote: from?.remote, principal: from?.principal, plugin: from?.plugin, state: store.get() })
+        // W9-H: an agent's send into a console the owner holds waits in the Host (`heldSends`), answered at once so the
+        // sender never blocks. "Agent" is command.ts's `fromAgent`; the owner's own sends (the app, a shell) are never
+        // held. It took effect, so a retried request id replays this answer instead of queueing the text twice.
+        if (
+          cmd === 'sessions-send' &&
+          observing === null &&
+          ((sessionId !== '' && sessionId !== APP_CALLER && sessionId !== HOST_CALLER) || from?.role === 'mcp') &&
+          runArgs.resumeWait !== true &&
+          typeof runArgs.id === 'string' &&
+          typeof runArgs.text === 'string' &&
+          ownerHold.isHeld(runArgs.id, Date.now())
+        ) {
+          // Delivered later with no one waiting on it, so `--wait` is dropped.
+          const { wait: _w, timeoutMs: _t, resumeWait: _r, ...rest } = runArgs
+          heldSends.enqueue(runArgs.id, { sessionId, role: from?.role, args: rest })
+          marks.effects += 1
+          const queued = { status: 200, body: { queued: true, reason: 'owner-typing', target: runArgs.id } }
+          return claimed === null ? queued : settleRequest(claimed, cmd, marks, queued)
+        }
         const r = await handleCommand(depsFor(marks, actor), { sessionId, role: from?.role }, cmd, runArgs)
         const answered = answerOf(r, marks)
         // **Who drives, on `status`, from the Host and not from `handleCommand`** (R6): the two fields

@@ -15,10 +15,13 @@ export interface ActionUi {
     confirmLabel: string
     choices?: Array<{ id: string; label: string; hint?: string }>
   }): Promise<{ ok: boolean; checked: string[] }>
-  error(message: string): void
+  error(message: string, o?: { ttlMs?: number }): void
   /** Hides folders from the history list. Absent for a remote Job: that list is this computer's. */
   hide?(paths: string[]): void
 }
+
+/** How long the "plan is not ready to approve" toast stays. */
+export const PLAN_INVALID_TOAST_MS = 15_000
 
 /** A refusal or a lost answer says what it is (orchDoor replyNote); anything else is `fallback`. */
 const failure = (reply: CommandReply, ui: ActionUi, fallback: string): void => ui.error(replyNote(reply, ui.t, fallback))
@@ -58,7 +61,8 @@ export async function restartCoordinator(door: OrchDoor, runId: string, ui: Acti
   // W2-A: the same command approves a planned Job ("Approve & execute"); a plan that does not hold together is
   // refused with what is wrong with it (`problems`, planner.ts's validatePlan), said as it is.
   const problems = (reply.body as { problems?: unknown } | null)?.problems
-  if (Array.isArray(problems)) ui.error(`${ui.t('jobs.run.planInvalid')}\n${problems.map((p) => `• ${String(p)}`).join('\n')}`)
+  // W8-F (#94): the problems stay on the Run window above Run (JobRow.planProblems), so this toast closes on its own
+  if (Array.isArray(problems)) ui.error(`${ui.t('jobs.run.planInvalid')}\n${problems.map((p) => `• ${String(p)}`).join('\n')}`, { ttlMs: PLAN_INVALID_TOAST_MS })
   else failure(reply, ui, ui.t('jobs.run.coordinatorRestartFailed'))
   return false
 }
@@ -248,5 +252,15 @@ export async function rejectPlan(door: OrchDoor, jobId: string, name: string, re
   const clean = reason.trim()
   const reply = await send(door, 'jobs-reject', { job: jobId, ...(clean ? { reason: clean } : {}) }, ui, ui.t('plan.talk.rejectFailed'))
   if (reply && reply.status >= 400) failure(reply, ui, ui.t('plan.talk.rejectFailed'))
+  return reply !== null && reply.status < 400
+}
+
+// W9-C plan page ⋯ menu
+/** Queues a plan not yet planned after another (`jobs-set --after <job|none>`, W8-C): it starts when that one delivers.
+ *  Asks nothing: it closes nothing and starts nothing. */
+export async function setJobAfter(door: OrchDoor, jobId: string, afterId: string | 'none', ui: ActionUi): Promise<boolean> {
+  const fallback = ui.t('pages.plan.startAfterFailed')
+  const reply = await send(door, 'jobs-set', { id: jobId, after: afterId }, ui, fallback)
+  if (reply && reply.status >= 400) failure(reply, ui, fallback)
   return reply !== null && reply.status < 400
 }

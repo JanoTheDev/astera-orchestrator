@@ -5,7 +5,7 @@ Claude Code and Codex tools using your own accounts.
 
 ## Start a session
 
-1. [Install Astera and your chosen CLI](../README.md#install).
+1. [Install Astera and your chosen CLI](../README.md#run-it).
 2. In **Accounts**, use **Auto-detect** to register an existing account, or **Add account** to
    create a separate account entry and complete its sign-in.
 3. Open **New session**, choose your **Project folder** and **Account**, then choose
@@ -110,9 +110,9 @@ through a flow, and read console and network errors. This browser is restricted 
 
 ## Coordinate tasks and understand the results
 
-- **Jobs:** enable **Agent orchestration**, then use **Jobs → New job** for an objective with
-  workers, dependencies, and completion checks. See the [Job lifecycle](jobs.md) for worktrees,
-  repair attempts, manual merging, and the differences between normal and scheduled Jobs.
+- **Plans and Tasks:** use the **Plans** and **Tasks** pages (or **New**) for an objective with
+  workers, dependencies, and completion checks. See [Jobs](jobs.md) for worktrees,
+  repair attempts, manual merging, and the differences between normal and scheduled runs.
 - **How It Works:** enable **Work unit tracking**, choose an **Explanation account**, and use
   `/astera-task` in a new session. See the [How It Works guide](how-it-works.md) for reading records,
   flow diagrams, decision sources, and verification results.
@@ -137,5 +137,5 @@ through a flow, and read console and network errors. This browser is restricted 
 Open **Settings → Info → Check for updates** and follow the available download/install action.
 Review the restart prompt before installing. Update support depends on the platform and build;
 when an automatic update is unavailable, use the matching installer from
-[GitHub Releases](https://github.com/parsingk/Astera/releases/latest) and follow the
-[platform installation notes](../README.md#install).
+[GitHub Releases](https://github.com/JanoTheDev/astera-orchestrator/releases/latest) and follow the
+[installation notes](../README.md#run-it).

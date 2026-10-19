@@ -5,10 +5,12 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { shellSource } from '../state/shellSource'
 
 const components = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'components')
 const read = (f: string): string => readFileSync(f, 'utf8')
-const app = read(path.join(components, '..', 'App.tsx'))
+// W9-A: App's body is in state/* and components/shell/* now; this is App.tsx and every file it was cut into.
+const app = shellSource()
 
 describe('the folder link is wired', () => {
   it('session and project terminals ask main for folders and hand a folder to the App', () => {

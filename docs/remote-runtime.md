@@ -15,7 +15,7 @@ server fee.
 
 ## How it differs from MCP over HTTP
 
-MCP over HTTP (Settings › CLI) lets an MCP client on another machine call this machine's tools. It is plain HTTP: its
+MCP over HTTP (Settings › Integrations › CLI) lets an MCP client on another machine call this machine's tools. It is plain HTTP: its
 `lan` mode is not a secure remote path, and the docs for it say so. Remote Runtime is the secure path: a pinned TLS
 key, a one-time pairing, a token per controller that can be revoked, and a list of what a controller may do that the
 Runtime checks on every call.
@@ -51,12 +51,12 @@ no relay and opens no port for you.
 
 ## Set up the Runtime
 
-On the machine that will do the work, in the Astera app: Settings › Remote Runtimes › This computer. Choose the address
+On the machine that will do the work, in the Astera app: Settings › Integrations › Remote Runtimes › This computer. Choose the address
 to accept connections on (this machine's LAN or Tailscale addresses, or this computer only; every interface is not
 offered) and turn it on. Once it is on, the same place makes a pairing string (read-only or full control, with a name;
 it shows the time left and a copy button), lists the paired controllers with an Unpair button each, and turns it off.
 
-Or from a shell, with Astera's command line turned on (Settings › CLI):
+Or from a shell, with Astera's command line turned on (Settings › Integrations › CLI):
 
 ```text
 astera runtime start --listen 100.64.0.5     listen on that address (default 127.0.0.1, port 47831)
@@ -84,7 +84,7 @@ minutes, and five wrong tries burn it. Give the string to the controller directl
 ticket. A pairing is read-only unless `--full-control` is given: a read-only controller may read but not change
 anything. Give full control only to a controller that runs Jobs or sessions there.
 
-In the app: Settings › Remote Runtimes, paste the string, Pair. From the command line:
+In the app: Settings › Integrations › Remote Runtimes, paste the string, Pair. From the command line:
 
 ```text
 astera runtimes add --pair -
@@ -331,12 +331,12 @@ list the newest Jobs or runs on that Runtime before trying again.
 
 ## Revoke and remove
 
-- On the Runtime: Unpair beside a controller in Settings › Remote Runtimes › This computer (on or off), or list
+- On the Runtime: Unpair beside a controller in Settings › Integrations › Remote Runtimes › This computer (on or off), or list
   them with `astera runtime clients` and unpair one with `astera runtime revoke --id <clientId>`. Its next command
   is refused with `RUNTIME_AUTH_FAILED`, and its open connections close.
-- On the controller: `astera runtimes remove --id <runtimeId|name>`, or Remove in Settings › Remote Runtimes, forgets
+- On the controller: `astera runtimes remove --id <runtimeId|name>`, or Remove in Settings › Integrations › Remote Runtimes, forgets
   the Runtime here. It does **not** revoke the pairing on the Runtime.
-- Turning off (in Settings › Remote Runtimes › This computer, or with `astera runtime stop`) stops listening and
+- Turning off (in Settings › Integrations › Remote Runtimes › This computer, or with `astera runtime stop`) stops listening and
   spends any pairing string not used yet. Pairings stay, the Host and its Jobs keep running.
 
 ## Troubleshooting

@@ -3,6 +3,7 @@
 // what its worker is doing now, the coordinator's answers to it and, when it is not running, why
 // (core/orchestration/blocked.ts). Drawing only: the waves, reasons, counts and "now" lines are planBoard.ts's.
 import { useEffect, useState } from 'react'
+import { GitBranch } from 'lucide-react'
 import type { ActivityEvent } from '../../../../core/orchestration/activity'
 import type { Account, JobEvent, JobTask } from '../../../../core/types'
 import { type RoleModelSettings } from '../../../../core/orchestration/roleModels'
@@ -19,11 +20,18 @@ import {
   reasonText,
   reasonTone,
   wavesOf,
+  gateQuestionsOfTask,
   questionsOfTask,
   type LiveSession,
   type OpenQuestion
 } from './planBoard'
 import { QuestionAnswer } from './QuestionAnswer'
+import { Icon } from '../ui'
+import { openWorktree } from '../shell/navigation' // W9-J
+import { TaskLines } from '../attribution/TaskLines' // W8-B
+import type { SessionSummary } from '../../../../core/sessions/summary'
+import { summaryOneLine } from '../wall/summaryText' // W9-I
+import '../wall/wall.css'
 import './plan.css'
 
 /** How often the "resumes in …" and "… ago" texts refresh. */
@@ -41,10 +49,13 @@ export function TaskBoard({
   activity = [],
   sessions = {},
   replanning = false,
+  refreshed = null,
   questions = [],
   onAnswer,
   canOpenSession,
-  onOpenSession
+  onOpenSession,
+  projectPath,
+  summaries
 }: {
   tasks: readonly JobTask[]
   accounts: Account[] | null
@@ -59,12 +70,18 @@ export function TaskBoard({
   /** W6-E: the Host's word on each session, by session id. */
   sessions?: Readonly<Record<string, LiveSession>>
   replanning?: boolean
+  /** Coordinator rotation: why the plan's coordinator was last refreshed (planBoard coordinatorRefreshOf). */
+  refreshed?: string | null
   /** W7-C (#72): open asks and escalations; a Task's get an answer box. */
   questions?: readonly OpenQuestion[]
   /** Sends the owner's answer (`questions-answer`); resolves to an error text, or null when it went through. */
   onAnswer?: (id: string, answer: string) => Promise<string | null>
   canOpenSession?: (sessionId: string) => boolean
   onOpenSession?: (sessionId: string) => void
+  /** W8-B: present, each card shows its AI and human lines (components/attribution) */
+  projectPath?: string
+  /** W9-I: the plan's tab summaries by Task; a card whose Task has one says what it did */
+  summaries?: ReadonlyMap<string, SessionSummary>
 }): React.JSX.Element {
   const { t } = useI18n()
   const [nowMs, setNowMs] = useState(() => Date.now())
@@ -102,6 +119,11 @@ export function TaskBoard({
               </span>
               {isCurrent && <span className="plan-wave-now">{t('plan.wave.current')}</span>}
             </h3>
+            {isCurrent && refreshed !== null && (
+              <div className="plan-wave-banner" role="status">
+                {t('plan.wave.coordinatorRefreshed', { reason: refreshed })}
+              </div>
+            )}
             {isCurrent && replanning && (
               <div className="plan-wave-banner" role="status">
                 {t('plan.wave.replanning', { n: w.index + 1 })}
@@ -120,9 +142,11 @@ export function TaskBoard({
                     model={cardModelOf(tk, roleModels, accounts ?? [])}
                     now={nowOf(tk, tk.sessionId ? sessions[tk.sessionId] : undefined, events, nowMs)}
                     answers={autoAnswersOf(activity, tk.id)}
-                    questions={onAnswer ? questionsOfTask(questions, tk.id) : []}
+                    questions={onAnswer ? [...questionsOfTask(questions, tk.id), ...gateQuestionsOfTask(tk)] : []}
                     onAnswer={onAnswer}
                     onSelect={onSelect}
+                    projectPath={projectPath}
+                    summary={summaries?.get(tk.id)}
                     onFocus={
                       tk.sessionId && categoryOf(tk) === 'running' && onOpenSession && canOpenSession?.(tk.sessionId)
                         ? () => onOpenSession(tk.sessionId!)
@@ -149,7 +173,9 @@ function TaskCard({
   questions,
   onAnswer,
   onSelect,
-  onFocus
+  onFocus,
+  projectPath,
+  summary
 }: {
   task: JobTask
   selected: boolean
@@ -163,6 +189,8 @@ function TaskCard({
   onSelect: (taskId: string) => void
   /** Present for a running Task whose tab is open: a click on the card goes there. */
   onFocus?: () => void
+  projectPath?: string // W8-B
+  summary?: SessionSummary // W9-I
 }): React.JSX.Element {
   const { t } = useI18n()
   const [allFiles, setAllFiles] = useState(false)
@@ -191,6 +219,7 @@ function TaskCard({
       </button>
       {now && <span className="plan-now">{t(now.key, now.params)}</span>}
       {reason && text && <span className={`plan-reason plan-reason-${reasonTone(reason)}`}>{t(text.key, text.params)}</span>}
+      {summary && <span className="summary-line" title={summary.text || undefined}>{summaryOneLine(summary, t)}</span>}
       <dl className="plan-card-meta">
         <dt>{t('plan.card.model')}</dt>
         <dd>{model ?? t('plan.card.cliDefault')}</dd>
@@ -203,9 +232,26 @@ function TaskCard({
         {tk.branch !== undefined && (
           <>
             <dt>{t('plan.card.branch')}</dt>
-            <dd title={tk.branch}>{tk.branch}</dd>
+            <dd title={tk.branch}>
+              {/* W9-J: the Task's worktree, found by its branch in the registry, on the Worktrees page */}
+              <button
+                type="button"
+                className="branch-link"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  void window.api.worktrees.list().then((ws) => {
+                    const w = ws.find((x) => x.branch === tk.branch)
+                    if (w) openWorktree(w.path)
+                  }, () => {})
+                }}
+              >
+                <Icon icon={GitBranch} size={14} />
+                {tk.branch}
+              </button>
+            </dd>
           </>
         )}
+        {projectPath && <TaskLines projectPath={projectPath} commits={tk.links?.commits ?? []} />}
       </dl>
       {files.length > 0 && (
         <ul className="plan-card-files">

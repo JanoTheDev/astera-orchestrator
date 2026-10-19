@@ -6,7 +6,7 @@ import path from 'node:path'
 // The completion block's CSS contract for a plugin check's words (plugin Phase 5c, C13). It reads styles.css as
 // spinnerCss.test.ts does, here rather than under src/renderer, whose tsconfig has no node types.
 const here = path.dirname(fileURLToPath(import.meta.url))
-const css = readFileSync(path.join(here, '../../renderer/src/styles.css'), 'utf8')
+const css = readFileSync(path.join(here, '../../renderer/src/components/jobs.css'), 'utf8')
 
 /** The declarations of the first rule whose selector list is exactly `selector`. */
 const ruleOf = (selector: string): string => {

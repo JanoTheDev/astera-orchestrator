@@ -13,6 +13,7 @@ import type { LostAttempt, RecoveryDecision } from './types'
 import type { Provider } from '../providers/meta'
 import type { KnowledgeFiles } from '../knowledge/detect'
 import { buildSpecFile } from '../orchestration/exec/coordinator'
+import { crashResumeBriefing } from '../orchestration/exec/crashResume'
 import { dispatchModelFields } from '../orchestration/roleModels'
 
 export type ExecuteResult = { ok: true; newDispatchId?: string } | { ok: false; error: string }
@@ -92,6 +93,8 @@ async function startAttempt(a: ExecuteInput, deps: ExecuteDeps): Promise<Execute
   // finds a Dispatch by id without requiring it to be open, which is what lets it describe an
   // attempt that may never get a new Dispatch (openDispatch or startWorker can still fail below).
   let briefing: string | undefined
+  // T23: a resumed conversation is told what happened and which uncommitted changes are still its own.
+  if (strategy === 'resume-native') briefing = crashResumeBriefing((await deps.readGitSummary?.(attempt.cwd)) ?? null)
   if (strategy === 'smart-resume') {
     const git = (await deps.readGitSummary?.(attempt.cwd)) ?? null
     const cp = buildCheckpoint(deps.getState(), { dispatchId: attempt.dispatchId, git, now })
@@ -134,7 +137,7 @@ async function startAttempt(a: ExecuteInput, deps: ExecuteDeps): Promise<Execute
 
   const resume: { nativeSessionId?: string; briefing?: string } | undefined =
     strategy === 'resume-native'
-      ? { nativeSessionId: attempt.nativeSessionId }
+      ? { nativeSessionId: attempt.nativeSessionId, briefing }
       : strategy === 'smart-resume'
         ? { briefing }
         : undefined

@@ -1,0 +1,148 @@
+.app { display: flex; flex-direction: column; height: 100%; }
+/* W9-B: one page at a time under the top bar, the run drawer under it (DESIGN.md §1) */
+.workbench { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+
+/* ---------- title bar ---------- */
+.titlebar {
+  height: 44px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  -webkit-app-region: drag;
+  user-select: none;
+}
+/* Room for the macOS traffic-light buttons (close/minimize/maximize). 3 buttons + gaps + side
+   margins ≈ 78px. Paired with trafficLightPosition x=12 in main/index.ts — change only one and
+   they overlap or float. */
+.titlebar--mac .tb-brand { padding-left: 78px; }
+/* flex:1 로 남는 폭을 브랜드가 먹는다 — 그래야 뒤따르는 것들(실행 위젯, 업데이트 알림, 창 버튼)이
+   오른쪽에 차례로 붙는다. 그 요소들이 각자 갖고 있는 margin-left:auto 는 남는 폭이 없어져 0이 되므로
+   서로 밀어내지 않는다. min-width:0 은 창이 좁아질 때 이름이 아니라 브랜드 칸이 먼저 줄게 한다 */
+.tb-brand { display: flex; align-items: center; gap: 8px; padding-left: 12px; flex: none; }
+.tb-logo {
+  width: 20px;
+  height: 20px;
+  /* Deliberately bespoke: matched to the artwork, not the control scale — a brand mark, not a control,
+     so it does not owe --radius/--radius-sm anything. Leave it hardcoded on a later tokenising pass. */
+  border-radius: 5px;
+  object-fit: contain;
+  display: block;
+  -webkit-user-drag: none;
+}
+.tb-name { font-size: 12.5px; font-weight: 600; color: var(--text); }
+.tb-controls { margin-left: auto; flex: none; display: flex; -webkit-app-region: no-drag; }
+.tb-update { margin-left: auto; padding: 0 12px; font-size: 12px; color: var(--text-dim); white-space: nowrap; align-self: center; -webkit-app-region: no-drag; }
+.tb-update-err { color: var(--danger); cursor: default; }
+.tb-update-btn { margin-left: auto; margin-right: 8px; align-self: center; background: var(--confirm); color: var(--ink-white); border: none; border-radius: var(--radius); padding: 4px 10px; font-size: 12px; cursor: pointer; -webkit-app-region: no-drag; }
+.tb-update-btn:hover { background: var(--confirm-hover); }
+/* When the install and check buttons appear together, a narrow modal (600px) cannot fit both on one
+   line. The cell wraps rather than the label — the label stays on one line even as the version digits grow. */
+.update-cell { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.update-cell button { white-space: nowrap; }
+/* Only the update row pins its label — as the cell widened, flex squeezed the label and broke it across lines */
+.settings-row .update-label { white-space: nowrap; }
+.update-note { font-size: 12px; color: var(--text-dim); }
+.update-note.update-err { color: var(--danger); }
+.tb-btn {
+  width: 46px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 0;
+  /* Square on purpose: this sits flush against the titlebar's top and (for the rightmost of the three)
+     the window's right edge, matching Windows' own minimize/maximize/close chrome — rounding it would
+     leave a gap at the window corner. */
+  border-radius: 0;
+}
+.tb-btn:hover { background: color-mix(in srgb, var(--text) 8%, transparent); color: var(--text); }
+.tb-btn.close:hover { background: var(--danger); color: var(--ink-white); }
+
+body.resizing-row { cursor: row-resize; user-select: none; }
+.run-resizer { flex: none; height: 6px; background: transparent; cursor: row-resize; position: relative; }
+.run-resizer::after { content: ''; position: absolute; left: 0; right: 0; top: 2px; height: 2px; background: var(--accent); opacity: 0; transition: opacity .12s; }
+.run-resizer:hover::after, .run-resizer:active::after { opacity: .8; }
+.content { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+/* W9-B: off the console pages the grid is hidden, never unmounted (Pages.tsx) */
+.content--hidden { display: none; }
+/* The common parent of the session and editor screens. Both being siblings means the JSX position
+   does not change when the session is shown in editor mode, so xterm never remounts.
+   Not named .workbench: that class already belongs to the app shell above (rail | sidebar | content),
+   and a second rule under the same name overrode the shell's row direction and stacked it. */
+.surfaces { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.placeholder { margin: auto; color: var(--text-faint); font-size: 13px; }
+
+/* ---------- W9-B top bar (DESIGN.md §1) ---------- */
+/* The bar's working half. Everything in it is clickable, so the window drag stops here; the brand and the spacer
+   still drag. */
+.tb-main { flex: 1; min-width: 0; height: 100%; display: flex; align-items: center; gap: 10px; padding: 0 8px 0 4px; }
+.tb-main > :not(.tb-spacer) { -webkit-app-region: no-drag; }
+.tb-spacer { flex: 1; min-width: 8px; align-self: stretch; -webkit-app-region: drag; }
+.tb-slash { color: var(--text-faint); font-size: 18px; }
+.tb-switcher { font-weight: 600; }
+.tb-sw-row { display: flex; align-items: center; gap: 8px; min-width: 220px; }
+.tb-sw-selected .tb-sw-name { color: var(--accent); }
+.tb-sw-name { flex: 1; }
+.tb-sw-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--line); flex: none; }
+.tb-sw-waiting { background: var(--warn); }
+.tb-sw-count { color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.tb-sw-key, .tb-search kbd { font-family: var(--mono); font-size: 11px; color: var(--text-faint); }
+.tb-pages { display: flex; align-items: stretch; align-self: stretch; gap: 16px; margin-left: 8px; }
+.tb-pages .ui-nav__count { color: var(--warn); }
+.tb-more { display: flex; align-items: center; border-bottom: 2px solid transparent; }
+.tb-more--active { border-bottom-color: var(--accent); }
+.tb-pages-narrow { display: none; }
+/* the tabs, search, New, meter and the three window buttons need ~1100px; below it the tabs fold into Pages ▾ */
+@media (max-width: 1100px) {
+  .tb-pages { display: none; }
+  .tb-pages-narrow { display: inline-flex; }
+}
+.tb-search {
+  display: inline-flex; align-items: center; gap: 8px; height: 28px; width: 240px; padding: 0 10px;
+  border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); color: var(--text-faint);
+  font: inherit; font-size: 12px; cursor: pointer;
+}
+.tb-search span { flex: 1; text-align: left; }
+.tb-search:hover { color: var(--text-dim); border-color: var(--text-faint); }
+.tb-search:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--ring); }
+@media (max-width: 1180px) { .tb-search { width: auto; } .tb-search span { display: none; } }
+.tb-divider { width: 1px; height: 20px; background: var(--line); }
+.tb-usage { position: relative; display: flex; }
+.tb-usage-btn {
+  display: flex; flex-direction: column; justify-content: center; gap: 3px; width: 96px; height: 34px; padding: 0 6px; overflow: hidden; border: 0; border-radius: var(--radius);
+  background: none; color: var(--text-dim); font: inherit; font-size: 12px; font-variant-numeric: tabular-nums; cursor: pointer;
+}
+.tb-usage-btn:hover { background: var(--hover); color: var(--text); }
+.tb-usage-btn:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--ring); }
+.tb-usage-head { display: flex; justify-content: space-between; gap: 4px; min-width: 0; font-size: 11px; color: var(--text-faint); white-space: nowrap; }
+.tb-usage-head > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.tb-usage-head > span:last-child { flex: none; }
+.tb-meter { width: 100%; }
+.tb-popover {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 50; width: 360px; max-height: 70vh; overflow: auto;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg);
+}
+
+/* ---------- W9-B pages (DESIGN.md §2) ---------- */
+.pages { flex: 1; min-height: 0; display: flex; }
+/* The list column of a page that also shows the consoles (Files, How It Works) */
+.page-side { width: 300px; flex: none; display: flex; flex-direction: column; min-height: 0; overflow-y: auto; background: var(--panel); border-right: 1px solid var(--line); }
+/* A full-width page */
+.page { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; background: var(--bg); }
+.page-title { margin: 0; padding: 12px 16px 8px; font-size: 15px; font-weight: 600; color: var(--text); }
+.page-note { margin: 0; color: var(--text-dim); font-size: 13px; }
+.page-jobs { flex: 1; min-height: 0; display: flex; flex-direction: column; max-width: 960px; width: 100%; margin: 0 auto; }
+.page-inbox { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
+.page-inbox-needs, .page-inbox-handled { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
+.page-inbox-handled { border-left: 1px solid var(--line); background: var(--panel); }
+.page-runs { display: flex; flex-direction: column; gap: 12px; padding: 0 16px 16px; }
+.page-runs .page-title { padding-left: 0; }
+.page > .history-panel, .page > .worktree-panel { max-width: 960px; width: 100%; margin: 0 auto; }
+.page-browser-form { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 0 16px 16px; }
+.page-browser-form .ui-field { align-self: stretch; }
+.page-actions { display: flex; gap: 8px; }

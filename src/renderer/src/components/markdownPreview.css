@@ -1,0 +1,88 @@
+/* ---------- markdown preview ---------- */
+/* Typography, spacing and colours here mirror IntelliJ's markdown preview, which is this feature's
+   reference implementation throughout — markdownTree.ts follows it for raw-HTML passthrough and
+   markdownView.ts for block-anchored scroll sync, so the rendering should not be the one place that
+   goes its own way. The values are read from the IDE's own stylesheet (markdown.jar!/org/intellij/
+   plugins/markdown/extensions/common/baseStyles/default.css, 2025.2.4), taken at the 13px base its
+   "Preview font size" setting injects rather than that file's own 14px default. 13px is measured,
+   not assumed: against a reference screenshot the same sentence is 490 device px wide there vs 612
+   here at 16px (0.80 -> 12.8px), and its 31px line pitch at line-height 1.6 on a 1.5x display gives
+   12.9px. The colours are absent from that stylesheet (the IDE injects them from the active theme),
+   so they are sampled from the same screenshot into the --md-* tokens in :root. */
+.md-preview { flex: 1; min-width: 0; min-height: 0; overflow: auto; padding: 16px 20px; outline: none;
+  font-size: 13px; line-height: 1.6; background: var(--md-bg); color: var(--md-text);
+  /* A long unbroken URL or inline code span must wrap inside prose rather than push .md-preview itself
+     into horizontal scroll — pre/table-wrap below scroll on their own and are unaffected by this. */
+  overflow-wrap: anywhere; }
+.md-preview-notice { opacity: .5; }
+.md-preview > :first-child { margin-top: 0; }
+.md-preview h1, .md-preview h2, .md-preview h3,
+.md-preview h4, .md-preview h5, .md-preview h6 { margin: 1em 0 16px; font-weight: bold; }
+/* IntelliJ's scale is 2.2 / 1.8 / 1.3em and then a flat 1em for h4-h6 — no size step at all below
+   h3 — each of the first three with its own line-height and a .6em lead-in. The h4-h6 rule is not
+   redundant: without it the UA stylesheet's own .83em/.67em for h5/h6 applies (measured: 10.79px and
+   8.71px on this 13px base), which is why IntelliJ declares 1em there too. No border under h1/h2
+   either: IntelliJ draws none. */
+.md-preview h1 { font-size: 2.2em; line-height: 1.4; padding-top: .6em; }
+.md-preview h2 { font-size: 1.8em; line-height: 1.2; padding-top: .6em; }
+.md-preview h3 { font-size: 1.3em; line-height: 1; padding-top: .6em; }
+.md-preview h4, .md-preview h5, .md-preview h6 { font-size: 1em; }
+.md-preview p, .md-preview ul, .md-preview ol,
+.md-preview blockquote, .md-preview pre { margin: 16px 0; }
+.md-preview ul, .md-preview ol { padding-left: 2em; }
+.md-preview li > p { margin: 0; }
+/* The checkbox hangs in the list's left padding and the item stays where the text starts, as GitHub draws it: a line
+   long enough to wrap goes on under its own text, not under the box. */
+.md-preview li.md-task { list-style: none; }
+.md-preview li.md-task > input { margin: 0 .5em 0 -1.5em; }
+/* A task item's text sits beside its checkbox: the first paragraph runs inline after the box; anything after it (a
+   nested list, a second paragraph) stays a block below. */
+.md-preview li.md-task > input + p { display: inline; }
+.md-preview blockquote { padding: 10px 10px 10px 16px; border-left: 2px solid var(--md-line);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+.md-preview blockquote > :first-child { margin-top: 0; }
+.md-preview blockquote > :last-child { margin-bottom: 0; }
+.md-preview hr { border: 0; border-top: 1px solid var(--md-line); margin: 20px 0; }
+.md-preview a { color: var(--md-link); text-decoration: none; }
+.md-preview a:hover { text-decoration: underline; }
+.md-preview img { max-width: 100%; height: auto; }
+.md-preview code { font-family: var(--mono); font-size: .9em;
+  background: var(--md-code-bg); border-radius: var(--radius-sm); padding: .2em .4em; }
+/* The fence carries the size and IntelliJ resets the inner <code> to 100% — leaving the .9em above
+   in place would compound with this .85em. The top padding is the one departure from IntelliJ's
+   uniform 16px: the copy button (.md-copy below, for which position: relative is the containing
+   block) sits in that band, so it never covers the first line of code — which a top-left overlay
+   inside a 16px pad would do, on the very characters a reader looks at first. */
+.md-preview pre { position: relative; background: var(--md-code-bg); border-radius: var(--radius-sm);
+  padding: 30px 16px 16px; font-size: .85em; line-height: 1.45; overflow-x: auto; }
+.md-preview pre code { background: none; padding: 0; font-size: 100%; }
+/* Copies the whole fence. Always visible but dimmed, so it reads as part of the block rather than
+   a control competing with the code; hover and keyboard focus bring it to full strength. In a block
+   wide enough to scroll it moves with the content (an absolute child of an overflow container is
+   part of its scrollable overflow) — acceptable, the left edge is where reading starts anyway. The
+   global `button` rule brings a border, background and sans font that all have to go. */
+.md-preview .md-copy { position: absolute; top: 6px; left: 6px; width: 20px; height: 20px;
+  display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--radius-sm);
+  background: transparent; color: var(--md-text); opacity: .45; cursor: pointer; }
+.md-preview .md-copy:hover { opacity: 1; }
+.md-preview .md-copy:focus-visible { opacity: 1; outline: none; box-shadow: 0 0 0 2px var(--ring); }
+/* Tables scroll horizontally within themselves only — the page must not shift */
+.md-table-wrap { overflow-x: auto; margin: 16px 0; }
+.md-preview table { border-collapse: collapse; }
+.md-preview th, .md-preview td { border: 1px solid var(--md-line); padding: 6px 13px; }
+.md-preview th { font-weight: bold; }
+.md-img-failed, .md-img-loading { opacity: .55; font-style: italic; }
+
+/* Code colors — the stable classes @lezer/highlight's classHighlighter attaches. oneDark palette,
+   matching the file editor's colors so switching between edit and preview does not shift them. */
+.md-preview .tok-comment { color: var(--syn-comment); font-style: italic; }
+.md-preview .tok-keyword { color: var(--syn-keyword); }
+.md-preview .tok-string, .md-preview .tok-string2 { color: var(--syn-string); }
+.md-preview .tok-number, .md-preview .tok-bool, .md-preview .tok-atom { color: var(--syn-number); }
+.md-preview .tok-variableName { color: var(--syn-variable); }
+.md-preview .tok-variableName2 { color: var(--syn-variable2); }
+.md-preview .tok-propertyName { color: var(--syn-property); }
+.md-preview .tok-typeName, .md-preview .tok-className { color: var(--syn-type); }
+.md-preview .tok-operator, .md-preview .tok-punctuation { color: var(--syn-operator); }
+.md-preview .tok-meta { color: var(--syn-comment); }
+.md-preview .tok-invalid { color: var(--syn-invalid-ink); background: var(--syn-invalid-bg); }

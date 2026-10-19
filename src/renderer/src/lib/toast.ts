@@ -16,7 +16,12 @@ export type Toast = {
   /** Called once when it is closed with ✕. Used for the update campaign's dismiss ack. */
   onDismiss?: () => void
 }
-export type ToastOptions = { action?: ToastAction; onDismiss?: () => void }
+export type ToastOptions = {
+  action?: ToastAction
+  onDismiss?: () => void
+  /** W8-F (#94): an error that closes on its own after this long (it would otherwise stay until ✕). */
+  ttlMs?: number
+}
 
 /** Auto-dismiss for info/success. An error must not be missed, so it does not auto-dismiss and closes only via ✕. */
 const AUTO_DISMISS_MS = 4000
@@ -61,7 +66,8 @@ function push(kind: ToastKind, message: string, options?: ToastOptions): number 
   emit()
   // A toast with an action is never auto-dismissed — vanishing after 4 seconds leaves no chance to press the button.
   // Instead it is expected to close the moment the action fires, via the id returned below.
-  if (kind !== 'error' && !options?.action) setTimeout(() => dismiss(id), AUTO_DISMISS_MS)
+  if (options?.ttlMs !== undefined) setTimeout(() => dismiss(id), options.ttlMs)
+  else if (kind !== 'error' && !options?.action) setTimeout(() => dismiss(id), AUTO_DISMISS_MS)
   return id
 }
 

@@ -5,12 +5,13 @@
 // `slotsToFill` and `workersAgainstCap` (the plan's own and the app-wide caps, `Job.priority`), `sameFilesAs` (W6-C: two
 // workers on the same files), FAILURE_LIMIT (the circuit breaker). If one of those rules changes, the reason changes with it.
 import type { TaskBlockedReason, TaskBoard, TaskCategory, UsagePause } from '../types'
-import { DEFAULT_CONCURRENCY, FAILURE_LIMIT, type Dispatch, type Gate, type Task } from './types'
+import { DEFAULT_CONCURRENCY, FAILURE_LIMIT, type Dispatch, type Gate, type Job, type Task } from './types'
 import { placedByApp, type OrchState } from './state'
 import { isJobActive } from './lifecycle'
 import {
-  editingByJob,
+  editingByProject,
   jobActive,
+  projectKeyOf,
   sameFilesAs,
   slotsToFill,
   workerCapOf,
@@ -20,6 +21,8 @@ import {
 import { usageChoice } from './usageGuard'
 // W8-C plan after plan
 import { afterNameOf, afterQueued, afterStandOf } from './after'
+// W8-D several plans in one repo
+import { jobNameOf } from './jobName'
 
 const isOpen = (d: Dispatch): boolean => !d.outcome && !d.endedAt
 
@@ -75,12 +78,13 @@ export function taskBoardsOf(
     const slots = slotsToFill(s, limits)
     const byRun = new Map<string, number>()
     for (const x of slots) byRun.set(x.runId, (byRun.get(x.runId) ?? 0) + 1)
-    // W6-C: the Tasks at their files, and those this pass places (they hold their files from the next write)
-    const editing = editingByJob(s)
+    // W6-C: the Tasks at their files, and those this pass places (they hold their files from the next write); W8-D: by
+    // project, so another plan's worker holds them too
+    const editing = editingByProject(s)
     for (const x of slots) {
       const t = taskById.get(x.taskId)
-      const jobId = runById.get(x.runId)?.jobId
-      if (t && jobId !== undefined) editing.set(jobId, [...(editing.get(jobId) ?? []), t])
+      const job = jobById.get(runById.get(x.runId)?.jobId ?? '')
+      if (t && job) editing.set(projectKeyOf(job), [...(editing.get(projectKeyOf(job)) ?? []), t])
     }
     placement = { count: slots.length, slotted: new Set(slots.map((x) => x.taskId)), byRun, used: workersAgainstCap(s), editing }
     return placement
@@ -91,6 +95,19 @@ export function taskBoardsOf(
       const runId = taskById.get(d.taskId)?.runId
       if (runId !== undefined) openByRun.set(runId, (openByRun.get(runId) ?? 0) + 1)
     }
+
+  // W6-C same files; W8-D: the Task waited on may be another plan's of the project, and the reason names that plan
+  const sameFiles = (task: Task, job: Job, editing: Map<string, Task[]>): TaskBlockedReason | undefined => {
+    const clash = sameFilesAs(task, editing.get(projectKeyOf(job)) ?? [])
+    if (!clash) return undefined
+    const other = jobById.get(runById.get(clash.task.runId ?? '')?.jobId ?? '')
+    return {
+      kind: 'same-files',
+      waitingOn: { id: clash.task.id, title: clash.task.title },
+      path: clash.path,
+      ...(other && other.id !== job.id ? { plan: { id: other.id, title: jobNameOf(other) } } : {})
+    }
+  }
 
   const reasonOf = (task: Task, open: Dispatch | undefined): TaskBlockedReason | undefined => {
     if (task.status === 'completed') return undefined
@@ -156,13 +173,12 @@ export function taskBoardsOf(
     }
     if (!placedByApp(job, run)) {
       // W8-E (#92): the coordinator's `worker-start` holds a same-file Task too, so the board says why
-      const clash = sameFilesAs(task, placed().editing.get(job.id) ?? [])
-      return clash ? { kind: 'same-files', waitingOn: { id: clash.task.id, title: clash.task.title }, path: clash.path } : { kind: 'coordinator' }
+      return sameFiles(task, job, placed().editing) ?? { kind: 'coordinator' }
     }
     const p = placed()
     if (p.slotted.has(task.id)) return { kind: 'next' }
-    const clash = sameFilesAs(task, p.editing.get(job.id) ?? [])
-    if (clash) return { kind: 'same-files', waitingOn: { id: clash.task.id, title: clash.task.title }, path: clash.path }
+    const clash = sameFiles(task, job, p.editing)
+    if (clash) return clash
     const openHere = openByRun.get(run.id) ?? 0
     const limit = job.concurrency ?? DEFAULT_CONCURRENCY
     if (openHere + (p.byRun.get(run.id) ?? 0) >= limit) return { kind: 'plan-cap', used: openHere, limit }

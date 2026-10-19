@@ -3,7 +3,7 @@ import path from 'node:path'
 import { isLang, type Lang } from '../core/i18n'
 import { sanitizeFontFamily } from '../core/terminal/font'
 import type { TerminalFont } from '../core/terminal/font'
-import { DEFAULT_THEME_ID, isThemeId, type ThemeId } from '../core/theme/themes'
+import { DEFAULT_THEME_ID, isThemeId, themeIdOf, type ThemeId } from '../core/theme/themes'
 import type { AgentPermissionMode, McpAccess, ResumeStrategy, SessionKind } from '../core/types'
 import { applyContinuityToggle } from '../core/continuity/settings'
 import {
@@ -27,6 +27,12 @@ import { maxConcurrentWorkersOf } from '../core/settings/maxConcurrentWorkers'
 import { maxSubagentsPerSessionOf, SUBAGENT_CAP_DEFAULT } from '../core/sessions/subagentCap'
 import { usagePauseAtOf, USAGE_PAUSE_AT_DEFAULT } from '../core/orchestration/usageGuard'
 import { ACTIVITY_DIGEST_DEFAULT_MINUTES, activityDigestMinutesOf } from '../core/settings/activityDigest'
+import { tabSummariesOf } from '../core/settings/tabSummaries'
+import { FRESH_COORDINATOR_DEFAULT_PCT, freshCoordinatorPctOf } from '../core/settings/freshCoordinator'
+import { stallWatchOnOf } from '../core/settings/stallWatch'
+import { startAtLoginOf } from '../core/settings/startAtLogin'
+import { autoAnswerOnOf } from '../core/orchestration/exec/autoAnswer'
+import { autoCleanWorktreesOf } from '../core/settings/autoCleanWorktrees'
 import { mcpAccessOf } from '../core/settings/mcpAccess'
 import { mcpSessionsOf } from '../core/settings/mcpSessions'
 import { mcpGithubWriteOf } from '../core/settings/mcpGithubWrite'
@@ -128,11 +134,22 @@ export class AppSettingsStore {
   private usagePauseAt = USAGE_PAUSE_AT_DEFAULT
   /** W3-A: minutes between activity digests, 0 for none. Written only when it is not the default. */
   private activityDigestMinutes = ACTIVITY_DIGEST_DEFAULT_MINUTES
+  private freshCoordinatorContextPct = FRESH_COORDINATOR_DEFAULT_PCT
+  /** Stall watchdog (orchestration/exec/stallWatch.ts): on by default; only an explicit false turns it off. */
+  private stallWatch = true
+  /** T23 (main/autostart.ts): on by default; only an explicit false turns it off. */
+  private startAtLogin = true
+  /** T21 (orchestration/exec/autoAnswer.ts): on by default; only an explicit false turns it off. */
+  private autoAnswer = true
+  /** W9-J: remove a delivered plan's ready worktrees; on by default. */
+  private autoCleanWorktrees = true
   /** W6-B: the chime with a notice that needs the owner. On by default; only an explicit false (the file is
    *  user-editable) turns it off, as githubPolling. */
   private alertSound = true
   /** W7-F (#84): an ended plan's session tabs close on their own. On by default; only an explicit false turns it off. */
   private autoCloseEndedPlanTabs = true
+  /** W9-I: a short summary card when a tab ends (DESIGN §4). On by default; only an explicit false turns it off. */
+  private tabSummaries = true
   /** 설명을 누가·무엇으로 만드는가. 비어 있으면 생성하지 않는다 (설계 D2) */
   private generator: GeneratorSettings = {}
   /** Orchestrator W1-A: per-provider role and difficulty models. Empty = the built-in defaults. */
@@ -221,8 +238,16 @@ export class AppSettingsStore {
       this.activityDigestMinutes = activityDigestMinutesOf(
         (parsed as { activityDigestMinutes?: unknown }).activityDigestMinutes
       )
+      this.freshCoordinatorContextPct = freshCoordinatorPctOf(
+        (parsed as { freshCoordinatorContextPct?: unknown }).freshCoordinatorContextPct
+      )
+      this.stallWatch = stallWatchOnOf((parsed as { stallWatch?: unknown }).stallWatch)
+      this.startAtLogin = startAtLoginOf((parsed as { startAtLogin?: unknown }).startAtLogin)
+      this.autoAnswer = autoAnswerOnOf((parsed as { autoAnswer?: unknown }).autoAnswer)
+      this.autoCleanWorktrees = autoCleanWorktreesOf((parsed as { autoCleanWorktrees?: unknown }).autoCleanWorktrees)
       this.alertSound = (parsed as { alertSound?: unknown }).alertSound !== false
       this.autoCloseEndedPlanTabs = (parsed as { autoCloseEndedPlanTabs?: unknown }).autoCloseEndedPlanTabs !== false // W7-F (#84)
+      this.tabSummaries = tabSummariesOf((parsed as { tabSummaries?: unknown }).tabSummaries) // W9-I
       // Narrowed on read, like generator and terminalFont and for the same reason: the file is
       // user-editable, and the narrowing is per flag's own default (see readDesktopNotify).
       this.desktopNotify = readDesktopNotify((parsed as { desktopNotify?: unknown }).desktopNotify)
@@ -258,7 +283,7 @@ export class AppSettingsStore {
             }
           : { latin: null, hangul: null }
       const theme = (parsed as { theme?: unknown }).theme
-      this.theme = isThemeId(theme) ? theme : DEFAULT_THEME_ID
+      this.theme = themeIdOf(theme) // old ids → night, light → day (DESIGN.md §13)
       // Narrowed to === 'chat' — the file is user-editable, so anything else reads as the default
       // 'terminal', the same one-sided narrowing agentPermissionMode uses above. With the new key
       // absent the old one it replaced is read instead: its 'conversation' meant "open on the
@@ -294,8 +319,14 @@ export class AppSettingsStore {
         this.maxSubagentsPerSession = SUBAGENT_CAP_DEFAULT
         this.usagePauseAt = USAGE_PAUSE_AT_DEFAULT
         this.activityDigestMinutes = ACTIVITY_DIGEST_DEFAULT_MINUTES
+        this.freshCoordinatorContextPct = FRESH_COORDINATOR_DEFAULT_PCT
+        this.stallWatch = true
+        this.startAtLogin = true
+        this.autoAnswer = true
+        this.autoCleanWorktrees = true
         this.alertSound = true
         this.autoCloseEndedPlanTabs = true
+        this.tabSummaries = true
         this.desktopNotify = { ...DESKTOP_NOTIFY_DEFAULTS }
         this.generator = {}
         this.roleModels = {}
@@ -333,8 +364,14 @@ export class AppSettingsStore {
       this.maxSubagentsPerSession = SUBAGENT_CAP_DEFAULT
       this.usagePauseAt = USAGE_PAUSE_AT_DEFAULT
       this.activityDigestMinutes = ACTIVITY_DIGEST_DEFAULT_MINUTES
+      this.freshCoordinatorContextPct = FRESH_COORDINATOR_DEFAULT_PCT
+      this.stallWatch = true
+      this.startAtLogin = true
+      this.autoAnswer = true
+      this.autoCleanWorktrees = true
       this.alertSound = true
       this.autoCloseEndedPlanTabs = true
+      this.tabSummaries = true
       this.desktopNotify = { ...DESKTOP_NOTIFY_DEFAULTS }
       this.generator = {}
       this.roleModels = {}
@@ -565,6 +602,52 @@ export class AppSettingsStore {
     await this.persist()
   }
 
+  getFreshCoordinatorContextPct(): number {
+    return this.freshCoordinatorContextPct
+  }
+
+  /** Narrowed like the file: the value arrives from the renderer. */
+  async setFreshCoordinatorContextPct(n: number): Promise<void> {
+    this.freshCoordinatorContextPct = freshCoordinatorPctOf(n)
+    await this.persist()
+  }
+
+  getStallWatch(): boolean {
+    return this.stallWatch
+  }
+
+  async setStallWatch(on: boolean): Promise<void> {
+    this.stallWatch = on !== false
+    await this.persist()
+  }
+
+  getStartAtLogin(): boolean {
+    return this.startAtLogin
+  }
+
+  async setStartAtLogin(on: boolean): Promise<void> {
+    this.startAtLogin = on !== false
+    await this.persist()
+  }
+
+  getAutoAnswer(): boolean {
+    return this.autoAnswer
+  }
+
+  async setAutoAnswer(on: boolean): Promise<void> {
+    this.autoAnswer = on !== false
+    await this.persist()
+  }
+
+  getAutoCleanWorktrees(): boolean {
+    return this.autoCleanWorktrees
+  }
+
+  async setAutoCleanWorktrees(on: boolean): Promise<void> {
+    this.autoCleanWorktrees = on !== false
+    await this.persist()
+  }
+
   getAlertSound(): boolean {
     return this.alertSound
   }
@@ -581,6 +664,16 @@ export class AppSettingsStore {
 
   async setAutoCloseEndedPlanTabs(on: boolean): Promise<void> {
     this.autoCloseEndedPlanTabs = on !== false
+    await this.persist()
+  }
+
+  // W9-I
+  getTabSummaries(): boolean {
+    return this.tabSummaries
+  }
+
+  async setTabSummaries(on: boolean): Promise<void> {
+    this.tabSummaries = on !== false
     await this.persist()
   }
 
@@ -730,8 +823,14 @@ export class AppSettingsStore {
       maxSubagentsPerSession?: number
       usagePauseAt?: number
       activityDigestMinutes?: number
+      freshCoordinatorContextPct?: number
+      stallWatch?: false
+      startAtLogin?: false
+      autoAnswer?: false
+      autoCleanWorktrees?: false
       alertSound?: false
       autoCloseEndedPlanTabs?: false
+      tabSummaries?: false
       desktopNotify?: DesktopNotifySettings
       generator?: GeneratorSettings
       roleModels?: RoleModelSettings
@@ -772,8 +871,14 @@ export class AppSettingsStore {
     if (this.maxSubagentsPerSession !== SUBAGENT_CAP_DEFAULT) data.maxSubagentsPerSession = this.maxSubagentsPerSession
     if (this.usagePauseAt !== USAGE_PAUSE_AT_DEFAULT) data.usagePauseAt = this.usagePauseAt
     if (this.activityDigestMinutes !== ACTIVITY_DIGEST_DEFAULT_MINUTES) data.activityDigestMinutes = this.activityDigestMinutes
+    if (this.freshCoordinatorContextPct !== FRESH_COORDINATOR_DEFAULT_PCT) data.freshCoordinatorContextPct = this.freshCoordinatorContextPct
+    if (!this.stallWatch) data.stallWatch = false
+    if (!this.startAtLogin) data.startAtLogin = false
+    if (!this.autoAnswer) data.autoAnswer = false
+    if (!this.autoCleanWorktrees) data.autoCleanWorktrees = false
     if (!this.alertSound) data.alertSound = false
     if (!this.autoCloseEndedPlanTabs) data.autoCloseEndedPlanTabs = false // W7-F (#84)
+    if (!this.tabSummaries) data.tabSummaries = false // W9-I
     // Written only while the question is still open, which is the same one-sided rule as the two
     // below — and here it carries the difference between a new install and an old one, so an absent
     // key has to keep meaning "asked". See the field's own note.

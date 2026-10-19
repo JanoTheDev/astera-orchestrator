@@ -38,11 +38,15 @@ export function QuestionAnswer({ q, onAnswer }: { q: OpenQuestion; onAnswer: (id
           ))}
         </div>
       )}
-      <textarea rows={2} value={text} placeholder={t('plan.question.placeholder')} onChange={(e) => setText(e.target.value)} />
+      {q.freeText !== false && (
+        <>
+          <textarea rows={2} value={text} placeholder={t('plan.question.placeholder')} onChange={(e) => setText(e.target.value)} />
+          <button type="button" className="primary" disabled={busy || !text.trim()} onClick={() => void send(text.trim())}>
+            {t('plan.question.send')}
+          </button>
+        </>
+      )}
       {error && <p className="warn">{error}</p>}
-      <button type="button" className="primary" disabled={busy || !text.trim()} onClick={() => void send(text.trim())}>
-        {t('plan.question.send')}
-      </button>
     </div>
   )
 }

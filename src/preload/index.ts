@@ -124,7 +124,12 @@ const api = {
     isGitRepo: invoke('worktrees.isGitRepo'),
     getRoot: invoke('worktrees.getRoot'),
     setRoot: invoke('worktrees.setRoot'),
-    pushState: invoke('worktrees.pushState')
+    pushState: invoke('worktrees.pushState'),
+    // W9-J
+    overview: invoke('worktrees.overview'),
+    cleanup: invoke('worktrees.cleanup'),
+    detail: invoke('worktrees.detail'),
+    fileDiff: invoke('worktrees.fileDiff')
   },
   pr: {
     draftFor: invoke('pr.draftFor'),
@@ -213,10 +218,22 @@ const api = {
     // W3-A
     getActivityDigestMinutes: invoke('settings.getActivityDigestMinutes'),
     setActivityDigestMinutes: invoke('settings.setActivityDigestMinutes'),
+    getFreshCoordinatorContextPct: invoke('settings.getFreshCoordinatorContextPct'),
+    setFreshCoordinatorContextPct: invoke('settings.setFreshCoordinatorContextPct'),
+    getStallWatch: invoke('settings.getStallWatch'),
+    setStallWatch: invoke('settings.setStallWatch'),
+    getStartAtLogin: invoke('settings.getStartAtLogin'),
+    setStartAtLogin: invoke('settings.setStartAtLogin'),
+    getAutoAnswer: invoke('settings.getAutoAnswer'), // T21
+    setAutoAnswer: invoke('settings.setAutoAnswer'),
+    getAutoCleanWorktrees: invoke('settings.getAutoCleanWorktrees'),
+    setAutoCleanWorktrees: invoke('settings.setAutoCleanWorktrees'),
     getAlertSound: invoke('settings.getAlertSound'), // W6-B
     setAlertSound: invoke('settings.setAlertSound'),
     getAutoCloseEndedPlanTabs: invoke('settings.getAutoCloseEndedPlanTabs'), // W7-F (#84)
     setAutoCloseEndedPlanTabs: invoke('settings.setAutoCloseEndedPlanTabs'),
+    getTabSummaries: invoke('settings.getTabSummaries'), // W9-I
+    setTabSummaries: invoke('settings.setTabSummaries'),
     setMaxConcurrentWorkers: invoke('settings.setMaxConcurrentWorkers'),
     // W6-G
     getMaxSubagentsPerSession: invoke('settings.getMaxSubagentsPerSession'),
@@ -509,7 +526,11 @@ const api = {
       const l = (_e: unknown, isMax: boolean): void => cb(isMax)
       ipcRenderer.on('win:maximized', l)
       return () => ipcRenderer.removeListener('win:maximized', l)
-    }
+    },
+    // W9-K
+    boundProject: () => ipcRenderer.invoke('win.boundProject'),
+    setScope: (scope) => ipcRenderer.send('win.setScope', scope),
+    openNew: (projectId) => ipcRenderer.send('win.openNew', projectId)
   },
   on<C extends CoreEventChannel>(channel: C, cb: (payload: CoreEvents[C]) => void): () => void {
     if (!EVENT_CHANNELS.includes(channel)) throw new Error(`unknown event channel: ${channel}`)

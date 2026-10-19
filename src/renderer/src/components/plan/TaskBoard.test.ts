@@ -81,3 +81,28 @@ describe('PlanFiles', () => {
     expect(html).toContain('title="plan.files.open"')
   })
 })
+
+describe('TaskBoard coordinator Gates (W8-F, #97)', () => {
+  const gated = task('g', {
+    status: 'blocked',
+    openGates: 1,
+    gate: { id: 'gat_1', question: 'Out of tries: Task g', options: ['retry-once', 'mark-failed'], kind: 'convergence-exhausted' }
+  })
+  it("a Task's open Gate gets the answer box: its options as buttons and a text box", () => {
+    const html = board({ tasks: [gated], layers: [['g']], onAnswer: async () => null })
+    expect(html).toContain('plan-question')
+    expect(html).toContain('Out of tries: Task g')
+    expect(html).toMatch(/<button[^>]*>retry-once<\/button>/)
+    expect(html).toMatch(/<button[^>]*>mark-failed<\/button>/)
+    expect(html).toContain('<textarea')
+  })
+  it('a check that could not be made has its buttons and no text box', () => {
+    const t = task('g', { status: 'blocked', openGates: 1, gate: { id: 'gat_2', question: 'q', options: ['retry', 'skip-check'], kind: 'check-unavailable' } })
+    const html = board({ tasks: [t], layers: [['g']], onAnswer: async () => null })
+    expect(html).toMatch(/<button[^>]*>skip-check<\/button>/)
+    expect(html).not.toContain('<textarea')
+  })
+  it('no box without an answer route (a remote Runtime)', () => {
+    expect(board({ tasks: [gated], layers: [['g']] })).not.toContain('plan-question')
+  })
+})

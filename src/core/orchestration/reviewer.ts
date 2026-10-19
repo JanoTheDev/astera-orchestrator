@@ -3,6 +3,7 @@
 import { defaultAccountIdOf } from '../accounts/defaultAccount'
 import { PROVIDERS, providerOf } from '../providers/meta'
 import type { Account, Provider } from '../types'
+import { OWNER_ANSWER_SUBJECT, type OrchState } from './state'
 
 /** 구현자와 **다른** provider 의 계정 하나 — 다른 provider 에 계정이 아예 없으면 같은 provider 의
  *  계정(`sameProvider`, 아래). 없으면 null(그것이 Gate 가 된다).
@@ -33,4 +34,20 @@ export function pickReviewer(a: {
   if (a.accounts.some((x) => providerOf(x) !== a.implProvider)) return null
   const accountId = defaultAccountIdOf(a.implProvider, a.accounts, a.loggedInIds)
   return accountId ? { provider: a.implProvider, accountId, sameProvider: true } : null
+}
+
+/** W8-F (#100): what the owner decided about a Task, for its review: the Gates answered on it, and the asks and
+ *  escalations the owner answered (the status line `applyReply` / `answerEscalation` leave), each as "question → answer",
+ *  oldest first. An owner answer can narrow a Task; the reviewer judges the Task as the owner left it. */
+export function ownerAnswersOf(s: OrchState, taskId: string): string[] {
+  const line = (q: string, a: string): string => `${q.replace(/\s+/g, ' ').trim().slice(0, 300)} → ${a.replace(/\s+/g, ' ').trim().slice(0, 500)}`
+  const gates = s.gates.filter((g) => g.taskId === taskId && g.status === 'resolved' && g.resolution).map((g) => ({ at: g.resolvedAt ?? g.createdAt, text: line(g.question, g.resolution!) }))
+  const messages = s.messages
+    .filter((m) => m.taskId === taskId && m.type === 'status' && m.subject === OWNER_ANSWER_SUBJECT)
+    .flatMap((m) => {
+      const asked = s.messages.find((x) => x.id === m.replyTo)
+      if (!asked) return []
+      return [{ at: m.createdAt, text: line(asked.subject || asked.body, asked.type === 'escalation' ? (asked.answerBody ?? m.body) : m.body) }]
+    })
+  return [...gates, ...messages].sort((a, b) => a.at.localeCompare(b.at)).map((x) => x.text)
 }

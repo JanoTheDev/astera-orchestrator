@@ -71,6 +71,9 @@ export function lineOf(e: ActivityEvent, accountLabel: (id: string) => string): 
       return p.round !== undefined && p.round > 0
         ? { text: `${p.title}: plan revised, ready for your approval${p.changes?.length ? `: ${p.changes.join('; ')}` : ''}`, tone: 'warn' }
         : { text: `${p.title}: plan ready for your approval`, tone: 'warn' }
+    // W8-F (#94)
+    case 'plan.incomplete':
+      return { text: `${p.title}: plan revised but not ready to approve: ${(p.problems ?? []).join('; ')}`, tone: 'bad' }
     // W7-A
     case 'plan.auto-started':
       return { text: `${p.title}: plan started automatically (${p.tasks ?? 0} tasks)`, tone: 'info' }
@@ -102,6 +105,21 @@ export function lineOf(e: ActivityEvent, accountLabel: (id: string) => string): 
     // W6-H
     case 'plan.delivered':
       return { text: `${p.title}: pushed to ${p.branch ?? 'its branch'} (${(p.sha ?? '').slice(0, 7)})`, tone: 'ok' }
+    // W8-D
+    case 'plan.overlap':
+      return { text: `${p.title}: overlaps another plan: ${(p.overlaps ?? []).join('; ')}`, tone: 'warn' }
+    // Coordinator rotation
+    case 'coordinator.refreshed':
+      return { text: `${p.title}: Coordinator refreshed (${p.reason ?? 'on request'})`, tone: 'info' }
+    // Stall watchdog
+    case 'watchdog':
+      return { text: `${p.title}: Watchdog: ${p.reason ?? ''}`, tone: 'warn' }
+    // T21 (exec/autoAnswer.ts)
+    case 'question.auto-answered':
+      return { text: `${p.title}: ${p.reason ?? ''}`, tone: 'info' }
+    // T23 (exec/crashResume.ts)
+    case 'host.recovered':
+      return { text: p.reason ?? '', tone: 'info' }
   }
 }
 

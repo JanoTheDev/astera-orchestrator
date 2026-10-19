@@ -1,5 +1,5 @@
 import type { WorktreeInfo } from '../core/types'
-import type { GhProbe, RepoPrSnapshot } from '../core/github/types'
+import type { GhProbe, PrInfo, RepoPrSnapshot } from '../core/github/types'
 import { classifyGhFailure, gh, probeGh, type GhResult } from '../core/github/gh'
 import { PR_LIST_ARGS, parsePrList } from '../core/github/prs'
 import { initialPacing, isBroken, noteCall, pickDue, tripBreaker, type PacingState } from '../core/github/pacing'
@@ -16,6 +16,9 @@ export interface GithubPrsDeps {
   fetchPrList?: (repoPath: string) => Promise<GhResult>
   probe?: () => Promise<GhProbe>
   now?: () => number
+  /** W8-A: told once per merged PR this process sees (the squash remap, `attribution-remap`). Never awaited: the
+   *  remap is the Host's, and a PR that is not a plan's is its no-op. */
+  onMerged?: (repoPath: string, pr: PrInfo) => void
 }
 
 export interface GithubPrs {
@@ -46,6 +49,8 @@ export function createGithubPrs(deps: GithubPrsDeps): GithubPrs {
   // minute against the background sweep. Cleared when the repo drops out of the registry
   // (finding 4), or when a forced refresh gives the user's fix a chance to be seen.
   const noRemoteRepos = new Set<string>()
+  // W8-A: the merged PRs already told to onMerged, by repository and number
+  const mergedSeen = new Set<string>()
   let subscribers = 0
   let timer: NodeJS.Timeout | null = null
   let inFlight = false
@@ -105,6 +110,12 @@ export function createGithubPrs(deps: GithubPrsDeps): GithubPrs {
         forcePending.delete(repo)
         cache[repo] = { byBranch, fetchedAt: new Date(now()).toISOString(), stale: false }
         sendSnapshot(repo)
+        for (const pr of Object.values(byBranch)) {
+          const key = `${repo}#${pr.number}`
+          if (pr.state !== 'merged' || mergedSeen.has(key)) continue
+          mergedSeen.add(key)
+          deps.onMerged?.(repo, pr)
+        }
         return
       }
       forcePending.delete(repo) // no retry loops — the next interval is the retry

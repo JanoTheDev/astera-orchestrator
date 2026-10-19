@@ -110,7 +110,7 @@ If an orange banner at the top of the screen asks you to reinstall, click **rein
 
 ## Step 6 — Enter the values in Astera
 
-In Astera, open **Settings (⚙) → Slack** tab.
+In Astera, open **Settings → Integrations → Slack**.
 
 | Field | Value to enter |
 |---|---|
@@ -155,7 +155,7 @@ Within a few seconds the text is typed into the session terminal, and Enter is p
 
 ## When it does not work
 
-Open the `%APPDATA%\Astera\slack.log` file. If you are using the dev build, it is `%APPDATA%\Astera-dev\slack.log`. (Token values are never written to this file.)
+Open the `slack.log` file in Astera's data folder (`%APPDATA%\Astera` on Windows, `~/.config/astera` on Linux). If you are using the dev build, it is `%APPDATA%\Astera-dev\slack.log`. (Token values are never written to this file.)
 
 ### No notifications arrive at all
 
@@ -215,7 +215,7 @@ That thread's session is already finished. **Restarting Astera puts every thread
 
 **If you run two copies of Astera** (the installed build and the dev build) **do not share the App Token.** Connecting twice with the same token makes Slack split replies between the two apps, so a reply can land on the one that does not own the thread. Use a separate app (or a separate workspace) for each.
 
-**You can also edit the config file directly** — `%APPDATA%\Astera\slack.json`. In that case the app has to be restarted for the change to apply. Saving from the settings screen applies immediately, so the screen is usually the better option.
+**You can also edit the config file directly** — `slack.json` in the same data folder (`%APPDATA%\Astera` on Windows, `~/.config/astera` on Linux). In that case the app has to be restarted for the change to apply. Saving from the settings screen applies immediately, so the screen is usually the better option.
 
 **If posting the session start message (the thread root) fails, notifications go straight to the channel with no thread.** When the root message cannot be posted — a missing bot permission, Slack temporarily not responding, and so on — that session's later notifications (✅ Response complete, 🙋 Input needed, and the rest) are no longer grouped into a thread and pile up one by one at the top level of the channel. Replies need a thread to know which session they belong to, so in this state a reply will not reach that session either. If `slack thread creation failed` shows up in `slack.log`, this is what happened.
 

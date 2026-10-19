@@ -49,6 +49,8 @@ interface RunArgs {
   log?: (m: string) => void
   /** Test seam; defaults to the session folder's probe (core/sessions/pathProbe.ts). */
   probe?: Probe
+  /** W9-I: a shorter limit than TIMEOUT_MS, for a short card (core/sessions/summary.ts). */
+  timeoutMs?: number
 }
 
 /** 에이전트를 돌려 **JSON 객체 하나**를 받는다. 스키마 검증은 부르는 쪽(validate.ts)이 한다.
@@ -108,7 +110,8 @@ export async function runAgent(a: RunArgs): Promise<AgentRun> {
       killProcessTree(child)
       resolve(r)
     }
-    const timer = setTimeout(() => done({ error: `${TIMEOUT_MS / 1000}초 안에 끝나지 않았다` }), TIMEOUT_MS)
+    const limit = a.timeoutMs ?? TIMEOUT_MS
+    const timer = setTimeout(() => done({ error: `${limit / 1000}초 안에 끝나지 않았다` }), limit)
 
     // codex's events are kept to their newest tail (audit U-13); claude prints one result, kept whole.
     child.stdout?.on('data', (b: Buffer) => (stdout = codex ? keepTail(stdout, b.toString('utf8'), CODEX_OUTPUT_KEEP) : stdout + b.toString('utf8')))

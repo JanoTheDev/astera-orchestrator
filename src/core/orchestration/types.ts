@@ -153,6 +153,10 @@ export interface Project {
   replan?: 'waves' | 'off'
   /** The default branch found when the project was added or created; shown, never used to pick a base. */
   defaultBranch?: string
+  // W10-A Run as written by name (promptNames.ts)
+  /** The folder, repository-relative, whose `<id>-*.md` files the prompt ids typed in Run as written name. Absent: the
+   *  first such plan detects it (`detectPromptsDir`) and saves it here. */
+  promptsDir?: string
 }
 
 /** W7-B: what a project nobody set up reads as. */
@@ -320,10 +324,33 @@ export interface Job {
    *  `doc#<heading>`, `sha256` its text's, `taskId` the Task Astera wrote for it, `skipped` why it got none ("already
    *  done: …"). Present: the planner may not add, cancel or rewrite a Task, and `validatePlan` checks each prompt. */
   verbatim?: { title: string; source: string; sha256: string; taskId?: string; skipped?: string }[]
+  // W10-A Run as written by name (promptNames.ts)
+  /** The prompts the owner named in the text instead of attaching them: the folder they came from, each id's file
+   *  (repository-relative), the ids left out and why, and how "all of" / "next waves" picked. Shown at approval. */
+  byName?: { dir: string; picked: { id: string; path: string }[]; skipped: { id: string; why: string }[]; why: string[] }
   // W8-C plan after plan
   /** When the Host escalated that the Job named by `after` stopped (gave up or archived) while this one waits on it
    *  (`afterSweep`, after.ts). Once per stop: cleared when that Job is no longer stopped. */
   afterStopNotified?: string
+  // W8-D several plans in one repo (overlap.ts)
+  /** Where this plan's Tasks meet another active or queued plan's of the same project (`overlapsOf`): the Host
+   *  refreshes it on every commit that changes either plan's Tasks (`refreshOverlaps`). Absent: none. It never blocks
+   *  approval; the cross-plan file guard (schedule.ts `editingByProject`) keeps the two apart at run time. */
+  overlaps?: PlanOverlap[]
+  /** One to three short words for where this plan works (`auth`, `api`, `ui`), set by its planner or `jobs-set --areas`;
+   *  `jobs-list --area` filters by them. */
+  areas?: string[]
+}
+
+/** W8-D: one Task of a plan (`taskId`) meeting one of another plan's (`jobId`, `otherTaskId`), by an overlapping affected
+ *  path (`path`, the first of this Task's that collides) or by the same linked issue (`issue`). */
+export interface PlanOverlap {
+  taskId: string
+  jobId: string
+  otherTaskId: string
+  by: 'path' | 'issue'
+  path?: string
+  issue?: number
 }
 
 /** W7-A: one message of the owner to a plan's planner. `plan`: before approval, to the planner session itself; `run`:
@@ -458,6 +485,11 @@ export interface JobRun {
   /** The pushed commit, or why the push stopped (escalated). Present: the driving loop does not try again
    *  (`run-deliver --force` does). */
   delivery?: RunDelivery
+  // Coordinator rotation (exec/coordinatorRotate.ts)
+  /** The fresh coordinators this Run was given (`run-coordinator-refresh`), oldest first, the last 20: why (`wave 3`,
+   *  `context 72%`), the session it replaced and the one it started. The feed says "Coordinator refreshed (…)" for each,
+   *  and the renderer closes a replaced session's ended tab. */
+  coordinatorRefreshes?: { at: string; reason: string; from: string; to: string; wave?: number; contextPct?: number }[]
 }
 
 export interface Task {
@@ -537,6 +569,9 @@ export interface Task {
   /** 사람이 이 Task 의 자동 수정을 멈췼다(task-update --convergence off). 도는 repair 는 끝까지 가고 그
    *  판정은 Gate 다(설계 §5.1) */
   convergenceOff?: true
+  /** When the app merged this completed Task's worktree into its plan branch (the Run's worktree): the wave merge and
+   *  the stall watchdog record it (`task-update --merged-into-plan`). What finishedSessions.ts mergedIntoPlan reads. */
+  mergedIntoPlanAt?: string
   /** 이 attempt 가 check 의 동작을 바꾸는 파일을 건드렸다(설계 §8.3). 실패 사유가 아니라 표시다 */
   suspiciousFiles?: string[]
   /** 이 Task 를 **다른 provider** 가 읽어 "요구가 충족됐는가"를 판정할지. task-create --review 가
@@ -870,4 +905,7 @@ export interface RunPr {
   // W8-C draft PR
   /** With `draft`: how many waves were done when the branch was last pushed and the body written (draftPr.ts). */
   wavesDone?: number
+  // W8-A commit attribution
+  /** The merge commit whose notes the squash remap wrote (`attribution-remap`): set, the remap is done. */
+  attributed?: string
 }

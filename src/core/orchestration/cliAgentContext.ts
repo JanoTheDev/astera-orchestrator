@@ -136,6 +136,18 @@ const SESSION = {
       }
     ]
   },
+  // Coordinator rotation (exec/coordinatorRotate.ts)
+  'run-coordinator-refresh': {
+    summary: "replace a run's coordinator with a fresh session briefed from the run's state",
+    detail:
+      'The fresh session starts on the same account and model, takes the slot, and only then is the old one stopped. Refused (409) while a coordinator or worker start is in flight, a stop is pending, or the run is not running. The app or the Host sends it at every wave boundary and past the "Fresh coordinator at context (%)" setting.',
+    flags: [
+      RUN_ARG('<runId>', 'the run whose coordinator to refresh'),
+      { name: 'wave', value: '<n>', about: 'the wave about to start, for the record' },
+      { name: 'contextPct', value: '<pct>', about: "the old coordinator's context reading, for the record" },
+      { name: 'reason', value: '<text>', about: 'why, when it is neither of those' }
+    ]
+  },
   'run-start-marks-clear': {
     summary: 'drop the coordinator start marks that are past their window',
     detail:
@@ -181,6 +193,13 @@ const SESSION = {
     detail:
       "While later waves remain, folds the completed tasks' worktrees into the run's integration branch, pushes it, and opens the plan's pull request as a draft or rewrites its body with the done and remaining waves. run-open-pr marks it ready after the final check. Never merges. The driving loop does this once per finished wave; refused from an agent session and an MCP client. Answered by the Host.",
     flags: [RUN_ARG('<runId>', 'the run between waves')]
+  },
+  // W8-A commit attribution
+  'attribution-remap': {
+    summary: "write the attribution notes onto the commits GitHub's squash or rebase merge of a plan's pull request made",
+    detail:
+      "Fetches the base branch, finds the merged pull request's new commit(s) and notes them from the tasks' stored commits: a squash commit gets one note with the lines merged by path. Pushes the notes ref after. Done once per merge commit. The app's pull request poll asks it; refused from an agent session and an MCP client. Answered by the Host.",
+    flags: [{ name: 'pr', value: '<url>', required: true, about: "the plan's merged pull request" }]
   },
   // W6-H delivery
   'run-deliver': {
@@ -424,6 +443,17 @@ const SESSION = {
       req('project', '<projectId>', 'the project the record belongs to (from `projects list`)'),
       req('id', '<recordId>', 'the record to read (from `understanding-list`)')
     ]
+  },
+  summaries: {
+    summary: 'what each tab did: the cards tabs leave when they end, newest first (W9-I)',
+    detail:
+      'Each card is a SessionSummary: the session, its plan and Task, when it ended, the outcome (merged, gave-up, stopped, done), the duration, the facts (files with +/-, checks, review rounds and verdict, questions and who answered, commits, PR) and 2-3 sentences of prose written by the coordinator role\'s model (empty when the model could not be asked). Read only, from the Host\'s summaries.json. Off with the tabSummaries setting.',
+    flags: [{ name: 'job', value: '<jobId>', about: "only this plan's cards (from `jobs list`)" }]
+  },
+  'sessions-summary': {
+    summary: "one tab's summary card, by session id (W9-I)",
+    detail: 'The same card `summaries` lists. A tab that has none (still running, wrote nothing, or summaries are off): 404.',
+    flags: [req('id', '<sessionId>', 'the session whose card to read (from `sessions list`)')]
   },
   'github-pr-create': {
     summary: "open a pull request from a finished Run's branch, through the Host's gh (the MCP server's create_pr)",

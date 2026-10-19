@@ -103,6 +103,7 @@ import {
 import { runWorktrees, runWorktreesFrom } from './integrate'
 import { isPathWithin } from '../files/tree'
 import { buildHandoverPrompt, buildPlannerBrief } from './handover'
+import { noRemoteNote, unmergedPlanBranches } from './unmergedBranches' // W8-G (#101)
 // W2-A planner stage
 import { editPlanTask, planFieldsFromArgs, plannerJobOf, plannerRefusal, validatePlan, workerSpecOf } from './planner'
 import { parseReviewFile, type ReviewIssueInput } from './review'
@@ -113,7 +114,7 @@ import { parseCheckFlag } from '../workUnit/verification'
 import { isTerminal as taskFinished, outcomeOf, progressOf } from './view'
 import { runningRunCount } from './running'
 import { FINISHED_RUN_GRACE_MS } from './exec/dispatchLoop'
-import { appDriven, editingByJob, sameFilesAs, workerCapOf, workersAgainstCap } from './schedule'
+import { appDriven, editingByProject, projectKeyOf, sameFilesAs, workerCapOf, workersAgainstCap } from './schedule'
 import type { JobEvent, SessionInfo, WorktreeInfo } from '../types'
 import { ghFailureSentence, type GhFailed, type GhRunner } from '../github/gh'
 import { failedLogTail, readPrChecks, rerunFailed } from '../github/checks'
@@ -126,6 +127,8 @@ import { intakeChanges, intakeObjective, intakeOf, intakeTitle, needsInputs } fr
 // W8-C prompts mode
 import path from 'node:path'
 import { promptPlanOf, sha256Of } from './promptWaves'
+// W10-A Run as written by name
+import { detectPromptsDir, isNamesText, PROMPTS_DIR_MAX_DEPTH, promptNamesOf, repoRelative, resolvePromptNames, takenPrompts } from './promptNames'
 import { fillFromCommits, type CommitSummary } from '../github/fill'
 // W2-D GitHub links
 import {
@@ -141,11 +144,20 @@ import {
   rangeCommits
 } from '../github/taskLinks'
 import { jobNameOf } from './jobName'
+// W8-D several plans in one repo
+import { areasArg, otherPlansBrief, overlapLines } from './overlap'
 import { isSamePath } from '../files/tree'
 import type { RunPr, TaskLinks } from './types'
 import { escalationOpen } from './sessionIndex' // W7-C
 import type { Gate, Message } from './types' // W7-C
 import type { BranchPushResult, PrCreateRequest, PrCreateResult } from '../github/prCreate'
+// W8-A commit attribution
+import { NOTES_FETCH_REFSPEC, pushNotes, syncNotes } from '../attribution/note'
+import { readBusyWindows, stampCommits, WINDOW_SLACK_MS } from '../attribution/stamp'
+import { remapMerged } from '../attribution/remap'
+import { attributionBlock } from '../attribution/stats'
+import { hookEventsFileIn } from '../hooks/sessionState'
+import { git as attributionGit } from '../worktrees/git'
 // W8-C draft PR
 import { completedWorktrees, draftPrDue, DRAFT_PR_FOOTER, runWaves, wavesDoneOf, wavesSection } from './draftPr'
 import type { SessionCheck } from '../workUnit/types'
@@ -157,11 +169,14 @@ import type { Lang } from '../i18n'
 import { isOverrideCompletion, policyOf } from './convergence'
 import { leftNothingBehind } from '../host/orchProtocol'
 import { APP_CALLER, HOST_CALLER } from '../host/driver'
+import { rollupMarkdown, type SessionSummary } from '../sessions/summary'
 import { UNREADABLE, recordDetail, recordSummary, recordsFor, type StoreShape } from '../understanding/read'
 import { JOB_SOURCE, SOURCE_COMMANDS, createFromContext, sourcesCommand, type JobSourcesDeps } from './commandSources'
 // W6-D wave replanning
 import { replanJobOf, waveOpen } from './replan'
 import { REPLAN_COMMANDS, replanCommand, replanRefusal } from './exec/replanStart'
+// Coordinator rotation
+import { coordinatorHandoff, refreshCoordinator } from './exec/coordinatorRotate'
 import { feedbackCommand, isFeedbackCommand } from './exec/plannerFeedback'
 export { JOB_SOURCE } from './commandSources'
 import { pluginIdOfCheck, type CompletionCheckInput, type PluginCheckAnswer } from './pluginChecks'
@@ -179,6 +194,7 @@ import {
   deliveryOf,
   parseDelivery,
   projectOfJob,
+  cleanAfterDelivery,
   recordDelivery,
   setJobDelivery,
   setProjectDelivery
@@ -736,6 +752,9 @@ export interface OrchServerDeps {
    *  never written (`readUnderstandingFile`). **Only the Host injects it**, over its profile's file: the
    *  app has the records in its own store and no caller asks it. Absent, `understanding-*` answer 409. */
   readUnderstanding?(): Promise<StoreShape>
+  /** W9-I: the tab summaries (host/hostSummaries.ts), newest first, read from the Host's summaries.json. **Only the Host
+   *  injects it.** Absent, `summaries` and `sessions-summary` answer 409. */
+  readSummaries?(jobId?: string): Promise<SessionSummary[]>
   // W6-A intake
   /** Copies the files a person attached into the Job's inputs folder, beside its plan.md (`copyIntakeFiles`), and
    *  answers the folder; throws the refusal's sentence. **Only the Host injects it**, over its profile; absent,
@@ -743,9 +762,14 @@ export interface OrchServerDeps {
   intakeInputs?(jobId: string, files: string[]): Promise<{ dir: string; names: string[] }>
   // W8-C prompts mode
   /** A text file of this machine, or null when it is not there: a Run-as-written plan's copied prompt files and its
-   *  project's docs/orchestrator/PLAN.md (`readTextIfAny`). **Only the Host injects it**; absent, `--mode prompts` with
+   *  project's docs/dev/PLAN.md, else docs/orchestrator/PLAN.md (`readTextIfAny`). **Only the Host injects it**; absent, `--mode prompts` with
    *  files answers 409 and a pasted document is ordered without PLAN.md. */
   readIntakeText?(file: string): Promise<string | null>
+  // W10-A Run as written by name
+  /** The `.md` files under the folder `dir` of this machine, `/`-separated and relative to it, at most `depth` folders
+   *  down (0: its own files); [] when it is not there (`listMdFiles`). **Only the Host injects it**; absent, prompt
+   *  names in Run as written answer 409. */
+  listPromptFiles?(dir: string, depth: number): Promise<string[]>
   /** The job-source plugins (plugin Phase 4 J10): which there are and a question to one. **Only the Host injects it**,
    *  from its plugin manager and runtime; absent, the sources are GitHub's alone. */
   jobSources?: JobSourcesDeps
@@ -759,6 +783,10 @@ export interface OrchServerDeps {
    *  `deliverByPush`, with `checks` (the run configurations) as the validation. **Only the Host injects it**; absent,
    *  `run-deliver` on a push project answers 409. */
   deliverPush?(a: PushDelivery & { checks: string[] }): Promise<PushResult>
+  // ── W9-J ──
+  /** Removes a delivered Run's worktrees that are ready (worktrees/cleanup.ts), unless `autoCleanWorktrees` is off.
+   *  **Only the Host injects it.** Absent, nothing is cleaned and the Worktrees page offers "Clean up". */
+  cleanWorktrees?(runId: string): Promise<unknown>
   // ── W7-B project settings kept in the app's own files ──
   /** Saves `command` as the project's test run configuration in run-configs.json and answers its id; null removes it
    *  and answers null. **Only the app injects it** (it is that file's one writer); the Host forwards it to an attached
@@ -767,6 +795,13 @@ export interface OrchServerDeps {
   /** Sets the folder's default account (core/projects/settings.ts, the New Session dialog's preselection); null clears
    *  it. Only the app injects it, like saveTestCommand. */
   setProjectAccount?(projectPath: string, accountId: string | null): Promise<void>
+  // ── W8-A commit attribution ──
+  /** The profile's hook-events folder (core/hooks/sessionState.ts `hookEventsDirIn`): the stamp reads a worker's busy
+   *  windows there. Absent, the attempt's own lifetime stands in for them. */
+  hookEventsDir?: string
+  /** The profile folder (`attribution/` holds the checkpoint logs the stamp's line data reads). **Only the Host injects
+   *  it**, as it does hookEventsDir; absent, the stamp notes commits without line data. */
+  profileDir?: string
 }
 
 /** A plugin as the early refusal reads it (plugin Phase 5 C7). */
@@ -810,8 +845,6 @@ export interface SessionCreate {
 
 type Reply = { status: number; body: unknown }
 const okBody = (body: unknown): Reply => ({ status: 200, body })
-/** W7-E (#80): what a plan whose project has no remote says instead of a pull request. */
-const noRemoteNote = (branch: string): string => `This project has no remote; the plan's work is on branch ${branch}`
 /** W7-E: whether the Job that owns `id` (a Job, or a Run of it) reviews its Tasks by default (Job.review). */
 const reviewDefaultOf = (s: OrchState, id: string): boolean => {
   const run = s.runs.find((r) => r.id === id)
@@ -1083,6 +1116,7 @@ const COORDINATOR_ONLY = new Set([
   'run-spawn',
   'run-coordinator-stop',
   'run-start-marks-clear',
+  'run-coordinator-refresh',
   'run-start',
   'run-worktree-set',
   'run-pause',
@@ -1118,7 +1152,9 @@ const COORDINATOR_ONLY = new Set([
   'projects-set',
   'run-deliver',
   // W8-C draft PR
-  'run-draft-pr'
+  'run-draft-pr',
+  // W8-A: the squash remap is Astera's, asked when the PR poll sees the plan's PR merged
+  'attribution-remap'
 ])
 
 /** Session-task commands answer to the work-unit tracking toggle, not the orchestration one. They
@@ -1172,6 +1208,12 @@ function projectSettingsArgs(
   for (const key of ['testCommand', 'account'] as const)
     if (args[key] !== undefined && typeof args[key] !== 'string') return { error: `--${key === 'testCommand' ? 'test-command' : 'account'} needs a value` }
   if (args.testCommand !== undefined && args.testConfig !== undefined) return { error: 'give --test-command or --test-config, not both' }
+  // W10-A: `none` (or empty) clears it; a path is checked against the project's folder by projects-set
+  if (args.promptsDir !== undefined) {
+    if (typeof args.promptsDir !== 'string') return { error: '--prompts-dir needs a folder in the repository, or none' }
+    const v = args.promptsDir.trim()
+    patch.promptsDir = v === '' || v === 'none' ? null : v
+  }
   return {
     patch,
     ...(args.testCommand !== undefined ? { testCommand: (args.testCommand as string).trim() } : {}),
@@ -1372,6 +1414,71 @@ export async function linkReportedWork(
   }
 }
 
+/** W8-A: the stamp of a worker's `worker_done` (core/attribution/stamp.ts): every commit the attempt added over its
+ *  recorded base gets the Wave 8 note naming the attempt, and the Task's links keep those commits, the map the squash
+ *  remap reads (`attribution-remap`). The busy windows come from the session's hook-events file; with none, the
+ *  attempt's own lifetime stands in. Before any merge of that worktree: the merges come after the report. Never throws. */
+export async function stampReportedWork(deps: OrchServerDeps, taskId: string, dispatchId: string): Promise<void> {
+  try {
+    const s = deps.getState()
+    const d = s.dispatches.find((x) => x.id === dispatchId)
+    const task = s.tasks.find((t) => t.id === taskId)
+    const job = task?.jobId ?? s.runs.find((r) => r.id === task?.runId)?.jobId
+    if (!d?.git?.base || !task || !job) return
+    const read = deps.hookEventsDir ? await readBusyWindows(hookEventsFileIn(deps.hookEventsDir, d.sessionId)) : null
+    const windows =
+      read && read.length > 0 ? read : [{ start: Date.parse(d.startedAt) - WINDOW_SLACK_MS, end: Date.now() + WINDOW_SLACK_MS }]
+    const stamped = await stampCommits({
+      cwd: d.cwd,
+      base: d.git.base,
+      windows,
+      profileDir: deps.profileDir,
+      log: deps.log,
+      identity: {
+        job,
+        task: taskId,
+        session: d.sessionId,
+        agent: d.provider,
+        model: d.model ?? 'default',
+        account: d.accountId,
+        role: d.review ? 'reviewer' : 'worker'
+      }
+    })
+    if (stamped.length === 0) return
+    const cur = deps.getState()
+    const patch: TaskLinks = { commits: stamped.map((c) => c.sha) }
+    await deps.setState({ ...cur, tasks: cur.tasks.map((t) => (t.id === taskId ? { ...t, links: mergeLinks(t.links, patch) } : t)) })
+  } catch (e) {
+    deps.log?.(`task ${taskId}: stamping its commits failed: ${String(e)}`)
+  }
+}
+
+/** W8-A: a plan PR's "AI attribution" block (core/attribution/stats.ts), appended to its body; empty on any failure. */
+async function prAttribution(s: OrchState, runId: string, cwd: string): Promise<string> {
+  const run = s.runs.find((r) => r.id === runId)
+  if (!run) return ''
+  try {
+    const tasks = s.tasks.filter((t) => t.runId === runId).map((t) => ({ id: t.id, title: t.title, commits: t.links?.commits ?? [] }))
+    const block = await attributionBlock(cwd, run.jobId, tasks)
+    return block === '' ? '' : `\n\n${block}`
+  } catch {
+    return ''
+  }
+}
+
+/** W9-I: a plan PR's "What each task did" block (core/sessions/summary.ts rollupMarkdown), from the cards of this Run's
+ *  Tasks; empty with no cards or on any failure, so the PR never waits on it. */
+async function prSummaries(deps: OrchServerDeps, s: OrchState, runId: string): Promise<string> {
+  const run = s.runs.find((r) => r.id === runId)
+  if (!run || !deps.readSummaries) return ''
+  try {
+    const own = new Set(s.tasks.filter((t) => t.runId === runId).map((t) => t.id))
+    return rollupMarkdown((await deps.readSummaries(run.jobId)).filter((c) => c.taskId !== undefined && own.has(c.taskId)))
+  } catch {
+    return ''
+  }
+}
+
 const POLL_MS = 50
 
 // How long one `runs-follow` call holds before it answers with nothing new (CLI spec §22): the SDK package's
@@ -1479,7 +1586,7 @@ function coordinatorWanted(deps: OrchServerDeps, s: OrchState, run: JobRun, job:
  *  their own: a Job's next Run's Tasks, or a Run's unfinished Tasks when a coordinator would be started for it. */
 // W8-C prompts mode
 /** Writes a Run-as-written plan's Tasks (`jobs-create --mode prompts`): one definition Task per prompt, its text the
- *  prompt byte for byte, in the order docs/orchestrator/PLAN.md and the prompts' own sentences give (promptWaves.ts).
+ *  prompt byte for byte, in the order docs/dev/PLAN.md (or docs/orchestrator/PLAN.md) and the prompts' own sentences give (promptWaves.ts).
  *  Their account is the plan's coordinator account, else the default one. Answers the `Job.verbatim` entries and the
  *  lines the planner's objective lists, or the sentence to refuse with. */
 async function writePromptTasks(
@@ -1497,8 +1604,7 @@ async function writePromptTasks(
     files.push({ name, text })
   }
   const job = deps.getState().jobs.find((j) => j.id === jobId)!
-  const planMd = (await deps.readIntakeText?.(path.join(job.cwd, 'docs', 'orchestrator', 'PLAN.md'))) ?? undefined
-  const plan = promptPlanOf(files, pasted, planMd)
+  const plan = promptPlanOf(files, pasted, await readPlanMd(deps, job.cwd))
   let account = job.coordinatorAccountId
   if (account === undefined) {
     const all = await deps.listAccounts(undefined, { withDefault: true })
@@ -1531,6 +1637,50 @@ async function writePromptTasks(
     lines: plan.tasks.map((t) => `${idOf.get(t.key)} ${t.title}: ${t.spec.split('\n')[0]}`),
     skippedLines: plan.skipped.map((x) => `${x.key}: ${x.why}`)
   }
+}
+
+/** The project's PLAN.md (its wave table): docs/dev first; docs/orchestrator is where projects that predate the move
+ *  keep it. Undefined when there is none or no reader. */
+async function readPlanMd(deps: OrchServerDeps, cwd: string): Promise<string | undefined> {
+  for (const dir of ['dev', 'orchestrator']) {
+    const text = (await deps.readIntakeText?.(path.join(cwd, 'docs', dir, 'PLAN.md'))) ?? undefined
+    if (text !== undefined) return text
+  }
+  return undefined
+}
+
+// W10-A Run as written by name
+/** The prompt files the ids in `text` name (promptNames.ts), from the project's prompts folder, else the one detected
+ *  in its repository. `detected` is set when the folder was found now, for the plan to save. */
+async function promptsByName(
+  deps: OrchServerDeps,
+  s: OrchState,
+  cwd: string,
+  text: string
+): Promise<{ root: string; dir?: string; detected: boolean; resolution: ReturnType<typeof resolvePromptNames> }> {
+  const project = findProjectContaining(s, cwd)
+  const root = project?.path ?? cwd
+  let dir = project?.promptsDir
+  const detected = dir === undefined
+  if (dir === undefined) dir = detectPromptsDir(await deps.listPromptFiles!(root, PROMPTS_DIR_MAX_DEPTH))
+  const names = promptNamesOf(text)
+  if (dir === undefined)
+    return {
+      root,
+      detected,
+      resolution: {
+        picked: [],
+        skipped: [],
+        why: [],
+        problems: [
+          `no prompts folder: no folder up to ${PROMPTS_DIR_MAX_DEPTH} levels deep holds <id>-*.md files; set one with \`astera projects set --prompts-dir <path>\``
+        ]
+      }
+    }
+  const files = await deps.listPromptFiles!(path.join(root, dir), 0)
+  const mine = (j: Job): boolean => (project ? jobInProject(s, j, project) : isSamePath(j.cwd, cwd))
+  const resolution = resolvePromptNames(names, dir, files, await readPlanMd(deps, root), takenPrompts(s, mine))
+  return { root, dir, detected, resolution }
 }
 
 function startingCheckIds(deps: OrchServerDeps, cmd: string, args: Record<string, unknown>): string[] {
@@ -1649,7 +1799,7 @@ export async function handleCommand(
   // itself; `run-start-marks-clear` is the loop's sweep. Refused from inside any agent session, as
   // `chats answer` is: taken from the app (APP_CALLER), the Host (HOST_CALLER) and a shell (no session).
   if (
-    (cmd === 'run-start-marks-clear' || cmd === 'jobs-after-sweep' || (cmd === 'run-coordinator-stop' && args.gone !== undefined)) &&
+    (cmd === 'run-start-marks-clear' || cmd === 'jobs-after-sweep' || cmd === 'run-coordinator-refresh' || (cmd === 'run-coordinator-stop' && args.gone !== undefined)) &&
     caller.sessionId !== '' &&
     caller.sessionId !== APP_CALLER &&
     caller.sessionId !== HOST_CALLER
@@ -1905,8 +2055,12 @@ export async function handleCommand(
           // "정책 없음" 으로 읽힌다 — 코디네이터가 수렴 절 없는 브리핑을 받는다.
           convergence: policyOf(base, { runId: target.id }) !== null,
           jobId: job.id,
-          accountId
-        })
+          accountId,
+          promptsMode: job.verbatim !== undefined
+        }) +
+          // T23: a coordinator restarted for a stated reason (`run-start --reason`, the crash resume) replaces one whose
+          // conversation is gone, so it gets the fresh-coordinator hand-off read from the state.
+          (cmd === 'run-start' && str(args.reason) ? `\n\n${coordinatorHandoff(base, target.id, str(args.reason)!)}` : '')
       })
       sessionId = spawned.sessionId
     } catch (e) {
@@ -2236,9 +2390,15 @@ export async function handleCommand(
       if ('error' in settings) return bad(settings.error)
       const { testCommand, account } = settings
       if (delivery === undefined && branchArg === undefined && Object.keys(settings.patch).length === 0 && testCommand === undefined && account === undefined)
-        return bad('nothing to set: give --delivery, --delivery-branch, --auto-approve, --test-command, --test-config, --concurrency, --review-rounds, --replan or --account')
+        return bad('nothing to set: give --delivery, --delivery-branch, --auto-approve, --test-command, --test-config, --concurrency, --review-rounds, --replan, --prompts-dir or --account')
       const project = findProject(s, id)
       if (!project) return notFound(`unknown project: ${id}`)
+      // W10-A: the prompts folder is kept repository-relative, and a folder outside the repository is refused
+      if (typeof settings.patch.promptsDir === 'string') {
+        const rel = repoRelative(project.path, settings.patch.promptsDir)
+        if (!rel.ok) return bad(`--prompts-dir ${rel.error}`)
+        settings.patch.promptsDir = rel.rel
+      }
       if (testCommand !== undefined && !deps.saveTestCommand) return conflict("a project's test command is kept by the Astera app; open it and try again")
       if (account !== undefined && !deps.setProjectAccount) return conflict("a project's default account is kept by the Astera app; open it and try again")
       if (account) {
@@ -2380,15 +2540,41 @@ export async function handleCommand(
       // W6-A intake: --mode, --scope, --instructions and --attach shape the planner's objective (intake.ts).
       const read = intakeOf(args)
       if (!read.ok) return bad(read.error)
-      const intake = read.intake
-      const { mode: _mode, scope: _scope, instructions: _instructions, attach: _attach, approve: _approve, after: _after, ...plain } = args
+      let intake = read.intake
+      const { mode: _mode, scope: _scope, instructions: _instructions, attach: _attach, approve: _approve, after: _after, dryRun: _dryRun, ...plain } = args
       // W8-C plan after plan: `--after <job>`, the plan this one is queued after
       const afterId = args.after === undefined ? null : str(args.after)
       if (args.after !== undefined && (afterId === null || afterId === 'none')) return bad('--after needs a job id')
       if (afterId !== null && !s.jobs.some((j) => j.id === afterId)) return notFound(`unknown job: ${afterId}`)
       if (afterId !== null && str(args.coordinatorAccount) === null && args.coordinatorProvider === undefined)
         return bad('--after needs --coordinator-account (or --coordinator-provider): the queued plan\'s planner starts on it')
-      const source = typeof args.objective === 'string' ? args.objective : ''
+      let source = typeof args.objective === 'string' ? args.objective : ''
+      // W10-A Run as written by name: with nothing attached, the prompt ids in the text ("run W8-A, B then W9-A",
+      // "next waves") are looked up in the project's prompts folder and attached; any id that does not resolve to
+      // exactly one file refuses the plan before it exists. `dryRun` answers the lookup alone: the Start page's, never a
+      // CLI flag (the CLI shapes a jobs-create answer to a Job, which would drop it).
+      let notice: string | undefined
+      let byName: Awaited<ReturnType<typeof promptsByName>> | undefined
+      const named = intake.mode === 'prompts' && isNamesText(source)
+      if (args.dryRun === true && !named) return okBody({ names: false })
+      if (named && intake.attach.length > 0) notice = `Using the ${intake.attach.length} attached files; the names in the text were not looked up`
+      else if (named) {
+        if (!deps.listPromptFiles || !deps.readIntakeText) return conflict('prompt names are looked up on the Astera Host, and this caller is not one')
+        let root = str(args.cwd) ?? process.cwd()
+        if (deps.resolveProjectRoot) root = await deps.resolveProjectRoot(root).catch(() => root)
+        byName = await promptsByName(deps, s, root, source)
+        const { resolution: r } = byName
+        if (args.dryRun === true) return okBody({ names: true, dir: byName.dir ?? null, detected: byName.detected, ...r })
+        if (r.problems.length > 0) return bad(`prompt names: ${r.problems.join('; ')}`)
+        // The text stays the owner's instructions (its order lines still drive the planner), the files are the prompts
+        intake = {
+          ...intake,
+          attach: r.picked.map((p) => path.join(byName!.root, p.path)),
+          instructions: [source.trim(), intake.instructions].filter((x) => x !== undefined).join('\n\n')
+        }
+        source = ''
+      }
+      if (args.dryRun === true) return okBody({ names: true, notice })
       if (intake.attach.length > 0 && (fromAgentSession || caller.role === 'mcp' || caller.role === 'controller'))
         return denied('--attach is for the person, in Astera or at their own shell: it copies files of this machine')
       if (needsInputs(intake) && !deps.intakeInputs) return conflict('attachments and audits are kept by the Astera Host, and this caller is not one')
@@ -2420,7 +2606,10 @@ export async function handleCommand(
           await deps.setState({ ...deps.getState(), jobs: deps.getState().jobs.filter((j) => j.id !== id) })
           return bad(verbatim.error)
         }
-        const objective = intakeObjective(intake, source, inputs, verbatim && { tasks: verbatim.lines, skipped: verbatim.skippedLines })
+        const objective =
+          intakeObjective(intake, source, inputs, verbatim && { tasks: verbatim.lines, skipped: verbatim.skippedLines }) +
+          // W10-A: the CLI shows the plan, not this reply's notice
+          (notice !== undefined ? `\n\n${notice}.` : '')
         // W7-D (#68): the plan's name, so its boilerplate objective is never what the plan is called. A title already
         // there is kept.
         const title = intakeTitle(intake, source, inputs?.names ?? [])
@@ -2434,11 +2623,21 @@ export async function handleCommand(
                   objective,
                   ...(title !== undefined && j.title === undefined ? { title } : {}),
                   // W8-C prompts mode: the owner wrote the plan, so it starts on its own unless `--approve ask`
-                  ...(verbatim !== undefined ? { verbatim: verbatim.entries, autoApprove: intake.approve !== 'ask' } : {})
+                  ...(verbatim !== undefined ? { verbatim: verbatim.entries, autoApprove: intake.approve !== 'ask' } : {}),
+                  // W10-A: what the names resolved to, for the approval
+                  ...(byName?.dir !== undefined
+                    ? { byName: { dir: byName.dir, picked: byName.resolution.picked, skipped: byName.resolution.skipped, why: byName.resolution.why } }
+                    : {})
                 }
               : j
           )
         })
+        // W10-A: a prompts folder found now is the project's from here on
+        const project = byName?.detected && byName.dir !== undefined ? findProjectContaining(deps.getState(), byName.root) : undefined
+        if (project && project.promptsDir === undefined) {
+          const set = setProjectSettings(deps.getState(), project.id, { promptsDir: byName!.dir! })
+          if (set.ok) await deps.setState(set.state)
+        }
       }
       // W7-E: `--no-review`: this plan's Tasks are not reviewed (`jobs plan` turns review on otherwise, Job.review)
       if (args.noReview === true) {
@@ -2452,7 +2651,7 @@ export async function handleCommand(
       }
       const after = deps.getState()
       const created = after.jobs.find((j) => j.id === id)
-      return created ? okBody(jobView(after, created, undefined)) : reply
+      return created ? okBody({ ...jobView(after, created, undefined), ...(notice !== undefined ? { notice } : {}) }) : reply
     }
     /**
      * Task 를 더한다 — task-create 의 공개 이름(phase C).
@@ -2504,6 +2703,13 @@ export async function handleCommand(
           }
       }
       const { job: _job, ...rest } = args
+      // A Task added to a planned run (its Job has a planner) is judged by its criteria at the next replan's check: with none
+      // the check holds the whole plan. So it needs `--criteria`; without `--prompt` its spec is the prompt.
+      if (run !== null && jobOf(s, s.runs.find((r) => r.id === run)!)?.plannerSessionIds !== undefined) {
+        if (args.criteria === undefined)
+          return bad("a Task added to a planned run needs --criteria (a JSON array of one or more acceptance criteria): the plan's check judges it by them")
+        if (args.prompt === undefined) rest.prompt = args.spec
+      }
       return handleCommand(deps, caller, 'task-create', { ...rest, run: job ?? run })
     }
     case 'jobs-wait':
@@ -2810,6 +3016,12 @@ export async function handleCommand(
         const project = inProject.project
         jobs = jobs.filter((j) => jobInProject(s, j, project))
       }
+      // W8-D plan areas: `--area <word>` keeps the plans that name it (Job.areas)
+      if (args.area !== undefined) {
+        const area = str(args.area)?.trim().toLowerCase()
+        if (!area) return bad('--area needs a value: one area word (e.g. auth)')
+        jobs = jobs.filter((j) => j.areas?.includes(area) === true)
+      }
       const views = jobs.map((j) => jobView(s, j, latestRunOf(s, j)))
       return okBody(status.value === undefined ? views : views.filter((v) => jobStateOf(v) === status.value))
     }
@@ -2900,10 +3112,25 @@ export async function handleCommand(
     // W7-D (#67): how many workers a plan runs at once, changed until it finishes. A lower value only limits new starts
     // (slotsToFill reads Job.concurrency each tick): a running worker is never stopped by it.
     case 'jobs-set': {
-      if (fromAgentSession || caller.role === 'mcp') return denied('jobs-set is for the person, in Astera or at their own shell')
       const id = str(args.id)
+      // W8-D plan areas: `--areas`, alone, from the person or the Job's own planner (plannerRefusal holds the rest)
+      if (args.areas !== undefined) {
+        if (caller.role === 'mcp' || (fromAgentSession && (id === null || plannerJobOf(s, caller.sessionId)?.id !== id)))
+          return denied("jobs-set --areas is for the Job's planner or the person")
+        if (!id) return bad('--id is required')
+        if (args.concurrency !== undefined || args.after !== undefined) return bad('--areas is set on its own')
+        const job = s.jobs.find((j) => j.id === id)
+        if (!job) return notFound(`unknown job: ${id}`)
+        const areas = areasArg(args.areas)
+        if (!Array.isArray(areas)) return bad(areas.error)
+        const { areas: _old, ...rest } = job
+        const next: Job = areas.length > 0 ? { ...rest, areas } : rest
+        await deps.setState({ ...s, jobs: s.jobs.map((j) => (j.id === id ? next : j)) })
+        return okBody(jobView(deps.getState(), next, latestRunOf(deps.getState(), next)))
+      }
+      if (fromAgentSession || caller.role === 'mcp') return denied('jobs-set is for the person, in Astera or at their own shell')
       if (!id) return bad('--id is required')
-      if (args.concurrency === undefined && args.after === undefined) return bad('nothing to set: give --concurrency or --after')
+      if (args.concurrency === undefined && args.after === undefined) return bad('nothing to set: give --concurrency, --after or --areas')
       // W8-C plan after plan: `--after <job|none>`, only alone (it is set before the plan starts, concurrency after)
       if (args.after !== undefined) {
         if (args.concurrency !== undefined) return bad('--after is set on its own, not with --concurrency')
@@ -2935,6 +3162,28 @@ export async function handleCommand(
       const next: Job = { ...job, concurrency }
       await deps.setState({ ...s, jobs: s.jobs.map((j) => (j.id === job.id ? next : j)) })
       return okBody(jobView(deps.getState(), next, run))
+    }
+    // W8-D several plans in one repo: where this plan's Tasks meet the other active or queued plans of its project
+    // (Job.overlaps, overlap.ts). Read only; an overlap never blocks approval.
+    case 'jobs-overlaps': {
+      const id = str(args.id)
+      if (!id) return bad('--id is required')
+      const job = s.jobs.find((j) => j.id === id)
+      if (!job) return notFound(`unknown job: ${id}`)
+      const task = new Map(s.tasks.map((t) => [t.id, t]))
+      const plan = new Map(s.jobs.map((j) => [j.id, j]))
+      const lines = overlapLines(s, job)
+      return okBody({
+        jobId: id,
+        overlaps: (job.overlaps ?? []).map((o, i) => ({
+          ...o,
+          taskTitle: task.get(o.taskId)?.title,
+          plan: plan.has(o.jobId) ? jobNameOf(plan.get(o.jobId)!) : undefined,
+          otherTaskTitle: task.get(o.otherTaskId)?.title,
+          otherTaskStatus: task.get(o.otherTaskId)?.status,
+          line: lines[i]
+        }))
+      })
     }
     case 'jobs-unarchive': {
       const id = str(args.id)
@@ -3006,6 +3255,9 @@ export async function handleCommand(
       const marked = job.plannerSessionIds === undefined
       if (marked) await setJobPlanners(id, (ids) => ids)
       let sessionId: string
+      // W8-G (#101): earlier plans' work that sits on an unmerged branch, which the workers of this plan will not have
+      const projectOfPlan = projectOfJob(deps.getState(), job)
+      const unmerged = projectOfPlan ? await unmergedPlanBranches(deps.getState(), projectOfPlan) : null
       try {
         sessionId = (
           await deps.startCoordinator({
@@ -3017,8 +3269,12 @@ export async function handleCommand(
               jobId: id,
               objective: job.objective,
               repoRoot: job.cwd,
+              ...(unmerged && unmerged.branches.length > 0 ? { unmergedBranches: unmerged.branches, defaultBranch: unmerged.into } : {}),
               accountId,
-              concurrency: concurrency ?? job.concurrency ?? DEFAULT_CONCURRENCY
+              promptsMode: job.verbatim !== undefined,
+              concurrency: concurrency ?? job.concurrency ?? DEFAULT_CONCURRENCY,
+              // W8-D: the other plans of this repository, so it plans around them
+              otherPlans: otherPlansBrief(deps.getState(), job)
             })
           })
         ).sessionId
@@ -3562,6 +3818,14 @@ export async function handleCommand(
       await deps.setState(next)
       return okBody({ marked: next.jobs.filter((j) => j.afterStopNotified === now).map((j) => j.id) })
     }
+    // Coordinator rotation: a fresh coordinator in the Run's slot, then the old one stopped (exec/coordinatorRotate.ts)
+    case 'run-coordinator-refresh': {
+      const id = str(args.run)
+      if (!id) return bad('--run is required')
+      const wave = typeof args.wave === 'number' && Number.isInteger(args.wave) ? args.wave : undefined
+      const contextPct = typeof args.contextPct === 'number' && Number.isFinite(args.contextPct) ? args.contextPct : undefined
+      return refreshCoordinator(deps, { runId: id, wave, contextPct, reason: str(args.reason) ?? undefined, now })
+    }
     case 'run-start-marks-clear': {
       const nowMs = Date.parse(now)
       const stale = new Set(
@@ -3799,6 +4063,18 @@ export async function handleCommand(
         })
         return okBody({ id, convergenceOff: true })
       }
+      // Stall watchdog: the app records a completed Task's merge into its plan branch (finishedSessions.ts
+      // mergedIntoPlan). Astera's own, so an agent session cannot mark one. updatedAt stays: a dependent's readiness
+      // moment (inbox.ts readyReminders) is read from it.
+      if (args.mergedIntoPlan === true) {
+        if (fromAgentSession || caller.role === 'mcp') return bad('--merged-into-plan is recorded by Astera itself')
+        const target = s.tasks.find((t) => t.id === id)
+        if (!target) return notFound(`unknown task: ${id}`)
+        if (target.status !== 'completed') return bad(`task ${id} is ${target.status}, not completed`)
+        if (target.mergedIntoPlanAt !== undefined) return okBody({ id, mergedIntoPlanAt: target.mergedIntoPlanAt })
+        await deps.setState({ ...s, tasks: s.tasks.map((t) => (t.id === id ? { ...t, mergedIntoPlanAt: now } : t)) })
+        return okBody({ id, mergedIntoPlanAt: now })
+      }
       // W2-A: editing a plan's Task (its title, spec, deps and plan fields) instead of moving its status.
       const PLAN_EDIT = ['title', 'spec', 'deps', 'prompt', 'criteria', 'affectedPaths', 'difficulty', 'provider', 'model', 'modelReason', /* W6-A */ 'basis', 'evidence']
       if (args.status === undefined && PLAN_EDIT.some((k) => args[k] !== undefined)) {
@@ -3806,6 +4082,10 @@ export async function handleCommand(
         if (!plan.ok) return bad(plan.error)
         if (args.deps !== undefined && !(Array.isArray(args.deps) && args.deps.every((d) => typeof d === 'string')))
           return bad('--deps must be a JSON array of Task ids')
+        // 사람만(에이전트 세션·MCP 아님) 아직 시작하지 않은 run Task 도 고칠 수 있다 — 도는 계획에서 replan 만이 바꾸던 자리
+        const runTask = s.tasks.find((t) => t.id === id)
+        const byOwner =
+          !fromAgentSession && caller.role !== 'mcp' && runTask?.runId !== undefined && outcomeOf(s, runTask.runId) === 'running'
         return commit(
           editPlanTask(
             s,
@@ -3816,7 +4096,8 @@ export async function handleCommand(
               ...(str(args.spec) ? { spec: str(args.spec)! } : {}),
               ...(args.deps !== undefined ? { deps: args.deps as string[] } : {})
             },
-            now
+            now,
+            byOwner
           )
         )
       }
@@ -4003,12 +4284,14 @@ export async function handleCommand(
         return { status: 409, body: { error: `task ${taskId} waits for the earlier waves of its plan to complete, or for its replan`, held: true } }
       // W8-E (#92): never two workers on the same files (W6-C), for every placer: a coordinator's Job has no
       // autoDispatch, so `slotsToFill` never places for it and this is the only door its workers pass
-      const clash = sameFilesAs(task, editingByJob(s).get(run.jobId) ?? [])
+      // W8-D: of any plan of the same project
+      const clash = runJob ? sameFilesAs(task, editingByProject(s).get(projectKeyOf(runJob)) ?? []) : undefined
+      const clashJob = clash && s.jobs.find((j) => j.id === s.runs.find((r) => r.id === clash.task.runId)?.jobId)
       if (clash)
         return {
           status: 409,
           body: {
-            error: `waiting for ${clash.task.title}: same files ${clash.path}; start it when that Task ends`,
+            error: `waiting for ${clashJob && clashJob.id !== runJob?.id ? `${jobNameOf(clashJob)} · ` : ''}${clash.task.title}: same files ${clash.path}; start it when that Task ends`,
             held: true,
             sameFiles: { taskId: clash.task.id, path: clash.path }
           }
@@ -4283,6 +4566,8 @@ export async function handleCommand(
         const task = s.tasks.find((t) => t.id === d.taskId)
         const run = task && s.runs.find((r) => r.id === task.runId)
         const converging =
+          // A reviewer's session is never the one a repair reuses: its verdict is recorded, so it may go
+          !d.review &&
           !!(run && jobOf(s, run)?.convergence) &&
           !!task &&
           (task.status === 'validating' ||
@@ -4598,7 +4883,9 @@ export async function handleCommand(
         if (result.value === 'accepted') dropRollingChain() // 위 검토 경로와 같은 이유·같은 조건
         // W2-D: the issue, branch and commits this attempt reports go to its Task's links, after the commit and off the
         // reply's path (gh is a network call)
-        if (result.value === 'accepted') void linkReportedWork(deps, taskId, dispatchId, args)
+        // W8-A: the stamp first, so the two writes to the Task's links do not race
+        if (result.value === 'accepted')
+          void stampReportedWork(deps, taskId, dispatchId).then(() => linkReportedWork(deps, taskId, dispatchId, args))
         // 커밋 뒤에 부른다 — 검증이 먼저 끝나면 아직 validating 이 아닌 Task 에 결과를 쓰게 된다.
         // result.value가 'alreadyReported'인 재전송은 상태를 바꾸지 않았다(첫 호출의 커밋을 그대로
         // 다시 읽을 뿐이다) — 걸러내지 않으면 재전송마다 검증이 다시 큐에 들어가고, 그 사이 Task가
@@ -4950,7 +5237,11 @@ export async function handleCommand(
         const after = deps.getState().messages.find((m) => m.id === msg.id)
         return okBody(after ? messageQuestionOf(deps.getState(), after) : null)
       }
-      return handleCommand(deps, caller, 'gate-resolve', { id: args.id, resolution: answer })
+      // W8-F (#98): an option is matched trimmed and without case ("mark-failed\n" is `mark-failed`); anything else is free text
+      const typed = answer.trim()
+      if (!typed) return bad('--answer is required')
+      const option = s.gates.find((g) => g.id === str(args.id))?.options?.find((o) => o.toLowerCase() === typed.toLowerCase())
+      return handleCommand(deps, caller, 'gate-resolve', { id: args.id, resolution: option ?? typed })
     }
     case 'questions-get': {
       const id = str(args.id)
@@ -5442,6 +5733,28 @@ export async function handleCommand(
       return read.ok ? okBody(read.issue) : ghRefusal(read)
     }
     /**
+     * W9-I: what a tab did (core/sessions/summary.ts), read only, answered by the Host only (`deps.readSummaries`).
+     * `summaries` lists the cards, a plan's with `--job`; `sessions-summary` is one session's card or a 404 (a tab
+     * that has none yet, or one that wrote nothing).
+     */
+    case 'summaries':
+    case 'sessions-summary': {
+      if (!deps.readSummaries) return conflict('tab summaries are answered by the Astera Host')
+      const id = cmd === 'sessions-summary' ? str(args.id) : null
+      if (cmd === 'sessions-summary' && id === null) return bad('--id is required: a session id (from `sessions list`)')
+      const job = args.job === undefined ? undefined : str(args.job)
+      if (job === null) return bad('--job needs a value: a plan id (from `jobs list`)')
+      let cards: SessionSummary[]
+      try {
+        cards = await deps.readSummaries(job)
+      } catch {
+        return { status: 500, body: { error: 'the tab summaries could not be read' } }
+      }
+      if (cmd === 'summaries') return okBody(cards)
+      const found = cards.find((c) => c.sessionId === id)
+      return found ? okBody(found) : notFound(`no summary for session: ${id}`)
+    }
+    /**
      * How It Works records (MCP P2-C), read only, answered by the Host only (`deps.readUnderstanding`).
      * `--project` is the project's id, as for `github-*`; its records are the understanding.json entry
      * whose key is the project's root (`recordsFor`). The file is read on every call, so a record the
@@ -5528,7 +5841,7 @@ export async function handleCommand(
       if (made.kind === 'rejected') return { status: 409, body: { error: 'The push was rejected', pushed: made.pushed } }
       // W7-E (#80): nowhere to push to is the project's setup, not a failure of the plan
       if (made.kind === 'no-remote')
-        return { status: 409, body: { error: noRemoteNote(t.branch), noRemote: true, branch: t.branch, pushed: false } }
+        return { status: 409, body: { error: noRemoteNote(t.branch, t.repoPath), noRemote: true, branch: t.branch, pushed: false } }
       const refused = ghRefusal({ ok: false, ...ghFailureSentence({ ok: false, stdout: '', stderr: made.detail, spawnError: made.spawnError }) })
       return { status: refused.status, body: { ...(refused.body as object), pushed: made.pushed } }
     }
@@ -5596,7 +5909,11 @@ export async function handleCommand(
       if (!run) return notFound(`unknown run: ${id}`)
       const job = jobOf(s, run)
       if (!job) return notFound(`no plan for run ${id}`)
-      if (deliveryOf(s, job) === 'pr') return handleCommand(deps, caller, 'run-open-pr', { run: id, ...(args.force === true ? { force: true } : {}) })
+      if (deliveryOf(s, job) === 'pr') {
+        const opened = await handleCommand(deps, caller, 'run-open-pr', { run: id, ...(args.force === true ? { force: true } : {}) })
+        if (opened.status < 400) await cleanAfterDelivery(deps, id) // W9-J
+        return opened
+      }
       if (fromAgentSession || caller.role === 'mcp') return denied('a push delivery is made by Astera itself, or by the person')
       const done = run.delivery
       if (done?.sha !== undefined) return okBody({ delivery: 'push', branch: done.branch ?? null, sha: done.sha, pushed: false })
@@ -5604,10 +5921,13 @@ export async function handleCommand(
         return conflict(`Pushing this Run stopped before: ${done.error}. --force tries again`)
       if (runView(s, run).outcome !== 'completed') return conflict('This Run has not completed; it is pushed once every task is done')
       if (!deps.deliverPush) return conflict('Pushing a plan is done by the Astera Host, and this caller is not one')
-      const branch = projectOfJob(s, job)?.deliveryBranch
+      const proj = projectOfJob(s, job)
+      const branch = proj?.deliveryBranch
       const r = await deps.deliverPush({
         cwd: job.cwd,
         ...(branch !== undefined ? { branch } : {}),
+        ...(proj?.defaultBranch ? { defaultBranch: proj.defaultBranch } : {}), // W8-G
+
         worktrees: runWorktrees(s, id),
         message: deliveryMessage(jobNameOf(job), deliveryIssuesOf(s, run)),
         checks: deliveryChecksOf(s, id)
@@ -5618,6 +5938,7 @@ export async function handleCommand(
       )
       if (!r.ok) return conflict(r.reason)
       const removed = deps.removeWorktrees && r.merged.length > 0 ? await deps.removeWorktrees(r.merged) : null
+      await cleanAfterDelivery(deps, id) // W9-J: what the push left (the Run's own folder)
       return okBody({
         delivery: 'push',
         branch: r.branch,
@@ -5665,7 +5986,8 @@ export async function handleCommand(
       const done = wavesDoneOf(waves)
       const title = jobNameOf(job)
       const tasks = planPrTasksOf(cur, id, (a) => accounts.find((x) => x.id === a)?.label)
-      const body = planPrBody({ plan: title, tasks, waves: wavesSection(waves), footer: DRAFT_PR_FOOTER })
+      const body =
+        planPrBody({ plan: title, tasks, waves: wavesSection(waves), did: await prSummaries(deps, cur, id), footer: DRAFT_PR_FOOTER }) + (await prAttribution(cur, id, t.cwd)) // W8-A
       const at = deps.now?.() ?? now
       const record = async (pr: RunPr, links?: TaskLinks): Promise<void> => {
         const st = deps.getState()
@@ -5680,8 +6002,9 @@ export async function handleCommand(
         const pushed = await g.push(t.cwd, t.branch)
         if (!pushed.ok)
           return pushed.kind === 'no-remote'
-            ? okBody({ noRemote: true, branch: t.branch, message: noRemoteNote(t.branch) })
+            ? okBody({ noRemote: true, branch: t.branch, message: noRemoteNote(t.branch, t.repoPath) })
             : conflict(`The push was rejected: ${pushed.detail.trim()}`)
+        await pushNotes(t.cwd) // W8-A: the notes ref goes with the PR branch
         const edited = await g.run(['pr', 'edit', open.url, '--body', body], t.cwd)
         if (!edited.ok) return ghRefusal({ ok: false, ...ghFailureSentence(edited) })
         await record({ ...open, at, draft: true, wavesDone: done })
@@ -5690,9 +6013,10 @@ export async function handleCommand(
       const base = (await defaultBranchOf(g.run, t.cwd)) ?? t.baseRef
       const made = await g.createPr({ worktreePath: t.cwd, repoPath: t.repoPath, branch: t.branch, base, title, body, draft: true, needsPush: true })
       if (!made.ok) {
-        if (made.kind === 'no-remote') return okBody({ noRemote: true, branch: t.branch, message: noRemoteNote(t.branch) })
+        if (made.kind === 'no-remote') return okBody({ noRemote: true, branch: t.branch, message: noRemoteNote(t.branch, t.repoPath) })
         return conflict(`The draft pull request was not opened (${made.stage}, ${made.kind}): ${made.detail.trim()}`)
       }
+      await pushNotes(t.cwd) // W8-A: the notes ref goes with the PR branch
       const number = prNumberOf(made.url)
       await record(
         { at, url: made.url, ...(number !== null ? { number } : {}), draft: true, wavesDone: done },
@@ -5748,12 +6072,14 @@ export async function handleCommand(
         // The PR names an account by its id then
       }
       const title = jobNameOf(job)
-      const body = planPrBody({
-        plan: title,
-        tasks: planPrTasksOf(deps.getState(), id, (a) => accounts.find((x) => x.id === a)?.label),
-        // W8-C draft PR: the PR that followed the plan keeps its waves, all done now
-        ...(draft ? { waves: wavesSection(runWaves(deps.getState(), id)) } : {})
-      })
+      const body =
+        planPrBody({
+          plan: title,
+          tasks: planPrTasksOf(deps.getState(), id, (a) => accounts.find((x) => x.id === a)?.label),
+          did: await prSummaries(deps, deps.getState(), id), // W9-I
+          // W8-C draft PR: the PR that followed the plan keeps its waves, all done now
+          ...(draft ? { waves: wavesSection(runWaves(deps.getState(), id)) } : {})
+        }) + (await prAttribution(deps.getState(), id, worktree)) // W8-A
       // W8-C draft PR: push the final branch, write the final body and mark the draft ready; `draft` is cleared
       if (draft?.url !== undefined) {
         const t = githubTarget(deps, s, { run: id })
@@ -5766,7 +6092,8 @@ export async function handleCommand(
         }
         if (!g.push) return conflict('pushing a branch is not available in this build')
         const pushed = await g.push(t.cwd, t.branch)
-        if (!pushed.ok) return fail(pushed.kind === 'no-remote' ? noRemoteNote(t.branch) : `The push was rejected: ${pushed.detail.trim()}`)
+        if (!pushed.ok) return fail(pushed.kind === 'no-remote' ? noRemoteNote(t.branch, t.repoPath) : `The push was rejected: ${pushed.detail.trim()}`)
+        await pushNotes(t.cwd) // W8-A: the notes ref goes with the PR branch
         // W8-E (#99): a Run with failed Tasks delivers its completed work and stays a draft
         for (const step of [['pr', 'edit', draft.url, '--body', body], ...(failed ? [] : [['pr', 'ready', draft.url]])]) {
           const r = await g.run(step, t.cwd)
@@ -5780,7 +6107,7 @@ export async function handleCommand(
       const answer = (made.body ?? {}) as { url?: unknown; error?: unknown; noRemote?: unknown; branch?: unknown }
       // W7-E (#80): a project with no remote keeps the work on its branch; recorded as a note, not as a failed PR
       if (answer.noRemote === true && typeof answer.branch === 'string') {
-        const note = noRemoteNote(answer.branch)
+        const note = noRemoteNote(answer.branch, job.cwd)
         await record({ at: now, note, branch: answer.branch })
         return okBody({ noRemote: true, branch: answer.branch, message: note })
       }
@@ -5798,7 +6125,47 @@ export async function handleCommand(
       }
       const number = prNumberOf(url)
       await record({ at: now, url, ...(number !== null ? { number } : {}) }, number !== null ? { prs: [{ number, url, state: 'open' }] } : undefined)
+      await pushNotes(worktree) // W8-A: the notes ref goes with the PR branch
       return okBody({ url, number, opened: made.status === 200 })
+    }
+    /**
+     * W8-A: the squash remap (core/attribution/remap.ts). The app's PR poll (src/main/githubPrs.ts) asks it for each
+     * merged PR it sees; one that is not a plan's PR is no error. Fetches the base branch, notes the commits GitHub's
+     * squash or rebase wrote from the Tasks' stored commits (`Task.links.commits`), and pushes the notes as part of the
+     * same delivery. Once per merge commit (`run.pr.attributed`). Astera's own step: refused from an agent and MCP.
+     */
+    case 'attribution-remap': {
+      if (fromAgentSession || caller.role === 'mcp') return denied("the squash remap is Astera's own step")
+      const url = str(args.pr)
+      if (!url) return bad('--pr is required: the pull request URL')
+      const run = s.runs.find((r) => r.pr?.url === url)
+      if (!run) return okBody({ remapped: false, reason: 'not the pull request of a plan' })
+      const job = jobOf(s, run)
+      if (!job) return notFound(`no plan for run ${run.id}`)
+      if (!deps.github) return conflict('GitHub commands are answered by the Astera Host, and this caller is not one')
+      const view = await deps.github.run(['pr', 'view', url, '--json', 'state,mergeCommit,baseRefName'], job.cwd)
+      if (!view.ok) return ghRefusal({ ok: false, ...ghFailureSentence(view) })
+      let pr: { state?: unknown; mergeCommit?: { oid?: unknown } | null; baseRefName?: unknown }
+      try {
+        pr = JSON.parse(view.stdout) as typeof pr
+      } catch {
+        return conflict('gh pr view did not answer JSON')
+      }
+      const sha = pr.mergeCommit?.oid
+      if (pr.state !== 'MERGED' || typeof sha !== 'string' || typeof pr.baseRefName !== 'string')
+        return conflict('This pull request is not merged')
+      if (run.pr?.attributed === sha) return okBody({ remapped: false, sha })
+      const w = { cwd: job.cwd, timeoutMs: 10 * 60 * 1000 }
+      const fetched = await attributionGit(['fetch', 'origin', pr.baseRefName], w)
+      if (!fetched.ok) return conflict(`git fetch origin ${pr.baseRefName} failed: ${(fetched.stderr || fetched.stdout).trim()}`)
+      // origin may have no notes yet: that fetch failing is no stop
+      if ((await attributionGit(['fetch', 'origin', NOTES_FETCH_REFSPEC], w)).ok) await syncNotes(job.cwd)
+      const originals = s.tasks.filter((t) => t.runId === run.id).flatMap((t) => t.links?.commits ?? [])
+      const r = await remapMerged({ cwd: job.cwd, mergeCommit: sha, originals })
+      const pushed = r.noted.length > 0 ? await pushNotes(job.cwd) : 'none'
+      const cur = deps.getState()
+      await deps.setState({ ...cur, runs: cur.runs.map((x) => (x.id === run.id && x.pr ? { ...x, pr: { ...x.pr, attributed: sha } } : x)) })
+      return okBody({ remapped: true, kind: r.kind, noted: r.noted, sha, notesPushed: pushed === 'pushed' })
     }
     case 'github-ci-rerun': {
       if (args.run !== undefined) return bad('--run does not go with github-ci-rerun: give --project')

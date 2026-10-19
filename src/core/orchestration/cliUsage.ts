@@ -100,7 +100,7 @@ const INTAKE_FLAGS: readonly UsageFlag[] = [
     name: 'approve',
     value: '<auto|ask>',
     about:
-      "with --mode prompts (Run as written: each attached .md file, or each `## ` section of one document, is one Task with its text unchanged, ordered by docs/orchestrator/PLAN.md's wave table): auto (default) starts the plan without an approval step; ask waits for it"
+      "with --mode prompts (Run as written: each attached .md file, or each `## ` section of one document, is one Task with its text unchanged, ordered by docs/dev/PLAN.md's wave table; with nothing attached, the prompt ids in --objective, such as \"W8-A, B then all of W9\" or \"next waves\", are found in the project's prompts folder): auto (default) starts the plan without an approval step; ask waits for it"
   }
 ]
 
@@ -336,7 +336,7 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
   },
   // W6-H delivery (delivery.ts)
   'projects-set': {
-    summary: "set a project's delivery, auto-approve, test command, concurrency, review rounds, replan and account",
+    summary: "set a project's delivery, auto-approve, test command, concurrency, review rounds, replan, prompts folder and account",
     detail:
       'pr (the default) opens one pull request per plan and never merges it. push merges a finished plan into the delivery branch (the default branch unless --delivery-branch) and pushes it, with no review by a person, after the reviews, the final check and the validation pass; it stops and escalates when the folder is not on that branch, has uncommitted changes, cannot fast-forward, conflicts, fails validation or is rejected, and never force-pushes. A Job may override it (`jobs create --delivery`). Defaults: delivery pr, auto-approve off, concurrency 3, review rounds 5, replan waves. --auto-approve on starts a plan without waiting for approval. --test-command is saved as a run configuration and validates every new Task that has no --validate (--test-config picks an existing one). A new Job copies the concurrency, replan and review rounds when it sets none. An empty value clears a setting back to its default. Refused from an agent session and an MCP client.',
     flags: [
@@ -350,7 +350,9 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       { name: 'concurrency', value: '<1-10>', about: 'workers at once for a new Job (default: 3)' },
       { name: 'review-rounds', value: '<n>', about: 'review rounds for a new Job (default: 5)' },
       { name: 'replan', value: '<waves|off>', about: 'replan between waves (default: waves)' },
-      { name: 'account', value: '<id>', about: 'the account the project uses' }
+      { name: 'account', value: '<id>', about: 'the account the project uses' },
+      // W10-A
+      { name: 'prompts-dir', value: '<path|none>', about: 'the folder (in the repository) whose <id>-*.md files Run as written finds by name; none clears it' }
     ]
   },
   'projects-find': {
@@ -372,7 +374,9 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       },
       { name: 'project', value: '<path>', about: 'only the Jobs of the project at this folder (from `projects list`)' },
       // W1-C plan lifecycle
-      { name: 'archived', about: 'include archived Jobs, which are left out otherwise' }
+      { name: 'archived', about: 'include archived Jobs, which are left out otherwise' },
+      // W8-D plan areas
+      { name: 'area', value: '<word>', about: 'only the Jobs whose areas name it (`jobs set --areas`)' }
     ]
   },
   'jobs-get': {
@@ -417,17 +421,28 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
   },
   // W7-D (#67)
   'jobs-set': {
-    summary: 'change how many workers a Job runs at once, or which plan it is queued after',
+    summary: 'change how many workers a Job runs at once, which plan it is queued after, or its areas',
     detail:
       'Until the Job finishes; a finished one is refused (CONFLICT, exit 6). A lower number only holds back new starts: running workers carry on. At most 10. Refused from an agent session and an MCP client. ' +
       // W8-C plan after plan
-      '--after queues a Job that has not started planning after another (none clears it): its planner starts by itself once that Job is delivered (pushed, its pull request opened and not a draft, or ended with nothing to do). If that Job gives up or is archived, the queued one waits and escalates once. A chain that would wait on itself is refused (exit 2); a Job already planning is refused (CONFLICT, exit 6).',
+      '--after queues a Job that has not started planning after another (none clears it): its planner starts by itself once that Job is delivered (pushed, its pull request opened and not a draft, or ended with nothing to do). If that Job gives up or is archived, the queued one waits and escalates once. A chain that would wait on itself is refused (exit 2); a Job already planning is refused (CONFLICT, exit 6). ' +
+      // W8-D plan areas
+      '--areas names where the plan works, 1 to 3 short words (none clears them); `jobs list --area` filters by them. It is set on its own, and the Job\'s own planner may set it too.',
     flags: [
       ID('<jobId | runId>', 'the Job to change, or one of its runs'),
       { name: 'concurrency', value: '<n>', about: 'workers at once, 1–10' },
       // W8-C plan after plan
-      { name: 'after', value: '<jobId|none>', about: 'the Job this one is queued after; none clears it' }
+      { name: 'after', value: '<jobId|none>', about: 'the Job this one is queued after; none clears it' },
+      // W8-D plan areas
+      { name: 'areas', value: '<a,b,c|none>', about: "1–3 short words for where the plan works (auth, api, ui); alone; its planner may set it too" }
     ]
+  },
+  // W8-D several plans in one repo (overlap.ts)
+  'jobs-overlaps': {
+    summary: "where a Job's Tasks meet another active or queued plan's of the same project",
+    detail:
+      'One entry per pair of Tasks that touch overlapping affected paths or link the same issue, each with a line such as "T3 · Auth rework · T6 (same files: src/api/routes.ts)". Refreshed whenever either plan\'s Tasks change. An overlap never blocks approval: two workers of one project never run on the same files at once, so the later one waits.',
+    flags: [ID('<jobId>', 'the Job to check')]
   },
   'jobs-archive': {
     summary: 'archive a Job: hide it and start nothing new for it',
@@ -571,6 +586,8 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
         about: 'the accounts a worker may run on, in failover order (from `accounts list`)'
       },
       { name: 'title', value: '<text>', about: "a short name (default: the spec's first line)" },
+      { name: 'prompt', value: '<text|->', about: "the worker's prompt (default: the spec)" },
+      { name: 'criteria', value: '<json array>', about: 'acceptance criteria, e.g. \'["tests pass"]\'; a task added to a planned run needs them' },
       { name: 'deps', value: '<json array>', about: 'the task ids this one waits for' },
       // W7-D (#81): the planner's flag, so a task added here is kept off its files' other tasks (W6-C)
       { name: 'affected-paths', value: '<json array>', about: 'the files or folders it will change, e.g. \'["src/a.ts","src/b/"]\'' },

@@ -69,11 +69,13 @@ const RUN_HIDDEN = [
   // W2-D: the plan's PR, read by the app's view; not in the SDK's contract yet (`run-open-pr` answers it)
   'pr',
   // W6-H: a push delivery's result, answered by `run-deliver`; not in the SDK's contract yet
-  'delivery'
+  'delivery',
+  // Coordinator rotation: the app's own record of fresh coordinators, not in the SDK's contract yet
+  'coordinatorRefreshes'
 ] as const
 
 /** W6-H: how a project's plans land, set by `projects-set`; not in the SDK's contract yet. */
-const PROJECT_HIDDEN = ['delivery', 'deliveryBranch', /* W7-B: project settings, not in the SDK's contract yet */ 'autoApprove', 'testConfigId', 'concurrency', 'reviewRounds', 'replan', 'defaultBranch'] as const
+const PROJECT_HIDDEN = ['delivery', 'deliveryBranch', /* W7-B: project settings, not in the SDK's contract yet */ 'autoApprove', 'testConfigId', 'concurrency', 'reviewRounds', 'replan', 'defaultBranch', /* W10-A: the prompts folder, not in the SDK's contract yet */ 'promptsDir'] as const
 
 /**
  * A Task's fields kept back on purpose: all of them **the ledger the app keeps to drive convergence**. The guide
@@ -106,7 +108,9 @@ const TASK_HIDDEN = [
   // W6-A: the planner's basis, held back with its other fields
   'basis',
   // W8-C prompts mode: a Run-as-written Task's source, not in the SDK's contract yet
-  'verbatimOf'
+  'verbatimOf',
+  // Stall watchdog: the app's own merge record (finishedSessions.ts mergedIntoPlan)
+  'mergedIntoPlanAt'
 ] as const
 
 /** W1-A role models: a Job's per-role model override, held back from the SDK like the Task's three above. */
@@ -128,7 +132,10 @@ const JOB_HIDDEN = [
   'rejected',
   /* W8-C prompts mode: the owner's prompts a Run-as-written plan was made from, not in the SDK's contract yet */ 'verbatim',
   /* W8-C plan after plan: the queue and its escalation mark, not in the SDK's contract yet */ 'after',
-  'afterStopNotified'
+  'afterStopNotified',
+  /* W8-D several plans in one repo: overlaps and areas, not in the SDK's contract yet */ 'overlaps',
+  'areas',
+  /* W10-A Run as written by name: what the typed names resolved to, not in the SDK's contract yet */ 'byName'
 ] as const
 
 /** A followed event's message body (pages long) and the app's link from an event to a tab. */

@@ -544,6 +544,8 @@ export function buildReviewSpecFile(a: {
   /** 완료 정책의 지문이 라운드 사이에 달라졌다(2조각 설계 G3, 명세 §36·§37). 의심 파일과 같은 자리,
    *  같은 이유로 실린다 — 앱은 표시만 하고 판정은 리뷰어의 몫이다 */
   policyChanged?: boolean
+  /** W8-F (#100): what the owner answered about this Task (reviewer.ts `ownerAnswersOf`). Empty or absent: no section. */
+  ownerAnswers?: string[]
   /** 구조화된 판정을 쓸 파일. `<specPath>.review.json` — 서버가 같은 규칙으로 읽는다(server.ts).
    *  **convergence Run에서만 있다.** 그 파일을 읽는 것은 server.ts 가 policyOf(...) !== null 일
    *  때뿐이므로(applyReviewResult 로 넘어가는 그 한 경로), 없는 Run 에 이 절을 실으면 "파싱 실패는
@@ -608,6 +610,17 @@ This attempt touched files that decide what the checks do. Scrutinise these firs
 a check pass without making the work correct.
 
 ${a.suspiciousFiles.map((f) => `- ${f}`).join('\n')}
+`
+    : ''
+  const ownerSection = a.ownerAnswers?.length
+    ? `
+## The owner's answers on this task
+
+The owner decided the following about this task. An answer can narrow the task: a part the owner dropped is no longer
+part of the requirement, and its absence is not a finding. Judge the work against the requirement above as these
+answers leave it.
+
+${a.ownerAnswers.map((x, n) => `${n + 1}. ${x}`).join('\n')}
 `
     : ''
   const policySection = a.policyChanged
@@ -675,7 +688,7 @@ ${
       : 'No automated validation was attached to this task, so nothing has been proven about the build or the tests. Say so in your report if that matters for the requirement, but do not run the build yourself — that is not what you were started for.'
 }
 
-${knowledgeSection}${checksSection}${previousSection}${suspiciousSection}${policySection}
+${knowledgeSection}${checksSection}${previousSection}${ownerSection}${suspiciousSection}${policySection}
 ## The one question you answer
 
 **Was the requirement above satisfied?** Not "is this the code I would have written", not "could this be

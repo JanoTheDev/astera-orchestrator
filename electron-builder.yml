@@ -7,8 +7,6 @@ files:
   # The ?asset icons imported by main (resources/icon.png, resources/tray.png) are resolved at
   # runtime through __dirname/../../resources, so resources must ship inside the package.
   - resources/**
-  # logo-source.png is the input to scripts/gen-icon.ps1 and is never read at runtime.
-  - '!resources/logo-source.png'
   # The skills directory also ships through extraResources below, and that is the copy the app reads
   # (skillsPath = process.resourcesPath/skills when packaged). Keeping it out of the asar avoids
   # shipping the same document twice.
@@ -107,6 +105,16 @@ linux:
   icon: build/icon.png
   # freedesktop category — the same role mac.category's public.app-category.developer-tools plays.
   category: Development
+  # W9-K: "New Window" in the launcher's menu. The app holds one process (requestSingleInstanceLock), so this second
+  # launch lands in its second-instance handler, which opens an All window (src/main/windows.ts newWindowArgOf).
+  # /opt/<productName>/<executableName> is where the deb installs; AppImage integration rewrites Exec lines itself.
+  desktop:
+    entry:
+      Actions: NewWindow;
+    desktopActions:
+      NewWindow:
+        Name: New Window
+        Exec: /opt/Astera/astera --new-window
   # deb requires a maintainer and electron-builder cannot derive one from package.json's
   # `author: "parsingk"`, which carries no email — packaging fails outright without this. The address
   # is the one this repo's own commits use, so it satisfies the format without publishing a new one.

@@ -12,6 +12,7 @@ import { jobNameOf } from './jobName'
 import { DIFFICULTIES, MODEL_ID } from './roleModels'
 // W8-C prompts mode
 import { sha256Of } from './promptWaves'
+import { isTerminal } from './running'
 
 /** W8-C prompts mode: what a planner of a Run-as-written plan is told when it tries to change the owner's text. */
 export const VERBATIM_REFUSAL =
@@ -41,7 +42,10 @@ export const PLANNER_COMMANDS: ReadonlySet<string> = new Set([
   'plan-nothing-to-do',
   // W7-A: after the owner's feedback, a planner removes a Task of its plan and reports what it changed
   'task-cancel',
-  'jobs-feedback-done'
+  'jobs-feedback-done',
+  // W8-D several plans in one repo: read where the plan meets another, and name its areas (`jobs-set --areas` only)
+  'jobs-overlaps',
+  'jobs-set'
 ])
 
 /** The Job whose planner `sessionId` is, if it is one. An empty id (a shell, an MCP client) is never one. */
@@ -66,6 +70,9 @@ export function plannerRefusal(s: OrchState, sessionId: string, cmd: string, arg
     const target = args.runId ?? args.run
     if (target !== job.id) return `a planner adds Tasks to its own Job only: pass --run ${job.id}`
   }
+  // W8-D: areas only, and only its own Job
+  if (cmd === 'jobs-set' && (args.id !== job.id || args.areas === undefined || args.concurrency !== undefined || args.after !== undefined))
+    return `a planner sets its own Job's areas only: jobs-set --id ${job.id} --areas <a,b>`
   // W6-A: only its own Job
   if (cmd === 'plan-nothing-to-do' && args.job !== job.id) return `a planner ends its own Job only: pass --job ${job.id}`
   // W7-A: only its own Job, and only a Task of its plan (a replan's cancel is replanRefusal's)
@@ -175,12 +182,34 @@ export function editPlanTask(
   s: OrchState,
   taskId: string,
   patch: PlanFields & { title?: string; spec?: string; deps?: string[] },
-  now: string
+  now: string,
+  /** The owner (never an agent session) may also change a run Task that has not started: pending/ready, no dispatch */
+  byOwner = false
 ): Res<Task> {
   const task = s.tasks.find((t) => t.id === taskId)
   if (!task) return { ok: false, error: `unknown task: ${taskId}`, missing: true }
-  if (task.jobId === undefined || task.runId !== undefined)
-    return { ok: false, error: `${taskId} is in a run already: only a plan's own Tasks are edited` }
+  // a started Task falls through to the rule below: it takes new --criteria only
+  if (byOwner && task.runId !== undefined && (task.status === 'pending' || task.status === 'ready') && !s.dispatches.some((d) => d.taskId === taskId)) {
+    if (patch.deps) {
+      const outside = patch.deps.filter((d) => d === taskId || !s.tasks.some((t) => t.id === d && t.runId === task.runId))
+      if (outside.length) return { ok: false, error: `deps must be other Tasks of the same run: ${outside.join(', ')}` }
+    }
+    const next: Task = { ...task, ...patch, updatedAt: now }
+    const tasks = s.tasks.map((t) => (t.id === taskId ? next : t))
+    if (layersOf({ ...s, tasks }, task.runId).cyclic.length)
+      return { ok: false, error: `those deps would make ${taskId} wait on itself` }
+    const settled = recomputeReady(tasks)
+    return { ok: true, state: { ...s, tasks: settled }, value: settled.find((t) => t.id === taskId)! }
+  }
+  // W8-F (#100): a Task in a run that has not finished keeps one editable field: its acceptance criteria, which the
+  // coordinator narrows when the owner's answer does (the review judges the Task against them)
+  if (task.runId !== undefined) {
+    if (isTerminal(task) || patch.acceptanceCriteria === undefined || Object.keys(patch).some((k) => k !== 'acceptanceCriteria'))
+      return { ok: false, error: `${taskId} is in a run already: only a plan's own Tasks are edited (a Task that has not finished takes new --criteria only)` }
+    const next: Task = { ...task, acceptanceCriteria: patch.acceptanceCriteria, updatedAt: now }
+    return { ok: true, state: { ...s, tasks: s.tasks.map((t) => (t.id === taskId ? next : t)) }, value: next }
+  }
+  if (task.jobId === undefined) return { ok: false, error: `${taskId} is in a run already: only a plan's own Tasks are edited` }
   if (patch.deps) {
     const own = new Set(s.tasks.filter((t) => t.jobId === task.jobId && t.runId === undefined).map((t) => t.id))
     const outside = patch.deps.filter((d) => !own.has(d) || d === taskId)
@@ -258,5 +287,11 @@ export function renderPlanMd(s: OrchState, job: Job): string {
   // W8-C prompts mode: the prompts Astera left out, so the owner sees them at approval
   const skipped = (job.verbatim ?? []).filter((v) => v.skipped !== undefined)
   if (skipped.length) lines.push('', '## Already done (skipped)', '', ...skipped.map((v) => `- ${v.source}: ${v.skipped}`))
+  // W10-A: the prompts the owner named instead of attaching, each id with the file it resolved to
+  if (job.byName) {
+    const b = job.byName
+    lines.push('', '## Found by name', '', `From \`${b.dir}\`.`, ...b.why.map((w) => `- Picked by ${w}`), '', ...b.picked.map((p) => `- ${p.id} → \`${p.path}\``))
+    if (b.skipped.length) lines.push('', 'Skipped:', '', ...b.skipped.map((x) => `- ${x.id}: ${x.why}`))
+  }
   return lines.join('\n') + '\n'
 }

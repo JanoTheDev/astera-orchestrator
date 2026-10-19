@@ -79,9 +79,12 @@ describe('slotsToFill — same files', () => {
     expect(placed(s)).toEqual(['none'])
   })
 
-  it('another Job on the same files is not held back', () => {
+  // W8-D: another plan of the same repository is held back too (overlap.test.ts); one of another repository is not
+  it('another Job of another project on the same paths is not held back', () => {
     const s = state([task('run', 'r1', { status: 'dispatched', affectedPaths: ['src/a'] })], [dispatch('d1', 'run')], [task('elsewhere', 'r2', { affectedPaths: ['src/a'] })])
-    expect(placed(s)).toEqual(['elsewhere'])
+    const other: OrchState = { ...s, jobs: s.jobs.map((j) => (j.id === 'j2' ? { ...j, cwd: '/q' } : j)) }
+    expect(placed(other)).toEqual(['elsewhere'])
+    expect(placed(s)).toEqual([])
   })
 
   it('the board says which Task holds the files, and the first colliding path', () => {

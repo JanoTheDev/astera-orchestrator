@@ -16,7 +16,7 @@ const PLAN_MD = [
   '| 9.2 | 2 | `W9-B-shell`, `W9-C-plan-tab` | 9.1 merged |'
 ].join('\n')
 
-const rig = (files: Record<string, string>) => {
+const rig = (files: Record<string, string>, planFile = '/p/docs/dev/PLAN.md') => {
   let state: OrchState = emptyState()
   const deps = {
     getState: () => state,
@@ -32,7 +32,7 @@ const rig = (files: Record<string, string>) => {
     now: () => NOW,
     intakeInputs: async (jobId: string, paths: string[]) => ({ dir: `/prof/plans/${jobId}/inputs`, names: paths.map((p) => p.split('/').pop()!) }),
     readIntakeText: async (file: string) => {
-      if (file === '/p/docs/orchestrator/PLAN.md') return PLAN_MD
+      if (file === planFile) return PLAN_MD
       const name = file.split('/').pop()!
       return files[name] ?? null
     }
@@ -50,6 +50,13 @@ const FILES = { 'W9-A-foundation.md': A, 'W9-B-shell.md': B, 'W9-C-plan-tab.md':
 const attach = Object.keys(FILES).map((n) => `/d/${n}`)
 
 describe('jobs-create --mode prompts', () => {
+  it('reads the wave table from docs/orchestrator/PLAN.md when docs/dev has none', async () => {
+    const r = rig(FILES, '/p/docs/orchestrator/PLAN.md')
+    await r.person('jobs-create', { cwd: '/p', mode: 'prompts', attach, coordinatorAccount: 'acc1' })
+    const tasks = r.state().tasks
+    expect(tasks.map((t) => t.title)).toEqual(['W9-A-foundation', 'W9-B-shell', 'W9-C-plan-tab'])
+    expect(tasks[1].deps).toEqual([tasks[0].id])
+  })
   it('one Task per prompt file, verbatim, ordered by PLAN.md; a done wave skipped; approval is auto', async () => {
     const r = rig(FILES)
     const made = await r.person('jobs-create', { cwd: '/p', mode: 'prompts', attach, coordinatorAccount: 'acc1' })

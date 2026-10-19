@@ -27,7 +27,9 @@ docs/*
 !docs/cli.md
 # Published deliberately: `astera mcp serve` is a public interface, and the README links to it.
 !docs/mcp.md
-# Published deliberately: the fork's orchestrator plan, spec, audit and wave prompts.
+# Published deliberately: the user guide, and the fork's plan, spec, audit and wave prompts.
+!docs/guide.md
+!docs/dev/
 !docs/orchestrator/
 # Published deliberately: @astera-app/client is a public interface, and cli.md, mcp.md and the package README link to it.
 !docs/sdk.md
@@ -39,12 +41,6 @@ docs/*
 # it describes is picked up in another session and often another worktree, where an ignored file does
 # not exist. It says on its face that nothing in it is decided yet.
 !docs/agent-workspace-isolation.md
-# Published deliberately: where the freeze and slowness work stopped, so the next session (possibly on
-# another machine, where the ignored ledgers do not exist) can pick it up.
-!docs/2026-09-28-next-session-handoff.md
-# Published deliberately: the SignPath Foundation requires the code signing policy to be reachable at
-# a public URL, and the README links to it.
-!docs/code-signing.md
 # Not a note but an input: scripts/build-release-notes.cjs reads docs/release-notes/<tag>.md out of
 # the checkout the publish job makes at the tag, so a write-up that is not committed does not exist.
 !docs/release-notes/

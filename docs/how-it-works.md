@@ -5,7 +5,7 @@ every code change. Each record keeps your original request and explains what cha
 works, why it was built that way, and which files are involved.
 
 It is experimental. A session's work is recorded only after you enable tracking, which is off by
-default; a finished Job Run is recorded either way. It does not scan your old conversations to
+default; a finished Run is recorded either way. It does not scan your old conversations to
 create a history.
 
 <img src="../assets/how-it-works-demo.gif" width="820" alt="Example-data walkthrough of Astera's How It Works task list, completed explanation, flow diagram, and step-specific implementation references" />

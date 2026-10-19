@@ -1,0 +1,12 @@
+/* ---------- file type icons ---------- */
+.fi { flex: none; display: block; width: 14px; height: 14px; color: var(--fi-gray); }
+.fi--blue { color: var(--fi-blue); }
+.fi--cyan { color: var(--fi-cyan); }
+.fi--green { color: var(--fi-green); }
+.fi--yellow { color: var(--fi-yellow); }
+.fi--orange { color: var(--fi-orange); }
+.fi--red { color: var(--fi-red); }
+.fi--purple { color: var(--fi-purple); }
+.fi--pink { color: var(--fi-pink); }
+.fi--gray { color: var(--fi-gray); }
+.fi--mute { color: var(--fi-mute); }

@@ -125,6 +125,21 @@ describe('createOrchRouter (remote runtime design §2.7, D1.1, D1.6, D1.7)', () 
     expect(host).toHaveLength(1)
   })
 
+  it('W8-F (#93): jobs-feedback goes to the Host, which owns the planner session, and a Runtime keeps its own', async () => {
+    const l = recordingLocal()
+    const host: string[] = []
+    const r = createOrchRouter({
+      local: l.local,
+      host: async (_p, c) => (host.push(c), { status: 200, body: { via: 'typed' } }),
+      remote: { client: async () => fakeClient() }
+    })
+    expect(await r.command('/p', 'jobs-feedback', { job: 'j', text: 'more' })).toEqual({ status: 200, body: { via: 'typed' } })
+    expect(host).toEqual(['jobs-feedback'])
+    expect(l.calls).toEqual([])
+    await r.command('/p', 'jobs-feedback', { job: 'j', text: 'more' }, 'rt_a')
+    expect(host).toHaveLength(1)
+  })
+
   it('W5-D (#42): sessions-list goes to the Host too, which reads the hook events and their prompt', async () => {
     const l = recordingLocal()
     const host: unknown[] = []

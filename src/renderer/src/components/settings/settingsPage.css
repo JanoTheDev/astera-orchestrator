@@ -1,0 +1,40 @@
+/* W9-E: the Settings page. A full-width layer under the title bar (34px, .titlebar in shell/shell.css), below the
+   modals (z 100) so a dialog it opens (Add project, a confirm) comes in front. Until W9-B's page router mounts it. */
+.settings-page {
+  position: fixed; inset: 44px 0 26px 0; z-index: 90;
+  display: flex; flex-direction: column;
+  background: var(--bg); color: var(--text);
+  outline: none;
+}
+.settings-page__head { display: flex; align-items: center; gap: 12px; height: 44px; padding: 0 16px; border-bottom: 1px solid var(--line); flex: none; }
+.settings-page__title { margin: 0; font-size: 15px; font-weight: 600; }
+.settings-page__body { display: flex; flex: 1; min-height: 0; }
+.settings-page__nav { display: flex; flex-direction: column; gap: 4px; width: 220px; flex: none; padding: 12px; border-right: 1px solid var(--line); overflow-y: auto; }
+.settings-page__nav .settings-nav-item { min-height: 28px; padding: 4px 12px; font-size: 13px; }
+.settings-nav-item--none { color: var(--text-faint); }
+.settings-page__search {
+  display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px; margin-bottom: 8px;
+  background: var(--elevated); border-radius: var(--radius); color: var(--text-faint);
+}
+.settings-page__search:focus-within { box-shadow: 0 0 0 2px var(--ring); }
+.settings-page__search input { flex: 1; min-width: 0; background: none; border: none; outline: none; color: var(--text); font: inherit; font-size: 13px; }
+.settings-page__content { padding: 24px 32px; gap: 16px; }
+.settings-page__group { display: flex; flex-direction: column; gap: 16px; max-width: 880px; }
+.settings-page__group[hidden] { display: none; }
+.settings-page__group-label { margin: 8px 0 0; font-size: 12px; font-weight: 600; color: var(--text-faint); text-transform: uppercase; letter-spacing: var(--tracking); }
+.settings-page .settings-row { min-height: 28px; }
+.settings-page .settings-stack:empty { display: none; }
+
+/* A row's wrapper: openSettings(group, anchor) scrolls to it and flashes it. */
+.settings-anchor { display: flex; flex-direction: column; gap: 8px; border-radius: var(--radius); scroll-margin-top: 16px; transition: box-shadow var(--ease), background var(--ease); }
+.settings-anchor[hidden] { display: none; }
+.settings-anchor--flash { box-shadow: 0 0 0 2px var(--accent); background: var(--accent-soft); }
+@media (prefers-reduced-motion: reduce) { .settings-anchor { transition: none; } }
+
+/* Projects: the list on the left, the picked project's page beside it. */
+.settings-projects-head { display: flex; align-items: center; gap: 8px; }
+.settings-projects-head .settings-hint { flex: 1; }
+.settings-projects { display: flex; gap: 16px; align-items: flex-start; }
+.settings-projects-list { display: flex; flex-direction: column; gap: 4px; width: 200px; flex: none; }
+.settings-projects-list .settings-nav-item { min-height: 28px; padding: 4px 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings-projects-body { flex: 1; min-width: 0; }

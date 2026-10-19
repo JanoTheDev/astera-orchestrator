@@ -10,6 +10,7 @@ import { readIssue } from './issue'
 import { git, type GitResult } from '../worktrees/git'
 import type { TaskLinks } from '../orchestration/types'
 import type { OrchState } from '../orchestration/state'
+import { GITHUB_SOURCE_ID } from './issueSource'
 
 /** The line Astera puts in the body of an issue it creates for a Task, and searches for before it creates one. */
 export const taskMarker = (taskId: string): string => `astera-task:${taskId}`
@@ -178,6 +179,8 @@ export function planPrBody(a: {
   tasks: readonly PlanPrTask[]
   /** W8-C: the plan's waves before the Tasks (draftPr.ts wavesSection), and the last line in place of the usual one. */
   waves?: string
+  /** W9-I: "What each task did", after the Tasks (core/sessions/summary.ts rollupMarkdown); empty for none. */
+  did?: string
   footer?: string
 }): string {
   const lines = [`Plan: ${a.plan}`, '', ...(a.waves ? [a.waves, ''] : []), '## Tasks', '']
@@ -193,6 +196,7 @@ export function planPrBody(a: {
     }
     lines.push('')
   }
+  if (a.did) lines.push(a.did, '')
   lines.push(a.footer ?? 'Opened by Astera when every task of the plan was done. It is never merged automatically.')
   return lines.join('\n')
 }
@@ -207,6 +211,14 @@ const acceptanceOf = (task: object): string[] | undefined => {
 /** The Tasks of `runId` as the plan's pull request lists them: the model and account of each Task's last working
  *  attempt (a review attempt is not the one that did the work), named by `accountLabel` when it knows the id. */
 export function planPrTasksOf(s: OrchState, runId: string, accountLabel: (id: string) => string | undefined = () => undefined): PlanPrTask[] {
+  // W8-G (#105): an issue the plan was made from (jobs-create-from-issue: "4,5") is closed by the PR; any other is referenced.
+  const source = s.jobs.find((j) => j.id === s.runs.find((r) => r.id === runId)?.jobId)?.source
+  const fromSource = new Set(source?.id === GITHUB_SOURCE_ID ? source.itemId.split(',').map(Number) : [])
+  // The PR leaves the machine: a label that is an email address is not shown, the account's short id is.
+  const who = (id: string): string => {
+    const label = accountLabel(id)
+    return label !== undefined && !label.includes('@') ? label : id.slice(0, 8)
+  }
   return s.tasks
     .filter((t) => t.runId === runId)
     .map((t) => {
@@ -217,10 +229,10 @@ export function planPrTasksOf(s: OrchState, runId: string, accountLabel: (id: st
         title: t.title,
         status: t.status,
         ...(criteria ? { acceptanceCriteria: criteria } : {}),
-        ...(t.links?.issue ? { issue: t.links.issue } : {}),
+        ...(t.links?.issue ? { issue: fromSource.has(t.links.issue.number) ? { ...t.links.issue, closes: true } : t.links.issue } : {}),
         ...(t.links?.commits ? { commits: t.links.commits } : {}),
         ...(last?.model ? { model: last.model } : {}),
-        ...(last ? { account: accountLabel(last.accountId) ?? last.accountId } : {})
+        ...(last ? { account: who(last.accountId) } : {})
       }
     })
 }

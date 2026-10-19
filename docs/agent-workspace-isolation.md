@@ -1,9 +1,9 @@
 # Agent workspace isolation, design brief
 
 Status: **shipped for Windows, Linux and macOS** (2026-09-27). The designs are
-[docs/superpowers/specs/2026-09-27-agent-workspace-isolation-design.md](superpowers/specs/2026-09-27-agent-workspace-isolation-design.md)
+`docs/superpowers/specs/2026-09-27-agent-workspace-isolation-design.md` (a local note, not published)
 and, for the other two platforms,
-[docs/superpowers/specs/2026-09-27-agent-workspace-linux-macos-design.md](superpowers/specs/2026-09-27-agent-workspace-linux-macos-design.md);
+`docs/superpowers/specs/2026-09-27-agent-workspace-linux-macos-design.md` (a local note, not published);
 what shipped is summarised under the two "Shipped" sections below. The rest of this brief is the
 problem and the measurements the design stands on, kept as they were written.
 

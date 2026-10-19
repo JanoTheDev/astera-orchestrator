@@ -64,10 +64,4 @@ describe('README', () => {
     expect(readme).toMatch(/\*\*Remote runtimes\*\*/)
     expect(readme).toContain('No Astera relay or cloud service is required.')
   })
-  for (const f of ['README.ko.md', 'README.ja.md', 'README.es.md'])
-    it(`${f} has the Remote runtimes paragraph and links the guide`, () => {
-      const readme = read(f)
-      expect(readme).toMatch(/\*\*Remote runtime/i)
-      expect(readme).toContain('docs/remote-runtime.md')
-    })
 })

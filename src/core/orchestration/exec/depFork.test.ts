@@ -138,7 +138,10 @@ describe('merging with no git identity (#51)', () => {
     })
     expect(r.kind).toBe('merged')
     expect(gitSync(repo, ['log', '-1', '--format=%cn <%ce>'])).toBe(`${FALLBACK_GIT_IDENTITY.name} <${FALLBACK_GIT_IDENTITY.email}>`)
-    expect(await fs.readFile(path.join(repo, '.git', 'config'), 'utf8')).toBe(configBefore)
+    // W8-A: the merge adds the Wave 8 notes config (notes.*), never an identity
+    const configAfter = await fs.readFile(path.join(repo, '.git', 'config'), 'utf8')
+    expect(configAfter.startsWith(configBefore)).toBe(true)
+    expect(configAfter.slice(configBefore.length)).not.toMatch(/\[user\]|name|email/)
   })
 
   it("supplies only the missing key, so a person's own name or email wins", async () => {

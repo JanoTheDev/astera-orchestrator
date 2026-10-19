@@ -18,7 +18,7 @@ import path from 'node:path'
  */
 const here = path.dirname(fileURLToPath(import.meta.url))
 const styles = (): string =>
-  readFileSync(path.join(here, '../../renderer/src/styles.css'), 'utf8')
+  readFileSync(path.join(here, '../../renderer/src/components/terminal.css'), 'utf8')
 
 describe('페인 축소 ↔ .terminal-host CSS', () => {
   it('.terminal-host가 min-width:0으로 자동 최소 크기를 끈다', () => {

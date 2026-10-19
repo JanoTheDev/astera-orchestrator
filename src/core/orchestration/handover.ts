@@ -68,6 +68,8 @@ export function buildHandoverPrompt(a: {
   /** The account this coordinator runs on, the default account of the Tasks it plans. Only the
    *  planning section (no Tasks) names it. */
   accountId?: string
+  /** A prompts-mode Job (`Job.verbatim`): its Tasks are the owner's prompts, planned and approved already. */
+  promptsMode?: boolean
 }): string {
   const sequential = a.concurrency <= 1
   // A Job from MCP `create_job` or `jobs create` carries only its objective (e2e 2026-10-01, second
@@ -101,7 +103,8 @@ export function buildHandoverPrompt(a: {
         'you joined. Run them as they stand. Do not create Tasks, do not rewrite their specs, and do not',
         'reassign their accounts. If the plan looks wrong to you,',
         'or the Tasks plainly do not cover the objective (a coordinator before you may have been stopped',
-        'part-way through planning), open a Gate saying so instead of editing around it.'
+        'part-way through planning), open a Gate saying so instead of editing around it.',
+        ...(a.promptsMode ? ['The Tasks are already planned and approved; do not task-update them. Start the ready ones.'] : [])
       ]
   return [
     planning
@@ -176,9 +179,12 @@ export function buildHandoverPrompt(a: {
       : []),
     '',
     'YOU ARE THE INBOX',
-    '`astera check --wait --json` blocks until a worker reports, asks or escalates. Keep calling it.',
-    '**If you end your turn, nothing reaches you** and this Job stops until the app nudges you,',
-    'which costs a round trip. Answer a question with `astera reply --id <msg> --body -`, and decide',
+    // Push, not poll (owner 2026-10-18): no waiting loop. Astera types into this session when there is news.
+    'Do not wait in a loop. When you have handled everything in front of you, end your turn: Astera',
+    'sends you a message the moment a worker reports done or failed, a Task becomes ready, a merge',
+    'into the plan branch succeeds or fails, or a Gate is answered, and each message says the next',
+    'action. `astera check --json` shows the unread mail at any time; ack each batch you handle.',
+    'Answer a question with `astera reply --id <msg> --body -`, and decide',
     'it yourself whenever the Task spec and the objective above already answer it — that is what a',
     'coordinator is for.',
     '',
@@ -192,6 +198,14 @@ export function buildHandoverPrompt(a: {
 // W2-A planner stage (SPEC §2). The planner's brief, beside the coordinator's for the same reasons: words an
 // agent reads, written to a file and pointed at with `coordinatorLaunchPrompt`'s one line.
 
+/** W8-C: what the planner of a prompts-mode Job is told. Only the planner's brief: the coordinator's must not carry it. */
+export const PROMPTS_MODE_FILL_IN = [
+  'RUN AS WRITTEN (planner-guide.md section 6)',
+  "The owner's prompts are this plan's Tasks, one per prompt, already created with their text unchanged.",
+  'Never rewrite, merge, split, add or cancel a Task. Fill in each one: --affected-paths, --criteria, --difficulty, ' +
+    '--basis/--evidence, and keep the deps Astera computed from docs/dev/PLAN.md unless a prompt itself says otherwise.'
+]
+
 /** The planner session's brief: who it is, the Job, where the repository is, how to write Tasks, and that
  *  it never starts or edits anything. `handleCommand` enforces the last part (plannerRefusal); this says it
  *  first, so the planner does not learn the rule from refusals. */
@@ -203,6 +217,13 @@ export function buildPlannerBrief(a: {
   /** The account the planner runs on: the default account of the Tasks it writes. */
   accountId: string
   concurrency: number
+  /** W8-D: the other plans of this repository and their Tasks (overlap.ts `otherPlansBrief`). Empty or absent: none. */
+  otherPlans?: string
+  /** W8-G (#101): plan branches of this project that hold earlier work and are not merged, and the branch they would go into. */
+  unmergedBranches?: string[]
+  defaultBranch?: string
+  /** A prompts-mode Job (`Job.verbatim`): the Tasks exist, one per owner prompt; the planner only fills them in. */
+  promptsMode?: boolean
 }): string {
   return [
     'You are the PLANNER for one Job in Astera. You analyse and plan. You do not implement anything.',
@@ -215,11 +236,25 @@ export function buildPlannerBrief(a: {
     `- repository root: ${a.repoRoot} (your session runs here)`,
     `- workers that may run at once: ${a.concurrency}`,
     '',
+    // W8-D
+    ...(a.otherPlans ? [a.otherPlans, ''] : []),
+    ...(a.promptsMode ? [...PROMPTS_MODE_FILL_IN, ''] : []),
     'BEFORE YOU PLAN',
     '- Read the repository\'s own instructions first: CLAUDE.md and AGENTS.md at the root and in the folders',
     '  you plan to touch. Follow them, and tell each worker the ones that apply to its Task.',
     '- Read `$ASTERA_SKILLS/planner-guide.md` (how to cut a plan into Tasks), then `astera help`.',
     '',
+    ...(a.unmergedBranches && a.unmergedBranches.length > 0
+      ? [
+          'UNMERGED PLAN BRANCHES (W8-G)',
+          ...a.unmergedBranches.map((b) => `- ${b}`),
+          `Earlier plans left their work on these branches and nobody has merged them into ${a.defaultBranch ?? 'the default branch'}.`,
+          `Plan the work on the default branch (${a.defaultBranch ?? 'the default branch'}); this branch is not merged. Workers start from it, so`,
+          'they will not have the code on those branches: never base a Task on them or on one of their commits.',
+          'List the branches in `existing.md`, and say what each holds that your plan would otherwise rely on.',
+          ''
+        ]
+      : []),
     'WHAT YOU MAY NOT DO',
     // W7-E (#69): the planner guide's existing.md (and an audit's audit.md) live in this one folder; nothing else is written
     `- Write files only in this Job's inputs folder, \`$ASTERA_PROFILE_DIR/plans/${a.jobId}/inputs/\` (create it if it is`,
@@ -235,12 +270,17 @@ export function buildPlannerBrief(a: {
     '  conversation, so the prompt must stand alone: goal, files, constraints, how to check the result.',
     '- `--criteria \'["...", "..."]\'`: one or more acceptance criteria, each one checkable.',
     '- `--affected-paths \'["src/a/", "src/b.ts"]\'`: the files or folders it will change.',
+    // W8-F (#94): a plan with a Task that has no basis is refused at approval
+    '- `--basis missing|partial|broken` and `--evidence "<file:line, #issue, PR or Job id>"`: what you found of it; a Task without them is refused.',
     '- `--deps \'["<taskId>", ...]\'`: the Tasks it must wait for. Create Tasks in dependency order.',
     '- `--difficulty light|standard|hard`: picks the worker\'s model (light is a small, mechanical change;',
     '  hard is design or a subtle bug). Add `--model-reason "<one line>"` saying why.',
     '  `--provider claude|codex` and `--model <id>` only when the Task needs a specific one.',
     `- Account: \`--account ${a.accountId}\` unless the objective names another (\`astera accounts list --json\`).`,
     '- Checks: `astera run-configs list --job ' + a.jobId + ' --json`; pass the ones that test the work as `--validate <id,...>`.',
+    // W8-D plan areas
+    `- Areas: name where the plan works in 1 to 3 short words from its Tasks' paths (auth, api, ui):`,
+    `  \`astera jobs-set --id ${a.jobId} --areas <a,b>\`.`,
     `To fix a Task: \`astera task-update --id <taskId>\` with any of the flags above. Read the plan back with`,
     `\`astera tasks list --run ${a.jobId} --json\`.`,
     '',

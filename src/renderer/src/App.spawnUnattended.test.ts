@@ -1,7 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
-import path from 'node:path'
+import { shellSource } from './state/shellSource'
 
 // App.tsx's `spawn` is a closure inside the component and cannot run without a full React +
 // Electron harness — the same reason main/ipc.ts's spawnSession is guarded by its text rather than
@@ -10,8 +8,8 @@ import path from 'node:path'
 // `opts.unattendedPermission`) into the `window.api.sessions.spawn` call. Mutation: dropping the
 // field from that call object leaves a chat session spawned from the dialog silently defaulting to
 // 'hold' in main/ipc.ts, regardless of what was picked (fix round, chat takeover Task 10).
-const APP_TSX = path.join(path.dirname(fileURLToPath(import.meta.url)), 'App.tsx')
-const src = readFileSync(APP_TSX, 'utf8')
+// W9-A: spawn() moved with App's body into state/useWorkbench.ts; this reads App.tsx and every file it was cut into.
+const src = shellSource()
 const start = src.indexOf('const spawn = async (opts:')
 const signatureEnd = src.indexOf('}): Promise<void> => {', start)
 const call = src.indexOf('window.api.sessions.spawn({', start)

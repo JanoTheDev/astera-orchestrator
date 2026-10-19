@@ -30,7 +30,7 @@ import { FileIcon } from './FileIcon'
 import { RunConfigForm } from './RunConfigForm'
 import { RunTypePicker } from './RunTypePicker'
 import { AlertTriangle, ChevronDown, ChevronUp, Copy, FolderPlus, Minus, Plus, Search } from 'lucide-react'
-import { backdropProps } from '../lib/backdrop'
+import { Button, Modal } from './ui'
 
 /** The error element of a refused Apply — SaveConfigsResult's own shape, not restated, so a reason
  *  added to SaveReason without a `run.manager.reason.*` catalogue entry fails typecheck here instead
@@ -167,24 +167,6 @@ export function RunConfigManager({
     setDraft(renameFolder(draft, from, to))
   }
 
-  // Esc closes through the same gate as Cancel. Bound while mounted; the modal-open suppression in App
-  // keeps the workbench's own shortcuts away meanwhile.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      // A control that already handled Escape (Select's dropdown, the kind picker) marks the event
-      // handled; the dialog must not close on the same keystroke.
-      if (e.defaultPrevented) return
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        requestClose()
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-    // requestClose closes over the current draft; re-binding on every dirty change keeps it current
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dirty])
-
   // The JDK list does not depend on which configuration is selected, so it is fetched once here
   // rather than inside the form.
   const [jdks, setJdks] = useState<Jdk[] | null>(null)
@@ -308,9 +290,27 @@ export function RunConfigManager({
   }
 
   return (
-    <div className="modal-backdrop" {...backdropProps(requestClose)}>
-      <div className="modal rcm" onClick={(e) => e.stopPropagation()}>
-        <h2>{t('run.manager.title')}</h2>
+    <Modal
+      title={t('run.manager.title')}
+      onClose={requestClose}
+      size="lg"
+      closeLabel={t('common.close')}
+      footer={
+        <>
+          <span className={`rcm-footer-msg${applyErrors.length > 0 ? ' error' : ''}`}>
+            {applyErrors.length > 0 ? reasonText(applyErrors[0]) : t('run.manager.seedHint')}
+          </span>
+          <Button onClick={requestClose}>{t('common.cancel')}</Button>
+          <Button disabled={!dirty || applying} onClick={() => void apply()}>
+            {t('run.manager.apply')}
+          </Button>
+          <Button variant="primary" disabled={applying} onClick={ok}>
+            {t('run.manager.ok')}
+          </Button>
+        </>
+      }
+    >
+      <div className="rcm">
         <div className="rcm-panes">
           <div className="rcm-list">
             <label className="rcm-search">
@@ -431,6 +431,7 @@ export function RunConfigManager({
                           if (e.key === 'Enter') commitFolderName(g.key, e.currentTarget.value)
                           else if (e.key === 'Escape') {
                             e.preventDefault()
+                            e.stopPropagation() // cancels the rename only, not the dialog
                             setRenamingFolder(null)
                           }
                         }}
@@ -514,21 +515,7 @@ export function RunConfigManager({
             )}
           </div>
         </div>
-        <div className="rcm-footer">
-          <span className={`rcm-footer-msg${applyErrors.length > 0 ? ' error' : ''}`}>
-            {applyErrors.length > 0 ? reasonText(applyErrors[0]) : t('run.manager.seedHint')}
-          </span>
-          <button type="button" onClick={requestClose}>
-            {t('common.cancel')}
-          </button>
-          <button type="button" disabled={!dirty || applying} onClick={() => void apply()}>
-            {t('run.manager.apply')}
-          </button>
-          <button type="button" className="primary" disabled={applying} onClick={ok}>
-            {t('run.manager.ok')}
-          </button>
-        </div>
       </div>
-    </div>
+    </Modal>
   )
 }

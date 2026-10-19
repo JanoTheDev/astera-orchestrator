@@ -129,18 +129,29 @@ export function sameFilesAs(
 /** Statuses in which a Task's worker, checks, review or repair is at its files. */
 const EDITING: ReadonlySet<TaskStatus> = new Set<TaskStatus>(['dispatched', 'validating', 'reviewing'])
 
-/** The Tasks at their files right now, by Job id: an editing status or an open Dispatch. */
-export function editingByJob(s: OrchState): Map<string, Task[]> {
-  const jobOfRun = new Map(s.runs.map((r) => [r.id, r.jobId]))
+/** W8-D: the repository a Job works in, as the file guard keys it: its project, else (a Job made before projects) its
+ *  folder. Two plans with the same key edit the same files; two with different keys never block each other.
+ *  shortcut: an old Job without `projectId` matches by its exact `cwd` string only; such Jobs are no longer made. */
+export const projectKeyOf = (job: Pick<Job, 'projectId' | 'cwd'>): string => job.projectId ?? `cwd:${job.cwd}`
+
+/** The Tasks at their files right now, by project (`projectKeyOf`), whichever plan of it they belong to (W8-D): an
+ *  editing status or an open Dispatch. */
+export function editingByProject(s: OrchState): Map<string, Task[]> {
+  const jobById = new Map(s.jobs.map((j) => [j.id, j]))
+  const keyOfRun = new Map<string, string>()
+  for (const r of s.runs) {
+    const job = jobById.get(r.jobId)
+    if (job) keyOfRun.set(r.id, projectKeyOf(job))
+  }
   const open = new Set(s.dispatches.filter(isOpen).map((d) => d.taskId))
   const out = new Map<string, Task[]>()
   for (const t of s.tasks) {
     if (!EDITING.has(t.status) && !open.has(t.id)) continue
-    const jobId = t.runId === undefined ? undefined : jobOfRun.get(t.runId)
-    if (jobId === undefined) continue
-    const list = out.get(jobId)
+    const key = t.runId === undefined ? undefined : keyOfRun.get(t.runId)
+    if (key === undefined) continue
+    const list = out.get(key)
     if (list) list.push(t)
-    else out.set(jobId, [t])
+    else out.set(key, [t])
   }
   return out
 }
@@ -171,11 +182,12 @@ export function slotsToFill(s: OrchState, limits: ScheduleLimits = {}): Slot[] {
   const open = s.dispatches.filter(isOpen)
   const runOf = new Map(s.tasks.map((t) => [t.id, t.runId]))
   let globalRoom = workerCapOf(limits.maxConcurrentWorkers) - workersAgainstCap(s)
-  // W6-C: what each Job's workers are editing, grown as this pass hands out slots
-  const editing = editingByJob(s)
+  // W6-C: what the workers are editing, by project (W8-D), grown as this pass hands out slots
+  const editing = editingByProject(s)
   const queues = s.runs.flatMap((run, order) => {
     if (!appDriven(s, run)) return []
     const job = jobOf(s, run)
+    const key = job ? projectKeyOf(job) : undefined
     const mine = s.dispatches.filter((d) => runOf.get(d.taskId) === run.id)
     const openHere = mine.filter(isOpen).length
     const room = (job?.concurrency ?? DEFAULT_CONCURRENCY) - openHere
@@ -194,12 +206,12 @@ export function slotsToFill(s: OrchState, limits: ScheduleLimits = {}): Slot[] {
         !open.some((d) => d.taskId === t.id) &&
         // W6-D: a later wave waits for the earlier ones and for a replan under way
         waveOpen(t, s) &&
-        // W6-C: not while another worker of this Job edits the same files
-        !sameFilesAs(t, editing.get(run.jobId) ?? [])
+        // W6-C: not while another worker edits the same files; W8-D: of any plan of this project
+        !sameFilesAs(t, (key !== undefined && editing.get(key)) || [])
     )
     if (candidates.length === 0) return []
     const lastServed = Math.max(-Infinity, ...mine.map((d) => Date.parse(d.startedAt) || -Infinity))
-    return [{ run, order, priority: job?.priority ?? 0, room, openHere, lastServed, candidates }]
+    return [{ run, order, key, priority: job?.priority ?? 0, room, openHere, lastServed, candidates }]
   })
   const slots: Slot[] = []
   while (globalRoom > 0) {
@@ -225,9 +237,12 @@ export function slotsToFill(s: OrchState, limits: ScheduleLimits = {}): Slot[] {
     best.lastServed = Infinity
     globalRoom--
     // W6-C: the Task just placed now holds its files, so another ready Task on them waits for the next pass
-    const jobId = best.run.jobId
-    editing.set(jobId, [...(editing.get(jobId) ?? []), t])
-    for (const q of queues) if (q.run.jobId === jobId) q.candidates = q.candidates.filter((c) => !sameFilesAs(c, [t]))
+    // W8-D: for every plan of its project
+    const key = best.key
+    if (key !== undefined) {
+      editing.set(key, [...(editing.get(key) ?? []), t])
+      for (const q of queues) if (q.key === key) q.candidates = q.candidates.filter((c) => !sameFilesAs(c, [t]))
+    }
   }
   return slots
 }

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { backdropProps } from '../../lib/backdrop'
+import { Button, Modal } from '../ui'
 import './projects.css'
 
 interface Created {
@@ -55,27 +55,38 @@ export function NewProjectDialog({
     }
   }
 
+  const footer = made ? (
+    <>
+      <Button onClick={onClose}>Done</Button>
+      <Button
+        variant="primary"
+        onClick={() => {
+          onStartPlan(made.path, `Build the first version: ${describe.trim()}`)
+          onClose()
+        }}
+      >
+        Start the first plan
+      </Button>
+    </>
+  ) : (
+    <>
+      <Button disabled={busy} onClick={onClose}>
+        Cancel
+      </Button>
+      <Button variant="primary" disabled={busy || !name.trim() || !parent.trim()} onClick={() => void create()}>
+        Create
+      </Button>
+    </>
+  )
+
   return (
-    <div className="modal-backdrop" {...backdropProps(() => !busy && onClose())}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h3>New project</h3>
+    <Modal title="New project" onClose={() => !busy && onClose()} size="sm" footer={footer}>
+      <div className="dlg">
         {made ? (
           <>
             <p className="proj-ok">Created {made.path}</p>
             {made.github?.url && <p>GitHub repository: {made.github.url}</p>}
             {made.github?.error && <p className="warn">The GitHub repository was not made: {made.github.error}</p>}
-            <div className="row right">
-              <button onClick={onClose}>Done</button>
-              <button
-                className="primary"
-                onClick={() => {
-                  onStartPlan(made.path, `Build the first version: ${describe.trim()}`)
-                  onClose()
-                }}
-              >
-                Start the first plan
-              </button>
-            </div>
           </>
         ) : (
           <>
@@ -105,17 +116,9 @@ export function NewProjectDialog({
               </select>
             )}
             {error && <p className="warn">{error}</p>}
-            <div className="row right">
-              <button disabled={busy} onClick={onClose}>
-                Cancel
-              </button>
-              <button className="primary" disabled={busy || !name.trim() || !parent.trim()} onClick={() => void create()}>
-                Create
-              </button>
-            </div>
           </>
         )}
       </div>
-    </div>
+    </Modal>
   )
 }

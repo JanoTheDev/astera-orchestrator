@@ -1,0 +1,12 @@
+.lh-list { list-style: none; max-height: 360px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+.lh-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: var(--radius); cursor: pointer; transition: background var(--ease), box-shadow var(--ease); }
+.lh-row:hover { background: var(--elevated); }
+.lh-row.selected { background: var(--line-soft); box-shadow: inset var(--marker-w) 0 0 var(--accent); }
+.lh-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.lh-name { font-size: 13px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lh-path { font-size: 11px; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lh-meta { font-size: 10.5px; font-family: var(--mono); color: var(--text-dim); flex-shrink: 0; }
+.preview-scroll { overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+.msg { font-size: 13px; line-height: 1.5; }
+.msg.user b { color: var(--role-user); }
+.msg.assistant b { color: var(--role-assistant); }

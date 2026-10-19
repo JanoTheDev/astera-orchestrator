@@ -53,7 +53,7 @@ describe('a Job’s name', () => {
   })
 
   it('names the detail’s header by it', () => {
-    const src = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'RunDetail.tsx'), 'utf8')
+    const src = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'pages/PlanPage.tsx'), 'utf8')
     const head = src.slice(src.indexOf('<div className="detail-head">'), src.indexOf('</h2>', src.indexOf('<div className="detail-head">')))
     expect(head).toContain('{run ? jobName(run) : \'\'}')
   })

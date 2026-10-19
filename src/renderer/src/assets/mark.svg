@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Astera">
+  <!-- The Astera mark (DESIGN.md section 9): a rounded square in night's accent holding a pulse line in accent ink. -->
+  <rect x="2" y="2" width="60" height="60" rx="15" fill="#c4f25a"/>
+  <path d="M11 34h9.5l5-12.5 8.5 23 6.5-15.5 3.5 5H53" fill="none" stroke="#121a00" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

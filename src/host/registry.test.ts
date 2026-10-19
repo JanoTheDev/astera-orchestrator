@@ -154,6 +154,22 @@ describe('PtyRegistry', () => {
     expect(r.lastPersonWrite('nope')).toBe(null)
   })
 
+  // W9-H: the owner hold counts typing in a window (`side`), not a Slack reply, and never terminal reports.
+  it('only a person’s write from a window moves lastTyped', () => {
+    const esc = String.fromCharCode(27)
+    let clock = 1000
+    const r = new PtyRegistry({ spawn: () => fakePty(), log: () => {}, now: () => clock })
+    r.open({ id: 'p1', file: 'cmd.exe', args: [], opts, meta: meta() })
+    r.write('p1', 'slack reply\r', { person: true })
+    expect(r.lastTyped('p1')).toBe(null)
+    clock = 2000
+    r.write('p1', 'x', { person: true, side: 'local' })
+    expect(r.lastTyped('p1')).toBe(2000)
+    clock = 3000
+    r.write('p1', `${esc}[I`, { person: true, side: 'local' })
+    expect(r.lastTyped('p1')).toBe(2000)
+  })
+
   // A message for a session that has gone is ordinary, not exceptional: the app may have sent it
   // before it learned the pty exited.
   it('ignores every command for an id it does not have', () => {

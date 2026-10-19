@@ -6,7 +6,7 @@ import { useAccountUsage } from '../hooks/useAccountUsage'
 import { AccountRow } from './AccountRow'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
-import { backdropProps } from '../lib/backdrop'
+import { Button, Modal } from './ui'
 
 /** The Accounts tab of the settings modal. It holds the delete and import-settings flows moved over from
  *  the sidebar. The sidebar (AccountPanel) is left with only listing and adding accounts. */
@@ -88,9 +88,23 @@ export function AccountSettings({ accounts }: { accounts: Account[] }): React.JS
       </ul>
       {removeTarget && <RemoveAccountDialog account={removeTarget} onClose={() => setRemoveTarget(null)} />}
       {syncTarget && (
-        <div className="modal-backdrop" {...backdropProps(() => !syncing && setSyncTarget(null))}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2>{t('account.sync.title')}</h2>
+        <Modal
+          title={t('account.sync.title')}
+          onClose={() => !syncing && setSyncTarget(null)}
+          size="sm"
+          closeLabel={t('common.close')}
+          footer={
+            <>
+              <Button disabled={syncing} onClick={() => setSyncTarget(null)}>
+                {t('common.cancel')}
+              </Button>
+              <Button variant="primary" disabled={syncing} onClick={() => void confirmSync()}>
+                {syncing ? t('account.sync.confirming') : t('account.sync.confirm')}
+              </Button>
+            </>
+          }
+        >
+          <div className="dlg">
             <p className="confirm-text">
               {t('account.sync.confirmBody', {
                 source:
@@ -107,21 +121,8 @@ export function AccountSettings({ accounts }: { accounts: Account[] }): React.JS
               <p className="confirm-text">{t('account.sync.mergeNote')}</p>
             )}
             <p className="warn-text">{t('account.sync.appliesNextSession')}</p>
-            <div className="row right">
-              <button type="button" disabled={syncing} onClick={() => setSyncTarget(null)}>
-                {t('common.cancel')}
-              </button>
-              <button
-                className="primary"
-                type="button"
-                disabled={syncing}
-                onClick={() => void confirmSync()}
-              >
-                {syncing ? t('account.sync.confirming') : t('account.sync.confirm')}
-              </button>
-            </div>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   )
@@ -159,9 +160,27 @@ export function RemoveAccountDialog({ account, onClose }: { account: Account; on
   }
 
   return (
-    <div className="modal-backdrop" {...backdropProps(() => !removing && onClose())}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h2>{t('account.remove.title')}</h2>
+    <Modal
+      title={t('account.remove.title')}
+      onClose={() => !removing && onClose()}
+      size="sm"
+      closeLabel={t('common.close')}
+      footer={
+        <>
+          <Button disabled={removing} onClick={onClose}>
+            {t('common.cancel')}
+          </Button>
+          <Button variant="primary" disabled={removing} onClick={() => void confirmRemove()}>
+            {removing
+              ? t('account.remove.processing')
+              : logoutToo
+                ? t('account.remove.confirmWithLogout')
+                : t('account.remove.button')}
+          </Button>
+        </>
+      }
+    >
+      <div className="dlg">
         <p className="confirm-text">
           {t('account.remove.confirm', { label: account.label })}
         </p>
@@ -174,24 +193,7 @@ export function RemoveAccountDialog({ account, onClose }: { account: Account; on
           <span>{t('account.remove.logoutToo')}</span>
         </label>
         {logoutToo && <p className="warn-text">{t('account.remove.logoutWarning')}</p>}
-        <div className="row right">
-          <button type="button" disabled={removing} onClick={onClose}>
-            {t('common.cancel')}
-          </button>
-          <button
-            className="primary"
-            type="button"
-            disabled={removing}
-            onClick={() => void confirmRemove()}
-          >
-            {removing
-              ? t('account.remove.processing')
-              : logoutToo
-                ? t('account.remove.confirmWithLogout')
-                : t('account.remove.button')}
-          </button>
-        </div>
       </div>
-    </div>
+    </Modal>
   )
 }

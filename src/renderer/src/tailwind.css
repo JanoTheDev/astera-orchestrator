@@ -12,11 +12,11 @@
 @import "tw-animate-css";
 @import "tw-shimmer";
 
-/* Tailwind's default dark variant only matches under a .dark ancestor class. Astera never adds one —
-   every theme (Vega, Orion, Umbra, Aurora, Antares, Quasar, Sirius) is a dark palette, switched by
-   ThemeProvider rewriting custom properties on :root, not by toggling a class. Redefined to always match
-   so the vendored components' dark: utilities (which refine, not invert, their light-mode styling) apply. */
-@custom-variant dark (&);
+/* Tailwind's default dark variant only matches under a .dark ancestor class. Astera never adds one: the
+   theme is switched by ThemeProvider rewriting custom properties on :root and setting data-theme to the
+   palette on screen (lib/theme.tsx). The vendored components' dark: utilities refine, not invert, their
+   light-mode styling, so they apply under the two dark palettes (night, dusk) and not under day. */
+@custom-variant dark (&:where([data-theme='night'], [data-theme='night'] *, [data-theme='dusk'], [data-theme='dusk'] *));
 
 /* shadcn's init also scaffolds --sidebar-* and --chart-* tokens; dropped, since nothing vendored so far
    uses a sidebar or a chart and the brief's mapping table doesn't name them either. Add them back,
