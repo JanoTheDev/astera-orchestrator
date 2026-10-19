@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Attention, JobRow, JobTask, SessionInfo } from '../../../../core/types'
 import type { WorkspaceProject, WorkspaceSession } from '../../state/workspaceTree'
 import {
-  ALL_PLANS, NO_PLAN, consolesOf, detailLineOf, detailsOf, filterConsoles, gridColumns, indexJobRows, orderWall, pillCount, planPills,
+  ALL_PLANS, NO_PLAN, consolesOf, detailLineOf, detailsOf, filterConsoles, gridColumns, groupWall, indexJobRows, orderWall, pillCount, planPills,
   progressSegments, stripLabel, type WallInput
 } from './wallModel'
 
@@ -136,6 +136,22 @@ describe('orderWall and filterConsoles', () => {
     const w = orderWall(filterConsoles(cs, { ...f, plan: 'job_1' }), 'job_1')
     expect(stripLabel(w.pinned[0], w.mainId)).toBe('Coordinator (main)')
     expect(stripLabel(cs.find((c) => c.sessionId === 'w1')!, w.mainId)).toBe('Worker 1 · Login form')
+  })
+})
+
+describe('groupWall', () => {
+  it('groups the wall by plan in plan order, plain consoles last, each group its live tiles then its finished ones', () => {
+    const w = orderWall(consolesOf(input()), ALL_PLANS)
+    const groups = groupWall([...w.pinned, ...w.tiles], w.finished)
+    expect(groups.at(-1)?.key).toBe(NO_PLAN)
+    expect(groups.find((g) => g.key === NO_PLAN)?.live.map((c) => c.sessionId)).toEqual(['s9'])
+    const one = groups.find((g) => g.key === 'job_1')!
+    expect(one.live.map((c) => c.sessionId)).toEqual(['c1', 'w1', 'pl1', 'w2'])
+    expect(groups.flatMap((g) => g.done).map((c) => c.sessionId)).toEqual(['e1'])
+  })
+  it('the Done filter leaves a group of finished consoles only', () => {
+    const w = orderWall(consolesOf(input()), ALL_PLANS)
+    expect(groupWall([], w.finished).every((g) => g.live.length === 0 && g.done.length > 0)).toBe(true)
   })
 })
 
