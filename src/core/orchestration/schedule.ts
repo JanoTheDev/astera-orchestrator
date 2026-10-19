@@ -11,6 +11,8 @@ import {
 import { jobOf, placedByApp, type OrchState } from './state'
 import { isJobActive } from './lifecycle'
 import { waveOpen } from './replan'
+// T9 a plan's leases end when it delivers
+import { afterStandOf } from './after'
 
 /** 지금 워커를 띄워야 할 자리 하나.
  *
@@ -97,32 +99,76 @@ export interface ScheduleLimits {
 export const workerCapOf = (cap: number | null | undefined): number =>
   cap === null || cap === undefined ? MAX_CONCURRENT_WORKERS : Math.min(cap, MAX_CONCURRENT_WORKERS)
 
-// W6-C: never two workers on the same files.
+// W6-C: never two workers on the same files. T9: nor two plans, until the first has delivered.
 
-/** The directory prefix a path names: the part before its first `*`, with `./` and trailing slashes dropped. */
-const prefixOf = (p: string): string => {
-  const posix = p.replace(/\\/g, '/')
-  const star = posix.indexOf('*')
-  return (star === -1 ? posix : posix.slice(0, star)).replace(/^(\.\/)+/, '').replace(/\/+$/, '')
+/** File systems that ignore case (Windows, macOS): paths compare case-folded there. Read lazily: this file runs in the
+ *  renderer too, where `process` may be absent. */
+const foldsCase = (): boolean => {
+  const platform = (globalThis as { process?: { platform?: string } }).process?.platform
+  return platform === 'win32' || platform === 'darwin'
 }
+
+/** What an affected path names, relative to the repository: `/` separators, `.` and `..` resolved, a leading `./` or `/`
+ *  and the project root (`root`, when the path is absolute inside it) dropped, cut at its first `*`. `''` is the whole
+ *  repository (`.`, `*`, empty). `partial`: the glob cut a name in two (`src/foo*`), so it covers every name that
+ *  starts with `path`, not only the directory. */
+function scopeOf(p: string, root?: string): { path: string; partial: boolean } {
+  const fold = foldsCase()
+  let posix = p.trim().replace(/\\/g, '/')
+  const star = posix.indexOf('*')
+  const partial = star > 0 && posix[star - 1] !== '/'
+  if (star !== -1) posix = posix.slice(0, star)
+  if (fold) posix = posix.toLowerCase()
+  const base = root?.replace(/\\/g, '/').replace(/\/+$/, '')
+  const r = base && fold ? base.toLowerCase() : base
+  if (r && (posix === r || posix.startsWith(`${r}/`))) posix = posix.slice(r.length)
+  const out: string[] = []
+  for (const seg of posix.split('/')) {
+    if (seg === '' || seg === '.') continue
+    if (seg === '..' && out.length > 0 && out[out.length - 1] !== '..') out.pop()
+    else out.push(seg)
+  }
+  return { path: out.join('/'), partial: partial && out.length > 0 }
+}
+
+const covers = (x: { path: string; partial: boolean }, y: { path: string }): boolean =>
+  x.path === '' || y.path === x.path || y.path.startsWith(`${x.path}/`) || (x.partial && y.path.startsWith(x.path))
 
 /** Whether two affected paths can name the same file: equal, or one a directory prefix of the other (`src/a` and
- *  `src/a/b.ts`, not `src/ab`). A glob counts as the directory before its first `*`, so `*` alone is the whole repo. */
-export function pathsOverlap(a: string, b: string): boolean {
-  const x = prefixOf(a)
-  const y = prefixOf(b)
-  return x === '' || y === '' || x === y || y.startsWith(`${x}/`) || x.startsWith(`${y}/`)
+ *  `src/a/b.ts`, not `src/ab`), after `scopeOf` (so `./src/a`, `/src/a`, `<root>/src/a` and `src/x/../a` are all
+ *  `src/a`). A glob counts as the directory before its first `*`, so `*` alone is the whole repo; one that cuts a name
+ *  (`src/foo*`) covers every path starting with that name (`src/foobar.ts`). Case-folded on Windows and macOS. */
+export function pathsOverlap(a: string, b: string, root?: string): boolean {
+  const x = scopeOf(a, root)
+  const y = scopeOf(b, root)
+  return covers(x, y) || covers(y, x)
 }
 
+/** T9: a Task that holds its files after its worker is done: completed in a plan that has not delivered yet. */
+export interface Lease {
+  /** The plan that holds it. */
+  jobId: string
+  /** Runs this lease does not hold back: its own plan's (a plan never waits for itself), and those of a plan that
+   *  outranks it while waiting on it in a cycle (`leasesByProject`: the older plan proceeds). */
+  exemptRuns: ReadonlySet<string>
+}
+
+/** An entry of the file guard: a Task at its files (`lease` absent) or holding them until its plan delivers. `root` is
+ *  its project's folder, so a path written absolute compares with a relative one (`pathsOverlap`). */
+export type FileHolder = Task & { lease?: Lease; root?: string }
+
 /** The first of `others` whose affected paths overlap `task`'s, with the first of `task`'s paths it collides on. A
- *  Task with no affected paths overlaps nothing. */
+ *  Task with no affected paths overlaps nothing. A lease (`FileHolder.lease`) never holds back its exempt runs. */
 export function sameFilesAs(
-  task: Pick<Task, 'id' | 'affectedPaths'>,
-  others: readonly Task[]
-): { task: Task; path: string } | undefined {
+  task: Pick<Task, 'id' | 'affectedPaths'> & { runId?: string },
+  others: readonly FileHolder[]
+): { task: FileHolder; path: string } | undefined {
   for (const path of task.affectedPaths ?? [])
-    for (const other of others)
-      if (other.id !== task.id && (other.affectedPaths ?? []).some((q) => pathsOverlap(path, q))) return { task: other, path }
+    for (const other of others) {
+      if (other.id === task.id) continue
+      if (other.lease && task.runId !== undefined && other.lease.exemptRuns.has(task.runId)) continue
+      if ((other.affectedPaths ?? []).some((q) => pathsOverlap(path, q, other.root))) return { task: other, path }
+    }
   return undefined
 }
 
@@ -134,25 +180,106 @@ const EDITING: ReadonlySet<TaskStatus> = new Set<TaskStatus>(['dispatched', 'val
  *  shortcut: an old Job without `projectId` matches by its exact `cwd` string only; such Jobs are no longer made. */
 export const projectKeyOf = (job: Pick<Job, 'projectId' | 'cwd'>): string => job.projectId ?? `cwd:${job.cwd}`
 
-/** The Tasks at their files right now, by project (`projectKeyOf`), whichever plan of it they belong to (W8-D): an
- *  editing status or an open Dispatch. */
-export function editingByProject(s: OrchState): Map<string, Task[]> {
+/** T9: whether plan `a` goes before plan `b` when both want the same files: the higher `priority`, then the one created
+ *  first, then the smaller id (so the order is total and every pass agrees). */
+export function planOutranks(a: Pick<Job, 'id' | 'priority' | 'createdAt'>, b: Pick<Job, 'id' | 'priority' | 'createdAt'>): boolean {
+  const pa = a.priority ?? 0
+  const pb = b.priority ?? 0
+  if (pa !== pb) return pa > pb
+  if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt
+  return a.id < b.id
+}
+
+/** Not started yet: its plan may still wait on another plan's lease for it. */
+const NOT_STARTED: ReadonlySet<TaskStatus> = new Set<TaskStatus>(['pending', 'ready'])
+
+/** T9: the completed Tasks whose files stay leased, by project: those of each plan's latest Run while the plan has not
+ *  delivered (`afterStandOf` 'waiting': no landed push, no opened PR, not stopped or archived). Their changes sit on an
+ *  undelivered branch, so another plan editing the same files from an older base would conflict at delivery.
+ *
+ *  **Never a deadlock.** Plan X waits on plan Y when a not-started Task of X overlaps one of Y's leases. When Y also
+ *  waits (directly or through others) on X and X outranks Y (`planOutranks`), Y's leases do not hold X back: the older
+ *  plan proceeds and the younger waits. Every cycle has a highest-ranked plan, and its edge out of the cycle drops. */
+export function leasesByProject(s: OrchState): Map<string, FileHolder[]> {
   const jobById = new Map(s.jobs.map((j) => [j.id, j]))
-  const keyOfRun = new Map<string, string>()
+  const latest = new Map<string, JobRun>()
+  for (const r of s.runs) {
+    const had = latest.get(r.jobId)
+    if (!had || r.ordinal > had.ordinal) latest.set(r.jobId, r)
+  }
+  const runById = new Map(s.runs.map((r) => [r.id, r]))
+  const runsOf = new Map<string, string[]>()
+  for (const r of s.runs) runsOf.set(r.jobId, [...(runsOf.get(r.jobId) ?? []), r.id])
+  // The leases each plan holds, and each plan's Tasks still to start
+  const held = new Map<string, Task[]>()
+  const waiting = new Map<string, Task[]>()
+  for (const t of s.tasks) {
+    const run = t.runId === undefined ? undefined : runById.get(t.runId)
+    if (!run || latest.get(run.jobId) !== run) continue
+    if (t.status === 'completed' && (t.affectedPaths?.length ?? 0) > 0) held.set(run.jobId, [...(held.get(run.jobId) ?? []), t])
+    else if (NOT_STARTED.has(t.status)) waiting.set(run.jobId, [...(waiting.get(run.jobId) ?? []), t])
+  }
+  for (const jobId of [...held.keys()]) if (afterStandOf(s, jobId) !== 'waiting') held.delete(jobId)
+  if (held.size === 0) return new Map()
+  // The wait graph between plans of one project: X -> Y when a Task of X still to start overlaps a lease of Y
+  const edges = new Map<string, Set<string>>()
+  for (const [x, tasks] of waiting) {
+    const jx = jobById.get(x)
+    if (!jx) continue
+    for (const [y, leases] of held) {
+      const jy = jobById.get(y)
+      if (y === x || !jy || projectKeyOf(jx) !== projectKeyOf(jy)) continue
+      if (tasks.some((t) => sameFilesAs(t, leases.map((l) => ({ ...l, root: jy.cwd }))))) edges.set(x, new Set([...(edges.get(x) ?? []), y]))
+    }
+  }
+  const reaches = (from: string, to: string): boolean => {
+    const seen = new Set<string>()
+    const stack = [from]
+    while (stack.length > 0) {
+      const at = stack.pop()!
+      if (at === to) return true
+      if (seen.has(at)) continue
+      seen.add(at)
+      stack.push(...(edges.get(at) ?? []))
+    }
+    return false
+  }
+  const out = new Map<string, FileHolder[]>()
+  for (const [y, leases] of held) {
+    const jy = jobById.get(y)
+    if (!jy) continue
+    const exempt = new Set(runsOf.get(y) ?? [])
+    for (const [x, to] of edges) {
+      const jx = jobById.get(x)
+      if (jx && to.has(y) && planOutranks(jx, jy) && reaches(y, x)) for (const id of runsOf.get(x) ?? []) exempt.add(id)
+    }
+    const key = projectKeyOf(jy)
+    const lease: Lease = { jobId: y, exemptRuns: exempt }
+    out.set(key, [...(out.get(key) ?? []), ...leases.map((t) => ({ ...t, lease, root: jy.cwd }))])
+  }
+  return out
+}
+
+/** What holds files right now, by project (`projectKeyOf`), whichever plan of it they belong to (W8-D): the Tasks at
+ *  their files (an editing status or an open Dispatch), then (T9) the leases of plans not yet delivered
+ *  (`leasesByProject`). The file guard of `slotsToFill`, the board and `worker-start` all read this one list. */
+export function editingByProject(s: OrchState): Map<string, FileHolder[]> {
+  const jobById = new Map(s.jobs.map((j) => [j.id, j]))
+  const jobOfRun = new Map<string, Job>()
   for (const r of s.runs) {
     const job = jobById.get(r.jobId)
-    if (job) keyOfRun.set(r.id, projectKeyOf(job))
+    if (job) jobOfRun.set(r.id, job)
   }
   const open = new Set(s.dispatches.filter(isOpen).map((d) => d.taskId))
-  const out = new Map<string, Task[]>()
+  const out = new Map<string, FileHolder[]>()
   for (const t of s.tasks) {
     if (!EDITING.has(t.status) && !open.has(t.id)) continue
-    const key = t.runId === undefined ? undefined : keyOfRun.get(t.runId)
-    if (key === undefined) continue
-    const list = out.get(key)
-    if (list) list.push(t)
-    else out.set(key, [t])
+    const job = t.runId === undefined ? undefined : jobOfRun.get(t.runId)
+    if (job === undefined) continue
+    const key = projectKeyOf(job)
+    out.set(key, [...(out.get(key) ?? []), { ...t, root: job.cwd }])
   }
+  for (const [key, leases] of leasesByProject(s)) out.set(key, [...(out.get(key) ?? []), ...leases])
   return out
 }
 
@@ -211,7 +338,7 @@ export function slotsToFill(s: OrchState, limits: ScheduleLimits = {}): Slot[] {
     )
     if (candidates.length === 0) return []
     const lastServed = Math.max(-Infinity, ...mine.map((d) => Date.parse(d.startedAt) || -Infinity))
-    return [{ run, order, key, priority: job?.priority ?? 0, room, openHere, lastServed, candidates }]
+    return [{ run, order, key, root: job?.cwd, priority: job?.priority ?? 0, room, openHere, lastServed, candidates }]
   })
   const slots: Slot[] = []
   while (globalRoom > 0) {
@@ -240,7 +367,7 @@ export function slotsToFill(s: OrchState, limits: ScheduleLimits = {}): Slot[] {
     // W8-D: for every plan of its project
     const key = best.key
     if (key !== undefined) {
-      editing.set(key, [...(editing.get(key) ?? []), t])
+      editing.set(key, [...(editing.get(key) ?? []), { ...t, root: best.root }])
       for (const q of queues) if (q.key === key) q.candidates = q.candidates.filter((c) => !sameFilesAs(c, [t]))
     }
   }

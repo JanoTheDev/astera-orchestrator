@@ -134,3 +134,104 @@ describe('the app-wide cap never passes 10', () => {
     expect(r).toMatchObject({ kind: 'global-cap', limit: 10 })
   })
 })
+
+describe('pathsOverlap — normalised (T9)', () => {
+  it('. and * and an empty path are the whole repo', () => {
+    expect(pathsOverlap('.', 'src/a.ts')).toBe(true)
+    expect(pathsOverlap('./', 'src/a.ts')).toBe(true)
+    expect(pathsOverlap('', 'src/a.ts')).toBe(true)
+  })
+  it('a leading / is the repo root', () => expect(pathsOverlap('/src/a.ts', 'src/a.ts')).toBe(true))
+  it('an absolute path inside the project root is relative to it', () => {
+    expect(pathsOverlap('/home/me/repo/src/a.ts', 'src/a.ts', '/home/me/repo')).toBe(true)
+    expect(pathsOverlap('/home/me/repo/src/a.ts', 'src/b.ts', '/home/me/repo/')).toBe(false)
+    expect(pathsOverlap('C:\\repo\\src\\a', 'src/a/b.ts', 'C:\\repo')).toBe(true)
+  })
+  it('a glob that cuts a name compares by prefix', () => {
+    expect(pathsOverlap('src/foo*', 'src/foobar.ts')).toBe(true)
+    expect(pathsOverlap('src/foo*.ts', 'src/foo/x.ts')).toBe(true)
+    expect(pathsOverlap('src/foo*', 'src/fo.ts')).toBe(false)
+    expect(pathsOverlap('src/foo/*', 'src/foobar.ts')).toBe(false)
+  })
+  it('.. and . segments are resolved', () => {
+    expect(pathsOverlap('src/x/../a.ts', 'src/a.ts')).toBe(true)
+    expect(pathsOverlap('src/./a/../b', 'src/b/c.ts')).toBe(true)
+    expect(pathsOverlap('src/x/../a.ts', 'src/x/a.ts')).toBe(false)
+  })
+  it('folds case only on Windows and macOS', () => {
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform')!
+    try {
+      Object.defineProperty(process, 'platform', { value: 'linux' })
+      expect(pathsOverlap('SRC/A.ts', 'src/a.ts')).toBe(false)
+      Object.defineProperty(process, 'platform', { value: 'darwin' })
+      expect(pathsOverlap('SRC/A.ts', 'src/a.ts')).toBe(true)
+      Object.defineProperty(process, 'platform', { value: 'win32' })
+      expect(pathsOverlap('/Repo/SRC/a.ts', 'src/A.TS', '/repo')).toBe(true)
+    } finally {
+      Object.defineProperty(process, 'platform', platform)
+    }
+  })
+})
+
+describe('path leases across plans (T9)', () => {
+  /** j1 (older) has a done t1 on src/a.ts; j2 a ready t2 on src/. */
+  const leased = (over: { r1?: Partial<JobRun>; j1?: Partial<Job> } = {}): OrchState => ({
+    ...emptyState(),
+    jobs: [job('j1', { title: 'Plan A', ...over.j1 }), job('j2', { title: 'Plan B', createdAt: '2026-10-18T01:00:00.000Z' })],
+    runs: [{ ...run('r1', 'j1'), ...over.r1 }, run('r2', 'j2')],
+    tasks: [
+      task('t1', 'r1', { status: 'completed', affectedPaths: ['src/a.ts'] }),
+      task('t0', 'r1', { status: 'pending', affectedPaths: ['src/a.ts'] }),
+      task('t2', 'r2', { affectedPaths: ['src/'] })
+    ]
+  })
+
+  it("holds another plan's Task on a done but undelivered Task's files, with the reason", () => {
+    const s = leased()
+    expect(placed(s)).toEqual([])
+    expect(taskBoardsOf(s).get('t2')?.reason).toEqual({
+      kind: 'same-files',
+      waitingOn: { id: 't1', title: 'title t1' },
+      path: 'src/',
+      plan: { id: 'j1', title: 'Plan A' },
+      delivery: true
+    })
+  })
+
+  it('never holds a Task of the plan that holds the lease', () => {
+    const s = leased()
+    const own = { ...s, tasks: s.tasks.map((t) => (t.id === 't0' ? { ...t, status: 'ready' as const } : t)) }
+    expect(placed(own)).toEqual(['t0'])
+  })
+
+  it('ends when the plan delivers: a pushed commit or an opened PR', () => {
+    expect(placed(leased({ r1: { delivery: { at: T0, sha: 'abc' } } }))).toEqual(['t2'])
+    expect(placed(leased({ r1: { pr: { at: T0, url: 'https://x/pr/1', number: 1 } } }))).toEqual(['t2'])
+    // a draft PR is not delivered yet
+    expect(placed(leased({ r1: { pr: { at: T0, url: 'https://x/pr/1', number: 1, draft: true } } }))).toEqual([])
+  })
+
+  it('ends when the plan is archived or its delivery stopped', () => {
+    expect(placed(leased({ j1: { archivedAt: T0 } }))).toEqual(['t2'])
+    expect(placed(leased({ r1: { delivery: { at: T0, error: 'refused' } } }))).toEqual(['t2'])
+  })
+
+  it('two plans waiting on each other never deadlock: the older proceeds, the younger waits', () => {
+    const s: OrchState = {
+      ...emptyState(),
+      jobs: [job('j1', { title: 'Plan A' }), job('j2', { title: 'Plan B', createdAt: '2026-10-18T01:00:00.000Z' })],
+      runs: [run('r1', 'j1'), run('r2', 'j2')],
+      tasks: [
+        task('a1', 'r1', { status: 'completed', affectedPaths: ['x.ts'] }),
+        task('a2', 'r1', { affectedPaths: ['y.ts'] }),
+        task('b1', 'r2', { status: 'completed', affectedPaths: ['y.ts'] }),
+        task('b2', 'r2', { affectedPaths: ['x.ts'] })
+      ]
+    }
+    expect(placed(s)).toEqual(['a2'])
+    expect(taskBoardsOf(s).get('b2')?.reason).toMatchObject({ kind: 'same-files', waitingOn: { id: 'a1' }, delivery: true })
+    // a higher priority goes first whatever the age
+    const urgent = { ...s, jobs: s.jobs.map((j) => (j.id === 'j2' ? { ...j, priority: 5 } : j)) }
+    expect(placed(urgent)).toEqual(['b2'])
+  })
+})

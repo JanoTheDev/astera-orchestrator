@@ -69,14 +69,16 @@ describe('the cross-plan file guard', () => {
     expect(slotsToFill(twoPlans())).toEqual([])
   })
 
-  it('lets it run once that worker is done', () => {
+  it('lets it run once that worker is done and its plan delivered (T9: until then the files stay leased)', () => {
     const s = twoPlans()
     const done: OrchState = {
       ...s,
       tasks: s.tasks.map((t) => (t.id === 't6' ? { ...t, status: 'completed' as const } : t)),
       dispatches: s.dispatches.map((d) => ({ ...d, outcome: 'succeeded' as const, endedAt: T0 }))
     }
-    expect(slotsToFill(done).map((x) => x.taskId)).toEqual(['t3'])
+    expect(slotsToFill(done)).toEqual([])
+    const delivered: OrchState = { ...done, runs: done.runs.map((r) => (r.id === 'r1' ? { ...r, pr: { at: T0, url: 'https://x/pr/1', number: 1 } } : r)) }
+    expect(slotsToFill(delivered).map((x) => x.taskId)).toEqual(['t3'])
   })
 
   it('never holds across projects', () => {
@@ -227,5 +229,82 @@ describe('plan.overlap', () => {
     expect(refreshOverlaps(after, finished).jobs.every((j) => j.overlaps === undefined)).toBe(true)
     // the same overlaps again say nothing
     expect(deriveActivity(after, refreshOverlaps(after, { ...after, tasks: [...after.tasks] })).filter((d) => d.type === 'plan.overlap')).toEqual([])
+  })
+})
+
+describe('the project coordinator (T9)', () => {
+  const coordinatorMail = (s: OrchState, runId: string): string[] =>
+    s.messages.filter((m) => m.runId === runId && m.type === 'status').map((m) => m.subject)
+
+  it('a new overlap posts one message to the waiting plan’s coordinator, once', () => {
+    const after = refreshOverlaps(emptyState(), twoPlans(), T0)
+    // jA was made first (same stamp: the smaller id), so jB waits
+    expect(coordinatorMail(after, 'r2')).toEqual(['Another plan of this project goes first: T3 · Auth rework · T6 (same files: src/api/)'])
+    expect(coordinatorMail(after, 'r1')).toEqual([])
+    expect(refreshOverlaps(after, { ...after, tasks: [...after.tasks] }, T0).messages).toHaveLength(after.messages.length)
+  })
+
+  it('a lease that starts to hold a Task back posts one message to its plan’s coordinator', () => {
+    const before = refreshOverlaps(emptyState(), twoPlans(), T0)
+    const done: OrchState = {
+      ...before,
+      tasks: before.tasks.map((t) => (t.id === 't6' ? { ...t, status: 'completed' as const } : t)),
+      dispatches: before.dispatches.map((d) => ({ ...d, outcome: 'succeeded' as const, endedAt: T0 }))
+    }
+    const after = refreshOverlaps(before, done, T0)
+    expect(coordinatorMail(after, 'r2').slice(coordinatorMail(before, 'r2').length)).toEqual([
+      'Waiting for another plan to deliver: T3 waits for Auth rework · T6 to deliver src/api/'
+    ])
+    expect(refreshOverlaps(after, { ...after, tasks: [...after.tasks] }, T0).messages).toHaveLength(after.messages.length)
+  })
+
+  /** Plan A ("Auth rework") has T6 for issue #7; plan B, made later, a ready T3 for the same issue. */
+  const duplicate = (t3: Partial<Task> = {}): OrchState => ({
+    ...emptyState(),
+    jobs: [job('jA', { title: 'Auth rework' }), job('jB', { title: 'Api cleanup', createdAt: '2026-10-18T01:00:00.000Z' })],
+    runs: [run('r1', 'jA'), run('r2', 'jB')],
+    tasks: [
+      task('t6', { runId: 'r1' }, { title: 'Fix login', links: { issue: { number: 7, url: 'u' } } }),
+      task('t3', { runId: 'r2' }, { title: 'Other', links: { issue: { number: 7, url: 'u' } }, ...t3 })
+    ]
+  })
+
+  it('holds a not-started duplicate behind one owner decision', () => {
+    const after = refreshOverlaps(emptyState(), duplicate(), T0)
+    const gates = after.gates.filter((g) => g.taskId === 't3')
+    expect(gates).toHaveLength(1)
+    expect(gates[0].options).toEqual(['cancel as duplicate', 'keep both'])
+    expect(gates[0].question).toContain('same issue #7')
+    expect(after.tasks.find((t) => t.id === 't3')?.status).toBe('blocked')
+    expect(after.messages.filter((m) => m.type === 'decision_gate' && m.taskId === 't3')).toHaveLength(1)
+    // the plan that goes first is never held
+    expect(after.gates.some((g) => g.taskId === 't6')).toBe(false)
+    expect(refreshOverlaps(after, { ...after, tasks: [...after.tasks] }, T0).gates).toHaveLength(1)
+  })
+
+  it('holds the same title on overlapping paths, not the same title elsewhere, nor a started Task', () => {
+    const titled = (paths: string[]): OrchState => {
+      const s = duplicate({ title: 'fix login ', links: undefined, affectedPaths: paths })
+      return { ...s, tasks: s.tasks.map((t) => (t.id === 't6' ? { ...t, affectedPaths: ['src/auth/'] } : t)) }
+    }
+    expect(refreshOverlaps(emptyState(), titled(['src/auth/login.ts']), T0).gates).toHaveLength(1)
+    expect(refreshOverlaps(emptyState(), titled(['docs/']), T0).gates).toHaveLength(0)
+    const started = { ...duplicate(), dispatches: [{ ...dispatch('d3', 't3'), outcome: 'failed' as const, endedAt: T0 }] }
+    expect(refreshOverlaps(emptyState(), started, T0).gates).toHaveLength(0)
+  })
+
+  it('carries out the answer: cancel removes the Task, keep both lets it run and never asks again', async () => {
+    const { resolveGate } = await import('./state')
+    const held = refreshOverlaps(emptyState(), duplicate(), T0)
+    const gateId = held.gates[0].id
+    const answer = (resolution: string): OrchState => {
+      const r = resolveGate(held, { gateId, resolution }, T0)
+      if (!r.ok) throw new Error(r.error)
+      return refreshOverlaps(held, r.state, T0)
+    }
+    expect(answer('cancel as duplicate').tasks.some((t) => t.id === 't3')).toBe(false)
+    const kept = answer('keep both')
+    expect(kept.tasks.find((t) => t.id === 't3')?.status).toBe('ready')
+    expect(kept.gates.filter((g) => g.status === 'open')).toEqual([])
   })
 })

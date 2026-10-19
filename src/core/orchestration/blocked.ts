@@ -3,7 +3,7 @@
 // **Read off the state, never stored, and never a second copy of a rule.** Each reason asks the helper that already
 // owns it: `jobActive` / `isJobActive` (a plan paused, not started, archived), `placedByApp` (who drives the Run),
 // `slotsToFill` and `workersAgainstCap` (the plan's own and the app-wide caps, `Job.priority`), `sameFilesAs` (W6-C: two
-// workers on the same files), FAILURE_LIMIT (the circuit breaker). If one of those rules changes, the reason changes with it.
+// workers on the same files; T9: a plan not yet delivered leases them), FAILURE_LIMIT (the circuit breaker). If one of those rules changes, the reason changes with it.
 import type { TaskBlockedReason, TaskBoard, TaskCategory, UsagePause } from '../types'
 import { DEFAULT_CONCURRENCY, FAILURE_LIMIT, type Dispatch, type Gate, type Job, type Task } from './types'
 import { placedByApp, type OrchState } from './state'
@@ -105,7 +105,9 @@ export function taskBoardsOf(
       kind: 'same-files',
       waitingOn: { id: clash.task.id, title: clash.task.title },
       path: clash.path,
-      ...(other && other.id !== job.id ? { plan: { id: other.id, title: jobNameOf(other) } } : {})
+      ...(other && other.id !== job.id ? { plan: { id: other.id, title: jobNameOf(other) } } : {}),
+      // T9: "waits for plan X to deliver <path>"
+      ...(clash.task.lease ? { delivery: true as const } : {})
     }
   }
 

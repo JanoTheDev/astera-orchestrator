@@ -2241,6 +2241,7 @@ export const en: Record<keyof typeof ko, string> = {
   'plan.reason.sameFiles': 'Waiting for {task}, which edits the same files ({path})',
   // W8-D: the Task waited on is another plan's
   'plan.reason.sameFilesPlan': 'Waits for {plan} · {task} (same files: {path})',
+  'plan.reason.leasePlan': 'Waits for {plan} to deliver {path}',
   'plan.reason.next': 'Starts on the next pass',
   // W6-E progress view (components/plan/)
   'plan.view.files': 'Files',

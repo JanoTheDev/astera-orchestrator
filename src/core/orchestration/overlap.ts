@@ -4,12 +4,19 @@
 // plans of one project off the same files; nothing here blocks anything. Before and between waves this file says where
 // the plans meet, so the planner plans around another plan and the owner sees it at approval (`Job.overlaps`, never a
 // refusal). Paths overlap by `pathsOverlap`, the guard's own rule.
+//
+// T9 the project coordinator: rules, no extra session. A done Task's files stay leased until its plan delivers
+// (schedule.ts `leasesByProject`); here `refreshOverlaps` tells the waiting plan's coordinator when it starts to meet
+// another plan, holds a not-started Task that duplicates another plan's behind an owner decision, and carries that
+// decision out.
 import { jobNameOf } from './jobName'
 import { isJobActive } from './lifecycle'
 import { outcomeOfTasks } from './running'
-import { pathsOverlap, projectKeyOf } from './schedule'
-import type { OrchState } from './state'
-import type { Job, PlanOverlap, Task } from './types'
+import { leasesByProject, pathsOverlap, planOutranks, projectKeyOf, sameFilesAs } from './schedule'
+import { createGate, type OrchState } from './state'
+import { afterStandOf } from './after'
+import { cancelRemainingTask } from './replan'
+import { newId, type Gate, type Job, type Message, type PlanOverlap, type Task } from './types'
 
 /** A plan's Tasks as they stand: its latest Run's, else (not started) its definition Tasks (a cancelled Task is removed). */
 export function planTasksOf(s: OrchState, job: Job): Task[] {
@@ -54,19 +61,140 @@ export function overlapsOf(job: Job, s: OrchState): PlanOverlap[] {
 
 /** `next` with every active or queued Job's `overlaps` recomputed (others cleared), when this commit changed Jobs, Runs or Tasks (a Task of
  *  either plan changes the answer for both). The Host runs it on every commit (host/orch.ts), so the field never lags.
- *  Returns `next` itself when nothing moved. */
-export function refreshOverlaps(prev: OrchState, next: OrchState): OrchState {
-  if (prev.tasks === next.tasks && prev.jobs === next.jobs && prev.runs === next.runs) return next
+ *  T9: then the coordinator's rules (`coordinate`). Returns `next` itself when nothing moved. */
+export function refreshOverlaps(prev: OrchState, next: OrchState, now: string = new Date().toISOString()): OrchState {
+  if (prev.tasks === next.tasks && prev.jobs === next.jobs && prev.runs === next.runs && prev.gates === next.gates) return next
   let changed = false
+  const notices: { job: Job; lines: string[] }[] = []
+  const planById = new Map(next.jobs.map((o) => [o.id, o]))
   const jobs = next.jobs.map((j) => {
     // a finished or archived plan does no more work, so it meets nothing
     const found = activeOrQueued(next, j) ? overlapsOf(j, next) : []
     if (JSON.stringify(found) === JSON.stringify(j.overlaps ?? [])) return j
     changed = true
+    // T9: the new overlaps on which the other plan goes first: this plan is the one that waits
+    const had = new Set((j.overlaps ?? []).map(overlapKey))
+    const waits = found.filter((o) => !had.has(overlapKey(o)) && planOutranks(planById.get(o.jobId) ?? j, j))
+    if (waits.length > 0) notices.push({ job: j, lines: overlapLines(next, { ...j, overlaps: waits }) })
     const { overlaps: _old, ...rest } = j
     return found.length > 0 ? { ...rest, overlaps: found } : rest
   })
-  return changed ? { ...next, jobs } : next
+  let out = changed ? { ...next, jobs } : next
+  for (const n of notices) out = noticeTo(out, n.job, 'Another plan of this project goes first', n.lines, now)
+  return coordinate(prev, out, now)
+}
+
+const overlapKey = (o: PlanOverlap): string => `${o.taskId}|${o.otherTaskId}`
+
+const latestRunId = (s: OrchState, jobId: string): string | undefined =>
+  s.runs.filter((r) => r.jobId === jobId).sort((a, b) => a.ordinal - b.ordinal).at(-1)?.id
+
+/** T9: one message to `job`'s coordinator (its latest Run's inbox; `check` delivers it). None when the plan has no Run. */
+function noticeTo(s: OrchState, job: Job, subject: string, lines: string[], now: string): OrchState {
+  const runId = latestRunId(s, job.id)
+  if (runId === undefined || lines.length === 0) return s
+  const body = [
+    ...lines,
+    'Astera holds the waiting Task until the other plan delivers; plan around those files if you can, or wait.'
+  ].join('\n')
+  const message: Message = { id: newId('msg'), runId, type: 'status', subject: `${subject}: ${lines[0]}`.slice(0, 500), body, answered: false, createdAt: now }
+  return { ...s, messages: [...s.messages, message] }
+}
+
+/** T9: the two answers of a duplicate decision. */
+export const DUPLICATE_OPTIONS = ['cancel as duplicate', 'keep both'] as const
+
+/** A Gate this file opened over a duplicate Task.
+ *  shortcut: told apart by its two answers, not a GateKind (a new kind would count as a verdict gate in continuity/events.ts);
+ *  give it a kind of its own if another Gate ever offers the same two. */
+export const isDuplicateGate = (g: Pick<Gate, 'options'>): boolean =>
+  g.options?.length === 2 && g.options[0] === DUPLICATE_OPTIONS[0] && g.options[1] === DUPLICATE_OPTIONS[1]
+
+/** Why `t` repeats `o`: the same issue, or the same title (trimmed, any case) on overlapping paths. */
+function duplicateWhy(t: Task, o: Task, root: string): string | undefined {
+  const issue = t.links?.issue?.number
+  if (issue !== undefined && issue === o.links?.issue?.number) return `same issue #${issue}`
+  if (t.title.trim().toLowerCase() !== o.title.trim().toLowerCase()) return undefined
+  const path = (t.affectedPaths ?? []).find((p) => (o.affectedPaths ?? []).some((q) => pathsOverlap(p, q, root)))
+  return path === undefined ? undefined : `same title, same files: ${path}`
+}
+
+/** T9: the coordinator's rules for one commit, after the overlaps are fresh.
+ *  1. A ready Task newly held back by another plan's lease: one message to its plan's coordinator.
+ *  2. A Task of a plan that has not started, repeating a Task of a plan that goes first (`planOutranks`) and has not
+ *     delivered: held behind one Gate (the owner's, or the hands-off decider's, Inbox item) "cancel as duplicate / keep
+ *     both". Once per Task: a resolved one is not asked again.
+ *  3. That Gate answered "cancel as duplicate": the Task leaves its Run (`cancelRemainingTask`). */
+function coordinate(prev: OrchState, next: OrchState, now: string): OrchState {
+  let s = next
+  // 3. carry out a cancel answered in this commit
+  const wasOpen = new Set(prev.gates.filter((g) => g.status === 'open').map((g) => g.id))
+  for (const g of next.gates)
+    if (g.status === 'resolved' && wasOpen.has(g.id) && isDuplicateGate(g) && g.resolution === DUPLICATE_OPTIONS[0]) {
+      const r = cancelRemainingTask(s, g.taskId)
+      if (r.ok) s = r.state
+    }
+  // 1. newly held back by a lease
+  const before = leaseWaits(prev)
+  const jobById = new Map(s.jobs.map((j) => [j.id, j]))
+  const byPlan = new Map<string, string[]>()
+  for (const [key, w] of leaseWaits(s)) {
+    if (before.has(key)) continue
+    byPlan.set(w.jobId, [...(byPlan.get(w.jobId) ?? []), w.line])
+  }
+  for (const [jobId, lines] of byPlan) {
+    const job = jobById.get(jobId)
+    if (job) s = noticeTo(s, job, 'Waiting for another plan to deliver', lines, now)
+  }
+  // 2. hold a duplicate
+  const asked = new Set(s.gates.filter(isDuplicateGate).map((g) => g.taskId))
+  const started = new Set(s.dispatches.map((d) => d.taskId))
+  for (const b of s.jobs) {
+    const runId = latestRunId(s, b.id)
+    if (runId === undefined || !isJobActive(b)) continue
+    const keepers = s.jobs.filter(
+      (a) => a.id !== b.id && projectKeyOf(a) === projectKeyOf(b) && planOutranks(a, b) && afterStandOf(s, a.id) === 'waiting'
+    )
+    if (keepers.length === 0) continue
+    for (const t of s.tasks) {
+      if (t.runId !== runId || (t.status !== 'ready' && t.status !== 'pending') || started.has(t.id) || asked.has(t.id)) continue
+      const hit = keepers
+        .flatMap((a) => planTasksOf(s, a).map((o) => ({ a, o, why: duplicateWhy(t, o, b.cwd) })))
+        .find((x) => x.why !== undefined)
+      if (!hit) continue
+      const question =
+        `Duplicate? "${t.title}" (plan ${jobNameOf(b)}) repeats "${hit.o.title}" of plan ${jobNameOf(hit.a)} (${hit.why}). ` +
+        `Cancel ${jobNameOf(b)}'s Task as a duplicate of ${jobNameOf(hit.a)}'s, or keep both?`
+      const r = createGate(s, { taskId: t.id, question, options: [...DUPLICATE_OPTIONS] }, now)
+      if (r.ok) {
+        s = r.state
+        asked.add(t.id)
+      }
+    }
+  }
+  return s
+}
+
+/** Each ready Task another plan's lease holds back, keyed by Task and lease, with the line that names them. */
+function leaseWaits(s: OrchState): Map<string, { jobId: string; line: string }> {
+  const out = new Map<string, { jobId: string; line: string }>()
+  const leases = leasesByProject(s)
+  if (leases.size === 0) return out
+  const jobOfRun = new Map(s.runs.map((r) => [r.id, r.jobId]))
+  const jobById = new Map(s.jobs.map((j) => [j.id, j]))
+  for (const t of s.tasks) {
+    if (t.status !== 'ready' || t.runId === undefined) continue
+    const job = jobById.get(jobOfRun.get(t.runId) ?? '')
+    if (!job) continue
+    const clash = sameFilesAs(t, leases.get(projectKeyOf(job)) ?? [])
+    if (!clash?.task.lease) continue
+    const other = jobById.get(clash.task.lease.jobId)
+    out.set(`${t.id}|${clash.task.id}`, {
+      jobId: job.id,
+      line: `${t.title} waits for ${other ? jobNameOf(other) : clash.task.lease.jobId} · ${clash.task.title} to deliver ${clash.path}`
+    })
+  }
+  return out
 }
 
 /** One line per overlap, for the CLI, the activity line and the approve area:
