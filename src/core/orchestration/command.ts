@@ -62,6 +62,8 @@ import { collectChanges, rangesFor } from './changedFiles'
 import type { ChangedFile } from '../git/changes'
 import type { SwitchedCommand } from './cliAgentContext'
 import { findProject, findProjectByPath, findProjectContaining, jobInProject, setProjectSettings, type ProjectSettingsPatch } from './projects'
+// T3 workspaces
+import { autoProjectFor, moveJobToProject, removeProject } from './projects'
 import { stateWord } from './cliHuman'
 import { checksForRun } from './runChecks'
 import { completionForRun } from './runCompletion'
@@ -146,7 +148,7 @@ import {
 } from '../github/taskLinks'
 import { jobNameOf } from './jobName'
 // W8-D several plans in one repo
-import { areasArg, otherPlansBrief, overlapLines } from './overlap'
+import { areasArg, otherPlansBrief, overlapLines, planTasksOf } from './overlap'
 import { isSamePath } from '../files/tree'
 import type { RunPr, TaskLinks } from './types'
 import { escalationOpen } from './sessionIndex' // W7-C
@@ -1223,6 +1225,10 @@ function projectSettingsArgs(
   const handsOff = flag(args.handsOff)
   if (handsOff === null) return { error: '--hands-off must be on or off' }
   if (handsOff !== undefined) patch.handsOff = handsOff ? true : null
+  // T3 workspaces: on (the default) clears it; off stops `jobs-set --areas` making sub-projects
+  const autoProjects = flag(args.autoProjects)
+  if (autoProjects === null) return { error: '--auto-projects must be on or off' }
+  if (autoProjects !== undefined) patch.autoProjects = autoProjects ? null : false
   for (const [key, name] of [['concurrency', '--concurrency'], ['reviewRounds', '--review-rounds']] as const) {
     const v = args[key]
     if (v === undefined) continue
@@ -2415,6 +2421,16 @@ export async function handleCommand(
       const project = findProjectContaining(s, p)
       return project ? okBody(project) : notFound(`no project registered for: ${p}`)
     }
+    // ── T3 workspaces (projects.ts): unregistering a project; `projects-add --parent` is the Host's (src/host/orch.ts).
+    // The person's, like projects-set.
+    case 'projects-remove': {
+      if (fromAgentSession || caller.role === 'mcp') return denied('projects are removed by the person, in Astera or at their own shell')
+      const id = str(args.id)
+      if (!id) return bad('--id is required')
+      const removed = removeProject(s, id)
+      if (!removed.ok) return removed.missing ? notFound(removed.error) : conflict(removed.error)
+      return commit(removed)
+    }
     // W6-H: how a finished plan of this project lands. `push` lands it with no review by a person, so it is the
     // person's choice: refused from an agent session and an MCP client.
     case 'projects-set': {
@@ -2430,7 +2446,7 @@ export async function handleCommand(
       if ('error' in settings) return bad(settings.error)
       const { testCommand, account } = settings
       if (delivery === undefined && branchArg === undefined && Object.keys(settings.patch).length === 0 && testCommand === undefined && account === undefined)
-        return bad('nothing to set: give --delivery, --delivery-branch, --auto-approve, --hands-off, --test-command, --test-config, --concurrency, --review-rounds, --replan, --prompts-dir or --account')
+        return bad('nothing to set: give --delivery, --delivery-branch, --auto-approve, --hands-off, --auto-projects, --test-command, --test-config, --concurrency, --review-rounds, --replan, --prompts-dir or --account')
       const project = findProject(s, id)
       if (!project) return notFound(`unknown project: ${id}`)
       // W10-A: the prompts folder is kept repository-relative, and a folder outside the repository is refused
@@ -3208,11 +3224,26 @@ export async function handleCommand(
         if (!Array.isArray(areas)) return bad(areas.error)
         const { areas: _old, ...rest } = job
         const next: Job = areas.length > 0 ? { ...rest, areas } : rest
-        await deps.setState({ ...s, jobs: s.jobs.map((j) => (j.id === id ? next : j)) })
-        return okBody(jobView(deps.getState(), next, latestRunOf(deps.getState(), next)))
+        let state: OrchState = { ...s, jobs: s.jobs.map((j) => (j.id === id ? next : j)) }
+        // T3 workspaces: filed under the sub-project of its workspace named after its first area, made when missing
+        if (areas.length > 0) state = autoProjectFor(state, next, areas[0], planTasksOf(state, next), now)
+        await deps.setState(state)
+        const filed = deps.getState().jobs.find((j) => j.id === id) ?? next
+        return okBody(jobView(deps.getState(), filed, latestRunOf(deps.getState(), filed)))
       }
       if (fromAgentSession || caller.role === 'mcp') return denied('jobs-set is for the person, in Astera or at their own shell')
       if (!id) return bad('--id is required')
+      // T3 workspaces: `--project <id>` files a plan not started yet under another project of its workspace
+      if (args.project !== undefined) {
+        if (args.concurrency !== undefined || args.after !== undefined || args.planning !== undefined || args.priority !== undefined)
+          return bad('--project is set on its own')
+        const projectId = str(args.project)
+        if (!projectId) return bad('--project needs a project id (from `projects list`)')
+        const moved = moveJobToProject(s, id, projectId)
+        if (!moved.ok) return moved.missing ? notFound(moved.error) : conflict(moved.error)
+        await deps.setState(moved.state)
+        return okBody(jobView(deps.getState(), moved.value, latestRunOf(deps.getState(), moved.value)))
+      }
       // T1 chat-first planning: `--planning chat|auto` and `--priority <int>`, on their own or together
       if (args.planning !== undefined || args.priority !== undefined) {
         if (args.concurrency !== undefined || args.after !== undefined) return bad('--planning and --priority are set without --concurrency or --after')
@@ -4420,7 +4451,7 @@ export async function handleCommand(
       // W8-E (#92): never two workers on the same files (W6-C), for every placer: a coordinator's Job has no
       // autoDispatch, so `slotsToFill` never places for it and this is the only door its workers pass
       // W8-D: of any plan of the same project
-      const clash = runJob ? sameFilesAs(task, editingByProject(s).get(projectKeyOf(runJob)) ?? []) : undefined
+      const clash = runJob ? sameFilesAs(task, editingByProject(s).get(projectKeyOf(s, runJob)) ?? []) : undefined
       const clashJob = clash && s.jobs.find((j) => j.id === s.runs.find((r) => r.id === clash.task.runId)?.jobId)
       if (clash)
         return {

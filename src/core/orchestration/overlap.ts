@@ -31,9 +31,9 @@ const activeOrQueued = (s: OrchState, job: Job): boolean =>
 /** The other plans of `job`'s project (`projectKeyOf`) that are not archived. `finished` too: the briefs read what they
  *  built; the overlap check only the active and queued ones. */
 export function otherPlansOf(s: OrchState, job: Job, o: { finished?: boolean } = {}): Job[] {
-  const key = projectKeyOf(job)
+  const key = projectKeyOf(s, job)
   return s.jobs.filter(
-    (j) => j.id !== job.id && projectKeyOf(j) === key && isJobActive(j) && (o.finished === true || activeOrQueued(s, j))
+    (j) => j.id !== job.id && projectKeyOf(s, j) === key && isJobActive(j) && (o.finished === true || activeOrQueued(s, j))
   )
 }
 
@@ -153,7 +153,7 @@ function coordinate(prev: OrchState, next: OrchState, now: string): OrchState {
     const runId = latestRunId(s, b.id)
     if (runId === undefined || !isJobActive(b)) continue
     const keepers = s.jobs.filter(
-      (a) => a.id !== b.id && projectKeyOf(a) === projectKeyOf(b) && planOutranks(a, b) && afterStandOf(s, a.id) === 'waiting'
+      (a) => a.id !== b.id && projectKeyOf(s, a) === projectKeyOf(s, b) && planOutranks(a, b) && afterStandOf(s, a.id) === 'waiting'
     )
     if (keepers.length === 0) continue
     for (const t of s.tasks) {
@@ -186,7 +186,7 @@ function leaseWaits(s: OrchState): Map<string, { jobId: string; line: string }> 
     if (t.status !== 'ready' || t.runId === undefined) continue
     const job = jobById.get(jobOfRun.get(t.runId) ?? '')
     if (!job) continue
-    const clash = sameFilesAs(t, leases.get(projectKeyOf(job)) ?? [])
+    const clash = sameFilesAs(t, leases.get(projectKeyOf(s, job)) ?? [])
     if (!clash?.task.lease) continue
     const other = jobById.get(clash.task.lease.jobId)
     out.set(`${t.id}|${clash.task.id}`, {

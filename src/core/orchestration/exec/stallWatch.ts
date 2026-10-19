@@ -193,7 +193,7 @@ export function stallRemedies(
     const mine = new Set(s.tasks.filter((t) => t.runId === run.id).map((t) => t.id))
     const open = s.dispatches.filter((d) => mine.has(d.taskId) && !d.outcome && !d.endedAt).length
     let free = (job.concurrency ?? DEFAULT_CONCURRENCY) - open
-    const project = projectKeyOf(job)
+    const project = projectKeyOf(s, job)
     // Wave-held Tasks are not ready to start (readyWithoutWorker), so they are no stall and spend no slot
     const candidates = readyWithoutWorker(s, run.id).filter(
       (t) => (t.accountIds?.length ?? 0) > 0 && t.consecutiveFailures < FAILURE_LIMIT && probe.paused?.(t.accountIds![0]) !== true
