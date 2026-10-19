@@ -48,7 +48,9 @@ export function ProjectSettingsBody({
   const [rounds, setRounds] = useState('')
   const [account, setAccount] = useState('')
   const [error, setError] = useState<string | null>(null)
-  const [initial, setInitial] = useState({ test: '', concurrency: '', rounds: '' })
+  // W10-A: the prompts folder Run as written finds typed prompt names in
+  const [prompts, setPrompts] = useState('')
+  const [initial, setInitial] = useState({ test: '', concurrency: '', rounds: '', prompts: '' })
 
   // `fields`: also fill the inputs. Only the first read does: a re-read after a save must not overwrite a field the
   // person is typing in meanwhile.
@@ -62,11 +64,12 @@ export function ProjectSettingsBody({
       if (!fields) return
       setConcurrency(p.concurrency?.toString() ?? '')
       setRounds(p.reviewRounds?.toString() ?? '')
+      setPrompts(p.promptsDir ?? '')
       const [runs, acc] = await Promise.all([window.api.run.list(p.path), window.api.projects.getDefaultAccount(p.path)])
       const cfg = runs.configs.find((c) => c.id === p.testConfigId)
       const command = cfg && 'command' in cfg && typeof cfg.command === 'string' ? cfg.command : ''
       setTest(command)
-      setInitial({ test: command, concurrency: p.concurrency?.toString() ?? '', rounds: p.reviewRounds?.toString() ?? '' })
+      setInitial({ test: command, concurrency: p.concurrency?.toString() ?? '', rounds: p.reviewRounds?.toString() ?? '', prompts: p.promptsDir ?? '' })
       setAccount(acc ?? '')
     } catch {
       setError('Could not read the project.')
@@ -144,6 +147,16 @@ export function ProjectSettingsBody({
               placeholder={String(PROJECT_DEFAULTS.reviewRounds)}
               onChange={(e) => setRounds(e.target.value)}
               onBlur={() => saveText('rounds', rounds, initial.rounds, { reviewRounds: num(rounds) })}
+            />
+          </div>
+          <div className="field">
+            <label>Prompts folder (Run as written by name)</label>
+            <input
+              type="text"
+              value={prompts}
+              placeholder="found on the first Run as written"
+              onChange={(e) => setPrompts(e.target.value)}
+              onBlur={() => saveText('prompts', prompts, initial.prompts, { promptsDir: prompts.trim() })}
             />
           </div>
           <div className="field">

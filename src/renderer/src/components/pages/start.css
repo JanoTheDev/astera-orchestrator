@@ -71,3 +71,11 @@
 .new-choices .ui-card { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; align-items: center; }
 .new-choice-title { font-size: 13px; font-weight: 600; }
 .new-choice-hint { grid-column: 2; color: var(--text-dim); font-size: 12px; }
+
+/* W10-A Run as written by name: the typed names, the folder they come from, and what they resolved to. */
+.start-names { display: grid; gap: 4px; padding: 8px; border-top: 1px solid var(--border); font-size: 12px; }
+.start-names p { margin: 0; }
+.start-names-dir { display: flex; align-items: center; gap: 8px; }
+.start-names-dir input { flex: 1; min-width: 0; font: inherit; }
+.start-names-why, .start-names-note { color: var(--text-dim); font-size: 12px; margin: 0; }
+.start-names-list { margin: 0; padding-left: 16px; display: grid; gap: 2px; }

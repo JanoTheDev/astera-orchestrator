@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { consolesIn, defaultMode, dropOpensStart, filesFromDrop, intakeTab, primaryLabel, promptCount, shouldLandOnStart } from './startLogic'
+import { consolesIn, defaultMode, dropOpensStart, filesFromDrop, intakeTab, lookupArgs, primaryLabel, promptCount, shouldLandOnStart } from './startLogic'
 
 const t = (key: string, params?: Record<string, string | number>): string => (params ? `${key}:${JSON.stringify(params)}` : key)
 
@@ -70,5 +70,26 @@ describe('drop to attach', () => {
     expect(dropOpensStart({ defaultPrevented: false, files: ['/d/a.md'] })).toBe(true)
     expect(dropOpensStart({ defaultPrevented: true, files: ['/d/a.md'] })).toBe(false)
     expect(dropOpensStart({ defaultPrevented: false, files: [] })).toBe(false)
+  })
+})
+
+// W10-A Run as written by name
+describe('Run as written by name', () => {
+  it('the button counts the files the typed names resolved to', () => {
+    expect(primaryLabel({ mode: 'prompts', files: [], text: 'run W8-A, B', named: 2 }, t)).toEqual({
+      label: 'start.go.consoles:{"n":2}',
+      note: 'start.go.namesNote:{"n":2}'
+    })
+  })
+  it('the dry run: Run as written with text only, attached .md files sent along for the notice', () => {
+    expect(lookupArgs({ mode: 'plan', files: [], text: 'W8-A', cwd: '/r' })).toBeNull()
+    expect(lookupArgs({ mode: 'prompts', files: [], text: ' ', cwd: '/r' })).toBeNull()
+    expect(lookupArgs({ mode: 'prompts', files: ['/x/a.md', '/x/b.pdf'], text: 'next waves', cwd: '/r' })).toEqual({
+      cwd: '/r',
+      mode: 'prompts',
+      objective: 'next waves',
+      dryRun: true,
+      attach: ['/x/a.md']
+    })
   })
 })

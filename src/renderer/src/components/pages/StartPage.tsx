@@ -1,7 +1,7 @@
 // W9-E Start (DESIGN §2 "Start"): where a plan begins. One composer, two modes, the options the project defaults, and
 // the W6-A intake's own state and calls (intake/useIntake.ts), so submitting does what the New plan dialog does.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { CircleDot, FileText, Paperclip, ShieldCheck, Sparkles, SquareTerminal, X } from 'lucide-react'
+import { CircleDot, FileText, ListOrdered, Paperclip, ShieldCheck, Sparkles, SquareTerminal, X } from 'lucide-react'
 import type { Account, OrchSnapshot } from '../../../../core/types'
 import { MAX_CONCURRENT_WORKERS, PROJECT_DEFAULTS, type DeliveryMode } from '../../../../core/orchestration/types'
 import { defaultAccountIdOf } from '../../../../core/accounts/defaultAccount'
@@ -13,8 +13,8 @@ import { openPage } from '../shell/navigation'
 import { Button, Card, Chip, Field, Icon } from '../ui'
 import { useIntake, type IssueRow } from '../intake/useIntake'
 import {
-  consolesIn, defaultMode, dropOpensStart, filesFromDrop, intakeTab, primaryLabel, shouldLandOnStart,
-  type StartMode, type StartRequest
+  consolesIn, defaultMode, dropOpensStart, filesFromDrop, intakeTab, lookupArgs, primaryLabel, shouldLandOnStart,
+  type NameLookup, type StartMode, type StartRequest
 } from './startLogic'
 import './start.css'
 
@@ -101,9 +101,37 @@ export function StartPage({
     return () => window.removeEventListener('resize', measure)
   }, [])
 
+  // W10-A Run as written by name: the typed prompt names, looked up on the Host a moment after the last key
+  const [lookup, setLookup] = useState<NameLookup | null>(null)
+  const [dirEdit, setDirEdit] = useState<string | null>(null)
+  const [dirError, setDirError] = useState<string | null>(null)
+  const [lookupTick, setLookupTick] = useState(0)
+  const projectPath = project?.path
+  useEffect(() => {
+    const args = projectPath ? lookupArgs({ mode, files, text, cwd: projectPath }) : null
+    if (args === null) {
+      setLookup(null)
+      return
+    }
+    const timer = setTimeout(() => {
+      void door.command('jobs-create', args).then((r) => setLookup(r.status === 200 && (r.body as NameLookup | null)?.names ? (r.body as NameLookup) : null))
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [door, mode, files, text, projectPath, lookupTick])
+  const names = lookup !== null && files.length === 0 ? lookup : null
+  const namesRefused = (names?.problems?.length ?? 0) > 0
+  const saveDir = async (): Promise<void> => {
+    if (!project || dirEdit === null) return
+    const r = await door.command('projects-set', { id: project.id, promptsDir: dirEdit.trim() || 'none' })
+    if (r.status !== 200) return setDirError((r.body as { error?: string } | null)?.error ?? t('jobs.new.failed'))
+    setDirError(null)
+    setDirEdit(null)
+    setLookupTick((n) => n + 1)
+  }
+
   const fileInput = useRef<HTMLInputElement>(null)
   const afterName = intake.plans.find((p) => p.id === intake.after)?.name
-  const go = primaryLabel({ mode, files, text, after: afterName }, t as never)
+  const go = primaryLabel({ mode, files, text, after: afterName, named: names && !namesRefused ? names.picked?.length : undefined }, t as never)
   const pick = (id: string, on: boolean): void => intake.setPicked((cur) => (on ? (cur.includes(id) ? cur : [...cur, id]) : cur.filter((x) => x !== id)))
   const name = project?.name ?? baseName(cwd)
 
@@ -187,7 +215,59 @@ export function StartPage({
             <Button size="sm" variant="ghost" onClick={onOtherSources}>
               {t('start.otherSources')}
             </Button>
+            {project?.promptsDir !== undefined && (
+              <Button
+                size="sm"
+                variant="ghost"
+                icon={<ListOrdered size={14} aria-hidden="true" />}
+                onClick={() => {
+                  intake.setText('next waves')
+                  setChosen('prompts')
+                }}
+              >
+                {t('start.names.next')}
+              </Button>
+            )}
           </div>
+          {mode === 'prompts' && lookup !== null && files.length > 0 && (
+            <p className="start-names-note">{t('start.names.ignored', { n: files.filter((f) => /\.md$/i.test(f)).length })}</p>
+          )}
+          {names && (
+            <div className="start-names" aria-live="polite">
+              {names.dir != null && (
+                <div className="start-names-dir">
+                  {dirEdit === null ? (
+                    <>
+                      <span>{t('start.names.from', { dir: names.dir })}</span>
+                      <Button size="sm" variant="ghost" onClick={() => setDirEdit(names.dir ?? '')}>
+                        {t('start.names.change')}
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <input type="text" value={dirEdit} onChange={(e) => setDirEdit(e.target.value)} aria-label={t('start.names.change')} autoFocus />
+                      <Button size="sm" onClick={() => void saveDir()}>
+                        {t('start.names.save')}
+                      </Button>
+                    </>
+                  )}
+                </div>
+              )}
+              {dirError && <p className="warn">{dirError}</p>}
+              {names.why?.map((w) => <p key={w} className="start-names-why">{w}</p>)}
+              {(names.picked?.length ?? 0) > 0 && (
+                <ul className="start-names-list">
+                  {names.picked!.map((p) => (
+                    <li key={p.id}>
+                      <code>{p.id}</code> → <code>{p.path}</code>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {names.skipped?.map((x) => <p key={x.id} className="start-names-why">{t('start.names.skipped', { id: x.id, why: x.why })}</p>)}
+              {names.problems?.map((p) => <p key={p} className="warn">{p}</p>)}
+            </div>
+          )}
           {audit && <Field label={t('intake.scope')} hint={t('intake.auditHint')} value={intake.scope} onChange={(e) => intake.setScope(e.target.value)} placeholder="all" />}
           {issuesOpen && (
             <div className="start-issues">
@@ -273,7 +353,7 @@ export function StartPage({
 
         {intake.error && <p className="warn">{intake.error}</p>}
         <div className="start-go">
-          <Button variant="primary" loading={intake.busy} disabled={intake.busy || intake.request === null} onClick={() => void intake.create(planArgs)}>
+          <Button variant="primary" loading={intake.busy} disabled={intake.busy || intake.request === null || namesRefused} onClick={() => void intake.create(planArgs)}>
             {go.label}
           </Button>
           {go.note && <span className="start-go-note">{go.note}</span>}

@@ -43,11 +43,13 @@ type T = (key: string, params?: Record<string, string | number>) => string
 
 /** The primary button says what will happen: "Start planning", or "Start 3 consoles" with "3 files → 3 tasks". */
 export function primaryLabel(
-  { mode, files, text, after }: { mode: StartMode; files: string[]; text: string; after?: string },
+  { mode, files, text, after, named }: { mode: StartMode; files: string[]; text: string; after?: string; named?: number },
   t: T
 ): { label: string; note?: string } {
   if (after) return { label: t('start.go.queue', { plan: after }) }
   if (mode === 'plan') return { label: t('start.go.plan') }
+  // W10-A: prompt names typed with nothing attached count the files they resolved to
+  if (named !== undefined && files.length === 0) return { label: t('start.go.consoles', { n: named }), note: t('start.go.namesNote', { n: named }) }
   const n = promptCount(files, text)
   return {
     label: t('start.go.consoles', { n }),
@@ -84,3 +86,24 @@ export function filesFromDrop(list: ArrayLike<{ name: string }> | null | undefin
 /** A window drop opens Start only when it carries files Start takes and no other handler took it first (terminals,
  *  the explorer, the editor and open dialogs handle their own drops). */
 export const dropOpensStart = (e: { defaultPrevented: boolean; files: string[] }): boolean => !e.defaultPrevented && e.files.length > 0
+
+// W10-A Run as written by name
+/** What `jobs-create --dry-run` answers for the typed prompt names (promptNames.ts `PromptResolution`). */
+export interface NameLookup {
+  names: boolean
+  dir?: string | null
+  detected?: boolean
+  picked?: { id: string; path: string }[]
+  skipped?: { id: string; why: string }[]
+  why?: string[]
+  problems?: string[]
+}
+
+/** The dry run Start asks for while Run as written has text: the attached prompt files with it, so the Host can say
+ *  the names are ignored. Null when there is nothing to look up. */
+export function lookupArgs({ mode, files, text, cwd }: { mode: StartMode; files: string[]; text: string; cwd: string }): Record<string, unknown> | null {
+  if (mode !== 'prompts' || text.trim() === '') return null
+  // `--mode prompts` takes .md files only
+  const md = files.filter((f) => /\.md$/i.test(f))
+  return { cwd, mode: 'prompts', objective: text, dryRun: true, ...(md.length > 0 ? { attach: md } : {}) }
+}
