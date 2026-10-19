@@ -1468,6 +1468,17 @@ export interface CoreApi {
       memberId?: string | null
     }): Promise<void>
   }
+  telegram: {
+    // Bot token (from @BotFather), the chat session messages go to, and the one user id allowed to reply.
+    // setConfig takes a partial update like slack.setConfig: unsent fields keep their stored value, null clears.
+    // An empty userId blocks every reply rather than allowing everyone.
+    getConfig(): Promise<{ botToken: string | null; chatId: string | null; userId: string | null }>
+    setConfig(cfg: {
+      botToken?: string | null
+      chatId?: string | null
+      userId?: string | null
+    }): Promise<void>
+  }
   /** `astera` 명령을 사람의 PATH 에서 닿는 자리에 깔아 둔다(공개 CLI 설계 §10). */
   cli: {
     status(): Promise<CliInstallStatus>

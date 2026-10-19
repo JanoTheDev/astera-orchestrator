@@ -53,7 +53,8 @@ Keep Astera running and the computer awake when you expect scheduled work to run
 For Slack updates, follow the [Slack bot setup](slack-bot-setup.md), then enable
 **Slack progress notifications** for the session. Bot mode groups a session's updates in one
 thread. Replies require Socket Mode and your configured Slack member ID; without that ID,
-no member's replies reach the session.
+no member's replies reach the session. Telegram works the same way: see the
+[Telegram bot setup](telegram-bot-setup.md).
 
 For notifications on your computer, open **Settings → Notifications**. Choose alerts for
 input needed, waiting on a limit, and account switches. Desktop alerts are sent when you are

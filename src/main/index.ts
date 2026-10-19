@@ -63,6 +63,7 @@ import { writeRollSnapshotTo } from './rollSnapshotSink'
 import { memoiseLoginStatus } from '../core/accounts/loginStatusCache'
 import { SlackNotifier } from '../core/slack/connect'
 import { SlackConfigStore } from './slackConfigStore'
+import { TelegramConfigStore } from './telegramConfigStore'
 import { SlackInboxController } from '../core/slack/inbox'
 import { createSocketClient, createWebClient } from './slackSdk'
 import { createSlackOwnership, type SlackOwnership } from './slackOwnership'
@@ -595,6 +596,7 @@ app.whenReady().then(async () => {
   // as rolling.log) — the webhook URL and bot token are never recorded.
   const slackLog = lineLog(path.join(app.getPath('userData'), 'slack.log'))
   const slackStore = new SlackConfigStore(path.join(app.getPath('userData'), 'slack.json'))
+  const telegramStore = new TelegramConfigStore(path.join(app.getPath('userData'), 'telegram.json'))
   const slack = new SlackNotifier({
     getAccount: (id) => {
       try {
@@ -1307,6 +1309,8 @@ app.whenReady().then(async () => {
       // rebuilds the socket too, or in the Host through slack-reload.
       ownership: slackOwnership
     },
+    // Settings only for now: the wiring Task replaces the no-op with the notifier/poller reload.
+    { store: telegramStore, configChanged: async () => {} },
     codexRolling,
     scheduler,
     codexRollout,

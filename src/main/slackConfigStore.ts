@@ -1,7 +1,8 @@
 // The slack.json writer. Stays in the app: the Host never writes this file (plan ruling P2) — it only
 // reads it through SlackConfigReader (core/slack/config.ts), which this class extends.
 import { promises as fs } from 'node:fs'
-import { SlackConfigReader, norm, type SlackConfig } from '../core/slack/config'
+import { SlackConfigReader, type SlackConfig } from '../core/slack/config'
+import { norm } from '../core/connections/norm'
 
 export class SlackConfigStore extends SlackConfigReader {
   /** Returns the normalised value — so the caller does not have to write and then read it back. */

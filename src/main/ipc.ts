@@ -22,7 +22,9 @@ import { notedThreadOf } from '../core/slack/threadNote'
 import { isForwardedChatEvent } from '../core/connections/forwarded'
 import type { SlackOwnership } from './slackOwnership'
 import type { SlackConfigStore } from './slackConfigStore'
+import type { TelegramConfigStore } from './telegramConfigStore'
 import type { SlackConfig } from '../core/slack/config'
+import type { TelegramConfig } from '../core/telegram/config'
 import { codexRolloutFromNote, type CodexRolloutWatcher } from '../core/sessions/codexRolloutWatcher'
 import type { DesktopNotifier } from './desktopNotifier'
 import { startActivityNotices } from './activityNotices'
@@ -870,6 +872,11 @@ export function registerIpc(
      *  the events only this app sees are forwarded to it. */
     ownership: SlackOwnership
   }, // Slack notifications
+  telegram?: {
+    store: TelegramConfigStore
+    /** Called after a settings save has been written, with the normalised result. */
+    configChanged(cfg: TelegramConfig): Promise<void>
+  }, // Telegram notifications
   codexRolling?: CodexRollingCoordinator, // Codex rolling
   scheduler?: SchedulerCoordinator, // session scheduler
   codexRollout?: CodexRolloutWatcher, // codex rollout watcher — turn completion and usage
@@ -5979,6 +5986,17 @@ export function registerIpc(
     // SlackInboxController.apply), or in the Slack-owning Host, told to read the file again with
     // slack-reload. Undecided (the startup chain has not settled): nothing, the decision reads the file.
     await slack.ownership.configChanged(normalized)
+  })
+
+  // telegram — configuration, same shape as slack above. The bot token is never written to the log.
+  ipcMain.handle('telegram.getConfig', () =>
+    telegram ? telegram.store.load() : { botToken: null, chatId: null, userId: null }
+  )
+  ipcMain.handle('telegram.setConfig', async (_e, patch: Partial<TelegramConfig>) => {
+    if (!telegram) return
+    // patch() refuses to merge over a file it could not read, so a failed read cannot erase the token.
+    const normalized = await telegram.store.patch(patch)
+    await telegram.configChanged(normalized)
   })
 
   // The language setting. getLang returns both halves: `resolved` is what the renderer translates with,

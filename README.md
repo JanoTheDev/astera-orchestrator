@@ -149,7 +149,7 @@ instead of you attaching them. The decided plans and the contracts are in [docs/
 - [Jobs](docs/jobs.md): what a plan does from creation to delivery, and scheduled jobs.
 - [How It Works](docs/how-it-works.md): explanations of finished work.
 - [The `astera` command](docs/cli.md), [MCP](docs/mcp.md), [SDK](docs/sdk.md), [Plugins](docs/plugins.md).
-- [Remote runtimes](docs/remote-runtime.md), [Slack bot](docs/slack-bot-setup.md).
+- [Remote runtimes](docs/remote-runtime.md), [Slack bot](docs/slack-bot-setup.md), [Telegram bot](docs/telegram-bot-setup.md).
 - [Linux](docs/dev/LINUX.md): prerequisites, what is verified, known issues.
 - For contributors: [plan](docs/dev/PLAN.md), [spec](docs/dev/SPEC.md), [context](docs/dev/CONTEXT.md),
   [design](docs/dev/DESIGN.md), [wave prompts](docs/dev/prompts/README.md), [releasing](docs/releasing.md),
