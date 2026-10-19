@@ -82,6 +82,7 @@ Many code comments are Korean — read them, they carry the invariants.
    - Windows-style test paths such as `'D:/cfg'` are *relative* on Linux and get written into the cwd. Use
      paths under the test's temp dir.
    - Driving the app for manual checks: `npx electron-vite dev --remoteDebuggingPort <fresh port>` + CDP.
+   - **Screenshots**: `scripts/shoot.mjs` shoots every page (Agents, Start, Tasks, Plans, a Plan, Inbox, Worktrees, Files, Settings, the New menu, the project switcher, the accounts popover) at 1440×900 and 1024×640 in Night and Day. Start the dev app on the dev profile with a fresh port, one Electron at a time and never beside tests or a build (`ASTERA_PROFILE_DIR=~/.config/astera-dev astera heavy -- env -u ELECTRON_RUN_AS_NODE npx electron-vite dev --remoteDebuggingPort <port>`), then `npm run shots -- --port <port> --out <dir>` and quit the app. It navigates with `Ctrl+1…6`/`Ctrl+N`, switches the theme through Settings (and restores it at the end), and skips Start and Plan when the profile has no open project or plan. `--sizes` and `--themes` narrow a run. The baseline is `docs/dev/shots/w11-before/` (PNGs stay local, `NOTES.md` is tracked).
      Use a new port every launch, because the Host inherits the old socket. Native dialogs can't be driven
      over CDP.
    - **The Host drives Jobs**, even while the app is open (`driverOf` answers `'host'`, `src/host/driving.ts`), and

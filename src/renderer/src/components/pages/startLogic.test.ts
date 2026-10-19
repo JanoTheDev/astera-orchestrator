@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
-  addScopePath, consolesIn, defaultMode, dropOpensStart, filesFromDrop, handsOffSaveArgs, intakeTab, lookupArgs, optionsSummary, primaryLabel, promptCount,
-  shouldLandOnStart
+  addScopePath, blockedReason, consolesIn, defaultMode, dropOpensStart, filesFromDrop, handsOffSaveArgs, intakeTab, lookupArgs, optionsSummary, primaryLabel, promptCount,
+  livePlans, shouldLandOnStart, type PlanRow
 } from './startLogic'
 
 const t = (key: string, params?: Record<string, string | number>): string => (params ? `${key}:${JSON.stringify(params)}` : key)
@@ -113,10 +113,37 @@ describe('sticky hands-off and More options', () => {
     expect(optionsSummary({ concurrency: 1, delivery: 'push', approval: 'auto', priority: 2 }, t)).toBe(
       'start.more.consoles:{"n":1} · start.more.push · start.more.auto · start.more.priority:{"n":2}'
     )
+    expect(optionsSummary({ concurrency: 1, delivery: 'pr', approval: 'auto', priority: 0, handsOff: true, after: 'L4' }, t)).toBe(
+      'start.opt.handsOff · start.opt.after:{"plan":"L4"} · start.more.consoles:{"n":1} · start.more.pr · start.more.auto'
+    )
   })
+  it('says why Create is off: the project first, then the text', () => {
+    expect(blockedReason({ project: false, request: false }, t)).toBe('start.project.required')
+    expect(blockedReason({ project: true, request: false }, t)).toBe('start.needText')
+    expect(blockedReason({ project: true, request: true }, t)).toBeNull()
+  })
+
   it('adds a typed scope path once, tidied', () => {
     expect(addScopePath([], ' ./src/core/ ')).toEqual(['src/core'])
     expect(addScopePath(['src/core'], 'src/core')).toEqual(['src/core'])
     expect(addScopePath(['a'], '  ')).toEqual(['a'])
+  })
+})
+
+describe('Start after', () => {
+  const row = (id: string, over: Partial<PlanRow>): PlanRow => ({ id, objective: id, cwd: '/r', createdAt: 'x', ...over })
+  it('lists queued, planning, waiting, running and held plans with their state', () => {
+    const rows = [
+      row('q', { pendingStart: true, after: 'r', outcome: 'pending' }),
+      row('p', { pendingStart: true, outcome: 'pending' }),
+      row('w', { outcome: 'running', questionsOpen: 1 }),
+      row('r', { outcome: 'running' }),
+      row('h', { outcome: 'paused' })
+    ]
+    expect(livePlans(rows).map((p) => [p.id, p.state])).toEqual([['q', 'queued'], ['p', 'planning'], ['w', 'waiting'], ['r', 'running'], ['h', 'held']])
+  })
+  it('leaves out completed, failed, scheduled and archived plans', () => {
+    const rows = [row('c', { outcome: 'completed' }), row('f', { outcome: 'failed' }), row('a', { outcome: 'running', archivedAt: 'x' }), row('s', { outcome: 'running', schedule: {} as never })]
+    expect(livePlans(rows)).toEqual([])
   })
 })

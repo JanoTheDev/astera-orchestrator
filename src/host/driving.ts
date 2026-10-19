@@ -47,6 +47,7 @@ import { HOST_YIELD_DISPATCH, HOST_YIELD_RECOVERY } from '../core/host/protocol'
 import { driverOf, readDispatchGate, type DispatchGate, type Driver } from '../core/host/driver'
 import { createDispatchLoop, ORCH_FIRE_TICK_MS, type DispatchLoopContext } from '../core/orchestration/exec/dispatchLoop'
 import { sweepStaleSpecFiles } from '../core/orchestration/exec/specFiles'
+import { createStallWatch } from '../core/orchestration/exec/stallWatch'
 import { lostWithNobody } from '../core/orchestration/lostGate'
 import { createLostGateGuard, type LostGateGuard } from './lostGateGuard'
 import { policyOf } from '../core/orchestration/convergence'
@@ -438,6 +439,27 @@ export function createHostDriving(d: {
     ...(d.usageGuard ? { usageGuard: d.usageGuard } : {})
   })
 
+  // Stall watchdog, the remedies the loop does not apply (exec/stallWatch.ts header: a dead coordinator restarted, a
+  // lost Task retried, an idle worker nudged, an escalation): beside the loop's, where its lines have a feed
+  const stalls = d.activity
+    ? createStallWatch({
+        handle: (cmd, args) => d.orch.handle(cmd, args),
+        getState: () => d.orch.state(),
+        on: () => readStallWatchOn(settingsPath),
+        cap: () => readMaxConcurrentWorkers(settingsPath).catch(() => null),
+        busy: (id) => d.spawner.sessionBusy(id),
+        alive: (id) => hostSessionAlive(d.registry, d.procs, id),
+        isRegistered: (p) => d.worktrees.isRegistered(p),
+        ...(d.usageGuard ? { paused: (id: string) => d.usageGuard!.pauseOf(id) !== null } : {}),
+        typeInto: (id, text) => d.spawner.typeInto(id, text),
+        tell: (n) => loop.tell(n),
+        activity: d.activity,
+        mayStart,
+        log,
+        nowMs: () => d.nowMs()
+      })
+    : null
+
   const guard = d.guard ?? createLostGateGuard()
   /** An attached app keeps recovery: its own reconciler decides (D8). */
   const keepsRecovery = (): boolean => d.server.hasApp() && d.server.appsKeep(HOST_YIELD_RECOVERY)
@@ -541,6 +563,7 @@ export function createHostDriving(d: {
       if (mayStart()) {
         await pass()
         await loop.nudge()
+        await stalls?.watch()
       }
       // **R5 and R17.** Schedules fire from the process that drives (`driverOf`), whether or not an app
       // is attached: a fired Run starts the way `jobs run` starts one (U1), and the Host does both

@@ -59,43 +59,43 @@
    per theme in core/theme/contrast.test.ts, not in comments here. */
 :root {
   /* ---- theme (DESIGN.md §9) — the provider rewrites these ---- */
-  --bg: #0d0e12;
-  --rail: #0d0e12;
-  --panel: #15171d;
-  --elevated: #232631;
-  --surface-hover: #1c1f28;
-  --term-bg: #090a0d;
-  --line: #262a35;
-  --line-soft: #262a35;
-  --text: #eef0f5;
-  --text-dim: #a3a8b8;
-  --text-faint: #7d8396;
-  --rail-icon: #a3a8b8;
-  --accent: #c4f25a;
-  --accent-ink: #121a00;
-  --ring: rgba(196, 242, 90, 0.35);
-  --status-bg: #15171d;
-  --status-ink: #a3a8b8;
-  --md-bg: #0d0e12;
-  --md-text: #eef0f5;
-  --md-code-bg: #232631;
-  --md-line: #262a35;
-  --md-link: #c4f25a;
-  --btn-bg: #c4f25a;
-  --btn-ink: #121a00;
+  --bg: #0e0f12;
+  --rail: #0e0f12;
+  --panel: #15161a;
+  --elevated: #202227;
+  --surface-hover: #1a1b20;
+  --term-bg: #0b0c0e;
+  --line: #26282e;
+  --line-soft: #26282e;
+  --text: #eceef2;
+  --text-dim: #a2a6b0;
+  --text-faint: #7c818c;
+  --rail-icon: #a2a6b0;
+  --accent: #8b93ff;
+  --accent-ink: #0c0e33;
+  --ring: rgba(139, 147, 255, 0.35);
+  --status-bg: #15161a;
+  --status-ink: #a2a6b0;
+  --md-bg: #0e0f12;
+  --md-text: #eceef2;
+  --md-code-bg: #202227;
+  --md-line: #26282e;
+  --md-link: #8b93ff;
+  --btn-bg: #8b93ff;
+  --btn-ink: #0c0e33;
   --btn-border: transparent;
-  --hover: #1c1f28;
-  --accent-soft: #252e10;
-  --ok: #5ad19a;
-  --ok-soft: #10291e;
-  --ok-bg: #10291e;
-  --warn: #f2b84b;
-  --warn-soft: #30240c;
-  --warn-bg: #30240c;
-  --warn-ink: #f2b84b;
-  --danger: #ff6b6b;
-  --danger-soft: #351719;
-  --danger-bg: #351719;
+  --hover: #1a1b20;
+  --accent-soft: #1d2042;
+  --ok: #4cc38a;
+  --ok-soft: #0f2a1e;
+  --ok-bg: #0f2a1e;
+  --warn: #f0b35a;
+  --warn-soft: #2e2310;
+  --warn-bg: #2e2310;
+  --warn-ink: #f0b35a;
+  --danger: #f2696b;
+  --danger-soft: #341819;
+  --danger-bg: #341819;
   --radius: 6px;
   --radius-lg: 10px;
   --radius-sm: 4px;
@@ -154,8 +154,8 @@
   /* 채워진 확정 액션 버튼(흰 글자 위) */
   --confirm: #2f9e6e;
   --confirm-hover: #37b07b;
-  --info: #7cc4ff;
-  --info-soft: #10243a;
+  --info: #6eb6ff;
+  --info-soft: #0f2238;
   /* 브랜드·역할색은 테마가 바꾸지 않는다 — Claude 의 색이고 발화자 구분이다 */
   --brand-claude: #d97757;
   --brand-codex: #fff;
@@ -210,6 +210,44 @@
   --sp-8: 32px;
   --motion: 150ms;
   --ease: 120ms cubic-bezier(0.2, 0.6, 0.3, 1);
+
+  /* ---- W11 scale (docs/dev/DESIGN-W11.md §3–§6). Derived or fixed; the theme provider never writes them. ---- */
+  --fs-14: 14px;
+  --fs-22: 22px;
+  --lh-tight: 1.25;
+  --lh: 1.45;
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semi: 600;
+  --sp-10: 40px;
+  --sp-12: 48px;
+  --radius-xl: 14px;
+  --radius-pill: 999px;
+  --h-sm: 24px;
+  --h-md: 30px;
+  --h-lg: 36px;
+  --topbar-h: 44px;
+  --statusbar-h: 26px;
+  --page-max: 1180px;
+  --page-pad: 24px;
+  --dur-fast: 90ms;
+  --dur: var(--motion);
+  --ease-out: cubic-bezier(0.2, 0.6, 0.3, 1);
+  /* A hairline one step stronger than --line: a control's border, a divider that must survive Day. */
+  --line-strong: color-mix(in srgb, var(--line), var(--text) 12%);
+  /* The fill of a primary button on hover; mixed toward --text so it lightens on dark and darkens on Day. */
+  --accent-hover: color-mix(in srgb, var(--accent), var(--text) 12%);
+  /* One focus ring for every theme, the accent's own hue (Day had two greens). */
+  --focus-ring: 0 0 0 1px var(--bg), 0 0 0 3px color-mix(in srgb, var(--accent) 60%, transparent);
+  /* Elevation: 0 flat (pages), 1 raised (cards on hover), 2 popover (menus, tooltips), 3 modal. */
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-pop: 0 0 0 1px var(--line-strong), var(--shadow-md);
+  --shadow-modal: 0 0 0 1px var(--line-strong), var(--shadow-lg);
+}
+
+:root[data-theme='day'] {
+  --shadow-md: 0 4px 14px rgba(22, 24, 29, 0.1);
+  --scrim: rgba(22, 24, 29, 0.28);
 }
 
 /* The fixed colours above are tuned on dark surfaces. On Day (white) they fall under 3:1, so Day repaints the ones
@@ -222,7 +260,7 @@
   --syn-variable2: #8a6a10; --syn-property: #1f6fb8; --syn-type: #8a6a10; --syn-operator: #4b5160;
   --pr-open: #1a7f37; --pr-merged: #8250df; --pr-closed: #cf222e; --pr-draft: #6a737d;
   --brand-claude: #b5502f; --brand-codex: #111111; --role-user: #1f6fb8; --role-assistant: #c2580a;
-  --info: #1d6fb8; --info-soft: #dcebf8; --run: #1a7f37;
+  --info: #1d5fa8; --info-soft: #dfeaf7; --run: #1a7f37;
 }
 
 @media (prefers-reduced-motion: reduce) {

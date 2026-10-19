@@ -78,8 +78,8 @@ describe('SourceChip', () => {
   })
 
   it('stands in the header of the Job’s detail', () => {
-    const src = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'pages/PlanPage.tsx'), 'utf8')
-    const head = src.slice(src.indexOf('<div className="detail-head">'), src.indexOf('</div>', src.indexOf('<div className="detail-head">')))
+    const src = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'plan/PlanHeader.tsx'), 'utf8')
+    const head = src.slice(src.indexOf('<PageHeader'), src.indexOf('actions=', src.indexOf('<PageHeader')))
     expect(head).toContain('<SourceChip source={run?.source} />')
   })
 

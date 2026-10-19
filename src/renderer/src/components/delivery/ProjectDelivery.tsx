@@ -5,18 +5,24 @@ import { useCallback, useEffect, useState } from 'react'
 import type { DeliveryMode, Project } from '../../../../core/orchestration/types'
 import { useI18n } from '../../i18n/I18nProvider'
 
-export function ProjectDelivery({ projectPath, disabledReason }: { projectPath: string; disabledReason?: string }): React.JSX.Element | null {
+/** The project's delivery, read and written: shared by the inline control below and the Plans page's View options menu. */
+export function useProjectDelivery(projectPath: string): {
+  project: Project | null
+  mode: DeliveryMode
+  /** The push target's name: the branch set, else "the default branch". */
+  target: string
+  error: string | null
+  choose: (next: DeliveryMode) => void
+  save: (args: { delivery?: DeliveryMode; deliveryBranch?: string }) => Promise<void>
+} {
   const { t } = useI18n()
   const [project, setProject] = useState<Project | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [branch, setBranch] = useState('')
 
   const load = useCallback(async (): Promise<void> => {
     try {
       const r = await window.api.orch.command(projectPath, 'projects-find', { path: projectPath })
-      const p = r.status === 200 ? (r.body as Project) : null
-      setProject(p)
-      setBranch(p?.deliveryBranch ?? '')
+      setProject(r.status === 200 ? (r.body as Project) : null)
     } catch {
       setProject(null)
     }
@@ -25,11 +31,11 @@ export function ProjectDelivery({ projectPath, disabledReason }: { projectPath: 
     void load()
   }, [load])
 
-  if (!project) return null
-  const mode: DeliveryMode = project.delivery ?? 'pr'
-  const target = project.deliveryBranch ?? t('delivery.defaultBranch')
+  const mode: DeliveryMode = project?.delivery ?? 'pr'
+  const target = project?.deliveryBranch ?? t('delivery.defaultBranch')
 
   const save = async (args: { delivery?: DeliveryMode; deliveryBranch?: string }): Promise<void> => {
+    if (!project) return
     setError(null)
     try {
       const r = await window.api.orch.command(projectPath, 'projects-set', { id: project.id, ...args })
@@ -44,6 +50,16 @@ export function ProjectDelivery({ projectPath, disabledReason }: { projectPath: 
     if (next === 'push' && !window.confirm(t('delivery.pushConfirm', { branch: target }))) return
     void save({ delivery: next })
   }
+  return { project, mode, target, error, choose, save }
+}
+
+export function ProjectDelivery({ projectPath, disabledReason }: { projectPath: string; disabledReason?: string }): React.JSX.Element | null {
+  const { t } = useI18n()
+  const { project, mode, target, error, choose, save } = useProjectDelivery(projectPath)
+  const [branch, setBranch] = useState('')
+  useEffect(() => setBranch(project?.deliveryBranch ?? ''), [project])
+
+  if (!project) return null
 
   return (
     <div className="jobs-delivery" title={disabledReason}>

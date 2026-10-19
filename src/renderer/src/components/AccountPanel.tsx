@@ -6,11 +6,11 @@ import { useI18n } from '../i18n/I18nProvider'
 import { useAccountStatus } from '../hooks/useAccountStatus'
 import { useAccountUsage } from '../hooks/useAccountUsage'
 import { ProviderBadge } from './ProviderBadge'
-import { FolderGlyph } from './FolderGlyph'
 import { AccountRow } from './AccountRow'
 import { AccountSignInDialog } from './AccountSignIn'
 import { RemoveAccountDialog } from './AccountSettings'
-import { Button, Modal } from './ui'
+import { FolderInput, Plus, ScanSearch, UserMinus } from 'lucide-react'
+import { Button, IconButton, Modal } from './ui'
 
 interface DetectItem {
   configDir: string
@@ -205,37 +205,9 @@ export function AccountPanel({ accounts }: { accounts: Account[] }): React.JSX.E
           {t('account.panel.title')} <span className="count">{accounts.length}</span>
         </h2>
         <div className="panel-actions">
-          <button
-            className="icon-btn"
-            aria-label={t('account.add.button')}
-            title={t('account.add.button')}
-            onClick={openAdd}
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
-              <line x1="8" y1="2.5" x2="8" y2="13.5" />
-              <line x1="2.5" y1="8" x2="13.5" y2="8" />
-            </svg>
-          </button>
-          <button
-            className="icon-btn"
-            aria-label={t('account.import.button')}
-            title={t('account.import.button')}
-            onClick={() => void startImport()}
-          >
-            {/* This is a panel header toolbar, so it is bigger than the sidebar rows (14) — 16, the same as the +/⟳ SVGs beside it */}
-            <FolderGlyph size={16} />
-          </button>
-          <button
-            className="icon-btn"
-            aria-label={t('account.detect.button')}
-            title={t('account.detect.button')}
-            onClick={() => void runDetect(false)}
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M13.4 8a5.4 5.4 0 1 1-1.5-3.8" />
-              <path d="M13.6 2.6V5.2H11" />
-            </svg>
-          </button>
+          <IconButton size="sm" icon={<Plus size={14} />} label={t('accounts.add')} onClick={openAdd} />
+          <IconButton size="sm" icon={<FolderInput size={14} />} label={t('accounts.import')} onClick={() => void startImport()} />
+          <IconButton size="sm" icon={<ScanSearch size={14} />} label={t('accounts.detect')} onClick={() => void runDetect(false)} />
         </div>
       </header>
       <ul>
@@ -253,21 +225,11 @@ export function AccountPanel({ accounts }: { accounts: Account[] }): React.JSX.E
             {/* W7-F (#82): sign in and remove from the row itself. `false`, not undefined: no button before the
                 login check has answered. */}
             {loginMap[a.id] === false && (
-              <button className="ghost account-signin-btn" title={t('account.signIn.button')} onClick={() => setSignInTarget(a)}>
+              <Button size="sm" variant="ghost" className="account-signin-btn" onClick={() => setSignInTarget(a)}>
                 {t('account.signIn.button')}
-              </button>
+              </Button>
             )}
-            <button
-              className="ghost danger"
-              aria-label={t('account.remove.button')}
-              title={t('account.remove.button')}
-              onClick={() => setRemoveTarget(a)}
-            >
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-                <line x1="4" y1="4" x2="12" y2="12" />
-                <line x1="12" y1="4" x2="4" y2="12" />
-              </svg>
-            </button>
+            <IconButton size="sm" className="account-remove-btn" icon={<UserMinus size={14} />} label={t('account.remove.button')} onClick={() => setRemoveTarget(a)} />
           </AccountRow>
         ))}
         {accounts.length === 0 && <li className="empty">{t('account.panel.empty')}</li>}

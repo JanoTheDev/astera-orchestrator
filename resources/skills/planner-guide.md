@@ -58,6 +58,14 @@ Every plan starts here, whatever its source. Nothing is built twice.
   Tasks just to be careful; every needless link makes the plan slower.
 - **Keep it small.** Plan what the objective asks for and nothing more. Prefer a few solid Tasks to many thin
   ones; do not plan "polish" or "docs" Tasks nobody asked for.
+- **Cut by ownership, not by step.** One Task owns a folder or a feature slice. Do not split one folder's files
+  across Tasks by what each step does to them (write, then test, then docs): that makes a chain out of parallel work.
+- **Shared files go to one Task.** Shared files (i18n catalogs, `types.ts`, central command tables, route indexes)
+  belong to one Task. If several Tasks must add to one, each edits only its own block and its prompt says so. A Task
+  that must touch a file another parallel Task owns is a chain (`--deps`).
+- **Size the waves.** A wave is a Task's dependency depth (section 5). Put foundations (types, shared helpers, design
+  tokens) in wave 1 and their consumers after. When the Tasks are independent, fill each wave to the Job's worker limit.
+  Never add a link "to be careful".
 
 - **Name the plan's areas** (W8-D): 1 to 3 short words for where its Tasks work, read off their paths
   (`auth`, `api`, `ui`): `astera jobs-set --id <jobId> --areas auth,api`. The Plans page groups plans by them.
@@ -81,6 +89,19 @@ Create Tasks in dependency order (a Task can only depend on one that exists). Ea
 
 `--provider` and `--model` only when a Task needs a specific one. Fix a Task with `astera task-update --id
 <taskId>` and the same flags; deps stay inside the plan and may not form a cycle.
+
+**Path rules for `--affected-paths`:**
+
+- Repo-relative, forward slashes: `src/billing/invoice.ts`. No leading `/` and no `./`.
+- A folder ends with `/` and covers everything under it: `src/billing/`.
+- `*` appears only in the last segment: `src/billing/*.ts`. Never `src/*/billing/`.
+- Never `.` or `/`: that is the whole repository. Use it only when the Task truly owns everything.
+- List every file or folder the Task will create or edit, tests included. A path left out is a path another parallel
+  Task may also edit.
+
+**Prompts.** Tell each worker to use subagents for read-only exploration of several files at once, and for independent
+sub-parts of its Task. The worker keeps its own decisions and the final check; a prompt that says nothing about subagents
+gets a slower worker.
 
 ## 4. Hand over
 

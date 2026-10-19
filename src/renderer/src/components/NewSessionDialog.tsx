@@ -33,7 +33,7 @@ import { Select, type SelectOption } from './Select'
 import { ScheduleFields } from './ScheduleFields'
 import { StartingOverlay } from './WorktreeCreateStatus'
 import { X } from 'lucide-react'
-import { Button, Modal } from './ui'
+import { Button, IconButton, Modal } from './ui'
 
 const SOFT_LIMIT = 12
 const MAX_ROLL_ACCOUNTS = 3
@@ -473,7 +473,7 @@ export function NewSessionDialog({
       closeLabel={t('common.close')}
       footer={
         <>
-          <Button onClick={onCancel} disabled={starting}>
+          <Button variant="ghost" onClick={onCancel} disabled={starting}>
             {t('common.cancel')}
           </Button>
           <Button variant="primary" disabled={starting || blocked !== null} onClick={() => void start()}>
@@ -533,7 +533,7 @@ export function NewSessionDialog({
           <label>{t('session.field.projectFolder')}</label>
           <div className="row">
             <span className="path">{cwd ?? t('session.new.folderNotSelected')}</span>
-            <button onClick={() => void pick()}>{t('session.new.pickFolder')}</button>
+            <Button size="sm" variant="ghost" onClick={() => void pick()}>{t('session.new.pickFolder')}</Button>
           </div>
         </div>
         {wtOption === 'unknown' && (
@@ -612,19 +612,20 @@ export function NewSessionDialog({
                 }}
               />
               {slot > 0 && (
-                <button
+                <IconButton
+                  size="sm"
                   className="slot-remove"
-                  aria-label={t('session.new.removeAccountSlot')}
-                  title={t('session.new.removeAccountSlot')}
+                  icon={<X size={12} />}
+                  label={t('session.new.removeAccountSlot')}
                   onClick={() => setAccountIds((prev) => prev.filter((_, i) => i !== slot))}
-                >
-                  <X size={12} />
-                </button>
+                />
               )}
             </div>
           ))}
           {canAdd && (
-            <button
+            <Button
+              size="sm"
+              variant="ghost"
               className="add-account"
               onClick={() =>
                 setAccountIds((prev) => {
@@ -636,7 +637,7 @@ export function NewSessionDialog({
               }
             >
               {t('session.new.addAccountSlot')}
-            </button>
+            </Button>
           )}
         </div>
         {/* Rolling now applies to 대화 too (slice 4c) — its resume path copies the transcript into
@@ -711,20 +712,20 @@ export function NewSessionDialog({
           <div className="field">
             <label>{t('chat.unattended.heading')}</label>
             <div className="kind-segmented">
-              <button
+              <Button
                 type="button"
-                className={`segmented${unattended === 'hold' ? ' active' : ''}`}
+                variant={unattended === 'hold' ? 'secondary' : 'ghost'}
                 onClick={() => setUnattended('hold')}
               >
                 {t('chat.unattended.hold')}
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
-                className={`segmented${unattended === 'deny-after-60s' ? ' active' : ''}`}
+                variant={unattended === 'deny-after-60s' ? 'secondary' : 'ghost'}
                 onClick={() => setUnattended('deny-after-60s')}
               >
                 {t('chat.unattended.deny60')}
-              </button>
+              </Button>
             </div>
           </div>
         )}

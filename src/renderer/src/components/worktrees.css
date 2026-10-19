@@ -1,46 +1,35 @@
-/* ---------- worktree panel ---------- */
-.worktree-panel { border-top: 1px solid var(--line); }
-/* The shared .panel-header stacks its title and its actions, which is right for history and the
-   explorer — their actions carry a full-width account filter and a path row. This panel's only
-   action is one 28x28 icon button, so the column spent a whole row on it and the refresh control
-   read as having dropped below the heading. Put it on the title's row instead, scoped here so the
-   other three panels keep the stack. */
-.worktree-panel .panel-header { flex-direction: row; align-items: center; }
-.worktree-panel .panel-actions { margin-left: auto; }
+/* ---------- worktree list (DESIGN-W11 §7 lists, §9 Worktrees) ---------- */
 /* Reuses the look of .panel-header h2 as a collapse/expand button */
 /* 캐럿이 아이콘이 된 뒤로 정렬이 필요하다 — 인라인 svg 는 baseline 에 앉아 대문자 글자보다 내려간다. */
 .panel-toggle { background: none; border: none; padding: 0; font-size: 10.5px; letter-spacing: .11em; text-transform: uppercase; color: var(--text-dim); font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
 .panel-toggle:hover { color: var(--text); }
-/* It sits alongside the history section in the sidebar, so the hierarchy look matches that one:
-   .worktree-group=.project-group, .worktree-repo=.project-name, .worktree-list=.session-sublist,
-   .worktree-row=.session-row, .worktree-name=.session-row .entry-title.
-   (.worktree-name previously had no font-size and inherited the 16px body default, so it looked larger
-   than a history row.)
-   Unlike .project-group the last group keeps its divider here, because the HISTORY header sits directly
-   below and dropping it would invent a section divider that was not there (history is the end of a
-   scrolling list, so its last line is never seen). */
-.worktree-group:not(:last-child) { border-bottom: 1px solid var(--line-soft); }
-.worktree-repo { padding: 10px 12px 6px; font-size: 13.5px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.worktree-list { margin: 0 0 5px 22px; border-left: 2px solid var(--line); }
-.worktree-row { display: flex; align-items: center; gap: 8px; padding: var(--row-pad-y) 12px var(--row-pad-y) 10px; transition: background var(--ease); }
-.worktree-row:hover { background: var(--elevated); }
-.worktree-name { flex: 1; min-width: 0; font-size: 11.5px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.worktree-status { opacity: 0.6; font-style: normal; }
-.worktree-actions { display: flex; gap: 2px; flex-shrink: 0; }
-/* the same restrained tone as .project-row .project-open-explorer */
-.worktree-actions .ghost { opacity: 0.7; }
-.worktree-actions .ghost:hover:not(:disabled) { opacity: 1; }
-/* The lock indicator while a delete is in flight — the 0.7 rule above is more specific than the global
-   button:disabled (opacity .5), so without dimming again here a locked button looks completely normal */
-.worktree-actions .ghost:disabled { opacity: 0.3; }
-/* The delete button on a row being deleted holds the spinner — dimming it like a locked button would kill
-   the spinner with it (a parent's opacity cannot be undone by a child, so the button itself is an exception). */
-.worktree-actions .ghost.removing:disabled { opacity: 0.7; }
-/* The spinner stands in for a 12px icon, so it is sized to one. The shared .loading-spinner is 14px, which
-   made the button 18px against the icons' 16px and grew this row for as long as the delete ran.
-   This replaces a min-height of calc(1.333em + 4px): that pinned the button to the line box the old ✕
-   *text* glyph made (≈21px), which the drawn icons no longer produce — left in place it jumped the row 5px. */
-.worktree-actions .ghost.removing .loading-spinner { width: 12px; height: 12px; }
+/* 36px rows: branch (mono 13/500) and its Task faint after it, state chips, meta faint on the right. */
+.worktree-group { padding-bottom: var(--sp-2); }
+.worktree-repo { display: flex; align-items: baseline; gap: 6px; padding: var(--sp-3) var(--sp-4) var(--sp-1); font-size: var(--fs-11); font-weight: var(--fw-medium); color: var(--text-dim); text-transform: uppercase; letter-spacing: .04em; }
+.worktree-repo__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.worktree-list { display: flex; flex-direction: column; }
+.worktree-row { display: flex; align-items: center; gap: var(--sp-2); height: var(--h-lg); padding: 0 var(--sp-2) 0 var(--sp-4); cursor: pointer; box-shadow: inset 2px 0 0 transparent; transition: background var(--dur-fast) var(--ease-out); }
+.worktree-row:hover { background: var(--hover); }
+.worktree-row.is-selected { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
+.worktree-name { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: var(--sp-2); overflow: hidden; white-space: nowrap; }
+.worktree-branch { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-family: var(--mono); font-size: var(--fs-13); font-weight: var(--fw-medium); color: var(--text); }
+.worktree-task { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: var(--fs-11); color: var(--text-faint); }
+.worktree-row .ui-chip { flex: none; }
+.worktree-aheadbehind { display: inline-flex; align-items: center; gap: 2px; flex: none; font-size: var(--fs-11); color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.worktree-count { color: var(--text-faint); font-weight: var(--fw-regular); font-variant-numeric: tabular-nums; }
+.worktree-empty { margin: 0; padding: var(--sp-4); font-size: var(--fs-13); color: var(--text-faint); }
+/* Row actions on hover, focus or selection only; the spinner of a running removal stays. */
+.worktree-actions { display: flex; gap: 2px; flex: none; visibility: hidden; }
+.worktree-row:hover .worktree-actions, .worktree-row:focus-within .worktree-actions,
+.worktree-row.is-selected .worktree-actions, .worktree-actions.is-busy { visibility: visible; }
+.worktree-delete:hover:not(:disabled) { color: var(--danger); }
+/* The rows git could not vouch for: one warning per status group, at the bottom of the list. */
+.worktree-group--trouble { border-top: 1px solid var(--line); }
+.worktree-warning { display: flex; align-items: flex-start; gap: var(--sp-2); margin: var(--sp-3) var(--sp-4) var(--sp-2); padding: var(--sp-2) var(--sp-3); border-radius: var(--radius); background: var(--warn-soft); color: var(--warn); font-size: var(--fs-12); }
+.worktree-warning .ui-icon, .worktree-warning svg { flex: none; margin-top: 1px; }
+.worktree-warning strong { font-weight: var(--fw-semi); }
+.worktree-warning__hint { display: block; margin-top: 2px; color: var(--text-dim); }
+.worktree-group--trouble .worktree-branch { color: var(--text-dim); }
 
 /* PR badge on a worktree row — read-only GitHub state (design doc §6). Colors reuse existing
    tokens on purpose, no new palette: open=--ok, merged=--accent, closed=--danger,
@@ -132,29 +121,22 @@ button.source-chip:hover { color: var(--accent); border-color: var(--accent); }
 .pr-create-failure p { margin: 0; font-size: 12px; color: var(--text); }
 .pr-create-detail { margin: 0; max-height: 120px; overflow: auto; font-family: var(--mono); font-size: 10.5px; color: var(--text-dim); white-space: pre-wrap; }
 
-/* ---------- W9-J: the Worktrees page ---------- */
-.worktrees-page { display: grid; grid-template-columns: minmax(280px, 380px) 1fr; flex: 1; min-height: 0; width: 100%; }
-.worktrees-page__list { border-right: 1px solid var(--line); overflow-y: auto; display: flex; flex-direction: column; background: var(--panel); }
-.worktrees-page__list .worktree-panel { border-top: 0; flex: 1; }
-.worktrees-page__list .panel-header { padding: 10px 12px; gap: 8px; }
-.worktrees-page__list .panel-title { margin: 0; font-size: 13px; font-weight: 600; color: var(--text); }
-.worktrees-page__list .panel-actions { display: flex; align-items: center; gap: 6px; }
-.worktrees-page__auto { display: flex; gap: 8px; align-items: flex-start; padding: 10px 12px; font-size: 12px; color: var(--text-dim); border-top: 1px solid var(--line); }
-.worktrees-page__detail { position: relative; overflow-y: auto; padding: 20px 24px; min-width: 0; }
-.worktrees-page__close { position: absolute; top: 10px; right: 14px; background: none; border: 0; color: var(--text-dim); cursor: pointer; font-size: 12px; }
-.worktrees-page__close:hover { color: var(--text); }
-.worktree-row { cursor: pointer; }
-.worktree-row.is-selected { background: var(--hover); box-shadow: inset 2px 0 0 var(--accent); }
-.worktree-branch { color: var(--text); font-family: var(--mono); }
-.worktree-task, .worktree-aheadbehind { color: var(--text-faint); }
-.worktree-dirty { margin-left: 6px; }
-.worktree-count { color: var(--text-faint); font-weight: 400; margin-left: 4px; }
-.worktree-empty { padding: 12px; }
+/* ---------- W9-J, W11 §9: the Worktrees page: header across, then the list and the detail side by side ---------- */
+.worktrees-page { display: flex; flex-direction: column; flex: 1; min-height: 0; width: 100%; }
+.worktrees-page__split { display: grid; grid-template-columns: minmax(300px, 400px) 1fr; flex: 1; min-height: 0; border-top: 1px solid var(--line); }
+.worktrees-page__list { border-right: 1px solid var(--line); overflow-y: auto; background: var(--panel); }
+.worktrees-page__detail { overflow-y: auto; padding: var(--sp-5) var(--page-pad); min-width: 0; }
+.worktrees-search { width: 240px; }
+.worktrees-chip { font-size: var(--fs-12); box-shadow: inset 0 0 0 1px var(--line); }
+.worktrees-chip.is-active { box-shadow: inset 0 0 0 1px var(--line-strong); background: var(--hover); color: var(--text); }
+.worktrees-option { display: flex; flex-direction: column; gap: 2px; max-width: 320px; white-space: normal; }
+.worktrees-option__hint { font-size: var(--fs-11); color: var(--text-faint); }
 .worktree-detail { display: flex; flex-direction: column; gap: 20px; max-width: 920px; }
 .worktree-detail__head { display: flex; flex-direction: column; gap: 10px; }
 .worktree-detail__title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.worktree-detail__title h2 { margin: 0; font-family: var(--mono); font-size: 16px; color: var(--text); }
-.worktree-detail__base { color: var(--text-dim); font-size: 12px; }
+.worktree-detail__title h2 { margin: 0; font-family: var(--mono); font-size: var(--fs-15); font-weight: var(--fw-semi); color: var(--text); }
+.worktree-detail__base { color: var(--text-dim); font-size: var(--fs-12); }
+.worktree-detail__delete { margin-left: auto; }
 .worktree-detail__actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .worktree-facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
 .worktree-fact { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; }

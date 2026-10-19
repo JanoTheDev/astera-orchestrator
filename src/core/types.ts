@@ -596,6 +596,8 @@ export type TaskBlockedReason =
       path: string
       /** W8-D: the Task waited on is another plan's of the same project (its id and `jobNameOf` name). */
       plan?: { id: string; title: string }
+      /** T9: `waitingOn` is done; its plan has not delivered yet, so its files stay leased (schedule.ts `leasesByProject`). */
+      delivery?: true
     }
   /** It has a slot: the dispatch loop starts it on its next pass. */
   | { kind: 'next' }
@@ -736,6 +738,13 @@ export interface JobRow {
   // W7-A plan feedback (Job.feedback, autoStartedAt, rejected): the talk box reads these
   /** The Job was planned by a planner session (`plannerSessionIds` is set): only such a plan can be talked to. */
   planned?: true
+  /** The planner session still alive (the Job's newest `plannerSessionIds`, if this process knows it): the Tasks page's "open console". */
+  plannerSessionId?: string
+  /** A replan is under way (Job.replanning): the 0-based wave it stands before. */
+  replanWave?: number
+  /** T14 Coordinator strip: the plan's wave being worked on and its wave count, both 1-based (replan.ts `waveOf`);
+   *  `at` is the first wave with a Task not completed, `of` once all are. Absent: the plan has no Tasks yet. */
+  wave?: { at: number; of: number }
   feedback?: PlanFeedback[]
   autoStartedAt?: string
   rejected?: { at: string; reason?: string }

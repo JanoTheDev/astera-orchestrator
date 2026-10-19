@@ -1,40 +1,129 @@
-/* W9-E: the Settings page. A full-width layer under the title bar (34px, .titlebar in shell/shell.css), below the
-   modals (z 100) so a dialog it opens (Add project, a confirm) comes in front. Until W9-B's page router mounts it. */
+/* W9-E: the Settings page. A full-width layer under the top bar (44px) and above the status bar (26px), below the
+   modals (z 100) so a dialog it opens (Add project, a confirm) comes in front. Until W9-B's page router mounts it.
+   W11 (DESIGN-W11 §9): PageHeader, a 200px icon nav, the content centred at 720px, each block a card with rows
+   "label + help left, control right", one control width for every select. */
 .settings-page {
+  --settings-control-w: 220px;
   position: fixed; inset: 44px 0 26px 0; z-index: 90;
   display: flex; flex-direction: column;
   background: var(--bg); color: var(--text);
   outline: none;
 }
-.settings-page__head { display: flex; align-items: center; gap: 12px; height: 44px; padding: 0 16px; border-bottom: 1px solid var(--line); flex: none; }
-.settings-page__title { margin: 0; font-size: 15px; font-weight: 600; }
+.settings-page__head { flex: none; border-bottom: 1px solid var(--line); }
 .settings-page__body { display: flex; flex: 1; min-height: 0; }
-.settings-page__nav { display: flex; flex-direction: column; gap: 4px; width: 220px; flex: none; padding: 12px; border-right: 1px solid var(--line); overflow-y: auto; }
-.settings-page__nav .settings-nav-item { min-height: 28px; padding: 4px 12px; font-size: 13px; }
-.settings-nav-item--none { color: var(--text-faint); }
-.settings-page__search {
-  display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px; margin-bottom: 8px;
-  background: var(--elevated); border-radius: var(--radius); color: var(--text-faint);
+
+/* The side nav: search, then one row per group with its icon. */
+.settings-page__nav {
+  display: flex; flex-direction: column; gap: 2px; width: 200px; flex: none;
+  padding: var(--sp-3); border-right: 1px solid var(--line); background: var(--panel); overflow-y: auto;
 }
-.settings-page__search:focus-within { box-shadow: 0 0 0 2px var(--ring); }
-.settings-page__search input { flex: 1; min-width: 0; background: none; border: none; outline: none; color: var(--text); font: inherit; font-size: 13px; }
-.settings-page__content { padding: 24px 32px; gap: 16px; }
-.settings-page__group { display: flex; flex-direction: column; gap: 16px; max-width: 880px; }
+.settings-page__nav .settings-nav-item {
+  display: flex; align-items: center; gap: var(--sp-2); min-height: var(--h-md); padding: 0 var(--sp-2);
+  font-size: var(--fs-13); font-weight: var(--fw-medium); color: var(--text-dim);
+  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.settings-page__nav .settings-nav-item > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings-page__nav .settings-nav-item:hover { background: var(--hover); color: var(--text); }
+.settings-page__nav .settings-nav-item.active { background: var(--accent-soft); color: var(--text); box-shadow: inset 2px 0 0 var(--accent); }
+.settings-page__nav .settings-nav-item:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.settings-page__nav .settings-nav-item.active:focus-visible { box-shadow: inset 2px 0 0 var(--accent), var(--focus-ring); }
+.settings-nav-item--none { color: var(--text-faint); }
+.settings-page__nav .settings-nav-item--none { color: var(--text-faint); }
+.settings-page__search {
+  display: flex; align-items: center; gap: var(--sp-2); height: var(--h-md); padding: 0 var(--sp-2); margin-bottom: var(--sp-2);
+  border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--bg); color: var(--text-faint);
+}
+.settings-page__search:focus-within { box-shadow: var(--focus-ring); }
+.settings-page__search input { flex: 1; min-width: 0; background: none; border: none; outline: none; color: var(--text); font: inherit; font-size: var(--fs-13); }
+.settings-page__search input::placeholder { color: var(--text-faint); }
+
+/* The content: one column at 720px, centred in what the nav leaves. */
+.settings-page__content { padding: var(--sp-6) var(--page-pad) var(--sp-10); gap: var(--sp-6); align-items: center; }
+.settings-page__group { display: flex; flex-direction: column; gap: var(--sp-3); width: 100%; max-width: 720px; }
 .settings-page__group[hidden] { display: none; }
-.settings-page__group-label { margin: 8px 0 0; font-size: 12px; font-weight: 600; color: var(--text-faint); text-transform: uppercase; letter-spacing: var(--tracking); }
-.settings-page .settings-row { min-height: 28px; }
+.settings-page__group-label { margin: 0 0 var(--sp-1); font-size: var(--fs-15); font-weight: var(--fw-semi); line-height: var(--lh-tight); color: var(--text); }
 .settings-page .settings-stack:empty { display: none; }
+.settings-page .settings-content > .ui-empty { align-self: stretch; }
+
+/* Cards. A row on its own is a card; a .settings-stack is one card whose rows are split by hairlines. A row whose
+   component draws its own Card (Slack, Telegram) is left bare. */
+.settings-page__group > .settings-anchor:not(:has(> .ui-card)),
+.settings-page__group > .settings-stack {
+  padding: var(--sp-4); border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel);
+}
+:root[data-theme='day'] .settings-page__group > .settings-anchor:not(:has(> .ui-card)),
+:root[data-theme='day'] .settings-page__group > .settings-stack { border-color: var(--line-strong); box-shadow: var(--shadow-sm); }
+.settings-page__group > .settings-stack { gap: 0; }
+.settings-page .settings-stack > .settings-anchor:not([hidden]) ~ .settings-anchor:not([hidden]) {
+  margin-top: var(--sp-4); padding-top: var(--sp-4); border-top: 1px solid var(--line);
+}
+
+/* Rows: the label in --text, its help faint under it, the control on the right. */
+.settings-page .settings-row { min-height: var(--h-md); font-size: var(--fs-13); }
+.settings-page .settings-row > span:first-child,
+.settings-page .settings-stack .settings-row > span:first-child { color: var(--text); font-weight: var(--fw-medium); }
+.settings-page .settings-hint { font-size: var(--fs-12); line-height: var(--lh); color: var(--text-faint); }
+.settings-page .settings-group { gap: 2px; }
+/* A row of exactly a label and one control with its help after it: a grid, so the help sits under the label in the
+   left column and the control stays right, centred on both. Rows with more controls keep their own flex line. */
+.settings-page div:has(> .settings-row:first-child > :nth-child(2):last-child) {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--sp-6); row-gap: 2px; align-items: center;
+}
+.settings-page div:has(> .settings-row:first-child > :nth-child(2):last-child) > .settings-row:first-child { display: contents; }
+.settings-page div:has(> .settings-row:first-child > :nth-child(2):last-child) > .settings-row:first-child > :first-child { grid-column: 1; grid-row: 1; }
+.settings-page div:has(> .settings-row:first-child > :nth-child(2):last-child) > .settings-row:first-child > :last-child { grid-column: 2; grid-row: 1; justify-self: end; }
+.settings-page div:has(> .settings-row:first-child > :nth-child(2):last-child):has(> .settings-row:first-child + .settings-hint) > .settings-row:first-child > :last-child { grid-row: 1 / span 2; }
+.settings-page div:has(> .settings-row:first-child > :nth-child(2):last-child) > .settings-hint { grid-column: 1; }
+.settings-page div:has(> .settings-row:first-child > :nth-child(2):last-child) > :not(.settings-row):not(.settings-hint) { grid-column: 1 / -1; }
+
+/* One width for every picker and text value on the right of a row (NOTES 09: three dropdowns, three right edges). */
+.settings-page .settings-row > .ui-select,
+.settings-page .settings-row > .sel,
+.settings-page .settings-lang-select,
+.settings-page .settings-font-select { flex: 0 0 var(--settings-control-w); width: var(--settings-control-w); }
+.settings-page .settings-row > input[type='number'] { width: 96px; }
+.settings-page .settings-row > .settings-font-select { margin-left: auto; }
 
 /* A row's wrapper: openSettings(group, anchor) scrolls to it and flashes it. */
-.settings-anchor { display: flex; flex-direction: column; gap: 8px; border-radius: var(--radius); scroll-margin-top: 16px; transition: box-shadow var(--ease), background var(--ease); }
+.settings-anchor { display: flex; flex-direction: column; gap: var(--sp-2); scroll-margin-top: var(--sp-4); transition: box-shadow var(--dur) var(--ease-out), background-color var(--dur) var(--ease-out); }
 .settings-anchor[hidden] { display: none; }
 .settings-anchor--flash { box-shadow: 0 0 0 2px var(--accent); background: var(--accent-soft); }
+.settings-page .settings-stack > .settings-anchor { border-radius: var(--radius); }
 @media (prefers-reduced-motion: reduce) { .settings-anchor { transition: none; } }
 
+/* A card's own head: title (and status) on the left, an action or a search on the right. */
+.settings-card-head { display: flex; align-items: center; gap: var(--sp-2); min-height: var(--h-md); }
+.settings-card-title { flex: 1; min-width: 0; margin: 0; font-size: var(--fs-14); font-weight: var(--fw-semi); color: var(--text); }
+.settings-card-desc { margin: 0; font-size: var(--fs-12); line-height: var(--lh); color: var(--text-faint); }
+
+/* Slack and Telegram: Cards with the status chip, the fields in a column and the actions under them. */
+.settings-integration { display: flex; flex-direction: column; gap: var(--sp-3); padding: var(--sp-4); }
+.settings-integration-fields { display: grid; gap: var(--sp-3); }
+.settings-integration-sub { margin: var(--sp-1) 0 0; font-size: var(--fs-12); font-weight: var(--fw-semi); color: var(--text-dim); }
+.settings-integration-actions { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+.settings-integration-actions .update-note { font-size: var(--fs-12); color: var(--text-dim); }
+
+/* The shortcut table: name, then its chord right beside it (NOTES 09: they sat 350px apart), the edit and reset
+   buttons only on the hovered or focused row. */
+.shortcut-search { width: var(--settings-control-w); }
+.shortcut-table { border-collapse: collapse; font-size: var(--fs-13); }
+.shortcut-table th, .shortcut-table td { padding: 0 var(--sp-6) 0 0; height: var(--h-md); text-align: left; vertical-align: middle; }
+.shortcut-table thead th { height: auto; padding-bottom: var(--sp-1); font-size: var(--fs-11); font-weight: var(--fw-medium); color: var(--text-faint); text-transform: uppercase; letter-spacing: var(--tracking); }
+.shortcut-table tbody th[colspan] { height: auto; padding: var(--sp-3) 0 var(--sp-1); font-size: var(--fs-12); font-weight: var(--fw-semi); color: var(--text-dim); }
+.shortcut-table tbody td:first-child { color: var(--text); }
+.shortcut-table tbody tr:not(.shortcut-table__group):hover td { background: var(--hover); }
+.shortcut-table__keys { display: inline-flex; align-items: center; gap: var(--sp-1); flex-wrap: wrap; }
+.shortcut-table__actions { display: inline-flex; gap: 2px; opacity: 0; transition: opacity var(--dur-fast) var(--ease-out); }
+.shortcut-table tr:hover .shortcut-table__actions, .shortcut-table tr:focus-within .shortcut-table__actions { opacity: 1; }
+.shortcut-table .ui-kbd { color: var(--text-dim); }
+.shortcut-table .shortcut-table__conflict kbd { border-color: var(--danger); color: var(--danger); }
+.shortcut-table__state { font-size: var(--fs-12); color: var(--text-faint); }
+
 /* Projects: the list on the left, the picked project's page beside it. */
-.settings-projects-head { display: flex; align-items: center; gap: 8px; }
+.settings-projects-head { display: flex; align-items: center; gap: var(--sp-2); }
 .settings-projects-head .settings-hint { flex: 1; }
-.settings-projects { display: flex; gap: 16px; align-items: flex-start; }
-.settings-projects-list { display: flex; flex-direction: column; gap: 4px; width: 200px; flex: none; }
-.settings-projects-list .settings-nav-item { min-height: 28px; padding: 4px 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings-projects { display: flex; gap: var(--sp-4); align-items: flex-start; }
+.settings-projects-list { display: flex; flex-direction: column; gap: 2px; width: 180px; flex: none; }
+.settings-projects-list .settings-nav-item { min-height: var(--h-md); padding: 0 var(--sp-2); font-size: var(--fs-13); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings-projects-list .settings-nav-item.active { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
 .settings-projects-body { flex: 1; min-width: 0; }

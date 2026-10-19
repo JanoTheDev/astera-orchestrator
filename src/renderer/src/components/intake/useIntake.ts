@@ -1,8 +1,8 @@
 // W6-A intake state and calls behind the Start page (W9-E, pages/StartPage.tsx), the one place a plan is made (T2);
 // the page only draws it.
 import { useEffect, useState } from 'react'
-import { DEFAULT_CONCURRENCY, MAX_CONCURRENT_WORKERS, type Job, type Project } from '../../../../core/orchestration/types'
-import { jobNameOf } from '../../../../core/orchestration/jobName'
+import { DEFAULT_CONCURRENCY, MAX_CONCURRENT_WORKERS, type Project } from '../../../../core/orchestration/types'
+import { livePlans, type PlanRow } from '../pages/startLogic'
 import { useI18n } from '../../i18n/I18nProvider'
 import { formFailure, type OrchDoor } from '../../lib/orchDoor'
 import { AUDIT_FOCUS_DEFAULT, autoPickRequest, intakeRequest, issueSearchArgs, type AssigneeFilter, type IntakeFocus, type IntakeTab } from './intakeRequest'
@@ -17,7 +17,7 @@ export interface IssueRow {
 
 export interface IntakeOptions {
   door: OrchDoor
-  /** The open project's folder: picked first. */
+  /** The chosen project's folder; '' while none is chosen (no fallback to another project). */
   cwd: string
   onCreated: (jobId: string) => void
   /** W7-D (#67): the worker count typed in the form this was opened from, kept across the switch. */
@@ -37,7 +37,6 @@ export function useIntake(o: IntakeOptions) {
   const { t } = useI18n()
   const [ownTab, setTab] = useState<IntakeTab>('describe')
   const [projects, setProjects] = useState<Project[]>([])
-  const [projectId, setProjectId] = useState('')
   const [text, setText] = useState(o.initialText ?? '')
   const [fixlist, setFixlist] = useState(false)
   const [approveAsk, setApproveAsk] = useState(false)
@@ -66,23 +65,25 @@ export function useIntake(o: IntakeOptions) {
       if (r.status !== 200 || !Array.isArray(r.body)) return
       const list = r.body as Project[]
       setProjects(list)
-      setProjectId((cur) => cur || (list.find((p) => p.path === cwd) ?? list[0])?.id || '')
     })
   }, [door, cwd])
-  const project = projects.find((p) => p.id === projectId) ?? null
+  // The project is the one whose folder `cwd` names; none while nothing is chosen
+  const project = projects.find((p) => p.path === cwd) ?? null
+  const projectId = project?.id ?? ''
   // W7-B: the project's own worker count, unless the form this was opened from carried one
   const projectConcurrency = project?.concurrency
   useEffect(() => {
     if (o.concurrency === undefined && projectConcurrency !== undefined) setConcurrency(Math.min(projectConcurrency, MAX_CONCURRENT_WORKERS))
   }, [o.concurrency, projectId, projectConcurrency])
-  // W8-C plan after plan: "Start after", among the project's plans that are not archived (`jobs-list` leaves those out)
+  // W8-C plan after plan: "Start after", among the project's plans that have not finished
   const [after, setAfter] = useState('')
-  const [plans, setPlans] = useState<{ id: string; name: string }[]>([])
+  const [plans, setPlans] = useState<ReturnType<typeof livePlans>>([])
   useEffect(() => {
     setAfter('')
+    setPlans([])
     if (!projectId) return
     void door.command('jobs-list', { project: projectId }).then((r) => {
-      if (r.status === 200 && Array.isArray(r.body)) setPlans((r.body as Job[]).map((j) => ({ id: j.id, name: jobNameOf(j) })))
+      if (r.status === 200 && Array.isArray(r.body)) setPlans(livePlans(r.body as PlanRow[]))
     })
   }, [door, projectId])
 
@@ -171,7 +172,7 @@ export function useIntake(o: IntakeOptions) {
   }
 
   return {
-    tab, setTab, projects, setProjects, projectId, setProjectId, project, text, setText, fixlist, setFixlist, approveAsk, setApproveAsk,
+    tab, setTab, projects, setProjects, projectId, project, text, setText, fixlist, setFixlist, approveAsk, setApproveAsk,
     files, setFiles, addFiles, addPaths, scope, setScope, focus, setFocus, priority, setPriority, query, setQuery, assignee, setAssignee, autoLabel, setAutoLabel, autoMax, setAutoMax, skipped, issues, picked, setPicked,
     assignMe, setAssignMe, instructions, setInstructions, account, setAccount, concurrency, setConcurrency, after,
     setAfter, plans, busy, error, request, create, autoPickWhy

@@ -1,9 +1,22 @@
 import { useEffect, useId, useRef, useState } from 'react'
+import { Check } from 'lucide-react'
 import { Button, type ButtonProps } from './UiButton'
 import { cx } from './logic'
+import { Kbd } from './Kbd'
 import { rovingKeyDown } from './Nav'
 
-export type MenuItem = { id: string; label: React.ReactNode; onSelect: () => void; icon?: React.ReactNode; danger?: boolean; disabled?: boolean }
+export type MenuItem = {
+  id: string
+  label: React.ReactNode
+  onSelect: () => void
+  icon?: React.ReactNode
+  danger?: boolean
+  disabled?: boolean
+  /** A chord shown on the right as a Kbd ("Ctrl+Alt+N"). */
+  shortcut?: string
+  /** Given (true or false), the row is a checkable item with a check slot; true draws the check. */
+  checked?: boolean
+}
 
 /** A button that opens a list of actions ("⋯" row menus, the project switcher, "All tabs").
  *  ArrowUp/Down/Home/End move, Enter picks (native button), Esc or an outside click closes. */
@@ -13,7 +26,8 @@ export function Menu({
   trigger,
   align = 'start'
 }: {
-  items: MenuItem[]
+  /** 'separator' draws a hairline between groups. */
+  items: Array<MenuItem | 'separator'>
   /** aria-label of the trigger (and the menu). */
   label: string
   /** Props of the trigger Button (icon, children, variant…). */
@@ -63,24 +77,31 @@ export function Menu({
       />
       {open && (
         <div ref={list} id={menuId} role="menu" aria-label={label} className={cx('ui-menu__list', `ui-menu__list--${align}`)} onKeyDown={onKeyDown}>
-          {items.map((it) => (
-            <button
-              key={it.id}
-              type="button"
-              role="menuitem"
-              data-roving=""
-              tabIndex={-1}
-              disabled={it.disabled}
-              className={cx('ui-menu__item', it.danger && 'ui-menu__item--danger')}
-              onClick={() => {
-                closeToTrigger()
-                it.onSelect()
-              }}
-            >
-              {it.icon}
-              <span>{it.label}</span>
-            </button>
-          ))}
+          {items.map((it, i) =>
+            it === 'separator' ? (
+              <div key={`sep-${i}`} role="separator" className="ui-menu__sep" />
+            ) : (
+              <button
+                key={it.id}
+                type="button"
+                role={it.checked === undefined ? 'menuitem' : 'menuitemcheckbox'}
+                aria-checked={it.checked}
+                data-roving=""
+                tabIndex={-1}
+                disabled={it.disabled}
+                className={cx('ui-menu__item', it.danger && 'ui-menu__item--danger')}
+                onClick={() => {
+                  closeToTrigger()
+                  it.onSelect()
+                }}
+              >
+                {it.checked !== undefined && <span className="ui-menu__check">{it.checked && <Check size={14} aria-hidden="true" />}</span>}
+                {it.icon}
+                <span className="ui-menu__label">{it.label}</span>
+                {it.shortcut && <Kbd className="ui-menu__kbd">{it.shortcut}</Kbd>}
+              </button>
+            )
+          )}
         </div>
       )}
     </div>

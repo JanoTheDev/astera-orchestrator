@@ -1,5 +1,7 @@
 // W9-E Start page rules (DESIGN §2 "Start"). Pure, so the node tests cover them; StartPage.tsx keeps the state.
 import type { IntakeTab } from '../intake/intakeRequest'
+import type { Job } from '../../../../core/orchestration/types'
+import { jobNameOf } from '../../../../core/orchestration/jobName'
 
 /** The three mode cards: the planner writes the plan, audits paths of the repository first (T2, `--mode audit`), or
  *  each prompt runs as written (W8-C `--mode prompts`). */
@@ -114,12 +116,23 @@ export function lookupArgs({ mode, files, text, cwd }: { mode: StartMode; files:
 /** Switching Hands-off on Start saves it as the project's default (`projects-set --hands-off`), so it sticks. */
 export const handsOffSaveArgs = (projectId: string, on: boolean): Record<string, unknown> => ({ id: projectId, handsOff: on ? 'on' : 'off' })
 
-/** The closed More options line: "3 consoles · PR · ask · Work" (the account part only once one is picked). */
+/** The closed Options line: "Hands-off · After L4 · 3 consoles · PR · ask · Work" (hands-off, the plan it starts after
+ *  and the account only when set). */
 export function optionsSummary(
-  { concurrency, delivery, approval, account, priority }: { concurrency: number; delivery: 'pr' | 'push'; approval: 'ask' | 'auto'; account?: string; priority: number },
+  {
+    concurrency,
+    delivery,
+    approval,
+    account,
+    priority,
+    handsOff = false,
+    after
+  }: { concurrency: number; delivery: 'pr' | 'push'; approval: 'ask' | 'auto'; account?: string; priority: number; handsOff?: boolean; after?: string },
   t: T
 ): string {
   return [
+    ...(handsOff ? [t('start.opt.handsOff')] : []),
+    ...(after ? [t('start.opt.after', { plan: after })] : []),
     t('start.more.consoles', { n: concurrency }),
     t(delivery === 'pr' ? 'start.more.pr' : 'start.more.push'),
     t(approval === 'ask' ? 'start.more.ask' : 'start.more.auto'),
@@ -128,8 +141,39 @@ export function optionsSummary(
   ].join(' · ')
 }
 
+/** Why Create is off, as the one line beside it: no project, nothing to build yet. Null when it can go. */
+export function blockedReason({ project, request }: { project: boolean; request: boolean }, t: T): string | null {
+  if (!project) return t('start.project.required')
+  return request ? null : t('start.needText')
+}
+
 /** The audit scope picker's chips: a typed path added once, trimmed, without a leading ./ or a trailing slash. */
 export function addScopePath(scope: string[], typed: string): string[] {
   const p = typed.trim().replace(/^\.\//, '').replace(/[\\/]+$/, '')
   return p === '' || scope.includes(p) ? scope : [...scope, p]
+}
+
+// T2 Start after: only plans that have not finished
+/** A `jobs-list` row: the Job with the fields `jobView` derives. */
+export type PlanRow = Job & { outcome?: string; questionsOpen?: number; paused?: boolean }
+
+export type LivePlanState = 'queued' | 'planning' | 'waiting' | 'running' | 'held'
+
+/** The plans a new plan may start after, each with its state: queued, planning, waiting for approval, running or held.
+ *  Completed, failed, scheduled and archived plans are left out (`jobs-list` already drops archived ones). */
+export function livePlans(rows: PlanRow[]): { id: string; name: string; state: LivePlanState }[] {
+  const out: { id: string; name: string; state: LivePlanState }[] = []
+  for (const r of rows) {
+    const state = liveStateOf(r)
+    if (state) out.push({ id: r.id, name: jobNameOf(r), state })
+  }
+  return out
+}
+
+function liveStateOf(r: PlanRow): LivePlanState | null {
+  if (r.archivedAt !== undefined || r.schedule !== undefined) return null
+  if (r.paused === true || r.outcome === 'paused') return 'held'
+  if (r.pendingStart === true) return r.after !== undefined ? 'queued' : 'planning'
+  if ((r.questionsOpen ?? 0) > 0) return 'waiting'
+  return r.outcome === 'running' ? 'running' : null
 }

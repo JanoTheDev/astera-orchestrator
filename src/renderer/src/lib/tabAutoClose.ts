@@ -7,7 +7,7 @@
 // nothing: the session had already exited, and its scrollback and transcript stay where they were.
 //
 // **A running plan closes what it is done with too** (the owner's decision of 2026-10-18): a worker's tab once its Task
-// is completed and merged into the plan branch, a reviewer's once its verdict is recorded (`sessionsDoneWith`, the rule
+// is completed (merged or not), a reviewer's once its verdict is recorded (`sessionsDoneWith`, the rule
 // the driving loop ends those sessions by), a replan's planner once the replan ended, and a coordinator a fresh one
 // replaced. A failed Task's, an open Gate's, and a session that has not exited keep theirs.
 import type { Dispatch, Gate, Job, JobRun, Task } from '../../../core/orchestration/types'

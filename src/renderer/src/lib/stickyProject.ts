@@ -39,3 +39,29 @@ export function clear(): void {
     // read 와 같은 이유로 삼킨다
   }
 }
+
+const NAMES_KEY = 'cm.projectNames'
+
+function readNames(): Record<string, string> {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(NAMES_KEY) ?? '{}')
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, string>) : {}
+  } catch {
+    return {}
+  }
+}
+
+/** The last name seen for a project id, so the top bar can label the selection before the project list is read. */
+export function readName(id: string): string | null {
+  const name = readNames()[id]
+  return typeof name === 'string' && name.trim() !== '' ? name : null
+}
+
+export function writeName(id: string, name: string): void {
+  if (!id || name.trim() === '') return
+  try {
+    localStorage.setItem(NAMES_KEY, JSON.stringify({ ...readNames(), [id]: name }))
+  } catch {
+    // the label falls back to neutral until the list is read
+  }
+}

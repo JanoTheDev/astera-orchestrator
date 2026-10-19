@@ -11,10 +11,11 @@
 .file-explorer { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 /* Shift-click range selection extends the browser's text selection across rows and lays down a blue
    highlight — the tree is not a text selection target, so it is blocked */
-.fx-tree { flex: 1; min-height: 0; overflow: auto; font-size: 13px; user-select: none; }
-.fx-row { display: flex; align-items: center; gap: 4px; padding: 2px 8px; cursor: pointer; white-space: nowrap; transition: background var(--ease), box-shadow var(--ease); }
-.fx-row:hover { background: var(--wash); }
-.fx-caret { flex: none; width: 12px; color: var(--text-dim); }
+.fx-tree { flex: 1; min-height: 0; overflow: auto; font-size: var(--fs-13); user-select: none; }
+.fx-row { display: flex; align-items: center; gap: var(--sp-2); padding: 0 var(--sp-2); cursor: pointer; white-space: nowrap; color: var(--text); transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
+.fx-row:hover { background: var(--hover); }
+.fx-row .fi { width: 16px; height: 16px; }
+.fx-caret { flex: none; width: 14px; display: inline-flex; color: var(--text-faint); }
 .fx-name { overflow: hidden; text-overflow: ellipsis; }
 /* git status — colour on the filename only. File type icon colours are left alone */
 .fx-name.git-new { color: var(--git-new); }
@@ -34,7 +35,7 @@
   font-family: var(--mono); font-size: 10.5px; color: var(--text-faint);
   font-variant-numeric: tabular-nums;
 }
-.fx-note { padding: 2px 8px; font-size: 12px; color: var(--text-faint); white-space: nowrap; }
+.fx-note { padding: 0 var(--sp-2); font-size: var(--fs-12); color: var(--text-faint); white-space: nowrap; display: flex; align-items: center; }
 /* Loading states (ExplorerLoading.tsx): the small shared spinner after a folder's name while its children
    are read, and the "Reading folder…" line when the root's first read is slow */
 .fx-row-loading { flex-shrink: 0; margin-left: 4px; }
@@ -46,16 +47,17 @@
 .fx-tree.git-stale .fx-git-mark,
 .fx-tree.git-stale .fx-git-count,
 .fx-tree.git-stale .fx-name[class*="git-"] { opacity: 0.55; }
-/* the header root row — scoped to the explorer so the shared .panel-header h2 is untouched */
-.file-explorer .panel-header h2 { display: flex; align-items: center; gap: 5px; min-width: 0; }
-.file-explorer .panel-header h2 .fi { width: 12px; height: 12px; }
+/* the header: the project name left, labelled icon buttons right (DESIGN-W11 §9 Files) */
+.fx-header { flex: none; display: flex; align-items: center; gap: var(--sp-2); height: 40px; padding: 0 var(--sp-2) 0 var(--sp-3); border-bottom: 1px solid var(--line); }
+.fx-title { flex: 1; min-width: 0; display: flex; align-items: center; gap: var(--sp-2); margin: 0; font-size: var(--fs-13); font-weight: var(--fw-semi); color: var(--text); line-height: var(--lh-tight); }
+.fx-title .fi { width: 16px; height: 16px; }
+.fx-actions { flex: none; display: flex; align-items: center; gap: 2px; }
 .fx-root-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* tree selection and inline editing */
 /* Tree selection — a background alone overlaps :hover in luminance and multi-selection does not read.
    It follows the convention of settings-nav-item.active (a left accent bar plus a line-soft background) */
-.fx-row.selected { background: var(--line-soft); box-shadow: inset var(--marker-w) 0 0 var(--accent); }
-.fx-tree:focus-within .fx-row.selected { background: var(--elevated); }
+.fx-row.selected { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
 /* items pending a cut — dimmed until they are pasted */
 .fx-row.cut { opacity: .45; }
 /* drag and drop — the same vocabulary as session tab reordering (.tab.dragging) */
@@ -70,7 +72,7 @@
   color: var(--text);
   border: 1px solid var(--accent);
   border-radius: var(--radius-sm);
-  padding: 1px 4px;
+  padding: 3px 6px;
   font: inherit;
   user-select: text; /* On top of .fx-tree's user-select:none, the rename input has to allow text selection
                          (so the part before the extension can be preselected). Chromium excludes form

@@ -3,8 +3,12 @@
 import type { SessionKind } from '../../../../core/types'
 import type { Lang, MessageKey } from '../../../../core/i18n'
 import { CATALOGS, LANGS } from '../../../../core/i18n'
-import { Select } from '../Select'
-import { ShortcutSettings } from '../ShortcutSettings'
+import { useState } from 'react'
+import { Search } from 'lucide-react'
+import { Input, Kbd, Select } from '../ui'
+import { ShortcutSettings, shortcutRows } from '../ShortcutSettings'
+import { resolveBindings } from '../../../../core/keys/binding'
+import { ACTIONS } from '../../lib/actions'
 import { TerminalFontSettings } from '../TerminalFontSettings'
 import { ThemeSettings } from '../ThemeSettings'
 import { AutoCloseTabsSetting } from '../AutoCloseTabsSetting'
@@ -42,13 +46,21 @@ const SHORTCUTS: Array<{
   {
     group: 'shortcut.group.sessionTab',
     items: [
-      { keys: [], gestureKey: 'shortcut.gesture.tabDrag', desc: 'shortcut.sessionTab.reorder' }
+      {
+        keys: [],
+        gestureKey: 'shortcut.gesture.tabDrag',
+        desc: 'shortcut.sessionTab.reorder'
+      }
     ]
   },
   {
     group: 'shortcut.group.pane',
     items: [
-      { keys: [], gestureKey: 'shortcut.gesture.tabDrag', desc: 'shortcut.pane.dragSplit' }
+      {
+        keys: [],
+        gestureKey: 'shortcut.gesture.tabDrag',
+        desc: 'shortcut.pane.dragSplit'
+      }
     ]
   },
   {
@@ -56,12 +68,19 @@ const SHORTCUTS: Array<{
     items: [
       { keys: [`${MOD}+S`], desc: 'shortcut.explorer.saveFile' },
       { keys: ['F2'], desc: 'shortcut.explorer.rename' },
-      { keys: [isMacPlatform() ? deleteKey() : 'Delete'], desc: 'shortcut.explorer.delete' },
+      {
+        keys: [isMacPlatform() ? deleteKey() : 'Delete'],
+        desc: 'shortcut.explorer.delete'
+      },
       { keys: [`${MOD}+A`], desc: 'shortcut.explorer.selectAll' },
       { keys: [`${MOD}+X`], desc: 'shortcut.explorer.cut' },
       { keys: [`${MOD}+C`], desc: 'shortcut.explorer.copy' },
       { keys: [`${MOD}+V`], desc: 'shortcut.paste' },
-      { keys: [], gestureKey: 'shortcut.gesture.itemDrag', desc: 'shortcut.explorer.move' },
+      {
+        keys: [],
+        gestureKey: 'shortcut.gesture.itemDrag',
+        desc: 'shortcut.explorer.move'
+      },
       { keys: [`${MOD}+Z`], desc: 'shortcut.explorer.undo' }
     ]
   }
@@ -73,8 +92,19 @@ const SYSTEM_LANG = ''
 
 export function GeneralSettings(p: GroupProps): React.JSX.Element | null {
   const {
-    shown, only, autoCloseEndedPlanTabs, defaultSessionKind, keyOverrides, setAutoCloseEndedPlanTabs, setDefaultSessionKind,
-    setKeyOverrides, setLang, settingsTouched, storedLang, systemLang, t
+    shown,
+    only,
+    autoCloseEndedPlanTabs,
+    defaultSessionKind,
+    keyOverrides,
+    setAutoCloseEndedPlanTabs,
+    setDefaultSessionKind,
+    setKeyOverrides,
+    setLang,
+    settingsTouched,
+    storedLang,
+    systemLang,
+    t
   } = p
   if (!shown) return null
   return (
@@ -88,21 +118,23 @@ export function GeneralSettings(p: GroupProps): React.JSX.Element | null {
             <span>{t('settings.general.language')}</span>
             <Select
               className="settings-lang-select"
-              items={[
-                {
-                  value: SYSTEM_LANG,
-                  label: t('settings.general.language.system', {
-                    lang: CATALOGS[systemLang].nativeName
-                  })
-                },
-                // Each language is written in its own language, so it can be found without
-                // knowing the current one. Not a translation target.
-                ...LANGS.map((l) => ({ value: l, label: CATALOGS[l].nativeName }))
-              ]}
               value={storedLang ?? SYSTEM_LANG}
-              onChange={(v) => setLang(v === SYSTEM_LANG ? null : (v as Lang))}
-              ariaLabel={t('settings.general.language')}
-            />
+              onChange={(e) => setLang(e.target.value === SYSTEM_LANG ? null : (e.target.value as Lang))}
+              aria-label={t('settings.general.language')}
+            >
+              <option value={SYSTEM_LANG}>
+                {t('settings.general.language.system', {
+                  lang: CATALOGS[systemLang].nativeName
+                })}
+              </option>
+              {/* Each language is written in its own language, so it can be found without knowing the current one.
+                  Not a translation target. */}
+              {LANGS.map((l) => (
+                <option key={l} value={l}>
+                  {CATALOGS[l].nativeName}
+                </option>
+              ))}
+            </Select>
           </div>
         </SettingRow>
         {/* Which kind the two session dialogs open on. A plain enum with nothing coupled
@@ -112,32 +144,33 @@ export function GeneralSettings(p: GroupProps): React.JSX.Element | null {
             selection and nothing else: picking the other kind inside the dialog belongs
             to that session and is not written back here. */}
         <SettingRow a="defaultKind" only={only}>
-          <div className="settings-row">
-            <span>{t('settings.defaultKind.title')}</span>
-            <Select
-              items={[
-                { value: 'terminal', label: t('settings.defaultKind.terminal') },
-                { value: 'chat', label: t('settings.defaultKind.chat') }
-              ]}
-              value={defaultSessionKind}
-              onChange={(v) => {
-                const next = v as SessionKind
-                const prev = defaultSessionKind
-                settingsTouched.current.touch('defaultKind')
-                setDefaultSessionKind(next) // an optimistic update — reverted below on failure
-                void window.api.settings.setDefaultSessionKind(next).catch((err) => {
-                  setDefaultSessionKind(prev)
-                  toast.error(
-                    t('settings.defaultKind.saveFailed', {
-                      detail: err instanceof Error ? err.message : String(err)
-                    })
-                  )
-                })
-              }}
-              ariaLabel={t('settings.defaultKind.title')}
-            />
+          <div className="settings-group">
+            <div className="settings-row">
+              <span>{t('settings.defaultKind.title')}</span>
+              <Select
+                value={defaultSessionKind}
+                aria-label={t('settings.defaultKind.title')}
+                onChange={(e) => {
+                  const next = e.target.value as SessionKind
+                  const prev = defaultSessionKind
+                  settingsTouched.current.touch('defaultKind')
+                  setDefaultSessionKind(next) // an optimistic update — reverted below on failure
+                  void window.api.settings.setDefaultSessionKind(next).catch((err) => {
+                    setDefaultSessionKind(prev)
+                    toast.error(
+                      t('settings.defaultKind.saveFailed', {
+                        detail: err instanceof Error ? err.message : String(err)
+                      })
+                    )
+                  })
+                }}
+              >
+                <option value="terminal">{t('settings.defaultKind.terminal')}</option>
+                <option value="chat">{t('settings.defaultKind.chat')}</option>
+              </Select>
+            </div>
+            <p className="settings-hint">{t('settings.defaultKind.hint')}</p>
           </div>
-          <p className="settings-hint">{t('settings.defaultKind.hint')}</p>
         </SettingRow>
         {/* W7-F (#84): an ended plan's tabs close on their own */}
         <SettingRow a="autoCloseTabs" only={only}>
@@ -151,30 +184,92 @@ export function GeneralSettings(p: GroupProps): React.JSX.Element | null {
         <TerminalFontSettings />
       </SettingRow>
       <SettingRow a="shortcuts" only={only}>
-        <ShortcutSettings overrides={keyOverrides} onChanged={setKeyOverrides} />
-        {SHORTCUTS.map((g) => (
-          <div className="shortcut-group" key={g.group}>
-            <div className="shortcut-group-title">{t(g.group)}</div>
-            {g.items.map((it) => (
-              <div className="shortcut-row" key={it.desc}>
-                <span className="shortcut-keys">
-                  {it.gestureKey ? (
-                    <kbd>{t(it.gestureKey)}</kbd>
-                  ) : (
-                    it.keys.map((k, i) => (
-                      <span key={k}>
-                        {i > 0 && <span className="shortcut-or">{t('common.or')}</span>}
-                        <kbd>{k}</kbd>
-                      </span>
-                    ))
-                  )}
-                </span>
-                <span className="shortcut-desc">{t(it.desc, { mod: MOD })}</span>
-              </div>
-            ))}
-          </div>
-        ))}
+        <ShortcutTable keyOverrides={keyOverrides} setKeyOverrides={setKeyOverrides} t={t} />
       </SettingRow>
+    </>
+  )
+}
+
+/** W11 (DESIGN-W11 §9): every shortcut in one searchable table, the chord right beside its name. The editable ones
+ *  come from ShortcutSettings, the fixed ones from SHORTCUTS. */
+function ShortcutTable({
+  keyOverrides,
+  setKeyOverrides,
+  t
+}: Pick<GroupProps, 'keyOverrides' | 'setKeyOverrides' | 't'>): React.JSX.Element {
+  const [query, setQuery] = useState('')
+  const q = query.trim().toLocaleLowerCase()
+  const matches = (name: string, keys: string[]): boolean =>
+    !q || name.toLocaleLowerCase().includes(q) || keys.some((k) => k.toLocaleLowerCase().includes(q))
+  const fixed = SHORTCUTS.map((g) => ({
+    group: g.group,
+    items: g.items.filter((it) => matches(t(it.desc, { mod: MOD }), it.gestureKey ? [t(it.gestureKey)] : it.keys))
+  })).filter((g) => g.items.length > 0)
+  const anyEditable = shortcutRows(resolveBindings(keyOverrides, ACTIONS), t).some((r) => matches(r.name, r.keys))
+  return (
+    <>
+      <div className="settings-card-head">
+        <h3 className="settings-card-title">{t('settings.tab.shortcuts')}</h3>
+        <label className="settings-page__search shortcut-search">
+          <Search size={14} aria-hidden="true" />
+          <Input
+            type="search"
+            value={query}
+            placeholder={t('settings.shortcuts.search')}
+            aria-label={t('settings.shortcuts.search')}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              // Esc clears this search first, and only an empty one lets the page close.
+              if (e.key === 'Escape' && query) {
+                e.preventDefault()
+                setQuery('')
+              }
+            }}
+          />
+        </label>
+      </div>
+      <table className="shortcut-table">
+        <thead>
+          <tr>
+            <th scope="col">{t('settings.shortcuts.action')}</th>
+            <th scope="col">{t('settings.shortcuts.keys')}</th>
+            <th scope="col" aria-hidden="true" />
+          </tr>
+        </thead>
+        <ShortcutSettings overrides={keyOverrides} onChanged={setKeyOverrides} matches={matches} />
+        {fixed.map((g) => (
+          <tbody key={g.group}>
+            <tr className="shortcut-table__group">
+              <th colSpan={3} scope="colgroup">
+                {t(g.group)}
+              </th>
+            </tr>
+            {g.items.map((it) => (
+              <tr key={it.desc}>
+                <td>{t(it.desc, { mod: MOD })}</td>
+                <td>
+                  <span className="shortcut-table__keys">
+                    {it.gestureKey ? (
+                      <span className="shortcut-table__state">{t(it.gestureKey)}</span>
+                    ) : (
+                      it.keys.map((k, i) => (
+                        <span key={k} className="shortcut-table__keys">
+                          {i > 0 && <span className="shortcut-table__state">{t('common.or')}</span>}
+                          <Kbd>{k}</Kbd>
+                        </span>
+                      ))
+                    )}
+                  </span>
+                </td>
+                <td />
+              </tr>
+            ))}
+          </tbody>
+        ))}
+      </table>
+      {!anyEditable && fixed.length === 0 && (
+        <p className="settings-hint">{t('settings.shortcuts.empty', { query: query.trim() })}</p>
+      )}
     </>
   )
 }

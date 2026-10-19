@@ -12,7 +12,7 @@ export type PaletteId = 'night' | 'dusk' | 'day'
 export type ThemeId = PaletteId | 'system'
 export type Density = 'compact' | 'normal' | 'roomy'
 
-/** The tokens of DESIGN.md §9, one field per row of its table. */
+/** The tokens of DESIGN-W11.md §2 (palette), one field per row of its table. */
 export interface ThemeColors {
   bg: string
   panel: string
@@ -52,12 +52,12 @@ export const THEMES: readonly Theme[] = [
     name: 'Night',
     scheme: 'dark',
     colors: {
-      bg: '#0d0e12', panel: '#15171d', elevated: '#232631', hover: '#1c1f28', termBg: '#090a0d',
-      line: '#262a35', text: '#eef0f5', textDim: '#a3a8b8', textFaint: '#7d8396',
-      accent: '#c4f25a', accentInk: '#121a00', accentSoft: '#252e10',
-      ok: '#5ad19a', okSoft: '#10291e', warn: '#f2b84b', warnSoft: '#30240c',
-      danger: '#ff6b6b', dangerSoft: '#351719',
-      info: '#7cc4ff', infoSoft: '#10243a'
+      bg: '#0e0f12', panel: '#15161a', elevated: '#202227', hover: '#1a1b20', termBg: '#0b0c0e',
+      line: '#26282e', text: '#eceef2', textDim: '#a2a6b0', textFaint: '#7c818c',
+      accent: '#8b93ff', accentInk: '#0c0e33', accentSoft: '#1d2042',
+      ok: '#4cc38a', okSoft: '#0f2a1e', warn: '#f0b35a', warnSoft: '#2e2310',
+      danger: '#f2696b', dangerSoft: '#341819',
+      info: '#6eb6ff', infoSoft: '#0f2238'
     }
   },
   {
@@ -65,12 +65,12 @@ export const THEMES: readonly Theme[] = [
     name: 'Dusk',
     scheme: 'dark',
     colors: {
-      bg: '#141219', panel: '#1b1922', elevated: '#2a2734', hover: '#221f2b', termBg: '#0f0d13',
-      line: '#2e2a38', text: '#f0edf6', textDim: '#aba5b9', textFaint: '#868097',
-      accent: '#b79cff', accentInk: '#1a0f33', accentSoft: '#2a2240',
-      ok: '#5ad19a', okSoft: '#14291f', warn: '#f2b84b', warnSoft: '#30240c',
-      danger: '#ff6b6b', dangerSoft: '#351719',
-      info: '#7cc4ff', infoSoft: '#14223a'
+      bg: '#13141b', panel: '#1a1b24', elevated: '#252633', hover: '#20212b', termBg: '#0f1016',
+      line: '#2b2c38', text: '#efedf5', textDim: '#aaa7b8', textFaint: '#858296',
+      accent: '#f2a65e', accentInk: '#2a1500', accentSoft: '#36261a',
+      ok: '#4cc38a', okSoft: '#122a20', warn: '#f0c75a', warnSoft: '#2e2810',
+      danger: '#f2696b', dangerSoft: '#361a1c',
+      info: '#7cb8ff', infoSoft: '#14223a'
     }
   },
   {
@@ -78,13 +78,12 @@ export const THEMES: readonly Theme[] = [
     name: 'Day',
     scheme: 'light',
     colors: {
-      bg: '#f7f7f2', panel: '#ffffff', elevated: '#ebebe3', hover: '#f0f0ea', termBg: '#ffffff',
-      line: '#e0e0d6', text: '#16181d', textDim: '#535866', textFaint: '#6b7080',
-      accent: '#3f6212', accentInk: '#ffffff', accentSoft: '#e7f0d6',
-      // DESIGN.md §9 had #15803d: 4.26:1 on --ok-soft, under the chip floor of 4.5. Darkened to 4.61.
-      ok: '#147a3a', okSoft: '#dcf2e3', warn: '#8a5a00', warnSoft: '#fbefd5',
-      danger: '#c42b2b', dangerSoft: '#fbe3e3',
-      info: '#1d5fa8', infoSoft: '#dde9f7'
+      bg: '#f4f4f6', panel: '#ffffff', elevated: '#eaebee', hover: '#eff0f2', termBg: '#ffffff',
+      line: '#dcdee3', text: '#16171b', textDim: '#4d515b', textFaint: '#666a75',
+      accent: '#4a52d0', accentInk: '#ffffff', accentSoft: '#e8e9fb',
+      ok: '#137a3d', okSoft: '#ddf2e4', warn: '#875a00', warnSoft: '#fbefd6',
+      danger: '#c22f30', dangerSoft: '#fce4e4',
+      info: '#1d5fa8', infoSoft: '#dfeaf7'
     }
   }
 ]

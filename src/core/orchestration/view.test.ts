@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { jobsForProject, progressOf, outcomeOf, snapshotFor, sameSnapshot } from './view'
+import { jobsForProject, progressOf, outcomeOf, snapshotFor, sameSnapshot, waveProgressOf } from './view'
 import { emptyState } from './state'
 import { ensureProject } from './projects'
 import type { OrchState } from './state'
@@ -226,7 +226,7 @@ describe('snapshotFor', () => {
     expect(snapshotFor(s, absPath('p'), anySession, noWorktrees, noFires, allExist).runs).toEqual([
       {
         // 줄의 id 는 계획의 것이고, fireOrdinal 은 그 줄이 보여 주는 회차의 번호다
-        id: 'job_r1', fireOrdinal: 1, foldedRunId: 'r1', objective: 'objective r1', outcome: 'running', done: 1, total: 2, eventCount: 3,
+        id: 'job_r1', fireOrdinal: 1, foldedRunId: 'r1', objective: 'objective r1', outcome: 'running', done: 1, total: 2, eventCount: 3, wave: { at: 1, of: 1 },
         concurrency: undefined, sharesProjectFolder: false,
         // W9-C: the Job's age, on its row
         createdAt: '2026-08-18T00:00:00.000Z',
@@ -243,7 +243,7 @@ describe('snapshotFor', () => {
     const base = withRuns([run('r1', absPath('p'))])
     const job = { ...base.jobs[0], pendingStart: true, plannerSessionIds: ['pl'] }
     const planTask: Task = {
-      ...task('pt', 'x', 'ready'), runId: undefined, jobId: job.id, prompt: 'do it', acceptanceCriteria: ['done'], basis: { state: 'missing', evidence: 'none' }
+      ...task('pt', 'x', 'ready'), runId: undefined, jobId: job.id, prompt: 'do it', acceptanceCriteria: ['done'], affectedPaths: ['src/a'], basis: { state: 'missing', evidence: 'none' }
     }
     const rowOf = (j: typeof job, tasks: Task[] = [planTask]) =>
       snapshotFor({ ...base, runs: [], jobs: [j], tasks }, absPath('p'), anySession, noWorktrees, noFires, allExist).runs[0]
@@ -1229,5 +1229,16 @@ describe('snapshotFor — plan board fields', () => {
       snapshotFor(s, absPath('p'), anySession, noWorktrees, noFires, allExist, 0, { maxConcurrentWorkers: cap }).runs[0].tasks[1].board
     expect(fold(1)).toEqual({ category: 'queued', reason: { kind: 'global-cap', used: 1, limit: 1, priority: 0 } })
     expect(fold(null)).toEqual({ category: 'queued', reason: { kind: 'next' } })
+  })
+})
+
+describe('waveProgressOf (T14 Coordinator strip)', () => {
+  const tk = (id: string, deps: string[], status: Task['status']): Task => ({ id, deps, status }) as unknown as Task
+  it('is the first wave with an unfinished Task, of the deepest wave', () => {
+    const tasks = [tk('a', [], 'completed'), tk('b', ['a'], 'dispatched'), tk('c', ['b'], 'pending')]
+    expect(waveProgressOf(tasks)).toEqual({ at: 2, of: 3 })
+  })
+  it('stands at the last wave once every Task completed', () => {
+    expect(waveProgressOf([tk('a', [], 'completed'), tk('b', [], 'completed')])).toEqual({ at: 1, of: 1 })
   })
 })

@@ -12,3 +12,19 @@ describe('planner-guide.md — before you plan', () => {
       expect(section, needle).toContain(needle)
   })
 })
+
+describe('planner-guide.md — multi-file planning and waves', () => {
+  it('states the path rules for --affected-paths', () => {
+    const section = guide.slice(guide.indexOf('**Path rules for `--affected-paths`'), guide.indexOf('**Prompts.**'))
+    for (const needle of ['Repo-relative, forward slashes', 'No leading `/` and no `./`', 'A folder ends with `/`', '`*` appears only in the last segment', 'Never `.` or `/`', 'List every file or folder'])
+      expect(section, needle).toContain(needle)
+  })
+  it('cuts by ownership, handles shared files and sizes the waves', () => {
+    const section = guide.slice(guide.indexOf('## 2. Cut the objective'), guide.indexOf('## 3. Write each Task'))
+    for (const needle of ['Cut by ownership, not by step', 'Shared files go to one Task', 'i18n catalogs', '`types.ts`', 'Size the waves', 'foundations', 'worker limit'])
+      expect(section, needle).toContain(needle)
+  })
+  it('tells workers to use subagents for exploration', () => {
+    expect(guide).toContain('Tell each worker to use subagents for read-only exploration')
+  })
+})

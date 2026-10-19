@@ -8,7 +8,7 @@ import type { JobRow, JobTask } from '../../../../core/types'
 vi.mock('../../i18n/I18nProvider', () => ({ useI18n: () => ({ lang: 'en', t: (key: string) => key }) }))
 
 const { TasksPage } = await import('./TasksPage')
-const { JobsView } = await import('../JobsView')
+const { PlanList } = await import('../plan/PlanList')
 const { storedSection } = await import('./PlansPage')
 const { planListOrder } = await import('../plan/planBoard')
 
@@ -62,25 +62,50 @@ describe('TasksPage', () => {
 })
 
 describe('Plans list', () => {
-  it('draws the rows in the Plans order, under their area heads, with queue and overlap chips', () => {
-    const runs = planListOrder([
-      row('q', { pendingStart: true, after: 'r', areas: ['auth'] }),
-      row('r', { areas: ['auth'], overlapPlans: ['q'], createdAt: new Date(Date.now() - 120_000).toISOString() })
-    ])
-    const html = renderToStaticMarkup(
-      React.createElement(JobsView, {
-        snapshot: { runs, projectFolderBusy: false },
-        hostGate: null, stall: null, hasProject: true,
-        canOpenSession: () => false, onOpenSession: () => {}, onOpenRun: () => {}, onNewRun: () => {},
-        onPauseRun: () => {}, onResumeRun: () => {}, onDeleteRun: () => {}, onRestartCoordinator: () => {},
-        groupsOf: (rows) => [{ key: 'auth', head: React.createElement('h2', { className: 'plans-area' }, 'auth'), rows }]
+  const acts = { onOpen: () => {}, canOpenSession: () => false, onOpenSession: () => {}, onDelete: () => {}, onArchive: () => {}, onRename: () => {}, onHold: () => {} }
+  const render = (runs: JobRow[], over: Record<string, unknown> = {}): string =>
+    renderToStaticMarkup(
+      React.createElement(PlanList, {
+        snapshot: { runs, projectFolderBusy: false }, hostGate: null, stall: null, projectPath: '/p', acts,
+        onNewRun: () => {}, onNewFromSource: () => {}, onNewConsole: () => {}, overlap: null, ...over
       })
     )
-    expect(html.indexOf('plans-area')).toBeLessThan(html.indexOf('plan r'))
-    expect(html.indexOf('plan r')).toBeLessThan(html.indexOf('plan q'))
+
+  it('draws the rows in the Plans order, under their area heads, with status, wave, progress, queue and overlap chips', () => {
+    const html = render([
+      row('q', { pendingStart: true, after: 'r', areas: ['auth'] }),
+      row('r', { areas: ['auth'], overlapPlans: ['q'], done: 1, total: 4, wave: { at: 2, of: 3 }, createdAt: new Date(Date.now() - 120_000).toISOString() })
+    ])
+    const list = html.slice(html.indexOf('class="plans-list"'))
+    expect(list.indexOf('plans-group')).toBeLessThan(list.indexOf('plan r'))
+    expect(list.indexOf('>plan r<')).toBeLessThan(list.indexOf('>plan q<'))
     expect(html).toContain('pages.plans.startsAfter')
     expect(html).toContain('pages.plans.overlaps')
     expect(html).toContain('pages.plans.age')
+    expect(html).toContain('pages.plans.wave')
+    expect(html).toContain('pages.plans.progress')
+    expect(html).toContain('pages.plans.status.working')
+    // the header: New job primary, From a source ghost, and the Coordinator strip over the live plans
+    expect(html).toMatch(/ui-btn--primary[^>]*>.*jobs\.new\.open/)
+    expect(html).toContain('jobs.source.open')
+    expect(html).toContain('class="plans-coord__title">pages.plans.coordinator<')
+  })
+
+  it('names a plan made from a ticket by its title, the objective staying the tooltip (moved from JobsView.title.test)', () => {
+    const source = { id: 's', itemId: 'ENG-101', label: 'Linear ENG-101', title: 'Fix the login page on Safari' }
+    const html = render([row('a', { objective: 'Resolve Linear ENG-101', source })])
+    expect(html).toMatch(/title="Resolve Linear ENG-101"[^>]*>(?:<[^>]+>)*Fix the login page on Safari/)
+  })
+
+  it('hides archived plans behind the archived chip, and has one empty state with New job, or New console without a project', () => {
+    const html = render([row('a'), row('z', { archivedAt: 'x', objective: 'gone plan' })])
+    expect(html).toContain('jobs.lifecycle.showArchived')
+    expect(html).not.toContain('gone plan')
+    expect(render([])).toContain('pages.plans.empty.title')
+    const none = render([], { projectPath: undefined })
+    expect(none).toContain('jobs.noProject')
+    expect(none).toContain('wall.new')
+    expect(none).not.toContain('jobs.new.open')
   })
 })
 

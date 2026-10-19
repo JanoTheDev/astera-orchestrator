@@ -33,7 +33,8 @@ import { useGitStatus } from '../hooks/useGitStatus'
 import { useI18n } from '../i18n/I18nProvider'
 import type { UndoEntry } from '../../../core/files/undo'
 import { runnableKindForFile } from '../../../core/run/runFile'
-import { RefreshCw, X } from 'lucide-react'
+import { ChevronsDownUp, FilePlus, FolderOpen, FolderPlus, RefreshCw, X } from 'lucide-react'
+import { EmptyState, IconButton } from './ui'
 import { deleteKey, isMac, modKey } from '../lib/platformKeys'
 import { isWindowsPath, revealFor, treeKeysTo, type FolderReveal } from '../lib/folderLink'
 
@@ -837,20 +838,13 @@ export function FileExplorer({
   if (!root) {
     return (
       <section className="file-explorer">
-        <header className="panel-header">
-          <h2>{t('explorer.title')}</h2>
-          <div className="panel-actions">
-            <button
-              className="icon-btn"
-              aria-label={t('common.close')}
-              title={t('common.close')}
-              onClick={onClose}
-            >
-              <X size={14} />
-            </button>
-          </div>
+        <header className="fx-header">
+          <h2 className="fx-title">{t('explorer.title')}</h2>
+          <IconButton size="sm" icon={<X size={14} />} label={t('explorer.close')} onClick={onClose} />
         </header>
-        <p className="empty">{t('explorer.noActiveSession')}</p>
+        <EmptyState icon={FolderOpen} title={t('explorer.noActiveSession')}>
+          {t('explorer.noActiveSessionHint')}
+        </EmptyState>
       </section>
     )
   }
@@ -882,7 +876,7 @@ export function FileExplorer({
         // arrive anywhere. Events raised in the tree bubble up here too, so they keep working while the
         // tree has focus. F2/Delete are not widened here — unlike the Ctrl combinations, which have no
         // default action, they are single keys that do have one, and a bare Delete while focus is on
-        // the header ⟳/✕ buttons must not be able to delete files.
+        // the header buttons must not be able to delete files.
         // The inline-edit <input> (editRow) calls stopPropagation unconditionally at the top of its
         // onKeyDown, so while editing no event reaches this handler — Ctrl+Z keeps the input's native
         // undo (no special handling needed). The editing guard below is a second line of defense
@@ -912,29 +906,23 @@ export function FileExplorer({
         }
       }}
     >
-      <header className="panel-header">
-        {/* The root gets the same folder icon as the tree rows — CSS shrinks it to 12px to match the header type scale (10.5px) */}
-        <h2 title={root}>
+      <header className="fx-header">
+        {/* The project name, with the same folder icon as the tree rows */}
+        <h2 className="fx-title" title={root}>
           <FileIcon {...resolveFolderIcon(rootName, true)} />
           <span className="fx-root-name">{rootName}</span>
         </h2>
-        <div className="panel-actions">
-          <button
-            className="icon-btn"
-            aria-label={t('explorer.refresh')}
-            title={t('explorer.refresh')}
+        <div className="fx-actions">
+          <IconButton size="sm" icon={<FilePlus size={14} />} label={t('explorer.newFile')} onClick={() => startCreate(root, false)} />
+          <IconButton size="sm" icon={<FolderPlus size={14} />} label={t('explorer.newFolder')} onClick={() => startCreate(root, true)} />
+          <IconButton
+            size="sm"
+            icon={<RefreshCw size={14} className={refreshing ? 'fx-refreshing' : undefined} />}
+            label={t('explorer.refresh')}
             onClick={refresh}
-          >
-            <RefreshCw size={14} className={refreshing ? 'fx-refreshing' : undefined} />
-          </button>
-          <button
-            className="icon-btn"
-            aria-label={t('common.close')}
-            title={t('common.close')}
-            onClick={onClose}
-          >
-            <X size={14} />
-          </button>
+          />
+          <IconButton size="sm" icon={<ChevronsDownUp size={14} />} label={t('explorer.collapseAll')} onClick={tree.collapseAll} />
+          <IconButton size="sm" icon={<X size={14} />} label={t('explorer.close')} onClick={onClose} />
         </div>
       </header>
       {/* git did not answer the last status query: the badges below are the previous answer, dimmed */}
@@ -968,7 +956,7 @@ export function FileExplorer({
           // Ctrl+A/X/C/V are not here — they moved to the section's onKeyDown. Events raised in the
           // tree bubble up there, so they keep working while the tree has focus. F2/Delete are keys
           // that have a default action, so they stay narrowed to the tree — a Delete while focus is on
-          // the header ⟳/✕ buttons must not delete a file
+          // the header buttons must not delete a file
           if (editing || menu || historyOpen) return
           if (ev.key === 'Escape' && sel.clipboard) {
             ev.preventDefault()

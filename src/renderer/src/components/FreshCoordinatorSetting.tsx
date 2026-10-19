@@ -38,6 +38,7 @@ export function FreshCoordinatorSetting(): React.JSX.Element {
         <span>{t('settings.freshCoordinator.label')}</span>
         <input
           type="number"
+          className="ui-input"
           min={0}
           max={100}
           value={draft}

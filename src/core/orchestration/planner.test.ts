@@ -290,6 +290,28 @@ describe('validatePlan', () => {
     expect(validatePlan(r.deps.getState(), jobId)).toEqual([`${t.id} (form) depends on ${foreign.id}, which is not a Task of this plan`])
   })
 
+  it('names a Task without affected paths, but not one the app made for a merge', async () => {
+    const { r, jobId } = await planWith()
+    const t = (await planner(r)('task-create', goodTask(jobId, { affectedPaths: undefined }))).body as { id: string }
+    expect(validatePlan(r.deps.getState(), jobId)).toEqual([`Task ${t.id} (form) names no files (--affected-paths)`])
+    const s = r.deps.getState()
+    const merge = { ...s, tasks: s.tasks.map((x) => (x.id === t.id ? { ...x, parentId: 'tsk_other' } : x)) }
+    expect(validatePlan(merge, jobId)).toEqual([])
+  })
+
+  it('names two parallel Tasks whose paths overlap (folder vs file), and accepts a dep chain', async () => {
+    const { r, jobId } = await planWith()
+    const a = (await planner(r)('task-create', goodTask(jobId, { title: 'a', affectedPaths: ['src/ui'] }))).body as { id: string }
+    const b = (await planner(r)('task-create', goodTask(jobId, { title: 'b', affectedPaths: ['src/ui/form.tsx'] }))).body as { id: string }
+    expect(validatePlan(r.deps.getState(), jobId)).toEqual([
+      `Tasks ${a.id} (a) and ${b.id} (b) both change src/ui: make it one Task or chain them with --deps`
+    ])
+    // a transitive dependency (b waits on c, c waits on a) serialises them
+    const c = (await planner(r)('task-create', goodTask(jobId, { title: 'c', affectedPaths: ['docs'], deps: [a.id] }))).body as { id: string }
+    await planner(r)('task-update', { id: b.id, deps: [c.id] })
+    expect(validatePlan(r.deps.getState(), jobId)).toEqual([])
+  })
+
   it('names a cycle (a hand-edited orchestration.json)', async () => {
     const { r, jobId } = await planWith()
     const a = (await planner(r)('task-create', goodTask(jobId, { title: 'a' }))).body as { id: string }
@@ -316,8 +338,8 @@ describe('approval', () => {
     await person(r)('task-create', { run: jobId, account: 'acc1', title: 'by hand', spec: 's' })
     const reply = await person(r)('run-start', { run: jobId })
     expect(reply.status).toBe(400)
-    // the hand-made Task has no prompt, no criterion and no basis (W6-A)
-    expect((reply.body as { problems: string[] }).problems).toHaveLength(3)
+    // the hand-made Task has no prompt, no criterion, no files and no basis (W6-A)
+    expect((reply.body as { problems: string[] }).problems).toHaveLength(4)
     expect(r.deps.getState().jobs[0].pendingStart).toBe(true)
     expect(r.deps.getState().runs).toHaveLength(0)
   })

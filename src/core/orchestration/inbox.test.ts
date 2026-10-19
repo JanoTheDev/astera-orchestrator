@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { NO_COORDINATOR_ANSWER, NUDGE_AGAIN_MS, planNudges, type NudgeMemo, unattendedQuestions, unreadUpwardMail } from './inbox'
+import { NO_COORDINATOR_ANSWER, NUDGE_AGAIN_MS, nextActionOf, planNudges, readyReminders, readyWithoutWorker, type NudgeMemo, unattendedQuestions, unreadUpwardMail, waveHeld } from './inbox'
 import { emptyState, type OrchState } from './state'
 import type { Dispatch, Message } from './types'
 import { stateFromLegacy } from './legacyState'
@@ -253,5 +253,50 @@ describe('unreadUpwardMail', () => {
       { runId: 'run_1', sessionId: 'coord1', messageIds: ['msg_1'] },
       { runId: 'run_2', sessionId: 'coord2', messageIds: ['msg_2'] }
     ])
+  })
+})
+
+describe('wave-held Tasks (replan.ts waveOpen)', () => {
+  const T = '2026-10-19T00:00:00.000Z'
+  const task = (id: string, over: Partial<OrchState['tasks'][number]> = {}): OrchState['tasks'][number] => ({
+    id, runId: 'run_1', jobId: 'job_1', title: id.toUpperCase(), spec: 's', deps: [], status: 'ready', accountIds: ['a'],
+    consecutiveFailures: 0, createdAt: T, updatedAt: T, ...over
+  })
+  // A planned Job that replans between waves: wave 2 opens only after the boundary's replan
+  const s: OrchState = {
+    ...emptyState(),
+    jobs: [{ id: 'job_1', objective: 'o', cwd: '/p', createdAt: T, autoDispatch: false, plannerSessionIds: ['pl'], coordinatorAccountId: 'a' }],
+    runs: [{ id: 'run_1', jobId: 'job_1', ordinal: 1, createdAt: T, coordinatorSessionId: 'coord-1' }],
+    tasks: [task('t0', { status: 'completed' }), task('t1'), task('t2', { deps: ['t0'] })]
+  }
+
+  it('readyWithoutWorker leaves out a Task whose wave is not open; waveHeld names its wave', () => {
+    expect(readyWithoutWorker(s, 'run_1').map((t) => t.id)).toEqual(['t1'])
+    expect(waveHeld(s, 'run_1').map((x) => [x.task.id, x.wave])).toEqual([['t2', 2]])
+  })
+
+  it('nextActionOf says which wave a held Task waits for, and never to start it', () => {
+    expect(nextActionOf(s, 'run_1')).toBe(
+      't1 (T1) is ready and has no worker: worker-start it.\nt2 (T2) waits for wave 2 to open: do not start it yet.'
+    )
+    const onlyHeld = { ...s, tasks: s.tasks.filter((t) => t.id !== 't1') }
+    expect(nextActionOf(onlyHeld, 'run_1')).toBe(
+      'Nothing is ready to start now. End your turn; the next message wakes you.\nt2 (T2) waits for wave 2 to open: do not start it yet.'
+    )
+  })
+
+  it('readyReminders does not remind about a wave-held Task', () => {
+    const later = Date.parse(T) + 10 * 60_000
+    expect(readyReminders(s, later, () => true).map((n) => n.taskId)).toEqual(['t1'])
+  })
+
+  it('once the wave before is done and its boundary replanned, the Task is ready to start like any other', () => {
+    const open = {
+      ...s,
+      jobs: [{ ...s.jobs[0], lastReplan: { runId: 'run_1', mode: 'wave', wave: 1 } as never }],
+      tasks: s.tasks.map((t) => (t.id === 't1' ? { ...t, status: 'completed' as const } : t))
+    }
+    expect(readyWithoutWorker(open, 'run_1').map((t) => t.id)).toEqual(['t2'])
+    expect(waveHeld(open, 'run_1')).toEqual([])
   })
 })

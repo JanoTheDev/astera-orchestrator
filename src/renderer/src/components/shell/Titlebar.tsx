@@ -1,5 +1,5 @@
-// The window's title bar (W9-A moved it out of App.tsx). W9-B: it is the 44px top bar now (DESIGN.md §1): the mark
-// and "Astera", then whatever App puts inside (TopBar), the update notice, and the window buttons.
+// The window's title bar (W9-A moved it out of App.tsx). W9-B: it is the 44px top bar now (DESIGN-W11 §8): the 18px
+// mark (the project switcher beside it carries the name that matters), then whatever App puts inside (TopBar), the update notice, and the window buttons.
 import type { UpdateStatus } from '../../../../core/types'
 import logoUrl from '../../assets/mark.svg'
 import { confirmModalWithChoices } from '../../lib/confirm'
@@ -111,7 +111,6 @@ export function Titlebar({
     >
       <div className="tb-brand" aria-hidden="true">
         <img className="tb-logo" src={logoUrl} alt="" />
-        <span className="tb-name">Astera</span>
       </div>
       {children ?? <span className="tb-spacer" />}
       <UpdateIndicator update={update} onInstall={onInstall} />

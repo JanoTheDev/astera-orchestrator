@@ -5,14 +5,14 @@ import { themeById, THEMES, DEFAULT_MONO } from './themes'
 describe('themeCssVars', () => {
   it('표면·텍스트 토큰을 CSS 변수 이름으로 낸다', () => {
     const v = themeCssVars(themeById('night'))
-    expect(v['--bg']).toBe('#0d0e12')
-    expect(v['--text-dim']).toBe('#a3a8b8')
-    expect(v['--hover']).toBe('#1c1f28')
-    expect(v['--term-bg']).toBe('#090a0d')
+    expect(v['--bg']).toBe('#0e0f12')
+    expect(v['--text-dim']).toBe('#a2a6b0')
+    expect(v['--hover']).toBe('#1a1b20')
+    expect(v['--term-bg']).toBe('#0b0c0e')
   })
 
   it('--ring 은 액센트의 35% 알파다', () => {
-    expect(themeCssVars(themeById('night'))['--ring']).toBe('rgba(196, 242, 90, 0.35)')
+    expect(themeCssVars(themeById('night'))['--ring']).toBe('rgba(139, 147, 255, 0.35)')
   })
 
   it('the stylesheet\'s older names derive from the §9 tokens', () => {
@@ -62,9 +62,9 @@ describe('themeCssVars', () => {
 describe('xtermThemeOf', () => {
   it('배경·전경·커서 셋만 낸다 — ANSI 16색은 건드리지 않는다', () => {
     expect(xtermThemeOf(themeById('night'))).toEqual({
-      background: '#090a0d',
-      foreground: '#eef0f5',
-      cursor: '#c4f25a'
+      background: '#0b0c0e',
+      foreground: '#eceef2',
+      cursor: '#8b93ff'
     })
   })
 })

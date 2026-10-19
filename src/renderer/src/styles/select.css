@@ -31,7 +31,7 @@
 .sel-trigger:hover { border-color: var(--text-faint); background: var(--surface-hover); }
 /* A ring rather than an outline: outline cannot follow border-radius consistently across engines, and a
    2px ring plus a brightened border reads as focus without the harsh hairline. */
-.sel-trigger:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--ring); }
+.sel-trigger:focus-visible { outline: none; border-color: var(--accent); box-shadow: var(--focus-ring); }
 .sel-value { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sel-value.empty { color: var(--text-faint); }
 /* Fixed width so labels line up even when a row has no icon (the 'All accounts' row) */
@@ -205,5 +205,5 @@ input[type="checkbox"]:not(.md-task input):not(.ui-toggle):checked::after {
 input[type="checkbox"]:not(.md-task input):not(.ui-toggle):focus-visible {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--ring);
+  box-shadow: var(--focus-ring);
 }

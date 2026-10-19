@@ -13,6 +13,19 @@ import { confirmModal } from '../lib/confirm'
 import { toast } from '../lib/toast'
 import type { MessageKey } from '../../../core/i18n'
 import { Pencil, RotateCcw } from 'lucide-react'
+import { IconButton, Kbd } from './ui'
+
+/** The editable shortcuts as the table shows them: the action, its name and its chords. */
+export function shortcutRows(
+  bindings: ReturnType<typeof resolveBindings>,
+  t: (key: MessageKey, params?: Record<string, string | number>) => string
+): Array<{ action: (typeof ACTIONS)[number]; name: string; keys: string[] }> {
+  return ACTIONS.map((action) => ({
+    action,
+    name: t(action.descKey as MessageKey, action.descParams),
+    keys: bindings[action.id].map(formatChord)
+  }))
+}
 
 /**
  * Shortcut settings. Only the actions handled by the global capture handler can be edited —
@@ -26,11 +39,14 @@ import { Pencil, RotateCcw } from 'lucide-react'
  */
 export function ShortcutSettings({
   overrides,
-  onChanged
+  onChanged,
+  matches
 }: {
   overrides: Record<string, string[]>
   onChanged: (next: Record<string, string[]>) => void
-}): React.JSX.Element {
+  /** The table's search (W11): whether a row with this name and these chords stays. */
+  matches: (name: string, keys: string[]) => boolean
+}): React.JSX.Element | null {
   const { t } = useI18n()
   const [capturing, setCapturing] = useState<ActionId | null>(null)
   const bindings = resolveBindings(overrides, ACTIONS)
@@ -48,12 +64,15 @@ export function ShortcutSettings({
       const chord = chordFromEvent(e)
       if (!chord) return // only modifiers are down — wait for an actual key
       const key = formatChord(chord)
-      const taken = ACTIONS.find(
-        (a) => a.id !== capturing && bindings[a.id].some((c) => formatChord(c) === key)
-      )
+      const taken = ACTIONS.find((a) => a.id !== capturing && bindings[a.id].some((c) => formatChord(c) === key))
       setCapturing(null)
       if (taken) {
-        toast.error(t('shortcut.conflictWith', { key, action: t(taken.descKey as MessageKey, taken.descParams) }))
+        toast.error(
+          t('shortcut.conflictWith', {
+            key,
+            action: t(taken.descKey as MessageKey, taken.descParams)
+          })
+        )
         return
       }
       const riskKey = riskyReasonKey(chord)
@@ -79,51 +98,59 @@ export function ShortcutSettings({
     onChanged(await window.api.keys.get())
   }
 
+  // W11: rows of the Settings shortcut table (GeneralSettings draws the table): the name, its chord right beside it,
+  // and change/reset that show on the hovered or focused row only.
+  const rows = shortcutRows(bindings, t).filter((r) => matches(r.name, r.keys))
+  if (rows.length === 0) return null
   return (
-    <div className="shortcut-group">
-      <div className="shortcut-group-title">{t('shortcut.group.editable')}</div>
-      {ACTIONS.map((action) => {
-        const keys = bindings[action.id].map(formatChord)
+    <tbody>
+      <tr className="shortcut-table__group">
+        <th colSpan={3} scope="colgroup">
+          {t('shortcut.group.editable')}
+        </th>
+      </tr>
+      {rows.map(({ action, name, keys }) => {
         const conflicted = conflicts.some((c) => c.actions.includes(action.id))
         return (
-          <div className="shortcut-row" key={action.id}>
-            <span className="shortcut-keys">
-              {capturing === action.id ? (
-                <kbd className="shortcut-capturing">{t('shortcut.capturing')}</kbd>
-              ) : keys.length === 0 ? (
-                <kbd className="shortcut-unbound">{t('shortcut.unbound')}</kbd>
-              ) : (
-                keys.map((k, i) => (
-                  <span key={k}>
-                    {i > 0 && <span className="shortcut-or">{t('common.or')}</span>}
-                    <kbd className={conflicted ? 'shortcut-conflict' : undefined}>{k}</kbd>
-                  </span>
-                ))
-              )}
-            </span>
-            <span className="shortcut-desc">{t(action.descKey as MessageKey, action.descParams)}</span>
-            {/* In a narrow modal a text button pushes the description to 3~4 lines (measured) — reduced to an icon plus a title */}
-            <span className="shortcut-actions">
-              <button
-                onClick={() => setCapturing(action.id)}
-                disabled={capturing !== null}
-                title={t('shortcut.edit')}
-                aria-label={t('shortcut.edit')}
-              >
-                <Pencil size={13} />
-              </button>
-              <button
-                onClick={() => void reset(action.id)}
-                disabled={capturing !== null || overrides[action.id] === undefined}
-                title={t('shortcut.resetOne')}
-                aria-label={t('shortcut.resetOne')}
-              >
-                <RotateCcw size={13} />
-              </button>
-            </span>
-          </div>
+          <tr key={action.id}>
+            <td>{name}</td>
+            <td>
+              <span className="shortcut-table__keys">
+                {capturing === action.id ? (
+                  <span className="shortcut-table__state">{t('shortcut.capturing')}</span>
+                ) : keys.length === 0 ? (
+                  <span className="shortcut-table__state">{t('shortcut.unbound')}</span>
+                ) : (
+                  keys.map((k, i) => (
+                    <span key={k} className="shortcut-table__keys">
+                      {i > 0 && <span className="shortcut-table__state">{t('common.or')}</span>}
+                      <Kbd className={conflicted ? 'shortcut-table__conflict' : undefined}>{k}</Kbd>
+                    </span>
+                  ))
+                )}
+              </span>
+            </td>
+            <td>
+              <span className="shortcut-table__actions">
+                <IconButton
+                  size="sm"
+                  icon={<Pencil size={14} />}
+                  label={t('shortcut.edit')}
+                  disabled={capturing !== null}
+                  onClick={() => setCapturing(action.id)}
+                />
+                <IconButton
+                  size="sm"
+                  icon={<RotateCcw size={14} />}
+                  label={t('shortcut.resetOne')}
+                  disabled={capturing !== null || overrides[action.id] === undefined}
+                  onClick={() => void reset(action.id)}
+                />
+              </span>
+            </td>
+          </tr>
         )
       })}
-    </div>
+    </tbody>
   )
 }

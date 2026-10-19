@@ -11,7 +11,7 @@
 import { FOLLOW_WINDOW_MS, type AnsweredQuestion, type StopResult, type WaitEnding, type WaitTimeout } from '../publicContract'
 import { briefTask, jobView, latestRunOf, runView } from './publicViews'
 // W8-C plan after plan
-import { afterNameOf, afterRefusal, afterSweep, jobDelivered } from './after'
+import { afterNameOf, afterRefusal, afterStandOf, afterSweep, jobDelivered } from './after'
 import { lastByState } from './stateMemo'
 import { randomBytes } from 'node:crypto'
 import {
@@ -112,7 +112,7 @@ import type { Provider } from '../providers/meta'
 import { isValidRule, type ScheduleRule } from '../scheduler/rule'
 import { parseCheckFlag } from '../workUnit/verification'
 import { isTerminal as taskFinished, outcomeOf, progressOf } from './view'
-import { runningRunCount } from './running'
+import { isTerminal, runningRunCount } from './running'
 import { FINISHED_RUN_GRACE_MS } from './exec/dispatchLoop'
 import { appDriven, editingByProject, projectKeyOf, sameFilesAs, workerCapOf, workersAgainstCap } from './schedule'
 import type { JobEvent, SessionInfo, WorktreeInfo } from '../types'
@@ -2587,7 +2587,16 @@ export async function handleCommand(
       // W8-C plan after plan: `--after <job>`, the plan this one is queued after
       const afterId = args.after === undefined ? null : str(args.after)
       if (args.after !== undefined && (afterId === null || afterId === 'none')) return bad('--after needs a job id')
-      if (afterId !== null && !s.jobs.some((j) => j.id === afterId)) return notFound(`unknown job: ${afterId}`)
+      if (afterId !== null) {
+        // The new plan does not exist yet, so nothing can wait on it: afterRefusal's self and chain checks cannot fire
+        const refusal = afterRefusal(s, '', afterId)
+        if (refusal) return refusal.missing ? notFound(refusal.error) : bad(refusal.error)
+        // Only a live plan can be waited on: a finished one (delivered, stopped, archived, or all its Tasks ended) is refused
+        const runIds = new Set(s.runs.filter((r) => r.jobId === afterId).map((r) => r.id))
+        const ownTasks = s.tasks.filter((t) => t.runId !== undefined && runIds.has(t.runId))
+        if (afterStandOf(s, afterId) !== 'waiting' || (ownTasks.length > 0 && ownTasks.every(isTerminal)))
+          return bad(`job ${afterId} is finished: a plan can only wait on a running plan`)
+      }
       if (afterId !== null && str(args.coordinatorAccount) === null && args.coordinatorProvider === undefined)
         return bad('--after needs --coordinator-account (or --coordinator-provider): the queued plan\'s planner starts on it')
       let source = typeof args.objective === 'string' ? args.objective : ''
@@ -6254,7 +6263,7 @@ export async function handleCommand(
       const r = await remapMerged({ cwd: job.cwd, mergeCommit: sha, originals })
       const pushed = r.noted.length > 0 ? await pushNotes(job.cwd) : 'none'
       const cur = deps.getState()
-      await deps.setState({ ...cur, runs: cur.runs.map((x) => (x.id === run.id && x.pr ? { ...x, pr: { ...x.pr, attributed: sha } } : x)) })
+      await deps.setState({ ...cur, runs: cur.runs.map((x) => (x.id === run.id && x.pr ? { ...x, pr: { ...x.pr, attributed: sha, attributedAt: deps.now?.() ?? new Date().toISOString(), baseRefName: pr.baseRefName as string } } : x)) })
       return okBody({ remapped: true, kind: r.kind, noted: r.noted, sha, notesPushed: pushed === 'pushed' })
     }
     case 'github-ci-rerun': {

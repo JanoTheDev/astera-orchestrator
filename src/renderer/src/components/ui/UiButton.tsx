@@ -3,12 +3,12 @@ import { Loader2 } from 'lucide-react'
 import { cx } from './logic'
 
 export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger'
-export type ButtonSize = 'sm' | 'md'
+export type ButtonSize = 'sm' | 'md' | 'lg'
 
 export type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: ButtonVariant
   size?: ButtonSize
-  /** Leading icon; the spinner takes its place while loading. With no children the button is a 30px icon-only ghost (give it aria-label). */
+  /** Leading icon; the spinner takes its place while loading. With no children the button is a square icon-only ghost (give it aria-label). */
   icon?: React.ReactNode
   loading?: boolean
 }

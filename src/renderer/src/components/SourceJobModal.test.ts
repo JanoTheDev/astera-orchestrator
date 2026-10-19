@@ -80,7 +80,7 @@ describe('SourceJobView', () => {
     }
     const html = render({ source: 'github', list })
     expect(html).toContain('Fix login')
-    expect(html).toMatch(/<button[^>]*class="source-exists"[^>]*>jobs\.source\.exists<\/button>/)
+    expect(html).toMatch(/<button[^>]*class="[^"]*source-exists"[^>]*><span class="ui-btn__label">jobs\.source\.exists<\/span><\/button>/)
     expect(html).toMatch(/<li class="source-item disabled"[^>]*>.*written by a NONE/)
     expect(html).toContain('jobs.source.more')
     expect(render({ source: 'github', list: { ...list, nextCursor: undefined } })).not.toContain('jobs.source.more')
@@ -114,7 +114,7 @@ describe('SourceJobView', () => {
     expect(canMake({ item: null, account: 'acc_1', busy: false, locked: false })).toBe(false)
     expect(canMake({ item, account: 'acc_1', busy: true, locked: false })).toBe(false)
     expect(canMake({ item, account: 'acc_1', busy: false, locked: true })).toBe(false)
-    const disabledMake = (html: string): boolean => /<button class="primary" disabled="">jobs\.source\.make<\/button>/.test(html)
+    const disabledMake = (html: string): boolean => /<button[^>]*ui-btn--primary[^>]*disabled=""><span class="ui-btn__label">jobs\.source\.make<\/span><\/button>/.test(html)
     expect(disabledMake(render({ source: 'github', picked: 'ENG-1', detail: item, account: '' }))).toBe(true)
     expect(disabledMake(render({ source: 'github', picked: 'ENG-1', detail: item, account: 'acc_1' }))).toBe(false)
   })

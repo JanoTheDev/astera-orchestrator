@@ -1,4 +1,4 @@
-// W9-H: the Agents page (DESIGN.md §2), the app's default page. Every console of the project at once, each tile the
+// W9-H, W11: the Agents page (DESIGN.md §2, DESIGN-W11 §9), the app's default page. Every console of the project at once, each tile the
 // session's own xterm; a click opens it full size, where the owner types straight into the PTY while the coordinator's
 // messages to it wait in the Host (the owner hold, core/sessions/ownerHold.ts).
 //
@@ -7,6 +7,7 @@
 // rendered, in the same place, and only hidden while the wall shows: unmounting it would end every terminal's
 // scrollback.
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { Plus } from 'lucide-react'
 import { useI18n } from '../../i18n/I18nProvider'
 import { formatElapsed } from '../../../../core/orchestration/elapsed'
 import { parseTab } from '../../../../core/panes/tabId'
@@ -20,10 +21,11 @@ import { setWallView, useWallView } from '../wall/wallView'
 import { focusTerminal } from '../wall/consoleDock'
 import { useJobRows } from '../wall/useJobRows'
 import {
-  ALL_PLANS, NO_PLAN, consolesOf, detailLineOf, detailsOf, filterConsoles, gridColumns, orderWall, planPills,
-  type PlanFilter, type Scope, type StateFilter, type WallConsole
+  ALL_PLANS, NO_PLAN, consolesOf, detailLineOf, detailsOf, filterConsoles, gridColumns, groupWall, orderWall, planPills,
+  type PlanFilter, type StateFilter, type TileState, type WallConsole
 } from '../wall/wallModel'
-import { ConsoleStrip, ConsoleTile, PlanPills, WallEmpty, WallToolbar } from '../wall/Wall'
+import { ConsoleStrip, ConsoleTile, PlanGroup, WallEmpty, WallFilters } from '../wall/Wall'
+import { Button, PageHeader, cx } from '../ui'
 import { ConsoleHeader, DetailsPanel } from '../wall/FullConsole'
 import { FinishedCard } from '../wall/FinishedCard'
 import { SummaryCard } from '../wall/SummaryCard' // W9-I
@@ -32,6 +34,8 @@ import type { AppState } from '../../state/appState'
 import '../wall/wall.css'
 
 export type AgentsPageProps = Pick<AppState, 'sessions' | 'accounts' | 'currentProject' | 'homeDir' | 'activeTabId'> & {
+  /** W11: the header's and the empty state's "New console" (the New dialog's Console choice). */
+  setShowNew?: AppState['setShowNew']
   children: React.ReactNode
   /** W9-B: off the console pages (Pages.tsx `showsConsoles`) the whole page is hidden, its pane grid with it. */
   hidden?: boolean
@@ -47,7 +51,7 @@ const readPlan = (): PlanFilter => {
   }
 }
 
-export function AgentsPage({ sessions, accounts, currentProject, homeDir, activeTabId, children, hidden }: AgentsPageProps): React.JSX.Element {
+export function AgentsPage({ sessions, accounts, currentProject, homeDir, activeTabId, setShowNew, children, hidden }: AgentsPageProps): React.JSX.Element {
   const { t } = useI18n()
   const view = useWallView()
   const showing = view.kind !== 'away'
@@ -75,7 +79,7 @@ export function AgentsPage({ sessions, accounts, currentProject, homeDir, active
     if (asked !== undefined) setPlan(tree.flatMap((p) => p.plans).find((x) => x.jobId === asked || x.runId === asked)?.jobId ?? asked)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once per request (each one is a new view)
   }, [view])
-  const [scope, setScope] = useState<Scope>('project')
+  const [allProjects, setAllProjects] = useState(false)
   const [filter, setFilter] = useState<StateFilter>('all')
   const [detailsOpen, setDetailsOpen] = useState(true)
   const [nowMs, setNowMs] = useState(() => Date.now())
@@ -93,8 +97,14 @@ export function AgentsPage({ sessions, accounts, currentProject, homeDir, active
   // a project made a moment ago has no tab yet, so the tree lacks it: name it by its folder
   const projectName = tree.find((p) => p.id === projectId)?.name ?? currentProject?.split(/[\\/]/).filter(Boolean).pop() ?? null
   // A plan that is gone (archived, another project) falls back to every plan.
-  const pills = planPills(tree, rows, consoles, projectId, scope)
   const planShown = plan === ALL_PLANS || plan === NO_PLAN || tree.some((p) => p.plans.some((x) => x.jobId === plan)) ? plan : ALL_PLANS
+  const planPicked = planShown !== ALL_PLANS && planShown !== NO_PLAN
+  // W11: one "All projects" chip; off, a picked plan shows all of its consoles (scope `plan`), else the open project's.
+  const scope = allProjects ? 'all' : planPicked ? 'plan' : 'project'
+  const pills = planPills(tree, rows, consoles, projectId, allProjects ? 'all' : 'project')
+  const inScope = filterConsoles(consoles, { plan: planShown, state: 'all', scope, projectId })
+  const counts: Record<TileState, number> = { needs: 0, working: 0, idle: 0, finished: 0 }
+  for (const c of inScope) counts[c.state]++
   const shown = filterConsoles(consoles, { plan: planShown, state: filter, scope, projectId })
   const wall = orderWall(shown, planShown)
 
@@ -105,9 +115,11 @@ export function AgentsPage({ sessions, accounts, currentProject, homeDir, active
   const escalatedOf = (jobId: string): number => (data?.escalations ?? []).filter((m) => m.runId === runOfJob(jobId)).length
   const detailsFor = (c: WallConsole) =>
     detailsOf({ console: c, consoles, rows, tree, tasks: data?.tasks ?? [], answeredOf, escalatedOf })
-  const lineOf = (c: WallConsole): string | null => {
+  const accountOf = (id: string | undefined): string | undefined => (id ? (accounts.find((a) => a.id === id)?.label ?? id) : undefined)
+  /** The tile's meta line: plan (when the wall mixes plans), account, the role's detail (time running, files). */
+  const metaOf = (c: WallConsole): string[] => {
     const l = detailLineOf(detailsFor(c), nowMs, formatElapsed)
-    return l ? t(l.key, l.params) : null
+    return [planPicked ? undefined : c.planName, accountOf(c.accountId), l ? t(l.key, l.params) : undefined].filter((x): x is string => !!x)
   }
 
   // Any other way to a tab (the sidebar tree, a notice, a file opened from the explorer) leaves the wall for it: a
@@ -166,62 +178,91 @@ export function AgentsPage({ sessions, accounts, currentProject, homeDir, active
 
   const back = (): void => setWallView({ kind: 'wall' })
   const open = (sessionId: string): void => openConsole(sessionId)
-  const strip = (
-    <ConsoleStrip
-      consoles={filterConsoles(consoles, { plan: planShown, state: 'all', scope, projectId })}
-      mainId={wall.mainId}
-      selected={heldId}
-      onAll={back}
-      onOpen={open}
-    />
-  )
   const opened = heldId ? consoles.find((c) => c.sessionId === heldId) : undefined
-  const grid = [...wall.pinned, ...(filter === 'finished' ? wall.finished : wall.tiles)]
   const exitOf = (id: string): number | undefined => sessions.find((s) => s.id === id)?.exitCode
+  const newConsole = setShowNew ? () => setShowNew(true) : undefined
+
+  // W11: the wall grouped by plan (tree order; consoles of no plan last), each group its live tiles (coordinator
+  // pinned first) then its finished consoles as summary cards. The Done filter leaves only the cards.
+  const liveTiles = filter === 'finished' ? [] : [...wall.pinned, ...wall.tiles]
+  const groups = groupWall(liveTiles, wall.finished)
+  // As many columns as the biggest group fills, up to the auto grid's count; CSS drops to fewer under 360px a tile.
+  const cols = Math.min(gridColumns(liveTiles.length), Math.max(1, ...groups.map((g) => g.live.length)))
+  const tile = (c: WallConsole): React.JSX.Element => (
+    <ConsoleTile key={c.sessionId} c={c} main={c.sessionId === wall.mainId} meta={metaOf(c)} onOpen={() => open(c.sessionId)} />
+  )
+  const card = (c: WallConsole): React.JSX.Element => {
+    const s = summaries.bySession.get(c.sessionId)
+    return s ? (
+      <SummaryCard key={c.sessionId} summary={s} compact onOpen={() => open(c.sessionId)} />
+    ) : (
+      <FinishedCard key={c.sessionId} c={c} exitCode={exitOf(c.sessionId)} account={accountOf(c.accountId)} onOpen={() => open(c.sessionId)} />
+    )
+  }
+  const resetFilters = (): void => {
+    setFilter('all')
+    setPlan(ALL_PLANS)
+    setAllProjects(true)
+  }
 
   return (
     <div className="agents-page" style={hidden ? { display: 'none' } : undefined}>
-      {/* Also while another page has the window: until W9-B's top bar lands, "All consoles" here is the way back. */}
-      {strip}
       {view.kind === 'wall' && (
         <div className="wall">
-          <PlanPills pills={pills} value={planShown} onChange={setPlan} />
-          <WallToolbar
-            scope={scope}
-            onScope={setScope}
-            projectName={projectName}
-            planPicked={planShown !== ALL_PLANS && planShown !== NO_PLAN}
-            filter={filter}
-            onFilter={setFilter}
+          <PageHeader
+            className="wall-header"
+            title={t('wall.title')}
+            subtitle={inScope.length > 0 ? t('wall.count', { n: inScope.length }) : undefined}
+            actions={
+              newConsole &&
+              consoles.length > 0 && (
+                <Button variant="primary" icon={<Plus size={16} />} onClick={newConsole}>
+                  {t('wall.new')}
+                </Button>
+              )
+            }
+            filters={
+              consoles.length > 0 && (
+                <WallFilters
+                  filter={filter}
+                  onFilter={setFilter}
+                  counts={counts}
+                  pills={pills}
+                  plan={planShown}
+                  onPlan={setPlan}
+                  allProjects={allProjects}
+                  onAllProjects={setAllProjects}
+                />
+              )
+            }
           />
-          {grid.length === 0 ? (
-            <WallEmpty />
+          {groups.length === 0 ? (
+            <WallEmpty filtered={consoles.length > 0} onNew={newConsole} onReset={resetFilters} />
           ) : (
-            <div className="wall-grid" style={{ '--wall-cols': gridColumns(grid.length) } as React.CSSProperties}>
-              {grid.map((c) => (
-                <ConsoleTile key={c.sessionId} c={c} main={c.sessionId === wall.mainId} detail={lineOf(c)} onOpen={() => open(c.sessionId)} />
-              ))}
+            <div className={cx('wall-body', cols === 1 && 'wall-body--one')} style={{ '--wall-cols': cols } as React.CSSProperties}>
+              {groups.map((g) => {
+                const pill = pills.find((p) => p.jobId === g.key)
+                const first = g.live[0] ?? g.done[0]
+                return (
+                  <PlanGroup
+                    key={g.key}
+                    pill={pill}
+                    name={g.key !== NO_PLAN ? (first?.planName ?? g.key) : groups.length > 1 ? t('wall.plans.none') : null}
+                    live={g.live.map(tile)}
+                    done={g.done.map(card)}
+                    {...(g.key !== NO_PLAN ? { onOpenPlan: () => openPlan(g.key, 'waves') } : {})}
+                  />
+                )
+              })}
             </div>
-          )}
-          {filter !== 'finished' && wall.finished.length > 0 && (
-            <section className="wall-finished">
-              <h2 className="wall-finished__title">{t('wall.finished.title')}</h2>
-              <div className="wall-finished__row">
-                {wall.finished.map((c) => {
-                  const s = summaries.bySession.get(c.sessionId)
-                  return s ? (
-                    <SummaryCard key={c.sessionId} summary={s} compact onOpen={() => open(c.sessionId)} />
-                  ) : (
-                    <FinishedCard key={c.sessionId} c={c} exitCode={exitOf(c.sessionId)} onOpen={() => open(c.sessionId)} />
-                  )
-                })}
-              </div>
-            </section>
           )}
         </div>
       )}
       {view.kind === 'console' && opened && (
         <ConsoleHeader c={opened} projectName={projectName} detailsOpen={detailsOpen} onToggleDetails={() => setDetailsOpen((o) => !o)} onBack={back} />
+      )}
+      {view.kind !== 'wall' && (
+        <ConsoleStrip consoles={inScope} mainId={wall.mainId} selected={heldId} onAll={back} onOpen={open} />
       )}
       <div className="agents-page__body" style={view.kind === 'wall' ? { display: 'none' } : undefined}>
         <div className="agents-page__console" ref={consoleRef}>

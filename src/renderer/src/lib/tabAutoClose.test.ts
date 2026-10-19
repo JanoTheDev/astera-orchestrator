@@ -103,7 +103,18 @@ describe('tabsToAutoClose while the plan runs', () => {
       ...over
     })
 
-  it("closes a merged worker's, a reviewer's with its verdict, and a replaced coordinator's tab", () => {
+  it("closes an unmerged completed worker's tab", () => {
+    const input = running({ runs: [run('r1', 'j1', { worktree: '/p-run', coordinatorSessionId: 'coordNew' })] })
+    input.dispatches = input.dispatches.map((d) => (d.sessionId === 'wDone' ? ({ ...d, cwd: '/wt-own' } as Dispatch) : d))
+    expect(tabsToAutoClose(input)).toContain('wDone')
+  })
+
+  it('closes ended worker tabs when the setting is left at its default (on)', () => {
+    expect(tabsToAutoClose(running({ enabled: true }))).toContain('wDone')
+    expect(tabsToAutoClose(running({ enabled: false }))).toEqual([])
+  })
+
+  it("closes a completed worker's, a reviewer's with its verdict, and a replaced coordinator's tab", () => {
     expect(tabsToAutoClose(running()).sort()).toEqual(['coordOld', 'rev', 'wDone'])
   })
 

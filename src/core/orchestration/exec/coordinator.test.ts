@@ -105,6 +105,13 @@ describe('buildSpecFile', () => {
     expect(out).toContain('as `astera heavy -- <cmd>`: one at a time on this machine.')
     expect(out).toContain('`ASTERA_PROFILE_DIR=~/.config/astera-dev`')
   })
+  it('the Work fast section recommends subagents for both Claude Code and Codex, and keeps the final check', () => {
+    const out = buildSpecFile({ title: 'T', spec: 'S', taskId: 'tsk_1', dispatchId: 'dsp_1' })
+    expect(out).toContain('## Work fast')
+    expect(out).toContain('Use subagents: the Agent/Task tool in Claude Code, or parallel sub-tasks in Codex where available.')
+    expect(out).toContain('Never hand the final check to a subagent.')
+    expect(out.indexOf('## Work fast')).toBeLessThan(out.indexOf('## Reporting obligation'))
+  })
   it('task 제목과 spec 전문을 담는다', () => {
     const out = buildSpecFile({ title: 'T', spec: 'S', taskId: 'tsk_1', dispatchId: 'dsp_1' })
     expect(out).toContain('# T')
@@ -168,7 +175,8 @@ describe('buildSpecFile', () => {
     expect(base).toContain('S\n\n---\n## GitHub issues')
     // W8-C heavy: then the machine rules
     expect(base).toContain('for this task.\n\n---\n## Machine rules')
-    expect(base).toContain('Astera runs on.\n\n---\n## Reporting obligation')
+    expect(base).toContain('Astera runs on.\n\n---\n## Work fast')
+    expect(base).toContain('You verify what they return.\n\n---\n## Reporting obligation')
   })
 
   it('지식이 있으면 상대 경로를 목록으로 적는다', () => {

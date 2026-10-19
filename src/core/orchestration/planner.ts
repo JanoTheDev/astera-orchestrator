@@ -7,7 +7,9 @@
 import path from 'node:path'
 import { BASIS_STATES, recomputeReady, type Job, type Task } from './types'
 import type { OrchState, PlanFields, Res } from './state'
-import { layersOf } from './graph'
+import { chainOf, layersOf } from './graph'
+import { isIntegrationTask } from './integrate'
+import { pathsOverlap } from './schedule'
 import { jobNameOf } from './jobName'
 import { DIFFICULTIES, MODEL_ID } from './roleModels'
 // W8-C prompts mode
@@ -154,7 +156,20 @@ export function validatePlan(s: OrchState, jobId: string): string[] {
     if (!t.basis?.evidence.trim()) problems.push(`${name} has no basis: give --basis missing|partial|broken and its --evidence`)
     const unknown = t.deps.filter((d) => !own.has(d))
     if (unknown.length) problems.push(`${name} depends on ${unknown.join(', ')}, which is not a Task of this plan`)
+    // the file guard only sees declared paths; a Task without any overlaps nothing and conflicts at merge
+    if (!t.affectedPaths?.length && !isIntegrationTask(t)) problems.push(`Task ${name} names no files (--affected-paths)`)
   }
+  // Tasks neither waiting on the other (directly or through others) may run at once, so their files must differ
+  const deps = Object.fromEntries(tasks.map((t) => [t.id, t.deps]))
+  tasks.forEach((a, i) => {
+    const chain = chainOf(deps, a.id)
+    for (const b of tasks.slice(i + 1)) {
+      if (chain.has(b.id)) continue
+      const hit = (a.affectedPaths ?? []).find((p) => (b.affectedPaths ?? []).some((q) => pathsOverlap(p, q)))
+      if (hit !== undefined)
+        problems.push(`Tasks ${a.id} (${a.title}) and ${b.id} (${b.title}) both change ${hit}: make it one Task or chain them with --deps`)
+    }
+  })
   const { cyclic } = layersOf(s, jobId)
   if (cyclic.length) problems.push(`these Tasks wait on each other in a cycle: ${cyclic.join(', ')}`)
   // W8-C prompts mode: one Task per prompt, its text the owner's, and no Task besides

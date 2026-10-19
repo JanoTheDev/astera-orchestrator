@@ -20,6 +20,8 @@ import { registerDockable } from './wall/consoleDock'
 export const TILE_FONT = 11
 /** What a full-size console leaves of the Agents page for the terminal: the details panel, the strip and the header. */
 const TILE_PAGE_RESERVE = { width: 330, height: 80 }
+/** The tile's left and right margin around its terminal (wall.css `.wall-tile__term > .xterm`). */
+const TILE_INSET_PX = 16
 
 export function TerminalView({
   session,
@@ -135,7 +137,17 @@ export function TerminalView({
       }
       if (term.options.fontSize !== TILE_FONT) term.options.fontSize = TILE_FONT
       if (pty && (term.cols !== pty.cols || term.rows !== pty.rows)) term.resize(pty.cols, pty.rows)
+      scaleTile()
     }
+    /** W11: a pty wider than its tile is drawn smaller, never cut at the right edge. The transform leaves the cell
+     *  grid (and so the pty's size) alone; the anchor's bottom-left origin keeps the bottom rows in view (wall.css). */
+    const scaleTile = (): void => {
+      const el = term.element
+      if (!tiled || !el || el.offsetWidth === 0) return
+      const s = Math.min(1, (tiled.clientWidth - TILE_INSET_PX) / el.offsetWidth)
+      el.style.transform = s < 1 ? `scale(${s})` : ''
+    }
+    const tileObserver = new ResizeObserver(() => scaleTile())
     /** Asks the pty for the grid this pane holds at the base font (the cell grid directly, not FitAddon, which always
      *  subtracts 15px for a scrollbar), and draws its own grid or the pty's size, whichever it owns. */
     const fitNow = (): void => {
@@ -177,6 +189,8 @@ export function TerminalView({
         tiled = anchor
         tiledRef.current = true
         anchor.appendChild(el)
+        tileObserver.observe(anchor)
+        tileObserver.observe(el)
         term.options.disableStdin = true // read-only until opened: a click on the tile opens the console
         term.blur()
         fitTile()
@@ -187,6 +201,8 @@ export function TerminalView({
         if (!el) return
         tiled = null
         tiledRef.current = false
+        tileObserver.disconnect()
+        el.style.transform = ''
         host.appendChild(el)
         term.options.disableStdin = false
         fitNow()
@@ -329,6 +345,7 @@ export function TerminalView({
 
     return () => {
       offDock()
+      tileObserver.disconnect()
       // A tile holding the terminal when the session's view goes: take it back so dispose removes it from the page.
       if (tiled && term.element) host.appendChild(term.element)
       disposeLinks()

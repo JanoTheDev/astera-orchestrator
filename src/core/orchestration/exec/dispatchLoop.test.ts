@@ -11,10 +11,13 @@ import {
   COORDINATOR_STOP_RETRY_MS,
   FINISHED_RUN_BUSY_CAP_MS,
   FINISHED_RUN_GRACE_MS,
+  REPLAN_IDLE_NUDGE_MS,
+  REPLAN_TIMEOUT_MS,
   createDispatchLoop, type DispatchLoop, type DispatchLoopContext,
   idleWorkersOf
 } from './dispatchLoop'
 import { coordinatorReleaseOf } from './releaseDefer'
+import { REPLAN_LIFT_HOLD } from './replanStart'
 import { handleCommand, type OrchServerDeps } from '../command'
 import { APP_CALLER } from '../../host/driver'
 import { addDecision, COORDINATOR_START_WINDOW_MS, emptyState, type OrchState } from '../state'
@@ -1374,15 +1377,14 @@ describe('a finished Run’s idle workers are released after the grace', () => {
     expect(h.handled()).not.toContain('worker-release')
   })
 
-  // 2026-10-18: a running Run's worker whose Task is completed and merged is released (coordinatorRotate.test.ts);
-  // one whose worktree is not merged yet is still left alone
-  it('leaves the unmerged workers of a Run that has not finished alone, however long', async () => {
+  // 2026-10-19: a running Run's worker whose Task is completed is released at once, merged or not (coordinatorRotate.test.ts)
+  it('releases the unmerged completed worker of a Run that has not finished', async () => {
     const h = finishedWithWorker({ cwd: '/wt-own' })
     const s = h.state()
     h.setState({ ...s, tasks: s.tasks.map((t) => (t.id === 'tsk_2' ? { ...t, status: 'pending' as const } : t)) })
     h.clock = NOW_MS + 60 * MIN
     await pass(h)
-    expect(h.handled()).not.toContain('worker-release')
+    expect(releases(h)).toEqual(['dsp_1'])
   })
 
   it('releases a finished scheduled Run’s worker at once', async () => {
@@ -2035,7 +2037,7 @@ describe('wave replanning (W6-D)', () => {
     h.setState({
       ...s,
       jobs: s.jobs.map((j) => (j.id === 'job_1' ? { ...j, plannerSessionIds: ['ses-planner'], coordinatorAccountId: 'accA', concurrency: 2 } : j)),
-      tasks: s.tasks.map((t) => tasks({ ...t, prompt: 'p', acceptanceCriteria: ['c'], basis: { state: 'missing', evidence: 'e' }, ...(t.id === 'tsk_2' ? { deps: ['tsk_1'] } : {}) }))
+      tasks: s.tasks.map((t) => tasks({ ...t, prompt: 'p', acceptanceCriteria: ['c'], affectedPaths: [`src/${t.id}`], basis: { state: 'missing', evidence: 'e' }, ...(t.id === 'tsk_2' ? { deps: ['tsk_1'] } : {}) }))
     })
   }
 
@@ -2094,6 +2096,75 @@ describe('wave replanning (W6-D)', () => {
     expect(job.replanning).toBeUndefined()
     expect(job.dispatchHold).toBeUndefined()
     expect(job.lastReplan?.summary).toContain('its planner session ended')
+  })
+
+  it('reminds a replan planner idle at its prompt once, and ends it as skipped after 30 minutes', async () => {
+    const h = rig()
+    planned(h, (t) => (t.id === 'tsk_1' ? { ...t, status: 'completed' } : t))
+    failedOnce(h)
+    const start = h.clock
+    await h.loop.run()
+    await h.settle()
+    const session = h.state().jobs[0].replanning!.sessionId!
+    // first seen idle now; the reminder waits REPLAN_IDLE_NUDGE_MS from here, and busy time does not count
+    await h.loop.nudge()
+    await h.settle()
+    h.ctx.sessionBusy = () => true
+    h.clock = start + REPLAN_IDLE_NUDGE_MS + 1
+    await h.loop.nudge()
+    await h.settle()
+    h.ctx.sessionBusy = () => false
+    await h.loop.nudge()
+    await h.settle()
+    expect(h.typed.filter((t) => t.includes('jobs-replan-done'))).toHaveLength(0)
+    h.clock = start + 2 * REPLAN_IDLE_NUDGE_MS + 2
+    await h.loop.nudge()
+    await h.settle()
+    await h.loop.nudge()
+    await h.settle()
+    expect(h.typed.filter((t) => t.includes('astera jobs-replan-done --id job_1'))).toHaveLength(1)
+    expect(h.state().jobs[0].replanning).toBeDefined()
+
+    h.clock = start + REPLAN_TIMEOUT_MS + 1
+    await h.loop.nudge()
+    await h.settle()
+    const job = h.state().jobs[0]
+    expect(job.replanning).toBeUndefined()
+    expect(job.dispatchHold).toBeUndefined()
+    expect(job.lastReplan).toMatchObject({ mode: 'wave', wave: 1 })
+    expect(job.lastReplan?.summary).toMatch(/^Replan skipped: its planner did not finish in time/)
+    expect(h.stopCoordinator).toHaveBeenCalledWith(session, expect.any(String))
+  })
+
+  it("lifts an escalated replan's hold once the owner answers its Inbox item with the lift", async () => {
+    const h = rig()
+    planned(h, (t) => (t.id === 'tsk_1' ? { ...t, status: 'completed' } : t))
+    const at = new Date(h.clock).toISOString()
+    const why = 'the plan does not hold after the replan: tsk_2 has no prompt'
+    const esc: Message = {
+      id: 'msg_esc',
+      runId: 'run_1',
+      type: 'escalation',
+      subject: `Replan escalated, the plan is held: ${why}`,
+      body: why,
+      options: [REPLAN_LIFT_HOLD],
+      answered: false,
+      createdAt: at
+    }
+    const s = h.state()
+    h.setState({
+      ...s,
+      jobs: s.jobs.map((j) => (j.id === 'job_1' ? { ...j, dispatchHold: true, lastReplan: { runId: 'run_1', mode: 'wave', wave: 1, done: 1, at, summary: why, escalated: why } } : j)),
+      messages: [...s.messages, esc]
+    })
+    await h.loop.nudge()
+    await h.settle()
+    expect(h.state().jobs[0].dispatchHold).toBe(true)
+    expect((await h.real('questions-answer', { id: 'msg_esc', answer: 'Lift the hold' })).status).toBe(200)
+    await h.loop.nudge()
+    await h.settle()
+    expect(h.handled()).toContain('jobs-unhold')
+    expect(h.state().jobs[0].dispatchHold).toBeUndefined()
   })
 })
 
@@ -2314,5 +2385,142 @@ describe('a hands-off plan decides for the owner (#117)', () => {
     expect(inbox(state.jobs)).toEqual([])
     // The same state on a plan that is not hands-off would hold the still-open escalation for the owner
     expect(inbox(state.jobs.map((j) => ({ ...j, handsOff: false }))).map((i) => i.kind)).toEqual(['escalation'])
+  })
+})
+
+// T11: deliveries across plans of one project never collide
+describe('plans of one project: one delivery at a time, the others refreshed onto it (T11)', () => {
+  const LATER = new Date(NOW_MS + 1000).toISOString()
+  /** Plan B is the rig's job_1 (its Run in /wt1); plan A, of the same project folder, delivered `shaA` after B began. */
+  const withDeliveredA = (h: ReturnType<typeof rig>): void => {
+    const s = h.state()
+    h.setState({
+      ...s,
+      jobs: [...s.jobs.map((j) => ({ ...j, title: 'B' })), { id: 'job_A', title: 'A', objective: 'a', cwd: '/p', createdAt: NOW }],
+      runs: [...s.runs, { id: 'run_A', jobId: 'job_A', ordinal: 1, createdAt: NOW, worktree: '/wtA', delivery: { at: LATER, sha: 'shaA', branch: 'main' } }],
+      tasks: [...s.tasks, task({ id: 'tsk_A', runId: 'run_A', jobId: 'job_A', status: 'completed' })]
+    })
+  }
+  const lines = (h: ReturnType<typeof rig>): string[] => {
+    const out: string[] = []
+    h.ctx.activity = (d) => void out.push(String(d.payload.reason))
+    return out
+  }
+
+  it("merges plan A's delivery into plan B's Run worktree before B's next Task starts, once", async () => {
+    const h = rig()
+    withDeliveredA(h)
+    const feed = lines(h)
+    const refresh = vi.fn(async () => ({ kind: 'merged' as const }))
+    h.ctx.refreshOnto = refresh
+    await h.loop.run()
+    await h.settle()
+    expect(refresh).toHaveBeenCalledWith('/wt1', 'shaA', "Refresh onto plan A's delivery", 'main')
+    expect(h.startWorker).toHaveBeenCalled()
+    expect(refresh.mock.invocationCallOrder[0]).toBeLessThan(h.startWorker.mock.invocationCallOrder[0])
+    expect(feed.filter((l) => l.startsWith("Plan B refreshed onto plan A's delivery"))).toHaveLength(1)
+    await h.loop.run()
+    await h.settle()
+    expect(refresh).toHaveBeenCalledTimes(1)
+  })
+
+  it('a refresh that conflicts creates an integration Task in plan B instead of stopping', async () => {
+    const h = rig()
+    withDeliveredA(h)
+    const feed = lines(h)
+    h.ctx.refreshOnto = async () => ({ kind: 'conflict', reason: 'shaA does not merge cleanly into /wt1' })
+    await h.loop.run()
+    await h.settle()
+    const merge = h.state().tasks.find((t) => t.runId === 'run_1' && t.spec.includes('shaA'))
+    expect(merge).toBeDefined()
+    expect(h.state().gates.filter((g) => g.status === 'open')).toEqual([])
+    // Plan B's own Tasks wait for it: the one worker is the integration Task's
+    expect(h.state().tasks.filter((t) => t.id === 'tsk_1' || t.id === 'tsk_2').map((t) => t.status)).toEqual(['ready', 'ready'])
+    expect(feed.some((l) => l.startsWith("Integration Task created in plan B for its conflict with plan A's delivery"))).toBe(true)
+    await h.loop.run()
+    await h.settle()
+    expect(h.state().tasks.filter((t) => t.runId === 'run_1' && t.spec.includes('shaA'))).toHaveLength(1)
+  })
+
+  /** Plan A's pull request, which the PR poll saw merged (`attribution-remap`) after plan B began. */
+  const withMergedPrA = (h: ReturnType<typeof rig>): void => {
+    withDeliveredA(h)
+    const s = h.state()
+    h.setState({
+      ...s,
+      runs: s.runs.map(({ delivery: _d, ...r }) =>
+        r.id === 'run_A' ? { ...r, pr: { at: NOW, url: 'u', attributed: 'mergeA', attributedAt: LATER, baseRefName: 'main' } } : r
+      )
+    })
+  }
+
+  it("a merged pull request of plan A refreshes plan B too, fetching origin's branch", async () => {
+    const h = rig()
+    withMergedPrA(h)
+    const feed = lines(h)
+    const refresh = vi.fn(async () => ({ kind: 'merged' as const }))
+    h.ctx.refreshOnto = refresh
+    await h.loop.run()
+    await h.settle()
+    expect(refresh).toHaveBeenCalledWith('/wt1', 'mergeA', "Refresh onto plan A's delivery", 'main')
+    expect(refresh.mock.invocationCallOrder[0]).toBeLessThan(h.startWorker.mock.invocationCallOrder[0])
+    expect(feed.some((l) => l.startsWith("Plan B refreshed onto plan A's delivery"))).toBe(true)
+  })
+
+  it('a merged pull request of plan A that conflicts creates an integration Task in plan B', async () => {
+    const h = rig()
+    withMergedPrA(h)
+    const feed = lines(h)
+    h.ctx.refreshOnto = async () => ({ kind: 'conflict', reason: 'mergeA does not merge cleanly into /wt1' })
+    await h.loop.run()
+    await h.settle()
+    expect(h.state().tasks.filter((t) => t.runId === 'run_1' && t.spec.includes('mergeA'))).toHaveLength(1)
+    expect(feed.some((l) => l.startsWith("Integration Task created in plan B for its conflict with plan A's delivery"))).toBe(true)
+  })
+
+  it('a pull request merged before plan B began, or not merged, refreshes nothing', async () => {
+    const h = rig()
+    withMergedPrA(h)
+    const s = h.state()
+    h.setState({ ...s, runs: s.runs.map((r) => (r.id === 'run_A' ? { ...r, pr: { at: NOW, url: 'u', attributed: 'mergeA', attributedAt: new Date(NOW_MS - 1000).toISOString() } } : r)) })
+    const refresh = vi.fn(async () => ({ kind: 'merged' as const }))
+    h.ctx.refreshOnto = refresh
+    await h.loop.run()
+    await h.settle()
+    expect(refresh).not.toHaveBeenCalled()
+  })
+
+  it('delivers at most one plan of a project at a time', async () => {
+    const h = rig()
+    const s = h.state()
+    h.setState({
+      ...s,
+      jobs: [
+        ...s.jobs.map((j) => ({ ...j, delivery: 'push' as const })),
+        { id: 'job_2', objective: 'second', cwd: '/p', createdAt: NOW, concurrency: 1, autoDispatch: true, delivery: 'push' as const }
+      ],
+      runs: [...s.runs, { id: 'run_2', jobId: 'job_2', ordinal: 1, createdAt: NOW, worktree: '/wt2' }],
+      tasks: [...s.tasks, task({ id: 'tsk_3', runId: 'run_2', jobId: 'job_2' })]
+    })
+    let inFlight = 0
+    let most = 0
+    const delivered: string[] = []
+    h.ctx.handle = async (cmd, args) => {
+      if (cmd !== 'run-deliver') return h.real(cmd, args)
+      most = Math.max(most, ++inFlight)
+      await new Promise<void>((r) => setTimeout(r, 5))
+      inFlight--
+      delivered.push(String(args.run))
+      return { status: 200, body: { sha: 'x', branch: 'main' } }
+    }
+    await h.loop.run()
+    await h.settle()
+    const t = h.state()
+    h.setState({ ...t, tasks: t.tasks.map((x) => ({ ...x, status: 'completed' as const })) })
+    // Two passes at once, as two ticks would
+    await Promise.all([h.loop.run(), h.loop.run()])
+    await h.settle()
+    expect(delivered.sort()).toEqual(['run_1', 'run_2'])
+    expect(most).toBe(1)
   })
 })

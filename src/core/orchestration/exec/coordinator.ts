@@ -375,6 +375,16 @@ export const WORKER_MACHINE_RULES = `
 - Run heavy jobs (the full test suite, \`npm run dev\` / Electron, \`npm run dist:linux\`) as \`astera heavy -- <cmd>\`: one at a time on this machine. Manual checks run the dev app on the dev profile (\`ASTERA_PROFILE_DIR=~/.config/astera-dev\`), never the profile Astera runs on.
 `
 
+// The worker may run in Claude Code or Codex, so the section names both tools and is the same text for either.
+export const WORKER_WORK_FAST = `
+---
+## Work fast (assembled by the app — do not delete)
+
+- Use subagents: the Agent/Task tool in Claude Code, or parallel sub-tasks in Codex where available. Give them read-only exploration of several files or folders at once, and independent sub-parts of the Task.
+- Keep the main session for decisions, edits that must agree with each other, and the final verification.
+- Never hand the final check to a subagent. You verify what they return.
+`
+
 export function buildSpecFile(a: {
   title: string
   spec: string
@@ -469,7 +479,7 @@ If this task has an issue, add \`--issue <number>\` to the worker_done report be
   return `# ${a.title}
 
 ${a.spec}
-${knowledgeSection}${commitObligation}${issueSection}${WORKER_MACHINE_RULES}${a.repair ? repairSection(a.repair) : ''}
+${knowledgeSection}${commitObligation}${issueSection}${WORKER_MACHINE_RULES}${WORKER_WORK_FAST}${a.repair ? repairSection(a.repair) : ''}
 ---
 ## Reporting obligation (assembled by the app — do not delete)
 

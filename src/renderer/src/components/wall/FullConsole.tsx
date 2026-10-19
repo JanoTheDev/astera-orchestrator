@@ -1,11 +1,11 @@
 // W9-H: one console full size (DESIGN.md §2). The slim header and the details panel; the console itself is the
 // session's own pane (PaneGrid, mounted for the session's life), so keys go to that PTY and nowhere else. There is no
 // Astera input box and no chat UI here (DESIGN §0).
-import { ArrowLeft, GitBranch, PanelRightClose, PanelRightOpen } from 'lucide-react'
+import { ArrowLeft, CheckSquare, GitBranch, Keyboard, Square, PanelRightClose, PanelRightOpen } from 'lucide-react'
 import { useI18n } from '../../i18n/I18nProvider'
 import { formatElapsed } from '../../../../core/orchestration/elapsed'
 import type { Account } from '../../../../core/types'
-import { Button, Icon, cx } from '../ui'
+import { Button, Icon, IconButton, cx } from '../ui'
 import { openWorktree } from '../shell/navigation'
 import { StateChip } from './Wall'
 import type { ConsoleDetails, WallConsole } from './wallModel'
@@ -27,22 +27,29 @@ export function ConsoleHeader({
   const crumbs = [projectName, c.planName, c.label].filter((x): x is string => !!x)
   return (
     <div className="wall-console-head">
-      <Button size="sm" icon={<Icon icon={ArrowLeft} size={14} />} onClick={onBack}>
+      <Button size="sm" variant="ghost" icon={<Icon icon={ArrowLeft} size={14} />} onClick={onBack}>
         {t('wall.console.back')}
       </Button>
-      <span className="wall-console-head__crumbs">{crumbs.join(' › ')}</span>
-      {c.taskTitle && <span className="wall-console-head__task">· {c.taskTitle}</span>}
+      <span className="wall-console-head__sep" aria-hidden="true" />
+      <span className="wall-console-head__titles">
+        <span className="wall-console-head__crumbs" title={crumbs.join(' › ')}>{crumbs.join(' › ')}</span>
+        {c.taskTitle && <span className="wall-console-head__task">{c.taskTitle}</span>}
+      </span>
       <StateChip c={c} />
       {c.model && <span className="wall-console-head__meta">{c.model}</span>}
       <span className="wall-console-head__meta wall-console-head__cwd" title={c.cwd}>
         {c.cwd}
       </span>
-      <span className="wall-console-head__hold">{t('wall.console.hold')}</span>
-      <Button
-        aria-label={t('wall.console.details')}
-        title={t('wall.console.details')}
+      <span className="wall-console-head__hold" title={t('wall.console.hold')}>
+        <Icon icon={Keyboard} size={14} />
+        <span className="wall-console-head__hold-text">{t('wall.console.hold')}</span>
+      </span>
+      <IconButton
+        size="sm"
+        label={t('wall.console.details')}
+        active={detailsOpen}
         aria-pressed={detailsOpen}
-        icon={<Icon icon={detailsOpen ? PanelRightClose : PanelRightOpen} size={16} />}
+        icon={<Icon icon={detailsOpen ? PanelRightClose : PanelRightOpen} size={14} />}
         onClick={onToggleDetails}
       />
     </div>
@@ -105,7 +112,7 @@ export function DetailsPanel({
           <ul className="wall-details__criteria">
             {d.task.criteria.map((cr) => (
               <li key={cr.text} className={cx(cr.met && 'wall-details__criterion--met')}>
-                <span aria-hidden="true">{cr.met ? '☑' : '☐'}</span> {cr.text}
+                <Icon icon={cr.met ? CheckSquare : Square} size={14} /> {cr.text}
               </li>
             ))}
           </ul>

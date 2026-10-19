@@ -35,6 +35,8 @@ export interface FileTree {
   toggleDir: (dirPath: string) => void
   /** Expands a parent folder (used when paste or create needs the target folder open) */
   expandDir: (dirPath: string) => void
+  /** Closes every open folder (the explorer header's Collapse button); the cached listings stay */
+  collapseAll: () => void
   /** Adopts a preserved tree snapshot as-is (a remount with the same root — the explorer toggle) */
   adoptTree: (s: { expanded: Set<string>; dirs: Record<string, DirState> }) => void
   /** Clears the tree and, if load is given, reloads that folder (no root / root changed) */
@@ -195,6 +197,7 @@ export function useFileTree(
   }
 
   const expandDir = (dirPath: string): void => setExpanded((prev) => new Set(prev).add(dirPath))
+  const collapseAll = (): void => setExpanded(new Set())
 
   const adoptTree = (s: { expanded: Set<string>; dirs: Record<string, DirState> }): void => {
     setExpanded(s.expanded)
@@ -262,6 +265,7 @@ export function useFileTree(
     loadDir,
     toggleDir,
     expandDir,
+    collapseAll,
     adoptTree,
     resetTree,
     refreshTree,
