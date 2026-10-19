@@ -153,6 +153,10 @@ export interface Project {
   replan?: 'waves' | 'off'
   /** The default branch found when the project was added or created; shown, never used to pick a base. */
   defaultBranch?: string
+  // W10-A Run as written by name (promptNames.ts)
+  /** The folder, repository-relative, whose `<id>-*.md` files the prompt ids typed in Run as written name. Absent: the
+   *  first such plan detects it (`detectPromptsDir`) and saves it here. */
+  promptsDir?: string
 }
 
 /** W7-B: what a project nobody set up reads as. */
@@ -320,6 +324,10 @@ export interface Job {
    *  `doc#<heading>`, `sha256` its text's, `taskId` the Task Astera wrote for it, `skipped` why it got none ("already
    *  done: …"). Present: the planner may not add, cancel or rewrite a Task, and `validatePlan` checks each prompt. */
   verbatim?: { title: string; source: string; sha256: string; taskId?: string; skipped?: string }[]
+  // W10-A Run as written by name (promptNames.ts)
+  /** The prompts the owner named in the text instead of attaching them: the folder they came from, each id's file
+   *  (repository-relative), the ids left out and why, and how "all of" / "next waves" picked. Shown at approval. */
+  byName?: { dir: string; picked: { id: string; path: string }[]; skipped: { id: string; why: string }[]; why: string[] }
   // W8-C plan after plan
   /** When the Host escalated that the Job named by `after` stopped (gave up or archived) while this one waits on it
    *  (`afterSweep`, after.ts). Once per stop: cleared when that Job is no longer stopped. */

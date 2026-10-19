@@ -135,6 +135,8 @@ export type ProjectSettingsPatch = {
   reviewRounds?: number | null
   replan?: 'waves' | 'off' | null
   defaultBranch?: string | null
+  // W10-A: repository-relative, checked by the caller (promptNames.ts `repoRelative`)
+  promptsDir?: string | null
 }
 
 export function setProjectSettings(s: OrchState, id: string, patch: ProjectSettingsPatch): Res<Project> {

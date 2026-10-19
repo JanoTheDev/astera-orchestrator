@@ -41,6 +41,8 @@ import { isLoggedIn } from '../core/accounts/loginCheck'
 import { makeDescriptors } from '../core/providers/descriptor'
 import type { Account } from '../core/types'
 import { readRunConfigsFile } from '../core/run/runConfigsFile'
+// W10-A Run as written by name
+import { listMdFiles } from '../core/orchestration/intakeFiles'
 import type { HostChecks } from './checks'
 import type { HostSessions } from './sessions'
 import type { HostLocal } from './spawner'
@@ -857,6 +859,8 @@ export function createHostOrch(a: {
       ...(a.intakeInputs ? { intakeInputs: a.intakeInputs } : {}),
       // W8-C prompts mode
       ...(a.readIntakeText ? { readIntakeText: a.readIntakeText } : {}),
+      // W10-A Run as written by name: the Host that reads the prompt files also lists their folder
+      ...(a.readIntakeText ? { listPromptFiles: (dir: string, depth: number) => listMdFiles(dir, depth) } : {}),
       ...(a.changes ? { changes: a.changes } : {}),
       ...(a.jobSources ? { jobSources: a.jobSources } : {}),
       ...(a.completionChecks ? { completionChecks: a.completionChecks } : {}),

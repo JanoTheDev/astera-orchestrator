@@ -287,5 +287,11 @@ export function renderPlanMd(s: OrchState, job: Job): string {
   // W8-C prompts mode: the prompts Astera left out, so the owner sees them at approval
   const skipped = (job.verbatim ?? []).filter((v) => v.skipped !== undefined)
   if (skipped.length) lines.push('', '## Already done (skipped)', '', ...skipped.map((v) => `- ${v.source}: ${v.skipped}`))
+  // W10-A: the prompts the owner named instead of attaching, each id with the file it resolved to
+  if (job.byName) {
+    const b = job.byName
+    lines.push('', '## Found by name', '', `From \`${b.dir}\`.`, ...b.why.map((w) => `- Picked by ${w}`), '', ...b.picked.map((p) => `- ${p.id} → \`${p.path}\``))
+    if (b.skipped.length) lines.push('', 'Skipped:', '', ...b.skipped.map((x) => `- ${x.id}: ${x.why}`))
+  }
   return lines.join('\n') + '\n'
 }

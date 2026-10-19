@@ -5,9 +5,10 @@ import { createHash } from 'node:crypto'
 
 export const sha256Of = (text: string): string => createHash('sha256').update(text, 'utf8').digest('hex')
 
-/** A prompt's id, from its file name or heading: `W9-A` of `W9-A-foundation.md`, `W0` of `W0-linux-baseline.md`. */
+/** A prompt's id, from its file name or heading: `W9-A` of `W9-A-foundation.md`, `W0` of `W0-linux-baseline.md`.
+ *  W10-A: any capital letter leads (`P1-A`), so a project's own prompt series reads the same way. */
 export function promptIdOf(name: string): string | undefined {
-  return /^(W\d+(?:-[A-Z0-9]+)?)(?![A-Za-z0-9])/.exec(name.trim())?.[1]
+  return /^([A-Z]\d+(?:-[A-Z0-9]+)?)(?![A-Za-z0-9])/.exec(name.trim())?.[1]
 }
 
 /** One `## ` section of a document: its heading text and its text, from its `## ` line up to the next one. */
@@ -79,7 +80,7 @@ export interface PromptOrder {
   skipped: Record<string, string>
 }
 
-const ID = String.raw`W\d+(?:-[A-Z0-9]+)?`
+const ID = String.raw`[A-Z]\d+(?:-[A-Z0-9]+)?`
 const ID_LIST = String.raw`${ID}(?:(?:\s*,\s*|\s+and\s+|\s*,\s*and\s+)${ID})*`
 
 /** The prompt ids a prompt's own text says it waits for: "after X merges", "after X and Y merge", "X is merged". */

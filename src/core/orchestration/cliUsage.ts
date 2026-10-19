@@ -100,7 +100,7 @@ const INTAKE_FLAGS: readonly UsageFlag[] = [
     name: 'approve',
     value: '<auto|ask>',
     about:
-      "with --mode prompts (Run as written: each attached .md file, or each `## ` section of one document, is one Task with its text unchanged, ordered by docs/dev/PLAN.md's wave table): auto (default) starts the plan without an approval step; ask waits for it"
+      "with --mode prompts (Run as written: each attached .md file, or each `## ` section of one document, is one Task with its text unchanged, ordered by docs/dev/PLAN.md's wave table; with nothing attached, the prompt ids in --objective, such as \"W8-A, B then all of W9\" or \"next waves\", are found in the project's prompts folder): auto (default) starts the plan without an approval step; ask waits for it"
   }
 ]
 
@@ -336,7 +336,7 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
   },
   // W6-H delivery (delivery.ts)
   'projects-set': {
-    summary: "set a project's delivery, auto-approve, test command, concurrency, review rounds, replan and account",
+    summary: "set a project's delivery, auto-approve, test command, concurrency, review rounds, replan, prompts folder and account",
     detail:
       'pr (the default) opens one pull request per plan and never merges it. push merges a finished plan into the delivery branch (the default branch unless --delivery-branch) and pushes it, with no review by a person, after the reviews, the final check and the validation pass; it stops and escalates when the folder is not on that branch, has uncommitted changes, cannot fast-forward, conflicts, fails validation or is rejected, and never force-pushes. A Job may override it (`jobs create --delivery`). Defaults: delivery pr, auto-approve off, concurrency 3, review rounds 5, replan waves. --auto-approve on starts a plan without waiting for approval. --test-command is saved as a run configuration and validates every new Task that has no --validate (--test-config picks an existing one). A new Job copies the concurrency, replan and review rounds when it sets none. An empty value clears a setting back to its default. Refused from an agent session and an MCP client.',
     flags: [
@@ -350,7 +350,9 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       { name: 'concurrency', value: '<1-10>', about: 'workers at once for a new Job (default: 3)' },
       { name: 'review-rounds', value: '<n>', about: 'review rounds for a new Job (default: 5)' },
       { name: 'replan', value: '<waves|off>', about: 'replan between waves (default: waves)' },
-      { name: 'account', value: '<id>', about: 'the account the project uses' }
+      { name: 'account', value: '<id>', about: 'the account the project uses' },
+      // W10-A
+      { name: 'prompts-dir', value: '<path|none>', about: 'the folder (in the repository) whose <id>-*.md files Run as written finds by name; none clears it' }
     ]
   },
   'projects-find': {
@@ -401,7 +403,9 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       // W7-E
       { name: 'no-review', about: 'do not review this plan\'s Tasks (`jobs plan` turns a review of every Task on otherwise)' },
       // W8-C plan after plan
-      { name: 'after', value: '<jobId>', about: 'queue it after that Job (needs --coordinator-account): its planner starts by itself once that Job is delivered' }
+      { name: 'after', value: '<jobId>', about: 'queue it after that Job (needs --coordinator-account): its planner starts by itself once that Job is delivered' },
+      // W10-A Run as written by name
+      { name: 'dry-run', about: 'with --mode prompts: only answer which files the prompt ids in --objective name, and what is refused; nothing is created' }
     ]
   },
   'jobs-create-from-source': {

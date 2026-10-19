@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { INTAKE_FILE_MAX_BYTES, copyIntakeFiles, inputsDirOf } from './intakeFiles'
+import { INTAKE_FILE_MAX_BYTES, copyIntakeFiles, inputsDirOf, listMdFiles } from './intakeFiles'
 
 describe('copyIntakeFiles', () => {
   let tmp: string
@@ -43,5 +43,23 @@ describe('copyIntakeFiles', () => {
     ]
     for (const [files, error] of cases) await expect(copyIntakeFiles(profile, 'job_3', files)).rejects.toThrow(error)
     await expect(fs.stat(inputsDirOf(profile, 'job_3'))).rejects.toThrow()
+  })
+})
+
+// W10-A Run as written by name
+describe('listMdFiles', () => {
+  it('the .md files down to a depth, skipping hidden folders and node_modules; [] for a missing folder', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'prompts-'))
+    try {
+      for (const f of ['a.md', 'b.txt', 'docs/dev/prompts/W1-A-x.md', 'docs/dev/prompts/deep/W1-B-y.md', '.git/x.md', 'node_modules/p/r.md']) {
+        await fs.mkdir(path.dirname(path.join(root, f)), { recursive: true })
+        await fs.writeFile(path.join(root, f), 'x')
+      }
+      expect(await listMdFiles(root, 3)).toEqual(['a.md', 'docs/dev/prompts/W1-A-x.md'])
+      expect(await listMdFiles(path.join(root, 'docs/dev/prompts'), 0)).toEqual(['W1-A-x.md'])
+      expect(await listMdFiles(path.join(root, 'nope'), 0)).toEqual([])
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
+    }
   })
 })

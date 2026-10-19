@@ -460,6 +460,8 @@ const NOT_FORWARDED = [
   'intakeInputs',
   // W8-C prompts mode
   'readIntakeText',
+  // W10-A Run as written by name
+  'listPromptFiles',
   'changes',
   'jobSources',
   'completionChecks',
@@ -616,6 +618,8 @@ const EFFECTFUL: Record<Classified, boolean> = {
   intakeInputs: true,
   // NOT_FORWARDED as well (W8-C prompts mode): a read of this Host's machine's files; it leaves nothing outside the call.
   readIntakeText: false,
+  // NOT_FORWARDED as well (W10-A): a listing of this Host's machine's folders; it leaves nothing outside the call.
+  listPromptFiles: false,
   // NOT_FORWARDED as well (remote runtime design Phase 10): git reads on this Host's machine, never the app's. It
   // runs `git diff` and leaves nothing outside the call.
   changes: false,
@@ -759,6 +763,8 @@ export function hostOrchDeps(a: {
   intakeInputs?: OrchServerDeps['intakeInputs']
   /** W8-C prompts mode: Run-as-written prompt files and PLAN.md, read on this Host. Absent: `--mode prompts --attach` answers 409. */
   readIntakeText?: OrchServerDeps['readIntakeText']
+  /** W10-A: the prompts folder's files, listed on this Host. Absent: prompt names in Run as written answer 409. */
+  listPromptFiles?: OrchServerDeps['listPromptFiles']
   /** A Run's changed files and diffs from this Host's git (Phase 10). Absent: the two commands answer 409. */
   changes?: OrchServerDeps['changes']
   /** This Host's job-source plugins (plugin Phase 4 J10). Absent: the sources are GitHub's alone. */
@@ -1368,6 +1374,8 @@ export function hostOrchDeps(a: {
     ...(a.intakeInputs ? { intakeInputs: a.intakeInputs } : {}),
     // W8-C prompts mode
     ...(a.readIntakeText ? { readIntakeText: a.readIntakeText } : {}),
+    // W10-A Run as written by name
+    ...(a.listPromptFiles ? { listPromptFiles: a.listPromptFiles } : {}),
     ...(a.changes ? { changes: a.changes } : {}),
     ...(a.jobSources ? { jobSources: a.jobSources } : {}),
     ...(a.completionChecks ? { completionChecks: a.completionChecks } : {}),

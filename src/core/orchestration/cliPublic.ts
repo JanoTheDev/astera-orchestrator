@@ -75,7 +75,7 @@ const RUN_HIDDEN = [
 ] as const
 
 /** W6-H: how a project's plans land, set by `projects-set`; not in the SDK's contract yet. */
-const PROJECT_HIDDEN = ['delivery', 'deliveryBranch', /* W7-B: project settings, not in the SDK's contract yet */ 'autoApprove', 'testConfigId', 'concurrency', 'reviewRounds', 'replan', 'defaultBranch'] as const
+const PROJECT_HIDDEN = ['delivery', 'deliveryBranch', /* W7-B: project settings, not in the SDK's contract yet */ 'autoApprove', 'testConfigId', 'concurrency', 'reviewRounds', 'replan', 'defaultBranch', /* W10-A: the prompts folder, not in the SDK's contract yet */ 'promptsDir'] as const
 
 /**
  * A Task's fields kept back on purpose: all of them **the ledger the app keeps to drive convergence**. The guide
@@ -134,7 +134,8 @@ const JOB_HIDDEN = [
   /* W8-C plan after plan: the queue and its escalation mark, not in the SDK's contract yet */ 'after',
   'afterStopNotified',
   /* W8-D several plans in one repo: overlaps and areas, not in the SDK's contract yet */ 'overlaps',
-  'areas'
+  'areas',
+  /* W10-A Run as written by name: what the typed names resolved to, not in the SDK's contract yet */ 'byName'
 ] as const
 
 /** A followed event's message body (pages long) and the app's link from an event to a tab. */

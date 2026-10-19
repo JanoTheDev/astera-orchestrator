@@ -127,6 +127,8 @@ import { intakeChanges, intakeObjective, intakeOf, intakeTitle, needsInputs } fr
 // W8-C prompts mode
 import path from 'node:path'
 import { promptPlanOf, sha256Of } from './promptWaves'
+// W10-A Run as written by name
+import { detectPromptsDir, isNamesText, PROMPTS_DIR_MAX_DEPTH, promptNamesOf, repoRelative, resolvePromptNames, takenPrompts } from './promptNames'
 import { fillFromCommits, type CommitSummary } from '../github/fill'
 // W2-D GitHub links
 import {
@@ -763,6 +765,11 @@ export interface OrchServerDeps {
    *  project's docs/dev/PLAN.md, else docs/orchestrator/PLAN.md (`readTextIfAny`). **Only the Host injects it**; absent, `--mode prompts` with
    *  files answers 409 and a pasted document is ordered without PLAN.md. */
   readIntakeText?(file: string): Promise<string | null>
+  // W10-A Run as written by name
+  /** The `.md` files under the folder `dir` of this machine, `/`-separated and relative to it, at most `depth` folders
+   *  down (0: its own files); [] when it is not there (`listMdFiles`). **Only the Host injects it**; absent, prompt
+   *  names in Run as written answer 409. */
+  listPromptFiles?(dir: string, depth: number): Promise<string[]>
   /** The job-source plugins (plugin Phase 4 J10): which there are and a question to one. **Only the Host injects it**,
    *  from its plugin manager and runtime; absent, the sources are GitHub's alone. */
   jobSources?: JobSourcesDeps
@@ -1201,6 +1208,12 @@ function projectSettingsArgs(
   for (const key of ['testCommand', 'account'] as const)
     if (args[key] !== undefined && typeof args[key] !== 'string') return { error: `--${key === 'testCommand' ? 'test-command' : 'account'} needs a value` }
   if (args.testCommand !== undefined && args.testConfig !== undefined) return { error: 'give --test-command or --test-config, not both' }
+  // W10-A: `none` (or empty) clears it; a path is checked against the project's folder by projects-set
+  if (args.promptsDir !== undefined) {
+    if (typeof args.promptsDir !== 'string') return { error: '--prompts-dir needs a folder in the repository, or none' }
+    const v = args.promptsDir.trim()
+    patch.promptsDir = v === '' || v === 'none' ? null : v
+  }
   return {
     patch,
     ...(args.testCommand !== undefined ? { testCommand: (args.testCommand as string).trim() } : {}),
@@ -1591,13 +1604,7 @@ async function writePromptTasks(
     files.push({ name, text })
   }
   const job = deps.getState().jobs.find((j) => j.id === jobId)!
-  // docs/dev first; docs/orchestrator is where projects that predate the move keep it
-  let planMd: string | undefined
-  for (const dir of ['dev', 'orchestrator']) {
-    planMd = (await deps.readIntakeText?.(path.join(job.cwd, 'docs', dir, 'PLAN.md'))) ?? undefined
-    if (planMd !== undefined) break
-  }
-  const plan = promptPlanOf(files, pasted, planMd)
+  const plan = promptPlanOf(files, pasted, await readPlanMd(deps, job.cwd))
   let account = job.coordinatorAccountId
   if (account === undefined) {
     const all = await deps.listAccounts(undefined, { withDefault: true })
@@ -1630,6 +1637,50 @@ async function writePromptTasks(
     lines: plan.tasks.map((t) => `${idOf.get(t.key)} ${t.title}: ${t.spec.split('\n')[0]}`),
     skippedLines: plan.skipped.map((x) => `${x.key}: ${x.why}`)
   }
+}
+
+/** The project's PLAN.md (its wave table): docs/dev first; docs/orchestrator is where projects that predate the move
+ *  keep it. Undefined when there is none or no reader. */
+async function readPlanMd(deps: OrchServerDeps, cwd: string): Promise<string | undefined> {
+  for (const dir of ['dev', 'orchestrator']) {
+    const text = (await deps.readIntakeText?.(path.join(cwd, 'docs', dir, 'PLAN.md'))) ?? undefined
+    if (text !== undefined) return text
+  }
+  return undefined
+}
+
+// W10-A Run as written by name
+/** The prompt files the ids in `text` name (promptNames.ts), from the project's prompts folder, else the one detected
+ *  in its repository. `detected` is set when the folder was found now, for the plan to save. */
+async function promptsByName(
+  deps: OrchServerDeps,
+  s: OrchState,
+  cwd: string,
+  text: string
+): Promise<{ root: string; dir?: string; detected: boolean; resolution: ReturnType<typeof resolvePromptNames> }> {
+  const project = findProjectContaining(s, cwd)
+  const root = project?.path ?? cwd
+  let dir = project?.promptsDir
+  const detected = dir === undefined
+  if (dir === undefined) dir = detectPromptsDir(await deps.listPromptFiles!(root, PROMPTS_DIR_MAX_DEPTH))
+  const names = promptNamesOf(text)
+  if (dir === undefined)
+    return {
+      root,
+      detected,
+      resolution: {
+        picked: [],
+        skipped: [],
+        why: [],
+        problems: [
+          `no prompts folder: no folder up to ${PROMPTS_DIR_MAX_DEPTH} levels deep holds <id>-*.md files; set one with \`astera projects set --prompts-dir <path>\``
+        ]
+      }
+    }
+  const files = await deps.listPromptFiles!(path.join(root, dir), 0)
+  const mine = (j: Job): boolean => (project ? jobInProject(s, j, project) : isSamePath(j.cwd, cwd))
+  const resolution = resolvePromptNames(names, dir, files, await readPlanMd(deps, root), takenPrompts(s, mine))
+  return { root, dir, detected, resolution }
 }
 
 function startingCheckIds(deps: OrchServerDeps, cmd: string, args: Record<string, unknown>): string[] {
@@ -2339,9 +2390,15 @@ export async function handleCommand(
       if ('error' in settings) return bad(settings.error)
       const { testCommand, account } = settings
       if (delivery === undefined && branchArg === undefined && Object.keys(settings.patch).length === 0 && testCommand === undefined && account === undefined)
-        return bad('nothing to set: give --delivery, --delivery-branch, --auto-approve, --test-command, --test-config, --concurrency, --review-rounds, --replan or --account')
+        return bad('nothing to set: give --delivery, --delivery-branch, --auto-approve, --test-command, --test-config, --concurrency, --review-rounds, --replan, --prompts-dir or --account')
       const project = findProject(s, id)
       if (!project) return notFound(`unknown project: ${id}`)
+      // W10-A: the prompts folder is kept repository-relative, and a folder outside the repository is refused
+      if (typeof settings.patch.promptsDir === 'string') {
+        const rel = repoRelative(project.path, settings.patch.promptsDir)
+        if (!rel.ok) return bad(`--prompts-dir ${rel.error}`)
+        settings.patch.promptsDir = rel.rel
+      }
       if (testCommand !== undefined && !deps.saveTestCommand) return conflict("a project's test command is kept by the Astera app; open it and try again")
       if (account !== undefined && !deps.setProjectAccount) return conflict("a project's default account is kept by the Astera app; open it and try again")
       if (account) {
@@ -2483,15 +2540,40 @@ export async function handleCommand(
       // W6-A intake: --mode, --scope, --instructions and --attach shape the planner's objective (intake.ts).
       const read = intakeOf(args)
       if (!read.ok) return bad(read.error)
-      const intake = read.intake
-      const { mode: _mode, scope: _scope, instructions: _instructions, attach: _attach, approve: _approve, after: _after, ...plain } = args
+      let intake = read.intake
+      const { mode: _mode, scope: _scope, instructions: _instructions, attach: _attach, approve: _approve, after: _after, dryRun: _dryRun, ...plain } = args
       // W8-C plan after plan: `--after <job>`, the plan this one is queued after
       const afterId = args.after === undefined ? null : str(args.after)
       if (args.after !== undefined && (afterId === null || afterId === 'none')) return bad('--after needs a job id')
       if (afterId !== null && !s.jobs.some((j) => j.id === afterId)) return notFound(`unknown job: ${afterId}`)
       if (afterId !== null && str(args.coordinatorAccount) === null && args.coordinatorProvider === undefined)
         return bad('--after needs --coordinator-account (or --coordinator-provider): the queued plan\'s planner starts on it')
-      const source = typeof args.objective === 'string' ? args.objective : ''
+      let source = typeof args.objective === 'string' ? args.objective : ''
+      // W10-A Run as written by name: with nothing attached, the prompt ids in the text ("run W8-A, B then W9-A",
+      // "next waves") are looked up in the project's prompts folder and attached; any id that does not resolve to
+      // exactly one file refuses the plan before it exists. `--dry-run` answers the lookup alone (the Start page).
+      let notice: string | undefined
+      let byName: Awaited<ReturnType<typeof promptsByName>> | undefined
+      const named = intake.mode === 'prompts' && isNamesText(source)
+      if (args.dryRun === true && !named) return okBody({ names: false })
+      if (named && intake.attach.length > 0) notice = `Using the ${intake.attach.length} attached files; the names in the text were not looked up`
+      else if (named) {
+        if (!deps.listPromptFiles || !deps.readIntakeText) return conflict('prompt names are looked up on the Astera Host, and this caller is not one')
+        let root = str(args.cwd) ?? process.cwd()
+        if (deps.resolveProjectRoot) root = await deps.resolveProjectRoot(root).catch(() => root)
+        byName = await promptsByName(deps, s, root, source)
+        const { resolution: r } = byName
+        if (args.dryRun === true) return okBody({ names: true, dir: byName.dir ?? null, detected: byName.detected, ...r })
+        if (r.problems.length > 0) return bad(`prompt names: ${r.problems.join('; ')}`)
+        // The text stays the owner's instructions (its order lines still drive the planner), the files are the prompts
+        intake = {
+          ...intake,
+          attach: r.picked.map((p) => path.join(byName!.root, p.path)),
+          instructions: [source.trim(), intake.instructions].filter((x) => x !== undefined).join('\n\n')
+        }
+        source = ''
+      }
+      if (args.dryRun === true) return okBody({ names: true, notice })
       if (intake.attach.length > 0 && (fromAgentSession || caller.role === 'mcp' || caller.role === 'controller'))
         return denied('--attach is for the person, in Astera or at their own shell: it copies files of this machine')
       if (needsInputs(intake) && !deps.intakeInputs) return conflict('attachments and audits are kept by the Astera Host, and this caller is not one')
@@ -2537,11 +2619,21 @@ export async function handleCommand(
                   objective,
                   ...(title !== undefined && j.title === undefined ? { title } : {}),
                   // W8-C prompts mode: the owner wrote the plan, so it starts on its own unless `--approve ask`
-                  ...(verbatim !== undefined ? { verbatim: verbatim.entries, autoApprove: intake.approve !== 'ask' } : {})
+                  ...(verbatim !== undefined ? { verbatim: verbatim.entries, autoApprove: intake.approve !== 'ask' } : {}),
+                  // W10-A: what the names resolved to, for the approval
+                  ...(byName?.dir !== undefined
+                    ? { byName: { dir: byName.dir, picked: byName.resolution.picked, skipped: byName.resolution.skipped, why: byName.resolution.why } }
+                    : {})
                 }
               : j
           )
         })
+        // W10-A: a prompts folder found now is the project's from here on
+        const project = byName?.detected && byName.dir !== undefined ? findProjectContaining(deps.getState(), byName.root) : undefined
+        if (project && project.promptsDir === undefined) {
+          const set = setProjectSettings(deps.getState(), project.id, { promptsDir: byName!.dir! })
+          if (set.ok) await deps.setState(set.state)
+        }
       }
       // W7-E: `--no-review`: this plan's Tasks are not reviewed (`jobs plan` turns review on otherwise, Job.review)
       if (args.noReview === true) {
@@ -2555,7 +2647,7 @@ export async function handleCommand(
       }
       const after = deps.getState()
       const created = after.jobs.find((j) => j.id === id)
-      return created ? okBody(jobView(after, created, undefined)) : reply
+      return created ? okBody({ ...jobView(after, created, undefined), ...(notice !== undefined ? { notice } : {}) }) : reply
     }
     /**
      * Task 를 더한다 — task-create 의 공개 이름(phase C).

@@ -42,3 +42,20 @@ export async function readTextIfAny(file: string): Promise<string | null> {
     throw e
   })
 }
+
+// W10-A Run as written by name
+/** The `.md` files under `dir`, `/`-separated and relative to it, at most `depth` folders down (0: its own files);
+ *  [] when `dir` is not there. Hidden folders and node_modules are not entered. */
+export async function listMdFiles(dir: string, depth: number): Promise<string[]> {
+  const out: string[] = []
+  const walk = async (rel: string, left: number): Promise<void> => {
+    const entries = await fs.readdir(path.join(dir, rel), { withFileTypes: true }).catch(() => [])
+    for (const e of entries) {
+      const name = rel === '' ? e.name : `${rel}/${e.name}`
+      if (e.isFile() && e.name.endsWith('.md')) out.push(name)
+      else if (e.isDirectory() && left > 0 && !e.name.startsWith('.') && e.name !== 'node_modules') await walk(name, left - 1)
+    }
+  }
+  await walk('', depth)
+  return out.sort()
+}
