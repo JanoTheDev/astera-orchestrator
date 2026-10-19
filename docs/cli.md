@@ -631,7 +631,23 @@ non-member wrote, or a closed one); `NOT_FOUND` (exit 4) an unknown source, proj
 request's number; `CONFLICT` (exit 6) `gh` missing or logged out. A plugin source that does not run, one that throws
 and one that takes more than 15 seconds are `FAILED` (exit 1), the message saying which: the source's status and
 reason, what it threw, or the time it had. `jobs-create-from-issue`, which agents used before job sources, still
-answers `CONFLICT` for a closed issue or a pull request.
+answers `CONFLICT` for a closed issue or a pull request when that is its only issue; given several (`--issue 5,7,9`),
+it skips and lists the ones that cannot become a Job (`skipped: [{ number, why }]`) and makes the Job of the rest.
+
+**Let Astera pick** (#119): `jobs create-from-issue --auto` reads every open issue of the project's repository and picks
+for you. It skips pull requests, issues a non-member wrote, issues another plan of this project already holds and
+issues assigned to someone other than you, each with its reason. `--label <name>` keeps one label's issues and
+`--max <n>` caps how many are picked; `bug`-labelled issues come first, then the oldest. The picked issues are cut into
+plans of at most 20, issues with the same labels side by side, and each plan after the first is queued after the one
+before (as `--after`), so more than one plan needs `--coordinator-account`. `--hands-off` and the coordinator account
+go to every plan. Each plan keeps why in `pick` (`jobs get`) and in its `inputs/pick.md`, which its planner reads and
+checks against the code as it does every issue. The answer is `{ jobs: [{ id, issues }], skipped: [{ number, why }] }`;
+plan the first Job as usual, and the later ones start by themselves when the one before is delivered. MCP's
+`create_job_from_issue` takes `auto`, `label` and `max` the same way.
+
+```text
+astera jobs create-from-issue --project <projectId> --auto [--label <name>] [--max <n>] [--hands-off] --coordinator-account <accountId>
+```
 
 The commands reach this machine's Host only: a paired Runtime's sources are not listed, plugins cannot call them, and
 an agent session may make a Job from a source as it may with `jobs create`. Writing a job source:
@@ -680,7 +696,7 @@ astera plugins settings  --id <pluginId>
 astera plugins configure --id <pluginId> [--set <key=value>] [--unset <key>] [--stdin <key>]
 
 astera sources list
-astera sources items --source <sourceId> [--query <text>] [--cursor <cursor>] [--project <projectId>] [--assigned-to-me]
+astera sources items --source <sourceId> [--query <text>] [--cursor <cursor>] [--project <projectId>] [--assigned-to-me] [--assignee <all|none|me|others>]
 astera sources show  --source <sourceId> --item <itemId> [--project <projectId>]
 
 astera projects list
@@ -688,7 +704,7 @@ astera projects get   --id <projectId>
 astera projects find  --path <path>
 astera projects add   --path <path> [--initial-commit]
 astera projects create --name <name> --parent <path> [--describe <text>] [--github <private|public>]
-astera projects set   --id <projectId> [--delivery <pr|push>] [--delivery-branch <branch>] [--auto-approve <on|off>] [--test-command <cmd>] [--test-config <id>] [--concurrency <1-10>] [--review-rounds <n>] [--replan <waves|off>] [--account <id>] [--prompts-dir <path|none>]
+astera projects set   --id <projectId> [--delivery <pr|push>] [--delivery-branch <branch>] [--auto-approve <on|off>] [--hands-off <on|off>] [--test-command <cmd>] [--test-config <id>] [--concurrency <1-10>] [--review-rounds <n>] [--replan <waves|off>] [--account <id>] [--prompts-dir <path|none>]
 
 astera jobs    list   [--status <pending|paused|scheduled|waiting|running|completed|failed>] [--project <path>] [--archived] [--area <word>]
 astera jobs    get    --id <jobId | runId>
@@ -699,10 +715,10 @@ astera jobs    set    --id <jobId | runId> [--concurrency <n>] [--after <jobId|n
 astera jobs    overlaps --id <jobId>
 astera jobs    archive --id <jobId> [--kill-sessions]
 astera jobs    unarchive --id <jobId>
-astera jobs    plan --id <jobId> [--account <id>] [--replan <waves|off>] [--concurrency <n>] [--delivery <pr|push>] [--no-review] [--auto-approve <on|off>]
+astera jobs    plan --id <jobId> [--account <id>] [--replan <waves|off>] [--concurrency <n>] [--delivery <pr|push>] [--no-review] [--auto-approve <on|off>] [--hands-off <on|off>]
 astera jobs    feedback --job <jobId> --text <text|->
 astera jobs    reject --job <jobId> [--reason <text>]
-astera jobs    create --objective <text> [--cwd <path>] [--concurrency <n>] [--priority <n>] [--replan <waves|off>] [--coordinator-account <accountId>] [--coordinator-provider <claude|codex>] [--convergence [--max-fix-attempts <n>] [--max-review-rounds <n>] [--blocking-severity <high|medium>] [--max-total-minutes <n>]] [--mode <plan|audit|fixlist|prompts>] [--scope <path[,path…]|all>] [--focus <list>] [--instructions <text>] [--attach <path>] [--approve <auto|ask>] [--delivery <pr|push>] [--no-review] [--after <jobId>]
+astera jobs    create --objective <text> [--cwd <path>] [--concurrency <n>] [--priority <n>] [--replan <waves|off>] [--coordinator-account <accountId>] [--coordinator-provider <claude|codex>] [--convergence [--max-fix-attempts <n>] [--max-review-rounds <n>] [--blocking-severity <high|medium>] [--max-total-minutes <n>]] [--mode <plan|audit|fixlist|prompts>] [--scope <path[,path…]|all>] [--focus <list>] [--instructions <text>] [--attach <path>] [--approve <auto|ask>] [--delivery <pr|push>] [--no-review] [--after <jobId>] [--hands-off]
 astera jobs    create-from-source --source <sourceId> --item <itemId> --project <projectId> [--concurrency <n>] [--priority <n>] [--replan <waves|off>] [--coordinator-account <accountId>] [--coordinator-provider <claude|codex>] [--convergence [--max-fix-attempts <n>] [--max-review-rounds <n>] [--blocking-severity <high|medium>] [--max-total-minutes <n>]] [--delivery <pr|push>]
 
 astera runs    list   [--job <jobId>] [--project <path>]
@@ -752,6 +768,12 @@ astera agent-context                     every command this binary can route, as
 astera browser js     [--script <text> | --file <path>]
 astera browser help                      the agent browser guide
 ```
+
+**Hands-off** (`jobs create --hands-off`, `jobs plan --hands-off on|off`, `jobs create-from-issue --hands-off`, or a
+project's `projects set --hands-off on|off`; the plan's own setting wins over its project's, default off) means nothing
+waits on the owner: the plan starts by itself once it holds (it implies auto-approve), its running coordinator answers
+the Run's escalations itself with `questions answer`, writing its reason, and its planner, coordinator and workers start
+with permissions bypassed. The flag is the person's choice: it is refused from an agent session and an MCP client.
 
 `astera help` is the reference agents read.
 

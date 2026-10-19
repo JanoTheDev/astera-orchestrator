@@ -634,17 +634,27 @@ const LISTED_TOOLS: ToolDef[] = [
     title: 'Create a Job from an issue',
     readOnly: false,
     cmd: 'jobs-create-from-issue',
-    description: `Create a durable Astera Job in a project from one of its open GitHub issues, as create_job does from an objective: it does not start execution, use run_job. Only issues written by the repository's OWNER, MEMBER or COLLABORATOR are taken; any other author is refused with PERMISSION_DENIED, and a pull request or a closed issue with CONFLICT (create_job_from_source with the github source makes the same Job, refusing those two with PERMISSION_DENIED and NOT_FOUND). The Job keeps the issue as its source. The coordinator and convergence fields are create_job's. ${GITHUB_WRITE}`,
+    description: `Create a durable Astera Job in a project from one of its open GitHub issues, as create_job does from an objective: it does not start execution, use run_job. Only issues written by the repository's OWNER, MEMBER or COLLABORATOR are taken; any other author is refused with PERMISSION_DENIED, and a pull request or a closed issue with CONFLICT (create_job_from_source with the github source makes the same Job, refusing those two with PERMISSION_DENIED and NOT_FOUND). The Job keeps the issue as its source. With auto (and no number) Astera picks from every open issue itself: it skips pull requests, non-members' issues, issues another plan holds and issues assigned to someone else, puts bug-labelled ones first, then the oldest, and makes chained Jobs of at most 20 issues (more than one needs coordinatorAccountId), answering { jobs: [{ id, issues }], skipped: [{ number, why }] }. The coordinator and convergence fields are create_job's. ${GITHUB_WRITE}`,
     inputSchema: {
       projectId: id,
-      number: z.number().int().min(1).describe("The issue's number."),
+      number: z.number().int().min(1).optional().describe("The issue's number; leave it out with auto."),
+      auto: z.boolean().optional().describe('Let Astera pick the issues from every open one (#119).'),
+      label: z.string().min(1).optional().describe('With auto: only issues with this label.'),
+      max: z.number().int().min(1).optional().describe('With auto: at most this many issues.'),
       coordinatorAccountId: id.optional(),
       coordinatorProvider,
       convergence,
       ...CONVERGENCE_KNOBS,
       requestId
     },
-    args: (i) => ({ project: i.projectId, number: i.number, ...coordinatorArgs(i) })
+    args: (i) => ({
+      project: i.projectId,
+      ...(i.number !== undefined ? { number: i.number } : {}),
+      ...(i.auto === true ? { auto: true } : {}),
+      ...(i.label !== undefined ? { label: i.label } : {}),
+      ...(i.max !== undefined ? { max: i.max } : {}),
+      ...coordinatorArgs(i)
+    })
   },
   // Plugin Phase 4 J22. The Host's job-source commands, named for the CLI (`sources show --item`). `source` keeps its
   // name because the Host's MCP gate reads it off the command's args (mcpRefusal: a Job from GitHub is a GitHub write);

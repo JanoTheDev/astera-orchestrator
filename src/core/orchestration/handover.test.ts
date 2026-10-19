@@ -204,3 +204,15 @@ describe('prompts-mode Job (Run as written)', () => {
     expect(buildPlannerBrief(a)).not.toContain('Fill in each one')
   })
 })
+
+describe('#117 hands-off coordinator brief', () => {
+  it('tells a hands-off coordinator to decide escalations itself, with its reason, inside the guardrails', () => {
+    const a = { runId: 'run_1', objective: 'o', concurrency: 1, taskCount: 2 }
+    const p = buildHandoverPrompt({ ...a, handsOff: true })
+    expect(p).toContain('THIS PLAN IS HANDS-OFF')
+    expect(p).toContain('astera questions answer --id <msg>')
+    expect(p).toContain('Never ask the owner')
+    expect(p).toContain('no force-push')
+    expect(buildHandoverPrompt(a)).not.toContain('HANDS-OFF')
+  })
+})

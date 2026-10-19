@@ -6,7 +6,7 @@
 // Pure: no clock and no files.
 import { GITHUB_SOURCE_ID } from '../github/issueSource'
 import { checkConfigIdsOf } from './convergence'
-import { jobOf, type OrchState, type Res } from './state'
+import { addDecision, jobOf, type OrchState, type Res } from './state'
 import { newId, type DeliveryMode, type Job, type JobRun, type Project, type RunDelivery } from './types'
 import { findProject, findProjectContaining } from './projects'
 
@@ -21,6 +21,9 @@ export function parseDelivery(v: unknown): DeliveryMode | null | undefined {
 /** The Job's project: its `projectId`, else the registered project holding its folder (the read path for old rows). */
 export const projectOfJob = (s: OrchState, job: Job): Project | undefined =>
   (job.projectId !== undefined ? findProject(s, job.projectId) : undefined) ?? findProjectContaining(s, job.cwd)
+
+/** #117: whether a plan runs hands-off: the Job's own setting, else its project's, else no. */
+export const handsOffOf = (s: OrchState, job: Job): boolean => job.handsOff ?? projectOfJob(s, job)?.handsOff ?? false
 
 /** How this Job's plan lands: its own setting, else its project's, else `pr`. */
 export const deliveryOf = (s: OrchState, job: Job): DeliveryMode => job.delivery ?? projectOfJob(s, job)?.delivery ?? 'pr'
@@ -69,10 +72,22 @@ export function setProjectDelivery(
 }
 
 /** Records a push delivery on its Run. A stop is also an escalation from the Run (W6-B turns an `escalation` message
- *  into `task.escalated`: a notice and the chime), since only the owner can move a push on that a guard refused. */
+ *  into `task.escalated`: a notice and the chime), since only the owner can move a push on that a guard refused. #117:
+ *  on a hands-off plan the stop is a `refused` decision instead (a plan.refused line, no Inbox card): the guard said no
+ *  and nobody is asked. */
 export function recordDelivery(s: OrchState, runId: string, delivery: RunDelivery): OrchState {
   const runs = s.runs.map((r) => (r.id === runId ? { ...r, delivery } : r))
   if (delivery.error === undefined) return { ...s, runs }
+  const run = s.runs.find((r) => r.id === runId)
+  const job = run && jobOf(s, run)
+  if (job && handsOffOf(s, job))
+    return addDecision({ ...s, runs }, job.id, {
+      at: delivery.at,
+      kind: 'refused',
+      question: `Push the plan to ${delivery.branch ?? 'its delivery branch'}?`,
+      choice: 'not pushed',
+      why: `Delivery stopped: ${delivery.error}`.slice(0, 500)
+    })
   const message = {
     id: newId('msg'),
     runId,

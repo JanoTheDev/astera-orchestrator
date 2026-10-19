@@ -2,7 +2,7 @@
 // gh; pull requests left out; an issue a non-member wrote listed but not selectable; the query kept to this repository.
 import { describe, it, expect } from 'vitest'
 import type { GhResult, GhRunner } from './gh'
-import { issueContext, issueDetail, issuesContext, listIssueItems, REPO_NAME_TTL_MS } from './issueSource'
+import { issueContext, issueDetail, issuesContext, listAllIssueItems, listIssueItems, REPO_NAME_TTL_MS } from './issueSource'
 import { parseIssue } from './issue'
 
 const issue = (n: number, o: Record<string, unknown> = {}) => ({
@@ -36,7 +36,7 @@ describe('listIssueItems (J12)', () => {
     expect(calls).toEqual([['api', 'repos/{owner}/{repo}/issues?state=open&per_page=30&page=1']])
     if (!r.ok) throw new Error(r.message)
     expect(r.items.map((i) => i.id)).toEqual(['1', '3'])
-    expect(r.items[0]).toEqual({ id: '1', title: 'Issue 1', status: 'open', url: 'https://github.com/o/r/issues/1', summary: 'Body 1', selectable: true })
+    expect(r.items[0]).toEqual({ id: '1', title: 'Issue 1', status: 'open', url: 'https://github.com/o/r/issues/1', summary: 'Body 1', assignees: [], selectable: true })
     expect(r.nextCursor).toBeUndefined()
   })
 
@@ -102,6 +102,49 @@ describe('listIssueItems (J12)', () => {
     expect(r.ok && r.items.map((i) => i.id)).toEqual(['7'])
     await listIssueItems(gh, 'D:/p', { query: 'crash repo:x/y org:z user:u is:closed', mine: true })
     expect(calls.at(-1)?.[5]).toBe('q=repo:o/r is:issue is:open crash assignee:@me')
+  })
+
+  // #119
+  it('each assignee filter builds its own qualifier, mine stays an alias of me, and items carry their assignees', async () => {
+    const { gh, calls } = fakeGh([
+      [/^repos\/\{owner\}\/\{repo\}$/, 'o/r'],
+      [/^search\/issues$/, { items: [issue(7, { assignees: [{ login: 'ann' }] })] }]
+    ])
+    const q = async (o: Parameters<typeof listIssueItems>[2]) => {
+      const r = await listIssueItems(gh, 'D:/p', o)
+      return [calls.at(-1)?.[5], r.ok && r.items[0].assignees] as const
+    }
+    expect(await q({ assignee: 'none' })).toEqual(['q=repo:o/r is:issue is:open no:assignee', ['ann']])
+    expect((await q({ assignee: 'me' }))[0]).toBe('q=repo:o/r is:issue is:open assignee:@me')
+    expect((await q({ assignee: 'others', query: 'x is:closed' }))[0]).toBe('q=repo:o/r is:issue is:open x is:assigned -assignee:@me')
+    expect((await q({ mine: true }))[0]).toBe('q=repo:o/r is:issue is:open assignee:@me')
+    // 'all' with no query stays on the plain list
+    await listIssueItems(gh, 'D:/p', { assignee: 'all' })
+    expect(calls.at(-1)?.[1]).toMatch(/^repos\/\{owner\}\/\{repo\}\/issues\?/)
+  })
+
+  it('listAllIssueItems follows the cursor to the last page, and stops at the search’s 1000th result', async () => {
+    const pageOf = (from: number, n: number) => Array.from({ length: n }, (_, k) => issue(from + k))
+    const pages = [pageOf(1, 30), pageOf(31, 30), pageOf(61, 4)]
+    const { gh, calls } = fakeGh([[/page=/, '']])
+    const paged: GhRunner = async (args, cwd) => {
+      const m = args.join(' ').match(/&page=(\d+)/)
+      if (!m) return gh(args, cwd)
+      calls.push(args)
+      return { ok: true, code: 0, stdout: JSON.stringify(pages[Number(m[1]) - 1]), stderr: '' } as GhResult
+    }
+    const r = await listAllIssueItems(paged, 'D:/p', {})
+    expect(r.ok && r.items.length).toBe(64)
+    expect(calls.length).toBe(3)
+    // A search whose pages are always full ends at page 34 (30 x 33 < 1000 <= 30 x 34)
+    const full: GhRunner = async (args) =>
+      args[1] === 'repos/{owner}/{repo}'
+        ? ({ ok: true, code: 0, stdout: 'o/r', stderr: '' } as GhResult)
+        : ({ ok: true, code: 0, stdout: JSON.stringify({ items: pageOf(1, 30) }), stderr: '' } as GhResult)
+    const last = await listIssueItems(full, 'D:/p', { assignee: 'none', cursor: '34' })
+    expect(last.ok && last.nextCursor).toBeUndefined()
+    const mid = await listIssueItems(full, 'D:/p', { assignee: 'none', cursor: '33' })
+    expect(mid.ok && mid.nextCursor).toBe('34')
   })
 
   it('says what gh said when it fails, and refuses a cursor that is no page number', async () => {

@@ -34,3 +34,9 @@
 .plan-card-meta dt { color: var(--text-faint); }
 .plan-card-meta dd { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .plan-card-attempts { font-size: 11px; color: var(--text-faint); }
+
+/* #117 #119: picked/skipped issues and the decisions made for the owner */
+.plan-decided { flex-basis: 100%; display: grid; gap: 12px; margin-top: 12px; text-align: left; }
+.plan-decided h3 { margin: 0 0 4px; font-size: 12px; font-weight: 600; color: var(--text-dim); }
+.plan-decided ul { margin: 0; padding-left: 16px; display: grid; gap: 2px; font-size: 12px; }
+.plan-decided-skipped, .plan-decided-why { color: var(--text-dim); }

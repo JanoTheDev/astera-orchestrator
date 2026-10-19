@@ -2,7 +2,7 @@
 // safely can (Gates, worker asks, coordinator escalations), from its own state first, else with the safe default; the
 // rest stay with the owner. Pure: dispatchLoop.ts answers through `questions-answer` and writes the feed line.
 import type { OrchState } from '../state'
-import type { Task } from '../types'
+import type { Decision, Task } from '../types'
 import { readAppSettingsObject } from '../../settings/settingsObject'
 
 /** One open question as `questions-list` returns it: a Gate (with its `kind`) or an ask / escalation (`source`). */
@@ -135,13 +135,75 @@ function safeDefault(q: OpenQuestion, choices: string[], retried: boolean): Auto
   return null
 }
 
+/** Whether an earlier Gate on the question's Task was already answered with a retry. */
+const retriedOf = (s: OrchState, q: OpenQuestion): boolean =>
+  s.gates.some((g) => g.taskId === q.taskId && g.id !== q.id && g.status === 'resolved' && /^retry/i.test(g.resolution ?? ''))
+
 /** The open questions due an answer now, each with its answer. Asks wait out `ASK_GRACE_MS` for their coordinator. */
 export function autoAnswersDue(s: OrchState, open: OpenQuestion[], nowMs: number): AutoAnswer[] {
   return open.flatMap((q) => {
     if (q.source === 'ask' && nowMs - Date.parse(q.createdAt) < ASK_GRACE_MS) return []
-    const retried = s.gates.some((g) => g.taskId === q.taskId && g.id !== q.id && g.status === 'resolved' && /^retry/i.test(g.resolution ?? ''))
-    return autoAnswerOf(s, q, retried) ?? []
+    return autoAnswerOf(s, q, retriedOf(s, q)) ?? []
   })
+}
+
+/** #117: what the Host does with one open question of a hands-off plan: answer it and record the decision, or hand it
+ *  to the plan's coordinator, which decides in the owner's place (`astera questions answer`). Never the owner. */
+export type HandsOffStep =
+  | { kind: 'answer'; answer: AutoAnswer; decision: Omit<Decision, 'at'> }
+  | { kind: 'coordinator'; question: OpenQuestion }
+
+// The answers that say no to a guardrail case, in this order; else the refusal is written out (REFUSED_ANSWER)
+const REFUSAL: RegExp[] = [/^(hold|keep holding)\b/i, /^wait\b/i, /^(no|don't|do not)\b/i, /^skip\b/i, /^mark-failed$/i]
+export const REFUSED_ANSWER =
+  "Refused: this plan runs hands-off, and this is the owner's call (force-push, pushing or merging to the default " +
+  'branch, deleting data outside the plan worktrees, money or credentials). Do not do it; carry on with the rest of the plan.'
+
+const firstLine = (text: string, max: number): string => {
+  const line = text.split('\n').find((l) => l.trim() !== '')?.trim() ?? text.trim()
+  return line.length > max ? `${line.slice(0, max - 3)}...` : line
+}
+
+/**
+ * #117: the steps due now for the open questions of hands-off plans, whatever the global `autoAnswer` setting. A Gate
+ * whose attempts or review rounds ran out is answered `retry-once`, and once its Task was retried `mark-failed`, so the
+ * plan carries on. A guardrail case (OWNER_ONLY) is refused, never asked. An ask or escalation waits out
+ * `ASK_GRACE_MS` for its coordinator first; what has no safe answer then goes to the coordinator to decide.
+ */
+export function handsOffStepsDue(s: OrchState, open: OpenQuestion[], nowMs: number): HandsOffStep[] {
+  return open.flatMap((q): HandsOffStep[] => {
+    if (q.source !== undefined && nowMs - Date.parse(q.createdAt) < ASK_GRACE_MS) return []
+    const retried = retriedOf(s, q)
+    const asked = firstLine(q.question, 300)
+    const answer = (a: AutoAnswer, kind: Decision['kind'], why: string): HandsOffStep[] => [
+      { kind: 'answer', answer: a, decision: { kind, ...(q.taskId ? { taskId: q.taskId } : {}), question: asked, choice: firstLine(a.answer, 200), why } }
+    ]
+    const options = q.options ?? []
+    const option = (re: RegExp): string | undefined => options.find((o) => re.test(o.trim()))
+    // A Gate the Host wrote itself, its tries spent: one more, then given up, so the plan reaches its end
+    if (q.kind) {
+      const retry = retried ? undefined : option(/^retry-once$/i)
+      if (retry) return answer({ id: q.id, answer: retry, why: 'safe default' }, 'gate', 'the attempts ran out: one more try')
+      const failed = option(/^mark-failed$/i)
+      if (failed) return answer({ id: q.id, answer: failed, why: 'safe default' }, 'gate', 'it was retried once already: marked failed so the plan carries on')
+    } else if (ownerOnly(q.question)) {
+      const no = REFUSAL.map(option).find((o) => o !== undefined)
+      return answer({ id: q.id, answer: no ?? REFUSED_ANSWER, why: 'safe default' }, 'refused', "a guardrail: only the owner decides this, and the plan runs hands-off")
+    }
+    const a = autoAnswerOf(s, q, retried)
+    if (a) return answer(a, q.source === undefined ? 'gate' : 'escalation', a.why)
+    return [{ kind: 'coordinator', question: q }]
+  })
+}
+
+/** #117: the message that hands a hands-off plan's open question to its coordinator. */
+export function coordinatorDecideBody(q: OpenQuestion): string {
+  return (
+    `This plan runs hands-off: decide this question in the owner's place, within the guardrails.\n\n` +
+    `Question ${q.id}${q.taskId ? ` (task ${q.taskId})` : ''}: ${q.question.slice(0, 1500)}\n` +
+    (q.options?.length ? `Options: ${q.options.join(', ')}\n` : '') +
+    `\nAnswer with \`astera questions answer --id ${q.id} --answer "<your decision and why>"\`.`
+  )
 }
 
 /** The feed line: "Auto-answered: hold — W9-B Coordinator answers (safe default)". */

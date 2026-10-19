@@ -14,6 +14,7 @@ import type { RunIconKind } from './JobIcons'
 import { Archive, ArchiveRestore, ArrowUpRight, ChevronDown, ChevronRight, Hand, Pencil, PlayCircle } from 'lucide-react'
 import { SourceChip } from './SourceChip'
 import { ageOf } from './plan/planBoard' // W9-C
+import { approveSlot } from './plan/planTalk'
 import { jobName } from '../lib/jobName'
 
 /** Run 헤더 글리프의 툴팁. 끝난·실패·막힘은 줄의 글리프와 같은 모양이고 같은 뜻이라 같은 문구를 쓴다.
@@ -380,8 +381,20 @@ function RunCardImpl({
         )}
         {/* W2-A: a Job not started yet is a plan waiting for its approval. Starting it (run-start, the same
             command as the ▶ above and the detail window's Run) approves it; a planned Job's plan is checked
-            first and the refusal says what is missing. An archived plan starts nothing, so no button. */}
-        {run.pendingStart && run.archivedAt === undefined && onApprove && (
+            first and the refusal says what is missing. An archived plan starts nothing, so no button.
+            #116: a planned Job only once its planner is done; until then it says so, and an auto-approve plan says it
+            starts by itself. */}
+        {approveSlot(run) === 'planning' && (
+          <span className="jobs-ordinal" title={t('jobs.run.planningHint')}>
+            {t('jobs.run.planning')}
+          </span>
+        )}
+        {approveSlot(run) === 'auto' && (
+          <span className="jobs-ordinal" title={t('jobs.run.startsByItselfHint')}>
+            {t('jobs.run.startsByItself')}
+          </span>
+        )}
+        {approveSlot(run) === 'approve' && onApprove && (
           <button
             className="jobs-approve"
             disabled={disabledReason !== undefined}

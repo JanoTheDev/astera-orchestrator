@@ -5,6 +5,7 @@ import type { OrchDoor } from '../../lib/orchDoor'
 import { AccountSelect } from '../AccountSelect'
 import { Button, Modal } from '../ui'
 import type { IntakeTab } from './intakeRequest'
+import { IssuePicker } from './IssuePicker'
 import { useIntake } from './useIntake'
 
 const TABS: IntakeTab[] = ['describe', 'files', /* W8-C prompts mode */ 'prompts', 'audit', 'github']
@@ -34,12 +35,12 @@ export function NewPlanDialog({
   initialText?: string
 }): React.JSX.Element {
   const { t } = useI18n()
+  const intake = useIntake({ door, cwd, onCreated, concurrency: initialConcurrency, initialText })
   const {
     tab, setTab, projects, projectId, setProjectId, text, setText, fixlist, setFixlist, approveAsk, setApproveAsk, files,
-    setFiles, addFiles, scope, setScope, query, setQuery, mine, setMine, issues, picked, setPicked, assignMe, setAssignMe,
-    instructions, setInstructions, account, setAccount, concurrency, setConcurrency, after, setAfter, plans, busy, error,
-    request, create
-  } = useIntake({ door, cwd, onCreated, concurrency: initialConcurrency, initialText })
+    setFiles, addFiles, scope, setScope, instructions, setInstructions,
+    account, setAccount, concurrency, setConcurrency, after, setAfter, plans, busy, error, request, create
+  } = intake
 
   return (
     <Modal
@@ -131,32 +132,7 @@ export function NewPlanDialog({
           <p className="modal-hint">{t('intake.auditHint')}</p>
         </div>
       )}
-      {tab === 'github' && (
-        <div className="field">
-          <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t('intake.search')} />
-          <label className="check-small">
-            <input type="checkbox" checked={mine} onChange={(e) => setMine(e.target.checked)} />
-            {t('intake.mine')}
-          </label>
-          <div style={{ maxHeight: 220, overflowY: 'auto' }}>
-            {issues.map((i) => (
-              <label key={i.id} className="check-small" title={i.reason}>
-                <input
-                  type="checkbox"
-                  disabled={i.selectable === false}
-                  checked={picked.includes(i.id)}
-                  onChange={(e) => setPicked((cur) => (e.target.checked ? [...cur, i.id] : cur.filter((x) => x !== i.id)))}
-                />
-                #{i.id} {i.title}
-              </label>
-            ))}
-          </div>
-          <label className="check-small">
-            <input type="checkbox" checked={assignMe} onChange={(e) => setAssignMe(e.target.checked)} />
-            {t('intake.assignMe')}
-          </label>
-        </div>
-      )}
+      {tab === 'github' && <IssuePicker intake={intake} onAutoPick={() => void intake.create(undefined, {})} />}
       <div className="field">
         <label>{t('intake.instructions')}</label>
         <textarea rows={3} value={instructions} onChange={(e) => setInstructions(e.target.value)} />

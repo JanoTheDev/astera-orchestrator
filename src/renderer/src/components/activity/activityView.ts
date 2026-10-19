@@ -83,7 +83,9 @@ export function lineOf(e: ActivityEvent, accountLabel: (id: string) => string): 
     case 'task.waiting':
       return { text: `${p.title}: waiting for ${p.waitingFor === 'question' ? 'your answer to a question' : 'your permission'}`, tone: 'warn' }
     // W6-B
+    // W6-B; T21's own answers (exec/autoAnswer.ts) carry their line in `reason`
     case 'question.auto-answered':
+      if (p.reason !== undefined) return { text: `${p.title}: ${p.reason}`, tone: 'info' }
       return { text: `${p.title}: ${p.answeredBy === 'owner' ? 'answered by you' : 'coordinator answered'} "${p.question ?? ''}": ${p.answer ?? ''}`, tone: 'info' }
     case 'task.escalated':
       return { text: `${p.title}: needs your decision: ${p.reason ?? ''}`, tone: 'bad' }
@@ -114,12 +116,14 @@ export function lineOf(e: ActivityEvent, accountLabel: (id: string) => string): 
     // Stall watchdog
     case 'watchdog':
       return { text: `${p.title}: Watchdog: ${p.reason ?? ''}`, tone: 'warn' }
-    // T21 (exec/autoAnswer.ts)
-    case 'question.auto-answered':
-      return { text: `${p.title}: ${p.reason ?? ''}`, tone: 'info' }
     // T23 (exec/crashResume.ts)
     case 'host.recovered':
       return { text: p.reason ?? '', tone: 'info' }
+    // #117: "Decided for you: …" / "Refused: …" (activity.ts decisionLine)
+    case 'plan.decided':
+      return { text: `${p.title}: ${p.reason ?? ''}`, tone: 'info' }
+    case 'plan.refused':
+      return { text: `${p.title}: ${p.reason ?? ''}`, tone: 'warn' }
   }
 }
 

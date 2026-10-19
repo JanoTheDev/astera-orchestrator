@@ -8945,7 +8945,7 @@ describe('handleCommand — github-pr, github-ci and github-issue', () => {
       status: 200,
       body: {
         number: 5, title: 'Broken', body: 'It breaks', state: 'open', labels: ['bug'], author: 'pk',
-        authorAssociation: 'OWNER', url: 'https://github.com/o/r/issues/5', isPullRequest: false
+        authorAssociation: 'OWNER', url: 'https://github.com/o/r/issues/5', isPullRequest: false, assignees: []
       }
     })
     expect(gh.calls.map((c) => c.cwd)).toEqual([projectPath])
@@ -9221,6 +9221,13 @@ describe('handleCommand — github-pr, github-ci and github-issue', () => {
       expect(body.objective).toBe(job?.objective)
     })
 
+    it('#117: jobs-create-from-issue --hands-off makes a hands-off Job', async () => {
+      const { deps, projectId } = issueSetup()
+      const r = await call(deps, 'jobs-create-from-issue', { project: projectId, number: 5, handsOff: true }, '')
+      expect(r.status).toBe(200)
+      expect(deps.getState().jobs.find((j) => j.id === (r.body as { id: string }).id)?.handsOff).toBe(true)
+    })
+
     it('jobs-create-from-issue refuses an author outside OWNER, MEMBER and COLLABORATOR (403), and makes no Job', async () => {
       for (const association of ['CONTRIBUTOR', 'NONE']) {
         const { deps, projectId } = issueSetup({ author_association: association })
@@ -9303,15 +9310,131 @@ describe('handleCommand — github-pr, github-ci and github-issue', () => {
       expect(one.deps.getState().jobs.find((j) => j.id === (r1.body as { id: string }).id)!.title).toBe('#5 Broken')
     })
 
-    it('jobs-create-from-issue refuses the whole call for one non-member issue, naming it, and assigns and makes nothing', async () => {
-      const { deps, gh, projectId } = issuesSetup({ 7: { author_association: 'NONE' } })
+    it('#119: jobs-create-from-issue skips and lists a non-member issue, and makes and assigns the Job of the rest', async () => {
+      const { deps, gh, projectId } = issuesSetup({ 7: { author_association: 'NONE' } }, { [ASSIGN(5)]: {}, [ASSIGN(9)]: {} })
+      const r = await call(deps, 'jobs-create-from-issue', { project: projectId, issue: '5,7,9', assignMe: true }, '')
+      expect(r.status).toBe(200)
+      expect(r.body).toMatchObject({
+        issues: [5, 9].map((n) => ({ number: n, url: `https://github.com/o/r/issues/${n}` })),
+        skipped: [{ number: 7, why: "written by a NONE of the repository; only an owner, member or collaborator's issue becomes a Job" }]
+      })
+      expect(deps.getState().jobs.find((j) => j.id === (r.body as { id: string }).id)?.source?.itemId).toBe('5,9')
+      expect(gh.calls.filter((c) => c.args[0] === 'issue').map((c) => c.args.join(' '))).toEqual([ASSIGN(5), ASSIGN(9)])
+    })
+
+    it('#119: jobs-create-from-issue refuses the call when every issue is skipped, listing them, and makes nothing', async () => {
+      const { deps, projectId } = issuesSetup({ 5: { state: 'closed' }, 7: { author_association: 'NONE' }, 9: { pull_request: {} } })
       const before = deps.getState().jobs.length
-      expect(await call(deps, 'jobs-create-from-issue', { project: projectId, issue: '5,7,9', assignMe: true }, '')).toEqual({
-        status: 403,
-        body: { error: "Issue #7 was written by a NONE of the repository; only an owner, member or collaborator's issue becomes a Job" }
+      expect(await call(deps, 'jobs-create-from-issue', { project: projectId, issue: '5,7,9' }, '')).toEqual({
+        status: 409,
+        body: {
+          error: 'none of the issues can become a Job',
+          skipped: [
+            { number: 5, why: 'closed' },
+            { number: 7, why: "written by a NONE of the repository; only an owner, member or collaborator's issue becomes a Job" },
+            { number: 9, why: 'a pull request, not an issue' }
+          ]
+        }
       })
       expect(deps.getState().jobs).toHaveLength(before)
-      expect(gh.calls.some((c) => c.args[0] === 'issue')).toBe(false)
+    })
+
+    describe('#119 Let Astera pick: jobs-create-from-issue --auto', () => {
+      const OPEN = 'api repos/{owner}/{repo}/issues?state=open&per_page=100&page=1'
+      const ME = 'api user --jq .login'
+      /** 45 open items: #3 and #4 pull requests, #6 a non-member's, #8 held by another plan, #10 assigned to someone
+       *  else, #12 assigned to the person gh is logged in as, #30 and #40 bugs, #20-#24 labelled docs. */
+      const fortyFive = () =>
+        Array.from({ length: 45 }, (_, k) => {
+          const n = k + 1
+          return {
+            ...issueJson,
+            number: n,
+            title: `T${n}`,
+            html_url: `https://github.com/o/r/issues/${n}`,
+            labels: n === 30 || n === 40 ? [{ name: 'bug' }] : n >= 20 && n <= 24 ? [{ name: 'docs' }] : [],
+            ...(n === 3 || n === 4 ? { pull_request: { url: 'x' } } : {}),
+            ...(n === 6 ? { author_association: 'NONE' } : {}),
+            assignees: n === 10 ? [{ login: 'someone' }] : n === 12 ? [{ login: 'pk' }] : []
+          }
+        })
+      const autoSetup = () => {
+        const base = setup({ [OPEN]: { stdout: JSON.stringify(fortyFive()) }, [ME]: { stdout: 'pk\n' } })
+        const cur = base.deps.getState()
+        base.deps.setState({
+          ...cur,
+          jobs: [...cur.jobs, { id: 'job_held', objective: 'o', cwd: base.projectPath, projectId: base.projectId, createdAt: NOW, source: { id: 'github', itemId: '8,99', label: 'GitHub issues #8, #99 in o/r' } }]
+        })
+        const written: { jobId: string; name: string; text: string }[] = []
+        base.deps.writeIntakeText = async (jobId, name, text) => {
+          written.push({ jobId, name, text })
+          return `/profile/plans/${jobId}/inputs/${name}`
+        }
+        return { ...base, written }
+      }
+      type AutoBody = { jobs: { id: string; issues: number[] }[]; skipped: { number: number; why: string }[] }
+
+      it('skips pull requests, non-members, held and assigned-elsewhere issues, and chains plans of at most 20, bugs first', async () => {
+        const { deps, projectId, written } = autoSetup()
+        const r = await call(deps, 'jobs-create-from-issue', { project: projectId, auto: true, coordinatorAccount: 'acc1', handsOff: true }, '')
+        expect(r.status).toBe(200)
+        const body = r.body as AutoBody
+        expect(body.skipped).toEqual([
+          { number: 3, why: 'a pull request, not an issue' },
+          { number: 4, why: 'a pull request, not an issue' },
+          { number: 6, why: "written by a NONE of the repository; only an owner, member or collaborator's issue becomes a Job" },
+          { number: 8, why: 'already in plan job_held' },
+          { number: 10, why: 'assigned to someone' }
+        ])
+        expect(body.jobs.map((j) => j.issues.length)).toEqual([20, 20])
+        expect(body.jobs[0].issues.slice(0, 2)).toEqual([30, 40])
+        // Related issues together: the docs ones side by side
+        const all = body.jobs.flatMap((j) => j.issues)
+        expect(all.indexOf(21) - all.indexOf(20)).toBe(1)
+        expect(all).toContain(12)
+        const [first, second] = body.jobs.map((j) => deps.getState().jobs.find((x) => x.id === j.id)!)
+        expect(first.after).toBeUndefined()
+        expect(second.after).toBe(first.id)
+        for (const j of [first, second]) {
+          expect(j.handsOff).toBe(true)
+          expect(j.coordinatorAccountId).toBe('acc1')
+          expect(j.pick?.picked.map((p) => p.number)).toEqual(body.jobs.find((x) => x.id === j.id)!.issues)
+          expect(j.objective).toContain(`/profile/plans/${j.id}/inputs/pick.md`)
+        }
+        expect(first.pick?.picked[0]).toMatchObject({ number: 30, why: expect.stringMatching(/bug/) })
+        expect(first.pick?.skipped.map((p) => p.number)).toEqual([3, 4, 6, 8, 10])
+        expect(second.pick?.skipped).toEqual([])
+        expect(written.map((w) => [w.jobId, w.name])).toEqual([[first.id, 'pick.md'], [second.id, 'pick.md']])
+        expect(written[0].text).toMatch(/#30 T30: labelled bug/)
+        expect(written[0].text).toMatch(/## Skipped[\s\S]*#10 T10: assigned to someone/)
+      })
+
+      it('--max 5 makes one Job of 5, the bugs first, and lists the rest as past --max; --label keeps that label alone', async () => {
+        const a = autoSetup()
+        const r = await call(a.deps, 'jobs-create-from-issue', { project: a.projectId, auto: true, max: '5' }, '')
+        expect(r.status).toBe(200)
+        const body = r.body as AutoBody
+        expect(body.jobs.map((j) => j.issues)).toEqual([[30, 40, 1, 2, 5]])
+        expect(body.skipped).toContainEqual({ number: 7, why: 'past --max 5' })
+        const b = autoSetup()
+        const l = (await call(b.deps, 'jobs-create-from-issue', { project: b.projectId, auto: true, label: 'docs' }, '')).body as AutoBody
+        expect(l.jobs.map((j) => j.issues)).toEqual([[20, 21, 22, 23, 24]])
+        expect(l.skipped).toContainEqual({ number: 1, why: 'not labelled docs' })
+      })
+
+      it('refuses chained plans with no coordinator account, numbers beside --auto, and --max/--label without it; makes nothing', async () => {
+        const { deps, projectId } = autoSetup()
+        const before = deps.getState().jobs.length
+        for (const args of [
+          { project: projectId, auto: true },
+          { project: projectId, auto: true, issue: '5' },
+          { project: projectId, auto: true, max: 0 },
+          { project: projectId, number: 5, max: 3 },
+          { project: projectId, number: 5, label: 'bug' }
+        ])
+          expect((await call(deps, 'jobs-create-from-issue', args, '')).status, JSON.stringify(args)).toBe(400)
+        expect(deps.getState().jobs).toHaveLength(before)
+      })
     })
 
     it('jobs-create-from-issue --assign-me assigns every issue before making the Job; a failed assign makes none', async () => {
@@ -9639,5 +9762,142 @@ describe('worker-start — the coordinator path (W8-E)', () => {
     expect(err).toBe('replanning wave 1: this lifts by itself; wait for plan.replanned in your inbox')
     expect(err).not.toContain('jobs-unhold')
     expect(r.body).toMatchObject({ held: true, replanning: true })
+  })
+})
+
+describe('#116 approve only once the plan is ready', () => {
+  const rig = () => {
+    let planners = 0
+    const deps = {
+      ...makeDeps(),
+      startCoordinator: async () => ({ sessionId: `ses-planner-${++planners}` })
+    } as unknown as OrchServerDeps
+    const person = (cmd: string, args: Record<string, unknown>) => handleCommand(deps, { sessionId: APP_CALLER }, cmd, args)
+    const made = async (): Promise<string> =>
+      ((await person('run-create', { objective: 'o', cwd: 'D:/p', coordinatorAccount: 'acc1', auto: true })).body as { id: string }).id
+    return { deps, person, made }
+  }
+
+  it('jobs-plan --auto-approve on --delivery push keeps the auto-approve it wrote', async () => {
+    const r = rig()
+    const id = await r.made()
+    expect((await r.person('jobs-plan', { id, autoApprove: 'on', delivery: 'push', replan: 'waves' })).status).toBe(200)
+    expect(r.deps.getState().jobs[0]).toMatchObject({ autoApprove: true, delivery: 'push', replan: 'waves' })
+  })
+
+  it('jobs-set --after keeps Start\'s approval and delivery for the planner the Host starts later', async () => {
+    const r = rig()
+    const first = await r.made()
+    const queued = await r.made()
+    expect((await r.person('jobs-set', { id: queued, after: first, autoApprove: 'maybe' })).status).toBe(400)
+    expect((await r.person('jobs-set', { id: queued, after: first, autoApprove: 'on', delivery: 'push' })).status).toBe(200)
+    expect(r.deps.getState().jobs.find((j) => j.id === queued)).toMatchObject({ after: first, autoApprove: true, delivery: 'push' })
+  })
+
+  it('#117 jobs-set --after --hands-off on|off sets the queued plan\'s hands-off; an agent session is refused', async () => {
+    const r = rig()
+    const first = await r.made()
+    const queued = await r.made()
+    const job = () => r.deps.getState().jobs.find((j) => j.id === queued)
+    expect((await r.person('jobs-set', { id: queued, after: first, handsOff: 'maybe' })).status).toBe(400)
+    expect((await handleCommand(r.deps, { sessionId: 'ses-agent' }, 'jobs-set', { id: queued, after: first, handsOff: 'on' })).status).toBe(403)
+    expect((await r.person('jobs-set', { id: queued, after: first, handsOff: 'on' })).status).toBe(200)
+    expect(job()).toMatchObject({ after: first, handsOff: true })
+    expect((await r.person('jobs-set', { id: queued, after: 'none', handsOff: 'off' })).status).toBe(200)
+    expect(job()).toMatchObject({ handsOff: false })
+    expect(job()).not.toHaveProperty('after')
+  })
+
+  it('jobs-plan-ready marks a plan that holds; a new planner round clears the mark', async () => {
+    const r = rig()
+    const id = await r.made()
+    expect((await r.person('jobs-plan', { id })).status).toBe(200)
+    // No Task yet: the plan does not hold, nothing is marked
+    expect((await r.person('jobs-plan-ready', { id })).status).toBe(400)
+    const planner = (cmd: string, args: Record<string, unknown>) => handleCommand(r.deps, { sessionId: 'ses-planner-1' }, cmd, args)
+    const t = await planner('task-create', {
+      run: id, account: 'acc1', title: 'A', spec: 's', prompt: 'Build A.', criteria: ['A works'], basis: 'missing', evidence: 'no A'
+    })
+    expect(t.status).toBe(200)
+    // An agent cannot mark it
+    expect((await planner('jobs-plan-ready', { id })).status).toBe(403)
+    expect((await r.person('jobs-plan-ready', { id })).status).toBe(200)
+    expect(r.deps.getState().jobs[0].planReadyAt).toBe(NOW)
+    // `jobs plan` again: a new planner, planning again
+    expect((await r.person('jobs-plan', { id })).status).toBe(200)
+    expect(r.deps.getState().jobs[0].planReadyAt).toBeUndefined()
+    // Approved: the mark goes with pendingStart
+    await r.person('jobs-plan-ready', { id })
+    expect((await r.person('run-start', { run: id })).status).toBeLessThan(300)
+    expect(r.deps.getState().jobs[0]).not.toHaveProperty('planReadyAt')
+  })
+})
+
+describe('#117 hands-off', () => {
+  const person = (deps: OrchServerDeps, cmd: string, args: Record<string, unknown>) => handleCommand(deps, { sessionId: APP_CALLER }, cmd, args)
+  const rig = () => {
+    const deps = { ...makeDeps(), startCoordinator: async () => ({ sessionId: 'ses-planner' }) } as unknown as OrchServerDeps
+    return deps
+  }
+
+  it('jobs-create --hands-off and jobs-plan --hands-off on|off set the Job; an agent session is refused', async () => {
+    const deps = rig()
+    const made = await person(deps, 'jobs-create', { objective: 'o', cwd: 'D:/p', coordinatorAccount: 'acc1', handsOff: true })
+    expect(made.status).toBe(200)
+    const id = (made.body as { id: string }).id
+    expect(deps.getState().jobs.find((j) => j.id === id)?.handsOff).toBe(true)
+    expect((await call(deps, 'jobs-create', { objective: 'o', cwd: 'D:/p', handsOff: true }, 'ses-agent')).status).toBe(403)
+    expect((await person(deps, 'jobs-plan', { id, handsOff: 'maybe' })).status).toBe(400)
+    expect((await call(deps, 'jobs-plan', { id, handsOff: 'on' }, 'ses-agent')).status).toBe(403)
+    expect((await person(deps, 'jobs-plan', { id, handsOff: 'off' })).status).toBe(200)
+    expect(deps.getState().jobs.find((j) => j.id === id)?.handsOff).toBe(false)
+  })
+
+  it('projects-set --hands-off on sets the project, off clears it', async () => {
+    const deps = makeDeps()
+    await deps.setState({ ...deps.getState(), projects: [{ id: 'prj_1', path: 'D:/p', name: 'p', addedAt: NOW }] })
+    expect((await call(deps, 'projects-set', { id: 'prj_1', handsOff: 'on' }, '')).status).toBe(200)
+    expect(deps.getState().projects[0].handsOff).toBe(true)
+    expect((await call(deps, 'projects-set', { id: 'prj_1', handsOff: 'sometimes' }, '')).status).toBe(400)
+    expect((await call(deps, 'projects-set', { id: 'prj_1', handsOff: 'off' }, '')).status).toBe(200)
+    expect(deps.getState().projects[0].handsOff).toBeUndefined()
+  })
+
+  describe('questions-answer on an escalation', () => {
+    const seed = async (handsOff: boolean) => {
+      const deps = makeDeps()
+      deps.startWorker = async () => ({ sessionId: 'sess1', cwd: 'D:/p', specPath: 'D:/p/orch/specs/1.md' })
+      const runId = ((await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p' })).body as { id: string }).id
+      const task = await call(deps, 'task-create', { account: 'acc1', runId, title: 'A', spec: 'spec A' })
+      await call(deps, 'worker-start', { taskId: (task.body as { id: string }).id, agent: 'codex', account: 'acc1', worktree: 'current' })
+      const st = deps.getState()
+      const run = st.runs.find((r) => r.id === runId)!
+      await deps.setState({
+        ...st,
+        runs: st.runs.map((r) => (r.id === runId ? { ...r, coordinatorSessionId: 'ses-coord' } : r)),
+        jobs: st.jobs.map((j) => (j.id === run.jobId ? { ...j, handsOff } : j))
+      })
+      await call(deps, 'send', { type: 'escalation', taskId: (task.body as { id: string }).id, reason: 'Drop the users table?' }, 'ses-coord')
+      const esc = deps.getState().messages.find((m) => m.type === 'escalation')!
+      return { deps, esc }
+    }
+
+    it("the hands-off Run's own running coordinator answers it", async () => {
+      const { deps, esc } = await seed(true)
+      const r = await call(deps, 'questions-answer', { id: esc.id, answer: 'No. Why: irreversible' }, 'ses-coord')
+      expect(r.status).toBe(200)
+      expect(r.body).toMatchObject({ id: esc.id, status: 'resolved', resolution: 'No. Why: irreversible' })
+    })
+
+    it('another agent session is still refused on a hands-off Run', async () => {
+      const { deps, esc } = await seed(true)
+      expect((await call(deps, 'questions-answer', { id: esc.id, answer: 'No' }, 'sess1')).status).toBe(403)
+      expect((await call(deps, 'questions-answer', { id: esc.id, answer: 'No' }, 'ses-other')).status).toBe(403)
+    })
+
+    it("the coordinator of a Run that is not hands-off is still refused", async () => {
+      const { deps, esc } = await seed(false)
+      expect((await call(deps, 'questions-answer', { id: esc.id, answer: 'No' }, 'ses-coord')).status).toBe(403)
+    })
   })
 })
