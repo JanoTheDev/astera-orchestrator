@@ -3,11 +3,13 @@ import type { Account, RollStateEvent, SchedStateEvent, SessionInfo } from '../.
 import {
   MAX_PANES,
   clampRatio,
+  activateTab,
   computeRects,
   countLeaves,
   dropZoneOf,
   leaves,
   setRatio,
+  soloRects,
   splitBoundaries,
   type DropZone,
   type PaneLeaf,
@@ -93,6 +95,7 @@ export function PaneGrid({
   renderBrowser,
   appTabInfo,
   renderApp,
+  soloTabId,
   remoteSessions = [],
   remoteStatus = {},
   remoteReadOnly = () => false,
@@ -189,6 +192,9 @@ export function PaneGrid({
   appTabInfo: (sessionId: string) => { title: string; running: boolean; open: boolean } | null
   /** An app mirror tab's body. Drawn only while active, the record slot rule: a JPEG keeps no state. */
   renderApp: (appTabId: string) => React.ReactNode
+  /** Solo display: draw only this tab, full size, with no tab bars or dividers. The stored layout is left alone and
+   *  every other slot stays mounted (hidden), so no terminal loses its scrollback. */
+  soloTabId?: string
 }): React.JSX.Element {
   const { t } = useI18n()
   const hostRef = useRef<HTMLDivElement>(null)
@@ -210,10 +216,14 @@ export function PaneGrid({
   // A divider being dragged moves here, frame by frame, and reaches App once at the release (audit UI-1): each frame went
   // to App's setLayout, and the whole app was drawn again sixty times a second for as long as the drag lasted.
   const [dragRatio, setDragRatio] = useState<{ splitId: string; ratio: number } | null>(null)
-  const shown = layout && dragRatio ? setRatio(layout, dragRatio.splitId, dragRatio.ratio) : layout
+  const ratioShown = layout && dragRatio ? setRatio(layout, dragRatio.splitId, dragRatio.ratio) : layout
+  // Solo: the tab is made its group's active tab in this render's copy only, and only its group gets a rect.
+  const solo = ratioShown && soloTabId ? activateTab(ratioShown, soloTabId) : null
+  const shown = solo ? solo.root : ratioShown
   const paneLeaves = shown ? leaves(shown) : []
-  const rects: Map<string, Rect> = shown ? computeRects(shown) : new Map()
-  const bounds = shown ? splitBoundaries(shown) : []
+  const rects: Map<string, Rect> = shown ? (solo && soloTabId ? soloRects(shown, soloTabId) : computeRects(shown)) : new Map()
+  const bounds = shown && !solo ? splitBoundaries(shown) : []
+  const barH = solo ? '0px' : 'var(--pane-tabbar-h)'
   const full = layout ? countLeaves(layout) >= MAX_PANES : false
   // Session → the group holding that session (absent means it is off screen). The tree holds tab ids,
   // so each one is read back through parseTab and only the session tabs are kept
@@ -414,8 +424,8 @@ export function PaneGrid({
                     left: `${rect.x}%`,
                     width: `${rect.w}%`,
                     // The tab bar takes the top of the group rect — the slot moves down and shortens by that much
-                    top: `calc(${rect.y}% + var(--pane-tabbar-h))`,
-                    height: `calc(${rect.h}% - var(--pane-tabbar-h))`
+                    top: `calc(${rect.y}% + ${barH})`,
+                    height: `calc(${rect.h}% - ${barH})`
                   }
                 : { display: 'none' }
             }
@@ -469,8 +479,8 @@ export function PaneGrid({
                     display: 'flex',
                     left: `${rect.x}%`,
                     width: `${rect.w}%`,
-                    top: `calc(${rect.y}% + var(--pane-tabbar-h))`,
-                    height: `calc(${rect.h}% - var(--pane-tabbar-h))`
+                    top: `calc(${rect.y}% + ${barH})`,
+                    height: `calc(${rect.h}% - ${barH})`
                   }
                 : { display: 'none' }
             }
@@ -501,8 +511,8 @@ export function PaneGrid({
               display: 'flex',
               left: `${rect.x}%`,
               width: `${rect.w}%`,
-              top: `calc(${rect.y}% + var(--pane-tabbar-h))`,
-              height: `calc(${rect.h}% - var(--pane-tabbar-h))`
+              top: `calc(${rect.y}% + ${barH})`,
+              height: `calc(${rect.h}% - ${barH})`
             }
           : undefined
         return (
@@ -540,8 +550,8 @@ export function PaneGrid({
       {paneLeaves.map((l) => {
         const rect = rects.get(l.id)
         const fileTabId = lastFileOfPane.current.get(l.id)
-        if (!rect || !fileTabId) return null
-        const visible = l.activeTabId === fileTabId
+        if (!fileTabId) return null
+        const visible = rect != null && l.activeTabId === fileTabId
         return (
           <div
             key={`editor-${l.id}`}
@@ -552,8 +562,8 @@ export function PaneGrid({
                     display: 'flex',
                     left: `${rect.x}%`,
                     width: `${rect.w}%`,
-                    top: `calc(${rect.y}% + var(--pane-tabbar-h))`,
-                    height: `calc(${rect.h}% - var(--pane-tabbar-h))`
+                    top: `calc(${rect.y}% + ${barH})`,
+                    height: `calc(${rect.h}% - ${barH})`
                   }
                 : { display: 'none' }
             }
@@ -582,8 +592,8 @@ export function PaneGrid({
               display: 'flex',
               left: `${rect.x}%`,
               width: `${rect.w}%`,
-              top: `calc(${rect.y}% + var(--pane-tabbar-h))`,
-              height: `calc(${rect.h}% - var(--pane-tabbar-h))`
+              top: `calc(${rect.y}% + ${barH})`,
+              height: `calc(${rect.h}% - ${barH})`
             }}
             onMouseDown={() => onFocusPane(l.id)}
           >
@@ -603,8 +613,8 @@ export function PaneGrid({
               display: 'flex',
               left: `${rect.x}%`,
               width: `${rect.w}%`,
-              top: `calc(${rect.y}% + var(--pane-tabbar-h))`,
-              height: `calc(${rect.h}% - var(--pane-tabbar-h))`
+              top: `calc(${rect.y}% + ${barH})`,
+              height: `calc(${rect.h}% - ${barH})`
             }}
             onMouseDown={() => onFocusPane(l.id)}
           >
@@ -632,8 +642,8 @@ export function PaneGrid({
                     display: 'flex',
                     left: `${rect.x}%`,
                     width: `${rect.w}%`,
-                    top: `calc(${rect.y}% + var(--pane-tabbar-h))`,
-                    height: `calc(${rect.h}% - var(--pane-tabbar-h))`
+                    top: `calc(${rect.y}% + ${barH})`,
+                    height: `calc(${rect.h}% - ${barH})`
                   }
                 : { display: 'none' }
             }
@@ -647,7 +657,7 @@ export function PaneGrid({
           cannot live on the slots: a session slot is display:none unless it is the active tab, so a pane
           showing a file had no target, and putting them on the editor slot as well would give one pane two
           overlapping targets. Rendered only during a drag, so nothing covers the terminal otherwise */}
-      {draggingTabId != null &&
+      {draggingTabId != null && !solo &&
         paneLeaves.map((l) => {
           const rect = rects.get(l.id)
           if (!rect) return null
@@ -658,8 +668,8 @@ export function PaneGrid({
               style={{
                 left: `${rect.x}%`,
                 width: `${rect.w}%`,
-                top: `calc(${rect.y}% + var(--pane-tabbar-h))`,
-                height: `calc(${rect.h}% - var(--pane-tabbar-h))`
+                top: `calc(${rect.y}% + ${barH})`,
+                height: `calc(${rect.h}% - ${barH})`
               }}
               onDragOver={(e) => {
                 e.preventDefault()
@@ -687,7 +697,7 @@ export function PaneGrid({
           --pane-tabbar-h of the rect and the slots are pushed down by that much (the calc above). The
           focus indication is done by the focused prop, not a CSS class — it puts the account-colored
           underline only on that group's active tab */}
-      {paneLeaves.map((l) => {
+      {!solo && paneLeaves.map((l) => {
         const rect = rects.get(l.id)
         if (!rect) return null
         // A pane's tab ids in order, each resolved to what it needs to draw. An id whose session or file

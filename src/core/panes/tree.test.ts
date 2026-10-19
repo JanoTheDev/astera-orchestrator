@@ -17,6 +17,7 @@ import {
   removeTab,
   replaceTabId,
   setRatio,
+  soloRects,
   splitAndMove,
   splitBoundaries,
   unsplit,
@@ -509,5 +510,27 @@ describe('종류가 섞인 트리', () => {
     const withFile = addTab(a, a.id, 'file:D:\\r\\a.ts')
     const next = replaceTabId(withFile, 'session:s1', 'session:s2')
     assertInvariants(next, ['session:s2', 'file:D:\\r\\a.ts'])
+  })
+})
+
+describe('soloRects', () => {
+  const tree: PaneNode = {
+    kind: 'split',
+    id: 's',
+    dir: 'row',
+    ratio: 0.3,
+    a: { kind: 'leaf', id: 'g1', tabIds: ['a', 'b'], activeTabId: 'a' },
+    b: { kind: 'leaf', id: 'g2', tabIds: ['c'], activeTabId: 'c' }
+  }
+
+  it('gives only the tab\'s group a full-size rect', () => {
+    expect([...soloRects(tree, 'c')]).toEqual([['g2', { x: 0, y: 0, w: 100, h: 100 }]])
+    expect([...soloRects(tree, 'b').keys()]).toEqual(['g1'])
+  })
+
+  it('is empty for a tab that is not in the tree, and leaves the tree alone', () => {
+    const before = JSON.stringify(tree)
+    expect(soloRects(tree, 'zzz').size).toBe(0)
+    expect(JSON.stringify(tree)).toBe(before)
   })
 })
