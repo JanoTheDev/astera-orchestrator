@@ -27,7 +27,8 @@ import { binDirFor } from '../core/orchestration/cliInstall'
 import {
   preTrustWorkspace,
   startCoordinatorSession,
-  startWorkerWithChain
+  startWorkerWithChain,
+  type AutoStartGuard
 } from '../core/orchestration/exec/workerStart'
 import { mergeDepsInto } from '../core/orchestration/exec/integrateGit'
 import { specsDirOf } from '../core/orchestration/exec/specFiles'
@@ -118,6 +119,8 @@ export interface HostSpawnerDeps {
   /** Each prompt write of a worker this Host's coordinator starts (Host journal, A19 lifted). Isolated: a
    *  throw is logged and the start goes on. */
   onPromptWrite?(e: PromptWriteEvent): void
+  /** T2 (automatic accounts): the Host's usage guard, for the starts' usage-ordered chains. Absent: today's chains. */
+  usageGuard?: AutoStartGuard
 }
 
 /** HostRollSpawner's three (prepareRollSpawn, rollSpawn, statusLinePayload) are the S6 roll's respawn
@@ -648,7 +651,8 @@ export function createHostSpawner(d: HostSpawnerDeps): HostSpawner | null {
         coordinator: coordinatorFor(accounts, trace),
         tails,
         log,
-        roleModels: () => readRoleModelsSetting(settingsPath)
+        roleModels: () => readRoleModelsSetting(settingsPath),
+        ...(d.usageGuard ? { usageGuard: d.usageGuard } : {})
       },
       a
     )
@@ -768,7 +772,13 @@ export function createHostSpawner(d: HostSpawnerDeps): HostSpawner | null {
             accounts: async () => accounts,
             roleModels: () => readRoleModelsSetting(settingsPath),
             spawn: (o) => spawnSession(o, accounts, trace),
-            log
+            log,
+            // T2: the start's account and chain by usage (autoStartChain)
+            ...(d.usageGuard ? { usageGuard: d.usageGuard } : {}),
+            loginStatus: async (id) => {
+              const x = accounts.find((y) => y.id === id)
+              return x ? isLoggedIn(x, descriptors) : false
+            }
           },
           a
         )

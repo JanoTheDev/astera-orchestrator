@@ -1,6 +1,7 @@
 import type { Account, Provider } from '../types'
 import { providerOf } from '../providers/meta'
 import { defaultAccountIdOf } from './defaultAccount'
+import { withAutoOrder } from './autoAccountOrder'
 
 /** 워커를 띄울 계정을 못 골랐을 때의 이유. 부르는 쪽이 이것으로 사람에게 할 말을 고른다 —
  *  "고른 계정을 못 쓴다"와 "쓸 계정이 아예 없다"는 사람이 해야 할 일이 다르다. */
@@ -131,6 +132,10 @@ export function rollChainFor(a: {
   provider: Provider
   accounts: readonly Account[]
   loggedInIds: ReadonlySet<string>
+  /** T2: "Pick accounts automatically" is on (autoOrderOf). The Task's other accounts stay behind the requested one
+   *  only while under the threshold, then the rest of the provider's accounts least used first, so a limit rolls on
+   *  instead of waiting. Absent: today's chain. */
+  auto?: { order: readonly string[]; over(id: string): boolean }
 }): {
   chain: string[]
   /** 저하했을 때만. 'nothing-usable' = 합친 목록에 쓸 수 있는 계정이 하나도 없다,
@@ -143,7 +148,12 @@ export function rollChainFor(a: {
     accounts: a.accounts,
     loggedInIds: a.loggedInIds
   })
-  if (picked.ok) return { chain: picked.chain }
+  if (picked.ok)
+    return {
+      chain: a.auto
+        ? [picked.accountId, ...withAutoOrder(picked.chain.slice(1), a.auto.order, a.auto.over).filter((id) => id !== picked.accountId)]
+        : picked.chain
+    }
   // **실패는 곧 "요청된 계정을 못 쓴다"다** — 첫 칸이 그것이고, accountToDispatchOn 은 첫 칸을 못 쓰면
   // 뒤 칸을 올려세우지 않고 실패로 답한다. 그래도 저하 이유를 둘로 가르는 이유는 부르는 쪽이 로그에
   // 적을 말이 다르기 때문이다(사람이 할 일이 다르다): Task 의 계정을 아무것도 못 쓰는 것과, 하필 이

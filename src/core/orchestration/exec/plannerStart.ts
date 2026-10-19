@@ -9,7 +9,7 @@ import { coordinatorLaunchPrompt } from '../handover'
 import { jobNameOf } from '../jobName'
 import { resolveRoleModel, type RoleModelSettings } from '../roleModels'
 import { handsOffOf } from './plannerFeedback'
-import type { CoordinatorStartContext, StartCoordinatorArgs } from './workerStart'
+import { autoStartChain, type CoordinatorStartContext, type StartCoordinatorArgs } from './workerStart'
 
 /** The planner's brief, named for its Job, in the spec directory beside the coordinators' briefs. The boot
  *  sweep (`staleSpecFiles`) removes it at the next start; the planner has read it by then. */
@@ -26,8 +26,11 @@ export async function startPlannerSession(ctx: CoordinatorStartContext, a: Start
   // A file and one line, for the reason the coordinator's brief is (coordinatorLaunchPrompt).
   const briefPath = path.join(ctx.specsDir, plannerBriefName(a.runId))
   await fs.writeFile(briefPath, a.brief, 'utf8')
-  await ctx.preTrust(a.accountId, a.cwd)
-  const account = (await ctx.accounts()).find((x) => x.id === a.accountId)
+  // T2: the account and chain by usage when "Pick accounts automatically" is on (autoStartChain)
+  const { accountId, chain } = await autoStartChain(ctx, a.accountId)
+  if (accountId !== a.accountId) ctx.log(`planner job=${a.runId}: ${a.accountId} is at the usage threshold, starting on ${accountId}`)
+  await ctx.preTrust(accountId, a.cwd)
+  const account = (await ctx.accounts()).find((x) => x.id === accountId)
   let settings: RoleModelSettings = {}
   try {
     settings = await ctx.roleModels()
@@ -37,18 +40,19 @@ export async function startPlannerSession(ctx: CoordinatorStartContext, a: Start
   // The premium planning model (W1-A, SPEC §4): opus unless the Job or the app says otherwise.
   const model = account ? resolveRoleModel(settings, job, 'planner', providerOf(account)) : undefined
   const info = await ctx.spawn({
-    accountId: a.accountId,
+    accountId,
     cwd: a.cwd,
     // #117: except on a hands-off plan, where nobody is there to answer a prompt
     bypassPermissions: job !== undefined && handsOffOf(ctx.getState(), job),
     initialPrompt: coordinatorLaunchPrompt(briefPath.replace(/\\/g, '/')),
     title: `Planner · ${job ? jobNameOf(job).slice(0, 40) : a.runId.slice(0, 12)}`,
-    // One account: a limit waits for its reset in the same session, keeping the plan's context.
-    rollAccountIds: [a.accountId],
+    // One account: a limit waits for its reset in the same session, keeping the plan's context. T2: with "Pick
+    // accounts automatically" on, the whole order, so a limit rolls the same session on instead of waiting.
+    rollAccountIds: chain,
     ...(model ? { model } : {}),
     // W7-A: the owner's feedback goes on in the same conversation, which keeps everything the planner read
     ...(a.resume ? { resumeSessionId: a.resume } : {})
   })
-  ctx.log(`planner started job=${a.runId} session=${info.id} account=${a.accountId} model=${model ?? 'CLI default'}`)
+  ctx.log(`planner started job=${a.runId} session=${info.id} account=${accountId} model=${model ?? 'CLI default'}`)
   return { sessionId: info.id }
 }

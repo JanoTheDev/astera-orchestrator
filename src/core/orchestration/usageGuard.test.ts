@@ -11,7 +11,7 @@ import {
   type AccountReading,
   type UsageChange
 } from './usageGuard'
-import { readAccountReadings } from '../usage/accountReadings'
+import { readAccountReadings, withFetchedReadings } from '../usage/accountReadings'
 
 const NOW = Date.parse('2026-10-18T12:00:00Z')
 const LATER = '2026-10-18T14:20:00Z'
@@ -139,5 +139,47 @@ describe('readAccountReadings', () => {
     } finally {
       await fs.rm(dir, { recursive: true, force: true })
     }
+  })
+})
+
+describe('T2: automatic accounts in the guard', () => {
+  it('reads the setting before the readings, hands it to them, and tells it', async () => {
+    let on = true
+    const asked: boolean[] = []
+    const guard = createUsageGuard({
+      readings: async ({ autoAccounts }) => {
+        asked.push(autoAccounts)
+        return new Map()
+      },
+      pauseAt: async () => 90,
+      autoAccounts: async () => on,
+      nowMs: () => NOW
+    })
+    expect(guard.autoAccounts()).toBe(false)
+    await guard.refresh()
+    expect(guard.autoAccounts()).toBe(true)
+    on = false
+    await guard.refresh()
+    expect(guard.autoAccounts()).toBe(false)
+    expect(asked).toEqual([true, false])
+  })
+
+  it('is off without the setting wired', async () => {
+    const guard = createUsageGuard({ readings: async () => new Map(), pauseAt: async () => 90, nowMs: () => NOW })
+    await guard.refresh()
+    expect(guard.autoAccounts()).toBe(false)
+  })
+
+  it('withFetchedReadings adds the fetcher\'s usage for claude accounts with no live reading, and nothing on a failure', async () => {
+    const acct = (id: string, provider: 'claude' | 'codex' = 'claude') => ({ id, label: id, configDir: `/cfg/${id}`, color: '#fff', createdAt: LATER, provider })
+    const live = new Map([['live', reading(50, 10)]])
+    const fetched = { session: { usedPercent: 30, resetsAt: LATER }, weekly: null, maxPercent: 30, peak: null, status: 'ok' as const }
+    const fetch = async (dir: string) => {
+      if (dir === '/cfg/bad') throw new Error('net')
+      if (dir === '/cfg/none') return { ...fetched, session: null, status: 'unavailable' as const }
+      return fetched
+    }
+    const out = await withFetchedReadings(live, [acct('live'), acct('idle'), acct('bad'), acct('none'), acct('cx', 'codex')], fetch)
+    expect(Object.fromEntries(out)).toEqual({ live: reading(50, 10), idle: { session: fetched.session, weekly: null } })
   })
 })
