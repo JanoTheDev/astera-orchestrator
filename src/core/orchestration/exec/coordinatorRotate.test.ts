@@ -2,7 +2,7 @@
 // the hand-off brief, no refresh while a worker-start is in flight, finished workers and reviewers released while
 // the plan runs, and worker tab titles.
 import { describe, it, expect, vi } from 'vitest'
-import { coordinatorHandoff, createCoordinatorRotation, taskRefOf, workerTabTitle, type RotationContext } from './coordinatorRotate'
+import { coordinatorHandoff, createCoordinatorRotation, FINISHED_RELEASE_RETRY_MS, FINISHED_RELEASE_TRIES, taskRefOf, workerTabTitle, type RotationContext } from './coordinatorRotate'
 import { handleCommand, type OrchServerDeps } from '../command'
 import { APP_CALLER } from '../../host/driver'
 import { emptyState, type OrchState } from '../state'
@@ -46,7 +46,7 @@ const plan = (tasks: Task[], extra: Partial<OrchState> = {}): OrchState => ({
   ...extra
 })
 
-function rig(initial: OrchState, o: { pct?: number | null; threshold?: number; typed?: string[] } = {}) {
+function rig(initial: OrchState, o: { pct?: number | null; threshold?: number; typed?: string[]; typedAgoMs?: number; releaseStatus?: number } = {}) {
   let state = initial
   const order: string[] = []
   const startCoordinator = vi.fn(async (a: { brief: string }) => {
@@ -71,18 +71,20 @@ function rig(initial: OrchState, o: { pct?: number | null; threshold?: number; t
     log: () => {}
   } as unknown as OrchServerDeps
   const logs: string[] = []
+  const activities: string[] = []
   const ctx: RotationContext = {
     handle: (cmd, args) => handleCommand(deps, { sessionId: APP_CALLER }, cmd, args),
     getState: () => state,
     sessionAlive: () => true,
-    lastPersonInputAt: (id) => (o.typed?.includes(id) ? NOW_MS : null),
+    lastPersonInputAt: (id) => (o.typed?.includes(id) ? NOW_MS - (o.typedAgoMs ?? 0) : null),
+    activity: (_run, _task, reason) => activities.push(reason),
     sessionContextPct: () => o.pct ?? null,
     freshCoordinatorPct: () => o.threshold ?? 70,
     mayStart: () => true,
     log: (m) => logs.push(m),
     nowMs: () => NOW_MS
   }
-  return { ctx, rotation: createCoordinatorRotation(ctx), state: () => state, startCoordinator, stopCoordinator, releaseWorker, order, logs }
+  return { ctx, rotation: createCoordinatorRotation(ctx), state: () => state, startCoordinator, stopCoordinator, releaseWorker, order, logs, activities }
 }
 
 describe('coordinator rotation', () => {
@@ -178,11 +180,38 @@ describe('finished sessions of a running plan', () => {
     expect(h.releaseWorker.mock.calls.map((c) => c[0].dispatchId)).toEqual(['dDone'])
   })
 
-  it('keeps a completed worktree worker until it is merged (a dependent started)', async () => {
+  it('ends a completed worktree worker without waiting for its merge', async () => {
     const s = running([task({ id: 'tDone', status: 'completed' })], [dispatch({ id: 'dDone', taskId: 'tDone', sessionId: 'wDone', cwd: '/wt-own' })])
     const h = rig(s)
     await h.rotation.releaseFinished()
-    expect(h.releaseWorker).not.toHaveBeenCalled()
+    expect(h.releaseWorker.mock.calls.map((c) => c[0].dispatchId)).toEqual(['dDone'])
+    // The command layer releases the session only; nothing in it removes the worktree
+    expect(h.state().dispatches[0].cwd).toBe('/wt-own')
+  })
+
+  it('keeps a worker the owner typed into within 10 minutes, and ends it after', async () => {
+    const mk = () => running([task({ id: 'tDone', status: 'completed' })], [dispatch({ id: 'dDone', taskId: 'tDone', sessionId: 'wDone' })])
+    const recent = rig(mk(), { typed: ['wDone'], typedAgoMs: 9 * 60_000 })
+    await recent.rotation.releaseFinished()
+    expect(recent.releaseWorker).not.toHaveBeenCalled()
+    const old = rig(mk(), { typed: ['wDone'], typedAgoMs: 11 * 60_000 })
+    await old.rotation.releaseFinished()
+    expect(old.releaseWorker).toHaveBeenCalledTimes(1)
+  })
+
+  it('records one activity line after the last failed release try', async () => {
+    const s = running([task({ id: 'tDone', status: 'completed' })], [dispatch({ id: 'dDone', taskId: 'tDone', sessionId: 'wDone' })])
+    const h = rig(s)
+    h.releaseWorker.mockRejectedValue(new Error('boom'))
+    let now = NOW_MS
+    h.ctx.nowMs = () => now
+    for (let i = 0; i < FINISHED_RELEASE_TRIES + 2; i++) {
+      await h.rotation.releaseFinished()
+      expect(h.activities).toHaveLength(i + 1 >= FINISHED_RELEASE_TRIES ? 1 : 0)
+      now += FINISHED_RELEASE_RETRY_MS
+    }
+    expect(h.releaseWorker).toHaveBeenCalledTimes(FINISHED_RELEASE_TRIES)
+    expect(h.activities).toEqual(['Could not close console wDone'])
   })
 
   it("ends a reviewer once its verdict is recorded, while the Task is still being repaired", async () => {
