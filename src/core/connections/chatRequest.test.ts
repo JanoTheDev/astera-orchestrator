@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { describeChatRequest, questionAnswerOf, approvalDecisionOf } from './chatRequest'
-import { sanitizeChatText } from './inbound'
+import { sanitizeChatText } from './input'
 import type { ChatRequest } from '../chat/types'
 import type { AskForm } from '../prompts/askUserQuestion'
 

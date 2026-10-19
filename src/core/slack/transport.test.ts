@@ -1,10 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import {
-  WebhookTransport,
-  SlackPostError,
-  BotTransport,
-  type SlackPoster
-} from './transport'
+import { WebhookTransport, BotTransport, type SlackPoster } from './transport'
+import { ConnectionPostError } from '../connections/transport'
 
 describe('WebhookTransport', () => {
   it('텍스트를 webhook URL로 POST한다', async () => {
@@ -37,11 +33,11 @@ describe('WebhookTransport', () => {
     expect(bodies).toEqual([{ text: '본문' }])
   })
 
-  it('non-ok 응답은 SlackPostError로 던진다', async () => {
+  it('non-ok 응답은 ConnectionPostError로 던진다', async () => {
     const fetchFn = (async () => ({ ok: false, status: 429 }) as Response) as unknown as typeof fetch
     const t = new WebhookTransport('https://hooks.slack.com/x', fetchFn)
 
-    await expect(t.post('x')).rejects.toBeInstanceOf(SlackPostError)
+    await expect(t.post('x')).rejects.toBeInstanceOf(ConnectionPostError)
     await expect(t.post('x')).rejects.toMatchObject({ reason: 'status=429' })
   })
 
@@ -93,11 +89,11 @@ describe('BotTransport', () => {
     expect(p.calls[0]).toEqual({ channel: 'C123', text: '답글', thread_ts: '1700000000.000100' })
   })
 
-  it('ok가 아니면 SlackPostError', async () => {
+  it('ok가 아니면 ConnectionPostError', async () => {
     const p = poster(async () => ({ ok: false }))
     const t = new BotTransport(p.client, 'C123')
 
-    await expect(t.post('x')).rejects.toBeInstanceOf(SlackPostError)
+    await expect(t.post('x')).rejects.toBeInstanceOf(ConnectionPostError)
   })
 
   it('SDK 예외는 토큰이 새지 않는 reason으로 감싼다', async () => {
@@ -123,11 +119,11 @@ describe('BotTransport', () => {
   }
 
   // t.post()는 항상 거부되어야 하는 시나리오에서만 쓴다 — 성공해버리면 테스트 의도와 다르므로 던진다.
-  async function captureRejection(p: Promise<unknown>): Promise<SlackPostError> {
+  async function captureRejection(p: Promise<unknown>): Promise<ConnectionPostError> {
     try {
       await p
     } catch (e) {
-      return e as SlackPostError
+      return e as ConnectionPostError
     }
     throw new Error('expected post() to reject, but it resolved')
   }

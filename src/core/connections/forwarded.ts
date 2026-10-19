@@ -1,13 +1,13 @@
-// What an app forwards to a Slack-owning Host (Slack in the Host, spec §3.3): the events only the app
-// sees, so the Host's notifier can post them. Parsed at the Host's socket, where anything malformed is
-// dropped rather than trusted.
+// What an app forwards to the Host that owns a connection (Slack in the Host, spec §3.3): the events only
+// the app sees, so the Host's notifier can post them. Parsed at the Host's socket, where anything malformed
+// is dropped rather than trusted. The wire shape is the host protocol's `slack-event` and must not change.
 import type { ChatEvent } from '../chat/types'
 import type { Provider } from '../providers/meta'
 import type { RollStateEvent, SessionInfo } from '../types'
 
 /** One forwarded event. A `chat` event carries its account and the transcript path the app knows
  *  (plan ruling P11); a `rolled` keeps the roll's `dest` when the app had one. */
-export type SlackForwardedEvent =
+export type ForwardedEvent =
   | { kind: 'chat'; sessionId: string; accountId: string; event: ChatEvent; provider: Provider; transcriptPath: string | null }
   | { kind: 'roll-state'; event: RollStateEvent }
   | { kind: 'rolled'; oldSessionId: string; info: SessionInfo; dest?: string }
@@ -19,7 +19,7 @@ const str = (v: unknown): v is string => typeof v === 'string' && v !== ''
 const obj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
 
 /** Reads a forwarded event off the wire, or null for anything else. */
-export function parseSlackForwarded(v: unknown): SlackForwardedEvent | null {
+export function parseForwarded(v: unknown): ForwardedEvent | null {
   if (!obj(v)) return null
   if (v.kind === 'chat') {
     const e = v.event
@@ -54,7 +54,7 @@ export interface ForwardedHearer {
 
 /** Tells a forwarded event to a notifier as if it had heard it itself: an app that held forwards while the
  *  Host was away, and then took Slack, tells them to its own notifier (final review M2). */
-export function hearForwarded(n: ForwardedHearer, ev: SlackForwardedEvent): void {
+export function hearForwarded(n: ForwardedHearer, ev: ForwardedEvent): void {
   if (ev.kind === 'chat') {
     const p = ev.transcriptPath
     return n.onChatEvent(ev.sessionId, ev.event, { provider: ev.provider, transcriptPath: () => p })

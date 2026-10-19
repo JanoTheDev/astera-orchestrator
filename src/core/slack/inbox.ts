@@ -1,36 +1,21 @@
-// Slack thread reply intake. Receives message events over Socket Mode and routes them to the matching
-// session — a terminal session's reply is written into its PTY, a chat session's reply answers its open
-// card (a question's numbers, an approval's word) or becomes its next turn.
+// Slack thread reply intake. Receives message events over Socket Mode, keeps the ones classifyInbound
+// allows, and hands each to the shared reply router (core/connections/replies.ts), which routes it to the
+// matching session.
 //
 // Why Socket Mode: this is a desktop app on the user's PC, so it has no public URL. The Events API
 // is Slack calling us, which needs a public endpoint; Socket Mode instead has the app open an
 // outbound WebSocket to Slack and receive events over it — no port forwarding, tunnel or
 // certificate at all.
 //
-// Classification and conversion live in core/slack/inbound.ts (pure functions); this file only does
-// the SDK wiring. The app token is never written to the log.
+// Classification lives in core/slack/inbound.ts and conversion in core/connections/input.ts (pure
+// functions); this file only does the SDK wiring. The app token is never written to the log.
 // Lives in core since Slack in the Host (Task 1), so the Host runs the same notifier the app does.
-import {
-  classifyInbound,
-  toSessionInput,
-  buildChoiceKeys,
-  sanitizeChatText,
-  MAX_INJECT_CHARS,
-  type InboundMessage,
-  type ChoiceShape
-} from './inbound'
-import { questionAnswerOf, approvalDecisionOf } from './chatRequest'
-import type { ChatRequest, ChatAnswer } from '../chat/types'
+import { classifyInbound, type InboundMessage } from './inbound'
+import { MAX_INJECT_CHARS } from '../connections/input'
+import { RecentIds, ReplyRouter, type ReplyRouterDeps } from '../connections/replies'
 import { botErrorReason } from './transport'
-import { t, type Lang } from '../i18n'
+import { t } from '../i18n'
 
-// Gap between individual choice keys. Same value and same reasoning as ENTER_DELAY_MS. Written glued
-// together in one go, the TUI receives them as a clump and they no longer match its digit test
-// (`/^[0-9]$/`) — measured proof: sending "1,3" only ever checked item 1.
-const KEY_DELAY_MS = 150
-const ENTER_DELAY_MS = 150 // text -> Enter gap (same convention as scheduler.ts and claudeCoordinator.ts —
-// time for the TUI to digest the paste). Writing the text and Enter in one go can submit before the
-// TUI has finished digesting the paste, which can submit empty or truncated input.
 const PROCESSED_TS_LIMIT = 500 // suppresses redelivery from a failed ack — capped so it cannot grow forever
 
 /** The first reconnect waits this long, and each failure after it doubles the wait (final review C1). A
@@ -70,46 +55,20 @@ function isFatalStartError(err: unknown): boolean {
   return typeof code === 'string' && FATAL_START_ERRORS.has(code)
 }
 
-export interface SlackInboxDeps {
+/** What the reply router needs (core/connections/replies.ts), plus what only Slack's intake reads. */
+export interface SlackInboxDeps extends ReplyRouterDeps {
   /** The channel whose replies we accept. If the bot is invited to other channels too, their events
    *  are dropped */
   channelId: string
   /** The one Slack Member ID allowed to drive sessions — anyone else's reply is dropped. Taken as a
-   *  getter rather than a value, by the same convention as lang below, and here it is not merely a
+   *  getter rather than a value, by the same convention as lang, and here it is not merely a
    *  convention: the socket is rebuilt on an appToken+channelId key (SlackInboxController), so a save
    *  that changes only this value never reconnects. Held as a value, that change would never reach the
    *  live socket. null means unconfigured, which blocks everything (classifyInbound). */
   memberId: () => string | null
-  /** threadTs -> live session id. null for an exited session (SlackNotifier.resolveSessionByThread) */
-  resolveSession(threadTs: string): string | null
-  /** PTY write (backed by core.sessions.write). Returns whether it actually wrote —
-   *  SessionManager.write returns silently for an already-exited session (its exited guard), so "did
-   *  not throw" must not be read as success. The caller checks liveness first and passes the result
-   *  through. */
-  write(sessionId: string, data: string): boolean
-  /** Notice left in the thread when the input cannot be injected (SlackNotifier.postThreadNote) */
-  postNote(threadTs: string, text: string): Promise<void>
-  /** Taken as a getter rather than a value so the latest language is used even after setLang — the same
-   *  convention as SlackDeps and RollingDeps. The thread notices above follow the app language. */
-  lang: () => Lang
-  /** Shape of the choice prompt this session currently has up (SlackNotifier.pendingChoiceShape).
-   *  null means either it is not a choice prompt or the shape cannot be trusted, and in that case the
-   *  text is injected as before. Kept optional so callers without this wiring (tests included) do not
-   *  break silently. */
-  pendingChoiceShape?(sessionId: string): ChoiceShape[] | null
-  /** Is this ts a message we posted (SlackNotifier.isOwnMessage) — the second line of defense against
+  /** Is this ts a message we posted (ConnectionNotifier.isOwnMessage) — the second line of defense against
    *  an infinite loop. Even if some path leaves the bot_id check empty, a ts we wrote is filtered out. */
   isOwnMessage(ts: string): boolean
-  /** Whether this id is a chat session — the chat path below is taken only then (core.chat.has). Kept
-   *  optional so callers without chat wiring (tests included) keep taking the pty path. */
-  isChat?(sessionId: string): boolean
-  /** The card the chat session is showing, or null (core.chat.state(id)?.request). */
-  pendingRequest?(sessionId: string): ChatRequest | null
-  /** One turn to the chat session through the session driver; rejects when the CLI refused it. */
-  deliverChat?(sessionId: string, text: string): Promise<void>
-  /** The card's answer (core.chat.answer). */
-  answerChat?(sessionId: string, requestId: string, answer: ChatAnswer): Promise<void>
-  log(message: string): void
 }
 
 /** Only the surface of SocketModeClient we actually use. Kept narrow so tests can inject a fake
@@ -130,9 +89,9 @@ interface MessageEnvelope {
 export class SlackInbox {
   private client: SocketClient | null = null
   // If a failed ack makes Slack redeliver the same envelope, this event arrives again — remember the
-  // ts we handled and skip every repeat. A Set is enough rather than a Map: we need only the order,
-  // not a value — insertion order is preserved, so the oldest entry can be dropped first.
-  private processedTs = new Set<string>()
+  // ts we handled and skip every repeat.
+  private processedTs = new RecentIds(PROCESSED_TS_LIMIT)
+  private readonly router: ReplyRouter
   // Reconnection is ours, not the SDK's (final review C1). The SDK's auto-reconnect called its own start()
   // from a timer and dropped the promise, so a reconnect that failed for good (invalid_auth after a token
   // was regenerated, account_inactive, or its network retries used up) was an unhandled rejection, which
@@ -144,7 +103,9 @@ export class SlackInbox {
   private attempt = 0
   private retryTimer: ReturnType<typeof setTimeout> | null = null
 
-  constructor(private deps: SlackInboxDeps) {}
+  constructor(private deps: SlackInboxDeps) {
+    this.router = new ReplyRouter(deps, 'slack')
+  }
 
   /** Opens the connection and keeps it open. A failure is only logged — even with no intake, notification
    *  sending (REST) must keep working. With `nextClient`, a drop or a failed start builds a fresh client
@@ -290,7 +251,7 @@ export class SlackInbox {
         this.deps.log(`slack inbound ignored(duplicate-ts) ts=${ts}`)
         return
       }
-      this.rememberTs(ts)
+      this.processedTs.add(ts)
     }
     const decision = classifyInbound(event, this.deps.channelId, this.deps.memberId())
     if (decision.kind === 'ignore') {
@@ -315,171 +276,13 @@ export class SlackInbox {
       }
       return
     }
-    const sessionId = this.deps.resolveSession(decision.threadTs)
-    if (!sessionId) {
-      this.deps.log('slack inbound: unmapped thread — exited session')
-      await this.deps.postNote(decision.threadTs, t(this.deps.lang(), 'slack.inbox.sessionEnded'))
-      return
-    }
-    if (this.deps.isChat?.(sessionId)) {
-      await this.handleChatReply(sessionId, decision.text, decision.threadTs)
-      return
-    }
-    // On a choice prompt, the text is not written as-is but converted into a key sequence. A
-    // multi-select is not submitted by Enter alone (it has to go through the Submit tab), so the old
-    // path could never finish the answer.
-    const shape = this.deps.pendingChoiceShape?.(sessionId) ?? null
-    if (shape) {
-      const built = buildChoiceKeys(decision.text, shape)
-      if (!built.ok) {
-        // On a malformed reply, press nothing at all — a wrong sequence commits items nobody meant to
-        // pick and cannot be undone. The reason goes into the thread so the user can learn the format
-        // and send again.
-        // The log records the message key (language-independent, so it stays greppable), while the
-        // thread gets the sentence translated into the app language.
-        this.deps.log(`slack choice reply format mismatch session=${sessionId}: ${built.reason.key}`)
-        const reason = t(this.deps.lang(), built.reason.key, built.reason.params)
-        await this.deps.postNote(decision.threadTs, `⚠️ ${reason}`)
-        return
-      }
-      this.deps.log(`slack inbound -> injecting ${built.keys.length} choice keys session=${sessionId}`)
-      this.writeKeys(sessionId, built.keys, decision.threadTs)
-      return
-    }
-    const input = toSessionInput(decision.text)
-    let wrote = false
-    try {
-      wrote = this.deps.write(sessionId, input.text)
-    } catch (err) {
-      // The user needs to know about an injection failure — on a phone there is no terminal to look at
-      this.deps.log(`slack injection failed(${err instanceof Error ? err.name : 'unknown'}) session=${sessionId}`)
-      await this.deps.postNote(decision.threadTs, t(this.deps.lang(), 'slack.inbox.injectFailed'))
-      return
-    }
-    if (!wrote) {
-      // write returned false — SessionManager.write's exited guard swallowed it silently.
-      // Reporting "did not throw" as success would leave the user with no notice in the thread at all.
-      this.deps.log(`slack inbound: session exited — could not inject session=${sessionId}`)
-      await this.deps.postNote(decision.threadTs, t(this.deps.lang(), 'slack.inbox.sessionEnded'))
-      return
-    }
-    this.deps.log(`slack inbound -> injected into session=${sessionId} chars=${decision.text.length}`)
-    if (input.submit) {
-      // The text and Enter are not written in one go — this follows the ENTER_DELAY_MS convention
-      // from scheduler.ts and claudeCoordinator.ts. If the session dies during the delay, deps.write returns
-      // false on its own and writes nothing — write()'s contract is to re-check liveness on every
-      // call, so there is no need for a separate disposed flag here (see the SlackInboxDeps.write
-      // contract above).
-      setTimeout(() => {
-        try {
-          this.deps.write(sessionId, '\r')
-        } catch (err) {
-          this.deps.log(
-            `slack injection Enter failed(${err instanceof Error ? err.name : 'unknown'}) session=${sessionId}`
-          )
-        }
-      }, ENTER_DELAY_MS)
-    }
-  }
-
-  /**
-   * Sends the choice keys one at a time, KEY_DELAY_MS apart.
-   *
-   * Written glued together in one go, the TUI receives them as a clump and they no longer match its
-   * digit test (the measurement in the KEY_DELAY_MS comment). If the session dies partway, write
-   * returns false and we stop right there — no separate disposed flag is needed (the
-   * SlackInboxDeps.write contract). If it ends half-pressed the prompt stays on screen, and the user
-   * can read the thread notice and finish up in the terminal.
-   */
-  private writeKeys(sessionId: string, keys: string[], threadTs: string): void {
-    let i = 0
-    const step = (): void => {
-      if (i >= keys.length) return
-      let ok = false
-      try {
-        ok = this.deps.write(sessionId, keys[i])
-      } catch (err) {
-        this.deps.log(
-          `slack choice key failed(${err instanceof Error ? err.name : 'unknown'}) session=${sessionId} at=${i + 1}/${keys.length}`
-        )
-        void this.deps.postNote(threadTs, t(this.deps.lang(), 'slack.inbox.injectFailed'))
-        return
-      }
-      if (!ok) {
-        this.deps.log(
-          `slack session exited mid choice keys session=${sessionId} at=${i + 1}/${keys.length}`
-        )
-        void this.deps.postNote(threadTs, t(this.deps.lang(), 'slack.inbox.sessionEnded'))
-        return
-      }
-      i++
-      if (i < keys.length) setTimeout(step, KEY_DELAY_MS)
-    }
-    step()
-  }
-
-  /** A reply for a chat session (chat-sessions slice 4 design §7.3). The session holds its own open
-   *  card, so the reply is read against it: a question's numbers become its answers, an approval's word
-   *  its decision, and with no card the text is one turn through the session driver. Nothing is typed —
-   *  there is no terminal — and nothing is posted on success: a resolved send on Claude means "written",
-   *  not "accepted" (§6.5), so only refusals are said out loud. */
-  private async handleChatReply(sessionId: string, text: string, threadTs: string): Promise<void> {
-    const lang = this.deps.lang()
-    const request = this.deps.pendingRequest?.(sessionId) ?? null
-    if (request?.kind === 'question') {
-      const built = questionAnswerOf(text, request.form)
-      if (!built.ok) {
-        this.deps.log(`slack chat question reply format mismatch session=${sessionId}: ${built.reason.key}`)
-        await this.deps.postNote(threadTs, `⚠️ ${t(lang, built.reason.key, built.reason.params)}`)
-        return
-      }
-      this.deps.log(`slack inbound -> answering question ${request.id} session=${sessionId}`)
-      await this.answerOrNote(sessionId, request.id, { kind: 'question', answers: built.answers }, threadTs)
-      return
-    }
-    if (request?.kind === 'approval') {
-      const decision = approvalDecisionOf(text, request.decisions)
-      if (decision === null) {
-        this.deps.log(`slack chat approval reply not understood session=${sessionId}`)
-        const key = request.decisions.includes('acceptForSession') ? 'slack.approval.unknownReplyAlways' : 'slack.approval.unknownReply'
-        await this.deps.postNote(threadTs, t(lang, key))
-        return
-      }
-      this.deps.log(`slack inbound -> deciding approval ${request.id} (${decision}) session=${sessionId}`)
-      await this.answerOrNote(sessionId, request.id, { kind: 'approval', decision }, threadTs)
-      return
-    }
-    try {
-      await this.deps.deliverChat?.(sessionId, sanitizeChatText(text))
-      this.deps.log(`slack inbound -> chat turn session=${sessionId} chars=${text.length}`)
-    } catch (err) {
-      const reason = err instanceof Error ? err.message : String(err)
-      this.deps.log(`slack chat send refused session=${sessionId}: ${reason}`)
-      await this.deps.postNote(threadTs, t(lang, 'slack.chat.sendRefused', { reason }))
-    }
-  }
-
-  private async answerOrNote(sessionId: string, requestId: string, answer: ChatAnswer, threadTs: string): Promise<void> {
-    try {
-      await this.deps.answerChat?.(sessionId, requestId, answer)
-    } catch (err) {
-      this.deps.log(`slack chat answer failed session=${sessionId}: ${err instanceof Error ? err.message : String(err)}`)
-      await this.deps.postNote(threadTs, t(this.deps.lang(), 'slack.inbox.injectFailed'))
-    }
-  }
-
-  private rememberTs(ts: string): void {
-    this.processedTs.add(ts)
-    if (this.processedTs.size > PROCESSED_TS_LIMIT) {
-      const oldest = this.processedTs.values().next().value
-      if (oldest !== undefined) this.processedTs.delete(oldest)
-    }
+    await this.router.route({ target: decision.threadTs, text: decision.text, noteTo: decision.threadTs })
   }
 }
 
 /** Pulls the target for the inbound socket (channel and app token) out of the config. All three are
- *  required for bot-mode intake — without botToken+channelId SlackNotifier does not treat it as bot
- *  mode either (applyConfig), and without appToken Socket Mode cannot be opened at all. */
+ *  required for bot-mode intake — without botToken+channelId the notifier does not treat it as bot
+ *  mode either (slackTransportOf in connect.ts), and without appToken Socket Mode cannot be opened at all. */
 export interface InboxTarget {
   channelId: string
   appToken: string
@@ -510,7 +313,7 @@ export interface SlackInboxControllerDeps {
  *
  * Before this, the socket was created once at app start and never touched again — turning bot mode
  * off (clearing the token and channel) left the socket attached to the old channel, and even though
- * SlackNotifier.replaceTransport emptied threadIndex, the socket itself kept receiving that channel's
+ * ConnectionNotifier.replaceTransport emptied threadIndex, the socket itself kept receiving that channel's
  * events and kept injecting into live sessions until the next restart. Changing only the channel had
  * the same shape: notifications went to the new channel while injection still only arrived from
  * replies on the old one.

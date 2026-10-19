@@ -10,7 +10,7 @@ import {
   type SlackInboxControllerDeps,
   type SocketClient
 } from './inbox'
-import { MAX_INJECT_CHARS } from './inbound'
+import { MAX_INJECT_CHARS } from '../connections/input'
 import type { ChatRequest } from '../chat/types'
 
 const CH = 'C-target'

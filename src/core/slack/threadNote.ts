@@ -1,24 +1,13 @@
-// The session thread kept in the session's note (Slack in the Host, spec S5). The note keys are
-// `slackThreadTs` and `slackChannel`: whoever owns Slack writes them (plan ruling P9), and this file is
-// the only reader, so a restart, a roll or an ownership handover resumes the same root instead of
-// posting a second one.
+// Slack's session thread note (spec S5): the keys `slackThreadTs` and `slackChannel` already stored in
+// session notes, read and written through the shared helpers in core/connections/threadNote.ts. The keys
+// must never change, or every noted thread is forgotten and each session opens a second root.
+import { notedThreadOf as notedUnder, threadNotePatch as patchUnder, type NotedThread } from '../connections/threadNote'
 
-/** The note keys the thread is kept under. */
+/** The note keys Slack's thread is kept under. */
 export const THREAD_NOTE_KEYS = ['slackThreadTs', 'slackChannel'] as const
 
-export interface NotedThread {
-  ts: string
-  channel: string
-}
+/** The Slack thread a session's note names, or null. */
+export const notedThreadOf = (restore: Record<string, unknown>): NotedThread | null => notedUnder(restore, THREAD_NOTE_KEYS)
 
-/** The thread a session's note names (keys slackThreadTs, slackChannel), or null. */
-export function notedThreadOf(restore: Record<string, unknown>): NotedThread | null {
-  const ts = restore.slackThreadTs
-  const channel = restore.slackChannel
-  return typeof ts === 'string' && typeof channel === 'string' ? { ts, channel } : null
-}
-
-/** The note patch for a thread, or the one that drops it (both keys null). */
-export function threadNotePatch(t: NotedThread | null): { slackThreadTs: string | null; slackChannel: string | null } {
-  return t ? { slackThreadTs: t.ts, slackChannel: t.channel } : { slackThreadTs: null, slackChannel: null }
-}
+/** The note patch for a Slack thread, or the one that drops it (both keys null). */
+export const threadNotePatch = (t: NotedThread | null): Record<string, string | null> => patchUnder(t, THREAD_NOTE_KEYS)

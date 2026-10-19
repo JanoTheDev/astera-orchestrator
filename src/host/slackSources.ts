@@ -23,8 +23,8 @@
 import type { ChatEvent } from '../core/chat/types'
 import { providerOf, type Provider } from '../core/providers/meta'
 import { codexRolloutFromNote, type CodexRolloutWatcher } from '../core/sessions/codexRolloutWatcher'
-import { parseSlackForwarded } from '../core/slack/forwarded'
-import type { SlackNotifier } from '../core/slack/notifier'
+import { parseForwarded } from '../core/connections/forwarded'
+import type { SlackNotifier } from '../core/slack/connect'
 import type { SessionInfo } from '../core/types'
 import type { HostChats } from './hostChats'
 import type { HostRollEvent, HostRolling } from './rolling'
@@ -156,7 +156,7 @@ export function createHostSlackSources(d: {
     },
     forwarded: (raw) => {
       try {
-        const ev = parseSlackForwarded(raw)
+        const ev = parseForwarded(raw)
         if (!ev) return drop('malformed event', 'an app')
         if (ev.kind === 'chat') {
           if (d.chats?.has(ev.sessionId)) return drop('chat event', ev.sessionId)

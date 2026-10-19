@@ -18,7 +18,7 @@
 //   settings save made before a Slack-owning Host can hear it (ownership undecided, or the Host away) is
 //   sent as slack-reload the next time a Slack-owning Host answers.
 import type { SlackConfig } from '../core/slack/config'
-import type { SlackForwardedEvent } from '../core/slack/forwarded'
+import type { ForwardedEvent } from '../core/connections/forwarded'
 import { hostSpeaksSlackOwner } from './host/outdated'
 
 export const SLACK_HANDBACK_MS = 15_000
@@ -40,9 +40,9 @@ export interface SlackOwnership {
    *  `slack` yield out. A hello that yields while the hand-back grace runs restarts the grace. */
   helloKeeps(): boolean
   /** The Host half, bound by ipc.ts once its client exists. */
-  setHost(h: { reload(): Promise<void>; forward(ev: SlackForwardedEvent): void } | null): void
+  setHost(h: { reload(): Promise<void>; forward(ev: ForwardedEvent): void } | null): void
   /** Sent to the Host only while it owns Slack; false otherwise. Never throws. */
-  forward(ev: SlackForwardedEvent): boolean
+  forward(ev: ForwardedEvent): boolean
   /** slack.setConfig wrote the file: applied here when the app owns, sent as slack-reload when the Host does. */
   configChanged(cfg: SlackConfig): Promise<void>
   dispose(): void
@@ -55,7 +55,7 @@ export function createSlackOwnership(d: {
   /** notifier.setTransport(null) + inbox stop. */
   yieldAll(): void
   /** A forward held while the Host was away, told to this app's own notifier once it takes Slack. */
-  hear?(ev: SlackForwardedEvent): void
+  hear?(ev: ForwardedEvent): void
   after(ms: number, fn: () => void): () => void
   log(m: string): void
 }): SlackOwnership {
@@ -66,10 +66,10 @@ export function createSlackOwnership(d: {
   /** Said once per stretch of keeping Slack in front of a Slack-owning Host. */
   let toldKept = false
   let cancel: (() => void) | null = null
-  let host: { reload(): Promise<void>; forward(ev: SlackForwardedEvent): void } | null = null
+  let host: { reload(): Promise<void>; forward(ev: ForwardedEvent): void } | null = null
   /** The Host client is connected: a forward sent now reaches it. */
   let linked = false
-  let held: SlackForwardedEvent[] = []
+  let held: ForwardedEvent[] = []
   let toldDropped = false
   /** A settings save no Slack-owning Host has heard yet. */
   let reloadOwed = false

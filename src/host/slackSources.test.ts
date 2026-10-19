@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { SlackNotifier } from '../core/slack/notifier'
+import { SlackNotifier } from '../core/slack/connect'
 import { createHostSlackSources } from './slackSources'
 import type { Account, SessionInfo } from '../core/types'
 import type { ChatEvent } from '../core/chat/types'

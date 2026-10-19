@@ -20,7 +20,7 @@
 // Imports only core and this folder: this bundles into the Host.
 import type { PtyMeta } from '../core/host/protocol'
 import type { SessionInfo } from '../core/types'
-import type { SlackNotifier } from '../core/slack/notifier'
+import type { SlackNotifier } from '../core/slack/connect'
 import { chatInfoFromNote, sessionInfoFromNote } from '../core/sessions/noteInfo'
 import { notedThreadOf } from '../core/slack/threadNote'
 import type { PtyRegistry } from './registry'

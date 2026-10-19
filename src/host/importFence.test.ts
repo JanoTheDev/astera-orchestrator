@@ -149,7 +149,8 @@ describe('the Host import fence (constraint 10)', () => {
   // watcher live in core, inside the fence, and none of them imports the Slack SDK (plan ruling P1).
   it('the Slack notifier, inbox, transports and codex rollout watcher live in core, without the SDK', () => {
     const moved = [
-      path.join(srcRoot, 'core', 'slack', 'notifier.ts'),
+      path.join(srcRoot, 'core', 'connections', 'notifier.ts'),
+      path.join(srcRoot, 'core', 'slack', 'connect.ts'),
       path.join(srcRoot, 'core', 'slack', 'config.ts'),
       path.join(srcRoot, 'core', 'slack', 'inbox.ts'),
       path.join(srcRoot, 'core', 'slack', 'transport.ts'),

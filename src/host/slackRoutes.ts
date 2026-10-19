@@ -15,7 +15,7 @@
 import { HOST_ACT_SLACK_ANSWER } from '../core/host/protocol'
 import type { ChatAnswer, ChatRequest } from '../core/chat/types'
 import type { SlackInboxDeps } from '../core/slack/inbox'
-import type { SlackNotifier } from '../core/slack/notifier'
+import type { SlackNotifier } from '../core/slack/connect'
 import type { PtyRegistry } from './registry'
 import type { ProcRegistry } from './procRegistry'
 import type { HostChats } from './hostChats'

@@ -1,10 +1,16 @@
-// Slack progress notifications. Hook events (Stop, Notification), a chat session's own protocol events
-// (onChatEvent), rolling state, non-rolling limits, and session exits are sent through either an Incoming
-// Webhook or a Slack bot (chat.postMessage) — both are abstracted behind SlackTransport in
-// transport.ts, so this file does not know which implementation it has. As with RollingCoordinator,
-// every side effect is injected through deps — no electron dependency, verified with vitest. The wiring
-// is in ipc.ts and index.ts. The Webhook URL and bot token are never written to the log.
+// Progress notifications for one chat connection (Slack today). Hook events (Stop, Notification), a chat
+// session's own protocol events (onChatEvent), rolling state, non-rolling limits, and session exits are
+// sent through the connection's transport (ConnectionTransport in transport.ts), so this file knows neither
+// which connection nor which implementation it has. As with RollingCoordinator, every side effect is
+// injected through deps — no electron dependency, verified with vitest. Tokens and URLs are never written
+// to the log.
 // Lives in core since Slack in the Host (Task 1), so the Host runs the same notifier the app does.
+//
+// **Adding a connection.** A connection is a folder of its own beside this one (Slack's is `slack`): its
+// config, its transport (which implements ConnectionTransport and renders this file's text for its
+// channel), and its inbox (which classifies an incoming message and hands an allowed reply to
+// replies.ts). It gets one ConnectionNotifier of its own, built with its name, note keys and text cap,
+// and that notifier joins the list in fanout.ts. Nothing in this folder imports a connection.
 import { promises as fs } from 'node:fs'
 import type { Account, SessionInfo, RollStateEvent } from '../types'
 import { OutputScanner } from '../rolling/detect'
@@ -17,7 +23,7 @@ import {
   extractLastTurnAssistantText,
   extractPendingToolUse
 } from './transcript'
-import type { ChoiceShape } from './inbound'
+import type { ChoiceShape } from './input'
 import { extractLastAgentMessage } from './codexTranscript'
 import { describeChatRequest } from './chatRequest'
 import type { ChatEvent, ChatRequest, ChatStatus } from '../chat/types'
@@ -27,22 +33,14 @@ import {
   isUnknownNotificationType,
   type NotificationPayload
 } from '../hooks/notification'
-import type { SlackTransportConfig } from './ready'
 import { PTY_LOST_SIGHT_EXIT_CODE } from '../sessions/pty'
 import { sessionKindOf } from '../sessions/kind'
 import { happenedBefore, hookEventAt } from '../hooks/eventTime'
 import { sanitize } from '../orchestration/checkpoint'
 import { t, type Lang } from '../i18n'
-import {
-  BotTransport,
-  SlackPostError,
-  WebhookTransport,
-  type SlackPoster,
-  type SlackTransport
-} from './transport'
-import { threadNotePatch, type NotedThread } from './threadNote'
-
-export type { SlackConfig } from './config'
+import { ConnectionPostError, type ConnectionTransport } from './transport'
+import { RecentIds } from './replies'
+import { notedThreadOf, threadNotePatch, type NoteKeys, type NotedThread } from './threadNote'
 
 const GATE_PCT = 90 // the bar for choosing which window's reset to show — no longer used as a gate for accepting a limit phrase
 const DEDUP_MS = 10 * 60_000 // the window in which identical text is not re-sent (guards against a repeated excerpt or state)
@@ -53,19 +51,16 @@ const STOP_FAILURE_DELAY_MS = EXIT_DELAY_MS
 const LIMIT_SEEN_WINDOW_MS = 60_000
 // EXIT_DEFER_MS in core/orchestration/exec/exitOwner.ts deliberately mirrors this value — tune them together.
 // The app's roll tap and the Host's exit handling both read that one.
-// Slack's cap on the `text` field — see the same constant in core/slack/transcript.ts for why every
-// display cap is opened to it rather than kept narrow.
-const SLACK_TEXT_MAX = 40_000
-const EXCERPT_MAX = SLACK_TEXT_MAX // the cap on a turn-completion excerpt — shown up to Slack's own limit
 const OWN_TS_LIMIT = 500 // the cap on remembering ts values we posted (the second line of loop defence).
-// If Slack has not echoed something back within this many posts, there is no point remembering it longer.
+// If the connection has not echoed something back within this many posts, there is no point remembering it
+// longer. The same cap bounds the map of posted ids that a reply to any message resolves through.
 // The idle notice (notification_type='idle_prompt', "Claude is waiting for your input") is in principle
 // not sent as an input-needed alert — it is not a genuinely blocked state the way a permission approval is,
 // and turn completion is already covered by the Stop notice (in a rolling session the automatic prompt
 // takes over, so every one of them was a false positive). There is one exception: when the transcript
 // really does contain an unanswered tool_use (a pending question or approval), it is sent even when idle —
 // with that condition attached it is not a false positive but a screen genuinely waiting for an answer.
-// The verdict is split between core/hooks/notification and core/slack/transcript
+// The verdict is split between core/hooks/notification and core/connections/transcript
 // (extractPendingToolUse) — claudeCoordinator.ts has to answer the same idle question, and the reason for splitting
 // on type rather than on wording is written there.
 const TAIL_BYTES = 256 * 1024 // how much of the transcript tail to read (the same as parseTranscriptTail in history)
@@ -75,22 +70,30 @@ const TAIL_BYTES = 256 * 1024 // how much of the transcript tail to read (the sa
 export const CHAT_EXCERPT_RETRIES = 4
 export const CHAT_EXCERPT_RETRY_MS = 500
 
-export interface SlackDeps {
+export interface ConnectionDeps {
+  /** The connection's name, the first word of every log line ('slack'). */
+  name: string
+  /** The note keys the connection's session thread is kept under (Slack: slackThreadTs, slackChannel). */
+  noteKeys: NoteKeys
+  /** The connection's cap on one message's text: every message is cut to it, prefix included, and a turn
+   *  excerpt is shown up to it (Slack: 40,000, its `text` field's limit — see the same constant in
+   *  core/connections/transcript.ts for why every display cap is opened to it rather than kept narrow). */
+  textMax: number
+  /** Whether a session asked for this connection's notifications (Slack: info.slackNotify). */
+  enabledFor(info: SessionInfo): boolean
   getAccount(id: string): Account | null // the account label for the message prefix
   readStatusPayload(sessionId: string): Promise<unknown | null> // for looking up the reset time of a non-rolling session (the same source as rolling; not a gate)
-  log(message: string): void // userData/slack.log — the URL is never exposed
+  log(message: string): void // the connection's own log (userData/slack.log) — the URL is never exposed
   /** Taken as a getter rather than a value so the latest language is used even after setLang — the same
    *  convention as RollingDeps. Notification text follows the app language. */
   lang: () => Lang
   readFileTail?: (filePath: string, maxBytes: number) => Promise<string | null> // for test injection
-  fetchFn?: typeof fetch // for test injection — defaults to the global fetch
   now?: () => number
-  createPoster?: (token: string) => SlackPoster // supplied by the caller (the app's createWebClient, main/slackSdk.ts); with none, a bot config selects no transport (P3)
   wait?: (ms: number) => Promise<void> // test injection for sendChatTurnSummary's re-read window; default setTimeout
   /** Writes a session's thread keys into its note (spec S5, P9): the patch names the root this notifier
    *  opened or inherited, or drops it (both null). Optional: with none, nothing is noted. A throw is
    *  logged and never costs the notice. */
-  remember?(sessionId: string, patch: { slackThreadTs: string | null; slackChannel: string | null }): void
+  remember?(sessionId: string, patch: Record<string, string | null>): void
 }
 
 /** The common shape of the non-rolling limit detection scanner — feed it a chunk and it returns only
@@ -110,7 +113,7 @@ function makeLimitScanner(provider: Provider): LimitScanner {
   return { push: (chunk) => scanner.push(chunk).limit }
 }
 
-interface SlackRecord {
+interface ConnectionRecord {
   info: SessionInfo
   provider: Provider // selects the scanner and decides whether the statusline gate applies
   scanner: LimitScanner // for limit detection in non-rolling sessions
@@ -174,83 +177,50 @@ export async function readFileTail(filePath: string, maxBytes: number): Promise<
   }
 }
 
-export class SlackNotifier {
-  private records = new Map<string, SlackRecord>() // liveId → record
+export class ConnectionNotifier {
+  private records = new Map<string, ConnectionRecord>() // liveId → record
   // Root message ts → liveId. This is the index for tracing which session a thread reply should be
   // injected into. It is the reverse of records, and the reason it is kept separately is that record.thread
   // is a promise, so scanning that cannot answer synchronously. It is filled when the root post resolves
   // (openThread) and emptied when the record disappears (handleExit, onRolled).
   private threadIndex = new Map<string, string>()
   // The ts values of messages we posted — the second line of defence against an infinite loop in
-  // SlackInbox. The bot_id check always catches first, but should a path ever appear where that field is
+  // the connection's inbox. The bot_id check always catches first, but should a path ever appear where that field is
   // empty, events arriving with a ts we wrote can still be filtered out through this index.
-  private ownTs = new Set<string>()
-  private transport: SlackTransport | null = null
+  private ownTs = new RecentIds(OWN_TS_LIMIT)
+  // The id of every message posted for a session → that session, so a reply to any of them (not only to
+  // the thread root) finds its session. Slack never needs it, since a Slack reply carries the root's ts;
+  // a connection whose reply points at the exact message it answers does. Bounded like ownTs, cleared
+  // with threadIndex, and re-keyed or dropped with the session's record.
+  private postedIndex = new Map<string, string>()
+  private transport: ConnectionTransport | null = null
   /** The channel the current transport posts to: bot mode's channelId, else null. */
   private channel: string | null = null
   // Whether any transport choice has been made yet, including one that turns Slack off (final review
-  // I2). Before it, a null transport means slack.json has not loaded; after it, it means Slack is off.
+  // I2). Before it, a null transport means the config has not loaded; after it, it means the connection is off.
   private configured = false
-  private readonly fetchFn: typeof fetch
   private readonly readTail: (filePath: string, maxBytes: number) => Promise<string | null>
   private readonly now: () => number
 
   private readonly transportReady = new Set<() => void>()
 
-  /** Called after every swap to a transport that can post (applyConfig, setWebhookUrl, setTransport).
+  /** Called after every swap to a transport that can post (setTransport).
    *  The offline summary retries on it (S6 Task 5 fix round 1, I1). Returns the unsubscribe. */
   onTransportReady(fn: () => void): () => void {
     this.transportReady.add(fn)
     return () => this.transportReady.delete(fn)
   }
 
-  constructor(private deps: SlackDeps) {
-    this.fetchFn = deps.fetchFn ?? fetch
+  constructor(private deps: ConnectionDeps) {
     this.readTail = deps.readFileTail ?? readFileTail
     this.now = deps.now ?? Date.now
   }
 
-  setWebhookUrl(url: string | null): void {
-    const trimmed = url && url.trim() !== '' ? url.trim() : null
-    this.replaceTransport(trimmed ? new WebhookTransport(trimmed, this.fetchFn) : null, null)
-  }
-
-  /** For a different transport such as bot mode. Mutually exclusive with setWebhookUrl. `channel` is the
-   *  channel it posts to, when it has one: it decides which noted threads still hold (spec S5). */
-  setTransport(transport: SlackTransport | null, channel: string | null = null): void {
+  /** Swaps the transport (null turns the connection off). The connection's own side builds it from its
+   *  config (Slack: connect.ts in Slack's folder). `channel` is the channel it posts to, when it has one: it
+   *  decides which noted threads still hold (spec S5). */
+  setTransport(transport: ConnectionTransport | null, channel: string | null = null): void {
     this.replaceTransport(transport, channel)
-  }
-
-  /** Chooses the transport from the settings.
-   *  Bot mode requires both botToken and channelId — with no channel there is nowhere to send, so it falls
-   *  back to the webhook. With neither, transport becomes null and notifications are disabled entirely.
-   *
-   *  The parameter is SlackTransportConfig (three fields) rather than SlackConfig — appToken plays no part
-   *  in choosing the transport (it is for Socket Mode receiving), so only what is needed is taken. Passing
-   *  a SlackConfig is structurally compatible anyway.
-   *
-   *  This condition has to stay logically identical to isSlackReady() in core/slack/ready.ts.
-   *  NewSessionDialog.tsx gates the notification checkbox on that function, so changing only one side
-   *  brings back "it is configured but the checkbox will not turn on" — isSlackReady() is not reused here
-   *  because it returns a plain bool, whereas this code has to actually narrow botToken and channelId to
-   *  pass them to the BotTransport constructor, and a helper call does not narrow the types.
-   *
-   *  There is no default SDK constructor in core (P1: the SDK never enters core) — this.deps.createPoster
-   *  is supplied by whichever process applies the config (the app's createWebClient, or the Host's own).
-   *  With a bot config and no createPoster, nothing can be built: it is logged and the transport becomes
-   *  null rather than silently falling back to the webhook (P3). Every real caller passes one. */
-  applyConfig(cfg: SlackTransportConfig): void {
-    if (cfg.botToken && cfg.channelId) {
-      const create = this.deps.createPoster
-      if (!create) {
-        this.deps.log('slack: no poster for bot mode')
-        this.replaceTransport(null, null)
-        return
-      }
-      this.replaceTransport(new BotTransport(create(cfg.botToken), cfg.channelId), cfg.channelId)
-      return
-    }
-    this.setWebhookUrl(cfg.webhookUrl) // it goes through replaceTransport internally, so the reset happens along with it
   }
 
   /** Collects the transport swap into one place — because every swap has to reset the threads of live
@@ -267,7 +237,7 @@ export class SlackNotifier {
    *  posted in. A swap to the same channel (a settings reload) or to one with no channel (webhook, off)
    *  keeps them, and a record whose noted thread is in the channel now posted to is seeded with it again,
    *  so a reload opens no new roots. */
-  private replaceTransport(transport: SlackTransport | null, channel: string | null): void {
+  private replaceTransport(transport: ConnectionTransport | null, channel: string | null): void {
     const changed = channel !== null && channel !== this.channel
     this.transport = transport
     this.channel = channel
@@ -278,6 +248,7 @@ export class SlackNotifier {
     // deleted). It is the same reason record.thread is reset, and both have to be cleared at the same time
     // so we never end up with only one of them done.
     this.threadIndex.clear()
+    this.postedIndex.clear()
     for (const record of this.records.values()) {
       record.thread = null
       if (changed && record.noted && record.noted.channel !== channel) {
@@ -300,18 +271,24 @@ export class SlackNotifier {
    *  swallowed: a note must never cost a notice. */
   private note(sessionId: string, t: NotedThread | null): void {
     try {
-      this.deps.remember?.(sessionId, threadNotePatch(t))
+      this.deps.remember?.(sessionId, threadNotePatch(t, this.deps.noteKeys))
     } catch (err) {
-      this.deps.log(`slack thread note failed session=${sessionId}: ${err instanceof Error ? err.name : 'unknown'}`)
+      this.deps.log(`${this.deps.name} thread note failed session=${sessionId}: ${err instanceof Error ? err.name : 'unknown'}`)
     }
   }
 
   /** A noted thread in the channel the transport posts to becomes the record's thread, indexed at once. */
-  private seedNoted(record: SlackRecord): void {
+  private seedNoted(record: ConnectionRecord): void {
     const n = record.noted
     if (!n || !this.transport?.supportsThreads || n.channel !== this.channel) return
     record.thread = Promise.resolve(n.ts)
     this.threadIndex.set(n.ts, record.info.id)
+  }
+
+  /** The thread a session's note names under this connection's keys, or null: what `register` and
+   *  `adoptNoted` take, read by a caller (the fan-out) that holds only the note. */
+  notedThreadOf(restore: Record<string, unknown>): NotedThread | null {
+    return notedThreadOf(restore, this.deps.noteKeys)
   }
 
   /** Whether this notifier holds a record for the session: registered and not yet ended (its exit timer
@@ -343,19 +320,20 @@ export class SlackNotifier {
    *  it. The thread's root message keeps the name it was posted under — it is a record of what the
    *  session was called when it began, and editing it is not something a webhook transport can do.
    *
-   *  Unknown ids are ignored: a session with Slack off has no record, and every rename is offered to
+   *  Unknown ids are ignored: a session with this connection off has no record, and every rename is offered to
    *  every sink. */
   rename(sessionId: string, title: string): void {
     const record = this.records.get(sessionId)
     if (record) record.info = { ...record.info, title }
   }
 
-  /** Starts tracking a session. Called by ipc right after a `slackNotify` session spawns, and
+  /** Starts tracking a session. Called by ipc right after a session that asked for this connection
+   *  (`enabledFor`, Slack's `slackNotify`) spawns, and
    *  again by the reattach adopter for a session the Host handed back after a reconnect — that
    *  second caller registers over an id this already has a record for, and the body below says what
    *  is carried across and what is not. */
   register(info: SessionInfo, opts?: { thread?: NotedThread | null }): void {
-    if (!info.slackNotify) return
+    if (!this.deps.enabledFor(info)) return
     // **A pending exit notification for this id is cancelled, the way onRolled cancels the one it
     // re-keys past.** Registering over a live id used to be impossible; the Host's reconnect makes it
     // ordinary — the socket drops, every pty handle ends, `handleExit` schedules its three seconds,
@@ -392,7 +370,7 @@ export class SlackNotifier {
     // call cannot have finished unobserved in between. That is exactly why the same field would
     // **not** be safe to carry across an app restart, where the PostToolUse that ended the call may
     // well have arrived while there was nothing to receive it; the two cases look identical at this
-    // call site. (A restart cannot reach this in any case — a fresh `SlackNotifier` has no record
+    // call site. (A restart cannot reach this in any case — a fresh notifier has no record
     // to inherit from. `onRolled` does not carry it either, for a third reason of its own: the roll
     // starts the new session from the resume prompt, so that screen is already gone.)
     //
@@ -400,7 +378,7 @@ export class SlackNotifier {
     // when the earlier one was null (no thread transport, or `replaceTransport` reset it), in which
     // case a root is opened below exactly as it always was.
     const provider = replaced?.provider ?? this.providerFor(info.accountId)
-    const record: SlackRecord = {
+    const record: ConnectionRecord = {
       info,
       provider,
       // Fresh even when the provider was inherited: a scanner holds the tail of what it has been
@@ -446,7 +424,7 @@ export class SlackNotifier {
 
   /** The root message of the session thread. With a transport that does not support threads, nothing is
    *  posted. It converges to null even on failure — a notification has to go out, at channel level if nothing else. */
-  private openThread(record: SlackRecord): Promise<string | null> | null {
+  private openThread(record: ConnectionRecord): Promise<string | null> | null {
     const transport = this.transport
     if (!transport?.supportsThreads) return null
     const label = this.deps.getAccount(record.info.accountId)?.label
@@ -476,29 +454,36 @@ export class SlackNotifier {
         return ts
       })
       .catch((err: unknown) => {
-        const reason = err instanceof SlackPostError ? err.reason : 'unknown'
-        this.deps.log(`slack thread creation failed ${reason} session=${record.info.id}`)
+        const reason = err instanceof ConnectionPostError ? err.reason : 'unknown'
+        this.deps.log(`${this.deps.name} thread creation failed ${reason} session=${record.info.id}`)
         return null
       })
   }
 
-  /** Which session a thread reply belongs to. An exited session drops out of the index and yields null, and
-   *  the caller (SlackInbox) replies in that thread to say it has already ended. */
+  /** Which session a reply belongs to: one in a session's thread (the root's id), or one to any message
+   *  this notifier posted for a live session. An exited session drops out of both indexes and yields null,
+   *  and the caller (the connection's inbox) replies to say it has already ended. */
   resolveSessionByThread(threadTs: string): string | null {
-    return this.threadIndex.get(threadTs) ?? null
+    return this.threadIndex.get(threadTs) ?? this.postedIndex.get(threadTs) ?? null
+  }
+
+  /** Remembers which session a posted message belongs to, dropping the oldest past OWN_TS_LIMIT. */
+  private rememberPosted(id: string, sessionId: string): void {
+    this.postedIndex.delete(id)
+    this.postedIndex.set(id, sessionId)
+    if (this.postedIndex.size > OWN_TS_LIMIT) {
+      const oldest = this.postedIndex.keys().next().value
+      if (oldest !== undefined) this.postedIndex.delete(oldest)
+    }
   }
 
   /** Remembers a ts we posted — called on every successful transport.post() (root, notification, or thread
    *  note alike). The oldest entries are dropped so this cannot grow without bound. */
   private rememberOwnPost(ts: string): void {
     this.ownTs.add(ts)
-    if (this.ownTs.size > OWN_TS_LIMIT) {
-      const oldest = this.ownTs.values().next().value
-      if (oldest !== undefined) this.ownTs.delete(oldest)
-    }
   }
 
-  /** Whether this ts is a message we posted. SlackInbox uses it as the second line of defence against an
+  /** Whether this ts is a message we posted. The inbox uses it as the second line of defence against an
    *  infinite loop — should a path ever appear where the bot_id check comes up empty, events arriving with a
    *  ts we wrote can still be filtered out. */
   isOwnMessage(ts: string): boolean {
@@ -515,8 +500,8 @@ export class SlackNotifier {
       const ts = await transport.post(text, threadTs)
       if (ts) this.rememberOwnPost(ts) // second line of loop defence
     } catch (err) {
-      const reason = err instanceof SlackPostError ? err.reason : 'unknown'
-      this.deps.log(`slack thread note failed ${reason}`)
+      const reason = err instanceof ConnectionPostError ? err.reason : 'unknown'
+      this.deps.log(`${this.deps.name} thread note failed ${reason}`)
     }
   }
 
@@ -526,6 +511,7 @@ export class SlackNotifier {
    *  re-keying has changed the id. */
   private dropFromThreadIndex(sessionId: string): void {
     for (const [ts, id] of this.threadIndex) if (id === sessionId) this.threadIndex.delete(ts)
+    for (const [ts, id] of this.postedIndex) if (id === sessionId) this.postedIndex.delete(ts)
   }
 
   /** The session's provider, read from the account. A rolling chain does not mix providers even as it moves
@@ -606,7 +592,7 @@ export class SlackNotifier {
         if (wasWorking && event.status === 'idle') {
           if (chat.limitTurn) {
             chat.limitTurn = false
-            this.deps.log(`slack: a limit turn of ${sessionId} ended, the rolling chain announces it`)
+            this.deps.log(`${this.deps.name}: a limit turn of ${sessionId} ended, the rolling chain announces it`)
           } else void this.sendChatTurnSummary(record, at)
         }
         break
@@ -636,7 +622,7 @@ export class SlackNotifier {
    *  (the edge arrives a beat before the record lands): while the extractor answers nothing or the same
    *  text as the previous turn, wait and read again, up to CHAT_EXCERPT_RETRIES times; then post what
    *  there is — completion is announced even without an excerpt, the sendStopSummary rule. */
-  private async sendChatTurnSummary(record: SlackRecord, at: { provider: Provider; transcriptPath: () => string | null }): Promise<void> {
+  private async sendChatTurnSummary(record: ConnectionRecord, at: { provider: Provider; transcriptPath: () => string | null }): Promise<void> {
     const chat = record.chat
     if (!chat) return
     const extract = at.provider === 'codex' ? extractLastAgentMessage : extractLastTurnAssistantText
@@ -650,20 +636,20 @@ export class SlackNotifier {
       if (attempt < CHAT_EXCERPT_RETRIES) await wait(CHAT_EXCERPT_RETRY_MS)
     }
     if (excerpt !== null) chat.lastExcerpt = excerpt
-    if (excerpt && excerpt.length > EXCERPT_MAX) excerpt = excerpt.slice(0, EXCERPT_MAX) + '…'
+    if (excerpt && excerpt.length > this.deps.textMax) excerpt = excerpt.slice(0, this.deps.textMax) + '…'
     const done = t(this.deps.lang(), 'slack.turnDone')
     await this.send(record, excerpt ? `${done}\n> ${excerpt.replace(/\n/g, '\n> ')}` : done)
   }
 
   /** The card this session's chat record last heard of (Slack in the Host P18), or null. The Host reads a
-   *  Slack reply against it for a chat whose adapter it does not hold (the app forwards its `request`
+   *  reply against it for a chat whose adapter it does not hold (the app forwards its `request`
    *  events); one it holds is read against HostChats.requests instead. */
   chatRequestOf(sessionId: string): ChatRequest | null {
     return this.records.get(sessionId)?.chat?.request ?? null
   }
 
   /**
-   * The shape of a pending choice screen. SlackInbox uses it when turning a reply into a key sequence.
+   * The shape of a pending choice screen. The reply router (replies.ts) uses it when turning a reply into a key sequence.
    *
    * It is built only from the AskUserQuestion input captured through PreToolUse — the transcript has no
    * pending tool_use, so there is no other source. If the shape cannot be read in full it returns null and
@@ -691,7 +677,7 @@ export class SlackNotifier {
    * It comes through a hook because it cannot be obtained from the transcript — Claude Code does not flush
    * assistant messages while it waits for user interaction, so while a question or approval prompt is on
    * screen (i.e. at the exact moment the notification is sent) that tool_use does not exist in the file. The
-   * measurements behind this are in the countToolUses comment in core/slack/transcript.ts.
+   * measurements behind this are in the countToolUses comment in core/connections/transcript.ts.
    *
    * Tools that run automatically without approval also come through here and overwrite the cache. That does
    * no harm — such a tool is recorded in the transcript shortly after, so at the next Notification its id is
@@ -700,7 +686,7 @@ export class SlackNotifier {
    * the waiting screen while that screen is up.
    */
   private capturePendingTool(
-    record: SlackRecord,
+    record: ConnectionRecord,
     toolName: unknown,
     toolInput: unknown,
     toolUseId: unknown
@@ -710,14 +696,14 @@ export class SlackNotifier {
       // The name arrived but there is no input — the payload schema has changed. Without this line the
       // notification quietly falls back to the old behaviour, and that is precisely the failure shape that
       // took so long to diagnose here.
-      this.deps.log(`slack PreToolUse: ${toolName} but no tool_input session=${record.info.id}`)
+      this.deps.log(`${this.deps.name} PreToolUse: ${toolName} but no tool_input session=${record.info.id}`)
       return
     }
     // With no id, nothing is cached. A cache with no basis for the verdict survives until the Stop hook
     // arrives and turns an idle notification into "input needed" — that was exactly the incident behind this
     // change. Not caching leaves the transcript path (extractPendingToolUse) working as it did before.
     if (typeof toolUseId !== 'string' || toolUseId === '') {
-      this.deps.log(`slack PreToolUse: ${toolName} but no tool_use_id session=${record.info.id}`)
+      this.deps.log(`${this.deps.name} PreToolUse: ${toolName} but no tool_use_id session=${record.info.id}`)
       return
     }
     record.pendingTool = { name: toolName, input: toolInput, id: toolUseId }
@@ -740,7 +726,7 @@ export class SlackNotifier {
    * on screen — the waiting screen that this cache exists to report is left untouched. A denied call gets no
    * PostToolUse either; Stop clears that one.
    */
-  private clearPendingTool(record: SlackRecord, toolUseId: unknown): void {
+  private clearPendingTool(record: ConnectionRecord, toolUseId: unknown): void {
     // Only the exact id is dropped. With parallel calls, one finishing must not wipe the capture of the one
     // still waiting — the ids differ, so nothing is cleared here and the waiting screen is still reported.
     if (typeof toolUseId !== 'string' || toolUseId === '') return
@@ -775,11 +761,11 @@ export class SlackNotifier {
     void this.sendCodexTurnSummary(record, rolloutPath)
   }
 
-  private async sendCodexTurnSummary(record: SlackRecord, rolloutPath: string): Promise<void> {
+  private async sendCodexTurnSummary(record: ConnectionRecord, rolloutPath: string): Promise<void> {
     let excerpt: string | null = null
     const tail = await this.readTail(rolloutPath, TAIL_BYTES)
     if (tail) excerpt = extractLastAgentMessage(tail)
-    if (excerpt && excerpt.length > EXCERPT_MAX) excerpt = excerpt.slice(0, EXCERPT_MAX) + '…'
+    if (excerpt && excerpt.length > this.deps.textMax) excerpt = excerpt.slice(0, this.deps.textMax) + '…'
     // Completion is announced even when the excerpt fails — the same rule as sendStopSummary on the claude side
     const done = t(this.deps.lang(), 'slack.turnDone')
     await this.send(record, excerpt ? `${done}\n> ${excerpt.replace(/\n/g, '\n> ')}` : done)
@@ -819,22 +805,22 @@ export class SlackNotifier {
 
   /** What the Host rolled for this session while the app was closed (S6 D6), as one line in its thread.
    *  True when it went out (or the same line went out moments ago), false when the session has no record
-   *  (Slack is off for it). Rejects when the post failed **or there is no transport yet** (fix round 1,
-   *  M1: slack.json loads asynchronously, and a fetch that ran first must not ack a line nobody could
+   *  (the connection is off for it). Rejects when the post failed **or there is no transport yet** (fix round 1,
+   *  M1: the config (slack.json) loads asynchronously, and a fetch that ran first must not ack a line nobody could
    *  post), so the caller leaves the journal un-acked and retries on onTransportReady.
    *
    *  "Yet" means before any config has been applied. Once one has, a null transport is a user who
-   *  turned Slack off, and no transport is coming: that is false like a session with no record, or the
+   *  turned the connection off, and no transport is coming: that is false like a session with no record, or the
    *  journal would never be acked and the desktop notice would repeat on every start (final review I2). */
   async announceOffline(sessionId: string, text: string): Promise<boolean> {
     const record = this.records.get(sessionId)
     if (!record) return false
     if (!this.transport) {
       if (this.configured) return false
-      throw new Error(`slack: no transport yet for the offline summary of ${sessionId}`)
+      throw new Error(`${this.deps.name}: no transport yet for the offline summary of ${sessionId}`)
     }
     const r = await this.send(record, text)
-    if (r === 'failed') throw new Error(`slack: the offline summary for ${sessionId} could not be posted`)
+    if (r === 'failed') throw new Error(`${this.deps.name}: the offline summary for ${sessionId} could not be posted`)
     return r !== 'none'
   }
 
@@ -844,12 +830,15 @@ export class SlackNotifier {
     if (old?.exitTimer) clearTimeout(old.exitTimer)
     this.records.delete(oldSessionId)
     // The thread index points at the old id — it is cleared first, since it gets registered again below
-    // under the new one. This also keeps a dead id out of the index when re-keying happens with slackNotify
-    // off (the early return below).
+    // under the new one. This also keeps a dead id out of the index when re-keying happens with the
+    // connection off (the early return below). Messages posted under the old id are re-keyed, not
+    // dropped: a reply to one of them still means this chain.
+    const posted = [...this.postedIndex].filter(([, id]) => id === oldSessionId).map(([ts]) => ts)
     this.dropFromThreadIndex(oldSessionId)
-    if (!newInfo.slackNotify) return
+    if (!this.deps.enabledFor(newInfo)) return
+    for (const ts of posted) this.rememberPosted(ts, newInfo.id)
     const provider = old?.provider ?? this.providerFor(newInfo.accountId)
-    const record: SlackRecord = {
+    const record: ConnectionRecord = {
       info: newInfo,
       provider,
       scanner: makeLimitScanner(provider),
@@ -947,25 +936,25 @@ export class SlackNotifier {
    * either, and the two are logged apart from here on so the next occurrence is diagnosable.
    */
   private async sendStopSummary(
-    record: SlackRecord,
+    record: ConnectionRecord,
     transcriptPath: string | null,
     lastMessage: unknown
   ): Promise<void> {
     let excerpt: string | null = null
     if (transcriptPath) {
       const tail = await this.readTail(transcriptPath, TAIL_BYTES)
-      if (tail === null) this.deps.log(`slack Stop: transcript read failed session=${record.info.id}`)
+      if (tail === null) this.deps.log(`${this.deps.name} Stop: transcript read failed session=${record.info.id}`)
       else {
         excerpt = extractLastTurnAssistantText(tail)
         if (excerpt === null)
           this.deps.log(
-            `slack Stop: no assistant text in ${tail.length}B tail session=${record.info.id}`
+            `${this.deps.name} Stop: no assistant text in ${tail.length}B tail session=${record.info.id}`
           )
       }
     }
     if (excerpt === null && typeof lastMessage === 'string' && lastMessage.trim() !== '')
       excerpt = lastMessage.trim()
-    if (excerpt && excerpt.length > EXCERPT_MAX) excerpt = excerpt.slice(0, EXCERPT_MAX) + '…'
+    if (excerpt && excerpt.length > this.deps.textMax) excerpt = excerpt.slice(0, this.deps.textMax) + '…'
     // Completion is announced even when the excerpt fails (no transcript record, or a parse failure)
     const done = t(this.deps.lang(), 'slack.turnDone')
     await this.send(record, excerpt ? `${done}\n> ${excerpt.replace(/\n/g, '\n> ')}` : done)
@@ -1015,11 +1004,11 @@ export class SlackNotifier {
    * person already sees in the app, and it is often code, where `token = …` is legitimate text the
    * gate could rewrite.
    */
-  private sendStopFailure(record: SlackRecord, error: unknown, lastMessage: unknown): void {
+  private sendStopFailure(record: ConnectionRecord, error: unknown, lastMessage: unknown): void {
     const message = typeof lastMessage === 'string' ? lastMessage.trim() : ''
     let text = sanitize(message !== '' ? message : typeof error === 'string' && error !== '' ? error : 'unknown')
-    if (text.length > EXCERPT_MAX) text = text.slice(0, EXCERPT_MAX) + '…'
-    const post = (to: SlackRecord): void =>
+    if (text.length > this.deps.textMax) text = text.slice(0, this.deps.textMax) + '…'
+    const post = (to: ConnectionRecord): void =>
       void this.send(to, t(this.deps.lang(), 'slack.chat.turnFailed', { message: text }))
     if (error !== 'rate_limit') return post(record)
     if ((record.info.rollAccountIds?.length ?? 0) >= 1) return
@@ -1057,7 +1046,7 @@ export class SlackNotifier {
    * message line.
    */
   private async sendNotification(
-    record: SlackRecord,
+    record: ConnectionRecord,
     payload: NotificationPayload,
     transcriptPath: string | null
   ): Promise<void> {
@@ -1065,7 +1054,7 @@ export class SlackNotifier {
       // If the type name changes, the notification silently drifts — the verdict is made from the transcript
       // so behaviour is preserved, but this is recorded so we know when to refresh the list (see the
       // KNOWN_TYPES comment in core/hooks/notification.ts)
-      this.deps.log(`slack notification: unfamiliar notification_type=${String(payload.notification_type)}`)
+      this.deps.log(`${this.deps.name} notification: unfamiliar notification_type=${String(payload.notification_type)}`)
     }
     const message = typeof payload.message === 'string' ? payload.message.trim() : ''
     // A report of something already finished (a worker finished, login succeeded, an elicitation closed) is
@@ -1137,26 +1126,28 @@ export class SlackNotifier {
   async postNotice(text: string): Promise<boolean> {
     const transport = this.transport
     if (!transport) return false
-    const full = text.length > SLACK_TEXT_MAX ? `${text.slice(0, SLACK_TEXT_MAX - 1)}…` : text
+    const max = this.deps.textMax
+    const full = text.length > max ? `${text.slice(0, max - 1)}…` : text
     try {
       const ts = await transport.post(full)
       if (ts) this.rememberOwnPost(ts)
       return true
     } catch (err) {
-      this.deps.log(`slack notice failed ${err instanceof SlackPostError ? err.reason : 'unknown'}`)
+      this.deps.log(`${this.deps.name} notice failed ${err instanceof ConnectionPostError ? err.reason : 'unknown'}`)
       return false
     }
   }
 
-  private async send(record: SlackRecord, text: string): Promise<'sent' | 'dup' | 'failed' | 'none'> {
+  private async send(record: ConnectionRecord, text: string): Promise<'sent' | 'dup' | 'failed' | 'none'> {
     const transport = this.transport
     if (!transport) return 'none'
     const label = this.deps.getAccount(record.info.accountId)?.label
     const raw = `[${record.info.title}${label ? ` · ${label}` : ''}] ${text}`
-    // The final truncation. With the display caps opened all the way to Slack's limit, a combination can
-    // exceed it, and Slack then rejects the call with msg_too_long — the notification would vanish
-    // silently. Cut once here, with the prefix included in the length.
-    const full = raw.length > SLACK_TEXT_MAX ? `${raw.slice(0, SLACK_TEXT_MAX - 1)}…` : raw
+    // The final truncation. With the display caps opened all the way to the connection's limit, a
+    // combination can exceed it, and Slack then rejects the call with msg_too_long — the notification
+    // would vanish silently. Cut once here, with the prefix included in the length.
+    const max = this.deps.textMax
+    const full = raw.length > max ? `${raw.slice(0, max - 1)}…` : raw
     const now = this.now()
     const last = record.lastSent.get(full)
     if (last !== undefined && now - last < DEDUP_MS) return 'dup'
@@ -1172,12 +1163,16 @@ export class SlackNotifier {
     const threadTs = record.thread ? ((await record.thread) ?? undefined) : undefined
     try {
       const ts = await transport.post(full, threadTs)
-      if (ts) this.rememberOwnPost(ts) // second line of loop defence
+      if (ts) {
+        this.rememberOwnPost(ts) // second line of loop defence
+        // A reply to this message reaches the session, while this is still the live record for its id.
+        if (this.records.get(record.info.id) === record) this.rememberPosted(ts, record.info.id)
+      }
       return 'sent'
     } catch (err) {
       record.lastSent.delete(full) // failure lifts the suppression: a recurrence may be sent again (this is not a retry)
-      const reason = err instanceof SlackPostError ? err.reason : 'unknown'
-      this.deps.log(`slack send failed ${reason} session=${record.info.id}`)
+      const reason = err instanceof ConnectionPostError ? err.reason : 'unknown'
+      this.deps.log(`${this.deps.name} send failed ${reason} session=${record.info.id}`)
       return 'failed'
     }
   }
@@ -1195,7 +1190,7 @@ export class SlackNotifier {
    *  statusLine is still read — not as a gate, but to obtain the reset time (worst) to put in the message.
    *  Gating on provider so a non-existent payload is not read every time is kept as it was (the same pattern
    *  as scheduler.ts). */
-  private async onLimitText(record: SlackRecord): Promise<void> {
+  private async onLimitText(record: ConnectionRecord): Promise<void> {
     let worst: { at: number; weekly: boolean } | null = null
     if (PROVIDER_META[record.provider].usesStatusLine) {
       const payload = await this.deps.readStatusPayload(record.info.id)
