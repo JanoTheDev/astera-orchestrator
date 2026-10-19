@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { intakeRequest, type IntakeForm } from './intakeRequest'
+import { allSelected, autoPickRequest, intakeRequest, issueSearchArgs, toggleAll, type IntakeForm } from './intakeRequest'
 
 const form = (o: Partial<IntakeForm> = {}): IntakeForm => ({
   tab: 'describe',
@@ -64,5 +64,41 @@ describe('intakeRequest', () => {
       form({ tab: 'github' })
     ])
       expect(intakeRequest(f)).toBeNull()
+  })
+})
+
+describe('issueSearchArgs (#119)', () => {
+  it('sends the assignee filter and the trimmed search', () => {
+    expect(issueSearchArgs({ projectId: 'p1', query: '  bug ', assignee: 'others' })).toEqual({ source: 'github', project: 'p1', query: 'bug', assignee: 'others' })
+    expect(issueSearchArgs({ projectId: 'p1', query: ' ', assignee: 'none' })).toEqual({ source: 'github', project: 'p1', assignee: 'none' })
+  })
+})
+
+describe('autoPickRequest (#119)', () => {
+  const base = { project: { id: 'p1', path: '/repo' }, coordinatorAccount: 'acc1', concurrency: 3, instructions: '', assignMe: false, label: '', max: '' }
+  it('asks Astera to pick, with label, max and hands-off only when set', () => {
+    expect(autoPickRequest(base)).toEqual({ cmd: 'jobs-create-from-issue', args: { project: 'p1', auto: true, coordinatorAccount: 'acc1', concurrency: 3 } })
+    expect(autoPickRequest({ ...base, label: ' bug ', max: '5', handsOff: 'on' })?.args).toMatchObject({ auto: true, label: 'bug', max: 5, handsOff: 'on' })
+    expect(autoPickRequest({ ...base, max: 'x' })?.args).not.toHaveProperty('max')
+  })
+  it('waits for a project and a coordinator', () => {
+    expect(autoPickRequest({ ...base, project: null })).toBeNull()
+    expect(autoPickRequest({ ...base, coordinatorAccount: '' })).toBeNull()
+  })
+})
+
+describe('Select all (#119)', () => {
+  const rows = [{ id: '1' }, { id: '2', selectable: false }, { id: '3', selectable: true }]
+  it('ticks only the selectable rows in view and keeps picks made elsewhere', () => {
+    expect(toggleAll(rows, [])).toEqual(['1', '3'])
+    expect(toggleAll(rows, ['9', '1'])).toEqual(['9', '1', '3'])
+  })
+  it('unticks them all when all are ticked', () => {
+    expect(allSelected(rows, ['1', '3'])).toBe(true)
+    expect(toggleAll(rows, ['9', '1', '3'])).toEqual(['9'])
+  })
+  it('is never ticked for a view with nothing to pick', () => {
+    expect(allSelected([{ id: '2', selectable: false }], [])).toBe(false)
+    expect(toggleAll([], ['4'])).toEqual(['4'])
   })
 })

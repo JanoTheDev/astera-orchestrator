@@ -3,7 +3,7 @@
 // index, the feed from the Host. Nothing is stored here.
 import { useMemo } from 'react'
 import type { ActivityEvent } from '../../../../core/orchestration/activity'
-import { buildSessionIndex, needsInput } from '../../../../core/orchestration/sessionIndex'
+import { buildSessionIndex, handsOffJobIds, needsInput } from '../../../../core/orchestration/sessionIndex'
 import { useActivityFeed } from '../activity/useActivityFeed'
 import { useHostWaiting } from '../search/useHostWaiting'
 import { useAttention } from '../../state/useAttention'
@@ -25,14 +25,17 @@ export function useInbox(tree: readonly WorkspaceProject[], data: WorkspaceData 
     const jobs = Object.values(data?.jobsByProject ?? {}).flat()
     const runs = data?.runs ?? []
     const tasks = data?.tasks ?? []
-    const input = { tree: [...tree], jobs, runs, tasks, gates: data?.gates ?? [], escalations: data?.escalations ?? [], attention, hostWaiting }
+    const input = { tree: [...tree], jobs, runs, tasks, gates: data?.gates ?? [], escalations: data?.escalations ?? [], projects: data?.projects ?? [], attention, hostWaiting }
+    // #117: a hands-off plan decides its own questions; none is the owner's card
+    const handsOff = handsOffJobIds(input)
+    const jobOfRun = new Map(runs.map((r) => [r.id, r.jobId]))
     const plans = new Map(tree.flatMap((p) => p.plans.map((pl) => [pl.jobId, { projectName: p.name, planName: pl.name }] as const)))
     const needs = needsOf({
       items: needsInput(input, buildSessionIndex(input)),
-      questions: (data?.gates ?? []) as unknown as QuestionRow[],
+      questions: ((data?.gates ?? []) as unknown as QuestionRow[]).filter((q) => !handsOff.has(jobOfRun.get(q.runId) ?? '')),
       jobs,
       plans,
-      jobOfRun: new Map(runs.map((r) => [r.id, r.jobId])),
+      jobOfRun,
       taskTitles: new Map(tasks.map((t) => [t.id, t.title])),
       events
     })

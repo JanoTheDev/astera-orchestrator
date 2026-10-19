@@ -11,6 +11,7 @@ import { localDoor } from '../../lib/orchDoor'
 import { AccountSelect } from '../AccountSelect'
 import { openPage } from '../shell/navigation'
 import { Button, Card, Chip, Field, Icon } from '../ui'
+import { IssuePicker } from '../intake/IssuePicker'
 import { useIntake, type IssueRow } from '../intake/useIntake'
 import {
   consolesIn, defaultMode, dropOpensStart, filesFromDrop, intakeTab, lookupArgs, primaryLabel, shouldLandOnStart,
@@ -47,6 +48,7 @@ export function StartPage({
   const [issuesOpen, setIssuesOpen] = useState(false)
   const [approvalChoice, setApprovalChoice] = useState<'ask' | 'auto'>()
   const [deliveryChoice, setDeliveryChoice] = useState<DeliveryMode>()
+  const [handsOffChoice, setHandsOffChoice] = useState<boolean>()
 
   const intake = useIntake({
     door,
@@ -63,12 +65,16 @@ export function StartPage({
   const { project, files, text, picked } = intake
   const mode = defaultMode({ files, text, chosen })
   const projectAuto = project?.autoApprove ?? PROJECT_DEFAULTS.autoApprove
+  const projectHandsOff = project?.handsOff ?? PROJECT_DEFAULTS.handsOff
   const projectDelivery: DeliveryMode = project?.delivery ?? PROJECT_DEFAULTS.delivery
   // Run as written defaults to auto: the owner wrote it (DESIGN §2)
-  const approval = approvalChoice ?? (mode === 'prompts' || projectAuto ? 'auto' : 'ask')
+  // #117: hands-off decides for the owner, so it approves itself
+  const handsOff = handsOffChoice ?? projectHandsOff
+  const approval = handsOff ? 'auto' : (approvalChoice ?? (mode === 'prompts' || projectAuto ? 'auto' : 'ask'))
   const delivery = deliveryChoice ?? projectDelivery
   const planArgs = {
-    ...(mode === 'plan' && (approval === 'auto') !== projectAuto ? { autoApprove: approval === 'auto' ? 'on' : 'off' } : {}),
+    ...(handsOff !== projectHandsOff ? { handsOff: handsOff ? 'on' : 'off' } : {}),
+    ...(mode === 'plan' && !handsOff && (approval === 'auto') !== projectAuto ? { autoApprove: approval === 'auto' ? 'on' : 'off' } : {}),
     ...(delivery !== projectDelivery ? { delivery } : {})
   }
   // Run as written asks for approval only when the owner says so (`--approve ask`)
@@ -86,7 +92,7 @@ export function StartPage({
   const projectId = project?.id
   useEffect(() => {
     if (!projectId) return
-    void door.command('sources-items', { source: 'github', project: projectId, assignedToMe: true }).then((r) => {
+    void door.command('sources-items', { source: 'github', project: projectId, assignee: 'me' }).then((r) => {
       const body = r.body as { items?: IssueRow[] } | null
       setAssigned(r.status === 200 && Array.isArray(body?.items) ? body.items.slice(0, 5) : null)
     })
@@ -270,18 +276,10 @@ export function StartPage({
           )}
           {audit && <Field label={t('intake.scope')} hint={t('intake.auditHint')} value={intake.scope} onChange={(e) => intake.setScope(e.target.value)} placeholder="all" />}
           {issuesOpen && (
-            <div className="start-issues">
-              <input type="search" value={intake.query} onChange={(e) => intake.setQuery(e.target.value)} placeholder={t('intake.search')} aria-label={t('intake.search')} />
-              <Field kind="toggle" label={t('intake.mine')} checked={intake.mine} onChange={intake.setMine} />
-              <div className="start-issue-list">
-                {intake.issues.map((i) => (
-                  <label key={i.id} className="check-small" title={i.reason}>
-                    <input type="checkbox" disabled={i.selectable === false} checked={picked.includes(i.id)} onChange={(e) => pick(i.id, e.target.checked)} />#{i.id} {i.title}
-                  </label>
-                ))}
-              </div>
-              <Field kind="toggle" label={t('intake.assignMe')} checked={intake.assignMe} onChange={intake.setAssignMe} />
-            </div>
+            <IssuePicker
+              intake={intake}
+              onAutoPick={() => void intake.create(planArgs, { handsOff: planArgs.handsOff as 'on' | 'off' | undefined })}
+            />
           )}
         </Card>
 
@@ -338,12 +336,22 @@ export function StartPage({
             label={t('start.opt.approval')}
             value={approval}
             // as delivery: Plan it for me sets approval as its planner starts, which a queued plan does later
-            disabled={mode === 'plan' && intake.after !== ''}
+            disabled={handsOff || (mode === 'plan' && intake.after !== '')}
             onChange={(e) => setApprovalChoice(e.target.value as 'ask' | 'auto')}
             options={[
               { value: 'ask', label: t('start.opt.ask') },
               { value: 'auto', label: t('start.opt.auto') }
             ]}
+          />
+          {/* #117: apart from bypass permissions (an app setting): this one also decides the plan's questions itself */}
+          <Field
+            kind="toggle"
+            label={t('start.opt.handsOff')}
+            hint={t('start.opt.handsOffHint')}
+            checked={handsOff}
+            // a queued plan starts through `jobs-set --after`, which takes no hands-off, as with approval
+            disabled={mode === 'plan' && intake.after !== ''}
+            onChange={setHandsOffChoice}
           />
           <div className="ui-field">
             <label className="ui-field__label">{t('jobs.new.coordinator')}</label>

@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { INTAKE_FILE_MAX_BYTES, copyIntakeFiles, inputsDirOf, listMdFiles } from './intakeFiles'
+import { INTAKE_FILE_MAX_BYTES, copyIntakeFiles, inputsDirOf, listMdFiles, writeIntakeText } from './intakeFiles'
 
 describe('copyIntakeFiles', () => {
   let tmp: string
@@ -20,6 +20,13 @@ describe('copyIntakeFiles', () => {
     const r = await copyIntakeFiles(profile, 'job_1', [path.join(tmp, 'spec.pdf')])
     expect(r).toEqual({ dir: path.join(profile, 'plans', 'job_1', 'inputs'), names: ['spec.pdf'] })
     expect(await fs.readFile(path.join(r.dir, 'spec.pdf'), 'utf8')).toBe('%PDF-1.4')
+  })
+
+  it("#119: writeIntakeText writes Astera's own file into the inputs folder, and refuses a path for a name", async () => {
+    const file = await writeIntakeText(profile, 'job_3', 'pick.md', '# Picked')
+    expect(file).toBe(path.join(inputsDirOf(profile, 'job_3'), 'pick.md'))
+    expect(await fs.readFile(file, 'utf8')).toBe('# Picked')
+    for (const name of ['../x.md', 'a/b.md', '.hidden']) await expect(writeIntakeText(profile, 'job_3', name, 'x')).rejects.toThrow()
   })
 
   it('with no files only creates the folder (for an audit)', async () => {

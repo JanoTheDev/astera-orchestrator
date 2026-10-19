@@ -34,6 +34,17 @@ export async function copyIntakeFiles(profileDir: string, jobId: string, files: 
   return { dir, names }
 }
 
+/** #119: writes `text` as the file `name` of the Job's inputs folder (creating the folder) and answers its path. Astera's
+ *  own record (inputs/pick.md), never a person's file. */
+export async function writeIntakeText(profileDir: string, jobId: string, name: string, text: string): Promise<string> {
+  if (path.basename(name) !== name || name.startsWith('.')) throw new Error(`${name}: not a file name`)
+  const dir = inputsDirOf(profileDir, jobId)
+  await fs.mkdir(dir, { recursive: true, mode: 0o700 })
+  const file = path.join(dir, name)
+  await fs.writeFile(file, text, { encoding: 'utf8', mode: 0o600 })
+  return file
+}
+
 // W8-C prompts mode
 /** A text file's content, or null when it is not there (a project with no docs/dev/PLAN.md). */
 export async function readTextIfAny(file: string): Promise<string | null> {

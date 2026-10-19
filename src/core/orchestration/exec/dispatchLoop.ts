@@ -43,7 +43,7 @@ import { lostAttemptOf } from '../../recovery/candidates'
 import { jobActive, slotsToFill, tasksMissingAccounts, type Slot } from '../schedule'
 import { coordinatorStarting, jobOf, type OrchState } from '../state'
 import { isJobActive } from '../lifecycle'
-import { DEFAULT_CONCURRENCY, FAILURE_LIMIT, type JobRun, type Task } from '../types'
+import { DEFAULT_CONCURRENCY, FAILURE_LIMIT, type Decision, type JobRun, type Task } from '../types'
 import { outcomeOfTasks, tasksOwnedBy } from '../running'
 import { outcomeOf } from '../view'
 import { completionSettled, replansDue } from '../replan'
@@ -51,12 +51,12 @@ import { completionSettled, replansDue } from '../replan'
 import { draftPrDue } from '../draftPr'
 import type { Integration } from './integrateGit'
 import { usageChoice, usagePauseWhy, type UsageGuard } from '../usageGuard'
-import { deliveryOf } from '../delivery'
+import { deliveryOf, handsOffOf } from '../delivery'
 // W8-C plan after plan
 import { afterStartsDue, afterSweep } from '../after'
 // Coordinator rotation and finished tabs
 import { createCoordinatorRotation, refreshRunCoordinator } from './coordinatorRotate'
-import { autoAnswerLine, autoAnswersDue, type OpenQuestion } from './autoAnswer'
+import { autoAnswerLine, autoAnswersDue, coordinatorDecideBody, handsOffStepsDue, type AutoAnswer, type OpenQuestion } from './autoAnswer'
 import { STALL_WATCH_MS, stallRemedies, startNotice, watchdogActivity, type StallEntry, type StallRemedy } from './stallWatch'
 import type { ActivityDraft } from '../activity'
 
@@ -178,6 +178,9 @@ export interface DispatchLoopContext {
   /** T21: the "Answer questions automatically" setting (autoAnswer.ts). Optional: without it nothing is auto-answered
    *  (the Host wires it beside the watchdog; the app's own loop has none). */
   autoAnswer?(): boolean | Promise<boolean>
+  /** #117: appends one call a hands-off plan made in the owner's place to its Job (state.ts addDecision), which the
+   *  feed's plan.decided / plan.refused line is derived from. Optional: without it the decision is a log line only. */
+  recordDecision?(jobId: string, d: Decision): Promise<void>
   /** A feed line no commit makes (the watchdog's), recorded by the Host's activity log. Optional: without it a log line. */
   activity?(d: ActivityDraft): void
   /** Asked on entry and again before each slot (§4.3). */
@@ -1437,21 +1440,63 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
 
   // T21: the open questions Astera answers itself (autoAnswer.ts), each through `questions-answer` with one feed line.
   // A question tried once is not tried again in this process: a refusal is the owner's to see, not to repeat.
+  // #117: a hands-off plan's questions are answered whatever the setting, each answer a decision on its Job; what has
+  // no safe answer goes to the plan's coordinator, whose answer is recorded once it lands (`handedOver`).
   const autoTried = new Set<string>()
+  // shortcut: in memory, so a coordinator answer that lands across a Host restart is not recorded; persist if missed
+  const handedOver = new Map<string, OpenQuestion>()
+  const decide = async (jobId: string, d: Omit<Decision, 'at'>): Promise<void> => {
+    const at = new Date(c.nowMs()).toISOString()
+    log(`job=${jobId}: decided for the owner (${d.kind}): ${d.choice} — ${d.question}`)
+    try {
+      await c.recordDecision?.(jobId, { at, ...d })
+    } catch (e) {
+      log(`job=${jobId}: the decision could not be recorded: ${String(e)}`)
+    }
+  }
+  const handsOffJobOf = (s: OrchState, runId: string) => {
+    const run = s.runs.find((r) => r.id === runId)
+    const job = run && jobOf(s, run)
+    return job !== undefined && handsOffOf(s, job) ? job : undefined
+  }
   const autoAnswer = async (): Promise<void> => {
     if (c.autoAnswer === undefined) return
     try {
-      if (!(await c.autoAnswer())) return
+      const on = await c.autoAnswer()
+      await recordHandedOver()
       const listed = await c.handle('questions-list', { status: 'open' })
       if (listed.status >= 400 || !Array.isArray(listed.body)) return
+      const s = c.getState()
       const open = (listed.body as OpenQuestion[]).filter((q) => !autoTried.has(q.id))
-      for (const a of autoAnswersDue(c.getState(), open, c.nowMs())) {
+      const handsOff = open.filter((q) => handsOffJobOf(s, q.runId) !== undefined)
+      const due: { a: AutoAnswer; decision?: Omit<Decision, 'at'> }[] = on
+        ? autoAnswersDue(s, open.filter((q) => !handsOff.includes(q)), c.nowMs()).map((a) => ({ a }))
+        : []
+      for (const step of handsOffStepsDue(s, handsOff, c.nowMs())) {
+        if (step.kind === 'answer') {
+          due.push({ a: step.answer, decision: step.decision })
+          continue
+        }
+        const q = step.question
+        if (handedOver.has(q.id)) continue
+        // `send` posts into a Task's Run: a question with no Task (a coordinator's own escalation) names one of its Run's
+        const taskId = q.taskId || s.tasks.find((t) => t.runId === q.runId)?.id
+        if (!taskId) continue
+        if (await tell({ runId: q.runId, taskId, subject: `Decide for the owner: ${q.id}`, body: coordinatorDecideBody(q) })) handedOver.set(q.id, q)
+      }
+      for (const { a, decision } of due) {
         if (!c.mayStart()) return
         autoTried.add(a.id)
         const q = open.find((x) => x.id === a.id)!
         const r = await c.handle('questions-answer', { id: a.id, answer: a.answer })
         if (r.status >= 400) {
           log(`run=${q.runId}: auto-answer of ${a.id} was refused: ${JSON.stringify(r.body)}`)
+          continue
+        }
+        const job = decision && handsOffJobOf(c.getState(), q.runId)
+        // The decision's plan.decided / plan.refused line is the feed's line for it
+        if (decision && job) {
+          await decide(job.id, decision)
           continue
         }
         const line = autoAnswerLine(c.getState(), q, a)
@@ -1464,6 +1509,27 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       }
     } catch (e) {
       log(`auto-answer: the pass failed: ${String(e)}`)
+    }
+  }
+  /** #117: the questions handed to a hands-off coordinator that it has answered since, each recorded once. */
+  const recordHandedOver = async (): Promise<void> => {
+    const s = c.getState()
+    for (const [id, q] of handedOver) {
+      const m = s.messages.find((x) => x.id === id)
+      const g = s.gates.find((x) => x.id === id)
+      const answer = m ? (m.answered ? m.answerBody : undefined) : g?.status === 'resolved' ? g.resolution : undefined
+      const job = handsOffJobOf(s, q.runId)
+      if (!m && !g) handedOver.delete(id)
+      if (answer === undefined || answer === '' || !job) continue
+      handedOver.delete(id)
+      const line = (t: string, max: number): string => (t.trim().split('\n')[0] ?? '').slice(0, max)
+      await decide(job.id, {
+        kind: m ? 'escalation' : 'gate',
+        ...(q.taskId ? { taskId: q.taskId } : {}),
+        question: line(q.question, 300),
+        choice: line(answer, 200),
+        why: answer.slice(0, 1000)
+      })
     }
   }
 

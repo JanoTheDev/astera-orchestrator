@@ -5,7 +5,7 @@ import { DEFAULT_CONCURRENCY, MAX_CONCURRENT_WORKERS, type Job, type Project } f
 import { jobNameOf } from '../../../../core/orchestration/jobName'
 import { useI18n } from '../../i18n/I18nProvider'
 import { formFailure, type OrchDoor } from '../../lib/orchDoor'
-import { intakeRequest, type IntakeTab } from './intakeRequest'
+import { autoPickRequest, intakeRequest, issueSearchArgs, type AssigneeFilter, type IntakeTab } from './intakeRequest'
 
 /** A GitHub issue as `sources-items` answers it. */
 export interface IssueRow {
@@ -44,7 +44,11 @@ export function useIntake(o: IntakeOptions) {
   const [files, setFiles] = useState<string[]>(o.initialFiles ?? [])
   const [scope, setScope] = useState('')
   const [query, setQuery] = useState('')
-  const [mine, setMine] = useState(false)
+  const [assignee, setAssignee] = useState<AssigneeFilter>('all')
+  // #119 Let Astera pick: the optional label and cap, and the issues it left out
+  const [autoLabel, setAutoLabel] = useState('')
+  const [autoMax, setAutoMax] = useState('')
+  const [skipped, setSkipped] = useState<{ number: number; why: string }[]>([])
   const [issues, setIssues] = useState<IssueRow[]>([])
   const [picked, setPicked] = useState<string[]>([])
   const [assignMe, setAssignMe] = useState(false)
@@ -86,7 +90,7 @@ export function useIntake(o: IntakeOptions) {
     if (!searching || project === null) return
     const timer = setTimeout(() => {
       void door
-        .command('sources-items', { source: 'github', project: project.id, ...(query.trim() ? { query: query.trim() } : {}), ...(mine ? { assignedToMe: true } : {}) })
+        .command('sources-items', issueSearchArgs({ projectId: project.id, query, assignee }))
         .then((r) => {
           const body = r.body as { items?: IssueRow[]; error?: string } | null
           if (r.status === 200 && Array.isArray(body?.items)) {
@@ -96,7 +100,7 @@ export function useIntake(o: IntakeOptions) {
         })
     }, 300)
     return () => clearTimeout(timer)
-  }, [searching, project, query, mine, door, t])
+  }, [searching, project, query, assignee, door, t])
 
   const request = intakeRequest({
     tab,
@@ -118,27 +122,40 @@ export function useIntake(o: IntakeOptions) {
     if (list) addPaths(Array.from(list, (f) => window.api.files.pathForFile(f)))
   }
 
-  /** `planArgs`: W9-E, extra `jobs-plan` arguments (Start's delivery and approval, when they differ from the project's). */
-  const create = async (planArgs?: Record<string, unknown>): Promise<void> => {
-    if (request === null || busy) return
+  /** Plans a made Job: its planner starts, or it queues after another plan (`jobs-set --after`: the Host starts its
+   *  planner once that one is delivered). #116: the queued plan keeps Start's approval and delivery too. False after
+   *  it set the error. */
+  const planJob = async (id: string, planArgs?: Record<string, unknown>): Promise<boolean> => {
+    // Every intake ends with its planner started; a planner that does not start leaves the Job as a draft.
+    const planned = await door.command(after ? 'jobs-set' : 'jobs-plan', after ? { id, after, ...planArgs } : { id, ...planArgs })
+    if (planned.status < 400) return true
+    const why = (planned.body as { error?: unknown } | null)?.error
+    setError(`${t('jobs.new.plannerFailed')}${typeof why === 'string' ? `: ${why}` : ''}`)
+    return false
+  }
+
+  /** `planArgs`: W9-E, extra `jobs-plan` arguments (Start's delivery and approval, when they differ from the project's).
+   *  #119: `auto` makes the plans from Astera's own pick of the open issues; the first one is planned here. */
+  const create = async (planArgs?: Record<string, unknown>, auto?: { handsOff?: 'on' | 'off' }): Promise<void> => {
+    const req = auto ? autoPickRequest({ project: project && { id: project.id, path: project.path }, coordinatorAccount: account, concurrency, instructions, assignMe, label: autoLabel, max: autoMax, handsOff: auto.handsOff }) : request
+    if (req === null || busy) return
     setBusy(true)
     setError(null)
+    setSkipped([])
     try {
-      const reply = await door.command(request.cmd, request.args)
+      const reply = await door.command(req.cmd, req.args)
       if (reply.status >= 400) {
         setError(formFailure(reply, t as never, 'jobs.new.failed').message)
         return
       }
-      const id = (reply.body as { id: string }).id
-      // Every intake ends with its planner started; a planner that does not start leaves the Job as a draft.
-      // W8-C: or queued after another plan (`jobs-set --after`): the Host starts its planner once that one is delivered.
-      const planned = await door.command(after ? 'jobs-set' : 'jobs-plan', after ? { id, after } : { id, ...planArgs })
-      if (planned.status >= 400) {
-        const why = (planned.body as { error?: unknown } | null)?.error
-        setError(`${t('jobs.new.plannerFailed')}${typeof why === 'string' ? `: ${why}` : ''}`)
+      const body = reply.body as { id?: string; jobs?: { id: string }[]; skipped?: { number: number; why: string }[] }
+      setSkipped(body.skipped ?? [])
+      const id = auto ? body.jobs?.[0]?.id : body.id
+      if (id === undefined) {
+        setError(t('jobs.new.failed'))
         return
       }
-      o.onCreated(id)
+      if (await planJob(id, planArgs)) o.onCreated(id)
     } catch {
       setError(t('jobs.new.failed'))
     } finally {
@@ -148,7 +165,7 @@ export function useIntake(o: IntakeOptions) {
 
   return {
     tab, setTab, projects, projectId, setProjectId, project, text, setText, fixlist, setFixlist, approveAsk, setApproveAsk,
-    files, setFiles, addFiles, addPaths, scope, setScope, query, setQuery, mine, setMine, issues, picked, setPicked,
+    files, setFiles, addFiles, addPaths, scope, setScope, query, setQuery, assignee, setAssignee, autoLabel, setAutoLabel, autoMax, setAutoMax, skipped, issues, picked, setPicked,
     assignMe, setAssignMe, instructions, setInstructions, account, setAccount, concurrency, setConcurrency, after,
     setAfter, plans, busy, error, request, create
   }

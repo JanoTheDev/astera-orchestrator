@@ -1,6 +1,7 @@
 // W3-A: the activity feed's lines, summaries and notices (activity.ts).
 import { describe, expect, it } from 'vitest'
 import {
+  decisionLine,
   waitingActivity,
   createActivityNotices,
   createNoticeThrottle,
@@ -401,5 +402,53 @@ describe('W6-B: auto-answers and escalations', () => {
     // W6-C's review cap, by its reason; a plain Gate does not escalate
     expect(types(deriveActivity(state(), state({ gates: [{ ...gate(), reason: 'review-rounds-exhausted' } as Gate] })))).toEqual(['gate.opened', 'task.escalated'])
     expect(types(deriveActivity(state(), state({ gates: [gate()] })))).toEqual(['gate.opened'])
+  })
+})
+
+// #117: a hands-off plan's decisions are feed lines, and its one notice is the plan.done that lists them
+describe('hands-off decisions (#117)', () => {
+  const hands = (over: Partial<Job> = {}): Job => job({ handsOff: true, ...over })
+  const retry = { at: T0, kind: 'gate' as const, taskId: 'a', question: 'Checks failed 3 times', choice: 'retry-once', why: 'the attempts ran out: one more try' }
+  const refused = { at: T0, kind: 'refused' as const, question: 'Push to main?', choice: 'hold', why: 'a guardrail' }
+
+  it('each decision a commit adds is one plan.decided or plan.refused line', () => {
+    const before = state({ jobs: [hands({ decisions: [retry] })] })
+    const after = state({ jobs: [hands({ decisions: [retry, refused, { ...retry, choice: 'mark-failed', why: 'retried once' }] })] })
+    const lines = deriveActivity(before, after)
+    expect(types(lines)).toEqual(['plan.refused', 'plan.decided'])
+    expect(lines[0].payload.reason).toBe('Refused: Push to main? (a guardrail)')
+    expect(lines[1]).toMatchObject({ jobId: 'j1', taskId: 'a', payload: { title: 'title a', handsOff: true, reason: 'Decided for you: mark-failed — title a: retried once' } })
+    expect(lines.map((l) => noticeOf(stamp(l, T0)))).toEqual([null, null])
+  })
+
+  it('no notice for its Gates or escalations; its plan.done notice lists the decisions', () => {
+    const s0 = state({ jobs: [hands()] })
+    const opened = deriveActivity(s0, state({ jobs: [hands()], gates: [gate({ kind: 'convergence-exhausted' })] }))
+    expect(types(opened)).toEqual(['gate.opened', 'task.escalated'])
+    expect(opened.map((l) => noticeOf(stamp(l, T0)))).toEqual([null, null])
+    const decisions = [retry, refused]
+    const done = deriveActivity(state({ jobs: [hands({ decisions })] }), state({ jobs: [hands({ decisions })], tasks: [task('a', { status: 'completed' })] })).filter(
+      (l) => l.type === 'plan.done'
+    )
+    expect(done).toHaveLength(1)
+    const n = noticeOf(stamp(done[0], T0))
+    expect(n?.title).toBe('Plan done')
+    expect(n?.body).toBe(`Plan A\n2 decision(s) made for you:\n- ${decisionLine(retry, 'title a')}\n- ${decisionLine(refused)}`)
+    expect(n).not.toHaveProperty('alert')
+  })
+
+  it('a long list is trimmed for Slack: at most 10 lines of at most 160 characters', () => {
+    const many = Array.from({ length: 14 }, (_, i) => `line ${i} ${'x'.repeat(200)}`)
+    const n = noticeOf(stamp({ type: 'plan.done', runId: 'r1', payload: { title: 'P', runOutcome: 'completed', decisions: many } }, T0))
+    const rows = n!.body.split('\n')
+    expect(rows[1]).toBe('14 decision(s) made for you:')
+    expect(rows.filter((r) => r.startsWith('- '))).toHaveLength(10)
+    expect(rows.every((r) => r.length <= 162)).toBe(true)
+    expect(rows.at(-1)).toBe('and 4 more in the activity feed')
+  })
+
+  it('a plan that is not hands-off notifies as before', () => {
+    const lines = deriveActivity(state(), state({ gates: [gate({ kind: 'convergence-exhausted' })] }))
+    expect(lines.map((l) => noticeOf(stamp(l, T0))?.alert)).toEqual([true, true])
   })
 })

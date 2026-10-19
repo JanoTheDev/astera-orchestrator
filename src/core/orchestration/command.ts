@@ -171,13 +171,24 @@ import { leftNothingBehind } from '../host/orchProtocol'
 import { APP_CALLER, HOST_CALLER } from '../host/driver'
 import { rollupMarkdown, type SessionSummary } from '../sessions/summary'
 import { UNREADABLE, recordDetail, recordSummary, recordsFor, type StoreShape } from '../understanding/read'
-import { JOB_SOURCE, SOURCE_COMMANDS, createFromContext, sourcesCommand, type JobSourcesDeps } from './commandSources'
+import {
+  JOB_SOURCE,
+  SOURCE_COMMANDS,
+  createFromContext,
+  nonMemberWhy,
+  openIssuesOf,
+  pickIssues,
+  pickMarkdown,
+  plansHoldingIssue,
+  sourcesCommand,
+  type JobSourcesDeps
+} from './commandSources'
 // W6-D wave replanning
 import { replanJobOf, waveOpen } from './replan'
 import { REPLAN_COMMANDS, replanCommand, replanRefusal } from './exec/replanStart'
 // Coordinator rotation
 import { coordinatorHandoff, refreshCoordinator } from './exec/coordinatorRotate'
-import { feedbackCommand, isFeedbackCommand } from './exec/plannerFeedback'
+import { feedbackCommand, handsOffOf, isFeedbackCommand } from './exec/plannerFeedback'
 export { JOB_SOURCE } from './commandSources'
 import { pluginIdOfCheck, type CompletionCheckInput, type PluginCheckAnswer } from './pluginChecks'
 import { checkIdsOf, pluginCheckRefusal, tasksOfNextRun } from './commandChecks'
@@ -760,6 +771,9 @@ export interface OrchServerDeps {
    *  answers the folder; throws the refusal's sentence. **Only the Host injects it**, over its profile; absent,
    *  `jobs-create --attach` and `--mode audit` answer 409. */
   intakeInputs?(jobId: string, files: string[]): Promise<{ dir: string; names: string[] }>
+  /** #119: writes Astera's own text file `name` into the Job's inputs folder and answers its path (`writeIntakeText`):
+   *  Let Astera pick's pick.md. **Only the Host injects it**; absent, the Job keeps `pick` alone. */
+  writeIntakeText?(jobId: string, name: string, text: string): Promise<string>
   // W8-C prompts mode
   /** A text file of this machine, or null when it is not there: a Run-as-written plan's copied prompt files and its
    *  project's docs/dev/PLAN.md, else docs/orchestrator/PLAN.md (`readTextIfAny`). **Only the Host injects it**; absent, `--mode prompts` with
@@ -1167,6 +1181,25 @@ const str = (v: unknown): string | null => (typeof v === 'string' && v.length > 
 const onOff = (v: unknown): boolean | null =>
   v === 'on' || v === true || v === 'true' ? true : v === 'off' || v === false || v === 'false' ? false : null
 
+/** #117: whether `caller` is the running coordinator of Run `runId`, and that Run's plan is hands-off: the one agent
+ *  session that answers the Run's escalations itself (`questions-answer`). */
+const handsOffCoordinatorOf = (s: OrchState, runId: string, caller: { sessionId: string; role?: string }): boolean => {
+  const run = s.runs.find((r) => r.id === runId)
+  const job = run && s.jobs.find((j) => j.id === run.jobId)
+  return (
+    !!run && !!job && caller.role !== 'mcp' && caller.sessionId !== '' && run.coordinatorSessionId === caller.sessionId &&
+    outcomeOf(s, run.id) === 'running' && handsOffOf(s, job)
+  )
+}
+
+/** #117: a plan's `--hands-off` (on/off, or bare). Hands-off starts the plan's workers and planner with permissions
+ *  bypassed, so it is the person's choice: refused from an agent session and an MCP client. undefined: not given. */
+const handsOffArg = (v: unknown, fromAgentSession: boolean, role: string | undefined): boolean | undefined | Reply => {
+  if (v === undefined) return undefined
+  if (fromAgentSession || role === 'mcp') return denied('--hands-off is for the person, in Astera or at their own shell')
+  return onOff(v) ?? bad('--hands-off must be on or off')
+}
+
 /** 1 이상의 정수만 통과. CLI 는 숫자를 문자열로 넘길 수도 있으므로 둘 다 받는다. */
 const posInt = (v: unknown): number | null => {
   const n = typeof v === 'string' ? Number(v) : typeof v === 'number' ? v : NaN
@@ -1185,6 +1218,10 @@ function projectSettingsArgs(
   const autoApprove = flag(args.autoApprove)
   if (autoApprove === null) return { error: '--auto-approve must be on or off' }
   if (autoApprove !== undefined) patch.autoApprove = autoApprove ? true : null
+  // #117: like auto-approve, off clears it back to the default
+  const handsOff = flag(args.handsOff)
+  if (handsOff === null) return { error: '--hands-off must be on or off' }
+  if (handsOff !== undefined) patch.handsOff = handsOff ? true : null
   for (const [key, name] of [['concurrency', '--concurrency'], ['reviewRounds', '--review-rounds']] as const) {
     const v = args[key]
     if (v === undefined) continue
@@ -1899,7 +1936,8 @@ export async function handleCommand(
     const current = deps.getState()
     const job = current.jobs.find((j) => j.id === jobId)
     if (!job) return false
-    const { plannerSessionIds: was, ...rest } = job
+    // #116: a planner session added or removed is a new planning round: the plan is not ready until it ends a turn
+    const { plannerSessionIds: was, planReadyAt: _ready, ...rest } = job
     const ids = f(was ?? [])
     await deps.setState({ ...current, jobs: current.jobs.map((j) => (j.id === jobId ? (ids ? { ...rest, plannerSessionIds: ids } : rest) : j)) })
     return true
@@ -2056,7 +2094,8 @@ export async function handleCommand(
           convergence: policyOf(base, { runId: target.id }) !== null,
           jobId: job.id,
           accountId,
-          promptsMode: job.verbatim !== undefined
+          promptsMode: job.verbatim !== undefined,
+          handsOff: handsOffOf(base, job)
         }) +
           // T23: a coordinator restarted for a stated reason (`run-start --reason`, the crash resume) replaces one whose
           // conversation is gone, so it gets the fresh-coordinator hand-off read from the state.
@@ -2390,7 +2429,7 @@ export async function handleCommand(
       if ('error' in settings) return bad(settings.error)
       const { testCommand, account } = settings
       if (delivery === undefined && branchArg === undefined && Object.keys(settings.patch).length === 0 && testCommand === undefined && account === undefined)
-        return bad('nothing to set: give --delivery, --delivery-branch, --auto-approve, --test-command, --test-config, --concurrency, --review-rounds, --replan, --prompts-dir or --account')
+        return bad('nothing to set: give --delivery, --delivery-branch, --auto-approve, --hands-off, --test-command, --test-config, --concurrency, --review-rounds, --replan, --prompts-dir or --account')
       const project = findProject(s, id)
       if (!project) return notFound(`unknown project: ${id}`)
       // W10-A: the prompts folder is kept repository-relative, and a folder outside the repository is refused
@@ -2541,7 +2580,9 @@ export async function handleCommand(
       const read = intakeOf(args)
       if (!read.ok) return bad(read.error)
       let intake = read.intake
-      const { mode: _mode, scope: _scope, instructions: _instructions, attach: _attach, approve: _approve, after: _after, dryRun: _dryRun, ...plain } = args
+      const { mode: _mode, scope: _scope, instructions: _instructions, attach: _attach, approve: _approve, after: _after, dryRun: _dryRun, handsOff: _handsOff, ...plain } = args
+      const handsOff = handsOffArg(args.handsOff, fromAgentSession, caller.role)
+      if (typeof handsOff === 'object') return handsOff
       // W8-C plan after plan: `--after <job>`, the plan this one is queued after
       const afterId = args.after === undefined ? null : str(args.after)
       if (args.after !== undefined && (afterId === null || afterId === 'none')) return bad('--after needs a job id')
@@ -2643,6 +2684,11 @@ export async function handleCommand(
       if (args.noReview === true) {
         const cur = deps.getState()
         await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id ? { ...j, review: false } : j)) })
+      }
+      // #117: `--hands-off`, this plan's own, ahead of its project's
+      if (handsOff !== undefined) {
+        const cur = deps.getState()
+        await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id ? { ...j, handsOff } : j)) })
       }
       // W8-C plan after plan
       if (afterId !== null) {
@@ -3146,10 +3192,23 @@ export async function handleCommand(
           return conflict(`job ${id} has started planning: it can no longer wait on another plan`)
         if (target !== 'none' && job.coordinatorAccountId === undefined)
           return bad(`job ${id} names no coordinator account: a queued plan's planner starts on it`)
+        // #116: a queued plan's `jobs-plan` choices (Start's approval and delivery), kept on the Job for the planner the
+        // Host starts later, which passes none
+        const auto = args.autoApprove === undefined ? undefined : onOff(args.autoApprove)
+        if (auto === null) return bad('--auto-approve must be on or off')
+        const delivery = parseDelivery(args.delivery)
+        if (delivery === null) return bad('--delivery must be pr or push')
         const { after: _old, afterStopNotified: _mark, ...rest } = job
-        const next: Job = target === 'none' ? rest : { ...rest, after: target }
-        await deps.setState({ ...s, jobs: s.jobs.map((j) => (j.id === id ? next : j)) })
-        return okBody(jobView(deps.getState(), next, undefined))
+        const queued: Job = target === 'none' ? rest : { ...rest, after: target }
+        const next: Job = auto === undefined ? queued : { ...queued, autoApprove: auto }
+        let state: OrchState = { ...s, jobs: s.jobs.map((j) => (j.id === id ? next : j)) }
+        if (delivery !== undefined) {
+          const set = setJobDelivery(state, id, delivery)
+          if (!set.ok) return refused(set)
+          state = set.state
+        }
+        await deps.setState(state)
+        return okBody(jobView(deps.getState(), state.jobs.find((j) => j.id === id) ?? next, undefined))
       }
       const concurrency = concurrencyArg(args.concurrency)
       if (concurrency === null) return bad('--concurrency must be an integer >= 1')
@@ -3209,6 +3268,13 @@ export async function handleCommand(
         const cur = deps.getState()
         await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id ? { ...j, replan: args.replan as 'waves' | 'off' } : j)) })
       }
+      // #117: `--hands-off on|off`, this plan's own, ahead of its project's
+      const handsOff = handsOffArg(args.handsOff, fromAgentSession, caller.role)
+      if (typeof handsOff === 'object') return handsOff
+      if (handsOff !== undefined) {
+        const cur = deps.getState()
+        await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id ? { ...j, handsOff } : j)) })
+      }
       // W7-A: `--auto-approve on|off`, this plan's own, ahead of its project's
       if (args.autoApprove !== undefined) {
         const auto = onOff(args.autoApprove)
@@ -3221,7 +3287,8 @@ export async function handleCommand(
       const delivery = parseDelivery(args.delivery)
       if (delivery === null) return bad('--delivery must be pr or push')
       if (delivery !== undefined) {
-        const set = setJobDelivery(s, id, delivery)
+        // #116: from the current state, not `s`: the --replan / --auto-approve written above would be lost
+        const set = setJobDelivery(deps.getState(), id, delivery)
         if (!set.ok) return refused(set)
         await deps.setState(set.state)
       }
@@ -5223,8 +5290,10 @@ export async function handleCommand(
       const msg = s.messages.find((m) => m.id === str(args.id) && (m.type === 'question' || m.type === 'escalation'))
       if (msg) {
         const fromAgent = fromAgentSession || caller.role === 'mcp'
-        // An escalation is what only the owner decides: an agent answering it would undo the escalation
-        if (msg.type === 'escalation' && fromAgent) return denied('an escalation is answered by the owner, from the app or a shell')
+        // An escalation is what only the owner decides: an agent answering it would undo the escalation. #117: except
+        // on a hands-off plan, whose own running coordinator decides in the owner's place
+        if (msg.type === 'escalation' && fromAgent && !handsOffCoordinatorOf(s, msg.runId, caller))
+          return denied('an escalation is answered by the owner, from the app or a shell')
         if (msg.type === 'question') {
           const r = applyReply(s, { messageId: msg.id, body: answer, ...(fromAgent ? {} : { by: 'owner' as const }) }, now)
           if (!r.ok) return refused(r)
@@ -6179,57 +6248,125 @@ export async function handleCommand(
     /**
      * An issue becomes a Job, as the GitHub job source makes one (plugin Phase 4 J13): the objective the job sources'
      * writer makes of it, and the issue as the Job's source.
-     * The checks are here, on the Host, so no client can skip them: a pull request, a closed issue and
-     * an author the repository does not already trust with its code are refused. The objective and the
-     * folder are the issue's and the project's, so a caller that gives either is refused.
+     * The checks are here, on the Host, so no client can skip them: a pull request, a closed issue and an issue whose
+     * author the repository does not already trust with its code are skipped and listed (#119); the call is refused
+     * only when none is left. The objective and the folder are the issue's and the project's, so a caller that gives
+     * either is refused. #119 `--auto`: Astera picks from every open issue itself, in chained plans (pickIssues).
      */
     case 'jobs-create-from-issue': {
       if (args.run !== undefined) return bad('--run does not go with jobs-create-from-issue: give --project')
       if (args.objective !== undefined)
         return bad("--objective does not go with jobs-create-from-issue: the issue is the Job's objective")
       if (args.cwd !== undefined) return bad("--cwd does not go with jobs-create-from-issue: the Job works in the project's folder")
+      const auto = args.auto === true || args.auto === 'true'
+      if (!auto && (args.label !== undefined || args.max !== undefined)) return bad('--label and --max go with --auto')
       const t = githubTarget(deps, s, args)
       if ('error' in t) return t.error
+      const { project: _project, number: _number, issue: _issue, assignMe: _assignMe, auto: _auto, label: _label, max: _max, ...rest } = args
+      const assignMe = args.assignMe === true || args.assignMe === 'true'
+      const ref = (i: GhIssue): { number: number; url: string } => ({ number: i.number, url: i.url })
+      /** One Job of `issues`, through the job sources' path, named by all its issues. */
+      const makeJob = async (issues: GhIssue[], extra: Record<string, unknown>): Promise<Reply> => {
+        const reply = await createFromContext(deps, caller, handleCommand, {
+          rest: { ...rest, ...extra },
+          cwd: t.cwd,
+          ctx: issuesContext(issues),
+          sourceId: GITHUB_SOURCE_ID,
+          sourceName: 'GitHub',
+          itemId: issues.map((i) => i.number).join(',')
+        })
+        if (reply.status < 200 || reply.status >= 300) return reply
+        // W7-D (#68): named by all its issues ("#1 unique() is O(n²) +1"), here and in its PR's title (jobNameOf)
+        const madeId = (reply.body as { id?: unknown }).id
+        const named = renameJob(deps.getState(), String(madeId), issuesTitleOf(issues))
+        if (named.ok) await deps.setState(named.state)
+        // `issue` stays for one issue, as it always answered; `issues` lists them all.
+        return okBody({ ...(reply.body as object), ...(named.ok ? { title: named.value.title } : {}), ...(issues.length === 1 ? { issue: ref(issues[0]) } : {}), issues: issues.map(ref) })
+      }
+
+      if (auto) {
+        if (args.issue !== undefined || args.number !== undefined) return bad('--auto picks the issues itself: give no --issue or --number')
+        const label = args.label === undefined ? undefined : str(args.label)
+        if (label === null) return bad('--label needs a label name')
+        const max = args.max === undefined ? undefined : posInt(args.max)
+        if (max === null) return bad('--max must be an integer >= 1')
+        const project = findProject(s, String(args.project))
+        if (!project) return notFound(`unknown project: ${String(args.project)}`)
+        const open = await openIssuesOf(t.gh, t.cwd)
+        if (!open.ok) return ghRefusal(open)
+        // Whom "assigned to someone else" excludes: the person gh is logged in as, read once and only when it matters
+        let me: string | null = null
+        if (open.issues.some((i) => i.assignees.length > 0)) {
+          const who = await t.gh(['api', 'user', '--jq', '.login'], t.cwd)
+          if (!who.ok) return ghRefusal({ ok: false, ...ghFailureSentence(who) })
+          me = who.stdout.trim() || null
+        }
+        const { groups, skipped } = pickIssues(open.issues, {
+          held: (n) => plansHoldingIssue(s, project, n),
+          me,
+          ...(label !== undefined ? { label } : {}),
+          ...(max !== undefined ? { max } : {}),
+          perGroup: ISSUES_PER_CALL_MAX
+        })
+        const skippedRefs = skipped.map((p) => ({ number: p.number, why: p.why }))
+        if (groups.length === 0) return { status: 409, body: { error: 'no open issue can be picked', skipped: skippedRefs } }
+        // Each plan after the first is queued after the one before (W8-C), whose planner starts on the coordinator account
+        if (groups.length > 1 && str(args.coordinatorAccount) === null && args.coordinatorProvider === undefined)
+          return bad(`${groups.reduce((n, g) => n + g.issues.length, 0)} issues make ${groups.length} chained plans: give --coordinator-account (or --coordinator-provider) for the queued ones, or --max ${ISSUES_PER_CALL_MAX}`)
+        if (assignMe) {
+          const assigned = await assignAll(t.gh, t.cwd, groups.flatMap((g) => g.issues.map((i) => i.number)))
+          if (assigned !== null) return assigned
+        }
+        const jobs: { id: string; issues: number[] }[] = []
+        for (const [k, g] of groups.entries()) {
+          const made = await makeJob(g.issues, k === 0 ? {} : { after: jobs[k - 1].id })
+          if (made.status < 200 || made.status >= 300) return { ...made, body: { ...(made.body as object), jobs, skipped: skippedRefs } }
+          const id = String((made.body as { id: unknown }).id)
+          const pick = { at: deps.now?.() ?? new Date().toISOString(), picked: g.picked, skipped: k === 0 ? skipped : [] }
+          // The planner reads why each issue is here beside its other inputs, and checks each against the code (existing.md)
+          const file = deps.writeIntakeText ? await deps.writeIntakeText(id, 'pick.md', pickMarkdown(pick.picked, pick.skipped)).catch(() => null) : null
+          const cur = deps.getState()
+          await deps.setState({
+            ...cur,
+            jobs: cur.jobs.map((j) =>
+              j.id === id
+                ? { ...j, pick, ...(file !== null ? { objective: `${j.objective}\n\nAstera picked these issues itself; why each was picked or skipped is in ${file.replace(/\\/g, '/')}.` } : {}) }
+                : j
+            )
+          })
+          jobs.push({ id, issues: g.issues.map((i) => i.number) })
+        }
+        return okBody({ jobs, skipped: skippedRefs })
+      }
+
       // W6-A: --issue takes several (12,14,19) for one Job; --number is the one-issue spelling it always had.
-      if ((args.issue === undefined) === (args.number === undefined)) return bad('give one of --issue <n>[,<n>…] or --number <n>')
+      if ((args.issue === undefined) === (args.number === undefined)) return bad('give one of --issue <n>[,<n>…], --number <n> or --auto')
       const numbers = issueNumbersOf(args.issue ?? args.number)
       if (numbers === null) return bad('--issue takes issue numbers, comma-separated')
       if (numbers.length > ISSUES_PER_CALL_MAX) return bad(`at most ${ISSUES_PER_CALL_MAX} issues make one Job`)
-      // Every issue is read and checked before anything is assigned or made: one refused issue refuses the whole call.
+      // Every issue is read and checked before anything is assigned or made; #119: one that cannot become a Job is
+      // skipped and listed, and the call is refused only when none is left (one issue: its own refusal, as always).
       const issues: GhIssue[] = []
+      const skipped: { number: number; why: string; refusal: Reply }[] = []
       for (const n of numbers) {
         const read = await readIssue(t.gh, t.cwd, n)
         if (!read.ok) return ghRefusal({ ...read, message: `#${n}: ${read.message}` })
         const issue = read.issue
-        if (issue.isPullRequest) return conflict(`#${n} is a pull request, not an issue`)
-        if (issue.state === 'closed') return conflict(`Issue #${n} is closed`)
-        if (!(ISSUE_JOB_ASSOCIATIONS as readonly string[]).includes(issue.authorAssociation))
-          return denied(
-            `Issue #${n} was written by a ${issue.authorAssociation} of the repository; only an owner, member or collaborator's issue becomes a Job`
-          )
-        issues.push(issue)
+        if (issue.isPullRequest) skipped.push({ number: n, why: 'a pull request, not an issue', refusal: conflict(`#${n} is a pull request, not an issue`) })
+        else if (issue.state === 'closed') skipped.push({ number: n, why: 'closed', refusal: conflict(`Issue #${n} is closed`) })
+        else if (!(ISSUE_JOB_ASSOCIATIONS as readonly string[]).includes(issue.authorAssociation))
+          skipped.push({ number: n, why: nonMemberWhy(issue), refusal: denied(`Issue #${n} was ${nonMemberWhy(issue)}`) })
+        else issues.push(issue)
       }
-      if (args.assignMe === true || args.assignMe === 'true') {
-        const assigned = await assignAll(t.gh, t.cwd, numbers)
+      const skippedRefs = skipped.map(({ number, why }) => ({ number, why }))
+      if (issues.length === 0)
+        return skipped.length === 1 ? skipped[0].refusal : { status: 409, body: { error: 'none of the issues can become a Job', skipped: skippedRefs } }
+      if (assignMe) {
+        const assigned = await assignAll(t.gh, t.cwd, issues.map((i) => i.number))
         if (assigned !== null) return assigned
       }
-      const { project: _project, number: _number, issue: _issue, assignMe: _assignMe, ...rest } = args
-      const reply = await createFromContext(deps, caller, handleCommand, {
-        rest,
-        cwd: t.cwd,
-        ctx: issuesContext(issues),
-        sourceId: GITHUB_SOURCE_ID,
-        sourceName: 'GitHub',
-        itemId: numbers.join(',')
-      })
-      if (reply.status < 200 || reply.status >= 300) return reply
-      // W7-D (#68): named by all its issues ("#1 unique() is O(n²) +1"), here and in its PR's title (jobNameOf)
-      const madeId = (reply.body as { id?: unknown }).id
-      const named = renameJob(deps.getState(), String(madeId), issuesTitleOf(issues))
-      if (named.ok) await deps.setState(named.state)
-      const ref = (i: GhIssue): { number: number; url: string } => ({ number: i.number, url: i.url })
-      // `issue` stays for one issue, as it always answered; `issues` lists them all.
-      return okBody({ ...(reply.body as object), ...(named.ok ? { title: named.value.title } : {}), ...(issues.length === 1 ? { issue: ref(issues[0]) } : {}), issues: issues.map(ref) })
+      const made = await makeJob(issues, {})
+      return made.status === 200 && skipped.length > 0 ? okBody({ ...(made.body as object), skipped: skippedRefs }) : made
     }
     /**
      * W6-A: the planner found every item of its Job already built (inputs/existing.md), so there is nothing to plan.

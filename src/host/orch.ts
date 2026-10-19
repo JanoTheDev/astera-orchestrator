@@ -560,6 +560,8 @@ export function createHostOrch(a: {
   summaries?: Pick<HostSummaries, 'committed'> | null
   /** W6-A intake, passed through to `hostOrchDeps`. */
   intakeInputs?: OrchServerDeps['intakeInputs']
+  /** #119 Let Astera pick's pick.md, passed through to `hostOrchDeps`. */
+  writeIntakeText?: OrchServerDeps['writeIntakeText']
   /** W8-C prompts mode, passed through to `hostOrchDeps`. */
   readIntakeText?: OrchServerDeps['readIntakeText']
   /** A Run's changed files and diffs from this Host's git (remote runtime design Phase 10). */
@@ -857,6 +859,7 @@ export function createHostOrch(a: {
       ...(a.readUnderstanding ? { readUnderstanding: a.readUnderstanding } : {}),
       ...(a.readSummaries ? { readSummaries: a.readSummaries } : {}), // W9-I
       ...(a.intakeInputs ? { intakeInputs: a.intakeInputs } : {}),
+      ...(a.writeIntakeText ? { writeIntakeText: a.writeIntakeText } : {}), // #119
       // W8-C prompts mode
       ...(a.readIntakeText ? { readIntakeText: a.readIntakeText } : {}),
       // W10-A Run as written by name: the Host that reads the prompt files also lists their folder

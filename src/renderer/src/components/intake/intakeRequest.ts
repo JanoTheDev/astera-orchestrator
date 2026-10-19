@@ -54,3 +54,51 @@ export function intakeRequest(f: IntakeForm): { cmd: string; args: Record<string
         : { cmd: 'jobs-create-from-issue', args: { project: f.project.id, issue: f.issues.join(','), ...(f.assignMe ? { assignMe: true } : {}), ...common } }
   }
 }
+
+/** #119: which issues the picker lists, by who they are assigned to (`sources-items --assignee`). */
+export type AssigneeFilter = 'all' | 'none' | 'me' | 'others'
+export const ASSIGNEE_FILTERS: readonly AssigneeFilter[] = ['all', 'none', 'me', 'others']
+
+/** The `sources-items` call behind the GitHub picker: the search text and the assignee filter. */
+export function issueSearchArgs(f: { projectId: string; query: string; assignee: AssigneeFilter }): Record<string, unknown> {
+  return { source: 'github', project: f.projectId, ...(f.query.trim() ? { query: f.query.trim() } : {}), assignee: f.assignee }
+}
+
+/** #119 "Let Astera pick": Astera reads the open issues, skips the held and assigned-elsewhere ones, and makes the plans
+ *  itself. `label` and `max` narrow it; `handsOff` is set only when it differs from the project's. */
+export function autoPickRequest(
+  f: Pick<IntakeForm, 'project' | 'coordinatorAccount' | 'concurrency' | 'instructions' | 'assignMe'> & { label: string; max: string; handsOff?: 'on' | 'off' }
+): { cmd: string; args: Record<string, unknown> } | null {
+  if (f.project === null || f.coordinatorAccount === '') return null
+  const max = Math.trunc(Number(f.max))
+  return {
+    cmd: 'jobs-create-from-issue',
+    args: {
+      project: f.project.id,
+      auto: true,
+      coordinatorAccount: f.coordinatorAccount,
+      concurrency: f.concurrency,
+      ...(f.label.trim() !== '' ? { label: f.label.trim() } : {}),
+      ...(max >= 1 ? { max } : {}),
+      ...(f.instructions.trim() !== '' ? { instructions: f.instructions.trim() } : {}),
+      ...(f.assignMe ? { assignMe: true } : {}),
+      ...(f.handsOff !== undefined ? { handsOff: f.handsOff } : {})
+    }
+  }
+}
+
+/** The ids "Select all" ticks: the rows in view that can be picked. */
+const selectableIds = (rows: { id: string; selectable?: boolean }[]): string[] => rows.filter((r) => r.selectable !== false).map((r) => r.id)
+
+/** Select all is ticked when the view has selectable rows and every one is picked. */
+export const allSelected = (rows: { id: string; selectable?: boolean }[], picked: string[]): boolean => {
+  const ids = selectableIds(rows)
+  return ids.length > 0 && ids.every((id) => picked.includes(id))
+}
+
+/** Select all: ticks every selectable row in view, or unticks them all when they were all ticked. Picks made under an
+ *  earlier search or filter stay. */
+export function toggleAll(rows: { id: string; selectable?: boolean }[], picked: string[]): string[] {
+  const ids = selectableIds(rows)
+  return allSelected(rows, picked) ? picked.filter((id) => !ids.includes(id)) : [...picked, ...ids.filter((id) => !picked.includes(id))]
+}
