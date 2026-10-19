@@ -8,7 +8,7 @@ describe('planningStageOf', () => {
   it('names the stage of a plan still being planned', () => {
     expect(planningStageOf(row({ pendingStart: true, planned: true, plannerSessionId: 's' }))).toBe('writing')
     expect(planningStageOf(row({ pendingStart: true, planned: true, planReady: true }))).toBe('ready')
-    expect(planningStageOf(row({ pendingStart: true, planned: true, after: 'a' }))).toBe('queued')
+    expect(planningStageOf(row({ pendingStart: true, after: 'a' }))).toBe('queued')
     expect(planningStageOf(row({ outcome: 'running', replanWave: 1 }))).toBe('replanning')
   })
   it('is null for plans past planning, unplanned, archived or scheduled', () => {
@@ -21,7 +21,7 @@ describe('planningStageOf', () => {
 describe('planningEntriesOf / stageText', () => {
   it('lists only planning plans and names the plan a queued one waits for', () => {
     const a = row({ id: 'a', title: 'Alpha', outcome: 'running' })
-    const b = row({ id: 'b', pendingStart: true, planned: true, after: 'a' })
+    const b = row({ id: 'b', pendingStart: true, after: 'a' })
     const entries = planningEntriesOf([a, b])
     expect(entries.map((e) => e.plan.id)).toEqual(['b'])
     expect(stageText(entries[0])).toEqual({ key: 'pages.tasks.planning.queued', params: { plan: 'Alpha' } })

@@ -17,6 +17,8 @@ export interface PlanningEntry {
 export function planningStageOf(plan: JobRow): PlanningStage | null {
   if (plan.archivedAt !== undefined || plan.schedule) return null
   if (plan.replanWave !== undefined) return 'replanning'
+  // A plan queued after another has no planner yet (plannerSessionIds unset), so `planned` is not set on it
+  if (plan.pendingStart && !plan.planned && plan.after !== undefined) return 'queued'
   if (!plan.pendingStart || !plan.planned) return null
   if (plan.planReady) return 'ready'
   if (plan.plannerSessionId === undefined && plan.after !== undefined) return 'queued'
