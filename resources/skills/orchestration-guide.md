@@ -250,6 +250,8 @@ You answer your workers' questions. The owner hears only what needs them.
   - security;
   - money;
   - the same question asked twice with no progress in between.
+- **A detail the plan or the owner left to you is yours to decide** (#106). If the owner said "ask the coordinator", or the
+  plan does not care about a formatting choice such as a thousands separator, pick the safe default and do not escalate it.
 
   ```bash
   astera send --type escalation --task-id <tsk> --reason "<the decision, in one line>" --body - --json
