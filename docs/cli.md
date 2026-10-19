@@ -890,7 +890,11 @@ does (see "Jobs run with Astera closed").
 the fixes. `fixlist` reads the objective as a problem list and makes one or more Tasks per problem.
 `prompts` runs the text as written: each `--attach`ed `.md` file, or each `## ` section of one
 document, is one Task with its text unchanged; `--approve auto` (default) starts it without an
-approval step and `--approve ask` waits for one. `--instructions <text>` adds the owner's extra
+approval step and `--approve ask` waits for one. With nothing attached, prompt ids in the objective
+(`"run W8-A, B then all of W9"`, `"next waves"`) are found in the project's prompts folder
+(`projects set --prompts-dir`, else detected) and attached; a name with no file or two files is
+`INVALID_ARGUMENT` before any plan exists, and `--dry-run` only answers what the names resolve to.
+`--instructions <text>` adds the owner's extra
 instructions, which win over a source when the two conflict, and `--attach <path>` (repeatable, a
 regular file of at most 30 MB) copies a file into the plan's inputs for the planner to read first.
 The objective may be left out with `--mode audit` or `--attach`.

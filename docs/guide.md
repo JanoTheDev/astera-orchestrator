@@ -103,7 +103,39 @@ is built, the plan ends as "nothing to do" (archived, the summary kept, a feed l
 
 Use it when you already wrote the prompts (`--mode prompts`, or Start → **Run as written**).
 
-- Each attached `.md` file becomes exactly one Task, and its text is the Task's prompt, unchanged. A single file or
+**Name the prompts; there is nothing to attach.** Type which prompts to run, the way you would say it:
+
+```text
+run W8-A, B, D, F, G, then all of W9
+```
+
+Astera finds each one in the project's prompts folder as `<id>-*.md` and runs it as if you had attached it.
+- **What you can write.** `W8-A`, lists (`W8-A, B, D`), braces (`W9-{A,B,C}`), ranges (`W8-A…D`, also `..` or
+  `to`), `all of W9` (every `W9-*` prompt that PLAN.md's wave table does not mark done), `next wave` (the first wave in
+  the table that is not done) and `next waves` (every wave not done). Start's **Next waves** button types the last one
+  for you. "All of" and "next wave(s)" leave out prompts that another plan of the project already holds or finished.
+- **The prompts folder.** The first time, Astera picks the folder (at most 3 levels deep) that holds the most files
+  named like `W8-A-something.md` and shows it on Start as "Prompts from `docs/dev/prompts`", with a **Change** link. The
+  folder is saved for the project once the plan is made. Change it later in the project's settings or with
+  `astera projects set --id <project> --prompts-dir <path|none>`. A folder outside the repository is refused.
+- **Refused before planning.** A name with no file, a name that matches two files, or a range whose ends are in
+  different waves stops the plan before anything is made. Start shows each one under the text, and the CLI answers
+  `INVALID_ARGUMENT` naming each id. `astera jobs create --mode prompts --objective "<text>" --dry-run` shows what the
+  text resolves to without making anything.
+- **Your text stays your instructions.** Order lines in it still guide the planner. The order itself still comes from
+  PLAN.md's wave table (below).
+- **The approval** lists each Task's id and the file it came from ("Found by name"), and the ids left out and why.
+- **Attaching still works.** If you attach files and also type names, the attached files win and the names are not
+  looked up. Start says so.
+
+The CLI:
+
+```bash
+astera jobs create --mode prompts --coordinator-account "$A" --objective "run W8-A, B then all of W9"
+astera jobs create --mode prompts --coordinator-account "$A" --objective "next waves"
+```
+
+- Each attached or named `.md` file becomes exactly one Task, and its text is the Task's prompt, unchanged. A single file or
   pasted text with two or more `##` headings becomes one Task per `##` section, titled by the heading.
 - Astera writes these Tasks itself. The planner fills only the affected paths (from each prompt's "Ownership" / "Owns"
   lines and the project's `docs/dev/PLAN.md` ownership table), the criteria, the difficulty (which picks the model) and the

@@ -309,8 +309,9 @@ found. **W8-C (with W8-E, the 7V re-run's coordinator fixes) is the last wave ru
 From then on, each wave is one Astera plan, queued after the one before it. Run these from the packaged app's
 profile, never the dev profile:
 
-In the app: **Start → Run as written**. Attach every W8, W9 and W10 prompt (W8-A, B, D, F, G, W9-A … K, F, G and W10-A; W9-0 is done),
-set delivery to PR, and press Start. The planner reads PLAN.md's wave table and builds the order:
+In the app: **Start → Run as written**. Type `next waves` (or press **Next waves**); W10-A made attaching unnecessary,
+see docs/guide.md "Run as written". Astera finds every prompt of every wave not done in `docs/dev/prompts/`. Set
+delivery to PR and press Start. The planner reads PLAN.md's wave table and builds the order:
 1. W8 (A, B, D, F, G in parallel).
 2. W9-A alone.
 3. W9-B, C, D, E, H, I, J, K in parallel.
@@ -323,9 +324,7 @@ end. The same from the CLI:
 
 ```bash
 J=$(astera jobs create --mode prompts --delivery pr --coordinator-account "$A" --concurrency 8 \
-  $(printf -- '--attach %s ' docs/dev/prompts/W8-{A,B,D,F,G}-*.md) \
-  $(printf -- '--attach %s ' docs/dev/prompts/W9-{A,B,C,D,E,H,I,J,K,F,G}-*.md) \
-  $(printf -- '--attach %s ' docs/dev/prompts/W10-A-*.md) | jq -r .data.id)
+  --objective "next waves" | jq -r .data.id)
 astera jobs plan --id "$J"
 ```
 
@@ -333,13 +332,12 @@ astera jobs plan --id "$J"
 
 Separate queued plans per wave (`--after <job>`) still work, if the owner wants one PR per wave.
 
-**Later (owner request 2026-10-18; planned as `W10-A-run-by-name`): no attaching.** Today the owner attaches every
-prompt file and pastes the order (`RUN-W8-W9.md`) into Instructions. The owner wants to give only the text: "run W8-A,
-B, D, F, G, then W9 …". In Run as written, Astera then resolves each named prompt from the project's prompts folder
-(`docs/dev/prompts/<id>-*.md`, or a folder set per project). Each resolved file becomes a Task verbatim, as if
-attached, and the approval lists the file each name resolved to. A name that matches no file, or more than one, is
-refused before planning, saying which. Later still: "run the next waves" reads PLAN.md's wave table and picks every
-prompt not yet done.
+**No attaching (W10-A, owner request 2026-10-18).** The owner gives only the text: "run W8-A, B, D, F, G, then all of
+W9", or "next waves". In Run as written, Astera resolves each named prompt from the project's prompts folder
+(`docs/dev/prompts/<id>-*.md`, or a folder set per project with `projects set --prompts-dir`). Each resolved file
+becomes a Task verbatim, as if attached, and the approval lists the file each name resolved to. A name that matches no
+file, or more than one, is refused before planning, saying which. "next wave(s)" reads PLAN.md's wave table and picks
+every prompt not done and not already in a plan.
 
 The owner's part:
 - Answer what lands in the Inbox: real questions, plan approvals unless the project auto-approves, and permission
