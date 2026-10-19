@@ -18,3 +18,111 @@ button.summary-card__title:hover .summary-card__title-text { text-decoration: un
 /* A History row with a summary wraps it onto a second line (HistoryBrowser .session-row is a flex row) */
 .session-row:has(> .session-summary) { flex-wrap: wrap; }
 .session-summary { flex-basis: 100%; padding-left: 18px; }
+
+/* W9-H Agents page (DESIGN.md §2). Colours are tokens only (styles/tokens.css). */
+
+.agents-page { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--bg); }
+.agents-page__body { flex: 1; display: flex; min-height: 0; }
+/* App's Content (the pane grid) lives here for every session's life; hidden, never unmounted, while the wall shows. */
+.agents-page__console { flex: 1; display: flex; min-width: 0; min-height: 0; }
+
+/* The console strip */
+.wall-strip { flex: none; padding: 0 var(--sp-3, 12px); border-bottom: 1px solid var(--line); overflow-x: auto; }
+.wall-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; background: var(--text-faint); vertical-align: middle; flex: none; }
+.wall-dot--working { background: var(--info); }
+.wall-dot--idle { background: var(--ok); }
+.wall-dot--needs, .wall-dot--warn { background: var(--warn); }
+.wall-dot--danger { background: var(--danger); }
+.wall-dot--cat-done { background: var(--ok); }
+.wall-dot--cat-running { background: var(--info); }
+.wall-dot--cat-awaiting-review { background: var(--accent); }
+.wall-dot--cat-failed { background: var(--danger); }
+
+/* The wall */
+.wall { flex: 1; min-height: 0; overflow: auto; padding: 12px 16px 24px; display: flex; flex-direction: column; gap: 12px; }
+.wall-pills { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.wall-pill {
+  display: inline-flex; align-items: center; gap: 8px; height: 28px; padding: 0 10px; border: 1px solid var(--line);
+  border-radius: 14px; background: var(--panel); color: var(--text-dim); font: inherit; font-size: 12px; cursor: pointer;
+}
+.wall-pill:hover { background: var(--hover); }
+.wall-pill--on { border-color: var(--accent); color: var(--text); }
+.wall-pill__name { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wall-pill__bar { display: inline-flex; width: 40px; height: 4px; border-radius: 2px; overflow: hidden; background: var(--elevated); }
+.wall-pill__seg { display: block; height: 100%; flex-basis: 0; }
+.wall-pill__seg--done { background: var(--ok); }
+.wall-pill__seg--running { background: var(--info); }
+.wall-pill__seg--awaiting-review { background: var(--accent); }
+.wall-pill__seg--queued { background: var(--text-faint); }
+.wall-pill__seg--failed { background: var(--danger); }
+.wall-pill__seg--cancelled { background: var(--line); }
+.wall-pill__count { color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.wall-pill__count--need { color: var(--warn); }
+.wall-pills__search { height: 28px; padding: 0 10px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); color: var(--text); font: inherit; font-size: 12px; }
+.wall-pills__group { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.wall-pills__group-name { font-size: 11px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.04em; }
+.wall-toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+
+/* The tiles: an auto grid (1–4 → 2 columns, 5–9 → 3, 10+ → 4), needs-you first with a warn or danger border */
+.wall-grid { display: grid; grid-template-columns: repeat(var(--wall-cols, 2), minmax(0, 1fr)); grid-auto-rows: 240px; gap: 12px; }
+@media (max-width: 1100px) { .wall-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 700px) { .wall-grid { grid-template-columns: minmax(0, 1fr); } }
+.wall-tile {
+  display: flex; flex-direction: column; min-width: 0; min-height: 0; border: 1px solid var(--line); border-radius: var(--radius-lg, 10px);
+  background: var(--panel); overflow: hidden; cursor: pointer; outline: none;
+}
+.wall-tile:hover { border-color: var(--text-faint); }
+.wall-tile:focus-visible { box-shadow: 0 0 0 2px var(--ring); }
+.wall-tile--main { grid-row: span 2; border-color: var(--accent); }
+.wall-tile--warn { border-color: var(--warn); }
+.wall-tile--danger { border-color: var(--danger); }
+.wall-tile__head { display: flex; align-items: center; gap: 8px; padding: 8px 10px 2px; min-width: 0; font-size: 12px; }
+.wall-tile__name { font-weight: 600; color: var(--text); white-space: nowrap; }
+.wall-tile__main { font-size: 11px; color: var(--accent-ink); background: var(--accent); border-radius: 4px; padding: 0 5px; }
+.wall-tile__task { flex: 1; min-width: 0; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wall-tile__head .ui-chip { margin-left: auto; flex: none; }
+.wall-tile__detail { padding: 0 10px 6px; font-size: 11px; color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The session's own xterm, at the pty's size and the tile font, bottom rows in view: the tile clips the top and the
+   right, never scales the console (TerminalView tile mode). */
+.wall-tile__term { position: relative; flex: 1; min-height: 0; overflow: hidden; pointer-events: none; }
+.wall-tile__term > .xterm { position: absolute; left: 6px; bottom: 4px; }
+.wall-tile__chat { flex: 1; display: flex; align-items: center; justify-content: center; padding: 12px; color: var(--text-faint); font-size: 12px; background: var(--term-bg); }
+
+/* Finished · what each console did */
+.wall-finished__title { margin: 8px 0 8px; font-size: 13px; font-weight: 600; color: var(--text-dim); }
+.wall-finished__row { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.wall-finished__card { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 10px 12px; text-align: left; }
+.wall-finished__name { font-size: 12px; font-weight: 600; color: var(--text); }
+.wall-finished__task, .wall-finished__outcome { font-size: 11px; color: var(--text-faint); }
+
+/* One console full size: the slim header, the console, the details panel */
+.wall-console-head {
+  flex: none; display: flex; align-items: center; gap: 10px; min-width: 0; height: 36px; padding: 0 12px;
+  border-bottom: 1px solid var(--line); font-size: 12px; color: var(--text-dim);
+}
+.wall-console-head__crumbs { color: var(--text); white-space: nowrap; }
+.wall-console-head__task, .wall-console-head__meta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wall-console-head__cwd { min-width: 60px; font-family: var(--mono); font-size: 11px; color: var(--text-faint); }
+.wall-console-head__hold { margin-left: auto; color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.wall-details { flex: none; width: 330px; overflow: auto; border-left: 1px solid var(--line); background: var(--panel); padding: 12px; font-size: 12px; }
+.wall-details__section { padding-bottom: 12px; margin-bottom: 12px; border-bottom: 1px solid var(--line-soft, var(--line)); }
+.wall-details__section:last-child { border-bottom: none; }
+.wall-details__title { margin: 0 0 6px; font-size: 13px; color: var(--text); }
+.wall-details__head { display: flex; justify-content: space-between; margin: 0 0 6px; font-size: 12px; color: var(--text-dim); }
+.wall-details__progress { color: var(--text-faint); font-weight: normal; }
+.wall-details__brief { margin: 0 0 8px; color: var(--text-dim); line-height: 1.4; }
+.wall-details__row { display: flex; gap: 8px; padding: 2px 0; }
+.wall-details__label { flex: none; width: 84px; color: var(--text-faint); }
+.wall-details__value { min-width: 0; color: var(--text); overflow-wrap: anywhere; }
+.wall-details__criteria, .wall-details__tasks { list-style: none; margin: 0; padding: 0; }
+.wall-details__criteria li { padding: 2px 0; color: var(--text-dim); }
+.wall-details__criterion--met { color: var(--ok); }
+.wall-details__task {
+  display: flex; align-items: center; gap: 6px; width: 100%; padding: 4px 6px; border: none; border-radius: 6px;
+  background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer;
+}
+.wall-details__task:hover { background: var(--hover); }
+.wall-details__task-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wall-details__task-who { flex: none; color: var(--text-faint); font-size: 11px; }
+
+@media (prefers-reduced-motion: reduce) { .wall-pill, .wall-tile { transition: none; } }

@@ -92,7 +92,9 @@ export function NewSessionDialog({
   // from the Settings default and forced back to 'terminal' below whenever chat is not available, so
   // the toggle never sticks on a choice the person cannot actually start. Changing it here is this
   // session's business — it is not written back to the setting.
-  const [kind, setKind] = useState<SessionKind>(defaultSessionKind)
+  // W9-H: a new console is always the CLI itself (DESIGN.md §0: no custom chat UI); the assistant-ui conversation pane
+  // is no longer offered here. Existing chat sessions still open, resume and roll as they did.
+  const [kind, setKind] = useState<SessionKind>('terminal')
   const [rollMode, setRollMode] = useState(false) // auto-resume toggle for a single account
   const [rollPrompt, setRollPrompt] = useState('') // text to send on a rolling resume (empty means the default)
   const [slackNotify, setSlackNotify] = useState(false) // Slack progress notifications
@@ -523,37 +525,6 @@ export function NewSessionDialog({
             {t('session.new.cliMissingPost')}
           </p>
         )}
-        {/* The kind is the first decision — how the session runs at all — so it heads the form as its
-            own section, ruled off from the folder and account it applies to. Placed between those two
-            it read as one more field of the same run, and where the kind ended and the account began
-            could not be told apart (reported from a hand check of the dialog). */}
-        <div className="field kind-field">
-          <label>{t('session.new.kindLabel')}</label>
-          <div className="kind-segmented">
-            <button
-              type="button"
-              className={`segmented${kind === 'terminal' ? ' active' : ''}`}
-              onClick={() => {
-                setKind('terminal')
-              }}
-            >
-              {t('session.kind.terminal')}
-            </button>
-            <button
-              type="button"
-              className={`segmented${kind === 'chat' ? ' active' : ''}`}
-              disabled={!chatEnabled}
-              onClick={() => {
-                setKind('chat')
-              }}
-            >
-              {t('session.kind.chat')}
-            </button>
-          </div>
-          {!chatEnabled && !chatChecking && (
-            <span className="kind-note">{t('session.new.kindHostOld')}</span>
-          )}
-        </div>
         <div className="field">
           <label>{t('session.field.projectFolder')}</label>
           <div className="row">

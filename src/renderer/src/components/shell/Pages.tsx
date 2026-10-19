@@ -2,7 +2,7 @@
 // (W9-C Plans/Tasks, W9-D Inbox, W9-E Settings, W9-H Agents, W9-J Worktrees); until one lands, its page here is the
 // panel that held that view in the retired sidebar. The consoles (Content) are rendered after the page's own column,
 // always at the same place, and only hidden off the pages that show them, so no xterm remounts on a page switch.
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { HistoryBrowser } from '../HistoryBrowser'
 import { FileExplorer } from '../FileExplorer'
 import { JobsView } from '../JobsView'
@@ -15,6 +15,8 @@ import { deleteRun, pauseRun, restartCoordinator as restartRunCoordinator, resum
 import { PlansPage, type PlansPageProps } from '../pages/PlansPage' // W9-C
 import { TasksPage, type TasksPageProps } from '../pages/TasksPage' // W9-C
 import { InboxPage } from '../inbox/InboxPage' // W9-D
+import { AgentsPage, type AgentsPageProps } from '../pages/AgentsPage' // W9-H
+import { getWallView, setWallView } from '../wall/wallView' // W9-H
 import type { PageId } from '../../../../core/ui/pages'
 import { Button, Field } from '../ui'
 import { Content, type ContentProps } from './Content'
@@ -26,6 +28,7 @@ export const showsConsoles = (page: PageId): boolean =>
   page === 'agents' || page === 'files' || page === 'more:hiw' || page === 'more:browser'
 
 export type PagesProps = ContentProps &
+  Omit<AgentsPageProps, 'children' | 'hidden'> &
   PlansPageProps &
   TasksPageProps &
   Pick<
@@ -56,6 +59,11 @@ export function Pages(p: PagesProps): React.JSX.Element {
   } = p
   const [browserUrl, setBrowserUrl] = useState('')
   const wide = !showsConsoles(page)
+  // W9-H: the wall is the Agents page's; any other page has the window, and coming back opens on the wall
+  useEffect(() => {
+    if (page !== 'agents') setWallView({ kind: 'away' })
+    else if (getWallView().kind === 'away') setWallView({ kind: 'wall' })
+  }, [page])
   return (
     <div className="pages">
       {page === 'files' && (
@@ -252,7 +260,10 @@ export function Pages(p: PagesProps): React.JSX.Element {
           </form>
         </aside>
       )}
-      <Content {...p} hidden={wide} />
+      {/* W9-H: the Agents page wraps the pane grid, which stays mounted for every session's life (AgentsPage) */}
+      <AgentsPage {...p} hidden={wide}>
+        <Content {...p} hidden={wide} />
+      </AgentsPage>
     </div>
   )
 }

@@ -310,6 +310,33 @@ PRs. `MERGE.md` is no longer needed for these waves.
 
 ## The workspace
 
+**The Agents page** (W9-H) is where the app opens. It shows every console of the project at once, each tile the
+session's own console (the real Claude Code or Codex screen, small, bottom lines in view), never a copy and never a
+second process.
+
+- **Console strip** across the top: "All consoles", then one entry per live console with a state dot.
+- **Plan pills**: All plans, one per active or queued plan with a progress bar and a short count ("4/9 · 2 need you",
+  or "approve"; hover for the full counts), then No plan. Picking a plan filters the tiles and the strip, and that
+  plan's coordinator becomes the double-height **main** tile. On All plans every plan's coordinator is pinned first.
+  The pick is remembered per window. With more than six plans the pills become a search box, grouped by project.
+- **Scope** (this plan / the project / all projects) and **Show** (All / Needs you / Working / Finished).
+- **Tiles** come in the order needs you, working, idle. A tile waiting on a permission prompt has a red border, a
+  question or a Gate an amber one. The line under the name says what the console is doing: a worker's running time
+  and files, the coordinator's answered and escalated counts, the reviewer's round. Tiles are read-only: click one
+  to open it.
+- **Finished**: ended consoles, one card each, below the tiles.
+- **One console full size**: the slim header (project › plan › name, Task, model, folder, **Back to all**), the
+  console itself with the keyboard, and the details panel on the right (**Ctrl+.** folds it): for a worker its Task,
+  brief, running time, model, account, worktree, files, questions, "Done when" and every Task of the plan with who
+  is on it; for the coordinator the plan's progress and its answered and escalated counts; for the planner the
+  planned Tasks; for the reviewer its round. Clicking a Task opens its console, or the plan when it has none. There
+  is no Astera input box: you type into the CLI itself.
+- **Your keyboard is yours.** While a console is open full size, and for 60 s after your last keystroke in it, a
+  coordinator's `sessions send` to that console waits in the Host and is typed, in order, after you click Back to
+  all (or after 60 s idle). The coordinator is told `{ "queued": true, "reason": "owner-typing" }` at once and never
+  waits on you. Nothing else pauses.
+- New consoles are always the CLI. Conversation (chat) sessions you already have still open.
+
 The sidebar's **Workspaces** tree is Project → Plan → Planner / Coordinator / Workers. Clicking a session shows its
 terminal. The header above it always says Project · Plan · Task · Model · Account · cwd · Branch · Status. Switching
 sessions or plans never restarts a process or changes its cwd. Scrollback survives switching and a restart of the app.

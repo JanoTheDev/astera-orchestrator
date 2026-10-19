@@ -32,7 +32,8 @@ import type { ControllerRegistry } from './controllers'
 import { readMcpAccess } from '../core/settings/mcpAccess'
 import { readMcpSessions } from '../core/settings/mcpSessions'
 import { readMcpGithubWrite } from '../core/settings/mcpGithubWrite'
-import { HOST_CALLER, type Driver } from '../core/host/driver'
+import { APP_CALLER, HOST_CALLER, type Driver } from '../core/host/driver'
+import { createHeldQueue, createOwnerHold } from '../core/sessions/ownerHold'
 import { hostOrchDeps } from './orchDeps'
 import { createCheckWaits } from '../core/orchestration/checkWaits'
 import { readAccountsFile } from '../core/accounts/accountsFile'
@@ -922,6 +923,34 @@ export function createHostOrch(a: {
   }
 
   /**
+   * **The owner hold** (W9-H, DESIGN §2; core/sessions/ownerHold.ts). A console the owner views full size in the app
+   * (`owner-hold`), or typed into in the last minute, takes no agent's `sessions send`: the send is queued here and
+   * answered `queued` at once. On release each queued send is run through `handleCommand` as its sender, so every
+   * check (a permission prompt, a paused worker, an ended session) is judged at delivery, not at queueing.
+   */
+  const ownerHold = createOwnerHold({ typedAt: (id) => a.sessions.ownerInputAt?.(id) ?? null, viewerPresent: () => a.hasApp() })
+  type HeldSend = { sessionId: string; role: OrchCaller['role'] | undefined; args: Record<string, unknown> }
+  const heldSends = createHeldQueue<HeldSend>({
+    hold: ownerHold,
+    now: Date.now,
+    setTimer: (run, ms) => {
+      const t = setTimeout(run, ms)
+      t.unref?.()
+      return t
+    },
+    clearTimer: (t) => clearTimeout(t as ReturnType<typeof setTimeout>),
+    deliver: async (h) => {
+      await ready()
+      const target = String(h.args.id)
+      const r = await handleCommand(depsFor(throwaway(), actorOf({ sessionId: h.sessionId, role: h.role, state: store.get() })), { sessionId: h.sessionId, role: h.role }, 'sessions-send', h.args)
+      // Never the text: it is the sender's, and the log is read by whoever reads the log.
+      const why = r.status === 200 ? '' : ` — ${String((r.body as { error?: unknown } | null)?.error ?? JSON.stringify(r.body))}`
+      a.log(`owner hold — a queued send to ${target} from ${h.sessionId || h.role} was delivered: ${r.status}${why}`)
+    },
+    onError: (target, err) => a.log(`owner hold — a queued send to ${target} failed: ${err instanceof Error ? err.message : String(err)}`)
+  })
+
+  /**
    * **The pending-report drain, the app's own, run by the Host** (R4). The same `applyPendingReports`
    * and the same write-off the app's boot runs (`ipc.ts`, the drain block), so a report is applied —
    * or refused, or given up on — by one rule whichever process drains it.
@@ -1714,6 +1743,7 @@ export function createHostOrch(a: {
             cmd === 'understanding-unit' ||
             WORK_UNITS_CALLS.has(cmd) ||
             cmd === 'coordinator-idle' ||
+            cmd === 'owner-hold' ||
             cmd === 'workspace-list' ||
             cmd === 'workspace-stop' ||
             cmd === 'workspace-close' ||
@@ -1821,6 +1851,17 @@ export function createHostOrch(a: {
           if (typeof runId !== 'string' || runId === '' || typeof idleSession !== 'string' || idleSession === '')
             return { status: 400, body: { error: 'coordinator-idle needs a runId and a sessionId' } }
           return { status: 200, body: { idle: checkWaits.parked(runId, idleSession) } }
+        }
+        // **Beside coordinator-idle, for its reason (W9-H).** The app says the owner opened or left a console full size.
+        // Memory only, never a receipt. Leaving re-checks at once, so what was queued for it goes now unless typing holds it.
+        if (cmd === 'owner-hold') {
+          if (from?.role !== 'app') return { status: 403, body: { error: 'owner-hold is the app’s to send' } }
+          const target = args.sessionId
+          if (typeof target !== 'string' || target === '' || typeof args.viewing !== 'boolean')
+            return { status: 400, body: { error: 'owner-hold needs a sessionId and viewing: true or false' } }
+          ownerHold.setViewing(target, args.viewing)
+          void heldSends.poke(target)
+          return { status: 200, body: { held: ownerHold.isHeld(target, Date.now()) } }
         }
         // **Beside roll-state, for its reason (S6 limits D5).** The app reads what the Host journaled while
         // no app was attached, once after its adoption sweep, and acks it. `ack` prunes the entries up to
@@ -2119,6 +2160,25 @@ export function createHostOrch(a: {
         // P5: judged on the state the call found, so a worker's report that closes its own Dispatch is
         // still the agent's.
         const actor = actorOf({ sessionId, role: from?.role, client: from?.client, remote: from?.remote, principal: from?.principal, plugin: from?.plugin, state: store.get() })
+        // W9-H: an agent's send into a console the owner holds waits in the Host (`heldSends`), answered at once so the
+        // sender never blocks. "Agent" is command.ts's `fromAgent`; the owner's own sends (the app, a shell) are never
+        // held. It took effect, so a retried request id replays this answer instead of queueing the text twice.
+        if (
+          cmd === 'sessions-send' &&
+          observing === null &&
+          ((sessionId !== '' && sessionId !== APP_CALLER && sessionId !== HOST_CALLER) || from?.role === 'mcp') &&
+          runArgs.resumeWait !== true &&
+          typeof runArgs.id === 'string' &&
+          typeof runArgs.text === 'string' &&
+          ownerHold.isHeld(runArgs.id, Date.now())
+        ) {
+          // Delivered later with no one waiting on it, so `--wait` is dropped.
+          const { wait: _w, timeoutMs: _t, resumeWait: _r, ...rest } = runArgs
+          heldSends.enqueue(runArgs.id, { sessionId, role: from?.role, args: rest })
+          marks.effects += 1
+          const queued = { status: 200, body: { queued: true, reason: 'owner-typing', target: runArgs.id } }
+          return claimed === null ? queued : settleRequest(claimed, cmd, marks, queued)
+        }
         const r = await handleCommand(depsFor(marks, actor), { sessionId, role: from?.role }, cmd, runArgs)
         const answered = answerOf(r, marks)
         // **Who drives, on `status`, from the Host and not from `handleCommand`** (R6): the two fields

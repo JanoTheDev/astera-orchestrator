@@ -35,6 +35,7 @@ import { createHostSpawner, type HostLocal, type HostSpawner, type HostSpawnerDe
 import type { HostMessage } from '../core/host/protocol'
 import { AppUnreachable, leftNothingBehind, refusedBeforeActing, wasRefusedBeforeActing } from '../core/host/orchProtocol'
 import { RepairNeeded } from '../core/settings/repairNeeded'
+import { APP_CALLER } from '../core/host/driver'
 import { PtyRegistry } from './registry'
 import { ProcRegistry } from './procRegistry'
 import { registrySessions } from './sessions'
@@ -4946,5 +4947,100 @@ describe('runtime-reload and runtime-status (remote runtime design §2.9)', () =
       expect((await orch.call({ cmd: 'runtime-reload', args: {}, sessionId: '', from })).status).toBe(403)
     expect((await orch.call({ cmd: 'runtime-status', args: {}, sessionId: '', from: { role: 'cli', toOthers: () => {} }, request: 'r-1' })).status).toBe(400)
     expect((await orchOver().call({ cmd: 'runtime-status', args: {}, sessionId: '', from: { role: 'cli', toOthers: () => {} } })).status).toBe(501)
+  })
+})
+
+/**
+ * W9-H: the owner hold. An agent's send into a console the owner views full size, or typed into in the last minute,
+ * is queued in the Host and answered `queued` at once; it is delivered in order on release, through `handleCommand`,
+ * so the permission-prompt refusal still applies then.
+ */
+describe('W9-H owner hold', () => {
+  const app = { role: 'app' as const, toOthers: () => {} }
+  const AGENT = 'ses-coord'
+  const hold = (orch: ReturnType<typeof createHostOrch>, viewing: boolean) =>
+    orch.call({ cmd: 'owner-hold', args: { sessionId: 'ses-w', viewing }, sessionId: APP_CALLER, from: app })
+  const setup = (o: { typedAt?: () => number | null; prompt?: 'permission' | null } = {}) => {
+    const sent: string[] = []
+    const orch = orchOver({
+      sessions: {
+        listSessions: async () => [{ id: 'ses-w', kind: 'terminal', title: null, accountId: null, cwd: null, alive: true, state: 'idle' }],
+        readSession: async () => ({ cols: 80, rows: 24, screen: [], scrollback: [] }),
+        sendSession: async (_id, text) => void sent.push(text),
+        readChat: async () => [],
+        sendChat: async () => {},
+        serial: (_id, run) => run(),
+        sessionTurn: async () => (o.prompt ? { alive: true, state: 'waiting', prompt: o.prompt } : { alive: true, state: 'idle', prompt: null }),
+        ownerInputAt: () => o.typedAt?.() ?? null
+      }
+    })
+    return { orch, sent }
+  }
+  const send = (orch: ReturnType<typeof createHostOrch>, text: string, sessionId = AGENT, request?: string) =>
+    orch.call({ cmd: 'sessions-send', args: { id: 'ses-w', text }, sessionId, ...(request ? { request } : {}) })
+  const settle = () => new Promise((r) => setTimeout(r, 20))
+
+  it('queues an agent’s send into a viewed console, answering at once and typing nothing', async () => {
+    const { orch, sent } = setup()
+    expect(await hold(orch, true)).toEqual({ status: 200, body: { held: true } })
+    expect(await send(orch, 'hello', AGENT, 'r-q')).toEqual({ status: 200, body: { queued: true, reason: 'owner-typing', target: 'ses-w' } })
+    // A retry of the same id replays the answer, and does not queue it twice.
+    expect((await send(orch, 'hello', AGENT, 'r-q')).replayed).toBe(true)
+    await settle()
+    expect(sent).toEqual([])
+    await hold(orch, false)
+    await settle()
+    expect(sent).toEqual(['hello'])
+  })
+
+  it('delivers the queued sends in order when the owner leaves', async () => {
+    const { orch, sent } = setup()
+    await hold(orch, true)
+    await send(orch, 'one')
+    await send(orch, 'two')
+    expect(await hold(orch, false)).toEqual({ status: 200, body: { held: false } })
+    await settle()
+    expect(sent).toEqual(['one', 'two'])
+  })
+
+  it('never holds the owner’s own sends: the app’s and a shell’s', async () => {
+    const { orch, sent } = setup()
+    await hold(orch, true)
+    expect((await send(orch, 'from the app', APP_CALLER)).body).toMatchObject({ sent: true })
+    expect((await send(orch, 'from a shell', '')).body).toMatchObject({ sent: true })
+    expect(sent).toEqual(['from the app', 'from a shell'])
+  })
+
+  it('holds a console typed into recently, and delivers once its minute has passed', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    try {
+      const typed = Date.now() - 10_000
+      const { orch, sent } = setup({ typedAt: () => typed })
+      expect((await send(orch, 'later')).body).toMatchObject({ queued: true })
+      await vi.advanceTimersByTimeAsync(49_000)
+      expect(sent).toEqual([])
+      await vi.advanceTimersByTimeAsync(1_100)
+      expect(sent).toEqual(['later'])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('answers owner-hold for the app alone, and refuses a malformed one', async () => {
+    const { orch } = setup()
+    expect((await orch.call({ cmd: 'owner-hold', args: { sessionId: 'ses-w', viewing: true }, sessionId: AGENT })).status).toBe(403)
+    expect((await orch.call({ cmd: 'owner-hold', args: { sessionId: 'ses-w' }, sessionId: APP_CALLER, from: app })).status).toBe(400)
+    expect((await orch.call({ cmd: 'owner-hold', args: { sessionId: 'ses-w', viewing: true }, sessionId: APP_CALLER, from: app, request: 'r-h' })).status).toBe(400)
+  })
+
+  it('still refuses at delivery a send that would answer a permission prompt', async () => {
+    const { orch, sent } = setup({ prompt: 'permission' })
+    await hold(orch, true)
+    expect((await send(orch, 'yes')).body).toMatchObject({ queued: true })
+    await hold(orch, false)
+    await settle()
+    expect(sent).toEqual([])
+    expect(logs.some((l) => /owner hold .* ses-w .*409 .*permission prompt/.test(l))).toBe(true)
+    expect(logs.some((l) => l.includes('yes'))).toBe(false)
   })
 })

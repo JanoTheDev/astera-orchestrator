@@ -1341,6 +1341,8 @@ session that has ended is a `6` as well.
 **Pass `--request-id` on every send, with an id you choose.** A retry with the same id is replayed:
 the Host answers what it answered the first time and types nothing a second time.
 
+A send answered `{ "queued": true, "reason": "owner-typing" }` is delivered later, after the person leaves that console; it is not a failure — do not retry it or wait on it.
+
 **Exit `3` and exit `7` mean "I do not know whether it was typed", not "it failed".** Do not send
 again. Follow `nextSteps` in the order it gives them (4.10): after a `7` that is the receipt, after a
 `3` it is `astera host start` first, because with no Host the receipt question is a second `3`:

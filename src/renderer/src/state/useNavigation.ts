@@ -6,6 +6,7 @@ import { sessionTab } from '../../../core/panes/tabId'
 import { registerNavigation } from '../components/shell/navigation'
 import { requestInbox } from '../components/inbox/inboxNav'
 import { settingsTarget } from '../components/settings/settingsIndex'
+import { setWallView } from '../components/wall/wallView' // W9-H
 import type { AppState } from './appState'
 import { planSectionOf } from '../components/plan/planBoard'
 
@@ -24,18 +25,21 @@ export function useNavigation(app: NavigationDeps): void {
     } = app
     return registerNavigation({
       openPage: (id) => {
+        // W9-H: Agents opens on the wall, also from a console open full size (Pages hides the wall off the page)
+        if (id === 'agents') setWallView({ kind: 'wall' })
         // Settings is still the modal until W9-E's page lands
         if (id === 'settings') return setShowSettings(true)
         // Run configs come with their output drawer (DESIGN.md §1)
         if (id === 'more:runs') setRunPanelOpen(true)
         goPage(id)
       },
-      // the same path the workspace tree's session rows took, on the Agents page
+      // the same path the workspace tree's session rows took, on the Agents page; W9-H: shown full size
       openConsole: (sessionId) => {
         if (!canOpenSessionTab(sessionId)) return
         goPage('agents')
         setWorkspaceScope(null, null)
         selectWorkbenchTab(sessionTab(sessionId))
+        setWallView({ kind: 'console', sessionId })
       },
       // the same path the workspace tree's escalation row took (W7-C), onto the plan page (W9-C) at `section`
       openPlan: (jobId, section) => {
