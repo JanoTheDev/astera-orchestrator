@@ -81,6 +81,8 @@ export const ACTIVITY_KINDS = [
   'plan.auto-started',
   // W8-D: a plan's Tasks newly meet another plan's of the same project (Job.overlaps): feed and notice, no chime
   'plan.overlap',
+  // #111: the owner rejected a plan (`jobs-reject`); the Job is archived with `rejected`. Feed only (the Inbox's handled list too)
+  'plan.rejected',
   // Coordinator rotation: a fresh coordinator took the Run's slot (JobRun.coordinatorRefreshes); feed only
   'coordinator.refreshed',
   // Stall watchdog (exec/stallWatch.ts): one line per action it took on a stalled plan (payload.reason); feed only
@@ -368,6 +370,13 @@ export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[
             { title: jobNameOf(j), overlaps: overlapLines(next, { ...j, overlaps: added }) }
           )
       }
+      // #111: rejected (`jobs-reject`) in this commit; the archived Job is still in next.jobs, so this runs before any skip
+      if (j.rejected !== undefined && was.get(j.id)?.rejected === undefined)
+        push(
+          'plan.rejected',
+          { ...(j.projectId !== undefined ? { projectId: j.projectId } : {}), jobId: j.id, job: j },
+          { title: jobNameOf(j), ...(j.rejected.reason !== undefined ? { reason: j.rejected.reason } : {}) }
+        )
       if (j.nothingToDo === undefined || was.get(j.id)?.nothingToDo !== undefined) continue
       push(
         'plan.nothing-to-do',
