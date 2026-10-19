@@ -9803,6 +9803,20 @@ describe('#116 approve only once the plan is ready', () => {
     expect(r.deps.getState().jobs.find((j) => j.id === queued)).toMatchObject({ after: first, autoApprove: true, delivery: 'push' })
   })
 
+  it('jobs-create --after refuses a finished plan naming it, an unknown one with 404, and accepts a live one', async () => {
+    const r = rig()
+    const live = await r.made()
+    const done = await r.made()
+    const jobs = r.deps.getState().jobs
+    await r.deps.setState({ ...r.deps.getState(), jobs: jobs.map((j) => (j.id === done ? { ...j, archivedAt: NOW } : j)) })
+    const queue = (after: string) => r.person('jobs-create', { objective: 'next', cwd: 'D:/p', coordinatorAccount: 'acc1', after })
+    const refused = await queue(done)
+    expect(refused.status).toBe(400)
+    expect(JSON.stringify(refused.body)).toContain(`job ${done} is finished`)
+    expect((await queue('job_nope')).status).toBe(404)
+    expect((await queue(live)).status).toBe(200)
+  })
+
   it('#117 jobs-set --after --hands-off on|off sets the queued plan\'s hands-off; an agent session is refused', async () => {
     const r = rig()
     const first = await r.made()
