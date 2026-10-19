@@ -50,5 +50,5 @@ Console view in Day: `all/1920x1047-day-console.png`.
 ## Checks
 
 - `npm run typecheck`: pass.
-- `astera heavy -- npx vitest run --maxWorkers=2`: 16309 passed, 4 failed in `src/host/activity.test.ts` (3, "plan ready" / auto-approve / planReadyAt) and `src/host/orchPlanner.test.ts` (1, approve through the Host). The same 4 fail on a clean checkout of HEAD (before this Task's changes), so they are not from this plan; left alone.
+- `astera heavy -- npx vitest run --maxWorkers=2`: 16313 passed, 0 failed. Four host tests (`src/host/activity.test.ts`, `src/host/orchPlanner.test.ts`) had failed on HEAD since `validatePlan` began requiring `--affected-paths` on every Task; their seeded Tasks now carry `affectedPaths: ['a.txt']`.
 - `astera heavy -- npm run build`: pass.
