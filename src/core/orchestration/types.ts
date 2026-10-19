@@ -928,4 +928,7 @@ export interface RunPr {
   // W8-A commit attribution
   /** The merge commit whose notes the squash remap wrote (`attribution-remap`): set, the remap is done. */
   attributed?: string
+  /** T11: when the merge of `attributed` was seen, on `baseRefName`: the other plans of the project are refreshed onto it. */
+  attributedAt?: string
+  baseRefName?: string
 }
