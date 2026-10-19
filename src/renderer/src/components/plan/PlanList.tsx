@@ -170,7 +170,8 @@ export function PlanList({
   } else if (screen === 'blank') {
     // before the first answer: nothing, not an empty state that flashes on every project switch
     body = null
-  } else if (screen === 'empty') {
+  } else if (screen === 'empty' || (view === 'area' && listed.length === 0)) {
+    // 'runs' with every plan archived lists nothing: the same empty state, the archived toggle stays above it
     body = hasProject ? (
       <EmptyState
         icon={ListTodo}

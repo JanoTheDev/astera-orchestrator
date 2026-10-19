@@ -22,7 +22,7 @@ import { jobName } from '../../lib/jobName'
 import { RunIcon, STATE_KEY, TaskIcon } from '../JobIcons'
 import { SourceChip } from '../SourceChip'
 import { Archive, ArchiveRestore, ArrowLeft, ListOrdered, MoreHorizontal, Pencil, Play, Square, Trash2 } from 'lucide-react'
-import { Button, Chip, Menu, PageHeader, Tabs, type MenuItem } from '../ui'
+import { Button, Chip, Input, Menu, PageHeader, Tabs, type MenuItem } from '../ui'
 import { PLAN_SECTIONS, type PlanSection } from './planBoard'
 import type { PlanPageState } from './usePlanPage'
 import { WaveLine } from './PlanWaves'
@@ -161,7 +161,7 @@ export function PlanHeader({
           {run && run.outcome === 'running' && (
             <label className="jobs-count plan-page-concurrency" title={t('runDetail.concurrencyHint')}>
               <span>{t('runDetail.concurrency')}</span>
-              <input
+              <Input
                 type="number"
                 min={1}
                 max={MAX_CONCURRENT_WORKERS}

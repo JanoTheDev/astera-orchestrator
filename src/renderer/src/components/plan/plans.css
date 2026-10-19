@@ -26,7 +26,7 @@
 .plans-coord__wait--none { color: var(--text-faint); }
 
 /* The list: area heads, then rows */
-.plans-list { display: flex; flex-direction: column; min-width: 0; }
+.plans-list { max-width: 960px; display: flex; flex-direction: column; min-width: 0; }
 .plans-group { display: flex; align-items: baseline; gap: var(--sp-3); margin: var(--sp-4) 0 var(--sp-1); color: var(--text-dim); font-size: var(--fs-12); font-weight: var(--fw-semi); text-transform: capitalize; }
 .plans-group:first-child { margin-top: 0; }
 .plans-group__folders { overflow: hidden; color: var(--text-faint); font-family: var(--mono); font-size: var(--fs-11); font-weight: var(--fw-regular); text-overflow: ellipsis; text-transform: none; white-space: nowrap; }

@@ -54,7 +54,7 @@ button.summary-card__title:hover .summary-card__title-text { text-decoration: un
 .wall-chip { gap: var(--sp-2); font-size: var(--fs-12); box-shadow: inset 0 0 0 1px var(--line); }
 .wall-chip.is-active { box-shadow: inset 0 0 0 1px var(--line-strong); }
 .wall-chip__name { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.wall-chip__count { color: var(--text-faint); font-size: var(--fs-11); font-variant-numeric: tabular-nums; }
+.wall-chip__count { margin-left: var(--sp-1); color: var(--text-faint); font-size: var(--fs-11); font-variant-numeric: tabular-nums; }
 .wall-chip__count--need { color: var(--warn); }
 
 /* A plan's progress as one stacked bar */

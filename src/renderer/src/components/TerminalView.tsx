@@ -4,7 +4,7 @@ import '@xterm/xterm/css/xterm.css'
 import type { RollStateEvent, SchedStateEvent, SessionInfo } from '../../../core/types'
 import { nextResize, repaintNudge, REPAINT_NUDGE_MS, type Dims } from '../../../core/terminal/resize'
 import { xtermThemeOf } from '../../../core/theme/apply'
-import { NOTE_RESERVE_PX, PaneSize, showOwn, showPty, wantedOf } from '../lib/terminalScale'
+import { NOTE_RESERVE_PX, PaneSize, showOwn, showPty, tileScale, wantedOf } from '../lib/terminalScale'
 import { pinCursorBlinkOff } from '../lib/cursorBlink'
 import * as sessionBus from '../lib/sessionBus'
 import { useI18n } from '../i18n/I18nProvider'
@@ -144,7 +144,7 @@ export function TerminalView({
     const scaleTile = (): void => {
       const el = term.element
       if (!tiled || !el || el.offsetWidth === 0) return
-      const s = Math.min(1, (tiled.clientWidth - TILE_INSET_PX) / el.offsetWidth)
+      const s = tileScale(tiled.clientWidth - TILE_INSET_PX, el.offsetWidth, TILE_FONT)
       el.style.transform = s < 1 ? `scale(${s})` : ''
     }
     const tileObserver = new ResizeObserver(() => scaleTile())

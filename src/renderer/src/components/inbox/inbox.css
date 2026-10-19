@@ -61,3 +61,8 @@
   .inbox__col { overflow: visible; }
   .inbox__col--handled { border-left: 0; border-top: 1px solid var(--line); }
 }
+/* Quiet + narrow: keep the log as its own scrolling pane filling the page, not a stacked box */
+@media (max-width: 1100px) {
+  .inbox__cols--quiet { overflow: hidden; }
+  .inbox__cols--quiet .inbox__col--handled { overflow-y: auto; }
+}

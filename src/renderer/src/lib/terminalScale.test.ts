@@ -2,7 +2,7 @@
 // shows it whole at a smaller font (core/terminal/viewSize.ts estimates; this measures and applies it to an xterm).
 import { describe, it, expect } from 'vitest'
 import type { Terminal } from '@xterm/xterm'
-import { BASE_FONT, NOTE_RESERVE_PX, PaneSize, SentSizes, showOwn, showPty, wantedOf } from './terminalScale'
+import { BASE_FONT, NOTE_RESERVE_PX, PaneSize, SentSizes, TILE_MIN_READABLE_PX, tileScale, showOwn, showPty, wantedOf } from './terminalScale'
 
 /** An xterm whose cell follows its font the way xterm 6 measures one: the width in proportion, the height rounded up
  *  (`ceil(charHeight * dpr)`), so a smaller font does not shrink the cell in proportion (final review C1, C2). */
@@ -177,5 +177,13 @@ describe('PaneSize', () => {
     expect(p.shows()).toBe('own')
     p.heard({ cols: 100, rows: 20 }, false)
     expect(p.note({ cols: 100, rows: 20 })).toBe(false)
+  })
+})
+
+describe('tileScale', () => {
+  it('fits when it can, floors at the readable size when the pty is far wider', () => {
+    expect(tileScale(500, 400, 11)).toBe(1)
+    expect(tileScale(360, 400, 11)).toBe(0.9)
+    expect(tileScale(100, 1000, 11)).toBeCloseTo(TILE_MIN_READABLE_PX / 11)
   })
 })
