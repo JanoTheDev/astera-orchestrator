@@ -451,6 +451,10 @@ export function snapshotFor(
       ...(job.archivedAt !== undefined ? { archivedAt: job.archivedAt } : {}),
       // W7-A: the talk box's facts, on every row of the Job
       ...(job.plannerSessionIds !== undefined ? { planned: true as const } : {}),
+      ...(job.plannerSessionIds?.length && isKnownSession(job.plannerSessionIds[job.plannerSessionIds.length - 1])
+        ? { plannerSessionId: job.plannerSessionIds[job.plannerSessionIds.length - 1] }
+        : {}),
+      ...(job.replanning ? { replanWave: job.replanning.wave } : {}),
       ...(job.feedback && job.feedback.length > 0 ? { feedback: job.feedback } : {}),
       ...(job.autoStartedAt !== undefined ? { autoStartedAt: job.autoStartedAt } : {}),
       ...(job.rejected !== undefined ? { rejected: job.rejected } : {}),
