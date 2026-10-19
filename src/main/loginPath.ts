@@ -22,7 +22,7 @@
 // Why an actual login shell gets run: PATH can be assembled from any of .zshrc/.zprofile/.bash_profile,
 // and homebrew/mise/asdf/nvm all evaluate shellenv from within an rc file. Statically listing candidate
 // directories would miss every one of them.
-import { execFile } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { mergeWindowsPath, parseWindowsPathProbe, windowsPathProbe } from '../core/sessions/windowsPath'
 
 /** Wraps the value in markers to separate PATH from whatever banners/warnings the rc file prints. */
@@ -98,12 +98,43 @@ export async function readLoginPath(opts: {
 }
 
 function runShell(file: string, args: string[]): Promise<string> {
+  if (process.platform !== 'win32') return runDetached(file, args)
   return new Promise((resolve, reject) => {
     execFile(file, args, { timeout: PROBE_TIMEOUT_MS, encoding: 'utf8', windowsHide: true }, (err, stdout) => {
       // Treated as success if stdout has the markers even when the exit code is nonzero — it's
       // common for the rc file's last command to fail and leave the shell exiting non-zero.
       if (err && !stdout) reject(err)
       else resolve(stdout)
+    })
+  })
+}
+
+/**
+ * The POSIX probe, in a session of its own (setsid). An interactive shell (-i) sharing Astera's
+ * session takes the terminal Astera was started from, and job control then stops the whole app
+ * (state T: a blank, frozen window). execFile drops `detached`, hence spawn.
+ */
+function runDetached(file: string, args: string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(file, args, { detached: true, stdio: ['ignore', 'pipe', 'ignore'] })
+    let stdout = ''
+    child.stdout.setEncoding('utf8').on('data', (d: string) => (stdout += d))
+    const timer = setTimeout(() => {
+      try {
+        process.kill(-child.pid!, 'SIGKILL') // the group: whatever the rc file started goes too
+      } catch {
+        /* already gone */
+      }
+    }, PROBE_TIMEOUT_MS)
+    child.on('error', (err) => {
+      clearTimeout(timer)
+      reject(err)
+    })
+    child.on('close', (code, signal) => {
+      clearTimeout(timer)
+      // Same rule as the execFile path in runShell: markers in stdout count even when the rc file left a non-zero exit.
+      if (stdout) resolve(stdout)
+      else reject(new Error(`${file} exited ${code ?? signal}`))
     })
   })
 }
