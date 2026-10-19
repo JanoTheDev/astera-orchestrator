@@ -126,6 +126,7 @@ import { SOURCED_OBJECTIVE_MAX } from '../sources/objective'
 import { intakeChanges, intakeObjective, intakeOf, intakeTitle, needsInputs } from './intake'
 // W8-C prompts mode
 import path from 'node:path'
+import { access } from 'node:fs/promises'
 import { promptPlanOf, sha256Of } from './promptWaves'
 // W10-A Run as written by name
 import { detectPromptsDir, isNamesText, PROMPTS_DIR_MAX_DEPTH, promptNamesOf, repoRelative, resolvePromptNames, takenPrompts } from './promptNames'
@@ -2580,7 +2581,7 @@ export async function handleCommand(
       const read = intakeOf(args)
       if (!read.ok) return bad(read.error)
       let intake = read.intake
-      const { mode: _mode, scope: _scope, instructions: _instructions, attach: _attach, approve: _approve, after: _after, dryRun: _dryRun, handsOff: _handsOff, ...plain } = args
+      const { mode: _mode, scope: _scope, focus: _focus, instructions: _instructions, attach: _attach, approve: _approve, after: _after, dryRun: _dryRun, handsOff: _handsOff, ...plain } = args
       const handsOff = handsOffArg(args.handsOff, fromAgentSession, caller.role)
       if (typeof handsOff === 'object') return handsOff
       // W8-C plan after plan: `--after <job>`, the plan this one is queued after
@@ -2618,6 +2619,15 @@ export async function handleCommand(
       if (args.dryRun === true) return okBody({ names: true, notice })
       if (intake.attach.length > 0 && (fromAgentSession || caller.role === 'mcp' || caller.role === 'controller'))
         return denied('--attach is for the person, in Astera or at their own shell: it copies files of this machine')
+      // An audit's paths go into an agent's prompt: each is inside the Job's cwd and there
+      if (intake.mode === 'audit') {
+        const cwd = str(args.cwd) ?? process.cwd()
+        for (const p of intake.scope ?? []) {
+          if (path.isAbsolute(p) || /^[A-Za-z]:|^[\\/]/.test(p) || p.split(/[\\/]/).includes('..'))
+            return bad(`--scope ${p}: give a path inside the repository, not an absolute one or one with ..`)
+          if (!(await access(path.join(cwd, p)).then(() => true, () => false))) return bad(`--scope ${p}: not found in ${cwd}`)
+        }
+      }
       if (needsInputs(intake) && !deps.intakeInputs) return conflict('attachments and audits are kept by the Astera Host, and this caller is not one')
       // W8-C prompts mode: Astera reads the prompt files itself, so their text reaches the Tasks unchanged
       if (intake.mode === 'prompts' && intake.attach.length > 0 && !deps.readIntakeText)

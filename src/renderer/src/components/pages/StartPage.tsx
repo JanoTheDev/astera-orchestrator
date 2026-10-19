@@ -1,21 +1,24 @@
-// W9-E Start (DESIGN §2 "Start"): where a plan begins. One composer, two modes, the options the project defaults, and
-// the W6-A intake's own state and calls (intake/useIntake.ts), so submitting does what the New plan dialog does.
+// W9-E Start (DESIGN §2 "Start"): where a plan begins, the one place one is made (T2). One composer, three modes, the
+// options the project defaults (the rarer ones folded under More options), and the W6-A intake's own state and calls
+// (intake/useIntake.ts).
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { CircleDot, FileText, ListOrdered, Paperclip, ShieldCheck, Sparkles, SquareTerminal, X } from 'lucide-react'
+import { ChevronDown, ChevronRight, CircleDot, FileText, ListOrdered, Paperclip, Plus, ShieldCheck, Sparkles, SquareTerminal, X } from 'lucide-react'
 import type { Account, OrchSnapshot } from '../../../../core/types'
 import { MAX_CONCURRENT_WORKERS, PROJECT_DEFAULTS, type DeliveryMode } from '../../../../core/orchestration/types'
 import { defaultAccountIdOf } from '../../../../core/accounts/defaultAccount'
 import { foldsPathCase } from '../../../../core/files/paths'
 import { useI18n } from '../../i18n/I18nProvider'
 import { localDoor } from '../../lib/orchDoor'
+import { pollFileIndex } from '../../lib/fileIndexPoll'
 import { AccountSelect } from '../AccountSelect'
 import { openPage } from '../shell/navigation'
 import { Button, Card, Chip, Field, Icon } from '../ui'
 import { IssuePicker } from '../intake/IssuePicker'
+import { AUDIT_FOCUSES } from '../intake/intakeRequest'
 import { useIntake, type IssueRow } from '../intake/useIntake'
 import {
-  consolesIn, defaultMode, dropOpensStart, filesFromDrop, intakeTab, lookupArgs, primaryLabel, shouldLandOnStart,
-  type NameLookup, type StartMode, type StartRequest
+  addScopePath, consolesIn, defaultMode, dropOpensStart, filesFromDrop, handsOffSaveArgs, intakeTab, lookupArgs, optionsSummary, primaryLabel,
+  shouldLandOnStart, type NameLookup, type StartMode, type StartRequest
 } from './startLogic'
 import './start.css'
 
@@ -29,7 +32,8 @@ export function StartPage({
   accounts,
   onClose,
   onOpenConsole,
-  onOtherSources
+  onOtherSources,
+  onSchedule
 }: {
   req: StartRequest
   /** The project folder the plan is made in. */
@@ -40,11 +44,14 @@ export function StartPage({
   onOpenConsole: () => void
   /** The plugin sources window (SourceJobModal), for a ticket from a source other than GitHub. */
   onOtherSources: () => void
+  /** T2 "Repeat on a schedule…": the schedule form (NewRunModal). */
+  onSchedule: () => void
 }): React.JSX.Element {
   const { t } = useI18n()
   const door = useMemo(() => localDoor(window.api, cwd), [cwd])
   const [chosen, setChosen] = useState<StartMode | undefined>(req.mode)
-  const [audit, setAudit] = useState(false)
+  const [moreOpen, setMoreOpen] = useState(false)
+  const [handsOffError, setHandsOffError] = useState<string | null>(null)
   const [issuesOpen, setIssuesOpen] = useState(false)
   const [approvalChoice, setApprovalChoice] = useState<'ask' | 'auto'>()
   const [deliveryChoice, setDeliveryChoice] = useState<DeliveryMode>()
@@ -55,7 +62,7 @@ export function StartPage({
     cwd,
     initialText: req.text,
     initialFiles: req.files,
-    tabOf: ({ files, text, picked }) => intakeTab({ mode: defaultMode({ files, text, chosen }), files, audit, issues: picked }),
+    tabOf: ({ files, text, picked }) => intakeTab({ mode: defaultMode({ files, text, chosen }), files, issues: picked }),
     searchIssues: issuesOpen,
     onCreated: () => {
       onClose()
@@ -74,7 +81,7 @@ export function StartPage({
   const delivery = deliveryChoice ?? projectDelivery
   const planArgs = {
     ...(handsOff !== projectHandsOff ? { handsOff: handsOff ? 'on' : 'off' } : {}),
-    ...(mode === 'plan' && !handsOff && (approval === 'auto') !== projectAuto ? { autoApprove: approval === 'auto' ? 'on' : 'off' } : {}),
+    ...(mode !== 'prompts' && !handsOff && (approval === 'auto') !== projectAuto ? { autoApprove: approval === 'auto' ? 'on' : 'off' } : {}),
     ...(delivery !== projectDelivery ? { delivery } : {})
   }
   // Run as written asks for approval only when the owner says so (`--approve ask`)
@@ -135,9 +142,42 @@ export function StartPage({
     setLookupTick((n) => n + 1)
   }
 
+  // T2: Hands-off sticks: switching it saves the project's default, so the next plan opens the same way
+  const saveHandsOff = async (on: boolean): Promise<void> => {
+    setHandsOffChoice(on)
+    if (!project) return
+    const r = await door.command('projects-set', handsOffSaveArgs(project.id, on))
+    if (r.status !== 200) return setHandsOffError((r.body as { error?: string } | null)?.error ?? t('jobs.new.failed'))
+    setHandsOffError(null)
+    // off clears it back to the default (projects-set)
+    intake.setProjects((cur) => cur.map((p) => (p.id === project.id ? { ...p, handsOff: on ? true : undefined } : p)))
+    setHandsOffChoice(undefined)
+  }
+
+  // T2 Audit: the scope picker's suggestions, from the same file index as the composer's `@` menu
+  const [scopeQuery, setScopeQuery] = useState('')
+  const [scopeHints, setScopeHints] = useState<string[]>([])
+  useEffect(() => {
+    if (mode !== 'audit' || !projectPath || scopeQuery.trim() === '') return setScopeHints([])
+    return pollFileIndex(
+      () => window.api.files.index(projectPath, scopeQuery.trim()),
+      ({ paths }) => setScopeHints(paths),
+      () => setScopeHints([]),
+      { pollMs: 500 }
+    )
+  }, [mode, projectPath, scopeQuery])
+  const addScope = (typed: string): void => {
+    intake.setScope((cur) => addScopePath(cur, typed))
+    setScopeQuery('')
+  }
+
   const fileInput = useRef<HTMLInputElement>(null)
   const afterName = intake.plans.find((p) => p.id === intake.after)?.name
-  const go = primaryLabel({ mode, files, text, after: afterName, named: names && !namesRefused ? names.picked?.length : undefined }, t as never)
+  const go = primaryLabel({ mode, files, text, after: afterName, named: names && !namesRefused ? names.picked?.length : undefined, scope: intake.scope }, t as never)
+  const summary = optionsSummary(
+    { concurrency: intake.concurrency, delivery, approval, account: accounts.find((a) => a.id === intake.account)?.label, priority: intake.priority },
+    t as never
+  )
   const pick = (id: string, on: boolean): void => intake.setPicked((cur) => (on ? (cur.includes(id) ? cur : [...cur, id]) : cur.filter((x) => x !== id)))
   const name = project?.name ?? baseName(cwd)
 
@@ -155,7 +195,7 @@ export function StartPage({
         <header className="start-head">
           <div>
             <h1>{t('start.title', { project: name })}</h1>
-            <p>{t(mode === 'plan' ? 'start.next.plan' : 'start.next.prompts')}</p>
+            <p>{t(`start.next.${mode}` as const)}</p>
           </div>
           <Button variant="ghost" icon={<X size={16} aria-hidden="true" />} aria-label={t('start.close')} onClick={onClose} disabled={intake.busy} />
         </header>
@@ -170,7 +210,7 @@ export function StartPage({
             aria-label={t('start.placeholder')}
             autoFocus
           />
-          {(files.length > 0 || audit || picked.length > 0) && (
+          {(files.length > 0 || picked.length > 0) && (
             <div className="start-chips">
               {files.map((f) => (
                 <span key={f} className="start-chip" title={f}>
@@ -188,14 +228,6 @@ export function StartPage({
                   </button>
                 </span>
               ))}
-              {audit && (
-                <span className="start-chip">
-                  <Chip tone="warn">{t('start.audit')}</Chip>
-                  <button type="button" aria-label={t('start.remove', { name: t('start.audit') })} onClick={() => setAudit(false)}>
-                    <X size={12} aria-hidden="true" />
-                  </button>
-                </span>
-              )}
             </div>
           )}
           <div className="start-attach">
@@ -214,9 +246,6 @@ export function StartPage({
             />
             <Button size="sm" variant="ghost" icon={<CircleDot size={14} aria-hidden="true" />} aria-expanded={issuesOpen} onClick={() => setIssuesOpen((v) => !v)}>
               {t('start.issues')}
-            </Button>
-            <Button size="sm" variant="ghost" icon={<ShieldCheck size={14} aria-hidden="true" />} aria-pressed={audit} onClick={() => setAudit((v) => !v)}>
-              {t('start.audit')}
             </Button>
             <Button size="sm" variant="ghost" onClick={onOtherSources}>
               {t('start.otherSources')}
@@ -274,7 +303,6 @@ export function StartPage({
               {names.problems?.map((p) => <p key={p} className="warn">{p}</p>)}
             </div>
           )}
-          {audit && <Field label={t('intake.scope')} hint={t('intake.auditHint')} value={intake.scope} onChange={(e) => intake.setScope(e.target.value)} placeholder="all" />}
           {issuesOpen && (
             <IssuePicker
               intake={intake}
@@ -283,10 +311,11 @@ export function StartPage({
           )}
         </Card>
 
-        <div className="start-modes" role="radiogroup">
+        <div className="start-modes" role="radiogroup" aria-label={t('start.mode.label')}>
           {(
             [
               ['plan', Sparkles, 'start.mode.plan', 'start.mode.planHint'],
+              ['audit', ShieldCheck, 'start.mode.audit', 'start.mode.auditHint'],
               ['prompts', FileText, 'start.mode.prompts', 'start.mode.promptsHint']
             ] as const
           ).map(([m, glyph, label, hint]) => (
@@ -300,29 +329,72 @@ export function StartPage({
           ))}
         </div>
 
+        {mode === 'audit' && (
+          <Card className="start-audit">
+            <div className="start-audit-scope">
+              <span className="ui-field__label" id="start-scope-label">{t('start.audit.scope')}</span>
+              <div className="start-chips" aria-labelledby="start-scope-label">
+                {intake.scope.length === 0 && <Chip>{t('start.audit.all')}</Chip>}
+                {intake.scope.map((p) => (
+                  <span key={p} className="start-chip">
+                    <Chip tone="info">{p}</Chip>
+                    <button type="button" aria-label={t('start.remove', { name: p })} onClick={() => intake.setScope((cur) => cur.filter((x) => x !== p))}>
+                      <X size={12} aria-hidden="true" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+              <div className="start-audit-add">
+                <Field
+                  label={t('start.audit.add')}
+                  hint={t('start.audit.scopeHint')}
+                  value={scopeQuery}
+                  list="start-scope-hints"
+                  placeholder="src/core"
+                  onChange={(e) => setScopeQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Enter') return
+                    e.preventDefault()
+                    addScope(scopeQuery)
+                  }}
+                />
+                <Button size="sm" icon={<Plus size={14} aria-hidden="true" />} disabled={scopeQuery.trim() === ''} onClick={() => addScope(scopeQuery)}>
+                  {t('start.audit.addButton')}
+                </Button>
+                <datalist id="start-scope-hints">
+                  {scopeHints.map((h) => (
+                    <option key={h} value={h} />
+                  ))}
+                </datalist>
+              </div>
+            </div>
+            <fieldset className="start-audit-focus">
+              <legend className="ui-field__label">{t('start.audit.focus')}</legend>
+              {AUDIT_FOCUSES.map((f) => (
+                <label key={f}>
+                  <input
+                    type="checkbox"
+                    checked={intake.focus.includes(f)}
+                    onChange={(e) => intake.setFocus((cur) => AUDIT_FOCUSES.filter((x) => (x === f ? e.target.checked : cur.includes(x))))}
+                  />
+                  {t(`start.audit.focus.${f}` as const)}
+                </label>
+              ))}
+            </fieldset>
+          </Card>
+        )}
+
         <div className="start-options">
+          {/* #117: apart from bypass permissions (an app setting): this one also decides the plan's questions itself.
+              T2: first, and it sticks as the project's default */}
           <Field
-            kind="number"
-            label={t('start.opt.consoles')}
-            min={1}
-            max={MAX_CONCURRENT_WORKERS}
-            value={intake.concurrency}
-            onChange={(e) => {
-              const n = e.target.valueAsNumber
-              intake.setConcurrency(Number.isFinite(n) ? Math.min(Math.max(Math.trunc(n), 1), MAX_CONCURRENT_WORKERS) : 1)
-            }}
-          />
-          <Field
-            kind="select"
-            label={t('start.opt.delivery')}
-            value={delivery}
-            // a queued plan starts through `jobs-set --after`, which takes no delivery: it keeps the project's
-            disabled={intake.after !== ''}
-            onChange={(e) => setDeliveryChoice(e.target.value as DeliveryMode)}
-            options={[
-              { value: 'pr', label: t('delivery.pr') },
-              { value: 'push', label: t('delivery.push', { branch: project?.deliveryBranch ?? t('delivery.defaultBranch') }) }
-            ]}
+            kind="toggle"
+            label={t('start.opt.handsOff')}
+            hint={t('start.opt.handsOffHint')}
+            error={handsOffError}
+            checked={handsOff}
+            // a queued plan's hands-off goes through `jobs-set --after`, with its approval and delivery
+            onChange={(on) => void saveHandsOff(on)}
           />
           <Field
             kind="select"
@@ -331,32 +403,80 @@ export function StartPage({
             onChange={(e) => intake.setAfter(e.target.value)}
             options={[{ value: '', label: t('start.opt.now') }, ...intake.plans.map((p) => ({ value: p.id, label: t('start.opt.after', { plan: p.name }) }))]}
           />
-          <Field
-            kind="select"
-            label={t('start.opt.approval')}
-            value={approval}
-            // as delivery: Plan it for me sets approval as its planner starts, which a queued plan does later
-            disabled={handsOff || (mode === 'plan' && intake.after !== '')}
-            onChange={(e) => setApprovalChoice(e.target.value as 'ask' | 'auto')}
-            options={[
-              { value: 'ask', label: t('start.opt.ask') },
-              { value: 'auto', label: t('start.opt.auto') }
-            ]}
-          />
-          {/* #117: apart from bypass permissions (an app setting): this one also decides the plan's questions itself */}
-          <Field
-            kind="toggle"
-            label={t('start.opt.handsOff')}
-            hint={t('start.opt.handsOffHint')}
-            checked={handsOff}
-            // a queued plan's hands-off goes through `jobs-set --after`, with its approval and delivery
-            onChange={setHandsOffChoice}
-          />
-          <div className="ui-field">
-            <label className="ui-field__label">{t('jobs.new.coordinator')}</label>
-            <AccountSelect accounts={accounts} value={intake.account} onChange={intake.setAccount} allLabel={t('jobs.new.coordinatorPick')} />
-          </div>
         </div>
+
+        <div className="start-more">
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={moreOpen ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}
+            aria-expanded={moreOpen}
+            aria-controls="start-more-options"
+            onClick={() => setMoreOpen((v) => !v)}
+          >
+            {t('start.more')}
+          </Button>
+          <span className="start-more-summary">{summary}</span>
+        </div>
+        {moreOpen && (
+          <div className="start-options" id="start-more-options">
+            <Field
+              kind="number"
+              label={t('start.opt.consoles')}
+              min={1}
+              max={MAX_CONCURRENT_WORKERS}
+              value={intake.concurrency}
+              onChange={(e) => {
+                const n = e.target.valueAsNumber
+                intake.setConcurrency(Number.isFinite(n) ? Math.min(Math.max(Math.trunc(n), 1), MAX_CONCURRENT_WORKERS) : 1)
+              }}
+            />
+            <Field
+              kind="select"
+              label={t('start.opt.delivery')}
+              value={delivery}
+              // a queued plan starts through `jobs-set --after`, which takes no delivery: it keeps the project's
+              disabled={intake.after !== ''}
+              onChange={(e) => setDeliveryChoice(e.target.value as DeliveryMode)}
+              options={[
+                { value: 'pr', label: t('delivery.pr') },
+                { value: 'push', label: t('delivery.push', { branch: project?.deliveryBranch ?? t('delivery.defaultBranch') }) }
+              ]}
+            />
+            <Field
+              kind="select"
+              label={t('start.opt.approval')}
+              value={approval}
+              // as delivery: a planned mode sets approval as its planner starts, which a queued plan does later
+              disabled={handsOff || (mode !== 'prompts' && intake.after !== '')}
+              onChange={(e) => setApprovalChoice(e.target.value as 'ask' | 'auto')}
+              options={[
+                { value: 'ask', label: t('start.opt.ask') },
+                { value: 'auto', label: t('start.opt.auto') }
+              ]}
+            />
+            <div className="ui-field">
+              <label className="ui-field__label">{t('jobs.new.coordinator')}</label>
+              <AccountSelect accounts={accounts} value={intake.account} onChange={intake.setAccount} allLabel={t('jobs.new.coordinatorPick')} />
+            </div>
+            {/* W1-B Job.priority: 0 is the default and is not sent */}
+            <Field
+              kind="number"
+              label={t('start.opt.priority')}
+              step={1}
+              value={intake.priority}
+              onChange={(e) => {
+                const n = e.target.valueAsNumber
+                intake.setPriority(Number.isFinite(n) ? Math.trunc(n) : 0)
+              }}
+            />
+            <div className="start-more-schedule">
+              <button type="button" className="link" onClick={onSchedule}>
+                {t('start.more.schedule')}
+              </button>
+            </div>
+          </div>
+        )}
 
         {intake.error && <p className="warn">{intake.error}</p>}
         <div className="start-go">

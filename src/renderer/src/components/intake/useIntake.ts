@@ -1,11 +1,11 @@
-// W6-A intake state and calls, shared by the New plan dialog (NewPlanDialog.tsx) and the Start page (W9-E,
-// pages/StartPage.tsx). Moved out of NewPlanDialog unchanged; the two frames only draw it.
+// W6-A intake state and calls behind the Start page (W9-E, pages/StartPage.tsx), the one place a plan is made (T2);
+// the page only draws it.
 import { useEffect, useState } from 'react'
 import { DEFAULT_CONCURRENCY, MAX_CONCURRENT_WORKERS, type Job, type Project } from '../../../../core/orchestration/types'
 import { jobNameOf } from '../../../../core/orchestration/jobName'
 import { useI18n } from '../../i18n/I18nProvider'
 import { formFailure, type OrchDoor } from '../../lib/orchDoor'
-import { autoPickRequest, intakeRequest, issueSearchArgs, type AssigneeFilter, type IntakeTab } from './intakeRequest'
+import { AUDIT_FOCUS_DEFAULT, autoPickRequest, intakeRequest, issueSearchArgs, type AssigneeFilter, type IntakeFocus, type IntakeTab } from './intakeRequest'
 
 /** A GitHub issue as `sources-items` answers it. */
 export interface IssueRow {
@@ -42,7 +42,9 @@ export function useIntake(o: IntakeOptions) {
   const [fixlist, setFixlist] = useState(false)
   const [approveAsk, setApproveAsk] = useState(false)
   const [files, setFiles] = useState<string[]>(o.initialFiles ?? [])
-  const [scope, setScope] = useState('')
+  const [scope, setScope] = useState<string[]>([])
+  const [focus, setFocus] = useState<IntakeFocus[]>([...AUDIT_FOCUS_DEFAULT])
+  const [priority, setPriority] = useState(0)
   const [query, setQuery] = useState('')
   const [assignee, setAssignee] = useState<AssigneeFilter>('all')
   // #119 Let Astera pick: the optional label and cap, and the issues it left out
@@ -111,6 +113,8 @@ export function useIntake(o: IntakeOptions) {
     fixlist,
     files,
     scope,
+    focus,
+    priority,
     issues: picked,
     assignMe,
     instructions,
@@ -167,8 +171,8 @@ export function useIntake(o: IntakeOptions) {
   }
 
   return {
-    tab, setTab, projects, projectId, setProjectId, project, text, setText, fixlist, setFixlist, approveAsk, setApproveAsk,
-    files, setFiles, addFiles, addPaths, scope, setScope, query, setQuery, assignee, setAssignee, autoLabel, setAutoLabel, autoMax, setAutoMax, skipped, issues, picked, setPicked,
+    tab, setTab, projects, setProjects, projectId, setProjectId, project, text, setText, fixlist, setFixlist, approveAsk, setApproveAsk,
+    files, setFiles, addFiles, addPaths, scope, setScope, focus, setFocus, priority, setPriority, query, setQuery, assignee, setAssignee, autoLabel, setAutoLabel, autoMax, setAutoMax, skipped, issues, picked, setPicked,
     assignMe, setAssignMe, instructions, setInstructions, account, setAccount, concurrency, setConcurrency, after,
     setAfter, plans, busy, error, request, create, autoPickWhy
   }

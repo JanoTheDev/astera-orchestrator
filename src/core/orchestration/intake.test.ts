@@ -17,12 +17,25 @@ describe('intakeOf', () => {
   it('reads one --attach as a list, a repeated one as given, and an audit scope defaulting to all', () => {
     expect(read({ attach: '/a.pdf' }).attach).toEqual(['/a.pdf'])
     expect(read({ attach: ['/a.pdf', '/b.md'] }).attach).toEqual(['/a.pdf', '/b.md'])
-    expect(read({ mode: 'audit' }).scope).toBe('all')
-    expect(read({ mode: 'audit', scope: ' src/core ' }).scope).toBe('src/core')
+    expect(read({ mode: 'audit' })).toMatchObject({ scope: [], focus: [] })
+    expect(read({ mode: 'audit', scope: 'all' }).scope).toEqual([])
+    expect(read({ mode: 'audit', scope: ' src/core ' }).scope).toEqual(['src/core'])
   })
-  it('refuses an unknown mode, a scope without audit, a multi-line scope and an empty attachment', () => {
-    for (const args of [{ mode: 'yolo' }, { scope: 'src' }, { mode: 'audit', scope: 'a\nb' }, { attach: '' }, { attach: [1] }, { instructions: 3 }])
+  it('reads --scope as a list split at commas and new lines, trimmed, without empties or duplicates', () => {
+    expect(read({ mode: 'audit', scope: 'src/a, src/b\n\n src/a ,' }).scope).toEqual(['src/a', 'src/b'])
+  })
+  it('refuses an unknown mode, a scope or focus without audit, an empty scope and an empty attachment', () => {
+    for (const args of [{ mode: 'yolo' }, { scope: 'src' }, { focus: 'bugs' }, { mode: 'audit', scope: ' , ' }, { attach: '' }, { attach: [1] }, { instructions: 3 }])
       expect(intakeOf(args).ok, JSON.stringify(args)).toBe(false)
+  })
+  it('refuses all mixed with paths', () => {
+    expect(intakeOf({ mode: 'audit', scope: 'all, src' })).toEqual({ ok: false, error: '--scope is all or a list of paths, not both' })
+  })
+  it('reads --focus as a list; an unknown value is named in the 400', () => {
+    expect(read({ mode: 'audit', focus: 'security, tests,security' }).focus).toEqual(['security', 'tests'])
+    expect(intakeOf({ mode: 'audit', focus: 'bugs,speed' })).toMatchObject({ ok: false, error: expect.stringContaining('"speed"') })
+    expect(intakeOf({ mode: 'audit', focus: ' ' }).ok).toBe(false)
+    expect(intakeOf({ focus: 'bugs' })).toEqual({ ok: false, error: '--focus goes with --mode audit' })
   })
 })
 
@@ -40,6 +53,12 @@ describe('intakeObjective', () => {
     expect(o).toContain('/p/plans/job_1/inputs/audit.md first')
     expect(o).toContain('plan Tasks that fix them')
     expect(intakeObjective(read({ mode: 'audit' }), '', { dir: inputs.dir, names: [] })).toMatch(/^Audit the whole repository/)
+  })
+  it('an audit names every path, and only the chosen focus areas with what to look for', () => {
+    const o = intakeObjective(read({ mode: 'audit', scope: 'src/a,src/b', focus: 'security,simplify' }), '', { dir: inputs.dir, names: [] })
+    expect(o).toMatch(/^Audit `src\/a`, `src\/b` in the repository for these only: security \(trust-boundary validation, injection, secrets\); simplify \(dead code/)
+    expect(o).not.toContain('bugs')
+    expect(o).not.toContain('performance')
   })
   it('a fixlist plans one or more Tasks per problem, each naming the problems it closes', () => {
     const o = intakeObjective(read({ mode: 'fixlist' }), '1. login fails\n2. slow search')
@@ -66,6 +85,8 @@ describe('intakeTitle', () => {
   it('an audit is "Audit <scope>"; files are named by their names', () => {
     expect(intakeTitle(read({ mode: 'audit', scope: 'src/core' }), '', [])).toBe('Audit src/core')
     expect(intakeTitle(read({ mode: 'audit' }), '', [])).toBe('Audit the whole repository')
+    expect(intakeTitle(read({ mode: 'audit', scope: 'src/a, src/b' }), '', [])).toBe('Audit src/a, src/b')
+    expect(intakeTitle(read({ mode: 'audit', scope: 'src/a,src/b,src/c,src/d' }), '', [])).toBe('Audit src/a +3')
     expect(intakeTitle(read({ attach: ['/d/spec.pdf', '/d/notes.md'] }), '', ['spec.pdf', 'notes.md'])).toBe('spec.pdf, notes.md')
     expect(intakeTitle(read({ mode: 'fixlist', attach: ['/d/bugs.pdf'] }), '', ['bugs.pdf'])).toBe('bugs.pdf')
   })

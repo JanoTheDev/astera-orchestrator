@@ -88,7 +88,8 @@ const INTAKE_FLAGS: readonly UsageFlag[] = [
     value: '<plan|audit|fixlist|prompts>',
     about: 'plan (default); audit: the planner audits --scope, writes inputs/audit.md, then plans the fixes; fixlist: the objective is a problem list, one or more Tasks per problem; prompts: Run as written (below)'
   },
-  { name: 'scope', value: '<path|all>', about: 'with --mode audit: what to audit (default all)' },
+  { name: 'scope', value: '<path[,path…]|all>', about: 'with --mode audit: what to audit: all (default) or paths inside the repository, separated by commas or new lines' },
+  { name: 'focus', value: '<bugs|security|performance|tests|simplify,…>', about: 'with --mode audit: what to look for (default bugs, security holes and missing tests)' },
   { name: 'instructions', value: '<text>', about: "the owner's extra instructions; they win over the source when the two conflict" },
   {
     name: 'attach',

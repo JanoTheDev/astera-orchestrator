@@ -279,7 +279,7 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
       {projectAnchor && projectDialog !== null && typeof projectDialog === 'object' && (
         <ProjectSettings anchor={projectAnchor} projectId={projectDialog.settings} accounts={accounts} onClose={() => setProjectDialog(null)} />
       )}
-      {/* W9-E: a new project's first plan, New's two plan modes and a window drop all open the Start page */}
+      {/* W9-E: a new project's first plan, New's plan modes, the Plans page's + New job (T2) and a window drop all open the Start page */}
       {startShown && (
         <StartPage
           key={startShown.cwd}
@@ -292,6 +292,12 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
           }}
           onOpenConsole={() => setShowNew(true)}
           onOtherSources={() => setSourceJobOpen(startShown.cwd)}
+          // T2: schedules keep the older form; Start closes so the plan made there opens
+          onSchedule={() => {
+            setFirstPlan(null)
+            openStart(null)
+            setNewRunOpen(true)
+          }}
         />
       )}
       {newOpen && (

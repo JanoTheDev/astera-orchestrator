@@ -1,8 +1,9 @@
 // W9-E Start page rules (DESIGN §2 "Start"). Pure, so the node tests cover them; StartPage.tsx keeps the state.
 import type { IntakeTab } from '../intake/intakeRequest'
 
-/** The two mode cards: the planner writes the plan, or each prompt runs as written (W8-C `--mode prompts`). */
-export type StartMode = 'plan' | 'prompts'
+/** The three mode cards: the planner writes the plan, audits paths of the repository first (T2, `--mode audit`), or
+ *  each prompt runs as written (W8-C `--mode prompts`). */
+export type StartMode = 'plan' | 'audit' | 'prompts'
 
 /** What Start opens with: from New, a window drop, or a new project's first plan. */
 export interface StartRequest {
@@ -25,9 +26,8 @@ export function defaultMode({ files, chosen }: { files: string[]; text?: string;
 }
 
 /** The one W6-A intake tab Start's composer amounts to. */
-export function intakeTab({ mode, files, audit, issues }: { mode: StartMode; files: string[]; audit: boolean; issues: string[] }): IntakeTab {
-  if (mode === 'prompts') return 'prompts'
-  if (audit) return 'audit'
+export function intakeTab({ mode, files, issues }: { mode: StartMode; files: string[]; issues: string[] }): IntakeTab {
+  if (mode === 'prompts' || mode === 'audit') return mode
   if (issues.length > 0) return 'github'
   return files.length > 0 ? 'files' : 'describe'
 }
@@ -41,13 +41,15 @@ export function promptCount(files: string[], text: string): number {
 
 type T = (key: string, params?: Record<string, string | number>) => string
 
-/** The primary button says what will happen: "Start planning", or "Start 3 consoles" with "3 files → 3 tasks". */
+/** The primary button says what will happen: "Start planning", "Audit 2 paths", or "Start 3 consoles" with
+ *  "3 files → 3 tasks". */
 export function primaryLabel(
-  { mode, files, text, after, named }: { mode: StartMode; files: string[]; text: string; after?: string; named?: number },
+  { mode, files, text, after, named, scope = [] }: { mode: StartMode; files: string[]; text: string; after?: string; named?: number; scope?: string[] },
   t: T
 ): { label: string; note?: string } {
   if (after) return { label: t('start.go.queue', { plan: after }) }
   if (mode === 'plan') return { label: t('start.go.plan') }
+  if (mode === 'audit') return { label: scope.length === 0 ? t('start.go.audit') : t('start.go.auditPaths', { n: scope.length }) }
   // W10-A: prompt names typed with nothing attached count the files they resolved to
   if (named !== undefined && files.length === 0) return { label: t('start.go.consoles', { n: named }), note: t('start.go.namesNote', { n: named }) }
   const n = promptCount(files, text)
@@ -106,4 +108,28 @@ export function lookupArgs({ mode, files, text, cwd }: { mode: StartMode; files:
   // `--mode prompts` takes .md files only
   const md = files.filter((f) => /\.md$/i.test(f))
   return { cwd, mode: 'prompts', objective: text, dryRun: true, ...(md.length > 0 ? { attach: md } : {}) }
+}
+
+// T2 sticky hands-off and More options
+/** Switching Hands-off on Start saves it as the project's default (`projects-set --hands-off`), so it sticks. */
+export const handsOffSaveArgs = (projectId: string, on: boolean): Record<string, unknown> => ({ id: projectId, handsOff: on ? 'on' : 'off' })
+
+/** The closed More options line: "3 consoles · PR · ask · Work" (the account part only once one is picked). */
+export function optionsSummary(
+  { concurrency, delivery, approval, account, priority }: { concurrency: number; delivery: 'pr' | 'push'; approval: 'ask' | 'auto'; account?: string; priority: number },
+  t: T
+): string {
+  return [
+    t('start.more.consoles', { n: concurrency }),
+    t(delivery === 'pr' ? 'start.more.pr' : 'start.more.push'),
+    t(approval === 'ask' ? 'start.more.ask' : 'start.more.auto'),
+    ...(account ? [account] : []),
+    ...(priority !== 0 ? [t('start.more.priority', { n: priority })] : [])
+  ].join(' · ')
+}
+
+/** The audit scope picker's chips: a typed path added once, trimmed, without a leading ./ or a trailing slash. */
+export function addScopePath(scope: string[], typed: string): string[] {
+  const p = typed.trim().replace(/^\.\//, '').replace(/[\\/]+$/, '')
+  return p === '' || scope.includes(p) ? scope : [...scope, p]
 }

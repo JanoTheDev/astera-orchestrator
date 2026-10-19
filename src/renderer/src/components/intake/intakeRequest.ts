@@ -1,5 +1,13 @@
-// W6-A intake: what the New plan dialog sends, from what the person filled in. Pure, so the node tests cover it; the
-// dialog (NewPlanDialog.tsx) only keeps the state and makes the calls.
+// W6-A intake: what the Start page sends, from what the person filled in. Pure, so the node tests cover it; the
+// page (pages/StartPage.tsx, through useIntake.ts) only keeps the state and makes the calls.
+
+/** What an audit can look for (`--focus`): intake.ts INTAKE_FOCUSES, which the web build cannot import (its module
+ *  chain needs node); intakeRequest.test.ts keeps the two the same. */
+export const AUDIT_FOCUSES = ['bugs', 'security', 'performance', 'tests', 'simplify'] as const
+export type IntakeFocus = (typeof AUDIT_FOCUSES)[number]
+
+/** What an audit looks for when `--focus` is left out (intake.ts: "bugs, security holes and missing tests"). */
+export const AUDIT_FOCUS_DEFAULT: readonly IntakeFocus[] = ['bugs', 'security', 'tests']
 
 export type IntakeTab = 'describe' | 'files' | 'audit' | 'github' | /* W8-C prompts mode */ 'prompts'
 
@@ -11,8 +19,12 @@ export interface IntakeForm {
   fixlist: boolean
   /** Files: absolute paths. */
   files: string[]
-  /** Audit: a path in the repository, or empty for all of it. */
-  scope: string
+  /** Audit: paths in the repository, or empty for all of it. */
+  scope: string[]
+  /** Audit: what to look for; sent only when it differs from AUDIT_FOCUS_DEFAULT. */
+  focus?: IntakeFocus[]
+  /** W1-B Job.priority; 0 (the default) is not sent. */
+  priority?: number
   /** GitHub: the picked issue numbers. */
   issues: string[]
   assignMe: boolean
@@ -34,7 +46,8 @@ export function intakeRequest(f: IntakeForm): { cmd: string; args: Record<string
     concurrency: f.concurrency,
     ...(f.instructions.trim() !== '' ? { instructions: f.instructions.trim() } : {})
   }
-  const job = { cwd: f.project.path, ...common, ...(text !== '' ? { objective: text } : {}) }
+  const priority = f.priority ? { priority: f.priority } : {}
+  const job = { cwd: f.project.path, ...common, ...priority, ...(text !== '' ? { objective: text } : {}) }
   switch (f.tab) {
     case 'describe':
       return text === '' ? null : { cmd: 'jobs-create', args: { ...job, ...(f.fixlist ? { mode: 'fixlist' } : {}) } }
@@ -43,11 +56,17 @@ export function intakeRequest(f: IntakeForm): { cmd: string; args: Record<string
     // W8-C prompts mode: the .md files, else the pasted document, each prompt one Task with its text unchanged
     case 'prompts': {
       const approve = f.approveAsk ? { approve: 'ask' } : {}
-      if (f.files.length > 0) return { cmd: 'jobs-create', args: { cwd: f.project.path, ...common, mode: 'prompts', attach: f.files, ...approve } }
+      if (f.files.length > 0) return { cmd: 'jobs-create', args: { cwd: f.project.path, ...common, ...priority, mode: 'prompts', attach: f.files, ...approve } }
       return text === '' ? null : { cmd: 'jobs-create', args: { ...job, mode: 'prompts', ...approve } }
     }
-    case 'audit':
-      return { cmd: 'jobs-create', args: { ...job, mode: 'audit', scope: f.scope.trim() === '' ? 'all' : f.scope.trim() } }
+    case 'audit': {
+      const focus = f.focus ?? []
+      const isDefault = focus.length === 0 || (focus.length === AUDIT_FOCUS_DEFAULT.length && AUDIT_FOCUS_DEFAULT.every((x) => focus.includes(x)))
+      return {
+        cmd: 'jobs-create',
+        args: { ...job, mode: 'audit', scope: f.scope.length === 0 ? 'all' : f.scope.join(','), ...(isDefault ? {} : { focus: focus.join(',') }) }
+      }
+    }
     case 'github':
       return f.issues.length === 0
         ? null

@@ -6,11 +6,24 @@ import { splitSections } from './promptWaves'
 export const INTAKE_MODES = ['plan', 'audit', 'fixlist', /* W8-C prompts mode */ 'prompts'] as const
 export type IntakeMode = (typeof INTAKE_MODES)[number]
 
+/** What an audit can be asked to look for (`--focus`), each with the one line the planner reads. */
+export const INTAKE_FOCUS = {
+  bugs: 'wrong logic, crashes, races',
+  security: 'trust-boundary validation, injection, secrets',
+  performance: 'slow paths, needless work under load',
+  tests: 'risky code without tests',
+  simplify: 'dead code, duplication, what to delete or merge'
+} as const
+export type IntakeFocus = keyof typeof INTAKE_FOCUS
+export const INTAKE_FOCUSES = Object.keys(INTAKE_FOCUS) as IntakeFocus[]
+
 /** What `jobs-create` was given on top of its objective. */
 export interface Intake {
   mode: IntakeMode
-  /** audit only: a path in the repository, or 'all'. */
-  scope?: string
+  /** audit only: the paths in the repository to audit; empty is the whole repository (`--scope all`). */
+  scope?: string[]
+  /** audit only: what to look for; empty is bugs, security holes and missing tests. */
+  focus?: IntakeFocus[]
   instructions?: string
   /** Paths the person named, as given (the Host checks and copies them). */
   attach: string[]
@@ -30,12 +43,26 @@ export function intakeOf(args: Record<string, unknown>): { ok: true; intake: Int
     if (mode !== 'prompts') return { ok: false, error: '--approve goes with --mode prompts' }
     if (args.approve !== 'auto' && args.approve !== 'ask') return { ok: false, error: '--approve must be auto|ask' }
   }
-  let scope: string | undefined
+  let scope: string[] = []
   if (args.scope !== undefined) {
     if (mode !== 'audit') return { ok: false, error: '--scope goes with --mode audit' }
-    if (typeof args.scope !== 'string' || args.scope.trim() === '' || /[\r\n]/.test(args.scope))
-      return { ok: false, error: '--scope needs one line: a path in the repository, or all' }
-    scope = args.scope.trim()
+    if (typeof args.scope !== 'string') return { ok: false, error: '--scope needs paths in the repository, or all' }
+    scope = [...new Set(args.scope.split(/[,\r\n]/).map((p) => p.trim()).filter((p) => p !== ''))]
+    if (scope.length === 0) return { ok: false, error: '--scope needs paths in the repository, or all' }
+    if (scope.includes('all')) {
+      if (scope.length > 1) return { ok: false, error: '--scope is all or a list of paths, not both' }
+      scope = []
+    }
+  }
+  let focus: IntakeFocus[] = []
+  if (args.focus !== undefined) {
+    if (mode !== 'audit') return { ok: false, error: '--focus goes with --mode audit' }
+    if (typeof args.focus !== 'string') return { ok: false, error: `--focus must be a list of ${INTAKE_FOCUSES.join('|')}` }
+    const given = [...new Set(args.focus.split(',').map((f) => f.trim()).filter((f) => f !== ''))]
+    const unknown = given.find((f) => !(INTAKE_FOCUSES as string[]).includes(f))
+    if (unknown !== undefined || given.length === 0)
+      return { ok: false, error: `--focus ${unknown === undefined ? 'needs' : `has an unknown value "${unknown}"; it takes`} a list of ${INTAKE_FOCUSES.join('|')}` }
+    focus = given as IntakeFocus[]
   }
   if (args.instructions !== undefined && typeof args.instructions !== 'string')
     return { ok: false, error: '--instructions must be text' }
@@ -48,7 +75,7 @@ export function intakeOf(args: Record<string, unknown>): { ok: true; intake: Int
     ok: true,
     intake: {
       mode,
-      ...(mode === 'audit' ? { scope: scope ?? 'all' } : {}),
+      ...(mode === 'audit' ? { scope, focus } : {}),
       ...(instructions !== undefined ? { instructions } : {}),
       attach: raw as string[],
       ...(mode === 'prompts' ? { approve: args.approve === 'ask' ? ('ask' as const) : ('auto' as const) } : {})
@@ -89,9 +116,13 @@ export function intakeObjective(
     return parts.join('\n\n')
   }
   if (i.mode === 'audit') {
-    const what = i.scope === undefined || i.scope === 'all' ? 'the whole repository' : `\`${i.scope}\` in the repository`
+    const what = (i.scope ?? []).length === 0 ? 'the whole repository' : `${i.scope!.map((p) => `\`${p}\``).join(', ')} in the repository`
+    const looks =
+      !i.focus?.length
+        ? 'bugs, security holes and missing tests'
+        : `these only: ${i.focus!.map((f) => `${f} (${INTAKE_FOCUS[f]})`).join('; ')}`
     parts.push(
-      `Audit ${what} for bugs, security holes and missing tests. Write your findings to ${dir}/audit.md first, ` +
+      `Audit ${what} for ${looks}. Write your findings to ${dir}/audit.md first, ` +
         'one finding per entry with its file and why it matters. Then plan Tasks that fix them; each Task names the findings it fixes.'
     )
   } else if (i.mode === 'fixlist') {
@@ -129,10 +160,14 @@ const clipTitle = (s: string): string => {
 }
 
 /** The name of a Job made from `i`, or undefined when its objective already reads as one (a plain description).
- *  An audit is "Audit <scope>"; a fixlist the words of its first problem (a list marker dropped); a set of files their
+ *  An audit is "Audit <a>", "Audit <a>, <b>" or "Audit <a> +N"; a fixlist the words of its first problem (a list marker dropped); a set of files their
  *  names. `names` are the file names copied into the inputs folder. */
 export function intakeTitle(i: Intake, source: string, names: readonly string[]): string | undefined {
-  if (i.mode === 'audit') return clipTitle(`Audit ${i.scope === undefined || i.scope === 'all' ? 'the whole repository' : i.scope}`)
+  if (i.mode === 'audit') {
+    const scope = i.scope ?? []
+    const [a, b] = scope
+    return clipTitle(`Audit ${a === undefined ? 'the whole repository' : scope.length === 1 ? a : scope.length === 2 ? `${a}, ${b}` : `${a} +${scope.length - 1}`}`)
+  }
   if (i.mode === 'fixlist') {
     const first = source
       .split(/\r?\n/)
