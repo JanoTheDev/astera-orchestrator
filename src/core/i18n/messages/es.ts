@@ -1867,7 +1867,7 @@ export const es: Catalog = {
   'shell.switcher.running': '{n} en ejecución',
   'shell.switcher.openWindow': 'Abrir {name} en una ventana nueva',
   'shell.switcher.settings': 'Configuración de {name}…',
-  'shell.switcher.new': '+ Nuevo proyecto',
+  'shell.switcher.new': 'Nuevo proyecto',
   'shell.switcher.other': 'Otros',
   'shell.status.hostTitle': 'Host {version}',
   'shell.next.waits': 'Siguiente: {plan} espera a {after}, que se detuvo',

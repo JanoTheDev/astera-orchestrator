@@ -1842,7 +1842,7 @@ export const ja: Catalog = {
   'shell.switcher.running': '{n} 件実行中',
   'shell.switcher.openWindow': '{name} を新しいウィンドウで開く',
   'shell.switcher.settings': '{name} の設定…',
-  'shell.switcher.new': '+ 新しいプロジェクト',
+  'shell.switcher.new': '新しいプロジェクト',
   'shell.switcher.other': 'その他',
   'shell.status.hostTitle': 'Host {version}',
   'shell.next.waits': '次: {plan} は {after} を待っていますが、そちらは停止しました',
