@@ -66,6 +66,7 @@ export function TopBar(p: TopBarProps): React.JSX.Element {
         onNew={() => p.setProjectDialog('new')}
         onAdd={() => p.setProjectDialog('add')}
         onSettings={(id) => p.setProjectDialog({ settings: id })}
+        onOpenWindow={(id) => window.api.win.openNew(id)} // W9-K
         toolsDisabledReason={p.projectAnchor ? undefined : 'Open a tab first'}
       />
       <div className="tb-pages">

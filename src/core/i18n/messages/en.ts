@@ -521,6 +521,7 @@ export const en: Record<keyof typeof ko, string> = {
     'Closing the window quits Astera. {kept} running session(s) keep running and come back the next time you open Astera; {ended} will be terminated. Continue?',
   'common.trayOpen': 'Open',
   'common.trayQuit': 'Quit',
+  'common.trayNewWindow': 'New window', // W9-K
   'common.trayQuitEnding': 'Quit and end sessions',
   'session.rail.toggleSidebar': 'Toggle sidebar',
   'session.rail.openSessions': 'Accounts and history',
@@ -2412,5 +2413,6 @@ export const en: Record<keyof typeof ko, string> = {
   'start.pickup.issues': 'Assigned to you on GitHub',
   'start.pickup.none': 'Nothing on GitHub is assigned to you',
   'start.pickup.console': 'Just open a console',
-  'start.close': 'Close'
+  'start.close': 'Close',
+  'shortcut.window.new': 'Open a new window' // W9-K
 }

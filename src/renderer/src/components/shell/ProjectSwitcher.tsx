@@ -17,6 +17,8 @@ export interface SwitcherProps {
   onNew: () => void
   onAdd: () => void
   onSettings: (id: string) => void
+  /** W9-K: opens the project in a window of its own (or focuses the one it has). */
+  onOpenWindow?: (id: string) => void
   /** Why the project tools are off (no tab open to anchor the commands), or undefined. */
   toolsDisabledReason?: string
 }
@@ -41,6 +43,12 @@ export function switcherItems(p: SwitcherProps): MenuItem[] {
       ),
       onSelect: () => p.onSelect(r.id)
     })),
+    // W9-K: each project opens in a window of its own; "Other" is no project and gets none
+    ...(p.onOpenWindow
+      ? rows
+          .filter((r) => r.id !== OTHER_WORKSPACE)
+          .map((r): MenuItem => ({ id: `window:${r.id}`, label: `Open ${r.name} in new window`, onSelect: () => p.onOpenWindow?.(r.id) }))
+      : []),
     // W7-B: the project's settings page; "Other" is no project
     ...rows
       .filter((r) => r.id !== OTHER_WORKSPACE)

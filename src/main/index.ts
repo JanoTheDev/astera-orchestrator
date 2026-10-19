@@ -29,7 +29,20 @@ import { startUp, startingPageUrl, loadInto, storedTheme } from './startup'
 import type { Theme } from '../core/theme/themes'
 import { pickInitialLang } from '../core/i18n/locale'
 import { shouldForceWaylandOzone } from './ozone'
-import { registerIpc, parseAllowedExternalUrl, type OrchHandle } from './ipc'
+import { registerIpc, parseAllowedExternalUrl, type AppWindows, type OrchHandle } from './ipc'
+// W9-K: one window per project
+import { isValidState } from '../core/orchestration/store'
+import {
+  createWindowSet,
+  newWindowArgOf,
+  projectArgOf,
+  resolveProjectArg,
+  restoreList,
+  windowsFileStore,
+  type ProjectRef,
+  type WindowPlace,
+  type WindowScope
+} from './windows'
 import { handleMediaRequest } from './media/protocol'
 import { mediaAllowlist } from './media/allowlist'
 import { MEDIA_SCHEME } from '../core/files/media'
@@ -175,7 +188,40 @@ const resumeTextDep = (
       : Promise.resolve(null)
 let tray: Tray | null = null
 let quitting = false
-let mainWindow: BrowserWindow | null = null // focus target for the single-instance second-instance event
+// W9-K: the app's windows, one per project or All (windows.ts). Replaces the single mainWindow: every push goes to all
+// of them, and each renderer filters by its project.
+// The store is made on first use: userData is only final once the dev-profile setPath above has run.
+const windowsStore = (): ReturnType<typeof windowsFileStore> => windowsFileStore(path.join(app.getPath('userData'), 'windows.json'))
+const readSavedWindows = () => windowsStore().read()
+const windows = createWindowSet<BrowserWindow>({
+  create: (_projectId, place) => createWindow(null, startTheme, place),
+  read: readSavedWindows,
+  write: (st) => windowsStore().write(st)
+})
+/** What registerIpc gets: the window set, plus each window as it comes. */
+const eachWindow: Array<(win: BrowserWindow) => void> = []
+const appWindows: AppWindows = {
+  broadcast: (channel, payload) => windows.broadcast(channel, payload),
+  ofSender: (sender) => BrowserWindow.fromWebContents(sender),
+  each: (fn) => {
+    eachWindow.push(fn)
+    for (const w of windows.all()) fn(w)
+  },
+  count: () => windows.all().length
+}
+let previewRegistered = false // W9-K: see createWindow
+/** The theme the windows open in (storedTheme, read once at start). */
+let startTheme: Theme | undefined
+/** The projects as orchestration.json has them, read-only (the Host is its writer): what `--project` and the tray's
+ *  list are matched against. */
+function readProjects(): ProjectRef[] {
+  try {
+    const st: unknown = JSON.parse(readFileSync(path.join(app.getPath('userData'), 'orchestration.json'), 'utf8'))
+    return isValidState(st) ? st.projects.map((p) => ({ id: p.id, name: p.name, path: p.path })) : []
+  } catch {
+    return []
+  }
+}
 // Notifications currently on screen, held so a collected one does not lose its click (heldNotifications.ts).
 const liveNotifications = createHeldNotifications()
 let updateCampaign: UpdateCampaignInfo | null = null // update campaign verdict. null means no campaign
@@ -248,10 +294,11 @@ function loadApp(win: BrowserWindow): void {
 
 /** `startingText` null loads the app at once (win32, exactly as before); otherwise the window shows
  *  that text on a start-up page, and the caller loads the app with loadApp once core is ready. */
-function createWindow(startingText: string | null = null, theme?: Theme): BrowserWindow {
+function createWindow(startingText: string | null = null, theme?: Theme, place?: WindowPlace): BrowserWindow {
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
+    ...(place?.bounds ?? {}), // W9-K: where this project's window was
     title: 'Astera',
     // The theme's background from the first frame, before any page paints: the default is white, and
     // every theme the app has is dark (startup.ts startingPageUrl says what that looked like).
@@ -287,7 +334,16 @@ function createWindow(startingText: string | null = null, theme?: Theme): Browse
   })
   if (startingText === null) loadApp(win)
   else loadInto(win, { url: startingPageUrl(startingText, theme) }, (m) => console.log(m))
-  win.maximize()
+  if (!place || place.maximized) win.maximize()
+  // W9-K: the title is "<project> — Astera" (windows.ts setScope), not the page's <title>
+  win.on('page-title-updated', (e) => e.preventDefault())
+  win.on('focus', () => windows.noteFocus(win))
+  win.on('close', () => windows.closing(win))
+  win.on('closed', () => {
+    windows.closed(win, quitting)
+    refreshTrayMenu()
+  })
+  for (const fn of eachWindow) fn(win)
 
   // DevTools in development. Its usual accelerators (Ctrl/Cmd+Shift+I, F12) come from Electron's
   // default application menu, and this app replaces that menu with null on win32 (see
@@ -326,16 +382,20 @@ function createWindow(startingText: string | null = null, theme?: Theme): Browse
   // BrowserPane reports through preview.registerAgentGuest — so the agent's tab, and only it, is held
   // to the loopback rule.
   installPreviewGuards(win, (id) => agentGuests.isAgentGuest(id))
-  // Hosts the preview's DevTools in a window this app creates, so it carries the app icon and a
-  // title naming the page — Electron's own DevTools window carries neither.
-  registerPreviewDevTools(APP_ICON)
-  // Viewport presets. DevTools does not offer its device toolbar for a <webview>, so the pane's picker
-  // goes through this instead — and it uses Electron's own API rather than the debugger, which keeps
-  // the debugger free for DevTools.
-  registerPreviewEmulation()
-  // Element screenshots for Design Mode, saved under userData/preview/shots — the path is what the
-  // prompt carries.
-  registerPreviewCapture(app.getPath('userData'))
+  // W9-K: app-wide IPC, registered with the first window only (a second ipcMain.handle throws)
+  if (!previewRegistered) {
+    previewRegistered = true
+    // Hosts the preview's DevTools in a window this app creates, so it carries the app icon and a
+    // title naming the page — Electron's own DevTools window carries neither.
+    registerPreviewDevTools(APP_ICON)
+    // Viewport presets. DevTools does not offer its device toolbar for a <webview>, so the pane's picker
+    // goes through this instead — and it uses Electron's own API rather than the debugger, which keeps
+    // the debugger free for DevTools.
+    registerPreviewEmulation()
+    // Element screenshots for Design Mode, saved under userData/preview/shots — the path is what the
+    // prompt carries.
+    registerPreviewCapture(app.getPath('userData'))
+  }
 
   // Closing the window (X) minimizes to the tray on Windows and macOS — whether or not sessions
   // exist. There the only real quit path is the tray 'Quit' menu (app.quit): app.quit sets
@@ -354,7 +414,8 @@ function createWindow(startingText: string | null = null, theme?: Theme): Browse
   // scheduler (SchedulerCoordinator, persisted and resumed on reopen) and the desktop notifier.
   win.on('close', (e) => {
     if (process.platform === 'linux') return
-    if (!quitting) {
+    // W9-K: only the last window hides to the tray; any other window just closes
+    if (!quitting && !windows.all().some((w) => w !== win && w.isVisible())) {
       e.preventDefault()
       win.hide()
     }
@@ -364,9 +425,21 @@ function createWindow(startingText: string | null = null, theme?: Theme): Browse
 
 /** The tray context menu template — pulled out so it can be rebuilt after a language change
  *  (refreshTrayMenu) rather than only once at createTray time. */
-function trayMenuTemplate(win: BrowserWindow): Electron.MenuItemConstructorOptions[] {
+function trayMenuTemplate(): Electron.MenuItemConstructorOptions[] {
+  // W9-K: each project opens (or focuses) its own window
+  const open = new Set(windows.all().map((w) => windows.projectOf(w)))
   return [
-    { label: t(core!.lang, 'common.trayOpen'), click: () => win.show() },
+    { label: t(core!.lang, 'common.trayOpen'), click: () => focusAppWindow() },
+    { label: t(core!.lang, 'common.trayNewWindow'), click: () => windows.open(null) },
+    ...readProjects().map(
+      (p): Electron.MenuItemConstructorOptions => ({
+        label: p.name,
+        type: 'checkbox',
+        checked: open.has(p.id),
+        click: () => windows.open(p.id)
+      })
+    ),
+    { type: 'separator' },
     // Quit keeps the Host's sessions running; that is the Host's purpose, and the quit confirmation
     // says so. This is the other intention — end everything — given a place where a person on win32
     // or macOS actually quits from, since there is no dialog there (design §6). Retire first: the
@@ -388,20 +461,20 @@ function trayMenuTemplate(win: BrowserWindow): Electron.MenuItemConstructorOptio
   ]
 }
 
-function createTray(win: BrowserWindow): void {
+function createTray(): void {
   tray = new Tray(TRAY_ICON)
   tray.setToolTip('Astera')
-  tray.setContextMenu(Menu.buildFromTemplate(trayMenuTemplate(win)))
+  tray.setContextMenu(Menu.buildFromTemplate(trayMenuTemplate()))
   // win32's convention is double-click; the macOS menu bar's is a single click. On mac, with
   // setContextMenu set, a click opens the menu, so 'click' isn't attached here — window restore is
   // handled by the Dock icon and the menu's 'Open' instead.
-  if (process.platform !== 'darwin') tray.on('double-click', () => win.show())
+  if (process.platform !== 'darwin') tray.on('double-click', () => focusAppWindow())
 }
 
 /** Rebuilds the tray menu with the current language — called after settings.setLang so Open/Quit
  *  do not stay in the old language until restart. */
-function refreshTrayMenu(win: BrowserWindow): void {
-  tray?.setContextMenu(Menu.buildFromTemplate(trayMenuTemplate(win)))
+function refreshTrayMenu(): void {
+  if (core) tray?.setContextMenu(Menu.buildFromTemplate(trayMenuTemplate()))
 }
 
 // Single-instance lock — if one is already running, the second instance quits without initializing
@@ -410,27 +483,44 @@ function refreshTrayMenu(win: BrowserWindow): void {
 // directory, orphaning the first instance's watcher. This lock rules that out at the source. An
 // instance that loses the lock returns/quits before createCore, so the will-quit guard
 // (core === null) means it kills no sessions either.
-const gotSingleInstanceLock = app.requestSingleInstanceLock()
+// W9-K: the launch's own argv and folder ride along. The argv the second-instance event carries is Chromium's,
+// which moves switches ahead of plain arguments, so `--project <name>` arrives split apart there.
+const gotSingleInstanceLock = app.requestSingleInstanceLock({ argv: process.argv, cwd: process.cwd() })
 if (!gotSingleInstanceLock) app.quit()
 
-// Brings the main window to the front: restores it if minimized, shows and focuses it. Shared by the
-// second-instance handler, the macOS activate handler, and a desktop notification click.
-function focusMainWindow(): void {
-  if (!mainWindow || mainWindow.isDestroyed()) return
-  if (mainWindow.isMinimized()) mainWindow.restore()
-  mainWindow.show()
-  mainWindow.focus()
+// Brings the last focused window to the front: restores it if minimized, shows and focuses it. Shared by the
+// second-instance handler, the macOS activate handler and the tray.
+function focusAppWindow(): void {
+  const w = windows.lastFocused()
+  if (w) windows.focus(w)
 }
 
-app.on('second-instance', () => {
-  focusMainWindow()
+/** W9-K: what a launch asks for. `--project <name|path>` opens or focuses that project's window, `--new-window` (the
+ *  desktop file's action) opens an All window, and anything else focuses the last window. */
+function openFromArgv(argv: readonly string[], cwd: string): void {
+  const arg = projectArgOf(argv)
+  const id = arg === null ? null : resolveProjectArg(arg, cwd, readProjects())
+  if (arg !== null && id === null) console.log(`--project ${arg}: no such project`)
+  if (id !== null) windows.open(id)
+  else if (newWindowArgOf(argv)) windows.open(null)
+  else focusAppWindow()
+  refreshTrayMenu()
+}
+
+app.on('second-instance', (_e, chromiumArgv, chromiumCwd, data) => {
+  const sent = (data ?? {}) as { argv?: unknown; cwd?: unknown }
+  const argv = Array.isArray(sent.argv) ? sent.argv.filter((a): a is string => typeof a === 'string') : chromiumArgv
+  const cwd = typeof sent.cwd === 'string' ? sent.cwd : chromiumCwd
+  // Before the first window is up there is nothing to open into yet; the start-up path opens it.
+  if (!core || windows.all().length === 0) return focusAppWindow()
+  openFromArgv(argv, cwd)
 })
 
 // macOS: closing the window leaves the app alive (win.on('close') redirects to hide) and the Dock
 // icon stays. Clicking that icon fires activate, but the default behavior alone won't bring the
 // hidden window back.
 app.on('activate', () => {
-  focusMainWindow()
+  focusAppWindow()
 })
 
 app.whenReady().then(async () => {
@@ -475,15 +565,19 @@ app.whenReady().then(async () => {
   // The theme the person picked, so the window and the start-up page wear it from the first frame.
   // One small local file; anything wrong with it reads as the default (storedTheme).
   const theme = await storedTheme(() => fsp.readFile(path.join(app.getPath('userData'), 'app-settings.json'), 'utf8'))
+  startTheme = theme
+  // W9-K: the windows open at the last quit come back; the first one is the start-up window
+  const restore = restoreList(readSavedWindows(), readProjects().map((p) => p.id))
   const started = await startUp({
     platform: process.platform,
     probeLoginPath: () => applyLoginPath((m) => console.log(m)),
     openWindow: () => {
+      const place = readSavedWindows().places[restore[0] ?? '']
       const w =
         process.platform === 'win32'
-          ? createWindow(null, theme)
-          : createWindow(t(pickInitialLang(app.getLocale()), 'startup.readingShellEnv'), theme)
-      mainWindow = w
+          ? createWindow(null, theme, place)
+          : createWindow(t(pickInitialLang(app.getLocale()), 'startup.readingShellEnv'), theme, place)
+      windows.adopt(w, restore[0])
       return w
     },
     createCore: () => createCore(app.getPath('userData'), app.getLocale()),
@@ -495,7 +589,6 @@ app.whenReady().then(async () => {
   // and the app is already quitting — there is nothing to load and nothing to wire up.
   if (win.isDestroyed()) return
   if (process.platform !== 'win32') loadApp(win)
-  mainWindow = win
   // Slack progress notifications: hook events, roll state, limits and exits go out over an Incoming
   // Webhook or a Slack bot (chat.postMessage) — SlackNotifier abstracts both behind a transport, so
   // the wiring here does not know which path is in play. Logs go to userData/slack.log (same pattern
@@ -543,7 +636,7 @@ app.whenReady().then(async () => {
   const notifyLog = lineLog(path.join(app.getPath('userData'), 'notifications.log'))
   const desktop = new DesktopNotifier({
     settings: core!.appSettings,
-    isFocused: () => !win.isDestroyed() && win.isFocused(),
+    isFocused: () => windows.all().some((w) => w.isFocused()),
     getSession: (id) => core!.sessions.list().find((s) => s.id === id) ?? null,
     lang: () => core!.lang,
     attention,
@@ -559,7 +652,9 @@ app.whenReady().then(async () => {
       try {
         // W6-B: the renderer chimes (lib/alertSound.ts), so the OS notice is silent then: one sound, not two
         const n = new Notification({ title: req.title, body: req.body, ...(req.chime ? { silent: true } : {}) })
-        if (req.chime && !win.isDestroyed()) win.webContents.send('notify:chime', {})
+        // W9-K: one window chimes, so the sound plays once
+        const chimer = windows.lastFocused()
+        if (req.chime && chimer) chimer.webContents.send('notify:chime', {})
         // Held from before show() until it is clicked, closed or failed, the newest few only
         // (heldNotifications.ts).
         liveNotifications.hold(n)
@@ -567,11 +662,14 @@ app.whenReady().then(async () => {
           // An exception here must not escape into an Electron event handler, the same isolation the
           // taps elsewhere in this file give each other.
           try {
-            focusMainWindow()
+            // W9-K: the window of the notice's project, else the last focused one, which then switches to that
+            // project (useWorkspace leaves a scope that hides the focused session).
+            const target = windows.forSession(req.sessionId || undefined)
+            if (!target) return
+            windows.focus(target)
             // The renderer does the activating, through the path the tab bar already uses — panes and
             // tabs are its structure (§7).
-            if (!win.isDestroyed())
-              win.webContents.send('notify:activate', { sessionId: req.sessionId })
+            target.webContents.send('notify:activate', { sessionId: req.sessionId })
           } catch {
             /* raising the window must not crash the notification's click handler */
           }
@@ -758,7 +856,7 @@ app.whenReady().then(async () => {
     readStatusPayload: (id) => core!.statusLinePayload(id),
     send: (channel, payload) => {
       try {
-        if (!win.isDestroyed()) win.webContents.send(channel, payload)
+        windows.broadcast(channel, payload)
       } catch {
         /* renderer send failures are ignored */
       }
@@ -816,7 +914,7 @@ app.whenReady().then(async () => {
     // `renderer: false` (S6-17): a Host roll whose new session the app did not adopt. The app's own
     // taps below still run; the renderer hears of the new session from the next sweep's adopter.
     try {
-      if (opts.renderer !== false && !win.isDestroyed()) win.webContents.send(channel, payload)
+      if (opts.renderer !== false) windows.broadcast(channel, payload)
     } catch {
       /* renderer send failures are ignored */
     }
@@ -1198,7 +1296,7 @@ app.whenReady().then(async () => {
   const hostLog = lineLog(path.join(app.getPath('userData'), 'host-client.log'))
   registerIpc(
     core,
-    win,
+    appWindows, // W9-K
     attention, // required (ipc.ts's own comment says why it moved ahead of the optional parameters)
     pendingPrompt,
     rolling,
@@ -1225,7 +1323,7 @@ app.whenReady().then(async () => {
       },
       deliverChat: (sid, text) => sessionDriver.deliver(sid, text)
     },
-    () => refreshTrayMenu(win), // rebuild Open/Quit in the new language after settings.setLang
+    () => refreshTrayMenu(), // rebuild Open/Quit in the new language after settings.setLang
     // 위 두 send 탭이 부를 자리를 받아 둔다. registerIpc 가 돌아오면서 바로 채워지고,
     // 탭은 그보다 훨씬 뒤인 첫 롤에서야 돌므로 순서 문제는 없다(orchRef 와 같은 모양).
     (notify) => {
@@ -1256,7 +1354,31 @@ app.whenReady().then(async () => {
   // Open/Quit would only repeat what the window and its close button already do — while tying the
   // app to AppIndicator support the desktop may not have. refreshTrayMenu guards on `tray?.`, so the
   // language-change callback wired just above stays correct with no tray to rebuild.
-  if (process.platform !== 'linux') createTray(win)
+  if (process.platform !== 'linux') createTray()
+
+  // W9-K: a renderer asks which project its window is bound to, reports what it shows, and opens a new window
+  // (the switcher's "Open in new window", Ctrl+Shift+N).
+  ipcMain.handle('win.boundProject', (e) => {
+    const w = BrowserWindow.fromWebContents(e.sender)
+    return w ? windows.projectOf(w) : null
+  })
+  ipcMain.on('win.setScope', (e, scope: WindowScope) => {
+    const w = BrowserWindow.fromWebContents(e.sender)
+    if (!w || !scope || typeof scope !== 'object') return
+    windows.setScope(w, {
+      projectId: typeof scope.projectId === 'string' ? scope.projectId : null,
+      ...(typeof scope.name === 'string' ? { name: scope.name } : {}),
+      sessionIds: Array.isArray(scope.sessionIds) ? scope.sessionIds.filter((x) => typeof x === 'string') : null
+    })
+    refreshTrayMenu()
+  })
+  ipcMain.on('win.openNew', (_e, projectId: unknown) => {
+    windows.open(typeof projectId === 'string' ? projectId : null)
+    refreshTrayMenu()
+  })
+  // The rest of the windows open at the last quit, then what this launch's argv asks for
+  for (const id of restore.slice(1)) windows.open(id)
+  if (projectArgOf(process.argv) !== null || newWindowArgOf(process.argv)) openFromArgv(process.argv, process.cwd())
 
   // Start the history file watcher in the background once the window is shown (live updates). Not
   // awaited, so it does not block window creation.
@@ -1294,7 +1416,7 @@ app.whenReady().then(async () => {
       updateStates.record(s)
       flog(JSON.stringify(s))
       try {
-        if (!win.isDestroyed()) win.webContents.send('update:status', s)
+        windows.broadcast('update:status', s)
       } catch {
         /* renderer send failures are ignored */
       }
@@ -1526,7 +1648,7 @@ app.whenReady().then(async () => {
           updateCampaign = { id: campaign!.id, mode: campaign!.mode }
           flog(`campaign applied: id=${campaign!.id} mode=${campaign!.mode} version=${appVersion}`)
           try {
-            if (!win.isDestroyed()) win.webContents.send('update:campaign', updateCampaign)
+            windows.broadcast('update:campaign', updateCampaign)
           } catch {
             /* send failures are ignored — the renderer also gets this via update:campaignState */
           }

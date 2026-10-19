@@ -47,3 +47,13 @@ describe('ProjectSwitcher', () => {
     expect(switcherItems(props({ toolsDisabledReason: 'Open a tab first' })).filter((i) => i.disabled).map((i) => i.id)).toEqual(['settings:g', 'settings:a', 'new', 'add'])
   })
 })
+
+// W9-K: each project opens in a window of its own; "Other" is no project and gets none.
+describe('ProjectSwitcher: Open in new window', () => {
+  it('offers the item on every project row but Other', () => {
+    const items = switcherItems(props({ onOpenWindow: () => {} }))
+    expect(items.find((i) => i.id === 'window:g')?.label).toBe('Open gameful in new window')
+    expect(items.find((i) => i.id === 'window:a')?.label).toBe('Open Astera in new window')
+    expect(items.map((i) => i.id)).not.toContain(`window:${OTHER_WORKSPACE}`)
+  })
+})

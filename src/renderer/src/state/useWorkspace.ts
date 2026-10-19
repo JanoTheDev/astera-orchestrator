@@ -76,6 +76,9 @@ export function useWorkspace(deps: WorkspaceDeps) {
   // A session outside the open workspace focused from elsewhere (a notification, the Jobs view) leaves it for that
   // session's own project workspace: the scoped view would hide the very tab the person just asked for.
   useEffect(() => {
+    // W9-K: not before the tree is in: until then every session reads as Other's, and a window bound to a project
+    // would leave it for Other at mount.
+    if (!workspaceData) return
     if (!workspaceScope || !activeSessionId || workspaceScope.has(activeSessionId)) return
     setWorkspacePlanId(null)
     setWorkspaceProjectId([...workspaceIds].find(([, ids]) => ids.has(activeSessionId))?.[0] ?? null)
@@ -137,6 +140,36 @@ export function useWorkspace(deps: WorkspaceDeps) {
     const p = workspaceTree[slot - 1]
     if (p) openWorkspaceProject(p.id)
   }
+  // W9-K: this window's project (main binds it, src/main/windows.ts), read once at mount and entered once the tree is
+  // in, so the window focuses one of its own tabs. From then on what the window shows is reported back: that retitles
+  // the window, and it is how a notice and `--project` find it.
+  const [boundProject, setBoundProject] = useState<string | null | undefined>(undefined)
+  useEffect(() => {
+    void window.api.win.boundProject().then(
+      (id) => {
+        if (id) setWorkspaceProjectId(id)
+        setBoundProject(id)
+      },
+      () => setBoundProject(null)
+    )
+  }, [])
+  const boundEnteredRef = useRef(false)
+  useEffect(() => {
+    if (!boundProject || !workspaceData || boundEnteredRef.current) return
+    boundEnteredRef.current = true
+    openWorkspaceProject(boundProject)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when the tree first arrives
+  }, [boundProject, workspaceData])
+  const workspaceName = workspaceTree.find((p) => p.id === workspaceProjectId)?.name
+  useEffect(() => {
+    if (boundProject === undefined) return
+    window.api.win.setScope({
+      projectId: workspaceProjectId,
+      ...(workspaceName ? { name: workspaceName } : {}),
+      sessionIds: workspaceScope ? [...workspaceScope] : null
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- workspaceKey stands for the scope's session ids
+  }, [boundProject, workspaceProjectId, workspaceName, workspaceKey])
   // A new tab opened in a project workspace starts in the project's folder
   const workspaceCwd = workspaceFolderOf(workspaceTree, workspaceProjectId)
   /** 아래쪽 패널이 쓰는 경로. 프로젝트가 없으면 홈으로 떨어진다 — 셸을 직접 띄웠을 때와 같은 곳이고,

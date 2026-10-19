@@ -439,6 +439,13 @@ export function useWorkbench(deps: WorkbenchDeps) {
         openWorkspaceSlotRef.current(Number(action.slice('workspace.project'.length)))
         return
       }
+      // W9-K: a new window (an All window; its switcher picks the project)
+      if (action === 'window.new') {
+        e.preventDefault()
+        e.stopPropagation()
+        if (!e.repeat) window.api.win.openNew(null)
+        return
+      }
       // W7-F (#84): the quick tab switcher opens (or closes) like the command bar
       if (action === 'tabs.switcher') {
         e.preventDefault()

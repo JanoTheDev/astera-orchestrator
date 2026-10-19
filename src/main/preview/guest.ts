@@ -10,6 +10,8 @@ import {
   permissionAllowed
 } from '../../core/preview/guards'
 
+let appWideInstalled = false
+
 export function installPreviewGuards(win: BrowserWindow, isAgentGuest: (webContentsId: number) => boolean): void {
   // The renderer's <webview> tag can carry any attribute; whatever it says, the guest gets these
   // preferences and no preload. A src outside http(s)/blank, or a foreign partition, never attaches.
@@ -50,6 +52,9 @@ export function installPreviewGuards(win: BrowserWindow, isAgentGuest: (webConte
   // (navigator.permissions.query, enumerateDevices) goes to the check handler, and an unset check
   // handler falls back to Electron's default rather than to this rule — so installing only the first
   // would enforce "this machine only" on one of the two paths.
+  // W9-K: the rest is app-wide, installed with the first window only
+  if (appWideInstalled) return
+  appWideInstalled = true
   const previewSession = session.fromPartition(PREVIEW_PARTITION)
   previewSession.setPermissionRequestHandler((_wc, _permission, callback, details) => {
     callback(permissionAllowed(details.requestingUrl))

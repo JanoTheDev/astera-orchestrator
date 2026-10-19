@@ -542,6 +542,7 @@ export const ko = {
   // index.ts — system tray context menu
   'common.trayOpen': '열기',
   'common.trayQuit': '종료',
+  'common.trayNewWindow': '새 창', // W9-K
   'common.trayQuitEnding': '세션 모두 끝내고 종료',
   // App.tsx — rail, session spawn failure, placeholder, status bar usage
   'session.rail.toggleSidebar': '사이드바 접기/펼치기',
@@ -2661,5 +2662,6 @@ export const ko = {
   'start.pickup.issues': 'GitHub에서 나에게 배정된 것',
   'start.pickup.none': 'GitHub에서 나에게 배정된 것이 없습니다',
   'start.pickup.console': '콘솔만 열기',
-  'start.close': '닫기'
+  'start.close': '닫기',
+  'shortcut.window.new': '새 창 열기' // W9-K
 } as const

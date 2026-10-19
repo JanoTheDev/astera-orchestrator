@@ -1953,6 +1953,13 @@ export interface WindowApi {
   close(): void
   isMaximized(): Promise<boolean>
   onMaximizeChange(cb: (isMax: boolean) => void): () => void
+  // ── W9-K: one window per project (src/main/windows.ts) ──
+  /** The project this window is bound to, null for an All window. Read once at mount. */
+  boundProject(): Promise<string | null>
+  /** What this window shows: its project, the name for its title, and its session ids (null = every session). */
+  setScope(scope: { projectId: string | null; name?: string; sessionIds: string[] | null }): void
+  /** Opens a project's window, or focuses it if it has one; null opens a new All window. */
+  openNew(projectId: string | null): void
 }
 
 /**
