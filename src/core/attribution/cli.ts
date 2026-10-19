@@ -3,8 +3,8 @@
 // positional argument the parser does not.
 import type { GitRun } from '../git/range'
 import { git as realGit } from '../worktrees/git'
-import { blameFile } from './blame'
-import { readNote } from './note'
+import { blameFile, type BlameLine } from './blame'
+import { readNote, type AttributionNote } from './note'
 import { rangeShas, statsOf } from './stats'
 
 export const ATTRIBUTION_COMMANDS: Readonly<Record<string, 'blame' | 'stats' | 'why'>> = {
@@ -33,6 +33,35 @@ export const ATTRIBUTION_USAGE = {
   ]
 } as const
 
+/** One `blame --json` row: the line, its commit and kind, and the agent/model, Job and Task of an AI or mixed line. */
+export type BlameRow = Omit<BlameLine, 'note'> & Partial<Pick<AttributionNote, 'agent' | 'model' | 'account' | 'job' | 'task' | 'session' | 'role'>>
+const blameRow = ({ note, ...l }: BlameLine): BlameRow => ({
+  ...l,
+  ...(note ? { agent: note.agent, model: note.model, account: note.account, job: note.job, task: note.task, session: note.session, role: note.role } : {})
+})
+
+/** W8-B: `attribution-blame` and `attribution-stats` for the app (main's `orch.command` answers them, not the Host):
+ *  the same JSON as `--json`. Blame takes `file`; stats takes `commits` (a Task's, `Task.links.commits`) or `range`
+ *  (default: the last commit, as the CLI). */
+export async function attributionReply(
+  cwd: string,
+  cmd: 'attribution-blame' | 'attribution-stats',
+  args: Record<string, unknown>,
+  run: GitRun = realGit
+): Promise<{ status: number; body: unknown }> {
+  if (cmd === 'attribution-blame') {
+    const file = typeof args.file === 'string' ? args.file : ''
+    if (!file) return { status: 400, body: { error: 'file is required' } }
+    const lines = await blameFile(cwd, file, { run })
+    return lines === null ? { status: 409, body: { error: `git could not blame ${file}` } } : { status: 200, body: lines.map(blameRow) }
+  }
+  const commits = Array.isArray(args.commits) ? args.commits.filter((c): c is string => typeof c === 'string' && /^[0-9a-f]{4,64}$/i.test(c)) : null
+  const range = typeof args.range === 'string' && args.range !== '' && !args.range.startsWith('-') ? args.range : undefined
+  const shas = commits ?? (await rangeShas(cwd, range, run))
+  if (shas === null) return { status: 409, body: { error: `git could not list ${range ?? 'HEAD'}` } }
+  return { status: 200, body: await statsOf(cwd, shas, run) }
+}
+
 /** Runs one attribution command (`argv[0]` one of ATTRIBUTION_COMMANDS) in `cwd`; answers the exit code. */
 export async function runAttribution(argv: readonly string[], a: { cwd: string; out(text: string): void; run?: GitRun }): Promise<number> {
   const cmd = ATTRIBUTION_COMMANDS[argv[0]]
@@ -58,7 +87,7 @@ export async function runAttribution(argv: readonly string[], a: { cwd: string; 
   if (cmd === 'blame') {
     const lines = await blameFile(a.cwd, arg, { run })
     if (lines === null) return fail(`git could not blame ${arg}`)
-    if (json) a.out(JSON.stringify(lines.map(({ note, ...l }) => ({ ...l, ...(note ? { agent: note.agent, model: note.model, job: note.job, task: note.task } : {}) }))))
+    if (json) a.out(JSON.stringify(lines.map(blameRow)))
     else
       for (const l of lines) {
         const who = l.note && l.kind !== 'human' ? `${l.note.agent}/${l.note.model} ${l.note.task}` : ''

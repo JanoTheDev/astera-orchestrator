@@ -323,10 +323,10 @@ describe('taskClickOf (W9-C click rules)', () => {
   it('a console that is gone → the plan Waves', () => {
     expect(taskClickOf('working', task('a', { sessionId: 's2' }), 'j', open)).toEqual({ kind: 'plan', jobId: 'j', section: 'waves' })
   })
-  it('needs you → its Inbox card; planned and done → its plan Waves', () => {
+  it('needs you → its Inbox card; planned → its plan Waves; done → the plan Overview summaries', () => {
     expect(taskClickOf('needs-you', task('a', { sessionId: 's1' }), 'j', open)).toEqual({ kind: 'inbox', filter: 'a' })
     expect(taskClickOf('planned', task('a'), 'j', open)).toEqual({ kind: 'plan', jobId: 'j', section: 'waves' })
-    expect(taskClickOf('done', task('a'), 'j', open)).toEqual({ kind: 'plan', jobId: 'j', section: 'waves' })
+    expect(taskClickOf('done', task('a'), 'j', open)).toEqual({ kind: 'plan', jobId: 'j', section: 'overview' })
   })
 })
 

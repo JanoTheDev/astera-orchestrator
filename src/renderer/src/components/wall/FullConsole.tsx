@@ -1,11 +1,12 @@
 // W9-H: one console full size (DESIGN.md §2). The slim header and the details panel; the console itself is the
 // session's own pane (PaneGrid, mounted for the session's life), so keys go to that PTY and nowhere else. There is no
 // Astera input box and no chat UI here (DESIGN §0).
-import { ArrowLeft, PanelRightClose, PanelRightOpen } from 'lucide-react'
+import { ArrowLeft, GitBranch, PanelRightClose, PanelRightOpen } from 'lucide-react'
 import { useI18n } from '../../i18n/I18nProvider'
 import { formatElapsed } from '../../../../core/orchestration/elapsed'
 import type { Account } from '../../../../core/types'
 import { Button, Icon, cx } from '../ui'
+import { openWorktree } from '../shell/navigation'
 import { StateChip } from './Wall'
 import type { ConsoleDetails, WallConsole } from './wallModel'
 
@@ -82,7 +83,13 @@ export function DetailsPanel({
           {d.task.startedAt && <Row label={t('wall.details.running')}>{formatElapsed(d.task.startedAt, nowMs)}</Row>}
           {d.model && <Row label={t('wall.details.model')}>{d.model}</Row>}
           {account && <Row label={t('wall.details.account')}>{account}</Row>}
-          <Row label={t('wall.details.worktree')}>{d.task.branch ?? d.cwd}</Row>
+          <Row label={t('wall.details.worktree')}>
+            {/* W9-J: a Task's console works in its worktree; the link opens it on the Worktrees page */}
+            <button type="button" className="branch-link" title={d.cwd} onClick={() => openWorktree(d.cwd)}>
+              <Icon icon={GitBranch} size={14} />
+              {d.task.branch ?? d.cwd}
+            </button>
+          </Row>
           <Row label={t('wall.details.files')}>{d.task.files.length > 0 ? d.task.files.join(', ') : t('wall.details.none')}</Row>
           <Row label={t('wall.details.questions')}>{d.task.gate ?? (d.task.openGates > 0 ? String(d.task.openGates) : t('wall.details.none'))}</Row>
         </section>

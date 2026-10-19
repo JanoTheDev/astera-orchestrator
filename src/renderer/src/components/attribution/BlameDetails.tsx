@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { markerOf, type BlameLine } from './attribution'
+import { useI18n } from '../../i18n/I18nProvider'
 
 /** W8-B: what a gutter chip opens. First the Task (and its Job), then, on request, the session that wrote the line:
  *  agent, model, account and session id. A human or unknown line shows its commit. Escape closes; focus starts on the
@@ -13,10 +14,11 @@ export function BlameDetails({
   initialStep?: 'task' | 'session'
   onClose: () => void
 }): React.JSX.Element {
+  const { t } = useI18n()
   const [step, setStep] = useState(initialStep)
   const first = useRef<HTMLButtonElement>(null)
   useEffect(() => first.current?.focus(), [l])
-  const m = markerOf(l)
+  const m = markerOf(l, t)
   return (
     <div
       className="attr-details"
@@ -33,36 +35,36 @@ export function BlameDetails({
         <span className={m.className} aria-hidden="true">
           {m.text}
         </span>
-        <span>Line {l.line}</span>
-        <button type="button" ref={first} className="attr-close" aria-label="Close" onClick={onClose}>
+        <span>{t('attribution.line', { line: l.line })}</span>
+        <button type="button" ref={first} className="attr-close" aria-label={t('common.close')} onClick={onClose}>
           ×
         </button>
       </div>
       {l.kind === 'ai' ? (
         <dl className="attr-meta">
-          <dt>Task</dt>
-          <dd>{l.task ?? 'none recorded'}</dd>
+          <dt>{t('attribution.field.task')}</dt>
+          <dd>{l.task ?? t('attribution.none')}</dd>
           {l.job && (
             <>
-              <dt>Job</dt>
+              <dt>{t('attribution.field.job')}</dt>
               <dd>{l.job}</dd>
             </>
           )}
           {step === 'session' ? (
             <>
-              <dt>Session</dt>
-              <dd>{l.session ?? 'none recorded'}</dd>
-              <dt>Agent</dt>
-              <dd>{[l.agent, l.model].filter(Boolean).join(' / ') || 'unknown'}</dd>
+              <dt>{t('attribution.field.session')}</dt>
+              <dd>{l.session ?? t('attribution.none')}</dd>
+              <dt>{t('attribution.field.agent')}</dt>
+              <dd>{[l.agent, l.model].filter(Boolean).join(' / ') || t('attribution.unknown')}</dd>
               {l.account && (
                 <>
-                  <dt>Account</dt>
+                  <dt>{t('attribution.field.account')}</dt>
                   <dd>{l.account}</dd>
                 </>
               )}
               {l.role && (
                 <>
-                  <dt>Role</dt>
+                  <dt>{t('attribution.field.role')}</dt>
                   <dd>{l.role}</dd>
                 </>
               )}
@@ -70,15 +72,16 @@ export function BlameDetails({
           ) : (
             <dd className="attr-more">
               <button type="button" onClick={() => setStep('session')}>
-                Show session
+                {t('attribution.showSession')}
               </button>
             </dd>
           )}
         </dl>
       ) : (
         <p className="attr-meta">
-          {l.kind === 'human' ? 'Written by a person' : 'No attribution recorded'}
-          {l.sha ? ` in ${l.sha.slice(0, 8)}` : ''}.
+          {l.sha
+            ? t(l.kind === 'human' ? 'attribution.byPersonIn' : 'attribution.unrecordedIn', { sha: l.sha.slice(0, 8) })
+            : t(l.kind === 'human' ? 'attribution.byPerson' : 'attribution.unrecorded')}
         </p>
       )}
     </div>

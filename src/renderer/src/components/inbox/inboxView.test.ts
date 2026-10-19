@@ -4,6 +4,9 @@ import type { ActivityEvent } from '../../../../core/orchestration/activity'
 import type { InboxItem, IndexedSession } from '../../../../core/orchestration/sessionIndex'
 import type { Job } from '../../../../core/orchestration/types'
 import { ageOf, filterNeeds, handledOf, needsOf, orderNeeds, parseFilter, whereOf, type InboxInput, type NeedCard, type QuestionRow } from './inboxView'
+import { t } from '../../../../core/i18n'
+
+const en = (k: Parameters<typeof t>[1], p?: Parameters<typeof t>[2]): string => t('en', k, p)
 
 const card = (key: string, at: string | null, over: Partial<NeedCard> = {}): NeedCard => ({
   key,
@@ -126,7 +129,7 @@ describe('needsOf', () => {
     } as unknown as Job
     const [c] = needsOf(input({ jobs: [job], items: [{ kind: 'approval', jobId: 'j1', projectName: 'gameful', planName: 'L4' }] }))
     expect(c.waitsOn).toBe('Auth rework')
-    expect(c.overlaps).toEqual([
+    expect(c.overlaps?.map(({ line, ...o }) => ({ ...o, line: en(line.key, line.params) }))).toEqual([
       { taskId: 't1', taskTitle: 'T1', otherJobId: 'j2', otherPlanName: 'Auth rework', otherTaskTitle: 'T6', line: "T1 and Auth rework's T6 both edit src/api/routes.ts" }
     ])
     expect(c.at).toBe('2026-10-18T07:00:00.000Z') // no feed line yet: the plan's own time
@@ -171,11 +174,11 @@ describe('handledOf', () => {
 describe('ageOf / whereOf', () => {
   const now = Date.parse('2026-10-18T12:00:00Z')
   it('says how long a card has waited', () => {
-    expect(ageOf(null, now)).toBe('')
-    expect(ageOf('2026-10-18T11:59:50Z', now)).toBe('just now')
-    expect(ageOf('2026-10-18T11:48:00Z', now)).toBe('12 min')
-    expect(ageOf('2026-10-18T09:00:00Z', now)).toBe('3 h')
-    expect(ageOf('2026-10-15T12:00:00Z', now)).toBe('3 d')
+    expect(ageOf(null, now, en)).toBe('')
+    expect(ageOf('2026-10-18T11:59:50Z', now, en)).toBe('just now')
+    expect(ageOf('2026-10-18T11:48:00Z', now, en)).toBe('12 min')
+    expect(ageOf('2026-10-18T09:00:00Z', now, en)).toBe('3 h')
+    expect(ageOf('2026-10-15T12:00:00Z', now, en)).toBe('3 d')
   })
   it('writes the place as project › plan · task', () => {
     expect(whereOf('gameful', 'L4', 'T1')).toBe('gameful › L4 · T1')

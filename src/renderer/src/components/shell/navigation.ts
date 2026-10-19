@@ -10,7 +10,8 @@ import type { OldSettingsTab } from '../settings/settingsIndex'
 export type SettingsGroup = ReturnType<typeof useSettings>['settingsTab']
 
 export interface NavigationHandlers {
-  openPage: (id: PageId) => void
+  /** `plan`: Agents opens filtered to that plan's consoles (W9-H plan pills). */
+  openPage: (id: PageId, plan?: string) => void
   openConsole: (sessionId: string) => void
   openPlan: (jobId: string, section?: string) => void
   openInbox: (filter?: string) => void
@@ -37,7 +38,7 @@ function forward<K extends keyof NavigationHandlers>(name: K, ...args: Parameter
   ;(current[name] as (...a: Parameters<NavigationHandlers[K]>) => void)(...args)
 }
 
-export const openPage = (id: PageId): void => forward('openPage', id)
+export const openPage = (id: PageId, plan?: string): void => (plan === undefined ? forward('openPage', id) : forward('openPage', id, plan))
 export const openConsole = (sessionId: string): void => forward('openConsole', sessionId)
 export const openPlan = (jobId: string, section?: string): void => forward('openPlan', jobId, section)
 export const openInbox = (filter?: string): void => forward('openInbox', filter)

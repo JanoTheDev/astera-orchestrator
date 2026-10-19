@@ -3,7 +3,8 @@
 // and neither has to thread a setter through App. The app opens on the wall (DESIGN §1: Agents is the default page).
 import { useSyncExternalStore } from 'react'
 
-export type WallView = { kind: 'wall' } | { kind: 'console'; sessionId: string } | { kind: 'away' }
+/** `plan` on the wall: a request to filter it to that plan (navigation's openPage('agents', plan)); AgentsPage takes it. */
+export type WallView = { kind: 'wall'; plan?: string } | { kind: 'console'; sessionId: string } | { kind: 'away' }
 
 let view: WallView = { kind: 'wall' }
 const listeners = new Set<() => void>()
@@ -13,7 +14,7 @@ export function getWallView(): WallView {
 }
 
 export function setWallView(next: WallView): void {
-  if (next.kind === view.kind && (next.kind !== 'console' || (view.kind === 'console' && view.sessionId === next.sessionId))) return
+  if (next.kind === view.kind && !('plan' in next) && (next.kind !== 'console' || (view.kind === 'console' && view.sessionId === next.sessionId))) return
   view = next
   for (const l of [...listeners]) l()
 }

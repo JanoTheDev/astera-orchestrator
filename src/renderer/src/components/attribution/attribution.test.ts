@@ -1,11 +1,16 @@
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach, vi } from 'vitest'
+import { t } from '../../../../core/i18n'
+vi.mock('../../i18n/I18nProvider', async () => {
+  const { t } = await import('../../../../core/i18n')
+  return { useI18n: () => ({ lang: 'en', t: (k: Parameters<typeof t>[1], p?: Parameters<typeof t>[2]) => t('en', k, p) }) }
+})
+const en = (k: Parameters<typeof t>[1], p?: Parameters<typeof t>[2]): string => t('en', k, p)
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import {
   blameLinesOf,
   breakdownOf,
   lastDeliveryOf,
-  lineKindOf,
   markerOf,
   percentAi,
   statsOf,
@@ -16,47 +21,31 @@ import { BlameDetails } from './BlameDetails'
 import { TaskLinesView } from './TaskLines'
 import { ProjectAttributionView } from './ProjectAttribution'
 
-const note = { agent: 'claude', model: 'opus', account: 'work', job: 'job_1', task: 'tsk_1', session: 'ses_1', lines: { 'f.ts': [[1, 5]] as [number, number][] } }
-
-describe('lineKindOf', () => {
-  it('no note unknown, human note human, no lines all AI, else by range', () => {
-    expect(lineKindOf(null, 'f.ts', 1)).toBe('unknown')
-    expect(lineKindOf({ human: true }, 'f.ts', 1)).toBe('human')
-    expect(lineKindOf({}, 'f.ts', 9)).toBe('ai')
-    expect(lineKindOf(note, 'f.ts', 5)).toBe('ai')
-    expect(lineKindOf(note, 'f.ts', 6)).toBe('human')
-  })
-})
-
 describe('blameLinesOf', () => {
-  it('reads a row kind, or resolves it from the note and the line in that commit; skips bad rows', () => {
-    const rows = blameLinesOf(
-      {
-        lines: [
-          { line: 1, kind: 'human', sha: 'abc' },
-          { line: 2, origLine: 4, note },
-          { line: 3, origLine: 7, note },
-          { line: 4, note: null },
-          { nope: true }
-        ]
-      },
-      'f.ts'
-    )
+  it("reads W8-A's blame rows: a mixed line shows as AI, an odd kind as unknown; skips bad rows", () => {
+    const rows = blameLinesOf([
+      { line: 1, kind: 'human', sha: 'abc', content: 'x' },
+      { line: 2, kind: 'ai', sha: 'def', content: 'y', agent: 'claude', model: 'opus', task: 'tsk_1', session: 'ses_1' },
+      { line: 3, kind: 'mixed', sha: 'def', content: 'z' },
+      { line: 4, kind: 'what', sha: 'ghi', content: 'w' },
+      { nope: true }
+    ])
     expect(rows.map((r) => [r.line, r.kind])).toEqual([
       [1, 'human'],
       [2, 'ai'],
-      [3, 'human'],
+      [3, 'ai'],
       [4, 'unknown']
     ])
     expect(rows[1]).toMatchObject({ agent: 'claude', model: 'opus', task: 'tsk_1', session: 'ses_1' })
+    expect(blameLinesOf({ error: 'x' })).toEqual([])
   })
 })
 
 describe('gutter states', () => {
   it('each state has its own text, so colour is never the only signal, and a label for screen readers', () => {
-    const ai = markerOf({ line: 3, kind: 'ai', agent: 'claude', model: 'opus', task: 'tsk_1' })
-    const human = markerOf({ line: 4, kind: 'human' })
-    const unknown = markerOf({ line: 5, kind: 'unknown' })
+    const ai = markerOf({ line: 3, kind: 'ai', agent: 'claude', model: 'opus', task: 'tsk_1' }, en)
+    const human = markerOf({ line: 4, kind: 'human' }, en)
+    const unknown = markerOf({ line: 5, kind: 'unknown' }, en)
     expect([ai.text, human.text, unknown.text]).toEqual(['AI', 'H', '?'])
     expect(ai.label).toBe('Line 3: AI, claude/opus, Task tsk_1. Open for the Task and session.')
     expect(human.label).toContain('human')
@@ -83,12 +72,12 @@ describe('keyboard path', () => {
     }
     const l: BlameLine = { line: 2, kind: 'ai', task: 'tsk_1' }
     let picked: BlameLine | null = null
-    new ChipMarker(l, (x) => (picked = x)).toDOM()
+    new ChipMarker(l, (x) => (picked = x), en).toDOM()
     const b = made[0] as { tag: string; type: string; textContent: string; attrs: Record<string, string>; listeners: Record<string, () => void> }
     expect(b.tag).toBe('button')
     expect(b.type).toBe('button')
     expect(b.textContent).toBe('AI')
-    expect(b.attrs['aria-label']).toBe(markerOf(l).label)
+    expect(b.attrs['aria-label']).toBe(markerOf(l, en).label)
     b.listeners.click()
     expect(picked).toBe(l)
   })

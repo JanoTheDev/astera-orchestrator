@@ -130,8 +130,7 @@ export function PlansPage(p: PlansPageProps): React.JSX.Element {
           }}
           plans={snap?.runs ?? []}
           snapshot={snap}
-          // shortcut: Agents is not filtered by plan until W9-H's plan filter lands; then pass this plan to it
-          onOpenConsoles={() => openPage('agents')}
+          onOpenConsoles={() => openPage('agents', openRun.runId)}
         />
       </div>
     )

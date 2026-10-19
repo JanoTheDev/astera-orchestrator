@@ -4,6 +4,7 @@ import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { ActionUi } from '../../lib/jobActions'
 import type { NeedCard } from './inboxView'
+import { t } from '../../../../core/i18n'
 
 vi.mock('./inbox.css', () => ({}))
 const { NeedCardView } = await import('./InboxPage')
@@ -16,7 +17,7 @@ const render = (c: NeedCard): string =>
       nowMs: Date.parse('2026-10-18T09:12:00Z'),
       door: {} as never,
       ui: {} as ActionUi,
-      t: ((k: string) => k) as never
+      t: ((k: Parameters<typeof t>[1], p?: Parameters<typeof t>[2]) => t('en', k, p)) as never
     })
   )
 
@@ -33,7 +34,7 @@ describe('NeedCardView', () => {
     const html = render(
       card({
         sessionId: 'pl1',
-        overlaps: [{ taskId: 't1', taskTitle: 'L4', otherJobId: 'j2', otherPlanName: 'Auth rework', otherTaskTitle: 'T6', line: "L4 and Auth rework's T6 both edit src/api/routes.ts" }]
+        overlaps: [{ taskId: 't1', taskTitle: 'L4', otherJobId: 'j2', otherPlanName: 'Auth rework', otherTaskTitle: 'T6', line: { key: 'inbox.overlap.edit', params: { mine: 'L4', plan: 'Auth rework', theirs: 'T6', path: 'src/api/routes.ts' } } }]
       })
     )
     expect(html).toContain("both edit src/api/routes.ts")
@@ -47,7 +48,7 @@ describe('NeedCardView', () => {
     const html = render(
       card({
         waitsOn: 'Auth rework',
-        overlaps: [{ taskId: 't1', taskTitle: 'L4', otherJobId: 'j2', otherPlanName: 'Auth rework', otherTaskTitle: 'T6', line: 'x' }]
+        overlaps: [{ taskId: 't1', taskTitle: 'L4', otherJobId: 'j2', otherPlanName: 'Auth rework', otherTaskTitle: 'T6', line: { key: 'inbox.overlap.edit', params: {} } }]
       })
     )
     expect(html).toContain('Approve (L4 waits)')

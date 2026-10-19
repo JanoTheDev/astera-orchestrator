@@ -54,11 +54,11 @@ export function StatusBar(p: StatusBarProps): React.JSX.Element {
       <div className="statusbar">
         <button type="button" className="status-link" onClick={() => openPage('agents')}>
           <span className={counts.working > 0 ? 'status-dot status-dot--ok' : 'status-dot'} aria-hidden="true" />
-          {counts.consoles} {counts.consoles === 1 ? 'console' : 'consoles'} · {counts.working} working
+          {t(counts.consoles === 1 ? 'shell.status.console' : 'shell.status.consoles', { n: counts.consoles, working: counts.working })}
         </button>
         <button type="button" className={counts.waiting > 0 ? 'status-link status-link--warn' : 'status-link'} onClick={() => openInbox()}>
           <span className={counts.waiting > 0 ? 'status-dot status-dot--warn' : 'status-dot'} aria-hidden="true" />
-          {counts.waiting} waiting for you
+          {t('shell.status.waiting', { n: counts.waiting })}
         </button>
         {nextQueued && <span className="status-item status-next">{nextQueued}</span>}
         <span className="sp" />
@@ -81,8 +81,8 @@ export function StatusBar(p: StatusBarProps): React.JSX.Element {
           </span>
         )}
         {hostOk && (
-          <span className="status-item status-host" title={hostStatus?.hostVersion ? `Host ${hostStatus.hostVersion}` : 'Host'}>
-            Host ok
+          <span className="status-item status-host" title={hostStatus?.hostVersion ? t('shell.status.hostTitle', { version: hostStatus.hostVersion }) : 'Host'}>
+            {t('shell.status.hostOk')}
           </span>
         )}
         {/* The Host outlived an update and still runs the previous build. It replaces itself the first

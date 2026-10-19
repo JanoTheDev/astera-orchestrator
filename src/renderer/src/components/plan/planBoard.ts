@@ -342,8 +342,8 @@ export function taskClickOf(column: TaskColumn, task: JobTask, jobId: string, ca
   if ((column === 'working' || column === 'review') && task.sessionId && canOpenSession(task.sessionId))
     return { kind: 'console', sessionId: task.sessionId }
   if (column === 'needs-you') return { kind: 'inbox', filter: task.id }
-  // shortcut: done opens the plan's Waves card until W9-I's summary card has its own place; wire W9-I after merge
-  return { kind: 'plan', jobId, section: 'waves' }
+  // done: the summary cards' place is the plan Overview's "What happened so far" (W9-I PlanSummaryRollup)
+  return { kind: 'plan', jobId, section: column === 'done' ? 'overview' : 'waves' }
 }
 
 /** Done keeps the last this-many per plan on the Tasks page; older ones are under the plan's page. */

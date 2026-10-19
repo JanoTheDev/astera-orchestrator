@@ -6,13 +6,15 @@
 import { Compartment, StateEffect, type Extension } from '@codemirror/state'
 import { EditorView, GutterMarker, gutter } from '@codemirror/view'
 import { markerOf, type BlameLine } from './attribution'
+import type { Translate } from '../checkText'
 
 export const blameCompartment = new Compartment()
 
 export class ChipMarker extends GutterMarker {
   constructor(
     readonly l: BlameLine,
-    readonly pick: (l: BlameLine) => void
+    readonly pick: (l: BlameLine) => void,
+    readonly t: Translate
   ) {
     super()
   }
@@ -20,7 +22,7 @@ export class ChipMarker extends GutterMarker {
     return other.l === this.l
   }
   toDOM(): Node {
-    const m = markerOf(this.l)
+    const m = markerOf(this.l, this.t)
     const b = document.createElement('button')
     b.type = 'button'
     b.className = m.className
@@ -33,16 +35,16 @@ export class ChipMarker extends GutterMarker {
 }
 
 /** The gutter for these lines; `pick` runs when a chip is activated. */
-export function blameExtension(lines: readonly BlameLine[], pick: (l: BlameLine) => void): Extension {
+export function blameExtension(lines: readonly BlameLine[], pick: (l: BlameLine) => void, t: Translate): Extension {
   const byLine = new Map(lines.map((l) => [l.line, l]))
   return gutter({
     class: 'attr-gutter',
     lineMarker(view, block) {
       const l = byLine.get(view.state.doc.lineAt(block.from).number)
-      return l ? new ChipMarker(l, pick) : null
+      return l ? new ChipMarker(l, pick, t) : null
     },
     lineMarkerChange: () => false,
-    initialSpacer: () => new ChipMarker({ line: 0, kind: 'unknown' }, () => {})
+    initialSpacer: () => new ChipMarker({ line: 0, kind: 'unknown' }, () => {}, t)
   })
 }
 

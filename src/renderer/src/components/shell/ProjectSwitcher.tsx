@@ -4,6 +4,7 @@ import { ArrowUpDown } from 'lucide-react'
 import type { Attention, SessionInfo } from '../../../../core/types'
 import { OTHER_WORKSPACE, workspaceSummaries, type WorkspaceProject } from '../../state/workspaceTree'
 import { Menu, type MenuItem } from '../ui'
+import type { Translate } from '../checkText'
 
 export interface SwitcherProps {
   tree: WorkspaceProject[]
@@ -21,21 +22,23 @@ export interface SwitcherProps {
   onOpenWindow?: (id: string) => void
   /** Why the project tools are off (no tab open to anchor the commands), or undefined. */
   toolsDisabledReason?: string
+  t: Translate
 }
 
 /** The menu's rows: All tabs, each project (its key on the first nine), then the project tools. */
 export function switcherItems(p: SwitcherProps): MenuItem[] {
   const rows = workspaceSummaries(p.tree, p.byWorkspace, p.sessions, p.attention)
   const tools = p.toolsDisabledReason !== undefined
+  const { t } = p
   return [
-    { id: 'all', label: <span className="tb-sw-row">All tabs</span>, onSelect: () => p.onSelect(null) },
+    { id: 'all', label: <span className="tb-sw-row">{t('shell.switcher.allTabs')}</span>, onSelect: () => p.onSelect(null) },
     ...rows.map((r, i): MenuItem => ({
       id: r.id,
       label: (
         <span className={`tb-sw-row${r.id === p.selectedId ? ' tb-sw-selected' : ''}`}>
-          <span className={`tb-sw-dot${r.waiting ? ' tb-sw-waiting' : ''}`} aria-label={r.waiting ? 'needs input' : undefined} />
-          <span className="tb-sw-name">{r.name}</span>
-          <span className="tb-sw-count" aria-label={`${r.running} running`}>
+          <span className={`tb-sw-dot${r.waiting ? ' tb-sw-waiting' : ''}`} aria-label={r.waiting ? t('shell.switcher.needsInput') : undefined} />
+          <span className="tb-sw-name">{r.id === OTHER_WORKSPACE ? t('shell.switcher.other') : r.name}</span>
+          <span className="tb-sw-count" aria-label={t('shell.switcher.running', { n: r.running })}>
             {r.running}
           </span>
           {i < 9 && <kbd className="tb-sw-key">Ctrl+Alt+{i + 1}</kbd>}
@@ -47,23 +50,24 @@ export function switcherItems(p: SwitcherProps): MenuItem[] {
     ...(p.onOpenWindow
       ? rows
           .filter((r) => r.id !== OTHER_WORKSPACE)
-          .map((r): MenuItem => ({ id: `window:${r.id}`, label: `Open ${r.name} in new window`, onSelect: () => p.onOpenWindow?.(r.id) }))
+          .map((r): MenuItem => ({ id: `window:${r.id}`, label: t('shell.switcher.openWindow', { name: r.name }), onSelect: () => p.onOpenWindow?.(r.id) }))
       : []),
     // W7-B: the project's settings page; "Other" is no project
     ...rows
       .filter((r) => r.id !== OTHER_WORKSPACE)
-      .map((r): MenuItem => ({ id: `settings:${r.id}`, label: `${r.name} settings…`, disabled: tools, onSelect: () => p.onSettings(r.id) })),
-    { id: 'new', label: '+ New project', disabled: tools, onSelect: p.onNew },
-    { id: 'add', label: 'Add project', disabled: tools, onSelect: p.onAdd }
+      .map((r): MenuItem => ({ id: `settings:${r.id}`, label: t('shell.switcher.settings', { name: r.name }), disabled: tools, onSelect: () => p.onSettings(r.id) })),
+    { id: 'new', label: t('shell.switcher.new'), disabled: tools, onSelect: p.onNew },
+    { id: 'add', label: t('settings.projects.add'), disabled: tools, onSelect: p.onAdd }
   ]
 }
 
 export function ProjectSwitcher(p: SwitcherProps): React.JSX.Element {
-  const name = p.selectedId === null ? 'All projects' : p.selectedId === OTHER_WORKSPACE ? 'Other' : (p.tree.find((x) => x.id === p.selectedId)?.name ?? 'All projects')
+  const { t } = p
+  const name = p.selectedId === null ? t('wall.scope.all') : p.selectedId === OTHER_WORKSPACE ? t('shell.switcher.other') : (p.tree.find((x) => x.id === p.selectedId)?.name ?? t('wall.scope.all'))
   const waiting = workspaceSummaries(p.tree, p.byWorkspace, p.sessions, p.attention).some((r) => r.waiting)
   return (
     <Menu
-      label="Switch project"
+      label={t('shell.switcher.label')}
       items={switcherItems(p)}
       trigger={{
         variant: 'ghost',
@@ -73,7 +77,7 @@ export function ProjectSwitcher(p: SwitcherProps): React.JSX.Element {
         children: (
           <>
             {name}
-            {waiting && <span className="tb-sw-dot tb-sw-waiting" aria-label="a project needs input" />}
+            {waiting && <span className="tb-sw-dot tb-sw-waiting" aria-label={t('shell.switcher.waiting')} />}
             <ArrowUpDown size={12} aria-hidden="true" />
           </>
         )

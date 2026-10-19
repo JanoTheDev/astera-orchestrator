@@ -190,7 +190,7 @@ export function Pages(p: PagesProps): React.JSX.Element {
           )}
           {page === 'more:runs' && (
             <div className="page-runs">
-              <h2 className="page-title">Run configs</h2>
+              <h2 className="page-title">{t('shell.page.runs')}</h2>
               {currentProject ? (
                 <RunToolbar
                   configs={runConfigs}
@@ -213,15 +213,15 @@ export function Pages(p: PagesProps): React.JSX.Element {
                   shortcut={runSelectConfigShortcut}
                 />
               ) : (
-                <p className="page-note">Open a project to run its configurations.</p>
+                <p className="page-note">{t('shell.runs.noProject')}</p>
               )}
               <div className="page-actions">
                 <Button size="sm" onClick={() => setRunPanelOpen(true)}>
-                  Show output
+                  {t('shell.runs.output')}
                 </Button>
                 {/* the rail's terminal button, now here: the drawer opens on a new shell */}
                 <Button size="sm" onClick={() => void openTerminal()}>
-                  New terminal
+                  {t('shell.runs.terminal')}
                 </Button>
               </div>
             </div>
@@ -230,7 +230,7 @@ export function Pages(p: PagesProps): React.JSX.Element {
       )}
       {page === 'more:browser' && (
         <aside className="page-side">
-          <h2 className="page-title">Browser</h2>
+          <h2 className="page-title">{t('shell.page.browser')}</h2>
           <form
             className="page-browser-form"
             onSubmit={(e) => {
@@ -240,14 +240,14 @@ export function Pages(p: PagesProps): React.JSX.Element {
           >
             <Field
               kind="text"
-              label="Open a page"
-              hint={currentProject ? 'It opens as a tab beside the consoles.' : 'Open a project first.'}
+              label={t('shell.browser.open')}
+              hint={currentProject ? t('shell.browser.hint') : t('shell.browser.noProject')}
               value={browserUrl}
               onChange={(e) => setBrowserUrl(e.target.value)}
-              placeholder="localhost:5173 or a URL"
+              placeholder={t('shell.browser.placeholder')}
             />
             <Button type="submit" size="sm" disabled={!currentProject || !browserUrl.trim()}>
-              Open
+              {t('shell.browser.go')}
             </Button>
           </form>
         </aside>

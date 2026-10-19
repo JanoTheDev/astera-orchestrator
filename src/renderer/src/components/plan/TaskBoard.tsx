@@ -3,6 +3,7 @@
 // what its worker is doing now, the coordinator's answers to it and, when it is not running, why
 // (core/orchestration/blocked.ts). Drawing only: the waves, reasons, counts and "now" lines are planBoard.ts's.
 import { useEffect, useState } from 'react'
+import { GitBranch } from 'lucide-react'
 import type { ActivityEvent } from '../../../../core/orchestration/activity'
 import type { Account, JobEvent, JobTask } from '../../../../core/types'
 import { type RoleModelSettings } from '../../../../core/orchestration/roleModels'
@@ -25,6 +26,8 @@ import {
   type OpenQuestion
 } from './planBoard'
 import { QuestionAnswer } from './QuestionAnswer'
+import { Icon } from '../ui'
+import { openWorktree } from '../shell/navigation' // W9-J
 import { TaskLines } from '../attribution/TaskLines' // W8-B
 import type { SessionSummary } from '../../../../core/sessions/summary'
 import { summaryOneLine } from '../wall/summaryText' // W9-I
@@ -229,10 +232,26 @@ function TaskCard({
         {tk.branch !== undefined && (
           <>
             <dt>{t('plan.card.branch')}</dt>
-            <dd title={tk.branch}>{tk.branch}</dd>
+            <dd title={tk.branch}>
+              {/* W9-J: the Task's worktree, found by its branch in the registry, on the Worktrees page */}
+              <button
+                type="button"
+                className="branch-link"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  void window.api.worktrees.list().then((ws) => {
+                    const w = ws.find((x) => x.branch === tk.branch)
+                    if (w) openWorktree(w.path)
+                  }, () => {})
+                }}
+              >
+                <Icon icon={GitBranch} size={14} />
+                {tk.branch}
+              </button>
+            </dd>
           </>
         )}
-        {projectPath && <TaskLines projectPath={projectPath} taskId={tk.id} />}
+        {projectPath && <TaskLines projectPath={projectPath} commits={tk.links?.commits ?? []} />}
       </dl>
       {files.length > 0 && (
         <ul className="plan-card-files">

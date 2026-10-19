@@ -1,15 +1,27 @@
 // W8-B: what the attribution views read, as pure functions over W8-A's command replies (`attribution-blame`,
 // `attribution-stats`, PLAN.md "Wave 8 contracts"), so the views stay thin and the rules are tested here.
-//
-// shortcut: the reply shapes are read loosely (W8-A runs in parallel, and only the note and the git-ai stats names are
-// in the contract). A blame row may carry its own `kind`, or the commit's note plus the line's number in that commit
-// (`origLine`), which `lineKindOf` resolves. Tighten to W8-A's types once it merges.
 
-/** The note's `lines`: per path, the AI line ranges in the note's commit, 1-based and inclusive. */
-export type NoteLines = { [path: string]: [number, number][] }
+import type { Translate } from '../checkText'
 
-/** The Wave 8 note fields the views read. */
-export interface NoteView {
+/** An `attribution-stats` reply (core/attribution/stats.ts AttributionStats; that file is not in the renderer's build). */
+export interface AttributionStats {
+  human_additions: number
+  mixed_additions: number
+  ai_additions: number
+  ai_accepted: number
+  unknown_additions: number
+  git_diff_added_lines: number
+  git_diff_deleted_lines: number
+  tool_model_breakdown: { [toolModel: string]: { ai_additions: number; ai_accepted: number } }
+}
+
+export type LineKind = 'ai' | 'human' | 'unknown'
+
+/** One line of a file, as the gutter shows it: W8-A's blame row, its note fields the details read. */
+export interface BlameLine {
+  line: number
+  kind: LineKind
+  sha?: string
   agent?: string
   model?: string
   account?: string
@@ -17,55 +29,29 @@ export interface NoteView {
   task?: string
   session?: string
   role?: string
-  human?: boolean
-  lines?: NoteLines
-}
-
-export type LineKind = 'ai' | 'human' | 'unknown'
-
-/** One line of a file, as the gutter shows it. */
-export interface BlameLine extends NoteView {
-  line: number
-  kind: LineKind
-  sha?: string
-}
-
-/** What a note says about one line of a file in the note's commit: `ai` when the note has no `lines` (the whole
- *  commit is AI) or the line is in its ranges; `human` when the note says so or the line is outside them; `unknown`
- *  with no note (a commit Astera did not stamp, or a line `git mv` carried, PLAN.md parity table). */
-export function lineKindOf(note: NoteView | null | undefined, file: string, line: number): LineKind {
-  if (!note) return 'unknown'
-  if (note.human === true) return 'human'
-  if (note.lines === undefined) return 'ai'
-  return (note.lines[file] ?? []).some(([a, b]) => a <= line && line <= b) ? 'ai' : 'human'
 }
 
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v !== '' ? v : undefined)
 
-/** The rows of an `attribution-blame` reply (an array, or `{ lines: [...] }`), one per line. A row it cannot read is
- *  skipped, so the line shows no marker rather than a wrong one. */
-export function blameLinesOf(body: unknown, file: string): BlameLine[] {
-  const rows = Array.isArray(body) ? body : Array.isArray((body as { lines?: unknown })?.lines) ? (body as { lines: unknown[] }).lines : []
+/** The rows of an `attribution-blame` reply (core/attribution/cli.ts BlameRow[]: line, sha, kind, content and the
+ *  note's agent, model, account, job, task, session, role), one per line. A mixed line (AI, then
+ *  edited by a person) shows as AI, its agent named; a row it cannot read is skipped, so the line shows no marker. */
+export function blameLinesOf(body: unknown): BlameLine[] {
+  if (!Array.isArray(body)) return []
   const out: BlameLine[] = []
-  for (const r of rows as Record<string, unknown>[]) {
+  for (const r of body as Record<string, unknown>[]) {
     if (!r || typeof r !== 'object' || typeof r.line !== 'number') continue
-    const note = (r.note && typeof r.note === 'object' ? r.note : null) as (NoteView & Record<string, unknown>) | null
-    const src = { ...(note ?? {}), ...r } as Record<string, unknown>
-    const kind: LineKind =
-      r.kind === 'ai' || r.kind === 'human' || r.kind === 'unknown'
-        ? r.kind
-        : lineKindOf(note, str(r.path) ?? file, typeof r.origLine === 'number' ? r.origLine : r.line)
     out.push({
       line: r.line,
-      kind,
-      sha: str(src.sha),
-      agent: str(src.agent),
-      model: str(src.model),
-      account: str(src.account),
-      job: str(src.job),
-      task: str(src.task),
-      session: str(src.session),
-      role: str(src.role)
+      kind: r.kind === 'mixed' ? 'ai' : r.kind === 'ai' || r.kind === 'human' ? r.kind : 'unknown',
+      sha: str(r.sha),
+      agent: str(r.agent),
+      model: str(r.model),
+      account: str(r.account),
+      job: str(r.job),
+      task: str(r.task),
+      session: str(r.session),
+      role: str(r.role)
     })
   }
   return out
@@ -73,38 +59,38 @@ export function blameLinesOf(body: unknown, file: string): BlameLine[] {
 
 /** The gutter chip of a line: short text, its full meaning for a screen reader and the tooltip, and the class that
  *  colours it. The text alone tells the three apart, so colour is never the only signal. */
-export function markerOf(l: BlameLine): { text: string; label: string; className: string } {
+export function markerOf(l: BlameLine, t: Translate): { text: string; label: string; className: string } {
   if (l.kind === 'ai') {
-    const who = [l.agent, l.model].filter(Boolean).join('/') || 'agent'
+    const who = [l.agent, l.model].filter(Boolean).join('/') || t('attribution.agent')
     return {
       text: 'AI',
-      label: `Line ${l.line}: AI, ${who}${l.task ? `, Task ${l.task}` : ''}. Open for the Task and session.`,
+      label: l.task ? t('attribution.label.aiTask', { line: l.line, who, task: l.task }) : t('attribution.label.ai', { line: l.line, who }),
       className: 'attr-chip attr-ai'
     }
   }
   if (l.kind === 'human')
-    return { text: 'H', label: `Line ${l.line}: human. Open for the commit.`, className: 'attr-chip attr-human' }
-  return { text: '?', label: `Line ${l.line}: unknown author. Open for the commit.`, className: 'attr-chip attr-unknown' }
-}
-
-/** The git-ai stats fields (PLAN.md: the Stats JSON names match git-ai's). */
-export interface AttributionStats {
-  human_additions: number
-  ai_additions: number
-  ai_accepted?: number
-  git_diff_added_lines?: number
-  git_diff_deleted_lines?: number
-  tool_model_breakdown: { [toolModel: string]: { ai_additions: number; ai_accepted?: number } }
+    return { text: 'H', label: t('attribution.label.human', { line: l.line }), className: 'attr-chip attr-human' }
+  return { text: '?', label: t('attribution.label.unknown', { line: l.line }), className: 'attr-chip attr-unknown' }
 }
 
 /** An `attribution-stats --json` reply, or null when it is not one. */
 export function statsOf(body: unknown): AttributionStats | null {
   const b = body as Partial<AttributionStats> | null
   if (!b || typeof b !== 'object' || typeof b.ai_additions !== 'number' || typeof b.human_additions !== 'number') return null
+  const n = (v: unknown): number => (typeof v === 'number' ? v : 0)
   const breakdown: AttributionStats['tool_model_breakdown'] = {}
   for (const [k, v] of Object.entries(b.tool_model_breakdown ?? {}))
-    if (v && typeof v.ai_additions === 'number') breakdown[k] = { ai_additions: v.ai_additions, ai_accepted: v.ai_accepted }
-  return { ...b, ai_additions: b.ai_additions, human_additions: b.human_additions, tool_model_breakdown: breakdown }
+    if (v && typeof v.ai_additions === 'number') breakdown[k] = { ai_additions: v.ai_additions, ai_accepted: n(v.ai_accepted) }
+  return {
+    human_additions: b.human_additions,
+    mixed_additions: n(b.mixed_additions),
+    ai_additions: b.ai_additions,
+    ai_accepted: n(b.ai_accepted),
+    unknown_additions: n(b.unknown_additions),
+    git_diff_added_lines: n(b.git_diff_added_lines),
+    git_diff_deleted_lines: n(b.git_diff_deleted_lines),
+    tool_model_breakdown: breakdown
+  }
 }
 
 /** Whole-percent share of AI lines among added lines; null with none added. */

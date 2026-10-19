@@ -3,6 +3,7 @@ import type { EditorView } from '@codemirror/view'
 import { blameLinesOf, type BlameLine } from './attribution'
 import { blameExtension, setBlame } from './blameGutter'
 import { BlameDetails } from './BlameDetails'
+import { useI18n } from '../../i18n/I18nProvider'
 import './attribution.css'
 
 /**
@@ -21,6 +22,7 @@ export function BlameToggle({
   projectPath: string
   epoch: number
 }): React.JSX.Element {
+  const { t } = useI18n()
   const [on, setOn] = useState(false)
   const [picked, setPicked] = useState<BlameLine | null>(null)
   const [note, setNote] = useState<string | null>(null)
@@ -37,15 +39,15 @@ export function BlameToggle({
       .command(projectPath, 'attribution-blame', { file })
       .then((r) => {
         if (!live) return
-        const lines = r.status === 200 ? blameLinesOf(r.body, file) : []
-        setNote(r.status === 200 ? null : 'Attribution is not available for this file.')
-        setBlame(view, blameExtension(lines, setPicked))
+        const lines = r.status === 200 ? blameLinesOf(r.body) : []
+        setNote(r.status === 200 ? null : t('attribution.notAvailable'))
+        setBlame(view, blameExtension(lines, setPicked, t))
       })
-      .catch(() => live && setNote('Attribution is not available for this file.'))
+      .catch(() => live && setNote(t('attribution.notAvailable')))
     return () => {
       live = false
     }
-  }, [view, on, file, projectPath, epoch])
+  }, [view, on, file, projectPath, epoch, t])
   return (
     <div className="attr-toggle-wrap">
       {picked && <BlameDetails line={picked} onClose={() => setPicked(null)} />}
@@ -55,7 +57,7 @@ export function BlameToggle({
         </span>
       )}
       <button type="button" className="attr-toggle" aria-pressed={on} onClick={() => setOn((v) => !v)}>
-        Blame
+        {t('attribution.blame')}
       </button>
     </div>
   )

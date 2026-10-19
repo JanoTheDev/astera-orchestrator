@@ -7,9 +7,9 @@ import { useAccountUsage } from '../../hooks/useAccountUsage'
 import type { AppState } from '../../state/appState'
 import { activeAccountOf, nextQueuedLine, shellCounts } from './shellView'
 
-export type ShellDeps = Pick<AppState, 'accounts' | 'active' | 'sessions' | 'workspaceData' | 'workspaceTree'>
+export type ShellDeps = Pick<AppState, 'accounts' | 'active' | 'sessions' | 't' | 'workspaceData' | 'workspaceTree'>
 
-export function useShell({ accounts, active, sessions, workspaceData, workspaceTree }: ShellDeps) {
+export function useShell({ accounts, active, sessions, t, workspaceData, workspaceTree }: ShellDeps) {
   const attention = useAttention(sessions.map((s) => s.id))
   // W5-D (#42): the Host's own waits, read with the app closed too
   const hostWaiting = useHostWaiting(workspaceData?.projects[0]?.path ?? null)
@@ -29,7 +29,7 @@ export function useShell({ accounts, active, sessions, workspaceData, workspaceT
   }, [workspaceTree, workspaceData, attention, hostWaiting])
   const counts = shellCounts(sessions, attention, needsYou)
   const nextQueued = workspaceData
-    ? nextQueuedLine({ jobs: Object.values(workspaceData.jobsByProject).flat(), runs: workspaceData.runs, tasks: workspaceData.tasks })
+    ? nextQueuedLine({ jobs: Object.values(workspaceData.jobsByProject).flat(), runs: workspaceData.runs, tasks: workspaceData.tasks }, t)
     : null
   const accountUsage = useAccountUsage()
   const shellAccount = activeAccountOf(accounts, active?.accountId)

@@ -6,6 +6,8 @@ import type { InboxItem } from '../../../../core/orchestration/sessionIndex'
 import type { Job, PlanOverlap } from '../../../../core/orchestration/types'
 import { feedOf, lineOf, whoOf, type Tone } from '../activity/activityView'
 import type { OpenQuestion } from '../plan/planBoard'
+import type { Message } from '../../../../core/i18n'
+import type { Translate } from '../checkText'
 
 /** An open row of `questions-list`: an ask or escalation (`source`), or a Gate (none). */
 export type QuestionRow = Omit<OpenQuestion, 'source'> & { source?: OpenQuestion['source']; runId: string; createdAt: string }
@@ -60,7 +62,7 @@ export interface OverlapView {
   otherPlanName: string
   otherTaskTitle: string
   /** "L4 and Auth rework's T6 both edit src/api/routes.ts" */
-  line: string
+  line: Message
 }
 
 export interface PlanName {
@@ -95,8 +97,10 @@ export function sinceOf(events: readonly ActivityEvent[]): { approvals: Map<stri
   return { approvals, waits }
 }
 
-const overlapLine = (o: PlanOverlap, mine: string, theirPlan: string, theirs: string): string =>
-  `${mine} and ${theirPlan}'s ${theirs} both ${o.by === 'issue' ? `link issue #${o.issue}` : `edit ${o.path}`}`
+const overlapLine = (o: PlanOverlap, mine: string, plan: string, theirs: string): Message =>
+  o.by === 'issue'
+    ? { key: 'inbox.overlap.issue', params: { mine, plan, theirs, issue: String(o.issue) } }
+    : { key: 'inbox.overlap.edit', params: { mine, plan, theirs, path: String(o.path) } }
 
 function overlapsOf(job: Job, input: InboxInput): OverlapView[] {
   return (job.overlaps ?? []).map((o) => {
@@ -215,10 +219,10 @@ export function handledOf(events: readonly ActivityEvent[], f: InboxFilter, acco
 export const needCount = (cards: readonly NeedCard[]): number => cards.length
 
 /** "just now", "12 min", "3 h", "2 d": how long a card has waited. */
-export function ageOf(at: string | null, nowMs: number): string {
+export function ageOf(at: string | null, nowMs: number, t: Translate): string {
   if (at === null) return ''
   const min = Math.max(0, Math.floor((nowMs - Date.parse(at)) / 60_000))
-  return min < 1 ? 'just now' : min < 60 ? `${min} min` : min < 48 * 60 ? `${Math.floor(min / 60)} h` : `${Math.floor(min / 1440)} d`
+  return min < 1 ? t('inbox.age.now') : min < 60 ? t('inbox.age.min', { n: min }) : min < 48 * 60 ? t('inbox.age.h', { n: Math.floor(min / 60) }) : t('inbox.age.d', { n: Math.floor(min / 1440) })
 }
 
 /** "project › plan · task", the place line every card and search result shows. */

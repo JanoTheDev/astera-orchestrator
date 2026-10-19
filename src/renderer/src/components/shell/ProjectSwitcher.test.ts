@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import type { SessionInfo } from '../../../../core/types'
 import { OTHER_WORKSPACE, type WorkspaceProject } from '../../state/workspaceTree'
 import { ProjectSwitcher, switcherItems, type SwitcherProps } from './ProjectSwitcher'
+import { t } from '../../../../core/i18n'
 
 const tree: WorkspaceProject[] = [
   { id: 'g', name: 'gameful', path: '/repos/gameful', plans: [] },
@@ -20,6 +21,7 @@ const props = (over: Partial<SwitcherProps> = {}): SwitcherProps => ({
   onNew: () => {},
   onAdd: () => {},
   onSettings: () => {},
+  t: (k, p) => t('en', k, p),
   ...over
 })
 const html = (node: React.ReactNode): string => renderToStaticMarkup(React.createElement(React.Fragment, null, node))

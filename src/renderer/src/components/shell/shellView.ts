@@ -3,6 +3,7 @@ import type { Account, Attention } from '../../../../core/types'
 import type { Job, JobRun, Task } from '../../../../core/orchestration/types'
 import { afterNameOf, afterQueued, afterStandOf } from '../../../../core/orchestration/after'
 import { jobNameOf } from '../../../../core/orchestration/jobName'
+import type { Translate } from '../checkText'
 
 export interface ShellCounts {
   /** Live consoles: a session whose process still runs. */
@@ -24,16 +25,13 @@ export function shellCounts(
 
 /** "Next: X starts after Y delivers" (W8-C `Job.after`): the oldest still-queued plan, "+N" for the rest, or null when
  *  nothing is queued. A plan whose predecessor stopped says so: it will not start by itself. */
-export function nextQueuedLine(s: { jobs: readonly Job[]; runs: readonly JobRun[]; tasks: readonly Task[] }): string | null {
+export function nextQueuedLine(s: { jobs: readonly Job[]; runs: readonly JobRun[]; tasks: readonly Task[] }, t: Translate): string | null {
   const queued = s.jobs.filter(afterQueued).sort((a, b) => a.createdAt.localeCompare(b.createdAt))
   const job = queued[0]
   if (!job) return null
   const state = { jobs: [...s.jobs], runs: [...s.runs], tasks: [...s.tasks] }
   const after = afterNameOf(state, job.after!)
-  const line =
-    afterStandOf(state, job.after!) === 'stopped'
-      ? `Next: ${jobNameOf(job)} waits on ${after}, which stopped`
-      : `Next: ${jobNameOf(job)} starts after ${after} delivers`
+  const line = t(afterStandOf(state, job.after!) === 'stopped' ? 'shell.next.waits' : 'shell.next.after', { plan: jobNameOf(job), after })
   return queued.length > 1 ? `${line} (+${queued.length - 1})` : line
 }
 

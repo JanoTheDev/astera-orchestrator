@@ -297,6 +297,7 @@ import { readSubagentCount, SUBAGENT_CAP_MAX } from '../core/sessions/subagentCa
 import type { UsageGuardView } from '../core/types'
 import { createPullRequest, readCommits } from '../core/github/prCreate'
 import { fillFromCommits } from '../core/github/fill'
+import { attributionReply } from '../core/attribution/cli'
 
 /** startOrchestration 이 배선에게 돌려주는 손잡이. index.ts 가 이것을 들고 있는다.
  *  **stop 은 동기다** — will-quit 에서 불리므로 비동기 정리는 프로세스가 끝나기 전에 완료될 보장이
@@ -5080,9 +5081,14 @@ export function registerIpc(
   ipcMain.handle('orch.completion', (_e, projectPath: string, runId: string, taskId: string, runtimeId?: string) =>
     orchRouter.completion(projectPath, runId, taskId, runtimeId)
   )
-  ipcMain.handle('orch.command', (_e, projectPath: string, cmd: string, args: Record<string, unknown>, runtimeId?: string) =>
-    orchRouter.command(projectPath, cmd, args, runtimeId)
-  )
+  ipcMain.handle('orch.command', async (_e, projectPath: string, cmd: string, args: Record<string, unknown>, runtimeId?: string) => {
+    // W8-A's blame and stats are read-only git in the project (core/attribution/cli.ts), not Host commands
+    if (cmd === 'attribution-blame' || cmd === 'attribution-stats') {
+      const root = await assertAllowedPath(projectPath).catch(() => null)
+      return root === null ? { status: 403, body: { error: 'not a known project' } } : attributionReply(projectPath, cmd, args ?? {})
+    }
+    return orchRouter.command(projectPath, cmd, args, runtimeId)
+  })
   // The way out, the same as files.unwatch and git.unwatch: the Jobs view unmounts on a rail toggle,
   // and without this main goes on folding a snapshot and sending it to nobody on every orchestration
   // write. The bump is what makes this win against a list that is still awaiting its path check —

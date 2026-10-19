@@ -14,6 +14,14 @@ describe('Agents is the default page', () => {
     setWallView({ kind: 'wall' })
     expect(getWallView()).toEqual({ kind: 'wall' })
   })
+  it("a plan request on the wall always lands, so a plan page's Its consoles filters each time", () => {
+    setWallView({ kind: 'wall', plan: 'j1' })
+    const first = getWallView()
+    expect(first).toEqual({ kind: 'wall', plan: 'j1' })
+    setWallView({ kind: 'wall', plan: 'j1' })
+    expect(getWallView()).not.toBe(first)
+    setWallView({ kind: 'wall' })
+  })
 })
 
 describe('consoleDock: a tile borrows the one xterm a session has', () => {

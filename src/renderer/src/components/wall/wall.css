@@ -12,6 +12,9 @@ button.summary-card__title:hover .summary-card__title-text { text-decoration: un
 .summary-card__facts { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; color: var(--text-dim); font-size: 11px; }
 .summary-card__link { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; cursor: pointer; }
 .summary-card__link:hover { text-decoration: underline; }
+/* W9-J: a Task's or console's branch, opening its worktree (FullConsole details, plan Task cards) */
+.branch-link { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; padding: 0; border: 0; background: none; color: var(--accent); font: inherit; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.branch-link:hover { text-decoration: underline; }
 .summary-rollup { display: flex; flex-direction: column; gap: 6px; }
 /* The one line a board card or History row shows */
 .summary-line { display: block; overflow: hidden; color: var(--text-dim); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }

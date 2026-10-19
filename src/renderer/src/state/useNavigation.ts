@@ -25,9 +25,9 @@ export function useNavigation(app: NavigationDeps): void {
       selectWorkbenchTab, workspaceTree, enterWorkspace, setPendingRun, setPlanPage
     } = app
     return registerNavigation({
-      openPage: (id) => {
+      openPage: (id, plan) => {
         // W9-H: Agents opens on the wall, also from a console open full size (Pages hides the wall off the page)
-        if (id === 'agents') setWallView({ kind: 'wall' })
+        if (id === 'agents') setWallView(plan !== undefined ? { kind: 'wall', plan } : { kind: 'wall' })
         // Settings is still the modal until W9-E's page lands
         if (id === 'settings') return setShowSettings(true)
         // Run configs come with their output drawer (DESIGN.md §1)

@@ -29,6 +29,11 @@
 .field input[type="text"], .field textarea { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--line-soft); padding: 6px; border-radius: var(--radius); }
 /* A field entered line by line, like environment variables — monospaced so the values line up visibly, and resizable in height by the user */
 .field textarea { font-family: var(--mono); font-size: 12px; resize: vertical; }
+/* W9-E: the native <select>s of a settings body (Settings > Projects, delivery), flat on the theme's tokens */
+.field select, .jobs-delivery select { min-height: 28px; padding: 4px 8px; background: var(--elevated); color: var(--text); border: 1px solid var(--line-soft); border-radius: var(--radius); font: inherit; font-size: 12px; cursor: pointer; transition: border-color var(--ease), box-shadow var(--ease); }
+.field select:hover, .jobs-delivery select:hover { border-color: var(--text-faint); }
+.field select:focus-visible, .jobs-delivery select:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--ring); }
+.field select:disabled, .jobs-delivery select:disabled { opacity: 0.6; cursor: default; }
 /* The session-kind toggle (터미널/대화, Task 7) — two labelled buttons, not the icon pair
    WorkbenchTabs's .session-view-toggle uses (that one flips which half of an already-open tab shows;
    this one decides how the session is spawned at all, before anything exists to switch between). */

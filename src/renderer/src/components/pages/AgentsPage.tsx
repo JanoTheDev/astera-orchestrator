@@ -26,6 +26,8 @@ import {
 import { ConsoleStrip, ConsoleTile, PlanPills, WallEmpty, WallToolbar } from '../wall/Wall'
 import { ConsoleHeader, DetailsPanel } from '../wall/FullConsole'
 import { FinishedCard } from '../wall/FinishedCard'
+import { SummaryCard } from '../wall/SummaryCard' // W9-I
+import { useSummaries } from '../../state/useSummaries'
 import type { AppState } from '../../state/appState'
 import '../wall/wall.css'
 
@@ -56,6 +58,7 @@ export function AgentsPage({ sessions, accounts, currentProject, homeDir, active
   const attention = useAttention(useMemo(() => sessions.map((s) => s.id), [sessions]))
   const door = useMemo(() => localDoor(window.api, anchor ?? ''), [anchor])
   const live = usePlanLive(door, showing && anchor !== null)
+  const summaries = useSummaries(showing && anchor !== null ? door : null) // W9-I: the Finished row's cards
 
   const [plan, setPlanState] = useState<PlanFilter>(readPlan)
   const setPlan = (p: PlanFilter): void => {
@@ -66,6 +69,12 @@ export function AgentsPage({ sessions, accounts, currentProject, homeDir, active
       // a window without storage keeps the filter in memory only
     }
   }
+  // openPage('agents', plan): a plan page's "Its consoles" asks for that plan, by Job or Run id (the pills are by Job)
+  const asked = view.kind === 'wall' ? view.plan : undefined
+  useEffect(() => {
+    if (asked !== undefined) setPlan(tree.flatMap((p) => p.plans).find((x) => x.jobId === asked || x.runId === asked)?.jobId ?? asked)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per request (each one is a new view)
+  }, [view])
   const [scope, setScope] = useState<Scope>('project')
   const [filter, setFilter] = useState<StateFilter>('all')
   const [detailsOpen, setDetailsOpen] = useState(true)
@@ -197,9 +206,14 @@ export function AgentsPage({ sessions, accounts, currentProject, homeDir, active
             <section className="wall-finished">
               <h2 className="wall-finished__title">{t('wall.finished.title')}</h2>
               <div className="wall-finished__row">
-                {wall.finished.map((c) => (
-                  <FinishedCard key={c.sessionId} c={c} exitCode={exitOf(c.sessionId)} onOpen={() => open(c.sessionId)} />
-                ))}
+                {wall.finished.map((c) => {
+                  const s = summaries.bySession.get(c.sessionId)
+                  return s ? (
+                    <SummaryCard key={c.sessionId} summary={s} compact onOpen={() => open(c.sessionId)} />
+                  ) : (
+                    <FinishedCard key={c.sessionId} c={c} exitCode={exitOf(c.sessionId)} onOpen={() => open(c.sessionId)} />
+                  )
+                })}
               </div>
             </section>
           )}
