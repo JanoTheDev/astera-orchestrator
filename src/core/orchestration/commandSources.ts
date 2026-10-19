@@ -78,7 +78,14 @@ export function jobsOfItems(s: OrchState, id: string, project?: Project): (item:
 
 /** #119: the plans of `project` that hold GitHub issue `n`, alone or among several. */
 export const plansHoldingIssue = (s: OrchState, project: Project, n: number): string[] =>
-  jobsOfItems(s, GITHUB_SOURCE_ID, project)({ id: String(n) })
+  s.jobs
+    .filter(
+      (j) =>
+        j.source?.id === GITHUB_SOURCE_ID &&
+        (j.projectId === project.id || isSamePath(j.cwd, project.path)) &&
+        j.source.itemId.split(',').some((x) => x.trim() === String(n))
+    )
+    .map((j) => j.id)
 
 /** A source a call names: GitHub, or a plugin the Host has, ready or with why not. */
 type Source = { kind: 'github'; name: string } | { kind: 'plugin'; id: string; name: string; ready: boolean; reason?: string }

@@ -286,6 +286,8 @@ describe('sources-items and sources-show (J10, J16)', () => {
     expect(of({ id: '12', url: 'https://github.com/o/r/issues/12' })).toEqual([single.id])
     expect(of({ id: '6' })).toEqual([])
     expect(plansHoldingIssue(s, project, 7)).toEqual(['job_multi'])
+    expect(plansHoldingIssue(s, project, 12)).toEqual([single.id])
+    expect(plansHoldingIssue(s, project, 6)).toEqual([])
     // With no project the repository is unknown, so such a plan holds nothing
     expect(jobsOfItems(s, 'github')({ id: '5' })).toEqual([])
   })
