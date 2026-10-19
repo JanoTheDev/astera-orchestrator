@@ -63,6 +63,7 @@ import { composeHostDriving } from './drivingWiring'
 import { createUsageGuard } from '../core/orchestration/usageGuard'
 import { usageActivity } from '../core/orchestration/activity'
 import { resumeAfterCrash } from '../core/orchestration/exec/crashResume'
+import { plansMissingReady } from '../core/orchestration/exec/plannerFeedback'
 import { readStateFile } from '../core/orchestration/stateFile'
 import { readAccountReadings } from '../core/usage/accountReadings'
 import { readUsagePauseAt } from '../core/settings/usagePauseAt'
@@ -96,7 +97,7 @@ import { connectCdp } from './workspace/cdp'
 import { freePort, killTree, processStartTimes } from './workspace/native'
 import { defaultGhRunner } from '../core/github/gh'
 import { readUnderstandingFile } from '../core/understanding/read'
-import { copyIntakeFiles, readTextIfAny } from '../core/orchestration/intakeFiles'
+import { copyIntakeFiles, readTextIfAny, writeIntakeText } from '../core/orchestration/intakeFiles'
 import { createPullRequest, pushBranch, readCommits } from '../core/github/prCreate'
 import { git as realGit, isCleanWorktree } from '../core/worktrees/git'
 import { createRunGitRecorder, type RunGitRecorder } from './runGitRecorder'
@@ -408,7 +409,9 @@ async function main(): Promise<void> {
     state: () => orch.state(),
     report: (m) => log.write(m),
     // W7-A: auto-approve, as the Host itself (an agent can never approve)
-    autoStart: async (jobId) => (await orch.handle('jobs-auto-start', { id: jobId })).status < 300
+    autoStart: async (jobId) => (await orch.handle('jobs-auto-start', { id: jobId })).status < 300,
+    // #116: the plan waits on the owner; a refusal (the plan moved on meanwhile) leaves nothing to mark
+    markReady: async (jobId) => void (await orch.handle('jobs-plan-ready', { id: jobId }))
   })
   // W6-G: the usage guard over this Host's own sessions' statusLine readings. `worker-start` and the dispatch loop
   // ask it before a start; the timer below lets a pause end on its own. Its changes are feed lines (and notices).
@@ -931,6 +934,8 @@ async function main(): Promise<void> {
     readUnderstanding: () => readUnderstandingFile(path.join(profileDir, 'understanding.json')),
     // W6-A intake: attached files go beside the Job's plan.md in this profile
     intakeInputs: (jobId, files) => copyIntakeFiles(profileDir, jobId, files),
+    // #119: Let Astera pick's inputs/pick.md
+    writeIntakeText: (jobId, name, text) => writeIntakeText(profileDir, jobId, name, text),
     // W8-C prompts mode: the copied prompt files and the project's PLAN.md, read on this machine
     readIntakeText: (file) => readTextIfAny(file),
     // A Run's changed files and diffs (remote runtime design Phase 10), from this machine's git.
@@ -978,6 +983,14 @@ async function main(): Promise<void> {
         log.write(`the Host's after-load pass failed to start: ${String(err)}`)
       }
       runGit?.onState(orch.state())
+      // #116 fold-in: a plan left waiting before planReadyAt existed gets it once, unless its planner still runs
+      void hostSessions
+        .listSessions()
+        .then(async (list) => {
+          const alive = new Set(list.filter((x) => x.alive).map((x) => x.id))
+          for (const id of plansMissingReady(orch.state(), alive)) await orch.handle('jobs-plan-ready', { id })
+        })
+        .catch((err: unknown) => log.write(`plans waiting without planReadyAt could not be marked: ${String(err)}`))
     },
     // `slack-reload` (P17): absent without the Host's Slack, and the call then answers 501.
     slack: slackWiring ?? undefined,

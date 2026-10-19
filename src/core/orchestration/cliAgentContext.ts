@@ -478,12 +478,16 @@ const SESSION = {
   'jobs-create-from-issue': {
     summary: "create a Job from a GitHub issue of a project, through the Host's gh (the MCP server's create_job_from_issue)",
     detail:
-      "The Job's objective is the issue, quoted as data, its folder is the project's, and it keeps the issue as its source. Refused for a pull request or a closed issue (409) and for an author who is not the repository's owner, a member or a collaborator (403). `jobs create-from-source --source github` makes the same Job, but answers 403 for a closed issue and 404 for a pull request where this command answers 409, as it always has. Takes `jobs create`'s other flags. MCP clients need the \"Let MCP clients act on GitHub\" setting.",
+      "The Job's objective is the issue, quoted as data, its folder is the project's, and it keeps the issue as its source. A pull request, a closed issue and an issue whose author is not the repository's owner, a member or a collaborator are skipped and listed (`skipped: [{number, why}]`); the call is refused only when none is left: for one issue, 409 for a pull request or a closed issue and 403 for the author. `--auto` (\"Let Astera pick\") picks from every open issue itself: it skips those, issues another plan of the project holds and issues assigned to someone else, puts `bug`-labelled ones first and then the oldest, and makes chained plans of at most 20 related issues (each after the one before; more than one needs --coordinator-account), each with `pick` and an inputs/pick.md saying why; it answers `{jobs: [{id, issues}], skipped}`. `jobs create-from-source --source github` makes the same Job, but answers 403 for a closed issue and 404 for a pull request where this command answers 409, as it always has. Takes `jobs create`'s other flags. MCP clients need the \"Let MCP clients act on GitHub\" setting.",
     flags: [
       req('project', '<projectId>', 'the project whose repository to read (from `projects list`)'),
       { name: 'number', value: '<n>', about: 'the issue number (or --issue)' },
       // W6-A: several issues make one Job
-      { name: 'issue', value: '<n>[,<n>…]', about: 'the issue numbers, comma-separated (at most 20); one refused issue refuses the call' },
+      { name: 'issue', value: '<n>[,<n>…]', about: 'the issue numbers, comma-separated (at most 20); one that cannot become a Job is skipped and listed' },
+      // #119 Let Astera pick
+      { name: 'auto', about: 'pick the issues from every open one (no --issue or --number), in chained plans of at most 20' },
+      { name: 'label', value: '<name>', about: 'with --auto: only issues with this label' },
+      { name: 'max', value: '<n>', about: 'with --auto: at most this many issues' },
       { name: 'assign-me', about: 'assign each issue to you first (gh issue edit --add-assignee @me)' },
       ...(USAGE['jobs-create'].flags ?? []).filter((f) => f.name !== 'objective' && f.name !== 'cwd')
     ]

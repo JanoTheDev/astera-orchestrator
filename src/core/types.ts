@@ -1,4 +1,4 @@
-import type { PlanFeedback } from './orchestration/types'
+import type { Decision, IssuePick, PlanFeedback } from './orchestration/types'
 import type { WorktreeDetail, WorktreeRow } from './worktrees/cleanup'
 import type { SlashCommand } from './commands/slashCommands'
 import type { RunConfig, RunStatus, SaveConfigsResult } from './run/config'
@@ -741,6 +741,16 @@ export interface JobRow {
   rejected?: { at: string; reason?: string }
   /** W8-F (#94): `validatePlan`'s problems for a plan waiting for approval; absent when it holds. */
   planProblems?: string[]
+  /** #116: the plan can be approved now (`planApprovable`): the only time an Approve is shown. Absent while planning. */
+  planReady?: true
+  /** #116: the plan starts by itself once it holds (`autoApproveOf`: its own setting, else its project's). */
+  autoApprove?: true
+  /** #117: the plan runs hands-off (`handsOffOf`: its own setting, else its project's). Absent: it does not. */
+  handsOff?: true
+  /** #117: what a hands-off plan decided for the owner (Job.decisions), in order; absent when nothing was. */
+  decisions?: Decision[]
+  /** #119: why each issue was picked or skipped (Job.pick). */
+  pick?: { at: string; picked: IssuePick[]; skipped: IssuePick[] }
   // W5-C: the plan is held from launching new workers (Job.dispatchHold)
   dispatchHold?: true
   /** W8-D: where this plan meets another plan of its project, one line each (overlap.ts overlapLines); the approve area

@@ -259,6 +259,16 @@ You answer your workers' questions. The owner hears only what needs them.
   straight to the worker's open question, and you get a copy in your inbox: a `status` message with the subject
   `the owner answered`. If the worker no longer waits on a question (it stopped), that copy says so; pass the answer on
   (`sessions send` to the worker, or a new worker start with it in the spec).
+- **On a hands-off plan (#117) you answer escalations yourself.** The owner chose to have nothing wait on them
+  (`jobs create --hands-off`, `jobs plan --hands-off on`, or the project's `projects set --hands-off on`; your brief
+  says so). An escalation on it, a worker's or yours, is yours to decide: `astera questions answer --id <escalation id> --answer "<choice>. Why:
+  <reason>"`. Always write the reason, and never ask the owner. Only the plan's own running coordinator may do this;
+  any other session is refused. The guardrails still hold: no force-push, no push or merge to the default branch
+  unless the plan's delivery says so, no deleting data outside the plan's worktrees, no spending beyond the accounts'
+  limits. Astera answers the plan's Gates itself (attempts or review rounds ran out: `retry-once` first, then
+  `mark-failed`) and refuses the guardrail cases for you. A question it has no safe answer for reaches you as a
+  `status` message, "Decide for the owner: <id>": answer it with `astera questions answer --id <id> --answer
+  "<choice>. Why: <reason>"`. Every answer is recorded on the plan as a decision the owner reads at the end.
 - **Prefer acting on the safe default over asking.** When an answer is safe and reversible (hold a Task until another
   merges, wait, retry once, skip a check that cannot run), take it, and note what you did in a `status` message
   instead of escalating. Astera answers such questions itself anyway (setting "Answer questions automatically", on by

@@ -8,7 +8,7 @@
 // (host/activity.ts `planReadyActivity`, once per feedback round). **While the plan runs** the feedback starts a W6-D
 // replan at once (`jobs-replan --feedback`), with W6-D's rules: only Tasks that have not started change.
 import type { OrchServerDeps } from '../command'
-import { projectOfJob } from '../delivery'
+import { handsOffOf, projectOfJob } from '../delivery'
 import { buildPlannerBrief } from '../handover'
 // W8-D several plans in one repo
 import { otherPlansBrief } from '../overlap'
@@ -17,14 +17,14 @@ import { cancelPlanTask, plannerJobOf, validatePlan } from '../planner'
 import { replanJobOf } from '../replan'
 import { outcomeOfTasks } from '../running'
 import type { OrchState } from '../state'
-import { DEFAULT_CONCURRENCY, type Job, type PlanFeedback } from '../types'
+import { DEFAULT_CONCURRENCY, type Decision, type Job, type PlanFeedback } from '../types'
 import { replanCommand } from './replanStart'
 
 type Reply = { status: number; body: unknown }
 type Caller = { sessionId: string; role?: 'app' | 'cli' | 'mcp' | 'controller' | 'plugin' }
 type Handle = (deps: OrchServerDeps, caller: Caller, cmd: string, args: Record<string, unknown>) => Promise<Reply>
 
-export const FEEDBACK_COMMANDS: ReadonlySet<string> = new Set(['jobs-feedback', 'jobs-reject', 'jobs-feedback-done', 'jobs-auto-start'])
+export const FEEDBACK_COMMANDS: ReadonlySet<string> = new Set(['jobs-feedback', 'jobs-reject', 'jobs-feedback-done', 'jobs-auto-start', 'jobs-plan-ready'])
 /** The longest feedback or reason kept. */
 export const FEEDBACK_TEXT_MAX = 4000
 /** At most this many change lines per feedback round, each at most CHANGE_LINE_MAX characters. */
@@ -38,11 +38,34 @@ const notFound = (error: string): Reply => ({ status: 404, body: { error } })
 const conflict = (error: string): Reply => ({ status: 409, body: { error } })
 const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() !== '' ? v.trim() : null)
 
-/** Whether a plan starts on its own once it holds: the Job's own setting, else its project's, else no. */
-export const autoApproveOf = (s: OrchState, job: Job): boolean => job.autoApprove ?? projectOfJob(s, job)?.autoApprove ?? false
+// #117: beside deliveryOf, so the pure delivery and state code reads it too
+export { handsOffOf }
+
+/** Whether a plan starts on its own once it holds: the Job's own setting, else its project's, else no. A hands-off
+ *  plan always does (#117). */
+export const autoApproveOf = (s: OrchState, job: Job): boolean =>
+  handsOffOf(s, job) || (job.autoApprove ?? projectOfJob(s, job)?.autoApprove ?? false)
 
 /** A plan waiting for its approval (W2-A): not started, and planned. */
 const awaitsApproval = (job: Job): boolean => job.pendingStart === true && job.plannerSessionIds !== undefined
+
+/** #116: a plan the owner can approve now, the rule every Approve on screen follows: it awaits approval, its planner
+ *  ended a turn on it (Job.planReadyAt: never set on an auto-approve plan whose own start went through), and it still
+ *  holds. `awaitsApproval` stays the Host's own guard (run-start, jobs-reject). */
+export const planApprovable = (s: OrchState, job: Job): boolean =>
+  awaitsApproval(job) && job.planReadyAt !== undefined && validatePlan(s, job.id).length === 0
+
+/** #116 fold-in: plans that waited for approval before `planReadyAt` existed carry none, so no screen ever offered
+ *  Approve. At Host start these are the Jobs to mark ready: awaiting approval, not archived, no `planReadyAt`, the plan
+ *  holds, and none of its planner sessions is alive (a live planner's Stop hook marks it itself). */
+export const plansMissingReady = (s: OrchState, alive: ReadonlySet<string>): string[] =>
+  s.jobs
+    .filter(
+      (j) =>
+        awaitsApproval(j) && isJobActive(j) && j.planReadyAt === undefined && !(j.plannerSessionIds ?? []).some((id) => alive.has(id)) &&
+        validatePlan(s, j.id).length === 0
+    )
+    .map((j) => j.id)
 
 const oneLine = (t: string): string => t.replace(/\s+/g, ' ').trim()
 
@@ -154,6 +177,16 @@ export async function feedbackCommand(deps: OrchServerDeps, caller: Caller, cmd:
     return ok({ id: jobId, rejected })
   }
 
+  // #116: the Host's mark that the planner ended a turn on a plan that holds and the plan now waits on the owner
+  // (host/activity.ts, on the planner's Stop hook). Only from then on does the app offer Approve.
+  if (cmd === 'jobs-plan-ready') {
+    if (!awaitsApproval(job) || !isJobActive(job)) return conflict(`job ${jobId} is not a plan waiting for approval`)
+    const problems = validatePlan(s, jobId)
+    if (problems.length) return { status: 400, body: { error: `the plan does not hold: ${problems.join('; ')}`, problems } }
+    await setJob(jobId, (j) => ({ ...j, planReadyAt: now }))
+    return ok({ jobId, planReadyAt: now })
+  }
+
   if (cmd === 'jobs-auto-start') {
     if (!awaitsApproval(job) || !isJobActive(job)) return conflict(`job ${jobId} is not a plan waiting for approval`)
     if (!autoApproveOf(s, job)) return conflict(`job ${jobId} is not set to auto-approve`)
@@ -162,7 +195,9 @@ export async function feedbackCommand(deps: OrchServerDeps, caller: Caller, cmd:
     const tasks = s.tasks.filter((t) => t.jobId === jobId && t.runId === undefined).length
     const reply = await handle(deps, caller, 'run-start', { run: jobId })
     if (reply.status >= 300) return reply
-    await setJob(jobId, (j) => ({ ...j, autoStartedAt: now }))
+    // #117: a hands-off plan's start is the first decision it makes for the owner
+    const approval: Decision = { at: now, kind: 'approval', question: 'Start the plan?', choice: 'started', why: `the plan holds (${tasks} tasks) and runs hands-off` }
+    await setJob(jobId, (j) => ({ ...j, autoStartedAt: now, ...(handsOffOf(s, j) ? { decisions: [...(j.decisions ?? []), approval] } : {}) }))
     return ok({ jobId, tasks })
   }
 
@@ -172,7 +207,9 @@ export async function feedbackCommand(deps: OrchServerDeps, caller: Caller, cmd:
   if (text.length > FEEDBACK_TEXT_MAX) return bad(`--text is at most ${FEEDBACK_TEXT_MAX} characters`)
   if (!isJobActive(job)) return conflict(`job ${jobId} is archived: unarchive it first`)
   const entry = (phase: PlanFeedback['phase']): PlanFeedback => ({ at: now, text, phase })
-  const record = (f: PlanFeedback): Promise<void> => setJob(jobId, (j) => ({ ...j, feedback: [...(j.feedback ?? []), f] }))
+  // #116: a feedback round on the plan is a new planning round: not ready again until the planner ends its turn
+  const record = (f: PlanFeedback): Promise<void> =>
+    setJob(jobId, ({ planReadyAt, ...j }) => ({ ...j, ...(f.phase === 'run' && planReadyAt ? { planReadyAt } : {}), feedback: [...(j.feedback ?? []), f] }))
 
   if (!awaitsApproval(job)) {
     if (job.plannerSessionIds === undefined) return conflict(`job ${jobId} was not planned: there is no planner to talk to`)

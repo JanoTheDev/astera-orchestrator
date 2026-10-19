@@ -142,6 +142,9 @@ export interface Project {
   // ── W7-B project settings (projects.ts `setProjectSettings`); each absent field reads as its PROJECT_DEFAULTS entry ──
   /** W7-A: a plan of this project starts on its own once it holds, with no approval by the owner. */
   autoApprove?: boolean
+  /** #117: plans of this project run hands-off (`handsOffOf`): they start on their own, their coordinator answers its
+   *  own escalations, and their workers and planner run with permissions bypassed. Implies auto-approve. */
+  handsOff?: boolean
   /** The run configuration (run-configs.json) that is this project's test command: the check a new Task of the
    *  project is validated with when it names none (`createTask`). */
   testConfigId?: string
@@ -163,10 +166,17 @@ export interface Project {
 export const PROJECT_DEFAULTS = {
   delivery: 'pr',
   autoApprove: false,
+  handsOff: false,
   concurrency: DEFAULT_CONCURRENCY,
   reviewRounds: MAX_REVIEW_ROUNDS,
   replan: 'waves'
 } as const
+
+/** #117: one call a hands-off plan made in the owner's place (`Job.decisions`). */
+export type Decision = { at: string; kind: 'approval' | 'escalation' | 'gate' | 'refused'; taskId?: string; question: string; choice: string; why: string }
+
+/** #119: an issue "Let Astera pick" picked or skipped, and why (`Job.pick`). */
+export type IssuePick = { number: number; title: string; why: string }
 
 /** W6-H: how a finished plan lands (`deliveryOf`). */
 export type DeliveryMode = 'pr' | 'push'
@@ -309,10 +319,20 @@ export interface Job {
   // W7-A plan feedback (exec/plannerFeedback.ts)
   /** This plan's own auto-approve, ahead of its project's (`autoApproveOf`). Absent: the project's. */
   autoApprove?: boolean
+  /** #117: this plan's own hands-off, ahead of its project's (`handsOffOf`). Absent: the project's. */
+  handsOff?: boolean
+  /** #117: what was decided for the owner on a hands-off plan, appended in order. */
+  decisions?: Decision[]
+  /** #119: why each issue was picked or skipped by "Let Astera pick". */
+  pick?: { at: string; picked: IssuePick[]; skipped: IssuePick[] }
   /** What the owner told the planner (`jobs-feedback`), oldest first, with what the planner changed for each. */
   feedback?: PlanFeedback[]
   /** When the plan started on its own, with no approval step (`jobs-auto-start`). */
   autoStartedAt?: string
+  /** #116: when the planner last ended a turn on a plan that holds and the plan waits on the owner (`jobs-plan-ready`,
+   *  from the Host's Stop hook): an "ask" plan, or an auto-approve plan whose own start did not go through. Cleared when
+   *  a new planner round starts and when the plan starts. Absent: still planning, so there is nothing to approve. */
+  planReadyAt?: string
   /** The owner rejected the plan (`jobs-reject`): it is archived with this, and unarchiving keeps it as a record. */
   rejected?: { at: string; reason?: string }
   // W8-C plan after plan (schedule.ts / blocked.ts / exec/dispatchLoop.ts)

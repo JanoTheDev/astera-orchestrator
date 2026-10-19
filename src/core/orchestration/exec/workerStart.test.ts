@@ -65,6 +65,20 @@ describe('startWorkerWithChain', () => {
   })
 })
 
+describe('startWorkerWithChain — #117 hands-off', () => {
+  const start = async (s: OrchState, taskId: string) => {
+    const startWorker = vi.fn().mockResolvedValue({ sessionId: 'ses_1', cwd: 'D:/p', specPath: 'D:/s.md' })
+    await startWorkerWithChain({ getState: () => s, accounts: async () => [acct('a1')], loginStatus: async () => true, coordinator: { startWorker }, tails: new WorkerTails(), log: () => {}, roleModels: async () => ({}) }, args(taskId))
+    return startWorker.mock.calls[0][0]
+  }
+  it("a hands-off Job's worker starts with the bypass; another Job's leaves it to the app-wide setting", async () => {
+    const { s, taskId } = stateWithTask()
+    expect((await start(s, taskId)).bypassPermissions).toBeUndefined()
+    const handsOff = { ...s, jobs: s.jobs.map((j) => ({ ...j, handsOff: true })) }
+    expect((await start(handsOff, taskId)).bypassPermissions).toBe(true)
+  })
+})
+
 describe('startWorkerWithChain — role models (W1-A)', () => {
   const started = { sessionId: 'ses_1', cwd: 'D:/p', specPath: 'D:/s.md' }
   const withTask = (s: OrchState, taskId: string, patch: object): OrchState =>
@@ -174,6 +188,15 @@ describe('startCoordinatorSession', () => {
     const s2 = { ...s, jobs: s.jobs.map((j) => ({ ...j, models: { coordinator: 'sonnet' } })) }
     await startCoordinatorSession({ ...base, getState: () => s2 }, { runId, cwd: 'D:/p', accountId: 'a1', brief: 'B' })
     expect(spawn.mock.calls[1][0].model).toBe('sonnet')
+  })
+  it("#117: a hands-off Job's coordinator starts with the bypass even when the app-wide setting is off", async () => {
+    const spawn = vi.fn().mockResolvedValue({ id: 'ses_c' })
+    const { s } = stateWithTask()
+    const handsOff = { ...s, jobs: s.jobs.map((j) => ({ ...j, handsOff: true })) }
+    const ctx = { specsDir: dir, preTrust: vi.fn().mockResolvedValue(undefined), bypassPermissions: async () => false, spawn, log: () => {}, accounts: async () => [acct('a1')], roleModels: async () => ({}) }
+    await startCoordinatorSession({ ...ctx, getState: () => s }, { runId: s.runs[0].id, cwd: 'D:/p', accountId: 'a1', brief: 'B' })
+    await startCoordinatorSession({ ...ctx, getState: () => handsOff }, { runId: s.runs[0].id, cwd: 'D:/p', accountId: 'a1', brief: 'B' })
+    expect(spawn.mock.calls.map((c) => c[0].bypassPermissions)).toEqual([false, true])
   })
 })
 

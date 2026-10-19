@@ -70,6 +70,8 @@ export function buildHandoverPrompt(a: {
   accountId?: string
   /** A prompts-mode Job (`Job.verbatim`): its Tasks are the owner's prompts, planned and approved already. */
   promptsMode?: boolean
+  /** #117: the plan runs hands-off (`handsOffOf`): its coordinator decides escalations itself. */
+  handsOff?: boolean
 }): string {
   const sequential = a.concurrency <= 1
   // A Job from MCP `create_job` or `jobs create` carries only its objective (e2e 2026-10-01, second
@@ -191,7 +193,21 @@ export function buildHandoverPrompt(a: {
     'WHEN A PERSON IS ACTUALLY NEEDED',
     '`astera gate-create --task <tsk> --question -` opens a Gate and the person answers it in the',
     'app. A Gate cannot be created for a Task that has an open dispatch — if that worker must not',
-    'carry on, stop it first with `worker-stop`.'
+    'carry on, stop it first with `worker-stop`.',
+    ...(a.handsOff
+      ? [
+          '',
+          'THIS PLAN IS HANDS-OFF',
+          'The owner chose to have nothing wait on them. You decide escalations yourself:',
+          '`astera questions answer --id <msg> --answer "<your choice>. Why: <your reason>"`. Always write the reason.',
+          'Never ask the owner and never leave an escalation open for them; prefer the choice that keeps the plan',
+          'moving within its objective. The guardrails still hold, whatever an answer would gain:',
+          '- no force-push;',
+          "- no push or merge to the default branch unless the plan's delivery says so;",
+          "- no deleting data outside this plan's worktrees;",
+          "- no spending beyond the accounts' limits."
+        ]
+      : [])
   ].join('\n')
 }
 

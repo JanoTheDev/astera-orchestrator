@@ -17,7 +17,9 @@ import {
 import { coordinatorReleaseOf } from './releaseDefer'
 import { handleCommand, type OrchServerDeps } from '../command'
 import { APP_CALLER } from '../../host/driver'
-import { COORDINATOR_START_WINDOW_MS, emptyState, type OrchState } from '../state'
+import { addDecision, COORDINATOR_START_WINDOW_MS, emptyState, type OrchState } from '../state'
+import { needsInput } from '../sessionIndex'
+import { ASK_GRACE_MS } from './autoAnswer'
 import type { Dispatch, Job, Message, Task } from '../types'
 import { FAILURE_LIMIT } from '../types'
 import type { Account } from '../../types'
@@ -2216,5 +2218,101 @@ describe('a plan queued after another (W8-C)', () => {
     h.setState({ ...s, jobs: s.jobs.map((j) => (j.id === 'job_prev' ? { ...j, nothingToDo: { at: NOW, summary: 'built' } } : j)) })
     await pass(h)
     expect(planned(h)).toBe(1)
+  })
+})
+
+// #117: a hands-off plan runs to its end with nothing in the owner's Inbox, and every call it made recorded
+describe('a hands-off plan decides for the owner (#117)', () => {
+  it('an exhausted Gate (retry-once, then mark-failed) and an escalation its coordinator decides: zero Inbox items, three decisions', async () => {
+    const T = Date.parse('2026-10-19T00:00:00.000Z')
+    let clock = T
+    let state: OrchState = emptyState()
+    const deps = {
+      getState: () => state,
+      setState: async (next: OrchState) => {
+        state = next
+      },
+      listAccounts: () => [{ id: 'acc1', label: 'a', provider: 'claude' }],
+      now: () => new Date(clock).toISOString()
+    } as unknown as OrchServerDeps
+    const host = (cmd: string, args: Record<string, unknown>) => handleCommand(deps, { sessionId: '' }, cmd, args)
+    await host('run-create', { objective: 'o', cwd: '/p' })
+    await host('task-create', { spec: 's', account: 'acc1', title: 'T1 · Login' })
+    // A second Task keeps the plan running once the first is given up
+    await host('task-create', { spec: 's', account: 'acc1', title: 'T2 · Signup' })
+    const taskId = state.tasks[0].id
+    const runId = state.runs[0].id
+    state = {
+      ...state,
+      jobs: state.jobs.map((j) => ({ ...j, handsOff: true })),
+      runs: state.runs.map((r) => ({ ...r, coordinatorSessionId: 'coord_1' }))
+    }
+    const exhausted = async (): Promise<string> => {
+      const r = await host('gate-create', { task: taskId, question: 'Checks failed 3 times' })
+      const id = (r.body as { id: string }).id
+      // The Host's own kind and answers, as gateOnFailure opens it
+      state = { ...state, gates: state.gates.map((g) => (g.id === id ? { ...g, kind: 'convergence-exhausted' as const, options: ['retry-once', 'mark-failed'] } : g)) }
+      return id
+    }
+    const g1 = await exhausted()
+    const other = state.tasks[1].id
+    const escalation: Message = { id: 'msg_esc1', runId, type: 'escalation', taskId: other, subject: 'Blue or green for the button?', body: '', answered: false, createdAt: new Date(clock).toISOString() }
+    state = { ...state, messages: [...state.messages, escalation] }
+    const loop = createDispatchLoop({
+      handle: host,
+      getState: () => state,
+      accounts: () => [],
+      loginStatus: async () => true,
+      lang: () => 'en',
+      sessionAlive: () => true,
+      sessionBusy: () => null,
+      typeInto: () => {},
+      // The global setting is off: a hands-off plan is answered anyway
+      autoAnswer: () => false,
+      activity: () => {},
+      recordDecision: async (jobId: string, d: Parameters<typeof addDecision>[2]) => {
+        state = addDecision(state, jobId, d)
+      },
+      mayStart: () => true,
+      log: () => {},
+      nowMs: () => clock
+    } as unknown as DispatchLoopContext)
+    const tick = async (ms: number): Promise<void> => {
+      clock += ms
+      await loop.nudge()
+    }
+
+    await tick(1_000)
+    expect(state.gates.find((g) => g.id === g1)).toMatchObject({ status: 'resolved', resolution: 'retry-once' })
+    // The escalation is its coordinator's first: nothing within the grace
+    expect(state.messages.some((m) => m.subject.startsWith('Decide for the owner'))).toBe(false)
+
+    // The retry failed too: the next exhausted Gate is given up, so the plan carries on
+    state = { ...state, tasks: state.tasks.map((t) => (t.id === taskId ? { ...t, status: 'ready' as const } : t)) }
+    const g2 = await exhausted()
+    await tick(ASK_GRACE_MS)
+    expect(state.gates.find((g) => g.id === g2)).toMatchObject({ status: 'resolved', resolution: 'mark-failed' })
+    const told = state.messages.filter((m) => m.subject === 'Decide for the owner: msg_esc1')
+    expect(told).toHaveLength(1)
+    expect(told[0].body).toContain('astera questions answer --id msg_esc1')
+
+    // The coordinator decides in the owner's place; the Host records it on its next tick
+    const answered = await handleCommand(deps, { sessionId: 'coord_1' }, 'questions-answer', { id: 'msg_esc1', answer: 'blue: it matches the brand colours' })
+    expect(answered).toMatchObject({ status: 200 })
+    await tick(1_000)
+    await tick(1_000)
+    expect(state.jobs[0].decisions?.map((d) => [d.kind, d.choice])).toEqual([
+      ['gate', 'retry-once'],
+      ['gate', 'mark-failed'],
+      ['escalation', 'blue: it matches the brand colours']
+    ])
+    expect(state.jobs[0].decisions?.[2]).toMatchObject({ taskId: other, question: 'Blue or green for the button?', why: 'blue: it matches the brand colours' })
+
+    const tree = [{ id: 'p1', name: 'P', path: '/p', plans: [{ jobId: state.jobs[0].id, projectId: 'p1', name: 'o', planner: [], coordinator: [], workers: [] }] }]
+    const inbox = (jobs: Job[]) =>
+      needsInput({ tree, jobs, runs: state.runs, tasks: state.tasks, gates: state.gates, escalations: [...state.messages.filter((m) => m.type === 'escalation'), { ...escalation, id: 'msg_esc2' }], attention: {} })
+    expect(inbox(state.jobs)).toEqual([])
+    // The same state on a plan that is not hands-off would hold the still-open escalation for the owner
+    expect(inbox(state.jobs.map((j) => ({ ...j, handsOff: false }))).map((i) => i.kind)).toEqual(['escalation'])
   })
 })

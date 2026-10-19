@@ -12,7 +12,19 @@ export const GITHUB_SOURCE_ID = 'github'
 export const GITHUB_PAGE = 30
 
 /** An issue as an item a person may or may not pick. */
-export type IssueItem = SourceItem & { selectable: boolean; reason?: string }
+export type IssueItem = SourceItem & { selectable: boolean; reason?: string; assignees: string[] }
+
+/** #119: whom an issue is assigned to, as a filter: anyone or no one, the person gh is logged in as, or someone else. */
+export type AssigneeFilter = 'all' | 'none' | 'me' | 'others'
+export const ASSIGNEE_FILTERS: readonly AssigneeFilter[] = ['all', 'none', 'me', 'others']
+const ASSIGNEE_QUALIFIER: Record<AssigneeFilter, string> = {
+  all: '',
+  none: ' no:assignee',
+  me: ' assignee:@me',
+  others: ' is:assigned -assignee:@me'
+}
+/** The search API answers no result past the 1000th. */
+const SEARCH_RESULTS_MAX = 1000
 
 /** The search qualifiers that would leave the repository or the open issues: GitHub ORs two `repo:` qualifiers, so a
  *  person's own would widen the search (Review Focus 4). A leading `-` is the negated form. */
@@ -32,6 +44,7 @@ const itemOf = (issue: GhIssue): IssueItem => {
     title: issue.title,
     status: issue.state,
     url: issue.url,
+    assignees: issue.assignees,
     ...(issue.body !== '' ? { summary: Array.from(issue.body).slice(0, SUMMARY_MAX).join('') } : {}),
     selectable: reason === undefined,
     ...(reason !== undefined ? { reason } : {})
@@ -53,13 +66,13 @@ const repoNames = new WeakMap<GhRunner, Map<string, { slug: string; at: number }
 export async function listIssueItems(
   gh: GhRunner,
   cwd: string,
-  /** `mine` (W6-A): only the issues assigned to the person gh is logged in as (`assignee:@me`). */
-  q: { query?: string; cursor?: string; mine?: boolean },
+  /** `assignee` (#119) narrows by assignment, which needs the search API; `mine` (W6-A) is the old spelling of `me`. */
+  q: { query?: string; cursor?: string; mine?: boolean; assignee?: AssigneeFilter },
   now: () => number = Date.now
 ): Promise<{ ok: true; items: IssueItem[]; nextCursor?: string } | GhFailed> {
   const page = q.cursor === undefined || q.cursor === '' ? 1 : /^[1-9][0-9]{0,3}$/.test(q.cursor) ? Number(q.cursor) : NaN
   if (!Number.isFinite(page)) return failed(`the cursor ${q.cursor} is not a page number`)
-  const query = `${(q.query ?? '').replace(LEAVING, ' ')}${q.mine === true ? ' assignee:@me' : ''}`.replace(/\s+/g, ' ').trim()
+  const query = `${(q.query ?? '').replace(LEAVING, ' ')}${ASSIGNEE_QUALIFIER[q.assignee ?? (q.mine === true ? 'me' : 'all')]}`.replace(/\s+/g, ' ').trim()
   let raw: unknown[]
   /** The repository a search was kept to, in GitHub's case-blind form; null for the list, which is the repository's. */
   let searched: string | null = null
@@ -97,7 +110,27 @@ export async function listIssueItems(
     if (issue === null || issue.isPullRequest) return []
     return searched !== null && repoOf(issue.url).toLowerCase() !== searched ? [] : [itemOf(issue)]
   })
-  return { ok: true, items, ...(raw.length === GITHUB_PAGE ? { nextCursor: String(page + 1) } : {}) }
+  const more = raw.length === GITHUB_PAGE && (searched === null || page * GITHUB_PAGE < SEARCH_RESULTS_MAX)
+  return { ok: true, items, ...(more ? { nextCursor: String(page + 1) } : {}) }
+}
+
+/** #119: every page of the open issues `q` names, following the cursor to its end (or to the search's 1000th result).
+ *  For "Let Astera pick", which must see all of them. */
+export async function listAllIssueItems(
+  gh: GhRunner,
+  cwd: string,
+  q: { query?: string; mine?: boolean; assignee?: AssigneeFilter },
+  now: () => number = Date.now
+): Promise<{ ok: true; items: IssueItem[] } | GhFailed> {
+  const items: IssueItem[] = []
+  let cursor: string | undefined
+  do {
+    const r = await listIssueItems(gh, cwd, { ...q, ...(cursor !== undefined ? { cursor } : {}) }, now)
+    if (!r.ok) return r
+    items.push(...r.items)
+    cursor = r.nextCursor
+  } while (cursor !== undefined)
+  return { ok: true, items }
 }
 
 /** Issue `id` read whole, checked and cut as a plugin's item is (4a final review M1), and whether it may become a Job. */

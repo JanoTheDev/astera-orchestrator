@@ -458,6 +458,8 @@ const NOT_FORWARDED = [
   'readSummaries',
   // W6-A intake
   'intakeInputs',
+  // #119 Let Astera pick
+  'writeIntakeText',
   // W8-C prompts mode
   'readIntakeText',
   // W10-A Run as written by name
@@ -616,6 +618,8 @@ const EFFECTFUL: Record<Classified, boolean> = {
   // NOT_FORWARDED as well (W6-A intake): files copied into this Host's profile, never the app's. The Job it is for is
   // a commit of the same command.
   intakeInputs: true,
+  // NOT_FORWARDED as well (#119): pick.md written into this Host's profile, for a Job made by the same command.
+  writeIntakeText: true,
   // NOT_FORWARDED as well (W8-C prompts mode): a read of this Host's machine's files; it leaves nothing outside the call.
   readIntakeText: false,
   // NOT_FORWARDED as well (W10-A): a listing of this Host's machine's folders; it leaves nothing outside the call.
@@ -761,6 +765,8 @@ export function hostOrchDeps(a: {
   readSummaries?: OrchServerDeps['readSummaries']
   /** W6-A intake: attached files into this Host's profile. Absent: `jobs-create --attach` and audits answer 409. */
   intakeInputs?: OrchServerDeps['intakeInputs']
+  /** #119: Let Astera pick's pick.md into this Host's profile. Absent: the Job keeps `pick` alone. */
+  writeIntakeText?: OrchServerDeps['writeIntakeText']
   /** W8-C prompts mode: Run-as-written prompt files and PLAN.md, read on this Host. Absent: `--mode prompts --attach` answers 409. */
   readIntakeText?: OrchServerDeps['readIntakeText']
   /** W10-A: the prompts folder's files, listed on this Host. Absent: prompt names in Run as written answer 409. */
@@ -1372,6 +1378,7 @@ export function hostOrchDeps(a: {
     ...(a.readUnderstanding ? { readUnderstanding: a.readUnderstanding } : {}),
     ...(a.readSummaries ? { readSummaries: a.readSummaries } : {}), // W9-I
     ...(a.intakeInputs ? { intakeInputs: a.intakeInputs } : {}),
+    ...(a.writeIntakeText ? { writeIntakeText: a.writeIntakeText } : {}), // #119
     // W8-C prompts mode
     ...(a.readIntakeText ? { readIntakeText: a.readIntakeText } : {}),
     // W10-A Run as written by name

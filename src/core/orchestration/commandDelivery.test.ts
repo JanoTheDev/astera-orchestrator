@@ -214,6 +214,16 @@ describe('delivery helpers (W6-H)', () => {
     expect(esc).toEqual([expect.objectContaining({ runId: 'r1', payload: expect.objectContaining({ title: 'Fix auth', reason: 'Delivery stopped: conflict' }) })])
     expect(noticeOf({ ...esc[0], id: 'e2', sequence: 2, occurredAt: NOW } as ActivityEvent)).toMatchObject({ alert: true })
   })
+
+  it('#117: on a hands-off plan a stop is a refused decision and a plan.refused line, not an escalation', () => {
+    const base = setup({ project: { delivery: 'push', handsOff: true } }).state()
+    const stopped = recordDelivery(base, 'r1', { at: NOW, branch: 'main', error: 'checks failed' })
+    expect(stopped.messages.filter((m) => m.type === 'escalation')).toEqual([])
+    expect(stopped.jobs[0].decisions).toEqual([
+      { at: NOW, kind: 'refused', question: 'Push the plan to main?', choice: 'not pushed', why: 'Delivery stopped: checks failed' }
+    ])
+    expect(deriveActivity(base, stopped).map((l) => l.type)).toEqual(['plan.refused'])
+  })
 })
 
 describe('worktrees are cleaned once a plan is delivered (W9-J)', () => {

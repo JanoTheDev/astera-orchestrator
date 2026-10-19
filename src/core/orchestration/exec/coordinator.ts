@@ -808,6 +808,8 @@ export class OrchCoordinator {
      *  whose branch it forks from (the Run's worktree), `merge` the dep worktrees merged into it before
      *  the worker starts. Set by startWorkerWithChain, which reads the state this class does not. */
     fork?: { base: string; merge: string[] }
+    /** #117: true for a hands-off plan's worker (set by startWorkerWithChain). Absent: the wiring's app-wide setting. */
+    bypassPermissions?: true
   }): Promise<{ sessionId: string; cwd: string; specPath: string }> {
     const actual = this.deps.accountProvider(a.accountId)
     if (actual === null) throw new Error(`unknown account: ${a.accountId}`)
@@ -999,6 +1001,8 @@ export class OrchCoordinator {
         // 다시 띄워야 했다.
         rollAccountIds: a.rollAccountIds,
         ...(a.model ? { model: a.model } : {}),
+        // #117: a hands-off plan's own choice wins over the app-wide setting the wiring fills in
+        ...(a.bypassPermissions ? { bypassPermissions: true } : {}),
         // W6-B: a claude worker asks with `astera ask`, which the coordinator answers, never Claude's own question tool,
         // which only a person at the tab can answer. Permission prompts are untouched.
         ...(a.provider === 'claude' ? { disallowedTools: WORKER_DISALLOWED_TOOLS } : {}),

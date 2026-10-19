@@ -130,6 +130,8 @@ export function renameProject(s: OrchState, id: string, name: string): Res<Proje
  *  given as null is cleared, so the project reads PROJECT_DEFAULTS for it again; one left out is kept. */
 export type ProjectSettingsPatch = {
   autoApprove?: boolean | null
+  // #117
+  handsOff?: boolean | null
   testConfigId?: string | null
   concurrency?: number | null
   reviewRounds?: number | null
