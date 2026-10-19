@@ -2689,6 +2689,13 @@ export async function handleCommand(
           const set = setProjectSettings(deps.getState(), project.id, { promptsDir: byName!.dir! })
           if (set.ok) await deps.setState(set.state)
         }
+      } else {
+        // #113: a plain description keeps its objective but a long one is named by its first sentence
+        const title = intakeTitle(intake, source, [])
+        if (title !== undefined) {
+          const cur = deps.getState()
+          await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id && j.title === undefined ? { ...j, title } : j)) })
+        }
       }
       // W7-E: `--no-review`: this plan's Tasks are not reviewed (`jobs plan` turns review on otherwise, Job.review)
       if (args.noReview === true) {

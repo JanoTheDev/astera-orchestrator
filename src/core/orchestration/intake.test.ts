@@ -90,8 +90,24 @@ describe('intakeTitle', () => {
     expect(intakeTitle(read({ attach: ['/d/spec.pdf', '/d/notes.md'] }), '', ['spec.pdf', 'notes.md'])).toBe('spec.pdf, notes.md')
     expect(intakeTitle(read({ mode: 'fixlist', attach: ['/d/bugs.pdf'] }), '', ['bugs.pdf'])).toBe('bugs.pdf')
   })
-  it('a plain description needs no name: its objective is its own words', () => {
+  it('a short plain description needs no name: its objective is its own words', () => {
     expect(intakeTitle(read({ instructions: 'x' }), 'Add dark mode', [])).toBeUndefined()
+    expect(intakeTitle(read({}), 'Add dark mode', [])).toBeUndefined()
+    expect(intakeTitle(read({}), 'Add dark mode.', [])).toBeUndefined()
+  })
+  it('#113: a long plain description is named by its first sentence, cut at a word under 60 characters', () => {
+    expect(intakeTitle(read({}), 'Add dark mode to the settings page. Make it follow the system theme and remember the choice.', [])).toBe(
+      'Add dark mode to the settings page.'
+    )
+    expect(intakeTitle(read({}), 'Fix the sidebar\nIt flickers when a plan starts and the tabs jump around a lot', [])).toBe('Fix the sidebar')
+    const long = intakeTitle(read({}), 'Refactor the orchestration command layer so every handler validates its arguments the same way', [])!
+    expect(long.length).toBeLessThanOrEqual(60)
+    expect(long.endsWith('…')).toBe(true)
+  })
+  it('#113: a dot inside a word ends no sentence', () => {
+    expect(intakeTitle(read({}), 'Create index.js exporting add(a, b) and sub(a, b). Cover both with tests.', [])).toBe(
+      'Create index.js exporting add(a, b) and sub(a, b).'
+    )
   })
 })
 

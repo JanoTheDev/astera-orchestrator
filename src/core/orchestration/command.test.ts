@@ -6280,6 +6280,15 @@ describe('jobs create / tasks add / accounts list', () => {
       expect(asked).toEqual([])
     })
 
+    it('#113: a plain long objective keeps its text and gets its first sentence as title; a short one none', async () => {
+      const { deps } = withInputs()
+      const text = 'Create index.js exporting add(a, b) and sub(a, b). Cover both with tests and document them in the README.'
+      await shell(deps, 'jobs-create', { objective: text, cwd: 'D:/p' })
+      expect(deps.getState().jobs[0]).toMatchObject({ objective: text, title: 'Create index.js exporting add(a, b) and sub(a, b).' })
+      await shell(deps, 'jobs-create', { objective: 'Add dark mode', cwd: 'D:/p' })
+      expect(deps.getState().jobs[1].title).toBeUndefined()
+    })
+
     // W7-D (#68): a plan from a source is named by it, so two fixlists never both read "The source below is…"
     it('W7-D: a fixlist, an audit and a set of files each get a title; a plain jobs create gets none', async () => {
       const { deps } = withInputs()
