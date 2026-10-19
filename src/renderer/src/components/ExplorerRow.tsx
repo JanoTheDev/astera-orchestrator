@@ -126,7 +126,7 @@ export const ExplorerRow = memo(function ExplorerRow({
       className={`fx-row${selected ? ' selected' : ''}${cut ? ' cut' : ''}${dragging ? ' dragging' : ''}${dropInto ? ' drop-into' : ''}`}
       {...common}
     >
-      <span className="fx-caret">{open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</span>
+      <span className="fx-caret">{open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</span>
       <FileIcon {...resolveFolderIcon(entry.name, open)} />
       <span className="fx-name">{entry.name}</span>
       {/* A first read already shows 'Loading…' under the row — the spinner is for re-reads only */}

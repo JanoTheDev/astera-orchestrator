@@ -8,9 +8,8 @@
 .settings-row.settings-cli-note span:first-child { flex: 0 0 0; }
 .settings-cli-failed { color: var(--danger); }
 .settings-cli-log { max-height: 180px; overflow: auto; text-align: left; font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-all; background: var(--elevated); border-radius: var(--radius-sm); padding: 8px 10px; margin: 0; }
-/* language selection — unified with .slack-url-input's palette and sizing */
-/* the language picker in settings — width, plus the 13px it has always used. That size is deliberate:
-   it pairs with .slack-url-input in the same panel (see the note there), so it does not follow .sel's 12px */
+/* the language picker in settings. Its width on the Settings page is the page's one control width
+   (--settings-control-w in settings/settingsPage.css); this is the fallback outside it. */
 .settings-lang-select { flex: 0 0 140px; font-size: 13px; }
 /* terminal font pickers — pinned to the same width as .settings-lang-select so the three settings
    rows line up instead of the trigger shrinking to fit whichever font name is currently selected */
@@ -23,22 +22,6 @@
    makes each row remember its own last-rendered height, so the scrollbar stops guessing after the
    first pass; the 24px is only the initial estimate. */
 .settings-font-select .sel-option { content-visibility: auto; contain-intrinsic-size: auto 24px; }
-/* Slack Webhook settings */
-.slack-cell { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.slack-url-input { flex: 1; min-width: 0; background: var(--bg); color: var(--text); border: 1px solid var(--line-soft); padding: 5px 8px; border-radius: var(--radius); font-size: 13px; }
-/* the shortcut list (and the settings sidebar) */
-.shortcut-group { display: flex; flex-direction: column; gap: 4px; }
-.shortcut-group-title { font-size: 12px; color: var(--text-faint); margin-top: 2px; }
-.shortcut-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; font-size: 13px; }
-.shortcut-keys { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
-.shortcut-or { color: var(--text-faint); font-size: 11px; margin: 0 2px; }
-.shortcut-desc { color: var(--text-dim); text-align: right; }
-.shortcut-keys kbd {
-  font-family: inherit; font-size: 11.5px; line-height: 1.4; color: var(--text);
-  background: var(--elevated); border: 1px solid var(--line); border-bottom-width: 2px;
-  border-radius: var(--radius-sm); padding: 1px 6px; white-space: nowrap;
-}
-
 /* W9-E: the modal frame (.modal.settings, header, close, body, nav) went with the modal; the page's frame is settings/settingsPage.css. */
 .settings-nav-item { text-align: left; background: none; border: none; color: var(--text-dim); font-size: 13.5px; padding: 8px 12px; border-radius: var(--radius); cursor: pointer; }
 .settings-nav-item:hover { background: var(--line-soft); color: var(--text); }
@@ -47,24 +30,27 @@
    settings tab needs both shadows restated explicitly or tabbing to it shows no ring. */
 .settings-nav-item.active:focus-visible { box-shadow: inset var(--marker-w) 0 0 var(--accent), 0 0 0 2px var(--ring); }
 .settings-content { flex: 1; min-width: 0; padding: 24px 32px; overflow-y: auto; display: flex; flex-direction: column; gap: 18px; }
-.settings-slack { display: flex; flex-direction: column; gap: 8px; }
 .settings-worktree { display: flex; flex-direction: column; gap: 8px; }
 /* Same column+gap as its two sibling tabs above. A tab that puts rows straight into
    .settings-content inherits that container's gap, but a wrapper div does not — without this the
    hidden-project rows butt together and their 해제 buttons end up touching. */
 .settings-history { display: flex; flex-direction: column; gap: 8px; }
 /* ---------- 모양 탭: 테마 카드 ---------- */
-.settings-theme { display: flex; flex-direction: column; gap: 8px; }
-.theme-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.settings-theme { display: flex; flex-direction: column; gap: 12px; }
+.settings-theme-head { display: flex; flex-direction: column; gap: 2px; }
+.theme-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
 /* 카드는 자기 테마의 값으로 그린다(인라인 스타일) — 앱 토큰을 쓰면 일곱 장이 전부 같아 보인다.
-   그래서 여기서는 색을 정하지 않고 배치만 정한다. */
-.theme-card { display: flex; flex-direction: column; gap: 8px; align-items: flex-start;
-  padding: 10px; border: 1px solid; cursor: pointer; text-align: left; font-size: 12.5px; }
-.theme-card.on { box-shadow: 0 0 0 2px currentColor; }
-.theme-card:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--ring); }
-.theme-card-bars { display: flex; width: 100%; height: 18px; border-radius: inherit; overflow: hidden; }
+   그래서 여기서는 색을 정하지 않고 배치만 정한다. 고른 카드만 앱의 액센트 링을 두른다 (W11: 카드마다
+   제 액센트로 테두리를 그리면 일곱 가지 '선택됨'이 생긴다). */
+.theme-card { display: flex; flex-direction: column; gap: 8px; align-items: stretch;
+  padding: 8px; border: 1px solid; border-radius: var(--radius-lg); cursor: pointer; text-align: left; font: inherit; font-size: var(--fs-12);
+  transition: box-shadow var(--dur-fast) var(--ease-out); }
+.theme-card:hover { box-shadow: 0 0 0 1px var(--line-strong); }
+.theme-card.on { box-shadow: 0 0 0 2px var(--accent); }
+.theme-card:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.theme-card-bars { display: flex; width: 100%; height: 28px; border-radius: var(--radius); overflow: hidden; }
 .theme-card-bars i { flex: 1; }
-.theme-card-name { font-weight: 600; }
+.theme-card-name { display: flex; align-items: center; justify-content: space-between; gap: 4px; font-weight: var(--fw-semi); }
 /* ---------- 일반·에이전트·How It Works 탭: 기능 묶음 ---------- */
 /* 토글마다 설명이 붙는 탭들의 배치다. .settings-content 의 18px gap 은 '제목과 그 설명 사이'와
    '기능과 기능 사이'에 똑같이 들어가 전부 한 덩어리로 읽혔다. 그 둘을 가른다: .settings-group 이

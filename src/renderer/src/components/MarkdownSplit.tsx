@@ -6,7 +6,8 @@ import {
   type MdViewMode, type ScrollAnchor
 } from '../../../core/files/markdownView'
 import { useI18n } from '../i18n/I18nProvider'
-import { Columns2, Eye, PanelLeft } from 'lucide-react'
+import { Columns2, Eye, PanelLeft, Save } from 'lucide-react'
+import { IconButton, Tabs } from './ui'
 import type { LucideIcon } from 'lucide-react'
 
 const RATIO_KEY = 'cm.md.splitRatio'
@@ -290,31 +291,39 @@ export function MarkdownSplit({
     window.addEventListener('pointercancel', up)
   }
 
+  const nameAt = docPath.search(/[^\\/]*$/) // where the file name starts
   return (
     <div className="md-split-host">
       {/* markdown 이 거짓인 파일에는 툴바가 없다 — 안 그려지는 것이지, css 로 숨겨지는 게 아니다.
           이 div 는 .md-split-editor 의 형제일 뿐이라 있고 없고가 아래 .md-pane-editor 의 자리·타입에는
           영향을 주지 않는다 — FileEditor 는 그대로 마운트 상태를 유지한다. */}
-      {markdown && (
-        <div className="md-toolbar">
-          {MODES.map(({ id, Icon }) => (
-            <button
-              key={id}
-              type="button"
-              className={mode === id ? 'active' : undefined}
-              aria-pressed={mode === id}
-              // 아이콘 하나뿐인 버튼이라 텍스트 콘텐츠가 접근성 이름이 되어 주지 못한다 — title 과
-              // aria-label 을 같은 문구로 같이 주는 것은 이 앱의 아이콘 전용 버튼 관례
-              // (App.tsx 의 rail-btn, WorktreePanel 의 icon-btn 등) 을 그대로 따른 것이다.
-              title={t(`files.markdown.mode.${id}`)}
-              aria-label={t(`files.markdown.mode.${id}`)}
-              onClick={() => onModeChange(id)}
-            >
-              <Icon size={14} />
-            </button>
-          ))}
-        </div>
-      )}
+      {/* The editor's slim bar: the file's path (folder dim, name bright), the markdown view mode (markdown
+          files only) and Save. Drawn for every file; it is a sibling of .md-split, so drawing it never moves
+          the editor's slot. */}
+      <div className="md-toolbar">
+        <span className="md-path" title={docPath}>
+          <span className="md-path-dir">{docPath.slice(0, nameAt)}</span>
+          <span className="md-path-name">{docPath.slice(nameAt)}</span>
+        </span>
+        {markdown && (
+          <Tabs
+            variant="segmented"
+            label={t('files.markdown.mode.label')}
+            value={mode}
+            onChange={onModeChange}
+            items={MODES.map(({ id, Icon }) => ({
+              id,
+              label: (
+                <span className="md-mode" title={t(`files.markdown.mode.${id}`)}>
+                  <Icon size={14} />
+                  {t(`files.markdown.mode.short.${id}`)}
+                </span>
+              )
+            }))}
+          />
+        )}
+        <IconButton size="sm" icon={<Save size={14} />} label={t('files.editor.save')} onClick={onSave} />
+      </div>
       <div className="md-split" ref={splitRef} data-mode={markdown ? mode : 'editor'}>
         {/* markdown 이 거짓이든 참이든 이 자리는 항상 같은 타입(div.md-pane.md-pane-editor)이고
             {editor} 는 항상 그 자리 그대로다 — 이 컴포넌트 자체도 App 에서 항상 렌더된다(더 이상

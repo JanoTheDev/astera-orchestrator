@@ -37,6 +37,7 @@ export function MaxWorkersSetting(): React.JSX.Element {
         <span>{t('settings.maxWorkers.label')}</span>
         <input
           type="number"
+          className="ui-input"
           min={1}
           max={10}
           value={draft}

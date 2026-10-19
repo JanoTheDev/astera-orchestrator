@@ -27,7 +27,7 @@ export function AgentsSettings(p: GroupProps): React.JSX.Element | null {
           <label className="settings-row">
             <span>{t('settings.agentPermission.label')}</span>
             <input
-              type="checkbox"
+              type="checkbox" role="switch" className="ui-toggle"
               checked={agentYolo}
               onChange={(e) => {
                 const next = e.target.checked
@@ -87,7 +87,7 @@ export function AgentsSettings(p: GroupProps): React.JSX.Element | null {
           <label className="settings-row">
             <span>{t('settings.agentBrowser.label')}</span>
             <input
-              type="checkbox"
+              type="checkbox" role="switch" className="ui-toggle"
               checked={agentBrowserEnabled}
               onChange={(e) => {
                 const next = e.target.checked
@@ -115,7 +115,7 @@ export function AgentsSettings(p: GroupProps): React.JSX.Element | null {
           <label className="settings-row">
             <span>{t('settings.agentApp.label')}</span>
             <input
-              type="checkbox"
+              type="checkbox" role="switch" className="ui-toggle"
               checked={agentAppEnabled}
               onChange={(e) => {
                 const next = e.target.checked

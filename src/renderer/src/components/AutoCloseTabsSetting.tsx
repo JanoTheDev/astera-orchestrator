@@ -16,7 +16,7 @@ export function AutoCloseTabsSetting({ on, onChange }: { on: boolean; onChange: 
     <div className="settings-group">
       <label className="settings-row">
         <span>{t('settings.autoCloseTabs.label')}</span>
-        <input type="checkbox" checked={on} onChange={(e) => toggle(e.target.checked)} />
+        <input type="checkbox" role="switch" className="ui-toggle" checked={on} onChange={(e) => toggle(e.target.checked)} />
       </label>
       <span className="settings-hint">{t('settings.autoCloseTabs.hint')}</span>
     </div>

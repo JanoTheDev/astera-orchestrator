@@ -2,6 +2,8 @@
 // it. A module store, because the page is mounted from the shell and the caller can be anywhere (a console's details
 // panel, a Task card).
 import { useSyncExternalStore } from 'react'
+import type { WorktreeRow } from '../../../../core/worktrees/cleanup'
+import type { WorktreeStatus } from '../../../../core/types'
 
 export interface WorktreeViewState {
   /** The page is showing. */
@@ -32,3 +34,35 @@ export function useWorktreeView(): WorktreeViewState {
     () => state
   )
 }
+
+// W11 (DESIGN-W11 §9 "Worktrees"): what the list shows after the search and the "Reachable only" chip. Rows git could
+// not vouch for go to the bottom, one group per status, so the warning is said once and not on every row.
+
+export interface WorktreeFilterResult {
+  /** Rows whose folder answered; grouped per plan / ready / yours as before. */
+  reachable: WorktreeRow[]
+  /** The rest, one group per status, in first-seen order. Empty when "Reachable only" is on. */
+  trouble: { status: Exclude<WorktreeStatus, 'ok'>; rows: WorktreeRow[] }[]
+}
+
+const matches = (r: WorktreeRow, q: string): boolean =>
+  [r.item.branch, r.item.name, r.item.path, r.owner?.plan ?? '', ...(r.owner?.taskTitles ?? [])].some((s) => s.toLowerCase().includes(q))
+
+export function filterWorktrees(rows: readonly WorktreeRow[], query: string, reachableOnly: boolean): WorktreeFilterResult {
+  const q = query.trim().toLowerCase()
+  const out: WorktreeFilterResult = { reachable: [], trouble: [] }
+  for (const r of rows) {
+    if (q !== '' && !matches(r, q)) continue
+    const status = r.item.status
+    if (status === 'ok') out.reachable.push(r)
+    else if (!reachableOnly) {
+      let g = out.trouble.find((t) => t.status === status)
+      if (!g) out.trouble.push((g = { status, rows: [] }))
+      g.rows.push(r)
+    }
+  }
+  return out
+}
+
+/** The row's state chip: a live session wins, then a merged owner. Null draws none (the group heading says the rest). */
+export const rowState = (r: WorktreeRow): 'active' | 'merged' | null => (r.live ? 'active' : r.owner?.merged ? 'merged' : null)

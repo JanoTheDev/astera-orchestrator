@@ -1,11 +1,12 @@
 /* ---------- markdown split (toolbar + editor/preview split) ---------- */
 .md-split-host { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.md-toolbar { display: flex; justify-content: flex-end; gap: 2px; padding: 3px 6px;
-  border-bottom: 1px solid var(--line-soft); flex: 0 0 auto; }
-.md-toolbar button { background: none; border: 1px solid transparent; border-radius: var(--radius-sm);
-  color: inherit; opacity: .55; cursor: pointer; padding: 1px 7px; font-size: 13px; line-height: 1.4; }
-.md-toolbar button:hover { opacity: .85; }
-.md-toolbar button.active { opacity: 1; border-color: var(--line-soft); background: color-mix(in srgb, var(--text) 7%, transparent); }
+.md-toolbar { flex: 0 0 auto; display: flex; align-items: center; gap: var(--sp-2); height: 32px;
+  padding: 0 var(--sp-2) 0 var(--sp-3); border-bottom: 1px solid var(--line); background: var(--panel); }
+/* the path: the folder shrinks first (ellipsis), the file name stays whole */
+.md-path { flex: 1; min-width: 0; display: flex; font-family: var(--mono); font-size: var(--fs-12); white-space: nowrap; }
+.md-path-dir { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--text-faint); }
+.md-path-name { flex: none; color: var(--text); }
+.md-mode { display: inline-flex; align-items: center; gap: var(--sp-1); }
 
 .md-split { flex: 1; min-height: 0; display: flex; }
 /* hidden 속성이 display:flex 에 덮이지 않게 못 박는다 — 이것이 에디터를 언마운트하지 않고 숨기는 방법이다 */

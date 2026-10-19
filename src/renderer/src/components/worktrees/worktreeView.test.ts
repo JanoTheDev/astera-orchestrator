@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { closeWorktrees, selectWorktree, showWorktrees, worktreeViewState } from './worktreeView'
+import type { WorktreeRow } from '../../../../core/worktrees/cleanup'
+import { closeWorktrees, filterWorktrees, rowState, selectWorktree, showWorktrees, worktreeViewState } from './worktreeView'
 import { openPage, openWorktree, registerNavigation } from '../shell/navigation'
 
 describe('worktreeView', () => {
@@ -35,5 +36,33 @@ describe('worktreeView', () => {
     openWorktree('/wt/b')
     expect(worktreeViewState()).toEqual({ open: true, selected: '/wt/b' })
     off()
+  })
+})
+
+describe('filterWorktrees / rowState', () => {
+  const row = (branch: string, status: WorktreeRow['item']['status'] = 'ok', over: Partial<WorktreeRow> = {}): WorktreeRow =>
+    ({ item: { id: branch, name: branch, branch, path: `/wt/${branch}`, status }, owner: undefined, ahead: null, behind: null, dirty: null, unpushed: null, live: false, ready: false, ...over }) as WorktreeRow
+
+  it('puts unreachable rows in one bottom group per status, and drops them when "Reachable only" is on', () => {
+    const rows = [row('a'), row('b', 'unreachable'), row('c', 'unreachable'), row('d', 'orphan-dir')]
+    const all = filterWorktrees(rows, '', false)
+    expect(all.reachable.map((r) => r.item.branch)).toEqual(['a'])
+    expect(all.trouble.map((g) => [g.status, g.rows.length])).toEqual([['unreachable', 2], ['orphan-dir', 1]])
+    expect(filterWorktrees(rows, '', true).trouble).toEqual([])
+  })
+
+  it('searches branch, path, plan and task titles, case-insensitively', () => {
+    const owner = { jobId: 'j', runId: 'r', plan: 'Billing', running: true, merged: false, taskIds: ['t'], taskTitles: ['Fix Login'], sessionId: undefined }
+    const rows = [row('feat/x'), row('y', 'ok', { owner })]
+    expect(filterWorktrees(rows, 'FEAT', false).reachable.map((r) => r.item.branch)).toEqual(['feat/x'])
+    expect(filterWorktrees(rows, 'login', false).reachable.map((r) => r.item.branch)).toEqual(['y'])
+    expect(filterWorktrees(rows, 'billing', false).reachable.map((r) => r.item.branch)).toEqual(['y'])
+  })
+
+  it('a live session reads active, a merged owner merged, otherwise no chip', () => {
+    const owner = { jobId: 'j', runId: 'r', plan: 'P', running: false, merged: true, taskIds: [], taskTitles: [] }
+    expect(rowState(row('a', 'ok', { live: true, owner }))).toBe('active')
+    expect(rowState(row('a', 'ok', { owner }))).toBe('merged')
+    expect(rowState(row('a'))).toBeNull()
   })
 })

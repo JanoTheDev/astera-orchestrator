@@ -8,25 +8,31 @@ import { toast } from '../lib/toast'
 import { dirtyCount, isOrphanUnverifiable, worktreeErrorMessage } from '../lib/worktreeErrors'
 import { subscribeCreated } from '../lib/worktreeBus'
 import { useI18n } from '../i18n/I18nProvider'
-import { PlayIcon, TrashIcon } from './JobIcons'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { CreatePrDialog } from './CreatePrDialog'
 import { PrBadge } from './PrBadge'
 import { PushBadge } from './PushBadge'
 import { rowSlot } from './rowSlot'
-import { RefreshCw } from 'lucide-react'
-import { Button, Chip } from './ui'
+import { Activity, FolderGit2, GitMerge, Play, RefreshCw, Trash2, TriangleAlert } from 'lucide-react'
+import { Button, Chip, EmptyState, Icon, IconButton, Input, PageHeader } from './ui'
+import { AheadBehind } from './worktrees/WorktreeDetail'
+import { filterWorktrees, rowState } from './worktrees/worktreeView'
 
 /** 상태 라벨. **'폴더 없음' 은 없다** — 폴더가 사라졌다고 확인된 항목은 listWithStatus 가 목록을
  *  만들면서 레지스트리에서 걷으므로 이 자리에 도달하지 않는다. 그 줄은 눌러도 할 일이 없는 정보였고,
  *  예약 작업이 워크트리를 쌓으면서 스물일곱 개까지 늘어 하나씩 지워야 했다. '닿을 수 없음' 은 다르다 —
  *  멈춘 네트워크 드라이브처럼 확인이 확답을 주지 못한 항목이라 잊지 않고 그렇게 보여 준다. */
-const STATUS_LABEL: Record<WorktreeListItem['status'], MessageKey | null> = {
-  ok: null,
+const STATUS_LABEL: Record<Exclude<WorktreeListItem['status'], 'ok'>, MessageKey> = {
   'orphan-dir': 'worktree.status.orphanDir',
   unreachable: 'worktree.status.unreachable',
   // git 이 목록을 주지 못했다 — 'git 등록 소실' 로 보이면 사람이 지워도 되는 잔해로 읽는다
   'git-unchecked': 'worktree.status.gitUnchecked'
+}
+/** The one sentence under a status group's heading (W11: said once per group, not on every row). */
+const TROUBLE_HINT: Record<Exclude<WorktreeListItem['status'], 'ok'>, MessageKey> = {
+  'orphan-dir': 'worktrees.trouble.orphanDir',
+  unreachable: 'worktrees.trouble.unreachable',
+  'git-unchecked': 'worktrees.trouble.gitUnchecked'
 }
 
 /** What the Worktrees page can ask of the list (W9-J): the actions its detail header shares with the rows. */
@@ -37,8 +43,8 @@ export interface WorktreeListHandle {
   pushStateOf(w: WorktreeListItem): BranchPushState | undefined
 }
 
-/** The Worktrees page's left list (W9-J): the worktrees this app created (per the registry), grouped per plan, "Ready
- *  to clean up" and "Yours". The refresh, the PR/push badges and the remove flow with its confirmations are the
+/** The Worktrees page's header and left list (W9-J, W11 §9): the worktrees this app created (per the registry), grouped
+ *  per plan, "Ready to clean up" and "Yours", with the rows git could not vouch for grouped at the bottom. The refresh, the PR/push badges and the remove flow with its confirmations are the
  *  sidebar panel's, unchanged. */
 export const WorktreePanel = forwardRef<
   WorktreeListHandle,
@@ -48,9 +54,15 @@ export const WorktreePanel = forwardRef<
     onStartSession: (path: string) => void
     /** The rows as last read, for the detail beside the list. */
     onRows?: (rows: WorktreeRow[]) => void
+    /** The page's own header actions after Clean up and Refresh (view options, close). */
+    actions?: React.ReactNode
+    /** The detail pane, drawn right of the list. */
+    children?: React.ReactNode
   }
->(function WorktreePanel({ selected, onSelect, onStartSession, onRows }, handle): React.JSX.Element | null {
+>(function WorktreePanel({ selected, onSelect, onStartSession, onRows, actions, children }, handle): React.JSX.Element | null {
   const { t } = useI18n()
+  const [query, setQuery] = useState('')
+  const [reachableOnly, setReachableOnly] = useState(false)
   const [rows, setRows] = useState<WorktreeRow[]>([])
   const items = rows.map((r) => r.item)
   const [cleaning, setCleaning] = useState(false)
@@ -236,98 +248,59 @@ export const WorktreePanel = forwardRef<
 
   const renderRow = (r: WorktreeRow): React.JSX.Element => {
     const w = r.item
+    const state = removingId === w.id ? null : rowState(r)
     return (
-                <div
-          key={w.id}
-          className={`worktree-row${selected === w.path ? ' is-selected' : ''}`}
-          onClick={() => onSelect(w.path)}
-          title={`${w.path}\n${w.branch}`}
-          onContextMenu={(ev) => {
-            ev.preventDefault() // Electron's own menu would cover ours
-            setRowMenu({ x: ev.clientX, y: ev.clientY, w })
-          }}
-        >
-          <span className="worktree-name">
-            <span className="worktree-branch">{w.branch}</span>
-            {r.owner && r.owner.taskTitles.length > 0 && <span className="worktree-task"> · {r.owner.taskTitles.join(', ')}</span>}
-            {(r.ahead ?? 0) + (r.behind ?? 0) > 0 && (
-              <span className="worktree-aheadbehind"> ↑{r.ahead ?? '?'} ↓{r.behind ?? '?'}</span>
-            )}
-            {r.dirty ? <Chip tone="warn" className="worktree-dirty">{t('worktrees.dirty', { count: r.dirty })}</Chip> : null}
-            {/* While removing, the progress state wins — there is no reason to report 'Git registration lost' on a row that is being deleted */}
-            {removingId === w.id ? (
-              <em className="worktree-status"> ({t('worktree.remove.removing')})</em>
-            ) : (
-              STATUS_LABEL[w.status] && (
-                <em className="worktree-status"> ({t(STATUS_LABEL[w.status]!)})</em>
-              )
-            )}
-          </span>
-          {(() => {
-            const snap = prs[w.repoPath]
-            const slot = rowSlot(snap?.byBranch[w.branch], pushState[w.repoPath]?.[w.baseRef]?.[w.branch])
-            if (slot === null) return null
-            if (slot.kind === 'pr')
-              return (
-                <PrBadge
-                  pr={slot.pr}
-                  stale={snap!.stale}
-                  onOpenMenu={(e) =>
-                    setPrMenu({ x: e.clientX, y: e.clientY, url: slot.pr.url })
-                  }
-                />
-              )
-            return (
-              <PushBadge
-                ahead={slot.ahead}
-                base={w.baseRef}
-                disabled={busy || !ghConnected}
-                onCreate={() => setCreating(w)}
-              />
-            )
-          })()}
-          {/* Drawn icons rather than text glyphs, the same as the history session rows this list
-              is laid out to match: both hold 12px marks in a .ghost button, so the two lists'
-              rows come out the same height. .icon-btn (28×28, 16px glyph) is for the panel
-              header toolbar and was far too big inside a row.
-              PlayIcon and TrashIcon come from JobIcons rather than being redrawn here — that
-              file's own rule, that one meaning must not grow a second shape. */}
-          <span className="worktree-actions" onClick={(ev) => ev.stopPropagation()}>
-            {removingId === w.id ? (
-              // A session must not be started on a worktree that is being removed, so the start
-              // button is taken away, and for delete the button box stays while only the icon
-              // becomes a spinner. The spinner is sized down to the 12px the icons are (see
-              // .worktree-actions .ghost.removing .loading-spinner) — at its shared 14px this
-              // row alone would grow while the delete runs and the list would jump
-              <button className="ghost danger removing" disabled aria-label={t('worktree.remove.removing')}>
-                <span className="loading-spinner" aria-hidden="true" />
-              </button>
-            ) : (
-              <>
-                {w.status === 'ok' && (
-                  <button
-                    className="ghost"
-                    title={t('worktree.action.startSession')}
-                    aria-label={t('worktree.action.startSession')}
-                    disabled={busy}
-                    onClick={() => onStartSession(w.path)}
-                  >
-                    <PlayIcon />
-                  </button>
-                )}
-                <button
-                  className="ghost danger"
-                  title={t('files.action.delete')}
-                  aria-label={t('files.action.delete')}
-                  disabled={busy}
-                  onClick={() => void remove(w)}
-                >
-                  <TrashIcon />
-                </button>
-              </>
-            )}
-          </span>
-        </div>
+      <div
+        key={w.id}
+        className={`worktree-row${selected === w.path ? ' is-selected' : ''}`}
+        onClick={() => onSelect(w.path)}
+        title={`${w.path}\n${w.branch}`}
+        onContextMenu={(ev) => {
+          ev.preventDefault() // Electron's own menu would cover ours
+          setRowMenu({ x: ev.clientX, y: ev.clientY, w })
+        }}
+      >
+        <span className="worktree-name">
+          <span className="worktree-branch">{w.branch}</span>
+          {r.owner && r.owner.taskTitles.length > 0 && <span className="worktree-task">{r.owner.taskTitles.join(', ')}</span>}
+        </span>
+        {state === 'active' && (
+          <Chip tone="ok">
+            <Icon icon={Activity} size={14} />
+            {t('worktrees.state.active')}
+          </Chip>
+        )}
+        {state === 'merged' && (
+          <Chip tone="info">
+            <Icon icon={GitMerge} size={14} />
+            {t('worktrees.state.merged')}
+          </Chip>
+        )}
+        {r.dirty ? <Chip tone="warn">{t('worktrees.dirty', { count: r.dirty })}</Chip> : null}
+        {(() => {
+          const snap = prs[w.repoPath]
+          const slot = rowSlot(snap?.byBranch[w.branch], pushState[w.repoPath]?.[w.baseRef]?.[w.branch])
+          if (slot === null) return null
+          if (slot.kind === 'pr')
+            return <PrBadge pr={slot.pr} stale={snap!.stale} onOpenMenu={(e) => setPrMenu({ x: e.clientX, y: e.clientY, url: slot.pr.url })} />
+          return <PushBadge ahead={slot.ahead} base={w.baseRef} disabled={busy || !ghConnected} onCreate={() => setCreating(w)} />
+        })()}
+        <AheadBehind ahead={r.ahead} behind={r.behind} className="worktree-meta" />
+        {/* Shown on hover, focus or selection only (DESIGN-W11 §7: destructive row actions on hover, with a confirm —
+            remove() asks first). While a removal runs the start button goes and the delete slot holds the spinner. */}
+        <span className={`worktree-actions${removingId === w.id ? ' is-busy' : ''}`} onClick={(ev) => ev.stopPropagation()}>
+          {removingId === w.id ? (
+            <Button size="sm" loading aria-label={t('worktree.remove.removing')} title={t('worktree.remove.removing')} />
+          ) : (
+            <>
+              {w.status === 'ok' && (
+                <IconButton size="sm" icon={<Play size={14} />} label={t('worktree.action.startSession')} disabled={busy} onClick={() => onStartSession(w.path)} />
+              )}
+              <IconButton size="sm" className="worktree-delete" icon={<Trash2 size={14} />} label={t('files.action.delete')} disabled={busy} onClick={() => void remove(w)} />
+            </>
+          )}
+        </span>
+      </div>
     )
   }
 
@@ -335,31 +308,79 @@ export const WorktreePanel = forwardRef<
     list.length === 0 ? null : (
       <div key={key} className="worktree-group">
         <div className="worktree-repo" title={hint}>
-          {title} <span className="worktree-count">{list.length}</span>
+          <span className="worktree-repo__name">{title}</span> <span className="worktree-count">{list.length}</span>
         </div>
         <div className="worktree-list">{list.map(renderRow)}</div>
       </div>
     )
 
+  const shown = filterWorktrees(rows, query, reachableOnly)
+  const shownGroups = groupWorktrees(shown.reachable)
+  const nothingShown = shown.reachable.length === 0 && shown.trouble.length === 0
+
   return (
-    <section className="worktree-panel">
-      <header className="panel-header">
-        <h2 className="panel-title">{t('worktrees.title')}</h2>
-        <div className="panel-actions">
-          {groups.ready.length > 0 && (
-            <Button size="sm" variant="primary" loading={cleaning} disabled={busy} onClick={() => void cleanUp()}>
-              {t('worktrees.cleanup.button', { count: groups.ready.length })}
+    <>
+      <PageHeader
+        title={t('worktrees.title')}
+        subtitle={items.length > 0 ? items.length : undefined}
+        actions={
+          <>
+            {groups.ready.length > 0 && (
+              <Button variant="primary" loading={cleaning} disabled={busy} onClick={() => void cleanUp()}>
+                {t('worktrees.cleanup.button', { count: groups.ready.length })}
+              </Button>
+            )}
+            <Button variant="ghost" icon={<RefreshCw size={16} />} disabled={busy || cleaning} onClick={() => void refresh()}>
+              {t('worktree.refresh')}
             </Button>
-          )}
-          <button className="icon-btn" title={t('worktree.refresh')} aria-label={t('worktree.refresh')} disabled={busy || cleaning} onClick={() => void refresh()}>
-            <RefreshCw size={14} />
-          </button>
+            {actions}
+          </>
+        }
+        filters={
+          items.length > 0 && (
+            <>
+              <Input
+                type="search"
+                className="worktrees-search"
+                placeholder={t('worktrees.search')}
+                aria-label={t('worktrees.search')}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+              <Button size="sm" variant="ghost" className={`worktrees-chip${reachableOnly ? ' is-active' : ''}`} aria-pressed={reachableOnly} onClick={() => setReachableOnly((v) => !v)}>
+                {t('worktrees.reachableOnly')}
+              </Button>
+            </>
+          )
+        }
+      />
+      {items.length === 0 ? (
+        <EmptyState icon={FolderGit2} title={t('worktrees.emptyTitle')}>
+          {t('worktrees.empty')}
+        </EmptyState>
+      ) : (
+        <div className="worktrees-page__split">
+          <section className="worktree-panel worktrees-page__list" aria-label={t('worktrees.title')}>
+            {nothingShown && <p className="worktree-empty">{t('worktrees.noMatch')}</p>}
+            {shownGroups.plans.map((p) => section(p.jobId, p.plan, p.rows))}
+            {section('ready', t('worktrees.group.ready'), shownGroups.ready, t('worktrees.group.readyHint'))}
+            {section('yours', t('worktrees.group.yours'), shownGroups.yours, t('worktrees.group.yoursHint'))}
+            {shown.trouble.map((g) => (
+              <div key={g.status} className="worktree-group worktree-group--trouble">
+                <div className="worktree-warning" role="note">
+                  <Icon icon={TriangleAlert} size={14} />
+                  <span>
+                    <strong>{t(STATUS_LABEL[g.status])}</strong> <span className="worktree-count">{g.rows.length}</span>
+                    <span className="worktree-warning__hint">{t(TROUBLE_HINT[g.status])}</span>
+                  </span>
+                </div>
+                <div className="worktree-list">{g.rows.map(renderRow)}</div>
+              </div>
+            ))}
+          </section>
+          {children}
         </div>
-      </header>
-      {items.length === 0 && <p className="modal-hint worktree-empty">{t('worktrees.empty')}</p>}
-      {groups.plans.map((p) => section(p.jobId, p.plan, p.rows))}
-      {section('ready', t('worktrees.group.ready'), groups.ready, t('worktrees.group.readyHint'))}
-      {section('yours', t('worktrees.group.yours'), groups.yours, t('worktrees.group.yoursHint'))}
+      )}
       {prMenu && (
         <ContextMenu
           x={prMenu.x}
@@ -440,6 +461,6 @@ export const WorktreePanel = forwardRef<
           }}
         />
       )}
-    </section>
+    </>
   )
 })

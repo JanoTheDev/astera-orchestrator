@@ -5,6 +5,7 @@ import { useRef, useState } from 'react'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
 import { endRenameOnce } from '../lib/renameOnce'
+import { Chip } from './ui'
 
 /** Account row UI. Shared by the sidebar and the settings Accounts tab.
  *  The action buttons come in as children — the row does not need to know "who gets which button".
@@ -114,17 +115,13 @@ export function AccountRow({
           {account.label}
         </span>
       )}
-      {/* Not translated, matching ProviderBadge's 'Claude'/'Codex' — these are short identifiers rather
-          than prose, and the row is narrow */}
-      {isDefault && <span className="badge">default</span>}
+      {isDefault && <Chip className="account-default">{t('accounts.default')}</Chip>}
       {/* Gated on loggedIn as well as on having a reading: §5 draws nothing for an account that is
           not logged in, and `undefined` (the state before useAccountStatus has answered) draws
           nothing either, so no meter flashes in and out on mount. */}
       {loggedIn && <AccountUsageMeter usage={usage} />}
-      <span
-        className={loggedIn ? 'login-dot on' : 'login-dot'}
-        title={loggedIn ? t('account.status.loggedIn') : t('account.status.notLoggedIn')}
-      />
+      {/* W11: said in words, and only when it is a problem; undefined (not asked yet) draws nothing. */}
+      {loggedIn === false && <Chip tone="warn">{t('account.status.notLoggedIn')}</Chip>}
       {/* The actions sit inside the row, so their clicks would bubble into the row's toggle —
           pressing "remove account" would also open the usage detail. Stopped here rather than on
           each button so a caller cannot forget. */}

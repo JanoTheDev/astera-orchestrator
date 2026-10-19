@@ -3,7 +3,7 @@ import type { SessionKind } from '../../../core/types'
 import { resolveFileIcon } from '../../../core/files/icons'
 import { useI18n } from '../i18n/I18nProvider'
 import { FileIcon } from './FileIcon'
-import { ChevronDown, Film, Globe, Image as ImageIcon, MessageSquare, Monitor, Repeat, Terminal } from 'lucide-react'
+import { ChevronDown, Film, Globe, Image as ImageIcon, MessageSquare, Monitor, Repeat, Terminal, X } from 'lucide-react'
 import { endRenameOnce } from '../lib/renameOnce'
 
 /** File viewer tab. Renderer-only — unlike sessions, main is not involved. id = `file:${path}`.
@@ -357,7 +357,7 @@ export function WorkbenchTabs({
           {tab.kind === 'app' && <span className="run-tag" title={t('workspace.tab.tag')}>{t('workspace.tab.tag')}</span>}
           {tab.kind === 'file' && tab.hint && <span className="tab-hint">{tab.hint}</span>}
           {tab.kind === 'file' && tab.dirty && (
-            <span className="tab-dirty" title={t('explorer.tab.unsaved')} />
+            <span className="tab-dirty" role="img" title={t('explorer.tab.unsaved')} aria-label={t('explorer.tab.unsaved')} />
           )}
           {tab.kind === 'session' && tab.rollTooltip && (
             <span className="tab-roll" title={tab.rollTooltip}>
@@ -374,10 +374,7 @@ export function WorkbenchTabs({
               onClose(tab.tabId)
             }}
           >
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-              <line x1="4" y1="4" x2="12" y2="12" />
-              <line x1="12" y1="4" x2="4" y2="12" />
-            </svg>
+            <X size={14} />
           </button>
         </div>
       ))}

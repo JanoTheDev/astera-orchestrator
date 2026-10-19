@@ -73,7 +73,7 @@ export function NotificationSettings(): React.JSX.Element {
           <label className="settings-row">
             <span>{t(label)}</span>
             <input
-              type="checkbox"
+              type="checkbox" role="switch" className="ui-toggle"
               // Unchecked until the first read answers, rather than defaulting to the on state:
               // a checkbox that flips itself a moment after the tab opens reads as a setting that
               // changed, and this one did not.

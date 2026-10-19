@@ -4,6 +4,7 @@ import { useI18n } from '../i18n/I18nProvider'
 import { isTelegramReady } from '../../../core/telegram/ready'
 import { toast } from '../lib/toast'
 import { createTouched } from '../lib/touched'
+import { Button, Card, Chip, Field } from './ui'
 
 export function TelegramSettings(): React.JSX.Element {
   const { t } = useI18n()
@@ -39,51 +40,54 @@ export function TelegramSettings(): React.JSX.Element {
 
   const ready = isTelegramReady({ botToken: botToken.trim(), chatId: chatId.trim() })
 
+  // W11 (DESIGN-W11 §9): a Card — title and status, what it does, the fields, then Save.
   return (
-    <div className="settings-slack">
-      {/* The token is a password input: it reduces exposure over a shared screen, so every field has a label. */}
-      <label className="settings-field-label">{t('settings.telegram.botToken')}</label>
-      <input
-        type="password"
-        className="slack-url-input"
-        value={botToken}
-        placeholder="123456:ABC-DEF…"
-        onChange={(e) => {
-          touched.current.touch('bot')
-          setBotToken(e.target.value)
-          setSaved(false)
-        }}
-      />
-      <label className="settings-field-label">{t('settings.telegram.chatId')}</label>
-      <input
-        type="text"
-        className="slack-url-input"
-        value={chatId}
-        placeholder="123456789"
-        onChange={(e) => {
-          touched.current.touch('chat')
-          setChatId(e.target.value)
-          setSaved(false)
-        }}
-      />
-      <label className="settings-field-label">{t('settings.telegram.userId')}</label>
-      <input
-        type="text"
-        className="slack-url-input"
-        value={userId}
-        placeholder="123456789"
-        onChange={(e) => {
-          touched.current.touch('user')
-          setUserId(e.target.value)
-          setSaved(false)
-        }}
-      />
-      <span className="settings-hint">{t('settings.telegram.userIdHint')}</span>
-      {ready && userId.trim() === '' && (
-        <span className="update-note update-err">{t('settings.telegram.userIdRequired')}</span>
-      )}
-      <div className="slack-cell">
-        <button
+    <Card className="settings-integration">
+      <div className="settings-card-head">
+        <h3 className="settings-card-title">{t('settings.row.telegram')}</h3>
+        <Chip tone={ready ? 'ok' : 'neutral'} dot>
+          {t(ready ? 'settings.telegram.status.ready' : 'settings.telegram.status.notReady')}
+        </Chip>
+      </div>
+      <p className="settings-card-desc">{t('settings.telegram.hint')}</p>
+      <div className="settings-integration-fields">
+        {/* The token is a password input: it reduces exposure over a shared screen, so every field has a label. */}
+        <Field
+          label={t('settings.telegram.botToken')}
+          type="password"
+          value={botToken}
+          placeholder="123456:ABC-DEF…"
+          onChange={(e) => {
+            touched.current.touch('bot')
+            setBotToken(e.target.value)
+            setSaved(false)
+          }}
+        />
+        <Field
+          label={t('settings.telegram.chatId')}
+          value={chatId}
+          placeholder="123456789"
+          onChange={(e) => {
+            touched.current.touch('chat')
+            setChatId(e.target.value)
+            setSaved(false)
+          }}
+        />
+        <Field
+          label={t('settings.telegram.userId')}
+          hint={t('settings.telegram.userIdHint')}
+          error={ready && userId.trim() === '' ? t('settings.telegram.userIdRequired') : undefined}
+          value={userId}
+          placeholder="123456789"
+          onChange={(e) => {
+            touched.current.touch('user')
+            setUserId(e.target.value)
+            setSaved(false)
+          }}
+        />
+      </div>
+      <div className="settings-integration-actions">
+        <Button
           disabled={!loaded}
           onClick={() =>
             void window.api.telegram
@@ -104,14 +108,11 @@ export function TelegramSettings(): React.JSX.Element {
           }
         >
           {t('settings.telegram.save')}
-        </button>
+        </Button>
         {saved && <span className="update-note">{t('settings.telegram.saved')}</span>}
       </div>
-      <span className="settings-hint">
-        {t(ready ? 'settings.telegram.ready' : 'settings.telegram.notReady')}
-      </span>
-      <span className="settings-hint">{t('settings.telegram.hint')}</span>
-      <span className="settings-hint">{t('settings.telegram.setupGuide')}</span>
-    </div>
+      <p className="settings-card-desc">{t(ready ? 'settings.telegram.ready' : 'settings.telegram.notReady')}</p>
+      <p className="settings-card-desc">{t('settings.telegram.setupGuide')}</p>
+    </Card>
   )
 }
