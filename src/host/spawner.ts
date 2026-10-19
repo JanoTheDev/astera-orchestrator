@@ -25,6 +25,7 @@ import { ensureShuttle, sessionCmdLink } from '../core/orchestration/exec/shuttl
 import type { ChatOrchEnv } from '../core/chat/manager'
 import { binDirFor } from '../core/orchestration/cliInstall'
 import {
+  autoStartChain,
   preTrustWorkspace,
   startCoordinatorSession,
   startWorkerWithChain,
@@ -54,6 +55,8 @@ import type { Account, SessionInfo } from '../core/types'
 import type { PtyRegistry } from './registry'
 import type { HostRollSpawner, RollSpawnOpts } from './rolling'
 import type { HostWorktrees } from './worktrees'
+// T5 crash restore
+import { carryTranscript } from './sessionRestore'
 import { setBounded } from '../core/bounded'
 import { dispatchLookup } from '../core/orchestration/dispatchIndex'
 /** Which session each attempt was started on, for the newest this many (audit H5); an older attempt's tail is long gone. */
@@ -157,7 +160,17 @@ export interface HostSpawner extends HostLocal, HostRollSpawner {
    *  and the bypass read from the settings at this spawn. Announced with `pty-opened`, so an attached app
    *  takes it back as a tab, and heard by `onSpawned`, so the rolling registers its chain. A missing
    *  folder or an unknown account starts nothing and is tagged `refusedBeforeActing`. */
-  createSession(o: { accountId: string; cwd: string; title?: string; initialPrompt?: string; rollAccountIds: string[] }): Promise<SessionInfo>
+  createSession(o: {
+    accountId: string
+    cwd: string
+    title?: string
+    initialPrompt?: string
+    rollAccountIds: string[]
+    /** T5 (crash restore): the agent CLI's own conversation to go on with (`claude --resume`, `codex resume`). */
+    resumeSessionId?: string
+    /** T5: the account picked by usage when "Pick accounts automatically" is on (autoStartChain), as a planner's is. */
+    autoAccounts?: boolean
+  }): Promise<SessionInfo>
 }
 
 type SpawnOpts = Parameters<CoordinatorDeps['spawnSession']>[0]
@@ -459,6 +472,9 @@ export function createHostSpawner(d: HostSpawnerDeps): HostSpawner | null {
    *  spawnSession, and what that hands core.sessions.spawn. */
   const spawnSession = async (o: SpawnOpts, accounts: Account[], trace?: StartTrace): Promise<{ id: string }> => {
     const account = accountIn(accounts, o.accountId)
+    // T5: a conversation resumed on another account than its own (automatic accounts) needs its transcript there
+    if (o.resumeSessionId)
+      await carryTranscript(account, accounts, o.resumeSessionId).catch((err) => log(`transcript ${o.resumeSessionId} not carried to ${account.id}: ${String(err)}`))
     await preTrustWorkspace({ account, cwd: o.cwd, homeDir, descriptors, log })
     await ensured()
     const cliPath = await shuttlePath()
@@ -737,15 +753,35 @@ export function createHostSpawner(d: HostSpawnerDeps): HostSpawner | null {
       const trace: StartTrace = { opened: false, forked: null, settingsRefused: false }
       try {
         const accounts = await readAccounts(accountsPath)
+        // T5: over the usage threshold, the start goes to the first of the usage order, and so does its chain
+        // A codex resume stays put: its rollout cannot be carried to another account (carryTranscript)
+        const named = accountIn(accounts, o.accountId)
+        const picked = o.autoAccounts && (o.resumeSessionId === undefined || providerOf(named) === 'claude')
+          ? await autoStartChain(
+              {
+                accounts: async () => accounts,
+                loginStatus: async (id) => {
+                  const x = accounts.find((y) => y.id === id)
+                  return x ? isLoggedIn(x, descriptors) : false
+                },
+                log,
+                ...(d.usageGuard ? { usageGuard: d.usageGuard } : {})
+              },
+              o.accountId
+            )
+          : null
+        const accountId = picked?.accountId ?? o.accountId
+        if (accountId !== o.accountId) log(`session in ${o.cwd}: ${o.accountId} is at the usage threshold, starting on ${accountId}`)
         // The folder is probed once here; spawnSession's own prepare reuses this answer.
-        await sessions.prepare({ account: accountIn(accounts, o.accountId), cwd: o.cwd, missing: `CWD_MISSING: ${o.cwd} does not exist` })
+        await sessions.prepare({ account: accountIn(accounts, accountId), cwd: o.cwd, missing: `CWD_MISSING: ${o.cwd} does not exist` })
         const info = await spawnSession(
           {
-            accountId: o.accountId,
+            accountId,
             cwd: o.cwd,
             title: o.title ?? defaultSessionTitle(o.cwd),
             ...(o.initialPrompt !== undefined ? { initialPrompt: o.initialPrompt } : {}),
-            rollAccountIds: o.rollAccountIds
+            rollAccountIds: accountId !== o.accountId ? picked!.chain : o.rollAccountIds,
+            ...(o.resumeSessionId !== undefined ? { resumeSessionId: o.resumeSessionId } : {})
           },
           accounts,
           trace

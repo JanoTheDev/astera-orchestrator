@@ -63,6 +63,8 @@ import { composeHostDriving } from './drivingWiring'
 import { createUsageGuard } from '../core/orchestration/usageGuard'
 import { usageActivity } from '../core/orchestration/activity'
 import { resumeAfterCrash } from '../core/orchestration/exec/crashResume'
+// T5 crash restore
+import { restoreSessions, sessionRestoreFileIn, sessionsLeftBehind, trackLiveSessions, writeCleanExit, type SessionTracker } from './sessionRestore'
 import { plansMissingReady } from '../core/orchestration/exec/plannerFeedback'
 import { readStateFile } from '../core/orchestration/stateFile'
 import { readAccountReadings, withFetchedReadings } from '../core/usage/accountReadings'
@@ -234,6 +236,8 @@ async function main(): Promise<void> {
   /** A Runtime's sessions as controllers read and drive them (remote runtime Phase 9a); built with the orch below and
    *  let go with the Host (its chat subscription, review M5). */
   let remoteSessions: RemoteSessions | null = null
+  /** T5: the live agent sessions kept for a crash restore (sessionRestore.ts); set once the Host serves. */
+  let sessionTracker: SessionTracker | null = null
   /** Every way out goes through here, and it ends the process whatever happened on the way. An earlier
    *  version put `process.exit(0)` after `killAll()` inside a `.then()` that nothing caught, and on
    *  win32 that was not theoretical: node-pty's ConPTY kill runs a helper process to enumerate the
@@ -244,6 +248,11 @@ async function main(): Promise<void> {
   const leave = (why?: string): void => {
     // The idle and retire paths have already said why in the server's own log line; a signal has not.
     if (why) log.write(`${why} — leaving`)
+    // T5: the saved sessions stay as they are through the `killAll` below. Only a deliberate way out (idle, `host
+    // stop`, a retire) is clean; a signal is a reboot or a kill, and its sessions come back at the next start.
+    sessionTracker?.freeze()
+    sessionTracker?.dispose()
+    if (!why) writeCleanExit(profileDir)
     // **The driver stops first** (S4+S5, the review of Task 12): no tick from here on, no commit, load
     // or app coming or going starts a pass, and a pass already under way stops at its next `mayStart`
     // (drivingWiring.ts) — before the spawner's own retiring flag is set below. From here on this Host
@@ -1201,10 +1210,33 @@ async function main(): Promise<void> {
 
   // T23: work the file says was in flight when the last Host died is picked up now, not when an app first asks — a Host
   // started at login has no app (core/orchestration/exec/crashResume.ts). Only a Host that starts sessions itself.
+  // T5: the sessions an unclean exit left (sessionRestore.ts): read before the tracker writes this Host's own list.
+  // Read first and synchronously: a load (an app's first command) empties dead coordinator slots, and roles are read here.
+  const crashState = readStateFile(path.join(profileDir, 'orchestration.json'))
+  const restoreFile = sessionRestoreFileIn(profileDir)
+  const savedSessions = wiring && spawner ? await sessionsLeftBehind(profileDir) : []
+  const nativeIdOf = async (sid: string): Promise<string | null> =>
+    (await hostSessions.agentSessionOf(sid).catch(() => null)) ?? savedSessions.find((x) => x.sessionId === sid)?.nativeSessionId ?? null
+  if (wiring && spawner) {
+    const starter = spawner
+    sessionTracker = trackLiveSessions({ registry, file: restoreFile, nativeIdOf: (sid) => hostSessions.agentSessionOf(sid), log: (m) => log.write(m) })
+    if (savedSessions.length > 0) {
+      log.write(`session restore: the last Host did not leave cleanly; bringing back ${savedSessions.length} session(s)`)
+      void restoreSessions({
+        saved: savedSessions,
+        state: crashState,
+        nativeIdOf,
+        createSession: (o) => starter.createSession(o),
+        handle: (cmd, args) => orch.handle(cmd, args),
+        log: (m) => log.write(m)
+      }).then((r) => log.write(`session restore: resumed ${r.tabs} tab(s), ${r.planners} planner(s)`))
+    }
+  }
   if (wiring) {
     const recovery = wiring.orchHooks.recovery
     void resumeAfterCrash({
-      readFile: () => readStateFile(path.join(profileDir, 'orchestration.json')),
+      nativeIdOf,
+      readFile: () => crashState,
       ready: () => orch.ready(),
       state: () => orch.state(),
       handle: (cmd, args) => orch.handle(cmd, args),

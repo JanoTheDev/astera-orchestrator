@@ -191,6 +191,8 @@ import { replanJobOf, waveOpen } from './replan'
 import { REPLAN_COMMANDS, replanCommand, replanRefusal } from './exec/replanStart'
 // Coordinator rotation
 import { coordinatorHandoff, refreshCoordinator } from './exec/coordinatorRotate'
+// T5 crash restore
+import { crashResumedBrief } from './exec/crashResume'
 import { feedbackCommand, handsOffOf, isFeedbackCommand } from './exec/plannerFeedback'
 export { JOB_SOURCE } from './commandSources'
 import { pluginIdOfCheck, type CompletionCheckInput, type PluginCheckAnswer } from './pluginChecks'
@@ -472,8 +474,8 @@ export interface OrchServerDeps {
     /** W2-A: `'planner'` starts the Job's planner instead (exec/plannerStart.ts), and `runId` is then the
      *  Job's id: a planner works before its Job has a Run. */
     role?: 'planner'
-    /** W7-A: a planner only. The agent CLI's own conversation id (`agentSessionOf`) to resume instead of starting a
-     *  new conversation; the brief is then the next prompt in that conversation. */
+    /** W7-A: the agent CLI's own conversation id (`agentSessionOf`) to resume instead of starting a new conversation;
+     *  the brief is then the next prompt in that conversation. A planner, and (T5) a coordinator after a crash. */
     resume?: string
   }): Promise<{ sessionId: string }>
   /** Stops a coordinator session `startCoordinator` opened, when the hand-over finds another one
@@ -2079,12 +2081,15 @@ export async function handleCommand(
       }
     }
     let sessionId: string
+    // T5: the crash resume's `run-start --resume <native id>`: the dead coordinator's own conversation goes on
+    const resume = cmd === 'run-start' ? str(args.resume) : null
     try {
       const spawned = await deps.startCoordinator({
         runId: target.id,
         cwd: job.cwd,
         accountId,
-        brief: buildHandoverPrompt({
+        ...(resume ? { resume } : {}),
+        brief: resume ? crashResumedBrief('coordinator', target.id) : buildHandoverPrompt({
           runId: target.id,
           objective: job.objective,
           concurrency: job.concurrency ?? DEFAULT_CONCURRENCY,
@@ -3422,6 +3427,8 @@ export async function handleCommand(
       // W8-G (#101): earlier plans' work that sits on an unmerged branch, which the workers of this plan will not have
       const projectOfPlan = projectOfJob(deps.getState(), job)
       const unmerged = projectOfPlan ? await unmergedPlanBranches(deps.getState(), projectOfPlan) : null
+      // T5: the crash restore's `jobs-plan --resume <native id>`: the dead planner's own conversation goes on
+      const resume = str(args.resume)
       try {
         sessionId = (
           await deps.startCoordinator({
@@ -3429,7 +3436,8 @@ export async function handleCommand(
             cwd: job.cwd,
             accountId,
             role: 'planner',
-            brief: buildPlannerBrief({
+            ...(resume ? { resume } : {}),
+            brief: resume ? crashResumedBrief('planner', id) : buildPlannerBrief({
               jobId: id,
               objective: job.objective,
               repoRoot: job.cwd,
