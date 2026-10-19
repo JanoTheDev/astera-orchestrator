@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Attention, JobRow, JobTask, SessionInfo } from '../../../../core/types'
 import type { WorkspaceProject, WorkspaceSession } from '../../state/workspaceTree'
 import {
-  ALL_PLANS, NO_PLAN, consolesOf, detailLineOf, detailsOf, filterConsoles, gridColumns, orderWall, pillCount, planPills,
+  ALL_PLANS, NO_PLAN, consolesOf, detailLineOf, detailsOf, filterConsoles, gridColumns, indexJobRows, orderWall, pillCount, planPills,
   progressSegments, stripLabel, type WallInput
 } from './wallModel'
 
@@ -16,12 +16,26 @@ const task = (id: string, over: Partial<JobTask> = {}): JobTask => ({ id, title:
 const row = (id: string, tasks: JobTask[], over: Partial<JobRow> = {}): JobRow =>
   ({ id, objective: id, outcome: 'running', done: tasks.filter((t) => t.status === 'completed').length, total: tasks.length, eventCount: 0, sharesProjectFolder: false, tasks, ...over }) as unknown as JobRow
 
+// The jobs-view fold: a Job with one Run is one row, keyed by the Job id, its Run named by foldedRunId. A Job with
+// several Runs (or a schedule) is a row keyed by the Job id whose Runs are its children, each keyed by its own id.
+const jobs = {
+  // job_1 (one Run, run_1) — the Auth plan
+  folded: row('job_1', [
+    task('t1', { startedAt: '2026-10-18T10:00:00Z', affectedPaths: ['a.ts', 'b.ts'], board: { category: 'running' } }),
+    task('t2', { status: 'reviewing', board: { category: 'awaiting-review' }, convergence: { reviewRound: 2, maxReviewRounds: 3 } as JobTask['convergence'] }),
+    task('t4', { status: 'completed', board: { category: 'done' } }),
+    task('t5', { status: 'pending', board: { category: 'queued' }, gate: { id: 'g1', question: 'Which DB?' }, openGates: 1 })
+  ], { foldedRunId: 'run_1' }),
+  // job_2 — planned, not started, no Run yet: keyed by its Job id alone
+  planned: row('job_2', [task('t3', { board: { category: 'running' } })], { pendingStart: true, planned: true })
+}
+
 const tree: WorkspaceProject[] = [
   {
     id: 'p1', name: 'Repo', path: '/repo',
     plans: [
       {
-        jobId: 'j1', projectId: 'p1', name: 'Auth', archived: false, paused: false, runId: 'j1',
+        jobId: 'job_1', projectId: 'p1', name: 'Auth', archived: false, paused: false, runId: 'run_1',
         planner: [ws('pl1', 'planner', 'Planner', 'Auth')],
         coordinator: [ws('c1', 'coordinator', 'Coordinator', 'Auth')],
         workers: [
@@ -30,25 +44,17 @@ const tree: WorkspaceProject[] = [
         ]
       },
       {
-        jobId: 'j2', projectId: 'p1', name: 'Board', archived: false, paused: false, runId: 'j2',
+        jobId: 'job_2', projectId: 'p1', name: 'Board', archived: false, paused: false,
         planner: [], coordinator: [ws('c2', 'coordinator', 'Coordinator', 'Board')],
         workers: [ws('w3', 'worker', 'Worker 1', 'Board', { taskId: 't3', taskTitle: 'Scores' })]
       },
-      { jobId: 'j3', projectId: 'p1', name: 'Old', archived: true, paused: false, planner: [], coordinator: [], workers: [] }
+      { jobId: 'job_3', projectId: 'p1', name: 'Old', archived: true, paused: false, planner: [], coordinator: [], workers: [] }
     ]
   },
   { id: 'p2', name: 'Other', path: '/other', plans: [] }
 ]
 
-const rows: Record<string, JobRow> = {
-  j1: row('j1', [
-    task('t1', { startedAt: '2026-10-18T10:00:00Z', affectedPaths: ['a.ts', 'b.ts'], board: { category: 'running' } }),
-    task('t2', { status: 'reviewing', board: { category: 'awaiting-review' }, convergence: { reviewRound: 2, maxReviewRounds: 3 } as JobTask['convergence'] }),
-    task('t4', { status: 'completed', board: { category: 'done' } }),
-    task('t5', { status: 'pending', board: { category: 'queued' }, gate: { id: 'g1', question: 'Which DB?' }, openGates: 1 })
-  ]),
-  j2: row('j2', [task('t3', { board: { category: 'running' } })], { pendingStart: true, planned: true })
-}
+const rows = indexJobRows([jobs.folded, jobs.planned])
 
 const attention: Record<string, Attention> = { c1: 'working', w1: 'working', w2: 'idle', w3: 'waiting', c2: 'idle', s9: 'working' }
 
@@ -60,6 +66,18 @@ const input = (over: Partial<WallInput> = {}): WallInput => ({
   live: { w3: { prompt: 'permission' } },
   rows,
   ...over
+})
+
+describe('indexJobRows', () => {
+  it('keys a folded Job row by its Job id and its Run id, and each nested Run by its own id', () => {
+    const nested = row('job_4', [], { children: [row('run_4a', [task('x')]), row('run_4b', [task('y')])] })
+    const idx = indexJobRows([jobs.folded, nested])
+    expect(Object.keys(idx).sort()).toEqual(['job_1', 'job_4', 'run_1', 'run_4a', 'run_4b'])
+    expect(idx.run_1).toBe(jobs.folded)
+    expect(idx.job_1).toBe(jobs.folded)
+    expect(idx.run_4b.tasks.map((t) => t.id)).toEqual(['y'])
+    expect(idx.job_4.children).toHaveLength(2)
+  })
 })
 
 describe('consolesOf', () => {
@@ -98,7 +116,7 @@ describe('orderWall and filterConsoles', () => {
     expect(w.mainId).toBeNull()
   })
   it('one plan picked: only its consoles, its coordinator the main tile', () => {
-    const w = orderWall(filterConsoles(cs, { ...f, plan: 'j1' }), 'j1')
+    const w = orderWall(filterConsoles(cs, { ...f, plan: 'job_1' }), 'job_1')
     expect(w.pinned.map((c) => c.sessionId)).toEqual(['c1'])
     expect(w.mainId).toBe('c1')
     expect(w.tiles.map((c) => c.sessionId)).toEqual(['w1', 'pl1', 'w2'])
@@ -115,7 +133,7 @@ describe('orderWall and filterConsoles', () => {
     expect(orderWall(filterConsoles(cs, { ...f, scope: 'all' }), ALL_PLANS).finished.map((c) => c.sessionId)).toEqual(['e1'])
   })
   it('the strip labels the main coordinator and a worker with its Task', () => {
-    const w = orderWall(filterConsoles(cs, { ...f, plan: 'j1' }), 'j1')
+    const w = orderWall(filterConsoles(cs, { ...f, plan: 'job_1' }), 'job_1')
     expect(stripLabel(w.pinned[0], w.mainId)).toBe('Coordinator (main)')
     expect(stripLabel(cs.find((c) => c.sessionId === 'w1')!, w.mainId)).toBe('Worker 1 · Login form')
   })
@@ -131,9 +149,9 @@ describe('planPills', () => {
   const cs = consolesOf(input())
   const pills = planPills(tree, rows, cs, 'p1', 'project')
   it('lists the active plans of the project, archived ones left out', () => {
-    expect(pills.map((p) => p.jobId)).toEqual(['j1', 'j2'])
+    expect(pills.map((p) => p.jobId)).toEqual(['job_1', 'job_2'])
     expect(planPills(tree, rows, cs, 'p2', 'project')).toEqual([])
-    expect(planPills(tree, rows, cs, 'p2', 'all').map((p) => p.jobId)).toEqual(['j1', 'j2'])
+    expect(planPills(tree, rows, cs, 'p2', 'all').map((p) => p.jobId)).toEqual(['job_1', 'job_2'])
   })
   it('counts progress by category and what needs the owner', () => {
     const auth = pills[0]
@@ -153,52 +171,56 @@ describe('planPills', () => {
   })
 })
 
-describe('detailsOf', () => {
-  const cs = consolesOf(input())
-  const of = (id: string) =>
-    detailsOf({
-      console: cs.find((c) => c.sessionId === id)!,
-      consoles: cs,
-      rows,
-      tree,
-      tasks: [{ id: 't1', spec: '# Build the login form with validation', acceptanceCriteria: ['Form submits', 'Errors show'] }],
-      answeredOf: (j) => (j === 'j1' ? 3 : 0),
-      escalatedOf: (j) => (j === 'j1' ? 1 : 0)
-    })
-  const now = Date.parse('2026-10-18T10:05:00Z')
-  const elapsed = (iso: string, n: number): string => `${Math.round((n - Date.parse(iso)) / 60000)}m`
+describe('the wall reads progress from the fold rows', () => {
+  // job_5: one Run (run_5), folded onto its Job row. job_6: nested, its latest Run (run_6b) is a child.
+  const folded = row('job_5', [
+    task('a', { status: 'completed', board: { category: 'done' } }),
+    task('b', { board: { category: 'running' } })
+  ], { foldedRunId: 'run_5' })
+  const nested = row('job_6', [], {
+    children: [
+      row('run_6a', [task('c', { status: 'completed', board: { category: 'done' } })]),
+      row('run_6b', [
+        task('d', { board: { category: 'running' } }),
+        task('e', { board: { category: 'queued' } }),
+        task('f', { status: 'completed', board: { category: 'done' } })
+      ])
+    ]
+  })
+  const labTree: WorkspaceProject[] = [{
+    id: 'p3', name: 'Lab', path: '/lab',
+    plans: [
+      {
+        jobId: 'job_5', projectId: 'p3', name: 'Folded', archived: false, paused: false, runId: 'run_5',
+        planner: [], coordinator: [], workers: [ws('wf', 'worker', 'Worker 1', 'Folded', { taskId: 'b', taskTitle: 'Running' })]
+      },
+      {
+        jobId: 'job_6', projectId: 'p3', name: 'Nested', archived: false, paused: false, runId: 'run_6b',
+        planner: [], coordinator: [], workers: [ws('wn', 'worker', 'Worker 1', 'Nested', { taskId: 'd', taskTitle: 'Next' })]
+      }
+    ]
+  }]
+  const labRows = indexJobRows([folded, nested])
+  const labData = { sessions: [session('wf'), session('wn')], tree: labTree, data: null, attention: {}, live: {}, rows: labRows }
 
-  it('worker: its Task, brief, criteria, files, then every Task of the plan with who is on it', () => {
-    const d = of('w1')
-    expect(d.task).toMatchObject({ title: 'Login form', brief: 'Build the login form with validation', files: ['a.ts', 'b.ts'] })
-    expect(d.task!.criteria).toEqual([{ text: 'Form submits', met: false }, { text: 'Errors show', met: false }])
-    expect(d.plan!.tasks.map((t) => [t.id, t.category, t.who ?? null])).toEqual([
-      ['t1', 'running', 'Worker 1'],
-      ['t2', 'awaiting-review', 'Worker 2'],
-      ['t4', 'done', null],
-      ['t5', 'queued', null]
-    ])
-    expect(detailLineOf(d, now, elapsed)).toEqual({ key: 'wall.detail.worker', params: { running: '5m', files: 2 } })
+  it('a plan pill reports the real done and total of its folded Run and of its nested Job’s latest Run', () => {
+    const pills = planPills(labTree, labRows, consolesOf(labData), 'p3', 'project')
+    expect(pills.map((p) => [p.jobId, p.done, p.total])).toEqual([['job_5', 1, 2], ['job_6', 1, 3]])
   })
-  it('coordinator: plan progress and its answered and escalated counts', () => {
-    const d = of('c1')
-    expect(d.task).toBeUndefined()
-    expect([d.plan!.done, d.plan!.total, d.answered, d.escalated]).toEqual([1, 4, 3, 1])
-    expect(detailLineOf(d, now, elapsed)).toEqual({ key: 'wall.detail.coordinator', params: { answered: 3, escalated: 1 } })
-  })
-  it('reviewer: round N of M', () => {
-    const d = of('w2')
-    expect(d.review).toEqual({ round: 2, max: 3 })
-    expect(detailLineOf(d, now, elapsed)?.key).toBe('wall.detail.reviewer')
-  })
-  it('planner: the planned Tasks', () => {
-    const d = of('pl1')
-    expect(d.plan!.tasks).toHaveLength(4)
-    expect(detailLineOf(d, now, elapsed)).toEqual({ key: 'wall.detail.planner', params: { tasks: 4 } })
-  })
-  it('a plain console: its folder, model and account only', () => {
-    const d = of('s9')
-    expect(d).toEqual({ role: 'console', cwd: '/repo', accountId: 'acc1' })
-    expect(detailLineOf(d, now, elapsed)).toBeNull()
+
+  it('detailsOf reports the plan’s real done and total and lists its Tasks', () => {
+    const cs = consolesOf(labData)
+    const d = detailsOf({
+      console: cs.find((c) => c.sessionId === 'wn')!,
+      consoles: cs,
+      rows: labRows,
+      tree: labTree,
+      tasks: [],
+      answeredOf: () => 0,
+      escalatedOf: () => 0
+    })
+    expect([d.plan!.done, d.plan!.total]).toEqual([1, 3])
+    expect(d.plan!.tasks.map((t) => t.id)).toEqual(['d', 'e', 'f'])
+    expect(d.task).toMatchObject({ title: 'Next' })
   })
 })

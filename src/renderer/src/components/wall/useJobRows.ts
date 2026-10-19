@@ -1,8 +1,10 @@
-// W9-H: each project's Jobs fold (JobRow, JobTask with taskBoardsOf's `board`), by Run id, for the wall's progress and
-// details. Read through `jobs-view`, the fold the Host already makes for a remote Jobs view, rather than `orch.list`:
-// that one is the Jobs sidebar's single subscription, and a second subscriber would unwatch it.
+// W9-H: each project's Jobs fold (JobRow, JobTask with taskBoardsOf's `board`), keyed for the wall's progress and
+// details by every id a plan looks up (indexJobRows). Read through `jobs-view`, the fold the Host already makes for a
+// remote Jobs view, rather than `orch.list`: that one is the Jobs sidebar's single subscription, and a second
+// subscriber would unwatch it.
 import { useEffect, useState } from 'react'
 import type { JobRow, OrchSnapshot } from '../../../../core/types'
+import { indexJobRows } from './wallModel'
 
 /** As often as the workspace tree is read (useWorkspaceData). */
 const POLL_MS = 5000
@@ -27,8 +29,7 @@ export function useJobRows(anchor: string | null, projectIds: readonly string[],
           )
         )
         if (!alive) return
-        const next: Record<string, JobRow> = {}
-        for (const row of views.flat()) next[row.id] = row
+        const next = indexJobRows(views.flat())
         setRows((p) => (JSON.stringify(p) === JSON.stringify(next) ? p : next))
       } finally {
         running = false
