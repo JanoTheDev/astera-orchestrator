@@ -1,5 +1,6 @@
-// Where a Slack reply goes in the Host (Slack in the Host Task 7, spec §3.4, plan rulings P10 and P18). The
-// SlackInbox classifies and converts a reply; these are the four routes it hands the result to:
+// Where a connection's reply goes in the Host (Slack in the Host Task 7, spec §3.4, plan rulings P10 and
+// P18). Each connection's inbox (SlackInbox, TelegramInbox) classifies a reply and its ReplyRouter converts
+// it; these are the four routes it hands the result to, the same for every connection:
 //
 // - a terminal session's reply is typed into the live pty that carries it (the inbox turns a choice
 //   screen's reply into keys first, from the notifier's pending tool, as the app does);
@@ -14,14 +15,14 @@
 // Imports only core modules and this folder: this bundles into the Host.
 import { HOST_ACT_SLACK_ANSWER } from '../core/host/protocol'
 import type { ChatAnswer, ChatRequest } from '../core/chat/types'
-import type { SlackInboxDeps } from '../core/slack/inbox'
-import type { SlackNotifier } from '../core/slack/notifier'
+import type { ReplyRouterDeps } from '../core/connections/replies'
+import type { ConnectionNotifier } from '../core/connections/notifier'
 import type { PtyRegistry } from './registry'
 import type { ProcRegistry } from './procRegistry'
 import type { HostChats } from './hostChats'
 import type { HostServer } from './server'
 
-export type HostInboxRoutes = Pick<SlackInboxDeps, 'write' | 'isChat' | 'pendingRequest' | 'deliverChat' | 'answerChat'>
+export type HostInboxRoutes = Pick<ReplyRouterDeps, 'write' | 'isChat' | 'pendingRequest' | 'deliverChat' | 'answerChat'>
 
 /** A live chat proc carries this session id: the Host's own session list, adopted or not. */
 const liveChat = (procs: Pick<ProcRegistry, 'list'>, sid: string): boolean =>
@@ -33,7 +34,8 @@ export function hostInboxRoutes(d: {
   registry: Pick<PtyRegistry, 'sessionPty' | 'write'>
   procs: Pick<ProcRegistry, 'list'>
   chats: Pick<HostChats, 'has' | 'isWriter' | 'send' | 'requests' | 'answerCard'> | null
-  notifier: Pick<SlackNotifier, 'chatRequestOf'>
+  /** The replying connection's own notifier: the card it last heard of from the app's forwards. */
+  notifier: Pick<ConnectionNotifier, 'chatRequestOf'>
   server(): Pick<HostServer, 'hasApp' | 'act'>
 }): HostInboxRoutes {
   return {
@@ -43,7 +45,7 @@ export function hostInboxRoutes(d: {
     write: (sid: string, data: string): boolean => {
       const pty = d.registry.sessionPty(sid)
       if (pty === null) return false
-      // A person's reply from Slack (registry.ts, lastPersonWriteAt).
+      // A person's reply from a chat connection (registry.ts, lastPersonWriteAt).
       d.registry.write(pty, data, { person: true })
       return true
     },

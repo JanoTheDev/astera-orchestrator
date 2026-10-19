@@ -1,5 +1,6 @@
-// The app's half of a Slack card answer (Slack in the Host Task 7, plan ruling P10). While the Host owns
-// Slack and this app is a chat session's writer, the Host asks this app to answer the card through the
+// The app's half of a chat connection's card answer (Slack in the Host Task 7, plan ruling P10; a Telegram
+// reply takes the same act despite its name). While the Host owns the connections and this app is a chat
+// session's writer, the Host asks this app to answer the card through the
 // orch-act `slackChatAnswer` (HOST_ACT_SLACK_ANSWER), with the whole answer: an approval's decision or a
 // question's answers. ipc.ts answers that act here, beside `worktreePathInUse`, since it is not an
 // OrchServerDeps name.

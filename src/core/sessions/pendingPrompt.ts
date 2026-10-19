@@ -1,7 +1,7 @@
 // The tool call each session's Claude Code is waiting on, from the PreToolUse hook.
 //
 // Why a hook and not the transcript: Claude Code flushes nothing to the transcript while it waits for a
-// person — measured in core/slack/transcript.ts's countToolUses comment — so while a question or an
+// person — measured in core/connections/transcript.ts's countToolUses comment — so while a question or an
 // approval prompt is on screen, the call it is about exists nowhere but in this capture. slack.ts keeps
 // the same capture for its own use (capturePendingTool); this one exists so the conversation view can
 // draw the question as a form (core/prompts/askUserQuestion.ts) instead of reading the screen for it.

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import type { Account, RollStateEvent, SessionInfo } from '../types'
-import { SlackNotifier, type SlackDeps } from './notifier'
-import { SlackPostError, type SlackTransport } from './transport'
+import { SlackNotifier, type SlackDeps } from './connect'
+import { ConnectionPostError, type ConnectionTransport } from '../connections/transport'
 import { PTY_LOST_SIGHT_EXIT_CODE } from '../sessions/pty'
 
 const account: Account = {
@@ -602,7 +602,7 @@ describe('SlackNotifier 훅 이벤트', () => {
 
 describe('SlackNotifier codex 턴 완료', () => {
   it('codex 턴 완료 — rollout 발췌를 붙여 보낸다', async () => {
-    // 현행 codex 형식(core/slack/codexTranscript.ts 의 주석 — 실측 2026-08-29)
+    // 현행 codex 형식(core/connections/codexTranscript.ts 의 주석 — 실측 2026-08-29)
     const tail = JSON.stringify({
       type: 'response_item',
       payload: {
@@ -978,7 +978,7 @@ function threadSetup(): {
   const posts: { text: string; threadTs?: string }[] = []
   const logs: string[] = []
   let seq = 0
-  const transport: SlackTransport = {
+  const transport: ConnectionTransport = {
     supportsThreads: true,
     post: async (text, threadTs) => {
       posts.push({ text, threadTs })
@@ -1018,7 +1018,7 @@ describe('SlackNotifier 세션 스레드', () => {
     const posts: { text: string; threadTs?: string }[] = []
     let release: (v: string) => void = () => {}
     const gate = new Promise<string>((r) => (release = r))
-    const transport: SlackTransport = {
+    const transport: ConnectionTransport = {
       supportsThreads: true,
       post: async (text, threadTs) => {
         posts.push({ text, threadTs })
@@ -1046,7 +1046,7 @@ describe('SlackNotifier 세션 스레드', () => {
 
   it('스레드 미지원 transport면 루트 메시지를 올리지 않는다', async () => {
     const posts: { text: string; threadTs?: string }[] = []
-    const transport: SlackTransport = {
+    const transport: ConnectionTransport = {
       supportsThreads: false,
       post: async (text, threadTs) => {
         posts.push({ text, threadTs })
@@ -1075,12 +1075,12 @@ describe('SlackNotifier 세션 스레드', () => {
   it('루트 게시 실패는 로그만 남기고 알림은 채널로 나간다', async () => {
     const logs: string[] = []
     const posts: { text: string; threadTs?: string }[] = []
-    const transport: SlackTransport = {
+    const transport: ConnectionTransport = {
       supportsThreads: true,
       post: async (text, threadTs) => {
         if (posts.length === 0) {
           posts.push({ text, threadTs })
-          throw new SlackPostError('status=403')
+          throw new ConnectionPostError('status=403')
         }
         posts.push({ text, threadTs })
         return 'ts-2'
@@ -1145,7 +1145,7 @@ describe('SlackNotifier 세션 스레드', () => {
   it('re-indexes an inherited thread whose root had not landed yet', async () => {
     const posts: { text: string; threadTs?: string }[] = []
     let release = (): void => {}
-    const transport: SlackTransport = {
+    const transport: ConnectionTransport = {
       supportsThreads: true,
       post: async (text, threadTs) => {
         posts.push({ text, threadTs })
@@ -1427,7 +1427,7 @@ describe('SlackNotifier 스레드 역매핑', () => {
       let releaseRoot: (ts: string | null) => void = () => {}
       const rootGate = new Promise<string | null>((r) => (releaseRoot = r))
       let call = 0
-      const transport: SlackTransport = {
+      const transport: ConnectionTransport = {
         supportsThreads: true,
         post: async () => {
           call++
@@ -2166,7 +2166,7 @@ describe('SlackNotifier — the restored wait and the offline summary (S6 Task 5
     notifier.setTransport({
       supportsThreads: false,
       post: async () => {
-        throw new SlackPostError('network')
+        throw new ConnectionPostError('network')
       }
     })
     notifier.register(info())

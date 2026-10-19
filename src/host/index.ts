@@ -73,7 +73,7 @@ const USAGE_GUARD_TICK_MS = 60_000
 import { composeHostRolling } from './rollingWiring'
 import { hostFeatures } from './features'
 import { loadSlackSdk } from './slackSdk'
-import { composeHostSlack, type HostSlackWiring } from './slackWiring'
+import { composeHostConnections, type HostConnectionsWiring } from './connectionsWiring'
 import { createHostSpawner } from './spawner'
 import { createHostWorktrees, loadWorktreesIfSpawning } from './worktrees'
 import { createHostProjectRoots } from './projectRoots'
@@ -264,10 +264,10 @@ async function main(): Promise<void> {
     void mcpHttp.stop()
     // The Remote Gateway stops with the Host the same way: its stdin ends (remote runtime design §2.3). Never rejects.
     void gateway.stop()
-    // **The Slack stops with them** (Slack in the Host, Task 5): its socket is closed and its timers
-    // stopped before the server stops accepting, so a Host on its way out holds no socket an app taking
-    // Slack back would be a second one beside. Never rejects.
-    void slackWiring?.dispose()
+    // **The chat connections stop with them** (Slack in the Host, Task 5): Slack's socket and Telegram's
+    // poller are closed and the timers stopped before the server stops accepting, so a Host on its way out
+    // holds nothing an app taking the connections back would be a second one beside. Never rejects.
+    void connectionsWiring?.dispose()
     remoteSessions?.dispose()
     // Before the close, so a Host that is on its way out is not offered up as one to end. A failure
     // here costs nothing: the app checks the executable behind the pid before acting on it, and a
@@ -536,7 +536,7 @@ async function main(): Promise<void> {
 
   /** Declared above the rolling (the S6 final review M3 lesson): Task 6 has the rolling's events reach it,
    *  and a `const` below would be in its temporal dead zone. Null without a spawner or without the SDK. */
-  let slackWiring: HostSlackWiring | null = null
+  let connectionsWiring: HostConnectionsWiring | null = null
   /** The session events of the public log (plugin Phase 3, events and notifications design N2, N3), declared above the
    *  rolling for the same reason: its taps read it at the call. Made below once the session rows exist; null without a
    *  spawner. */
@@ -563,31 +563,32 @@ async function main(): Promise<void> {
           lang: () => wiring.checks.langNow(),
           log: (m) => log.write(m),
           nowIso: () => new Date().toISOString(),
-          // Slack in the Host Task 6: the Host's own rolls and every hook event are its Slack's sources.
-          // Read at the call: the Slack composition is built below, and each tap isolates itself.
+          // Slack in the Host Task 6: the Host's own rolls and every hook event are its connections' sources.
+          // Read at the call: the connections' composition is built below, and each tap isolates itself.
           // E2 §4: and its work units, first, so the open unit is re-keyed before the old pty's exit lands.
           onRollEvent: (e) => {
             if (e.t === 'session-rolled')
               hostWorkUnits?.onRolled({ oldSessionId: e.oldSessionId, newSessionId: e.info.id, transcriptPath: e.dest, kind: e.info.kind })
-            slackWiring?.onRollEvent(e)
+            connectionsWiring?.onRollEvent(e)
             if (e.t === 'roll-state') sessionEvents?.onRollState(e.event)
           },
           hookTap: (sid, p) => {
-            slackWiring?.onHookEvent(sid, p)
+            connectionsWiring?.onHookEvent(sid, p)
             sessionEvents?.onHookEvent(sid, p)
             sessionActivity.onHookEvent(sid, p)
           }
         })
       : null
 
-  // **The Host's Slack** (Slack in the Host, spec §3): slack.json read only, one notifier, one inbox, and
-  // the socket held only while no attached app keeps Slack (P4). **Only with a spawner and the SDK**:
-  // `slack-owner` is announced on the same two facts, and a Host without it answers slack-reload 501.
+  // **The Host's chat connections** (Slack in the Host, spec §3; connectionsWiring.ts): Slack and Telegram,
+  // each settings file read only, one notifier and one inbox each, held only while no attached app keeps
+  // them (P4). **Only with a spawner and the Slack SDK**: `slack-owner` is announced on the same two facts,
+  // and a Host without it answers slack-reload 501 and leaves Telegram to the app too.
   // Nothing is opened until `start()` below, once the server exists. The accounts come from the rolling's
   // own snapshot, and its chats and chains are what the Host sources itself (Task 6).
-  slackWiring =
+  connectionsWiring =
     spawner && wiring && rollingWiring && slackSdk
-      ? composeHostSlack({
+      ? composeHostConnections({
           profileDir,
           sdk: slackSdk,
           registry,
@@ -992,8 +993,8 @@ async function main(): Promise<void> {
         })
         .catch((err: unknown) => log.write(`plans waiting without planReadyAt could not be marked: ${String(err)}`))
     },
-    // `slack-reload` (P17): absent without the Host's Slack, and the call then answers 501.
-    slack: slackWiring ?? undefined,
+    // `slack-reload` (P17), which reloads every connection: absent without the Host's connections (501).
+    slack: connectionsWiring ?? undefined,
     // `mcp-http-reload` and `mcp-http-status` (MCP HTTP §3).
     mcpHttp,
     // `runtime-reload` and `runtime-status`, and revocation closing live connections (remote runtime design §2.9, §3.3).
@@ -1095,10 +1096,10 @@ async function main(): Promise<void> {
           if (from.greeted && from.role === 'app') rollingWiring.blocksFromApp(m)
           return true
         }
-        // Slack in the Host (spec §3.3, P17): what only an app sees, told to the Host that owns Slack. Only
+        // Slack in the Host (spec §3.3, P17): what only an app sees, told to the Host that owns the connections. Only
         // from a greeted app; the Host drops what it sources itself.
         if (m.t === 'slack-event') {
-          if (slackWiring && from.greeted && from.role === 'app') slackWiring.forwarded(m.event)
+          if (connectionsWiring && from.greeted && from.role === 'app') connectionsWiring.forwarded(m.event)
           return true
         }
         // Plugin Phase 3 (N3): what only an app sees of its sessions, for the session events. Only from a greeted app;
@@ -1143,8 +1144,8 @@ async function main(): Promise<void> {
       onAppsChanged: () => {
         wiring?.serverHooks.onAppsChanged()
         rollingWiring?.onAppsChanged()
-        // P4: an app that keeps Slack attaching closes the Host's socket; the last one leaving opens it.
-        slackWiring?.onAppsChanged()
+        // P4: an app that keeps the connections attaching stands the Host's down; the last one leaving takes them.
+        connectionsWiring?.onAppsChanged()
         // E1: an app that kept How It Works leaving makes this Host the writer.
         void hostUnderstanding.writerMayHaveChanged()
         // E2: the same for the work units: the collector starts or stops with it.
@@ -1201,16 +1202,17 @@ async function main(): Promise<void> {
     })
   }
 
-  // The Host's Slack starts once the server exists: who keeps Slack is the server's to say.
-  slackWiring?.start()
-  // W3-A: the activity feed's notices to Slack, while this Host holds it (the app's desktop notices are its own).
-  if (slackWiring) {
-    const slack = slackWiring
+  // The Host's connections start once the server exists: who keeps them is the server's to say.
+  connectionsWiring?.start()
+  // W3-A: the activity feed's notices to every connection, while this Host holds them (the app's desktop
+  // notices are its own).
+  if (connectionsWiring) {
+    const connections = connectionsWiring
     const settingsFile = path.join(profileDir, 'app-settings.json')
     followActivity({
       log: activityLog,
       send: (n) => {
-        if (slack.active()) void slack.notifier.postNotice(`*${n.title}*\n${n.body}`)
+        if (connections.active()) void connections.fanout.postNotice(`*${n.title}*\n${n.body}`)
       },
       state: () => orch.state(),
       limits: async () => ({ maxConcurrentWorkers: await readMaxConcurrentWorkers(settingsFile).catch(() => null) }),

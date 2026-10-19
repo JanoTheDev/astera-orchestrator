@@ -182,7 +182,7 @@ function tailSection(input: TabResumeInput): string | null {
 }
 
 // 명령 자체는 가리지 않는다 — 담을 대상은 결과 발췌뿐이다(위 sanitize 재사용 JSDoc, checkpoint.ts).
-// 명령 문자열은 에이전트가 무엇을 실행하기로 **선택**한 값이지 자유 서술이 아니고, slack/transcript.ts
+// 명령 문자열은 에이전트가 무엇을 실행하기로 **선택**한 값이지 자유 서술이 아니고, connections/transcript.ts
 // 의 REDACTED_KEYS 도 같은 이유로 Bash 의 command 는 가리지 않는다(그 파일의 주석 — 무엇을 실행하는지
 // 자체가 판단의 핵심이라 가리면 판단이 불가능해진다). 종료 코드는 트랜스크립트에 없으므로(있는 것은
 // tool_result.is_error 불리언뿐) "실패/성공"이라고만 적는다 — 없는 정밀도를 지어내지 않는다.

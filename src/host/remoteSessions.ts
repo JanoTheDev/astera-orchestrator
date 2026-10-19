@@ -177,7 +177,7 @@ export function createRemoteSessions(d: RemoteSessionDeps): RemoteSessions {
       marked()
       return { status: 200, body: { answered: true } }
     }
-    // The Runtime's own app writes the chat: answered there, as Slack's answer goes (slackRoutes.ts answerChat).
+    // The Runtime's own app writes the chat: answered there, as Slack's answer goes (connectionsRoutes.ts answerChat).
     if (!d.hasApp()) return { status: 503, body: { error: `session ${s.id} is held by no one who can answer it now` } }
     const r = (await d.askApp(HOST_ACT_SLACK_ANSWER, [s.id, request, answer]).catch((e: unknown) => ({ reason: e instanceof Error ? e.message : String(e) }))) as {
       answered?: unknown

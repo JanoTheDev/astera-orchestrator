@@ -7,6 +7,7 @@ import { PluginsSettings } from '../PluginsSettings'
 import { GithubSettings } from '../GithubSettings'
 import { CreativeHubSettings } from '../CreativeHubSettings'
 import { SlackSettings } from '../SlackSettings'
+import { TelegramSettings } from '../TelegramSettings'
 import { SettingRow, type GroupProps } from './SettingRow'
 
 export function IntegrationsSettings({ shown, only, cliInstallStatus, setCliInstallStatus, setPairedChanged }: GroupProps): React.JSX.Element {
@@ -20,6 +21,9 @@ export function IntegrationsSettings({ shown, only, cliInstallStatus, setCliInst
       {/* Kept while Settings is open (final review M-6): switching tabs unmounted it and dropped what was typed. */}
       <SettingRow a="slack" only={only} keep hidden={!shown}>
         <SlackSettings />
+      </SettingRow>
+      <SettingRow a="telegram" only={only} keep hidden={!shown}>
+        <TelegramSettings />
       </SettingRow>
       {shown && (
         <>

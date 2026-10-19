@@ -1,6 +1,6 @@
 // For the Slack turn-completion notification — pulls the last agent message out of the tail of a codex
 // rollout (jsonl). Pure module: reading the file is the caller's job (readFileTail in main's
-// SlackNotifier). Same role and the same defensive parsing rules as extractLastTurnAssistantText in
+// ConnectionNotifier). Same role and the same defensive parsing rules as extractLastTurnAssistantText in
 // transcript.ts, which does this for claude — but only the **last** message. Whether a codex turn
 // splits its text across several message records the way claude does (measured: 49.7% of claude turns
 // leave two or more segments, see extractLastTurnAssistantText) has not been measured, so this side is

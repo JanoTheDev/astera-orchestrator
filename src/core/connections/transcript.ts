@@ -1,6 +1,6 @@
 // For Slack turn-completion notifications — pulls the assistant text of the last turn out of the
 // transcript (jsonl) tail text. Pure module: reading the file is the caller's job (readFileTail in main
-// SlackNotifier).
+// ConnectionNotifier).
 import { t, type Lang } from '../i18n'
 
 /** Is this `type:'user'` line the start of a turn — a message a person (or the injected prompt) wrote?
@@ -118,7 +118,7 @@ const REDACTED_KEYS = new Set(['content', 'old_string', 'new_string'])
  * Hint on the reply format for a choice prompt.
  *
  * The injection layer turns the reply into a key sequence and carries it through Submit
- * (buildChoiceKeys in core/slack/inbox.ts), so the hint is about the **format**, not "go do it in the
+ * (buildChoiceKeys in core/connections/input.ts), so the hint is about the **format**, not "go do it in the
  * terminal". When the format is off, no key is pressed and only the reason is left in the thread, so
  * saying the format up front is what cuts wasted round trips the most.
  *
@@ -209,8 +209,8 @@ export function extractPendingToolUse(tail: string): PendingToolUse | null {
  * only 7% of the file was visible, and as appends continued the window slid forward and carried items
  * that were inside it at capture time out of view. The count then stopped growing, or even shrank, so a
  * call that had already finished stayed marked "pending" and an idle notification went out as "input
- * needed". The verdict was replaced by whether the tool_use_id appears (see the SlackRecord.pendingTool
- * comment in core/slack/notifier.ts).
+ * needed". The verdict was replaced by whether the tool_use_id appears (see the ConnectionRecord.pendingTool
+ * comment in core/connections/notifier.ts).
  *
  * It is kept because this comment is the only place holding the measurement above — that Claude Code does
  * not flush assistant messages while waiting for interaction — and that fact is what explains both the

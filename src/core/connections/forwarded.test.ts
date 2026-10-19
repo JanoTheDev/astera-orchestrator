@@ -1,14 +1,14 @@
 import { describe, it, expect } from 'vitest'
-import { hearForwarded, isForwardedChatEvent, parseSlackForwarded } from './forwarded'
+import { hearForwarded, isForwardedChatEvent, parseForwarded } from './forwarded'
 
 const info = { id: 's2', accountId: 'a1', cwd: 'D:/p', status: 'running', title: 't', slackNotify: true }
 
-describe('parseSlackForwarded (Slack in the Host Task 3, spec §3.3)', () => {
+describe('parseForwarded (Slack in the Host Task 3, spec §3.3)', () => {
   it('reads the three kinds, and keeps dest on a rolled', () => {
     const chat = { kind: 'chat', sessionId: 'c1', accountId: 'a1', event: { type: 'status', status: 'idle' }, provider: 'claude', transcriptPath: null }
-    expect(parseSlackForwarded(chat)).toEqual(chat)
-    expect(parseSlackForwarded({ kind: 'roll-state', event: { sessionId: 's1', state: 'nudged' } })?.kind).toBe('roll-state')
-    expect(parseSlackForwarded({ kind: 'rolled', oldSessionId: 's1', info, dest: 'D:/r.jsonl' })).toEqual({ kind: 'rolled', oldSessionId: 's1', info, dest: 'D:/r.jsonl' })
+    expect(parseForwarded(chat)).toEqual(chat)
+    expect(parseForwarded({ kind: 'roll-state', event: { sessionId: 's1', state: 'nudged' } })?.kind).toBe('roll-state')
+    expect(parseForwarded({ kind: 'rolled', oldSessionId: 's1', info, dest: 'D:/r.jsonl' })).toEqual({ kind: 'rolled', oldSessionId: 's1', info, dest: 'D:/r.jsonl' })
   })
 
   it('drops anything else, and a chat event the notifier does not read', () => {
@@ -23,7 +23,7 @@ describe('parseSlackForwarded (Slack in the Host Task 3, spec §3.3)', () => {
       { kind: 'roll-state', event: { state: 'nudged' } },
       { kind: 'rolled', oldSessionId: 's1', info: { id: 's2' } }
     ])
-      expect(parseSlackForwarded(bad), JSON.stringify(bad)).toBeNull()
+      expect(parseForwarded(bad), JSON.stringify(bad)).toBeNull()
   })
 
   it('forwards the four chat events the notifier reads, and never an exit (P6)', () => {

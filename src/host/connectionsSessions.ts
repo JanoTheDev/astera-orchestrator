@@ -1,5 +1,5 @@
-// Which sessions the Host's Slack notifier knows, followed from the Host's two registries (Slack in the
-// Host, spec §3.3, plan ruling P7). A live pty or proc whose note reads as a session with `slackNotify`
+// Which sessions the Host's connection notifiers know (through their fan-out, so every connection hears the
+// same), followed from the Host's two registries (Slack in the Host, spec §3.3, plan ruling P7). A live pty or proc whose note reads as a session with `slackNotify`
 // is registered the moment it opens, with the thread its note names, and renamed from its note after
 // that. Its output and its exit are fed to the notifier from the same registries: the Host sees every
 // pty and proc it holds, so exits are the Host's for both kinds (P6).
@@ -10,8 +10,8 @@
 // activation) is the net that registers it once the old record is gone. And the old entry, which lives on for a moment
 // after the roll moved its record, is never registered again while a live entry names it in `rolledFrom`.
 //
-// **Nothing is registered while the Host is not active** (`active`). While an app keeps Slack, that app's
-// notifier opens each root and notes it; a record made here meanwhile would hold no thread, and at the
+// **Nothing is registered while the Host is not active** (`active`). While an app keeps the connections, that
+// app's notifiers open each root and notes it; a record made here meanwhile would hold no thread, and at the
 // activation the Host would post a second root beside the one the note names. So the activation's
 // reconcile registers each session reading its note as it is then. **A record from an earlier activation
 // takes its note's thread then too** (`reconcile({ fromNotes: true })`, Task 6): the app may have opened a
@@ -20,24 +20,23 @@
 // Imports only core and this folder: this bundles into the Host.
 import type { PtyMeta } from '../core/host/protocol'
 import type { SessionInfo } from '../core/types'
-import type { SlackNotifier } from '../core/slack/notifier'
+import type { ConnectionFanout } from '../core/connections/fanout'
 import { chatInfoFromNote, sessionInfoFromNote } from '../core/sessions/noteInfo'
-import { notedThreadOf } from '../core/slack/threadNote'
 import type { PtyRegistry } from './registry'
 import type { ProcRegistry } from './procRegistry'
 
-export interface HostSlackSessions {
+export interface HostConnectionSessions {
   /** Every live session entry considered again: the rolling tick's net, and every activation (P7). With
    *  `fromNotes` (an activation), a known record takes the thread its note names (Task 6). */
   reconcile(o?: { fromNotes?: boolean }): void
   dispose(): void
 }
 
-export function createHostSlackSessions(d: {
+export function createHostConnectionSessions(d: {
   registry: Pick<PtyRegistry, 'onMeta' | 'onData' | 'onExit' | 'list' | 'metaOf' | 'sessionPty'>
   procs: Pick<ProcRegistry, 'onMeta' | 'onExit' | 'list'>
-  notifier: Pick<SlackNotifier, 'has' | 'register' | 'rename' | 'handleData' | 'handleExit' | 'adoptNoted'>
-  /** Whether the Host owns Slack now. Default: always. Registration and renames wait for it; output and
+  notifier: Pick<ConnectionFanout, 'has' | 'register' | 'rename' | 'handleData' | 'handleExit' | 'adoptNoted'>
+  /** Whether the Host owns the connections now. Default: always. Registration and renames wait for it; output and
    *  exits are fed whatever it says, so a record from an earlier activation still ends. */
   active?(): boolean
   /** Told after a registration and an exit (Task 6 hangs the codex watcher here). */
@@ -46,7 +45,7 @@ export function createHostSlackSessions(d: {
   /** Told when a known session's note changes (Task 6: a codex rollout noted after registration). */
   onNoted?(info: SessionInfo, restore: Record<string, unknown>): void
   log(m: string): void
-}): HostSlackSessions {
+}): HostConnectionSessions {
   let disposed = false
   const infoOf = (meta: PtyMeta): SessionInfo | null => sessionInfoFromNote(meta) ?? chatInfoFromNote(meta)
   const supersededByRoll = (id: string): boolean =>
@@ -57,7 +56,7 @@ export function createHostSlackSessions(d: {
     if (!info || info.slackNotify !== true) return
     if (d.notifier.has(info.id)) {
       d.notifier.rename(info.id, info.title)
-      if (fromNotes) d.notifier.adoptNoted(info.id, notedThreadOf(meta.restore))
+      if (fromNotes) d.notifier.adoptNoted(info.id, meta.restore)
       d.onNoted?.(info, meta.restore)
       return
     }
@@ -70,7 +69,7 @@ export function createHostSlackSessions(d: {
     // says it was rolled away; registered again, its exit would post "session ended" in the thread the
     // new session carries on.
     if (supersededByRoll(info.id)) return
-    d.notifier.register(info, { thread: notedThreadOf(meta.restore) })
+    d.notifier.register(info, meta.restore)
     d.onRegistered?.(info, meta.restore)
   }
   /** A listener here runs inside a registry's fan-out: it never throws into it. */
@@ -79,7 +78,7 @@ export function createHostSlackSessions(d: {
       fn()
     } catch (err) {
       try {
-        d.log(`slack sessions: ${what} failed: ${String(err)}`)
+        d.log(`connection sessions: ${what} failed: ${String(err)}`)
       } catch {
         /* nowhere to say it */
       }

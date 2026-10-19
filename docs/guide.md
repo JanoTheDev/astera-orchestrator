@@ -437,7 +437,7 @@ A page with groups on the left and a search box that filters rows by label and d
 | Advanced | How It Works, worktree location, History, About, updates, Host status |
 
 Related guides: [accounts, rolling, files and everyday sessions](usage-guide.md), [the `astera` command](cli.md),
-[MCP](mcp.md), [SDK](sdk.md), [plugins](plugins.md), [remote runtimes](remote-runtime.md), [Slack bot](slack-bot-setup.md).
+[MCP](mcp.md), [SDK](sdk.md), [plugins](plugins.md), [remote runtimes](remote-runtime.md), [Slack bot](slack-bot-setup.md), [Telegram bot](telegram-bot-setup.md).
 
 ## The box and voice
 

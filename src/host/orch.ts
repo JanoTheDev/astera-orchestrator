@@ -49,7 +49,7 @@ import type { HostLocal } from './spawner'
 import type { HostRolling } from './rolling'
 import type { HostChats } from './hostChats'
 import type { RollJournal } from './rollJournal'
-import type { HostSlackWiring } from './slackWiring'
+import type { HostConnectionsWiring } from './connectionsWiring'
 import type { McpHttpSupervisor } from './mcpHttp'
 import { WORKTREE_CALLS, type HostWorktrees } from './worktrees'
 import type { HostJournal } from './hostJournal'
@@ -506,9 +506,10 @@ export function createHostOrch(a: {
   /** The Host's roll journal (S6 limits D5; rollJournal.ts), for the app's `roll-journal` call. Absent
    *  exactly when there is no rolling: the call then answers 501. */
   rollJournal?: Pick<RollJournal, 'take'> | null
-  /** The Host's Slack (Slack in the Host, P17), for the app's `slack-reload` call. Absent exactly when
-   *  this Host does not own Slack (no spawner or no SDK): the call then answers 501. */
-  slack?: Pick<HostSlackWiring, 'reload' | 'active'>
+  /** The Host's chat connections (Slack in the Host, P17), for the app's `slack-reload` call, which reloads
+   *  every connection's settings. Absent exactly when this Host owns none (no spawner or no Slack SDK): the
+   *  call then answers 501. */
+  slack?: Pick<HostConnectionsWiring, 'reload' | 'active'>
   /** The MCP HTTP entrance's supervisor (mcpHttp.ts, MCP HTTP design §3), for the app's `mcp-http-reload` and
    *  `mcp-http-status`. Absent: both answer 501. */
   mcpHttp?: Pick<McpHttpSupervisor, 'reload' | 'status'>
@@ -1885,7 +1886,8 @@ export function createHostOrch(a: {
           return { status: 200, body: await a.rollJournal.take(ack as number | undefined) }
         }
         // **Beside roll-journal, for its reason (Slack in the Host, P17).** The app, after its settings screen
-        // wrote slack.json, has the Host read it again. Never a command layer command, never a receipt.
+        // wrote slack.json or telegram.json, has the Host read every connection's settings again (the name
+        // predates Telegram). Never a command layer command, never a receipt.
         if (cmd === 'slack-reload') {
           if (from?.role !== 'app') return { status: 403, body: { error: 'slack-reload is the app’s to send' } }
           if (!a.slack) return { status: 501, body: { error: 'this Host does not own Slack' } }

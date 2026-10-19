@@ -1,24 +1,11 @@
-// Owns the Slack transport protocol only. notifier.ts holds the notification content and the session
-// concepts; this file knows only "where the text goes and how". Tokens and URLs never make it into a log
-// or an error.
+// Owns the Slack transport protocol only. core/connections/notifier.ts holds the notification content and
+// the session concepts; this file knows only "where the text goes and how". Both transports post the
+// notifier's text unchanged: Slack's mrkdwn is what the
+// notifier already writes. Tokens and URLs never make it into a log or an error.
 // Lives in core since Slack in the Host (Task 1), so the Host runs the same notifier the app does.
-
-/** A post failure. reason goes into the log verbatim, so it may only carry values that cannot contain a URL or token. */
-export class SlackPostError extends Error {
-  constructor(readonly reason: string) {
-    super(`slack post failed ${reason}`)
-    this.name = 'SlackPostError'
-  }
-}
-
-export interface SlackTransport {
-  /** On success the message ts (usable as a thread root), or null when unsupported. Failure throws SlackPostError. */
-  post(text: string, threadTs?: string): Promise<string | null>
-  readonly supportsThreads: boolean
-}
-
+import { ConnectionPostError, type ConnectionTransport } from '../connections/transport'
 /** The legacy Incoming Webhook transport. No thread support — there is no thread_ts field at all. */
-export class WebhookTransport implements SlackTransport {
+export class WebhookTransport implements ConnectionTransport {
   readonly supportsThreads = false
 
   constructor(
@@ -37,9 +24,9 @@ export class WebhookTransport implements SlackTransport {
       })
     } catch (err) {
       // err.message can contain the user-supplied URL — keep only the name
-      throw new SlackPostError(err instanceof Error ? err.name : 'unknown')
+      throw new ConnectionPostError(err instanceof Error ? err.name : 'unknown')
     }
-    if (!res.ok) throw new SlackPostError(`status=${res.status}`)
+    if (!res.ok) throw new ConnectionPostError(`status=${res.status}`)
     return null
   }
 }
@@ -48,7 +35,7 @@ export class WebhookTransport implements SlackTransport {
  *
  *  Why timeout and retryConfig are specified explicitly: the SDK defaults are no request timeout (timeout: 0) plus
  *  tenRetriesInAboutThirtyMinutes (10 attempts, roughly 30 minutes in total). The root message register() in
- *  core/slack/notifier.ts posts is queued behind `await record.thread` in send(), so if a session starts while
+ *  core/connections/notifier.ts posts is queued behind `await record.thread` in send(), so if a session starts while
  *  offline or rate-limited, that root chat.postMessage stays pending for up to 30 minutes on the defaults and
  *  every notification for that session (turn complete, limit, rolling, exit) piles up behind it. The design
  *  promises an immediate fallback — "root post fails → threadTs null → notifications go to channel level" —
@@ -87,7 +74,7 @@ export function botErrorReason(err: unknown): string {
 }
 
 /** The Slack App (bot) transport. chat.postMessage supports thread_ts, so it creates a session thread. */
-export class BotTransport implements SlackTransport {
+export class BotTransport implements ConnectionTransport {
   readonly supportsThreads = true
 
   constructor(
@@ -104,9 +91,9 @@ export class BotTransport implements SlackTransport {
         ...(threadTs ? { thread_ts: threadTs } : {})
       })
     } catch (err) {
-      throw new SlackPostError(botErrorReason(err))
+      throw new ConnectionPostError(botErrorReason(err))
     }
-    if (res.ok === false) throw new SlackPostError('ok=false')
+    if (res.ok === false) throw new ConnectionPostError('ok=false')
     return res.ts ?? null
   }
 }

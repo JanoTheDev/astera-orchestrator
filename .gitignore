@@ -20,6 +20,7 @@ build/.cache/
 docs/*
 !docs/releasing.md
 !docs/slack-bot-setup.md
+!docs/telegram-bot-setup.md
 !docs/jobs.md
 !docs/how-it-works.md
 !docs/usage-guide.md

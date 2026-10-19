@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, it, expect } from 'vitest'
-import { createSlackOwnership, SLACK_HANDBACK_MS } from './slackOwnership'
+import { createConnectionsOwnership, SLACK_HANDBACK_MS } from './connectionsOwnership'
 import { HOST_FEATURE_SLACK_OWNER } from '../core/host/protocol'
 import type { SlackConfig } from '../core/slack/config'
 
@@ -17,10 +17,8 @@ function rig() {
   const heard: unknown[] = []
   let fire: (() => void) | null = null
   let armedFor = 0
-  const o = createSlackOwnership({
-    load: async () => ({ ...CFG }),
-    apply: () => trail.push('apply'),
-    yieldAll: () => trail.push('yield'),
+  const o = createConnectionsOwnership({
+    connections: [{ name: 'slack', load: async () => ({ ...CFG }), apply: () => trail.push('apply'), stop: () => trail.push('yield') }],
     hear: (ev) => heard.push(ev),
     after: (ms, fn) => { armedFor = ms; fire = fn; return () => { fire = null } },
     log: () => {}
@@ -30,7 +28,7 @@ function rig() {
   return { o, trail, sent, heard, fire: () => fire?.(), armed: () => fire !== null, armedFor: () => armedFor }
 }
 
-describe('createSlackOwnership (Slack in the Host Task 8, S1, S2, P5)', () => {
+describe('createConnectionsOwnership (Slack in the Host Task 8, S1, S2, P5)', () => {
   // Review Focus 1.
   it('builds nothing before the startup chain settles, and yields at once to a Slack-owning Host', async () => {
     const h = rig()
@@ -86,11 +84,11 @@ describe('createSlackOwnership (Slack in the Host Task 8, S1, S2, P5)', () => {
     mine.o.status(older)
     mine.o.settled()
     await flush()
-    await mine.o.configChanged(CFG)
+    await mine.o.configChanged('slack', CFG)
     expect(mine.trail).toEqual(['apply', 'apply'])
     const host = rig()
     host.o.status(owner)
-    await host.o.configChanged(CFG)
+    await host.o.configChanged('slack', CFG)
     expect(host.trail).toEqual(['yield', 'reload'])
   })
 
@@ -147,7 +145,7 @@ describe('createSlackOwnership (Slack in the Host Task 8, S1, S2, P5)', () => {
   // activated kept the config it read before the save.
   it('a settings save before ownership is decided, or while the Host is away, is sent as slack-reload once it speaks slack-owner', async () => {
     const early = rig()
-    await early.o.configChanged(CFG)
+    await early.o.configChanged('slack', CFG)
     expect(early.trail).toEqual([])
     early.o.status(owner)
     await flush()
@@ -155,7 +153,7 @@ describe('createSlackOwnership (Slack in the Host Task 8, S1, S2, P5)', () => {
     const away = rig()
     away.o.status(owner)
     away.o.status(closed)
-    await away.o.configChanged(CFG)
+    await away.o.configChanged('slack', CFG)
     expect(away.trail).toEqual(['yield'])
     away.o.status(owner)
     await flush()
@@ -237,10 +235,8 @@ describe('the app half of the Slack handover never overlaps the Host socket (Tas
   it('a reconnect inside the grace restarts it, so the grace never fires under a hello the Host has taken', () => {
     let armed = 0
     let cancelled = 0
-    const o = createSlackOwnership({
-      load: async () => ({ ...CFG }),
-      apply: () => {},
-      yieldAll: () => {},
+    const o = createConnectionsOwnership({
+      connections: [{ name: 'slack', load: async () => ({ ...CFG }), apply: () => {}, stop: () => {} }],
       after: () => { armed++; return () => { cancelled++ } },
       log: () => {}
     })
@@ -308,25 +304,27 @@ describe('the app Slack wiring (Slack in the Host Task 8, text guards: ipc.ts an
   it('index.ts opens no socket at start, and gates every notifier input on the ownership', () => {
     // Mutation: bring back the load-then-apply at start, and two sockets share the token until the handshake.
     expect(index).not.toMatch(/slackStore\.load\(\)\.then\(/)
-    expect(index).toMatch(/createSlackOwnership\(/)
+    expect(index).toMatch(/createConnectionsOwnership\(/)
     // Mutation: drop a gate, and the app posts beside the Host (or, for the hook fan-out, reads transcripts for nothing).
-    expect(index).toMatch(/onTurnComplete: \(sessionId, rolloutPath\) => \{\s*if \(slackOwnership\.local\(\)\) slack\.onCodexTurnComplete/)
-    expect(index).toMatch(/onHookEvent: \(sid, p\) => \{\s*if \(slackOwnership\.local\(\)\) slack\.onHookEvent\(sid, p\)/)
+    expect(index).toMatch(/onTurnComplete: \(sessionId, rolloutPath\) => \{\s*if \(connectionsOwnership\.local\(\)\) connections\.onCodexTurnComplete/)
+    expect(index).toMatch(/onHookEvent: \(sid, p\) => \{\s*if \(connectionsOwnership\.local\(\)\) connections\.onHookEvent\(sid, p\)/)
     const tap = index.slice(index.indexOf('Slack notifications tap rolling events too'))
-    expect(tap).toMatch(/if \(slackOwnership\.local\(\)\)/)
+    expect(tap).toMatch(/if \(connectionsOwnership\.local\(\)\)/)
     // Mutation: forward a Host roll back to the Host (orchestration false), and it is announced twice.
     expect(tap).toMatch(/else if \(opts\.orchestration\)/)
     // Final review M2: forwards held while the Host was away reach this app's notifier when it takes Slack.
     // Mutation: drop `hear`, and what the grace held is lost when the app takes over.
-    const own = index.slice(index.indexOf('createSlackOwnership({'))
-    expect(own.slice(0, own.indexOf('slackOwnershipRef = slackOwnership'))).toMatch(/hear: \(ev\) => hearForwarded\(slack, ev\)/)
+    const own = index.slice(index.indexOf('createConnectionsOwnership({'))
+    expect(own.slice(0, own.indexOf('connectionsOwnershipRef = connectionsOwnership'))).toMatch(/hear: \(ev\) => hearForwarded\(connections, ev\)/)
+    // Telegram's save goes through the same gate. Mutation: bring back the no-op, and a save never reaches the poller.
+    expect(index).toMatch(/configChanged: \(cfg\) => connectionsOwnership\.configChanged\('telegram', cfg\)/)
   })
 
   it('ipc.ts decides after the startup chain, follows the status, forwards chat events and reloads the Host', () => {
     expect(ipc).toMatch(/hostSessionsTakenBack\.then\(\(\) => slack\?\.ownership\.settled\(\)\)/)
     expect(ipc).toMatch(/slack\?\.ownership\.status\(s\)/)
     expect(ipc).toMatch(/slack\?\.ownership\.setHost\(\{/)
-    expect(ipc).toMatch(/await slack\.ownership\.configChanged\(normalized\)/)
+    expect(ipc).toMatch(/await slack\.ownership\.configChanged\('slack', normalized\)/)
     expect(ipc).toMatch(/if \(slack\?\.ownership\.local\(\) !== false\) slack\?\.notifier\.handleData\(e\)/)
     expect(ipc).toMatch(/if \(slack\?\.ownership\.local\(\) !== false\) slack\?\.notifier\.handleExit\(e\)/)
     expect(ipc).toMatch(/isForwardedChatEvent\(event\)/)
@@ -343,7 +341,50 @@ describe('the app Slack wiring (Slack in the Host Task 8, text guards: ipc.ts an
   it('ipc.ts registers a bypass retry with the thread its note names', () => {
     const retry = ipc.slice(ipc.indexOf("ipcMain.handle('chat.retryWithBypass'"))
     expect(retry.slice(0, retry.indexOf('send(\'session:created\', info)'))).toMatch(
-      /slack\?\.notifier\.register\(info, \{ thread: notedThreadOf\(core\.chat\.spawnNote\(info\.id\) \?\? \{\}\) \}\)/
+      /slack\?\.notifier\.register\(info, core\.chat\.spawnNote\(info\.id\) \?\? \{\}\)/
     )
+  })
+})
+
+describe('createConnectionsOwnership holds every connection together (Telegram beside Slack)', () => {
+  function two() {
+    const trail: string[] = []
+    const o = createConnectionsOwnership({
+      connections: [
+        { name: 'slack', load: async () => ({ ...CFG }), apply: () => trail.push('slack apply'), stop: () => trail.push('slack stop') },
+        { name: 'telegram', load: async () => ({ botToken: '1:x', chatId: '42', userId: '7' }), apply: () => trail.push('telegram apply'), stop: () => trail.push('telegram stop') }
+      ],
+      after: () => () => {},
+      log: () => {}
+    })
+    o.setHost({ reload: async () => { trail.push('reload') }, forward: () => {} })
+    return { o, trail }
+  }
+
+  // One owner for both: the app polls Telegram exactly when it holds Slack's socket, never beside the Host.
+  it('applies both when the app keeps them and stops both when it yields to the Host', async () => {
+    const h = two()
+    h.o.status(closed)
+    h.o.settled()
+    await flush()
+    expect(h.trail.sort()).toEqual(['slack apply', 'telegram apply'])
+    h.trail.length = 0
+    h.o.status(owner)
+    expect(h.trail).toEqual(['slack stop', 'telegram stop'])
+  })
+
+  it('a Telegram save is applied to Telegram alone here, and sent as slack-reload while the Host owns', async () => {
+    const mine = two()
+    mine.o.status(closed)
+    mine.o.settled()
+    await flush()
+    mine.trail.length = 0
+    await mine.o.configChanged('telegram', { botToken: '1:y', chatId: '42', userId: '7' })
+    expect(mine.trail).toEqual(['telegram apply'])
+    const host = two()
+    host.o.status(owner)
+    host.trail.length = 0
+    await host.o.configChanged('telegram', {})
+    expect(host.trail).toEqual(['reload'])
   })
 })

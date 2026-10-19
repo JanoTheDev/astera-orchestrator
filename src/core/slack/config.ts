@@ -3,6 +3,7 @@
 // The Host uses SlackConfigReader directly (it never writes the file); the app's writer,
 // SlackConfigStore, extends it in main/slackConfigStore.ts (plan ruling P2).
 import { promises as fs } from 'node:fs'
+import { norm } from '../connections/norm'
 
 export interface SlackConfig {
   webhookUrl: string | null
@@ -26,9 +27,6 @@ export const EMPTY_SLACK_CONFIG: SlackConfig = {
   appToken: null,
   memberId: null
 }
-
-export const norm = (v: unknown): string | null =>
-  typeof v === 'string' && v.trim() !== '' ? v.trim() : null
 
 /** Settings storage (userData/slack.json). A missing or corrupt file falls back to defaults — it does not
  *  block the app. Tokens never leave this file: they are not put in logs or error messages. */

@@ -391,7 +391,7 @@ export class StatusLineManager {
         // Captures what the waiting screen shows (the question and its options, the tool awaiting approval and its
         // arguments) **before** the tool runs. The transcript cannot supply it — Claude Code does not flush assistant
         // messages while it waits for user interaction, so while a question or approval prompt is on screen that
-        // tool_use is not present in the file (two measured findings in the countToolUses comment in core/slack/transcript.ts).
+        // tool_use is not present in the file (two measured findings in the countToolUses comment in core/connections/transcript.ts).
         //
         // The matcher catches only the write/execute family plus AskUserQuestion. HOOK_CAPTURE_SCRIPT starts a fresh
         // node process for every hooked tool call and Claude Code waits for it to finish, so matching all tools would

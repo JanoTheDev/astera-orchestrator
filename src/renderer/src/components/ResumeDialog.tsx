@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { Account, HistoryEntry, RollConfig, ScheduleConfig, SessionKind } from '../../../core/types'
 import { resumeAccountOptions, resumeChatAllowed, resumeRollAccountIds } from '../../../core/resume'
 import { isSlackReady } from '../../../core/slack/ready'
+import { isTelegramReady } from '../../../core/telegram/ready'
 import { useI18n } from '../i18n/I18nProvider'
 import { useChatAvailability } from '../hooks/useChatAvailability'
 import { isGhostAccountId } from '../../../core/accounts/ghostId'
@@ -100,8 +101,9 @@ export function ResumeDialog({
     // isSlackReady (looking only at webhookUrl means a user who configured just the bot path cannot
     // turn it on).
     let cancelled = false
-    void window.api.slack.getConfig().then((c) => {
-      if (!cancelled) setSlackReady(isSlackReady(c))
+    // slackReady means any connection (Slack or Telegram) is ready; the flag fans out to all of them.
+    void Promise.all([window.api.slack.getConfig(), window.api.telegram.getConfig()]).then(([sl, tg]) => {
+      if (!cancelled) setSlackReady(isSlackReady(sl) || isTelegramReady(tg))
     })
     void window.api.sessions
       .resumeDefaults(entry.sessionId)

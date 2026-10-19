@@ -47,7 +47,7 @@ const IDLE_TYPE = 'idle_prompt'
  *
  *  Even when this list goes stale the notification itself does not wobble — the verdict on a pending
  *  choice comes not from the type but from an unanswered tool_use in the transcript (extractPendingToolUse
- *  in core/slack/transcript.ts). */
+ *  in core/connections/transcript.ts). */
 const KNOWN_TYPES = new Set([
   IDLE_TYPE,
   // Values newly observed in a later re-check

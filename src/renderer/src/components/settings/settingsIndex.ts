@@ -51,6 +51,7 @@ export const SETTINGS_ROWS: readonly SettingsRow[] = [
 
   { anchor: 'github', group: 'integrations', labelKey: 'settings.row.github' },
   { anchor: 'slack', group: 'integrations', labelKey: 'settings.row.slack', descKey: 'settings.slack.hint' },
+  { anchor: 'telegram', group: 'integrations', labelKey: 'settings.row.telegram', descKey: 'settings.telegram.hint' },
   { anchor: 'cli', group: 'integrations', labelKey: 'settings.row.cli', descKey: 'settings.cli.hint' },
   { anchor: 'mcp', group: 'integrations', labelKey: 'settings.row.mcp', descKey: 'settings.mcp.hint' },
   { anchor: 'remote', group: 'integrations', labelKey: 'settings.tab.remote', descKey: 'settings.remote.hint' },

@@ -1242,7 +1242,7 @@ export const ko = {
   'session.new.multiAccountAuto': '(다계정: 자동)',
   'session.new.rollPromptPlaceholder': '이어서 작업 진행해 줘',
   'session.new.rollPromptHint': '재개 시 이 문구를 전송 (비우면 기본값)',
-  'session.new.slackNotify': 'Slack 진행상황 알림',
+  'session.new.slackNotify': '채팅 앱 알림 (Slack, Telegram)',
   'session.new.slackNeedsWebhook': '(설정에서 Webhook URL 등록 필요)',
   // Nothing to do with the default account above — this only remembers which account this project used,
   // so the next new session preselects it. Named accordingly to stop the two reading as one feature.
@@ -1691,10 +1691,10 @@ export const ko = {
   'slack.sessionExited': '⏹ 세션 종료 (exit {code})',
   'slack.inputNeeded': '🙋 입력 필요',
   'slack.inputNeededWith': '🙋 입력 필요 — {message}',
-  // core/slack/inbound.ts buildChoiceKeys — the reason a choice reply was in the wrong shape.
+  // core/connections/input.ts buildChoiceKeys — the reason a choice reply was in the wrong shape.
   // core does not know the language, so it hands back a Message and main (slackInbox) translates it and posts it to the thread.
   // With more than one question, the *At variants that say which question it was are used.
-  // core/slack/transcript.ts describePendingToolUse — the reply-format hint attached to the thread notification, and
+  // core/connections/transcript.ts describePendingToolUse — the reply-format hint attached to the thread notification, and
   // the notation for summarizing a sensitive argument as a character count instead of its value.
   'slack.choice.hintPerQuestion': '💡 질문마다 `/`로 구분해 답장 (예: 1,3 / 2)',
   'slack.choice.hintMulti': '💡 여러 개는 쉼표로 구분해 답장 (예: 1,3)',
@@ -1712,7 +1712,7 @@ export const ko = {
   'slack.inbox.tooLong': '⚠️ 답장이 너무 길어 전달하지 않았습니다 ({max}자 이하만 가능)',
   'slack.inbox.sessionEnded': '⚠️ 이 세션은 종료되어 입력을 전달하지 못했습니다',
   'slack.inbox.injectFailed': '⚠️ 입력을 전달하지 못했습니다',
-  // core/slack/chatRequest.ts — a chat session's open card as Slack text, and a thread reply's result.
+  // core/connections/chatRequest.ts — a chat session's open card as Slack text, and a thread reply's result.
   'slack.approval.hint': '💡 허용 또는 거절로 답장',
   'slack.approval.hintAlways': '💡 허용, 항상 허용 또는 거절로 답장',
   'slack.approval.unknownReply': '⚠️ 허용 또는 거절로 답장해 주세요',
@@ -2709,6 +2709,21 @@ export const ko = {
   'settings.back': '뒤로',
   'settings.row.github': 'GitHub',
   'settings.row.slack': 'Slack',
+  'settings.row.telegram': 'Telegram',
+  'settings.telegram.botToken': '봇 토큰',
+  'settings.telegram.chatId': '채팅 ID',
+  'settings.telegram.userId': '허용할 사용자 ID',
+  'settings.telegram.userIdHint': '이 사용자의 답장만 세션에 전달됩니다. 개인 채팅이라면 채팅 ID와 같은 숫자입니다.',
+  'settings.telegram.userIdRequired': '⚠️ 사용자 ID가 없으면 누구의 답장도 전달되지 않습니다. 본인의 사용자 ID를 입력하세요.',
+  'settings.telegram.save': '저장',
+  'settings.telegram.saved': '저장됨',
+  'settings.telegram.saveFailed': 'Telegram 설정을 저장하지 못했습니다: {detail}',
+  'settings.telegram.ready': '준비됨 — 세션 메시지가 이 채팅으로 전송됩니다.',
+  'settings.telegram.notReady': '준비 안 됨 — 봇 토큰과 채팅 ID가 모두 필요합니다.',
+  'settings.telegram.hint':
+    '@BotFather로 봇을 만들고 봇에게 아무 메시지나 보내세요. 개인 채팅이라면 채팅 ID와 사용자 ID는 본인의 숫자 Telegram ID입니다.',
+  'settings.telegram.setupGuide': '자세한 절차는 docs/telegram-bot-setup.md 참고.',
+  'telegram.inbox.replyHint': '세션에 입력을 보내려면 그 세션의 메시지에 답장하세요',
   'settings.row.cli': 'CLI (astera 명령)',
   'settings.row.mcp': 'MCP',
   'settings.row.cliVersions': 'Claude Code · Codex CLI',

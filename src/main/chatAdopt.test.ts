@@ -110,9 +110,9 @@ describe('ipc.ts wires the chat adopter (chat takeover Task 9)', () => {
     const adopterSlice = src.slice(adoptersStart, end)
     expect(adoptersStart).toBeGreaterThan(-1)
     expect(adoptersStart).toBeLessThan(start)
-    const registers = adopterSlice.match(/notifier\.register\(info, \{ thread: notedThreadOf\(a\.restore\) \}\)/g) ?? []
+    const registers = adopterSlice.match(/notifier\.register\(info, a\.restore\)/g) ?? []
     expect(registers).toHaveLength(2)
-    expect(adopterSlice.slice(start - adoptersStart)).toMatch(/notifier\.register\(info, \{ thread: notedThreadOf\(a\.restore\) \}\)/)
+    expect(adopterSlice.slice(start - adoptersStart)).toMatch(/notifier\.register\(info, a\.restore\)/)
     const index = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'index.ts'), 'utf8')
     const depsStart = index.indexOf('new SlackNotifier({')
     const deps = index.slice(depsStart, index.indexOf('const attention = createAttentionState()', depsStart))

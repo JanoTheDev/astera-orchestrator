@@ -1,5 +1,9 @@
-// Who owns Slack in this app (Slack in the Host, spec S1, plan rulings P4 and P5): the app's own socket and
-// notifier, or a Host that announced `slack-owner`. Exactly one of them holds the socket at a time.
+// Who owns the chat connections in this app (Slack in the Host, spec S1, plan rulings P4 and P5): the app's
+// own notifiers, Slack socket and Telegram poller, or a Host that announced `slack-owner`. Exactly one of
+// them holds every connection at a time; the wire names (`slack-owner`, the `slack` yield, `slack-event`,
+// `slack-reload`) predate Telegram and now cover all of them, so Telegram never has two pollers (409). Below,
+// "Slack" reads as "the connections". A Host without the Slack SDK announces no `slack-owner`, so the app
+// then holds Telegram too.
 //
 // - Nothing is decided before the startup chain settles (`settled`), unless a Slack-owning Host answers
 //   first: before the first handshake the app cannot know whether one is there, and opening its socket at
@@ -17,8 +21,7 @@
 //   answers again, or to this app's own notifier (`hear`) when the grace ends and the app takes Slack. A
 //   settings save made before a Slack-owning Host can hear it (ownership undecided, or the Host away) is
 //   sent as slack-reload the next time a Slack-owning Host answers.
-import type { SlackConfig } from '../core/slack/config'
-import type { SlackForwardedEvent } from '../core/slack/forwarded'
+import type { ForwardedEvent } from '../core/connections/forwarded'
 import { hostSpeaksSlackOwner } from './host/outdated'
 
 export const SLACK_HANDBACK_MS = 15_000
@@ -26,10 +29,20 @@ export const SLACK_HANDBACK_MS = 15_000
  *  more than one holds unless something is wrong. */
 const HELD_MAX = 200
 
-export type SlackOwner = 'undecided' | 'app' | 'host'
+export type ConnectionsOwner = 'undecided' | 'app' | 'host'
 
-export interface SlackOwnership {
-  owner(): SlackOwner
+/** One connection as this gate holds it: what its settings file says, applied here, or stood down. */
+export interface OwnedConnection<C = unknown> {
+  name: string
+  load(): Promise<C>
+  /** The connection's notifier transport and inbox, from `cfg`. */
+  apply(cfg: C): void
+  /** No transport and no inbox. */
+  stop(): void
+}
+
+export interface ConnectionsOwnership {
+  owner(): ConnectionsOwner
   /** The app's own notifier hears its inputs: it owns Slack, or nobody decided yet (it posts nothing then). */
   local(): boolean
   /** The startup chain settled (hostSessionsTakenBack): decide now. */
@@ -40,36 +53,34 @@ export interface SlackOwnership {
    *  `slack` yield out. A hello that yields while the hand-back grace runs restarts the grace. */
   helloKeeps(): boolean
   /** The Host half, bound by ipc.ts once its client exists. */
-  setHost(h: { reload(): Promise<void>; forward(ev: SlackForwardedEvent): void } | null): void
+  setHost(h: { reload(): Promise<void>; forward(ev: ForwardedEvent): void } | null): void
   /** Sent to the Host only while it owns Slack; false otherwise. Never throws. */
-  forward(ev: SlackForwardedEvent): boolean
-  /** slack.setConfig wrote the file: applied here when the app owns, sent as slack-reload when the Host does. */
-  configChanged(cfg: SlackConfig): Promise<void>
+  forward(ev: ForwardedEvent): boolean
+  /** A settings screen wrote connection `name`'s file: applied here when the app owns, sent as slack-reload
+   *  (which reloads every connection) when the Host does. */
+  configChanged(name: string, cfg: unknown): Promise<void>
   dispose(): void
 }
 
-export function createSlackOwnership(d: {
-  load(): Promise<SlackConfig>
-  /** notifier.applyConfig + inbox apply. */
-  apply(cfg: SlackConfig): void
-  /** notifier.setTransport(null) + inbox stop. */
-  yieldAll(): void
+export function createConnectionsOwnership(d: {
+  /** Every connection, held together (main/index.ts's list). */
+  connections: readonly OwnedConnection[]
   /** A forward held while the Host was away, told to this app's own notifier once it takes Slack. */
-  hear?(ev: SlackForwardedEvent): void
+  hear?(ev: ForwardedEvent): void
   after(ms: number, fn: () => void): () => void
   log(m: string): void
-}): SlackOwnership {
-  let owner: SlackOwner = 'undecided'
+}): ConnectionsOwnership {
+  let owner: ConnectionsOwner = 'undecided'
   let hostOwns = false
   /** What the last hello said: true when it left the slack yield out because this app held Slack. */
   let lastHelloKept = false
   /** Said once per stretch of keeping Slack in front of a Slack-owning Host. */
   let toldKept = false
   let cancel: (() => void) | null = null
-  let host: { reload(): Promise<void>; forward(ev: SlackForwardedEvent): void } | null = null
+  let host: { reload(): Promise<void>; forward(ev: ForwardedEvent): void } | null = null
   /** The Host client is connected: a forward sent now reaches it. */
   let linked = false
-  let held: SlackForwardedEvent[] = []
+  let held: ForwardedEvent[] = []
   let toldDropped = false
   /** A settings save no Slack-owning Host has heard yet. */
   let reloadOwed = false
@@ -97,10 +108,12 @@ export function createSlackOwnership(d: {
     if (owner === 'host') return
     owner = 'host'
     log('slack: the Host owns Slack — this app opens no socket and posts nothing')
-    try {
-      d.yieldAll()
-    } catch (err) {
-      log(`slack: this app could not stand its Slack down: ${String(err)}`)
+    for (const c of d.connections) {
+      try {
+        c.stop()
+      } catch (err) {
+        log(`slack: this app could not stand its ${c.name} down: ${String(err)}`)
+      }
     }
   }
   /** Sends what was held while the Host was away, oldest first. Stops at a client that throws, and what is
@@ -143,15 +156,18 @@ export function createSlackOwnership(d: {
     // toApp reads the file itself, so no reload is owed to anyone.
     reloadOwed = false
     log(`slack: this app owns Slack (${why})`)
-    void d
-      .load()
-      .then((cfg) => {
-        if (owner === 'app') d.apply(cfg)
-      })
-      .catch((err) => log(`slack: slack.json could not be read: ${String(err)}`))
-      .finally(() => {
-        if (owner === 'app') replayHeld()
-      })
+    void Promise.all(
+      d.connections.map((c) =>
+        c
+          .load()
+          .then((cfg) => {
+            if (owner === 'app') c.apply(cfg)
+          })
+          .catch((err) => log(`slack: ${c.name}.json could not be read or applied: ${String(err)}`))
+      )
+    ).finally(() => {
+      if (owner === 'app') replayHeld()
+    })
   }
   return {
     owner: () => owner,
@@ -215,15 +231,15 @@ export function createSlackOwnership(d: {
         return false
       }
     },
-    configChanged: async (cfg) => {
-      if (owner === 'app') d.apply(cfg)
+    configChanged: async (name, cfg) => {
+      if (owner === 'app') d.connections.find((c) => c.name === name)?.apply(cfg)
       // M3: whenever a Slack-owning Host is there, it hears the save, even one it is not active for (it reads
       // the file again on activation anyway). Otherwise the save is owed to the next one that answers.
       if (hostOwns && linked && host) {
         reloadOwed = false
         await host.reload().catch((err) => {
           reloadOwed = true
-          log(`slack: the Host did not reload slack.json: ${String(err)}`)
+          log(`slack: the Host did not reload ${name}.json: ${String(err)}`)
         })
       } else if (owner !== 'app') reloadOwed = true
     },

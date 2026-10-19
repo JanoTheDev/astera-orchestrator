@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { hostInboxRoutes } from './slackRoutes'
+import { hostInboxRoutes } from './connectionsRoutes'
 
 function rig(o: { hostWrites?: boolean; hostHolds?: boolean; app?: boolean; appAnswer?: unknown } = {}) {
   const writes: Array<[string, string]> = []

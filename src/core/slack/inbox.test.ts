@@ -3,14 +3,12 @@ import {
   SlackInbox,
   SlackInboxController,
   inboxTargetFor,
-  reconnectDelayMs,
-  RECONNECT_BASE_MS,
-  RECONNECT_CAP_MS,
   type SlackInboxDeps,
   type SlackInboxControllerDeps,
   type SocketClient
 } from './inbox'
-import { MAX_INJECT_CHARS } from './inbound'
+import { MAX_INJECT_CHARS } from '../connections/input'
+import { RECONNECT_BASE_MS, RECONNECT_CAP_MS } from '../connections/backoff'
 import type { ChatRequest } from '../chat/types'
 
 const CH = 'C-target'
@@ -880,10 +878,6 @@ describe('SlackInbox reconnects itself (final review C1)', () => {
   })
 
   it('the backoff grows with each failure and is capped at five minutes', async () => {
-    expect([0, 1, 2, 3].map(reconnectDelayMs)).toEqual([1_000, 2_000, 4_000, 8_000])
-    expect(reconnectDelayMs(9)).toBe(RECONNECT_CAP_MS)
-    expect(reconnectDelayMs(500)).toBe(RECONNECT_CAP_MS)
-    expect(RECONNECT_CAP_MS).toBe(5 * 60_000)
     vi.useFakeTimers()
     try {
       const h = setup()

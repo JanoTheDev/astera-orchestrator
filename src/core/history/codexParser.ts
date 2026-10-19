@@ -63,7 +63,7 @@ export interface CodexMeta {
  *  **`event_msg/user_message`·`agent_message` 가 아니라 `response_item/message` 를 읽는다.**
  *  예전에는 앞의 둘을 읽었고, codex 가 그 둘을 더 이상 쓰지 않게 되면서 **이 앱의 codex 대화 읽기
  *  전부가 눈을 잃었다** — 히스토리 제목·미리보기·읽지 않은 표시·Smart Resume 브리핑, 그리고 Slack
- *  본문(core/slack/codexTranscript.ts 가 같은 전환을 겪었다).
+ *  본문(core/connections/codexTranscript.ts 가 같은 전환을 겪었다).
  *
  *  **실측(2026-08-29, 이 컴퓨터의 rollout 최근 10개).** `event_msg/agent_message` 는 08-28 17:00
  *  이후 파일 넷에서 **0** 이고 `user_message` 는 그보다 앞선 파일에서도 이미 0 이다. 반면

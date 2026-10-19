@@ -1,10 +1,10 @@
-// What the Host's Slack notifier is told, and by whom (Slack in the Host, spec S3 and §3.3, plan rulings
-// P11, P12). Each session's notices come from one source:
+// What the Host's connection notifiers are told (through their fan-out), and by whom (Slack in the Host,
+// spec S3 and §3.3, plan rulings P11, P12). Each session's notices come from one source:
 //
 // - **The Host's own observation** for every session it holds: hook events (the rolling's watcher, through
 //   its tap), the rolls of the chains it holds (the rolling's `onRollEvent`), the events of the chat
 //   adapters it holds (`HostChats`), codex turn ends of the codex terminal sessions it watches (its own
-//   `CodexRolloutWatcher`, P12), and pty output and exits (slackSessions.ts, Task 5).
+//   `CodexRolloutWatcher`, P12), and pty output and exits (connectionsSessions.ts, Task 5).
 // - **The app's forwarded `slack-event`** for what only the app decodes: the chat events of a session
 //   whose adapter is the app's, and the rolls of a chain the app holds. A forwarded event for a session
 //   the Host sources itself is dropped (logged once per session and kind), so nothing is posted twice.
@@ -23,19 +23,19 @@
 import type { ChatEvent } from '../core/chat/types'
 import { providerOf, type Provider } from '../core/providers/meta'
 import { codexRolloutFromNote, type CodexRolloutWatcher } from '../core/sessions/codexRolloutWatcher'
-import { parseSlackForwarded } from '../core/slack/forwarded'
-import type { SlackNotifier } from '../core/slack/notifier'
+import { parseForwarded } from '../core/connections/forwarded'
+import type { ConnectionFanout } from '../core/connections/fanout'
 import type { SessionInfo } from '../core/types'
 import type { HostChats } from './hostChats'
 import type { HostRollEvent, HostRolling } from './rolling'
 import { onceBounded } from '../core/bounded'
 
-export interface HostSlackSources {
+export interface HostConnectionSources {
   onHookEvent(sessionId: string, payload: unknown): void
   onRollEvent(e: HostRollEvent): void
   /** A `slack-event` body from a greeted app; dropped for a session the Host sources itself. Never throws. */
   forwarded(raw: unknown): void
-  /** A session slackSessions registered, with its note (the codex watch starts here when it names a rollout). */
+  /** A session connectionsSessions registered, with its note (the codex watch starts here when it names a rollout). */
   sessionRegistered(info: SessionInfo, restore: Record<string, unknown>): void
   /** A registered session's note changed: a rollout noted after registration starts its watch. */
   sessionNoted(info: SessionInfo, restore: Record<string, unknown>): void
@@ -43,14 +43,14 @@ export interface HostSlackSources {
   dispose(): void
 }
 
-export function createHostSlackSources(d: {
-  notifier: Pick<SlackNotifier, 'onChatEvent' | 'onRollState' | 'onRolled' | 'onHookEvent' | 'onCodexTurnComplete'>
+export function createHostConnectionSources(d: {
+  notifier: Pick<ConnectionFanout, 'onChatEvent' | 'onRollState' | 'onRolled' | 'onHookEvent' | 'onCodexTurnComplete'>
   chats: Pick<HostChats, 'has' | 'info' | 'subscribe'> | null
   rolling: Pick<HostRolling, 'has' | 'account'> | null
   codex: Pick<CodexRolloutWatcher, 'register' | 'unregister'>
   findTranscript(configDir: string, threadId: string): Promise<string | null>
   log(m: string): void
-}): HostSlackSources {
+}): HostConnectionSources {
   /** A log line never throws (R3). */
   const log = (m: string): void => {
     try {
@@ -156,7 +156,7 @@ export function createHostSlackSources(d: {
     },
     forwarded: (raw) => {
       try {
-        const ev = parseSlackForwarded(raw)
+        const ev = parseForwarded(raw)
         if (!ev) return drop('malformed event', 'an app')
         if (ev.kind === 'chat') {
           if (d.chats?.has(ev.sessionId)) return drop('chat event', ev.sessionId)
