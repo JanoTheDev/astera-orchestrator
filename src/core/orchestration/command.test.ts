@@ -9199,6 +9199,13 @@ describe('handleCommand — github-pr, github-ci and github-issue', () => {
       expect(body.objective).toBe(job?.objective)
     })
 
+    it('#117: jobs-create-from-issue --hands-off makes a hands-off Job', async () => {
+      const { deps, projectId } = issueSetup()
+      const r = await call(deps, 'jobs-create-from-issue', { project: projectId, number: 5, handsOff: true }, '')
+      expect(r.status).toBe(200)
+      expect(deps.getState().jobs.find((j) => j.id === (r.body as { id: string }).id)?.handsOff).toBe(true)
+    })
+
     it('jobs-create-from-issue refuses an author outside OWNER, MEMBER and COLLABORATOR (403), and makes no Job', async () => {
       for (const association of ['CONTRIBUTOR', 'NONE']) {
         const { deps, projectId } = issueSetup({ author_association: association })
@@ -9671,5 +9678,74 @@ describe('#116 approve only once the plan is ready', () => {
     await r.person('jobs-plan-ready', { id })
     expect((await r.person('run-start', { run: id })).status).toBeLessThan(300)
     expect(r.deps.getState().jobs[0]).not.toHaveProperty('planReadyAt')
+  })
+})
+
+describe('#117 hands-off', () => {
+  const person = (deps: OrchServerDeps, cmd: string, args: Record<string, unknown>) => handleCommand(deps, { sessionId: APP_CALLER }, cmd, args)
+  const rig = () => {
+    const deps = { ...makeDeps(), startCoordinator: async () => ({ sessionId: 'ses-planner' }) } as unknown as OrchServerDeps
+    return deps
+  }
+
+  it('jobs-create --hands-off and jobs-plan --hands-off on|off set the Job; an agent session is refused', async () => {
+    const deps = rig()
+    const made = await person(deps, 'jobs-create', { objective: 'o', cwd: 'D:/p', coordinatorAccount: 'acc1', handsOff: true })
+    expect(made.status).toBe(200)
+    const id = (made.body as { id: string }).id
+    expect(deps.getState().jobs.find((j) => j.id === id)?.handsOff).toBe(true)
+    expect((await call(deps, 'jobs-create', { objective: 'o', cwd: 'D:/p', handsOff: true }, 'ses-agent')).status).toBe(403)
+    expect((await person(deps, 'jobs-plan', { id, handsOff: 'maybe' })).status).toBe(400)
+    expect((await call(deps, 'jobs-plan', { id, handsOff: 'on' }, 'ses-agent')).status).toBe(403)
+    expect((await person(deps, 'jobs-plan', { id, handsOff: 'off' })).status).toBe(200)
+    expect(deps.getState().jobs.find((j) => j.id === id)?.handsOff).toBe(false)
+  })
+
+  it('projects-set --hands-off on sets the project, off clears it', async () => {
+    const deps = makeDeps()
+    await deps.setState({ ...deps.getState(), projects: [{ id: 'prj_1', path: 'D:/p', name: 'p', addedAt: NOW }] })
+    expect((await call(deps, 'projects-set', { id: 'prj_1', handsOff: 'on' }, '')).status).toBe(200)
+    expect(deps.getState().projects[0].handsOff).toBe(true)
+    expect((await call(deps, 'projects-set', { id: 'prj_1', handsOff: 'sometimes' }, '')).status).toBe(400)
+    expect((await call(deps, 'projects-set', { id: 'prj_1', handsOff: 'off' }, '')).status).toBe(200)
+    expect(deps.getState().projects[0].handsOff).toBeUndefined()
+  })
+
+  describe('questions-answer on an escalation', () => {
+    const seed = async (handsOff: boolean) => {
+      const deps = makeDeps()
+      deps.startWorker = async () => ({ sessionId: 'sess1', cwd: 'D:/p', specPath: 'D:/p/orch/specs/1.md' })
+      const runId = ((await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p' })).body as { id: string }).id
+      const task = await call(deps, 'task-create', { account: 'acc1', runId, title: 'A', spec: 'spec A' })
+      await call(deps, 'worker-start', { taskId: (task.body as { id: string }).id, agent: 'codex', account: 'acc1', worktree: 'current' })
+      const st = deps.getState()
+      const run = st.runs.find((r) => r.id === runId)!
+      await deps.setState({
+        ...st,
+        runs: st.runs.map((r) => (r.id === runId ? { ...r, coordinatorSessionId: 'ses-coord' } : r)),
+        jobs: st.jobs.map((j) => (j.id === run.jobId ? { ...j, handsOff } : j))
+      })
+      await call(deps, 'send', { type: 'escalation', taskId: (task.body as { id: string }).id, reason: 'Drop the users table?' }, 'ses-coord')
+      const esc = deps.getState().messages.find((m) => m.type === 'escalation')!
+      return { deps, esc }
+    }
+
+    it("the hands-off Run's own running coordinator answers it", async () => {
+      const { deps, esc } = await seed(true)
+      const r = await call(deps, 'questions-answer', { id: esc.id, answer: 'No. Why: irreversible' }, 'ses-coord')
+      expect(r.status).toBe(200)
+      expect(r.body).toMatchObject({ id: esc.id, status: 'resolved', resolution: 'No. Why: irreversible' })
+    })
+
+    it('another agent session is still refused on a hands-off Run', async () => {
+      const { deps, esc } = await seed(true)
+      expect((await call(deps, 'questions-answer', { id: esc.id, answer: 'No' }, 'sess1')).status).toBe(403)
+      expect((await call(deps, 'questions-answer', { id: esc.id, answer: 'No' }, 'ses-other')).status).toBe(403)
+    })
+
+    it("the coordinator of a Run that is not hands-off is still refused", async () => {
+      const { deps, esc } = await seed(false)
+      expect((await call(deps, 'questions-answer', { id: esc.id, answer: 'No' }, 'ses-coord')).status).toBe(403)
+    })
   })
 })

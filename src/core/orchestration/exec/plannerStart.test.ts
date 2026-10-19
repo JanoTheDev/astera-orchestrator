@@ -41,4 +41,31 @@ describe('startCoordinatorSession with role planner', () => {
       await fs.rm(dir, { recursive: true, force: true })
     }
   })
+
+  it("#117: a hands-off Job's planner starts with the bypass, by the owner's choice", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'astera-planner-'))
+    try {
+      const job = createJob(emptyState(), { objective: 'o', cwd: '/repo', pendingStart: true }, '2026-10-17T00:00:00.000Z')
+      if (!job.ok) throw new Error(job.error)
+      const state = { ...job.state, jobs: job.state.jobs.map((j) => ({ ...j, handsOff: true })) }
+      const spawned: Array<Record<string, unknown>> = []
+      const ctx: CoordinatorStartContext = {
+        specsDir: dir,
+        preTrust: async () => {},
+        bypassPermissions: async () => false,
+        spawn: async (o) => {
+          spawned.push(o)
+          return { id: 'ses-planner' }
+        },
+        log: () => {},
+        getState: () => state,
+        accounts: async () => [account],
+        roleModels: async () => ({})
+      }
+      await startCoordinatorSession(ctx, { runId: job.value.id, cwd: '/repo', accountId: 'acc1', brief: 'PLAN IT', role: 'planner' })
+      expect(spawned[0].bypassPermissions).toBe(true)
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true })
+    }
+  })
 })

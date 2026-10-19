@@ -8,7 +8,7 @@ import { planIncompleteActivity, planReadyActivity } from '../../../host/activit
 import { snapshotFor } from '../view'
 import { buildPlannerBrief } from '../handover'
 import type { Task } from '../types'
-import { autoApproveOf, feedbackLine, freshFeedbackBrief, resumeBrief } from './plannerFeedback'
+import { autoApproveOf, feedbackLine, freshFeedbackBrief, handsOffOf, plansMissingReady, resumeBrief } from './plannerFeedback'
 
 const NOW = '2026-10-18T00:00:00.000Z'
 
@@ -251,6 +251,47 @@ describe('auto-approve', () => {
     expect((await r.person('jobs-plan', { id, autoApprove: 'maybe' })).status).toBe(400)
     expect((await r.person('jobs-plan', { id, autoApprove: 'on' })).status).toBe(200)
     expect(r.state().jobs[0].autoApprove).toBe(true)
+  })
+})
+
+describe('#117 hands-off', () => {
+  const withProject = (s: OrchState, handsOff?: boolean): OrchState => ({
+    ...s,
+    projects: [{ id: 'prj_1', path: '/repo', name: 'repo', addedAt: NOW, ...(handsOff !== undefined ? { handsOff } : {}) }],
+    jobs: s.jobs.map((j) => ({ ...j, projectId: 'prj_1' }))
+  })
+
+  it('handsOffOf reads the Job before its project, and defaults to off; autoApproveOf is true when hands-off', async () => {
+    const r = rig()
+    await planned(r)
+    const base = withProject(r.state())
+    expect(handsOffOf(base, base.jobs[0])).toBe(false)
+    expect(autoApproveOf(base, base.jobs[0])).toBe(false)
+    const project = withProject(r.state(), true)
+    expect(handsOffOf(project, project.jobs[0])).toBe(true)
+    expect(autoApproveOf(project, project.jobs[0])).toBe(true)
+    // The Job's own off wins over its project's on, and its own on wins over an auto-approve off
+    const off = { ...project.jobs[0], handsOff: false }
+    expect(handsOffOf(project, off)).toBe(false)
+    const on = { ...base.jobs[0], handsOff: true, autoApprove: false }
+    expect(handsOffOf(base, on)).toBe(true)
+    expect(autoApproveOf(base, on)).toBe(true)
+  })
+})
+
+describe('#116 fold-in: plans waiting from before planReadyAt', () => {
+  it('lists a waiting plan that holds and whose planner is gone; never one whose planner runs, or that does not hold', async () => {
+    const r = rig()
+    const { jobId } = await planned(r)
+    expect(r.state().jobs[0].planReadyAt).toBeUndefined()
+    expect(plansMissingReady(r.state(), new Set())).toEqual([jobId])
+    expect(plansMissingReady(r.state(), new Set(['ses-planner-1']))).toEqual([])
+    // Already marked: nothing to do
+    const marked = { ...r.state(), jobs: r.state().jobs.map((j) => ({ ...j, planReadyAt: NOW })) }
+    expect(plansMissingReady(marked, new Set())).toEqual([])
+    // A plan that does not hold (a Task without a prompt) is left for its planner
+    const broken = { ...r.state(), tasks: r.state().tasks.map((t) => ({ ...t, prompt: undefined })) }
+    expect(plansMissingReady(broken, new Set())).toEqual([])
   })
 })
 

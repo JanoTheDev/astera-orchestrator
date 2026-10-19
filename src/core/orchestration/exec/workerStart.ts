@@ -22,6 +22,8 @@ import type { WorkerTails } from './tail'
 import { coordinatorBriefName } from './specFiles'
 import { dispatchLookup } from '../dispatchIndex'
 import { jobOf, jobOfRunId } from '../state'
+import type { Job } from '../types'
+import { handsOffOf } from './plannerFeedback'
 import { pendingMerges, runRootOf } from '../integrate'
 import {
   resolveReviewerModel,
@@ -174,7 +176,9 @@ export async function startWorkerWithChain(
     title: workerTabTitle(stateHere, a.taskId, a.title),
     rollAccountIds,
     ...(chosen.model ? { model: chosen.model } : {}),
-    ...(fork ? { fork } : {})
+    ...(fork ? { fork } : {}),
+    // #117: a hands-off plan's workers run with permissions bypassed: nobody is there to answer a prompt
+    ...(handsOffOfTask(stateHere, a.taskId) ? { bypassPermissions: true as const } : {})
   })
   // From this point on, that session's output belongs to this dispatch. On reuse (--terminal) the
   // previous dispatch's tail freezes where it is. Only a dispatch that has reached a terminal
@@ -204,6 +208,14 @@ export function forkForDeps(s: OrchState, a: StartWorkerArgs): { base: string; m
   if (!task || !run || task.deps.length === 0) return undefined
   return { base: runRootOf(run, jobOf(s, run)), merge: pendingMerges(s, task.id) }
 }
+
+/** #117: whether the Task's plan runs hands-off. */
+const handsOffOfTask = (s: OrchState, taskId: string): boolean => {
+  const task = s.tasks.find((t) => t.id === taskId)
+  const run = task && s.runs.find((r) => r.id === task.runId)
+  return handsOffOfJob(s, run && jobOf(s, run))
+}
+const handsOffOfJob = (s: OrchState, job: Job | undefined): boolean => job !== undefined && handsOffOf(s, job)
 
 export type StartCoordinatorArgs = Parameters<NonNullable<OrchServerDeps['startCoordinator']>>[0]
 export interface CoordinatorStartContext {
@@ -284,7 +296,8 @@ export async function startCoordinatorSession(
   const info = await ctx.spawn({
     accountId: a.accountId,
     cwd: a.cwd,
-    bypassPermissions: await ctx.bypassPermissions(),
+    // #117: a hands-off plan's coordinator too: a permission prompt nobody answers would stall the whole plan
+    bypassPermissions: handsOffOfJob(ctx.getState(), jobOfRunId(ctx.getState(), a.runId)) || (await ctx.bypassPermissions()),
     initialPrompt: coordinatorLaunchPrompt(briefPath.replace(/\\/g, '/')),
     // 탭 제목 — 워커 탭이 Task 제목을 쓰는 것과 같은 이유다. 없으면 워크트리 basename 으로
     // 떠서 사용자가 이것이 무엇인지 알 수 없다.

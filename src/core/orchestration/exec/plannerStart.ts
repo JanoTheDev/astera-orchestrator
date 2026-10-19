@@ -8,6 +8,7 @@ import { providerOf } from '../../providers/meta'
 import { coordinatorLaunchPrompt } from '../handover'
 import { jobNameOf } from '../jobName'
 import { resolveRoleModel, type RoleModelSettings } from '../roleModels'
+import { handsOffOf } from './plannerFeedback'
 import type { CoordinatorStartContext, StartCoordinatorArgs } from './workerStart'
 
 /** The planner's brief, named for its Job, in the spec directory beside the coordinators' briefs. The boot
@@ -18,7 +19,8 @@ export const plannerBriefName = (jobId: string): string => `planner-${jobId}.md`
  *
  *  **`bypassPermissions` is always false**, whatever the app's setting: the planner only reads and runs
  *  `astera` commands, so it never needs the bypass, and without it every file edit it attempts stops at
- *  Claude's permission prompt for the person to refuse. */
+ *  Claude's permission prompt for the person to refuse. #117: a hands-off plan's planner bypasses, by the owner's
+ *  choice on Start: a prompt there would wait on nobody. */
 export async function startPlannerSession(ctx: CoordinatorStartContext, a: StartCoordinatorArgs): Promise<{ sessionId: string }> {
   const job = ctx.getState().jobs.find((j) => j.id === a.runId)
   // A file and one line, for the reason the coordinator's brief is (coordinatorLaunchPrompt).
@@ -37,7 +39,8 @@ export async function startPlannerSession(ctx: CoordinatorStartContext, a: Start
   const info = await ctx.spawn({
     accountId: a.accountId,
     cwd: a.cwd,
-    bypassPermissions: false,
+    // #117: except on a hands-off plan, where nobody is there to answer a prompt
+    bypassPermissions: job !== undefined && handsOffOf(ctx.getState(), job),
     initialPrompt: coordinatorLaunchPrompt(briefPath.replace(/\\/g, '/')),
     title: `Planner · ${job ? jobNameOf(job).slice(0, 40) : a.runId.slice(0, 12)}`,
     // One account: a limit waits for its reset in the same session, keeping the plan's context.

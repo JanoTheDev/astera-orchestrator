@@ -256,6 +256,23 @@ describe('snapshotFor', () => {
     expect(rowOf(job)).not.toHaveProperty('autoApprove')
   })
 
+  it('#117: handsOff (its own, else its project\'s), decisions and pick ride on the row; absent when unset', () => {
+    const base = withRuns([run('r1', absPath('p'))])
+    const job = { ...base.jobs[0], pendingStart: true }
+    const rowOf = (j: typeof job, projects = base.projects) =>
+      snapshotFor({ ...base, projects, runs: [], jobs: [j] }, absPath('p'), anySession, noWorktrees, noFires, allExist).runs[0]
+    expect(rowOf(job)).not.toHaveProperty('handsOff')
+    expect(rowOf(job)).not.toHaveProperty('decisions')
+    expect(rowOf(job)).not.toHaveProperty('pick')
+    expect(rowOf({ ...job, handsOff: true })).toMatchObject({ handsOff: true, autoApprove: true })
+    const project = { id: 'prj_1', path: absPath('p'), name: 'p', addedAt: 't', handsOff: true }
+    expect(rowOf(job, [project])).toMatchObject({ handsOff: true })
+    expect(rowOf({ ...job, handsOff: false }, [project])).not.toHaveProperty('handsOff')
+    const decisions = [{ at: 't', kind: 'escalation' as const, question: 'q', choice: 'c', why: 'w' }]
+    const pick = { at: 't', picked: [{ number: 1, title: 'a', why: 'small' }], skipped: [] }
+    expect(rowOf({ ...job, decisions, pick })).toMatchObject({ decisions, pick })
+  })
+
   // Plugin Phase 4 J18: the chip reads where the Job came from off its row
   it('carries the job source a Job was made from, on its row; none on a Job without one', () => {
     const source = { id: 'astera-linear-source', itemId: 'ENG-1', label: 'Linear ENG-1', url: 'https://linear.app/x/ENG-1' }

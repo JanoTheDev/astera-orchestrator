@@ -75,7 +75,7 @@ const RUN_HIDDEN = [
 ] as const
 
 /** W6-H: how a project's plans land, set by `projects-set`; not in the SDK's contract yet. */
-const PROJECT_HIDDEN = ['delivery', 'deliveryBranch', /* W7-B: project settings, not in the SDK's contract yet */ 'autoApprove', 'testConfigId', 'concurrency', 'reviewRounds', 'replan', 'defaultBranch', /* W10-A: the prompts folder, not in the SDK's contract yet */ 'promptsDir'] as const
+const PROJECT_HIDDEN = ['delivery', 'deliveryBranch', /* W7-B: project settings, not in the SDK's contract yet */ 'autoApprove', /* #117 */ 'handsOff', 'testConfigId', 'concurrency', 'reviewRounds', 'replan', 'defaultBranch', /* W10-A: the prompts folder, not in the SDK's contract yet */ 'promptsDir'] as const
 
 /**
  * A Task's fields kept back on purpose: all of them **the ledger the app keeps to drive convergence**. The guide
@@ -131,6 +131,9 @@ const JOB_HIDDEN = [
   'autoStartedAt',
   'rejected',
   /* #116: the planner finished a turn on a plan that holds, the app's own bookkeeping */ 'planReadyAt',
+  /* #117 hands-off: the switch and what it decided for the owner; #119: why issues were picked, not in the SDK's contract yet */ 'handsOff',
+  'decisions',
+  'pick',
   /* W8-C prompts mode: the owner's prompts a Run-as-written plan was made from, not in the SDK's contract yet */ 'verbatim',
   /* W8-C plan after plan: the queue and its escalation mark, not in the SDK's contract yet */ 'after',
   'afterStopNotified',

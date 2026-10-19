@@ -23,7 +23,7 @@ import { policyOfJob, repairCountIn, reviewRoundIn } from './convergence'
 import type { Dispatch, Gate, Job, JobRun, Task } from './types'
 import { taskBoardsOf } from './blocked'
 import { validatePlan } from './planner'
-import { autoApproveOf, planApprovable } from './exec/plannerFeedback'
+import { autoApproveOf, handsOffOf, planApprovable } from './exec/plannerFeedback'
 import type { ScheduleLimits } from './schedule'
 
 /** 한 프로젝트에 속한 Run 들, 최신순.
@@ -380,6 +380,8 @@ export function snapshotFor(
   const workingHere = runsWorkingIn(state, projectPath)
   const ix = foldIndex(state)
   const boards = taskBoardsOf(state, limits, usagePauseOf)
+  // #117: the project list copied once, so a row's `handsOffOf` reads no state list per Run ('snapshotFor cost')
+  const projectsOnce: OrchState = { ...state, projects: [...state.projects] }
   const branchOf = (p: string): string | undefined => worktrees.find((w) => isSamePath(w.path, p))?.branch
 
   /**
@@ -456,7 +458,11 @@ export function snapshotFor(
       ...(planProblems.length > 0 ? { planProblems } : {}),
       // #116: Approve only once the planner is done; an auto-approve plan says it starts by itself instead
       ...(planApprovable(state, job) ? { planReady: true as const } : {}),
-      ...(job.pendingStart && autoApproveOf(state, job) ? { autoApprove: true as const } : {}),
+      ...(job.pendingStart && autoApproveOf(projectsOnce, job) ? { autoApprove: true as const } : {}),
+      // #117: hands-off, what it decided for the owner, and #119's picks
+      ...(handsOffOf(projectsOnce, job) ? { handsOff: true as const } : {}),
+      ...(job.decisions?.length ? { decisions: job.decisions } : {}),
+      ...(job.pick !== undefined ? { pick: job.pick } : {}),
       // W5-C: the plan's "stop launching" (jobs-hold), on every row of the Job
       ...(job.dispatchHold ? { dispatchHold: true as const } : {}),
       // W8-D: the plan's overlaps with the other plans of its project, as lines

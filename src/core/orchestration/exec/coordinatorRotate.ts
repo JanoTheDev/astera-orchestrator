@@ -21,6 +21,7 @@ import { attachCoordinator, coordinatorStarting, jobOf, OWNER_ANSWER_SUBJECT, ty
 import { DEFAULT_CONCURRENCY, isPlaceholderSessionId, type JobRun } from '../types'
 import { outcomeOf } from '../view'
 import type { OrchServerDeps } from '../command'
+import { handsOffOf } from './plannerFeedback'
 
 /** How many refreshes a Run keeps on record (its feed lines and the retired tabs the renderer closes). */
 export const COORDINATOR_REFRESHES_KEPT = 20
@@ -174,7 +175,8 @@ export async function refreshCoordinator(
       convergence: policyOf(s, { runId: run.id }) !== null,
       jobId: job.id,
       accountId: job.coordinatorAccountId,
-      promptsMode: job.verbatim !== undefined
+      promptsMode: job.verbatim !== undefined,
+      handsOff: handsOffOf(s, job)
     }),
     '',
     coordinatorHandoff(s, run.id, reason)

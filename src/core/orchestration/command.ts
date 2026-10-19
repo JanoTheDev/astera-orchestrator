@@ -177,7 +177,7 @@ import { replanJobOf, waveOpen } from './replan'
 import { REPLAN_COMMANDS, replanCommand, replanRefusal } from './exec/replanStart'
 // Coordinator rotation
 import { coordinatorHandoff, refreshCoordinator } from './exec/coordinatorRotate'
-import { feedbackCommand, isFeedbackCommand } from './exec/plannerFeedback'
+import { feedbackCommand, handsOffOf, isFeedbackCommand } from './exec/plannerFeedback'
 export { JOB_SOURCE } from './commandSources'
 import { pluginIdOfCheck, type CompletionCheckInput, type PluginCheckAnswer } from './pluginChecks'
 import { checkIdsOf, pluginCheckRefusal, tasksOfNextRun } from './commandChecks'
@@ -1167,6 +1167,25 @@ const str = (v: unknown): string | null => (typeof v === 'string' && v.length > 
 const onOff = (v: unknown): boolean | null =>
   v === 'on' || v === true || v === 'true' ? true : v === 'off' || v === false || v === 'false' ? false : null
 
+/** #117: whether `caller` is the running coordinator of Run `runId`, and that Run's plan is hands-off: the one agent
+ *  session that answers the Run's escalations itself (`questions-answer`). */
+const handsOffCoordinatorOf = (s: OrchState, runId: string, caller: { sessionId: string; role?: string }): boolean => {
+  const run = s.runs.find((r) => r.id === runId)
+  const job = run && s.jobs.find((j) => j.id === run.jobId)
+  return (
+    !!run && !!job && caller.role !== 'mcp' && caller.sessionId !== '' && run.coordinatorSessionId === caller.sessionId &&
+    outcomeOf(s, run.id) === 'running' && handsOffOf(s, job)
+  )
+}
+
+/** #117: a plan's `--hands-off` (on/off, or bare). Hands-off starts the plan's workers and planner with permissions
+ *  bypassed, so it is the person's choice: refused from an agent session and an MCP client. undefined: not given. */
+const handsOffArg = (v: unknown, fromAgentSession: boolean, role: string | undefined): boolean | undefined | Reply => {
+  if (v === undefined) return undefined
+  if (fromAgentSession || role === 'mcp') return denied('--hands-off is for the person, in Astera or at their own shell')
+  return onOff(v) ?? bad('--hands-off must be on or off')
+}
+
 /** 1 이상의 정수만 통과. CLI 는 숫자를 문자열로 넘길 수도 있으므로 둘 다 받는다. */
 const posInt = (v: unknown): number | null => {
   const n = typeof v === 'string' ? Number(v) : typeof v === 'number' ? v : NaN
@@ -1185,6 +1204,10 @@ function projectSettingsArgs(
   const autoApprove = flag(args.autoApprove)
   if (autoApprove === null) return { error: '--auto-approve must be on or off' }
   if (autoApprove !== undefined) patch.autoApprove = autoApprove ? true : null
+  // #117: like auto-approve, off clears it back to the default
+  const handsOff = flag(args.handsOff)
+  if (handsOff === null) return { error: '--hands-off must be on or off' }
+  if (handsOff !== undefined) patch.handsOff = handsOff ? true : null
   for (const [key, name] of [['concurrency', '--concurrency'], ['reviewRounds', '--review-rounds']] as const) {
     const v = args[key]
     if (v === undefined) continue
@@ -2057,7 +2080,8 @@ export async function handleCommand(
           convergence: policyOf(base, { runId: target.id }) !== null,
           jobId: job.id,
           accountId,
-          promptsMode: job.verbatim !== undefined
+          promptsMode: job.verbatim !== undefined,
+          handsOff: handsOffOf(base, job)
         }) +
           // T23: a coordinator restarted for a stated reason (`run-start --reason`, the crash resume) replaces one whose
           // conversation is gone, so it gets the fresh-coordinator hand-off read from the state.
@@ -2391,7 +2415,7 @@ export async function handleCommand(
       if ('error' in settings) return bad(settings.error)
       const { testCommand, account } = settings
       if (delivery === undefined && branchArg === undefined && Object.keys(settings.patch).length === 0 && testCommand === undefined && account === undefined)
-        return bad('nothing to set: give --delivery, --delivery-branch, --auto-approve, --test-command, --test-config, --concurrency, --review-rounds, --replan, --prompts-dir or --account')
+        return bad('nothing to set: give --delivery, --delivery-branch, --auto-approve, --hands-off, --test-command, --test-config, --concurrency, --review-rounds, --replan, --prompts-dir or --account')
       const project = findProject(s, id)
       if (!project) return notFound(`unknown project: ${id}`)
       // W10-A: the prompts folder is kept repository-relative, and a folder outside the repository is refused
@@ -2542,7 +2566,9 @@ export async function handleCommand(
       const read = intakeOf(args)
       if (!read.ok) return bad(read.error)
       let intake = read.intake
-      const { mode: _mode, scope: _scope, instructions: _instructions, attach: _attach, approve: _approve, after: _after, dryRun: _dryRun, ...plain } = args
+      const { mode: _mode, scope: _scope, instructions: _instructions, attach: _attach, approve: _approve, after: _after, dryRun: _dryRun, handsOff: _handsOff, ...plain } = args
+      const handsOff = handsOffArg(args.handsOff, fromAgentSession, caller.role)
+      if (typeof handsOff === 'object') return handsOff
       // W8-C plan after plan: `--after <job>`, the plan this one is queued after
       const afterId = args.after === undefined ? null : str(args.after)
       if (args.after !== undefined && (afterId === null || afterId === 'none')) return bad('--after needs a job id')
@@ -2644,6 +2670,11 @@ export async function handleCommand(
       if (args.noReview === true) {
         const cur = deps.getState()
         await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id ? { ...j, review: false } : j)) })
+      }
+      // #117: `--hands-off`, this plan's own, ahead of its project's
+      if (handsOff !== undefined) {
+        const cur = deps.getState()
+        await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id ? { ...j, handsOff } : j)) })
       }
       // W8-C plan after plan
       if (afterId !== null) {
@@ -3222,6 +3253,13 @@ export async function handleCommand(
       if (args.replan !== undefined) {
         const cur = deps.getState()
         await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id ? { ...j, replan: args.replan as 'waves' | 'off' } : j)) })
+      }
+      // #117: `--hands-off on|off`, this plan's own, ahead of its project's
+      const handsOff = handsOffArg(args.handsOff, fromAgentSession, caller.role)
+      if (typeof handsOff === 'object') return handsOff
+      if (handsOff !== undefined) {
+        const cur = deps.getState()
+        await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id ? { ...j, handsOff } : j)) })
       }
       // W7-A: `--auto-approve on|off`, this plan's own, ahead of its project's
       if (args.autoApprove !== undefined) {
@@ -5238,8 +5276,10 @@ export async function handleCommand(
       const msg = s.messages.find((m) => m.id === str(args.id) && (m.type === 'question' || m.type === 'escalation'))
       if (msg) {
         const fromAgent = fromAgentSession || caller.role === 'mcp'
-        // An escalation is what only the owner decides: an agent answering it would undo the escalation
-        if (msg.type === 'escalation' && fromAgent) return denied('an escalation is answered by the owner, from the app or a shell')
+        // An escalation is what only the owner decides: an agent answering it would undo the escalation. #117: except
+        // on a hands-off plan, whose own running coordinator decides in the owner's place
+        if (msg.type === 'escalation' && fromAgent && !handsOffCoordinatorOf(s, msg.runId, caller))
+          return denied('an escalation is answered by the owner, from the app or a shell')
         if (msg.type === 'question') {
           const r = applyReply(s, { messageId: msg.id, body: answer, ...(fromAgent ? {} : { by: 'owner' as const }) }, now)
           if (!r.ok) return refused(r)

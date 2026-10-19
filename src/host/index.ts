@@ -63,6 +63,7 @@ import { composeHostDriving } from './drivingWiring'
 import { createUsageGuard } from '../core/orchestration/usageGuard'
 import { usageActivity } from '../core/orchestration/activity'
 import { resumeAfterCrash } from '../core/orchestration/exec/crashResume'
+import { plansMissingReady } from '../core/orchestration/exec/plannerFeedback'
 import { readStateFile } from '../core/orchestration/stateFile'
 import { readAccountReadings } from '../core/usage/accountReadings'
 import { readUsagePauseAt } from '../core/settings/usagePauseAt'
@@ -980,6 +981,14 @@ async function main(): Promise<void> {
         log.write(`the Host's after-load pass failed to start: ${String(err)}`)
       }
       runGit?.onState(orch.state())
+      // #116 fold-in: a plan left waiting before planReadyAt existed gets it once, unless its planner still runs
+      void hostSessions
+        .listSessions()
+        .then(async (list) => {
+          const alive = new Set(list.filter((x) => x.alive).map((x) => x.id))
+          for (const id of plansMissingReady(orch.state(), alive)) await orch.handle('jobs-plan-ready', { id })
+        })
+        .catch((err: unknown) => log.write(`plans waiting without planReadyAt could not be marked: ${String(err)}`))
     },
     // `slack-reload` (P17): absent without the Host's Slack, and the call then answers 501.
     slack: slackWiring ?? undefined,

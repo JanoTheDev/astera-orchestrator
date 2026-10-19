@@ -38,8 +38,13 @@ const notFound = (error: string): Reply => ({ status: 404, body: { error } })
 const conflict = (error: string): Reply => ({ status: 409, body: { error } })
 const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() !== '' ? v.trim() : null)
 
-/** Whether a plan starts on its own once it holds: the Job's own setting, else its project's, else no. */
-export const autoApproveOf = (s: OrchState, job: Job): boolean => job.autoApprove ?? projectOfJob(s, job)?.autoApprove ?? false
+/** #117: whether a plan runs hands-off: the Job's own setting, else its project's, else no. */
+export const handsOffOf = (s: OrchState, job: Job): boolean => job.handsOff ?? projectOfJob(s, job)?.handsOff ?? false
+
+/** Whether a plan starts on its own once it holds: the Job's own setting, else its project's, else no. A hands-off
+ *  plan always does (#117). */
+export const autoApproveOf = (s: OrchState, job: Job): boolean =>
+  handsOffOf(s, job) || (job.autoApprove ?? projectOfJob(s, job)?.autoApprove ?? false)
 
 /** A plan waiting for its approval (W2-A): not started, and planned. */
 const awaitsApproval = (job: Job): boolean => job.pendingStart === true && job.plannerSessionIds !== undefined
@@ -49,6 +54,18 @@ const awaitsApproval = (job: Job): boolean => job.pendingStart === true && job.p
  *  holds. `awaitsApproval` stays the Host's own guard (run-start, jobs-reject). */
 export const planApprovable = (s: OrchState, job: Job): boolean =>
   awaitsApproval(job) && job.planReadyAt !== undefined && validatePlan(s, job.id).length === 0
+
+/** #116 fold-in: plans that waited for approval before `planReadyAt` existed carry none, so no screen ever offered
+ *  Approve. At Host start these are the Jobs to mark ready: awaiting approval, not archived, no `planReadyAt`, the plan
+ *  holds, and none of its planner sessions is alive (a live planner's Stop hook marks it itself). */
+export const plansMissingReady = (s: OrchState, alive: ReadonlySet<string>): string[] =>
+  s.jobs
+    .filter(
+      (j) =>
+        awaitsApproval(j) && isJobActive(j) && j.planReadyAt === undefined && !(j.plannerSessionIds ?? []).some((id) => alive.has(id)) &&
+        validatePlan(s, j.id).length === 0
+    )
+    .map((j) => j.id)
 
 const oneLine = (t: string): string => t.replace(/\s+/g, ' ').trim()
 
