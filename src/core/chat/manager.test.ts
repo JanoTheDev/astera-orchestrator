@@ -734,6 +734,17 @@ describe('ChatSessionManager.retryWithBypass (design F5)', () => {
     expect(manager.spawnNote('nope')).toBeNull()
   })
 
+  it('keeps a noted Telegram root across a bypass retry too', () => {
+    const { manager, handles, spawned } = setup()
+    const info = manager.spawn({ account: codexAccount, cwd: 'D:/proj', bypassSignal: 'path' })
+    manager.remember(info.id, { telegramMessageId: '7', telegramChat: '42', carrySent: true })
+    handles[0].emit({ type: 'exit', code: 8, errorDetail: null })
+    manager.retryWithBypass(info.id)
+    expect(spawned[1].opts.meta?.restore).toMatchObject({ telegramMessageId: '7', telegramChat: '42' })
+    expect(spawned[1].opts.meta?.restore).not.toHaveProperty('carrySent')
+    expect(manager.spawnNote(info.id)).toMatchObject({ telegramMessageId: '7', telegramChat: '42' })
+  })
+
   it('말없이 즉사해도 재시도가 성공하면 initialPrompt 를 그 재시도가 보낸다', async () => {
     // startRejectsOnce: 첫 시도의 handshake 가 끝내 완성되지 않는다 — 실제로 거절당한 CLI 의 모양과
     // 같다. false 로 두면 가짜 adapter 의 start() 가 (실제와 달리) exit 과 무관하게 성공해 버려

@@ -16,11 +16,10 @@ import type { Core } from './core'
 import type { RollingCoordinator } from '../core/rolling/claudeCoordinator'
 import type { CodexRollingCoordinator } from '../core/rolling/codexCoordinator'
 import type { SchedulerCoordinator } from './scheduler'
-import type { SlackNotifier } from '../core/slack/connect'
+import type { ConnectionFanout } from '../core/connections/fanout'
 import { readFileTail } from '../core/connections/notifier'
-import { notedThreadOf } from '../core/slack/threadNote'
 import { isForwardedChatEvent } from '../core/connections/forwarded'
-import type { SlackOwnership } from './slackOwnership'
+import type { ConnectionsOwnership } from './connectionsOwnership'
 import type { SlackConfigStore } from './slackConfigStore'
 import type { TelegramConfigStore } from './telegramConfigStore'
 import type { SlackConfig } from '../core/slack/config'
@@ -865,18 +864,21 @@ export function registerIpc(
   pendingPrompt: PendingPromptState,
   rolling?: RollingCoordinator,
   slack?: {
-    notifier: SlackNotifier
+    /** Every chat connection's notifier (Slack's and Telegram's) behind one fan-out: every session input
+     *  here goes to each connection. The group keeps Slack's name; the notify flag means every ready one. */
+    notifier: ConnectionFanout
     store: SlackConfigStore
-    /** Who owns Slack (Slack in the Host, P4, P5): this app's notifier hears its inputs only while
-     *  `local()`, a settings save is applied by the owner (`configChanged`), and while a Host owns Slack
-     *  the events only this app sees are forwarded to it. */
-    ownership: SlackOwnership
-  }, // Slack notifications
+    /** Who owns the chat connections (Slack in the Host, P4, P5): this app's notifiers hear their inputs
+     *  only while `local()`, a settings save is applied by the owner (`configChanged`), and while a Host
+     *  owns them the events only this app sees are forwarded to it. */
+    ownership: ConnectionsOwnership
+  }, // chat connection notifications
   telegram?: {
     store: TelegramConfigStore
-    /** Called after a settings save has been written, with the normalised result. */
+    /** Called after a settings save has been written, with the normalised result: the ownership's
+     *  configChanged, applied here or sent as slack-reload, as Slack's save is. */
     configChanged(cfg: TelegramConfig): Promise<void>
-  }, // Telegram notifications
+  }, // Telegram settings
   codexRolling?: CodexRollingCoordinator, // Codex rolling
   scheduler?: SchedulerCoordinator, // session scheduler
   codexRollout?: CodexRolloutWatcher, // codex rollout watcher — turn completion and usage
@@ -5985,7 +5987,7 @@ export function registerIpc(
     // and reopens when the channel or token changes; with no change it does not reconnect, the dedup in
     // SlackInboxController.apply), or in the Slack-owning Host, told to read the file again with
     // slack-reload. Undecided (the startup chain has not settled): nothing, the decision reads the file.
-    await slack.ownership.configChanged(normalized)
+    await slack.ownership.configChanged('slack', normalized)
   })
 
   // telegram — configuration, same shape as slack above. The bot token is never written to the log.
@@ -7304,7 +7306,7 @@ export function registerIpc(
             }
             if (info.slackNotify === true) {
               try {
-                slack?.notifier.register(info, { thread: notedThreadOf(a.restore) })
+                slack?.notifier.register(info, a.restore)
               } catch {
                 /* A failed Slack registration does not block taking the session back */
               }
@@ -7493,7 +7495,7 @@ export function registerIpc(
             }
             if (info.slackNotify === true) {
               try {
-                slack?.notifier.register(info, { thread: notedThreadOf(a.restore) })
+                slack?.notifier.register(info, a.restore)
               } catch {
                 /* A failed Slack registration does not block taking the session back */
               }
@@ -8071,7 +8073,7 @@ export function registerIpc(
       try {
         // With the thread its note names, like the adopters (Slack in the Host, the Task 4 carry): the
         // retry keeps the id and the root, and the chat manager carries the thread keys into it.
-        slack?.notifier.register(info, { thread: notedThreadOf(core.chat.spawnNote(info.id) ?? {}) })
+        slack?.notifier.register(info, core.chat.spawnNote(info.id) ?? {})
       } catch {
         /* A failed Slack re-registration does not block the retry */
       }

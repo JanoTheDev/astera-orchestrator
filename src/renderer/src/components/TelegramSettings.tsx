@@ -1,6 +1,7 @@
 // Settings › Telegram, on its own like SlackSettings: the fields live here so typing a token does not redraw App.
 import { useEffect, useRef, useState } from 'react'
 import { useI18n } from '../i18n/I18nProvider'
+import { isTelegramReady } from '../../../core/telegram/ready'
 import { toast } from '../lib/toast'
 import { createTouched } from '../lib/touched'
 
@@ -36,7 +37,7 @@ export function TelegramSettings(): React.JSX.Element {
     }
   }, [])
 
-  const ready = !!botToken.trim() && !!chatId.trim()
+  const ready = isTelegramReady({ botToken: botToken.trim(), chatId: chatId.trim() })
 
   return (
     <div className="settings-slack">

@@ -4,10 +4,11 @@ import os from 'node:os'
 import path from 'node:path'
 import { PtyRegistry, type RegistryPty } from './registry'
 import { ProcRegistry } from './procRegistry'
-import { composeHostSlack, hostSlackLog, HOST_SLACK_START_GRACE_MS } from './slackWiring'
+import { composeHostConnections, hostSlackLog, HOST_SLACK_START_GRACE_MS } from './connectionsWiring'
 import { flushAllLogsSync } from '../core/log/logWriter'
 import type { HostSlackSdk } from './slackSdk'
 import type { SlackConfig } from '../core/slack/config'
+import { EMPTY_TELEGRAM_CONFIG, type TelegramConfig } from '../core/telegram/config'
 import type { Account } from '../core/types'
 
 const CFG: SlackConfig = { webhookUrl: null, botToken: 'xoxb-fake', channelId: 'C1', appToken: 'xapp-fake', memberId: 'U1' }
@@ -51,7 +52,7 @@ function fakePty(): RegistryPty & { emit(d: string): void; sent: string[] } {
   return { pid: 1, sent, onData: (cb) => { onData = cb }, onExit: () => {}, write: (d) => { sent.push(d) }, resize: () => {}, kill: () => {}, pause: () => {}, resume: () => {}, emit: (d) => onData(d) }
 }
 
-async function rig(o: { keep?: boolean; sdk?: boolean; delay?: number; profileDir?: string; readConfig?: (() => Promise<SlackConfig>) | null; statusLinePayload?: () => Promise<unknown>; hostChains?: string[]; manualGrace?: boolean } = {}) {
+async function rig(o: { keep?: boolean; sdk?: boolean; delay?: number; profileDir?: string; readConfig?: (() => Promise<SlackConfig>) | null; statusLinePayload?: () => Promise<unknown>; hostChains?: string[]; manualGrace?: boolean; telegram?: { readConfig?: () => Promise<TelegramConfig>; fetchFn?: typeof fetch } } = {}) {
   const slack = fakeSlack({ delay: o.delay })
   const ptys = new Map<string, ReturnType<typeof fakePty>>()
   let next = ''
@@ -70,7 +71,7 @@ async function rig(o: { keep?: boolean; sdk?: boolean; delay?: number; profileDi
       }
     : (_ms: number, fn: () => void) => { queueMicrotask(fn); return () => {} }
   const logs: string[] = []
-  const wiring = composeHostSlack({
+  const wiring = composeHostConnections({
     profileDir: o.profileDir ?? mkdtempSync(path.join(os.tmpdir(), 'astera-host-slack-')),
     sdk: o.sdk === false ? null : slack.sdk,
     registry,
@@ -80,8 +81,10 @@ async function rig(o: { keep?: boolean; sdk?: boolean; delay?: number; profileDi
     rolling: { has: (id: string) => (o.hostChains ?? []).includes(id), account: (id: string) => (id === account.id ? account : null) },
     server: () => ({ appsKeep: () => state.keep, hasApp: () => state.keep || state.app, act: vi.fn(async () => null) }),
     lang: () => 'en',
-    log: (m) => logs.push(m),
+    log: (m: string) => logs.push(m),
     ...(o.readConfig === null ? {} : { readConfig: o.readConfig ?? (async () => ({ ...CFG })) }),
+    // Telegram reads no file and polls nothing unless a test says so.
+    telegram: { log: (m) => logs.push(m), ...(o.telegram ?? { readConfig: async () => ({ ...EMPTY_TELEGRAM_CONFIG }) }) },
     every: () => () => {},
     after
   })
@@ -92,7 +95,7 @@ async function rig(o: { keep?: boolean; sdk?: boolean; delay?: number; profileDi
   return { wiring, slack, registry, ptys, state, logs, openSession, grace, active: () => vi.waitFor(() => expect(wiring.active()).toBe(true)) }
 }
 
-describe('composeHostSlack (Slack in the Host Task 5, S1, S2, S4)', () => {
+describe('composeHostConnections (Slack in the Host Task 5, S1, S2, S4)', () => {
   // Review Focus 1, the Host half.
   it('holds exactly one socket while no attached app keeps Slack, none while one does', async () => {
     const h = await rig()
@@ -148,7 +151,7 @@ describe('composeHostSlack (Slack in the Host Task 5, S1, S2, S4)', () => {
     await h.wiring.reload()
     await new Promise((r) => setTimeout(r, 10))
     expect(h.slack.posts).toHaveLength(1)
-    expect(h.logs.join('\n')).toMatch(/this Host leaves Slack alone/)
+    expect(h.logs.join('\n')).toMatch(/this Host leaves the chat connections alone/)
   })
 
   it('posts nothing while an attached app keeps Slack, and nothing at all without an SDK', async () => {
@@ -229,8 +232,8 @@ describe('composeHostSlack (Slack in the Host Task 5, S1, S2, S4)', () => {
     h.ptys.get('p-s1')!.emit('Claude usage limit ' + 'reached ∙ resets 3am')
     await vi.waitFor(() => expect(h.slack.posts.length).toBeGreaterThan(before))
     expect(h.slack.posts.slice(before).every((p) => p.thread_ts === 'app.2')).toBe(true)
-    expect(h.wiring.notifier.resolveSessionByThread('app.2')).toBe('s1')
-    expect(h.wiring.notifier.resolveSessionByThread('t1')).toBeNull()
+    expect(h.wiring.notifier('slack')!.resolveSessionByThread('app.2')).toBe('s1')
+    expect(h.wiring.notifier('slack')!.resolveSessionByThread('t1')).toBeNull()
   })
 
   it('hands forwarded events, the Host roll events and hook events to the notifier, and drops a forward of its own chain', async () => {
@@ -277,7 +280,7 @@ describe('composeHostSlack (Slack in the Host Task 5, S1, S2, S4)', () => {
       await new Promise((r) => setTimeout(r, 10))
       expect(h.slack.posts.filter((p) => p.thread_ts === undefined), order).toHaveLength(1)
       expect(h.slack.posts.slice(1).every((p) => p.thread_ts === 't1'), order).toBe(true)
-      expect(h.wiring.notifier.resolveSessionByThread('t1'), order).toBe('s2')
+      expect(h.wiring.notifier('slack')!.resolveSessionByThread('t1'), order).toBe('s2')
       await h.wiring.dispose()
     }
   })
@@ -299,7 +302,7 @@ describe('composeHostSlack (Slack in the Host Task 5, S1, S2, S4)', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
-    for (const f of ['slackWiring.ts', 'slackSessions.ts'])
+    for (const f of ['connectionsWiring.ts', 'connectionsSessions.ts', 'slackConnection.ts', 'telegramConnection.ts'])
       expect(readFileSync(path.join(__dirname, f), 'utf8'), f).not.toMatch(/SlackConfigStore|writeFile|\.patch\(|\.save\(/)
   })
 
@@ -427,6 +430,128 @@ describe('composeHostSlack (Slack in the Host Task 5, S1, S2, S4)', () => {
       const err = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
       expect(() => flushAllLogsSync()).not.toThrow()
       err.mockRestore()
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+const TG: TelegramConfig = { botToken: '123:fake', chatId: '42', userId: '7' }
+const reply = (body: unknown, status = 200): Response => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
+
+/** A fake Bot API. `sent` is every sendMessage, with the message it replies to; `push` hands the next
+ *  getUpdates an update; `polling` is how many long polls are in flight now, `peak` the most at once. */
+function fakeTelegram() {
+  const sent: Array<{ id: number; text: string; replyTo?: number }> = []
+  const queued: unknown[] = []
+  let id = 100
+  let polling = 0
+  let peak = 0
+  let wake: (() => void) | null = null
+  const fetchFn = (async (url: string | URL | Request, init?: RequestInit) => {
+    const method = String(url).split('/').pop()
+    const body = JSON.parse(String(init?.body ?? '{}')) as { text?: string; reply_parameters?: { message_id: number } }
+    if (method === 'sendMessage') {
+      sent.push({ id: ++id, text: body.text ?? '', replyTo: body.reply_parameters?.message_id })
+      return reply({ ok: true, result: { message_id: id } })
+    }
+    if (method !== 'getUpdates') return reply({ ok: false, error_code: 404, description: 'Not Found' }, 404)
+    polling++
+    peak = Math.max(peak, polling)
+    try {
+      if (queued.length === 0)
+        await new Promise<void>((resolve) => {
+          wake = resolve
+          init?.signal?.addEventListener('abort', () => resolve(), { once: true })
+        })
+      if (init?.signal?.aborted) throw new DOMException('aborted', 'AbortError')
+      return reply({ ok: true, result: queued.splice(0) })
+    } finally {
+      polling--
+    }
+  }) as typeof fetch
+  let update = 1
+  return {
+    fetchFn,
+    sent,
+    push: (message: unknown) => {
+      queued.push({ update_id: update++, message })
+      wake?.()
+    },
+    polling: () => polling,
+    peak: () => peak
+  }
+}
+
+describe('composeHostConnections: Telegram beside Slack', () => {
+  it('posts a session root and its notices to Telegram, and writes an allowed reply into the session', async () => {
+    const tg = fakeTelegram()
+    const h = await rig({ telegram: { readConfig: async () => ({ ...TG }), fetchFn: tg.fetchFn } })
+    h.wiring.start()
+    await h.active()
+    h.openSession('s1')
+    await vi.waitFor(() => expect(tg.sent).toHaveLength(1))
+    const root = tg.sent[0].id
+    // Noted beside Slack's thread, under Telegram's own keys, so a takeover adopts the same root.
+    await vi.waitFor(() => expect(h.registry.metaOf('p-s1')?.restore).toMatchObject({ telegramMessageId: String(root), telegramChat: '42', slackThreadTs: 't1' }))
+    h.wiring.forwarded({ kind: 'roll-state', event: { sessionId: 's1', state: 'stalled' } })
+    await vi.waitFor(() => expect(tg.sent).toHaveLength(2))
+    expect(tg.sent[1].replyTo).toBe(root)
+    await vi.waitFor(() => expect(h.slack.posts.filter((p) => p.thread_ts === 't1')).toHaveLength(1))
+    await vi.waitFor(() => expect(tg.polling()).toBe(1))
+    tg.push({ message_id: 900, date: Math.floor(Date.now() / 1000) + 5, text: 'go on', chat: { id: 42 }, from: { id: 7, is_bot: false }, reply_to_message: { message_id: tg.sent[1].id } })
+    await vi.waitFor(() => expect(h.ptys.get('p-s1')!.sent).toEqual(['go on', '\r']))
+    await h.wiring.dispose()
+    expect(tg.polling()).toBe(0)
+  })
+
+  it('adopts a noted Telegram root at takeover instead of posting a second one', async () => {
+    const tg = fakeTelegram()
+    const h = await rig({ keep: true, telegram: { readConfig: async () => ({ ...TG }), fetchFn: tg.fetchFn } })
+    h.wiring.start()
+    h.openSession('s1', { telegramMessageId: '55', telegramChat: '42' })
+    h.state.keep = false
+    h.wiring.onAppsChanged()
+    await h.active()
+    h.wiring.forwarded({ kind: 'roll-state', event: { sessionId: 's1', state: 'stalled' } })
+    await vi.waitFor(() => expect(tg.sent).toHaveLength(1))
+    expect(tg.sent[0].replyTo).toBe(55)
+    await h.wiring.dispose()
+  })
+
+  it('polls Telegram only while no attached app keeps the connections, never twice', async () => {
+    const tg = fakeTelegram()
+    const h = await rig({ keep: true, telegram: { readConfig: async () => ({ ...TG }), fetchFn: tg.fetchFn } })
+    h.wiring.start()
+    await h.wiring.reload()
+    expect(tg.polling()).toBe(0)
+    for (const keep of [false, true, false, true, false]) {
+      h.state.keep = keep
+      h.wiring.onAppsChanged()
+      await h.wiring.reload()
+      await vi.waitFor(() => expect(tg.polling()).toBe(keep ? 0 : 1))
+      expect(h.slack.live.size).toBe(keep ? 0 : 1)
+    }
+    expect(tg.peak()).toBe(1)
+    await h.wiring.dispose()
+    expect(tg.polling()).toBe(0)
+  })
+
+  it('slack-reload reads telegram.json again', async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'astera-host-telegram-'))
+    try {
+      const tg = fakeTelegram()
+      const h = await rig({ profileDir: dir, telegram: { fetchFn: tg.fetchFn } })
+      h.wiring.start()
+      await h.active()
+      expect(tg.polling()).toBe(0)
+      writeFileSync(path.join(dir, 'telegram.json'), JSON.stringify(TG))
+      await h.wiring.reload()
+      await vi.waitFor(() => expect(tg.polling()).toBe(1))
+      writeFileSync(path.join(dir, 'telegram.json'), JSON.stringify({ ...TG, botToken: null }))
+      await h.wiring.reload()
+      await vi.waitFor(() => expect(tg.polling()).toBe(0))
+      await h.wiring.dispose()
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

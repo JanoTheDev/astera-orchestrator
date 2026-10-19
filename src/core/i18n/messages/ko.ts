@@ -1691,10 +1691,10 @@ export const ko = {
   'slack.sessionExited': '⏹ 세션 종료 (exit {code})',
   'slack.inputNeeded': '🙋 입력 필요',
   'slack.inputNeededWith': '🙋 입력 필요 — {message}',
-  // core/slack/inbound.ts buildChoiceKeys — the reason a choice reply was in the wrong shape.
+  // core/connections/input.ts buildChoiceKeys — the reason a choice reply was in the wrong shape.
   // core does not know the language, so it hands back a Message and main (slackInbox) translates it and posts it to the thread.
   // With more than one question, the *At variants that say which question it was are used.
-  // core/slack/transcript.ts describePendingToolUse — the reply-format hint attached to the thread notification, and
+  // core/connections/transcript.ts describePendingToolUse — the reply-format hint attached to the thread notification, and
   // the notation for summarizing a sensitive argument as a character count instead of its value.
   'slack.choice.hintPerQuestion': '💡 질문마다 `/`로 구분해 답장 (예: 1,3 / 2)',
   'slack.choice.hintMulti': '💡 여러 개는 쉼표로 구분해 답장 (예: 1,3)',
@@ -1712,7 +1712,7 @@ export const ko = {
   'slack.inbox.tooLong': '⚠️ 답장이 너무 길어 전달하지 않았습니다 ({max}자 이하만 가능)',
   'slack.inbox.sessionEnded': '⚠️ 이 세션은 종료되어 입력을 전달하지 못했습니다',
   'slack.inbox.injectFailed': '⚠️ 입력을 전달하지 못했습니다',
-  // core/slack/chatRequest.ts — a chat session's open card as Slack text, and a thread reply's result.
+  // core/connections/chatRequest.ts — a chat session's open card as Slack text, and a thread reply's result.
   'slack.approval.hint': '💡 허용 또는 거절로 답장',
   'slack.approval.hintAlways': '💡 허용, 항상 허용 또는 거절로 답장',
   'slack.approval.unknownReply': '⚠️ 허용 또는 거절로 답장해 주세요',

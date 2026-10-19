@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { notedThreadOf, threadNotePatch, type NoteKeys } from './threadNote'
+import { notedThreadOf, threadNotePatch, CONNECTION_NOTE_KEYS, type NoteKeys } from './threadNote'
+import { THREAD_NOTE_KEYS as SLACK_KEYS } from '../slack/threadNote'
 
 const KEYS: NoteKeys = ['xThread', 'xChat']
 
@@ -12,5 +13,11 @@ describe('threadNote (spec S5)', () => {
   it('patches both keys, or drops both', () => {
     expect(threadNotePatch({ ts: '1.2', channel: 'C1' }, KEYS)).toEqual({ xThread: '1.2', xChat: 'C1' })
     expect(threadNotePatch(null, KEYS)).toEqual({ xThread: null, xChat: null })
+  })
+})
+
+describe('CONNECTION_NOTE_KEYS', () => {
+  it("carries Slack's pair exactly as core/slack names it", () => {
+    expect(CONNECTION_NOTE_KEYS).toContainEqual([...SLACK_KEYS])
   })
 })

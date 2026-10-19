@@ -851,15 +851,15 @@ describe('the Host drives with no app (§9.3)', { timeout: 40_000 }, () => {
     // Mutations: build it before the rolling, drop start(), the onAppsChanged call, the orch dep, or the
     // dispose; each leaves a Host with no Slack, a Host that keeps its socket while an app keeps Slack,
     // or a retiring Host still holding the socket.
-    expect(src.indexOf('let slackWiring: HostSlackWiring | null = null')).toBeGreaterThan(-1)
-    expect(src.indexOf('let slackWiring: HostSlackWiring | null = null')).toBeLessThan(src.indexOf('composeHostRolling('))
-    expect(src.indexOf('composeHostSlack(')).toBeGreaterThan(src.indexOf('composeHostRolling('))
-    expect(src.indexOf('composeHostSlack(')).toBeLessThan(src.indexOf('createHostOrch({'))
-    expect(src.indexOf('slackWiring?.start()')).toBeGreaterThan(src.indexOf('server = await startHostServer('))
-    expect(serverCall).toMatch(/slackWiring\?\.onAppsChanged\(\)/)
-    expect(orchCall).toMatch(/slack: slackWiring \?\? undefined/)
-    expect(leave.indexOf('slackWiring?.dispose()')).toBeGreaterThan(-1)
-    expect(leave.indexOf('slackWiring?.dispose()')).toBeLessThan(leave.indexOf('server.stopAccepting()'))
+    expect(src.indexOf('let connectionsWiring: HostConnectionsWiring | null = null')).toBeGreaterThan(-1)
+    expect(src.indexOf('let connectionsWiring: HostConnectionsWiring | null = null')).toBeLessThan(src.indexOf('composeHostRolling('))
+    expect(src.indexOf('composeHostConnections(')).toBeGreaterThan(src.indexOf('composeHostRolling('))
+    expect(src.indexOf('composeHostConnections(')).toBeLessThan(src.indexOf('createHostOrch({'))
+    expect(src.indexOf('connectionsWiring?.start()')).toBeGreaterThan(src.indexOf('server = await startHostServer('))
+    expect(serverCall).toMatch(/connectionsWiring\?\.onAppsChanged\(\)/)
+    expect(orchCall).toMatch(/slack: connectionsWiring \?\? undefined/)
+    expect(leave.indexOf('connectionsWiring?.dispose()')).toBeGreaterThan(-1)
+    expect(leave.indexOf('connectionsWiring?.dispose()')).toBeLessThan(leave.indexOf('server.stopAccepting()'))
     // Final review C1, the belt: a rejection nobody handled is logged and the Host keeps running, from the
     // moment the log exists. Mutation: drop the call, or install it after the Slack SDK loads.
     expect(src.indexOf('logUnhandledRejections(process, log)')).toBeGreaterThan(src.indexOf('const log = openHostLog('))
@@ -871,13 +871,13 @@ describe('the Host drives with no app (§9.3)', { timeout: 40_000 }, () => {
     expect(serverCall).toMatch(/m\.t === 'slack-event'/)
     const intake = src.indexOf("m.t === 'slack-event'")
     expect(src.slice(intake, intake + 300)).toMatch(/from\.greeted && from\.role === 'app'/)
-    expect(src.slice(intake, intake + 300)).toMatch(/slackWiring\.forwarded\(m\.event\)/)
+    expect(src.slice(intake, intake + 300)).toMatch(/connectionsWiring\.forwarded\(m\.event\)/)
     expect(intake).toBeLessThan(src.indexOf('handlePty?.(m, send, { socket: from.socket })'))
     const rollingCall = src.slice(src.indexOf('composeHostRolling('))
     // E2 §4: a roll reaches the work units first, then the Slack.
-    expect(rollingCall).toMatch(/onRollEvent: \(e\) => \{[^}]*hostWorkUnits\?\.onRolled\([^]*?slackWiring\?\.onRollEvent\(e\)/)
-    expect(rollingCall).toMatch(/hookTap: \(sid, p\) => \{\s*slackWiring\?\.onHookEvent\(sid, p\)/)
-    const slackCall = src.slice(src.indexOf('composeHostSlack('), src.indexOf('createHostOrch({'))
+    expect(rollingCall).toMatch(/onRollEvent: \(e\) => \{[^}]*hostWorkUnits\?\.onRolled\([^]*?connectionsWiring\?\.onRollEvent\(e\)/)
+    expect(rollingCall).toMatch(/hookTap: \(sid, p\) => \{\s*connectionsWiring\?\.onHookEvent\(sid, p\)/)
+    const slackCall = src.slice(src.indexOf('composeHostConnections('), src.indexOf('createHostOrch({'))
     expect(slackCall).toMatch(/chats: rollingWiring\.chats/)
     expect(slackCall).toMatch(/rolling: rollingWiring\.rolling/)
     expect(src).not.toMatch(/createAccountSnapshot/)

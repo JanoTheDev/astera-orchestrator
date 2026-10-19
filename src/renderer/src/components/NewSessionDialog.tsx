@@ -12,6 +12,7 @@ import type { UnattendedPermission } from '../../../core/chat/types'
 import { providerOf } from '../../../core/providers/meta'
 import { rollChainCandidates } from '../../../core/resume'
 import { isSlackReady } from '../../../core/slack/ready'
+import { isTelegramReady } from '../../../core/telegram/ready'
 import { useChatAvailability } from '../hooks/useChatAvailability'
 import { useAccountStatus } from '../hooks/useAccountStatus'
 import { branchPickerState, orderBranchesForPicker } from '../../../core/worktrees/base'
@@ -171,7 +172,10 @@ export function NewSessionDialog({
     // isSlackReady (core/slack/ready.ts) shares its criteria with the transport choice,
     // slackTransportOf() in src/core/slack/connect.ts — under the old condition that only looked at webhookUrl, a user who had set
     // only botToken + channelId could not tick the checkbox even though the bot path was actually on.
-    void window.api.slack.getConfig().then((c) => setSlackReady(isSlackReady(c)))
+    // slackReady means any connection (Slack or Telegram) is ready; the flag fans out to all of them.
+    void Promise.all([window.api.slack.getConfig(), window.api.telegram.getConfig()]).then(([sl, tg]) =>
+      setSlackReady(isSlackReady(sl) || isTelegramReady(tg))
+    )
     void window.api.settings
       .getAgentPermissionMode()
       .then((m) => setBypassPermissions(m === 'yolo'))

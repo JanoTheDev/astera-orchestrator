@@ -120,6 +120,9 @@ export const HOST_FEATURE_CHAT_TAKEOVER = 'chat-takeover'
 
 /** The Host owns Slack (Slack in the Host S1): the socket-mode inbox and every post, while no attached app
  *  keeps Slack (HOST_YIELD_SLACK). Announced with `spawn`, and only by a Host whose SDK loaded (P1).
+ *  The name predates Telegram: it now covers every chat connection (Slack's socket, Telegram's poller and
+ *  every post), which one owner holds together. A Host without the Slack SDK announces none, so the app
+ *  then holds Telegram too.
  *  Additive, so HOST_PROTOCOL stays 3. */
 export const HOST_FEATURE_SLACK_OWNER = 'slack-owner'
 
@@ -229,7 +232,8 @@ export const HOST_YIELD_ROLLING = 'rolling'
  *  leaves a Host-marked chat chain to the Host, and answers chatPrompts and chatAnswer. */
 export const HOST_YIELD_CHAT_TAKEOVER = 'chat-takeover'
 /** `hello.yields` value: this app opens no Slack socket and posts nothing while its Host announces
- *  `slack-owner`, forwards the events only it sees, and answers slackChatAnswer (P4). */
+ *  `slack-owner`, forwards the events only it sees, and answers slackChatAnswer (P4). It yields every chat
+ *  connection (Telegram's poller too), never one alone. */
 export const HOST_YIELD_SLACK = 'slack'
 /** `hello.yields` value: this app writes no journal row while its Host announces `journal`; it reads the
  *  file read-only and sends its reconciler's rows through `journal-append` (J2, J3). */
@@ -292,7 +296,8 @@ export interface WorkspaceSummary {
  *  answers anything but a string or null, costs the removal: the Host keeps the folder. */
 export const HOST_ACT_PATH_IN_USE = 'worktreePathInUse'
 
-/** The orch-act a Slack-owning Host sends an app for a card answer on a chat the app writes. Args
+/** The orch-act a Slack-owning Host sends an app for a card answer on a chat the app writes (a reply from
+ *  any of its chat connections, Telegram's too, despite the name). Args
  *  `[sessionId, requestId, ChatAnswer]`, answered `{ answered: true } | { answered: false, reason }`.
  *  Not an OrchServerDeps name: the app answers it beside HOST_ACT_PATH_IN_USE (P10). */
 export const HOST_ACT_SLACK_ANSWER = 'slackChatAnswer'
@@ -391,7 +396,7 @@ export type ClientMessage =
    *  handshake. Taken only from a greeted app; the Host absorbs it and does not broadcast it back. */
   | ({ t: 'blocks' } & BlocksBody)
   /** An event only the app sees, for a Host that announced HOST_FEATURE_SLACK_OWNER to post (Slack in the
-   *  Host §3.3). Fire and forget: nothing answers it. Taken only from a greeted app, and dropped for a
+   *  Host §3.3) to every chat connection it holds. Fire and forget: nothing answers it. Taken only from a greeted app, and dropped for a
    *  session the Host sources itself, so no notice is posted twice. A Host without the feature is sent none. */
   | { t: 'slack-event'; event: ForwardedEvent }
   /** What only an app sees of its sessions, for a Host that announced HOST_FEATURE_SESSION_SIGNALS to record as session

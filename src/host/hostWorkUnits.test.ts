@@ -843,7 +843,7 @@ describe('createHostWorkUnits', () => {
   })
 })
 
-// index.ts and the CLI rig wire every session pty's exit through this, as rolling.ts and slackSessions.ts
+// index.ts and the CLI rig wire every session pty's exit through this, as rolling.ts and connectionsSessions.ts
 // skip an exit whose session is still live in another pty.
 describe('wireSessionExits', () => {
   const fakePty = (): RegistryPty & { exit(c: number): void } => {

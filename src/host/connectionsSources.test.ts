@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { SlackNotifier } from '../core/slack/connect'
-import { createHostSlackSources } from './slackSources'
+import { createHostConnectionSources } from './connectionsSources'
 import type { Account, SessionInfo } from '../core/types'
 import type { ChatEvent } from '../core/chat/types'
 
@@ -37,14 +37,14 @@ function rig(o: { hostChats?: string[]; hostChains?: string[]; tail?: (p: string
   const codexWatch = { register: vi.fn(), unregister: vi.fn() }
   const findTranscript = vi.fn(async () => 'C:\\c1\\projects\\p\\th.jsonl')
   const logs: string[] = []
-  const sources = createHostSlackSources({ notifier, chats, rolling: { has: (id) => chains.has(id), account: (id) => (id === 'x1' ? codex : claude) }, codex: codexWatch, findTranscript, log: (m) => logs.push(m) })
+  const sources = createHostConnectionSources({ notifier, chats, rolling: { has: (id) => chains.has(id), account: (id) => (id === 'x1' ? codex : claude) }, codex: codexWatch, findTranscript, log: (m) => logs.push(m) })
   const settle = () => new Promise((r) => setTimeout(r, 10))
   return { notifier, sources, posts, logs, emit: (sid: string, e: ChatEvent) => emit(sid, e), codexWatch, findTranscript, settle, advance: (ms: number) => { clock += ms } }
 }
 const turn = (_sid: string) => [{ type: 'status', status: 'working' }, { type: 'status', status: 'idle' }] as ChatEvent[]
 const fwd = (sessionId: string, event: ChatEvent, transcriptPath: string | null = null) => ({ kind: 'chat', sessionId, accountId: 'a1', event, provider: 'claude', transcriptPath })
 
-describe('createHostSlackSources (Slack in the Host Task 6, spec S3, §3.3)', () => {
+describe('createHostConnectionSources (Slack in the Host Task 6, spec S3, §3.3)', () => {
   // Review Focus 2.
   it('a forwarded event for a session the Host sources is dropped: the turn is announced once', async () => {
     const h = rig({ hostChats: ['c1'] })

@@ -4,7 +4,7 @@
 // attention state (src/core/sessions/attention.ts), never a read of it per event, so subagents finishing under an open
 // prompt do not repeat it; a roll's `reattach` is a re-publish, not a new wait or switch.
 //
-// **Where the signals come from** is the split Slack in the Host uses (slackSources.ts): every hook event of the
+// **Where the signals come from** is the split Slack in the Host uses (connectionsSources.ts): every hook event of the
 // profile (the rolling's hook tap), the chats and chains this Host holds, and the app's `session-signal` for the chats
 // and chains only the app holds. A forward for a session the Host sources itself is dropped, so each is recorded once.
 //

@@ -27,9 +27,9 @@ describe('the Host wires its session events', () => {
   it('hears every hook event and the rolling’s roll states beside the Slack', () => {
     const rolling = src.slice(src.indexOf('composeHostRolling('))
     expect(rolling).toMatch(
-      /hookTap: \(sid, p\) => \{\s*slackWiring\?\.onHookEvent\(sid, p\)\s*sessionEvents\?\.onHookEvent\(sid, p\)\s*sessionActivity\.onHookEvent\(sid, p\)\s*\}/
+      /hookTap: \(sid, p\) => \{\s*connectionsWiring\?\.onHookEvent\(sid, p\)\s*sessionEvents\?\.onHookEvent\(sid, p\)\s*sessionActivity\.onHookEvent\(sid, p\)\s*\}/
     )
-    expect(rolling).toMatch(/slackWiring\?\.onRollEvent\(e\)\s*if \(e\.t === 'roll-state'\) sessionEvents\?\.onRollState\(e\.event\)/)
+    expect(rolling).toMatch(/connectionsWiring\?\.onRollEvent\(e\)\s*if \(e\.t === 'roll-state'\) sessionEvents\?\.onRollState\(e\.event\)/)
   })
 
   it('takes session-signal from a greeted app only, before the pty handler', () => {

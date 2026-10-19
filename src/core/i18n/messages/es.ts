@@ -1220,7 +1220,7 @@ export const es: Catalog = {
   'rolling.continuePrompt': 'Continúa con el trabajo',
   // notifier.ts — the notification text that goes out to Slack
   'slack.turnDone': '✅ Respuesta completada',
-  // {at} is HH:MM for the 5-hour scope but M/D HH:MM for the weekly one (fmtAt in core/slack/notifier.ts),
+  // {at} is HH:MM for the 5-hour scope but M/D HH:MM for the weekly one (fmtAt in core/connections/notifier.ts),
   // so no preposition can precede it
   'slack.limitWaiting': '⏸ Límite alcanzado — reanudación: {at} (límite {scope})',
   'slack.limitScope.weekly': 'semanal',
@@ -1231,7 +1231,7 @@ export const es: Catalog = {
   'slack.sessionExited': '⏹ Sesión finalizada (exit {code})',
   'slack.inputNeeded': '🙋 Entrada necesaria',
   'slack.inputNeededWith': '🙋 Entrada necesaria — {message}',
-  // core/slack/inbound.ts buildChoiceKeys — why a choice reply was in the wrong shape
+  // core/connections/input.ts buildChoiceKeys — why a choice reply was in the wrong shape
   'slack.choice.hintPerQuestion': '💡 Responda separando cada pregunta con `/` (ej.: 1,3 / 2)',
   'slack.choice.hintMulti': '💡 Para varias opciones, respóndalas separadas por comas (ej.: 1,3)',
   'slack.pending.charCount': '{key}: {len} caracteres',

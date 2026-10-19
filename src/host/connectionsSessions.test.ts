@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { PtyRegistry, type RegistryPty } from './registry'
 import { ProcRegistry, type RegistryProc } from './procRegistry'
-import { createHostSlackSessions } from './slackSessions'
+import { createHostConnectionSessions } from './connectionsSessions'
+import { notedThreadOf } from '../core/slack/threadNote'
 import type { SessionInfo } from '../core/types'
 
 function pty(): RegistryPty & { exit(code: number): void; emit(d: string): void } {
@@ -27,13 +28,13 @@ function rig(o: { active?: () => boolean } = {}) {
   const noted: string[] = []
   const notifier = {
     has: (id: string) => records.has(id),
-    register: (info: SessionInfo, o?: { thread?: { ts: string; channel: string } | null }) => { records.set(info.id, info); trail.push(`register ${info.id} ${o?.thread?.ts ?? '-'}`) },
+    register: (info: SessionInfo, note?: Record<string, unknown>) => { records.set(info.id, info); trail.push(`register ${info.id} ${notedThreadOf(note ?? {})?.ts ?? '-'}`) },
     rename: (id: string, title: string) => trail.push(`rename ${id} ${title}`),
     handleData: (e: { sessionId: string }) => trail.push(`data ${e.sessionId}`),
     handleExit: (e: { sessionId: string; exitCode: number }) => { trail.push(`exit ${e.sessionId} ${e.exitCode}`) },
-    adoptNoted: (id: string, t: { ts: string; channel: string } | null) => { trail.push(`adopt ${id} ${t?.ts ?? '-'}`) }
+    adoptNoted: (id: string, note: Record<string, unknown>) => { trail.push(`adopt ${id} ${notedThreadOf(note)?.ts ?? '-'}`) }
   }
-  const s = createHostSlackSessions({
+  const s = createHostConnectionSessions({
     registry,
     procs,
     notifier,
@@ -46,7 +47,7 @@ function rig(o: { active?: () => boolean } = {}) {
   return { registry, procs, s, trail, noted, records, ptys, procsMade, openPty, openChat }
 }
 
-describe('createHostSlackSessions (Slack in the Host Task 5, spec §3.3, P7)', () => {
+describe('createHostConnectionSessions (Slack in the Host Task 5, spec §3.3, P7)', () => {
   it('registers a Slack session the moment its pty or proc opens, with its noted thread, and renames from its note', () => {
     const h = rig()
     h.openPty('p1', note('s1', { slackThreadTs: '1.2', slackChannel: 'C1' }))

@@ -3,9 +3,10 @@
 // Host connection (`activity-poll`, long polled) from the moment the app starts, and asks `activity-summary` for each
 // digest. Nothing from before the start is announced: the feed itself shows it.
 //
-// W5-D (#43): and the app's Slack, while the app keeps Slack (slackOwnership.ts owner 'app'). Then the Host's Slack
-// holds no socket and posts nothing (host/index.ts posts only while `slack.active()`), so each notice reaches Slack
-// from one process. Both sinks share this one throttle and digest.
+// W5-D (#43): and the app's chat connections (Slack, Telegram, through their fan-out), while the app keeps them
+// (connectionsOwnership.ts owner 'app'). Then the Host's connections hold nothing and post nothing (host/index.ts
+// posts only while `connections.active()`), so each notice reaches each connection from one process. Both sinks
+// share this one throttle and digest.
 import { createActivityNotices, type ActivityEvent, type ActivityNotice, type ActivitySummary } from '../core/orchestration/activity'
 
 type Call = (cmd: string, args: Record<string, unknown>, timeoutMs?: number) => Promise<{ status: number; body: unknown }>
@@ -20,7 +21,7 @@ export function startActivityNotices(a: {
   call: Call
   /** The desktop; absent without one. */
   send?(n: ActivityNotice): void
-  /** W5-D (#43): the app's Slack. `keeps()` is read per notice, so a hand-over between app and Host takes effect at once. */
+  /** W5-D (#43): the app's chat connections (the field keeps Slack's name). `keeps()` is read per notice, so a hand-over between app and Host takes effect at once. */
   slack?: { keeps(): boolean; post(text: string): void }
   digestMinutes(): number
   log(m: string): void

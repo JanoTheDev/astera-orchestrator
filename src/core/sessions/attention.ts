@@ -8,7 +8,7 @@ import type { Attention } from '../types'
 
 /** Where a session stands right now, from the app's own point of view rather than the transcript's —
  *  the transcript stays frozen while a permission prompt sits on screen (measured in the countToolUses
- *  comment in core/slack/transcript.ts), so there is nothing there to read this off.
+ *  comment in core/connections/transcript.ts), so there is nothing there to read this off.
  *
  *  Declared in core/types.ts because it crosses IPC and the renderer has to name it, and re-exported
  *  here so this module's own consumers keep importing it from the module that produces it. One

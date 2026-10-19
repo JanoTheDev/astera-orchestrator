@@ -99,7 +99,7 @@ export async function readWorkUnitTracking(settingsPath: string): Promise<boolea
 
 /** Every session pty's exit, handed to the work units: the Host holds the pty, so an exit here is the
  *  session ending, unless the session is still live in another pty: a respawn that keeps the session id
- *  opens the new pty before the old one's exit lands (rolling.ts's and slackSessions.ts's rule). Returns
+ *  opens the new pty before the old one's exit lands (rolling.ts's and connectionsSessions.ts's rule). Returns
  *  the unsubscribe. */
 export function wireSessionExits(
   registry: Pick<PtyRegistry, 'onExit' | 'metaOf' | 'sessionPty'>,

@@ -36,7 +36,8 @@ const writers: Record<string, string[]> = {
   'main/index.ts': ['slack.log', 'rolling.log', 'orchestration.log', 'host-client.log', 'updater.log'],
   'main/core.ts': ['chat.log', 'sessions.log', 'worktrees.log'],
   'host/rollingLog.ts': ['rolling.log'],
-  'host/slackWiring.ts': ['slack.log'],
+  'host/slackConnection.ts': ['slack.log'],
+  'host/telegramConnection.ts': ['telegram.log'],
   'host/log.ts': []
 }
 

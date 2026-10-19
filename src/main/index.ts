@@ -63,10 +63,14 @@ import { writeRollSnapshotTo } from './rollSnapshotSink'
 import { memoiseLoginStatus } from '../core/accounts/loginStatusCache'
 import { SlackNotifier } from '../core/slack/connect'
 import { SlackConfigStore } from './slackConfigStore'
+import type { SlackConfig } from '../core/slack/config'
+import type { TelegramConfig } from '../core/telegram/config'
 import { TelegramConfigStore } from './telegramConfigStore'
 import { SlackInboxController } from '../core/slack/inbox'
 import { createSocketClient, createWebClient } from './slackSdk'
-import { createSlackOwnership, type SlackOwnership } from './slackOwnership'
+import { createConnectionsOwnership, type ConnectionsOwnership } from './connectionsOwnership'
+import { ConnectionFanout } from '../core/connections/fanout'
+import { telegramConnection, telegramLog, type ReplyRoutes } from '../host/telegramConnection'
 import { createSessionSignalForwarder } from './sessionSignals'
 import { hearForwarded } from '../core/connections/forwarded'
 import { HookEventWatcher } from '../core/hooks/eventWatcher'
@@ -140,7 +144,8 @@ let codexRollingRef: CodexRollingCoordinator | null = null
 let schedulerRef: SchedulerCoordinator | null = null
 let codexRolloutRef: CodexRolloutWatcher | null = null
 let slackInboxControllerRef: SlackInboxController | null = null // Slack inbound socket rebuilder — cut on quit
-let slackOwnershipRef: SlackOwnership | null = null // who owns Slack — its hand-back timer is cut on quit
+let connectionsOwnershipRef: ConnectionsOwnership | null = null // who owns the chat connections — its hand-back timer is cut on quit
+let telegramStopRef: (() => Promise<void>) | null = null // Telegram's poller — stopped on quit
 let rollingRef: RollingCoordinator | null = null // lets the hook callback reach a coordinator created later
 let orchRef: OrchHandle | null = null // orchestration shutdown cleanup + the rolling seam
 let hostClientStopRef: (() => Promise<void>) | null = null // Astera Host client — closes the socket on quit
@@ -590,10 +595,13 @@ app.whenReady().then(async () => {
   // and the app is already quitting — there is nothing to load and nothing to wire up.
   if (win.isDestroyed()) return
   if (process.platform !== 'win32') loadApp(win)
-  // Slack progress notifications: hook events, roll state, limits and exits go out over an Incoming
-  // Webhook or a Slack bot (chat.postMessage) — SlackNotifier abstracts both behind a transport, so
-  // the wiring here does not know which path is in play. Logs go to userData/slack.log (same pattern
-  // as rolling.log) — the webhook URL and bot token are never recorded.
+  // Chat connection progress notifications (Slack, Telegram): hook events, roll state, limits and exits go
+  // out through each connection's notifier, behind one ConnectionFanout every session input below goes
+  // to. **Adding a connection** is the recipe in host/connectionsWiring.ts's header: its builder (the
+  // Host's own, telegramConnection.ts is the pattern), one entry in `connections` below and one in
+  // the fan-out. Slack: an Incoming Webhook or a Slack bot (chat.postMessage) — SlackNotifier abstracts
+  // both behind a transport. Logs go to userData/slack.log and telegram.log (same pattern as
+  // rolling.log) — webhook URLs and bot tokens are never recorded.
   const slackLog = lineLog(path.join(app.getPath('userData'), 'slack.log'))
   const slackStore = new SlackConfigStore(path.join(app.getPath('userData'), 'slack.json'))
   const telegramStore = new TelegramConfigStore(path.join(app.getPath('userData'), 'telegram.json'))
@@ -684,9 +692,30 @@ app.whenReady().then(async () => {
       }
     }
   })
+  // Where an allowed reply goes, for every connection: a terminal session's pty, or a chat session's card
+  // or next turn.
+  const replyRoutes: ReplyRoutes = {
+    // Write only after confirming the session is alive, and hand that result straight back — this
+    // used to report a failed injection as a success. SessionManager.write returns silently for an
+    // already-exited session (its exited guard), so "did not throw" cannot tell success from
+    // failure. Rather than add a new API, this reuses the status core.sessions.list() already
+    // returns.
+    write: (sessionId, data) => {
+      const alive = core!.sessions.list().some((s) => s.id === sessionId && s.status === 'running')
+      if (!alive) return false
+      core!.sessions.write(sessionId, data)
+      return true
+    },
+    // A chat session has no pty to type into: its reply is read against the card it holds and goes
+    // out through the session driver or as the card's answer (slice 4 design §7.3).
+    isChat: (sid) => core!.chat.has(sid),
+    pendingRequest: (sid) => core!.chat.state(sid)?.request ?? null,
+    deliverChat: (sid, text) => sessionDriver.deliver(sid, text),
+    answerChat: (sid, requestId, answer) => core!.chat.answer(sid, requestId, answer)
+  }
   // Slack thread reply intake. Connects only when an app token is present and bot mode is on — on
   // the webhook path there are no threads, so there is nothing to reply into. SlackInboxController
-  // safely rebuilds the socket whenever settings change (slackOwnership.configChanged, from registerIpc) —
+  // safely rebuilds the socket whenever settings change (connectionsOwnership.configChanged, from registerIpc) —
   // that fixed a bug where turning bot mode off left the socket attached to the old channel until
   // the next restart.
   const slackInboxController = new SlackInboxController({
@@ -697,27 +726,11 @@ app.whenReady().then(async () => {
       memberId,
       lang: () => core!.lang,
       resolveSession: (ts) => slack.resolveSessionByThread(ts),
-      // Write only after confirming the session is alive, and hand that result straight back — this
-      // used to report a failed injection as a success. SessionManager.write returns silently for an
-      // already-exited session (its exited guard), so "did not throw" cannot tell success from
-      // failure. Rather than add a new API, this reuses the status core.sessions.list() already
-      // returns.
-      write: (sessionId, data) => {
-        const alive = core!.sessions.list().some((s) => s.id === sessionId && s.status === 'running')
-        if (!alive) return false
-        core!.sessions.write(sessionId, data)
-        return true
-      },
       postNote: (ts, text) => slack.postThreadNote(ts, text),
       isOwnMessage: (ts) => slack.isOwnMessage(ts),
       // On a choice prompt, turn the reply into a key sequence and carry it through Submit
       pendingChoiceShape: (sid) => slack.pendingChoiceShape(sid),
-      // A chat session has no pty to type into: its reply is read against the card it holds and goes
-      // out through the session driver or as the card's answer (slice 4 design §7.3).
-      isChat: (sid) => core!.chat.has(sid),
-      pendingRequest: (sid) => core!.chat.state(sid)?.request ?? null,
-      deliverChat: (sid, text) => sessionDriver.deliver(sid, text),
-      answerChat: (sid, requestId, answer) => core!.chat.answer(sid, requestId, answer),
+      ...replyRoutes,
       log: slackLog
     }),
     createClient: (appToken) => createSocketClient(appToken),
@@ -726,29 +739,64 @@ app.whenReady().then(async () => {
     isQuitting: () => quitting
   })
   slackInboxControllerRef = slackInboxController
-  // Who owns Slack (Slack in the Host, P4, P5): this app, or a Host that announced `slack-owner`. Nothing
-  // is applied at start any more: slack.json is read and the socket opened only once the startup chain
-  // settles with no Slack-owning Host (registerIpc calls `settled`), or after the hand-back grace when one
-  // goes away. Before that, the notifier hears its inputs with no transport and posts nothing.
-  const slackOwnership = createSlackOwnership({
-    load: () => slackStore.load(),
-    apply: (c) => {
-      slack.applyConfig(c)
-      void slackInboxController.apply(c)
+  // Telegram: the same builder the Host uses, so the two never drift; its replies take the routes above.
+  const telegram = telegramConnection({
+    profileDir: app.getPath('userData'),
+    getAccount: (id) => {
+      try {
+        return core!.accounts.get(id)
+      } catch {
+        return null
+      }
     },
-    yieldAll: () => {
-      slack.setTransport(null)
-      void slackInboxController.stop()
+    readStatusPayload: (id) => core!.statusLinePayload(id),
+    lang: () => core!.lang,
+    log: telegramLog(app.getPath('userData'), false),
+    remember: (sid, patch) => {
+      try {
+        if (core!.chat.has(sid)) core!.chat.remember(sid, patch)
+        else core!.sessions.remember(sid, patch)
+      } catch {
+        /* a note must not cost a notice */
+      }
     },
-    // Final review M2: what was held while a Slack-owning Host was away, told here once this app takes Slack.
-    hear: (ev) => hearForwarded(slack, ev),
+    routes: () => replyRoutes,
+    isQuitting: () => quitting,
+    load: () => telegramStore.load()
+  })
+  telegramStopRef = () => telegram.stop()
+  // Every session input below goes to every connection through this.
+  const connections = new ConnectionFanout([slack, telegram.notifier], slackLog)
+  // Who owns the chat connections (Slack in the Host, P4, P5): this app, or a Host that announced
+  // `slack-owner`, for every connection together. Nothing is applied at start any more: the settings are
+  // read and the socket and poller opened only once the startup chain settles with no Slack-owning Host
+  // (registerIpc calls `settled`), or after the hand-back grace when one goes away. Before that, the
+  // notifiers hear their inputs with no transport and post nothing.
+  const connectionsOwnership = createConnectionsOwnership({
+    connections: [
+      {
+        name: 'slack',
+        load: () => slackStore.load(),
+        apply: (c: SlackConfig) => {
+          slack.applyConfig(c)
+          void slackInboxController.apply(c)
+        },
+        stop: () => {
+          slack.setTransport(null)
+          void slackInboxController.stop()
+        }
+      },
+      { name: 'telegram', load: () => telegram.load(), apply: (c: TelegramConfig) => void telegram.apply(c), stop: () => void telegram.stop() }
+    ],
+    // Final review M2: what was held while a Slack-owning Host was away, told here once this app takes it.
+    hear: (ev) => hearForwarded(connections, ev),
     after: (ms, fn) => {
       const t = setTimeout(fn, ms)
       return () => clearTimeout(t)
     },
     log: slackLog
   })
-  slackOwnershipRef = slackOwnership
+  connectionsOwnershipRef = connectionsOwnership
   // Plugin Phase 3 (events and notifications design N3): what only this app sees of its sessions, told to a Host that
   // records session events, whoever owns Slack. Its log runs only once registerIpc has handed it the Host client,
   // after hostLog below exists.
@@ -770,7 +818,7 @@ app.whenReady().then(async () => {
     // The watcher stays for the usage chips; its turn end reaches the notifier only while this app owns
     // Slack (P12): a Slack-owning Host watches its codex terminal sessions itself.
     onTurnComplete: (sessionId, rolloutPath) => {
-      if (slackOwnership.local()) slack.onCodexTurnComplete(sessionId, rolloutPath)
+      if (connectionsOwnership.local()) connections.onCodexTurnComplete(sessionId, rolloutPath)
     },
     // The mapping goes into the note the Host keeps for that session's pty, which is the only place it
     // can be read back from after a restart — the scan that made it cannot be run again for a session
@@ -801,7 +849,7 @@ app.whenReady().then(async () => {
           pendingPrompt,
           slack: {
             onHookEvent: (sid, p) => {
-              if (slackOwnership.local()) slack.onHookEvent(sid, p)
+              if (connectionsOwnership.local()) connections.onHookEvent(sid, p)
             }
           },
           rolling: rollingRef
@@ -1066,21 +1114,21 @@ app.whenReady().then(async () => {
     // socket. The Host holds the new entry back while the old record stands (P7), so the `rolled` moves the
     // old thread onto the new id in either order and no second root is opened (Task 8 carry 2).
     try {
-      if (slackOwnership.local()) {
+      if (connectionsOwnership.local()) {
         if (channel === 'session:rolled') {
           const p = payload as { oldSessionId: string; info: SessionInfo }
-          slack.onRolled(p.oldSessionId, p.info)
+          connections.onRolled(p.oldSessionId, p.info)
         } else if (channel === 'session:rollState') {
-          slack.onRollState(payload as RollStateEvent)
+          connections.onRollState(payload as RollStateEvent)
         }
       } else if (opts.orchestration) {
         // The Host owns Slack and cannot see this app's own chains (spec §3.3). A Host roll
         // (orchestration false) is the Host's own, and forwarding it back would announce it twice.
         if (channel === 'session:rolled') {
           const p = payload as { oldSessionId: string; info: SessionInfo; dest?: string }
-          slackOwnership.forward({ kind: 'rolled', oldSessionId: p.oldSessionId, info: p.info, ...(p.dest ? { dest: p.dest } : {}) })
+          connectionsOwnership.forward({ kind: 'rolled', oldSessionId: p.oldSessionId, info: p.info, ...(p.dest ? { dest: p.dest } : {}) })
         } else if (channel === 'session:rollState') {
-          slackOwnership.forward({ kind: 'roll-state', event: payload as RollStateEvent })
+          connectionsOwnership.forward({ kind: 'roll-state', event: payload as RollStateEvent })
         }
       }
     } catch {
@@ -1303,14 +1351,13 @@ app.whenReady().then(async () => {
     pendingPrompt,
     rolling,
     {
-      notifier: slack,
+      notifier: connections,
       store: slackStore,
-      // A settings save is applied by whichever process owns Slack (ownership.configChanged): here, which
-      // rebuilds the socket too, or in the Host through slack-reload.
-      ownership: slackOwnership
+      // A settings save is applied by whichever process owns the connections (ownership.configChanged):
+      // here, which rebuilds the socket or poller too, or in the Host through slack-reload.
+      ownership: connectionsOwnership
     },
-    // Settings only for now: the wiring Task replaces the no-op with the notifier/poller reload.
-    { store: telegramStore, configChanged: async () => {} },
+    { store: telegramStore, configChanged: (cfg) => connectionsOwnership.configChanged('telegram', cfg) },
     codexRolling,
     scheduler,
     codexRollout,
@@ -1668,10 +1715,12 @@ app.whenReady().then(async () => {
 
 app.on('before-quit', () => {
   quitting = true
-  slackOwnershipRef?.dispose() // no hand-back may open a socket while quitting
-  slackOwnershipRef = null
+  connectionsOwnershipRef?.dispose() // no hand-back may open a socket while quitting
+  connectionsOwnershipRef = null
   void slackInboxControllerRef?.stop() // Slack inbound socket cleanup — a failure must not block quit
   slackInboxControllerRef = null
+  void telegramStopRef?.() // Telegram's poller, the same (it never rejects)
+  telegramStopRef = null
   // What the logs hold so far, written now (stage 3, task 3): a quit that never reaches will-quit (a
   // crash in a window's teardown) still leaves them on disk. Synchronous, once — acceptable at quit.
   flushAllLogsSync()

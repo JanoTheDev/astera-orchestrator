@@ -1216,7 +1216,7 @@ export const ja: Catalog = {
   'slack.sessionExited': '⏹ セッション終了 (exit {code})',
   'slack.inputNeeded': '🙋 入力が必要',
   'slack.inputNeededWith': '🙋 入力が必要 — {message}',
-  // core/slack/inbound.ts buildChoiceKeys — why a choice reply was in the wrong shape
+  // core/connections/input.ts buildChoiceKeys — why a choice reply was in the wrong shape
   'slack.choice.hintPerQuestion': '💡 質問ごとに `/` で区切って返信 (例: 1,3 / 2)',
   'slack.choice.hintMulti': '💡 複数はカンマ区切りで返信 (例: 1,3)',
   'slack.pending.charCount': '{key}: {len} 文字',
