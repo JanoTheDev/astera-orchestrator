@@ -178,6 +178,8 @@
 .ui-tabs__tab:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--ring); }
 .ui-tabs--strip { gap: 2px; border-bottom: 1px solid var(--line); }
 .ui-tabs--strip .ui-tabs__tab { border-bottom: 2px solid transparent; }
+/* #106: labels keep one line and the strip scrolls (.wall-strip overflow-x) instead of shrinking */
+.ui-tabs--strip .ui-tabs__tab { flex: none; white-space: nowrap; }
 .ui-tabs--strip .ui-tabs__tab--active { color: var(--text); border-bottom-color: var(--accent); }
 .ui-tabs--segmented { gap: 2px; padding: 2px; border-radius: var(--radius); background: var(--elevated); width: fit-content; }
 .ui-tabs--segmented .ui-tabs__tab { height: 24px; border-radius: var(--radius-sm); }

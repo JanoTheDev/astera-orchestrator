@@ -63,7 +63,7 @@
    (inset 0 calc(-1 * var(--marker-w)) 0 <color>, set inline in WorkbenchTabs.tsx) would then be drawn
    just under the text rather than at the bottom of the tab, and the tab divider (border-right) would be
    cut short */
-.pane-tabbar .tab { padding: 0 12px; flex: 0 1 auto; min-width: 84px; align-self: stretch; }
+.pane-tabbar .tab { padding: 0 12px; flex: none; min-width: 84px; align-self: stretch; }
 .pane-tabbar .tab .tab-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 /* 이름 고치기. 라벨 자리를 그대로 차지해 탭 너비가 흔들리지 않게 한다 — 폭이 바뀌면 옆 탭들이
    밀려서, 고치는 동안 탭 줄 전체가 움직인다 */
