@@ -349,8 +349,7 @@ export function StartPage({
             label={t('start.opt.handsOff')}
             hint={t('start.opt.handsOffHint')}
             checked={handsOff}
-            // a queued plan starts through `jobs-set --after`, which takes no hands-off, as with approval
-            disabled={mode === 'plan' && intake.after !== ''}
+            // a queued plan's hands-off goes through `jobs-set --after`, with its approval and delivery
             onChange={setHandsOffChoice}
           />
           <div className="ui-field">

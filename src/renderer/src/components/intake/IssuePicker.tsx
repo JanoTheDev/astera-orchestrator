@@ -35,11 +35,11 @@ export function IssuePicker({ intake, onAutoPick }: { intake: Intake; onAutoPick
       <div className="start-auto">
         <Field label={t('start.issues.autoLabel')} value={intake.autoLabel} onChange={(e) => intake.setAutoLabel(e.target.value)} placeholder="bug" />
         <Field kind="number" label={t('start.issues.autoMax')} min={1} value={intake.autoMax} onChange={(e) => intake.setAutoMax(e.target.value)} />
-        <Button icon={<Sparkles size={14} aria-hidden="true" />} loading={intake.busy} disabled={intake.busy} onClick={onAutoPick}>
+        <Button icon={<Sparkles size={14} aria-hidden="true" />} loading={intake.busy} disabled={intake.busy || intake.autoPickWhy !== null} onClick={onAutoPick}>
           {t('start.issues.auto')}
         </Button>
       </div>
-      <p className="start-auto-hint">{t('start.issues.autoHint')}</p>
+      <p className="start-auto-hint">{intake.autoPickWhy ?? t('start.issues.autoHint')}</p>
       {intake.skipped.length > 0 && (
         <ul className="start-auto-skipped">
           {intake.skipped.map((s) => (

@@ -1755,6 +1755,8 @@ export const ja: Catalog = {
   'start.issues.autoMax': '最大件数（任意）',
   'start.issues.autoHint': 'Astera が開いている Issue を読み、他のプランが扱っているものや他の人が担当しているものを除いて、最初のまとまりを計画します。',
   'start.issues.autoSkipped': '#{n} をスキップ: {why}',
+  'start.issues.autoNoProject': '先にプロジェクトを開いてください。Astera はプロジェクトの Issue を選びます。',
+  'start.issues.autoNoCoordinator': '先にコーディネーターのアカウントを選んでください。プランはそのアカウントで始まります。',
   'start.opt.handsOff': 'おまかせ',
   'start.opt.handsOffHint': 'Astera がプランの質問を代わりに決め、最後に一度だけ知らせます。コンソールは権限をバイパスして起動します。',
   'project.handsOff': 'おまかせプラン（Astera が代わりに決める）',

@@ -9772,6 +9772,20 @@ describe('#116 approve only once the plan is ready', () => {
     expect(r.deps.getState().jobs.find((j) => j.id === queued)).toMatchObject({ after: first, autoApprove: true, delivery: 'push' })
   })
 
+  it('#117 jobs-set --after --hands-off on|off sets the queued plan\'s hands-off; an agent session is refused', async () => {
+    const r = rig()
+    const first = await r.made()
+    const queued = await r.made()
+    const job = () => r.deps.getState().jobs.find((j) => j.id === queued)
+    expect((await r.person('jobs-set', { id: queued, after: first, handsOff: 'maybe' })).status).toBe(400)
+    expect((await handleCommand(r.deps, { sessionId: 'ses-agent' }, 'jobs-set', { id: queued, after: first, handsOff: 'on' })).status).toBe(403)
+    expect((await r.person('jobs-set', { id: queued, after: first, handsOff: 'on' })).status).toBe(200)
+    expect(job()).toMatchObject({ after: first, handsOff: true })
+    expect((await r.person('jobs-set', { id: queued, after: 'none', handsOff: 'off' })).status).toBe(200)
+    expect(job()).toMatchObject({ handsOff: false })
+    expect(job()).not.toHaveProperty('after')
+  })
+
   it('jobs-plan-ready marks a plan that holds; a new planner round clears the mark', async () => {
     const r = rig()
     const id = await r.made()

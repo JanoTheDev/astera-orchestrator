@@ -2759,6 +2759,8 @@ export const ko = {
   'start.issues.autoMax': '최대 개수 (선택)',
   'start.issues.autoHint': 'Astera가 열린 이슈를 읽고, 다른 플랜이 맡았거나 다른 사람에게 할당된 것은 건너뛰고, 첫 묶음을 계획합니다.',
   'start.issues.autoSkipped': '#{n} 건너뜀: {why}',
+  'start.issues.autoNoProject': '먼저 프로젝트를 여세요. Astera는 프로젝트의 이슈를 고릅니다.',
+  'start.issues.autoNoCoordinator': '먼저 코디네이터 계정을 고르세요. 플랜은 그 계정에서 시작합니다.',
   'start.opt.handsOff': '손 떼기',
   'start.opt.handsOffHint': 'Astera가 플랜의 질문을 대신 결정하고 마지막에 한 번만 알립니다. 콘솔은 권한을 우회해 시작합니다.',
   'project.handsOff': '손 떼기 플랜 (Astera가 대신 결정)',

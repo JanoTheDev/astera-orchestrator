@@ -102,6 +102,9 @@ export function useIntake(o: IntakeOptions) {
     return () => clearTimeout(timer)
   }, [searching, project, query, assignee, door, t])
 
+  // #119: why Let Astera pick cannot start, shown beside its button (null: it can)
+  const autoPickWhy = project === null ? t('start.issues.autoNoProject') : account === '' ? t('start.issues.autoNoCoordinator') : null
+
   const request = intakeRequest({
     tab,
     text,
@@ -167,7 +170,7 @@ export function useIntake(o: IntakeOptions) {
     tab, setTab, projects, projectId, setProjectId, project, text, setText, fixlist, setFixlist, approveAsk, setApproveAsk,
     files, setFiles, addFiles, addPaths, scope, setScope, query, setQuery, assignee, setAssignee, autoLabel, setAutoLabel, autoMax, setAutoMax, skipped, issues, picked, setPicked,
     assignMe, setAssignMe, instructions, setInstructions, account, setAccount, concurrency, setConcurrency, after,
-    setAfter, plans, busy, error, request, create
+    setAfter, plans, busy, error, request, create, autoPickWhy
   }
 }
 

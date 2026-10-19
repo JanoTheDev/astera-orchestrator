@@ -2512,6 +2512,8 @@ export const en: Record<keyof typeof ko, string> = {
   'start.issues.autoMax': 'At most (optional)',
   'start.issues.autoHint': 'Astera reads the open issues, skips the ones another plan holds or that are assigned to someone else, and plans the first batch.',
   'start.issues.autoSkipped': 'Skipped #{n}: {why}',
+  'start.issues.autoNoProject': 'Open a project first: Astera picks the issues of a project.',
+  'start.issues.autoNoCoordinator': 'Choose a coordinator account first: the plans start on it.',
   'start.opt.handsOff': 'Hands-off',
   'start.opt.handsOffHint': 'Astera decides the plan’s questions for you and tells you once at the end. Its consoles start with permissions bypassed.',
   'project.handsOff': 'Hands-off plans (Astera decides for me)',

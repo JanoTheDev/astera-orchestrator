@@ -1780,6 +1780,8 @@ export const es: Catalog = {
   'start.issues.autoMax': 'Como máximo (opcional)',
   'start.issues.autoHint': 'Astera lee las issues abiertas, omite las que otro plan tiene o están asignadas a otra persona, y planifica el primer lote.',
   'start.issues.autoSkipped': 'Omitida #{n}: {why}',
+  'start.issues.autoNoProject': 'Abre antes un proyecto: Astera elige las issues de un proyecto.',
+  'start.issues.autoNoCoordinator': 'Elige antes una cuenta coordinadora: los planes arrancan con ella.',
   'start.opt.handsOff': 'Sin intervención',
   'start.opt.handsOffHint': 'Astera decide por ti las preguntas del plan y te avisa una vez al final. Sus consolas arrancan con los permisos omitidos.',
   'project.handsOff': 'Planes sin intervención (Astera decide por mí)',

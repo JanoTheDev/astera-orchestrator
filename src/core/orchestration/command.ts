@@ -3182,6 +3182,9 @@ export async function handleCommand(
         if (args.concurrency !== undefined) return bad('--after is set on its own, not with --concurrency')
         const target = str(args.after)
         if (target === null) return bad('--after needs a job id, or none')
+        // #117: the queued plan's own hands-off, kept for the planner the Host starts once the plan it waits on is delivered
+        const handsOff = handsOffArg(args.handsOff, fromAgentSession, caller.role)
+        if (typeof handsOff === 'object') return handsOff
         const job = s.jobs.find((j) => j.id === id)
         if (!job) return notFound(`unknown job: ${id}`)
         if (target !== 'none') {
@@ -3199,7 +3202,8 @@ export async function handleCommand(
         const delivery = parseDelivery(args.delivery)
         if (delivery === null) return bad('--delivery must be pr or push')
         const { after: _old, afterStopNotified: _mark, ...rest } = job
-        const queued: Job = target === 'none' ? rest : { ...rest, after: target }
+        const kept: Job = handsOff === undefined ? rest : { ...rest, handsOff }
+        const queued: Job = target === 'none' ? kept : { ...kept, after: target }
         const next: Job = auto === undefined ? queued : { ...queued, autoApprove: auto }
         let state: OrchState = { ...s, jobs: s.jobs.map((j) => (j.id === id ? next : j)) }
         if (delivery !== undefined) {
