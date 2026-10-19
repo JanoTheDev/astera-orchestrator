@@ -1,7 +1,7 @@
-// The status bar (DESIGN.md §1, W9-B): consoles and working (→ Agents) · waiting for you (→ the Inbox) · the next
-// queued plan · the shown account's 5-hour and weekly usage · host health. Usage is the house Meter, as everywhere.
+// The status bar (DESIGN-W11 §8): on the left the work (consoles → Agents, "n working", "n needs you" → the Inbox, the
+// next queued plan), on the right the shown account's usage as words ("5h 16% · week 40%") and the Host as a word.
+// Zero counts are hidden; sans, not mono.
 import { HostRuntimeNotice } from '../HostRuntimeNotice'
-import { Meter } from '../ui'
 import { openInbox, openPage } from './navigation'
 import type { AppState } from '../../state/appState'
 import type { ShellState } from './useShell'
@@ -26,16 +26,13 @@ export function formatResetHud(resetsAt: string | null | undefined, nowMs = Date
   return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`
 }
 
-/** One usage window: label, Meter, n%, and the reset countdown. No reading draws an empty meter and '–'. */
-function UsageWindow({ label, percent, resetsAt, title }: { label: string; percent?: number; resetsAt?: string | null; title: string }): React.JSX.Element {
-  const has = typeof percent === 'number'
-  const reset = has ? formatResetHud(resetsAt) : null
+/** One usage window as text ("5h 16%"), its reset countdown in the title. No reading shows nothing. */
+function UsageWindow({ text, percent, resetsAt, title, t }: { text: 'shell.status.usage5h' | 'shell.status.usageWeek'; percent?: number; resetsAt?: string | null; title: string; t: AppState['t'] }): React.JSX.Element | null {
+  if (typeof percent !== 'number') return null
+  const reset = formatResetHud(resetsAt)
   return (
-    <span className="status-metric" title={title}>
-      <span className="metric-label">{label}</span>
-      <Meter value={has ? percent : 0} className="status-meter" />
-      <span className="metric-pct">{has ? `${Math.round(percent)}%` : '–'}</span>
-      {reset && <span className="metric-reset">({reset})</span>}
+    <span className="sb-usage" title={reset ? `${title} · ${t('shell.status.resets', { time: reset })}` : title}>
+      {t(text, { percent: Math.round(percent) })}
     </span>
   )
 }
@@ -51,39 +48,40 @@ export function StatusBar(p: StatusBarProps): React.JSX.Element {
   const hostOk = !!hostStatus?.connected && !hostStatus.outdated && !hostStatus.unresponsive
   return (
     <>
-      <div className="statusbar">
-        <button type="button" className="status-link" onClick={() => openPage('agents')}>
-          <span className={counts.working > 0 ? 'status-dot status-dot--ok' : 'status-dot'} aria-hidden="true" />
-          {t(counts.consoles === 1 ? 'shell.status.console' : 'shell.status.consoles', { n: counts.consoles, working: counts.working })}
+      <div className="statusbar sb">
+        <button type="button" className="sb-item" onClick={() => openPage('agents')}>
+          {counts.consoles === 0
+            ? t('shell.status.noConsoles')
+            : t(counts.consoles === 1 ? 'shell.status.consoleN' : 'shell.status.consolesN', { n: counts.consoles })}
         </button>
-        <button type="button" className={counts.waiting > 0 ? 'status-link status-link--warn' : 'status-link'} onClick={() => openInbox()}>
-          <span className={counts.waiting > 0 ? 'status-dot status-dot--warn' : 'status-dot'} aria-hidden="true" />
-          {t('shell.status.waiting', { n: counts.waiting })}
-        </button>
-        {nextQueued && <span className="status-item status-next">{nextQueued}</span>}
+        {counts.working > 0 && (
+          <button type="button" className="sb-item" onClick={() => openPage('agents')}>
+            <span className="sb-dot sb-dot--ok" aria-hidden="true" />
+            {t('shell.status.working', { n: counts.working })}
+          </button>
+        )}
+        {counts.waiting > 0 && (
+          <button type="button" className="sb-item sb-item--warn" onClick={() => openInbox()}>
+            <span className="sb-dot sb-dot--warn" aria-hidden="true" />
+            {t('shell.status.needsYou', { n: counts.waiting })}
+          </button>
+        )}
+        {nextQueued && <span className="sb-next">{nextQueued}</span>}
         <span className="sp" />
         {shellAccount && (
-          <span className="status-account">
-            <span className="status-dot" style={{ background: shellAccount.color }} aria-hidden="true" />
-            {shellAccount.label}
-            <UsageWindow
-              label={t('session.usage.fiveHourLabel')}
-              percent={shellUsage?.session?.usedPercent}
-              resetsAt={shellUsage?.session?.resetsAt}
-              title={t('session.usage.fiveHourTitle')}
-            />
-            <UsageWindow
-              label={t('session.usage.weekly')}
-              percent={shellUsage?.weekly?.usedPercent}
-              resetsAt={shellUsage?.weekly?.resetsAt}
-              title={t('session.usage.weekly')}
-            />
+          <span className="sb-account">
+            <span className="sb-dot" style={{ background: shellAccount.color }} aria-hidden="true" />
+            <span className="sb-account-name">{shellAccount.label}</span>
+            <UsageWindow t={t} text="shell.status.usage5h" percent={shellUsage?.session?.usedPercent} resetsAt={shellUsage?.session?.resetsAt} title={t('session.usage.fiveHourTitle')} />
+            <UsageWindow t={t} text="shell.status.usageWeek" percent={shellUsage?.weekly?.usedPercent} resetsAt={shellUsage?.weekly?.resetsAt} title={t('session.usage.weekly')} />
           </span>
         )}
-        {hostOk && (
-          <span className="status-item status-host" title={hostStatus?.hostVersion ? t('shell.status.hostTitle', { version: hostStatus.hostVersion }) : 'Host'}>
-            {t('shell.status.hostOk')}
+        {hostOk ? (
+          <span className="sb-host" title={hostStatus?.hostVersion ? t('shell.status.hostTitle', { version: hostStatus.hostVersion }) : 'Host'}>
+            {t('shell.status.connected')}
           </span>
+        ) : (
+          !hostStatus?.connected && <span className="sb-host sb-host--warn">{t('shell.status.hostOffline')}</span>
         )}
         {/* The Host outlived an update and still runs the previous build. It replaces itself the first
             moment it holds nothing (host-replacement design §4), which for someone who keeps sessions

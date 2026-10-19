@@ -4,7 +4,7 @@ import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { SessionInfo } from '../../../../core/types'
 import { OTHER_WORKSPACE, type WorkspaceProject } from '../../state/workspaceTree'
-import { ProjectSwitcher, switcherItems, type SwitcherProps } from './ProjectSwitcher'
+import { ProjectSwitcher, matchesProject, switcherItems, type SwitcherProps } from './ProjectSwitcher'
 import { t } from '../../../../core/i18n'
 
 const tree: WorkspaceProject[] = [
@@ -65,5 +65,13 @@ describe('ProjectSwitcher: Open in new window', () => {
     expect(items.find((i) => i.id === 'window:g')?.label).toBe('Open gameful in new window')
     expect(items.find((i) => i.id === 'window:a')?.label).toBe('Open Astera in new window')
     expect(items.map((i) => i.id)).not.toContain(`window:${OTHER_WORKSPACE}`)
+  })
+})
+
+describe('ProjectSwitcher search', () => {
+  it('keeps a project whose name holds the query, ignoring case and outer spaces', () => {
+    expect(matchesProject('Astera Web', '  web ')).toBe(true)
+    expect(matchesProject('Astera Web', '')).toBe(true)
+    expect(matchesProject('Astera Web', 'gameful')).toBe(false)
   })
 })

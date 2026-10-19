@@ -4,7 +4,7 @@
 
 /* ---------- title bar ---------- */
 .titlebar {
-  height: 44px;
+  height: var(--topbar-h);
   flex: none;
   display: flex;
   align-items: center;
@@ -20,10 +20,10 @@
 /* flex:1 로 남는 폭을 브랜드가 먹는다 — 그래야 뒤따르는 것들(실행 위젯, 업데이트 알림, 창 버튼)이
    오른쪽에 차례로 붙는다. 그 요소들이 각자 갖고 있는 margin-left:auto 는 남는 폭이 없어져 0이 되므로
    서로 밀어내지 않는다. min-width:0 은 창이 좁아질 때 이름이 아니라 브랜드 칸이 먼저 줄게 한다 */
-.tb-brand { display: flex; align-items: center; gap: 8px; padding-left: 12px; flex: none; }
+.tb-brand { display: flex; align-items: center; gap: 8px; padding: 0 6px 0 14px; flex: none; }
 .tb-logo {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   /* Deliberately bespoke: matched to the artwork, not the control scale — a brand mark, not a control,
      so it does not owe --radius/--radius-sm anything. Leave it hardcoded on a later tokenising pass. */
   border-radius: 5px;
@@ -31,7 +31,6 @@
   display: block;
   -webkit-user-drag: none;
 }
-.tb-name { font-size: 12.5px; font-weight: 600; color: var(--text); }
 .tb-controls { margin-left: auto; flex: none; display: flex; -webkit-app-region: no-drag; }
 .tb-update { margin-left: auto; padding: 0 12px; font-size: 12px; color: var(--text-dim); white-space: nowrap; align-self: center; -webkit-app-region: no-drag; }
 .tb-update-err { color: var(--danger); cursor: default; }
@@ -77,56 +76,121 @@ body.resizing-row { cursor: row-resize; user-select: none; }
 .surfaces { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .placeholder { margin: auto; color: var(--text-faint); font-size: 13px; }
 
-/* ---------- W9-B top bar (DESIGN.md §1) ---------- */
+/* ---------- top bar (DESIGN-W11 §8) ---------- */
 /* The bar's working half. Everything in it is clickable, so the window drag stops here; the brand and the spacer
    still drag. */
-.tb-main { flex: 1; min-width: 0; height: 100%; display: flex; align-items: center; gap: 10px; padding: 0 8px 0 4px; }
+.tb-main { flex: 1; min-width: 0; height: 100%; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 0; }
 .tb-main > :not(.tb-spacer) { -webkit-app-region: no-drag; }
 .tb-spacer { flex: 1; min-width: 8px; align-self: stretch; -webkit-app-region: drag; }
-.tb-slash { color: var(--text-faint); font-size: 18px; }
-.tb-switcher { font-weight: 600; }
-.tb-sw-row { display: flex; align-items: center; gap: 8px; min-width: 220px; }
-.tb-sw-selected .tb-sw-name { color: var(--accent); }
-.tb-sw-name { flex: 1; }
-.tb-sw-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--line); flex: none; }
+.tb-divider { width: 1px; height: 18px; flex: none; background: var(--line); }
+
+/* the project switcher: "● name ▾" and its searchable popover */
+.tb-sw { position: relative; display: flex; }
+.tb-switcher.ui-btn { max-width: 240px; height: 28px; padding: 0 8px; gap: 8px; color: var(--text); font-size: var(--fs-13); font-weight: var(--fw-semi); }
+.tb-switcher.ui-btn[aria-expanded='true'] { background: var(--hover); }
+.tb-switcher .ui-btn__label { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.tb-switcher svg { flex: none; color: var(--text-faint); }
+.tb-switcher-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tb-sw-dot { display: inline-block; width: 8px; height: 8px; border-radius: var(--radius-pill); background: var(--text-faint); flex: none; }
+.tb-sw-on { background: var(--accent); }
 .tb-sw-waiting { background: var(--warn); }
-.tb-sw-count { color: var(--text-dim); font-variant-numeric: tabular-nums; }
-.tb-sw-key, .tb-search kbd { font-family: var(--mono); font-size: 11px; color: var(--text-faint); }
-.tb-pages { display: flex; align-items: stretch; align-self: stretch; gap: 16px; margin-left: 8px; }
+.tb-sw-pop {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 900; width: 320px; padding: 4px;
+  border-radius: var(--radius-lg); background: var(--elevated); box-shadow: var(--shadow-pop);
+  animation: ui-rise var(--dur) var(--ease-out);
+}
+.tb-sw-search { display: flex; align-items: center; gap: 8px; height: var(--h-md); padding: 0 8px; margin-bottom: 4px; color: var(--text-faint); border-bottom: 1px solid var(--line); }
+.tb-sw-search input { flex: 1; min-width: 0; border: 0; background: none; color: var(--text); font: inherit; font-size: var(--fs-13); outline: none; box-shadow: none; padding: 0; height: 100%; }
+.tb-sw-search input::placeholder { color: var(--text-faint); }
+.tb-sw-list { max-height: min(60vh, 420px); overflow-y: auto; }
+.tb-sw-item { position: relative; display: flex; align-items: center; border-radius: var(--radius); }
+.tb-sw-item:hover, .tb-sw-item:focus-within { background: var(--elevated-hover); }
+.tb-sw-main {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; height: var(--h-md); padding: 0 8px; border: 0;
+  border-radius: var(--radius); background: transparent; color: var(--text); font: inherit; font-size: var(--fs-13); text-align: left; cursor: pointer;
+}
+.tb-sw-main:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.tb-sw-main:disabled { color: var(--text-faint); cursor: default; }
+.tb-sw-row { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
+.tb-sw-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tb-sw-selected .tb-sw-name { font-weight: var(--fw-semi); }
+.tb-sw-count { color: var(--text-dim); font-size: var(--fs-11); font-variant-numeric: tabular-nums; }
+.tb-sw-count[data-zero] { visibility: hidden; }
+.tb-sw-key { font: var(--fw-medium) var(--fs-11) / 1 var(--sans); color: var(--text-faint); }
+.tb-sw-check { flex: none; color: var(--accent); }
+/* the row's own actions show on hover or keyboard focus and cover the key hint */
+.tb-sw-actions { position: absolute; right: 4px; display: none; gap: 2px; padding-left: 8px; background: var(--elevated-hover); }
+.tb-sw-item:hover .tb-sw-actions, .tb-sw-item:focus-within .tb-sw-actions { display: flex; }
+.tb-sw-sep { height: 1px; margin: 4px -4px; background: var(--line); }
+.tb-sw-empty { padding: 8px; color: var(--text-faint); font-size: var(--fs-12); }
+
+/* page tabs */
+.tb-pages { display: flex; align-items: stretch; align-self: stretch; gap: 4px; margin-left: 4px; }
+.tb-pages .ui-nav { gap: 4px; }
+.tb-pages .ui-nav__item { padding: 0 8px; font-size: var(--fs-13); font-weight: var(--fw-medium); }
 .tb-pages .ui-nav__count { color: var(--warn); }
 .tb-more { display: flex; align-items: center; border-bottom: 2px solid transparent; }
 .tb-more--active { border-bottom-color: var(--accent); }
+.tb-more--active .ui-btn { color: var(--text); }
 .tb-pages-narrow { display: none; }
-/* the tabs, search, New, meter and the three window buttons need ~1100px; below it the tabs fold into Pages ▾ */
+/* the tabs, search, meter, New and the three window buttons need ~1100px; below it the tabs fold into Pages ▾ */
 @media (max-width: 1100px) {
   .tb-pages { display: none; }
   .tb-pages-narrow { display: inline-flex; }
 }
+
+/* right group: search, usage, New, settings */
 .tb-search {
-  display: inline-flex; align-items: center; gap: 8px; height: 28px; width: 240px; padding: 0 10px;
+  display: inline-flex; align-items: center; gap: 8px; height: 28px; width: 220px; padding: 0 6px 0 10px;
   border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); color: var(--text-faint);
-  font: inherit; font-size: 12px; cursor: pointer;
+  font: inherit; font-size: var(--fs-12); white-space: nowrap; cursor: pointer; transition: border-color var(--dur-fast) var(--ease-out);
 }
-.tb-search span { flex: 1; text-align: left; }
-.tb-search:hover { color: var(--text-dim); border-color: var(--text-faint); }
-.tb-search:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--ring); }
-@media (max-width: 1180px) { .tb-search { width: auto; } .tb-search span { display: none; } }
-.tb-divider { width: 1px; height: 20px; background: var(--line); }
+.tb-search > svg { flex: none; }
+.tb-search span:not(.ui-kbd) { flex: 1; text-align: left; }
+.tb-search:hover { color: var(--text-dim); border-color: var(--line-strong); }
+.tb-search:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+@media (max-width: 1240px) { .tb-search { width: auto; } .tb-search span:not(.ui-kbd) { display: none; } }
 .tb-usage { position: relative; display: flex; }
 .tb-usage-btn {
-  display: flex; flex-direction: column; justify-content: center; gap: 3px; width: 96px; height: 34px; padding: 0 6px; overflow: hidden; border: 0; border-radius: var(--radius);
-  background: none; color: var(--text-dim); font: inherit; font-size: 12px; font-variant-numeric: tabular-nums; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 8px; height: 28px; max-width: 200px; padding: 0 8px; border: 0; border-radius: var(--radius);
+  background: none; color: var(--text-dim); font: inherit; font-size: var(--fs-12); font-variant-numeric: tabular-nums; cursor: pointer; white-space: nowrap;
 }
-.tb-usage-btn:hover { background: var(--hover); color: var(--text); }
-.tb-usage-btn:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--ring); }
-.tb-usage-head { display: flex; justify-content: space-between; gap: 4px; min-width: 0; font-size: 11px; color: var(--text-faint); white-space: nowrap; }
-.tb-usage-head > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.tb-usage-head > span:last-child { flex: none; }
-.tb-meter { width: 100%; }
+.tb-usage-btn:hover, .tb-usage-btn[aria-expanded='true'] { background: var(--hover); color: var(--text); }
+.tb-usage-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.tb-usage-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--text-faint); }
+.tb-usage-pct { flex: none; min-width: 3ch; text-align: right; color: var(--text); }
+.tb-meter { width: 40px; flex: none; }
+@media (max-width: 1100px) { .tb-usage-label { display: none; } }
 .tb-popover {
-  position: absolute; top: calc(100% + 6px); right: 0; z-index: 50; width: 360px; max-height: 70vh; overflow: auto;
-  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg);
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 900; width: 360px; max-height: 70vh; overflow: auto;
+  background: var(--elevated); border-radius: var(--radius-lg); box-shadow: var(--shadow-pop);
+  animation: ui-rise var(--dur) var(--ease-out);
 }
+
+/* ---------- status bar (DESIGN-W11 §8); .sb outranks the older statusBar.css, which still holds the Host notices ---------- */
+.statusbar.sb {
+  height: var(--statusbar-h); margin-top: 0; gap: 4px; padding: 0 8px; background: var(--panel); color: var(--text-dim);
+  border-top: 1px solid var(--line); font-family: var(--sans); font-size: var(--fs-12); font-variant-numeric: tabular-nums;
+}
+.sb-item {
+  display: inline-flex; align-items: center; gap: 6px; height: 20px; padding: 0 6px; flex: none; border: 0; border-radius: var(--radius-sm);
+  background: none; color: inherit; font: inherit; white-space: nowrap; cursor: pointer;
+}
+.sb-item:hover { background: var(--hover); color: var(--text); }
+.sb-item:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.sb-item--warn { color: var(--warn); }
+.sb-item--warn:hover { color: var(--warn); }
+.sb-dot { width: 6px; height: 6px; border-radius: var(--radius-pill); flex: none; background: var(--text-faint); }
+.sb-dot--ok { background: var(--ok); }
+.sb-dot--warn { background: var(--warn); }
+.sb-next { min-width: 0; padding: 0 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-faint); }
+.sb-account { display: inline-flex; align-items: center; gap: 6px; flex: none; padding: 0 6px; white-space: nowrap; }
+.sb-account-name { color: var(--text-dim); max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
+.sb-usage { color: var(--text-dim); }
+.sb-usage + .sb-usage::before { content: '·'; margin-right: 6px; color: var(--text-faint); }
+.sb-account-name + .sb-usage { margin-left: 4px; }
+.sb-host { flex: none; padding: 0 6px; color: var(--text-faint); white-space: nowrap; }
+.sb-host--warn { color: var(--warn); }
 
 /* ---------- W9-B pages (DESIGN.md §2) ---------- */
 .pages { flex: 1; min-height: 0; display: flex; }

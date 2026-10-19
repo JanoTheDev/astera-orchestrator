@@ -32,7 +32,7 @@
 /* W9-E: the native <select>s of a settings body (Settings > Projects, delivery), flat on the theme's tokens */
 .field select, .jobs-delivery select { min-height: 28px; padding: 4px 8px; background: var(--elevated); color: var(--text); border: 1px solid var(--line-soft); border-radius: var(--radius); font: inherit; font-size: 12px; cursor: pointer; transition: border-color var(--ease), box-shadow var(--ease); }
 .field select:hover, .jobs-delivery select:hover { border-color: var(--text-faint); }
-.field select:focus-visible, .jobs-delivery select:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--ring); }
+.field select:focus-visible, .jobs-delivery select:focus-visible { outline: none; border-color: var(--accent); box-shadow: var(--focus-ring); }
 .field select:disabled, .jobs-delivery select:disabled { opacity: 0.6; cursor: default; }
 /* The session-kind toggle (터미널/대화, Task 7) — two labelled buttons, not the icon pair
    WorkbenchTabs's .session-view-toggle uses (that one flips which half of an already-open tab shows;
@@ -78,7 +78,7 @@
 .jobs-concurrency::-webkit-inner-spin-button { appearance: none; }
 /* Same ring-plus-brightened-border as .sel-trigger:focus-visible, on :focus rather than :focus-visible —
    a text box is focused to be typed in, so there is no pointer-versus-keyboard distinction to make. */
-.jobs-concurrency:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--ring); }
+.jobs-concurrency:focus { outline: none; border-color: var(--accent); box-shadow: var(--focus-ring); }
 /* 예약 규칙 줄의 입력칸 셋. 위의 팔레트 규칙이 잡는 것은 `1,15`(일자) 하나뿐이다 — 이 줄에서 type 이
    text 인 유일한 칸이라서다. 나머지 둘, 분 입력(number)과 시각 입력(time)은 브라우저 기본값으로
    남아 흰 상자로 그려졌다. 셋 다 같은 줄에서 .sel-trigger 옆에 서므로 그 트리거의 값으로 맞춘다 —
@@ -101,7 +101,7 @@
 .field input.sched-minutes:focus, .field input.sched-days:focus, .field input.sched-time:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--ring);
+  box-shadow: var(--focus-ring);
 }
 /* .jobs-concurrency 와 같은 이유로 스피너를 없앤다 — 색을 받지 않아 어떤 테마에서도 밝은 회색으로
    남는 유일한 조각이 된다(그쪽 주석에 실측이 적혀 있다). */

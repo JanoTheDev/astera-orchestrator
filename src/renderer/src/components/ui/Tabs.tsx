@@ -4,23 +4,24 @@ import { rovingKeyDown } from './Nav'
 
 export type TabItem<K extends string> = { id: K; label: React.ReactNode; count?: number; disabled?: boolean }
 
-/** A tab list: `strip` (console strip) or `segmented` (plan sections). Arrow keys move focus; Enter/Space select. */
+/** A tab list: `underline` (a text strip with an accent underline; `strip` is its old name) or `segmented`
+ *  (a scope choice in a PageHeader's filters row). Arrow keys move focus; Enter/Space select. */
 export function Tabs<K extends string>({
   items,
   value,
   onChange,
-  variant = 'strip',
+  variant = 'underline',
   label
 }: {
   items: TabItem<K>[]
   value: K
   onChange: (id: K) => void
-  variant?: 'strip' | 'segmented'
+  variant?: 'underline' | 'strip' | 'segmented'
   label?: string
 }): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
   return (
-    <div ref={ref} role="tablist" aria-label={label} className={cx('ui-tabs', `ui-tabs--${variant}`)} onKeyDown={(e) => rovingKeyDown(ref.current, e)}>
+    <div ref={ref} role="tablist" aria-label={label} className={cx('ui-tabs', `ui-tabs--${variant === 'strip' ? 'underline' : variant}`)} onKeyDown={(e) => rovingKeyDown(ref.current, e)}>
       {items.map((it) => {
         const selected = it.id === value
         return (

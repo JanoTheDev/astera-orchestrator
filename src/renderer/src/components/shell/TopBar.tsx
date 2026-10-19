@@ -1,5 +1,5 @@
-// W9-B: the top bar's working half (DESIGN.md §1), inside the window's title bar: "/" the project switcher, the page
-// tabs, then search, New, the usage meter with its accounts popover, and Settings. Pages move only through
+// W9-B: the top bar's working half (DESIGN-W11 §8), inside the window's title bar: the project switcher, a hairline,
+// the page tabs, then search, the usage meter with its accounts popover, New, and Settings. Pages move only through
 // navigation.ts, so a page prompt that replaces its handler changes what these tabs do too.
 import { useEffect, useRef, useState } from 'react'
 import { ChevronDown, Plus, Search, Settings } from 'lucide-react'
@@ -7,7 +7,7 @@ import { KEYED_PAGES, type PageId } from '../../../../core/ui/pages'
 import { formatChord } from '../../../../core/keys/binding'
 import type { MessageKey } from '../../../../core/i18n'
 import { AccountPanel } from '../AccountPanel'
-import { Button, Menu, Meter, Nav, type MenuItem, type NavItem } from '../ui'
+import { Button, IconButton, Kbd, Menu, Meter, Nav, type MenuItem, type NavItem } from '../ui'
 import { openPage } from './navigation'
 import { ProjectSwitcher } from './ProjectSwitcher'
 import type { AppState } from '../../state/appState'
@@ -54,9 +54,6 @@ export function TopBar(p: TopBarProps): React.JSX.Element {
   const fiveHour = p.shellUsage?.session?.usedPercent
   return (
     <div className="tb-main" onDoubleClick={(e) => e.stopPropagation()}>
-      <span className="tb-slash" aria-hidden="true">
-        /
-      </span>
       <ProjectSwitcher
         tree={p.workspaceTree}
         byWorkspace={p.workspaceIds}
@@ -71,6 +68,7 @@ export function TopBar(p: TopBarProps): React.JSX.Element {
         toolsDisabledReason={p.projectAnchor ? undefined : t('settings.projects.noAnchor')}
         t={t}
       />
+      <span className="tb-divider" aria-hidden="true" />
       <div className="tb-pages">
         <Nav label={t('shell.pages')} items={navItems} current={page} onSelect={openPage} />
         <span className={onMore ? 'tb-more tb-more--active' : 'tb-more'}>
@@ -95,14 +93,13 @@ export function TopBar(p: TopBarProps): React.JSX.Element {
       <button type="button" className="tb-search" onClick={p.onSearch}>
         <Search size={14} aria-hidden="true" />
         <span>{t('shell.search')}</span>
-        {searchChord && <kbd>{formatChord(searchChord)}</kbd>}
+        {searchChord && <Kbd>{formatChord(searchChord)}</Kbd>}
       </button>
-      <Button variant="primary" size="sm" icon={<Plus size={12} aria-hidden="true" />} disabled={p.newDisabled} onClick={p.onNew}>
+      <UsageButton t={t} accounts={p.accounts} label={p.shellAccount?.label} percent={fiveHour} />
+      <Button variant="primary" size="sm" icon={<Plus size={14} aria-hidden="true" />} disabled={p.newDisabled} onClick={p.onNew}>
         {t('new.title')}
       </Button>
-      <span className="tb-divider" aria-hidden="true" />
-      <UsageButton t={t} accounts={p.accounts} label={p.shellAccount?.label} percent={fiveHour} />
-      <Button aria-label={t('settings.title')} title={t('settings.title')} icon={<Settings size={16} />} onClick={() => openPage('settings')} />
+      <IconButton label={t('settings.title')} icon={<Settings size={16} />} active={page === 'settings'} onClick={() => openPage('settings')} />
     </div>
   )
 }
@@ -138,11 +135,9 @@ function UsageButton({ accounts, label, percent, t }: { accounts: AppState['acco
         title={has ? t('shell.usage.title', { label: label ?? '', percent: Math.round(percent) }) : t('settings.group.accounts')}
         onClick={() => setOpen((v) => !v)}
       >
-        <span className="tb-usage-head">
-          <span>{label ? t('shell.usage.head', { label }) : t('shell.usage.headNone')}</span>
-          <span>{has ? `${Math.round(percent)}%` : '–'}</span>
-        </span>
+        <span className="tb-usage-label">{label ? t('shell.usage.head', { label }) : t('shell.usage.headNone')}</span>
         <Meter value={has ? percent : 0} className="tb-meter" />
+        <span className="tb-usage-pct">{has ? `${Math.round(percent)}%` : '–'}</span>
       </button>
       {open && (
         <div className="tb-popover" role="dialog" aria-label={t('settings.tab.accounts')}>

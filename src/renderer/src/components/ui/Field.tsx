@@ -1,5 +1,6 @@
 import { useId } from 'react'
 import { cx } from './logic'
+import { Input, Select, Textarea } from './Inputs'
 
 type Base = { label: React.ReactNode; hint?: React.ReactNode; error?: React.ReactNode; className?: string }
 
@@ -26,17 +27,17 @@ export function Field(props: FieldProps): React.JSX.Element {
   let input: React.ReactNode
   if (control.kind === 'textarea') {
     const { kind: _k, ...rest } = control
-    input = <textarea className="ui-field__control" {...rest} {...aria} />
+    input = <Textarea {...rest} {...aria} />
   } else if (control.kind === 'select') {
     const { kind: _k, options, ...rest } = control
     input = (
-      <select className="ui-field__control" {...rest} {...aria}>
+      <Select {...rest} {...aria}>
         {options.map((o) => (
           <option key={o.value} value={o.value}>
             {o.label}
           </option>
         ))}
-      </select>
+      </Select>
     )
   } else if (control.kind === 'toggle') {
     const { kind: _k, checked, onChange, ...rest } = control
@@ -45,10 +46,10 @@ export function Field(props: FieldProps): React.JSX.Element {
     )
   } else if (control.kind === 'number') {
     const { kind: _k, ...rest } = control
-    input = <input type="number" className="ui-field__control" {...rest} {...aria} />
+    input = <Input type="number" {...rest} {...aria} />
   } else {
     const { kind: _k, ...rest } = control
-    input = <input type="text" className="ui-field__control" {...rest} {...aria} />
+    input = <Input type="text" {...rest} {...aria} />
   }
   return (
     <div className={cx('ui-field', control.kind === 'toggle' && 'ui-field--toggle', error != null && 'ui-field--error', className)}>
