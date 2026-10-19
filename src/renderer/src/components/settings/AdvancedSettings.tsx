@@ -7,6 +7,7 @@ import { formatCheckedAt } from '../../../../core/update/checkFeedback'
 import { AUTO_UPDATE } from '../../../../core/update/autoUpdate'
 import { toast } from '../../lib/toast'
 import { SettingRow, type GroupProps } from './SettingRow'
+import { Button } from '../ui'
 
 /** "7m", "2h" — a coarse uptime is all this row needs; it is a sign of life, not a metric, which is
  *  also why the unit is not translated. */
@@ -199,9 +200,9 @@ export function AdvancedSettings(p: GroupProps): React.JSX.Element | null {
               rule that would replace one needs the Host to answer what it is holding
               first (design F5). */}
           {((hostStatus?.connected && (hostStatus.outdated || hostStatus.runtimeIncomplete)) || hostStatus?.unresponsive) && (
-            <button type="button" disabled={hostRestarting} onClick={() => void restartHost()}>
+            <Button type="button" disabled={hostRestarting} onClick={() => void restartHost()}>
               {hostRestarting ? t('settings.info.hostRestarting') : t('settings.info.hostRestartNow')}
-            </button>
+            </Button>
           )}
         </div>
       </SettingRow>
@@ -231,9 +232,9 @@ export function AdvancedSettings(p: GroupProps): React.JSX.Element | null {
                     app, so the person is told what that costs their running sessions
                     first. */}
                 {update?.state === 'downloaded' && (
-                  <button onClick={() => void installUpdate()}>
+                  <Button onClick={() => void installUpdate()}>
                     {t('update.info.restartInstallVersion', { version: update.version ?? '' })}
-                  </button>
+                  </Button>
                 )}
                 {/* 'manual' follows 'downloaded' on macOS when Squirrel turns the build
                     down. The label has to change with it: offering "restart and install"
@@ -242,13 +243,13 @@ export function AdvancedSettings(p: GroupProps): React.JSX.Element | null {
                     something else than it says is no better than one that does nothing. */}
                 {update?.state === 'manual' && (
                   <>
-                    <button onClick={() => void installUpdate()}>
+                    <Button onClick={() => void installUpdate()}>
                       {t('update.info.manualInstallVersion', { version: update.version ?? '' })}
-                    </button>
+                    </Button>
                     <span className="update-note">{t('update.info.manualWhy')}</span>
                   </>
                 )}
-                <button
+                <Button
                   disabled={updateChecking}
                   onClick={() => {
                     setCheckClickedAt(Date.now())
@@ -256,7 +257,7 @@ export function AdvancedSettings(p: GroupProps): React.JSX.Element | null {
                   }}
                 >
                   {updateChecking ? t('update.info.checking') : t('update.info.checkButton')}
-                </button>
+                </Button>
                 {/* The result text is hidden while checking — 'Checking…' and the previous
                     result showing at once contradict each other. Even when the result is
                     always the same because it is up to date, the check time changes, so the
@@ -273,9 +274,9 @@ export function AdvancedSettings(p: GroupProps): React.JSX.Element | null {
                     open only when policy.json carries one. */}
                 {!updateChecking && update?.state === 'available' && (
                   <>
-                    <button onClick={() => void window.api.update.download()}>
+                    <Button onClick={() => void window.api.update.download()}>
                       {t('update.info.downloadVersion', { version: update.version ?? '' })}
-                    </button>
+                    </Button>
                     <span className="update-note">{t('update.info.available', { version: update.version ?? '' })}</span>
                   </>
                 )}

@@ -711,20 +711,20 @@ export function NewSessionDialog({
           <div className="field">
             <label>{t('chat.unattended.heading')}</label>
             <div className="kind-segmented">
-              <button
+              <Button
                 type="button"
-                className={`segmented${unattended === 'hold' ? ' active' : ''}`}
+                variant={unattended === 'hold' ? 'secondary' : 'ghost'}
                 onClick={() => setUnattended('hold')}
               >
                 {t('chat.unattended.hold')}
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
-                className={`segmented${unattended === 'deny-after-60s' ? ' active' : ''}`}
+                variant={unattended === 'deny-after-60s' ? 'secondary' : 'ghost'}
                 onClick={() => setUnattended('deny-after-60s')}
               >
                 {t('chat.unattended.deny60')}
-              </button>
+              </Button>
             </div>
           </div>
         )}

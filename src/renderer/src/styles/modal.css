@@ -48,6 +48,7 @@
 }
 .kind-segmented .segmented.active { color: var(--text); border-color: var(--accent); background: var(--elevated); }
 .kind-segmented .segmented:disabled { opacity: 0.5; cursor: not-allowed; }
+.kind-segmented .ui-btn { flex: 1; }
 /* The kind toggle's own hint and disabled-reason note. Scoped to its own class rather than written as
    `.field > .check-note`: that shape also matched spans this branch never touched (ResumeDialog's
    "로그인 상태 확인 중", RunConfigForm's four loading notes), restyling them as a side effect of adding
