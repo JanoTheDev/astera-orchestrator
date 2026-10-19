@@ -702,7 +702,7 @@ astera jobs    unarchive --id <jobId>
 astera jobs    plan --id <jobId> [--account <id>] [--replan <waves|off>] [--concurrency <n>] [--delivery <pr|push>] [--no-review] [--auto-approve <on|off>]
 astera jobs    feedback --job <jobId> --text <text|->
 astera jobs    reject --job <jobId> [--reason <text>]
-astera jobs    create --objective <text> [--cwd <path>] [--concurrency <n>] [--priority <n>] [--replan <waves|off>] [--coordinator-account <accountId>] [--coordinator-provider <claude|codex>] [--convergence [--max-fix-attempts <n>] [--max-review-rounds <n>] [--blocking-severity <high|medium>] [--max-total-minutes <n>]] [--mode <plan|audit|fixlist|prompts>] [--scope <path|all>] [--instructions <text>] [--attach <path>] [--approve <auto|ask>] [--delivery <pr|push>] [--no-review] [--after <jobId>]
+astera jobs    create --objective <text> [--cwd <path>] [--concurrency <n>] [--priority <n>] [--replan <waves|off>] [--coordinator-account <accountId>] [--coordinator-provider <claude|codex>] [--convergence [--max-fix-attempts <n>] [--max-review-rounds <n>] [--blocking-severity <high|medium>] [--max-total-minutes <n>]] [--mode <plan|audit|fixlist|prompts>] [--scope <path[,path…]|all>] [--focus <list>] [--instructions <text>] [--attach <path>] [--approve <auto|ask>] [--delivery <pr|push>] [--no-review] [--after <jobId>]
 astera jobs    create-from-source --source <sourceId> --item <itemId> --project <projectId> [--concurrency <n>] [--priority <n>] [--replan <waves|off>] [--coordinator-account <accountId>] [--coordinator-provider <claude|codex>] [--convergence [--max-fix-attempts <n>] [--max-review-rounds <n>] [--blocking-severity <high|medium>] [--max-total-minutes <n>]] [--delivery <pr|push>]
 
 astera runs    list   [--job <jobId>] [--project <path>]
@@ -886,8 +886,10 @@ A Host that announces `dispatch` places them whether Astera is open or closed, a
 does (see "Jobs run with Astera closed").
 
 **`jobs create --mode`** picks how the planner starts. `plan` (the default) plans the objective.
-`audit` has the planner audit `--scope <path|all>` (default `all`), write `inputs/audit.md`, then plan
-the fixes. `fixlist` reads the objective as a problem list and makes one or more Tasks per problem.
+`audit` has the planner audit `--scope` (default `all`; or paths inside the repository separated by
+commas or new lines, each checked to exist; `all` and paths cannot be mixed), looking for what
+`--focus` lists (a comma list of `bugs`, `security`, `performance`, `tests`, `simplify`; default bugs,
+security holes and missing tests), write `inputs/audit.md`, then plan the fixes. `fixlist` reads the objective as a problem list and makes one or more Tasks per problem.
 `prompts` runs the text as written: each `--attach`ed `.md` file, or each `## ` section of one
 document, is one Task with its text unchanged; `--approve auto` (default) starts it without an
 approval step and `--approve ask` waits for one. With nothing attached, prompt ids in the objective

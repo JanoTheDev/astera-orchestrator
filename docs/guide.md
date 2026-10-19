@@ -74,18 +74,18 @@ assigned to you and a plain console. After Start the app goes to Agents, where t
 - **Describe**: the goal. Tick "This is a list of problems" for a fixlist.
 - **Files**: `.md`, `.pdf`, `.txt` and images, at most 30 MB each. They are copied to `plans/<job>/inputs/` in the
   profile, and the planner reads them first (Claude reads PDFs itself, long ones in page ranges).
-- **Audit**: a path or `all`. The planner writes `inputs/audit.md`, then plans the fixes.
+- **Audit**: `all` or one or more paths (comma or new line separated; each must exist in the repository), and optionally what to look for: bugs, security, performance, tests, simplify (`--focus`). The planner writes `inputs/audit.md`, then plans the fixes.
 - **GitHub**: search the open issues ("Assigned to me" narrows to yours), tick several, and optionally "Assign me".
   One refused issue (closed, a pull request, or written by a non-member) refuses the whole plan.
 
 **Extra instructions** win over the source. **The plan's name** comes from the source: a problem list is named by its
-first problem, files by their names, an audit "Audit <scope>", and issues by the first one and how many more
+first problem, files by their names, an audit "Audit <a>, <b>" (or "Audit <a> +N" for more), and issues by the first one and how many more
 ("#1 unique() is O(n²) +1"). Rename it any time on its plan page (click the title); Astera never renames it after that.
 
 **From a shell**
 ```bash
 astera jobs create --objective "…" --cwd <repo> --coordinator-account <id> \
-  [--mode plan|audit|fixlist|prompts] [--scope <path|all>] [--instructions "…"] [--attach <file>]…
+  [--mode plan|audit|fixlist|prompts] [--scope <path[,path…]|all>] [--focus <list>] [--instructions "…"] [--attach <file>]…
 astera jobs plan --id <job>            # start the planner
 astera jobs rename --id <job> --title <name>
 astera jobs create-from-issue --project <id> --issue 12,14,19 [--assign-me]

@@ -6215,6 +6215,12 @@ describe('jobs create / tasks add / accounts list', () => {
 
   // W6-A intake: the planner's objective from a mode, the owner's instructions and attached files
   describe('W6-A intake', () => {
+    // A real folder: the Host checks an audit's --scope paths against the file system
+    const auditRepo = async (...dirs: string[]) => {
+      const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'audit-'))
+      for (const d of dirs) await fs.mkdir(path.join(cwd, d), { recursive: true })
+      return cwd
+    }
     const withInputs = (fail?: string) => {
       const deps = makeDeps()
       const asked: [string, string[]][] = []
@@ -6241,12 +6247,28 @@ describe('jobs create / tasks add / accounts list', () => {
 
     it('--mode audit needs no objective: the planner audits the scope into inputs/audit.md first', async () => {
       const { deps, asked } = withInputs()
-      const r = await shell(deps, 'jobs-create', { cwd: 'D:/p', mode: 'audit', scope: 'src/core' })
+      const r = await shell(deps, 'jobs-create', { cwd: await auditRepo('src/core'), mode: 'audit', scope: 'src/core' })
       expect(r.status).toBe(200)
       const job = deps.getState().jobs[0]
       expect(asked).toEqual([[job.id, []]])
       expect(job.objective).toMatch(/^Audit `src\/core` in the repository/)
       expect(job.objective).toContain(`/prof/plans/${job.id}/inputs/audit.md`)
+    })
+
+    it('--mode audit takes a path list and a focus, and refuses an absolute, .. or missing path naming it', async () => {
+      const { deps } = withInputs()
+      const cwd = await auditRepo('src/a', 'src/b')
+      const ok = await shell(deps, 'jobs-create', { cwd, mode: 'audit', scope: 'src/a,src/b', focus: 'tests' })
+      expect(ok.status).toBe(200)
+      expect(deps.getState().jobs[0].objective).toMatch(/^Audit `src\/a`, `src\/b` in the repository for these only: tests \(/)
+      for (const scope of ['/etc', 'C:\\x', '../up', 'src/../../up', 'src/nope']) {
+        const r = await shell(deps, 'jobs-create', { cwd, mode: 'audit', scope })
+        expect(r.status, scope).toBe(400)
+        expect((r.body as { error: string }).error, scope).toContain(scope)
+      }
+      expect(await shell(deps, 'jobs-create', { cwd: 'D:/p', mode: 'audit', scope: 'all,src' })).toMatchObject({ status: 400 })
+      expect(await shell(deps, 'jobs-create', { cwd: 'D:/p', mode: 'audit', focus: 'speed' })).toMatchObject({ status: 400 })
+      expect(deps.getState().jobs).toHaveLength(1)
     })
 
     it('--mode fixlist plans per problem; a plain jobs create keeps its objective as typed and asks the Host nothing', async () => {
@@ -6263,7 +6285,7 @@ describe('jobs create / tasks add / accounts list', () => {
       const { deps } = withInputs()
       await shell(deps, 'jobs-create', { objective: '1. login fails\n2. slow search', cwd: 'D:/p', mode: 'fixlist' })
       await shell(deps, 'jobs-create', { objective: '- price rounds wrong', cwd: 'D:/p', mode: 'fixlist' })
-      await shell(deps, 'jobs-create', { cwd: 'D:/p', mode: 'audit', scope: 'src/core' })
+      await shell(deps, 'jobs-create', { cwd: await auditRepo('src/core'), mode: 'audit', scope: 'src/core' })
       const files = await shell(deps, 'jobs-create', { cwd: 'D:/p', attach: ['/d/spec.pdf'], mode: 'fixlist' })
       await shell(deps, 'jobs-create', { objective: 'plain', cwd: 'D:/p' })
       expect(deps.getState().jobs.map((j) => j.title)).toEqual(['login fails', 'price rounds wrong', 'Audit src/core', 'spec.pdf', undefined])

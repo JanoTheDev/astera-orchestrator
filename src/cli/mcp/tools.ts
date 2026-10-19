@@ -246,7 +246,7 @@ const LISTED_TOOLS: ToolDef[] = [
     readOnly: false,
     cmd: 'jobs-create',
     description:
-      "Create a durable Astera Job for a project. This does not start execution. Use run_job after reviewing the returned Job id. The coordinator account runs a coordinator that plans and places the work; without coordinatorAccountId it is coordinatorProvider's default account (claude unless given). With convergence: true, a Task whose checks or review fail gets bounded repair and recheck loops instead of failing at once; maxFixAttempts, maxReviewRounds, blockingSeverity and maxTotalMinutes set those bounds.",
+      "Create a durable Astera Job for a project. This does not start execution. Use run_job after reviewing the returned Job id. The coordinator account runs a coordinator that plans and places the work; without coordinatorAccountId it is coordinatorProvider's default account (claude unless given). With convergence: true, a Task whose checks or review fail gets bounded repair and recheck loops instead of failing at once; maxFixAttempts, maxReviewRounds, blockingSeverity and maxTotalMinutes set those bounds. With mode: \"audit\" the planner audits the repository first and plans the fixes: scope is \"all\" or paths inside the project separated by commas or new lines (an absolute path, one with .., or one that does not exist is refused), and focus is a comma list of bugs, security, performance, tests, simplify naming what to look for (default: bugs, security holes and missing tests).",
     inputSchema: {
       projectId: id,
       objective: z.string().min(1).max(MCP_LIMITS.objective),
@@ -254,10 +254,20 @@ const LISTED_TOOLS: ToolDef[] = [
       coordinatorProvider,
       convergence,
       ...CONVERGENCE_KNOBS,
+      mode: z.enum(['plan', 'audit']).optional(),
+      scope: z.string().max(MCP_LIMITS.objective).optional(),
+      focus: z.string().max(200).optional(),
       requestId
     },
     // coordinatorArgs: the knobs go only with convergence: true; without it server.ts refuses them (convergenceRefusal).
-    args: (i) => ({ objective: i.objective, cwd: i.projectPath, ...coordinatorArgs(i) })
+    args: (i) => ({
+      objective: i.objective,
+      cwd: i.projectPath,
+      ...coordinatorArgs(i),
+      ...(i.mode !== undefined ? { mode: i.mode } : {}),
+      ...(i.scope !== undefined ? { scope: i.scope } : {}),
+      ...(i.focus !== undefined ? { focus: i.focus } : {})
+    })
   },
   {
     name: 'run_job',
