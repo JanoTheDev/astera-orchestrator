@@ -741,6 +741,10 @@ export interface JobRow {
   rejected?: { at: string; reason?: string }
   /** W8-F (#94): `validatePlan`'s problems for a plan waiting for approval; absent when it holds. */
   planProblems?: string[]
+  /** #116: the plan can be approved now (`planApprovable`): the only time an Approve is shown. Absent while planning. */
+  planReady?: true
+  /** #116: the plan starts by itself once it holds (`autoApproveOf`: its own setting, else its project's). */
+  autoApprove?: true
   // W5-C: the plan is held from launching new workers (Job.dispatchHold)
   dispatchHold?: true
   /** W8-D: where this plan meets another plan of its project, one line each (overlap.ts overlapLines); the approve area

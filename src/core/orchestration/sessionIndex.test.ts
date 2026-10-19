@@ -22,6 +22,8 @@ const run = (id: string, jobId: string): JobRun => ({ id, jobId, ordinal: 1, cre
 const task = (id: string, over: Partial<Task> = {}): Task => ({
   id, runId: 'r1', title: `task ${id}`, spec: '', deps: [], status: 'dispatched', consecutiveFailures: 0, createdAt: at, updatedAt: at, ...over
 })
+/** A Task of a plan before it runs (no Run yet). */
+const planTask = (jobId: string): Task => task(`plan-${jobId}`, { runId: undefined, jobId })
 const gate = (id: string, taskId: string, over: Partial<Gate> = {}): Gate => ({
   id, runId: 'r1', taskId, question: `question ${id}`, status: 'open', createdAt: at, ...over
 })
@@ -113,7 +115,8 @@ describe('needsInput', () => {
       input({
         attention: { w3: 'waiting', w1: 'working' },
         gates: [gate('g1', 't2'), gate('g0', 't1', { status: 'resolved' })],
-        jobs: [job('j1'), job('j2', { pendingStart: true, plannerSessionIds: [] })]
+        jobs: [job('j1'), job('j2', { pendingStart: true, plannerSessionIds: [], planReadyAt: at })],
+        tasks: [...input().tasks, planTask('j2')]
       })
     )
     expect(items.map((x) => x.kind)).toEqual(['session', 'gate', 'approval'])
@@ -124,8 +127,22 @@ describe('needsInput', () => {
   })
 
   it('an approval names the latest planner; a not-started plan with no planner is not awaiting approval', () => {
-    const items = needsInput(input({ jobs: [job('j1', { pendingStart: true, plannerSessionIds: ['pl'] }), job('j2', { pendingStart: true })] }))
+    const items = needsInput(
+      input({ jobs: [job('j1', { pendingStart: true, plannerSessionIds: ['pl'], planReadyAt: at }), job('j2', { pendingStart: true })], tasks: [planTask('j1'), planTask('j2')] })
+    )
     expect(items).toEqual([{ kind: 'approval', jobId: 'j1', projectName: 'Gameful', planName: 'Trading', sessionId: 'pl' }])
+  })
+
+  it('#116: no approval while the planner plans, for a plan with no Task, or for an auto-approve plan that starts by itself', () => {
+    const planning = job('j1', { pendingStart: true, plannerSessionIds: ['pl'] })
+    const approvals = (over: Partial<SessionIndexInput>): string[] => needsInput(input({ attention: {}, ...over })).map((i) => i.kind)
+    // Planning: marked planned at once, before the planner exists or ends a turn
+    expect(approvals({ jobs: [planning], tasks: [planTask('j1')] })).toEqual([])
+    // An auto-approve plan is never marked ready when its own start goes through
+    expect(approvals({ jobs: [{ ...planning, autoApprove: true }], tasks: [planTask('j1')] })).toEqual([])
+    // Ready, but its Tasks went (only a run's copies are left)
+    expect(approvals({ jobs: [{ ...planning, planReadyAt: at }], tasks: [task('t1')] })).toEqual([])
+    expect(approvals({ jobs: [{ ...planning, planReadyAt: at }], tasks: [planTask('j1')] })).toEqual(['approval'])
   })
 
   it('leaves out what belongs to a plan the tree does not show (an archived one)', () => {

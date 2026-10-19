@@ -160,6 +160,12 @@ export type InboxItem =
 /** A plan awaiting approval: the W2-A rule (CONTEXT rule 10), the one place the inbox reads it. */
 export const awaitsApproval = (job: Job): boolean => job.pendingStart === true && job.plannerSessionIds !== undefined
 
+/** #116: a plan awaiting approval that the owner can approve now: its planner ended a turn on it (Job.planReadyAt,
+ *  never set on an auto-approve plan that started by itself) and it still has a Task. planApprovable's rule as far as
+ *  the renderer can read it: validatePlan is main-side. */
+const approvable = (job: Job, tasks: readonly Task[]): boolean =>
+  awaitsApproval(job) && job.planReadyAt !== undefined && tasks.some((t) => t.jobId === job.id && t.runId === undefined)
+
 /**
  * Everything across all projects that waits on the person: sessions at a prompt, then open Gates, then plans awaiting
  * approval. Only plans in the tree count, so an archived plan the sidebar hides adds nothing.
@@ -192,7 +198,7 @@ export function needsInput(input: SessionIndexInput, index: readonly IndexedSess
         }
       ]
     })
-  const approvals: InboxItem[] = input.jobs.filter(awaitsApproval).flatMap((job) => {
+  const approvals: InboxItem[] = input.jobs.filter((j) => approvable(j, input.tasks)).flatMap((job) => {
     const at = plans.get(job.id)
     if (!at) return []
     const sessionId = at.plan.planner.at(-1)?.sessionId

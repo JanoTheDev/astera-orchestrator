@@ -90,9 +90,17 @@ export function hostSessionActivity(a: {
   report(message: string): void
   /** W7-A: starts a plan that holds with no approval step (`jobs-auto-start`); resolves whether it started. */
   autoStart?(jobId: string): Promise<boolean>
+  /** #116: records on the Job that its plan waits on the owner (`jobs-plan-ready`, Job.planReadyAt). */
+  markReady?(jobId: string): Promise<void>
 }): { onHookEvent(sessionId: string, payload: unknown): void; onSessionEvents(drafts: readonly EventDraft[]): void } {
   const record = (draft: ActivityDraft | null): void => {
     if (draft) a.log.recorded([draft])
+  }
+  // #116: the plan waits on the owner, in the feed (the notice; recorded at once, so the next turn's end sees it held)
+  // and on the Job (the app's Approve)
+  const ready = (draft: ActivityDraft & { jobId: string }): void => {
+    record(draft)
+    void a.markReady?.(draft.jobId).catch((why: unknown) => a.report(`activity: plan ${draft.jobId} could not be marked ready: ${String(why)}`))
   }
   const guard = (fn: () => void): void => {
     try {
@@ -106,17 +114,18 @@ export function hostSessionActivity(a: {
       guard(() => {
         if ((payload as { hook_event_name?: unknown } | null)?.hook_event_name !== 'Stop') return
         // `held` is read only for a planner's turn end, not every session's
-        const ready = planReadyActivity(a.state(), sessionId, () => activityOf(a.log))
-        const job = ready?.jobId === undefined ? undefined : a.state().jobs.find((j) => j.id === ready.jobId)
+        const line = planReadyActivity(a.state(), sessionId, () => activityOf(a.log))
+        const job = line?.jobId === undefined ? undefined : a.state().jobs.find((j) => j.id === line.jobId)
         // W7-A: auto-approve replaces the approval step; a start that does not go through asks for approval after all
-        if (ready && job && a.autoStart && autoApproveOf(a.state(), job)) {
+        // (#116: only then is the plan marked ready, so an auto-approve plan never shows Approve while it starts)
+        if (line && job && a.autoStart && autoApproveOf(a.state(), job)) {
           const fallBack = (why?: unknown): void =>
             guard(() => {
               if (why !== undefined) a.report(`activity: plan ${job.id} could not start on its own: ${String(why)}`)
-              record(ready)
+              ready({ ...line, jobId: job.id })
             })
           void a.autoStart(job.id).then((started) => (started ? undefined : fallBack()), fallBack)
-        } else if (ready) record(ready)
+        } else if (line && job) ready({ ...line, jobId: job.id })
         else record(planIncompleteActivity(a.state(), sessionId, () => activityOf(a.log)))
       }),
     onSessionEvents: (drafts) =>

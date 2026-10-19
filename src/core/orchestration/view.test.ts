@@ -239,6 +239,23 @@ describe('snapshotFor', () => {
     ])
   })
 
+  it('#116: planReady only once the planner marked a plan that holds; autoApprove while the plan waits to start', () => {
+    const base = withRuns([run('r1', absPath('p'))])
+    const job = { ...base.jobs[0], pendingStart: true, plannerSessionIds: ['pl'] }
+    const planTask: Task = {
+      ...task('pt', 'x', 'ready'), runId: undefined, jobId: job.id, prompt: 'do it', acceptanceCriteria: ['done'], basis: { state: 'missing', evidence: 'none' }
+    }
+    const rowOf = (j: typeof job, tasks: Task[] = [planTask]) =>
+      snapshotFor({ ...base, runs: [], jobs: [j], tasks }, absPath('p'), anySession, noWorktrees, noFires, allExist).runs[0]
+    expect(rowOf(job)).not.toHaveProperty('planReady')
+    expect(rowOf({ ...job, planReadyAt: 't' })).toMatchObject({ planReady: true })
+    // Marked, but the plan no longer holds: no Approve, its problems instead
+    expect(rowOf({ ...job, planReadyAt: 't' }, [])).toMatchObject({ planProblems: ['the plan has no Task'] })
+    expect(rowOf({ ...job, planReadyAt: 't' }, [])).not.toHaveProperty('planReady')
+    expect(rowOf({ ...job, autoApprove: true })).toMatchObject({ autoApprove: true })
+    expect(rowOf(job)).not.toHaveProperty('autoApprove')
+  })
+
   // Plugin Phase 4 J18: the chip reads where the Job came from off its row
   it('carries the job source a Job was made from, on its row; none on a Job without one', () => {
     const source = { id: 'astera-linear-source', itemId: 'ENG-1', label: 'Linear ENG-1', url: 'https://linear.app/x/ENG-1' }

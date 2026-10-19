@@ -313,6 +313,10 @@ export interface Job {
   feedback?: PlanFeedback[]
   /** When the plan started on its own, with no approval step (`jobs-auto-start`). */
   autoStartedAt?: string
+  /** #116: when the planner last ended a turn on a plan that holds and the plan waits on the owner (`jobs-plan-ready`,
+   *  from the Host's Stop hook): an "ask" plan, or an auto-approve plan whose own start did not go through. Cleared when
+   *  a new planner round starts and when the plan starts. Absent: still planning, so there is nothing to approve. */
+  planReadyAt?: string
   /** The owner rejected the plan (`jobs-reject`): it is archived with this, and unarchiving keeps it as a record. */
   rejected?: { at: string; reason?: string }
   // W8-C plan after plan (schedule.ts / blocked.ts / exec/dispatchLoop.ts)

@@ -91,6 +91,15 @@ describe('feedback before approval', () => {
     expect(r.state().jobs[0].feedback).toEqual([{ at: NOW, text: 'T2 is too big,\nsplit it', phase: 'plan' }])
   })
 
+  it('#116: a feedback round is planning again: the plan is not ready until the planner ends its turn', async () => {
+    const r = rig()
+    const { jobId } = await planned(r)
+    expect((await r.person('jobs-plan-ready', { id: jobId })).status).toBe(200)
+    expect(r.state().jobs[0].planReadyAt).toBe(NOW)
+    expect((await r.person('jobs-feedback', { job: jobId, text: 'split B' })).status).toBe(200)
+    expect(r.state().jobs[0]).not.toHaveProperty('planReadyAt')
+  })
+
   it('refuses while the planner waits on a permission prompt: typing would answer it', async () => {
     const r = rig({ prompt: 'permission' })
     const { jobId } = await planned(r)

@@ -130,6 +130,7 @@ const JOB_HIDDEN = [
   'feedback',
   'autoStartedAt',
   'rejected',
+  /* #116: the planner finished a turn on a plan that holds, the app's own bookkeeping */ 'planReadyAt',
   /* W8-C prompts mode: the owner's prompts a Run-as-written plan was made from, not in the SDK's contract yet */ 'verbatim',
   /* W8-C plan after plan: the queue and its escalation mark, not in the SDK's contract yet */ 'after',
   'afterStopNotified',

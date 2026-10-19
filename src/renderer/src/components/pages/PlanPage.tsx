@@ -67,6 +67,7 @@ import { PlanOverview } from '../plan/PlanOverview'
 import { PlanSummaryRollup } from '../wall/PlanSummaryRollup' // W9-I
 import { useSummaries } from '../../state/useSummaries'
 import { PlanTalk } from '../plan/PlanTalk'
+import { approveSlot } from '../plan/planTalk'
 import { UsageStrip } from '../usage/UsageStrip'
 import { TaskBoard } from '../plan/TaskBoard'
 // W6-E progress view
@@ -1042,7 +1043,13 @@ export function PlanPage({
                     pendingStart 만 걷히고 아무 일도 일어나지 않아, 눌렀는데 아무 반응이 없는
                     자리가 된다. 누르면 게이트가 걷히고 이 버튼도 사라진다(run.pendingStart 가
                     조건이다). */}
-                {section === 'overview' && run?.pendingStart && (
+                {/* #116: a planned Job's planner not done yet, or an auto-approve plan: words, no button */}
+                {section === 'overview' && run && (approveSlot(run) === 'planning' || approveSlot(run) === 'auto') && (
+                  <Chip tone="info">
+                    {approveSlot(run) === 'auto' ? t('jobs.run.startsByItself') : t('jobs.run.planning')}
+                  </Chip>
+                )}
+                {section === 'overview' && run && approveSlot(run) === 'approve' && (
                   <button
                     className="jobs-new primary"
                     disabled={lockedReason !== undefined || busy === RUN_START || tasks.length === 0}

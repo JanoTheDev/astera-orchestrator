@@ -1,8 +1,8 @@
 // W9-D: the Inbox's ordering, grouping and filter routing (inboxView.ts).
 import { describe, expect, it } from 'vitest'
 import type { ActivityEvent } from '../../../../core/orchestration/activity'
-import type { InboxItem, IndexedSession } from '../../../../core/orchestration/sessionIndex'
-import type { Job } from '../../../../core/orchestration/types'
+import { needsInput, type InboxItem, type IndexedSession } from '../../../../core/orchestration/sessionIndex'
+import type { Job, Task } from '../../../../core/orchestration/types'
 import { ageOf, filterNeeds, handledOf, needsOf, orderNeeds, parseFilter, whereOf, type InboxInput, type NeedCard, type QuestionRow } from './inboxView'
 import { t } from '../../../../core/i18n'
 
@@ -118,6 +118,19 @@ describe('needsOf', () => {
 
   it('a question for a plan the tree no longer shows is dropped', () => {
     expect(needsOf(input({ questions: [q('q1', { runId: 'gone' })] }))).toEqual([])
+  })
+
+  it('#116: no approval card while the planner plans or for an auto-approve plan; one once it is ready', () => {
+    const job = { id: 'j1', objective: 'o', cwd: '/g', createdAt: '2026-10-18T07:00:00.000Z', pendingStart: true, plannerSessionIds: ['pl1'] } as Job
+    const planTask = { id: 't1', jobId: 'j1', title: 'T1', spec: '', deps: [], status: 'ready', consecutiveFailures: 0, createdAt: job.createdAt, updatedAt: job.createdAt } as Task
+    const tree = [{ id: 'p1', name: 'gameful', path: '/g', plans: [{ jobId: 'j1', projectId: 'p1', name: 'L4', planner: [], coordinator: [], workers: [] }] }]
+    const kinds = (j: Job): string[] => {
+      const items = needsInput({ tree, jobs: [j], runs: [], tasks: [planTask], gates: [], attention: {} })
+      return needsOf(input({ jobs: [j], items })).map((c) => c.kind)
+    }
+    expect(kinds(job)).toEqual([])
+    expect(kinds({ ...job, autoApprove: true })).toEqual([])
+    expect(kinds({ ...job, planReadyAt: '2026-10-18T08:00:00.000Z' })).toEqual(['approval'])
   })
 
   it('an approval carries its overlaps and the plan it already waits for', () => {
