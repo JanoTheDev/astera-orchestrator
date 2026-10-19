@@ -2035,7 +2035,7 @@ describe('wave replanning (W6-D)', () => {
     h.setState({
       ...s,
       jobs: s.jobs.map((j) => (j.id === 'job_1' ? { ...j, plannerSessionIds: ['ses-planner'], coordinatorAccountId: 'accA', concurrency: 2 } : j)),
-      tasks: s.tasks.map((t) => tasks({ ...t, prompt: 'p', acceptanceCriteria: ['c'], basis: { state: 'missing', evidence: 'e' }, ...(t.id === 'tsk_2' ? { deps: ['tsk_1'] } : {}) }))
+      tasks: s.tasks.map((t) => tasks({ ...t, prompt: 'p', acceptanceCriteria: ['c'], affectedPaths: [`src/${t.id}`], basis: { state: 'missing', evidence: 'e' }, ...(t.id === 'tsk_2' ? { deps: ['tsk_1'] } : {}) }))
     })
   }
 

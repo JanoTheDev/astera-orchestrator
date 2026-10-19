@@ -9825,7 +9825,7 @@ describe('#116 approve only once the plan is ready', () => {
     expect((await r.person('jobs-plan-ready', { id })).status).toBe(400)
     const planner = (cmd: string, args: Record<string, unknown>) => handleCommand(r.deps, { sessionId: 'ses-planner-1' }, cmd, args)
     const t = await planner('task-create', {
-      run: id, account: 'acc1', title: 'A', spec: 's', prompt: 'Build A.', criteria: ['A works'], basis: 'missing', evidence: 'no A'
+      run: id, account: 'acc1', title: 'A', spec: 's', prompt: 'Build A.', criteria: ['A works'], affectedPaths: ['src/a'], basis: 'missing', evidence: 'no A'
     })
     expect(t.status).toBe(200)
     // An agent cannot mark it
