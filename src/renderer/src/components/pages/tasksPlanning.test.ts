@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { JobRow } from '../../../../core/types'
-import { planningEntriesOf, planningStageOf, stageText } from './tasksPlanning'
+import type { JobRow, TaskBlockedReason } from '../../../../core/types'
+import { planningEntriesOf, planningStageOf, stageText, waitKindOf, waitText } from './tasksPlanning'
 
 const row = (o: Partial<JobRow>): JobRow => ({ id: 'j', objective: 'o', tasks: [], ...o }) as JobRow
 
@@ -29,5 +29,29 @@ describe('planningEntriesOf / stageText', () => {
   it('counts the replanned wave from 1', () => {
     const [e] = planningEntriesOf([row({ replanWave: 1 })])
     expect(stageText(e).params).toEqual({ n: 2 })
+  })
+})
+
+describe('waitKindOf / waitText (why a Task card waits)', () => {
+  it('names another plan holding the files as a lease', () => {
+    const reason = { kind: 'same-files', waitingOn: { id: 't', title: 'T' }, path: 'a.ts', plan: { id: 'p', title: 'Auth' }, delivery: true } as const
+    expect(waitKindOf(reason)).toBe('lease')
+    expect(waitText(reason, {})).toEqual({ key: 'pages.tasks.wait.lease', params: { plan: 'Auth' } })
+  })
+  it('names the plan a queued plan starts after', () => {
+    const reason = { kind: 'pending-start', after: { id: 'p', title: 'Auth' } } as const
+    expect(waitKindOf(reason)).toBe('queued')
+    expect(waitText(reason, {})).toEqual({ key: 'pages.tasks.wait.queued', params: { plan: 'Auth' } })
+  })
+  it('says which wave is open for a Task waiting on its deps, or counts the deps without waves', () => {
+    const reason: TaskBlockedReason = { kind: 'deps', waitingOn: [{ id: 'a', title: 'A', status: 'dispatched' }] }
+    expect(waitKindOf(reason)).toBe('wave')
+    expect(waitText(reason, { wave: { at: 2, of: 3 } })).toEqual({ key: 'pages.tasks.wait.wave', params: { at: 2, of: 3 } })
+    expect(waitText(reason, {})).toEqual({ key: 'pages.tasks.wait.deps', params: { count: 1 } })
+  })
+  it('has no chip for reasons the line already says', () => {
+    expect(waitKindOf({ kind: 'next' })).toBeNull()
+    expect(waitKindOf(undefined)).toBeNull()
+    expect(waitText({ kind: 'pending-start' }, {})).toBeNull()
   })
 })

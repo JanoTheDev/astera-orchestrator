@@ -742,6 +742,9 @@ export interface JobRow {
   plannerSessionId?: string
   /** A replan is under way (Job.replanning): the 0-based wave it stands before. */
   replanWave?: number
+  /** T14 Coordinator strip: the plan's wave being worked on and its wave count, both 1-based (replan.ts `waveOf`);
+   *  `at` is the first wave with a Task not completed, `of` once all are. Absent: the plan has no Tasks yet. */
+  wave?: { at: number; of: number }
   feedback?: PlanFeedback[]
   autoStartedAt?: string
   rejected?: { at: string; reason?: string }

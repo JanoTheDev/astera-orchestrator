@@ -1,0 +1,11 @@
+/* W11 plan page (DESIGN-W11 §7): the PageHeader inside .plan-pages, which already pads the page, and the wave line. */
+.plan-page > .plan-page-header { padding: 0; flex: none; }
+.plan-page-title { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plan-page-header .jobs-title-input { font: inherit; min-width: 240px; }
+.plan-page-sub { display: inline-flex; align-items: center; gap: var(--sp-2); }
+.plan-page-concurrency input { width: 3.5em; }
+.plan-page-wave { display: inline-flex; align-items: center; gap: var(--sp-2); min-width: 0; color: var(--text-dim); font-size: var(--fs-12); font-variant-numeric: tabular-nums; }
+.plan-page-wave-at { color: var(--text); font-weight: var(--fw-medium); }
+.plan-page-wave-next { color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plan-page-waves-head { justify-content: space-between; }
+.detail-graph > .plan-page-wave { margin: var(--sp-1) 0 var(--sp-3); }

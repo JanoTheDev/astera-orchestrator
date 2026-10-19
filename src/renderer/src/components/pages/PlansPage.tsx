@@ -1,6 +1,7 @@
 // W9-C Plans page (DESIGN.md §2 "Plans"): the project's plans "By area" (Job.areas) or as the "Overlap" table
-// (plans × folders), and a plan's own page (PlanPage, which RunDetail's window became). The rows are JobsView's
-// cards, with their actions; the order, the groups and the table are planBoard.ts's.
+// (plans × folders), and a plan's own page (PlanPage, which RunDetail's window became). W11: the list is native
+// (plan/PlanList.tsx, its rows plan/PlanRow.tsx, the Coordinator strip plan/Coordinator.tsx); the order, the groups and
+// the table are planBoard.ts's.
 import { useEffect, useState } from 'react'
 import type { JobRow } from '../../../../core/types'
 import type { PageId } from '../../../../core/ui/pages'
@@ -12,11 +13,11 @@ import type { AppState } from '../../state/appState'
 import { localDoor } from '../../lib/orchDoor'
 import { archiveJob, deleteRun, holdJob, renameJob, unarchiveJob } from '../../lib/jobActions'
 import { jobName } from '../../lib/jobName'
-import { JobsView } from '../JobsView'
 import { jobsStall } from '../../../../core/orchestration/jobsView'
-import { Tabs } from '../ui'
 import { openPage } from '../shell/navigation'
-import { areaGroupsOf, overlapTableOf, planListOrder, planSectionOf, type OverlapCell, type PlanSection } from '../plan/planBoard'
+import { overlapTableOf, planSectionOf, type OverlapCell, type PlanSection } from '../plan/planBoard'
+import { PlanList } from '../plan/PlanList'
+import type { PlanActs } from '../plan/PlanRow'
 import { PlanPage } from './PlanPage'
 import '../plan/plan.css'
 
@@ -67,22 +68,19 @@ function storeSection(jobId: string, section: PlanSection): void {
   }
 }
 
-type View = 'area' | 'overlap'
-
 export type PlansPageProps = Pick<
   AppState,
   | 'actionUi' | 'approve' | 'hostDriver' | 'hostStatus' | 'orchHostGate' | 'parkedSinceMs' | 'pauseScheduleRun' | 'restartCoordinator' | 'resumeScheduleRun' | 'currentProject' | 'detail' | 'detailDoor' | 'layout' | 'openLinkedFolder' | 'openRun' | 'orchSnapshot'
   | 'remoteSnapshot' | 'selectWorkbenchTab' | 'setDetail' | 'setJournalPagesFor' | 'openStart' | 'setOpenRun'
-  | 'setSourceJobOpen' | 't'
+  | 'setSourceJobOpen' | 'setShowNew' | 't'
 > & ReturnType<typeof usePlanPages>
 
 export function PlansPage(p: PlansPageProps): React.JSX.Element {
   const {
     actionUi, approve, hostDriver, hostStatus, orchHostGate, parkedSinceMs, pauseScheduleRun, restartCoordinator, resumeScheduleRun, currentProject, detail, detailDoor, layout, openLinkedFolder, openRun, orchSnapshot, remoteSnapshot,
-    selectWorkbenchTab, setDetail, setJournalPagesFor, openStart, setOpenRun, setSourceJobOpen, t, planPage,
+    selectWorkbenchTab, setDetail, setJournalPagesFor, openStart, setOpenRun, setSourceJobOpen, setShowNew, t, planPage,
     setPlanPage
   } = p
-  const [view, setView] = useState<View>('area')
   const canOpenSession = (sessionId: string): boolean => !!layout && !!groupOfTab(layout, sessionTab(sessionId))
 
   if (openRun && detailDoor) {
@@ -137,76 +135,45 @@ export function PlansPage(p: PlansPageProps): React.JSX.Element {
   }
 
   const local = currentProject ? localDoor(window.api, currentProject) : null
-  const snapshot = orchSnapshot ? { ...orchSnapshot, runs: planListOrder(orchSnapshot.runs) } : null
+  // the handlers JobsView's list took, for every row (lib/jobActions: delete and archive confirm first)
+  const acts: PlanActs = {
+    onOpen: (runId) => {
+      setDetail(null) // 이전 Run 의 상세가 한 프레임 보이지 않게 한다
+      setPlanPage({ page: 'plans' })
+      if (currentProject) setOpenRun({ projectPath: currentProject, runId })
+    },
+    canOpenSession,
+    onOpenSession: (sessionId) => {
+      setPlanPage(null)
+      selectWorkbenchTab(sessionTab(sessionId))
+    },
+    onPause: pauseScheduleRun,
+    onResume: resumeScheduleRun,
+    onRestartCoordinator: restartCoordinator,
+    onApprove: (runId) => {
+      if (local) approve(local, orchSnapshot, runId, actionUi)
+    },
+    onDelete: (runId) => local && void deleteRun(local, orchSnapshot, runId, actionUi),
+    onRename: (jobId, title) => local && void renameJob(local, jobId, title, actionUi),
+    onArchive: (jobId) => local && void archiveJob(local, orchSnapshot, jobId, actionUi),
+    onUnarchive: (jobId) => local && void unarchiveJob(local, jobId, actionUi),
+    onHold: (jobId, hold) => local && void holdJob(local, jobId, hold, actionUi)
+  }
   return (
-    <div className="plan-pages">
-      <header className="plans-head">
-        <h1>{t('pages.plans.title')}</h1>
-        <Tabs<View>
-          variant="segmented"
-          label={t('pages.plans.title')}
-          value={view}
-          onChange={setView}
-          items={[
-            { id: 'area', label: t('pages.plans.byArea') },
-            { id: 'overlap', label: t('pages.plans.overlap') }
-          ]}
-        />
-      </header>
-      {view === 'overlap' ? (
-        <OverlapTable rows={orchSnapshot?.runs ?? []} t={t} onOpen={(id) => currentProject && setOpenRun({ projectPath: currentProject, runId: id })} />
-      ) : (
-        // The local list the Jobs sidebar drew (Sidebar.tsx), its handlers moved with it; a paired Runtime's plans and
-        // its selector are W9-B's Pages.tsx, beside this page
-        <JobsView
-          snapshot={snapshot}
-          hostGate={orchHostGate}
-          // why nothing moves (limit L3): a held Host, a Host that does not answer
-          stall={jobsStall({ hostStatus, driver: hostDriver, parkedSinceMs, nowMs: Date.now() })}
-          hasProject={!!currentProject}
-          projectPath={currentProject ?? undefined}
-          canOpenSession={canOpenSession}
-          onOpenSession={(sessionId) => {
-            setPlanPage(null)
-            selectWorkbenchTab(sessionTab(sessionId))
-          }}
-          onOpenRun={(runId) => {
-            setDetail(null) // 이전 Run 의 상세가 한 프레임 보이지 않게 한다
-            setPlanPage({ page: 'plans' })
-            if (currentProject) setOpenRun({ projectPath: currentProject, runId })
-          }}
-          onNewRun={() => {
-            // T2: one create page — + New job opens Start, as New / Ctrl+N does
-            if (currentProject) openStart({})
-          }}
-          onNewFromSource={() => {
-            if (currentProject) setSourceJobOpen(currentProject)
-          }}
-          onPauseRun={pauseScheduleRun}
-          onResumeRun={resumeScheduleRun}
-          onRestartCoordinator={restartCoordinator}
-          onApprove={(runId) => {
-            if (local) approve(local, orchSnapshot, runId, actionUi)
-          }}
-          onDeleteRun={(runId) => local && void deleteRun(local, orchSnapshot, runId, actionUi)}
-          onRenameJob={(jobId, title) => local && void renameJob(local, jobId, title, actionUi)}
-          onArchiveJob={(jobId) => local && void archiveJob(local, orchSnapshot, jobId, actionUi)}
-          onUnarchiveJob={(jobId) => local && void unarchiveJob(local, jobId, actionUi)}
-          onHoldJob={(jobId, hold) => local && void holdJob(local, jobId, hold, actionUi)}
-          groupsOf={(rows) =>
-            areaGroupsOf(rows).map((g) => ({
-              key: g.area,
-              rows: g.rows,
-              head: (
-                <h2 className="plans-area">
-                  <span>{g.area || t('pages.plans.noArea')}</span>
-                  {g.folders.length > 0 && <span className="plans-area-folders">{g.folders.join(' · ')}</span>}
-                </h2>
-              )
-            }))
-          }
-        />
-      )}
+    <div className="plan-pages plans-page">
+      <PlanList
+        snapshot={orchSnapshot}
+        hostGate={orchHostGate}
+        // why nothing moves (limit L3): a held Host, a Host that does not answer
+        stall={jobsStall({ hostStatus, driver: hostDriver, parkedSinceMs, nowMs: Date.now() })}
+        projectPath={currentProject ?? undefined}
+        acts={acts}
+        // T2: one create page — New job opens Start, as New / Ctrl+N does
+        onNewRun={() => currentProject && openStart({})}
+        onNewFromSource={() => currentProject && setSourceJobOpen(currentProject)}
+        onNewConsole={() => setShowNew(true)}
+        overlap={<OverlapTable rows={orchSnapshot?.runs ?? []} t={t} onOpen={acts.onOpen} />}
+      />
     </div>
   )
 }

@@ -1,8 +1,8 @@
-import { Fragment, memo, useCallback, useEffect, useState } from 'react'
+import { memo, useCallback, useEffect, useState } from 'react'
 import { clockFor } from '../lib/runClock'
 import type { JobRow, JobTask, OrchHostGate, OrchSnapshot, Provider, TaskStatus } from '../../../core/types'
 import type { MessageKey, MessageParams } from '../../../core/i18n'
-import { formatElapsed, formatRemaining } from '../../../core/orchestration/elapsed'
+import { jobName } from '../lib/jobName'
 import { isStoppedWorker, runningCount } from '../../../core/orchestration/running'
 import { jobsViewScreen, type JobsStall } from '../../../core/orchestration/jobsView'
 import { schedRuleSummary } from '../../../core/scheduler/summary'
@@ -13,9 +13,8 @@ import { PauseIcon, PlayIcon, RunIcon, STATE_KEY, STATUS_COLOR, TaskGlyph, TaskI
 import type { RunIconKind } from './JobIcons'
 import { Archive, ArchiveRestore, ArrowUpRight, ChevronDown, ChevronRight, Hand, Pencil, PlayCircle } from 'lucide-react'
 import { SourceChip } from './SourceChip'
-import { ageOf } from './plan/planBoard' // W9-C
 import { approveSlot } from './plan/planTalk'
-import { jobName } from '../lib/jobName'
+import { convergenceText, isRunningTask as isRunning, taskMeta } from './plan/planList'
 
 /** Run 헤더 글리프의 툴팁. 끝난·실패·막힘은 줄의 글리프와 같은 모양이고 같은 뜻이라 같은 문구를 쓴다.
  *
@@ -76,43 +75,6 @@ function runKind(run: JobRow): RunIconKind {
   return run.outcome === 'failed' ? 'failed' : 'done'
 }
 
-/** 지금 도는 Task — 열린 Dispatch 가 있는 것들(view.ts 의 jobTaskOf 가 그때만 이 둘을 넣는다).
- *  술어로 좁히는 이유는 타입이다: 둘은 항상 함께 오지만 JobTask 는 각각을 optional 로 적고 있어서,
- *  filter 만으로는 아래에서 startedAt 과 provider 를 다시 검사해야 한다. */
-type RunningTask = JobTask & { provider: Provider; startedAt: string }
-const isRunning = (t: JobTask): t is RunningTask =>
-  t.provider !== undefined && t.startedAt !== undefined
-
-/** provider 뒤에 오는 문구. **리셋을 기다리는 중이면 경과 대신 이것을 적는다** — `startedAt` 이
- *  있어도 그 경과는 지금 벌어지는 일(한도에 걸려 멈춰 있다)을 말해 주지 않는다. `waiting`·`resumes`
- *  는 서로 다른 이력 항목에서 오므로(view.ts 의 jobTaskOf) 함께 올 수 있다 — 두 번 이어진 뒤에 다시
- *  대기 중일 수 있고, 그때는 재개 횟수를 뒤에 이어 붙인다.
- *
- *  **계정을 바꾸는 정지는 일부러 그리지 않는다.** `waiting` 은 그쪽에서도 채워지지만
- *  (JobTask.waiting 의 주석) 그것은 기다리는 것이 아니고 리셋 시각도 없어서, 사유를 보지 않으면 이
- *  줄이 "리셋 대기" 로 읽힌다 — 보통 1초도 안 되는 전환에. 그 대신 아무 말도 하지 않는다: 줄은 이미
- *  provider 와 경과 시간을 적고 있고, 전환에 걸려 멈춘 것을 알리는 것은 **새로운 표시 상태**여서
- *  이 물결에서 정할 일이 아니다(전환이 실패해 그 항목이 끝내 닫히지 않는 갈래가 실제로 있다 —
- *  SPEC §21 의 알려진 한계).
- *
- *  **리셋 시각이 있어도 이미 지났으면 시각 없는 문구로 떨어진다** — formatRemaining 이 그 경계를
- *  undefined 로 답한다(elapsed.ts). 지난 시각을 "앞으로 남았다"로 그리는 것이 시각을 안 그리는
- *  것보다 나쁘다는 판단은 재개 브리핑과 같다. */
-function taskMeta(
-  task: RunningTask,
-  nowMs: number,
-  t: (key: MessageKey, params?: MessageParams) => string
-): string {
-  const wait = task.waiting?.reason === 'waiting' ? task.waiting : undefined
-  const left = wait?.resetsAt !== undefined ? formatRemaining(wait.resetsAt, nowMs) : undefined
-  const base = wait
-    ? left !== undefined
-      ? t('jobs.task.waitingReset', { left })
-      : t('jobs.task.waitingNoTime')
-    : formatElapsed(task.startedAt, nowMs)
-  return task.resumes ? `${base} · ${t('jobs.task.resumedCount', { n: task.resumes })}` : base
-}
-
 /** 도는 줄과 Gate 줄의 자동 수정 칩. 무엇을 그릴지는 core 의 convergenceChipOf 가 정한다 — 여기는 문장과 색만.
  *  .jobs-ordinal 의 모양(회차 번호 칩)을 빌리고 kind 별 색은 노드 배경과 같은 토큰이다(styles.css) */
 function ConvergenceChipView({
@@ -122,14 +84,7 @@ function ConvergenceChipView({
   chip: ConvergenceChip
   t: (key: MessageKey, params?: MessageParams) => string
 }): React.JSX.Element {
-  const text =
-    chip.kind === 'repairing'
-      ? t('jobs.convergence.chip.repairing', { repairs: chip.repairs, max: chip.max })
-      : chip.kind === 'reviewing'
-        ? t('jobs.convergence.chip.reviewing', { round: chip.round, max: chip.max })
-        : chip.kind === 'stopped'
-          ? t('jobs.convergence.chip.stopped')
-          : t('jobs.convergence.chip.exhausted')
+  const text = convergenceText(chip, t)
   return <span className={`jobs-ordinal jobs-conv jobs-conv--${chip.kind}`}>{text}</span>
 }
 
@@ -226,22 +181,6 @@ function LifecycleButtons({
   )
 }
 
-/** W9-C Plans page: the row's queue, overlaps and age (DESIGN.md §2 "List row"). */
-function PlanRowFacts({ run, nameOf, nowMs }: { run: JobRow; nameOf: (jobId: string) => string; nowMs: number }): React.JSX.Element {
-  const { t } = useI18n()
-  return (
-    <>
-      {run.after !== undefined && run.pendingStart && <span className="jobs-ordinal">{t('pages.plans.startsAfter', { plan: nameOf(run.after) })}</span>}
-      {(run.overlapPlans ?? []).map((id) => (
-        <span key={id} className="jobs-shared" title={(run.overlaps ?? []).join('\n')}>
-          {t('pages.plans.overlaps', { plan: nameOf(id) })}
-        </span>
-      ))}
-      {run.createdAt !== undefined && <span className="jobs-age">{t('pages.plans.age', { age: ageOf(run.createdAt, nowMs) })}</span>}
-    </>
-  )
-}
-
 /** An archived plan's chip in its head, beside the name. */
 const ArchivedChip = ({ run }: { run: JobRow }): React.JSX.Element | null => {
   const { t } = useI18n()
@@ -263,13 +202,10 @@ function RunCardImpl({
   onRestartCoordinator,
   onApprove,
   disabledReason,
-  lifecycle,
-  nameOf
+  lifecycle
 }: {
   run: JobRow
   open: boolean
-  /** W9-C: another plan's name by its id ("starts after X", "overlaps X"). Absent: those chips are not drawn. */
-  nameOf?: (jobId: string) => string
   /** With the card's own id, so the parent can hand the same function to every card (audit UI-11). */
   onToggle: (runId: string) => void
   /** 예약 회차라면 그 번호. 평범한 Run 에는 없다 */
@@ -328,7 +264,6 @@ function RunCardImpl({
         <ArchivedChip run={run} />
         {/* The ticket the Job was made from (plugin Phase 4 J18): a click opens it, and does not fold the card */}
         <SourceChip source={run.source} />
-        {nameOf && <PlanRowFacts run={run} nameOf={nameOf} nowMs={nowMs} />}
         {/* 이 Run 의 워커가 프로젝트 폴더를 다른 Run 과 나눠 쓰고 있다. **막힌 것이 아니라
             얽힌 것**이라 Gate 글리프(주황 `!`)를 빌리지 않는다 — 그것은 사람을 기다리는
             자리의 모양이고, 여기서는 기다리는 것이 없다. 경고 톤의 테두리(styles.css)와 이
@@ -810,13 +745,9 @@ export function JobsView({
   onArchiveJob,
   onUnarchiveJob,
   onHoldJob,
-  projectPath,
-  groupsOf
+  projectPath
 }: {
   snapshot: OrchSnapshot | null
-  /** W9-C Plans page "By area": the listed plans under heads, in the order given, and each card's queue, overlaps
-   *  and age. Absent: one list, as the sidebar draws it. */
-  groupsOf?: (rows: JobRow[]) => { key: string; head: React.ReactNode; rows: JobRow[] }[]
   /** Why there is nothing to draw, when the Host is the reason — null in the ordinary case.
    *
    *  **A prop of its own, not a field on the snapshot** (ruling F41). It is one fact about the app's
@@ -999,14 +930,6 @@ export function JobsView({
 
   const archivedCount = snapshot.runs.filter((r) => r.archivedAt !== undefined).length
   const listed = showArchived ? snapshot.runs : snapshot.runs.filter((r) => r.archivedAt === undefined)
-  // W9-C: another plan's name for the Plans page's chips
-  const nameOf = groupsOf
-    ? (id: string): string => {
-        const r = snapshot.runs.find((x) => x.id === id)
-        return r ? jobName(r) : id
-      }
-    : undefined
-  const groups = groupsOf ? groupsOf(listed) : [{ key: '', head: null, rows: listed }]
   return (
     <section className="jobs-view">
       {stallLine}
@@ -1024,10 +947,7 @@ export function JobsView({
       {/* **회차가 여럿이면 예약이 아니어도 펼치는 카드다.** 접히는 카드를 예약에만 쓰던 것은 회차가
           예약에서만 생겼기 때문이고, 이제는 끝난 Job 을 다시 돌려도 생긴다 — 조건을 `schedule` 로
           두면 그 회차들이 화면에서 통째로 사라진다(상태에는 있는데 그리는 곳이 없다). */}
-      {groups.map((g) => (
-        <Fragment key={g.key}>
-      {g.head}
-      {g.rows.map((run) =>
+      {listed.map((run) =>
         run.schedule || (run.children?.length ?? 0) > 0 ? (
           <ScheduleCard
             key={run.id}
@@ -1063,12 +983,9 @@ export function JobsView({
             onApprove={acts.onApprove}
             disabledReason={disabledReason}
             lifecycle={lifecycle}
-            nameOf={nameOf}
           />
         )
       )}
-        </Fragment>
-      ))}
     </section>
   )
 }

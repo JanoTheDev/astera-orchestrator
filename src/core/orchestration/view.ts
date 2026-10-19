@@ -23,6 +23,7 @@ import { policyOfJob, repairCountIn, reviewRoundIn } from './convergence'
 import type { Dispatch, Gate, Job, JobRun, Task } from './types'
 import { taskBoardsOf } from './blocked'
 import { validatePlan } from './planner'
+import { waveOf } from './replan'
 import { autoApproveOf, handsOffOf, planApprovable } from './exec/plannerFeedback'
 import type { ScheduleLimits } from './schedule'
 
@@ -263,6 +264,14 @@ function jobTaskOf(
   }
 }
 
+/** A plan's wave being worked on and its wave count, 1-based (JobRow.wave). */
+export function waveProgressOf(tasks: readonly Task[]): { at: number; of: number } {
+  const waves = tasks.map((t) => waveOf(t, tasks))
+  const of = Math.max(...waves) + 1
+  const open = waves.filter((w, i) => tasks[i].status !== 'completed')
+  return { at: open.length > 0 ? Math.min(...open) + 1 : of, of }
+}
+
 /** The lists one fold reads, grouped once (performance audit M1). The fold runs after every commit on main's thread,
  *  and it used to filter every list once per row and once per Task. Every group keeps state order, which is the order
  *  each filter it replaces gave, so a sort with ties lands where it did. */
@@ -455,6 +464,7 @@ export function snapshotFor(
         ? { plannerSessionId: job.plannerSessionIds[job.plannerSessionIds.length - 1] }
         : {}),
       ...(job.replanning ? { replanWave: job.replanning.wave } : {}),
+      ...(ownedTasks.length > 0 ? { wave: waveProgressOf(ownedTasks) } : {}),
       ...(job.feedback && job.feedback.length > 0 ? { feedback: job.feedback } : {}),
       ...(job.autoStartedAt !== undefined ? { autoStartedAt: job.autoStartedAt } : {}),
       ...(job.rejected !== undefined ? { rejected: job.rejected } : {}),

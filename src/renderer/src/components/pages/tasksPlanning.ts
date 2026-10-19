@@ -1,7 +1,7 @@
 // The Tasks page's Planning section: plans that have no Tasks to show yet because they are still being planned,
 // replanned, waiting for approval or queued behind another plan. Pure, so the node-only test suite reaches it.
 import type { MessageKey, MessageParams } from '../../../../core/i18n'
-import type { JobRow } from '../../../../core/types'
+import type { JobRow, TaskBlockedReason } from '../../../../core/types'
 import { jobName } from '../../lib/jobName'
 
 export type PlanningStage = 'writing' | 'replanning' | 'ready' | 'queued'
@@ -48,5 +48,51 @@ export function stageText(e: PlanningEntry): { key: MessageKey; params?: Message
       return { key: 'pages.tasks.planning.queued', params: { plan: e.afterName ?? e.plan.after ?? '' } }
     default:
       return { key: 'pages.tasks.planning.writing' }
+  }
+}
+
+/** The kind of wait a Task card names with a chip: another plan holds its files (`lease`), its plan is queued after
+ *  another (`queued`), it waits for an earlier wave (`wave`), a Task of its own plan is at its files (`files`), a usage
+ *  limit (`limit`) or a worker cap (`cap`). Null: the reason needs no chip (the line under the title says it). */
+export type WaitKind = 'lease' | 'queued' | 'wave' | 'files' | 'limit' | 'cap'
+
+export function waitKindOf(reason: TaskBlockedReason | undefined): WaitKind | null {
+  switch (reason?.kind) {
+    case 'same-files':
+      return reason.plan ? 'lease' : 'files'
+    case 'pending-start':
+      return reason.after ? 'queued' : null
+    case 'deps':
+      return 'wave'
+    case 'rate-limited':
+    case 'usage-paused':
+      return 'limit'
+    case 'plan-cap':
+    case 'global-cap':
+      return 'cap'
+    default:
+      return null
+  }
+}
+
+/** The chip's words: whose lease, which plan it is queued after, which wave of how many is open. */
+export function waitText(reason: TaskBlockedReason, plan: Pick<JobRow, 'wave'>): { key: MessageKey; params?: MessageParams } | null {
+  switch (reason.kind) {
+    case 'same-files':
+      return reason.plan ? { key: 'pages.tasks.wait.lease', params: { plan: reason.plan.title } } : { key: 'pages.tasks.wait.files' }
+    case 'pending-start':
+      return reason.after ? { key: 'pages.tasks.wait.queued', params: { plan: reason.after.title } } : null
+    case 'deps':
+      return plan.wave
+        ? { key: 'pages.tasks.wait.wave', params: { at: plan.wave.at, of: plan.wave.of } }
+        : { key: 'pages.tasks.wait.deps', params: { count: reason.waitingOn.length } }
+    case 'rate-limited':
+    case 'usage-paused':
+      return { key: 'pages.tasks.wait.limit' }
+    case 'plan-cap':
+    case 'global-cap':
+      return { key: 'pages.tasks.wait.cap' }
+    default:
+      return null
   }
 }

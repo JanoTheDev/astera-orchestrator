@@ -1,0 +1,67 @@
+/* W11 Plans page (plan/PlanList.tsx, PlanRow.tsx, Coordinator.tsx). Tokens only. */
+
+/* The page: PageHeader carries its own padding, so the shared .plan-pages wrapper's goes */
+.plan-pages.plans-page { padding: 0; gap: 0; }
+.plans-body { display: flex; flex-direction: column; gap: var(--sp-3); min-width: 0; padding: 0 var(--page-pad) var(--sp-6); }
+.plans-page .plans-overlap { padding: 0; }
+
+/* The archived toggle, chip-shaped (as the Agents page's filter chips) */
+.plans-chip { font-size: var(--fs-12); box-shadow: inset 0 0 0 1px var(--line); }
+.plans-chip[aria-pressed='true'] { box-shadow: inset 0 0 0 1px var(--line-strong); background: var(--hover); }
+
+.plans-stall { display: flex; align-items: center; gap: var(--sp-2); margin: 0; padding: var(--sp-2) var(--sp-3); border-radius: var(--radius); background: var(--warn-soft); color: var(--warn); font-size: var(--fs-12); }
+.plans-host { display: flex; flex-direction: column; gap: var(--sp-1); }
+
+/* Coordinator strip: live plans side by side, scrolling sideways */
+.plans-coord { display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0; }
+.plans-coord__title { margin: 0; color: var(--text-faint); font-size: var(--fs-11); font-weight: var(--fw-medium); letter-spacing: .04em; text-transform: uppercase; }
+.plans-coord__cards { display: flex; gap: var(--sp-3); overflow-x: auto; padding-bottom: var(--sp-1); }
+.plans-coord__card.ui-card { flex: 0 0 240px; display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0; padding: var(--sp-3); cursor: pointer; }
+.plans-coord__card.ui-card:hover { background: var(--hover); }
+.plans-coord__name { overflow: hidden; color: var(--text); font-size: var(--fs-13); font-weight: var(--fw-medium); text-overflow: ellipsis; white-space: nowrap; }
+.plans-coord__facts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); color: var(--text-dim); font-size: var(--fs-11); }
+.plans-coord__workers { display: inline-flex; align-items: center; gap: var(--sp-1); }
+.plans-coord__wait { overflow: hidden; color: var(--warn); font-size: var(--fs-11); text-overflow: ellipsis; white-space: nowrap; }
+.plans-coord__wait--after { color: var(--text-dim); }
+.plans-coord__wait--none { color: var(--text-faint); }
+
+/* The list: area heads, then rows */
+.plans-list { display: flex; flex-direction: column; min-width: 0; }
+.plans-group { display: flex; align-items: baseline; gap: var(--sp-3); margin: var(--sp-4) 0 var(--sp-1); color: var(--text-dim); font-size: var(--fs-12); font-weight: var(--fw-semi); text-transform: capitalize; }
+.plans-group:first-child { margin-top: 0; }
+.plans-group__folders { overflow: hidden; color: var(--text-faint); font-family: var(--mono); font-size: var(--fs-11); font-weight: var(--fw-regular); text-overflow: ellipsis; text-transform: none; white-space: nowrap; }
+
+.plans-row { display: flex; flex-direction: column; gap: var(--sp-1); min-width: 0; padding: var(--sp-1) var(--sp-2); border-bottom: 1px solid var(--line-soft); border-radius: var(--radius-sm); }
+.plans-row:hover { background: var(--hover); }
+.plans-row--archived .plans-row__name { color: var(--text-faint); }
+.plans-row--shared { box-shadow: inset 2px 0 0 var(--warn); }
+.plans-row__main { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; min-height: 36px; }
+.plans-row__name.ui-btn { min-width: 0; max-width: 40%; flex: 0 1 auto; justify-content: flex-start; overflow: hidden; color: var(--text); font-size: var(--fs-13); font-weight: var(--fw-medium); text-overflow: ellipsis; white-space: nowrap; }
+.plans-row__rename { flex: 1 1 240px; max-width: 420px; }
+.plans-row__spacer { flex: 1; }
+.plans-row__meta { flex: none; color: var(--text-faint); font-size: var(--fs-11); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.plans-row__progress { flex: 0 0 120px; }
+.plans-row__meter.ui-meter { --ui-meter-fill: var(--accent); }
+.plans-row__pr .jobs-new { width: auto; margin: 0; padding: 0 var(--sp-2); height: var(--h-sm); font-size: var(--fs-11); }
+/* Row actions show on hover or keyboard focus (DESIGN-W11 §7); an open menu keeps them */
+.plans-row__menu { opacity: 0; transition: opacity var(--dur-fast) var(--ease); }
+.plans-row:hover .plans-row__menu, .plans-row:focus-within .plans-row__menu { opacity: 1; }
+
+.plans-row__sub { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); min-width: 0; padding-left: var(--sp-2); font-size: var(--fs-12); }
+.plans-row__facts { color: var(--text-dim); font-size: var(--fs-11); }
+.plans-row__overlaps { margin: 0; padding-left: var(--sp-6); color: var(--warn); list-style: disc; display: block; }
+.plans-row__gate { color: var(--warn); }
+.plans-row__text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plans-row__workers { flex-direction: column; align-items: stretch; gap: 0; }
+.plans-row__worker, .plans-row__worker.ui-btn { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; height: 26px; padding: 0 var(--sp-2); justify-content: flex-start; color: var(--text-dim); font-size: var(--fs-12); font-weight: var(--fw-regular); }
+.plans-row__worker .plans-row__text { flex: 1; }
+.plans-row__rounds { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-1); margin-left: var(--sp-6); padding-left: var(--sp-2); border-left: 1px solid var(--line); }
+.plans-row__rounds > .plans-row { align-self: stretch; }
+
+@media (max-width: 1100px) {
+  .plans-row__progress { flex-basis: 88px; }
+  .plans-row__name.ui-btn { max-width: 32%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .plans-row__menu { transition: none; }
+}
