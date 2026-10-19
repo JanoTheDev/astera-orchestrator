@@ -286,3 +286,19 @@ textarea.ui-field__control { min-height: 72px; resize: vertical; }
     transition: none;
   }
 }
+
+/* ---- Kbd and Tooltip (DESIGN-W11 §10) ---- */
+.ui-kbd { display: inline-flex; gap: 2px; font: var(--fw-medium) var(--fs-11) / 1 var(--sans); color: var(--text-faint); }
+.ui-kbd kbd {
+  min-width: 16px; height: 16px; padding: 0 4px; display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--panel); font: inherit;
+}
+.ui-tip { position: relative; display: inline-flex; }
+.ui-tip__body {
+  position: absolute; left: 50%; z-index: 60; translate: -50% 0; white-space: nowrap; pointer-events: none;
+  padding: 4px 8px; border-radius: var(--radius); background: var(--elevated); color: var(--text);
+  font-size: var(--fs-12); box-shadow: var(--shadow-pop); opacity: 0; transition: opacity var(--dur-fast) var(--ease-out);
+}
+.ui-tip--bottom > .ui-tip__body { top: calc(100% + 6px); }
+.ui-tip--top > .ui-tip__body { bottom: calc(100% + 6px); }
+.ui-tip:hover > .ui-tip__body, .ui-tip:focus-within > .ui-tip__body { opacity: 1; transition-delay: 400ms; }
