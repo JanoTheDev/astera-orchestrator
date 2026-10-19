@@ -116,21 +116,25 @@ export function intakeObjective(
 }
 
 // W7-D (#68): the plan's name. The objective of a fixlist, an audit or a set of files starts with Astera's own
-// boilerplate, which jobNameOf would show everywhere (sidebar, tabs, branches, notices, the PR).
+// boilerplate, which jobNameOf would show everywhere (sidebar, tabs, branches, notices, the PR). #113: a long plain
+// description is no better, so it is named by its first sentence.
 /** How long a name taken from free text may be before it is cut at a word. */
 export const INTAKE_TITLE_MAX = 80
 
-const clipTitle = (s: string): string => {
+/** How long the name of a described plan may be (#113). */
+const DESCRIBED_TITLE_MAX = 60
+
+const clipTitle = (s: string, max = INTAKE_TITLE_MAX): string => {
   const one = s.replace(/\s+/g, ' ').trim()
-  if (one.length <= INTAKE_TITLE_MAX) return one
-  const cut = one.slice(0, INTAKE_TITLE_MAX - 1)
+  if (one.length <= max) return one
+  const cut = one.slice(0, max - 1)
   const space = cut.lastIndexOf(' ')
-  return `${(space > INTAKE_TITLE_MAX / 2 ? cut.slice(0, space) : cut).trimEnd()}…`
+  return `${(space > max / 2 ? cut.slice(0, space) : cut).trimEnd()}…`
 }
 
-/** The name of a Job made from `i`, or undefined when its objective already reads as one (a plain description).
+/** The name of a Job made from `i`, or undefined when its objective already reads as one (a short plain description).
  *  An audit is "Audit <scope>"; a fixlist the words of its first problem (a list marker dropped); a set of files their
- *  names. `names` are the file names copied into the inputs folder. */
+ *  names; a plain description its first sentence (a dot inside a word is no end), when that is shorter than the text. `names` are the file names copied into the inputs folder. */
 export function intakeTitle(i: Intake, source: string, names: readonly string[]): string | undefined {
   if (i.mode === 'audit') return clipTitle(`Audit ${i.scope === undefined || i.scope === 'all' ? 'the whole repository' : i.scope}`)
   if (i.mode === 'fixlist') {
@@ -145,6 +149,11 @@ export function intakeTitle(i: Intake, source: string, names: readonly string[])
   if (i.mode === 'prompts' && source.trim() !== '') {
     const split = splitSections(source)
     return clipTitle(split ? split.sections.map((x) => x.heading).join(', ') : source.trim().split(/\r?\n/)[0].replace(/^#+\s*/, ''))
+  }
+  if (i.mode === 'plan' && source.trim() !== '') {
+    const line = source.trim().split(/\r?\n/)[0]
+    const name = clipTitle(line.match(/^.*?[.!?](?=\s|$)/)?.[0] ?? line, DESCRIBED_TITLE_MAX)
+    return name === source.replace(/\s+/g, ' ').trim() ? undefined : name
   }
   return undefined
 }
