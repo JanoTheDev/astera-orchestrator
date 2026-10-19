@@ -8,6 +8,7 @@ import {
   forkWorktree,
   integrateWorktrees,
   reapWorktree,
+  refreshOnto,
   worktreeDeps,
   type IntegrateContext,
   type ReapContext
@@ -626,5 +627,47 @@ describe('integrateWorktrees writes the attribution into its merge commits (W8-A
     const last = gitSync(repo, ['log', '-1', '--format=%B'])
     expect(last).toMatch(/^Merge branch '.+'\n\nAstera-Job: job_1\nAstera-Task: tsk_1\nAI-Agent: claude\/opus$/)
     expect(gitSync(repo, ['log', '--format=%s', '-3'])).not.toContain('Astera-Job')
+  })
+})
+
+describe('refreshOnto: a running plan takes in another plan\'s delivery (T11)', () => {
+  /** Plan A's delivery: a commit landed on the project's branch after plan B forked. Its sha. */
+  const deliver = async (file: string, body: string): Promise<string> => {
+    await fs.writeFile(path.join(repo, file), body)
+    gitSync(repo, ['add', file]); gitSync(repo, ['commit', '-m', `plan A: ${file}`])
+    return gitSync(repo, ['rev-parse', 'HEAD']).trim()
+  }
+
+  it('merges a clean delivery into the Run branch (a merge, never a rebase): both sides kept', async () => {
+    const wt = await worked('b')
+    const own = gitSync(wt, ['rev-parse', 'HEAD']).trim()
+    const sha = await deliver('a.txt', 'a')
+    const r = await refreshOnto(wt, sha, "Refresh onto plan A's delivery", { log: logTo() })
+    expect(r).toEqual({ kind: 'merged' })
+    await expect(fs.readFile(path.join(wt, 'a.txt'), 'utf8')).resolves.toBe('a')
+    // Plan B's own commit keeps its id: it is a parent of the merge
+    expect(gitSync(wt, ['rev-list', '--parents', '-n', '1', 'HEAD']).trim().split(' ').slice(1)).toEqual([own, sha])
+    expect(gitSync(wt, ['log', '-1', '--format=%s']).trim()).toBe("Refresh onto plan A's delivery")
+    expect(await refreshOnto(wt, sha, 'again', { log: logTo() })).toEqual({ kind: 'current' })
+  })
+
+  it('a conflicting delivery is a conflict and leaves the worktree as it was', async () => {
+    const wt = await worked('b', 'same.txt', 'plan B')
+    const head = gitSync(wt, ['rev-parse', 'HEAD']).trim()
+    const sha = await deliver('same.txt', 'plan A')
+    const r = await refreshOnto(wt, sha, 'refresh', { log: logTo() })
+    expect(r.kind).toBe('conflict')
+    expect(gitSync(wt, ['rev-parse', 'HEAD']).trim()).toBe(head)
+    expect(gitSync(wt, ['status', '--porcelain'])).toBe('')
+  })
+
+  it('never merges under uncommitted changes', async () => {
+    const wt = await worked('b')
+    await fs.writeFile(path.join(wt, 'b.txt'), 'edited, not committed')
+    const sha = await deliver('a.txt', 'a')
+    const r = await refreshOnto(wt, sha, 'refresh', { log: logTo() })
+    expect(r).toMatchObject({ kind: 'human', reason: expect.stringContaining('uncommitted') })
+    await expect(fs.readFile(path.join(wt, 'b.txt'), 'utf8')).resolves.toBe('edited, not committed')
+    await expect(fs.stat(path.join(wt, 'a.txt'))).rejects.toThrow()
   })
 })

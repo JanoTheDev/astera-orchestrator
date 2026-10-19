@@ -788,6 +788,74 @@ export function worktreeDeps(ctx: {
   }
 }
 
+// ── T11: a plan refreshed onto another plan's delivery ──────────────────────────────────────────────────────────────
+
+/** How `refreshOnto` ended: `current` the worktree already holds the commit, `merged` it was merged in, `conflict` it
+ *  does not merge cleanly (nothing was written; an integration Task resolves it), `human` the worktree cannot be merged
+ *  into at all (not on a branch, uncommitted changes, git refused), so it was left as it was. */
+export type Refresh = { kind: 'current' } | { kind: 'merged' } | { kind: 'conflict'; reason: string } | { kind: 'human'; reason: string }
+
+/**
+ * **T11: merges `base` (a commit another plan of the project delivered) into a worktree of a plan still running**, so
+ * the plan's next Task starts on the new base and its own delivery does not collide. A merge, never a rebase: the
+ * worktree's commits keep their ids. The guards of integrateWorktrees: a worktree off a branch or with uncommitted
+ * tracked changes is left alone, and a conflict is found by `merge-tree --write-tree` before anything is written.
+ */
+export async function refreshOnto(
+  worktree: string,
+  base: string,
+  message: string,
+  ctx: { log(m: string): void; git?: typeof realGit; gitAtLeast?: typeof gitVersionAtLeast }
+): Promise<Refresh> {
+  const run = ctx.git ?? realGit
+  if ((await run(['merge-base', '--is-ancestor', base, 'HEAD'], { cwd: worktree })).ok) return { kind: 'current' }
+  if (!(await run(['symbolic-ref', '--quiet', 'HEAD'], { cwd: worktree })).ok)
+    return { kind: 'human', reason: `${worktree} is not on a branch (or git cannot run there), so ${base} was not merged into it` }
+  const status = await run(['status', '--porcelain', '--untracked-files=no'], { cwd: worktree })
+  if (!status.ok || status.stdout !== '')
+    return { kind: 'human', reason: `${worktree} has uncommitted changes (or its git status cannot be read), so ${base} was not merged into it` }
+  if (!(await (ctx.gitAtLeast ?? gitVersionAtLeast)(2, 38)))
+    return { kind: 'conflict', reason: `this git is older than 2.38, so the app cannot test whether ${base} merges into ${worktree}` }
+  const probe = await run(['merge-tree', '--write-tree', 'HEAD', base], { cwd: worktree, timeoutMs: GIT_WRITE_TIMEOUT_MS })
+  if (!probe.ok)
+    return {
+      kind: 'conflict',
+      reason: probe.stderr
+        ? `git merge-tree could not test ${base} against ${worktree}: ${probe.stderr}`
+        : `${base} does not merge cleanly into ${worktree}`
+    }
+  const ident = await mergeIdentityArgs(worktree, run)
+  const merged = await run([...ident, 'merge', '--no-ff', '-m', message, base], { cwd: worktree, timeoutMs: GIT_WRITE_TIMEOUT_MS })
+  if (!merged.ok) {
+    await run(['merge', '--abort'], { cwd: worktree, timeoutMs: GIT_WRITE_TIMEOUT_MS })
+    return { kind: 'human', reason: `merging ${base} into ${worktree} failed: ${(merged.stderr || merged.stdout).trim()}` }
+  }
+  ctx.log(`refresh: merged ${base} into ${worktree}`)
+  return { kind: 'merged' }
+}
+
+/** The worktrees whose HEAD no other one in the list already holds: merging those brings everything. A worktree whose
+ *  HEAD cannot be read is kept, so nothing is dropped on a guess. */
+async function tipsOf(worktrees: string[], run: typeof realGit): Promise<string[]> {
+  const heads = await Promise.all(worktrees.map(async (w) => {
+    const r = await run(['rev-parse', 'HEAD'], { cwd: w })
+    return r.ok ? r.stdout : null
+  }))
+  const out: string[] = []
+  for (let i = 0; i < worktrees.length; i++) {
+    const h = heads[i]
+    let held = false
+    for (let j = 0; h !== null && !held && j < worktrees.length; j++) {
+      const o = heads[j]
+      if (j === i || o === null) continue
+      // Equal HEADs: the later one stands for both
+      held = o === h ? j > i : (await run(['merge-base', '--is-ancestor', h, o], { cwd: worktrees[i] })).ok
+    }
+    if (!held) out.push(worktrees[i])
+  }
+  return out
+}
+
 // ── W6-H: a `push` delivery ─────────────────────────────────────────────────────────────────────────────────────────
 
 /** What `deliverByPush` needs: the project folder, the branch to land on (absent: origin's default), the Run's
@@ -809,6 +877,8 @@ export interface PushContext {
   log(m: string): void
   /** Test seam; defaults to the real git. */
   git?: typeof realGit
+  /** Test seam for `refreshOnto`'s git version check; defaults to the real one. */
+  gitAtLeast?: typeof gitVersionAtLeast
 }
 
 export type PushResult =
@@ -821,7 +891,9 @@ export type PushResult =
  * 1. the branch is `branch`, else origin's default (`refs/remotes/origin/HEAD`); neither is a stop;
  * 2. the folder stands on that branch with nothing uncommitted (untracked files count: they are the owner's too);
  * 3. `fetch`, then `merge --ff-only` from origin; a local branch that cannot fast-forward is a stop;
- * 4. the Run's worktrees merge (`mergeWorktrees`); a conflict leaves the folder as that merge left it;
+ * 4. the Run's worktrees merge (`mergeWorktrees`). T11: when that fails (another plan landed on the branch first), the
+ *    folder goes back to the commit recorded before it, the plan's worktrees are refreshed onto that commit
+ *    (`refreshOnto`) and merged once more; a second failure leaves the folder as that merge left it;
  * 5. the validation runs on the merged folder; a failure resets to the commit recorded before 4, which undoes only
  *    Astera's merges (the folder was clean at 2);
  * 6. `push origin <branch>`, **never forced**; a rejected push fetches and pushes once more only when origin's branch
@@ -861,7 +933,29 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
   const before = await run(['rev-parse', 'HEAD'], { cwd })
   if (!before.ok) return fail(`could not read HEAD in ${cwd}: ${why(before)}`)
   const base = before.stdout
-  const merged = await ctx.mergeWorktrees(cwd, a.worktrees, { message: a.message })
+  let merged = await ctx.mergeWorktrees(cwd, a.worktrees, { message: a.message })
+  // T11: refresh, then deliver once more. The worktrees holding everything are refreshed onto `base` and only they merge
+  if (!merged.ok) {
+    ctx.log(`delivery: merging into ${branch} failed (${merged.reason}); refreshing the plan onto ${base} and trying once more`)
+    let stop: string | null = null
+    const now = await run(['rev-parse', 'HEAD'], { cwd })
+    if (!now.ok || now.stdout !== base) {
+      // Only Astera's own merges are above `base` (the folder was clean at 2), as in `undo` below
+      const reset = await run(['reset', '--hard', base], w)
+      const back = await run(['rev-parse', 'HEAD'], { cwd })
+      if (!reset.ok || !back.ok || back.stdout !== base) stop = `could not go back to ${base} to try again: ${why(reset)}`
+    }
+    const tips = stop === null ? await tipsOf(a.worktrees, run) : []
+    for (const wt of tips) {
+      if (stop !== null) break
+      const r = await refreshOnto(wt, base, `Refresh onto ${branch} before delivery`, { log: ctx.log, git: run, ...(ctx.gitAtLeast ? { gitAtLeast: ctx.gitAtLeast } : {}) })
+      if (r.kind === 'conflict' || r.kind === 'human') stop = r.reason
+    }
+    if (stop === null) {
+      const again = await ctx.mergeWorktrees(cwd, tips, { message: a.message })
+      merged = again.ok ? again : { ok: false, reason: `${merged.reason}; after refreshing onto ${base}: ${again.reason}` }
+    } else merged = { ok: false, reason: `${merged.reason}; refreshing onto ${base} did not help: ${stop}` }
+  }
   if (!merged.ok) {
     const now = await run(['rev-parse', 'HEAD'], { cwd })
     const moved = now.ok && now.stdout !== base
