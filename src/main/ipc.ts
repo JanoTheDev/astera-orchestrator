@@ -167,7 +167,7 @@ import { snapshotFor, jobsForProject, outcomeOf } from '../core/orchestration/vi
 import { createOrchPush } from './orchPush'
 import { dropNonGitProjects, ensureGitProject } from '../core/orchestration/projects'
 import { inspectFolder } from '../core/projects/detect'
-import { resolveRunId } from '../core/orchestration/state'
+import { emptyState, resolveRunId } from '../core/orchestration/state'
 import { runRecordInputOf } from '../core/orchestration/runRecord'
 import type { CliInstallStatus, WorktreeInfo } from '../core/types'
 
@@ -249,6 +249,8 @@ import { listBranches, detectBaseRef } from '../core/worktrees/git'
 import { goneWorktreeProjects } from '../core/worktrees/hiddenHistory'
 import { deleteProjectHistory } from './historyDeletion'
 import { removeWorktree } from '../core/worktrees/remove'
+import { cleanRows, worktreeRows } from '../core/worktrees/cleanupRun'
+import { worktreeDetail, worktreeFileDiff } from '../core/worktrees/detail'
 import { listWithStatus } from '../core/worktrees/list'
 import { PresenceCache, PRESENCE_SWEEP_MS } from '../core/worktrees/presence'
 import { probeLog } from '../core/sessions/pathProbe'
@@ -4217,6 +4219,28 @@ export function registerIpc(
     return null
   }
   ipcMain.handle('worktrees.list', () => listWithStatus(core.worktrees, (p) => worktreePresence.refresh(p)))
+  // W9-J: the Worktrees page. Rows carry the plan that owns each folder and whether the clean-up rule holds; the
+  // clean-up reads them again here and never takes a path or a verdict from the renderer.
+  const worktreeRowsNow = async (): Promise<Awaited<ReturnType<typeof worktreeRows>>> =>
+    worktreeRows(
+      await listWithStatus(core.worktrees, (p) => worktreePresence.refresh(p)),
+      orchMirror.loaded() ? orchMirror.getState() : emptyState(),
+      isPathInUse
+    )
+  ipcMain.handle('worktrees.overview', () => worktreeRowsNow())
+  ipcMain.handle('worktrees.cleanup', async () =>
+    cleanRows((await worktreeRowsNow()).filter((r) => r.ready), { registry: core.worktrees, isPathInUse })
+  )
+  const worktreeById = (id: unknown): ReturnType<typeof core.worktrees.get> =>
+    typeof id === 'string' ? core.worktrees.get(id) : null
+  ipcMain.handle('worktrees.detail', (_e, id: unknown) => {
+    const w = worktreeById(id)
+    return w ? worktreeDetail(w.path, w.baseRef) : null
+  })
+  ipcMain.handle('worktrees.fileDiff', (_e, id: unknown, fileId: unknown) => {
+    const w = worktreeById(id)
+    return w && typeof fileId === 'string' ? worktreeFileDiff(w.path, w.baseRef, fileId) : null
+  })
   // Creation the new-session dialog watches: with an opId, the stage and copy progress go to the
   // renderer (throttled to about 4 a second) and worktrees.cancelCreate can stop it. Without one it is
   // the plain call it always was. createOps.ts holds the bookkeeping so it is testable without electron.
@@ -4345,6 +4369,11 @@ export function registerIpc(
   })
   // Stall watchdog (orchestration/exec/stallWatch.ts), on by default
   ipcMain.handle('settings.getStallWatch', () => core.appSettings.getStallWatch())
+  ipcMain.handle('settings.getAutoCleanWorktrees', () => core.appSettings.getAutoCleanWorktrees())
+  ipcMain.handle('settings.setAutoCleanWorktrees', async (_e, on: unknown) => {
+    if (typeof on !== 'boolean') throw new Error('autoCleanWorktrees must be a boolean')
+    await core.appSettings.setAutoCleanWorktrees(on)
+  })
   ipcMain.handle('settings.setStallWatch', async (_e, on: unknown) => {
     if (typeof on !== 'boolean') throw new Error(`INVALID_STALL_WATCH: ${String(on)}`)
     await core.appSettings.setStallWatch(on)

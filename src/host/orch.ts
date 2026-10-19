@@ -547,6 +547,8 @@ export function createHostOrch(a: {
   completionChecks?: OrchServerDeps['completionChecks']
   /** W6-H: a push delivery through this Host's git (`deliverByPush`). Absent: `run-deliver` on a push project answers 409. */
   deliverPush?: OrchServerDeps['deliverPush']
+  /** W9-J: removes a delivered Run's ready worktrees. Absent: nothing is cleaned after a delivery. */
+  cleanWorktrees?: OrchServerDeps['cleanWorktrees']
   /** How It Works records (MCP P2-C), passed through to `hostOrchDeps`. Absent: the `understanding-*`
    *  commands answer 409. */
   readUnderstanding?: OrchServerDeps['readUnderstanding']
@@ -859,6 +861,7 @@ export function createHostOrch(a: {
       ...(a.jobSources ? { jobSources: a.jobSources } : {}),
       ...(a.completionChecks ? { completionChecks: a.completionChecks } : {}),
       ...(a.deliverPush ? { deliverPush: a.deliverPush } : {}),
+      ...(a.cleanWorktrees ? { cleanWorktrees: a.cleanWorktrees } : {}),
       workUnits: a.workUnits?.() ?? null,
       ...(a.journal ? { journalTimeline: (runId: string, st: OrchState) => a.journal!.timeline(runId, st) } : {}),
       onEffect: () => {

@@ -131,3 +131,40 @@ button.source-chip:hover { color: var(--accent); border-color: var(--accent); }
 .pr-create-failure { border: 1px solid var(--danger); border-radius: var(--radius); padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
 .pr-create-failure p { margin: 0; font-size: 12px; color: var(--text); }
 .pr-create-detail { margin: 0; max-height: 120px; overflow: auto; font-family: var(--mono); font-size: 10.5px; color: var(--text-dim); white-space: pre-wrap; }
+
+/* ---------- W9-J: the Worktrees page ---------- */
+.worktrees-overlay { position: fixed; inset: 34px 0 0 0; z-index: 40; background: var(--bg); display: flex; }
+.worktrees-page { display: grid; grid-template-columns: minmax(280px, 380px) 1fr; flex: 1; min-height: 0; width: 100%; }
+.worktrees-page__list { border-right: 1px solid var(--line); overflow-y: auto; display: flex; flex-direction: column; background: var(--panel); }
+.worktrees-page__list .worktree-panel { border-top: 0; flex: 1; }
+.worktrees-page__list .panel-header { padding: 10px 12px; gap: 8px; }
+.worktrees-page__list .panel-title { margin: 0; font-size: 13px; font-weight: 600; color: var(--text); }
+.worktrees-page__list .panel-actions { display: flex; align-items: center; gap: 6px; }
+.worktrees-page__auto { display: flex; gap: 8px; align-items: flex-start; padding: 10px 12px; font-size: 12px; color: var(--text-dim); border-top: 1px solid var(--line); }
+.worktrees-page__detail { position: relative; overflow-y: auto; padding: 20px 24px; min-width: 0; }
+.worktrees-page__close { position: absolute; top: 10px; right: 14px; background: none; border: 0; color: var(--text-dim); cursor: pointer; font-size: 12px; }
+.worktrees-page__close:hover { color: var(--text); }
+.worktree-row { cursor: pointer; }
+.worktree-row.is-selected { background: var(--hover); box-shadow: inset 2px 0 0 var(--accent); }
+.worktree-branch { color: var(--text); font-family: var(--mono); }
+.worktree-task, .worktree-aheadbehind { color: var(--text-faint); }
+.worktree-dirty { margin-left: 6px; }
+.worktree-count { color: var(--text-faint); font-weight: 400; margin-left: 4px; }
+.worktree-empty { padding: 12px; }
+.worktree-detail { display: flex; flex-direction: column; gap: 20px; max-width: 920px; }
+.worktree-detail__head { display: flex; flex-direction: column; gap: 10px; }
+.worktree-detail__title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.worktree-detail__title h2 { margin: 0; font-family: var(--mono); font-size: 16px; color: var(--text); }
+.worktree-detail__base { color: var(--text-dim); font-size: 12px; }
+.worktree-detail__actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.worktree-facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
+.worktree-fact { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; }
+.worktree-fact__label { font-size: 11px; color: var(--text-faint); text-transform: uppercase; letter-spacing: .06em; }
+.worktree-fact__value { font-size: 13px; color: var(--text); overflow-wrap: anywhere; }
+.worktree-fact--path { grid-column: 1 / -1; }
+.worktree-fact--path .worktree-fact__label { text-transform: none; letter-spacing: 0; font-family: var(--mono); font-size: 12px; color: var(--text-dim); user-select: text; overflow-wrap: anywhere; }
+.worktree-detail__section h3 { margin: 0 0 8px; font-size: 12px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: .06em; }
+.worktree-commits { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.worktree-commits li { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--line-soft); font-size: 13px; }
+.worktree-commits code { color: var(--text-faint); font-family: var(--mono); font-size: 12px; }
+.worktree-commits__subject { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }

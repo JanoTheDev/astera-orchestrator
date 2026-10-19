@@ -7,7 +7,6 @@ import { HistoryBrowser } from '../HistoryBrowser'
 import { FileExplorer } from '../FileExplorer'
 import { JobsView } from '../JobsView'
 import { UnderstandingView } from '../UnderstandingView'
-import { WorktreePanel } from '../WorktreePanel'
 import { RuntimeSelector } from '../RuntimeSelector'
 import { RunToolbar } from '../RunToolbar'
 import { controlReason, isRemoteRuntime, offlineNote } from '../../lib/remoteJobs'
@@ -179,14 +178,7 @@ export function Pages(p: PagesProps): React.JSX.Element {
           {page === 'tasks' && <TasksPage {...p} />}
           {/* W9-D: the Inbox page */}
           {page === 'inbox' && <InboxPage tree={workspaceTree} data={workspaceData} accounts={accounts} ui={actionUi} />}
-          {page === 'worktrees' && (
-            <WorktreePanel
-              onStartSession={(p) => {
-                setNewSessionCwd(p)
-                setShowNew(true)
-              }}
-            />
-          )}
+          {/* W9-J: the Worktrees page is the WorktreesPage layer (Overlays.tsx), opened by navigation's openPage */}
           {page === 'more:history' && (
             <HistoryBrowser
               asPage

@@ -32,6 +32,7 @@ import { FRESH_COORDINATOR_DEFAULT_PCT, freshCoordinatorPctOf } from '../core/se
 import { stallWatchOnOf } from '../core/settings/stallWatch'
 import { startAtLoginOf } from '../core/settings/startAtLogin'
 import { autoAnswerOnOf } from '../core/orchestration/exec/autoAnswer'
+import { autoCleanWorktreesOf } from '../core/settings/autoCleanWorktrees'
 import { mcpAccessOf } from '../core/settings/mcpAccess'
 import { mcpSessionsOf } from '../core/settings/mcpSessions'
 import { mcpGithubWriteOf } from '../core/settings/mcpGithubWrite'
@@ -140,6 +141,8 @@ export class AppSettingsStore {
   private startAtLogin = true
   /** T21 (orchestration/exec/autoAnswer.ts): on by default; only an explicit false turns it off. */
   private autoAnswer = true
+  /** W9-J: remove a delivered plan's ready worktrees; on by default. */
+  private autoCleanWorktrees = true
   /** W6-B: the chime with a notice that needs the owner. On by default; only an explicit false (the file is
    *  user-editable) turns it off, as githubPolling. */
   private alertSound = true
@@ -241,6 +244,7 @@ export class AppSettingsStore {
       this.stallWatch = stallWatchOnOf((parsed as { stallWatch?: unknown }).stallWatch)
       this.startAtLogin = startAtLoginOf((parsed as { startAtLogin?: unknown }).startAtLogin)
       this.autoAnswer = autoAnswerOnOf((parsed as { autoAnswer?: unknown }).autoAnswer)
+      this.autoCleanWorktrees = autoCleanWorktreesOf((parsed as { autoCleanWorktrees?: unknown }).autoCleanWorktrees)
       this.alertSound = (parsed as { alertSound?: unknown }).alertSound !== false
       this.autoCloseEndedPlanTabs = (parsed as { autoCloseEndedPlanTabs?: unknown }).autoCloseEndedPlanTabs !== false // W7-F (#84)
       this.tabSummaries = tabSummariesOf((parsed as { tabSummaries?: unknown }).tabSummaries) // W9-I
@@ -318,8 +322,8 @@ export class AppSettingsStore {
         this.freshCoordinatorContextPct = FRESH_COORDINATOR_DEFAULT_PCT
         this.stallWatch = true
         this.startAtLogin = true
-      this.autoAnswer = true
         this.autoAnswer = true
+        this.autoCleanWorktrees = true
         this.alertSound = true
         this.autoCloseEndedPlanTabs = true
         this.tabSummaries = true
@@ -363,6 +367,8 @@ export class AppSettingsStore {
       this.freshCoordinatorContextPct = FRESH_COORDINATOR_DEFAULT_PCT
       this.stallWatch = true
       this.startAtLogin = true
+      this.autoAnswer = true
+      this.autoCleanWorktrees = true
       this.alertSound = true
       this.autoCloseEndedPlanTabs = true
       this.tabSummaries = true
@@ -633,6 +639,15 @@ export class AppSettingsStore {
     await this.persist()
   }
 
+  getAutoCleanWorktrees(): boolean {
+    return this.autoCleanWorktrees
+  }
+
+  async setAutoCleanWorktrees(on: boolean): Promise<void> {
+    this.autoCleanWorktrees = on !== false
+    await this.persist()
+  }
+
   getAlertSound(): boolean {
     return this.alertSound
   }
@@ -812,6 +827,7 @@ export class AppSettingsStore {
       stallWatch?: false
       startAtLogin?: false
       autoAnswer?: false
+      autoCleanWorktrees?: false
       alertSound?: false
       autoCloseEndedPlanTabs?: false
       tabSummaries?: false
@@ -859,6 +875,7 @@ export class AppSettingsStore {
     if (!this.stallWatch) data.stallWatch = false
     if (!this.startAtLogin) data.startAtLogin = false
     if (!this.autoAnswer) data.autoAnswer = false
+    if (!this.autoCleanWorktrees) data.autoCleanWorktrees = false
     if (!this.alertSound) data.alertSound = false
     if (!this.autoCloseEndedPlanTabs) data.autoCloseEndedPlanTabs = false // W7-F (#84)
     if (!this.tabSummaries) data.tabSummaries = false // W9-I

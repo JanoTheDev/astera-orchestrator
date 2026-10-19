@@ -192,6 +192,7 @@ import {
   deliveryOf,
   parseDelivery,
   projectOfJob,
+  cleanAfterDelivery,
   recordDelivery,
   setJobDelivery,
   setProjectDelivery
@@ -775,6 +776,10 @@ export interface OrchServerDeps {
    *  `deliverByPush`, with `checks` (the run configurations) as the validation. **Only the Host injects it**; absent,
    *  `run-deliver` on a push project answers 409. */
   deliverPush?(a: PushDelivery & { checks: string[] }): Promise<PushResult>
+  // ── W9-J ──
+  /** Removes a delivered Run's worktrees that are ready (worktrees/cleanup.ts), unless `autoCleanWorktrees` is off.
+   *  **Only the Host injects it.** Absent, nothing is cleaned and the Worktrees page offers "Clean up". */
+  cleanWorktrees?(runId: string): Promise<unknown>
   // ── W7-B project settings kept in the app's own files ──
   /** Saves `command` as the project's test run configuration in run-configs.json and answers its id; null removes it
    *  and answers null. **Only the app injects it** (it is that file's one writer); the Host forwards it to an attached
@@ -5803,7 +5808,11 @@ export async function handleCommand(
       if (!run) return notFound(`unknown run: ${id}`)
       const job = jobOf(s, run)
       if (!job) return notFound(`no plan for run ${id}`)
-      if (deliveryOf(s, job) === 'pr') return handleCommand(deps, caller, 'run-open-pr', { run: id, ...(args.force === true ? { force: true } : {}) })
+      if (deliveryOf(s, job) === 'pr') {
+        const opened = await handleCommand(deps, caller, 'run-open-pr', { run: id, ...(args.force === true ? { force: true } : {}) })
+        if (opened.status < 400) await cleanAfterDelivery(deps, id) // W9-J
+        return opened
+      }
       if (fromAgentSession || caller.role === 'mcp') return denied('a push delivery is made by Astera itself, or by the person')
       const done = run.delivery
       if (done?.sha !== undefined) return okBody({ delivery: 'push', branch: done.branch ?? null, sha: done.sha, pushed: false })
@@ -5828,6 +5837,7 @@ export async function handleCommand(
       )
       if (!r.ok) return conflict(r.reason)
       const removed = deps.removeWorktrees && r.merged.length > 0 ? await deps.removeWorktrees(r.merged) : null
+      await cleanAfterDelivery(deps, id) // W9-J: what the push left (the Run's own folder)
       return okBody({
         delivery: 'push',
         branch: r.branch,

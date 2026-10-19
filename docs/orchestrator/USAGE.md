@@ -308,6 +308,29 @@ wave's PR before the next plan's workers branch off `main`, or the next plan bui
 Your part: answer the Inbox (real questions, permission waits, and approvals only with `--approve ask`), and review the
 PRs. `MERGE.md` is no longer needed for these waves.
 
+## Worktrees (W9-J)
+
+The **Worktrees** page lists every worktree Astera made, on the left, and what is in the one you pick, on the right.
+Open it from the sidebar's Worktrees entry, or from a worktree's branch link in a console's details panel or on a Task
+card (`openWorktree(path)`).
+
+- **Groups.** One group per plan that made worktrees, then **Ready to clean up**, then **Yours**. A row shows the
+  branch, the Task, ahead/behind of its base, and `N changed` when the tree is dirty. Refresh, the PR and push
+  badges, the create-PR dialog and the remove confirmations are the same as before.
+- **Detail.** The header shows the state (Ready to clean up, Plan running, Waiting to land, Yours), the base and
+  ahead/behind. **Its console** jumps to the worker's tab, **Open console here** starts a session in the folder, **Open in
+  Files** shows the folder, and **More** has Create pull request, Copy path and Delete. The fact cards show the plan, the
+  Task, the working tree, unpushed commits and whether a session runs there. **Changes against the base** lists the
+  files, and a click shows the diff. **Commits since the base** shows each commit's author: the agent and model when
+  Astera's note says an agent wrote it, the git author otherwise.
+- **Ready to clean up.** A worktree is ready only when Astera made it for a plan, every Task that worked there is
+  merged into its plan branch (the plan's own folder: the plan is delivered), no session runs in it, its tree is
+  clean, and no commit is missing from the remote. Anything Astera could not read counts as not ready. **Clean up N**
+  asks once, then removes them. It never forces: a folder that changed in between stays and the toast says so.
+- **Automatic.** When a plan is delivered (a pull request out of draft, or a push), its ready worktrees are removed.
+  The checkbox under the list turns it off (`autoCleanWorktrees` in `app-settings.json`, on by default). It works
+  while the window is closed, because the Host does it. Worktrees under **Yours** are never removed automatically.
+
 ## The workspace
 
 **The Agents page** (W9-H) is where the app opens. It shows every console of the project at once, each tile the

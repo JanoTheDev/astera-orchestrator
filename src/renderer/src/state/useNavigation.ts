@@ -7,6 +7,7 @@ import { registerNavigation } from '../components/shell/navigation'
 import { requestInbox } from '../components/inbox/inboxNav'
 import { settingsTarget } from '../components/settings/settingsIndex'
 import { setWallView } from '../components/wall/wallView' // W9-H
+import { showWorktrees } from '../components/worktrees/worktreeView'
 import type { AppState } from './appState'
 import { planSectionOf } from '../components/plan/planBoard'
 
@@ -31,6 +32,7 @@ export function useNavigation(app: NavigationDeps): void {
         if (id === 'settings') return setShowSettings(true)
         // Run configs come with their output drawer (DESIGN.md §1)
         if (id === 'more:runs') setRunPanelOpen(true)
+        if (id === 'worktrees') showWorktrees() // W9-J
         goPage(id)
       },
       // the same path the workspace tree's session rows took, on the Agents page; W9-H: shown full size
@@ -54,8 +56,11 @@ export function useNavigation(app: NavigationDeps): void {
         requestInbox(filter)
         goPage('inbox')
       },
-      // no per-path view until W9-J's Worktrees page
-      openWorktree: () => goPage('worktrees'),
+      // W9-J: the Worktrees page, on that worktree
+      openWorktree: (path) => {
+        showWorktrees(path)
+        goPage('worktrees')
+      },
       // W9-E: the Settings page scrolls to the anchor's row and clears it
       openSettings: (group, anchor) => {
         const target = settingsTarget(group, anchor)

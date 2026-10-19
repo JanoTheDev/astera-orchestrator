@@ -14,6 +14,7 @@ import { defaultCwdProbe, setProbeLog } from '../core/sessions/pathProbe'
 import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
+import { readAutoCleanWorktrees } from '../core/settings/autoCleanWorktrees'
 import tls from 'node:tls'
 import * as pty from 'node-pty'
 import { hostAddress } from './address'
@@ -844,7 +845,11 @@ async function main(): Promise<void> {
               mergeWorktrees: (into, paths, o) => worktrees.mergeWorktrees(into, paths, o),
               validate: (cwd) => wiring.checks.validateTree(cwd, checks),
               log: (m) => log.write(m)
-            })
+            }),
+          // W9-J: a delivered plan's ready worktrees go, unless the setting is off
+          cleanWorktrees: async (runId) => {
+            if (await readAutoCleanWorktrees(path.join(profileDir, 'app-settings.json'))) await worktrees.cleanRun(runId)
+          }
         }
       : {}),
     now: () => new Date().toISOString(),

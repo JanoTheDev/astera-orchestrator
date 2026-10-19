@@ -92,3 +92,16 @@ export function setJobDelivery(s: OrchState, jobId: string, delivery: DeliveryMo
   const next: Job = { ...found, delivery }
   return { ok: true, state: { ...s, jobs: s.jobs.map((j) => (j.id === jobId ? next : j)) }, value: next }
 }
+
+/** W9-J: once a plan is delivered, its ready worktrees go (worktrees/cleanup.ts decides; the Host's dep reads the
+ *  `autoCleanWorktrees` setting). A failure is logged and never fails the delivery. */
+export async function cleanAfterDelivery(
+  deps: { cleanWorktrees?(runId: string): Promise<unknown>; log?(message: string): void },
+  runId: string
+): Promise<void> {
+  try {
+    await deps.cleanWorktrees?.(runId)
+  } catch (e) {
+    deps.log?.(`run=${runId}: cleaning its worktrees after delivery failed: ${String(e)}`)
+  }
+}
