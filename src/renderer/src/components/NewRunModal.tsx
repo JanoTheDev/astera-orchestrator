@@ -1,5 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { Account, ScheduleRule } from '../../../core/types'
+import type { Job, Project } from '../../../core/orchestration/types'
+import { jobNameOf } from '../../../core/orchestration/jobName'
 import { DEFAULT_BLOCKING_SEVERITY } from '../../../core/orchestration/convergence'
 import { FAILURE_LIMIT, MAX_REVIEW_ROUNDS } from '../../../core/orchestration/types'
 import { useI18n } from '../i18n/I18nProvider'
@@ -7,6 +9,7 @@ import { formFailure, type OrchDoor } from '../lib/orchDoor'
 import { AccountSelect } from './AccountSelect'
 import { ScheduleRuleFields } from './ScheduleRuleFields'
 import { Button, Modal } from './ui'
+import { newRunSubmit } from './newRunSubmit'
 // W6-A intake
 import { NewPlanDialog } from './intake/NewPlanDialog'
 
@@ -57,12 +60,26 @@ export function NewRunModal({
   const [plan, setPlan] = useState(false)
   /** W6-D: Job.replan. On (`waves`) is the default and is not sent. */
   const [replan, setReplan] = useState(true)
+  /** W8-C: the plan this Job starts after ('' plans at once). */
+  const [after, setAfter] = useState('')
+  const [plans, setPlans] = useState<{ id: string; name: string }[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   /** The create may have gone through on a Runtime whose answer was lost: not sent again from this form. */
   const [locked, setLocked] = useState(false)
   // W6-A intake: the New plan dialog in place of this form (this computer's projects only: attachments are its files)
   const [intake, setIntake] = useState(false)
+
+  // `jobs-list` takes the project's id; this form knows only its folder, as `run-create` does
+  useEffect(() => {
+    if (cwd === null) return
+    void door.command('projects-list', {}).then(async (r) => {
+      const id = r.status === 200 && Array.isArray(r.body) ? (r.body as Project[]).find((p) => p.path === cwd)?.id : undefined
+      if (!id) return
+      const l = await door.command('jobs-list', { project: id })
+      if (l.status === 200 && Array.isArray(l.body)) setPlans((l.body as Job[]).map((j) => ({ id: j.id, name: jobNameOf(j) })))
+    })
+  }, [door, cwd])
 
   const create = async (): Promise<void> => {
     const trimmed = objective.trim()
@@ -112,8 +129,9 @@ export function NewRunModal({
       const id = (reply.body as { id: string }).id
       // W2-A: the planner runs on the coordinator account, on the planner model. The Job is made either way: a
       // planner that does not start leaves it as a draft to plan by hand, and the form says why and stays open.
-      if (plan && !scheduled) {
-        const planned = await door.command('jobs-plan', { id })
+      const next = newRunSubmit({ id, after, plan, scheduled })
+      if (next) {
+        const planned = await door.command(next.cmd, next.args)
         if (planned.status >= 400) {
           const why = (planned.body as { error?: unknown } | null)?.error
           setError(`${t('jobs.new.plannerFailed')}${typeof why === 'string' ? `: ${why}` : ''}`)
@@ -292,6 +310,16 @@ export function NewRunModal({
               {t('jobs.new.planner')}
             </label>
             <p className="modal-hint">{t('jobs.new.plannerHint')}</p>
+            {/* a queued plan starts through `jobs-set --after`, so it needs the planner on */}
+            <label>{t('intake.after')}</label>
+            <select value={after} disabled={!plan} onChange={(e) => setAfter(e.target.value)}>
+              <option value="">{t('intake.afterNone')}</option>
+              {plans.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
             {/* W6-D: only a planned Job replans */}
             {plan && (
               <>
