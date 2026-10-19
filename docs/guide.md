@@ -120,13 +120,12 @@ Astera finds each one in the project's prompts folder as `<id>-*.md` and runs it
   `astera projects set --id <project> --prompts-dir <path|none>`. A folder outside the repository is refused.
 - **Refused before planning.** A name with no file, a name that matches two files, or a range whose ends are in
   different waves stops the plan before anything is made. Start shows each one under the text, and the CLI answers
-  `INVALID_ARGUMENT` naming each id. `astera jobs create --mode prompts --objective "<text>" --dry-run` shows what the
-  text resolves to without making anything.
+  `INVALID_ARGUMENT` naming each id.
 - **Your text stays your instructions.** Order lines in it still guide the planner. The order itself still comes from
   PLAN.md's wave table (below).
 - **The approval** lists each Task's id and the file it came from ("Found by name"), and the ids left out and why.
 - **Attaching still works.** If you attach files and also type names, the attached files win and the names are not
-  looked up. Start says so.
+  looked up. Start says so, and so does the plan's objective.
 
 The CLI:
 

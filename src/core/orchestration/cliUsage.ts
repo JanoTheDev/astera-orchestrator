@@ -403,9 +403,7 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       // W7-E
       { name: 'no-review', about: 'do not review this plan\'s Tasks (`jobs plan` turns a review of every Task on otherwise)' },
       // W8-C plan after plan
-      { name: 'after', value: '<jobId>', about: 'queue it after that Job (needs --coordinator-account): its planner starts by itself once that Job is delivered' },
-      // W10-A Run as written by name
-      { name: 'dry-run', about: 'with --mode prompts: only answer which files the prompt ids in --objective name, and what is refused; nothing is created' }
+      { name: 'after', value: '<jobId>', about: 'queue it after that Job (needs --coordinator-account): its planner starts by itself once that Job is delivered' }
     ]
   },
   'jobs-create-from-source': {

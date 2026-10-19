@@ -114,9 +114,10 @@ describe('Run as written by name', () => {
     expect(res.status).toBe(200)
     expect((res.body as { notice?: string }).notice).toBe('Using the 1 attached files; the names in the text were not looked up')
     expect(r.state().tasks.map((t) => t.title)).toEqual(['P1-A-one'])
+    expect(r.state().jobs[0].objective).toContain('Using the 1 attached files; the names in the text were not looked up.')
   })
 
-  it('--dry-run answers the lookup and creates nothing', async () => {
+  it('dryRun (the Start page) answers the lookup and creates nothing', async () => {
     const r = rig()
     const res = await create(r, 'run P1-A', { dryRun: true })
     expect(res.body).toEqual({ names: true, dir: 'docs/prompts', detected: true, picked: [{ id: 'P1-A', path: 'docs/prompts/P1-A-one.md' }], skipped: [], why: [], problems: [] })

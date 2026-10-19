@@ -2551,7 +2551,8 @@ export async function handleCommand(
       let source = typeof args.objective === 'string' ? args.objective : ''
       // W10-A Run as written by name: with nothing attached, the prompt ids in the text ("run W8-A, B then W9-A",
       // "next waves") are looked up in the project's prompts folder and attached; any id that does not resolve to
-      // exactly one file refuses the plan before it exists. `--dry-run` answers the lookup alone (the Start page).
+      // exactly one file refuses the plan before it exists. `dryRun` answers the lookup alone: the Start page's, never a
+      // CLI flag (the CLI shapes a jobs-create answer to a Job, which would drop it).
       let notice: string | undefined
       let byName: Awaited<ReturnType<typeof promptsByName>> | undefined
       const named = intake.mode === 'prompts' && isNamesText(source)
@@ -2605,7 +2606,10 @@ export async function handleCommand(
           await deps.setState({ ...deps.getState(), jobs: deps.getState().jobs.filter((j) => j.id !== id) })
           return bad(verbatim.error)
         }
-        const objective = intakeObjective(intake, source, inputs, verbatim && { tasks: verbatim.lines, skipped: verbatim.skippedLines })
+        const objective =
+          intakeObjective(intake, source, inputs, verbatim && { tasks: verbatim.lines, skipped: verbatim.skippedLines }) +
+          // W10-A: the CLI shows the plan, not this reply's notice
+          (notice !== undefined ? `\n\n${notice}.` : '')
         // W7-D (#68): the plan's name, so its boilerplate objective is never what the plan is called. A title already
         // there is kept.
         const title = intakeTitle(intake, source, inputs?.names ?? [])

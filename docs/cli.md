@@ -702,7 +702,7 @@ astera jobs    unarchive --id <jobId>
 astera jobs    plan --id <jobId> [--account <id>] [--replan <waves|off>] [--concurrency <n>] [--delivery <pr|push>] [--no-review] [--auto-approve <on|off>]
 astera jobs    feedback --job <jobId> --text <text|->
 astera jobs    reject --job <jobId> [--reason <text>]
-astera jobs    create --objective <text> [--cwd <path>] [--concurrency <n>] [--priority <n>] [--replan <waves|off>] [--coordinator-account <accountId>] [--coordinator-provider <claude|codex>] [--convergence [--max-fix-attempts <n>] [--max-review-rounds <n>] [--blocking-severity <high|medium>] [--max-total-minutes <n>]] [--mode <plan|audit|fixlist|prompts>] [--scope <path|all>] [--instructions <text>] [--attach <path>] [--approve <auto|ask>] [--delivery <pr|push>] [--no-review] [--after <jobId>] [--dry-run]
+astera jobs    create --objective <text> [--cwd <path>] [--concurrency <n>] [--priority <n>] [--replan <waves|off>] [--coordinator-account <accountId>] [--coordinator-provider <claude|codex>] [--convergence [--max-fix-attempts <n>] [--max-review-rounds <n>] [--blocking-severity <high|medium>] [--max-total-minutes <n>]] [--mode <plan|audit|fixlist|prompts>] [--scope <path|all>] [--instructions <text>] [--attach <path>] [--approve <auto|ask>] [--delivery <pr|push>] [--no-review] [--after <jobId>]
 astera jobs    create-from-source --source <sourceId> --item <itemId> --project <projectId> [--concurrency <n>] [--priority <n>] [--replan <waves|off>] [--coordinator-account <accountId>] [--coordinator-provider <claude|codex>] [--convergence [--max-fix-attempts <n>] [--max-review-rounds <n>] [--blocking-severity <high|medium>] [--max-total-minutes <n>]] [--delivery <pr|push>]
 
 astera runs    list   [--job <jobId>] [--project <path>]
@@ -893,7 +893,7 @@ document, is one Task with its text unchanged; `--approve auto` (default) starts
 approval step and `--approve ask` waits for one. With nothing attached, prompt ids in the objective
 (`"run W8-A, B then all of W9"`, `"next waves"`) are found in the project's prompts folder
 (`projects set --prompts-dir`, else detected) and attached; a name with no file or two files is
-`INVALID_ARGUMENT` before any plan exists, and `--dry-run` only answers what the names resolve to.
+`INVALID_ARGUMENT` before any plan exists. The plan's approval lists the file each name resolved to.
 `--instructions <text>` adds the owner's extra
 instructions, which win over a source when the two conflict, and `--attach <path>` (repeatable, a
 regular file of at most 30 MB) copies a file into the plan's inputs for the planner to read first.
