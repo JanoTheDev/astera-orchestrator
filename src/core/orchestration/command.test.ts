@@ -8923,7 +8923,7 @@ describe('handleCommand — github-pr, github-ci and github-issue', () => {
       status: 200,
       body: {
         number: 5, title: 'Broken', body: 'It breaks', state: 'open', labels: ['bug'], author: 'pk',
-        authorAssociation: 'OWNER', url: 'https://github.com/o/r/issues/5', isPullRequest: false
+        authorAssociation: 'OWNER', url: 'https://github.com/o/r/issues/5', isPullRequest: false, assignees: []
       }
     })
     expect(gh.calls.map((c) => c.cwd)).toEqual([projectPath])
