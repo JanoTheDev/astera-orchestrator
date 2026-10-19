@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Account } from '../../../../core/types'
 import { MAX_CONCURRENT_WORKERS, PROJECT_DEFAULTS, type Project } from '../../../../core/orchestration/types'
+import { useI18n } from '../../i18n/I18nProvider'
 import { Button, Modal } from '../ui'
 import { ProjectDelivery } from '../delivery/ProjectDelivery'
 import { ProjectAttribution } from '../attribution/ProjectAttribution' // W8-B
@@ -40,6 +41,7 @@ export function ProjectSettingsBody({
   accounts: Account[]
   onLoaded?: (project: Project) => void
 }): React.JSX.Element {
+  const { t } = useI18n()
   const loaded = useRef(onLoaded)
   loaded.current = onLoaded
   const [project, setProject] = useState<Project | null>(null)
@@ -115,6 +117,11 @@ export function ProjectSettingsBody({
               onChange={(e) => void save({ autoApprove: e.target.checked })}
             />
             Approve plans automatically
+          </label>
+          {/* #117 */}
+          <label className="check-small" title={t('project.handsOff.hint')}>
+            <input type="checkbox" checked={project.handsOff ?? PROJECT_DEFAULTS.handsOff} onChange={(e) => void save({ handsOff: e.target.checked })} />
+            {t('project.handsOff')}
           </label>
           <div className="field">
             <label>Test command</label>

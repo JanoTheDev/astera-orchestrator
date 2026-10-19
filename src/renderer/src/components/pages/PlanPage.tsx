@@ -986,7 +986,7 @@ export function PlanPage({
                 (.detail-events)의 두 번째 모습이다: 그래프는 그대로 보이고 아래만 바뀐다. */}
             {/* W2-C plan board: progress, the buckets, and the graph/board switch */}
             <div className="plan-head">
-              {section === 'overview' && <PlanOverview tasks={tasks} />}
+              {section === 'overview' && <PlanOverview tasks={tasks} pick={run?.pick} decisions={run?.decisions} />}
               {section === 'waves' && (
               <div className="plan-view-toggle" role="group">
                 {(['graph', 'board'] as const).map((v) => (

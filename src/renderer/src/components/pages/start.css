@@ -79,3 +79,11 @@
 .start-names-dir input { flex: 1; min-width: 0; font: inherit; }
 .start-names-why, .start-names-note { color: var(--text-dim); font-size: 12px; margin: 0; }
 .start-names-list { margin: 0; padding-left: 16px; display: grid; gap: 2px; }
+
+/* #119: the toggles sit inline with their label here, not in .ui-field--toggle's far-right column */
+.start-issues .ui-field--toggle, .start-options .ui-field--toggle { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.start-issues .ui-field--toggle .ui-field__label, .start-options .ui-field--toggle .ui-field__label { order: 2; }
+.start-issues .ui-field--toggle .ui-field__hint, .start-options .ui-field--toggle .ui-field__hint { order: 3; flex-basis: 100%; }
+.start-auto { display: grid; grid-template-columns: 1fr 120px auto; gap: 8px; align-items: end; }
+.start-auto-hint { margin: 0; color: var(--text-faint); font-size: 12px; }
+.start-auto-skipped { margin: 0; padding-left: 16px; color: var(--text-dim); font-size: 12px; }

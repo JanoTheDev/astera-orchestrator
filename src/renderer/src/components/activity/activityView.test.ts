@@ -81,4 +81,12 @@ describe('activityView', () => {
     ])
     expect(summaryOf(s, null)[0].items).toHaveLength(2)
   })
+
+  // #117: what a hands-off plan decided for the owner, and what it refused
+  it('a decision is a "Decided for you" line, a refusal a "Refused" warning', () => {
+    const decided = ev(4, { type: 'plan.decided', payload: { title: 'Task A', plan: 'Plan A', reason: 'Decided for you: retry-once — Task A: attempts ran out' } })
+    const refused = ev(5, { type: 'plan.refused', payload: { title: 'Plan A', plan: 'Plan A', reason: 'Refused: drop the table? (destructive)' } })
+    expect(lineOf(decided, label)).toEqual({ text: 'Task A: Decided for you: retry-once — Task A: attempts ran out', tone: 'info' })
+    expect(lineOf(refused, label)).toEqual({ text: 'Plan A: Refused: drop the table? (destructive)', tone: 'warn' })
+  })
 })

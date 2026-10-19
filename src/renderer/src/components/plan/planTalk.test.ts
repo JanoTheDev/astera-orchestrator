@@ -26,5 +26,9 @@ describe('approveSlot (#116)', () => {
     expect(approveSlot(row({ pendingStart: true, planned: true, planReady: true }))).toBe('approve')
     // Ready on an auto-approve plan: its own start did not go through
     expect(approveSlot(row({ pendingStart: true, planned: true, planReady: true, autoApprove: true }))).toBe('approve')
+    // #117: hands-off counts as auto-approve; a plan with problems will not start by itself
+    expect(approveSlot(row({ pendingStart: true, planned: true, handsOff: true }))).toBe('auto')
+    expect(approveSlot(row({ pendingStart: true, planned: true, autoApprove: true, planProblems: ['no tasks'] }))).toBe('planning')
+    expect(approveSlot(row({ pendingStart: true, planned: true, handsOff: true, planProblems: [] }))).toBe('auto')
   })
 })
