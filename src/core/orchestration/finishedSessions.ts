@@ -1,5 +1,6 @@
-// The sessions a running plan is done with (the owner's decision of 2026-10-18): a worker whose Task is completed and
-// merged into the plan branch, and a reviewer whose verdict is recorded. The driving loop ends them
+// The sessions a running plan is done with (the owner's decisions of 2026-10-18 and 2026-10-19): a worker whose Task is
+// completed (merged or not: releasing ends the CLI, the worktree stays on disk for the merge), and a reviewer whose
+// verdict is recorded. The driving loop ends them
 // (exec/coordinatorRotate.ts) and the renderer closes their exited tabs (lib/tabAutoClose.ts), by this one rule.
 // A failed Task's session and a Task with an open Gate keep theirs.
 //
@@ -37,7 +38,7 @@ export function mergedIntoPlan(s: DoneState, task: Pick<Task, 'id' | 'runId' | '
 
 /** The Dispatches whose session the plan is done with: closed, not retained, the latest of their session, of a Task
  *  that has not failed and has no open Gate, and either a review (its verdict is recorded) or a worker whose Task is
- *  completed and merged into the plan branch. Whether the plan still runs, and whether the owner typed into the
+ *  completed. A merge that needs an agent gets its own integration Task and session. Whether the plan still runs, and whether the owner typed into the
  *  session, is the caller's question. */
 export function sessionsDoneWith(s: DoneState): Dispatch[] {
   const latest = new Map<string, string>()
@@ -48,6 +49,6 @@ export function sessionsDoneWith(s: DoneState): Dispatch[] {
     if (d.retained || (!d.outcome && !d.endedAt) || latest.get(d.sessionId) !== d.id || isPlaceholderSessionId(d.sessionId)) return false
     const t = tasks.get(d.taskId)
     if (!t || t.status === 'failed' || gated.has(t.id)) return false
-    return d.review === true || mergedIntoPlan(s, t)
+    return d.review === true || t.status === 'completed'
   })
 }

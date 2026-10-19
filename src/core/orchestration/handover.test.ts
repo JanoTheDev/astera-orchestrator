@@ -77,6 +77,11 @@ describe('buildHandoverPrompt', () => {
       expect(p).toContain('never ask only in your own terminal')
     })
 
+    it('says Astera closes finished workers and names worker-release', () => {
+      expect(p).toContain('Astera closes a worker')
+      expect(p).toContain('astera worker-release --dispatch <dispatch>')
+    })
+
     it('keeps the rest of the brief', () => {
       for (const part of ['TAKE STOCK BEFORE YOU START ANYTHING', 'ACCOUNTS COME FROM THE TASK', 'CONCURRENCY IS 3', 'WHERE WORKERS RUN', 'YOU ARE THE INBOX', 'WHEN A PERSON IS ACTUALLY NEEDED'])
         expect(p).toContain(part)

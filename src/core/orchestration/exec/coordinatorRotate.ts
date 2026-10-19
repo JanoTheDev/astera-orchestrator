@@ -5,9 +5,9 @@
 //   the start of the plan; a fresh one briefed from the state does not. The new session is started and put in the
 //   slot first, and only then is the old one ended (`refreshCoordinator`, the body of `run-coordinator-refresh`). The
 //   brief is written from the state, never from the old conversation (`coordinatorHandoff`).
-// - **A finished worker's session ends while the plan still runs**: a Task completed and merged into the plan branch,
+// - **A finished worker's session ends while the plan still runs**: a Task completed (merged or not: the worktree stays),
 //   or a review whose verdict is recorded (`sessionsDoneWith`, finishedSessions.ts). The renderer closes the exited tab by the same rule
-//   (lib/tabAutoClose.ts). A failed Task, a Task with an open Gate, and a session the owner typed into keep theirs.
+//   (lib/tabAutoClose.ts). A failed Task, a Task with an open Gate, and a session the owner typed into in the last 10 minutes keep theirs.
 // - **A worker tab never reads "Coordinator ·"**: it carries its Task's ref first (`workerTabTitle`).
 //
 // The driving loop calls `createCoordinatorRotation` from its tidy-up pass (dispatchLoop.ts); everything goes through
@@ -30,6 +30,8 @@ export const COORDINATOR_REFRESH_RETRY_MS = 60_000
 /** A finished worker whose release did not take is asked again this much later, up to this many times. */
 export const FINISHED_RELEASE_RETRY_MS = 60_000
 export const FINISHED_RELEASE_TRIES = 6
+/** Person input keeps a finished session open only this long. */
+export const PERSON_INPUT_KEEPS_MS = 10 * 60_000
 
 // ── Tab titles ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -254,6 +256,8 @@ export interface RotationContext {
   getState(): OrchState
   sessionAlive(sessionId: string): boolean
   lastPersonInputAt?(sessionId: string): number | null
+  /** A feed line no commit makes (a release that gave up). Optional: without it a log line only. */
+  activity?(runId: string, taskId: string, reason: string): void
   /** The session's statusLine context reading, 0-100, or null when it has none (a codex session). */
   sessionContextPct?(sessionId: string): number | null | Promise<number | null>
   /** The "Fresh coordinator at context (%)" setting; 0 turns the context refresh off. */
@@ -305,18 +309,26 @@ export function createCoordinatorRotation(c: RotationContext): { rotate(): Promi
       const runId = s.tasks.find((t) => t.id === d.taskId)?.runId
       // A finished Run's workers are releaseIdleWorkers', under the coordinator's grace
       if (runId === undefined || outcomeOf(s, runId) !== 'running') continue
-      if (!c.sessionAlive(d.sessionId) || (c.lastPersonInputAt?.(d.sessionId) ?? null) !== null) continue
+      if (!c.sessionAlive(d.sessionId)) continue
+      const typedAt = c.lastPersonInputAt?.(d.sessionId) ?? null
+      if (typedAt !== null && c.nowMs() - typedAt < PERSON_INPUT_KEEPS_MS) continue
       const tried = released.get(d.id)
       if (tried && (tried.tries >= FINISHED_RELEASE_TRIES || tried.nextAt > c.nowMs())) continue
       if (!c.mayStart()) return
-      released.set(d.id, { tries: (tried?.tries ?? 0) + 1, nextAt: c.nowMs() + FINISHED_RELEASE_RETRY_MS })
+      const tries = (tried?.tries ?? 0) + 1
+      released.set(d.id, { tries, nextAt: c.nowMs() + FINISHED_RELEASE_RETRY_MS })
       const what = `run=${runId}: the finished ${d.review ? 'reviewer' : 'worker'} ${d.sessionId} (dispatch ${d.id})`
+      let failure: string | null = null
       try {
         const r = await c.handle('worker-release', { dispatch: d.id })
-        c.log(r.status >= 400 ? `${what} was not released: ${JSON.stringify(r.body)}` : `${what} was released`)
+        if (r.status >= 400) failure = `was not released: ${JSON.stringify(r.body)}`
+        else c.log(`${what} was released`)
       } catch (e) {
-        c.log(`${what} could not be released: ${String(e)}`)
+        failure = `could not be released: ${String(e)}`
       }
+      if (failure === null) continue
+      c.log(`${what} ${failure}`)
+      if (tries >= FINISHED_RELEASE_TRIES) c.activity?.(runId, d.taskId, `Could not close console ${d.sessionId}`)
     }
   }
 

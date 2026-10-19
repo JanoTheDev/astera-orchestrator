@@ -1374,15 +1374,14 @@ describe('a finished Run’s idle workers are released after the grace', () => {
     expect(h.handled()).not.toContain('worker-release')
   })
 
-  // 2026-10-18: a running Run's worker whose Task is completed and merged is released (coordinatorRotate.test.ts);
-  // one whose worktree is not merged yet is still left alone
-  it('leaves the unmerged workers of a Run that has not finished alone, however long', async () => {
+  // 2026-10-19: a running Run's worker whose Task is completed is released at once, merged or not (coordinatorRotate.test.ts)
+  it('releases the unmerged completed worker of a Run that has not finished', async () => {
     const h = finishedWithWorker({ cwd: '/wt-own' })
     const s = h.state()
     h.setState({ ...s, tasks: s.tasks.map((t) => (t.id === 'tsk_2' ? { ...t, status: 'pending' as const } : t)) })
     h.clock = NOW_MS + 60 * MIN
     await pass(h)
-    expect(h.handled()).not.toContain('worker-release')
+    expect(releases(h)).toEqual(['dsp_1'])
   })
 
   it('releases a finished scheduled Run’s worker at once', async () => {
