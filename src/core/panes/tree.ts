@@ -262,6 +262,13 @@ export function computeRects(root: PaneNode): Map<string, Rect> {
   return out
 }
 
+/** Solo display: only the group holding tabId gets a rect, and it fills the whole area. Every other group gets none, so
+ *  the caller hides it. Empty when the tab is not in the tree. The tree itself is not touched. */
+export function soloRects(root: PaneNode, tabId: string): Map<string, Rect> {
+  const g = groupOfTab(root, tabId)
+  return new Map(g ? [[g.id, FULL]] : [])
+}
+
 function walkRects(node: PaneNode, r: Rect, out: Map<string, Rect>): void {
   if (node.kind === 'leaf') {
     out.set(node.id, r)

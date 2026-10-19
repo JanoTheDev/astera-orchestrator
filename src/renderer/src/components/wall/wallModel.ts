@@ -44,12 +44,27 @@ export interface WallInput {
   data: Pick<WorkspaceData, 'dispatches' | 'worktrees'> | null
   attention: Readonly<Record<string, Attention>>
   live: Readonly<Record<string, LiveSession>>
-  /** The Jobs fold by Run id (a plan's own Run shares its id). */
+  /** The Jobs fold, keyed by indexJobRows (every id a plan looks its row up by). */
   rows: Readonly<Record<string, JobRow>>
 }
 
 const shortLabel = (s: WorkspaceSession): string =>
   s.label.startsWith(`${s.planName} `) ? s.label.slice(s.planName.length + 1) : s.label
+
+/**
+ * The jobs-view rows keyed by every id a plan looks its row up by: the plan's `runId` or `jobId`. A folded Job
+ * row (one Run) is keyed by its Job id and by `foldedRunId`; a nested Job's Runs are keyed by their own ids
+ * (`children`). Pure, so the node-only suite reaches it.
+ */
+export function indexJobRows(rows: readonly JobRow[]): Record<string, JobRow> {
+  const out: Record<string, JobRow> = {}
+  for (const row of rows) {
+    out[row.id] = row
+    if (row.foldedRunId) out[row.foldedRunId] = row
+    for (const child of row.children ?? []) out[child.id] = child
+  }
+  return out
+}
 
 /** The JobTask of a plan session's Task, if the fold has it. */
 function jobTaskOf(rows: WallInput['rows'], runId: string | undefined, taskId: string | undefined): JobTask | undefined {

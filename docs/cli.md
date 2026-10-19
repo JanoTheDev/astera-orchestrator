@@ -907,6 +907,11 @@ account of that provider logged in it is a 2 that names the provider. When both 
 A Host that announces `dispatch` places them whether Astera is open or closed, and otherwise Astera
 does (see "Jobs run with Astera closed").
 
+**`jobs create --after <job>`** queues the new Job behind another plan of the same project: it waits, and its
+planner starts once that plan has delivered (pushed, its pull request opened, or ended with nothing to do). If
+that plan fails, one notice is raised and the queued Job is not started. `jobs set --after <job|none>` queues a
+Job that is not yet planning, or clears the wait with `none`; a Job already planning is refused.
+
 **`jobs create --mode`** picks how the planner starts. `plan` (the default) plans the objective.
 `audit` has the planner audit `--scope <path|all>` (default `all`), write `inputs/audit.md`, then plan
 the fixes. `fixlist` reads the objective as a problem list and makes one or more Tasks per problem.
