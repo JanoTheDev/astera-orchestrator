@@ -244,6 +244,21 @@ describe('auto-approve', () => {
     expect((await r.as('ses-planner-1')('jobs-auto-start', { id: jobId })).status).toBe(403)
   })
 
+  it('#117: a hands-off plan records its start as an approval decision; an auto-approve one records none', async () => {
+    const r = rig()
+    const { jobId } = await planned(r)
+    r.set({ ...r.state(), jobs: r.state().jobs.map((j) => ({ ...j, handsOff: true })) })
+    const before = r.state()
+    expect((await r.as('')('jobs-auto-start', { id: jobId })).status).toBe(200)
+    expect(r.state().jobs[0].decisions).toEqual([{ at: NOW, kind: 'approval', question: 'Start the plan?', choice: 'started', why: 'the plan holds (2 tasks) and runs hands-off' }])
+    expect(deriveActivity(before, r.state()).map((d) => d.type)).toContain('plan.decided')
+    const plain = rig()
+    const second = await planned(plain)
+    plain.set({ ...plain.state(), jobs: plain.state().jobs.map((j) => ({ ...j, autoApprove: true })) })
+    await plain.as('')('jobs-auto-start', { id: second.jobId })
+    expect(plain.state().jobs[0].decisions).toBeUndefined()
+  })
+
   it('jobs-plan --auto-approve sets the Job override', async () => {
     const r = rig()
     const made = await r.person('run-create', { objective: 'o', cwd: '/repo', coordinatorAccount: 'acc1', auto: true })

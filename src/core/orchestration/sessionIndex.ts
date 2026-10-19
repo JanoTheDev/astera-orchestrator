@@ -7,7 +7,7 @@
 // the renderer's and core does not import from it. Pure, derived, stored nowhere.
 import type { Attention } from '../types'
 import { isTerminal, outcomeOfTasks } from './running'
-import type { Gate, Job, JobRun, Message, Task } from './types'
+import type { Gate, Job, JobRun, Message, Project, Task } from './types'
 
 /** One session as workspaceTree.ts lists it (WorkspaceSession). */
 export interface TreeSession {
@@ -66,6 +66,8 @@ export interface SessionIndexInput {
   hostWaiting?: Readonly<Record<string, 'permission' | 'question'>>
   /** W6-B: the `escalation` messages (`inbox --type escalation`); the open ones are listed (escalationOpen). */
   escalations?: Message[]
+  /** #117: the projects, for a plan that runs hands-off by its project's setting. Absent: each Job's own setting. */
+  projects?: ReadonlyArray<Pick<Project, 'id' | 'handsOff'>>
 }
 
 const sessionsOf = (plan: TreePlan): TreeSession[] => [...plan.planner, ...plan.coordinator, ...plan.workers]
@@ -166,12 +168,24 @@ export const awaitsApproval = (job: Job): boolean => job.pendingStart === true &
 const approvable = (job: Job, tasks: readonly Task[]): boolean =>
   awaitsApproval(job) && job.planReadyAt !== undefined && tasks.some((t) => t.jobId === job.id && t.runId === undefined)
 
+/** #117: the plans in the tree that run hands-off: handsOffOf (delivery.ts) as the renderer reads it, the plan's own
+ *  setting, else its project's. The Inbox page drops their questions with it too (useInbox). */
+export function handsOffJobIds(input: Pick<SessionIndexInput, 'tree' | 'jobs' | 'projects'>): Set<string> {
+  const projects = new Set((input.projects ?? []).filter((p) => p.handsOff === true).map((p) => p.id))
+  const jobs = new Map(input.jobs.map((j) => [j.id, j]))
+  return new Set(input.tree.flatMap((p) => p.plans.filter((plan) => jobs.get(plan.jobId)?.handsOff ?? projects.has(p.id)).map((plan) => plan.jobId)))
+}
+
 /**
  * Everything across all projects that waits on the person: sessions at a prompt, then open Gates, then plans awaiting
- * approval. Only plans in the tree count, so an archived plan the sidebar hides adds nothing.
+ * approval. Only plans in the tree count, so an archived plan the sidebar hides adds nothing. #117: a hands-off plan
+ * decides its Gates, escalations and approval itself, so none of them is listed; its sessions at a prompt still are.
  */
 export function needsInput(input: SessionIndexInput, index: readonly IndexedSession[] = buildSessionIndex(input)): InboxItem[] {
-  const plans = new Map(input.tree.flatMap((p) => p.plans.map((plan) => [plan.jobId, { plan, project: p }] as const)))
+  const handsOff = handsOffJobIds(input)
+  const plans = new Map(
+    input.tree.flatMap((p) => p.plans.filter((plan) => !handsOff.has(plan.jobId)).map((plan) => [plan.jobId, { plan, project: p }] as const))
+  )
   const jobOfRun = new Map(input.runs.map((r) => [r.id, r.jobId]))
   const taskById = new Map(input.tasks.map((t) => [t.id, t]))
   const workerOf = new Map(index.filter((s) => s.taskId !== undefined).map((s) => [s.taskId!, s.sessionId]))

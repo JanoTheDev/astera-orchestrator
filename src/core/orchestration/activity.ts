@@ -32,6 +32,7 @@ import type { ScheduleLimits } from './schedule'
 import { emptyState, OWNER_ANSWER_SUBJECT, type OrchState } from './state'
 import {
   isPlaceholderSessionId,
+  type Decision,
   type Dispatch,
   type Gate,
   type GateKind,
@@ -66,10 +67,9 @@ export const ACTIVITY_KINDS = [
   'plan.replanned',
   // W6-A: the planner found everything built (`plan-nothing-to-do`); feed and notice
   'plan.nothing-to-do',
-  // W6-B: a worker's question a coordinator answered (feed only), and something only the owner can decide (a notice and
-  // the chime): a worker's or coordinator's `send --type escalation`, or a Gate opened because the attempts ran out.
-  // W6-D raises it too, when a replan is handed to the person
-  'question.auto-answered',
+  // W6-B: a worker's question a coordinator answered (feed only; T21's own answers below share the kind), and something
+  // only the owner can decide (a notice and the chime): a worker's or coordinator's `send --type escalation`, or a Gate
+  // opened because the attempts ran out. W6-D raises it too, when a replan is handed to the person
   'task.escalated',
   // W6-G: no new worker starts on an account near its usage limit, and then may again (usageActivity)
   'usage.paused',
@@ -88,7 +88,11 @@ export const ACTIVITY_KINDS = [
   // T21 (exec/autoAnswer.ts): one line per question Astera answered itself (payload.reason); feed only
   'question.auto-answered',
   // T23 (exec/crashResume.ts): what the Host's start picked up after a crash (payload.reason); feed only
-  'host.recovered'
+  'host.recovered',
+  // #117: a call a hands-off plan made in the owner's place, and a guardrail case it refused (Job.decisions); feed only,
+  // the plan.done notice lists them
+  'plan.decided',
+  'plan.refused'
 ] as const
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number]
 
@@ -152,6 +156,10 @@ export interface ActivityPayload {
   sha?: string
   // plan.overlap (W8-D): the new overlaps, one line each (overlapLines)
   overlaps?: string[]
+  /** #117: the plan runs hands-off: nothing on it asks the owner, so its Gates and escalations raise no notice. */
+  handsOff?: true
+  /** #117 plan.done of a hands-off plan: each decision it made for the owner, one line (decisionLine). */
+  decisions?: string[]
 }
 
 /** One line before the log numbers and stamps it (the shape of publicEvents.ts's EventDraft). */
@@ -175,6 +183,17 @@ export interface ActivityEvent extends ActivityDraft {
 }
 
 const byId = <T extends { id: string }>(xs: readonly T[]): Map<string, T> => new Map(xs.map((x) => [x.id, x]))
+
+/** #117: handsOffOf (delivery.ts) as this renderer-safe module can read it. shortcut: by `projectId` only (the folder
+ *  fallback of projectOfJob needs node:path), so an old Job with none reads its own setting; the Host sets it on new Jobs. */
+const handsOffHere = (s: OrchState, job: Job): boolean =>
+  job.handsOff ?? (job.projectId !== undefined ? s.projects.find((p) => p.id === job.projectId)?.handsOff : undefined) ?? false
+
+/** #117: one decision as a line: "Decided for you: retry-once — Fix login: the attempts ran out: one more try". */
+export function decisionLine(d: Decision, taskTitle?: string): string {
+  const about = taskTitle ?? d.question
+  return d.kind === 'refused' ? `Refused: ${d.question} (${d.why})` : `Decided for you: ${d.choice} — ${about}: ${d.why}`
+}
 const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b)
 
 /** A Task's bucket, asked of `taskBoardsOf` with the Task and its own Dispatches alone: the bucket reads nothing else,
@@ -214,7 +233,7 @@ export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[
       type,
       ...ids,
       ...(sessionId !== undefined ? { sessionId } : {}),
-      payload: { ...(job !== undefined ? { plan: jobNameOf(job) } : {}), ...payload }
+      payload: { ...(job !== undefined ? { plan: jobNameOf(job) } : {}), ...(job !== undefined && handsOffHere(next, job) ? { handsOff: true as const } : {}), ...payload }
     })
   }
   const dispatchesOf = (s: OrchState): Map<string, Dispatch[]> => {
@@ -226,6 +245,11 @@ export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[
     const model = d?.model ?? t.model
     return { ...(model !== undefined ? { model } : {}), ...(d !== undefined ? { accountId: d.accountId } : {}) }
   }
+  // #117: a hands-off plan's end lists what it decided for the owner
+  const decisionsOf = (job: Job | undefined): Pick<ActivityPayload, 'decisions'> =>
+    job !== undefined && handsOffHere(next, job)
+      ? { decisions: (job.decisions ?? []).map((d) => decisionLine(d, d.taskId !== undefined ? tasks.get(d.taskId)?.title : undefined)) }
+      : {}
   const realSession = (d: Dispatch | undefined): string | undefined =>
     d !== undefined && !isPlaceholderSessionId(d.sessionId) ? d.sessionId : undefined
 
@@ -368,6 +392,16 @@ export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[
             { title: jobNameOf(j), overlaps: overlapLines(next, { ...j, overlaps: added }) }
           )
       }
+      // #117: the decisions this commit added, one line each
+      const had = was.get(j.id)?.decisions?.length ?? 0
+      for (const d of (j.decisions ?? []).slice(had)) {
+        const title = d.taskId !== undefined ? tasks.get(d.taskId)?.title : undefined
+        push(
+          d.kind === 'refused' ? 'plan.refused' : 'plan.decided',
+          { ...(j.projectId !== undefined ? { projectId: j.projectId } : {}), jobId: j.id, job: j, ...(d.taskId !== undefined ? { taskId: d.taskId } : {}) },
+          { title: title ?? jobNameOf(j), reason: decisionLine(d, title).slice(0, 1000) }
+        )
+      }
       if (j.nothingToDo === undefined || was.get(j.id)?.nothingToDo !== undefined) continue
       push(
         'plan.nothing-to-do',
@@ -421,7 +455,7 @@ export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[
       if (outcome === 'completed' && at.job && !completionSettled(next, at.job, runId)) continue
       // W8-E (#99): a failed plan ends here, with no final check (replan.ts replansDue asks for an all-completed Run)
       const failedTasks = outcome === 'failed' ? ts.filter((t) => t.status === 'failed').length : undefined
-      push('plan.done', at, { title: at.job ? jobNameOf(at.job) : runId, runOutcome: outcome, ...(failedTasks !== undefined ? { failedTasks } : {}) })
+      push('plan.done', at, { title: at.job ? jobNameOf(at.job) : runId, runOutcome: outcome, ...(failedTasks !== undefined ? { failedTasks } : {}), ...decisionsOf(at.job) })
     }
   }
   // W6-D: a replan's start and end, from the Job's marks (replan.ts). A final check that added nothing is the plan done.
@@ -445,7 +479,7 @@ export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[
       push('plan.replanned', at, { title, replanMode: last.mode, wave: last.wave, summary: last.summary })
       const ts = next.tasks.filter((t) => t.runId === last.runId)
       if (last.mode === 'completion' && outcomeOfTasks(ts) === 'completed' && completionSettled(next, j, last.runId))
-        push('plan.done', at, { title, runOutcome: 'completed' })
+        push('plan.done', at, { title, runOutcome: 'completed', ...decisionsOf(j) })
     }
   }
   return out
@@ -609,16 +643,22 @@ export function noticeOf(e: ActivityEvent): ActivityNotice | null {
       return e.payload.status === 'failed' && e.payload.from !== 'failed'
         ? { key: `failed:${e.taskId}`, title: 'Task failed', body: `${e.payload.title}${inPlan(e)}`, ...session }
         : null
-    case 'plan.done':
+    case 'plan.done': {
       // W8-E (#99): no chime, nothing is asked; the failed Tasks are on the board
-      return e.payload.runOutcome === 'failed'
-        ? {
-            key: `done:${e.runId}`,
-            title: e.payload.failedTasks !== undefined ? `Plan finished with ${e.payload.failedTasks} failed` : 'Plan finished with failures',
-            body: `${e.payload.title}. The final check was skipped.`
-          }
-        : { key: `done:${e.runId}`, title: 'Plan done', body: e.payload.title }
+      const done: ActivityNotice =
+        e.payload.runOutcome === 'failed'
+          ? {
+              key: `done:${e.runId}`,
+              title: e.payload.failedTasks !== undefined ? `Plan finished with ${e.payload.failedTasks} failed` : 'Plan finished with failures',
+              body: `${e.payload.title}. The final check was skipped.`
+            }
+          : { key: `done:${e.runId}`, title: 'Plan done', body: e.payload.title }
+      // #117: a hands-off plan's one notice says what it decided for the owner
+      return e.payload.decisions === undefined ? done : { ...done, body: `${done.body}\n${decisionsText(e.payload.decisions)}` }
+    }
     case 'gate.opened':
+      // #117: a hands-off plan answers its own Gates (exec/autoAnswer.ts handsOffStepsDue): nothing to tell the owner
+      if (e.payload.handsOff) return null
       return { key: `gate:${e.payload.gateId}`, title: 'Needs your answer', body: `${e.payload.title}${inPlan(e)}: ${e.payload.question ?? ''}`.slice(0, 240), alert: true }
     case 'plan.awaiting-approval':
       // W7-A: a plan revised for the owner's feedback is a new notice, with the chime: the owner asked for it
@@ -637,6 +677,7 @@ export function noticeOf(e: ActivityEvent): ActivityNotice | null {
       return { key: `nothing:${e.jobId}`, title: 'Nothing to do: already built', body: e.payload.title }
     // W6-B. A Gate's escalation shares its gate.opened key, so the throttle shows one of the two
     case 'task.escalated':
+      if (e.payload.handsOff) return null
       return {
         key: e.payload.gateId !== undefined ? `gate:${e.payload.gateId}` : `escalated:${e.id}`,
         title: 'Needs your decision',
@@ -669,6 +710,15 @@ export function noticeOf(e: ActivityEvent): ActivityNotice | null {
     default:
       return null
   }
+}
+
+/** #117: the decisions as a notice's lines, short enough for Slack: the count, then at most DECISIONS_SHOWN lines. */
+export const DECISIONS_SHOWN = 10
+function decisionsText(lines: readonly string[]): string {
+  if (lines.length === 0) return 'No decisions were needed.'
+  const shown = lines.slice(0, DECISIONS_SHOWN).map((l) => `- ${l.length > 160 ? `${l.slice(0, 157)}...` : l}`)
+  const more = lines.length > shown.length ? [`and ${lines.length - shown.length} more in the activity feed`] : []
+  return [`${lines.length} decision(s) made for you:`, ...shown, ...more].join('\n')
 }
 
 export const NOTICE_DEDUP_MS = 10 * 60_000

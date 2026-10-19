@@ -320,6 +320,15 @@ else pops up by itself.
   option is matched without case or surrounding space). **When your answer narrows a Task** ("skip the minus-sign
   change"), the coordinator updates the Task's acceptance criteria and the reviewer's brief lists your answers on that
   Task, so work you scoped down is not failed for what you dropped.
+- **Hands-off plans** (#117: `--hands-off` on the plan or its project) put no card in Needs you: no approval, Gate,
+  question or escalation. The plan starts by itself, and Astera answers its questions whatever "Answer questions
+  automatically" says. A Gate whose attempts or review rounds ran out gets one more try (`retry-once`), and the next one
+  marks the Task failed so the plan carries on. An escalation or a question with no safe answer goes to the plan's own
+  coordinator after 30 seconds, and it decides. Anything behind a guardrail (a force-push, a push or merge to the
+  default branch, deleting data outside the plan's worktrees, money or credentials) is refused, never asked; so is a
+  push a delivery guard stopped. Each call is a feed line, "Decided for you: …" or "Refused: …", and is kept on the plan
+  (`decisions` in `astera jobs get`). You get one notice, when the plan is done, with the count and the decisions.
+  Permission prompts are bypassed for its sessions; a session still at a prompt is listed.
 - **Permission prompts** stay in the real CLI: the card says "Answer in its console" and opens it. The Host reads each
   session's hook events, so a wait that began while the app was closed is listed too.
 - **Plan approvals**: see [Approve it, or talk to the planner](#approve-it-or-talk-to-the-planner).

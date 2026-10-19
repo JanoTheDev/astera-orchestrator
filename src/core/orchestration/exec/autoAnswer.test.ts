@@ -1,11 +1,11 @@
 // T21 (owner, 2026-10-18): Astera answers the Gates it safely can, from Host state first, else the safe default, through
 // questions-answer with one feed line; the owner's kinds of question stay open; the setting turns it all off.
 import { describe, expect, it } from 'vitest'
-import { autoAnswerOf, autoAnswerOnOf, type OpenQuestion } from './autoAnswer'
+import { ASK_GRACE_MS, autoAnswerOf, autoAnswerOnOf, handsOffStepsDue, REFUSED_ANSWER, type OpenQuestion } from './autoAnswer'
 import { createDispatchLoop, ORCH_FIRE_TICK_MS, type DispatchLoopContext } from './dispatchLoop'
 import { handleCommand, type OrchServerDeps } from '../command'
-import { createGate, emptyState, type OrchState } from '../state'
-import type { ActivityDraft } from '../activity'
+import { addDecision, createGate, emptyState, type OrchState } from '../state'
+import { deriveActivity, type ActivityDraft } from '../activity'
 import type { Task } from '../types'
 
 const NOW = '2026-10-18T00:00:00.000Z'
@@ -78,7 +78,7 @@ describe('autoAnswerOf', () => {
 })
 
 /** The loop's tick over the real command layer, with one Gate open. */
-async function rig(question: string, options: string[] | undefined, on = true) {
+async function rig(question: string, options: string[] | undefined, on = true, o: { handsOff?: boolean; kind?: 'convergence-exhausted' } = {}) {
   let state: OrchState = emptyState()
   let clock = T0
   const deps = {
@@ -93,10 +93,12 @@ async function rig(question: string, options: string[] | undefined, on = true) {
   await handle('run-create', { objective: 'o', cwd: '/p' })
   await handle('task-create', { spec: 's', account: 'acc1', title: 'W9-B · Inbox' })
   await handle('task-create', { spec: 's', account: 'acc1', title: 'W9-A · Coordinator answers' })
-  const made = createGate(state, { taskId: state.tasks[0].id, question, ...(options ? { options } : {}) }, NOW)
+  if (o.handsOff) state = { ...state, jobs: state.jobs.map((j) => ({ ...j, handsOff: true })) }
+  const made = createGate(state, { taskId: state.tasks[0].id, question, ...(options ? { options } : {}), ...(o.kind ? { kind: o.kind } : {}) }, NOW)
   if (!made.ok) throw new Error(made.error)
   state = made.state
   const lines: ActivityDraft[] = []
+  const before = state
   const ctx = {
     handle,
     getState: () => state,
@@ -108,6 +110,9 @@ async function rig(question: string, options: string[] | undefined, on = true) {
     typeInto: () => {},
     autoAnswer: () => on,
     activity: (d: ActivityDraft) => lines.push(d),
+    recordDecision: async (jobId: string, d: Parameters<typeof addDecision>[2]) => {
+      state = addDecision(state, jobId, d)
+    },
     mayStart: () => true,
     log: () => {},
     nowMs: () => clock
@@ -117,6 +122,8 @@ async function rig(question: string, options: string[] | undefined, on = true) {
     gate: made.value,
     lines,
     gateNow: () => state.gates.find((g) => g.id === made.value.id),
+    state: () => state,
+    before,
     tick: async () => {
       clock += ORCH_FIRE_TICK_MS
       await loop.nudge()
@@ -153,5 +160,53 @@ describe('the Host answers on its tick', () => {
     const r = await rig('Hold it? say go or hold', undefined, false)
     await r.tick()
     expect(r.gateNow()?.status).toBe('open')
+  })
+})
+
+describe('hands-off plans decide for the owner (#117)', () => {
+  const s = base([task({ id: 'tsk_x', title: 'T1 · Login' })])
+  const exhausted = q('Checks failed 3 times', { kind: 'convergence-exhausted', options: ['retry-once', 'mark-failed'] })
+
+  it('an exhausted Gate is answered retry-once, then mark-failed once its Task was retried', () => {
+    expect(handsOffStepsDue(s, [exhausted], T0)).toEqual([
+      { kind: 'answer', answer: { id: 'gat_1', answer: 'retry-once', why: 'safe default' }, decision: expect.objectContaining({ kind: 'gate', taskId: 'tsk_x', choice: 'retry-once' }) }
+    ])
+    const retried: OrchState = { ...s, gates: [{ id: 'gat_0', runId: 'run_1', taskId: 'tsk_x', question: 'q', status: 'resolved', resolution: 'retry-once', createdAt: NOW }] }
+    expect(handsOffStepsDue(retried, [exhausted], T0)).toEqual([
+      { kind: 'answer', answer: expect.objectContaining({ answer: 'mark-failed' }), decision: expect.objectContaining({ kind: 'gate', choice: 'mark-failed' }) }
+    ])
+  })
+
+  it('a guardrail case is refused, never asked: the refusal option, else the refusal written out', () => {
+    expect(handsOffStepsDue(s, [q('Push the plan branch to main now?', { options: ['push', 'hold'] })], T0)).toEqual([
+      { kind: 'answer', answer: expect.objectContaining({ answer: 'hold' }), decision: expect.objectContaining({ kind: 'refused', choice: 'hold' }) }
+    ])
+    const esc = q('Force-push the branch over the rewrite?', { source: 'escalation', createdAt: new Date(T0 - ASK_GRACE_MS).toISOString() })
+    expect(handsOffStepsDue(s, [esc], T0)).toEqual([{ kind: 'answer', answer: expect.objectContaining({ answer: REFUSED_ANSWER }), decision: expect.objectContaining({ kind: 'refused' }) }])
+  })
+
+  it('an escalation with no safe answer waits out the grace, then goes to the coordinator', () => {
+    const esc = q('Which colour should the button be?', { id: 'msg_1', source: 'escalation' })
+    expect(handsOffStepsDue(s, [esc], T0)).toEqual([])
+    expect(handsOffStepsDue(s, [esc], T0 + ASK_GRACE_MS)).toEqual([{ kind: 'coordinator', question: esc }])
+  })
+
+  it('the loop answers with the global setting off, records the decision, and the feed says "Decided for you"', async () => {
+    const r = await rig('Checks failed 3 times', ['retry-once', 'mark-failed'], false, { handsOff: true, kind: 'convergence-exhausted' })
+    await r.tick()
+    expect(r.gateNow()).toMatchObject({ status: 'resolved', resolution: 'retry-once' })
+    expect(r.state().jobs[0].decisions).toEqual([expect.objectContaining({ kind: 'gate', choice: 'retry-once', why: 'the attempts ran out: one more try' })])
+    // The decision's own feed line, not a question.auto-answered one
+    expect(r.lines).toEqual([])
+    const derived = deriveActivity(r.before, r.state()).filter((l) => l.type.startsWith('plan.'))
+    expect(derived).toEqual([expect.objectContaining({ type: 'plan.decided', payload: expect.objectContaining({ handsOff: true, reason: expect.stringMatching(/^Decided for you: retry-once — W9-B · Inbox/) }) })])
+  })
+
+  it('the loop refuses a guardrail Gate on a hands-off plan: kind refused and a plan.refused line', async () => {
+    const r = await rig('Push to main now?', ['hold', 'push'], true, { handsOff: true })
+    await r.tick()
+    expect(r.gateNow()).toMatchObject({ status: 'resolved', resolution: 'hold' })
+    expect(r.state().jobs[0].decisions).toEqual([expect.objectContaining({ kind: 'refused', choice: 'hold' })])
+    expect(deriveActivity(r.before, r.state()).filter((l) => l.type.startsWith('plan.'))).toEqual([expect.objectContaining({ type: 'plan.refused', payload: expect.objectContaining({ reason: expect.stringMatching(/^Refused: Push to main now\?/) }) })])
   })
 })
