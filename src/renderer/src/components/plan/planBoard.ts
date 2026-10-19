@@ -97,6 +97,8 @@ export function reasonText(
     // W6-C
     case 'same-files':
       // W8-D: "Waits for Auth rework · T6 (same files: src/api/routes.ts)" when it is another plan's
+      // T9: "Waits for Auth rework to deliver src/api/routes.ts" when the Task is done and its plan not delivered
+      if (reason.plan && reason.delivery) return { key: 'plan.reason.leasePlan', params: { plan: reason.plan.title, path: reason.path } }
       return reason.plan
         ? { key: 'plan.reason.sameFilesPlan', params: { plan: reason.plan.title, task: reason.waitingOn.title, path: reason.path } }
         : { key: 'plan.reason.sameFiles', params: { task: reason.waitingOn.title, path: reason.path } }

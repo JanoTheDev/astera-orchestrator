@@ -280,3 +280,26 @@ describe('taskBoardsOf — usage pause', () => {
     expect(taskBoardsOf(one([task('a', 'r1')])).get('a')?.reason).toEqual({ kind: 'next' })
   })
 })
+
+describe('taskBoardsOf — a plan not yet delivered (T9)', () => {
+  const two = (r1: Partial<JobRun> = {}): OrchState => ({
+    ...emptyState(),
+    jobs: [job('j1', { title: 'Plan A' }), job('j2', { title: 'Plan B', createdAt: '2026-10-17T01:00:00.000Z' })],
+    runs: [run('r1', 'j1', r1), run('r2', 'j2')],
+    tasks: [task('t1', 'r1', { status: 'completed', affectedPaths: ['src/a.ts'] }), task('t2', 'r2', { affectedPaths: ['./src/a.ts'] })]
+  })
+
+  it('says the Task waits for that plan to deliver the path', () => {
+    expect(taskBoardsOf(two()).get('t2')?.reason).toEqual({
+      kind: 'same-files',
+      waitingOn: { id: 't1', title: 'title t1' },
+      path: './src/a.ts',
+      plan: { id: 'j1', title: 'Plan A' },
+      delivery: true
+    })
+  })
+
+  it('says next once it delivered', () => {
+    expect(taskBoardsOf(two({ pr: { at: T0, url: 'https://x/pr/2', number: 2 } })).get('t2')?.reason).toEqual({ kind: 'next' })
+  })
+})

@@ -596,6 +596,8 @@ export type TaskBlockedReason =
       path: string
       /** W8-D: the Task waited on is another plan's of the same project (its id and `jobNameOf` name). */
       plan?: { id: string; title: string }
+      /** T9: `waitingOn` is done; its plan has not delivered yet, so its files stay leased (schedule.ts `leasesByProject`). */
+      delivery?: true
     }
   /** It has a slot: the dispatch loop starts it on its next pass. */
   | { kind: 'next' }

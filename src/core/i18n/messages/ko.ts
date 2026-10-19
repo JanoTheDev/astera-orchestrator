@@ -2488,6 +2488,7 @@ export const ko = {
   'plan.reason.sameFiles': '{task} 을(를) 기다리는 중: 같은 파일을 고친다 ({path})',
   // W8-D: 기다리는 Task 가 다른 계획의 것이다
   'plan.reason.sameFilesPlan': '{plan} · {task} 을(를) 기다리는 중 (같은 파일: {path})',
+  'plan.reason.leasePlan': '{plan} 이(가) {path} 을(를) 전달할 때까지 기다리는 중',
   'plan.reason.next': '다음 배치 때 시작한다',
   // W6-E progress view (components/plan/)
   'plan.view.files': '파일',
