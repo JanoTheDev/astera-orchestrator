@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { gitAiInstalled, gitAiLinesOf, parseGitAiNote } from './gitAi'
 
-// The note git-ai v1.7.5 wrote in the W8-B spike (docs/orchestrator/LINUX.md) for a Claude `Write`, with one human
+// The note git-ai v1.7.5 wrote in the W8-B spike (docs/dev/LINUX.md) for a Claude `Write`, with one human
 // attestation (`h_…`, a session not in `sessions`) added to show it is not counted.
 const FIXTURE = `f.txt
   s_f8fd3067c13536::t_712d2f52c3245e 1-5

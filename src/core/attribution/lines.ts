@@ -1,4 +1,4 @@
-// W8-B: line-level attribution for one commit, the `lines` field of the Wave 8 note (docs/orchestrator/PLAN.md,
+// W8-B: line-level attribution for one commit, the `lines` field of the Wave 8 note (docs/dev/PLAN.md,
 // "Wave 8 contracts"): `lines?: { [path]: [start, end][] }`, the AI lines of a mixed commit. `lines` missing means the
 // whole commit is AI, so a pure commit leaves it out, and a commit with no AI line at all is `human: true`.
 //

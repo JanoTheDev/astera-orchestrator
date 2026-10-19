@@ -11,7 +11,7 @@ afterEach(async () => { await fs.rm(dir, { recursive: true, force: true }) })
 const file = (): string => path.join(dir, 'app-settings.json')
 
 describe('readAgentPermissionMode (D12)', () => {
-  // Fork W0: the bypass is never the default (docs/orchestrator/SECURITY-AUDIT.md item 2)
+  // Fork W0: the bypass is never the default (docs/dev/SECURITY-AUDIT.md item 2)
   it('is manual when there is no settings file', async () => {
     expect(await readAgentPermissionMode(file())).toBe('manual')
   })

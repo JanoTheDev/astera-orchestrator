@@ -2106,7 +2106,7 @@ export const ko = {
   'intake.tab.github': 'GitHub',
   // W8-C prompts mode
   'intake.tab.prompts': '적힌 그대로 실행',
-  'intake.promptsHint': '.md 프롬프트 파일을 놓거나(파일마다 Task 하나) 문서 하나를 붙여 넣으세요(## 섹션마다 Task 하나). 글은 고쳐지지 않고, 순서는 docs/orchestrator/PLAN.md 에서 옵니다.',
+  'intake.promptsHint': '.md 프롬프트 파일을 놓거나(파일마다 Task 하나) 문서 하나를 붙여 넣으세요(## 섹션마다 Task 하나). 글은 고쳐지지 않고, 순서는 docs/dev/PLAN.md 에서 옵니다.',
   'intake.promptsPaste': '또는 ## 섹션이 있는 문서 하나를 붙여 넣기',
   'intake.promptsAsk': '계획을 먼저 승인받기',
   'intake.describe': '무엇을 만들거나 고칠까요?',

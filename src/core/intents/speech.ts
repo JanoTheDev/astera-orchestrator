@@ -1,7 +1,7 @@
 // W3-B voice: the pure half of the local whisper.cpp provider. The renderer records (MediaRecorder) and encodes the
 // clip as 16 kHz mono WAV here; main writes it to a private temp file and runs the owner's whisper.cpp binary on it
 // (transcribe.ts). Audio never leaves the machine, and nothing is downloaded: the binary and model are paths the
-// owner set (docs/orchestrator/USAGE.md).
+// owner set (docs/guide.md).
 
 /** A clip's text, or why there is none (`not-configured`: no binary or model set). */
 export type Transcript = { ok: true; text: string } | { ok: false; reason: string }

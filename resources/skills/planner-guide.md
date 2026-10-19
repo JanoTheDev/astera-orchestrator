@@ -138,7 +138,7 @@ text, unchanged. Section 0 still applies (write `existing.md`), but here it only
   `task-update` with `--prompt` or `--title`, and approval is refused if a prompt differs from its file by one byte.
 - Fill in every Task with `astera task-update --id <taskId>`:
   - `--affected-paths` from the prompt's "Ownership" / "Owns" lines and the "File ownership per wave" table in
-    `docs/orchestrator/PLAN.md`;
+    `docs/dev/PLAN.md`;
   - `--criteria` from the prompt's "Done means";
   - `--difficulty` from how hard the prompt is (the model follows it), with `--model-reason`;
   - `--basis` and `--evidence`, as in section 0.

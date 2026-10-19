@@ -1,17 +1,20 @@
-# Job은 어떻게 도는가
+# Jobs: from creation to delivery
 
-Job(Run) 하나가 만들어져서 지워질 때까지 무슨 일이 일어나는지 순서대로 적었습니다.
-1~6절은 예약이 아닌 보통 Job이고, 7절이 예약 Job입니다.
+What happens to one Job between the moment it is made and the moment it is delivered or deleted. A **plan** is a Job;
+the [guide](guide.md) covers the day-to-day side (the Start page, approving a plan, waves, review, the Inbox). This page
+is the mechanics underneath: worktrees, how Tasks share them, merging, deleting, failures and scheduled Jobs. Sections
+1 to 6 are plain Jobs; section 7 is scheduled Jobs. The commands are in the [CLI reference](cli.md).
 
-## 먼저: 프로젝트가 git 저장소여야 합니다
+## First: the project must be a git repository
 
-**Job을 만들기 전에 프로젝트 폴더가 git 저장소로 초기화되어 있어야 합니다.**
+**Before a Job can run, its project folder must be a git repository with at least one commit.**
 
-Job의 워커는 언제나 git 워크트리에서 일합니다. 저장소가 아니면 워크트리를 만들 수 없으므로,
-`실행`을 누른 Job은 시작하지 못하고 Gate에 이유가 뜹니다. 만드는 것 자체는 막지 않지만
-돌지는 않습니다.
+A Job's workers always work in git worktrees. Without a repository there is no worktree, so the Job does not start
+and a Gate says why. The "Create a job" dialog says so up front ("Runs only in a folder that is a git repository"); it
+does not stop you making the Job, but the Job will not run.
 
-아직 저장소가 아니라면 프로젝트 폴더에서 다음을 먼저 하세요.
+If the folder is not a repository yet, either add it as a project (`astera projects add --path <folder>
+--initial-commit` makes the first commit), or run in the folder:
 
 ```
 git init
@@ -19,254 +22,290 @@ git add -A
 git commit -m "first commit"
 ```
 
-그리고 **HEAD가 브랜치를 가리켜야 합니다.** bisect나 rebase 중이거나 특정 커밋을 직접
-체크아웃한 상태(detached HEAD)면 갈라져 나갈 자리가 없어서 같은 이유로 멈춥니다.
+**HEAD must also point at a branch.** In the middle of a bisect or a rebase, or with a commit checked out directly
+(detached HEAD), there is no branch to fork from, and the Job stops for the same reason.
 
-## 1. 만들기
+## 1. Create
 
-Job을 만들면 아무것도 시작하지 않습니다. Task를 추가해도 돌지 않습니다.
-Task를 다 짠 뒤 상세 창의 `실행`을 눌러야 시작합니다.
+Making a Job starts nothing, and neither does adding Tasks to it. The Job is marked `pendingStart` and has no run yet.
+It starts when you press **Run** on its plan page (`astera jobs run --id <job>`), or, for a planned Job, when you
+approve its plan (**Approve & execute**, or automatically with auto-approve). Plans made on the Start page go through
+the planner first; see [Start: make a plan](guide.md#start-make-a-plan).
 
-코디네이터 계정이 있는 Job은 Task 없이 실행해도 됩니다. MCP `create_job`이나 `astera jobs create`로
-만든 Job이 그렇습니다. 그때는 코디네이터가 목표를 먼저 몇 개의 Task로 나누고(의존 관계, 계정,
-프로젝트의 실행 구성으로 검증까지 붙여서) 그 Task들을 돌립니다. Task가 있는 Job은 짜 둔 그대로
-돌리고 Task를 새로 만들지 않습니다.
+Where a Job comes from:
 
-`runs stop`(MCP `stop_run`)은 열린 워커를 닫고 그 회차의 코디네이터도 멈추며 회차를 세웁니다.
-이미 끝난 회차(모든 Task가 완료되었거나, 재시도가 남지 않은 채 실패한 회차)는 CONFLICT로 거절하고 그대로 둡니다.
-끝난 회차는 멈출 필요가 없습니다. 그 회차의 코디네이터와 할 일이 끝난 워커는 저절로 끝납니다. 회차가 끝난
-때와 사람이 그 세션에 마지막으로 입력한 때 중 늦은 쪽에서 10분 동안 아무도 입력하지 않으면 끝납니다.
-그 사이에는 탭에서 코디네이터의 마무리 요약을 읽거나 이어서 물어볼 수 있고, 입력할 때마다 10분을 다시 셉니다.
-입력으로 치는 것은 Astera 탭에서 친 것, 그리고 Host가 운전할 때의 Slack 답장뿐입니다. `sessions send`는
-에이전트도 쓰므로 치지 않습니다. 답하는 중인(바쁜) 세션은 한 시간까지는 도중에 끝내지 않고,
-한가해진 뒤에 끝냅니다. 10분이 지나고도 한 시간 넘게 바쁜 표시가 남아 있으면 멈춘 것으로 보고 끝냅니다.
-예약 실행의 회차는 지켜보는 사람이 없으므로 끝나자마자 정리합니다. `worker-retain`으로 붙잡아 둔 워커는
-끝내지 않습니다. 코디네이터를 곧바로 끝내려면 CLI에서 `astera run-coordinator-stop --run <runId>`를 씁니다.
-`runs resume`(MCP `resume_run`)은 회차를 다시 돌리고, 코디네이터 계정이 있는 Job이면 새 코디네이터를
-띄웁니다. 새 코디네이터는 이미 끝난 것을 먼저 살펴보고 이어서 합니다. 멈춘 코디네이터가 아직
-종료되는 중이면 10초까지 기다리고, 그래도 남아 있으면 아무것도 바꾸지 않고 거절합니다. 잠시 뒤
-다시 하면 됩니다.
+- **Start page** (New → Plan it for me / Run as written): a planned Job. The planner writes the Tasks.
+- **Plans page → + New job** ("Create a job"): an objective, a coordinator account, **Run at once**, and optionally
+  **Scheduled run** (section 7). With "Plan with planner first" ticked, the planner writes the Tasks; otherwise you
+  add them yourself.
+- **CLI / MCP**: `astera jobs create` or MCP `create_job`. `jobs create` makes the Job and runs nothing.
 
-코디네이터는 계획하고 배치만 합니다. 파일을 고치지 않습니다. 코디네이터 세션은 회차의 워크트리가
-아니라 프로젝트 폴더 자체에서 돌기 때문에, 고치고 빌드하고 커밋하는 일은 전부 Task를 받은 워커가
-합니다.
+A Job with a coordinator account may run with no Tasks at all, as a Job from `jobs create` or `create_job` often does.
+Its coordinator then plans first: it breaks the objective into a few Tasks (with dependencies, an account, and the
+project's run configurations as checks) and runs them. A Job that has Tasks is run as it stands; the coordinator
+creates no Tasks of its own.
 
-이 시점에는 디스크에 아무것도 만들지 않습니다. 실행하지 않은 Job이 빈 폴더를 남기지 않습니다.
+**The coordinator plans and places; it never edits files.** Its session runs in the project folder itself, not in a
+worktree, so all editing, building and committing is done by the workers that take the Tasks.
 
-## 2. `실행`
+Nothing is written to disk at this point. A Job that never runs leaves no empty folder behind.
 
-**그 Job만의 작업 폴더(git 워크트리)가 하나 생깁니다.**
+### Stopping and resuming a run
 
-워크트리는 **프로젝트 폴더의 현재 브랜치**에서 갈라집니다. `develop`에서 일하고 있으면
-워크트리도 `develop`에서 갈라집니다. 프로젝트의 기본 브랜치가 아닙니다 — 그러면 나중에 합칠 때
-관계없는 조상을 끌고 옵니다.
+`astera runs stop` (MCP `stop_run`) closes the run's open workers, stops its coordinator and pauses the run. It is
+reversible. A run that has already finished (every Task completed, or failed with no retries left) is refused with
+`CONFLICT` and left as it is: there is nothing to stop. Its coordinator and idle workers end on their own, 10 minutes
+after the later of the run finishing and the last time a person typed into that session. In between you can read the
+coordinator's closing summary in its console or ask it a follow-up; each input starts the 10 minutes again. Only typing
+in an Astera console counts, and a Slack reply while the Host drives; `sessions send` does not, because agents use it
+too. A session that is busy in a turn is not cut off mid-turn for up to an hour: it is ended once it is idle again, or
+an hour after the 10 minutes ran out if it still shows busy then (read as hung). A run of a scheduled Job has nobody
+watching, so it is cleaned up at once. A worker held with `worker-retain` is never ended. To end a coordinator now:
+`astera run-coordinator-stop --run <runId>`.
 
-이때부터 **에이전트는 프로젝트 폴더를 건드리지 않습니다.** 사용자가 그 폴더에서 파일을 편집하고
-있어도 서로를 밟지 않습니다.
+`astera runs resume` (MCP `resume_run`) clears the pause and, for a Job with a coordinator account, starts a new
+coordinator, which looks at what is already done and carries on. If the old coordinator is still shutting down, the
+resume waits up to 10 seconds; if it is still there, the resume is refused and changes nothing. Try again a moment
+later. Both commands refuse while a worker is held with `worker-retain`.
 
-## 3. Task가 도는 방식
+The plan page's **Pause** is different: it is a **hold**. No new worker starts, running workers carry on and nothing is
+closed. See [While it runs](guide.md#while-it-runs).
 
-동시 실행 값이 갈림길입니다. 새 작업 모달의 `동시 실행` 칸이고, **기본값은 3입니다**.
+## 2. Run
 
-**동시 실행 2 이상 (기본값 3)** — Task마다 자기 워크트리가 생깁니다. 어떤 Task가 앞선 Task들에
-의존하면 그것을 시작하기 전에 앞의 결과를 Job의 워크트리로 모읍니다.
+**The run gets its own working folder, a git worktree.** It is made when the first worker is placed or the coordinator
+starts, not when the Job is created.
 
-- 앱이 스스로 합칩니다.
-- 충돌하면 `워크트리 병합` Task를 만들어 에이전트에게 넘깁니다. 사람을 부르는 것은 마지막으로
-  미룹니다.
-- 합쳐진 Task 워크트리는 그 자리에서 정리됩니다. 폴더가 쌓이지 않습니다.
+The worktree forks from **the branch checked out in the project folder**. If you are working on `develop`, the worktree
+starts from `develop`, not from the project's default branch; forking from the default branch would drag unrelated
+ancestry into the merge later.
 
-**동시 실행 1** — Task들이 한 워크트리를 순서대로 물려받습니다. 1번이 끝나면 2번이 같은
-폴더에서 그 결과 위에 이어서 일합니다. 합칠 것이 생기지 않습니다.
+From then on **agents do not touch the project folder.** You can keep editing files there; nobody steps on anybody.
 
-그래프 노드의 `띄우기` 버튼은 Task 하나를 손으로 다시 띄웁니다(Gate에서 막힌 것을 재시도할 때).
-**동시 실행 1인 Job에만 있습니다** — 2 이상이면 워커가 각자의 워크트리에서 도는데, 손으로 띄운
-워커는 Job 워크트리로 가 통합 Task가 합칠 자리를 밟습니다. 그래서 버튼 자체를 없앴고, 그 자리를
-스케줄러가 대신 맡습니다. 기본값이 3이므로 **기본값으로 만든 Job에는 이 버튼이 나오지 않습니다.**
+## 3. How Tasks run
 
-`실행`을 누르기 전에도 없고, 예약 템플릿에도 없습니다 — 템플릿은 자기 Task를 돌리지 않고 회차가
-돕니다(7절). 회차에서는 그대로 보입니다.
+The Job's concurrency decides it: **Run at once** in "Create a job", **Consoles at once** on Start,
+`--concurrency` on the CLI. **The default is 3.** It can be changed later with `astera jobs set --id <job>
+--concurrency <n>`.
 
-## 4. 끝난 뒤 — 병합은 사람이 누릅니다
+**Concurrency 2 or more (default 3).** Each Task gets its own worktree. Before a Task that depends on earlier Tasks
+starts, their results are merged into the run's worktree, and the dependent Task forks from there.
 
-**작업이 끝나도 자동으로 합쳐지지 않습니다.** 상세 창의 `병합` 버튼을 눌러야 합니다.
+- Astera merges them itself.
+- On a conflict it creates an integration Task and hands the merge to an agent. A person is called only as a last
+  resort (a Gate), for example when the integration Task finished and the worktrees still do not merge.
+- A Task worktree that has been merged is removed right away, unless something is still using it, so folders do not
+  pile up.
 
-병합은 사용자가 체크아웃해 둔 브랜치의 작업 트리를 바꿉니다. 사용자가 그 폴더에서 일하는 중일
-수도 있고, 충돌하면 그 트리가 반쯤 병합된 상태로 남습니다. 그 순간은 사람이 고릅니다.
+**Concurrency 1.** Tasks take turns in one worktree. When Task 1 finishes, Task 2 works in the same folder on top of
+its result. Nothing needs merging.
 
-`병합`을 누르면 프로젝트 폴더에서 워크트리의 브랜치를 합칩니다.
+The **Start** button on a Task node in the plan's dependency graph launches that one Task by hand (to retry one held
+at a Gate). **It exists only on a Job with concurrency 1, after Run was pressed, and not on a schedule template.** With
+2 or more, every worker runs in its own worktree, and a worker started by hand would go to the run's worktree, the
+folder the integration Task merges into. So the button is not there and the scheduler does that work instead. Since
+the default is 3, **a Job made with the defaults never shows this button.** A schedule template never runs its own
+Tasks (section 7); its runs show the button as usual.
 
-| 상황 | 결과 |
+Two Tasks that edit the same files never run at once, in one plan or across plans of the project; see
+[While it runs](guide.md#while-it-runs).
+
+## 4. When it is done: delivery, or a merge you press
+
+When a run completes (and, for a planned Job, its final check is done), Astera **delivers** it by the project's
+delivery mode. The full rules are in [Delivery](guide.md#delivery):
+
+- **`pr`** (the default): one pull request per plan. **Astera never merges it.** With no remote, the work stays on the
+  plan's branch and the feed tells you the `git merge` to run.
+- **`push`**: Astera merges the plan's worktrees into the project folder's delivery branch, runs the checks once more,
+  and pushes, with no review by a person. It stops and asks you instead of touching a dirty folder, the wrong branch
+  or a conflict.
+
+A scheduled Job's runs are never delivered (section 7).
+
+**The local Merge.** The plan page's **Merge** button (`astera run-merge`) folds what the workers committed into the
+**current branch of the project folder**, at a moment you choose. It changes the working tree you have checked out, and
+you may be working in it, so Astera never does this on its own.
+
+| Situation | Result |
 |---|---|
-| 프로젝트 브랜치가 그대로였음 | fast-forward — 새 커밋 없이 워크트리의 커밋이 그대로 프로젝트 브랜치의 히스토리가 됩니다 |
-| 그 사이 프로젝트 브랜치가 움직였음 | 병합 커밋 하나가 생깁니다 |
-| 프로젝트 폴더에 커밋되지 않은 변경이 있음 | 합치지 않고 이유를 보여줍니다. 아무것도 잃지 않습니다 |
-| 충돌 | 합치기 전 상태로 되돌리고 이유를 보여줍니다 |
-| 워크트리 폴더가 이미 없음 | 합칠 것이 남아 있지 않다고 알려 줍니다 |
+| The project branch has not moved | Fast-forward: no new commit, the worktree's commits become the branch's history |
+| The project branch moved in the meantime | One merge commit |
+| Tracked files in the project folder have uncommitted changes | Nothing is merged; you are told why. Nothing is lost |
+| The project folder is not on a branch, or is mid-rebase, bisect, cherry-pick or merge | Nothing is merged; you are told why |
+| Conflict | The merge is aborted back to where it was, and you are told why |
+| A worktree has uncommitted changes | That worktree is not merged; its changes stay in the folder |
+| The worktree folders are already gone | "Nothing left to merge" |
 
-푸시하지 않습니다. 브랜치를 바꾸지도 않습니다. 프로젝트 폴더의 현재 브랜치가 병합
-대상입니다.
+The local Merge does not push and does not switch branches. The worktree folders stay after it, so you can look at the
+result and merge again; removing folders is a choice you make when deleting (section 5) or on the
+[Worktrees](guide.md#worktrees) page, which also removes a plan's ready worktrees by itself once the plan is delivered.
 
-병합한 뒤에도 워크트리 폴더는 남습니다. 결과를 보고 다시 합칠 수 있고, 폴더 정리는 삭제할 때
-고릅니다.
+### How It Works records
 
-### How It Works 기록
+With How It Works tracking on, each finished run becomes one record. The Astera Host writes it, so a run that finishes
+while the window is closed is recorded too, and shows up in How It Works (More ▾) when you open the app again. Whether a
+person's own sessions are recorded is still up to the tracking setting. See [How It Works](how-it-works.md).
 
-설정에서 How It Works 추적을 켜 두었다면, 끝난 Run 하나가 기록 하나가 됩니다. 이 기록은 Astera
-Host가 씁니다. 그래서 Astera 창을 닫아 둔 사이에 끝난 Run도 기록되고, 앱을 다시 열면 How It
-Works에 보입니다. MCP의 `regenerate_work_record`로 설명을 다시 쓰게 할 때도 앱이 열려 있지 않아도
-됩니다.
+## 5. Delete
 
-사람이 직접 연 세션의 작업도 Host가 기록합니다. Host가 돌리는 세션이면 앱을 닫아 둔 사이에 끝난
-작업도 기록되고, 그 세션의 `session-task-start`와 `session-task-complete`도 앱 없이 답을 받습니다.
-다만 세션을 기록할지는 여전히 How It Works 추적 설정이 정합니다. 추적이 꺼져 있으면 앱이 열려 있든
-아니든 세션의 작업은 기록되지 않습니다.
+Deleting a Job (**Delete job** on the Plans page, or `astera run-delete`) that used worktrees offers three choices,
+all off by default:
 
-Host가 How It Works를 쓰기 전 버전의 Astera 앱이 Host에 붙어 있는 동안에는 그 앱이 기록을 쓰고
-Host는 쓰지 않습니다. 그동안 `regenerate_work_record`는 `CONFLICT`로 거절되니, 앱을 업데이트하거나
-앱에서 다시 쓰세요.
+- **Merge into the project folder**
+- **Hide from the history list**: it leaves the list, the record is kept
+- **Delete the worktree folders**
 
-## 5. 지우기
+**The merge comes first, and if it fails nothing is deleted.** Deleting after a failed merge would throw away the
+workers' commits with their branch.
 
-워크트리를 쓴 Job을 지우면 확인 창에 선택지 셋이 뜹니다. 전부 기본은 꺼짐입니다.
+A plain Job with workers still open is refused ("stop them first"); stop the run, then delete.
 
-- **프로젝트 폴더에 병합하기**
-- **히스토리 목록에서 감추기** — 목록에서만 빼고 기록은 지우지 않습니다
-- **워크트리 폴더 삭제**
+### Deleting without merging does not throw the work away
 
-**병합이 먼저이고, 실패하면 아무것도 지우지 않습니다.** 병합을 골랐는데 실패한 뒤 지우면
-워커의 일이 브랜치째 사라집니다.
+A folder that holds **uncommitted** changes is never removed, with or without the merge; it is kept and listed, and you
+can look at it and delete it from the Worktrees page. When a folder is removed, its branch is deleted only if it is
+already merged: git refuses to delete a branch with unmerged commits, so that work survives under its branch name.
 
-### 합치지 않고 지워도 일은 사라지지 않습니다
+## 6. When something fails
 
-워크트리 폴더를 지울 때, 아직 합쳐지지 않은 커밋이 있는 브랜치는 git이 삭제를 거부합니다.
-폴더는 없어져도 그 일은 브랜치 이름으로 되찾을 수 있습니다. 이미 합쳐진 브랜치만 함께
-지워집니다.
+Failure is never silent. It shows as a Gate with a reason a person can read, and lands in the [Inbox](guide.md#inbox).
 
-## 6. 실패하면
-
-실패는 조용하지 않습니다. 전부 Gate로 보이고, Gate에는 사람이 읽을 수 있는 이유가 들어갑니다.
-
-| 상황 | 결과 |
+| Situation | Result |
 |---|---|
-| 프로젝트가 git 저장소가 아님 | Job이 돌지 않습니다. 위의 "먼저" 절을 참고하세요 |
-| HEAD가 브랜치를 가리키지 않음 | 같습니다. 브랜치를 체크아웃한 뒤 Gate를 해결하세요 |
-| 쓸 수 있는 계정이 없음 | Gate |
-| 병합 충돌 | 통합 Task로 넘기거나, 넘길 자리가 없으면 Gate |
+| The project is not a git repository | The Job does not run. See "First" above |
+| HEAD is not on a branch | The same. Check out a branch, then answer the Gate |
+| No account the Task can use | Gate |
+| Merge conflict | An integration Task, or a Gate when there is nothing left to hand it to |
+| Attempts or review rounds ran out | Gate ("Needs your decision" in the Inbox) |
 
-## 7. 예약 Job
+## 7. Scheduled Jobs
 
-예약을 켜면 **그 Job 자체는 한 번도 돌지 않습니다.** 정의를 담는 틀(템플릿)이 됩니다.
-발화 시각마다 자식 Job 하나(회차)를 만들어 그것을 돌립니다. 회차는 실행 기록입니다.
+With a schedule on, **the Job itself never runs.** It becomes a template that holds the definition. At each fire time
+it makes one run of the Job and runs that. The runs are the record.
 
 ```
-"매일 09:00 리포트"   ← 템플릿. 돌지 않습니다. Task 정의만 들고 있습니다
-   ├── 3회차
-   ├── 2회차
-   └── 1회차
+"Daily 09:00 report"   <- the template. Never runs. Holds only the Task definitions
+   ├── run #3
+   ├── run #2
+   └── run #1
 ```
 
-Job 하나를 반복해서 돌리면 지난 실행의 Task 상태와 이벤트를 매번 지워야 하고, 그러면 어제 무엇이
-실패했는지 볼 수 없습니다. 회차를 따로 두면 기록이 남습니다.
+Running one Job over and over would mean wiping the last run's Task states and events every time, and then you could
+not see what failed yesterday. Separate runs keep the record.
 
-### 만들기와 발화
+### Making one, and when it fires
 
-새 작업 모달에서 `예약 실행`을 켜고 규칙을 고릅니다 — N분마다, 매일, 매주, 매월.
+Plans page → **+ New job** → tick **Scheduled run** and pick a rule: every N minutes, daily, weekly or monthly at a
+time. A coordinator account is required. A schedule has no planner option: its Tasks are copied into every run, so you
+lay them out by hand. The Start page and `astera jobs create` have no schedule option.
 
-**Task를 다 짜고 `실행`을 눌러야 예약이 시작됩니다.** 보통 Job과 같습니다 — 다만 누르는 순간
-도는 것이 아니라, 그때부터 예약이 유효해집니다. 08:59에 눌렀고 규칙이 매일 09:00이면 1분 뒤
-첫 회차가 돌고, 09:01에 눌렀으면 다음 날 09:00입니다.
+**The schedule starts when you lay out the Tasks and press Run**, as with any Job. Except that pressing it does not run
+anything right then; it makes the schedule live. Pressed at 08:59 with a rule of daily 09:00, the first run starts a
+minute later; pressed at 09:01, the next day at 09:00. Until then the row says "Press Run to start the schedule".
 
-누르기 전까지는 발화하지도, 다음 시각을 잡아 두지도 않습니다. 잡아 두면 Task를 짜는 동안 지나간
-시각이 첫 발화가 되어, 버튼을 누르는 순간 이미 밀린 회차가 돕니다.
+Before Run is pressed the schedule neither fires nor even sets its next time. If it did, a time that passed while you
+were laying out the Tasks would become the first fire, and pressing the button would start an overdue run at once.
 
-그 뒤로는 앱이 15초마다 확인해서 시각이 지났으면 회차를 만들고 즉시 돌립니다.
+After that, the process that drives (the Host, or the app when no Host drives) checks every 15 seconds, and when a time
+has passed it makes a run and starts it. The Host fires whether or not the window is open.
 
-**앱을 켠 직후에는 발화하지 않습니다.** 처음 본 템플릿은 다음 시각만 잡아 둡니다. 그러지 않으면
-앱을 켤 때마다 한 회차가 돕니다.
+**Nothing fires right after a start.** A template seen for the first time only sets its next time. Otherwise every
+launch would fire a run.
 
-**놓친 발화는 버립니다.** 앱이 꺼져 있던 동안의 시각을 따라잡지 않고 다음 시각부터 셉니다.
+**Missed fires are dropped.** Times that passed while nothing was driving are not caught up; counting starts again from
+the next time.
 
-### 일시 중지와 다시 실행
+**A fire is skipped while the Job's latest run is still running**, the same rule that makes `jobs run` refuse a Job
+that is already going. The skip is logged once and that fire is not retried; the next one is the next scheduled time.
+So two runs of one schedule do not overlap. (A finished run whose coordinator is still open, or a run with nothing
+left but an idle coordinator, is replaced: that coordinator is stopped and the new run starts.)
 
-사이드바의 템플릿 줄에 `⏸` / `▶` 토글이 있습니다. 상세 창에는 두지 않았습니다 — 그 창의 `실행`
-버튼은 **처음 시작하는** 버튼이고, 세우고 다시 돌리는 것은 그것과 다른 일입니다.
+Each fire of a Job with a coordinator account starts a fresh coordinator, at the cost of one coordinator's usage per
+fire. A run that finishes has its coordinator stopped at once.
 
-**일시 중지하면 지금 도는 워커까지 멈춥니다.** 그 예약에 딸린 회차 전부가 함께 세워지고, 확인 창이
-먼저 뜹니다. `worker-retain`으로 붙잡아 둔 세션이 있으면 멈추지 않습니다 — 먼저 놓아 주세요.
+### Pausing and resuming
 
-**멈춘 회차는 이어지지 않습니다.** 다시 실행하면 **다음 예약 시각에 새 회차**가 돕니다. 중단된
-회차의 Task는 멈춘 채로 남습니다.
+The template's row on the Plans page has a **Pause** / **Resume** toggle (⏸ / ▶). It is separate from the **Run** button
+on the plan page, which is the button that **starts** a schedule for the first time; stopping and starting again is a
+different act.
 
-멈춘 동안 템플릿 줄에는 `다음 …` 대신 `일시 중지됨`이 뜹니다.
+**Pausing stops the workers that are running now.** Every run of that schedule is stopped with it, and you are asked
+first. If a session is held with `worker-retain`, the pause is refused; release it first.
 
-### 회차가 도는 방식
+**A paused run does not continue.** Resuming runs **a new run at the next scheduled time**. The stopped run's Tasks stay
+stopped, and resuming the schedule does not bring them back.
 
-회차는 템플릿의 Task를 의존 관계까지 그대로 복사해서 받고, 그 뒤로는 보통 Job과 똑같이 돕니다 —
-자기 워크트리가 생기고, 동시 실행 값에 따라 순서대로 또는 나란히 돕니다.
+While paused, the row shows "Paused" instead of "next …".
 
-**겹침을 막지 않습니다.** 5분마다 도는데 한 회차가 7분 걸리면 두 회차가 동시에 돕니다. 각자 자기
-워크트리에 있으므로 서로를 밟지는 않습니다.
+### How a run runs
 
-회차에서는 Gate 응답, Task 재시도, 워커 정지가 모두 됩니다. **Task를 추가하거나 고치는 것은
-템플릿에서만 됩니다** — 회차에서도 고칠 수 있으면 어느 정의가 진짜인지 알 수 없게 됩니다.
+A run gets a copy of the template's Tasks, dependencies included (a template with no Task definitions, whose
+coordinator made the Tasks inside a run, copies the last run's Tasks). After that it runs like any Job: its own
+worktree, Tasks in turn or side by side by the concurrency.
 
-### 회차가 끝나면
+Gate answers, Task retries and stopping a worker all work in a run. Tasks added to the template go into every later
+run; a Task added to one run (`tasks add --run`) belongs to that run only.
 
-**완료된 회차의 워크트리 폴더를 자동으로 지웁니다.** 회차마다 폴더가 쌓이는 것을 막습니다.
+### When a run ends
 
-폴더는 없어지지만 **그 회차가 한 일은 남습니다.** 아직 합쳐지지 않은 커밋이 있는 브랜치는 git이
-삭제를 거부하므로 브랜치가 살아남고, 로그에 그 이름이 남습니다.
+**A completed run's worktree folders are removed automatically**, so a folder does not pile up per fire.
 
-**실패한 회차는 폴더를 남깁니다.** 실패는 그 폴더를 열어 볼 이유입니다.
+The folders go, but **what the run did stays.** A branch with unmerged commits is not deleted (git refuses), so it
+survives, and its name is logged.
 
-**예약 회차의 결과는 프로젝트에 자동으로 합쳐지지 않습니다.** 폴더가 없어졌으므로 `병합` 버튼도
-닿지 않습니다(누르면 합칠 것이 남아 있지 않다고 알려 줍니다). 가져오려면 그 브랜치를 직접
-합치세요.
+**A failed run keeps its folders.** A failure is a reason to open them.
 
-그래서 예약은 **돌리는 것 자체가 목적일 때** 맞습니다 — 테스트를 매일 돌려 결과를 보거나, 리포트를
-만드는 일. "매일 고쳐서 프로젝트에 반영해 달라"는 아직 이 기능의 모양이 아닙니다.
+**A run's work is never brought into the project for you**: no PR, no push, no merge. The folders are gone, so the
+**Merge** button has nothing to reach ("Nothing left to merge"). To take a run's work, merge its branch yourself.
 
-### 사이드바
+So a schedule fits work where **running it is the point**: running the tests every day to see the result, or writing a
+report. "Fix things every day and land them in the project" is not what this feature does yet.
 
-템플릿 줄은 언제나 위쪽에 있습니다. 회차가 쌓일수록 아래로 내려가면 정의를 찾기 어려워집니다.
-그 줄에 규칙 요약, 다음 발화 시각, 지금까지 발화한 횟수가 뜹니다. 한 번도 돌지 않았으면 `대기 중`
-입니다. 회차는 템플릿 밑에 접혀 있고 펼치면 최신순으로 나옵니다.
+### The list
 
-**회차 번호는 뒤로 가지 않습니다.** 5회차까지 갔을 때 앞의 두 개를 지워도 다음은 6회차입니다.
-번호를 발화 시점에 찍어 두기 때문입니다.
+A template's row stays at the top of its group, so the definition is easy to find however many runs pile up. The row
+shows the rule, the next fire time and how many runs so far ("Waiting" if it has never fired). The runs fold under the
+template, newest first.
 
-### 지우기
+**Run numbers never go back.** If you have reached run #5 and delete the first two, the next is still run #6: the number
+is stamped when the run fires.
 
-회차 하나만 지우면 그 기록만 사라지고, 보통 Job과 같은 선택지 셋이 뜹니다.
+### Deleting
 
-**템플릿을 지우면 회차 전부가 함께 사라집니다.** 도는 워커는 정지시키고 지웁니다. 다만
-`worker-retain`으로 붙잡아 둔 세션이 있으면 지우지 않습니다 — 먼저 놓아 주세요.
+Deleting one run removes only that record, with the same three choices as any Job.
 
-기록은 30일 뒤 자동으로 정리됩니다.
+**Deleting the template deletes all its runs.** Running workers are stopped first. If a session is held with
+`worker-retain`, nothing is deleted; release it first. Note that the workers are closed and a chosen merge is made
+before a folder removal can be refused, so after such a refusal the Job and its runs are kept but the workers are
+already closed.
 
-### 보통 Job과 다른 점
+Finished runs are cleaned up automatically 30 days after they finish.
 
-| | 보통 Job | 예약 Job |
+### Plain Job and scheduled Job compared
+
+| | Plain Job | Scheduled Job |
 |---|---|---|
-| 시작 | 사람이 `실행` | 예약 시각 |
-| Job 개수 | 하나 | 템플릿 1 + 회차 N |
-| 워크트리 | 하나 | 회차마다 하나 |
-| 끝난 뒤 폴더 | 남습니다 | 자동으로 지웁니다 (실패는 남김) |
-| 프로젝트로 합치기 | `병합` 버튼 | 버튼이 닿지 않습니다 — 브랜치를 직접 합치세요 |
-| Task 수정 | 됩니다 | 템플릿에서만 |
-| 겹침 | 없습니다 | 허용합니다 |
+| Starts | You press Run, or approve the plan | At the scheduled time |
+| Jobs | One | 1 template + N runs |
+| Worktree | One per run | One per run |
+| Folders after it ends | Kept until delivery cleans up, or you delete them | Removed automatically (a failed run keeps them) |
+| Into the project | Delivery (`pr` or `push`), or the Merge button | Never automatic; merge the branch yourself |
+| Editing Tasks | Yes | On the template, for every later run |
+| Overlapping runs | `jobs run` refuses while one runs | A fire is skipped while one runs |
 
-## 부록: 워크트리는 어디에 생기나
+## Appendix: where worktrees go
 
 | | |
 |---|---|
-| 폴더 | `~/astera-worktrees/<저장소 이름>/<작업명>` |
-| 브랜치 | `<git 사용자명>/<작업명>` |
-| 갈라지는 자리 | 프로젝트 폴더의 현재 브랜치 |
+| Folder | `~/astera-worktrees/<repository name>/<name>` |
+| Branch | `<git user name>/<name>` |
+| Forks from | The branch checked out in the project folder (a dependent Task: the run's worktree) |
 
-작업명은 Job의 목표(Task라면 제목)에서 만들고, 길어도 40자에서 자릅니다. 되도록 단어 중간이
-아니라 그 앞의 `-` 자리에서 자르므로, 한 문단짜리 목표도 폴더와 브랜치 이름이 길어져 실패하지
-않습니다. git이 받지 않는 `.lock` 으로 끝나는 이름은 `-lock` 으로 바꿉니다.
-같은 이름이 이미 있으면 뒤에 숫자가 붙습니다. 워크트리 목록은 탐색기의 워크트리 패널에서 볼 수
-있고, 폴더가 사라진 항목은 목록을 열 때 저절로 정리됩니다.
+The name comes from the Job's objective (for a Task, its title) and is cut at 40 characters, at the `-` before the cut
+when there is one in the second half rather than mid-word, so even a paragraph-long objective does not make the folder
+and branch names too long. A name ending in `.lock`, which git refuses, becomes `-lock`. If the name is taken, a number
+is appended. Every worktree is listed on the [Worktrees](guide.md#worktrees) page.
+
+See also: the [guide](guide.md), the [CLI reference](cli.md), [How It Works](how-it-works.md) and the
+[main README](../README.md).

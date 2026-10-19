@@ -1,4 +1,4 @@
-// W8-B: git-ai (github.com/git-ai-project/git-ai) as a reader only. The spike (docs/orchestrator/LINUX.md, "git-ai
+// W8-B: git-ai (github.com/git-ai-project/git-ai) as a reader only. The spike (docs/dev/LINUX.md, "git-ai
 // spike") chose the native engine, so Astera never installs git-ai and never needs it. When the owner has it on PATH
 // anyway, a commit it noted (`refs/notes/ai`, its authorship log) is read into the Wave 8 `lines` shape, so lines git-ai
 // saw in an editor of its own are not lost. Absent tool or absent note: null, and the native answer stands.

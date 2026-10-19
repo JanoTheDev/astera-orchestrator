@@ -100,7 +100,7 @@ const INTAKE_FLAGS: readonly UsageFlag[] = [
     name: 'approve',
     value: '<auto|ask>',
     about:
-      "with --mode prompts (Run as written: each attached .md file, or each `## ` section of one document, is one Task with its text unchanged, ordered by docs/orchestrator/PLAN.md's wave table): auto (default) starts the plan without an approval step; ask waits for it"
+      "with --mode prompts (Run as written: each attached .md file, or each `## ` section of one document, is one Task with its text unchanged, ordered by docs/dev/PLAN.md's wave table): auto (default) starts the plan without an approval step; ask waits for it"
   }
 ]
 

@@ -223,8 +223,8 @@ Then, on npmjs.com, in each package's **Settings**, under **Trusted Publisher**,
 
 | Field | Value |
 |---|---|
-| Organization or user | `parsingk` |
-| Repository | `Astera` |
+| Organization or user | `JanoTheDev` |
+| Repository | `astera-orchestrator` |
 | Workflow filename | `publish-packages.yml` |
 | Environment | none |
 
@@ -271,9 +271,10 @@ be released, so this happens *after* the first public release. Note that the cer
 **SignPath Foundation** as the publisher, not the repository owner.
 
 Before applying, the Foundation's [conditions](https://signpath.org/terms.html) require a published
-code signing policy naming the team roles and the certificate issuer: that is
-[code-signing.md](code-signing.md), linked from the README's Install and Documentation sections
-under the exact term *Code signing policy*. Multi-factor authentication must be on for every team
+code signing policy naming the team roles and the certificate issuer: that is a
+code signing policy page linked from the README under the exact term *Code signing policy*. This fork
+does not keep one, because it ships unsigned Windows builds; write it when you apply (upstream's is at
+[parsingk/Astera](https://github.com/parsingk/Astera/blob/main/docs/code-signing.md)). Multi-factor authentication must be on for every team
 member's GitHub and SignPath account. Once approved:
 
 1. Credit the sponsor in the README, as the conditions require: *Windows code signing provided by

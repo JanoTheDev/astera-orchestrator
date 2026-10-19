@@ -407,7 +407,7 @@ function createWindow(startingText: string | null = null, theme?: Theme, place?:
   // window-all-closed handler, which already calls app.quit() on every platform but macOS: this adds
   // no new quit path, it stops blocking the one that was always there, and will-quit's session
   // cleanup still runs. What the quit costs is small, because the Host carries the orchestration
-  // path on its own (measured on Linux, docs/orchestrator/LINUX.md "Closing the window"): it already
+  // path on its own (measured on Linux, docs/dev/LINUX.md "Closing the window"): it already
   // drives Jobs while the app is open (the hello yields HOST_YIELD_DISPATCH, so driverOf answers
   // 'host'), places and checks workers and fires Job schedules with no app, and takes over a gone
   // app's roll chains (takeover.ts). What does stop is this process's own: the per-session command

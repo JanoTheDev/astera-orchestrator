@@ -6,7 +6,7 @@ with what you need on your first day and ends with the rules that matter once yo
 ## Getting started
 
 You need **Node.js 22.12+** and a C++ toolchain for `node-pty` (see
-[Build from source](../README.md#build-from-source) for what that is on each platform).
+[Build from source](../README.md#run-it) for what that is on each platform).
 
 ```bash
 git clone https://github.com/<you>/Astera.git
@@ -124,15 +124,9 @@ A couple of things worth knowing before you change code:
   "required field is empty" message by looking one up (a test in `run/migrate.test.ts` pins that,
   because the key is assembled from a string and no type can check it). It only lands under
   "detected in this project" if something supplies the evidence — a seed configuration, a boolean
-  derived from the project's root file list, or a scan. The four READMEs name the kinds one by one
-  under **Run**, so a new one belongs in all four as well — nothing checks that list, and it is the
-  first thing a reader sees.
-- The README ships in the same four languages, as `README.md` (English, the source), `README.ko.md`,
-  `README.ja.md` and `README.es.md`, each linking to the others under the badges. A change to the
-  English README that alters what the app does or how it is installed belongs in the translations
-  too; wording-only polish does not have to be mirrored. As with the catalogs, the Japanese and
-  Spanish pages had no native review.
-- The three README diagrams are generated, and both the source and the output are committed. The
+  derived from the project's root file list, or a scan.
+- The README is English only. Its screenshots are `assets/ui-*.png`; retake them when a page's look changes.
+- The three diagram GIFs in `assets/` are generated, and both the source and the output are committed. The
   source is `assets/src/diagram.html`, one set of six states per diagram with a caption each, picked
   by a `?d=<set>` query; `npx electron scripts/gen-diagram.js` renders every set in `DIAGRAMS` and
   encodes `assets/rolling.gif`, `assets/schedule.gif` and `assets/jobs.gif`, which needs `ffmpeg` on
@@ -159,5 +153,5 @@ A couple of things worth knowing before you change code:
   `vX.Y.Z`, which is what publishes the installers and the update feed
   ([docs/releasing.md](../docs/releasing.md)).
 
-See [Build from source](../README.md#build-from-source) in the README for the Node version, the native
+See [Build from source](../README.md#run-it) in the README for the Node version, the native
 toolchain `node-pty` needs, and the packaging scripts.

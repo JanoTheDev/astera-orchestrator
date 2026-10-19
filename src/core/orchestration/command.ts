@@ -760,7 +760,7 @@ export interface OrchServerDeps {
   intakeInputs?(jobId: string, files: string[]): Promise<{ dir: string; names: string[] }>
   // W8-C prompts mode
   /** A text file of this machine, or null when it is not there: a Run-as-written plan's copied prompt files and its
-   *  project's docs/orchestrator/PLAN.md (`readTextIfAny`). **Only the Host injects it**; absent, `--mode prompts` with
+   *  project's docs/dev/PLAN.md, else docs/orchestrator/PLAN.md (`readTextIfAny`). **Only the Host injects it**; absent, `--mode prompts` with
    *  files answers 409 and a pasted document is ordered without PLAN.md. */
   readIntakeText?(file: string): Promise<string | null>
   /** The job-source plugins (plugin Phase 4 J10): which there are and a question to one. **Only the Host injects it**,
@@ -1573,7 +1573,7 @@ function coordinatorWanted(deps: OrchServerDeps, s: OrchState, run: JobRun, job:
  *  their own: a Job's next Run's Tasks, or a Run's unfinished Tasks when a coordinator would be started for it. */
 // W8-C prompts mode
 /** Writes a Run-as-written plan's Tasks (`jobs-create --mode prompts`): one definition Task per prompt, its text the
- *  prompt byte for byte, in the order docs/orchestrator/PLAN.md and the prompts' own sentences give (promptWaves.ts).
+ *  prompt byte for byte, in the order docs/dev/PLAN.md (or docs/orchestrator/PLAN.md) and the prompts' own sentences give (promptWaves.ts).
  *  Their account is the plan's coordinator account, else the default one. Answers the `Job.verbatim` entries and the
  *  lines the planner's objective lists, or the sentence to refuse with. */
 async function writePromptTasks(
@@ -1591,7 +1591,12 @@ async function writePromptTasks(
     files.push({ name, text })
   }
   const job = deps.getState().jobs.find((j) => j.id === jobId)!
-  const planMd = (await deps.readIntakeText?.(path.join(job.cwd, 'docs', 'orchestrator', 'PLAN.md'))) ?? undefined
+  // docs/dev first; docs/orchestrator is where projects that predate the move keep it
+  let planMd: string | undefined
+  for (const dir of ['dev', 'orchestrator']) {
+    planMd = (await deps.readIntakeText?.(path.join(job.cwd, 'docs', dir, 'PLAN.md'))) ?? undefined
+    if (planMd !== undefined) break
+  }
   const plan = promptPlanOf(files, pasted, planMd)
   let account = job.coordinatorAccountId
   if (account === undefined) {

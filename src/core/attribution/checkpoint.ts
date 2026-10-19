@@ -14,7 +14,7 @@
 // are the two the script cannot splice (they need `crypto`), so the script repeats their one expression and the
 // script test pins both against these.
 //
-// Why the docs/orchestrator/LINUX.md git-ai spike chose this engine over git-ai is written there.
+// Why the docs/dev/LINUX.md git-ai spike chose this engine over git-ai is written there.
 import { createHash } from 'node:crypto'
 import { promises as fs, realpathSync } from 'node:fs'
 import path from 'node:path'

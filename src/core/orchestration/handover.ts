@@ -203,7 +203,7 @@ export const PROMPTS_MODE_FILL_IN = [
   'RUN AS WRITTEN (planner-guide.md section 6)',
   "The owner's prompts are this plan's Tasks, one per prompt, already created with their text unchanged.",
   'Never rewrite, merge, split, add or cancel a Task. Fill in each one: --affected-paths, --criteria, --difficulty, ' +
-    '--basis/--evidence, and keep the deps Astera computed from docs/orchestrator/PLAN.md unless a prompt itself says otherwise.'
+    '--basis/--evidence, and keep the deps Astera computed from docs/dev/PLAN.md unless a prompt itself says otherwise.'
 ]
 
 /** The planner session's brief: who it is, the Job, where the repository is, how to write Tasks, and that

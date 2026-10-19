@@ -885,6 +885,16 @@ account of that provider logged in it is a 2 that names the provider. When both 
 A Host that announces `dispatch` places them whether Astera is open or closed, and otherwise Astera
 does (see "Jobs run with Astera closed").
 
+**`jobs create --mode`** picks how the planner starts. `plan` (the default) plans the objective.
+`audit` has the planner audit `--scope <path|all>` (default `all`), write `inputs/audit.md`, then plan
+the fixes. `fixlist` reads the objective as a problem list and makes one or more Tasks per problem.
+`prompts` runs the text as written: each `--attach`ed `.md` file, or each `## ` section of one
+document, is one Task with its text unchanged; `--approve auto` (default) starts it without an
+approval step and `--approve ask` waits for one. `--instructions <text>` adds the owner's extra
+instructions, which win over a source when the two conflict, and `--attach <path>` (repeatable, a
+regular file of at most 30 MB) copies a file into the plan's inputs for the planner to read first.
+The objective may be left out with `--mode audit` or `--attach`.
+
 **`tasks add` takes exactly one of `--job` or `--run`**, and there is no default. `--job` adds a task
 to the plan, and `jobs run` copies it, with its `--deps` pointing at the copies, into every run it
 starts from then on. `--run` adds a task to one run that already exists. The flag decides which: a run

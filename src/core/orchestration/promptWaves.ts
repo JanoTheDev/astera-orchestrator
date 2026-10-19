@@ -1,5 +1,5 @@
 // W8-C prompts mode ("Run as written"): the owner's prompt files become a plan's Tasks unchanged, and their order comes
-// from docs/orchestrator/PLAN.md's wave table and the prompts' own "run alone" / "after X merges" sentences. Pure: the
+// from docs/dev/PLAN.md's wave table and the prompts' own "run alone" / "after X merges" sentences. Pure: the
 // Host reads the files (jobs-create), this only reads their text.
 import { createHash } from 'node:crypto'
 

@@ -1083,7 +1083,7 @@ export type ResumeStrategy = 'smart' | 'original'
  *  두고 그 기본값이 곧 우회 플래그다(`DEFAULT_TUI_AGENT_ARGS = YOLO_TUI_AGENT_ARGS`).
  *
  *  Fork (orchestrator W0): the default here is 'manual' — the bypass is never on until the person picks 'yolo'
- *  (docs/orchestrator/SECURITY-AUDIT.md item 2). */
+ *  (docs/dev/SECURITY-AUDIT.md item 2). */
 export type AgentPermissionMode = 'yolo' | 'manual'
 
 /** What an MCP client may do through the Host (MCP design M5). Default 'control' (M6). */

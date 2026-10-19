@@ -32,8 +32,8 @@ It needs Astera 1.4.12 or later, the first whose Host keeps the public event log
 To try what this repository has before it is released, build the package from a clone:
 
 ```bash
-git clone https://github.com/parsingk/Astera.git
-cd Astera
+git clone https://github.com/JanoTheDev/astera-orchestrator.git
+cd astera-orchestrator
 npm ci --ignore-scripts
 npm run build:packages
 ```
