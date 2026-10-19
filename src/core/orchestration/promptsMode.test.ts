@@ -138,8 +138,8 @@ describe('a Run-as-written prompt is never rewritten', () => {
 
   it('validatePlan refuses a changed prompt, a missing or doubled prompt and a Task from no prompt', async () => {
     const { r, jobId, tasks } = await planned()
-    for (const t of tasks)
-      await r.planner('task-update', { id: t.id, criteria: ['done'], basis: 'missing', evidence: 'x' })
+    for (const [i, t] of tasks.entries())
+      await r.planner('task-update', { id: t.id, criteria: ['done'], affectedPaths: [`src/p${i}`], basis: 'missing', evidence: 'x' })
     expect(validatePlan(r.state(), jobId)).toEqual([])
     // the person's own task-update is not a planner's, so only the approval check stops it
     expect((await r.person('task-update', { id: tasks[1].id, prompt: 'Rewritten.' })).status).toBe(200)

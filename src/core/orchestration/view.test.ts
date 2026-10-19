@@ -243,7 +243,7 @@ describe('snapshotFor', () => {
     const base = withRuns([run('r1', absPath('p'))])
     const job = { ...base.jobs[0], pendingStart: true, plannerSessionIds: ['pl'] }
     const planTask: Task = {
-      ...task('pt', 'x', 'ready'), runId: undefined, jobId: job.id, prompt: 'do it', acceptanceCriteria: ['done'], basis: { state: 'missing', evidence: 'none' }
+      ...task('pt', 'x', 'ready'), runId: undefined, jobId: job.id, prompt: 'do it', acceptanceCriteria: ['done'], affectedPaths: ['src/a'], basis: { state: 'missing', evidence: 'none' }
     }
     const rowOf = (j: typeof job, tasks: Task[] = [planTask]) =>
       snapshotFor({ ...base, runs: [], jobs: [j], tasks }, absPath('p'), anySession, noWorktrees, noFires, allExist).runs[0]
