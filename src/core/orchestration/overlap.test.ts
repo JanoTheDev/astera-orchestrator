@@ -158,18 +158,19 @@ describe('the briefs list the other plans of the repository', () => {
   it("in the planner's brief: their Tasks, state and paths", () => {
     const other = otherPlansBrief(s, s.jobs[1])
     expect(other).toContain('Auth rework (job jA, completed, areas: auth)')
-    expect(other).toContain('T6 [completed]: src/api/routes.ts')
+    // T1: a finished plan is one line, with no Task lines
+    expect(other).toContain('1 Tasks done (astera tasks list --run jA --json)')
+    expect(other).not.toContain('T6 [completed]')
     expect(other).not.toContain('Elsewhere')
     const brief = buildPlannerBrief({ jobId: 'jB', objective: 'o', repoRoot: '/repo', accountId: 'acc_1', concurrency: 2, otherPlans: other })
     expect(brief).toContain('OTHER PLANS IN THIS REPOSITORY')
-    expect(brief).toContain('T6 [completed]')
     expect(brief).toContain('--areas')
     expect(otherPlansBrief(s, s.jobs[2])).toBe('')
   })
 
   it("in the replan's brief", () => {
     const brief = buildReplanBrief({ job: s.jobs[1], runId: 'r2', mode: 'wave', wave: 1, accountId: 'a', followUps: 0, done: [], running: [], left: [], otherPlans: otherPlansBrief(s, s.jobs[1]) })
-    expect(brief).toContain('T6 [completed]: src/api/routes.ts')
+    expect(brief).toContain('Auth rework (job jA, completed, areas: auth): 1 Tasks done (astera tasks list --run jA --json)')
   })
 })
 

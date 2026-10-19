@@ -6354,6 +6354,33 @@ describe('jobs create / tasks add / accounts list', () => {
     expect((await shell(deps, 'tasks-add', { job: jobId, spec: 's', account: 'acc1', affectedPaths: [''] })).status).toBe(400)
   })
 
+  // T1 chat-first planning
+  it('T1: jobs create/set accept --planning chat|auto, refuse others; an empty chat objective is allowed; agent Jobs plan alone', async () => {
+    const deps = makeDeps()
+    const made = await shell(deps, 'jobs-create', { cwd: 'D:/p', planning: 'chat' })
+    expect(made.status).toBe(200)
+    expect(deps.getState().jobs.at(-1)?.planning).toBe('chat')
+    expect((await shell(deps, 'jobs-create', { objective: 'o', cwd: 'D:/p', planning: 'maybe' })).status).toBe(400)
+    const jobId = await jobOf(deps)
+    expect(deps.getState().jobs.find((j) => j.id === jobId)?.planning).toBeUndefined()
+    expect((await shell(deps, 'jobs-set', { id: jobId, planning: 'auto' })).status).toBe(200)
+    expect(deps.getState().jobs.find((j) => j.id === jobId)?.planning).toBe('auto')
+    expect((await shell(deps, 'jobs-set', { id: jobId, planning: 'x' })).status).toBe(400)
+  })
+
+  it('T1: jobs set --priority sets Job.priority and refuses a non-integer', async () => {
+    const deps = makeDeps()
+    const jobId = await jobOf(deps)
+    const r = await shell(deps, 'jobs-set', { id: jobId, priority: '5' })
+    expect(r.status).toBe(200)
+    expect(deps.getState().jobs.find((j) => j.id === jobId)?.priority).toBe(5)
+    expect((await shell(deps, 'jobs-set', { id: jobId, priority: '1.5' })).status).toBe(400)
+    expect((await shell(deps, 'jobs-set', { id: jobId, priority: 'high' })).status).toBe(400)
+    expect(deps.getState().jobs.find((j) => j.id === jobId)?.priority).toBe(5)
+    expect((await shell(deps, 'jobs-set', { id: jobId, priority: 0 })).status).toBe(200)
+    expect(deps.getState().jobs.find((j) => j.id === jobId)?.priority).toBeUndefined()
+  })
+
   // W7-D (#67): a plan's worker count changes until it finishes
   it('W7-D: jobs set --concurrency changes a not-finished Job, clamped to 10; refuses agents, bad values and a finished Job', async () => {
     const deps = makeDeps()

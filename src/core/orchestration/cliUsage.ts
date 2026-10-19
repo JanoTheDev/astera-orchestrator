@@ -108,6 +108,8 @@ const INTAKE_FLAGS: readonly UsageFlag[] = [
 const JOB_MAKING_FLAGS: readonly UsageFlag[] = [
   { name: 'concurrency', value: '<n>', about: 'how many workers this Job places at once (1-10; more reads as 10)' },
   { name: 'priority', value: '<n>', about: 'which Job gets a free slot first when the app-wide worker cap is reached (higher first, default 0)' },
+  // T1 chat-first planning
+  { name: 'planning', value: '<chat|auto>', about: "how the planner works: chat brainstorms with you in its terminal (it may start with no objective), auto decides alone and records its decisions (default chat; auto when hands-off or made by an agent session)" },
   // W6-D wave replanning
   { name: 'replan', value: '<waves|off>', about: 'whether a planned Job is replanned between waves and checked once more at the end (default waves)' },
   {
@@ -428,20 +430,25 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
   },
   // W7-D (#67)
   'jobs-set': {
-    summary: 'change how many workers a Job runs at once, which plan it is queued after, or its areas',
+    summary: 'change how many workers a Job runs at once, which plan it is queued after, its areas, its planning mode or its priority',
     detail:
       'Until the Job finishes; a finished one is refused (CONFLICT, exit 6). A lower number only holds back new starts: running workers carry on. At most 10. Refused from an agent session and an MCP client. ' +
       // W8-C plan after plan
       '--after queues a Job that has not started planning after another (none clears it): its planner starts by itself once that Job is delivered (pushed, its pull request opened and not a draft, or ended with nothing to do). If that Job gives up or is archived, the queued one waits and escalates once. A chain that would wait on itself is refused (exit 2); a Job already planning is refused (CONFLICT, exit 6). ' +
       // W8-D plan areas
-      '--areas names where the plan works, 1 to 3 short words (none clears them); `jobs list --area` filters by them. It is set on its own, and the Job\'s own planner may set it too.',
+      '--areas names where the plan works, 1 to 3 short words (none clears them); `jobs list --area` filters by them. It is set on its own, and the Job\'s own planner may set it too. ' +
+      // T1 chat-first planning
+      '--planning and --priority (an integer, as at `jobs create`) change those two after creation, alone or together; --planning applies to the next planner start.',
     flags: [
       ID('<jobId | runId>', 'the Job to change, or one of its runs'),
       { name: 'concurrency', value: '<n>', about: 'workers at once, 1–10' },
       // W8-C plan after plan
       { name: 'after', value: '<jobId|none>', about: 'the Job this one is queued after; none clears it' },
       // W8-D plan areas
-      { name: 'areas', value: '<a,b,c|none>', about: "1–3 short words for where the plan works (auth, api, ui); alone; its planner may set it too" }
+      { name: 'areas', value: '<a,b,c|none>', about: "1–3 short words for where the plan works (auth, api, ui); alone; its planner may set it too" },
+      // T1 chat-first planning
+      { name: 'planning', value: '<chat|auto>', about: 'how its planner works: chat brainstorms with you, auto decides alone' },
+      { name: 'priority', value: '<n>', about: 'which Job gets a free slot first when the worker cap is reached (higher first, default 0)' }
     ]
   },
   // W8-D several plans in one repo (overlap.ts)
@@ -475,6 +482,8 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       { name: 'account', value: '<id>', about: "the account the planner runs on (default: the Job's coordinator account)" },
       // W6-C
       { name: 'concurrency', value: '<n>', about: 'how many workers this Job places at once (1-10; more reads as 10)' },
+      // T1 chat-first planning
+      { name: 'planning', value: '<chat|auto>', about: "how the planner works: chat brainstorms with you in its terminal, auto decides alone (default: the Job's own)" },
       // W6-H delivery
       { name: 'delivery', value: '<pr|push>', about: "how this Job's finished plan lands, ahead of its project's: one pull request, or pushed to the delivery branch with no review by a person" },
       // W6-D wave replanning

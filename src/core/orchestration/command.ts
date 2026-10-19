@@ -123,7 +123,7 @@ import { ISSUE_JOB_ASSOCIATIONS, ISSUES_PER_CALL_MAX, assignIssueToMe, issueNumb
 import { GITHUB_SOURCE_ID, issuesContext, issuesTitleOf } from '../github/issueSource'
 // W6-A intake
 import { SOURCED_OBJECTIVE_MAX } from '../sources/objective'
-import { intakeChanges, intakeObjective, intakeOf, intakeTitle, needsInputs } from './intake'
+import { intakeChanges, intakeObjective, intakeOf, intakeTitle, needsInputs, planningArg } from './intake'
 // W8-C prompts mode
 import path from 'node:path'
 import { access } from 'node:fs/promises'
@@ -2581,9 +2581,13 @@ export async function handleCommand(
       const read = intakeOf(args)
       if (!read.ok) return bad(read.error)
       let intake = read.intake
-      const { mode: _mode, scope: _scope, focus: _focus, instructions: _instructions, attach: _attach, approve: _approve, after: _after, dryRun: _dryRun, handsOff: _handsOff, ...plain } = args
+      const { mode: _mode, scope: _scope, focus: _focus, instructions: _instructions, attach: _attach, approve: _approve, after: _after, dryRun: _dryRun, handsOff: _handsOff, planning: _planning, ...plain } = args
       const handsOff = handsOffArg(args.handsOff, fromAgentSession, caller.role)
       if (typeof handsOff === 'object') return handsOff
+      // T1 chat-first planning: `--planning chat|auto`. An agent session's Job plans alone unless it says otherwise.
+      const planningFlag = planningArg(args.planning)
+      if (typeof planningFlag === 'object') return bad(planningFlag.error)
+      const planning = planningFlag ?? (fromAgentSession ? 'auto' : undefined)
       // W8-C plan after plan: `--after <job>`, the plan this one is queued after
       const afterId = args.after === undefined ? null : str(args.after)
       if (args.after !== undefined && (afterId === null || afterId === 'none')) return bad('--after needs a job id')
@@ -2640,7 +2644,13 @@ export async function handleCommand(
       if (intake.mode === 'prompts' && intake.attach.length === 0 && source.trim() === '')
         return bad('--mode prompts needs .md prompt files (--attach) or the document as --objective')
       // An audit or a set of files is a source of its own: the objective may then be left out.
-      const placeholder = source.trim() === '' && needsInputs(intake) ? { objective: intake.mode === 'audit' ? 'Audit' : 'Attached files' } : {}
+      // T1: a Job made with `--planning chat` may start with no objective: the planner learns it in conversation.
+      const placeholder =
+        source.trim() === '' && needsInputs(intake)
+          ? { objective: intake.mode === 'audit' ? 'Audit' : 'Attached files' }
+          : source.trim() === '' && planning === 'chat' && intake.mode === 'plan'
+            ? { objective: 'To be agreed with the person in the planner terminal' }
+            : {}
       const reply = await handleCommand(deps, caller, 'run-create', { ...plain, ...placeholder, auto: true })
       if (reply.status < 200 || reply.status >= 300) return reply
       const id = (reply.body as { id?: unknown }).id as string
@@ -2716,6 +2726,11 @@ export async function handleCommand(
       if (afterId !== null) {
         const cur = deps.getState()
         await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id ? { ...j, after: afterId } : j)) })
+      }
+      // T1 chat-first planning
+      if (planning !== undefined) {
+        const cur = deps.getState()
+        await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id ? { ...j, planning } : j)) })
       }
       const after = deps.getState()
       const created = after.jobs.find((j) => j.id === id)
@@ -3198,7 +3213,25 @@ export async function handleCommand(
       }
       if (fromAgentSession || caller.role === 'mcp') return denied('jobs-set is for the person, in Astera or at their own shell')
       if (!id) return bad('--id is required')
-      if (args.concurrency === undefined && args.after === undefined) return bad('nothing to set: give --concurrency, --after or --areas')
+      // T1 chat-first planning: `--planning chat|auto` and `--priority <int>`, on their own or together
+      if (args.planning !== undefined || args.priority !== undefined) {
+        if (args.concurrency !== undefined || args.after !== undefined) return bad('--planning and --priority are set without --concurrency or --after')
+        const planning = planningArg(args.planning)
+        if (typeof planning === 'object') return bad(planning.error)
+        const priority = args.priority === undefined ? undefined : typeof args.priority === 'string' ? Number(args.priority) : args.priority
+        if (priority !== undefined && (typeof priority !== 'number' || !Number.isInteger(priority))) return bad('--priority must be an integer')
+        const job = s.jobs.find((j) => j.id === id)
+        if (!job) return notFound(`unknown job: ${id}`)
+        const { priority: _old, ...rest } = job
+        const next: Job = {
+          ...rest,
+          ...(priority === undefined ? (job.priority !== undefined ? { priority: job.priority } : {}) : priority !== 0 ? { priority } : {}),
+          ...(planning !== undefined ? { planning } : {})
+        }
+        await deps.setState({ ...s, jobs: s.jobs.map((j) => (j.id === id ? next : j)) })
+        return okBody(jobView(deps.getState(), next, latestRunOf(deps.getState(), next)))
+      }
+      if (args.concurrency === undefined && args.after === undefined) return bad('nothing to set: give --concurrency, --after, --areas, --planning or --priority')
       // W8-C plan after plan: `--after <job|none>`, only alone (it is set before the plan starts, concurrency after)
       if (args.after !== undefined) {
         if (args.concurrency !== undefined) return bad('--after is set on its own, not with --concurrency')
@@ -3294,6 +3327,13 @@ export async function handleCommand(
         const cur = deps.getState()
         await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id ? { ...j, replan: args.replan as 'waves' | 'off' } : j)) })
       }
+      // T1 chat-first planning: `--planning chat|auto`
+      const planningFlag = planningArg(args.planning)
+      if (typeof planningFlag === 'object') return bad(planningFlag.error)
+      if (planningFlag !== undefined) {
+        const cur = deps.getState()
+        await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id ? { ...j, planning: planningFlag } : j)) })
+      }
       // #117: `--hands-off on|off`, this plan's own, ahead of its project's
       const handsOff = handsOffArg(args.handsOff, fromAgentSession, caller.role)
       if (typeof handsOff === 'object') return handsOff
@@ -3365,6 +3405,8 @@ export async function handleCommand(
               ...(unmerged && unmerged.branches.length > 0 ? { unmergedBranches: unmerged.branches, defaultBranch: unmerged.into } : {}),
               accountId,
               promptsMode: job.verbatim !== undefined,
+              // T1: the Job's own choice, else auto when hands-off
+              planning: planningFlag ?? job.planning ?? (handsOffOf(deps.getState(), { ...job, ...(handsOff !== undefined ? { handsOff } : {}) }) ? 'auto' : 'chat'),
               concurrency: concurrency ?? job.concurrency ?? DEFAULT_CONCURRENCY,
               // W8-D: the other plans of this repository, so it plans around them
               otherPlans: otherPlansBrief(deps.getState(), job)

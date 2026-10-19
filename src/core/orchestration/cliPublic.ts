@@ -139,7 +139,8 @@ const JOB_HIDDEN = [
   'afterStopNotified',
   /* W8-D several plans in one repo: overlaps and areas, not in the SDK's contract yet */ 'overlaps',
   'areas',
-  /* W10-A Run as written by name: what the typed names resolved to, not in the SDK's contract yet */ 'byName'
+  /* W10-A Run as written by name: what the typed names resolved to, not in the SDK's contract yet */ 'byName',
+  /* T1 chat-first planning: chat or auto, not in the SDK's contract yet */ 'planning'
 ] as const
 
 /** A followed event's message body (pages long) and the app's link from an event to a tab. */

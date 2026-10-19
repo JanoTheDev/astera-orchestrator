@@ -323,6 +323,9 @@ export interface Job {
   handsOff?: boolean
   /** #117: what was decided for the owner on a hands-off plan, appended in order. */
   decisions?: Decision[]
+  /** T1 chat-first planning: how the planner works: `chat` brainstorms with the person in its terminal, `auto` decides
+   *  alone. Absent: `chat`, except `auto` on a hands-off plan (`handsOffOf`) and one an agent session made (set at creation). */
+  planning?: 'chat' | 'auto'
   /** #119: why each issue was picked or skipped by "Let Astera pick". */
   pick?: { at: string; picked: IssuePick[]; skipped: IssuePick[] }
   /** What the owner told the planner (`jobs-feedback`), oldest first, with what the planner changed for each. */
