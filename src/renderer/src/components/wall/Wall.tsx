@@ -1,15 +1,18 @@
-// W9-H: the Agents page's wall (DESIGN.md §2): the console strip, the plan pills, the toolbar, the tiles and the
-// Finished row. What goes where is wallModel.ts's; this file only draws it.
-import { useEffect, useRef, useState } from 'react'
+// W9-H, W11: the Agents page's wall (DESIGN-W11 §7, §9): the filters of the page header, the plan groups with their
+// tiles and Done cards, the empty state, and the console strip of the full-size view. What goes where is
+// wallModel.ts's; this file only draws it.
+import { useEffect, useRef } from 'react'
+import { ExternalLink, Plus, TerminalSquare } from 'lucide-react'
 import { useI18n } from '../../i18n/I18nProvider'
-import { Chip, Tabs, EmptyState, cx, type ChipTone } from '../ui'
+import { Button, Chip, Tabs, EmptyState, Select, cx, type ChipTone } from '../ui'
 import { claimTerminal } from './consoleDock'
 import {
   ALL_PLANS, NO_PLAN, pillCount, progressSegments, stripLabel,
-  type PlanFilter, type PlanPill, type Scope, type StateFilter, type WallConsole
+  type PlanFilter, type PlanPill, type StateFilter, type TileState, type WallConsole
 } from './wallModel'
+import type { PlanProgress } from '../plan/planBoard'
 
-/** More plans than this and the pills become a search box over a grouped list (DESIGN §2). */
+/** More plans than this and the plan chips become one select (DESIGN-W11 §7: one control per kind). */
 const PILLS_MAX = 6
 
 const stateTone = (c: WallConsole): ChipTone =>
@@ -28,6 +31,7 @@ export function StateChip({ c }: { c: WallConsole }): React.JSX.Element {
   )
 }
 
+/** The full-size view's switcher: every live console of the scope, the open one selected. */
 export function ConsoleStrip({
   consoles,
   mainId,
@@ -37,7 +41,7 @@ export function ConsoleStrip({
 }: {
   consoles: readonly WallConsole[]
   mainId: string | null
-  /** The open console, or null for "All consoles". */
+  /** The open console, or null for "All consoles" (another page's tab has the pane grid). */
   selected: string | null
   onAll: () => void
   onOpen: (sessionId: string) => void
@@ -45,7 +49,8 @@ export function ConsoleStrip({
   const { t } = useI18n()
   const live = consoles.filter((c) => c.state !== 'finished')
   const items = [
-    { id: '', label: t('wall.strip.all') },
+    // With a console open the header's back button is the way out; the strip offers it only when nothing is open.
+    ...(selected === null ? [{ id: '', label: t('wall.strip.all') }] : []),
     ...live.map((c) => ({
       id: c.sessionId,
       label: (
@@ -63,21 +68,20 @@ export function ConsoleStrip({
   )
 }
 
-function PillBar({ p }: { p: PlanPill }): React.JSX.Element {
+/** A plan's Tasks as one stacked bar, done first. */
+export function ProgressBar({ progress }: { progress: PlanProgress }): React.JSX.Element {
   return (
-    <span className="wall-pill__bar" aria-hidden="true">
-      {progressSegments(p.progress).map((s) => (
-        <span key={s.category} className={`wall-pill__seg wall-pill__seg--${s.category}`} style={{ flexGrow: s.share }} />
+    <span className="wall-progress" aria-hidden="true">
+      {progressSegments(progress).map((s) => (
+        <span key={s.category} className={`wall-progress__seg wall-progress__seg--${s.category}`} style={{ flexGrow: s.share }} />
       ))}
     </span>
   )
 }
 
-export function PlanPills({ pills, value, onChange }: { pills: readonly PlanPill[]; value: PlanFilter; onChange: (v: PlanFilter) => void }): React.JSX.Element {
+const usePillTitle = (): ((p: PlanPill) => string) => {
   const { t } = useI18n()
-  const [query, setQuery] = useState('')
-  const words = { approve: t('wall.plans.approve'), need: (n: number) => t('wall.plans.needYou', { n }) }
-  const titleOf = (p: PlanPill): string =>
+  return (p) =>
     t('wall.plans.title', {
       name: p.name,
       done: p.progress.counts.done,
@@ -88,88 +92,168 @@ export function PlanPills({ pills, value, onChange }: { pills: readonly PlanPill
       failed: p.progress.counts.failed,
       needs: p.needs
     })
-  const pill = (id: PlanFilter, body: React.ReactNode, title?: string): React.JSX.Element => (
-    <button key={id} type="button" className={cx('wall-pill', value === id && 'wall-pill--on')} aria-pressed={value === id} title={title} onClick={() => onChange(id)}>
-      {body}
-    </button>
-  )
-  const planPill = (p: PlanPill): React.JSX.Element =>
-    pill(
-      p.jobId,
-      <>
-        <span className="wall-pill__name">{p.name}</span>
-        <PillBar p={p} />
-        <span className={cx('wall-pill__count', (p.needs > 0 || p.approve) && 'wall-pill__count--need')}>{pillCount(p, words)}</span>
-      </>,
-      titleOf(p)
-    )
-  const many = pills.length > PILLS_MAX
-  const q = query.trim().toLowerCase()
-  const shown = many ? pills.filter((p) => p.jobId === value || (q !== '' && `${p.projectName} ${p.name}`.toLowerCase().includes(q))) : pills
-  // Grouped by project, as the switcher names them.
-  // shortcut: grouped by project, not by W8-D area (Job.areas is not in the JobRow fold); add it to the fold to group by area.
-  const groups = [...new Set(shown.map((p) => p.projectName))].map((name) => ({ name, pills: shown.filter((p) => p.projectName === name) }))
+}
+
+/** A toggled filter (DESIGN-W11 §7): a ghost Button that reads pressed while on. */
+function FilterChip({ on, title, onClick, children }: { on: boolean; title?: string; onClick: () => void; children: React.ReactNode }): React.JSX.Element {
   return (
-    <div className="wall-pills" role="toolbar" aria-label={t('wall.plans.label')}>
-      {pill(ALL_PLANS, t('wall.plans.all'))}
-      {many && (
-        <input className="wall-pills__search" type="search" placeholder={t('wall.plans.search')} value={query} onChange={(e) => setQuery(e.target.value)} />
-      )}
-      {many
-        ? groups.map((g) => (
-            <span key={g.name} className="wall-pills__group">
-              <span className="wall-pills__group-name">{g.name}</span>
-              {g.pills.map(planPill)}
-            </span>
-          ))
-        : shown.map(planPill)}
-      {pill(NO_PLAN, t('wall.plans.none'))}
-    </div>
+    <Button size="sm" variant="ghost" className={cx('wall-chip', on && 'is-active')} aria-pressed={on} title={title} onClick={onClick}>
+      {children}
+    </Button>
   )
 }
 
-export function WallToolbar({
-  scope,
-  onScope,
-  projectName,
-  planPicked,
+/** The page header's filters row: the state as a segmented choice with counts, the plans, and "All projects". */
+export function WallFilters({
   filter,
-  onFilter
+  onFilter,
+  counts,
+  pills,
+  plan,
+  onPlan,
+  allProjects,
+  onAllProjects
 }: {
-  scope: Scope
-  onScope: (s: Scope) => void
-  projectName: string | null
-  planPicked: boolean
   filter: StateFilter
   onFilter: (f: StateFilter) => void
+  counts: Readonly<Record<TileState, number>>
+  pills: readonly PlanPill[]
+  plan: PlanFilter
+  onPlan: (p: PlanFilter) => void
+  allProjects: boolean
+  onAllProjects: (on: boolean) => void
 }): React.JSX.Element {
   const { t } = useI18n()
-  const scopes: { id: Scope; label: string }[] = [
-    ...(planPicked ? [{ id: 'plan' as const, label: t('wall.scope.plan') }] : []),
-    { id: 'project', label: projectName ?? t('wall.scope.noProject') },
-    { id: 'all', label: t('wall.scope.all') }
-  ]
+  const titleOf = usePillTitle()
+  const words = { approve: t('wall.plans.approve'), need: (n: number) => t('wall.plans.needYou', { n }) }
+  const live = counts.needs + counts.working + counts.idle
+  const count = (n: number): { count?: number } => (n > 0 ? { count: n } : {})
   return (
-    <div className="wall-toolbar">
-      <Tabs variant="segmented" label={t('wall.scope.label')} items={scopes} value={scopes.some((s) => s.id === scope) ? scope : 'project'} onChange={onScope} />
+    <>
       <Tabs
         variant="segmented"
         label={t('wall.filter.label')}
         value={filter}
         onChange={onFilter}
         items={[
-          { id: 'all', label: t('wall.filter.all') },
-          { id: 'needs', label: t('wall.filter.needs') },
-          { id: 'working', label: t('wall.filter.working') },
-          { id: 'finished', label: t('wall.filter.finished') }
+          { id: 'all', label: t('wall.filter.all'), ...count(live + counts.finished) },
+          { id: 'needs', label: t('wall.filter.needs'), ...count(counts.needs) },
+          { id: 'working', label: t('wall.filter.working'), ...count(counts.working) },
+          { id: 'finished', label: t('wall.filter.finished'), ...count(counts.finished) }
         ]}
       />
-    </div>
+      {pills.length > 0 && <span className="wall-filters__sep" aria-hidden="true" />}
+      {pills.length > PILLS_MAX ? (
+        <Select className="wall-filters__plan" aria-label={t('wall.plans.label')} value={plan} onChange={(e) => onPlan(e.target.value)}>
+          <option value={ALL_PLANS}>{t('wall.plans.all')}</option>
+          {[...new Set(pills.map((p) => p.projectName))].map((name) => (
+            <optgroup key={name} label={name}>
+              {pills
+                .filter((p) => p.projectName === name)
+                .map((p) => (
+                  <option key={p.jobId} value={p.jobId}>{`${p.name} · ${pillCount(p, words)}`}</option>
+                ))}
+            </optgroup>
+          ))}
+          <option value={NO_PLAN}>{t('wall.plans.none')}</option>
+        </Select>
+      ) : (
+        pills.length > 0 && (
+          <div className="wall-filters__plans" role="group" aria-label={t('wall.plans.label')}>
+            <FilterChip on={plan === ALL_PLANS} onClick={() => onPlan(ALL_PLANS)}>
+              {t('wall.plans.all')}
+            </FilterChip>
+            {pills.map((p) => (
+              <FilterChip key={p.jobId} on={plan === p.jobId} title={titleOf(p)} onClick={() => onPlan(p.jobId)}>
+                <span className="wall-chip__name">{p.name}</span>
+                <span className={cx('wall-chip__count', (p.needs > 0 || p.approve) && 'wall-chip__count--need')}>{pillCount(p, words)}</span>
+              </FilterChip>
+            ))}
+            <FilterChip on={plan === NO_PLAN} onClick={() => onPlan(NO_PLAN)}>
+              {t('wall.plans.none')}
+            </FilterChip>
+          </div>
+        )
+      )}
+      <span className="wall-filters__end">
+        <FilterChip on={allProjects} onClick={() => onAllProjects(!allProjects)}>
+          {t('wall.scope.all')}
+        </FilterChip>
+      </span>
+    </>
   )
 }
 
-/** One tile: a header (name, Task, state), the detail line, then the session's own xterm (consoleDock). */
-export function ConsoleTile({ c, main, detail, onOpen }: { c: WallConsole; main: boolean; detail: string | null; onOpen: () => void }): React.JSX.Element {
+/** One plan's block on the wall: its name and progress, its live tiles, then its Done cards. */
+export function PlanGroup({
+  pill,
+  name,
+  live,
+  done,
+  onOpenPlan
+}: {
+  /** The plan's pill (progress, counts), or undefined for the consoles of no plan. */
+  pill?: PlanPill
+  /** Null: no head (the wall's only group is the consoles of no plan). */
+  name: string | null
+  live: React.ReactNode[]
+  done: React.ReactNode[]
+  onOpenPlan?: () => void
+}): React.JSX.Element {
+  const { t } = useI18n()
+  const titleOf = usePillTitle()
+  return (
+    <section className="wall-group" aria-label={name ?? undefined}>
+      {name !== null && (
+        <header className="wall-group__head">
+          <h2 className="wall-group__name">{name}</h2>
+          {pill && pill.total > 0 && (
+            <span className="wall-group__progress" title={titleOf(pill)}>
+              <ProgressBar progress={pill.progress} />
+              <span className="wall-group__count">{t('wall.group.progress', { done: pill.done, total: pill.total })}</span>
+            </span>
+          )}
+          {pill && pill.needs > 0 && (
+            <Chip tone="warn" dot>
+              {t('wall.plans.needYou', { n: pill.needs })}
+            </Chip>
+          )}
+          {pill?.approve && <Chip tone="warn">{t('wall.plans.approve')}</Chip>}
+          {onOpenPlan && (
+            <Button size="sm" variant="ghost" className="wall-group__open" icon={<ExternalLink size={14} />} onClick={onOpenPlan}>
+              {t('wall.group.open')}
+            </Button>
+          )}
+        </header>
+      )}
+      {live.length > 0 && <div className="wall-grid">{live}</div>}
+      {done.length > 0 && (
+        <div className="wall-group__done">
+          {live.length > 0 && (
+            <h3 className="wall-group__done-title">
+              {t('wall.group.done')} <span className="wall-group__count">{done.length}</span>
+            </h3>
+          )}
+          <div className="wall-done">{done}</div>
+        </div>
+      )}
+    </section>
+  )
+}
+
+/** One tile: role and Task, the state, a meta line (plan · account · elapsed), then the session's own xterm. */
+export function ConsoleTile({
+  c,
+  main,
+  meta,
+  onOpen
+}: {
+  c: WallConsole
+  main: boolean
+  /** Plan, account, the role's detail (time running, files): what tells two tiles apart. */
+  meta: readonly string[]
+  onOpen: () => void
+}): React.JSX.Element {
   const { t } = useI18n()
   const anchor = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -191,18 +275,39 @@ export function ConsoleTile({ c, main, detail, onOpen }: { c: WallConsole; main:
       }}
     >
       <div className="wall-tile__head">
-        <span className="wall-tile__name">{c.label}</span>
-        {main && <span className="wall-tile__main">{t('wall.main')}</span>}
-        {c.taskTitle && <span className="wall-tile__task">{c.taskTitle}</span>}
+        <div className="wall-tile__title">
+          <span className="wall-tile__name">{c.label}</span>
+          {main && <span className="wall-tile__main">{t('wall.main')}</span>}
+          {c.taskTitle && <span className="wall-tile__task">{c.taskTitle}</span>}
+        </div>
         <StateChip c={c} />
       </div>
-      {detail && <div className="wall-tile__detail">{detail}</div>}
+      {meta.length > 0 && <div className="wall-tile__meta">{meta.join(' · ')}</div>}
       {c.chat ? <div className="wall-tile__chat">{t('wall.tile.chat')}</div> : <div ref={anchor} className="terminal-host wall-tile__term" />}
     </div>
   )
 }
 
-export function WallEmpty(): React.JSX.Element {
+/** The page's one empty state: no consoles at all (with New console), or none left by the filters. */
+export function WallEmpty({ filtered, onNew, onReset }: { filtered: boolean; onNew?: () => void; onReset: () => void }): React.JSX.Element {
   const { t } = useI18n()
-  return <EmptyState>{t('wall.empty')}</EmptyState>
+  return filtered ? (
+    <EmptyState icon={TerminalSquare} title={t('wall.empty.filtered.title')} action={<Button onClick={onReset}>{t('wall.empty.reset')}</Button>}>
+      {t('wall.empty.filtered')}
+    </EmptyState>
+  ) : (
+    <EmptyState
+      icon={TerminalSquare}
+      title={t('wall.empty.title')}
+      action={
+        onNew && (
+          <Button variant="primary" icon={<Plus size={16} />} onClick={onNew}>
+            {t('wall.new')}
+          </Button>
+        )
+      }
+    >
+      {t('wall.empty')}
+    </EmptyState>
+  )
 }

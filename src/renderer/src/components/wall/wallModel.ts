@@ -175,6 +175,21 @@ export function orderWall(cs: readonly WallConsole[], plan: PlanFilter): WallLay
   return { pinned, tiles, finished, mainId: one ? (pinned[0]?.sessionId ?? null) : null }
 }
 
+/** W11: one plan's block on the wall: its live tiles, then its finished consoles (summary cards). */
+export interface WallGroup {
+  /** The plan's Job id, or NO_PLAN for the consoles of no plan. */
+  key: string
+  live: WallConsole[]
+  done: WallConsole[]
+}
+
+/** The wall grouped by plan, in plan order (consoles of no plan last), each group keeping the given order. */
+export function groupWall(live: readonly WallConsole[], done: readonly WallConsole[]): WallGroup[] {
+  const keyOf = (c: WallConsole): string => c.jobId ?? NO_PLAN
+  const keys = [...new Set([...live, ...done].sort((a, b) => a.planOrder - b.planOrder).map(keyOf))]
+  return keys.map((key) => ({ key, live: live.filter((c) => keyOf(c) === key), done: done.filter((c) => keyOf(c) === key) }))
+}
+
 /** The auto grid: 1–4 consoles → 2 columns, 5–9 → 3, 10+ → 4. */
 export function gridColumns(count: number): 2 | 3 | 4 {
   return count >= 10 ? 4 : count >= 5 ? 3 : 2
