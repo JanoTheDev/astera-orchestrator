@@ -2415,7 +2415,7 @@ describe('plans of one project: one delivery at a time, the others refreshed ont
     h.ctx.refreshOnto = refresh
     await h.loop.run()
     await h.settle()
-    expect(refresh).toHaveBeenCalledWith('/wt1', 'shaA', "Refresh onto plan A's delivery")
+    expect(refresh).toHaveBeenCalledWith('/wt1', 'shaA', "Refresh onto plan A's delivery", 'main')
     expect(h.startWorker).toHaveBeenCalled()
     expect(refresh.mock.invocationCallOrder[0]).toBeLessThan(h.startWorker.mock.invocationCallOrder[0])
     expect(feed.filter((l) => l.startsWith("Plan B refreshed onto plan A's delivery"))).toHaveLength(1)
@@ -2440,6 +2440,54 @@ describe('plans of one project: one delivery at a time, the others refreshed ont
     await h.loop.run()
     await h.settle()
     expect(h.state().tasks.filter((t) => t.runId === 'run_1' && t.spec.includes('shaA'))).toHaveLength(1)
+  })
+
+  /** Plan A's pull request, which the PR poll saw merged (`attribution-remap`) after plan B began. */
+  const withMergedPrA = (h: ReturnType<typeof rig>): void => {
+    withDeliveredA(h)
+    const s = h.state()
+    h.setState({
+      ...s,
+      runs: s.runs.map(({ delivery: _d, ...r }) =>
+        r.id === 'run_A' ? { ...r, pr: { at: NOW, url: 'u', attributed: 'mergeA', attributedAt: LATER, baseRefName: 'main' } } : r
+      )
+    })
+  }
+
+  it("a merged pull request of plan A refreshes plan B too, fetching origin's branch", async () => {
+    const h = rig()
+    withMergedPrA(h)
+    const feed = lines(h)
+    const refresh = vi.fn(async () => ({ kind: 'merged' as const }))
+    h.ctx.refreshOnto = refresh
+    await h.loop.run()
+    await h.settle()
+    expect(refresh).toHaveBeenCalledWith('/wt1', 'mergeA', "Refresh onto plan A's delivery", 'main')
+    expect(refresh.mock.invocationCallOrder[0]).toBeLessThan(h.startWorker.mock.invocationCallOrder[0])
+    expect(feed.some((l) => l.startsWith("Plan B refreshed onto plan A's delivery"))).toBe(true)
+  })
+
+  it('a merged pull request of plan A that conflicts creates an integration Task in plan B', async () => {
+    const h = rig()
+    withMergedPrA(h)
+    const feed = lines(h)
+    h.ctx.refreshOnto = async () => ({ kind: 'conflict', reason: 'mergeA does not merge cleanly into /wt1' })
+    await h.loop.run()
+    await h.settle()
+    expect(h.state().tasks.filter((t) => t.runId === 'run_1' && t.spec.includes('mergeA'))).toHaveLength(1)
+    expect(feed.some((l) => l.startsWith("Integration Task created in plan B for its conflict with plan A's delivery"))).toBe(true)
+  })
+
+  it('a pull request merged before plan B began, or not merged, refreshes nothing', async () => {
+    const h = rig()
+    withMergedPrA(h)
+    const s = h.state()
+    h.setState({ ...s, runs: s.runs.map((r) => (r.id === 'run_A' ? { ...r, pr: { at: NOW, url: 'u', attributed: 'mergeA', attributedAt: new Date(NOW_MS - 1000).toISOString() } } : r)) })
+    const refresh = vi.fn(async () => ({ kind: 'merged' as const }))
+    h.ctx.refreshOnto = refresh
+    await h.loop.run()
+    await h.settle()
+    expect(refresh).not.toHaveBeenCalled()
   })
 
   it('delivers at most one plan of a project at a time', async () => {

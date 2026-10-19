@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import { makeRepo, gitSync, tempDir } from '../../worktrees/testRepo'
+import { makeRepo, gitSync, tempDir, addOrigin } from '../../worktrees/testRepo'
 import { WorktreeRegistry } from '../../worktrees/registry'
 import { git, GIT_WRITE_TIMEOUT_MS } from '../../worktrees/git'
 import {
@@ -659,6 +659,21 @@ describe('refreshOnto: a running plan takes in another plan\'s delivery (T11)', 
     expect(r.kind).toBe('conflict')
     expect(gitSync(wt, ['rev-parse', 'HEAD']).trim()).toBe(head)
     expect(gitSync(wt, ['status', '--porcelain'])).toBe('')
+  })
+
+  it("a merged pull request's commit only on origin is fetched, then merged", async () => {
+    const bare = await addOrigin(repo)
+    const wt = await worked('b')
+    // Plan A's PR merged on GitHub: a commit on origin's main that this repository has not fetched
+    const other = await tempDir('astera-integrate-clone-')
+    gitSync(other, ['clone', bare, '.'])
+    gitSync(other, ['config', 'user.email', 't@t.com']); gitSync(other, ['config', 'user.name', 'T'])
+    await fs.writeFile(path.join(other, 'pr.txt'), 'pr'); gitSync(other, ['add', 'pr.txt']); gitSync(other, ['commit', '-m', 'PR A'])
+    gitSync(other, ['push', 'origin', 'main'])
+    const sha = gitSync(other, ['rev-parse', 'HEAD']).trim()
+    expect(await refreshOnto(wt, sha, 'refresh', { log: logTo() })).toMatchObject({ kind: 'human' })
+    expect(await refreshOnto(wt, sha, 'refresh', { log: logTo(), fetchBranch: 'main' })).toEqual({ kind: 'merged' })
+    await expect(fs.readFile(path.join(wt, 'pr.txt'), 'utf8')).resolves.toBe('pr')
   })
 
   it('never merges under uncommitted changes', async () => {

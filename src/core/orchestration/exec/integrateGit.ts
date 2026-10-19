@@ -805,10 +805,17 @@ export async function refreshOnto(
   worktree: string,
   base: string,
   message: string,
-  ctx: { log(m: string): void; git?: typeof realGit; gitAtLeast?: typeof gitVersionAtLeast }
+  ctx: { log(m: string): void; git?: typeof realGit; gitAtLeast?: typeof gitVersionAtLeast; fetchBranch?: string }
 ): Promise<Refresh> {
   const run = ctx.git ?? realGit
   if ((await run(['merge-base', '--is-ancestor', base, 'HEAD'], { cwd: worktree })).ok) return { kind: 'current' }
+  // A merged pull request's commit is on origin only until fetched: never mistaken for a conflict
+  const known = async (): Promise<boolean> => (await run(['cat-file', '-e', `${base}^{commit}`], { cwd: worktree })).ok
+  if (!(await known())) {
+    if (ctx.fetchBranch) await run(['fetch', 'origin', ctx.fetchBranch], { cwd: worktree, timeoutMs: GIT_WRITE_TIMEOUT_MS })
+    if (!(await known())) return { kind: 'human', reason: `${base} is not in ${worktree}'s repository (fetching it failed), so it was not merged` }
+    if ((await run(['merge-base', '--is-ancestor', base, 'HEAD'], { cwd: worktree })).ok) return { kind: 'current' }
+  }
   if (!(await run(['symbolic-ref', '--quiet', 'HEAD'], { cwd: worktree })).ok)
     return { kind: 'human', reason: `${worktree} is not on a branch (or git cannot run there), so ${base} was not merged into it` }
   const status = await run(['status', '--porcelain', '--untracked-files=no'], { cwd: worktree })

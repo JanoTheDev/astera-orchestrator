@@ -157,7 +157,7 @@ export interface DispatchLoopContext {
   integrate(runRoot: string, merges: string[]): Promise<Integration>
   /** T11: merges another plan's delivered commit into a running plan's Run worktree (integrateGit.ts refreshOnto).
    *  Optional: defaults to that function over the real git. */
-  refreshOnto?(worktree: string, base: string, message: string): Promise<Refresh>
+  refreshOnto?(worktree: string, base: string, message: string, fetchBranch?: string): Promise<Refresh>
   reap(worktreePath: string): Promise<boolean>
   isRegisteredWorktree(p: string): boolean
   sessionAlive(sessionId: string): boolean
@@ -511,14 +511,21 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
   // ── T11: deliveries across plans never collide ──
   /** The project a plan delivers into: its registered project, else its folder. */
   const projectKeyOf = (s: OrchState, job: Job): string => projectOfJob(s, job)?.id ?? job.cwd
-  /** The pushes other plans of `run`'s project landed since `run` began, oldest first. Derived from the state, so a
-   *  restarted Host finds the same ones (`refreshedTo` only spares the git of asking twice). */
+  /** The pushes other plans of `run`'s project landed, and their pull requests the PR poll saw merged
+   *  (`attribution-remap`), since `run` began, oldest first. Derived from the state, so a restarted Host finds the same
+   *  ones (`refreshedTo` only spares the git of asking twice). */
   const deliveriesBefore = (s: OrchState, run: JobRun, job: Job): { job: Job; sha: string; branch?: string }[] => {
     const key = projectKeyOf(s, job)
     const since = Date.parse(run.createdAt)
     const out: { job: Job; sha: string; branch?: string; at: number }[] = []
     for (const o of s.runs) {
-      const d = o.delivery
+      const p = o.pr
+      const d =
+        o.delivery?.sha !== undefined
+          ? o.delivery
+          : p?.attributed !== undefined && p.attributedAt !== undefined
+            ? { sha: p.attributed, at: p.attributedAt, ...(p.baseRefName ? { branch: p.baseRefName } : {}) }
+            : undefined
       if (o.jobId === run.jobId || d?.sha === undefined || !(Date.parse(d.at) >= since)) continue
       const other = jobOf(s, o)
       if (other && projectKeyOf(s, other) === key) out.push({ job: other, sha: d.sha, at: Date.parse(d.at), ...(d.branch ? { branch: d.branch } : {}) })
@@ -559,7 +566,12 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       const plan = jobNameOf(d.job)
       let r: Refresh
       try {
-        r = await (c.refreshOnto ?? ((w, b, m) => refreshOnto(w, b, m, { log })))(worktree, d.sha, `Refresh onto plan ${plan}'s delivery`)
+        r = await (c.refreshOnto ?? ((w, b, m, f) => refreshOnto(w, b, m, { log, ...(f ? { fetchBranch: f } : {}) })))(
+          worktree,
+          d.sha,
+          `Refresh onto plan ${plan}'s delivery`,
+          d.branch
+        )
       } catch (e) {
         r = { kind: 'human', reason: String(e) }
       }

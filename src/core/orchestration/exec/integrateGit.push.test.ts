@@ -138,6 +138,7 @@ describe('deliverByPush (W6-H)', () => {
   /** A Run worktree `refreshOnto` merges `base` into cleanly (the fake ignores which worktree asks). */
   const refreshable = (): Record<string, Reply | Reply[]> => ({
     'merge-base --is-ancestor base HEAD': { ok: false },
+    'cat-file -e base^{commit}': {},
     'symbolic-ref --quiet HEAD': { stdout: 'refs/heads/astera/b' },
     'status --porcelain --untracked-files=no': { stdout: '' },
     'merge-tree --write-tree HEAD base': { stdout: 'tree' },
