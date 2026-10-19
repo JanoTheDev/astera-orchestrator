@@ -319,6 +319,25 @@ describe('plan.nothing-to-do', () => {
   })
 })
 
+// #111: a rejected plan is a feed line (and so the Inbox's handled list), once, carrying the owner's reason
+describe('plan.rejected', () => {
+  const job = { id: 'job_1', objective: 'add login', cwd: '/p', createdAt: '2026-10-18T00:00:00.000Z', projectId: 'p1', pendingStart: true } as Job
+  it('is derived once, when the Job gains rejected, with the reason when given', () => {
+    const prev: OrchState = { ...emptyState(), jobs: [job] }
+    const next: OrchState = { ...prev, jobs: [{ ...job, rejected: { at: 'now', reason: 'too broad' } }] }
+    expect(deriveActivity(prev, next)).toEqual([
+      { type: 'plan.rejected', projectId: 'p1', jobId: 'job_1', payload: { plan: 'add login', title: 'add login', reason: 'too broad' } }
+    ])
+    expect(deriveActivity(next, { ...next, jobs: [...next.jobs] })).toEqual([])
+  })
+
+  it('has no reason key when the owner gave none', () => {
+    const prev: OrchState = { ...emptyState(), jobs: [job] }
+    const next: OrchState = { ...prev, jobs: [{ ...job, rejected: { at: 'now' } }] }
+    expect(deriveActivity(prev, next)).toEqual([{ type: 'plan.rejected', projectId: 'p1', jobId: 'job_1', payload: { plan: 'add login', title: 'add login' } }])
+  })
+})
+
 // W6-B: a coordinator's answer is a feed line and no notice; an escalation is a feed line, a notice and the chime
 describe('W6-B: auto-answers and escalations', () => {
   const question = (over: Partial<Message> = {}): Message => ({

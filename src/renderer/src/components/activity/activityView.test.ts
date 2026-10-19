@@ -59,6 +59,12 @@ describe('activityView', () => {
     expect(whoOf(ev(1), label)).toBe('Plan A · opus · Work')
   })
 
+  // #111: the owner's rejection is a bad line on the plan, with the reason when given
+  it('#111: a rejected plan says so, with the reason', () => {
+    expect(lineOf(ev(1, { type: 'plan.rejected', payload: { title: 'Plan A', reason: 'too broad' } }), label)).toEqual({ text: 'Plan A: plan rejected: too broad', tone: 'bad' })
+    expect(lineOf(ev(1, { type: 'plan.rejected', payload: { title: 'Plan A' } }), label).text).toBe('Plan A: plan rejected')
+  })
+
   it('W5-D: a waiting worker says what it waits on; a paired Runtime\'s line says where it ran', () => {
     expect(lineOf(ev(1, { type: 'task.waiting', payload: { title: 'T', waitingFor: 'permission' } }), label)).toEqual({ text: 'T: waiting for your permission', tone: 'warn' })
     expect(lineOf(ev(1, { type: 'task.waiting', payload: { title: 'T', waitingFor: 'question' } }), label).text).toBe('T: waiting for your answer to a question')
