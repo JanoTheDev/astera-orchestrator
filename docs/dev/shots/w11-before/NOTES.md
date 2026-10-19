@@ -1,9 +1,8 @@
 # W11 before: what is wrong, per shot
 
-Taken with `npm run shots` (see `docs/dev/CONTEXT.md`) from the dev profile: no open project, no plan, one account.
+Taken with `npm run shots` (see `docs/dev/CONTEXT.md`) from the dev profile: project "two" (a scratch repo, `/tmp/w9proj/two`) open with one idle console, one account, no live plan.
 File names are `<size>-<theme>-<NN>-<page>.png`; the notes apply to Night and Day at both sizes unless a size or theme is named.
-**Not shot:** `02-start` and `05-plan`. The Start page needs an open project and the Plan page needs a plan; this profile has neither
-(the Plans page says "No project is open"), so the script skipped them. Shoot them from a profile with a project before the Start/Plan redesign.
+**Not shot:** `05-plan`, the Plan page: it needs a live plan and the profile has only archived ones ("Show archived (2)"). The script skips it when absent.
 
 Problems on every page (the shell)
 - Top bar is crowded and flat: the project switcher "two ⇅" has no label saying it is the project, "Agents/Tasks/…" tabs and "More" sit at the same weight as the search box; the title-bar window buttons and the app menu are one unseparated strip.
@@ -12,10 +11,19 @@ Problems on every page (the shell)
 - Empty states are bare grey sentences with no illustration or primary action; most pages are 80% empty black or cream.
 
 01-agents (1440 and 1024)
-- Two stacked rows of filter chips ("All plans / No plan" and "No project / All projects" + "All / Needs you / Working / Finished") with three different chip styles (outlined pill, segmented, segmented): the same kind of control looks three ways.
-- "All consoles" tab sits under the top bar with an underline style unlike the top bar's own active underline; its purpose is unclear.
-- Empty state "No consoles here yet. New opens one." is tiny and centred far from the filters; it names "New" but the New button is not near it.
-- At 1024 the page tabs fold into a single "Agents ⌄" menu, so the person loses the one-click page switch; the folded label is low contrast in Day.
+- Two stacked rows of filter chips ("All plans / No plan" and "two / All projects" + "All / Needs you / Working / Finished") with three different chip styles (outlined pill, segmented, segmented): the same kind of control looks three ways.
+- The one console is a 700px card in the top-left corner with a huge empty terminal body, a clipped status line ("Review Audit Board Details [-]" cut at the card edge, worse in Day where it reads "Rev:") and an "Idle" badge; the remaining 50% of the page is blank.
+- "All consoles" tab and a green dot + "two" chip sit in a second bar under the top bar with an underline style unlike the top bar's active underline; what the bar is for is unclear.
+- Card shows only the folder name "two" as title; no account, agent, plan or last-activity line, so cards will not be distinguishable with several consoles.
+- 1024: the page tabs fold into one "Agents ⌄" menu, so the person loses the one-click page switch; the folded label is low contrast in Day.
+
+02-start (1440 and 1024; opened with New → "Plan it for me")
+- A full-page form ("What should we build in two?") with the top bar still showing "Agents" as the active page and the New button highlighted: it is neither a page nor a modal, and there is no way to tell where Back goes except the small ✕ at the far right of the heading.
+- Hierarchy is flat: the goal textarea, three mode cards (Plan it for me / Audit / Run as written), a bare toggle "Hands-off", a native `<select>` "Start: Right away", "More options · 3 consoles · PR · ask · account" and the green "Start planning" button all have similar weight; the primary action is small and dull olive and sits below the fold at 1024 (the page needs scrolling to reach it).
+- Native controls leak through: the "Start" dropdown is an unstyled OS select and the Hands-off switch has no visible label next to it (its label and explanation sit below the track, offset 350px left of the "Start" field).
+- Mode cards have uneven heights and an empty third column; Audit has no icon-alignment match with the others; the selected card is marked only by a thin lime outline.
+- "Or pick up / Just open a console" at the bottom is a second, unrelated entry point rendered as a small grey button; it reads as an afterthought.
+- Day: the outlines of the textarea and cards are near-invisible against the cream page; the New button gets a double ring (focus + hover state) while Start is open.
 
 03-tasks
 - Five kanban columns with only a heading and "No Tasks here yet." each; zero-count badges and five identical empty messages say the same thing five times.
@@ -24,9 +32,11 @@ Problems on every page (the shell)
 - 1024: columns shrink to ~200px; headings are fine but the layout will break once cards exist (no horizontal scroll or wrap seen).
 
 04-plans
-- Page content is a narrow block pushed to the left third (title "Plans", "By area / Overlap" toggle) while the empty message is centred in the window: two alignment axes.
-- "No project is open / Open a session and its folder becomes this window project — jobs can be created here from then on" is a very small grey wall of text with an em-dash; it explains a prerequisite instead of offering the action (New / open folder).
+- Content is a narrow block pushed to the left (title "Plans", "By area / Overlap" toggle) while "+ New job" and "+ From a source" float at the right edge of an 880px column, stacked at different widths and nowhere near the title: two alignment axes and an orphaned toolbar.
+- "When a plan is done: [Open one pull request (never merged by Astera)]" is a native select with a long value; the setting is unrelated to browsing plans and sits above the (empty) list.
+- "Show archived (2)" is tiny grey text under the select; the list itself is empty with no empty-state message or hint that "New job" is the next step.
 - "By area / Overlap" toggle has no explanation of what the two views are.
+- Without an open project (earlier baseline) the page said only "No project is open … jobs can be created here from then on" as a tiny grey sentence and offered no action.
 
 06-inbox
 - Left column "NEEDS YOU 0" is empty (check icon + "Nothing needs you right now") while the right column "HANDLED FOR YOU" is a long unbroken log: the empty half wastes half the page and the log half has no grouping by day, plan or task.
@@ -44,9 +54,10 @@ Problems on every page (the shell)
 - Refresh icon next to the heading is the only toolbar; no search, filter, or "only reachable" toggle.
 
 08-files
-- Explorer shows "No active session" and a lone ✕ icon below the heading; the main area is an empty black canvas with only an "All consoles" tab and a floating "+ Start a new session" button at the bottom centre.
-- The Files page is actually a session-bound explorer, so it is empty unless a session is open; the page name promises files.
-- Bottom-centre bright-green button is far from everything else and the only saturated element on the page.
+- Left explorer is a thin tree (".git", "README.md") with a ✕ icon under the "TWO" heading that has no label; refresh icon beside it has none either.
+- The main area is the console of the open session with its own inner tab bar ("two ✕ +", "Terminal" badge, ⌄) beneath the "All consoles / two" bar: three stacked tab strips (page tabs, workspace bar, session tabs) that all look different.
+- The Files page opens no file; it is a console with an explorer docked, so the page name does not match what is shown. With no session open it is empty with only a floating "+ Start a new session" button.
+- The terminal status line and Claude banner dominate; nothing marks which pane is the file viewer.
 
 09-settings
 - The top bar highlights "Files" while Settings is open (Settings has no tab; the previously open page stays marked), and at 1024 the folded menu reads "Files ⌄". Navigation location is wrong.

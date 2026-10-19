@@ -85,6 +85,8 @@ async function click(selector, text, deepest = false) {
   return true
 }
 
+// The New button, not Ctrl+N: a focused console keeps Ctrl+N on Linux (readline), so the chord misses over a session.
+const openNew = () => click('.tb-main button', '^\\s*New\\s*$')
 const digit = (n) => () => chord(String(n), `Digit${n}`, 48 + n)
 // Each page: how to reach it from a clean (overlay-free) state. A step that returns false skips the page.
 // DIFFERS: the page needs a project or a plan the dev profile may not have; its click then changes nothing, so a shot
@@ -92,7 +94,20 @@ const digit = (n) => () => chord(String(n), `Digit${n}`, 48 + n)
 const DIFFERS = { start: 'agents', plan: 'plans' }
 const PAGES = [
   ['agents', digit(1)],
-  ['start', async () => (await chord('n', 'KeyN', 78), await sleep(400), click('[role=dialog] *', 'plan it for me', true))],
+  [
+    'start',
+    async () => {
+      await openNew()
+      await sleep(400)
+      const ok = await click('[role=dialog] *', 'plan it for me', true)
+      // Opening Start leaves the New modal up; one Escape closes only that.
+      if (ok) {
+        await sleep(1500)
+        await escape()
+      }
+      return ok
+    }
+  ],
   ['tasks', digit(2)],
   ['plans', digit(3)],
   ['plan', async () => (await digit(3)(), await sleep(400), click('main a, main button, main [role=button], main li, main tr', '.')) && (await sleep(500), true)],
@@ -100,7 +115,7 @@ const PAGES = [
   ['worktrees', digit(5)],
   ['files', digit(6)],
   ['settings', () => click('button[aria-label]', 'settings|설정')],
-  ['new-menu', async () => (await digit(1)(), await sleep(300), chord('n', 'KeyN', 78))],
+  ['new-menu', async () => (await digit(1)(), await sleep(300), openNew())],
   ['project-switcher', () => click('.tb-switcher')],
   ['accounts', () => click('.tb-usage-btn')]
 ]
@@ -118,6 +133,8 @@ async function setTheme(id) {
   await sleep(700)
   const shown = await evaluate('document.documentElement.dataset.theme')
   if (shown !== id) throw new Error(`theme ${id} not applied (page shows ${shown})`)
+  await click('button', '^\\s*(Back|뒤로)\\s*$') // Settings is an overlay on the page behind it; Ctrl+1 would not close it
+  await sleep(300)
   await digit(1)()
   await sleep(500)
 }
@@ -130,6 +147,7 @@ for (const theme of themes) {
     for (const [i, [name, go]] of PAGES.entries()) {
       await escape()
       await escape()
+      await click('.start-page button[aria-label]', 'close') // Start is a page-sized overlay that stays up until closed
       await evaluate('document.activeElement?.blur()') // no stale focus ring from the previous step
       await sleep(200)
       const ok = await go()
@@ -138,10 +156,10 @@ for (const theme of themes) {
         console.warn(`skip ${name} (${w}x${h} ${theme}): not reachable`)
         continue
       }
-      const { data } = await cdp('Page.captureScreenshot', { format: 'png' })
       // Page text with digits blanked: the status bar's countdowns tick between shots, pixels would never match.
       const text = (await evaluate(`document.body.innerText`)).replace(/\d+/g, '#')
       shots[name] = text
+      const { data } = await cdp('Page.captureScreenshot', { format: 'png' })
       if (DIFFERS[name] && text === shots[DIFFERS[name]]) {
         console.warn(`skip ${name} (${w}x${h} ${theme}): needs a project or plan the app does not have`)
         continue
