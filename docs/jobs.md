@@ -264,9 +264,9 @@ report. "Fix things every day and land them in the project" is not what this fea
 
 ### The list
 
-A template's row stays at the top of its group, so the definition is easy to find however many runs pile up. The row
-shows the rule, the next fire time and how many runs so far ("Waiting" if it has never fired). The runs fold under the
-template, newest first.
+A template is one row on the Plans page, marked "Scheduled", however many runs pile up. The row shows the rule, the
+next fire time and how many runs so far ("Waiting" if it has never fired). The runs fold under the template, newest
+first.
 
 **Run numbers never go back.** If you have reached run #5 and delete the first two, the next is still run #6: the number
 is stamped when the run fires.
