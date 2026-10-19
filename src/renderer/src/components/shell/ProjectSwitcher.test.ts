@@ -26,6 +26,14 @@ const props = (over: Partial<SwitcherProps> = {}): SwitcherProps => ({
 })
 const html = (node: React.ReactNode): string => renderToStaticMarkup(React.createElement(React.Fragment, null, node))
 
+describe('ProjectSwitcher label', () => {
+  it('never reads All projects while a project is selected, even before the tree loads', () => {
+    const out = renderToStaticMarkup(React.createElement(ProjectSwitcher, props({ tree: [], selectedId: 'g' })))
+    expect(out).not.toContain('All projects')
+    expect(out).toContain('Switch project')
+  })
+})
+
 describe('ProjectSwitcher', () => {
   it('is a text button naming the open project, with ⇅ and a dot while a project waits', () => {
     const out = renderToStaticMarkup(React.createElement(ProjectSwitcher, props()))

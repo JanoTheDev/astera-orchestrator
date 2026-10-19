@@ -231,7 +231,12 @@ export function useJobs(deps: JobsDeps) {
   }, [activeTabRoot])
 
   /** 사이드바와 실행 구성이 '어느 프로젝트인가'로 읽는 값 — 활성 탭이 이기고, 없으면 마지막 기억. */
-  const currentProject = activeTabRoot ?? stickyRoot
+  /** The project the top bar's switcher has selected (useWorkspace); "All projects" leaves the last one in place. */
+  const [scopeRoot, setScopeRoot] = useState<string | null>(null)
+  useEffect(() => {
+    if (scopeRoot) sticky.write(scopeRoot)
+  }, [scopeRoot])
+  const currentProject = scopeRoot ?? activeTabRoot ?? stickyRoot
 
   /** NewRunModal 이 열려 있는지. currentProject 아래에 두는 것은 이 파일이 지켜 온 자리 규칙이다 —
    *  바로 아래 두 효과의 주석이 기록하듯, 이 파일은 currentProject 보다 위에서 그 값을 참조해 TDZ
@@ -455,7 +460,7 @@ export function useJobs(deps: JobsDeps) {
     setRemoteSnapshot, replyGate, jobsRuntimeRef, orchHostGate, setOrchHostGate, hostDriver, setHostDriver,
     parkedSinceMs, setParkedSinceMs, setStallTick, openRun, setOpenRun, detail, setDetail, setJournalPagesFor,
     homeDir, runHostRef, actionUi, remoteActionUi, pauseScheduleRun, resumeScheduleRun, restartCoordinator, approve,
-    setStickyRoot, currentProject, newRunOpen, setNewRunOpen, sourceJobOpen, setSourceJobOpen, runtimeName,
+    setStickyRoot, setScopeRoot, currentProject, newRunOpen, setNewRunOpen, sourceJobOpen, setSourceJobOpen, runtimeName,
     remoteReadOnly, stopRemoteSession, remoteRefresh, detailDoor, remoteViewPermission, remoteViewDoor,
     remoteNewRunOpen, setRemoteNewRunOpen, remoteAccounts, setPendingRun, explorerReveal, setExplorerReveal,
     openLinkedFolder

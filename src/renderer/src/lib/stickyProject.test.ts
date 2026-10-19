@@ -96,3 +96,22 @@ describe('stickyProject', () => {
     expect(mod.read()).toBeNull()
   })
 })
+
+describe('stickyProject names', () => {
+  it('remembers a project name for the label before the list is read, and ignores blanks', async () => {
+    const m = mod
+    m.writeName('p1', 'Astera')
+    m.writeName('p2', '  ')
+    m.writeName('', 'x')
+    expect(m.readName('p1')).toBe('Astera')
+    expect(m.readName('p2')).toBeNull()
+  })
+
+  it('a project path is never replaced by a null: clear is the only way out', async () => {
+    const m = mod
+    m.write('/repos/a')
+    expect(m.read()).toBe('/repos/a')
+    m.clear()
+    expect(m.read()).toBeNull()
+  })
+})
