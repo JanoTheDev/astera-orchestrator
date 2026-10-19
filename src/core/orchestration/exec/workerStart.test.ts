@@ -214,3 +214,63 @@ describe('preTrustWorkspace', () => {
     await expect(preTrustWorkspace({ account: undefined, cwd: dir, homeDir: dir, descriptors: makeDescriptors(process.platform), log: () => {} })).resolves.toBeUndefined()
   })
 })
+
+// T2: "Pick accounts automatically" on the start paths.
+describe('automatic accounts (T2)', () => {
+  const LATER = '2099-01-01T00:00:00.000Z'
+  const pauseA = { accountId: 'a1', window: 'five_hour' as const, percent: 95, resetsAt: LATER }
+  const guard = (on: boolean, overA1 = true) => ({
+    refresh: vi.fn().mockResolvedValue(undefined),
+    pauseOf: (id: string) => (overA1 && id === 'a1' ? pauseA : null),
+    view: () => [
+      { accountId: 'a1', session: { usedPercent: overA1 ? 95 : 5, resetsAt: LATER }, weekly: null, paused: overA1 ? pauseA : null },
+      { accountId: 'a2', session: { usedPercent: 60, resetsAt: LATER }, weekly: null, paused: null },
+      { accountId: 'a3', session: { usedPercent: 10, resetsAt: LATER }, weekly: null, paused: null }
+    ],
+    pauseAt: () => 90,
+    autoAccounts: () => on
+  })
+  const accounts = [acct('a1'), acct('a2'), acct('a3'), acct('x', 'codex')]
+  let dir: string
+  beforeEach(async () => { dir = await fs.mkdtemp(path.join(os.tmpdir(), 'astera-auto-')) })
+  afterEach(async () => { await fs.rm(dir, { recursive: true, force: true }) })
+  const coordCtx = (g: ReturnType<typeof guard>, spawn = vi.fn().mockResolvedValue({ id: 'ses_c' })) => ({
+    specsDir: dir, preTrust: vi.fn().mockResolvedValue(undefined), bypassPermissions: async () => false, spawn, log: () => {},
+    getState: emptyState, accounts: async () => accounts, roleModels: async () => ({}), usageGuard: g, loginStatus: async () => true
+  })
+
+  it('a coordinator named on an over-threshold account starts on the least used one and gets the whole chain', async () => {
+    const ctx = coordCtx(guard(true))
+    await startCoordinatorSession(ctx, { runId: 'run_x', cwd: 'D:/p', accountId: 'a1', brief: 'B' })
+    expect(ctx.spawn.mock.calls[0][0]).toMatchObject({ accountId: 'a3', rollAccountIds: ['a3', 'a2', 'a1'] })
+    expect(ctx.preTrust).toHaveBeenCalledWith('a3', 'D:/p')
+  })
+
+  it('a coordinator on an account with room keeps it, with the rest least used first behind it', async () => {
+    const ctx = coordCtx(guard(true, false))
+    await startCoordinatorSession(ctx, { runId: 'run_x', cwd: 'D:/p', accountId: 'a2', brief: 'B' })
+    expect(ctx.spawn.mock.calls[0][0]).toMatchObject({ accountId: 'a2', rollAccountIds: ['a2', 'a1', 'a3'] })
+  })
+
+  it('a planner does the same', async () => {
+    const ctx = coordCtx(guard(true))
+    await startCoordinatorSession(ctx, { runId: 'job_x', cwd: 'D:/p', accountId: 'a1', brief: 'B', role: 'planner' })
+    expect(ctx.spawn.mock.calls[0][0]).toMatchObject({ accountId: 'a3', rollAccountIds: ['a3', 'a2', 'a1'] })
+  })
+
+  it('setting off: the named account alone, as before', async () => {
+    const ctx = coordCtx(guard(false))
+    await startCoordinatorSession(ctx, { runId: 'run_x', cwd: 'D:/p', accountId: 'a1', brief: 'B' })
+    expect(ctx.spawn.mock.calls[0][0]).toMatchObject({ accountId: 'a1', rollAccountIds: ['a1'] })
+  })
+
+  it("a worker's rolling chain gets the provider's other accounts, the Task's spent one last", async () => {
+    const { s, taskId } = stateWithTask(['a1'])
+    const startWorker = vi.fn().mockResolvedValue({ sessionId: 'ses_1', cwd: 'D:/p', specPath: 'D:/s.md' })
+    await startWorkerWithChain({
+      getState: () => s, accounts: async () => accounts, loginStatus: async () => true,
+      coordinator: { startWorker }, tails: new WorkerTails(), log: () => {}, roleModels: async () => ({}), usageGuard: guard(true)
+    }, args(taskId, 'a3'))
+    expect(startWorker.mock.calls[0][0].rollAccountIds).toEqual(['a3', 'a2', 'a1'])
+  })
+})
