@@ -6,6 +6,7 @@ import { emptyState, type OrchState } from '../state'
 import { deriveActivity, noticeOf, type ActivityEvent } from '../activity'
 import type { Dispatch, Task } from '../types'
 import { replanOn, replansDue } from '../replan'
+import { REPLAN_LIFT_HOLD } from './replanStart'
 
 const NOW = '2026-10-18T00:00:00.000Z'
 const LATER = '2026-10-18T01:00:00.000Z'
@@ -391,5 +392,78 @@ describe('W7-E', () => {
     await r.as('ses-planner-2')('jobs-replan-done', { id: jobId, summary: 'meets the objective' })
     const after = r.state()
     expect(deriveActivity(after, JSON.parse(JSON.stringify(after)))).toEqual([])
+  })
+})
+
+describe('the wave boundary moves on', () => {
+  const inbox = (r: Rig, subject: string) => r.state().messages.filter((m) => m.subject === subject)
+
+  it('posts plan.replanned with the startable Tasks to a coordinator when a wave opens, skipped or replanned', async () => {
+    const skip = rig()
+    const s = await approved(skip, {}, true)
+    await skip.person('jobs-replan', { id: s.jobId, run: s.runId, mode: 'wave', wave: 1 })
+    const [skipped] = inbox(skip, 'plan.replanned')
+    expect(skipped).toMatchObject({ runId: s.runId, type: 'status', answered: false })
+    expect(skipped.body).toContain('Wave 2 of the plan is open')
+    expect(skipped.body).toContain(`${s.id('B')} (B)`)
+    expect(skipped.body).not.toContain(`${s.id('C')} (C)`)
+
+    const done = rig()
+    const d = await approved(done, {})
+    await done.person('jobs-replan', { id: d.jobId, run: d.runId, mode: 'wave', wave: 1 })
+    expect(inbox(done, 'plan.replanned')).toHaveLength(0)
+    await done.as('ses-planner-2')('jobs-replan-done', { id: d.jobId, summary: 'fine' })
+    expect(inbox(done, 'plan.replanned')).toHaveLength(1)
+    expect(inbox(done, 'plan.replanned')[0].body).toContain(`${d.id('B')} (B)`)
+  })
+
+  it('posts no plan.replanned for a Run the app places itself', async () => {
+    const r = rig()
+    const { jobId, runId } = await approved(r, {}, true)
+    r.set({ ...r.state(), jobs: r.state().jobs.map((j) => ({ ...j, autoDispatch: true })) })
+    await r.person('jobs-replan', { id: jobId, run: runId, mode: 'wave', wave: 1 })
+    expect(inbox(r, 'plan.replanned')).toHaveLength(0)
+  })
+
+  it('ends a timed-out replan as skipped: the hold lifts, the planner stops, the feed says so', async () => {
+    const r = rig()
+    const { jobId, runId } = await approved(r, {})
+    await r.person('jobs-replan', { id: jobId, run: runId, mode: 'wave', wave: 1 })
+    const before = r.state()
+    // the driving loop's call (exec/dispatchLoop.ts hurryReplan)
+    expect((await r.person('jobs-replan-done', { id: jobId, timedOut: true })).status).toBe(200)
+    expect(job(r).replanning).toBeUndefined()
+    expect(job(r).dispatchHold).toBeUndefined()
+    expect(job(r).lastReplan?.summary).toMatch(/^Replan skipped: its planner did not finish in time/)
+    expect(r.stopped).toContain('ses-planner-2')
+    const line = deriveActivity(before, r.state()).find((e) => e.type === 'plan.replanned')
+    expect(line?.payload.summary).toMatch(/^Replan skipped/)
+    expect(inbox(r, 'plan.replanned')).toHaveLength(1)
+  })
+
+  it('raises an escalated replan as an open Inbox question whose option lifts the hold', async () => {
+    const r = rig()
+    const { jobId, runId, id } = await approved(r)
+    await r.person('jobs-replan', { id: jobId, run: runId })
+    const s = r.state()
+    r.set({ ...s, tasks: s.tasks.map((t) => (t.id === id('C') ? { ...t, prompt: undefined } : t)) })
+    await r.as('ses-planner-2')('jobs-replan-done', { id: jobId })
+    const esc = r.state().messages.filter((m) => m.type === 'escalation')
+    expect(esc).toHaveLength(1)
+    expect(esc[0]).toMatchObject({ runId, options: [REPLAN_LIFT_HOLD] })
+    expect(esc[0].body).toContain(`jobs-unhold --id ${jobId}`)
+    const open = (await r.person('questions-list', { status: 'open' })).body as Array<{ id: string; options?: string[] }>
+    expect(open.find((q) => q.id === esc[0].id)?.options).toEqual([REPLAN_LIFT_HOLD])
+    expect(inbox(r, 'plan.replanned')).toHaveLength(0)
+  })
+
+  it('raises the same item when the replan planner cannot start', async () => {
+    const r = rig()
+    const { jobId } = await approved(r)
+    r.deps.startCoordinator = async () => {
+      throw new Error('no pty')
+    }
+    await r.person('jobs-replan', { id: jobId })
+    expect(r.state().messages.find((m) => m.type === 'escalation')?.options).toEqual([REPLAN_LIFT_HOLD])
   })
 })

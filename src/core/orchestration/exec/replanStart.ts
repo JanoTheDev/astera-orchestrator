@@ -11,11 +11,11 @@ import { otherPlansBrief } from '../overlap'
 import { collectChanges, rangesFor } from '../changedFiles'
 import type { OrchServerDeps } from '../command'
 import { PLANNER_COMMANDS, planFieldsFromArgs, validatePlan } from '../planner'
-import { REPLAN_FOLLOW_UPS_MAX, affectedLeft, cancelRemainingTask, deviatingTasks, editRemainingTask, notStarted, replanAccountOf, replanJobOf, replanOn, runTasks } from '../replan'
+import { REPLAN_FOLLOW_UPS_MAX, affectedLeft, cancelRemainingTask, deviatingTasks, editRemainingTask, notStarted, replanAccountOf, replanJobOf, replanOn, runTasks, waveOpen } from '../replan'
 import { isIntegrationTask } from '../integrate'
 import { jobNameOf } from '../jobName'
-import type { OrchState } from '../state'
-import type { Job, ReplanMark, Task } from '../types'
+import { placedByApp, type OrchState } from '../state'
+import { newId, type Job, type Message, type ReplanMark, type Task } from '../types'
 
 type Reply = { status: number; body: unknown }
 type Caller = { sessionId: string; role?: 'app' | 'cli' | 'mcp' | 'controller' | 'plugin' }
@@ -28,6 +28,47 @@ const denied = (error: string): Reply => ({ status: 403, body: { error } })
 const notFound = (error: string): Reply => ({ status: 404, body: { error } })
 const conflict = (error: string): Reply => ({ status: 409, body: { error } })
 const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() !== '' ? v : null)
+
+/** The answer to a held replan's escalation that lifts the hold (exec/dispatchLoop.ts liftAnsweredHolds). */
+export const REPLAN_LIFT_HOLD = 'lift the hold'
+
+/** The Inbox item of an escalated replan: an escalation in its Run, whose option lifts the hold. */
+export function replanEscalation(runId: string, jobId: string, why: string, now: string): Message {
+  return {
+    id: newId('msg'),
+    runId,
+    type: 'escalation',
+    subject: `Replan escalated, the plan is held: ${why}`.slice(0, 300),
+    body:
+      `${why}\n\nNo new worker starts until the hold is lifted. Fix the plan if it needs it, then answer ` +
+      `"${REPLAN_LIFT_HOLD}" (or run \`astera jobs-unhold --id ${jobId}\`).`,
+    options: [REPLAN_LIFT_HOLD],
+    answered: false,
+    createdAt: now
+  }
+}
+
+/** `plan.replanned` for the coordinator of a Run whose wave just opened: the wave and the Tasks it may start now. None
+ *  for a Run the app places itself (its scheduler starts them), a Run that is gone, or a Job still held. */
+export function waveOpenedMessage(s: OrchState, jobId: string, runId: string, wave: number, now: string): Message | undefined {
+  const job = s.jobs.find((j) => j.id === jobId)
+  const run = s.runs.find((r) => r.id === runId)
+  if (!job || !run || placedByApp(job, run) || job.dispatchHold) return undefined
+  const startable = runTasks(s, runId).filter((t) => t.status === 'ready' && waveOpen(t, s))
+  return {
+    id: newId('msg'),
+    runId,
+    type: 'status',
+    subject: 'plan.replanned',
+    body:
+      `Wave ${wave + 1} of the plan is open (${job.lastReplan?.summary ?? 'replanned'}). ` +
+      (startable.length
+        ? `Start these ready Tasks now: ${startable.map((t) => `${t.id} (${t.title})`).join(', ')}.`
+        : 'No Task is ready to start yet.'),
+    answered: false,
+    createdAt: now
+  }
+}
 
 /** What a replan session may call besides a planner's own commands: its Run's reads, the cancel, and the end. */
 const REPLAN_EXTRA = new Set(['runs-get', 'runs-changed-files', 'task-cancel', 'jobs-replan-done'])
@@ -219,6 +260,12 @@ export async function replanCommand(deps: OrchServerDeps, caller: Caller, cmd: s
     await deps.setState({ ...cur, jobs: cur.jobs.map((x) => (x.id === jobId ? next : x)) })
     return next
   }
+  // Into the Run's inbox, the way every message goes (the coordinator's `check`, the Inbox's questions-list)
+  const post = async (m: Message | undefined): Promise<void> => {
+    if (!m) return
+    const cur = deps.getState()
+    await deps.setState({ ...cur, messages: [...cur.messages, m] })
+  }
 
   if (cmd === 'task-update') {
     // Only a replan session's task-update comes here (handleCommand routes it); replanRefusal has checked the Task.
@@ -296,6 +343,7 @@ export async function replanCommand(deps: OrchServerDeps, caller: Caller, cmd: s
     if (deviating?.length === 0) {
       const summary = `Replan skipped: wave ${mark.wave} went as planned`
       await setJob(jobId, (j) => ({ ...j, lastReplan: { ...mark, at: now, summary } }))
+      await post(waveOpenedMessage(deps.getState(), jobId, runId, mark.wave, now))
       deps.log?.(`replan skipped job=${jobId} run=${runId} wave=${mark.wave}`)
       return ok({ jobId, runId, mode, wave: mark.wave, skipped: true, summary })
     }
@@ -333,6 +381,7 @@ export async function replanCommand(deps: OrchServerDeps, caller: Caller, cmd: s
     } catch (e) {
       const why = `the replan planner could not start: ${String(e)}`
       await setJob(jobId, ({ replanning: _r, ...j }) => ({ ...j, dispatchHold: true, lastReplan: { ...mark, at: now, summary: why, escalated: why } }))
+      await post(replanEscalation(runId, jobId, why, now))
       return { status: 502, body: { error: why } }
     }
     const recorded = await setJob(jobId, (j) => ({
@@ -352,7 +401,12 @@ export async function replanCommand(deps: OrchServerDeps, caller: Caller, cmd: s
   const r = job.replanning
   if (!r) return conflict(`job ${jobId} is not replanning`)
   if (fromAgent && caller.sessionId !== r.sessionId) return denied('a replan is ended by its own planner session')
-  const { line, added } = replanSummary(s, job, str(args.summary) ?? (args.gone === true ? 'its planner session ended' : undefined))
+  // The driving loop's end of a planner that never finished (exec/dispatchLoop.ts REPLAN_TIMEOUT_MS): the boundary
+  // passes as a skipped replan, with whatever the planner did change still checked below
+  const timedOut = !fromAgent && args.timedOut === true
+  const summed = replanSummary(s, job, str(args.summary) ?? (args.gone === true ? 'its planner session ended' : undefined))
+  const added = summed.added
+  const line = timedOut ? `Replan skipped: its planner did not finish in time (${summed.line})`.slice(0, 300) : summed.line
   const problems = replanProblems(s, r.runId)
   const followUps = (job.replanFollowUps ?? 0) + (r.mode === 'completion' && added > 0 ? 1 : 0)
   const escalated = problems.length
@@ -372,6 +426,13 @@ export async function replanCommand(deps: OrchServerDeps, caller: Caller, cmd: s
     lastReplan: { ...mark, at: now, summary: line, ...(escalated ? { escalated } : {}) }
   }))
   deps.log?.(`replan ended job=${jobId} (${jobNameOf(job)}): ${escalated ?? line}`)
+  await post(
+    escalated
+      ? replanEscalation(r.runId, jobId, escalated, now)
+      : r.mode === 'wave'
+        ? waveOpenedMessage(deps.getState(), jobId, r.runId, r.wave, now)
+        : undefined
+  )
   // #47: the planner's work is recorded, so its session ends.
   if (sessionId && args.gone !== true)
     await deps.stopCoordinator?.(sessionId, 'its replan is done').catch((e) => deps.log?.(`replan planner ${sessionId} could not be stopped: ${String(e)}`))

@@ -11,10 +11,13 @@ import {
   COORDINATOR_STOP_RETRY_MS,
   FINISHED_RUN_BUSY_CAP_MS,
   FINISHED_RUN_GRACE_MS,
+  REPLAN_IDLE_NUDGE_MS,
+  REPLAN_TIMEOUT_MS,
   createDispatchLoop, type DispatchLoop, type DispatchLoopContext,
   idleWorkersOf
 } from './dispatchLoop'
 import { coordinatorReleaseOf } from './releaseDefer'
+import { REPLAN_LIFT_HOLD } from './replanStart'
 import { handleCommand, type OrchServerDeps } from '../command'
 import { APP_CALLER } from '../../host/driver'
 import { addDecision, COORDINATOR_START_WINDOW_MS, emptyState, type OrchState } from '../state'
@@ -2093,6 +2096,75 @@ describe('wave replanning (W6-D)', () => {
     expect(job.replanning).toBeUndefined()
     expect(job.dispatchHold).toBeUndefined()
     expect(job.lastReplan?.summary).toContain('its planner session ended')
+  })
+
+  it('reminds a replan planner idle at its prompt once, and ends it as skipped after 30 minutes', async () => {
+    const h = rig()
+    planned(h, (t) => (t.id === 'tsk_1' ? { ...t, status: 'completed' } : t))
+    failedOnce(h)
+    const start = h.clock
+    await h.loop.run()
+    await h.settle()
+    const session = h.state().jobs[0].replanning!.sessionId!
+    // first seen idle now; the reminder waits REPLAN_IDLE_NUDGE_MS from here, and busy time does not count
+    await h.loop.nudge()
+    await h.settle()
+    h.ctx.sessionBusy = () => true
+    h.clock = start + REPLAN_IDLE_NUDGE_MS + 1
+    await h.loop.nudge()
+    await h.settle()
+    h.ctx.sessionBusy = () => false
+    await h.loop.nudge()
+    await h.settle()
+    expect(h.typed.filter((t) => t.includes('jobs-replan-done'))).toHaveLength(0)
+    h.clock = start + 2 * REPLAN_IDLE_NUDGE_MS + 2
+    await h.loop.nudge()
+    await h.settle()
+    await h.loop.nudge()
+    await h.settle()
+    expect(h.typed.filter((t) => t.includes('astera jobs-replan-done --id job_1'))).toHaveLength(1)
+    expect(h.state().jobs[0].replanning).toBeDefined()
+
+    h.clock = start + REPLAN_TIMEOUT_MS + 1
+    await h.loop.nudge()
+    await h.settle()
+    const job = h.state().jobs[0]
+    expect(job.replanning).toBeUndefined()
+    expect(job.dispatchHold).toBeUndefined()
+    expect(job.lastReplan).toMatchObject({ mode: 'wave', wave: 1 })
+    expect(job.lastReplan?.summary).toMatch(/^Replan skipped: its planner did not finish in time/)
+    expect(h.stopCoordinator).toHaveBeenCalledWith(session, expect.any(String))
+  })
+
+  it("lifts an escalated replan's hold once the owner answers its Inbox item with the lift", async () => {
+    const h = rig()
+    planned(h, (t) => (t.id === 'tsk_1' ? { ...t, status: 'completed' } : t))
+    const at = new Date(h.clock).toISOString()
+    const why = 'the plan does not hold after the replan: tsk_2 has no prompt'
+    const esc: Message = {
+      id: 'msg_esc',
+      runId: 'run_1',
+      type: 'escalation',
+      subject: `Replan escalated, the plan is held: ${why}`,
+      body: why,
+      options: [REPLAN_LIFT_HOLD],
+      answered: false,
+      createdAt: at
+    }
+    const s = h.state()
+    h.setState({
+      ...s,
+      jobs: s.jobs.map((j) => (j.id === 'job_1' ? { ...j, dispatchHold: true, lastReplan: { runId: 'run_1', mode: 'wave', wave: 1, done: 1, at, summary: why, escalated: why } } : j)),
+      messages: [...s.messages, esc]
+    })
+    await h.loop.nudge()
+    await h.settle()
+    expect(h.state().jobs[0].dispatchHold).toBe(true)
+    expect((await h.real('questions-answer', { id: 'msg_esc', answer: 'Lift the hold' })).status).toBe(200)
+    await h.loop.nudge()
+    await h.settle()
+    expect(h.handled()).toContain('jobs-unhold')
+    expect(h.state().jobs[0].dispatchHold).toBeUndefined()
   })
 })
 

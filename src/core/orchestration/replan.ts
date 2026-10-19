@@ -56,9 +56,33 @@ export function waveOf(task: Node, tasks: readonly Node[]): number {
 
 export const runTasks = (s: OrchState, runId: string): Task[] => s.tasks.filter((t) => t.runId === runId)
 
+/** The Tasks `task` waits on, directly or through others, within `tasks`. */
+function upstreamOf(task: Node, tasks: readonly Node[]): Set<string> {
+  const byId = new Map(tasks.map((t) => [t.id, t]))
+  const out = new Set<string>()
+  const stack = [...task.deps]
+  for (let id = stack.pop(); id !== undefined; id = stack.pop()) {
+    if (out.has(id)) continue
+    out.add(id)
+    stack.push(...(byId.get(id)?.deps ?? []))
+  }
+  return out
+}
+
+/** A Task that failed, or that waits (directly or through others) on one that failed: it will not complete on its own,
+ *  so it holds back only the Tasks that depend on it, never a whole later wave (`waveOpen`, `replansDue`). */
+function deadEnd(t: Task, tasks: readonly Task[]): boolean {
+  if (t.status === 'failed') return true
+  if (t.status === 'completed') return false
+  const up = upstreamOf(t, tasks)
+  return tasks.some((x) => x.status === 'failed' && up.has(x.id))
+}
+
 /** Whether a Task may start as far as waves go: always with replanning off; otherwise only while no replan runs for its
- *  Job, and for wave n > 0 once every Task of a lower wave in its Run is completed and the boundary before n has been
- *  replanned (its `lastReplan`). */
+ *  Job, and for wave n > 0 once the boundary before n has been replanned (its `lastReplan`) and every Task of a lower
+ *  wave in its Run is settled for it. A lower-wave Task is settled when it completed, or when it failed (or waits on one
+ *  that failed) and `task` does not depend on it: an unrelated failure does not stop a later wave, a failure upstream
+ *  of `task` does. */
 export function waveOpen(task: Task, s: OrchState): boolean {
   const run = task.runId === undefined ? undefined : s.runs.find((r) => r.id === task.runId)
   const job = run && jobOf(s, run)
@@ -69,7 +93,9 @@ export function waveOpen(task: Task, s: OrchState): boolean {
   // The boundary must have been replanned too, so no placer (the loop, a coordinator) slips in before the replan starts
   const last = job.lastReplan
   if (last?.runId !== run.id || last.mode !== 'wave' || last.wave !== w) return false
-  return runTasks(s, run.id).every((t) => t.status === 'completed' || waveOf(t, s.tasks) >= w)
+  const own = runTasks(s, run.id)
+  const up = upstreamOf(task, own)
+  return own.every((t) => t.status === 'completed' || waveOf(t, s.tasks) >= w || (!up.has(t.id) && deadEnd(t, own)))
 }
 
 /** Not started: waiting, ready, or blocked by a Gate before it ever ran (W8-E, #95: the coordinator's question about
@@ -119,8 +145,9 @@ export function affectedLeft(deviating: readonly Task[], left: readonly Task[]):
 
 /**
  * The replans the driving loop should start now, one per Run at most:
- * - `wave`: the lowest wave with an unfinished Task is n > 0 (every lower Task is completed), something there has not
- *   started, and this Run's last replan was not for that wave already.
+ * - `wave`: the lowest wave with an unfinished Task is n > 0 (every lower Task is completed, or failed, or waits on one
+ *   that failed: those are not counted), something there has not started, and this Run's last replan was not for that
+ *   wave already.
  * - `completion`: every Task is completed and the last replan was not a completion pass over this many done Tasks.
  *   Only for a Run `seenRunning` says this process watched run, so a Run that ended before (or before this existed)
  *   is not reopened.
@@ -134,12 +161,14 @@ export function replansDue(s: OrchState, seenRunning: (runId: string) => boolean
     if (ts.length === 0) continue
     const done = completedIn(ts)
     const last = job.lastReplan?.runId === run.id ? job.lastReplan : undefined
-    const open = ts.filter((t) => t.status !== 'completed')
-    if (open.length === 0) {
+    if (ts.every((t) => t.status === 'completed')) {
       if (!seenRunning(run.id) || (last?.mode === 'completion' && last.done === done)) continue
       out.push({ runId: run.id, mode: 'completion', wave: 1 + Math.max(...ts.map((t) => waveOf(t, s.tasks))), done })
       continue
     }
+    // A failed Task and what waits on it do not hold the boundary: the Tasks that do not depend on them go on (waveOpen)
+    const open = ts.filter((t) => t.status !== 'completed' && !deadEnd(t, ts))
+    if (open.length === 0) continue
     const wave = Math.min(...open.map((t) => waveOf(t, s.tasks)))
     if (wave === 0 || (last?.mode === 'wave' && last.wave === wave)) continue
     if (!open.some((t) => notStarted(s, t))) continue

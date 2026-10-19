@@ -47,6 +47,7 @@ import { DEFAULT_CONCURRENCY, FAILURE_LIMIT, type Decision, type JobRun, type Ta
 import { outcomeOfTasks, tasksOwnedBy } from '../running'
 import { outcomeOf } from '../view'
 import { completionSettled, replansDue } from '../replan'
+import { REPLAN_LIFT_HOLD } from './replanStart'
 // W8-C draft PR
 import { draftPrDue } from '../draftPr'
 import type { Integration } from './integrateGit'
@@ -62,6 +63,10 @@ import type { ActivityDraft } from '../activity'
 
 /** W6-D: a replan whose start left no session after this long died with its process, and is ended. */
 export const REPLAN_START_WINDOW_MS = 5 * 60_000
+/** A replan planner idle at its prompt this long without `jobs-replan-done` is reminded once to finish. */
+export const REPLAN_IDLE_NUDGE_MS = 10 * 60_000
+/** A replan running this long in all is ended: the boundary passes as a skipped replan (`jobs-replan-done --timedOut`). */
+export const REPLAN_TIMEOUT_MS = 30 * 60_000
 /** 15초 — 세션 스케줄러의 TICK_MS 와 같은 값이다 */
 export const ORCH_FIRE_TICK_MS = 15_000
 /** 코디네이터를 깨우기 전에 기다리는 시간.
@@ -565,8 +570,12 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     for (const job of s.jobs) {
       const r = job.replanning
       if (!r) continue
+      if (r.sessionId !== undefined && c.sessionGone?.(r.sessionId) !== true) {
+        await hurryReplan(job.id, r.sessionId, r.startedAt)
+        continue
+      }
       const stale = r.sessionId === undefined && c.nowMs() - Date.parse(r.startedAt) > REPLAN_START_WINDOW_MS
-      if (!stale && (r.sessionId === undefined || c.sessionGone?.(r.sessionId) !== true)) continue
+      if (!stale && r.sessionId === undefined) continue
       if (!c.mayStart()) return
       try {
         const end = await c.handle('jobs-replan-done', { id: job.id, gone: true })
@@ -587,6 +596,75 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
         )
       } catch (e) {
         log(`run=${due.runId}: starting its ${due.mode} replan failed: ${String(e)}`)
+      }
+    }
+  }
+
+  /** When each replan planner was first seen idle at its prompt (busy resets it), and the ones reminded already. In
+   *  memory: a restart counts the idle time again, and the 30-minute end counts from the replan's own start. */
+  const replanIdleSince = new Map<string, number>()
+  const replanNudged = new Set<string>()
+  /**
+   * A replan planner that stays alive but never calls `jobs-replan-done` would hold its Job forever. Idle at its prompt
+   * for REPLAN_IDLE_NUDGE_MS, it is reminded once; REPLAN_TIMEOUT_MS after the replan began it is ended
+   * (`jobs-replan-done --timedOut`, which stops the session): the boundary passes as a skipped replan, the plan as it
+   * stands, and the activity feed says so. A session whose state cannot be told counts as idle.
+   */
+  const hurryReplan = async (jobId: string, sessionId: string, startedAt: string): Promise<void> => {
+    const now = c.nowMs()
+    if (now - Date.parse(startedAt) > REPLAN_TIMEOUT_MS) {
+      if (!c.mayStart()) return
+      try {
+        const end = await c.handle('jobs-replan-done', { id: jobId, timedOut: true })
+        log(`job=${jobId}: its replan planner did not finish in time; the replan ended: ${JSON.stringify(end.body)}`)
+      } catch (e) {
+        log(`job=${jobId}: ending its timed-out replan failed: ${String(e)}`)
+      }
+      return
+    }
+    if (c.sessionBusy(sessionId) === true) {
+      replanIdleSince.delete(sessionId)
+      return
+    }
+    const since = replanIdleSince.get(sessionId) ?? now
+    replanIdleSince.set(sessionId, since)
+    if (now - since < REPLAN_IDLE_NUDGE_MS || replanNudged.has(sessionId) || !c.sessionAlive(sessionId)) return
+    replanNudged.add(sessionId)
+    c.typeInto(sessionId, `Finish with \`astera jobs-replan-done --id ${jobId} --summary "<one line: what you changed and why>"\`.`)
+    await new Promise((res) => setTimeout(res, ENTER_DELAY_MS))
+    c.typeInto(sessionId, '\r')
+    log(`job=${jobId}: its replan planner ${sessionId} was idle; reminded to finish`)
+  }
+
+  /**
+   * An escalated replan keeps its Job held and raises an escalation in the Inbox (replanStart.ts replanEscalation);
+   * the owner's answer REPLAN_LIFT_HOLD lifts the hold here (`jobs-unhold`). Each answer lifts once.
+   */
+  // shortcut: the lifted answers are kept in memory, so after a restart a hold set again by hand while the escalation
+  // still reads REPLAN_LIFT_HOLD is lifted once more; record the lift on the Job if that ever matters.
+  const liftedHolds = new Set<string>()
+  const liftAnsweredHolds = async (): Promise<void> => {
+    const s = c.getState()
+    for (const job of s.jobs) {
+      const last = job.lastReplan
+      if (!job.dispatchHold || job.replanning || last?.escalated === undefined) continue
+      const m = s.messages.find(
+        (x) =>
+          x.type === 'escalation' &&
+          x.runId === last.runId &&
+          x.createdAt >= last.at &&
+          x.options?.includes(REPLAN_LIFT_HOLD) &&
+          x.answered &&
+          x.answerBody?.trim().toLowerCase() === REPLAN_LIFT_HOLD &&
+          !liftedHolds.has(x.id)
+      )
+      if (!m || !c.mayStart()) continue
+      liftedHolds.add(m.id)
+      try {
+        const r = await c.handle('jobs-unhold', { id: job.id })
+        log(r.status >= 400 ? `job=${job.id}: lifting its replan hold was refused: ${JSON.stringify(r.body)}` : `job=${job.id}: the owner lifted its replan hold`)
+      } catch (e) {
+        log(`job=${job.id}: lifting its replan hold failed: ${String(e)}`)
       }
     }
   }
@@ -690,6 +768,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       await clearStaleStartMarks()
       if (!c.mayStart()) return
       // W6-D: before the PR, which waits for the final check
+      await liftAnsweredHolds()
       await replanAtBoundaries()
       if (!c.mayStart()) return
       // W8-C draft PR: after a wave's replan, before the completed Run's delivery
