@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import type { Attention, JobRow, JobTask, SessionInfo } from '../../../../core/types'
-import type { WorkspaceProject, WorkspaceSession } from '../../state/workspaceTree'
+import { buildWorkspaceTree, type WorkspaceProject, type WorkspaceSession } from '../../state/workspaceTree'
 import {
-  ALL_PLANS, NO_PLAN, consolesOf, detailLineOf, detailsOf, filterConsoles, gridColumns, groupWall, indexJobRows, orderWall, pillCount, planPills,
-  progressSegments, stripLabel, type WallInput
+  ALL_PLANS, NO_PLAN, consolesOf, detailLineOf, detailsOf, filterConsoles, gridColumns, indexJobRows, orderWall, pillCount, planPills,
+  progressSegments, roleSections, stripLabel, type WallInput
 } from './wallModel'
 
 const session = (id: string, over: Partial<SessionInfo> = {}): SessionInfo => ({
@@ -152,19 +152,41 @@ describe('orderWall and filterConsoles', () => {
   })
 })
 
-describe('groupWall', () => {
-  it('groups the wall by plan in plan order, plain consoles last, each group its live tiles then its finished ones', () => {
-    const w = orderWall(consolesOf(input()), ALL_PLANS)
-    const groups = groupWall([...w.pinned, ...w.tiles], w.finished)
-    expect(groups.at(-1)?.key).toBe(NO_PLAN)
-    expect(groups.find((g) => g.key === NO_PLAN)?.live.map((c) => c.sessionId)).toEqual(['s9'])
-    const one = groups.find((g) => g.key === 'job_1')!
-    expect(one.live.map((c) => c.sessionId)).toEqual(['c1', 'pl1', 'w1', 'w2'])
-    expect(groups.flatMap((g) => g.done).map((c) => c.sessionId)).toEqual(['e1'])
+describe('roleSections', () => {
+  const w = orderWall(consolesOf(input()), ALL_PLANS)
+  const live = [...w.pinned, ...w.tiles]
+  const ids = (cs: { sessionId: string }[]): string[] => cs.map((c) => c.sessionId)
+  it('splits the wall into Coordinators, Planners, Workers (reviewer included) and Consoles, in that order', () => {
+    const secs = roleSections(live, w.finished)
+    expect(secs.map((g) => g.key)).toEqual(['coordinators', 'planners', 'workers', 'consoles'])
+    expect(ids(secs[2].live)).toContain('w2')
+    expect(ids(secs[3].live)).toEqual(['s9'])
+    expect(ids(secs.flatMap((g) => g.done))).toEqual(['e1'])
   })
-  it('the Done filter leaves a group of finished consoles only', () => {
-    const w = orderWall(consolesOf(input()), ALL_PLANS)
-    expect(groupWall([], w.finished).every((g) => g.live.length === 0 && g.done.length > 0)).toBe(true)
+  it('keeps the input order inside each section', () => {
+    const roles = { coordinators: ['coordinator'], planners: ['planner'], workers: ['worker', 'reviewer'], consoles: ['console'] }
+    for (const g of roleSections(live, w.finished))
+      expect(ids(g.live)).toEqual(ids(live.filter((c) => roles[g.key].includes(c.role))))
+  })
+  it('leaves out a section with nothing in it; the Done filter leaves cards only', () => {
+    expect(roleSections(live.filter((c) => c.role === 'worker'), []).map((g) => g.key)).toEqual(['workers'])
+    expect(roleSections([], w.finished).every((g) => g.live.length === 0 && g.done.length > 0)).toBe(true)
+  })
+})
+
+describe('a plan filed under a sub-project', () => {
+  const root = { id: 'r1', name: 'Root', path: '/repo' }
+  const sub = { id: 'r1s', name: 'Sub', path: '/repo', parentId: 'r1' }
+  const job = { id: 'job_sub', objective: 'Sub plan', projectId: 'r1s', cwd: '/repo', createdAt: '2026-10-20T00:00:00Z', plannerSessionIds: ['sp1'] }
+  const subTree = buildWorkspaceTree(
+    { projects: [root, sub], jobsByProject: { r1: [job] }, runs: [], tasks: [], dispatches: [], gates: [] } as never,
+    { showArchived: false }
+  )
+  const cs = consolesOf({ sessions: [session('sp1')], tree: subTree, data: { dispatches: [], worktrees: [] }, attention: {}, live: {}, rows: {} })
+  it('its console and pill stay under the root project scope', () => {
+    expect(cs[0]).toMatchObject({ role: 'planner', projectId: 'r1' })
+    expect(filterConsoles(cs, { plan: ALL_PLANS, state: 'all', scope: 'project', projectId: 'r1' }).map((c) => c.sessionId)).toEqual(['sp1'])
+    expect(planPills(subTree, {}, cs, 'r1', 'project').map((p) => p.jobId)).toEqual(['job_sub'])
   })
 })
 
