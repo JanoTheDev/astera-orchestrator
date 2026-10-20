@@ -698,6 +698,9 @@ export const es: Catalog = {
   'explorer.git.conflict': 'Conflicto',
   'explorer.git.folderCount': '{count} cambios',
   'explorer.git.unavailable': 'Estado de git no disponible: se muestra el último resultado',
+  'explorer.view.all': 'Todos',
+  'explorer.view.changed': 'Modificados',
+  'explorer.changed.empty': 'Sin cambios',
   // WorkbenchTabs.tsx — the dirty marker on a file tab
   'explorer.tab.unsaved': 'Sin guardar',
   'explorer.find.placeholder': 'Buscar en el archivo',
