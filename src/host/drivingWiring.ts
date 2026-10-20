@@ -33,6 +33,7 @@ import type { ProcRegistry } from './procRegistry'
 import type { HostSpawner } from './spawner'
 import type { HostWorktrees } from './worktrees'
 import type { DispatchLoopContext } from '../core/orchestration/exec/dispatchLoop'
+import type { LiveWorker } from '../core/orchestration/exec/adopt'
 
 export interface HostDrivingWiring {
   checks: HostChecks
@@ -50,6 +51,8 @@ export interface HostDrivingWiring {
     nextFireOf(runId: string): number | null
     /** The Host's own recovery (remote runtime design §2.6): `onDispatchLost` while it owns recovery. */
     recovery: HostRecovery
+    /** The live worker sessions and their specs, for adoption (exec/adopt.ts). */
+    liveWorkers(): LiveWorker[]
   }
   /** Spread into startHostServer's deps. */
   serverHooks: { onAppsChanged(): void }
@@ -162,7 +165,8 @@ export function composeHostDriving(a: {
       internalDeps: () => a.orch().internalDeps(),
       loaded: () => a.orch().loaded(),
       drainOnce: () => a.orch().drainOnce(),
-      state: () => a.orch().state()
+      state: () => a.orch().state(),
+      adoptWorkers: () => a.orch().adoptWorkers()
     },
     server: {
       hasApp: () => a.server().hasApp(),
@@ -207,6 +211,19 @@ export function composeHostDriving(a: {
     driving,
     orchHooks: {
       recovery,
+      // A worker's pty note keeps its roll prompt, which names its Task and Dispatch (coordinator.ts startWorker): the one
+      // link left to a worker whose Dispatch record was lost
+      liveWorkers: () =>
+        a.registry.list().flatMap((e) => {
+          if (!e.alive || e.meta?.kind !== 'session') return []
+          const r = e.meta.restore
+          const str = (k: string): string | undefined => (typeof r[k] === 'string' ? (r[k] as string) : undefined)
+          const spec = str('rollPrompt')
+          if (spec === undefined) return []
+          const cwd = str('cwd')
+          const accountId = str('accountId')
+          return [{ id: e.meta.id, spec, ...(cwd !== undefined ? { cwd } : {}), ...(accountId !== undefined ? { accountId } : {}) }]
+        }),
       nextFireOf: (runId) => driving.nextFireOf(runId),
       // False from dispose on (review of Task 13, I1): `driving.drives()` keeps the last driver, and a
       // leaving Host must start none of the three.

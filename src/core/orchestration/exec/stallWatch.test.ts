@@ -7,6 +7,8 @@ import { emptyState, type OrchState } from '../state'
 import type { ActivityDraft } from '../activity'
 import type { Dispatch, Job, Task } from '../types'
 import { mergedIntoPlan } from '../finishedSessions'
+import { adoptLiveWorkers, type LiveWorker } from './adopt'
+import type { Account } from '../../types'
 
 const NOW = '2026-10-18T00:00:00.000Z'
 const T0 = Date.parse(NOW)
@@ -411,7 +413,7 @@ describe('watchStalls', () => {
 })
 
 // The Host's applier for the remedies the loop does not apply: each through the existing command, one feed line each.
-function watchRig(s0: OrchState, busy: (id: string) => boolean | null = () => false) {
+function watchRig(s0: OrchState, busy: (id: string) => boolean | null = () => false, live: LiveWorker[] = []) {
   let state = s0
   let clock = T0
   const cmds: { cmd: string; args: Record<string, unknown> }[] = []
@@ -437,6 +439,12 @@ function watchRig(s0: OrchState, busy: (id: string) => boolean | null = () => fa
     typeInto: (id, text) => typed.push(`${id}:${text}`),
     tell: async (n) => (told.push(n.subject), true),
     activity: (d) => lines.push(String(d.payload.reason)),
+    adopt: async () => {
+      const r = adoptLiveWorkers(state, live, '/specs', NOW)
+      state = r.state
+      return r.adopted
+    },
+    accounts: () => [{ id: 'accA', provider: 'codex' } as Account],
     mayStart: () => true,
     log: () => {},
     nowMs: () => clock,
@@ -444,6 +452,7 @@ function watchRig(s0: OrchState, busy: (id: string) => boolean | null = () => fa
   })
   return {
     cmds, typed, told, lines,
+    state: () => state,
     run: async (to: number) => {
       for (let t = 0; t <= to; t += STALL_WATCH_MS) {
         clock = T0 + t
@@ -478,5 +487,35 @@ describe('createStallWatch', () => {
     expect(escalations).toHaveLength(1)
     expect(escalations[0].args).toMatchObject({ taskId: 'tsk_1', dispatchId: 'dsp_tsk_1' })
     expect(h.lines.map((l) => l.split(':')[0])).toEqual(['Nudged the worker of TSK_1', 'Told the coordinator the worker of TSK_1 is idle 12 min without reporting', 'Raised it to you'])
+  })
+
+  // Run job_0b682db7df32e7b4: the record of a live worker was lost, and the watchdog started a duplicate
+  it('adopts a live worker running the spec of a dispatched Task with no Dispatch, and starts no worker', async () => {
+    const live: LiveWorker[] = [{ id: 'ses_orig', spec: '--task-id tsk_1 --dispatch-id dsp_orig', cwd: '/wt1', accountId: 'accA' }]
+    const h = watchRig(plan({ tasks: [task({ id: 'tsk_1', status: 'dispatched' })] }), () => true, live)
+    await h.run(10 * MIN)
+    expect(h.cmds).toEqual([])
+    expect(h.state().dispatches).toEqual([expect.objectContaining({ id: 'dsp_orig', taskId: 'tsk_1', sessionId: 'ses_orig' })])
+    expect(h.lines).toEqual(['Adopted the worker of TSK_1: it ran with no record of its start'])
+  })
+
+  it('a dispatched Task with no Dispatch and no live worker is lost: started again on its account’s agent', async () => {
+    const h = watchRig(plan({ tasks: [task({ id: 'tsk_1', status: 'dispatched' })] }))
+    await h.run(3 * MIN)
+    expect(h.cmds).toEqual([{ cmd: 'worker-start', args: { task: 'tsk_1', agent: 'codex', account: 'accA' } }])
+    expect(h.lines).toEqual(['Started TSK_1 again: its worker ended without a report (try 1 of 4)'])
+  })
+})
+
+describe('stallRemedies: a dispatched Task with no Dispatch', () => {
+  it('is retried after 2 min, then raised to the owner once, never left silent', () => {
+    const s = plan({ tasks: [task({ id: 'tsk_1', status: 'dispatched' })] })
+    expect(watch(s, [T0 + LOST_STALL_MS - 1])).toEqual([])
+    expect(watch(s, every30s(60 * MIN))).toEqual([...Array<string>(TRIES).fill('retry-lost:tsk_1'), 'escalate:tsk_1'])
+  })
+
+  it('a Task with a Dispatch on record is not untracked', () => {
+    const s = plan({ tasks: [task({ id: 'tsk_1', status: 'dispatched' })], dispatches: [{ ...ended('tsk_1', '/wt1'), endedAt: undefined, outcome: undefined } as Dispatch] })
+    expect(watch(s, every30s(5 * MIN), { ...idle, busy: () => true })).toEqual([])
   })
 })

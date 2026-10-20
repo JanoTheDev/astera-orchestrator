@@ -120,7 +120,7 @@ export function hostSessionAlive(
 
 export function createHostDriving(d: {
   profileDir: string
-  orch: Pick<HostOrch, 'handle' | 'internalDeps' | 'loaded' | 'drainOnce' | 'state'>
+  orch: Pick<HostOrch, 'handle' | 'internalDeps' | 'loaded' | 'drainOnce' | 'state'> & Partial<Pick<HostOrch, 'adoptWorkers'>>
   /** `lastAppPid` (leftovers Task 1): the pid the last app gave in its hello, the default `appPid`'s
    *  fallback when app.pid names no live app. Optional for the test fakes. */
   server: { hasApp(): boolean; appsKeep(duty: string): boolean; lastAppPid?(): number | null }
@@ -454,6 +454,8 @@ export function createHostDriving(d: {
         typeInto: (id, text) => d.spawner.typeInto(id, text),
         tell: (n) => loop.tell(n),
         activity: d.activity,
+        ...(d.orch.adoptWorkers ? { adopt: () => d.orch.adoptWorkers!() } : {}),
+        accounts: () => d.checks.accounts(),
         mayStart,
         log,
         nowMs: () => d.nowMs()
@@ -495,6 +497,10 @@ export function createHostDriving(d: {
 
   const pass = async (): Promise<void> => {
     await handover
+    if (!mayStart()) return
+    // A live worker with no record of its start is adopted first (exec/adopt.ts): before it, recovery and the loop read
+    // its Task as ready or lost, and the loop's watchdog tells or starts a duplicate
+    await stalls?.adopt()
     if (!mayStart()) return
     // Recovery first (Phase 3R final review C1): a lost worker holds no slot, so a loop that ran while its recovery
     // read git would fill that slot from the ready queue and leave the lost Task with no room, no worker and no Gate.

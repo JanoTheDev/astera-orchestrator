@@ -17,6 +17,9 @@
 // wait (`BACKOFF_MS`), and after `TRIES` tries it is raised once to the owner as an escalation (an Inbox item), never
 // left in silence. Nothing destructive: it tells, starts, retries, nudges, merges into the plan branch, refreshes or
 // restarts a coordinator and retries a draft PR. It never cancels, rewrites or merges into main.
+//
+// **Adoption first** (exec/adopt.ts, run job_0b682db7df32e7b4): a live worker whose Dispatch record was lost is
+// recorded again before any remedy, so its Task never reads as ready or lost while its worker still runs.
 import type { ActivityDraft } from '../activity'
 import { readyWithoutWorker, type CoordinatorNotice } from '../inbox'
 import { jobNameOf } from '../jobName'
@@ -26,11 +29,13 @@ import { isJobActive } from '../lifecycle'
 import { lostWithCoordinator, lostWithNobody } from '../lostGate'
 import { isLost } from '../../recovery/candidates'
 import { editingByProject, projectKeyOf, sameFilesAs, workerCapOf, workersAgainstCap } from '../schedule'
-import { coordinatorStarting, jobOf, type OrchState } from '../state'
+import { coordinatorStarting, jobOf, runGatedForTask, type OrchState } from '../state'
 import { DEFAULT_CONCURRENCY, FAILURE_LIMIT, type Dispatch, type Job, type JobRun, type Task } from '../types'
 import { outcomeOf } from '../view'
 import { ENTER_DELAY_MS } from '../../sessions/sessionDriver'
 import { workerStartInFlight } from './coordinatorRotate'
+import { providerOf } from '../../providers/meta'
+import type { Account } from '../../types'
 
 /** How often the watchdog looks. */
 export const STALL_WATCH_MS = 30_000
@@ -46,7 +51,8 @@ export const MERGE_STALL_MS = 2 * 60_000
 export const DRAFT_STALL_MS = 2 * 60_000
 /** A Run whose coordinator account has no coordinator session, with work waiting this long: its coordinator is restarted. */
 export const DEAD_COORDINATOR_MS = 2 * 60_000
-/** A Task left `dispatched` this long after its worker's session ended unreported: it is started again (`--retry-of`). */
+/** A Task left `dispatched` this long after its worker's session ended unreported, or with no Dispatch at all and no
+ *  live worker to adopt: it is started again (`--retry-of` when there was one). */
 export const LOST_STALL_MS = 2 * 60_000
 /** A worker idle at its prompt this long with its Dispatch open (no `worker-done`): it is nudged. */
 export const IDLE_STALL_MS = 10 * 60_000
@@ -89,7 +95,8 @@ export type StallRemedy = { key: string; runId: string } & (
   | { kind: 'merge'; task: Task; runRoot: string; worktree: string }
   | { kind: 'draft-pr'; done: number }
   | { kind: 'restart'; since: number; try: number }
-  | { kind: 'retry-lost'; task: Task; dispatch: Dispatch; try: number }
+  /** No `dispatch`: the Task is `dispatched` with no record at all, and no live worker runs its spec */
+  | { kind: 'retry-lost'; task: Task; dispatch?: Dispatch; try: number }
   | { kind: 'nudge-worker'; task: Task; dispatch: Dispatch; since: number }
   | { kind: 'tell-idle'; task: Task; dispatch: Dispatch; since: number }
   | { kind: 'escalate'; taskId: string; dispatchId?: string; subject: string; body: string }
@@ -257,29 +264,38 @@ export function stallRemedies(
 
   // Lost: `dispatched`, its last Dispatch ended unreported and its coordinator has not started it again. Retried
   // (`--retry-of`) up to the Task's retry limit, then the owner. A Run with no coordinator has the lost-worker Gate.
-  for (const seed of lostWithCoordinator(s)) {
-    const run = s.runs.find((r) => r.id === seed.runId)!
-    const job = jobOf(s, run)
+  // Untracked: `dispatched` with no Dispatch at all (its record lost, candidates.ts lostAttemptOf sees none) and no live
+  // worker left to adopt (adoption ran first, header): started again the same way, never left silent.
+  const untracked = s.tasks
+    .filter((t) => t.status === 'dispatched' && !runGatedForTask(s, t) && !s.dispatches.some((d) => d.taskId === t.id))
+    .map((t) => ({ runId: t.runId ?? '', taskId: t.id, dispatch: undefined as Dispatch | undefined }))
+  for (const seed of [...lostWithCoordinator(s), ...untracked]) {
+    const run = s.runs.find((r) => r.id === seed.runId)
+    const job = run && jobOf(s, run)
     const task = s.tasks.find((t) => t.id === seed.taskId)
-    if (!placing(run, job) || !task) continue
-    const endedAt = Date.parse(seed.dispatch.endedAt!)
-    if (nowMs - endedAt < LOST_STALL_MS) continue
-    const key = `lost:${seed.dispatch.id}`
-    const e = seen(key, endedAt)
+    if (!run?.coordinatorSessionId || !placing(run, job) || !task) continue
+    const lostAt = seed.dispatch ? Date.parse(seed.dispatch.endedAt!) : (at.get(task.id) ?? nowMs)
+    if (nowMs - lostAt < LOST_STALL_MS) continue
+    const key = seed.dispatch ? `lost:${seed.dispatch.id}` : `untracked:${task.id}`
+    const e = seen(key, lostAt)
     if (!due_(e, 0)) continue
     const lostTimes = s.dispatches.filter((d) => d.taskId === task.id && isLost(d)).length
     const spent = lostTimes >= FAILURE_LIMIT || task.consecutiveFailures >= FAILURE_LIMIT
     if (!spent && e.step < TRIES) {
-      due.push({ key, runId: run.id, kind: 'retry-lost', task, dispatch: seed.dispatch, try: e.step + 1 })
+      due.push({ key, runId: run.id, kind: 'retry-lost', task, ...(seed.dispatch ? { dispatch: seed.dispatch } : {}), try: e.step + 1 })
       stepped(key, e)
     } else if (spent ? e.step === 0 : e.step === TRIES)
       escalate(key, e, run.id, {
         taskId: task.id,
-        dispatchId: seed.dispatch.id,
-        subject: `watchdog: task ${task.id} lost its worker ${seed.dispatch.id}`,
-        body:
-          `${task.id} (${task.title})'s worker ended without a report ${spent ? `${lostTimes} times` : `and ${TRIES} retries did not start a new one`}, ` +
-          'so it waits. Start it again, change its spec, or stop it.'
+        ...(seed.dispatch ? { dispatchId: seed.dispatch.id } : {}),
+        subject: seed.dispatch
+          ? `watchdog: task ${task.id} lost its worker ${seed.dispatch.id}`
+          : `watchdog: task ${task.id} is dispatched with no worker`,
+        body: seed.dispatch
+          ? `${task.id} (${task.title})'s worker ended without a report ${spent ? `${lostTimes} times` : `and ${TRIES} retries did not start a new one`}, ` +
+            'so it waits. Start it again, change its spec, or stop it.'
+          : `${task.id} (${task.title}) is dispatched with no worker on record and none running its spec, and ` +
+            `${spent ? 'it is out of retries' : `${TRIES} tries did not start a new one`}, so it waits. Start it again, change its spec, or stop it.`
       })
   }
 
@@ -381,6 +397,11 @@ export interface StallWatchDeps {
   /** DispatchLoop.tell: a `status` message into a coordinator's Run inbox. */
   tell(n: CoordinatorNotice): Promise<boolean>
   activity?(d: ActivityDraft): void
+  /** Records each live worker session that runs a Task's spec with no Dispatch of its own (exec/adopt.ts), as one
+   *  serialized commit, and answers what it recorded. Absent: nothing is adopted. */
+  adopt?(): Promise<Dispatch[]>
+  /** accounts.json: the agent of an untracked Task's account, to start it again. Absent: the Task's provider. */
+  accounts?(): Account[] | Promise<Account[]>
   mayStart(): boolean
   log(m: string): void
   nowMs(): number
@@ -388,9 +409,10 @@ export interface StallWatchDeps {
   wait?(ms: number): Promise<void>
 }
 
-/** The watchdog's own applier for `APPLIED_HERE` (header): at most once per `STALL_WATCH_MS`, the remedies due, each
- *  with its feed line ("Handled for you"). Never throws. */
-export function createStallWatch(d: StallWatchDeps): { watch(): Promise<void> } {
+/** The watchdog's own applier for `APPLIED_HERE` (header): at most once per `STALL_WATCH_MS`, adoption and then the
+ *  remedies due, each with its feed line ("Handled for you"). `adopt` alone is the Host pass's first step, so neither
+ *  the loop nor recovery reads an untracked worker's Task as ready or lost. Never throws. */
+export function createStallWatch(d: StallWatchDeps): { adopt(): Promise<void>; watch(): Promise<void> } {
   let memo: Map<string, StallEntry> = new Map()
   let lastAt = -Infinity
   let watching = false
@@ -423,12 +445,19 @@ export function createStallWatch(d: StallWatchDeps): { watch(): Promise<void> } 
         return
       }
       case 'retry-lost': {
-        // As a coordinator retries one: the same account and agent, a new Dispatch linked to the lost one
+        // As a coordinator retries one: the same account and agent, a new Dispatch linked to the lost one. With no
+        // Dispatch on record, as a coordinator starts one: the Task's first account, on that account's agent
+        const account = r.dispatch?.accountId ?? r.task.accountIds?.[0] ?? ''
+        const agent =
+          r.dispatch?.provider ??
+          (await Promise.resolve(d.accounts?.() ?? [])).map((a) => (a.id === account ? providerOf(a) : null)).find((p) => p !== null) ??
+          r.task.provider ??
+          'claude'
         const reply = await d.handle('worker-start', {
           task: r.task.id,
-          agent: r.dispatch.provider,
-          account: r.dispatch.accountId,
-          retryOf: r.dispatch.id
+          agent,
+          account,
+          ...(r.dispatch ? { retryOf: r.dispatch.id } : {})
         })
         line(
           r.runId,
@@ -486,12 +515,27 @@ export function createStallWatch(d: StallWatchDeps): { watch(): Promise<void> } 
     }
   }
 
+  /** Not behind the setting: it records what is true, a worker running, and starts or stops nothing. */
+  const adopt = async (): Promise<void> => {
+    if (!d.adopt || !d.mayStart()) return
+    try {
+      for (const x of await d.adopt()) {
+        const task = d.getState().tasks.find((t) => t.id === x.taskId)
+        line(task?.runId ?? '', `adopted the worker of ${task?.title ?? x.taskId}: it ran with no record of its start`, x.taskId)
+      }
+    } catch (e) {
+      d.log(`watchdog: adopting untracked workers failed: ${String(e)}`)
+    }
+  }
+
   return {
+    adopt,
     async watch(): Promise<void> {
       if (watching || d.nowMs() - lastAt < STALL_WATCH_MS) return
       watching = true
       lastAt = d.nowMs()
       try {
+        await adopt()
         if (!(await d.on())) {
           memo = new Map()
           return

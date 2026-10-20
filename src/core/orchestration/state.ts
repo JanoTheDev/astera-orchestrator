@@ -767,6 +767,40 @@ export function openDispatch(
   )
 }
 
+/** Records the Dispatch of a worker session that is live but has none: its record was lost (run job_0b682db7df32e7b4),
+ *  and the session's spec name (`<taskId>-<dispatchId>.md`, coordinator.ts specFileName) is the only link left. The
+ *  Task goes back to `dispatched` under the id the worker reports with. Refused when that id is recorded, the session
+ *  holds an open Dispatch, the Task has one open, or the Task is past its worker (exec/adopt.ts `adoptLiveWorkers`). */
+export function adoptDispatch(
+  s: OrchState,
+  a: { taskId: string; dispatchId: string; sessionId: string; provider: Provider; accountId: string; cwd: string; specPath: string },
+  now: string
+): Res<Dispatch> {
+  const task = s.tasks.find((t) => t.id === a.taskId)
+  if (!task) return gone(`unknown task: ${a.taskId}`)
+  // Only a Task waiting for this very worker: past it (validating, completed, failed...) the worker already reported
+  if (task.status !== 'ready' && task.status !== 'dispatched') return err(`cannot adopt onto status: ${task.status}`)
+  if (s.dispatches.some((d) => d.id === a.dispatchId)) return err(`dispatch already recorded: ${a.dispatchId}`)
+  const open = s.dispatches.find((d) => d.taskId === a.taskId && !d.outcome && !d.endedAt)
+  if (open) return err(`dispatch already open: ${open.id}`)
+  const sessionOpen = s.dispatches.find((d) => d.sessionId === a.sessionId && !d.outcome && !d.endedAt)
+  if (sessionOpen) return err(`sessionId already in use by an open dispatch: ${sessionOpen.id}`)
+  const moved = moveTask(task, 'dispatched', now)!
+  const dispatch: Dispatch = {
+    id: a.dispatchId,
+    taskId: a.taskId,
+    provider: a.provider,
+    accountId: a.accountId,
+    sessionId: a.sessionId,
+    cwd: a.cwd,
+    specPath: a.specPath,
+    startedAt: now,
+    workerState: 'ready',
+    retained: false
+  }
+  return ok({ ...s, tasks: replace(s.tasks, moved), dispatches: [...s.dispatches, dispatch] }, dispatch)
+}
+
 export function applyWorkerDone(
   s: OrchState,
   a: {

@@ -20,8 +20,9 @@ import { applyPendingReports, readPendingReports, type QueuedReport } from '../c
 import { dispatchesHeldOnlyByReport, pendingReportsDirIn, reportedDispatchIdsOf } from '../core/orchestration/pendingReports'
 import { writeOffDispatch, type OrchState } from '../core/orchestration/state'
 import { runningRunCount } from '../core/orchestration/running'
-import { isPlaceholderSessionId } from '../core/orchestration/types'
-import { sweepStaleSpecFiles } from '../core/orchestration/exec/specFiles'
+import { isPlaceholderSessionId, type Dispatch } from '../core/orchestration/types'
+import { specsDirOf, sweepStaleSpecFiles } from '../core/orchestration/exec/specFiles'
+import { adoptLiveWorkers, type LiveWorker } from '../core/orchestration/exec/adopt'
 import { coordinatorReleaseOf } from '../core/orchestration/exec/releaseDefer'
 import type { OrchCall, OrchCaller } from '../core/host/orchProtocol'
 import { mcpRefusal } from '../core/host/mcpGate'
@@ -416,6 +417,9 @@ export interface HostOrch extends OrchCall {
    *  never loaded has closed nothing and started nothing, while loading would run the restart cleanup
    *  from an app leaving. */
   orphanedSessions(isAlive: (sessionId: string) => boolean): string[]
+  /** Records each live worker that runs a Task's spec with no Dispatch of its own (exec/adopt.ts), in the command chain
+   *  as one commit, and answers what it recorded. Nothing before the load or without `liveWorkers`. */
+  adoptWorkers(): Promise<Dispatch[]>
   /** A command the Host issues for itself, after the load, under HOST_CALLER (R9). It answers exactly
    *  as `call` would — the same 409 rewrite from the call's own marks, so a retiring spawner's refusal
    *  arrives as 409 with `retry` (B1). No request id, so no receipt: the Host is not a caller that
@@ -461,6 +465,9 @@ export function createHostOrch(a: {
    *  process and could be told nothing, and design §6 says that answer cannot exist inside the Host —
    *  "we asked and got no answer" is not a state a process can be in about itself. */
   aliveSessionIds(): ReadonlySet<string>
+  /** The live worker sessions with the text naming each one's spec (exec/adopt.ts LiveWorker), for adoption: the stall
+   *  watch's and `worker-stop`'s. Absent: nothing is adopted. */
+  liveWorkers?(): LiveWorker[]
   act(name: string, args: unknown[]): Promise<unknown>
   hasApp(): boolean
   /** Called with the state every commit leaves behind, so the Host can push it to the app — and with
@@ -954,6 +961,8 @@ export function createHostOrch(a: {
     const { startWorker, readWorker } = deps
     return {
       ...deps,
+      // `worker-stop` adopts the original of a stopped duplicate (exec/adopt.ts)
+      ...(a.liveWorkers ? { liveWorkers: a.liveWorkers } : {}),
       ...(startWorker ? { startWorker: (x: Parameters<typeof startWorker>[0]) => outsideChain(() => startWorker(x)) } : {}),
       ...(readWorker ? { readWorker: (x: Parameters<typeof readWorker>[0]) => outsideChain(() => readWorker(x)) } : {})
     }
@@ -1711,6 +1720,18 @@ export function createHostOrch(a: {
       for (const r of st.runs)
         if (r.coordinatorSessionId && !isAlive(r.coordinatorSessionId)) ids.add(r.coordinatorSessionId)
       return [...ids]
+    },
+    adoptWorkers: async () => {
+      if (!loaded || !a.liveWorkers) return []
+      const live = a.liveWorkers()
+      const specsDir = specsDirOf(a.profileDir)
+      // Read once outside the chain, so a pass with nothing to adopt never waits on it; again inside, on what is there then
+      if (adoptLiveWorkers(store.get(), live, specsDir, a.now()).adopted.length === 0) return []
+      return serially('workers-adopt', {}, async () => {
+        const r = adoptLiveWorkers(store.get(), live, specsDir, a.now())
+        if (r.adopted.length > 0) await depsFor(throwaway(), HOST_ACTOR).setState(r.state)
+        return r.adopted
+      })
     },
     handle: async (cmd, args) => {
       const marks: CallMarks = { appRefused: false, commits: 0, effects: 0 }

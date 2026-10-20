@@ -470,7 +470,9 @@ const NOT_FORWARDED = [
   // W6-H
   'deliverPush',
   // W9-J
-  'cleanWorktrees'
+  'cleanWorktrees',
+  // exec/adopt.ts: orch.ts adds the Host's live workers beside these deps
+  'liveWorkers'
 ] as const
 
 /** Every name the groups above classify between them. Nothing is unsupplied any more: the four
@@ -525,6 +527,8 @@ const EFFECTFUL: Record<Classified, boolean> = {
   usageGuard: false,
   hookEventsDir: false, // W8-A
   profileDir: false, // W8-A
+  // NOT_FORWARDED: a read of the Host's registry
+  liveWorkers: false,
   // HOST_LOCAL — the same values these names had in PROPAGATES and SWALLOWED before S2 (the six), and
   // in PROPAGATES before S3 (the three worktree names).
   startWorker: true,

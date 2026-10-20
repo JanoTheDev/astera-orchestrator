@@ -193,6 +193,8 @@ import { REPLAN_COMMANDS, replanCommand, replanRefusal } from './exec/replanStar
 import { coordinatorHandoff, refreshCoordinator } from './exec/coordinatorRotate'
 // T5 crash restore
 import { crashResumedBrief } from './exec/crashResume'
+import { adoptLiveWorkers, specIdsOf, type LiveWorker } from './exec/adopt'
+import { specsDirOf } from './exec/specFiles'
 import { feedbackCommand, handsOffOf, isFeedbackCommand } from './exec/plannerFeedback'
 export { JOB_SOURCE } from './commandSources'
 import { pluginIdOfCheck, type CompletionCheckInput, type PluginCheckAnswer } from './pluginChecks'
@@ -821,6 +823,9 @@ export interface OrchServerDeps {
   /** The profile folder (`attribution/` holds the checkpoint logs the stamp's line data reads). **Only the Host injects
    *  it**, as it does hookEventsDir; absent, the stamp notes commits without line data. */
   profileDir?: string
+  /** The worker sessions the Host holds live, each with the text that names its spec (exec/adopt.ts): `worker-stop` of
+   *  a duplicate adopts the original still running the same spec. **Only the Host injects it**, beside profileDir. */
+  liveWorkers?(): LiveWorker[]
 }
 
 /** A plugin as the early refusal reads it (plugin Phase 5 C7). */
@@ -4783,7 +4788,7 @@ export async function handleCommand(
       const starting = !d.outcome && !d.endedAt ? stillStarting([d], now) : null
       if (starting) return starting
       if (releases(d)) await deps.releaseWorker({ dispatchId: d.id })
-      await deps.setState({
+      const stopped: OrchState = {
         ...deps.getState(),
         dispatches: deps
           .getState()
@@ -4792,8 +4797,14 @@ export async function handleCommand(
               ? { ...x, workerState: 'stopped' as const, endedAt: now, closedBy: 'stop' as const }
               : x
           )
-      })
-      return okBody({ stopped: d.id })
+      }
+      // A duplicate stopped while the original still runs the same spec untracked (its record lost): the original
+      // becomes the Task's Dispatch, so the Task is not left `dispatched` with nothing open (exec/adopt.ts)
+      const survivors = deps.profileDir ? (deps.liveWorkers?.() ?? []).filter((w) => specIdsOf(w.spec)?.taskId === d.taskId) : []
+      const adoption = adoptLiveWorkers(stopped, survivors, specsDirOf(deps.profileDir ?? ''), now)
+      await deps.setState(adoption.state)
+      const adopted = adoption.adopted[0]
+      return okBody({ stopped: d.id, ...(adopted ? { adopted: adopted.id, sessionId: adopted.sessionId } : {}) })
     }
     case 'worker-abandon': {
       // Does nothing remote, nothing to any process, nothing on the filesystem.
