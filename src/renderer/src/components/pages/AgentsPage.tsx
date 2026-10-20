@@ -151,15 +151,17 @@ export function AgentsPage({
   // session tab opens that console full size, anything else gives the window to that page. The first tab (the saved
   // layout restored at start) is not such a move: the app opens on the wall.
   const lastTab = useRef(activeTabId)
-  // T8: set when the open console is closed from its header; the tab the close leaves active must not pull the wall away.
-  const closingOpen = useRef(false)
+  // T8: the session tab a close is removing. Closing the active tab moves activeTabId to a neighbour; that move is the
+  // close's own, not a tab the person picked, so the follow below ignores it and the view stays where it was.
+  const closingTab = useRef<string | null>(null)
   useEffect(() => {
     if (lastTab.current === activeTabId) return
-    const first = lastTab.current === null
+    const prev = lastTab.current
+    const first = prev === null
     lastTab.current = activeTabId
     if (first) return
-    if (closingOpen.current) {
-      closingOpen.current = false
+    if (prev !== null && prev === closingTab.current) {
+      closingTab.current = null
       return
     }
     const ref = activeTabId ? parseTab(activeTabId) : null
@@ -210,16 +212,15 @@ export function AgentsPage({
   const back = (): void => setWallView({ kind: 'wall' })
   const open = (sessionId: string): void => openConsole(sessionId)
   // T8: the one close path for the strip, the tiles and the header. A busy or plan-owned console asks first.
-  const closeConsole = async (c: WallConsole, fromHeader = false): Promise<void> => {
+  const closeConsole = async (c: WallConsole): Promise<void> => {
     if (
       needsCloseConfirm(c) &&
       !(await confirmModal({ title: t('wall.close.confirm.title'), body: t('wall.close.confirm.body'), confirmLabel: t('wall.close.confirm.button') }))
     )
       return
-    if (fromHeader) {
-      closingOpen.current = true
-      back()
-    }
+    closingTab.current = sessionTab(c.sessionId)
+    // The open console goes back to the wall, as Back does; any other console leaves the view as it is.
+    if (heldId === c.sessionId) back()
     closeWorkbenchTab(sessionTab(c.sessionId))
   }
   const opened = heldId ? consoles.find((c) => c.sessionId === heldId) : undefined
@@ -316,7 +317,7 @@ export function AgentsPage({
           detailsOpen={detailsOpen}
           onToggleDetails={() => setDetailsOpen((o) => !o)}
           onBack={back}
-          onClose={() => void closeConsole(opened, true)}
+          onClose={() => void closeConsole(opened)}
         />
       )}
       {view.kind !== 'wall' && (
