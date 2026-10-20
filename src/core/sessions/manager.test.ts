@@ -276,6 +276,21 @@ describe('SessionManager', () => {
     expect(spawned[0].pty.paused).toBe(false)
   })
 
+  it('an exit after Astera kill()s the session is marked closedByAstera; a self-exit is not', () => {
+    const { manager, spawned } = setup()
+    const exits: { closedByAstera?: boolean }[] = []
+    manager.onExit = (e) => exits.push(e)
+    const a = manager.spawn({ account, cwd: process.cwd() })
+    manager.kill(a.id) // the fake pty answers kill with its own exit, as a real one does
+    expect(exits).toHaveLength(1)
+    expect(manager.list().find((s) => s.id === a.id)?.closedByAstera).toBe(true)
+    expect(exits[0].closedByAstera).toBe(true)
+    const b = manager.spawn({ account, cwd: process.cwd() })
+    spawned[1].pty.exitCb({ exitCode: 143 })
+    expect(manager.list().find((s) => s.id === b.id)?.closedByAstera).toBeUndefined()
+    expect(exits[1].closedByAstera).toBeUndefined()
+  })
+
   it('종료 시 status가 exited가 되고 onExit이 발화한다', () => {
     const { manager, spawned } = setup()
     const exits: number[] = []

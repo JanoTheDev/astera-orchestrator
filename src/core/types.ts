@@ -117,6 +117,8 @@ export interface SessionInfo {
   cwd: string
   status: SessionStatus
   exitCode?: number
+  /** Astera ended this process itself (a tab close, a release, a stop): a SIGTERM/SIGHUP exit then reads as a normal close. */
+  closedByAstera?: boolean
   title: string
   resumeSessionId?: string
   rollAccountIds?: string[] // rolling account order; [0] is the initial account. One element waits out the reset instead of switching (every Job worker is one)
@@ -934,7 +936,7 @@ export interface CoreEvents {
   'session:remote-gone': { sessionId: string; code: string; message: string }
   /** A remote tab's connection dropped (`down`, reconnecting) or is back (`up`) (Phase 9b review I1). */
   'session:remote-link': { sessionId: string; state: 'down' | 'up' }
-  'session:exit': { sessionId: string; exitCode: number }
+  'session:exit': { sessionId: string; exitCode: number; closedByAstera?: boolean }
   // main created a session without the renderer asking — an orchestration worker. The whole
   // SessionInfo is carried so the renderer can build the tab (the same value sessions.spawn returns).
   // It is not emitted on the user path (sessions.spawn) — doing so would place the same session twice.

@@ -77,8 +77,8 @@ export function RunTabStrip({
               </button>
             )}
             {r.status === 'exited' && (
-              <span className={`run-tab-exit${exitWording(r.exitCode).tone === 'danger' ? ' fail' : ''}`}>
-                {t(exitWording(r.exitCode).key, exitWording(r.exitCode).params)}
+              <span className={`run-tab-exit${exitWording(r.exitCode, { closedByAstera: r.closedByAstera }).tone === 'danger' ? ' fail' : ''}`}>
+                {t(exitWording(r.exitCode, { closedByAstera: r.closedByAstera }).key, exitWording(r.exitCode, { closedByAstera: r.closedByAstera }).params)}
               </span>
             )}
             {r.status === 'exited' && (

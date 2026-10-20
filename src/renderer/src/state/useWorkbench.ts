@@ -189,9 +189,9 @@ export function useWorkbench(deps: WorkbenchDeps) {
     })
     // W6-B: main showed a notice that needs the owner, silent, and the chime is ours (lib/alertSound.ts)
     const offNotifyChime = window.api.on('notify:chime', () => void playAlertChime())
-    const offExit = window.api.on('session:exit', ({ sessionId, exitCode }) => {
+    const offExit = window.api.on('session:exit', ({ sessionId, exitCode, closedByAstera }) => {
       setSessions((prev) =>
-        prev.map((s) => (s.id === sessionId ? { ...s, status: 'exited', exitCode } : s))
+        prev.map((s) => (s.id === sessionId ? { ...s, status: 'exited', exitCode, closedByAstera } : s))
       )
       closeAgentTabRef.current(sessionId) // the owner is gone; the tab has nothing to report to
     })

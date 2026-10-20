@@ -78,6 +78,7 @@ export function RunningNotice({
 export function ExitedNotice({
   onGoTerminal,
   exitCode = null,
+  closedByAstera = false,
   reason = null,
   detail = null,
   onRestart = null
@@ -85,6 +86,8 @@ export function ExitedNotice({
   onGoTerminal?: (() => void) | null;
   /** The process's exit code, when the session had one. Null keeps the old bare title. */
   exitCode?: number | null;
+  /** Astera ended the process itself, so a SIGTERM exit reads as a normal close. */
+  closedByAstera?: boolean;
   /** One line — the first thing the process said on stderr as it went (design S1). */
   reason?: string | null;
   /** The whole stderr tail, folded away: a person needs the line above, and only sometimes the rest. */
@@ -93,7 +96,7 @@ export function ExitedNotice({
 }): ReactNode {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
-  const wording = exitCode === null ? null : exitWording(exitCode);
+  const wording = exitCode === null ? null : exitWording(exitCode, { closedByAstera });
   // A normal close is not a warning: only a real failure keeps the warn colours.
   const tone = wording === null || wording.tone === "danger"
     ? "border-[var(--warn-line)] bg-[var(--warn-bg)] text-[var(--warn-ink)]"

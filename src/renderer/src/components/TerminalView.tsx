@@ -396,7 +396,7 @@ export function TerminalView({
     if (active && !tiledRef.current && session.status !== 'exited' && terminalMayTakeFocus(document.activeElement)) termRef.current?.focus()
   }, [active, session.status])
 
-  const exit = exitWording(session.exitCode)
+  const exit = exitWording(session.exitCode, { closedByAstera: session.closedByAstera })
   return (
     <div className="terminal-wrap">
       <div className="terminal-host" ref={hostRef} />

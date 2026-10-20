@@ -26,6 +26,8 @@ export interface RunStatus {
    *  rather than racing the dying process — and the list can show that ▶ did something. */
   status: 'running' | 'stopping' | 'exited'
   exitCode?: number
+  /** Astera stopped this run (stop()): its exit is a normal close, not a failure. */
+  closedByAstera?: true
   startedAt: number
   exitedAt?: number
   /** The first loopback address this run printed — the dev server's own URL, seen in its output

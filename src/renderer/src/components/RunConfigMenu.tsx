@@ -74,7 +74,7 @@ export function RunConfigMenu({
   const statusText = (s: RowStatus | null): string | null => {
     if (!s) return null
     if (s.kind === 'running') return t('run.menu.running', { count: s.count })
-    const wording = exitWording(s.run.exitCode)
+    const wording = exitWording(s.run.exitCode, { closedByAstera: s.run.closedByAstera })
     const code = t(wording.key, wording.params)
     return `${code} · ${formatRunDuration(s.run, now)}`
   }
@@ -165,7 +165,7 @@ export function RunConfigMenu({
     // A live run reads with the same accent the pill's dot uses; a failed one reads with the same
     // colour the tab strip's own exit tag does (.run-tab-exit.fail) — the same fact must not read
     // differently in two places.
-    const statusClass = s?.kind === 'running' ? ' live' : s?.kind === 'exited' && exitWording(s.run.exitCode).tone === 'danger' ? ' fail' : ''
+    const statusClass = s?.kind === 'running' ? ' live' : s?.kind === 'exited' && exitWording(s.run.exitCode, { closedByAstera: s.run.closedByAstera }).tone === 'danger' ? ' fail' : ''
     const isCursor = index === cursor
     return (
       <div
