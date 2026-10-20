@@ -5636,6 +5636,18 @@ export async function handleCommand(
           ])
           rows = rows.filter((x) => theirs.has(x.id) || (x.cwd !== null && isPathWithin(project.path, x.cwd)))
         }
+        // `run` (T9, the plan Board): only that Run's workers and coordinator, not every session ever. Unknown is a 404,
+        // as questions-list's `--run` is.
+        if (args.run !== undefined) {
+          const run = str(args.run)
+          if (run === null) return bad('--run needs a value: the run id')
+          const r = s.runs.find((x) => x.id === run)
+          if (!r) return notFound(`unknown run: ${run}`)
+          const tasks = new Set(s.tasks.filter((t) => t.runId === run).map((t) => t.id))
+          const theirs = new Set(s.dispatches.filter((d) => tasks.has(d.taskId)).map((d) => d.sessionId))
+          if (r.coordinatorSessionId !== undefined) theirs.add(r.coordinatorSessionId)
+          rows = rows.filter((x) => theirs.has(x.id))
+        }
         if (status.value === 'alive' || status.value === 'ended')
           rows = rows.filter((x) => x.alive === (status.value === 'alive'))
         else if (status.value !== undefined) rows = rows.filter((x) => x.state === status.value)

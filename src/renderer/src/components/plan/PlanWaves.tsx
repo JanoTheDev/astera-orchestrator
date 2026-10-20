@@ -109,6 +109,7 @@ export function PlanWaves({
           onOpenSession={onOpenSession}
           projectPath={projectPath}
           summaries={summaries.byTask}
+          nowMs={live.nowMs}
         />
       ) : (
         <Graph
