@@ -195,7 +195,7 @@ function countWrites(proc: ProcLike): { proc: ProcLike; writes: () => number } {
 export class ChatSessionManager {
   private sessions = new Map<string, LiveChatSession>()
   private listeners: Array<(sessionId: string, e: ChatEvent) => void> = []
-  onExit?: (e: { sessionId: string; exitCode: number }) => void
+  onExit?: (e: { sessionId: string; exitCode: number; closedByAstera?: boolean }) => void
 
   constructor(private deps: ChatManagerDeps) {}
 
@@ -571,6 +571,7 @@ export class ChatSessionManager {
       notice: live.notice,
       unattendedPermission: live.unattended,
       ...(live.bypassed ? { bypassed: true } : {}),
+      ...(live.killRequested ? { closedByAstera: true } : {}),
       ...(live.bypassOffer ? { bypassOffer: true, ...(live.managerSignal ? { bypassSignal: live.managerSignal } : {}) } : {})
     }
   }
@@ -818,10 +819,12 @@ export class ChatSessionManager {
       // re-reads main's state, it only hears this (ChatEvent's own doc on the `exit` variant).
       // `bypassSignal` rides with it (fix round 1 / Important 4): the dialog needs to know *which*
       // signal matched to soften what it says when only the weaker one (`VOLTA_HOME`) did.
+      // killRequested: Astera asked for this death (a tab close, the quit sweep), so it is no failure.
+      const closed = live.killRequested ? { closedByAstera: true as const } : {}
       const final: ExitEvent = bypassOffer
-        ? { ...e, bypassOffer: true, ...(live.managerSignal ? { bypassSignal: live.managerSignal } : {}) }
-        : e
-      this.onExit?.({ sessionId: id, exitCode: e.code })
+        ? { ...e, ...closed, bypassOffer: true, ...(live.managerSignal ? { bypassSignal: live.managerSignal } : {}) }
+        : { ...e, ...closed }
+      this.onExit?.({ sessionId: id, exitCode: e.code, ...closed })
       for (const fn of this.listeners) fn(id, final)
       return
     } else if (e.type === 'status' && e.status === 'working') {

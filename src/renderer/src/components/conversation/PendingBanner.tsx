@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from "react";
 import { Button } from "../ui/button";
 import { useI18n } from "../../i18n/I18nProvider";
+import { exitWording } from "../../../../core/sessions/exitWording";
 
 /** The mark that says the CLI is doing something.
  *
@@ -77,6 +78,7 @@ export function RunningNotice({
 export function ExitedNotice({
   onGoTerminal,
   exitCode = null,
+  closedByAstera = false,
   reason = null,
   detail = null,
   onRestart = null
@@ -84,6 +86,8 @@ export function ExitedNotice({
   onGoTerminal?: (() => void) | null;
   /** The process's exit code, when the session had one. Null keeps the old bare title. */
   exitCode?: number | null;
+  /** Astera ended the process itself, so a SIGTERM exit reads as a normal close. */
+  closedByAstera?: boolean;
   /** One line — the first thing the process said on stderr as it went (design S1). */
   reason?: string | null;
   /** The whole stderr tail, folded away: a person needs the line above, and only sometimes the rest. */
@@ -92,17 +96,22 @@ export function ExitedNotice({
 }): ReactNode {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
+  const wording = exitCode === null ? null : exitWording(exitCode, { closedByAstera });
+  // A normal close is not a warning: only a real failure keeps the warn colours.
+  const tone = wording === null || wording.tone === "danger"
+    ? "border-[var(--warn-line)] bg-[var(--warn-bg)] text-[var(--warn-ink)]"
+    : "border-border bg-muted text-muted-foreground";
   return (
     <div
       role="status"
       data-slot="conversation-exited"
-      className="flex flex-col gap-1.5 rounded-(--composer-radius) border border-[var(--warn-line)] bg-[var(--warn-bg)] px-4 py-2.5 text-sm text-[var(--warn-ink)]"
+      className={`flex flex-col gap-1.5 rounded-(--composer-radius) border px-4 py-2.5 text-sm ${tone}`}
     >
       <div className="flex items-center justify-between gap-3">
         <p className="font-medium">
-          {exitCode === null
+          {wording === null
             ? t("conversation.exited.title")
-            : t("conversation.exited.withCode", { code: exitCode })}
+            : t(wording.key, wording.params)}
         </p>
         <div className="flex shrink-0 items-center gap-2">
           {detail !== null && detail.trim() !== "" && (

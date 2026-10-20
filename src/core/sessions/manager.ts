@@ -117,6 +117,8 @@ function pathValueOf(env: Record<string, string | undefined>): string {
 interface LiveSession {
   info: SessionInfo
   pty: PtyLike
+  /** Set by kill(): the exit that follows is Astera's doing, not the process's. */
+  closedByAstera?: boolean
   pendingBytes: number
   paused: boolean
   /** Auto-release timer for a pause. Always null when not paused, and must never outlive the session. */
@@ -132,7 +134,7 @@ export class SessionManager {
   /** Exited sessions, oldest exit first: past EXITED_SESSIONS_KEPT the oldest record goes (second pass M2-5). */
   private exitedOrder = new Set<string>()
   onData?: (e: { sessionId: string; data: string }) => void
-  onExit?: (e: { sessionId: string; exitCode: number }) => void
+  onExit?: (e: { sessionId: string; exitCode: number; closedByAstera?: boolean }) => void
 
   constructor(
     private ptyFactory: PtyFactory,
@@ -423,11 +425,12 @@ export class SessionManager {
     pty.onExit(({ exitCode }) => {
       info.status = 'exited'
       info.exitCode = exitCode
+      if (live.closedByAstera) info.closedByAstera = true
       // Do not resume a dead PTY — the child is already reaped so there is nothing to release, and
       // the timer must not be left outliving the session.
       this.clearResumeFailsafe(live)
       this.keepExited(info.id)
-      this.onExit?.({ sessionId: info.id, exitCode })
+      this.onExit?.({ sessionId: info.id, exitCode, ...(live.closedByAstera ? { closedByAstera: true } : {}) })
     })
     return { ...info }
   }
@@ -560,7 +563,10 @@ export class SessionManager {
   }
 
   kill(id: string): void {
-    this.sessions.get(id)?.pty.kill()
+    const live = this.sessions.get(id)
+    if (!live) return
+    live.closedByAstera = true
+    live.pty.kill()
   }
 
   /** Renames a session, returning the stored title — normalised, so an empty name comes back as the

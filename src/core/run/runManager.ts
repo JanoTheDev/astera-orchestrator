@@ -293,6 +293,7 @@ export class RunManager {
     if (!live || live.status.status !== 'running') return
     live.status.status = 'stopping'
     live.killed = true
+    live.status.closedByAstera = true
     this.onStatus?.({ ...live.status })
     const cmd = treeKillCommand(this.platform, live.pty.pid)
     if (cmd) this.killRunner(cmd)
