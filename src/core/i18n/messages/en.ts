@@ -2675,6 +2675,10 @@ export const en: Record<keyof typeof ko, string> = {
   'plan.pick.picked': '#{n} {title}: {why}',
   'plan.pick.skipped': 'Skipped #{n} {title}: {why}',
   'plan.decisions.title': 'Decided for you',
+  // T7: an objective item the plan leaves out on purpose, and the owner's edit of a running plan's Task
+  'plan.leftOut.title': 'Left out of the plan',
+  'plan.leftOut.item': '{n}. {text} — {reason}',
+  'activity.taskEdited': '{title}: edited by you — {fields}',
   'plan.decisions.kind.approval': 'Approval',
   'plan.decisions.kind.escalation': 'Question',
   'plan.decisions.kind.gate': 'Gate',

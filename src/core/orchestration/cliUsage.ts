@@ -449,7 +449,7 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
   'jobs-rename': {
     summary: 'name a Job',
     detail:
-      'The name is one line, cut at 300 characters, and is what the app, `jobs list --human` and the notifications show. An empty --title drops it, and the Job is named by its objective again. The objective, which is what agents are given, does not change.',
+      'The name is one line, cut at 300 characters, and is what the app, `jobs list --human` and the notifications show. An empty --title drops it, and the Job is named by its objective again. The objective, which is what agents are given, does not change. Every Job is named at creation by the first words of its objective (about 6 words); its planner renames it once it knows the goal. Refused from an agent session other than the Job\'s own planner.',
     flags: [ID('<jobId>', 'the Job to name'), { name: 'title', value: '<text>', required: true, about: 'the new name' }]
   },
   // W7-D (#67)
@@ -463,6 +463,8 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       '--areas names where the plan works, 1 to 3 short words (none clears them); `jobs list --area` filters by them. It is set on its own, and the Job\'s own planner may set it too. ' +
       // T1 chat-first planning
       '--planning and --priority (an integer, as at `jobs create`) change those two after creation, alone or together; --planning applies to the next planner start. ' +
+      // T7 objective coverage
+      "--left-out lists the objective's numbered or bulleted items the plan leaves out on purpose, each with why, as JSON ('[{\"item\":2,\"reason\":\"already built: src/x.ts:12\"}]', [] clears it): approval refuses a plan with an item no Task covers (`tasks add --covers`) and none left out. It is set on its own, and the Job's own planner may set it too. " +
       // T3 workspaces
       "Setting --areas files the plan under the sub-project of its workspace named after its first area, created when missing (a workspace's projects set autoProjects off stops it). --project <projectId> moves a plan that has not started to another project of the same workspace, on its own.",
     flags: [
@@ -472,6 +474,8 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       { name: 'after', value: '<jobId|none>', about: 'the Job this one is queued after; none clears it' },
       // W8-D plan areas
       { name: 'areas', value: '<a,b,c|none>', about: "1–3 short words for where the plan works (auth, api, ui); alone; its planner may set it too" },
+      // T7 objective coverage
+      { name: 'left-out', value: '<json array>', about: 'objective items left out on purpose, each {"item":<n>,"reason":"<why>"}; alone; its planner may set it too' },
       // T1 chat-first planning
       { name: 'planning', value: '<chat|auto>', about: 'how its planner works: chat brainstorms with you, auto decides alone' },
       { name: 'priority', value: '<n>', about: 'which Job gets a free slot first when the worker cap is reached (higher first, default 0)' },
@@ -657,7 +661,9 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       { name: 'model', value: '<id>', about: 'the worker model itself, ahead of --difficulty (e.g. sonnet)' },
       // W6-A: a planned Job's Task needs one to be approved
       { name: 'basis', value: '<missing|partial|broken>', about: "what exists of the item, checked before planning (with --evidence); a planned Job's Task needs it" },
-      { name: 'evidence', value: '<text>', about: 'with --basis: file:line, an issue or PR number, a Job id' }
+      { name: 'evidence', value: '<text>', about: 'with --basis: file:line, an issue or PR number, a Job id' },
+      // T7 objective coverage
+      { name: 'covers', value: '<n,…>', about: "the numbers of the Job objective's items this task covers (a planned Job's every item needs one, or `jobs set --left-out`)" }
     ]
   },
 

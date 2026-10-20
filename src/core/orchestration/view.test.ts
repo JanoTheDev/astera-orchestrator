@@ -274,6 +274,21 @@ describe('snapshotFor', () => {
     expect(rowOf(job)).not.toHaveProperty('autoApprove')
   })
 
+  it('T7: a plan lists its left-out objective items with their text and reason, and an uncovered item is a problem', () => {
+    const base = withRuns([run('r1', absPath('p'))])
+    const job = { ...base.jobs[0], objective: '1. login\n2. logout', pendingStart: true, plannerSessionIds: ['pl'] }
+    const planTask: Task = {
+      ...task('pt', 'x', 'ready'), runId: undefined, jobId: job.id, prompt: 'do it', acceptanceCriteria: ['done'], affectedPaths: ['src/a'], basis: { state: 'missing', evidence: 'none' }, covers: [1]
+    }
+    const rowOf = (j: typeof job) => snapshotFor({ ...base, runs: [], jobs: [j], tasks: [planTask] }, absPath('p'), anySession, noWorktrees, noFires, allExist).runs[0]
+    expect(rowOf(job).planProblems).toEqual([
+      'objective item 2 ("logout") has no Task: add one with --covers 2, or list it with jobs-set --left-out and a reason'
+    ])
+    const left = rowOf({ ...job, leftOut: [{ item: 2, reason: 'already built: src/logout.ts:3' }] })
+    expect(left).toMatchObject({ leftOut: [{ item: 2, text: 'logout', reason: 'already built: src/logout.ts:3' }] })
+    expect(left).not.toHaveProperty('planProblems')
+  })
+
   it('#117: handsOff (its own, else its project\'s), decisions and pick ride on the row; absent when unset', () => {
     const base = withRuns([run('r1', absPath('p'))])
     const job = { ...base.jobs[0], pendingStart: true }

@@ -36,7 +36,7 @@ export function PlanOverviewSection({
     <>
       {/* W2-C plan board: progress and the buckets */}
       <div className="plan-head">
-        <PlanOverview tasks={tasks} pick={run?.pick} decisions={run?.decisions} />
+        <PlanOverview tasks={tasks} pick={run?.pick} decisions={run?.decisions} leftOut={run?.leftOut} />
       </div>
       <WaveLine status={p.waveStatus} />
       {/* W6-G: per-account usage, live subagents per tab, and the threshold */}

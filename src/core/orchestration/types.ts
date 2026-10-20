@@ -351,6 +351,9 @@ export interface Job {
   /** T1 chat-first planning: how the planner works: `chat` brainstorms with the person in its terminal, `auto` decides
    *  alone. Absent: `chat`, except `auto` on a hands-off plan (`handsOffOf`) and one an agent session made (set at creation). */
   planning?: 'chat' | 'auto'
+  /** T7 objective coverage: the objective items the planner deliberately left out of the plan, each with why
+   *  (`jobs-set --left-out`). `validatePlan` accepts an item listed here as covered. */
+  leftOut?: LeftOutItem[]
   /** #119: why each issue was picked or skipped by "Let Astera pick". */
   pick?: { at: string; picked: IssuePick[]; skipped: IssuePick[] }
   /** What the owner told the planner (`jobs-feedback`), oldest first, with what the planner changed for each. */
@@ -662,6 +665,16 @@ export interface Task {
   // W8-C prompts mode
   /** The `Job.verbatim` source this Task is, byte for byte (Run as written). */
   verbatimOf?: string
+  // T7 objective coverage (objectiveItems.ts)
+  /** The numbers of the Job's objective items this Task covers (`--covers 1,3`); `validatePlan` checks every item is
+   *  covered here or left out on the Job (`Job.leftOut`). */
+  covers?: number[]
+}
+
+/** T7: one objective item the plan leaves out on purpose: its number (objectiveItems.ts) and why. */
+export interface LeftOutItem {
+  item: number
+  reason: string
 }
 
 /** W6-A: an item's state as the planner found it. `built` gets no Task, so it is not one of these. */

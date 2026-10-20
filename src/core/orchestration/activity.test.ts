@@ -551,3 +551,21 @@ describe('plan.done of a plan that replans', () => {
     expect(doneOf(deriveActivity(checking, added))).toEqual([])
   })
 })
+
+describe('task.edited (T7)', () => {
+  it("one line when the owner changes a run Task's deps, spec, basis or evidence", () => {
+    const before = state({ tasks: [task('a'), task('b', { status: 'pending', deps: ['a'], basis: { state: 'missing', evidence: 'none' } })] })
+    const after = state({ tasks: [task('a'), task('b', { status: 'ready', deps: [], spec: 'new spec', basis: { state: 'missing', evidence: 'src/b.ts:4' } })] })
+    const edited = deriveActivity(before, after).filter((d) => d.type === 'task.edited')
+    expect(edited).toEqual([
+      { type: 'task.edited', projectId: 'p1', jobId: 'j1', runId: 'r1', taskId: 'b', payload: { plan: 'Plan A', title: 'title b', edited: ['deps', 'spec', 'evidence'] } }
+    ])
+  })
+  it('no line for a status move alone, nor for a replan editing its own plan', () => {
+    expect(types(deriveActivity(state(), state({ tasks: [task('a', { status: 'dispatched' })] })))).not.toContain('task.edited')
+    const replanning = job({ replanning: { runId: 'r1', mode: 'wave', wave: 1, done: 0, startedAt: T0 } })
+    const before = state({ jobs: [replanning] })
+    const after = state({ jobs: [replanning], tasks: [task('a', { spec: 'rewritten' })] })
+    expect(types(deriveActivity(before, after))).not.toContain('task.edited')
+  })
+})

@@ -86,6 +86,18 @@ Create Tasks in dependency order (a Task can only depend on one that exists). Ea
 | `--model-reason` | one line: why that difficulty (and provider or model, if you set one) |
 | `--basis` + `--evidence` | what you found of the item before planning (section 0): `missing`, `partial` or `broken`, and the file:line, issue, PR or Job id that shows it |
 | `--validate` | run configurations that test the work, when the project has any |
+| `--covers` | the numbers of the objective items the Task covers, e.g. `1,3` (see below) |
+
+**Cover every objective item.** When the objective lists items (top-level numbered lines `1.` / `1)`, or bullets when it
+has no numbered ones; nested lines belong to the item above), give every Task `--covers` with the numbers of the items it
+covers (bullets count 1, 2, 3 in order). An item you do not plan, because it is already built (section 0) or out of
+scope, is left out on purpose with the reason: `astera jobs-set --id <jobId> --left-out
+'[{"item":2,"reason":"already built: src/x.ts:12"}]'` (the whole list each time; `[]` clears it). The person sees the
+left-out items and their reasons on the plan. Approval refuses an item that is neither covered nor left out.
+
+**Name the plan.** Every Job starts named by the first words of its objective. Once you know the goal, give it a short
+name of 3 to 6 words: `astera jobs rename --id <jobId> --title "<3-6 words>"`. Always do it for a chat-planned Job
+(section 7): its objective is a placeholder until you and the person agree on the work.
 
 `--provider` and `--model` only when a Task needs a specific one. Fix a Task with `astera task-update --id
 <taskId>` and the same flags; deps stay inside the plan and may not form a cycle.
@@ -108,7 +120,9 @@ gets a slower worker.
 Read the plan back (`astera tasks list --run <jobId> --json`). Then print a short summary in your terminal:
 the Tasks in order, what runs in parallel and why that is safe, the open questions. Tell the person to press
 **Approve & execute** on the Job in Astera, and wait. Approval is refused while a Task has no prompt or no
-acceptance criterion or no basis, depends on a Task outside the plan, or the dependencies form a cycle. If the person asks
+acceptance criterion or no basis, depends on a Task outside the plan, or the dependencies form a cycle, and while an
+objective item is neither covered by a Task's `--covers` nor left out with `jobs-set --left-out` and a reason. Before
+you hand over, check every item is one or the other, and that the plan has its short name (`jobs rename`). If the person asks
 for changes, make them with `task-update` or new Tasks and summarise again.
 
 ## 5. Replanning

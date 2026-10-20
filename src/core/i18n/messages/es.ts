@@ -1836,6 +1836,10 @@ export const es: Catalog = {
   'plan.pick.picked': '#{n} {title}: {why}',
   'plan.pick.skipped': 'Omitida #{n} {title}: {why}',
   'plan.decisions.title': 'Decidido por ti',
+  // T7: an objective item the plan leaves out on purpose, and the owner's edit of a running plan's Task
+  'plan.leftOut.title': 'Fuera del plan',
+  'plan.leftOut.item': '{n}. {text} — {reason}',
+  'activity.taskEdited': '{title}: editado por ti — {fields}',
   'plan.decisions.kind.approval': 'Aprobación',
   'plan.decisions.kind.escalation': 'Pregunta',
   'plan.decisions.kind.gate': 'Control',

@@ -5,7 +5,7 @@
 // It never starts work: `plannerRefusal` is the gate `handleCommand` asks first, in the app and in the Host
 // alike, and a person approves the plan with the Job's start (`run-start`), which `validatePlan` guards.
 import path from 'node:path'
-import { BASIS_STATES, recomputeReady, type Job, type Task } from './types'
+import { BASIS_STATES, recomputeReady, type Job, type LeftOutItem, type Task } from './types'
 import type { OrchState, PlanFields, Res } from './state'
 import { chainOf, layersOf } from './graph'
 import { isIntegrationTask } from './integrate'
@@ -15,6 +15,8 @@ import { DIFFICULTIES, MODEL_ID } from './roleModels'
 // W8-C prompts mode
 import { sha256Of } from './promptWaves'
 import { isTerminal } from './running'
+// T7 objective coverage
+import { objectiveItemsOf } from './objectiveItems'
 
 /** W8-C prompts mode: what a planner of a Run-as-written plan is told when it tries to change the owner's text. */
 export const VERBATIM_REFUSAL =
@@ -47,7 +49,9 @@ export const PLANNER_COMMANDS: ReadonlySet<string> = new Set([
   'jobs-feedback-done',
   // W8-D several plans in one repo: read where the plan meets another, and name its areas (`jobs-set --areas` only)
   'jobs-overlaps',
-  'jobs-set'
+  'jobs-set',
+  // T7: the planner names its own Job once it knows the goal
+  'jobs-rename'
 ])
 
 /** The Job whose planner `sessionId` is, if it is one. An empty id (a shell, an MCP client) is never one. */
@@ -72,9 +76,16 @@ export function plannerRefusal(s: OrchState, sessionId: string, cmd: string, arg
     const target = args.runId ?? args.run
     if (target !== job.id) return `a planner adds Tasks to its own Job only: pass --run ${job.id}`
   }
-  // W8-D: areas only, and only its own Job
-  if (cmd === 'jobs-set' && (args.id !== job.id || args.areas === undefined || args.concurrency !== undefined || args.after !== undefined))
-    return `a planner sets its own Job's areas only: jobs-set --id ${job.id} --areas <a,b>`
+  // W8-D: areas only, and only its own Job; T7: or the objective items it leaves out
+  if (
+    cmd === 'jobs-set' &&
+    (args.id !== job.id ||
+      (args.areas === undefined) === (args.leftOut === undefined) ||
+      ['concurrency', 'after', 'planning', 'priority', 'project'].some((k) => args[k] !== undefined))
+  )
+    return `a planner sets its own Job's areas only, or its left-out items (one per call): jobs-set --id ${job.id} --areas <a,b> | --left-out '<json>'`
+  // T7: only its own Job
+  if (cmd === 'jobs-rename' && args.id !== job.id) return `a planner names its own Job only: pass --id ${job.id}`
   // W6-A: only its own Job
   if (cmd === 'plan-nothing-to-do' && args.job !== job.id) return `a planner ends its own Job only: pass --job ${job.id}`
   // W7-A: only its own Job, and only a Task of its plan (a replan's cancel is replanRefusal's)
@@ -137,8 +148,61 @@ export function planFieldsFromArgs(args: Record<string, unknown>): { ok: true; f
     if (!text(args.evidence)) return { ok: false, error: '--evidence is required with --basis: file:line, an issue or PR number, a Job id' }
     fields.basis = { state: args.basis as (typeof BASIS_STATES)[number], evidence: (args.evidence as string).trim() }
   }
+  // T7: the objective items it covers, `--covers 1,3`
+  if (args.covers !== undefined) {
+    const covers = coversArg(args.covers)
+    if (covers === null) return { ok: false, error: '--covers takes the numbers of the objective items the Task covers, e.g. 1,3' }
+    fields.covers = covers
+  }
   return { ok: true, fields }
 }
+
+/** `--covers`: "1,3", a number, or an array of them; null when any is not a whole number of 1 or more. */
+const coversArg = (v: unknown): number[] | null => {
+  const raw = typeof v === 'string' ? v.split(',').map((x) => x.trim()) : Array.isArray(v) ? v : [v]
+  const nums = raw.map((x) => (typeof x === 'string' && /^\d+$/.test(x) ? Number(x) : x))
+  if (nums.length === 0 || !nums.every((n) => typeof n === 'number' && Number.isInteger(n) && n >= 1)) return null
+  return [...new Set(nums as number[])].sort((a, b) => a - b)
+}
+
+/** T7 `jobs-set --left-out '[{"item":2,"reason":"..."}]'`: the objective items the plan leaves out on purpose, checked
+ *  against the Job's objective. A JSON string (the CLI's) or the array itself; `[]` clears the list. */
+export function leftOutArg(v: unknown, objective: string): LeftOutItem[] | { error: string } {
+  let list = v
+  if (typeof v === 'string') {
+    try {
+      list = JSON.parse(v)
+    } catch {
+      return { error: `--left-out must be JSON: '[{"item":2,"reason":"already built: src/x.ts:12"}]'` }
+    }
+  }
+  if (!Array.isArray(list)) return { error: '--left-out must be a JSON array of {"item": <n>, "reason": "<why>"}' }
+  const items = new Set(objectiveItemsOf(objective).map((i) => i.n))
+  const out: LeftOutItem[] = []
+  for (const e of list as unknown[]) {
+    const r = e as { item?: unknown; reason?: unknown }
+    if (typeof e !== 'object' || e === null || typeof r.item !== 'number' || !Number.isInteger(r.item) || !text(r.reason))
+      return { error: '--left-out entries are {"item": <n>, "reason": "<why>"}, each with a reason' }
+    if (!items.has(r.item)) return { error: `the objective has no item ${r.item}${items.size ? ` (its items: ${[...items].join(', ')})` : ''}` }
+    out.push({ item: r.item, reason: (r.reason as string).replace(/\s+/g, ' ').trim() })
+  }
+  return out
+}
+
+/** T7: what `sessionId` is to orchestration: a worker's or reviewer's Dispatch, a Run's coordinator, a Job's planner or
+ *  replanner. Undefined for any other caller: a shell, the app, the Host, or a tab the owner opened in Astera. */
+export function orchestrationRoleOf(s: OrchState, sessionId: string): 'worker' | 'reviewer' | 'coordinator' | 'planner' | undefined {
+  if (sessionId === '') return undefined
+  const d = s.dispatches.find((x) => x.sessionId === sessionId)
+  if (d) return d.review ? 'reviewer' : 'worker'
+  if (s.runs.some((r) => r.coordinatorSessionId === sessionId || r.externalCoordinatorSessionId === sessionId)) return 'coordinator'
+  if (s.jobs.some((j) => j.plannerSessionIds?.includes(sessionId) || j.replanning?.sessionId === sessionId)) return 'planner'
+  return undefined
+}
+
+/** T7: a run Task the owner may still re-plan: it has never had a Dispatch, and is pending, ready, or blocked. */
+const notStartedYet = (s: OrchState, t: Task): boolean =>
+  (t.status === 'pending' || t.status === 'ready' || t.status === 'blocked') && !s.dispatches.some((d) => d.taskId === t.id)
 
 /** What is wrong with a Job's plan, one sentence each; empty when it may be approved. Every Task needs a
  *  prompt and at least one acceptance criterion, its deps must be Tasks of the same plan, and the deps must
@@ -188,8 +252,22 @@ export function validatePlan(s: OrchState, jobId: string): string[] {
       if (t.verbatimOf === undefined || !sources.has(t.verbatimOf))
         problems.push(`${t.id} (${t.title}) is not one of the owner's prompts: Run as written plans the attached prompts only`)
   }
+  // T7: every item the objective lists is covered by a Task or left out with a reason. Only for a Job's own plan: a
+  // replan's key (replanProblems) names no Job, and its finished Tasks, which covered items too, are not in `tasks`.
+  // Run as written is checked above, prompt by prompt.
+  const job = s.jobs.find((j) => j.id === jobId)
+  if (job !== undefined && verbatim === undefined) {
+    const covered = new Set([...tasks.flatMap((t) => t.covers ?? []), ...(job.leftOut ?? []).map((l) => l.item)])
+    for (const item of objectiveItemsOf(job.objective))
+      if (!covered.has(item.n))
+        problems.push(
+          `objective item ${item.n} ("${clip(item.text)}") has no Task: add one with --covers ${item.n}, or list it with jobs-set --left-out and a reason`
+        )
+  }
   return problems
 }
+
+const clip = (t: string): string => (t.length > 40 ? `${t.slice(0, 39).trimEnd()}…` : t)
 
 /** Edits a definition Task's plan (`task-update` with plan fields): its title, spec, deps and plan fields.
  *  Refused for a Task already in a run, for deps outside its plan, and for deps that would close a cycle. */
@@ -198,13 +276,16 @@ export function editPlanTask(
   taskId: string,
   patch: PlanFields & { title?: string; spec?: string; deps?: string[] },
   now: string,
-  /** The owner (never an agent session) may also change a run Task that has not started: pending/ready, no dispatch */
-  byOwner = false
+  /** T7: who asks, for a run Task: `true` is the owner of a running run, who may also change a run Task that has not
+   *  started (pending, ready or blocked, no Dispatch ever); a string is why the caller is not that owner. */
+  owner: true | string = 'only the owner changes a running plan'
 ): Res<Task> {
   const task = s.tasks.find((t) => t.id === taskId)
   if (!task) return { ok: false, error: `unknown task: ${taskId}`, missing: true }
-  // a started Task falls through to the rule below: it takes new --criteria only
-  if (byOwner && task.runId !== undefined && (task.status === 'pending' || task.status === 'ready') && !s.dispatches.some((d) => d.taskId === taskId)) {
+  const criteriaOnly = patch.acceptanceCriteria !== undefined && Object.keys(patch).every((k) => k === 'acceptanceCriteria')
+  if (owner === true && task.runId !== undefined && !criteriaOnly) {
+    if (!notStartedYet(s, task))
+      return { ok: false, error: `${taskId} has started already (${task.status}): only a Task that has not started is re-planned; it takes new --criteria only` }
     if (patch.deps) {
       const outside = patch.deps.filter((d) => d === taskId || !s.tasks.some((t) => t.id === d && t.runId === task.runId))
       if (outside.length) return { ok: false, error: `deps must be other Tasks of the same run: ${outside.join(', ')}` }
@@ -219,8 +300,9 @@ export function editPlanTask(
   // W8-F (#100): a Task in a run that has not finished keeps one editable field: its acceptance criteria, which the
   // coordinator narrows when the owner's answer does (the review judges the Task against them)
   if (task.runId !== undefined) {
-    if (isTerminal(task) || patch.acceptanceCriteria === undefined || Object.keys(patch).some((k) => k !== 'acceptanceCriteria'))
-      return { ok: false, error: `${taskId} is in a run already: only a plan's own Tasks are edited (a Task that has not finished takes new --criteria only)` }
+    if (isTerminal(task)) return { ok: false, error: `${taskId} has finished (${task.status}): it is not edited` }
+    if (!criteriaOnly)
+      return { ok: false, error: `${taskId} is in a run already and ${owner === true ? 'has started' : owner}: it takes new --criteria only` }
     const next: Task = { ...task, acceptanceCriteria: patch.acceptanceCriteria, updatedAt: now }
     return { ok: true, state: { ...s, tasks: s.tasks.map((t) => (t.id === taskId ? next : t)) }, value: next }
   }

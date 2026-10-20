@@ -94,7 +94,9 @@ export const ACTIVITY_KINDS = [
   // #117: a call a hands-off plan made in the owner's place, and a guardrail case it refused (Job.decisions); feed only,
   // the plan.done notice lists them
   'plan.decided',
-  'plan.refused'
+  'plan.refused',
+  // T7: the owner changed a run Task's deps, spec, basis or evidence before it started (task-update); feed only
+  'task.edited'
 ] as const
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number]
 
@@ -164,7 +166,14 @@ export interface ActivityPayload {
   handsOff?: true
   /** #117 plan.done of a hands-off plan: each decision it made for the owner, one line (decisionLine). */
   decisions?: string[]
+  // task.edited (T7)
+  /** What the owner changed, in this order: deps, spec, basis, evidence. */
+  edited?: EditedField[]
 }
+
+/** T7: the run Task fields whose change is a task.edited line. */
+export const EDITED_FIELDS = ['deps', 'spec', 'basis', 'evidence'] as const
+export type EditedField = (typeof EDITED_FIELDS)[number]
 
 /** One line before the log numbers and stamps it (the shape of publicEvents.ts's EventDraft). */
 export interface ActivityDraft {
@@ -293,6 +302,18 @@ export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[
       const was = before.get(t.id)
       if (was === undefined || was === t || t.runId === undefined || same(was.links, t.links)) continue
       push('task.links', where(t.runId, t.id), { title: t.title, ...(t.links !== undefined ? { links: t.links } : {}) })
+    }
+    // T7: the owner re-planned a Task of a running plan. A replan's own edits are its plan.replanned line instead.
+    for (const t of next.tasks) {
+      const was = before.get(t.id)
+      if (was === undefined || was === t || t.runId === undefined) continue
+      const edited = EDITED_FIELDS.filter((f) =>
+        f === 'deps' ? !same(was.deps, t.deps) : f === 'spec' ? was.spec !== t.spec : f === 'basis' ? was.basis?.state !== t.basis?.state : was.basis?.evidence !== t.basis?.evidence
+      )
+      if (edited.length === 0) continue
+      const at = where(t.runId, t.id)
+      if (at.job?.replanning !== undefined || prev.jobs.find((j) => j.id === at.jobId)?.replanning !== undefined) continue
+      push('task.edited', at, { title: t.title, edited })
     }
   }
 

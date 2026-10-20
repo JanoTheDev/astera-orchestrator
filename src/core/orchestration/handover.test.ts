@@ -221,6 +221,18 @@ describe('buildPlannerBrief planning mode (T1)', () => {
   })
 })
 
+describe('buildPlannerBrief objective coverage and the plan name (T7)', () => {
+  const base = { jobId: 'job_x', objective: '1. a\n2. b', repoRoot: '/repo', accountId: 'acc1', concurrency: 2 }
+  it('tells the planner to give every Task --covers, list skipped items with --left-out, and rename the Job', () => {
+    const b = buildPlannerBrief(base)
+    expect(b).toContain('--covers 1,3')
+    expect(b).toContain(`astera jobs-set --id job_x --left-out '[{"item":2,"reason":"already built: src/x.ts:12"}]'`)
+    expect(b).toContain('astera jobs rename --id job_x --title "<3-6 words>"')
+    expect(b).toContain('a chat-planned Job starts with no real objective')
+    expect(buildPlannerBrief({ ...base, planning: 'auto' })).not.toContain('a chat-planned Job')
+  })
+})
+
 describe('buildPlannerBrief (W7-E #69)', () => {
   it('lets the planner write its inputs folder, and nothing else', () => {
     const b = buildPlannerBrief({ jobId: 'job_x', objective: 'o', repoRoot: '/repo', accountId: 'acc1', concurrency: 2 })

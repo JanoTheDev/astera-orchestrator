@@ -2922,6 +2922,10 @@ export const ko = {
   'plan.pick.picked': '#{n} {title}: {why}',
   'plan.pick.skipped': '건너뜀 #{n} {title}: {why}',
   'plan.decisions.title': '대신 결정한 것',
+  // T7: an objective item the plan leaves out on purpose, and the owner's edit of a running plan's Task
+  'plan.leftOut.title': '계획에서 뺀 항목',
+  'plan.leftOut.item': '{n}. {text} — {reason}',
+  'activity.taskEdited': '{title}: 직접 수정함 — {fields}',
   'plan.decisions.kind.approval': '승인',
   'plan.decisions.kind.escalation': '질문',
   'plan.decisions.kind.gate': '게이트',

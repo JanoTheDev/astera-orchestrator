@@ -3,6 +3,7 @@
 import type { ActivityEvent, ActivityItem, ActivitySummary } from '../../../../core/orchestration/activity'
 import { resetClock } from '../../../../core/orchestration/activity'
 import type { TaskBlockedReason } from '../../../../core/types'
+import { t, type Lang } from '../../../../core/i18n'
 
 /** Lines the panel holds; older ones fall off (the Host keeps more, and `activity-summary` reads those). */
 export const FEED_MAX = 300
@@ -29,8 +30,9 @@ const CATEGORY_WORD: Record<string, [string, Tone]> = {
   queued: ['queued', 'info']
 }
 
-/** What a line says and its colour. `accountLabel` turns an account id into the name the person gave it. */
-export function lineOf(e: ActivityEvent, accountLabel: (id: string) => string): { text: string; tone: Tone } {
+/** What a line says and its colour. `accountLabel` turns an account id into the name the person gave it. `lang`: the
+ *  app's language, for the lines already in the catalogs. */
+export function lineOf(e: ActivityEvent, accountLabel: (id: string) => string, lang: Lang = 'en'): { text: string; tone: Tone } {
   const p = e.payload
   switch (e.type) {
     case 'task.status': {
@@ -129,6 +131,9 @@ export function lineOf(e: ActivityEvent, accountLabel: (id: string) => string): 
       return { text: `${p.title}: ${p.reason ?? ''}`, tone: 'info' }
     case 'plan.refused':
       return { text: `${p.title}: ${p.reason ?? ''}`, tone: 'warn' }
+    // T7: the field names are the flags' (--deps, --spec, --basis, --evidence), so they stay as they are
+    case 'task.edited':
+      return { text: t(lang, 'activity.taskEdited', { title: p.title, fields: (p.edited ?? []).join(', ') }), tone: 'info' }
   }
 }
 

@@ -1811,6 +1811,10 @@ export const ja: Catalog = {
   'plan.pick.picked': '#{n} {title}: {why}',
   'plan.pick.skipped': 'スキップ #{n} {title}: {why}',
   'plan.decisions.title': '代わりに決めたこと',
+  // T7: an objective item the plan leaves out on purpose, and the owner's edit of a running plan's Task
+  'plan.leftOut.title': '計画から外した項目',
+  'plan.leftOut.item': '{n}. {text} — {reason}',
+  'activity.taskEdited': '{title}: あなたが編集 — {fields}',
   'plan.decisions.kind.approval': '承認',
   'plan.decisions.kind.escalation': '質問',
   'plan.decisions.kind.gate': 'ゲート',

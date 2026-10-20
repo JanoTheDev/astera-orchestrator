@@ -712,7 +712,7 @@ astera jobs    get    --id <jobId | runId>
 astera jobs    run    --id <jobId>
 astera jobs    wait   --id <jobId>  [--timeout-ms <n>]
 astera jobs    rename --id <jobId> --title <text>
-astera jobs    set    --id <jobId | runId> [--concurrency <n>] [--after <jobId|none>] [--areas <a,b,c|none>] [--planning <chat|auto>] [--priority <n>] [--project <projectId>]
+astera jobs    set    --id <jobId | runId> [--concurrency <n>] [--after <jobId|none>] [--areas <a,b,c|none>] [--left-out <json array>] [--planning <chat|auto>] [--priority <n>] [--project <projectId>]
 astera jobs    overlaps --id <jobId>
 astera jobs    archive --id <jobId> [--kill-sessions]
 astera jobs    unarchive --id <jobId>
@@ -731,7 +731,7 @@ astera runs    resume --id <runId>
 astera runs    checks --id <runId>
 
 astera tasks   list   [--run <runId|jobId>] [--status <s>] [--ready] [--brief] [--fields <a,b,…>] [--limit <n>] [--offset <n>]
-astera tasks   add    [--job <jobId> | --run <runId>] --spec <text|-> --account <id,…> [--title <text>] [--prompt <text|->] [--criteria <json array>] [--deps <json array>] [--affected-paths <json array>] [--parent <taskId>] [--validate <configId,…>] [--review] [--no-review] [--difficulty <light|standard|hard>] [--model <id>] [--basis <missing|partial|broken>] [--evidence <text>]
+astera tasks   add    [--job <jobId> | --run <runId>] --spec <text|-> --account <id,…> [--title <text>] [--prompt <text|->] [--criteria <json array>] [--deps <json array>] [--affected-paths <json array>] [--parent <taskId>] [--validate <configId,…>] [--review] [--no-review] [--difficulty <light|standard|hard>] [--model <id>] [--basis <missing|partial|broken>] [--evidence <text>] [--covers <n,…>]
 astera tasks   dispatch --id <taskId>
 
 astera dispatches list [--run <runId>]
@@ -797,6 +797,26 @@ using the superpowers `brainstorming` skill, so the objective may be left empty;
 plan and for a Job an agent session makes) has it decide every open choice itself and record the decisions in
 `existing.md`. In both the person may just say "find issues", "audit <paths>" or name a file such as README.md.
 `jobs set --priority <n>` changes a Job's priority after creation (an integer, higher first).
+
+**Every objective item is planned or left out on purpose.** When a Job's objective lists items (top-level numbered
+lines `1.` / `1)`, or bullets `-`, `*`, `•` when it has no numbered ones; nested lines belong to the item above), each
+item needs a Task that names it (`tasks add --covers 1,3`, also `task-update --covers`) or an entry in
+`jobs set --id <jobId> --left-out '[{"item":2,"reason":"already built: src/x.ts:12"}]'` (the owner or the Job's own
+planner; `[]` clears it). Approval refuses a plan with an item neither covered nor left out, and the plan page lists
+the left-out items with their reasons. A replan does not check it: the finished Tasks covered their items already.
+
+**Every Job has a short name.** At creation it is named by the first words of its objective (about 6 words or 60
+characters, cut at a word with "…"); a source's or an attachment's name, an audit's scope and a fixlist's first problem
+name it instead. The planner renames it with `jobs rename --id <jobId> --title "<3-6 words>"` once it knows the goal;
+no other agent may rename a plan.
+
+**The owner may re-plan a running plan's Task that has not started.** `task-update --id <taskId>` with `--deps`,
+`--spec`, `--basis`/`--evidence` (and the other plan flags) changes a Task of a running run that is pending, ready, or
+blocked with no worker ever started. Deps stay inside the run and may not form a cycle; readiness is recomputed, and
+the activity feed gets one "edited by you" line. The owner is any caller that is not an MCP client and not one of
+orchestration's own sessions (a worker, a reviewer, a coordinator, a planner), so a terminal or Claude tab the owner
+opened in Astera counts. The refusal names the rule that failed: an agent session, a Task already started, or a run
+not running. A Task that has started takes new `--criteria` only.
 
 `astera help` is the reference agents read.
 

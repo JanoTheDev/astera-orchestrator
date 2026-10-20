@@ -320,12 +320,20 @@ export function buildPlannerBrief(a: {
     // W8-F (#94): a plan with a Task that has no basis is refused at approval
     '- `--basis missing|partial|broken` and `--evidence "<file:line, #issue, PR or Job id>"`: what you found of it; a Task without them is refused.',
     '- `--deps \'["<taskId>", ...]\'`: the Tasks it must wait for. Create Tasks in dependency order.',
+    // T7 objective coverage: approval refuses an objective item neither covered nor left out
+    "- `--covers 1,3`: the numbers of the objective's items this Task covers (its numbered lines, else its bullets).",
+    '  Every item needs a Task with --covers, or is left out on purpose with the reason:',
+    `  \`astera jobs-set --id ${a.jobId} --left-out '[{"item":2,"reason":"already built: src/x.ts:12"}]'\`.`,
+    '  A plan with an item that is neither is refused at approval.',
     '- `--difficulty light|standard|hard`: picks the worker\'s model (light is a small, mechanical change;',
     '  hard is design or a subtle bug). Add `--model-reason "<one line>"` saying why.',
     '  `--provider claude|codex` and `--model <id>` only when the Task needs a specific one.',
     `- Account: \`--account ${a.accountId}\` unless the objective names another (\`astera accounts list --json\`).`,
     '- Checks: `astera run-configs list --job ' + a.jobId + ' --json`; pass the ones that test the work as `--validate <id,...>`.',
     // W8-D plan areas
+    // T7: every Job is named at creation by its objective's first words; the planner gives it a real name
+    `- Name: once you know the goal, give the plan a short name: \`astera jobs rename --id ${a.jobId} --title "<3-6 words>"\`.`,
+    ...(a.planning === 'chat' || a.planning === undefined ? ['  Always do it here: a chat-planned Job starts with no real objective, so its name is a placeholder.'] : []),
     `- Areas: name where the plan works in 1 to 3 short words from its Tasks' paths (auth, api, ui):`,
     `  \`astera jobs-set --id ${a.jobId} --areas <a,b>\`.`,
     `To fix a Task: \`astera task-update --id <taskId>\` with any of the flags above. Read the plan back with`,

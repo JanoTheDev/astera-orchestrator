@@ -108,7 +108,7 @@ import { isPathWithin } from '../files/tree'
 import { buildHandoverPrompt, buildPlannerBrief } from './handover'
 import { noRemoteNote, unmergedPlanBranches } from './unmergedBranches' // W8-G (#101)
 // W2-A planner stage
-import { editPlanTask, planFieldsFromArgs, plannerJobOf, plannerRefusal, validatePlan, workerSpecOf } from './planner'
+import { editPlanTask, leftOutArg, orchestrationRoleOf, planFieldsFromArgs, plannerJobOf, plannerRefusal, validatePlan, workerSpecOf } from './planner'
 import { parseReviewFile, type ReviewIssueInput } from './review'
 import { nameForRun } from '../worktrees/naming'
 import type { Provider } from '../providers/meta'
@@ -127,7 +127,7 @@ import { ISSUE_JOB_ASSOCIATIONS, ISSUES_PER_CALL_MAX, assignIssueToMe, issueNumb
 import { GITHUB_SOURCE_ID, issuesContext, issuesTitleOf } from '../github/issueSource'
 // W6-A intake
 import { SOURCED_OBJECTIVE_MAX } from '../sources/objective'
-import { intakeChanges, intakeObjective, intakeOf, intakeTitle, needsInputs, planningArg } from './intake'
+import { intakeChanges, intakeObjective, intakeOf, intakeTitle, needsInputs, planningArg, shortTitle } from './intake'
 // W8-C prompts mode
 import path from 'node:path'
 import { access } from 'node:fs/promises'
@@ -2440,10 +2440,12 @@ export async function handleCommand(
         now
       )
       if (!made.ok) return commit(made)
+      // T7: every plan has a short name from the start (the planner renames it); a source's title already names one
+      const titled = made.value.source?.title !== undefined ? made : (renameJob(made.state, made.value.id, shortTitle(objective)) as typeof made)
       const created =
         delivery === undefined
-          ? made
-          : (setJobDelivery(made.state, made.value.id, delivery) as typeof made)
+          ? titled
+          : (setJobDelivery(titled.state, titled.value.id, delivery) as typeof made)
       // **코디네이터에게는 곧바로 회차를 준다.** 계획만 만들고 끝내면 `--run` 에 넣을 id 가 없고,
       // 코디네이터는 Task 를 만들어 가며 일하므로 붙일 자리가 그 자리에 있어야 한다.
       //
@@ -2758,8 +2760,8 @@ export async function handleCommand(
           intakeObjective(intake, source, inputs, verbatim && { tasks: verbatim.lines, skipped: verbatim.skippedLines }) +
           // W10-A: the CLI shows the plan, not this reply's notice
           (notice !== undefined ? `\n\n${notice}.` : '')
-        // W7-D (#68): the plan's name, so its boilerplate objective is never what the plan is called. A title already
-        // there is kept.
+        // W7-D (#68): the plan's name, so its boilerplate objective is never what the plan is called. It replaces
+        // run-create's name of the objective; a source's title is kept (T7).
         const title = intakeTitle(intake, source, inputs?.names ?? [])
         const cur = deps.getState()
         await deps.setState({
@@ -2769,7 +2771,7 @@ export async function handleCommand(
               ? {
                   ...j,
                   objective,
-                  ...(title !== undefined && j.title === undefined ? { title } : {}),
+                  ...(title !== undefined && j.source?.title === undefined ? { title } : {}),
                   // W8-C prompts mode: the owner wrote the plan, so it starts on its own unless `--approve ask`
                   ...(verbatim !== undefined ? { verbatim: verbatim.entries, autoApprove: intake.approve !== 'ask' } : {}),
                   // W10-A: what the names resolved to, for the approval
@@ -2787,11 +2789,11 @@ export async function handleCommand(
           if (set.ok) await deps.setState(set.state)
         }
       } else {
-        // #113: a plain description keeps its objective but a long one is named by its first sentence
+        // #113: a plain description keeps its objective and is named by its first sentence, cut short (T7)
         const title = intakeTitle(intake, source, [])
         if (title !== undefined) {
           const cur = deps.getState()
-          await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id && j.title === undefined ? { ...j, title } : j)) })
+          await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id && j.source?.title === undefined ? { ...j, title } : j)) })
         }
       }
       // W7-E: `--no-review`: this plan's Tasks are not reviewed (`jobs plan` turns review on otherwise, Job.review)
@@ -3232,6 +3234,10 @@ export async function handleCommand(
       const id = str(args.id)
       if (!id) return bad('--id is required')
       if (typeof args.title !== 'string') return bad('--title is required: the new name, or "" to name the Job by its objective again')
+      // T7: the owner, or the Job's own planner (plannerRefusal holds it to its Job); no other agent renames a plan
+      const role = orchestrationRoleOf(s, caller.sessionId)
+      if (role !== undefined && plannerJobOf(s, caller.sessionId) === undefined)
+        return denied(`a ${role} session does not rename a plan: the owner or the plan's own planner does`)
       const r = renameJob(s, id, args.title)
       if (!r.ok) return refused(r)
       await deps.setState(r.state)
@@ -3297,6 +3303,23 @@ export async function handleCommand(
         const filed = deps.getState().jobs.find((j) => j.id === id) ?? next
         return okBody(jobView(deps.getState(), filed, latestRunOf(deps.getState(), filed)))
       }
+      // T7 objective coverage: `--left-out`, alone, from the owner or the Job's own planner (plannerRefusal holds the rest)
+      if (args.leftOut !== undefined) {
+        const role = orchestrationRoleOf(s, caller.sessionId)
+        if (caller.role === 'mcp' || (role !== undefined && (id === null || plannerJobOf(s, caller.sessionId)?.id !== id)))
+          return denied("jobs-set --left-out is for the Job's planner or the owner")
+        if (!id) return bad('--id is required')
+        if (['concurrency', 'after', 'areas', 'planning', 'priority', 'project'].some((k) => args[k] !== undefined))
+          return bad('--left-out is set on its own')
+        const job = s.jobs.find((j) => j.id === id)
+        if (!job) return notFound(`unknown job: ${id}`)
+        const leftOut = leftOutArg(args.leftOut, job.objective)
+        if (!Array.isArray(leftOut)) return bad(leftOut.error)
+        const { leftOut: _old, ...rest } = job
+        const next: Job = leftOut.length > 0 ? { ...rest, leftOut } : rest
+        await deps.setState({ ...s, jobs: s.jobs.map((j) => (j.id === id ? next : j)) })
+        return okBody(jobView(deps.getState(), next, latestRunOf(deps.getState(), next)))
+      }
       if (fromAgentSession || caller.role === 'mcp') return denied('jobs-set is for the person, in Astera or at their own shell')
       if (!id) return bad('--id is required')
       // T3 workspaces: `--project <id>` files a plan not started yet under another project of its workspace
@@ -3328,7 +3351,7 @@ export async function handleCommand(
         await deps.setState({ ...s, jobs: s.jobs.map((j) => (j.id === id ? next : j)) })
         return okBody(jobView(deps.getState(), next, latestRunOf(deps.getState(), next)))
       }
-      if (args.concurrency === undefined && args.after === undefined) return bad('nothing to set: give --concurrency, --after, --areas, --planning or --priority')
+      if (args.concurrency === undefined && args.after === undefined) return bad('nothing to set: give --concurrency, --after, --areas, --left-out, --planning or --priority')
       // W8-C plan after plan: `--after <job|none>`, only alone (it is set before the plan starts, concurrency after)
       if (args.after !== undefined) {
         if (args.concurrency !== undefined) return bad('--after is set on its own, not with --concurrency')
@@ -4275,7 +4298,7 @@ export async function handleCommand(
       if (str(args.status)) tasks = tasks.filter((t) => t.status === args.status)
       if (args.ready === true) tasks = tasks.filter((t) => t.status === 'ready')
       // spec_truncated is --brief's mark of a cut spec (publicViews.ts)
-      return listReply('tasks', args.brief === true ? tasks.map(briefTask) : tasks, args, [...TASK_FIELDS, 'spec_truncated'])
+      return listReply('tasks', args.brief === true ? tasks.map(briefTask) : tasks, args, [...TASK_FIELDS, 'spec_truncated', /* T7 */ 'covers'])
     }
     case 'task-update': {
       const id = str(args.id)
@@ -4317,16 +4340,26 @@ export async function handleCommand(
         return okBody({ id, mergedIntoPlanAt: now })
       }
       // W2-A: editing a plan's Task (its title, spec, deps and plan fields) instead of moving its status.
-      const PLAN_EDIT = ['title', 'spec', 'deps', 'prompt', 'criteria', 'affectedPaths', 'difficulty', 'provider', 'model', 'modelReason', /* W6-A */ 'basis', 'evidence']
+      const PLAN_EDIT = ['title', 'spec', 'deps', 'prompt', 'criteria', 'affectedPaths', 'difficulty', 'provider', 'model', 'modelReason', /* W6-A */ 'basis', 'evidence', /* T7 */ 'covers']
       if (args.status === undefined && PLAN_EDIT.some((k) => args[k] !== undefined)) {
         const plan = planFieldsFromArgs(args)
         if (!plan.ok) return bad(plan.error)
         if (args.deps !== undefined && !(Array.isArray(args.deps) && args.deps.every((d) => typeof d === 'string')))
           return bad('--deps must be a JSON array of Task ids')
         // 사람만(에이전트 세션·MCP 아님) 아직 시작하지 않은 run Task 도 고칠 수 있다 — 도는 계획에서 replan 만이 바꾸던 자리
+        // T7: the owner is any caller that is no orchestration session, so also a tab the owner opened in Astera (it has
+        // a session id too); a refusal names the rule that failed
         const runTask = s.tasks.find((t) => t.id === id)
-        const byOwner =
-          !fromAgentSession && caller.role !== 'mcp' && runTask?.runId !== undefined && outcomeOf(s, runTask.runId) === 'running'
+        const role = orchestrationRoleOf(s, caller.sessionId)
+        const runOutcome = runTask?.runId !== undefined ? outcomeOf(s, runTask.runId) : undefined
+        const owner: true | string =
+          caller.role === 'mcp'
+            ? 'an MCP client is not the owner: only the owner changes a running plan'
+            : role !== undefined
+              ? `this is a ${role} session: only the owner changes a running plan, not an agent`
+              : runOutcome !== 'running'
+                ? `its run is ${runOutcome ?? 'gone'}, not running`
+                : true
         return commit(
           editPlanTask(
             s,
@@ -4338,7 +4371,7 @@ export async function handleCommand(
               ...(args.deps !== undefined ? { deps: args.deps as string[] } : {})
             },
             now,
-            byOwner
+            owner
           )
         )
       }

@@ -6336,7 +6336,7 @@ describe('jobs create / tasks add / accounts list', () => {
       const job = deps.getState().jobs[0]
       expect(asked).toEqual([[job.id, ['/d/spec.pdf']]])
       expect(job.objective).toBe(
-        `Read every file in /prof/plans/${job.id}/inputs/ first (PDFs over 20 pages in page ranges):\n- /prof/plans/${job.id}/inputs/spec.pdf\n\n` +
+        `Read every file in /prof/plans/${job.id}/inputs/ first (PDFs over 20 pages in page ranges):\n  /prof/plans/${job.id}/inputs/spec.pdf\n\n` +
           "Source:\nBuild it\n\nOwner's instructions (they win over the source when the two conflict):\nUse pnpm"
       )
       expect(r.body).toMatchObject({ objective: job.objective })
@@ -6377,24 +6377,36 @@ describe('jobs create / tasks add / accounts list', () => {
       expect(asked).toEqual([])
     })
 
-    it('#113: a plain long objective keeps its text and gets its first sentence as title; a short one none', async () => {
+    it('#113/T7: a plain objective keeps its text and is named by its first sentence, cut to about 6 words', async () => {
       const { deps } = withInputs()
       const text = 'Create index.js exporting add(a, b) and sub(a, b). Cover both with tests and document them in the README.'
       await shell(deps, 'jobs-create', { objective: text, cwd: 'D:/p' })
-      expect(deps.getState().jobs[0]).toMatchObject({ objective: text, title: 'Create index.js exporting add(a, b) and sub(a, b).' })
+      expect(deps.getState().jobs[0]).toMatchObject({ objective: text, title: 'Create index.js exporting add(a, b) and…' })
       await shell(deps, 'jobs-create', { objective: 'Add dark mode', cwd: 'D:/p' })
-      expect(deps.getState().jobs[1].title).toBeUndefined()
+      expect(deps.getState().jobs[1].title).toBe('Add dark mode')
+      // T7 item 12: a one-sentence prompt is never its own name
+      const prompt = 'alright so we have had worked on fisch and now the inventory screen needs a full rework'
+      await shell(deps, 'jobs-create', { objective: prompt, cwd: 'D:/p' })
+      expect(deps.getState().jobs[2].title).toBe('alright so we have had worked…')
+    })
+
+    it('T7: run-create names the Job it makes too, at a word boundary within 60 characters', async () => {
+      const { deps } = withInputs()
+      await shell(deps, 'run-create', { objective: 'Rework the inventory screen so items stack, sort and filter by rarity', cwd: 'D:/p', auto: true })
+      const title = deps.getState().jobs[0].title!
+      expect(title).toBe('Rework the inventory screen so items…')
+      expect(title.length).toBeLessThanOrEqual(60)
     })
 
     // W7-D (#68): a plan from a source is named by it, so two fixlists never both read "The source below is…"
-    it('W7-D: a fixlist, an audit and a set of files each get a title; a plain jobs create gets none', async () => {
+    it('W7-D: a fixlist, an audit and a set of files each get a title; a plain jobs create its own words (T7)', async () => {
       const { deps } = withInputs()
       await shell(deps, 'jobs-create', { objective: '1. login fails\n2. slow search', cwd: 'D:/p', mode: 'fixlist' })
       await shell(deps, 'jobs-create', { objective: '- price rounds wrong', cwd: 'D:/p', mode: 'fixlist' })
       await shell(deps, 'jobs-create', { cwd: await auditRepo('src/core'), mode: 'audit', scope: 'src/core' })
       const files = await shell(deps, 'jobs-create', { cwd: 'D:/p', attach: ['/d/spec.pdf'], mode: 'fixlist' })
       await shell(deps, 'jobs-create', { objective: 'plain', cwd: 'D:/p' })
-      expect(deps.getState().jobs.map((j) => j.title)).toEqual(['login fails', 'price rounds wrong', 'Audit src/core', 'spec.pdf', undefined])
+      expect(deps.getState().jobs.map((j) => j.title)).toEqual(['login fails', 'price rounds wrong', 'Audit src/core', 'spec.pdf', 'plain'])
       expect(files.body).toMatchObject({ title: 'spec.pdf' })
       expect(deps.getState().jobs.map((j) => jobNameOf(j))).toEqual(['login fails', 'price rounds wrong', 'Audit src/core', 'spec.pdf', 'plain'])
     })
@@ -6546,12 +6558,50 @@ describe('jobs create / tasks add / accounts list', () => {
     const ok = await shell(deps, 'task-update', { id: t.id, prompt: 'new', criteria: ['c'] })
     expect(ok.status).toBe(200)
     expect(deps.getState().tasks.find((x) => x.id === t.id)).toMatchObject({ prompt: 'new', acceptanceCriteria: ['c'] })
+    await deps.setState({ ...deps.getState(), runs: deps.getState().runs.map((r) => ({ ...r, coordinatorSessionId: 'sess_agent' })) })
     expect((await call(deps, 'task-update', { id: t.id, prompt: 'agent' }, 'sess_agent')).status).toBe(400)
     expect((await handleCommand(deps, { sessionId: '', role: 'mcp' }, 'task-update', { id: t.id, prompt: 'mcp' })).status).toBe(400)
     await deps.setState({ ...deps.getState(), tasks: deps.getState().tasks.map((x) => (x.id === t.id ? { ...x, status: 'dispatched' as const } : x)) })
     const locked = await shell(deps, 'task-update', { id: t.id, prompt: 'late' })
     expect(locked.status).toBe(400)
     expect(deps.getState().tasks.find((x) => x.id === t.id)?.prompt).toBe('new')
+  })
+
+  // T7 (item 3): every session Astera spawns has an id, the owner's own tabs too, so the owner is any caller that is no
+  // orchestration session
+  it('task-update --deps: the owner in an Astera tab re-plans a not-started Task; worker, coordinator and planner sessions are refused by name', async () => {
+    const deps = makeDeps()
+    await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p' })
+    const run = deps.getState().runs[0]
+    const a = (await shell(deps, 'tasks-add', { run: run.id, spec: 'a', account: 'acc1' })).body as { id: string }
+    const b = (await shell(deps, 'tasks-add', { run: run.id, spec: 'b', account: 'acc1', deps: [a.id] })).body as { id: string }
+    const c = (await shell(deps, 'tasks-add', { run: run.id, spec: 'c', account: 'acc1' })).body as { id: string }
+    const dispatch = { id: 'dsp_w', taskId: c.id, sessionId: 'sess_worker', provider: 'claude', accountId: 'acc1', cwd: 'D:/p', specPath: 's', startedAt: NOW, workerState: 'running', retained: false }
+    await deps.setState({
+      ...deps.getState(),
+      dispatches: [dispatch as never],
+      runs: deps.getState().runs.map((r) => ({ ...r, coordinatorSessionId: 'sess_coord' })),
+      jobs: deps.getState().jobs.map((j) => ({ ...j, plannerSessionIds: ['sess_planner'] })),
+      tasks: deps.getState().tasks.map((x) => (x.id === c.id ? { ...x, status: 'dispatched' as const } : x))
+    })
+    for (const [session, role] of [['sess_worker', 'worker'], ['sess_coord', 'coordinator'], ['sess_planner', 'planner']] as const) {
+      const r = await call(deps, 'task-update', { id: b.id, deps: [] }, session)
+      expect(r.status, session).toBeGreaterThanOrEqual(400)
+      // a worker is refused task-update outright (COORDINATOR_ONLY), a planner a Task outside its plan (plannerRefusal)
+      expect((r.body as { error: string }).error, session).toContain(role)
+    }
+    const tab = await call(deps, 'task-update', { id: b.id, deps: [], spec: 'b, on its own' }, 'sess_owner_tab')
+    expect(tab.status).toBe(200)
+    expect(deps.getState().tasks.find((x) => x.id === b.id)).toMatchObject({ deps: [], spec: 'b, on its own', status: 'ready' })
+    // a started Task is refused with its reason
+    const started = await call(deps, 'task-update', { id: c.id, deps: [a.id] }, 'sess_owner_tab')
+    expect(started.status).toBe(400)
+    expect((started.body as { error: string }).error).toContain('has started already (dispatched)')
+    // blocked before it ever started: still the owner's to fix
+    await deps.setState({ ...deps.getState(), tasks: deps.getState().tasks.map((x) => (x.id === a.id ? { ...x, status: 'blocked' as const } : x)) })
+    const blocked = await call(deps, 'task-update', { id: a.id, basis: 'partial', evidence: 'src/a.ts:3' }, 'sess_owner_tab')
+    expect(blocked.status).toBe(200)
+    expect(deps.getState().tasks.find((x) => x.id === a.id)?.basis).toEqual({ state: 'partial', evidence: 'src/a.ts:3' })
   })
 
   // **최신 회차로 기본값을 두지 않는다** — task-create 의 기본값은 남의 회차에 떨어질 수 있다.

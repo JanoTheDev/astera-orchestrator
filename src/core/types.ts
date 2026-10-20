@@ -764,6 +764,8 @@ export interface JobRow {
   rejected?: { at: string; reason?: string }
   /** W8-F (#94): `validatePlan`'s problems for a plan waiting for approval; absent when it holds. */
   planProblems?: string[]
+  /** T7: the objective items the plan leaves out on purpose (Job.leftOut), each with its text (objectiveItems.ts) and why. */
+  leftOut?: { item: number; text: string; reason: string }[]
   /** #116: the plan can be approved now (`planApprovable`): the only time an Approve is shown. Absent while planning. */
   planReady?: true
   /** #116: the plan starts by itself once it holds (`autoApproveOf`: its own setting, else its project's). */

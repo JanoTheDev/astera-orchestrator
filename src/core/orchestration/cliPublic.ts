@@ -126,7 +126,9 @@ const TASK_HIDDEN = [
   // W8-C prompts mode: a Run-as-written Task's source, not in the SDK's contract yet
   'verbatimOf',
   // Stall watchdog: the app's own merge record (finishedSessions.ts mergedIntoPlan)
-  'mergedIntoPlanAt'
+  'mergedIntoPlanAt',
+  // T7: the objective items a Task covers (`--covers`), held back with the planner's other fields
+  'covers'
 ] as const
 
 /** W1-A role models: a Job's per-role model override, held back from the SDK like the Task's three above. */
@@ -156,7 +158,8 @@ const JOB_HIDDEN = [
   /* W8-D several plans in one repo: overlaps and areas, not in the SDK's contract yet */ 'overlaps',
   'areas',
   /* W10-A Run as written by name: what the typed names resolved to, not in the SDK's contract yet */ 'byName',
-  /* T1 chat-first planning: chat or auto, not in the SDK's contract yet */ 'planning'
+  /* T1 chat-first planning: chat or auto, not in the SDK's contract yet */ 'planning',
+  /* T7: the objective items the planner left out, not in the SDK's contract yet */ 'leftOut'
 ] as const
 
 /** A followed event's message body (pages long) and the app's link from an event to a tab. */
