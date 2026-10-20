@@ -15,6 +15,7 @@ import { copyTextFor } from '../../../core/terminal/copy'
 import { SessionStateBanners } from './SessionStateBanners'
 import { terminalMayTakeFocus } from '../lib/terminalFocus'
 import { registerDockable } from './wall/consoleDock'
+import { exitWording } from '../../../core/sessions/exitWording'
 
 /** W9-H: a wall tile's font (DESIGN §2: the session's own xterm at 10.5–11px). */
 export const TILE_FONT = 11
@@ -395,6 +396,7 @@ export function TerminalView({
     if (active && !tiledRef.current && session.status !== 'exited' && terminalMayTakeFocus(document.activeElement)) termRef.current?.focus()
   }, [active, session.status])
 
+  const exit = exitWording(session.exitCode)
   return (
     <div className="terminal-wrap">
       <div className="terminal-host" ref={hostRef} />
@@ -412,7 +414,7 @@ export function TerminalView({
       )}
       {session.status === 'exited' && (
         <div className="exit-overlay">
-          <p>{t('session.terminal.exited', { code: session.exitCode ?? '?' })}</p>
+          <p>{t(exit.key, exit.params)}</p>
           <button onClick={() => onRestart(session)}>{t('session.terminal.restart')}</button>
         </div>
       )}

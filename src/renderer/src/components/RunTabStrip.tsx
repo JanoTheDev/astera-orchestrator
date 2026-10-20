@@ -1,6 +1,7 @@
 import type { RunStatus } from '../../../core/types'
 import { labelRuns } from '../../../core/run/instances'
 import { formatRunDuration } from '../../../core/run/duration'
+import { exitWording } from '../../../core/sessions/exitWording'
 import { useI18n } from '../i18n/I18nProvider'
 import { Globe, X } from 'lucide-react'
 
@@ -76,8 +77,8 @@ export function RunTabStrip({
               </button>
             )}
             {r.status === 'exited' && (
-              <span className={`run-tab-exit${r.exitCode === 0 ? '' : ' fail'}`}>
-                {t('run.panel.exitCode', { code: r.exitCode ?? '?' })}
+              <span className={`run-tab-exit${exitWording(r.exitCode).tone === 'danger' ? ' fail' : ''}`}>
+                {t(exitWording(r.exitCode).key, exitWording(r.exitCode).params)}
               </span>
             )}
             {r.status === 'exited' && (
