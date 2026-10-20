@@ -1932,4 +1932,8 @@ export const ja: Catalog = {
   'inbox.age.d': '{n} 日',
   'inbox.overlap.issue': '{mine} と {plan} の {theirs} はどちらもイシュー #{issue} にリンクしています',
   'inbox.overlap.edit': '{mine} と {plan} の {theirs} はどちらも {path} を編集します',
+  'wall.section.coordinators': 'コーディネーター ({n})',
+  'wall.section.planners': 'プランナー ({n})',
+  'wall.section.workers': 'ワーカー ({n})',
+  'wall.section.consoles': 'コンソール ({n})',
 }

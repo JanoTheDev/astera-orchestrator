@@ -21,7 +21,7 @@ import { setWallView, useWallView } from '../wall/wallView'
 import { focusTerminal } from '../wall/consoleDock'
 import { useJobRows } from '../wall/useJobRows'
 import {
-  ALL_PLANS, NO_PLAN, consolesOf, detailLineOf, detailsOf, filterConsoles, gridColumns, groupWall, orderWall, planPills,
+  ALL_PLANS, NO_PLAN, consolesOf, detailLineOf, detailsOf, filterConsoles, gridColumns, orderWall, planPills, roleSections,
   type PlanFilter, type StateFilter, type TileState, type WallConsole
 } from '../wall/wallModel'
 import { ConsoleStrip, ConsoleTile, PlanGroup, WallEmpty, WallFilters } from '../wall/Wall'
@@ -182,11 +182,11 @@ export function AgentsPage({ sessions, accounts, currentProject, homeDir, active
   const exitOf = (id: string): number | undefined => sessions.find((s) => s.id === id)?.exitCode
   const newConsole = setShowNew ? () => setShowNew(true) : undefined
 
-  // W11: the wall grouped by plan (tree order; consoles of no plan last), each group its live tiles (coordinator
-  // pinned first) then its finished consoles as summary cards. The Done filter leaves only the cards.
+  // The wall split by role (coordinators, planners, workers, consoles), each section its live tiles then its finished
+  // consoles as summary cards. The Done filter leaves only the cards.
   const liveTiles = filter === 'finished' ? [] : [...wall.pinned, ...wall.tiles]
-  const groups = groupWall(liveTiles, wall.finished)
-  // As many columns as the biggest group fills, up to the auto grid's count; CSS drops to fewer under 360px a tile.
+  const groups = roleSections(liveTiles, wall.finished)
+  // As many columns as the biggest section fills, up to the auto grid's count; CSS drops to fewer under 360px a tile.
   const cols = Math.min(gridColumns(liveTiles.length), Math.max(1, ...groups.map((g) => g.live.length)))
   const tile = (c: WallConsole): React.JSX.Element => (
     <ConsoleTile key={c.sessionId} c={c} main={c.sessionId === wall.mainId} meta={metaOf(c)} onOpen={() => open(c.sessionId)} />
@@ -240,20 +240,14 @@ export function AgentsPage({ sessions, accounts, currentProject, homeDir, active
             <WallEmpty filtered={consoles.length > 0} onNew={newConsole} onReset={resetFilters} />
           ) : (
             <div className={cx('wall-body', cols === 1 && 'wall-body--one')} style={{ '--wall-cols': cols } as React.CSSProperties}>
-              {groups.map((g) => {
-                const pill = pills.find((p) => p.jobId === g.key)
-                const first = g.live[0] ?? g.done[0]
-                return (
-                  <PlanGroup
-                    key={g.key}
-                    pill={pill}
-                    name={g.key !== NO_PLAN ? (first?.planName ?? g.key) : groups.length > 1 ? t('wall.plans.none') : null}
-                    live={g.live.map(tile)}
-                    done={g.done.map(card)}
-                    {...(g.key !== NO_PLAN ? { onOpenPlan: () => openPlan(g.key, 'waves') } : {})}
-                  />
-                )
-              })}
+              {groups.map((g) => (
+                <PlanGroup
+                  key={g.key}
+                  name={t(`wall.section.${g.key}`, { n: g.live.length + g.done.length })}
+                  live={g.live.map(tile)}
+                  done={g.done.map(card)}
+                />
+              ))}
             </div>
           )}
         </div>
