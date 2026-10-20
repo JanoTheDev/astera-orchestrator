@@ -190,6 +190,28 @@ export function groupWall(live: readonly WallConsole[], done: readonly WallConso
   return keys.map((key) => ({ key, live: live.filter((c) => keyOf(c) === key), done: done.filter((c) => keyOf(c) === key) }))
 }
 
+/** The wall's role sections, top to bottom. Reviewers sit with the workers; plain consoles close the wall. */
+export type WallSectionRole = 'coordinator' | 'planner' | 'worker' | 'console'
+const SECTION_ORDER: readonly WallSectionRole[] = ['coordinator', 'planner', 'worker', 'console']
+const sectionRoleOf = (r: ConsoleRole): WallSectionRole => (r === 'reviewer' ? 'worker' : r)
+
+/** One role section: its live tiles and finished consoles in the order given, and how many of both. */
+export interface WallSection {
+  role: WallSectionRole
+  live: WallConsole[]
+  done: WallConsole[]
+  count: number
+}
+
+/** Splits the wall into role sections (coordinators, planners, workers incl. reviewers, consoles); an empty one is left out. */
+export function sectionWall(live: readonly WallConsole[], done: readonly WallConsole[]): WallSection[] {
+  return SECTION_ORDER.map((role) => {
+    const l = live.filter((c) => sectionRoleOf(c.role) === role)
+    const d = done.filter((c) => sectionRoleOf(c.role) === role)
+    return { role, live: l, done: d, count: l.length + d.length }
+  }).filter((s) => s.count > 0)
+}
+
 /** The auto grid: 1–4 consoles → 2 columns, 5–9 → 3, 10+ → 4. */
 export function gridColumns(count: number): 2 | 3 | 4 {
   return count >= 10 ? 4 : count >= 5 ? 3 : 2

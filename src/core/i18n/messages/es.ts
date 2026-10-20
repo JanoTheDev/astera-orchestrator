@@ -1957,4 +1957,8 @@ export const es: Catalog = {
   'inbox.age.d': '{n} d',
   'inbox.overlap.issue': '{mine} y {theirs} de {plan} enlazan ambas la issue #{issue}',
   'inbox.overlap.edit': '{mine} y {theirs} de {plan} editan ambas {path}',
+  'wall.section.coordinators': 'Coordinadores',
+  'wall.section.planners': 'Planificadores',
+  'wall.section.workers': 'Workers',
+  'wall.section.consoles': 'Consolas',
 }

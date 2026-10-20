@@ -21,10 +21,10 @@ import { setWallView, useWallView } from '../wall/wallView'
 import { focusTerminal } from '../wall/consoleDock'
 import { useJobRows } from '../wall/useJobRows'
 import {
-  ALL_PLANS, NO_PLAN, consolesOf, detailLineOf, detailsOf, filterConsoles, gridColumns, groupWall, orderWall, planPills,
+  ALL_PLANS, NO_PLAN, consolesOf, detailLineOf, detailsOf, filterConsoles, gridColumns, groupWall, orderWall, planPills, sectionWall,
   type PlanFilter, type StateFilter, type TileState, type WallConsole
 } from '../wall/wallModel'
-import { ConsoleStrip, ConsoleTile, PlanGroup, WallEmpty, WallFilters } from '../wall/Wall'
+import { ConsoleStrip, ConsoleTile, PlanGroup, SectionHead, WallEmpty, WallFilters } from '../wall/Wall'
 import { Button, PageHeader, cx } from '../ui'
 import { ConsoleHeader, DetailsPanel } from '../wall/FullConsole'
 import { FinishedCard } from '../wall/FinishedCard'
@@ -186,6 +186,7 @@ export function AgentsPage({ sessions, accounts, currentProject, homeDir, active
   // pinned first) then its finished consoles as summary cards. The Done filter leaves only the cards.
   const liveTiles = filter === 'finished' ? [] : [...wall.pinned, ...wall.tiles]
   const groups = groupWall(liveTiles, wall.finished)
+  const sections = sectionWall(liveTiles, wall.finished)
   // As many columns as the biggest group fills, up to the auto grid's count; CSS drops to fewer under 360px a tile.
   const cols = Math.min(gridColumns(liveTiles.length), Math.max(1, ...groups.map((g) => g.live.length)))
   const tile = (c: WallConsole): React.JSX.Element => (
@@ -240,18 +241,26 @@ export function AgentsPage({ sessions, accounts, currentProject, homeDir, active
             <WallEmpty filtered={consoles.length > 0} onNew={newConsole} onReset={resetFilters} />
           ) : (
             <div className={cx('wall-body', cols === 1 && 'wall-body--one')} style={{ '--wall-cols': cols } as React.CSSProperties}>
-              {groups.map((g) => {
-                const pill = pills.find((p) => p.jobId === g.key)
-                const first = g.live[0] ?? g.done[0]
+              {sections.map((sec) => {
+                const secGroups = groupWall(sec.live, sec.done)
                 return (
-                  <PlanGroup
-                    key={g.key}
-                    pill={pill}
-                    name={g.key !== NO_PLAN ? (first?.planName ?? g.key) : groups.length > 1 ? t('wall.plans.none') : null}
-                    live={g.live.map(tile)}
-                    done={g.done.map(card)}
-                    {...(g.key !== NO_PLAN ? { onOpenPlan: () => openPlan(g.key, 'waves') } : {})}
-                  />
+                  <div key={sec.role} className="wall-section">
+                    <SectionHead role={sec.role} count={sec.count} />
+                    {secGroups.map((g) => {
+                      const pill = pills.find((p) => p.jobId === g.key)
+                      const first = g.live[0] ?? g.done[0]
+                      return (
+                        <PlanGroup
+                          key={g.key}
+                          pill={pill}
+                          name={g.key !== NO_PLAN ? (first?.planName ?? g.key) : secGroups.length > 1 ? t('wall.plans.none') : null}
+                          live={g.live.map(tile)}
+                          done={g.done.map(card)}
+                          {...(g.key !== NO_PLAN ? { onOpenPlan: () => openPlan(g.key, 'waves') } : {})}
+                        />
+                      )
+                    })}
+                  </div>
                 )
               })}
             </div>
