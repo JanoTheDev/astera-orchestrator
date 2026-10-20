@@ -11,7 +11,7 @@ import { Plus } from 'lucide-react'
 import { useI18n } from '../../i18n/I18nProvider'
 import { formatElapsed } from '../../../../core/orchestration/elapsed'
 import { parseTab } from '../../../../core/panes/tabId'
-import { buildWorkspaceTree } from '../../state/workspaceTree'
+import { buildWorkspaceTree, projectOfCwd } from '../../state/workspaceTree'
 import { useWorkspaceData } from '../../state/useWorkspaceData'
 import { useAttention } from '../../state/useAttention'
 import { usePlanLive } from '../plan/usePlanLive'
@@ -93,7 +93,9 @@ export function AgentsPage({ sessions, accounts, currentProject, homeDir, active
     () => consolesOf({ sessions, tree, data, attention, live: live.sessions, rows }),
     [sessions, tree, data, attention, live.sessions, rows]
   )
-  const projectId = currentProject ? (tree.find((p) => p.path === currentProject)?.id ?? null) : null
+  // The active tab's folder is often a worktree or a subfolder of the project, so it is resolved, never matched exactly:
+  // an exact match gave null there, and a null project shows every project's consoles
+  const projectId = currentProject ? projectOfCwd(currentProject, tree, data?.worktrees ?? []) : null
   // a project made a moment ago has no tab yet, so the tree lacks it: name it by its folder
   const projectName = tree.find((p) => p.id === projectId)?.name ?? currentProject?.split(/[\\/]/).filter(Boolean).pop() ?? null
   // A plan that is gone (archived, another project) falls back to every plan.
