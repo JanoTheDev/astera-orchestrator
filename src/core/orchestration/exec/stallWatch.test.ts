@@ -514,6 +514,13 @@ describe('stallRemedies: a dispatched Task with no Dispatch', () => {
     expect(watch(s, every30s(60 * MIN))).toEqual([...Array<string>(TRIES).fill('retry-lost:tsk_1'), 'escalate:tsk_1'])
   })
 
+  it('in a Run with no coordinator it is raised to the owner once after LOST_STALL_MS, never retried', () => {
+    const s = plan({ tasks: [task({ id: 'tsk_1', status: 'dispatched' })] })
+    const bare = { ...s, runs: [{ ...s.runs[0], coordinatorSessionId: undefined }] }
+    expect(watch(bare, [T0 + LOST_STALL_MS - 1])).toEqual([])
+    expect(watch(bare, every30s(60 * MIN))).toEqual(['escalate:tsk_1'])
+  })
+
   it('a Task with a Dispatch on record is not untracked', () => {
     const s = plan({ tasks: [task({ id: 'tsk_1', status: 'dispatched' })], dispatches: [{ ...ended('tsk_1', '/wt1'), endedAt: undefined, outcome: undefined } as Dispatch] })
     expect(watch(s, every30s(5 * MIN), { ...idle, busy: () => true })).toEqual([])

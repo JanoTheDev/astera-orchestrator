@@ -273,14 +273,18 @@ export function stallRemedies(
     const run = s.runs.find((r) => r.id === seed.runId)
     const job = run && jobOf(s, run)
     const task = s.tasks.find((t) => t.id === seed.taskId)
-    if (!run?.coordinatorSessionId || !placing(run, job) || !task) continue
+    if (!run || !placing(run, job) || !task) continue
+    // No coordinator to retry it (an app-driven Run): an untracked Task is raised to its owner once, never started again.
+    // One whose lost Dispatch ended has the lost-worker Gate instead (lostGate.ts). A live external coordinator drives it.
+    const driven = !!run.coordinatorSessionId || (run.externalCoordinatorSessionId !== undefined && (probe.alive?.(run.externalCoordinatorSessionId) ?? true))
+    if (!driven && seed.dispatch) continue
     const lostAt = seed.dispatch ? Date.parse(seed.dispatch.endedAt!) : (at.get(task.id) ?? nowMs)
     if (nowMs - lostAt < LOST_STALL_MS) continue
     const key = seed.dispatch ? `lost:${seed.dispatch.id}` : `untracked:${task.id}`
     const e = seen(key, lostAt)
     if (!due_(e, 0)) continue
     const lostTimes = s.dispatches.filter((d) => d.taskId === task.id && isLost(d)).length
-    const spent = lostTimes >= FAILURE_LIMIT || task.consecutiveFailures >= FAILURE_LIMIT
+    const spent = !driven || lostTimes >= FAILURE_LIMIT || task.consecutiveFailures >= FAILURE_LIMIT
     if (!spent && e.step < TRIES) {
       due.push({ key, runId: run.id, kind: 'retry-lost', task, ...(seed.dispatch ? { dispatch: seed.dispatch } : {}), try: e.step + 1 })
       stepped(key, e)
@@ -295,7 +299,7 @@ export function stallRemedies(
           ? `${task.id} (${task.title})'s worker ended without a report ${spent ? `${lostTimes} times` : `and ${TRIES} retries did not start a new one`}, ` +
             'so it waits. Start it again, change its spec, or stop it.'
           : `${task.id} (${task.title}) is dispatched with no worker on record and none running its spec, and ` +
-            `${spent ? 'it is out of retries' : `${TRIES} tries did not start a new one`}, so it waits. Start it again, change its spec, or stop it.`
+            `${!driven ? 'its Run has no coordinator to start it again' : spent ? 'it is out of retries' : `${TRIES} tries did not start a new one`}, so it waits. Start it again, change its spec, or stop it.`
       })
   }
 
