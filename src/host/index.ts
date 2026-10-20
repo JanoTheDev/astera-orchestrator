@@ -65,8 +65,10 @@ import { usageActivity } from '../core/orchestration/activity'
 import { resumeAfterCrash } from '../core/orchestration/exec/crashResume'
 import { plansMissingReady } from '../core/orchestration/exec/plannerFeedback'
 import { readStateFile } from '../core/orchestration/stateFile'
-import { readAccountReadings } from '../core/usage/accountReadings'
+import { readAccountReadings, withFetchedReadings } from '../core/usage/accountReadings'
 import { readUsagePauseAt } from '../core/settings/usagePauseAt'
+import { readAutoAccountsOn } from '../core/settings/autoAccounts'
+import { RateLimitFetcher } from '../core/usage/rateLimitFetcher'
 
 /** W6-G: how often the Host reads usage again with nothing starting, so a pause ends on its own. */
 const USAGE_GUARD_TICK_MS = 60_000
@@ -415,17 +417,25 @@ async function main(): Promise<void> {
   })
   // W6-G: the usage guard over this Host's own sessions' statusLine readings. `worker-start` and the dispatch loop
   // ask it before a start; the timer below lets a pause end on its own. Its changes are feed lines (and notices).
+  // T2 (automatic accounts): with "Pick accounts automatically" on, accounts with no live statusLine reading are read
+  // through the account-usage fetcher (cached five minutes, usageCache.ts), so idle accounts are not "unknown".
+  let usageFetcher: RateLimitFetcher | null = null
   const usageGuard = createUsageGuard({
-    readings: () =>
-      readAccountReadings(
+    readings: async ({ autoAccounts }) => {
+      const live = await readAccountReadings(
         path.join(profileDir, 'statusline'),
         registry.list().flatMap((e) =>
           e.meta?.kind === 'session'
             ? [{ id: e.meta.id, accountId: typeof e.meta.restore.accountId === 'string' ? e.meta.restore.accountId : null }]
             : []
         )
-      ),
+      )
+      if (!autoAccounts) return live
+      const fetcher = (usageFetcher ??= new RateLimitFetcher())
+      return withFetchedReadings(live, await readAccountEntries(path.join(profileDir, 'accounts.json')), (dir) => fetcher.get(dir))
+    },
     pauseAt: () => readUsagePauseAt(path.join(profileDir, 'app-settings.json')),
+    autoAccounts: () => readAutoAccountsOn(path.join(profileDir, 'app-settings.json')),
     nowMs: () => Date.now(),
     onChange: (e) => {
       try {
@@ -489,7 +499,9 @@ async function main(): Promise<void> {
     // itself, and says so in its `hello.yields` (HOST_YIELD_WORKTREES).
     appKeepsWorktrees: () => server.appKeeps(HOST_YIELD_WORKTREES),
     // Host journal (A19 lifted): the prompt rows of the workers this Host starts, read against its state.
-    onPromptWrite: (e) => hostJournal.promptWrite(e, orch.state())
+    onPromptWrite: (e) => hostJournal.promptWrite(e, orch.state()),
+    // T2: the starts' usage-ordered account chains
+    usageGuard
   })
 
   // R10: the one read that may heal a damaged worktrees.json, done once — and only when the Host

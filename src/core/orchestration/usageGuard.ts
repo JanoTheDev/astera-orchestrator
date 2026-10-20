@@ -74,6 +74,9 @@ export interface UsageGuard {
   /** Every account read at the last `refresh`, with its windows and pause. */
   view(): Array<{ accountId: string } & AccountReading & { paused: UsagePause | null }>
   pauseAt(): number
+  /** T2: "Pick accounts automatically" (settings/autoAccounts.ts) as of the last `refresh`. Without the setting's
+   *  read wired, false: the guard then behaves exactly as before. */
+  autoAccounts(): boolean
 }
 
 /**
@@ -82,17 +85,22 @@ export interface UsageGuard {
  * happening); calls that overlap share one read.
  */
 export function createUsageGuard(d: {
-  readings(): Promise<Map<string, AccountReading>>
+  /** T2: `autoAccounts` says the setting is on, so the readings may include idle accounts' fetched usage. */
+  readings(o: { autoAccounts: boolean }): Promise<Map<string, AccountReading>>
   pauseAt(): Promise<number>
+  /** T2: the "Pick accounts automatically" setting. Absent: off. */
+  autoAccounts?(): Promise<boolean>
   nowMs(): number
   onChange?(e: UsageChange): void
 }): UsageGuard {
   let readings = new Map<string, AccountReading>()
   let paused = new Map<string, UsagePause>()
   let threshold = USAGE_PAUSE_AT_DEFAULT
+  let auto = false
   let inFlight: Promise<void> | null = null
   const read = async (): Promise<void> => {
-    const [next, at] = await Promise.all([d.readings(), d.pauseAt()])
+    const autoNow = (await d.autoAccounts?.()) ?? false
+    const [next, at] = await Promise.all([d.readings({ autoAccounts: autoNow }), d.pauseAt()])
     const now = d.nowMs()
     const nextPaused = new Map<string, UsagePause>()
     for (const [id, r] of next) {
@@ -104,6 +112,7 @@ export function createUsageGuard(d: {
     readings = next
     paused = nextPaused
     threshold = at
+    auto = autoNow
   }
   return {
     refresh() {
@@ -114,6 +123,7 @@ export function createUsageGuard(d: {
     },
     pauseOf: (id) => paused.get(id) ?? null,
     view: () => [...readings].map(([accountId, r]) => ({ accountId, ...r, paused: paused.get(accountId) ?? null })),
-    pauseAt: () => threshold
+    pauseAt: () => threshold,
+    autoAccounts: () => auto
   }
 }

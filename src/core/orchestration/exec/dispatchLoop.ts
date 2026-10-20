@@ -21,6 +21,7 @@ import { ENTER_DELAY_MS } from '../../sessions/sessionDriver'
 import type { Lang } from '../../i18n'
 import { t } from '../../i18n'
 import { accountToDispatchOn } from '../../accounts/dispatchAccount'
+import { autoOrderOf, withAutoOrder, type AutoAccountsGuard } from '../../accounts/autoAccountOrder'
 import { providerOf } from '../../providers/meta'
 import type { Account } from '../../types'
 import { nameForRun, nameForTask } from '../../worktrees/naming'
@@ -194,7 +195,7 @@ export interface DispatchLoopContext {
   /** Asked on entry and again before each slot (§4.3). */
   mayStart(): boolean
   /** W6-G: the usage guard (usageGuard.ts), refreshed before each slot. Optional: without it no usage pause. */
-  usageGuard?: Pick<UsageGuard, 'refresh' | 'pauseOf'>
+  usageGuard?: Pick<UsageGuard, 'refresh' | 'pauseOf'> & Partial<Pick<UsageGuard, 'view' | 'pauseAt' | 'autoAccounts'>>
   log(m: string): void
   nowMs(): number
 }
@@ -1015,7 +1016,14 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     if (c.usageGuard) {
       const guard = c.usageGuard
       await guard.refresh()
-      const usage = usageChoice(picked.chain, (id) => guard.pauseOf(id))
+      // T2: with "Pick accounts automatically" on, the provider's other accounts stand behind the Task's chain, least
+      // used first, so a Task whose own accounts are spent starts on one with room instead of waiting (autoOrderOf).
+      const auto =
+        guard.autoAccounts && guard.view && guard.pauseAt
+          ? autoOrderOf(guard as AutoAccountsGuard, { provider: slotProvider, accounts, loggedInIds: loggedIn, nowMs: c.nowMs() })
+          : null
+      const chain = auto ? withAutoOrder(picked.chain, auto.order, auto.over) : picked.chain
+      const usage = usageChoice(chain, (id) => guard.pauseOf(id))
       if (!usage.ok) return { kind: 'wait', why: usagePauseWhy(usage.pause) }
       if (usage.accountId !== undefined) accountId = usage.accountId
     }

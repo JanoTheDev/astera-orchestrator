@@ -12,6 +12,8 @@ import type { Account, Provider } from '../../types'
 import { descriptorOf, isAmbientDir, type ProviderDescriptor } from '../../providers/descriptor'
 import { providerOf } from '../../providers/meta'
 import { rollChainFor } from '../../accounts/dispatchAccount'
+import { autoOrderOf, type AutoAccountsGuard } from '../../accounts/autoAccountOrder'
+import type { UsageGuard } from '../usageGuard'
 import { markCodexProjectTrusted } from '../../accounts/codexTrust'
 import { claudeConfigFileFor, markClaudeProjectTrusted } from '../../accounts/claudeTrust'
 import { coordinatorLaunchPrompt } from '../handover'
@@ -44,7 +46,13 @@ export interface WorkerStartContext {
   /** app-settings.json's `roleModels` (W1-A). Required, so a wiring cannot silently start every worker
    *  on the CLI default; a read that throws is logged and treated as "not set" (built-in defaults). */
   roleModels(): Promise<RoleModelSettings>
+  /** T2: the usage guard, for "Pick accounts automatically" (settings/autoAccounts.ts). Absent, or the setting off:
+   *  the chain is the Task's own, as before. */
+  usageGuard?: AutoStartGuard
 }
+
+/** T2: what a start asks of the usage guard for the automatic account order. */
+export type AutoStartGuard = Pick<UsageGuard, 'refresh'> & AutoAccountsGuard
 
 /** Reads the settings for a start. A broken settings file is not a reason to refuse a worker: the
  *  permission read beside it already refuses on that (bypassFromSettings), and here the built-in
@@ -106,9 +114,13 @@ export async function startWorkerWithChain(
   let rollAccountIds = [a.accountId]
   const stateHere = ctx.getState()
   const task = stateHere.tasks.find((t) => t.id === a.taskId)
+  // T2: with "Pick accounts automatically" on, a Task without accounts gets a chain too (the provider's accounts by
+  // usage). A guard that cannot be read leaves the setting as it last read.
+  if (ctx.usageGuard) await ctx.usageGuard.refresh().catch((e) => ctx.log(`worker-start: could not read usage: ${String(e)}`))
+  const auto = ctx.usageGuard?.autoAccounts() ?? false
   // The account list is read once, and only when the Task names accounts: both the provider lookup
   // and rollChainFor below need it, and a Task without accounts needs neither.
-  const accountList = task?.accountIds?.length ? await ctx.accounts() : []
+  const accountList = task?.accountIds?.length || auto ? await ctx.accounts() : []
   // Task 의 provider — **그 Task 의 첫 계정이 정한다**(Task.accountIds). 계정 목록 조회는
   // 메모리에서 끝나므로(비싼 것은 아래 loginStatus 다) 이 한 걸음에 비용이 없다. 첫 id 가
   // 목록에 없으면 undefined — 아래 조건이 그 경우를 "어긋났다고 말할 수 없다"로 다룬다.
@@ -129,7 +141,7 @@ export async function startWorkerWithChain(
   //     계정들이 다른 provider 의 것일 뿐이고 사람이 할 일은 없다. 검토 경로는 이 앞에서 이미
   //     같은 조회를 한 번 했다(startReview). 첫 계정 id 가 목록에 없어 provider 를 알 수
   //     없으면 어긋났다고 말할 수 없으므로 건너뛰지 않는다.
-  if (task?.accountIds?.length && (taskProvider === undefined || taskProvider === a.provider)) {
+  if (task && (task.accountIds?.length || auto) && (taskProvider === undefined || taskProvider === a.provider)) {
     try {
       const loggedInHere = new Set(
         (
@@ -143,20 +155,23 @@ export async function startWorkerWithChain(
         taskAccountIds: task.accountIds,
         provider: a.provider,
         accounts: accountList,
-        loggedInIds: loggedInHere
+        loggedInIds: loggedInHere,
+        ...(ctx.usageGuard && auto
+          ? { auto: autoOrderOf(ctx.usageGuard, { provider: a.provider, accounts: accountList, loggedInIds: loggedInHere, nowMs: Date.now() })! }
+          : {})
       })
       rollAccountIds = picked.chain
       // 저하한 두 갈래를 갈라 적는다 — 사람이 할 일이 다르다: 앞은 이 Task 의 계정을 아무것도
       // 못 쓴다는 뜻(로그인이 필요하다), 뒤는 하필 이 Dispatch 의 계정만 걸러졌다는 뜻이다.
       if (picked.degraded === 'nothing-usable')
         ctx.log(
-          `worker-start: no usable account among ${a.accountId},${task.accountIds.join(',')} ` +
+          `worker-start: no usable account among ${[a.accountId, ...(task.accountIds ?? [])].join(',')} ` +
             `for ${a.provider} — rolling chain falls back to ${a.accountId} alone`
         )
       else if (picked.degraded === 'requested-unusable')
         ctx.log(
           `worker-start: the dispatch account ${a.accountId} is not usable, so the chain ` +
-            `${task.accountIds.join(',')} is dropped — falls back to ${a.accountId} alone`
+            `${(task.accountIds ?? []).join(',')} is dropped — falls back to ${a.accountId} alone`
         )
     } catch (e) {
       // 로그인 조회는 계정 파일과 Keychain 을 읽으므로 던질 수 있다. 그것이 워커를 못 띄우는
@@ -240,6 +255,45 @@ export interface CoordinatorStartContext {
   getState(): OrchState
   accounts(): Promise<Account[]>
   roleModels(): Promise<RoleModelSettings>
+  /** T2: the usage guard and the login check, for "Pick accounts automatically" (autoStartChain). Either absent, or
+   *  the setting off: the session starts on the named account alone, as before. */
+  usageGuard?: AutoStartGuard
+  loginStatus?(accountId: string): Promise<boolean>
+}
+
+/**
+ * T2: the account a coordinator or planner starts on, and its rolling chain. With "Pick accounts automatically" on, the
+ * named account keeps the start while it is under the usage threshold, and the chain behind it is the provider's other
+ * logged-in accounts least used first (autoAccountOrder), so a limit rolls on instead of waiting for the reset. Over
+ * the threshold, the start goes to the first of that order. Off, unwired, or anything unreadable: the named account
+ * alone, which is the one-account chain these sessions had before.
+ */
+export async function autoStartChain(
+  ctx: Pick<CoordinatorStartContext, 'usageGuard' | 'loginStatus' | 'accounts' | 'log'>,
+  accountId: string
+): Promise<{ accountId: string; chain: string[] }> {
+  const alone = { accountId, chain: [accountId] }
+  const guard = ctx.usageGuard
+  const loginStatus = ctx.loginStatus
+  if (!guard || !loginStatus) return alone
+  try {
+    await guard.refresh()
+    if (!guard.autoAccounts()) return alone
+    const accounts = await ctx.accounts()
+    const named = accounts.find((x) => x.id === accountId)
+    if (!named) return alone
+    const loggedInIds = new Set(
+      (await Promise.all(accounts.map(async (x) => ((await loginStatus(x.id)) ? x.id : null)))).filter(
+        (id): id is string => id !== null
+      )
+    )
+    const auto = autoOrderOf(guard, { provider: providerOf(named), accounts, loggedInIds, nowMs: Date.now() })!
+    const start = auto.over(accountId) && auto.order.length > 0 ? auto.order[0] : accountId
+    return { accountId: start, chain: [...new Set([start, ...auto.order])] }
+  } catch (e) {
+    ctx.log(`automatic accounts: could not read usage or logins, starting on ${accountId} alone: ${String(e)}`)
+    return alone
+  }
 }
 
 /** 이 Run 을 관리할 코디네이터 세션을 띄운다. **워커가 아니다** — Dispatch 도 spec 파일도
@@ -281,12 +335,15 @@ export async function startCoordinatorSession(
   // the two cannot drift.
   const briefPath = path.join(ctx.specsDir, coordinatorBriefName(a.runId))
   await fs.writeFile(briefPath, a.brief, 'utf8')
+  // T2: the account and chain by usage when "Pick accounts automatically" is on (autoStartChain)
+  const { accountId, chain } = await autoStartChain(ctx, a.accountId)
+  if (accountId !== a.accountId) ctx.log(`coordinator run=${a.runId}: ${a.accountId} is at the usage threshold, starting on ${accountId}`)
   // 코디네이터는 프로젝트 루트에서 뜨므로 대개 이미 신뢰돼 있다 — 그래도 부른다. 그 Run 을
   // 처음 돌리는 사람에게는 여기가 첫 codex 세션이고, 멈추면 아무도 답할 사람이 없는 것은
   // 워커와 같다(preTrustWorkspace 의 주석).
-  await ctx.preTrust(a.accountId, a.cwd)
+  await ctx.preTrust(accountId, a.cwd)
   // The lightweight model (W1-A, SPEC §4): status questions and scheduling never call the premium one.
-  const coordinatorAccount = (await ctx.accounts()).find((x) => x.id === a.accountId)
+  const coordinatorAccount = (await ctx.accounts()).find((x) => x.id === accountId)
   const model = coordinatorAccount
     ? resolveRoleModel(await settingsFor(ctx), jobOfRunId(ctx.getState(), a.runId), 'coordinator', providerOf(coordinatorAccount))
     : undefined
@@ -294,7 +351,7 @@ export async function startCoordinatorSession(
   // 롤링 코디네이터에 등록하고, orchEnv 를 실어 준다. core.sessions.spawn 을 직접 부르면 그 셋을
   // 여기서 다시 하게 되고, 그중 하나를 빠뜨리면 코디네이터는 한도에 걸린 채 멈춰 선다.
   const info = await ctx.spawn({
-    accountId: a.accountId,
+    accountId: accountId,
     cwd: a.cwd,
     // #117: a hands-off plan's coordinator too: a permission prompt nobody answers would stall the whole plan
     bypassPermissions: handsOffOfJob(ctx.getState(), jobOfRunId(ctx.getState(), a.runId)) || (await ctx.bypassPermissions()),
@@ -304,10 +361,12 @@ export async function startCoordinatorSession(
     title: `Coordinator · ${a.runId.slice(0, 12)}`,
     // **한 원소다.** 그래서 롤링은 계정을 갈아타지 않고 리셋까지 기다린 뒤 같은 세션에서
     // 이어간다 — 관리 중이던 Run 의 맥락을 잃지 않는 쪽을 골랐다(Run.coordinatorAccountId).
-    rollAccountIds: [a.accountId],
+    // T2: unless "Pick accounts automatically" is on (the owner's choice): then the whole order, so a limit rolls the
+    // same session on to another account (rolling carries the conversation over) instead of waiting.
+    rollAccountIds: chain,
     ...(model ? { model } : {})
   })
-  ctx.log(`coordinator started run=${a.runId} session=${info.id} account=${a.accountId} model=${model ?? 'CLI default'}`)
+  ctx.log(`coordinator started run=${a.runId} session=${info.id} account=${accountId} model=${model ?? 'CLI default'}`)
   return { sessionId: info.id }
 }
 

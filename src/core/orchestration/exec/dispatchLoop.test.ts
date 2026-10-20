@@ -382,6 +382,43 @@ describe('createDispatchLoop', () => {
     expect(h.startWorker).toHaveBeenCalledTimes(1)
   })
 
+  // T2: "Pick accounts automatically". A one-account Task whose account is spent starts on another account of the
+  // same provider when the setting is on, and waits as before when it is off.
+  for (const on of [true, false]) {
+    it(`a one-account Task at 95% with usagePauseAt 90 ${on ? 'starts on another account (setting on)' : 'waits (setting off)'}`, async () => {
+      const h = rig()
+      h.setState({ ...h.state(), tasks: h.state().tasks.map((t) => ({ ...t, accountIds: ['accA'] })) })
+      h.ctx.accounts = () => [claudeAccount('accA'), claudeAccount('accB')]
+      const later = '2026-09-24T02:00:00.000Z'
+      const pause = { accountId: 'accA', window: 'five_hour' as const, percent: 95, resetsAt: later }
+      h.ctx.usageGuard = {
+        refresh: async () => {},
+        pauseOf: (id) => (id === 'accA' ? pause : null),
+        view: () => [
+          { accountId: 'accA', session: { usedPercent: 95, resetsAt: later }, weekly: null, paused: pause },
+          { accountId: 'accB', session: { usedPercent: 20, resetsAt: later }, weekly: null, paused: null }
+        ],
+        pauseAt: () => 90,
+        autoAccounts: () => on
+      }
+      const starts: unknown[] = []
+      h.ctx.handle = async (cmd, args) => {
+        if (cmd === 'worker-start') starts.push(args.account)
+        return h.real(cmd, args)
+      }
+      await h.loop.run()
+      await h.settle()
+      if (on) {
+        expect(starts[0]).toBe('accB')
+        expect(h.startWorker).toHaveBeenCalledTimes(1)
+      } else {
+        expect(starts).toEqual([])
+        expect(h.startWorker).not.toHaveBeenCalled()
+      }
+      expect(h.handled()).not.toContain('gate-create')
+    })
+  }
+
   it('a worker-start refused for usage (usagePaused) opens no Gate', async () => {
     const h = rig({ concurrency: 2 })
     h.ctx.handle = async (cmd, args) =>
