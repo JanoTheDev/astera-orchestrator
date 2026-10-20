@@ -72,6 +72,12 @@ export interface CommandUsage {
 }
 
 const ID = (value: string, about: string): UsageFlag => ({ name: 'id', value, required: true, about })
+/** `tasks list` and `questions list`: only some fields, and one page with the total (command.ts listReply). */
+const LIST_PAGE_FLAGS: UsageFlag[] = [
+  { name: 'fields', value: '<a,b,…>', about: 'only these fields of each row (an unknown one is 2 and lists them)' },
+  { name: 'limit', value: '<n>', about: 'at most n rows; the reply then carries total, offset and limit' },
+  { name: 'offset', value: '<n>', about: 'skip the first n rows (default 0); the reply then carries total' }
+]
 
 const TIMEOUT: UsageFlag = {
   name: 'timeout-ms',
@@ -333,7 +339,7 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
   'projects-remove': {
     summary: 'unregister a project; its folder and plans are not touched',
     detail:
-      'Refused (CONFLICT, exit 6) while the project has a plan that is not archived, and for a workspace that still has sub-projects: remove those first; removing one project never removes another. Refused from an agent session and an MCP client.',
+      'Refused (CONFLICT, exit 6) while the project has a plan that is running, paused or queued (a completed, delivered, stopped or archived plan does not hold it), and for a workspace that still has sub-projects: remove those first; removing one project never removes another. Refused from an agent session and an MCP client.',
     flags: [ID('<projectId>', 'the project to unregister')]
   },
   // W7-B
@@ -374,7 +380,7 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       // W10-A
       { name: 'prompts-dir', value: '<path|none>', about: 'the folder (in the repository) whose <id>-*.md files Run as written finds by name; none clears it' },
       // T3 workspaces
-      { name: 'auto-projects', value: '<on|off>', about: 'file each plan under a sub-project named after its first area, created when missing (default on)' }
+      { name: 'auto-projects', value: '<on|off>', about: 'file each plan under a sub-project named after its first area, created when missing (off for a project added from now on)' }
     ]
   },
   'projects-find': {
@@ -590,7 +596,8 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       },
       { name: 'status', value: '<s>', about: 'only tasks in this status' },
       { name: 'ready', about: 'only tasks that are ready to be picked up' },
-      { name: 'brief', about: 'cut each spec to 160 characters' }
+      { name: 'brief', about: 'cut each spec to 160 characters' },
+      ...LIST_PAGE_FLAGS
     ]
   },
   // W3-C search and inbox
@@ -663,7 +670,9 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
     flags: [
       { name: 'run', value: '<runId>', about: 'only the questions of this run (an unknown run is 4)' },
       { name: 'task', value: '<taskId>', about: 'only the questions of this task' },
-      { name: 'status', value: '<open|resolved>', about: 'only questions in this state (any other value is 2)' }
+      { name: 'status', value: '<open|resolved>', about: 'only questions in this state (any other value is 2)' },
+      { name: 'brief', about: 'each question and resolution on one line, cut to 160 characters' },
+      ...LIST_PAGE_FLAGS
     ]
   },
   'questions-get': {

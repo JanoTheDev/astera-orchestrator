@@ -730,7 +730,7 @@ astera runs    stop   --id <runId>
 astera runs    resume --id <runId>
 astera runs    checks --id <runId>
 
-astera tasks   list   [--run <runId|jobId>] [--status <s>] [--ready] [--brief]
+astera tasks   list   [--run <runId|jobId>] [--status <s>] [--ready] [--brief] [--fields <a,b,…>] [--limit <n>] [--offset <n>]
 astera tasks   add    [--job <jobId> | --run <runId>] --spec <text|-> --account <id,…> [--title <text>] [--prompt <text|->] [--criteria <json array>] [--deps <json array>] [--affected-paths <json array>] [--parent <taskId>] [--validate <configId,…>] [--review] [--no-review] [--difficulty <light|standard|hard>] [--model <id>] [--basis <missing|partial|broken>] [--evidence <text>]
 astera tasks   dispatch --id <taskId>
 
@@ -757,7 +757,7 @@ astera sessions create --account <accountId> --cwd <path> [--kind <terminal|chat
 astera chats pending   [--session <sessionId>]
 astera chats answer    --id <promptId> [--allow | --deny] [--session <sessionId>]
 
-astera questions list  [--run <runId>] [--task <taskId>] [--status <open|resolved>]
+astera questions list  [--run <runId>] [--task <taskId>] [--status <open|resolved>] [--brief] [--fields <a,b,…>] [--limit <n>] [--offset <n>]
 astera questions get    --id <questionId>
 astera questions answer --id <questionId> --answer <text>
 
@@ -849,6 +849,13 @@ list. Filters on one command combine.
   `tasks list --run`, with `astera runs list` as its step.
 - **`questions list --status`** is `open` or `resolved`. Any other value is a 2, as for the other
   filters, never an empty list.
+- **`tasks list` and `questions list` can be made lighter**, for an agent reading a big run. `--brief` puts a task's
+  spec on one line cut at 160 characters (`spec_truncated` says it was cut), and a question's `question` and
+  `resolution` the same way (a cut one ends in `…`). `--fields id,status,title` keeps only those fields of each row; a
+  name that is not one of the command's public fields is a 2 whose message lists them. `--limit <n>` and `--offset <n>`
+  take one page of the filtered list: the reply is then `{"tasks": [...], "total": 240, "offset": 0, "limit": 50}`
+  (`questions` for `questions list`), and the next page starts at `offset` plus the rows you got, until `total`.
+  Without either flag the reply is the whole list, as before.
 - **`sessions list --status`** is `alive` or `ended`, which read `alive`, or `working`, `waiting`, `idle` or
   `unknown`, which read `state`. **`--provider claude|codex`** keeps the sessions whose account is on
   that vendor, as `accounts list` shows it. A session whose account has since been removed matches
@@ -890,10 +897,11 @@ sub-project it is filed under, shares one file guard, one set of leases and one 
 same files wait for each other, and plans on different files run side by side. A sub-project reads every setting it
 leaves unset (delivery, auto-approve, hands-off, test command, concurrency…) from its workspace. Astera makes
 sub-projects by itself from the work: `jobs set --areas` (the planner names a plan's areas) files the plan under the
-sub-project named after its first area, created when the workspace has none by that name; `projects set --auto-projects
-off` on the workspace stops that. `jobs set --project <projectId>` moves a plan that has not started to another project
+sub-project named after its first area, created when the workspace has none by that name, once `projects set
+--auto-projects on` turned that on for the workspace: a project added from now on starts with it off. `jobs set --project <projectId>` moves a plan that has not started to another project
 of the same workspace. `projects remove --id <projectId>` unregisters a project and touches no folder or plan; it is
-refused (6) while the project has a plan that is not archived, and for a workspace that still has sub-projects.
+refused (6) while the project has a plan that is running, paused or queued (a completed, delivered, stopped or archived
+plan does not hold it), and for a workspace that still has sub-projects.
 
 Only repositories you open become projects: a tab standing in a subfolder of a registered project, or in a linked
 worktree such as `.claude/worktrees/<name>`, registers nothing new, and `projects add` with such a folder registers the

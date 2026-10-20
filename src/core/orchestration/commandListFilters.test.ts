@@ -370,8 +370,11 @@ describe('projects find — a path inside a project names that project', () => {
     expect(await listed(nested)).toEqual([inNested])
     expect(await listed(absPath('work', 'proj', 'src'))).toEqual([inRoot])
     expect([...(await listed(root)), ...(await listed(nested))]).not.toContain(beside)
-    // runs list --project reads the same rule.
-    await call(deps, 'jobs-run', { id: inRoot })
+    // runs list --project reads the same rule. A Job with no tasks is refused a run, so it gets one.
+    const added = await call(deps, 'tasks-add', { job: inRoot, spec: 's', account: 'acc_c' })
+    expect(added.status, JSON.stringify(added.body)).toBe(200)
+    const ran = await call(deps, 'jobs-run', { id: inRoot })
+    expect(ran.status, JSON.stringify(ran.body)).toBe(200)
     const runs = (await call(deps, 'runs-list', { project: root })).body as { jobId: string }[]
     expect(runs.map((r) => r.jobId)).toEqual([inRoot])
   })

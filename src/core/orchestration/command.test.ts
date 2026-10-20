@@ -1147,6 +1147,15 @@ describe('handleCommand — inbox는 코디네이터 전용', () => {
     expect((await call(deps, 'questions-get', { id: qid }, '')).body).toMatchObject({ id: qid, source: 'ask' })
     const r = await call(deps, 'questions-answer', { id: qid, answer: '-$1.50' }, '')
     expect(r.body).toMatchObject({ id: qid, status: 'resolved', resolution: '-$1.50' })
+    // --brief, --fields and paging, as on tasks list
+    expect((await call(deps, 'questions-list', { fields: 'id,status', limit: 1 }, '')).body).toEqual({
+      questions: [{ id: qid, status: 'resolved' }],
+      total: 1,
+      offset: 0,
+      limit: 1
+    })
+    expect((await call(deps, 'questions-list', { fields: 'body' }, '')).body).toMatchObject({ error: expect.stringContaining('the fields are id, runId, taskId, question') })
+    expect((await call(deps, 'questions-list', { brief: true }, '')).body).toMatchObject([{ id: qid, question: '-$1.50 or $-1.50?' }])
     // The worker's resumed wait gets the answer, and the coordinator's inbox has the owner's copy
     expect((await call(deps, 'ask', { resume: qid, timeoutMs: 1 }, 'sess1')).body).toMatchObject({ answered: true, answer: '-$1.50' })
     expect(deps.getState().messages.find((m) => m.type === 'status' && m.replyTo === qid)).toMatchObject({ subject: 'the owner answered', body: '-$1.50' })
@@ -1621,6 +1630,35 @@ describe('handleCommand — tasks list --ready', () => {
     const list = r.body as { spec: string; spec_truncated: boolean }[]
     expect(list[0].spec.length).toBe(160)
     expect(list[0].spec_truncated).toBe(true)
+  })
+
+  const fiveTasks = async (): Promise<ReturnType<typeof makeDeps>> => {
+    const deps = makeDeps()
+    const run = await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p' })
+    for (const title of ['a', 'b', 'c', 'd', 'e'])
+      await call(deps, 'task-create', { account: 'acc1', runId: (run.body as { id: string }).id, title, spec: 's' })
+    return deps
+  }
+
+  it('--fields keeps only the named fields of each row', async () => {
+    const deps = await fiveTasks()
+    const r = await call(deps, 'tasks-list', { fields: 'title,status' })
+    expect(r.body).toEqual(['a', 'b', 'c', 'd', 'e'].map((title) => ({ title, status: 'ready' })))
+  })
+
+  it('--fields with a field that is not public is a 400 naming the valid ones', async () => {
+    const deps = await fiveTasks()
+    const r = await call(deps, 'tasks-list', { fields: 'title,prompt' })
+    expect(r.status).toBe(400)
+    expect((r.body as { error: string }).error).toMatch(/has no field prompt; the fields are id, runId, jobId, title, spec/)
+  })
+
+  it('--limit and --offset take one page and carry the total', async () => {
+    const deps = await fiveTasks()
+    const r = await call(deps, 'tasks-list', { limit: 2, offset: '2', fields: 'title' })
+    expect(r.body).toEqual({ tasks: [{ title: 'c' }, { title: 'd' }], total: 5, offset: 2, limit: 2 })
+    expect((await call(deps, 'tasks-list', { offset: '4' })).body).toMatchObject({ tasks: [{ title: 'e' }], total: 5, offset: 4, limit: null })
+    expect((await call(deps, 'tasks-list', { limit: 0 })).status).toBe(400)
   })
 })
 
@@ -5996,6 +6034,7 @@ describe('jobs run / questions answer', () => {
     const deps = makeDeps()
     await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p', auto: true })
     const jobId = deps.getState().jobs[0].id
+    await call(deps, 'tasks-add', { job: jobId, spec: 's', account: 'acc1' })
     expect(deps.getState().jobs[0].pendingStart).toBe(true)
     expect(deps.getState().runs.length).toBe(0)
     const r = await call(deps, 'jobs-run', { id: jobId })
@@ -6006,6 +6045,20 @@ describe('jobs run / questions answer', () => {
     // Task 가 회차가 아니라 계획에 붙어 이번 회차에서는 아무 일도 하지 않았다.
     expect((r.body as { id: string }).id).toBe(deps.getState().runs[0].id)
     expect((r.body as { ordinal: number }).ordinal).toBe(1)
+  })
+
+  it('a Job with no tasks, no planner and no coordinator account is refused with the jobs plan step', async () => {
+    const deps = makeDeps()
+    await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p', auto: true })
+    const jobId = deps.getState().jobs[0].id
+    const r = await call(deps, 'jobs-run', { id: jobId })
+    expect(r.status).toBe(409)
+    expect((r.body as { error: string }).error).toContain(`astera jobs plan --id ${jobId} --account <accountId>`)
+    expect(deps.getState().runs.length).toBe(0)
+    expect(deps.getState().jobs[0].pendingStart).toBe(true)
+    // A coordinator account plans it, so the same Job then runs
+    deps.setState({ ...deps.getState(), jobs: deps.getState().jobs.map((j) => ({ ...j, coordinatorAccountId: 'acc1' })) })
+    expect((await call(deps, 'jobs-run', { id: jobId })).status).toBe(200)
   })
 
   it('끝난 계획을 다시 돌리면 회차가 하나 늘어난다', async () => {
@@ -10033,6 +10086,7 @@ describe('T3 workspaces', () => {
 
   it('jobs-set --areas files plans under an auto-created child per first area', async () => {
     const { deps, rootId, ids } = await seed(3)
+    expect((await call(deps, 'projects-set', { id: rootId, autoProjects: 'on' }, '')).status).toBe(200)
     expect((await call(deps, 'jobs-set', { id: ids[0], areas: 'ui,api' }, '')).status).toBe(200)
     const [ui] = children(deps, rootId)
     expect(ui).toMatchObject({ name: 'ui', path: repo, parentId: rootId })
@@ -10047,9 +10101,8 @@ describe('T3 workspaces', () => {
     expect(listed.filter((p) => p.parentId === rootId)).toHaveLength(2)
   })
 
-  it('creates nothing when the workspace set autoProjects off', async () => {
+  it('creates nothing for a new project, which starts with autoProjects off', async () => {
     const { deps, rootId, ids } = await seed(1)
-    expect((await call(deps, 'projects-set', { id: rootId, autoProjects: 'off' }, '')).status).toBe(200)
     expect(deps.getState().projects[0].autoProjects).toBe(false)
     expect((await call(deps, 'jobs-set', { id: ids[0], areas: 'ui' }, '')).status).toBe(200)
     expect(children(deps, rootId)).toEqual([])
@@ -10067,7 +10120,7 @@ describe('T3 workspaces', () => {
   })
 
   it('projects-remove refuses a workspace with children or a project with active plans', async () => {
-    const { deps, rootId, ids } = await seed(1)
+    const { deps, rootId, ids } = await seed(1, { autoProjects: true })
     await call(deps, 'jobs-set', { id: ids[0], areas: 'ui' }, '')
     const [ui] = children(deps, rootId)
     expect((await call(deps, 'projects-remove', { id: rootId }, '')).status).toBe(409)

@@ -1202,11 +1202,13 @@ export function hostOrchDeps(a: {
     ...a.github,
     run: (args: string[], cwd: string) => {
       // W6-A: `issue edit` assigns an issue (github-issue-assign, --assign-me)
-      // W8-C: `pr edit` / `pr ready` rewrite and ready a plan's draft PR
+      // W8-C: `pr edit` / `pr ready` rewrite and ready a plan's draft PR; the body now goes as `api -X PATCH`, and a
+      // refused `pr ready` falls back to an `api graphql` mutation (github/prUpdate.ts). Plain `api` calls only read.
       if (
         (args[0] === 'run' && args[1] === 'rerun') ||
         (args[0] === 'issue' && args[1] === 'edit') ||
-        (args[0] === 'pr' && (args[1] === 'edit' || args[1] === 'ready'))
+        (args[0] === 'pr' && (args[1] === 'edit' || args[1] === 'ready')) ||
+        (args[0] === 'api' && (args.includes('PATCH') || args[1] === 'graphql'))
       )
         a.onEffect?.()
       return a.github!.run(args, cwd)

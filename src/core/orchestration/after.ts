@@ -50,7 +50,7 @@ export const afterNameOf = (s: Pick<OrchState, 'jobs'>, id: string): string => {
 
 /** Finished: archived, delivered, stopped, or its latest Run's Tasks all ended (completed or failed). Nothing more
  *  will come of it, so a plan queued behind it would wait for nothing. */
-const jobFinished = (s: AfterState, jobId: string): boolean => {
+export const jobFinished = (s: AfterState, jobId: string): boolean => {
   if (afterStandOf(s, jobId) !== 'waiting') return true
   const run = latestRunOf(s, jobId)
   return run !== undefined && outcomeOfTasks(s.tasks.filter((t) => t.runId === run.id)) !== 'running'
