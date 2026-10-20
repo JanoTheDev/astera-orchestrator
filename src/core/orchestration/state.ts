@@ -455,6 +455,19 @@ export function latestRun(s: OrchState): JobRun | undefined {
   return s.runs.at(-1)
 }
 
+/** The Run a command means when it names none: the one the calling session coordinates or works in, else the newest.
+ *  The newest alone handed a coordinator another plan's inbox (and its Tasks) once a second Run started. */
+export function callerRun(s: OrchState, sessionId: string | undefined): JobRun | undefined {
+  if (sessionId) {
+    const led = [...s.runs].reverse().find((r) => r.coordinatorSessionId === sessionId || r.externalCoordinatorSessionId === sessionId)
+    if (led) return led
+    const taskId = s.dispatches.find((d) => d.sessionId === sessionId && !d.endedAt)?.taskId
+    const worked = taskId && s.runs.find((r) => r.id === s.tasks.find((t) => t.id === taskId)?.runId)
+    if (worked) return worked
+  }
+  return latestRun(s)
+}
+
 /**
  * 배선이 만든 Run 워크트리를 기록한다. 만드는 것은 배선이고(디스크 작업) 여기는 그 사실만 받는다 —
  * 명령 안에서 git 을 부르면 상태 전이가 디스크 실패로 절반만 일어날 수 있다.

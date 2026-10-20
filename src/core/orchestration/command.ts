@@ -29,6 +29,7 @@ import {
   createTask,
   emptyState,
   latestRun,
+  callerRun,
   nextDelivery,
   openDispatch,
   resolveGate,
@@ -3196,7 +3197,7 @@ export async function handleCommand(
     // 가 아니다 — 워커도 자기가 무엇으로 검증될지 볼 수 있어야 한다.
     case 'run-configs': {
       if (!deps.listRunConfigs) return okBody([])
-      const run = latestRun(s)
+      const run = callerRun(s, caller.sessionId)
       const job = run && jobOf(s, run)
       if (!job) return bad(`no run exists`)
       return okBody(await deps.listRunConfigs(job.cwd))
@@ -4115,7 +4116,7 @@ export async function handleCommand(
       // 계정을 묻는 사이에 생긴 Run 이 그 뜻이 되어, 부르는 사람이 명령을 낸 순간에는 있지도 않던
       // 곳에 Task 가 붙는다. 그 사이에 지워진 Run 을 가리키게 되는 경우는 아래 createTask 가
       // `latest` 로 검증해 "unknown run" 으로 거절한다 — 매달린 참조가 남지 않는다.
-      const runId = str(args.runId) ?? str(args.run) ?? latestRun(s)?.id
+      const runId = str(args.runId) ?? str(args.run) ?? callerRun(s, caller.sessionId)?.id
       const spec = str(args.spec)
       if (!runId) return bad('--run is required (no run exists)')
       if (!spec) return bad('--spec is required')
@@ -5205,7 +5206,7 @@ export async function handleCommand(
           return denied('cannot send for another task')
       }
       const task = s.tasks.find((t) => t.id === str(args.taskId))
-      const runId = task?.runId ?? latestRun(s)?.id
+      const runId = task?.runId ?? callerRun(s, caller.sessionId)?.id
       if (!runId) return bad('no run to post into')
       const next: OrchState = {
         ...s,
@@ -5237,7 +5238,7 @@ export async function handleCommand(
       return commit(applyReply(s, { messageId: id, body }, now))
     }
     case 'check': {
-      const runId = str(args.run) ?? latestRun(s)?.id
+      const runId = str(args.run) ?? callerRun(s, caller.sessionId)?.id
       if (!runId) return bad('no run exists')
       // **A named Run that is not there is a 404, before anything is acked or waited on.**
       // nextDelivery does not look the Run up — it only filters by it — so a mistyped `--run`
