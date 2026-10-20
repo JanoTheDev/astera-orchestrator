@@ -135,7 +135,7 @@ export interface WallFilter {
   plan: PlanFilter
   state: StateFilter
   scope: Scope
-  /** The open project's id (scope `project`); null when the app has none open. */
+  /** The open project's id (scope `project`); null when none is known: then only the consoles of no project show. */
   projectId: string | null
 }
 
@@ -143,7 +143,7 @@ export interface WallFilter {
 export function filterConsoles(cs: readonly WallConsole[], f: WallFilter): WallConsole[] {
   return cs.filter((c) => {
     if (f.plan === NO_PLAN ? c.jobId !== undefined : f.plan !== ALL_PLANS && c.jobId !== f.plan) return false
-    if (f.scope !== 'all' && f.projectId !== null && !(f.scope === 'plan' && f.plan !== ALL_PLANS && f.plan !== NO_PLAN) && c.projectId !== f.projectId)
+    if (f.scope !== 'all' && !(f.scope === 'plan' && f.plan !== ALL_PLANS && f.plan !== NO_PLAN) && c.projectId !== f.projectId)
       return false
     if (f.state === 'all') return true
     return c.state === f.state
@@ -236,7 +236,7 @@ export interface PlanPill {
 export function planPills(tree: readonly WorkspaceProject[], rows: WallInput['rows'], cs: readonly WallConsole[], projectId: string | null, scope: Scope): PlanPill[] {
   const out: PlanPill[] = []
   for (const p of tree) {
-    if (scope !== 'all' && projectId !== null && p.id !== projectId) continue
+    if (scope !== 'all' && p.id !== projectId) continue
     for (const plan of p.plans) {
       if (plan.archived) continue
       const row = plan.runId ? rows[plan.runId] : rows[plan.jobId]

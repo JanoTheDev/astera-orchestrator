@@ -5,6 +5,7 @@ import { buildWorkspaceTree, findPlan, planSessions, scopeLayout } from './works
 // W6-F: one workspace per project
 import { entryTab, OTHER_WORKSPACE, scopeIds as workspaceScopeOf, workspaceFolderOf, workspaceSessionIds } from './workspaceTree'
 import { ownerOf } from './projectScope'
+import { scopeData, scopeIdOf, scopeTree } from './projectView'
 import * as sticky from '../lib/stickyProject'
 import { projectAnchorOf } from '../components/projects/projectAnchor' // W8-G
 // W7-F (#84): ended plan tabs close on their own; the quick tab switcher
@@ -59,6 +60,13 @@ export function useWorkspace(deps: WorkspaceDeps) {
     () => (workspaceData ? buildWorkspaceTree(workspaceData, { showArchived: workspaceArchived }) : []),
     [workspaceData, workspaceArchived]
   )
+  // The "All projects" chip: the one way a view shows another project's items. Off again when the window moves to
+  // another project, so a project is never opened onto everyone else's work.
+  const [allProjects, setAllProjects] = useState(false)
+  useEffect(() => setAllProjects(false), [currentProject])
+  const scopeId = scopeIdOf(workspaceTree, workspaceData?.worktrees ?? [], workspaceProjectId, currentProject, allProjects)
+  const scopedTree = useMemo(() => scopeTree(workspaceTree, scopeId), [workspaceTree, scopeId])
+  const scopedData = useMemo(() => (workspaceData ? scopeData(workspaceData, scopeId) : null), [workspaceData, scopeId])
   // W6-F: every workspace's sessions, and the ones the open project's (or plan's) workspace shows. Paired Runtimes'
   // tabs have no local cwd, so they are "Other"'s.
   const workspaceIds = useMemo(() => {
@@ -203,7 +211,7 @@ export function useWorkspace(deps: WorkspaceDeps) {
   return {
     workspacePlanId, workspaceArchived, setWorkspaceArchived, workspaceProjectId, projectDialog, setProjectDialog,
     setProjectsRefresh, firstPlan, setFirstPlan, autoCloseEndedPlanTabs, setAutoCloseEndedPlanTabs, workspaceData,
-    projectAnchor, workspaceTree, workspaceIds, shownLayout, canOpenSessionTab, switcherMeta,
+    projectAnchor, workspaceTree, workspaceIds, allProjects, setAllProjects, scopeId, scopedTree, scopedData, shownLayout, canOpenSessionTab, switcherMeta,
     setWorkspaceScope, enterWorkspace, openWorkspacePlan, openWorkspaceProject, workspaceCwd, bottomRoot,
     runAvailable, bottomTabShown
   }

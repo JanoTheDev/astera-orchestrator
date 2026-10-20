@@ -30,10 +30,11 @@ import { ConsoleHeader, DetailsPanel } from '../wall/FullConsole'
 import { FinishedCard } from '../wall/FinishedCard'
 import { SummaryCard } from '../wall/SummaryCard' // W9-I
 import { useSummaries } from '../../state/useSummaries'
+import { scopeTree, UNKNOWN_PROJECT } from '../../state/projectView'
 import type { AppState } from '../../state/appState'
 import '../wall/wall.css'
 
-export type AgentsPageProps = Pick<AppState, 'sessions' | 'accounts' | 'currentProject' | 'homeDir' | 'activeTabId'> & {
+export type AgentsPageProps = Pick<AppState, 'sessions' | 'accounts' | 'currentProject' | 'homeDir' | 'activeTabId' | 'scopeId' | 'allProjects' | 'setAllProjects'> & {
   /** W11: the header's and the empty state's "New console" (the New dialog's Console choice). */
   setShowNew?: AppState['setShowNew']
   children: React.ReactNode
@@ -51,7 +52,7 @@ const readPlan = (): PlanFilter => {
   }
 }
 
-export function AgentsPage({ sessions, accounts, currentProject, homeDir, activeTabId, setShowNew, children, hidden }: AgentsPageProps): React.JSX.Element {
+export function AgentsPage({ sessions, accounts, currentProject, scopeId, allProjects, setAllProjects, homeDir, activeTabId, setShowNew, children, hidden }: AgentsPageProps): React.JSX.Element {
   const { t } = useI18n()
   const view = useWallView()
   const showing = view.kind !== 'away'
@@ -79,7 +80,6 @@ export function AgentsPage({ sessions, accounts, currentProject, homeDir, active
     if (asked !== undefined) setPlan(tree.flatMap((p) => p.plans).find((x) => x.jobId === asked || x.runId === asked)?.jobId ?? asked)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once per request (each one is a new view)
   }, [view])
-  const [allProjects, setAllProjects] = useState(false)
   const [filter, setFilter] = useState<StateFilter>('all')
   const [detailsOpen, setDetailsOpen] = useState(true)
   const [nowMs, setNowMs] = useState(() => Date.now())
@@ -93,11 +93,12 @@ export function AgentsPage({ sessions, accounts, currentProject, homeDir, active
     () => consolesOf({ sessions, tree, data, attention, live: live.sessions, rows }),
     [sessions, tree, data, attention, live.sessions, rows]
   )
-  const projectId = currentProject ? (tree.find((p) => p.path === currentProject)?.id ?? null) : null
+  // the window's own project (App's scopeId: switcher or bound project, else the tab's folder resolved to its project)
+  const projectId = scopeId === null || scopeId === UNKNOWN_PROJECT ? null : scopeId
   // a project made a moment ago has no tab yet, so the tree lacks it: name it by its folder
   const projectName = tree.find((p) => p.id === projectId)?.name ?? currentProject?.split(/[\\/]/).filter(Boolean).pop() ?? null
   // A plan that is gone (archived, another project) falls back to every plan.
-  const planShown = plan === ALL_PLANS || plan === NO_PLAN || tree.some((p) => p.plans.some((x) => x.jobId === plan)) ? plan : ALL_PLANS
+  const planShown = plan === ALL_PLANS || plan === NO_PLAN || scopeTree(tree, allProjects ? null : projectId ?? UNKNOWN_PROJECT).some((p) => p.plans.some((x) => x.jobId === plan)) ? plan : ALL_PLANS
   const planPicked = planShown !== ALL_PLANS && planShown !== NO_PLAN
   // W11: one "All projects" chip; off, a picked plan shows all of its consoles (scope `plan`), else the open project's.
   const scope = allProjects ? 'all' : planPicked ? 'plan' : 'project'
