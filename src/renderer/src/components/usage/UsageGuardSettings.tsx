@@ -1,4 +1,4 @@
-// W6-G: the two usage guard settings, beside the app-wide worker cap. Saved on blur like MaxWorkersSetting; a value out
+// W6-G: the two usage guard settings. Saved on blur; a value out
 // of range goes back to what was saved.
 import { useEffect, useState } from 'react'
 import { useI18n } from '../../i18n/I18nProvider'

@@ -22,7 +22,6 @@ import {
 import type { SkillSettings } from '../core/orchestration/skills'
 import { settingsObjectOf } from '../core/settings/settingsObject'
 import { agentPermissionModeOf } from '../core/settings/agentPermissionMode'
-import { maxConcurrentWorkersOf } from '../core/settings/maxConcurrentWorkers'
 // W6-G usage guards
 import { maxSubagentsPerSessionOf, SUBAGENT_CAP_DEFAULT } from '../core/sessions/subagentCap'
 import { usagePauseAtOf, USAGE_PAUSE_AT_DEFAULT } from '../core/orchestration/usageGuard'
@@ -124,9 +123,6 @@ export class AppSettingsStore {
    *  is inverted from the toggles above — the file is user-editable, so only an explicit false
    *  reads as off, and anything else (absent, corrupt) reads as on. */
   private githubPolling = true
-  /** W1-B: how many Job workers may be open at once across every plan. null: no cap (the default, and
-   *  the behaviour from before the setting). Written only when set. */
-  private maxConcurrentWorkers: number | null = null
   /** W6-G: subagents at once per Claude tab (1–10), and the usage percent at which no new worker starts on an
    *  account. The subagent hook and the Host read the file themselves, narrowed by the same functions. Written only
    *  when not the default. */
@@ -228,10 +224,6 @@ export class AppSettingsStore {
       this.jobContinuityEnabled =
         (parsed as { jobContinuityEnabled?: unknown }).jobContinuityEnabled === true
       this.githubPolling = (parsed as { githubPolling?: unknown }).githubPolling !== false
-      // The same function the Host's read uses (readMaxConcurrentWorkers), so the two cannot differ.
-      this.maxConcurrentWorkers = maxConcurrentWorkersOf(
-        (parsed as { maxConcurrentWorkers?: unknown }).maxConcurrentWorkers
-      )
       this.maxSubagentsPerSession = maxSubagentsPerSessionOf((parsed as { maxSubagentsPerSession?: unknown }).maxSubagentsPerSession)
       this.usagePauseAt = usagePauseAtOf((parsed as { usagePauseAt?: unknown }).usagePauseAt)
       // The same function the Host's read uses (readActivityDigestMinutes)
@@ -315,7 +307,6 @@ export class AppSettingsStore {
         this.orchAlwaysOnMigrated = false
         this.jobContinuityEnabled = false
         this.githubPolling = true
-        this.maxConcurrentWorkers = null
         this.maxSubagentsPerSession = SUBAGENT_CAP_DEFAULT
         this.usagePauseAt = USAGE_PAUSE_AT_DEFAULT
         this.activityDigestMinutes = ACTIVITY_DIGEST_DEFAULT_MINUTES
@@ -360,7 +351,6 @@ export class AppSettingsStore {
       this.orchAlwaysOnMigrated = false
       this.jobContinuityEnabled = false
       this.githubPolling = true
-      this.maxConcurrentWorkers = null
       this.maxSubagentsPerSession = SUBAGENT_CAP_DEFAULT
       this.usagePauseAt = USAGE_PAUSE_AT_DEFAULT
       this.activityDigestMinutes = ACTIVITY_DIGEST_DEFAULT_MINUTES
@@ -559,16 +549,6 @@ export class AppSettingsStore {
 
   async setGithubPolling(enabled: boolean): Promise<void> {
     this.githubPolling = enabled
-    await this.persist()
-  }
-
-  getMaxConcurrentWorkers(): number | null {
-    return this.maxConcurrentWorkers
-  }
-
-  /** Narrowed like the file: the value arrives from the renderer. */
-  async setMaxConcurrentWorkers(n: number | null): Promise<void> {
-    this.maxConcurrentWorkers = maxConcurrentWorkersOf(n)
     await this.persist()
   }
 
@@ -819,7 +799,6 @@ export class AppSettingsStore {
       orchestrationEnabled?: true
       jobContinuityEnabled?: boolean
       githubPolling?: boolean
-      maxConcurrentWorkers?: number
       maxSubagentsPerSession?: number
       usagePauseAt?: number
       activityDigestMinutes?: number
@@ -867,7 +846,6 @@ export class AppSettingsStore {
       data.orchestrationEnabled = true
     if (this.jobContinuityEnabled) data.jobContinuityEnabled = true
     if (this.githubPolling === false) data.githubPolling = false
-    if (this.maxConcurrentWorkers !== null) data.maxConcurrentWorkers = this.maxConcurrentWorkers
     if (this.maxSubagentsPerSession !== SUBAGENT_CAP_DEFAULT) data.maxSubagentsPerSession = this.maxSubagentsPerSession
     if (this.usagePauseAt !== USAGE_PAUSE_AT_DEFAULT) data.usagePauseAt = this.usagePauseAt
     if (this.activityDigestMinutes !== ACTIVITY_DIGEST_DEFAULT_MINUTES) data.activityDigestMinutes = this.activityDigestMinutes

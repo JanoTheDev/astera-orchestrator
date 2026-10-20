@@ -30,7 +30,7 @@ import { chatPendingOf, type ChatPrompt, type ChatPromptList } from '../core/ses
  *  so the copy is of the state the command that asked for it just saw. */
 // `resumeStopWaitMs` is a number, not a call: the Host leaves it unset (RESUME_STOP_WAIT_MS) and only
 // tests set it, so it is never forwarded.
-// `maxConcurrentWorkers` (W1-B): the Host reads app-settings.json itself, as it does for the permission mode.
+// `maxConcurrentWorkers`: the app-wide cap setting is gone; the Host supplies nothing and the scheduler uses its default.
 // `usageGuard` (W6-G): the Host keeps its own, over its own sessions' statusLine readings.
 const OWNED = ['getState', 'setState', 'now', 'log', 'runningSessions', 'appVersion', 'backup', 'resumeStopWaitMs', 'maxConcurrentWorkers', 'usageGuard', /* W8-A */ 'hookEventsDir', 'profileDir'] as const
 
@@ -675,8 +675,6 @@ export function hostOrchDeps(a: {
   /** `reset`'s one safety net: the state file copied aside before it is wiped. The Host's own store
    *  does it — see OWNED for why it stopped being the app's. */
   backup(): Promise<void>
-  /** W1-B: the app-wide worker cap, read from app-settings.json by the Host itself (OWNED). */
-  maxConcurrentWorkers?(): Promise<number | null>
   /** W6-G: the Host's usage guard (OWNED). */
   usageGuard?: OrchServerDeps['usageGuard']
   act(name: string, args: unknown[]): Promise<unknown>
@@ -1361,7 +1359,6 @@ export function hostOrchDeps(a: {
     ...(a.hookEventsDir !== undefined ? { hookEventsDir: a.hookEventsDir } : {}), // W8-A
     ...(a.profileDir !== undefined ? { profileDir: a.profileDir } : {}), // W8-A
     backup: a.backup,
-    ...(a.maxConcurrentWorkers ? { maxConcurrentWorkers: a.maxConcurrentWorkers } : {}),
     ...(a.usageGuard ? { usageGuard: a.usageGuard } : {}),
     listSessions: own('listSessions'),
     readSession: own('readSession'),

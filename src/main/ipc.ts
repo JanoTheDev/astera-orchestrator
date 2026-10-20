@@ -1566,8 +1566,7 @@ export function registerIpc(
       // unreachable(닿지 못했다)은 사라졌다는 증거가 아니다.
       (p) => worktreePresence.peek(p) !== 'missing',
       Date.now(),
-      // W2-C plan board: the app-wide cap, so a Task held by it says so
-      { maxConcurrentWorkers: core.appSettings.getMaxConcurrentWorkers() },
+      undefined,
       // W6-G
       (id) => usageGuard.pauseOf(id)
     )
@@ -3212,7 +3211,6 @@ export function registerIpc(
     const loop = createDispatchLoop({
       handle: (cmd, args) => orchHandleCommand(deps, { sessionId: UI_CALLER }, cmd, args),
       getState: () => deps.getState(),
-      maxConcurrentWorkers: () => core.appSettings.getMaxConcurrentWorkers(),
       accounts: () => core.accounts.list(),
       loginStatus: (accountId) => core.accounts.loginStatus(accountId),
       lang: () => core.lang,
@@ -3496,8 +3494,6 @@ export function registerIpc(
       // 받은 cwd 로의 폴백)은 Host 와 같이 쓰는 resolveProjectRootFrom(core/files/tree.ts)에 있고,
       // 여기서는 앱의 두 후보 목록을 모아 넘긴다. 앱이 없을 때는 Host 가 제 워크트리 레지스트리와
       // 감시자 없는 기록 목록으로 같은 함수를 부른다(host/projectRoots.ts).
-      // W1-B: worker-start holds new workers at the app-wide cap.
-      maxConcurrentWorkers: () => core.appSettings.getMaxConcurrentWorkers(),
       // W6-G: and none on a nearly spent account
       usageGuard,
       resolveProjectRoot: async (cwd) =>
@@ -4442,12 +4438,6 @@ export function registerIpc(
   ipcMain.handle('settings.setTabSummaries', async (_e, on: unknown) => {
     if (typeof on !== 'boolean') throw new Error(`INVALID_TAB_SUMMARIES: ${String(on)}`)
     await core.appSettings.setTabSummaries(on)
-  })
-  ipcMain.handle('settings.getMaxConcurrentWorkers', () => core.appSettings.getMaxConcurrentWorkers())
-  ipcMain.handle('settings.setMaxConcurrentWorkers', async (_e, n: unknown) => {
-    if (n !== null && (typeof n !== 'number' || !Number.isInteger(n) || n < 1))
-      throw new Error(`INVALID_MAX_CONCURRENT_WORKERS: ${String(n)}`)
-    await core.appSettings.setMaxConcurrentWorkers(n)
   })
 
   // The renderer pushes the session on screen; main cannot work it out (§7). Narrowed on arrival, and

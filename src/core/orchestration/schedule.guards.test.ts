@@ -4,7 +4,6 @@ import { pathsOverlap, slotsToFill, workerCapOf } from './schedule'
 import { taskBoardsOf } from './blocked'
 import { emptyState, type OrchState } from './state'
 import { MAX_CONCURRENT_WORKERS, type Dispatch, type Job, type JobRun, type Task } from './types'
-import { maxConcurrentWorkersOf } from '../settings/maxConcurrentWorkers'
 
 const T0 = '2026-10-18T00:00:00.000Z'
 
@@ -121,13 +120,10 @@ describe('the app-wide cap never passes 10', () => {
   })
   it('a larger cap reads as 10', () => expect(placed(many(), 50)).toHaveLength(10))
   it('a smaller cap still holds', () => expect(placed(many(), 4)).toHaveLength(4))
-  it('workerCapOf and the settings read agree', () => {
+  it('workerCapOf clamps to 10', () => {
     expect(workerCapOf(undefined)).toBe(10)
     expect(workerCapOf(12)).toBe(10)
     expect(workerCapOf(3)).toBe(3)
-    expect(maxConcurrentWorkersOf(25)).toBe(10)
-    expect(maxConcurrentWorkersOf(7)).toBe(7)
-    expect(maxConcurrentWorkersOf(undefined)).toBeNull()
   })
   it('the board reports the app-wide cap of 10 when none is set', () => {
     const r = taskBoardsOf(many()).get('B8')?.reason

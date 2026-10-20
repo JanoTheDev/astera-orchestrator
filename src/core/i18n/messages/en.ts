@@ -1873,9 +1873,6 @@ export const en: Record<keyof typeof ko, string> = {
   // W1-B: global scheduling
   'jobs.new.priority': 'Priority',
   'jobs.new.priorityHint': 'When the app-wide worker limit is reached, higher goes first (default 0)',
-  'settings.maxWorkers.label': 'Max workers across all jobs',
-  'settings.maxWorkers.hint': 'Up to 10; empty is 10. At the limit, higher-priority jobs get the next free slot; equal ones take turns.',
-  'settings.maxWorkers.saveFailed': 'Could not save the worker limit: {detail}',
   // W6-G
   'settings.usageGuard.subagentsLabel': 'Max subagents per tab',
   'settings.usageGuard.subagentsHint': 'From 1 to 10. A Claude tab that asks for more is told to wait until one finishes.',

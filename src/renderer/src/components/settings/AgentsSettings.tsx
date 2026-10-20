@@ -3,7 +3,6 @@
 import { OrchestratorModelsSettings } from '../OrchestratorModelsSettings'
 import { VoiceSettings } from '../command/VoiceSettings'
 import { ResumeStrategySettings } from '../ResumeStrategySettings'
-import { MaxWorkersSetting } from '../MaxWorkersSetting'
 import { FreshCoordinatorSetting } from '../FreshCoordinatorSetting'
 import { StallWatchSetting } from '../StallWatchSetting'
 import { StartAtLoginSetting } from '../StartAtLoginSetting'
@@ -48,10 +47,6 @@ export function AgentsSettings(p: GroupProps): React.JSX.Element | null {
           </label>
           <span className="settings-hint">{t('settings.agentPermission.hint')}</span>
         </div>
-      </SettingRow>
-      {/* W1-B: the app-wide Job worker cap. */}
-      <SettingRow a="maxWorkers" only={only}>
-        <MaxWorkersSetting />
       </SettingRow>
       <SettingRow a="freshCoordinator" only={only}>
         <FreshCoordinatorSetting />

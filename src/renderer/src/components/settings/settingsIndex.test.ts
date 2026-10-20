@@ -10,7 +10,7 @@ import {
 const t = (k: MessageKey): string => en[k]
 const rows: SettingsRow[] = [
   { anchor: 'a', group: 'general', labelKey: 'settings.theme.label', descKey: 'settings.theme.hint' },
-  { anchor: 'b', group: 'agents', labelKey: 'settings.maxWorkers.label' },
+  { anchor: 'b', group: 'agents', labelKey: 'settings.agentPermission.label' },
   { anchor: 'c', group: 'advanced', labelKey: 'settings.info.version' }
 ]
 
@@ -20,8 +20,8 @@ describe('filterSettings', () => {
     expect(filterSettings(rows, '   ', t)).toEqual(rows)
   })
   it('matches the label, case-insensitively, and keeps the group', () => {
-    expect(filterSettings(rows, 'MAX WORK', t)).toEqual([rows[1]])
-    expect(filterSettings(rows, 'max work', t)[0].group).toBe('agents')
+    expect(filterSettings(rows, 'RUN AGENTS', t)).toEqual([rows[1]])
+    expect(filterSettings(rows, 'run agents', t)[0].group).toBe('agents')
   })
   it('matches the description', () => {
     const hint = en['settings.theme.hint'].slice(2, 12).toUpperCase()

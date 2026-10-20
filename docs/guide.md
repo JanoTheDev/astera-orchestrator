@@ -39,8 +39,6 @@ General → Shortcuts).
 - **Settings → Agents → Orchestration models**: the model of each role. Defaults: planner and reviewer `opus`,
   coordinator `haiku`, workers by Task difficulty (light → haiku, standard → sonnet, hard → opus). Empty means the
   CLI's default model.
-- **Settings → Agents → "Max workers across all jobs"**: the app-wide cap, at most 10 (empty means 10). At the cap,
-  plans with a higher priority get the next free slot.
 - **Settings → Agents → "Run agents without permission checks"** is **off**. Planners, coordinators and workers then
   stop at every Claude permission prompt until you answer it; those show up in the Inbox.
 - Set a git identity (`git config --global user.name …` / `user.email …`). Without one, the merges Astera makes for a
@@ -439,7 +437,7 @@ A page with groups on the left and a search box that filters rows by label and d
 |---|---|
 | General | Language, default session kind, theme, density, console font, shortcuts |
 | Accounts & usage | Accounts, sign in, remove, rolling, usage guard, subagents per tab |
-| Agents | Orchestration models, permission mode, max workers, resume strategy, voice, agent browser and app |
+| Agents | Orchestration models, permission mode, resume strategy, voice, agent browser and app |
 | Projects | One page per project (delivery, auto-approve, test command, concurrency, review rounds, replan, account, line attribution), Add project |
 | Integrations | GitHub, Slack, CLI and MCP, Remote runtimes, Plugins |
 | Notifications | Desktop notices, sound, digest, console summaries |

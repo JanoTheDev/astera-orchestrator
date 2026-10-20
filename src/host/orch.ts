@@ -68,7 +68,6 @@ import { justFinished, runRecordInputOf } from '../core/orchestration/runRecord'
 import type { WorkspaceManager } from './workspace/manager'
 import { DESKTOP_ACTOR, HOST_ACTOR, actorOf, type JournalActor } from '../core/continuity/actor'
 import { parseJournalOps } from '../core/continuity/journalOps'
-import { readMaxConcurrentWorkers } from '../core/settings/maxConcurrentWorkers'
 
 /** One reply — today's HTTP status and body, the shape `OrchCall.call` already answers with. Named
  *  only because the receipt store below holds one. */
@@ -617,11 +616,6 @@ export function createHostOrch(a: {
     }
   }
 
-  /** W3-A: the app-wide cap the blocked reasons of `activity-summary` read (blocked.ts), as the dispatch reads it. */
-  const activityLimits = async (): Promise<{ maxConcurrentWorkers: number | null }> => ({
-    maxConcurrentWorkers: await readMaxConcurrentWorkers(path.join(a.profileDir, 'app-settings.json')).catch(() => null)
-  })
-
   /** The public event log, isolated like the journal: a log that throws must not turn a landed commit into a failed
    *  command (eventLog.ts never throws; this is for one that does anyway). */
   const recordEvents = (prev: OrchState, next: OrchState): void => {
@@ -830,9 +824,6 @@ export function createHostOrch(a: {
       // `reset` 이 지우기 전에 파일을 옆으로 복사한다. **store 의 쓰기 큐를 통과하므로** 아직 땅에
       // 닿지 않은 저장을 앞지르지 않는다 — 앱이 이 복사를 대신하던 동안은 그 보장이 없었다.
       backup: () => store.backup(),
-      // W1-B. A damaged file reads as no cap: the spawn behind worker-start refuses on that file anyway
-      // (spawner.ts reads the permission mode from it), so nothing starts past the cap on a guess.
-      maxConcurrentWorkers: () => readMaxConcurrentWorkers(path.join(a.profileDir, 'app-settings.json')).catch(() => null),
       // W8-A: the stamp reads a worker's busy windows from its hook-events file
       hookEventsDir: hookEventsDirIn(a.profileDir),
       // W8-A: the stamp's line data reads the checkpoint logs under the profile
@@ -1806,7 +1797,7 @@ export function createHostOrch(a: {
         // controller were refused above (neither allowlist names it).
         if (cmd === 'events-poll') return await pollEvents(a.events, args)
         // W3-A: the activity feed's reads, beside the public log's and for its reason. Read only.
-        if (ACTIVITY_COMMANDS.has(cmd)) return await activityReply(a.activity, cmd, args, () => store.get(), activityLimits)
+        if (ACTIVITY_COMMANDS.has(cmd)) return await activityReply(a.activity, cmd, args, () => store.get(), async () => ({}))
         // **Answered here, beside the two above, and for the same reason (Host S3, §3.1).** None of
         // the four `worktree-*` names goes through `handleCommand` — the app is their only caller
         // (`HostWorktrees.call` itself checks `from?.role === 'app'`) — so a Host too old to own

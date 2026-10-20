@@ -36,7 +36,6 @@ export const SETTINGS_ROWS: readonly SettingsRow[] = [
   { anchor: 'usageGuard', group: 'accounts', labelKey: 'settings.usageGuard.pauseAtLabel', descKey: 'settings.usageGuard.subagentsLabel' },
 
   { anchor: 'permission', group: 'agents', labelKey: 'settings.agentPermission.label', descKey: 'settings.agentPermission.hint' },
-  { anchor: 'maxWorkers', group: 'agents', labelKey: 'settings.maxWorkers.label', descKey: 'settings.maxWorkers.hint' },
   { anchor: 'freshCoordinator', group: 'agents', labelKey: 'settings.freshCoordinator.label', descKey: 'settings.freshCoordinator.hint' },
   { anchor: 'stallWatch', group: 'agents', labelKey: 'settings.stallWatch.label', descKey: 'settings.stallWatch.hint' },
   { anchor: 'startAtLogin', group: 'agents', labelKey: 'settings.startAtLogin.label', descKey: 'settings.startAtLogin.hint' },

@@ -2096,9 +2096,6 @@ export const ko = {
   // W1-B: global scheduling
   'jobs.new.priority': '우선순위',
   'jobs.new.priorityHint': '앱 전체 워커 한도에 닿았을 때 높은 쪽이 먼저 빈자리를 받는다 (기본 0)',
-  'settings.maxWorkers.label': '모든 작업을 합친 최대 워커 수',
-  'settings.maxWorkers.hint': '최대 10, 비워 두면 10. 한도에 닿으면 우선순위가 높은 작업부터, 같으면 번갈아 빈자리를 받는다.',
-  'settings.maxWorkers.saveFailed': '워커 한도를 저장하지 못했습니다: {detail}',
   // W6-G
   'settings.usageGuard.subagentsLabel': '탭당 최대 서브에이전트 수',
   'settings.usageGuard.subagentsHint': '1에서 10까지. 더 띄우려는 Claude 탭은 하나가 끝날 때까지 기다리라는 답을 받는다.',

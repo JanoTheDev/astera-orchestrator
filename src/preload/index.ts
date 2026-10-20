@@ -218,7 +218,6 @@ const api = {
     setAgentAppEnabled: invoke('settings.setAgentAppEnabled'),
     getGithubPolling: invoke('settings.getGithubPolling'),
     setGithubPolling: invoke('settings.setGithubPolling'),
-    getMaxConcurrentWorkers: invoke('settings.getMaxConcurrentWorkers'),
     // W3-A
     getActivityDigestMinutes: invoke('settings.getActivityDigestMinutes'),
     setActivityDigestMinutes: invoke('settings.setActivityDigestMinutes'),
@@ -238,7 +237,6 @@ const api = {
     setAutoCloseEndedPlanTabs: invoke('settings.setAutoCloseEndedPlanTabs'),
     getTabSummaries: invoke('settings.getTabSummaries'), // W9-I
     setTabSummaries: invoke('settings.setTabSummaries'),
-    setMaxConcurrentWorkers: invoke('settings.setMaxConcurrentWorkers'),
     // W6-G
     getMaxSubagentsPerSession: invoke('settings.getMaxSubagentsPerSession'),
     setMaxSubagentsPerSession: invoke('settings.setMaxSubagentsPerSession'),

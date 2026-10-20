@@ -1,5 +1,5 @@
 // W3-A: how often the activity digest goes out, from app-settings.json, narrowed the same way by the app's store and
-// the Host's read (as maxConcurrentWorkers.ts does).
+// the Host's read.
 import { readAppSettingsObject } from './settingsObject'
 
 export const ACTIVITY_DIGEST_DEFAULT_MINUTES = 30

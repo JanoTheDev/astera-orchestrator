@@ -3,7 +3,7 @@ import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
 
 /** Context use (%) at which a plan's coordinator is replaced (core/settings/freshCoordinator.ts), 0 for off. Saved on
- *  blur, as MaxWorkersSetting is; a value that is not a whole number from 0 to 100 goes back to what was saved. */
+ *  blur; a value that is not a whole number from 0 to 100 goes back to what was saved. */
 export function FreshCoordinatorSetting(): React.JSX.Element {
   const { t } = useI18n()
   const [saved, setSaved] = useState<number | null>(null)

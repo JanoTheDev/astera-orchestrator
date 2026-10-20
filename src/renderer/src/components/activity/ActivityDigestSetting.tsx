@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react'
 import { useI18n } from '../../i18n/I18nProvider'
 import { toast } from '../../lib/toast'
 
-/** W3-A: minutes between activity digests (core/settings/activityDigest.ts), 0 for none. Saved on blur, as
- *  MaxWorkersSetting is; a value that is not a whole number from 0 to a day goes back to what was saved. */
+/** W3-A: minutes between activity digests (core/settings/activityDigest.ts), 0 for none. Saved on blur;
+ *  a value that is not a whole number from 0 to a day goes back to what was saved. */
 export function ActivityDigestSetting(): React.JSX.Element {
   const { t } = useI18n()
   const [saved, setSaved] = useState<number | null>(null)
