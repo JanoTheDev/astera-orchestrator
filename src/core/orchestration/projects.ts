@@ -8,6 +8,7 @@
 import { comparablePath, isPathWithin, isSamePath } from '../files/tree'
 import { jobFinished } from './after'
 import { MAX_CONCURRENT_WORKERS, newId, type Job, type Project } from './types'
+import { MODEL_ID } from './roleModels'
 import { projectWithWorkspace, type OrchState, type Res } from './state'
 
 /** The last segment of a path, whatever separator it arrived with. Not `path.basename`: that reads
@@ -159,7 +160,14 @@ export type ProjectSettingsPatch = {
   promptsDir?: string | null
   // T3 workspaces: false stops auto-created sub-projects
   autoProjects?: false | null
+  // T5: kinds granted in advance (kebab-case words), and the coordinator's model
+  grants?: string[] | null
+  coordinatorModel?: string | null
 }
+
+/** T5: a standing grant's kind: a short kebab-case word (`protected-paths`, `migrations`). */
+export const GRANT_KIND = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
+const MAX_GRANT_LENGTH = 40
 
 export function setProjectSettings(s: OrchState, id: string, patch: ProjectSettingsPatch): Res<Project> {
   const found = findProject(s, id)
@@ -170,6 +178,12 @@ export function setProjectSettings(s: OrchState, id: string, patch: ProjectSetti
   if (reviewRounds != null && !(Number.isInteger(reviewRounds) && reviewRounds >= 1))
     return { ok: false, error: 'review rounds must be an integer >= 1' }
   if (replan != null && replan !== 'waves' && replan !== 'off') return { ok: false, error: 'replan must be waves or off' }
+  const bad = patch.grants?.find((g) => !GRANT_KIND.test(g) || g.length > MAX_GRANT_LENGTH)
+  if (bad !== undefined) return { ok: false, error: `grant ${JSON.stringify(bad)} must be a short kebab-case word (protected-paths, migrations)` }
+  if (patch.grants?.length === 0) patch = { ...patch, grants: null }
+  else if (patch.grants) patch = { ...patch, grants: [...new Set(patch.grants)] }
+  if (patch.coordinatorModel != null && !MODEL_ID.test(patch.coordinatorModel))
+    return { ok: false, error: `coordinator model ${JSON.stringify(patch.coordinatorModel)} is not a model id` }
   const next: Record<string, unknown> = { ...found }
   for (const [k, v] of Object.entries(patch)) {
     if (v === undefined) continue
@@ -212,14 +226,16 @@ export function addSubProject(s: OrchState, a: { parentId: string; name: string;
 }
 
 /** Unregisters a project. Refused while a plan of it is running, paused or queued (not `jobFinished`: a completed,
- *  delivered, stopped or archived plan does not hold it), and for a workspace that still has sub-projects: removing
- *  one never removes another. */
+ *  delivered, stopped or archived plan does not hold it; and a plan with no Run only while it waits on another, `after`:
+ *  a draft never run does not), and for a workspace that still has sub-projects: removing one never removes another. */
 export function removeProject(s: OrchState, id: string): Res<Project> {
   const found = findProject(s, id)
   if (!found) return { ok: false, error: `unknown project: ${id}`, missing: true }
   const children = childProjectsOf(s, id)
   if (children.length > 0) return { ok: false, error: `${id} has sub-projects (${children.map((c) => c.id).join(', ')}); remove them first` }
-  const active = s.jobs.filter((j) => jobInProject(s, j, found) && !jobFinished(s, j.id))
+  const active = s.jobs.filter(
+    (j) => jobInProject(s, j, found) && !jobFinished(s, j.id) && (j.after !== undefined || s.runs.some((r) => r.jobId === j.id))
+  )
   if (active.length > 0)
     return { ok: false, error: `${id} has plans that are running, paused or queued (${active.map((j) => j.id).join(', ')}); stop or archive them first` }
   return { ok: true, state: { ...s, projects: s.projects.filter((p) => p.id !== id) }, value: found }

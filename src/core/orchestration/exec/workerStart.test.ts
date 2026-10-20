@@ -173,7 +173,7 @@ describe('startCoordinatorSession', () => {
     const preTrust = vi.fn().mockResolvedValue(undefined)
     const r = await startCoordinatorSession({ specsDir: dir, preTrust, bypassPermissions: async () => true, spawn, log: () => {}, getState: emptyState, accounts: async () => [acct('a1')], roleModels: async () => ({}) },
       { runId: 'run_abcdefghijklmnop', cwd: 'D:/p', accountId: 'a1', brief: 'BRIEF' })
-    expect(r).toEqual({ sessionId: 'ses_c' })
+    expect(r).toEqual({ sessionId: 'ses_c', model: 'haiku' })
     expect(await fs.readFile(path.join(dir, 'coordinator-run_abcdefghijklmnop.md'), 'utf8')).toBe('BRIEF')
     expect(preTrust).toHaveBeenCalledWith('a1', 'D:/p')
     expect(spawn.mock.calls[0][0]).toMatchObject({ accountId: 'a1', cwd: 'D:/p', bypassPermissions: true, rollAccountIds: ['a1'], title: 'Coordinator · run_abcdefgh' })
@@ -188,6 +188,21 @@ describe('startCoordinatorSession', () => {
     const s2 = { ...s, jobs: s.jobs.map((j) => ({ ...j, models: { coordinator: 'sonnet' } })) }
     await startCoordinatorSession({ ...base, getState: () => s2 }, { runId, cwd: 'D:/p', accountId: 'a1', brief: 'B' })
     expect(spawn.mock.calls[1][0].model).toBe('sonnet')
+  })
+  it('T5: a plan of more than 5 Tasks or a hard one gets the strong model, the project override first, and returns it', async () => {
+    const spawn = vi.fn().mockResolvedValue({ id: 'ses_c' })
+    const ctx = { specsDir: dir, preTrust: vi.fn().mockResolvedValue(undefined), bypassPermissions: async () => false, spawn, log: () => {}, accounts: async () => [acct('a1')], roleModels: async () => ({}) }
+    const { s, taskId } = stateWithTask()
+    const runId = s.runs[0].id
+    const start = (st: typeof s) => startCoordinatorSession({ ...ctx, getState: () => st }, { runId, cwd: 'D:/p', accountId: 'a1', brief: 'B' })
+    const hard = { ...s, tasks: s.tasks.map((t) => (t.id === taskId ? { ...t, difficulty: 'hard' as const } : t)) }
+    expect(await start(hard)).toEqual({ sessionId: 'ses_c', model: 'opus' })
+    const many = { ...s, tasks: Array.from({ length: 6 }, (_, i) => ({ ...s.tasks[0], id: `t${i}` })) }
+    expect((await start(many)).model).toBe('opus')
+    const project = { id: 'prj_1', path: 'D:/p', name: 'p', addedAt: NOW, coordinatorModel: 'sonnet' }
+    const owned = { ...hard, projects: [project], jobs: hard.jobs.map((j) => ({ ...j, projectId: 'prj_1' })) }
+    expect((await start(owned)).model).toBe('sonnet')
+    expect((await start(s)).model).toBe('haiku')
   })
   it("#117: a hands-off Job's coordinator starts with the bypass even when the app-wide setting is off", async () => {
     const spawn = vi.fn().mockResolvedValue({ id: 'ses_c' })

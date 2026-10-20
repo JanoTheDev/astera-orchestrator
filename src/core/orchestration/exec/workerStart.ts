@@ -24,11 +24,13 @@ import type { WorkerTails } from './tail'
 import { coordinatorBriefName } from './specFiles'
 import { dispatchLookup } from '../dispatchIndex'
 import { jobOf, jobOfRunId } from '../state'
+import { projectOfJob } from '../projects'
 import type { Job } from '../types'
 import { handsOffOf } from './plannerFeedback'
 import { pendingMerges, runRootOf } from '../integrate'
 import {
   resolveReviewerModel,
+  resolveCoordinatorModel,
   resolveRoleModel,
   resolveWorkerModel,
   type RoleModelSettings
@@ -319,7 +321,7 @@ export async function autoStartChain(
 export async function startCoordinatorSession(
   ctx: CoordinatorStartContext,
   a: StartCoordinatorArgs
-): Promise<{ sessionId: string }> {
+): Promise<{ sessionId: string; model?: string }> {
   // W2-A: a planner takes this same spawn path with its own brief, model role and permissions.
   if (a.role === 'planner') return startPlannerSession(ctx, a)
   // **브리핑은 파일로, 세션에는 한 줄만.** 이 프롬프트는 argv 로 가고 win32 에서 세션은
@@ -345,10 +347,20 @@ export async function startCoordinatorSession(
   // 처음 돌리는 사람에게는 여기가 첫 codex 세션이고, 멈추면 아무도 답할 사람이 없는 것은
   // 워커와 같다(preTrustWorkspace 의 주석).
   await ctx.preTrust(accountId, a.cwd)
-  // The lightweight model (W1-A, SPEC §4): status questions and scheduling never call the premium one.
+  // The lightweight model (W1-A, SPEC §4), unless the plan is big or hard (T5 `resolveCoordinatorModel`). The plan's
+  // Tasks are this Run's, else its Job's definition Tasks: a first start comes before the Run's copies are committed.
   const coordinatorAccount = (await ctx.accounts()).find((x) => x.id === accountId)
+  const s = ctx.getState()
+  const job = jobOfRunId(s, a.runId)
+  const runTasks = s.tasks.filter((t) => t.runId === a.runId)
   const model = coordinatorAccount
-    ? resolveRoleModel(await settingsFor(ctx), jobOfRunId(ctx.getState(), a.runId), 'coordinator', providerOf(coordinatorAccount))
+    ? resolveCoordinatorModel({
+        settings: await settingsFor(ctx),
+        job,
+        project: job && projectOfJob(s, job),
+        tasks: runTasks.length > 0 ? runTasks : s.tasks.filter((t) => job !== undefined && t.jobId === job.id),
+        provider: providerOf(coordinatorAccount)
+      })
     : undefined
   // **워커와 같은 래퍼를 쓴다**(the caller's worker spawnSession) — 그 래퍼가 계정 객체를 찾고,
   // 롤링 코디네이터에 등록하고, orchEnv 를 실어 준다. core.sessions.spawn 을 직접 부르면 그 셋을
@@ -357,7 +369,7 @@ export async function startCoordinatorSession(
     accountId: accountId,
     cwd: a.cwd,
     // #117: a hands-off plan's coordinator too: a permission prompt nobody answers would stall the whole plan
-    bypassPermissions: handsOffOfJob(ctx.getState(), jobOfRunId(ctx.getState(), a.runId)) || (await ctx.bypassPermissions()),
+    bypassPermissions: handsOffOfJob(s, job) || (await ctx.bypassPermissions()),
     initialPrompt: coordinatorLaunchPrompt(briefPath.replace(/\\/g, '/')),
     // 탭 제목 — 워커 탭이 Task 제목을 쓰는 것과 같은 이유다. 없으면 워크트리 basename 으로
     // 떠서 사용자가 이것이 무엇인지 알 수 없다.
@@ -372,7 +384,7 @@ export async function startCoordinatorSession(
     ...(a.resume ? { resumeSessionId: a.resume } : {})
   })
   ctx.log(`coordinator started run=${a.runId} session=${info.id} account=${accountId} model=${model ?? 'CLI default'}`)
-  return { sessionId: info.id }
+  return { sessionId: info.id, ...(model ? { model } : {}) }
 }
 
 /** Best-effort folder trust for an orchestration spawn (the app's reasoning, moved with it).

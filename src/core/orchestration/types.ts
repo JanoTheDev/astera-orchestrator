@@ -179,6 +179,12 @@ export interface Project {
   /** A root's: `jobs-set --areas` files a plan under the sub-project named after its first area, creating it
    *  (`autoProjectFor`). Absent reads as true. */
   autoProjects?: boolean
+  // ── T5 project policy ──
+  /** Kinds of decision the owner grants in advance (`protected-paths`, `migrations`; short kebab-case words): the
+   *  coordinator writes a covered grant itself instead of escalating it (handover.ts, exec/autoAnswer.ts `grantOf`). */
+  grants?: string[]
+  /** The coordinator's model for this project's plans, over the plan-size rule (roleModels.ts `resolveCoordinatorModel`). */
+  coordinatorModel?: string
 }
 
 /** W7-B: what a project nobody set up reads as. */
@@ -478,6 +484,9 @@ export interface JobRun {
    *  retried rather than remembered as done. A new coordinator (`attachCoordinator`) starts without it;
    *  a roll's rekey carries it, since the stop is meant for whatever session the slot follows. */
   coordinatorStopPending?: string
+  /** T5: the model the coordinator in `coordinatorSessionId` was started on (`resolveCoordinatorModel`); absent: the
+   *  CLI's default, or a coordinator started before this was recorded. */
+  coordinatorModel?: string
   /** The session that drives this Run from outside: it made the Run with `run-create` (with no coordinator account),
    *  or took it over with `check --run`, and Astera neither started nor owns it (2026-10-13, spec E1). **Only the inbox net reads it**
    *  (`unattendedQuestions`, inbox.ts): while that session is alive, a worker's question is left to it. Nothing stops,

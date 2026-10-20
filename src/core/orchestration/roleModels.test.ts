@@ -5,6 +5,7 @@ import {
   modelFitsProvider,
   pickTaskProvider,
   readRoleModelSettings,
+  resolveCoordinatorModel,
   resolveReviewerModel,
   resolveRoleModel,
   resolveWorkerModel
@@ -42,6 +43,33 @@ describe('resolveRoleModel', () => {
 
   it('an empty Job override does not mask the app setting', () => {
     expect(resolveRoleModel({}, { models: { planner: '  ' } }, 'planner', 'claude')).toBe('opus')
+  })
+})
+
+describe('resolveCoordinatorModel', () => {
+  const tasks = (n: number, hard = false) => Array.from({ length: n }, (_, i) => ({ difficulty: hard && i === 0 ? ('hard' as const) : ('standard' as const) }))
+  const base = { settings: {}, job: undefined, project: undefined, provider: 'claude' as const }
+
+  it('a small plan keeps the role default; more than 5 Tasks or any hard Task gets the strong model', () => {
+    expect(resolveCoordinatorModel({ ...base, tasks: tasks(5) })).toBe('haiku')
+    expect(resolveCoordinatorModel({ ...base, tasks: tasks(6) })).toBe('opus')
+    expect(resolveCoordinatorModel({ ...base, tasks: tasks(1, true) })).toBe('opus')
+  })
+
+  it('Job.models > project override > plan-size rule > app setting > built-in', () => {
+    const settings = { claude: { roles: { coordinator: 'sonnet' } } }
+    const big = tasks(10)
+    expect(resolveCoordinatorModel({ ...base, settings, tasks: tasks(2) })).toBe('sonnet')
+    expect(resolveCoordinatorModel({ ...base, settings, tasks: big })).toBe('opus')
+    expect(resolveCoordinatorModel({ ...base, settings, tasks: big, project: { coordinatorModel: 'haiku' } })).toBe('haiku')
+    expect(resolveCoordinatorModel({ ...base, settings, tasks: big, project: { coordinatorModel: 'haiku' }, job: { models: { coordinator: 'claude-sonnet-5-5' } } })).toBe('claude-sonnet-5-5')
+  })
+
+  it('codex takes its configured hard model, and a model of the other CLI is skipped', () => {
+    const settings = { codex: { difficulty: { hard: 'gpt-5.5' } } }
+    expect(resolveCoordinatorModel({ ...base, settings, provider: 'codex', tasks: tasks(6) })).toBe('gpt-5.5')
+    expect(resolveCoordinatorModel({ ...base, provider: 'codex', tasks: tasks(6) })).toBeUndefined()
+    expect(resolveCoordinatorModel({ ...base, tasks: tasks(1), project: { coordinatorModel: 'gpt-5.5' } })).toBe('haiku')
   })
 })
 

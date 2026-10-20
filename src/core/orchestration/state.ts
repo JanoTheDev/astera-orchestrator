@@ -2336,7 +2336,7 @@ export function deleteJobs(s: OrchState, jobIds: ReadonlySet<string>): OrchState
 /** 이 Run 을 관리하는 코디네이터 세션을 붙인다. */
 export function attachCoordinator(
   s: OrchState,
-  a: { runId: string; sessionId: string }
+  a: { runId: string; sessionId: string; model?: string }
 ): Res<JobRun> {
   const run = s.runs.find((r) => r.id === a.runId)
   if (!run) return gone(`unknown run: ${a.runId}`)
@@ -2348,9 +2348,11 @@ export function attachCoordinator(
     coordinatorStartingAt: _starting,
     coordinatorStopPending: _pending,
     autoDispatch: _placed,
+    coordinatorModel: _model,
     ...rest
   } = run
-  const next: JobRun = { ...rest, coordinatorSessionId: a.sessionId }
+  // T5: the model is the new session's, so an earlier coordinator's never stays on the Run
+  const next: JobRun = { ...rest, coordinatorSessionId: a.sessionId, ...(a.model ? { coordinatorModel: a.model } : {}) }
   return ok({ ...s, runs: replace(s.runs, next) }, next)
 }
 

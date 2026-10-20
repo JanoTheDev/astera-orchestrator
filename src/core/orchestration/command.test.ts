@@ -10017,6 +10017,20 @@ describe('#117 hands-off', () => {
     expect(deps.getState().jobs.find((j) => j.id === id)?.handsOff).toBe(false)
   })
 
+  it('T5: projects-set --grants and --coordinator-model set, none clears, projects-list shows them, an agent is refused', async () => {
+    const deps = makeDeps()
+    await deps.setState({ ...deps.getState(), projects: [{ id: 'prj_1', path: 'D:/p', name: 'p', addedAt: NOW }] })
+    expect((await call(deps, 'projects-set', { id: 'prj_1', grants: 'protected-paths, migrations', coordinatorModel: 'opus' }, '')).status).toBe(200)
+    expect((await call(deps, 'projects-list', {}, '')).body).toEqual([expect.objectContaining({ grants: ['protected-paths', 'migrations'], coordinatorModel: 'opus' })])
+    expect((await call(deps, 'projects-set', { id: 'prj_1', grants: 'Protected Paths' }, '')).status).toBe(400)
+    expect((await call(deps, 'projects-set', { id: 'prj_1', coordinatorModel: '-rf' }, '')).status).toBe(400)
+    expect((await call(deps, 'projects-set', { id: 'prj_1', grants: 'migrations' }, 'ses-agent')).status).toBe(403)
+    expect((await call(deps, 'projects-set', { id: 'prj_1', coordinatorModel: 'haiku' }, 'ses-agent')).status).toBe(403)
+    expect((await call(deps, 'projects-set', { id: 'prj_1', grants: 'none', coordinatorModel: 'none' }, '')).status).toBe(200)
+    expect(deps.getState().projects[0]).not.toHaveProperty('grants')
+    expect(deps.getState().projects[0]).not.toHaveProperty('coordinatorModel')
+  })
+
   it('projects-set --hands-off on sets the project, off clears it', async () => {
     const deps = makeDeps()
     await deps.setState({ ...deps.getState(), projects: [{ id: 'prj_1', path: 'D:/p', name: 'p', addedAt: NOW }] })
@@ -10124,6 +10138,8 @@ describe('T3 workspaces', () => {
     await call(deps, 'jobs-set', { id: ids[0], areas: 'ui' }, '')
     const [ui] = children(deps, rootId)
     expect((await call(deps, 'projects-remove', { id: rootId }, '')).status).toBe(409)
+    // A draft never run does not hold it; one queued behind another plan does
+    await deps.setState({ ...deps.getState(), jobs: deps.getState().jobs.map((j) => ({ ...j, after: 'job_other' })) })
     expect((await call(deps, 'projects-remove', { id: ui.id }, '')).status).toBe(409)
     expect((await call(deps, 'projects-remove', { id: 'nope' }, '')).status).toBe(404)
     await deps.setState({ ...deps.getState(), jobs: deps.getState().jobs.map((j) => ({ ...j, archivedAt: NOW })) })

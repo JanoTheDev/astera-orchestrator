@@ -252,13 +252,30 @@ describe('workspaces: sub-projects of one repository (T3)', () => {
     expect(removeProject(queued, rootId)).toMatchObject({ ok: false })
   })
 
+  it('a draft plan that never ran does not hold its project', () => {
+    const { s, rootId } = withPlan()
+    expect(s.runs).toEqual([])
+    expect(ok(removeProject(s, rootId)).state.projects).toEqual([])
+  })
+
+  it('T5: setProjectSettings keeps kebab-case grants once each and a model id, and refuses anything else', () => {
+    const { s, rootId } = withPlan()
+    const set = ok(setProjectSettings(s, rootId, { grants: ['migrations', 'protected-paths', 'migrations'], coordinatorModel: 'claude-opus-5-5' }))
+    expect(set.value).toMatchObject({ grants: ['migrations', 'protected-paths'], coordinatorModel: 'claude-opus-5-5' })
+    expect(setProjectSettings(s, rootId, { grants: ['rm -rf'] })).toMatchObject({ ok: false })
+    expect(setProjectSettings(s, rootId, { coordinatorModel: 'opus&calc' })).toMatchObject({ ok: false })
+    expect(ok(setProjectSettings(set.state, rootId, { grants: [] })).value).not.toHaveProperty('grants')
+  })
+
   it('removes a project only without active plans or sub-projects', () => {
     const { s, rootId, jobId } = withPlan()
     const ui = ok(addSubProject(s, { parentId: rootId, name: 'ui', now }))
     expect(removeProject(ui.state, rootId)).toMatchObject({ ok: false })
     const moved = ok(moveJobToProject(ui.state, jobId, ui.value.id))
-    expect(removeProject(moved.state, ui.value.id)).toMatchObject({ ok: false })
-    const archived = { ...moved.state, jobs: moved.state.jobs.map((j) => ({ ...j, archivedAt: now })) }
+    // queued behind another plan, so it holds the sub-project (a draft never run would not)
+    const queued = { ...moved.state, jobs: moved.state.jobs.map((j) => ({ ...j, after: 'job_other' })) }
+    expect(removeProject(queued, ui.value.id)).toMatchObject({ ok: false })
+    const archived = { ...queued, jobs: queued.jobs.map((j) => ({ ...j, archivedAt: now })) }
     const gone = ok(removeProject(archived, ui.value.id))
     expect(gone.state.projects.map((p) => p.id)).toEqual([rootId])
     expect(removeProject(gone.state, 'nope')).toMatchObject({ ok: false, missing: true })
