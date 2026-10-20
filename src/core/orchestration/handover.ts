@@ -225,6 +225,16 @@ export const PROMPTS_MODE_FILL_IN = [
     '--basis/--evidence, and keep the deps Astera computed from docs/dev/PLAN.md unless a prompt itself says otherwise.'
 ]
 
+/** T1 chat-first planning: the brief's PLANNING section (also in resources/skills/planner-guide.md, section 7). */
+const plannerPlanningSection = (planning: 'chat' | 'auto'): string[] => [
+  'PLANNING',
+  planning === 'chat'
+    ? 'Use the superpowers:brainstorming skill if your session lists it (Skill tool); otherwise follow its method: ask the person one question at a time in this terminal, propose 2-3 approaches with a recommendation, confirm the design in short sections, then write the Tasks.'
+    : "Use the brainstorming skill's method alone: decide every open choice yourself, record each decision in existing.md under 'Decisions', and do not wait for the person.",
+  "The person may just say 'find issues', 'audit <paths>', or name a file such as README.md: read that file, run `gh issue list --state open`, or audit, yourself — never ask them to attach files.",
+  ''
+]
+
 /** The planner session's brief: who it is, the Job, where the repository is, how to write Tasks, and that
  *  it never starts or edits anything. `handleCommand` enforces the last part (plannerRefusal); this says it
  *  first, so the planner does not learn the rule from refusals. */
@@ -243,6 +253,8 @@ export function buildPlannerBrief(a: {
   defaultBranch?: string
   /** A prompts-mode Job (`Job.verbatim`): the Tasks exist, one per owner prompt; the planner only fills them in. */
   promptsMode?: boolean
+  /** T1: how the planner works with the person. Absent: `chat`. */
+  planning?: 'chat' | 'auto'
 }): string {
   return [
     'You are the PLANNER for one Job in Astera. You analyse and plan. You do not implement anything.',
@@ -258,6 +270,7 @@ export function buildPlannerBrief(a: {
     // W8-D
     ...(a.otherPlans ? [a.otherPlans, ''] : []),
     ...(a.promptsMode ? [...PROMPTS_MODE_FILL_IN, ''] : []),
+    ...plannerPlanningSection(a.planning ?? 'chat'),
     'BEFORE YOU PLAN',
     '- Read the repository\'s own instructions first: CLAUDE.md and AGENTS.md at the root and in the folders',
     '  you plan to touch. Follow them, and tell each worker the ones that apply to its Task.',

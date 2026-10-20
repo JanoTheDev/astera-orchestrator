@@ -3,7 +3,7 @@ import { promises as fs } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import os from 'node:os'
 import path from 'node:path'
-import { CRASH_REASON, CRASH_RESUME_NOTE, crashFeedLine, crashResumeBriefing, resumeAfterCrash } from './crashResume'
+import { CRASH_REASON, CRASH_RESUME_NOTE, crashFeedLine, crashResumeBriefing, resumeAfterCrash, type CrashResumeDeps } from './crashResume'
 import { OrchestrationStore } from '../store'
 import { readStateFile } from '../stateFile'
 import { readGitSummary } from './gitSummary'
@@ -136,6 +136,58 @@ describe('resumeAfterCrash (Host killed -9 mid-plan, fakes for the spawns)', () 
     })
     expect(r).toBeNull()
     expect(loaded).toBe(false)
+  })
+})
+
+describe('resumeAfterCrash: the coordinator (T5)', () => {
+  /** A Run whose coordinator died, nothing else in flight; `run-start` answers by `accept`. */
+  async function coordinatorOnly(accept: (args: Record<string, unknown>) => boolean, nativeIdOf?: CrashResumeDeps['nativeIdOf']) {
+    const file = path.join(dir, 'orchestration.json')
+    await fs.writeFile(
+      file,
+      JSON.stringify(
+        stateFromLegacy({
+          runs: [{ id: 'run_1', objective: 'o', cwd: dir, createdAt: NOW, autoDispatch: true, coordinatorAccountId: 'acc_1', coordinatorSessionId: 'coord-dead' }],
+          tasks: [task({ id: 'tsk_1', status: 'ready' })]
+        })
+      )
+    )
+    const store = new OrchestrationStore(file)
+    const runStarts: Record<string, unknown>[] = []
+    const r = await resumeAfterCrash({
+      readFile: () => readStateFile(file),
+      ready: async () => void (await store.load({ aliveSessionIds: new Set() })),
+      state: () => store.get(),
+      settle: async () => {},
+      handle: async (cmd, args) => {
+        runStarts.push({ cmd, ...args })
+        if (!accept(args)) return { status: 400, body: { error: 'no' } }
+        const s = store.get()
+        await store.save({ ...s, runs: s.runs.map((x) => (x.id === args.run ? { ...x, coordinatorSessionId: 'coord-new' } : x)) })
+        return { status: 200, body: {} }
+      },
+      activity: () => {},
+      log: () => {},
+      ...(nativeIdOf ? { nativeIdOf } : {})
+    })
+    return { r, runStarts }
+  }
+
+  it('resumes the dead coordinator in its own conversation when its native id is recorded', async () => {
+    const { r, runStarts } = await coordinatorOnly(() => true, async (sid) => (sid === 'coord-dead' ? 'native-c' : null))
+    expect(r).toEqual({ workers: 0, coordinators: 1 })
+    expect(runStarts).toEqual([{ cmd: 'run-start', run: 'run_1', reason: CRASH_REASON, resume: 'native-c' }])
+  })
+
+  it('takes the fresh hand-off when no native id is recorded, or the resume is refused', async () => {
+    const none = await coordinatorOnly(() => true, async () => null)
+    expect(none.runStarts).toEqual([{ cmd: 'run-start', run: 'run_1', reason: CRASH_REASON }])
+    const refused = await coordinatorOnly((a) => a.resume === undefined, async () => 'native-c')
+    expect(refused.r).toEqual({ workers: 0, coordinators: 1 })
+    expect(refused.runStarts).toEqual([
+      { cmd: 'run-start', run: 'run_1', reason: CRASH_REASON, resume: 'native-c' },
+      { cmd: 'run-start', run: 'run_1', reason: CRASH_REASON }
+    ])
   })
 })
 

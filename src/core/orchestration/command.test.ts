@@ -6354,6 +6354,33 @@ describe('jobs create / tasks add / accounts list', () => {
     expect((await shell(deps, 'tasks-add', { job: jobId, spec: 's', account: 'acc1', affectedPaths: [''] })).status).toBe(400)
   })
 
+  // T1 chat-first planning
+  it('T1: jobs create/set accept --planning chat|auto, refuse others; an empty chat objective is allowed; agent Jobs plan alone', async () => {
+    const deps = makeDeps()
+    const made = await shell(deps, 'jobs-create', { cwd: 'D:/p', planning: 'chat' })
+    expect(made.status).toBe(200)
+    expect(deps.getState().jobs.at(-1)?.planning).toBe('chat')
+    expect((await shell(deps, 'jobs-create', { objective: 'o', cwd: 'D:/p', planning: 'maybe' })).status).toBe(400)
+    const jobId = await jobOf(deps)
+    expect(deps.getState().jobs.find((j) => j.id === jobId)?.planning).toBeUndefined()
+    expect((await shell(deps, 'jobs-set', { id: jobId, planning: 'auto' })).status).toBe(200)
+    expect(deps.getState().jobs.find((j) => j.id === jobId)?.planning).toBe('auto')
+    expect((await shell(deps, 'jobs-set', { id: jobId, planning: 'x' })).status).toBe(400)
+  })
+
+  it('T1: jobs set --priority sets Job.priority and refuses a non-integer', async () => {
+    const deps = makeDeps()
+    const jobId = await jobOf(deps)
+    const r = await shell(deps, 'jobs-set', { id: jobId, priority: '5' })
+    expect(r.status).toBe(200)
+    expect(deps.getState().jobs.find((j) => j.id === jobId)?.priority).toBe(5)
+    expect((await shell(deps, 'jobs-set', { id: jobId, priority: '1.5' })).status).toBe(400)
+    expect((await shell(deps, 'jobs-set', { id: jobId, priority: 'high' })).status).toBe(400)
+    expect(deps.getState().jobs.find((j) => j.id === jobId)?.priority).toBe(5)
+    expect((await shell(deps, 'jobs-set', { id: jobId, priority: 0 })).status).toBe(200)
+    expect(deps.getState().jobs.find((j) => j.id === jobId)?.priority).toBeUndefined()
+  })
+
   // W7-D (#67): a plan's worker count changes until it finishes
   it('W7-D: jobs set --concurrency changes a not-finished Job, clamped to 10; refuses agents, bad values and a finished Job', async () => {
     const deps = makeDeps()
@@ -9863,6 +9890,20 @@ describe('#117 hands-off', () => {
     return deps
   }
 
+  it('T1: jobs-plan --planning sets Job.planning, refuses a bad value, and the planner brief follows it', async () => {
+    const briefs: string[] = []
+    const deps = { ...makeDeps(), startCoordinator: async (a: { brief: string }) => (briefs.push(a.brief), { sessionId: 'ses-planner' }) } as unknown as OrchServerDeps
+    const made = await person(deps, 'jobs-create', { objective: 'o', cwd: 'D:/p', coordinatorAccount: 'acc1' })
+    const id = (made.body as { id: string }).id
+    expect((await person(deps, 'jobs-plan', { id, planning: 'maybe' })).status).toBe(400)
+    expect(deps.getState().jobs.find((j) => j.id === id)?.planning).toBeUndefined()
+    expect((await person(deps, 'jobs-plan', { id, planning: 'auto' })).status).toBe(200)
+    expect(deps.getState().jobs.find((j) => j.id === id)?.planning).toBe('auto')
+    expect(briefs[0]).toContain('do not wait for the person')
+    expect((await person(deps, 'jobs-plan', { id, planning: 'chat' })).status).toBe(200)
+    expect(briefs[1]).toContain('superpowers:brainstorming')
+  })
+
   it('jobs-create --hands-off and jobs-plan --hands-off on|off set the Job; an agent session is refused', async () => {
     const deps = rig()
     const made = await person(deps, 'jobs-create', { objective: 'o', cwd: 'D:/p', coordinatorAccount: 'acc1', handsOff: true })
@@ -9922,5 +9963,73 @@ describe('#117 hands-off', () => {
       const { deps, esc } = await seed(false)
       expect((await call(deps, 'questions-answer', { id: esc.id, answer: 'No' }, 'ses-coord')).status).toBe(403)
     })
+  })
+})
+
+// ── T3 workspaces: sub-projects made from the work, moved and removed ──
+describe('T3 workspaces', () => {
+  const repo = absPath('astera')
+  /** A workspace and `n` plans of it, created from the person's shell (not started: pendingStart). */
+  const seed = async (n: number, over: Partial<Project> = {}) => {
+    const reg = ensureProject(emptyState(), { path: repo, now: NOW })
+    const deps = makeDeps({ ...reg.state, projects: reg.state.projects.map((p) => ({ ...p, ...over })) })
+    const ids: string[] = []
+    for (let i = 0; i < n; i++) {
+      const r = await call(deps, 'jobs-create', { objective: `o${i}`, cwd: repo }, '')
+      expect(r.status).toBe(200)
+      ids.push(deps.getState().jobs.at(-1)!.id)
+    }
+    return { deps, rootId: reg.project.id, ids }
+  }
+  const children = (deps: OrchServerDeps, rootId: string) => deps.getState().projects.filter((p) => p.parentId === rootId)
+  const jobOfId = (deps: OrchServerDeps, id: string) => deps.getState().jobs.find((j) => j.id === id)!
+
+  it('jobs-set --areas files plans under an auto-created child per first area', async () => {
+    const { deps, rootId, ids } = await seed(3)
+    expect((await call(deps, 'jobs-set', { id: ids[0], areas: 'ui,api' }, '')).status).toBe(200)
+    const [ui] = children(deps, rootId)
+    expect(ui).toMatchObject({ name: 'ui', path: repo, parentId: rootId })
+    expect(jobOfId(deps, ids[0]).projectId).toBe(ui.id)
+    expect((await call(deps, 'jobs-set', { id: ids[1], areas: 'ui' }, '')).status).toBe(200)
+    expect(children(deps, rootId)).toHaveLength(1)
+    expect(jobOfId(deps, ids[1]).projectId).toBe(ui.id)
+    expect((await call(deps, 'jobs-set', { id: ids[2], areas: 'orch' }, '')).status).toBe(200)
+    expect(children(deps, rootId).map((p) => p.name)).toEqual(['ui', 'orch'])
+    // projects-list carries the workspace on each child
+    const listed = (await call(deps, 'projects-list', {}, '')).body as Project[]
+    expect(listed.filter((p) => p.parentId === rootId)).toHaveLength(2)
+  })
+
+  it('creates nothing when the workspace set autoProjects off', async () => {
+    const { deps, rootId, ids } = await seed(1)
+    expect((await call(deps, 'projects-set', { id: rootId, autoProjects: 'off' }, '')).status).toBe(200)
+    expect(deps.getState().projects[0].autoProjects).toBe(false)
+    expect((await call(deps, 'jobs-set', { id: ids[0], areas: 'ui' }, '')).status).toBe(200)
+    expect(children(deps, rootId)).toEqual([])
+    expect(jobOfId(deps, ids[0]).projectId).toBe(rootId)
+  })
+
+  it('jobs-set --project moves a plan not started inside its workspace, alone', async () => {
+    const { deps, rootId, ids } = await seed(1)
+    await call(deps, 'jobs-set', { id: ids[0], areas: 'ui' }, '')
+    expect((await call(deps, 'jobs-set', { id: ids[0], project: rootId, concurrency: 2 }, '')).status).toBe(400)
+    expect((await call(deps, 'jobs-set', { id: ids[0], project: 'nope' }, '')).status).toBe(404)
+    expect((await call(deps, 'jobs-set', { id: ids[0], project: rootId }, '')).status).toBe(200)
+    expect(jobOfId(deps, ids[0]).projectId).toBe(rootId)
+    expect((await call(deps, 'jobs-set', { id: ids[0], project: rootId }, 'ses-agent')).status).toBe(403)
+  })
+
+  it('projects-remove refuses a workspace with children or a project with active plans', async () => {
+    const { deps, rootId, ids } = await seed(1)
+    await call(deps, 'jobs-set', { id: ids[0], areas: 'ui' }, '')
+    const [ui] = children(deps, rootId)
+    expect((await call(deps, 'projects-remove', { id: rootId }, '')).status).toBe(409)
+    expect((await call(deps, 'projects-remove', { id: ui.id }, '')).status).toBe(409)
+    expect((await call(deps, 'projects-remove', { id: 'nope' }, '')).status).toBe(404)
+    await deps.setState({ ...deps.getState(), jobs: deps.getState().jobs.map((j) => ({ ...j, archivedAt: NOW })) })
+    expect((await call(deps, 'projects-remove', { id: ui.id }, 'ses-agent')).status).toBe(403)
+    expect((await call(deps, 'projects-remove', { id: ui.id }, '')).status).toBe(200)
+    expect((await call(deps, 'projects-remove', { id: rootId }, '')).status).toBe(200)
+    expect(deps.getState().projects).toEqual([])
   })
 })

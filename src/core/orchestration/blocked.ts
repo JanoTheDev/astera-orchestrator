@@ -84,7 +84,7 @@ export function taskBoardsOf(
     for (const x of slots) {
       const t = taskById.get(x.taskId)
       const job = jobById.get(runById.get(x.runId)?.jobId ?? '')
-      if (t && job) editing.set(projectKeyOf(job), [...(editing.get(projectKeyOf(job)) ?? []), t])
+      if (t && job) editing.set(projectKeyOf(s, job), [...(editing.get(projectKeyOf(s, job)) ?? []), t])
     }
     placement = { count: slots.length, slotted: new Set(slots.map((x) => x.taskId)), byRun, used: workersAgainstCap(s), editing }
     return placement
@@ -98,7 +98,7 @@ export function taskBoardsOf(
 
   // W6-C same files; W8-D: the Task waited on may be another plan's of the project, and the reason names that plan
   const sameFiles = (task: Task, job: Job, editing: Map<string, Task[]>): TaskBlockedReason | undefined => {
-    const clash = sameFilesAs(task, editing.get(projectKeyOf(job)) ?? [])
+    const clash = sameFilesAs(task, editing.get(projectKeyOf(s, job)) ?? [])
     if (!clash) return undefined
     const other = jobById.get(runById.get(clash.task.runId ?? '')?.jobId ?? '')
     return {

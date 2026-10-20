@@ -31,6 +31,12 @@ export interface Intake {
   approve?: 'auto' | 'ask'
 }
 
+/** T1 chat-first planning: `--planning chat|auto`, or the 400 sentence. Absent: undefined. */
+export function planningArg(v: unknown): 'chat' | 'auto' | undefined | { error: string } {
+  if (v === undefined) return undefined
+  return v === 'chat' || v === 'auto' ? v : { error: '--planning must be chat|auto' }
+}
+
 const isMode = (v: unknown): v is IntakeMode => (INTAKE_MODES as readonly string[]).includes(v as string)
 
 /** The intake flags of `jobs-create`, or the 400 sentence. `attach` comes as one string from MCP or a single flag, and

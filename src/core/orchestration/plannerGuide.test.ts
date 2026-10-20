@@ -13,6 +13,14 @@ describe('planner-guide.md — before you plan', () => {
   })
 })
 
+describe('planner-guide.md — planning mode (T1)', () => {
+  it('has the chat and auto guidance', () => {
+    const section = guide.slice(guide.indexOf('## 7. Planning mode'))
+    for (const needle of ['superpowers:brainstorming', 'one question at a time', 'under "Decisions"', 'gh issue list --state open', 'Never ask them to attach files'])
+      expect(section, needle).toContain(needle)
+  })
+})
+
 describe('planner-guide.md — multi-file planning and waves', () => {
   it('states the path rules for --affected-paths', () => {
     const section = guide.slice(guide.indexOf('**Path rules for `--affected-paths`'), guide.indexOf('**Prompts.**'))

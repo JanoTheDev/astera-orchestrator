@@ -42,7 +42,7 @@ export type PagesProps = ContentProps &
     'remoteActionUi' | 'remoteProject' | 'remoteProjects' | 'remoteSnapshot' | 'remoteViewDoor' |
     'remoteViewPermission' | 'resumeFromHistory' | 'runConfigs' | 'runFile' | 'runJump' | 'runMenuOpen' | 'runs' |
     'runSelectConfigShortcut' | 'runSelectedId' | 'runStart' | 'runStop' | 'setDetail' | 'setExplorerReveal' |
-    'setJobsRuntime' | 'setNewSessionCwd' | 'setOpenRun' | 'setRemoteNewRunOpen' | 'setRemoteProject' |
+    'setJobsRuntime' | 'setNewSessionCwd' | 'setOpenRun' | 'setRemoteProject' |
     'setRunMenuOpen' | 'setRunPanelOpen' | 'setShowNew' | 't' | 'understanding' | 'workspaceData' | 'workspaceTree'
   >
 
@@ -55,7 +55,7 @@ export function Pages(p: PagesProps): React.JSX.Element {
     regenerateRecord, remoteActionUi, remoteProject, remoteProjects, remoteSnapshot, remoteViewDoor,
     remoteViewPermission, resumeFromHistory, runConfigs, runFile, runJump, runMenuOpen, runs, runSelectConfigShortcut,
     runSelectedId, runStart, runStop, setDetail, setExplorerReveal, setJobsRuntime, setNewSessionCwd, setOpenRun,
-    setRemoteNewRunOpen, setRemoteProject, setRunMenuOpen, setRunPanelOpen, setShowNew, t, understanding,
+    setRemoteProject, setRunMenuOpen, setRunPanelOpen, setShowNew, t, understanding,
     workspaceData, workspaceTree
   } = p
   const [browserUrl, setBrowserUrl] = useState('')
@@ -153,9 +153,8 @@ export function Pages(p: PagesProps): React.JSX.Element {
               setDetail(null)
               if (remoteProject) setOpenRun({ projectPath: remoteProject, runId, runtimeId: jobsRuntime })
             }}
-            onNewRun={() => {
-              if (remoteViewDoor) setRemoteNewRunOpen(true)
-            }}
+            // T4: plans start on the Start page, which makes them on this computer; none on a paired Runtime yet
+            onNewRun={() => {}}
             onPauseRun={(runId) => {
               if (remoteViewDoor) void pauseRun(remoteViewDoor, runId, remoteActionUi)
             }}

@@ -241,6 +241,14 @@ function pushMessage(
 /** 계획을 만든다. **회차는 만들지 않는다** — 회차가 없는 Job 이 "아직 실행을 안 눌렀다" 이고,
  *  그래서 pendingStart 라는 칸이 없어졌다(설계 §4). 부르는 쪽이 이어서 startJobRun 을 부르면
  *  1회차가 생긴다. */
+/** T3 workspaces: the project with this id, a sub-project reading every setting it leaves unset from its workspace (root
+ *  project), so a plan filed under one keeps the workspace's settings. */
+export function projectWithWorkspace(s: Pick<OrchState, 'projects'>, id: string): Project | undefined {
+  const own = s.projects.find((p) => p.id === id)
+  const root = own?.parentId !== undefined ? s.projects.find((p) => p.id === own.parentId) : undefined
+  return root && own ? { ...root, ...own } : own
+}
+
 export function createJob(
   s: OrchState,
   a: {
@@ -274,7 +282,7 @@ export function createJob(
 ): Res<Job> {
   if (!a.objective.trim()) return err('objective is required')
   // W7-B: what the Job leaves unset, its project's settings fill (types.ts `Project`); PROJECT_DEFAULTS stay unwritten
-  const project = a.projectId ? s.projects.find((p) => p.id === a.projectId) : undefined
+  const project = a.projectId ? projectWithWorkspace(s, a.projectId) : undefined
   if (project) {
     a = {
       ...a,
@@ -644,7 +652,7 @@ export function createTask(
   if (!a.validateConfigId && !a.validateConfigIds?.length) {
     const jobId = a.jobId ?? s.runs.find((r) => r.id === a.runId)?.jobId
     const projectId = s.jobs.find((j) => j.id === jobId)?.projectId
-    const test = projectId ? s.projects.find((p) => p.id === projectId)?.testConfigId : undefined
+    const test = projectId ? projectWithWorkspace(s, projectId)?.testConfigId : undefined
     if (test) a = { ...a, validateConfigIds: [test] }
   }
   const task: Task = {
