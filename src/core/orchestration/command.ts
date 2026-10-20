@@ -2580,6 +2580,14 @@ export async function handleCommand(
       // "이 예약을 켜라" 가 아니다 — 켜는 것은 발화 시각마다 도는 것을 뜻하고, 사람이 그것까지
       // 원했다면 사이드바의 '실행' 이 그 버튼이다.
       const first = job.schedule === undefined && (job.pendingStart === true || latest === undefined)
+      // A first run of a Job nobody planned (no Tasks of its own, no planner, no coordinator to plan it) would be an
+      // empty Run that run-start commits and answers 200 for, and then nothing happens (run_b5cb9e36ae1d4cad). Refused
+      // here, not in run-start, which the app's Run/Approve also use.
+      if (first && !job.coordinatorAccountId && !job.plannerSessionIds?.length && !s.tasks.some((t) => t.jobId === id))
+        return conflict(
+          `job ${id} has no plan: no tasks, no planner and no coordinator account, so a run would do nothing. ` +
+            `Plan it with \`astera jobs plan --id ${id} --account <accountId>\`, or add tasks with \`astera tasks add --job ${id}\``
+        )
       // Its plugin checks were looked at before the state (above): the run-start this calls does not look again
       const reply = await handleCommand(deps, caller, first ? 'run-start' : 'run-spawn', { run: id, [PLUGIN_CHECKS_PASSED]: true })
       // **carry 4 (R18, 사용자의 Q2), 그리고 U1: 뒤 회차도 앞 회차와 같이 코디네이터를 띄운다.** 그

@@ -6034,6 +6034,7 @@ describe('jobs run / questions answer', () => {
     const deps = makeDeps()
     await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p', auto: true })
     const jobId = deps.getState().jobs[0].id
+    await call(deps, 'tasks-add', { job: jobId, spec: 's', account: 'acc1' })
     expect(deps.getState().jobs[0].pendingStart).toBe(true)
     expect(deps.getState().runs.length).toBe(0)
     const r = await call(deps, 'jobs-run', { id: jobId })
@@ -6044,6 +6045,20 @@ describe('jobs run / questions answer', () => {
     // Task 가 회차가 아니라 계획에 붙어 이번 회차에서는 아무 일도 하지 않았다.
     expect((r.body as { id: string }).id).toBe(deps.getState().runs[0].id)
     expect((r.body as { ordinal: number }).ordinal).toBe(1)
+  })
+
+  it('a Job with no tasks, no planner and no coordinator account is refused with the jobs plan step', async () => {
+    const deps = makeDeps()
+    await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p', auto: true })
+    const jobId = deps.getState().jobs[0].id
+    const r = await call(deps, 'jobs-run', { id: jobId })
+    expect(r.status).toBe(409)
+    expect((r.body as { error: string }).error).toContain(`astera jobs plan --id ${jobId} --account <accountId>`)
+    expect(deps.getState().runs.length).toBe(0)
+    expect(deps.getState().jobs[0].pendingStart).toBe(true)
+    // A coordinator account plans it, so the same Job then runs
+    deps.setState({ ...deps.getState(), jobs: deps.getState().jobs.map((j) => ({ ...j, coordinatorAccountId: 'acc1' })) })
+    expect((await call(deps, 'jobs-run', { id: jobId })).status).toBe(200)
   })
 
   it('끝난 계획을 다시 돌리면 회차가 하나 늘어난다', async () => {
