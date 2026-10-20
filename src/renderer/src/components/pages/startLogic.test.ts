@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   afterCreate, blockedReason, consolesIn, defaultMode, dropOpensStart, filesFromDrop, handsOffSaveArgs, intakeTab, lookupArgs, optionsSummary, primaryLabel, promptCount,
-  livePlans, priorityPresetOf, priorityValueOf, shouldLandOnStart, type PlanRow
+  livePlans, priorityPresetOf, priorityValueOf, scheduledArgs, shouldLandOnStart, type PlanRow
 } from './startLogic'
 
 const t = (key: string, params?: Record<string, string | number>): string => (params ? `${key}:${JSON.stringify(params)}` : key)
@@ -146,5 +146,20 @@ describe('Start after', () => {
   it('leaves out completed, failed, scheduled and archived plans', () => {
     const rows = [row('c', { outcome: 'completed' }), row('f', { outcome: 'failed' }), row('a', { outcome: 'running', archivedAt: 'x' }), row('s', { outcome: 'running', schedule: {} as never })]
     expect(livePlans(rows)).toEqual([])
+  })
+})
+
+describe('scheduledArgs', () => {
+  const rule = { kind: 'interval', minutes: 30 } as const
+  const req = { cmd: 'jobs-create', args: { cwd: '/p', objective: 'x' } }
+  it('adds the rule to the jobs-create args', () => {
+    expect(scheduledArgs(req, rule)).toEqual({ cwd: '/p', objective: 'x', schedule: rule })
+  })
+  it('is null without a rule or a request', () => {
+    expect(scheduledArgs(req, null)).toBeNull()
+    expect(scheduledArgs(null, rule)).toBeNull()
+  })
+  it('is null for a request that is not jobs-create', () => {
+    expect(scheduledArgs({ cmd: 'jobs-create-from-issue', args: {} }, rule)).toBeNull()
   })
 })

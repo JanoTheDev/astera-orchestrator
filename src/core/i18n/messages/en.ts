@@ -1900,6 +1900,7 @@ export const en: Record<keyof typeof ko, string> = {
   'settings.alertSound.hint': 'A short chime with the notice for a permission prompt, a question, an escalation or an open question gate. At most one every 5 seconds.',
   'settings.alertSound.saveFailed': 'Could not save the chime setting: {detail}',
   'jobs.new.schedule': 'Scheduled run',
+  'jobs.new.localOnly': 'Plans start on this computer only for now',
   'jobs.new.scheduleHint': 'Starts one run of this job at each scheduled time',
   'jobs.new.scheduleOverlapHint': 'A new run starts even if the previous one is still going — workers can overlap',
   'jobs.new.convergence': 'Auto-fix until the checks pass',
