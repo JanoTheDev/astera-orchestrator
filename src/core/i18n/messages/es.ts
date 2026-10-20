@@ -1846,6 +1846,10 @@ export const es: Catalog = {
   'start.planning.auto': 'Planificar por su cuenta',
   'start.planning.chatHint': 'Se abre el terminal del planificador y te hace una pregunta cada vez',
   'start.planning.autoHint': 'El planificador decide solo cada opción abierta y anota lo que decidió',
+  // T10 plan together
+  'pages.plan.together': 'Planificando contigo: di «go» en el terminal del planificador, o pulsa Iniciar, y el plan empieza. Lo que le digas cambia solo lo que nombres.',
+  'pages.plan.togetherRunning': 'El planificador sigue abierto mientras esto se ejecuta: dile qué añadir, y tras cada oleada ajusta la siguiente antes de que empiece.',
+  'pages.plan.openPlanner': 'Abrir el planificador',
   'start.t4.runAsWritten': 'Ejecutar tal cual',
   'start.t4.planInstead': 'Planificar en su lugar',
   'start.priority.low': 'Baja',

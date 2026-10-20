@@ -1,10 +1,11 @@
 // W6-D wave replanning: the replan's start and end, as commands (`jobs-replan`, `jobs-replan-done`, `task-cancel`, and
 // `task-update` from a replan session). The rules are replan.ts's; this is where they meet the state and the sessions.
 //
-// A replan is a **fresh planner session** started through `startCoordinator({ role: 'planner' })`, so it takes the
-// planner's spawn whole (exec/plannerStart.ts: the planner model, no permission bypass, the planner gate). Only its
-// brief differs: the objective, what every completed Task reported, its review and its changed files, and what is
-// left. Its end is #47's: the session is stopped once its work is recorded.
+// T10: a replan goes to **the Job's own planner** (`reachPlanner`): typed into it while it lives, else its conversation
+// resumed, and only when neither works a fresh planner session through `startCoordinator({ role: 'planner' })` (the
+// planner's spawn whole: exec/plannerStart.ts). Its brief: the objective, what every completed Task reported, its
+// review and its changed files, what failed, and what is left. Its end is #47's: the session is stopped once its work
+// is recorded, except a plan planned with the owner (`planning: chat`), whose planner stays their chat.
 // W8-D several plans in one repo
 import { PROMPTS_MODE_FILL_IN } from '../handover'
 import { otherPlansBrief } from '../overlap'
@@ -16,6 +17,64 @@ import { isIntegrationTask } from '../integrate'
 import { jobNameOf } from '../jobName'
 import { placedByApp, type OrchState } from '../state'
 import { newId, type Job, type Message, type ReplanMark, type Task } from '../types'
+
+/** T10: the Job's newest planner session was reached, and how: typed into it, its conversation resumed, or a fresh one. */
+export type PlannerReach = { sessionId: string; via: 'typed' | 'resumed' | 'fresh' }
+
+/** T10: the Job's live planner waits on a permission prompt or a question, so nothing can be typed into it now. */
+export class PlannerWaiting extends Error {
+  constructor(readonly prompt: string) {
+    super(`the planner waits on ${prompt === 'permission' ? 'a permission prompt' : 'a question'}: answer it in its tab first`)
+  }
+}
+
+/** One line for a terminal: its Enter would cut a longer text into several turns. */
+export const asOneLine = (text: string): string =>
+  text
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l !== '')
+    .join(' | ')
+
+/**
+ * T10: hands `brief` to the Job's own planner, the same conversation wherever it can: typed (as one line) into its
+ * newest session while that lives, else that conversation resumed (`agentSessionOf`, `claude --resume`), and only when
+ * neither works a fresh planner, briefed with `fresh()` (it has none of the conversation, so it is told more). Throws
+ * PlannerWaiting when the live planner sits at a prompt, and what `startCoordinator` throws when nothing could start.
+ */
+export async function reachPlanner(
+  deps: OrchServerDeps,
+  job: Job,
+  accountId: string,
+  brief: string,
+  fresh: () => string,
+  /** What to type instead of `brief` made one line. */
+  line?: string
+): Promise<PlannerReach> {
+  const last = job.plannerSessionIds?.at(-1)
+  const live = last && deps.listSessions && deps.sendSession ? (await deps.listSessions()).find((x) => x.id === last && x.alive && x.kind === 'terminal') : undefined
+  if (live && last) {
+    const turn = await deps.sessionTurn?.(last)
+    if (turn?.state === 'waiting' && turn.prompt !== null) throw new PlannerWaiting(turn.prompt)
+    await deps.sendSession!(last, line ?? asOneLine(brief), true)
+    return { sessionId: last, via: 'typed' }
+  }
+  if (!deps.startCoordinator) throw new Error('starting a planner is not available in this build')
+  const start = async (text: string, resume?: string): Promise<string> =>
+    (await deps.startCoordinator!({ runId: job.id, cwd: job.cwd, accountId, role: 'planner', brief: text, ...(resume ? { resume } : {}) })).sessionId
+  const agent = last ? await deps.agentSessionOf?.(last).catch(() => null) : null
+  if (agent) {
+    try {
+      return { sessionId: await start(brief, agent), via: 'resumed' }
+    } catch (e) {
+      deps.log?.(`planner of job ${job.id} could not be resumed (${String(e)}): starting a fresh one`)
+    }
+  }
+  return { sessionId: await start(fresh()), via: 'fresh' }
+}
+
+/** T10: a plan planned together with the owner keeps its planner as their chat: no replan's end stops it. */
+const keepsPlanner = (job: Job): boolean => job.planning === 'chat'
 
 type Reply = { status: number; body: unknown }
 type Caller = { sessionId: string; role?: 'app' | 'cli' | 'mcp' | 'controller' | 'plugin' }
@@ -106,14 +165,23 @@ export function replanProblems(s: OrchState, runId: string): string[] {
   return validatePlan({ ...s, tasks }, key)
 }
 
-/** What a replan changed, in one line: Tasks added, changed and cancelled since it began, then the planner's note. */
-export function replanSummary(s: OrchState, job: Job, note?: string): { line: string; added: number } {
+/** What a replan changed, in one line: Tasks added, changed and cancelled since it began, then the planner's note.
+ *  T10: `changes`, the same one line per Task (`added <id> <title>`, `changed …`, `cancelled <title>: <why>`), for a
+ *  planner that did not name its changes itself. */
+export function replanSummary(s: OrchState, job: Job, note?: string): { line: string; added: number; changes: string[] } {
   const r = job.replanning!
   const own = runTasks(s, r.runId).filter((t) => !isIntegrationTask(t))
   const before = r.before ?? {}
-  const added = own.filter((t) => before[t.id] === undefined).length
-  const changed = own.filter((t) => before[t.id] !== undefined && before[t.id] !== t.updatedAt && notStarted(s, t)).length
+  const addedTasks = own.filter((t) => before[t.id] === undefined)
+  const changedTasks = own.filter((t) => before[t.id] !== undefined && before[t.id] !== t.updatedAt && notStarted(s, t))
+  const added = addedTasks.length
+  const changed = changedTasks.length
   const cancelled = r.cancelled?.length ?? 0
+  const changes = [
+    ...addedTasks.map((t) => `added ${t.id} ${t.title}`),
+    ...changedTasks.map((t) => `changed ${t.id} ${t.title}`),
+    ...(r.cancelled ?? []).map((c) => `cancelled ${c}`)
+  ].map((c) => c.slice(0, 200))
   const parts = [
     ...(added ? [`${added} Task${added > 1 ? 's' : ''} added`] : []),
     ...(changed ? [`${changed} changed`] : []),
@@ -121,7 +189,7 @@ export function replanSummary(s: OrchState, job: Job, note?: string): { line: st
   ]
   const what = parts.length ? parts.join(', ') : r.mode === 'completion' ? 'done, nothing to add' : 'no change'
   const clean = note?.replace(/\s+/g, ' ').trim()
-  return { line: clean ? `${what}: ${clean}`.slice(0, 300) : what, added }
+  return { line: clean ? `${what}: ${clean}`.slice(0, 300) : what, added, changes }
 }
 
 /** One completed Task, as the replan brief shows it. */
@@ -144,6 +212,8 @@ export function buildReplanBrief(a: {
   done: DoneTask[]
   running: Pick<Task, 'id' | 'title'>[]
   left: Pick<Task, 'id' | 'title' | 'deps' | 'affectedPaths'>[]
+  /** T10: the Tasks that failed, with what they reported. Absent: none. */
+  failed?: Pick<Task, 'id' | 'title' | 'result'>[]
   /** W7-A: the owner's feedback this replan was started for, at once rather than at a wave boundary. */
   feedback?: string
   /** W8-D: the other plans of this repository and how far they got (overlap.ts `otherPlansBrief`). */
@@ -181,6 +251,8 @@ export function buildReplanBrief(a: {
           `  changed files: ${(changed ?? t.filesModified ?? []).join(', ') || '(none recorded)'}`
         ])
       : ['- (none)']),
+    // T10: what failed is part of the wave's outcome too
+    ...(a.failed?.length ? ['', 'FAILED (leave these alone; a Task waiting on one will not start until it is fixed)', ...a.failed.map((t) => `- ${t.id} (${t.title}): ${oneLine(t.result, 300)}`)] : []),
     ...(a.running.length ? ['', 'RUNNING NOW (leave these alone)', ...a.running.map((t) => `- ${t.id} (${t.title})`)] : []),
     '',
     a.focused ? 'WHAT IS LEFT THAT THESE CAN AFFECT (not started; these you may change)' : 'WHAT IS LEFT (not started; these you may change)',
@@ -195,8 +267,10 @@ export function buildReplanBrief(a: {
       ? [
           'OWNER FEEDBACK',
           a.feedback.trim(),
-          'Apply it to the Tasks that have not started. If it is about a running or completed Task, change nothing',
-          'there: say so in your summary, so the owner can stop that Task from its card.',
+          'Change only what this message is about: add the Tasks it asks for, and edit or cancel only the not-started',
+          'Tasks it names. Every other Task stays exactly as it is (same id, prompt, criteria, status): this is an edit',
+          'of the plan, never a new plan. If it is about a running or completed Task, change nothing there: say so in',
+          'your summary, so the owner can stop that Task from its card.',
           ''
         ]
       : []),
@@ -206,6 +280,8 @@ export function buildReplanBrief(a: {
     `  \`astera runs-changed-files --id ${a.runId} --task <taskId> --json\`, and the files themselves.`,
     '',
     'WHAT YOU MAY DO',
+    '- Change only what these results or the message call for; leave every other Task as it is. Never cancel and',
+    '  re-create a Task to change it: `task-update` it, so it keeps its id.',
     `- Change a Task that has not started: \`astera task-update --id <taskId>\` with --prompt -, --criteria, --affected-paths, --deps, --difficulty, --title, --spec.`,
     `- Add a Task: \`astera task-create --run ${a.runId} --account ${a.accountId}\` with the planner flags (--prompt -, --criteria, --affected-paths, --deps, --difficulty, --model-reason).`,
     '- Cancel a Task that has not started and is no longer needed: `astera task-cancel --id <taskId> --reason "<why>"`.',
@@ -221,14 +297,20 @@ export function buildReplanBrief(a: {
       : []),
     '',
     'WHEN YOU ARE DONE',
-    `Run \`astera jobs-replan-done --id ${a.job.id} --summary "<one line: what you changed and why>"\`. That ends this`,
-    'session. If the plan does not hold together then (a Task without prompt or criteria, an unknown dep, a cycle),',
-    'the Job stays held and the person is asked.'
+    `Run \`astera jobs-replan-done --id ${a.job.id} --summary "<one line: what you changed and why>"\``,
+    `\`--changes '["added T7 <title>", "changed T5 criteria because <why>"]'\` (one short line per change; \`'[]'\` when none).`,
+    'That ends this replan and the next wave starts by itself. If the plan does not hold together then (a Task',
+    'without prompt or criteria, an unknown dep, a cycle), the Job stays held and the person is asked.'
   ].join('\n')
 }
 
 /** The Job's Run and its Tasks split for the brief, with each completed Task's changed files read from git. */
-async function briefParts(deps: OrchServerDeps, s: OrchState, runId: string, only?: readonly Task[]): Promise<Pick<Parameters<typeof buildReplanBrief>[0], 'done' | 'running' | 'left'>> {
+async function briefParts(
+  deps: OrchServerDeps,
+  s: OrchState,
+  runId: string,
+  only?: readonly Task[]
+): Promise<Pick<Parameters<typeof buildReplanBrief>[0], 'done' | 'running' | 'left' | 'failed'>> {
   const own = s.tasks.filter((t) => t.runId === runId && !isIntegrationTask(t))
   const done: DoneTask[] = []
   for (const t of own.filter((x) => x.status === 'completed' && (!only || only.some((o) => o.id === x.id)))) {
@@ -241,9 +323,11 @@ async function briefParts(deps: OrchServerDeps, s: OrchState, runId: string, onl
     done.push({ task: t, changed })
   }
   const left = own.filter((t) => notStarted(s, t))
+  const failed = own.filter((t) => t.status === 'failed')
   return {
     done,
-    running: own.filter((t) => t.status !== 'completed' && !notStarted(s, t)),
+    ...(failed.length ? { failed } : {}),
+    running: own.filter((t) => t.status !== 'completed' && t.status !== 'failed' && !notStarted(s, t)),
     left: only ? affectedLeft(only, left) : left
   }
 }
@@ -314,10 +398,12 @@ export async function replanCommand(deps: OrchServerDeps, caller: Caller, cmd: s
   if (!job) return notFound(`unknown job: ${jobId}`)
 
   if (cmd === 'jobs-replan') {
-    // The driving loop asks at a boundary; a person may too. Never another agent: a replan holds the whole Job.
-    if (fromAgent || caller.role === 'mcp') return denied('a replan is started by Astera at a wave boundary, or by the person')
     // W7-A: the owner's feedback replans a planned Job at once, also with waves replanning off
     const feedback = str(args.feedback) ?? undefined
+    // The driving loop asks at a boundary; a person may too. Never another agent: a replan holds the whole Job. T10: but
+    // the Job's own planner may, for what the owner just told it in its terminal: it becomes the replan itself.
+    const ownPlanner = fromAgent && feedback !== undefined && job.plannerSessionIds?.includes(caller.sessionId) === true
+    if ((fromAgent && !ownPlanner) || caller.role === 'mcp') return denied('a replan is started by Astera at a wave boundary, by the person, or by its own planner with --feedback')
     const feedbackAt = feedback !== undefined ? (str(args.feedbackAt) ?? now) : undefined
     const plannedRun = job.plannerSessionIds !== undefined && job.schedule === undefined && replanAccountOf(job) !== undefined
     if (feedback !== undefined ? !plannedRun : !replanOn(job))
@@ -339,7 +425,8 @@ export async function replanCommand(deps: OrchServerDeps, caller: Caller, cmd: s
     }
     // A wave that went as planned needs no planner: record the boundary as replanned (which opens the wave) and move on.
     // Feedback, the final check and a person's own ask (no wave given) always plan.
-    const deviating = feedback === undefined && mode === 'wave' && typeof args.wave === 'number' ? deviatingTasks(s, job, mark) : undefined
+    // T10: a plan planned with the owner hands every wave to its planner, which they may have told more meanwhile
+    const deviating = feedback === undefined && mode === 'wave' && typeof args.wave === 'number' && !keepsPlanner(job) ? deviatingTasks(s, job, mark) : undefined
     if (deviating?.length === 0) {
       const summary = `Replan skipped: wave ${mark.wave} went as planned`
       await setJob(jobId, (j) => ({ ...j, lastReplan: { ...mark, at: now, summary } }))
@@ -356,45 +443,54 @@ export async function replanCommand(deps: OrchServerDeps, caller: Caller, cmd: s
     }))
     const accountId = replanAccountOf(job)!
     let sessionId: string
+    let via: PlannerReach['via'] | 'self' = 'self'
+    let brief: string
     try {
       const parts = await briefParts(deps, deps.getState(), runId, deviating)
-      sessionId = (
-        await deps.startCoordinator({
-          runId: jobId,
-          cwd: job.cwd,
-          accountId,
-          role: 'planner',
-          brief: buildReplanBrief({
-            job,
-            runId,
-            mode,
-            wave: mark.wave,
-            accountId,
-            followUps: job.replanFollowUps ?? 0,
-            ...parts,
-            ...(deviating ? { focused: true as const } : {}),
-            ...(feedback !== undefined ? { feedback } : {}),
-            otherPlans: otherPlansBrief(deps.getState(), job)
-          })
-        })
-      ).sessionId
+      brief = buildReplanBrief({
+        job,
+        runId,
+        mode,
+        wave: mark.wave,
+        accountId,
+        followUps: job.replanFollowUps ?? 0,
+        ...parts,
+        ...(deviating ? { focused: true as const } : {}),
+        ...(feedback !== undefined ? { feedback } : {}),
+        otherPlans: otherPlansBrief(deps.getState(), job)
+      })
+      if (ownPlanner) sessionId = caller.sessionId
+      else {
+        // T10: the same planner the owner planned with, wherever it can be reached; the brief stands alone either way
+        const reached = await reachPlanner(deps, job, accountId, brief, () => brief)
+        sessionId = reached.sessionId
+        via = reached.via
+      }
     } catch (e) {
-      const why = `the replan planner could not start: ${String(e)}`
+      // T10: the owner's planner sits at a prompt: no replan now, and no hold left behind; the boundary asks again
+      if (e instanceof PlannerWaiting) {
+        await setJob(jobId, ({ replanning: r, dispatchHold: _h, ...j }) => ({ ...j, ...(r?.heldBefore ? { dispatchHold: true as const } : {}) }))
+        return conflict(e.message)
+      }
+      const why = `the replan planner could not start: ${e instanceof Error ? e.message : String(e)}`
       await setJob(jobId, ({ replanning: _r, ...j }) => ({ ...j, dispatchHold: true, lastReplan: { ...mark, at: now, summary: why, escalated: why } }))
       await post(replanEscalation(runId, jobId, why, now))
       return { status: 502, body: { error: why } }
     }
     const recorded = await setJob(jobId, (j) => ({
       ...j,
-      plannerSessionIds: [...(j.plannerSessionIds ?? []), sessionId],
+      plannerSessionIds: j.plannerSessionIds?.includes(sessionId) ? j.plannerSessionIds : [...(j.plannerSessionIds ?? []), sessionId],
+      // T10: what the owner told the planner in its terminal is a feedback round, answered by this replan's changes
+      ...(ownPlanner && feedbackAt !== undefined ? { feedback: [...(j.feedback ?? []), { at: feedbackAt, text: feedback!.slice(0, 4000), phase: 'run' as const }] } : {}),
       ...(j.replanning ? { replanning: { ...j.replanning, sessionId } } : {})
     }))
     if (!recorded?.replanning) {
-      await deps.stopCoordinator?.(sessionId, 'its replan ended while it started').catch(() => {})
+      if (via === 'resumed' || via === 'fresh') await deps.stopCoordinator?.(sessionId, 'its replan ended while it started').catch(() => {})
       return conflict(`job ${jobId}'s replan ended while its planner started`)
     }
-    deps.log?.(`replan started job=${jobId} run=${runId} mode=${mode} wave=${mark.wave} session=${sessionId}`)
-    return ok({ jobId, runId, mode, wave: mark.wave, sessionId })
+    deps.log?.(`replan started job=${jobId} run=${runId} mode=${mode} wave=${mark.wave} session=${sessionId} via=${via}`)
+    // T10: the planner that asked is the replan: it reads what to do in the answer
+    return ok({ jobId, runId, mode, wave: mark.wave, sessionId, via, ...(ownPlanner ? { brief } : {}) })
   }
 
   // jobs-replan-done: the replan session's own end, or the driving loop's when that session is gone (`gone`).
@@ -404,7 +500,12 @@ export async function replanCommand(deps: OrchServerDeps, caller: Caller, cmd: s
   // The driving loop's end of a planner that never finished (exec/dispatchLoop.ts REPLAN_TIMEOUT_MS): the boundary
   // passes as a skipped replan, with whatever the planner did change still checked below
   const timedOut = !fromAgent && args.timedOut === true
+  // T10: the planner's own change lines, one per change; else Astera's count of what it added, changed and cancelled
+  const raw = args.changes
+  if (raw !== undefined && !(Array.isArray(raw) && raw.every((c) => typeof c === 'string'))) return bad('--changes must be a JSON array of strings')
   const summed = replanSummary(s, job, str(args.summary) ?? (args.gone === true ? 'its planner session ended' : undefined))
+  const named = (raw as string[] | undefined)?.map((c) => c.replace(/\s+/g, ' ').trim().slice(0, 200)).filter((c) => c !== '')
+  const changes = (named ?? summed.changes).slice(0, 30)
   const added = summed.added
   const line = timedOut ? `Replan skipped: its planner did not finish in time (${summed.line})`.slice(0, 300) : summed.line
   const problems = replanProblems(s, r.runId)
@@ -419,11 +520,11 @@ export async function replanCommand(deps: OrchServerDeps, caller: Caller, cmd: s
     ...j,
     // W7-A: the summary is what the planner changed for the owner's feedback
     ...(feedbackAt !== undefined && j.feedback
-      ? { feedback: j.feedback.map((f) => (f.at === feedbackAt && f.phase === 'run' && f.changes === undefined ? { ...f, changes: [escalated ?? line] } : f)) }
+      ? { feedback: j.feedback.map((f) => (f.at === feedbackAt && f.phase === 'run' && f.changes === undefined ? { ...f, changes: escalated ? [escalated] : changes.length ? changes : [line] } : f)) }
       : {}),
     ...(escalated || heldBefore ? { dispatchHold: true as const } : {}),
     ...(followUps > 0 ? { replanFollowUps: followUps } : {}),
-    lastReplan: { ...mark, at: now, summary: line, ...(escalated ? { escalated } : {}) }
+    lastReplan: { ...mark, at: now, summary: line, ...(escalated ? { escalated } : {}), ...(changes.length ? { changes } : {}) }
   }))
   deps.log?.(`replan ended job=${jobId} (${jobNameOf(job)}): ${escalated ?? line}`)
   await post(
@@ -433,8 +534,8 @@ export async function replanCommand(deps: OrchServerDeps, caller: Caller, cmd: s
         ? waveOpenedMessage(deps.getState(), jobId, r.runId, r.wave, now)
         : undefined
   )
-  // #47: the planner's work is recorded, so its session ends.
-  if (sessionId && args.gone !== true)
+  // #47: the planner's work is recorded, so its session ends. T10: unless it is the owner's chat with the planner.
+  if (sessionId && args.gone !== true && !keepsPlanner(job))
     await deps.stopCoordinator?.(sessionId, 'its replan is done').catch((e) => deps.log?.(`replan planner ${sessionId} could not be stopped: ${String(e)}`))
   return ok({ jobId, summary: line, ...(escalated ? { escalated, held: true } : {}) })
 }

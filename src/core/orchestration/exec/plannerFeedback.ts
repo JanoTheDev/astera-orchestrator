@@ -7,6 +7,12 @@
 // `task-cancel`, reports one line per change (`jobs-feedback-done`) and ends its turn, which makes the plan ready again
 // (host/activity.ts `planReadyActivity`, once per feedback round). **While the plan runs** the feedback starts a W6-D
 // replan at once (`jobs-replan --feedback`), with W6-D's rules: only Tasks that have not started change.
+//
+// T10 plan together: a plan made with `planning: chat` is the owner's chat with its planner. Its turn ends do not make it
+// ready (`awaitsGo`); it starts on the owner's go: their "go" in its terminal, on which the planner runs
+// `jobs-plan-ready` itself, or Start in Astera. Either way a message changes only what it is about: every brief here
+// says to keep each Task it does not name, and a fresh planner is the last resort, after typing and resuming.
+import { HOST_CALLER } from '../../host/driver'
 import type { OrchServerDeps } from '../command'
 import { handsOffOf, projectOfJob } from '../delivery'
 import { buildPlannerBrief } from '../handover'
@@ -18,7 +24,7 @@ import { replanJobOf } from '../replan'
 import { outcomeOfTasks } from '../running'
 import type { OrchState } from '../state'
 import { DEFAULT_CONCURRENCY, type Decision, type Job, type PlanFeedback } from '../types'
-import { replanCommand } from './replanStart'
+import { PlannerWaiting, reachPlanner, replanCommand } from './replanStart'
 
 type Reply = { status: number; body: unknown }
 type Caller = { sessionId: string; role?: 'app' | 'cli' | 'mcp' | 'controller' | 'plugin' }
@@ -49,6 +55,10 @@ export const autoApproveOf = (s: OrchState, job: Job): boolean =>
 /** A plan waiting for its approval (W2-A): not started, and planned. */
 const awaitsApproval = (job: Job): boolean => job.pendingStart === true && job.plannerSessionIds !== undefined
 
+/** T10: a plan planned together with the owner (`planning: chat`, not hands-off) that has not started: it waits for their
+ *  go, never for a turn's end. A hands-off plan starts by itself whatever its planning says. */
+export const awaitsGo = (s: OrchState, job: Job): boolean => awaitsApproval(job) && job.planning === 'chat' && !handsOffOf(s, job)
+
 /** #116: a plan the owner can approve now, the rule every Approve on screen follows: it awaits approval, its planner
  *  ended a turn on it (Job.planReadyAt: never set on an auto-approve plan whose own start went through), and it still
  *  holds. `awaitsApproval` stays the Host's own guard (run-start, jobs-reject). */
@@ -62,16 +72,22 @@ export const plansMissingReady = (s: OrchState, alive: ReadonlySet<string>): str
   s.jobs
     .filter(
       (j) =>
-        awaitsApproval(j) && isJobActive(j) && j.planReadyAt === undefined && !(j.plannerSessionIds ?? []).some((id) => alive.has(id)) &&
+        awaitsApproval(j) && !awaitsGo(s, j) && isJobActive(j) && j.planReadyAt === undefined && !(j.plannerSessionIds ?? []).some((id) => alive.has(id)) &&
         validatePlan(s, j.id).length === 0
     )
     .map((j) => j.id)
 
 const oneLine = (t: string): string => t.replace(/\s+/g, ' ').trim()
 
+/** T10: the rule every revision keeps, whichever way the message reaches the planner. */
+export const KEEP_THE_PLAN =
+  'Change only what this message is about: add the Tasks it asks for, edit or cancel only the Tasks it names. ' +
+  'Every other Task stays exactly as it is, with its id, spec, prompt, criteria and status: this is an edit of the plan, never a new plan. ' +
+  'Never cancel and re-create a Task to change it: task-update it.'
+
 /** What to do with the feedback, said to the planner; the same words whichever way it reaches it. */
 const howToRevise = (jobId: string): string =>
-  `Revise the plan for it: change Tasks with \`astera task-update --id <taskId>\`, add with \`astera task-create --run ${jobId}\`, ` +
+  `${KEEP_THE_PLAN} Change a Task with \`astera task-update --id <taskId>\`, add with \`astera task-create --run ${jobId}\`, ` +
   `remove with \`astera task-cancel --id <taskId> --reason "<why>"\`. A Task you add carries what the first plan's Tasks carry: ` +
   `\`--prompt -\`, \`--criteria\`, \`--affected-paths\`, and \`--basis missing|partial|broken\` with its \`--evidence "<file:line, #issue, PR or Job id>"\`; ` +
   `\`astera tasks-list --job ${jobId}\` must show no Task without a basis. Then run \`astera jobs-feedback-done --id ${jobId} --changes '["<one short line per change>"]'\` ` +
@@ -88,6 +104,10 @@ export const resumeBrief = (jobId: string, text: string): string =>
  *  so far is, and every feedback round with what was changed for it. */
 export function freshFeedbackBrief(job: Job, accountId: string, history: readonly PlanFeedback[], otherPlans?: string): string {
   return [
+    // T10: first, before the planner's brief tells it how to write a plan: this one is written and is only edited
+    'THIS IS A REVISION OF A PLAN THAT IS ALREADY WRITTEN, not a new plan. Keep every Task it has.',
+    KEEP_THE_PLAN,
+    '',
     buildPlannerBrief({
       jobId: job.id,
       objective: job.objective,
@@ -95,6 +115,8 @@ export function freshFeedbackBrief(job: Job, accountId: string, history: readonl
       accountId,
       promptsMode: job.verbatim !== undefined,
       concurrency: job.concurrency ?? DEFAULT_CONCURRENCY,
+      ...(job.planning !== undefined ? { planning: job.planning } : {}),
+      ...(awaitsApproval(job) && job.planning === 'chat' ? { waitForGo: true } : {}),
       ...(otherPlans ? { otherPlans } : {})
     }),
     '',
@@ -102,7 +124,7 @@ export function freshFeedbackBrief(job: Job, accountId: string, history: readonl
     `This Job has a plan already, written by an earlier planner session. Read it before you change anything:`,
     `- \`astera tasks-list --job ${job.id}\`, and \`$ASTERA_PROFILE_DIR/plans/${job.id}/plan.md\``,
     `- \`$ASTERA_PROFILE_DIR/plans/${job.id}/inputs/existing.md\`, when it is there: what is already built`,
-    'Keep what the owner did not object to.',
+    'Keep every Task the newest feedback does not name, as it is.',
     '',
     'OWNER FEEDBACK ON THE PLAN (oldest first; the last one is new)',
     ...history.flatMap((f, i) => [
@@ -160,6 +182,23 @@ export async function feedbackCommand(deps: OrchServerDeps, caller: Caller, cmd:
     return ok({ jobId, changes })
   }
 
+  // T10: the owner said go in the planner's terminal of a plan planned with them: its planner starts it
+  if (cmd === 'jobs-plan-ready' && fromAgent) {
+    if (plannerJobOf(s, caller.sessionId)?.id !== jobId) return denied("jobs-plan-ready is for the Job's planner")
+    if (!awaitsGo(s, job) || !isJobActive(job))
+      return denied(`job ${jobId} does not wait for the person's go (it is not planned with them, or has started): only they approve it`)
+    const problems = validatePlan(s, jobId)
+    if (problems.length) return { status: 400, body: { error: `the plan does not hold: ${problems.join('; ')}`, problems } }
+    // The owner's go is their approval: started as their Start would be, by the Host on their behalf
+    const reply = await handle(deps, { sessionId: HOST_CALLER }, 'run-start', { run: jobId })
+    if (reply.status >= 300) {
+      // It did not go through: the plan waits on the owner's Approve after all
+      await setJob(jobId, (j) => ({ ...j, planReadyAt: now }))
+      return reply
+    }
+    return ok({ jobId, started: true })
+  }
+
   // The rest is the owner's: in Astera, the command bar, or their own shell. Never an agent's.
   if (!byPerson) return denied(`${cmd} is for the person, in Astera or at their own shell`)
 
@@ -181,6 +220,8 @@ export async function feedbackCommand(deps: OrchServerDeps, caller: Caller, cmd:
   // (host/activity.ts, on the planner's Stop hook). Only from then on does the app offer Approve.
   if (cmd === 'jobs-plan-ready') {
     if (!awaitsApproval(job) || !isJobActive(job)) return conflict(`job ${jobId} is not a plan waiting for approval`)
+    // T10: a turn's end is no go; the owner's Start (run-start) or its planner's `jobs-plan-ready` is
+    if (awaitsGo(s, job)) return conflict(`job ${jobId} is planned with you: it starts on your go (say go to its planner, or press Start)`)
     const problems = validatePlan(s, jobId)
     if (problems.length) return { status: 400, body: { error: `the plan does not hold: ${problems.join('; ')}`, problems } }
     await setJob(jobId, (j) => ({ ...j, planReadyAt: now }))
@@ -189,6 +230,7 @@ export async function feedbackCommand(deps: OrchServerDeps, caller: Caller, cmd:
 
   if (cmd === 'jobs-auto-start') {
     if (!awaitsApproval(job) || !isJobActive(job)) return conflict(`job ${jobId} is not a plan waiting for approval`)
+    if (awaitsGo(s, job)) return conflict(`job ${jobId} is planned with you: it starts on your go, not by itself`)
     if (!autoApproveOf(s, job)) return conflict(`job ${jobId} is not set to auto-approve`)
     const problems = validatePlan(s, jobId)
     if (problems.length) return { status: 400, body: { error: `the plan does not hold: ${problems.join('; ')}`, problems } }
@@ -222,46 +264,30 @@ export async function feedbackCommand(deps: OrchServerDeps, caller: Caller, cmd:
     return reply
   }
 
-  const accountId = job.coordinatorAccountId
-  const last = job.plannerSessionIds?.at(-1)
-  // 1. Typed into the planner while it lives: the same conversation, nothing to start
-  const live = last && deps.listSessions && deps.sendSession ? (await deps.listSessions()).find((x) => x.id === last && x.alive && x.kind === 'terminal') : undefined
-  if (live && last) {
-    const turn = await deps.sessionTurn?.(last)
-    if (turn?.state === 'waiting' && turn.prompt !== null)
-      return conflict(`the planner waits on ${turn.prompt === 'permission' ? 'a permission prompt' : 'a question'}: answer it in its tab first`)
-    await record(entry('plan'))
-    await deps.sendSession!(last, feedbackLine(jobId, text), true)
-    return ok({ jobId, sessionId: last, via: 'typed' })
-  }
-  if (!deps.startCoordinator) return conflict('starting a planner is not available in this build')
+  const accountId = job.coordinatorAccountId ?? job.plannerAccountId
   if (!accountId) return bad('the Job names no coordinator account to plan on')
-  const start = async (brief: string, resume?: string): Promise<string> =>
-    (await deps.startCoordinator!({ runId: jobId, cwd: job.cwd, accountId, role: 'planner', brief, ...(resume ? { resume } : {}) })).sessionId
+  // T10: the planner the owner planned with: typed into it while it lives, else its conversation resumed, and only then
+  // a fresh planner with the plan so far and the whole feedback history (exec/replanStart.ts reachPlanner)
+  const before = job.feedback ?? []
   await record(entry('plan'))
-  // 2. Its own conversation resumed: cheaper than a fresh planner, and it keeps everything it read
-  const agent = last ? await deps.agentSessionOf?.(last).catch(() => null) : null
-  let sessionId: string | undefined
-  let via: 'resumed' | 'fresh' = 'resumed'
-  if (agent) {
-    try {
-      sessionId = await start(resumeBrief(jobId, text), agent)
-    } catch (e) {
-      deps.log?.(`planner of job ${jobId} could not be resumed (${String(e)}): starting a fresh one`)
-    }
+  let reached
+  try {
+    reached = await reachPlanner(deps, job, accountId, resumeBrief(jobId, text), () =>
+      freshFeedbackBrief(job, accountId, [...before, entry('plan')], otherPlansBrief(deps.getState(), job)), feedbackLine(jobId, text)
+    )
+  } catch (e) {
+    // Not delivered: the round is taken back, so the plan is not left waiting on changes nobody was asked for
+    await setJob(jobId, ({ feedback: _f, planReadyAt: _r, ...j }) => ({
+      ...j,
+      ...(job.feedback ? { feedback: job.feedback } : {}),
+      ...(job.planReadyAt ? { planReadyAt: job.planReadyAt } : {})
+    }))
+    if (e instanceof PlannerWaiting) return conflict(e.message)
+    return { status: 502, body: { error: `the planner could not start: ${String(e)}` } }
   }
-  // 3. A fresh planner with the plan so far and the whole feedback history
-  if (!sessionId) {
-    via = 'fresh'
-    try {
-      sessionId = await start(freshFeedbackBrief(job, accountId, [...(job.feedback ?? []), entry('plan')], otherPlansBrief(deps.getState(), job)))
-    } catch (e) {
-      return { status: 502, body: { error: `the planner could not start: ${String(e)}` } }
-    }
-  }
-  const started = sessionId
-  await setJob(jobId, (j) => ({ ...j, plannerSessionIds: [...(j.plannerSessionIds ?? []), started] }))
-  return ok({ jobId, sessionId: started, via })
+  const { sessionId, via } = reached
+  if (via !== 'typed') await setJob(jobId, (j) => ({ ...j, plannerSessionIds: [...(j.plannerSessionIds ?? []), sessionId] }))
+  return ok({ jobId, sessionId, via })
 }
 
 /** Whether `cmd` from `sessionId` is this module's: its commands, and a planner's (not a replan's) `task-cancel`. */

@@ -172,13 +172,36 @@ it. Merge each plan's PR before the next one's workers branch off `main`, or the
 
 ## Approve it, or talk to the planner
 
+### Plan together, then say go
+
+With **Plan with me** (`--planning chat` on `jobs create` / `jobs plan`) the planner is a live console you talk to.
+It asks one question at a time, proposes approaches, and writes and revises the Tasks with you. Nothing is approved
+or started while you talk, also on a project with auto-approve: a turn that ends is not "ready".
+
+- **Go.** When the plan is right, say "go", "start" or "ship it" in the planner's console: the planner runs
+  `astera jobs-plan-ready --id <job>`, which starts the plan as your Start would (if the plan does not hold yet, it
+  fixes what is named and tries again). The plan page shows **Start** as soon as the plan holds; pressing it is the
+  same go. A plan made with **Plan on your own** or hands-off starts as before.
+- **Edits, never a new plan.** Whatever you tell the planner, before or during the run, changes only what it names: it
+  adds Tasks, edits or cancels Tasks that have not started, and every other Task keeps its id, spec and status. A
+  running or finished Task is never rewritten. Each change is one feed line, for example "planner: added T7 …" or
+  "planner: changed T5 criteria because …".
+- **Add while it runs.** The planner stays open after the go (the plan page has **Open the planner**). Tell it what to
+  add; it holds the plan, changes only Tasks that have not started, and lets it go on. The "Talk to the planner" box
+  does the same: it types into that console, resumes its conversation if the console has ended, and starts a fresh
+  planner (told to keep every Task and change only what you asked) only when neither works.
+- **Wave by wave.** When a wave finishes, its results (done and failed Tasks, review notes, changed files) are typed
+  into the same planner. It adjusts the next wave's not-started Tasks if the results call for it, and the next wave
+  starts by itself, with no click from you. `--replan off` turns this off.
+
 When the planner is done, the plan lands in the **Inbox** as "Plan ready" (a sound and a desktop notice). The card has
 **Review plan**, **Talk to planner** and **Approve**. The plan page → Overview has the same approve bar.
 
 - **Approve.** Read the Tasks (plan page → Waves, or Overview), then press **Approve & execute** and confirm. From a
   shell, `astera jobs run --id <job>`. Astera refuses a plan in which a Task lacks a prompt or a criterion, a
   dependency is missing, or the dependencies form a cycle, and lists what is wrong. If it says a Task "has no basis",
-  tell the planner; it fixes the plan. An agent session can never approve. Approval ends the planner session.
+  tell the planner; it fixes the plan. An agent session can never approve. Approval ends the planner session, except
+  for a plan made with Plan with me (below).
 - **Request changes.** Type what to change in the "Talk to the planner" box and send it. The text goes to the same
   planner session; if that session has ended, its conversation is resumed, or else a fresh planner starts with
   `plan.md`, `existing.md` and the history. You approve again when it is done. `astera jobs feedback --job <job> --text

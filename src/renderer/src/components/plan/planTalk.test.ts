@@ -31,4 +31,9 @@ describe('approveSlot (#116)', () => {
     expect(approveSlot(row({ pendingStart: true, planned: true, autoApprove: true, planProblems: ['no tasks'] }))).toBe('planning')
     expect(approveSlot(row({ pendingStart: true, planned: true, handsOff: true, planProblems: [] }))).toBe('auto')
   })
+  it('T10: a plan planned with the owner shows Start as soon as it holds, also with auto-approve: the click is their go', () => {
+    expect(approveSlot(row({ pendingStart: true, planned: true, awaitsGo: true }))).toBe('approve')
+    expect(approveSlot(row({ pendingStart: true, planned: true, awaitsGo: true, autoApprove: true }))).toBe('approve')
+    expect(approveSlot(row({ pendingStart: true, planned: true, awaitsGo: true, planProblems: ['no tasks'] }))).toBe('planning')
+  })
 })
