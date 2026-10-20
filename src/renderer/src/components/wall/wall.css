@@ -68,6 +68,8 @@ button.summary-card__title:hover .summary-card__title-text { text-decoration: un
 .wall-progress__seg--cancelled { background: var(--line-strong); }
 
 /* One plan's group: head (name, progress, needs, open), tiles, Done cards */
+.wall-section { display: flex; flex-direction: column; gap: var(--sp-4); min-width: 0; }
+.wall-section__head { margin: 0; padding-bottom: var(--sp-2); border-bottom: 1px solid var(--line); color: var(--text); font-size: var(--fs-15); font-weight: var(--fw-semi); line-height: var(--lh-tight); }
 .wall-group { display: flex; flex-direction: column; gap: var(--sp-3); min-width: 0; }
 .wall-group__head { display: flex; align-items: center; gap: var(--sp-3); min-width: 0; min-height: var(--h-sm); }
 .wall-group__name { margin: 0; min-width: 0; overflow: hidden; color: var(--text); font-size: var(--fs-13); font-weight: var(--fw-semi); line-height: var(--lh-tight); text-overflow: ellipsis; white-space: nowrap; }
