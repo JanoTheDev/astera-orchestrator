@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest'
 import type { Dispatch, Job, JobRun, Project, Task } from '../../../core/orchestration/types'
 import { addTab, createGroup, leaves, splitAndMove, type PaneNode } from '../../../core/panes/tree'
 import { appTab, fileTab, sessionTab } from '../../../core/panes/tabId'
-import { buildWorkspaceTree, findPlan, planSessions, scopeLayout, type WorkspaceData } from './workspaceTree'
+import { scopeSnapshot } from './projectScope'
+import { buildWorkspaceTree, findPlan, groupJobsByProject, planSessions, scopeLayout, type WorkspaceData } from './workspaceTree'
 import {
   entryTab, familyOf, orderedProjects, OTHER_WORKSPACE, projectOfCwd, scopeIds, workspaceFolderOf, workspaceSessionIds, workspaceSummaries, type WorkspaceProject
 } from './workspaceTree'
@@ -302,5 +303,25 @@ describe('T6 workspaces: sub-projects under their root', () => {
     const by = new Map<string, ReadonlySet<string>>([['a', new Set(['s1'])], ['d', new Set(['s2'])]])
     const rows = workspaceSummaries(tree, by, [{ id: 's1', status: 'running' }, { id: 's2', status: 'running' }], {})
     expect(rows.slice(0, 2).map((r) => [r.id, r.running, r.depth])).toEqual([['a', 2, undefined], ['d', 1, 1]])
+  })
+
+  it('groups Jobs by projectId so sibling sub-projects keep their own plans (a per-path read cannot)', () => {
+    const projects = d.projects
+    const jobs = [
+      job('jr', { cwd: '/repos/astera', projectId: 'a' }),
+      job('jd', { cwd: '/repos/astera', projectId: 'd' }),
+      job('jc', { cwd: '/repos/astera', projectId: 'c' }),
+      job('old', { cwd: '/repos/astera/src' }), // before projectId: its repository root’s
+      job('none', { cwd: '/elsewhere' })
+    ]
+    const by = groupJobsByProject(projects, jobs)
+    expect(by.a!.map((j) => j.id)).toEqual(['jr', 'old'])
+    expect(by.d!.map((j) => j.id)).toEqual(['jd'])
+    expect(by.c!.map((j) => j.id)).toEqual(['jc'])
+    // and a sub-project pick keeps only its own plans, not its sibling's or the root's
+    const snap = { runs: jobs.slice(0, 4).map((j) => ({ id: j.id })), projectFolderBusy: false } as never
+    const tree2 = buildWorkspaceTree({ ...d, jobsByProject: by }, { showArchived: true })
+    expect(scopeSnapshot(snap, by, tree2, 'd')!.runs.map((r) => r.id)).toEqual(['jd'])
+    expect(scopeSnapshot(snap, by, tree2, 'a')!.runs.map((r) => r.id)).toEqual(['jr', 'jd', 'jc', 'old'])
   })
 })

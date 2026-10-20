@@ -252,6 +252,24 @@ export function workspaceSessionIds(
   return out
 }
 
+/** T6: every Job under its project. `jobs-list --project <path>` cannot do this: a sub-project shares its root's path
+ *  and the Host resolves a path to the root, so a per-path read lists the root's Jobs under every key and a
+ *  sub-project's under none. A Job names its project (`projectId`, authoritative when it is registered); an older one
+ *  is its repository root's, found by cwd. A Job of no project is left out, as `jobs-list --project` left it out. */
+export function groupJobsByProject(
+  projects: readonly Pick<Project, 'id' | 'path' | 'parentId'>[],
+  jobs: readonly Job[],
+  worktrees: readonly WorktreeRef[] = []
+): Record<string, Job[]> {
+  const out: Record<string, Job[]> = Object.fromEntries(projects.map((p) => [p.id, []]))
+  const roots = projects.filter((p) => isRoot(projects, p))
+  for (const j of jobs) {
+    const id = j.projectId && out[j.projectId] ? j.projectId : projectOfCwd(j.cwd, roots, worktrees)
+    if (id) out[id]!.push(j)
+  }
+  return out
+}
+
 /** The session ids the pane grid shows: the open plan's, else the open project's, else null for every tab. */
 export function scopeIds(
   tree: readonly WorkspaceProject[],
