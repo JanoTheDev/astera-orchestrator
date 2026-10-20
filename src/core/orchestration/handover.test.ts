@@ -11,6 +11,24 @@ const prompt = (over: Partial<Parameters<typeof buildHandoverPrompt>[0]> = {}): 
   })
 
 describe('buildHandoverPrompt', () => {
+  it('T5: lists the standing grants, or says owner-only decisions are blocked when there are none', () => {
+    const granted = prompt({ grants: ['protected-paths', 'migrations'] })
+    expect(granted).toContain('The owner granted in advance: protected-paths, migrations.')
+    expect(granted).toContain('write the grant yourself')
+    expect(granted).toContain('do not escalate it')
+    for (const p of [prompt(), prompt({ grants: [] })]) {
+      expect(p).not.toContain('The owner granted in advance')
+      expect(p).toContain('Owner-only decisions are blocked for the owner')
+    }
+  })
+
+  it('T5: tells the coordinator to start workers one at a time, never with &, and every ready Task before its turn ends', () => {
+    const p = prompt()
+    expect(p).toContain('one `astera worker-start` per command')
+    expect(p).toContain('never background it with `&`')
+    expect(p).toContain('Before ending your turn, start every ready')
+  })
+
   // 이 여섯 개가 계약이다 — 하나라도 빠지면 코디네이터가 지킬 수 없는 규칙이 생긴다
   // (handover.ts 의 JSDoc). 그래서 문구의 존재를 테스트가 고정한다.
   it('이 Run 은 사람이 짰다고 말한다 — 그대로 돌려라', () => {

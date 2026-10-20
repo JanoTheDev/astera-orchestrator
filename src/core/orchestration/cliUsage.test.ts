@@ -409,6 +409,14 @@ describe('unknownFlagError — 공개 명령은 모르는 플래그를 거절한
     expect(check('jobs set --id j1 --concurrency 10')).toBeNull()
   })
 
+  it('T5: projects set takes --grants and --coordinator-model, and its --help names them', () => {
+    expect(check('projects set --id p1 --grants protected-paths,migrations --coordinator-model opus')).toBeNull()
+    expect(check('projects set --id p1 --grants none --coordinator-model none')).toBeNull()
+    const text = (usageFor(['projects', 'set', '--help']) as { text: string }).text
+    expect(text).toContain('--grants <kind,...|none>')
+    expect(text).toContain('--coordinator-model <id|none>')
+  })
+
   it('tasks list and questions list take --fields, --limit and --offset, and questions list takes --brief', () => {
     expect(check('tasks list --run r1 --brief --fields id,status --limit 50 --offset 100')).toBeNull()
     expect(check('questions list --status open --brief --fields id,question --limit 10 --offset 0')).toBeNull()

@@ -72,6 +72,8 @@ export function buildHandoverPrompt(a: {
   promptsMode?: boolean
   /** #117: the plan runs hands-off (`handsOffOf`): its coordinator decides escalations itself. */
   handsOff?: boolean
+  /** T5: the kinds the owner granted in advance (`Project.grants`): the coordinator writes those grants itself. */
+  grants?: readonly string[]
 }): string {
   const sequential = a.concurrency <= 1
   // A Job from MCP `create_job` or `jobs create` carries only its objective (e2e 2026-10-01, second
@@ -158,6 +160,10 @@ export function buildHandoverPrompt(a: {
     `Never let more than ${a.concurrency} dispatch(es) be open in this Run at once. Count the open`,
     'ones before you start another. `worker-start` rejects the call that would exceed the limit, and',
     'a rejection costs you a turn.',
+    // T5: a haiku coordinator started ten workers at once with shell `&` and ended turns with ready work left
+    'Start workers one at a time: one `astera worker-start` per command, wait for its answer before the next;',
+    'never background it with `&` or run several in one shell line. Before ending your turn, start every ready',
+    'Task the concurrency allows.',
     '',
     'WHERE WORKERS RUN',
     sequential
@@ -197,6 +203,15 @@ export function buildHandoverPrompt(a: {
     '`astera gate-create --task <tsk> --question -` opens a Gate and the person answers it in the',
     'app. A Gate cannot be created for a Task that has an open dispatch — if that worker must not',
     'carry on, stop it first with `worker-stop`.',
+    '',
+    'STANDING GRANTS',
+    ...(a.grants && a.grants.length > 0
+      ? [
+          `The owner granted in advance: ${a.grants.join(', ')}. When a Task needs one of these, write the grant yourself`,
+          "the way this repository's own policy asks (its CLAUDE.md/AGENTS.md or the Task's instructions), note it in",
+          'your summary, and continue; do not escalate it.'
+        ]
+      : ['The owner granted nothing in advance. Owner-only decisions are blocked for the owner: the Task that needs one', 'waits for them, and the plan continues without it.']),
     ...(a.handsOff
       ? [
           '',

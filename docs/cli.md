@@ -705,7 +705,7 @@ astera projects find  --path <path>
 astera projects add   [--path <path>] [--initial-commit] [--parent <projectId>] [--name <name>] [--focus <a,b>]
 astera projects remove --id <projectId>
 astera projects create --name <name> --parent <path> [--describe <text>] [--github <private|public>]
-astera projects set   --id <projectId> [--delivery <pr|push>] [--delivery-branch <branch>] [--auto-approve <on|off>] [--hands-off <on|off>] [--test-command <cmd>] [--test-config <id>] [--concurrency <1-10>] [--review-rounds <n>] [--replan <waves|off>] [--account <id>] [--prompts-dir <path|none>] [--auto-projects <on|off>]
+astera projects set   --id <projectId> [--delivery <pr|push>] [--delivery-branch <branch>] [--auto-approve <on|off>] [--hands-off <on|off>] [--test-command <cmd>] [--test-config <id>] [--concurrency <1-10>] [--review-rounds <n>] [--replan <waves|off>] [--account <id>] [--prompts-dir <path|none>] [--auto-projects <on|off>] [--grants <kind,...|none>] [--coordinator-model <id|none>]
 
 astera jobs    list   [--status <pending|paused|scheduled|waiting|running|completed|failed>] [--project <path>] [--archived] [--area <word>]
 astera jobs    get    --id <jobId | runId>
@@ -775,6 +775,21 @@ project's `projects set --hands-off on|off`; the plan's own setting wins over it
 waits on the owner: the plan starts by itself once it holds (it implies auto-approve), its running coordinator answers
 the Run's escalations itself with `questions answer`, writing its reason, and its planner, coordinator and workers start
 with permissions bypassed. The flag is the person's choice: it is refused from an agent session and an MCP client.
+
+**Standing grants** (`projects set --grants protected-paths,migrations`, `--grants none` clears them; kinds are short
+kebab-case words) are the decisions the owner grants in advance. The coordinator's brief lists them: when a Task needs
+one, the coordinator writes the grant itself the way the repository's own policy asks, notes it in its summary and
+carries on. On a hands-off plan an escalation such a grant covers (`migrations` also matches "migration",
+`protected-paths` also "protected") is answered back to the asker to write the grant instead of being refused; a
+question that also deletes data, touches the default branch, money or credentials still holds its Task for the owner.
+With no grants, owner-only decisions are blocked for the owner and the plan goes on without them.
+
+**The coordinator's model** is picked from the plan: a strong model (opus on claude; the configured `hard` model on
+codex) when the Run has more than 5 Tasks or any `hard` Task, else the coordinator role's default. A Job's own
+`models.coordinator` wins, then the project's `projects set --coordinator-model <id>` (`none` clears it), then that
+rule, then the app's role setting. The model it started on is recorded on the Run (`coordinatorModel`) and shown on
+the plan. Both settings are shown by `projects list` / `projects get` and, like every `projects set` flag, refused from
+an agent session and an MCP client.
 
 **Planning mode** (`--planning chat|auto` on `jobs create`, `jobs create-from-issue`, `jobs plan` and `jobs set`): `chat`
 (the default for a Job a person makes; an empty objective is accepted only with an explicit `--planning chat`) has the planner brainstorm with the person in its terminal, one question at a time,

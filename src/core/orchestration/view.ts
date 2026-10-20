@@ -435,6 +435,7 @@ export function snapshotFor(
       outcomeOfTasks(ix.owned.get(run.id) ?? []) === 'running'
         ? { coordinatorMissing: true }
         : {}),
+      ...(run?.coordinatorModel !== undefined ? { coordinatorModel: run.coordinatorModel } : {}),
       concurrency: job.concurrency,
       outcome: outcomeOfRun(ownedTasks, run, state),
       // A Run whose delivery failed reads failed; the reason rides with it

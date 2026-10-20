@@ -216,6 +216,8 @@ EOF
 
 # 4) Start N workers — the ids came from step 2
 #    --worktree new **requires** --name (4.3) — without it the request is rejected with a 400
+#    One at a time: one `astera worker-start` per command, wait for its answer before the next; never background it
+#    with `&` or run several in one shell line. Before ending your turn, start every ready Task the concurrency allows.
 astera worker-start --task tsk_1a2b3c4d --agent claude --account acc_main --worktree new --name types-cleanup --json
 astera worker-start --task tsk_5e6f7a8b --agent codex --account acc_sub --worktree new --name add-tests --json
 

@@ -481,7 +481,7 @@ export interface OrchServerDeps {
     /** W7-A: the agent CLI's own conversation id (`agentSessionOf`) to resume instead of starting a new conversation;
      *  the brief is then the next prompt in that conversation. A planner, and (T5) a coordinator after a crash. */
     resume?: string
-  }): Promise<{ sessionId: string }>
+  }): Promise<{ sessionId: string; /** T5: the model it was started on, recorded on the Run (`Run.coordinatorModel`) */ model?: string }>
   /** Stops a coordinator session `startCoordinator` opened, when the hand-over finds another one
    *  already in the Run's slot (Task 1 fix round 1, I2). Optional: without it that session is left
    *  running and the command says so in the log. `reason` is why, for the log line of whoever stops it. */
@@ -1297,6 +1297,17 @@ function projectSettingsArgs(
     if (typeof args.promptsDir !== 'string') return { error: '--prompts-dir needs a folder in the repository, or none' }
     const v = args.promptsDir.trim()
     patch.promptsDir = v === '' || v === 'none' ? null : v
+  }
+  // T5: comma-separated kinds granted in advance, checked by setProjectSettings; `none` (or empty) clears them
+  if (args.grants !== undefined) {
+    if (typeof args.grants !== 'string') return { error: '--grants needs a comma-separated list of kinds, or none' }
+    const v = args.grants.trim()
+    patch.grants = v === '' || v === 'none' ? null : v.split(',').map((g) => g.trim()).filter((g) => g !== '')
+  }
+  if (args.coordinatorModel !== undefined) {
+    if (typeof args.coordinatorModel !== 'string') return { error: '--coordinator-model needs a model id, or none' }
+    const v = args.coordinatorModel.trim()
+    patch.coordinatorModel = v === '' || v === 'none' ? null : v
   }
   return {
     patch,
@@ -2120,6 +2131,7 @@ export async function handleCommand(
       }
     }
     let sessionId: string
+    let model: string | undefined
     // T5: the crash resume's `run-start --resume <native id>`: the dead coordinator's own conversation goes on
     const resume = cmd === 'run-start' ? str(args.resume) : null
     try {
@@ -2146,13 +2158,15 @@ export async function handleCommand(
           jobId: job.id,
           accountId,
           promptsMode: job.verbatim !== undefined,
-          handsOff: handsOffOf(base, job)
+          handsOff: handsOffOf(base, job),
+          grants: projectOfJob(base, job)?.grants
         }) +
           // T23: a coordinator restarted for a stated reason (`run-start --reason`, the crash resume) replaces one whose
           // conversation is gone, so it gets the fresh-coordinator hand-off read from the state.
           (cmd === 'run-start' && str(args.reason) ? `\n\n${coordinatorHandoff(base, target.id, str(args.reason)!)}` : '')
       })
       sessionId = spawned.sessionId
+      model = spawned.model
     } catch (e) {
       // **`pendingStart` 를 그대로 둔다.** 걷어 버리면 실행 버튼이 사라져 사람이 다시 누를 수
       // 없고, 운전자도 없는 Run 이 남는다 — 아무것도 돌지 않는데 화면은 시작한 것처럼 보인다.
@@ -2233,7 +2247,7 @@ export async function handleCommand(
       const { autoDispatch: _drop, ...rest } = j
       return rest
     })
-    return commit(attachCoordinator({ ...onto, jobs: handed }, { runId: target.id, sessionId }))
+    return commit(attachCoordinator({ ...onto, jobs: handed }, { runId: target.id, sessionId, ...(model ? { model } : {}) }))
   }
 
   // W1-C: an archived plan starts no new Run, coordinator or worker (lifecycle.ts). One refusal for the five commands
@@ -2490,7 +2504,7 @@ export async function handleCommand(
       if ('error' in settings) return bad(settings.error)
       const { testCommand, account } = settings
       if (delivery === undefined && branchArg === undefined && Object.keys(settings.patch).length === 0 && testCommand === undefined && account === undefined)
-        return bad('nothing to set: give --delivery, --delivery-branch, --auto-approve, --hands-off, --auto-projects, --test-command, --test-config, --concurrency, --review-rounds, --replan, --prompts-dir or --account')
+        return bad('nothing to set: give --delivery, --delivery-branch, --auto-approve, --hands-off, --auto-projects, --test-command, --test-config, --concurrency, --review-rounds, --replan, --prompts-dir, --grants, --coordinator-model or --account')
       const project = findProject(s, id)
       if (!project) return notFound(`unknown project: ${id}`)
       // W10-A: the prompts folder is kept repository-relative, and a folder outside the repository is refused

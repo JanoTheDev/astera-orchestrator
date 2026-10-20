@@ -2,6 +2,7 @@
 // safely can (Gates, worker asks, coordinator escalations), from its own state first, else with the safe default; the
 // rest stay with the owner. Pure: dispatchLoop.ts answers through `questions-answer` and writes the feed line.
 import type { OrchState } from '../state'
+import { projectOfJob } from '../projects'
 import type { Decision, Task } from '../types'
 import { readAppSettingsObject } from '../../settings/settingsObject'
 
@@ -34,6 +35,8 @@ export async function readAutoAnswerOn(filePath: string): Promise<boolean> {
   return autoAnswerOnOf((await readAppSettingsObject(filePath).catch(() => null))?.autoAnswer)
 }
 
+// Permissions and grants: the one owner-only case a standing grant (`grantOf`) can cover
+const PERMISSION = /\b(permission|sudo|root access|allow|grant|authori[sz]e|chmod)\w*/i
 // What only the owner decides: deleting work, the default branch, money, credentials, permissions, "ask me"
 const OWNER_ONLY: RegExp[] = [
   /\b(delet|remov|drop|discard|destroy|wip(e|ing)|purg|overwrit|revert|abandon)\w*|rm -rf|reset --hard|force[- ]?push/i,
@@ -41,7 +44,7 @@ const OWNER_ONLY: RegExp[] = [
   /\b(main|master|trunk|default branch)\b[^\n]{0,30}\b(push|merg)\w*/i,
   /\$\s?\d|\b(money|pay|paid|payment|purchas\w*|billing|invoice|subscri\w*|credit card|spend\w*|buy|pric\w*|usd|eur)\b/i,
   /\b(credential|password|passphrase|secret|token|api[- ]?key|ssh key|private key|log ?in|sign ?in|oauth|2fa|keychain)s?\b/i,
-  /\b(permission|sudo|root access|allow|grant|authori[sz]e|chmod)\w*/i,
+  PERMISSION,
   /\bask me\b/i
 ]
 const ownerOnly = (text: string): boolean => OWNER_ONLY.some((re) => re.test(text))
@@ -166,6 +169,31 @@ export const REFUSED_ANSWER =
  *  grant can be asked here too. */
 export const refusedHandsOff = (q: OpenQuestion): boolean => !q.kind && ownerOnly(q.question)
 
+/** T5: the words a standing grant (`Project.grants`) covers in a question's text, besides the kind itself. */
+const GRANT_WORDS: Record<string, RegExp> = { migrations: /migrat/i, 'protected-paths': /protected/i }
+
+/** T5: the standing grant of `grants` that covers this text: its GRANT_WORDS, or the kind word itself (a `-` also
+ *  matching a space). undefined: none does. */
+export function grantOf(grants: readonly string[] | undefined, text: string): string | undefined {
+  return grants?.find((g) => {
+    if (GRANT_WORDS[g]?.test(text)) return true
+    const word = g.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/-/g, '[- ]')
+    return new RegExp(`(?<![\\w-])${word}(?![\\w-])`, 'i').test(text)
+  })
+}
+
+/** The standing grants of the project of the question's plan. */
+const grantsOf = (s: OrchState, q: OpenQuestion): string[] | undefined => {
+  const run = s.runs.find((r) => r.id === q.runId)
+  const job = run && s.jobs.find((j) => j.id === run.jobId)
+  return job && projectOfJob(s, job)?.grants
+}
+
+/** T5: the answer to a guardrail question a standing grant covers: the asker writes the grant itself. */
+export const grantedAnswer = (kind: string): string =>
+  `The owner granted ${kind} in advance. Write the grant yourself the way this repository's own policy asks ` +
+  "(its CLAUDE.md/AGENTS.md or the Task's instructions), note it in your summary, and continue; do not escalate it."
+
 const firstLine = (text: string, max: number): string => {
   const line = text.split('\n').find((l) => l.trim() !== '')?.trim() ?? text.trim()
   return line.length > max ? `${line.slice(0, max - 3)}...` : line
@@ -195,6 +223,10 @@ export function handsOffStepsDue(s: OrchState, open: OpenQuestion[], nowMs: numb
       const failed = option(/^mark-failed$/i)
       if (failed) return answer({ id: q.id, answer: failed, why: 'safe default' }, 'gate', 'it was retried once already: marked failed so the plan carries on')
     } else if (refusedHandsOff(q)) {
+      // T5: a standing grant covers it: answered back with the grant to write, not refused
+      // only a permission ask: deleting data, the default branch, money or credentials stay the owner's whatever is granted
+      const granted = OWNER_ONLY.some((re) => re !== PERMISSION && re.test(q.question)) ? undefined : grantOf(grantsOf(s, q), q.question)
+      if (granted) return answer({ id: q.id, answer: grantedAnswer(granted), why: 'Host state' }, 'escalation', `the owner granted ${granted} in advance`)
       const no = REFUSAL.map(option).find((o) => o !== undefined)
       // The Task that needs it waits for the owner; the rest of the plan goes on
       const hold = q.taskId ? { taskId: q.taskId, reason: `Waiting on the owner's decision: ${asked}` } : undefined

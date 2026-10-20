@@ -796,6 +796,8 @@ export interface JobRow {
    *  앱이 스스로 다시 띄우지 않는 이유는 Run.coordinatorSessionId 의 주석에 있다 — 탭을 닫는 것은
    *  사람의 결정이다. */
   coordinatorMissing?: boolean
+  /** T5: the model the Run's coordinator was started on (`JobRun.coordinatorModel`), shown on the plan. */
+  coordinatorModel?: string
   /** 이 Run 이 동시에 열어 둘 Dispatch 수 — Run 이 들고 있는 값을 그대로 옮긴 것이다. 없으면
    *  DEFAULT_CONCURRENCY(core/orchestration/types.ts) 인데, 그 기본값도 여기서 채우지 않는다 —
    *  계산도 기본값도 이 값을 쓰는 쪽(RunDetail.tsx)의 일이라는 이 타입의 관례다.

@@ -85,11 +85,13 @@ const RUN_HIDDEN = [
   // W6-H: a push delivery's result, answered by `run-deliver`; not in the SDK's contract yet
   'delivery',
   // Coordinator rotation: the app's own record of fresh coordinators, not in the SDK's contract yet
-  'coordinatorRefreshes'
+  'coordinatorRefreshes',
+  // T5: the model the coordinator was started on, shown on the plan; not in the SDK's contract yet
+  'coordinatorModel'
 ] as const
 
 /** W6-H: how a project's plans land, set by `projects-set`; not in the SDK's contract yet. */
-const PROJECT_HIDDEN = ['delivery', 'deliveryBranch', /* W7-B: project settings, not in the SDK's contract yet */ 'autoApprove', /* #117 */ 'handsOff', 'testConfigId', 'concurrency', 'reviewRounds', 'replan', 'defaultBranch', /* W10-A: the prompts folder, not in the SDK's contract yet */ 'promptsDir', /* T3 workspaces: a sub-project's folders and a root's auto-create switch */ 'focus', 'autoProjects'] as const
+const PROJECT_HIDDEN = ['delivery', 'deliveryBranch', /* W7-B: project settings, not in the SDK's contract yet */ 'autoApprove', /* #117 */ 'handsOff', 'testConfigId', 'concurrency', 'reviewRounds', 'replan', 'defaultBranch', /* W10-A: the prompts folder, not in the SDK's contract yet */ 'promptsDir', /* T3 workspaces: a sub-project's folders and a root's auto-create switch */ 'focus', 'autoProjects', /* T5: standing grants and the coordinator model; shown by projects list/get, not in the SDK's contract yet */ 'grants', 'coordinatorModel'] as const
 
 /**
  * A Task's fields kept back on purpose: all of them **the ledger the app keeps to drive convergence**. The guide
