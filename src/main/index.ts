@@ -25,7 +25,7 @@ import { clearAppRunning, markAppRunning } from '../core/host/pidFile'
 import { flushAllLogsSync, lineLog } from '../core/log/logWriter'
 import { createHeldNotifications } from './heldNotifications'
 import { applyLoginPath } from './loginPath'
-import { startUp, startingPageUrl, loadInto, storedTheme } from './startup'
+import { startUp, startingPageUrl, loadInto, storedTheme, quitOnSignals } from './startup'
 import type { Theme } from '../core/theme/themes'
 import { pickInitialLang } from '../core/i18n/locale'
 import { shouldForceWaylandOzone } from './ozone'
@@ -493,6 +493,14 @@ function refreshTrayMenu(): void {
 // which moves switches ahead of plain arguments, so `--project <name>` arrives split apart there.
 const gotSingleInstanceLock = app.requestSingleInstanceLock({ argv: process.argv, cwd: process.cwd() })
 if (!gotSingleInstanceLock) app.quit()
+// `kill` and Ctrl+C in a terminal end the app as a quit would, and never leave it running (quitOnSignals).
+quitOnSignals({
+  on: (signal, cb) => void process.on(signal, cb),
+  quit: () => app.quit(),
+  exit: (code) => app.exit(code),
+  flushLogs: flushAllLogsSync,
+  log: (m) => console.log(m)
+})
 
 // Brings the last focused window to the front: restores it if minimized, shows and focuses it. Shared by the
 // second-instance handler, the macOS activate handler and the tray.

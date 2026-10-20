@@ -1186,6 +1186,9 @@ export interface HostStatus {
   /** What the Host announced it can do (protocol.ts HOST_FEATURE_*); empty until a hello, and for a
    *  Host that predates the field. */
   features: string[]
+  /** A Host at the address is leaving (it hangs up before its hello) and the app is waiting for it to
+   *  finish before starting its own (main/host/client.ts RETIRING_WAIT_MS). Absent means false. */
+  waitingForPreviousHost?: boolean
 }
 
 /** Putting the Host's own runtime in place (win32), as the window shows it (stage 3 task 2).

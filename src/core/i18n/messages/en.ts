@@ -745,6 +745,10 @@ export const en: Record<keyof typeof ko, string> = {
   'status.hostUnresponsive': 'Host not answering',
   'status.hostUnresponsiveTitle':
     'The Host is not answering. New sessions open inside the app and end when it closes. Press to restart the Host.',
+  'status.hostStarting': 'Starting Astera…',
+  'status.hostWaitingForPrevious': 'Starting Astera… waiting for the previous background Host to finish',
+  'app.renderError': 'Something went wrong while drawing this window.',
+  'app.renderErrorReload': 'Reload',
   'status.hostPreparing': 'Preparing the Astera Host…',
   'status.hostPreparingSlow': 'Preparing the Astera Host… still working ({seconds}s)',
   'status.hostPrepareFailed': 'Could not prepare the Astera Host',
