@@ -52,7 +52,8 @@ export function findProject(s: OrchState, id: string): Project | undefined {
 /**
  * Whether this Job belongs to this project, for `jobs list --project` (CLI spec §16).
  *
- * `projectId` wins when it resolves. A Job without one belongs by its folder, **with the rule
+ * `projectId` wins when it resolves: the Job belongs to its own project and to that project's workspace root
+ * (a plan auto-filed under a sub-project shares the root's path, and every path lookup answers the root). A Job without one belongs by its folder, **with the rule
  * `projects find` uses** (`findProjectContaining`): the longest registered root that is its folder or
  * holds it. That covers a Job made before projects were registered, one whose project record is gone,
  * and one made from a subfolder of a project, which keeps that folder and gets no `projectId` when
@@ -65,7 +66,9 @@ export function findProject(s: OrchState, id: string): Project | undefined {
  * matched here.
  */
 export function jobInProject(s: OrchState, job: Pick<Job, 'projectId' | 'cwd'>, project: Project): boolean {
-  if (job.projectId !== undefined && findProject(s, job.projectId)) return job.projectId === project.id
+  const own = job.projectId !== undefined ? findProject(s, job.projectId) : undefined
+  // A workspace holds its sub-projects' plans too; a sub-project asked for by id holds only its own
+  if (own) return own.id === project.id || rootProjectOf(s, own).id === project.id
   return findProjectContaining(s, job.cwd)?.id === project.id
 }
 

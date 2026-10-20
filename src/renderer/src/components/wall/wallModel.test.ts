@@ -109,17 +109,30 @@ describe('consolesOf', () => {
 describe('orderWall and filterConsoles', () => {
   const cs = consolesOf(input())
   const f = { plan: ALL_PLANS, state: 'all' as const, scope: 'project' as const, projectId: 'p1' }
-  it('pins every plan coordinator first in plan order, then needs-you, working, idle', () => {
+  it('pins every plan coordinator first in plan order, then each plan\'s planner, workers by number, plain consoles last', () => {
     const w = orderWall(filterConsoles(cs, f), ALL_PLANS)
     expect(w.pinned.map((c) => c.sessionId)).toEqual(['c1', 'c2'])
-    expect(w.tiles.map((c) => c.sessionId)).toEqual(['w3', 'w1', 's9', 'pl1', 'w2'])
+    expect(w.tiles.map((c) => c.sessionId)).toEqual(['pl1', 'w1', 'w2', 'w3', 's9'])
     expect(w.mainId).toBeNull()
   })
   it('one plan picked: only its consoles, its coordinator the main tile', () => {
     const w = orderWall(filterConsoles(cs, { ...f, plan: 'job_1' }), 'job_1')
     expect(w.pinned.map((c) => c.sessionId)).toEqual(['c1'])
     expect(w.mainId).toBe('c1')
-    expect(w.tiles.map((c) => c.sessionId)).toEqual(['w1', 'pl1', 'w2'])
+    expect(w.tiles.map((c) => c.sessionId)).toEqual(['pl1', 'w1', 'w2'])
+  })
+  it('the order does not change when a console flips between working, idle and needs', () => {
+    const ids = (c: typeof cs) => {
+      const w = orderWall(c, ALL_PLANS)
+      return [...w.pinned, ...w.tiles].map((x) => x.sessionId)
+    }
+    const before = ids(cs)
+    for (const state of ['needs', 'working', 'idle'] as const)
+      expect(ids(cs.map((c) => (c.sessionId === 'w2' || c.sessionId === 'pl1' ? { ...c, state } : c)))).toEqual(before)
+  })
+  it('orders workers by label number, not text', () => {
+    const w = (id: string, label: string): (typeof cs)[number] => ({ ...cs.find((c) => c.sessionId === 'w1')!, sessionId: id, label })
+    expect(orderWall([w('a', 'Worker 10'), w('b', 'Worker 2')], ALL_PLANS).tiles.map((c) => c.sessionId)).toEqual(['b', 'a'])
   })
   it('No plan keeps the plain consoles only', () => {
     expect(filterConsoles(cs, { ...f, plan: NO_PLAN }).map((c) => c.sessionId)).toEqual(['s9'])
@@ -146,7 +159,7 @@ describe('groupWall', () => {
     expect(groups.at(-1)?.key).toBe(NO_PLAN)
     expect(groups.find((g) => g.key === NO_PLAN)?.live.map((c) => c.sessionId)).toEqual(['s9'])
     const one = groups.find((g) => g.key === 'job_1')!
-    expect(one.live.map((c) => c.sessionId)).toEqual(['c1', 'w1', 'pl1', 'w2'])
+    expect(one.live.map((c) => c.sessionId)).toEqual(['c1', 'pl1', 'w1', 'w2'])
     expect(groups.flatMap((g) => g.done).map((c) => c.sessionId)).toEqual(['e1'])
   })
   it('the Done filter leaves a group of finished consoles only', () => {

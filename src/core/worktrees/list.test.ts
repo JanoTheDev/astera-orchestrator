@@ -111,3 +111,25 @@ describe('listWithStatus — 확인이 불확실할 때', () => {
     expect(reg.list()).toHaveLength(0)
   })
 })
+
+// The list is what the Worktrees page draws. Forgetting a gone folder is housekeeping on the way: when that write is
+// refused (the Host owns worktrees.json and did not answer, or refused it), the page used to get no list at all and
+// stayed empty, since nothing refreshes it again on its own. The Gameful shape: a plan folder and its Task folders,
+// one of which the Host's merge clean-up deletes while the page lists them (host.log, 2026-10-20 11:28Z).
+describe('listWithStatus — forgetting a gone folder fails', () => {
+  it('still answers the plan and its other Task folders, and the gone one stays out of the list', async () => {
+    const repo = await makeRepo('astera-wt-ls7-')
+    const root = await tempDir('astera-wt-ls7root-')
+    const regDir = await tempDir('astera-wt-ls7reg-')
+    const reg = new WorktreeRegistry(path.join(regDir, 'worktrees.json'), root)
+    await reg.load()
+    const names = ['alright-so-we-have-had-worked-on-fisch', 'reader-parent-names', 'console-bulk-edit', 'console-bulk-edit-2']
+    const made = []
+    for (const name of names) made.push((await createWorktree({ repoPath: repo, name, registry: reg })).info)
+    const gone = made[3]
+    execFileSync('git', ['worktree', 'remove', '--force', gone.path], { cwd: repo, windowsHide: true })
+    reg.removeEntry = () => Promise.reject(new Error('the Host did not answer worktree-remove within 30000ms'))
+    const items = await listWithStatus(reg)
+    expect(items.map((w) => [w.id, w.status])).toEqual(made.slice(0, 3).map((w) => [w.id, 'ok']))
+  })
+})

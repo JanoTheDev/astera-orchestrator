@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { jobsForProject, progressOf, outcomeOf, snapshotFor, sameSnapshot, waveProgressOf } from './view'
 import { emptyState } from './state'
-import { ensureProject } from './projects'
+import { addSubProject, ensureProject } from './projects'
 import type { OrchState } from './state'
 import type { CheckResult, Dispatch, Gate, Message, ResumeEntry, Task } from './types'
 import { stateFromLegacy } from './legacyState'
@@ -82,6 +82,17 @@ describe('runsForProject', () => {
     const r1 = { ...run('r1', absPath('proj')), projectId: b.project.id }
     const s = { ...stateFromLegacy({ runs: [r1] }), projects: b.state.projects }
     expect(jobsForProject(s, absPath('proj'), noWorktrees).map((r) => r.id)).toEqual([])
+  })
+
+  // T1: jobs-set --areas 가 하위 프로젝트에 넣은 Job 은 워크스페이스 경로의 목록에 든다 — 하위 프로젝트는 같은 경로라
+  // 경로 조회가 늘 루트를 답하기 때문이다
+  it('워크스페이스 경로는 그 하위 프로젝트의 Job 도 고른다', () => {
+    const reg = ensureProject(emptyState(), { path: absPath('proj'), now: 'T0' })
+    const sub = addSubProject(reg.state, { parentId: reg.project.id, name: 'ui', now: 'T1' })
+    if (!sub.ok) throw new Error(sub.error)
+    const r1 = { ...run('r1', absPath('proj')), projectId: sub.value.id }
+    const s = { ...stateFromLegacy({ runs: [r1] }), projects: sub.state.projects }
+    expect(jobsForProject(s, absPath('proj'), noWorktrees).map((r) => r.id)).toEqual(['job_r1'])
   })
 
   // **매달린 id 는 Job 을 숨기지 않는다.** 프로젝트 기록이 사라진 Run 은 경로 유도로 물러난다 —

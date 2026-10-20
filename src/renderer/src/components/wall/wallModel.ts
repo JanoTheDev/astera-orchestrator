@@ -10,9 +10,9 @@ import { approveSlot } from '../plan/planTalk'
 import { planSessions, projectOfCwd, type WorkspaceData, type WorkspacePlan, type WorkspaceProject, type WorkspaceSession } from '../../state/workspaceTree'
 
 export type ConsoleRole = 'coordinator' | 'planner' | 'worker' | 'reviewer' | 'console'
-/** A tile's state, in the wall's order: needs-you first, then working, then idle. Finished consoles go below. */
+/** A tile's state. It shows on the tile; it never moves the tile. Finished consoles go to their own row. */
 export type TileState = 'needs' | 'working' | 'idle' | 'finished'
-const STATE_ORDER: Record<TileState, number> = { needs: 0, working: 1, idle: 2, finished: 3 }
+const ROLE_ORDER: Record<ConsoleRole, number> = { coordinator: 0, planner: 1, worker: 2, reviewer: 2, console: 3 }
 
 export interface WallConsole {
   sessionId: string
@@ -153,7 +153,7 @@ export function filterConsoles(cs: readonly WallConsole[], f: WallFilter): WallC
 export interface WallLayout {
   /** The pinned coordinators, plan order; with one plan picked, its coordinator is `main` (double height). */
   pinned: WallConsole[]
-  /** The rest of the live tiles: needs-you, working, idle; plan order inside each, then label. */
+  /** The rest of the live tiles by fixed place, never by state: plan order, then planner, workers by label number, plain consoles. */
   tiles: WallConsole[]
   /** Ended consoles, for the Finished row (or the grid, under the Finished filter). */
   finished: WallConsole[]
@@ -163,13 +163,13 @@ export interface WallLayout {
 
 const byLabel = (a: WallConsole, b: WallConsole): number => a.planOrder - b.planOrder || a.label.localeCompare(b.label, undefined, { numeric: true })
 
-/** The wall's order (DESIGN §2): each plan's coordinator pinned first in plan order, then needs-you, working, idle. */
+/** The wall's order (DESIGN §2): per plan the coordinator first, then the planner, then workers by label number, then plain consoles; live state never reorders. */
 export function orderWall(cs: readonly WallConsole[], plan: PlanFilter): WallLayout {
   const live = cs.filter((c) => c.state !== 'finished')
   const pinned = live.filter((c) => c.role === 'coordinator').sort(byLabel)
   const tiles = live
     .filter((c) => c.role !== 'coordinator')
-    .sort((a, b) => STATE_ORDER[a.state] - STATE_ORDER[b.state] || byLabel(a, b))
+    .sort((a, b) => a.planOrder - b.planOrder || ROLE_ORDER[a.role] - ROLE_ORDER[b.role] || byLabel(a, b))
   const finished = cs.filter((c) => c.state === 'finished').sort(byLabel)
   const one = plan !== ALL_PLANS && plan !== NO_PLAN
   return { pinned, tiles, finished, mainId: one ? (pinned[0]?.sessionId ?? null) : null }

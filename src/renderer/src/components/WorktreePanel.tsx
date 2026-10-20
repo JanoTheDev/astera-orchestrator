@@ -63,7 +63,11 @@ export const WorktreePanel = forwardRef<
   const { t } = useI18n()
   const [query, setQuery] = useState('')
   const [reachableOnly, setReachableOnly] = useState(false)
-  const [rows, setRows] = useState<WorktreeRow[]>([])
+  // Null until the first list arrives: before it (or when it failed) nothing is known, and "No worktrees yet" would be a lie
+  const [read, setRows] = useState<WorktreeRow[] | null>(null)
+  // Why the last refresh failed, shown in place of the list until one succeeds: a toast alone leaves an empty page
+  const [failed, setFailed] = useState<string | null>(null)
+  const rows = read ?? []
   const items = rows.map((r) => r.item)
   const [cleaning, setCleaning] = useState(false)
   const [prs, setPrs] = useState<Record<string, RepoPrSnapshot>>({})
@@ -107,6 +111,7 @@ export const WorktreePanel = forwardRef<
     try {
       const overview = await window.api.worktrees.overview()
       setRows(overview)
+      setFailed(null)
       onRows?.(overview)
       const list = overview.map((r) => r.item)
       // The same triggers that re-query worktrees re-query their PRs: mount, expand, manual ⟳,
@@ -122,8 +127,11 @@ export const WorktreePanel = forwardRef<
       setPushState(next)
     } catch (err) {
       // Swallowing the failure quietly makes the stale list on screen look current — a refresh failure is reported
-      const m = worktreeErrorMessage(err instanceof Error ? err.message : String(err))
+      const raw = err instanceof Error ? err.message : String(err)
+      console.error('worktrees.overview failed:', raw)
+      const m = worktreeErrorMessage(raw)
       toast.error(t(m.key, m.params))
+      setFailed(t(m.key, m.params))
     }
   }, [t, onRows])
 
@@ -354,7 +362,11 @@ export const WorktreePanel = forwardRef<
           )
         }
       />
-      {items.length === 0 ? (
+      {failed !== null && items.length === 0 ? (
+        <EmptyState icon={TriangleAlert} title={t('worktrees.title')}>
+          {failed}
+        </EmptyState>
+      ) : read === null ? null : items.length === 0 ? (
         <EmptyState icon={FolderGit2} title={t('worktrees.emptyTitle')}>
           {t('worktrees.empty')}
         </EmptyState>
