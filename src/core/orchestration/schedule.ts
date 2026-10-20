@@ -172,8 +172,8 @@ export function sameFilesAs(
   return undefined
 }
 
-/** Statuses in which a Task's worker, checks, review or repair is at its files. */
-const EDITING: ReadonlySet<TaskStatus> = new Set<TaskStatus>(['dispatched', 'validating', 'reviewing'])
+/** Statuses in which a Task's worker, checks, review, repair or merge into its plan branch is at its files. */
+const EDITING: ReadonlySet<TaskStatus> = new Set<TaskStatus>(['dispatched', 'validating', 'reviewing', 'merging'])
 
 /** W8-D: the repository a Job works in, as the file guard keys it: its project, else (a Job made before projects) its
  *  folder. Two plans with the same key edit the same files; two with different keys never block each other.

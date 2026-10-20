@@ -23,6 +23,7 @@ import {
   blockForReview,
   closeDispatch,
   createGate,
+  doneStatusOf,
   createQuestion,
   createJob,
   createTask,
@@ -964,7 +965,7 @@ const runMoves = (s: OrchState, job: Job, run: JobRun, now: string): boolean => 
   if (coordinatorStarting(run, Date.parse(now))) return true
   const ids = new Set(tasks.map((t) => t.id))
   if (s.dispatches.some((d) => ids.has(d.taskId) && !d.outcome && !d.endedAt)) return true
-  if (tasks.some((t) => t.status === 'validating' || t.status === 'reviewing')) return true
+  if (tasks.some((t) => t.status === 'validating' || t.status === 'reviewing' || t.status === 'merging')) return true
   if (s.gates.some((g) => g.status === 'open' && g.runId === run.id)) return true
   if (limitedUntil(s, run.id, now) !== null) return true
   const coordinated = run.coordinatorSessionId !== undefined
@@ -987,7 +988,7 @@ const startable = (tasks: readonly Task[], coordinated: boolean): Set<string> =>
   const byId = new Map(tasks.map((t) => [t.id, t]))
   const memo = new Map<string, boolean>()
   /** Whether this Task can still reach `completed`. A Task under way or with a person (`validating`,
-   *  `reviewing`, `blocked`) can. A cycle, or a dependency outside this Run, cannot. */
+   *  `reviewing`, `merging`, `blocked`) can. A cycle, or a dependency outside this Run, cannot. */
   const canComplete = (id: string): boolean => {
     const known = memo.get(id)
     if (known !== undefined) return known
@@ -998,6 +999,7 @@ const startable = (tasks: readonly Task[], coordinated: boolean): Set<string> =>
       (t.status === 'completed' ||
         t.status === 'validating' ||
         t.status === 'reviewing' ||
+        t.status === 'merging' ||
         t.status === 'blocked' ||
         canStart(t))
     memo.set(id, answer)
@@ -1092,7 +1094,7 @@ const limitedUntil = (s: OrchState, runId: string, now: string): string | null =
     s.tasks.some(
       (t) =>
         tasks.has(t.id) &&
-        (t.status === 'validating' || t.status === 'reviewing' || (t.status === 'ready' && readyHolds))
+        (t.status === 'validating' || t.status === 'reviewing' || t.status === 'merging' || (t.status === 'ready' && readyHolds))
     )
   )
     return null
@@ -1289,6 +1291,7 @@ const TASK_STATUSES: TaskStatus[] = [
   'dispatched',
   'validating',
   'reviewing',
+  'merging',
   'completed',
   'failed',
   'blocked'
@@ -4245,10 +4248,16 @@ export async function handleCommand(
       // Stall watchdog: the app records a completed Task's merge into its plan branch (finishedSessions.ts
       // mergedIntoPlan). Astera's own, so an agent session cannot mark one. updatedAt stays: a dependent's readiness
       // moment (inbox.ts readyReminders) is read from it.
+      // A merging Task (state.ts doneStatusOf) is completed by its merge: here, with its dependents readied.
       if (args.mergedIntoPlan === true) {
         if (fromAgentSession || caller.role === 'mcp') return bad('--merged-into-plan is recorded by Astera itself')
         const target = s.tasks.find((t) => t.id === id)
         if (!target) return notFound(`unknown task: ${id}`)
+        if (target.status === 'merging') {
+          const landed: Task = { ...target, status: 'completed', updatedAt: now, mergedIntoPlanAt: now }
+          await deps.setState({ ...s, tasks: recomputeReady(s.tasks.map((t) => (t.id === id ? landed : t))) })
+          return okBody({ id, mergedIntoPlanAt: now })
+        }
         if (target.status !== 'completed') return bad(`task ${id} is ${target.status}, not completed`)
         if (target.mergedIntoPlanAt !== undefined) return okBody({ id, mergedIntoPlanAt: target.mergedIntoPlanAt })
         await deps.setState({ ...s, tasks: s.tasks.map((t) => (t.id === id ? { ...t, mergedIntoPlanAt: now } : t)) })
@@ -4280,12 +4289,14 @@ export async function handleCommand(
           )
         )
       }
-      const status = str(args.status)
-      if (!status) return bad('--status is required')
-      if (!isTaskStatus(status))
+      const asked = str(args.status)
+      if (!asked) return bad('--status is required')
+      if (!isTaskStatus(asked))
         return bad(`--status must be one of ${TASK_STATUSES.join('|')}`)
       const task = s.tasks.find((t) => t.id === id)
       if (!task) return notFound(`unknown task: ${id}`)
+      // Completed only once its work is on the plan branch, as every other move to completed (state.ts doneStatusOf)
+      const status = asked === 'completed' ? doneStatusOf(s, task) : asked
       // Deliberately bypasses the transition table (canTransition): task-update --status is allowed
       // to bypass that table because the orchestrator needs a way to correct things by hand — but
       // the bypass is written to the log. state.ts (moveTask/canTransition) owns the normal
@@ -4303,7 +4314,7 @@ export async function handleCommand(
       //
       // **요구는 이 한 경우에만 건다.** 평범한 손보기(ready 로 되돌리기, 회로 차단 풀기)는 그대로다 —
       // 거기까지 이유를 받으면 이 명령이 쓰이던 모든 구조 경로가 한 번에 막힌다.
-      const override = status === 'completed' && isOverrideCompletion(task, policyOf(s, task))
+      const override = asked === 'completed' && isOverrideCompletion(task, policyOf(s, task))
       const reason = str(args.reason)
       if (override && !reason)
         return bad(
@@ -4426,6 +4437,7 @@ export async function handleCommand(
       // 켰는지와 무관하다.
       if (task.status === 'validating' || task.status === 'reviewing')
         return bad(`task is awaiting a verdict: ${task.status}`)
+      if (task.status === 'merging') return bad('task is being merged into the plan branch')
       if (task.consecutiveFailures >= FAILURE_LIMIT)
         return bad(`circuit break: ${FAILURE_LIMIT} consecutive failures`)
       const openForTask = s.dispatches.find((d) => d.taskId === taskId && !d.outcome && !d.endedAt)

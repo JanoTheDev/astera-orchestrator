@@ -78,7 +78,7 @@ export function runningCount(tasks: readonly JobTask[]): number {
   return tasks.filter((t) =>
     t.status === 'dispatched'
       ? t.startedAt !== undefined
-      : t.status === 'validating' || t.status === 'reviewing'
+      : t.status === 'validating' || t.status === 'reviewing' || t.status === 'merging'
   ).length
 }
 
@@ -123,6 +123,7 @@ export function runningRunCount(s: OrchState): number {
         t.runId === run.id &&
         (t.status === 'validating' ||
           t.status === 'reviewing' ||
+          t.status === 'merging' ||
           (t.status === 'dispatched' && open.some((d) => d.taskId === t.id)))
     )
   ).length

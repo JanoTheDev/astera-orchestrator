@@ -5081,6 +5081,25 @@ describe('handleCommand — convergence', () => {
     expect((await call(deps, 'task-update', { id, mergedIntoPlan: true }, HOST_CALLER)).body).toMatchObject({ mergedIntoPlanAt: at })
   })
 
+  it('task-update --status completed of a Task that worked outside its Run root moves it to merging; its merge completes it', async () => {
+    const deps = convDeps()
+    await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p' })
+    await call(deps, 'task-create', { spec: 's', account: 'accA' })
+    const s0 = deps.getState()
+    const id = s0.tasks[0].id
+    await deps.setState({
+      ...s0,
+      runs: s0.runs.map((r) => ({ ...r, worktree: 'D:/wt-run' })),
+      dispatches: [{ id: 'dsp_x', taskId: id, provider: 'claude', accountId: 'accA', sessionId: 'w-x', cwd: 'D:/wt-x', specPath: '', startedAt: NOW, endedAt: NOW, outcome: 'failed', workerState: 'failed', retained: false }]
+    })
+    expect((await call(deps, 'task-update', { id, status: 'completed' }, HOST_CALLER)).status).toBe(200)
+    expect(deps.getState().tasks[0].status).toBe('merging')
+    expect((await call(deps, 'task-update', { id, mergedIntoPlan: true })).status).toBeGreaterThanOrEqual(400) // an agent session
+    expect((await call(deps, 'task-update', { id, mergedIntoPlan: true }, HOST_CALLER)).status).toBe(200)
+    expect(deps.getState().tasks[0].status).toBe('completed')
+    expect(deps.getState().tasks[0].mergedIntoPlanAt).toBeDefined()
+  })
+
   /** convergence Run 에서 검토 걸린 Task 를 reviewing + 검토 Dispatch 열림까지 */
   const reviewingRun = async (deps: ReturnType<typeof convDeps>, runExtra: Record<string, unknown> = {}) => {
     await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p', convergence: true, ...runExtra })

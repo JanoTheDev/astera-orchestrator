@@ -5,7 +5,16 @@ import type { Provider } from '../providers/meta'
 import type { ScheduleRule } from '../scheduler/rule'
 import type { PrState } from '../github/types'
 
-export type TaskStatus = 'pending' | 'ready' | 'dispatched' | 'validating' | 'reviewing' | 'completed' | 'failed' | 'blocked'
+export type TaskStatus =
+  | 'pending'
+  | 'ready'
+  | 'dispatched'
+  | 'validating'
+  | 'reviewing'
+  | 'merging'
+  | 'completed'
+  | 'failed'
+  | 'blocked'
 export type Outcome = 'succeeded' | 'failed'
 /** Observed state of the session a Dispatch owns. outcome_unknown = cannot be proven (section 7 of
  *  the orchestration guide) */
@@ -852,20 +861,23 @@ const ALLOWED: Record<TaskStatus, TaskStatus[]> = {
   // dispatched -> validating: 워커가 성공을 보고했지만 그 Task 에 검증이 걸려 있는 경우.
   // 검증이 없으면 지금처럼 곧바로 completed 로 간다.
   // dispatched -> reviewing: 검증이 걸리지 않고 검토만 걸린 Task 의 성공 보고.
-  dispatched: ['completed', 'failed', 'validating', 'reviewing', 'blocked'],
+  dispatched: ['completed', 'failed', 'validating', 'reviewing', 'merging', 'blocked'],
   // validating -> blocked 는 검증을 아예 돌릴 수 없을 때다(구성이 없다, cwd 가 사라졌다). 그 판단은
   // 사람의 것이므로 Gate 를 연다. validating -> dispatched 는 검증이 도는 동안에는 없다 — 그 사이에는
   // 판정이 도착할 자리가 없기 때문이다. 그 금지는 판정이 도착하기 전까지다: 판정이 도착한 뒤에는 앱이
   // repair Dispatch 를 여는 전이로 이 칸에 들어오고, 그 유일한 문은 state.ts 의 openRepairDispatch 다
   // (설계 §5).
   // validating -> reviewing: 검증이 통과했고 검토가 걸려 있다. 순서는 검증 -> 검토다.
-  validating: ['completed', 'failed', 'blocked', 'reviewing', 'dispatched'],
+  validating: ['completed', 'failed', 'blocked', 'reviewing', 'merging', 'dispatched'],
   // reviewing -> blocked 는 검토를 아예 돌릴 수 없을 때다(쓸 수 있는 다른 provider 계정이 없다,
   // 검토자가 보고 없이 죽었다). 그 판단은 사람의 것이므로 Gate 를 연다. reviewing -> dispatched 는
   // 검토가 도는 동안에는 없다 — validating 과 같은 이유로 판정이 도착할 자리가 없다. 그 금지도 판정이
   // 도착하기 전까지다: 판정이 도착한 뒤에는 앱이 repair Dispatch 를 여는 전이로 이 칸에 들어오고, 그
   // 유일한 문은 state.ts 의 openRepairDispatch 다(설계 §5).
-  reviewing: ['completed', 'failed', 'blocked', 'dispatched'],
+  reviewing: ['completed', 'failed', 'blocked', 'merging', 'dispatched'],
+  // merging: the work succeeded and the app lands its worktree on the plan branch (state.ts doneStatusOf). A clean merge
+  // or its merge Task completes it; a merge git cannot do blocks it on a Gate. Never completed without the merge.
+  merging: ['completed', 'failed', 'blocked', 'ready'],
   completed: [],
   // failed -> blocked is allowed: failed is by definition a state with no open dispatch
   // (applyWorkerDone sets outcome and endedAt together) — so there is no reason to block the flow

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { runningCount, isStoppedWorker, runningRunCount } from './running'
+import { runningCount, isStoppedWorker, runningRunCount, outcomeOfTasks } from './running'
 import { snapshotFor } from './view'
 import { emptyState } from './state'
 import type { OrchState } from './state'
@@ -201,5 +201,12 @@ describe('runningRunCount with a coordinator', () => {
   it('does not count a paused Run, nor a finished one, whose coordinator is still attached', () => {
     expect(runningRunCount(withCoordinator([], { paused: true }))).toBe(0)
     expect(runningRunCount(withCoordinator([task('t1', 'completed')]))).toBe(0)
+  })
+})
+
+describe('merging', () => {
+  it('is not terminal: a Run whose last Task is merging still runs', () => {
+    expect(outcomeOfTasks([task('a', 'completed'), task('b', 'merging')])).toBe('running')
+    expect(outcomeOfTasks([task('a', 'completed'), task('b', 'completed')])).toBe('completed')
   })
 })
