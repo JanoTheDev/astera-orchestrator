@@ -163,6 +163,41 @@ describe('a failed Task of a lower wave', () => {
   })
 })
 
+describe('a Task held for its owner (item 2: a hands-off plan refused the decision it needs)', () => {
+  const seen = () => true
+  // h is blocked with no Gate (held) in wave 0; c completed. b waits on c only, d waits on h, e waits on d.
+  const tasks = [
+    task('h', { status: 'blocked', result: "Waiting on the owner's decision: run the protected migration?" }),
+    task('c', { status: 'completed' }),
+    task('b', { deps: ['c'] }),
+    task('d', { deps: ['h'], status: 'pending' }),
+    task('e', { deps: ['d'], status: 'pending' })
+  ]
+  const at = (wave: number) => ({ lastReplan: { runId: 'run_1', mode: 'wave' as const, wave, done: 1, at: NOW, summary: 'no change' } })
+  const byId = (s: OrchState, id: string) => s.tasks.find((t) => t.id === id)!
+
+  it('does not hold the boundary: wave 1 is replanned, and opens for the Tasks that do not depend on it', () => {
+    expect(replansDue(state(tasks), seen)).toEqual([{ runId: 'run_1', mode: 'wave', wave: 1, done: 1 }])
+    const s = state(tasks, at(1))
+    expect(waveOpen(byId(s, 'b'), s)).toBe(true)
+    expect(slotsToFill(s).map((x) => x.taskId)).toEqual(['b'])
+  })
+
+  it('skips its dependents: they hold no later boundary', () => {
+    const next = tasks.map((t) => (t.id === 'b' ? { ...t, status: 'completed' as const } : t))
+    expect(waveOpen(byId(state(next, at(1)), 'd'), state(next, at(1)))).toBe(false)
+    // only h's dependents are left: nothing is due, and no final check while a Task is held
+    expect(replansDue(state(next, at(1)), seen)).toEqual([])
+  })
+
+  it('holds the boundary while it waits on an open Gate instead: that one an answer moves on', () => {
+    const gated: OrchState = { ...state(tasks), gates: [{ id: 'gat_1', runId: 'run_1', taskId: 'h', question: 'q', status: 'open', createdAt: NOW }] }
+    expect(replansDue(gated, seen)).toEqual([])
+    const s = { ...gated, ...state(tasks, at(1)), gates: gated.gates }
+    expect(waveOpen(byId(s, 'b'), s)).toBe(false)
+  })
+})
+
 describe('completionSettled', () => {
   const tasks = [task('a', { status: 'completed' })]
   it('waits for a final check over these completed Tasks, and for a person who holds an escalated one', () => {

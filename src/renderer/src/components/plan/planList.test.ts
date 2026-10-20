@@ -37,3 +37,10 @@ describe('lastActivityOf', () => {
     expect(at).toBe(Date.parse('2026-01-02T00:00:00Z'))
   })
 })
+
+describe('planStatusOf for the final check and a plan finished with blocked Tasks', () => {
+  it('reads checking, never done, until the final check settles; and finished-with-blocked, never working or done', () => {
+    expect(planStatusOf(row({ outcome: 'checking' }))).toEqual({ key: 'pages.plans.status.checking', tone: 'info' })
+    expect(planStatusOf(row({ outcome: 'blocked', tasks: [task('a', { status: 'blocked' })] }))).toEqual({ key: 'pages.plans.status.blocked', tone: 'warn' })
+  })
+})

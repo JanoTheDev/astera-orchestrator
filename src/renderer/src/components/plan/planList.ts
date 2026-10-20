@@ -27,9 +27,13 @@ export function planStatusOf(row: JobRow): PlanStatus {
   if (slot === 'auto') return { key: 'jobs.run.startsByItself', tone: 'info' }
   if (row.pendingStart) return row.after !== undefined ? { key: 'pages.plans.status.queued', tone: 'neutral' } : { key: 'jobs.run.notStarted', tone: 'neutral' }
   if (row.paused) return { key: 'jobs.run.roundStopped', tone: 'neutral' }
+  // Item 2: everything else ended, and the Tasks held for the owner are left
+  if (row.outcome === 'blocked') return { key: 'pages.plans.status.blocked', tone: 'warn' }
   if (row.tasks.some((t) => t.status === 'blocked')) return { key: 'pages.plans.status.needsYou', tone: 'warn' }
   if (row.dispatchHold) return { key: 'jobs.hold.held', tone: 'warn' }
   if (row.outcome === 'running') return { key: 'pages.plans.status.working', tone: 'info' }
+  // Item 8: every Task completed, the final check has not settled: not done yet
+  if (row.outcome === 'checking') return { key: 'pages.plans.status.checking', tone: 'info' }
   if (row.outcome === 'failed') return { key: 'pages.plans.status.failed', tone: 'danger', ...(row.deliveryError !== undefined ? { reason: row.deliveryError } : {}) }
   return { key: 'pages.plans.status.done', tone: 'ok' }
 }

@@ -188,7 +188,10 @@ function runEndEvents(prev: OrchState, next: OrchState, now: string, stamp: stri
       out.push(ev({ runId: run.id }, 'JOB_RUN_RESUMED', now, `JOB_RUN_RESUMED:${run.id}:${stamp}`, {}))
     const outcomeBefore = was ? outcomeOf(prev, run.id) : 'running'
     const outcomeAfter = outcomeOf(next, run.id)
-    if (outcomeBefore === 'running' && outcomeAfter !== 'running') {
+    // A Run in its final check has not ended yet, and one that finished with Tasks held for the owner neither completed
+    // nor failed: it runs again once they are released
+    const live = (o: string): boolean => o === 'running' || o === 'checking' || o === 'blocked'
+    if (live(outcomeBefore) && (outcomeAfter === 'completed' || outcomeAfter === 'failed')) {
       const type = outcomeAfter === 'completed' ? 'JOB_RUN_COMPLETED' : 'JOB_RUN_FAILED'
       out.push(ev({ runId: run.id }, type, now, `${type}:${run.id}:${stamp}`, {}))
     }

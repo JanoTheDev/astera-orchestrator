@@ -923,7 +923,7 @@ const conflict = (msg: string): Reply => ({ status: 409, body: { error: msg } })
 /** What the Run's Tasks say, not what it reads: a Run whose delivery failed reads `failed`, and a delivery retried
  *  (`--force`) must still see its Tasks completed. A paused Run is neither. */
 const taskOutcomeOf = (s: OrchState, run: JobRun): ReturnType<typeof outcomeOfTasks> | 'paused' =>
-  run.paused === true ? 'paused' : outcomeOfTasks(tasksOwnedBy(s, run.id))
+  run.paused === true ? 'paused' : outcomeOfTasks(tasksOwnedBy(s, run.id), s.gates)
 /** How long after its `startedAt` a `pending:` Dispatch still counts as a start in flight (Host S2
  *  fix round 2, N1). A start waits at most a spawn deadline (SPAWN_DEADLINE_MS, 20 s) plus the
  *  coordinator's idle wait before its prompt (30 s), plus trust and account reads; two minutes covers
@@ -1075,7 +1075,8 @@ const waitEndingFor = (s: OrchState, runId: string, now: string): WaitEnding | n
   const limited = limitedUntil(s, runId, now)
   if (limited) return { ...base, state: 'limited', resetsAt: limited }
   const outcome = outcomeOf(s, runId)
-  return outcome === 'running' ? null : { ...base, state: outcome }
+  // A Run in its final check is not done yet (item 8)
+  return outcome === 'running' || outcome === 'checking' ? null : { ...base, state: outcome }
 }
 
 /** How long past its reset a coordinator's stop still counts (S6 limits D2). A stop that should have
@@ -6047,7 +6048,7 @@ export async function handleCommand(
       const g = deps.github!
       const outcome = runView(s, t.run).outcome
       if (outcome === 'paused') return conflict('This Run is paused; resume it first')
-      if (outcome !== 'completed' && outcome !== 'failed') return conflict('This Run is still working')
+      if (outcome !== 'completed' && outcome !== 'failed' && outcome !== 'blocked') return conflict('This Run is still working')
       let changed: number
       try {
         changed = (await g.isClean(t.cwd)).changedCount
@@ -6273,8 +6274,9 @@ export async function handleCommand(
         return conflict(`Opening this Run's pull request failed before: ${run.pr.error}. --force tries again`)
       // W8-E (#99): a Run that ended with failed Tasks delivers its completed Tasks' work, in a draft
       const outcome = taskOutcomeOf(s, run)
-      if (outcome !== 'completed' && outcome !== 'failed') return conflict('This Run has not completed; its pull request opens once every task is done')
-      const failed = outcome === 'failed'
+      if (outcome !== 'completed' && outcome !== 'failed' && outcome !== 'blocked') return conflict('This Run has not completed; its pull request opens once every task is done')
+      // Item 2: a Run that finished with Tasks held for the owner delivers like a failed one, and its PR stays a draft to finish
+      const failed = outcome !== 'completed'
       if (!deps.github) return conflict('GitHub commands are answered by the Astera Host, and this caller is not one')
       const worktree = run.worktree
       if (worktree === undefined) return conflict('This Run has no integration branch; use Merge to bring its work into the project folder')
@@ -6361,7 +6363,7 @@ export async function handleCommand(
         return made
       }
       const number = prNumberOf(url)
-      await record({ at: now, url, ...(number !== null ? { number } : {}) }, number !== null ? { prs: [{ number, url, state: 'open' }] } : undefined)
+      await record({ at: now, url, ...(number !== null ? { number } : {}), ...(outcome === 'blocked' ? { draft: true as const } : {}) }, number !== null ? { prs: [{ number, url, state: 'open' }] } : undefined)
       await pushNotes(worktree) // W8-A: the notes ref goes with the PR branch
       return okBody({ url, number, opened: made.status === 200 })
     }

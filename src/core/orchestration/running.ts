@@ -1,6 +1,8 @@
 import type { JobTask, RunOutcome } from '../types'
-import type { OrchState } from './state'
-import { FAILURE_LIMIT, type JobRun, type Task } from './types'
+import { jobOf, type OrchState } from './state'
+import { FAILURE_LIMIT, type Gate, type JobRun, type Task } from './types'
+import { completionSettled, replanOn } from './replan'
+import { jobActive } from './schedule'
 
 // tasksOwnedBy, isTerminal and outcomeOf moved here from view.ts so runningRunCount can ask outcomeOf:
 // the renderer's build includes this file and not view.ts, which re-exports them.
@@ -38,26 +40,64 @@ export const isTerminal = (t: Task): boolean =>
  *  대가: 모두 끝난 뒤 Task 가 추가되면 completed 가 running 으로 되돌아간다. 진행률 숫자도 같은
  *  방식으로 움직이므로 정직한 표시라고 본다. */
 export function outcomeOf(state: OrchState, runId: string): RunOutcome {
-  return outcomeOfRun(tasksOwnedBy(state, runId), state.runs.find((r) => r.id === runId))
+  return outcomeOfRun(tasksOwnedBy(state, runId), state.runs.find((r) => r.id === runId), state)
 }
 
 /** Why a Run's delivery failed (a merge conflict or a refused push, `run.pr.error` or `run.delivery.error`), or
  *  undefined. A later successful delivery replaces the record, so the error is gone with it. */
 export const deliveryErrorOf = (run: JobRun | undefined): string | undefined => run?.pr?.error ?? run?.delivery?.error
 
-/** What a Run reads: its Tasks' outcome, except that a plan whose work did not get delivered did not complete. Only
- *  `outcomeOfTasks` says whether the Tasks are done, which is what the delivery itself asks (it must still see them
- *  completed to retry, and a failed outcome would take the failed-plan branches). */
-export function outcomeOfRun(tasks: readonly Task[], run: JobRun | undefined): RunOutcome {
-  const outcome = outcomeOfTasks(tasks)
-  return outcome === 'completed' && deliveryErrorOf(run) !== undefined ? 'failed' : outcome
+/** What a Run reads: its Tasks' outcome, except that a plan whose work did not get delivered did not complete, and a
+ *  plan whose final check has not settled is `checking`, not completed (item 8: "Plan done" was read, then the check
+ *  reopened the plan). Only `outcomeOfTasks` says whether the Tasks are done, which is what the delivery itself asks (it
+ *  must still see them completed to retry, and a failed outcome would take the failed-plan branches). */
+export function outcomeOfRun(tasks: readonly Task[], run: JobRun | undefined, s: OrchState): RunOutcome {
+  const outcome = outcomeOfTasks(tasks, s.gates)
+  if (outcome !== 'completed') return outcome
+  if (deliveryErrorOf(run) !== undefined) return 'failed'
+  return run !== undefined && checkPending(s, run) ? 'checking' : outcome
 }
 
-/** outcomeOf for Tasks already gathered (the Jobs sidebar fold indexes them once, performance audit M1) */
-export function outcomeOfTasks(tasks: readonly Task[]): RunOutcome {
+/** Whether a Run whose Tasks all completed still waits on its final check (replan.ts `completionSettled`): only for a
+ *  plan that replans and could run one now (`replansDue`'s own conditions), and not once the plan was delivered, so
+ *  history from before the check existed reads completed. */
+function checkPending(s: OrchState, run: JobRun): boolean {
+  const job = jobOf(s, run)
+  if (!job || !replanOn(job) || !jobActive(job) || run.paused === true) return false
+  if (run.delivery !== undefined || (run.pr !== undefined && run.pr.draft !== true)) return false
+  return !completionSettled(s, job, run.id)
+}
+
+/** A Task held for its owner: blocked with no open Gate, so no answer moves it on. A hands-off plan holds a Task so when
+ *  it refuses an owner-only decision the Task needs, or gives up on a Gate it kept answering (exec/dispatchLoop.ts);
+ *  only the owner moves it again (`task-update --status ready`). A Task blocked on an open Gate waits on an answer. */
+export const heldForOwner = (t: Task, gates: readonly Gate[]): boolean =>
+  t.status === 'blocked' && !gates.some((g) => g.taskId === t.id && g.status === 'open')
+
+/** The Tasks held for their owner and every unfinished Task waiting on one, directly or through others: none of them
+ *  moves until the owner does, so they hold back neither a later wave (replan.ts) nor the Run's end. */
+export function heldBack(tasks: readonly Task[], gates: readonly Gate[]): Set<string> {
+  const out = new Set(tasks.filter((t) => heldForOwner(t, gates)).map((t) => t.id))
+  for (let grew = out.size > 0; grew; ) {
+    grew = false
+    for (const t of tasks)
+      if (!out.has(t.id) && t.status !== 'completed' && t.deps.some((d) => out.has(d))) {
+        out.add(t.id)
+        grew = true
+      }
+  }
+  return out
+}
+
+/** outcomeOf for Tasks already gathered (the Jobs sidebar fold indexes them once, performance audit M1). With the
+ *  state's `gates`, a Run whose other Tasks all ended but some are held for the owner (`heldBack`) is `blocked`: it
+ *  ended with work left that only the owner can release. Without them a held Task reads as still running. */
+export function outcomeOfTasks(tasks: readonly Task[], gates?: readonly Gate[]): RunOutcome {
   if (tasks.length === 0) return 'running'
-  if (!tasks.every(isTerminal)) return 'running'
-  return tasks.some((t) => t.status === 'failed') ? 'failed' : 'completed'
+  const held = gates === undefined ? new Set<string>() : heldBack(tasks, gates)
+  if (!tasks.every((t) => isTerminal(t) || held.has(t.id))) return 'running'
+  if (tasks.some((t) => t.status === 'failed')) return 'failed'
+  return held.size > 0 ? 'blocked' : 'completed'
 }
 
 /** 지금 일이 도는 Task 의 개수. 사이드바의 `+N` 과 두 화면(JobsView·RunDetail)의 머리 숫자가
@@ -129,7 +169,8 @@ export function runningRunCount(s: OrchState): number {
     // `runsRunning: 0` beside a coordinator planning a Task-less Run). That coordinator is the work in
     // flight: it plans and places. Not once the Run is paused (`runs stop` stopped it) or finished
     // (a manual Run keeps its coordinator for a grace after its Tasks end, and that is not work).
-    (run.coordinatorSessionId !== undefined && run.paused !== true && outcomeOf(s, run.id) === 'running') ||
+    // A Run waiting on its final check (`checking`) still has work in flight: the check
+    (run.coordinatorSessionId !== undefined && run.paused !== true && ['running', 'checking'].includes(outcomeOf(s, run.id))) ||
     s.tasks.some(
       (t) =>
         t.runId === run.id &&

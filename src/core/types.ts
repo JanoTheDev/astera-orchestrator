@@ -726,7 +726,14 @@ export interface RunDetailJournal {
  *  여기(web 포함 파일)에 선언하는 이유: JobRow 이 이 타입을 필드로 갖고, 그것을 계산하는
  *  core/orchestration/view.ts 는 node:path 를 끌고 와서 tsconfig.web.json 에 넣을 수 없다.
  *  그래서 타입은 이쪽이 선언하고 view.ts 가 가져간다 — TaskStatus 와 같은 방향이다. */
-export type RunOutcome = 'running' | 'completed' | 'failed'
+export type RunOutcome =
+  | 'running'
+  | 'completed'
+  | 'failed'
+  /** Every Task completed, and the final check (the completion replan) has not settled yet: not done until it adds nothing. */
+  | 'checking'
+  /** Finished with blocked Tasks: everything else ended, and Tasks held for the owner (and what waits on them) are left. */
+  | 'blocked'
 
 /** Jobs 목록의 한 줄. **도메인 타입이 아니라 화면이 읽는 모양이다** — view.ts 가 OrchState 에서
  *  계산해 내려보내고 저장되지 않는다.
