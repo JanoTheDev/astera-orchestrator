@@ -7575,6 +7575,7 @@ describe('fix round 1: what counts as running, and one coordinator per Run', () 
   const coordDeps = () => {
     const stopped: string[] = []
     const reasons: Array<string | undefined> = []
+    const closeReasons: Array<string | undefined> = []
     const logs: string[] = []
     const deps = makeDeps()
     const startCoordinator = vi.fn(async (a: { runId: string }) => ({ sessionId: `coord-${a.runId}` }))
@@ -7585,15 +7586,16 @@ describe('fix round 1: what counts as running, and one coordinator per Run', () 
       startCoordinator,
       enterCheckWait: (runId: string, sessionId: string) => waits.enter(runId, sessionId),
       coordinatorIdle: (runId: string, sessionId: string) => waits.parked(runId, sessionId),
-      stopCoordinator: async (sessionId: string, reason?: string) => {
+      stopCoordinator: async (sessionId: string, reason?: string, closeReason?: string) => {
         stopped.push(sessionId)
         reasons.push(reason)
+        closeReasons.push(closeReason)
       },
       log: (m: string) => {
         logs.push(m)
       }
     })
-    return Object.assign(deps, { startCoordinator, stopped, reasons, logs })
+    return Object.assign(deps, { startCoordinator, stopped, reasons, closeReasons, logs })
   }
   const scheduledJob = async (deps: OrchServerDeps): Promise<string> => {
     const r = await call(deps, 'run-create', {
@@ -8063,6 +8065,7 @@ describe('fix round 1: what counts as running, and one coordinator per Run', () 
     expect(run).not.toHaveProperty('coordinatorStartingAt')
     expect(deps.stopped).toEqual(['coord-mine'])
     expect(deps.reasons).toEqual(['another coordinator already manages its Run'])
+    expect(deps.closeReasons).toEqual(['replaced'])
     expect(deps.logs.join('\n')).toMatch(/coord-mine/)
   })
 

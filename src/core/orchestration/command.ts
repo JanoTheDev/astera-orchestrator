@@ -2178,7 +2178,7 @@ export async function handleCommand(
             `stopping the one this start opened (${sessionId})`
         )
         try {
-          if (deps.stopCoordinator) await deps.stopCoordinator(sessionId, 'another coordinator already manages its Run')
+          if (deps.stopCoordinator) await deps.stopCoordinator(sessionId, 'another coordinator already manages its Run', 'replaced')
           else deps.log?.(`coordinator ${sessionId} could not be stopped: nothing here can stop a session`)
         } catch (e) {
           deps.log?.(`coordinator ${sessionId} could not be stopped: ${String(e)}`)
