@@ -110,11 +110,14 @@ export interface SessionTracker {
   freeze(): void
   /** The writes queued so far, settled. */
   flushed(): Promise<void>
+  /** Drops a saved session still waiting to be restored: its respawn succeeded or failed for good. */
+  settle(sessionId: string): void
   /** Stops the poll. */
   dispose(): void
 }
 
-/** Keeps `file` equal to the registry's live agent sessions, starting from the ones live now. */
+/** Keeps `file` equal to the registry's live agent sessions, starting from the ones live now. `pending` (the saved
+ *  sessions a restore has yet to respawn) stay in every snapshot until settled, so a crash during restore loses none. */
 export function trackLiveSessions(d: {
   registry: Pick<PtyRegistry, 'list' | 'onMeta' | 'onExit' | 'metaOf' | 'sessionPty'>
   file: string
@@ -122,13 +125,16 @@ export function trackLiveSessions(d: {
   nativeIdOf(sessionId: string): Promise<string | null>
   log(m: string): void
   pollMs?: number
+  pending?: SavedSession[]
 }): SessionTracker {
   const live = new Map<string, SavedSession>()
+  const pending = new Map((d.pending ?? []).map((row) => [row.sessionId, row]))
   let frozen = false
   let queue: Promise<void> = Promise.resolve()
   const save = (): void => {
     if (frozen) return
-    const snapshot = JSON.stringify([...live.values()])
+    // A live row of the same id supersedes its pending one.
+    const snapshot = JSON.stringify([...new Map([...pending, ...live]).values()])
     const write = async (): Promise<void> => {
       await fs.mkdir(path.dirname(d.file), { recursive: true })
       const tmp = `${d.file}.${process.pid}.tmp`
@@ -173,6 +179,10 @@ export function trackLiveSessions(d: {
     freeze: () => {
       frozen = true
     },
+    settle: (sessionId) => {
+      if (!pending.delete(sessionId)) return
+      save()
+    },
     flushed: () => queue,
     dispose: () => clearInterval(timer)
   }
@@ -205,6 +215,8 @@ export interface RestoreDeps {
   }): Promise<{ id: string }>
   /** A command under the Host's own caller. */
   handle(cmd: string, args: Record<string, unknown>): Promise<{ status: number; body: unknown }>
+  /** Called once per saved row when its respawn has succeeded or failed for good (the tracker drops it then). */
+  settle?(sessionId: string): void
   log(m: string): void
 }
 
@@ -244,6 +256,8 @@ export async function restoreSessions(d: RestoreDeps): Promise<{ tabs: number; p
       tabs++
     } catch (err) {
       d.log(`session restore: ${row.sessionId} could not be resumed: ${String(err)}`)
+    } finally {
+      d.settle?.(row.sessionId)
     }
   }
   return { tabs, planners }

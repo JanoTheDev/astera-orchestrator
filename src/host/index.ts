@@ -1219,7 +1219,15 @@ async function main(): Promise<void> {
     (await hostSessions.agentSessionOf(sid).catch(() => null)) ?? savedSessions.find((x) => x.sessionId === sid)?.nativeSessionId ?? null
   if (wiring && spawner) {
     const starter = spawner
-    sessionTracker = trackLiveSessions({ registry, file: restoreFile, nativeIdOf: (sid) => hostSessions.agentSessionOf(sid), log: (m) => log.write(m) })
+    // The saved rows stay in the file until each one's respawn settles: a second crash during restore restores them again.
+    const tracker = trackLiveSessions({
+      registry,
+      file: restoreFile,
+      nativeIdOf: (sid) => hostSessions.agentSessionOf(sid),
+      log: (m) => log.write(m),
+      pending: savedSessions
+    })
+    sessionTracker = tracker
     if (savedSessions.length > 0) {
       log.write(`session restore: the last Host did not leave cleanly; bringing back ${savedSessions.length} session(s)`)
       void restoreSessions({
@@ -1228,6 +1236,7 @@ async function main(): Promise<void> {
         nativeIdOf,
         createSession: (o) => starter.createSession(o),
         handle: (cmd, args) => orch.handle(cmd, args),
+        settle: (sid) => tracker.settle(sid),
         log: (m) => log.write(m)
       }).then((r) => log.write(`session restore: resumed ${r.tabs} tab(s), ${r.planners} planner(s)`))
     }

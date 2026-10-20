@@ -103,6 +103,49 @@ describe('trackLiveSessions', () => {
     expect((await readSavedSessions(file))[0].nativeSessionId).toBe('claude-native')
     t.dispose()
   })
+
+  it('keeps the saved sessions a restore has not settled, and drops each once its respawn settles', async () => {
+    const file = sessionRestoreFileIn(dir)
+    const reg = fakeRegistry()
+    const saved: SavedSession[] = [
+      { sessionId: 'tab-a', accountId: 'acc_1', cwd: '/w/a', nativeSessionId: 'n-a' },
+      { sessionId: 'tab-b', accountId: 'acc_1', cwd: '/w/b', nativeSessionId: 'n-b' }
+    ]
+    const t = trackLiveSessions({ registry: reg, file, nativeIdOf: async () => null, log: () => {}, pollMs: 60_000, pending: saved })
+    await t.flushed()
+    // A crash here, before any respawn registers, must still find both
+    expect(await readSavedSessions(file)).toEqual(saved)
+
+    let finishFirst!: (v: { id: string }) => void
+    const created: string[] = []
+    const restore = restoreSessions({
+      saved,
+      state: null,
+      nativeIdOf: async () => null,
+      createSession: (o) => {
+        created.push(o.resumeSessionId)
+        if (o.resumeSessionId === 'n-a') return new Promise((resolve) => (finishFirst = resolve))
+        return Promise.reject(new Error('no such conversation'))
+      },
+      handle: async () => ({ status: 404, body: null }),
+      settle: (sid) => t.settle(sid),
+      log: () => {}
+    })
+    await new Promise((r) => setTimeout(r, 5))
+    await t.flushed()
+    expect(created).toEqual(['n-a'])
+    expect((await readSavedSessions(file)).map((x) => x.sessionId)).toEqual(['tab-a', 'tab-b'])
+
+    // The first respawn registers its new pty, then resolves: its saved row goes, the live row stays
+    reg.open('pty-new', meta('new-a', { accountId: 'acc_1', cwd: '/w/a', codexSessionId: 'n-a' }))
+    finishFirst({ id: 'new-a' })
+    await restore
+    await t.flushed()
+    expect(await readSavedSessions(file)).toEqual([
+      { sessionId: 'new-a', accountId: 'acc_1', cwd: '/w/a', nativeSessionId: 'n-a' }
+    ])
+    t.dispose()
+  })
 })
 
 describe('readSavedSessions / sessionsLeftBehind', () => {
