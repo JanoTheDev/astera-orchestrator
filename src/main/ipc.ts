@@ -251,7 +251,7 @@ import { goneWorktreeProjects } from '../core/worktrees/hiddenHistory'
 import { deleteProjectHistory } from './historyDeletion'
 import { removeWorktree } from '../core/worktrees/remove'
 import { cleanRows, worktreeRows } from '../core/worktrees/cleanupRun'
-import { worktreeDetail, worktreeFileDiff } from '../core/worktrees/detail'
+import { worktreeDetail, worktreeFileDiff, workingFileDiff } from '../core/worktrees/detail'
 import { listWithStatus } from '../core/worktrees/list'
 import { PresenceCache, PRESENCE_SWEEP_MS } from '../core/worktrees/presence'
 import { probeLog } from '../core/sessions/pathProbe'
@@ -5692,6 +5692,13 @@ export function registerIpc(
     await gitWatcher.watch(root)
   })
   ipcMain.handle('git.unwatch', () => gitWatcher.unwatch())
+  // The Files page's Changed view: one changed file's diff, by its path under root (null: no diff, e.g. an untracked file).
+  ipcMain.handle('git.fileDiff', async (_e, root: string, file: string) => {
+    await assertAllowedPath(root)
+    if (typeof file !== 'string' || !isPathWithin(root, file)) return null
+    const w = core.worktrees.list().find((x) => isSamePath(x.path, root))
+    return workingFileDiff(root, path.relative(root, file).split(path.sep).join('/'), w?.baseRef ?? null)
+  })
 
   // ---- File operations. Validation runs a second time through the same pure module the renderer uses
   // (ops.ts) — this is a trust boundary.

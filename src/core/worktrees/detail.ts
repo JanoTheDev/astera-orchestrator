@@ -43,3 +43,11 @@ export async function worktreeFileDiff(path: string, base: string, fileId: strin
   const f = (await readChanges(path, from, 'HEAD'))?.find((x) => x.id === fileId)
   return f ? readFileDiff(path, from, 'HEAD', f) : null
 }
+
+/** One file's diff against the working tree: against the fork point of `baseRef` for a plan's worktree, against HEAD
+ *  otherwise. Uncommitted edits, commits since the base and deleted files all come in one diff (head=null). */
+export async function workingFileDiff(root: string, relPath: string, baseRef: string | null): Promise<{ diff: string; truncated: boolean } | null> {
+  const from = baseRef ? await forkPoint(root, baseRef) : 'HEAD'
+  const f = (await readChanges(root, from, null))?.find((x) => x.path === relPath)
+  return f ? readFileDiff(root, from, null, f) : null
+}

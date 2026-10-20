@@ -34,7 +34,8 @@ import { useI18n } from '../i18n/I18nProvider'
 import type { UndoEntry } from '../../../core/files/undo'
 import { runnableKindForFile } from '../../../core/run/runFile'
 import { ChevronsDownUp, FilePlus, FolderOpen, FolderPlus, RefreshCw, X } from 'lucide-react'
-import { EmptyState, IconButton } from './ui'
+import { EmptyState, IconButton, Tabs } from './ui'
+import { ChangedList } from './ChangedList'
 import { deleteKey, isMac, modKey } from '../lib/platformKeys'
 import { isWindowsPath, revealFor, treeKeysTo, type FolderReveal } from '../lib/folderLink'
 
@@ -110,6 +111,8 @@ export function FileExplorer({
   // entry=null means a right-click on the root's empty space (a menu targeting the root)
   // Whether the Local History modal is open. The history is per-project, so it is unrelated to entry.
   const [historyOpen, setHistoryOpen] = useState(false)
+  // All = the tree; Changed = the flat list of changed files (ChangedList). The tree stays mounted-state-wise untouched.
+  const [view, setView] = useState<'all' | 'changed'>('all')
 
   /** Paths currently being dragged. Why a ref instead of dataTransfer: during dragover the contents of
    *  dataTransfer cannot be read (for security only the types are exposed), so canMove cannot decide
@@ -933,6 +936,19 @@ export function FileExplorer({
       )}
       {/* A delete or paste past OP_STATUS_DELAY_MS: what it is doing and how many entries so far */}
       <FileOpStatusLine status={ops.opStatus} />
+      <Tabs
+        variant="segmented"
+        label={t('explorer.title')}
+        value={view}
+        onChange={setView}
+        items={[
+          { id: 'all', label: t('explorer.view.all') },
+          { id: 'changed', label: t('explorer.view.changed'), count: view === 'changed' ? undefined : Object.keys(gitStatus.fileState).length }
+        ]}
+      />
+      {view === 'changed' ? (
+        <ChangedList root={root} gitStatus={gitStatus} onOpenFile={onOpenFile} />
+      ) : (
       <div
         className={`fx-tree${gitStatus.stale ? ' git-stale' : ''}`}
         ref={treeRef}
@@ -989,6 +1005,7 @@ export function FileExplorer({
           {drawn.map((i) => renderRow(rows[i], offsets[i], offsets[i + 1] - offsets[i]))}
         </div>
       </div>
+      )}
       {menu && (
         <ContextMenu x={menu.x} y={menu.y} items={menuItemsFor(menu.entry)} onClose={() => setMenu(null)} />
       )}

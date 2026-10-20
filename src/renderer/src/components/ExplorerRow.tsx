@@ -23,13 +23,13 @@ export interface RowActions {
 }
 
 // git status → display letter and tooltip key. The letters are language-neutral, so they are not translated.
-const GIT_MARK: Record<GitState, string> = {
+export const GIT_MARK: Record<GitState, string> = {
   new: 'U',
   modified: 'M',
   deleted: 'D',
   conflict: 'C'
 }
-const GIT_LABEL: Record<
+export const GIT_LABEL: Record<
   GitState,
   'explorer.git.new' | 'explorer.git.modified' | 'explorer.git.deleted' | 'explorer.git.conflict'
 > = {

@@ -691,6 +691,9 @@ export const ja: Catalog = {
   'explorer.git.conflict': '競合',
   'explorer.git.folderCount': '変更 {count} 件',
   'explorer.git.unavailable': 'git の状態を確認できません — 前回の結果を表示しています',
+  'explorer.view.all': 'すべて',
+  'explorer.view.changed': '変更あり',
+  'explorer.changed.empty': '変更はありません',
   // WorkbenchTabs.tsx — the dirty marker on a file tab
   'explorer.tab.unsaved': '未保存',
   'explorer.find.placeholder': 'ファイル内を検索',
