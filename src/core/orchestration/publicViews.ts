@@ -69,3 +69,13 @@ export const briefTask = (t: Task): Record<string, unknown> => {
   const spec = t.spec.replace(/\s+/g, ' ')
   return { ...t, spec: spec.slice(0, BRIEF_SPEC_CHARS), spec_truncated: spec.length > BRIEF_SPEC_CHARS }
 }
+
+/** `questions list --brief`: the question and its resolution each on one line, cut at the brief spec's length. A
+ *  question has no field for the mark of the cut (the public fields are fixed), so a cut text ends in `…`. */
+export const briefQuestion = <Q extends { question: string; resolution?: string }>(q: Q): Q => {
+  const cut = (text: string): string => {
+    const line = text.replace(/\s+/g, ' ')
+    return line.length > BRIEF_SPEC_CHARS ? `${line.slice(0, BRIEF_SPEC_CHARS)}…` : line
+  }
+  return { ...q, question: cut(q.question), ...(typeof q.resolution === 'string' ? { resolution: cut(q.resolution) } : {}) }
+}

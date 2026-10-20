@@ -1147,6 +1147,15 @@ describe('handleCommand — inbox는 코디네이터 전용', () => {
     expect((await call(deps, 'questions-get', { id: qid }, '')).body).toMatchObject({ id: qid, source: 'ask' })
     const r = await call(deps, 'questions-answer', { id: qid, answer: '-$1.50' }, '')
     expect(r.body).toMatchObject({ id: qid, status: 'resolved', resolution: '-$1.50' })
+    // --brief, --fields and paging, as on tasks list
+    expect((await call(deps, 'questions-list', { fields: 'id,status', limit: 1 }, '')).body).toEqual({
+      questions: [{ id: qid, status: 'resolved' }],
+      total: 1,
+      offset: 0,
+      limit: 1
+    })
+    expect((await call(deps, 'questions-list', { fields: 'body' }, '')).body).toMatchObject({ error: expect.stringContaining('the fields are id, runId, taskId, question') })
+    expect((await call(deps, 'questions-list', { brief: true }, '')).body).toMatchObject([{ id: qid, question: '-$1.50 or $-1.50?' }])
     // The worker's resumed wait gets the answer, and the coordinator's inbox has the owner's copy
     expect((await call(deps, 'ask', { resume: qid, timeoutMs: 1 }, 'sess1')).body).toMatchObject({ answered: true, answer: '-$1.50' })
     expect(deps.getState().messages.find((m) => m.type === 'status' && m.replyTo === qid)).toMatchObject({ subject: 'the owner answered', body: '-$1.50' })
@@ -1621,6 +1630,35 @@ describe('handleCommand — tasks list --ready', () => {
     const list = r.body as { spec: string; spec_truncated: boolean }[]
     expect(list[0].spec.length).toBe(160)
     expect(list[0].spec_truncated).toBe(true)
+  })
+
+  const fiveTasks = async (): Promise<ReturnType<typeof makeDeps>> => {
+    const deps = makeDeps()
+    const run = await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p' })
+    for (const title of ['a', 'b', 'c', 'd', 'e'])
+      await call(deps, 'task-create', { account: 'acc1', runId: (run.body as { id: string }).id, title, spec: 's' })
+    return deps
+  }
+
+  it('--fields keeps only the named fields of each row', async () => {
+    const deps = await fiveTasks()
+    const r = await call(deps, 'tasks-list', { fields: 'title,status' })
+    expect(r.body).toEqual(['a', 'b', 'c', 'd', 'e'].map((title) => ({ title, status: 'ready' })))
+  })
+
+  it('--fields with a field that is not public is a 400 naming the valid ones', async () => {
+    const deps = await fiveTasks()
+    const r = await call(deps, 'tasks-list', { fields: 'title,prompt' })
+    expect(r.status).toBe(400)
+    expect((r.body as { error: string }).error).toMatch(/has no field prompt; the fields are id, runId, jobId, title, spec/)
+  })
+
+  it('--limit and --offset take one page and carry the total', async () => {
+    const deps = await fiveTasks()
+    const r = await call(deps, 'tasks-list', { limit: 2, offset: '2', fields: 'title' })
+    expect(r.body).toEqual({ tasks: [{ title: 'c' }, { title: 'd' }], total: 5, offset: 2, limit: 2 })
+    expect((await call(deps, 'tasks-list', { offset: '4' })).body).toMatchObject({ tasks: [{ title: 'e' }], total: 5, offset: 4, limit: null })
+    expect((await call(deps, 'tasks-list', { limit: 0 })).status).toBe(400)
   })
 })
 

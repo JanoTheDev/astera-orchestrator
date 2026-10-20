@@ -8,9 +8,18 @@ import * as pkg from '../../../packages/client/src/internal.js'
 // The behaviour of publicFor is tested with its code in the SDK package (packages/client/src/shape.test.ts). The CLI
 // and MCP call this module's publicFor, so it has to be that one.
 describe('cliPublic re-exports the package', () => {
-  it('publicFor and publicEvent are the package ones', () => {
-    expect(publicFor).toBe(pkg.publicFor)
+  it('publicEvent is the package one, and publicFor answers as the package one for anything but a page', () => {
     expect(publicEvent).toBe(pkg.publicEvent)
+    const task = { id: 't1', title: 't', prompt: 'held back' }
+    expect(publicFor('tasks-list', [task])).toEqual(pkg.publicFor('tasks-list', [task]))
+    expect(publicFor('jobs-get', { id: 'j1', models: {} })).toEqual(pkg.publicFor('jobs-get', { id: 'j1', models: {} }))
+  })
+
+  it('a paged list read keeps its counts and shapes its rows', () => {
+    const page = { tasks: [{ id: 't1', prompt: 'held back' }], total: 9, offset: 0, limit: 1 }
+    expect(publicFor('tasks-list', page)).toEqual({ tasks: [{ id: 't1' }], total: 9, offset: 0, limit: 1 })
+    const questions = { questions: [{ id: 'q1', reason: 'held back' }], total: 1, offset: 0, limit: null }
+    expect(publicFor('questions-list', questions)).toEqual({ questions: [{ id: 'q1' }], total: 1, offset: 0, limit: null })
   })
 })
 

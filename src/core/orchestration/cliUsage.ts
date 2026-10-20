@@ -72,6 +72,12 @@ export interface CommandUsage {
 }
 
 const ID = (value: string, about: string): UsageFlag => ({ name: 'id', value, required: true, about })
+/** `tasks list` and `questions list`: only some fields, and one page with the total (command.ts listReply). */
+const LIST_PAGE_FLAGS: UsageFlag[] = [
+  { name: 'fields', value: '<a,b,…>', about: 'only these fields of each row (an unknown one is 2 and lists them)' },
+  { name: 'limit', value: '<n>', about: 'at most n rows; the reply then carries total, offset and limit' },
+  { name: 'offset', value: '<n>', about: 'skip the first n rows (default 0); the reply then carries total' }
+]
 
 const TIMEOUT: UsageFlag = {
   name: 'timeout-ms',
@@ -590,7 +596,8 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       },
       { name: 'status', value: '<s>', about: 'only tasks in this status' },
       { name: 'ready', about: 'only tasks that are ready to be picked up' },
-      { name: 'brief', about: 'cut each spec to 160 characters' }
+      { name: 'brief', about: 'cut each spec to 160 characters' },
+      ...LIST_PAGE_FLAGS
     ]
   },
   // W3-C search and inbox
@@ -663,7 +670,9 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
     flags: [
       { name: 'run', value: '<runId>', about: 'only the questions of this run (an unknown run is 4)' },
       { name: 'task', value: '<taskId>', about: 'only the questions of this task' },
-      { name: 'status', value: '<open|resolved>', about: 'only questions in this state (any other value is 2)' }
+      { name: 'status', value: '<open|resolved>', about: 'only questions in this state (any other value is 2)' },
+      { name: 'brief', about: 'each question and resolution on one line, cut to 160 characters' },
+      ...LIST_PAGE_FLAGS
     ]
   },
   'questions-get': {

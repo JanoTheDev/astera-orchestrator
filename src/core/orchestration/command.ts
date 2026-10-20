@@ -8,8 +8,8 @@
 // — the app's loopback HTTP server was removed once nothing reached it any more (§7). Nothing here
 // knows whether a dependency is answered locally or across a socket, which is what lets the same
 // command layer run in both places.
-import { FOLLOW_WINDOW_MS, type AnsweredQuestion, type StopResult, type WaitEnding, type WaitTimeout } from '../publicContract'
-import { briefTask, jobView, latestRunOf, runView } from './publicViews'
+import { FOLLOW_WINDOW_MS, QUESTION_FIELDS, TASK_FIELDS, type AnsweredQuestion, type StopResult, type WaitEnding, type WaitTimeout } from '../publicContract'
+import { briefQuestion, briefTask, jobView, latestRunOf, runView } from './publicViews'
 // W8-C plan after plan
 import { afterNameOf, afterRefusal, afterSweep, jobDelivered } from './after'
 import { lastByState } from './stateMemo'
@@ -883,6 +883,30 @@ const boundedInt = (v: unknown, name: string, min: number, max: number, fallback
   return v
 }
 const bad = (msg: string): Reply => ({ status: 400, body: { error: msg } })
+/**
+ * The end of a list read (`tasks list`, `questions list`): `--fields` keeps only the named fields of each row, and
+ * `--limit`/`--offset` take one page. Paged, the reply is `{ <key>: page, total, offset, limit }` so a caller knows
+ * there is more; without either flag it stays the plain list every other reader (the app, MCP) gets. `valid` is the
+ * public field list, the only fields a CLI reply carries, so an unknown name is a 400 that lists them.
+ */
+const listReply = (key: string, rows: readonly object[], args: Record<string, unknown>, valid: readonly string[]): Reply => {
+  // --limit arrives a number (cliArgs NUMERIC), --offset as the text typed
+  const asInt = (v: unknown): unknown => (typeof v === 'string' && /^\d+$/.test(v) ? Number(v) : v)
+  const offset = boundedInt(asInt(args.offset), 'offset', 0, Number.MAX_SAFE_INTEGER, 0)
+  const limit = boundedInt(asInt(args.limit), 'limit', 1, Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER)
+  if (typeof offset === 'string') return bad(offset)
+  if (typeof limit === 'string') return bad(limit)
+  const paged = args.limit !== undefined || args.offset !== undefined
+  let out = (paged ? rows.slice(offset, offset + limit) : rows) as Array<Record<string, unknown>>
+  if (args.fields !== undefined) {
+    const names = typeof args.fields === 'string' ? args.fields.split(',').map((f) => f.trim()).filter((f) => f !== '') : []
+    const unknown = names.filter((n) => !valid.includes(n))
+    if (names.length === 0 || unknown.length > 0)
+      return bad(`--fields ${names.length === 0 ? 'needs a comma-separated list' : `has no field ${unknown.join(', ')}`}; the fields are ${valid.join(', ')}`)
+    out = out.map((r) => Object.fromEntries(names.filter((n) => Object.hasOwn(r, n)).map((n) => [n, r[n]])))
+  }
+  return okBody(paged ? { [key]: out, total: rows.length, offset, limit: args.limit === undefined ? null : limit } : out)
+}
 /** 지목한 것이 없다. **400 과 가르는 이유는 CLI 다** — 스크립트가 "인자를 잘못 줬다"(exit 2)와
  *  "그런 id 가 없다"(exit 4)를 구별할 수 있어야 한다(공개 CLI 설계 §8). 그 전에는 둘 다 400 이라
  *  부르는 쪽이 문구를 읽어야 알 수 있었다. */
@@ -4226,8 +4250,8 @@ export async function handleCommand(
       if (run) tasks = tasks.filter((t) => (byJob ? t.jobId === run : t.runId === run))
       if (str(args.status)) tasks = tasks.filter((t) => t.status === args.status)
       if (args.ready === true) tasks = tasks.filter((t) => t.status === 'ready')
-      if (args.brief === true) return okBody(tasks.map(briefTask))
-      return okBody(tasks)
+      // spec_truncated is --brief's mark of a cut spec (publicViews.ts)
+      return listReply('tasks', args.brief === true ? tasks.map(briefTask) : tasks, args, [...TASK_FIELDS, 'spec_truncated'])
     }
     case 'task-update': {
       const id = str(args.id)
@@ -5474,7 +5498,7 @@ export async function handleCommand(
       const status = enumFilter('status', args.status, ['open', 'resolved'] as const)
       if ('error' in status) return bad(status.error)
       if (status.value !== undefined) gates = gates.filter((g) => g.status === status.value)
-      return okBody(gates)
+      return listReply('questions', args.brief === true ? gates.map(briefQuestion) : gates, args, QUESTION_FIELDS)
     }
     // **오케스트레이터가 거기 있는가, 그리고 무엇이 돌고 있는가**(공개 CLI 설계 §5). 이 명령에
     // 닿았다는 것이 이미 "Host 가 있다" 의 답이다 — 없으면 CLI 가 접속에서 걸리거나(HOST_NOT_RUNNING)
