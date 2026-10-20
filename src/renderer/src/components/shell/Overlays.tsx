@@ -1,5 +1,4 @@
 // Moved out of App.tsx unchanged (W9-A): the JSX is App's, the values come from App's state hooks.
-import { NewRunModal } from '../NewRunModal'
 import { SourceJobModal } from '../SourceJobModal'
 import { NewSessionDialog } from '../NewSessionDialog'
 import { RemoteSessionsDialog } from '../RemoteSessionsDialog'
@@ -31,17 +30,17 @@ export type OverlaysProps = Pick<
   'autoCloseEndedPlanTabs' | 'browserTabsRef' | 'cli' | 'cliInstallStatus' | 'closeWorkbenchTab' | 'commandOpen' |
   'currentProject' | 'defaultSessionKind' | 'firstPlan' | 'firstRunAsked' | 'homeDir' |
   'hostHolding' | 'hostRestarting' | 'hostStatus' | 'installUpdate' | 'jobsRuntime' | 'keyOverrides' | 'layout' |
-  'layoutRef' | 'managerFor' | 'managerInitialSelectedId' | 'newRunOpen' | 'newSessionCwd' | 'openLinkedFolder' |
+  'layoutRef' | 'managerFor' | 'managerInitialSelectedId' | 'newSessionCwd' | 'openLinkedFolder' |
   'openRemoteSession' | 'openWorkspacePlan' | 'openWorkspaceProject' | 'orchSnapshot' | 'pairedRuntimes' |
-  'pendingSplitRef' | 'projectAnchor' | 'projectDialog' | 'remoteAccounts' | 'remoteDialog' | 'remoteNewRunOpen' |
+  'pendingSplitRef' | 'projectAnchor' | 'projectDialog' | 'remoteAccounts' | 'remoteDialog' |
   'remoteProject' | 'remoteProjects' | 'remoteReadOnly' | 'remoteSessions' | 'remoteSnapshot' | 'remoteViewDoor' |
   'restartHost' | 'runManagerApply' | 'runningCount' | 'selectWorkbenchTab' | 'setActivePaneId' |
   'setAgentAppEnabled' | 'setAgentBrowserEnabled' | 'setAgentYolo' | 'setAutoCloseEndedPlanTabs' |
   'setCheckClickedAt' | 'setCli' | 'setCliInstallStatus' | 'setCliInstalled' | 'setCommandOpen' |
   'setDefaultSessionKind' | 'setDetail' | 'setFirstPlan' | 'setFirstRunAsked' |
-  'setKeyOverrides' | 'setLang' | 'setLayout' | 'setManagerFor' | 'setManagerInitialSelectedId' | 'setNewRunOpen' |
+  'setKeyOverrides' | 'setLang' | 'setLayout' | 'setManagerFor' | 'setManagerInitialSelectedId' |
   'setNewSessionCwd' | 'setOpenRun' | 'setPairedChanged' | 'setProjectDialog' | 'setProjectsRefresh' |
-  'setRemoteDialog' | 'setRemoteNewRunOpen' | 'setRenamingTabId' | 'setSettingsTab' | 'setShowNew' | 'settingsAnchor' | 'setSettingsAnchor' |
+  'setRemoteDialog' | 'setRenamingTabId' | 'setSettingsTab' | 'setShowNew' | 'settingsAnchor' | 'setSettingsAnchor' |
   'setShowSettings' | 'setSourceJobOpen' | 'setTabMenu' | 'setWorkUnitTrackingEnabled' | 'setWorkspaceScope' |
   'setWtRoot' | 'settingsTab' | 'settingsTouched' | 'showNew' | 'showSettings' | 'sourceJobOpen' | 'spawn' |
   'stopRemoteSession' | 'storedLang' | 'systemLang' | 't' | 'tabMenu' | 'talkSignal' | 'unsplitPane' | 'update' |
@@ -56,15 +55,15 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
     autoCloseEndedPlanTabs, browserTabsRef, cli, cliInstallStatus, closeWorkbenchTab, commandOpen, currentProject,
     defaultSessionKind, firstPlan, firstRunAsked, homeDir, hostHolding, hostRestarting,
     hostStatus, installUpdate, jobsRuntime, keyOverrides, layout, layoutRef, managerFor, managerInitialSelectedId,
-    newRunOpen, newSessionCwd, openLinkedFolder, openRemoteSession, openWorkspacePlan, openWorkspaceProject,
+    newSessionCwd, openLinkedFolder, openRemoteSession, openWorkspacePlan, openWorkspaceProject,
     orchSnapshot, pairedRuntimes, pendingSplitRef, projectAnchor, projectDialog, remoteAccounts, remoteDialog,
-    remoteNewRunOpen, remoteProject, remoteProjects, remoteReadOnly, remoteSessions, remoteSnapshot, remoteViewDoor,
+    remoteProject, remoteProjects, remoteReadOnly, remoteSessions, remoteSnapshot, remoteViewDoor,
     restartHost, runManagerApply, runningCount, selectWorkbenchTab, setActivePaneId, setAgentAppEnabled,
     setAgentBrowserEnabled, setAgentYolo, setAutoCloseEndedPlanTabs, setCheckClickedAt, setCli, setCliInstallStatus,
     setCliInstalled, setCommandOpen, setDefaultSessionKind, setDetail, setFirstPlan, setFirstRunAsked,
     setKeyOverrides, setLang, setLayout, setManagerFor, setManagerInitialSelectedId,
-    setNewRunOpen, setNewSessionCwd, setOpenRun, setPairedChanged, setProjectDialog, setProjectsRefresh,
-    setRemoteDialog, setRemoteNewRunOpen, setRenamingTabId, setSettingsTab, setShowNew, setShowSettings,
+    setNewSessionCwd, setOpenRun, setPairedChanged, setProjectDialog, setProjectsRefresh,
+    setRemoteDialog, setRenamingTabId, setSettingsTab, setShowNew, setShowSettings,
     setSourceJobOpen, setTabMenu, setWorkUnitTrackingEnabled, setWorkspaceScope, setWtRoot, settingsTab,
     settingsTouched, showNew, showSettings, sourceJobOpen, spawn, stopRemoteSession, storedLang, systemLang, t,
     tabMenu, talkSignal, unsplitPane, update, updateChecking, workUnitTrackingEnabled, workspaceCwd, workspaceData,
@@ -232,28 +231,6 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
         />
       )}
       {/* W9-C: RunDetail's window is the plan page now (components/pages/PlanPage.tsx, mounted by PlansPage) */}
-      {/* currentProject 가 있을 때만 그린다 — 없으면 run-create 에 넘길 cwd 가 없어 만들 자리가
-          없다. **Jobs 사이드바 자체는 currentProject 없이도 열린다** — 프로젝트가 없으면
-          orchSnapshot 이 `{ runs: [] }` 로 채워져(그 effect 의 `currentProject === null ? { runs: [] } : null`) 빈 상태가 그려진다. "프로젝트 없이
-          이 값이 true 가 되는" 사고는 그 빈 상태의 "+ 새 작업" 버튼과 onNewRun 콜백 쪽에서 이미
-          막아 두었다(JobsView 의 hasProject, 바로 위 onNewRun) — currentProject 없이는 newRunOpen
-          자체가 true 가 되지 않으므로 이 조건은 실제로는 걸리지 않지만, 렌더 자리를 currentProject
-          와 별개로 옮기지 않기 위해 남겨 둔다. */}
-      {remoteNewRunOpen && remoteViewDoor && (
-        // A new Job on the paired Runtime, in its project's own folder there (never a path on this computer); none
-        // under "Unregistered folders" (remoteNewJobFolder).
-        <NewRunModal
-          door={remoteViewDoor}
-          cwd={remoteNewJobFolder(remoteProjects, remoteProject)}
-          projectFolderBusy={remoteSnapshot?.projectFolderBusy ?? false}
-          accounts={remoteAccounts}
-          onClose={() => setRemoteNewRunOpen(false)}
-          onCreated={(runId) => {
-            setRemoteNewRunOpen(false)
-            if (remoteProject) setOpenRun({ projectPath: remoteProject, runId, runtimeId: jobsRuntime })
-          }}
-        />
-      )}
       {/* W7-B project dialogs */}
       {projectAnchor && projectDialog === 'new' && (
         <NewProjectDialog
@@ -293,12 +270,6 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
           }}
           onOpenConsole={() => setShowNew(true)}
           onOtherSources={() => setSourceJobOpen(startShown.cwd)}
-          // T2: schedules keep the older form; Start closes so the plan made there opens
-          onSchedule={() => {
-            setFirstPlan(null)
-            openStart(null)
-            setNewRunOpen(true)
-          }}
         />
       )}
       {newOpen && (
@@ -344,22 +315,6 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
           }
         }}
       />
-      {newRunOpen && currentProject && (
-        <NewRunModal
-          door={localDoor(window.api, currentProject)}
-          cwd={currentProject}
-          // 스냅숏이 이미 프로젝트별로 접혀 오므로 폴더 사실이 앉을 자리가 그것이다(view.ts).
-          // 아직 안 왔으면 거짓 — 없는 것을 경고하는 것보다 낫다
-          projectFolderBusy={orchSnapshot?.projectFolderBusy ?? false}
-          accounts={accounts}
-          onClose={() => setNewRunOpen(false)}
-          onCreated={(runId) => {
-            setNewRunOpen(false)
-            // 만들자마자 상세 창을 열어 Task 를 짤 수 있게 한다 — onOpenRun 이 하는 것과 같은 짝
-            setOpenRun({ projectPath: currentProject, runId })
-          }}
-        />
-      )}
       {sourceJobOpen !== null && (
         <SourceJobModal
           projectPath={sourceJobOpen}
@@ -368,7 +323,7 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
           onCreated={(jobId) => {
             const project = sourceJobOpen
             setSourceJobOpen(null)
-            // As NewRunModal's: the Job made opens at once (plan P5)
+            // The Job made opens at once (plan P5)
             setOpenRun({ projectPath: project, runId: jobId })
           }}
           onOpenJob={(jobId) => {

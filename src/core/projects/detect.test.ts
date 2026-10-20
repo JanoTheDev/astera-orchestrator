@@ -4,7 +4,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { inspectFolder, proposeTestCommand, TEST_CONFIG_ID, withTestCommand } from './detect'
+import { inspectFolder, mainRepoRoot, proposeTestCommand, TEST_CONFIG_ID, withTestCommand } from './detect'
 import { git } from '../worktrees/git'
 import type { RunConfig } from '../run/config'
 
@@ -79,6 +79,22 @@ describe('inspectFolder', () => {
     // the temp dir may sit behind a symlink (macOS /var): compare with what git itself reports
     const top = (await git(['rev-parse', '--show-toplevel'], { cwd: dir })).stdout
     expect(report).toEqual({ root: path.resolve(top), hasCommit: true, defaultBranch: 'main', proposedTest: 'pnpm test' })
+  })
+
+  // T3: only the repository itself becomes a project, never a subfolder or a linked worktree of it
+  it('mainRepoRoot answers the main worktree for a subfolder and a .claude/worktrees linked worktree', async () => {
+    await run(dir, ['init', '-b', 'main'])
+    await fs.mkdir(path.join(dir, 'src', 'deep'), { recursive: true })
+    await fs.writeFile(path.join(dir, 'src', 'deep', 'a.txt'), 'a')
+    await run(dir, ['add', '-A'])
+    await run(dir, ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-m', 'one'])
+    await run(dir, ['worktree', 'add', '-b', 'x', path.join('.claude', 'worktrees', 'x')])
+    const top = path.resolve((await git(['rev-parse', '--show-toplevel'], { cwd: dir })).stdout)
+    expect(await mainRepoRoot(dir)).toBe(top)
+    expect(await mainRepoRoot(path.join(dir, 'src', 'deep'))).toBe(top)
+    expect(await mainRepoRoot(path.join(dir, '.claude', 'worktrees', 'x'))).toBe(top)
+    expect(await mainRepoRoot(path.join(dir, '.claude', 'worktrees', 'x', 'src'))).toBe(top)
+    expect((await inspectFolder(path.join(dir, '.claude', 'worktrees', 'x')))?.root).toBe(top)
   })
 })
 

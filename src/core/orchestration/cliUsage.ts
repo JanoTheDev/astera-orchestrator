@@ -108,6 +108,8 @@ const INTAKE_FLAGS: readonly UsageFlag[] = [
 const JOB_MAKING_FLAGS: readonly UsageFlag[] = [
   { name: 'concurrency', value: '<n>', about: 'how many workers this Job places at once (1-10; more reads as 10)' },
   { name: 'priority', value: '<n>', about: 'which Job gets a free slot first when the app-wide worker cap is reached (higher first, default 0)' },
+  // T1 chat-first planning
+  { name: 'planning', value: '<chat|auto>', about: "how the planner works: chat brainstorms with you in its terminal (it may start with no objective), auto decides alone and records its decisions (default chat; auto when hands-off or made by an agent session)" },
   // W6-D wave replanning
   { name: 'replan', value: '<waves|off>', about: 'whether a planned Job is replanned between waves and checked once more at the end (default waves)' },
   {
@@ -311,15 +313,28 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
     flags: [SOURCE, ITEM, SOURCE_PROJECT]
   },
 
-  'projects-list': { summary: 'every project registered in the app' },
+  'projects-list': { summary: 'every project registered in the app (a sub-project carries its workspace as parentId)' },
   'projects-add': {
-    summary: 'register a folder of this machine as a project',
+    summary: 'register a folder of this machine as a project, or add a sub-project to a workspace',
     detail:
-      'For the person at this machine, or a script on it: a remote controller cannot, nor an agent session (ASTERA_SESSION is set; refused with 5). The path is an existing git repository folder that is not a worktree (a relative path is taken from the shell folder). A repository with no commit is refused (409 needsInitialCommit) unless --initial-commit makes one. The answer carries the proposed test command and records the default branch. Adding a folder already registered answers that project.',
+      'For the person at this machine, or a script on it: a remote controller cannot, nor an agent session (ASTERA_SESSION is set; refused with 5). The path is an existing git repository folder that is not a worktree (a relative path is taken from the shell folder); a subfolder or a linked worktree registers the repository itself. A repository with no commit is refused (409 needsInitialCommit) unless --initial-commit makes one. The answer carries the proposed test command and records the default branch. Adding a folder already registered answers that project. ' +
+      // T3 workspaces
+      'With --parent <projectId> --name <name> (and no --path) it adds a sub-project to that workspace instead: the same repository under its own name, whose plans share the workspace\'s file guard, leases and overlap checks; a name the workspace already has answers that sub-project. A sub-project reads every setting it leaves unset from its workspace.',
     flags: [
-      { name: 'path', value: '<path>', required: true, about: 'the folder to register' },
-      { name: 'initial-commit', about: 'make the first commit when the repository has none' }
+      { name: 'path', value: '<path>', about: 'the folder to register (required without --parent)' },
+      { name: 'initial-commit', about: 'make the first commit when the repository has none' },
+      // T3 workspaces
+      { name: 'parent', value: '<projectId>', about: 'add a sub-project to this workspace (a root project) instead of a folder' },
+      { name: 'name', value: '<name>', about: 'the sub-project name (with --parent)' },
+      { name: 'focus', value: '<a,b>', about: 'folders the sub-project usually works in, comma-separated (with --parent)' }
     ]
+  },
+  // T3 workspaces (projects.ts `removeProject`)
+  'projects-remove': {
+    summary: 'unregister a project; its folder and plans are not touched',
+    detail:
+      'Refused (CONFLICT, exit 6) while the project has a plan that is not archived, and for a workspace that still has sub-projects: remove those first; removing one project never removes another. Refused from an agent session and an MCP client.',
+    flags: [ID('<projectId>', 'the project to unregister')]
   },
   // W7-B
   'projects-create': {
@@ -357,7 +372,9 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       { name: 'replan', value: '<waves|off>', about: 'replan between waves (default: waves)' },
       { name: 'account', value: '<id>', about: 'the account the project uses' },
       // W10-A
-      { name: 'prompts-dir', value: '<path|none>', about: 'the folder (in the repository) whose <id>-*.md files Run as written finds by name; none clears it' }
+      { name: 'prompts-dir', value: '<path|none>', about: 'the folder (in the repository) whose <id>-*.md files Run as written finds by name; none clears it' },
+      // T3 workspaces
+      { name: 'auto-projects', value: '<on|off>', about: 'file each plan under a sub-project named after its first area, created when missing (default on)' }
     ]
   },
   'projects-find': {
@@ -428,20 +445,29 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
   },
   // W7-D (#67)
   'jobs-set': {
-    summary: 'change how many workers a Job runs at once, which plan it is queued after, or its areas',
+    summary: 'change how many workers a Job runs at once, which plan it is queued after, its areas, its planning mode or its priority',
     detail:
       'Until the Job finishes; a finished one is refused (CONFLICT, exit 6). A lower number only holds back new starts: running workers carry on. At most 10. Refused from an agent session and an MCP client. ' +
       // W8-C plan after plan
       '--after queues a Job that has not started planning after another (none clears it): its planner starts by itself once that Job is delivered (pushed, its pull request opened and not a draft, or ended with nothing to do). If that Job gives up or is archived, the queued one waits and escalates once. A chain that would wait on itself is refused (exit 2); a Job already planning is refused (CONFLICT, exit 6). ' +
       // W8-D plan areas
-      '--areas names where the plan works, 1 to 3 short words (none clears them); `jobs list --area` filters by them. It is set on its own, and the Job\'s own planner may set it too.',
+      '--areas names where the plan works, 1 to 3 short words (none clears them); `jobs list --area` filters by them. It is set on its own, and the Job\'s own planner may set it too. ' +
+      // T1 chat-first planning
+      '--planning and --priority (an integer, as at `jobs create`) change those two after creation, alone or together; --planning applies to the next planner start. ' +
+      // T3 workspaces
+      "Setting --areas files the plan under the sub-project of its workspace named after its first area, created when missing (a workspace's projects set autoProjects off stops it). --project <projectId> moves a plan that has not started to another project of the same workspace, on its own.",
     flags: [
       ID('<jobId | runId>', 'the Job to change, or one of its runs'),
       { name: 'concurrency', value: '<n>', about: 'workers at once, 1–10' },
       // W8-C plan after plan
       { name: 'after', value: '<jobId|none>', about: 'the Job this one is queued after; none clears it' },
       // W8-D plan areas
-      { name: 'areas', value: '<a,b,c|none>', about: "1–3 short words for where the plan works (auth, api, ui); alone; its planner may set it too" }
+      { name: 'areas', value: '<a,b,c|none>', about: "1–3 short words for where the plan works (auth, api, ui); alone; its planner may set it too" },
+      // T1 chat-first planning
+      { name: 'planning', value: '<chat|auto>', about: 'how its planner works: chat brainstorms with you, auto decides alone' },
+      { name: 'priority', value: '<n>', about: 'which Job gets a free slot first when the worker cap is reached (higher first, default 0)' },
+      // T3 workspaces
+      { name: 'project', value: '<projectId>', about: 'file a plan not started yet under another project of its workspace; alone' }
     ]
   },
   // W8-D several plans in one repo (overlap.ts)
@@ -475,6 +501,8 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       { name: 'account', value: '<id>', about: "the account the planner runs on (default: the Job's coordinator account)" },
       // W6-C
       { name: 'concurrency', value: '<n>', about: 'how many workers this Job places at once (1-10; more reads as 10)' },
+      // T1 chat-first planning
+      { name: 'planning', value: '<chat|auto>', about: "how the planner works: chat brainstorms with you in its terminal, auto decides alone (default: the Job's own)" },
       // W6-H delivery
       { name: 'delivery', value: '<pr|push>', about: "how this Job's finished plan lands, ahead of its project's: one pull request, or pushed to the delivery branch with no review by a person" },
       // W6-D wave replanning

@@ -3,7 +3,7 @@
 // what its worker is doing now, the coordinator's answers to it and, when it is not running, why
 // (core/orchestration/blocked.ts). Drawing only: the waves, reasons, counts and "now" lines are planBoard.ts's.
 import { useEffect, useState } from 'react'
-import { GitBranch } from 'lucide-react'
+import { ChevronDown, ChevronRight, GitBranch } from 'lucide-react'
 import type { ActivityEvent } from '../../../../core/orchestration/activity'
 import type { Account, JobEvent, JobTask } from '../../../../core/types'
 import { type RoleModelSettings } from '../../../../core/orchestration/roleModels'
@@ -15,6 +15,7 @@ import {
   autoAnswersOf,
   cardModelOf,
   categoryOf,
+  collapsedWavesOf,
   currentWaveOf,
   nowOf,
   reasonText,
@@ -96,12 +97,27 @@ export function TaskBoard({
   const label = (id: string): string => accounts?.find((a) => a.id === id)?.label ?? id
   const waves = wavesOf(tasks, layers)
   const current = currentWaveOf(waves)
+  // T4: finished waves fold to one line; a click flips a wave from its default
+  const folded = collapsedWavesOf(waves)
+  const [flipped, setFlipped] = useState<ReadonlySet<number>>(() => new Set())
+  const flip = (i: number): void => setFlipped((cur) => { const n = new Set(cur); if (!n.delete(i)) n.add(i); return n })
   const rank = (tk: JobTask): number => CATEGORIES.indexOf(categoryOf(tk))
   return (
     <div className="plan-board plan-waves">
       {waves.map((w) => {
         const isCurrent = w.index === current
         const percent = Math.floor((w.done * 100) / w.tasks.length)
+        const foldable = folded.has(w.index)
+        const hidden = foldable && !flipped.has(w.index)
+        if (hidden)
+          return (
+            <section key={w.index} className="plan-wave plan-wave-folded">
+              <button type="button" className="plan-link plan-wave-fold" aria-expanded={false} onClick={() => flip(w.index)}>
+                <Icon icon={ChevronRight} size={14} />
+                {t('plan.wave.title', { n: w.index + 1 })} · {t('plan.wave.progress', { done: w.done, total: w.tasks.length })}
+              </button>
+            </section>
+          )
         return (
           <section key={w.index} className={`plan-wave${isCurrent ? ' plan-wave-current' : ''}`} aria-current={isCurrent ? 'step' : undefined}>
             <h3 className="plan-wave-head">
@@ -118,6 +134,11 @@ export function TaskBoard({
                 <span className="plan-progress-fill" style={{ width: `${percent}%` }} />
               </span>
               {isCurrent && <span className="plan-wave-now">{t('plan.wave.current')}</span>}
+              {foldable && (
+                <button type="button" className="plan-link plan-wave-fold" aria-expanded onClick={() => flip(w.index)}>
+                  <Icon icon={ChevronDown} size={14} />
+                </button>
+              )}
             </h3>
             {isCurrent && refreshed !== null && (
               <div className="plan-wave-banner" role="status">
