@@ -46,7 +46,7 @@ import { jobActive, slotsToFill, tasksMissingAccounts, type Slot } from '../sche
 import { coordinatorStarting, jobOf, type OrchState } from '../state'
 import { isJobActive } from '../lifecycle'
 import { DEFAULT_CONCURRENCY, FAILURE_LIMIT, type Decision, type Job, type JobRun, type Task } from '../types'
-import { outcomeOfTasks, tasksOwnedBy } from '../running'
+import { deliveryErrorOf, outcomeOfTasks, tasksOwnedBy } from '../running'
 import { outcomeOf } from '../view'
 import { completionSettled, replansDue } from '../replan'
 import { REPLAN_LIFT_HOLD } from './replanStart'
@@ -725,6 +725,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       // W6-H: `run-deliver` is `run-open-pr` for a `pr` project, and the guarded push for a `push` one
       const r = await c.handle('run-deliver', { run: run.id })
       const body = r.body as { url?: unknown; sha?: unknown; branch?: unknown; message?: unknown } | null
+      if (r.status >= 400) await escalateDelivery(run.id, push, (body as { error?: unknown } | null)?.error ?? JSON.stringify(r.body))
       log(
         r.status >= 400
           ? `run=${run.id} completed, and it was not delivered: ${JSON.stringify(r.body)}`
@@ -735,7 +736,31 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
             : `run=${run.id} completed: its pull request is ${String(body?.url)}`
       )
     } catch (e) {
+      await escalateDelivery(run.id, push, String(e))
       log(`run=${run.id} completed, and opening its pull request failed: ${String(e)}`)
+    }
+  }
+
+  /** The owner is told once that a Run's delivery failed: the Run reads failed with that reason (running.ts
+   *  deliveryErrorOf), and nothing here asks again, since the loop skips a Run with a recorded error. A push that
+   *  stopped has been escalated by `recordDelivery` already. */
+  const escalateDelivery = async (runId: string, push: boolean, why: unknown): Promise<void> => {
+    const s = c.getState()
+    const run = s.runs.find((x) => x.id === runId)
+    const anchor = anchorOf(s, runId)
+    const job = run && jobOf(s, run)
+    if (!run || !anchor || !job || (push && run.delivery?.error !== undefined)) return
+    const reason = deliveryErrorOf(run) ?? (typeof why === 'string' ? why : JSON.stringify(why))
+    try {
+      const r = await c.handle('send', {
+        type: 'escalation',
+        taskId: anchor.id,
+        subject: `Delivery of ${jobNameOf(job)} failed: ${reason}`.slice(0, 300),
+        body: `Run ${runId} of plan "${jobNameOf(job)}" completed, and it was not delivered: ${reason}\n\nThe Run reads failed until a delivery succeeds. Fix the cause, then deliver again with \`astera run-deliver --run ${runId} --force\`.`
+      })
+      if (r.status >= 400) log(`run=${runId}: the delivery escalation was refused: ${JSON.stringify(r.body)}`)
+    } catch (e) {
+      log(`run=${runId}: the delivery escalation failed: ${String(e)}`)
     }
   }
 

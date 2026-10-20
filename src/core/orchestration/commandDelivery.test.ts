@@ -7,6 +7,7 @@ import { emptyState, type OrchState } from './state'
 import type { JobRun, Project, Task } from './types'
 import { HOST_CALLER } from '../host/driver'
 import { cleanAfterDelivery, deliveryChecksOf, deliveryIssuesOf, deliveryMessage, deliveryOf, recordDelivery, setProjectDelivery } from './delivery'
+import { outcomeOf } from './running'
 import { deriveActivity, noticeOf, type ActivityEvent } from './activity'
 import type { PushDelivery, PushResult } from './exec/integrateGit'
 
@@ -17,7 +18,7 @@ const task = (over: Partial<Task> = {}): Task =>
   ({ id: 't1', runId: 'r1', title: 'Fix login', spec: 's', deps: [], status: 'completed', consecutiveFailures: 0, createdAt: NOW, updatedAt: NOW, ...over }) as Task
 const project = (over: Partial<Project> = {}): Project => ({ id: 'p1', path: REPO, name: 'gameful', addedAt: NOW, ...over })
 
-const setup = (o: { project?: Partial<Project>; tasks?: Task[]; run?: Partial<JobRun>; push?: PushResult; noPush?: boolean; cleanThrows?: boolean } = {}) => {
+const setup = (o: { project?: Partial<Project>; tasks?: Task[]; run?: Partial<JobRun>; push?: PushResult; noPush?: boolean; cleanThrows?: boolean; mergeFails?: string } = {}) => {
   const box: { state: OrchState } = {
     state: {
       ...emptyState(),
@@ -56,8 +57,9 @@ const setup = (o: { project?: Partial<Project>; tasks?: Task[]; run?: Partial<Jo
       cleaned.push(runId)
       if (o.cleanThrows) throw new Error('boom')
     },
+    ...(o.mergeFails ? { mergeWorktrees: async () => ({ ok: false as const, reason: o.mergeFails }) } : {}),
     // run-open-pr's own refusal when there is no GitHub: enough to see that `pr` went there
-    github: undefined
+    github: o.mergeFails ? {} : undefined
   } as unknown as OrchServerDeps
   const call = (cmd: string, args: Record<string, unknown>, sessionId = HOST_CALLER, role?: 'mcp') =>
     handleCommand(deps, { sessionId, ...(role ? { role } : {}) }, cmd, args)
@@ -103,6 +105,29 @@ describe('run-deliver (W6-H)', () => {
     expect(h.pushes).toHaveLength(1)
     await h.call('run-deliver', { run: 'r1', force: true })
     expect(h.pushes).toHaveLength(2)
+  })
+
+  it('a push that stopped reads failed with its reason, and a forced push that lands reads completed again', async () => {
+    const h = setup({ project: { delivery: 'push' }, push: { ok: false, branch: 'main', reason: 'push refused' } })
+    expect(outcomeOf(h.state(), 'r1')).toBe('completed')
+    await h.call('run-deliver', { run: 'r1' })
+    expect(outcomeOf(h.state(), 'r1')).toBe('failed')
+    const ok = setup({ project: { delivery: 'push' }, run: { delivery: { at: NOW, error: 'push refused' } } })
+    expect(outcomeOf(ok.state(), 'r1')).toBe('failed')
+    expect((await ok.call('run-deliver', { run: 'r1', force: true })).status).toBe(200)
+    expect(outcomeOf(ok.state(), 'r1')).toBe('completed')
+  })
+
+  it('a conflicting branch at delivery leaves the Run failed with the conflict as its reason', async () => {
+    const why = 'git merge-tree says x does not merge cleanly'
+    const h = setup({ run: { worktree: '/wt/run' }, mergeFails: why })
+    const r = await h.call('run-deliver', { run: 'r1' })
+    expect(r.status).toBe(409)
+    expect(h.state().runs[0].pr).toEqual({ at: NOW, error: why })
+    expect(outcomeOf(h.state(), 'r1')).toBe('failed')
+    // --force asks again as a Run whose Tasks completed, not as a failed plan (no draft pull request)
+    const again = await h.call('run-deliver', { run: 'r1', force: true })
+    expect(again.body).toEqual({ error: why })
   })
 
   it("follows the Job's own delivery over its project's", async () => {

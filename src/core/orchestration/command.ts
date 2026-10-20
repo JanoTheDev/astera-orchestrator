@@ -115,7 +115,7 @@ import type { Provider } from '../providers/meta'
 import { isValidRule, type ScheduleRule } from '../scheduler/rule'
 import { parseCheckFlag } from '../workUnit/verification'
 import { isTerminal as taskFinished, outcomeOf, progressOf } from './view'
-import { runningRunCount } from './running'
+import { outcomeOfTasks, runningRunCount, tasksOwnedBy } from './running'
 import { FINISHED_RUN_GRACE_MS } from './exec/dispatchLoop'
 import { appDriven, editingByProject, projectKeyOf, sameFilesAs, workerCapOf, workersAgainstCap } from './schedule'
 import type { CloseReason, JobEvent, SessionInfo, WorktreeInfo } from '../types'
@@ -894,6 +894,11 @@ const refused = (r: { error: string; missing?: true }): Reply =>
   r.missing ? notFound(r.error) : bad(r.error)
 const denied = (msg: string): Reply => ({ status: 403, body: { error: msg } })
 const conflict = (msg: string): Reply => ({ status: 409, body: { error: msg } })
+
+/** What the Run's Tasks say, not what it reads: a Run whose delivery failed reads `failed`, and a delivery retried
+ *  (`--force`) must still see its Tasks completed. A paused Run is neither. */
+const taskOutcomeOf = (s: OrchState, run: JobRun): ReturnType<typeof outcomeOfTasks> | 'paused' =>
+  run.paused === true ? 'paused' : outcomeOfTasks(tasksOwnedBy(s, run.id))
 /** How long after its `startedAt` a `pending:` Dispatch still counts as a start in flight (Host S2
  *  fix round 2, N1). A start waits at most a spawn deadline (SPAWN_DEADLINE_MS, 20 s) plus the
  *  coordinator's idle wait before its prompt (30 s), plus trust and account reads; two minutes covers
@@ -6118,7 +6123,7 @@ export async function handleCommand(
       if (done?.sha !== undefined) return okBody({ delivery: 'push', branch: done.branch ?? null, sha: done.sha, pushed: false })
       if (done?.error !== undefined && args.force !== true)
         return conflict(`Pushing this Run stopped before: ${done.error}. --force tries again`)
-      if (runView(s, run).outcome !== 'completed') return conflict('This Run has not completed; it is pushed once every task is done')
+      if (taskOutcomeOf(s, run) !== 'completed') return conflict('This Run has not completed; it is pushed once every task is done')
       if (!deps.deliverPush) return conflict('Pushing a plan is done by the Astera Host, and this caller is not one')
       const proj = projectOfJob(s, job)
       const branch = proj?.deliveryBranch
@@ -6234,7 +6239,7 @@ export async function handleCommand(
       if (run.pr?.error !== undefined && args.force !== true)
         return conflict(`Opening this Run's pull request failed before: ${run.pr.error}. --force tries again`)
       // W8-E (#99): a Run that ended with failed Tasks delivers its completed Tasks' work, in a draft
-      const outcome = runView(s, run).outcome
+      const outcome = taskOutcomeOf(s, run)
       if (outcome !== 'completed' && outcome !== 'failed') return conflict('This Run has not completed; its pull request opens once every task is done')
       const failed = outcome === 'failed'
       if (!deps.github) return conflict('GitHub commands are answered by the Astera Host, and this caller is not one')

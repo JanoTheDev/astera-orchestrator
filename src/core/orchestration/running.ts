@@ -1,6 +1,6 @@
 import type { JobTask, RunOutcome } from '../types'
 import type { OrchState } from './state'
-import { FAILURE_LIMIT, type Task } from './types'
+import { FAILURE_LIMIT, type JobRun, type Task } from './types'
 
 // tasksOwnedBy, isTerminal and outcomeOf moved here from view.ts so runningRunCount can ask outcomeOf:
 // the renderer's build includes this file and not view.ts, which re-exports them.
@@ -38,7 +38,19 @@ export const isTerminal = (t: Task): boolean =>
  *  대가: 모두 끝난 뒤 Task 가 추가되면 completed 가 running 으로 되돌아간다. 진행률 숫자도 같은
  *  방식으로 움직이므로 정직한 표시라고 본다. */
 export function outcomeOf(state: OrchState, runId: string): RunOutcome {
-  return outcomeOfTasks(tasksOwnedBy(state, runId))
+  return outcomeOfRun(tasksOwnedBy(state, runId), state.runs.find((r) => r.id === runId))
+}
+
+/** Why a Run's delivery failed (a merge conflict or a refused push, `run.pr.error` or `run.delivery.error`), or
+ *  undefined. A later successful delivery replaces the record, so the error is gone with it. */
+export const deliveryErrorOf = (run: JobRun | undefined): string | undefined => run?.pr?.error ?? run?.delivery?.error
+
+/** What a Run reads: its Tasks' outcome, except that a plan whose work did not get delivered did not complete. Only
+ *  `outcomeOfTasks` says whether the Tasks are done, which is what the delivery itself asks (it must still see them
+ *  completed to retry, and a failed outcome would take the failed-plan branches). */
+export function outcomeOfRun(tasks: readonly Task[], run: JobRun | undefined): RunOutcome {
+  const outcome = outcomeOfTasks(tasks)
+  return outcome === 'completed' && deliveryErrorOf(run) !== undefined ? 'failed' : outcome
 }
 
 /** outcomeOf for Tasks already gathered (the Jobs sidebar fold indexes them once, performance audit M1) */

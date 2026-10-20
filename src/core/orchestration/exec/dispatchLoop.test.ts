@@ -22,6 +22,7 @@ import { handleCommand, type OrchServerDeps } from '../command'
 import { APP_CALLER } from '../../host/driver'
 import { addDecision, COORDINATOR_START_WINDOW_MS, emptyState, type OrchState } from '../state'
 import { needsInput } from '../sessionIndex'
+import { outcomeOf } from '../running'
 import { ASK_GRACE_MS } from './autoAnswer'
 import type { Dispatch, Job, Message, Task } from '../types'
 import { FAILURE_LIMIT } from '../types'
@@ -2023,6 +2024,32 @@ describe("a completed Run opens its plan's pull request (W2-D)", () => {
     await h.loop.run()
     await h.settle()
     expect(asked(h)).toBe(1)
+  })
+
+  it('a delivery that failed reads failed, is escalated once, and is not asked again, replanned or drafted', async () => {
+    const h = rig()
+    withWorktree(h, 'run_1')
+    const why = 'git merge-tree says x does not merge cleanly'
+    h.ctx.handle = async (cmd, args) => {
+      if (cmd !== 'run-deliver') return h.real(cmd, args)
+      const s = h.state()
+      h.setState({ ...s, runs: s.runs.map((r) => (r.id === 'run_1' ? { ...r, pr: { at: NOW, error: why } } : r)) })
+      return { status: 409, body: { error: why } }
+    }
+    await h.loop.run()
+    await h.settle()
+    finish(h, 'run_1')
+    for (let i = 0; i < 3; i++) {
+      await h.loop.run()
+      await h.settle()
+    }
+    expect(asked(h)).toBe(1)
+    expect(outcomeOf(h.state(), 'run_1')).toBe('failed')
+    const esc = h.state().messages.filter((m) => m.type === 'escalation' && m.runId === 'run_1')
+    expect(esc).toHaveLength(1)
+    expect(esc[0].subject).toContain(why)
+    expect(h.handled()).not.toContain('run-open-pr')
+    expect(h.handled()).not.toContain('jobs-replan')
   })
 
   it('does not ask for a Run that was already done when it started', async () => {

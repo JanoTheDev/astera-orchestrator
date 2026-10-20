@@ -5,6 +5,7 @@ import type { JobOutcome, RunOutcome as RunOutcomePublic } from '../publicContra
 import type { RunOutcome } from '../types'
 import type { OrchState } from './state'
 import type { Job, JobRun, Task } from './types'
+import { deliveryErrorOf } from './running'
 import { outcomeOf, progressOf } from './view'
 
 /**
@@ -56,6 +57,7 @@ export const jobView = (s: OrchState, job: Job, run: JobRun | undefined): Record
 export const runView = (s: OrchState, run: JobRun): Record<string, unknown> => ({
   ...run,
   ...derivedFor(s, run.id, [run.id]),
+  ...(deliveryErrorOf(run) !== undefined ? { deliveryError: deliveryErrorOf(run) } : {}),
   ...(run.paused === true ? { outcome: 'paused' satisfies RunOutcomePublic } : {})
 })
 

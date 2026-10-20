@@ -800,6 +800,8 @@ export interface JobRow {
   concurrency?: number
   /** 저장된 값이 아니라 Task 에서 계산된다 — core/orchestration/view.ts 의 outcomeOf */
   outcome: RunOutcome
+  /** Why the Run's delivery failed (its `outcome` is `failed` for it): a merge conflict or a refused push */
+  deliveryError?: string
   done: number
   total: number
   /** 이 Run 의 타임라인 이벤트 수(core/orchestration/timeline.ts 의 eventCountFor).
