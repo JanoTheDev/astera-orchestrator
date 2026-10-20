@@ -111,3 +111,21 @@ describe('listWithStatus — 확인이 불확실할 때', () => {
     expect(reg.list()).toHaveLength(0)
   })
 })
+
+// The list is what the Worktrees page draws. Forgetting a gone folder is housekeeping on the way: when that write is
+// refused (the Host owns worktrees.json and did not answer, or refused it), the page used to get no list at all and
+// stayed empty. The rows still answer; the next listing tries the forgetting again.
+describe('listWithStatus — forgetting a gone folder fails', () => {
+  it('still answers the other rows, and the gone one stays out of the list', async () => {
+    const repo = await makeRepo('astera-wt-ls7-')
+    const root = await tempDir('astera-wt-ls7root-')
+    const regDir = await tempDir('astera-wt-ls7reg-')
+    const reg = new WorktreeRegistry(path.join(regDir, 'worktrees.json'), root)
+    await reg.load()
+    const gone = (await createWorktree({ repoPath: repo, name: 'gone', registry: reg })).info
+    const kept = (await createWorktree({ repoPath: repo, name: 'kept', registry: reg })).info
+    reg.removeEntry = () => Promise.reject(new Error('the Host did not answer worktree-remove within 30000ms'))
+    const items = await listWithStatus(reg, async (p) => (p === gone.path ? 'missing' : 'present'))
+    expect(items.map((w) => [w.id, w.status])).toEqual([[kept.id, 'ok']])
+  })
+})

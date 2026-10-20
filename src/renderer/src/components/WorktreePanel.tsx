@@ -63,7 +63,9 @@ export const WorktreePanel = forwardRef<
   const { t } = useI18n()
   const [query, setQuery] = useState('')
   const [reachableOnly, setReachableOnly] = useState(false)
-  const [rows, setRows] = useState<WorktreeRow[]>([])
+  // Null until the first list arrives: before it (or when it failed) nothing is known, and "No worktrees yet" would be a lie
+  const [read, setRows] = useState<WorktreeRow[] | null>(null)
+  const rows = read ?? []
   const items = rows.map((r) => r.item)
   const [cleaning, setCleaning] = useState(false)
   const [prs, setPrs] = useState<Record<string, RepoPrSnapshot>>({})
@@ -354,7 +356,7 @@ export const WorktreePanel = forwardRef<
           )
         }
       />
-      {items.length === 0 ? (
+      {read === null ? null : items.length === 0 ? (
         <EmptyState icon={FolderGit2} title={t('worktrees.emptyTitle')}>
           {t('worktrees.empty')}
         </EmptyState>
