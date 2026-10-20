@@ -1137,7 +1137,7 @@ export function hostOrchDeps(a: {
    * already decided its answer (the slot it kept), and this only tidies up.
    */
   const stopCoordinator = async (sessionId: string, reason?: string, closeReason?: CloseReason): Promise<void> => {
-    if (a.local?.stopSession?.(sessionId, reason)) return
+    if (a.local?.stopSession?.(sessionId, reason, closeReason)) return
     if (!a.hasApp()) {
       a.log(`coordinator ${sessionId} could not be stopped: this Host does not hold it and no app is attached`)
       return

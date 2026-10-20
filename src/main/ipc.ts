@@ -3084,7 +3084,7 @@ export function registerIpc(
             hostClient && hostPtyList
               ? {
                   list: hostPtyList,
-                  kill: (ptyId) => hostClient?.send({ t: 'pty-kill', id: ptyId }) ?? false,
+                  kill: (ptyId, reason) => hostClient?.send({ t: 'pty-kill', id: ptyId, ...(reason ? { closeReason: reason } : {}) }) ?? false,
                   onExit: (ptyId, cb) =>
                     hostClient?.onMessage((m) => {
                       if (m.t === 'pty-exit' && m.id === ptyId) cb()

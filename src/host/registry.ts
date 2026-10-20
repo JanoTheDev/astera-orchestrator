@@ -3,6 +3,7 @@
 //
 // No `net` here and no node-pty either — the pty arrives as a dependency, so the whole file is
 // testable with a fake and the same code runs under a real ConPTY without a test ever spawning one.
+import type { CloseReason } from '../core/types'
 import type { PtyEntry, PtyMeta, PtyOpenOptions } from '../core/host/protocol'
 // Imports nothing itself, so it adds nothing to the Host bundle but the one pattern.
 import { isOnlyTerminalReports } from '../core/terminal/reports'
@@ -138,6 +139,8 @@ interface Entry {
    *  The app's ptys follow the same rule in `withExitedPtyGuard` (core/sessions/pty.ts), which this file
    *  does not import (see its header). */
   killSent: boolean
+  /** Why Astera asked for this kill, when the kill said (`kill`'s `reason`); rides the exit to the app. */
+  closeReason?: CloseReason
   /** Whether a repeat kill has already ended this pty's process tree (`kill`): once per pty. */
   treeKillSent: boolean
   /** Which side the size follows (tmux's `window-size latest`): `local` for this machine's apps,
@@ -183,7 +186,7 @@ export class PtyRegistry {
   // Sets, not single slots: attachPtyHost broadcasts to the clients and the Host's own spawner reads
   // the same output and exits, and a second subscriber must not silently disconnect the first.
   private readonly dataCbs = new Set<(id: string, data: string) => void>()
-  private readonly exitCbs = new Set<(id: string, exitCode: number) => void>()
+  private readonly exitCbs = new Set<(id: string, exitCode: number, closeReason?: CloseReason) => void>()
   /** Every listener hears a note: at open (when the pty has one) and after every merge (Slack in the
    *  Host, P7). Neither the spawner nor the app's bridge needs this; the Host's Slack does, to register a
    *  session the moment its pty opens and to rename it from its note. */
@@ -263,7 +266,7 @@ export class PtyRegistry {
 
   /** Adds a listener; every one registered hears every exit, after `exitCode` is recorded. Returns the
    *  unsubscribe. */
-  onExit(cb: (id: string, exitCode: number) => void): () => void {
+  onExit(cb: (id: string, exitCode: number, closeReason?: CloseReason) => void): () => void {
     this.exitCbs.add(cb)
     return () => {
       this.exitCbs.delete(cb)
@@ -363,7 +366,7 @@ export class PtyRegistry {
       entry.exitedAt = this.now()
       this.armSweep()
       this.deps.log(`pty ${a.id} exited ${exitCode}`)
-      for (const cb of this.exitCbs) this.tell(cb, 'exit', a.id, () => cb(a.id, exitCode))
+      for (const cb of this.exitCbs) this.tell(cb, 'exit', a.id, () => cb(a.id, exitCode, entry.closeReason))
       // After the listeners, which read this entry's note. It is the newest ended one now, so it is
       // never the one that goes.
       if (entry.meta?.kind !== 'session') this.pruneEnded(a.id)
@@ -622,9 +625,10 @@ export class PtyRegistry {
    *  not sent again either: whether it freed the handle is not known. **A repeat escalates, once**: the
    *  pty is still alive after its kill, so its process tree is ended (`deps.killTree`), which never
    *  touches the ConPTY handle. Any repeat after that is only logged. */
-  kill(id: string): void {
+  kill(id: string, reason?: CloseReason): void {
     const e = this.live(id)
     if (!e) return
+    if (reason) e.closeReason = reason
     if (e.killSent) {
       const killTree = this.deps.killTree
       if (e.treeKillSent || !killTree) {
@@ -725,9 +729,9 @@ export class PtyRegistry {
 
   /** How this pty ended: null while it is alive or for an id never here, `{ code: null }` for one
    *  that ended with no code. By pty id, as `sessionExitCode` is by session id. */
-  exitCodeOf(id: string): { code: number | null } | null {
+  exitCodeOf(id: string): { code: number | null; closeReason?: CloseReason } | null {
     const e = this.entries.get(id)
-    return e && !e.alive ? { code: e.exitCode ?? null } : null
+    return e && !e.alive ? { code: e.exitCode ?? null, ...(e.closeReason ? { closeReason: e.closeReason } : {}) } : null
   }
 
   list(): PtyEntry[] {

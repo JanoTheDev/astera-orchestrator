@@ -23,7 +23,7 @@ export interface KillWorkerDeps {
    *  answers the way to stop listening. */
   host: {
     list(): Promise<PtyEntry[] | null>
-    kill(ptyId: string): boolean
+    kill(ptyId: string, reason?: CloseReason): boolean
     onExit(ptyId: string, cb: () => void): () => void
   } | null
   log(m: string): void
@@ -74,7 +74,7 @@ export async function killWorkerSession(sessionId: string, d: KillWorkerDeps, re
       clearTimeout(timer)
       resolve(true)
     })
-    if (!host.kill(entry.id)) {
+    if (!host.kill(entry.id, reason)) {
       clearTimeout(timer)
       resolve(false)
       unsent = true

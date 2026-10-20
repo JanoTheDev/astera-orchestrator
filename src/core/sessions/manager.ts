@@ -423,9 +423,15 @@ export class SessionManager {
       }
       this.onData?.({ sessionId: info.id, data })
     })
-    pty.onExit(({ exitCode }) => {
+    pty.onExit(({ exitCode, closeReason: hostReason }) => {
       info.status = 'exited'
       info.exitCode = exitCode
+      // A Host-held pty's kill comes back with its reason on the exit: Astera closed it, and the tab says why.
+      const closeReason = live.closeReason ?? hostReason
+      if (closeReason) {
+        live.closeReason = closeReason
+        live.closedByAstera = true
+      }
       if (live.closedByAstera) info.closedByAstera = true
       if (live.closeReason) info.closeReason = live.closeReason
       // Do not resume a dead PTY — the child is already reaped so there is nothing to release, and
@@ -574,7 +580,7 @@ export class SessionManager {
     if (!live) return
     live.closedByAstera = true
     if (reason) live.closeReason = reason
-    live.pty.kill()
+    live.pty.kill(reason)
   }
 
   /** Renames a session, returning the stored title — normalised, so an empty name comes back as the
