@@ -637,6 +637,42 @@ describe('createDispatchLoop', () => {
     expect(h.handled()).toEqual(['worker-start', 'gate-create'])
   })
 
+  // T10: a hands-off plan answers each Gate and the Task goes back to ready; the same reason must not open Gates for ever.
+  it('blocks a Task once, with no third Gate, when a hands-off plan has answered the same reason twice', async () => {
+    const h = rig({ startFailsFor: 'all' })
+    h.startWorker.mockRejectedValue(new Error('same reason'))
+    const s0 = h.state()
+    h.setState({ ...s0, jobs: s0.jobs.map((j) => ({ ...j, handsOff: true })) })
+    for (let i = 0; i < 2; i++) {
+      await h.loop.run()
+      await h.settle()
+      const open = h.state().gates.filter((g) => g.taskId === 'tsk_1' && g.status === 'open')
+      expect(open).toHaveLength(1)
+      expect((await h.real('questions-answer', { id: open[0].id, answer: 'Refused' })).status).toBe(200)
+      await h.settle()
+    }
+    await h.loop.run()
+    await h.settle()
+    expect(h.state().gates.filter((g) => g.taskId === 'tsk_1')).toHaveLength(2)
+    const blocked = h.state().tasks.find((t) => t.id === 'tsk_1')
+    expect(blocked?.status).toBe('blocked')
+    expect(blocked?.result).toContain('same reason')
+  })
+
+  it('keeps opening a Gate for a plan that is not hands-off', async () => {
+    const h = rig({ startFailsFor: 'all' })
+    h.startWorker.mockRejectedValue(new Error('same reason'))
+    for (let i = 0; i < 3; i++) {
+      await h.loop.run()
+      await h.settle()
+      const open = h.state().gates.filter((g) => g.taskId === 'tsk_1' && g.status === 'open')
+      expect(open).toHaveLength(1)
+      await h.real('questions-answer', { id: open[0].id, answer: 'retry' })
+      await h.settle()
+    }
+    expect(h.state().gates.filter((g) => g.taskId === 'tsk_1').length).toBeGreaterThanOrEqual(3)
+  })
+
   // R14.
   it('does nothing more with a Task once worker-start answered 2xx: a throwing log after it costs nothing', async () => {
     const h = rig()

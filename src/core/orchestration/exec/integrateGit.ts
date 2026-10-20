@@ -271,7 +271,7 @@ export interface IntegrateContext {
 export async function integrateWorktrees(
   mergeInto: string,
   paths: string[],
-  opts: { reap?: boolean; message?: string },
+  opts: { reap?: boolean; message?: string; heads?: Record<string, string> },
   ctx: IntegrateContext
 ): Promise<Integration> {
   const reap = opts.reap ?? true
@@ -403,10 +403,22 @@ export async function integrateWorktrees(
   }
   // 경로 비교는 isSamePath 다 — 한쪽은 createWorktree 가 만들어 Dispatch 에 저장된 값이고 다른
   // 쪽은 git 이 방금 낸 값이라 대소문자나 구분자가 다를 수 있다(둘 다 절대경로이므로 결정적이다).
-  const targets = paths.map((p) => ({
+  const found = paths.map((p) => ({
     path: p,
     branch: rows.find((r) => isSamePath(r.path, p))?.branch ?? null
   }))
+  // A worktree gone with no branch to name was usually removed after its branch merged. The head the Dispatch recorded
+  // says so: when it is already in HEAD there is nothing to merge, and no Gate (a Gate here came back every pass).
+  const targets: typeof found = []
+  for (const x of found) {
+    const head = opts.heads?.[x.path]
+    if (!x.branch && head && (await (ctx.git ?? realGit)(['merge-base', '--is-ancestor', head, 'HEAD'], { cwd: mergeInto })).ok) {
+      ctx.log(`merge: ${x.path} has no branch, but its recorded head ${head} is already in ${mergeInto}`)
+      continue
+    }
+    targets.push(x)
+  }
+  if (targets.length === 0) return { kind: 'merged', uncommitted: 0 }
   const unknown = targets.filter((x) => !x.branch)
   if (unknown.length > 0)
     return {

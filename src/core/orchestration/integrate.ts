@@ -16,6 +16,8 @@ import type { Dispatch, Job, JobRun, Task } from './types'
 interface WorktreeDep {
   taskId: string
   cwd: string
+  /** The head the Host recorded for the attempt that ran there (`Dispatch.git.head`), when it did. */
+  head?: string
 }
 
 /** 이 Task 의 의존들이 이 Run 의 뿌리 밖에 남긴, **끝난** 작업들.
@@ -56,7 +58,7 @@ function worktreeDeps(s: OrchState, taskId: string): WorktreeDep[] {
       // server.ts 의 worker-start). 두 번째 정의를 만들면 둘이 갈라진다.
       if (!d.outcome && !d.endedAt) continue
       if (isSamePath(d.cwd, runRootOf(run, jobOf(s, run)))) continue
-      found.push({ taskId: depId, cwd: d.cwd })
+      found.push({ taskId: depId, cwd: d.cwd, ...(d.git?.head ? { head: d.git.head } : {}) })
     }
   }
   return found
@@ -141,6 +143,14 @@ export function pendingMerges(s: OrchState, taskId: string): string[] {
   for (const w of worktreeDeps(s, taskId)) {
     if (!out.some((p) => isSamePath(p, w.cwd))) out.push(w.cwd)
   }
+  return out
+}
+
+/** The recorded head of each pending merge's worktree, by path (the latest attempt's). Lets the merge tell "already in
+ *  the plan branch" for a worktree that was removed after its branch merged: git can no longer name its branch. */
+export function pendingMergeHeads(s: OrchState, taskId: string): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const w of worktreeDeps(s, taskId)) if (w.head) out[w.cwd] = w.head
   return out
 }
 

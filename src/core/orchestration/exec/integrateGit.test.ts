@@ -235,6 +235,25 @@ describe('integrateWorktrees — the rules of the one automatic writer into a re
     // Said as what it is, before any probe runs against a made-up `refs/heads/null`.
     expect((r as { reason: string }).reason).toMatch(/could not work out which branch belongs to/)
   })
+  // T10: a dependency's worktree was removed after its branch merged; git can no longer name the branch.
+  it('skips a removed worktree whose recorded head is already in the folder, with no Gate', async () => {
+    const a = await worked('a')
+    const head = gitSync(a, ['rev-parse', 'HEAD']).trim()
+    expect((await integrateWorktrees(repo, [a], {}, ctx())).kind).toBe('merged')
+    await fs.rm(a, { recursive: true, force: true })
+    gitSync(repo, ['worktree', 'prune'])
+    const r = await integrateWorktrees(repo, [a], { heads: { [a]: head } }, ctx())
+    expect(r).toEqual({ kind: 'merged', uncommitted: 0 })
+    expect(reaped).toEqual([a]) // only the first merge's reap
+  })
+  it('still hands a removed worktree to an agent when its recorded head is not in the folder', async () => {
+    const a = await worked('a')
+    const head = gitSync(a, ['rev-parse', 'HEAD']).trim()
+    await fs.rm(a, { recursive: true, force: true })
+    gitSync(repo, ['worktree', 'prune'])
+    expect((await integrateWorktrees(repo, [a], { heads: { [a]: head } }, ctx())).kind).toBe('agent')
+    expect((await integrateWorktrees(repo, [a], {}, ctx())).kind).toBe('agent')
+  })
   // Rule 5 compares paths as the file system does: on Windows a stored path may differ from git's in case.
   // Mutation check: compare with path.resolve only (case-sensitive); red.
   it.runIf(process.platform === 'win32')('finds the branch of a path given in another letter case (Windows)', async () => {

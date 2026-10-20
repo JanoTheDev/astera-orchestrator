@@ -3218,7 +3218,7 @@ export function registerIpc(
       lang: () => core.lang,
       forkRunWorktree: (a) =>
         forkWorktree({ repoPath: a.repoPath, name: a.name }, { registry: core.worktrees, log: orchLog }),
-      integrate: (runRoot, merges) => integrateWorktrees(runRoot, merges, {}, gitCtx),
+      integrate: (runRoot, merges, heads) => integrateWorktrees(runRoot, merges, { heads }, gitCtx),
       reap: (p) => reapWorktree(p),
       isRegisteredWorktree: (p) => core.worktrees.list().some((w) => isSamePath(w.path, p)),
       // Chats too (2026-10-13, spec E5): a Run's external coordinator can be a chat session. Every other caller asks
