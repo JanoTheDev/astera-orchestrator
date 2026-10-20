@@ -4,7 +4,7 @@ import { ko } from '../../../../core/i18n/messages/ko'
 import { t } from '../../../../core/i18n'
 import type { ActivityEvent } from '../../../../core/orchestration/activity'
 import type { JobEvent } from '../../../../core/types'
-import { answersKey, autoAnswersOf, cardModelOf, categoryOf, currentWaveOf, filesOf, nowOf, ordinal, planProgressOf, reasonText, replanningOf, wavesOf } from './planBoard'
+import { answersKey, autoAnswersOf, cardModelOf, categoryOf, collapsedWavesOf, currentWaveOf, filesOf, nowOf, ordinal, planProgressOf, reasonText, replanningOf, wavesOf } from './planBoard'
 // W8-C plan after plan
 import { reasonTone } from './planBoard'
 
@@ -391,5 +391,18 @@ describe('ageOf (Plans list row)', () => {
     expect(ageOf('2026-10-18T11:55:00Z', now)).toBe('5m')
     expect(ageOf('2026-10-18T09:00:00Z', now)).toBe('3h')
     expect(ageOf('2026-10-14T12:00:00Z', now)).toBe('4d')
+  })
+})
+
+// T4
+describe('collapsedWavesOf', () => {
+  it('folds the finished waves; the current and later waves stay open', () => {
+    const waves = wavesOf([done('a'), done('b'), task('c'), task('d')], [['a'], ['b'], ['c'], ['d']])
+    expect([...collapsedWavesOf(waves)]).toEqual([0, 1])
+    expect(currentWaveOf(waves)).toBe(2)
+  })
+  it('folds a plan whose waves are all done, and nothing while the first is open', () => {
+    expect([...collapsedWavesOf(wavesOf([done('a')], [['a']]))]).toEqual([0])
+    expect(collapsedWavesOf(wavesOf([task('a')], [['a']])).size).toBe(0)
   })
 })

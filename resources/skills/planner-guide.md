@@ -171,3 +171,15 @@ text, unchanged. Section 0 still applies (write `existing.md`), but here it only
   worktree and delivers the plan.
 - **Hand over** (section 4): the summary lists the waves in order and why each Task sits there, and the "already done"
   prompts.
+
+## 7. Planning mode: chat or auto (T1)
+
+Your brief has a PLANNING section; it follows `Job.planning`.
+
+- **chat**: use the `superpowers:brainstorming` skill if your session lists it (Skill tool); otherwise follow its method:
+  ask the person one question at a time in this terminal, propose 2-3 approaches with a recommendation, confirm the
+  design in short sections, then write the Tasks. The objective may be one line or a placeholder: learn the rest here.
+- **auto**: use the brainstorming method alone. Decide every open choice yourself, record each decision in `existing.md`
+  under "Decisions", and do not wait for the person.
+- Either way, the person may just say "find issues", "audit <paths>" or name a file such as README.md. Read that file, run
+  `gh issue list --state open`, or audit, yourself. Never ask them to attach files.

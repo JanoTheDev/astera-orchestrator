@@ -62,6 +62,8 @@ import { collectChanges, rangesFor } from './changedFiles'
 import type { ChangedFile } from '../git/changes'
 import type { SwitchedCommand } from './cliAgentContext'
 import { findProject, findProjectByPath, findProjectContaining, jobInProject, setProjectSettings, type ProjectSettingsPatch } from './projects'
+// T3 workspaces
+import { autoProjectFor, moveJobToProject, removeProject } from './projects'
 import { stateWord } from './cliHuman'
 import { checksForRun } from './runChecks'
 import { completionForRun } from './runCompletion'
@@ -123,7 +125,7 @@ import { ISSUE_JOB_ASSOCIATIONS, ISSUES_PER_CALL_MAX, assignIssueToMe, issueNumb
 import { GITHUB_SOURCE_ID, issuesContext, issuesTitleOf } from '../github/issueSource'
 // W6-A intake
 import { SOURCED_OBJECTIVE_MAX } from '../sources/objective'
-import { intakeChanges, intakeObjective, intakeOf, intakeTitle, needsInputs } from './intake'
+import { intakeChanges, intakeObjective, intakeOf, intakeTitle, needsInputs, planningArg } from './intake'
 // W8-C prompts mode
 import path from 'node:path'
 import { access } from 'node:fs/promises'
@@ -146,7 +148,7 @@ import {
 } from '../github/taskLinks'
 import { jobNameOf } from './jobName'
 // W8-D several plans in one repo
-import { areasArg, otherPlansBrief, overlapLines } from './overlap'
+import { areasArg, otherPlansBrief, overlapLines, planTasksOf } from './overlap'
 import { isSamePath } from '../files/tree'
 import type { RunPr, TaskLinks } from './types'
 import { escalationOpen } from './sessionIndex' // W7-C
@@ -189,6 +191,8 @@ import { replanJobOf, waveOpen } from './replan'
 import { REPLAN_COMMANDS, replanCommand, replanRefusal } from './exec/replanStart'
 // Coordinator rotation
 import { coordinatorHandoff, refreshCoordinator } from './exec/coordinatorRotate'
+// T5 crash restore
+import { crashResumedBrief } from './exec/crashResume'
 import { feedbackCommand, handsOffOf, isFeedbackCommand } from './exec/plannerFeedback'
 export { JOB_SOURCE } from './commandSources'
 import { pluginIdOfCheck, type CompletionCheckInput, type PluginCheckAnswer } from './pluginChecks'
@@ -470,8 +474,8 @@ export interface OrchServerDeps {
     /** W2-A: `'planner'` starts the Job's planner instead (exec/plannerStart.ts), and `runId` is then the
      *  Job's id: a planner works before its Job has a Run. */
     role?: 'planner'
-    /** W7-A: a planner only. The agent CLI's own conversation id (`agentSessionOf`) to resume instead of starting a
-     *  new conversation; the brief is then the next prompt in that conversation. */
+    /** W7-A: the agent CLI's own conversation id (`agentSessionOf`) to resume instead of starting a new conversation;
+     *  the brief is then the next prompt in that conversation. A planner, and (T5) a coordinator after a crash. */
     resume?: string
   }): Promise<{ sessionId: string }>
   /** Stops a coordinator session `startCoordinator` opened, when the hand-over finds another one
@@ -1223,6 +1227,10 @@ function projectSettingsArgs(
   const handsOff = flag(args.handsOff)
   if (handsOff === null) return { error: '--hands-off must be on or off' }
   if (handsOff !== undefined) patch.handsOff = handsOff ? true : null
+  // T3 workspaces: on (the default) clears it; off stops `jobs-set --areas` making sub-projects
+  const autoProjects = flag(args.autoProjects)
+  if (autoProjects === null) return { error: '--auto-projects must be on or off' }
+  if (autoProjects !== undefined) patch.autoProjects = autoProjects ? null : false
   for (const [key, name] of [['concurrency', '--concurrency'], ['reviewRounds', '--review-rounds']] as const) {
     const v = args[key]
     if (v === undefined) continue
@@ -2073,12 +2081,15 @@ export async function handleCommand(
       }
     }
     let sessionId: string
+    // T5: the crash resume's `run-start --resume <native id>`: the dead coordinator's own conversation goes on
+    const resume = cmd === 'run-start' ? str(args.resume) : null
     try {
       const spawned = await deps.startCoordinator({
         runId: target.id,
         cwd: job.cwd,
         accountId,
-        brief: buildHandoverPrompt({
+        ...(resume ? { resume } : {}),
+        brief: resume ? crashResumedBrief('coordinator', target.id) : buildHandoverPrompt({
           runId: target.id,
           objective: job.objective,
           concurrency: job.concurrency ?? DEFAULT_CONCURRENCY,
@@ -2415,6 +2426,16 @@ export async function handleCommand(
       const project = findProjectContaining(s, p)
       return project ? okBody(project) : notFound(`no project registered for: ${p}`)
     }
+    // ── T3 workspaces (projects.ts): unregistering a project; `projects-add --parent` is the Host's (src/host/orch.ts).
+    // The person's, like projects-set.
+    case 'projects-remove': {
+      if (fromAgentSession || caller.role === 'mcp') return denied('projects are removed by the person, in Astera or at their own shell')
+      const id = str(args.id)
+      if (!id) return bad('--id is required')
+      const removed = removeProject(s, id)
+      if (!removed.ok) return removed.missing ? notFound(removed.error) : conflict(removed.error)
+      return commit(removed)
+    }
     // W6-H: how a finished plan of this project lands. `push` lands it with no review by a person, so it is the
     // person's choice: refused from an agent session and an MCP client.
     case 'projects-set': {
@@ -2430,7 +2451,7 @@ export async function handleCommand(
       if ('error' in settings) return bad(settings.error)
       const { testCommand, account } = settings
       if (delivery === undefined && branchArg === undefined && Object.keys(settings.patch).length === 0 && testCommand === undefined && account === undefined)
-        return bad('nothing to set: give --delivery, --delivery-branch, --auto-approve, --hands-off, --test-command, --test-config, --concurrency, --review-rounds, --replan, --prompts-dir or --account')
+        return bad('nothing to set: give --delivery, --delivery-branch, --auto-approve, --hands-off, --auto-projects, --test-command, --test-config, --concurrency, --review-rounds, --replan, --prompts-dir or --account')
       const project = findProject(s, id)
       if (!project) return notFound(`unknown project: ${id}`)
       // W10-A: the prompts folder is kept repository-relative, and a folder outside the repository is refused
@@ -2581,9 +2602,13 @@ export async function handleCommand(
       const read = intakeOf(args)
       if (!read.ok) return bad(read.error)
       let intake = read.intake
-      const { mode: _mode, scope: _scope, focus: _focus, instructions: _instructions, attach: _attach, approve: _approve, after: _after, dryRun: _dryRun, handsOff: _handsOff, ...plain } = args
+      const { mode: _mode, scope: _scope, focus: _focus, instructions: _instructions, attach: _attach, approve: _approve, after: _after, dryRun: _dryRun, handsOff: _handsOff, planning: _planning, ...plain } = args
       const handsOff = handsOffArg(args.handsOff, fromAgentSession, caller.role)
       if (typeof handsOff === 'object') return handsOff
+      // T1 chat-first planning: `--planning chat|auto`. An agent session's Job plans alone unless it says otherwise.
+      const planningFlag = planningArg(args.planning)
+      if (typeof planningFlag === 'object') return bad(planningFlag.error)
+      const planning = planningFlag ?? (fromAgentSession ? 'auto' : undefined)
       // W8-C plan after plan: `--after <job>`, the plan this one is queued after
       const afterId = args.after === undefined ? null : str(args.after)
       if (args.after !== undefined && (afterId === null || afterId === 'none')) return bad('--after needs a job id')
@@ -2640,7 +2665,13 @@ export async function handleCommand(
       if (intake.mode === 'prompts' && intake.attach.length === 0 && source.trim() === '')
         return bad('--mode prompts needs .md prompt files (--attach) or the document as --objective')
       // An audit or a set of files is a source of its own: the objective may then be left out.
-      const placeholder = source.trim() === '' && needsInputs(intake) ? { objective: intake.mode === 'audit' ? 'Audit' : 'Attached files' } : {}
+      // T1: a Job made with `--planning chat` may start with no objective: the planner learns it in conversation.
+      const placeholder =
+        source.trim() === '' && needsInputs(intake)
+          ? { objective: intake.mode === 'audit' ? 'Audit' : 'Attached files' }
+          : source.trim() === '' && planning === 'chat' && intake.mode === 'plan'
+            ? { objective: 'To be agreed with the person in the planner terminal' }
+            : {}
       const reply = await handleCommand(deps, caller, 'run-create', { ...plain, ...placeholder, auto: true })
       if (reply.status < 200 || reply.status >= 300) return reply
       const id = (reply.body as { id?: unknown }).id as string
@@ -2716,6 +2747,11 @@ export async function handleCommand(
       if (afterId !== null) {
         const cur = deps.getState()
         await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id ? { ...j, after: afterId } : j)) })
+      }
+      // T1 chat-first planning
+      if (planning !== undefined) {
+        const cur = deps.getState()
+        await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id ? { ...j, planning } : j)) })
       }
       const after = deps.getState()
       const created = after.jobs.find((j) => j.id === id)
@@ -3193,12 +3229,45 @@ export async function handleCommand(
         if (!Array.isArray(areas)) return bad(areas.error)
         const { areas: _old, ...rest } = job
         const next: Job = areas.length > 0 ? { ...rest, areas } : rest
-        await deps.setState({ ...s, jobs: s.jobs.map((j) => (j.id === id ? next : j)) })
-        return okBody(jobView(deps.getState(), next, latestRunOf(deps.getState(), next)))
+        let state: OrchState = { ...s, jobs: s.jobs.map((j) => (j.id === id ? next : j)) }
+        // T3 workspaces: filed under the sub-project of its workspace named after its first area, made when missing
+        if (areas.length > 0) state = autoProjectFor(state, next, areas[0], planTasksOf(state, next), now)
+        await deps.setState(state)
+        const filed = deps.getState().jobs.find((j) => j.id === id) ?? next
+        return okBody(jobView(deps.getState(), filed, latestRunOf(deps.getState(), filed)))
       }
       if (fromAgentSession || caller.role === 'mcp') return denied('jobs-set is for the person, in Astera or at their own shell')
       if (!id) return bad('--id is required')
-      if (args.concurrency === undefined && args.after === undefined) return bad('nothing to set: give --concurrency, --after or --areas')
+      // T3 workspaces: `--project <id>` files a plan not started yet under another project of its workspace
+      if (args.project !== undefined) {
+        if (args.concurrency !== undefined || args.after !== undefined || args.planning !== undefined || args.priority !== undefined)
+          return bad('--project is set on its own')
+        const projectId = str(args.project)
+        if (!projectId) return bad('--project needs a project id (from `projects list`)')
+        const moved = moveJobToProject(s, id, projectId)
+        if (!moved.ok) return moved.missing ? notFound(moved.error) : conflict(moved.error)
+        await deps.setState(moved.state)
+        return okBody(jobView(deps.getState(), moved.value, latestRunOf(deps.getState(), moved.value)))
+      }
+      // T1 chat-first planning: `--planning chat|auto` and `--priority <int>`, on their own or together
+      if (args.planning !== undefined || args.priority !== undefined) {
+        if (args.concurrency !== undefined || args.after !== undefined) return bad('--planning and --priority are set without --concurrency or --after')
+        const planning = planningArg(args.planning)
+        if (typeof planning === 'object') return bad(planning.error)
+        const priority = args.priority === undefined ? undefined : typeof args.priority === 'string' ? Number(args.priority) : args.priority
+        if (priority !== undefined && (typeof priority !== 'number' || !Number.isInteger(priority))) return bad('--priority must be an integer')
+        const job = s.jobs.find((j) => j.id === id)
+        if (!job) return notFound(`unknown job: ${id}`)
+        const { priority: _old, ...rest } = job
+        const next: Job = {
+          ...rest,
+          ...(priority === undefined ? (job.priority !== undefined ? { priority: job.priority } : {}) : priority !== 0 ? { priority } : {}),
+          ...(planning !== undefined ? { planning } : {})
+        }
+        await deps.setState({ ...s, jobs: s.jobs.map((j) => (j.id === id ? next : j)) })
+        return okBody(jobView(deps.getState(), next, latestRunOf(deps.getState(), next)))
+      }
+      if (args.concurrency === undefined && args.after === undefined) return bad('nothing to set: give --concurrency, --after, --areas, --planning or --priority')
       // W8-C plan after plan: `--after <job|none>`, only alone (it is set before the plan starts, concurrency after)
       if (args.after !== undefined) {
         if (args.concurrency !== undefined) return bad('--after is set on its own, not with --concurrency')
@@ -3294,6 +3363,13 @@ export async function handleCommand(
         const cur = deps.getState()
         await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id ? { ...j, replan: args.replan as 'waves' | 'off' } : j)) })
       }
+      // T1 chat-first planning: `--planning chat|auto`
+      const planningFlag = planningArg(args.planning)
+      if (typeof planningFlag === 'object') return bad(planningFlag.error)
+      if (planningFlag !== undefined) {
+        const cur = deps.getState()
+        await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id ? { ...j, planning: planningFlag } : j)) })
+      }
       // #117: `--hands-off on|off`, this plan's own, ahead of its project's
       const handsOff = handsOffArg(args.handsOff, fromAgentSession, caller.role)
       if (typeof handsOff === 'object') return handsOff
@@ -3351,6 +3427,8 @@ export async function handleCommand(
       // W8-G (#101): earlier plans' work that sits on an unmerged branch, which the workers of this plan will not have
       const projectOfPlan = projectOfJob(deps.getState(), job)
       const unmerged = projectOfPlan ? await unmergedPlanBranches(deps.getState(), projectOfPlan) : null
+      // T5: the crash restore's `jobs-plan --resume <native id>`: the dead planner's own conversation goes on
+      const resume = str(args.resume)
       try {
         sessionId = (
           await deps.startCoordinator({
@@ -3358,13 +3436,16 @@ export async function handleCommand(
             cwd: job.cwd,
             accountId,
             role: 'planner',
-            brief: buildPlannerBrief({
+            ...(resume ? { resume } : {}),
+            brief: resume ? crashResumedBrief('planner', id) : buildPlannerBrief({
               jobId: id,
               objective: job.objective,
               repoRoot: job.cwd,
               ...(unmerged && unmerged.branches.length > 0 ? { unmergedBranches: unmerged.branches, defaultBranch: unmerged.into } : {}),
               accountId,
               promptsMode: job.verbatim !== undefined,
+              // T1: the Job's own choice, else auto when hands-off
+              planning: planningFlag ?? job.planning ?? (handsOffOf(deps.getState(), { ...job, ...(handsOff !== undefined ? { handsOff } : {}) }) ? 'auto' : 'chat'),
               concurrency: concurrency ?? job.concurrency ?? DEFAULT_CONCURRENCY,
               // W8-D: the other plans of this repository, so it plans around them
               otherPlans: otherPlansBrief(deps.getState(), job)
@@ -4378,7 +4459,7 @@ export async function handleCommand(
       // W8-E (#92): never two workers on the same files (W6-C), for every placer: a coordinator's Job has no
       // autoDispatch, so `slotsToFill` never places for it and this is the only door its workers pass
       // W8-D: of any plan of the same project
-      const clash = runJob ? sameFilesAs(task, editingByProject(s).get(projectKeyOf(runJob)) ?? []) : undefined
+      const clash = runJob ? sameFilesAs(task, editingByProject(s).get(projectKeyOf(s, runJob)) ?? []) : undefined
       const clashJob = clash && s.jobs.find((j) => j.id === s.runs.find((r) => r.id === clash.task.runId)?.jobId)
       if (clash)
         return {

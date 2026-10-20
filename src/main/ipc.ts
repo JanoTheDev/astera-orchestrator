@@ -167,7 +167,7 @@ import { performRepair, repairOnce, repairTargetFor, type RepairDeps } from '../
 import { snapshotFor, jobsForProject, outcomeOf } from '../core/orchestration/view'
 import { createOrchPush } from './orchPush'
 import { dropNonGitProjects, ensureGitProject } from '../core/orchestration/projects'
-import { inspectFolder } from '../core/projects/detect'
+import { mainRepoRoot } from '../core/projects/detect'
 import { emptyState, resolveRunId } from '../core/orchestration/state'
 import { runRecordInputOf } from '../core/orchestration/runRecord'
 import type { CliInstallStatus, WorktreeInfo } from '../core/types'
@@ -4705,8 +4705,9 @@ export function registerIpc(
     if (orch) {
       const before = orch.deps.getState()
       // W8-G (#103): a tab in a non-git folder is not a project; entries an older build made from one go on first load.
-      const isGit = async (dir: string): Promise<boolean> => (await inspectFolder(dir)) !== null
-      const state = await ensureGitProject(strayProjectsDropped ? before : await dropNonGitProjects(before, isGit), { path: project, now: new Date().toISOString() }, isGit)
+      // T3: registered by its repository's main top level, never a subfolder or a linked worktree (ensureGitProject)
+      const isGit = async (dir: string): Promise<boolean> => (await mainRepoRoot(dir)) !== null
+      const state = await ensureGitProject(strayProjectsDropped ? before : await dropNonGitProjects(before, isGit), { path: project, now: new Date().toISOString() }, (dir) => mainRepoRoot(dir))
       strayProjectsDropped = true
       if (state !== before) await orch.deps.setState(state)
     }

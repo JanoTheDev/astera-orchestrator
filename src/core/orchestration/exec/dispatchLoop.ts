@@ -510,8 +510,12 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
    * by this process either. Driving process only, asked before each one; a failure is logged and never thrown.
    */
   // ── T11: deliveries across plans never collide ──
-  /** The project a plan delivers into: its registered project, else its folder. */
-  const projectKeyOf = (s: OrchState, job: Job): string => projectOfJob(s, job)?.id ?? job.cwd
+  /** The project a plan delivers into: its registered project (T3: its workspace, so sibling sub-projects of one
+   *  repository deliver one at a time), else its folder. */
+  const projectKeyOf = (s: OrchState, job: Job): string => {
+    const p = projectOfJob(s, job)
+    return p?.parentId ?? p?.id ?? job.cwd
+  }
   /** The pushes other plans of `run`'s project landed, and their pull requests the PR poll saw merged
    *  (`attribution-remap`), since `run` began, oldest first. Derived from the state, so a restarted Host finds the same
    *  ones (`refreshedTo` only spares the git of asking twice). */

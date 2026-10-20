@@ -8,8 +8,10 @@
 // - the Host's recovery (host/recovery.ts) resumes each lost worker in its own worktree, `claude --resume` on its
 //   conversation when one was recorded (recovery/decide.ts `resume-native`), with `crashResumeBriefing` appended to
 //   its spec. Recovery never resets or deletes a worktree: a dirty one is resumed or gated, never cleaned.
-// Here: waiting for that, then a fresh coordinator for every Run whose coordinator died (`run-start`, whose restart
-// brief carries `coordinatorHandoff`, the fresh-coordinator brief), then one feed line saying what was recovered.
+// Here: waiting for that, then a coordinator for every Run whose coordinator died, then one feed line saying what was
+// recovered. T5: the dead coordinator's own conversation is resumed (`run-start --resume`, `claude --resume`) when its
+// native id is known (`nativeIdOf`); else, or when that start is refused, a fresh one (`run-start`, whose restart brief
+// carries `coordinatorHandoff`, the fresh-coordinator brief).
 import type { ActivityDraft } from '../activity'
 import type { GitSummary } from '../checkpoint'
 import type { OrchState } from '../state'
@@ -20,6 +22,10 @@ export const CRASH_RESUME_NOTE = 'Astera restarted after a crash; check git stat
 export const CRASH_REASON = 'Astera restarted after a crash'
 /** How long the start waits for recovery to act on every lost worker before it goes on without it. */
 export const RECOVERY_WAIT_MS = 120_000
+/** T5: the whole brief of a coordinator or planner resumed in its own conversation after a crash: it already knows its
+ *  role and its plan, so only what happened. */
+export const crashResumedBrief = (role: 'coordinator' | 'planner', id: string): string =>
+  `${CRASH_REASON}, and this conversation was resumed. Carry on as the ${role} of ${id}: read its current state with \`astera\` before you act.`
 const POLL_MS = 2_000
 const LISTED_FILES = 50
 
@@ -76,6 +82,9 @@ export interface CrashResumeDeps {
   settle(): Promise<void>
   activity(d: ActivityDraft): void
   log(m: string): void
+  /** T5: the agent CLI's own conversation id a dead session had (`agentSessionOf`, or what the Host saved); null for
+   *  none. Absent: every coordinator starts fresh. */
+  nativeIdOf?(sessionId: string): Promise<string | null>
   sleep?(ms: number): Promise<void>
   nowMs?(): number
 }
@@ -112,8 +121,19 @@ export async function resumeAfterCrash(d: CrashResumeDeps): Promise<{ workers: n
       const run = s.runs.find((r) => r.id === runId)
       // Still in its slot: the session outlived the crash (or a coordinator was started meanwhile).
       if (!run || run.coordinatorSessionId !== undefined || run.paused === true || outcomeOf(s, runId) !== 'running') continue
+      const started = (): boolean => d.state().runs.find((x) => x.id === runId)?.coordinatorSessionId !== undefined
+      const dead = before.runs.find((x) => x.id === runId)?.coordinatorSessionId
+      const native = dead && d.nativeIdOf ? await d.nativeIdOf(dead).catch(() => null) : null
+      if (native) {
+        const r = await d.handle('run-start', { run: runId, reason: CRASH_REASON, resume: native })
+        if (r.status < 300 && started()) {
+          coordinators++
+          continue
+        }
+        d.log(`crash resume: run ${runId}'s coordinator could not resume ${native} (${r.status} ${JSON.stringify(r.body)}); starting a fresh one`)
+      }
       const r = await d.handle('run-start', { run: runId, reason: CRASH_REASON })
-      if (r.status < 300 && d.state().runs.find((x) => x.id === runId)?.coordinatorSessionId !== undefined) coordinators++
+      if (r.status < 300 && started()) coordinators++
       else d.log(`crash resume: run ${runId}'s coordinator could not be restarted (${r.status} ${JSON.stringify(r.body)})`)
     }
 

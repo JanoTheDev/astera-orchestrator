@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest'
 import path from 'node:path'
 import { createJob, createTask, emptyState, startJobRun } from './state'
 import { dropNonGitProjects, ensureGitProject, ensureProject, findProject, findProjectByPath, nameFromPath, renameProject, setProjectSettings } from './projects'
+import { addSubProject, autoProjectFor, childProjectsOf, findProjectContaining, moveJobToProject, projectOfJob, removeProject } from './projects'
+import type { Project } from './types'
 import { foldsCaseHere } from '../testPaths'
 
 /** An absolute path this platform actually produces, so the case and separator rules under test are
@@ -170,8 +172,8 @@ describe('non-git tab folders (W8-G #103)', () => {
   const now = '2026-10-18T00:00:00Z'
   it('registers a tab folder only when it is a git folder', async () => {
     const s = emptyState()
-    expect((await ensureGitProject(s, { path: abs('tmp', 'x'), now }, async () => false)).projects).toEqual([])
-    expect((await ensureGitProject(s, { path: abs('tmp', 'repo'), now }, async () => true)).projects).toHaveLength(1)
+    expect((await ensureGitProject(s, { path: abs('tmp', 'x'), now }, async () => null)).projects).toEqual([])
+    expect((await ensureGitProject(s, { path: abs('tmp', 'repo'), now }, async (d) => d)).projects).toHaveLength(1)
   })
 
   it('drops non-git projects that hold no plan, and keeps git ones and ones with a plan', async () => {
@@ -182,5 +184,95 @@ describe('non-git tab folders (W8-G #103)', () => {
     s = made.state
     const kept = await dropNonGitProjects(s, async (d) => d.endsWith('repo'))
     expect(kept.projects.map((p) => p.name)).toEqual(['repo', 'planned'])
+  })
+})
+
+// ── T3 workspaces ──
+describe('workspaces: sub-projects of one repository (T3)', () => {
+  const now = '2026-10-20T00:00:00Z'
+  const repo = abs('work', 'astera')
+  const root = () => ensureProject(emptyState(), { path: repo, now })
+  const ok = <T>(r: { ok: true; state: ReturnType<typeof emptyState>; value: T } | { ok: false; error: string }) => {
+    if (!r.ok) throw new Error(r.error)
+    return r
+  }
+  /** A workspace, and a not-started plan of it with one definition Task at `paths`. */
+  const withPlan = (paths: string[] = [], over: Partial<Project> = {}) => {
+    const { state, project } = root()
+    const s0 = { ...state, projects: state.projects.map((p) => ({ ...p, ...over })) }
+    const made = ok(createJob(s0, { cwd: repo, objective: 'o', projectId: project.id }, now))
+    const pending = { ...made.state, jobs: made.state.jobs.map((j) => ({ ...j, pendingStart: true })) }
+    const t = ok(createTask(pending, { jobId: made.value.id, title: 't', spec: 's', deps: [], affectedPaths: paths }, now))
+    return { s: t.state, rootId: project.id, jobId: made.value.id }
+  }
+
+  it('adds a sub-project on the workspace path, answers it again by name, and refuses a nested one', () => {
+    const { state, project } = root()
+    const ui = ok(addSubProject(state, { parentId: project.id, name: 'ui', focus: ['src/renderer', ' ', 'src/renderer'], now }))
+    expect(ui.value).toMatchObject({ path: repo, name: 'ui', parentId: project.id, focus: ['src/renderer'] })
+    expect(ok(addSubProject(ui.state, { parentId: project.id, name: 'UI', now })).value.id).toBe(ui.value.id)
+    expect(addSubProject(ui.state, { parentId: ui.value.id, name: 'x', now })).toMatchObject({ ok: false })
+    expect(addSubProject(ui.state, { parentId: 'nope', name: 'x', now })).toMatchObject({ ok: false, missing: true })
+    // the path questions answer the workspace, never the child
+    expect(findProjectByPath(ui.state, repo)?.id).toBe(project.id)
+    expect(findProjectContaining(ui.state, path.join(repo, 'src'))?.id).toBe(project.id)
+  })
+
+  it('a sub-project reads the settings it leaves unset from its workspace', () => {
+    const { s, rootId, jobId } = withPlan([], { handsOff: true, delivery: 'push' })
+    const ui = ok(addSubProject(s, { parentId: rootId, name: 'ui', now }))
+    const moved = ok(moveJobToProject(ui.state, jobId, ui.value.id))
+    expect(projectOfJob(moved.state, moved.value)).toMatchObject({ id: ui.value.id, handsOff: true, delivery: 'push' })
+  })
+
+  it('removes a project only without active plans or sub-projects', () => {
+    const { s, rootId, jobId } = withPlan()
+    const ui = ok(addSubProject(s, { parentId: rootId, name: 'ui', now }))
+    expect(removeProject(ui.state, rootId)).toMatchObject({ ok: false })
+    const moved = ok(moveJobToProject(ui.state, jobId, ui.value.id))
+    expect(removeProject(moved.state, ui.value.id)).toMatchObject({ ok: false })
+    const archived = { ...moved.state, jobs: moved.state.jobs.map((j) => ({ ...j, archivedAt: now })) }
+    const gone = ok(removeProject(archived, ui.value.id))
+    expect(gone.state.projects.map((p) => p.id)).toEqual([rootId])
+    expect(removeProject(gone.state, 'nope')).toMatchObject({ ok: false, missing: true })
+  })
+
+  it('moves only a plan not started, and only inside its workspace', () => {
+    const { s, rootId, jobId } = withPlan()
+    const other = ensureProject(s, { path: abs('work', 'other'), now })
+    expect(moveJobToProject(other.state, jobId, other.project.id)).toMatchObject({ ok: false })
+    const ui = ok(addSubProject(other.state, { parentId: rootId, name: 'ui', now }))
+    const started = { ...ui.state, jobs: ui.state.jobs.map((j) => ({ ...j, pendingStart: false })) }
+    expect(moveJobToProject(started, jobId, ui.value.id)).toMatchObject({ ok: false })
+    expect(ok(moveJobToProject(ui.state, jobId, ui.value.id)).value.projectId).toBe(ui.value.id)
+  })
+
+  it('autoProjectFor files plans by first area: two ui plans share one child, orch gets another, off makes none', () => {
+    const { s, rootId, jobId } = withPlan(['src/renderer/a.tsx', 'README.md'])
+    const tasksOf = (st: typeof s, id: string) => st.tasks.filter((t) => t.jobId === id)
+    const a = autoProjectFor(s, s.jobs[0], 'ui', tasksOf(s, jobId), now)
+    const ui = childProjectsOf(a, rootId)
+    expect(ui).toMatchObject([{ name: 'ui', parentId: rootId, focus: ['src'] }])
+    expect(a.jobs[0].projectId).toBe(ui[0].id)
+    const second = ok(createJob(a, { cwd: repo, objective: 'o2', projectId: rootId }, now))
+    const b = autoProjectFor(second.state, second.value, 'ui', [], now)
+    expect(childProjectsOf(b, rootId)).toHaveLength(1)
+    expect(b.jobs.find((j) => j.id === second.value.id)?.projectId).toBe(ui[0].id)
+    const third = ok(createJob(b, { cwd: repo, objective: 'o3', projectId: rootId }, now))
+    const c = autoProjectFor(third.state, third.value, 'orch', [], now)
+    expect(childProjectsOf(c, rootId).map((p) => p.name)).toEqual(['ui', 'orch'])
+    const off = withPlan([], { autoProjects: false })
+    expect(autoProjectFor(off.s, off.s.jobs[0], 'ui', [], now)).toBe(off.s)
+  })
+
+  it('a tab in a subfolder or a linked worktree registers the repository, once', async () => {
+    const top = abs('work', 'repo')
+    const rootOf = async (d: string): Promise<string | null> => (d.startsWith(top) ? top : null)
+    const fromSub = await ensureGitProject(emptyState(), { path: path.join(top, 'src', 'deep'), now }, rootOf)
+    expect(fromSub.projects.map((p) => p.path)).toEqual([top])
+    const fromWorktree = await ensureGitProject(emptyState(), { path: path.join(top, '.claude', 'worktrees', 'x'), now }, rootOf)
+    expect(fromWorktree.projects.map((p) => p.path)).toEqual([top])
+    // already held by a registered project: nothing new, and git is not asked
+    expect(await ensureGitProject(fromSub, { path: path.join(top, '.claude', 'worktrees', 'x'), now }, async () => { throw new Error('asked') })).toBe(fromSub)
   })
 })
