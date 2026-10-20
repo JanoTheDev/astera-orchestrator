@@ -5,6 +5,7 @@ import { REMOTE_SESSION_CHANGES, REMOTE_SESSION_READS, type RemoteSessions } fro
 import { hookEventsDirIn } from '../core/hooks/sessionState' // W8-A
 import { PLUGIN_COMMANDS, pluginsCommand } from './plugins/commands'
 import type { PluginManager } from './plugins/manager'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { createHash } from 'node:crypto'
 import path from 'node:path'
 import { stat } from 'node:fs/promises'
@@ -73,6 +74,19 @@ import { readMaxConcurrentWorkers } from '../core/settings/maxConcurrentWorkers'
 /** One reply — today's HTTP status and body, the shape `OrchCall.call` already answers with. Named
  *  only because the receipt store below holds one. */
 type Reply = { status: number; body: unknown }
+
+/** The commands that may wait for minutes, and so never hold the Host's command chain (`serially` in
+ *  `createHostOrch`): a wait that held it would stop every other caller, often the very one it waits for. */
+const waitsLong = (cmd: string, args: Record<string, unknown>): boolean =>
+  (cmd === 'check' && args.wait === true) ||
+  (cmd === 'sessions-send' && args.wait !== undefined) ||
+  cmd === 'jobs-wait' ||
+  cmd === 'runs-wait' ||
+  cmd === 'ask' ||
+  cmd === 'runs-follow' ||
+  cmd === 'runs-resume' ||
+  // Waits for the driving loop's pass to end, and that pass's own `worker-start` runs through the chain.
+  cmd === 'tasks-dispatch'
 
 /** What a request id may look like (request receipts design §5). **Not a UUID**: Orca validates one
  *  in its client and enforces nothing in its runtime, and its own federation code writes ids that
@@ -789,8 +803,56 @@ export function createHostOrch(a: {
   /** The `check --wait` calls this Host serves, for its whole life (final round 2, I-A): built once, not
    *  per call like the deps below, since a wait entered by one call is asked about by another. */
   const checkWaits = createCheckWaits()
-  const depsFor = (marks: CallMarks, actor: JournalActor): OrchServerDeps =>
-    hostOrchDeps({
+  /**
+   * **One command at a time** (the Gameful lost dispatches, 2026-10-20). A command reads the state once and commits a whole
+   * state after its awaits, so two running together lose the first one's commit: ten parallel `worker-start`s left three
+   * Dispatches. Every `handleCommand` from this Host's four doors goes through this one chain.
+   *
+   * A call made from inside the command holding the chain (`tasks-dispatch`'s loop calling `handle('worker-start')`) runs
+   * inline, or the chain would wait on itself. "Inside" is the holder's async context and only while the holder runs: a
+   * timer or pass it started that outlives it queues like anyone else. A long wait (`waitsLong`) never takes the chain,
+   * and a holder hands it on while it waits on a spawn or a screen (`outsideChain`). A command that fails or throws
+   * releases it all the same.
+   */
+  type Holder = { running: boolean; release: () => void }
+  const holding = new AsyncLocalStorage<Holder>()
+  let chainTail: Promise<void> = Promise.resolve()
+  /** Waits for every earlier taker to hand the chain on, and answers how to hand it on in turn. */
+  const takeChain = (): Promise<() => void> => {
+    let release = (): void => {}
+    const mine = new Promise<void>((r) => {
+      release = r
+    })
+    const before = chainTail
+    chainTail = before.then(() => mine)
+    return before.then(() => release)
+  }
+  const serially = async <T>(cmd: string, args: Record<string, unknown>, run: () => Promise<T>): Promise<T> => {
+    if (holding.getStore()?.running || waitsLong(cmd, args)) return run()
+    const holder: Holder = { running: true, release: await takeChain() }
+    try {
+      return await holding.run(holder, run)
+    } finally {
+      holder.running = false
+      holder.release()
+    }
+  }
+  /** A slow effect the holder awaits with the chain handed on, taken back before the command goes on. Only for effects
+   *  after which the command reads the state again (`worker-start`'s spawn) or commits nothing (a worker's screen). */
+  const outsideChain = async <T>(effect: () => Promise<T>): Promise<T> => {
+    const holder = holding.getStore()
+    if (!holder?.running) return effect()
+    holder.running = false
+    holder.release()
+    try {
+      return await effect()
+    } finally {
+      holder.release = await takeChain()
+      holder.running = true
+    }
+  }
+  const depsFor = (marks: CallMarks, actor: JournalActor): OrchServerDeps => {
+    const deps = hostOrchDeps({
       checkWaits,
       getState: () => store.get(),
       setState: async (given, how) => {
@@ -889,6 +951,13 @@ export function createHostOrch(a: {
         a.log(detail ? `${name} refused by the Host: ${why}` : `${name} could not be put to the app: ${why}`)
       }
     })
+    const { startWorker, readWorker } = deps
+    return {
+      ...deps,
+      ...(startWorker ? { startWorker: (x: Parameters<typeof startWorker>[0]) => outsideChain(() => startWorker(x)) } : {}),
+      ...(readWorker ? { readWorker: (x: Parameters<typeof readWorker>[0]) => outsideChain(() => readWorker(x)) } : {})
+    }
+  }
 
   /** A 409 body with the file to repair (`marks.repair`), or the retry a leaving Host asks for
    *  (`marks.retry`), beside its error. Fields, so the CLI reads which it is rather than matching the
@@ -902,7 +971,8 @@ export function createHostOrch(a: {
    *  pushed, and a driver that throws must not turn it into a failed command. */
   const kickDriver = (): void => {
     try {
-      a.onCommit?.()
+      // Outside the chain's context: the pass this starts is not a call made by the committing command, and queues.
+      holding.exit(() => a.onCommit?.())
     } catch (err) {
       a.log(`the driver failed to take a commit: ${String(err)}`)
     }
@@ -953,7 +1023,9 @@ export function createHostOrch(a: {
     deliver: async (h) => {
       await ready()
       const target = String(h.args.id)
-      const r = await handleCommand(depsFor(throwaway(), actorOf({ sessionId: h.sessionId, role: h.role, state: store.get() })), { sessionId: h.sessionId, role: h.role }, 'sessions-send', h.args)
+      const r = await serially('sessions-send', h.args, () =>
+        handleCommand(depsFor(throwaway(), actorOf({ sessionId: h.sessionId, role: h.role, state: store.get() })), { sessionId: h.sessionId, role: h.role }, 'sessions-send', h.args)
+      )
       // Never the text: it is the sender's, and the log is read by whoever reads the log.
       const why = r.status === 200 ? '' : ` — ${String((r.body as { error?: unknown } | null)?.error ?? JSON.stringify(r.body))}`
       a.log(`owner hold — a queued send to ${target} from ${h.sessionId || h.role} was delivered: ${r.status}${why}`)
@@ -983,7 +1055,9 @@ export function createHostOrch(a: {
     const drainedNow = await applyPendingReports({
       queued,
       apply: (r) =>
-        handleCommand(depsFor(throwaway(), { surface: 'agent', sessionId: r.sessionId }), { sessionId: r.sessionId }, r.cmd, r.args).then((reply) => ({
+        serially(r.cmd, r.args, () =>
+          handleCommand(depsFor(throwaway(), { surface: 'agent', sessionId: r.sessionId }), { sessionId: r.sessionId }, r.cmd, r.args)
+        ).then((reply) => ({
           ok: reply.status >= 200 && reply.status < 300,
           detail: `${reply.status} ${JSON.stringify(reply.body)}`
         })),
@@ -1643,7 +1717,7 @@ export function createHostOrch(a: {
       // Inside the try for `call`'s reason: the loop that asks this must be told, not thrown at.
       try {
         await ready()
-        return answerOf(await handleCommand(depsFor(marks, HOST_ACTOR), { sessionId: HOST_CALLER }, cmd, args), marks)
+        return answerOf(await serially(cmd, args, () => handleCommand(depsFor(marks, HOST_ACTOR), { sessionId: HOST_CALLER }, cmd, args)), marks)
       } catch (err) {
         return failureOf(err, marks)
       }
@@ -2205,7 +2279,7 @@ export function createHostOrch(a: {
           const queued = { status: 200, body: { queued: true, reason: 'owner-typing', target: runArgs.id } }
           return claimed === null ? queued : settleRequest(claimed, cmd, marks, queued)
         }
-        const r = await handleCommand(depsFor(marks, actor), { sessionId, role: from?.role }, cmd, runArgs)
+        const r = await serially(cmd, runArgs, () => handleCommand(depsFor(marks, actor), { sessionId, role: from?.role }, cmd, runArgs))
         const answered = answerOf(r, marks)
         // **Who drives, on `status`, from the Host and not from `handleCommand`** (R6): the two fields
         // exist only on a Host that drives, and their absence tells a script this one does not.
