@@ -820,7 +820,8 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
           x.createdAt >= last.at &&
           x.options?.includes(REPLAN_LIFT_HOLD) &&
           x.answered &&
-          x.answerBody?.trim().toLowerCase() === REPLAN_LIFT_HOLD &&
+          // a hands-off coordinator answers "<choice>. Why: <reason>" (handover.ts), so the choice is the part before it
+          x.answerBody?.split(/\.\s*why:/i)[0].trim().toLowerCase() === REPLAN_LIFT_HOLD &&
           !liftedHolds.has(x.id)
       )
       if (!m || !c.mayStart()) continue
