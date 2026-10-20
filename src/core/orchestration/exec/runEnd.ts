@@ -85,7 +85,7 @@ export function runEndSessions(s: OrchState, live: readonly RunEndSession[], own
   const runs = new Map(s.runs.map((r) => [r.id, r]))
   const finished = (runId: string): boolean => {
     const run = runs.get(runId)
-    return run !== undefined && outcomeOfRun(owned.get(runId) ?? [], run) !== 'running'
+    return run !== undefined && outcomeOfRun(owned.get(runId) ?? [], run, s) !== 'running'
   }
   const latestRunOfJob = new Map<string, JobRun>()
   for (const r of s.runs) {
@@ -274,7 +274,7 @@ export function createRunEndSweep(c: RunEndSweepContext): { run(): Promise<void>
       try {
         const s = c.getState()
         const owned = tasksByRun(s)
-        for (const run of s.runs) if (outcomeOfRun(owned.get(run.id) ?? [], run) === 'running') seenRunning.add(run.id)
+        for (const run of s.runs) if (outcomeOfRun(owned.get(run.id) ?? [], run, s) === 'running') seenRunning.add(run.id)
         const live = c.live()
         const alive = new Set(live.map((x) => x.id))
         for (const id of [...retries.keys()]) if (!alive.has(id)) retries.delete(id)
