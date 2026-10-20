@@ -32,6 +32,7 @@ import {
   buildIntegrationSpec,
   integrationTaskFor,
   isIntegrationTask,
+  pendingMergeHeads,
   pendingMerges,
   planMergedSubject,
   runRootOf,
@@ -45,7 +46,7 @@ import { jobActive, slotsToFill, tasksMissingAccounts, type Slot } from '../sche
 import { coordinatorStarting, jobOf, type OrchState } from '../state'
 import { isJobActive } from '../lifecycle'
 import { DEFAULT_CONCURRENCY, FAILURE_LIMIT, type Decision, type Job, type JobRun, type Task } from '../types'
-import { outcomeOfTasks, tasksOwnedBy } from '../running'
+import { deliveryErrorOf, outcomeOfTasks, tasksOwnedBy } from '../running'
 import { outcomeOf } from '../view'
 import { completionSettled, replansDue } from '../replan'
 import { REPLAN_LIFT_HOLD } from './replanStart'
@@ -155,7 +156,7 @@ export interface DispatchLoopContext {
   loginStatus(accountId: string): Promise<boolean>
   lang(): Lang
   forkRunWorktree(a: { repoPath: string; name: string }): Promise<string>
-  integrate(runRoot: string, merges: string[]): Promise<Integration>
+  integrate(runRoot: string, merges: string[], heads?: Record<string, string>): Promise<Integration>
   /** T11: merges another plan's delivered commit into a running plan's Run worktree (integrateGit.ts refreshOnto).
    *  Optional: defaults to that function over the real git. */
   refreshOnto?(worktree: string, base: string, message: string, fetchBranch?: string): Promise<Refresh>
@@ -283,6 +284,22 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     // Gate 와 별개로 로그를 남긴다 — Gate 는 사용자가 읽는 것이고, 이 줄은 왜 그 Gate 가 열렸는지
     // 나중에 되짚을 때 읽는 것이다.
     log(`scheduler: cannot start task=${taskId} — ${reason}`)
+    // A hands-off plan answers its Gates itself, and an answered Gate sends the Task back to ready. The same reason
+    // asked and answered twice will be answered the same a third time: block the Task once (activity.ts tells the
+    // owner) instead of opening that Gate again every pass.
+    const state = c.getState()
+    const task = state.tasks.find((t) => t.id === taskId)
+    const run = state.runs.find((r) => r.id === task?.runId)
+    const job = run && jobOf(state, run)
+    if (job && handsOffOf(state, job) && state.gates.filter((g) => g.taskId === taskId && g.status === 'resolved' && g.question === reason).length >= 2) {
+      try {
+        const blocked = await c.handle('task-update', { id: taskId, status: 'blocked', result: reason })
+        if (blocked.status >= 400) log(`scheduler: blocking task=${taskId} was rejected — ${JSON.stringify(blocked.body)}`)
+      } catch (e) {
+        log(`scheduler: blocking task=${taskId} failed — ${String(e)}`)
+      }
+      return
+    }
     try {
       const gated = await c.handle('gate-create', {
         task: taskId,
@@ -708,6 +725,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       // W6-H: `run-deliver` is `run-open-pr` for a `pr` project, and the guarded push for a `push` one
       const r = await c.handle('run-deliver', { run: run.id })
       const body = r.body as { url?: unknown; sha?: unknown; branch?: unknown; message?: unknown } | null
+      if (r.status >= 400) await escalateDelivery(run.id, push, (body as { error?: unknown } | null)?.error ?? JSON.stringify(r.body))
       log(
         r.status >= 400
           ? `run=${run.id} completed, and it was not delivered: ${JSON.stringify(r.body)}`
@@ -718,7 +736,31 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
             : `run=${run.id} completed: its pull request is ${String(body?.url)}`
       )
     } catch (e) {
+      await escalateDelivery(run.id, push, String(e))
       log(`run=${run.id} completed, and opening its pull request failed: ${String(e)}`)
+    }
+  }
+
+  /** The owner is told once that a Run's delivery failed: the Run reads failed with that reason (running.ts
+   *  deliveryErrorOf), and nothing here asks again, since the loop skips a Run with a recorded error. A push that
+   *  stopped has been escalated by `recordDelivery` already. */
+  const escalateDelivery = async (runId: string, push: boolean, why: unknown): Promise<void> => {
+    const s = c.getState()
+    const run = s.runs.find((x) => x.id === runId)
+    const anchor = anchorOf(s, runId)
+    const job = run && jobOf(s, run)
+    if (!run || !anchor || !job || (push && run.delivery?.error !== undefined)) return
+    const reason = deliveryErrorOf(run) ?? (typeof why === 'string' ? why : JSON.stringify(why))
+    try {
+      const r = await c.handle('send', {
+        type: 'escalation',
+        taskId: anchor.id,
+        subject: `Delivery of ${jobNameOf(job)} failed: ${reason}`.slice(0, 300),
+        body: `Run ${runId} of plan "${jobNameOf(job)}" completed, and it was not delivered: ${reason}\n\nThe Run reads failed until a delivery succeeds. Fix the cause, then deliver again with \`astera run-deliver --run ${runId} --force\`.`
+      })
+      if (r.status >= 400) log(`run=${runId}: the delivery escalation was refused: ${JSON.stringify(r.body)}`)
+    } catch (e) {
+      log(`run=${runId}: the delivery escalation failed: ${String(e)}`)
     }
   }
 
@@ -1167,7 +1209,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       // **여기서부터 git 이 돈다.** 위까지는 상태만 본다 — runScheduler 는 모든 저장마다
       // 불리고 그 대부분은 합칠 것이 없는 저장이므로, 그 바퀴에 git 프로세스를 띄우지 않는다
       // (슬롯이 없을 때 계정 조회 앞에서 빠지는 것과 같은 성격이다).
-      const integration = await c.integrate(runRoot, merges)
+      const integration = await c.integrate(runRoot, merges, pendingMergeHeads(state, slot.taskId))
       if (integration.kind === 'human') {
         return { kind: 'gate', reason: integration.reason, why: integration.reason }
       }
@@ -1344,6 +1386,9 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
         // **운전자에게 먼저 묻는다**(설계 §4.3) — 앱에서는 서버가 서 있는가(예전의 `if (!orch) return`),
         // Host 에서는 지금 Host 가 모는가다. 바퀴마다 묻는 이유는 아래 슬롯마다 묻는 것과 같다.
         if (!c.mayStart()) return
+        // A finished Task lands on its plan branch first (mergeWaves), so a dependent its merge readies is placed in
+        // this same lap, not at the next tick
+        await mergeWaves()
         // **계정이 없어 띄울 수 없는 Task 에 Gate 를 연다.** slotsToFill 이 그것들을 건너뛰므로
         // 아래 루프는 보지 못하고, 그냥 두면 Run 이 이유 없이 서 있는다 — 이 하위 시스템이
         // 없애려는 증상 그대로다(gateSlot 의 주석). Gate 는 Task 를 blocked 로 보내므로 판정이
@@ -1817,16 +1862,37 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     for (const n of readyReminders(s, c.nowMs(), (id) => c.sessionBusy(id) === false)) await tell(n)
   }
 
-  // Part 2: a coordinator-driven Run's finished worktree Tasks go into its plan branch (integrate.ts wavesToMerge). One
-  // merge at a time per Run root, never under a worker working there (workingInRunRoot, as the slot's merge).
+  // Part 2: a Run's finished worktree Tasks go into its plan branch (integrate.ts wavesToMerge), a coordinator's Run or
+  // the app's. One merge at a time per Run root, never under a worker working there (workingInRunRoot, as the slot's
+  // merge). Both the scheduler's pass (after every commit) and the tick run it; one at a time, so two never merge the
+  // same Task.
+  let landing = false
   const mergeWaves = async (): Promise<void> => {
-    // A merge Task left ready (its start was refused) is started again; one that failed goes to the owner.
+    if (landing) return
+    landing = true
+    try {
+      await landWaves()
+    } finally {
+      landing = false
+    }
+  }
+  const landWaves = async (): Promise<void> => {
+    // A merging Task whose merge Task completed is completed with it. A merge Task left ready (its start was refused) is
+    // started again; one that failed goes to the owner. In an app-driven Run only a merging Task's: the slot's own
+    // merge Tasks (pendingMerges) are its scheduler's.
     const pre = c.getState()
     for (const m of pre.tasks) {
       const run = pre.runs.find((r) => r.id === m.runId)
-      if (!m.parentId || !run || run.coordinatorSessionId === undefined || (m.status !== 'ready' && m.status !== 'failed')) continue
+      const parent = m.parentId === undefined ? undefined : pre.tasks.find((t) => t.id === m.parentId)
+      if (!parent || !run) continue
+      if (parent.status === 'merging' && m.status === 'completed') {
+        await recordMerge({ runId: run.id, taskId: parent.id, runRoot: runRootOf(run, jobOf(pre, run)) })
+        continue
+      }
+      if ((run.coordinatorSessionId === undefined && parent.status !== 'merging') || (m.status !== 'ready' && m.status !== 'failed')) continue
       if (!c.mayStart()) return
-      await startMergeWorker({ runId: run.id, taskId: m.parentId, reason: 'the merge worker failed', worktrees: [] })
+      if (m.status === 'ready' && workingInRunRoot(c.getState(), run.id)) continue
+      await startMergeWorker({ runId: run.id, taskId: parent.id, reason: 'the merge worker failed', worktrees: [] })
     }
     for (const w of wavesToMerge(c.getState(), (p) => c.isRegisteredWorktree(p))) {
       if (!c.mayStart()) return
@@ -1835,8 +1901,27 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     }
   }
 
-  /** One completed Task's worktree into its plan branch: merged, it is recorded on the Task (`mergedIntoPlanAt`) and
-   *  told; not, a merge worker takes it. The integration's answer, or what stopped it. Never throws. */
+  /** A Task's branch is in its plan branch: recorded on the Task (`mergedIntoPlanAt`; a merging Task is completed by it)
+   *  and told to the Run's coordinator, if it has one. Never throws. */
+  const recordMerge = async (w: { runId: string; taskId: string; runRoot: string }): Promise<void> => {
+    try {
+      const r = await c.handle('task-update', { id: w.taskId, mergedIntoPlan: true })
+      if (r.status >= 400) log(`run=${w.runId}: task=${w.taskId}'s merge was not recorded: ${JSON.stringify(r.body)}`)
+    } catch (e) {
+      log(`run=${w.runId}: recording task=${w.taskId}'s merge failed: ${String(e)}`)
+    }
+    if (c.getState().runs.find((r) => r.id === w.runId)?.coordinatorSessionId === undefined) return
+    await tell({
+      runId: w.runId,
+      taskId: w.taskId,
+      subject: planMergedSubject(w.taskId),
+      body: `${w.taskId}'s branch is merged into the plan branch (${w.runRoot}).\n\n${nextActionOf(c.getState(), w.runId)}`
+    })
+  }
+
+  /** One finished Task's worktree into its plan branch: merged, it is recorded (recordMerge); not, a merge worker takes
+   *  it, or, for a merging Task git cannot merge at all, the owner's Gate (it never completes without its merge). The
+   *  integration's answer, or what stopped it. Never throws. */
   const mergeIntoPlan = async (w: { runId: string; taskId: string; runRoot: string; worktree: string }): Promise<Integration> => {
     let result: Integration
     try {
@@ -1845,21 +1930,14 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       result = { kind: 'human', reason: String(e) }
     }
     if (result.kind === 'merged') {
-      try {
-        const r = await c.handle('task-update', { id: w.taskId, mergedIntoPlan: true })
-        if (r.status >= 400) log(`run=${w.runId}: task=${w.taskId}'s merge was not recorded: ${JSON.stringify(r.body)}`)
-      } catch (e) {
-        log(`run=${w.runId}: recording task=${w.taskId}'s merge failed: ${String(e)}`)
-      }
-      await tell({
-        runId: w.runId,
-        taskId: w.taskId,
-        subject: planMergedSubject(w.taskId),
-        body: `${w.taskId}'s branch is merged into the plan branch (${w.runRoot}).\n\n${nextActionOf(c.getState(), w.runId)}`
-      })
+      await recordMerge(w)
       return result
     }
     log(`run=${w.runId}: task=${w.taskId} did not merge into ${w.runRoot}: ${result.reason}`)
+    if (result.kind === 'human' && c.getState().tasks.find((t) => t.id === w.taskId)?.status === 'merging') {
+      await gateSlot(w.taskId, `${w.taskId}'s branch (${w.worktree}) could not be merged into the plan branch (${w.runRoot}): ${result.reason}`)
+      return result
+    }
     try {
       await startMergeWorker({
         runId: w.runId,

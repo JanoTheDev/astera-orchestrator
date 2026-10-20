@@ -5,7 +5,7 @@ import type { DirPlan } from './resolve'
 
 type TaskLike = Pick<Task, 'runId' | 'title' | 'status' | 'updatedAt'>
 
-const RUNNING = new Set<Task['status']>(['dispatched', 'validating', 'reviewing'])
+const RUNNING = new Set<Task['status']>(['dispatched', 'validating', 'reviewing', 'merging'])
 
 /** "3/7 done, 2 running, 1 failed" — or "not started" / "no tasks yet". */
 export function planStatus(plan: DirPlan, tasks: readonly TaskLike[]): string {

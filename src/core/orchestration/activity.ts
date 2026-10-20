@@ -276,6 +276,10 @@ export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[
       const from = categoryOf(was, dsBefore.get(id) ?? [])
       if (was.status === t.status && from === category) continue
       const d = dispatchOf(ds)
+      // Blocked with no Gate opened beside it: the scheduler gave up on a Gate the owner's plan kept refusing. One notice,
+      // hands-off plan or not (its reason is the Task's result).
+      if (t.status === 'blocked' && was.status !== 'blocked' && prev.gates === next.gates)
+        push('task.escalated', where(t.runId, t.id), { title: t.title, reason: t.result ?? 'blocked', handsOff: undefined })
       push(
         'task.status',
         where(t.runId, t.id),
@@ -633,6 +637,10 @@ export interface ActivityNotice {
   alert?: true
 }
 
+/** A Gate's notice key: its Task and reason, not its id. A Gate that opens again with the same reason on the same Task is the
+ *  same news, so the throttle shows it once. */
+const gateKey = (e: ActivityEvent, reason: string): string => `gate:${e.taskId ?? e.payload.gateId}:${reason}`
+
 const inPlan = (e: ActivityEvent): string => (e.payload.plan !== undefined && e.payload.plan !== e.payload.title ? ` (${e.payload.plan})` : '')
 
 /** W6-G: when a usage window resets, as this machine's clock reads it: "14:20", or "Mon 14:20" for the 7-day one. */
@@ -668,7 +676,7 @@ export function noticeOf(e: ActivityEvent): ActivityNotice | null {
     case 'gate.opened':
       // #117: a hands-off plan answers its own Gates (exec/autoAnswer.ts handsOffStepsDue): nothing to tell the owner
       if (e.payload.handsOff) return null
-      return { key: `gate:${e.payload.gateId}`, title: 'Needs your answer', body: `${e.payload.title}${inPlan(e)}: ${e.payload.question ?? ''}`.slice(0, 240), alert: true }
+      return { key: gateKey(e, e.payload.question ?? ''), title: 'Needs your answer', body: `${e.payload.title}${inPlan(e)}: ${e.payload.question ?? ''}`.slice(0, 240), alert: true }
     case 'plan.awaiting-approval':
       // W7-A: a plan revised for the owner's feedback is a new notice, with the chime: the owner asked for it
       return e.payload.round
@@ -688,7 +696,7 @@ export function noticeOf(e: ActivityEvent): ActivityNotice | null {
     case 'task.escalated':
       if (e.payload.handsOff) return null
       return {
-        key: e.payload.gateId !== undefined ? `gate:${e.payload.gateId}` : `escalated:${e.id}`,
+        key: e.payload.gateId !== undefined ? gateKey(e, e.payload.reason ?? '') : `escalated:${e.id}`,
         title: 'Needs your decision',
         body: `${e.payload.title}${inPlan(e)}: ${e.payload.reason ?? ''}`.slice(0, 240),
         alert: true,

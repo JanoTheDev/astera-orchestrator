@@ -23,6 +23,13 @@ describe('planStatusOf', () => {
   })
 })
 
+describe('planStatusOf delivery', () => {
+  it('carries the delivery error of a failed plan, and none otherwise', () => {
+    expect(planStatusOf(row({ outcome: 'failed', deliveryError: 'merge conflict' }))).toEqual({ key: 'pages.plans.status.failed', tone: 'danger', reason: 'merge conflict' })
+    expect(planStatusOf(row({ outcome: 'failed' }))).not.toHaveProperty('reason')
+  })
+})
+
 describe('lastActivityOf', () => {
   it('is the latest time the row knows, undefined with none', () => {
     expect(lastActivityOf(row())).toBeUndefined()

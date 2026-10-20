@@ -15,6 +15,13 @@ const ev = (n: number, over: Partial<ActivityEvent> = {}): ActivityEvent => ({
 })
 const label = (id: string): string => (id === 'acc_1' ? 'Work' : id)
 
+
+describe('merging', () => {
+  it('reads as running with a merging note', () => {
+    expect(lineOf(ev(1, { payload: { title: 'Task A', category: 'running', status: 'merging' } } as never), label).text).toBe('Task A: running (merging)')
+  })
+})
+
 describe('activityView', () => {
   it('a page joins the held lines once each, the newest kept', () => {
     expect(mergePage([ev(1), ev(2)], [ev(2), ev(3)]).map((e) => e.sequence)).toEqual([1, 2, 3])

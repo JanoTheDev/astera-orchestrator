@@ -41,6 +41,7 @@ import {
   openRepairDispatch,
   interruptStalledTask,
   runGatedForTask,
+  doneStatusOf,
   type OrchState
 } from './state'
 import { DELIVERY_MAX, FAILURE_LIMIT, canTransition, type Task, type Gate, type Dispatch, type CheckResult } from './types'
@@ -3806,5 +3807,61 @@ describe('the external coordinator (spec E1, E3)', () => {
     const none = rekeyExternalCoordinator(moved, { oldSessionId: 'other', newSessionId: 'x' })
     expect(none.ok && none.value).toBe(0)
     expect(none.ok && none.state).toBe(moved)
+  })
+})
+
+describe('merging: a Task completes only once its work is on the plan branch', () => {
+  /** seed() with the Run's own worktree; the Task's worker works in D:/p, outside it */
+  const inRun = (worktree: string) => {
+    const { s, runId, taskId, dispatchId } = seed()
+    return { s: unwrap(setRunWorktree(s, runId, worktree) as never).state, taskId, dispatchId }
+  }
+  const done = (s: OrchState, taskId: string, dispatchId: string) =>
+    unwrap(applyWorkerDone(s, { taskId, dispatchId, outcome: 'succeeded', subject: 's', body: 'b' }, NOW) as never).state
+
+  it('a worker that worked outside the Run root moves its Task to merging; a dependent stays pending', () => {
+    const { s, taskId, dispatchId } = inRun('D:/wt-run')
+    const dep = unwrap<{ id: string }>(createTask(s, { runId: s.runs[0].id, title: 'b', spec: 's', deps: [taskId] }, NOW) as never)
+    const after = done(dep.state, taskId, dispatchId)
+    expect(after.tasks.find((t) => t.id === taskId)!.status).toBe('merging')
+    expect(after.tasks.find((t) => t.id === dep.value.id)!.status).toBe('pending')
+    expect(after.messages.at(-1)!.type).toBe('worker_done')
+  })
+
+  it('a worker in the Run root, or a Run without its own worktree, completes it as before', () => {
+    const inRoot = inRun('D:/p')
+    expect(done(inRoot.s, inRoot.taskId, inRoot.dispatchId).tasks.find((t) => t.id === inRoot.taskId)!.status).toBe('completed')
+    const plain = seed()
+    expect(done(plain.s, plain.taskId, plain.dispatchId).tasks.find((t) => t.id === plain.taskId)!.status).toBe('completed')
+  })
+
+  it('a merge Task, and a review run elsewhere, never make merging', () => {
+    const { s, taskId } = inRun('D:/p')
+    const task = s.tasks.find((t) => t.id === taskId)!
+    expect(doneStatusOf(s, task)).toBe('completed')
+    const elsewhere = { ...s, dispatches: [...s.dispatches, { ...s.dispatches[0], id: 'dsp_r', cwd: 'D:/wt-r', review: true }] }
+    expect(doneStatusOf(elsewhere, task)).toBe('completed')
+    const out = inRun('D:/wt-run')
+    expect(doneStatusOf(out.s, { ...out.s.tasks[0], parentId: 'tsk_x' })).toBe('completed')
+  })
+
+  it('a passed review moves to merging too', () => {
+    const { s, taskId, dispatchId } = inRun('D:/wt-run')
+    const armed = done({ ...s, tasks: s.tasks.map((t) => (t.id === taskId ? { ...t, reviewRequested: true } : t)) }, taskId, dispatchId)
+    expect(armed.tasks.find((t) => t.id === taskId)!.status).toBe('reviewing')
+    const opened = unwrap<{ id: string }>(
+      openReviewDispatch(armed, { taskId, provider: 'claude', accountId: 'acc2', sessionId: 'sess2', cwd: 'D:/p', specPath: 'r' }, NOW) as never
+    )
+    const r = unwrap(
+      applyReviewResult(opened.state, { taskId, dispatchId: opened.value.id, outcome: 'succeeded', subject: 'ok', body: 'fine' }, NOW) as never
+    )
+    expect(r.state.tasks.find((t) => t.id === taskId)!.status).toBe('merging')
+    expect(r.state.messages.at(-1)!.body).toContain('The Task moved to merging.')
+  })
+
+  it('merging goes on to completed, blocked, failed or ready, and from dispatched, validating and reviewing', () => {
+    for (const to of ['completed', 'blocked', 'failed', 'ready'] as const) expect(canTransition('merging', to)).toBe(true)
+    expect(canTransition('merging', 'dispatched')).toBe(false)
+    for (const from of ['dispatched', 'validating', 'reviewing'] as const) expect(canTransition(from, 'merging')).toBe(true)
   })
 })

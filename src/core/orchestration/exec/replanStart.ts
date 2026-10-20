@@ -207,7 +207,8 @@ export function buildReplanBrief(a: {
     '',
     'WHAT YOU MAY DO',
     `- Change a Task that has not started: \`astera task-update --id <taskId>\` with --prompt -, --criteria, --affected-paths, --deps, --difficulty, --title, --spec.`,
-    `- Add a Task: \`astera task-create --run ${a.runId} --account ${a.accountId}\` with the planner flags (--prompt -, --criteria, --affected-paths, --deps, --difficulty, --model-reason).`,
+    `- Add a Task: \`astera task-create --run ${a.runId} --account ${a.accountId}\` with the planner flags (--prompt -, --criteria, --affected-paths, --deps, --difficulty, --model-reason) and, on every Task, --basis missing|partial|broken and --evidence "<file:line, #issue, PR or Job id>".`,
+    '  A follow-up for a review\'s leftovers uses `--basis partial` with evidence naming the parent Task id and its review (for example "tsk_x review round 2: <issue>").',
     '- Cancel a Task that has not started and is no longer needed: `astera task-cancel --id <taskId> --reason "<why>"`.',
     'Astera refuses any change to a completed or running Task, and every command that starts work.',
     ...(completion
@@ -222,8 +223,8 @@ export function buildReplanBrief(a: {
     '',
     'WHEN YOU ARE DONE',
     `Run \`astera jobs-replan-done --id ${a.job.id} --summary "<one line: what you changed and why>"\`. That ends this`,
-    'session. If the plan does not hold together then (a Task without prompt or criteria, an unknown dep, a cycle),',
-    'the Job stays held and the person is asked.'
+    'session. `jobs-replan-done` is refused while a Task that has not started lacks a prompt, a criterion, affected paths',
+    'or a basis (or has an unknown dep or a cycle): fix them with `astera task-update --id <taskId>` and call it again.'
   ].join('\n')
 }
 
@@ -408,6 +409,9 @@ export async function replanCommand(deps: OrchServerDeps, caller: Caller, cmd: s
   const added = summed.added
   const line = timedOut ? `Replan skipped: its planner did not finish in time (${summed.line})`.slice(0, 300) : summed.line
   const problems = replanProblems(s, r.runId)
+  // The planner repairs its own plan: a plan that does not hold refuses its end, so the owner is never asked
+  if (fromAgent && args.gone !== true && problems.length)
+    return { status: 409, body: { error: `the plan does not hold yet: ${problems.join('; ')}. Fix them with task-update, then call jobs-replan-done again`, problems } }
   const followUps = (job.replanFollowUps ?? 0) + (r.mode === 'completion' && added > 0 ? 1 : 0)
   const escalated = problems.length
     ? `the plan does not hold after the replan: ${problems.join('; ')}`

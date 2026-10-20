@@ -18,7 +18,7 @@ import type { JobRow, JobTask, OrchSnapshot, TaskBoard, WorktreeInfo, UsagePause
 import { repoPathOf } from '../worktrees/repo'
 import { coordinatorStarting, type OrchState } from './state'
 import { eventCountsOf } from './timeline'
-import { isTerminal, outcomeOf, outcomeOfTasks, tasksOwnedBy } from './running'
+import { deliveryErrorOf, isTerminal, outcomeOf, outcomeOfRun, outcomeOfTasks, tasksOwnedBy } from './running'
 import { policyOfJob, repairCountIn, reviewRoundIn } from './convergence'
 import type { Dispatch, Gate, Job, JobRun, Task } from './types'
 import { taskBoardsOf } from './blocked'
@@ -436,7 +436,9 @@ export function snapshotFor(
         ? { coordinatorMissing: true }
         : {}),
       concurrency: job.concurrency,
-      outcome: outcomeOfTasks(ownedTasks),
+      outcome: outcomeOfRun(ownedTasks, run),
+      // A Run whose delivery failed reads failed; the reason rides with it
+      ...(deliveryErrorOf(run) !== undefined ? { deliveryError: deliveryErrorOf(run) } : {}),
       done,
       total,
       eventCount: ix.eventCounts.get(ownerId) ?? 0,

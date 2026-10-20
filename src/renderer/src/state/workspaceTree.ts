@@ -202,14 +202,31 @@ const isUnder = (p: string, root: string): boolean => {
 const deepest = <T extends { path: string }>(xs: readonly T[], p: string): T | undefined =>
   xs.filter((x) => isUnder(p, x.path)).sort((a, b) => b.path.length - a.path.length)[0]
 
+const parentDir = (p: string): string => trimPath(p).replace(/\/[^/]*$/, '')
+
+/** The repo of a folder in a worktree that is not (or no longer) in the registry: worktrees sit one folder each
+ *  under `<worktreesRoot>/<Project>/`, so a folder under the parent of a registered worktree is of that worktree's
+ *  repo, provided every registered worktree under that parent agrees (a root shared by several repos says nothing). */
+function repoOfUnlistedWorktree(cwd: string, worktrees: readonly WorktreeRef[]): string | undefined {
+  const parents = new Map<string, Set<string>>()
+  for (const w of worktrees) {
+    const dir = parentDir(w.path)
+    if (isUnder(cwd, dir) && trimPath(cwd) !== dir) parents.set(dir, (parents.get(dir) ?? new Set()).add(w.repoPath))
+  }
+  const best = [...parents.entries()].sort((a, b) => b[0].length - a[0].length)[0]
+  return best && best[1].size === 1 ? [...best[1]][0] : undefined
+}
+
 /** The project a folder belongs to: the deepest project holding it, directly or through a worktree of it. */
 export function projectOfCwd(
   cwd: string,
   projects: readonly { id: string; path: string }[],
   worktrees: readonly WorktreeRef[]
 ): string | null {
-  const folder = deepest(worktrees, cwd)?.repoPath ?? cwd
-  return deepest(projects, folder)?.id ?? null
+  const direct = deepest(projects, deepest(worktrees, cwd)?.repoPath ?? cwd)?.id
+  if (direct !== undefined) return direct
+  const repo = repoOfUnlistedWorktree(cwd, worktrees)
+  return repo === undefined ? null : (deepest(projects, repo)?.id ?? null)
 }
 
 /** Every workspace's session ids, keyed by project id, plus OTHER_WORKSPACE for the open tabs of no project. A plan's

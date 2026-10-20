@@ -1253,3 +1253,20 @@ describe('waveProgressOf (T14 Coordinator strip)', () => {
     expect(waveProgressOf([tk('a', [], 'completed'), tk('b', [], 'completed')])).toEqual({ at: 1, of: 1 })
   })
 })
+
+describe('a Run whose delivery failed', () => {
+  const delivered = (error?: string): OrchState => {
+    const s = withRuns([run('r1', absPath('p'))], [task('t1', 'r1', 'completed')])
+    return { ...s, runs: s.runs.map((r) => ({ ...r, pr: { at: 'x', ...(error ? { error } : { url: 'https://github.com/o/r/pull/1' }) } })) }
+  }
+  const rowOf = (s: OrchState) => snapshotFor(s, absPath('p'), anySession, noWorktrees, noFires, allExist).runs[0]
+
+  it('reads failed and carries the reason; a delivery that went through reads completed', () => {
+    const failed = delivered('git merge-tree says x does not merge cleanly')
+    expect(outcomeOf(failed, 'r1')).toBe('failed')
+    expect(rowOf(failed)).toMatchObject({ outcome: 'failed', deliveryError: 'git merge-tree says x does not merge cleanly' })
+    expect(outcomeOf(delivered(), 'r1')).toBe('completed')
+    expect(rowOf(delivered())).toMatchObject({ outcome: 'completed' })
+    expect(rowOf(delivered())).not.toHaveProperty('deliveryError')
+  })
+})

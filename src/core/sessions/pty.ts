@@ -1,14 +1,16 @@
+import type { CloseReason } from '../types'
 import type { PtyMeta } from '../host/protocol'
 
 export interface PtyLike {
   pid: number
   onData(cb: (data: string) => void): void
-  onExit(cb: (e: { exitCode: number }) => void): void
+  onExit(cb: (e: { exitCode: number; closeReason?: CloseReason }) => void): void
   /** `by.typed`: a person typed this in the tab, not the app's own write. Only a pty behind the Host reads it (it gives
    *  this machine the size back from a controller); node-pty's ignores it. */
   write(data: string, by?: { typed: true }): void
   resize(cols: number, rows: number): void
-  kill(): void
+  /** `reason`: why Astera asked for this kill, when it did; a Host-held pty carries it back on its exit. */
+  kill(reason?: CloseReason): void
   pause(): void
   resume(): void
   /** Merges these keys into the note this pty was spawned with (`PtySpawnOptions.meta`'s `restore`),

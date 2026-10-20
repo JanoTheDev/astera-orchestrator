@@ -44,6 +44,7 @@ import { normalizeIssues, type ReviewIssueInput } from './review'
 import { failedChecksSummary } from './completion'
 import { oneLine, pluginCheckText, skippedResult } from './pluginChecks'
 import { isJobActive } from './lifecycle'
+import { foldPathCase } from '../files/paths'
 
 export interface OrchState {
   /** 계획. 설계 §4 — 여기 있는 것이 "무엇을 시킬 것인가" 이고, 아래 runs 가 "실제로 돈 것" 이다. */
@@ -213,6 +214,24 @@ function moveTask(t: Task, to: Task['status'], now: string): Task | null {
     return { ...rest, status: to, updatedAt: now }
   }
   return { ...t, status: to, updatedAt: now }
+}
+
+/** The same folder, written with either separator, a trailing one or (where the filesystem folds it) another case. Both
+ *  are absolute paths the app recorded, so nothing needs resolving; web-safe (no node:path), as this module is. */
+export const samePlace = (a: string, b: string): boolean => {
+  const norm = (p: string): string => foldPathCase(p.replace(/\\/g, '/').replace(/\/+$/, ''))
+  return norm(a) === norm(b)
+}
+
+/** Where a Task whose work succeeded goes. `merging` when it has work to land on its plan branch: its Run has its own
+ *  worktree (integrate.ts runRootOf), it is not itself a merge Task (`parentId`), and some attempt (not a review)
+ *  worked outside that worktree. Otherwise `completed`, as before. A Task reads completed only once its commits are on
+ *  the plan branch: the app's merge (dispatchLoop mergeWaves) moves it on, or a Gate stops it. Every move to completed
+ *  asks this, a person's `task-update --status completed` too. */
+export function doneStatusOf(s: Pick<OrchState, 'runs' | 'dispatches'>, task: Task): 'merging' | 'completed' {
+  const root = s.runs.find((r) => r.id === task.runId)?.worktree
+  if (root === undefined || task.parentId) return 'completed'
+  return s.dispatches.some((d) => d.taskId === task.id && !d.review && !samePlace(d.cwd, root)) ? 'merging' : 'completed'
 }
 
 /** The Task's skipped round (plugin Phase 5 C9), when it is still the round of the Task's latest attempt; null
@@ -767,6 +786,40 @@ export function openDispatch(
   )
 }
 
+/** Records the Dispatch of a worker session that is live but has none: its record was lost (run job_0b682db7df32e7b4),
+ *  and the session's spec name (`<taskId>-<dispatchId>.md`, coordinator.ts specFileName) is the only link left. The
+ *  Task goes back to `dispatched` under the id the worker reports with. Refused when that id is recorded, the session
+ *  holds an open Dispatch, the Task has one open, or the Task is past its worker (exec/adopt.ts `adoptLiveWorkers`). */
+export function adoptDispatch(
+  s: OrchState,
+  a: { taskId: string; dispatchId: string; sessionId: string; provider: Provider; accountId: string; cwd: string; specPath: string },
+  now: string
+): Res<Dispatch> {
+  const task = s.tasks.find((t) => t.id === a.taskId)
+  if (!task) return gone(`unknown task: ${a.taskId}`)
+  // Only a Task waiting for this very worker: past it (validating, completed, failed...) the worker already reported
+  if (task.status !== 'ready' && task.status !== 'dispatched') return err(`cannot adopt onto status: ${task.status}`)
+  if (s.dispatches.some((d) => d.id === a.dispatchId)) return err(`dispatch already recorded: ${a.dispatchId}`)
+  const open = s.dispatches.find((d) => d.taskId === a.taskId && !d.outcome && !d.endedAt)
+  if (open) return err(`dispatch already open: ${open.id}`)
+  const sessionOpen = s.dispatches.find((d) => d.sessionId === a.sessionId && !d.outcome && !d.endedAt)
+  if (sessionOpen) return err(`sessionId already in use by an open dispatch: ${sessionOpen.id}`)
+  const moved = moveTask(task, 'dispatched', now)!
+  const dispatch: Dispatch = {
+    id: a.dispatchId,
+    taskId: a.taskId,
+    provider: a.provider,
+    accountId: a.accountId,
+    sessionId: a.sessionId,
+    cwd: a.cwd,
+    specPath: a.specPath,
+    startedAt: now,
+    workerState: 'ready',
+    retained: false
+  }
+  return ok({ ...s, tasks: replace(s.tasks, moved), dispatches: [...s.dispatches, dispatch] }, dispatch)
+}
+
 export function applyWorkerDone(
   s: OrchState,
   a: {
@@ -820,7 +873,7 @@ export function applyWorkerDone(
     : reviewing
       ? 'reviewing'
       : a.outcome === 'succeeded'
-        ? 'completed'
+        ? doneStatusOf(s, task)
         : 'failed'
   const moved = moveTask(task, to, now)
   if (!moved) return err(`cannot move task ${task.status} -> ${to}`)
@@ -977,7 +1030,7 @@ export function applyValidationResult(
 
   if (policy === null) {
     // ---- 지금까지의 경로. 문구까지 그대로다 ---- 달라진 것은 task 가 아니라 recorded 를 옮긴다는 것 하나다.
-    const to = reviewing ? 'reviewing' : passed ? 'completed' : 'failed'
+    const to = reviewing ? 'reviewing' : passed ? doneStatusOf(s, task) : 'failed'
     const moved = moveTask(recorded, to, now)
     if (!moved) return err(`cannot move task ${task.status} -> ${to}`)
     const next: Task = {
@@ -994,7 +1047,7 @@ export function applyValidationResult(
         taskId: task.id,
         subject: passed ? 'validation passed' : 'validation failed',
         body: passed
-          ? `exitCode=0. ${reviewing ? 'The Task moved to reviewing — a reviewer on another provider now reads it.' : 'The Task moved to completed.'}\n${output}`
+          ? `exitCode=0. ${reviewing ? 'The Task moved to reviewing — a reviewer on another provider now reads it.' : `The Task moved to ${to}.`}\n${output}`
           : `exitCode=${exitCode}. The Task moved to failed (consecutiveFailures=${next.consecutiveFailures}). Retry with worker-start --retry-of. The output tail below is the only record of what went wrong — a retry worker's spec file does not carry it, so pass on whatever it needs.\n${output}`
       },
       now
@@ -1004,7 +1057,7 @@ export function applyValidationResult(
 
   // ---- convergence Run ---- 실패는 failed 를 거치지 않고 repair 로 간다(설계 §5.1).
   if (passed) {
-    const to = reviewing ? 'reviewing' : 'completed'
+    const to = reviewing ? 'reviewing' : doneStatusOf(s, task)
     const moved = moveTask(recorded, to, now)
     if (!moved) return err(`cannot move task ${task.status} -> ${to}`)
     const next: Task = { ...moved, consecutiveFailures: reviewing ? task.consecutiveFailures : 0 }
@@ -1020,7 +1073,7 @@ export function applyValidationResult(
           skippedNames.length > 0
             ? `${total - skippedNames.length} of ${total} checks passed, ${skippedNames.length} skipped by a person: ${skippedNames.join(', ')}`
             : `All ${total} checks passed`,
-        body: `exitCode=0. ${reviewing ? 'The Task moved to reviewing — a reviewer on another provider now reads it.' : 'The Task moved to completed.'}`
+        body: `exitCode=0. ${reviewing ? 'The Task moved to reviewing — a reviewer on another provider now reads it.' : `The Task moved to ${to}.`}`
       },
       now
     ).state
@@ -1450,8 +1503,9 @@ export function applyReviewResult(
   if (policy === null) {
     // ---- 지금까지의 경로. 문구까지 그대로다 ----
     const passed = a.outcome === 'succeeded'
-    const moved = moveTask(task, passed ? 'completed' : 'failed', now)
-    if (!moved) return err(`cannot move task ${task.status} -> ${passed ? 'completed' : 'failed'}`)
+    const to = passed ? doneStatusOf(s, task) : 'failed'
+    const moved = moveTask(task, to, now)
+    if (!moved) return err(`cannot move task ${task.status} -> ${to}`)
     const next: Task = {
       ...moved,
       // 무엇이 부족했는지를 Task 에 남긴다. 재시도 워커가 이것을 읽지는 못한다 — buildSpecFile 은
@@ -1469,7 +1523,7 @@ export function applyReviewResult(
         dispatchId: dispatch.id,
         subject: passed ? 'review passed' : 'review failed',
         body: passed
-          ? `The reviewer accepted the work. The Task moved to completed.\n${a.body}`
+          ? `The reviewer accepted the work. The Task moved to ${to}.\n${a.body}`
           : `The reviewer rejected the work (consecutiveFailures=${next.consecutiveFailures}). Retry with worker-start --retry-of. The reason below is the only record of what was missing — a retry worker's spec file does not carry it, so pass on whatever it needs.\n${a.body}`
       },
       now
@@ -1496,8 +1550,9 @@ export function applyReviewResult(
   const blocking = issues.filter((i) => i.blocking)
   const recorded: Task = { ...task, reviewIssues: issues }
   if (blocking.length === 0) {
-    const moved = moveTask(recorded, 'completed', now)
-    if (!moved) return err(`cannot move task ${task.status} -> completed`)
+    const to = doneStatusOf(s, task)
+    const moved = moveTask(recorded, to, now)
+    if (!moved) return err(`cannot move task ${task.status} -> ${to}`)
     const next: Task = { ...moved, consecutiveFailures: 0 }
     let state: OrchState = { ...closed, tasks: recomputeReady(replace(closed.tasks, next)) }
     const notes = issues.length
@@ -1509,7 +1564,7 @@ export function applyReviewResult(
         taskId: task.id,
         dispatchId: dispatch.id,
         subject: notes === 0 ? 'Review approved' : `Review approved (${notes} non-blocking note${notes === 1 ? '' : 's'})`,
-        body: `The reviewer accepted the work. The Task moved to completed.\n${a.body}`
+        body: `The reviewer accepted the work. The Task moved to ${to}.\n${a.body}`
       },
       now
     ).state

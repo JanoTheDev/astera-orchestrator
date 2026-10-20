@@ -15,6 +15,7 @@ export const STATE_KEY: Record<TaskStatus, MessageKey> = {
   dispatched: 'jobs.state.dispatched',
   validating: 'jobs.state.validating',
   reviewing: 'jobs.state.reviewing',
+  merging: 'jobs.state.merging',
   completed: 'jobs.state.completed',
   failed: 'jobs.state.failed',
   blocked: 'jobs.state.blocked'
@@ -35,6 +36,8 @@ export const STATUS_COLOR: Record<TaskStatus, string> = {
   // 검토 중 — 검증(--git-modified)과도, 도는 중(accent)과도, 끝난 셋과도 달라야 한다.
   // 다른 에이전트가 읽고 있는 상태이므로 상태 팔레트에 없던 색을 하나 빌린다.
   reviewing: 'var(--fi-purple)',
+  // Landing on the plan branch is still undecided work, so it shares validating's tone
+  merging: 'var(--git-modified)',
   completed: 'var(--ok)',
   failed: 'var(--git-deleted)',
   blocked: 'var(--git-conflict)'
@@ -261,6 +264,7 @@ function shapeOf(status: TaskStatus, still: boolean): React.JSX.Element {
     case 'dispatched':
     case 'validating':
     case 'reviewing':
+    case 'merging':
       return (
         <>
           <circle cx="8" cy="8" r="6" fill="none" stroke="var(--line-soft)" strokeWidth="2" />

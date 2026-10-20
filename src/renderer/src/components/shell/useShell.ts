@@ -5,12 +5,13 @@ import { useAttention } from '../../state/useAttention'
 import { useHostWaiting } from '../search/useHostWaiting'
 import { useAccountUsage } from '../../hooks/useAccountUsage'
 import type { AppState } from '../../state/appState'
+import { scopeSessions } from '../../state/projectView'
 import { activeAccountOf, nextQueuedLine, shellCounts } from './shellView'
 
-export type ShellDeps = Pick<AppState, 'accounts' | 'active' | 'sessions' | 't' | 'workspaceData' | 'workspaceTree'>
+export type ShellDeps = Pick<AppState, 'accounts' | 'active' | 'sessions' | 't' | 'workspaceData' | 'workspaceTree' | 'workspaceIds' | 'scopeId' | 'scopedTree' | 'scopedData'>
 
-export function useShell({ accounts, active, sessions, t, workspaceData, workspaceTree }: ShellDeps) {
-  const attention = useAttention(sessions.map((s) => s.id))
+export function useShell({ accounts, active, sessions: allSessions, t, workspaceIds, scopeId, scopedTree: workspaceTree, scopedData: workspaceData }: ShellDeps) {
+  const attention = useAttention(allSessions.map((s) => s.id))
   // W5-D (#42): the Host's own waits, read with the app closed too
   const hostWaiting = useHostWaiting(workspaceData?.projects[0]?.path ?? null)
   const { sessionIndex, needsYou } = useMemo(() => {
@@ -28,7 +29,8 @@ export function useShell({ accounts, active, sessions, t, workspaceData, workspa
     const sessionIndex = buildSessionIndex(input)
     return { sessionIndex, needsYou: needsInput(input, sessionIndex) }
   }, [workspaceTree, workspaceData, attention, hostWaiting])
-  const counts = shellCounts(sessions, attention, needsYou)
+  // The status bar counts the open project's work; "All projects" widens it
+  const counts = shellCounts(scopeSessions(allSessions, workspaceIds, scopeId), attention, needsYou)
   const nextQueued = workspaceData
     ? nextQueuedLine({ jobs: Object.values(workspaceData.jobsByProject).flat(), runs: workspaceData.runs, tasks: workspaceData.tasks }, t)
     : null

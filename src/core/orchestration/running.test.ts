@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { runningCount, isStoppedWorker, runningRunCount } from './running'
+import { runningCount, isStoppedWorker, runningRunCount, outcomeOfTasks, outcomeOfRun, deliveryErrorOf } from './running'
 import { snapshotFor } from './view'
 import { emptyState } from './state'
 import type { OrchState } from './state'
-import type { Dispatch, Task } from './types'
+import type { Dispatch, JobRun, Task } from './types'
 import { stateFromLegacy } from './legacyState'
 import type { LegacyRun } from './legacy'
 import { absPath } from '../testPaths'
@@ -201,5 +201,35 @@ describe('runningRunCount with a coordinator', () => {
   it('does not count a paused Run, nor a finished one, whose coordinator is still attached', () => {
     expect(runningRunCount(withCoordinator([], { paused: true }))).toBe(0)
     expect(runningRunCount(withCoordinator([task('t1', 'completed')]))).toBe(0)
+  })
+})
+
+describe('merging', () => {
+  it('is not terminal: a Run whose last Task is merging still runs', () => {
+    expect(outcomeOfTasks([task('a', 'completed'), task('b', 'merging')])).toBe('running')
+    expect(outcomeOfTasks([task('a', 'completed'), task('b', 'completed')])).toBe('completed')
+  })
+})
+
+describe('a failed delivery', () => {
+  const done = [task('a', 'completed'), task('b', 'completed')]
+  const run = (over: Partial<JobRun>): JobRun => ({ id: 'r1', jobId: 'j1', ordinal: 1, createdAt: '2026-08-20T00:00:00.000Z', ...over }) as JobRun
+
+  it('reads the pull request error, then the push error, and nothing for a clean record', () => {
+    expect(deliveryErrorOf(run({ pr: { at: 'x', error: 'merge conflict' } }))).toBe('merge conflict')
+    expect(deliveryErrorOf(run({ delivery: { at: 'x', error: 'push refused' } }))).toBe('push refused')
+    expect(deliveryErrorOf(run({ pr: { at: 'x', url: 'u' } }))).toBeUndefined()
+    expect(deliveryErrorOf(undefined)).toBeUndefined()
+  })
+
+  it('makes a Run whose Tasks all completed read failed, and leaves the Tasks-only answer alone', () => {
+    expect(outcomeOfRun(done, run({ pr: { at: 'x', error: 'merge conflict' } }))).toBe('failed')
+    expect(outcomeOfRun(done, run({ delivery: { at: 'x', error: 'push refused' } }))).toBe('failed')
+    expect(outcomeOfTasks(done)).toBe('completed')
+    expect(outcomeOfRun(done, run({}))).toBe('completed')
+  })
+
+  it('does not end a Run that still works', () => {
+    expect(outcomeOfRun([task('a', 'completed'), task('b', 'merging')], run({ pr: { at: 'x', error: 'e' } }))).toBe('running')
   })
 })

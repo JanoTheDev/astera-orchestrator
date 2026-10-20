@@ -15,7 +15,7 @@ import type { RollSnapshot, RollSpawnExtra } from '../rolling/snapshot'
 class FakePty implements PtyLike {
   pid = 4242
   dataCb: (d: string) => void = () => {}
-  exitCb: (e: { exitCode: number }) => void = () => {}
+  exitCb: (e: { exitCode: number; closeReason?: 'released' | 'stopped' | 'replaced' }) => void = () => {}
   written: string[] = []
   resized: { cols: number; rows: number }[] = []
   paused = false
@@ -26,7 +26,7 @@ class FakePty implements PtyLike {
   /** The note patches this pty was asked to keep — what a Host-backed pty sends as pty-note. */
   remembered: Record<string, unknown>[] = []
   onData(cb: (d: string) => void) { this.dataCb = cb }
-  onExit(cb: (e: { exitCode: number }) => void) { this.exitCb = cb }
+  onExit(cb: (e: { exitCode: number; closeReason?: 'released' | 'stopped' | 'replaced' }) => void) { this.exitCb = cb }
   /** Which writes came marked as typed by a person in the tab (`PtyLike.write`'s second argument). */
   typed: boolean[] = []
   write(d: string, by?: { typed: true }) { this.written.push(d); this.typed.push(by?.typed === true) }
@@ -274,6 +274,44 @@ describe('SessionManager', () => {
     expect(spawned[0].pty.paused).toBe(true)
     manager.ack(info.id, 140)
     expect(spawned[0].pty.paused).toBe(false)
+  })
+
+  it('an exit after Astera kill()s the session is marked closedByAstera; a self-exit is not', () => {
+    const { manager, spawned } = setup()
+    const exits: { closedByAstera?: boolean }[] = []
+    manager.onExit = (e) => exits.push(e)
+    const a = manager.spawn({ account, cwd: process.cwd() })
+    manager.kill(a.id) // the fake pty answers kill with its own exit, as a real one does
+    expect(exits).toHaveLength(1)
+    expect(manager.list().find((s) => s.id === a.id)?.closedByAstera).toBe(true)
+    expect(exits[0].closedByAstera).toBe(true)
+    const b = manager.spawn({ account, cwd: process.cwd() })
+    spawned[1].pty.exitCb({ exitCode: 143 })
+    expect(manager.list().find((s) => s.id === b.id)?.closedByAstera).toBeUndefined()
+    expect(exits[1].closedByAstera).toBeUndefined()
+  })
+
+  it('a Host-held pty exit that carries a closeReason marks the session closed by Astera, with the reason', () => {
+    const { manager, spawned } = setup()
+    const exits: { closedByAstera?: boolean; closeReason?: string }[] = []
+    manager.onExit = (e) => exits.push(e)
+    const a = manager.spawn({ account, cwd: process.cwd() })
+    spawned[0].pty.exitCb({ exitCode: 143, closeReason: 'replaced' })
+    expect(manager.list().find((s) => s.id === a.id)).toMatchObject({ closedByAstera: true, closeReason: 'replaced' })
+    expect(exits[0]).toMatchObject({ closedByAstera: true, closeReason: 'replaced' })
+  })
+
+  it('kill(id, reason) carries the reason on the exit and the session; a kill without one carries none', () => {
+    const { manager } = setup()
+    const exits: { closeReason?: string }[] = []
+    manager.onExit = (e) => exits.push(e)
+    const a = manager.spawn({ account, cwd: process.cwd() })
+    manager.kill(a.id, 'released')
+    expect(exits[0].closeReason).toBe('released')
+    expect(manager.list().find((s) => s.id === a.id)?.closeReason).toBe('released')
+    const b = manager.spawn({ account, cwd: process.cwd() })
+    manager.kill(b.id)
+    expect(exits[1].closeReason).toBeUndefined()
   })
 
   it('종료 시 status가 exited가 되고 onExit이 발화한다', () => {

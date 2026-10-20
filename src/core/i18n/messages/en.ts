@@ -93,6 +93,10 @@ export const en: Record<keyof typeof ko, string> = {
   'wall.group.open': 'Open plan',
   'wall.group.done': 'Done',
   'wall.group.progress': '{done}/{total} done',
+  'wall.section.coordinators': 'Coordinators',
+  'wall.section.planners': 'Planners',
+  'wall.section.workers': 'Workers',
+  'wall.section.consoles': 'Consoles',
   'higgsfield.loginTimeout': 'The login did not finish within 3 minutes and was stopped. Try again.',
   'higgsfield.loginFailed': 'Could not log in.',
   'higgsfield.needsWorkspace': 'Workspace needed',
@@ -1260,7 +1264,14 @@ export const en: Record<keyof typeof ko, string> = {
   'session.toast.stalled':
     'Session “{title}” is stuck — automatic resume failed, it needs a look',
   'session.terminal.loadingContent': 'Loading content…',
-  'session.terminal.exited': 'Exited (code {code})',
+  'exit.finished': 'Finished',
+  'exit.closedByAstera': 'Closed by Astera — work finished',
+  'exit.releasedByAstera': 'Closed by Astera — released',
+  'exit.stoppedByAstera': 'Closed by Astera — stopped',
+  'exit.replacedByAstera': 'Closed by Astera — replaced',
+  'exit.stopped': 'Stopped (Ctrl+C)',
+  'exit.killed': 'Killed (out of memory or force-stopped)',
+  'exit.failed': 'Failed (code {code})',
   'session.terminal.sizedRemote': "Shown at the remote computer's window size. Type here to switch to this window's size.",
   'session.terminal.restart': 'Restart',
   'session.terminal.schedFallback': 'Schedule',
@@ -1442,7 +1453,6 @@ export const en: Record<keyof typeof ko, string> = {
   'run.form.addOption': 'Add option',
   'run.panel.tab': 'Run',
   'run.panel.empty': 'No runs yet — press ▶ in the toolbar to start one',
-  'run.panel.exitCode': 'exit {code}',
   'run.panel.stopping': 'Stopping…',
   'run.panel.close': 'Close run',
   'run.panel.openPreview': 'Open {url} in a preview',
@@ -1615,6 +1625,7 @@ export const en: Record<keyof typeof ko, string> = {
   'jobs.state.dispatchedStopped': 'The worker was stopped',
   'jobs.state.validating': 'Validation is running',
   'jobs.state.reviewing': 'Another agent is reviewing it',
+  'jobs.state.merging': 'Merging into the plan branch',
   'jobs.state.completed': 'Done',
   'jobs.state.failed': 'Failed',
   'jobs.state.blocked': 'Waiting for a person',
@@ -1651,6 +1662,7 @@ export const en: Record<keyof typeof ko, string> = {
   'jobs.run.mergeFailed': 'Could not merge: {reason}',
   'jobs.run.notStarted': 'Not started',
   'jobs.run.notStartedHint': 'Not started yet — press Run in the detail window to start it',
+  'jobs.run.notDelivered': 'Not delivered: {reason}',
   // W2-A planner stage
   'jobs.new.planner': 'Plan with planner first',
   'jobs.new.plannerHint': 'A planner session (on the planner model) reads the repository and writes the Tasks, each with its prompt and acceptance criteria. It changes no files and starts nothing: you approve the plan with Approve & execute.',
@@ -2092,7 +2104,6 @@ export const en: Record<keyof typeof ko, string> = {
   'conversation.exited.title': 'This session has ended',
   // The terminal always showed an exit code, and the chat pane never did (design D2). A code alone
   // says nothing, so the first line the process left on stderr rides along — the tail folds away.
-  'conversation.exited.withCode': 'This session has ended (code {code})',
   'conversation.exited.detail': 'Details',
   'conversation.exited.restart': 'Restart',
   // design §4 F5's five-part confirmation. An exception to S1 (one or two lines) — the person is

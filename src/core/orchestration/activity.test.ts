@@ -246,6 +246,18 @@ describe('notices', () => {
     expect(noticeOf(ev(usageActivity({ type: 'usage.resumed', pause })))?.title).toBe('New workers resumed')
   })
 
+  it('a Gate that opens again with the same reason on the same Task is one notice; another reason or Task is another', () => {
+    const gate = (gateId: string, taskId: string, question: string): ActivityEvent =>
+      ev({ type: 'gate.opened', taskId, payload: { title: 'A', gateId, question } })
+    const th = createNoticeThrottle({ max: 99 })
+    const admit = (e: ActivityEvent): boolean => th.admit(noticeOf(e)!.key, 0)
+    expect(admit(gate('gate_1', 'a', 'cannot merge'))).toBe(true)
+    expect(admit(gate('gate_2', 'a', 'cannot merge'))).toBe(false)
+    expect(admit(ev({ type: 'task.escalated', taskId: 'a', payload: { title: 'A', gateId: 'gate_3', reason: 'cannot merge' } }))).toBe(false)
+    expect(admit(gate('gate_4', 'a', 'other reason'))).toBe(true)
+    expect(admit(gate('gate_5', 'b', 'cannot merge'))).toBe(true)
+  })
+
   it('the throttle: a key once a window, at most max a minute, the rest counted', () => {
     const th = createNoticeThrottle({ dedupMs: 1000, windowMs: 100, max: 2 })
     expect(th.admit('a', 0)).toBe(true)

@@ -23,6 +23,7 @@ import {
   blockForReview,
   closeDispatch,
   createGate,
+  doneStatusOf,
   createQuestion,
   createJob,
   createTask,
@@ -114,10 +115,10 @@ import type { Provider } from '../providers/meta'
 import { isValidRule, type ScheduleRule } from '../scheduler/rule'
 import { parseCheckFlag } from '../workUnit/verification'
 import { isTerminal as taskFinished, outcomeOf, progressOf } from './view'
-import { runningRunCount } from './running'
+import { outcomeOfTasks, runningRunCount, tasksOwnedBy } from './running'
 import { FINISHED_RUN_GRACE_MS } from './exec/dispatchLoop'
 import { appDriven, editingByProject, projectKeyOf, sameFilesAs, workerCapOf, workersAgainstCap } from './schedule'
-import type { JobEvent, SessionInfo, WorktreeInfo } from '../types'
+import type { CloseReason, JobEvent, SessionInfo, WorktreeInfo } from '../types'
 import { ghFailureSentence, type GhFailed, type GhRunner } from '../github/gh'
 import { failedLogTail, readPrChecks, rerunFailed } from '../github/checks'
 import { prForBranch } from '../github/prs'
@@ -193,6 +194,8 @@ import { REPLAN_COMMANDS, replanCommand, replanRefusal } from './exec/replanStar
 import { coordinatorHandoff, refreshCoordinator } from './exec/coordinatorRotate'
 // T5 crash restore
 import { crashResumedBrief } from './exec/crashResume'
+import { adoptLiveWorkers, specIdsOf, type LiveWorker } from './exec/adopt'
+import { specsDirOf } from './exec/specFiles'
 import { feedbackCommand, handsOffOf, isFeedbackCommand } from './exec/plannerFeedback'
 export { JOB_SOURCE } from './commandSources'
 import { pluginIdOfCheck, type CompletionCheckInput, type PluginCheckAnswer } from './pluginChecks'
@@ -380,7 +383,7 @@ export interface OrchServerDeps {
     model?: string
     modelNote?: string
   }>
-  releaseWorker(a: { dispatchId: string }): Promise<void>
+  releaseWorker(a: { dispatchId: string; closeReason?: CloseReason }): Promise<void>
   /** 그 세션의 롤링 체인을 버린다 — **세션은 죽이지 않는다**(releaseWorker 와 그 점이 다르다).
    *
    *  **Dispatch 가 닫혔는데 세션이 살아 있는 자리에서만 부른다.** 워커는 보고한 뒤에도 일부러 살아
@@ -481,7 +484,7 @@ export interface OrchServerDeps {
   /** Stops a coordinator session `startCoordinator` opened, when the hand-over finds another one
    *  already in the Run's slot (Task 1 fix round 1, I2). Optional: without it that session is left
    *  running and the command says so in the log. `reason` is why, for the log line of whoever stops it. */
-  stopCoordinator?(sessionId: string, reason?: string): Promise<void>
+  stopCoordinator?(sessionId: string, reason?: string, closeReason?: CloseReason): Promise<void>
   /** How long `runs resume` waits for a stopped coordinator's slot to empty before it refuses (review
    *  fix round 1, I2). Absent means RESUME_STOP_WAIT_MS; tests shorten it. */
   resumeStopWaitMs?: number
@@ -821,6 +824,9 @@ export interface OrchServerDeps {
   /** The profile folder (`attribution/` holds the checkpoint logs the stamp's line data reads). **Only the Host injects
    *  it**, as it does hookEventsDir; absent, the stamp notes commits without line data. */
   profileDir?: string
+  /** The worker sessions the Host holds live, each with the text that names its spec (exec/adopt.ts): `worker-stop` of
+   *  a duplicate adopts the original still running the same spec. **Only the Host injects it**, beside profileDir. */
+  liveWorkers?(): LiveWorker[]
 }
 
 /** A plugin as the early refusal reads it (plugin Phase 5 C7). */
@@ -888,6 +894,11 @@ const refused = (r: { error: string; missing?: true }): Reply =>
   r.missing ? notFound(r.error) : bad(r.error)
 const denied = (msg: string): Reply => ({ status: 403, body: { error: msg } })
 const conflict = (msg: string): Reply => ({ status: 409, body: { error: msg } })
+
+/** What the Run's Tasks say, not what it reads: a Run whose delivery failed reads `failed`, and a delivery retried
+ *  (`--force`) must still see its Tasks completed. A paused Run is neither. */
+const taskOutcomeOf = (s: OrchState, run: JobRun): ReturnType<typeof outcomeOfTasks> | 'paused' =>
+  run.paused === true ? 'paused' : outcomeOfTasks(tasksOwnedBy(s, run.id))
 /** How long after its `startedAt` a `pending:` Dispatch still counts as a start in flight (Host S2
  *  fix round 2, N1). A start waits at most a spawn deadline (SPAWN_DEADLINE_MS, 20 s) plus the
  *  coordinator's idle wait before its prompt (30 s), plus trust and account reads; two minutes covers
@@ -959,7 +970,7 @@ const runMoves = (s: OrchState, job: Job, run: JobRun, now: string): boolean => 
   if (coordinatorStarting(run, Date.parse(now))) return true
   const ids = new Set(tasks.map((t) => t.id))
   if (s.dispatches.some((d) => ids.has(d.taskId) && !d.outcome && !d.endedAt)) return true
-  if (tasks.some((t) => t.status === 'validating' || t.status === 'reviewing')) return true
+  if (tasks.some((t) => t.status === 'validating' || t.status === 'reviewing' || t.status === 'merging')) return true
   if (s.gates.some((g) => g.status === 'open' && g.runId === run.id)) return true
   if (limitedUntil(s, run.id, now) !== null) return true
   const coordinated = run.coordinatorSessionId !== undefined
@@ -982,7 +993,7 @@ const startable = (tasks: readonly Task[], coordinated: boolean): Set<string> =>
   const byId = new Map(tasks.map((t) => [t.id, t]))
   const memo = new Map<string, boolean>()
   /** Whether this Task can still reach `completed`. A Task under way or with a person (`validating`,
-   *  `reviewing`, `blocked`) can. A cycle, or a dependency outside this Run, cannot. */
+   *  `reviewing`, `merging`, `blocked`) can. A cycle, or a dependency outside this Run, cannot. */
   const canComplete = (id: string): boolean => {
     const known = memo.get(id)
     if (known !== undefined) return known
@@ -993,6 +1004,7 @@ const startable = (tasks: readonly Task[], coordinated: boolean): Set<string> =>
       (t.status === 'completed' ||
         t.status === 'validating' ||
         t.status === 'reviewing' ||
+        t.status === 'merging' ||
         t.status === 'blocked' ||
         canStart(t))
     memo.set(id, answer)
@@ -1087,7 +1099,7 @@ const limitedUntil = (s: OrchState, runId: string, now: string): string | null =
     s.tasks.some(
       (t) =>
         tasks.has(t.id) &&
-        (t.status === 'validating' || t.status === 'reviewing' || (t.status === 'ready' && readyHolds))
+        (t.status === 'validating' || t.status === 'reviewing' || t.status === 'merging' || (t.status === 'ready' && readyHolds))
     )
   )
     return null
@@ -1284,6 +1296,7 @@ const TASK_STATUSES: TaskStatus[] = [
   'dispatched',
   'validating',
   'reviewing',
+  'merging',
   'completed',
   'failed',
   'blocked'
@@ -2016,7 +2029,7 @@ export async function handleCommand(
     still: (current: OrchState) => boolean = () => true
   ): Promise<'retired' | 'moved' | 'gone'> => {
     try {
-      if (deps.stopCoordinator) await deps.stopCoordinator(sessionId, why)
+      if (deps.stopCoordinator) await deps.stopCoordinator(sessionId, why, 'stopped')
       else deps.log?.(`coordinator ${sessionId} of run ${runId} could not be stopped: nothing here can stop a session`)
     } catch (e) {
       deps.log?.(`coordinator ${sessionId} of run ${runId} could not be stopped: ${String(e)}`)
@@ -2173,7 +2186,7 @@ export async function handleCommand(
             `stopping the one this start opened (${sessionId})`
         )
         try {
-          if (deps.stopCoordinator) await deps.stopCoordinator(sessionId, 'another coordinator already manages its Run')
+          if (deps.stopCoordinator) await deps.stopCoordinator(sessionId, 'another coordinator already manages its Run', 'replaced')
           else deps.log?.(`coordinator ${sessionId} could not be stopped: nothing here can stop a session`)
         } catch (e) {
           deps.log?.(`coordinator ${sessionId} could not be stopped: ${String(e)}`)
@@ -2899,7 +2912,7 @@ export async function handleCommand(
         )
       const starting = stillStarting(open, now)
       if (starting) return starting
-      for (const d of open.filter(releases)) await deps.releaseWorker({ dispatchId: d.id })
+      for (const d of open.filter(releases)) await deps.releaseWorker({ dispatchId: d.id, closeReason: 'stopped' })
       const stopped = new Set(open.map((d) => d.id))
       const latest = deps.getState()
       await deps.setState({
@@ -3200,7 +3213,7 @@ export async function handleCommand(
         const latestOfSession = new Map(s.dispatches.map((d) => [d.sessionId, d.id]))
         for (const d of s.dispatches)
           if (mine.has(d.taskId) && (d.outcome || d.endedAt) && latestOfSession.get(d.sessionId) === d.id && releases(d))
-            await deps.releaseWorker({ dispatchId: d.id })
+            await deps.releaseWorker({ dispatchId: d.id, closeReason: 'stopped' })
         for (const run of runs)
           if (run.coordinatorSessionId !== undefined && run.coordinatorStopPending === undefined)
             await handleCommand(deps, caller, 'run-coordinator-stop', { run: run.id })
@@ -3518,7 +3531,7 @@ export async function handleCommand(
         if (starting) return starting
         // 순차로 닫는다. releaseWorker 는 세션을 죽이는 부수 효과이고 상태를 쓰지 않는다 — 상태에서
         // 사라지는 것은 아래 deleteRuns 가 한꺼번에 한다.
-        for (const d of open.filter(releases)) await deps.releaseWorker({ dispatchId: d.id })
+        for (const d of open.filter(releases)) await deps.releaseWorker({ dispatchId: d.id, closeReason: 'stopped' })
       }
       // **병합이 먼저다.** 사람이 병합을 골랐는데 실패한 뒤 지우면 워커의 일이 워크트리 브랜치에
       // 갇힌 채 그 브랜치까지 사라진다 — 그래서 실패하면 아무것도 지우지 않고 이유를 돌려준다.
@@ -3714,7 +3727,7 @@ export async function handleCommand(
       // pauseSchedule 이 한꺼번에 한다(run-delete 가 releaseWorker 를 쓰는 순서와 같다).
       const done = new Set<string>()
       for (const d of open.filter(releases)) {
-        await deps.releaseWorker({ dispatchId: d.id })
+        await deps.releaseWorker({ dispatchId: d.id, closeReason: 'stopped' })
         done.add(d.id)
       }
       // On the state as it is now (audit OR-3): each release waits up to 5 s, and what landed meanwhile (a worker's
@@ -3734,7 +3747,7 @@ export async function handleCommand(
         const late = nowOpen.filter((d) => !done.has(d.id) && releases(d))
         if (late.length === 0) break
         for (const d of late) {
-          await deps.releaseWorker({ dispatchId: d.id })
+          await deps.releaseWorker({ dispatchId: d.id, closeReason: 'stopped' })
           done.add(d.id)
         }
         latest = deps.getState()
@@ -4240,10 +4253,16 @@ export async function handleCommand(
       // Stall watchdog: the app records a completed Task's merge into its plan branch (finishedSessions.ts
       // mergedIntoPlan). Astera's own, so an agent session cannot mark one. updatedAt stays: a dependent's readiness
       // moment (inbox.ts readyReminders) is read from it.
+      // A merging Task (state.ts doneStatusOf) is completed by its merge: here, with its dependents readied.
       if (args.mergedIntoPlan === true) {
         if (fromAgentSession || caller.role === 'mcp') return bad('--merged-into-plan is recorded by Astera itself')
         const target = s.tasks.find((t) => t.id === id)
         if (!target) return notFound(`unknown task: ${id}`)
+        if (target.status === 'merging') {
+          const landed: Task = { ...target, status: 'completed', updatedAt: now, mergedIntoPlanAt: now }
+          await deps.setState({ ...s, tasks: recomputeReady(s.tasks.map((t) => (t.id === id ? landed : t))) })
+          return okBody({ id, mergedIntoPlanAt: now })
+        }
         if (target.status !== 'completed') return bad(`task ${id} is ${target.status}, not completed`)
         if (target.mergedIntoPlanAt !== undefined) return okBody({ id, mergedIntoPlanAt: target.mergedIntoPlanAt })
         await deps.setState({ ...s, tasks: s.tasks.map((t) => (t.id === id ? { ...t, mergedIntoPlanAt: now } : t)) })
@@ -4275,12 +4294,14 @@ export async function handleCommand(
           )
         )
       }
-      const status = str(args.status)
-      if (!status) return bad('--status is required')
-      if (!isTaskStatus(status))
+      const asked = str(args.status)
+      if (!asked) return bad('--status is required')
+      if (!isTaskStatus(asked))
         return bad(`--status must be one of ${TASK_STATUSES.join('|')}`)
       const task = s.tasks.find((t) => t.id === id)
       if (!task) return notFound(`unknown task: ${id}`)
+      // Completed only once its work is on the plan branch, as every other move to completed (state.ts doneStatusOf)
+      const status = asked === 'completed' ? doneStatusOf(s, task) : asked
       // Deliberately bypasses the transition table (canTransition): task-update --status is allowed
       // to bypass that table because the orchestrator needs a way to correct things by hand — but
       // the bypass is written to the log. state.ts (moveTask/canTransition) owns the normal
@@ -4298,7 +4319,7 @@ export async function handleCommand(
       //
       // **요구는 이 한 경우에만 건다.** 평범한 손보기(ready 로 되돌리기, 회로 차단 풀기)는 그대로다 —
       // 거기까지 이유를 받으면 이 명령이 쓰이던 모든 구조 경로가 한 번에 막힌다.
-      const override = status === 'completed' && isOverrideCompletion(task, policyOf(s, task))
+      const override = asked === 'completed' && isOverrideCompletion(task, policyOf(s, task))
       const reason = str(args.reason)
       if (override && !reason)
         return bad(
@@ -4421,6 +4442,7 @@ export async function handleCommand(
       // 켰는지와 무관하다.
       if (task.status === 'validating' || task.status === 'reviewing')
         return bad(`task is awaiting a verdict: ${task.status}`)
+      if (task.status === 'merging') return bad('task is being merged into the plan branch')
       if (task.consecutiveFailures >= FAILURE_LIMIT)
         return bad(`circuit break: ${FAILURE_LIMIT} consecutive failures`)
       const openForTask = s.dispatches.find((d) => d.taskId === taskId && !d.outcome && !d.endedAt)
@@ -4749,7 +4771,7 @@ export async function handleCommand(
             s.dispatches.some((x) => x.taskId === task.id && x.repair !== undefined && !x.endedAt))
         if (converging) return conflict(`task ${task!.id} is still converging — release after it completes`)
       }
-      await deps.releaseWorker({ dispatchId: id })
+      await deps.releaseWorker({ dispatchId: id, closeReason: 'released' })
       return okBody(d?.retained === true ? { released: id, skipped: 'retained' } : { released: id })
     }
     case 'worker-retain': {
@@ -4782,8 +4804,8 @@ export async function handleCommand(
       // nothing still starting.
       const starting = !d.outcome && !d.endedAt ? stillStarting([d], now) : null
       if (starting) return starting
-      if (releases(d)) await deps.releaseWorker({ dispatchId: d.id })
-      await deps.setState({
+      if (releases(d)) await deps.releaseWorker({ dispatchId: d.id, closeReason: 'stopped' })
+      const stopped: OrchState = {
         ...deps.getState(),
         dispatches: deps
           .getState()
@@ -4792,8 +4814,14 @@ export async function handleCommand(
               ? { ...x, workerState: 'stopped' as const, endedAt: now, closedBy: 'stop' as const }
               : x
           )
-      })
-      return okBody({ stopped: d.id })
+      }
+      // A duplicate stopped while the original still runs the same spec untracked (its record lost): the original
+      // becomes the Task's Dispatch, so the Task is not left `dispatched` with nothing open (exec/adopt.ts)
+      const survivors = deps.profileDir ? (deps.liveWorkers?.() ?? []).filter((w) => specIdsOf(w.spec)?.taskId === d.taskId) : []
+      const adoption = adoptLiveWorkers(stopped, survivors, specsDirOf(deps.profileDir ?? ''), now)
+      await deps.setState(adoption.state)
+      const adopted = adoption.adopted[0]
+      return okBody({ stopped: d.id, ...(adopted ? { adopted: adopted.id, sessionId: adopted.sessionId } : {}) })
     }
     case 'worker-abandon': {
       // Does nothing remote, nothing to any process, nothing on the filesystem.
@@ -6095,7 +6123,7 @@ export async function handleCommand(
       if (done?.sha !== undefined) return okBody({ delivery: 'push', branch: done.branch ?? null, sha: done.sha, pushed: false })
       if (done?.error !== undefined && args.force !== true)
         return conflict(`Pushing this Run stopped before: ${done.error}. --force tries again`)
-      if (runView(s, run).outcome !== 'completed') return conflict('This Run has not completed; it is pushed once every task is done')
+      if (taskOutcomeOf(s, run) !== 'completed') return conflict('This Run has not completed; it is pushed once every task is done')
       if (!deps.deliverPush) return conflict('Pushing a plan is done by the Astera Host, and this caller is not one')
       const proj = projectOfJob(s, job)
       const branch = proj?.deliveryBranch
@@ -6211,7 +6239,7 @@ export async function handleCommand(
       if (run.pr?.error !== undefined && args.force !== true)
         return conflict(`Opening this Run's pull request failed before: ${run.pr.error}. --force tries again`)
       // W8-E (#99): a Run that ended with failed Tasks delivers its completed Tasks' work, in a draft
-      const outcome = runView(s, run).outcome
+      const outcome = taskOutcomeOf(s, run)
       if (outcome !== 'completed' && outcome !== 'failed') return conflict('This Run has not completed; its pull request opens once every task is done')
       const failed = outcome === 'failed'
       if (!deps.github) return conflict('GitHub commands are answered by the Astera Host, and this caller is not one')

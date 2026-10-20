@@ -226,8 +226,8 @@ function taskTransitionEvents(
   const exhausted = gateKind === 'convergence-exhausted'
   const verdicts: ContinuityEventType[] = []
   if (from === 'validating' && (to !== 'blocked' || verdictGated))
-    verdicts.push(to === 'completed' || to === 'reviewing' ? 'TASK_CHECK_PASSED' : 'TASK_CHECK_FAILED')
-  if (from === 'reviewing' && to === 'completed') verdicts.push('TASK_REVIEW_PASSED')
+    verdicts.push(to === 'completed' || to === 'reviewing' || to === 'merging' ? 'TASK_CHECK_PASSED' : 'TASK_CHECK_FAILED')
+  if (from === 'reviewing' && (to === 'completed' || to === 'merging')) verdicts.push('TASK_REVIEW_PASSED')
   if (from === 'reviewing' && (to === 'dispatched' || (to === 'blocked' && verdictGated)))
     verdicts.push('TASK_REVIEW_CHANGES_REQUESTED')
   if (to === 'blocked' && exhausted) verdicts.push('TASK_CONVERGENCE_EXHAUSTED')
@@ -282,7 +282,7 @@ function taskEvents(prev: OrchState, next: OrchState, now: string, stamp: string
     // this transition had just produced them.
     const validatingVerdict = from === 'validating' && (to !== 'blocked' || verdictGated)
     const reviewingVerdict =
-      from === 'reviewing' && (to === 'completed' || to === 'dispatched' || (to === 'blocked' && verdictGated))
+      from === 'reviewing' && (to === 'completed' || to === 'merging' || to === 'dispatched' || (to === 'blocked' && verdictGated))
     if (validatingVerdict && task.checks)
       payload.checks = task.checks.map((c) => ({ configId: c.configId, status: c.status, exitCode: c.exitCode ?? null }))
     if (reviewingVerdict && task.reviewIssues)

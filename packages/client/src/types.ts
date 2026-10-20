@@ -4,7 +4,7 @@
 // views' derived fields, wait endings, a stop's answer) are defined here and pinned by tests.
 
 export type Provider = 'claude' | 'codex'
-export type TaskStatus = 'pending' | 'ready' | 'dispatched' | 'validating' | 'reviewing' | 'completed' | 'failed' | 'blocked'
+export type TaskStatus = 'pending' | 'ready' | 'dispatched' | 'validating' | 'reviewing' | 'merging' | 'completed' | 'failed' | 'blocked'
 export type Outcome = 'succeeded' | 'failed'
 export type MessageType = 'status' | 'worker_done' | 'question' | 'escalation' | 'heartbeat' | 'decision_gate'
 export type RepairReason = 'check-failure' | 'review-failure'

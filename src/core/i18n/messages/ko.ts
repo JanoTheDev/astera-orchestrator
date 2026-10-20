@@ -94,6 +94,10 @@ export const ko = {
   'wall.group.open': '플랜 열기',
   'wall.group.done': '끝남',
   'wall.group.progress': '{done}/{total} 완료',
+  'wall.section.coordinators': '코디네이터',
+  'wall.section.planners': '플래너',
+  'wall.section.workers': '워커',
+  'wall.section.consoles': '콘솔',
   'higgsfield.loginTimeout': '3분 안에 로그인이 끝나지 않아 멈췄습니다. 다시 시도하세요.',
   'higgsfield.loginFailed': '로그인하지 못했습니다.',
   'higgsfield.needsWorkspace': '작업 공간 선택 필요',
@@ -1390,7 +1394,14 @@ export const ko = {
   // for a rolling session with Slack off, this is the only path that calls a human.
   'session.toast.stalled': "'{title}' 세션이 멈춰 있습니다 — 자동 재개 실패, 확인이 필요합니다",
   'session.terminal.loadingContent': '내용 불러오는 중…',
-  'session.terminal.exited': '종료됨 (코드 {code})',
+  'exit.finished': '완료',
+  'exit.closedByAstera': 'Astera가 닫음 — 작업 완료',
+  'exit.releasedByAstera': 'Astera가 닫음 — 해제',
+  'exit.stoppedByAstera': 'Astera가 닫음 — 중지',
+  'exit.replacedByAstera': 'Astera가 닫음 — 교체',
+  'exit.stopped': '중지됨 (Ctrl+C)',
+  'exit.killed': '강제 종료됨 (메모리 부족 또는 강제 중지)',
+  'exit.failed': '실패 (코드 {code})',
   'session.terminal.sizedRemote': '원격 컴퓨터의 창 크기로 표시 중입니다. 입력하면 이 창 크기로 바뀝니다.',
   'session.terminal.restart': '다시 시작',
   // The schedule banner SessionStateBanners.tsx draws, on the terminal and on the conversation pane alike
@@ -1612,7 +1623,6 @@ export const ko = {
   'run.form.addOption': '선택 항목 추가',
   'run.panel.tab': '실행',
   'run.panel.empty': '아직 실행이 없습니다 — 툴바의 ▶ 로 시작하세요',
-  'run.panel.exitCode': '종료 {code}',
   'run.panel.stopping': '정지 중…',
   'run.panel.close': '실행 닫기',
   'run.panel.openPreview': '{url} 미리보기로 열기',
@@ -1816,6 +1826,7 @@ export const ko = {
   'jobs.state.dispatchedStopped': '워커가 멈췄다',
   'jobs.state.validating': '검증이 도는 중',
   'jobs.state.reviewing': '다른 에이전트가 검토 중',
+  'jobs.state.merging': '플랜 브랜치에 병합하는 중',
   'jobs.state.completed': '끝났다',
   'jobs.state.failed': '실패했다',
   'jobs.state.blocked': '사람을 기다린다',
@@ -1857,6 +1868,7 @@ export const ko = {
   'jobs.run.mergeFailed': '합치지 못했습니다: {reason}',
   'jobs.run.notStarted': '실행 대기',
   'jobs.run.notStartedHint': '아직 실행하지 않았습니다 — 상세 창에서 실행을 누르면 시작합니다',
+  'jobs.run.notDelivered': '전달되지 않았다: {reason}',
   // W2-A planner stage
   'jobs.new.planner': '먼저 플래너로 계획하기',
   'jobs.new.plannerHint': '플래너 세션(플래너 모델)이 저장소를 읽고 Task 를 씁니다 — Task 마다 프롬프트와 완료 기준이 붙습니다. 파일을 바꾸지 않고 아무것도 시작하지 않습니다: 승인 후 실행으로 계획을 승인하세요.',
@@ -2335,7 +2347,6 @@ export const ko = {
   'conversation.exited.title': '이 세션은 종료되었습니다',
   // 터미널은 언제나 종료 코드를 보여 줬고 대화 창은 보여 주지 않았다(설계 D2). 코드만으로는 아무것도
   // 말해 주지 않으므로 프로세스가 stderr 에 남긴 첫 줄을 같이 싣는다 — 전문은 접어 둔다.
-  'conversation.exited.withCode': '이 세션은 종료되었습니다 (코드 {code})',
   'conversation.exited.detail': '자세히',
   'conversation.exited.restart': '다시 시작',
   // design §4 F5의 확인 창 다섯 문단. S1(한두 줄)의 예외다 — 사람이 대신할 수 없는 판단이라 사실을

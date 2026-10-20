@@ -863,7 +863,14 @@ export const ja: Catalog = {
   // 他の conversation.* キーがまだ無く(en/ko で代替される)、この3つだけを先に入れる。
   'conversation.indexingFiles': 'ファイル一覧を作成しています…',
   'conversation.filesUnavailable': 'このフォルダーのファイル一覧を取得できません。',
-  'conversation.exited.withCode': 'このセッションは終了しました (コード {code})',
+  'exit.finished': '完了',
+  'exit.closedByAstera': 'Astera が閉じました — 作業は完了',
+  'exit.releasedByAstera': 'Astera が閉じました — 解放',
+  'exit.stoppedByAstera': 'Astera が閉じました — 停止',
+  'exit.replacedByAstera': 'Astera が閉じました — 差し替え',
+  'exit.stopped': '停止 (Ctrl+C)',
+  'exit.killed': '強制終了 (メモリ不足または強制停止)',
+  'exit.failed': '失敗 (コード {code})',
   'conversation.exited.detail': '詳細',
   'conversation.exited.restart': '再開',
   // design §4 F5 の確認ダイアログの5つの項目。S1(1〜2行)の例外 — 本人にしかできない判断なので、
@@ -910,7 +917,6 @@ export const ja: Catalog = {
   'session.toast.stalled':
     'セッション「{title}」が停止しています — 自動再開に失敗しました。確認が必要です',
   'session.terminal.loadingContent': '内容を読み込み中…',
-  'session.terminal.exited': '終了しました (コード {code})',
   'session.terminal.sizedRemote': 'リモートコンピューターのウィンドウサイズで表示しています。入力するとこのウィンドウのサイズに切り替わります。',
   'session.terminal.restart': '再起動',
   // TerminalView.tsx schedule banner
@@ -1104,7 +1110,6 @@ export const ja: Catalog = {
   'run.form.addOption': 'オプションを追加',
   'run.panel.tab': '実行',
   'run.panel.empty': 'まだ実行がありません — ツールバーの ▶ で開始してください',
-  'run.panel.exitCode': '終了 {code}',
   'run.panel.stopping': '停止中…',
   'run.panel.close': '実行を閉じる',
   'run.panel.openPreview': '{url} をプレビューで開く',
@@ -1251,6 +1256,7 @@ export const ja: Catalog = {
   'jobs.state.dispatchedStopped': 'ワーカーが停止した',
   'jobs.state.validating': '検証が実行中',
   'jobs.state.reviewing': '別のエージェントがレビュー中',
+  'jobs.state.merging': 'プランブランチにマージ中',
   'jobs.state.completed': '終わった',
   'jobs.state.failed': '失敗した',
   'jobs.state.blocked': '人を待っている',
@@ -1284,6 +1290,7 @@ export const ja: Catalog = {
   'jobs.run.mergeFailed': 'マージできませんでした: {reason}',
   'jobs.run.notStarted': '実行待ち',
   'jobs.run.notStartedHint': 'まだ実行していません — 詳細ウィンドウで実行を押すと開始します',
+  'jobs.run.notDelivered': '配信されませんでした: {reason}',
   // W2-A planner stage
   'jobs.new.planner': '先にプランナーで計画する',
   'jobs.new.plannerHint': 'プランナーセッション(プランナーモデル)がリポジトリを読み、Task を書きます。各 Task にはプロンプトと完了条件が付きます。ファイルは変更せず、何も開始しません。「承認して実行」で計画を承認してください。',
@@ -1932,4 +1939,8 @@ export const ja: Catalog = {
   'inbox.age.d': '{n} 日',
   'inbox.overlap.issue': '{mine} と {plan} の {theirs} はどちらもイシュー #{issue} にリンクしています',
   'inbox.overlap.edit': '{mine} と {plan} の {theirs} はどちらも {path} を編集します',
+  'wall.section.coordinators': 'コーディネーター',
+  'wall.section.planners': 'プランナー',
+  'wall.section.workers': 'ワーカー',
+  'wall.section.consoles': 'コンソール',
 }

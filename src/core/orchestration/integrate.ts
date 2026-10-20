@@ -16,6 +16,8 @@ import type { Dispatch, Job, JobRun, Task } from './types'
 interface WorktreeDep {
   taskId: string
   cwd: string
+  /** The head the Host recorded for the attempt that ran there (`Dispatch.git.head`), when it did. */
+  head?: string
 }
 
 /** 이 Task 의 의존들이 이 Run 의 뿌리 밖에 남긴, **끝난** 작업들.
@@ -50,13 +52,16 @@ function worktreeDeps(s: OrchState, taskId: string): WorktreeDep[] {
   const found: WorktreeDep[] = []
   // deps 순서로 걷는다 — 병합 순서가 되고, 같은 입력에 같은 순서여야 한다
   for (const depId of task.deps) {
+    // Already in the plan branch (wavesToMerge, recorded as mergedIntoPlanAt): nothing left to merge, and its folder
+    // may be reaped
+    if (s.tasks.find((t) => t.id === depId)?.mergedIntoPlanAt !== undefined) continue
     for (const d of s.dispatches) {
       if (d.taskId !== depId) continue
       // "아직 열려 있다"의 판정은 이 저장소의 것을 그대로 쓴다(schedule.ts 의 slotsToFill,
       // server.ts 의 worker-start). 두 번째 정의를 만들면 둘이 갈라진다.
       if (!d.outcome && !d.endedAt) continue
       if (isSamePath(d.cwd, runRootOf(run, jobOf(s, run)))) continue
-      found.push({ taskId: depId, cwd: d.cwd })
+      found.push({ taskId: depId, cwd: d.cwd, ...(d.git?.head ? { head: d.git.head } : {}) })
     }
   }
   return found
@@ -141,6 +146,14 @@ export function pendingMerges(s: OrchState, taskId: string): string[] {
   for (const w of worktreeDeps(s, taskId)) {
     if (!out.some((p) => isSamePath(p, w.cwd))) out.push(w.cwd)
   }
+  return out
+}
+
+/** The recorded head of each pending merge's worktree, by path (the latest attempt's). Lets the merge tell "already in
+ *  the plan branch" for a worktree that was removed after its branch merged: git can no longer name its branch. */
+export function pendingMergeHeads(s: OrchState, taskId: string): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const w of worktreeDeps(s, taskId)) if (w.head) out[w.cwd] = w.head
   return out
 }
 
@@ -309,14 +322,17 @@ full suite outside \`astera heavy\`.
 /** The subject of the inbox message that says a Task's branch is merged into its plan branch; it marks it merged. */
 export const planMergedSubject = (taskId: string): string => `task ${taskId} merged into the plan`
 
-/** Wave merges of a coordinator-driven Run (owner spec 2026-10-18, part 2): each completed Task that worked in its own
- *  worktree, merged into the Run's worktree (the plan branch) as soon as it finishes, so a dependent forks from the plan
- *  branch with its deps already in it (forkForDeps' merges are then no-ops) and siblings are never merged into each
- *  other. The app's scheduler merges its own Runs' deps in its slot (pendingMerges); a coordinator's Run has no slot.
+/** Wave merges (owner spec 2026-10-18, part 2): each Task that worked in its own worktree, merged into the Run's
+ *  worktree (the plan branch) as soon as it finishes, so a dependent forks from the plan branch with its deps already in
+ *  it (forkForDeps' merges are then no-ops) and siblings are never merged into each other. Every Run with its own
+ *  worktree, a coordinator's or the app's: a succeeded Task waits in `merging` for this merge (state.ts doneStatusOf),
+ *  which completes it. A `completed` one not merged yet (state from before `merging`) is merged and recorded too.
  *
- *  Only a Run with its own worktree: merging into the project folder is a person's. Only a folder still registered
- *  (`isRegistered`): a merged one is reaped, and one gone has nothing left to merge. Not one marked merged
- *  (`planMergedSubject`), and not one that already has its merge Task (`integrationTaskFor`). */
+ *  Only a Run with its own worktree: merging into the project folder is a person's. A completed Task only from a folder
+ *  still registered (`isRegistered`): a merged one is reaped, and one gone has nothing left to merge; a merging Task
+ *  whatever its folder, so a folder gone ends in the owner's Gate rather than in a Task that never completes. Not one
+ *  marked merged (`planMergedSubject`, `mergedIntoPlanAt`), and not one that already has its merge Task
+ *  (`integrationTaskFor`: its completion completes it, dispatchLoop mergeWaves). */
 export function wavesToMerge(
   s: OrchState,
   isRegistered: (p: string) => boolean
@@ -324,13 +340,15 @@ export function wavesToMerge(
   const merged = new Set(s.messages.filter((m) => m.type === 'status').map((m) => `${m.runId}\u0000${m.subject}`))
   const out: { runId: string; taskId: string; runRoot: string; worktree: string }[] = []
   for (const run of s.runs) {
-    if (run.coordinatorSessionId === undefined || run.worktree === undefined || run.paused) continue
+    if (run.worktree === undefined || run.paused) continue
     const runRoot = runRootOf(run, jobOf(s, run))
     for (const t of s.tasks) {
-      if (t.runId !== run.id || t.status !== 'completed' || isIntegrationTask(t)) continue
-      if (merged.has(`${run.id}\u0000${planMergedSubject(t.id)}`) || integrationTaskFor(s, t.id)) continue
-      const last = [...s.dispatches].reverse().find((d) => d.taskId === t.id && (d.outcome || d.endedAt))
-      if (!last || isSamePath(last.cwd, runRoot) || !isRegistered(last.cwd)) continue
+      if (t.runId !== run.id || (t.status !== 'merging' && t.status !== 'completed') || isIntegrationTask(t)) continue
+      if (integrationTaskFor(s, t.id)) continue
+      const done = t.status === 'completed'
+      if (done && (t.mergedIntoPlanAt !== undefined || merged.has(`${run.id}\u0000${planMergedSubject(t.id)}`))) continue
+      const last = [...s.dispatches].reverse().find((d) => d.taskId === t.id && !d.review && (d.outcome || d.endedAt) && !isSamePath(d.cwd, runRoot))
+      if (!last || (done && !isRegistered(last.cwd))) continue
       out.push({ runId: run.id, taskId: t.id, runRoot, worktree: last.cwd })
     }
   }
