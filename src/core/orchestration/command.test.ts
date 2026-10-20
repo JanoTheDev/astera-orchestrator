@@ -1264,6 +1264,31 @@ describe('handleCommand — retained dispatch', () => {
     expect(abandon.deps.getState().dispatches.find((d) => d.id === abandon.dispatchId)?.closedBy).toBe('abandon')
   })
 
+  // Run job_0b682db7df32e7b4: the original's record was lost, a duplicate was started and then stopped
+  it('worker-stop of a duplicate makes the original still running the same spec the Task dispatch', async () => {
+    const { deps, dispatchId } = await seedRetained(false)
+    const { taskId, sessionId: duplicate } = deps.getState().dispatches[0]
+    deps.profileDir = '/profile'
+    deps.liveWorkers = () => [
+      { id: duplicate, spec: `--task-id ${taskId} --dispatch-id ${dispatchId}` },
+      { id: 'original', spec: `Continue the work. ... --task-id ${taskId} --dispatch-id dsp_0riginal1`, cwd: '/wt', accountId: 'acc1' },
+      { id: 'other', spec: '--task-id tsk_elsewhere --dispatch-id dsp_elsewhere' }
+    ]
+    const r = await call(deps, 'worker-stop', { dispatch: dispatchId })
+    expect(r.status).toBe(200)
+    expect(r.body).toEqual({ stopped: dispatchId, adopted: 'dsp_0riginal1', sessionId: 'original' })
+    const s = deps.getState()
+    expect(s.tasks.find((t) => t.id === taskId)?.status).toBe('dispatched')
+    expect(s.dispatches.find((d) => d.id === 'dsp_0riginal1')).toMatchObject({
+      taskId,
+      sessionId: 'original',
+      cwd: '/wt',
+      accountId: 'acc1',
+      specPath: `/profile/orch/specs/${taskId}-dsp_0riginal1.md`
+    })
+    expect(s.dispatches.filter((d) => !d.endedAt && !d.outcome)).toHaveLength(1)
+  })
+
   it('retained에 worker-release는 200이지만 skipped를 싣는다 — 조용히 건너뛰지 않는다', async () => {
     const { deps, dispatchId } = await seedRetained(true)
     const r = await call(deps, 'worker-release', { dispatch: dispatchId })
@@ -7550,6 +7575,7 @@ describe('fix round 1: what counts as running, and one coordinator per Run', () 
   const coordDeps = () => {
     const stopped: string[] = []
     const reasons: Array<string | undefined> = []
+    const closeReasons: Array<string | undefined> = []
     const logs: string[] = []
     const deps = makeDeps()
     const startCoordinator = vi.fn(async (a: { runId: string }) => ({ sessionId: `coord-${a.runId}` }))
@@ -7560,15 +7586,16 @@ describe('fix round 1: what counts as running, and one coordinator per Run', () 
       startCoordinator,
       enterCheckWait: (runId: string, sessionId: string) => waits.enter(runId, sessionId),
       coordinatorIdle: (runId: string, sessionId: string) => waits.parked(runId, sessionId),
-      stopCoordinator: async (sessionId: string, reason?: string) => {
+      stopCoordinator: async (sessionId: string, reason?: string, closeReason?: string) => {
         stopped.push(sessionId)
         reasons.push(reason)
+        closeReasons.push(closeReason)
       },
       log: (m: string) => {
         logs.push(m)
       }
     })
-    return Object.assign(deps, { startCoordinator, stopped, reasons, logs })
+    return Object.assign(deps, { startCoordinator, stopped, reasons, closeReasons, logs })
   }
   const scheduledJob = async (deps: OrchServerDeps): Promise<string> => {
     const r = await call(deps, 'run-create', {
@@ -8038,6 +8065,7 @@ describe('fix round 1: what counts as running, and one coordinator per Run', () 
     expect(run).not.toHaveProperty('coordinatorStartingAt')
     expect(deps.stopped).toEqual(['coord-mine'])
     expect(deps.reasons).toEqual(['another coordinator already manages its Run'])
+    expect(deps.closeReasons).toEqual(['replaced'])
     expect(deps.logs.join('\n')).toMatch(/coord-mine/)
   })
 

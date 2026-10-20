@@ -157,6 +157,20 @@ describe('createHostPtyFactory', () => {
     expect(exit).toBe(0)
   })
 
+  it('a kill with a reason goes out with it, and the Host exit that answers it hands the reason to onExit', () => {
+    const t = transport()
+    const { factory } = createHostPtyFactory(t)
+    const p = factory('cmd.exe', [], opts)
+    const id = spawned(t)
+    let exit: { exitCode: number; closeReason?: string } | null = null
+    p.onExit((e) => { exit = e })
+    p.kill('released')
+    expect(t.sent.at(-1)).toEqual({ t: 'pty-kill', id, closeReason: 'released' })
+    t.deliver({ t: 'pty-spawned', id, pid: 1 })
+    t.deliver({ t: 'pty-exit', id, exitCode: 143, closeReason: 'released' })
+    expect(exit).toEqual({ exitCode: 143, closeReason: 'released' })
+  })
+
   it('sends straight through once the pty is live', () => {
     const t = transport()
     const { factory } = createHostPtyFactory(t)

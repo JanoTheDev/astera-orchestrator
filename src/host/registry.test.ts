@@ -349,6 +349,18 @@ describe('PtyRegistry', () => {
     expect(exits).toEqual([['p1', 3]])
   })
 
+  it('a kill with a reason hands it to the exit listeners; a kill without one hands none', () => {
+    const p = fakePty(78)
+    const h = registry({ pty: p })
+    const exits: Array<[string, number, string | undefined]> = []
+    h.r.onExit((id, code, closeReason) => exits.push([id, code, closeReason]))
+    h.r.open({ id: 'p1', file: 'cmd.exe', args: [], opts, meta: meta() })
+    h.r.kill('p1', 'stopped')
+    p.exit(143)
+    expect(exits).toEqual([['p1', 143, 'stopped']])
+    expect(h.r.exitCodeOf('p1')).toEqual({ code: 143, closeReason: 'stopped' })
+  })
+
   // The entry outlives the process, so the app can tell a session that ended while it was away from one
   // that was never here. What it does not outlive is the scrollback — see the release test below.
   it('keeps an exited session listed, not alive, and out of the live count', () => {

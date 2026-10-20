@@ -96,7 +96,7 @@ describe('routing an instruction to plan A worker 2', () => {
     const h = rig()
     expect((await h.as('coordA')('worker-stop', { dispatch: 'dA2' })).status).toBe(200)
     expect(h.releaseWorker).toHaveBeenCalledTimes(1)
-    expect(h.releaseWorker).toHaveBeenCalledWith({ dispatchId: 'dA2' })
+    expect(h.releaseWorker).toHaveBeenCalledWith({ dispatchId: 'dA2', closeReason: 'stopped' })
     // the wiring turns that id into the session it kills (spawner.ts / ipc.ts releaseWorker)
     expect(releaseArgsFor(h.box.state.dispatches, 'dA2')).toEqual({ sessionId: 'sA2', retained: false, isLatestOwner: true })
     const stopped = h.box.state.dispatches.filter((d) => d.closedBy === 'stop').map((d) => d.id)
