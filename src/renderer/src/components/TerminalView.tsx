@@ -7,6 +7,7 @@ import { xtermThemeOf } from '../../../core/theme/apply'
 import { NOTE_RESERVE_PX, PaneSize, showOwn, showPty, tileScale, wantedOf } from '../lib/terminalScale'
 import { pinCursorBlinkOff } from '../lib/cursorBlink'
 import * as sessionBus from '../lib/sessionBus'
+import { exitText } from '../../../core/sessions/exitStatus'
 import { useI18n } from '../i18n/I18nProvider'
 import { useTerminalFont } from '../lib/terminalFont'
 import { useTheme } from '../lib/theme'
@@ -412,7 +413,7 @@ export function TerminalView({
       )}
       {session.status === 'exited' && (
         <div className="exit-overlay">
-          <p>{t('session.terminal.exited', { code: session.exitCode ?? '?' })}</p>
+          <p>{session.exitCode == null ? '?' : exitText(t, session.exitCode)}</p>
           <button onClick={() => onRestart(session)}>{t('session.terminal.restart')}</button>
         </div>
       )}

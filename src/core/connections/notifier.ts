@@ -35,6 +35,7 @@ import {
 } from '../hooks/notification'
 import { PTY_LOST_SIGHT_EXIT_CODE } from '../sessions/pty'
 import { sessionKindOf } from '../sessions/kind'
+import { exitText } from '../sessions/exitStatus'
 import { happenedBefore, hookEventAt } from '../hooks/eventTime'
 import { sanitize } from '../orchestration/checkpoint'
 import { t, type Lang } from '../i18n'
@@ -917,7 +918,7 @@ export class ConnectionNotifier {
       // notice. Left in, it would try to write to a dead session (harmless, since SessionManager's exited
       // guard blocks it) and the user would have no idea why their replies do nothing.
       this.dropFromThreadIndex(e.sessionId)
-      void this.send(record, t(this.deps.lang(), 'slack.sessionExited', { code: e.exitCode }))
+      void this.send(record, t(this.deps.lang(), 'slack.sessionExited', { status: exitText((key, params) => t(this.deps.lang(), key, params), e.exitCode) }))
     }, EXIT_DELAY_MS)
   }
 

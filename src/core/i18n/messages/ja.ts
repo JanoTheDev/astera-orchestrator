@@ -863,7 +863,7 @@ export const ja: Catalog = {
   // 他の conversation.* キーがまだ無く(en/ko で代替される)、この3つだけを先に入れる。
   'conversation.indexingFiles': 'ファイル一覧を作成しています…',
   'conversation.filesUnavailable': 'このフォルダーのファイル一覧を取得できません。',
-  'conversation.exited.withCode': 'このセッションは終了しました (コード {code})',
+  'conversation.exited.withCode': 'このセッションは終了しました — {status}',
   'conversation.exited.detail': '詳細',
   'conversation.exited.restart': '再開',
   // design §4 F5 の確認ダイアログの5つの項目。S1(1〜2行)の例外 — 本人にしかできない判断なので、
@@ -910,7 +910,6 @@ export const ja: Catalog = {
   'session.toast.stalled':
     'セッション「{title}」が停止しています — 自動再開に失敗しました。確認が必要です',
   'session.terminal.loadingContent': '内容を読み込み中…',
-  'session.terminal.exited': '終了しました (コード {code})',
   'session.terminal.sizedRemote': 'リモートコンピューターのウィンドウサイズで表示しています。入力するとこのウィンドウのサイズに切り替わります。',
   'session.terminal.restart': '再起動',
   // TerminalView.tsx schedule banner
@@ -1104,7 +1103,6 @@ export const ja: Catalog = {
   'run.form.addOption': 'オプションを追加',
   'run.panel.tab': '実行',
   'run.panel.empty': 'まだ実行がありません — ツールバーの ▶ で開始してください',
-  'run.panel.exitCode': '終了 {code}',
   'run.panel.stopping': '停止中…',
   'run.panel.close': '実行を閉じる',
   'run.panel.openPreview': '{url} をプレビューで開く',
@@ -1213,7 +1211,12 @@ export const ja: Catalog = {
   'slack.accountSwitched': '🔁 アカウント切り替え → {label}',
   'slack.limitReset': '▶️ 上限リセット — 自動再開プロンプトを送信',
   'slack.stalled': '⚠️ セッションが停止しています — 自動再開に失敗、確認が必要です',
-  'slack.sessionExited': '⏹ セッション終了 (exit {code})',
+  'slack.sessionExited': '⏹ セッション終了 — {status}',
+  'exit.finished': '完了',
+  'exit.closed': 'Astera が閉じました — 作業は完了',
+  'exit.interrupted': '停止しました (Ctrl+C)',
+  'exit.killed': '強制終了されました (メモリ不足または強制停止)',
+  'exit.failed': '失敗 (コード {code})',
   'slack.inputNeeded': '🙋 入力が必要',
   'slack.inputNeededWith': '🙋 入力が必要 — {message}',
   // core/connections/input.ts buildChoiceKeys — why a choice reply was in the wrong shape

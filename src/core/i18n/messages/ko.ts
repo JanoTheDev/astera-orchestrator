@@ -63,7 +63,6 @@ export const ko = {
   'wall.tile.open': '{name} 크게 열기',
   'wall.empty': '아직 콘솔이 없습니다. 새로 만들기로 엽니다.',
   'wall.finished.title': '끝남 · 각 콘솔이 한 일',
-  'wall.finished.exit': '종료 코드 {code}',
   'wall.console.back': '모두 보기',
   'wall.console.hold': '지금 이 콘솔의 키보드는 당신에게 있습니다 · 코디네이터가 이 콘솔에 보내는 메시지는 나갈 때까지 기다립니다',
   'wall.console.details': '세부 정보 (Ctrl+.)',
@@ -1390,7 +1389,6 @@ export const ko = {
   // for a rolling session with Slack off, this is the only path that calls a human.
   'session.toast.stalled': "'{title}' 세션이 멈춰 있습니다 — 자동 재개 실패, 확인이 필요합니다",
   'session.terminal.loadingContent': '내용 불러오는 중…',
-  'session.terminal.exited': '종료됨 (코드 {code})',
   'session.terminal.sizedRemote': '원격 컴퓨터의 창 크기로 표시 중입니다. 입력하면 이 창 크기로 바뀝니다.',
   'session.terminal.restart': '다시 시작',
   // The schedule banner SessionStateBanners.tsx draws, on the terminal and on the conversation pane alike
@@ -1612,7 +1610,6 @@ export const ko = {
   'run.form.addOption': '선택 항목 추가',
   'run.panel.tab': '실행',
   'run.panel.empty': '아직 실행이 없습니다 — 툴바의 ▶ 로 시작하세요',
-  'run.panel.exitCode': '종료 {code}',
   'run.panel.stopping': '정지 중…',
   'run.panel.close': '실행 닫기',
   'run.panel.openPreview': '{url} 미리보기로 열기',
@@ -1723,7 +1720,12 @@ export const ko = {
   'slack.accountSwitched': '🔁 계정 전환 → {label}',
   'slack.limitReset': '▶️ 한도 리셋 — 자동 재개 프롬프트 전송',
   'slack.stalled': '⚠️ 세션이 멈춰 있습니다 — 자동 재개 실패, 확인이 필요합니다',
-  'slack.sessionExited': '⏹ 세션 종료 (exit {code})',
+  'slack.sessionExited': '⏹ 세션 종료 — {status}',
+  'exit.finished': '완료',
+  'exit.closed': 'Astera 가 닫음 — 작업 완료',
+  'exit.interrupted': '중단됨 (Ctrl+C)',
+  'exit.killed': '강제 종료됨 (메모리 부족 또는 강제 중지)',
+  'exit.failed': '실패 (코드 {code})',
   'slack.inputNeeded': '🙋 입력 필요',
   'slack.inputNeededWith': '🙋 입력 필요 — {message}',
   // core/connections/input.ts buildChoiceKeys — the reason a choice reply was in the wrong shape.
@@ -2335,7 +2337,7 @@ export const ko = {
   'conversation.exited.title': '이 세션은 종료되었습니다',
   // 터미널은 언제나 종료 코드를 보여 줬고 대화 창은 보여 주지 않았다(설계 D2). 코드만으로는 아무것도
   // 말해 주지 않으므로 프로세스가 stderr 에 남긴 첫 줄을 같이 싣는다 — 전문은 접어 둔다.
-  'conversation.exited.withCode': '이 세션은 종료되었습니다 (코드 {code})',
+  'conversation.exited.withCode': '이 세션은 종료되었습니다 — {status}',
   'conversation.exited.detail': '자세히',
   'conversation.exited.restart': '다시 시작',
   // design §4 F5의 확인 창 다섯 문단. S1(한두 줄)의 예외다 — 사람이 대신할 수 없는 판단이라 사실을

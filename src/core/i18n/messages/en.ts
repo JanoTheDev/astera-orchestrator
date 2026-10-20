@@ -62,7 +62,6 @@ export const en: Record<keyof typeof ko, string> = {
   'wall.tile.open': 'Open {name} full size',
   'wall.empty': 'Open a console in this project, or plan a job from New.',
   'wall.finished.title': 'Finished · what each console did',
-  'wall.finished.exit': 'Exit code {code}',
   'wall.console.back': 'All consoles',
   'wall.console.hold': "You have the keyboard here · the coordinator's messages to this console wait until you leave",
   'wall.console.details': 'Details (Ctrl+.)',
@@ -1260,7 +1259,6 @@ export const en: Record<keyof typeof ko, string> = {
   'session.toast.stalled':
     'Session “{title}” is stuck — automatic resume failed, it needs a look',
   'session.terminal.loadingContent': 'Loading content…',
-  'session.terminal.exited': 'Exited (code {code})',
   'session.terminal.sizedRemote': "Shown at the remote computer's window size. Type here to switch to this window's size.",
   'session.terminal.restart': 'Restart',
   'session.terminal.schedFallback': 'Schedule',
@@ -1442,7 +1440,6 @@ export const en: Record<keyof typeof ko, string> = {
   'run.form.addOption': 'Add option',
   'run.panel.tab': 'Run',
   'run.panel.empty': 'No runs yet — press ▶ in the toolbar to start one',
-  'run.panel.exitCode': 'exit {code}',
   'run.panel.stopping': 'Stopping…',
   'run.panel.close': 'Close run',
   'run.panel.openPreview': 'Open {url} in a preview',
@@ -1547,7 +1544,12 @@ export const en: Record<keyof typeof ko, string> = {
   'slack.accountSwitched': '🔁 Switched account → {label}',
   'slack.limitReset': '▶️ Limit reset — resume prompt sent',
   'slack.stalled': '⚠️ The session is stuck — auto-resume failed and it needs a look',
-  'slack.sessionExited': '⏹ Session ended (exit {code})',
+  'slack.sessionExited': '⏹ Session ended — {status}',
+  'exit.finished': 'Finished',
+  'exit.closed': 'Closed by Astera — work finished',
+  'exit.interrupted': 'Stopped (Ctrl+C)',
+  'exit.killed': 'Killed (out of memory or force-stopped)',
+  'exit.failed': 'Failed (code {code})',
   'slack.inputNeeded': '🙋 Input needed',
   'slack.inputNeededWith': '🙋 Input needed — {message}',
   'slack.choice.hintPerQuestion': '💡 Reply separating each question with `/` (e.g. 1,3 / 2)',
@@ -2092,7 +2094,7 @@ export const en: Record<keyof typeof ko, string> = {
   'conversation.exited.title': 'This session has ended',
   // The terminal always showed an exit code, and the chat pane never did (design D2). A code alone
   // says nothing, so the first line the process left on stderr rides along — the tail folds away.
-  'conversation.exited.withCode': 'This session has ended (code {code})',
+  'conversation.exited.withCode': 'This session has ended — {status}',
   'conversation.exited.detail': 'Details',
   'conversation.exited.restart': 'Restart',
   // design §4 F5's five-part confirmation. An exception to S1 (one or two lines) — the person is

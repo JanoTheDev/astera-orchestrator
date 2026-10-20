@@ -6,6 +6,7 @@ import { recentConfigIds, configRowStatus, type RowStatus } from '../../../core/
 import { formatRunDuration } from '../../../core/run/duration'
 import { runTypeIcon } from '../../../core/run/typeIcon'
 import { isSeedId } from '../../../core/run/draft'
+import { exitText } from '../../../core/sessions/exitStatus'
 import { useI18n } from '../i18n/I18nProvider'
 import { FileIcon } from './FileIcon'
 import { ChevronDown, Play } from 'lucide-react'
@@ -73,7 +74,7 @@ export function RunConfigMenu({
   const statusText = (s: RowStatus | null): string | null => {
     if (!s) return null
     if (s.kind === 'running') return t('run.menu.running', { count: s.count })
-    const code = t('run.panel.exitCode', { code: s.run.exitCode ?? '?' })
+    const code = s.run.exitCode == null ? '?' : exitText(t, s.run.exitCode)
     return `${code} · ${formatRunDuration(s.run, now)}`
   }
 

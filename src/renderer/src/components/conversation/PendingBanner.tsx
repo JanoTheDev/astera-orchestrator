@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from "react";
 import { Button } from "../ui/button";
 import { useI18n } from "../../i18n/I18nProvider";
+import { exitStatusOf } from "../../../../core/sessions/exitStatus";
 
 /** The mark that says the CLI is doing something.
  *
@@ -92,17 +93,22 @@ export function ExitedNotice({
 }): ReactNode {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
+  // A normal close (finished, closed by Astera, Ctrl+C) is not a warning: only a null code or a danger exit keeps the warn colours.
+  const status = exitCode === null ? null : exitStatusOf(exitCode);
+  const calm = status !== null && status.tone !== "danger";
   return (
     <div
       role="status"
       data-slot="conversation-exited"
-      className="flex flex-col gap-1.5 rounded-(--composer-radius) border border-[var(--warn-line)] bg-[var(--warn-bg)] px-4 py-2.5 text-sm text-[var(--warn-ink)]"
+      className={`flex flex-col gap-1.5 rounded-(--composer-radius) border px-4 py-2.5 text-sm ${
+        calm ? "border-border bg-muted/60 text-muted-foreground" : "border-[var(--warn-line)] bg-[var(--warn-bg)] text-[var(--warn-ink)]"
+      }`}
     >
       <div className="flex items-center justify-between gap-3">
         <p className="font-medium">
-          {exitCode === null
+          {status === null
             ? t("conversation.exited.title")
-            : t("conversation.exited.withCode", { code: exitCode })}
+            : t("conversation.exited.withCode", { status: t(status.key, status.params) })}
         </p>
         <div className="flex shrink-0 items-center gap-2">
           {detail !== null && detail.trim() !== "" && (

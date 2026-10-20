@@ -873,7 +873,7 @@ export const es: Catalog = {
   // se añaden antes que las demás.
   'conversation.indexingFiles': 'Indexando archivos…',
   'conversation.filesUnavailable': 'La lista de archivos no está disponible para esta carpeta.',
-  'conversation.exited.withCode': 'Esta sesión ha terminado (código {code})',
+  'conversation.exited.withCode': 'Esta sesión ha terminado — {status}',
   'conversation.exited.detail': 'Detalles',
   'conversation.exited.restart': 'Reiniciar',
   // Los cinco puntos de la confirmación de design §4 F5. Una excepción a S1 (una o dos líneas) — la
@@ -920,7 +920,6 @@ export const es: Catalog = {
   'session.toast.stalled':
     'La sesión «{title}» está detenida — falló la reanudación automática, hay que revisarla',
   'session.terminal.loadingContent': 'Cargando el contenido…',
-  'session.terminal.exited': 'Finalizado (código {code})',
   'session.terminal.sizedRemote': 'Se muestra con el tamaño de ventana del equipo remoto. Escribe aquí para usar el tamaño de esta ventana.',
   'session.terminal.restart': 'Reiniciar',
   // TerminalView.tsx schedule banner
@@ -1117,7 +1116,6 @@ export const es: Catalog = {
   'run.form.addOption': 'Añadir opción',
   'run.panel.tab': 'Ejecución',
   'run.panel.empty': 'Aún no hay ejecuciones — pulsa ▶ en la barra de herramientas para iniciar una',
-  'run.panel.exitCode': 'salida {code}',
   'run.panel.stopping': 'Deteniendo…',
   'run.panel.close': 'Cerrar ejecución',
   'run.panel.openPreview': 'Abrir {url} en una vista previa',
@@ -1228,7 +1226,12 @@ export const es: Catalog = {
   'slack.accountSwitched': '🔁 Cambio de cuenta → {label}',
   'slack.limitReset': '▶️ Límite restablecido — se envió el mensaje de reanudación automática',
   'slack.stalled': '⚠️ La sesión está detenida — falló la reanudación automática, hay que revisarla',
-  'slack.sessionExited': '⏹ Sesión finalizada (exit {code})',
+  'slack.sessionExited': '⏹ Sesión finalizada — {status}',
+  'exit.finished': 'Finalizado',
+  'exit.closed': 'Cerrado por Astera — trabajo terminado',
+  'exit.interrupted': 'Detenido (Ctrl+C)',
+  'exit.killed': 'Terminado a la fuerza (sin memoria o detenido a la fuerza)',
+  'exit.failed': 'Falló (código {code})',
   'slack.inputNeeded': '🙋 Entrada necesaria',
   'slack.inputNeededWith': '🙋 Entrada necesaria — {message}',
   // core/connections/input.ts buildChoiceKeys — why a choice reply was in the wrong shape
