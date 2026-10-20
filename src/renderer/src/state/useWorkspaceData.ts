@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { Dispatch, Gate, Job, JobRun, Message, Project, Task } from '../../../core/orchestration/types'
-import type { WorkspaceData } from './workspaceTree'
+import { groupJobsByProject, type WorkspaceData } from './workspaceTree'
 
 /** How often the tree is read again while it is wanted. No push carries every project's state: `orch:state` is the
  *  Jobs view's subscription to one project. */
@@ -47,8 +47,9 @@ export function useWorkspaceData(anchorProp: string | null, enabled: boolean, re
       if (!anchor) return
       const projects = await read<Project[]>(anchor, 'projects-list')
       if (!projects || !alive) return
-      const [jobLists, runs, tasks, dispatches, gates, escalations, worktrees] = await Promise.all([
-        Promise.all(projects.map((p) => read<Job[]>(anchor, 'jobs-list', { project: p.path, archived: true }))),
+      // T6: one read, grouped by Job.projectId (groupJobsByProject): a per-path read cannot tell sub-projects apart
+      const [allJobs, runs, tasks, dispatches, gates, escalations, worktrees] = await Promise.all([
+        read<Job[]>(anchor, 'jobs-list', { archived: true }),
         read<JobRun[]>(anchor, 'runs-list'),
         read<Task[]>(anchor, 'tasks-list', { brief: true }),
         read<Dispatch[]>(anchor, 'dispatches-list'),
@@ -60,11 +61,8 @@ export function useWorkspaceData(anchorProp: string | null, enabled: boolean, re
           () => []
         )
       ])
-      if (!runs || !tasks || !dispatches || !gates || !alive) return
-      const jobsByProject: Record<string, Job[]> = {}
-      projects.forEach((p, i) => {
-        jobsByProject[p.id] = jobLists[i] ?? []
-      })
+      if (!allJobs || !runs || !tasks || !dispatches || !gates || !alive) return
+      const jobsByProject = groupJobsByProject(projects, allJobs, worktrees)
       setData({ projects, jobsByProject, runs, tasks, dispatches, gates, worktrees, ...(escalations ? { escalations } : {}) })
     }
     void tick()

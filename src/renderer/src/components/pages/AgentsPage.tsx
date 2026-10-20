@@ -11,7 +11,8 @@ import { Plus } from 'lucide-react'
 import { useI18n } from '../../i18n/I18nProvider'
 import { formatElapsed } from '../../../../core/orchestration/elapsed'
 import { parseTab } from '../../../../core/panes/tabId'
-import { buildWorkspaceTree } from '../../state/workspaceTree'
+import { buildWorkspaceTree, OTHER_WORKSPACE } from '../../state/workspaceTree'
+import { scopeProjectIds } from '../../state/projectScope'
 import { useWorkspaceData } from '../../state/useWorkspaceData'
 import { useAttention } from '../../state/useAttention'
 import { usePlanLive } from '../plan/usePlanLive'
@@ -33,7 +34,7 @@ import { useSummaries } from '../../state/useSummaries'
 import type { AppState } from '../../state/appState'
 import '../wall/wall.css'
 
-export type AgentsPageProps = Pick<AppState, 'sessions' | 'accounts' | 'currentProject' | 'homeDir' | 'activeTabId'> & {
+export type AgentsPageProps = Pick<AppState, 'sessions' | 'accounts' | 'currentProject' | 'homeDir' | 'activeTabId' | 'workspaceProjectId'> & {
   /** W11: the header's and the empty state's "New console" (the New dialog's Console choice). */
   setShowNew?: AppState['setShowNew']
   children: React.ReactNode
@@ -51,7 +52,7 @@ const readPlan = (): PlanFilter => {
   }
 }
 
-export function AgentsPage({ sessions, accounts, currentProject, homeDir, activeTabId, setShowNew, children, hidden }: AgentsPageProps): React.JSX.Element {
+export function AgentsPage({ sessions, accounts, currentProject, homeDir, activeTabId, workspaceProjectId, setShowNew, children, hidden }: AgentsPageProps): React.JSX.Element {
   const { t } = useI18n()
   const view = useWallView()
   const showing = view.kind !== 'away'
@@ -89,19 +90,28 @@ export function AgentsPage({ sessions, accounts, currentProject, homeDir, active
     return () => clearInterval(timer)
   }, [showing])
 
-  const consoles = useMemo(
+  const everyConsole = useMemo(
     () => consolesOf({ sessions, tree, data, attention, live: live.sessions, rows }),
     [sessions, tree, data, attention, live.sessions, rows]
   )
-  const projectId = currentProject ? (tree.find((p) => p.path === currentProject)?.id ?? null) : null
+  // T6: the switcher's pick is a project id, not a path: a workspace's sub-projects share its path. A picked workspace
+  // shows itself and its sub-projects, a sub-project only itself; the wall's one-project filter is then left off.
+  const picked = workspaceProjectId ? scopeProjectIds(tree, workspaceProjectId) : null
+  const pickedId = picked && workspaceProjectId !== OTHER_WORKSPACE ? workspaceProjectId : null
+  const consoles = useMemo(
+    () => (picked && pickedId && !allProjects ? everyConsole.filter((c) => c.projectId !== null && picked.includes(c.projectId)) : everyConsole),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- picked is derived from tree and pickedId
+    [everyConsole, tree, pickedId, allProjects]
+  )
+  const projectId = pickedId ? null : currentProject ? (tree.find((p) => p.path === currentProject)?.id ?? null) : null
   // a project made a moment ago has no tab yet, so the tree lacks it: name it by its folder
-  const projectName = tree.find((p) => p.id === projectId)?.name ?? currentProject?.split(/[\\/]/).filter(Boolean).pop() ?? null
+  const projectName = tree.find((p) => p.id === (pickedId ?? projectId))?.name ?? currentProject?.split(/[\\/]/).filter(Boolean).pop() ?? null
   // A plan that is gone (archived, another project) falls back to every plan.
   const planShown = plan === ALL_PLANS || plan === NO_PLAN || tree.some((p) => p.plans.some((x) => x.jobId === plan)) ? plan : ALL_PLANS
   const planPicked = planShown !== ALL_PLANS && planShown !== NO_PLAN
   // W11: one "All projects" chip; off, a picked plan shows all of its consoles (scope `plan`), else the open project's.
   const scope = allProjects ? 'all' : planPicked ? 'plan' : 'project'
-  const pills = planPills(tree, rows, consoles, projectId, allProjects ? 'all' : 'project')
+  const pills = planPills(picked && pickedId && !allProjects ? tree.filter((p) => picked.includes(p.id)) : tree, rows, consoles, projectId, allProjects ? 'all' : 'project')
   const inScope = filterConsoles(consoles, { plan: planShown, state: 'all', scope, projectId })
   const counts: Record<TileState, number> = { needs: 0, working: 0, idle: 0, finished: 0 }
   for (const c of inScope) counts[c.state]++

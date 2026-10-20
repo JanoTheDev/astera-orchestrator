@@ -66,6 +66,8 @@ export interface WorkspaceProject {
   name: string
   path: string
   plans: WorkspacePlan[]
+  /** T6: a sub-project's workspace (root) project id. Absent for a root. */
+  parentId?: string
 }
 
 const latestRun = (runs: JobRun[], jobId: string): JobRun | undefined =>
@@ -144,10 +146,32 @@ export function buildWorkspaceTree(d: WorkspaceData, opts: { showArchived: boole
     id: p.id,
     name: p.name,
     path: p.path,
+    ...(p.parentId ? { parentId: p.parentId } : {}),
     plans: (d.jobsByProject[p.id] ?? [])
       .filter((j) => opts.showArchived || isJobActive(j))
       .map((j) => planOf(d, p, j))
   }))
+}
+
+// ── T6: workspaces. A root with sub-projects is a workspace; a sub-project shares its root's repository. ─────────────
+
+/** A project whose parent is not in the list reads as a root, so a stale parentId never hides a project. */
+const isRoot = (tree: readonly { id: string; parentId?: string }[], p: { parentId?: string }): boolean =>
+  !p.parentId || !tree.some((x) => x.id === p.parentId)
+
+/** The projects a pick of `id` shows: a root and all its sub-projects, a sub-project alone. */
+export function familyOf(tree: readonly { id: string; parentId?: string }[], id: string): string[] {
+  const p = tree.find((x) => x.id === id)
+  if (!p || !isRoot(tree, p)) return [id]
+  return [id, ...tree.filter((x) => x.parentId === id).map((x) => x.id)]
+}
+
+/** The switcher's order: each root followed by its sub-projects. `depth` is 1 for a sub-project. */
+export function orderedProjects<T extends { id: string; parentId?: string }>(tree: readonly T[]): (T & { depth: 0 | 1 })[] {
+  return tree.filter((p) => isRoot(tree, p)).flatMap((r) => [
+    { ...r, depth: 0 as const },
+    ...tree.filter((c) => c.parentId === r.id && c.id !== r.id).map((c) => ({ ...c, depth: 1 as const }))
+  ])
 }
 
 export const planSessions = (p: WorkspacePlan): WorkspaceSession[] => [...p.planner, ...p.coordinator, ...p.workers]
@@ -222,7 +246,26 @@ export function workspaceSessionIds(
   out.set(OTHER_WORKSPACE, new Set())
   for (const s of sessions) {
     if (claimed.has(s.id)) continue
-    out.get(projectOfCwd(s.cwd, tree, worktrees) ?? OTHER_WORKSPACE)!.add(s.id)
+    // T6: a sub-project shares its root's folder, so a plain tab there is the root's
+    out.get(projectOfCwd(s.cwd, tree.filter((p) => isRoot(tree, p)), worktrees) ?? OTHER_WORKSPACE)!.add(s.id)
+  }
+  return out
+}
+
+/** T6: every Job under its project. `jobs-list --project <path>` cannot do this: a sub-project shares its root's path
+ *  and the Host resolves a path to the root, so a per-path read lists the root's Jobs under every key and a
+ *  sub-project's under none. A Job names its project (`projectId`, authoritative when it is registered); an older one
+ *  is its repository root's, found by cwd. A Job of no project is left out, as `jobs-list --project` left it out. */
+export function groupJobsByProject(
+  projects: readonly Pick<Project, 'id' | 'path' | 'parentId'>[],
+  jobs: readonly Job[],
+  worktrees: readonly WorktreeRef[] = []
+): Record<string, Job[]> {
+  const out: Record<string, Job[]> = Object.fromEntries(projects.map((p) => [p.id, []]))
+  const roots = projects.filter((p) => isRoot(projects, p))
+  for (const j of jobs) {
+    const id = j.projectId && out[j.projectId] ? j.projectId : projectOfCwd(j.cwd, roots, worktrees)
+    if (id) out[id]!.push(j)
   }
   return out
 }
@@ -236,7 +279,8 @@ export function scopeIds(
 ): Set<string> | null {
   const plan = planId ? findPlan([...tree], planId) : undefined
   if (plan) return new Set(planSessions(plan).map((s) => s.sessionId))
-  return projectId ? new Set(byWorkspace.get(projectId) ?? []) : null
+  // T6: a root shows its sub-projects' sessions too; a sub-project only its own
+  return projectId ? new Set(familyOf(tree, projectId).flatMap((id) => [...(byWorkspace.get(id) ?? [])])) : null
 }
 
 /** The tab to focus on entering a workspace: the one it had when it was left, while still shown there, else its first
@@ -265,9 +309,11 @@ export interface WorkspaceSummary {
   running: number
   /** One of them waits for the owner (attention 'waiting'). */
   waiting: boolean
+  /** T6: 1 for a sub-project, listed under its root; absent for a root. */
+  depth?: 1
 }
 
-/** The project switcher's rows: every project in tree order, then "Other" while it holds a tab. */
+/** The project switcher's rows: every root with its sub-projects under it, then "Other" while it holds a tab. */
 export function workspaceSummaries(
   tree: readonly WorkspaceProject[],
   byWorkspace: ReadonlyMap<string, ReadonlySet<string>>,
@@ -275,10 +321,10 @@ export function workspaceSummaries(
   attention: Readonly<Record<string, string>>
 ): WorkspaceSummary[] {
   const running = new Set(sessions.filter((s) => s.status === 'running').map((s) => s.id))
-  const row = (id: string, name: string): WorkspaceSummary => {
-    const ids = [...(byWorkspace.get(id) ?? [])].filter((s) => running.has(s))
-    return { id, name, running: ids.length, waiting: ids.some((s) => attention[s] === 'waiting') }
+  const row = (id: string, name: string, depth?: 0 | 1): WorkspaceSummary => {
+    const ids = familyOf(tree, id).flatMap((x) => [...(byWorkspace.get(x) ?? [])]).filter((s) => running.has(s))
+    return { id, name, running: ids.length, waiting: ids.some((s) => attention[s] === 'waiting'), ...(depth === 1 ? { depth } : {}) }
   }
-  const rows = tree.map((p) => row(p.id, p.name))
+  const rows = orderedProjects(tree).map((p) => row(p.id, p.name, p.depth))
   return (byWorkspace.get(OTHER_WORKSPACE)?.size ?? 0) > 0 ? [...rows, row(OTHER_WORKSPACE, 'Other')] : rows
 }

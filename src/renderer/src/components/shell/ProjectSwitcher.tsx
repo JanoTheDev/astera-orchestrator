@@ -1,7 +1,8 @@
 // W6-F project switcher, as the top bar's button (W9-B; DESIGN-W11 §8): "● <project> ▾" opens a searchable menu: All
 // projects, then every project with its running tabs (a count only when there are some), a dot while one waits for the
 // owner, its Ctrl+Alt+N key and a check on the open one, each row with its own new-window and settings actions on
-// hover, then the W7-B project tools. switcherItems stays the one list of actions; the popover only lays it out.
+// hover, then the W7-B project tools. T6: a sub-project is listed indented under its workspace; picking the
+// workspace shows it and all its sub-projects, picking a sub-project only that one. switcherItems stays the one list of actions; the popover only lays it out.
 import { useEffect, useId, useRef, useState } from 'react'
 import { AppWindow, Check, ChevronDown, Search, Settings2 } from 'lucide-react'
 import type { Attention, SessionInfo } from '../../../../core/types'
@@ -41,7 +42,7 @@ export function switcherItems(p: SwitcherProps): MenuItem[] {
     ...rows.map((r, i): MenuItem => ({
       id: r.id,
       label: (
-        <span className={`tb-sw-row${r.id === p.selectedId ? ' tb-sw-selected' : ''}`}>
+        <span className={`tb-sw-row${r.id === p.selectedId ? ' tb-sw-selected' : ''}${r.depth === 1 ? ' tb-sw-child' : ''}`}>
           <span className={`tb-sw-dot${r.waiting ? ' tb-sw-waiting' : ''}`} aria-label={r.waiting ? t('shell.switcher.needsInput') : undefined} />
           <span className="tb-sw-name">{r.id === OTHER_WORKSPACE ? t('shell.switcher.other') : r.name}</span>
           {/* zero is hidden by shell.css, not dropped, so every row keeps the same columns */}

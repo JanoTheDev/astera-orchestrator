@@ -2829,4 +2829,15 @@ export const en: Record<keyof typeof ko, string> = {
   'inbox.age.d': '{n} d',
   'inbox.overlap.issue': '{mine} and {plan}\'s {theirs} both link issue #{issue}',
   'inbox.overlap.edit': '{mine} and {plan}\'s {theirs} both edit {path}',
+  // T6 switcher workspaces: project settings (auto-created projects, sub-projects, removal)
+  'project.autoProjects': 'Auto-create projects from the work',
+  'project.autoProjects.hint': 'Astera files each plan under a sub-project named after its first area, creating it when the workspace has none.',
+  'project.sub.add': 'Add sub-project',
+  'project.sub.name': 'Sub-project name',
+  'project.sub.submit': 'Add',
+  'project.remove': 'Remove project',
+  'project.remove.title': 'Remove {name}?',
+  'project.remove.body': 'This unregisters the project. No folder or plan is touched.',
+  'project.remove.confirm': 'Remove',
+  'project.remove.cancel': 'Cancel',
 }

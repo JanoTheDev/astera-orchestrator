@@ -3076,4 +3076,15 @@ export const ko = {
   'inbox.age.d': '{n}일',
   'inbox.overlap.issue': '{mine}와(과) {plan}의 {theirs}이(가) 모두 이슈 #{issue}에 연결됩니다',
   'inbox.overlap.edit': '{mine}와(과) {plan}의 {theirs}이(가) 모두 {path}을(를) 수정합니다',
+  // T6 switcher workspaces: project settings (auto-created projects, sub-projects, removal)
+  'project.autoProjects': '작업에 맞춰 프로젝트 자동 생성',
+  'project.autoProjects.hint': 'Astera가 각 플랜을 첫 영역 이름의 하위 프로젝트에 넣고, 없으면 만듭니다.',
+  'project.sub.add': '하위 프로젝트 추가',
+  'project.sub.name': '하위 프로젝트 이름',
+  'project.sub.submit': '추가',
+  'project.remove': '프로젝트 제거',
+  'project.remove.title': '{name}을(를) 제거할까요?',
+  'project.remove.body': '프로젝트 등록만 해제됩니다. 폴더와 플랜은 그대로입니다.',
+  'project.remove.confirm': '제거',
+  'project.remove.cancel': '취소',
 } as const

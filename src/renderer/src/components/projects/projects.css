@@ -5,3 +5,4 @@
 .proj-settings { display: flex; flex-direction: column; gap: 12px; } /* W9-E: the body, in ui/Modal or inline on the Settings page */
 .ws-tools { display: flex; gap: 4px; flex-basis: 100%; }
 .ws-gear { padding: 0 4px; }
+.proj-sub-add { display: flex; gap: var(--space-2, 8px); align-items: center; }

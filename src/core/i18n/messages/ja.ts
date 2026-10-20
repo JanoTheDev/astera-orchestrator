@@ -1939,4 +1939,15 @@ export const ja: Catalog = {
   'inbox.age.d': '{n} 日',
   'inbox.overlap.issue': '{mine} と {plan} の {theirs} はどちらもイシュー #{issue} にリンクしています',
   'inbox.overlap.edit': '{mine} と {plan} の {theirs} はどちらも {path} を編集します',
+  // T6 switcher workspaces: project settings (auto-created projects, sub-projects, removal)
+  'project.autoProjects': '作業からプロジェクトを自動作成',
+  'project.autoProjects.hint': 'Astera は各プランを最初の領域名のサブプロジェクトに入れ、なければ作ります。',
+  'project.sub.add': 'サブプロジェクトを追加',
+  'project.sub.name': 'サブプロジェクト名',
+  'project.sub.submit': '追加',
+  'project.remove': 'プロジェクトを削除',
+  'project.remove.title': '{name} を削除しますか？',
+  'project.remove.body': 'プロジェクトの登録を解除するだけです。フォルダとプランには触れません。',
+  'project.remove.confirm': '削除',
+  'project.remove.cancel': 'キャンセル',
 }

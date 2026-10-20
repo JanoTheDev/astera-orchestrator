@@ -2,9 +2,10 @@ import { describe, it, expect } from 'vitest'
 import type { Dispatch, Job, JobRun, Project, Task } from '../../../core/orchestration/types'
 import { addTab, createGroup, leaves, splitAndMove, type PaneNode } from '../../../core/panes/tree'
 import { appTab, fileTab, sessionTab } from '../../../core/panes/tabId'
-import { buildWorkspaceTree, findPlan, planSessions, scopeLayout, type WorkspaceData } from './workspaceTree'
+import { scopeSnapshot } from './projectScope'
+import { buildWorkspaceTree, findPlan, groupJobsByProject, planSessions, scopeLayout, type WorkspaceData } from './workspaceTree'
 import {
-  entryTab, OTHER_WORKSPACE, projectOfCwd, scopeIds, workspaceFolderOf, workspaceSessionIds, workspaceSummaries, type WorkspaceProject
+  entryTab, familyOf, orderedProjects, OTHER_WORKSPACE, projectOfCwd, scopeIds, workspaceFolderOf, workspaceSessionIds, workspaceSummaries, type WorkspaceProject
 } from './workspaceTree'
 
 const project = (id: string, name: string): Project => ({ id, name, path: `/repos/${name}`, addedAt: '2026-10-01T00:00:00Z' })
@@ -264,5 +265,63 @@ describe('buildWorkspaceTree: a queued plan (W8-C)', () => {
     expect(tree({})).toEqual({ name: 'First', stopped: false })
     expect(tree({ archivedAt: '2026-10-02T00:00:00Z' })).toEqual({ name: 'First', stopped: true })
     expect(tree({}, { plannerSessionIds: ['pl'] })).toBeUndefined()
+  })
+})
+
+describe('T6 workspaces: sub-projects under their root', () => {
+  const sub = (id: string, name: string, parentId: string): Project => ({ ...project(id, name), path: '/repos/astera', parentId })
+  const root: Project = { ...project('a', 'astera'), path: '/repos/astera' }
+  const d = data({
+    projects: [root, sub('d', 'design', 'a'), project('x', 'other'), sub('c', 'core', 'a'), sub('z', 'ghost', 'gone')],
+    jobsByProject: { a: [job('j1')], d: [job('j2')], c: [], x: [], z: [] }
+  })
+  const tree = buildWorkspaceTree(d, { showArchived: false })
+
+  it('carries parentId from the project onto the tree', () => {
+    expect(tree.map((p) => p.parentId)).toEqual([undefined, 'a', undefined, 'a', 'gone'])
+  })
+
+  it('groups children under their root in switcher order; an orphan reads as a root', () => {
+    expect(orderedProjects(tree).map((p) => [p.id, p.depth])).toEqual([['a', 0], ['d', 1], ['c', 1], ['x', 0], ['z', 0]])
+  })
+
+  it('a root is its family, a child only itself', () => {
+    expect(familyOf(tree, 'a')).toEqual(['a', 'd', 'c'])
+    expect(familyOf(tree, 'd')).toEqual(['d'])
+    expect(familyOf(tree, 'z')).toEqual(['z'])
+  })
+
+  it('a root scope shows its children’s sessions; a child scope only its own', () => {
+    const t = tree.map((p) => (p.id === 'd' ? { ...p, plans: [{ jobId: 'j2', projectId: 'd', name: 'j2', archived: false, paused: false, planner: [], coordinator: [], workers: [{ sessionId: 'wd', role: 'worker' as const, label: 'w', projectName: 'design', planName: 'j2' }] }] } : p))
+    const by = workspaceSessionIds(t, [{ id: 'plain', cwd: '/repos/astera/src' }], [])
+    expect(by.get('a')).toEqual(new Set(['plain'])) // a plain tab in the shared folder is the root’s
+    expect([...scopeIds(t, by, 'a', null)!].sort()).toEqual(['plain', 'wd'])
+    expect([...scopeIds(t, by, 'd', null)!]).toEqual(['wd'])
+  })
+
+  it('the root row counts its children’s running sessions and children follow it', () => {
+    const by = new Map<string, ReadonlySet<string>>([['a', new Set(['s1'])], ['d', new Set(['s2'])]])
+    const rows = workspaceSummaries(tree, by, [{ id: 's1', status: 'running' }, { id: 's2', status: 'running' }], {})
+    expect(rows.slice(0, 2).map((r) => [r.id, r.running, r.depth])).toEqual([['a', 2, undefined], ['d', 1, 1]])
+  })
+
+  it('groups Jobs by projectId so sibling sub-projects keep their own plans (a per-path read cannot)', () => {
+    const projects = d.projects
+    const jobs = [
+      job('jr', { cwd: '/repos/astera', projectId: 'a' }),
+      job('jd', { cwd: '/repos/astera', projectId: 'd' }),
+      job('jc', { cwd: '/repos/astera', projectId: 'c' }),
+      job('old', { cwd: '/repos/astera/src' }), // before projectId: its repository root’s
+      job('none', { cwd: '/elsewhere' })
+    ]
+    const by = groupJobsByProject(projects, jobs)
+    expect(by.a!.map((j) => j.id)).toEqual(['jr', 'old'])
+    expect(by.d!.map((j) => j.id)).toEqual(['jd'])
+    expect(by.c!.map((j) => j.id)).toEqual(['jc'])
+    // and a sub-project pick keeps only its own plans, not its sibling's or the root's
+    const snap = { runs: jobs.slice(0, 4).map((j) => ({ id: j.id })), projectFolderBusy: false } as never
+    const tree2 = buildWorkspaceTree({ ...d, jobsByProject: by }, { showArchived: true })
+    expect(scopeSnapshot(snap, by, tree2, 'd')!.runs.map((r) => r.id)).toEqual(['jd'])
+    expect(scopeSnapshot(snap, by, tree2, 'a')!.runs.map((r) => r.id)).toEqual(['jr', 'jd', 'jc', 'old'])
   })
 })
