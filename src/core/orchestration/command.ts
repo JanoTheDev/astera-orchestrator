@@ -3258,6 +3258,10 @@ export async function handleCommand(
         if (priority !== undefined && (typeof priority !== 'number' || !Number.isInteger(priority))) return bad('--priority must be an integer')
         const job = s.jobs.find((j) => j.id === id)
         if (!job) return notFound(`unknown job: ${id}`)
+        // A finished Job is completed, or archived (the nearest a Job gets to cancelled): nothing left to plan or rank
+        const latest = latestRunOf(s, job)
+        if (!isJobActive(job) || (latest !== undefined && outcomeOf(s, latest.id) === 'completed'))
+          return conflict(`job ${id} has finished: --planning and --priority are set on an open Job only`)
         const { priority: _old, ...rest } = job
         const next: Job = {
           ...rest,
@@ -3357,18 +3361,33 @@ export async function handleCommand(
       // W8-C plan after plan: a queued plan's planner is the Host's to start, once the plan it waits on is delivered
       if (job.after !== undefined && job.plannerSessionIds === undefined && !jobDelivered(s, job.after))
         return conflict(`queued after ${afterNameOf(s, job.after)}: it starts by itself once that plan is delivered`)
+      // Every flag is checked before the first write below, so a refused call leaves the Job as it was
       // W6-D: `--replan waves|off` sets Job.replan as the plan starts
       if (args.replan !== undefined && args.replan !== 'waves' && args.replan !== 'off') return bad('--replan must be waves|off')
-      if (args.replan !== undefined) {
-        const cur = deps.getState()
-        await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id ? { ...j, replan: args.replan as 'waves' | 'off' } : j)) })
-      }
       // T1 chat-first planning: `--planning chat|auto`
       const planningFlag = planningArg(args.planning)
       if (typeof planningFlag === 'object') return bad(planningFlag.error)
       // #117: `--hands-off on|off`, this plan's own, ahead of its project's
       const handsOff = handsOffArg(args.handsOff, fromAgentSession, caller.role)
       if (typeof handsOff === 'object') return handsOff
+      // W7-A: `--auto-approve on|off`, this plan's own, ahead of its project's
+      const auto = args.autoApprove === undefined ? undefined : onOff(args.autoApprove)
+      if (auto === null) return bad('--auto-approve must be on or off')
+      // W6-H: the plan's own delivery, set before its planner starts
+      const delivery = parseDelivery(args.delivery)
+      if (delivery === null) return bad('--delivery must be pr or push')
+      // W6-C: how many workers the plan may run at once, set with the plan (up to MAX_CONCURRENT_WORKERS)
+      const concurrency = args.concurrency === undefined ? null : concurrencyArg(args.concurrency)
+      if (args.concurrency !== undefined && concurrency === null) return bad('--concurrency must be an integer >= 1')
+      const accountArg = str(args.account)
+      const accountId = accountArg ?? job.coordinatorAccountId
+      if (!accountId) return bad('--account is required: the Job names no coordinator account to plan on')
+      if (accountArg !== null && !(await deps.listAccounts()).some((k) => k.id === accountArg))
+        return notFound(`unknown account: ${accountArg}`)
+      if (args.replan !== undefined) {
+        const cur = deps.getState()
+        await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id ? { ...j, replan: args.replan as 'waves' | 'off' } : j)) })
+      }
       if (handsOff !== undefined) {
         const cur = deps.getState()
         await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id ? { ...j, handsOff } : j)) })
@@ -3382,31 +3401,17 @@ export async function handleCommand(
       const chosen = planningFlag ?? job.planning
       // T1: the Job's own choice, else auto when hands-off
       const planning = chosen ?? (handsOffOf(deps.getState(), { ...job, ...(handsOff !== undefined ? { handsOff } : {}) }) ? 'auto' : 'chat')
-      // W7-A: `--auto-approve on|off`, this plan's own, ahead of its project's
-      if (args.autoApprove !== undefined) {
-        const auto = onOff(args.autoApprove)
-        if (auto === null) return bad('--auto-approve must be on or off')
+      if (auto !== undefined) {
         const cur = deps.getState()
         await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id ? { ...j, autoApprove: auto } : j)) })
       }
       if (!deps.startCoordinator) return conflict('starting a planner is not available in this build')
-      // W6-H: the plan's own delivery, set before its planner starts
-      const delivery = parseDelivery(args.delivery)
-      if (delivery === null) return bad('--delivery must be pr or push')
       if (delivery !== undefined) {
         // #116: from the current state, not `s`: the --replan / --auto-approve written above would be lost
         const set = setJobDelivery(deps.getState(), id, delivery)
         if (!set.ok) return refused(set)
         await deps.setState(set.state)
       }
-      const accountArg = str(args.account)
-      const accountId = accountArg ?? job.coordinatorAccountId
-      if (!accountId) return bad('--account is required: the Job names no coordinator account to plan on')
-      if (accountArg !== null && !(await deps.listAccounts()).some((k) => k.id === accountArg))
-        return notFound(`unknown account: ${accountArg}`)
-      // W6-C: how many workers the plan may run at once, set with the plan (up to MAX_CONCURRENT_WORKERS)
-      const concurrency = args.concurrency === undefined ? null : concurrencyArg(args.concurrency)
-      if (args.concurrency !== undefined && concurrency === null) return bad('--concurrency must be an integer >= 1')
       if (concurrency !== null) {
         const current = deps.getState()
         await deps.setState({ ...current, jobs: current.jobs.map((j) => (j.id === id ? { ...j, concurrency } : j)) })

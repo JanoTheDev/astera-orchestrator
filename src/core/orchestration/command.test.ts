@@ -9904,6 +9904,46 @@ describe('#117 hands-off', () => {
     expect(briefs[1]).toContain('superpowers:brainstorming')
   })
 
+  it('jobs-plan refuses a bad --planning before any write: the Job is left as it was', async () => {
+    const deps = { ...makeDeps(), startCoordinator: async () => ({ sessionId: 'ses-planner' }) } as unknown as OrchServerDeps
+    const made = await person(deps, 'jobs-create', { objective: 'o', cwd: 'D:/p', coordinatorAccount: 'acc1' })
+    const id = (made.body as { id: string }).id
+    const before = deps.getState().jobs.find((j) => j.id === id)
+    expect((await person(deps, 'jobs-plan', { id, replan: 'off', planning: 'maybe' })).status).toBe(400)
+    expect(deps.getState().jobs.find((j) => j.id === id)).toEqual(before)
+    expect(deps.getState().jobs.find((j) => j.id === id)?.replan).toBeUndefined()
+  })
+
+  it('jobs-plan --resume still hands the dead planner\'s conversation to the restarted one', async () => {
+    const starts: Array<{ resume?: string }> = []
+    const deps = { ...makeDeps(), startCoordinator: async (a: { resume?: string }) => (starts.push(a), { sessionId: 'ses-planner' }) } as unknown as OrchServerDeps
+    const made = await person(deps, 'jobs-create', { objective: 'o', cwd: 'D:/p', coordinatorAccount: 'acc1' })
+    const id = (made.body as { id: string }).id
+    expect((await person(deps, 'jobs-plan', { id, planning: 'auto', resume: 'native-1' })).status).toBe(200)
+    expect(starts[0].resume).toBe('native-1')
+  })
+
+  it('jobs-set --planning and --priority refuse a completed or archived Job and change nothing', async () => {
+    const deps = makeDeps()
+    const done = (await person(deps, 'jobs-create', { objective: 'o', cwd: 'D:/p', coordinatorAccount: 'acc1' })).body as { id: string }
+    const cancelled = (await person(deps, 'jobs-create', { objective: 'o2', cwd: 'D:/p', coordinatorAccount: 'acc1' })).body as { id: string }
+    // completed: its one Run's one Task is completed
+    const s = deps.getState()
+    const task = { id: 'tsk_done', runId: 'run_done', status: 'completed' } as never
+    await deps.setState({
+      ...s,
+      runs: [...s.runs, { id: 'run_done', jobId: done.id, ordinal: 1, createdAt: NOW }],
+      tasks: [...s.tasks, task],
+      jobs: s.jobs.map((j) => (j.id === cancelled.id ? { ...j, archivedAt: NOW } : j))
+    })
+    const before = deps.getState().jobs
+    for (const id of [done.id, cancelled.id]) {
+      expect((await person(deps, 'jobs-set', { id, planning: 'chat' })).status).toBe(409)
+      expect((await person(deps, 'jobs-set', { id, priority: 3 })).status).toBe(409)
+    }
+    expect(deps.getState().jobs).toEqual(before)
+  })
+
   it('jobs-create --hands-off and jobs-plan --hands-off on|off set the Job; an agent session is refused', async () => {
     const deps = rig()
     const made = await person(deps, 'jobs-create', { objective: 'o', cwd: 'D:/p', coordinatorAccount: 'acc1', handsOff: true })
