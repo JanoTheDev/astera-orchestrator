@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import path from 'node:path'
 import { createJob, createTask, emptyState, startJobRun } from './state'
 import { dropNonGitProjects, ensureGitProject, ensureProject, findProject, findProjectByPath, nameFromPath, renameProject, setProjectSettings } from './projects'
-import { addSubProject, autoProjectFor, childProjectsOf, findProjectContaining, moveJobToProject, projectOfJob, removeProject } from './projects'
+import { addSubProject, autoProjectFor, childProjectsOf, findProjectContaining, jobInProject, moveJobToProject, projectOfJob, removeProject } from './projects'
 import type { Project } from './types'
 import { foldsCaseHere } from '../testPaths'
 
@@ -235,6 +235,19 @@ describe('workspaces: sub-projects of one repository (T3)', () => {
     const gone = ok(removeProject(archived, ui.value.id))
     expect(gone.state.projects.map((p) => p.id)).toEqual([rootId])
     expect(removeProject(gone.state, 'nope')).toMatchObject({ ok: false, missing: true })
+  })
+
+  it('a plan filed under a sub-project belongs to it and to its workspace, never to a sibling (T1)', () => {
+    const { s, rootId, jobId } = withPlan()
+    const ui = ok(addSubProject(s, { parentId: rootId, name: 'ui', now }))
+    const orch = ok(addSubProject(ui.state, { parentId: rootId, name: 'orch', now }))
+    const moved = ok(moveJobToProject(orch.state, jobId, ui.value.id))
+    const at = (id: string) => findProject(moved.state, id)!
+    expect(jobInProject(moved.state, moved.value, at(ui.value.id))).toBe(true)
+    expect(jobInProject(moved.state, moved.value, at(rootId))).toBe(true)
+    expect(jobInProject(moved.state, moved.value, at(orch.value.id))).toBe(false)
+    // a workspace plan is not its sub-project's
+    expect(jobInProject(orch.state, orch.state.jobs[0], at(ui.value.id))).toBe(false)
   })
 
   it('moves only a plan not started, and only inside its workspace', () => {

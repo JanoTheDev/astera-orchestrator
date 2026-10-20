@@ -27,6 +27,10 @@ export interface WorkspaceData {
   worktrees?: WorktreeRef[]
 }
 
+/** The tree lists workspaces only. A sub-project shares its workspace's path, so `jobs-list --project <path>` answers
+ *  the root, whose list already holds the sub-project's plans (jobInProject); a row of its own would repeat them. */
+export const workspacesOf = (projects: Project[]): Project[] => projects.filter((p) => p.parentId === undefined)
+
 export type SessionRole = 'planner' | 'coordinator' | 'worker'
 
 export interface WorkspaceSession {
