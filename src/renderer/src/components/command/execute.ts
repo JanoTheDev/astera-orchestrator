@@ -2,7 +2,7 @@
 // goes through an `orch.command` door, and the plan actions through lib/jobActions.ts, the Jobs view's own functions.
 // Everything `confirm`-class (core/intents/safety.ts) is one of those functions, and each asks first.
 import type { Attention, OrchSnapshot } from '../../../../core/types'
-import type { Dispatch, Task } from '../../../../core/orchestration/types'
+import { DEFAULT_CONCURRENCY, type Dispatch, type Task } from '../../../../core/orchestration/types'
 import { findRun } from '../../../../core/orchestration/snapshot'
 import type { Intent } from '../../../../core/intents/types'
 import {
@@ -19,6 +19,7 @@ import {
 } from '../../../../core/intents/resolve'
 import { summarize } from '../../../../core/intents/summary'
 import type { OrchDoor } from '../../lib/orchDoor'
+import { intakeRequest } from '../intake/intakeRequest'
 import {
   approvePlan,
   archiveJob,
@@ -139,8 +140,22 @@ export async function execute(r: Ready, d: ExecDeps): Promise<Line[]> {
       const account = await d.coordinatorAccount()
       if (account === null) return [{ text: t('command.noAccount') }]
       const pd = d.door(project.path)
-      // The "+ New job" form's call (NewRunModal), then its planner (W2-A)
-      const made = await pd.command('run-create', { objective: intent.objective, cwd: project.path, coordinatorAccount: account, auto: true })
+      // The Start page's call for a typed objective (intakeRequest, as useIntake sends it), then its planner
+      const req = intakeRequest({
+        tab: 'describe',
+        text: intent.objective,
+        fixlist: false,
+        files: [],
+        scope: [],
+        issues: [],
+        assignMe: false,
+        instructions: '',
+        project: { id: project.id, path: project.path },
+        coordinatorAccount: account,
+        concurrency: DEFAULT_CONCURRENCY
+      })
+      if (req === null) return [{ text: t('jobs.new.failed') }]
+      const made = await pd.command(req.cmd, req.args)
       if (made.status >= 400) return [{ text: `${t('jobs.new.failed')}${errorOf(made.body) ? `: ${errorOf(made.body)}` : ''}` }]
       const id = (made.body as { id: string }).id
       const planned = await pd.command('jobs-plan', { id })

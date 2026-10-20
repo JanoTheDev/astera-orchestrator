@@ -57,7 +57,7 @@ function harness(confirm: boolean): { deps: ExecDeps; sent: Array<{ path: string
       readOnlyReason: null,
       command: async (cmd: string, args: Record<string, unknown>) => {
         sent.push({ path, cmd, args })
-        return cmd === 'run-create' ? { status: 200, body: { id: 'j-new' } } : { status: 200, body: {} }
+        return cmd === 'jobs-create' ? { status: 200, body: { id: 'j-new' } } : { status: 200, body: {} }
       }
     }) as unknown as OrchDoor
   const ui: ActionUi = {
@@ -133,13 +133,18 @@ describe('confirm-class intents run only through a confirmation', () => {
 })
 
 describe('intent → command', () => {
-  it('plan = the "+ New job" call, then the planner on the new Job', async () => {
+  it('plan = the Start page call (jobs-create with the automatic account), then the planner on the new Job', async () => {
     const h = harness(true)
-    await execute(ready({ kind: 'plan', objective: 'the next Gameful refactor' }), h.deps)
+    const lines = await execute(ready({ kind: 'plan', objective: 'the next Gameful refactor' }), h.deps)
     expect(h.sent).toEqual([
-      { path: '/p/g', cmd: 'run-create', args: { objective: 'the next Gameful refactor', cwd: '/p/g', coordinatorAccount: 'acc-1', auto: true } },
+      {
+        path: '/p/g',
+        cmd: 'jobs-create',
+        args: { cwd: '/p/g', coordinatorAccount: 'acc-1', concurrency: 3, objective: 'the next Gameful refactor' }
+      },
       { path: '/p/g', cmd: 'jobs-plan', args: { id: 'j-new' } }
     ])
+    expect(lines).toEqual([{ text: 'command.done.planned', jobId: 'j-new' }])
     expect(h.asked).toEqual([])
   })
 
