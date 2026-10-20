@@ -711,6 +711,19 @@ describe('hostOrchDeps', () => {
       expect(m.acted()).toBe(0)
     })
 
+    // github/prUpdate.ts: a PR body goes as `api -X PATCH`, a refused `pr ready` as an `api graphql` mutation; a plain
+    // `api` read is not a write
+    it('the github runner marks a PR body PATCH and the ready mutation, not a plain api read', async () => {
+      let n = 0
+      const deps = hostOrchDeps(base({ onEffect: () => n++, github: { run: async () => ({ ok: true, stdout: '', stderr: '' }) } as never }))
+      await deps.github!.run(['api', 'repos/o/r/pulls/1', '--jq', '.node_id'], 'D:/p')
+      expect(n).toBe(0)
+      await deps.github!.run(['api', '-X', 'PATCH', 'repos/o/r/pulls/1', '-f', 'body=b'], 'D:/p')
+      await deps.github!.run(['api', 'graphql', '-f', 'query=mutation', '-f', 'id=PR_1'], 'D:/p')
+      await deps.github!.run(['pr', 'ready', 'https://github.com/o/r/pull/1'], 'D:/p')
+      expect(n).toBe(3)
+    })
+
     // 결과를 아무도 안 받는다고 공짜인 것은 아니다 — 이 넷은 모두 무언가를 시작하거나 끝낸다.
     it('결과를 안 받는 의존도 움직인 것으로 센다', () => {
       const m = marked({ act: vi.fn().mockResolvedValue(undefined) })

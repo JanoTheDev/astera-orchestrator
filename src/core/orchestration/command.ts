@@ -122,6 +122,7 @@ import type { CloseReason, JobEvent, SessionInfo, WorktreeInfo } from '../types'
 import { ghFailureSentence, type GhFailed, type GhRunner } from '../github/gh'
 import { failedLogTail, readPrChecks, rerunFailed } from '../github/checks'
 import { prForBranch } from '../github/prs'
+import { markPrReady, setPrBody } from '../github/prUpdate'
 import { ISSUE_JOB_ASSOCIATIONS, ISSUES_PER_CALL_MAX, assignIssueToMe, issueNumbersOf, readIssue, type GhIssue } from '../github/issue'
 import { GITHUB_SOURCE_ID, issuesContext, issuesTitleOf } from '../github/issueSource'
 // W6-A intake
@@ -6241,7 +6242,7 @@ export async function handleCommand(
             ? okBody({ noRemote: true, branch: t.branch, message: noRemoteNote(t.branch, t.repoPath) })
             : conflict(`The push was rejected: ${pushed.detail.trim()}`)
         await pushNotes(t.cwd) // W8-A: the notes ref goes with the PR branch
-        const edited = await g.run(['pr', 'edit', open.url, '--body', body], t.cwd)
+        const edited = await setPrBody(g.run, open.url, body, t.cwd)
         if (!edited.ok) return ghRefusal({ ok: false, ...ghFailureSentence(edited) })
         await record({ ...open, at, draft: true, wavesDone: done })
         return okBody({ url: open.url, number: open.number ?? null, draft: true, wavesDone: done, opened: false })
@@ -6331,10 +6332,10 @@ export async function handleCommand(
         if (!pushed.ok) return fail(pushed.kind === 'no-remote' ? noRemoteNote(t.branch, t.repoPath) : `The push was rejected: ${pushed.detail.trim()}`)
         await pushNotes(t.cwd) // W8-A: the notes ref goes with the PR branch
         // W8-E (#99): a Run with failed Tasks delivers its completed work and stays a draft
-        for (const step of [['pr', 'edit', draft.url, '--body', body], ...(failed ? [] : [['pr', 'ready', draft.url]])]) {
-          const r = await g.run(step, t.cwd)
-          if (!r.ok) return fail(`gh ${step[0]} ${step[1]}: ${ghFailureSentence(r).message}`)
-        }
+        const edited = await setPrBody(g.run, draft.url, body, t.cwd)
+        if (!edited.ok) return fail(`gh api (the pull request's body): ${ghFailureSentence(edited).message}`)
+        const readied = failed ? null : await markPrReady(g.run, draft.url, t.cwd)
+        if (readied !== null && !readied.ok) return fail(`gh pr ready: ${ghFailureSentence(readied).message}`)
         const { draft: _d, wavesDone: _w, error: _e, ...ready } = draft
         await record(failed ? { ...draft, at: now } : { ...ready, at: now })
         return okBody({ url: draft.url, number: draft.number ?? null, opened: false, ready: !failed })
