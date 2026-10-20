@@ -93,6 +93,41 @@ describe('trackLiveSessions', () => {
     t.dispose()
   })
 
+  it('keeps the saved sessions a restore has not settled yet, and drops each once its respawn is done', async () => {
+    const file = sessionRestoreFileIn(dir)
+    const reg = fakeRegistry()
+    const saved: SavedSession[] = [
+      { sessionId: 'tab-1', accountId: 'acc_1', cwd: '/w/a', nativeSessionId: 'n-1' },
+      { sessionId: 'tab-2', accountId: 'acc_1', cwd: '/w/b', nativeSessionId: 'n-2' }
+    ]
+    const t = trackLiveSessions({ registry: reg, file, pending: saved, nativeIdOf: async () => null, log: () => {}, pollMs: 60_000 })
+    let release!: () => void
+    const gate = new Promise<void>((r) => (release = r))
+    const restoring = restoreSessions({
+      saved,
+      state: null,
+      nativeIdOf: async () => null,
+      createSession: async (o) => {
+        if (o.cwd === '/w/a') {
+          await gate // the first respawn is still pending: a crash here must not lose either tab
+          reg.open('pty-new-1', meta('new-1', { accountId: 'acc_1', cwd: '/w/a' }))
+          return { id: 'new-1' }
+        }
+        throw new Error('no account') // the second respawn fails for good
+      },
+      handle: async () => ({ status: 200, body: {} }),
+      settle: (sid) => t.settle(sid),
+      log: () => {}
+    })
+    await t.flushed()
+    expect((await readSavedSessions(file)).map((x) => x.sessionId)).toEqual(['tab-1', 'tab-2'])
+    release()
+    await restoring
+    await t.flushed()
+    expect((await readSavedSessions(file)).map((x) => x.sessionId)).toEqual(['new-1'])
+    t.dispose()
+  })
+
   it('learns a claude conversation id from the hook events by polling', async () => {
     const file = sessionRestoreFileIn(dir)
     const reg = fakeRegistry()
@@ -155,6 +190,7 @@ function restoreDeps(over: Partial<RestoreDeps>) {
     nativeIdOf: async () => null,
     createSession: async (o) => (created.push(o), { id: `new-${created.length}` }),
     handle: async (cmd, args) => (handled.push({ cmd, ...args }), { status: 200, body: {} }),
+    settle: () => {},
     log: () => {},
     ...over
   }

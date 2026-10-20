@@ -112,23 +112,29 @@ export interface SessionTracker {
   flushed(): Promise<void>
   /** Stops the poll. */
   dispose(): void
+  /** A pending saved session's respawn is over, for good: its row leaves the file (its live row, if any, stays). */
+  settle(sessionId: string): void
 }
 
-/** Keeps `file` equal to the registry's live agent sessions, starting from the ones live now. */
+/** Keeps `file` equal to the registry's live agent sessions, starting from the ones live now, plus the `pending` saved
+ *  sessions a restore has not settled yet: a crash before their respawns register must not lose them. */
 export function trackLiveSessions(d: {
   registry: Pick<PtyRegistry, 'list' | 'onMeta' | 'onExit' | 'metaOf' | 'sessionPty'>
   file: string
+  /** The saved sessions still to restore (from the last Host's file). */
+  pending?: SavedSession[]
   /** The conversation id the session's hook events last named, or null. */
   nativeIdOf(sessionId: string): Promise<string | null>
   log(m: string): void
   pollMs?: number
 }): SessionTracker {
   const live = new Map<string, SavedSession>()
+  const waiting = new Map((d.pending ?? []).map((r) => [r.sessionId, r]))
   let frozen = false
   let queue: Promise<void> = Promise.resolve()
   const save = (): void => {
     if (frozen) return
-    const snapshot = JSON.stringify([...live.values()])
+    const snapshot = JSON.stringify([...[...waiting.values()].filter((r) => !live.has(r.sessionId)), ...live.values()])
     const write = async (): Promise<void> => {
       await fs.mkdir(path.dirname(d.file), { recursive: true })
       const tmp = `${d.file}.${process.pid}.tmp`
@@ -174,7 +180,10 @@ export function trackLiveSessions(d: {
       frozen = true
     },
     flushed: () => queue,
-    dispose: () => clearInterval(timer)
+    dispose: () => clearInterval(timer),
+    settle: (sessionId) => {
+      if (waiting.delete(sessionId)) save()
+    }
   }
 }
 
@@ -205,6 +214,8 @@ export interface RestoreDeps {
   }): Promise<{ id: string }>
   /** A command under the Host's own caller. */
   handle(cmd: string, args: Record<string, unknown>): Promise<{ status: number; body: unknown }>
+  /** The tracker's `settle`: called once per saved session, when its respawn succeeded or failed for good. */
+  settle(sessionId: string): void
   log(m: string): void
 }
 
@@ -244,6 +255,8 @@ export async function restoreSessions(d: RestoreDeps): Promise<{ tabs: number; p
       tabs++
     } catch (err) {
       d.log(`session restore: ${row.sessionId} could not be resumed: ${String(err)}`)
+    } finally {
+      d.settle(row.sessionId)
     }
   }
   return { tabs, planners }
