@@ -10,7 +10,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Plus } from 'lucide-react'
 import { useI18n } from '../../i18n/I18nProvider'
 import { formatElapsed } from '../../../../core/orchestration/elapsed'
-import { parseTab } from '../../../../core/panes/tabId'
+import { parseTab, sessionTab } from '../../../../core/panes/tabId'
 import { buildWorkspaceTree, OTHER_WORKSPACE } from '../../state/workspaceTree'
 import { scopeProjectIds } from '../../state/projectScope'
 import { useWorkspaceData } from '../../state/useWorkspaceData'
@@ -21,8 +21,9 @@ import { openConsole, openPlan } from '../shell/navigation'
 import { setWallView, useWallView } from '../wall/wallView'
 import { focusTerminal } from '../wall/consoleDock'
 import { useJobRows } from '../wall/useJobRows'
+import { confirmModal } from '../../lib/confirm'
 import {
-  ALL_PLANS, NO_PLAN, consolesOf, detailLineOf, detailsOf, filterConsoles, gridColumns, groupWall, orderWall, planPills,
+  ALL_PLANS, NO_PLAN, consolesOf, detailLineOf, detailsOf, filterConsoles, gridColumns, groupWall, needsCloseConfirm, orderWall, planPills,
   type PlanFilter, type StateFilter, type TileState, type WallConsole
 } from '../wall/wallModel'
 import { ConsoleStrip, ConsoleTile, PlanGroup, WallEmpty, WallFilters } from '../wall/Wall'
@@ -34,7 +35,10 @@ import { useSummaries } from '../../state/useSummaries'
 import type { AppState } from '../../state/appState'
 import '../wall/wall.css'
 
-export type AgentsPageProps = Pick<AppState, 'sessions' | 'accounts' | 'currentProject' | 'homeDir' | 'activeTabId' | 'workspaceProjectId'> & {
+export type AgentsPageProps = Pick<
+  AppState,
+  'sessions' | 'accounts' | 'currentProject' | 'homeDir' | 'activeTabId' | 'workspaceProjectId' | 'closeWorkbenchTab'
+> & {
   /** W11: the header's and the empty state's "New console" (the New dialog's Console choice). */
   setShowNew?: AppState['setShowNew']
   children: React.ReactNode
@@ -52,7 +56,18 @@ const readPlan = (): PlanFilter => {
   }
 }
 
-export function AgentsPage({ sessions, accounts, currentProject, homeDir, activeTabId, workspaceProjectId, setShowNew, children, hidden }: AgentsPageProps): React.JSX.Element {
+export function AgentsPage({
+  sessions,
+  accounts,
+  currentProject,
+  homeDir,
+  activeTabId,
+  workspaceProjectId,
+  closeWorkbenchTab,
+  setShowNew,
+  children,
+  hidden
+}: AgentsPageProps): React.JSX.Element {
   const { t } = useI18n()
   const view = useWallView()
   const showing = view.kind !== 'away'
@@ -136,11 +151,17 @@ export function AgentsPage({ sessions, accounts, currentProject, homeDir, active
   // session tab opens that console full size, anything else gives the window to that page. The first tab (the saved
   // layout restored at start) is not such a move: the app opens on the wall.
   const lastTab = useRef(activeTabId)
+  // T8: set when the open console is closed from its header; the tab the close leaves active must not pull the wall away.
+  const closingOpen = useRef(false)
   useEffect(() => {
     if (lastTab.current === activeTabId) return
     const first = lastTab.current === null
     lastTab.current = activeTabId
     if (first) return
+    if (closingOpen.current) {
+      closingOpen.current = false
+      return
+    }
     const ref = activeTabId ? parseTab(activeTabId) : null
     if (ref?.kind === 'session') setWallView({ kind: 'console', sessionId: ref.id })
     else if (activeTabId) setWallView({ kind: 'away' })
@@ -188,6 +209,19 @@ export function AgentsPage({ sessions, accounts, currentProject, homeDir, active
 
   const back = (): void => setWallView({ kind: 'wall' })
   const open = (sessionId: string): void => openConsole(sessionId)
+  // T8: the one close path for the strip, the tiles and the header. A busy or plan-owned console asks first.
+  const closeConsole = async (c: WallConsole, fromHeader = false): Promise<void> => {
+    if (
+      needsCloseConfirm(c) &&
+      !(await confirmModal({ title: t('wall.close.confirm.title'), body: t('wall.close.confirm.body'), confirmLabel: t('wall.close.confirm.button') }))
+    )
+      return
+    if (fromHeader) {
+      closingOpen.current = true
+      back()
+    }
+    closeWorkbenchTab(sessionTab(c.sessionId))
+  }
   const opened = heldId ? consoles.find((c) => c.sessionId === heldId) : undefined
   const exitOf = (id: string): number | undefined => sessions.find((s) => s.id === id)?.exitCode
   const newConsole = setShowNew ? () => setShowNew(true) : undefined
@@ -199,7 +233,14 @@ export function AgentsPage({ sessions, accounts, currentProject, homeDir, active
   // As many columns as the biggest group fills, up to the auto grid's count; CSS drops to fewer under 360px a tile.
   const cols = Math.min(gridColumns(liveTiles.length), Math.max(1, ...groups.map((g) => g.live.length)))
   const tile = (c: WallConsole): React.JSX.Element => (
-    <ConsoleTile key={c.sessionId} c={c} main={c.sessionId === wall.mainId} meta={metaOf(c)} onOpen={() => open(c.sessionId)} />
+    <ConsoleTile
+      key={c.sessionId}
+      c={c}
+      main={c.sessionId === wall.mainId}
+      meta={metaOf(c)}
+      onOpen={() => open(c.sessionId)}
+      onClose={() => void closeConsole(c)}
+    />
   )
   const card = (c: WallConsole): React.JSX.Element => {
     const s = summaries.bySession.get(c.sessionId)
@@ -269,10 +310,24 @@ export function AgentsPage({ sessions, accounts, currentProject, homeDir, active
         </div>
       )}
       {view.kind === 'console' && opened && (
-        <ConsoleHeader c={opened} projectName={projectName} detailsOpen={detailsOpen} onToggleDetails={() => setDetailsOpen((o) => !o)} onBack={back} />
+        <ConsoleHeader
+          c={opened}
+          projectName={projectName}
+          detailsOpen={detailsOpen}
+          onToggleDetails={() => setDetailsOpen((o) => !o)}
+          onBack={back}
+          onClose={() => void closeConsole(opened, true)}
+        />
       )}
       {view.kind !== 'wall' && (
-        <ConsoleStrip consoles={inScope} mainId={wall.mainId} selected={heldId} onAll={back} onOpen={open} />
+        <ConsoleStrip
+          consoles={inScope}
+          mainId={wall.mainId}
+          selected={heldId}
+          onAll={back}
+          onOpen={open}
+          onClose={(c) => void closeConsole(c)}
+        />
       )}
       <div className="agents-page__body" style={view.kind === 'wall' ? { display: 'none' } : undefined}>
         <div className="agents-page__console" ref={consoleRef}>

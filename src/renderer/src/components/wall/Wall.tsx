@@ -2,9 +2,10 @@
 // tiles and Done cards, the empty state, and the console strip of the full-size view. What goes where is
 // wallModel.ts's; this file only draws it.
 import { useEffect, useRef } from 'react'
-import { ExternalLink, Plus, TerminalSquare } from 'lucide-react'
+import { ExternalLink, Plus, TerminalSquare, X } from 'lucide-react'
 import { useI18n } from '../../i18n/I18nProvider'
-import { Button, Chip, Tabs, EmptyState, Select, cx, type ChipTone } from '../ui'
+import { Button, Chip, IconButton, Tabs, EmptyState, Select, cx, type ChipTone } from '../ui'
+import { rovingKeyDown } from '../ui/Nav'
 import { claimTerminal } from './consoleDock'
 import {
   ALL_PLANS, NO_PLAN, pillCount, progressSegments, stripLabel,
@@ -31,13 +32,15 @@ export function StateChip({ c }: { c: WallConsole }): React.JSX.Element {
   )
 }
 
-/** The full-size view's switcher: every live console of the scope, the open one selected. */
+/** The full-size view's switcher: every live console of the scope, the open one selected. Each console's tab has its
+ *  own close (T8): a sibling of the tab, since a button cannot hold a button; a middle-click on the tab closes too. */
 export function ConsoleStrip({
   consoles,
   mainId,
   selected,
   onAll,
-  onOpen
+  onOpen,
+  onClose
 }: {
   consoles: readonly WallConsole[]
   mainId: string | null
@@ -45,25 +48,47 @@ export function ConsoleStrip({
   selected: string | null
   onAll: () => void
   onOpen: (sessionId: string) => void
+  onClose: (c: WallConsole) => void
 }): React.JSX.Element {
   const { t } = useI18n()
+  const ref = useRef<HTMLDivElement>(null)
   const live = consoles.filter((c) => c.state !== 'finished')
-  const items = [
-    // With a console open the header's back button is the way out; the strip offers it only when nothing is open.
-    ...(selected === null ? [{ id: '', label: t('wall.strip.all') }] : []),
-    ...live.map((c) => ({
-      id: c.sessionId,
-      label: (
-        <>
-          <span className={cx('wall-dot', `wall-dot--${c.state}`, c.tone && `wall-dot--${c.tone}`)} aria-hidden="true" />
-          {stripLabel(c, mainId)}
-        </>
-      )
-    }))
-  ]
+  const tabClass = (on: boolean): string => cx('ui-tabs__tab', on && 'ui-tabs__tab--active')
   return (
     <div className="wall-strip">
-      <Tabs items={items} value={selected ?? ''} onChange={(id) => (id === '' ? onAll() : onOpen(id))} label={t('wall.strip.label')} />
+      <div ref={ref} role="tablist" aria-label={t('wall.strip.label')} className="ui-tabs ui-tabs--underline" onKeyDown={(e) => rovingKeyDown(ref.current, e)}>
+        {/* With a console open the header's back button is the way out; the strip offers it only when nothing is open. */}
+        {selected === null && (
+          <button type="button" role="tab" data-roving="" aria-selected tabIndex={0} className={tabClass(true)} onClick={onAll}>
+            {t('wall.strip.all')}
+          </button>
+        )}
+        {live.map((c) => {
+          const on = c.sessionId === selected
+          return (
+            <div key={c.sessionId} className="wall-strip__tab">
+              <button
+                type="button"
+                role="tab"
+                data-roving=""
+                aria-selected={on}
+                tabIndex={on ? 0 : -1}
+                className={tabClass(on)}
+                onClick={() => onOpen(c.sessionId)}
+                onAuxClick={(e) => {
+                  if (e.button !== 1) return
+                  e.preventDefault()
+                  onClose(c)
+                }}
+              >
+                <span className={cx('wall-dot', `wall-dot--${c.state}`, c.tone && `wall-dot--${c.tone}`)} aria-hidden="true" />
+                {stripLabel(c, mainId)}
+              </button>
+              <IconButton size="sm" label={t('wall.close.label', { name: c.label })} icon={<X size={14} />} onClick={() => onClose(c)} />
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -246,13 +271,15 @@ export function ConsoleTile({
   c,
   main,
   meta,
-  onOpen
+  onOpen,
+  onClose
 }: {
   c: WallConsole
   main: boolean
   /** Plan, account, the role's detail (time running, files): what tells two tiles apart. */
   meta: readonly string[]
   onOpen: () => void
+  onClose: () => void
 }): React.JSX.Element {
   const { t } = useI18n()
   const anchor = useRef<HTMLDivElement>(null)
@@ -260,30 +287,43 @@ export function ConsoleTile({
     if (c.chat || !anchor.current) return
     return claimTerminal(c.sessionId, anchor.current)
   }, [c.sessionId, c.chat])
+  // The close is a sibling of the tile (the tile is a button already): it sits over the tile's corner, shown on hover or focus.
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      aria-label={t('wall.tile.open', { name: c.label })}
-      className={cx('wall-tile', main && 'wall-tile--main', c.state === 'needs' && `wall-tile--${c.tone ?? 'warn'}`)}
-      onClick={onOpen}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault()
-          onOpen()
-        }
-      }}
-    >
-      <div className="wall-tile__head">
-        <div className="wall-tile__title">
-          <span className="wall-tile__name">{c.label}</span>
-          {main && <span className="wall-tile__main">{t('wall.main')}</span>}
-          {c.taskTitle && <span className="wall-tile__task">{c.taskTitle}</span>}
+    <div className={cx('wall-tile-frame', main && 'wall-tile-frame--main')}>
+      <div
+        role="button"
+        tabIndex={0}
+        aria-label={t('wall.tile.open', { name: c.label })}
+        className={cx('wall-tile', main && 'wall-tile--main', c.state === 'needs' && `wall-tile--${c.tone ?? 'warn'}`)}
+        onClick={onOpen}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            onOpen()
+          }
+        }}
+      >
+        <div className="wall-tile__head">
+          <div className="wall-tile__title">
+            <span className="wall-tile__name">{c.label}</span>
+            {main && <span className="wall-tile__main">{t('wall.main')}</span>}
+            {c.taskTitle && <span className="wall-tile__task">{c.taskTitle}</span>}
+          </div>
+          <StateChip c={c} />
         </div>
-        <StateChip c={c} />
+        {meta.length > 0 && <div className="wall-tile__meta">{meta.join(' · ')}</div>}
+        {c.chat ? <div className="wall-tile__chat">{t('wall.tile.chat')}</div> : <div ref={anchor} className="terminal-host wall-tile__term" />}
       </div>
-      {meta.length > 0 && <div className="wall-tile__meta">{meta.join(' · ')}</div>}
-      {c.chat ? <div className="wall-tile__chat">{t('wall.tile.chat')}</div> : <div ref={anchor} className="terminal-host wall-tile__term" />}
+      <IconButton
+        size="sm"
+        className="wall-tile__close"
+        label={t('wall.close.label', { name: c.label })}
+        icon={<X size={14} />}
+        onClick={(e) => {
+          e.stopPropagation()
+          onClose()
+        }}
+      />
     </div>
   )
 }

@@ -2840,4 +2840,9 @@ export const en: Record<keyof typeof ko, string> = {
   'project.remove.body': 'This unregisters the project. No folder or plan is touched.',
   'project.remove.confirm': 'Remove',
   'project.remove.cancel': 'Cancel',
+  // T8 Agents page: close a CLI console from its strip tab, tile or header
+  'wall.close.label': 'Close {name}',
+  'wall.close.confirm.title': 'Close this console?',
+  'wall.close.confirm.body': "It stops the CLI; a plan's Task is picked up again by Astera.",
+  'wall.close.confirm.button': 'Close console',
 }

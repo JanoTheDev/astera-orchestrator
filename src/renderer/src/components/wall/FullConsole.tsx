@@ -1,7 +1,7 @@
 // W9-H: one console full size (DESIGN.md §2). The slim header and the details panel; the console itself is the
 // session's own pane (PaneGrid, mounted for the session's life), so keys go to that PTY and nowhere else. There is no
 // Astera input box and no chat UI here (DESIGN §0).
-import { ArrowLeft, CheckSquare, GitBranch, Keyboard, Square, PanelRightClose, PanelRightOpen } from 'lucide-react'
+import { ArrowLeft, CheckSquare, GitBranch, Keyboard, Square, PanelRightClose, PanelRightOpen, X } from 'lucide-react'
 import { useI18n } from '../../i18n/I18nProvider'
 import { formatElapsed } from '../../../../core/orchestration/elapsed'
 import type { Account } from '../../../../core/types'
@@ -15,13 +15,16 @@ export function ConsoleHeader({
   projectName,
   detailsOpen,
   onToggleDetails,
-  onBack
+  onBack,
+  onClose
 }: {
   c: WallConsole
   projectName: string | null
   detailsOpen: boolean
   onToggleDetails: () => void
   onBack: () => void
+  /** T8: closes this console (the page confirms first when it is busy or plan-owned). */
+  onClose: () => void
 }): React.JSX.Element {
   const { t } = useI18n()
   const crumbs = [projectName, c.planName, c.label].filter((x): x is string => !!x)
@@ -52,6 +55,7 @@ export function ConsoleHeader({
         icon={<Icon icon={detailsOpen ? PanelRightClose : PanelRightOpen} size={14} />}
         onClick={onToggleDetails}
       />
+      <IconButton size="sm" label={t('wall.close.label', { name: c.label })} icon={<Icon icon={X} size={14} />} onClick={onClose} />
     </div>
   )
 }

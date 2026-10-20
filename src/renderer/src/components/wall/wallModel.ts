@@ -258,6 +258,11 @@ export function stripLabel(c: WallConsole, mainId: string | null): string {
   return c.taskTitle && (c.role === 'worker' || c.role === 'reviewer') ? `${c.label} · ${c.taskTitle}` : c.label
 }
 
+/** T8: closing asks first when the CLI is busy or waiting on the owner, or when a plan owns the console. Idle and finished user consoles close at once. */
+export function needsCloseConfirm(c: WallConsole): boolean {
+  return c.state === 'working' || c.state === 'needs' || c.role !== 'console'
+}
+
 // ---- The details panel (DESIGN §2 "One console full size"), from Host data only ----
 
 export interface TaskLine {

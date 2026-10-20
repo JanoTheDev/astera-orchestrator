@@ -1950,4 +1950,9 @@ export const ja: Catalog = {
   'project.remove.body': 'プロジェクトの登録を解除するだけです。フォルダとプランには触れません。',
   'project.remove.confirm': '削除',
   'project.remove.cancel': 'キャンセル',
+  // T8 Agents page: close a CLI console from its strip tab, tile or header
+  'wall.close.label': '{name}を閉じる',
+  'wall.close.confirm.title': 'このコンソールを閉じますか?',
+  'wall.close.confirm.body': 'CLIを停止します。プランのTaskはAsteraが再び取り上げます。',
+  'wall.close.confirm.button': 'コンソールを閉じる',
 }

@@ -95,7 +95,15 @@ button.summary-card__title:hover .summary-card__title-text { text-decoration: un
 :root[data-theme='day'] .wall-tile { border-color: var(--line-strong); box-shadow: var(--shadow-sm); }
 .wall-tile:hover { border-color: var(--line-strong); box-shadow: var(--shadow-sm); }
 .wall-tile:focus-visible { box-shadow: var(--focus-ring); }
-.wall-tile--main { grid-row: span 2; }
+/* T8: the frame holds the tile and its close control side by side (a button cannot sit inside the tile's button) */
+.wall-tile-frame { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.wall-tile-frame > .wall-tile { flex: 1; }
+.wall-tile-frame--main { grid-row: span 2; }
+.wall-tile__close { position: absolute; top: var(--sp-2); right: var(--sp-2); opacity: 0; background: var(--panel); transition: opacity var(--dur-fast) var(--ease-out); }
+.wall-tile-frame:hover .wall-tile__close, .wall-tile__close:focus-visible { opacity: 1; }
+.wall-tile-frame:focus-within .wall-tile__close { opacity: 1; }
+.wall-tile-frame .wall-tile__head { padding-right: calc(var(--sp-3) + 24px); }
+@media (prefers-reduced-motion: reduce) { .wall-tile__close { transition: none; } }
 .wall-tile--warn, :root[data-theme='day'] .wall-tile--warn { border-color: var(--warn); }
 .wall-tile--danger, :root[data-theme='day'] .wall-tile--danger { border-color: var(--danger); }
 .wall-tile__head { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3) 0; min-width: 0; }
@@ -126,6 +134,8 @@ button.summary-card__title:hover .summary-card__title-text { text-decoration: un
 /* The full-size view: the console strip under the header */
 .wall-strip { flex: none; padding: 0 var(--sp-4); border-bottom: 1px solid var(--line); overflow-x: auto; background: var(--panel); }
 .wall-strip .ui-tabs--underline { border-bottom: 0; }
+.wall-strip__tab { display: inline-flex; align-items: center; flex: none; }
+.wall-strip__tab > .ui-tabs__tab { padding-right: var(--sp-1); }
 
 /* One console full size: the slim header, the console, the details panel */
 .wall-console-head {

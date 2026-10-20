@@ -1975,4 +1975,9 @@ export const es: Catalog = {
   'project.remove.body': 'Solo se anula el registro del proyecto. No se toca ninguna carpeta ni plan.',
   'project.remove.confirm': 'Quitar',
   'project.remove.cancel': 'Cancelar',
+  // T8 Agents page: close a CLI console from its strip tab, tile or header
+  'wall.close.label': 'Cerrar {name}',
+  'wall.close.confirm.title': '¿Cerrar esta consola?',
+  'wall.close.confirm.body': 'Detiene la CLI; Astera vuelve a recoger la Task de un plan.',
+  'wall.close.confirm.button': 'Cerrar consola',
 }

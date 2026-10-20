@@ -3087,4 +3087,9 @@ export const ko = {
   'project.remove.body': '프로젝트 등록만 해제됩니다. 폴더와 플랜은 그대로입니다.',
   'project.remove.confirm': '제거',
   'project.remove.cancel': '취소',
+  // T8 Agents page: close a CLI console from its strip tab, tile or header
+  'wall.close.label': '{name} 닫기',
+  'wall.close.confirm.title': '이 콘솔을 닫을까요?',
+  'wall.close.confirm.body': 'CLI를 멈춥니다. 플랜의 Task는 Astera가 다시 집어 갑니다.',
+  'wall.close.confirm.button': '콘솔 닫기',
 } as const

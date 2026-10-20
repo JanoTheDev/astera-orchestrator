@@ -3,7 +3,7 @@ import type { Attention, JobRow, JobTask, SessionInfo } from '../../../../core/t
 import type { WorkspaceProject, WorkspaceSession } from '../../state/workspaceTree'
 import {
   ALL_PLANS, NO_PLAN, consolesOf, detailLineOf, detailsOf, filterConsoles, gridColumns, groupWall, indexJobRows, orderWall, pillCount, planPills,
-  progressSegments, stripLabel, type WallInput
+  needsCloseConfirm, progressSegments, stripLabel, type WallConsole, type WallInput
 } from './wallModel'
 
 const session = (id: string, over: Partial<SessionInfo> = {}): SessionInfo => ({
@@ -244,5 +244,24 @@ describe('the wall reads progress from the fold rows', () => {
     expect([d.plan!.done, d.plan!.total]).toEqual([1, 3])
     expect(d.plan!.tasks.map((t) => t.id)).toEqual(['d', 'e', 'f'])
     expect(d.task).toMatchObject({ title: 'Next' })
+  })
+})
+
+describe('closing a console asks first only when it is busy or plan-owned (T8)', () => {
+  const c = (over: Partial<WallConsole>): WallConsole => ({
+    sessionId: 's', label: 'Console', role: 'console', state: 'idle', projectId: null, planOrder: 0, cwd: '/repo', chat: false, ...over
+  })
+  it('an idle or finished user console closes at once', () => {
+    expect(needsCloseConfirm(c({ state: 'idle' }))).toBe(false)
+    expect(needsCloseConfirm(c({ state: 'finished' }))).toBe(false)
+  })
+  it('a running or waiting user console asks first', () => {
+    expect(needsCloseConfirm(c({ state: 'working' }))).toBe(true)
+    expect(needsCloseConfirm(c({ state: 'needs', needs: 'question' }))).toBe(true)
+  })
+  it('a plan-owned console asks first, even when idle', () => {
+    for (const role of ['worker', 'planner', 'coordinator', 'reviewer'] as const) {
+      expect(needsCloseConfirm(c({ role, state: 'idle', jobId: 'job_1' }))).toBe(true)
+    }
   })
 })
