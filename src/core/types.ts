@@ -111,6 +111,10 @@ export type SessionStatus = 'running' | 'exited'
 
 export type SessionKind = 'terminal' | 'chat'
 
+/** Why Astera ended a process it started: a worker released when its Task finished, stopped by a person,
+ *  or replaced by a fresh coordinator. Carried with `closedByAstera`, so a closed tab can say why. */
+export type CloseReason = 'released' | 'stopped' | 'replaced'
+
 export interface SessionInfo {
   id: string
   accountId: string
@@ -119,6 +123,7 @@ export interface SessionInfo {
   exitCode?: number
   /** Astera ended this process itself (a tab close, a release, a stop): a SIGTERM/SIGHUP exit then reads as a normal close. */
   closedByAstera?: boolean
+  closeReason?: CloseReason
   title: string
   resumeSessionId?: string
   rollAccountIds?: string[] // rolling account order; [0] is the initial account. One element waits out the reset instead of switching (every Job worker is one)
@@ -936,7 +941,7 @@ export interface CoreEvents {
   'session:remote-gone': { sessionId: string; code: string; message: string }
   /** A remote tab's connection dropped (`down`, reconnecting) or is back (`up`) (Phase 9b review I1). */
   'session:remote-link': { sessionId: string; state: 'down' | 'up' }
-  'session:exit': { sessionId: string; exitCode: number; closedByAstera?: boolean }
+  'session:exit': { sessionId: string; exitCode: number; closedByAstera?: boolean; closeReason?: CloseReason }
   // main created a session without the renderer asking — an orchestration worker. The whole
   // SessionInfo is carried so the renderer can build the tab (the same value sessions.spawn returns).
   // It is not emitted on the user path (sessions.spawn) — doing so would place the same session twice.

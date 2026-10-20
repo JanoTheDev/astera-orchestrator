@@ -1,4 +1,4 @@
-import type { Attention, RateLimitWindow } from '../types'
+import type { Attention, CloseReason, RateLimitWindow } from '../types'
 import type { AskForm, Answer } from '../prompts/askUserQuestion'
 import type { ToolRequestSummary } from '../prompts/toolRequest'
 import type { ModelDescriptor } from '../models/types'
@@ -70,6 +70,8 @@ export interface ChatState {
   exitCode: number | null
   /** Astera ended the process itself (see the exit event's closedByAstera). */
   closedByAstera?: boolean
+  /** Why Astera ended it, when it said (see the exit event's closeReason). */
+  closeReason?: CloseReason
   /** The process's last words on stderr. `error` above is the one line a person reads; this is the
    *  whole tail, which the pane folds away. Kept apart rather than concatenated: joining them would
    *  make the screen split the string again to draw either one. */
@@ -178,6 +180,7 @@ export type ChatEvent =
       error?: string
       /** Astera asked for this death (a tab close, the quit sweep): a SIGTERM exit reads as a normal close. */
       closedByAstera?: boolean
+      closeReason?: CloseReason
       bypassOffer?: boolean
       bypassSignal?: 'path' | 'voltaHome'
     }

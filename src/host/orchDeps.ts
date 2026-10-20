@@ -5,7 +5,7 @@
 // `handleCommand` did not.
 import type { CheckWaits } from '../core/orchestration/checkWaits'
 import { keptBecause, keptPhrase, type OrchAccount, type OrchRunConfig, type OrchServerDeps } from '../core/orchestration/command'
-import type { JobEvent, Provider } from '../core/types'
+import type { CloseReason, JobEvent, Provider } from '../core/types'
 import type { OrchState } from '../core/orchestration/state'
 import { AppUnreachable, leftNothingBehind, wasRefusedBeforeActing } from '../core/host/orchProtocol'
 import { RepairNeeded } from '../core/settings/repairNeeded'
@@ -1136,14 +1136,15 @@ export function hostOrchDeps(a: {
    * started it, is asked, best-effort. Never flagged as the app being required: the command has
    * already decided its answer (the slot it kept), and this only tidies up.
    */
-  const stopCoordinator = async (sessionId: string, reason?: string): Promise<void> => {
+  const stopCoordinator = async (sessionId: string, reason?: string, closeReason?: CloseReason): Promise<void> => {
     if (a.local?.stopSession?.(sessionId, reason)) return
     if (!a.hasApp()) {
       a.log(`coordinator ${sessionId} could not be stopped: this Host does not hold it and no app is attached`)
       return
     }
     try {
-      await a.act('stopCoordinator', [sessionId])
+      // The app gets only what it acts on: the session, and the close reason when there is one.
+      await a.act('stopCoordinator', closeReason === undefined ? [sessionId] : [sessionId, reason, closeReason])
     } catch (err) {
       a.log(`coordinator ${sessionId} could not be stopped by the app: ${err instanceof Error ? err.message : String(err)}`)
     }

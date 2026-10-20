@@ -3074,9 +3074,12 @@ export function registerIpc(
       // mark it stopped while it keeps running. `killWorkerSession` ends it in the Host instead, and
       // counts it stopped only on the Host's pty-exit or a list that no longer shows it; otherwise it
       // refuses (Task 11 review I3(c), fix round I2).
-      killSession: (id) =>
+      killSession: (id, reason) =>
         killWorkerSession(id, {
-          app: { info: (sid) => core.sessions.list().find((s) => s.id === sid), kill: (sid) => core.sessions.kill(sid) },
+          app: {
+            info: (sid) => core.sessions.list().find((s) => s.id === sid),
+            kill: (sid, why) => core.sessions.kill(sid, why)
+          },
           host:
             hostClient && hostPtyList
               ? {
@@ -3089,7 +3092,7 @@ export function registerIpc(
                 }
               : null,
           log: orchLog
-        }),
+        }, reason),
       // Reuses the worktree creation utility the app already has (core/worktrees/create) — that also
       // registers it, so the worktree list and delete paths in settings handle a worker's worktree
       // exactly like any other. 갈라질 자리를 고르는 판단은 forkWorktree(integrateGit.ts)에 있다 —
@@ -3369,7 +3372,7 @@ export function registerIpc(
         ),
       // A coordinator a hand-over started and cannot use: another one already holds the Run's slot
       // (Task 1 fix round 1, I2). Killed the way worker-stop kills a worker, the app's or the Host's pty.
-      stopCoordinator: (sessionId) => coordinator.stopSession(sessionId),
+      stopCoordinator: (sessionId, _reason, closeReason) => coordinator.stopSession(sessionId, closeReason),
       // Whether a coordinator is parked in `check --wait` (final round 3, I-A). Those waits are served by the
       // Host, which every CLI call reaches, so when this app drives it asks the Host; an older, absent or
       // silent Host answers unknown, and the fire then skips (coordinatorIdle.ts).
@@ -3392,7 +3395,7 @@ export function registerIpc(
           },
           a
         ),
-      releaseWorker: async ({ dispatchId }) => {
+      releaseWorker: async ({ dispatchId, closeReason }) => {
         // The coordinator does not know about state, so the wiring pulls the material for the "is it
         // safe to close" verdict out of state and passes it in (the computation is in release.ts, and
         // tests pin it down). worker-release is the only command that comes straight here without the
@@ -3402,7 +3405,7 @@ export function registerIpc(
           orchLog(`worker-release: unknown dispatch ${dispatchId} — there is no session to close`)
           return
         }
-        await coordinator.releaseWorker(args)
+        await coordinator.releaseWorker({ ...args, closeReason })
       },
       // Dispatch 가 닫혔는데 세션은 살아 있는 자리에서 서버가 부른다(server.ts 의 JSDoc). provider 를
       // 가리지 않고 둘 다 부른다 — 등록은 계정의 provider 로 갈리지만(spawnSession) 여기서 그것을
@@ -5499,7 +5502,7 @@ export function registerIpc(
       hostDrives: orchHostDrives(),
       askHost: (id) => orchCall({ cmd: 'validation-stop', args: { runId: id }, sessionId: '' }),
       markStopped: (id) => orchValidator?.markStopped(id),
-      stop: (id) => core.run.stop(id),
+      stop: (id) => core.run.stop(id, 'stopped'),
       log: orchLog
     })
   })

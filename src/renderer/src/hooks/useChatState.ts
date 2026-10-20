@@ -82,6 +82,7 @@ export function foldChatEvent(state: NonNullable<ChatPaneState>, event: ChatEven
         exitCode: event.code,
         errorDetail: event.errorDetail,
         ...(event.closedByAstera === true ? { closedByAstera: true } : {}),
+        ...(event.closeReason ? { closeReason: event.closeReason } : {}),
         bypassOffer: event.bypassOffer === true,
         bypassSignal: event.bypassOffer === true ? event.bypassSignal : undefined,
         ...(event.error === undefined ? {} : { error: event.error })

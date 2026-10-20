@@ -21,6 +21,7 @@ import { isSamePath } from '../../files/tree'
 import type { Provider } from '../../providers/meta'
 import { KNOWLEDGE_DIRS, knowledgeFilesFrom, type KnowledgeFiles } from '../../knowledge/detect'
 import type { CheckResult, RepairReason, ReviewIssue } from '../types'
+import type { CloseReason } from '../../types'
 import { REPAIR_DIAGNOSTICS, diagnosticLine, findingsCountOf } from '../pluginChecks'
 import { boundedSlug } from '../../worktrees/naming'
 
@@ -105,7 +106,7 @@ export interface CoordinatorDeps {
   /** May be asynchronous and may refuse: the app has to put a kill to the Host for a session it
    *  does not hold (main/orchestration/stopWorker.ts). `releaseWorker` waits for it, so a refusal
    *  reaches worker-stop before it marks anything stopped. */
-  killSession(sessionId: string): void | Promise<void>
+  killSession(sessionId: string, reason?: CloseReason): void | Promise<void>
   createWorktree(a: { repoPath: string; name: string; baseOf?: string }): Promise<{ path: string }>
   /** W5-A (#50): merges the dependency worktrees into a fork made for their dependent Task
    *  (integrateGit.ts mergeDepsInto). Called after createWorktree returns, so a throw here is a failed
@@ -1050,6 +1051,8 @@ export class OrchCoordinator {
      *  more recent dispatch, so closing it when this is not that dispatch kills someone else's
      *  worker. */
     isLatestOwner: boolean
+    /** Why the session is closed, so a closed tab can say it (worker-release: released; worker-stop: stopped). */
+    closeReason?: CloseReason
   }): Promise<void> {
     if (a.retained) {
       // Not skipped silently — there used to be neither a log nor anything in the response, so the
@@ -1060,12 +1063,12 @@ export class OrchCoordinator {
       return
     }
     if (!a.isLatestOwner) return
-    await this.deps.killSession(a.sessionId)
+    await this.deps.killSession(a.sessionId, a.closeReason)
   }
 
   /** Ends a coordinator session a hand-over just started and cannot use, because another coordinator
    *  already holds the Run's slot (Task 1 fix round 1, I2). The server decided; this only kills. */
-  async stopSession(sessionId: string): Promise<void> {
-    await this.deps.killSession(sessionId)
+  async stopSession(sessionId: string, reason?: CloseReason): Promise<void> {
+    await this.deps.killSession(sessionId, reason)
   }
 }

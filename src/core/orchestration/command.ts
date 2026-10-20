@@ -117,7 +117,7 @@ import { isTerminal as taskFinished, outcomeOf, progressOf } from './view'
 import { runningRunCount } from './running'
 import { FINISHED_RUN_GRACE_MS } from './exec/dispatchLoop'
 import { appDriven, editingByProject, projectKeyOf, sameFilesAs, workerCapOf, workersAgainstCap } from './schedule'
-import type { JobEvent, SessionInfo, WorktreeInfo } from '../types'
+import type { CloseReason, JobEvent, SessionInfo, WorktreeInfo } from '../types'
 import { ghFailureSentence, type GhFailed, type GhRunner } from '../github/gh'
 import { failedLogTail, readPrChecks, rerunFailed } from '../github/checks'
 import { prForBranch } from '../github/prs'
@@ -382,7 +382,7 @@ export interface OrchServerDeps {
     model?: string
     modelNote?: string
   }>
-  releaseWorker(a: { dispatchId: string }): Promise<void>
+  releaseWorker(a: { dispatchId: string; closeReason?: CloseReason }): Promise<void>
   /** 그 세션의 롤링 체인을 버린다 — **세션은 죽이지 않는다**(releaseWorker 와 그 점이 다르다).
    *
    *  **Dispatch 가 닫혔는데 세션이 살아 있는 자리에서만 부른다.** 워커는 보고한 뒤에도 일부러 살아
@@ -483,7 +483,7 @@ export interface OrchServerDeps {
   /** Stops a coordinator session `startCoordinator` opened, when the hand-over finds another one
    *  already in the Run's slot (Task 1 fix round 1, I2). Optional: without it that session is left
    *  running and the command says so in the log. `reason` is why, for the log line of whoever stops it. */
-  stopCoordinator?(sessionId: string, reason?: string): Promise<void>
+  stopCoordinator?(sessionId: string, reason?: string, closeReason?: CloseReason): Promise<void>
   /** How long `runs resume` waits for a stopped coordinator's slot to empty before it refuses (review
    *  fix round 1, I2). Absent means RESUME_STOP_WAIT_MS; tests shorten it. */
   resumeStopWaitMs?: number
@@ -2021,7 +2021,7 @@ export async function handleCommand(
     still: (current: OrchState) => boolean = () => true
   ): Promise<'retired' | 'moved' | 'gone'> => {
     try {
-      if (deps.stopCoordinator) await deps.stopCoordinator(sessionId, why)
+      if (deps.stopCoordinator) await deps.stopCoordinator(sessionId, why, 'stopped')
       else deps.log?.(`coordinator ${sessionId} of run ${runId} could not be stopped: nothing here can stop a session`)
     } catch (e) {
       deps.log?.(`coordinator ${sessionId} of run ${runId} could not be stopped: ${String(e)}`)
@@ -2904,7 +2904,7 @@ export async function handleCommand(
         )
       const starting = stillStarting(open, now)
       if (starting) return starting
-      for (const d of open.filter(releases)) await deps.releaseWorker({ dispatchId: d.id })
+      for (const d of open.filter(releases)) await deps.releaseWorker({ dispatchId: d.id, closeReason: 'stopped' })
       const stopped = new Set(open.map((d) => d.id))
       const latest = deps.getState()
       await deps.setState({
@@ -3205,7 +3205,7 @@ export async function handleCommand(
         const latestOfSession = new Map(s.dispatches.map((d) => [d.sessionId, d.id]))
         for (const d of s.dispatches)
           if (mine.has(d.taskId) && (d.outcome || d.endedAt) && latestOfSession.get(d.sessionId) === d.id && releases(d))
-            await deps.releaseWorker({ dispatchId: d.id })
+            await deps.releaseWorker({ dispatchId: d.id, closeReason: 'stopped' })
         for (const run of runs)
           if (run.coordinatorSessionId !== undefined && run.coordinatorStopPending === undefined)
             await handleCommand(deps, caller, 'run-coordinator-stop', { run: run.id })
@@ -3523,7 +3523,7 @@ export async function handleCommand(
         if (starting) return starting
         // 순차로 닫는다. releaseWorker 는 세션을 죽이는 부수 효과이고 상태를 쓰지 않는다 — 상태에서
         // 사라지는 것은 아래 deleteRuns 가 한꺼번에 한다.
-        for (const d of open.filter(releases)) await deps.releaseWorker({ dispatchId: d.id })
+        for (const d of open.filter(releases)) await deps.releaseWorker({ dispatchId: d.id, closeReason: 'stopped' })
       }
       // **병합이 먼저다.** 사람이 병합을 골랐는데 실패한 뒤 지우면 워커의 일이 워크트리 브랜치에
       // 갇힌 채 그 브랜치까지 사라진다 — 그래서 실패하면 아무것도 지우지 않고 이유를 돌려준다.
@@ -3719,7 +3719,7 @@ export async function handleCommand(
       // pauseSchedule 이 한꺼번에 한다(run-delete 가 releaseWorker 를 쓰는 순서와 같다).
       const done = new Set<string>()
       for (const d of open.filter(releases)) {
-        await deps.releaseWorker({ dispatchId: d.id })
+        await deps.releaseWorker({ dispatchId: d.id, closeReason: 'stopped' })
         done.add(d.id)
       }
       // On the state as it is now (audit OR-3): each release waits up to 5 s, and what landed meanwhile (a worker's
@@ -3739,7 +3739,7 @@ export async function handleCommand(
         const late = nowOpen.filter((d) => !done.has(d.id) && releases(d))
         if (late.length === 0) break
         for (const d of late) {
-          await deps.releaseWorker({ dispatchId: d.id })
+          await deps.releaseWorker({ dispatchId: d.id, closeReason: 'stopped' })
           done.add(d.id)
         }
         latest = deps.getState()
@@ -4754,7 +4754,7 @@ export async function handleCommand(
             s.dispatches.some((x) => x.taskId === task.id && x.repair !== undefined && !x.endedAt))
         if (converging) return conflict(`task ${task!.id} is still converging — release after it completes`)
       }
-      await deps.releaseWorker({ dispatchId: id })
+      await deps.releaseWorker({ dispatchId: id, closeReason: 'released' })
       return okBody(d?.retained === true ? { released: id, skipped: 'retained' } : { released: id })
     }
     case 'worker-retain': {
@@ -4787,7 +4787,7 @@ export async function handleCommand(
       // nothing still starting.
       const starting = !d.outcome && !d.endedAt ? stillStarting([d], now) : null
       if (starting) return starting
-      if (releases(d)) await deps.releaseWorker({ dispatchId: d.id })
+      if (releases(d)) await deps.releaseWorker({ dispatchId: d.id, closeReason: 'stopped' })
       const stopped: OrchState = {
         ...deps.getState(),
         dispatches: deps

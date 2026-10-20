@@ -1432,6 +1432,7 @@ export function ConversationPane({
       onGoTerminal={null}
       exitCode={chat?.exitCode ?? null}
       closedByAstera={chat?.closedByAstera === true}
+      closeReason={chat?.closeReason}
       reason={chat?.error ?? null}
       detail={chat?.errorDetail ?? null}
       // design F5: null unless the manager actually found both signals (a refusal-shaped death *and*

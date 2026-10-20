@@ -12,7 +12,7 @@
 // Lives in core/chat since the chat takeover (Task 1), so the Host runs the same adapters the app does.
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
-import type { Account, ScheduleConfig, SessionInfo } from '../types'
+import type { Account, CloseReason, ScheduleConfig, SessionInfo } from '../types'
 import type { Provider } from '../providers/meta'
 import { providerOf } from '../providers/meta'
 import { descriptorOf, type ProviderDescriptor } from '../providers/descriptor'
@@ -130,6 +130,8 @@ interface LiveChatSession {
    *  themselves. The quit sweep (`index.ts`'s `will-quit`) already calls this same `kill()`, so it
    *  needs no separate flag or wiring. */
   killRequested: boolean
+  /** Why Astera asked for the kill, when it said (kill's `reason`). */
+  closeReason?: CloseReason
   /** The unsubscribe `adapter.on(...)` returned, called when tearing this attempt down for a confirmed
    *  retry (`retryWithBypass`). Without it, this attempt's own async tail — `doStart`'s catch calling
    *  `core.fail()` a microtask after its own exit — could still reach `handleEvent` under the id the
@@ -195,7 +197,7 @@ function countWrites(proc: ProcLike): { proc: ProcLike; writes: () => number } {
 export class ChatSessionManager {
   private sessions = new Map<string, LiveChatSession>()
   private listeners: Array<(sessionId: string, e: ChatEvent) => void> = []
-  onExit?: (e: { sessionId: string; exitCode: number; closedByAstera?: boolean }) => void
+  onExit?: (e: { sessionId: string; exitCode: number; closedByAstera?: boolean; closeReason?: CloseReason }) => void
 
   constructor(private deps: ChatManagerDeps) {}
 
@@ -464,10 +466,11 @@ export class ChatSessionManager {
    *  this produces is never read as the CLI having been refused — closing a slow-starting tab must not
    *  spawn a fresh, bypassed CLI behind the closed tab. The quit sweep (`index.ts`'s `will-quit`) calls
    *  this same method for every app-owned chat session, so it needs nothing of its own. */
-  kill(id: string): void {
+  kill(id: string, reason?: CloseReason): void {
     const live = this.sessions.get(id)
     if (!live) return
     live.killRequested = true
+    if (reason) live.closeReason = reason
     live.adapter.kill()
   }
 
@@ -571,7 +574,7 @@ export class ChatSessionManager {
       notice: live.notice,
       unattendedPermission: live.unattended,
       ...(live.bypassed ? { bypassed: true } : {}),
-      ...(live.killRequested ? { closedByAstera: true } : {}),
+      ...(live.killRequested ? { closedByAstera: true, ...(live.closeReason ? { closeReason: live.closeReason } : {}) } : {}),
       ...(live.bypassOffer ? { bypassOffer: true, ...(live.managerSignal ? { bypassSignal: live.managerSignal } : {}) } : {})
     }
   }
@@ -820,7 +823,7 @@ export class ChatSessionManager {
       // `bypassSignal` rides with it (fix round 1 / Important 4): the dialog needs to know *which*
       // signal matched to soften what it says when only the weaker one (`VOLTA_HOME`) did.
       // killRequested: Astera asked for this death (a tab close, the quit sweep), so it is no failure.
-      const closed = live.killRequested ? { closedByAstera: true as const } : {}
+      const closed = live.killRequested ? { closedByAstera: true as const, ...(live.closeReason ? { closeReason: live.closeReason } : {}) } : {}
       const final: ExitEvent = bypassOffer
         ? { ...e, ...closed, bypassOffer: true, ...(live.managerSignal ? { bypassSignal: live.managerSignal } : {}) }
         : { ...e, ...closed }

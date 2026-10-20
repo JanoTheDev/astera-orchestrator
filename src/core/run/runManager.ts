@@ -5,6 +5,7 @@ import { treeKillCommand } from './kill'
 import { shellSpawn } from './shell'
 import { withJavaHomeOnPath } from './jdk'
 import { placeNewRun } from './instances'
+import type { CloseReason } from '../types'
 import type { RunConfig, RunStatus } from './config'
 import { firstLoopbackUrl } from './consoleLinks'
 
@@ -288,12 +289,13 @@ export class RunManager {
 
   /** Marks the run stopping and dispatches the kill. The exit itself arrives through pty.onExit —
    *  'stopping' is what the renderer shows in between, and what restart() waits through. */
-  stop(runId: string): void {
+  stop(runId: string, reason?: CloseReason): void {
     const live = this.runs.get(runId)
     if (!live || live.status.status !== 'running') return
     live.status.status = 'stopping'
     live.killed = true
     live.status.closedByAstera = true
+    if (reason) live.status.closeReason = reason
     this.onStatus?.({ ...live.status })
     const cmd = treeKillCommand(this.platform, live.pty.pid)
     if (cmd) this.killRunner(cmd)

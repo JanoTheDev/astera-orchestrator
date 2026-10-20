@@ -2650,7 +2650,7 @@ describe('Host-local spawn (S2)', () => {
     const dispatchId = (started.body as { dispatchId: string }).dispatchId
     expect((await orch.call({ cmd: 'worker-read', args: { dispatch: dispatchId }, sessionId: '' })).body).toEqual({ output: 'worker output' })
     expect((await orch.call({ cmd: 'worker-stop', args: { dispatch: dispatchId }, sessionId: '' })).status).toBe(200)
-    expect(l.releaseWorker).toHaveBeenCalledWith({ dispatchId })
+    expect(l.releaseWorker).toHaveBeenCalledWith({ dispatchId, closeReason: 'stopped' })
   })
   // Fix round I1: a Stop that arrives while the Host is still spawning the worker. The Dispatch holds
   // the `pending:` placeholder, so nothing could be killed; recording it stopped would leave the agent
@@ -3361,7 +3361,7 @@ describe('Host-local spawn (S2)', () => {
     app = true
     const stopped = await orch.call({ cmd: 'worker-stop', args: { dispatch: dispatchId }, sessionId: '' })
     expect(stopped.status).toBe(200)
-    expect(act).toHaveBeenCalledWith('releaseWorker', [{ dispatchId }])
+    expect(act).toHaveBeenCalledWith('releaseWorker', [{ dispatchId, closeReason: 'stopped' }])
     expect(l.releaseWorker).not.toHaveBeenCalled()
   })
   it('behaves exactly as before with no spawner: worker-start with no app is refused', async () => {
@@ -3950,7 +3950,7 @@ describe('the Host sees a coordinator parked in check --wait (I-A)', () => {
     const r = await orch.handle('run-coordinator-stop', { run: runId })
     await waiting
     expect(r.status).toBe(200)
-    expect(act).toHaveBeenCalledWith('stopCoordinator', ['ses_c'])
+    expect(act).toHaveBeenCalledWith('stopCoordinator', ['ses_c', expect.any(String), 'stopped'])
   })
 })
 

@@ -193,7 +193,7 @@ export async function refreshCoordinator(
   const now = current.runs.find((r) => r.id === run.id)
   if (!now || now.coordinatorSessionId !== old) {
     deps.log?.(`run ${run.id}: its coordinator slot moved while a fresh one started; stopping ${fresh}`)
-    await deps.stopCoordinator?.(fresh, 'its run got another coordinator meanwhile').catch(() => {})
+    await deps.stopCoordinator?.(fresh, 'its run got another coordinator meanwhile', 'replaced').catch(() => {})
     return no(409, `run ${run.id}'s coordinator changed while the fresh one started`)
   }
   const attached = attachCoordinator(current, { runId: run.id, sessionId: fresh })
@@ -214,7 +214,7 @@ export async function refreshCoordinator(
   })
   // Only now: the Run is never without a coordinator in its slot.
   try {
-    await deps.stopCoordinator?.(old, `replaced by a fresh coordinator (${reason})`)
+    await deps.stopCoordinator?.(old, `replaced by a fresh coordinator (${reason})`, 'replaced')
   } catch (e) {
     deps.log?.(`run ${run.id}: the replaced coordinator ${old} could not be stopped: ${String(e)}`)
   }

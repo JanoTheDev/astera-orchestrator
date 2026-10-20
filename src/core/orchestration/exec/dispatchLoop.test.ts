@@ -1022,7 +1022,7 @@ describe('a finished scheduled Run’s coordinator is stopped (U4)', () => {
     withCoordinator(h, 'run_rc', 'coord-rc')
     await h.loop.run()
     await h.settle()
-    expect(h.stopCoordinator.mock.calls).toEqual([['coord-rc', 'the run has nothing left for it to do']])
+    expect(h.stopCoordinator.mock.calls).toEqual([['coord-rc', 'the run has nothing left for it to do', 'stopped']])
     expect(h.handled()).toContain('run-coordinator-stop')
     expect(h.state().runs.find((r) => r.id === 'run_rc')?.coordinatorStopPending).toBeDefined()
     await h.loop.run()
@@ -1137,7 +1137,7 @@ describe('a finished manual Run’s coordinator stops after the grace', () => {
     h.clock = NOW_MS + 10 * MIN
     await pass(h)
     expect(stops(h)).toBe(1)
-    expect(h.stopCoordinator.mock.calls).toEqual([['coord-1', 'the run has nothing left for it to do']])
+    expect(h.stopCoordinator.mock.calls).toEqual([['coord-1', 'the run has nothing left for it to do', 'stopped']])
     await pass(h)
     expect(stops(h)).toBe(1)
   })
@@ -1147,7 +1147,7 @@ describe('a finished manual Run’s coordinator stops after the grace', () => {
     h.clock = NOW_MS + 10 * MIN
     await h.loop.nudge()
     await h.settle()
-    expect(h.stopCoordinator.mock.calls).toEqual([['coord-1', 'the run has nothing left for it to do']])
+    expect(h.stopCoordinator.mock.calls).toEqual([['coord-1', 'the run has nothing left for it to do', 'stopped']])
   })
 
   it('a person typing into it at minute 8 moves the stop to minute 18', async () => {
@@ -1238,7 +1238,7 @@ describe('a finished manual Run’s coordinator stops after the grace', () => {
     h.setState({ ...s, runs: s.runs.map((r) => (r.id === 'run_rc' ? { ...r, coordinatorSessionId: 'coord-rc' } : r)) })
     h.ctx.sessionBusy = () => true
     await pass(h)
-    expect(h.stopCoordinator.mock.calls).toEqual([['coord-rc', 'the run has nothing left for it to do']])
+    expect(h.stopCoordinator.mock.calls).toEqual([['coord-rc', 'the run has nothing left for it to do', 'stopped']])
   })
 
   // The re-check in run-coordinator-stop (runMoves): a stop still pending for a Run that has work again
@@ -1541,7 +1541,7 @@ describe('a coordinator stop is retried until the session is gone (L1)', () => {
     await h.loop.run()
     await h.settle()
     expect(stops(h)).toBe(2)
-    expect(h.stopCoordinator.mock.calls).toEqual([['coord-rc', 'the run has nothing left for it to do']])
+    expect(h.stopCoordinator.mock.calls).toEqual([['coord-rc', 'the run has nothing left for it to do', 'stopped']])
     expect(rc(h).coordinatorStopPending).toBeDefined()
   })
 

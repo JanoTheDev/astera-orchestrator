@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
-import type { Account, Provider, SessionInfo, ScheduleConfig } from '../types'
+import type { Account, CloseReason, Provider, SessionInfo, ScheduleConfig } from '../types'
 import { defaultSessionTitle, normalizeSessionTitle } from './title'
 import { createGitBashResolver, findGitBash, type GitBashResolver } from './gitBash'
 import { checkCwd, defaultCwdProbe, defaultProbe, probeLog, type Probe } from './pathProbe'
@@ -119,6 +119,7 @@ interface LiveSession {
   pty: PtyLike
   /** Set by kill(): the exit that follows is Astera's doing, not the process's. */
   closedByAstera?: boolean
+  closeReason?: CloseReason
   pendingBytes: number
   paused: boolean
   /** Auto-release timer for a pause. Always null when not paused, and must never outlive the session. */
@@ -134,7 +135,7 @@ export class SessionManager {
   /** Exited sessions, oldest exit first: past EXITED_SESSIONS_KEPT the oldest record goes (second pass M2-5). */
   private exitedOrder = new Set<string>()
   onData?: (e: { sessionId: string; data: string }) => void
-  onExit?: (e: { sessionId: string; exitCode: number; closedByAstera?: boolean }) => void
+  onExit?: (e: { sessionId: string; exitCode: number; closedByAstera?: boolean; closeReason?: CloseReason }) => void
 
   constructor(
     private ptyFactory: PtyFactory,
@@ -426,11 +427,17 @@ export class SessionManager {
       info.status = 'exited'
       info.exitCode = exitCode
       if (live.closedByAstera) info.closedByAstera = true
+      if (live.closeReason) info.closeReason = live.closeReason
       // Do not resume a dead PTY — the child is already reaped so there is nothing to release, and
       // the timer must not be left outliving the session.
       this.clearResumeFailsafe(live)
       this.keepExited(info.id)
-      this.onExit?.({ sessionId: info.id, exitCode, ...(live.closedByAstera ? { closedByAstera: true } : {}) })
+      this.onExit?.({
+        sessionId: info.id,
+        exitCode,
+        ...(live.closedByAstera ? { closedByAstera: true } : {}),
+        ...(live.closeReason ? { closeReason: live.closeReason } : {})
+      })
     })
     return { ...info }
   }
@@ -562,10 +569,11 @@ export class SessionManager {
     live.pty.resize(cols, rows)
   }
 
-  kill(id: string): void {
+  kill(id: string, reason?: CloseReason): void {
     const live = this.sessions.get(id)
     if (!live) return
     live.closedByAstera = true
+    if (reason) live.closeReason = reason
     live.pty.kill()
   }
 

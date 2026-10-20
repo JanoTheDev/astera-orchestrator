@@ -291,6 +291,19 @@ describe('SessionManager', () => {
     expect(exits[1].closedByAstera).toBeUndefined()
   })
 
+  it('kill(id, reason) carries the reason on the exit and the session; a kill without one carries none', () => {
+    const { manager } = setup()
+    const exits: { closeReason?: string }[] = []
+    manager.onExit = (e) => exits.push(e)
+    const a = manager.spawn({ account, cwd: process.cwd() })
+    manager.kill(a.id, 'released')
+    expect(exits[0].closeReason).toBe('released')
+    expect(manager.list().find((s) => s.id === a.id)?.closeReason).toBe('released')
+    const b = manager.spawn({ account, cwd: process.cwd() })
+    manager.kill(b.id)
+    expect(exits[1].closeReason).toBeUndefined()
+  })
+
   it('종료 시 status가 exited가 되고 onExit이 발화한다', () => {
     const { manager, spawned } = setup()
     const exits: number[] = []
