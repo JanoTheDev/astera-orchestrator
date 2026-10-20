@@ -1256,6 +1256,7 @@ export const ja: Catalog = {
   'jobs.state.dispatchedStopped': 'ワーカーが停止した',
   'jobs.state.validating': '検証が実行中',
   'jobs.state.reviewing': '別のエージェントがレビュー中',
+  'jobs.state.merging': 'プランブランチにマージ中',
   'jobs.state.completed': '終わった',
   'jobs.state.failed': '失敗した',
   'jobs.state.blocked': '人を待っている',
@@ -1289,6 +1290,7 @@ export const ja: Catalog = {
   'jobs.run.mergeFailed': 'マージできませんでした: {reason}',
   'jobs.run.notStarted': '実行待ち',
   'jobs.run.notStartedHint': 'まだ実行していません — 詳細ウィンドウで実行を押すと開始します',
+  'jobs.run.notDelivered': '配信されませんでした: {reason}',
   // W2-A planner stage
   'jobs.new.planner': '先にプランナーで計画する',
   'jobs.new.plannerHint': 'プランナーセッション(プランナーモデル)がリポジトリを読み、Task を書きます。各 Task にはプロンプトと完了条件が付きます。ファイルは変更せず、何も開始しません。「承認して実行」で計画を承認してください。',

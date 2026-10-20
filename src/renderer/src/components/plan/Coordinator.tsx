@@ -47,6 +47,7 @@ export function Coordinator({
               <Chip tone={c.status.tone} dot>
                 {t(c.status.key)}
               </Chip>
+              {c.status.reason !== undefined && <span title={c.status.reason}>{t('jobs.run.notDelivered', { reason: c.status.reason })}</span>}
               {c.wave && (
                 <span>
                   {t("pages.plans.wave", { at: c.wave.at, of: c.wave.of })}

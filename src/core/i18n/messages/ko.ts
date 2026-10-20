@@ -1826,6 +1826,7 @@ export const ko = {
   'jobs.state.dispatchedStopped': '워커가 멈췄다',
   'jobs.state.validating': '검증이 도는 중',
   'jobs.state.reviewing': '다른 에이전트가 검토 중',
+  'jobs.state.merging': '플랜 브랜치에 병합하는 중',
   'jobs.state.completed': '끝났다',
   'jobs.state.failed': '실패했다',
   'jobs.state.blocked': '사람을 기다린다',
@@ -1867,6 +1868,7 @@ export const ko = {
   'jobs.run.mergeFailed': '합치지 못했습니다: {reason}',
   'jobs.run.notStarted': '실행 대기',
   'jobs.run.notStartedHint': '아직 실행하지 않았습니다 — 상세 창에서 실행을 누르면 시작합니다',
+  'jobs.run.notDelivered': '전달되지 않았다: {reason}',
   // W2-A planner stage
   'jobs.new.planner': '먼저 플래너로 계획하기',
   'jobs.new.plannerHint': '플래너 세션(플래너 모델)이 저장소를 읽고 Task 를 씁니다 — Task 마다 프롬프트와 완료 기준이 붙습니다. 파일을 바꾸지 않고 아무것도 시작하지 않습니다: 승인 후 실행으로 계획을 승인하세요.',

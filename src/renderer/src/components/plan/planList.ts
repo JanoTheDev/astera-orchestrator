@@ -12,6 +12,8 @@ type T = (key: MessageKey, params?: MessageParams) => string
 export interface PlanStatus {
   key: MessageKey
   tone: ChipTone
+  /** Why a failed plan's delivery failed (the Run's deliveryError) */
+  reason?: string
 }
 
 /** The one word a plan row's status chip says. A person's part first (approve, a gate), then what holds it, then how it runs. */
@@ -28,7 +30,8 @@ export function planStatusOf(row: JobRow): PlanStatus {
   if (row.tasks.some((t) => t.status === 'blocked')) return { key: 'pages.plans.status.needsYou', tone: 'warn' }
   if (row.dispatchHold) return { key: 'jobs.hold.held', tone: 'warn' }
   if (row.outcome === 'running') return { key: 'pages.plans.status.working', tone: 'info' }
-  return row.outcome === 'failed' ? { key: 'pages.plans.status.failed', tone: 'danger' } : { key: 'pages.plans.status.done', tone: 'ok' }
+  if (row.outcome === 'failed') return { key: 'pages.plans.status.failed', tone: 'danger', ...(row.deliveryError !== undefined ? { reason: row.deliveryError } : {}) }
+  return { key: 'pages.plans.status.done', tone: 'ok' }
 }
 
 /** The latest time the snapshot knows something happened to the plan (made, started, a worker started, its PR, archived),

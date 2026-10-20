@@ -36,7 +36,7 @@ export function lineOf(e: ActivityEvent, accountLabel: (id: string) => string): 
     case 'task.status': {
       const [word, tone] = CATEGORY_WORD[p.category ?? ''] ?? [p.status ?? 'moved', 'info']
       // A bucket is the news; the status says more only where the bucket alone does not (validating is running)
-      return { text: `${p.title}: ${word}${p.status === 'validating' ? ' (checks)' : ''}`, tone }
+      return { text: `${p.title}: ${word}${p.status === 'validating' ? ' (checks)' : p.status === 'merging' ? ' (merging)' : ''}`, tone }
     }
     case 'dispatch.started':
       return { text: `${p.title}: ${p.review ? 'review' : 'worker'} started`, tone: 'info' }

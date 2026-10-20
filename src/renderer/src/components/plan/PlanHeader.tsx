@@ -139,6 +139,7 @@ export function PlanHeader({
           {run?.archivedAt !== undefined && <Chip>{t('jobs.lifecycle.archived')}</Chip>}
           {run?.dispatchHold && <Chip tone="warn">{t('jobs.hold.held')}</Chip>}
           {run?.pendingStart && <Chip tone="info">{t('jobs.run.notStarted')}</Chip>}
+          {run?.outcome === 'failed' && run.deliveryError !== undefined && <Chip tone="danger">{t('jobs.run.notDelivered', { reason: run.deliveryError })}</Chip>}
           <SourceChip source={run?.source} />
           <WaveLine status={waveStatus} brief />
           {running > 0 && (

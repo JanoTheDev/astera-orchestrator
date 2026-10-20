@@ -1272,6 +1272,7 @@ export const es: Catalog = {
   'jobs.state.dispatchedStopped': 'El worker se detuvo',
   'jobs.state.validating': 'La validación está en marcha',
   'jobs.state.reviewing': 'Otro agente la está revisando',
+  'jobs.state.merging': 'Integrándose en la rama del plan',
   'jobs.state.completed': 'Terminada',
   'jobs.state.failed': 'Falló',
   'jobs.state.blocked': 'Esperando a una persona',
@@ -1305,6 +1306,7 @@ export const es: Catalog = {
   'jobs.run.mergeFailed': 'No se pudo fusionar: {reason}',
   'jobs.run.notStarted': 'Sin iniciar',
   'jobs.run.notStartedHint': 'Aún no se ha iniciado — pulsa Ejecutar en la ventana de detalle para empezar',
+  'jobs.run.notDelivered': 'No entregado: {reason}',
   // W2-A planner stage
   'jobs.new.planner': 'Planificar primero con el planificador',
   'jobs.new.plannerHint': 'Una sesión de planificación (con el modelo de planificación) lee el repositorio y escribe las tareas, cada una con su prompt y sus criterios de aceptación. No cambia archivos ni inicia nada: apruebas el plan con Aprobar y ejecutar.',

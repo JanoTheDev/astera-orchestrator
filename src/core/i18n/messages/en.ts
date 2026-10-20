@@ -1625,6 +1625,7 @@ export const en: Record<keyof typeof ko, string> = {
   'jobs.state.dispatchedStopped': 'The worker was stopped',
   'jobs.state.validating': 'Validation is running',
   'jobs.state.reviewing': 'Another agent is reviewing it',
+  'jobs.state.merging': 'Merging into the plan branch',
   'jobs.state.completed': 'Done',
   'jobs.state.failed': 'Failed',
   'jobs.state.blocked': 'Waiting for a person',
@@ -1661,6 +1662,7 @@ export const en: Record<keyof typeof ko, string> = {
   'jobs.run.mergeFailed': 'Could not merge: {reason}',
   'jobs.run.notStarted': 'Not started',
   'jobs.run.notStartedHint': 'Not started yet — press Run in the detail window to start it',
+  'jobs.run.notDelivered': 'Not delivered: {reason}',
   // W2-A planner stage
   'jobs.new.planner': 'Plan with planner first',
   'jobs.new.plannerHint': 'A planner session (on the planner model) reads the repository and writes the Tasks, each with its prompt and acceptance criteria. It changes no files and starts nothing: you approve the plan with Approve & execute.',

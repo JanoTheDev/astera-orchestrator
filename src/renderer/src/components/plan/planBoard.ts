@@ -23,6 +23,7 @@ export function categoryOf(task: JobTask): TaskCategory {
     case 'reviewing':
       return 'awaiting-review'
     case 'validating':
+    case 'merging':
       return 'running'
     case 'dispatched':
       return task.startedAt !== undefined ? 'running' : 'queued'

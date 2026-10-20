@@ -47,6 +47,7 @@ describe('categoryOf', () => {
     expect(of({ status: 'failed' })).toBe('failed')
     expect(of({ status: 'reviewing' })).toBe('awaiting-review')
     expect(of({ status: 'validating' })).toBe('running')
+    expect(of({ status: 'merging' })).toBe('running')
     expect(of({ status: 'dispatched', startedAt: '2026-10-17T00:00:00.000Z' })).toBe('running')
     expect(of({ status: 'dispatched' })).toBe('queued')
     for (const status of ['pending', 'ready', 'blocked'] as const) expect(of({ status })).toBe('queued')
