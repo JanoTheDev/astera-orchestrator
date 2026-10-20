@@ -762,7 +762,7 @@ describe('SlackNotifier 롤링·한도·종료', () => {
       h.notifier.register(info())
       h.notifier.handleExit({ sessionId: 's-1', exitCode: 1 })
       await vi.advanceTimersByTimeAsync(3_000)
-      expect(h.sent).toEqual(['[myproj · work1] ⏹ 세션 종료 (exit 1)'])
+      expect(h.sent).toEqual(['[myproj · work1] ⏹ 세션 종료 — 실패 (코드 1)'])
     } finally {
       vi.useRealTimers()
     }
