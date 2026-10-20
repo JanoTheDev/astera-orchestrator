@@ -1019,9 +1019,23 @@ function out(text: string): void {
   process.stdout.write(ensureTrailingNewline(text))
 }
 
+/**
+ * **Every byte this process writes reaches the reader before it exits, at any size.** A pipe's writes are
+ * asynchronous on POSIX: past the 64 KiB pipe buffer the rest waits in the write queue, and the
+ * `process.exit` that follows every reply threw it away (`tasks list` cut mid-JSON at ~62 KB). Blocking
+ * writes on stdout and stderr make every exit path below — success, `fail`, the early answers — flush by
+ * construction, rather than a drain before each `process.exit`. A file is already synchronous (no handle
+ * to set) and a TTY takes the same call. Works the same under Electron as node (cliPipe.test.ts).
+ */
+function blockingStdio(): void {
+  for (const stream of [process.stdout, process.stderr])
+    (stream as unknown as { _handle?: { setBlocking?: (on: boolean) => void } })._handle?.setBlocking?.(true)
+}
+
 /** The function the thin shell of the entry point (index.ts) calls straight through. It does not
  *  call itself here, so a test that imports this file does not terminate the process. */
 export async function main(): Promise<void> {
+  blockingStdio()
   // **Usage comes first, before the parser and before any Host.** All three levels used to end
   // badly here: `--help` was `expected a command, got flag`, `jobs --help` was `jobs needs one of:
   // …`, and `jobs list --help` parsed `--help` as an ordinary flag and *ran the command*. Answering
@@ -1036,7 +1050,6 @@ export async function main(): Promise<void> {
   // command table either; docs/mcp.md ("MCP over HTTP") says the Host runs it and a person does not.
   if (argv[0] === 'mcp' && argv[1] === 'http') {
     const code = await runMcpHttp({ argv: argv.slice(2), env: process.env, platform: process.platform, home: homedir(), version: CLI_VERSION })
-    await new Promise((r) => process.stdout.write('', () => r(undefined)))
     process.exit(code)
   }
   // **`runtime gateway` answers before usage and the parser too** (remote runtime design §2.3): the Host spawns it and
@@ -1054,7 +1067,6 @@ export async function main(): Promise<void> {
         process.once('SIGINT', stop)
       }
     })
-    await new Promise((r) => process.stdout.write('', () => r(undefined)))
     process.exit(code)
   }
   // **`hf-proxy` answers before usage and the parser** (higgsfield accounts design §2): the higgsfield
@@ -1062,7 +1074,6 @@ export async function main(): Promise<void> {
   // higgsfield CLI, not to ours (`--help`, `--json` and positional words included).
   if (argv[0] === 'hf-proxy') {
     const code = await hfProxy({ args: argv.slice(1), env: process.env, platform: process.platform, home: homedir() })
-    await new Promise((r) => process.stdout.write('', () => r(undefined)))
     process.exit(code)
   }
   // W8-C heavy: `astera heavy -- <cmd…>` answers before usage and the parser, like hf-proxy: the tokens after `--`
@@ -1074,7 +1085,6 @@ export async function main(): Promise<void> {
   // W8-A: `astera blame|stats|why` answer before usage and the parser, like heavy: read-only git in this folder, no Host
   if (argv[0] !== undefined && Object.hasOwn(ATTRIBUTION_COMMANDS, argv[0])) {
     const code = await runAttribution(argv, { cwd: process.cwd(), out })
-    await new Promise((r) => process.stdout.write('', () => r(undefined)))
     process.exit(code)
   }
   const help = usageFor(argv, sessionUsage)
@@ -1293,8 +1303,6 @@ export async function main(): Promise<void> {
         message: `${spelledCommand(parsed.cmd)} does not go through the Host's command layer, so it cannot carry a request id`
       })
     await serveMcp({ env: process.env, platform: process.platform, home: homedir(), version: CLI_VERSION })
-    // A pipe on POSIX is asynchronous: let the last answer leave before the process does.
-    await new Promise((r) => process.stdout.write('', () => r(undefined)))
     process.exit(0)
   }
 
