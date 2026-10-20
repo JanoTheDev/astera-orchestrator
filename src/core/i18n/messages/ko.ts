@@ -1176,6 +1176,9 @@ export const ko = {
   'explorer.git.conflict': '충돌',
   'explorer.git.folderCount': '변경 {count}건',
   'explorer.git.unavailable': 'git 상태를 확인하지 못했습니다 — 표시는 마지막 결과입니다',
+  'explorer.view.all': '전체',
+  'explorer.view.changed': '변경됨',
+  'explorer.changed.empty': '변경 사항 없음',
   // WorkbenchTabs.tsx — the dirty marker on a file tab
   'explorer.tab.unsaved': '저장 안 됨',
   // FileFindBar.tsx — 파일 에디터의 Ctrl+F 찾기·바꾸기 바. 세는 문구는 콘솔 찾기 바(run.find)와
