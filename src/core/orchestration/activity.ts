@@ -22,8 +22,8 @@ import type { TaskBlockedReason, TaskCategory, UsagePause } from '../types'
 import type { UsageChange } from './usageGuard'
 import { taskBoardsOf } from './blocked'
 import { jobNameOf } from './jobName'
-import { outcomeOfTasks } from './running'
-import { completionSettled } from './replan'
+import { heldForOwner, outcomeOfTasks } from './running'
+import { completionSettled, replanOn } from './replan'
 // W8-C plan after plan
 import { afterStoppedText } from './after'
 // W8-D several plans in one repo
@@ -126,9 +126,11 @@ export interface ActivityPayload {
   links?: TaskLinks
   pr?: RunPr
   // plan.done
-  runOutcome?: 'completed' | 'failed'
+  runOutcome?: 'completed' | 'failed' | 'blocked'
   /** W8-E (#99): a failed plan's failed Tasks; its final check is skipped. */
   failedTasks?: number
+  /** Item 2: a plan that finished with Tasks held for the owner: each one as "title: what it waits for". */
+  blockedTasks?: string[]
   // task.waiting (W5-D, #42)
   waitingFor?: 'permission' | 'question'
   // plan.replanning / plan.replanned (W6-D)
@@ -460,15 +462,24 @@ export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[
     const now = group(next)
     const prevRuns = new Set(prev.runs.map((r) => r.id))
     for (const [runId, ts] of now) {
-      if (!prevRuns.has(runId) || !runs.has(runId) || outcomeOfTasks(was.get(runId) ?? []) !== 'running') continue
-      const outcome = outcomeOfTasks(ts)
-      if (outcome === 'running') continue
+      if (!prevRuns.has(runId) || !runs.has(runId) || outcomeOfTasks(was.get(runId) ?? [], prev.gates) !== 'running') continue
+      const outcome = outcomeOfTasks(ts, next.gates)
+      if (outcome === 'running' || outcome === 'checking') continue
       const at = where(runId)
-      // W6-D: a completed plan is done once its final check settles; the replan's end says so (below)
-      if (outcome === 'completed' && at.job && !completionSettled(next, at.job, runId)) continue
+      // W6-D: a plan that replans is done only when its final check settles having added nothing, which the check's end
+      // says (below). Never here: a completion pass that covered this many done Tasks before is not this one's check (item 8)
+      if (outcome === 'completed' && at.job && (replanOn(at.job) || !completionSettled(next, at.job, runId))) continue
       // W8-E (#99): a failed plan ends here, with no final check (replan.ts replansDue asks for an all-completed Run)
       const failedTasks = outcome === 'failed' ? ts.filter((t) => t.status === 'failed').length : undefined
-      push('plan.done', at, { title: at.job ? jobNameOf(at.job) : runId, runOutcome: outcome, ...(failedTasks !== undefined ? { failedTasks } : {}), ...decisionsOf(at.job) })
+      // Item 2: so does a plan whose other Tasks all ended around the ones held for the owner
+      const blockedTasks = outcome === 'blocked' ? ts.filter((t) => heldForOwner(t, next.gates)).map((t) => `${t.title}: ${t.result ?? 'blocked'}`.slice(0, 300)) : undefined
+      push('plan.done', at, {
+        title: at.job ? jobNameOf(at.job) : runId,
+        runOutcome: outcome,
+        ...(failedTasks !== undefined ? { failedTasks } : {}),
+        ...(blockedTasks !== undefined ? { blockedTasks } : {}),
+        ...decisionsOf(at.job)
+      })
     }
   }
   // W6-D: a replan's start and end, from the Job's marks (replan.ts). A final check that added nothing is the plan done.
@@ -491,7 +502,7 @@ export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[
       }
       push('plan.replanned', at, { title, replanMode: last.mode, wave: last.wave, summary: last.summary })
       const ts = next.tasks.filter((t) => t.runId === last.runId)
-      if (last.mode === 'completion' && outcomeOfTasks(ts) === 'completed' && completionSettled(next, j, last.runId))
+      if (last.mode === 'completion' && outcomeOfTasks(ts, next.gates) === 'completed' && completionSettled(next, j, last.runId))
         push('plan.done', at, { title, runOutcome: 'completed', ...decisionsOf(j) })
     }
   }
@@ -574,7 +585,7 @@ export interface ActivitySummary {
   cancelled: ActivityItem[]
   /** Tasks waiting on their review, and plans waiting on their approval. */
   awaitingReview: ActivityItem[]
-  plansDone: Array<ActivityItem & { outcome: 'completed' | 'failed' }>
+  plansDone: Array<ActivityItem & { outcome: 'completed' | 'failed' | 'blocked' }>
   /** Every Task not running now, with why (blocked.ts), when a state was given. */
   blocked: Array<ActivityItem & { reason: TaskBlockedReason }>
 }
@@ -662,6 +673,7 @@ export function noticeOf(e: ActivityEvent): ActivityNotice | null {
         : null
     case 'plan.done': {
       // W8-E (#99): no chime, nothing is asked; the failed Tasks are on the board
+      const blocked = e.payload.blockedTasks ?? []
       const done: ActivityNotice =
         e.payload.runOutcome === 'failed'
           ? {
@@ -669,7 +681,14 @@ export function noticeOf(e: ActivityEvent): ActivityNotice | null {
               title: e.payload.failedTasks !== undefined ? `Plan finished with ${e.payload.failedTasks} failed` : 'Plan finished with failures',
               body: `${e.payload.title}. The final check was skipped.`
             }
-          : { key: `done:${e.runId}`, title: 'Plan done', body: e.payload.title }
+          : e.payload.runOutcome === 'blocked'
+            ? {
+                // Its own key: once the owner unblocks them, the plan's "Plan done" is new news
+                key: `done:${e.runId}:blocked`,
+                title: `Plan finished with ${blocked.length} blocked`,
+                body: [`${e.payload.title}. The rest is done; these wait on you:`, ...blocked.map((l) => `- ${l}`)].join('\n')
+              }
+            : { key: `done:${e.runId}`, title: 'Plan done', body: e.payload.title }
       // #117: a hands-off plan's one notice says what it decided for the owner
       return e.payload.decisions === undefined ? done : { ...done, body: `${done.body}\n${decisionsText(e.payload.decisions)}` }
     }

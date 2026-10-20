@@ -558,6 +558,25 @@ describe('createDispatchLoop', () => {
     await h.loop.nudge()
     expect(h.state().gates.filter((g) => g.taskId === merge.id)).toHaveLength(1)
   })
+  it('writes the merge Task title and its Gate reason in the app language (en), with no Hangul', async () => {
+    const h = rig()
+    driven(h, {
+      tasks: [task({ id: 'tsk_1', status: 'completed' })],
+      dispatches: [
+        { id: 'dsp_1', taskId: 'tsk_1', provider: 'claude', accountId: 'accA', sessionId: 'w-1', cwd: '/wt-child', specPath: '', startedAt: NOW, endedAt: NOW, outcome: 'succeeded' } as Dispatch
+      ]
+    })
+    h.ctx.integrate = async () => ({ kind: 'agent', reason: 'it conflicts', worktrees: [{ path: '/wt-child', branch: 'a' }] })
+    await h.loop.nudge()
+    const merge = h.state().tasks.find((t) => t.parentId === 'tsk_1')!
+    expect(merge.title).toBe(`Merge worktrees: ${h.state().tasks.find((t) => t.id === 'tsk_1')!.title}`.slice(0, 80))
+    const d = h.state().dispatches.find((x) => x.taskId === merge.id)!
+    await h.as(d.sessionId, 'send', { type: 'worker_done', taskId: merge.id, dispatchId: d.id, outcome: 'failed', subject: 'x', body: 'y' })
+    await h.loop.nudge()
+    const gate = h.state().gates.find((g) => g.taskId === merge.id)!
+    expect(gate.question).toMatch(/^tsk_1's branch could not be merged into the plan branch \(.+\), and the merge worker failed too: the merge worker failed$/)
+    expect(`${merge.title}\n${gate.question}`).not.toMatch(/[가-힣]/)
+  })
   it("a clean wave merge tells the coordinator, once, and the next ready Task", async () => {
     const h = rig()
     driven(h, {
@@ -2123,6 +2142,52 @@ describe("a completed Run opens its plan's pull request (W2-D)", () => {
     await h.loop.run()
     await h.settle()
     failOne(h)
+    await h.loop.run()
+    await h.settle()
+    expect(asked(h)).toBe(0)
+  })
+
+  // Item 2: a plan that finished with a Task held for the owner delivers its completed work too, never by a push, and
+  // once the owner releases that Task and the plan completes, it is delivered again
+  const holdOne = (h: ReturnType<typeof rig>): void => {
+    const s = h.state()
+    h.setState({
+      ...s,
+      tasks: s.tasks.map((t, i) => (i === 0 ? { ...t, status: 'blocked' as const, result: "Waiting on the owner's decision: drop it?" } : { ...t, status: 'completed' as const }))
+    })
+  }
+  it('asks once for a pr Run that finished with a blocked Task, and again after the owner releases it and it completes', async () => {
+    const h = rig()
+    withWorktree(h, 'run_1')
+    fakePr(h)
+    await h.loop.run()
+    await h.settle()
+    holdOne(h)
+    expect(outcomeOf(h.state(), 'run_1')).toBe('blocked')
+    await h.loop.run()
+    await h.settle()
+    await h.loop.run()
+    await h.settle()
+    expect(asked(h)).toBe(1)
+    const s = h.state()
+    h.setState({ ...s, tasks: s.tasks.map((t, i) => (i === 0 ? { ...t, status: 'ready' as const } : t)) })
+    expect(outcomeOf(h.state(), 'run_1')).toBe('running')
+    await h.loop.run()
+    await h.settle()
+    finish(h, 'run_1')
+    await h.loop.run()
+    await h.settle()
+    expect(asked(h)).toBe(2)
+  })
+  it('never pushes a Run that finished with a blocked Task', async () => {
+    const h = rig()
+    const s = h.state()
+    h.setState({ ...s, jobs: s.jobs.map((j) => ({ ...j, delivery: 'push' as const })) })
+    withWorktree(h, 'run_1')
+    fakePr(h)
+    await h.loop.run()
+    await h.settle()
+    holdOne(h)
     await h.loop.run()
     await h.settle()
     expect(asked(h)).toBe(0)

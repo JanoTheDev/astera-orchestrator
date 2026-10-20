@@ -1291,6 +1291,8 @@ export const ja: Catalog = {
   'jobs.run.notStarted': '実行待ち',
   'jobs.run.notStartedHint': 'まだ実行していません — 詳細ウィンドウで実行を押すと開始します',
   'jobs.run.notDelivered': '配信されませんでした: {reason}',
+  'pages.plans.status.checking': '最終確認中',
+  'pages.plans.status.blocked': 'ブロックされた Task を残して終了',
   // W2-A planner stage
   'jobs.new.planner': '先にプランナーで計画する',
   'jobs.new.plannerHint': 'プランナーセッション(プランナーモデル)がリポジトリを読み、Task を書きます。各 Task にはプロンプトと完了条件が付きます。ファイルは変更せず、何も開始しません。「承認して実行」で計画を承認してください。',
@@ -1519,6 +1521,24 @@ export const ja: Catalog = {
   'jobs.gate.workerLostNoApp': 'この Task のワーカーは、復旧できる Astera が開いていない間に失われました（dispatch {dispatch}）。この Gate を解決すると、もう一度開始します。',
   'jobs.gate.assignedAccountUnusable':
     'この Task に指定された最初のアカウントが使用できず、その後ろのアカウントは後で切り替えるための順番にすぎません — そのアカウントに再ログインするか、この Task のアカウント一覧を変更してください',
+  // exec/dispatchLoop.ts, exec/integrateGit.ts — the integration merge's Task titles and Gate reasons
+  'jobs.integration.title': "ワークツリーの統合: {title}",
+  'jobs.integration.runWorktreeNotRecorded': "Run のワークツリーを記録できませんでした: {error}",
+  'jobs.integration.runWorktreeNotMade': "Run のワークツリーを作成できませんでした: {error}",
+  'jobs.integration.taskFailed': "統合 Task({task})が失敗したため、ワークツリーを統合できませんでした。",
+  'jobs.integration.stillCannotMerge': "統合 Task が終わってもワークツリーを統合できません: {reason}",
+  'jobs.integration.taskNotMade': "ワークツリーを統合する統合 Task を作成できませんでした: {error}",
+  'jobs.integration.startFailed': "この Task を開始できませんでした: {error}",
+  'jobs.integration.mergeWorkerFailed': "{task} のブランチを計画ブランチ({root})に統合できず、統合ワーカーも失敗しました: {reason}",
+  'jobs.integration.noGit': "統合先フォルダ({folder})で git を実行できないため、ワークツリーを統合できませんでした — フォルダが消えたか、git リポジトリではありません。",
+  'jobs.integration.detachedHead': "統合先フォルダ({folder})の HEAD がブランチを指していないため、ワークツリーを統合しませんでした(切り離された HEAD — bisect や rebase の途中かもしれません)。その上で統合すると作ったコミットがどのブランチにも残らず、進行中の作業があれば壊れます。ブランチをチェックアウトしてからこの Gate を解決してください。",
+  'jobs.integration.gitDirUnreachable': "統合先フォルダの git ディレクトリ({dir})に進行中の作業があるか確認できなかったため、ワークツリーを統合しませんでした({marker} に届きませんでした — ネットワークドライブが切断されている可能性があります)。フォルダに届くことを確認してからこの Gate を解決してください。",
+  'jobs.integration.inProgress': "統合先フォルダで {op} の作業が進行中({marker})のため、ワークツリーを統合しませんでした。その途中で統合すると進行中の作業が壊れます — 完了するか中止してからこの Gate を解決してください。",
+  'jobs.integration.statusUnreadable': "統合先フォルダ({folder})の git の状態を読めないため、ワークツリーを統合できませんでした: {error}",
+  'jobs.integration.uncommitted': "統合先フォルダにコミットされていない変更が {count} 件あるため、ワークツリーを統合できません。コミットするか元に戻してからこの Gate を解決してください(追跡されていない新しいファイルはここでは数えません)。",
+  'jobs.integration.worktreeListUnreadable': "ワークツリーの一覧を読めません: {error}",
+  'jobs.integration.mergeFailedRestored': "{branch} ブランチを統合先フォルダに統合できませんでした: {output}。統合先フォルダは統合前の状態に戻しました。",
+  'jobs.integration.mergeFailedLeft': "{branch} ブランチを統合先フォルダに統合できませんでした: {output}。**統合先フォルダが統合の途中の状態で残っている可能性があります — git status で直接確認してください。**",
   // NewTaskModal.tsx — Task を組み立てている間、詳細ウィンドウの下段(.detail-events)が変わるフォーム。
   // deps はこのフォームではなくグラフが持つ(選ぶ場所がグラフだから) — このカタログには deps の値
   // 自体ではなく、グラフを指すヒント文言(depsHint)だけがある。

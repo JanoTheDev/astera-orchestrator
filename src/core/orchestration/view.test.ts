@@ -202,7 +202,14 @@ describe('outcomeOf', () => {
 
   // blocked 는 terminal 이 아니다 — Gate 가 풀리면 다시 흐른다
   it('blocked 가 섞이면 running 이다', () => {
-    expect(outcomeOf(only(['completed', 'blocked']), 'r1')).toBe('running')
+    const s = only(['completed', 'blocked'])
+    expect(outcomeOf({ ...s, gates: [gate('gat_1', 't1', 'q', '2026-08-20T00:00:00.000Z')] }, 'r1')).toBe('running')
+  })
+
+  // Item 2: blocked with no open Gate is held for the owner; with everything else ended, the Run finished with it
+  it('reads blocked when the rest ended and a Task is held for the owner, and running again once it is released', () => {
+    expect(outcomeOf(only(['completed', 'blocked']), 'r1')).toBe('blocked')
+    expect(outcomeOf(only(['completed', 'ready']), 'r1')).toBe('running')
   })
 
   it('pending 과 ready 도 종료가 아니다', () => {

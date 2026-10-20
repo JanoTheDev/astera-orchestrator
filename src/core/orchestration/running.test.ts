@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { runningCount, isStoppedWorker, runningRunCount, outcomeOfTasks, outcomeOfRun, deliveryErrorOf } from './running'
+import { runningCount, isStoppedWorker, runningRunCount, outcomeOf, outcomeOfTasks, outcomeOfRun, deliveryErrorOf } from './running'
 import { snapshotFor } from './view'
 import { emptyState } from './state'
 import type { OrchState } from './state'
-import type { Dispatch, JobRun, Task } from './types'
+import { FAILURE_LIMIT, type Dispatch, type Job, type JobRun, type Task } from './types'
 import { stateFromLegacy } from './legacyState'
 import type { LegacyRun } from './legacy'
 import { absPath } from '../testPaths'
@@ -214,6 +214,7 @@ describe('merging', () => {
 describe('a failed delivery', () => {
   const done = [task('a', 'completed'), task('b', 'completed')]
   const run = (over: Partial<JobRun>): JobRun => ({ id: 'r1', jobId: 'j1', ordinal: 1, createdAt: '2026-08-20T00:00:00.000Z', ...over }) as JobRun
+  const state = emptyState()
 
   it('reads the pull request error, then the push error, and nothing for a clean record', () => {
     expect(deliveryErrorOf(run({ pr: { at: 'x', error: 'merge conflict' } }))).toBe('merge conflict')
@@ -223,13 +224,59 @@ describe('a failed delivery', () => {
   })
 
   it('makes a Run whose Tasks all completed read failed, and leaves the Tasks-only answer alone', () => {
-    expect(outcomeOfRun(done, run({ pr: { at: 'x', error: 'merge conflict' } }))).toBe('failed')
-    expect(outcomeOfRun(done, run({ delivery: { at: 'x', error: 'push refused' } }))).toBe('failed')
+    expect(outcomeOfRun(done, run({ pr: { at: 'x', error: 'merge conflict' } }), state)).toBe('failed')
+    expect(outcomeOfRun(done, run({ delivery: { at: 'x', error: 'push refused' } }), state)).toBe('failed')
     expect(outcomeOfTasks(done)).toBe('completed')
-    expect(outcomeOfRun(done, run({}))).toBe('completed')
+    expect(outcomeOfRun(done, run({}), state)).toBe('completed')
   })
 
   it('does not end a Run that still works', () => {
-    expect(outcomeOfRun([task('a', 'completed'), task('b', 'merging')], run({ pr: { at: 'x', error: 'e' } }))).toBe('running')
+    expect(outcomeOfRun([task('a', 'completed'), task('b', 'merging')], run({ pr: { at: 'x', error: 'e' } }), state)).toBe('running')
+  })
+})
+
+describe('a Run that finished with blocked Tasks, and one in its final check', () => {
+  const NOW = '2026-10-18T00:00:00.000Z'
+  const at = (id: string, over: Partial<Task> = {}): Task => ({ ...task(id, 'completed'), runId: 'run_1', ...over })
+  /** A planned Job that replans (replan.ts replanOn), with one Run */
+  const planned = (tasks: Task[], job: Partial<Job> = {}, run: Partial<JobRun> = {}): OrchState => ({
+    ...emptyState(),
+    jobs: [{ id: 'job_1', objective: 'o', cwd: PROJ, createdAt: NOW, autoDispatch: true, coordinatorAccountId: 'acc', plannerSessionIds: ['ses_p'], ...job }],
+    runs: [{ id: 'run_1', jobId: 'job_1', ordinal: 1, createdAt: NOW, ...run }],
+    tasks
+  })
+  const settled = { lastReplan: { runId: 'run_1', mode: 'completion' as const, wave: 2, done: 2, at: NOW, summary: 'nothing to add' } }
+  // h is held for the owner (blocked, no Gate); d waits on it; c completed
+  const held = [at('c'), at('h', { status: 'blocked', result: "Waiting on the owner's decision: drop the table?" }), at('d', { status: 'pending', deps: ['h'] })]
+
+  it('reads blocked once every other Task ended, never running or completed', () => {
+    expect(outcomeOf(planned(held), 'run_1')).toBe('blocked')
+    // a Task still at work keeps it running
+    expect(outcomeOf(planned([...held, at('w', { status: 'ready' })]), 'run_1')).toBe('running')
+    // a failure still wins: the person has a failed Task to look at
+    expect(outcomeOf(planned([...held, { ...at('f', { status: 'failed' }), consecutiveFailures: FAILURE_LIMIT }]), 'run_1')).toBe('failed')
+  })
+
+  it('reads running again once the owner releases the Task (task-update --status ready)', () => {
+    const released = held.map((t) => (t.id === 'h' ? { ...t, status: 'ready' as const } : t))
+    expect(outcomeOf(planned(released), 'run_1')).toBe('running')
+  })
+
+  it('reads checking while every Task completed and the final check has not settled, then completed', () => {
+    const done = [at('a'), at('b', { deps: ['a'] })]
+    expect(outcomeOf(planned(done), 'run_1')).toBe('checking')
+    expect(outcomeOf(planned(done, { replanning: { runId: 'run_1', mode: 'completion', wave: 2, done: 2, startedAt: NOW } }), 'run_1')).toBe('checking')
+    expect(outcomeOf(planned(done, settled), 'run_1')).toBe('completed')
+    // the check added a Task: running again
+    expect(outcomeOf(planned([...done, at('f', { status: 'ready' })], settled), 'run_1')).toBe('running')
+    // a plan that does not replan, or one already delivered, has no check to wait for
+    expect(outcomeOf(planned(done, { replan: 'off' }), 'run_1')).toBe('completed')
+    expect(outcomeOf(planned(done, {}, { pr: { at: NOW, url: 'https://github.com/o/r/pull/1' } }), 'run_1')).toBe('completed')
+  })
+
+  it('counts a Run in its final check as work in flight for host stop, and a finished-with-blocked one not', () => {
+    const done = [at('a'), at('b', { deps: ['a'] })]
+    expect(runningRunCount(planned(done, {}, { coordinatorSessionId: 'ses_c' }))).toBe(1)
+    expect(runningRunCount(planned(held, {}, { coordinatorSessionId: 'ses_c' }))).toBe(0)
   })
 })

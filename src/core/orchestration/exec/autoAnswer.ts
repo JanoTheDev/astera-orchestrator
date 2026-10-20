@@ -150,7 +150,9 @@ export function autoAnswersDue(s: OrchState, open: OpenQuestion[], nowMs: number
 /** #117: what the Host does with one open question of a hands-off plan: answer it and record the decision, or hand it
  *  to the plan's coordinator, which decides in the owner's place (`astera questions answer`). Never the owner. */
 export type HandsOffStep =
-  | { kind: 'answer'; answer: AutoAnswer; decision: Omit<Decision, 'at'> }
+  /** `hold`: a refused owner-only decision a Task needs. That Task is held for the owner (blocked, running.ts
+   *  `heldForOwner`) with `reason` as its result, so the rest of the plan goes on without it. */
+  | { kind: 'answer'; answer: AutoAnswer; decision: Omit<Decision, 'at'>; hold?: { taskId: string; reason: string } }
   | { kind: 'coordinator'; question: OpenQuestion }
 
 // The answers that say no to a guardrail case, in this order; else the refusal is written out (REFUSED_ANSWER)
@@ -158,6 +160,11 @@ const REFUSAL: RegExp[] = [/^(hold|keep holding)\b/i, /^wait\b/i, /^(no|don't|do
 export const REFUSED_ANSWER =
   "Refused: this plan runs hands-off, and this is the owner's call (force-push, pushing or merging to the default " +
   'branch, deleting data outside the plan worktrees, money or credentials). Do not do it; carry on with the rest of the plan.'
+
+/** Whether a hands-off plan refuses this question: a guardrail case only the owner decides (OWNER_ONLY). A Gate the
+ *  Host wrote itself (`kind`) never is: its text is check output. The one place that decides a refusal, so a standing
+ *  grant can be asked here too. */
+export const refusedHandsOff = (q: OpenQuestion): boolean => !q.kind && ownerOnly(q.question)
 
 const firstLine = (text: string, max: number): string => {
   const line = text.split('\n').find((l) => l.trim() !== '')?.trim() ?? text.trim()
@@ -167,7 +174,8 @@ const firstLine = (text: string, max: number): string => {
 /**
  * #117: the steps due now for the open questions of hands-off plans, whatever the global `autoAnswer` setting. A Gate
  * whose attempts or review rounds ran out is answered `retry-once`, and once its Task was retried `mark-failed`, so the
- * plan carries on. A guardrail case (OWNER_ONLY) is refused, never asked. An ask or escalation waits out
+ * plan carries on. A guardrail case (`refusedHandsOff`) is refused, never asked, and the Task that needs it is held for
+ * the owner (`hold`), so the rest of the plan finishes without it. An ask or escalation waits out
  * `ASK_GRACE_MS` for its coordinator first; what has no safe answer then goes to the coordinator to decide.
  */
 export function handsOffStepsDue(s: OrchState, open: OpenQuestion[], nowMs: number): HandsOffStep[] {
@@ -175,8 +183,8 @@ export function handsOffStepsDue(s: OrchState, open: OpenQuestion[], nowMs: numb
     if (q.source !== undefined && nowMs - Date.parse(q.createdAt) < ASK_GRACE_MS) return []
     const retried = retriedOf(s, q)
     const asked = firstLine(q.question, 300)
-    const answer = (a: AutoAnswer, kind: Decision['kind'], why: string): HandsOffStep[] => [
-      { kind: 'answer', answer: a, decision: { kind, ...(q.taskId ? { taskId: q.taskId } : {}), question: asked, choice: firstLine(a.answer, 200), why } }
+    const answer = (a: AutoAnswer, kind: Decision['kind'], why: string, hold?: { taskId: string; reason: string }): HandsOffStep[] => [
+      { kind: 'answer', answer: a, decision: { kind, ...(q.taskId ? { taskId: q.taskId } : {}), question: asked, choice: firstLine(a.answer, 200), why }, ...(hold ? { hold } : {}) }
     ]
     const options = q.options ?? []
     const option = (re: RegExp): string | undefined => options.find((o) => re.test(o.trim()))
@@ -186,9 +194,11 @@ export function handsOffStepsDue(s: OrchState, open: OpenQuestion[], nowMs: numb
       if (retry) return answer({ id: q.id, answer: retry, why: 'safe default' }, 'gate', 'the attempts ran out: one more try')
       const failed = option(/^mark-failed$/i)
       if (failed) return answer({ id: q.id, answer: failed, why: 'safe default' }, 'gate', 'it was retried once already: marked failed so the plan carries on')
-    } else if (ownerOnly(q.question)) {
+    } else if (refusedHandsOff(q)) {
       const no = REFUSAL.map(option).find((o) => o !== undefined)
-      return answer({ id: q.id, answer: no ?? REFUSED_ANSWER, why: 'safe default' }, 'refused', "a guardrail: only the owner decides this, and the plan runs hands-off")
+      // The Task that needs it waits for the owner; the rest of the plan goes on
+      const hold = q.taskId ? { taskId: q.taskId, reason: `Waiting on the owner's decision: ${asked}` } : undefined
+      return answer({ id: q.id, answer: no ?? REFUSED_ANSWER, why: 'safe default' }, 'refused', "a guardrail: only the owner decides this, and the plan runs hands-off", hold)
     }
     const a = autoAnswerOf(s, q, retried)
     if (a) return answer(a, q.source === undefined ? 'gate' : 'escalation', a.why)

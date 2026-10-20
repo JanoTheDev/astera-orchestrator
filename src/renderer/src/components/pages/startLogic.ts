@@ -185,5 +185,5 @@ function liveStateOf(r: PlanRow): LivePlanState | null {
   if (r.paused === true || r.outcome === 'paused') return 'held'
   if (r.pendingStart === true) return r.after !== undefined ? 'queued' : 'planning'
   if ((r.questionsOpen ?? 0) > 0) return 'waiting'
-  return r.outcome === 'running' ? 'running' : null
+  return r.outcome === 'running' || r.outcome === 'checking' ? 'running' : null
 }

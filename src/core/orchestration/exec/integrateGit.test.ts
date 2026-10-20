@@ -134,13 +134,13 @@ describe('integrateWorktrees — the rules of the one automatic writer into a re
     const r = await integrateWorktrees(gone, [a], {}, ctx())
     expect(r.kind).toBe('human'); expect(ops).toEqual([])
     // Asked before HEAD: a missing folder also fails symbolic-ref, and was once reported as a detached HEAD.
-    expect((r as { reason: string }).reason).toContain('git 을 돌릴 수 없어')
+    expect((r as { reason: string }).reason).toContain('git cannot run in the folder')
   })
   // Rule 2. Mutation check: delete the symbolic-ref guard; this test goes red (git merges onto the detached HEAD).
   it('never merges onto a detached HEAD', async () => {
     const a = await worked('a'); gitSync(repo, ['checkout', '--detach'])
     const r = await integrateWorktrees(repo, [a], {}, ctx())
-    expect(r).toMatchObject({ kind: 'human' }); expect((r as { reason: string }).reason).toContain('분리된 HEAD')
+    expect(r).toMatchObject({ kind: 'human' }); expect((r as { reason: string }).reason).toContain('a detached HEAD')
     expect(ops).toEqual([])
   })
   // Rule 3, every marker. Mutation check: drop CHERRY_PICK_HEAD from the list; its case goes red.
@@ -173,7 +173,7 @@ describe('integrateWorktrees — the rules of the one automatic writer into a re
     const asked: string[] = []
     const r = await integrateWorktrees(repo, [a], {}, ctx({ presence: async (p) => { asked.push(p); return 'unreachable' } }))
     expect(r).toMatchObject({ kind: 'human' })
-    expect((r as { reason: string }).reason).toContain('확인하지 못해')
+    expect((r as { reason: string }).reason).toContain('could not check the git directory')
     expect(asked.length).toBeGreaterThan(0)
     expect(ops).toEqual([])
   })
@@ -215,7 +215,7 @@ describe('integrateWorktrees — the rules of the one automatic writer into a re
     const failingStatus: typeof git = (args, opts) =>
       args[0] === 'status' && opts?.cwd === repo ? Promise.resolve({ ok: false, stdout: '', stderr: 'boom' }) : git(args, opts)
     const r = await integrateWorktrees(repo, [a], {}, ctx({ git: failingStatus }))
-    expect(r).toMatchObject({ kind: 'human' }); expect((r as { reason: string }).reason).toContain('상태를 읽을 수 없어')
+    expect(r).toMatchObject({ kind: 'human' }); expect((r as { reason: string }).reason).toContain('Could not read the git status')
     expect(ops).toEqual([])
   })
   // Rule 4.
@@ -372,7 +372,7 @@ describe('integrateWorktrees — the rules of the one automatic writer into a re
     const a = await worked('a', 'clash.txt', 'tracked in a')
     await fs.writeFile(path.join(repo, 'clash.txt'), 'untracked here')       // git refuses to overwrite it
     const r = await integrateWorktrees(repo, [a], {}, ctx())
-    expect(r).toMatchObject({ kind: 'human' }); expect((r as { reason: string }).reason).toContain('병합 전 상태로 되돌렸습니다')
+    expect(r).toMatchObject({ kind: 'human' }); expect((r as { reason: string }).reason).toContain('put back as it was before the merge')
     expect(ops).toEqual([`begin job-merge ${repo}`, 'end op1'])               // ended although it failed
     expect(reaped).toEqual([])
   })
@@ -383,7 +383,7 @@ describe('integrateWorktrees — the rules of the one automatic writer into a re
   it('aborts a merge that stopped in a conflict, and the folder is left with no merge in progress', async () => {
     const a = await worked('a', 'same.txt', 'from a'); const b = await worked('b', 'same.txt', 'from b')
     const r = await integrateWorktrees(repo, [a, b], {}, ctx({ git: lyingProbe }))
-    expect(r).toMatchObject({ kind: 'human' }); expect((r as { reason: string }).reason).toContain('병합 전 상태로 되돌렸습니다')
+    expect(r).toMatchObject({ kind: 'human' }); expect((r as { reason: string }).reason).toContain('put back as it was before the merge')
     expect(status()).toBe('')
     await expect(fs.stat(path.join(repo, '.git', 'MERGE_HEAD'))).rejects.toThrow()
     expect(reaped).toEqual([a])
@@ -395,7 +395,7 @@ describe('integrateWorktrees — the rules of the one automatic writer into a re
     const noAbort: typeof git = (args, opts) =>
       args[0] === 'merge' && args[1] === '--abort' ? Promise.resolve({ ok: false, stdout: '', stderr: '' }) : lyingProbe(args, opts)
     const r = await integrateWorktrees(repo, [a, b], {}, ctx({ git: noAbort }))
-    expect(r).toMatchObject({ kind: 'human' }); expect((r as { reason: string }).reason).toContain('병합 중간 상태로 남아 있을 수 있습니다')
+    expect(r).toMatchObject({ kind: 'human' }); expect((r as { reason: string }).reason).toContain('may be left in the middle of a merge')
     gitSync(repo, ['merge', '--abort'])
   })
   // Rule 10.

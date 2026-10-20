@@ -11,6 +11,7 @@
 // (`replanRefusal`, `replanProblems`, `replanSummary`) is in exec/replanStart.ts.
 import { reviewRoundIn } from './convergence'
 import { layersOf } from './graph'
+import { heldBack } from './running'
 import { jobActive, pathsOverlap } from './schedule'
 import { jobOf, type OrchState, type PlanFields, type Res } from './state'
 import type { Job, ReplanMark, Task } from './types'
@@ -70,9 +71,11 @@ function upstreamOf(task: Node, tasks: readonly Node[]): Set<string> {
 }
 
 /** A Task that failed, or that waits (directly or through others) on one that failed: it will not complete on its own,
- *  so it holds back only the Tasks that depend on it, never a whole later wave (`waveOpen`, `replansDue`). */
-function deadEnd(t: Task, tasks: readonly Task[]): boolean {
-  if (t.status === 'failed') return true
+ *  so it holds back only the Tasks that depend on it, never a whole later wave (`waveOpen`, `replansDue`). A Task held
+ *  for its owner (running.ts `heldBack`: a hands-off plan refused the decision it needs) and what waits on it are the
+ *  same: the rest of the plan goes on without them. */
+function deadEnd(t: Task, tasks: readonly Task[], held: ReadonlySet<string>): boolean {
+  if (t.status === 'failed' || held.has(t.id)) return true
   if (t.status === 'completed') return false
   const up = upstreamOf(t, tasks)
   return tasks.some((x) => x.status === 'failed' && up.has(x.id))
@@ -95,7 +98,8 @@ export function waveOpen(task: Task, s: OrchState): boolean {
   if (last?.runId !== run.id || last.mode !== 'wave' || last.wave !== w) return false
   const own = runTasks(s, run.id)
   const up = upstreamOf(task, own)
-  return own.every((t) => t.status === 'completed' || waveOf(t, s.tasks) >= w || (!up.has(t.id) && deadEnd(t, own)))
+  const held = heldBack(own, s.gates)
+  return own.every((t) => t.status === 'completed' || waveOf(t, s.tasks) >= w || (!up.has(t.id) && deadEnd(t, own, held)))
 }
 
 /** Not started: waiting, ready, or blocked by a Gate before it ever ran (W8-E, #95: the coordinator's question about
@@ -167,7 +171,8 @@ export function replansDue(s: OrchState, seenRunning: (runId: string) => boolean
       continue
     }
     // A failed Task and what waits on it do not hold the boundary: the Tasks that do not depend on them go on (waveOpen)
-    const open = ts.filter((t) => t.status !== 'completed' && !deadEnd(t, ts))
+    const held = heldBack(ts, s.gates)
+    const open = ts.filter((t) => t.status !== 'completed' && !deadEnd(t, ts, held))
     if (open.length === 0) continue
     const wave = Math.min(...open.map((t) => waveOf(t, s.tasks)))
     if (wave === 0 || (last?.mode === 'wave' && last.wave === wave)) continue

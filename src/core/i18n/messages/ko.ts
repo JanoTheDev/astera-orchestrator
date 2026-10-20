@@ -2210,6 +2210,24 @@ export const ko = {
   'jobs.gate.workerLostNoApp': '이 Task 의 워커가 복구해 줄 Astera 가 열려 있지 않은 동안 사라졌습니다(dispatch {dispatch}). 이 Gate 를 해결하면 다시 시작합니다.',
   'jobs.gate.assignedAccountUnusable':
     '이 Task 에 지정된 첫 계정을 쓸 수 없고, 그 뒤의 계정들은 나중에 갈아탈 순서일 뿐입니다 — 그 계정에 다시 로그인하거나 이 Task 의 계정 목록을 고치세요',
+  // exec/dispatchLoop.ts, exec/integrateGit.ts — 통합 병합의 Task 제목과 Gate 문장
+  'jobs.integration.title': "워크트리 병합: {title}",
+  'jobs.integration.runWorktreeNotRecorded': "Run 워크트리를 기록하지 못했습니다: {error}",
+  'jobs.integration.runWorktreeNotMade': "Run 워크트리를 만들지 못했습니다: {error}",
+  'jobs.integration.taskFailed': "통합 Task({task})가 실패해 워크트리를 합치지 못했습니다.",
+  'jobs.integration.stillCannotMerge': "통합 Task 가 끝났는데도 워크트리를 합칠 수 없습니다: {reason}",
+  'jobs.integration.taskNotMade': "워크트리를 합칠 통합 Task 를 만들지 못했습니다: {error}",
+  'jobs.integration.startFailed': "이 Task 를 시작하지 못했습니다: {error}",
+  'jobs.integration.mergeWorkerFailed': "{task} 의 브랜치를 계획 브랜치({root})에 합치지 못했고, 병합 워커도 실패했습니다: {reason}",
+  'jobs.integration.noGit': "합칠 폴더({folder})에서 git 을 돌릴 수 없어 워크트리를 합치지 못했습니다 — 그 폴더가 사라졌거나 git 저장소가 아닙니다.",
+  'jobs.integration.detachedHead': "합칠 폴더({folder})의 HEAD 가 브랜치를 가리키지 않아 워크트리를 합치지 않았습니다(분리된 HEAD — bisect 나 rebase 중일 수도 있습니다). 그 위에 병합하면 만든 커밋이 어느 브랜치에도 남지 않고, 진행 중인 작업이 있다면 그것이 깨집니다. 브랜치를 체크아웃한 뒤 이 Gate 를 해결해 주세요.",
+  'jobs.integration.gitDirUnreachable': "합칠 폴더의 git 디렉터리({dir})에서 진행 중인 작업이 있는지 확인하지 못해 워크트리를 합치지 않았습니다({marker} 에 닿지 못했습니다 — 네트워크 드라이브가 끊겼을 수 있습니다). 폴더에 닿는지 확인한 뒤 이 Gate 를 해결해 주세요.",
+  'jobs.integration.inProgress': "합칠 폴더에서 {op} 작업이 진행 중({marker})이어서 워크트리를 합치지 않았습니다. 그 중간에 병합하면 진행 중인 작업이 깨집니다 — 끝내거나 중단한 뒤 이 Gate 를 해결해 주세요.",
+  'jobs.integration.statusUnreadable': "합칠 폴더({folder})의 git 상태를 읽을 수 없어 워크트리를 합치지 못했습니다: {error}",
+  'jobs.integration.uncommitted': "합칠 폴더에 커밋되지 않은 변경이 {count}개 있어 워크트리를 합칠 수 없습니다. 커밋하거나 되돌린 뒤 이 Gate 를 해결해 주세요(추적되지 않는 새 파일은 여기에 세지 않습니다).",
+  'jobs.integration.worktreeListUnreadable': "워크트리 목록을 읽을 수 없습니다: {error}",
+  'jobs.integration.mergeFailedRestored': "{branch} 브랜치를 합칠 폴더에 합치지 못했습니다: {output}. 합칠 폴더는 병합 전 상태로 되돌렸습니다.",
+  'jobs.integration.mergeFailedLeft': "{branch} 브랜치를 합칠 폴더에 합치지 못했습니다: {output}. **합칠 폴더가 병합 중간 상태로 남아 있을 수 있습니다 — git status 로 직접 확인해 주세요.**",
   // NewTaskModal.tsx — Task 를 짜는 동안 상세 창의 아래 칸(.detail-events)이 바뀌는 폼. deps 는
   // 이 폼이 아니라 그래프가 쥐고 있다(고르는 자리가 그래프이므로) — 그래서 이 카탈로그에는 deps
   // 자체의 값이 아니라 그것을 고르라고 안내하는 문구(depsHint)만 있다.
@@ -2601,6 +2619,8 @@ export const ko = {
   'pages.plans.status.queued': '대기 중',
   'pages.plans.status.needsYou': '확인 필요',
   'pages.plans.status.working': '진행 중',
+  'pages.plans.status.checking': '최종 확인 중',
+  'pages.plans.status.blocked': '막힌 Task 를 남기고 끝남',
   'pages.plans.status.failed': '실패',
   'pages.plans.status.done': '완료',
   'pages.plans.wave': '웨이브 {at}/{of}',

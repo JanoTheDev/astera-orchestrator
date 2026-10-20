@@ -436,7 +436,7 @@ export function snapshotFor(
         ? { coordinatorMissing: true }
         : {}),
       concurrency: job.concurrency,
-      outcome: outcomeOfRun(ownedTasks, run),
+      outcome: outcomeOfRun(ownedTasks, run, state),
       // A Run whose delivery failed reads failed; the reason rides with it
       ...(deliveryErrorOf(run) !== undefined ? { deliveryError: deliveryErrorOf(run) } : {}),
       done,
@@ -533,8 +533,9 @@ export function snapshotFor(
   // 하고, 아래로 내려가면 회차가 쌓일수록 정의를 찾기 어려워진다.
   return {
     runs: top.sort((a, b) => {
-      const ar = a.outcome === 'running'
-      const br = b.outcome === 'running'
+      // A Run in its final check is still at work (item 8)
+      const ar = a.outcome === 'running' || a.outcome === 'checking'
+      const br = b.outcome === 'running' || b.outcome === 'checking'
       return ar === br ? 0 : ar ? -1 : 1
     }),
     projectFolderBusy: workingHere.size > 0

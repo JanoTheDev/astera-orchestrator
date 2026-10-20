@@ -24,7 +24,8 @@ export interface CoordCard {
 }
 
 /** Live: not archived, not finished, and not a schedule template (it never runs itself; its rounds are its children). */
-export const isLivePlan = (row: JobRow): boolean => row.archivedAt === undefined && row.outcome === 'running' && !row.schedule
+export const isLivePlan = (row: JobRow): boolean =>
+  row.archivedAt === undefined && (row.outcome === 'running' || row.outcome === 'checking') && !row.schedule
 
 export function coordinatorOf(rows: readonly JobRow[]): CoordCard[] {
   const nameOf = (id: string, fallback: string): string => {

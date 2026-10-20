@@ -1987,6 +1987,24 @@ export const en: Record<keyof typeof ko, string> = {
   // picked the account by — the sibling above names only the provider for the same reason.
   'jobs.gate.assignedAccountUnusable':
     "The first account assigned to this Task cannot be used, and the accounts after it are only there to move onto later — log that account back in, or change this Task's account list",
+  // exec/dispatchLoop.ts, exec/integrateGit.ts — the integration merge's Task titles and Gate reasons
+  'jobs.integration.title': "Merge worktrees: {title}",
+  'jobs.integration.runWorktreeNotRecorded': "Could not record the Run's worktree: {error}",
+  'jobs.integration.runWorktreeNotMade': "Could not make the Run's worktree: {error}",
+  'jobs.integration.taskFailed': "The integration Task ({task}) failed, so the worktrees were not merged.",
+  'jobs.integration.stillCannotMerge': "The integration Task finished, but the worktrees still cannot be merged: {reason}",
+  'jobs.integration.taskNotMade': "Could not make the integration Task that merges the worktrees: {error}",
+  'jobs.integration.startFailed': "Could not start this Task: {error}",
+  'jobs.integration.mergeWorkerFailed': "{task}'s branch could not be merged into the plan branch ({root}), and the merge worker failed too: {reason}",
+  'jobs.integration.noGit': "git cannot run in the folder to merge into ({folder}), so the worktrees were not merged — the folder is gone or is not a git repository.",
+  'jobs.integration.detachedHead': "The worktrees were not merged: HEAD in the folder to merge into ({folder}) does not point at a branch (a detached HEAD — a bisect or rebase may be in progress). A merge on top of it would leave its commit on no branch and break any work in progress. Check out a branch, then resolve this Gate.",
+  'jobs.integration.gitDirUnreachable': "The worktrees were not merged: could not check the git directory of the folder to merge into ({dir}) for work in progress ({marker} did not answer — a network drive may be disconnected). Check that the folder can be reached, then resolve this Gate.",
+  'jobs.integration.inProgress': "The worktrees were not merged: a {op} is in progress in the folder to merge into ({marker}). A merge in the middle of it would break that work — finish or abort it, then resolve this Gate.",
+  'jobs.integration.statusUnreadable': "Could not read the git status of the folder to merge into ({folder}), so the worktrees were not merged: {error}",
+  'jobs.integration.uncommitted': "The folder to merge into has {count} uncommitted change(s), so the worktrees cannot be merged. Commit or revert them, then resolve this Gate (new untracked files are not counted here).",
+  'jobs.integration.worktreeListUnreadable': "Could not read the worktree list: {error}",
+  'jobs.integration.mergeFailedRestored': "Could not merge the {branch} branch into the folder to merge into: {output}. The folder was put back as it was before the merge.",
+  'jobs.integration.mergeFailedLeft': "Could not merge the {branch} branch into the folder to merge into: {output}. **The folder may be left in the middle of a merge — check it yourself with git status.**",
   // NewTaskModal.tsx — the form RunDetail's bottom pane (.detail-events) turns into while a Task is
   // being authored. deps belongs to the graph, not this form (the graph is where dependencies get
   // picked) — that is why this catalog only has the hint text pointing at the graph, not the deps
@@ -2354,6 +2372,8 @@ export const en: Record<keyof typeof ko, string> = {
   'pages.plans.status.queued': 'Queued',
   'pages.plans.status.needsYou': 'Needs you',
   'pages.plans.status.working': 'Working',
+  'pages.plans.status.checking': 'Checking',
+  'pages.plans.status.blocked': 'Finished with blocked tasks',
   'pages.plans.status.failed': 'Failed',
   'pages.plans.status.done': 'Done',
   'pages.plans.wave': 'Wave {at} of {of}',
