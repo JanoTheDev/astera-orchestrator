@@ -6,7 +6,7 @@ import { recentConfigIds, configRowStatus, type RowStatus } from '../../../core/
 import { formatRunDuration } from '../../../core/run/duration'
 import { runTypeIcon } from '../../../core/run/typeIcon'
 import { isSeedId } from '../../../core/run/draft'
-import { exitText } from '../../../core/sessions/exitStatus'
+import { exitText, exitStatusOf } from '../../../core/sessions/exitStatus'
 import { useI18n } from '../i18n/I18nProvider'
 import { FileIcon } from './FileIcon'
 import { ChevronDown, Play } from 'lucide-react'
@@ -164,7 +164,7 @@ export function RunConfigMenu({
     // A live run reads with the same accent the pill's dot uses; a failed one reads with the same
     // colour the tab strip's own exit tag does (.run-tab-exit.fail) — the same fact must not read
     // differently in two places.
-    const statusClass = s?.kind === 'running' ? ' live' : s?.kind === 'exited' && s.run.exitCode !== 0 ? ' fail' : ''
+    const statusClass = s?.kind === 'running' ? ' live' : s?.kind === 'exited' && (s.run.exitCode == null || exitStatusOf(s.run.exitCode).tone === 'danger') ? ' fail' : ''
     const isCursor = index === cursor
     return (
       <div
