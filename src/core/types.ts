@@ -1733,6 +1733,8 @@ export interface CoreApi {
     status(root: string): Promise<Record<string, GitState> | null>
     watch(root: string): Promise<void> // start or replace watching the git dir's index and HEAD — emits 'git:changed'
     unwatch(): Promise<void>
+    /** One changed file's diff (against HEAD, or a plan worktree's fork point; uncommitted edits and deleted files included). null: no diff. */
+    fileDiff(root: string, file: string): Promise<{ diff: string; truncated: boolean } | null>
   }
   run: {
     // Running a project's configurations and stopping its runs. start and list go through assertAllowedPath, which permits only

@@ -306,7 +306,8 @@ const api = {
   git: {
     status: invoke('git.status'),
     watch: invoke('git.watch'),
-    unwatch: invoke('git.unwatch')
+    unwatch: invoke('git.unwatch'),
+    fileDiff: invoke('git.fileDiff')
   },
   run: {
     list: invoke('run.list'),
