@@ -32,6 +32,7 @@ import {
   buildIntegrationSpec,
   integrationTaskFor,
   isIntegrationTask,
+  pendingMergeHeads,
   pendingMerges,
   planMergedSubject,
   runRootOf,
@@ -155,7 +156,7 @@ export interface DispatchLoopContext {
   loginStatus(accountId: string): Promise<boolean>
   lang(): Lang
   forkRunWorktree(a: { repoPath: string; name: string }): Promise<string>
-  integrate(runRoot: string, merges: string[]): Promise<Integration>
+  integrate(runRoot: string, merges: string[], heads?: Record<string, string>): Promise<Integration>
   /** T11: merges another plan's delivered commit into a running plan's Run worktree (integrateGit.ts refreshOnto).
    *  Optional: defaults to that function over the real git. */
   refreshOnto?(worktree: string, base: string, message: string, fetchBranch?: string): Promise<Refresh>
@@ -283,6 +284,22 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     // Gate 와 별개로 로그를 남긴다 — Gate 는 사용자가 읽는 것이고, 이 줄은 왜 그 Gate 가 열렸는지
     // 나중에 되짚을 때 읽는 것이다.
     log(`scheduler: cannot start task=${taskId} — ${reason}`)
+    // A hands-off plan answers its Gates itself, and an answered Gate sends the Task back to ready. The same reason
+    // asked and answered twice will be answered the same a third time: block the Task once (activity.ts tells the
+    // owner) instead of opening that Gate again every pass.
+    const state = c.getState()
+    const task = state.tasks.find((t) => t.id === taskId)
+    const run = state.runs.find((r) => r.id === task?.runId)
+    const job = run && jobOf(state, run)
+    if (job && handsOffOf(state, job) && state.gates.filter((g) => g.taskId === taskId && g.status === 'resolved' && g.question === reason).length >= 2) {
+      try {
+        const blocked = await c.handle('task-update', { id: taskId, status: 'blocked', result: reason })
+        if (blocked.status >= 400) log(`scheduler: blocking task=${taskId} was rejected — ${JSON.stringify(blocked.body)}`)
+      } catch (e) {
+        log(`scheduler: blocking task=${taskId} failed — ${String(e)}`)
+      }
+      return
+    }
     try {
       const gated = await c.handle('gate-create', {
         task: taskId,
@@ -1167,7 +1184,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       // **여기서부터 git 이 돈다.** 위까지는 상태만 본다 — runScheduler 는 모든 저장마다
       // 불리고 그 대부분은 합칠 것이 없는 저장이므로, 그 바퀴에 git 프로세스를 띄우지 않는다
       // (슬롯이 없을 때 계정 조회 앞에서 빠지는 것과 같은 성격이다).
-      const integration = await c.integrate(runRoot, merges)
+      const integration = await c.integrate(runRoot, merges, pendingMergeHeads(state, slot.taskId))
       if (integration.kind === 'human') {
         return { kind: 'gate', reason: integration.reason, why: integration.reason }
       }

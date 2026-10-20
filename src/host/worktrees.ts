@@ -78,7 +78,7 @@ export interface HostWorktrees {
   removeWorktrees: NonNullable<OrchServerDeps['removeWorktrees']>
   /** The dispatch loop's integration merge (Task 12): integrateWorktrees over this Host's git-op and
    *  reap, the same pair `mergeWorktrees` sends. */
-  integrate(runRoot: string, merges: string[]): Promise<Integration>
+  integrate(runRoot: string, merges: string[], heads?: Record<string, string>): Promise<Integration>
   /** The dispatch loop's child-run reap (Task 12): rule 11 over this Host's sessions. Never throws. */
   reap(worktreePath: string): Promise<boolean>
   /** Whether the registry lists this folder, by `isSamePath` — from memory, as the app's loop asks
@@ -394,9 +394,9 @@ export function createHostWorktrees(d: HostWorktreesDeps): HostWorktrees {
     },
     // No re-read, as `mergeWorktrees`: a merge never reads the registry. The loop's options are the
     // app's own (`integrateWorktrees(runRoot, merges, {}, gitCtx)` in ipc.ts).
-    integrate: async (runRoot, merges) => {
+    integrate: async (runRoot, merges, heads) => {
       await checkGit()
-      return integrateInto(runRoot, merges, {})
+      return integrateInto(runRoot, merges, { heads })
     },
     reap,
     isRegistered: (p) => registry.list().some((w) => isSamePath(w.path, p)),
