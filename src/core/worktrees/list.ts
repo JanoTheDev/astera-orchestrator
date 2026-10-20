@@ -50,7 +50,9 @@ export async function listWithStatus(
   // 않는다(한 번이 그 저장소의 잔해를 모두 걷는다).
   for (const repo of new Set(dead.filter((w) => rowsByRepo.get(w.repoPath) !== null).map((w) => w.repoPath)))
     await git(['worktree', 'prune'], { cwd: repo })
-  for (const w of dead) await registry.removeEntry(w.id)
+  // Forgetting is housekeeping on the way to the list: a refused write (in Host mode the Host owns the file and can be
+  // busy or gone) must not cost the page its whole list. The folder is gone either way; the next listing tries again.
+  for (const w of dead) await registry.removeEntry(w.id).catch(() => {})
   const deadIds = new Set(dead.map((w) => w.id))
   return items
     .filter((w) => !deadIds.has(w.id))

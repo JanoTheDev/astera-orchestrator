@@ -12,7 +12,7 @@
 // W8-D several plans in one repo
 import { overlapLines } from './overlap'
 import { isSamePath } from '../files/tree'
-import { findProjectByPath } from './projects'
+import { findProjectByPath, jobInProject } from './projects'
 import { runsWorkingIn, runWorktreesFrom } from './integrate'
 import type { JobRow, JobTask, OrchSnapshot, TaskBoard, WorktreeInfo, UsagePause } from '../types'
 import { repoPathOf } from '../worktrees/repo'
@@ -62,13 +62,14 @@ export function jobsForProject(
   return state.jobs
     .filter((r) => {
       // **`projectId` wins, but only when it resolves.** A Run made since projects were registered
-      // names one, and an id compare is exactly right for it — no path shape can change the answer.
+      // names one, and an id compare (jobInProject: its own project or that one's workspace root) is exactly right
+      // for it — no path shape can change the answer.
       // A dangling id (the project record is gone) falls through to the path instead of hiding the
       // Run: the derivation below is what every Run made before this field used, so it is the answer
       // that was already correct rather than a guess, and a Job that vanishes from the list is worse
       // than one listed by its folder.
       if (r.projectId !== undefined && projectIds.has(r.projectId))
-        return r.projectId === project?.id
+        return project !== undefined && jobInProject(state, r, project)
       return isSamePath(projectPath, repoPathOf(worktrees, r.cwd))
     })
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
