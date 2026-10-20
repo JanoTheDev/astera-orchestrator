@@ -212,15 +212,18 @@ export async function startWorkerWithChain(
   return { ...started, ...(chosen.model ? { model: chosen.model } : {}), ...(chosen.note ? { modelNote: chosen.note } : {}) }
 }
 
-/** W5-A (#50): a `--worktree new` worker for a Task with deps forks from its Run's worktree, not the
- *  project's checkout, and gets its finished deps' worktrees merged in. The scheduler has merged those deps
- *  into the Run's worktree already (and may have reaped them); a coordinator places Tasks itself and nothing
- *  has, so the merge is what brings their commits. Undefined: fork as before. */
+/** W5-A (#50): a `--worktree new` worker forks from its Run's worktree (the plan branch), never from the
+ *  project's checkout or a dependency's own branch, and gets its finished deps' worktrees merged in. A branch
+ *  from anywhere else carries rebased duplicates of commits already on the plan branch, and conflicts when
+ *  delivered. That holds for a Task without deps too (wave 1, a replan follow-up). The scheduler has merged the
+ *  deps into the Run's worktree already (and may have reaped them); a coordinator places Tasks itself and
+ *  nothing has, so the merge is what brings their commits. A Run without its own worktree, a reuse and a
+ *  non-new placement: undefined, fork as before. */
 export function forkForDeps(s: OrchState, a: StartWorkerArgs): { base: string; merge: string[] } | undefined {
   if (a.terminal || a.worktree !== 'new') return undefined
   const task = s.tasks.find((t) => t.id === a.taskId)
   const run = task ? s.runs.find((r) => r.id === task.runId) : undefined
-  if (!task || !run || task.deps.length === 0) return undefined
+  if (!task || !run || (task.deps.length === 0 && run.worktree === undefined)) return undefined
   return { base: runRootOf(run, jobOf(s, run)), merge: pendingMerges(s, task.id) }
 }
 
