@@ -2173,7 +2173,10 @@ describe('wave replanning (W6-D)', () => {
     expect(h.stopCoordinator).toHaveBeenCalledWith(session, expect.any(String))
   })
 
-  it("lifts an escalated replan's hold once the owner answers its Inbox item with the lift", async () => {
+  it.each([
+    ['the owner', 'Lift the hold'],
+    ['a hands-off coordinator', 'lift the hold. Why: tsk_2 was planned without a prompt; the item is missing']
+  ])("lifts an escalated replan's hold once %s answers its Inbox item with the lift", async (_who, answer) => {
     const h = rig()
     planned(h, (t) => (t.id === 'tsk_1' ? { ...t, status: 'completed' } : t))
     const at = new Date(h.clock).toISOString()
@@ -2197,7 +2200,7 @@ describe('wave replanning (W6-D)', () => {
     await h.loop.nudge()
     await h.settle()
     expect(h.state().jobs[0].dispatchHold).toBe(true)
-    expect((await h.real('questions-answer', { id: 'msg_esc', answer: 'Lift the hold' })).status).toBe(200)
+    expect((await h.real('questions-answer', { id: 'msg_esc', answer })).status).toBe(200)
     await h.loop.nudge()
     await h.settle()
     expect(h.handled()).toContain('jobs-unhold')
