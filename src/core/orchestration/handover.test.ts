@@ -184,6 +184,25 @@ describe('coordinatorLaunchPrompt', () => {
   })
 })
 
+describe('buildPlannerBrief planning mode (T1)', () => {
+  const base = { jobId: 'job_x', objective: 'o', repoRoot: '/repo', accountId: 'acc1', concurrency: 2 }
+  it('chat (the default) names the brainstorming skill and the one-question method', () => {
+    for (const b of [buildPlannerBrief(base), buildPlannerBrief({ ...base, planning: 'chat' })]) {
+      expect(b).toContain('superpowers:brainstorming')
+      expect(b).toContain('one question at a time')
+      expect(b).toContain('never ask them to attach files')
+      expect(b).not.toContain('do not wait for the person')
+    }
+  })
+  it('auto decides alone and records decisions', () => {
+    const b = buildPlannerBrief({ ...base, planning: 'auto' })
+    expect(b).toContain("under 'Decisions'")
+    expect(b).toContain('do not wait for the person')
+    expect(b).toContain('gh issue list --state open')
+    expect(b).not.toContain('superpowers:brainstorming')
+  })
+})
+
 describe('buildPlannerBrief (W7-E #69)', () => {
   it('lets the planner write its inputs folder, and nothing else', () => {
     const b = buildPlannerBrief({ jobId: 'job_x', objective: 'o', repoRoot: '/repo', accountId: 'acc1', concurrency: 2 })

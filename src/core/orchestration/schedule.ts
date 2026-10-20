@@ -178,7 +178,12 @@ const EDITING: ReadonlySet<TaskStatus> = new Set<TaskStatus>(['dispatched', 'val
 /** W8-D: the repository a Job works in, as the file guard keys it: its project, else (a Job made before projects) its
  *  folder. Two plans with the same key edit the same files; two with different keys never block each other.
  *  shortcut: an old Job without `projectId` matches by its exact `cwd` string only; such Jobs are no longer made. */
-export const projectKeyOf = (job: Pick<Job, 'projectId' | 'cwd'>): string => job.projectId ?? `cwd:${job.cwd}`
+/** T3 workspaces: a plan of a sub-project takes its workspace's (root project's) key, so every plan of one repository
+ *  shares one guard, lease and overlap scope however it is filed. */
+export function projectKeyOf(s: Pick<OrchState, 'projects'>, job: Pick<Job, 'projectId' | 'cwd'>): string {
+  if (job.projectId === undefined) return `cwd:${job.cwd}`
+  return s.projects.find((p) => p.id === job.projectId)?.parentId ?? job.projectId
+}
 
 /** T9: whether plan `a` goes before plan `b` when both want the same files: the higher `priority`, then the one created
  *  first, then the smaller id (so the order is total and every pass agrees). */
@@ -228,7 +233,7 @@ export function leasesByProject(s: OrchState): Map<string, FileHolder[]> {
     if (!jx) continue
     for (const [y, leases] of held) {
       const jy = jobById.get(y)
-      if (y === x || !jy || projectKeyOf(jx) !== projectKeyOf(jy)) continue
+      if (y === x || !jy || projectKeyOf(s, jx) !== projectKeyOf(s, jy)) continue
       if (tasks.some((t) => sameFilesAs(t, leases.map((l) => ({ ...l, root: jy.cwd }))))) edges.set(x, new Set([...(edges.get(x) ?? []), y]))
     }
   }
@@ -253,7 +258,7 @@ export function leasesByProject(s: OrchState): Map<string, FileHolder[]> {
       const jx = jobById.get(x)
       if (jx && to.has(y) && planOutranks(jx, jy) && reaches(y, x)) for (const id of runsOf.get(x) ?? []) exempt.add(id)
     }
-    const key = projectKeyOf(jy)
+    const key = projectKeyOf(s, jy)
     const lease: Lease = { jobId: y, exemptRuns: exempt }
     out.set(key, [...(out.get(key) ?? []), ...leases.map((t) => ({ ...t, lease, root: jy.cwd }))])
   }
@@ -276,7 +281,7 @@ export function editingByProject(s: OrchState): Map<string, FileHolder[]> {
     if (!EDITING.has(t.status) && !open.has(t.id)) continue
     const job = t.runId === undefined ? undefined : jobOfRun.get(t.runId)
     if (job === undefined) continue
-    const key = projectKeyOf(job)
+    const key = projectKeyOf(s, job)
     out.set(key, [...(out.get(key) ?? []), { ...t, root: job.cwd }])
   }
   for (const [key, leases] of leasesByProject(s)) out.set(key, [...(out.get(key) ?? []), ...leases])
@@ -314,7 +319,7 @@ export function slotsToFill(s: OrchState, limits: ScheduleLimits = {}): Slot[] {
   const queues = s.runs.flatMap((run, order) => {
     if (!appDriven(s, run)) return []
     const job = jobOf(s, run)
-    const key = job ? projectKeyOf(job) : undefined
+    const key = job ? projectKeyOf(s, job) : undefined
     const mine = s.dispatches.filter((d) => runOf.get(d.taskId) === run.id)
     const openHere = mine.filter(isOpen).length
     const room = (job?.concurrency ?? DEFAULT_CONCURRENCY) - openHere

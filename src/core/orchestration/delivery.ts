@@ -8,7 +8,7 @@ import { GITHUB_SOURCE_ID } from '../github/issueSource'
 import { checkConfigIdsOf } from './convergence'
 import { addDecision, jobOf, type OrchState, type Res } from './state'
 import { newId, type DeliveryMode, type Job, type JobRun, type Project, type RunDelivery } from './types'
-import { findProject, findProjectContaining } from './projects'
+import { findProject, projectOfJob } from './projects'
 
 export const DELIVERIES = ['pr', 'push'] as const satisfies readonly DeliveryMode[]
 
@@ -18,9 +18,8 @@ export function parseDelivery(v: unknown): DeliveryMode | null | undefined {
   return (DELIVERIES as readonly unknown[]).includes(v) ? (v as DeliveryMode) : null
 }
 
-/** The Job's project: its `projectId`, else the registered project holding its folder (the read path for old rows). */
-export const projectOfJob = (s: OrchState, job: Job): Project | undefined =>
-  (job.projectId !== undefined ? findProject(s, job.projectId) : undefined) ?? findProjectContaining(s, job.cwd)
+// T3: moved to projects.ts, where a sub-project's unset settings fall back to its workspace's
+export { projectOfJob }
 
 /** #117: whether a plan runs hands-off: the Job's own setting, else its project's, else no. */
 export const handsOffOf = (s: OrchState, job: Job): boolean => job.handsOff ?? projectOfJob(s, job)?.handsOff ?? false

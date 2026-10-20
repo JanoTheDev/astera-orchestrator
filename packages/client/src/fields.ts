@@ -9,7 +9,7 @@
 // fields it deliberately keeps back (src/core/orchestration/cliPublic.ts), so a list cannot fall behind unnoticed.
 import type { EventType } from './types.js'
 
-export const PROJECT_FIELDS = Object.freeze(['id', 'path', 'name', 'addedAt'] as const)
+export const PROJECT_FIELDS = Object.freeze(['id', 'path', 'name', 'addedAt', /* T3 workspaces */ 'parentId'] as const)
 
 /**
  * The three fields that say how a Job or a Run stands. They are not stored: the Host derives them on every read

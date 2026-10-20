@@ -246,7 +246,7 @@ export interface CoordinatorStartContext {
     rollAccountIds: string[]
     /** The coordinator role's model (W1-A). Absent: the CLI's default. */
     model?: string
-    /** W7-A: a planner resumed in its own conversation (`StartCoordinatorArgs.resume`). */
+    /** W7-A: a planner resumed in its own conversation (`StartCoordinatorArgs.resume`); T5: a coordinator too. */
     resumeSessionId?: string
   }): Promise<{ id: string }>
   log(m: string): void
@@ -364,7 +364,9 @@ export async function startCoordinatorSession(
     // T2: unless "Pick accounts automatically" is on (the owner's choice): then the whole order, so a limit rolls the
     // same session on to another account (rolling carries the conversation over) instead of waiting.
     rollAccountIds: chain,
-    ...(model ? { model } : {})
+    ...(model ? { model } : {}),
+    // T5: a coordinator resumed in its own conversation after a crash (crashResume.ts)
+    ...(a.resume ? { resumeSessionId: a.resume } : {})
   })
   ctx.log(`coordinator started run=${a.runId} session=${info.id} account=${accountId} model=${model ?? 'CLI default'}`)
   return { sessionId: info.id }
