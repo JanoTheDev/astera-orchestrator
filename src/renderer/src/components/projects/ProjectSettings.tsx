@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Account } from '../../../../core/types'
 import { MAX_CONCURRENT_WORKERS, PROJECT_DEFAULTS, type Project } from '../../../../core/orchestration/types'
 import { useI18n } from '../../i18n/I18nProvider'
-import { Button, Modal } from '../ui'
+import { Button, Input, Modal } from '../ui'
 import { ProjectDelivery } from '../delivery/ProjectDelivery'
 import { ProjectAttribution } from '../attribution/ProjectAttribution' // W8-B
 import './projects.css'
@@ -23,7 +23,7 @@ export function ProjectSettings({
   const [name, setName] = useState<string | null>(null)
   return (
     <Modal title={`${name ?? 'Project'} settings`} onClose={onClose} footer={<Button onClick={onClose}>Close</Button>}>
-      <ProjectSettingsBody anchor={anchor} projectId={projectId} accounts={accounts} onLoaded={(p) => setName(p.name)} />
+      <ProjectSettingsBody anchor={anchor} projectId={projectId} accounts={accounts} onLoaded={(p) => setName(p.name)} onRemoved={onClose} />
     </Modal>
   )
 }
@@ -34,12 +34,15 @@ export function ProjectSettingsBody({
   anchor,
   projectId,
   accounts,
-  onLoaded
+  onLoaded,
+  onRemoved
 }: {
   anchor: string
   projectId: string
   accounts: Account[]
   onLoaded?: (project: Project) => void
+  /** T6: the project was unregistered. */
+  onRemoved?: () => void
 }): React.JSX.Element {
   const { t } = useI18n()
   const loaded = useRef(onLoaded)
@@ -50,6 +53,10 @@ export function ProjectSettingsBody({
   const [rounds, setRounds] = useState('')
   const [account, setAccount] = useState('')
   const [error, setError] = useState<string | null>(null)
+  // T6: sub-project name being typed, the remove confirm, and the core's refusal shown inside that confirm
+  const [subName, setSubName] = useState('')
+  const [confirmRemove, setConfirmRemove] = useState(false)
+  const [removeError, setRemoveError] = useState<string | null>(null)
   // W10-A: the prompts folder Run as written finds typed prompt names in
   const [prompts, setPrompts] = useState('')
   const [initial, setInitial] = useState({ test: '', concurrency: '', rounds: '', prompts: '' })
@@ -101,6 +108,24 @@ export function ProjectSettingsBody({
     }
     await load(false)
   }
+  // T6: a sub-project of this workspace (the same repository under its own name)
+  const addSub = async (): Promise<void> => {
+    const name = subName.trim()
+    if (!name) return
+    setError(null)
+    const r = await window.api.orch.command(anchor, 'projects-add', { parent: projectId, name }).catch(() => null)
+    if (r?.status === 200) setSubName('')
+    else setError((r?.body as { error?: string } | null)?.error ?? 'Could not add the sub-project.')
+  }
+  const remove = async (): Promise<void> => {
+    setRemoveError(null)
+    const r = await window.api.orch.command(anchor, 'projects-remove', { id: projectId }).catch(() => null)
+    if (r?.status === 200) {
+      setConfirmRemove(false)
+      setProject(null)
+      onRemoved?.()
+    } else setRemoveError((r?.body as { error?: string } | null)?.error ?? 'Could not remove the project.')
+  }
   // '' clears; a number outside the range is the backend's 400, shown as the error
   const num = (s: string): number | '' => (s.trim() === '' ? '' : Number(s))
 
@@ -123,6 +148,30 @@ export function ProjectSettingsBody({
             <input type="checkbox" checked={project.handsOff ?? PROJECT_DEFAULTS.handsOff} onChange={(e) => void save({ handsOff: e.target.checked })} />
             {t('project.handsOff')}
           </label>
+          {/* T6: only a workspace's root files plans under sub-projects, and a sub-project has no sub-projects (one level) */}
+          {!project.parentId && (
+            <>
+              <label className="check-small" title={t('project.autoProjects.hint')}>
+                <input type="checkbox" checked={project.autoProjects ?? true} onChange={(e) => void save({ autoProjects: e.target.checked })} />
+                {t('project.autoProjects')}
+              </label>
+              <div className="field">
+                <label>{t('project.sub.add')}</label>
+                <div className="proj-sub-add">
+                  <Input
+                    value={subName}
+                    placeholder={t('project.sub.name')}
+                    aria-label={t('project.sub.name')}
+                    onChange={(e) => setSubName(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && void addSub()}
+                  />
+                  <Button disabled={subName.trim() === ''} onClick={() => void addSub()}>
+                    {t('project.sub.submit')}
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
           <div className="field">
             <label>Test command</label>
             <input
@@ -185,7 +234,30 @@ export function ProjectSettingsBody({
               ))}
             </select>
           </div>
+          <div className="field">
+            <Button variant="danger" onClick={() => { setRemoveError(null); setConfirmRemove(true) }}>
+              {t('project.remove')}
+            </Button>
+          </div>
         </>
+      )}
+      {confirmRemove && project && (
+        <Modal
+          title={t('project.remove.title', { name: project.name })}
+          size="sm"
+          onClose={() => setConfirmRemove(false)}
+          footer={
+            <>
+              <Button onClick={() => setConfirmRemove(false)}>{t('project.remove.cancel')}</Button>
+              <Button variant="danger" onClick={() => void remove()}>
+                {t('project.remove.confirm')}
+              </Button>
+            </>
+          }
+        >
+          <p>{t('project.remove.body')}</p>
+          {removeError && <p className="warn">{removeError}</p>}
+        </Modal>
       )}
       {error && <p className="warn">{error}</p>}
     </div>

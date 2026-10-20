@@ -114,6 +114,7 @@ body.resizing-row { cursor: row-resize; user-select: none; }
 .tb-sw-row { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
 .tb-sw-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tb-sw-selected .tb-sw-name { font-weight: var(--fw-semi); }
+.tb-sw-child { padding-left: 16px; } /* T6: a sub-project sits under its workspace */
 .tb-sw-count { color: var(--text-dim); font-size: var(--fs-11); font-variant-numeric: tabular-nums; }
 .tb-sw-count[data-zero] { visibility: hidden; }
 .tb-sw-key { font: var(--fw-medium) var(--fs-11) / 1 var(--sans); color: var(--text-faint); }

@@ -115,3 +115,39 @@ describe('stickyProject names', () => {
     expect(m.read()).toBeNull()
   })
 })
+
+describe('window scope (T6)', () => {
+  const installSession = (initial: Record<string, string> = {}, fail = false): void => {
+    const m = { ...initial }
+    ;(globalThis as { sessionStorage?: unknown }).sessionStorage = {
+      getItem: (k: string): string | null => {
+        if (fail) throw new Error('disabled')
+        return k in m ? m[k] : null
+      },
+      setItem: (k: string, v: string): void => {
+        if (fail) throw new Error('disabled')
+        m[k] = v
+      }
+    }
+  }
+
+  it('is undefined for a window that has none, and the project it wrote after', () => {
+    installSession()
+    expect(mod.readScope()).toBeUndefined()
+    mod.writeScope('p1')
+    expect(mod.readScope()).toBe('p1')
+  })
+
+  it('keeps All projects as null, not as unknown', () => {
+    installSession()
+    mod.writeScope(null)
+    expect(mod.readScope()).toBeNull()
+  })
+
+  it('a disabled store reads as unknown and writes without throwing', () => {
+    installSession({}, true)
+    expect(mod.readScope()).toBeUndefined()
+    expect(() => mod.writeScope('p1')).not.toThrow()
+  })
+})
+

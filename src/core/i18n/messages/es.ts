@@ -1964,4 +1964,15 @@ export const es: Catalog = {
   'inbox.age.d': '{n} d',
   'inbox.overlap.issue': '{mine} y {theirs} de {plan} enlazan ambas la issue #{issue}',
   'inbox.overlap.edit': '{mine} y {theirs} de {plan} editan ambas {path}',
+  // T6 switcher workspaces: project settings (auto-created projects, sub-projects, removal)
+  'project.autoProjects': 'Crear proyectos automáticamente según el trabajo',
+  'project.autoProjects.hint': 'Astera archiva cada plan en un subproyecto con el nombre de su primera área y lo crea si el espacio no lo tiene.',
+  'project.sub.add': 'Añadir subproyecto',
+  'project.sub.name': 'Nombre del subproyecto',
+  'project.sub.submit': 'Añadir',
+  'project.remove': 'Quitar proyecto',
+  'project.remove.title': '¿Quitar {name}?',
+  'project.remove.body': 'Solo se anula el registro del proyecto. No se toca ninguna carpeta ni plan.',
+  'project.remove.confirm': 'Quitar',
+  'project.remove.cancel': 'Cancelar',
 }
