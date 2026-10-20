@@ -24,7 +24,7 @@ import type { Dispatch, Gate, Job, JobRun, Task } from './types'
 import { taskBoardsOf } from './blocked'
 import { validatePlan } from './planner'
 import { waveOf } from './replan'
-import { autoApproveOf, handsOffOf, planApprovable } from './exec/plannerFeedback'
+import { autoApproveOf, awaitsGo, handsOffOf, planApprovable } from './exec/plannerFeedback'
 import type { ScheduleLimits } from './schedule'
 
 /** 한 프로젝트에 속한 Run 들, 최신순.
@@ -473,6 +473,8 @@ export function snapshotFor(
       // #116: Approve only once the planner is done; an auto-approve plan says it starts by itself instead
       ...(planApprovable(state, job) ? { planReady: true as const } : {}),
       ...(job.pendingStart && autoApproveOf(projectsOnce, job) ? { autoApprove: true as const } : {}),
+      // T10: planned together with the owner, so it starts on their go
+      ...(awaitsGo(projectsOnce, job) ? { awaitsGo: true as const } : {}),
       // #117: hands-off, what it decided for the owner, and #119's picks
       ...(handsOffOf(projectsOnce, job) ? { handsOff: true as const } : {}),
       ...(job.decisions?.length ? { decisions: job.decisions } : {}),

@@ -2681,6 +2681,10 @@ export const en: Record<keyof typeof ko, string> = {
   'start.planning.auto': 'Plan on your own',
   'start.planning.chatHint': 'The planner’s terminal opens and it asks you one question at a time',
   'start.planning.autoHint': 'The planner decides every open choice itself and records what it decided',
+  // T10 plan together
+  'pages.plan.together': 'Planning with you: say “go” in the planner’s terminal, or press Start, and the plan starts. What you tell it changes only what you name.',
+  'pages.plan.togetherRunning': 'The planner stays open while this runs: tell it what to add, and after each wave it adjusts the next one before it starts.',
+  'pages.plan.openPlanner': 'Open the planner',
   'start.t4.runAsWritten': 'Run as written instead',
   'start.t4.planInstead': 'Plan it instead',
   'start.priority.low': 'Low',

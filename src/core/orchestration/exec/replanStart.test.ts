@@ -5,6 +5,7 @@ import { handleCommand, type OrchServerDeps } from '../command'
 import { emptyState, type OrchState } from '../state'
 import { deriveActivity, noticeOf, type ActivityEvent } from '../activity'
 import type { Dispatch, Task } from '../types'
+import type { HostSession } from '../command'
 import { replanOn, replansDue } from '../replan'
 import { REPLAN_LIFT_HOLD } from './replanStart'
 
@@ -63,10 +64,10 @@ const plan = (title: string, extra: Record<string, unknown> = {}) => ({
 })
 
 /** A planned Job with A ← B ← C, approved, its Run running; A has completed with a report and a passed review. */
-const approved = async (r: Rig, job: Record<string, unknown> = {}, asPlanned = false) => {
+const approved = async (r: Rig, job: Record<string, unknown> = {}, asPlanned = false, planArgs: Record<string, unknown> = {}) => {
   const made = await r.person('run-create', { objective: 'ship the feature', cwd: '/repo', coordinatorAccount: 'acc1', auto: true, ...job })
   const jobId = (made.body as { id: string }).id
-  expect((await r.person('jobs-plan', { id: jobId })).status).toBe(200)
+  expect((await r.person('jobs-plan', { id: jobId, ...planArgs })).status).toBe(200)
   const planner = r.as('ses-planner-1')
   const a = (await planner('task-create', { run: jobId, ...plan('A') })).body as Task
   const b = (await planner('task-create', { run: jobId, ...plan('B', { deps: [a.id] }) })).body as Task
@@ -465,5 +466,67 @@ describe('the wave boundary moves on', () => {
     }
     await r.person('jobs-replan', { id: jobId })
     expect(r.state().messages.find((m) => m.type === 'escalation')?.options).toEqual([REPLAN_LIFT_HOLD])
+  })
+})
+
+describe('T10: a plan planned with the owner hands each wave to its own planner', () => {
+  /** The planner the owner chats with, alive in its terminal: what is typed into it is recorded. */
+  const chatting = (r: Rig) => {
+    const typed: Array<{ id: string; text: string }> = []
+    Object.assign(r.deps, {
+      listSessions: async (): Promise<HostSession[]> =>
+        [{ id: 'ses-planner-1', kind: 'terminal', title: null, accountId: 'acc1', cwd: '/repo', alive: !r.stopped.includes('ses-planner-1'), state: 'unknown' }] as HostSession[],
+      sendSession: async (id: string, text: string) => void typed.push({ id, text }),
+      sessionTurn: async () => ({ alive: true, state: 'unknown', prompt: null })
+    })
+    return typed
+  }
+
+  it('types the wave results into the same planner, which edits only what has not started, one feed line per change', async () => {
+    const r = rig()
+    const typed = chatting(r)
+    const { jobId, runId, id } = await approved(r, {}, true, { planning: 'chat' })
+    // the go kept the planner: it is the owner's chat
+    expect(r.stopped).not.toContain('ses-planner-1')
+    const s = r.state()
+    r.set({ ...s, tasks: s.tasks.map((t) => (t.id === id('B') ? { ...t, status: 'failed' as const, result: 'tests broke in src/B.ts' } : t)) })
+    // a wave that went as planned for its other Tasks still reaches the planner of a chat plan
+    const res = await r.person('jobs-replan', { id: jobId, run: runId, mode: 'wave', wave: 1 })
+    expect(res.status).toBe(200)
+    expect(res.body).toMatchObject({ sessionId: 'ses-planner-1', via: 'typed' })
+    expect(r.starts.filter((x) => x.role === 'planner')).toHaveLength(1)
+    expect(job(r).replanning).toMatchObject({ sessionId: 'ses-planner-1' })
+    expect(typed).toHaveLength(1)
+    const line = typed[0].text
+    expect(line).not.toContain('\n')
+    for (const part of ['built A in src/A.ts', 'review: passed, no issues', 'changed files: src/A.ts', 'FAILED', 'tests broke in src/B.ts', `${id('C')} (C)`])
+      expect(line).toContain(part)
+    const planner = r.as('ses-planner-1')
+    // running and finished Tasks are never rewritten
+    expect((await planner('task-update', { id: id('A'), title: 'A again' })).status).toBe(403)
+    expect((await planner('task-update', { id: id('B'), title: 'B again' })).status).toBe(403)
+    expect((await planner('task-update', { id: id('C'), criteria: ['C works without B'] })).status).toBe(200)
+    const before = r.state()
+    const done = await planner('jobs-replan-done', { id: jobId, summary: 'C no longer needs B', changes: ['changed C criteria because B failed'] })
+    expect(done.status).toBe(200)
+    expect(job(r).lastReplan).toMatchObject({ changes: ['changed C criteria because B failed'] })
+    expect(job(r).dispatchHold).toBeUndefined()
+    const feed = deriveActivity(before, r.state()).filter((e) => e.type === 'plan.changed')
+    expect(feed.map((e) => e.payload.summary)).toEqual(['changed C criteria because B failed'])
+    // the owner's chat goes on
+    expect(r.stopped).not.toContain('ses-planner-1')
+  })
+
+  it("names each change itself when the planner names none: one line per Task added, changed or cancelled", async () => {
+    const r = rig()
+    chatting(r)
+    const { jobId, runId, id } = await approved(r, {}, true, { planning: 'chat' })
+    await r.person('jobs-replan', { id: jobId, run: runId, mode: 'wave', wave: 1 })
+    const planner = r.as('ses-planner-1')
+    const c = id('C')
+    r.tick()
+    expect((await planner('task-update', { id: c, title: 'C, smaller' })).status).toBe(200)
+    expect((await planner('jobs-replan-done', { id: jobId, summary: 'shrank C' })).status).toBe(200)
+    expect(job(r).lastReplan!.changes).toEqual([`changed ${c} C, smaller`])
   })
 })

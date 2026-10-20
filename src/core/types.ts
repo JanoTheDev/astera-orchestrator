@@ -752,6 +752,9 @@ export interface JobRow {
   planProblems?: string[]
   /** #116: the plan can be approved now (`planApprovable`): the only time an Approve is shown. Absent while planning. */
   planReady?: true
+  /** T10: a plan planned together with the owner (`planning: chat`) that waits for their go (`awaitsGo`): its Start is
+   *  shown as soon as the plan holds, and saying "go" in the planner's terminal does the same. */
+  awaitsGo?: true
   /** #116: the plan starts by itself once it holds (`autoApproveOf`: its own setting, else its project's). */
   autoApprove?: true
   /** #117: the plan runs hands-off (`handsOffOf`: its own setting, else its project's). Absent: it does not. */

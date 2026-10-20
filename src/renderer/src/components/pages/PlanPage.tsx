@@ -11,6 +11,7 @@ import { PlanJournal } from '../plan/PlanJournal'
 import { PlanOverviewSection } from '../plan/PlanOverviewSection'
 import { PlanWaves } from '../plan/PlanWaves'
 import { usePlanPage } from '../plan/usePlanPage'
+import { Button } from '../ui'
 
 export function PlanPage({
   run,
@@ -82,6 +83,17 @@ export function PlanPage({
       />
       {run === undefined && <p className="jobs-disabled-reason">{t('pages.plan.gone')}</p>}
       {p.lockedReason !== undefined && <p className="jobs-disabled-reason">{p.lockedReason}</p>}
+      {/* T10 plan together: the plan starts on the owner's go, and its planner stays their chat while it runs */}
+      {run?.planned === true && run.plannerSessionId !== undefined && (run.awaitsGo === true || run.pendingStart !== true) && (
+        <p className="modal-hint plan-together">
+          {run.awaitsGo === true ? t('pages.plan.together') : t('pages.plan.togetherRunning')}{' '}
+          {canOpenSession(run.plannerSessionId) && (
+            <Button size="sm" variant="ghost" onClick={() => onOpenSession(run.plannerSessionId!)}>
+              {t('pages.plan.openPlanner')}
+            </Button>
+          )}
+        </p>
+      )}
       {/* flex: 1; min-height: 0 이 styles.css 에 있다 — 없으면 아래의 두 칸이 줄지 않아 모달 밖으로
           넘치고 닫기 버튼이 밀려난다. 이 저장소가 실제로 그 결함을 냈던 자리다 */}
       <div className="detail-body" data-section={section}>

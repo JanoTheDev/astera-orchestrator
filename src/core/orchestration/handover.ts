@@ -255,6 +255,8 @@ export function buildPlannerBrief(a: {
   promptsMode?: boolean
   /** T1: how the planner works with the person. Absent: `chat`. */
   planning?: 'chat' | 'auto'
+  /** T10: the plan starts on the person's go, which this planner hands on (`jobs-plan-ready`), not on Approve. */
+  waitForGo?: boolean
 }): string {
   return [
     'You are the PLANNER for one Job in Astera. You analyse and plan. You do not implement anything.',
@@ -318,7 +320,27 @@ export function buildPlannerBrief(a: {
     '',
     'WHEN THE PLAN IS DONE',
     'Print a short summary in this terminal: the Tasks in order, which run in parallel and why that is safe,',
-    'and anything the person must decide. Then tell them to press "Approve & execute" on the Job in Astera,',
-    'and wait. If they ask for changes here, change the Tasks and summarise again.'
+    ...(a.waitForGo
+      ? [
+          'and anything the person must decide. Then wait: you plan this together, and nothing starts until they say',
+          'go. If they ask for changes, change only the Tasks they name (add, edit, or cancel), keep every other Task',
+          'as it is, and summarise again.',
+          '',
+          'GO (T10)',
+          `- When they say "go", "start", "ship it" or the like, run \`astera jobs-plan-ready --id ${a.jobId}\`: that starts`,
+          '  the plan. If it answers that the plan does not hold, fix what it names and run it again. Pressing Start in',
+          '  Astera does the same; never run it before they say go.',
+          '- Stay in this terminal after the start. When they ask for more while it runs, run',
+          `  \`astera jobs-replan --id ${a.jobId} --feedback "<what they asked>"\`: it holds the plan and answers with what`,
+          '  is done and left. Then change only not-started Tasks, and end with `astera jobs-replan-done` as it says.',
+          '- After each wave Astera types the wave\'s results here (done, failed, review notes, changed files). Adjust the',
+          '  next wave\'s not-started Tasks only if the results call for it, then run the jobs-replan-done it names: the',
+          '  next wave starts by itself.'
+        ]
+      : [
+          'and anything the person must decide. Then tell them to press "Approve & execute" on the Job in Astera,',
+          'and wait. If they ask for changes here, change only the Tasks they name, keep every other Task as it is,',
+          'and summarise again.'
+        ])
   ].join('\n')
 }

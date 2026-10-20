@@ -47,7 +47,10 @@ export const PLANNER_COMMANDS: ReadonlySet<string> = new Set([
   'jobs-feedback-done',
   // W8-D several plans in one repo: read where the plan meets another, and name its areas (`jobs-set --areas` only)
   'jobs-overlaps',
-  'jobs-set'
+  'jobs-set',
+  // T10 plan together: the owner's go (`jobs-plan-ready`), and a replan for what they ask while the plan runs
+  'jobs-plan-ready',
+  'jobs-replan'
 ])
 
 /** The Job whose planner `sessionId` is, if it is one. An empty id (a shell, an MCP client) is never one. */
@@ -79,6 +82,10 @@ export function plannerRefusal(s: OrchState, sessionId: string, cmd: string, arg
   if (cmd === 'plan-nothing-to-do' && args.job !== job.id) return `a planner ends its own Job only: pass --job ${job.id}`
   // W7-A: only its own Job, and only a Task of its plan (a replan's cancel is replanRefusal's)
   if (cmd === 'jobs-feedback-done' && args.id !== job.id) return `a planner reports on its own Job only: pass --id ${job.id}`
+  // T10: only its own Job; the go and the replan check the rest (exec/plannerFeedback.ts, exec/replanStart.ts)
+  if (cmd === 'jobs-plan-ready' && args.id !== job.id) return `a planner starts its own Job only, on the person's go: pass --id ${job.id}`
+  if (cmd === 'jobs-replan' && (args.id !== job.id || typeof args.feedback !== 'string'))
+    return `a planner replans its own Job only, for what the person asked: jobs-replan --id ${job.id} --feedback "<what they asked>"`
   if (cmd === 'task-cancel') {
     const task = s.tasks.find((t) => t.id === args.id)
     if (!task || task.jobId !== job.id || task.runId !== undefined) return `a planner cancels the Tasks of its own plan (${job.id}) only`

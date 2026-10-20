@@ -314,7 +314,14 @@ export interface Job {
   }
   /** The last replan that ended, for this boundary (`replansDue` reads it so a boundary replans once). `escalated`:
    *  why it was handed to the person instead (the plan did not hold, or a 4th follow-up wave); the hold stays then. */
-  lastReplan?: ReplanMark & { at: string; summary: string; escalated?: string }
+  lastReplan?: ReplanMark & {
+    at: string
+    summary: string
+    escalated?: string
+    /** T10: what the planner changed, one line per change (`jobs-replan-done --changes`, else Astera's own count of what
+     *  was added, changed and cancelled); each is a `plan.changed` feed line. */
+    changes?: string[]
+  }
   // W6-H delivery (delivery.ts)
   /** This plan's own delivery, ahead of its project's (`deliveryOf`). Absent: the project's. */
   delivery?: DeliveryMode

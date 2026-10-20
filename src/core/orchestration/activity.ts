@@ -94,7 +94,10 @@ export const ACTIVITY_KINDS = [
   // #117: a call a hands-off plan made in the owner's place, and a guardrail case it refused (Job.decisions); feed only,
   // the plan.done notice lists them
   'plan.decided',
-  'plan.refused'
+  'plan.refused',
+  // T10: one line per change the planner made to a plan, for the owner's message or after a wave (Job.feedback's
+  // `changes` on the plan, Job.lastReplan.changes while it runs; payload.summary); feed only
+  'plan.changed'
 ] as const
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number]
 
@@ -474,6 +477,12 @@ export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[
       const was = before.get(j.id)
       if (was === undefined || was === j) continue
       const title = jobNameOf(j)
+      // T10: a feedback round on the plan the planner reported done, one line per change
+      const wasRounds = was.feedback ?? []
+      ;(j.feedback ?? []).forEach((f, i) => {
+        if (f.phase !== 'plan' || f.changes === undefined || wasRounds[i]?.changes !== undefined) return
+        for (const line of f.changes) push('plan.changed', { ...(j.projectId !== undefined ? { projectId: j.projectId } : {}), jobId: j.id, job: j }, { title, summary: line })
+      })
       if (j.replanning && !was.replanning)
         push('plan.replanning', where(j.replanning.runId), { title, replanMode: j.replanning.mode, wave: j.replanning.wave })
       const last = j.lastReplan
@@ -486,6 +495,8 @@ export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[
         continue
       }
       push('plan.replanned', at, { title, replanMode: last.mode, wave: last.wave, summary: last.summary })
+      // T10: and each change it made, one line each
+      for (const line of last.changes ?? []) push('plan.changed', at, { title, summary: line })
       const ts = next.tasks.filter((t) => t.runId === last.runId)
       if (last.mode === 'completion' && outcomeOfTasks(ts) === 'completed' && completionSettled(next, j, last.runId))
         push('plan.done', at, { title, runOutcome: 'completed', ...decisionsOf(j) })

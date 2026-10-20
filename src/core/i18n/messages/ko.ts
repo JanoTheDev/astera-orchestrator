@@ -2928,6 +2928,10 @@ export const ko = {
   'start.planning.auto': '혼자 계획',
   'start.planning.chatHint': '플래너의 터미널이 열리고 질문을 하나씩 합니다',
   'start.planning.autoHint': '플래너가 열린 선택을 모두 스스로 정하고 결정을 기록합니다',
+  // T10 plan together
+  'pages.plan.together': '함께 계획하는 중: 플래너 터미널에서 “go”라고 말하거나 시작을 누르면 계획이 시작됩니다. 말한 것만 바뀝니다.',
+  'pages.plan.togetherRunning': '실행 중에도 플래너가 열려 있습니다: 추가할 것을 말하면 되고, 웨이브가 끝날 때마다 다음 웨이브를 시작 전에 조정합니다.',
+  'pages.plan.openPlanner': '플래너 열기',
   'start.t4.runAsWritten': '그대로 실행',
   'start.t4.planInstead': '대신 계획 세우기',
   'start.priority.low': '낮음',

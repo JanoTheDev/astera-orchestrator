@@ -203,6 +203,22 @@ describe('buildPlannerBrief planning mode (T1)', () => {
   })
 })
 
+describe('buildPlannerBrief go (T10)', () => {
+  const base = { jobId: 'job_x', objective: 'o', repoRoot: '/repo', accountId: 'acc1', concurrency: 2 }
+  it('a plan made together waits for go, then the planner starts it and stays for edits and waves', () => {
+    const b = buildPlannerBrief({ ...base, planning: 'chat', waitForGo: true })
+    expect(b).toContain('astera jobs-plan-ready --id job_x')
+    expect(b).toContain('jobs-replan --id job_x --feedback')
+    expect(b).toContain('keep every other Task')
+    expect(b).not.toContain('press "Approve & execute"')
+  })
+  it('any other plan is approved in Astera, as before', () => {
+    const b = buildPlannerBrief(base)
+    expect(b).toContain('press "Approve & execute"')
+    expect(b).not.toContain('jobs-plan-ready')
+  })
+})
+
 describe('buildPlannerBrief (W7-E #69)', () => {
   it('lets the planner write its inputs folder, and nothing else', () => {
     const b = buildPlannerBrief({ jobId: 'job_x', objective: 'o', repoRoot: '/repo', accountId: 'acc1', concurrency: 2 })

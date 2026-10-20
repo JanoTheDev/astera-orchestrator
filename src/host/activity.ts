@@ -16,7 +16,7 @@ import {
 import type { EventDraft } from '../core/orchestration/publicEvents'
 import { jobNameOf } from '../core/orchestration/jobName'
 import { validatePlan } from '../core/orchestration/planner'
-import { autoApproveOf } from '../core/orchestration/exec/plannerFeedback'
+import { autoApproveOf, awaitsGo } from '../core/orchestration/exec/plannerFeedback'
 import type { ScheduleLimits } from '../core/orchestration/schedule'
 import type { OrchState } from '../core/orchestration/state'
 import type { HostEventLog } from './eventLog'
@@ -39,7 +39,9 @@ type ActivityLog = Pick<HostEventLog, 'read' | 'tail' | 'next'>
  */
 export function planReadyActivity(s: OrchState, sessionId: string, held: () => readonly ActivityEvent[]): ActivityDraft | null {
   const j = s.jobs.find((x) => x.plannerSessionIds?.includes(sessionId))
-  if (!j || !awaitsApproval(j) || validatePlan(s, j.id).length > 0) return null
+  // T10: a plan planned together with the owner is not ready at a turn's end: it waits for their go (its planner's
+  // `jobs-plan-ready`, or Start)
+  if (!j || !awaitsApproval(j) || awaitsGo(s, j) || validatePlan(s, j.id).length > 0) return null
   // W7-A: each round of the owner's feedback makes the plan ready again, once, with what the planner changed for it
   const rounds = (j.feedback ?? []).filter((f) => f.phase === 'plan')
   const round = rounds.length

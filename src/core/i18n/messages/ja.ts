@@ -1821,6 +1821,10 @@ export const ja: Catalog = {
   'start.planning.auto': '自分で計画',
   'start.planning.chatHint': 'プランナーのターミナルが開き、質問を一つずつ聞かれます',
   'start.planning.autoHint': 'プランナーが未決の選択をすべて自分で決め、その内容を記録します',
+  // T10 plan together
+  'pages.plan.together': '一緒に計画中：プランナーのターミナルで「go」と言うか、開始を押すと計画が始まります。伝えたことだけが変わります。',
+  'pages.plan.togetherRunning': '実行中もプランナーは開いたままです。追加したいことを伝えてください。各ウェーブの後、次のウェーブを始まる前に調整します。',
+  'pages.plan.openPlanner': 'プランナーを開く',
   'start.t4.runAsWritten': '書いたとおり実行',
   'start.t4.planInstead': '代わりに計画する',
   'start.priority.low': '低',

@@ -127,6 +127,9 @@ export function lineOf(e: ActivityEvent, accountLabel: (id: string) => string): 
       return { text: `${p.title}: ${p.reason ?? ''}`, tone: 'info' }
     case 'plan.refused':
       return { text: `${p.title}: ${p.reason ?? ''}`, tone: 'warn' }
+    // T10: one change the planner made
+    case 'plan.changed':
+      return { text: `${p.title}: planner: ${p.summary ?? ''}`, tone: 'info' }
   }
 }
 

@@ -193,7 +193,7 @@ import { REPLAN_COMMANDS, replanCommand, replanRefusal } from './exec/replanStar
 import { coordinatorHandoff, refreshCoordinator } from './exec/coordinatorRotate'
 // T5 crash restore
 import { crashResumedBrief } from './exec/crashResume'
-import { feedbackCommand, handsOffOf, isFeedbackCommand } from './exec/plannerFeedback'
+import { awaitsGo, feedbackCommand, handsOffOf, isFeedbackCommand } from './exec/plannerFeedback'
 export { JOB_SOURCE } from './commandSources'
 import { pluginIdOfCheck, type CompletionCheckInput, type PluginCheckAnswer } from './pluginChecks'
 import { checkIdsOf, pluginCheckRefusal, tasksOfNextRun } from './commandChecks'
@@ -3366,10 +3366,6 @@ export async function handleCommand(
       // T1 chat-first planning: `--planning chat|auto`
       const planningFlag = planningArg(args.planning)
       if (typeof planningFlag === 'object') return bad(planningFlag.error)
-      if (planningFlag !== undefined) {
-        const cur = deps.getState()
-        await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id ? { ...j, planning: planningFlag } : j)) })
-      }
       // #117: `--hands-off on|off`, this plan's own, ahead of its project's
       const handsOff = handsOffArg(args.handsOff, fromAgentSession, caller.role)
       if (typeof handsOff === 'object') return handsOff
@@ -3377,6 +3373,15 @@ export async function handleCommand(
         const cur = deps.getState()
         await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id ? { ...j, handsOff } : j)) })
       }
+      // T10: a plan made with `--planning chat` waits for the person's go (awaitsGo); like every plan it replans between
+      // its waves (Job.replan absent reads as waves), and hands each wave to the planner it chats with
+      if (planningFlag !== undefined) {
+        const cur = deps.getState()
+        await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id ? { ...j, planning: planningFlag } : j)) })
+      }
+      const chosen = planningFlag ?? job.planning
+      // T1: the Job's own choice, else auto when hands-off
+      const planning = chosen ?? (handsOffOf(deps.getState(), { ...job, ...(handsOff !== undefined ? { handsOff } : {}) }) ? 'auto' : 'chat')
       // W7-A: `--auto-approve on|off`, this plan's own, ahead of its project's
       if (args.autoApprove !== undefined) {
         const auto = onOff(args.autoApprove)
@@ -3444,8 +3449,11 @@ export async function handleCommand(
               ...(unmerged && unmerged.branches.length > 0 ? { unmergedBranches: unmerged.branches, defaultBranch: unmerged.into } : {}),
               accountId,
               promptsMode: job.verbatim !== undefined,
-              // T1: the Job's own choice, else auto when hands-off
-              planning: planningFlag ?? job.planning ?? (handsOffOf(deps.getState(), { ...job, ...(handsOff !== undefined ? { handsOff } : {}) }) ? 'auto' : 'chat'),
+              planning,
+              // T10: started on the person's go, which this planner hands on
+              ...(awaitsGo(deps.getState(), { ...job, plannerSessionIds: [], ...(chosen !== undefined ? { planning: chosen } : {}), ...(handsOff !== undefined ? { handsOff } : {}) })
+                ? { waitForGo: true }
+                : {}),
               concurrency: concurrency ?? job.concurrency ?? DEFAULT_CONCURRENCY,
               // W8-D: the other plans of this repository, so it plans around them
               otherPlans: otherPlansBrief(deps.getState(), job)
@@ -3638,7 +3646,10 @@ export async function handleCommand(
       // W5-B (#47): an approved plan's planner has done its work (SPEC §2), so it ends with the approval. Left alive it
       // idled for hours and got the limit reset's "Continue the work" on the planner model.
       const approved = async (reply: Reply): Promise<Reply> => {
-        if (approving && reply.status >= 200 && reply.status < 300) await endPlanners(job, 'its plan was approved')
+        // T10: a plan planned with the owner keeps its newest planner: their chat goes on while it runs, and each wave's
+        // results are typed into it (exec/replanStart.ts reachPlanner)
+        const ending = job.planning === 'chat' ? { ...job, plannerSessionIds: job.plannerSessionIds?.slice(0, -1) } : job
+        if (approving && reply.status >= 200 && reply.status < 300) await endPlanners(ending, 'its plan was approved')
         return reply
       }
       if (approving) {
