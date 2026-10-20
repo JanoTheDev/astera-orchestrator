@@ -147,6 +147,7 @@ export function Pages(p: PagesProps): React.JSX.Element {
             hasProject={remoteProject !== null}
             remote
             disabledReason={controlReason(remoteViewPermission, t as never) ?? undefined}
+            newDisabledReason={t('jobs.new.localOnly')}
             canOpenSession={() => false}
             onOpenSession={() => {}}
             onOpenRun={(runId) => {

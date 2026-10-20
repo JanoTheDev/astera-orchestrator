@@ -293,12 +293,6 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
           }}
           onOpenConsole={() => setShowNew(true)}
           onOtherSources={() => setSourceJobOpen(startShown.cwd)}
-          // T2: schedules keep the older form; Start closes so the plan made there opens
-          onSchedule={() => {
-            setFirstPlan(null)
-            openStart(null)
-            setNewRunOpen(true)
-          }}
         />
       )}
       {newOpen && (

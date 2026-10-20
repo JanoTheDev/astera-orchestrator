@@ -1,5 +1,6 @@
 // W9-E Start page rules (DESIGN §2 "Start"). Pure, so the node tests cover them; StartPage.tsx keeps the state.
 import type { IntakeTab } from '../intake/intakeRequest'
+import type { ScheduleRule } from '../../../../core/types'
 import type { Job } from '../../../../core/orchestration/types'
 import { jobNameOf } from '../../../../core/orchestration/jobName'
 
@@ -176,4 +177,12 @@ function liveStateOf(r: PlanRow): LivePlanState | null {
   if (r.pendingStart === true) return r.after !== undefined ? 'queued' : 'planning'
   if ((r.questionsOpen ?? 0) > 0) return 'waiting'
   return r.outcome === 'running' ? 'running' : null
+}
+
+// T14 Start schedule
+/** The `jobs-create` args of a Job that runs on a schedule: the intake's own plus the rule (run-create keeps it, as
+ *  NewRunModal sent it). Null when the rule is not typed yet or the request is not a `jobs-create` (a GitHub issue pick
+ *  has no schedule). Such a Job has no planner: its Tasks are copied into every round. */
+export function scheduledArgs(req: { cmd: string; args: Record<string, unknown> } | null, schedule: ScheduleRule | null): Record<string, unknown> | null {
+  return req?.cmd === 'jobs-create' && schedule ? { ...req.args, schedule } : null
 }

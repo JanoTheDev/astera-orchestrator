@@ -1467,6 +1467,7 @@ export const ja: Catalog = {
   'jobs.new.concurrency': '同時実行',
   'jobs.new.concurrencyHint': 'この作業が同時に開くワーカー数',
   'jobs.new.schedule': '予約実行',
+  'jobs.new.localOnly': 'プランは今のところこのコンピューターでのみ開始できます',
   'jobs.new.scheduleHint': '指定時刻ごとにこの作業の回を 1 つ作って実行する',
   'jobs.new.scheduleOverlapHint': '前の回が実行中でも新しい回を開始する — ワーカーが重なることがある',
   'jobs.new.convergence': '通過するまで自動修正',

@@ -1486,6 +1486,7 @@ export const es: Catalog = {
   'jobs.new.concurrency': 'En paralelo',
   'jobs.new.concurrencyHint': 'Cuántos workers mantiene abiertos a la vez',
   'jobs.new.schedule': 'Ejecución programada',
+  'jobs.new.localOnly': 'Por ahora los planes solo se inician en este ordenador',
   'jobs.new.scheduleHint': 'Inicia una ejecución de este trabajo en cada hora programada',
   'jobs.new.scheduleOverlapHint': 'Se inicia una nueva ejecución aunque la anterior siga en curso — los trabajadores pueden solaparse',
   'jobs.new.convergence': 'Corregir automáticamente hasta superar las comprobaciones',

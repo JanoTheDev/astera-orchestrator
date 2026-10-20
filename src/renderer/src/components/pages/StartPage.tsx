@@ -3,14 +3,15 @@
 // its own state and calls (intake/useIntake.ts).
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, ChevronDown, ChevronRight, CircleDot, FileText, ListOrdered, Paperclip, Plus, ShieldCheck, Sparkles, SquareTerminal, X } from 'lucide-react'
-import type { Account, OrchSnapshot } from '../../../../core/types'
+import type { Account, OrchSnapshot, ScheduleRule } from '../../../../core/types'
 import { MAX_CONCURRENT_WORKERS, PROJECT_DEFAULTS, type DeliveryMode } from '../../../../core/orchestration/types'
 import { defaultAccountIdOf } from '../../../../core/accounts/defaultAccount'
 import { foldsPathCase } from '../../../../core/files/paths'
 import { useI18n } from '../../i18n/I18nProvider'
-import { localDoor } from '../../lib/orchDoor'
+import { formFailure, localDoor } from '../../lib/orchDoor'
 import { pollFileIndex } from '../../lib/fileIndexPoll'
 import { AccountSelect } from '../AccountSelect'
+import { ScheduleRuleFields } from '../ScheduleRuleFields'
 import { openPage } from '../shell/navigation'
 import { Button, Card, Chip, Field, Icon, IconButton, Input, Tabs } from '../ui'
 import { IssuePicker } from '../intake/IssuePicker'
@@ -18,7 +19,7 @@ import { AUDIT_FOCUSES } from '../intake/intakeRequest'
 import { useIntake, type IssueRow } from '../intake/useIntake'
 import {
   addScopePath, blockedReason, consolesIn, defaultMode, dropOpensStart, filesFromDrop, handsOffSaveArgs, intakeTab, lookupArgs, optionsSummary, primaryLabel,
-  shouldLandOnStart, type NameLookup, type StartMode, type StartRequest
+  scheduledArgs, shouldLandOnStart, type NameLookup, type StartMode, type StartRequest
 } from './startLogic'
 import './start.css'
 
@@ -33,8 +34,7 @@ export function StartPage({
   accounts,
   onClose,
   onOpenConsole,
-  onOtherSources,
-  onSchedule
+  onOtherSources
 }: {
   req: StartRequest
   /** A folder the Host can be asked through while no project is chosen. */
@@ -47,8 +47,6 @@ export function StartPage({
   onOpenConsole: () => void
   /** The plugin sources window (SourceJobModal), for a ticket from a source other than GitHub. */
   onOtherSources: () => void
-  /** T2 "Repeat on a schedule…": the schedule form (NewRunModal). */
-  onSchedule: () => void
 }): React.JSX.Element {
   const { t } = useI18n()
   // The Project picker: the plan is made in the chosen project's folder, '' until one is chosen
@@ -75,6 +73,29 @@ export function StartPage({
     }
   })
   const { project, files, text, picked } = intake
+  // T14: a Job that runs on a schedule is made by jobs-create alone, with its rule; no planner opens for it
+  const [scheduled, setScheduled] = useState(false)
+  const [schedule, setSchedule] = useState<ScheduleRule | null>(null)
+  const [schedBusy, setSchedBusy] = useState(false)
+  const [schedError, setSchedError] = useState<string | null>(null)
+  const schedArgs = scheduled ? scheduledArgs(intake.request, schedule) : null
+  const createScheduled = async (): Promise<void> => {
+    if (!schedArgs || schedBusy) return
+    setSchedBusy(true)
+    setSchedError(null)
+    try {
+      const r = await door.command('jobs-create', schedArgs)
+      if (r.status >= 400) setSchedError(formFailure(r, t as never, 'jobs.new.failed').message)
+      else {
+        onClose()
+        openPage('agents')
+      }
+    } catch {
+      setSchedError(t('jobs.new.failed'))
+    } finally {
+      setSchedBusy(false)
+    }
+  }
   const mode = defaultMode({ files, text, chosen })
   const projectAuto = project?.autoApprove ?? PROJECT_DEFAULTS.autoApprove
   const projectHandsOff = project?.handsOff ?? PROJECT_DEFAULTS.handsOff
@@ -505,11 +526,13 @@ export function StartPage({
                     { value: 'auto', label: t('start.opt.auto') }
                   ]}
                 />
-                <div className="start-more-schedule">
-                  <Button variant="ghost" size="sm" onClick={onSchedule}>
-                    {t('start.more.schedule')}
-                  </Button>
-                </div>
+                <Field kind="toggle" label={t('start.more.schedule')} hint={t('jobs.new.scheduleHint')} checked={scheduled} onChange={setScheduled} />
+                {scheduled && (
+                  <div className="jobs-sched">
+                    <ScheduleRuleFields onChange={setSchedule} />
+                    <p className="warn-text">{t('jobs.new.scheduleOverlapHint')}</p>
+                  </div>
+                )}
               </div>
             )}
           </section>
@@ -538,14 +561,14 @@ export function StartPage({
       <footer className="start-foot">
         <div className="start-foot-inner">
           <div className="start-foot-notes" aria-live="polite">
-            {intake.error ? <p className="warn">{intake.error}</p> : blocked ? <span>{blocked}</span> : go.note && <span>{go.note}</span>}
+            {intake.error || schedError ? <p className="warn">{intake.error ?? schedError}</p> : blocked ? <span>{blocked}</span> : go.note && <span>{go.note}</span>}
           </div>
           <Button
             variant="primary"
             size="lg"
-            loading={intake.busy}
-            disabled={intake.busy || blocked !== null || namesRefused}
-            onClick={() => void intake.create(planArgs)}
+            loading={intake.busy || schedBusy}
+            disabled={intake.busy || schedBusy || blocked !== null || namesRefused || (scheduled && schedArgs === null)}
+            onClick={() => void (scheduled ? createScheduled() : intake.create(planArgs))}
           >
             {go.label}
           </Button>

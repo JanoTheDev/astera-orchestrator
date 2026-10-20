@@ -2120,6 +2120,7 @@ export const ko = {
   'settings.alertSound.hint': '권한 요청, 질문, 에스컬레이션, 열린 게이트 알림과 함께 짧은 알림음을 냅니다. 5초에 한 번까지입니다.',
   'settings.alertSound.saveFailed': '알림음 설정을 저장하지 못했습니다: {detail}',
   'jobs.new.schedule': '예약 실행',
+  'jobs.new.localOnly': '지금은 이 컴퓨터에서만 플랜을 시작할 수 있습니다',
   'jobs.new.scheduleHint': '정한 시각마다 이 작업의 회차를 하나 만들어 돌린다',
   // 겹침을 막지 않기로 한 결정을 사람에게 알리는 자리 — 도는 워커 수가 상한을 넘을 수 있다
   'jobs.new.scheduleOverlapHint': '이전 회차가 돌고 있어도 새 회차를 띄운다 — 워커가 겹칠 수 있다',
