@@ -323,7 +323,7 @@ export function buildPlannerBrief(a: {
     // T7 objective coverage: approval refuses an objective item neither covered nor left out
     "- `--covers 1,3`: the numbers of the objective's items this Task covers (its numbered lines, else its bullets).",
     '  Every item needs a Task with --covers, or is left out on purpose with the reason:',
-    `  \`astera jobs-set --id ${a.jobId} --left-out '[{"item":2,"reason":"already built: src/x.ts:12"}]'\`.`,
+    `  \`astera jobs-set --id ${a.jobId} --left-out '[{"item":2,"reason":"already built: src/x.ts"}]'\`.`,
     '  A plan with an item that is neither is refused at approval.',
     '- `--difficulty light|standard|hard`: picks the worker\'s model (light is a small, mechanical change;',
     '  hard is design or a subtle bug). Add `--model-reason "<one line>"` saying why.',

@@ -6599,9 +6599,9 @@ describe('jobs create / tasks add / accounts list', () => {
     expect((started.body as { error: string }).error).toContain('has started already (dispatched)')
     // blocked before it ever started: still the owner's to fix
     await deps.setState({ ...deps.getState(), tasks: deps.getState().tasks.map((x) => (x.id === a.id ? { ...x, status: 'blocked' as const } : x)) })
-    const blocked = await call(deps, 'task-update', { id: a.id, basis: 'partial', evidence: 'src/a.ts:3' }, 'sess_owner_tab')
+    const blocked = await call(deps, 'task-update', { id: a.id, basis: 'partial', evidence: 'src/a.ts' }, 'sess_owner_tab')
     expect(blocked.status).toBe(200)
-    expect(deps.getState().tasks.find((x) => x.id === a.id)?.basis).toEqual({ state: 'partial', evidence: 'src/a.ts:3' })
+    expect(deps.getState().tasks.find((x) => x.id === a.id)?.basis).toEqual({ state: 'partial', evidence: 'src/a.ts' })
   })
 
   // **최신 회차로 기본값을 두지 않는다** — task-create 의 기본값은 남의 회차에 떨어질 수 있다.

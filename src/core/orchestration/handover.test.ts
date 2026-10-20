@@ -226,7 +226,7 @@ describe('buildPlannerBrief objective coverage and the plan name (T7)', () => {
   it('tells the planner to give every Task --covers, list skipped items with --left-out, and rename the Job', () => {
     const b = buildPlannerBrief(base)
     expect(b).toContain('--covers 1,3')
-    expect(b).toContain(`astera jobs-set --id job_x --left-out '[{"item":2,"reason":"already built: src/x.ts:12"}]'`)
+    expect(b).toContain(`astera jobs-set --id job_x --left-out '[{"item":2,"reason":"already built: src/x.ts"}]'`)
     expect(b).toContain('astera jobs rename --id job_x --title "<3-6 words>"')
     expect(b).toContain('a chat-planned Job starts with no real objective')
     expect(buildPlannerBrief({ ...base, planning: 'auto' })).not.toContain('a chat-planned Job')

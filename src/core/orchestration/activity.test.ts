@@ -555,7 +555,7 @@ describe('plan.done of a plan that replans', () => {
 describe('task.edited (T7)', () => {
   it("one line when the owner changes a run Task's deps, spec, basis or evidence", () => {
     const before = state({ tasks: [task('a'), task('b', { status: 'pending', deps: ['a'], basis: { state: 'missing', evidence: 'none' } })] })
-    const after = state({ tasks: [task('a'), task('b', { status: 'ready', deps: [], spec: 'new spec', basis: { state: 'missing', evidence: 'src/b.ts:4' } })] })
+    const after = state({ tasks: [task('a'), task('b', { status: 'ready', deps: [], spec: 'new spec', basis: { state: 'missing', evidence: 'src/b.ts' } })] })
     const edited = deriveActivity(before, after).filter((d) => d.type === 'task.edited')
     expect(edited).toEqual([
       { type: 'task.edited', projectId: 'p1', jobId: 'j1', runId: 'r1', taskId: 'b', payload: { plan: 'Plan A', title: 'title b', edited: ['deps', 'spec', 'evidence'] } }

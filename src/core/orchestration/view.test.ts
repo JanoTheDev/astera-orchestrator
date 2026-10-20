@@ -284,8 +284,8 @@ describe('snapshotFor', () => {
     expect(rowOf(job).planProblems).toEqual([
       'objective item 2 ("logout") has no Task: add one with --covers 2, or list it with jobs-set --left-out and a reason'
     ])
-    const left = rowOf({ ...job, leftOut: [{ item: 2, reason: 'already built: src/logout.ts:3' }] })
-    expect(left).toMatchObject({ leftOut: [{ item: 2, text: 'logout', reason: 'already built: src/logout.ts:3' }] })
+    const left = rowOf({ ...job, leftOut: [{ item: 2, reason: 'already built: src/logout.ts' }] })
+    expect(left).toMatchObject({ leftOut: [{ item: 2, text: 'logout', reason: 'already built: src/logout.ts' }] })
     expect(left).not.toHaveProperty('planProblems')
   })
 

@@ -547,9 +547,9 @@ describe('T7 objective coverage', () => {
     const { r, jobId } = await listedJob()
     const t = (await planner(r)('task-create', goodTask(jobId, { covers: '1,3' }))).body as { id: string; covers: number[] }
     expect(t.covers).toEqual([1, 3])
-    const left = await planner(r)('jobs-set', { id: jobId, leftOut: '[{"item":2,"reason":"already built: src/logout.ts:12"}]' })
+    const left = await planner(r)('jobs-set', { id: jobId, leftOut: '[{"item":2,"reason":"already built: src/logout.ts"}]' })
     expect(left.status).toBe(200)
-    expect(r.deps.getState().jobs[0].leftOut).toEqual([{ item: 2, reason: 'already built: src/logout.ts:12' }])
+    expect(r.deps.getState().jobs[0].leftOut).toEqual([{ item: 2, reason: 'already built: src/logout.ts' }])
     expect(validatePlan(r.deps.getState(), jobId)).toEqual([])
     // a covers edit is a plan edit too
     expect((await planner(r)('task-update', { id: t.id, covers: '1' })).status).toBe(200)

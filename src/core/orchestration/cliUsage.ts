@@ -464,7 +464,7 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       // T1 chat-first planning
       '--planning and --priority (an integer, as at `jobs create`) change those two after creation, alone or together; --planning applies to the next planner start. ' +
       // T7 objective coverage
-      "--left-out lists the objective's numbered or bulleted items the plan leaves out on purpose, each with why, as JSON ('[{\"item\":2,\"reason\":\"already built: src/x.ts:12\"}]', [] clears it): approval refuses a plan with an item no Task covers (`tasks add --covers`) and none left out. It is set on its own, and the Job's own planner may set it too. " +
+      "--left-out lists the objective's numbered or bulleted items the plan leaves out on purpose, each with why, as JSON ('[{\"item\":2,\"reason\":\"already built: src/x.ts\"}]', [] clears it): approval refuses a plan with an item no Task covers (`tasks add --covers`) and none left out. It is set on its own, and the Job's own planner may set it too. " +
       // T3 workspaces
       "Setting --areas files the plan under the sub-project of its workspace named after its first area, created when missing (a workspace's projects set autoProjects off stops it). --project <projectId> moves a plan that has not started to another project of the same workspace, on its own.",
     flags: [

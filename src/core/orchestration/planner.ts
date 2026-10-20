@@ -173,7 +173,7 @@ export function leftOutArg(v: unknown, objective: string): LeftOutItem[] | { err
     try {
       list = JSON.parse(v)
     } catch {
-      return { error: `--left-out must be JSON: '[{"item":2,"reason":"already built: src/x.ts:12"}]'` }
+      return { error: `--left-out must be JSON: '[{"item":2,"reason":"already built: src/x.ts"}]'` }
     }
   }
   if (!Array.isArray(list)) return { error: '--left-out must be a JSON array of {"item": <n>, "reason": "<why>"}' }
