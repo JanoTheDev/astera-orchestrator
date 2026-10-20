@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { Dispatch, Gate, Job, JobRun, Message, Project, Task } from '../../../core/orchestration/types'
-import type { WorkspaceData } from './workspaceTree'
+import { workspacesOf, type WorkspaceData } from './workspaceTree'
 
 /** How often the tree is read again while it is wanted. No push carries every project's state: `orch:state` is the
  *  Jobs view's subscription to one project. */
@@ -45,8 +45,9 @@ export function useWorkspaceData(anchorProp: string | null, enabled: boolean, re
       // although projects are registered. The home folder is a path the app may name, so it opens the same door.
       const anchor = anchorProp ?? (await window.api.system.homeDir().catch(() => null))
       if (!anchor) return
-      const projects = await read<Project[]>(anchor, 'projects-list')
-      if (!projects || !alive) return
+      const listed = await read<Project[]>(anchor, 'projects-list')
+      if (!listed || !alive) return
+      const projects = workspacesOf(listed)
       const [jobLists, runs, tasks, dispatches, gates, escalations, worktrees] = await Promise.all([
         Promise.all(projects.map((p) => read<Job[]>(anchor, 'jobs-list', { project: p.path, archived: true }))),
         read<JobRun[]>(anchor, 'runs-list'),

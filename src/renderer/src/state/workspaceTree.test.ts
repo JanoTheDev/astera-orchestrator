@@ -4,7 +4,7 @@ import { addTab, createGroup, leaves, splitAndMove, type PaneNode } from '../../
 import { appTab, fileTab, sessionTab } from '../../../core/panes/tabId'
 import { buildWorkspaceTree, findPlan, planSessions, scopeLayout, type WorkspaceData } from './workspaceTree'
 import {
-  entryTab, OTHER_WORKSPACE, projectOfCwd, scopeIds, workspaceFolderOf, workspaceSessionIds, workspaceSummaries, type WorkspaceProject
+  entryTab, OTHER_WORKSPACE, projectOfCwd, workspacesOf, scopeIds, workspaceFolderOf, workspaceSessionIds, workspaceSummaries, type WorkspaceProject
 } from './workspaceTree'
 
 const project = (id: string, name: string): Project => ({ id, name, path: `/repos/${name}`, addedAt: '2026-10-01T00:00:00Z' })
@@ -37,6 +37,16 @@ describe('buildWorkspaceTree', () => {
     expect(trading.runId).toBe('r2')
     expect(trading.coordinator.map((s) => [s.sessionId, s.label])).toEqual([['coord', 'Trading Coordinator']])
     expect(tree[0].plans[1].runId).toBeUndefined()
+  })
+
+  it('lists workspaces only: a sub-project is no row, its plan arrives in its workspace list (T1)', () => {
+    const root = project('p1', 'Gameful')
+    const sub: Project = { ...project('p1s', 'values'), path: root.path, parentId: 'p1' }
+    const tree = buildWorkspaceTree(
+      data({ projects: workspacesOf([root, sub]), jobsByProject: { p1: [job('j1', { title: 'Values', projectId: 'p1s' })] } }),
+      { showArchived: false }
+    )
+    expect(tree.map((p) => [p.name, p.plans.map((j) => j.name)])).toEqual([['Gameful', ['Values']]])
   })
 
   it('lists registered projects that have no plans at all (#78)', () => {
