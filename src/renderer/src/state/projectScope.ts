@@ -1,5 +1,7 @@
 // The top bar's project switcher is the window's one current project. These rules say when that selection changes:
 // only by a pick, or by opening something of a different project. Never to "All projects" by accident.
+import type { Job } from '../../../core/orchestration/types'
+import type { OrchSnapshot } from '../../../core/types'
 import { familyOf, OTHER_WORKSPACE, type WorkspaceProject } from './workspaceTree'
 
 /** The project that owns a session, or undefined while it is unknown: a session not yet in the tree (a freshly spawned
@@ -34,3 +36,19 @@ export function scopeProjectIds(tree: readonly WorkspaceProject[], selectedId: s
  *  says which project the window is bound to, rather than flashing every project's. */
 export const initialScope = (stored: string | null | undefined): { projectId: string | null; known: boolean } =>
   stored === undefined ? { projectId: null, known: false } : { projectId: stored, known: true }
+
+/** T6: the Plans/Tasks pages' snapshot under the switcher's pick. The Host lists a workspace's plans under its path, a
+ *  sub-project's too; a sub-project pick drops the ones known to belong to another project. A plan the reads do not
+ *  know yet (made since the last poll) stays. All projects and Other leave the snapshot as it is. */
+export function scopeSnapshot(
+  snapshot: OrchSnapshot | null,
+  jobsByProject: Readonly<Record<string, readonly Pick<Job, 'id'>[]>>,
+  tree: readonly WorkspaceProject[],
+  selectedId: string | null
+): OrchSnapshot | null {
+  const ids = scopeProjectIds(tree, selectedId)
+  if (!snapshot || !ids || selectedId === OTHER_WORKSPACE) return snapshot
+  const elsewhere = new Set(Object.entries(jobsByProject).flatMap(([pid, jobs]) => (ids.includes(pid) ? [] : jobs.map((j) => j.id))))
+  const runs = snapshot.runs.filter((r) => !elsewhere.has(r.id))
+  return runs.length === snapshot.runs.length ? snapshot : { ...snapshot, runs }
+}

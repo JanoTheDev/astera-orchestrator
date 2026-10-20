@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { OTHER_WORKSPACE } from './workspaceTree'
-import { initialScope, ownerOf, scopeFor, scopeProjectIds, switcherName } from './projectScope'
+import { scopeSnapshot, initialScope, ownerOf, scopeFor, scopeProjectIds, switcherName } from './projectScope'
 
 const byWorkspace = new Map<string, ReadonlySet<string>>([
   ['a', new Set(['s1'])],
@@ -52,5 +52,16 @@ describe('T6 workspace scope', () => {
     expect(initialScope('a')).toEqual({ projectId: 'a', known: true })
     expect(initialScope(null)).toEqual({ projectId: null, known: true }) // All, chosen
     expect(initialScope(undefined)).toEqual({ projectId: null, known: false }) // tabs wait for main’s answer
+  })
+
+  it('pages: a root keeps its children’s plans, a child drops the root’s and siblings’, All and Other change nothing', () => {
+    const snap = { runs: [{ id: 'jr' }, { id: 'jd' }, { id: 'jc' }, { id: 'new' }], projectFolderBusy: false } as unknown as Parameters<typeof scopeSnapshot>[0]
+    const jobs = { a: [{ id: 'jr' }], d: [{ id: 'jd' }], c: [{ id: 'jc' }] }
+    const ids = (sel: string | null): string[] | undefined => scopeSnapshot(snap, jobs, tree, sel)?.runs.map((r) => r.id)
+    expect(ids('a')).toEqual(['jr', 'jd', 'jc', 'new'])
+    expect(ids('d')).toEqual(['jd', 'new']) // 'new' is not read yet, so it stays
+    expect(ids(null)).toEqual(['jr', 'jd', 'jc', 'new'])
+    expect(ids(OTHER_WORKSPACE)).toEqual(['jr', 'jd', 'jc', 'new'])
+    expect(scopeSnapshot(null, jobs, tree, 'd')).toBeNull()
   })
 })

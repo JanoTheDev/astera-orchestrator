@@ -76,6 +76,18 @@ describe('runsForProject', () => {
     expect(jobsForProject(s, absPath('proj'), noWorktrees).map((r) => r.id)).toEqual(['job_r1'])
   })
 
+  // T6: a sub-project shares its root's path, so the root's list holds the sub-project's Jobs too
+  it('a workspace root lists its sub-projects’ Jobs; a different project’s stay out', () => {
+    const a = ensureProject(emptyState(), { path: absPath('proj'), now: 'T0' })
+    const sub = { id: 'sub1', name: 'design', path: absPath('proj'), addedAt: 'T1', parentId: a.project.id }
+    const b = ensureProject(a.state, { path: absPath('other'), now: 'T2' })
+    const r1 = { ...run('r1', absPath('proj')), projectId: a.project.id }
+    const r2 = { ...run('r2', absPath('proj')), projectId: sub.id }
+    const r3 = { ...run('r3', absPath('other')), projectId: b.project.id }
+    const s = { ...stateFromLegacy({ runs: [r1, r2, r3] }), projects: [...b.state.projects, sub] }
+    expect(jobsForProject(s, absPath('proj'), noWorktrees).map((r) => r.id).sort()).toEqual(['job_r1', 'job_r2'])
+  })
+
   it('projectId 가 다른 프로젝트를 가리키면 경로가 맞아도 고르지 않는다', () => {
     const a = ensureProject(emptyState(), { path: absPath('proj'), now: 'T0' })
     const b = ensureProject(a.state, { path: absPath('other'), now: 'T1' })

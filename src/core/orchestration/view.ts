@@ -59,6 +59,9 @@ export function jobsForProject(
   const project = findProjectByPath(state, projectPath)
   // The registered ids, once, rather than a search of every project per Job (performance audit M1)
   const projectIds = new Set(state.projects.map((p) => p.id))
+  // T6: a workspace's list holds its sub-projects' Jobs too (a sub-project shares the root's path, so no path can tell
+  // them apart); the app narrows a sub-project pick by Job.projectId (projectScope.ts scopeSnapshot)
+  const own = new Set(project ? [project.id, ...state.projects.filter((p) => p.parentId === project.id).map((p) => p.id)] : [])
   return state.jobs
     .filter((r) => {
       // **`projectId` wins, but only when it resolves.** A Run made since projects were registered
@@ -68,7 +71,7 @@ export function jobsForProject(
       // that was already correct rather than a guess, and a Job that vanishes from the list is worse
       // than one listed by its folder.
       if (r.projectId !== undefined && projectIds.has(r.projectId))
-        return r.projectId === project?.id
+        return own.has(r.projectId)
       return isSamePath(projectPath, repoPathOf(worktrees, r.cwd))
     })
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))

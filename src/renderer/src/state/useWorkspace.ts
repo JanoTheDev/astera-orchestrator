@@ -4,7 +4,7 @@ import { useWorkspaceData } from './useWorkspaceData'
 import { buildWorkspaceTree, findPlan, planSessions, scopeLayout } from './workspaceTree'
 // W6-F: one workspace per project
 import { entryTab, orderedProjects, OTHER_WORKSPACE, scopeIds as workspaceScopeOf, workspaceFolderOf, workspaceSessionIds } from './workspaceTree'
-import { initialScope, ownerOf } from './projectScope'
+import { initialScope, ownerOf, scopeSnapshot } from './projectScope'
 import * as sticky from '../lib/stickyProject'
 import { projectAnchorOf } from '../components/projects/projectAnchor' // W8-G
 // W7-F (#84): ended plan tabs close on their own; the quick tab switcher
@@ -24,12 +24,12 @@ export type WorkspaceDeps = Pick<ReturnType<typeof useWorkbench>,
   Pick<ReturnType<typeof useWorkbenchState>,
     'closeWorkbenchTabRef'> &
   Pick<ReturnType<typeof useJobs>,
-    'currentProject' | 'homeDir' | 'setScopeRoot'>
+    'currentProject' | 'homeDir' | 'orchSnapshot' | 'setScopeRoot'>
 
 export function useWorkspace(deps: WorkspaceDeps) {
   const {
     activeSessionId, activeTabId, bottomRootRef, bottomTab, closeWorkbenchTabRef,
-    currentProject, homeDir, setScopeRoot, layout, layoutRef, openWorkspaceSlotRef, remoteSessions, selectWorkbenchTab, sessions, terminals
+    currentProject, homeDir, orchSnapshot, setScopeRoot, layout, layoutRef, openWorkspaceSlotRef, remoteSessions, selectWorkbenchTab, sessions, terminals
   } = deps
   // W2-B workspace: the selected plan, and the pane tree as its workspace shows it (scopeLayout). Read while the
   // tree is on screen or a plan is open; the anchor is only the path the reads are sent through.
@@ -177,6 +177,11 @@ export function useWorkspace(deps: WorkspaceDeps) {
     openWorkspaceProject(boundProject)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when the tree first arrives
   }, [boundProject, workspaceData])
+  // T6: the Plans and Tasks pages read this in place of the Host's snapshot (it overrides useJobs' in App's merge)
+  const scopedSnapshot = useMemo(
+    () => scopeSnapshot(orchSnapshot, workspaceData?.jobsByProject ?? {}, workspaceTree, workspaceProjectId),
+    [orchSnapshot, workspaceData, workspaceTree, workspaceProjectId]
+  )
   const workspaceName = workspaceTree.find((p) => p.id === workspaceProjectId)?.name
   // The switcher's selection is the project jobs are made in; its name is kept so a reload labels it before the tree is in.
   const selectedProject = workspaceTree.find((p) => p.id === workspaceProjectId)
@@ -216,6 +221,6 @@ export function useWorkspace(deps: WorkspaceDeps) {
     setProjectsRefresh, firstPlan, setFirstPlan, autoCloseEndedPlanTabs, setAutoCloseEndedPlanTabs, workspaceData,
     projectAnchor, workspaceTree, workspaceIds, shownLayout, canOpenSessionTab, switcherMeta,
     setWorkspaceScope, enterWorkspace, openWorkspacePlan, openWorkspaceProject, workspaceCwd, bottomRoot,
-    runAvailable, bottomTabShown
+    runAvailable, bottomTabShown, orchSnapshot: scopedSnapshot
   }
 }
