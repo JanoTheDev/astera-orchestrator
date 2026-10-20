@@ -54,12 +54,14 @@ export const WorktreePanel = forwardRef<
     onStartSession: (path: string) => void
     /** The rows as last read, for the detail beside the list. */
     onRows?: (rows: WorktreeRow[]) => void
+    /** Keeps only the worktrees of these repos (the open project's); every repo when absent. */
+    repoFilter?: (repoPath: string) => boolean
     /** The page's own header actions after Clean up and Refresh (view options, close). */
     actions?: React.ReactNode
     /** The detail pane, drawn right of the list. */
     children?: React.ReactNode
   }
->(function WorktreePanel({ selected, onSelect, onStartSession, onRows, actions, children }, handle): React.JSX.Element | null {
+>(function WorktreePanel({ selected, onSelect, onStartSession, onRows, repoFilter, actions, children }, handle): React.JSX.Element | null {
   const { t } = useI18n()
   const [query, setQuery] = useState('')
   const [reachableOnly, setReachableOnly] = useState(false)
@@ -109,7 +111,8 @@ export const WorktreePanel = forwardRef<
 
   const refresh = useCallback(async (): Promise<void> => {
     try {
-      const overview = await window.api.worktrees.overview()
+      const all = await window.api.worktrees.overview()
+      const overview = repoFilter ? all.filter((r) => repoFilter(r.item.repoPath)) : all
       setRows(overview)
       setFailed(null)
       onRows?.(overview)
@@ -133,7 +136,7 @@ export const WorktreePanel = forwardRef<
       toast.error(t(m.key, m.params))
       setFailed(t(m.key, m.params))
     }
-  }, [t, onRows])
+  }, [t, onRows, repoFilter])
 
   useEffect(() => {
     void refresh()
