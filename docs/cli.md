@@ -897,10 +897,11 @@ sub-project it is filed under, shares one file guard, one set of leases and one 
 same files wait for each other, and plans on different files run side by side. A sub-project reads every setting it
 leaves unset (delivery, auto-approve, hands-off, test command, concurrency…) from its workspace. Astera makes
 sub-projects by itself from the work: `jobs set --areas` (the planner names a plan's areas) files the plan under the
-sub-project named after its first area, created when the workspace has none by that name; `projects set --auto-projects
-off` on the workspace stops that. `jobs set --project <projectId>` moves a plan that has not started to another project
+sub-project named after its first area, created when the workspace has none by that name, once `projects set
+--auto-projects on` turned that on for the workspace: a project added from now on starts with it off. `jobs set --project <projectId>` moves a plan that has not started to another project
 of the same workspace. `projects remove --id <projectId>` unregisters a project and touches no folder or plan; it is
-refused (6) while the project has a plan that is not archived, and for a workspace that still has sub-projects.
+refused (6) while the project has a plan that is running, paused or queued (a completed, delivered, stopped or archived
+plan does not hold it), and for a workspace that still has sub-projects.
 
 Only repositories you open become projects: a tab standing in a subfolder of a registered project, or in a linked
 worktree such as `.claude/worktrees/<name>`, registers nothing new, and `projects add` with such a folder registers the

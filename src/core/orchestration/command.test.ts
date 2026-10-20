@@ -10086,6 +10086,7 @@ describe('T3 workspaces', () => {
 
   it('jobs-set --areas files plans under an auto-created child per first area', async () => {
     const { deps, rootId, ids } = await seed(3)
+    expect((await call(deps, 'projects-set', { id: rootId, autoProjects: 'on' }, '')).status).toBe(200)
     expect((await call(deps, 'jobs-set', { id: ids[0], areas: 'ui,api' }, '')).status).toBe(200)
     const [ui] = children(deps, rootId)
     expect(ui).toMatchObject({ name: 'ui', path: repo, parentId: rootId })
@@ -10100,9 +10101,8 @@ describe('T3 workspaces', () => {
     expect(listed.filter((p) => p.parentId === rootId)).toHaveLength(2)
   })
 
-  it('creates nothing when the workspace set autoProjects off', async () => {
+  it('creates nothing for a new project, which starts with autoProjects off', async () => {
     const { deps, rootId, ids } = await seed(1)
-    expect((await call(deps, 'projects-set', { id: rootId, autoProjects: 'off' }, '')).status).toBe(200)
     expect(deps.getState().projects[0].autoProjects).toBe(false)
     expect((await call(deps, 'jobs-set', { id: ids[0], areas: 'ui' }, '')).status).toBe(200)
     expect(children(deps, rootId)).toEqual([])
@@ -10120,7 +10120,7 @@ describe('T3 workspaces', () => {
   })
 
   it('projects-remove refuses a workspace with children or a project with active plans', async () => {
-    const { deps, rootId, ids } = await seed(1)
+    const { deps, rootId, ids } = await seed(1, { autoProjects: true })
     await call(deps, 'jobs-set', { id: ids[0], areas: 'ui' }, '')
     const [ui] = children(deps, rootId)
     expect((await call(deps, 'projects-remove', { id: rootId }, '')).status).toBe(409)

@@ -6,7 +6,7 @@
 // The state operations that need a path live here instead; `OrchState.projects` is still just an
 // array on the state those functions return.
 import { comparablePath, isPathWithin, isSamePath } from '../files/tree'
-import { isJobActive } from './lifecycle'
+import { jobFinished } from './after'
 import { MAX_CONCURRENT_WORKERS, newId, type Job, type Project } from './types'
 import { projectWithWorkspace, type OrchState, type Res } from './state'
 
@@ -94,7 +94,10 @@ export function ensureProject(
     id: newId('proj'),
     path: a.path,
     name: nameFromPath(a.path),
-    addedAt: a.now
+    addedAt: a.now,
+    // A new project makes no sub-projects from `jobs set --areas` until the owner turns it on (`projects set
+    // --auto-projects on`). Written here rather than flipping the absent default, which keeps older projects as they were.
+    autoProjects: false
   }
   return { state: { ...s, projects: [...s.projects, project] }, project }
 }
@@ -208,15 +211,17 @@ export function addSubProject(s: OrchState, a: { parentId: string; name: string;
   return { ok: true, state: { ...s, projects: [...s.projects, project] }, value: project }
 }
 
-/** Unregisters a project. Refused while a plan of it is not archived, and for a workspace that still has sub-projects:
- *  removing one never removes another. */
+/** Unregisters a project. Refused while a plan of it is running, paused or queued (not `jobFinished`: a completed,
+ *  delivered, stopped or archived plan does not hold it), and for a workspace that still has sub-projects: removing
+ *  one never removes another. */
 export function removeProject(s: OrchState, id: string): Res<Project> {
   const found = findProject(s, id)
   if (!found) return { ok: false, error: `unknown project: ${id}`, missing: true }
   const children = childProjectsOf(s, id)
   if (children.length > 0) return { ok: false, error: `${id} has sub-projects (${children.map((c) => c.id).join(', ')}); remove them first` }
-  const active = s.jobs.filter((j) => isJobActive(j) && jobInProject(s, j, found))
-  if (active.length > 0) return { ok: false, error: `${id} has active plans (${active.map((j) => j.id).join(', ')}); archive them first` }
+  const active = s.jobs.filter((j) => jobInProject(s, j, found) && !jobFinished(s, j.id))
+  if (active.length > 0)
+    return { ok: false, error: `${id} has plans that are running, paused or queued (${active.map((j) => j.id).join(', ')}); stop or archive them first` }
   return { ok: true, state: { ...s, projects: s.projects.filter((p) => p.id !== id) }, value: found }
 }
 

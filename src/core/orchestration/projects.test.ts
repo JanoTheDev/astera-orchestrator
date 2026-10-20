@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import path from 'node:path'
-import { createJob, createTask, emptyState, startJobRun } from './state'
+import { createJob, createTask, emptyState, startJobRun, type OrchState } from './state'
 import { dropNonGitProjects, ensureGitProject, ensureProject, findProject, findProjectByPath, nameFromPath, renameProject, setProjectSettings } from './projects'
 import { addSubProject, autoProjectFor, childProjectsOf, findProjectContaining, jobInProject, moveJobToProject, projectOfJob, removeProject } from './projects'
-import type { Project } from './types'
+import type { JobRun, Project, Task } from './types'
 import { foldsCaseHere } from '../testPaths'
 
 /** An absolute path this platform actually produces, so the case and separator rules under test are
@@ -225,6 +225,33 @@ describe('workspaces: sub-projects of one repository (T3)', () => {
     expect(projectOfJob(moved.state, moved.value)).toMatchObject({ id: ui.value.id, handsOff: true, delivery: 'push' })
   })
 
+  it('a new project starts with autoProjects off, so --areas files no plan under a sub-project', () => {
+    const { s, rootId, jobId } = withPlan(['src/renderer/a.tsx'])
+    expect(findProject(s, rootId)?.autoProjects).toBe(false)
+    expect(autoProjectFor(s, s.jobs[0], 'ui', s.tasks.filter((t) => t.jobId === jobId), now)).toBe(s)
+    expect(childProjectsOf(s, rootId)).toEqual([])
+  })
+
+  it('only a running, paused or queued plan holds a project', () => {
+    const { s, rootId, jobId } = withPlan()
+    /** The plan with one Run whose one Task is `status`, the Run `paused` when asked. */
+    const ran = (status: Task['status'], paused = false): OrchState => ({
+      ...s,
+      jobs: s.jobs.map((j) => ({ ...j, pendingStart: undefined })),
+      runs: [{ id: 'run_1', jobId, ordinal: 1, createdAt: now, ...(paused ? { paused: true } : {}) } as JobRun],
+      tasks: [...s.tasks, { id: 't_run', runId: 'run_1', title: 't', spec: 's', deps: [], status, consecutiveFailures: status === 'failed' ? 99 : 0, createdAt: now, updatedAt: now }]
+    })
+    expect(ok(removeProject(ran('completed'), rootId)).state.projects).toEqual([])
+    // a failed plan whose retries ran out has ended too
+    expect(ok(removeProject(ran('failed'), rootId)).state.projects).toEqual([])
+    const running = removeProject(ran('dispatched'), rootId)
+    expect(running).toMatchObject({ ok: false, error: expect.stringContaining(`running, paused or queued (${jobId})`) })
+    expect(removeProject(ran('dispatched', true), rootId)).toMatchObject({ ok: false })
+    // queued: not started, waiting on another plan
+    const queued = { ...s, jobs: s.jobs.map((j) => ({ ...j, after: 'job_other' })) }
+    expect(removeProject(queued, rootId)).toMatchObject({ ok: false })
+  })
+
   it('removes a project only without active plans or sub-projects', () => {
     const { s, rootId, jobId } = withPlan()
     const ui = ok(addSubProject(s, { parentId: rootId, name: 'ui', now }))
@@ -261,7 +288,7 @@ describe('workspaces: sub-projects of one repository (T3)', () => {
   })
 
   it('autoProjectFor files plans by first area: two ui plans share one child, orch gets another, off makes none', () => {
-    const { s, rootId, jobId } = withPlan(['src/renderer/a.tsx', 'README.md'])
+    const { s, rootId, jobId } = withPlan(['src/renderer/a.tsx', 'README.md'], { autoProjects: true })
     const tasksOf = (st: typeof s, id: string) => st.tasks.filter((t) => t.jobId === id)
     const a = autoProjectFor(s, s.jobs[0], 'ui', tasksOf(s, jobId), now)
     const ui = childProjectsOf(a, rootId)
