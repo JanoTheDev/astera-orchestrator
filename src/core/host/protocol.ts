@@ -317,6 +317,12 @@ export interface PtyMeta {
   restore: Record<string, unknown>
 }
 
+/** The `restore` key the Host writes on a session orchestration started (item 9): the id of the Run or Job it belongs
+ *  to, or `ORCH_MARK_AGENT` for a session an agent created outside any Run. Absent on a person's own tabs. A finished
+ *  Run's sweep closes only sessions with this mark or a state record (exec/runEnd.ts). */
+export const ORCH_MARK_KEY = 'orchOf'
+export const ORCH_MARK_AGENT = 'agent'
+
 /** The same four fields PtySpawnOptions has always had; repeated here so the protocol does not
  *  depend on the sessions module. */
 export interface PtyOpenOptions {

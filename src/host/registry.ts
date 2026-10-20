@@ -4,7 +4,7 @@
 // No `net` here and no node-pty either — the pty arrives as a dependency, so the whole file is
 // testable with a fake and the same code runs under a real ConPTY without a test ever spawning one.
 import type { CloseReason } from '../core/types'
-import type { PtyEntry, PtyMeta, PtyOpenOptions } from '../core/host/protocol'
+import { ORCH_MARK_KEY, type PtyEntry, type PtyMeta, type PtyOpenOptions } from '../core/host/protocol'
 // Imports nothing itself, so it adds nothing to the Host bundle but the one pattern.
 import { isOnlyTerminalReports } from '../core/terminal/reports'
 
@@ -201,6 +201,9 @@ export class PtyRegistry {
   readonly bootId: string
   /** The exited sweep's timer, only while an exited pty is held (none on a Host with nothing exited). */
   private sweeper: ReturnType<typeof setInterval> | null = null
+  /** Item 9: the orchestration mark of each session id (`markOrch`), so a pty opened after the mark (a worker whose
+   *  Dispatch committed before its spawn, a roll's new pty) carries it in its note too. */
+  private readonly orchMarks = new Map<string, string>()
 
   constructor(deps: PtyRegistryDeps) {
     this.deps = deps
@@ -303,11 +306,12 @@ export class PtyRegistry {
       this.deps.log(`pty ${a.id} could not be started: ${String(err)}`)
       return { ok: false, error: String(err) }
     }
+    const mark = a.meta?.kind === 'session' ? this.orchMarks.get(a.meta.id) : undefined
     const entry: Entry = {
       id: a.id,
       pty,
       pid: pty.pid,
-      meta: a.meta ?? null,
+      meta: a.meta && mark !== undefined ? { ...a.meta, restore: { ...a.meta.restore, [ORCH_MARK_KEY]: mark } } : (a.meta ?? null),
       cwd: a.opts.cwd,
       ring: createPtyRing({ bound: this.scrollback }),
       term: createLiveTerminal({ cols: a.opts.cols, rows: a.opts.rows }),
@@ -481,6 +485,7 @@ export class PtyRegistry {
       this.endedSessions.delete(old)
       const e = this.entries.get(old)
       if (e?.meta?.kind === 'session') {
+        if (this.sessionPty(e.meta.id) === null) this.orchMarks.delete(e.meta.id)
         this.endedCodes.delete(e.meta.id)
         this.endedCodes.set(e.meta.id, e.exitCode ?? null)
         for (const k of this.endedCodes.keys()) {
@@ -671,6 +676,21 @@ export class PtyRegistry {
     // already reported must not change under whoever is holding it.
     e.meta = { ...e.meta, restore: { ...e.meta.restore, ...patch } }
     this.tellMeta(id, e.meta, 'note')
+  }
+
+  /** Item 9: marks a session as one orchestration started, for the Run or Job `owner` (protocol.ts ORCH_MARK_KEY): in
+   *  its live pty's note now, and in the note of any pty opened for it later. */
+  markOrch(sessionId: string, owner: string): void {
+    this.orchMarks.set(sessionId, owner)
+    const p = this.sessionPty(sessionId)
+    if (p !== null && this.metaOf(p)?.restore[ORCH_MARK_KEY] !== owner) this.note(p, { [ORCH_MARK_KEY]: owner })
+  }
+
+  /** The orchestration mark of a session (`markOrch`, or a note that came with it), or null for none. */
+  orchMarkOf(sessionId: string): string | null {
+    const p = this.sessionPty(sessionId)
+    const noted = p === null ? undefined : this.metaOf(p)?.restore[ORCH_MARK_KEY]
+    return typeof noted === 'string' ? noted : (this.orchMarks.get(sessionId) ?? null)
   }
 
   /** The ring's output (today's tail, for `pty-attach`), or empty for an id that was never here, and empty, too, for

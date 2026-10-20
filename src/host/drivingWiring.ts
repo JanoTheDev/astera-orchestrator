@@ -53,6 +53,9 @@ export interface HostDrivingWiring {
     recovery: HostRecovery
     /** The live worker sessions and their specs, for adoption (exec/adopt.ts). */
     liveWorkers(): LiveWorker[]
+    /** Item 9: a session orchestration started, marked in the registry with its Run or Job (exec/runEnd.ts). */
+    markSession(sessionId: string, owner: string): void
+    sessionMarkOf(sessionId: string): string | null
   }
   /** Spread into startHostServer's deps. */
   serverHooks: { onAppsChanged(): void }
@@ -224,6 +227,8 @@ export function composeHostDriving(a: {
           const accountId = str('accountId')
           return [{ id: e.meta.id, spec, ...(cwd !== undefined ? { cwd } : {}), ...(accountId !== undefined ? { accountId } : {}) }]
         }),
+      markSession: (sessionId, owner) => a.registry.markOrch(sessionId, owner),
+      sessionMarkOf: (sessionId) => a.registry.orchMarkOf(sessionId),
       nextFireOf: (runId) => driving.nextFireOf(runId),
       // False from dispose on (review of Task 13, I1): `driving.drives()` keeps the last driver, and a
       // leaving Host must start none of the three.

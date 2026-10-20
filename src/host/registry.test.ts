@@ -1075,3 +1075,25 @@ describe('PtyRegistry size owner', () => {
     expect(h.r.localOwns('p1')).toBe(false)
   })
 })
+
+describe('PtyRegistry orchestration marks (item 9)', () => {
+  const session = (id: string): PtyMeta => meta({ kind: 'session', id, restore: { cwd: 'D:/wt' } })
+  it('marks a live session in its note, and a pty opened later for a marked session at open', () => {
+    const h = registry()
+    h.r.open({ id: 'p1', file: 'claude', args: [], opts, meta: session('ses_1') })
+    h.r.markOrch('ses_1', 'run_1')
+    expect(h.r.metaOf('p1')?.restore).toEqual({ cwd: 'D:/wt', orchOf: 'run_1' })
+    h.r.markOrch('ses_2', 'job_1')
+    h.r.open({ id: 'p2', file: 'claude', args: [], opts, meta: session('ses_2') })
+    expect(h.r.metaOf('p2')?.restore.orchOf).toBe('job_1')
+    expect(h.r.orchMarkOf('ses_2')).toBe('job_1')
+  })
+
+  it('answers no mark for a session nobody marked, and reads one a note came with', () => {
+    const h = registry()
+    h.r.open({ id: 'p1', file: 'claude', args: [], opts, meta: session('ses_tab') })
+    h.r.open({ id: 'p2', file: 'claude', args: [], opts, meta: meta({ kind: 'session', id: 'ses_w', restore: { orchOf: 'run_9' } }) })
+    expect(h.r.orchMarkOf('ses_tab')).toBeNull()
+    expect(h.r.orchMarkOf('ses_w')).toBe('run_9')
+  })
+})

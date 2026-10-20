@@ -43,11 +43,12 @@
 // Imports only core modules and node builtins: this bundles into the Host.
 import path from 'node:path'
 import { t } from '../core/i18n'
-import { HOST_YIELD_DISPATCH, HOST_YIELD_RECOVERY } from '../core/host/protocol'
+import { HOST_YIELD_DISPATCH, HOST_YIELD_RECOVERY, ORCH_MARK_KEY } from '../core/host/protocol'
 import { driverOf, readDispatchGate, type DispatchGate, type Driver } from '../core/host/driver'
 import { createDispatchLoop, ORCH_FIRE_TICK_MS, type DispatchLoopContext } from '../core/orchestration/exec/dispatchLoop'
 import { sweepStaleSpecFiles } from '../core/orchestration/exec/specFiles'
 import { createStallWatch } from '../core/orchestration/exec/stallWatch'
+import { createRunEndSweep } from '../core/orchestration/exec/runEnd'
 import { lostWithNobody } from '../core/orchestration/lostGate'
 import { createLostGateGuard, type LostGateGuard } from './lostGateGuard'
 import { policyOf } from '../core/orchestration/convergence'
@@ -131,7 +132,7 @@ export function createHostDriving(d: {
   /** The handover belt (N1): starts one open repair Dispatch that has no spec yet. */
   startRepair(a: { dispatchId: string }): void
   /** `sessionExitCode` answers the loop's `sessionGone` (limits pass L1); optional for the test fakes. */
-  registry: Pick<PtyRegistry, 'sessionPty' | 'list'> & Partial<Pick<PtyRegistry, 'sessionExitCode' | 'lastPersonWrite'>>
+  registry: Pick<PtyRegistry, 'sessionPty' | 'list'> & Partial<Pick<PtyRegistry, 'sessionExitCode' | 'lastPersonWrite' | 'liveEntries'>>
   /** The chat sessions' line processes, so `sessionAlive` sees a Run's external coordinator on a chat (spec E5).
    *  Optional for the test fakes. */
   procs?: Pick<ProcRegistry, 'list'>
@@ -462,6 +463,33 @@ export function createHostDriving(d: {
       })
     : null
 
+  /** The finished Runs' leftover sessions (item 9, exec/runEnd.ts): every live pty with its folder, mark and spec. */
+  const runEnd = createRunEndSweep({
+    getState: () => d.orch.state(),
+    live: () =>
+      (d.registry.liveEntries?.() ?? []).flatMap((e) => {
+        if (e.meta?.kind !== 'session') return []
+        const r = e.meta.restore
+        const mark = r[ORCH_MARK_KEY]
+        const spec = r.rollPrompt
+        return [{ id: e.meta.id, cwd: e.cwd, ...(typeof mark === 'string' ? { mark } : {}), ...(typeof spec === 'string' ? { spec } : {}) }]
+      }),
+    stop: async (id, reason) => {
+      const stop = d.orch.internalDeps().stopCoordinator
+      if (!stop) throw new Error('this Host has no way to stop a session')
+      await stop(id, reason, 'released')
+    },
+    lastPersonInputAt: (id) => {
+      const p = d.registry.sessionPty(id)
+      return p === null ? null : (d.registry.lastPersonWrite?.(p) ?? null)
+    },
+    sessionBusy: (id) => d.spawner.sessionBusy(id),
+    mayStart,
+    nowMs: () => d.nowMs(),
+    log,
+    ...(d.activity ? { activity: d.activity } : {})
+  })
+
   const guard = d.guard ?? createLostGateGuard()
   /** An attached app keeps recovery: its own reconciler decides (D8). */
   const keepsRecovery = (): boolean => d.server.hasApp() && d.server.appsKeep(HOST_YIELD_RECOVERY)
@@ -570,6 +598,7 @@ export function createHostDriving(d: {
         await pass()
         await loop.nudge()
         await stalls?.watch()
+        await runEnd.run()
       }
       // **R5 and R17.** Schedules fire from the process that drives (`driverOf`), whether or not an app
       // is attached: a fired Run starts the way `jobs run` starts one (U1), and the Host does both

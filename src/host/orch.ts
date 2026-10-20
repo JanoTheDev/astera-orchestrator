@@ -23,6 +23,8 @@ import { runningRunCount } from '../core/orchestration/running'
 import { isPlaceholderSessionId, type Dispatch } from '../core/orchestration/types'
 import { specsDirOf, sweepStaleSpecFiles } from '../core/orchestration/exec/specFiles'
 import { adoptLiveWorkers, type LiveWorker } from '../core/orchestration/exec/adopt'
+import { orchOwnerOfCaller, orchSessionsAdded } from '../core/orchestration/exec/runEnd'
+import { ORCH_MARK_AGENT } from '../core/host/protocol'
 import { coordinatorReleaseOf } from '../core/orchestration/exec/releaseDefer'
 import type { OrchCall, OrchCaller } from '../core/host/orchProtocol'
 import { mcpRefusal } from '../core/host/mcpGate'
@@ -468,6 +470,11 @@ export function createHostOrch(a: {
   /** The live worker sessions with the text naming each one's spec (exec/adopt.ts LiveWorker), for adoption: the stall
    *  watch's and `worker-stop`'s. Absent: nothing is adopted. */
   liveWorkers?(): LiveWorker[]
+  /** Item 9: marks a session orchestration started with the Run or Job it belongs to (registry.markOrch), so a finished
+   *  Run's sweep can tell it from a person's own tab (exec/runEnd.ts). Absent: nothing is marked. */
+  markSession?(sessionId: string, owner: string): void
+  /** The mark a session carries (registry.orchMarkOf), or null. Read for a session an agent creates. */
+  sessionMarkOf?(sessionId: string): string | null
   act(name: string, args: unknown[]): Promise<unknown>
   hasApp(): boolean
   /** Called with the state every commit leaves behind, so the Host can push it to the app — and with
@@ -858,6 +865,31 @@ export function createHostOrch(a: {
       holder.running = true
     }
   }
+  /** Item 9: marks the sessions a commit gave orchestration (exec/runEnd.ts orchSessionsAdded). Isolated: the commit
+   *  has landed, and a mark that fails costs only the sweep's reach. */
+  const markOrchSessions = (prev: OrchState, next: OrchState): void => {
+    if (!a.markSession) return
+    try {
+      for (const m of orchSessionsAdded(prev, next)) a.markSession(m.sessionId, m.owner)
+    } catch (err) {
+      a.log(`the sessions of a commit could not be marked as orchestration's: ${String(err)}`)
+    }
+  }
+  /** `sessions create` from an agent session: the new session is marked with the Run or Job its creator works for (its
+   *  own mark, or what the state names it), or as an agent's (ORCH_MARK_AGENT). A person's call (no session) marks none. */
+  const createSessionAs =
+    (callerId: string, create: NonNullable<OrchServerDeps['createSession']>): NonNullable<OrchServerDeps['createSession']> =>
+    async (o) => {
+      const row = await create(o)
+      if (callerId !== '' && a.markSession) {
+        try {
+          a.markSession(row.id, a.sessionMarkOf?.(callerId) ?? orchOwnerOfCaller(store.get(), callerId) ?? ORCH_MARK_AGENT)
+        } catch (err) {
+          a.log(`session ${row.id}, created by ${callerId}, could not be marked as orchestration's: ${String(err)}`)
+        }
+      }
+      return row
+    }
   const depsFor = (marks: CallMarks, actor: JournalActor): OrchServerDeps => {
     const deps = hostOrchDeps({
       checkWaits,
@@ -891,6 +923,7 @@ export function createHostOrch(a: {
         // P5) and its version under this Host's life as the key (J6, P1).
         journalSafely('recording a commit', () => a.journal?.committed({ prev, next, version: committed, actor }))
         recordFinishedRuns(prev, next)
+        markOrchSessions(prev, next)
         kickDriver()
       },
       now: a.now,
@@ -924,7 +957,7 @@ export function createHostOrch(a: {
       chats: a.chats ?? null,
       chatAppAnswers: a.chatAppAnswers,
       ...(a.dispatchTask ? { dispatchTask: a.dispatchTask } : {}),
-      ...(a.createSession ? { createSession: a.createSession } : {}),
+      ...(a.createSession ? { createSession: createSessionAs(actor.sessionId ?? '', a.createSession) } : {}),
       ...(a.github ? { github: a.github } : {}),
       ...(a.readUnderstanding ? { readUnderstanding: a.readUnderstanding } : {}),
       ...(a.readSummaries ? { readSummaries: a.readSummaries } : {}), // W9-I
