@@ -47,7 +47,7 @@ const happy = (): Record<string, Reply | Reply[]> => ({
   'merge-base --is-ancestor origin/main HEAD': {}
 })
 
-function setup(over: Record<string, Reply | Reply[]> = {}, o: { merge?: 'ok' | 'conflict' | 'conflict-once' | 'dirty'; validate?: 'ok' | 'fail' } = {}) {
+function setup(over: Record<string, Reply | Reply[]> = {}, o: { merge?: 'ok' | 'conflict' | 'conflict-once' | 'dirty'; validate?: 'ok' | 'fail' | 'fail-second' } = {}) {
   const g = fakeGit({ ...happy(), ...over })
   const merges: { into: string; paths: string[]; message?: string }[] = []
   const validated: string[] = []
@@ -67,7 +67,7 @@ function setup(over: Record<string, Reply | Reply[]> = {}, o: { merge?: 'ok' | '
     },
     validate: async (cwd) => {
       validated.push(cwd)
-      return o.validate === 'fail' ? { ok: false, reason: 'npm test exited 1' } : { ok: true, ran: 1 }
+      return o.validate === 'fail' || (o.validate === 'fail-second' && validated.length === 2) ? { ok: false, reason: 'npm test exited 1' } : { ok: true, ran: 1 }
     }
   }
   const go = (branch?: string, defaultBranch?: string) =>
@@ -190,12 +190,12 @@ describe('deliverByPush (W6-H)', () => {
     expect(h.validated).toEqual([])
   })
 
-  it('fetches and pushes once more after a rejected push, then stops, never forcing', async () => {
+  it('fetches and pushes again after a rejected push, three rounds at most, then stops, never forcing', async () => {
     const h = setup({ 'push origin main': { ok: false, stderr: '! [rejected] main -> main (fetch first)' } })
     const r = await h.go()
     expect(r).toMatchObject({ ok: false, reason: expect.stringContaining('was rejected') })
-    expect(h.calls.filter((a) => a[0] === 'push')).toHaveLength(2)
-    expect(h.calls.filter((a) => a[0] === 'fetch')).toHaveLength(2)
+    expect(h.calls.filter((a) => a[0] === 'push')).toHaveLength(4)
+    expect(h.calls.filter((a) => a[0] === 'fetch')).toHaveLength(4)
     expect(forced(h.calls)).toBe(false)
   })
 
@@ -206,11 +206,37 @@ describe('deliverByPush (W6-H)', () => {
     expect(h.calls.filter((a) => a[0] === 'push')).toHaveLength(2)
   })
 
-  it('does not push again when origin moved on: the retry would not be a fast-forward', async () => {
-    const h = setup({ 'push origin main': { ok: false, stderr: 'rejected' }, 'merge-base --is-ancestor origin/main HEAD': { ok: false } })
+  const movedOn = (merge: Reply = {}): Record<string, Reply | Reply[]> => ({
+    'push origin main': [{ ok: false, stderr: '! [rejected] main -> main (fetch first)' }, {}],
+    'merge-base --is-ancestor origin/main HEAD': { ok: false },
+    'merge --no-edit origin/main': merge,
+    'merge --abort': {}
+  })
+
+  it('when origin moved on during the delivery, merges it in, validates again and pushes, never forcing', async () => {
+    const h = setup(movedOn())
     const r = await h.go()
-    expect(r.ok).toBe(false)
+    expect(r.ok).toBe(true)
+    expect(h.calls.filter((a) => a[0] === 'push')).toHaveLength(2)
+    expect(h.validated).toEqual(['/repo', '/repo'])
+    expect(forced(h.calls)).toBe(false)
+  })
+
+  it('stops, keeping the plan on the branch, when the moved origin does not merge cleanly', async () => {
+    const h = setup(movedOn({ ok: false, stderr: 'CONFLICT (content)' }))
+    const r = await h.go()
+    expect(r).toMatchObject({ ok: false, reason: expect.stringContaining('does not merge cleanly') })
+    expect(h.calls).toContainEqual(['merge', '--abort'])
     expect(h.calls.filter((a) => a[0] === 'push')).toHaveLength(1)
+    expect(h.head()).toBe('merged')
+  })
+
+  it('undoes its merges when the validation fails after merging the moved origin', async () => {
+    const h = setup(movedOn(), { validate: 'fail-second' })
+    const r = await h.go()
+    expect(r).toMatchObject({ ok: false, reason: expect.stringContaining('after merging origin/main') })
+    expect(h.calls.filter((a) => a[0] === 'push')).toHaveLength(1)
+    expect(h.head()).toBe('base')
   })
 
   it('stops when the default branch cannot be told', async () => {

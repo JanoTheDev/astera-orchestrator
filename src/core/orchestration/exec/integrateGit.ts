@@ -608,6 +608,8 @@ export interface ReapContext {
  *  바뀐다 — 고정 대기가 아니라 조건을 폴링하고(coordinator 의 waitUntilIdle 과 같은 관례) 이
  *  시간을 넘기면 정리를 건너뛴다. 살아 있는 프로세스 밑의 폴더는 지우지 않는다. */
 export const WORKTREE_CLOSE_TIMEOUT_MS = 5_000
+/** Rounds of fetch, catch up and push after a rejected delivery push (busy repos: several plans deliver at once). */
+const PUSH_ROUNDS = 3
 /**
  * 워크트리 하나를 폴더째 지운다 — 그 안에서 도는 세션을 먼저 닫고. true = 지워졌다.
  *
@@ -903,8 +905,9 @@ export type PushResult =
  *    (`refreshOnto`) and merged once more; a second failure leaves the folder as that merge left it;
  * 5. the validation runs on the merged folder; a failure resets to the commit recorded before 4, which undoes only
  *    Astera's merges (the folder was clean at 2);
- * 6. `push origin <branch>`, **never forced**; a rejected push fetches and pushes once more only when origin's branch
- *    is still an ancestor of ours, i.e. the push would be a fast-forward.
+ * 6. `push origin <branch>`, **never forced**; a rejected push fetches, and when origin moved on merges it in and runs
+ *    the validation again, then pushes; up to `PUSH_ROUNDS` times. A conflict with origin stops with the plan's
+ *    commits kept; a failed second validation undoes them as 5 does.
  */
 export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<PushResult> {
   const run = ctx.git ?? realGit
@@ -987,21 +990,36 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
   const checked = await ctx.validate(cwd)
   if (!checked.ok) return undo(`the validation failed on the merged ${branch}: ${checked.reason}`)
 
-  // 6.
+  // 6. Origin can move on while the validation runs (another plan's delivery, a teammate's push). Its commits are merged
+  // in, the result validated again (a clean merge can still clash, e.g. two migrations taking one number), then pushed;
+  // never forced
   let pushed = await run(['push', 'origin', branch], w)
-  if (!pushed.ok) {
-    ctx.log(`delivery: push of ${branch} was rejected (${why(pushed)}), fetching once`)
-    const again = await run(['fetch', 'origin', branch], w)
-    const ahead = again.ok && (await run(['merge-base', '--is-ancestor', `origin/${branch}`, 'HEAD'], { cwd })).ok
-    if (ahead) pushed = await run(['push', 'origin', branch], w)
-    if (!ahead || !pushed.ok)
-      return fail(
-        `git push origin ${branch} was rejected: ${why(pushed)}. The merged and validated commits are on your ${branch}, ` +
-          `not pushed; git reset --hard ${base} undoes them.`
-      )
+  let validated = checked.ran
+  for (let round = 1; !pushed.ok && round <= PUSH_ROUNDS; round++) {
+    ctx.log(`delivery: push of ${branch} was rejected (${why(pushed)}), fetching (round ${round} of ${PUSH_ROUNDS})`)
+    if (!(await run(['fetch', 'origin', branch], w)).ok) break
+    if (!(await run(['merge-base', '--is-ancestor', `origin/${branch}`, 'HEAD'], { cwd })).ok) {
+      const caught = await run(['merge', '--no-edit', `origin/${branch}`], w)
+      if (!caught.ok) {
+        await run(['merge', '--abort'], w)
+        return fail(
+          `origin/${branch} moved on during the delivery and does not merge cleanly with the plan: ${why(caught)}. ` +
+            `The merged and validated commits are on your ${branch}, not pushed; git reset --hard ${base} undoes them.`
+        )
+      }
+      const rechecked = await ctx.validate(cwd)
+      if (!rechecked.ok) return undo(`the validation failed after merging origin/${branch}, which moved on during the delivery: ${rechecked.reason}`)
+      validated = rechecked.ran
+    }
+    pushed = await run(['push', 'origin', branch], w)
   }
+  if (!pushed.ok)
+    return fail(
+      `git push origin ${branch} was rejected: ${why(pushed)}. The merged and validated commits are on your ${branch}, ` +
+        `not pushed; git reset --hard ${base} undoes them.`
+    )
   // W8-A: the notes ref goes next to the branch; a rejected notes push costs the delivery nothing
   if ((await pushNotes(cwd, run)) === 'rejected') ctx.log(`delivery: the attribution notes (refs/notes/astera) were not pushed`)
   const sha = await run(['rev-parse', 'HEAD'], { cwd })
-  return { ok: true, branch, sha: sha.ok ? sha.stdout : '', merged: merged.merged, validated: checked.ran }
+  return { ok: true, branch, sha: sha.ok ? sha.stdout : '', merged: merged.merged, validated }
 }
