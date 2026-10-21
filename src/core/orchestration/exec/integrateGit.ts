@@ -609,7 +609,7 @@ export interface ReapContext {
  *  시간을 넘기면 정리를 건너뛴다. 살아 있는 프로세스 밑의 폴더는 지우지 않는다. */
 export const WORKTREE_CLOSE_TIMEOUT_MS = 5_000
 /** Rounds of fetch, catch up and push after a rejected delivery push (busy repos: several plans deliver at once). */
-const PUSH_ROUNDS = 3
+const PUSH_ROUNDS = 10
 /**
  * 워크트리 하나를 폴더째 지운다 — 그 안에서 도는 세션을 먼저 닫고. true = 지워졌다.
  *

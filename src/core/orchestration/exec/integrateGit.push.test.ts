@@ -190,12 +190,12 @@ describe('deliverByPush (W6-H)', () => {
     expect(h.validated).toEqual([])
   })
 
-  it('fetches and pushes again after a rejected push, three rounds at most, then stops, never forcing', async () => {
+  it('fetches and pushes again after a rejected push, ten rounds at most, then stops, never forcing', async () => {
     const h = setup({ 'push origin main': { ok: false, stderr: '! [rejected] main -> main (fetch first)' } })
     const r = await h.go()
     expect(r).toMatchObject({ ok: false, reason: expect.stringContaining('was rejected') })
-    expect(h.calls.filter((a) => a[0] === 'push')).toHaveLength(4)
-    expect(h.calls.filter((a) => a[0] === 'fetch')).toHaveLength(4)
+    expect(h.calls.filter((a) => a[0] === 'push')).toHaveLength(11)
+    expect(h.calls.filter((a) => a[0] === 'fetch')).toHaveLength(11)
     expect(forced(h.calls)).toBe(false)
   })
 
