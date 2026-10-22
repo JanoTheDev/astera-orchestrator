@@ -72,6 +72,9 @@ export function buildHandoverPrompt(a: {
   promptsMode?: boolean
   /** #117: the plan runs hands-off (`handsOffOf`): its coordinator decides escalations itself. */
   handsOff?: boolean
+  /** T3: the app places this Run's ready Tasks itself (`placedByApp` with the coordinator attached), so the
+   *  coordinator does not start them. False (or absent) for a scheduled Job's Run, whose coordinator still places. */
+  appPlaces?: boolean
 }): string {
   const sequential = a.concurrency <= 1
   // A Job from MCP `create_job` or `jobs create` carries only its objective (e2e 2026-10-01, second
@@ -106,14 +109,30 @@ export function buildHandoverPrompt(a: {
         'reassign their accounts. If the plan looks wrong to you,',
         'or the Tasks plainly do not cover the objective (a coordinator before you may have been stopped',
         'part-way through planning), open a Gate saying so instead of editing around it.',
-        ...(a.promptsMode ? ['The Tasks are already planned and approved; do not task-update them. Start the ready ones.'] : [])
+        ...(a.promptsMode
+          ? [
+              'The Tasks are already planned and approved; do not task-update them. ' +
+                (a.appPlaces ? 'Astera starts the ready ones.' : 'Start the ready ones.')
+            ]
+          : [])
       ]
   return [
     planning
       ? 'You are the coordinator for one Job in Astera. It was started with an objective and no Tasks.'
       : 'You are the coordinator for one Job in Astera. Its Tasks were laid out before you joined.',
-    'Nothing else is driving it: the app starts no workers for this Run, and no other agent is',
-    'reading its mail. Getting these Tasks done by workers, and answering the workers you start, is your job.',
+    ...(a.appPlaces
+      ? [
+          'WHO STARTS WORKERS',
+          'Astera starts a worker for each ready Task itself, the moment it is ready, within the concurrency',
+          'limit, the file guard and the waves. Do not start ready Tasks yourself: `worker-start` refuses a',
+          "Task whose worker is already up, and that refusal is not an error. No other agent is reading this",
+          "Run's mail. Getting these Tasks done by workers, and answering those workers, is your job: the",
+          "questions and Gates, failures and repairs (`worker-start --retry-of <dsp>`), reviews and the plan's delivery."
+        ]
+      : [
+          'Nothing else is driving it: the app starts no workers for this Run, and no other agent is',
+          'reading its mail. Getting these Tasks done by workers, and answering the workers you start, is your job.'
+        ]),
     // Review fix round 1, I1: the session runs in job.cwd, the person's own checkout, with permissions
     // bypassed; only this sentence keeps the coordinator from doing the work there itself.
     'You plan and place; you do not change files.',
@@ -189,6 +208,7 @@ export function buildHandoverPrompt(a: {
     'sends you a message the moment a worker reports done or failed, a Task becomes ready, a merge',
     'into the plan branch succeeds or fails, or a Gate is answered, and each message says the next',
     'action. `astera check --json` shows the unread mail at any time; ack each batch you handle.',
+    ...(a.appPlaces ? ['A Task that becomes ready needs nothing from you: Astera starts its worker.'] : []),
     'Answer a question with `astera reply --id <msg> --body -`, and decide',
     'it yourself whenever the Task spec and the objective above already answer it — that is what a',
     'coordinator is for.',

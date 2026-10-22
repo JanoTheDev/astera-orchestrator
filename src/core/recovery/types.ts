@@ -28,7 +28,7 @@ export interface LostAttempt {
   baseHead: string | null
   /** The Task names a run configuration to prove itself with, so a check can judge committed work. */
   hasValidateConfig: boolean
-  /** The app drives this Run (`Run.autoDispatch`). When it does not, a coordinator owns dispatching. */
+  /** The app drives this Run alone (`drivenByAppAlone`). When it does not, a coordinator owns retrying its attempts. */
   appDriven: boolean
   /** 유실된 attempt 가 repair 였다면 그 사유(설계 §10). 새 attempt 도 repair 다 — 그 Task 는 아직 수렴 중이다 */
   repair?: RepairReason

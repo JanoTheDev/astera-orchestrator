@@ -397,10 +397,22 @@ describe('W7-E', () => {
 
 describe('the wave boundary moves on', () => {
   const inbox = (r: Rig, subject: string) => r.state().messages.filter((m) => m.subject === subject)
+  /** T3: the app places an attached coordinator's ready Tasks, so only a Run driven from outside still starts its
+   *  own: its Astera coordinator detached, an outside session in its place. */
+  const drivenFromOutside = (r: Rig, runId: string) =>
+    r.set({
+      ...r.state(),
+      runs: r.state().runs.map((x) => {
+        if (x.id !== runId) return x
+        const { coordinatorSessionId: _gone, ...rest } = x
+        return { ...rest, externalCoordinatorSessionId: 'ses-outside' }
+      })
+    })
 
-  it('posts plan.replanned with the startable Tasks to a coordinator when a wave opens, skipped or replanned', async () => {
+  it('posts plan.replanned with the startable Tasks to a Run driven from outside when a wave opens, skipped or replanned', async () => {
     const skip = rig()
     const s = await approved(skip, {}, true)
+    drivenFromOutside(skip, s.runId)
     await skip.person('jobs-replan', { id: s.jobId, run: s.runId, mode: 'wave', wave: 1 })
     const [skipped] = inbox(skip, 'plan.replanned')
     expect(skipped).toMatchObject({ runId: s.runId, type: 'status', answered: false })
@@ -410,6 +422,7 @@ describe('the wave boundary moves on', () => {
 
     const done = rig()
     const d = await approved(done, {})
+    drivenFromOutside(done, d.runId)
     await done.person('jobs-replan', { id: d.jobId, run: d.runId, mode: 'wave', wave: 1 })
     expect(inbox(done, 'plan.replanned')).toHaveLength(0)
     await done.as('ses-planner-2')('jobs-replan-done', { id: d.jobId, summary: 'fine' })
@@ -425,9 +438,18 @@ describe('the wave boundary moves on', () => {
     expect(inbox(r, 'plan.replanned')).toHaveLength(0)
   })
 
+  it('posts no plan.replanned to an attached coordinator: the app starts the wave (T3)', async () => {
+    const r = rig()
+    const { jobId, runId } = await approved(r, {}, true)
+    expect(r.state().runs[0].coordinatorSessionId).toBeDefined()
+    await r.person('jobs-replan', { id: jobId, run: runId, mode: 'wave', wave: 1 })
+    expect(inbox(r, 'plan.replanned')).toHaveLength(0)
+  })
+
   it('ends a timed-out replan as skipped: the hold lifts, the planner stops, the feed says so', async () => {
     const r = rig()
     const { jobId, runId } = await approved(r, {})
+    drivenFromOutside(r, runId)
     await r.person('jobs-replan', { id: jobId, run: runId, mode: 'wave', wave: 1 })
     const before = r.state()
     // the driving loop's call (exec/dispatchLoop.ts hurryReplan)
