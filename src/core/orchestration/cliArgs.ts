@@ -133,7 +133,7 @@ export const NOUNS = {
     // W8-D several plans in one repo (overlap.ts)
     'overlaps'],
   runs: ['list', 'get', 'wait', 'follow', 'stop', 'resume', 'checks'],
-  tasks: ['list', 'add', 'dispatch'],
+  tasks: ['list', 'add', 'dispatch', /* owner-only: bring back Tasks a backup holds */ 'restore'],
   // W3-C search and inbox: every Run's Dispatches (command.ts `dispatches-list`), read only
   dispatches: ['list'],
   questions: ['list', 'get', 'answer'],

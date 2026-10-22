@@ -630,7 +630,7 @@ export function createHostOrch(a: {
       })
     | null
 }): HostOrch {
-  const store = new OrchestrationStore(path.join(a.profileDir, 'orchestration.json'))
+  const store = new OrchestrationStore(path.join(a.profileDir, 'orchestration.json'), a.log)
   // Built at the first ask: only a call that marks the default needs the descriptors.
   let descriptors: ReturnType<typeof makeDescriptors> | undefined
   const loggedIn = a.isLoggedIn ?? ((x: Account) => isLoggedIn(x, (descriptors ??= makeDescriptors(process.platform))))
@@ -899,6 +899,8 @@ export function createHostOrch(a: {
         const prev = store.get()
         // W8-D: every plan's `overlaps` follows the Tasks of this commit (overlap.ts), whichever command moved them
         const next = refreshOverlaps(prev, given)
+        // Before the commit is marked below: a refused mass delete must leave no half-applied commit behind.
+        store.checkSave(next, how)
         // Reserved before the write, for `reserveVersion`'s reason and for one that is this path's
         // own: a `state-put` arriving while this commit is still writing would otherwise read the
         // pre-commit number, pass the check, and land a whole state that does not contain this
@@ -912,7 +914,7 @@ export function createHostOrch(a: {
         marks.commits += how?.rollsBack ? -1 : 1
         // Published as memory moves, not after the disk: `subscribe` snapshots memory and `version`, which move
         // together right here, so a push taken any later could reach a subscriber older than its snapshot.
-        const saving = store.save(next)
+        const saving = store.save(next, how)
         publish(next, committed)
         // The public event log moves with memory and the subscribers (SDK 1d): an event never names a state a read
         // cannot see yet. A disk write that then fails leaves memory moved all the same, and the events with it.
@@ -1182,6 +1184,8 @@ export function createHostOrch(a: {
           version
         }
       }
+    // A whole state that would wipe the Tasks is refused before the version moves
+    store.checkSave(state)
     // The diff base, read before the save moves memory.
     const prev = store.get()
     // Taken here, not after the write lands — the whole of `reserveVersion`'s note.

@@ -733,6 +733,7 @@ astera runs    checks --id <runId>
 astera tasks   list   [--run <runId|jobId>] [--status <s>] [--ready] [--brief] [--fields <a,b,…>] [--limit <n>] [--offset <n>]
 astera tasks   add    [--job <jobId> | --run <runId>] --spec <text|-> --account <id,…> [--title <text>] [--prompt <text|->] [--criteria <json array>] [--deps <json array>] [--affected-paths <json array>] [--parent <taskId>] [--validate <configId,…>] [--review] [--no-review] [--difficulty <light|standard|hard>] [--model <id>] [--basis <missing|partial|broken>] [--evidence <text>] [--covers <n,…>]
 astera tasks   dispatch --id <taskId>
+astera tasks   restore --from <file> [--job <jobId> | --run <runId>] [--dry-run]
 
 astera dispatches list [--run <runId>]
 
@@ -1031,6 +1032,14 @@ with 6, and nothing is started, when:
 - its run is driven by a coordinator, or has one starting;
 - the Host does not place Jobs on this profile right now: Astera places them instead, the Host is
   parked until Astera has run once with the profile, or the Host is leaving.
+
+**`tasks restore --from <file>` brings lost tasks back** from a backup of `orchestration.json` (the timestamped
+`orchestration.<time>.json.bak` files next to it, or any copy). Give exactly one of `--job` or `--run`: it re-inserts the
+tasks of that Job or run that the file has and the live state lacks, with their dispatches that had ended. It never
+overwrites an id that is there and never touches another Job; a task that was `dispatched` (or validating, reviewing,
+merging) comes back `ready`. `--dry-run` lists the tasks (id, title, status, run) and changes nothing. It is for the
+person: an agent session is refused with 5. `reset` is the same, and needs `--yes` (without it, it only prints what it
+would delete); a single save that would drop more than half of the tasks (and more than 20) is refused by the store.
 
 **A run driven by a coordinator is refused on purpose.** `worker-start` would take the task, since it
 is the coordinator's own door, but the coordinator plans that run: it picks the next task, the account

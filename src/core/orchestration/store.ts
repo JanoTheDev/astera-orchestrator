@@ -26,6 +26,36 @@ import { planFileOf, renderPlanMd } from './planner'
 /** Cutoff for discarding a finished Run. The same 30 days as SchedulerConfigStore's ENTRY_TTL_MS */
 export const RUN_TTL_MS = 30 * 24 * 60 * 60 * 1000
 
+/** Timestamped backups next to the store (`orchestration.<ISO>.json.bak`): the newest this many are kept, and
+ *  any younger than the age below, whichever keeps more. */
+export const BACKUPS_KEPT = 20
+export const BACKUP_KEEP_MS = 7 * 24 * 60 * 60 * 1000
+/** A save that drops more than this share of the Tasks (and more than MASS_DELETE_MIN of them) is refused. */
+export const MASS_DELETE_SHARE = 0.5
+export const MASS_DELETE_MIN = 20
+/** A save that drops more than this share of the Tasks writes a timestamped backup first. */
+const BACKUP_DROP_SHARE = 0.1
+
+const BACKUP_NAME = /^orchestration\.(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{3}Z)\.json\.bak$/
+
+/** `orchestration.2026-10-22T14-27-38.123Z.json.bak`: ISO, with the colons a file name cannot carry on Windows turned to dashes. */
+export const backupNameOf = (at: Date): string => `orchestration.${at.toISOString().replace(/:/g, '-')}.json.bak`
+
+/** The timestamped backups among `names` that retention lets go: not among the newest BACKUPS_KEPT and older than BACKUP_KEEP_MS. */
+export function backupsToDelete(names: readonly string[], nowMs: number): string[] {
+  const stamped = names
+    .map((n) => ({ n, m: BACKUP_NAME.exec(n)?.[1] }))
+    .filter((x): x is { n: string; m: string } => x.m !== undefined)
+    .map(({ n, m }) => ({ n, at: Date.parse(m.replace(/T(\d{2})-(\d{2})-(\d{2})/, 'T$1:$2:$3')) }))
+    .sort((a, b) => b.at - a.at)
+  return stamped.slice(BACKUPS_KEPT).filter((x) => nowMs - x.at >= BACKUP_KEEP_MS).map((x) => x.n)
+}
+
+/** What a save may do beyond the ordinary: `allowMassDelete` is set by `reset --yes` (and the age-based clean-up). */
+export interface SaveOptions {
+  allowMassDelete?: boolean
+}
+
 const isArr = (v: unknown): v is unknown[] => Array.isArray(v)
 
 /** Exported because the Host is asked to accept a whole state over the wire (`state-put`), and what
@@ -227,7 +257,26 @@ export class OrchestrationStore {
   /** Serialization queue for disk writes (see save) */
   private queue: Promise<void> = Promise.resolve()
 
-  constructor(private filePath: string) {}
+  /** The newest Task count the disk holds, for the backup a big drop takes first. */
+  private writtenTasks = 0
+
+  /** `log` receives the lines the activity feed's reader looks for (`store.massDelete.refused`). */
+  constructor(
+    private filePath: string,
+    private log?: (message: string) => void
+  ) {}
+
+  /** Throws when `next` would drop more than half of the Tasks held now (and more than MASS_DELETE_MIN of them)
+   *  without `allowMassDelete`. Pure of side effects but the log line; `save` runs it before memory moves, and the
+   *  Host runs it before it marks a commit, so a refusal leaves no half-applied state. */
+  checkSave(next: OrchState, opts?: SaveOptions): void {
+    const had = this.state.tasks.length
+    const dropped = had - next.tasks.length
+    if (opts?.allowMassDelete || dropped <= MASS_DELETE_MIN || dropped <= had * MASS_DELETE_SHARE) return
+    const why = `refused a save that drops ${dropped} of ${had} tasks (${next.tasks.length} left); only reset --yes may`
+    this.log?.(`store.massDelete.refused: ${why}`)
+    throw new Error(`store.massDelete.refused: ${why}`)
+  }
 
   async load(a?: {
     /** What the caller could learn about the sessions that outlived the app, in three answers — and
@@ -293,6 +342,7 @@ export class OrchestrationStore {
     // itself, and if the shape is off, whole-file recovery is the right answer. The policy differs
     // from files such as accounts.json, where a bad shape risks corrupting an account.
     const st = migrateLoadedState(parsed as OrchState)
+    this.writtenTasks = st.tasks.length
 
     // Captured here: the migrations above are in place, the cleanup below builds new objects
     const before: OrchState = st
@@ -451,9 +501,9 @@ export class OrchestrationStore {
       staleReviews > 0 ||
       coordinatorsLost > 0
     ) {
-      if (doomed.size > 0) await fs.copyFile(this.filePath, this.filePath + '.bak').catch(() => {})
-      // Unguarded save — the same rewrite convention as RunConfigStore and SchedulerConfigStore
-      await this.save(this.state).catch(() => {})
+      if (doomed.size > 0) await this.backup()
+      // Not the mass-delete guard's business: the clean-up is age-based and backed up just above
+      await this.save(this.state, { allowMassDelete: true }).catch(() => {})
     }
     // stuckInterruptions is deliberately not in the save condition above: a stuck Task is one nothing
     // changed, so there is nothing new to write for it.
@@ -485,7 +535,8 @@ export class OrchestrationStore {
    * in which the two renames land. Then disk=S1 and memory=S2, and because memory is always
    * correct there is no symptom during real use — it only shows up on the next app restart.
    */
-  async save(next: OrchState): Promise<void> {
+  async save(next: OrchState, opts?: SaveOptions): Promise<void> {
+    this.checkSave(next, opts)
     this.state = next
     // **Coalesced: a write queued and not yet started takes the newest state instead of a second write
     // being queued behind it.** While one write is on its way to the disk, every commit that lands has
@@ -536,12 +587,27 @@ export class OrchestrationStore {
    * copy, so it passes straight through.
    */
   async backup(): Promise<void> {
-    const run = (): Promise<void> =>
-      fs.copyFile(this.filePath, this.filePath + '.bak').catch(() => {})
+    const run = async (): Promise<void> => {
+      await fs.copyFile(this.filePath, this.filePath + '.bak').catch(() => {})
+      await this.stampedBackup()
+    }
     // A save after this must be written after the copy, so it may not join a write queued before it.
     this.pendingWrite = null
     this.queue = this.queue.then(run, run)
     return this.queue
+  }
+
+  /** Copies the file as it is to `orchestration.<ISO>.json.bak` and drops the ones retention lets go. Best effort, like
+   *  `backup`: no file yet means nothing to keep. Runs inside the write queue. */
+  private async stampedBackup(): Promise<void> {
+    const now = new Date()
+    const dir = path.dirname(this.filePath)
+    try {
+      await fs.copyFile(this.filePath, path.join(dir, backupNameOf(now)))
+      for (const n of backupsToDelete(await fs.readdir(dir), now.getTime())) await fs.rm(path.join(dir, n), { force: true })
+    } catch {
+      // ENOENT on the copy: first run, nothing to keep
+    }
   }
 
   /** The queue means no concurrency inside here — this is the atomic tmp+rename write itself.
@@ -552,6 +618,9 @@ export class OrchestrationStore {
    *  which reads the indented files earlier versions wrote just the same. A person who hand-edits the
    *  file formats it in the editor first; the loader does not care which shape comes back. */
   private async writeNow(next: OrchState): Promise<void> {
+    // A write that drops more than a tenth of the Tasks keeps what the file holds first.
+    if (this.writtenTasks - next.tasks.length > this.writtenTasks * BACKUP_DROP_SHARE) await this.stampedBackup()
+    this.writtenTasks = next.tasks.length
     // T23: flushed before the rename and the last good copy kept (core/recovery/plan.ts), so a crash mid-write leaves a
     // whole file. The temp file is removed when the rename still fails (second pass C2-4).
     await writeDurably(this.filePath, JSON.stringify(next))

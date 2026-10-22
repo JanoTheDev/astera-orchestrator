@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { promises as fs, readFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { OrchestrationStore, RUN_TTL_MS } from './store'
+import { OrchestrationStore, RUN_TTL_MS, backupNameOf, backupsToDelete } from './store'
 import { emptyState, type OrchState } from './state'
 import { stateFromLegacy } from './legacyState'
 
@@ -1069,5 +1069,59 @@ describe('a coordinator that did not survive the restart', () => {
     const store = new OrchestrationStore(file)
     const res = await store.load()
     expect(res.coordinatorsLost).toBe(0)
+  })
+})
+
+describe('timestamped backups and the mass-delete guard', () => {
+  const task = (i: number, jobId = 'job_1') =>
+    ({ id: `tsk_${i}`, jobId, title: `t${i}`, spec: 's', deps: [], accountIds: [], status: 'ready', consecutiveFailures: 0, createdAt: NOW, updatedAt: NOW }) as OrchState['tasks'][number]
+  const withTasks = (n: number): OrchState => ({ ...emptyState(), tasks: Array.from({ length: n }, (_, i) => task(i)) })
+
+  it('refuses a save dropping 60% of 100 Tasks, logs it, and keeps memory and disk', async () => {
+    const log = vi.fn()
+    const store = new OrchestrationStore(path.join(dir, 'orchestration.json'), log)
+    await store.load()
+    await store.save(withTasks(100))
+    await expect(store.save(withTasks(40))).rejects.toThrow('store.massDelete.refused')
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('store.massDelete.refused'))
+    expect(store.get().tasks).toHaveLength(100)
+    expect(JSON.parse(await fs.readFile(path.join(dir, 'orchestration.json'), 'utf8')).tasks).toHaveLength(100)
+  })
+
+  it('lets a smaller drop through, and the flagged one', async () => {
+    const store = new OrchestrationStore(path.join(dir, 'orchestration.json'))
+    await store.load()
+    await store.save(withTasks(100))
+    await store.save(withTasks(60))
+    await store.save(withTasks(10), { allowMassDelete: true })
+    expect(store.get().tasks).toHaveLength(10)
+    // 30 of 30 is over half but 20 or fewer is not a mass delete
+    await store.save(withTasks(20), { allowMassDelete: true })
+    await store.save(withTasks(0))
+    expect(store.get().tasks).toHaveLength(0)
+  })
+
+  it('writes a timestamped backup before a save that drops over 10% of the Tasks', async () => {
+    const store = new OrchestrationStore(path.join(dir, 'orchestration.json'))
+    await store.load()
+    await store.save(withTasks(50))
+    await store.save(withTasks(48))
+    expect((await fs.readdir(dir)).filter((n) => n.endsWith('.json.bak'))).toHaveLength(0)
+    await store.save(withTasks(30))
+    const [name] = (await fs.readdir(dir)).filter((n) => /^orchestration\..+Z\.json\.bak$/.test(n))
+    expect(JSON.parse(await fs.readFile(path.join(dir, name), 'utf8')).tasks).toHaveLength(48)
+  })
+
+  it('retention keeps the newest 20 and anything under 7 days old', () => {
+    const now = Date.parse('2026-10-22T12:00:00.000Z')
+    const at = (ms: number): string => backupNameOf(new Date(now - ms))
+    const hour = 3600_000
+    const day = 24 * hour
+    const recent = Array.from({ length: 25 }, (_, i) => at(i * hour)) // 25 within a day: all kept (< 7 days)
+    const old = Array.from({ length: 25 }, (_, i) => at(10 * day + i * hour)) // 25 older: newest 20 overall are in `recent`
+    expect(backupsToDelete([...recent, ...old, 'orchestration.json.bak', 'other.txt'], now).sort()).toEqual([...old].sort())
+    // 22 old ones only: the newest 20 stay, the 2 oldest go
+    const only = Array.from({ length: 22 }, (_, i) => at(10 * day + i * hour))
+    expect(backupsToDelete(only, now).sort()).toEqual(only.slice(20).sort())
   })
 })

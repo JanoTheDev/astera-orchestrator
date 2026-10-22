@@ -667,6 +667,17 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
     ]
   },
 
+  'tasks-restore': {
+    summary: 'bring back tasks and dispatches a backup file holds and the live store lost (owner only)',
+    detail:
+      'Reads a backup of orchestration.json (the `.bak` files next to it) and re-inserts the tasks of the chosen Job or run that exist there and not now, with the dispatches that had ended. It never overwrites an id the store has and never touches another Job. A task that was in flight comes back `ready`. `--dry-run` lists what would come back and changes nothing. Refused from an agent session (permission denied).',
+    flags: [
+      { name: 'from', value: '<file>', required: true, about: 'the backup file to read' },
+      { name: 'job', value: '<jobId>', about: 'restore the tasks of this Job (exactly one of --job or --run)' },
+      { name: 'run', value: '<runId>', about: 'restore the tasks of this run (exactly one of --job or --run)' },
+      { name: 'dry-run', about: 'list the tasks that would come back and change nothing' }
+    ]
+  },
   'tasks-dispatch': {
     summary: 'place one ready task now, the way the loop places one',
     detail:

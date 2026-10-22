@@ -63,6 +63,8 @@ import { CLI_PROTOCOL } from './cliOutput'
 import { collectChanges, rangesFor } from './changedFiles'
 import type { ChangedFile } from '../git/changes'
 import type { SwitchedCommand } from './cliAgentContext'
+import { isValidState, migrateLoadedState } from './store'
+import { planTasksRestore } from './tasksRestore'
 import { findProject, findProjectByPath, findProjectContaining, jobInProject, setProjectSettings, type ProjectSettingsPatch } from './projects'
 // T3 workspaces
 import { autoProjectFor, moveJobToProject, removeProject } from './projects'
@@ -131,7 +133,7 @@ import { SOURCED_OBJECTIVE_MAX } from '../sources/objective'
 import { intakeChanges, intakeObjective, intakeOf, intakeTitle, needsInputs, planningArg, shortTitle } from './intake'
 // W8-C prompts mode
 import path from 'node:path'
-import { access } from 'node:fs/promises'
+import { access, readFile } from 'node:fs/promises'
 import { promptPlanOf, sha256Of } from './promptWaves'
 // W10-A Run as written by name
 import { detectPromptsDir, isNamesText, PROMPTS_DIR_MAX_DEPTH, promptNamesOf, repoRelative, resolvePromptNames, takenPrompts } from './promptNames'
@@ -344,7 +346,7 @@ export interface OrchServerDeps {
    *  so, after its own `openDispatch`, and only when `startWorker`'s error says the start left
    *  nothing (`leftNothingBehind`: refused before acting, or undone before failing). The Host's receipts then count the two commits as none. Every
    *  other wiring may ignore it: it changes nothing about what is written. */
-  setState(next: OrchState, how?: { rollsBack: true }): Promise<void>
+  setState(next: OrchState, how?: { rollsBack?: true; allowMassDelete?: true }): Promise<void>
   /** Filled in by the wiring that wraps the coordinator (OrchCoordinator.startWorker). worker-start
    *  has already created the dispatchId (after committing openDispatch) and passes it in — this
    *  function only creates the session process, the worktree and the spec file, and never touches
@@ -1921,6 +1923,11 @@ export async function handleCommand(
   // A real agent session: not a shell or an MCP client (they call with an empty id), not the app or the Host. Only
   // such a caller can be a Run's external coordinator (JobRun.externalCoordinatorSessionId).
   const fromAgentSession = caller.sessionId !== '' && caller.sessionId !== APP_CALLER && caller.sessionId !== HOST_CALLER
+
+  // Wiping state and bringing it back are the person's: every agent role (worker, coordinator, planner, reviewer) is a
+  // session with an id, a shell and the app are not. The 2026-10-22 wipe was a coordinator's `reset --tasks`.
+  if ((cmd === 'reset' || cmd === 'tasks-restore') && fromAgentSession)
+    return denied(`${cmd === 'reset' ? 'reset' : 'tasks restore'} is for the person at a terminal or in the app, not for an agent session`)
 
   const commit = async <T>(r: Res<T>): Promise<Reply> => {
     // **404 is what state.ts marked `missing`, nothing else** (R4). This used to read the words: any
@@ -6661,10 +6668,59 @@ export async function handleCommand(
               ? emptyState
               : null
       if (!wipe) return bad('specify one of --tasks, --messages, --all')
+      // Without --yes nothing is touched: say what would go, per list and per Job, and refuse.
+      if (args.yes !== true) {
+        const gone = wipe()
+        const jobOf = (t: { jobId?: string; runId?: string }): string =>
+          t.jobId ?? s.runs.find((r) => r.id === t.runId)?.jobId ?? 'unknown'
+        const perJob: Record<string, { tasks: number; dispatches: number }> = {}
+        const at = (j: string): { tasks: number; dispatches: number } => (perJob[j] ??= { tasks: 0, dispatches: 0 })
+        const keptTasks = new Set(gone.tasks.map((t) => t.id))
+        const keptDispatches = new Set(gone.dispatches.map((d) => d.id))
+        for (const t of s.tasks) if (!keptTasks.has(t.id)) at(jobOf(t)).tasks++
+        for (const d of s.dispatches)
+          if (!keptDispatches.has(d.id)) at(jobOf(s.tasks.find((t) => t.id === d.taskId) ?? {})).dispatches++
+        const would = {
+          tasks: s.tasks.length - gone.tasks.length,
+          dispatches: s.dispatches.length - gone.dispatches.length,
+          messages: s.messages.length - gone.messages.length,
+          deliveries: s.deliveries.length - gone.deliveries.length,
+          runs: s.runs.length - gone.runs.length,
+          jobs: s.jobs.length - gone.jobs.length,
+          gates: s.gates.length - gone.gates.length
+        }
+        return { status: 400, body: { error: 'reset deletes data for good: nothing was changed. Add --yes to do it', wouldDelete: would, perJob } }
+      }
       // The documented safety net for destructive operations — copies the current file **before** setState.
       await deps.backup?.()
-      await deps.setState(wipe())
+      await deps.setState(wipe(), { allowMassDelete: true })
       return okBody({ reset: true })
+    }
+    case 'tasks-restore': {
+      const from = str(args.from)
+      if (from === null) return bad('--from is required: the backup file to read')
+      const job = str(args.job)
+      const run = str(args.run)
+      if ((args.job === undefined) === (args.run === undefined))
+        return bad('exactly one of --job or --run is required')
+      let backup: OrchState
+      try {
+        const parsed: unknown = JSON.parse(await readFile(from, 'utf8'))
+        if (!isValidState(parsed)) return bad(`${from} is not an orchestration state file`)
+        backup = migrateLoadedState(parsed)
+      } catch (e) {
+        return bad(`cannot read ${from}: ${(e as Error).message}`)
+      }
+      // Read after the file: this await is a yield point, and the plan must be built on what the store holds now.
+      const live = deps.getState()
+      const plan = planTasksRestore(live, backup, job !== null ? { job } : { run: run! })
+      const list = plan.tasks.map((t) => ({ id: t.id, title: t.title, status: t.status, restoredAs: t.restoredAs, run: t.runId ?? null }))
+      if (args.dryRun === true) return okBody({ dryRun: true, tasks: list, dispatches: plan.dispatches })
+      if (plan.tasks.length === 0) return okBody({ restored: { tasks: 0, dispatches: 0 }, tasks: [] })
+      await deps.backup?.()
+      await deps.setState(plan.state)
+      deps.log?.(`tasks.restored: ${plan.tasks.length} task(s), ${plan.dispatches.length} dispatch(es) from ${from} for ${job ?? run}`)
+      return okBody({ restored: { tasks: plan.tasks.length, dispatches: plan.dispatches.length }, tasks: list })
     }
     default: {
       // **모르는 명령은 501 이지 404 가 아니다**(공개 CLI 설계 §8). 404 는 없는 id 의 자리다 — 둘을

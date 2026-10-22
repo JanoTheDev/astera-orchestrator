@@ -602,9 +602,10 @@ const SESSION = {
     flags: [{ name: 'agent', value: '<claude|codex>', about: 'only this vendor' }]
   },
   reset: {
-    summary: 'wipe orchestration state',
-    detail: 'Refused while a dispatch is open. It copies the state file first.',
+    summary: 'wipe orchestration state (owner only)',
+    detail: 'Refused from an agent session (permission denied) and while a dispatch is open. Without --yes it changes nothing and prints what would be deleted. It keeps a timestamped copy of the state file first.',
     flags: [
+      { name: 'yes', about: 'really delete: without it reset only reports counts' },
       { name: 'tasks', about: 'wipe the Tasks and dispatches' },
       { name: 'messages', about: 'wipe the messages and deliveries' },
       { name: 'all', about: 'wipe everything' }
