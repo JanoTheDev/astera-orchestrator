@@ -2,7 +2,7 @@
 // rollupMarkdown gives the PR body). Nothing until a Task's tab has ended.
 import type { SessionSummary } from '../../../../core/sessions/summary'
 import { useI18n } from '../../i18n/I18nProvider'
-import { Section } from '../ui/Section'
+import { Section } from '../ui'
 import { SummaryCard } from './SummaryCard'
 
 export function PlanSummaryRollup({

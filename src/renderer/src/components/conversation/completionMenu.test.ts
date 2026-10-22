@@ -10,6 +10,7 @@ describe('CompletionMenu — indexing line', () => {
   it('shows the status line with a spinner even with no rows yet', () => {
     const html = renderToStaticMarkup(
       React.createElement(CompletionMenu, {
+        label: 'Suggestions',
         rows: [],
         active: 0,
         onPick: noop,
@@ -24,6 +25,7 @@ describe('CompletionMenu — indexing line', () => {
   it('keeps the partial rows above the status line', () => {
     const html = renderToStaticMarkup(
       React.createElement(CompletionMenu, {
+        label: 'Suggestions',
         rows: [{ key: 'a.ts', label: 'a.ts' }],
         active: 0,
         onPick: noop,
@@ -36,7 +38,7 @@ describe('CompletionMenu — indexing line', () => {
 
   it('draws no status line without one', () => {
     const html = renderToStaticMarkup(
-      React.createElement(CompletionMenu, { rows: [{ key: 'a.ts', label: 'a.ts' }], active: 0, onPick: noop, onHover: noop })
+      React.createElement(CompletionMenu, { label: 'Suggestions', rows: [{ key: 'a.ts', label: 'a.ts' }], active: 0, onPick: noop, onHover: noop })
     )
     expect(html).not.toContain('loading-spinner')
   })

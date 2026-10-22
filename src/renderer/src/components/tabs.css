@@ -5,6 +5,15 @@
    여기 다시 토큰을 걸지 않는다 */
 .tab { display: flex; align-items: center; gap: 8px; padding: 8px 14px; font-size: var(--fs-12); color: var(--text-dim); border-right: 1px solid var(--line); cursor: pointer; white-space: nowrap; flex: none; transition: background var(--ease), color var(--ease); }
 .tab.active { background: var(--bg); color: var(--text); }
+/* The focused pane's active tab: an underline in the account colour (--tab-mark, set inline by WorkbenchTabs;
+   the accent on a file tab). A class, not an inline box-shadow, so the keyboard focus ring can stack on it.
+   The ring is inset: .tabs scrolls (overflow-x: auto), which clips an outer ring at the bar's edges. */
+.tab.marked { box-shadow: inset 0 calc(-1 * var(--marker-w)) 0 var(--tab-mark); }
+.tab:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+.tab.marked:focus-visible { box-shadow: inset 0 calc(-1 * var(--marker-w)) 0 var(--tab-mark), inset 0 0 0 2px var(--accent); }
+/* The tab's close (ui IconButton, sm). Danger only on hover, as the old ghost danger button was. */
+.tab .tab-close.ui-btn { flex: none; width: 20px; height: 20px; color: var(--text-faint); }
+.tab .tab-close.ui-btn:hover:not(:disabled) { color: var(--danger); }
 .tab.exited .tab-title { text-decoration: line-through; color: var(--text-faint); }
 .tab-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
 /* The rolling-active session marker — a small, restrained, non-interactive mark; the account chain is exposed only through the title tooltip */
@@ -23,9 +32,10 @@
 }
 .tab.drop-before::before { left: -1px; }
 .tab.drop-after::after { right: -1px; }
-.new-tab { background: none; border: none; border-left: 1px solid var(--line); border-right: 1px solid var(--line); color: var(--accent); padding: 8px 16px; font-size: var(--fs-15); font-weight: 600; line-height: 1; cursor: pointer; flex: none; }
-.new-tab:hover:not(:disabled) { background: var(--elevated); }
-.new-tab:disabled { color: var(--text-faint); cursor: default; }
+/* Padding and the sticky pin come from panes.css's .pane-tabbar .new-tab (the only place it renders). */
+.new-tab.ui-btn { flex: none; width: auto; height: auto; border: none; border-left: 1px solid var(--line); border-right: 1px solid var(--line); border-radius: 0; color: var(--accent); }
+.new-tab.ui-btn:hover:not(:disabled) { background: var(--elevated); color: var(--accent); }
+.new-tab.ui-btn:disabled { color: var(--text-faint); opacity: 1; }
 /* File viewer tabs — they inherit the same style as session tabs and are distinguished by a per-file-type
    SVG icon (previously a single 📄 emoji was the only distinction) */
 .tab.file-tab { font-style: normal; }
@@ -40,18 +50,26 @@
 .tab-glyph { flex: none; font-size: var(--fs-11); line-height: 1; }
 /* W7-F (#84): the tab strip's overflow menu — every tab of the workspace shown — and the quick tab switcher.
    The menu is fixed, not inside .tabs: .tabs scrolls and clips. The scrim under it closes it on a click elsewhere. */
-.tab-overflow { flex: none; align-self: stretch; background: none; border: none; border-left: 1px solid var(--line); color: var(--text-dim); padding: 0 8px; cursor: pointer; display: flex; align-items: center; }
-.tab-overflow:hover, .tab-overflow[aria-expanded="true"] { background: var(--elevated); color: var(--text); }
-.tab-overflow-scrim { position: fixed; inset: 0; z-index: 90; }
-.tab-overflow-menu { position: fixed; z-index: 91; margin: 0; padding: 4px; list-style: none; min-width: 220px; max-width: 420px; max-height: 60vh; overflow-y: auto; background: var(--panel); border: 1px solid var(--line-soft); border-radius: var(--radius); box-shadow: var(--shadow-pop); }
-.tab-overflow-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; background: none; border: none; border-radius: var(--radius); color: var(--text-dim); font-size: var(--fs-12); text-align: left; cursor: pointer; white-space: nowrap; }
-.tab-overflow-item .tab-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.tab-overflow-item:hover, .tab-overflow-item:focus-visible { background: var(--elevated); color: var(--text); box-shadow: none; }
-.tab-overflow-item.active { color: var(--text); font-weight: 600; }
-.tab-overflow-item.exited .tab-title { text-decoration: line-through; color: var(--text-faint); }
-/* T13: Recently closed, under the open tabs */
-.tab-overflow-head { padding: 8px 8px 4px; margin-top: 4px; border-top: 1px solid var(--line-soft); color: var(--text-faint); font-size: var(--fs-11); }
+.tab-overflow.ui-btn { flex: none; align-self: stretch; width: auto; height: auto; padding: 0 8px; border: none; border-left: 1px solid var(--line); border-radius: 0; }
+.tab-overflow.ui-btn:hover:not(:disabled), .tab-overflow.ui-btn[aria-expanded="true"] { background: var(--elevated); color: var(--text); }
+/* Both bar-end buttons span the bar's full height, where an outer ring is clipped: an inset one, as .tab's */
+.new-tab.ui-btn:focus-visible, .tab-overflow.ui-btn:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+/* The list itself is ui Menu (context mode, fixed at the button); the host only bounds its size. */
+.tab-overflow-host { display: contents; }
+.tab-overflow-host .ui-menu__list { min-width: 220px; max-width: 420px; max-height: 60vh; overflow-y: auto; }
+.tab-overflow-label { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--text-dim); font-size: var(--fs-12); }
+.tab-overflow-label .tab-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.tab-overflow-label.active { color: var(--text); font-weight: 600; }
+.tab-overflow-label.exited .tab-title { text-decoration: line-through; color: var(--text-faint); }
+/* T13: Recently closed, under the open tabs (a disabled Menu row; the separator above it is the rule) */
+.tab-overflow-head { color: var(--text-faint); font-size: var(--fs-11); }
 .tab-overflow-note { margin-left: auto; color: var(--text-faint); font-size: var(--fs-11); }
+/* The run tab strip's nested controls (RunTabStrip: open the page, close a finished run) are ui IconButtons,
+   kept to the 16px box runPanel.css gives them so they fit the 22px run tab. */
+.run-tab .run-tab-preview.ui-btn, .run-tab .run-tab-close.ui-btn { width: 16px; height: 16px; border-radius: var(--radius-sm); }
+.run-tab .run-tab-preview.ui-btn { color: var(--accent); }
+.run-tab .run-tab-close.ui-btn { color: var(--text-faint); }
+.run-tab .run-tab-close.ui-btn:hover:not(:disabled) { color: var(--text); }
 .modal.tab-switcher { width: 560px; max-width: calc(100vw - 48px); align-self: flex-start; margin-top: 12vh; gap: 8px; }
 .modal.tab-switcher input { width: 100%; box-sizing: border-box; }
 .tab-switcher-list { margin: 0; padding: 0; list-style: none; max-height: 50vh; overflow-y: auto; }

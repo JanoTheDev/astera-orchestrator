@@ -68,8 +68,6 @@
 .modal-hint.start-blocked { display: flex; align-items: center; gap: 6px; }
 @keyframes cm-spin { to { transform: rotate(360deg); } }
 .exit-overlay { position: absolute; inset: 0; background: var(--scrim-strong); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--text); }
-.exit-overlay button { background: var(--btn-bg); border-color: var(--btn-bg); color: var(--btn-ink); font-weight: 600; }
-.exit-overlay button:hover { filter: brightness(.85); }
 /* A remote session tab's notes (Phase 9b): reconnecting, read-only, a size held by a viewer on that machine. */
 .remote-session-banners { position: absolute; left: 8px; right: 8px; bottom: 8px; display: flex; flex-direction: column; gap: 4px; pointer-events: none; z-index: 2; }
 .remote-session-banner { align-self: flex-start; padding: 4px 8px; border-radius: var(--radius-sm); background: var(--elevated); color: var(--text-dim); font-size: var(--fs-12); }
@@ -127,7 +125,7 @@
    25px keeps them from covering each other on either side (the previous 23px overlapped by 1.7px and hid
    the bottom border) */
 .sched-banner.below-roll { top: 25px; }
-.sched-banner button { font-size: var(--fs-11); padding: 0 8px; }
+.sched-banner .ui-btn { height: 20px; padding: 0 8px; font-size: var(--fs-11); color: inherit; }
 /* the scheduler form (NewSessionDialog) */
 .sched-field { display: flex; flex-direction: column; gap: 6px; } /* gap only applies on a flex container */
 .sched-minutes { width: 70px; }

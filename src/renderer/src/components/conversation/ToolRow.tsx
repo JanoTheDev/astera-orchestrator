@@ -5,13 +5,13 @@ import {
   useAuiState,
   type ToolCallMessagePartComponent,
 } from "@assistant-ui/react";
-import { ChevronDownIcon } from "lucide-react";
 import type { ThreadGroupPart } from "../assistant-ui/elements/thread.aui";
 import {
   ToolGroupRoot,
   ToolGroupContent,
 } from "../assistant-ui/elements/tool-group.aui";
 import { CollapsibleTrigger } from "../ui/collapsible";
+import { Button, Icon } from "../ui";
 import { cn } from "../../lib/utils";
 import { useI18n } from "../../i18n/I18nProvider";
 import type { MessageKey } from "../../../../core/i18n";
@@ -185,18 +185,19 @@ export const ToolRow: ToolCallMessagePartComponent<{ target: string; files?: str
         <span className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden" title={args.target}>
           {files.map((f, i) =>
             openFile ? (
-              <button
+              <Button
                 key={i}
-                type="button"
+                size="sm"
+                variant="ghost"
                 data-slot="conversation-sent-file"
                 // The markdown link's look (markdown-text.tsx), so a clickable name reads as a link
-                className="text-primary hover:text-primary/80 min-w-0 shrink cursor-pointer truncate underline underline-offset-2"
+                className="text-primary hover:text-primary/80 min-w-0 shrink underline underline-offset-2"
                 title={f}
                 aria-label={t("conversation.sentFile.open", { name: baseName(f) })}
                 onClick={() => openFile(f)}
               >
                 {baseName(f)}
-              </button>
+              </Button>
             ) : (
               <span key={i} className="min-w-0 shrink truncate" title={f}>
                 {baseName(f)}
@@ -234,14 +235,23 @@ function ToolRowGroupTrigger({ counts }: { counts: ToolGroupCount[] }): ReactNod
   const label = counts.map((c) => groupLabel(t, c)).join(" · ");
 
   return (
-    <CollapsibleTrigger
-      data-slot="conversation-tool-group-trigger"
-      className="aui-tool-group-trigger group/trigger text-muted-foreground hover:text-foreground flex w-fit origin-left items-center gap-2 py-1.5 text-sm transition-[color,scale] active:scale-[0.98]"
-    >
-      <span className="inline-block text-start leading-none">{label}</span>
-      <ChevronDownIcon
-        className="size-4 shrink-0 -rotate-90 transition-transform duration-200 ease-[cubic-bezier(0.32,0.72,0,1)] group-data-open/trigger:rotate-0 group-data-panel-open/trigger:rotate-0"
-      />
+    // asChild: Radix keeps the open state, aria-expanded and the scroll lock ToolGroupRoot runs on
+    // every toggle (its onOpenChange); the house Button is only what gets drawn.
+    <CollapsibleTrigger asChild>
+      <Button
+        size="sm"
+        variant="ghost"
+        data-slot="conversation-tool-group-trigger"
+        className="aui-tool-group-trigger group/trigger w-fit"
+      >
+        <span className="inline-flex items-center gap-2">
+          <span className="inline-block text-start leading-none">{label}</span>
+          <Icon
+            name="chevronDown"
+            className="shrink-0 -rotate-90 transition-transform duration-200 ease-[cubic-bezier(0.32,0.72,0,1)] group-data-open/trigger:rotate-0 group-data-panel-open/trigger:rotate-0"
+          />
+        </span>
+      </Button>
     </CollapsibleTrigger>
   );
 }

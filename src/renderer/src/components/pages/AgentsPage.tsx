@@ -7,7 +7,6 @@
 // rendered, in the same place, and only hidden while the wall shows: unmounting it would end every terminal's
 // scrollback.
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Plus } from 'lucide-react'
 import { useI18n } from '../../i18n/I18nProvider'
 import { parseTab, sessionTab } from '../../../../core/panes/tabId'
 import { confirmModal } from '../../lib/confirm'
@@ -26,7 +25,7 @@ import {
   type PlanFilter, type StateFilter, type TileState, type WallConsole
 } from '../wall/wallModel'
 import { ConsoleStrip, ConsoleTile, PlanGroup, SectionHead, WallEmpty, WallFilters } from '../wall/Wall'
-import { Button, PageHeader, cx } from '../ui'
+import { Button, Icon, PageHeader } from '../ui'
 import { ConsoleHeader, DetailsPanel } from '../wall/FullConsole'
 import { FinishedCard } from '../wall/FinishedCard'
 import { SummaryCard } from '../wall/SummaryCard' // W9-I
@@ -245,7 +244,7 @@ export function AgentsPage({ sessions, accounts, currentProject, scopeId, allPro
             actions={
               newConsole &&
               consoles.length > 0 && (
-                <Button variant="primary" icon={<Plus size={16} />} onClick={newConsole}>
+                <Button variant="primary" icon={<Icon name="add" />} onClick={newConsole}>
                   {t('wall.new')}
                 </Button>
               )
