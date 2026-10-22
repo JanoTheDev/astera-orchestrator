@@ -42,8 +42,9 @@ export const wavesDoneOf = (waves: readonly RunWave[]): number => {
  *  an active, unscheduled Job, a Run with its own integration branch and no end delivery yet, more completed Tasks than
  *  at the last push that went through (`branchPush.tasksDone`), and, after a failed one, its retry time come
  *  (`branchPush.nextRetryAt`, when `nowMs` is given). A non-draft PR, a no-remote note or a recorded PR error is the end
- *  delivery's, never touched here. A Run with no worktree of its own merges no Task anywhere, so nothing is pushed. */
-export function draftPrDue(s: OrchState, run: JobRun, nowMs?: number): number | null {
+ *  delivery's, never touched here. A Run with no worktree of its own merges no Task anywhere, so nothing is pushed.
+ *  T4: `synced` (an origin sync merged into the plan branch) is due with no new Task; "I'll push it myself" never is. */
+export function draftPrDue(s: OrchState, run: JobRun, nowMs?: number, opts?: { synced?: boolean }): number | null {
   const job = jobOf(s, run)
   if (!job || !jobActive(job) || job.schedule !== undefined) return null
   if (run.worktree === undefined || run.delivery !== undefined) return null
@@ -51,7 +52,10 @@ export function draftPrDue(s: OrchState, run: JobRun, nowMs?: number): number | 
   if (pr !== undefined && (pr.draft !== true || pr.error !== undefined || pr.note !== undefined)) return null
   const done = runTasks(s, run.id).filter((t) => t.status === 'completed').length
   const bp = run.branchPush
-  if (done < 1 || done <= (bp?.tasksDone ?? 0)) return null
+  // T4: the owner pushes it; a failed push (an origin sync's too) is due again whatever the count, a sync's push at once
+  if (bp?.ownerPushes === true) return null
+  const again = opts?.synced === true || (bp?.lastError !== undefined && bp.state !== 'delivered')
+  if (!again && (done < 1 || done <= (bp?.tasksDone ?? 0))) return null
   if (nowMs !== undefined && bp?.nextRetryAt !== undefined && Date.parse(bp.nextRetryAt) > nowMs) return null
   return done
 }

@@ -185,6 +185,9 @@ export interface Project {
   grants?: string[]
   /** The coordinator's model for this project's plans, over the plan-size rule (roleModels.ts `resolveCoordinatorModel`). */
   coordinatorModel?: string
+  // ── T4 origin sync (exec/originSync.ts) ──
+  /** `off`: running plans of this project are not kept in sync with origin (a repository with no network). Absent: on. */
+  originSync?: 'off'
 }
 
 /** W7-B: what a project nobody set up reads as. */
@@ -551,6 +554,10 @@ export interface JobRun {
    *  `context 72%`), the session it replaced and the one it started. The feed says "Coordinator refreshed (…)" for each,
    *  and the renderer closes a replaced session's ended tab. */
   coordinatorRefreshes?: { at: string; reason: string; from: string; to: string; wave?: number; contextPct?: number }[]
+  // T4 origin sync (exec/originSync.ts)
+  /** When the plan branch was last synced with origin (`run-origin-synced`): the next sync is 10 minutes later, or at a
+   *  wave boundary. */
+  lastOriginSyncAt?: string
 }
 
 export interface Task {

@@ -53,6 +53,7 @@ import { REPLAN_LIFT_HOLD } from './replanStart'
 // W8-C draft PR
 import { draftPrDue } from '../draftPr'
 import { refreshOnto, type Integration, type Refresh } from './integrateGit'
+import { createOriginSync, originSyncHold } from './originSync'
 import { usageChoice, usagePauseWhy, type UsageGuard } from '../usageGuard'
 import { deliveryAnswerOf, deliveryDue, deliveryOf, handsOffOf, ownerCheckDue, projectOfJob } from '../delivery'
 // W8-C plan after plan
@@ -945,16 +946,38 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
    */
   const updateDraftPrs = async (): Promise<void> => {
     for (const run of c.getState().runs) {
-      const done = draftPrDue(c.getState(), run, c.nowMs())
+      // T4: the owner's answer to the plan-branch push question: "Retry now" pushes at once and counts afresh, "I'll push
+      // it myself" stops Astera pushing the plan branch
+      const answer = deliveryAnswerOf(c.getState(), run.branchPush)
+      if (answer === 'self') {
+        if (!c.mayStart()) return
+        const r = await c.handle('run-draft-pr', { run: run.id, ownerPushes: true }).catch((e: unknown) => ({ status: 500, body: String(e) }))
+        log(`run=${run.id}: the owner pushes its plan branch: ${r.status >= 400 ? `not recorded: ${JSON.stringify(r.body)}` : 'recorded'}`)
+        continue
+      }
+      const done = answer === 'retry' ? draftPrDue(c.getState(), run) : draftPrDue(c.getState(), run, c.nowMs())
       if (done === null) continue
       if (!c.mayStart()) return
-      log((await askDraftPr(run.id, done)).line)
+      log((await askDraftPr(run.id, done, answer === 'retry')).line)
     }
   }
+  // T4: running plans kept in sync with origin (originSync.ts); a conflict is an integration Task, as the T11 refresh's
+  const originSync = createOriginSync({
+    getState: () => c.getState(),
+    handle: (cmd, args) => c.handle(cmd, args),
+    openIntegration: async (runId, tip, reason) => {
+      const anchor = anchorOf(c.getState(), runId)
+      if (anchor) await startMergeWorker({ runId, taskId: anchor.id, key: tip, reason, worktrees: [] })
+    },
+    activity: planActivity,
+    log,
+    nowMs: () => c.nowMs(),
+    mayStart: () => c.mayStart()
+  })
   /** One `run-draft-pr`, as its log line; `ok` when it opened or updated the draft. Never throws. */
-  const askDraftPr = async (runId: string, done: number): Promise<{ ok: boolean; line: string }> => {
+  const askDraftPr = async (runId: string, done: number, force = false): Promise<{ ok: boolean; line: string }> => {
     try {
-      const r = await c.handle('run-draft-pr', { run: runId })
+      const r = await c.handle('run-draft-pr', { run: runId, ...(force ? { force: true } : {}) })
       const body = r.body as { url?: unknown; message?: unknown; opened?: unknown } | null
       if (r.status >= 400)
         return { ok: false, line: `run=${runId}: its plan branch was not pushed after ${done} task(s), retried later: ${JSON.stringify(r.body)}` }
@@ -1038,6 +1061,9 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       if (!c.mayStart()) return
       // W8-C draft PR: after a wave's replan, before the completed Run's delivery
       await updateDraftPrs()
+      if (!c.mayStart()) return
+      // T4: after the wave's push, so a boundary's sync merges onto the branch as pushed
+      await originSync.tick()
       if (!c.mayStart()) return
       // W2-D: before the finished Run's workers are released, while its worktrees are all there
       await openCompletedRunPrs()
@@ -1228,6 +1254,15 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     // T11: first onto what other plans of the project delivered since this one began. An integration Task does the
     // merging itself, so it starts as it is
     if (!isIntegrationTask(task)) {
+      // T4: origin conflicts with the plan branch, and an integration Task merges it first
+      const held = originSyncHold(state, slot.runId)
+      if (held?.status === 'failed')
+        return {
+          kind: 'gate',
+          reason: t(c.lang(), 'jobs.integration.taskFailed', { task: held.id }),
+          why: `its integration task ${held.id}, merging origin into the plan branch, failed`
+        }
+      if (held) return { kind: 'wait', why: `it waits for integration task ${held.id} (${held.status}), which merges origin into the plan branch` }
       const fresh = await refreshRun(slot.runId, slot.taskId)
       if (fresh.kind === 'wait') return fresh
       if (fresh.kind === 'gate') return { kind: 'gate', reason: fresh.reason, why: fresh.reason }

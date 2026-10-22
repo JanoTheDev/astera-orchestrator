@@ -4,6 +4,7 @@
 // 하나이고, 가짜는 세션을 실제로 띄우는 startWorker 와 DispatchLoopContext 의 바깥 자리(계정·로그인·
 // 워크트리·세션)뿐이다. **setState 는 상태를 갈아 끼운 뒤 `loop.run()` 을 다시 부른다** — 앱의 커밋
 // 훅이 하는 일 그대로라(B4), 루프의 scheduleAgain 갈래가 운영에서처럼 돈다.
+import { ORIGIN_SYNC_MARK } from './originSync'
 import { describe, it, expect, vi } from 'vitest'
 import {
   COORDINATOR_STOP_RETRY_CAP_TRIES,
@@ -314,6 +315,15 @@ describe('createDispatchLoop', () => {
     await h.settle()
     expect(h.startWorker).toHaveBeenCalledTimes(1)
     expect(h.handled()).toEqual(['worker-start'])
+  })
+
+  it("T4: an origin sync's open integration Task holds the Run's new Tasks", async () => {
+    const h = rig()
+    const merge = task({ id: 'tsk_sync', parentId: 'tsk_1', status: 'failed', spec: `${ORIGIN_SYNC_MARK} origin/main moved on` })
+    h.setState({ ...h.state(), tasks: [...h.state().tasks, merge] })
+    await h.loop.run()
+    await h.settle()
+    expect(h.startWorker).not.toHaveBeenCalled()
   })
 
   it('asks mayStart before every slot: a driver that changes mid-activation starts no further slot (§4.3)', async () => {

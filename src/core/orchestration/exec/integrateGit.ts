@@ -13,7 +13,7 @@ import { t, type Message, type MessageKey, type MessageParams } from '../../i18n
 import { isSamePath } from '../../files/tree'
 import { createWorktree } from '../../worktrees/create'
 import { workerBaseFailure } from '../../worktrees/base'
-import { git as realGit, gitDir, gitVersionAtLeast, listGitWorktrees, GIT_WRITE_TIMEOUT_MS } from '../../worktrees/git'
+import { git as realGit, gitDir, gitVersionAtLeast, listGitWorktrees, fetchOrigin, GIT_WRITE_TIMEOUT_MS } from '../../worktrees/git'
 import { removeWorktree } from '../../worktrees/remove'
 import { askUntilAnswered, defaultActionPresenceCheck, type CheckResult, type PresenceCheck } from '../../worktrees/presence'
 import type { WorktreeStore } from '../../worktrees/registry'
@@ -91,6 +91,8 @@ export async function forkWorktree(
     stderr: gitDirProbe.stderr || gitDirProbe.stdout
   })
   if (baseFailure !== null) throw new Error(baseFailure)
+  // T4: a fork off the project folder starts from origin's commit when teammates pushed since the folder last pulled
+  const ahead = a.baseOf === undefined ? await originAhead(a.repoPath, head.stdout, ctx.log) : false
   const r = await createWorktree({
     repoPath: a.repoPath,
     name: a.name,
@@ -102,7 +104,33 @@ export async function forkWorktree(
   // 만들었다" 는 뜻이고 워커는 그 위에서 일한다. 이 경로에는 사용자 화면이 없어 로그가 유일한
   // 흔적이다. 키만 남긴다: 번역은 렌더러의 일이고 여기에는 언어가 없다.
   for (const w of r.warnings) ctx.log(`worktree warning ${w.key} ${JSON.stringify(w.params ?? {})}`)
+  // The new branch moves, never the owner's checked-out one; the base recorded stays the local name (a PR's base)
+  if (ahead) {
+    const ff = await realGit(['merge', '--ff-only', `refs/remotes/origin/${head.stdout}`], { cwd: r.info.path, timeoutMs: GIT_WRITE_TIMEOUT_MS })
+    ctx.log(
+      ff.ok
+        ? `fork: ${r.info.path} starts at origin/${head.stdout}, which is ahead of the local ${head.stdout}`
+        : `fork: ${r.info.path} could not fast-forward to origin/${head.stdout}, so it starts at the local ${head.stdout}: ${ff.stderr}`
+    )
+  }
   return r.info.path
+}
+
+/** T4: fetches origin's `branch` before a fork and says whether `origin/<branch>` is ahead of the local branch, which
+ *  fast-forwards to it (so the fork may start there). No origin or no answer is logged and reads false: the fork goes on. */
+async function originAhead(repo: string, branch: string, log: (m: string) => void): Promise<boolean> {
+  const f = await fetchOrigin(repo, branch)
+  if (f.kind === 'no-origin' || f.kind === 'no-repo') return false
+  if (f.kind === 'failed') {
+    log(`fork: origin ${branch} could not be fetched (offline?), so the fork starts at the local ${branch}: ${f.reason}`)
+    return false
+  }
+  const [local, remote] = await Promise.all([
+    realGit(['rev-parse', `refs/heads/${branch}`], { cwd: repo }),
+    realGit(['rev-parse', `refs/remotes/origin/${branch}`], { cwd: repo })
+  ])
+  if (!local.ok || !remote.ok || local.stdout === remote.stdout) return false
+  return (await realGit(['merge-base', '--is-ancestor', local.stdout, remote.stdout], { cwd: repo })).ok
 }
 
 /** The identity a merge commit falls back to when git has none here (W5-A, #51). */

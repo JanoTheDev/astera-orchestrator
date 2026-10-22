@@ -163,6 +163,8 @@ export type ProjectSettingsPatch = {
   // T5: kinds granted in advance (kebab-case words), and the coordinator's model
   grants?: string[] | null
   coordinatorModel?: string | null
+  // T4: off stops keeping running plans in sync with origin
+  originSync?: 'off' | null
 }
 
 /** T5: a standing grant's kind: a short kebab-case word (`protected-paths`, `migrations`). */

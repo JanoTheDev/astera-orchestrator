@@ -391,7 +391,7 @@ describe('run-draft-pr: a long plan followed from GitHub (W8-C)', () => {
     push.set(plan('completed', 'completed', 'ready'))
     push.deps.github!.push = async () => ({ ok: false as const, kind: 'rejected', detail: 'remote: denied' }) as never
     expect((await push.app('run-draft-pr', { run: 'r1' })).status).toBe(409)
-    expect(push.state().runs[0].branchPush).toMatchObject({ state: 'retrying', attempts: 2, tasksDone: 1, lastError: expect.stringContaining('denied') })
+    expect(push.state().runs[0].branchPush).toMatchObject({ state: 'retrying', attempts: 1, tasksDone: 1, lastError: expect.stringContaining('denied') }) // T4: consecutive failures
     expect(push.state().runs[0].branchPush?.nextRetryAt).toBeDefined()
   })
 
