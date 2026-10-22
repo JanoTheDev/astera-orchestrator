@@ -20,7 +20,7 @@ const SOURCE = { id: 'astera-linear-source', itemId: 'ENG-1', label: 'Linear ENG
 describe('SourceChip', () => {
   it('is a button that names the ticket and opens its link, or the label alone with no link, or nothing', () => {
     expect(renderToStaticMarkup(React.createElement(SourceChip, { source: SOURCE }))).toBe(
-      '<button type="button" class="source-chip" title="jobs.source.chipOpen {&quot;label&quot;:&quot;Linear ENG-1&quot;}">Linear ENG-1</button>'
+      '<button type="button" class="ui-btn ui-btn--ghost ui-btn--sm source-chip" title="jobs.source.chipOpen {&quot;label&quot;:&quot;Linear ENG-1&quot;}"><span class="ui-btn__label">Linear ENG-1</span></button>'
     )
     const { url: _url, ...noLink } = SOURCE
     expect(renderToStaticMarkup(React.createElement(SourceChip, { source: noLink }))).toBe('<span class="source-chip" title="Linear ENG-1">Linear ENG-1</span>')
@@ -47,7 +47,7 @@ describe('SourceChip', () => {
         onRestartCoordinator: () => {}
       })
     )
-    expect(html.match(/class="source-chip"/g)).toHaveLength(1)
+    expect(html.match(/class="[^"]*source-chip"/g)).toHaveLength(1)
     expect(html.indexOf('Resolve Linear ENG-1')).toBeLessThan(html.indexOf('source-chip'))
     expect(html.indexOf('source-chip')).toBeLessThan(html.indexOf('>other<'))
   })

@@ -91,12 +91,12 @@ export function PlanRow({
           : { id: 'pause', label: t('jobs.run.pause'), icon: <Pause size={16} />, onSelect: () => acts.onPause?.(row.id) }]
       : []),
     ...(row.coordinatorMissing && acts.onRestartCoordinator
-      ? [{ id: 'coord', label: t('jobs.run.coordinatorRestart'), icon: <RotateCcw size={16} />, onSelect: () => acts.onRestartCoordinator?.(row.id) }]
+      ? [{ id: 'coord', label: t('pages.plans.restartLead'), icon: <RotateCcw size={16} />, onSelect: () => acts.onRestartCoordinator?.(row.id) }]
       : []),
     ...(holdable
       ? [row.dispatchHold
-          ? { id: 'release', label: t('jobs.hold.release'), icon: <PlayCircle size={16} />, onSelect: () => acts.onHold?.(row.id, false) }
-          : { id: 'hold', label: t('jobs.hold.hold'), icon: <Hand size={16} />, onSelect: () => acts.onHold?.(row.id, true) }]
+          ? { id: 'release', label: t('pages.plans.releaseNew'), icon: <PlayCircle size={16} />, onSelect: () => acts.onHold?.(row.id, false) }
+          : { id: 'hold', label: t('pages.plans.holdNew'), icon: <Hand size={16} />, onSelect: () => acts.onHold?.(row.id, true) }]
       : []),
     ...(plan && acts.onRename ? [{ id: 'rename', label: t('jobs.lifecycle.rename'), icon: <Pencil size={16} />, onSelect: () => setRenaming(true) }] : []),
     ...(plan && archived && acts.onUnarchive
@@ -123,7 +123,7 @@ export function PlanRow({
             onClick={() => setRoundsOpen((o) => !o)}
           />
         )}
-        {ordinal !== undefined && <Chip>{t('jobs.run.scheduleOrdinal', { n: ordinal })}</Chip>}
+        {ordinal !== undefined && <Chip>{t('pages.plans.roundNumber', { n: ordinal })}</Chip>}
         {renaming && acts.onRename ? (
           <Input
             className="plans-row__rename"
@@ -160,7 +160,7 @@ export function PlanRow({
           </span>
         )}
         {row.sharesProjectFolder && (
-          <span title={t('jobs.run.sharedFolderHint')}>
+          <span title={t('pages.plans.sharedFolderHint')}>
             <Chip tone="warn">{t('jobs.run.sharedFolder')}</Chip>
           </span>
         )}
@@ -181,7 +181,7 @@ export function PlanRow({
           <FailedWaitButtons title={row.stalledOn.result} onAct={(a) => acts.onResolveFailed?.(row.stalledOn!.taskId, a)} />
         )}
         {slot === 'approve' && acts.onApprove && (
-          <Button size="sm" title={t('jobs.run.approveHint')} onClick={() => acts.onApprove?.(row.id)}>
+          <Button size="sm" title={t('pages.plans.approveHint')} onClick={() => acts.onApprove?.(row.id)}>
             {t('jobs.run.approve')}
           </Button>
         )}
@@ -190,8 +190,8 @@ export function PlanRow({
           <IconButton
             size="sm"
             icon={<RotateCcw size={14} />}
-            label={t('jobs.run.coordinatorRestart')}
-            title={t('jobs.run.coordinatorRestartHint')}
+            label={t('pages.plans.restartLead')}
+            title={t('pages.plans.restartLeadHint')}
             onClick={() => acts.onRestartCoordinator?.(row.id)}
           />
         )}
@@ -208,7 +208,7 @@ export function PlanRow({
           ) : (
             row.nextFireAt !== undefined && <span>{t('jobs.run.scheduleNext', { time: fmtNext(row.nextFireAt) })}</span>
           )}
-          <span>{t('jobs.run.scheduleRuns', { count: row.fireCount ?? 0 })}</span>
+          <span>{t('pages.plans.roundsSoFar', { count: row.fireCount ?? 0 })}</span>
         </div>
       )}
 
