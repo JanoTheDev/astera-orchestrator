@@ -6,7 +6,7 @@ Please report security problems privately, not in a public issue.
 
 Use GitHub's private reporting: open the repository's **Security** tab and choose **Report a
 vulnerability**, or go straight to
-[the report form](https://github.com/parsingk/Astera/security/advisories/new). Only the maintainers
+[the report form](https://github.com/JanoTheDev/astera-orchestrator/security/advisories/new). Only the maintainers
 can see what you send.
 
 It helps to include what an attacker can do, the steps or a proof of concept, the Astera version and

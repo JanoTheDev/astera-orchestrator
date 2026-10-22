@@ -1,4 +1,4 @@
-appId: io.github.parsingk.astera
+appId: io.github.janothedev.astera
 productName: Astera
 directories:
   output: dist-installer
@@ -124,9 +124,9 @@ linux:
         Name: New Window
         Exec: /opt/Astera/astera --new-window
   # deb requires a maintainer and electron-builder cannot derive one from package.json's
-  # `author: "parsingk"`, which carries no email — packaging fails outright without this. The address
-  # is the one this repo's own commits use, so it satisfies the format without publishing a new one.
-  maintainer: parsingk <17137357+parsingk@users.noreply.github.com>
+  # `author: "JanoTheDev"`, which carries no email — packaging fails outright without this. The address
+  # is the fork owner's GitHub noreply form, so it satisfies the format without publishing a real one.
+  maintainer: JanoTheDev <JanoTheDev@users.noreply.github.com>
   # A space-free artifact name, the same rule dmg and nsis follow — it keeps percent-encoding out of
   # release asset URLs.
   artifactName: ${name}-${version}-${arch}.${ext}

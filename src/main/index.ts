@@ -21,6 +21,7 @@ import { existsSync, readFileSync, promises as fsp } from 'node:fs'
 import type { AppUpdater } from 'electron-updater'
 import iconAsset from '../../resources/icon.png?asset'
 import trayAsset from '../../resources/tray.png?asset'
+import { APP_ID } from './appId'
 import { createCore, type Core } from './core'
 import { clearAppRunning, markAppRunning } from '../core/host/pidFile'
 import { flushAllLogsSync, lineLog } from '../core/log/logWriter'
@@ -561,8 +562,8 @@ app.whenReady().then(async () => {
   // Windows delivers a toast against the process's AppUserModelID and silently drops it when that
   // does not match a shortcut's — indistinguishable from the OS-refusal case DesktopNotifierDeps's
   // `show` already expects to swallow (design doc §9). Called unconditionally rather than guarded to
-  // win32: Electron makes it a no-op on macOS/Linux. The id matches electron-builder.yml's appId.
-  app.setAppUserModelId('io.github.parsingk.astera')
+  // win32: Electron makes it a no-op on macOS/Linux. The id is APP_ID, which a test holds equal to electron-builder.yml's appId.
+  app.setAppUserModelId(APP_ID)
   // win32 doesn't use a menu bar (the custom titlebar takes that spot). macOS is different — edit
   // commands like Cmd+C/V/X/A/Z are provided by Electron's menu roles, so removing the menu would
   // kill those keys in every input field in the renderer. Hence a minimal, role-only menu on mac.

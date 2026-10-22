@@ -116,6 +116,14 @@ GitHub renders the asset list below the body, so there they sit on the way to th
 in front of the changes. The macOS one drops out on its own once the Apple secrets are configured:
 `publish` passes `MAC_SIGNED` to the script, which omits it.
 
+## What the appId means per OS
+
+The appId is `io.github.janothedev.astera` (`src/main/appId.ts`, held equal to `electron-builder.yml` by a test). It replaced the upstream id `io.github.parsingk.astera`. `productName` is still `Astera`, so the userData folder (`~/.config/Astera`, `%APPDATA%\Astera`, `~/Library/Application Support/Astera`) and the dev profile (`…-dev`) do not move. What does change:
+
+- **Windows:** the AUMID and the NSIS uninstall registry key follow the appId. An install of a build with the old id is not upgraded in place: the new installer lays down a second app, and the old one must be uninstalled by hand. Pinned taskbar shortcuts and notification settings of the old id do not carry over. electron-updater cannot move an old install across.
+- **macOS:** `CFBundleIdentifier` changes. Gatekeeper, TCC permissions (files, automation) and any keychain item scoped to the bundle id start fresh; Squirrel.Mac will not treat the new app as an update of the old one.
+- **Linux:** no effect. The AppImage and deb are keyed by the package `name` and `desktopName` (`astera.desktop`), neither of which changed.
+
 ## Update campaigns (policy.json)
 
 Used to notify users on particular versions (the default) or, when it is genuinely necessary, to stop
@@ -225,8 +233,8 @@ Then, on npmjs.com, in each package's **Settings**, under **Trusted Publisher**,
 
 | Field | Value |
 |---|---|
-| Organization or user | `parsingk` |
-| Repository | `Astera` |
+| Organization or user | `JanoTheDev` |
+| Repository | `astera-orchestrator` |
 | Workflow filename | `publish-packages.yml` |
 | Environment | none |
 

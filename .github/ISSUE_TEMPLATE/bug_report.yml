@@ -6,7 +6,7 @@ body:
     attributes:
       value: |
         Thanks for taking the time. A security problem should not be reported here: please follow
-        [SECURITY.md](https://github.com/parsingk/Astera/blob/main/.github/SECURITY.md) instead.
+        [SECURITY.md](https://github.com/JanoTheDev/astera-orchestrator/blob/main/.github/SECURITY.md) instead.
   - type: textarea
     id: what
     attributes:

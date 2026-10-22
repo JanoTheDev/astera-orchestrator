@@ -7,12 +7,12 @@
   "homepage": "https://github.com/JanoTheDev/astera-orchestrator",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/parsingk/Astera.git"
+    "url": "git+https://github.com/JanoTheDev/astera-orchestrator.git"
   },
   "bugs": {
-    "url": "https://github.com/parsingk/Astera/issues"
+    "url": "https://github.com/JanoTheDev/astera-orchestrator/issues"
   },
-  "author": "parsingk",
+  "author": "JanoTheDev",
   "license": "Apache-2.0",
   "engines": {
     "node": ">=22.13.0"
