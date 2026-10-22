@@ -456,9 +456,10 @@ export function snapshotFor(
       ...(stuck !== undefined ? { stuck } : {}),
       // A Run whose delivery failed reads failed; the reason rides with it
       ...(deliveryErrorOf(run) !== undefined ? { deliveryError: deliveryErrorOf(run) } : {}),
+      ...(run?.deliveryState?.state === 'dismissed' ? { deliveryDismissed: true as const } : {}),
       // T3: the plan page's "Retry delivery" (PlanHeader) reads it
       ...(run?.deliveryState &&
-      (['delivering', 'retrying', 'failed', 'needs-owner', 'dismissed'].includes(run.deliveryState.state) || run.deliveryState.waitingFor !== undefined)
+      (['delivering', 'retrying', 'failed', 'needs-owner'].includes(run.deliveryState.state) || run.deliveryState.waitingFor !== undefined)
         ? {
             delivery: {
               runId: run.id,
