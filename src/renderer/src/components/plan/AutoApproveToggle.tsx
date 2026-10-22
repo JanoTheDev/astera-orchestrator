@@ -2,6 +2,7 @@
 import { useState, type JSX } from 'react'
 import { useI18n } from '../../i18n/I18nProvider'
 import type { OrchDoor } from '../../lib/orchDoor'
+import { Switch } from '../ui'
 
 export function AutoApproveToggle({ projectId, value, door, onError }: { projectId: string; value: boolean; door: OrchDoor; onError?(m: string): void }): JSX.Element {
   const { t } = useI18n()
@@ -22,7 +23,7 @@ export function AutoApproveToggle({ projectId, value, door, onError }: { project
   return (
     <div className="plan-autoapprove">
       <label>
-        <input type="checkbox" checked={on} disabled={door.readOnlyReason != null} onChange={(e) => void toggle(e.target.checked)} />
+        <Switch checked={on} disabled={door.readOnlyReason != null} onChange={(next) => void toggle(next)} />
         {t('plan.autoApprove.label')}
       </label>
       <small>{t('plan.autoApprove.hint')}</small>

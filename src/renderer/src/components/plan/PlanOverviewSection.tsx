@@ -6,8 +6,7 @@ import type { OrchDoor } from '../../lib/orchDoor'
 import { jobName } from '../../lib/jobName'
 import { PlanSummaryRollup } from '../wall/PlanSummaryRollup' // W9-I
 import { UsageStrip } from '../usage/UsageStrip'
-import { Play } from 'lucide-react'
-import { Button, Chip } from '../ui'
+import { Button, Chip, Icon } from '../ui'
 import { PlanMergeActions } from './PlanChanges'
 import { PlanOverview } from './PlanOverview'
 import { PlanTalk } from './PlanTalk'
@@ -104,13 +103,13 @@ export function PlanOverviewSection({
             <Button
               size="sm"
               variant="primary"
-              icon={<Play size={14} />}
+              icon={<Icon name="run" size={14} />}
               loading={busy === RUN_START}
               disabled={lockedReason !== undefined || busy === RUN_START || tasks.length === 0}
-              title={lockedReason ?? t('jobs.run.startHint')}
+              title={lockedReason ?? t('plan.header.startHint')}
               onClick={() => void p.startRunNow()}
             >
-              {busy === RUN_START ? t('jobs.run.starting') : t('jobs.run.start')}
+              {busy === RUN_START ? t('jobs.run.starting') : t('plan.header.start')}
             </Button>
           )}
           {/* **예약에서는 아이콘 토글 하나가 그 자리를 대신한다.** 시작과 재생이 같은 동작이라
