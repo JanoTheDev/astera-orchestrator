@@ -5,8 +5,7 @@ import { useI18n } from '../../i18n/I18nProvider'
 import type { OrchDoor } from '../../lib/orchDoor'
 import { ChangedFilesBlock } from '../ChangedFilesBlock'
 import { RunPrChip } from '../TaskLinkChips'
-import { GitMerge } from 'lucide-react'
-import { Button } from '../ui'
+import { Button, Icon } from '../ui'
 import { RUN_MERGE } from './planPage'
 import type { PlanPageState } from './usePlanPage'
 
@@ -21,7 +20,7 @@ export function PlanMergeActions({ p, run }: { p: PlanPageState; run: JobRow | u
       {run !== undefined && run.schedule === undefined && (run.worktrees ?? []).length > 0 && (
         <Button
           size="sm"
-          icon={<GitMerge size={14} />}
+          icon={<Icon name="merge" size={14} />}
           disabled={p.lockedReason !== undefined || p.busy === RUN_MERGE}
           title={p.lockedReason ?? t('jobs.run.mergeHint', { count: (run.worktrees ?? []).length })}
           onClick={() => void p.mergeRunNow()}

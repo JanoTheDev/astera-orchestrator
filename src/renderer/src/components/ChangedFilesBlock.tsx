@@ -8,6 +8,7 @@ import type { OrchDoor } from '../lib/orchDoor'
 import { changesView, type ChangesView } from '../lib/changesView'
 import { useI18n } from '../i18n/I18nProvider'
 import { DiffView } from './DiffView'
+import { Button, Icon } from './ui'
 
 const errorOf = (r: { status: number; body: unknown }): string => String((r.body as { error?: unknown } | null)?.error ?? r.status)
 
@@ -73,9 +74,16 @@ export function ChangedFilesBlock({ door, runId, taskId }: { door: OrchDoor; run
 
   return (
     <div className="detail-completion changed-files">
-      <button className="detail-completion-head" onClick={() => setOpen((p) => !p)}>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="changed-files-toggle"
+        icon={<Icon name={open ? 'chevronDown' : 'chevronRight'} size={14} />}
+        aria-expanded={open}
+        onClick={() => setOpen((p) => !p)}
+      >
         {open ? t('jobs.changes.hide') : t('jobs.changes.show')}
-      </button>
+      </Button>
       {open && view === undefined && <p className="modal-hint">{t('files.editor.loading')}</p>}
       {open && view?.kind === 'unsupported' && <p className="modal-hint">{t('jobs.changes.unsupported')}</p>}
       {open && view?.kind === 'failed' && <p className="warn">{t('jobs.changes.failed', { message: view.message })}</p>}
@@ -97,7 +105,7 @@ export function ChangedFilesBlock({ door, runId, taskId }: { door: OrchDoor; run
               <ul className="changed-files-list">
                 {files!.map((f) => (
                   <li key={f.id}>
-                    <button type="button" className={diff?.fileId === f.id ? 'is-open' : ''} onClick={() => showDiff(f)}>
+                    <Button variant="ghost" size="sm" className={diff?.fileId === f.id ? 'is-open' : ''} aria-pressed={diff?.fileId === f.id} onClick={() => showDiff(f)}>
                       <span className={`changed-file-status is-${f.status}`}>{t(`jobs.changes.status.${f.status}` as never)}</span>
                       <span className="changed-file-path">
                         {f.path}
@@ -106,7 +114,7 @@ export function ChangedFilesBlock({ door, runId, taskId }: { door: OrchDoor; run
                       <span className="changed-file-counts">
                         {f.binary ? t('jobs.changes.binary') : `+${f.additions ?? 0} −${f.deletions ?? 0}`}
                       </span>
-                    </button>
+                    </Button>
                     {diff?.fileId === f.id && (
                       <div className="changed-file-diff">
                         {diff.state === 'loading' && <p className="modal-hint">{t('files.editor.loading')}</p>}
