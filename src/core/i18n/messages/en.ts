@@ -1092,6 +1092,9 @@ export const en: Record<keyof typeof ko, string> = {
   'account.usage.weekly': 'Weekly',
   'account.usage.resetsIn': 'in {d}',
   'account.usage.refreshedAgo': 'Updated {d} ago',
+  // Usage run-out estimate: when the account runs out at the current pace, before its reset
+  'account.usage.runOut': 'At this rate (~{rate}%/h) it runs out in {duration}, before the reset',
+  'account.usage.lasts': 'At this rate (~{rate}%/h) it lasts until the reset',
   'accounts.add': 'Add account',
   'accounts.import': 'Import an account folder',
   'accounts.detect': 'Find signed-in accounts',
@@ -1128,6 +1131,18 @@ export const en: Record<keyof typeof ko, string> = {
   'account.sync.nothingToCopy':
     'There is nothing to import (the source account has no settings file).',
   'account.select.none': '(Not selected)',
+  // Account picker: the signed-out label, the usage figures and the project default row
+  'account.select.signedOut': 'signed out',
+  'account.select.usage': '5h {session}% · week {weekly}%',
+  'account.select.projectDefault': 'Default account',
+  // Switch a running tab account: the menu action, its confirmation and its failure messages
+  'account.switch.action': 'Use for this tab',
+  'account.switch.title': 'Move the open tab to {label}; the conversation continues there',
+  'account.switch.done': 'This tab now runs on {label}',
+  'account.switch.failed': 'Could not switch accounts: {detail}',
+  'account.switch.busy': 'This tab is already changing accounts; try again in a moment',
+  'account.switch.noTab': 'Open a session tab to move it to another account',
+  'account.switch.otherProvider': 'Only {provider} accounts can take over this tab',
   'session.new.title': 'New session',
   'session.new.runningWarning': 'There are {count} running sessions. Performance may degrade.',
   'session.new.codexMissingPre': 'Codex CLI was not found.',
@@ -1870,7 +1885,10 @@ export const en: Record<keyof typeof ko, string> = {
   'jobs.new.priority': 'Priority',
   'jobs.new.priorityHint': 'When the app-wide worker limit is reached, higher goes first (default 0)',
   'settings.maxWorkers.label': 'Max workers across all jobs',
-  'settings.maxWorkers.hint': 'Up to 10; empty is 10. At the limit, higher-priority jobs get the next free slot; equal ones take turns.',
+  'settings.maxWorkers.hint': 'Up to 100; empty uses the recommendation for this machine. At the limit, higher-priority jobs get the next free slot; equal ones take turns.',
+  // Machine-aware worker cap: the recommendation for this machine and the warning above it
+  'settings.maxWorkers.recommended': 'Recommended for this machine: {count} ({memory} GB memory, {cores} cores)',
+  'settings.maxWorkers.overRecommended': 'Above the {count} this machine is likely to handle: agents may slow down or the system may run out of memory.',
   'settings.maxWorkers.saveFailed': 'Could not save the worker limit: {detail}',
   // W6-G
   'settings.usageGuard.subagentsLabel': 'Max subagents per tab',
@@ -1931,7 +1949,7 @@ export const en: Record<keyof typeof ko, string> = {
   'intake.instructions': 'Extra instructions (they win over the source)',
   'intake.create': 'Create and plan',
   // W7-D (#67)
-  'intake.concurrency': 'Workers at once (1–10)',
+  'intake.concurrency': 'Workers at once (1–100)',
   'jobs.source.open': 'From a source',
   // W6-H delivery
   'delivery.label': 'When a plan is done:',
@@ -2404,6 +2422,10 @@ export const en: Record<keyof typeof ko, string> = {
   'usage.strip.subagents': 'subagents (limit {limit} per tab)',
   'usage.strip.noSubagents': 'no subagents running',
   'usage.strip.noReading': 'no usage reading yet',
+  // Usage run-out estimate on the usage strip, for the whole pool of accounts
+  'usage.strip.poolRunOut': 'At this rate all accounts run out in {duration}',
+  'usage.strip.poolLasts': 'At this rate the accounts last until their resets',
+  'usage.strip.runOutShort': 'out in {duration}',
   // W3-B command bar and voice
   'jobs.run.approveConfirmBody': 'Approve "{objective}" and start its workers? Each worker is a real session on your account and uses its quota.',
   'command.title': 'Command',

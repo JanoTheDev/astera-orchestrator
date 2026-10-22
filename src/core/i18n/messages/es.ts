@@ -1957,4 +1957,26 @@ export const es: Catalog = {
   'inbox.age.d': '{n} d',
   'inbox.overlap.issue': '{mine} y {theirs} de {plan} enlazan ambas la issue #{issue}',
   'inbox.overlap.edit': '{mine} y {theirs} de {plan} editan ambas {path}',
+  // Machine-aware worker cap: the recommendation for this machine and the warning above it
+  'settings.maxWorkers.recommended': 'Recomendado para esta máquina: {count} (memoria {memory} GB, {cores} núcleos)',
+  'settings.maxWorkers.overRecommended': 'Por encima de los {count} que esta máquina probablemente maneja: los agentes pueden ir más lentos o el sistema puede quedarse sin memoria.',
+  // Usage run-out estimate: when the account runs out at the current pace, before its reset
+  'account.usage.runOut': 'A este ritmo (~{rate}%/h) se agota en {duration}, antes del reinicio',
+  'account.usage.lasts': 'A este ritmo (~{rate}%/h) dura hasta el reinicio',
+  // Account picker: the signed-out label, the usage figures and the project default row
+  'account.select.signedOut': 'sin sesión',
+  'account.select.usage': '5 h {session}% · semana {weekly}%',
+  'account.select.projectDefault': 'Cuenta predeterminada',
+  // Switch a running tab account: the menu action, its confirmation and its failure messages
+  'account.switch.action': 'Usar en esta pestaña',
+  'account.switch.title': 'Mover la pestaña abierta a {label}; la conversación continúa allí',
+  'account.switch.done': 'Esta pestaña ahora usa {label}',
+  'account.switch.failed': 'No se pudo cambiar de cuenta: {detail}',
+  'account.switch.busy': 'Esta pestaña ya está cambiando de cuenta; inténtalo de nuevo en un momento',
+  'account.switch.noTab': 'Abre una pestaña de sesión para moverla a otra cuenta',
+  'account.switch.otherProvider': 'Solo las cuentas de {provider} pueden tomar esta pestaña',
+  // Usage run-out estimate on the usage strip, for the whole pool of accounts
+  'usage.strip.poolRunOut': 'A este ritmo todas las cuentas se agotan en {duration}',
+  'usage.strip.poolLasts': 'A este ritmo las cuentas duran hasta sus reinicios',
+  'usage.strip.runOutShort': 'se agota en {duration}',
 }
