@@ -302,6 +302,7 @@ import { createUsageGuard } from '../core/orchestration/usageGuard'
 import { readAccountReadings, withFetchedReadings } from '../core/usage/accountReadings'
 import { readAutoAccountsOn } from '../core/settings/autoAccounts'
 import { readSubagentCount, SUBAGENT_CAP_MAX } from '../core/sessions/subagentCap'
+import { isUpdateMode } from '../core/update/sourceUpdate'
 import type { UsageGuardView } from '../core/types'
 import { createPullRequest, readCommits } from '../core/github/prCreate'
 import { fillFromCommits } from '../core/github/fill'
@@ -6507,6 +6508,13 @@ export function registerIpc(
    *  file counts. */
   ipcMain.handle('settings.getFirstRunAsked', () => core.appSettings.getFirstRunAsked())
   ipcMain.handle('settings.markFirstRunAsked', () => core.appSettings.markFirstRunAsked())
+  // The onboarding step a first run has reached; the renderer's model maps an unknown one to the first step.
+  ipcMain.handle('settings.getOnboardingStep', () => core.appSettings.getOnboardingStep())
+  ipcMain.handle('settings.setOnboardingStep', async (_e, step: unknown) => {
+    if (typeof step !== 'string' || step.length === 0 || step.length > 32)
+      throw new Error(`INVALID_ONBOARDING_STEP: ${String(step)}`)
+    await core.appSettings.setOnboardingStep(step)
+  })
   /** Whether this launch recovered app-settings.json from a damaged file — answered true once. */
   ipcMain.handle('settings.takeRecoveryNotice', () => core.appSettings.takeRecoveryNotice())
   ipcMain.handle('settings.getDefaultSessionKind', () => core.appSettings.getDefaultSessionKind())
@@ -6514,6 +6522,12 @@ export function registerIpc(
     if (kind !== 'terminal' && kind !== 'chat')
       throw new Error(`INVALID_DEFAULT_SESSION_KIND: ${String(kind)}`)
     await core.appSettings.setDefaultSessionKind(kind)
+  })
+  // The source updater reads the mode on every tick, so a change needs no restart (main/sourceUpdate.ts).
+  ipcMain.handle('settings.getUpdateMode', () => core.appSettings.getUpdateMode())
+  ipcMain.handle('settings.setUpdateMode', async (_e, mode: unknown) => {
+    if (!isUpdateMode(mode)) throw new Error(`INVALID_UPDATE_MODE: ${String(mode)}`)
+    await core.appSettings.setUpdateMode(mode)
   })
 
   /**

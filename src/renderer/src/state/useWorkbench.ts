@@ -13,6 +13,7 @@ import { findActionForEvent } from '../../../core/keys/binding'
 import { ACTIONS } from '../lib/actions'
 import { MIN_CHECKING_MS, isCheckResult, shouldNotifyDownloaded, showChecking } from '../../../core/update/checkFeedback'
 import { readyToast } from '../../../core/update/manualInstallNotice'
+import { sourceReadyToast } from '../../../core/update/sourceView'
 import { applyEol, classifyExternalChange, detectEol, toLf } from '../../../core/files/edit'
 import { isSubPath, rebasePath } from '../../../core/files/ops'
 import { cycleViewMode } from '../../../core/files/markdownView'
@@ -248,6 +249,11 @@ export function useWorkbench(deps: WorkbenchDeps) {
         setCampaign(c)
       })
       .catch(() => {})
+    // A source build's first statuses go out before this mounts; ask for the latest (no handler outside that channel).
+    void window.api.update
+      .current()
+      .then((s) => setUpdate((cur) => cur ?? { ...s, checkedAt: null }))
+      .catch(() => {})
     const offUpdate = window.api.update.onStatus((s) => {
       setUpdate({ ...s, checkedAt: isCheckResult(s.state) ? Date.now() : null })
       // There are two notification points:
@@ -264,6 +270,18 @@ export function useWorkbench(deps: WorkbenchDeps) {
             onClick: () => void window.api.update.download()
           },
           onDismiss: () => void window.api.update.dismissCampaign(campaign.id)
+        })
+        return
+      }
+      // A source build announces itself once per target commit, with its change count; a status that carries
+      // sourceBuild never takes the releases toast below.
+      if (s.sourceBuild) {
+        const built = sourceReadyToast(s, notifiedUpdateRef.current)
+        if (!built) return
+        notifiedUpdateRef.current = built.target
+        if (readyToastRef.current !== null) dismiss(readyToastRef.current)
+        readyToastRef.current = toast.info(tRef.current(built.message.key, built.message.params), {
+          action: { label: tRef.current(built.action), onClick: () => void installUpdate() }
         })
         return
       }

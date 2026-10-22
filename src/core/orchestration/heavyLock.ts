@@ -10,7 +10,7 @@
 //   whose pid is dead is dropped, so a crashed waiter never blocks the queue.
 //
 // It runs in the CLI process (cli/run.ts), not through the Host: the command's stdio is the caller's terminal.
-import { spawn } from 'node:child_process'
+import { spawn, type StdioOptions } from 'node:child_process'
 import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { constants } from 'node:os'
 import { join } from 'node:path'
@@ -83,8 +83,8 @@ export interface RunHeavyArgs {
   lock?: string
   queueDir?: string
   pollMs?: number
-  /** Tests pass 'ignore'; the CLI gives the command the caller's terminal. */
-  stdio?: 'inherit' | 'ignore'
+  /** Tests pass 'ignore'; the CLI gives the command the caller's terminal; the source updater passes a log file's fds. */
+  stdio?: StdioOptions
   /** Where the usage text and errors go. */
   err?: (text: string) => void
   usage?: string

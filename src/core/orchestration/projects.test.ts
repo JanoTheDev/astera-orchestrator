@@ -99,7 +99,7 @@ describe('setProjectSettings (W7-B)', () => {
 
   it('refuses an out-of-range concurrency, zero review rounds, a bad replan and an unknown project', () => {
     const { state, project } = registered()
-    for (const patch of [{ concurrency: 0 }, { concurrency: 11 }, { concurrency: 2.5 }, { reviewRounds: 0 }, { replan: 'later' as never }]) {
+    for (const patch of [{ concurrency: 0 }, { concurrency: 101 }, { concurrency: 2.5 }, { reviewRounds: 0 }, { replan: 'later' as never }]) {
       const r = setProjectSettings(state, project.id, patch)
       expect(r.ok).toBe(false)
     }

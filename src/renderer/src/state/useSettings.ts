@@ -30,8 +30,8 @@ export function useSettings() {
   // dialogs seed their own selection from it — so it is loaded at mount rather than only while the
   // modal is open.
   const [defaultSessionKind, setDefaultSessionKind] = useState<SessionKind>('terminal')
-  /** Whether the one first-run question has been put to this person — null until main has said.
-   *  False only on a machine with no settings file at all, so an update never sees the modal
+  /** Whether first-run onboarding has been settled (finished or skipped) — null until main has said.
+   *  False only on a machine with no settings file at all, so an update never sees onboarding
    *  (main/appSettingsStore.ts's firstRunAsked carries the whole rule). */
   const [firstRunAsked, setFirstRunAsked] = useState<boolean | null>(null)
   return {

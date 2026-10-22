@@ -279,9 +279,13 @@ const api = {
     setTheme: invoke('settings.setTheme'),
     getFirstRunAsked: invoke('settings.getFirstRunAsked'),
     markFirstRunAsked: invoke('settings.markFirstRunAsked'),
+    getOnboardingStep: invoke('settings.getOnboardingStep'),
+    setOnboardingStep: invoke('settings.setOnboardingStep'),
     takeRecoveryNotice: invoke('settings.takeRecoveryNotice'),
     getDefaultSessionKind: invoke('settings.getDefaultSessionKind'),
-    setDefaultSessionKind: invoke('settings.setDefaultSessionKind')
+    setDefaultSessionKind: invoke('settings.setDefaultSessionKind'),
+    getUpdateMode: invoke('settings.getUpdateMode'),
+    setUpdateMode: invoke('settings.setUpdateMode')
   },
   files: {
     list: invoke('files.list'),
@@ -387,6 +391,7 @@ const api = {
     },
     campaignState: () => ipcRenderer.invoke('update:campaignState'),
     dismissCampaign: (id: string) => ipcRenderer.invoke('update:dismissCampaign', id),
+    current: () => ipcRenderer.invoke('update:status'),
     check: () => ipcRenderer.invoke('update:check'),
     download: () => ipcRenderer.invoke('update:download'),
     install: () => ipcRenderer.invoke('update:install')

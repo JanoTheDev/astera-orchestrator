@@ -25,6 +25,8 @@ import { Overlays } from './components/shell/Overlays'
 import { Titlebar } from './components/shell/Titlebar'
 // W9-C Tasks and Plans pages' state (the pages are mounted by Pages)
 import { usePlanPages } from './components/pages/PlansPage'
+import { isOnboardingShown } from './components/onboarding/onboardingModel'
+import { useOnboardingReplay } from './components/onboarding/replay'
 
 sessionBus.init()
 
@@ -64,11 +66,14 @@ export default function App(): React.JSX.Element {
     ...fromRunActions, ...fromPlanPages
   }
   const {
-    campaign, canStart, cliInstalled, hostStatus, installUpdate, isMax, runningCount, setCli, setCliInstalled,
+    campaign, canStart, cliInstalled, firstRunAsked, hostStatus, installUpdate, isMax, runningCount, setCli, setCliInstalled,
     setCommandOpen, setNewOpen, update
   } = app
   useNavigation(app)
   const shell = useShell(app) // W9-B
+  // The first-run onboarding (Overlays) covers the window and has its own Tools step, so the CLI-missing screen
+  // and the top bar stand aside while it is open.
+  const onboarding = isOnboardingShown(firstRunAsked, useOnboardingReplay())
 
   // Only when neither CLI is present is there nothing to launch. With one of the two installed the app
   // opens as usual, and the new-session dialog blocks the accounts whose CLI is missing.
@@ -84,7 +89,7 @@ export default function App(): React.JSX.Element {
   // — lives in CliMissingScreen.tsx. (That line used to say "why it is English-only", which the
   // screen has not been for some time: it follows the stored language and offers a switch, because
   // the rail that normally holds one is not drawn here.)
-  if (cliInstalled && !cliInstalled.claude && !cliInstalled.codex) {
+  if (!onboarding && cliInstalled && !cliInstalled.claude && !cliInstalled.codex) {
     return (
       <div className="app">
         {/* 0, not runningCount: this screen renders no ConfirmHost, so a close confirmation would
@@ -107,15 +112,17 @@ export default function App(): React.JSX.Element {
     <div className="app">
       {/* W9-B: the title bar is the 44px top bar. Run configs moved behind More ▾ (DESIGN.md §1). */}
       <Titlebar isMax={isMax} update={update} runningCount={runningCount} onInstall={() => void installUpdate()}>
-        <TopBar
-          {...app}
-          {...shell}
-          onSearch={() => setCommandOpen(true)}
-          onNew={() => {
-            if (canStart()) setNewOpen(true) // the three-choice New (DESIGN §5), as Ctrl+N
-          }}
-          newDisabled={!canStart()}
-        />
+        {!onboarding && (
+          <TopBar
+            {...app}
+            {...shell}
+            onSearch={() => setCommandOpen(true)}
+            onNew={() => {
+              if (canStart()) setNewOpen(true) // the three-choice New (DESIGN §5), as Ctrl+N
+            }}
+            newDisabled={!canStart()}
+          />
+        )}
       </Titlebar>
       {/* Only a block-mode campaign covers the workbench. notify is announced with a toast */}
       {campaign?.mode === 'block' && (

@@ -549,6 +549,42 @@ describe('resumeStrategy', () => {
   })
 })
 
+describe('updateMode', () => {
+  it('defaults to build', async () => {
+    const store = new AppSettingsStore(file())
+    await store.load()
+    expect(store.getUpdateMode()).toBe('build')
+  })
+
+  it('persists each mode and a new instance reads it back', async () => {
+    for (const mode of ['off', 'notify', 'install-when-idle', 'build'] as const) {
+      const a = new AppSettingsStore(file())
+      await a.load()
+      await a.setUpdateMode(mode)
+      const b = new AppSettingsStore(file())
+      await b.load()
+      expect(b.getUpdateMode()).toBe(mode)
+    }
+  })
+
+  it('reads an unknown value as build', async () => {
+    for (const raw of [{ updateMode: 'always' }, { updateMode: 1 }, { updateMode: null }]) {
+      await fs.writeFile(file(), JSON.stringify(raw), 'utf8')
+      const store = new AppSettingsStore(file())
+      await store.load()
+      expect(store.getUpdateMode()).toBe('build')
+    }
+  })
+
+  it('leaves the key out of the file at the default', async () => {
+    const store = new AppSettingsStore(file())
+    await store.load()
+    await store.setUpdateMode('notify')
+    await store.setUpdateMode('build')
+    expect(JSON.parse(await fs.readFile(file(), 'utf8'))).not.toHaveProperty('updateMode')
+  })
+})
+
 describe('defaultSessionKind', () => {
   it('기본값은 terminal이다', async () => {
     const store = new AppSettingsStore(file())
@@ -1028,6 +1064,49 @@ describe('AppSettingsStore first-run question', () => {
     expect(await b.load()).toEqual({ recovered: false })
     expect(b.getLang()).toBe(store.getLang())
     expect(b.getAgentBrowserEnabled()).toBe(store.getAgentBrowserEnabled())
+  })
+})
+
+// Onboarding rides on the first-run flag: shown while it is open, its step resumed across a restart,
+// and gone for good once finished or skipped (both mark the question asked).
+describe('AppSettingsStore onboarding', () => {
+  it('a fresh profile has onboarding to show, from no step yet', async () => {
+    const store = new AppSettingsStore(file())
+    await store.load()
+    expect(store.getFirstRunAsked()).toBe(false)
+    expect(store.getOnboardingStep()).toBeNull()
+  })
+
+  it('a pre-existing install never shows it, even with a stray step in the file', async () => {
+    await fs.writeFile(file(), JSON.stringify({ lang: 'ko', onboardingStep: 'tools' }), 'utf8')
+    const store = new AppSettingsStore(file())
+    await store.load()
+    expect(store.getFirstRunAsked()).toBe(true)
+    expect(store.getOnboardingStep()).toBeNull()
+    await store.setOnboardingStep('accounts')
+    expect(store.getOnboardingStep()).toBeNull()
+  })
+
+  it('resumes at the step it reached after a restart', async () => {
+    const a = new AppSettingsStore(file())
+    await a.load()
+    await a.setOnboardingStep('accounts')
+    const b = new AppSettingsStore(file())
+    await b.load()
+    expect(b.getFirstRunAsked()).toBe(false)
+    expect(b.getOnboardingStep()).toBe('accounts')
+  })
+
+  it('finishing or skipping marks it done and the first-run question asked', async () => {
+    const a = new AppSettingsStore(file())
+    await a.load()
+    await a.setOnboardingStep('project')
+    await a.markFirstRunAsked()
+    const b = new AppSettingsStore(file())
+    await b.load()
+    expect(b.getFirstRunAsked()).toBe(true)
+    expect(b.getOnboardingStep()).toBeNull()
+    expect(JSON.parse(await fs.readFile(file(), 'utf8'))).not.toHaveProperty('onboardingStep')
   })
 })
 

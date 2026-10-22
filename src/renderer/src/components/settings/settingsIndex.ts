@@ -33,6 +33,7 @@ export const SETTINGS_ROWS: readonly SettingsRow[] = [
   { anchor: 'advancedMode', group: 'general', labelKey: 'settings.basic.advancedMode.label', descKey: 'settings.basic.advancedMode.hint', level: 'basic' },
   { anchor: 'defaultKind', group: 'general', labelKey: 'settings.defaultKind.title', descKey: 'settings.defaultKind.hint', level: 'advanced' },
   { anchor: 'autoCloseTabs', group: 'general', labelKey: 'settings.autoCloseTabs.label', descKey: 'settings.autoCloseTabs.hint', level: 'advanced' },
+  { anchor: 'onboarding', group: 'general', labelKey: 'onboarding.settings.replay', descKey: 'onboarding.settings.replayHint', level: 'basic' },
   { anchor: 'theme', group: 'general', labelKey: 'settings.theme.label', descKey: 'settings.theme.hint', level: 'basic' },
   { anchor: 'terminalFont', group: 'general', labelKey: 'settings.font.latin', descKey: 'settings.font.hangul', level: 'advanced' },
   { anchor: 'shortcuts', group: 'general', labelKey: 'settings.tab.shortcuts', level: 'advanced' },

@@ -42,7 +42,7 @@ describe('basic and advanced rows', () => {
   })
   it('simple view shows exactly the basic rows', () => {
     const shown = SETTINGS_ROWS.filter((r) => rowVisible(r.anchor, false, null)).map((r) => r.anchor)
-    expect(shown.sort()).toEqual(['accounts', 'advancedMode', 'language', 'notifications', 'projects', 'remote', 'theme'])
+    expect(shown.sort()).toEqual(['accounts', 'advancedMode', 'language', 'notifications', 'onboarding', 'projects', 'remote', 'theme'])
     expect(SETTINGS_ROWS.every((r) => rowVisible(r.anchor, true, null))).toBe(true)
   })
   it('a search shows its advanced hit even in simple mode, and only its hits', () => {

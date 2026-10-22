@@ -60,7 +60,7 @@ describe('projects-set project settings (W7-B)', () => {
 
   it('refuses bad values and changes nothing', async () => {
     const h = setup()
-    for (const args of [{ concurrency: '0' }, { concurrency: '11' }, { reviewRounds: '0' }, { replan: 'later' }, { autoApprove: 'maybe' }, { testConfig: 'x', testCommand: 'npm test' }, {}])
+    for (const args of [{ concurrency: '0' }, { concurrency: '101' }, { reviewRounds: '0' }, { replan: 'later' }, { autoApprove: 'maybe' }, { testConfig: 'x', testCommand: 'npm test' }, {}])
       expect((await h.call(args)).status).toBe(400)
     expect(h.project()).toEqual({ id: 'p1', path: REPO, name: 'shop', addedAt: NOW })
   })

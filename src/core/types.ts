@@ -1727,6 +1727,9 @@ export interface CoreApi {
     getFirstRunAsked(): Promise<boolean>
     /** It has been put to them. Answering and dismissing are the same thing here: it asks once. */
     markFirstRunAsked(): Promise<void>
+    /** The onboarding step a first run had reached (resumed after a restart); null once onboarding is done. */
+    getOnboardingStep(): Promise<string | null>
+    setOnboardingStep(step: string): Promise<void>
     /** True once after main's load recovered app-settings.json from a damaged file (settings reset,
      *  permission prompts on); asking clears it. */
     takeRecoveryNotice(): Promise<boolean>
@@ -1734,6 +1737,9 @@ export interface CoreApi {
      *  changing the kind inside the dialog is that session's business and is not written back. */
     getDefaultSessionKind(): Promise<SessionKind>
     setDefaultSessionKind(kind: SessionKind): Promise<void>
+    /** The source update channel's mode (default 'build'); a change takes effect within a minute, no restart. */
+    getUpdateMode(): Promise<UpdateMode>
+    setUpdateMode(mode: UpdateMode): Promise<void>
   }
   files: {
     // The file explorer. Every files.* IPC call goes through assertAllowedPath, which permits only
@@ -2014,10 +2020,25 @@ export interface UpdateStatus {
     | 'downloaded'
     | 'manual'
     | 'error'
+    /** Source channel only (src/core/update/sourceUpdate.ts): the new AppImage is being built from origin/main. */
+    | 'building'
   version?: string
   percent?: number
   message?: string
+  /** `building` only: which part of the build is running. */
+  step?: SourceBuildStep
+  /** Source channel only: how far this build is behind origin/main, and the commits it lacks (up to 20). */
+  source?: { behind: number; commits: { sha: string; subject: string }[]; target: string }
+  /** Source channel only, on every status: the short commit this build was made from, and whether it can build and
+   *  swap itself in (Linux AppImage). Its presence tells the renderer which channel it is looking at. */
+  sourceBuild?: { commit: string; selfInstall: boolean }
 }
+
+export type SourceBuildStep = 'cloning' | 'installing' | 'waiting' | 'building'
+
+/** How the source update channel acts on its own: never, check and tell, check and build, or also restart into the
+ *  new build once the app is idle. A manual check works in every mode. */
+export type UpdateMode = 'off' | 'notify' | 'build' | 'install-when-idle'
 
 /**
  * What pressing the install button actually did.
@@ -2054,6 +2075,8 @@ export interface UpdateApi {
   campaignState(): Promise<UpdateCampaignInfo | null>
   /** The user dismissed the notice — the same campaign is not shown again */
   dismissCampaign(id: string): Promise<void>
+  /** Source channel only: the latest status, for a renderer that mounted after the first ones went out. */
+  current(): Promise<UpdateStatus>
   check(): Promise<void>
   /** autoDownload starts the download on its own — this is the manual fallback */
   download(): Promise<void>
