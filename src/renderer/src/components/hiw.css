@@ -55,10 +55,8 @@
    but is not clickable — there is no record behind it yet — so the pointer cursor is turned off. */
 .hiw-open { border-bottom: 1px solid var(--line-soft); padding-bottom: 2px; }
 .hiw-open .hiw-lab { padding: 8px 12px 2px; margin: 0; }
-.hiw-open-row { cursor: default; }
-.hiw-open-row:hover { background: none; }
+.hiw-open-row { flex-direction: row; gap: 8px; padding: calc(var(--row-pad-y) + 3px) 12px; }
 .hiw-open-actions { display: flex; gap: 6px; margin-top: 4px; }
-.hiw-open-actions 
 /* How It Works record detail pane. The left side is the story to read, the right side is the
    reference to double-check — the width ratio between the two (1.62 : 1) is the whole of this
    screen's layout. It draws its own head because it sits in the same row as a session tab or a file
