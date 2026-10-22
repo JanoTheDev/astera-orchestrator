@@ -210,6 +210,7 @@ import { checkIdsOf, pluginCheckRefusal, tasksOfNextRun } from './commandChecks'
 import { dispatchModelFields } from './roleModels'
 // W1-C plan lifecycle
 import { archiveJob, archivedTargetOf, isJobActive, renameJob, unarchiveJob } from './lifecycle'
+import { worktreesList, worktreesRemove, type WorktreesOps } from './worktreesCommand'
 // W6-G
 import { usageChoice, usagePauseWhy, type UsageGuard } from './usageGuard'
 // W6-H delivery
@@ -824,6 +825,8 @@ export interface OrchServerDeps {
   /** Removes a delivered Run's worktrees that are ready (worktrees/cleanup.ts), unless `autoCleanWorktrees` is off.
    *  **Only the Host injects it.** Absent, nothing is cleaned and the Worktrees page offers "Clean up". */
   cleanWorktrees?(runId: string): Promise<unknown>
+  /** T5: the facts and the removal behind `worktrees list|remove`. **Only the Host injects it.** Absent, both answer 409. */
+  worktreesOps?: WorktreesOps
   // ── W7-B project settings kept in the app's own files ──
   /** Saves `command` as the project's test run configuration in run-configs.json and answers its id; null removes it
    *  and answers null. **Only the app injects it** (it is that file's one writer); the Host forwards it to an attached
@@ -1228,7 +1231,10 @@ const COORDINATOR_ONLY = new Set([
   'attribution-remap',
   // T8: the owner's and a coordinator's
   'runs-doctor',
-  'sessions-close'
+  'sessions-close',
+  // T5: the person's and a coordinator's
+  'worktrees-list',
+  'worktrees-remove'
 ])
 
 /** Session-task commands answer to the work-unit tracking toggle, not the orchestration one. They
@@ -3300,6 +3306,9 @@ export async function handleCommand(
       const r = archiveJob(after, id, now)
       if (!r.ok) return refused(r)
       await deps.setState(r.state)
+      // T5: an archived plan's finished Runs (a failed or cancelled one included) lose the worktrees whose work is merged
+      // or pushed; the Host says in the feed which it kept. A Run still working keeps all of them.
+      for (const run of r.state.runs.filter((x) => x.jobId === id && outcomeOf(r.state, x.id) !== 'running')) await cleanAfterDelivery(deps, run.id)
       return okBody(jobView(r.state, r.value, latestRunOf(r.state, r.value)))
     }
     // W7-D (#67): how many workers a plan runs at once, changed until it finishes. A lower value only limits new starts
@@ -3925,6 +3934,19 @@ export async function handleCommand(
       if (existing !== undefined)
         return conflict(`run ${id} already has a worktree: ${existing}`)
       return commit(setRunWorktree(s, id, worktree))
+    }
+    // T5 (decision 5): the worktrees Astera made, what each holds, and removing the ones that are safe to remove. The
+    // owner's for every worktree; a coordinator's for its own Run's only (worktreesCommand.ts holds the rules).
+    case 'worktrees-list':
+    case 'worktrees-remove': {
+      const owner = !fromAgentSession && caller.role !== 'mcp'
+      const mine = owner ? undefined : coordinatedBy(s, caller.sessionId)
+      if (!owner && !mine) return denied('worktrees is for the person, or for a Run’s coordinator on its own Run')
+      if (mine && cmd === 'worktrees-remove' && (args.run !== undefined && args.run !== mine.id)) return denied(`a coordinator may remove its own Run's worktrees only (${mine.id})`)
+      if (!deps.worktreesOps) return conflict('worktrees are answered by the Astera Host')
+      const only = mine ? { run: mine.id } : undefined
+      const at = Date.parse(deps.now?.() ?? new Date().toISOString())
+      return cmd === 'worktrees-list' ? worktreesList(deps.worktreesOps, s, args, at, only) : worktreesRemove(deps.worktreesOps, s, args, at, only)
     }
     case 'run-merge': {
       const id = str(args.run)
@@ -6654,6 +6676,7 @@ export async function handleCommand(
       const pushed = r.noted.length > 0 ? await pushNotes(job.cwd) : 'none'
       const cur = deps.getState()
       await deps.setState({ ...cur, runs: cur.runs.map((x) => (x.id === run.id && x.pr ? { ...x, pr: { ...x.pr, attributed: sha, attributedAt: deps.now?.() ?? new Date().toISOString(), baseRefName: pr.baseRefName as string } } : x)) })
+      await cleanAfterDelivery(deps, run.id) // T5: the plan's pull request is merged: its worktrees and branches go
       return okBody({ remapped: true, kind: r.kind, noted: r.noted, sha, notesPushed: pushed === 'pushed' })
     }
     case 'github-ci-rerun': {

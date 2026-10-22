@@ -33,7 +33,9 @@ import {
 } from '../core/orchestration/exec/integrateGit'
 import { WorktreeRegistry, defaultWorktreeRoot, isRegistryFile } from '../core/worktrees/registry'
 import { git as realGit } from '../core/worktrees/git'
-import { cleanRun, type CleanResult } from '../core/worktrees/cleanupRun'
+import { removeWorktree } from '../core/worktrees/remove'
+import { cleanFinished, cleanRun, worktreeRows, type CleanResult } from '../core/worktrees/cleanupRun'
+import type { WorktreesOps } from '../core/orchestration/worktreesCommand'
 import { listWithStatus } from '../core/worktrees/list'
 import { isPathWithin, isSamePath } from '../core/files/tree'
 import { hostMergesPathIn } from '../core/git/hostMerges'
@@ -54,6 +56,8 @@ export interface HostWorktreesDeps {
   getState(): OrchState
   broadcast(m: HostMessage): void
   log(m: string): void
+  /** T5: one line for a plan's activity feed (what a clean-up kept and why). Absent: only the log hears it. */
+  activity?(runId: string, line: string): void
   /** The attached app, asked before a folder is removed about what it runs itself (the ruling on
    *  plan risk 3, HOST_ACT_PATH_IN_USE). `lastAppPid` (leftovers Task 1, optional for the rigs): the pid the
    *  last app's hello gave, asked when app.pid names no live app. */
@@ -102,6 +106,10 @@ export interface HostWorktrees {
   isPathInUse(p: string): string | null
   /** W9-J: removes a delivered Run's ready worktrees (core/worktrees/cleanup.ts), unforced. Never throws. */
   cleanRun(runId: string): Promise<CleanResult>
+  /** T5: the Host-start sweep: every ready worktree of a finished plan (delivered, or archived). Never throws. */
+  cleanFinished(): Promise<CleanResult>
+  /** T5: `worktrees list|remove` (core/orchestration/worktreesCommand.ts). */
+  ops: WorktreesOps
   /** The four internal orch-calls, app only (R1). */
   call(cmd: string, args: Record<string, unknown>, from: OrchCaller | undefined): Promise<{ status: number; body: unknown }>
 }
@@ -367,6 +375,25 @@ export function createHostWorktrees(d: HostWorktreesDeps): HostWorktrees {
     }
   }
 
+  /** Whether an automatic clean-up may run now. As removeWorktrees: with the app detached, what it runs is invisible to this Host, so nothing is removed. */
+  const cleanable = async (what: string): Promise<boolean> => {
+    try {
+      await fresh()
+      return !detachedApp()
+    } catch (e) {
+      d.log(`${what} skipped: ${message(e)}`)
+      return false
+    }
+  }
+  const cleanDeps = {
+    registry,
+    list: () => listWithStatus(registry),
+    state: () => d.getState(),
+    isPathInUse,
+    log: d.log,
+    ...(d.activity ? { activity: d.activity } : {})
+  }
+
   return {
     load: async () => {
       await registry.load()
@@ -410,21 +437,24 @@ export function createHostWorktrees(d: HostWorktreesDeps): HostWorktrees {
     list: () => registry.list(),
     isPathInUse,
     cleanRun: async (runId) => {
-      try {
+      if (!(await cleanable(`worktree clean-up of run ${runId}`))) return { removed: [], kept: [] }
+      return cleanRun(runId, cleanDeps)
+    },
+    cleanFinished: async () => {
+      if (!(await cleanable('worktree clean-up at start'))) return { removed: [], kept: [] }
+      return cleanFinished(cleanDeps)
+    },
+    ops: {
+      rows: async () => {
+        await fresh()
+        return worktreeRows(await listWithStatus(registry), d.getState(), isPathInUse)
+      },
+      remove: async (id, force, originCopy) => {
         await fresh()
         // As removeWorktrees: with the app detached, what it runs is invisible to this Host, so nothing is removed
-        if (detachedApp()) return { removed: [], kept: [] }
-      } catch (e) {
-        d.log(`worktree clean-up of run ${runId} skipped: ${message(e)}`)
-        return { removed: [], kept: [] }
+        if (detachedApp()) throw new Error(DETACHED_APP)
+        return removeWorktree({ id, force, registry, isPathInUse, ...(originCopy ? { deleteRemoteBranch: true } : {}) })
       }
-      return cleanRun(runId, {
-        registry,
-        list: () => listWithStatus(registry),
-        state: () => d.getState(),
-        isPathInUse,
-        log: d.log
-      })
     },
     call: async (cmd, args, from) => {
       const handle = calls[cmd]
