@@ -21,7 +21,7 @@ import { SessionCwdCache } from '../core/history/sessionCwdCache'
 import { ProjectSettings } from '../core/projects/settings'
 import { StatusLineManager, resolveNodePath } from '../core/sessions/statusline'
 import { RateLimitFetcher } from '../core/usage/rateLimitFetcher'
-import { CodexUsageFetcher } from './codexUsage'
+import { CodexUsageFetcher } from '../core/usage/codexUsageFetcher'
 import { AccountUsageStore } from './accountUsageStore'
 import { parseStatusLinePayload } from '../core/usage/statusline'
 import { defaultAccountIdOf } from '../core/accounts/defaultAccount'
@@ -320,7 +320,9 @@ export async function createCore(userDataDir: string, osLocale: string): Promise
   const usageFetcher = new RateLimitFetcher(undefined, undefined, undefined, undefined, undefined, (u, i) =>
     net.fetch(u, i) as unknown as ReturnType<import('../core/usage/rateLimitFetcher').FetchLike>
   )
-  const codexUsageFetcher = new CodexUsageFetcher()
+  const codexUsageFetcher = new CodexUsageFetcher(undefined, (u, i) =>
+    net.fetch(u, i) as unknown as ReturnType<import('../core/usage/rateLimitFetcher').FetchLike>
+  )
   const accountUsage = new AccountUsageStore(path.join(userDataDir, 'account-usage.json'))
   // A cache, so a failed load is an empty cache and nothing more — there is no recovered flag to
   // report and nothing for the caller to decide.

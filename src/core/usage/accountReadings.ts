@@ -50,23 +50,26 @@ function fresherOf(live: AccountReading | undefined, fetched: AccountReading, no
   return { session: pick('session'), weekly: pick('weekly'), at: fetched.at }
 }
 
-/** T2 (automatic accounts): `live` plus, for each claude account whose live statusLine reading is missing, older than
- *  ten minutes or without its weekly window (T5a), the account-usage fetcher's windows (RateLimitFetcher, cached by
- *  usageCache.ts), the fresher of the two winning per window, so the guard and the automatic order see idle accounts
- *  instead of "unknown" and an idle session's old snapshot does not hide a weekly 100%. A failed or unavailable fetch
- *  adds nothing: what was known stays. Codex accounts are left out (their fetcher lives in the app). */
+/** T2 (automatic accounts): `live` plus, for each account whose live statusLine reading is missing, older than
+ *  ten minutes or without its weekly window (T5a), the account-usage fetcher's windows (RateLimitFetcher for claude,
+ *  CodexUsageFetcher for codex; cached by usageCache.ts), the fresher of the two winning per window, so the guard and
+ *  the automatic order see idle accounts instead of "unknown" and an idle session's old snapshot does not hide a weekly
+ *  100%. A failed or unavailable fetch adds nothing: what was known stays. Codex sessions write no statusLine payload,
+ *  so the fetch is their only reading; without `fetchCodex` codex accounts are left out. */
 export async function withFetchedReadings(
   live: ReadonlyMap<string, AccountReading>,
   accounts: readonly Account[],
   fetch: (configDir: string) => Promise<RateLimitUsage>,
-  nowMs: number = Date.now()
+  nowMs: number = Date.now(),
+  fetchCodex?: (configDir: string) => Promise<RateLimitUsage>
 ): Promise<Map<string, AccountReading>> {
   const out = new Map(live)
   await Promise.all(
     accounts.map(async (a) => {
-      if (providerOf(a) !== 'claude' || liveIsEnough(out.get(a.id), nowMs)) return
+      const get = providerOf(a) === 'claude' ? fetch : fetchCodex
+      if (!get || liveIsEnough(out.get(a.id), nowMs)) return
       try {
-        const u = await fetch(a.configDir)
+        const u = await get(a.configDir)
         if (u.status === 'ok' && (u.session || u.weekly))
           out.set(a.id, fresherOf(out.get(a.id), { session: u.session, weekly: u.weekly, at: nowMs }, nowMs))
       } catch {
@@ -85,11 +88,12 @@ export async function readingsFresh(
     live: ReadonlyMap<string, AccountReading>
     accounts: readonly Account[]
     fetch: (configDir: string) => Promise<RateLimitUsage>
+    fetchCodex?: (configDir: string) => Promise<RateLimitUsage>
     nowMs?: number
   }
 ): Promise<Map<string, AccountReading>> {
   const ids = new Set(accountIds)
-  const all = await withFetchedReadings(d.live, d.accounts.filter((a) => ids.has(a.id)), d.fetch, d.nowMs)
+  const all = await withFetchedReadings(d.live, d.accounts.filter((a) => ids.has(a.id)), d.fetch, d.nowMs, d.fetchCodex)
   return new Map([...all].filter(([id]) => ids.has(id)))
 }
 
@@ -102,6 +106,7 @@ export function createAccountUsageSource(d: {
   sessions(): ReadonlyArray<{ id: string; accountId: string | null | undefined }>
   accounts(): Promise<readonly Account[]>
   fetch(configDir: string): Promise<RateLimitUsage>
+  fetchCodex?(configDir: string): Promise<RateLimitUsage>
   pauseAt(): Promise<number>
   nowMs?(): number
 }): { refresh(): Promise<void>; current(): AccountUsage | null } {
@@ -112,7 +117,7 @@ export function createAccountUsageSource(d: {
     const [live, accounts, pauseAt] = await Promise.all([readAccountReadings(d.statuslineDir, sessions), d.accounts(), d.pauseAt()])
     const readings = await readingsFresh(
       accounts.map((a) => a.id),
-      { live, accounts, fetch: d.fetch, nowMs: d.nowMs?.() ?? Date.now() }
+      { live, accounts, fetch: d.fetch, ...(d.fetchCodex ? { fetchCodex: (dir: string) => d.fetchCodex!(dir) } : {}), nowMs: d.nowMs?.() ?? Date.now() }
     )
     const liveSessions = new Map<string, number>()
     for (const s of sessions) if (s.accountId) liveSessions.set(s.accountId, (liveSessions.get(s.accountId) ?? 0) + 1)

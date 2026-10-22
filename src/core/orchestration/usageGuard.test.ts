@@ -186,4 +186,18 @@ describe('T2: automatic accounts in the guard', () => {
     const out = await withFetchedReadings(live, [acct('live'), acct('idle'), acct('bad'), acct('none'), acct('cx', 'codex')], fetch, NOW)
     expect(Object.fromEntries(out)).toEqual({ live: reading(50, 10), idle: { session: fetched.session, weekly: null, at: NOW } })
   })
+
+  it('withFetchedReadings reads codex accounts through the codex fetcher; a failed fetch leaves them unknown', async () => {
+    const acct = (id: string) => ({ id, label: id, configDir: `/cfg/${id}`, color: '#fff', createdAt: LATER, provider: 'codex' as const })
+    const fetched = { session: { usedPercent: 95, resetsAt: LATER }, weekly: null, maxPercent: 95, peak: null, status: 'ok' as const }
+    const never = async () => { throw new Error('claude fetcher must not serve codex') }
+    const codex = async (dir: string) => {
+      if (dir === '/cfg/bad') throw new Error('net')
+      return fetched
+    }
+    const out = await withFetchedReadings(new Map(), [acct('cx'), acct('bad')], never, NOW, codex)
+    expect(Object.fromEntries(out)).toEqual({ cx: { session: fetched.session, weekly: null, at: NOW } })
+    // a codex worker rolls off the full codex account to the one with room
+    expect(usagePauseOf('cx', out.get('cx'), 90, NOW)?.percent).toBe(95)
+  })
 })

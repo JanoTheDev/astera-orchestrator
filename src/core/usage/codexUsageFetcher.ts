@@ -1,15 +1,15 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import { net } from 'electron'
-import type { RateLimitUsage } from '../core/types'
-import { mapCodexUsageResponse } from '../core/usage/codexAccount'
+import type { RateLimitUsage } from '../types'
+import { mapCodexUsageResponse } from './codexAccount'
+import type { FetchLike } from './rateLimitFetcher'
 import {
   ERROR_USAGE,
   parseRetryAfterMs,
   TTL_RATE_LIMITED_MS,
   UsageCache,
   type UsageAttempt
-} from '../core/usage/usageCache'
+} from './usageCache'
 
 /** The codex account-usage endpoint. `wham` is codex's own internal name for its backend and is the
  *  path the CLI actually calls — the newer alias it also carries, `/backend-api/api/codex/usage`,
@@ -60,7 +60,7 @@ export async function readCodexAccessToken(configDir: string): Promise<string | 
  * Security guardrails — the same set RateLimitFetcher states, and for the same reasons:
  *  - the accessToken exists only inside this module (main) — what leaves is the percentage result
  *  - never logged (errors carry the status only) and never written to disk (the cache holds results only)
- *  - TLS verification stays on (net.fetch default, no bypass) with a 10-second timeout
+ *  - TLS verification stays on (the injected fetch's default, no bypass) with a 10-second timeout
  *  - auth.json is read-only — no refresh, no write (codex refreshes the token it is using itself), so an
  *    account left idle long enough answers 401 and the row falls back to its remembered reading
  *  - the token travels only as the Authorization header of that endpoint. Nothing else is sent: the
@@ -70,7 +70,12 @@ export async function readCodexAccessToken(configDir: string): Promise<string | 
 export class CodexUsageFetcher {
   private cache: UsageCache
 
-  constructor(private now: () => number = () => Date.now()) {
+  constructor(
+    private now: () => number = () => Date.now(),
+    /** The network call. Default: the global fetch (Node 24). The app passes electron's net.fetch (proxy and
+     *  certificate store), the Host has none and uses the default. */
+    private fetchImpl: FetchLike = (u, i) => globalThis.fetch(u, i) as unknown as ReturnType<FetchLike>
+  ) {
     this.cache = new UsageCache(now)
   }
 
@@ -89,7 +94,7 @@ export class CodexUsageFetcher {
     const token = await readCodexAccessToken(configDir)
     if (!token) return { result: ERROR_USAGE('unavailable') }
     try {
-      const res = await net.fetch(USAGE_URL, {
+      const res = await this.fetchImpl(USAGE_URL, {
         headers: { Authorization: `Bearer ${token}` },
         signal: AbortSignal.timeout(TIMEOUT_MS)
       })

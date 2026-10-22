@@ -74,6 +74,7 @@ import { readAccountReadings, withFetchedReadings } from '../core/usage/accountR
 import { readUsagePauseAt } from '../core/settings/usagePauseAt'
 import { readAutoAccountsOn } from '../core/settings/autoAccounts'
 import { RateLimitFetcher } from '../core/usage/rateLimitFetcher'
+import { CodexUsageFetcher } from '../core/usage/codexUsageFetcher'
 
 /** W6-G: how often the Host reads usage again with nothing starting, so a pause ends on its own. */
 const USAGE_GUARD_TICK_MS = 60_000
@@ -435,6 +436,7 @@ async function main(): Promise<void> {
   // T2 (automatic accounts): with "Pick accounts automatically" on, accounts with no live statusLine reading are read
   // through the account-usage fetcher (cached five minutes, usageCache.ts), so idle accounts are not "unknown".
   let usageFetcher: RateLimitFetcher | null = null
+  let codexUsageFetcher: CodexUsageFetcher | null = null
   const usageGuard = createUsageGuard({
     readings: async ({ autoAccounts }) => {
       const live = await readAccountReadings(
@@ -447,7 +449,14 @@ async function main(): Promise<void> {
       )
       if (!autoAccounts) return live
       const fetcher = (usageFetcher ??= new RateLimitFetcher())
-      return withFetchedReadings(live, await readAccountEntries(path.join(profileDir, 'accounts.json')), (dir) => fetcher.get(dir))
+      const codexFetcher = (codexUsageFetcher ??= new CodexUsageFetcher())
+      return withFetchedReadings(
+        live,
+        await readAccountEntries(path.join(profileDir, 'accounts.json')),
+        (dir) => fetcher.get(dir),
+        undefined,
+        (dir) => codexFetcher.get(dir)
+      )
     },
     pauseAt: () => readUsagePauseAt(path.join(profileDir, 'app-settings.json')),
     autoAccounts: () => readAutoAccountsOn(path.join(profileDir, 'app-settings.json')),

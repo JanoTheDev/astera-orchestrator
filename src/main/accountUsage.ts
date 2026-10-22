@@ -20,7 +20,7 @@ export interface AccountUsageDeps {
   /** RateLimitFetcher, reused unchanged. It already carries the 5-minute success cache, the capped
    *  15-minute 429 back-off, and in-flight coalescing per configDir. */
   fetcher: UsageFetcher
-  /** CodexUsageFetcher — the same policy against codex's own endpoint (main/codexUsage.ts). Separate
+  /** CodexUsageFetcher — the same policy against codex's own endpoint (core/usage/codexUsageFetcher.ts). Separate
    *  rather than one fetcher that branches, because the branch is about credentials and endpoints and
    *  belongs on the provider's side of the line, not here. */
   codexFetcher: UsageFetcher
@@ -53,7 +53,7 @@ export interface AccountUsageService {
  *
  * Both providers are asked. Codex was out of scope when this was written (§1) because the only
  * endpoint on hand was Anthropic's; codex has one of its own, answering the same two windows
- * (main/codexUsage.ts), so a codex row now draws the same meter as a claude row.
+ * (core/usage/codexUsageFetcher.ts), so a codex row now draws the same meter as a claude row.
  */
 export function createAccountUsage(deps: AccountUsageDeps): AccountUsageService {
   // The configDirs whose most recent attempt actually reached the API and produced a reading the

@@ -20,6 +20,7 @@ import { readResumeStrategy } from '../core/settings/resumeStrategy'
 import { RateLimitFetcher, USAGE_GATE_MAX_AGE_MS } from '../core/usage/rateLimitFetcher'
 import { findClaudeTranscript } from '../core/history/strategies/claude'
 import { createAccountUsageSource } from '../core/usage/accountReadings'
+import { CodexUsageFetcher } from '../core/usage/codexUsageFetcher'
 import { readUsagePauseAt } from '../core/settings/usagePauseAt'
 import type { RollSnapshot, RollSpawnExtra } from '../core/rolling/snapshot'
 import type { Lang } from '../core/i18n'
@@ -174,6 +175,7 @@ export function createHostRolling(d: HostRollingDeps): HostRolling {
   )
   // R28 (preflight R1): the Host asks the account itself, as the app does; Q4 accepts when it fails.
   let usage: RateLimitFetcher | null = null
+  let codexUsage: CodexUsageFetcher | null = null
   const fetchUsage =
     d.fetchUsage ??
     (async (configDir: string): Promise<RateLimitPeak | null> => {
@@ -192,6 +194,7 @@ export function createHostRolling(d: HostRollingDeps): HostRolling {
       ),
     accounts: async () => accounts,
     fetch: d.fetchAccountUsage ?? ((configDir) => (usage ??= new RateLimitFetcher()).get(configDir)),
+    fetchCodex: (configDir) => (codexUsage ??= new CodexUsageFetcher()).get(configDir),
     pauseAt: () => readUsagePauseAt(path.join(d.profileDir, 'app-settings.json'))
   })
   /** R29 (preflight R3): a dependency the coordinators call as `void this.x()` must never reject, or the

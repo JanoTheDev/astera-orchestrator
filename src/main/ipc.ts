@@ -1553,7 +1553,7 @@ export function registerIpc(
         path.join(path.dirname(core.hookEventsDir), 'statusline'),
         core.sessions.list().map((s) => ({ id: s.id, accountId: s.accountId }))
       )
-      return autoAccounts ? withFetchedReadings(live, core.accounts.list(), (dir) => core.usageFetcher.get(dir)) : live
+      return autoAccounts ? withFetchedReadings(live, core.accounts.list(), (dir) => core.usageFetcher.get(dir), undefined, (dir) => core.codexUsageFetcher.get(dir)) : live
     },
     pauseAt: async () => core.appSettings.getUsagePauseAt(),
     autoAccounts: () => readAutoAccountsOn(path.join(path.dirname(core.hookEventsDir), 'app-settings.json')),

@@ -955,6 +955,7 @@ app.whenReady().then(async () => {
     sessions: () => core!.sessions.list().map((s) => ({ id: s.id, accountId: s.accountId })),
     accounts: async () => core!.accounts.list(),
     fetch: (configDir) => usageFetcher.get(configDir),
+    fetchCodex: (configDir) => core!.codexUsageFetcher.get(configDir),
     pauseAt: async () => core!.appSettings.getUsagePauseAt()
   })
   const refreshAccountUsage = (): void => {
