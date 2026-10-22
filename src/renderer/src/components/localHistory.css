@@ -7,8 +7,3 @@
 .lh-name { font-size: var(--fs-13); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lh-path { font-size: var(--fs-11); color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lh-meta { font-size: var(--fs-11); font-family: var(--mono); color: var(--text-dim); flex-shrink: 0; }
-/* Not Local History's: TranscriptPreviewModal (History screen) renders these; they stay here until that screen's Task moves them. */
-.preview-scroll { overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
-.msg { font-size: var(--fs-13); line-height: 1.5; }
-.msg.user b { color: var(--role-user); }
-.msg.assistant b { color: var(--role-assistant); }

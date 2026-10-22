@@ -52,3 +52,7 @@
 /* The working folder input takes the leftover width next to the "Choose…" button — the same convention as
    the inputs of .slack-url-input and .worktree-root-cell (stating flex:1 rather than relying on width:100%) */
 .run-config-cwd { flex: 1; min-width: 0; }
+.preview-scroll { overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+.msg { font-size: var(--fs-13); line-height: 1.5; }
+.msg.user b { color: var(--role-user); }
+.msg.assistant b { color: var(--role-assistant); }
