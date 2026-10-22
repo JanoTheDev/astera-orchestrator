@@ -3,6 +3,8 @@ import type { ResumeStrategy } from '../../../core/types'
 import { useI18n } from '../i18n/I18nProvider'
 import { confirmModal } from '../lib/confirm'
 import { toast } from '../lib/toast'
+import { Card, Switch } from './ui'
+import { arrowFocus } from './settings/SettingRow'
 
 /** The Continuity group of the settings screen: the Smart Resume card picker and the Job Continuity
  *  checkbox. One component because the two are coupled (spec §3): turning Job Continuity on may flip
@@ -85,11 +87,7 @@ export function ResumeStrategySettings(): React.JSX.Element {
       <div className="settings-group">
         <label className="settings-row">
           <span>{t('settings.jobContinuity.label')}</span>
-          <input
-            type="checkbox"
-            checked={continuity}
-            onChange={(e) => toggleContinuity(e.target.checked)}
-          />
+          <Switch checked={continuity} onChange={toggleContinuity} />
         </label>
         <span className="settings-hint">{t('settings.jobContinuity.hint')}</span>
       </div>
@@ -97,9 +95,8 @@ export function ResumeStrategySettings(): React.JSX.Element {
         <div className="settings-row">
           <span>{t('settings.resumeStrategy.label')}</span>
         </div>
-        <div className="resume-strategy-grid">
-          <button
-            type="button"
+        <div className="resume-strategy-grid" role="group" aria-label={t('settings.resumeStrategy.label')} onKeyDown={arrowFocus('.resume-strategy-card', 'horizontal')}>
+          <Card
             className={`resume-strategy-card${strategy === 'smart' ? ' on' : ''}`}
             aria-pressed={strategy === 'smart'}
             onClick={() => void pick('smart')}
@@ -110,9 +107,8 @@ export function ResumeStrategySettings(): React.JSX.Element {
             <span className="resume-strategy-card-desc">
               {t('settings.resumeStrategy.smart.hint')}
             </span>
-          </button>
-          <button
-            type="button"
+          </Card>
+          <Card
             className={`resume-strategy-card${strategy === 'original' ? ' on' : ''}`}
             aria-pressed={strategy === 'original'}
             onClick={() => void pick('original')}
@@ -123,7 +119,7 @@ export function ResumeStrategySettings(): React.JSX.Element {
             <span className="resume-strategy-card-desc">
               {t('settings.resumeStrategy.original.hint')}
             </span>
-          </button>
+          </Card>
         </div>
       </div>
     </div>

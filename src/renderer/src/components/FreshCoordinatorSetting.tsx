@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
+import { Input } from './ui'
 
 /** Context use (%) at which a plan's coordinator is replaced (core/settings/freshCoordinator.ts), 0 for off. Saved on
  *  blur, as MaxWorkersSetting is; a value that is not a whole number from 0 to 100 goes back to what was saved. */
@@ -36,9 +37,8 @@ export function FreshCoordinatorSetting(): React.JSX.Element {
     <div>
       <label className="settings-row">
         <span>{t('settings.freshCoordinator.label')}</span>
-        <input
+        <Input
           type="number"
-          className="ui-input"
           min={0}
           max={100}
           value={draft}

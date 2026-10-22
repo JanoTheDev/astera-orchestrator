@@ -17,8 +17,9 @@
   display: flex; flex-direction: column; gap: 2px; width: 200px; flex: none;
   padding: var(--sp-3); border-right: 1px solid var(--line); background: var(--panel); overflow-y: auto;
 }
+/* Each group is a ghost ui Button: left-aligned and full width here. */
 .settings-page__nav .settings-nav-item {
-  display: flex; align-items: center; gap: var(--sp-2); min-height: var(--h-md); padding: 0 var(--sp-2);
+  display: flex; align-items: center; justify-content: flex-start; gap: var(--sp-2); width: 100%; min-height: var(--h-md); padding: 0 var(--sp-2);
   font-size: var(--fs-13); font-weight: var(--fw-medium); color: var(--text-dim);
   transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
@@ -34,6 +35,7 @@
   border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--bg); color: var(--text-faint);
 }
 .settings-page__search:focus-within { box-shadow: var(--focus-ring); }
+.settings-page__search input:focus-visible { box-shadow: none; }
 .settings-page__search input { flex: 1; min-width: 0; background: none; border: none; outline: none; box-shadow: none; color: var(--text); font: inherit; font-size: var(--fs-13); }
 .settings-page__search input::placeholder { color: var(--text-faint); }
 

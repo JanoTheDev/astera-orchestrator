@@ -5,7 +5,7 @@ import type { GeneratorSettings as GeneratorSettingsValue } from '../../../core/
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
 import { AccountSelect } from './AccountSelect'
-import { Select } from './Select'
+import { Button, Icon, Input, Select } from './ui'
 import { createLatest } from '../lib/latest'
 
 /** 설명을 누가·무엇으로 만드는가 (설계 D2·D4).
@@ -122,9 +122,9 @@ export function GeneratorSettings(): React.JSX.Element {
               />
             ) : (
               // 목록이 없어도 고를 수 있어야 한다 — 이름을 아는 사용자를 막지 않는다
-              <input
+              <Input
                 type="text"
-                className="settings-gen-input"
+                className="settings-text-field"
                 aria-label={t('settings.gen.model')}
                 placeholder={t('settings.gen.modelPlaceholder')}
                 defaultValue={value.model ?? ''}
@@ -163,14 +163,16 @@ export function GeneratorSettings(): React.JSX.Element {
             </div>
           ) : null}
 
-          <button
-            type="button"
-            className="settings-gen-refresh"
+          <Button
+            size="sm"
+            variant="ghost"
+            className="settings-gen-action"
+            icon={<Icon name="refresh" size={14} />}
             disabled={loading}
             onClick={() => void loadModels(value.accountId as string, true)}
           >
             {t('settings.gen.refresh')}
-          </button>
+          </Button>
         </>
       ) : null}
     </div>

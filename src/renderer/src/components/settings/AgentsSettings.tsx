@@ -10,6 +10,7 @@ import { StartAtLoginSetting } from '../StartAtLoginSetting'
 import { AutoAnswerSetting } from '../AutoAnswerSetting'
 import { toast } from '../../lib/toast'
 import { SettingRow, type GroupProps } from './SettingRow'
+import { Switch } from '../ui'
 
 export function AgentsSettings(p: GroupProps): React.JSX.Element | null {
   const {
@@ -26,11 +27,9 @@ export function AgentsSettings(p: GroupProps): React.JSX.Element | null {
         <div className="settings-group">
           <label className="settings-row">
             <span>{t('settings.agentPermission.label')}</span>
-            <input
-              type="checkbox" role="switch" className="ui-toggle"
+            <Switch
               checked={agentYolo}
-              onChange={(e) => {
-                const next = e.target.checked
+              onChange={(next) => {
                 settingsTouched.current.touch('agentYolo')
                 setAgentYolo(next)
                 void window.api.settings
@@ -86,11 +85,9 @@ export function AgentsSettings(p: GroupProps): React.JSX.Element | null {
         <div className="settings-group">
           <label className="settings-row">
             <span>{t('settings.agentBrowser.label')}</span>
-            <input
-              type="checkbox" role="switch" className="ui-toggle"
+            <Switch
               checked={agentBrowserEnabled}
-              onChange={(e) => {
-                const next = e.target.checked
+              onChange={(next) => {
                 settingsTouched.current.touch('agentBrowser')
                 setAgentBrowserEnabled(next)
                 void window.api.settings.setAgentBrowserEnabled(next).catch((err) => {
@@ -114,11 +111,9 @@ export function AgentsSettings(p: GroupProps): React.JSX.Element | null {
         <div className="settings-group">
           <label className="settings-row">
             <span>{t('settings.agentApp.label')}</span>
-            <input
-              type="checkbox" role="switch" className="ui-toggle"
+            <Switch
               checked={agentAppEnabled}
-              onChange={(e) => {
-                const next = e.target.checked
+              onChange={(next) => {
                 settingsTouched.current.touch('agentApp')
                 setAgentAppEnabled(next)
                 void window.api.settings.setAgentAppEnabled(next).catch((err) => {

@@ -3,7 +3,8 @@ import { useTheme } from '../lib/theme'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
 import { useRef } from 'react'
-import { Check } from 'lucide-react'
+import { Card, Icon } from './ui'
+import { arrowFocus } from './settings/SettingRow'
 import { createLatest } from '../lib/latest'
 
 /** 테마는 색을 보고 고르는 것이라 드롭다운이 아니라 카드다. 각 카드가 자기 팔레트로 작은 미리보기를
@@ -34,16 +35,15 @@ export function ThemeSettings(): React.JSX.Element {
         <span className="settings-card-title">{t('settings.theme.label')}</span>
         <span className="settings-hint">{t('settings.theme.hint')}</span>
       </div>
-      <div className="theme-grid">
+      <div className="theme-grid" role="group" aria-label={t('settings.theme.label')} onKeyDown={arrowFocus('.theme-card', 'horizontal')}>
         {THEME_IDS.map((id) => {
           const th = themeById(id)
           // System previews both halves: night on the left, day on the right.
           const day = themeById('day')
           const on = id === themeId
           return (
-            <button
+            <Card
               key={id}
-              type="button"
               className={`theme-card${on ? ' on' : ''}`}
               aria-pressed={on}
               onClick={() => pick(id)}
@@ -63,9 +63,9 @@ export function ThemeSettings(): React.JSX.Element {
               </span>
               <span className="theme-card-name">
                 {id === 'system' ? t('settings.theme.system') : th.name}
-                {on && <Check size={14} aria-hidden="true" />}
+                {on && <Icon name="check" size={14} />}
               </span>
-            </button>
+            </Card>
           )
         })}
       </div>
