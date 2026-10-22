@@ -291,6 +291,12 @@ describe('T36: a Run stalled on a failed Task', () => {
     expect(stallOf(alone, run(alone))).toBeUndefined()
   })
 
+  it('is stalled with a failed leaf Task that has tries left: nothing retries it without a coordinator', () => {
+    // x failed once (tries left), nothing waits on it; f holds back d and e
+    const s = state([...tasks, task('x', { status: 'failed', consecutiveFailures: 1 })], off)
+    expect(stallOf(s, run(s))?.reason).toBe('waiting on f (f) (failed): 2 Task(s) wait on it')
+  })
+
   it('stays stalled while its own question is open, and asks once per failure', () => {
     const s = state(tasks, off)
     const block = stallOf(s, run(s))!.blocks[0]

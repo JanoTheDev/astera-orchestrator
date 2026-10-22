@@ -200,7 +200,8 @@ export interface RunStall {
  * it). Stalled: its plan is active, not paused, not held by a person, not replanning; no coordinator, worker or reviewer
  * works on it; no open Gate, no unanswered worker question and no escalation waiting for a choice (the question this
  * raises, `isFailedWait`, does not count: it is how the stall is resolved); and every unfinished Task is a failed one
- * that holds back not-started Tasks, or one of those. A Run with nothing waiting on its failures has ended, not stalled.
+ * (whatever its tries left: no coordinator retries it) or one that waits on a failed one. A Run with nothing waiting on
+ * its failures has ended, not stalled.
  */
 export function stallOf(s: OrchState, run: JobRun): RunStall | undefined {
   const job = jobOf(s, run)
@@ -216,7 +217,8 @@ export function stallOf(s: OrchState, run: JobRun): RunStall | undefined {
   const blocks = failedBlocks(s, run.id)
   if (blocks.length === 0) return undefined
   const stuck = new Set(blocks.flatMap((b) => [b.task.id, ...b.waiting.map((t) => t.id)]))
-  if (!own.every((t) => t.status === 'completed' || (t.status === 'failed' && t.consecutiveFailures >= FAILURE_LIMIT) || stuck.has(t.id)))
+  // No coordinator here (returned above), so no path retries a failed Task whatever its tries left (running.ts `stuckOf`)
+  if (!own.every((t) => t.status === 'completed' || t.status === 'failed' || stuck.has(t.id)))
     return undefined
   const first = blocks[0]
   const more = blocks.length > 1 ? ` and ${blocks.length - 1} other failed Task(s)` : ''
