@@ -4,6 +4,7 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { MAX_CONCURRENT_WORKERS } from '../orchestration/types'
 import { machineSpecs } from './machineSpecs'
+import { RepairNeeded } from './repairNeeded'
 import { maxConcurrentWorkersOf, readMaxConcurrentWorkers } from './maxConcurrentWorkers'
 
 describe('maxConcurrentWorkersOf', () => {
@@ -26,5 +27,9 @@ describe('readMaxConcurrentWorkers', () => {
     const rec = machineSpecs().recommended
     expect(await readMaxConcurrentWorkers(file('{}'))).toBe(rec)
     expect(await readMaxConcurrentWorkers(file(null))).toBe(rec)
+  })
+  // Host callers catch this read and fall back to the recommendation (never MAX_CONCURRENT_WORKERS)
+  it('throws RepairNeeded for an unreadable file', async () => {
+    await expect(readMaxConcurrentWorkers(file('{not json'))).rejects.toBeInstanceOf(RepairNeeded)
   })
 })

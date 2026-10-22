@@ -69,6 +69,7 @@ import type { WorkspaceManager } from './workspace/manager'
 import { DESKTOP_ACTOR, HOST_ACTOR, actorOf, type JournalActor } from '../core/continuity/actor'
 import { parseJournalOps } from '../core/continuity/journalOps'
 import { readMaxConcurrentWorkers } from '../core/settings/maxConcurrentWorkers'
+import { machineSpecs } from '../core/settings/machineSpecs'
 
 /** One reply — today's HTTP status and body, the shape `OrchCall.call` already answers with. Named
  *  only because the receipt store below holds one. */
@@ -620,7 +621,7 @@ export function createHostOrch(a: {
 
   /** W3-A: the app-wide cap the blocked reasons of `activity-summary` read (blocked.ts), as the dispatch reads it. */
   const activityLimits = async (): Promise<{ maxConcurrentWorkers: number | null }> => ({
-    maxConcurrentWorkers: await readMaxConcurrentWorkers(path.join(a.profileDir, 'app-settings.json')).catch(() => null)
+    maxConcurrentWorkers: await readMaxConcurrentWorkers(path.join(a.profileDir, 'app-settings.json')).catch(() => machineSpecs().recommended)
   })
 
   /** The public event log, isolated like the journal: a log that throws must not turn a landed commit into a failed
@@ -833,7 +834,7 @@ export function createHostOrch(a: {
       backup: () => store.backup(),
       // W1-B. A damaged file reads as no cap: the spawn behind worker-start refuses on that file anyway
       // (spawner.ts reads the permission mode from it), so nothing starts past the cap on a guess.
-      maxConcurrentWorkers: () => readMaxConcurrentWorkers(path.join(a.profileDir, 'app-settings.json')).catch(() => null),
+      maxConcurrentWorkers: () => readMaxConcurrentWorkers(path.join(a.profileDir, 'app-settings.json')).catch(() => machineSpecs().recommended),
       // W8-A: the stamp reads a worker's busy windows from its hook-events file
       hookEventsDir: hookEventsDirIn(a.profileDir),
       // W8-A: the stamp's line data reads the checkpoint logs under the profile

@@ -47,6 +47,7 @@ import { activityOf, followActivity, hostSessionActivity } from './activity'
 import { ACTIVITY_KINDS, deriveActivity } from '../core/orchestration/activity'
 import { readActivityDigestMinutes } from '../core/settings/activityDigest'
 import { readMaxConcurrentWorkers } from '../core/settings/maxConcurrentWorkers'
+import { machineSpecs } from '../core/settings/machineSpecs'
 import { hostNotifier } from './pluginNotify'
 import { pickInitialLang } from '../core/i18n/locale'
 import { createHostSessionEvents, type HostSessionEvents } from './sessionEvents'
@@ -1261,7 +1262,7 @@ async function main(): Promise<void> {
         if (connections.active()) void connections.fanout.postNotice(`*${n.title}*\n${n.body}`)
       },
       state: () => orch.state(),
-      limits: async () => ({ maxConcurrentWorkers: await readMaxConcurrentWorkers(settingsFile).catch(() => null) }),
+      limits: async () => ({ maxConcurrentWorkers: await readMaxConcurrentWorkers(settingsFile).catch(() => machineSpecs().recommended) }),
       digestMs: async () => (await readActivityDigestMinutes(settingsFile)) * 60_000,
       report: (m) => log.write(m)
     })

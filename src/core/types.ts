@@ -1234,7 +1234,6 @@ export interface HostHoldings {
   chats: number
 }
 
-/** The contract the renderer sees as window.api. The IPC adapter implements it. */
 /** What this machine offers: total/free memory, logical CPUs, and the worker cap they support. */
 export interface MachineSpecs {
   totalMemBytes: number
@@ -1243,6 +1242,7 @@ export interface MachineSpecs {
   recommended: number
 }
 
+/** The contract the renderer sees as window.api. The IPC adapter implements it. */
 export interface CoreApi {
   accounts: {
     list(): Promise<Account[]>
