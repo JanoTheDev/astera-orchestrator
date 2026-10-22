@@ -139,8 +139,8 @@ export function addDecision(s: OrchState, jobId: string, d: Decision): OrchState
  * Runs were never placed; now that they are, it would send each fired Run's reviews to a Gate.
  *
  * **`schedule.ts` 의 `appDriven` 은 이것과 다른 물음이라 합치지 않았다.** 그쪽은 "이 회차를 누가
- * 운전하는가" 를 묻는다 — `placedByApp` 을 요구한다(코디네이터가 모는 회차는 앱이 배치하지
- * 않는다). 두 조건이 겹치는 것은 우연이 아니라 둘 다 "사람이 세운 것" 을 존중하기 때문이고, 다른
+ * 운전하는가" 를 묻는다 — `placedByApp` 을 요구한다(a scheduled Job's coordinator Run is placed by its
+ * coordinator, not the app). 두 조건이 겹치는 것은 우연이 아니라 둘 다 "사람이 세운 것" 을 존중하기 때문이고, 다른
  * 칸이 그 둘을 갈라 놓는다.
  */
 export function runGatedForTask(s: OrchState, task: Pick<Task, 'runId'>): boolean {
@@ -164,13 +164,25 @@ export function coordinatorStarting(run: JobRun, nowMs: number): boolean {
   return Number.isFinite(at) && nowMs - at < COORDINATOR_START_WINDOW_MS
 }
 
-/** Whether the app (or the Host) places this Run's Tasks itself, rather than a coordinator: the Job's
- *  `autoDispatch`, or the Run's own, which `startJobRun` stamps on a Run of a scheduled Job with no
- *  coordinator account (U1). **Every reader of "who drives this Run" asks this**, so the two fields
- *  cannot be read apart: the loop's `appDriven`, the recovery reconciler, worker-start's placement
- *  refusal. It says nothing about paused or not yet started; `appDriven` adds those. */
-export function placedByApp(job: Job | undefined, run: JobRun): boolean {
+/** Whether the app (or the Host) alone drives this Run, with no coordinator: the Job's `autoDispatch`, or the Run's
+ *  own, which `startJobRun` stamps on a Run of a scheduled Job with no coordinator account (U1). The hand-over drops
+ *  the Job's (run-start), so a coordinator's Run never answers true. Readers that would act **instead of** a
+ *  coordinator ask this: the recovery reconciler's redispatch. Who places ready Tasks is `placedByApp`. */
+export function drivenByAppAlone(job: Job | undefined, run: JobRun): boolean {
   return job?.autoDispatch === true || run.autoDispatch === true
+}
+
+/** Whether the app (or the Host) places this Run's ready Tasks itself (`slotsToFill`, through `appDriven`):
+ *  a Run it drives alone (`drivenByAppAlone`), and since T3 a Run with a coordinator attached, of any Job but a
+ *  scheduled one. The coordinator of such a Run keeps gates, questions, failures, retries (`worker-start
+ *  --retry-of`), reviews and delivery; it only stops waking up to start each ready Task, one at a time.
+ *  **The attached session, not the coordinator account**: until the hand-over attaches it, the start is in flight
+ *  (it makes the Run worktree the loop would otherwise make too) or failed, and that Run waits for a person's ▶.
+ *  A scheduled Job keeps its rule (JobRun.autoDispatch): with a coordinator account, the coordinator places.
+ *  It says nothing about paused or not yet started; `appDriven` adds those. */
+export function placedByApp(job: Job | undefined, run: JobRun): boolean {
+  if (drivenByAppAlone(job, run)) return true
+  return job !== undefined && job.schedule === undefined && run.coordinatorSessionId !== undefined
 }
 
 /**
@@ -535,8 +547,8 @@ export function resumeRun(s: OrchState, runId: string, now: string): Res<JobRun>
 /**
  * W5-B (#45): the Tasks `runs stop` left `dispatched` on a closed attempt go back to `ready`, **in a Run the app
  * places itself** (placedByApp). Nobody else would place them: the loop only starts `ready` Tasks, and a Task whose
- * last attempt a person closed is not lost (`lostAttemptOf` skips `closedBy`), so no Gate opens either. A coordinator's
- * Run is left to its new coordinator, which starts one worker per unfinished Task (TAKE STOCK).
+ * last attempt a person closed is not lost (`lostAttemptOf` skips `closedBy`), so no Gate opens either. A scheduled
+ * Job's coordinator Run is left to its new coordinator, which starts one worker per unfinished Task (TAKE STOCK).
  *
  * `dispatched → ready` is outside ALLOWED on purpose, as the lost-worker Gate's `blocked → pending → ready` is the
  * long way to the same place: openDispatch let this Task start only with every dep completed, and a completed dep

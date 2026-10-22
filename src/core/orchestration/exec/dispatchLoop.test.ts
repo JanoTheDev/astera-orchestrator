@@ -437,7 +437,8 @@ describe('createDispatchLoop', () => {
     const s0 = h.state()
     h.setState({
       ...s0,
-      jobs: s0.jobs.map((j) => ({ ...j, autoDispatch: false })),
+      // T3: a scheduled Job's coordinator places its own Tasks; the app places every other coordinator's
+      jobs: s0.jobs.map((j) => ({ ...j, autoDispatch: false, schedule: { kind: 'daily' as const, time: '09:00' } })),
       runs: [
         ...s0.runs.map((r) => ({ ...r, coordinatorSessionId: 'coord-1' })),
         // a paused Run is not told: it places nothing
@@ -484,15 +485,31 @@ describe('createDispatchLoop', () => {
   })
 
   // Push, not poll (owner 2026-10-18): the coordinator ends its turn; a report is told to it with the next action.
+  // T3: a scheduled Job's coordinator places its own Tasks; the app places every other coordinator's
   const driven = (h: ReturnType<typeof rig>, over: Partial<OrchState> = {}): void => {
     const s0 = h.state()
     h.setState({
       ...s0,
-      jobs: s0.jobs.map((j) => ({ ...j, autoDispatch: false, concurrency: 2 })),
+      jobs: s0.jobs.map((j) => ({ ...j, autoDispatch: false, concurrency: 2, schedule: { kind: 'daily' as const, time: '09:00' } })),
       runs: s0.runs.map((r) => ({ ...r, coordinatorSessionId: 'coord-1' })),
       ...over
     })
   }
+  it("T3: the app starts a ready Task of a plan's coordinator Run itself, and tells the coordinator no worker-start", async () => {
+    const h = rig()
+    const s0 = h.state()
+    h.setState({
+      ...s0,
+      jobs: s0.jobs.map((j) => ({ ...j, autoDispatch: false, concurrency: 2 })),
+      runs: s0.runs.map((r) => ({ ...r, coordinatorSessionId: 'coord-1' }))
+    })
+    await h.loop.run()
+    await h.settle()
+    await h.loop.nudge()
+    expect(h.startWorker).toHaveBeenCalledTimes(2)
+    expect(h.state().tasks.filter((t) => t.runId === 'run_1').every((t) => t.status === 'dispatched')).toBe(true)
+    expect(h.state().messages.some((m) => /still ready|worker-start it/.test(`${m.subject} ${m.body}`))).toBe(false)
+  })
   it("a worker's done report is told to the idle coordinator at the next tick, naming the Task it readied", async () => {
     const h = rig()
     driven(h, {

@@ -17,7 +17,7 @@ import { policyOf } from '../convergence'
 import { runWaves, wavesDoneOf } from '../draftPr'
 import { isIntegrationTask } from '../integrate'
 import { sessionsDoneWith } from '../finishedSessions'
-import { attachCoordinator, coordinatorStarting, jobOf, OWNER_ANSWER_SUBJECT, type OrchState } from '../state'
+import { attachCoordinator, coordinatorStarting, jobOf, OWNER_ANSWER_SUBJECT, placedByApp, type OrchState } from '../state'
 import { DEFAULT_CONCURRENCY, isPlaceholderSessionId, type JobRun } from '../types'
 import { outcomeOf } from '../view'
 import type { OrchServerDeps } from '../command'
@@ -178,7 +178,8 @@ export async function refreshCoordinator(
       jobId: job.id,
       accountId: job.coordinatorAccountId,
       promptsMode: job.verbatim !== undefined,
-      handsOff: handsOffOf(s, job)
+      handsOff: handsOffOf(s, job),
+      appPlaces: placedByApp(job, run)
     }),
     '',
     coordinatorHandoff(s, run.id, reason)
