@@ -1,0 +1,44 @@
+/* W12 overlays: the dialogs and pick lists of the command bar, quick switcher and the New/Remote/Resume/PR/project
+   dialogs. Built on the ui primitives; this file only lays them out. Tokens only. */
+
+/* PickList (QuickSwitcher.tsx): a filtered list of ui Buttons with roving focus */
+.ov-pick-field { position: relative; display: flex; align-items: center; margin-bottom: var(--sp-2); }
+.ov-pick-field .ui-input { width: 100%; padding-left: calc(var(--sp-3) + var(--sp-4)); }
+.ov-pick-field-icon { position: absolute; left: var(--sp-3); color: var(--text-faint); pointer-events: none; }
+.ov-pick { display: flex; flex-direction: column; gap: 1px; max-height: 50vh; overflow-y: auto; }
+.ui-btn.ov-pick-row {
+  justify-content: flex-start; gap: var(--sp-3); width: 100%; height: auto; min-height: var(--h-lg);
+  padding: var(--sp-1) var(--sp-3); color: var(--text); text-align: left; font-weight: var(--fw-regular);
+}
+.ui-btn.ov-pick-row > .ui-btn__label { display: flex; align-items: center; gap: var(--sp-3); flex: 1; min-width: 0; }
+.ui-btn.ov-pick-row.is-sel { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
+.ui-btn.ov-pick-row.is-sel:focus-visible { box-shadow: inset 2px 0 0 var(--accent), var(--focus-ring); }
+.ov-pick-row.is-current .ov-pick-title { font-weight: var(--fw-semi); }
+.ov-pick-kind { flex: none; display: inline-flex; align-items: center; gap: var(--sp-1); width: 80px; font-size: var(--fs-11); color: var(--text-faint); }
+.ov-pick-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ov-pick-title { flex: none; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--fw-medium); }
+.ov-pick-main .ov-pick-title { max-width: none; }
+.ov-pick-meta { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-12); color: var(--text-faint); }
+.ov-pick-empty { margin: 0; padding: var(--sp-2) var(--sp-3); font-size: var(--fs-12); color: var(--text-faint); }
+.ov-keys { display: flex; gap: var(--sp-4); margin-right: auto; font-size: var(--fs-11); color: var(--text-faint); }
+.ov-keys > span { display: inline-flex; align-items: center; gap: var(--sp-1); }
+
+/* SourceJobModal: the source picker keeps the old native select's fixed width beside the search box */
+.source-job .source-pick .ov-source-select { flex: 0 0 240px; min-width: 0; }
+
+/* RemoteSessionsDialog: running-session list, rows are ui Card buttons (Tab/Enter, Up/Down roving) */
+.ov-remote-list {
+  list-style: none; margin: 0; padding: 0;
+  display: flex; flex-direction: column; gap: var(--sp-1);
+  max-height: calc(var(--h-lg) * 5); overflow-y: auto;
+}
+.ov-remote-row {
+  display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-1);
+  width: 100%; padding: var(--sp-2) var(--sp-3); text-align: left;
+}
+.ov-remote-row .remote-session-name { font-size: var(--fs-13); font-weight: var(--fw-medium); color: var(--text); }
+.ov-remote-row .remote-session-meta { font-size: var(--fs-11); color: var(--text-faint); max-width: 100%; }
+
+/* AddProjectDialog, NewProjectDialog: a folder field with its Browse button */
+.ov-proj-row { display: flex; gap: var(--sp-2); align-items: center; }
+.ov-proj-row > .ui-input, .ov-proj-row > input { flex: 1; min-width: 0; }

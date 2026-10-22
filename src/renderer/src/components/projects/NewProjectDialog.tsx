@@ -1,5 +1,7 @@
-import { useState } from 'react'
-import { Button, Modal } from '../ui'
+import { useId, useState } from 'react'
+import { useI18n } from '../../i18n/I18nProvider'
+import { Button, Field, Icon, Input, Modal } from '../ui'
+import '../overlays.css'
 import './projects.css'
 
 interface Created {
@@ -22,6 +24,8 @@ export function NewProjectDialog({
   onCreated: (projectId: string) => void
   onStartPlan: (projectPath: string, objective: string) => void
 }): React.JSX.Element {
+  const { t } = useI18n()
+  const parentId = useId()
   const [name, setName] = useState('')
   const [parent, setParent] = useState('')
   const [describe, setDescribe] = useState('')
@@ -42,14 +46,14 @@ export function NewProjectDialog({
         ...(github ? { github: visibility } : {})
       })
       if (r.status !== 200) {
-        setError((r.body as { error?: string } | null)?.error ?? 'Could not create the project.')
+        setError((r.body as { error?: string } | null)?.error ?? t('overlays.project.createFailed'))
         return
       }
       const p = r.body as Created
       setMade(p)
       onCreated(p.id)
     } catch {
-      setError('Could not create the project.')
+      setError(t('overlays.project.createFailed'))
     } finally {
       setBusy(false)
     }
@@ -57,63 +61,71 @@ export function NewProjectDialog({
 
   const footer = made ? (
     <>
-      <Button onClick={onClose}>Done</Button>
+      <Button onClick={onClose}>{t('overlays.project.done')}</Button>
       <Button
         variant="primary"
         onClick={() => {
-          onStartPlan(made.path, `Build the first version: ${describe.trim()}`)
+          onStartPlan(made.path, t('overlays.project.firstPlanObjective', { description: describe.trim() }))
           onClose()
         }}
       >
-        Start the first plan
+        {t('overlays.project.startPlan')}
       </Button>
     </>
   ) : (
     <>
       <Button disabled={busy} onClick={onClose}>
-        Cancel
+        {t('common.cancel')}
       </Button>
       <Button variant="primary" disabled={busy || !name.trim() || !parent.trim()} onClick={() => void create()}>
-        Create
+        {t('overlays.project.create')}
       </Button>
     </>
   )
 
   return (
-    <Modal title="New project" onClose={() => !busy && onClose()} size="sm" footer={footer}>
+    <Modal title={t('overlays.project.newTitle')} onClose={() => !busy && onClose()} closeLabel={t('common.close')} size="sm" footer={footer}>
       <div className="dlg">
         {made ? (
           <>
-            <p className="proj-ok">Created {made.path}</p>
-            {made.github?.url && <p>GitHub repository: {made.github.url}</p>}
-            {made.github?.error && <p className="warn">The GitHub repository was not made: {made.github.error}</p>}
+            <p className="proj-ok">{t('overlays.project.created', { path: made.path })}</p>
+            {made.github?.url && <p>{t('overlays.project.githubUrl', { url: made.github.url })}</p>}
+            {made.github?.error && <p className="warn">{t('overlays.project.githubError', { error: made.github.error })}</p>}
           </>
         ) : (
           <>
-            <div className="field">
-              <label>Name</label>
-              <input type="text" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
-            </div>
-            <div className="field">
-              <label>Parent folder</label>
-              <div className="proj-row">
-                <input type="text" value={parent} onChange={(e) => setParent(e.target.value)} />
-                <button onClick={() => void window.api.system.pickFolder().then((p) => p && setParent(p))}>Browse</button>
+            <Field label={t('overlays.project.name')} value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+            <div className="ui-field">
+              <label className="ui-field__label" htmlFor={parentId}>
+                {t('overlays.project.parentFolder')}
+              </label>
+              <div className="ov-proj-row">
+                <Input id={parentId} value={parent} onChange={(e) => setParent(e.target.value)} />
+                <Button icon={<Icon name="folder" />} onClick={() => void window.api.system.pickFolder().then((p) => p && setParent(p))}>
+                  {t('overlays.project.browse')}
+                </Button>
               </div>
             </div>
-            <div className="field">
-              <label>Description</label>
-              <textarea rows={4} value={describe} onChange={(e) => setDescribe(e.target.value)} placeholder="What should it become?" />
-            </div>
-            <label className="check-small">
-              <input type="checkbox" checked={github} onChange={(e) => setGithub(e.target.checked)} />
-              Create a GitHub repository
-            </label>
+            <Field
+              kind="textarea"
+              label={t('overlays.project.description')}
+              rows={4}
+              value={describe}
+              onChange={(e) => setDescribe(e.target.value)}
+              placeholder={t('overlays.project.descriptionPlaceholder')}
+            />
+            <Field kind="toggle" label={t('overlays.project.github')} checked={github} onChange={setGithub} />
             {github && (
-              <select value={visibility} onChange={(e) => setVisibility(e.target.value as 'private' | 'public')}>
-                <option value="private">Private</option>
-                <option value="public">Public</option>
-              </select>
+              <Field
+                kind="select"
+                label={t('overlays.project.visibility')}
+                value={visibility}
+                onChange={(e) => setVisibility(e.target.value as 'private' | 'public')}
+                options={[
+                  { value: 'private', label: t('overlays.project.private') },
+                  { value: 'public', label: t('overlays.project.public') }
+                ]}
+              />
             )}
             {error && <p className="warn">{error}</p>}
           </>

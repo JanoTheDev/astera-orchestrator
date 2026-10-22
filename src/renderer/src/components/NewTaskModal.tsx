@@ -4,8 +4,7 @@ import { providerOf } from '../../../core/providers/meta'
 import { useI18n } from '../i18n/I18nProvider'
 import { formFailure, type OrchDoor } from '../lib/orchDoor'
 import { AccountSelect } from './AccountSelect'
-import { Select, type SelectOption } from './Select'
-import { X } from 'lucide-react'
+import { Button, Field, Icon, IconButton, Select, type SelectOption } from './ui'
 
 /** 계정 슬롯 최대 개수. 새 세션 대화상자의 MAX_ROLL_ACCOUNTS 와 같은 값이지만 **상수를 공유하지
  *  않는다** — 저쪽은 탭 세션의 롤링이고 이쪽은 Task 의 체인이다. 한쪽을 늘릴 때 다른 쪽이 따라
@@ -170,24 +169,17 @@ export function NewTaskModal({
           하므로 새 CSS 를 만들 이유가 없다. */}
       <div className="detail-filter">
         <b>{t('jobs.task.new')}</b>
-        <button
+        <IconButton
           className="detail-clear"
-          title={t('common.cancel')}
-          aria-label={t('common.cancel')}
+          size="sm"
+          icon={<Icon name="close" size={14} />}
+          label={t('common.cancel')}
           onClick={() => !busy && onClose()}
-        >
-          <X size={12} />
-        </button>
+        />
       </div>
       <div className="detail-task-fields">
-        <div className="field">
-          <label>{t('jobs.task.title')}</label>
-          <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />
-        </div>
-        <div className="field">
-          <label>{t('jobs.task.spec')}</label>
-          <textarea rows={4} value={spec} onChange={(e) => setSpec(e.target.value)} />
-        </div>
+        <Field label={t('jobs.task.title')} value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />
+        <Field kind="textarea" label={t('jobs.task.spec')} rows={4} value={spec} onChange={(e) => setSpec(e.target.value)} />
         {/* 고를 것도 고른 것도 없으면 이 칸을 아예 그리지 않는다 — Run 의 첫 Task 를 만들 때가
             그렇다(가리킬 Task 가 존재하지 않는다). 라벨과 안내문만 남기면 무엇을 해야 하는지 알 수
             없는 죽은 칸이 된다. 셀렉트만 감추는 것으로 부족한 이유가 그것이다 */}
@@ -209,14 +201,12 @@ export function NewTaskModal({
                 {deps.map((id) => (
                   <span key={id} className="detail-chip detail-dep">
                     <span>{titleOf(id)}</span>
-                    <button
-                      type="button"
-                      title={t('common.cancel')}
-                      aria-label={`${titleOf(id)} — ${t('common.cancel')}`}
+                    <IconButton
+                      size="sm"
+                      icon={<Icon name="close" size={14} />}
+                      label={`${titleOf(id)} — ${t('common.cancel')}`}
                       onClick={() => setDeps((cur) => cur.filter((x) => x !== id))}
-                    >
-                      <X size={12} />
-                    </button>
+                    />
                   </span>
                 ))}
               </div>
@@ -279,32 +269,26 @@ export function NewTaskModal({
                   <li key={id} className="detail-check-row">
                     <span className="detail-check-no">{i + 1}</span>
                     <span className="detail-check-name">{checkNameOf(id)}</span>
-                    <button
-                      type="button"
-                      title={t('jobs.task.checkUp')}
-                      aria-label={`${checkNameOf(id)} — ${t('jobs.task.checkUp')}`}
+                    <IconButton
+                      size="sm"
+                      icon={<Icon name="chevronUp" size={14} />}
+                      label={`${checkNameOf(id)} — ${t('jobs.task.checkUp')}`}
                       disabled={i === 0}
                       onClick={() => moveCheck(i, -1)}
-                    >
-                      ↑
-                    </button>
-                    <button
-                      type="button"
-                      title={t('jobs.task.checkDown')}
-                      aria-label={`${checkNameOf(id)} — ${t('jobs.task.checkDown')}`}
+                    />
+                    <IconButton
+                      size="sm"
+                      icon={<Icon name="chevronDown" size={14} />}
+                      label={`${checkNameOf(id)} — ${t('jobs.task.checkDown')}`}
                       disabled={i === checks.length - 1}
                       onClick={() => moveCheck(i, 1)}
-                    >
-                      ↓
-                    </button>
-                    <button
-                      type="button"
-                      title={t('jobs.task.checkRemove')}
-                      aria-label={`${checkNameOf(id)} — ${t('jobs.task.checkRemove')}`}
+                    />
+                    <IconButton
+                      size="sm"
+                      icon={<Icon name="close" size={14} />}
+                      label={`${checkNameOf(id)} — ${t('jobs.task.checkRemove')}`}
                       onClick={() => removeCheck(id)}
-                    >
-                      <X size={12} />
-                    </button>
+                    />
                   </li>
                 ))}
               </ol>
@@ -317,15 +301,22 @@ export function NewTaskModal({
               <p className="modal-hint">{t('jobs.task.checksNone')}</p>
             ) : (
               <>
-                <p className="modal-hint">{t('jobs.task.checksHint')}</p>
+                <p className="modal-hint">{t('overlays.newTask.checksHint')}</p>
                 {/* 다 골랐으면 이 줄이 빠진다 — 빈 "고르지 않은 것" 은 죽은 칸이다(의존 셀렉트와 같은 판단) */}
                 {unpicked.length > 0 && (
                   <div className="detail-check-pick">
                     <span className="modal-hint">{t('jobs.task.checksUnpicked')}</span>
                     {unpicked.map((c) => (
-                      <button key={c.id} type="button" className="detail-check-add" onClick={() => addCheck(c.id)}>
-                        + {c.name}
-                      </button>
+                      <Button
+                        key={c.id}
+                        size="sm"
+                        variant="ghost"
+                        className="detail-check-add"
+                        icon={<Icon name="add" size={14} />}
+                        onClick={() => addCheck(c.id)}
+                      >
+                        {c.name}
+                      </Button>
                     ))}
                   </div>
                 )}
@@ -340,17 +331,18 @@ export function NewTaskModal({
         {error && <p className="warn">{error}</p>}
       </div>
       <div className="row right">
-        <button onClick={onClose} disabled={busy}>
+        <Button variant="ghost" onClick={onClose} disabled={busy}>
           {t('common.cancel')}
-        </button>
+        </Button>
         {/* 계정이 없으면 만들 수 없다 — provider 를 알 방법이 없다(accountIds 의 주석) */}
-        <button
-          className="primary"
+        <Button
+          variant="primary"
+          loading={busy}
           disabled={locked || busy || !spec.trim() || accountIds.length === 0}
           onClick={() => void create()}
         >
           {t('jobs.task.create')}
-        </button>
+        </Button>
       </div>
     </>
   )

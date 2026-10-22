@@ -8,7 +8,7 @@ import { useChatAvailability } from '../hooks/useChatAvailability'
 import { isGhostAccountId } from '../../../core/accounts/ghostId'
 import { AccountSelect } from './AccountSelect'
 import { ScheduleFields } from './ScheduleFields'
-import { Button, Modal } from './ui'
+import { Button, Modal, Tabs } from './ui'
 
 /** Modal for resuming a session from history. Only logged-in accounts appear as candidates and the
  *  original account is preselected. Picking a different account makes ipc copy the transcript into that
@@ -167,7 +167,7 @@ export function ResumeDialog({
       closeLabel={t('common.close')}
       footer={
         <>
-          <Button onClick={onCancel}>{t('common.cancel')}</Button>
+          <Button variant="ghost" onClick={onCancel}>{t('common.cancel')}</Button>
           <Button variant="primary" disabled={!selectedId || (schedOn && !schedule)} onClick={confirm}>
             {t('session.resume.confirm')}
           </Button>
@@ -179,29 +179,18 @@ export function ResumeDialog({
             session runs is decided before the conversation, folder and account it applies to. */}
         <div className="field kind-field">
           <label>{t('session.new.kindLabel')}</label>
-          <div className="kind-segmented">
-            <button
-              type="button"
-              className={`segmented${kind === 'terminal' ? ' active' : ''}`}
-              onClick={() => {
-                setKind('terminal')
-              }}
-            >
-              {t('session.kind.terminal')}
-            </button>
-            <button
-              type="button"
-              className={`segmented${kind === 'chat' ? ' active' : ''}`}
-              disabled={!chatAllowed}
-              onClick={() => {
-                setKind('chat')
-              }}
-            >
-              {t('session.kind.chat')}
-            </button>
-          </div>
+          <Tabs
+            variant="segmented"
+            label={t('session.new.kindLabel')}
+            value={kind}
+            onChange={setKind}
+            items={[
+              { id: 'terminal', label: t('session.kind.terminal') },
+              { id: 'chat', label: t('session.kind.chat'), disabled: !chatAllowed }
+            ]}
+          />
           {!chatEnabled && !chatChecking && (
-            <span className="kind-note">{t('session.new.kindHostOld')}</span>
+            <span className="kind-note">{t('overlays.session.kindServiceOld')}</span>
           )}
         </div>
         <div className="field">

@@ -29,11 +29,9 @@ import { trackWorktreeCreate } from '../lib/worktreeCreate'
 import { useI18n } from '../i18n/I18nProvider'
 import { AccountSelect } from './AccountSelect'
 import { BranchGlyph } from './BranchGlyph'
-import { Select, type SelectOption } from './Select'
 import { ScheduleFields } from './ScheduleFields'
 import { StartingOverlay } from './WorktreeCreateStatus'
-import { X } from 'lucide-react'
-import { Button, IconButton, Modal, Tabs } from './ui'
+import { Button, Icon, IconButton, Modal, Select, Tabs, type SelectOption } from './ui'
 
 const SOFT_LIMIT = 12
 const MAX_ROLL_ACCOUNTS = 3
@@ -571,7 +569,7 @@ export function NewSessionDialog({
         </div>
         {wtOption === 'unknown' && (
           <>
-            <label className="row check-small">
+            <label className="row check-small" title={t('overlays.worktree.explain')}>
               <input type="checkbox" checked={false} disabled />
               {t('session.new.useWorktree')}
             </label>
@@ -582,7 +580,7 @@ export function NewSessionDialog({
         )}
         {wtOption === 'available' && (
           <>
-            <label className="row check-small">
+            <label className="row check-small" title={t('overlays.worktree.explain')}>
               <input
                 type="checkbox"
                 checked={useWorktree}
@@ -648,7 +646,7 @@ export function NewSessionDialog({
                 <IconButton
                   size="sm"
                   className="slot-remove"
-                  icon={<X size={12} />}
+                  icon={<Icon name="close" size={14} />}
                   label={t('session.new.removeAccountSlot')}
                   onClick={() => setAccountIds((prev) => prev.filter((_, i) => i !== slot))}
                 />
