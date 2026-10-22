@@ -265,6 +265,10 @@ export interface CoordinatorStartContext {
    *  the setting off: the session starts on the named account alone, as before. */
   usageGuard?: AutoStartGuard
   loginStatus?(accountId: string): Promise<boolean>
+  /** T25: a planner or coordinator start with no account that has room waits (startChainHolding) and retries every
+   *  `pollMs` (each try reads the usage guard again). `note` gets the plain reason while it waits and null once it starts
+   *  or gives up. All absent: the built-in poll, the reason in the log only. */
+  hold?: { pollMs?: number; sleep?(ms: number): Promise<void>; note?(subject: string, why: string | null): void }
 }
 
 /** T5b: how long a start waits for the usage guard's read (its first one fetches every idle account) before it ranks
@@ -278,6 +282,12 @@ export type StartAccountChoice =
    *  start failed. `switched` says why the start left the account it named. */
   | { ok: true; accountId: string; chain: string[]; release(): void; switched?: string }
   | { ok: false; why: string }
+
+/** T25: no account has room to start on. The message is the plain reason; a start waits on it (startChainHolding). */
+export class NoRoomError extends Error {}
+
+/** How often a held planner or coordinator start tries again. */
+const HOLD_POLL_MS = 30_000
 
 const UNUSABLE_WHY: Record<UnusableReason, string> = {
   'weekly-full': 'its weekly limit is at the usage threshold',
@@ -330,9 +340,10 @@ export async function chooseStartAccount(
     const loggedInIds = new Set(
       (await Promise.all(mine.map(async (x) => ((await loginStatus(x.id)) ? x.id : null)))).filter((id): id is string => id !== null)
     )
+    const readings = new Map(guard.view().map((v) => [v.accountId, { session: v.session, weekly: v.weekly, ...(v.at === undefined ? {} : { at: v.at }) }]))
     const ranked = rankAccounts({
       accounts: mine,
-      readings: new Map(guard.view().map((v) => [v.accountId, { session: v.session, weekly: v.weekly, ...(v.at === undefined ? {} : { at: v.at }) }])),
+      readings,
       threshold: guard.pauseAt(),
       nowMs: a.nowMs ?? Date.now(),
       loggedInIds,
@@ -343,12 +354,25 @@ export async function chooseStartAccount(
     const tryable = ranked.unusable.filter((x) => x.reason === 'unknown' || x.reason === 'stale').map((x) => x.account.id)
     const firstOf = (ids: readonly string[]): string | undefined =>
       a.preferred !== undefined && ids.includes(a.preferred) ? a.preferred : ((a.own ?? []).find((id) => ids.includes(id)) ?? ids[0])
-    const start = firstOf(usable) ?? firstOf(tryable)
+    // T25: with no fresh reading, an account whose last known reading was not full (weekly first, then 5h) goes before
+    // one nothing is known of, the named one included; a full one never gets here (rankAccounts)
+    const lastKnown = (id: string): [number, number] | null => {
+      const r = readings.get(id)
+      return r && (r.weekly || r.session) ? [r.weekly?.usedPercent ?? 0, r.session?.usedPercent ?? 0] : null
+    }
+    const known = tryable.filter((id) => lastKnown(id)).sort((x, y) => lastKnown(x)![0] - lastKnown(y)![0] || lastKnown(x)![1] - lastKnown(y)![1])
+    const start = firstOf(usable) ?? known[0] ?? firstOf(tryable)
     if (start === undefined) {
       const why = ranked.unusable.map((x) => `${x.account.id} (${UNUSABLE_WHY[x.reason]})`).join(', ')
+      const resets = ranked.unusable.flatMap((x) => {
+        const v = x.reason === 'weekly-full' || x.reason === 'session-full' ? guard.view().find((y) => y.accountId === x.account.id) : undefined
+        const at = Date.parse((x.reason === 'weekly-full' ? v?.weekly : v?.session)?.resetsAt ?? '')
+        return Number.isFinite(at) ? [at] : []
+      })
+      const earliest = resets.length > 0 ? `; the earliest limit resets ${new Date(Math.min(...resets)).toISOString()}` : ''
       return {
         ok: false,
-        why: why ? `no ${provider} account has room to start the ${a.purpose} on: ${why}` : `no ${provider} account to start the ${a.purpose} on`
+        why: why ? `no ${provider} account has room to start the ${a.purpose} on: ${why}${earliest}` : `no ${provider} account to start the ${a.purpose} on`
       }
     }
     // The rolling chain: the rest of the ranking, less what can never take over (logged out, at its cap)
@@ -383,8 +407,45 @@ export async function autoStartChain(
     ...(named ? { provider: providerOf(named) } : {}),
     purpose: o.purpose ?? 'coordinator'
   })
-  if (!choice.ok) throw new Error(choice.why)
+  if (!choice.ok) throw new NoRoomError(choice.why)
   return choice
+}
+
+/**
+ * T25: autoStartChain for a planner or coordinator start (`subject` is its Job or Run). With no account that has room it
+ * waits, in place of failing the start: the reason goes to `hold.note` and the log when it changes, and every poll reads
+ * the usage guard again (chooseStartAccount), so the start goes on by itself once a window resets or a reading frees an
+ * account. Stops with an error when `gone()` says the Job or Run was removed. Host sessions (host/spawner.ts) call
+ * autoStartChain and still fail at once.
+ */
+export async function startChainHolding(
+  ctx: CoordinatorStartContext,
+  accountId: string,
+  o: { purpose: StartPurpose; auto?: boolean; subject: string; gone(): boolean }
+): ReturnType<typeof autoStartChain> {
+  let waiting: string | undefined
+  for (;;) {
+    try {
+      const chain = await autoStartChain(ctx, accountId, o)
+      if (waiting !== undefined) {
+        ctx.hold?.note?.(o.subject, null)
+        ctx.log(`${o.purpose} start ${o.subject}: an account has room, starting`)
+      }
+      return chain
+    } catch (e) {
+      if (!(e instanceof NoRoomError)) throw e
+      if (o.gone()) {
+        ctx.hold?.note?.(o.subject, null)
+        throw new Error(`${o.purpose} start ${o.subject} stopped waiting for an account: it was removed`)
+      }
+      if (e.message !== waiting) {
+        waiting = e.message
+        ctx.log(`${o.purpose} start ${o.subject} waits: ${waiting}`)
+        ctx.hold?.note?.(o.subject, waiting)
+      }
+      await (ctx.hold?.sleep ?? ((ms) => new Promise<void>((r) => setTimeout(r, ms))))(ctx.hold?.pollMs ?? HOLD_POLL_MS)
+    }
+  }
 }
 
 /** 이 Run 을 관리할 코디네이터 세션을 띄운다. **워커가 아니다** — Dispatch 도 spec 파일도
@@ -428,7 +489,12 @@ export async function startCoordinatorSession(
   await fs.writeFile(briefPath, a.brief, 'utf8')
   // T2: the account and chain by usage when "Pick accounts automatically" is on (autoStartChain)
   // T5b: the named account is a preference (chooseStartAccount); `release` once the session runs
-  const { accountId, chain, release } = await autoStartChain(ctx, a.accountId, { purpose: 'coordinator', ...(a.auto ? { auto: true } : {}) })
+  const { accountId, chain, release } = await startChainHolding(ctx, a.accountId, {
+    purpose: 'coordinator',
+    subject: a.runId,
+    gone: () => jobOfRunId(ctx.getState(), a.runId)?.archivedAt !== undefined || !ctx.getState().runs.some((r) => r.id === a.runId),
+    ...(a.auto ? { auto: true } : {})
+  })
   try {
     // 코디네이터는 프로젝트 루트에서 뜨므로 대개 이미 신뢰돼 있다 — 그래도 부른다. 그 Run 을
     // 처음 돌리는 사람에게는 여기가 첫 codex 세션이고, 멈추면 아무도 답할 사람이 없는 것은

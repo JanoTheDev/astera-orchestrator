@@ -9,7 +9,7 @@ import { coordinatorLaunchPrompt } from '../handover'
 import { jobNameOf } from '../jobName'
 import { resolveRoleModel, type RoleModelSettings } from '../roleModels'
 import { handsOffOf } from './plannerFeedback'
-import { autoStartChain, type CoordinatorStartContext, type StartCoordinatorArgs } from './workerStart'
+import { startChainHolding, type CoordinatorStartContext, type StartCoordinatorArgs } from './workerStart'
 
 /** The planner's brief, named for its Job, in the spec directory beside the coordinators' briefs. The boot
  *  sweep (`staleSpecFiles`) removes it at the next start; the planner has read it by then. */
@@ -28,7 +28,15 @@ export async function startPlannerSession(ctx: CoordinatorStartContext, a: Start
   await fs.writeFile(briefPath, a.brief, 'utf8')
   // T2: the account and chain by usage when "Pick accounts automatically" is on (autoStartChain)
   // T5b: the named account is a preference (chooseStartAccount); `release` once the session runs
-  const { accountId, chain, release } = await autoStartChain(ctx, a.accountId, { purpose: 'planner', ...(a.auto ? { auto: true } : {}) })
+  const { accountId, chain, release } = await startChainHolding(ctx, a.accountId, {
+    purpose: 'planner',
+    subject: a.runId,
+    gone: () => {
+      const j = ctx.getState().jobs.find((x) => x.id === a.runId)
+      return j === undefined || j.archivedAt !== undefined
+    },
+    ...(a.auto ? { auto: true } : {})
+  })
   try {
     await ctx.preTrust(accountId, a.cwd)
     const account = (await ctx.accounts()).find((x) => x.id === accountId)

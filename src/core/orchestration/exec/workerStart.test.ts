@@ -364,12 +364,13 @@ describe('chooseStartAccount (T5b)', () => {
     const spawn = vi.fn()
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'astera-t5b-'))
     try {
+      // T25: the start waits on the reason; it ends with an error only when its Run is gone
       await expect(
         startCoordinatorSession(
-          { ...ctxOf(g), specsDir: dir, preTrust: async () => {}, bypassPermissions: async () => false, spawn, getState: emptyState, roleModels: async () => ({}) },
+          { ...ctxOf(g), specsDir: dir, preTrust: async () => {}, bypassPermissions: async () => false, spawn, getState: emptyState, roleModels: async () => ({}), hold: { sleep: async () => {} } },
           { runId: 'run_x', cwd: 'D:/p', accountId: 'a1', brief: 'B' }
         )
-      ).rejects.toThrow(/no claude account has room/)
+      ).rejects.toThrow(/stopped waiting/)
       expect(spawn).not.toHaveBeenCalled()
     } finally {
       await fs.rm(dir, { recursive: true, force: true })
@@ -420,5 +421,87 @@ describe('chooseStartAccount (T5b)', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+  // T25: a planner or coordinator start with every account full holds with a plain reason and starts once one has room
+  describe('a start with every account full (T25)', () => {
+    const FULL = { a1: [100, 0], a2: [95, 0], a3: [0, 99], a4: [100, 100] } as Record<string, [number, number]>
+    const freeAfterFirstWait = () => {
+      let readings = FULL
+      const g = createUsageGuard({
+        readings: async () => new Map(Object.entries(readings).map(([id, [w, s]]) => [id, { weekly: win(w), session: win(s) }])),
+        pauseAt: async () => 90,
+        autoAccounts: async () => true,
+        nowMs: () => Date.parse(NOW)
+      })
+      const notes: Array<string | null> = []
+      const hold = { sleep: async () => { readings = { ...FULL, a2: [10, 10] } }, note: (_: string, why: string | null) => { notes.push(why) } }
+      return { g, hold, notes }
+    }
+    const runSpawn = async (o: { g: AutoStartGuard; hold: object; role?: 'planner'; state: OrchState; runId: string }) => {
+      const spawn = vi.fn().mockResolvedValue({ id: 'ses_h' })
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'astera-t25-'))
+      try {
+        const r = await startCoordinatorSession(
+          { ...ctxOf(o.g), specsDir: dir, preTrust: async () => {}, bypassPermissions: async () => false, spawn, getState: () => o.state, roleModels: async () => ({}), hold: o.hold },
+          { runId: o.runId, cwd: 'D:/p', accountId: 'a1', brief: 'B', ...(o.role ? { role: o.role } : {}) }
+        )
+        return { r, spawn }
+      } finally {
+        await fs.rm(dir, { recursive: true, force: true })
+      }
+    }
+
+    it('a planner holds with the reason (accounts, which limit, earliest reset), then starts on the account that freed up', async () => {
+      const { g, hold, notes } = freeAfterFirstWait()
+      const job = createJob(emptyState(), { objective: 'o', cwd: 'D:/p', pendingStart: true }, NOW); if (!job.ok) throw new Error(job.error)
+      const { r, spawn } = await runSpawn({ g, hold, role: 'planner', state: job.state, runId: job.value.id })
+      expect(notes[0]).toMatch(/start the planner on: .*a1 \(its weekly limit/)
+      expect(notes[0]).toMatch(/a3 \(its 5-hour limit.*the earliest limit resets 2099-01-01T00:00:00.000Z/)
+      expect(notes.at(-1)).toBeNull()
+      expect(r.accountId).toBe('a2')
+      expect(spawn).toHaveBeenCalledTimes(1)
+    })
+
+    it('a coordinator holds the same way and starts once a reading frees an account', async () => {
+      const { g, hold, notes } = freeAfterFirstWait()
+      const { s, taskId } = stateWithTask(); void taskId
+      const { r, spawn } = await runSpawn({ g, hold, state: s, runId: s.runs[0].id })
+      expect(notes[0]).toMatch(/no claude account has room to start the coordinator on/)
+      expect(r.sessionId).toBe('ses_h')
+      expect(spawn.mock.calls[0][0].accountId).toBe('a2')
+    })
+
+    it('stops waiting when its Job is archived', async () => {
+      const g = realGuard({ readings: FULL })
+      const job = createJob(emptyState(), { objective: 'o', cwd: 'D:/p', pendingStart: true }, NOW); if (!job.ok) throw new Error(job.error)
+      const state = { ...job.state, jobs: job.state.jobs.map((j) => ({ ...j, archivedAt: NOW })) }
+      await expect(runSpawn({ g, hold: { sleep: async () => {} }, role: 'planner', state, runId: job.value.id })).rejects.toThrow(/stopped waiting/)
+    })
+
+    it('autoStartChain (Host sessions) still fails at once', async () => {
+      await expect(autoStartChain(ctxOf(realGuard({ readings: FULL })), 'a1')).rejects.toThrow(/no claude account has room/)
+    })
+  })
+
+  it('weekly is checked first: an account with 5h room but a full weekly window is never picked', async () => {
+    const g = realGuard({ readings: { a1: [100, 0], a2: [100, 0] } })
+    expect(await chooseStartAccount(ctxOf(g, [acct('a1'), acct('a2')]), { preferred: 'a1', purpose: 'planner' })).toMatchObject({ ok: false })
+    const h = realGuard({ readings: { a1: [100, 0], a2: [60, 85] } })
+    expect(await chooseStartAccount(ctxOf(h, [acct('a1'), acct('a2')]), { preferred: 'a1', purpose: 'planner' })).toMatchObject({ ok: true, accountId: 'a2' })
+  })
+
+  it('an empty usage window: an account last known not full goes before the named one nothing is known of', async () => {
+    const OLD = Date.parse(NOW) - 60 * 60_000
+    const g = createUsageGuard({
+      readings: async () => new Map([['a2', { weekly: win(20), session: win(10), at: OLD }], ['a3', { weekly: win(5), session: win(5), at: OLD }]]),
+      pauseAt: async () => 90,
+      autoAccounts: async () => true,
+      nowMs: () => Date.parse(NOW)
+    })
+    const accounts = [acct('a1'), acct('a2'), acct('a3')]
+    expect(await chooseStartAccount(ctxOf(g, accounts), { preferred: 'a1', purpose: 'planner' })).toMatchObject({ ok: true, accountId: 'a3' })
+    // nothing known at all: the named account starts
+    const none = createUsageGuard({ readings: async () => new Map(), pauseAt: async () => 90, autoAccounts: async () => true, nowMs: () => Date.parse(NOW) })
+    expect(await chooseStartAccount(ctxOf(none, accounts), { preferred: 'a1', purpose: 'planner' })).toMatchObject({ ok: true, accountId: 'a1' })
   })
 })

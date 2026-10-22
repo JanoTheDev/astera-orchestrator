@@ -154,11 +154,21 @@ export async function cleanRun(runId: string, deps: CleanDeps): Promise<CleanRes
 }
 
 /** The Host-start sweep: every ready worktree of a plan that is finished (delivered, or archived),
- *  whatever a crash or an older version left behind. Plans still running are left to their own delivery. Never throws. */
+ *  whatever a crash or an older version left behind. Plans still running are left to their own delivery, and so is any
+ *  folder whose Run still runs, archived or not: it is kept and reported. Never throws. */
 export async function cleanFinished(deps: CleanDeps): Promise<CleanResult> {
   try {
     const rows = await worktreeRows(await deps.list(), deps.state(), deps.isPathInUse)
-    return await cleanAndReport(rows.filter((r) => r.owner && (r.owner.delivered || r.owner.archived)), deps, false)
+    const finished = rows.filter((r) => r.owner && (r.owner.delivered || r.owner.archived))
+    // A Task being worked, checked, reviewed or merged: the Run runs (a Run with no Task left is not running)
+    const active = new Set(deps.state().tasks.filter((t) => ['dispatched', 'validating', 'reviewing', 'merging'].includes(t.status)).map((t) => t.runId))
+    const stillRuns = finished.filter((r) => active.has(r.owner!.runId))
+    const result = await cleanAndReport(finished.filter((r) => !active.has(r.owner!.runId)), deps, false)
+    for (const r of stillRuns) {
+      result.kept.push({ path: r.item.path, reason: 'its Run is still running' })
+      deps.activity?.(r.owner!.runId, `${path.basename(r.item.path)} kept: its Run is still running`)
+    }
+    return result
   } catch (e) {
     deps.log?.(`worktree clean-up at start failed: ${String(e)}`)
     return { removed: [], kept: [] }
