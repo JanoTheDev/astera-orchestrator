@@ -162,9 +162,24 @@ Line height `--lh` 1.45 for prose, `--lh-tight` 1.25 for titles and single-line 
   Single column; "Needs you" items as cards with the action
   inline; "Handled for you" below, grouped by day, one line per event (title + plan + time), objective in the
   row's expanded view only. Empty "Needs you" collapses to one line ("Nothing needs you").
-- **Start**: a page (the New tab shows as active), not a modal. One question at `--fs-22`, the goal textarea,
-  mode as a segmented choice with one description line, a compact options row, and one `--h-lg` primary button
-  that stays visible (sticky footer). Back is a ghost button with an arrow at the header's left.
+- **Start**: a page (the New tab shows as active), not a modal; one clear column, top to bottom:
+  1. Back (ghost, arrow) and the question "What do you want done?" at `--fs-22`.
+  2. **Project**, the first control: required, preselected to the current project, never "All projects"; a placeholder
+     only while none is chosen.
+  3. One large textarea with a plain example as placeholder. Enter is a newline, Ctrl+Enter starts (hint beside the
+     button). Under it a row of starter chips (secondary small Buttons): Fix bugs, Build a feature, Audit a folder
+     (each fills the box with a template and sets the mode to Plan with me), From GitHub issues (opens the issue
+     picker, `SourceJobModal`), From a file (attaches a README or plan doc).
+  4. **How to plan**: a 3-option segmented control with one plain line under it: Plan with me (chat planner), Plan and
+     start on its own (auto planning + auto-approve), Run my prompts as written. Default = the project's last choice,
+     else Plan with me.
+  5. **More options**: a ghost disclosure Button, folded by default, open by default with Advanced mode. Each field has
+     a one-line hint: account (Auto = most room), start after (only running or queued plans), workers at once,
+     delivery (push / pull request), plan again between waves, hands-off. Nothing in it is needed to start.
+  6. One sticky primary button (`--h-lg`) in the footer; its label follows the mode ("Start planning" / "Plan and
+     start" / "Run prompts"); disabled with a reason line until a project and text exist.
+  The New dialog shows the same three choices as large cards (icon, title, one sentence) and "Open a console" as a
+  quiet link below; there is no separate "From a source" entry.
 - **Worktrees**: find a worktree and decide keep/delete. Split: list with search and "Reachable only" chip,
   unreachable rows grouped at the bottom with one warning; detail on the right with branch, path, changes.
 - **Files**: browse and open files of the project. Explorer left with labelled icon buttons; the main area is
