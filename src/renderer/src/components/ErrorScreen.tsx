@@ -4,7 +4,7 @@ import { useI18n } from '../i18n/I18nProvider'
 import './search/errorScreen.css'
 
 /** What the user sees when a page crashes: what happened in plain words, Reload, Copy details, Report.
- *  Report opens nothing yet: a later crash-report Task wires `onReport`. */
+ *  Report opens the crash report prompt (T27, ErrorBoundary passes `onReport`); without one it is disabled. */
 export function ErrorScreen({ error, onReport }: { error: Error; onReport?: () => void }): React.JSX.Element {
   const { t } = useI18n()
   const [copied, setCopied] = useState(false)
@@ -29,7 +29,7 @@ export function ErrorScreen({ error, onReport }: { error: Error; onReport?: () =
             <Button icon={<Icon name={copied ? 'check' : 'copy'} />} onClick={copy}>
               {copied ? t('app.renderErrorCopied') : t('app.renderErrorCopy')}
             </Button>
-            <Button variant="ghost" onClick={onReport}>
+            <Button variant="ghost" onClick={onReport} disabled={!onReport}>
               {t('app.renderErrorReport')}
             </Button>
           </div>
