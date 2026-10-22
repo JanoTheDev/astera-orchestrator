@@ -33,4 +33,9 @@ export const worktrees: Partial<Record<keyof typeof ko, string>> = {
   // WorktreePanel.tsx — panel header, row icon buttons
   'worktree.refresh': 'Actualizar',
   'worktree.action.startSession': 'Nueva sesión',
+  'worktrees.hint': 'Un worktree es una carpeta aparte del mismo repositorio con su propia rama, para que un agente trabaje sin tocar tus archivos.',
+  'worktrees.helpLabel': '¿Qué es un worktree?',
+  'worktrees.aheadBehind': '{ahead} por delante, {behind} por detrás',
+  'worktrees.rowMenu': 'Acciones del worktree',
+  'worktrees.prMenu': 'Acciones de la pull request',
 }

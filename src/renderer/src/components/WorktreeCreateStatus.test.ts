@@ -3,6 +3,7 @@ import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { WorktreeCreateProgress } from '../../../core/types'
 import { StartingOverlay, formatBytes } from './WorktreeCreateStatus'
+import { Button } from './ui'
 
 vi.mock('../i18n/I18nProvider', () => ({
   useI18n: () => ({
@@ -82,7 +83,7 @@ describe('StartingOverlay — 워크트리 만들기 진행', () => {
   it('취소 버튼을 누르면 onCancel 을 부른다', () => {
     const onCancel = vi.fn()
     const tree = StartingOverlay({ ...base, progress: { stage: 'checkout' }, onCancel })
-    const buttons = findAll(tree, (el) => el.type === 'button')
+    const buttons = findAll(tree, (el) => el.type === Button)
     expect(buttons).toHaveLength(1)
     ;(buttons[0].props as { onClick: () => void }).onClick()
     expect(onCancel).toHaveBeenCalledTimes(1)
@@ -90,8 +91,8 @@ describe('StartingOverlay — 워크트리 만들기 진행', () => {
 
   it('취소를 누른 뒤에는 버튼이 "취소하는 중" 으로 잠긴다', () => {
     const tree = StartingOverlay({ ...base, cancelling: true })
-    const [button] = findAll(tree, (el) => el.type === 'button')
-    expect((button.props as { disabled?: boolean }).disabled).toBe(true)
+    const [button] = findAll(tree, (el) => el.type === Button)
+    expect((button.props as { loading?: boolean }).loading).toBe(true)
     expect(html({ cancelling: true })).toContain('session.new.cancelling')
   })
 })
