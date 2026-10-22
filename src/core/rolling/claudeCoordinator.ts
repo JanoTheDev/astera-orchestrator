@@ -920,31 +920,34 @@ export class RollingCoordinator {
   }
 
   /** A person's "Use for this tab": the chain moves onto the account they chose instead of the next one,
-   *  through the same roll() a limit takes (copy, kill, respawn, re-key, state). The cycle then sits on
-   *  that account, so later limits roll on from it in the chain's own order. Only accounts in this
-   *  chain qualify — a claude chain holds claude accounts only, so another provider's id is refused.
-   *  An abort inside the roll arms no wait: nothing is blocked, the session simply stays where it was. */
+   *  through the same roll() a limit takes (copy, kill, respawn, re-key, state). Any registered, logged-in
+   *  claude account qualifies; one outside the chain is appended to it first, so the cycle then sits on it
+   *  and later limits roll on in the chain's order. An abort inside the roll arms no wait: nothing is
+   *  blocked, the session simply stays where it was. */
   async switchTo(sessionId: string, accountId: string): Promise<RollSwitchResult> {
     const chain = this.chains.get(sessionId)
     if (!chain || chain.disposed) throw new Error('no active rolling chain')
-    const toIndex = chain.accountIds.indexOf(accountId)
-    if (toIndex < 0) return { outcome: 'refused', reason: 'account is not in the rolling chain' }
-    if (toIndex === chain.cycle.currentIndex) return { outcome: 'same' }
+    const account = this.deps.getAccount(accountId)
+    if (!account) return { outcome: 'refused', reason: 'no such account' }
+    if ((account.provider ?? 'claude') !== 'claude') return { outcome: 'refused', reason: 'not a claude account' }
+    if (chain.accountIds.indexOf(accountId) === chain.cycle.currentIndex) return { outcome: 'same' }
     const busy = (): boolean =>
       chain.rolling || chain.waitTimer !== null || chain.heldTimer !== null || chain.awaitingReady
     if (this.switching.has(chain) || busy()) return { outcome: 'busy' }
+    if (!this.acts(chain)) return { outcome: 'refused', reason: 'another app window holds this tab' }
     // Held across the awaits below: a second click there would otherwise pass the checks too.
     this.switching.add(chain)
     try {
-      if (!this.deps.getAccount(accountId)) return { outcome: 'refused', reason: 'no such account' }
-      if (chain.loggedOut.has(accountId)) return { outcome: 'refused', reason: 'account signed out' }
-      if (!this.acts(chain)) return { outcome: 'refused', reason: 'another app window holds this tab' }
+      const loggedIn = await (this.deps.loginStatus?.(accountId) ?? Promise.resolve(true)).catch(() => true)
+      if (!loggedIn || chain.loggedOut.has(accountId)) return { outcome: 'refused', reason: 'account signed out' }
       await this.refreshMeta(chain)
       if (chain.disposed) throw new Error('no active rolling chain')
       if (busy()) return { outcome: 'busy' }
       // Checked here rather than left to roll(): its abort would arm a wait on a session nothing blocks.
       if (!(chain.claudeSessionId ?? chain.resumeSeedSessionId) || !(chain.transcriptPath ?? chain.resumeSeedTranscriptPath))
         return { outcome: 'refused', reason: 'conversation not located yet' }
+      const at = chain.accountIds.indexOf(accountId)
+      const toIndex = at >= 0 ? at : this.appendAccount(chain, accountId)
       this.deps.log(`switch requested session=${chain.liveId} to=${accountId}`)
       await this.roll(chain, toIndex, true)
       return !chain.disposed && chain.cycle.currentIndex === toIndex
@@ -953,6 +956,20 @@ export class RollingCoordinator {
     } finally {
       this.switching.delete(chain)
     }
+  }
+
+  /** Puts an account at the end of the chain's order (switchTo's target from outside it). Appended, never
+   *  inserted, so no index the chain already holds moves; every per-account field grows with it. */
+  private appendAccount(chain: Chain, accountId: string): number {
+    chain.accountIds = [...chain.accountIds, accountId]
+    chain.recovery = [...chain.recovery, null]
+    const cycle = new RollCycle(chain.accountIds.length)
+    cycle.restore(chain.cycle.currentIndex, chain.cycle.streakCount)
+    chain.cycle = cycle
+    if (chain.claudeSessionId)
+      this.deps.persistConfig?.(chain.claudeSessionId, { accountIds: chain.accountIds, prompt: chain.prompt })
+    this.snap(chain)
+    return chain.accountIds.length - 1
   }
 
   /** The roll banner's snapshot, read once as the renderer adopts a session — session:rollState is

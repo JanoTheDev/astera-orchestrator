@@ -1176,6 +1176,32 @@ describe('CodexRollingCoordinator', () => {
     h.coord.stop()
   })
 
+  it('switchTo appends an account from outside the chain and rolls onto it', async () => {
+    const c3 = acc('c3', 'Codex C')
+    const h = harness({ getAccount: (id) => (id === 'c3' ? c3 : id === 'c1' || id === 'c2' ? acc(id, id) : null) })
+    await writeRollout({ accountId: 'c1', uuid: 'cx-8', cwd: h.info1.cwd, primary: 3 })
+    h.coord.register(h.info1)
+    await advance(1_500)
+    expect(await h.coord.switchTo('s1', 'c3')).toEqual({ outcome: 'switched' })
+    expect(h.events).toContain('spawn:s2:c3')
+    h.coord.stop()
+  })
+
+  it('switchTo refuses another provider and a signed-out account', async () => {
+    const claudeAccount: Account = { ...acc('a1', 'Claude'), provider: 'claude' }
+    const h = harness({
+      getAccount: (id) => (id === 'a1' ? claudeAccount : acc(id, id)),
+      loginStatus: (id) => Promise.resolve(id !== 'c2')
+    })
+    await writeRollout({ accountId: 'c1', uuid: 'cx-9', cwd: h.info1.cwd, primary: 3 })
+    h.coord.register(h.info1)
+    await advance(1_500)
+    expect(await h.coord.switchTo('s1', 'a1')).toEqual({ outcome: 'refused', reason: 'not a codex account' })
+    expect(await h.coord.switchTo('s1', 'c2')).toEqual({ outcome: 'refused', reason: 'account signed out' })
+    expect(h.events.filter((e) => e.startsWith('spawn:'))).toHaveLength(0)
+    h.coord.stop()
+  })
+
   it('switchTo refuses a chain whose rollout is not located yet and arms no wait', async () => {
     const h = harness()
     h.coord.register(h.info1)

@@ -90,13 +90,13 @@ export function AccountPanel({ accounts }: { accounts: Account[] }): React.JSX.E
     }
   }
 
-  /** Why the row's switch button is disabled, or null when it is not; undefined hides the button — the
-   *  account the tab already runs on, and one outside the tab's rolling chain, which the roll cannot reach. */
+  /** Why the row's switch button is disabled, or null when it is not; undefined hides the button (the
+   *  account the tab already runs on). */
   const switchBlock = (a: Account): string | null | undefined => {
     if (!tab || !tabAccount) return t('account.switch.noTab')
     if (providerOf(a) !== providerOf(tabAccount))
       return t('account.switch.otherProvider', { provider: PROVIDER_META[providerOf(tabAccount)].displayName })
-    if (a.id === tab.accountId || !tab.rollAccountIds?.includes(a.id)) return undefined
+    if (a.id === tab.accountId) return undefined
     if (loginMap[a.id] !== true) return t('account.status.notLoggedIn')
     return null
   }

@@ -8371,16 +8371,31 @@ export function registerIpc(
     })
 
   // "Use for this tab" (accounts popover) — every build. Routed like forceRoll above: the local chain
-  // that holds the session, else the Host's when it rolls; a session nobody rolls rejects.
+  // that holds the session, else the Host's when it rolls one. A tab nobody rolls (rolling is opt-in at
+  // spawn) gets a one-account chain here for the switch, which the switch grows to the chosen account;
+  // the chain is dropped again when the switch does not happen, so a refused click leaves the tab as it was.
   ipcMain.handle('rolling.switchTo', async (_e, sessionId: unknown, accountId: unknown): Promise<RollSwitchResult> => {
     if (typeof sessionId !== 'string' || sessionId === '' || typeof accountId !== 'string' || accountId === '')
       throw new Error('rolling.switchTo needs a sessionId and an accountId')
     if (codexRolling?.has(sessionId)) return codexRolling.switchTo(sessionId, accountId)
     if (rolling?.has(sessionId)) return rolling.switchTo(sessionId, accountId)
-    if (!hostSpeaksRolling(hostClient?.status() ?? { connected: false, features: [] }))
-      throw new Error('this tab does not roll accounts')
-    const r = await orchCall({ cmd: 'roll-switch', args: { sessionId, accountId }, sessionId: '' })
-    if (r.status !== 200) throw new Error(`the Host refused roll-switch (${r.status}): ${JSON.stringify(r.body)}`)
-    return r.body as RollSwitchResult
+    if (hostSpeaksRolling(hostClient?.status() ?? { connected: false, features: [] })) {
+      const r = await orchCall({ cmd: 'roll-switch', args: { sessionId, accountId }, sessionId: '' })
+      if (r.status === 200) return r.body as RollSwitchResult
+      if (r.status !== 404) throw new Error(`the Host refused roll-switch (${r.status}): ${JSON.stringify(r.body)}`)
+    }
+    const info = allSessions().find((s) => s.id === sessionId && s.status === 'running')
+    if (!info) throw new Error(`no running session ${sessionId}`)
+    const coordinator = providerOf(core.accounts.get(info.accountId)) === 'codex' ? codexRolling : rolling
+    if (!coordinator) throw new Error('rolling is not available')
+    coordinator.register({ ...info, rollAccountIds: [info.accountId] })
+    try {
+      const r = await coordinator.switchTo(sessionId, accountId)
+      if (r.outcome !== 'switched') coordinator.unregister(sessionId)
+      return r
+    } catch (err) {
+      coordinator.unregister(sessionId)
+      throw err
+    }
   })
 }

@@ -725,6 +725,23 @@ describe('RollingCoordinator switchTo (Use for this tab)', () => {
     expect(h.spawned.map((s) => s.accountId)).toEqual(['a2'])
   })
 
+  it('appends an account from outside the chain and rolls onto it; later rolls keep the chain order', async () => {
+    const h = harness()
+    h.payloads.set('s1', payload(10))
+    h.coord.register({ ...h.info1, rollAccountIds: ['a1'] }) // a tab started without rolling gets a one-account chain
+    expect(await h.coord.switchTo('s1', 'a3')).toEqual({ outcome: 'switched' })
+    expect(h.spawned.map((s) => s.accountId)).toEqual(['a3'])
+    expect(h.spawnedOpts[0].rollAccountIds).toEqual(['a1', 'a3'])
+  })
+
+  it('refuses a signed-out account', async () => {
+    const h = harness({ loginStatus: (id) => Promise.resolve(id !== 'a3') })
+    h.payloads.set('s1', payload(10))
+    h.coord.register(h.info1)
+    expect(await h.coord.switchTo('s1', 'a3')).toEqual({ outcome: 'refused', reason: 'account signed out' })
+    expect(h.spawned).toHaveLength(0)
+  })
+
   it('refuses a chain with no located conversation and arms no wait', async () => {
     const h = harness()
     h.coord.register(h.info1) // no statusLine payload

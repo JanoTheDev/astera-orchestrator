@@ -763,29 +763,32 @@ export class CodexRollingCoordinator {
     return this.onLimit(chain, 'force')
   }
 
-  /** A person's "Use for this tab" — mirrors switchTo in claudeCoordinator.ts: the chain rolls onto the
-   *  chosen account of its own chain through the same roll() a limit takes, and an abort arms no wait. */
+  /** A person's "Use for this tab" — mirrors switchTo in claudeCoordinator.ts: any registered, logged-in
+   *  codex account (appended to the chain when outside it), reached through the same roll() a limit
+   *  takes, and an abort arms no wait. */
   async switchTo(sessionId: string, accountId: string): Promise<RollSwitchResult> {
     const chain = this.chains.get(sessionId)
     if (!chain || chain.disposed) throw new Error('no active codex rolling chain')
-    const toIndex = chain.accountIds.indexOf(accountId)
-    if (toIndex < 0) return { outcome: 'refused', reason: 'account is not in the rolling chain' }
-    if (toIndex === chain.cycle.currentIndex) return { outcome: 'same' }
-    const busy = (): boolean =>
-      chain.rolling || chain.waitTimer !== null || chain.heldTimer !== null
+    const account = this.deps.getAccount(accountId)
+    if (!account) return { outcome: 'refused', reason: 'no such account' }
+    if (account.provider !== 'codex') return { outcome: 'refused', reason: 'not a codex account' }
+    if (chain.accountIds.indexOf(accountId) === chain.cycle.currentIndex) return { outcome: 'same' }
+    const busy = (): boolean => chain.rolling || chain.waitTimer !== null || chain.heldTimer !== null
     if (this.switching.has(chain) || busy()) return { outcome: 'busy' }
+    if (!this.acts(chain)) return { outcome: 'refused', reason: 'another app window holds this tab' }
     // Held across the awaits below: a second click there would otherwise pass the checks too.
     this.switching.add(chain)
     try {
-      if (!this.deps.getAccount(accountId)) return { outcome: 'refused', reason: 'no such account' }
-      if (chain.loggedOut.has(accountId)) return { outcome: 'refused', reason: 'account signed out' }
-      if (!this.acts(chain)) return { outcome: 'refused', reason: 'another app window holds this tab' }
+      const loggedIn = await (this.deps.loginStatus?.(accountId) ?? Promise.resolve(true)).catch(() => true)
+      if (!loggedIn || chain.loggedOut.has(accountId)) return { outcome: 'refused', reason: 'account signed out' }
       await this.refresh(chain)
       if (chain.disposed) throw new Error('no active codex rolling chain')
       if (busy()) return { outcome: 'busy' }
       // Checked here rather than left to roll(): its abort would arm a wait on a session nothing blocks.
       if (!chain.codexSessionId || !chain.rolloutPath)
         return { outcome: 'refused', reason: 'conversation not located yet' }
+      const at = chain.accountIds.indexOf(accountId)
+      const toIndex = at >= 0 ? at : this.appendAccount(chain, accountId)
       this.deps.log(`codex switch requested session=${chain.liveId} to=${accountId}`)
       await this.roll(chain, toIndex, true)
       return !chain.disposed && chain.cycle.currentIndex === toIndex
@@ -794,6 +797,19 @@ export class CodexRollingCoordinator {
     } finally {
       this.switching.delete(chain)
     }
+  }
+
+  /** Puts an account at the end of the chain's order — mirrors appendAccount in claudeCoordinator.ts. */
+  private appendAccount(chain: Chain, accountId: string): number {
+    chain.accountIds = [...chain.accountIds, accountId]
+    chain.recovery = [...chain.recovery, null]
+    const cycle = new RollCycle(chain.accountIds.length)
+    cycle.restore(chain.cycle.currentIndex, chain.cycle.streakCount)
+    chain.cycle = cycle
+    if (chain.codexSessionId)
+      this.deps.persistConfig?.(chain.codexSessionId, { accountIds: chain.accountIds, prompt: chain.prompt })
+    this.snap(chain)
+    return chain.accountIds.length - 1
   }
 
   /** The roll banner's snapshot, read once as the renderer adopts a session — session:rollState is
