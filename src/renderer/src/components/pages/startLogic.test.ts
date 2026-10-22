@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import {
   accountPickOptions, afterCreate, blockedReason, consolesIn, dropOpensStart, filesFromDrop, handsOffSaveArgs, intakeTab, isSubmitKey, lastMode, lookupArgs, planningOf, primaryLabel,
-  projectOptions, promptCount, saveMode, STARTERS, STARTER_MODE, livePlans, shouldLandOnStart, withStarter, type PlanRow
+  projectOptions, promptCount, saveMode, scheduledArgs, STARTERS, STARTER_MODE, livePlans, shouldLandOnStart, withStarter, type PlanRow
 } from './startLogic'
 import type { Account } from '../../../../core/types'
 
@@ -185,5 +185,20 @@ describe('account picker (T5b)', () => {
       { value: 'a', label: 'accounts.pickUsage:{"name":"A","weekly":"40%","session":"—"}' },
       { value: 'b', label: 'accounts.pickUsage:{"name":"B","weekly":"—","session":"—"}' }
     ])
+  })
+})
+
+describe('scheduledArgs', () => {
+  const rule = { kind: 'interval', minutes: 30 } as const
+  const req = { cmd: 'jobs-create', args: { cwd: '/p', objective: 'x' } }
+  it('adds the rule to the jobs-create args', () => {
+    expect(scheduledArgs(req, rule)).toEqual({ cwd: '/p', objective: 'x', schedule: rule })
+  })
+  it('is null without a rule or a request', () => {
+    expect(scheduledArgs(req, null)).toBeNull()
+    expect(scheduledArgs(null, rule)).toBeNull()
+  })
+  it('is null for a request that is not jobs-create', () => {
+    expect(scheduledArgs({ cmd: 'jobs-create-from-issue', args: {} }, rule)).toBeNull()
   })
 })

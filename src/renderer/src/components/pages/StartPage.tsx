@@ -3,19 +3,20 @@
 // its own state and calls (intake/useIntake.ts).
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, ChevronDown, ChevronRight, ListOrdered, Paperclip, SquareTerminal, X } from 'lucide-react'
-import type { Account, OrchSnapshot } from '../../../../core/types'
+import type { Account, OrchSnapshot, ScheduleRule } from '../../../../core/types'
 import { MAX_CONCURRENT_WORKERS, PROJECT_DEFAULTS, type DeliveryMode } from '../../../../core/orchestration/types'
 import { foldsPathCase } from '../../../../core/files/paths'
 import { useI18n } from '../../i18n/I18nProvider'
-import { localDoor } from '../../lib/orchDoor'
+import { formFailure, localDoor } from '../../lib/orchDoor'
 import { useAdvancedMode } from '../../state/useAdvancedMode'
 import { openConsole, openPage } from '../shell/navigation'
 import { Button, Card, Chip, Field, IconButton, Input, Tabs } from '../ui'
 import { useIntake } from '../intake/useIntake'
+import { ScheduleRuleFields } from '../ScheduleRuleFields'
 import { useAccountUsage } from '../../hooks/useAccountUsage'
 import {
   AUTO_ACCOUNT, STARTERS, STARTER_MODE, accountPickOptions, afterCreate, blockedReason, consolesIn, dropOpensStart, filesFromDrop, handsOffSaveArgs, intakeTab, isSubmitKey, lastMode, lookupArgs,
-  planningOf, primaryLabel, projectOptions, saveMode, shouldLandOnStart, withStarter, type NameLookup, type StarterId, type StartMode, type StartRequest
+  planningOf, primaryLabel, projectOptions, saveMode, scheduledArgs, shouldLandOnStart, withStarter, type NameLookup, type StarterId, type StartMode, type StartRequest
 } from './startLogic'
 import './start.css'
 
@@ -85,6 +86,31 @@ export function StartPage({
     if (projectId) saveMode(projectId, m)
   }
 
+  // T14: a Job that runs on a schedule is made by jobs-create alone, with its rule; no planner opens for it
+  const [scheduled, setScheduled] = useState(false)
+  const [schedule, setSchedule] = useState<ScheduleRule | null>(null)
+  const [schedBusy, setSchedBusy] = useState(false)
+  const [schedError, setSchedError] = useState<string | null>(null)
+  // A chat Job has no objective to repeat: the toggle is off in that mode
+  const scheduling = scheduled && mode !== 'chat'
+  const schedArgs = scheduling ? scheduledArgs(intake.request, schedule) : null
+  const createScheduled = async (): Promise<void> => {
+    if (!schedArgs || schedBusy) return
+    setSchedBusy(true)
+    setSchedError(null)
+    try {
+      const r = await door.command('jobs-create', schedArgs)
+      if (r.status >= 400) setSchedError(formFailure(r, t as never, 'jobs.new.failed').message)
+      else {
+        onClose()
+        openPage('agents')
+      }
+    } catch {
+      setSchedError(t('jobs.new.failed'))
+    } finally {
+      setSchedBusy(false)
+    }
+  }
   const projectAuto = project?.autoApprove ?? PROJECT_DEFAULTS.autoApprove
   const projectHandsOff = project?.handsOff ?? PROJECT_DEFAULTS.handsOff
   const projectDelivery: DeliveryMode = project?.delivery ?? PROJECT_DEFAULTS.delivery
@@ -166,9 +192,9 @@ export function StartPage({
   const afterName = intake.plans.find((p) => p.id === intake.after)?.name
   const go = primaryLabel({ mode, files, text, after: afterName, named: names && !namesRefused ? names.picked?.length : undefined }, t as never)
   const blocked = blockedReason({ project: project !== null, text: text.trim() !== '' || files.length > 0, request: intake.request !== null }, t as never)
-  const canSubmit = !intake.busy && blocked === null && !namesRefused
+  const canSubmit = !intake.busy && !schedBusy && blocked === null && !namesRefused && !(scheduling && schedArgs === null)
   const submit = (): void => {
-    if (canSubmit) void intake.create(planArgs)
+    if (canSubmit) void (scheduling ? createScheduled() : intake.create(planArgs))
   }
   const removeChip = (name: string, onRemove: () => void): React.JSX.Element => (
     <IconButton size="sm" icon={<X size={14} />} label={t('start.remove', { name })} onClick={onRemove} />
@@ -415,6 +441,13 @@ export function StartPage({
                   checked={handsOff}
                   onChange={(on) => void saveHandsOff(on)}
                 />
+                <Field kind="toggle" label={t('start.more.schedule')} hint={t('jobs.new.scheduleHint')} checked={scheduling} disabled={mode === 'chat'} onChange={setScheduled} />
+                {scheduling && (
+                  <div className="jobs-sched">
+                    <ScheduleRuleFields onChange={setSchedule} />
+                    <p className="warn-text">{t('jobs.new.scheduleOverlapHint')}</p>
+                  </div>
+                )}
               </div>
             )}
           </section>
@@ -429,9 +462,9 @@ export function StartPage({
       <footer className="start-foot">
         <div className="start-foot-inner">
           <div className="start-foot-notes" aria-live="polite">
-            {intake.error ? <p className="warn">{intake.error}</p> : blocked ? <span>{blocked}</span> : <span>{go.note ?? t('start.hint.submit')}</span>}
+            {intake.error || schedError ? <p className="warn">{intake.error ?? schedError}</p> : blocked ? <span>{blocked}</span> : <span>{go.note ?? t('start.hint.submit')}</span>}
           </div>
-          <Button variant="primary" size="lg" loading={intake.busy} disabled={!canSubmit} onClick={submit}>
+          <Button variant="primary" size="lg" loading={intake.busy || schedBusy} disabled={!canSubmit} onClick={submit}>
             {go.label}
           </Button>
         </div>

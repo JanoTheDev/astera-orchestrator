@@ -741,6 +741,7 @@ export function JobsView({
   onApprove,
   remote = false,
   disabledReason,
+  newDisabledReason,
   onRenameJob,
   onArchiveJob,
   onUnarchiveJob,
@@ -801,10 +802,13 @@ export function JobsView({
   /** Why the controls are off (a read-only pairing, Phase 7): every control is drawn disabled with this as its title.
    *  The sentence itself is said once, by the runtime selector above the list. Absent: the controls act. */
   disabledReason?: string
+  /** Why only the New buttons are off (a paired Runtime starts no plans yet); wins over `disabledReason` there. */
+  newDisabledReason?: string
   /** W6-H: the open project's folder, for its delivery setting. Absent (a paired Runtime's view, no project): none. */
   projectPath?: string
 } & LifecycleActs): React.JSX.Element {
   const { t } = useI18n()
+  const newReason = newDisabledReason ?? disabledReason
   const acts = { onPauseRun, onResumeRun, onDeleteRun, onRestartCoordinator, onApprove }
   const lifecycle: LifecycleActs | undefined =
     onRenameJob || onArchiveJob || onUnarchiveJob || onHoldJob ? { onRenameJob, onArchiveJob, onUnarchiveJob, onHoldJob } : undefined
@@ -918,7 +922,7 @@ export function JobsView({
             hasProject 로 가드하는 이유는 위 hasProject 의 주석대로다: 그때 이 버튼을 누르면
             만들 자리도 없는 newRunOpen 이 true 로 남아 전역 단축키를 죽인다. */}
         {hasProject && (
-          <button className="jobs-new" disabled={disabledReason !== undefined} title={disabledReason} onClick={onNewRun}>
+          <button className="jobs-new" disabled={newReason !== undefined} title={newReason} onClick={onNewRun}>
             + {t('jobs.new.open')}
           </button>
         )}
@@ -934,7 +938,7 @@ export function JobsView({
     <section className="jobs-view">
       {stallLine}
       {/* 목록 위, 첫 자식 — 아이콘을 새로 만들지 않는다: '+' 글자로 충분하다 */}
-      <button className="jobs-new" disabled={disabledReason !== undefined} title={disabledReason} onClick={onNewRun}>
+      <button className="jobs-new" disabled={newReason !== undefined} title={newReason} onClick={onNewRun}>
         + {t('jobs.new.open')}
       </button>
       {newFromSource}
