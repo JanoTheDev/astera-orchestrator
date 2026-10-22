@@ -2220,6 +2220,13 @@ export interface RemoteApi {
    *  `onMachineProgress` while it runs. */
   addMachine(o: AddMachineOptions): Promise<AddMachineResult>
   onMachineProgress(cb: (p: MachineProgress) => void): () => void
+  /** T12c: the Runtimes added over SSH, which Bring my setup can reach (their SSH address is recorded). */
+  migrationMachines(): Promise<string[]>
+  /** What Bring my setup would move to that machine; reads no secret. */
+  migratePlan(runtimeId: string, o: { only?: MigrateKind[] }): Promise<{ ok: true; plan: MigratePlanItem[] } | { ok: false; message: string }>
+  /** Moves it; each item's result arrives on `onMigrateProgress` while it runs. */
+  migrate(runtimeId: string, o: { only?: MigrateKind[] }): Promise<MigrateResult>
+  onMigrateProgress(cb: (p: MigrateItemResult & { runtimeId: string }) => void): () => void
 }
 
 // The shapes of cli/machines.ts, restated here: the renderer cannot import a node-side module (tsconfig.web.json).
@@ -2229,6 +2236,14 @@ export interface AddMachineOptions { target: string; port?: number; installer?: 
 export type AddMachineResult =
   | { ok: true; runtimeId: string; name: string; os: 'linux' | 'windows'; repaired: boolean }
   | { ok: false; step: MachineStepId; message: string; stderrTail: string; fix: string }
+
+// T12c: the shapes of cli/machineMigrate.ts, restated for the renderer
+export type MigrateKind = 'github' | 'git' | 'accounts' | 'projects'
+export interface MigratePlanItem { kind: MigrateKind; id: string; label: string; detail: string; skip?: string }
+export interface MigrateItemResult { kind: MigrateKind; id: string; label: string; state: 'running' | 'ok' | 'login' | 'skipped' | 'failed'; line: string; fix?: string }
+export type MigrateResult =
+  | { ok: true; dryRun: boolean; plan: MigratePlanItem[]; results: MigrateItemResult[] }
+  | { ok: false; message: string; plan: MigratePlanItem[]; results: MigrateItemResult[] }
 
 /** An answer from This computer's controls (main/remote/thisMachineControl.ts). */
 export type RemoteControlAnswer = { ok: true; body: Record<string, unknown> } | { ok: false; code: string; message: string }

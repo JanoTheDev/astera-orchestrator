@@ -84,6 +84,53 @@ Then use it:
   show under the row. A machine too old for that gets the command copied, to run in a terminal there.
 - **Tabs**: New console lists This computer, then each machine, and remembers the last pick per project.
 
+### Bring your setup
+
+`astera machines add` ends by bringing this computer's setup over (T12c). It lists exactly what moves and asks once
+(`--yes` skips the question); `--only` / `--skip` take `github,git,accounts,projects`, `--projects all|<id,...>`
+narrows the projects. On its own, for a machine added before, or again later:
+
+```
+astera machines migrate <name> [--only ...] [--skip ...] [--projects ...] [--dry-run] [--yes] [--target user@host --port n]
+```
+
+In the app it is the **Bring my setup** step after **Add a machine over SSH**, and **Copy my setup again** on the row of
+a machine added that way (its SSH address is kept in `<profile>/runtimes/machines.json`). Each item ends in one line:
+ok, needs a one-time login, skipped (and why) or failed (and the fix).
+
+- **GitHub**: `gh auth token` here, `gh auth login --with-token` there (gh installed with apt or winget when missing),
+  then `gh auth setup-git`, so git over HTTPS uses that login. No SSH private key moves; a GitHub SSH origin is cloned
+  over HTTPS instead.
+- **Git identity**: the global `user.name` and `user.email`.
+- **Accounts**: every Claude and Codex account is made there with the same label, colour and provider, in a new config
+  folder of its own, through `astera accounts import` (the login file written owner-only: 0600, or an owner-only ACL on
+  Windows, via a temp file that never outlives the write). Then the machine's own login check (`accounts list` over the
+  pairing) decides each line.
+- **Projects**: each project with an `origin` is cloned to `~/astera/projects/<name>` (Windows
+  `%USERPROFILE%\astera\projects\<name>`) with the migrated gh login, put on its default branch, registered, and given
+  its settings (delivery, delivery branch, auto-approve, hands-off, concurrency, review rounds, replan, prompts folder,
+  auto-projects, grants, coordinator model, origin sync). A project without a remote is skipped with that reason, and so
+  is a sub-project (its workspace is the repository that moves). Uncommitted work never moves; the plan says which projects have some.
+- **Not carried**: a project's account and run configuration (their ids are this computer's), window layout, the
+  app-wide auto-clean switch and account preferences (the machine keeps its own defaults).
+
+**Why Claude logins are not copied.** Claude Code (measured on 2.1.301) keeps an OAuth access token and a *rotating*
+refresh token in `.credentials.json` (`accessToken`, `refreshToken`, `expiresAt`, `refreshTokenExpiresAt`, `scopes`):
+a refresh returns a new pair and the old refresh token dies (the CLI tracks `known_dead_refresh_token`). Two machines
+sharing one copy would each refresh it, and the first refresh logs the other out, so copying would log you out here.
+It was not tried with a throw-away copy, because that test would rotate and kill the real login. So each Claude
+account gets its own long-lived token from `claude setup-token` (one browser approval per account, run here in your
+terminal; sign in to the browser as that account), written there as a credentials file with no refresh token. Codex's
+ChatGPT login rotates the same way and has no long-lived token, so a Codex account is made there and signed in once
+in your terminal (`codex login --device-auth` on the machine). From the app, which has no terminal, both are reported
+as **needs a one-time login**; run `astera machines migrate <name> --only accounts` in a terminal to finish them.
+
+**Security.** The GitHub token and the setup-tokens travel only on the SSH channel's standard input: never in a
+command line (`ps`), an environment variable of a long-lived process, a log, the activity feed, or a file left behind;
+every line shown has them removed. `--dry-run` lists the plan without reading a secret or touching the machine. Both
+commands, and `accounts import`, are refused inside an agent session (`ASTERA_SESSION` is set).
+
+
 The manual steps follow, for a machine this computer cannot reach over SSH.
 
 ## One-command setup

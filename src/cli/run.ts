@@ -32,6 +32,8 @@ import { runRuntimeGateway } from './runtime/gateway'
 import { runRuntimeCommand, type RuntimeCommandDeps } from './runtime/commands'
 import { controllerRegistry, runRuntimesCommand } from './runtimes'
 import { machineResultText, runMachinesAdd } from './machines'
+import { migrateAfterPair, migrationText, runMachinesMigrate } from './machineMigrate'
+import { importAccount } from '../core/accounts/exportLogin'
 import { answerRemote, trailingRuntimeError } from './remote'
 import { clientTimeoutMs, followRun, type HostAnswer } from './follow'
 export { clientTimeoutMs, followRun, type FollowEnd, type HostAnswer } from './follow'
@@ -1417,13 +1419,62 @@ export async function main(): Promise<void> {
   // to stderr, one line each, and the install's own output too, so sudo can ask for the password in this terminal.
   if (parsed.cmd === 'machines-add') {
     if (presented) fail({ code: 'INVALID_ARGUMENTS', message: 'machines add does not go through the Host\'s command layer, so it cannot carry a request id' })
-    const done = await runMachinesAdd({ args, profileDir, version: CLI_VERSION, log: (m) => logToStderr(`astera machines add: ${m}`) })
+    const log = (m: string): void => logToStderr(`astera machines add: ${m}`)
+    // T12c: refused inside an agent session, as `machines migrate` is: it moves logins
+    if ((process.env.ASTERA_SESSION ?? '') !== '')
+      fail({ code: 'PERMISSION_DENIED', message: 'astera machines add is for a person at their own shell or in the Astera app, not an agent session (ASTERA_SESSION is set)' })
+    const done = await runMachinesAdd({ args, profileDir, version: CLI_VERSION, log, afterPair: migrateAfterPair({ args, profileDir, version: CLI_VERSION, env: process.env, log }) })
     if (!done.ok) {
       logToStderr(machineResultText(done))
       fail({ code: 'FAILED', message: `adding the machine failed at ${done.step}: ${done.message}` })
     }
     if (mode === 'json') out(renderOk(parsed.cmd, done, mode))
     else out(machineResultText(done))
+    process.exit(0)
+  }
+
+  // T12c: `machines migrate` brings this computer's setup to a paired machine over the system ssh (cli/machineMigrate.ts)
+  if (parsed.cmd === 'machines-migrate') {
+    if (presented) fail({ code: 'INVALID_ARGUMENTS', message: 'machines migrate does not go through the Host\'s command layer, so it cannot carry a request id' })
+    const done = await runMachinesMigrate({ args, profileDir, version: CLI_VERSION, env: process.env, log: (m) => logToStderr(`astera machines migrate: ${m}`) })
+    if (!done.ok) {
+      logToStderr(migrationText(done))
+      fail({ code: /agent session/.test(done.message) ? 'PERMISSION_DENIED' : 'FAILED', message: done.message })
+    }
+    out(mode === 'json' ? renderOk(parsed.cmd, done, mode) : migrationText(done))
+    process.exit(done.results.some((r) => r.state === 'failed') ? 1 : 0)
+  }
+
+  // T12c: the target side of `machines migrate`, run over SSH: the account by label and agent, its login from stdin
+  if (parsed.cmd === 'accounts-import') {
+    if (presented) fail({ code: 'INVALID_ARGUMENTS', message: 'accounts import does not go through the Host\'s command layer, so it cannot carry a request id' })
+    if (sessionId !== '') fail({ code: 'PERMISSION_DENIED', message: 'astera accounts import is for a person at their own shell, not an agent session (ASTERA_SESSION is set)' })
+    if (typeof args.label !== 'string' || args.label.trim() === '') fail({ code: 'INVALID_ARGUMENTS', message: '--label needs a name' })
+    if (args.agent !== 'claude' && args.agent !== 'codex') fail({ code: 'INVALID_ARGUMENTS', message: '--agent must be claude or codex' })
+    if (args.login !== undefined && typeof args.login !== 'string') fail({ code: 'INVALID_ARGUMENTS', message: '--login - reads the login file from standard input' })
+    try {
+      const r = await importAccount(
+        { label: String(args.label).trim(), provider: args.agent as 'claude' | 'codex', ...(typeof args.color === 'string' ? { color: args.color } : {}), ...(typeof args.login === 'string' ? { login: args.login } : {}) },
+        {
+          profileDir,
+          home: homedir(),
+          descriptors: makeDescriptors(process.platform),
+          platform: process.platform,
+          user: process.env.USERNAME ?? process.env.USER ?? '',
+          random: () => randomUUID(),
+          run: (file, runArgs) =>
+            new Promise((resolve) => {
+              const child = spawn(file, runArgs, { stdio: 'ignore', windowsHide: true })
+              child.once('error', () => resolve(127))
+              child.once('close', (code) => resolve(code ?? 1))
+            })
+        }
+      )
+      out(renderOk(parsed.cmd, { id: r.account.id, label: r.account.label, provider: r.account.provider, configDir: r.account.configDir, signedIn: r.signedIn, created: r.created }, mode))
+    } catch (e) {
+      // Never the login itself: only what failed
+      fail({ code: 'FAILED', message: `the account could not be made: ${e instanceof Error ? e.message.split(String(args.login ?? '\u0000')).join('[redacted]') : 'unknown error'}` })
+    }
     process.exit(0)
   }
 

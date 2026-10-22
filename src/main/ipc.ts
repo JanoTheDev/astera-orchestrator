@@ -125,6 +125,8 @@ import { readGitFacts } from '../core/recovery/git'
 import { createRecoveryOwner } from './host/recoveryOwner'
 import { createRemoteRuntimes } from './remote/runtimes'
 import { createMachineProvisioner } from './remote/provisioning'
+import { createMigrationRunner } from './remote/migration'
+import { MIGRATE_KINDS, type MigrateKind, type MigrateOptions } from '../cli/machineMigrate'
 import type { AddMachineOptions } from '../cli/machines'
 import { createRemoteStreams, type RemoteStreams } from './remote/remoteStreams'
 import { createOrchRouter } from './remote/orchRouter'
@@ -5053,7 +5055,9 @@ export function registerIpc(
   ipcMain.handle('sources.create', (_e, a: unknown) => sources.create(a as Parameters<typeof sources.create>[0]))
   // Settings › Remote Runtimes and the Jobs view's selectors (remote runtime design Phase 6). A runtime id that is not a
   // string names nothing; every answer is the client's or the registry's own, never a local fallback.
-  const machineProvisioner = createMachineProvisioner({ remote: remoteRuntimes })
+  const machineProvisioner = createMachineProvisioner({ remote: remoteRuntimes, profileDir: app.getPath('userData') })
+  // T12c: Bring my setup, to a machine added over SSH
+  const migration = createMigrationRunner({ remote: remoteRuntimes, profileDir: app.getPath('userData') })
   ipcMain.handle('remote.list', () => remoteRuntimes.list())
   ipcMain.handle('remote.add', (_e, pairing: unknown, name?: unknown) =>
     typeof pairing === 'string'
@@ -5078,6 +5082,16 @@ export function registerIpc(
       return { ok: false, step: 'connect', message: 'a machine needs user@host, and the options their own types', stderrTail: '', fix: 'Fill in user@host.' }
     return machineProvisioner.add({ ...(v as unknown as AddMachineOptions), target: v.target.trim() }, (p) => {
       if (!e.sender.isDestroyed()) e.sender.send('remote:machineProgress', p)
+    })
+  })
+  ipcMain.handle('remote.migrationMachines', () => migration.machines())
+  ipcMain.handle('remote.migratePlan', (_e, runtimeId: unknown, o: unknown) =>
+    typeof runtimeId === 'string' ? migration.plan(runtimeId, migrateOptionsOfWindow(o)) : { ok: false, message: 'a runtime id is a string' }
+  )
+  ipcMain.handle('remote.migrate', (e, runtimeId: unknown, o: unknown) => {
+    if (typeof runtimeId !== 'string') return { ok: false, message: 'a runtime id is a string', plan: [], results: [] }
+    return migration.migrate(runtimeId, migrateOptionsOfWindow(o), (r) => {
+      if (!e.sender.isDestroyed()) e.sender.send('remote:migrateProgress', { runtimeId, ...r })
     })
   })
   ipcMain.handle('remote.projects', async (_e, runtimeId: unknown) => {
@@ -8426,4 +8440,11 @@ export function registerIpc(
       }
       return (await rolling?.forceRoll(sessionId)) ?? false
     })
+}
+
+/** T12c: the window's Bring my setup choices, only what the migration takes. */
+function migrateOptionsOfWindow(o: unknown): MigrateOptions {
+  const v = (o ?? {}) as Record<string, unknown>
+  const only = Array.isArray(v.only) ? v.only.filter((k): k is MigrateKind => (MIGRATE_KINDS as readonly unknown[]).includes(k)) : undefined
+  return only ? { only } : {}
 }

@@ -6,6 +6,7 @@ import type {
   HostStatus,
   HostRuntimeInstallState,
   MachineProgress,
+  MigrateItemResult,
   UpdateCampaignInfo,
   UpdateStatus
 } from '../core/types'
@@ -454,6 +455,17 @@ const api = {
       ipcRenderer.on('remote:machineProgress', l)
       return (): void => {
         ipcRenderer.removeListener('remote:machineProgress', l)
+      }
+    },
+    // T12c
+    migrationMachines: invoke('remote.migrationMachines'),
+    migratePlan: invoke('remote.migratePlan'),
+    migrate: invoke('remote.migrate'),
+    onMigrateProgress: (cb: (p: MigrateItemResult & { runtimeId: string }) => void) => {
+      const l = (_e: unknown, p: MigrateItemResult & { runtimeId: string }): void => cb(p)
+      ipcRenderer.on('remote:migrateProgress', l)
+      return (): void => {
+        ipcRenderer.removeListener('remote:migrateProgress', l)
       }
     }
   },

@@ -713,6 +713,8 @@ const NOT_SWITCHED = [
   'skills-install',
   // T15: signs a new account in from this terminal, answered in the CLI process (core/accounts/cliLogin.ts).
   'accounts-login',
+  // T12c: the target side of `machines migrate`, answered in the CLI process (core/accounts/exportLogin.ts).
+  'accounts-import',
   'higgsfield-list',
   'higgsfield-use',
   'mcp-serve',
@@ -735,6 +737,8 @@ const NOT_SWITCHED = [
   'runtimes-remove',
   // T12b: provisions over SSH in the CLI process (src/cli/machines.ts).
   'machines-add',
+  // T12c: brings this computer's setup to a paired machine over SSH (src/cli/machineMigrate.ts).
+  'machines-migrate',
   // Answered by the Host's plugin manager (src/host/plugins/commands.ts), beside `projects-add`.
   'plugins-install',
   'plugins-list',

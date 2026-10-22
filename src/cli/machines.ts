@@ -49,7 +49,7 @@ export interface ExecResult {
 export interface MachineDeps {
   /** Runs `ssh` or `scp` with these arguments. `tty`: the person is at a terminal, so the install may ask sudo for a
    *  password there (the CLI); the app has none. */
-  exec(file: 'ssh' | 'scp', args: string[], o: { tty: boolean }): Promise<ExecResult>
+  exec(file: 'ssh' | 'scp', args: string[], o: { tty: boolean; stdin?: string }): Promise<ExecResult>
   tty: boolean
   /** Astera installers found on this computer, any order (`dist-installer/astera-*-amd64.deb` and the like). */
   installers(): Promise<string[]>
@@ -292,8 +292,39 @@ export function machineResultText(r: AddMachineResult): string {
   ].join('\n')
 }
 
+/** Runs a program, its output captured. `tty`: the person's terminal is its input and sees its output as it comes, so
+ *  sudo's password prompt reaches them. `stdin`: written to it and closed (a secret goes here, never into `args`). */
+export function runExec(file: string, args: string[], x: { tty: boolean; stdin?: string; cwd?: string }): Promise<ExecResult> {
+  return new Promise((resolve) => {
+    const child = spawn(file, args, { stdio: [x.tty ? 'inherit' : x.stdin !== undefined ? 'pipe' : 'ignore', 'pipe', 'pipe'], windowsHide: true, ...(x.cwd ? { cwd: x.cwd } : {}) })
+    let stdout = ''
+    let stderr = ''
+    child.stdout?.on('data', (b: Buffer) => {
+      stdout += b.toString()
+      if (x.tty) process.stderr.write(b)
+    })
+    child.stderr?.on('data', (b: Buffer) => {
+      stderr += b.toString()
+      if (x.tty) process.stderr.write(b)
+    })
+    if (!x.tty && x.stdin !== undefined && child.stdin) {
+      child.stdin.on('error', () => undefined)
+      child.stdin.end(x.stdin)
+    }
+    child.on('error', (e) => resolve({ code: 255, stdout, stderr: `${stderr}${e.message}` }))
+    child.on('close', (code) => resolve({ code: code ?? 255, stdout, stderr }))
+  })
+}
+
 /** `astera machines add` in this CLI process: the system ssh and scp, this profile's Runtimes, steps to `log`. */
-export async function runMachinesAdd(a: { args: Record<string, unknown>; profileDir: string; version: string; log(m: string): void }): Promise<AddMachineResult> {
+export async function runMachinesAdd(a: {
+  args: Record<string, unknown>
+  profileDir: string
+  version: string
+  log(m: string): void
+  /** T12c: bringing the setup over once it is paired (cli/machineMigrate.ts). */
+  afterPair?: MachineDeps['afterPair']
+}): Promise<AddMachineResult> {
   const str = (v: unknown): string | undefined => (typeof v === 'string' && v !== '' ? v : undefined)
   const portArg = a.args.port === undefined ? undefined : Number(a.args.port)
   const o: AddMachineOptions = {
@@ -309,23 +340,7 @@ export async function runMachinesAdd(a: { args: Record<string, unknown>; profile
   const registry = (): ReturnType<typeof controllerRegistry> => controllerRegistry(a.profileDir)
   const deps: MachineDeps = {
     tty: process.stdin.isTTY === true,
-    // On a terminal the install's output shows as it comes, so sudo's password prompt reaches the person
-    exec: (file, args, x) =>
-      new Promise((resolve) => {
-        const child = spawn(file, args, { stdio: [x.tty ? 'inherit' : 'ignore', 'pipe', 'pipe'], windowsHide: true })
-        let stdout = ''
-        let stderr = ''
-        child.stdout.on('data', (b: Buffer) => {
-          stdout += b.toString()
-          if (x.tty) process.stderr.write(b)
-        })
-        child.stderr.on('data', (b: Buffer) => {
-          stderr += b.toString()
-          if (x.tty) process.stderr.write(b)
-        })
-        child.on('error', (e) => resolve({ code: 255, stdout, stderr: `${stderr}${e.message}` }))
-        child.on('close', (code) => resolve({ code: code ?? 255, stdout, stderr }))
-      }),
+    exec: (file, args, x) => runExec(file, args, x),
     installers: async () =>
       (await Promise.all(dirs.installerDirs.map((d) => fs.readdir(d).then((xs) => xs.map((x) => path.join(d, x)), () => [] as string[])))).flat(),
     scriptsDir: () => dirs.scriptDirs.find((d) => existsSync(path.join(d, 'install-runtime.sh'))),
@@ -347,7 +362,8 @@ export async function runMachinesAdd(a: { args: Record<string, unknown>; profile
     ping: async (runtimeId) => {
       const r = await answerRemote({ cmd: 'projects-list', args: {}, runtime: runtimeId, request: randomUUID(), profileDir: a.profileDir, mode: 'json', write: () => undefined, version: a.version })
       return !('error' in r) && r.status === 200
-    }
+    },
+    ...(a.afterPair ? { afterPair: a.afterPair } : {})
   }
   return addMachine(o, deps, (p) => a.log(p.state === 'failed' ? `${p.step}: ${p.line}` : p.line))
 }

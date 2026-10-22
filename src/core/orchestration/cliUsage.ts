@@ -273,7 +273,29 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       { name: 'name', value: '<n>', about: 'what to call the machine (default its host name)' },
       { name: 'listen', value: '<ip>', about: 'the address its Runtime listens on' },
       { name: 'tailscale', about: 'listen on its Tailscale address' },
-      { name: 'full-control', about: 'the pairing may also change things (needed to add projects there)' }
+      { name: 'full-control', about: 'the pairing may also change things (needed to add projects there)' },
+      // T12c
+      { name: 'only', value: '<github,git,accounts,projects>', about: 'bring only these over (default all)' },
+      { name: 'skip', value: '<github,git,accounts,projects>', about: 'bring all but these' },
+      { name: 'projects', value: '<all|id,...>', about: 'which projects (default all with an origin remote)' },
+      { name: 'yes', about: 'move without asking once more' }
+    ]
+  },
+  // T12c
+  'machines-migrate': {
+    summary: "bring this computer's setup to a paired machine over SSH: GitHub login, git identity, accounts, projects",
+    detail:
+      'Lists exactly what moves (the GitHub user, git name and email, each account, each project with its origin and the folder it lands in) and asks once unless --yes. GitHub: `gh auth token` here, `gh auth login --with-token` and `gh auth setup-git` there, gh installed when missing; no SSH key moves. Claude accounts get a long-lived token from `claude setup-token` (approved once in the browser per account): their logins rotate their refresh tokens, so a copy would log this computer out. Codex accounts are made there and signed in once in this terminal. Projects with an origin are cloned to ~/astera/projects/<name> (Windows %USERPROFILE%\\astera\\projects\\<name>), registered and given their settings; uncommitted work stays here. Secrets go only over the SSH channel\'s input. --dry-run lists the plan and reads no secret. `machines add` runs this after pairing. Refused inside an agent session (ASTERA_SESSION is set).',
+    flags: [
+      { name: 'machine', value: '<runtime id|name>', required: true, about: 'the paired machine (also the first word after migrate)' },
+      { name: 'target', value: '<user@host>', about: 'its SSH address, when `machines add` did not record one' },
+      { name: 'port', value: '<n>', about: 'its SSH port (default the recorded one, else 22)' },
+      // T12c
+      { name: 'only', value: '<github,git,accounts,projects>', about: 'bring only these over (default all)' },
+      { name: 'skip', value: '<github,git,accounts,projects>', about: 'bring all but these' },
+      { name: 'projects', value: '<all|id,...>', about: 'which projects (default all with an origin remote)' },
+      { name: 'yes', about: 'move without asking once more' },
+      { name: 'dry-run', about: 'list what would move, read no secret, change nothing' }
     ]
   },
   'plugins-install': {
@@ -769,6 +791,18 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
     flags: [
       { name: 'new', required: true, about: 'sign a new account in' },
       { name: 'label', value: '<name>', about: 'what to call it (default Claude)' }
+    ]
+  },
+  // T12c
+  'accounts-import': {
+    summary: 'make an account here with a login brought from another machine (the target side of `machines migrate`)',
+    detail:
+      'The account with this label and agent, made when missing (same colour), its login file written owner-only (0600) from standard input. Run by `machines migrate` over SSH; refused inside an agent session (ASTERA_SESSION is set).',
+    flags: [
+      { name: 'label', value: '<name>', required: true, about: 'its label' },
+      { name: 'agent', value: '<claude|codex>', required: true, about: 'its vendor' },
+      { name: 'color', value: '<colour>', about: 'its colour' },
+      { name: 'login', value: '<->', about: "its CLI's login file, read from standard input" }
     ]
   },
 
