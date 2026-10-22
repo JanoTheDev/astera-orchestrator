@@ -1,4 +1,7 @@
+/// <reference types="node" />
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import { relativeLuminance, contrastRatio } from './contrast'
 import { THEMES, type ThemeColors } from './themes'
 
@@ -52,28 +55,54 @@ describe.each(THEMES.map((t) => [t.id, t] as const))('%s contrast', (_id, theme)
   })
 })
 
-/** Colours outside the themes (DESIGN.md §9 "Other tokens": file-icon, git, PR, brand and role colours).
- *  They are not redefined per theme, so they are checked on the brightest dark surface (dusk's
- *  --elevated). On day they are not held to 3:1 — they sit beside a label that carries the meaning. */
-const BRIGHTEST_DARK_SURFACE = '#2a2734'
+/** Colours outside the themes (DESIGN.md §9 "Other tokens": file-icon, git, PR, brand, role and syntax colours,
+ *  --run). The themes never write them; tokens.css holds the Night/Dusk values in :root and Day's repaint in
+ *  :root[data-theme='day']. Each is measured against every surface it can sit on, in every theme, so a Day
+ *  override cannot drift under 3:1 unseen. They are marks beside a label or glyph, hence 3:1 (WCAG 1.4.11). */
+const css = readFileSync(path.join(__dirname, '../../renderer/src/styles/tokens.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
 
-const SHARED: Record<string, string> = {
-  '--fi-blue': '#5b9fe0', '--fi-cyan': '#4fb6c4', '--fi-green': '#7fbf6a', '--fi-yellow': '#d7b45a',
-  '--fi-orange': '#d68b4f', '--fi-red': '#d3706b', '--fi-purple': '#a98ede', '--fi-pink': '#d47fae',
-  '--fi-gray': '#8a8a94',
-  '--git-new': '#79c98f', '--git-modified': '#d7b45a', '--git-deleted': '#d3706b',
-  '--git-conflict': '#d68b4f',
-  '--brand-claude': '#d97757', '--role-user': '#4f9cf9', '--role-assistant': '#f97316'
+const varsOf = (block: RegExp): Record<string, string> => {
+  const body = block.exec(css)?.[1] ?? ''
+  return Object.fromEntries([...body.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)].map((m) => [m[1], m[2].trim()]))
 }
+const BASE = varsOf(/(?:^|\n):root\s*\{([^}]*)\}/)
+const DAY = varsOf(/:root\[data-theme='day'\]\s*\{([^}]*--fi-blue[^}]*)\}/)
+const fixedFor = (id: string): Record<string, string> => ({ ...BASE, ...(id === 'day' ? DAY : {}) })
 
-describe('colours outside the themes', () => {
-  it('are dark-only palettes: every dark surface is at most as bright as the one they are checked on', () => {
-    for (const t of THEMES.filter((th) => th.scheme === 'dark'))
-      for (const k of ['bg', 'panel', 'elevated', 'hover'] as const)
-        expect(relativeLuminance(t.colors[k])).toBeLessThanOrEqual(relativeLuminance(BRIGHTEST_DARK_SURFACE) + 1e-9)
+/** Fixed colours that carry meaning, by prefix. */
+const MARKS = /^--(fi|git|syn|pr|brand|role)-/
+/** Deliberately below 3:1, with the reason. --fi-mute dims dependency and build folders to suppress noise;
+ *  --syn-invalid-* is a pair measured as text-on-fill below. */
+const EXEMPT = new Set(['--fi-mute', '--syn-invalid-ink', '--syn-invalid-bg'])
+
+describe.each(THEMES.map((t) => [t.id, t] as const))('%s: colours outside the themes', (id, theme) => {
+  const fixed = fixedFor(id)
+  const marks = Object.entries(fixed).filter(([k, v]) => MARKS.test(k) && !EXEMPT.has(k) && /^#[0-9a-f]{3,8}$/i.test(v))
+  // the surfaces a mark sits on: the page, a panel or card, a menu or chip, the terminal / code ground
+  const surfaces = (['bg', 'panel', 'elevated', 'termBg'] as const).map((k) => [k, theme.colors[k]] as const)
+
+  it('finds the marks — an empty list would pass on nothing', () => {
+    expect(marks.length).toBeGreaterThan(25)
   })
 
-  it.each(Object.entries(SHARED))('%s 는 가장 밝은 어두운 표면에서 3:1 이상', (_name, color) => {
-    expect(contrastRatio(color, BRIGHTEST_DARK_SURFACE)).toBeGreaterThanOrEqual(3)
+  it.each(marks.flatMap(([name, color]) => surfaces.map(([s, bg]) => [name, s, color, bg] as const)))(
+    '%s on %s ≥ 3',
+    (_name, _surface, color, bg) => {
+      expect(contrastRatio(color, bg)).toBeGreaterThanOrEqual(3)
+    }
+  )
+
+  it.each(['--run', '--info'] as const)('%s on panel ≥ 3', (name) => {
+    expect(contrastRatio(fixed[name], theme.colors.panel)).toBeGreaterThanOrEqual(3)
+  })
+
+  // text on a fixed fill
+  it.each([
+    ['--ink-white', '--confirm', 4.5],
+    ['--ink-white', '--confirm-hover', 4.5],
+    ['--ink-white', '--agent-accent', 4.5],
+    ['--syn-invalid-ink', '--syn-invalid-bg', 3]
+  ] as const)('%s on %s ≥ %s', (fg, bg, min) => {
+    expect(contrastRatio(fixed[fg], fixed[bg])).toBeGreaterThanOrEqual(min)
   })
 })

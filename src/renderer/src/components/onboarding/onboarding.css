@@ -27,7 +27,7 @@
 .onb__body { display: flex; flex-direction: column; gap: var(--sp-4); }
 .onb__mark { width: 48px; height: 48px; }
 .onb__title { margin: 0; font-size: var(--fs-22); font-weight: var(--fw-semi); line-height: var(--lh-tight); }
-.onb__title:focus { outline: none; }
+.onb__title:focus-visible { outline: none; box-shadow: none; }
 .onb__lead { margin: 0; font-size: var(--fs-14); line-height: var(--lh); color: var(--text-dim); }
 .onb__label { margin-top: var(--sp-2); font-size: var(--fs-12); font-weight: var(--fw-medium); color: var(--text-dim); }
 .onb__dim { color: var(--text-dim); font-size: var(--fs-13); }

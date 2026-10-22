@@ -73,7 +73,7 @@
   --rail-icon: #a2a6b0;
   --accent: #8b93ff;
   --accent-ink: #0c0e33;
-  --ring: rgba(139, 147, 255, 0.35);
+  --ring: rgba(139, 147, 255, 0.6);
   --status-bg: #15161a;
   --status-ink: #a2a6b0;
   --md-bg: #0e0f12;
@@ -138,7 +138,7 @@
   --media-stage: #111111;
   /* The agent's in-use frame, banner and click ripple (BrowserPane). A violet, deliberately not
      --accent: "the agent is driving this page" must not read as focus. */
-  --agent-accent: #8b5cf6;
+  --agent-accent: #7c4ded;
   /* Pull request state. **Deliberately outside the theme pipeline**: this is GitHub's vocabulary, which a
      person reads the same way on github.com. PrBadge draws a distinct glyph per state as well. */
   --pr-open: #3fb950;
@@ -152,8 +152,8 @@
   --run: #3fb950;
   --run-hover: #57d364;
   /* 채워진 확정 액션 버튼(흰 글자 위) */
-  --confirm: #2f9e6e;
-  --confirm-hover: #37b07b;
+  --confirm: #217a56;
+  --confirm-hover: #1a6b49;
   --info: #6eb6ff;
   --info-soft: #0f2238;
   /* 브랜드·역할색은 테마가 바꾸지 않는다 — Claude 의 색이고 발화자 구분이다 */
@@ -238,7 +238,7 @@
   /* The fill of a primary button on hover; mixed toward --text so it lightens on dark and darkens on Day. */
   --accent-hover: color-mix(in srgb, var(--accent), var(--text) 12%);
   /* One focus ring for every theme, the accent's own hue (Day had two greens). */
-  --focus-ring: 0 0 0 1px var(--bg), 0 0 0 3px color-mix(in srgb, var(--accent) 60%, transparent);
+  --focus-ring: 0 0 0 1px var(--bg), 0 0 0 3px var(--ring);
   /* Elevation: 0 flat (pages), 1 raised (cards on hover), 2 popover (menus, tooltips), 3 modal. */
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
   --shadow-pop: 0 0 0 1px var(--line-strong), var(--shadow-md);

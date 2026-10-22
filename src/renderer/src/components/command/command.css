@@ -13,7 +13,6 @@
 .command-line { white-space: pre-wrap; overflow-wrap: anywhere; line-height: var(--lh); }
 .command-link { background: none; border: 0; padding: 0; color: var(--accent); text-align: left; cursor: pointer; font: inherit; border-radius: var(--radius-sm); }
 .command-link:hover { text-decoration: underline; }
-.command-link:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .command-quote { color: var(--text-dim); }
 .command-preview { border-left: 2px solid var(--accent); padding-left: var(--sp-2); }
 .command-choices { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-top: var(--sp-1); }
@@ -22,7 +21,7 @@
 .command-input-icon { flex: none; color: var(--text-faint); }
 .command-input { flex: 1; min-width: 0; height: 100%; padding: 0 var(--sp-2); border: 0; background: transparent; color: var(--text); font: inherit; font-size: var(--fs-14); }
 .command-input::placeholder { color: var(--text-faint); }
-.command-input:focus { outline: none; }
+.command-input:focus-visible { outline: none; box-shadow: none; }
 .command-mic.recording { color: var(--warn); background: var(--warn-soft); }
 .voice-setup { margin: 4px 0 0; padding-left: 18px; font-size: var(--fs-12); color: var(--text-dim); }
 .voice-setup code { user-select: all; }

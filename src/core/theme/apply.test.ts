@@ -11,8 +11,8 @@ describe('themeCssVars', () => {
     expect(v['--term-bg']).toBe('#0b0c0e')
   })
 
-  it('--ring 은 액센트의 35% 알파다', () => {
-    expect(themeCssVars(themeById('night'))['--ring']).toBe('rgba(139, 147, 255, 0.35)')
+  it('--ring 은 액센트의 60% 알파다', () => {
+    expect(themeCssVars(themeById('night'))['--ring']).toBe('rgba(139, 147, 255, 0.6)')
   })
 
   it('the stylesheet\'s older names derive from the §9 tokens', () => {

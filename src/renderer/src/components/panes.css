@@ -72,7 +72,7 @@
   font: inherit; color: var(--text);
   background: var(--elevated); border: 1px solid var(--accent); border-radius: var(--radius-sm);
   padding: 0 3px; margin: -1px 0;
-  outline: none;
+  outline: none; box-shadow: none;
 }
 /* Hides the horizontal scrollbar (10px globally) so it does not eat the vertical space of the tab row —
    the same convention as the terminal's xterm-viewport. Wheel and trackpad scrolling still work */
@@ -92,7 +92,7 @@
    same box, so the tab bar's right edge does not resize as tabs of the two kinds are clicked. */
 .view-toggle-badge {
   display: inline-flex; align-items: center; justify-content: center; gap: 4px;
-  height: 21px; padding: 0 8px; font-size: 11px; line-height: 1;
+  height: 21px; padding: 0 8px; font-size: var(--fs-11); line-height: 1;
   color: var(--text-dim); background: var(--elevated); border: 1px solid var(--line);
   border-radius: var(--radius-sm); white-space: nowrap; cursor: default;
 }
@@ -105,8 +105,8 @@
    several words long and opens a menu, which is the same kind of thing the readout is. */
 .plan-pill {
   flex: none; display: inline-flex; align-items: center; padding: 3px 9px;
-  font-size: 12px; line-height: 16px; font-weight: 500;
-  color: var(--text-dim); background: none; border: 1px solid var(--line); border-radius: 999px;
+  font-size: var(--fs-12); line-height: 16px; font-weight: 500;
+  color: var(--text-dim); background: none; border: 1px solid var(--line); border-radius: var(--radius-pill);
   cursor: pointer; transition: color 120ms, border-color 120ms, background 120ms;
 }
 .plan-pill:disabled { cursor: default; opacity: 0.6; }

@@ -41,7 +41,6 @@
   transition: background var(--dur-fast) var(--ease-out);
 }
 .inbox__line-row:hover:not(:disabled) { background: var(--hover); }
-.inbox__line-row:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .inbox__line-row:disabled { cursor: default; color: var(--text); opacity: 1; }
 .inbox__tone { flex: none; color: var(--text-faint); }
 .inbox__line--ok .inbox__tone { color: var(--ok); }

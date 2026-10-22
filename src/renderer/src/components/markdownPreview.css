@@ -9,8 +9,8 @@
    here at 16px (0.80 -> 12.8px), and its 31px line pitch at line-height 1.6 on a 1.5x display gives
    12.9px. The colours are absent from that stylesheet (the IDE injects them from the active theme),
    so they are sampled from the same screenshot into the --md-* tokens in :root. */
-.md-preview { flex: 1; min-width: 0; min-height: 0; overflow: auto; padding: 16px 20px; outline: none;
-  font-size: 13px; line-height: 1.6; background: var(--md-bg); color: var(--md-text);
+.md-preview { flex: 1; min-width: 0; min-height: 0; overflow: auto; padding: 16px 20px;
+  font-size: var(--fs-13); line-height: 1.6; background: var(--md-bg); color: var(--md-text);
   /* A long unbroken URL or inline code span must wrap inside prose rather than push .md-preview itself
      into horizontal scroll — pre/table-wrap below scroll on their own and are unaffected by this. */
   overflow-wrap: anywhere; }
@@ -65,7 +65,7 @@
   display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--radius-sm);
   background: transparent; color: var(--md-text); opacity: .45; cursor: pointer; }
 .md-preview .md-copy:hover { opacity: 1; }
-.md-preview .md-copy:focus-visible { opacity: 1; outline: none; box-shadow: 0 0 0 2px var(--ring); }
+.md-preview .md-copy:focus-visible { opacity: 1; outline: none; box-shadow: var(--focus-ring); }
 /* Tables scroll horizontally within themselves only — the page must not shift */
 .md-table-wrap { overflow-x: auto; margin: 16px 0; }
 .md-preview table { border-collapse: collapse; }

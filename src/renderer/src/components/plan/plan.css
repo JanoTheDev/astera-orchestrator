@@ -1,43 +1,43 @@
 /* W6-E progress view: the board by wave and the files tab. Builds on the W2-C plan rules in styles.css (.plan-card,
    .plan-progress, the .plan-cat-* colours) and the app's tokens; nothing here restyles them. */
 .plan-waves { display: flex; flex-direction: column; gap: 10px; }
-.plan-wave { display: flex; flex-direction: column; gap: 6px; padding: 6px 8px 8px; border: 1px solid var(--line-soft); border-radius: 6px; }
+.plan-wave { display: flex; flex-direction: column; gap: 6px; padding: 6px 8px 8px; border: 1px solid var(--line-soft); border-radius: var(--radius); }
 .plan-wave-current { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
-.plan-wave-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 0; font-size: 12px; font-weight: 600; }
+.plan-wave-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 0; font-size: var(--fs-12); font-weight: 600; }
 .plan-wave-count { font-weight: 400; color: var(--text-dim); font-variant-numeric: tabular-nums; }
 .plan-wave-bar { display: block; width: 72px; height: 4px; }
 .plan-wave-bar .plan-progress-fill { display: block; }
-.plan-wave-now { flex: none; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--accent); }
-.plan-wave-banner { font-size: 11px; padding: 3px 8px; border-radius: 4px; background: var(--info-bg); border: 1px solid var(--info-line); color: var(--text-dim); }
+.plan-wave-now { flex: none; font-size: var(--fs-11); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--accent); }
+.plan-wave-banner { font-size: var(--fs-11); padding: 3px 8px; border-radius: var(--radius-sm); background: var(--info-bg); border: 1px solid var(--info-line); color: var(--text-dim); }
 .plan-wave-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 6px; align-items: start; }
 /* T9: a card off screen is not laid out or painted until it scrolls near (a 40-Task board) */
 .plan-waves .plan-card { min-width: 0; content-visibility: auto; contain-intrinsic-size: auto 120px; }
 .plan-waves .plan-card-title { padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
-.plan-now { font-size: 11px; color: var(--plan-cat); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.plan-card-files { margin: 0; padding: 0; list-style: none; font-size: 11px; font-family: var(--font-mono, monospace); color: var(--text-dim); }
+.plan-now { font-size: var(--fs-11); color: var(--plan-cat); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plan-card-files { margin: 0; padding: 0; list-style: none; font-size: var(--fs-11); font-family: var(--font-mono, monospace); color: var(--text-dim); }
 .plan-card-files li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.plan-link { padding: 0; border: 0; background: none; font-size: 11px; color: var(--accent); cursor: pointer; }
-.plan-answers-list { margin: 2px 0 0; padding-left: 16px; font-size: 11px; display: flex; flex-direction: column; gap: 3px; }
+.plan-link { padding: 0; border: 0; background: none; font-size: var(--fs-11); color: var(--accent); cursor: pointer; }
+.plan-answers-list { margin: 2px 0 0; padding-left: 16px; font-size: var(--fs-11); display: flex; flex-direction: column; gap: 3px; }
 .plan-answer-q { display: block; color: var(--text-dim); }
 .plan-answer-a { display: block; color: var(--text); }
 
-.plan-files { flex: 1; min-height: 0; overflow: auto; margin: 0; padding: 0; list-style: none; font-size: 12px; }
+.plan-files { flex: 1; min-height: 0; overflow: auto; margin: 0; padding: 0; list-style: none; font-size: var(--fs-12); }
 .plan-files-empty { padding: 8px; color: var(--text-faint); }
 .plan-file { display: flex; align-items: center; gap: 8px; padding: 3px 6px; border-bottom: 1px solid var(--line-soft); min-width: 0; }
 .plan-file-overlap { background: var(--warn-bg); }
-.plan-file-path { flex: 0 1 auto; min-width: 0; padding: 0; border: 0; background: none; color: var(--text); font-family: var(--font-mono, monospace); font-size: 11px; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.plan-file-path { flex: 0 1 auto; min-width: 0; padding: 0; border: 0; background: none; color: var(--text); font-family: var(--font-mono, monospace); font-size: var(--fs-11); text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .plan-file-path:hover:not(:disabled) { color: var(--accent); text-decoration: underline; }
-.plan-file-n { flex: none; font-size: 10px; padding: 0 5px; border-radius: 3px; color: var(--warn-ink); border: 1px solid var(--warn-line); }
+.plan-file-n { flex: none; font-size: var(--fs-11); padding: 0 5px; border-radius: var(--radius-sm); color: var(--warn-ink); border: 1px solid var(--warn-line); }
 .plan-file-tasks { margin-left: auto; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; min-width: 0; }
-.plan-file-task { display: inline-flex; align-items: center; gap: 4px; max-width: 180px; padding: 0 6px; border: 1px solid var(--line-soft); border-left: 3px solid var(--plan-cat); border-radius: 3px; background: none; color: inherit; font-size: 11px; cursor: pointer; }
+.plan-file-task { display: inline-flex; align-items: center; gap: 4px; max-width: 180px; padding: 0 6px; border: 1px solid var(--line-soft); border-left: 3px solid var(--plan-cat); border-radius: var(--radius-sm); background: none; color: inherit; font-size: var(--fs-11); cursor: pointer; }
 .plan-file-task > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* W7-A talk to the planner: history, the message box, reject, and the auto-start notice. */
-.plan-talk { display: flex; flex-direction: column; gap: 6px; margin: 6px 0; padding: 6px 8px; border: 1px solid var(--line-soft); border-radius: 6px; font-size: 12px; }
-.plan-talk-head { margin: 0; font-size: 12px; font-weight: 600; }
+.plan-talk { display: flex; flex-direction: column; gap: 6px; margin: 6px 0; padding: 6px 8px; border: 1px solid var(--line-soft); border-radius: var(--radius); font-size: var(--fs-12); }
+.plan-talk-head { margin: 0; font-size: var(--fs-12); font-weight: 600; }
 .plan-talk-history { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
 .plan-talk-msg { white-space: pre-wrap; }
-.plan-talk-phase { margin-left: 6px; font-size: 10px; color: var(--text-faint); }
+.plan-talk-phase { margin-left: 6px; font-size: var(--fs-11); color: var(--text-faint); }
 .plan-talk-changes { margin: 2px 0 0; padding-left: 16px; color: var(--text-dim); }
 .plan-talk-wait { margin: 2px 0 0; color: var(--text-faint); font-style: italic; }
 .plan-talk-problems { margin: 6px 0; color: var(--danger); }
@@ -46,8 +46,8 @@
 .plan-talk-form, .plan-talk-reject { display: flex; gap: 6px; align-items: flex-start; }
 .plan-talk-form textarea, .plan-talk-reject input { flex: 1; min-width: 0; font: inherit; }
 .plan-talk-form textarea { min-height: 44px; resize: vertical; }
-.plan-talk-auto { display: flex; align-items: center; gap: 8px; padding: 3px 8px; border-radius: 4px; background: var(--info-bg); border: 1px solid var(--info-line); color: var(--text-dim); }
-.plan-autoapprove { display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
+.plan-talk-auto { display: flex; align-items: center; gap: 8px; padding: 3px 8px; border-radius: var(--radius-sm); background: var(--info-bg); border: 1px solid var(--info-line); color: var(--text-dim); }
+.plan-autoapprove { display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-12); }
 .plan-autoapprove label { display: flex; align-items: center; gap: 6px; }
 .plan-autoapprove small { margin-left: 22px; color: var(--text-dim); }
 /* #76: the waves grow with their content; the whole graph half scrolls (not each wave in a tiny nested box) */
@@ -59,13 +59,13 @@
 .workbench:has(> .plan-pages) > .content { display: none; }
 .plan-pages { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 12px; padding: 16px 20px; overflow: auto; background: var(--bg); }
 .plans-head { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
-.plans-head h1 { margin: 0; font-size: 18px; font-weight: 600; }
-.plans-area { display: flex; align-items: baseline; gap: 10px; margin: 14px 0 4px; font-size: 13px; font-weight: 600; text-transform: capitalize; }
-.plans-area-folders { font-size: 11px; font-weight: 400; text-transform: none; color: var(--text-faint); font-family: var(--font-mono, monospace); }
-.jobs-age { flex: none; font-size: 11px; color: var(--text-faint); }
+.plans-head h1 { margin: 0; font-size: var(--fs-18); font-weight: 600; }
+.plans-area { display: flex; align-items: baseline; gap: 10px; margin: 14px 0 4px; font-size: var(--fs-13); font-weight: 600; text-transform: capitalize; }
+.plans-area-folders { font-size: var(--fs-11); font-weight: 400; text-transform: none; color: var(--text-faint); font-family: var(--font-mono, monospace); }
+.jobs-age { flex: none; font-size: var(--fs-11); color: var(--text-faint); }
 
 .plans-overlap { overflow: auto; }
-.plans-overlap table { border-collapse: collapse; font-size: 12px; }
+.plans-overlap table { border-collapse: collapse; font-size: var(--fs-12); }
 .plans-overlap th, .plans-overlap td { padding: 5px 10px; border: 1px solid var(--line); text-align: left; white-space: nowrap; }
 .plans-overlap thead th { font-family: var(--font-mono, monospace); font-weight: 500; color: var(--text-dim); }
 .plans-overlap th.shared, .plans-overlap td.shared { background: var(--warn-soft); color: var(--warn); }
@@ -74,19 +74,19 @@
 
 /* Plan page: the old window's body, full size */
 .plan-page { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
-.plan-crumb { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 12px; color: var(--text-dim); }
+.plan-crumb { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: var(--fs-12); color: var(--text-dim); }
 .plan-crumb-cur { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .plan-crumb-link { padding: 0; border: 0; background: none; color: var(--text-dim); font: inherit; cursor: pointer; }
 .plan-crumb-link:hover { color: var(--accent); }
 .plan-head-actions { flex: none; display: flex; align-items: center; gap: 6px; }
-.plan-page .detail-head h2 { font-size: 18px; margin: 0; }
+.plan-page .detail-head h2 { font-size: var(--fs-18); margin: 0; }
 .plan-page .detail-body:not(:has(> .detail-events)) { grid-template-rows: minmax(0, 1fr); }
 .plan-page .detail-body:not(:has(> .detail-events)) > .detail-graph { border-bottom: 0; }
 .plan-page .detail-body[data-section='journal'] { grid-template-rows: minmax(0, 1fr); }
 .plan-page .detail-body[data-section='journal'] > .detail-graph { display: none; }
 .plan-page .detail-body[data-section='overview'] > .detail-graph,
 .plan-page .detail-body[data-section='changes'] > .detail-graph { overflow: auto; }
-.plan-sofar h3 { margin: 8px 0 4px; font-size: 13px; }
+.plan-sofar h3 { margin: 8px 0 4px; font-size: var(--fs-13); }
 
 /* Tasks page (DESIGN-W11 §9): PageHeader, the Planning section first, then the board; columns are --panel surfaces with
    counts and scroll sideways under 1100px. */
@@ -121,9 +121,7 @@
 /* The answer form (QuestionAnswer, in the Inbox card and on a Waves card): a full-width box and a Send under it, flat
    like every other field (W9-F: it was the browser's default textarea, 180px wide). */
 .plan-question { display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
-.plan-question textarea { width: 100%; box-sizing: border-box; resize: vertical; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); color: var(--text); font: inherit; font-size: 12px; }
+.plan-question textarea { width: 100%; box-sizing: border-box; resize: vertical; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); color: var(--text); font: inherit; font-size: var(--fs-12); }
 .plan-question textarea::placeholder { color: var(--text-faint); }
-.plan-question textarea:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--ring); }
-.plan-question button.primary { align-self: flex-start; padding: 4px 12px; border: 0; border-radius: var(--radius); background: var(--accent); color: var(--accent-ink); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+.plan-question button.primary { align-self: flex-start; padding: 4px 12px; border: 0; border-radius: var(--radius); background: var(--accent); color: var(--accent-ink); font: inherit; font-size: var(--fs-12); font-weight: 600; cursor: pointer; }
 .plan-question button.primary:disabled { opacity: 0.5; cursor: default; }
-.plan-question button.primary:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--ring); }
