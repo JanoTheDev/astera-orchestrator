@@ -1013,6 +1013,11 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
       // T1: patch-equivalent commits on origin (no `+`: none of the plan's changes is missing there)
       const cherry = await run(['cherry', `origin/${branch}`, head.stdout], { cwd })
       if (cherry.ok && !cherry.stdout.split('\n').some((l) => l.startsWith('+'))) continue
+      // A squash merge of several commits has `+` lines for every one: if merging the worktree into origin changes nothing,
+      // everything from it is already there
+      const merged = await run(['merge-tree', '--write-tree', `origin/${branch}`, head.stdout], { cwd })
+      const tree = await run(['rev-parse', `origin/${branch}^{tree}`], { cwd })
+      if (merged.ok && tree.ok && merged.stdout.split('\n')[0] === tree.stdout) continue
       return fail(`${wt}'s commit ${head.stdout.slice(0, 7)} is not on ${branch} yet`)
     }
     const tip = await run(['rev-parse', `origin/${branch}`], { cwd })

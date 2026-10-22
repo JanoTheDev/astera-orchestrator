@@ -128,6 +128,8 @@ export function lineOf(e: ActivityEvent, accountLabel: (id: string) => string, l
     // Stall watchdog
     case 'watchdog':
       return { text: `${p.title}: Watchdog: ${p.reason ?? ''}`, tone: 'warn' }
+    case 'plan.deliveryDismissed':
+      return { text: t(lang, 'activity.deliveryDismissed', { title: p.title }), tone: 'warn' }
     // T23 (exec/crashResume.ts)
     case 'host.recovered':
       return { text: p.reason ?? '', tone: 'info' }

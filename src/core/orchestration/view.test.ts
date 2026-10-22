@@ -1326,7 +1326,10 @@ describe('a Run whose delivery failed', () => {
     const legacy = delivered('push refused')
     expect(rowOf(legacy).delivery).toEqual({ runId: 'r1', state: 'failed', reason: 'push refused' })
     const dismissed = { ...legacy, runs: legacy.runs.map((r) => ({ ...r, deliveryState: { state: 'dismissed' as const, attempts: 1 } })) }
+    // T34: the row says so, so the Plans list does not read the undelivered plan Done
     expect(rowOf(dismissed).delivery).toBeUndefined()
+    expect(rowOf(dismissed).deliveryDismissed).toBe(true)
+    expect(rowOf(delivered()).deliveryDismissed).toBeUndefined()
     expect(rowOf(dismissed)).toMatchObject({ outcome: 'completed' })
     expect(rowOf(delivered()).delivery).toBeUndefined()
   })

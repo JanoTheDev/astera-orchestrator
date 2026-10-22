@@ -844,6 +844,8 @@ export interface JobRow {
   stuck?: RunStuck
   /** Why the Run's delivery failed (its `outcome` is `failed` for it): a merge conflict or a refused push */
   deliveryError?: string
+  /** T34: the owner dismissed a failed delivery, so the work never landed. Not in `delivery`: that row is for actions to take. */
+  deliveryDismissed?: true
   /** T3: a delivery that is being retried, failed, waits on the owner or runs now: the Run it is of (for `run-deliver`),
    *  its step and the last reason. Absent while pending or once delivered. */
   delivery?: {
