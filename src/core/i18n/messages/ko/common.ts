@@ -433,7 +433,7 @@ export const common = {
   'settings.projects.noAnchor': '먼저 탭을 여세요',
   'new.title': '새로 만들기',
   'plan.outcome.needsYou': '확인 필요',
-  'plan.outcome.stalled': '멈춤 — doctor 실행',
+  'plan.outcome.stalled': '멈춤 — 진행 없음. 계획을 열고 고치기를 누르세요',
   // T36: a plan stalled on a failed Task (plan card, Plan detail, jobActions.resolveFailed)
   'plan.outcome.stalledOnFailed': '실패한 작업을 기다리며 멈춤: {task}',
   'plan.failedWait.hint': '이 작업이 실패했고 남은 작업이 이것을 기다립니다: 다시 시도, 완료로 인정, 또는 기다리는 작업 취소',

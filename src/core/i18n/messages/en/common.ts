@@ -398,7 +398,7 @@ export const common: Record<keyof typeof ko, string> = {
   'settings.projects.noAnchor': 'Open a tab first',
   'new.title': 'New',
   'plan.outcome.needsYou': 'Needs you',
-  'plan.outcome.stalled': 'Stalled — run doctor',
+  'plan.outcome.stalled': 'Stalled — no progress. Open the plan and press Fix',
   'plan.outcome.stalledOnFailed': 'Stalled: waiting on {task} (failed)',
   'plan.failedWait.hint': 'This Task failed and the rest of the plan waits on it: retry it, accept it as done, or cancel what waits on it',
   'plan.failedWait.retry': 'Retry',
