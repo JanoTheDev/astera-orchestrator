@@ -5,7 +5,7 @@ import { createElement } from 'react'
 import { renderToString } from 'react-dom/server'
 import { Select } from './Select'
 
-vi.mock('../i18n/I18nProvider', () => ({ useI18n: () => ({ t: (k: string) => k }) }))
+vi.mock('../../i18n/I18nProvider', () => ({ useI18n: () => ({ t: (k: string) => k }) }))
 
 const items = [{ value: 'a', label: 'A' }, { value: 'b', label: 'B' }]
 

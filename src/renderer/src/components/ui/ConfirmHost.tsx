@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
-import { settle, subscribe, type PendingConfirm } from '../lib/confirm'
-import { useI18n } from '../i18n/I18nProvider'
-import { ConfirmDialog } from './ui/ConfirmDialog'
+import { settle, subscribe, type PendingConfirm } from '../../lib/confirm'
+import { useI18n } from '../../i18n/I18nProvider'
+import { ConfirmDialog } from './ConfirmDialog'
 
 /** Where confirmation modals are displayed — mounted exactly once, at App's root. It only subscribes to
  *  the store (lib/confirm), so the asking side does nothing but await confirmModal(...). The cancel paths

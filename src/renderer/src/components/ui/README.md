@@ -263,7 +263,7 @@ toast.error('Merge failed', { action: { label: 'Retry', onClick: retry } })
 A yes/no question on `Modal`. The confirm button takes focus, so Enter confirms; Esc, the backdrop and the header close
 dismiss. Props: `title`, `children`, `confirmLabel`, `cancelLabel`, `closeLabel`, `danger` (confirm becomes the danger
 variant), `onConfirm`, `onCancel`, `onDismiss` (defaults to `onCancel`). App code normally does
-`await confirmModal({ title, body, danger: true })` from `lib/confirm`, shown through `ConfirmHost`.
+`await confirmModal({ title, body, danger: true })` from `lib/confirm`, shown through `ui/ConfirmHost`.
 
 ```tsx
 if (!(await confirmModal({ title: 'Delete task', body: 'This cannot be undone.', danger: true }))) return
@@ -332,14 +332,12 @@ Tailwind stays for those files only. Delete a legacy file once its last importer
 `const [advanced, setAdvanced] = useAdvancedMode()` (`state/useAdvancedMode.ts`) is the one switch for power-user UI, off by default and kept in `localStorage` (`cm.advancedMode`).
 Show only essentials while it is `false`; put technical rows and options behind it (the Start page's "More options" opens by default when it is `true`).
 
-## Old paths Wave 3 must stop importing
+## Old paths (removed)
 
-- `components/Select.tsx` -> ui `Select`.
-- `components/ContextMenu.tsx` -> ui `Menu` context mode with `menuPointOf`.
-- `components/ToastHost.tsx` -> ui `ToastViewport`.
-- `ConfirmHost`'s dialog markup -> ui `ConfirmDialog` (`ConfirmHost` itself stays as the store binding).
+`components/Select.tsx`, `ContextMenu.tsx`, `ToastHost.tsx` and `toast.css` are deleted; `ConfirmHost` now lives in `ui/ConfirmHost.tsx`. `ui/oneOffs.test.ts` fails on a raw `<button>`, `<select>`, `role="menu"`/`"listbox"`, `window.confirm` or inline `<svg>` outside `components/ui`.
+
+Still legacy, do not import in new code:
 - `ui/Inputs` native `<select>` shape -> the `items` form of `Select`.
 - Direct `lucide-react` imports in screens -> `Icon name="..."`.
 - Vendored lowercase shadcn files (`button.tsx`, `dialog.tsx`, `skeleton.tsx`, `tooltip.tsx`, `textarea.tsx`...): assistant-ui only.
-- `components/toast.css` and the `.toast-*` classes.
-- The removed `.context-menu*` classes.
+- The removed `.context-menu*` classes and `.toast-*` classes.
