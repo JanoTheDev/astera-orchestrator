@@ -1308,6 +1308,8 @@ export interface CoreApi {
      *  back as the project folder name — or null when the session is already gone. The same title is
      *  Slack's message prefix and the desktop notification's title, so all three follow. */
     rename(id: string, title: string): Promise<string | null>
+    /** T13: the CLI session id and transcript an ended tab resumes from, or null when it wrote none. */
+    transcript(id: string): Promise<{ sessionId: string; transcriptPath: string } | null>
     /** Reads the stored rolling and schedule settings — prefills the resume modal */
     resumeDefaults(sessionId: string): Promise<ResumeDefaults>
   }

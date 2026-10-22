@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 import type { Attention, JobRow, JobTask, SessionInfo } from '../../../../core/types'
 import type { WorkspaceProject, WorkspaceSession } from '../../state/workspaceTree'
 import {
-  ALL_PLANS, NO_PLAN, consolesOf, detailLineOf, detailsOf, filterConsoles, gridColumns, groupWall, indexJobRows, orderWall, pillCount, planPills,
-  progressSegments, sectionWall, stripLabel, type WallInput
+  ALL_PLANS, NO_PLAN, activityOf, consolesOf, detailLineOf, detailsOf, filterConsoles, gridColumns, groupWall, indexJobRows, orderWall, pillCount, planPills,
+  progressSegments, sectionWall, stripLabel, type WallConsole, type WallInput
 } from './wallModel'
 
 const session = (id: string, over: Partial<SessionInfo> = {}): SessionInfo => ({
@@ -280,5 +280,38 @@ describe('the wall reads progress from the fold rows', () => {
     expect([d.plan!.done, d.plan!.total]).toEqual([1, 3])
     expect(d.plan!.tasks.map((t) => t.id)).toEqual(['d', 'e', 'f'])
     expect(d.task).toMatchObject({ title: 'Next' })
+  })
+})
+
+describe('activityOf', () => {
+  const c = (over: Partial<WallConsole> = {}): WallConsole =>
+    ({ sessionId: 's', label: 'Worker 1', role: 'worker', state: 'working', projectId: null, planOrder: 0, cwd: '/repo', chat: false, ...over })
+  const at = 1_000
+
+  it('an edit names the file from the console’s folder', () => {
+    expect(activityOf(c(), { tool: 'Edit', target: '/repo/src/a.ts', at })).toEqual({ key: 'wall.activity.editing', params: { file: 'src/a.ts' } })
+    expect(activityOf(c(), { tool: 'Write', target: '/elsewhere/b.ts', at })).toEqual({ key: 'wall.activity.editing', params: { file: '/elsewhere/b.ts' } })
+  })
+
+  it('a command names its first word', () => {
+    expect(activityOf(c(), { tool: 'Bash', target: 'npx vitest run x', at })).toEqual({ key: 'wall.activity.running', params: { cmd: 'npx' } })
+  })
+
+  it('a read or a search is reading code', () => {
+    expect(activityOf(c(), { tool: 'Read', target: '/repo/a.ts', at }).key).toBe('wall.activity.reading')
+    expect(activityOf(c(), { tool: 'Grep', target: 'foo', at }).key).toBe('wall.activity.reading')
+  })
+
+  it('no tool call, an unknown tool or an idle console says its state', () => {
+    expect(activityOf(c(), undefined).key).toBe('wall.state.working')
+    expect(activityOf(c(), { tool: 'WebFetch', target: 'x', at }).key).toBe('wall.state.working')
+    expect(activityOf(c({ state: 'idle' }), { tool: 'Edit', target: '/repo/a.ts', at }).key).toBe('wall.state.idle')
+    expect(activityOf(c({ state: 'finished' }), undefined).key).toBe('wall.state.finished')
+  })
+
+  it('a console waiting on the owner says what it waits for', () => {
+    expect(activityOf(c({ state: 'needs', needs: 'question' }), { tool: 'Edit', target: 'a', at }).key).toBe('wall.activity.question')
+    expect(activityOf(c({ state: 'needs', needs: 'permission' }), undefined).key).toBe('wall.activity.permission')
+    expect(activityOf(c({ state: 'needs', needs: 'gate' }), undefined).key).toBe('wall.activity.gate')
   })
 })

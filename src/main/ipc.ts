@@ -4118,6 +4118,13 @@ export function registerIpc(
   // session started; renaming the session alone reaches none of them. The desktop notifier is absent
   // on purpose — it looks the session up fresh on every notification, so it needs no telling. Anything
   // added later that keeps a SessionInfo belongs here too.
+  // T13: what Recently closed resumes an ended tab from: the CLI's own session id and transcript, off its last status
+  // line. Null for a session that never wrote one (Codex, or one that ended before its first answer).
+  ipcMain.handle('sessions.transcript', async (_e, id: string) => {
+    if (typeof id !== 'string') return null
+    const s = extractStatusLineSession(await core.statusLinePayload(id).catch(() => null))
+    return s.sessionId && s.transcriptPath ? { sessionId: s.sessionId, transcriptPath: s.transcriptPath } : null
+  })
   ipcMain.handle('sessions.rename', (_e, id: string, title: string) => {
     if (typeof id !== 'string' || typeof title !== 'string')
       throw new Error(`INVALID_RENAME: ${String(id)}`)

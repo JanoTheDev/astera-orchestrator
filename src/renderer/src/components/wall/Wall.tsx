@@ -2,10 +2,10 @@
 // tiles and Done cards, the empty state, and the console strip of the full-size view. What goes where is
 // wallModel.ts's; this file only draws it.
 import { useEffect, useRef } from 'react'
-import { ExternalLink, Plus, TerminalSquare } from 'lucide-react'
+import { Activity, CircleAlert, CircleCheck, CirclePause, ExternalLink, EyeOff, MoreHorizontal, Plus, Power, ShieldAlert, TerminalSquare } from 'lucide-react'
 import type { MessageKey } from '../../../../core/i18n'
 import { useI18n } from '../../i18n/I18nProvider'
-import { Button, Chip, Tabs, EmptyState, Select, cx, type ChipTone } from '../ui'
+import { Button, Card, Chip, Tabs, EmptyState, Menu, Select, cx, type ChipTone } from '../ui'
 import { claimTerminal } from './consoleDock'
 import {
   ALL_PLANS, NO_PLAN, pillCount, progressSegments, stripLabel,
@@ -25,8 +25,11 @@ export function StateChip({ c }: { c: WallConsole }): React.JSX.Element {
     c.state === 'needs'
       ? t(c.needs === 'permission' ? 'wall.state.permission' : c.needs === 'gate' ? 'wall.state.gate' : 'wall.state.question')
       : t(c.state === 'working' ? 'wall.state.working' : c.state === 'finished' ? 'wall.state.finished' : 'wall.state.idle')
+  // the second cue beside the colour (DESIGN-W11 §2): an icon per state
+  const Glyph = c.state === 'needs' ? (c.needs === 'permission' ? ShieldAlert : CircleAlert) : c.state === 'working' ? Activity : c.state === 'finished' ? CircleCheck : CirclePause
   return (
-    <Chip tone={stateTone(c)} dot>
+    <Chip tone={stateTone(c)}>
+      <Glyph size={12} aria-hidden="true" />
       {word}
     </Chip>
   )
@@ -260,18 +263,27 @@ export function PlanGroup({
   )
 }
 
-/** One tile: role and Task, the state, a meta line (plan · account · elapsed), then the session's own xterm. */
+/** T13: one tile, a card that reads at a glance: title and state, meta (project · account · role · ago), what it does
+ *  now, then the bottom six lines of the session's own xterm. The card is the one button that opens the console; the
+ *  overflow menu beside it holds the rest, so it never opens the console by accident. */
 export function ConsoleTile({
   c,
   main,
   meta,
-  onOpen
+  activity,
+  onOpen,
+  onHide,
+  onEnd
 }: {
   c: WallConsole
   main: boolean
-  /** Plan, account, the role's detail (time running, files): what tells two tiles apart. */
+  /** Project, account, role, last activity: what tells two tiles apart. */
   meta: readonly string[]
+  /** What it does now (activityOf, in the catalog's words). */
+  activity: string
   onOpen: () => void
+  onHide?: () => void
+  onEnd?: () => void
 }): React.JSX.Element {
   const { t } = useI18n()
   const anchor = useRef<HTMLDivElement>(null)
@@ -279,30 +291,34 @@ export function ConsoleTile({
     if (c.chat || !anchor.current) return
     return claimTerminal(c.sessionId, anchor.current)
   }, [c.sessionId, c.chat])
+  const title = c.taskTitle ?? c.label
+  const actions = [
+    ...(onHide ? [{ id: 'hide', label: t('wall.tile.hide'), icon: <EyeOff size={14} />, onSelect: onHide }] : []),
+    ...(onEnd ? [{ id: 'end', label: t('wall.tile.end'), icon: <Power size={14} />, danger: true, onSelect: onEnd }] : [])
+  ]
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      aria-label={t('wall.tile.open', { name: c.label })}
-      className={cx('wall-tile', main && 'wall-tile--main', c.state === 'needs' && `wall-tile--${c.tone ?? 'warn'}`)}
-      onClick={onOpen}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault()
-          onOpen()
-        }
-      }}
-    >
-      <div className="wall-tile__head">
-        <div className="wall-tile__title">
-          <span className="wall-tile__name">{c.label}</span>
+    <div className={cx('wall-tile', main && 'wall-tile--main')}>
+      <Card
+        tone={c.state === 'needs' ? (c.tone === 'danger' ? 'danger' : 'need') : 'plain'}
+        className="wall-card wall-tile__card"
+        aria-label={t('wall.tile.open', { name: title })}
+        onClick={onOpen}
+      >
+        <span className="wall-card__head">
+          <span className="wall-card__title">{title}</span>
           {main && <span className="wall-tile__main">{t('wall.main')}</span>}
-          {c.taskTitle && <span className="wall-tile__task">{c.taskTitle}</span>}
+          <StateChip c={c} />
+        </span>
+        {meta.length > 0 && <span className="wall-card__meta">{meta.join(' · ')}</span>}
+        <span className="wall-card__line">{activity}</span>
+        {c.chat ? <span className="wall-tile__chat">{t('wall.tile.chat')}</span> : <span ref={anchor} className="terminal-host wall-tile__term" />}
+      </Card>
+      {actions.length > 0 && (
+        // a click in the menu stays here: it must never reach the card's open
+        <div className="wall-tile__more" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+          <Menu label={t('wall.tile.more', { name: title })} align="end" items={actions} trigger={{ icon: <MoreHorizontal size={14} />, size: 'sm', variant: 'ghost' }} />
         </div>
-        <StateChip c={c} />
-      </div>
-      {meta.length > 0 && <div className="wall-tile__meta">{meta.join(' · ')}</div>}
-      {c.chat ? <div className="wall-tile__chat">{t('wall.tile.chat')}</div> : <div ref={anchor} className="terminal-host wall-tile__term" />}
+      )}
     </div>
   )
 }

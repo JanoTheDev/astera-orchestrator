@@ -19,7 +19,7 @@ import * as sessionBus from '../lib/sessionBus'
 import { dismiss, toast } from '../lib/toast'
 import { spawnNotice } from '../lib/spawnNotice'
 import { announceSettingsRecovery } from '../lib/settingsRecoveryNotice'
-import { confirmModal, isConfirmOpen } from '../lib/confirm'
+import { confirmModal, confirmModalWithChoices, isConfirmOpen } from '../lib/confirm'
 import { PAGE_STORAGE_KEY, togglePage, viewFlagsOf, type PageId } from '../../../core/ui/pages'
 import { terminalsWithCreated } from '../lib/terminalTabs'
 import { isCancelled as isWorktreeCancelled } from '../lib/worktreeErrors'
@@ -43,6 +43,7 @@ import type { useSettings } from './useSettings'
 import type { useDialogs } from './useDialogs'
 import { scopeKey } from './appConstants'
 import { openInbox } from '../components/shell/navigation'
+import { closeSessionTab, dropClosed, isAgentSession, ownConsolePref, recentlyClosed, recordClosed, reopenClosed, reopenWayOf, setOwnConsolePref, setReopenHandler, type ClosedTab, type CloseHow } from '../lib/recentlyClosed'
 
 export type WorkbenchDeps = Pick<ReturnType<typeof useWorkbenchState>,
     'activeFileIdRef' | 'cliRef' | 'closableTabIdRef' | 'closeWorkbenchTabRef' | 'defaultMdMode' | 'dropReveal' |
@@ -161,13 +162,16 @@ export function useWorkbench(deps: WorkbenchDeps) {
     void window.api.sessions.list().then((list) => {
       setSessions(list)
       for (const s of list) if (s.status === 'running') { seedSchedState(s.id); seedRollState(s.id) }
-      if (list.length === 0) return
+      // T13: a tab the owner hid or closed stays out of the tree (its session stays in the list, so its tile stays)
+      const closed = new Set(recentlyClosed().map((x) => x.sessionId))
+      const tabbed = list.filter((s) => !closed.has(s.id))
+      if (tabbed.length === 0) return
       // Every session belongs to exactly one group (invariant 1) — all re-adopted sessions go into the
       // first group, and a running session (or the first one, if none) becomes the active tab
-      const g = createGroup(sessionTab(list[0].id))
+      const g = createGroup(sessionTab(tabbed[0].id))
       let root: PaneNode = g
-      for (const s of list.slice(1)) root = addTab(root, g.id, sessionTab(s.id))
-      const wanted = (list.find((s) => s.status === 'running') ?? list[0]).id
+      for (const s of tabbed.slice(1)) root = addTab(root, g.id, sessionTab(s.id))
+      const wanted = (tabbed.find((s) => s.status === 'running') ?? tabbed[0]).id
       const act = activateTab(root, sessionTab(wanted))
       if (!act) return
       // This tree is built from scratch, so the mirror tabs a workspace.list that answered first has
@@ -222,7 +226,8 @@ export function useWorkbench(deps: WorkbenchDeps) {
       // appeared while the user was typing into their own session, the keys after that would go into
       // the worker's PTY (a permission prompt in the worker's TUI would consume them as its answer).
       // So orchestration terminals open as inactive background tabs.
-      place(layoutRef.current, info.id, null, null, true)
+      // T13: a hidden tab whose session comes back on a Host reconnect stays hidden
+      if (!recentlyClosed().some((x) => x.sessionId === info.id)) place(layoutRef.current, info.id, null, null, true)
       // A session main made on its own can already carry a schedule — the reattach sweep re-arms one
       // from the stored config as it hands the session back.
       seedSchedState(info.id)
@@ -444,6 +449,13 @@ export function useWorkbench(deps: WorkbenchDeps) {
         e.preventDefault()
         e.stopPropagation()
         if (!e.repeat) window.api.win.openNew(null)
+        return
+      }
+      // T13: the newest of Recently closed comes back
+      if (action === 'tabs.reopenClosed') {
+        e.preventDefault()
+        e.stopPropagation()
+        if (!e.repeat) reopenClosed()
         return
       }
       // W7-F (#84): the quick tab switcher opens (or closes) like the command bar
@@ -1078,7 +1090,7 @@ export function useWorkbench(deps: WorkbenchDeps) {
    *  closes through session mode's tab-close path. A record tab is nothing more than dropping it from
    *  the tree — skip that branch here and its id would be read as a session id and flow into
    *  sessions.kill. A browser tab is dropped the same way as a record tab. */
-  const closeWorkbenchTab = (tabId: string): void => {
+  const closeWorkbenchTab = (tabId: string, how?: CloseHow): void => {
     const ref = parseTab(tabId)
     if (!ref) return
     if (ref.kind === 'file') {
@@ -1132,8 +1144,97 @@ export function useWorkbench(deps: WorkbenchDeps) {
       dropTabFromTree(tabId)
       return
     }
-    closeSession(ref.id)
+    // T13: an agent's tab hides, the owner's own running console asks (recentlyClosed.ts closeSessionTab)
+    void closeSessionTab(ref.id, how, {
+      isAgent: isAgentSession,
+      status: (id) => sessionsRef.current.find((s) => s.id === id)?.status,
+      pref: ownConsolePref,
+      setPref: setOwnConsolePref,
+      ask: async () => {
+        const a = await confirmModalWithChoices({
+          title: t('tabs.close.title'),
+          body: t('tabs.close.body'),
+          confirmLabel: t('tabs.close.end'),
+          cancelLabel: t('tabs.close.keep'),
+          choices: [{ id: 'remember', label: t('tabs.close.remember') }],
+          cancelKeepsChoices: true
+        })
+        return { how: a.ok ? 'end' : 'hide', remember: a.checked.includes('remember') }
+      },
+      hide: hideSession,
+      end: closeSession
+    })
   }
+
+  /** What Recently closed keeps of a session whose tab goes. */
+  const recordSessionClosed = (id: string, ended: boolean): void => {
+    const s = sessionsRef.current.find((x) => x.id === id)
+    if (!s) return
+    recordClosed({
+      sessionId: id,
+      title: s.title,
+      cwd: s.cwd,
+      accountId: s.accountId,
+      ...(s.kind ? { kind: s.kind } : {}),
+      ...(s.bypassPermissions ? { bypassPermissions: true } : {}),
+      ...(s.threadId ? { threadId: s.threadId } : {}),
+      closedAt: Date.now(),
+      ended
+    })
+  }
+
+  /** T13: the tab goes, the process stays: the pane slot keeps its terminal (PaneGrid mounts every session), so the
+   *  tile keeps borrowing it and a reopen puts the same tab back. */
+  const hideSession = (id: string): void => {
+    if (!layoutRef.current || !groupOfTab(layoutRef.current, sessionTab(id))) return
+    recordSessionClosed(id, sessionsRef.current.find((s) => s.id === id)?.status !== 'running')
+    dropTabFromTree(sessionTab(id))
+  }
+
+  /** Recently closed's reopen: a running session's tab goes back in the tree; an ended one resumes from its
+   *  transcript in a new tab (a chat session from its thread), or says why it cannot. */
+  const reopenTab = async (entry: ClosedTab): Promise<void> => {
+    const s = sessionsRef.current.find((x) => x.id === entry.sessionId)
+    if (reopenWayOf(s?.status) === 'attach') {
+      dropClosed(entry.sessionId)
+      const cur = layoutRef.current
+      if (cur && groupOfTab(cur, sessionTab(entry.sessionId))) selectWorkbenchTab(sessionTab(entry.sessionId))
+      else place(cur, entry.sessionId)
+      return
+    }
+    const opts = { accountIds: [entry.accountId], roll: false, slackNotify: false, bypassPermissions: entry.bypassPermissions === true }
+    if (entry.kind === 'chat') {
+      if (!entry.threadId) {
+        toast.info(t('tabs.recent.cannotResume', { title: entry.title }))
+        return
+      }
+      dropClosed(entry.sessionId)
+      void spawn({ accountIds: opts.accountIds, cwd: entry.cwd, saveDefault: false, kind: 'chat', resumeThreadId: entry.threadId, bypassPermissions: opts.bypassPermissions })
+      return
+    }
+    const tr = await window.api.sessions.transcript(entry.sessionId).catch(() => null)
+    if (!tr) {
+      toast.info(t('tabs.recent.cannotResume', { title: entry.title }))
+      return
+    }
+    dropClosed(entry.sessionId)
+    resumeFromHistory(
+      {
+        id: `${entry.accountId}:${tr.sessionId}`,
+        accountId: entry.accountId,
+        sessionId: tr.sessionId,
+        projectPath: entry.cwd,
+        title: entry.title,
+        updatedAt: new Date(entry.closedAt).toISOString(),
+        filePath: tr.transcriptPath,
+        awaitingReply: false,
+        rootUuid: null
+      },
+      entry.cwd,
+      { ...opts, kind: 'terminal' }
+    )
+  }
+  setReopenHandler((entry) => void reopenTab(entry))
   // Ctrl+W 가 이 함수를 타도록 — 위 selectWorkbenchTabRef 와 같은 자리, 같은 이유다
   closeWorkbenchTabRef.current = closeWorkbenchTab
 
@@ -1350,6 +1451,7 @@ export function useWorkbench(deps: WorkbenchDeps) {
   // createGroup are never called inside the setLayout callback — the current values are read from refs
   // to compute the next ones, then setLayout and setActivePaneId are each called once.
   const closeSession = (id: string): void => {
+    recordSessionClosed(id, true) // T13: Recently closed can resume it from its transcript
     // State cleanup runs synchronously first — with no await boundary there is no stale closure
     sessionBus.discard(id)
     const rest = sessionsRef.current.filter((s) => s.id !== id)
