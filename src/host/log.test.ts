@@ -149,6 +149,39 @@ describe('logUncaughtExceptions', () => {
   })
 })
 
+// T27: each failure also leaves a crash report in <profile>/crash-reports/, the one the app offers to send
+describe('crash reports', () => {
+  const thrown = Object.assign(new Error('invalid_auth xoxb-secret-0123456789'), {
+    stack: 'Error: invalid_auth xoxb-secret-0123456789\n    at launch (/home/jane/app/host.js:120:7)'
+  })
+  const reports = (): Array<Record<string, unknown>> => {
+    const d = path.join(dir, 'crash-reports')
+    return existsSync(d) ? readdirSync(d).map((n) => JSON.parse(readFileSync(path.join(d, n), 'utf8'))) : []
+  }
+
+  it('an uncaught exception writes one report beside the profile, with no message', () => {
+    const log = openHostLog({ path: path.join(dir, 'host', 'host.log') })
+    let listener: (e: unknown) => void = () => {}
+    logUncaughtExceptions({ on: (_e: string, l: (e: unknown) => void) => void (listener = l) }, log, { code: 70, exit: () => {} })
+    listener(thrown)
+    const [r, ...rest] = reports()
+    expect(rest).toEqual([])
+    expect(r).toMatchObject({ process: 'host', kind: 'uncaughtException', errorName: 'Error', stack: ['at launch (~/app/host.js:120:7)'] })
+    expect(JSON.stringify(r)).not.toContain('xoxb')
+    expect((r.log as string[]).some((l) => l.includes('fatal: uncaught exception'))).toBe(true)
+  })
+
+  it('unhandled rejections write one report per Host, however many arrive', () => {
+    const log = openHostLog({ path: path.join(dir, 'host', 'host.log') })
+    const listeners: Array<(r: unknown) => void> = []
+    logUnhandledRejections({ on: (_e: string, l: (r: unknown) => void) => listeners.push(l), off: () => {} }, log)
+    listeners[0](thrown)
+    listeners[0](thrown)
+    expect(reports()).toHaveLength(1)
+    expect(reports()[0]).toMatchObject({ process: 'host', kind: 'unhandledRejection' })
+  })
+})
+
 describe('the Host installs its last word', () => {
   it('beside the rejection belt, at start', () => {
     const index = readFileSync(path.join(process.cwd(), 'src', 'host', 'index.ts'), 'utf8')
