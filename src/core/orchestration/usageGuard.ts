@@ -2,9 +2,11 @@
 //
 // The rule: a Dispatch does not start on an account whose latest statusLine reading has its 5-hour or 7-day
 // `used_percentage` at or over `usagePauseAt` (app setting, default 90), until that window's `resets_at` passes or a
-// fresh reading is under the threshold. When the Task's account chain (the one rolling moves along, Task.accountIds
-// in order, accountToDispatchOn) has another account under the threshold, it starts on that one instead. No reading
-// yet means no block. Running workers are never stopped: this is asked before a start, nothing else.
+// fresh reading is under the threshold. A window at or over it with no readable `resets_at` blocks too: it counts as
+// full until a fresh reading says otherwise (T5a — an unknown reset is not room). When the Task's account chain (the
+// one rolling moves along, Task.accountIds in order, accountToDispatchOn) has another account under the threshold, it
+// starts on that one instead. No reading yet means no block here; the ranking (accounts/autoAccountOrder.ts) is what
+// sorts an unknown account after the known-usable ones. Running workers are never stopped: this is asked before a start, nothing else.
 //
 // Pure, apart from `createUsageGuard`, which only remembers the last answer per account so a pause and its end can
 // each be told once (`usage.paused` / `usage.resumed`).
@@ -21,12 +23,15 @@ export function usagePauseAtOf(value: unknown): number {
 export interface AccountReading {
   session: RateLimitWindow | null
   weekly: RateLimitWindow | null
+  /** When the windows were read (ms since epoch): the statusLine file's mtime, or the fetch time. Absent: unknown age,
+   *  which the ranking takes as fresh. */
+  at?: number
 }
 
 /** Why no new worker may start on this account now, or null when one may. A window whose reset has passed no longer
- *  counts, whatever it read. A window with no readable reset time does not block either: an idle account sends no
- *  fresh reading, so such a pause could never end (unknown usage does not block). With both windows over, the 7-day
- *  one is told: it is the one that resets last. */
+ *  counts, whatever it read. A full window with no readable reset time blocks: it is full until a fresh reading
+ *  (readingsFresh, usage/accountReadings.ts) says otherwise. With both windows over, the 7-day one is told: it is the
+ *  one that resets last. */
 export function usagePauseOf(accountId: string, reading: AccountReading | null | undefined, pauseAt: number, nowMs: number): UsagePause | null {
   if (!reading) return null
   const windows: Array<[UsagePause['window'], RateLimitWindow | null]> = [
@@ -36,8 +41,8 @@ export function usagePauseOf(accountId: string, reading: AccountReading | null |
   for (const [window, w] of windows) {
     if (!w || w.usedPercent < pauseAt) continue
     const resets = w.resetsAt === null ? NaN : Date.parse(w.resetsAt)
-    if (!(resets > nowMs)) continue
-    return { accountId, window, percent: w.usedPercent, resetsAt: w.resetsAt }
+    if (Number.isFinite(resets) && resets <= nowMs) continue
+    return { accountId, window, percent: w.usedPercent, resetsAt: Number.isFinite(resets) ? w.resetsAt : null }
   }
   return null
 }

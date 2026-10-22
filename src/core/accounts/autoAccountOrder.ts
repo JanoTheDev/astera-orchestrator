@@ -1,27 +1,95 @@
 // T2 (automatic accounts, settings/autoAccounts.ts): which account to start on and roll to, by usage.
+// T5a (decision 6): one ranking rule for every start and roll, `rankAccounts`.
 import type { Account, Provider } from '../types'
 import { providerOf } from '../providers/meta'
 import { isGhostAccountId } from './ghostId'
-import { usagePauseOf, type AccountReading, type UsageGuard } from '../orchestration/usageGuard'
+import type { AccountReading, UsageGuard } from '../orchestration/usageGuard'
+import type { RateLimitWindow } from '../types'
 
-/** The highest used share of the reading's windows that still count (no reset, or a reset still ahead), or null. */
-function usedOf(r: AccountReading | undefined, nowMs: number): number | null {
-  let used: number | null = null
-  for (const w of [r?.session, r?.weekly]) {
-    if (!w) continue
-    const resets = w.resetsAt === null ? NaN : Date.parse(w.resetsAt)
-    if (w.resetsAt !== null && Number.isFinite(resets) && resets <= nowMs) continue
-    used = Math.max(used ?? 0, w.usedPercent)
-  }
-  return used
+/** Points one live Astera session adds to an account's score, so starts spread over the accounts with room (decision
+ *  21: 30 CLIs over 4 accounts land 7-8 each). */
+export const SPREAD_WEIGHT = 10
+
+/** A reading older than this is stale: it is re-fetched before ranking (readingsFresh) and, if still old, ranks after
+ *  every known-usable account. */
+export const READING_MAX_AGE_MS = 10 * 60_000
+
+export type UnusableReason = 'weekly-full' | 'session-full' | 'unknown' | 'stale' | 'logged-out' | 'at-cap'
+
+/** The window's used share now: 0 once its reset has passed, null when there is no window. */
+function usedNow(w: RateLimitWindow | null | undefined, nowMs: number): number | null {
+  if (!w) return null
+  const resets = w.resetsAt === null ? NaN : Date.parse(w.resetsAt)
+  return Number.isFinite(resets) && resets <= nowMs ? 0 : w.usedPercent
 }
 
 /**
- * Every logged-in, registered account of `provider`, least used first.
+ * The one ranking rule (decision 6). Usable = logged in, under its `maxSessions` cap, and both the weekly and the
+ * 5-hour window known and under `threshold` (a window whose reset has passed counts as 0). Weekly is checked first: a
+ * full weekly window makes the account unusable whatever its 5-hour value and whatever its reset (null included) says,
+ * until that reset passes.
  *
- * The rule: accounts the usage guard would pause (usagePauseOf at `pauseAt`) go last. The rest sort by their highest
- * window share, an unknown reading counting as 0; at an equal share a known reading comes before an unknown one (a
- * known 0 is room for sure, an unknown 0 is a guess); after that, the list's own order (registration order).
+ * Usable accounts order by `max(weekly%, 5h%) + SPREAD_WEIGHT * liveSessions`, then weekly headroom, then the list's
+ * own (registry) order. Unusable ones come after, in the order they may still be tried: unknown/stale first (flagged,
+ * tried last), then full ones least used first, then at-cap and logged-out.
+ */
+export function rankAccounts<A extends Pick<Account, 'id'>>(a: {
+  accounts: readonly A[]
+  readings: ReadonlyMap<string, AccountReading>
+  threshold: number
+  nowMs: number
+  /** Absent: every account counts as logged in. */
+  loggedInIds?: ReadonlySet<string>
+  /** Astera-started sessions running now per account, all roles. */
+  liveSessions?: ReadonlyMap<string, number>
+  /** Per-account cap on live sessions; absent = no cap. */
+  maxSessions?: ReadonlyMap<string, number>
+}): { usable: A[]; unusable: { account: A; reason: UnusableReason }[] } {
+  const rows = a.accounts.map((account, i) => {
+    const r = a.readings.get(account.id)
+    const live = a.liveSessions?.get(account.id) ?? 0
+    const cap = a.maxSessions?.get(account.id)
+    const weekly = usedNow(r?.weekly, a.nowMs)
+    const session = usedNow(r?.session, a.nowMs)
+    const used = Math.max(weekly ?? 0, session ?? 0)
+    const reason: UnusableReason | null =
+      a.loggedInIds && !a.loggedInIds.has(account.id)
+        ? 'logged-out'
+        : cap !== undefined && live >= cap
+          ? 'at-cap'
+          : weekly !== null && weekly >= a.threshold
+            ? 'weekly-full'
+            : session !== null && session >= a.threshold
+              ? 'session-full'
+              : weekly === null || session === null
+                ? 'unknown'
+                : r?.at !== undefined && a.nowMs - r.at > READING_MAX_AGE_MS
+                  ? 'stale'
+                  : null
+    return { account, i, reason, score: used + SPREAD_WEIGHT * live, weekly: weekly ?? 0, used }
+  })
+  const group = (reason: UnusableReason | null): number =>
+    reason === null ? 0 : reason === 'unknown' || reason === 'stale' ? 1 : reason === 'weekly-full' || reason === 'session-full' ? 2 : 3
+  rows.sort(
+    (x, y) =>
+      group(x.reason) - group(y.reason) ||
+      (x.reason === null ? x.score - y.score || x.weekly - y.weekly : group(x.reason) === 2 ? x.used - y.used : 0) ||
+      x.i - y.i
+  )
+  return {
+    usable: rows.filter((x) => x.reason === null).map((x) => x.account),
+    unusable: rows.flatMap((x) => (x.reason === null ? [] : [{ account: x.account, reason: x.reason }]))
+  }
+}
+
+/** `rankAccounts` as one id list: usable first, then the unusable in the order they may still be tried. */
+export function rankedIds(ranked: { usable: readonly { id: string }[]; unusable: readonly { account: { id: string } }[] }): string[] {
+  return [...ranked.usable.map((x) => x.id), ...ranked.unusable.map((x) => x.account.id)]
+}
+
+/**
+ * Every logged-in, registered account of `provider`, in `rankAccounts` order: usable ones best first, then unknown or
+ * stale ones, then full ones. Logged-out accounts and ghosts are left out.
  */
 export function autoAccountOrder(a: {
   provider: Provider
@@ -30,16 +98,21 @@ export function autoAccountOrder(a: {
   readings: ReadonlyMap<string, AccountReading>
   pauseAt: number
   nowMs: number
+  liveSessions?: ReadonlyMap<string, number>
+  maxSessions?: ReadonlyMap<string, number>
 }): string[] {
-  return a.accounts
-    .filter((x) => providerOf(x) === a.provider && a.loggedInIds.has(x.id) && !isGhostAccountId(x.id))
-    .map((x, i) => {
-      const r = a.readings.get(x.id)
-      const used = usedOf(r, a.nowMs)
-      return { id: x.id, i, over: usagePauseOf(x.id, r, a.pauseAt, a.nowMs) !== null, used: used ?? 0, known: used !== null }
-    })
-    .sort((x, y) => Number(x.over) - Number(y.over) || x.used - y.used || Number(y.known) - Number(x.known) || x.i - y.i)
-    .map((x) => x.id)
+  return rankedIds(autoRanking(a))
+}
+
+function autoRanking(a: Parameters<typeof autoAccountOrder>[0]): ReturnType<typeof rankAccounts<Account>> {
+  return rankAccounts({
+    accounts: a.accounts.filter((x) => providerOf(x) === a.provider && a.loggedInIds.has(x.id) && !isGhostAccountId(x.id)),
+    readings: a.readings,
+    threshold: a.pauseAt,
+    nowMs: a.nowMs,
+    liveSessions: a.liveSessions,
+    maxSessions: a.maxSessions
+  })
 }
 
 /** A chain with the automatic order behind it: `own` (the Task's chain, in its order) first, but only the accounts that
@@ -52,15 +125,26 @@ export function withAutoOrder(own: readonly string[], order: readonly string[], 
 export type AutoAccountsGuard = Pick<UsageGuard, 'pauseOf' | 'view' | 'pauseAt' | 'autoAccounts'>
 
 /** The automatic order over the guard's last `refresh` (its readings, threshold and pauses), or null when the setting
- *  is off: the caller then keeps today's chain. */
+ *  is off: the caller then keeps today's chain. `usable` is `rankAccounts`' verdict (known, fresh, under the
+ *  threshold and the cap). */
 export function autoOrderOf(
   guard: AutoAccountsGuard,
-  a: { provider: Provider; accounts: readonly Account[]; loggedInIds: ReadonlySet<string>; nowMs: number }
-): { order: string[]; over: (id: string) => boolean } | null {
+  a: {
+    provider: Provider
+    accounts: readonly Account[]
+    loggedInIds: ReadonlySet<string>
+    nowMs: number
+    liveSessions?: ReadonlyMap<string, number>
+    maxSessions?: ReadonlyMap<string, number>
+  }
+): { order: string[]; over: (id: string) => boolean; usable: (id: string) => boolean } | null {
   if (!guard.autoAccounts()) return null
-  const readings = new Map(guard.view().map((v) => [v.accountId, { session: v.session, weekly: v.weekly }]))
+  const readings = new Map(guard.view().map((v) => [v.accountId, { session: v.session, weekly: v.weekly, ...(v.at === undefined ? {} : { at: v.at }) }]))
+  const ranked = autoRanking({ ...a, readings, pauseAt: guard.pauseAt() })
+  const usable = new Set(ranked.usable.map((x) => x.id))
   return {
-    order: autoAccountOrder({ ...a, readings, pauseAt: guard.pauseAt() }),
-    over: (id) => guard.pauseOf(id) !== null
+    order: rankedIds(ranked),
+    over: (id) => guard.pauseOf(id) !== null,
+    usable: (id) => usable.has(id)
   }
 }

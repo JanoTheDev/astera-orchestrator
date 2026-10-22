@@ -238,9 +238,9 @@ describe('automatic accounts (T2)', () => {
     refresh: vi.fn().mockResolvedValue(undefined),
     pauseOf: (id: string) => (overA1 && id === 'a1' ? pauseA : null),
     view: () => [
-      { accountId: 'a1', session: { usedPercent: overA1 ? 95 : 5, resetsAt: LATER }, weekly: null, paused: overA1 ? pauseA : null },
-      { accountId: 'a2', session: { usedPercent: 60, resetsAt: LATER }, weekly: null, paused: null },
-      { accountId: 'a3', session: { usedPercent: 10, resetsAt: LATER }, weekly: null, paused: null }
+      { accountId: 'a1', session: { usedPercent: overA1 ? 95 : 5, resetsAt: LATER }, weekly: { usedPercent: 0, resetsAt: LATER }, paused: overA1 ? pauseA : null },
+      { accountId: 'a2', session: { usedPercent: 60, resetsAt: LATER }, weekly: { usedPercent: 0, resetsAt: LATER }, paused: null },
+      { accountId: 'a3', session: { usedPercent: 10, resetsAt: LATER }, weekly: { usedPercent: 0, resetsAt: LATER }, paused: null }
     ],
     pauseAt: () => 90,
     autoAccounts: () => on

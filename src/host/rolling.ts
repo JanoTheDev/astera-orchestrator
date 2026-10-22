@@ -19,9 +19,11 @@ import { providerOf } from '../core/providers/meta'
 import { readResumeStrategy } from '../core/settings/resumeStrategy'
 import { RateLimitFetcher, USAGE_GATE_MAX_AGE_MS } from '../core/usage/rateLimitFetcher'
 import { findClaudeTranscript } from '../core/history/strategies/claude'
+import { createAccountUsageSource } from '../core/usage/accountReadings'
+import { readUsagePauseAt } from '../core/settings/usagePauseAt'
 import type { RollSnapshot, RollSpawnExtra } from '../core/rolling/snapshot'
 import type { Lang } from '../core/i18n'
-import type { Account, RateLimitPeak, ResumeStrategy, RollStateEvent, SessionInfo, SessionKind } from '../core/types'
+import type { Account, RateLimitPeak, RateLimitUsage, ResumeStrategy, RollStateEvent, SessionInfo, SessionKind } from '../core/types'
 import type { PtyRegistry } from './registry'
 import type { HostChats } from './hostChats'
 import { createChatRollFeed } from './chatRollFeed'
@@ -97,6 +99,10 @@ export interface HostRollingDeps {
   /** R28 (preflight R1): the account usage lookup. Default: a RateLimitFetcher on the global fetch,
    *  read as index.ts reads it (USAGE_GATE_MAX_AGE_MS, then the peak when status is ok). */
   fetchUsage?(configDir: string): Promise<RateLimitPeak | null>
+  /** T5a: the account-usage fetch behind the usage a roll judges its target by (createAccountUsageSource over this
+   *  Host's sessions' statusLine readings and app-settings' usagePauseAt). Default: a RateLimitFetcher on the global
+   *  fetch, its five-minute cache. */
+  fetchAccountUsage?(configDir: string): Promise<RateLimitUsage>
   copy?(src: string, dest: string): Promise<void>
   log?(m: string): void
   logCodex?(m: string): void
@@ -172,6 +178,20 @@ export function createHostRolling(d: HostRollingDeps): HostRolling {
       const u = await (usage ??= new RateLimitFetcher()).get(configDir, USAGE_GATE_MAX_AGE_MS)
       return u.status === 'ok' ? u.peak : null
     })
+  // T5a: what a roll checks its target by — every account's usage (stale or weekly-less readings fetched) and the
+  // live sessions on it, so a roll skips a full account and spreads over the rest. Read again on every `refresh`.
+  const usageSource = createAccountUsageSource({
+    statuslineDir: path.join(d.profileDir, 'statusline'),
+    sessions: () =>
+      d.registry.list().flatMap((e) =>
+        e.alive && e.meta?.kind === 'session'
+          ? [{ id: e.meta.id, accountId: typeof e.meta.restore.accountId === 'string' ? e.meta.restore.accountId : null }]
+          : []
+      ),
+    accounts: async () => accounts,
+    fetch: d.fetchAccountUsage ?? ((configDir) => (usage ??= new RateLimitFetcher()).get(configDir)),
+    pauseAt: () => readUsagePauseAt(path.join(d.profileDir, 'app-settings.json'))
+  })
   /** R29 (preflight R3): a dependency the coordinators call as `void this.x()` must never reject, or the
    *  Host (no unhandledRejection handler) ends with every pty. Each answers its "nothing known" value.
    *  **Two are left rejecting on purpose**: `prepareSpawn` and `copy` are awaited only inside roll()'s own
@@ -363,6 +383,7 @@ export function createHostRolling(d: HostRollingDeps): HostRolling {
     // third argument (the tab fallback) has nothing to fall back to here: the Host has no tab briefing.
     resumeText: safe('resume text', (sessionId: string, form: 'handover' | 'update') => d.resumeText(sessionId, form), null),
     resumeStrategy: () => strategy,
+    accountUsage: () => usageSource.current(),
     mayAct,
     // What a chat roll carries, read off the session before its kill (the chat manager holds both).
     bypassedOf: (id: string) => (isChat(id) ? chats!.bypassedOf(id) : false),
@@ -485,6 +506,8 @@ export function createHostRolling(d: HostRollingDeps): HostRolling {
         log(`accounts.json could not be read${accountsRead ? ' — the last good read stands' : ''}: ${String(err)}`)
       }
       strategy = await readStrategy().catch(() => 'original' as const)
+      // Not awaited: a slow usage fetch must not hold the tick or a takeover waiting on the accounts read.
+      void usageSource.refresh().catch((err) => log(`account usage could not be read: ${String(err)}`))
     },
     accountsRead: () => accountsRead,
     onHookEvent: onHook,
