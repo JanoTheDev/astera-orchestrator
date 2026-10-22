@@ -1025,6 +1025,42 @@ const infoSelf = (): SessionInfo => ({
   id: 's1', accountId: 'a1', cwd: 'D:\\work\\p', status: 'running', title: 'p', rollAccountIds: ['a1']
 })
 
+// T5a (decision 6): a roll asks the target's usage. Owner: "it switches to an account with 0% usage on hourly but weekly
+// is 100%".
+describe('a roll checks the target account usage (T5a)', () => {
+  const win = (usedPercent: number, resetsAt: string | null) => ({ usedPercent, resetsAt })
+  it('skips an account at 0% 5-hour but 100% weekly for one at 40%/40%', async () => {
+    const later = new Date(Date.now() + 3 * 24 * 60 * MIN).toISOString()
+    const readings = new Map([
+      ['a2', { session: win(0, later), weekly: win(100, later) }],
+      ['a3', { session: win(40, later), weekly: win(40, later) }]
+    ])
+    const h = harness({ accountUsage: () => ({ readings, pauseAt: 90 }) })
+    h.payloads.set('s1', payload(97))
+    h.coord.register(h.info1)
+    h.coord.handleData({ sessionId: 's1', data: LIMIT_TEXT })
+    await flush()
+    expect(h.spawned.at(-1)?.accountId).toBe('a3')
+  })
+
+  it('waits for the earliest reset when every other account is weekly-full', async () => {
+    vi.setSystemTime(new Date('2026-10-22T12:00:00+09:00')) // far from the phrase's 3am
+    const t0 = Date.now()
+    const readings = new Map([
+      ['a1', { session: win(100, new Date(t0 + 300 * MIN).toISOString()), weekly: win(30, null) }],
+      ['a2', { session: win(0, null), weekly: win(100, new Date(t0 + 60 * MIN).toISOString()) }],
+      ['a3', { session: win(10, null), weekly: win(95, new Date(t0 + 30 * MIN).toISOString()) }]
+    ])
+    const h = harness({ accountUsage: () => ({ readings, pauseAt: 90 }) })
+    h.payloads.set('s1', payload(97))
+    h.coord.register(h.info1)
+    h.coord.handleData({ sessionId: 's1', data: LIMIT_TEXT })
+    await flush()
+    expect(h.spawned).toHaveLength(0)
+    expect(lastWaiting(h.sent)).toMatchObject({ scope: 'weekly', nextRetryAt: new Date(t0 + 31 * MIN).toISOString() })
+  })
+})
+
 describe('RollingCoordinator 단일 계정 자동 재개', () => {
   it('5시간 한도 → 리셋까지 대기 후 같은 계정으로 재개', async () => {
     const h = harness()

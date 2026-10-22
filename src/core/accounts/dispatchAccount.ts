@@ -110,6 +110,8 @@ export function accountToDispatchOn(a: {
  * 계정이면 롤링이 아는 "지금 계정"과 상태에 적힌 계정이 어긋난다. 그것을 지키는 것은 이제
  * accountToDispatchOn 자신이다 — 첫 칸을 못 쓰면 뒤 칸을 올려세우지 않고 실패로 답하므로, 이 함수가
  * 받는 성공은 첫 칸이 요청된 계정인 성공뿐이다.
+ * T5a (decision 6): the exception is `auto` — an account `rankAccounts` calls unusable (full, unknown, stale) is not
+ * kept first; the chain's first account is then the one the caller starts on.
  *
  * **거를 일은 accountToDispatchOn 이 한다** — 중복 접기, provider 어긋남, 로그아웃, 지워진 계정.
  * 그 판정을 여기서 다시 쓰지 않는 이유는 두 벌이 갈라지면 워커가 띄워진 계정과 갈아탈 계정의
@@ -134,8 +136,10 @@ export function rollChainFor(a: {
   loggedInIds: ReadonlySet<string>
   /** T2: "Pick accounts automatically" is on (autoOrderOf). The Task's other accounts stay behind the requested one
    *  only while under the threshold, then the rest of the provider's accounts least used first, so a limit rolls on
-   *  instead of waiting. Absent: today's chain. */
-  auto?: { order: readonly string[]; over(id: string): boolean }
+   *  instead of waiting. T5a (decision 6): the requested account goes first only while `usable` (rankAccounts' verdict;
+   *  absent: not `over`); otherwise it takes its place in `order`, so the chain's first account is the one to start on.
+   *  Absent: today's chain. */
+  auto?: { order: readonly string[]; over(id: string): boolean; usable?(id: string): boolean }
 }): {
   chain: string[]
   /** 저하했을 때만. 'nothing-usable' = 합친 목록에 쓸 수 있는 계정이 하나도 없다,
@@ -148,12 +152,15 @@ export function rollChainFor(a: {
     accounts: a.accounts,
     loggedInIds: a.loggedInIds
   })
-  if (picked.ok)
-    return {
-      chain: a.auto
-        ? [picked.accountId, ...withAutoOrder(picked.chain.slice(1), a.auto.order, a.auto.over).filter((id) => id !== picked.accountId)]
-        : picked.chain
-    }
+  if (picked.ok) {
+    const auto = a.auto
+    if (!auto) return { chain: picked.chain }
+    const usable = auto.usable ?? ((id: string): boolean => !auto.over(id))
+    // A preference, never a reason to start on a full account: an unusable requested account leaves the front and
+    // keeps only its place in the order (or the end, when the order does not list it).
+    const own = usable(picked.accountId) ? picked.chain : picked.chain.slice(1)
+    return { chain: [...new Set([...withAutoOrder(own, auto.order, auto.over), picked.accountId])] }
+  }
   // **실패는 곧 "요청된 계정을 못 쓴다"다** — 첫 칸이 그것이고, accountToDispatchOn 은 첫 칸을 못 쓰면
   // 뒤 칸을 올려세우지 않고 실패로 답한다. 그래도 저하 이유를 둘로 가르는 이유는 부르는 쪽이 로그에
   // 적을 말이 다르기 때문이다(사람이 할 일이 다르다): Task 의 계정을 아무것도 못 쓰는 것과, 하필 이

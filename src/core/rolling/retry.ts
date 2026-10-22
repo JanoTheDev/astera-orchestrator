@@ -8,6 +8,9 @@
 // differ (5 for claude / 3 for codex), and lifting timer lifetimes up into a common parent is the axis
 // of this app that has produced the most bugs.
 
+import { usagePauseOf, type AccountReading } from '../orchestration/usageGuard'
+import { rankAccounts, rankedIds } from '../accounts/autoAccountOrder'
+
 /** Record of one account being blocked. at=reset time; if unknown (null), treat it as blocked until since+RETRY_FALLBACK_MS. */
 export interface BlockRecord {
   at: number | null
@@ -26,6 +29,47 @@ export interface RetryState {
   accountIds: string[]
   currentIndex: number
   recovery: (BlockRecord | null)[]
+  /** T5a: the accounts in rankAccounts order (accounts/autoAccountOrder.ts). When present, pickAvailable takes the
+   *  first usable one in this order instead of walking the round robin; ids it does not list come after, round robin. */
+  order?: readonly string[]
+}
+
+/** T5a: the accounts' latest usage as a roll judges it (the usage guard's last refresh, kept fresh by readingsFresh). */
+export interface AccountUsage {
+  readings: ReadonlyMap<string, AccountReading>
+  pauseAt: number
+  /** Astera-started sessions running now per account, so a roll spreads the load too. */
+  liveSessions?: ReadonlyMap<string, number>
+}
+
+/** T5a: what the accounts' usage readings add to a chain's retry state — a block per full account (usageBlockOf) and
+ *  the chain's ids in rankAccounts order, live sessions spreading the load. */
+export function usageRetryOf(
+  accountIds: readonly string[],
+  usage: AccountUsage,
+  now: number
+): { blocks: (BlockRecord | null)[]; order: string[] } {
+  const ranked = rankAccounts({
+    accounts: accountIds.map((id) => ({ id })),
+    readings: usage.readings,
+    threshold: usage.pauseAt,
+    nowMs: now,
+    liveSessions: usage.liveSessions
+  })
+  return {
+    blocks: accountIds.map((id) => usageBlockOf(usage.readings.get(id), usage.pauseAt, now)),
+    order: rankedIds(ranked)
+  }
+}
+
+/** T5a: an account the usage reading says is full, as a block record — so pickAvailable skips it and planRetry waits
+ *  for its reset, with no new concept here. A full window with no readable reset is `at: null` (re-checked after
+ *  RETRY_FALLBACK_MS, like an unparsed limit phrase). */
+export function usageBlockOf(reading: AccountReading | null | undefined, pauseAt: number, now: number): BlockRecord | null {
+  const p = usagePauseOf('', reading, pauseAt, now)
+  if (!p) return null
+  const at = p.resetsAt === null ? NaN : Date.parse(p.resetsAt)
+  return { at: Number.isFinite(at) ? at : null, weekly: p.window === 'seven_day', since: now }
 }
 
 /** Up to this time we consider that account unusable */
@@ -48,8 +92,15 @@ export function laterBlock(a: BlockRecord | null, b: BlockRecord | null): BlockR
 /** Walks once around from fromIndex for an account usable right now. Skips the current account. null if there is none. */
 export function pickAvailable(state: RetryState, fromIndex: number, now: number): number | null {
   const n = state.accountIds.length
-  for (let k = 0; k < n; k++) {
-    const idx = (fromIndex + k) % n
+  const walk = Array.from({ length: n }, (_, k) => (fromIndex + k) % n)
+  if (state.order) {
+    const rank = (idx: number): number => {
+      const at = state.order!.indexOf(state.accountIds[idx])
+      return at < 0 ? state.order!.length : at
+    }
+    walk.sort((x, y) => rank(x) - rank(y)) // stable: unlisted ids keep the round robin
+  }
+  for (const idx of walk) {
     if (idx === state.currentIndex) continue
     const rec = state.recovery[idx]
     if (!rec || blockedUntil(rec) <= now) return idx

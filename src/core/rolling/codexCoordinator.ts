@@ -17,6 +17,8 @@ import { RollCycle } from './cycle'
 import {
   laterBlock,
   pickAvailable,
+  usageRetryOf,
+  type AccountUsage,
   planRetry,
   type BlockRecord,
   type RetryState
@@ -123,6 +125,10 @@ export interface CodexRollingDeps {
    *  from the wiring without a single test failing — and the failure mode is this feature silently
    *  reverting to per-chain isolation. The same reasoning made rollAccountIds required. */
   blocks: BlockRegistry
+  /** T5a (decision 6): the accounts' latest usage readings, so a roll checks its target: a weekly- or session-full
+   *  account is skipped (and waited for, planRetry) like a blocked one, and the target is the best ranked
+   *  (rankAccounts), not the next in the round robin. Absent or null: the round robin over block records alone. */
+  accountUsage?: () => AccountUsage | null
   persistConfig?: (codexSessionId: string, config: RollConfig) => void
   /** Job Continuity: the provider's own session id, the moment it is first learned for a live session
    *  and again when it changes (a respawn). Optional — without the feature nothing listens. */
@@ -317,12 +323,16 @@ interface Chain {
  *  The merge also carries login state: a logged-out account (chain.loggedOut) is folded in as a
  *  BlockRecord with `at: null` — unusable now, reset time unknown — exactly like a block record whose
  *  reset could not be parsed (spec §15.2). */
-const retryState = (chain: Chain, blocks: BlockRegistry, now: number): RetryState => ({
+const retryState = (chain: Chain, blocks: BlockRegistry, now: number, usage?: AccountUsage | null): RetryState => {
+  // T5a: a full account is skipped and waited for like a blocked one, and the target is the best ranked, not the next.
+  const fromUsage = usage ? usageRetryOf(chain.accountIds, usage, now) : null
+  return {
   accountIds: chain.accountIds,
   currentIndex: chain.cycle.currentIndex,
+  ...(fromUsage ? { order: fromUsage.order } : {}),
   recovery: chain.accountIds.map((id, i) =>
     laterBlock(
-      laterBlock(chain.recovery[i] ?? null, blocks.get(id, now)),
+      laterBlock(laterBlock(chain.recovery[i] ?? null, blocks.get(id, now)), fromUsage?.blocks[i] ?? null),
       // A logged-out account is unusable now with no known reset — exactly what an `at: null` record
       // means to this layer, so `retry.ts` needs no new concept (spec §15.2). `pickAvailable` skips it;
       // `planRetry` reads it as now + RETRY_FALLBACK_MS, which is the re-check cadence we want: if the
@@ -333,7 +343,8 @@ const retryState = (chain: Chain, blocks: BlockRegistry, now: number): RetryStat
       chain.loggedOut.has(id) ? { at: null, weekly: false, since: now } : null
     )
   )
-})
+  }
+}
 
 export class CodexRollingCoordinator {
   private chains = new Map<string, Chain>() // liveId → chain
@@ -1179,7 +1190,7 @@ export class CodexRollingCoordinator {
     if (record) this.deps.blocks.record(chain.accountIds[chain.cycle.currentIndex], record, now)
     const target =
       action.type === 'roll'
-        ? pickAvailable(retryState(chain, this.deps.blocks, now), action.toIndex, now)
+        ? pickAvailable(retryState(chain, this.deps.blocks, now, this.deps.accountUsage?.()), action.toIndex, now)
         : null
     // The detour, in the same shape as the claude side. 'shared' marks a skip around an account **this
     // chain never touched** — the block came from another chain's record. Without it the log cannot answer
@@ -1204,7 +1215,7 @@ export class CodexRollingCoordinator {
         `action=${JSON.stringify(action)}${detour}`
     )
     if (target === null) {
-      this.armWait(chain, planRetry(retryState(chain, this.deps.blocks, now), now))
+      this.armWait(chain, planRetry(retryState(chain, this.deps.blocks, now, this.deps.accountUsage?.()), now))
     } else {
       void this.roll(chain, target)
     }
@@ -1556,7 +1567,7 @@ export class CodexRollingCoordinator {
     // One clock reading, for the same reason onLimit takes one: the block records retryState merges and
     // the instant planRetry judges them against have to be the same moment.
     const now = this.now()
-    const plan = planRetry(retryState(chain, this.deps.blocks, now), now)
+    const plan = planRetry(retryState(chain, this.deps.blocks, now, this.deps.accountUsage?.()), now)
     this.deps.log(
       `codex roll retry scheduled after abort (${why}) at=${new Date(plan.retryAt).toISOString()} session=${chain.liveId}`
     )
