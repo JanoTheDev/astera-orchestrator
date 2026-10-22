@@ -1,0 +1,207 @@
+// Japanese · settings area. Which files each area serves: ../README.md.
+import type { settings as ko } from '../ko/settings'
+
+export const settings: Partial<Record<keyof typeof ko, string>> = {
+  'settings.tab.creativeHub': 'Creative Hub',
+  'settings.tab.shortcuts': 'ショートカット',
+  'settings.tab.history': '履歴',
+  'settings.tab.remote': 'リモート Runtime',
+  // エージェント権限モード
+  'settings.agentPermission.label': '権限確認なしでエージェントを実行',
+  'settings.agentPermission.hint':
+    'アプリが起動するすべてのエージェントセッションを権限確認なしで実行します' +
+    '(claude は --dangerously-skip-permissions、codex は --dangerously-bypass-approvals-and-sandbox)。' +
+    '既定はオフです。Job のワーカーは毎回新しく作られた worktree で起動しますが、そのフォルダには承認履歴がなく、' +
+    'プロジェクトに蓄積した許可リスト(.claude/settings.local.json)も引き継がれないため、' +
+    'オフにするとワーカーは最初のコマンドで停止します。' +
+    'すでに開いているセッションには適用されません。次のセッションから有効です。',
+  'settings.agentPermission.saveFailed': '権限モードを保存できませんでした: {detail}',
+  // Work Unit 追跡
+  'settings.workUnit.label': '作業単位の追跡',
+  'settings.workUnit.hint':
+    '/astera-task でやりたいことを書くと、そこから作業が始まり、終わるまで何度やり取りしても同じ1行の' +
+    'ままです。git リポジトリのプロジェクトでのみ動作します。' +
+    'すでに開いているセッションには適用されません — 新しいセッションから有効になります。' +
+    'オンにした後の会話だけを見ます — 既存の履歴は読みません。',
+  'settings.workUnit.saveFailed': '作業単位の追跡設定を保存できませんでした: {detail}',
+  // エージェントブラウザ
+  'settings.agentBrowser.label': 'エージェントブラウザ',
+  'settings.agentBrowser.hint':
+    'オンにすると、各セッションが自分のプレビュータブを持ち、このプロジェクトの開発サーバーを開いて再読み込みし、コンソールエラーを読めます。' +
+    'すべてのアカウントに astera-browser スキルをインストールします。localhost のみ開けます。' +
+    '既に開いているセッションには適用されません。新しいセッションから有効です。',
+  'settings.agentBrowser.saveFailed': 'エージェントブラウザ設定を保存できませんでした: {detail}',
+  // エージェントアプリ作業スペース
+  'settings.agentApp.label': 'エージェントアプリ作業スペース',
+  'settings.agentApp.hint':
+    'オンにすると、エージェントがこのプロジェクトのアプリを、あなたには見えない場所 (Windows では隠れたデスクトップ、Linux では仮想ディスプレイ、macOS ではバックグラウンド) で起動し、操作し、撮影できます。' +
+    '画面とポインターには触れません。Windows と macOS ではクリップボードを共有します。すべてのアカウントに astera-app スキルをインストールします。' +
+    '既に開いているセッションには適用されません。新しいセッションから有効です。',
+  'settings.agentApp.saveFailed': 'エージェントアプリ作業スペースの設定を保存できませんでした: {detail}',
+  // 説明生成 (How It Works)
+  'settings.gen.label': '説明生成アカウント',
+  'settings.gen.hint': '作業が終わると、このアカウントが機能の説明を書きます。選ぶまでは生成しません。',
+  'settings.gen.none': '未選択 — 生成しません',
+  'settings.gen.model': 'モデル',
+  'settings.gen.modelDefault': 'CLI の既定',
+  'settings.gen.effort': '推論の深さ',
+  'settings.gen.effortDefault': 'モデルの既定',
+  'settings.gen.refresh': 'モデル一覧を更新',
+  'settings.gen.loading': 'モデルを問い合わせ中…',
+  'settings.gen.listFailed': 'モデル一覧を取得できませんでした — 直接入力できます。({detail})',
+  'settings.gen.modelPlaceholder': 'モデル名を直接入力',
+  'settings.gen.saveFailed': '説明生成の設定を保存できませんでした: {detail}',
+  'common.or': 'または',
+  // App.tsx — settings modal Info/Slack/Worktree tabs, CLI-not-found screen
+  'settings.info.appName': 'アプリ名',
+  'settings.info.version': 'バージョン',
+  'settings.info.registeredAccounts': '登録アカウント',
+  'settings.info.update': 'アップデート',
+  'settings.info.host': 'バックグラウンドホスト',
+  'settings.info.hostConnected': '接続済み · プロトコル {protocol} · {uptime} 前から',
+  'settings.info.hostNotConnected': '未接続',
+  'settings.info.hostNotConnectedWhy': '未接続 · {detail}',
+  'settings.worktree.createLocation': 'worktree の作成場所',
+  'settings.worktree.change': '変更…',
+  'settings.worktree.hint':
+    '新しい worktree はこのフォルダの下に <repo名>/<名前> で作成されます。既存の worktree は移動しません。',
+  'settings.history.hiddenProjects': '非表示のプロジェクト',
+  'settings.history.unhide': '解除',
+  'settings.history.empty': '非表示のプロジェクトはありません。',
+  'settings.history.search': 'パスを検索…',
+  'settings.history.noMatch': '一致するプロジェクトはありません。',
+  'settings.history.total': '全 {count} 件',
+  'settings.history.prevPage': '前のページ',
+  'settings.history.nextPage': '次のページ',
+  'settings.history.selectAll': 'すべて選択',
+  'settings.history.deleteSelected': '記録を削除 ({count})',
+  'settings.history.deleteTitle': '選択したプロジェクトの記録を削除しますか?',
+  'settings.history.deleteBody':
+    '会話記録 {count} 件をゴミ箱に移します。プロジェクトフォルダとその中のファイルは削除しません。\n\n{list}',
+  'settings.history.deleteConfirm': 'ゴミ箱に移す',
+  'settings.history.deleteDone': '記録 {count} 件をゴミ箱に移しました。',
+  'settings.history.deleteBusy': '{name} が実行中のため {count} 件をスキップしました。',
+  'settings.history.deleteFailed': '{count} 件は削除できませんでした。',
+  // ThemeSettings.tsx — the theme card grid
+  'settings.theme.label': 'テーマ',
+  'settings.theme.hint':
+    'Night・Dusk・Day は色だけが変わります。システムは OS に従います(ライト → Day、ダーク → Night)。ターミナルのフォントは下で個別に選びます。',
+  'settings.theme.system': 'システム',
+  'settings.theme.saveFailed': 'テーマを保存できませんでした: {detail}',
+  // ResumeStrategySettings.tsx — the two-way resume strategy picker
+  'settings.resumeStrategy.label': 'セッション再開方法',
+  'settings.resumeStrategy.smart.label': 'スマート再開',
+  'settings.resumeStrategy.smart.hint': '簡潔なチェックポイントだけで会話を続けます。エージェントが作業中に残した引き継ぎメモがあれば、それも渡します。',
+  'settings.resumeStrategy.original.label': '元のセッションを再開',
+  'settings.resumeStrategy.original.hint': '従来の Resume で会話を続けます。',
+  'settings.resumeStrategy.saveFailed': '再開方法を保存できませんでした: {detail}',
+  'settings.jobContinuity.label': 'ジョブの継続',
+  'settings.jobContinuity.hint':
+    'クラッシュや再起動をまたいでジョブを復旧できる状態に保ちます。' +
+    'ジョブの状態をディスクに残し、エージェントの元のセッションを復元し、必要なときはスマート再開を使います。',
+  'settings.jobContinuity.smartResumeTurnedOn':
+    'ジョブの継続を有効にしました。完全な自動復旧のため、スマート再開も有効にしました。',
+  'settings.jobContinuity.turnOffSmartResume.title': 'スマート再開を無効にしますか？',
+  'settings.jobContinuity.turnOffSmartResume.body':
+    'ジョブの継続は有効のままですが、元の Claude Code や Codex のセッションを復元できない場合、ジョブが停止することがあります。',
+  'settings.jobContinuity.turnOffSmartResume.confirm': '無効にする',
+  'settings.jobContinuity.saveFailed': 'ジョブの継続の設定を保存できませんでした: {detail}',
+  // TerminalFontSettings.tsx — the terminal font picker rows
+  'settings.font.latin': 'ターミナルの欧文フォント',
+  'settings.font.hangul': 'ターミナルのハングルフォント',
+  'settings.font.system': 'システム既定',
+  'settings.font.notInstalled': '未インストール',
+  'settings.font.sample': 'AaBb 한글 123',
+  'settings.font.hangulShadowed':
+    '選択した欧文フォントがハングルも描画するため、ハングルフォントの設定は適用されません。',
+  'settings.font.listFailed': 'インストール済みフォントの一覧を取得できませんでした: {detail}',
+  'settings.font.saveFailed': 'フォント設定を保存できませんでした: {detail}',
+  'settings.font.checkingHangul': 'インストール済みフォントを確認中…',
+  'settings.font.loadingList': 'インストール済みフォントを読み込み中…',
+  'update.info.restartInstallVersion': '再起動して v{version} をインストール',
+  'update.info.checking': '確認中…',
+  'update.info.checkButton': 'アップデートを確認',
+  'update.info.upToDateAt': '最新バージョンです ({time} 確認)',
+  // 'available' means "found", not "downloading"
+  'update.info.available': '新しいバージョン {version} があります',
+  'update.info.downloadVersion': '{version} をダウンロード',
+  'update.info.checkFailed': '確認に失敗',
+  'update.info.manualInstallVersion': 'v{version} を手動でインストール',
+  'update.info.manualWhy': 'このビルドは自動インストールできないため、手動で移動してください',
+  'update.info.manualOnly': 'このビルドは自動更新しません。ソースを取得して再ビルドしてください',
+  'update.ui.build': 'ビルド',
+  'update.ui.checkedAt': '{time} に確認',
+  'update.ui.upToDate': '最新です',
+  'update.ui.changes': '新しい変更: {count}',
+  'update.ui.ready': 'アップデートのビルド完了 — 変更: {count}',
+  'update.ui.buildNow': '今すぐビルド',
+  'update.ui.lastError': '直近のエラー: {message}',
+  'update.ui.showChanges': '変更を表示 ({count})',
+  'update.ui.hideChanges': '変更を隠す',
+  'update.ui.moreChanges': '…ほか {count} 件',
+  // App.tsx — settings modal Shortcuts tab
+  'shortcut.group.terminal': 'ターミナル',
+  'shortcut.terminal.newline': '改行',
+  'shortcut.terminal.copyOrInterrupt': '選択をコピー · なければ中断',
+  'shortcut.paste': '貼り付け',
+  'shortcut.group.sessionTab': 'セッションタブ',
+  'shortcut.gesture.tabDrag': 'タブをドラッグ',
+  'shortcut.sessionTab.reorder': '並べ替え',
+  'shortcut.group.pane': 'パネル',
+  // ShortcutSettings.tsx — the editable shortcut list
+  'shortcut.group.editable': '変更可能',
+  'shortcut.edit': '変更',
+  'shortcut.resetOne': '既定値',
+  'shortcut.capturing': 'キーを押してください (Esc でキャンセル)',
+  'shortcut.unbound': 'なし',
+  'shortcut.conflictWith': '{key} はすでに「{action}」に使われています',
+  'shortcut.riskTitle': '{key} をアプリのショートカットに設定',
+  'shortcut.riskConfirm': 'それでも設定',
+  'shortcut.pane.dragSplit': '端で分割 · 中央で移動',
+  'shortcut.group.explorer': 'ファイルエクスプローラー',
+  'shortcut.explorer.saveFile': 'ファイルを保存',
+  'shortcut.explorer.rename': '名前の変更',
+  'shortcut.explorer.delete': '削除',
+  'shortcut.explorer.selectAll': 'すべて選択',
+  'shortcut.explorer.cut': '切り取り',
+  'shortcut.explorer.copy': 'コピー',
+  'shortcut.gesture.itemDrag': '項目をドラッグ',
+  'shortcut.explorer.move': '移動 · {mod} を押すとコピー',
+  'shortcut.explorer.undo': '元に戻す',
+  'settings.freshCoordinator.label': 'コンテキスト使用率でコーディネーターを交代(%)',
+  'settings.freshCoordinator.hint': 'プランのコーディネーターがコンテキストウィンドウをこの割合まで使うと、Astera は同じアカウントとモデルの新しいセッションに入れ替え、プランの状態を伝えます。ウェーブの切り替わりごとにも交代します。0 にするとコンテキストの確認を行いません。',
+  'settings.freshCoordinator.saveFailed': '新しいコーディネーターの設定を保存できませんでした: {detail}',
+  'settings.stallWatch.label': '止まったプランを見張る',
+  'settings.stallWatch.hint': '30 秒ごとに実行中の各プランを確認します。空きがあるのに 2 分以上始まらない準備済みの Task、何も始めずに忙しいままのコーディネーター、プランブランチに入っていない完了 Task、ウェーブ後に開かれていないドラフト PR を見つけると、コーディネーターに伝えるか自分で直します。対応ごとにフィードへ 1 行残し、作業の取り消しや main へのマージは行いません。',
+  'settings.stallWatch.saveFailed': '止まったプランの見張り設定を保存できませんでした: {detail}',
+  'settings.startAtLogin.label': 'ログイン時に Astera を起動',
+  'settings.startAtLogin.hint': 'ログイン時に Astera をバックグラウンドで起動し、クラッシュや再起動で中断したプランを、ウィンドウを開く前に続きから再開します。Linux のみ。',
+  'settings.startAtLogin.saveFailed': 'ログイン時の起動設定を保存できませんでした: {detail}',
+  'settings.autoAnswer.label': '質問に自動で答える',
+  'settings.autoAnswer.hint': '安全に答えられるプランの質問には Astera が自分で答えます。知っている事実(Task がマージされたか、ウェーブが終わったか)を優先し、なければ質問者の推奨か安全な既定(保留、待機、1 回だけ再試行、チェックを飛ばす)で答えます。回答ごとにフィードへ 1 行残します。作業の削除、既定ブランチへのプッシュやマージ、お金、認証情報、権限は必ずあなたに回ります。',
+  'settings.autoAnswer.saveFailed': '自動回答の設定を保存できませんでした: {detail}',
+  // W9-E settings page
+  'settings.group.general': '一般',
+  'settings.group.agents': 'エージェント',
+  'settings.group.projects': 'プロジェクト',
+  'settings.group.integrations': '連携',
+  'settings.group.notifications': '通知',
+  'settings.group.advanced': '詳細',
+  'settings.basic.advancedMode.label': '上級モード',
+  'settings.basic.advancedMode.hint': 'すべての設定と、プランのグラフ・ジャーナルなど技術的な部分を表示します。',
+  'settings.basic.showAdvanced': '詳細設定を表示',
+  'settings.basic.hideAdvanced': '詳細設定を隠す',
+  'settings.search.placeholder': '設定を検索',
+  'settings.search.empty': '「{query}」に一致する設定はありません',
+  'settings.back': '戻る',
+  'settings.row.github': 'GitHub',
+  'settings.row.cli': 'CLI (astera コマンド)',
+  'settings.row.mcp': 'MCP',
+  'settings.row.cliVersions': 'Claude Code と Codex CLI',
+  // Machine-aware worker cap: the recommendation for this machine and the warning above it
+  'settings.maxWorkers.recommended': 'このマシンの推奨: {count}（メモリ {memory} GB、コア {cores}）',
+  'settings.maxWorkers.overRecommended': 'このマシンで扱えそうな {count} を超えています。エージェントが遅くなるか、メモリが不足する可能性があります。',
+  'onboarding.settings.replay': 'オンボーディングをもう一度表示',
+  'onboarding.settings.replayHint': 'セットアップを最初からたどります。設定はそのまま残ります。',
+  'onboarding.settings.replayButton': '表示',
+}

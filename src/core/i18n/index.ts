@@ -14,8 +14,9 @@ export type Catalog = Partial<Record<MessageKey, string>>
 
 /** The one place a language is declared. Lang, isLang, the lookup below, the OS-locale match in
  *  locale.ts and the settings picker all derive from this table, so adding a language costs three
- *  places: the catalog file, an entry here, and an entry in tsconfig.web.json's `include` array
- *  (tsconfig.node.json uses a glob and needs nothing).
+ *  places: the catalog folder (messages/<lang>/, one file per area, see messages/README.md), an entry here,
+ *  and its index.ts in tsconfig.web.json's `include` array (the area files come in through the
+ *  messages glob there; tsconfig.node.json uses a glob and needs nothing).
  *  nativeName is written in its own language and is not a translation target — someone hunting for
  *  their language should not have to know the current one. */
 export const CATALOGS = {
