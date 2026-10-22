@@ -87,6 +87,7 @@ export const onboarding = {
   'onboarding.done.project': '프로젝트',
   'onboarding.done.none': '없음',
   'onboarding.done.start': '첫 계획 시작하기',
+  'onboarding.done.installTool': '에이전트 도구 설치',
   'onboarding.done.agents': '에이전트로 가기',
   // T29 · first run on a machine with no CLIs.
   'onboarding.skipStep': '나중에 하기',
@@ -95,7 +96,7 @@ export const onboarding = {
   'onboarding.tools.gh.ok': 'gh (GitHub CLI) 가 설치되어 있습니다. Astera 가 풀 리퀘스트를 열 수 있습니다.',
   'onboarding.tools.gh.missing': 'gh (GitHub CLI) 를 찾을 수 없습니다. 선택 사항이며, Astera 가 풀 리퀘스트를 열 때만 사용합니다.',
   'onboarding.accounts.needCli': '아직 코딩 에이전트가 설치되지 않아 로그인할 대상이 없습니다. 이전 단계로 돌아가 설치하거나 나중에 하세요.',
-  'onboarding.done.noCli': '코딩 에이전트가 설치되지 않아 아직 에이전트를 실행할 수 없습니다. 앱 위쪽 배너나 설정에서 설치하세요.',
+  'onboarding.done.needCli': '계획을 실행하려면 먼저 Claude Code 또는 Codex가 필요합니다.',
   'onboarding.done.noAccount': '아직 계정이 없습니다. 에이전트를 시작하기 전에 설정에서 추가하세요.',
   'cliBanner.text': '에이전트 CLI 가 설치되지 않았습니다. 에이전트를 실행하려면 설치하세요',
   'cliBanner.install': '설치',

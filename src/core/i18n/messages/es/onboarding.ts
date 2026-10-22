@@ -64,6 +64,7 @@ export const onboarding: Partial<Record<keyof typeof ko, string>> = {
   'onboarding.done.project': 'Proyecto',
   'onboarding.done.none': 'Ninguno',
   'onboarding.done.start': 'Empieza tu primer plan',
+  'onboarding.done.installTool': 'Instalar un agente',
   'onboarding.done.agents': 'Ir a Agentes',
   // T29 · first run on a machine with no CLIs.
   'onboarding.skipStep': 'Omitir por ahora',
@@ -72,7 +73,7 @@ export const onboarding: Partial<Record<keyof typeof ko, string>> = {
   'onboarding.tools.gh.ok': 'gh (GitHub CLI) está instalado. Permite a Astera abrir pull requests.',
   'onboarding.tools.gh.missing': 'No se encontró gh (GitHub CLI). Es opcional: solo permite a Astera abrir pull requests.',
   'onboarding.accounts.needCli': 'Todavía no hay ningún agente de código instalado, así que no hay nada con lo que iniciar sesión. Vuelve atrás para instalar uno u omite este paso por ahora.',
-  'onboarding.done.noCli': 'No hay ningún agente de código instalado, por lo que los agentes aún no pueden ejecutarse. Instala uno desde el aviso en la parte superior de la app o en Configuración.',
+  'onboarding.done.needCli': 'Necesitas Claude Code o Codex antes de que un plan pueda ejecutarse.',
   'onboarding.done.noAccount': 'Aún no hay ninguna cuenta. Añade una en Configuración antes de iniciar agentes.',
   'cliBanner.text': 'No hay ninguna CLI de agente instalada: instala una para ejecutar agentes',
   'cliBanner.install': 'Instalar',

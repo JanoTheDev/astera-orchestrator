@@ -82,6 +82,7 @@ export const onboarding: Record<keyof typeof ko, string> = {
   'onboarding.done.project': 'Project',
   'onboarding.done.none': 'None',
   'onboarding.done.start': 'Start your first plan',
+  'onboarding.done.installTool': 'Install an agent tool',
   'onboarding.done.agents': 'Go to Agents',
   // T29 · first run on a machine with no CLIs.
   'onboarding.skipStep': 'Skip for now',
@@ -90,7 +91,7 @@ export const onboarding: Record<keyof typeof ko, string> = {
   'onboarding.tools.gh.ok': 'gh (GitHub CLI) is installed. It lets Astera open pull requests.',
   'onboarding.tools.gh.missing': 'gh (GitHub CLI) was not found. It is optional: it only lets Astera open pull requests.',
   'onboarding.accounts.needCli': 'No coding agent is installed yet, so there is nothing to sign in to. Go back to install one, or skip for now.',
-  'onboarding.done.noCli': 'No coding agent is installed, so agents cannot run yet. Install one from the banner at the top of the app or in Settings.',
+  'onboarding.done.needCli': 'You need Claude Code or Codex before a plan can run.',
   'onboarding.done.noAccount': 'No account yet. Add one in Settings before you start agents.',
   'cliBanner.text': 'No agent CLI installed: install one to run agents',
   'cliBanner.install': 'Install',

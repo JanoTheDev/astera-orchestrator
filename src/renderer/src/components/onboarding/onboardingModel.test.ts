@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { UpdateStatus } from '../../../../core/types'
 import {
-  ONBOARDING_STEPS, canNext, canSkipStep, cliBannerShown, doneNotes, exitEffects, isOnboardingShown, nextStep, prevStep, replayStart,
+  ONBOARDING_STEPS, canNext, canSkipStep, cliBannerShown, donePrimary, doneNotes, exitEffects, isOnboardingShown, nextStep, prevStep, replayStart,
   resumeStep, showUpdateChoice, type OnboardingStep
 } from './onboardingModel'
 
@@ -75,6 +75,11 @@ describe('onboardingModel', () => {
     expect(doneNotes({ cliFound: true, accountCount: 1 })).toEqual([])
     expect(doneNotes({ cliFound: false, accountCount: 0 })).toEqual(['noCli'])
     expect(doneNotes({ cliFound: true, accountCount: 0 })).toEqual(['noAccount'])
+  })
+
+  it('makes the Done primary Start only with a CLI; with none it goes back to Tools', () => {
+    expect(donePrimary({ cliFound: true })).toBe('start')
+    expect(donePrimary({ cliFound: false })).toBe('tools')
   })
 
   it('shows the no-CLI banner only once the answer is known, onboarding is closed and it was not dismissed', () => {

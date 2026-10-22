@@ -63,6 +63,7 @@ export const onboarding: Partial<Record<keyof typeof ko, string>> = {
   'onboarding.done.project': 'プロジェクト',
   'onboarding.done.none': 'なし',
   'onboarding.done.start': '最初の計画を始める',
+  'onboarding.done.installTool': 'エージェントツールをインストール',
   'onboarding.done.agents': 'エージェントへ',
   // T29 · first run on a machine with no CLIs.
   'onboarding.skipStep': '今はスキップ',
@@ -71,7 +72,7 @@ export const onboarding: Partial<Record<keyof typeof ko, string>> = {
   'onboarding.tools.gh.ok': 'gh (GitHub CLI) はインストール済みです。Astera がプルリクエストを作成できます。',
   'onboarding.tools.gh.missing': 'gh (GitHub CLI) が見つかりません。任意です。Astera がプルリクエストを作成するためだけに使います。',
   'onboarding.accounts.needCli': 'コーディングエージェントがまだインストールされていないため、サインインするものがありません。前の手順に戻ってインストールするか、今はスキップしてください。',
-  'onboarding.done.noCli': 'コーディングエージェントがインストールされていないため、エージェントはまだ実行できません。アプリ上部のバナーまたは設定からインストールしてください。',
+  'onboarding.done.needCli': '計画を実行する前に Claude Code か Codex が必要です。',
   'onboarding.done.noAccount': 'アカウントがまだありません。エージェントを開始する前に設定で追加してください。',
   'cliBanner.text': 'エージェント CLI がインストールされていません。エージェントを実行するにはインストールしてください',
   'cliBanner.install': 'インストール',

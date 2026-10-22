@@ -16,7 +16,7 @@ import { ProviderBadge } from '../ProviderBadge'
 import { Button, Card, Chip, Field, Icon, Select, type SelectOption } from '../ui'
 import logoUrl from '../../assets/mark.svg'
 import {
-  ONBOARDING_STEPS, canNext, canSkipStep, doneNotes, nextStep, prevStep, resumeStep, showUpdateChoice, stepIndex,
+  ONBOARDING_STEPS, canNext, canSkipStep, donePrimary, doneNotes, nextStep, prevStep, resumeStep, showUpdateChoice, stepIndex,
   type OnboardingExit, type OnboardingStep
 } from './onboardingModel'
 import { onboardingReplayStart } from './replay'
@@ -269,7 +269,7 @@ export function Onboarding(p: OnboardingProps): React.JSX.Element | null {
         {title('onboarding.done.title')}
         <p className="onb__lead">{t('onboarding.done.body')}</p>
         {doneNotes({ cliFound, accountCount: p.accounts.length }).map((n) => (
-          <Status key={n} ok={false} text={t(n === 'noCli' ? 'onboarding.done.noCli' : 'onboarding.done.noAccount')} />
+          <Status key={n} ok={false} text={t(n === 'noCli' ? 'onboarding.done.needCli' : 'onboarding.done.noAccount')} />
         ))}
         <Card className="onb__card">
           <dl className="onb__summary">
@@ -288,9 +288,15 @@ export function Onboarding(p: OnboardingProps): React.JSX.Element | null {
         <Button size="lg" onClick={() => p.onExit('agents')}>
           {t('onboarding.done.agents')}
         </Button>
-        <Button variant="primary" size="lg" onClick={() => p.onExit('start')}>
-          {t('onboarding.done.start')}
-        </Button>
+        {donePrimary({ cliFound }) === 'start' ? (
+          <Button variant="primary" size="lg" onClick={() => p.onExit('start')}>
+            {t('onboarding.done.start')}
+          </Button>
+        ) : (
+          <Button variant="primary" size="lg" onClick={() => go('tools')}>
+            {t('onboarding.done.installTool')}
+          </Button>
+        )}
       </>
     )
   }

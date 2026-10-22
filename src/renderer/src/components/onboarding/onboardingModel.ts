@@ -68,3 +68,6 @@ export const cliBannerShown = (o: {
 
 /** Where a replay opens: Welcome from Settings, or the step the banner asked for. */
 export const replayStart = (step: OnboardingStep | undefined): OnboardingStep => step ?? 'welcome'
+
+/** The Done step's primary action. With no CLI, Start cannot run a plan, so it sends the person back to install one. */
+export const donePrimary = (ctx: Pick<NextContext, 'cliFound'>): 'start' | 'tools' => (ctx.cliFound ? 'start' : 'tools')

@@ -19,6 +19,7 @@ stub fails once when `$HOME/.fail-once` exists. Temp dirs removed afterwards; th
 | 08-done-missing | Done step names what is missing (no agent). |
 | 09-app-with-banner | App opens (not a locked screen) with the dismissible banner. |
 | 10-banner-opens-install-step | Banner Install reopens onboarding at Tools. |
+| 11-done-nocli | Done step with no CLI: one reason line ("You need Claude Code or Codex before a plan can run."), primary reads "Install an agent tool" and goes back to Tools; "Go to Agents" stays. |
 
 Found while walking: with a shell the app has no profile file for (`SHELL=/bin/sh`, fish) the install was reported
 "installed but cannot be found yet" and a restart does not help. `findAfterInstall` now answers the installed file, main
