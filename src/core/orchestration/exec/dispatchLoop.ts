@@ -723,9 +723,9 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
   }
 
   /**
-   * W6-D: **a wave boundary replans.** When the last Task of a wave completes and a later wave has Tasks, or when every
-   * Task has completed (the final check), `jobs-replan` holds the Job and starts a fresh planner on what is left
-   * (`replansDue`, replan.ts). A replan whose planner session is gone without ending it, or whose start died before
+   * W6-D: **a deviation replans.** When a completed Task did not go as planned and Tasks it can affect have not
+   * started, `jobs-replan` starts a fresh planner on those, holding only them; when every Task has completed (the final
+   * check), it holds the Job (`replansDue`, replan.ts). A replan whose planner session is gone without ending it, or whose start died before
    * its session was recorded, is ended here (`jobs-replan-done --gone`): the end validates the plan and either lets
    * the Job go or hands it to the person. Before the PR and the coordinator's stop, which wait for the final check.
    * Driving process only, asked before each one; a failure is logged and never thrown.

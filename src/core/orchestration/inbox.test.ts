@@ -262,12 +262,12 @@ describe('wave-held Tasks (replan.ts waveOpen)', () => {
     id, runId: 'run_1', jobId: 'job_1', title: id.toUpperCase(), spec: 's', deps: [], status: 'ready', accountIds: ['a'],
     consecutiveFailures: 0, createdAt: T, updatedAt: T, ...over
   })
-  // A planned Job that replans between waves: wave 2 opens only after the boundary's replan
+  // A planned Job that replans: t0 completed outside its paths (it deviated), so t2, which builds on it, waits for a replan
   const s: OrchState = {
     ...emptyState(),
     jobs: [{ id: 'job_1', objective: 'o', cwd: '/p', createdAt: T, autoDispatch: false, plannerSessionIds: ['pl'], coordinatorAccountId: 'a' }],
     runs: [{ id: 'run_1', jobId: 'job_1', ordinal: 1, createdAt: T, coordinatorSessionId: 'coord-1' }],
-    tasks: [task('t0', { status: 'completed' }), task('t1'), task('t2', { deps: ['t0'] })]
+    tasks: [task('t0', { status: 'completed', affectedPaths: ['src/a'], filesModified: ['src/b'] }), task('t1'), task('t2', { deps: ['t0'] })]
   }
 
   it('readyWithoutWorker leaves out a Task whose wave is not open; waveHeld names its wave', () => {
@@ -277,11 +277,11 @@ describe('wave-held Tasks (replan.ts waveOpen)', () => {
 
   it('nextActionOf says which wave a held Task waits for, and never to start it', () => {
     expect(nextActionOf(s, 'run_1')).toBe(
-      't1 (T1) is ready and has no worker: worker-start it.\nt2 (T2) waits for wave 2 to open: do not start it yet.'
+      't1 (T1) is ready and has no worker: worker-start it.\nt2 (T2) waits for the replan before wave 2: do not start it yet.'
     )
     const onlyHeld = { ...s, tasks: s.tasks.filter((t) => t.id !== 't1') }
     expect(nextActionOf(onlyHeld, 'run_1')).toBe(
-      'Nothing is ready to start now. End your turn; the next message wakes you.\nt2 (T2) waits for wave 2 to open: do not start it yet.'
+      'Nothing is ready to start now. End your turn; the next message wakes you.\nt2 (T2) waits for the replan before wave 2: do not start it yet.'
     )
   })
 

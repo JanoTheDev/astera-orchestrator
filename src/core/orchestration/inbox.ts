@@ -228,13 +228,14 @@ function readyNoWorker(s: OrchState, runId: string): Task[] {
   return s.tasks.filter((t) => t.runId === runId && t.status === 'ready' && !open.has(t.id) && !isIntegrationTask(t))
 }
 
-/** A Run's Tasks that are ready with no worker: ready, no open Dispatch, not the app's own merge Task, and their wave
- *  open (replan.ts waveOpen): a wave-held one is refused (409 `held`), so nothing is pushed to start it. */
+/** A Run's Tasks that are ready with no worker: ready, no open Dispatch, not the app's own merge Task, and open
+ *  (replan.ts waveOpen): one held for a replan is refused (409 `held`), so nothing is pushed to start it. */
 export function readyWithoutWorker(s: OrchState, runId: string): Task[] {
   return readyNoWorker(s, runId).filter((t) => waveOpen(t, s))
 }
 
-/** A Run's ready Tasks with no worker that wait for their wave to open, each with that wave (1-based, as draftPr.ts). */
+/** A Run's ready Tasks with no worker that wait for a replan (replan.ts waveOpen), each with its wave (1-based, as
+ *  draftPr.ts). */
 export function waveHeld(s: OrchState, runId: string): { task: Task; wave: number }[] {
   return readyNoWorker(s, runId)
     .filter((t) => !waveOpen(t, s))
@@ -242,10 +243,10 @@ export function waveHeld(s: OrchState, runId: string): { task: Task; wave: numbe
 }
 
 /** The next-action lines for a Run: each ready Task to start, or that there is nothing to start, and each Task that
- *  waits for its wave. */
+ *  waits for a replan. */
 export function nextActionOf(s: OrchState, runId: string): string {
   const ready = readyWithoutWorker(s, runId)
-  const held = waveHeld(s, runId).map(({ task: t, wave }) => `${t.id} (${t.title}) waits for wave ${wave} to open: do not start it yet.`)
+  const held = waveHeld(s, runId).map(({ task: t, wave }) => `${t.id} (${t.title}) waits for the replan before wave ${wave}: do not start it yet.`)
   if (ready.length === 0) return ['Nothing is ready to start now. End your turn; the next message wakes you.', ...held].join('\n')
   return [...ready.map((t) => `${t.id} (${t.title}) is ready and has no worker: worker-start it.`), ...held].join('\n')
 }
@@ -279,7 +280,7 @@ export function taskOutcomesToTell(s: OrchState, nowMs: number): CoordinatorNoti
 }
 
 /** Ready Tasks of a driven, placing Run left without a worker for `READY_REMINDER_MS` while its coordinator is idle;
- *  a Task waiting for its wave is not one (readyWithoutWorker), nextActionOf names its wave.
+ *  a Task waiting for a replan is not one (readyWithoutWorker), nextActionOf names it.
  *  Ready since the later of its own last change and its deps' (a dep finishing is what readies it, and recomputeReady
  *  stamps nothing). Told once per readiness: that moment is in the subject. */
 export function readyReminders(s: OrchState, nowMs: number, idle: (sessionId: string) => boolean): CoordinatorNotice[] {
