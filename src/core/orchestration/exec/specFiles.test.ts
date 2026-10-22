@@ -57,3 +57,35 @@ describe('staleSpecFiles and the files kept beside a spec', () => {
     expect((await fs.readdir(dir)).sort()).toEqual(['tsk_1-dsp_2.md', 'tsk_1-dsp_2.md.review.json'])
   })
 })
+
+describe('staleSpecFiles and the work a file describes', () => {
+  const base = { runs: [], live: new Set<string>() }
+  const d = (taskId: string, n: number, endedAt?: string) => ({ taskId, startedAt: `2026-01-0${n}`, specPath: `/s/${taskId}-dsp_${n}.md`, endedAt })
+  it('keeps the ended Dispatch of an unfinished Task, only its latest', () => {
+    const stale = staleSpecFiles({
+      ...base,
+      files: ['t1-dsp_1.md', 't1-dsp_2.md'],
+      dispatches: [d('t1', 1, 'T'), d('t1', 2, 'T')],
+      tasks: [{ id: 't1', status: 'dispatched' }]
+    })
+    expect(stale).toEqual(['t1-dsp_1.md'])
+  })
+  it('sweeps the ended Dispatch of a completed or failed Task', () => {
+    const stale = staleSpecFiles({
+      ...base,
+      files: ['t1-dsp_1.md', 't2-dsp_2.md'],
+      dispatches: [d('t1', 1, 'T'), d('t2', 2, 'T')],
+      tasks: [{ id: 't1', status: 'completed' }, { id: 't2', status: 'failed' }]
+    })
+    expect(stale).toEqual(['t1-dsp_1.md', 't2-dsp_2.md'])
+  })
+  it("keeps an unarchived Job's planner brief and sweeps an archived one's", () => {
+    const stale = staleSpecFiles({
+      ...base,
+      files: ['planner-j1.md', 'planner-j2.md'],
+      dispatches: [],
+      jobs: [{ id: 'j1' }, { id: 'j2', archivedAt: 'T' }]
+    })
+    expect(stale).toEqual(['planner-j2.md'])
+  })
+})
