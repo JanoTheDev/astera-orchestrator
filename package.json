@@ -21,6 +21,7 @@
   "scripts": {
     "dev": "electron-vite dev",
     "check:codex-baseline": "node scripts/check-codex-baseline.mjs",
+    "prebuild": "node scripts/gen-licenses.mjs",
     "build": "electron-vite build",
     "build:packages": "node scripts/build-packages.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p packages/client/tsconfig.json && tsc --noEmit -p packages/plugin-sdk/tsconfig.json && tsc --noEmit -p examples/sdk/tsconfig.json && tsc --noEmit -p examples/plugins/tsconfig.json",

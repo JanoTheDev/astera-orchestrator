@@ -1,6 +1,6 @@
 # w12 About page (T28)
 
-PNGs stay local (gitignored); this file is tracked. 1440x900, Night and Day, dev profile.
+The PNGs are not gitignored (no .gitignore rule covers them), but none are saved in this folder yet, so only this file is tracked. The shots below are still to be taken and committed here. 1440x900, Night and Day, dev profile.
 
 ## Before (`before/`, source of 73fe2514)
 - `settings-advanced-<theme>.png`: Settings › Advanced scrolled to the info card (app name, version, CLI versions, Host, accounts, update) at the bottom of a group of unrelated rows.
