@@ -1978,6 +1978,12 @@ export const ja: Catalog = {
   'plan.delivery.delivering': '配信中…',
   'plan.delivery.retryFailed': '配信できませんでした: {reason}',
   'plan.delivery.delivered': 'プランを配信しました',
+  'plan.delivery.alreadyPushed': 'すでにプッシュ済み',
+  'plan.delivery.alreadyPushedHint': 'このブランチは自分でプッシュしました。git に届いているか Astera が確認します。',
+  'plan.delivery.dismiss': '破棄',
+  'plan.delivery.dismissTitle': 'この配信を破棄しますか？',
+  'plan.delivery.dismissBody': 'プランはそのままで、Astera は配信を試みなくなります。プッシュも取り消しも行いません。',
+  'plan.delivery.dismissed': '配信を破棄しました',
   'start.go.plan': '計画を始める',
   // T2 Start: Audit mode, sticky hands-off, More options
   'start.next.audit': 'プランナーが選んだパスを監査し、見つけたことを inputs/audit.md に書いてから、それを直すタスクを計画します。',
@@ -2004,7 +2010,7 @@ export const ja: Catalog = {
   'start.more.ask': '確認する',
   'start.more.auto': '自動',
   'start.more.priority': '優先度 {n}',
-  'start.more.schedule': 'スケジュールで繰り返す…',
+  'start.more.schedule': 'スケジュールで繰り返す',
   'start.opt.priority': '優先度',
   // T4 Start opens the planner chat
   'start.t4.title': '{project} で何に取り組みますか？',

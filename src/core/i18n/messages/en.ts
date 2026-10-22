@@ -2891,6 +2891,12 @@ export const en: Record<keyof typeof ko, string> = {
   'plan.delivery.delivering': 'delivering…',
   'plan.delivery.retryFailed': 'Delivery did not go through: {reason}',
   'plan.delivery.delivered': 'Plan delivered',
+  'plan.delivery.alreadyPushed': 'It\'s already pushed',
+  'plan.delivery.alreadyPushedHint': 'I pushed this branch myself; Astera checks that git has it.',
+  'plan.delivery.dismiss': 'Dismiss',
+  'plan.delivery.dismissTitle': 'Dismiss this delivery?',
+  'plan.delivery.dismissBody': 'The plan stays as it is and Astera stops trying to deliver it. Nothing is pushed or undone.',
+  'plan.delivery.dismissed': 'Delivery dismissed',
   'start.go.plan': 'Start planning',
   // T2 Start: Audit mode, sticky hands-off, More options
   'start.next.audit': 'The planner audits the paths you pick, writes its findings to inputs/audit.md, then plans tasks that fix them.',
@@ -2917,7 +2923,7 @@ export const en: Record<keyof typeof ko, string> = {
   'start.more.ask': 'ask',
   'start.more.auto': 'auto',
   'start.more.priority': 'priority {n}',
-  'start.more.schedule': 'Repeat on a schedule…',
+  'start.more.schedule': 'Repeat on a schedule',
   'start.opt.priority': 'Priority',
   // T4 Start opens the planner chat
   'start.t4.title': 'What should we work on in {project}?',
