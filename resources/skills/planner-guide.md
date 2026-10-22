@@ -159,7 +159,7 @@ person to confirm again.
 
 A planned Job has no whole-wave barrier: a Task starts as soon as its own deps have completed, whatever else is still
 running. A Task's wave (its dependency depth; no deps: wave 1 here, 0 in the code) only names where it sits. A Task that
-did not go as planned (it failed, needed more than one review round, changed files outside its affected paths, or was
+did not go as planned (it failed, reported gaps, needed more than one review round, changed files outside its affected paths, or was
 let through by a person) starts a **wave replan**: Astera opens a **fresh** planner session with a replan brief. That
 replan is **scoped** and holds only the Tasks it can affect, those downstream of the deviating Task or sharing its paths;
 every other Task still starts. An **unscoped** replan (owner feedback, the final check, a person's own ask) holds the
@@ -185,7 +185,18 @@ You may:
 - cancel a Task that has not started and is no longer needed: `astera task-cancel --id <taskId> --reason "<why>"`.
   Change the `--deps` of every Task that waits on it first.
 
-You may never touch a completed or running Task: Astera refuses it, whatever the command.
+**A failed Task.** A Task whose worker failed, with no coordinator to retry it or its tries used up, starts a scoped
+replan too when Tasks that have not started wait on it: your brief lists it under WHAT FAILED with its worker's report.
+For that Task you may:
+- retry it with what it asks changed: `astera task-update --id <taskId> --status ready` with `--spec` or `--prompt -`;
+- accept what it did as done with its gaps: `astera task-update --id <taskId> --status completed --reason "<its gaps>"`
+  (recorded as a completion override);
+- rewire or cancel the Tasks that wait on it, or add a Task that covers the gap.
+If you leave it failed and the plan still cannot move, Astera asks the owner: Retry, Accept as done, or Cancel what
+waits on it.
+
+You may never touch a completed or running Task: Astera refuses it, whatever the command. A failed Task takes only the
+two status moves above.
 
 Change only what the facts call for: a done Task that went another way than planned, a dependency that
 turned out to be needed, a Task that is no longer needed. Keep the `--affected-paths` of Tasks that can run together apart, as in section 2.

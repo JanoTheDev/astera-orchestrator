@@ -881,6 +881,8 @@ export function applyWorkerDone(
     subject: string
     body: string
     filesModified?: string[]
+    /** What a succeeded worker could not reach. Ignored on a failed report. */
+    gaps?: string
     /** 검증을 실제로 돌릴 수 있는가. 배선이 검증기를 주입하지 않았으면 서버가 false 로 넘긴다 —
      *  그 경우 validateConfigId 가 걸려 있어도 validating 으로 보내지 않는다. 보내면 결과를
      *  가져다줄 것이 아무것도 없어 Task 가 영원히 validating 이고, recomputeReady 는 completed 만
@@ -934,6 +936,8 @@ export function applyWorkerDone(
     // validating 으로 가는 전부다.
     ...(validating ? withConvergenceClock(moved, now) : moved),
     result: a.body,
+    // a later report without gaps clears an earlier one's
+    gaps: a.outcome === 'succeeded' ? a.gaps || undefined : undefined,
     filesModified: a.filesModified,
     // **validating 이나 reviewing 으로 갈 때는 그대로 넘긴다.** 여기서 0 으로 되돌리면 이어진
     // 검증/검토 실패가 1 을 만들고 다음 시도도 0 -> 1 이라 FAILURE_LIMIT 에 영원히 닿지 않는다 —

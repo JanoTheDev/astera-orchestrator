@@ -2,7 +2,23 @@
 import { describe, it, expect } from 'vitest'
 import { emptyState, type OrchState } from './state'
 import type { Dispatch, Job, JobRun, Task } from './types'
-import { cancelRemainingTask, completionSettled, editRemainingTask, notStarted, replanOn, replansDue, waveOf, waveOpen } from './replan'
+import {
+  cancelRemainingTask,
+  completionSettled,
+  deviatingTasks,
+  editRemainingTask,
+  FAILED_WAIT_OPTIONS,
+  failedWaitAsked,
+  failedWaitChoice,
+  failedWaitQuestion,
+  notStarted,
+  replanOn,
+  replansDue,
+  resolveFailedWait,
+  stallOf,
+  waveOf,
+  waveOpen
+} from './replan'
 import { slotsToFill } from './schedule'
 
 const NOW = '2026-10-18T00:00:00.000Z'
@@ -166,6 +182,11 @@ describe('replansDue', () => {
     expect(replansDue(s, seen)).toEqual([])
   })
 
+  it('T36: a completed Task with gaps did not go as planned, so it asks for a replan of what depends on it', () => {
+    const s = state([task('a', { status: 'completed', gaps: 'could not run e2e' }), task('b', { deps: ['a'] })])
+    expect(replansDue(s, seen)).toHaveLength(1)
+  })
+
   it('asks for the final check once every Task completed, only for a Run it saw running, once per done count', () => {
     const s = state([task('a', { status: 'completed' }), task('b', { deps: ['a'], status: 'completed' })])
     expect(replansDue(s, () => false)).toEqual([])
@@ -198,8 +219,24 @@ describe('a failed Task', () => {
   ]
   const byId = (s: OrchState, id: string) => s.tasks.find((t) => t.id === id)!
 
-  it('is no deviation: it asks for no replan', () => {
-    expect(replansDue(state(tasks), seen)).toEqual([])
+  it('T36: holding back not-started Tasks with no coordinator to retry it, it asks for a scoped replan of those', () => {
+    expect(replansDue(state(tasks), seen)).toEqual([{ runId: 'run_1', mode: 'wave', wave: 1, done: 1 }])
+    expect(deviatingTasks(state(tasks), state(tasks).jobs[0], 'run_1').map((t) => t.id)).toEqual(['f'])
+  })
+
+  it('T36: with a coordinator it waits for that coordinator to retry, until its tries are used up', () => {
+    const withCoordinator = (ts: Task[]): OrchState => {
+      const s = state(ts)
+      return { ...s, runs: s.runs.map((r) => ({ ...r, coordinatorSessionId: 'ses_coord' })) }
+    }
+    expect(replansDue(withCoordinator(tasks), seen)).toEqual([])
+    const spent = tasks.map((t) => (t.id === 'f' ? { ...t, consecutiveFailures: 3 } : t))
+    expect(replansDue(withCoordinator(spent), seen)).toEqual([{ runId: 'run_1', mode: 'wave', wave: 1, done: 1 }])
+  })
+
+  it('T36: once a replan that began after it failed has ended, it asks for none again', () => {
+    const after = { lastReplan: { runId: 'run_1', mode: 'wave' as const, wave: 1, done: 1, at: '2026-10-18T00:10:00.000Z', summary: 'no change', startedAt: '2026-10-18T00:05:00.000Z' } }
+    expect(replansDue(state(tasks, after), seen)).toEqual([])
   })
 
   it('lets a Task that does not depend on it start, and keeps one that does waiting', () => {
@@ -219,6 +256,90 @@ describe('a failed Task', () => {
   it('asks for no final check while the plan has a failed Task', () => {
     const rest = [task('f', { status: 'failed' }), task('c', { status: 'completed' }), task('b', { deps: ['c'], status: 'completed' })]
     expect(replansDue(state(rest), seen)).toEqual([])
+  })
+})
+
+describe('T36: a Run stalled on a failed Task', () => {
+  const LATER = '2026-10-18T00:30:00.000Z'
+  // f failed (its worker reported failed); d and e wait on it; c completed
+  const tasks = [
+    task('f', { status: 'failed', consecutiveFailures: 1, result: 'made 19 of the screens; gaps: settings, login' }),
+    task('c', { status: 'completed' }),
+    task('d', { deps: ['f'], status: 'pending' }),
+    task('e', { deps: ['d'], status: 'pending' })
+  ]
+  const off = { replan: 'off' as const, title: 'Before shots' }
+  const run = (s: OrchState) => s.runs[0]
+
+  it('is stalled when nothing else can move: the reason names the failed Task and what waits on it', () => {
+    const st = stallOf(state(tasks, off), run(state(tasks, off)))
+    expect(st?.reason).toBe('waiting on f (f) (failed): 2 Task(s) wait on it')
+    expect(st?.blocks.map((b) => [b.task.id, b.waiting.map((t) => t.id)])).toEqual([['f', ['d', 'e']]])
+  })
+
+  it('is not stalled while something else moves or someone holds it', () => {
+    const s = state(tasks, off)
+    const other = state([...tasks, task('x')], off)
+    expect(stallOf(other, run(other))).toBeUndefined()
+    expect(stallOf({ ...s, runs: [{ ...run(s), paused: true }] }, { ...run(s), paused: true })).toBeUndefined()
+    expect(stallOf({ ...s, runs: [{ ...run(s), coordinatorSessionId: 'ses_c' }] }, { ...run(s), coordinatorSessionId: 'ses_c' })).toBeUndefined()
+    expect(stallOf(state(tasks, { ...off, dispatchHold: true }), run(s))).toBeUndefined()
+    expect(stallOf({ ...s, gates: [{ id: 'g', runId: 'run_1', taskId: 'd', question: 'q', status: 'open', createdAt: NOW }] }, run(s))).toBeUndefined()
+    expect(stallOf(state(tasks, off, [{ ...open('f') }]), run(s))).toBeUndefined()
+    // nothing waits on the failure: the Run ended, it did not stall
+    const alone = state([task('f', { status: 'failed' }), task('c', { status: 'completed' })], off)
+    expect(stallOf(alone, run(alone))).toBeUndefined()
+  })
+
+  it('stays stalled while its own question is open, and asks once per failure', () => {
+    const s = state(tasks, off)
+    const block = stallOf(s, run(s))!.blocks[0]
+    const q = failedWaitQuestion(s, block, LATER)
+    expect(q).toMatchObject({ type: 'escalation', runId: 'run_1', taskId: 'f', options: [...FAILED_WAIT_OPTIONS], answered: false })
+    expect(q.subject).toBe('Before shots: 2 Tasks wait on failed f: made 19 of the screens; gaps: settings, login')
+    const asked = { ...s, messages: [q] }
+    expect(failedWaitAsked(s, block.task)).toBe(false)
+    expect(failedWaitAsked(asked, block.task)).toBe(true)
+    expect(stallOf(asked, run(s))).toBeDefined()
+    // failed again after a retry: a new failure, a new question
+    expect(failedWaitAsked(asked, { ...block.task, updatedAt: '2026-10-18T01:00:00.000Z' })).toBe(false)
+  })
+
+  it("reads the owner's answer, a hands-off one too", () => {
+    const s = state(tasks, off)
+    const f = s.tasks[0]
+    const q = failedWaitQuestion(s, stallOf(s, run(s))!.blocks[0], LATER)
+    expect(failedWaitChoice({ ...s, messages: [q] }, f)).toBeUndefined()
+    expect(failedWaitChoice({ ...s, messages: [{ ...q, answered: true, answerBody: 'Accept as done' }] }, f)).toBe('accept')
+    expect(failedWaitChoice({ ...s, messages: [{ ...q, answered: true, answerBody: 'retry. Why: a flaky run' }] }, f)).toBe('retry')
+    expect(failedWaitChoice({ ...s, messages: [{ ...q, answered: true, answerBody: 'something else' }] }, f)).toBeUndefined()
+  })
+
+  it('retry: ready again with its tries reset and a changed spec; its question answered', () => {
+    const s = state(tasks, off)
+    const q = failedWaitQuestion(s, stallOf(s, run(s))!.blocks[0], LATER)
+    const r = resolveFailedWait({ ...s, messages: [q] }, 'f', 'retry', LATER, { patch: { spec: 'only the missing screens' } })
+    expect(r.ok && r.value).toMatchObject({ status: 'ready', consecutiveFailures: 0, spec: 'only the missing screens' })
+    expect(r.ok && r.state.messages[0]).toMatchObject({ answered: true, answerBody: 'Retry' })
+    expect(r.ok && stallOf(r.state, run(r.state))).toBeUndefined()
+  })
+
+  it('accept: done with its gaps recorded, and what waits on it is ready', () => {
+    const r = resolveFailedWait(state(tasks, off), 'f', 'accept', LATER, { reason: 'the 19 screens are enough' })
+    expect(r.ok && r.value).toMatchObject({ status: 'completed', completionOverride: { reason: 'the 19 screens are enough', at: LATER } })
+    expect(r.ok && r.state.tasks.find((t) => t.id === 'd')?.status).toBe('ready')
+  })
+
+  it('cancel: what waits on it leaves the Run, leaves first, and the Run ends failed', () => {
+    const r = resolveFailedWait(state(tasks, off), 'f', 'cancel', LATER)
+    expect(r.ok && r.state.tasks.map((t) => t.id)).toEqual(['f', 'c'])
+    expect(r.ok && r.value.consecutiveFailures).toBe(3)
+    expect(r.ok && stallOf(r.state, run(r.state))).toBeUndefined()
+  })
+
+  it('refuses a Task that is not failed', () => {
+    expect(resolveFailedWait(state(tasks, off), 'c', 'retry', LATER)).toMatchObject({ ok: false })
+    expect(resolveFailedWait(state(tasks, off), 'nope', 'retry', LATER)).toMatchObject({ ok: false, missing: true })
   })
 })
 

@@ -29,6 +29,12 @@ describe('planStatusOf', () => {
     expect(planStatusOf(row({ stuck: 'stalled', tasks: [task('a', { status: 'failed' })] }))).toEqual({ key: 'plan.outcome.stalled', tone: 'danger' })
     expect(planStatusOf(row({ stuck: 'stalled', paused: true })).key).toBe('jobs.run.roundStopped')
   })
+
+  it('says Stalled on a failed Task (T36), never paused or running', () => {
+    const stalledOn = { taskId: 't1', title: 'Build API', waiting: 2 }
+    expect(planStatusOf(row({ stalledOn, stuck: 'needs-you' }))).toEqual({ key: 'plan.outcome.stalledOnFailed', tone: 'danger', params: { task: 'Build API' } })
+    expect(planStatusOf(row({ stalledOn, stuck: 'stalled', tasks: [task('a', { status: 'failed' })] })).key).toBe('plan.outcome.stalledOnFailed')
+  })
 })
 
 describe('planStatusOf delivery', () => {

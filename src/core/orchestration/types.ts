@@ -585,6 +585,9 @@ export interface Task {
   parentId?: string
   status: TaskStatus
   result?: string
+  /** What the worker could not reach (environment limits, refused commands), from its succeeded report. A Task with
+   *  gaps did not go as planned, so a replan looks at what depends on it. */
+  gaps?: string
   filesModified?: string[]
   /** 이 Task 의 워커를 띄울 계정들, **순서대로**.
    *

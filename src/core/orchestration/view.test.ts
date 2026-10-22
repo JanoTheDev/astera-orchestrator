@@ -544,6 +544,16 @@ describe('snapshotFor', () => {
     expect(r).not.toHaveProperty('coordinatorMissing')
   })
 
+  // T36: a Run whose only way on is through a failed Task carries it, for the card's Retry / Accept / Cancel
+  it('stalledOn names the failed Task the Run waits on, and how many wait', () => {
+    const failed = { ...task('f', 'r1', 'failed'), consecutiveFailures: 1, result: 'gaps: login' }
+    const s = withRuns([run('r1', absPath('p'))], [failed, { ...task('d', 'r1', 'pending'), deps: ['f'] }])
+    const [r] = snapshotFor(s, absPath('p'), anySession, noWorktrees, noFires, allExist).runs
+    expect(r.stalledOn).toEqual({ taskId: 'f', title: 'task f', result: 'gaps: login', waiting: 1 })
+    const moving = withRuns([run('r1', absPath('p'))], [failed, { ...task('d', 'r1', 'pending'), deps: ['f'] }, task('x', 'r1', 'ready')])
+    expect(snapshotFor(moving, absPath('p'), anySession, noWorktrees, noFires, allExist).runs[0]).not.toHaveProperty('stalledOn')
+  })
+
   // Task 1 fix round 1, I1: a coordinator start in flight shows no ▶, until its mark is past the window.
   it('코디네이터가 뜨는 중이면 그 칸이 없고, 표시가 창을 넘으면 다시 생긴다', () => {
     const base = withRuns([{ ...run('r1', absPath('p')), coordinatorAccountId: 'acc1' }])

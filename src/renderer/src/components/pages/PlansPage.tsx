@@ -11,7 +11,7 @@ import { sessionTab } from '../../../../core/panes/tabId'
 import { parentDir, resolveRelative } from '../../../../core/files/paths'
 import type { AppState } from '../../state/appState'
 import { localDoor } from '../../lib/orchDoor'
-import { archiveJob, deleteRun, holdJob, renameJob, unarchiveJob } from '../../lib/jobActions'
+import { archiveJob, deleteRun, holdJob, renameJob, resolveFailed, unarchiveJob } from '../../lib/jobActions'
 import { jobName } from '../../lib/jobName'
 import { jobsStall } from '../../../../core/orchestration/jobsView'
 import { openPage } from '../shell/navigation'
@@ -158,7 +158,8 @@ export function PlansPage(p: PlansPageProps): React.JSX.Element {
     onRename: (jobId, title) => local && void renameJob(local, jobId, title, actionUi),
     onArchive: (jobId) => local && void archiveJob(local, orchSnapshot, jobId, actionUi),
     onUnarchive: (jobId) => local && void unarchiveJob(local, jobId, actionUi),
-    onHold: (jobId, hold) => local && void holdJob(local, jobId, hold, actionUi)
+    onHold: (jobId, hold) => local && void holdJob(local, jobId, hold, actionUi),
+    onResolveFailed: (taskId, action) => local && void resolveFailed(local, taskId, action, actionUi)
   }
   return (
     <div className="plan-pages plans-page">

@@ -11,6 +11,7 @@ import {
   holdJob,
   pauseRun,
   renameJob,
+  resolveFailed,
   restartCoordinator,
   resumeRun,
   setJobAfter,
@@ -27,6 +28,7 @@ import { PLAN_SECTIONS, type PlanSection } from './planBoard'
 import { deliveryActionsOf } from './planPage'
 import type { PlanPageState } from './usePlanPage'
 import { WaveLine } from './PlanWaves'
+import { FailedWaitButtons } from './FailedWaitButtons'
 
 export function PlanHeader({
   p,
@@ -174,12 +176,25 @@ export function PlanHeader({
           {run?.outcome === 'blocked' && <Chip tone="warn">{t('pages.plans.status.blocked')}</Chip>}
           {/* T8: a running plan nothing can move. Needs you opens the overview, where its question is answered; Stalled
               runs `runs doctor --fix` on this Run (runsDoctor.ts) */}
-          {run?.stuck === 'needs-you' && (
+          {run?.stuck === 'needs-you' && !run.stalledOn && (
             <Button size="sm" variant="ghost" title={t('plan.outcome.needsYouHint')} onClick={() => onSection('overview')}>
               <Chip tone="warn">{t('plan.outcome.needsYou')}</Chip>
             </Button>
           )}
-          {run?.stuck === 'stalled' && (
+          {/* T36: waits on a failed Task: say which, and offer the owner's three answers instead of the generic Fix */}
+          {run?.stalledOn && (
+            <>
+              <span title={run.stalledOn.result ?? t('plan.failedWait.hint')}>
+                <Chip tone="danger">{t('plan.outcome.stalledOnFailed', { task: run.stalledOn.title })}</Chip>
+              </span>
+              <FailedWaitButtons
+                disabled={off}
+                title={lockedReason}
+                onAct={(action) => run.stalledOn && void resolveFailed(door, run.stalledOn.taskId, action, ui)}
+              />
+            </>
+          )}
+          {run?.stuck === 'stalled' && !run.stalledOn && (
             <>
               <span title={t('plan.outcome.stalledHint')}>
                 <Chip tone="danger">{t('plan.outcome.stalled')}</Chip>

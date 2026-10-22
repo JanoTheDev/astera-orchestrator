@@ -507,6 +507,10 @@ session.
 Failure is a terminal report too — use --outcome failed.
 Do not record a failure in the body alone.
 
+Did the main job but could not reach a few parts (environment limits, refused commands)? That is not a
+failure: report --outcome succeeded and add --gaps "<what you could not reach and why>". Report failed
+only when the main job is not done, or when a gap blocks what depends on this task.
+
 After reporting, end your turn and wait at the agent prompt. Do not start more work and do not close
 the terminal yourself. If the orchestrator reuses this terminal, new instructions arrive as input.
 

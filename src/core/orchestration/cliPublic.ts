@@ -137,7 +137,9 @@ const TASK_HIDDEN = [
   // T7: the objective items a Task covers (`--covers`), held back with the planner's other fields
   'covers',
   // T9: the Task's kind, held back with the planner's other fields
-  'kind'
+  'kind',
+  // T36: what a succeeded worker could not reach, not in the SDK's contract yet
+  'gaps'
 ] as const
 
 /** W1-A role models: a Job's per-role model override, held back from the SDK like the Task's three above. */

@@ -872,6 +872,11 @@ server blocks `check` and `inbox` as coordinator-only (403).
   ```
   Body goes through stdin: three sentences on what you did, what you found, and what is left — do not
   copy the code across, you share a working directory with the orchestrator.
+- **A few gaps are not a failure.** Did the main job but could not reach a few parts (environment
+  limits, refused commands)? Report `--outcome succeeded --gaps "<what you could not reach and why>"`.
+  Report `failed` only when the main job is not done, or a gap blocks what depends on the Task. A Task
+  with gaps counts as a deviation, so a replan looks at what depends on it. The coordinator can record
+  the same with `task-update --status completed --gaps "<text>"`.
 - **A worker started for a review Dispatch does not change code.** Its spec file says so explicitly —
   read the requirement, the implementer's report, and the changed files, then judge; do not fix
   anything you find wrong. It still reports exactly once, `worker_done --outcome succeeded` or

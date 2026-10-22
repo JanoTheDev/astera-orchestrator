@@ -48,7 +48,7 @@ import { isJobActive } from '../lifecycle'
 import { DEFAULT_CONCURRENCY, FAILURE_LIMIT, type Decision, type Job, type JobRun, type Task } from '../types'
 import { outcomeOfTasks, tasksOwnedBy } from '../running'
 import { outcomeOf } from '../view'
-import { completionSettled, replansDue } from '../replan'
+import { completionSettled, failedWaitAsked, failedWaitChoice, replansDue, stallOf } from '../replan'
 import { REPLAN_LIFT_HOLD } from './replanStart'
 // W8-C draft PR
 import { draftPrDue } from '../draftPr'
@@ -867,6 +867,49 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     }
   }
 
+  /**
+   * T36: **a plan never stalls silently.** After the replans (a failed Task that holds back its plan gets one first,
+   * replan.ts `replansDue`), a Run that still cannot move (`stallOf`) is logged once per cause and its owner is asked
+   * once per failure (`run-failed-ask`), a hands-off plan too: nothing else can move it. The answer is carried out here
+   * (`task-failed-resolve`). Driving process only, asked before each one; a failure is logged and never thrown.
+   */
+  // In memory: a restart logs a stall that is still there once more
+  const stallLogged = new Map<string, string>()
+  const unstallRuns = async (): Promise<void> => {
+    const answered = c.getState().tasks.flatMap((t) => {
+      const action = failedWaitChoice(c.getState(), t)
+      return action ? [{ t, action }] : []
+    })
+    for (const { t, action } of answered) {
+      if (!c.mayStart()) return
+      const reason = action === 'accept' ? `the owner accepted it as done: ${(t.result ?? '').replace(/\s+/g, ' ').trim().slice(0, 300)}` : undefined
+      try {
+        const r = await c.handle('task-failed-resolve', { id: t.id, action, ...(reason ? { reason } : {}) })
+        log(r.status >= 400 ? `run=${t.runId}: the owner's ${action} of ${t.id} was refused: ${JSON.stringify(r.body)}` : `run=${t.runId}: the owner's ${action} of failed ${t.id} carried out`)
+      } catch (e) {
+        log(`run=${t.runId}: carrying out the owner's ${action} of ${t.id} failed: ${String(e)}`)
+      }
+    }
+    for (const run of c.getState().runs) {
+      const stall = stallOf(c.getState(), run)
+      if (!stall) {
+        stallLogged.delete(run.id)
+        continue
+      }
+      if (stallLogged.get(run.id) !== stall.reason) {
+        stallLogged.set(run.id, stall.reason)
+        log(`run=${run.id} stalled: ${stall.reason}`)
+      }
+      if (stall.blocks.every((b) => failedWaitAsked(c.getState(), b.task)) || !c.mayStart()) continue
+      try {
+        const r = await c.handle('run-failed-ask', { run: run.id })
+        log(r.status >= 400 ? `run=${run.id}: asking the owner about its failed Task was refused: ${JSON.stringify(r.body)}` : `run=${run.id}: asked the owner about its failed Task`)
+      } catch (e) {
+        log(`run=${run.id}: asking the owner about its failed Task failed: ${String(e)}`)
+      }
+    }
+  }
+
   /** When each replan planner was first seen idle at its prompt (busy resets it), and the ones reminded already. In
    *  memory: a restart counts the idle time again, and the 30-minute end counts from the replan's own start. */
   const replanIdleSince = new Map<string, number>()
@@ -1088,6 +1131,9 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       // W6-D: before the PR, which waits for the final check
       await liftAnsweredHolds()
       await replanAtBoundaries()
+      if (!c.mayStart()) return
+      // T36: after the replans, so a Run a replan just took up is not stalled
+      await unstallRuns()
       if (!c.mayStart()) return
       // W8-C draft PR: after a wave's replan, before the completed Run's delivery
       await updateDraftPrs()

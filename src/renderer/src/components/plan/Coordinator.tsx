@@ -45,7 +45,7 @@ export function Coordinator({
             </span>
             <span className="plans-coord__facts">
               <Chip tone={c.status.tone} dot>
-                {t(c.status.key)}
+                {t(c.status.key, c.status.params)}
               </Chip>
               {c.status.reason !== undefined && <span title={c.status.reason}>{t('jobs.run.notDelivered', { reason: c.status.reason })}</span>}
               {c.wave && (

@@ -244,6 +244,23 @@ describe('handleCommand — 역할 인가', () => {
     )
     expect(r.status).toBe(200)
   })
+  it('T36: worker_done --gaps on a succeeded report is kept on the Task; task-update --status completed --gaps too', async () => {
+    const deps = await seedWorker()
+    const d = deps.getState().dispatches[0]
+    const done = { type: 'worker_done', taskId: d.taskId, dispatchId: d.id, outcome: 'succeeded', subject: 'a', body: 'b', gaps: 'e2e not run: no display' }
+    expect((await call(deps, 'send', done, 'sess1')).status).toBe(200)
+    expect(deps.getState().tasks.find((t) => t.id === d.taskId)?.gaps).toBe('e2e not run: no display')
+    const r = await call(deps, 'task-update', { id: d.taskId, status: 'completed', gaps: 'npm publish refused' })
+    expect(r.status).toBe(200)
+    expect((r.body as { gaps?: string }).gaps).toBe('npm publish refused')
+  })
+  it('T36: worker_done --gaps is ignored on a failed report', async () => {
+    const deps = await seedWorker()
+    const d = deps.getState().dispatches[0]
+    const failed = { type: 'worker_done', taskId: d.taskId, dispatchId: d.id, outcome: 'failed', subject: 'a', body: 'b', gaps: 'x' }
+    expect((await call(deps, 'send', failed, 'sess1')).status).toBe(200)
+    expect(deps.getState().tasks.find((t) => t.id === d.taskId)?.gaps).toBeUndefined()
+  })
   it('워커 세션은 다른 dispatch로 보고할 수 없다', async () => {
     const deps = await seedWorker()
     const r = await call(
