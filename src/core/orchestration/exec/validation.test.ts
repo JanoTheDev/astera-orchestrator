@@ -477,12 +477,50 @@ describe('T2: heavy checks take the machine heavy slot', () => {
     const at = { cwd: dir, lock: path.join(dir, 'lock'), queueDir: path.join(dir, 'q'), pollMs: 20 }
     const first = await heavySlot({ ...at, cmd: 'a' })
     let second: (() => void) | null = null
-    const waiting = heavySlot({ ...at, cmd: 'b' }).then((r) => (second = r))
+    const waiting = heavySlot({ ...at, cwd: path.join(dir, 'other'), cmd: 'b' }).then((r) => (second = r))
     await new Promise((r) => setTimeout(r, 200))
     expect(second).toBeNull()
     first()
     await waiting
     expect(second).not.toBeNull()
     second!()
+  })
+
+  const tmpQueue = (): { dir: string; at: { cwd: string; lock: string; queueDir: string; pollMs: number } } => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'astera-heavy-'))
+    dirs.push(dir)
+    return { dir, at: { cwd: dir, lock: path.join(dir, 'lock'), queueDir: path.join(dir, 'q'), pollMs: 20 } }
+  }
+  const tickets = (q: string): string[] => (fs.existsSync(q) ? fs.readdirSync(q).filter((n) => n.endsWith('.json')) : [])
+
+  it('a waiter whose check was abandoned drops its ticket and stops polling', async () => {
+    const { dir, at } = tmpQueue()
+    const holder = await heavySlot({ ...at, cwd: path.join(dir, 'held'), cmd: 'held' })
+    let gone = false
+    const waiting = heavySlot({ ...at, cmd: 'w', abandoned: () => gone })
+    await new Promise((r) => setTimeout(r, 100))
+    expect(tickets(at.queueDir)).toHaveLength(2)
+    gone = true
+    const release = await waiting
+    expect(tickets(at.queueDir)).toHaveLength(1) // only the holder's
+    release()
+    holder()
+    expect(tickets(at.queueDir)).toEqual([])
+  })
+
+  it('a newer check of the same folder replaces the ticket, and the old waiter does not rewrite it', async () => {
+    const { dir, at } = tmpQueue()
+    const holder = await heavySlot({ ...at, cwd: path.join(dir, 'held'), cmd: 'held' })
+    const old = heavySlot({ ...at, cmd: 'old' })
+    const oldFailed = old.catch((e: Error) => e.message)
+    await new Promise((r) => setTimeout(r, 100))
+    const fresh = heavySlot({ ...at, cmd: 'new' })
+    expect(await oldFailed).toMatch(/taken over/)
+    await new Promise((r) => setTimeout(r, 100))
+    expect(tickets(at.queueDir)).toHaveLength(2) // holder + the new one, not three
+    holder()
+    const release = await fresh
+    release()
+    expect(tickets(at.queueDir)).toEqual([])
   })
 })

@@ -63,7 +63,7 @@ export interface ValidationContext {
    *  answer, its reason in `summary`. */
   pluginCheck(plugin: string, input: CompletionCheckInput): Promise<PluginCheckAnswer>
   /** T2: waits for the machine's heavy slot and answers its release (`heavySlot`). Test seam; defaults to the real one. */
-  heavySlot?(a: { cwd: string; cmd: string }): Promise<() => void>
+  heavySlot?(a: { cwd: string; cmd: string; abandoned?: () => boolean }): Promise<() => void>
 }
 /** A git head, null when there is no baseline, 'unknown' when there may be one the journal could not give. */
 export type CheckpointHead = string | null | 'unknown'
@@ -83,25 +83,44 @@ let heavySeq = 0
  *  its OS lock, held by a `flock` child until the answered release. The child holds the lock with `cat` on a pipe from
  *  this process, so a process that dies drops the lock with the pipe, and its ticket reads dead. Rejects when `flock`
  *  cannot run. (runHeavy itself is not called: it takes over SIGINT/SIGTERM, which would keep the Host from stopping.) */
-export async function heavySlot(a: { cwd: string; cmd: string; lock?: string; queueDir?: string; pollMs?: number }): Promise<() => void> {
+export async function heavySlot(a: {
+  cwd: string
+  cmd: string
+  /** Asked on every poll: true once nobody wants the slot any more. The ticket is dropped and a no-op release answered. */
+  abandoned?: () => boolean
+  lock?: string
+  queueDir?: string
+  pollMs?: number
+}): Promise<() => void> {
   const dir = a.queueDir ?? HEAVY_QUEUE_DIR
   const lock = a.lock ?? HEAVY_LOCK
   // The same ticket as runHeavy's: the name sorts by arrival among every caller's, the pid keeps it alive
   const name = `${process.hrtime.bigint().toString().padStart(20, '0')}-${String(process.pid).padStart(8, '0')}-${String(heavySeq++).padStart(4, '0')}.json`
   const file = join(dir, name)
-  const body = JSON.stringify({ pid: process.pid, cmd: a.cmd, cwd: a.cwd, at: Date.now() })
+  // kind: a check's ticket. A newer one for the same cwd replaces it (a restarted Host's check, or the same Host's next try)
+  const body = JSON.stringify({ pid: process.pid, cmd: a.cmd, cwd: a.cwd, at: Date.now(), kind: 'check' })
   const writeTicket = (): void => {
     mkdirSync(dir, { recursive: true, mode: 0o700 })
     writeFileSync(`${file}.tmp`, body)
     renameSync(`${file}.tmp`, file)
   }
   const drop = (): void => rmSync(file, { force: true })
+  // One waiter per cwd: the predecessor's ticket (the old Host's, still a live pid until it leaves) goes first
+  for (const x of heavyQueue(dir)) if (x.kind === 'check' && x.cwd === a.cwd) rmSync(join(dir, x.file), { force: true })
   writeTicket()
   try {
     for (;;) {
+      if (a.abandoned?.()) {
+        drop()
+        return () => {}
+      }
       const q = heavyQueue(dir)
-      if (!q.some((x) => x.file === name)) writeTicket()
-      else if (q[0].file === name) break
+      if (!q.some((x) => x.file === name)) {
+        // Gone from the queue: rewrite it, unless a newer ticket for this cwd replaced it — this waiter is then the
+        // predecessor, and rewriting would make two waiters of one cwd fight over the queue for ever
+        if (q.some((x) => x.kind === 'check' && x.cwd === a.cwd && x.file > name)) throw new Error('heavy slot taken over by a newer check of this folder')
+        writeTicket()
+      } else if (q[0].file === name) break
       await new Promise((r) => setTimeout(r, a.pollMs ?? 1000))
     }
     const child = spawn('flock', [lock, 'sh', '-c', 'echo held; exec cat'], { stdio: ['pipe', 'pipe', 'ignore'] })
@@ -161,7 +180,11 @@ export function createTaskValidation(c: ValidationContext): TaskValidation {
         let release: (() => void) | undefined
         if (isHeavyCheck(config)) {
           c.log(`check "${config.name}" task=${taskId} is queued for the machine's heavy slot`)
-          release = await (c.heavySlot ?? heavySlot)({ cwd, cmd: config.name })
+          release = await (c.heavySlot ?? heavySlot)({
+            cwd,
+            cmd: config.name,
+            abandoned: () => c.getState().tasks.find((x) => x.id === taskId)?.status !== 'validating'
+          })
           if (c.getState().tasks.find((x) => x.id === taskId)?.status !== 'validating') {
             release()
             return 'skip'

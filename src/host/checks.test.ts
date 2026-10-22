@@ -144,6 +144,8 @@ async function rig(o: RigOpts = {}) {
     now: () => NOW,
     // Never a real taskkill: the fake pids are numbers some real process may hold.
     killRunner: (cmd) => endKilled(Number(cmd.args[cmd.args.indexOf('/pid') + 1])),
+    // Never the machine's real heavy queue/lock: `seed:npm:test` is a heavy check.
+    heavySlot: async () => () => {},
     ...(o.foreignKillWaitMs !== undefined ? { foreignKillWaitMs: o.foreignKillWaitMs } : {})
   })
   if (o.onRunExitThrows)
