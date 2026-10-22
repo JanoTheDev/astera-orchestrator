@@ -13,6 +13,15 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { LAUNCH_FORBIDDEN } from './commands'
+import { coordinatorBriefName } from '../orchestration/exec/specFiles'
+import { plannerBriefName } from '../orchestration/exec/plannerStart'
+
+/** A brief's file name split around its id, from the helpers that name it, so the standalone script
+ *  below cannot drift from them (a test also pins this). */
+const nameAround = (name: (id: string) => string): [string, string] => {
+  const [pre, post] = name('\0').split('\0')
+  return [pre, post]
+}
 
 const HEADER = 'This session runs inside Astera. Use Astera\'s tools before building your own:'
 const LINES = {
@@ -25,13 +34,30 @@ const LINES = {
   higgsfield: '- Higgsfield accounts: `astera higgsfield list` / `use --account <account>` (ask the user first).'
 }
 const FOOTER = 'Full list: `astera help`.'
+const REPLAN = 'Your plan for this Astera session is %PATH%. Read it again now and continue from it; it may end with a resume briefing.'
 
 export const SESSION_CONTEXT_SCRIPT = `const fs = require('fs')
 const path = require('path')
 const dir = process.env.ASTERA_PROFILE_DIR
-const H = ${JSON.stringify({ HEADER, LINES, FOOTER })}
+const H = ${JSON.stringify({ HEADER, LINES, FOOTER, REPLAN, COORD: nameAround(coordinatorBriefName), PLANNER: nameAround(plannerBriefName) })}
 function readJson(file) {
   try { return JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8')) } catch { return null }
+}
+// After a compaction or a resume the first prompt ("Read <spec>") may be summarised away, so name the
+// session's own plan again. Stdin is Claude Code's hook JSON; anything else reads as a plain start.
+function planPath() {
+  let src = ''
+  try { src = JSON.parse(fs.readFileSync(0, 'utf8')).source } catch {}
+  const me = process.env.ASTERA_SESSION
+  if ((src !== 'compact' && src !== 'resume') || !me) return null
+  const st = readJson('orchestration.json') || {}
+  const specs = path.join(dir, 'orch', 'specs')
+  const ds = (st.dispatches || []).filter((d) => d && d.sessionId === me)
+  ds.sort((a, b) => (a.endedAt ? 1 : 0) - (b.endedAt ? 1 : 0) || String(b.startedAt).localeCompare(String(a.startedAt)))
+  const run = (st.runs || []).find((r) => r && r.coordinatorSessionId === me)
+  const job = (st.jobs || []).find((j) => j && Array.isArray(j.plannerSessionIds) && j.plannerSessionIds.includes(me))
+  const cands = [ds[0] && ds[0].specPath, run && path.join(specs, H.COORD[0] + run.id + H.COORD[1]), job && path.join(specs, H.PLANNER[0] + job.id + H.PLANNER[1])]
+  return cands.find((f) => typeof f === 'string' && fs.existsSync(f)) || null
 }
 try {
   if (process.env.ASTERA_CLI && dir) {
@@ -45,6 +71,9 @@ try {
     lines.push(H.LINES.orchestration)
     if (hf && Array.isArray(hf.accounts) && hf.accounts.length > 0) lines.push(H.LINES.higgsfield)
     lines.push(H.FOOTER)
+    let plan = null
+    try { plan = planPath() } catch {}
+    if (plan) lines.push(H.REPLAN.replace('%PATH%', plan))
     process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: lines.join('\\n') } }))
   }
 } catch {}
