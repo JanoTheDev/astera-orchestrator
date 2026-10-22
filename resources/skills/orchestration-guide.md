@@ -828,8 +828,9 @@ A timeout you expected is `--resume`; an answer you lost is the key.
   failed (subject `task <id> completed|failed`, naming the Tasks now ready), a Task has been ready for a
   minute with no worker (`task <id> still ready since …`), a finished Task's branch merges into the plan
   branch or a merge worker is started for it (`task <id> merged into the plan`, `merge worker <id>
-  started`), or a Gate is answered. Each message says the next action, e.g. "tsk_x is ready and has no
-  worker: worker-start it". `astera check --json` (no `--wait`) is the quick look at any time.
+  started`), or a Gate is answered. Each message says the next action. On a Run Astera places (a coordinator
+  attached to any Job but a scheduled one), Astera starts ready Tasks itself: you do not, and the message names
+  only what is yours (gates, questions, repairs, retries, reviews). `astera check --json` (no `--wait`) is the quick look at any time.
 - An empty `{count:0, messages:[]}` is **not a worker failure.** Real coding work takes 15–60 minutes.
 - **A worker-start refused for a usage pause** (409, `usagePaused`): do not plan to retry at the window's
   reset. When the pause ends, a `status` message with subject `usage resumed` arrives in your inbox and
@@ -839,7 +840,10 @@ A timeout you expected is `--resume`; an answer you lost is the key.
 - **A worker-start refused for the same files** (409, `sameFiles`: "waiting for <title>: same files <path>"): two
   workers never edit the same files at once. Start it when that Task ends; do not open a Gate about it.
 - **A worker-start refused for a replan** (409, `replanning`: "replanning wave N: this lifts by itself"): the plan
-  is being adjusted. Wait for `plan.replanned` in your inbox, then start what is ready. Never ask the owner to
+  is being adjusted. A replan a deviating Task started holds only the Tasks it can affect (downstream of it or
+  sharing its paths); worker-start for any other Task is accepted. An unscoped replan (owner feedback, the final
+  check, a person's own ask) holds the whole Job: worker-start returns 409 for every Task. Wait for
+  `plan.replanned` in your inbox, then start what is ready. Never ask the owner to
   release it: `jobs-unhold` is not yours to run, and the hold is not the owner's to lift.
 - **An answered Gate arrives in your inbox**: a `status` message with subject `gate <id> answered` carries the
   owner's answer, and Astera wakes you with it. Act on it at once.
