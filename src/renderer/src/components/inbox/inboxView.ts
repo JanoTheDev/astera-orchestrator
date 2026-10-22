@@ -6,7 +6,7 @@ import type { InboxItem } from '../../../../core/orchestration/sessionIndex'
 import type { Job, PlanOverlap } from '../../../../core/orchestration/types'
 import { feedOf, lineOf, whoOf, type Tone } from '../activity/activityView'
 import type { OpenQuestion } from '../plan/planBoard'
-import type { Message, MessageKey } from '../../../../core/i18n'
+import type { Lang, Message, MessageKey } from '../../../../core/i18n'
 import type { Translate } from '../checkText'
 
 /** An open row of `questions-list`: an ask or escalation (`source`), or a Gate (none). */
@@ -211,17 +211,17 @@ export interface HandledLine {
 }
 
 /** The feed as "Handled for you": newest first, at most `max`. A plan filter keeps that plan's lines. */
-export function handledOf(events: readonly ActivityEvent[], f: InboxFilter, accountLabel: (id: string) => string, max = 100): HandledLine[] {
+export function handledOf(events: readonly ActivityEvent[], f: InboxFilter, accountLabel: (id: string) => string, max = 100, lang: Lang = 'en'): HandledLine[] {
   return feedOf(events, f.planId ?? null)
     .reverse()
     .slice(0, max)
     .map((e) => {
-      const { text, tone } = lineOf(e, accountLabel)
+      const { text, tone } = lineOf(e, accountLabel, lang)
       return {
         id: e.id,
         at: e.occurredAt,
         text,
-        who: whoOf(e, accountLabel),
+        who: whoOf(e, accountLabel, lang),
         tone,
         ...(e.payload.plan !== undefined ? { plan: e.payload.plan } : {}),
         ...(e.taskId !== undefined && e.payload.title !== e.payload.plan ? { task: e.payload.title } : {}),

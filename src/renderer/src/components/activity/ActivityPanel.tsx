@@ -136,7 +136,7 @@ export function ActivityPanel({
             {lines.length === 0 && <li className="ws-empty">{t('activity.panel.empty')}</li>}
             {lines.map((e) => {
               const { text, tone } = lineOf(e, label, lang)
-              const who = whoOf(e, label)
+              const who = whoOf(e, label, lang)
               const openable = e.sessionId !== undefined && e.jobId !== undefined && onOpenSession !== undefined
               return (
                 <li key={e.id} className={`act-line act-${tone}`}>

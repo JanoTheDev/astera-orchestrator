@@ -19,3 +19,4 @@ None.
 ## Not done / for the report
 - `.panel-toggle`, `.ws-link` still styled by worktrees.css (other screen); the Button's own sizing sits under it.
 - Summary `<details>` in the Activity panel are native disclosure elements (no ui primitive; `Section` persists state by id, not fit for per-bucket lists).
+- Activity/Inbox/bell feed lines: every lineOf()/whoOf() case now an activity.line.* key in en/es/ja/ko (agent, lead agent, step N, stuck-plan check); lang passed through handledOf.

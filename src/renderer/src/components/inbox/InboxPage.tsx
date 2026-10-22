@@ -43,7 +43,7 @@ export function InboxPage({
   /** The app's Job action ui (confirm dialogs, toasts), for Approve. */
   ui: ActionUi
 }): React.JSX.Element {
-  const { t } = useI18n()
+  const { t, lang } = useI18n()
   const { filter } = useInboxRequest()
   const { needs, events, pathOfJob } = useInbox(tree, data)
   const [nowMs, setNowMs] = useState(() => Date.now())
@@ -54,7 +54,7 @@ export function InboxPage({
 
   const shown = useMemo(() => filterNeeds(needs, filter), [needs, filter])
   const label = (id: string): string => accounts?.find((a) => a.id === id)?.label ?? id
-  const handled = useMemo(() => handledOf(events, filter, label), [events, filter, accounts]) // eslint-disable-line react-hooks/exhaustive-deps
+  const handled = useMemo(() => handledOf(events, filter, label, undefined, lang), [events, filter, accounts, lang]) // eslint-disable-line react-hooks/exhaustive-deps
   const days = useMemo(() => byDay(handled, nowMs, t), [handled, nowMs, t])
   const tabs: TabItem<InboxGroup>[] = GROUPS.map(([id, key]) => {
     const n = id === 'handled' ? handled.length : filterNeeds(needs, { ...filter, group: id }).length

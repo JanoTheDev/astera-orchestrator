@@ -4,6 +4,7 @@
 import { useMemo, useSyncExternalStore } from 'react'
 import type { MessageKey } from '../../../../core/i18n'
 import type { AppState } from '../../state/appState'
+import { useI18n } from '../../i18n/I18nProvider'
 import { approvePlan, type ActionUi } from '../../lib/jobActions'
 import { localDoor } from '../../lib/orchDoor'
 import { Button, Chip, Icon, IconButton } from '../ui'
@@ -44,11 +45,12 @@ export type NotificationBellProps = Pick<AppState, 'accounts' | 'actionUi' | 'sc
 
 export function NotificationBell({ accounts, actionUi, scopedData, scopedTree, t, workspaceData, workspaceTree }: NotificationBellProps): React.JSX.Element {
   const open = useBellOpen()
+  const { lang } = useI18n()
   // the feed is read only while the popover shows: the badge needs the cards alone
   const { needs, events, pathOfJob, read, many, allProjects } = useNeedsYou({ scopedData, scopedTree, workspaceData, workspaceTree }, open)
   const handled = useMemo(
-    () => (open ? handledOf(events, { group: 'all' }, (id) => accounts?.find((a) => a.id === id)?.label ?? id, BELL_RECENT_MAX) : []),
-    [open, events, accounts]
+    () => (open ? handledOf(events, { group: 'all' }, (id) => accounts?.find((a) => a.id === id)?.label ?? id, BELL_RECENT_MAX, lang) : []),
+    [open, events, accounts, lang]
   )
   const items = bellItems(needs, handled, read)
   const badge = badgeOf(items.unread)
