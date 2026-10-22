@@ -3,6 +3,7 @@ import {
   FAILURE_LIMIT,
   MAX_CONCURRENT_WORKERS,
   type Dispatch,
+  type Gate,
   type Job,
   type JobRun,
   type Task,
@@ -151,7 +152,16 @@ export interface Lease {
   /** Runs this lease does not hold back: its own plan's (a plan never waits for itself), and those of a plan that
    *  outranks it while waiting on it in a cycle (`leasesByProject`: the older plan proceeds). */
   exemptRuns: ReadonlySet<string>
+  /** T11: Tasks the owner let past every lease ("Run it now anyway" on a long lease wait, `LEASE_WAIT_OPTIONS`). */
+  waivedTasks?: ReadonlySet<string>
 }
+
+/** T11: the answers of the owner question over a Task held by another plan's lease for long (exec/stallWatch.ts). */
+export const LEASE_WAIT_OPTIONS = ['Let it wait', 'Run it now anyway', 'Cancel this Task'] as const
+
+/** A Gate the watchdog opened over a long lease wait: told apart by its answers (overlap.ts `isDuplicateGate`). */
+export const isLeaseWaitGate = (g: Pick<Gate, 'options'>): boolean =>
+  g.options?.length === LEASE_WAIT_OPTIONS.length && LEASE_WAIT_OPTIONS.every((o, i) => g.options![i] === o)
 
 /** An entry of the file guard: a Task at its files (`lease` absent) or holding them until its plan delivers. `root` is
  *  its project's folder, so a path written absolute compares with a relative one (`pathsOverlap`). */
@@ -167,6 +177,7 @@ export function sameFilesAs(
     for (const other of others) {
       if (other.id === task.id) continue
       if (other.lease && task.runId !== undefined && other.lease.exemptRuns.has(task.runId)) continue
+      if (other.lease?.waivedTasks?.has(task.id)) continue
       if ((other.affectedPaths ?? []).some((q) => pathsOverlap(path, q, other.root))) return { task: other, path }
     }
   return undefined
@@ -249,6 +260,9 @@ export function leasesByProject(s: OrchState): Map<string, FileHolder[]> {
     }
     return false
   }
+  const waived = new Set(
+    s.gates.filter((g) => isLeaseWaitGate(g) && g.status === 'resolved' && g.resolution === LEASE_WAIT_OPTIONS[1]).map((g) => g.taskId)
+  )
   const out = new Map<string, FileHolder[]>()
   for (const [y, leases] of held) {
     const jy = jobById.get(y)
@@ -259,7 +273,7 @@ export function leasesByProject(s: OrchState): Map<string, FileHolder[]> {
       if (jx && to.has(y) && planOutranks(jx, jy) && reaches(y, x)) for (const id of runsOf.get(x) ?? []) exempt.add(id)
     }
     const key = projectKeyOf(s, jy)
-    const lease: Lease = { jobId: y, exemptRuns: exempt }
+    const lease: Lease = { jobId: y, exemptRuns: exempt, waivedTasks: waived }
     out.set(key, [...(out.get(key) ?? []), ...leases.map((t) => ({ ...t, lease, root: jy.cwd }))])
   }
   return out

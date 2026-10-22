@@ -560,7 +560,7 @@ export class ConnectionNotifier {
       void this.sendNotification(record, p, transcriptPath)
     } else if (p.hook_event_name === 'PreToolUse') {
       this.capturePendingTool(record, p.tool_name, p.tool_input, p.tool_use_id)
-    } else if (p.hook_event_name === 'PostToolUse') {
+    } else if (p.hook_event_name === 'PostToolUse' || p.hook_event_name === 'PostToolUseFailure') {
       this.clearPendingTool(record, p.tool_use_id)
     }
   }

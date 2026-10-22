@@ -147,6 +147,8 @@ export function sessionStateOf(a: {
   lastInputAt: number | null
   /** The clock for the shared decay (core/sessions/attention.ts `isWorking`); absent → no decay. */
   now?: number
+  /** T11: the pty's last output (the Host records it per session); absent → the last event stands for it. */
+  lastOutputAt?: number | null
 }): SessionState {
   if (a.lastLine === null || a.eventAt === null) return 'unknown'
   if (a.lastInputAt !== null && a.lastInputAt >= a.eventAt) return 'unknown'
@@ -158,15 +160,15 @@ export function sessionStateOf(a: {
   }
   const state = hookEventState(payload)
   if (state !== 'working') return state ?? 'unknown'
-  // The hook file has no pty output time, so the last event stands for the last sign of life; input
-  // after it was already answered `unknown` above.
+  // The last sign of life: the pty's output when the Host knows it (a long noisy tool fires no hook for minutes), else
+  // the last event; input after the event was already answered `unknown` above.
   const p = payload as { hook_event_name?: unknown }
   return isWorking({
     open: true,
     exited: false,
     eventAt: a.eventAt,
     personInputAt: a.lastInputAt,
-    lastOutputAt: a.eventAt,
+    lastOutputAt: Math.max(a.eventAt, a.lastOutputAt ?? a.eventAt),
     toolStartedAt: p.hook_event_name === 'PreToolUse' ? a.eventAt : null,
     now: a.now ?? null
   })
