@@ -5,6 +5,8 @@ import os from 'node:os'
 import { spawnSync } from 'node:child_process'
 import { SESSION_CONTEXT_SCRIPT, codexDeveloperInstructions, sessionContextLines } from './sessionContext'
 import { LAUNCH_FORBIDDEN } from './commands'
+import { coordinatorBriefName } from '../orchestration/exec/specFiles'
+import { plannerBriefName } from '../orchestration/exec/plannerStart'
 
 describe('SessionStart context script', () => {
   let dir: string
@@ -70,6 +72,42 @@ describe('SessionStart context script', () => {
 
   it('prints nothing outside a session Astera started (no ASTERA_CLI)', async () => {
     expect(await run({ agentAppEnabled: true }, {})).toBeNull()
+  })
+
+  describe('re-pointing at the plan on compact and resume', () => {
+    const SPEC = () => path.join(dir, 'spec.md')
+    async function plan(source: string | null, state: unknown, files: string[] = ['spec.md', 'orch/specs/coordinator-run_1.md', 'orch/specs/planner-job_1.md']) {
+      await fs.mkdir(path.join(dir, 'orch', 'specs'), { recursive: true })
+      for (const f of files) await fs.writeFile(path.join(dir, f), 'x')
+      await fs.writeFile(path.join(dir, 'orchestration.json'), JSON.stringify(state))
+      const input = source === null ? 'not json' : JSON.stringify({ source })
+      const r = spawnSync(process.execPath, [path.join(dir, 'script.cjs')], {
+        input, encoding: 'utf8', env: { ...process.env, ASTERA_CLI: 'x', ASTERA_PROFILE_DIR: dir, ASTERA_SESSION: 's1' }
+      })
+      expect(r.stderr).toBe(''); expect(r.status).toBe(0)
+      return JSON.parse(r.stdout).hookSpecificOutput.additionalContext as string
+    }
+    const plain = sessionContextLines({}, null).join('\n')
+    const disp = (o: object) => ({ dispatches: [{ sessionId: 's1', startedAt: '2026-01-01', specPath: SPEC(), ...o }] })
+
+    it('names the worker spec on compact, preferring an open dispatch', async () => {
+      const old = path.join(dir, 'old.md')
+      const t = await plan('compact', { dispatches: [
+        { sessionId: 's1', startedAt: '2026-02-01', endedAt: 'x', specPath: old }, { sessionId: 's1', startedAt: '2026-01-01', specPath: SPEC() }] },
+        ['spec.md', 'old.md'])
+      expect(t).toContain(`Your plan for this Astera session is ${SPEC()}.`)
+    })
+    it('names the coordinator and planner briefs on resume', async () => {
+      const c = path.join(dir, 'orch', 'specs', coordinatorBriefName('run_1'))
+      expect(await plan('resume', { runs: [{ id: 'run_1', coordinatorSessionId: 's1' }] })).toContain(`is ${c}.`)
+      const p = path.join(dir, 'orch', 'specs', plannerBriefName('job_1'))
+      expect(await plan('resume', { jobs: [{ id: 'job_1', plannerSessionIds: ['x', 's1'] }] })).toContain(`is ${p}.`)
+    })
+    it('adds nothing when the file is missing, on startup, or on garbage stdin', async () => {
+      expect(await plan('compact', disp({}), [])).toBe(plain)
+      expect(await plan('startup', disp({}))).toBe(plain)
+      expect(await plan(null, disp({}))).toBe(plain)
+    })
   })
 
   // The codex side decides its lines in TypeScript; the hook script decides them in its own copy. This
