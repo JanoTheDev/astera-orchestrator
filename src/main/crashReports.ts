@@ -3,14 +3,17 @@
 // the renderer sends its own errors over IPC. Nothing leaves the machine from here: Send opens a prefilled GitHub
 // issue in the browser, and only for a report the person was shown and said yes to.
 import path from 'node:path'
-import { issueOf, reportOf, RENDERER_KINDS, type CrashEnv, type CrashOffer, type CrashProcess, type CrashReportsSetting } from '../core/crash/report'
-import { CRASH_DIR, markOffered, nodeCrashEnv, pendingReports, readReport, writeReportSync } from '../core/crash/store'
+import { fingerprintOf, issueOf, reportOf, RENDERER_KINDS, type CrashEnv, type CrashOffer, type CrashProcess, type CrashReportsSetting } from '../core/crash/report'
+import { CRASH_DIR, markOffered, nodeCrashEnv, pendingReports, readReport, tailSync, writeReportSync } from '../core/crash/store'
+import { flushAllLogsSync } from '../core/log/logWriter'
 
 export interface CrashReportsDeps {
   dir: string
   env: CrashEnv
   setting: () => CrashReportsSetting
   openExternal: (url: string) => unknown
+  /** The main process's log file; the end of it rides in every main report, as host.log does in the Host's */
+  logPath?: string
   /** Where a report that could not be written is told (a log); never the error's message */
   log?: (m: string) => void
 }
@@ -20,17 +23,28 @@ export type CrashReports = ReturnType<typeof createCrashReports>
 const STACK_MAX = 20_000
 
 export function createCrashReports(d: CrashReportsDeps) {
-  // The same failure twice in one run (a rejection in a loop, an error on every frame) is one report
-  const seen = new Set<string>()
+  // The same failure twice in one run (a rejection in a loop, an error on every frame, the same error from the
+  // boundary and the window) is one report: its fingerprint keeps the id of the report it made
+  const seen = new Map<string, string>()
 
-  /** Writes a report; the id, or null when it was a repeat or the disk refused. Synchronous, never throws. */
+  /** The end of the main log, flushed first so the lines just before a crash are in it. */
+  function mainLogTail(): string | undefined {
+    if (!d.logPath) return undefined
+    flushAllLogsSync()
+    return tailSync(d.logPath)
+  }
+
+  /** Writes a report; its id. A repeat gets the id of the first report and writes nothing. null when the disk
+   *  refused. Synchronous, never throws. */
   function record(process: CrashProcess, kind: string, error: unknown): string | null {
     try {
-      const report = reportOf({ process, kind, error, env: d.env })
-      const key = `${process}|${kind}|${report.errorName}|${report.stack[0] ?? ''}`
-      if (seen.has(key)) return null
-      seen.add(key)
-      return writeReportSync(d.dir, report)
+      const report = reportOf({ process, kind, error, env: d.env, log: process === 'main' ? mainLogTail() : undefined })
+      const key = fingerprintOf(report)
+      const first = seen.get(key)
+      if (first) return first
+      const id = writeReportSync(d.dir, report)
+      seen.set(key, id)
+      return id
     } catch (err) {
       d.log?.(`crash report could not be written (${err instanceof Error ? err.name : typeof err})`)
       return null
@@ -47,7 +61,8 @@ export function createCrashReports(d: CrashReportsDeps) {
   return {
     record,
 
-    /** A renderer error (IPC, so checked): written, marked offered (the renderer shows it now), and handed back. */
+    /** A renderer error (IPC, so checked): written, marked offered (the renderer shows it now), and handed back. A
+     *  repeat of an error already reported this run is the same report, handed back without asking again. */
     async fromRenderer(payload: unknown): Promise<CrashOffer | null> {
       if (typeof payload !== 'object' || payload === null) return null
       const p = payload as { kind?: unknown; name?: unknown; stack?: unknown }
@@ -58,8 +73,10 @@ export function createCrashReports(d: CrashReportsDeps) {
       }
       const id = record('renderer', p.kind as string, error)
       if (!id) return null
+      const before = await readReport(d.dir, id)
       await markOffered(d.dir, id)
-      return offerOf(id)
+      const offer = await offerOf(id)
+      return offer && before?.offered ? { ...offer, ask: false } : offer
     },
 
     /** Reports from before (a crash that ended the last run), each offered once. None while the setting is never. */
@@ -125,11 +142,14 @@ export function installCrashReports(a: {
   setting: () => CrashReportsSetting
   openExternal: (url: string) => unknown
 }): CrashReports {
+  const userData = a.app.getPath('userData')
   const reports = createCrashReports({
-    dir: path.join(a.app.getPath('userData'), CRASH_DIR),
+    dir: path.join(userData, CRASH_DIR),
     env: nodeCrashEnv(a.app.getVersion(), a.build),
     setting: a.setting,
     openExternal: a.openExternal,
+    // main's own file: the one the app writes from the main process (the Host client's side of the conversation)
+    logPath: path.join(userData, 'host-client.log'),
     log: (m) => console.error(m)
   })
   registerCrashReports(a.proc, a.app, reports)

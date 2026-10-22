@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createCrashReports, registerCrashReports } from './crashReports'
@@ -28,9 +28,39 @@ describe('createCrashReports', () => {
   it('writes a repeat of the same failure once', () => {
     const r = make()
     const e = new Error('m')
-    expect(r.record('main', 'uncaughtException', e)).toMatch(/\.json$/)
-    expect(r.record('main', 'uncaughtException', e)).toBeNull()
+    const id = r.record('main', 'uncaughtException', e)
+    expect(id).toMatch(/\.json$/)
+    expect(r.record('main', 'uncaughtException', e)).toBe(id)
     expect(files()).toHaveLength(1)
+  })
+
+  it('one renderer render error is one report: ErrorBoundary and the window both report it', async () => {
+    const r = make()
+    const stack = 'TypeError: boom\n    at Row (/home/jane/x.tsx:4:2)'
+    const boundary = await r.fromRenderer({ kind: 'render', name: 'TypeError', stack })
+    const window = await r.fromRenderer({ kind: 'error', name: 'TypeError', stack })
+    expect(files()).toHaveLength(1)
+    expect(window?.id).toBe(boundary?.id)
+    // Offered automatically once; the second path gets the report for its Report button, without a second prompt
+    expect(boundary?.ask).toBe(true)
+    expect(window?.ask).toBe(false)
+  })
+
+  it('attaches the redacted tail of the main log to a main report, and nothing to the others', () => {
+    const log = path.join(path.dirname(dir), 'host-client.log')
+    writeFileSync(log, '2026-10-23T10:00:00.000Z first line\n2026-10-23T10:00:01.000Z token=sk-ant-oat01-SECRETSECRETSECRET\n')
+    const r = createCrashReports({
+      dir,
+      env: { version: '9.9.9', build: 'c0ffee', os: 'linux', arch: 'x64', home: '/home/jane' },
+      setting: () => setting,
+      openExternal: (u) => opened.push(u),
+      logPath: log
+    })
+    const main = JSON.parse(readFileSync(path.join(dir, r.record('main', 'uncaughtException', new Error('m'))!), 'utf8'))
+    expect(main.log).toEqual(['2026-10-23T10:00:00.000Z first line', '2026-10-23T10:00:01.000Z token=[redacted]'])
+    expect(JSON.stringify(main)).not.toContain('SECRETSECRET')
+    const renderer = JSON.parse(readFileSync(path.join(dir, r.record('renderer', 'render', new Error('x'))!), 'utf8'))
+    expect(renderer.log).toEqual([])
   })
 
   it('offers a report from before once, and nothing while the setting is never', async () => {

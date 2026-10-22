@@ -90,6 +90,10 @@ export function reportOf(a: {
   }
 }
 
+/** One failure, whichever path reported it: ErrorBoundary and the window's `error` event both see a render error, and
+ *  they tell it apart by kind only. The stack is the identity; a report without one is told apart by its kind. */
+export const fingerprintOf = (r: CrashReport): string => `${r.process}|${r.errorName}|${r.stack.join('\n') || r.kind}`
+
 /** The issue body: exactly the text the prompt shows and Send would put in the URL (before any cut). */
 export function formatReport(r: CrashReport): string {
   const lines = [

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   crashReportsOf,
+  fingerprintOf,
   formatReport,
   framesOf,
   ISSUE_NEW_URL,
@@ -23,6 +24,16 @@ function boom(): Error {
   ].join('\n')
   return e
 }
+
+describe('fingerprintOf', () => {
+  it('is one failure whichever path reported it, and another failure for another stack', () => {
+    const a = reportOf({ process: 'renderer', kind: 'render', error: boom(), env })
+    const b = reportOf({ process: 'renderer', kind: 'error', error: boom(), env })
+    const c = reportOf({ process: 'renderer', kind: 'error', error: new RangeError('x'), env })
+    expect(fingerprintOf(a)).toBe(fingerprintOf(b))
+    expect(fingerprintOf(a)).not.toBe(fingerprintOf(c))
+  })
+})
 
 describe('reportOf', () => {
   it('keeps the name and redacted frames, never the message', () => {
