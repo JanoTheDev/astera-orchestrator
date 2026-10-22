@@ -1,5 +1,6 @@
+import { useState } from 'react'
 import { UpdateGate } from './components/UpdateGate'
-import { CliMissingScreen } from './components/CliMissingScreen'
+import { CliMissingBanner } from './components/CliMissingBanner'
 import { HostStartingNotice } from './components/HostRuntimeNotice'
 import * as sessionBus from './lib/sessionBus'
 import { useLayout } from './state/useLayout'
@@ -25,8 +26,8 @@ import { Overlays } from './components/shell/Overlays'
 import { Titlebar } from './components/shell/Titlebar'
 // W9-C Tasks and Plans pages' state (the pages are mounted by Pages)
 import { usePlanPages } from './components/pages/PlansPage'
-import { isOnboardingShown } from './components/onboarding/onboardingModel'
-import { useOnboardingReplay } from './components/onboarding/replay'
+import { cliBannerShown, isOnboardingShown } from './components/onboarding/onboardingModel'
+import { setOnboardingReplay, useOnboardingReplay } from './components/onboarding/replay'
 
 sessionBus.init()
 
@@ -66,7 +67,7 @@ export default function App(): React.JSX.Element {
     ...fromRunActions, ...fromPlanPages
   }
   const {
-    campaign, canStart, cliInstalled, firstRunAsked, hostStatus, installUpdate, isMax, runningCount, setCli, setCliInstalled,
+    campaign, canStart, cliInstalled, firstRunAsked, hostStatus, installUpdate, isMax, runningCount,
     setCommandOpen, setNewOpen, update
   } = app
   useNavigation(app)
@@ -75,38 +76,12 @@ export default function App(): React.JSX.Element {
   // and the top bar stand aside while it is open.
   const onboarding = isOnboardingShown(firstRunAsked, useOnboardingReplay())
 
-  // Only when neither CLI is present is there nothing to launch. With one of the two installed the app
-  // opens as usual, and the new-session dialog blocks the accounts whose CLI is missing.
-  //
-  // "Present" means installed, which is why this reads `cliInstalled` and not `cli`. A CLI a toolchain
-  // manager refuses to run in the app's own working directory is installed; answering "neither CLI is
-  // here" to that locks a person out of the entire app over a file in a folder they never chose, and
-  // the install button this screen offers cannot fix it because nothing is missing. Asked of the
-  // machine's PATH instead, that person gets the workbench, and the per-folder truth is told where it
-  // belongs — in the new-session dialog, about the folder they actually picked.
-  //
-  // The screen itself — what it offers, how it installs, and why it carries its own language switch
-  // — lives in CliMissingScreen.tsx. (That line used to say "why it is English-only", which the
-  // screen has not been for some time: it follows the stored language and offers a switch, because
-  // the rail that normally holds one is not drawn here.)
-  if (!onboarding && cliInstalled && !cliInstalled.claude && !cliInstalled.codex) {
-    return (
-      <div className="app">
-        {/* 0, not runningCount: this screen renders no ConfirmHost, so a close confirmation would
-            never be answered and the close button would stop working entirely. */}
-        <Titlebar isMax={isMax} update={update} runningCount={0} onInstall={() => void installUpdate()} />
-        {/* The gate above reads `cliInstalled`, so that is what the screen hands back. `cli` is
-            refreshed alongside it: Settings reads the version strings off it, and leaving it on the
-            pre-install answer would have it still saying "not detected" for a CLI now installed. */}
-        <CliMissingScreen
-          onFound={(installed) => {
-            setCliInstalled(installed)
-            void window.api.system.checkCli().then(setCli)
-          }}
-        />
-      </div>
-    )
-  }
+  // T29: with neither CLI on the machine the app still opens (the old full-window CliMissingScreen is gone). A
+  // dismissible banner says agents cannot run and reopens the onboarding at its install step; anything that needs a
+  // CLI says why it cannot start (guardStart). "Present" is installed, not runnable: `cliInstalled`, not `cli` (a
+  // CLI a toolchain manager refuses to run in the app's cwd is installed; calling it missing would be wrong).
+  const [cliBannerDismissed, setCliBannerDismissed] = useState(false)
+  const showCliBanner = cliBannerShown({ cliInstalled, onboarding, dismissed: cliBannerDismissed })
 
   return (
     <div className="app">
@@ -134,6 +109,9 @@ export default function App(): React.JSX.Element {
         />
       )}
       <HostStartingNotice status={hostStatus} />
+      {showCliBanner && (
+        <CliMissingBanner onInstall={() => setOnboardingReplay(true, 'tools')} onDismiss={() => setCliBannerDismissed(true)} />
+      )}
       <div className="workbench">
         <Pages {...app} {...shell} />
         <RunDrawer {...app} />

@@ -89,7 +89,7 @@ import { transcribe } from '../core/intents/transcribe'
 import { parseWithCoordinator } from '../core/intents/parseRun'
 import type { ModelListResult } from '../core/models/types'
 import { attachmentNameOf } from '../core/files/attachmentName'
-import { installCommandFor } from '../core/install/cliInstall'
+import { devInstallOverride, installCommandFor } from '../core/install/cliInstall'
 import { addToProfile, findAfterInstall, locateCli, runInstallCommand } from './cliLocate'
 import { mcpClientsStatus, registerMcpClientNow } from './mcpClients'
 import { mcpServerFor, shimPathFor } from '../core/install/mcpRegistration'
@@ -8298,6 +8298,14 @@ export function registerIpc(
 
   // Whether each CLI is installed on this machine at all — independent of any folder, so the renderer
   // asks this once (on mount) instead of on every folder pick, unlike `system.checkCli` above.
+  // T29: git and gh on the app's PATH — onboarding explains them (git for projects, gh optional for pull requests).
+  ipcMain.handle('system.checkTools', async () => {
+    const has = (bin: string): Promise<boolean> =>
+      new Promise((resolve) => execFile(bin, ['--version'], { timeout: 5000, windowsHide: true }, (err) => resolve(!err)))
+    const [git, gh] = await Promise.all([has('git'), has('gh')])
+    return { git, gh }
+  })
+
   ipcMain.handle('system.checkCliInstalled', async () => {
     const [claude, codex] = await Promise.all([locateCli('claude'), locateCli('codex')])
     return { claude: claude !== null, codex: codex !== null }
@@ -8340,8 +8348,10 @@ export function registerIpc(
   const INSTALL_CLI_TIMEOUT_MS = 15 * 60_000
   ipcMain.handle('system.installCli', async (_e, cli: unknown) => {
     if (cli !== 'claude' && cli !== 'codex') throw new Error(`INVALID_CLI: ${String(cli)}`)
-    const plan = installCommandFor(cli, process.platform)
-    if (plan === null) return { ok: false, code: null, error: 'UNSUPPORTED_PLATFORM' }
+    const vendorPlan = installCommandFor(cli, process.platform)
+    if (vendorPlan === null) return { ok: false, code: null, error: 'UNSUPPORTED_PLATFORM' }
+    // T29: a dev run may swap the vendor installer for a stub script (never in a packaged app).
+    const plan = app.isPackaged ? vendorPlan : devInstallOverride(vendorPlan, cli, process.env)
     if (installingCli) return { ok: false, code: null, error: 'ALREADY_RUNNING' }
     installingCli = true
     send('cli:install', { cli, kind: 'start', text: `$ ${plan.display}

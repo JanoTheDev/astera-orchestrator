@@ -352,6 +352,7 @@ const api = {
     pathExists: invoke('system.pathExists'),
     checkCli: invoke('system.checkCli'),
     checkCliInstalled: invoke('system.checkCliInstalled'),
+    checkTools: invoke('system.checkTools'),
     installCli: invoke('system.installCli'),
     relaunch: invoke('system.relaunch'),
     appVersion: invoke('system.appVersion'),

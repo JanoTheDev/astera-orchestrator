@@ -44,3 +44,27 @@ export type OnboardingExit = 'skip' | 'start' | 'agents'
 export function exitEffects(exit: OnboardingExit): { markDone: true; open: 'start' | 'agents' | null } {
   return { markDone: true, open: exit === 'skip' ? null : exit }
 }
+
+// T29 · first run on a machine with no CLIs. Tools and Accounts block Next until something exists, so each gets a
+// "Skip for now": the flow can always be finished, and Done / the banner say what is then missing.
+
+/** Steps that wait on something the person may not be able to do yet (install a CLI, sign in). */
+export const canSkipStep = (step: OnboardingStep): boolean => step === 'tools' || step === 'accounts'
+
+/** What the Done step must say is still missing; empty when nothing is. */
+export function doneNotes(ctx: NextContext): Array<'noCli' | 'noAccount'> {
+  const notes: Array<'noCli' | 'noAccount'> = []
+  if (!ctx.cliFound) notes.push('noCli')
+  else if (ctx.accountCount === 0) notes.push('noAccount')
+  return notes
+}
+
+/** The "No agent CLI installed" banner: answer known (`null` is not asked yet), onboarding closed, not dismissed. */
+export const cliBannerShown = (o: {
+  cliInstalled: { claude: boolean; codex: boolean } | null
+  onboarding: boolean
+  dismissed: boolean
+}): boolean => !o.onboarding && !o.dismissed && !!o.cliInstalled && !o.cliInstalled.claude && !o.cliInstalled.codex
+
+/** Where a replay opens: Welcome from Settings, or the step the banner asked for. */
+export const replayStart = (step: OnboardingStep | undefined): OnboardingStep => step ?? 'welcome'

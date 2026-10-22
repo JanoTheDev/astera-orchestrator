@@ -197,3 +197,12 @@ export function addUserPathCommand(dir: string, key = 'Environment'): InstallCom
     "$r = [UIntPtr]::Zero; [void][Astera.Env]::SendMessageTimeout([IntPtr]0xffff, 0x1A, [UIntPtr]::Zero, 'Environment', 2, 5000, [ref]$r) }"
   return { command: 'powershell.exe', args: ['-NoProfile', '-NonInteractive', '-Command', line], display: line, source: 'this PC' }
 }
+
+/** Dev-only seam (T29): `ASTERA_DEV_CLI_INSTALLER=<script>` runs that script (args: the CLI name) in place of the
+ *  vendor installer, so a first-run walk never installs anything into a real home. The caller honours it only in an
+ *  unpackaged build; a packaged app ignores the variable. */
+export function devInstallOverride(plan: InstallCommand, cli: InstallableCli, env: Record<string, string | undefined>): InstallCommand {
+  const script = env.ASTERA_DEV_CLI_INSTALLER
+  if (!script) return plan
+  return { command: '/bin/sh', args: [script, cli], display: `${script} ${cli}`, source: plan.source }
+}

@@ -1964,6 +1964,8 @@ export interface SystemApi {
   // complaining once installed, so it cannot answer this question (design D3). Cwd-independent, so
   // the renderer asks this once rather than per folder, unlike checkCli above.
   checkCliInstalled(): Promise<{ claude: boolean; codex: boolean }>
+  /** T29: whether git and gh answer `--version` on the app's PATH (onboarding's Tools step explains them). */
+  checkTools(): Promise<{ git: boolean; gh: boolean }>
   /** Installs one CLI with the command its vendor documents for this platform. Reached only from the
    *  screen shown when neither is present. Output arrives as `cli:install` events while it runs; this
    *  resolves when the installer exits. `error` names why nothing ran at all — an unmeasured platform,

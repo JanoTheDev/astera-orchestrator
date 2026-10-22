@@ -1568,6 +1568,7 @@ export function useWorkbench(deps: WorkbenchDeps) {
   const newInGroup = (paneId: string): void => {
     setActivePaneId(paneId)
     if (canStart()) setShowNew(true)
+    else toast.error(tRef.current('cliBanner.cannotStart')) // T29: say why instead of doing nothing
   }
 
   /** A drop on the tab bar — reorder within the same group, or move to that position in another group */

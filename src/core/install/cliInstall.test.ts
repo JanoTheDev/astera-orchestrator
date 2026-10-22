@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { LOCATED, installCommandFor, locateCommandFor, parseLocated } from './cliInstall'
+import { LOCATED, devInstallOverride, installCommandFor, locateCommandFor, parseLocated } from './cliInstall'
 
 describe('installCommandFor', () => {
   it('runs the vendors own Windows installers through PowerShell', () => {
@@ -104,5 +104,16 @@ describe('locateCommandFor', () => {
 
   it('answers null where no installer has been measured', () => {
     expect(locateCommandFor('claude', 'freebsd', '/bin/sh')).toBeNull()
+  })
+})
+
+describe('devInstallOverride', () => {
+  const plan = installCommandFor('claude', 'linux')!
+  it('leaves the vendor installer alone unless the dev variable is set', () => {
+    expect(devInstallOverride(plan, 'claude', {})).toBe(plan)
+  })
+  it('runs the stub script with the CLI name, and shows that line instead', () => {
+    const o = devInstallOverride(plan, 'codex', { ASTERA_DEV_CLI_INSTALLER: '/tmp/fake.sh' })
+    expect(o).toMatchObject({ command: '/bin/sh', args: ['/tmp/fake.sh', 'codex'], display: '/tmp/fake.sh codex' })
   })
 })

@@ -10,15 +10,16 @@ import { modeHintKey } from '../../../../core/update/sourceView'
 import { useI18n } from '../../i18n/I18nProvider'
 import { useAccountStatus } from '../../hooks/useAccountStatus'
 import { toast } from '../../lib/toast'
-import { CliInstallRows } from '../CliInstallRows'
+import { CliInstallCards } from '../CliInstallRows'
 import { AccountSignInDialog } from '../AccountSignIn'
 import { ProviderBadge } from '../ProviderBadge'
 import { Button, Card, Chip, Field, Icon, Select, type SelectOption } from '../ui'
 import logoUrl from '../../assets/mark.svg'
 import {
-  ONBOARDING_STEPS, canNext, nextStep, prevStep, resumeStep, showUpdateChoice, stepIndex,
+  ONBOARDING_STEPS, canNext, canSkipStep, doneNotes, nextStep, prevStep, resumeStep, showUpdateChoice, stepIndex,
   type OnboardingExit, type OnboardingStep
 } from './onboardingModel'
+import { onboardingReplayStart } from './replay'
 import './onboarding.css'
 
 const UPDATE_MODES: readonly UpdateMode[] = ['off', 'notify', 'build', 'install-when-idle']
@@ -48,8 +49,9 @@ export interface OnboardingProps {
 export function Onboarding(p: OnboardingProps): React.JSX.Element | null {
   const { t, storedLang, systemLang, setLang } = useI18n()
   // null until a first run's stored step is read, so it never flashes Welcome before jumping on.
-  const [step, setStep] = useState<OnboardingStep | null>(p.replay ? 'welcome' : null)
+  const [step, setStep] = useState<OnboardingStep | null>(p.replay ? onboardingReplayStart() : null)
   const [updateMode, setUpdateMode] = useState<UpdateMode | null>(null)
+  const [tools, setTools] = useState<{ git: boolean; gh: boolean } | null>(null)
   const heading = useRef<HTMLHeadingElement>(null)
   const cliFound = !!p.cliInstalled && (p.cliInstalled.claude || p.cliInstalled.codex)
   const updateChoice = showUpdateChoice(p.update)
@@ -61,6 +63,9 @@ export function Onboarding(p: OnboardingProps): React.JSX.Element | null {
       .then((s) => setStep(resumeStep(s)))
       .catch(() => setStep('welcome'))
   }, [p.replay])
+  useEffect(() => {
+    void window.api.system.checkTools().then(setTools).catch(() => setTools(null))
+  }, [])
   useEffect(() => {
     void window.api.settings.getUpdateMode().then(setUpdateMode).catch(() => {})
   }, [])
@@ -119,6 +124,13 @@ export function Onboarding(p: OnboardingProps): React.JSX.Element | null {
       {t('onboarding.next')}
     </Button>
   )
+  // Tools and Accounts wait on something the person may not be able to do yet: they can always go on without it.
+  const skipButton =
+    canSkipStep(step) && !enabled ? (
+      <Button size="lg" onClick={() => go(nextStep(step))}>
+        {t('onboarding.skipStep')}
+      </Button>
+    ) : null
 
   if (step === 'welcome') {
     body = (
@@ -148,21 +160,42 @@ export function Onboarding(p: OnboardingProps): React.JSX.Element | null {
         {title('onboarding.tools.title')}
         <p className="onb__lead">{t('onboarding.tools.body')}</p>
         <Card className="onb__card onb__rows">
-          <CliInstallRows cli={p.cli} onInstalled={p.onCliInstalled} />
+          <CliInstallCards cli={p.cliInstalled} onInstalled={p.onCliInstalled} />
         </Card>
         <Status ok={cliFound} text={cliFound ? t('onboarding.tools.ready') : t('onboarding.tools.none')} />
+        {tools && (
+          <Card className="onb__card onb__list">
+            <div className="onb__row">
+              <Status ok={tools.git} text={t(tools.git ? 'onboarding.tools.git.ok' : 'onboarding.tools.git.missing')} />
+            </div>
+            <div className="onb__row">
+              <Status ok={tools.gh} text={t(tools.gh ? 'onboarding.tools.gh.ok' : 'onboarding.tools.gh.missing')} />
+            </div>
+          </Card>
+        )}
       </>
     )
-    actions = nextButton
+    actions = (
+      <>
+        {skipButton}
+        {nextButton}
+      </>
+    )
   } else if (step === 'accounts') {
     body = (
       <>
         {title('onboarding.accounts.title')}
         <p className="onb__lead">{t('onboarding.accounts.body')}</p>
+        {!cliFound && <p className="onb__dim">{t('onboarding.accounts.needCli')}</p>}
         <AccountsStep accounts={p.accounts} cliInstalled={p.cliInstalled} />
       </>
     )
-    actions = nextButton
+    actions = (
+      <>
+        {skipButton}
+        {nextButton}
+      </>
+    )
   } else if (step === 'project') {
     body = (
       <>
@@ -235,6 +268,9 @@ export function Onboarding(p: OnboardingProps): React.JSX.Element | null {
       <>
         {title('onboarding.done.title')}
         <p className="onb__lead">{t('onboarding.done.body')}</p>
+        {doneNotes({ cliFound, accountCount: p.accounts.length }).map((n) => (
+          <Status key={n} ok={false} text={t(n === 'noCli' ? 'onboarding.done.noCli' : 'onboarding.done.noAccount')} />
+        ))}
         <Card className="onb__card">
           <dl className="onb__summary">
             {rows.map(([k, v]) => (
